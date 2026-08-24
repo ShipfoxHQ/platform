@@ -11,9 +11,16 @@ import {
 import {isInterModuleKnownError} from '@shipfox/inter-module';
 import {ClientError} from '@shipfox/node-fastify';
 import type {IntegrationConnection} from '#core/entities/connection.js';
-import type {IntegrationProviderKind} from '#core/entities/provider.js';
+import {
+  IntegrationCapabilityUnavailableError,
+  IntegrationConnectionInactiveError,
+  IntegrationConnectionNotFoundError,
+  IntegrationConnectionProviderChangedError,
+  IntegrationConnectionWorkspaceMismatchError,
+} from '#core/errors.js';
 import type {AgentToolJsonSchema} from '#core/providers/agent-tools.js';
 import type {IntegrationProviderRegistry} from '#core/providers/registry.js';
+import {loadAuthorizedToolConnection} from '#core/tool-call-service.js';
 import type {GetIntegrationConnectionByIdFn} from '#db/connections.js';
 
 export type LeasedAgentStepLoader = (params: {
@@ -193,65 +200,36 @@ async function loadAuthorizedConnection(params: {
   registry: IntegrationProviderRegistry;
   getIntegrationConnectionById: GetIntegrationConnectionByIdFn;
 }): Promise<IntegrationConnection> {
-  const connection = await params.getIntegrationConnectionById(params.integration.connectionId);
-  if (!connection) {
-    throw new ClientError(
-      'Integration connection is no longer available',
-      'integration-tool-connection-unavailable',
-      {
-        status: 409,
-      },
-    );
+  try {
+    return await loadAuthorizedToolConnection({
+      workspaceId: params.workspaceId,
+      connectionId: params.integration.connectionId,
+      provider: params.integration.provider,
+      registry: params.registry,
+      getIntegrationConnectionById: params.getIntegrationConnectionById,
+    });
+  } catch (error) {
+    if (error instanceof IntegrationConnectionNotFoundError) {
+      throw unavailable('Integration connection is no longer available');
+    }
+    if (error instanceof IntegrationConnectionWorkspaceMismatchError) {
+      throw unavailable('Integration connection does not belong to the leased workspace');
+    }
+    if (error instanceof IntegrationConnectionInactiveError) {
+      throw unavailable('Integration connection is not active');
+    }
+    if (error instanceof IntegrationConnectionProviderChangedError) {
+      throw unavailable('Integration connection provider changed');
+    }
+    if (error instanceof IntegrationCapabilityUnavailableError) {
+      throw unavailable('Integration provider no longer exposes agent tools');
+    }
+    throw error;
   }
-  if (connection.workspaceId !== params.workspaceId) {
-    throw new ClientError(
-      'Integration connection does not belong to the leased workspace',
-      'integration-tool-connection-unavailable',
-      {
-        status: 409,
-      },
-    );
-  }
-  if (connection.lifecycleStatus !== 'active') {
-    throw new ClientError(
-      'Integration connection is not active',
-      'integration-tool-connection-unavailable',
-      {
-        status: 409,
-      },
-    );
-  }
-  if (connection.provider !== params.integration.provider) {
-    throw new ClientError(
-      'Integration connection provider changed',
-      'integration-tool-connection-unavailable',
-      {
-        status: 409,
-      },
-    );
-  }
-  if (!providerSupportsAgentTools(params.registry, params.integration.provider)) {
-    throw new ClientError(
-      'Integration provider no longer exposes agent tools',
-      'integration-tool-connection-unavailable',
-      {
-        status: 409,
-      },
-    );
-  }
-
-  return connection;
 }
 
-function providerSupportsAgentTools(
-  registry: IntegrationProviderRegistry,
-  provider: IntegrationProviderKind,
-): boolean {
-  try {
-    return registry.get(provider).capabilities.includes('agent_tools');
-  } catch {
-    return false;
-  }
+function unavailable(message: string): ClientError {
+  return new ClientError(message, 'integration-tool-connection-unavailable', {status: 409});
 }
 
 function cloneSchema(schema: AgentToolJsonSchema): AgentToolJsonSchema {

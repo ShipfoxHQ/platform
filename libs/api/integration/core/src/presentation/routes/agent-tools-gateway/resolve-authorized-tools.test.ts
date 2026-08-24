@@ -121,6 +121,10 @@ describe('resolveAuthorizedIntegrationTools', () => {
     ['deleted', undefined],
     ['inactive', connection({id: 'connection-1', lifecycleStatus: 'disabled'})],
     ['workspace mismatch', connection({id: 'connection-1', workspaceId: 'other-workspace'})],
+    [
+      'provider changed',
+      connection({id: 'connection-1', workspaceId: 'workspace-1', provider: 'slack'}),
+    ],
   ])('denies when the connection is %s', async (_label, resolvedConnection) => {
     const request = {};
     const lease = leaseContext({workspaceId: 'workspace-1'});

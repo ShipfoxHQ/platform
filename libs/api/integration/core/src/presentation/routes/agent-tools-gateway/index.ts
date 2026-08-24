@@ -5,8 +5,8 @@ import {reportError} from '@shipfox/node-error-monitoring';
 import {defineRoute, type RouteGroup} from '@shipfox/node-fastify';
 import {logger} from '@shipfox/node-opentelemetry';
 import type {IntegrationProviderRegistry} from '#core/providers/registry.js';
+import {createIntegrationToolCallRecorder} from '#core/tool-call-audit.js';
 import type {GetIntegrationConnectionByIdFn} from '#db/connections.js';
-import {createIntegrationToolCallRecorder} from './audit.js';
 import {createIntegrationToolDispatcher} from './dispatch.js';
 import {buildAgentToolsMcpServer} from './mcp-server.js';
 import {
@@ -45,7 +45,7 @@ export function createAgentToolsGatewayRoutes(
           const server = buildAgentToolsMcpServer({
             authorizedTools,
             dispatch: createIntegrationToolDispatcher({registry: params.registry, lease}),
-            recordCall: createIntegrationToolCallRecorder(lease),
+            recordCall: createIntegrationToolCallRecorder({caller: 'agent', lease}),
           });
           const transport = new StreamableHTTPServerTransport();
 

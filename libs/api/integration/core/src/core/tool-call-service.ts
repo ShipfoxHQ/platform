@@ -3,12 +3,21 @@ import type {
   MaterializedAgentIntegrationConfigDto,
   MaterializedAgentIntegrationToolConfigDto,
 } from '@shipfox/api-agent-dto';
-import type {LeasedJobContext} from '@shipfox/api-auth-context';
 import {reportError} from '@shipfox/node-error-monitoring';
 import {logger} from '@shipfox/node-opentelemetry';
-import type {IntegrationAgentToolCallErrorCode} from '#metrics/index.js';
+import {
+  type IntegrationAgentToolCallErrorCode,
+  normalizeIntegrationAgentToolCallErrorCode,
+} from '#metrics/index.js';
 import type {IntegrationConnection} from './entities/connection.js';
-import {IntegrationProviderError} from './errors.js';
+import {
+  IntegrationCapabilityUnavailableError,
+  IntegrationConnectionInactiveError,
+  IntegrationConnectionNotFoundError,
+  IntegrationConnectionProviderChangedError,
+  IntegrationConnectionWorkspaceMismatchError,
+  IntegrationProviderError,
+} from './errors.js';
 import type {
   AgentToolCatalogEntry,
   AgentToolCatalogMethod,
@@ -17,8 +26,13 @@ import type {
   AgentToolsProvider,
 } from './providers/agent-tools.js';
 import type {IntegrationProviderRegistry} from './providers/registry.js';
+import {
+  callerLogContext,
+  type IntegrationToolCallCaller,
+  NO_METHOD_LABEL,
+} from './tool-call-audit.js';
 
-export const NO_METHOD_LABEL = 'none';
+export type {IntegrationToolCallCaller} from './tool-call-audit.js';
 
 export interface IntegrationToolCallError {
   code: IntegrationAgentToolCallErrorCode;
@@ -41,7 +55,9 @@ export interface IntegrationToolCallInput {
   outputSchema?: AgentToolJsonSchema | undefined;
   arguments: Record<string, unknown>;
   method?: string | undefined;
-  lease?: LeasedJobContext | undefined;
+  caller: IntegrationToolCallCaller;
+  /** Cooperative cancellation for one call; an abort maps to `provider-timeout`. */
+  signal?: AbortSignal | undefined;
   logger?: typeof logger;
   reportError?: typeof reportError;
 }
@@ -52,8 +68,15 @@ export async function callIntegrationTool(
   const log = input.logger ?? logger;
   const report = input.reportError ?? reportError;
   let session: AgentToolSession<CallToolResult> | undefined;
+  let openingSession: Promise<AgentToolSession<CallToolResult>> | undefined;
 
   try {
+    // A caller that already cancelled must not trigger a provider round-trip:
+    // for a write tool that would run a mutation after cancellation.
+    if (input.signal?.aborted) {
+      return {outcome: 'error', error: abortOutcome(input.signal)};
+    }
+
     const adapter = input.registry.getAdapter(
       input.integration.provider,
       'agent_tools',
@@ -63,22 +86,54 @@ export async function callIntegrationTool(
       typeof input.integration,
       CallToolResult
     >;
-    session = await adapter.openSession({
+    openingSession = adapter.openSession({
       connection: input.connection,
       tools: [agentToolCatalogEntry(input)],
       scope: input.integration,
     });
+    session = await raceWithSignal(openingSession, input.signal);
 
-    return {
-      outcome: 'success',
-      result: await session.call({
+    // The signal may have aborted while the session was opening: the session
+    // is closed by the `finally` below, but the call must not be dispatched.
+    if (input.signal?.aborted) {
+      return {outcome: 'error', error: abortOutcome(input.signal)};
+    }
+
+    const result = await raceWithSignal(
+      session.call({
         toolId: input.tool.id,
         arguments: input.arguments,
       }),
-    };
+      input.signal,
+    );
+    if (result.isError === true) {
+      // GitHub, gitea, jira, and slack surface provider tool-level failures as
+      // `isError` results instead of throwing; surface them as the bounded
+      // error outcome the same way the MCP gateway classifies them.
+      return {outcome: 'error', error: providerToolError(result)};
+    }
+    return {outcome: 'success', result};
   } catch (error) {
+    // A caller-initiated abort is a cancellation, not a provider failure: keep
+    // it out of the timeout/unknown error classes and out of error monitoring.
+    if (input.signal?.aborted) {
+      // An abort that fired while the session was still opening leaves the
+      // `session` handle unset for `finally`; close the session when the
+      // opening promise settles so it cannot leak.
+      if (openingSession !== undefined && session === undefined) {
+        void openingSession.then(
+          (opened) => closeSession(opened, log, report),
+          () => undefined,
+        );
+      }
+      return {outcome: 'error', error: abortOutcome(input.signal)};
+    }
     const errorRecord = errorResult(error);
-    if (errorRecord.code === 'provider-unavailable' || errorRecord.code === 'unknown') {
+    if (
+      errorRecord.code === 'provider-unavailable' ||
+      errorRecord.code === 'provider-timeout' ||
+      errorRecord.code === 'unknown'
+    ) {
       log().error(
         {
           ...toolCallLogContext(input),
@@ -88,7 +143,9 @@ export async function callIntegrationTool(
         },
         errorRecord.code === 'provider-unavailable'
           ? 'Integration agent tool provider was unavailable'
-          : 'Integration agent tool call failed',
+          : errorRecord.code === 'provider-timeout'
+            ? 'Integration agent tool provider timed out'
+            : 'Integration agent tool call failed',
       );
       report(error, {boundary: 'integration.agent-tool'});
     }
@@ -98,19 +155,58 @@ export async function callIntegrationTool(
   }
 }
 
+export interface LoadAuthorizedToolConnectionParams {
+  workspaceId: string;
+  connectionId: string;
+  provider: string;
+  registry: IntegrationProviderRegistry;
+  getIntegrationConnectionById: (
+    connectionId: string,
+  ) => Promise<IntegrationConnection | undefined>;
+}
+
+/**
+ * Applies `loadAuthorizedConnection`'s checks for one frozen tool call:
+ * the connection exists, belongs to the workspace, is active, still serves the
+ * frozen provider, and the provider still exposes the agent-tools capability.
+ * Each violation throws a typed domain error the caller maps to its own
+ * boundary (HTTP `ClientError` for the gateway, inter-module known errors for
+ * `callTool`).
+ */
+export async function loadAuthorizedToolConnection(
+  params: LoadAuthorizedToolConnectionParams,
+): Promise<IntegrationConnection> {
+  const connection = await params.getIntegrationConnectionById(params.connectionId);
+  if (!connection) throw new IntegrationConnectionNotFoundError(params.connectionId);
+  if (connection.workspaceId !== params.workspaceId) {
+    throw new IntegrationConnectionWorkspaceMismatchError(params.connectionId);
+  }
+  if (connection.lifecycleStatus !== 'active') {
+    throw new IntegrationConnectionInactiveError(params.connectionId);
+  }
+  if (connection.provider !== params.provider) {
+    throw new IntegrationConnectionProviderChangedError(params.connectionId);
+  }
+  if (!providerSupportsAgentTools(params.registry, params.provider)) {
+    throw new IntegrationCapabilityUnavailableError('agent_tools', params.provider);
+  }
+
+  return connection;
+}
+
+function providerSupportsAgentTools(
+  registry: IntegrationProviderRegistry,
+  provider: string,
+): boolean {
+  // `registry.get` throws `IntegrationProviderUnavailableError` when the
+  // provider is no longer registered; that must propagate so the caller maps
+  // it to `provider-unavailable` instead of `capability-unavailable`.
+  return registry.get(provider).capabilities.includes('agent_tools');
+}
+
 function toolCallLogContext(input: IntegrationToolCallInput): Record<string, unknown> {
   return {
-    ...(input.lease === undefined
-      ? {}
-      : {
-          jobId: input.lease.jobId,
-          jobExecutionId: input.lease.jobExecutionId,
-          workflowRunId: input.lease.workflowRunId,
-          workflowRunAttemptId: input.lease.workflowRunAttemptId,
-          workspaceId: input.lease.workspaceId,
-          currentStepId: input.lease.currentStepId,
-          currentStepAttempt: input.lease.currentStepAttempt,
-        }),
+    ...callerLogContext(input.caller),
     connectionId: input.connection.id,
     provider: input.integration.provider,
     toolId: input.tool.id,
@@ -156,6 +252,91 @@ async function closeSession(
     loggerFactory().error({err: error}, 'Failed to close integration agent tool session');
     reportErrorFn(error, {boundary: 'integration.agent-tool', operation: 'close-session'});
   }
+}
+
+/**
+ * Races the provider call against a caller-provided signal. The call's own
+ * rejection and an abort are both surfaced as the call's failure, so the
+ * existing `errorResult` table classifies an abort as `provider-timeout`.
+ */
+function raceWithSignal<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (signal === undefined) return promise;
+  if (signal.aborted) {
+    // The promise was already started by the caller; keep its rejection
+    // observed so an unhandled rejection cannot crash the process.
+    void promise.catch(() => undefined);
+    return Promise.reject(abortReason(signal));
+  }
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(abortReason(signal));
+    signal.addEventListener('abort', onAbort, {once: true});
+    promise.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(error);
+      },
+    );
+  });
+}
+
+function abortReason(signal: AbortSignal): unknown {
+  return signal.reason instanceof Error ? signal.reason : new DOMException('Aborted', 'AbortError');
+}
+
+/**
+ * Classifies a caller-initiated abort. A deadline that expired
+ * (`AbortSignal.timeout`) reads as `provider-timeout`; any other cancellation
+ * reads as `cancelled` so cancellation volume never leaks into the timeout
+ * failure class or into error monitoring.
+ */
+function abortOutcome(signal: AbortSignal): IntegrationToolCallError {
+  const reason = signal.reason;
+  if (
+    reason instanceof Error &&
+    (timeoutErrorNamePattern.test(reason.name) ||
+      (reason.name === 'McpError' && mcpRequestTimeoutMessagePattern.test(reason.message)))
+  ) {
+    return {code: 'provider-timeout', message: 'Integration provider timed out'};
+  }
+  return {code: 'cancelled', message: 'Integration tool call cancelled'};
+}
+
+/** Maps a provider tool-level `isError` result into the bounded error outcome. */
+function providerToolError(result: CallToolResult): IntegrationToolCallError {
+  const structuredContent = isRecord(result.structuredContent)
+    ? result.structuredContent
+    : undefined;
+  const status = statusCode(structuredContent?.status);
+  const retryAfterSeconds = retryAfterSecondsValue(structuredContent?.retryAfterSeconds);
+  return {
+    code: normalizeIntegrationAgentToolCallErrorCode(structuredContent?.code),
+    message: textContent(result.content) ?? 'Integration tool call failed',
+    ...(status === undefined ? {} : {status}),
+    ...(retryAfterSeconds === undefined ? {} : {retryAfterSeconds}),
+  };
+}
+
+function textContent(content: CallToolResult['content']): string | undefined {
+  const text = content.find((block) => isRecord(block) && block.type === 'text' && 'text' in block);
+  return isRecord(text) && typeof text.text === 'string' ? text.text : undefined;
+}
+
+function statusCode(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 100 && value <= 599
+    ? value
+    : undefined;
+}
+
+function retryAfterSecondsValue(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 const timeoutErrorNamePattern = /timed?\s*out|timeout/i;

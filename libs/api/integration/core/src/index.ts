@@ -81,6 +81,7 @@ export {
   IntegrationCheckoutUnsupportedError,
   IntegrationConnectionInactiveError,
   IntegrationConnectionNotFoundError,
+  IntegrationConnectionProviderChangedError,
   IntegrationConnectionWorkspaceMismatchError,
   IntegrationProviderError,
   IntegrationProviderUnavailableError,
@@ -120,6 +121,32 @@ export type {
 } from '#core/providers/source-control.js';
 export type {IntegrationSourceControlService} from '#core/source-control-service.js';
 export {createSourceControlIntegrationService} from '#core/source-control-service.js';
+export type {
+  CreateIntegrationToolCallRecorderOptions,
+  IntegrationToolArgumentSummary,
+  IntegrationToolCallAuditRecord,
+  IntegrationToolCallAuditTarget,
+  IntegrationToolCallCaller,
+  IntegrationToolCallRecorder,
+} from '#core/tool-call-audit.js';
+export {
+  callerLogContext,
+  createIntegrationToolCallRecorder,
+  INVALID_METHOD_LABEL,
+  NO_METHOD_LABEL,
+  summarizeIntegrationToolArguments,
+  UNKNOWN_TOOL_LABEL,
+} from '#core/tool-call-audit.js';
+export type {
+  IntegrationToolCallError,
+  IntegrationToolCallInput,
+  IntegrationToolCallOutcome,
+  LoadAuthorizedToolConnectionParams,
+} from '#core/tool-call-service.js';
+export {
+  callIntegrationTool,
+  loadAuthorizedToolConnection,
+} from '#core/tool-call-service.js';
 export type {
   GetIntegrationConnectionByIdFn,
   GetIntegrationConnectionBySlugFn,

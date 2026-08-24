@@ -8,7 +8,7 @@ import type {IntegrationToolDispatcher, IntegrationToolDispatchInput} from './mc
 
 export interface CreateIntegrationToolDispatcherParams {
   registry: IntegrationProviderRegistry;
-  lease?: LeasedJobContext | undefined;
+  lease: LeasedJobContext;
 }
 
 export interface IntegrationToolDispatcherDependencies {
@@ -24,7 +24,7 @@ export function createIntegrationToolDispatcher(
     dispatchIntegrationToolCall({
       ...input,
       registry: params.registry,
-      lease: params.lease,
+      caller: {caller: 'agent', lease: params.lease},
       logger: dependencies.logger ?? logger,
       reportError: dependencies.reportError ?? reportError,
     });
@@ -33,7 +33,7 @@ export function createIntegrationToolDispatcher(
 async function dispatchIntegrationToolCall(
   input: IntegrationToolDispatchInput & {
     registry: IntegrationProviderRegistry;
-    lease?: LeasedJobContext | undefined;
+    caller: {caller: 'agent'; lease: LeasedJobContext};
     logger: typeof logger;
     reportError: typeof reportError;
   },
@@ -48,7 +48,7 @@ async function dispatchIntegrationToolCall(
     outputSchema: input.authorizedTool.outputSchema,
     arguments: input.arguments,
     method: input.method,
-    lease: input.lease,
+    caller: input.caller,
     logger: input.logger,
     reportError: input.reportError,
   });

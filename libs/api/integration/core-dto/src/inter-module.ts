@@ -24,6 +24,62 @@ const triggerReference = z.object({
   actor: z.string().nullable(),
 });
 const sourceInput = z.object({workspaceId: id, connectionId: id, externalRepositoryId: z.string()});
+const toolCallTool = z.object({
+  id: z.string().min(1),
+  provider,
+  method: z.string().min(1).optional(),
+  sensitivity: z.enum(['read', 'write']),
+  sensitive: z.boolean(),
+  requiredScope: z.array(z.unknown()),
+  inputSchema: z.record(z.string(), z.unknown()),
+  outputSchema: z.record(z.string(), z.unknown()).optional(),
+  methods: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        token: z.string().min(1),
+        description: z.string().min(1).optional(),
+        sensitivity: z.enum(['read', 'write']),
+        sensitive: z.boolean(),
+        requiredScope: z.array(z.unknown()),
+      }),
+    )
+    .min(1)
+    .optional(),
+});
+const toolCallCaller = z.discriminatedUnion('kind', [
+  z.object({kind: z.literal('agent')}),
+  z.object({
+    kind: z.literal('tool_step'),
+    runId: z.string().min(1),
+    jobExecutionId: z.string().min(1),
+    stepId: z.string().min(1),
+    stepAttempt: z.number().int().nonnegative(),
+    callIndex: z.number().int().nonnegative(),
+  }),
+]);
+const toolCallOutcome = z.discriminatedUnion('outcome', [
+  z.object({
+    outcome: z.literal('success'),
+    result: z.record(z.string(), z.unknown()).nullable(),
+    content: z.array(z.record(z.string(), z.unknown())),
+  }),
+  z.object({
+    outcome: z.literal('error'),
+    code: z.string().min(1),
+    message: z.string(),
+    retryAfterSeconds: z.number().int().positive().optional(),
+    status: z.number().int().min(100).max(599).optional(),
+  }),
+]);
+const toolCallErrors = {
+  'connection-not-found': z.object({connectionId: id}),
+  'connection-inactive': z.object({connectionId: id}),
+  'connection-workspace-mismatch': z.object({connectionId: id}),
+  'connection-provider-changed': z.object({connectionId: id}),
+  'provider-unavailable': z.object({provider}),
+  'capability-unavailable': z.object({provider, capability}),
+};
 const providerError = z.object({
   reason: z.string(),
   retryAfterSeconds: z.number().int().positive().optional(),
@@ -153,6 +209,17 @@ export const integrationsInterModuleContract = defineInterModuleContract({
         defaultConnection: z.object({id, slug: z.string(), provider}).nullable(),
       }),
       errors: sourceErrors,
+    },
+    callTool: {
+      input: z.object({
+        workspaceId: id,
+        connectionId: id,
+        tool: toolCallTool,
+        arguments: z.record(z.string(), z.unknown()),
+        caller: toolCallCaller,
+      }),
+      output: toolCallOutcome,
+      errors: toolCallErrors,
     },
   },
 });

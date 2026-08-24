@@ -153,4 +153,112 @@ describe('integrationsInterModuleContract', () => {
       }),
     ).toThrow();
   });
+
+  const toolCallInput = {
+    workspaceId: '00000000-0000-4000-8000-000000000001',
+    connectionId: '00000000-0000-4000-8000-000000000002',
+    tool: {
+      id: 'issue_read',
+      provider: 'github',
+      method: 'get',
+      sensitivity: 'read',
+      sensitive: false,
+      requiredScope: [],
+      inputSchema: {type: 'object'},
+      methods: [
+        {
+          id: 'get',
+          token: 'issue_read.get',
+          sensitivity: 'read',
+          sensitive: false,
+          requiredScope: [],
+        },
+      ],
+    },
+    arguments: {owner: 'shipfox', repo: 'platform', issue_number: 1},
+    caller: {
+      kind: 'tool_step',
+      runId: 'run-1',
+      jobExecutionId: 'execution-1',
+      stepId: 'step-1',
+      stepAttempt: 2,
+      callIndex: 3,
+    },
+  };
+
+  test('accepts a frozen tool call input with a tool-step caller', () => {
+    const input = integrationsInterModuleContract.methods.callTool.input.parse(toolCallInput);
+
+    expect(input.caller).toMatchObject({kind: 'tool_step', callIndex: 3});
+    expect(input.tool.method).toBe('get');
+  });
+
+  test('accepts an agent caller and optional output metadata', () => {
+    const input = integrationsInterModuleContract.methods.callTool.input.parse({
+      ...toolCallInput,
+      caller: {kind: 'agent'},
+      tool: {
+        ...toolCallInput.tool,
+        method: undefined,
+        methods: undefined,
+        outputSchema: {type: 'object'},
+      },
+    });
+
+    expect(input.caller).toEqual({kind: 'agent'});
+    expect(input.tool.methods).toBeUndefined();
+  });
+
+  test('accepts a successful tool call outcome with a null structured result', () => {
+    const output = integrationsInterModuleContract.methods.callTool.output.parse({
+      outcome: 'success',
+      result: null,
+      content: [{type: 'text', text: 'dispatched'}],
+    });
+
+    expect(output.outcome).toBe('success');
+  });
+
+  test('accepts a bounded error outcome with retry and status details', () => {
+    const output = integrationsInterModuleContract.methods.callTool.output.parse({
+      outcome: 'error',
+      code: 'rate-limited',
+      message: 'Try again later',
+      retryAfterSeconds: 30,
+      status: 429,
+    });
+
+    expect(output).toEqual({
+      outcome: 'error',
+      code: 'rate-limited',
+      message: 'Try again later',
+      retryAfterSeconds: 30,
+      status: 429,
+    });
+  });
+
+  test('rejects a tool step caller without its identity fields', () => {
+    expect(() =>
+      integrationsInterModuleContract.methods.callTool.input.parse({
+        ...toolCallInput,
+        caller: {kind: 'tool_step'},
+      }),
+    ).toThrow();
+  });
+
+  test.each([
+    ['connection-not-found', {connectionId: '00000000-0000-4000-8000-000000000001'}],
+    ['connection-inactive', {connectionId: '00000000-0000-4000-8000-000000000001'}],
+    ['connection-workspace-mismatch', {connectionId: '00000000-0000-4000-8000-000000000001'}],
+    ['connection-provider-changed', {connectionId: '00000000-0000-4000-8000-000000000001'}],
+    ['provider-unavailable', {provider: 'github'}],
+    ['capability-unavailable', {provider: 'github', capability: 'agent_tools'}],
+  ] as const)('defines the %s callTool failure', (code, details) => {
+    const schema =
+      integrationsInterModuleContract.methods.callTool.errors[
+        code as keyof typeof integrationsInterModuleContract.methods.callTool.errors
+      ];
+
+    expect(schema.parse(details)).toEqual(details);
+  });
 });

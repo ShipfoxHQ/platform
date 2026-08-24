@@ -10,7 +10,12 @@ import {
   registryWithAgentTools,
 } from '#test/agent-tools-gateway-helpers.js';
 import {IntegrationProviderError} from './errors.js';
-import {callIntegrationTool, type IntegrationToolCallInput} from './tool-call-service.js';
+import {createIntegrationProviderRegistry} from './providers/registry.js';
+import {
+  callIntegrationTool,
+  type IntegrationToolCallInput,
+  loadAuthorizedToolConnection,
+} from './tool-call-service.js';
 
 const serviceMocks = vi.hoisted(() => ({
   loggerError: vi.fn(),
@@ -77,11 +82,6 @@ describe('callIntegrationTool', () => {
       },
     ],
     [
-      'timeouts map to provider-timeout',
-      Object.assign(new Error('request timed out'), {name: 'TimeoutError'}),
-      {code: 'provider-timeout', message: 'Integration provider timed out'},
-    ],
-    [
       'credential failures map to credentials-unavailable',
       Object.assign(new Error('missing token'), {name: 'CredentialError'}),
       {
@@ -95,6 +95,24 @@ describe('callIntegrationTool', () => {
     expect(result).toEqual({outcome: 'error', error: expectedError});
     expect(serviceMocks.loggerError).not.toHaveBeenCalled();
     expect(serviceMocks.reportError).not.toHaveBeenCalled();
+  });
+
+  it('reports provider timeouts at error level with bounded log context', async () => {
+    const timeoutError = Object.assign(new Error('request timed out'), {name: 'TimeoutError'});
+
+    const result = await callIntegrationTool(createInput({callError: timeoutError}));
+
+    expect(result).toEqual({
+      outcome: 'error',
+      error: {code: 'provider-timeout', message: 'Integration provider timed out'},
+    });
+    expect(serviceMocks.loggerError).toHaveBeenCalledWith(
+      expect.objectContaining({err: timeoutError, errorCode: 'provider-timeout'}),
+      'Integration agent tool provider timed out',
+    );
+    expect(serviceMocks.reportError).toHaveBeenCalledWith(timeoutError, {
+      boundary: 'integration.agent-tool',
+    });
   });
 
   it('reports provider outages and unknown failures with bounded log context', async () => {
@@ -160,15 +178,16 @@ describe('callIntegrationTool', () => {
     });
   });
 
-  it('omits absent lease fields and uses the fallback method label', async () => {
+  it('omits an agent caller without a lease and uses the fallback method label', async () => {
     const input = createInput(
       {callError: new Error('internal failure')},
-      {lease: undefined, method: undefined},
+      {caller: {caller: 'agent'}, method: undefined},
     );
 
     await callIntegrationTool(input);
 
     expect(serviceMocks.loggerError.mock.calls[0]?.[0]).toEqual({
+      caller: 'agent',
       connectionId: 'connection-1',
       provider: 'github',
       toolId: 'issue_read',
@@ -176,6 +195,208 @@ describe('callIntegrationTool', () => {
       err: expect.any(Error),
       errorCode: 'unknown',
     });
+  });
+
+  it('logs the tool-step caller identity with the error context', async () => {
+    const input = createInput(
+      {callError: new Error('internal failure')},
+      {
+        caller: {
+          caller: 'tool_step',
+          workspaceId: 'workspace-1',
+          runId: 'run-1',
+          jobExecutionId: 'execution-1',
+          stepId: 'step-1',
+          stepAttempt: 2,
+          callIndex: 3,
+        },
+        method: undefined,
+      },
+    );
+
+    await callIntegrationTool(input);
+
+    expect(serviceMocks.loggerError.mock.calls[0]?.[0]).toEqual({
+      caller: 'tool_step',
+      workspaceId: 'workspace-1',
+      runId: 'run-1',
+      jobExecutionId: 'execution-1',
+      stepId: 'step-1',
+      stepAttempt: 2,
+      callIndex: 3,
+      connectionId: 'connection-1',
+      provider: 'github',
+      toolId: 'issue_read',
+      method: 'none',
+      err: expect.any(Error),
+      errorCode: 'unknown',
+    });
+  });
+
+  it('maps an in-flight signal abort to cancellation and still closes the session', async () => {
+    const onClose = vi.fn();
+    const onCall = vi.fn();
+    const controller = new AbortController();
+    let releaseCall: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      releaseCall = resolve;
+    });
+    const input = createInput({onClose, onCall});
+    const registry = createIntegrationProviderRegistry([
+      {
+        provider: 'github',
+        displayName: 'GitHub',
+        adapters: {
+          agent_tools: {
+            catalog: () => [catalogTool()],
+            selectionCatalog: () => ({selectors: []}),
+            openSession: () =>
+              Promise.resolve({
+                call: (call: {toolId: string; arguments: Record<string, unknown>}) => {
+                  onCall(call);
+                  return gate.then(() => ({
+                    content: [{type: 'text', text: 'late result'}],
+                  }));
+                },
+                close: () => {
+                  onClose();
+                  return Promise.resolve();
+                },
+              }),
+          },
+        },
+      },
+    ]);
+
+    const call = callIntegrationTool({...input, registry, signal: controller.signal});
+    await vi.waitFor(() => expect(onCall).toHaveBeenCalledTimes(1));
+
+    controller.abort();
+
+    await expect(call).resolves.toEqual({
+      outcome: 'error',
+      error: {code: 'cancelled', message: 'Integration tool call cancelled'},
+    });
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(serviceMocks.loggerError).not.toHaveBeenCalled();
+    releaseCall?.();
+  });
+
+  it('rejects without dispatching when the call signal is already aborted', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const onOpenSession = vi.fn();
+
+    const result = await callIntegrationTool(
+      createInput({onOpenSession}, {signal: controller.signal, caller: {caller: 'agent'}}),
+    );
+
+    expect(result).toEqual({
+      outcome: 'error',
+      error: {code: 'cancelled', message: 'Integration tool call cancelled'},
+    });
+    expect(onOpenSession).not.toHaveBeenCalled();
+    expect(serviceMocks.loggerError).not.toHaveBeenCalled();
+  });
+
+  it('closes a session that resolves after an abort during session opening', async () => {
+    const onClose = vi.fn();
+    const controller = new AbortController();
+    let releaseOpen: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      releaseOpen = resolve;
+    });
+    const input = createInput({onClose});
+    const registry = createIntegrationProviderRegistry([
+      {
+        provider: 'github',
+        displayName: 'GitHub',
+        adapters: {
+          agent_tools: {
+            catalog: () => [catalogTool()],
+            selectionCatalog: () => ({selectors: []}),
+            openSession: () =>
+              gate.then(() => ({
+                call: () => Promise.resolve({content: [{type: 'text', text: 'never called'}]}),
+                close: () => {
+                  onClose();
+                  return Promise.resolve();
+                },
+              })),
+          },
+        },
+      },
+    ]);
+
+    const call = callIntegrationTool({...input, registry, signal: controller.signal});
+    await vi.waitFor(() => expect(releaseOpen).toBeDefined());
+
+    controller.abort();
+
+    await expect(call).resolves.toEqual({
+      outcome: 'error',
+      error: {code: 'cancelled', message: 'Integration tool call cancelled'},
+    });
+    expect(onClose).not.toHaveBeenCalled();
+    expect(serviceMocks.loggerError).not.toHaveBeenCalled();
+
+    releaseOpen?.();
+    await vi.waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+  });
+
+  it('maps a provider tool-level error result to a bounded error outcome', async () => {
+    const result = await callIntegrationTool(
+      createInput({
+        result: {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: 'GitHub installation token is missing permission for this operation',
+            },
+          ],
+          structuredContent: {code: 'access-denied', status: 403},
+        },
+      }),
+    );
+
+    expect(result).toEqual({
+      outcome: 'error',
+      error: {
+        code: 'access-denied',
+        message: 'GitHub installation token is missing permission for this operation',
+        status: 403,
+      },
+    });
+    expect(serviceMocks.loggerError).not.toHaveBeenCalled();
+    expect(serviceMocks.reportError).not.toHaveBeenCalled();
+  });
+
+  it('keeps the backoff hint from a rate-limited provider tool error', async () => {
+    const result = await callIntegrationTool(
+      createInput({
+        result: {
+          isError: true,
+          content: [
+            {type: 'text', text: 'Rate limited'},
+            {type: 'text', text: 'ignored'},
+          ],
+          structuredContent: {code: 'rate-limited', retryAfterSeconds: 30, status: 429},
+        },
+      }),
+    );
+
+    expect(result).toEqual({
+      outcome: 'error',
+      error: {
+        code: 'rate-limited',
+        message: 'Rate limited',
+        retryAfterSeconds: 30,
+        status: 429,
+      },
+    });
+    expect(serviceMocks.loggerError).not.toHaveBeenCalled();
+    expect(serviceMocks.reportError).not.toHaveBeenCalled();
   });
 
   it('uses method tokens and omits optional catalog fields when metadata is absent', async () => {
@@ -246,17 +467,101 @@ function createInput(
     outputSchema: tool.outputSchema,
     arguments: {method: 'get', owner: 'shipfox', repo: 'platform', issue_number: 1},
     method: 'get',
-    lease: leaseContext({
-      jobId: 'job-1',
-      jobExecutionId: 'execution-1',
-      workflowRunId: 'run-1',
-      workflowRunAttemptId: 'attempt-1',
-      workspaceId: 'workspace-1',
-      currentStepId: 'step-1',
-      currentStepAttempt: 2,
-    }),
+    caller: {
+      caller: 'agent',
+      lease: leaseContext({
+        jobId: 'job-1',
+        jobExecutionId: 'execution-1',
+        workflowRunId: 'run-1',
+        workflowRunAttemptId: 'attempt-1',
+        workspaceId: 'workspace-1',
+        currentStepId: 'step-1',
+        currentStepAttempt: 2,
+      }),
+    },
     logger: loggerFactory,
     reportError,
     ...overrides,
   };
 }
+
+describe('loadAuthorizedToolConnection', () => {
+  const params = {
+    workspaceId: 'workspace-1',
+    connectionId: 'connection-1',
+    provider: 'github',
+    registry: registryWithAgentTools(),
+  };
+
+  it('returns the connection when every check passes', async () => {
+    const resolved = connection({id: 'connection-1', workspaceId: 'workspace-1'});
+
+    await expect(
+      loadAuthorizedToolConnection({
+        ...params,
+        getIntegrationConnectionById: async () => resolved,
+      }),
+    ).resolves.toBe(resolved);
+  });
+
+  it('rejects when the connection is missing', async () => {
+    await expect(
+      loadAuthorizedToolConnection({
+        ...params,
+        getIntegrationConnectionById: async () => undefined,
+      }),
+    ).rejects.toThrow('not found');
+  });
+
+  it('rejects when the connection belongs to another workspace', async () => {
+    await expect(
+      loadAuthorizedToolConnection({
+        ...params,
+        getIntegrationConnectionById: async () =>
+          connection({id: 'connection-1', workspaceId: 'other-workspace'}),
+      }),
+    ).rejects.toThrow('does not belong to the requested workspace');
+  });
+
+  it('rejects when the connection is not active', async () => {
+    await expect(
+      loadAuthorizedToolConnection({
+        ...params,
+        getIntegrationConnectionById: async () =>
+          connection({id: 'connection-1', workspaceId: 'workspace-1', lifecycleStatus: 'disabled'}),
+      }),
+    ).rejects.toThrow('is not active');
+  });
+
+  it('rejects when the connection provider changed since materialization', async () => {
+    await expect(
+      loadAuthorizedToolConnection({
+        ...params,
+        getIntegrationConnectionById: async () =>
+          connection({id: 'connection-1', workspaceId: 'workspace-1', provider: 'slack'}),
+      }),
+    ).rejects.toThrow('provider changed');
+  });
+
+  it('rejects with provider-unavailable when the provider is no longer registered', async () => {
+    await expect(
+      loadAuthorizedToolConnection({
+        ...params,
+        registry: createIntegrationProviderRegistry([]),
+        getIntegrationConnectionById: async () =>
+          connection({id: 'connection-1', workspaceId: 'workspace-1'}),
+      }),
+    ).rejects.toThrow('No integration provider registered for github');
+  });
+
+  it('rejects when the provider no longer exposes agent tools', async () => {
+    await expect(
+      loadAuthorizedToolConnection({
+        ...params,
+        registry: createIntegrationProviderRegistry([{provider: 'github', displayName: 'GitHub'}]),
+        getIntegrationConnectionById: async () =>
+          connection({id: 'connection-1', workspaceId: 'workspace-1'}),
+      }),
+    ).rejects.toThrow('does not expose');
+  });
+});

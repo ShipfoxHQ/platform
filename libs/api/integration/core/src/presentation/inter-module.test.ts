@@ -1,10 +1,22 @@
 import {integrationsInterModuleContract} from '@shipfox/api-integration-core-dto/inter-module';
 import {isInterModuleKnownError} from '@shipfox/inter-module';
 import {createInMemoryInterModuleTransport} from '@shipfox/node-module/inter-module';
+import type {z} from 'zod';
+import type {IntegrationConnection} from '#core/entities/connection.js';
 import {IntegrationProviderError} from '#core/errors.js';
 import {createIntegrationProviderRegistry} from '#core/providers/registry.js';
 import type {SourceControlProvider} from '#core/providers/source-control.js';
 import {createSourceControlIntegrationService} from '#core/source-control-service.js';
+import type {
+  IntegrationToolCallCaller,
+  IntegrationToolCallRecorder,
+} from '#core/tool-call-audit.js';
+import {
+  type AgentToolsProviderOptions,
+  catalogTool,
+  connection,
+  registryWithAgentTools,
+} from '#test/agent-tools-gateway-helpers.js';
 import {createIntegrationsInterModulePresentation} from './inter-module.js';
 
 const workspaceId = crypto.randomUUID();
@@ -215,5 +227,420 @@ describe('integrations inter-module presentation', () => {
       {provider: 'webhook', events: ['received']},
     ]);
     expect(context.fixedEventProviders).toEqual(['webhook']);
+  });
+});
+
+describe('integrations inter-module callTool', () => {
+  const toolCallInput: z.input<typeof integrationsInterModuleContract.methods.callTool.input> = {
+    workspaceId,
+    connectionId,
+    tool: {
+      id: 'issue_read',
+      provider: 'github',
+      method: 'get',
+      sensitivity: 'read',
+      sensitive: false,
+      requiredScope: [],
+      inputSchema: catalogTool().inputSchema,
+      outputSchema: catalogTool().outputSchema,
+      methods: [
+        {
+          id: 'get',
+          token: 'issue_read.get',
+          sensitivity: 'read',
+          sensitive: false,
+          requiredScope: [],
+        },
+      ],
+    },
+    arguments: {method: 'get', owner: 'shipfox', repo: 'platform', issue_number: 1},
+    caller: {
+      kind: 'tool_step',
+      runId: 'run-1',
+      jobExecutionId: 'execution-1',
+      stepId: 'step-1',
+      stepAttempt: 2,
+      callIndex: 3,
+    },
+  };
+
+  function createToolCallClient(
+    providerOptions: AgentToolsProviderOptions = {},
+    resolveConnection: (id: string) => Promise<IntegrationConnection | undefined> = async () =>
+      connection({id: connectionId, workspaceId}),
+    createRecorder:
+      | ((caller: IntegrationToolCallCaller) => IntegrationToolCallRecorder)
+      | undefined = undefined,
+  ) {
+    const transport = createInMemoryInterModuleTransport();
+    const client = transport.createClient(integrationsInterModuleContract);
+    transport.register(
+      createIntegrationsInterModulePresentation({
+        registry: registryWithAgentTools([catalogTool()], providerOptions),
+        sourceControl: createSourceControlIntegrationService({
+          registry: createIntegrationProviderRegistry([]),
+          getIntegrationConnectionById: async () => undefined,
+        }),
+        getIntegrationConnectionById: resolveConnection,
+        ...(createRecorder === undefined
+          ? {}
+          : {createIntegrationToolCallRecorder: createRecorder}),
+      }),
+    );
+    transport.seal();
+    return client;
+  }
+
+  it('calls the frozen tool through a single-tool provider session', async () => {
+    const onCall = vi.fn();
+    const client = createToolCallClient({onCall});
+
+    const result = await client.callTool(toolCallInput);
+
+    expect(result).toEqual({
+      outcome: 'success',
+      result: {
+        status: 'dispatched',
+        provider: 'github',
+        connection_id: connectionId,
+        tool_id: 'issue_read',
+        method: 'get',
+      },
+      content: [{type: 'text', text: 'dispatched'}],
+    });
+    expect(onCall).toHaveBeenCalledWith({
+      toolId: 'issue_read',
+      arguments: toolCallInput.arguments,
+    });
+  });
+
+  it('accepts the agent caller without tool-step identity fields', async () => {
+    const client = createToolCallClient();
+
+    const result = await client.callTool({...toolCallInput, caller: {kind: 'agent'}});
+
+    expect(result.outcome).toBe('success');
+  });
+
+  it('rejects an executed method outside the catalog allowlist as an invalid-request outcome', async () => {
+    const onCall = vi.fn();
+    const client = createToolCallClient({onCall});
+
+    const result = await client.callTool({
+      ...toolCallInput,
+      arguments: {...toolCallInput.arguments, method: 'get_labels'},
+    });
+
+    expect(result).toEqual({
+      outcome: 'error',
+      code: 'invalid-request',
+      message: 'Unauthorized integration tool method: get_labels',
+    });
+    expect(onCall).not.toHaveBeenCalled();
+  });
+
+  it('rejects a method-family call without a string method argument', async () => {
+    const client = createToolCallClient();
+    const {method: _omitted, ...argumentsWithoutMethod} = toolCallInput.arguments;
+
+    const result = await client.callTool({...toolCallInput, arguments: argumentsWithoutMethod});
+
+    expect(result).toEqual({
+      outcome: 'error',
+      code: 'invalid-request',
+      message: 'Method-family tools require a string method argument',
+    });
+  });
+
+  it('rejects a tool id that is no longer in the live catalog', async () => {
+    const client = createToolCallClient();
+
+    const result = await client.callTool({
+      ...toolCallInput,
+      tool: {...toolCallInput.tool, id: 'removed_tool'},
+    });
+
+    expect(result).toEqual({
+      outcome: 'error',
+      code: 'invalid-request',
+      message: 'Unknown integration tool: removed_tool',
+    });
+  });
+
+  const connectionFailureCases: ReadonlyArray<
+    [string, (id: string) => Promise<IntegrationConnection | undefined>]
+  > = [
+    ['connection-not-found', async () => undefined],
+    [
+      'connection-workspace-mismatch',
+      async () => connection({id: connectionId, workspaceId: 'other-workspace'}),
+    ],
+    [
+      'connection-inactive',
+      async () => connection({id: connectionId, workspaceId, lifecycleStatus: 'disabled'}),
+    ],
+    [
+      'connection-provider-changed',
+      async () => connection({id: connectionId, workspaceId, provider: 'slack'}),
+    ],
+  ];
+
+  it.each(
+    connectionFailureCases,
+  )('maps a %s connection state to its known error', async (code, resolveConnection) => {
+    const client = createToolCallClient({}, resolveConnection);
+
+    const error = await client.callTool(toolCallInput).catch((caught: unknown) => caught);
+
+    expect(isInterModuleKnownError(integrationsInterModuleContract.methods.callTool, error)).toBe(
+      true,
+    );
+    if (isInterModuleKnownError(integrationsInterModuleContract.methods.callTool, error)) {
+      expect(error.code).toBe(code);
+      expect(error.details).toEqual({connectionId});
+    }
+  });
+
+  it('maps a missing agent-tools capability to its known error', async () => {
+    const transport = createInMemoryInterModuleTransport();
+    const client = transport.createClient(integrationsInterModuleContract);
+    transport.register(
+      createIntegrationsInterModulePresentation({
+        registry: createIntegrationProviderRegistry([{provider: 'github', displayName: 'GitHub'}]),
+        sourceControl: createSourceControlIntegrationService({
+          registry: createIntegrationProviderRegistry([]),
+          getIntegrationConnectionById: async () => undefined,
+        }),
+        getIntegrationConnectionById: async () => connection({id: connectionId, workspaceId}),
+      }),
+    );
+    transport.seal();
+
+    const error = await client.callTool(toolCallInput).catch((caught: unknown) => caught);
+
+    expect(isInterModuleKnownError(integrationsInterModuleContract.methods.callTool, error)).toBe(
+      true,
+    );
+    if (isInterModuleKnownError(integrationsInterModuleContract.methods.callTool, error)) {
+      expect(error.code).toBe('capability-unavailable');
+      expect(error.details).toEqual({provider: 'github', capability: 'agent_tools'});
+    }
+  });
+
+  it('maps a missing provider to the provider-unavailable known error', async () => {
+    const transport = createInMemoryInterModuleTransport();
+    const client = transport.createClient(integrationsInterModuleContract);
+    transport.register(
+      createIntegrationsInterModulePresentation({
+        registry: createIntegrationProviderRegistry([]),
+        sourceControl: createSourceControlIntegrationService({
+          registry: createIntegrationProviderRegistry([]),
+          getIntegrationConnectionById: async () => undefined,
+        }),
+        getIntegrationConnectionById: async () => connection({id: connectionId, workspaceId}),
+      }),
+    );
+    transport.seal();
+
+    const error = await client.callTool(toolCallInput).catch((caught: unknown) => caught);
+
+    expect(isInterModuleKnownError(integrationsInterModuleContract.methods.callTool, error)).toBe(
+      true,
+    );
+    if (isInterModuleKnownError(integrationsInterModuleContract.methods.callTool, error)) {
+      expect(error.code).toBe('provider-unavailable');
+      expect(error.details).toEqual({provider: 'github'});
+    }
+  });
+
+  it('cancels a call whose transport deadline elapses while the provider call is in flight', async () => {
+    const transport = createInMemoryInterModuleTransport();
+    const client = transport.createClient(integrationsInterModuleContract);
+    transport.register(
+      createIntegrationsInterModulePresentation({
+        registry: createIntegrationProviderRegistry([
+          {
+            provider: 'github',
+            displayName: 'GitHub',
+            adapters: {
+              agent_tools: {
+                catalog: () => [catalogTool()],
+                selectionCatalog: () => ({selectors: []}),
+                openSession: () =>
+                  Promise.resolve({
+                    // A call that never settles: only the deadline can end it.
+                    call: () => new Promise(() => undefined),
+                    close: () => Promise.resolve(),
+                  }),
+              },
+            },
+          },
+        ]),
+        sourceControl: createSourceControlIntegrationService({
+          registry: createIntegrationProviderRegistry([]),
+          getIntegrationConnectionById: async () => undefined,
+        }),
+        getIntegrationConnectionById: async () => connection({id: connectionId, workspaceId}),
+      }),
+    );
+    transport.seal();
+
+    await expect(
+      client.callTool(toolCallInput, {signal: AbortSignal.timeout(20)}),
+    ).rejects.toMatchObject({name: 'TimeoutError'});
+  });
+
+  it('maps a deadline abort during the provider call to a provider-timeout outcome', async () => {
+    const transport = createInMemoryInterModuleTransport();
+    const presentation = createIntegrationsInterModulePresentation({
+      registry: createIntegrationProviderRegistry([
+        {
+          provider: 'github',
+          displayName: 'GitHub',
+          adapters: {
+            agent_tools: {
+              catalog: () => [catalogTool()],
+              selectionCatalog: () => ({selectors: []}),
+              openSession: () =>
+                Promise.resolve({
+                  // A call that never settles: only the deadline can end it.
+                  call: () => new Promise(() => undefined),
+                  close: () => Promise.resolve(),
+                }),
+            },
+          },
+        },
+      ]),
+      sourceControl: createSourceControlIntegrationService({
+        registry: createIntegrationProviderRegistry([]),
+        getIntegrationConnectionById: async () => undefined,
+      }),
+      getIntegrationConnectionById: async () => connection({id: connectionId, workspaceId}),
+    });
+    transport.register(presentation);
+    transport.seal();
+
+    const result = await presentation.handlers.callTool(toolCallInput, {
+      signal: AbortSignal.timeout(20),
+    });
+
+    expect(result).toEqual({
+      outcome: 'error',
+      code: 'provider-timeout',
+      message: 'Integration provider timed out',
+    });
+  });
+
+  it('keeps a completed call success when the audit recorder throws', async () => {
+    const client = createToolCallClient(
+      {},
+      async () => connection({id: connectionId, workspaceId}),
+      () => () => {
+        throw new Error('audit backend unavailable');
+      },
+    );
+
+    const result = await client.callTool(toolCallInput);
+
+    expect(result.outcome).toBe('success');
+  });
+
+  it('propagates a provider error with retry and status details', async () => {
+    const client = createToolCallClient({
+      callError: new IntegrationProviderError('rate-limited', 'Try again later', 30, 429),
+    });
+
+    const result = await client.callTool(toolCallInput);
+
+    expect(result).toEqual({
+      outcome: 'error',
+      code: 'rate-limited',
+      message: 'Try again later',
+      retryAfterSeconds: 30,
+      status: 429,
+    });
+  });
+
+  it('falls back to a null structured result for text-only provider results', async () => {
+    const client = createToolCallClient({
+      result: {content: [{type: 'text', text: 'dispatched'}]},
+    });
+
+    const result = await client.callTool(toolCallInput);
+
+    expect(result).toEqual({
+      outcome: 'success',
+      result: null,
+      content: [{type: 'text', text: 'dispatched'}],
+    });
+  });
+
+  it('records the executed method, outcome, and caller on the audit recorder for a successful call', async () => {
+    const recorder = vi.fn();
+    const createdCallers: IntegrationToolCallCaller[] = [];
+    const client = createToolCallClient(
+      {},
+      async () => connection({id: connectionId, workspaceId}),
+      (caller) => {
+        createdCallers.push(caller);
+        return recorder;
+      },
+    );
+
+    await client.callTool(toolCallInput);
+
+    expect(createdCallers[0]).toMatchObject({caller: 'tool_step', workspaceId, runId: 'run-1'});
+    expect(recorder).toHaveBeenCalledWith(
+      expect.objectContaining({
+        authorizedTool: expect.objectContaining({
+          tool: expect.objectContaining({id: 'issue_read'}),
+        }),
+        method: 'get',
+        outcome: 'success',
+        errorCode: 'none',
+      }),
+    );
+  });
+
+  it('records provider error details on the audit recorder', async () => {
+    const recorder = vi.fn();
+    const client = createToolCallClient(
+      {callError: new IntegrationProviderError('rate-limited', 'Try again later', 30, 429)},
+      async () => connection({id: connectionId, workspaceId}),
+      () => recorder,
+    );
+
+    await client.callTool(toolCallInput);
+
+    expect(recorder).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: 'get',
+        outcome: 'tool-error',
+        errorCode: 'rate-limited',
+        providerStatus: 429,
+      }),
+    );
+  });
+
+  it('records an invalid-request audit line for a rejected executed method', async () => {
+    const recorder = vi.fn();
+    const client = createToolCallClient(
+      {},
+      async () => connection({id: connectionId, workspaceId}),
+      () => recorder,
+    );
+
+    await client.callTool({
+      ...toolCallInput,
+      arguments: {...toolCallInput.arguments, method: 'get_labels'},
+    });
+
+    expect(recorder).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: 'invalid',
+        outcome: 'invalid-request',
+        errorCode: 'invalid-request',
+      }),
+    );
   });
 });

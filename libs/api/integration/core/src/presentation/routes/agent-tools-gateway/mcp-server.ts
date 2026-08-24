@@ -6,13 +6,15 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import {reportError} from '@shipfox/node-error-monitoring';
 import {logger} from '@shipfox/node-opentelemetry';
-import {normalizeIntegrationAgentToolCallErrorCode} from '#metrics/index.js';
 import {
   INVALID_METHOD_LABEL,
-  type IntegrationAgentToolCallErrorCode,
   type IntegrationToolCallRecorder,
   NO_METHOD_LABEL,
-} from './audit.js';
+} from '#core/tool-call-audit.js';
+import {
+  type IntegrationAgentToolCallErrorCode,
+  normalizeIntegrationAgentToolCallErrorCode,
+} from '#metrics/index.js';
 import type {
   AuthorizedIntegrationTool,
   AuthorizedIntegrationToolMap,
