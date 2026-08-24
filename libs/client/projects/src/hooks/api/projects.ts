@@ -313,6 +313,13 @@ export async function readWorkspaceHasNoProject({
   workspaceId: string;
 }): Promise<boolean> {
   const options = projectExistenceQueryOptions(workspaceId);
+  // A cached non-empty list already rules out the first-project landing, so
+  // skip the fresh read entirely: the snapshot only steers navigation for the
+  // empty-workspace case, and a failed fresh read here would otherwise report
+  // a global error on every create in an established workspace without
+  // changing the landing.
+  const cached = queryClient.getQueryData<ProjectList>(options.queryKey);
+  if (cached !== undefined && cached.projects.length > 0) return false;
   try {
     // The landing decision must not trust fresh-but-stale existence data
     // (e.g. a project created in another tab inside the 30s staleTime window),
@@ -323,8 +330,8 @@ export async function readWorkspaceHasNoProject({
     return data.projects.length === 0;
   } catch (error) {
     reportExistenceReadFailure(error);
-    const cached = queryClient.getQueryData<ProjectList>(options.queryKey);
-    if (cached !== undefined) return cached.projects.length === 0;
+    const fallback = queryClient.getQueryData<ProjectList>(options.queryKey);
+    if (fallback !== undefined) return fallback.projects.length === 0;
     // Unknown existence keeps the existing project navigation.
     return false;
   }

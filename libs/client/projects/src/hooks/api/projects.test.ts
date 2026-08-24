@@ -110,12 +110,9 @@ describe('readWorkspaceHasNoProject', () => {
     );
   });
 
-  test('falls back to a cached non-empty list when the fresh read fails', async () => {
-    configureApiClient({
-      fetchImpl: vi
-        .fn()
-        .mockResolvedValue(jsonResponse({message: 'upstream unavailable'}, {status: 500})),
-    });
+  test('skips the fresh read when a cached non-empty list rules out the first-project path', async () => {
+    const fetchImpl = vi.fn().mockRejectedValue(new Error('unexpected fetch'));
+    configureApiClient({fetchImpl});
     const queryClient = new QueryClient();
     queryClient.setQueryData(projectExistenceQueryOptions(WORKSPACE_ID).queryKey, {
       projects: [
@@ -135,6 +132,9 @@ describe('readWorkspaceHasNoProject', () => {
     await expect(readWorkspaceHasNoProject({queryClient, workspaceId: WORKSPACE_ID})).resolves.toBe(
       false,
     );
+    // The landing is already decided, so no existence request is issued and no
+    // failure is reported for an established workspace.
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   test('returns false when the fresh read fails without any cache', async () => {
