@@ -26,6 +26,35 @@ const input = {
   },
   idempotencyKey: 'subscription-1:event-1',
 };
+const devRunUserId = '00000000-0000-4000-8000-000000000010';
+
+const devRunInput = {
+  workspaceId: input.workspaceId,
+  projectId: input.projectId,
+  workflowId: input.definitionId,
+  model: {
+    version: 2 as const,
+    model: {
+      kind: 'workflow' as const,
+      name: 'Build',
+      triggers: [],
+      jobs: [],
+      dependencies: [],
+    },
+  },
+  sourceSnapshot: {content: 'name: Build\n', format: 'yaml' as const},
+  devSource: {
+    ref: 'main',
+    commit: 'a'.repeat(40),
+    configPath: '.shipfox/workflows.yml',
+    initiatedByUserId: devRunUserId,
+  },
+  triggerPayload: {
+    source: 'manual' as const,
+    event: 'fire' as const,
+    userId: devRunUserId,
+  },
+};
 
 const listenerInput = {
   jobId: '00000000-0000-4000-8000-000000000006',
@@ -84,6 +113,11 @@ function serializedWorkflowsClient(local: WorkflowsModuleClient): WorkflowsModul
 async function runConsumerSuite(client: WorkflowsModuleClient): Promise<void> {
   await expect(client.startRunFromTrigger(input)).resolves.toEqual({
     id: input.definitionId,
+    name: 'Build',
+  });
+
+  await expect(client.startDevRun(devRunInput)).resolves.toEqual({
+    id: devRunInput.workflowId,
     name: 'Build',
   });
 

@@ -80,10 +80,11 @@ export interface RunDevWorkflowParams {
 }
 
 /**
- * Creates a dev run from an inline model and snapshot. Each call is a distinct
- * intent, so there is no idempotency key, as for manual fires. The lineage id
- * is used as the run's definition_id so dev runs share the workflow numbering
- * sequence before and after the file merges.
+ * Creates a dev run from an inline model and snapshot. Unlike
+ * trigger-originated runs, dev runs do not carry an idempotency key because
+ * each call represents a distinct intent. The lineage id is used as the run's
+ * definition_id so dev runs share the workflow numbering sequence before and
+ * after the file merges.
  */
 export function runDevWorkflow(
   agent: AgentInterModuleClient,
