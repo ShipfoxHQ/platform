@@ -1,9 +1,18 @@
-import type {ManagedModelProvider, ModelProviderRef} from '@shipfox/api-agent-dto';
+import {type Context, complete, type Model} from '@earendil-works/pi-ai/compat';
+import type {
+  AgentRuntimeCredentialsResponseDto,
+  ManagedModelApi,
+  ManagedModelProvider,
+  ModelProviderRef,
+} from '@shipfox/api-agent-dto';
 import {deleteModelProviderConfig, upsertModelProviderConfig} from '#db/index.js';
 import {setSecrets} from '#test/fixtures/secrets-client.js';
 import {agentSystemNamespace, customCredentialsToStoreValues} from './credential-fingerprints.js';
 import {ModelProviderConfigNotFoundError} from './errors.js';
 import {resolveRuntimeCredentials} from './resolve-runtime-credentials.js';
+
+const TRAILING_SLASHES_PATTERN = /\/+$/u;
+const TRAILING_API_VERSION_PATTERN = /(?:\/v1)+$/u;
 
 describe('resolveRuntimeCredentials', () => {
   let workspaceId: string;
@@ -44,7 +53,7 @@ describe('resolveRuntimeCredentials', () => {
     const resolveCredentials = vi.fn<ManagedModelProvider['resolveCredentials']>();
     resolveCredentials.mockResolvedValue({
       api: 'openai-responses',
-      baseUrl: 'https://gateway.example.test',
+      baseUrl: 'https://gateway.example.test/inference/',
       credentials: {api_key: 'managed-token'},
     });
 
@@ -75,7 +84,7 @@ describe('resolveRuntimeCredentials', () => {
       credentials: {api_key: 'managed-token'},
       custom_provider: {
         api: 'openai-responses',
-        base_url: 'https://gateway.example.test',
+        base_url: 'https://gateway.example.test/inference/v1',
         headers: [],
         secret_header_names: [],
         models: [
@@ -103,7 +112,7 @@ describe('resolveRuntimeCredentials', () => {
     const resolveCredentials = vi.fn<ManagedModelProvider['resolveCredentials']>();
     resolveCredentials.mockResolvedValue({
       api: 'openai-completions',
-      baseUrl: 'https://gateway.example.test',
+      baseUrl: 'https://gateway.example.test/inference/v1/',
       credentials: {api_key: 'managed-token'},
     });
 
@@ -128,7 +137,7 @@ describe('resolveRuntimeCredentials', () => {
       credentials: {api_key: 'managed-token'},
       custom_provider: {
         api: 'openai-completions',
-        base_url: 'https://gateway.example.test',
+        base_url: 'https://gateway.example.test/inference/v1',
         headers: [],
         secret_header_names: [],
         models: [{id: 'plain-model', label: 'Plain model'}],
@@ -197,7 +206,7 @@ describe('resolveRuntimeCredentials', () => {
     const resolveCredentials = vi.fn<ManagedModelProvider['resolveCredentials']>();
     resolveCredentials.mockResolvedValue({
       api: 'anthropic-messages',
-      baseUrl: 'https://gateway.example.test',
+      baseUrl: 'https://gateway.example.test/inference/v1/',
       credentials: {api_key: 'managed-token'},
     });
 
@@ -221,10 +230,72 @@ describe('resolveRuntimeCredentials', () => {
       thinking: 'high',
       credentials: {api_key: 'managed-token'},
       claude: {
-        base_url: 'https://gateway.example.test',
+        base_url: 'https://gateway.example.test/inference',
         auth_token: 'managed-token',
       },
     });
+  });
+
+  it.each([
+    {api: 'openai-responses', model: 'responses-model', path: '/responses'},
+    {api: 'openai-completions', model: 'plain-model', path: '/chat/completions'},
+    {api: 'anthropic-messages', model: 'claude-model', path: '/v1/messages'},
+  ] satisfies readonly {
+    api: ManagedModelApi;
+    model: string;
+    path: string;
+  }[])('composes the $api runtime response with the real Pi client URL construction', async ({
+    api,
+    model,
+    path,
+  }) => {
+    const resolveCredentials = vi.fn<ManagedModelProvider['resolveCredentials']>();
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('capture request'));
+    const baseUrls = [
+      'https://gateway.example.test/inference',
+      'https://gateway.example.test/inference/',
+      'https://gateway.example.test/inference/v1',
+      'https://gateway.example.test/inference/v1/',
+    ];
+
+    for (const baseUrl of baseUrls) {
+      resolveCredentials.mockResolvedValueOnce({
+        api,
+        baseUrl,
+        credentials: {api_key: 'opaque-test-credential'},
+      });
+      const runtime = await resolveRuntimeCredentials(
+        {
+          workspaceId,
+          runId: crypto.randomUUID(),
+          stepAttemptId: crypto.randomUUID(),
+          harness: 'pi',
+          provider: 'shipfox',
+          model,
+          thinking: 'high',
+        },
+        {managedProvider: managedProvider(resolveCredentials)},
+      );
+
+      const apiKey = runtime.credentials.api_key;
+      if (apiKey === undefined) {
+        throw new Error('Expected managed Pi API key');
+      }
+      await complete(toPiModel(runtime), piContext(), {
+        apiKey,
+        maxRetries: 0,
+      });
+    }
+
+    expect(fetchSpy.mock.calls.map(([input]) => String(input))).toEqual(
+      baseUrls.map((baseUrl) => {
+        const gatewayRoot = baseUrl
+          .replace(TRAILING_SLASHES_PATTERN, '')
+          .replace(TRAILING_API_VERSION_PATTERN, '');
+        const adapterBaseUrl = api === 'anthropic-messages' ? gatewayRoot : `${gatewayRoot}/v1`;
+        return `${adapterBaseUrl}${path}`;
+      }),
+    );
   });
 
   it('prefers workspace credentials over the instance fallback', async () => {
@@ -534,6 +605,39 @@ describe('resolveRuntimeCredentials', () => {
     }
   });
 });
+
+function piContext(): Context {
+  return {
+    messages: [{role: 'user', content: 'Reply with OK.', timestamp: 0}],
+  };
+}
+
+function toPiModel(response: AgentRuntimeCredentialsResponseDto): Model<ManagedModelApi> {
+  const customProvider = response.custom_provider;
+  if (customProvider === undefined) {
+    throw new Error('Expected managed Pi custom provider');
+  }
+  const model = customProvider.models[0];
+  if (model === undefined) {
+    throw new Error('Expected managed Pi model');
+  }
+  if (customProvider.api === 'google-generative-ai') {
+    throw new Error('Expected a managed Pi API dialect');
+  }
+
+  return {
+    id: response.model,
+    name: model.label,
+    api: customProvider.api,
+    provider: response.provider_id,
+    baseUrl: customProvider.base_url,
+    reasoning: model.reasoning ?? false,
+    input: model.input_image === true ? ['text', 'image'] : ['text'],
+    cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0},
+    contextWindow: model.context_window ?? 1_000_000,
+    maxTokens: model.max_output_tokens ?? 65_536,
+  };
+}
 
 async function saveProviderConfig(params: {
   workspaceId: string;
