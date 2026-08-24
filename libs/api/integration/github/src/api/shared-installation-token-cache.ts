@@ -137,8 +137,9 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
     // A mint is authenticated as the GitHub App, so rate-limit and availability
     // backoffs are installation-wide even though envelopes are keyed per scope.
     // Consult the installation-wide envelope before a scoped mint so one scope's
-    // 429/outage does not make every other scope retry the shared limit; the same
-    // envelope is kept so a failed scoped mint can mirror its backoff onto it.
+    // 429/outage does not make every other scope retry the shared limit; a failed
+    // scoped mint re-reads it when mirroring its backoff so a concurrent write is
+    // never clobbered (see the transient mirror below).
     let installationEnvelope: InstallationTokenEnvelope | undefined;
     if (params.scopeKey !== undefined) {
       installationEnvelope = await this.readEnvelope(
@@ -181,11 +182,22 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
       // then respect the shared limit instead of retrying it. Repo-specific
       // (terminal) failures such as access-denied stay scoped.
       if (params.scopeKey !== undefined && classified.class === 'transient') {
+        // Re-read the installation-wide envelope instead of reusing the snapshot
+        // taken before the mint: an unscoped mint may have written a fresh broad
+        // token (or a newer backoff) while this scoped mint was in flight, and
+        // the mirror must never clobber it. writeBackoffEnvelope merges the
+        // backoff onto the fresh envelope, keeping any token and the later of
+        // the two backoff deadlines.
+        const freshInstallationEnvelope = await this.readEnvelope(
+          params.workspaceId,
+          params.installationId,
+          undefined,
+        );
         await this.writeBackoffEnvelope({
           workspaceId: params.workspaceId,
           installationId: params.installationId,
           scopeKey: undefined,
-          source: installationEnvelope,
+          source: freshInstallationEnvelope,
           until,
           classified,
           providerError,
@@ -282,21 +294,34 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
     classified: ClassifiedMintError;
     providerError: GithubIntegrationProviderError;
   }): Promise<void> {
+    // Never shorten a backoff recorded concurrently: keep whichever of the
+    // existing and new deadlines is later, along with its matching reason and
+    // error, and always preserve the source token so a freshly minted broad
+    // token is not clobbered by a mirrored scoped backoff.
+    const {source} = params;
+    const sourceBackoffUntil = source?.backoffUntil;
+    const existingUntilMs = sourceBackoffUntil?.getTime() ?? 0;
+    const keepExisting =
+      sourceBackoffUntil !== undefined && existingUntilMs >= params.until.getTime();
+    const backoffUntil = keepExisting ? sourceBackoffUntil : params.until;
+
     await this.writeEnvelope(
       params.workspaceId,
       params.installationId,
       {
-        token: params.source?.token,
-        expiresAt: params.source?.expiresAt,
-        permissions: params.source?.permissions,
-        backoffUntil: params.until,
-        backoffReason: params.classified.reason,
-        backoffError: {
-          message: params.providerError.message,
-          ...(params.providerError.status === undefined
-            ? {}
-            : {status: params.providerError.status}),
-        },
+        token: source?.token,
+        expiresAt: source?.expiresAt,
+        permissions: source?.permissions,
+        backoffUntil,
+        backoffReason: keepExisting ? source?.backoffReason : params.classified.reason,
+        backoffError: keepExisting
+          ? source?.backoffError
+          : {
+              message: params.providerError.message,
+              ...(params.providerError.status === undefined
+                ? {}
+                : {status: params.providerError.status}),
+            },
       },
       params.scopeKey,
     ).catch((writeError) => {

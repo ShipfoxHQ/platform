@@ -4,6 +4,7 @@ import {
   encodeInstallationTokenEnvelope,
   githubInstallationTokenNamespace,
   needsRefresh,
+  parseInstallationTokenEnvelope,
   stillValid,
   TOKEN_REFRESH_MARGIN_MS,
   TOKEN_VALIDITY_BUFFER_MS,
@@ -399,6 +400,104 @@ describe('SharedInstallationTokenCache', () => {
     });
     expect(broadMint).not.toHaveBeenCalled();
     expect(scopedMint).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-reads the broad envelope when mirroring so a concurrent broad mint is not clobbered', async () => {
+    const values = new Map<string, string>();
+    let broadReads = 0;
+    const store: InstallationTokenSecretStore = {
+      read: (readWorkspaceId, readInstallationId, readScopeKey) => {
+        if (readScopeKey === undefined) {
+          // First broad read happens before the scoped mint (empty envelope); a
+          // concurrent unscoped mint writes a fresh broad token before the mirror
+          // re-reads it after the scoped mint fails.
+          broadReads += 1;
+          return broadReads === 1
+            ? Promise.resolve(null)
+            : Promise.resolve(encodeInstallationTokenEnvelope(token('ghs_broad_fresh')));
+        }
+        return Promise.resolve(
+          values.get(tieredSecretKey(readWorkspaceId, readInstallationId, readScopeKey)) ?? null,
+        );
+      },
+      write: (writeWorkspaceId, writeInstallationId, envelope, writeScopeKey) => {
+        values.set(
+          tieredSecretKey(writeWorkspaceId, writeInstallationId, writeScopeKey),
+          encodeInstallationTokenEnvelope(envelope),
+        );
+        return Promise.resolve();
+      },
+    };
+    const scopedMint = vi
+      .fn()
+      .mockRejectedValue(new GithubIntegrationProviderError('rate-limited', 'rate limited', 42));
+    const shared = cache({store});
+
+    await expect(
+      shared.getOrMint(installationId, scopedMint, {
+        repositoryId: 456,
+        permissions: {contents: 'write'},
+      }),
+    ).rejects.toMatchObject({reason: 'rate-limited', retryAfterSeconds: 42});
+
+    // The mirror merged the backoff onto the fresh broad token instead of
+    // overwriting it with the pre-mint snapshot, so an unscoped caller still
+    // serves the freshly minted broad token.
+    const broadEnvelope = parseInstallationTokenEnvelope(
+      values.get(tieredSecretKey(workspaceId, installationId, undefined)) ?? '',
+    );
+    expect(broadEnvelope?.token).toBe('ghs_broad_fresh');
+    expect(broadEnvelope?.backoffReason).toBe('rate-limited');
+  });
+
+  it('does not shorten a newer broad backoff recorded while a scoped mint was in flight', async () => {
+    const values = new Map<string, string>();
+    let broadReads = 0;
+    const store: InstallationTokenSecretStore = {
+      read: (readWorkspaceId, readInstallationId, readScopeKey) => {
+        if (readScopeKey === undefined) {
+          // The pre-mint consult sees no active broad backoff; before the mirror
+          // re-reads, another failure records a longer installation-wide backoff.
+          broadReads += 1;
+          return broadReads === 1
+            ? Promise.resolve(null)
+            : Promise.resolve(
+                encodeInstallationTokenEnvelope({
+                  backoffUntil: new Date('2026-06-10T12:00:00.000Z'),
+                  backoffReason: 'provider-unavailable',
+                }),
+              );
+        }
+        return Promise.resolve(
+          values.get(tieredSecretKey(readWorkspaceId, readInstallationId, readScopeKey)) ?? null,
+        );
+      },
+      write: (writeWorkspaceId, writeInstallationId, envelope, writeScopeKey) => {
+        values.set(
+          tieredSecretKey(writeWorkspaceId, writeInstallationId, writeScopeKey),
+          encodeInstallationTokenEnvelope(envelope),
+        );
+        return Promise.resolve();
+      },
+    };
+    const scopedMint = vi
+      .fn()
+      .mockRejectedValue(new GithubIntegrationProviderError('rate-limited', 'rate limited', 42));
+    const shared = cache({store});
+
+    await expect(
+      shared.getOrMint(installationId, scopedMint, {
+        repositoryId: 456,
+        permissions: {contents: 'write'},
+      }),
+    ).rejects.toMatchObject({reason: 'rate-limited', retryAfterSeconds: 42});
+
+    // The later backoff deadline (and its reason) survives the mirror write.
+    const broadEnvelope = parseInstallationTokenEnvelope(
+      values.get(tieredSecretKey(workspaceId, installationId, undefined)) ?? '',
+    );
+    expect(broadEnvelope?.backoffUntil?.toISOString()).toBe('2026-06-10T12:00:00.000Z');
+    expect(broadEnvelope?.backoffReason).toBe('provider-unavailable');
   });
 
   it('treats an envelope recorded for another scope as a cache miss', async () => {
