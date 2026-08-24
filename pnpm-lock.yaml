@@ -5406,6 +5406,9 @@ importers:
       '@shipfox/client-workspace-settings':
         specifier: workspace:*
         version: link:../workspace-settings
+      '@shipfox/react-ui':
+        specifier: workspace:*
+        version: link:../../shared/react/ui
       '@swc/helpers':
         specifier: 'catalog:'
         version: 0.5.23
@@ -5425,9 +5428,6 @@ importers:
       '@shipfox/client-test-setup':
         specifier: workspace:*
         version: link:../test-setup
-      '@shipfox/react-ui':
-        specifier: workspace:*
-        version: link:../../shared/react/ui
       '@shipfox/swc':
         specifier: workspace:*
         version: link:../../../tools/swc

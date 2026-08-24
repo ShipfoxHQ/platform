@@ -6,7 +6,10 @@ import {
   integrationProvidersQueryOptions,
 } from '@shipfox/client-integrations';
 import {provisionerTokenQueryKeys} from '@shipfox/client-runners';
-import {dismissWorkspaceSetupChecklist} from '@shipfox/client-shell/runtime';
+import {
+  clearWorkspaceSetupChecklistDismissal,
+  dismissWorkspaceSetupChecklist,
+} from '@shipfox/client-shell/runtime';
 import {listInvitationsQueryKey, listMembersQueryKey} from '@shipfox/client-workspace-settings';
 import type {Meta, StoryObj} from '@storybook/react';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
@@ -19,7 +22,7 @@ import {
   RouterProvider,
 } from '@tanstack/react-router';
 import type {ReactNode} from 'react';
-import {useMemo, useState} from 'react';
+import {useEffect, useMemo, useState} from 'react';
 import {deriveSetupChecklist} from '#core/setup-checklist.js';
 import {
   SetupChecklistBody,
@@ -29,6 +32,10 @@ import {
 } from './setup-checklist.js';
 
 const WORKSPACE: WorkspaceReference = {id: 'story-workspace', slug: 'acme'};
+const DISMISSED_WORKSPACE: WorkspaceReference = {
+  id: 'dismissed-story-workspace',
+  slug: WORKSPACE.slug,
+};
 const now = new Date().toISOString();
 
 const githubProvider: IntegrationProvider = {
@@ -178,16 +185,18 @@ function CompletedStory({showBurst = false}: {showBurst?: boolean}) {
 }
 
 function DismissedStory() {
-  const dismissedWorkspace = {id: 'dismissed-story-workspace', slug: WORKSPACE.slug};
-  const [initialized] = useState(() => {
-    dismissWorkspaceSetupChecklist(dismissedWorkspace.id);
-    return true;
-  });
+  const [initialized, setInitialized] = useState(false);
+
+  useEffect(() => {
+    dismissWorkspaceSetupChecklist(DISMISSED_WORKSPACE.id);
+    setInitialized(true);
+    return () => clearWorkspaceSetupChecklistDismissal(DISMISSED_WORKSPACE.id);
+  }, []);
 
   return (
     <StoryProviders scenario="cloud">
       <div className="min-h-[240px] bg-background-subtle-base p-frame">
-        {initialized ? <WorkspaceSetupChecklist workspace={dismissedWorkspace} /> : null}
+        {initialized ? <WorkspaceSetupChecklist workspace={DISMISSED_WORKSPACE} /> : null}
       </div>
     </StoryProviders>
   );

@@ -43,6 +43,8 @@ export function useSetupChecklistQueryState(
   const queryPolicy = {
     enabled: queryEnabled,
     subscribed: queryEnabled,
+    refetchInterval: false,
+    retry: false,
     staleTime: CHECKLIST_STALE_TIME_MS,
     refetchOnWindowFocus: false,
   } as const;

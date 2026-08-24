@@ -12,11 +12,12 @@ import {Skeleton} from '@shipfox/react-ui/skeleton';
 import {Text} from '@shipfox/react-ui/typography';
 import {cn} from '@shipfox/react-ui/utils';
 import {Link} from '@tanstack/react-router';
-import {useCallback, useEffect, useRef, useState} from 'react';
+import {useCallback, useEffect, useId, useRef, useState} from 'react';
 import type {SetupChecklist, SetupChecklistItem} from '#core/setup-checklist.js';
 import {type ChecklistQueryState, useSetupChecklistQueryState} from '#hooks/api/setup-checklist.js';
 
 const JSDOM_USER_AGENT_RE = /jsdom/u;
+const CHECKLIST_DISMISSAL_EVENT = 'shipfox.workspaceSetupChecklist.dismissalChanged';
 
 export interface WorkspaceReference {
   id: string;
@@ -33,7 +34,7 @@ export interface SetupChecklistBodyProps {
   workspaceSlug: string;
   completion?: boolean;
   showBurst?: boolean;
-  onBurstStart?: () => void;
+  onBurstComplete?: () => void;
   onAction?: ((item: SetupChecklistItem) => void) | undefined;
   onDone?: () => void;
 }
@@ -45,7 +46,7 @@ export function SetupChecklistBody({
   workspaceSlug,
   completion = false,
   showBurst = false,
-  onBurstStart,
+  onBurstComplete,
   onAction,
   onDone,
 }: SetupChecklistBodyProps) {
@@ -53,7 +54,7 @@ export function SetupChecklistBody({
     <div>
       {completion ? (
         <div className="relative overflow-hidden border-b border-border-neutral-base bg-background-highlight-base px-panel-compact py-row">
-          <ConfettiBurst active={showBurst} onStart={onBurstStart} />
+          <ConfettiBurst active={showBurst} onComplete={onBurstComplete} />
           <div className="relative flex items-center justify-between gap-group">
             <div className="min-w-0">
               <Text size="sm" bold>
@@ -85,7 +86,9 @@ export function SetupChecklistBody({
 
 export function WorkspaceSetupChecklist(props: WorkspaceSetupHostProps = {}) {
   if (props.workspace) {
-    return <WorkspaceSetupChecklistForWorkspace workspace={props.workspace} />;
+    return (
+      <WorkspaceSetupChecklistForWorkspace key={props.workspace.id} workspace={props.workspace} />
+    );
   }
 
   return <WorkspaceSetupChecklistFromShell />;
@@ -93,7 +96,9 @@ export function WorkspaceSetupChecklist(props: WorkspaceSetupHostProps = {}) {
 
 export function WorkspaceSetupIndicator(props: WorkspaceSetupHostProps = {}) {
   if (props.workspace) {
-    return <WorkspaceSetupIndicatorForWorkspace workspace={props.workspace} />;
+    return (
+      <WorkspaceSetupIndicatorForWorkspace key={props.workspace.id} workspace={props.workspace} />
+    );
   }
 
   return <WorkspaceSetupIndicatorFromShell />;
@@ -101,21 +106,26 @@ export function WorkspaceSetupIndicator(props: WorkspaceSetupHostProps = {}) {
 
 function WorkspaceSetupChecklistFromShell() {
   const workspace = useMaybeActiveWorkspace();
-  return workspace ? <WorkspaceSetupChecklistForWorkspace workspace={workspace} /> : null;
+  return workspace ? (
+    <WorkspaceSetupChecklistForWorkspace key={workspace.id} workspace={workspace} />
+  ) : null;
 }
 
 function WorkspaceSetupIndicatorFromShell() {
   const workspace = useMaybeActiveWorkspace();
-  return workspace ? <WorkspaceSetupIndicatorForWorkspace workspace={workspace} /> : null;
+  return workspace ? (
+    <WorkspaceSetupIndicatorForWorkspace key={workspace.id} workspace={workspace} />
+  ) : null;
 }
 
 function WorkspaceSetupChecklistForWorkspace({workspace}: {workspace: WorkspaceReference}) {
   const dismissal = useChecklistDismissal(workspace.id);
   const queryState = useSetupChecklistQueryState(workspace.id, !dismissal.dismissed);
   const [burstPending, setBurstPending] = useState(false);
-  const showCompletion = useCompletionTransition(queryState, 'panel', () => {
-    setBurstPending(true);
-  });
+  const handleCompleted = useCallback((completed: boolean) => {
+    if (completed) setBurstPending(true);
+  }, []);
+  const showCompletion = useCompletionTransition(queryState, 'panel', handleCompleted);
   const analytics = useClientAnalytics();
   const consumeBurst = useCallback(() => setBurstPending(false), []);
 
@@ -131,7 +141,8 @@ function WorkspaceSetupChecklistForWorkspace({workspace}: {workspace: WorkspaceR
   );
   const isVisible =
     !dismissal.dismissed &&
-    (!queryState.baseSettled || !queryState.checklist.complete || showCompletion);
+    queryState.baseSettled &&
+    (!queryState.checklist.complete || showCompletion);
   useShownAnalytics('panel', isVisible);
 
   if (dismissal.dismissed) return null;
@@ -153,7 +164,7 @@ function WorkspaceSetupChecklistForWorkspace({workspace}: {workspace: WorkspaceR
                 workspaceSlug={workspace.slug}
                 completion={showCompletion}
                 showBurst={burstPending}
-                onBurstStart={consumeBurst}
+                onBurstComplete={consumeBurst}
                 onAction={handleAction}
                 onDone={dismiss}
               />
@@ -184,6 +195,7 @@ function WorkspaceSetupIndicatorForWorkspace({workspace}: {workspace: WorkspaceR
   );
   const showCompletion = useCompletionTransition(queryState, 'popover', handleCompleted);
   const consumeBurst = useCallback(() => setBurstPending(false), []);
+  const triggerId = useId();
 
   const dismiss = useCallback(() => {
     dismissal.dismiss();
@@ -217,12 +229,16 @@ function WorkspaceSetupIndicatorForWorkspace({workspace}: {workspace: WorkspaceR
           type="button"
           variant="transparent"
           size="sm"
+          id={triggerId}
           aria-label={ariaLabel}
           className="gap-inline"
         >
           <span
             key={pulseKey}
-            className="inline-flex items-center motion-safe:animate-[pulse_1s_ease-in-out_1]"
+            className={cn(
+              'inline-flex items-center',
+              pulseKey > 0 && 'motion-safe:animate-[pulse_1s_ease-in-out_1]',
+            )}
           >
             <Icon name="circleDottedLine" size={16} aria-hidden="true" />
           </span>
@@ -232,26 +248,36 @@ function WorkspaceSetupIndicatorForWorkspace({workspace}: {workspace: WorkspaceR
       <PopoverContent
         align="end"
         className="w-[360px] max-w-[calc(100vw-32px)] p-0"
-        aria-label="Get started"
+        aria-labelledby={triggerId}
       >
         <Panel asChild>
           <section aria-label="Get started">
-            <ChecklistHeader count={countLabel} onDismiss={dismiss} />
             <PanelBody>
               <SetupChecklistBody
                 checklist={queryState.checklist}
                 workspaceSlug={workspace.slug}
                 completion={showCompletion}
                 showBurst={burstPending}
-                onBurstStart={consumeBurst}
+                onBurstComplete={consumeBurst}
                 onAction={handleAction}
                 onDone={dismiss}
               />
             </PanelBody>
+            <ChecklistDismissAction onDismiss={dismiss} />
           </section>
         </Panel>
       </PopoverContent>
     </Popover>
+  );
+}
+
+function ChecklistDismissAction({onDismiss}: {onDismiss: () => void}) {
+  return (
+    <div className="flex justify-end border-t border-border-neutral-base px-row py-row">
+      <Button type="button" size="sm" variant="transparentMuted" onClick={onDismiss}>
+        Hide setup guide
+      </Button>
+    </div>
   );
 }
 
@@ -310,7 +336,7 @@ function ChecklistRow({
     ? 'next step'
     : item.status === 'done'
       ? 'done'
-      : item.title.includes('needs attention')
+      : item.attention
         ? 'needs attention'
         : 'to do';
 
@@ -474,15 +500,18 @@ function useChecklistDismissal(workspaceId: string) {
     refresh();
     window.addEventListener('storage', refresh);
     window.addEventListener('focus', refresh);
+    window.addEventListener(CHECKLIST_DISMISSAL_EVENT, refresh);
     return () => {
       window.removeEventListener('storage', refresh);
       window.removeEventListener('focus', refresh);
+      window.removeEventListener(CHECKLIST_DISMISSAL_EVENT, refresh);
     };
   }, [workspaceId]);
 
   const dismiss = useCallback(() => {
     dismissWorkspaceSetupChecklist(workspaceId);
     setDismissed(true);
+    window.dispatchEvent(new Event(CHECKLIST_DISMISSAL_EVENT));
   }, [workspaceId]);
 
   return {dismissed, dismiss};
@@ -494,19 +523,40 @@ function useCompletionTransition(
   onCompleted?: (completed: boolean) => void,
 ) {
   const analytics = useClientAnalytics();
-  const previousComplete = useRef<boolean | undefined>(undefined);
+  const observedIncomplete = useRef(false);
+  const completionHandled = useRef(false);
   const [showCompletion, setShowCompletion] = useState(false);
 
   useEffect(() => {
+    if (
+      queryState.baseSettled &&
+      !queryState.checklist.complete &&
+      queryState.checklist.openCount > 0
+    ) {
+      observedIncomplete.current = true;
+    }
+
     if (!queryState.completionReady) return;
 
-    if (queryState.checklist.complete && previousComplete.current === false) {
-      setShowCompletion(true);
-      onCompleted?.(true);
-      analytics.capture('onboarding_checklist_completed', {host});
+    if (!queryState.checklist.complete) {
+      setShowCompletion(false);
+      return;
     }
-    previousComplete.current = queryState.checklist.complete;
-  }, [analytics, host, onCompleted, queryState.checklist.complete, queryState.completionReady]);
+
+    if (!observedIncomplete.current || completionHandled.current) return;
+    completionHandled.current = true;
+    setShowCompletion(true);
+    onCompleted?.(true);
+    analytics.capture('onboarding_checklist_completed', {host});
+  }, [
+    analytics,
+    host,
+    onCompleted,
+    queryState.baseSettled,
+    queryState.checklist.complete,
+    queryState.checklist.openCount,
+    queryState.completionReady,
+  ]);
 
   return showCompletion;
 }
@@ -526,21 +576,48 @@ function checklistCountLabel(checklist: SetupChecklist) {
   return `${checklist.trackedCount - checklist.openCount} of ${checklist.trackedCount} done`;
 }
 
-function ConfettiBurst({active, onStart}: {active: boolean; onStart?: (() => void) | undefined}) {
+function ConfettiBurst({
+  active,
+  onComplete,
+}: {
+  active: boolean;
+  onComplete?: (() => void) | undefined;
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
     if (!active || typeof window === 'undefined') return;
-    onStart?.();
-    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
-    if (typeof navigator !== 'undefined' && JSDOM_USER_AGENT_RE.test(navigator.userAgent)) return;
+    let completed = false;
+    const finish = () => {
+      if (completed) return;
+      completed = true;
+      onComplete?.();
+    };
+
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      finish();
+      return;
+    }
+    if (typeof navigator !== 'undefined' && JSDOM_USER_AGENT_RE.test(navigator.userAgent)) {
+      finish();
+      return;
+    }
 
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!canvas) {
+      finish();
+      return;
+    }
     const bounds = canvas.getBoundingClientRect();
-    if (bounds.width === 0 && bounds.height === 0) return;
+    if (bounds.width === 0 && bounds.height === 0) {
+      finish();
+      return;
+    }
     const context = canvas.getContext('2d');
-    if (!context) return;
+    if (!context) {
+      finish();
+      return;
+    }
 
     const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
     const width = Math.max(bounds.width, 1);
@@ -551,12 +628,16 @@ function ConfettiBurst({active, onStart}: {active: boolean; onStart?: (() => voi
 
     const styles = getComputedStyle(canvas);
     const colors = [
-      styles.getPropertyValue('--color-primary-400').trim(),
-      styles.getPropertyValue('--color-accent-purple').trim(),
-      styles.getPropertyValue('--color-accent-cyan').trim(),
-      styles.getPropertyValue('--color-accent-yellow').trim(),
+      styles.getPropertyValue('--color-background-accent-blue-base').trim(),
+      styles.getPropertyValue('--color-background-accent-purple-base').trim(),
+      styles.getPropertyValue('--color-background-accent-success-base').trim(),
+      styles.getPropertyValue('--color-background-accent-warning-base').trim(),
     ].filter(Boolean);
-    const palette = colors.length > 0 ? colors : ['#ff4b00', '#af52de', '#55bef0', '#ffcc00'];
+    if (colors.length === 0) {
+      finish();
+      return;
+    }
+    const palette = colors;
     const particles = Array.from({length: 32}, (_, index) => ({
       x: width / 2 + (Math.random() - 0.5) * width * 0.3,
       y: height * 0.15,
@@ -564,7 +645,7 @@ function ConfettiBurst({active, onStart}: {active: boolean; onStart?: (() => voi
       vy: -(Math.random() * 3 + 2),
       rotation: Math.random() * Math.PI,
       size: Math.random() * 4 + 3,
-      color: palette[index % palette.length] ?? palette[0] ?? '#ff4b00',
+      color: palette[index % palette.length] ?? palette[0] ?? '',
     }));
     let frame = 0;
     let startedAt = performance.now();
@@ -592,7 +673,11 @@ function ConfettiBurst({active, onStart}: {active: boolean; onStart?: (() => voi
         context.restore();
       }
       context.globalAlpha = 1;
-      if (elapsed < 1500) frame = requestAnimationFrame(draw);
+      if (elapsed < 1500) {
+        frame = requestAnimationFrame(draw);
+      } else {
+        finish();
+      }
     };
 
     startedAt = performance.now();
@@ -601,7 +686,11 @@ function ConfettiBurst({active, onStart}: {active: boolean; onStart?: (() => voi
       cancelAnimationFrame(frame);
       context.clearRect(0, 0, width, height);
     };
-  }, [active, onStart]);
+  }, [active, onComplete]);
 
-  return <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 size-full" />;
+  return (
+    <div aria-hidden="true" className="pointer-events-none absolute inset-0 size-full">
+      <canvas ref={canvasRef} className="size-full" />
+    </div>
+  );
 }

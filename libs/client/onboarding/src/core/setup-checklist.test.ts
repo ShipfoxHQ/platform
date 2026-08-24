@@ -277,6 +277,7 @@ describe('deriveSetupChecklist', () => {
     expect(checklist.items.find((item) => item.id === 'tools')).toMatchObject({
       status: 'done',
       title: 'Connect your tools',
+      attention: false,
     });
   });
 

@@ -37,6 +37,7 @@ import {
 } from './setup-checklist.js';
 
 const WORKSPACE: WorkspaceReference = {id: 'test-workspace', slug: 'acme'};
+const GET_STARTED_BUTTON_RE = /Get started/u;
 const now = new Date().toISOString();
 const githubProvider: IntegrationProvider = {
   provider: 'github',
@@ -69,6 +70,12 @@ function connection(
 
 function createQueryClient() {
   return new QueryClient({defaultOptions: {queries: {retry: false}}});
+}
+
+function pendingResponse(): Promise<Response> {
+  return new Promise<Response>((resolve) => {
+    void resolve;
+  });
 }
 
 function seedQueries(queryClient: QueryClient, toolsConnected = false) {
@@ -174,6 +181,22 @@ describe('SetupChecklistBody', () => {
       'href',
       `/w/${WORKSPACE.slug}/settings/integrations`,
     );
+    expect(await screen.findByRole('link', {name: 'Set up'})).toHaveAttribute(
+      'href',
+      `/w/${WORKSPACE.slug}/settings/runners`,
+    );
+    expect(await screen.findByRole('link', {name: 'Configure'})).toHaveAttribute(
+      'href',
+      `/w/${WORKSPACE.slug}/settings/agents`,
+    );
+    expect(await screen.findByRole('link', {name: 'Read the quickstart'})).toHaveAttribute(
+      'href',
+      '/docs/getting-started',
+    );
+    expect(await screen.findByRole('link', {name: 'Invite'})).toHaveAttribute(
+      'href',
+      `/w/${WORKSPACE.slug}/settings/members`,
+    );
     expect(await screen.findAllByText('Next', {exact: true})).toHaveLength(2);
     expect(
       screen
@@ -246,6 +269,41 @@ describe('workspace checklist hosts', () => {
     expect(capture).toHaveBeenCalledWith('onboarding_checklist_dismissed', {host: 'panel'});
   });
 
+  test('does not replay or keep the completion state after a regression', async () => {
+    const queryClient = createQueryClient();
+    seedQueries(queryClient);
+    const capture = vi.fn();
+
+    renderWithProviders(<WorkspaceSetupChecklist workspace={WORKSPACE} />, queryClient, {capture});
+
+    expect(await screen.findByText('Connect your tools')).toBeInTheDocument();
+    act(() => {
+      queryClient.setQueryData(integrationConnectionsQueryOptions(WORKSPACE.id).queryKey, [
+        connection('github', 'active'),
+        connection('linear', 'active'),
+      ]);
+    });
+    expect(await screen.findByText("You're set up")).toBeInTheDocument();
+
+    act(() => {
+      queryClient.setQueryData(integrationConnectionsQueryOptions(WORKSPACE.id).queryKey, [
+        connection('github', 'active'),
+      ]);
+    });
+    await waitFor(() => expect(screen.queryByText("You're set up")).not.toBeInTheDocument());
+
+    act(() => {
+      queryClient.setQueryData(integrationConnectionsQueryOptions(WORKSPACE.id).queryKey, [
+        connection('github', 'active'),
+        connection('linear', 'active'),
+      ]);
+    });
+    await waitFor(() => expect(screen.queryByText("You're set up")).not.toBeInTheDocument());
+    expect(
+      capture.mock.calls.filter(([event]) => event === 'onboarding_checklist_completed'),
+    ).toHaveLength(1);
+  });
+
   test('captures row clicks with the checklist row id', async () => {
     const queryClient = createQueryClient();
     seedQueries(queryClient);
@@ -271,6 +329,145 @@ describe('workspace checklist hosts', () => {
     ).toBeInTheDocument();
   });
 
+  test('shows the indicator completion transition and its dismiss action', async () => {
+    const queryClient = createQueryClient();
+    seedQueries(queryClient);
+    const capture = vi.fn();
+
+    renderWithProviders(<WorkspaceSetupIndicator workspace={WORKSPACE} />, queryClient, {capture});
+    expect(
+      await screen.findByRole('button', {name: 'Get started, 2 of 3 done'}),
+    ).toBeInTheDocument();
+
+    act(() => {
+      queryClient.setQueryData(integrationConnectionsQueryOptions(WORKSPACE.id).queryKey, [
+        connection('github', 'active'),
+        connection('linear', 'active'),
+      ]);
+    });
+
+    const trigger = await screen.findByRole('button', {name: 'Get started, 3 of 3 done'});
+    expect(capture).toHaveBeenCalledWith('onboarding_checklist_completed', {host: 'popover'});
+    fireEvent.click(trigger);
+
+    expect(await screen.findByText("You're set up")).toBeInTheDocument();
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveAttribute('aria-labelledby', trigger.id);
+    fireEvent.click(screen.getByRole('button', {name: 'Hide setup guide'}));
+
+    await waitFor(() =>
+      expect(screen.queryByRole('button', {name: GET_STARTED_BUTTON_RE})).not.toBeInTheDocument(),
+    );
+    expect(capture).toHaveBeenCalledWith('onboarding_checklist_dismissed', {host: 'popover'});
+  });
+
+  test('synchronizes dismissal between mounted hosts in the same tab', async () => {
+    const queryClient = createQueryClient();
+    seedQueries(queryClient);
+    const capture = vi.fn();
+
+    renderWithProviders(
+      <>
+        <WorkspaceSetupChecklist workspace={WORKSPACE} />
+        <WorkspaceSetupIndicator workspace={WORKSPACE} />
+      </>,
+      queryClient,
+      {capture},
+    );
+
+    expect(
+      await screen.findByRole('button', {name: 'Get started, 2 of 3 done'}),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', {name: 'Hide setup guide'}));
+
+    await waitFor(() => {
+      expect(screen.queryByRole('region', {name: 'Get started'})).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', {name: GET_STARTED_BUTTON_RE})).not.toBeInTheDocument();
+    });
+  });
+
+  test('waits for non-base query families before showing completion', async () => {
+    const queryClient = createQueryClient();
+    const fetchImpl = vi.fn(() => pendingResponse());
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
+    queryClient.setQueryData(integrationProvidersQueryOptions().queryKey, [
+      githubProvider,
+      linearProvider,
+    ]);
+    queryClient.setQueryData(integrationConnectionsQueryOptions(WORKSPACE.id).queryKey, [
+      connection('github', 'active'),
+    ]);
+
+    renderWithProviders(<WorkspaceSetupChecklist workspace={WORKSPACE} />, queryClient, {
+      capture: vi.fn(),
+    });
+
+    expect(await screen.findByText('Connect your tools')).toBeInTheDocument();
+    act(() => {
+      queryClient.setQueryData(integrationConnectionsQueryOptions(WORKSPACE.id).queryKey, [
+        connection('github', 'active'),
+        connection('linear', 'active'),
+      ]);
+    });
+    await waitFor(() => expect(screen.queryByText("You're set up")).not.toBeInTheDocument());
+
+    act(() => {
+      queryClient.setQueryData(provisionerTokenQueryKeys.active(WORKSPACE.id), {
+        provisioners: [],
+        installationRunners: 'managed' as const,
+      });
+      queryClient.setQueryData(modelProviderQueryKeys.catalog(), {
+        providers: [],
+        workspaceProviders: 'enabled' as const,
+        managedProviderId: 'managed-default',
+        instanceDefaultProviderId: null,
+      });
+      queryClient.setQueryData(modelProviderQueryKeys.configs(WORKSPACE.id), {
+        configs: [],
+        defaultHarnessId: null,
+        defaultProviderId: null,
+      });
+      queryClient.setQueryData(listMembersQueryKey(WORKSPACE.id), []);
+      queryClient.setQueryData(listInvitationsQueryKey(WORKSPACE.id), []);
+    });
+
+    expect(await screen.findByText("You're set up")).toBeInTheDocument();
+  });
+
+  test('keeps the panel skeleton while base queries are pending', async () => {
+    const queryClient = createQueryClient();
+    configureApiClient({
+      baseUrl: 'https://api.example.test',
+      fetchImpl: vi.fn(() => pendingResponse()),
+    });
+
+    renderWithProviders(<WorkspaceSetupChecklist workspace={WORKSPACE} />, queryClient, {
+      capture: vi.fn(),
+    });
+
+    expect(await screen.findByRole('status', {name: 'Loading setup guide'})).toBeInTheDocument();
+  });
+
+  test('hides rows from failed query families without marking the checklist complete', async () => {
+    const queryClient = createQueryClient();
+    configureApiClient({
+      baseUrl: 'https://api.example.test',
+      fetchImpl: vi.fn(() => Promise.reject(new Error('request failed'))),
+    });
+
+    renderWithProviders(<WorkspaceSetupChecklist workspace={WORKSPACE} />, queryClient, {
+      capture: vi.fn(),
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status', {name: 'Loading setup guide'})).not.toBeInTheDocument();
+    });
+    expect(screen.queryByText('Connect your tools')).not.toBeInTheDocument();
+    expect(screen.queryByText('Set up runner capacity')).not.toBeInTheDocument();
+    expect(screen.queryByText('Configure a model provider')).not.toBeInTheDocument();
+    expect(screen.queryByText("You're set up")).not.toBeInTheDocument();
+  });
+
   test('does not render an initially complete checklist without a transition', async () => {
     const queryClient = createQueryClient();
     seedQueries(queryClient, true);
@@ -281,6 +478,19 @@ describe('workspace checklist hosts', () => {
 
     await waitFor(() => {
       expect(screen.queryByRole('region', {name: 'Get started'})).not.toBeInTheDocument();
+    });
+  });
+
+  test('does not render an initially complete indicator without a transition', async () => {
+    const queryClient = createQueryClient();
+    seedQueries(queryClient, true);
+
+    renderWithProviders(<WorkspaceSetupIndicator workspace={WORKSPACE} />, queryClient, {
+      capture: vi.fn(),
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByRole('button', {name: GET_STARTED_BUTTON_RE})).not.toBeInTheDocument();
     });
   });
 });
