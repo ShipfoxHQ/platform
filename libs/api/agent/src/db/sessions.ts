@@ -10,9 +10,10 @@ import {
   AgentSessionLockUnavailableError,
 } from '#core/errors.js';
 import {db, type Transaction} from './db.js';
-import {sessions, toAgentSession} from './schema/sessions.js';
+import {type AgentSessionDb, sessions, toAgentSession} from './schema/sessions.js';
 
 const AGENT_SESSION_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
+const AGENT_SESSION_CLAIM_LOCK_PREFIX = 'agent-session-claim:';
 
 function assertValidSessionKey(key: unknown): asserts key is string {
   if (typeof key !== 'string' || !AGENT_SESSION_KEY_PATTERN.test(key)) {
@@ -76,6 +77,49 @@ export interface ClaimSessionParams {
   stepAttemptId: string;
 }
 
+function assertSessionClaimable(row: AgentSessionDb, params: ClaimSessionParams): void {
+  assertValidSessionKey(row.key);
+  assertValidSessionHarness(row.harness);
+  if (row.harness !== params.harness) {
+    throw new AgentSessionHarnessMismatchError({
+      sessionId: row.id,
+      workflowRunAttemptId: params.workflowRunAttemptId,
+      key: row.key,
+      pinnedHarness: row.harness,
+      requestedHarness: params.harness,
+    });
+  }
+
+  if (row.claimedByStepAttempt !== null && row.claimedByStepAttempt !== params.stepAttemptId) {
+    throw new AgentSessionHeldError({
+      sessionId: row.id,
+      workflowRunAttemptId: params.workflowRunAttemptId,
+      key: row.key,
+      heldByStepAttempt: row.claimedByStepAttempt,
+    });
+  }
+}
+
+async function tryAcquireSessionClaimLock(
+  tx: Transaction,
+  params: ClaimSessionParams,
+): Promise<boolean> {
+  const result = await tx.execute<{acquired: boolean}>(
+    sql`select pg_try_advisory_xact_lock(hashtextextended(${`${AGENT_SESSION_CLAIM_LOCK_PREFIX}${params.workflowRunAttemptId}:${params.key}`}, 0)) as acquired`,
+  );
+  return result.rows[0]?.acquired === true;
+}
+
+function throwSessionHeld(row: AgentSessionDb, params: ClaimSessionParams): never {
+  assertSessionClaimable(row, params);
+  throw new AgentSessionHeldError({
+    sessionId: row.id,
+    workflowRunAttemptId: params.workflowRunAttemptId,
+    key: row.key,
+    heldByStepAttempt: row.claimedByStepAttempt,
+  });
+}
+
 /**
  * Claims a session exclusively for a step attempt, in one short transaction
  * with a non-blocking `FOR UPDATE SKIP LOCKED` row lock. First use creates the session (empty head,
@@ -85,13 +129,23 @@ export interface ClaimSessionParams {
  * no queue. A re-claim with a different harness fails with
  * `AgentSessionHarnessMismatchError`. The create path uses `ON CONFLICT DO
  * NOTHING` so two concurrent first claims serialize on the unique index instead
- * of racing on the insert.
+ * of racing on the insert. A transaction advisory lock identifies another
+ * in-flight claim even when its row update is not visible to this transaction.
  */
 export async function claimSession(params: ClaimSessionParams): Promise<AgentSession> {
   assertValidSessionKey(params.key);
   assertValidSessionHarness(params.harness);
 
   return await db().transaction(async (tx) => {
+    const sessionIdentity = and(
+      eq(sessions.workflowRunAttemptId, params.workflowRunAttemptId),
+      eq(sessions.key, params.key),
+    );
+    const [existingRow] = await tx.select().from(sessions).where(sessionIdentity);
+    if (existingRow && !(await tryAcquireSessionClaimLock(tx, params))) {
+      throwSessionHeld(existingRow, params);
+    }
+
     await tx
       .insert(sessions)
       .values({
@@ -103,10 +157,13 @@ export async function claimSession(params: ClaimSessionParams): Promise<AgentSes
       })
       .onConflictDoNothing();
 
-    const sessionIdentity = and(
-      eq(sessions.workflowRunAttemptId, params.workflowRunAttemptId),
-      eq(sessions.key, params.key),
-    );
+    if (!(await tryAcquireSessionClaimLock(tx, params))) {
+      const [visibleRow] = await tx.select().from(sessions).where(sessionIdentity);
+      if (!visibleRow) throw new Error('Session missing after claim lock contention');
+
+      throwSessionHeld(visibleRow, params);
+    }
+
     const [row] = await tx
       .select()
       .from(sessions)
@@ -116,28 +173,7 @@ export async function claimSession(params: ClaimSessionParams): Promise<AgentSes
       const [visibleRow] = await tx.select().from(sessions).where(sessionIdentity);
       if (!visibleRow) throw new Error('Session missing after claim create');
 
-      assertValidSessionKey(visibleRow.key);
-      assertValidSessionHarness(visibleRow.harness);
-      if (visibleRow.harness !== params.harness) {
-        throw new AgentSessionHarnessMismatchError({
-          sessionId: visibleRow.id,
-          workflowRunAttemptId: params.workflowRunAttemptId,
-          key: visibleRow.key,
-          pinnedHarness: visibleRow.harness,
-          requestedHarness: params.harness,
-        });
-      }
-      if (
-        visibleRow.claimedByStepAttempt !== null &&
-        visibleRow.claimedByStepAttempt !== params.stepAttemptId
-      ) {
-        throw new AgentSessionHeldError({
-          sessionId: visibleRow.id,
-          workflowRunAttemptId: params.workflowRunAttemptId,
-          key: visibleRow.key,
-          heldByStepAttempt: visibleRow.claimedByStepAttempt,
-        });
-      }
+      assertSessionClaimable(visibleRow, params);
 
       throw new AgentSessionLockUnavailableError({
         sessionId: visibleRow.id,
@@ -146,26 +182,7 @@ export async function claimSession(params: ClaimSessionParams): Promise<AgentSes
       });
     }
 
-    assertValidSessionKey(row.key);
-    assertValidSessionHarness(row.harness);
-    if (row.harness !== params.harness) {
-      throw new AgentSessionHarnessMismatchError({
-        sessionId: row.id,
-        workflowRunAttemptId: params.workflowRunAttemptId,
-        key: row.key,
-        pinnedHarness: row.harness,
-        requestedHarness: params.harness,
-      });
-    }
-
-    if (row.claimedByStepAttempt !== null && row.claimedByStepAttempt !== params.stepAttemptId) {
-      throw new AgentSessionHeldError({
-        sessionId: row.id,
-        workflowRunAttemptId: params.workflowRunAttemptId,
-        key: params.key,
-        heldByStepAttempt: row.claimedByStepAttempt,
-      });
-    }
+    assertSessionClaimable(row, params);
 
     const updated = await tx
       .update(sessions)

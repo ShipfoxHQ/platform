@@ -141,10 +141,12 @@ export class AgentSessionHeldError extends Error {
     sessionId: string;
     workflowRunAttemptId: string;
     key: string;
-    heldByStepAttempt: string;
+    heldByStepAttempt: string | null;
   }) {
     super(
-      `Agent session is claimed by another live attempt: ${params.workflowRunAttemptId}/${params.key} (held by ${params.heldByStepAttempt})`,
+      params.heldByStepAttempt === null
+        ? `Agent session is claimed by another live attempt: ${params.workflowRunAttemptId}/${params.key} (holder not yet committed)`
+        : `Agent session is claimed by another live attempt: ${params.workflowRunAttemptId}/${params.key} (held by ${params.heldByStepAttempt})`,
     );
     this.name = 'AgentSessionHeldError';
     this.sessionId = params.sessionId;
@@ -158,7 +160,7 @@ export class AgentSessionHeldError extends Error {
   public readonly workflowRunAttemptId: string;
   public readonly key: string;
   /** The step attempt currently holding the exclusive claim. */
-  public readonly heldByStepAttempt: string;
+  public readonly heldByStepAttempt: string | null;
 }
 
 export class AgentSessionKeyInvalidError extends Error {

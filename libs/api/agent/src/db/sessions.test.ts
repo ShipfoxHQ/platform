@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import {eq} from 'drizzle-orm';
+import {eq, sql} from 'drizzle-orm';
 import {
   AgentSessionCarryOverConflictError,
   AgentSessionHarnessInvalidError,
@@ -246,6 +246,7 @@ describe('claimSession', () => {
   it('fails fast when another transaction holds the session row lock', async () => {
     const ctx = newCtx();
     const claimed = await claimSession({...ctx, harness: 'pi'});
+    await releaseSession({sessionId: claimed.id, stepAttemptId: ctx.stepAttemptId});
     let releaseLock!: () => void;
     let resolveLockReady!: () => void;
     const lockReleased = new Promise<void>((resolve) => {
@@ -281,10 +282,60 @@ describe('claimSession', () => {
       await act.catch(() => undefined);
     }
 
-    expect(
-      outcome instanceof AgentSessionHeldError ||
-        outcome instanceof AgentSessionLockUnavailableError,
-    ).toBe(true);
+    expect(outcome).toBeInstanceOf(AgentSessionLockUnavailableError);
+  });
+
+  it('reports a held error when a concurrent claim has not committed its row update', async () => {
+    const ctx = newCtx();
+    const claimed = await claimSession({...ctx, harness: 'pi'});
+    await releaseSession({sessionId: claimed.id, stepAttemptId: ctx.stepAttemptId});
+
+    const holder = crypto.randomUUID();
+    let releaseLock!: () => void;
+    let resolveLockReady!: () => void;
+    const lockReleased = new Promise<void>((resolve) => {
+      releaseLock = resolve;
+    });
+    const lockReady = new Promise<void>((resolve) => {
+      resolveLockReady = resolve;
+    });
+    const lockHolder = db().transaction(async (tx) => {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${`agent-session-claim:${ctx.workflowRunAttemptId}:${ctx.key}`}, 0))`,
+      );
+      await tx
+        .update(sessions)
+        .set({claimedByStepAttempt: holder, claimedAt: sql`now()`})
+        .where(eq(sessions.id, claimed.id));
+      resolveLockReady();
+      await lockReleased;
+    });
+    await lockReady;
+
+    const act = claimSession({...ctx, harness: 'pi', stepAttemptId: crypto.randomUUID()});
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    let outcome: unknown;
+    try {
+      outcome = await Promise.race([
+        act.then(
+          () => 'completed' as const,
+          (error: unknown) => error,
+        ),
+        new Promise<'timeout'>((resolve) => {
+          timeoutId = setTimeout(() => resolve('timeout'), 1_000);
+        }),
+      ]);
+    } finally {
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+      releaseLock();
+      await lockHolder;
+      await act.catch(() => undefined);
+    }
+
+    expect(outcome).toMatchObject({
+      name: 'AgentSessionHeldError',
+      heldByStepAttempt: null,
+    });
   });
 
   it('reports a harness mismatch before classifying a locked session', async () => {
