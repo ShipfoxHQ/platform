@@ -34,6 +34,22 @@ describe('managed provider model metadata', () => {
     });
   });
 
+  it('normalizes legacy snake-case Pi metadata', () => {
+    const thinkingLevelMap = {off: null, high: 'high'} as const;
+
+    expect(
+      toCustomAgentModelDto({
+        id: 'legacy-model',
+        label: 'Legacy model',
+        thinking_level_map: thinkingLevelMap,
+      }),
+    ).toEqual({
+      id: 'legacy-model',
+      label: 'Legacy model',
+      thinking_level_map: thinkingLevelMap,
+    });
+  });
+
   it('accepts typed Pi compatibility variants and rejects unsupported fields', () => {
     expect(
       managedModelCompatSchema.parse({
@@ -48,5 +64,11 @@ describe('managed provider model metadata', () => {
         compat: {supportsStore: false, thinkingFormat: 'deepseek'},
       }).success,
     ).toBe(true);
+    expect(
+      managedModelMetadataSchema.safeParse({
+        thinkingLevelMap: {minimal: null},
+        thinking_level_map: {minimal: null},
+      }).success,
+    ).toBe(false);
   });
 });

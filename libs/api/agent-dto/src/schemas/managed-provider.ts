@@ -29,7 +29,17 @@ export const managedModelMetadataSchema = customAgentModelSchema
   })
   .extend({
     thinkingLevelMap: managedModelThinkingLevelMapSchema.optional(),
+    thinking_level_map: managedModelThinkingLevelMapSchema.optional(),
     compat: managedModelCompatSchema.optional(),
+  })
+  .superRefine((model, ctx) => {
+    if (model.thinkingLevelMap !== undefined && model.thinking_level_map !== undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['thinkingLevelMap'],
+        message: 'Use either thinkingLevelMap or thinking_level_map, not both.',
+      });
+    }
   });
 
 export type ManagedModelMetadata = z.infer<typeof managedModelMetadataSchema>;
@@ -47,13 +57,17 @@ export interface ManagedModelEntry extends Readonly<ManagedModelMetadata> {
 export function toCustomAgentModelDto(
   model: Pick<ManagedModelEntry, 'id' | 'label'> & ManagedModelMetadata,
 ): CustomAgentModelDto {
-  const {thinkingLevelMap, ...metadata} = managedModelMetadataSchema.parse(model);
+  const {thinkingLevelMap, thinking_level_map, ...metadata} =
+    managedModelMetadataSchema.parse(model);
+  const normalizedThinkingLevelMap = thinkingLevelMap ?? thinking_level_map;
 
   return {
     id: model.id,
     label: model.label,
     ...metadata,
-    ...(thinkingLevelMap === undefined ? {} : {thinking_level_map: thinkingLevelMap}),
+    ...(normalizedThinkingLevelMap === undefined
+      ? {}
+      : {thinking_level_map: normalizedThinkingLevelMap}),
   };
 }
 
