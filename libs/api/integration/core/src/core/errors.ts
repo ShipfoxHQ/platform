@@ -23,6 +23,12 @@ export class IntegrationConnectionWorkspaceMismatchError extends Error {
   }
 }
 
+export class IntegrationConnectionProviderChangedError extends Error {
+  constructor(connectionId: string) {
+    super(`Integration connection provider changed: ${connectionId}`);
+  }
+}
+
 export class IntegrationConnectionAlreadyExistsError extends Error {
   constructor(
     public readonly workspaceId: string,

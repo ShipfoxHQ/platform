@@ -1,3 +1,7 @@
+import type {
+  MaterializedAgentIntegrationConfigDto,
+  MaterializedAgentIntegrationToolConfigDto,
+} from '@shipfox/api-agent-dto';
 import type {LeasedJobContext} from '@shipfox/api-auth-context';
 import {logger} from '@shipfox/node-opentelemetry';
 import {
@@ -5,21 +9,71 @@ import {
   type IntegrationAgentToolCallOutcome,
   recordIntegrationAgentToolCall,
 } from '#metrics/index.js';
-import type {AuthorizedIntegrationTool} from './resolve-authorized-tools.js';
+import type {IntegrationConnection} from './entities/connection.js';
 
-export {NO_METHOD_LABEL} from '#core/tool-call-service.js';
-export type {IntegrationAgentToolCallErrorCode} from '#metrics/index.js';
+/**
+ * Who asked for an integration tool call. The agent caller is the MCP gateway
+ * serving a model under a job lease; the tool-step caller is the workflow tool
+ * step executor. The metric label stays `agent` | `tool_step`, while the audit
+ * line expands each caller's identity fields.
+ */
+export type IntegrationToolCallCaller =
+  | {caller: 'agent'; lease?: LeasedJobContext | undefined}
+  | {
+      caller: 'tool_step';
+      workspaceId: string;
+      runId: string;
+      jobExecutionId: string;
+      stepId: string;
+      stepAttempt: number;
+      callIndex: number;
+    };
 
+/**
+ * Expands a caller into the shared audit/log context. One builder consumed by
+ * the tool-call service's error log and by the tool-call recorder, so the
+ * enrichment never drifts between the two.
+ */
+export function callerLogContext(caller: IntegrationToolCallCaller): Record<string, unknown> {
+  return caller.caller === 'agent'
+    ? {
+        caller: 'agent',
+        ...(caller.lease === undefined
+          ? {}
+          : {
+              jobId: caller.lease.jobId,
+              jobExecutionId: caller.lease.jobExecutionId,
+              workflowRunId: caller.lease.workflowRunId,
+              workflowRunAttemptId: caller.lease.workflowRunAttemptId,
+              workspaceId: caller.lease.workspaceId,
+              currentStepId: caller.lease.currentStepId,
+              currentStepAttempt: caller.lease.currentStepAttempt,
+            }),
+      }
+    : {
+        caller: 'tool_step',
+        workspaceId: caller.workspaceId,
+        runId: caller.runId,
+        jobExecutionId: caller.jobExecutionId,
+        stepId: caller.stepId,
+        stepAttempt: caller.stepAttempt,
+        callIndex: caller.callIndex,
+      };
+}
+
+export const NO_METHOD_LABEL = 'none';
 export const UNKNOWN_TOOL_LABEL = 'unknown';
 export const INVALID_METHOD_LABEL = 'invalid';
 
-export interface IntegrationToolArgumentSummary {
-  keys: string[];
-  serializedSizeBytes: number;
+/** The pieces the audit needs from the authorized tool, without presentation types. */
+export interface IntegrationToolCallAuditTarget {
+  connection: IntegrationConnection;
+  integration: MaterializedAgentIntegrationConfigDto;
+  tool: MaterializedAgentIntegrationToolConfigDto;
 }
 
 export interface IntegrationToolCallAuditRecord {
-  authorizedTool?: AuthorizedIntegrationTool | undefined;
+  authorizedTool?: IntegrationToolCallAuditTarget | undefined;
   arguments: unknown;
   method: string;
   outcome: IntegrationAgentToolCallOutcome;
@@ -37,7 +91,7 @@ export interface CreateIntegrationToolCallRecorderOptions {
 }
 
 export function createIntegrationToolCallRecorder(
-  lease: LeasedJobContext,
+  caller: IntegrationToolCallCaller,
   options: CreateIntegrationToolCallRecorderOptions = {},
 ): IntegrationToolCallRecorder {
   const recordMetric = options.recordMetric ?? recordIntegrationAgentToolCall;
@@ -48,6 +102,7 @@ export function createIntegrationToolCallRecorder(
     const toolId = record.authorizedTool?.tool.id ?? UNKNOWN_TOOL_LABEL;
 
     recordMetric({
+      caller: caller.caller,
       provider,
       tool: toolId,
       method: record.method,
@@ -57,13 +112,7 @@ export function createIntegrationToolCallRecorder(
 
     logInfo(
       {
-        jobId: lease.jobId,
-        jobExecutionId: lease.jobExecutionId,
-        workflowRunId: lease.workflowRunId,
-        workflowRunAttemptId: lease.workflowRunAttemptId,
-        workspaceId: lease.workspaceId,
-        currentStepId: lease.currentStepId,
-        currentStepAttempt: lease.currentStepAttempt,
+        ...callerLogContext(caller),
         connectionId: record.authorizedTool?.connection.id,
         provider,
         toolId,
@@ -76,6 +125,11 @@ export function createIntegrationToolCallRecorder(
       'integration tool call audited',
     );
   };
+}
+
+export interface IntegrationToolArgumentSummary {
+  keys: string[];
+  serializedSizeBytes: number;
 }
 
 export function summarizeIntegrationToolArguments(value: unknown): IntegrationToolArgumentSummary {

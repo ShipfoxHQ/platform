@@ -1,10 +1,18 @@
 import {integrationsInterModuleContract} from '@shipfox/api-integration-core-dto/inter-module';
 import {isInterModuleKnownError} from '@shipfox/inter-module';
 import {createInMemoryInterModuleTransport} from '@shipfox/node-module/inter-module';
+import type {z} from 'zod';
+import type {IntegrationConnection} from '#core/entities/connection.js';
 import {IntegrationProviderError} from '#core/errors.js';
 import {createIntegrationProviderRegistry} from '#core/providers/registry.js';
 import type {SourceControlProvider} from '#core/providers/source-control.js';
 import {createSourceControlIntegrationService} from '#core/source-control-service.js';
+import {
+  type AgentToolsProviderOptions,
+  catalogTool,
+  connection,
+  registryWithAgentTools,
+} from '#test/agent-tools-gateway-helpers.js';
 import {createIntegrationsInterModulePresentation} from './inter-module.js';
 
 const workspaceId = crypto.randomUUID();
@@ -215,5 +223,239 @@ describe('integrations inter-module presentation', () => {
       {provider: 'webhook', events: ['received']},
     ]);
     expect(context.fixedEventProviders).toEqual(['webhook']);
+  });
+});
+
+describe('integrations inter-module callTool', () => {
+  const toolCallInput: z.input<typeof integrationsInterModuleContract.methods.callTool.input> = {
+    workspaceId,
+    connectionId,
+    tool: {
+      id: 'issue_read',
+      provider: 'github',
+      method: 'get',
+      sensitivity: 'read',
+      sensitive: false,
+      requiredScope: [],
+      inputSchema: catalogTool().inputSchema,
+      outputSchema: catalogTool().outputSchema,
+      methods: [
+        {
+          id: 'get',
+          token: 'issue_read.get',
+          sensitivity: 'read',
+          sensitive: false,
+          requiredScope: [],
+        },
+      ],
+    },
+    arguments: {method: 'get', owner: 'shipfox', repo: 'platform', issue_number: 1},
+    caller: {
+      kind: 'tool_step',
+      runId: 'run-1',
+      jobExecutionId: 'execution-1',
+      stepId: 'step-1',
+      stepAttempt: 2,
+      callIndex: 3,
+    },
+  };
+
+  function createToolCallClient(
+    providerOptions: AgentToolsProviderOptions = {},
+    resolveConnection: (id: string) => Promise<IntegrationConnection | undefined> = async () =>
+      connection({id: connectionId, workspaceId}),
+  ) {
+    const transport = createInMemoryInterModuleTransport();
+    const client = transport.createClient(integrationsInterModuleContract);
+    transport.register(
+      createIntegrationsInterModulePresentation({
+        registry: registryWithAgentTools([catalogTool()], providerOptions),
+        sourceControl: createSourceControlIntegrationService({
+          registry: createIntegrationProviderRegistry([]),
+          getIntegrationConnectionById: async () => undefined,
+        }),
+        getIntegrationConnectionById: resolveConnection,
+      }),
+    );
+    transport.seal();
+    return client;
+  }
+
+  it('calls the frozen tool through a single-tool provider session', async () => {
+    const onCall = vi.fn();
+    const client = createToolCallClient({onCall});
+
+    const result = await client.callTool(toolCallInput);
+
+    expect(result).toEqual({
+      outcome: 'success',
+      result: {
+        status: 'dispatched',
+        provider: 'github',
+        connection_id: connectionId,
+        tool_id: 'issue_read',
+        method: 'get',
+      },
+      content: [{type: 'text', text: 'dispatched'}],
+    });
+    expect(onCall).toHaveBeenCalledWith({
+      toolId: 'issue_read',
+      arguments: toolCallInput.arguments,
+    });
+  });
+
+  it('accepts the agent caller without tool-step identity fields', async () => {
+    const client = createToolCallClient();
+
+    const result = await client.callTool({...toolCallInput, caller: {kind: 'agent'}});
+
+    expect(result.outcome).toBe('success');
+  });
+
+  it('rejects a frozen method outside the allowlist as an invalid-request outcome', async () => {
+    const onCall = vi.fn();
+    const client = createToolCallClient({onCall});
+
+    const result = await client.callTool({
+      ...toolCallInput,
+      tool: {...toolCallInput.tool, method: 'get_labels'},
+    });
+
+    expect(result).toEqual({
+      outcome: 'error',
+      code: 'invalid-request',
+      message: 'Unauthorized integration tool method: get_labels',
+    });
+    expect(onCall).not.toHaveBeenCalled();
+  });
+
+  it('requires a frozen method for method-family tools', async () => {
+    const client = createToolCallClient();
+    const {method: _omitted, ...toolWithoutMethod} = toolCallInput.tool;
+
+    const result = await client.callTool({...toolCallInput, tool: toolWithoutMethod});
+
+    expect(result).toEqual({
+      outcome: 'error',
+      code: 'invalid-request',
+      message: 'Method-family tools require a frozen method',
+    });
+  });
+
+  const connectionFailureCases: ReadonlyArray<
+    [string, (id: string) => Promise<IntegrationConnection | undefined>]
+  > = [
+    ['connection-not-found', async () => undefined],
+    [
+      'connection-workspace-mismatch',
+      async () => connection({id: connectionId, workspaceId: 'other-workspace'}),
+    ],
+    [
+      'connection-inactive',
+      async () => connection({id: connectionId, workspaceId, lifecycleStatus: 'disabled'}),
+    ],
+    [
+      'connection-provider-changed',
+      async () => connection({id: connectionId, workspaceId, provider: 'slack'}),
+    ],
+  ];
+
+  it.each(
+    connectionFailureCases,
+  )('maps a %s connection state to its known error', async (code, resolveConnection) => {
+    const client = createToolCallClient({}, resolveConnection);
+
+    const error = await client.callTool(toolCallInput).catch((caught: unknown) => caught);
+
+    expect(isInterModuleKnownError(integrationsInterModuleContract.methods.callTool, error)).toBe(
+      true,
+    );
+    if (isInterModuleKnownError(integrationsInterModuleContract.methods.callTool, error)) {
+      expect(error.code).toBe(code);
+      expect(error.details).toEqual({connectionId});
+    }
+  });
+
+  it('maps a missing agent-tools capability to its known error', async () => {
+    const transport = createInMemoryInterModuleTransport();
+    const client = transport.createClient(integrationsInterModuleContract);
+    transport.register(
+      createIntegrationsInterModulePresentation({
+        registry: createIntegrationProviderRegistry([{provider: 'github', displayName: 'GitHub'}]),
+        sourceControl: createSourceControlIntegrationService({
+          registry: createIntegrationProviderRegistry([]),
+          getIntegrationConnectionById: async () => undefined,
+        }),
+        getIntegrationConnectionById: async () => connection({id: connectionId, workspaceId}),
+      }),
+    );
+    transport.seal();
+
+    const error = await client.callTool(toolCallInput).catch((caught: unknown) => caught);
+
+    expect(isInterModuleKnownError(integrationsInterModuleContract.methods.callTool, error)).toBe(
+      true,
+    );
+    if (isInterModuleKnownError(integrationsInterModuleContract.methods.callTool, error)) {
+      expect(error.code).toBe('capability-unavailable');
+      expect(error.details).toEqual({provider: 'github', capability: 'agent_tools'});
+    }
+  });
+
+  it('maps a per-call timeout to the provider-timeout error outcome', async () => {
+    const transport = createInMemoryInterModuleTransport();
+    const client = transport.createClient(integrationsInterModuleContract);
+    transport.register(
+      createIntegrationsInterModulePresentation({
+        registry: createIntegrationProviderRegistry([
+          {
+            provider: 'github',
+            displayName: 'GitHub',
+            adapters: {
+              agent_tools: {
+                catalog: () => [catalogTool()],
+                selectionCatalog: () => ({selectors: []}),
+                openSession: () =>
+                  Promise.resolve({
+                    // A call that never settles: only the per-call timeout can end it.
+                    call: () => new Promise(() => undefined),
+                    close: () => Promise.resolve(),
+                  }),
+              },
+            },
+          },
+        ]),
+        sourceControl: createSourceControlIntegrationService({
+          registry: createIntegrationProviderRegistry([]),
+          getIntegrationConnectionById: async () => undefined,
+        }),
+        getIntegrationConnectionById: async () => connection({id: connectionId, workspaceId}),
+      }),
+    );
+    transport.seal();
+
+    const result = await client.callTool({...toolCallInput, timeoutMs: 20});
+
+    expect(result).toEqual({
+      outcome: 'error',
+      code: 'provider-timeout',
+      message: 'Integration provider timed out',
+    });
+  });
+
+  it('propagates a provider error with retry and status details', async () => {
+    const client = createToolCallClient({
+      callError: new IntegrationProviderError('rate-limited', 'Try again later', 30, 429),
+    });
+
+    const result = await client.callTool(toolCallInput);
+
+    expect(result).toEqual({
+      outcome: 'error',
+      code: 'rate-limited',
+      message: 'Try again later',
+      retryAfterSeconds: 30,
+      status: 429,
+    });
   });
 });

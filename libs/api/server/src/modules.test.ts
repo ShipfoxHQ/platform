@@ -121,6 +121,7 @@ describe('defaultModules', () => {
         name: 'integrations',
         interModulePresentations: [
           defineInterModulePresentation(integrationsInterModuleContract, {
+            callTool: vi.fn(),
             createCheckoutSpec: vi.fn(),
             fetchSourceFile: vi.fn(),
             getAgentToolsContext: vi.fn(),

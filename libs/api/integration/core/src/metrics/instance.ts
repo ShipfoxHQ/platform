@@ -9,6 +9,8 @@ export type IntegrationAgentToolCallOutcome =
   | 'invalid-request'
   | 'exception';
 
+export type IntegrationToolCallCallerLabel = 'agent' | 'tool_step';
+
 export type IntegrationAgentToolCallErrorCode =
   | 'invalid-request'
   | 'unknown'
@@ -39,6 +41,7 @@ const integrationAgentToolCallErrorCodes = new Set<string>([
 ]);
 
 const agentToolCallCount = meter.createCounter<{
+  caller: IntegrationToolCallCallerLabel;
   provider: string;
   tool: string;
   method: string;
@@ -46,7 +49,7 @@ const agentToolCallCount = meter.createCounter<{
   error_code: IntegrationAgentToolCallErrorLabel;
 }>('integrations_agent_tool_call', {
   description:
-    'Integration agent tool calls by provider, tool, method, outcome, and bounded error code',
+    'Integration agent tool calls by caller, provider, tool, method, outcome, and bounded error code',
 });
 
 function recordMetric(record: () => void): void {
@@ -58,6 +61,7 @@ function recordMetric(record: () => void): void {
 }
 
 export function recordIntegrationAgentToolCall(params: {
+  caller: IntegrationToolCallCallerLabel;
   provider: string;
   tool: string;
   method: string;

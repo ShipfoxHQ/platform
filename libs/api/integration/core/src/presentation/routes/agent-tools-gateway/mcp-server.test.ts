@@ -1,13 +1,13 @@
 import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {InMemoryTransport} from '@modelcontextprotocol/sdk/inMemory.js';
 import {CallToolResultSchema} from '@modelcontextprotocol/sdk/types.js';
+import {INVALID_METHOD_LABEL, NO_METHOD_LABEL} from '#core/tool-call-audit.js';
 import {
   catalogTool,
   connection,
   materializedIntegration,
   materializedTool,
 } from '#test/agent-tools-gateway-helpers.js';
-import {INVALID_METHOD_LABEL, NO_METHOD_LABEL} from './audit.js';
 import {buildAgentToolsMcpServer, type IntegrationToolDispatchInput} from './mcp-server.js';
 import type {AuthorizedIntegrationToolMap} from './resolve-authorized-tools.js';
 
