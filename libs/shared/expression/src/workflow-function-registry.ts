@@ -16,7 +16,9 @@ const RANGE_FUNCTION_SIGNATURE = 'range(dyn, dyn, dyn): list<int>';
 const TO_JSON_FUNCTION_SIGNATURE = 'toJson(dyn): string';
 const FROM_JSON_FUNCTION_SIGNATURE = 'fromJson(string): dyn';
 const FIRST_FUNCTION_SIGNATURE = 'list<T>.first(): T';
+const DYNAMIC_FIRST_FUNCTION_SIGNATURE = 'list<dyn>.first(): dyn';
 const LAST_FUNCTION_SIGNATURE = 'list<T>.last(): T';
+const DYNAMIC_LAST_FUNCTION_SIGNATURE = 'list<dyn>.last(): dyn';
 
 interface WorkflowFunctionBudget {
   remainingRangeElements: number;
@@ -60,19 +62,48 @@ const workflowFunctionRegistry = [
   },
   {
     signature: FIRST_FUNCTION_SIGNATURE,
-    createHandler: (): RegisteredFunctionHandler => (value: readonly unknown[]) => {
-      if (value.length === 0) throw new RangeError('first() requires a non-empty list');
-      return value[0];
-    },
+    createHandler: (): RegisteredFunctionHandler => firstListElement,
+  },
+  {
+    signature: DYNAMIC_FIRST_FUNCTION_SIGNATURE,
+    createHandler: (): RegisteredFunctionHandler => firstListElement,
   },
   {
     signature: LAST_FUNCTION_SIGNATURE,
-    createHandler: (): RegisteredFunctionHandler => (value: readonly unknown[]) => {
-      if (value.length === 0) throw new RangeError('last() requires a non-empty list');
-      return value[value.length - 1];
-    },
+    createHandler: (): RegisteredFunctionHandler => lastListElement,
+  },
+  {
+    signature: DYNAMIC_LAST_FUNCTION_SIGNATURE,
+    createHandler: (): RegisteredFunctionHandler => lastListElement,
   },
 ] satisfies readonly WorkflowFunctionDefinition[];
+
+function firstListElement(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    if (value.length === 0) throw new RangeError('first() requires a non-empty list');
+    return value[0];
+  }
+  if (value instanceof Set) {
+    const first = value.values().next();
+    if (first.done) throw new RangeError('first() requires a non-empty list');
+    return first.value;
+  }
+  throw new TypeError('first() expects a list');
+}
+
+function lastListElement(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    if (value.length === 0) throw new RangeError('last() requires a non-empty list');
+    return value[value.length - 1];
+  }
+  if (value instanceof Set) {
+    if (value.size === 0) throw new RangeError('last() requires a non-empty list');
+    let last: unknown;
+    for (const element of value) last = element;
+    return last;
+  }
+  throw new TypeError('last() expects a list');
+}
 
 /**
  * Register the shared functions and return the budgets their handlers close over.

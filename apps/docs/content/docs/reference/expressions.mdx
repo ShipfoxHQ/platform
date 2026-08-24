@@ -103,8 +103,8 @@ passes.
 | `fromJson(string)` | `fromJson(event.payload)` | The JSON text parsed into a CEL value |
 
 `list.first()` and `list.last()` keep the element's type. Calling either method
-on an empty list causes an evaluation error, so a predicate using that value
-does not pass.
+on an empty list causes an evaluation error. Workflow job and step conditions
+record that outcome as errored rather than rejected.
 
 `range()` accepts a positive step and can materialize at most 1,000 values and
 1,000,000 context-byte fan-out units in one evaluation. `toJson()` can produce

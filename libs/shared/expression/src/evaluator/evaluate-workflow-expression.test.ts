@@ -124,9 +124,43 @@ describe('evaluateWorkflowExpression', () => {
   });
 
   it.each([
-    'first',
-    'last',
-  ] as const)('reports %s on an empty list as an evaluation failure', (method) => {
+    ['first', 'first'],
+    ['last', 'last'],
+  ] as const)('evaluates chained access after dynamic list %s', (method, expected) => {
+    const expression = createWorkflowExpression({
+      source: `event.values.${method}().label`,
+      check: {mode: 'syntax'},
+    });
+
+    const result = evaluateWorkflowExpression(expression, {
+      event: {values: [{label: 'first'}, {label: 'last'}]},
+    });
+
+    expect(result).toBe(expected);
+  });
+
+  it.each([
+    ['first', 'first'],
+    ['last', 'last'],
+  ] as const)('evaluates %s for a Set list value', (method, expected) => {
+    const expression = createWorkflowExpression({
+      source: `event.values.${method}()`,
+      check: {mode: 'syntax'},
+    });
+
+    const result = evaluateWorkflowExpression(expression, {
+      event: {values: new Set(['first', 'last'])},
+    });
+
+    expect(result).toBe(expected);
+  });
+
+  it.each([
+    ['first', 'array', []],
+    ['first', 'Set', new Set()],
+    ['last', 'array', []],
+    ['last', 'Set', new Set()],
+  ] as const)('reports %s on an empty %s as an evaluation failure', (method, _kind, values) => {
     const expression = createWorkflowExpression({
       source: `event.values.${method}()`,
       check: {
@@ -140,9 +174,11 @@ describe('evaluateWorkflowExpression', () => {
       },
     });
 
-    const evaluateEmpty = () => evaluateWorkflowExpression(expression, {event: {values: []}});
+    const evaluateEmpty = () => evaluateWorkflowExpression(expression, {event: {values}});
+    const failClosed = evaluateWorkflowPredicateFailClosed(expression, {event: {values}});
 
     expect(evaluateEmpty).toThrow(WorkflowExpressionEvaluationError);
+    expect(failClosed).toEqual({value: false, evaluationFailed: true});
   });
 
   it('gives each default-environment evaluation a full range budget', () => {
