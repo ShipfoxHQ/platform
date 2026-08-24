@@ -11,8 +11,37 @@ import {agentSystemNamespace, customCredentialsToStoreValues} from './credential
 import {ModelProviderConfigNotFoundError} from './errors.js';
 import {resolveRuntimeCredentials} from './resolve-runtime-credentials.js';
 
-const TRAILING_SLASHES_PATTERN = /\/+$/u;
-const TRAILING_API_VERSION_PATTERN = /(?:\/v1)+$/u;
+const managedGatewayBaseUrlVariants = [
+  'https://gateway.example.test/inference',
+  'https://gateway.example.test/inference/',
+  'https://gateway.example.test/inference/v1',
+  'https://gateway.example.test/inference/v1/',
+  'https://gateway.example.test/inference/v1/?tenant=staging#runtime',
+] as const;
+
+const expectedPiRequestUrls = {
+  'openai-responses': [
+    'https://gateway.example.test/inference/v1/responses',
+    'https://gateway.example.test/inference/v1/responses',
+    'https://gateway.example.test/inference/v1/responses',
+    'https://gateway.example.test/inference/v1/responses',
+    'https://gateway.example.test/inference/v1/responses',
+  ],
+  'openai-completions': [
+    'https://gateway.example.test/inference/v1/chat/completions',
+    'https://gateway.example.test/inference/v1/chat/completions',
+    'https://gateway.example.test/inference/v1/chat/completions',
+    'https://gateway.example.test/inference/v1/chat/completions',
+    'https://gateway.example.test/inference/v1/chat/completions',
+  ],
+  'anthropic-messages': [
+    'https://gateway.example.test/inference/v1/messages',
+    'https://gateway.example.test/inference/v1/messages',
+    'https://gateway.example.test/inference/v1/messages',
+    'https://gateway.example.test/inference/v1/messages',
+    'https://gateway.example.test/inference/v1/messages',
+  ],
+} satisfies Record<ManagedModelApi, readonly string[]>;
 
 describe('resolveRuntimeCredentials', () => {
   let workspaceId: string;
@@ -237,28 +266,19 @@ describe('resolveRuntimeCredentials', () => {
   });
 
   it.each([
-    {api: 'openai-responses', model: 'responses-model', path: '/responses'},
-    {api: 'openai-completions', model: 'plain-model', path: '/chat/completions'},
-    {api: 'anthropic-messages', model: 'claude-model', path: '/v1/messages'},
+    {api: 'openai-responses', model: 'responses-model'},
+    {api: 'openai-completions', model: 'plain-model'},
+    {api: 'anthropic-messages', model: 'claude-model'},
   ] satisfies readonly {
     api: ManagedModelApi;
     model: string;
-    path: string;
   }[])('composes the $api runtime response with the real Pi client URL construction', async ({
     api,
     model,
-    path,
   }) => {
     const resolveCredentials = vi.fn<ManagedModelProvider['resolveCredentials']>();
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('capture request'));
-    const baseUrls = [
-      'https://gateway.example.test/inference',
-      'https://gateway.example.test/inference/',
-      'https://gateway.example.test/inference/v1',
-      'https://gateway.example.test/inference/v1/',
-    ];
-
-    for (const baseUrl of baseUrls) {
+    for (const baseUrl of managedGatewayBaseUrlVariants) {
       resolveCredentials.mockResolvedValueOnce({
         api,
         baseUrl,
@@ -287,15 +307,76 @@ describe('resolveRuntimeCredentials', () => {
       });
     }
 
-    expect(fetchSpy.mock.calls.map(([input]) => String(input))).toEqual(
-      baseUrls.map((baseUrl) => {
-        const gatewayRoot = baseUrl
-          .replace(TRAILING_SLASHES_PATTERN, '')
-          .replace(TRAILING_API_VERSION_PATTERN, '');
-        const adapterBaseUrl = api === 'anthropic-messages' ? gatewayRoot : `${gatewayRoot}/v1`;
-        return `${adapterBaseUrl}${path}`;
-      }),
+    expect(fetchSpy.mock.calls.map(([input]) => String(input))).toEqual(expectedPiRequestUrls[api]);
+  });
+
+  it.each([
+    {
+      baseUrl: managedGatewayBaseUrlVariants[0],
+      expected: 'https://gateway.example.test/inference',
+    },
+    {
+      baseUrl: managedGatewayBaseUrlVariants[1],
+      expected: 'https://gateway.example.test/inference',
+    },
+    {
+      baseUrl: managedGatewayBaseUrlVariants[2],
+      expected: 'https://gateway.example.test/inference',
+    },
+    {
+      baseUrl: managedGatewayBaseUrlVariants[3],
+      expected: 'https://gateway.example.test/inference',
+    },
+    {
+      baseUrl: managedGatewayBaseUrlVariants[4],
+      expected: 'https://gateway.example.test/inference',
+    },
+  ])('normalizes the Claude client base URL for %s', async ({baseUrl, expected}) => {
+    const resolveCredentials = vi.fn<ManagedModelProvider['resolveCredentials']>();
+    resolveCredentials.mockResolvedValue({
+      api: 'anthropic-messages',
+      baseUrl,
+      credentials: {api_key: 'opaque-test-credential'},
+    });
+
+    const result = await resolveRuntimeCredentials(
+      {
+        workspaceId,
+        runId: crypto.randomUUID(),
+        stepAttemptId: crypto.randomUUID(),
+        harness: 'claude',
+        provider: 'shipfox',
+        model: 'claude-model',
+        thinking: 'high',
+      },
+      {managedProvider: managedProvider(resolveCredentials)},
     );
+
+    expect(result.claude?.base_url).toBe(expected);
+  });
+
+  it('uses Claude client URL semantics when a managed lease reports another API dialect', async () => {
+    const resolveCredentials = vi.fn<ManagedModelProvider['resolveCredentials']>();
+    resolveCredentials.mockResolvedValue({
+      api: 'openai-responses',
+      baseUrl: 'https://gateway.example.test/inference',
+      credentials: {api_key: 'opaque-test-credential'},
+    });
+
+    const result = await resolveRuntimeCredentials(
+      {
+        workspaceId,
+        runId: crypto.randomUUID(),
+        stepAttemptId: crypto.randomUUID(),
+        harness: 'claude',
+        provider: 'shipfox',
+        model: 'claude-model',
+        thinking: 'high',
+      },
+      {managedProvider: managedProvider(resolveCredentials)},
+    );
+
+    expect(result.claude?.base_url).toBe('https://gateway.example.test/inference');
   });
 
   it('prefers workspace credentials over the instance fallback', async () => {

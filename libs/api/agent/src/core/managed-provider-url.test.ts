@@ -22,14 +22,33 @@ describe.each([
     );
   });
 
-  it('preserves a deployment path prefix and URL components', () => {
-    expect(
-      managedProviderAdapterBaseUrl(
-        api,
-        'https://gateway.example.test/control-plane/inference/v1/?tenant=staging#runtime',
-      ),
-    ).toBe(
-      `https://gateway.example.test/control-plane${expectedPath === '/inference/v1' ? '/inference/v1' : '/inference'}?tenant=staging#runtime`,
+  it.each([
+    {
+      baseUrl: 'https://gateway.example.test/v1-team/inference',
+      expectedOpenAi: 'https://gateway.example.test/v1-team/inference/v1',
+      expectedAnthropic: 'https://gateway.example.test/v1-team/inference',
+    },
+    {
+      baseUrl: 'https://gateway.example.test/control-plane/inference/v1/v1',
+      expectedOpenAi: 'https://gateway.example.test/control-plane/inference/v1',
+      expectedAnthropic: 'https://gateway.example.test/control-plane/inference',
+    },
+    {
+      baseUrl: 'https://gateway.example.test/control-plane/inference/v1/?tenant=staging#runtime',
+      expectedOpenAi: 'https://gateway.example.test/control-plane/inference/v1',
+      expectedAnthropic: 'https://gateway.example.test/control-plane/inference',
+    },
+  ])('preserves path prefixes and produces a client-safe URL for %s', ({
+    baseUrl,
+    expectedOpenAi,
+    expectedAnthropic,
+  }) => {
+    expect(managedProviderAdapterBaseUrl(api, baseUrl)).toBe(
+      api === 'anthropic-messages' ? expectedAnthropic : expectedOpenAi,
     );
   });
+});
+
+it('passes malformed values through for runtime DTO validation', () => {
+  expect(managedProviderAdapterBaseUrl('openai-responses', 'not a url')).toBe('not a url');
 });

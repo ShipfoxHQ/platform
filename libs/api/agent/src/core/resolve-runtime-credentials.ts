@@ -201,14 +201,13 @@ function toResponse(
   if (managed !== undefined) {
     const model = managed.provider.models.find((candidate) => candidate.id === params.model);
     const modelDescriptor = toCustomAgentModelDto(model ?? {id: params.model, label: params.model});
+    const clientApi =
+      params.harness === 'claude' ? 'anthropic-messages' : managed.runtimeConfig.api;
 
     if (params.harness === 'pi') {
       response.custom_provider = {
         api: managed.runtimeConfig.api,
-        base_url: managedProviderAdapterBaseUrl(
-          managed.runtimeConfig.api,
-          managed.runtimeConfig.baseUrl,
-        ),
+        base_url: managedProviderAdapterBaseUrl(clientApi, managed.runtimeConfig.baseUrl),
         headers: [],
         secret_header_names: [],
         models: [modelDescriptor],
@@ -220,10 +219,7 @@ function toResponse(
         throw new ModelProviderConfigNotFoundError(params.workspaceId, params.provider);
       }
       response.claude = {
-        base_url: managedProviderAdapterBaseUrl(
-          managed.runtimeConfig.api,
-          managed.runtimeConfig.baseUrl,
-        ),
+        base_url: managedProviderAdapterBaseUrl(clientApi, managed.runtimeConfig.baseUrl),
         auth_token: authToken,
       };
     }
