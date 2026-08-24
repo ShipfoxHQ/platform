@@ -6,6 +6,17 @@ import {useEffect, useRef} from 'react';
 const JSDOM_USER_AGENT_RE = /jsdom/u;
 const CONFETTI_DURATION_MS = 2000;
 const CONFETTI_PARTICLE_COUNT = 48;
+const CONFETTI_RANDOM_SEED = 0x5f3759df;
+
+interface ConfettiParticle {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  rotation: number;
+  size: number;
+  color: string;
+}
 
 export function SetupChecklistCompletion({
   showBurst,
@@ -59,10 +70,8 @@ function ConfettiBurst({
       onComplete?.();
     };
 
-    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
-      finish();
-      return;
-    }
+    const prefersReducedMotion =
+      window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false;
     if (typeof navigator !== 'undefined' && JSDOM_USER_AGENT_RE.test(navigator.userAgent)) {
       finish();
       return;
@@ -102,29 +111,22 @@ function ConfettiBurst({
       finish();
       return;
     }
-    const palette = colors;
-    const particles = Array.from({length: CONFETTI_PARTICLE_COUNT}, (_, index) => ({
-      x: width / 2 + (Math.random() - 0.5) * width * 0.55,
-      y: height * (0.4 + Math.random() * 0.15),
-      vx: (Math.random() - 0.5) * 2.5,
-      vy: -(Math.random() * 0.7 + 0.4),
-      rotation: Math.random() * Math.PI,
-      size: Math.random() * 5 + 5,
-      color: palette[index % palette.length] ?? palette[0] ?? '',
-    }));
+    const particles = createConfettiParticles(width, height, colors);
     let frame = 0;
-    let startedAt = performance.now();
+    const startedAt = performance.now();
 
-    const draw = (now: number) => {
+    const draw = (now: number, advance = true) => {
       const elapsed = now - startedAt;
       context.clearRect(0, 0, width, height);
       context.globalAlpha = Math.max(0, 1 - elapsed / CONFETTI_DURATION_MS);
       for (const particle of particles) {
-        particle.vy += 0.025;
-        particle.vx *= 0.985;
-        particle.x += particle.vx;
-        particle.y += particle.vy;
-        particle.rotation += 0.1;
+        if (advance) {
+          particle.vy += 0.025;
+          particle.vx *= 0.985;
+          particle.x += particle.vx;
+          particle.y += particle.vy;
+          particle.rotation += 0.1;
+        }
         context.save();
         context.translate(particle.x, particle.y);
         context.rotate(particle.rotation);
@@ -138,6 +140,7 @@ function ConfettiBurst({
         context.restore();
       }
       context.globalAlpha = 1;
+      if (!advance) return;
       if (elapsed < CONFETTI_DURATION_MS) {
         frame = requestAnimationFrame(draw);
       } else {
@@ -145,7 +148,14 @@ function ConfettiBurst({
       }
     };
 
-    startedAt = performance.now();
+    if (prefersReducedMotion) {
+      draw(startedAt, false);
+      finish();
+      return () => {
+        context.clearRect(0, 0, width, height);
+      };
+    }
+
     frame = requestAnimationFrame(draw);
     return () => {
       cancelAnimationFrame(frame);
@@ -158,4 +168,31 @@ function ConfettiBurst({
       <canvas ref={canvasRef} className="size-full" />
     </div>
   );
+}
+
+export function createConfettiParticles(
+  width: number,
+  height: number,
+  palette: readonly string[],
+): ConfettiParticle[] {
+  const random = createSeededRandom(CONFETTI_RANDOM_SEED);
+
+  return Array.from({length: CONFETTI_PARTICLE_COUNT}, (_, index) => ({
+    x: width / 2 + (random() - 0.5) * width * 0.55,
+    y: height * (0.4 + random() * 0.15),
+    vx: (random() - 0.5) * 2.5,
+    vy: -(random() * 0.7 + 0.4),
+    rotation: random() * Math.PI,
+    size: random() * 5 + 5,
+    color: palette[index % palette.length] ?? palette[0] ?? '',
+  }));
+}
+
+function createSeededRandom(seed: number): () => number {
+  let state = seed >>> 0;
+
+  return () => {
+    state = (Math.imul(state, 1_664_525) + 1_013_904_223) >>> 0;
+    return state / 2 ** 32;
+  };
 }

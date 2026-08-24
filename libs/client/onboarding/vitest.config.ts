@@ -48,6 +48,8 @@ function createStorybookProject() {
           launchOptions: {
             args: ['--disable-lcd-text', '--font-render-hinting=none'],
           },
+          // The completion burst uses requestAnimationFrame, so visual captures need a static frame.
+          contextOptions: {reducedMotion: 'reduce'},
         }),
         instances: [{browser: 'chromium' as const}],
       },
