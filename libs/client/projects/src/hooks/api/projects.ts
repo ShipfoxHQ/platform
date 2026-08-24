@@ -314,7 +314,10 @@ export async function readWorkspaceHasNoProject({
 }): Promise<boolean> {
   const options = projectExistenceQueryOptions(workspaceId);
   try {
-    const data = await queryClient.fetchQuery(options);
+    // The landing decision must not trust fresh-but-stale existence data
+    // (e.g. a project created in another tab inside the 30s staleTime window),
+    // so force a fresh read for this check.
+    const data = await queryClient.fetchQuery({...options, staleTime: 0});
     return data.projects.length === 0;
   } catch {
     const cached = queryClient.getQueryData<ProjectList>(options.queryKey);
