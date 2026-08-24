@@ -560,6 +560,30 @@ describe('HttpGiteaApiClient', () => {
     });
   });
 
+  it('bounds a large client error response body before surfacing it', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({message: 'x'.repeat(20_000)}), {
+        status: 422,
+        headers: {'content-type': 'application/json'},
+      }),
+    );
+    const client = createGiteaApiClient();
+
+    const result = client.createIssueComment({
+      owner: 'shipfox',
+      repo: 'platform',
+      index: 3,
+      body: 'Hello',
+    });
+
+    const error = await result.catch((cause: unknown) => cause);
+
+    expect(error).toMatchObject({reason: 'provider-rejected', status: 422});
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message.startsWith('Gitea responded 422:')).toBe(true);
+    expect((error as Error).message.length).toBeLessThan(600);
+  });
+
   it('rejects a comment response missing required fields', async () => {
     fetchMock.mockResolvedValue(jsonResponse({id: 11, body: 'Hello'}));
     const client = createGiteaApiClient();

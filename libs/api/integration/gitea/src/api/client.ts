@@ -437,7 +437,7 @@ async function giteaResponseErrorMessage(response: Response, fallback: string): 
 }
 
 async function readBoundedResponseText(response: Response): Promise<string> {
-  const body = response.clone().body;
+  const body = response.body;
   if (!body) return '';
 
   const reader = body.getReader();
