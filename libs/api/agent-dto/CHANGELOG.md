@@ -1,5 +1,18 @@
 # @shipfox/api-agent-dto
 
+## 16.0.0
+
+### Major Changes
+
+- 03e03c7: Defines managed-provider `baseUrl` as a gateway mount root and normalizes it
+  for client requests. Providers that previously returned client-ready bases must
+  migrate to return the gateway root before upgrading.
+
+### Patch Changes
+
+- Updated dependencies [117edfd]
+  - @shipfox/workflow-document@3.3.0
+
 ## 15.0.0
 
 ### Minor Changes

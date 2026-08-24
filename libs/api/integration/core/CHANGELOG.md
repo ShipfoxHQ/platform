@@ -1,5 +1,27 @@
 # @shipfox/api-integration-core
 
+## 16.0.0
+
+### Minor Changes
+
+- 568c90b: Adds the inter-module `callTool` method for server-executed integration tool calls, tagged with the caller on the audit line and the `integrations_agent_tool_call` metric.
+
+### Patch Changes
+
+- Updated dependencies [568c90b]
+- Updated dependencies [03e03c7]
+  - @shipfox/api-integration-core-dto@16.0.0
+  - @shipfox/api-agent-dto@16.0.0
+  - @shipfox/api-integration-spi@2.0.2
+  - @shipfox/api-workflows-dto@16.0.0
+  - @shipfox/api-integration-gitea@16.0.0
+  - @shipfox/api-integration-github@16.0.0
+  - @shipfox/api-integration-jira@16.0.0
+  - @shipfox/api-integration-linear@16.0.0
+  - @shipfox/api-integration-sentry@16.0.0
+  - @shipfox/api-integration-slack@16.0.0
+  - @shipfox/api-integration-webhook@16.0.0
+
 ## 15.0.0
 
 ### Patch Changes

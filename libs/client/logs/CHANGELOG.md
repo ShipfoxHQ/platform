@@ -1,5 +1,12 @@
 # @shipfox/client-logs
 
+## 25.0.0
+
+### Patch Changes
+
+- Updated dependencies [64155fb]
+  - @shipfox/api-logs-dto@16.0.0
+
 ## 22.0.3
 
 ### Patch Changes

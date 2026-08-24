@@ -1,5 +1,23 @@
 # @shipfox/client-integrations
 
+## 25.0.0
+
+### Patch Changes
+
+- Updated dependencies [568c90b]
+- Updated dependencies [af27652]
+- Updated dependencies [f57bcc3]
+  - @shipfox/api-integration-core-dto@16.0.0
+  - @shipfox/client-shell@25.0.0
+  - @shipfox/api-integration-gitea-dto@16.0.0
+  - @shipfox/api-integration-github-dto@16.0.0
+  - @shipfox/api-integration-jira-dto@16.0.0
+  - @shipfox/api-integration-linear-dto@16.0.0
+  - @shipfox/api-integration-sentry-dto@16.0.0
+  - @shipfox/api-integration-slack-dto@16.0.0
+  - @shipfox/api-integration-webhook-dto@16.0.0
+  - @shipfox/client-auth@25.0.0
+
 ## 24.0.0
 
 ### Patch Changes

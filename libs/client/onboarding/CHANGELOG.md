@@ -1,5 +1,23 @@
 # @shipfox/client-onboarding
 
+## 25.0.0
+
+### Minor Changes
+
+- f57bcc3: Adds the workspace setup checklist panel and top-bar indicator.
+
+### Patch Changes
+
+- de25460: Makes the onboarding completion burst deterministic in reduced-motion environments.
+- Updated dependencies [af27652]
+- Updated dependencies [f57bcc3]
+  - @shipfox/client-shell@25.0.0
+  - @shipfox/client-integrations@25.0.0
+  - @shipfox/client-projects@25.0.0
+  - @shipfox/client-agent@25.0.0
+  - @shipfox/client-runners@25.0.0
+  - @shipfox/client-workspace-settings@25.0.0
+
 ## 24.0.0
 
 ### Patch Changes
