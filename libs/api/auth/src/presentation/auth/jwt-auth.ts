@@ -7,6 +7,7 @@ import {
 } from '@shipfox/api-auth-context';
 import {userAccessTokenKey} from '@shipfox/node-auth-root-key';
 import {type AuthMethod, ClientError} from '@shipfox/node-fastify';
+import {enrichSpanWithMetadata} from '@shipfox/node-opentelemetry';
 import type {FastifyRequest} from 'fastify';
 import type {RefreshToken} from '#core/entities/refresh-token.js';
 import type {User} from '#core/entities/user.js';
@@ -85,15 +86,32 @@ export function createJwtAuthMethod(): AuthMethod {
     },
     isInvalidTokenError: (error) => error instanceof InvalidJwtTokenError,
     invalidTokenError: {message: 'Invalid or expired token', code: 'unauthorized'},
-    setContext: (request, claims) => {
+    setContext: (request, claims, reply) => {
       const clientContext: ClientContext = buildUserContext({
         userId: claims.sub,
         email: claims.email,
         name: claims.name ?? null,
         memberships: claims.memberships,
+        impersonatorId: claims.impersonatorId,
       });
       setUserContext(request, clientContext);
       setAuthenticatedSessionContext(request, claims);
+      if (claims.impersonatorId !== undefined) {
+        const impersonatorId = claims.impersonatorId;
+        // Marked sessions must stay attributable: bind the marker on the
+        // request logger and on the reply logger (Fastify captured the reply's
+        // logger before hooks ran), and on the request span rather than the
+        // short-lived hook span.
+        const markedLogger = request.log.child({impersonatorId});
+        request.log = markedLogger;
+        if (reply) {
+          reply.log = markedLogger;
+        }
+        const requestSpan = request.opentelemetry?.().span;
+        if (requestSpan) {
+          enrichSpanWithMetadata({impersonatorId}, {span: requestSpan});
+        }
+      }
     },
   });
 }

@@ -1,5 +1,5 @@
 import {type AuthMethod, ClientError, extractBearerToken} from '@shipfox/node-fastify';
-import type {FastifyRequest} from 'fastify';
+import type {FastifyReply, FastifyRequest} from 'fastify';
 
 interface UnauthorizedErrorParams {
   message: string;
@@ -11,7 +11,7 @@ interface BearerTokenAuthMethodOptions<TClaims> {
   verifyToken: (token: string) => Promise<TClaims | null>;
   isInvalidTokenError?: (error: unknown) => boolean;
   invalidTokenError: UnauthorizedErrorParams;
-  setContext: (request: FastifyRequest, claims: TClaims) => void;
+  setContext: (request: FastifyRequest, claims: TClaims, reply?: FastifyReply) => void;
 }
 
 const missingBearerError: UnauthorizedErrorParams = {
@@ -24,7 +24,7 @@ export function createBearerTokenAuthMethod<TClaims>(
 ): AuthMethod {
   return {
     name: options.name,
-    authenticate: async (request) => {
+    authenticate: async (request, reply) => {
       const token = extractBearerToken(request.headers.authorization);
       if (!token) throwUnauthorized(missingBearerError);
 
@@ -35,7 +35,7 @@ export function createBearerTokenAuthMethod<TClaims>(
       );
       if (!claims) throwUnauthorized(options.invalidTokenError);
 
-      options.setContext(request, claims);
+      options.setContext(request, claims, reply);
     },
   };
 }

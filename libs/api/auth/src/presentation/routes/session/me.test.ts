@@ -35,6 +35,30 @@ describe('GET /auth/me', () => {
     expect(res.statusCode).toBe(200);
     expect(res.json().user.email).toBe(account.email);
     expect(res.json().admin_role).toBeNull();
+    expect(res.json().impersonator_id).toBeUndefined();
+  });
+
+  test('returns impersonator_id for a marked session token', async () => {
+    const account = await createVerifiedSession('me-impersonated');
+    const impersonatorId = crypto.randomUUID();
+    const token = await signUserToken({
+      userId: account.userId,
+      impersonatorId,
+      email: account.email,
+      memberships: [],
+      secret: ROUTE_TEST_SECRET,
+      expiresIn: '15m',
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/auth/me',
+      headers: {authorization: `Bearer ${token}`},
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().user.email).toBe(account.email);
+    expect(res.json().impersonator_id).toBe(impersonatorId);
   });
 
   test('returns the current Auth-owned role for dashboard presentation', async () => {

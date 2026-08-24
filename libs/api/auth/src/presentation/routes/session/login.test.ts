@@ -1,8 +1,10 @@
 import type {FastifyInstance} from 'fastify';
+import {verifyUserToken} from '#core/jwt.js';
 import {
   createAuthTestApp,
   listMembershipsByUserMock,
   login,
+  ROUTE_TEST_SECRET,
   resetCapturedMail,
   signup,
   uniqueEmail,
@@ -36,6 +38,9 @@ describe('POST /auth/login', () => {
     expect(res.json().token).toBeDefined();
     expect(res.json().user.email).toBe(email);
     expect(res.json().admin_role).toBeNull();
+    expect(res.json().impersonator_id).toBeUndefined();
+    const claims = await verifyUserToken({token: res.json().token, secret: ROUTE_TEST_SECRET});
+    expect(claims.impersonatorId).toBeUndefined();
     expect(res.headers['set-cookie']).toContain('shipfox_refresh_token=');
     expect(res.headers['set-cookie']).toContain('HttpOnly');
     expect(res.headers['set-cookie']).toContain('Secure');
