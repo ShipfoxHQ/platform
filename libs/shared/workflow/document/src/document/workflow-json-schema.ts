@@ -4,6 +4,7 @@ import {
   WORKFLOW_LITERAL_NAME_PATTERN,
   workflowDocumentAgentStepFields,
   workflowDocumentSchema,
+  workflowDocumentStepOutputDeclarationSchema,
 } from './workflow-document.js';
 
 type JsonSchema = Record<string, unknown>;
@@ -28,7 +29,12 @@ export function buildWorkflowJsonSchema({
   const thinkingEnumBranch = thinkingBranches.find((branch) => Array.isArray(branch.enum)) ?? {};
   const thinkingTemplateBranches = thinkingBranches.filter((branch) => !Array.isArray(branch.enum));
 
+  // The reserved step fields (`agent` and the tool step fields) stay out of
+  // the editor schema until they are authorable.
   delete stepProperties.agent;
+  delete stepProperties.tool;
+  delete stepProperties.connection;
+  delete stepProperties.with;
   projectWorkflowValidation(schema, stepSchema);
   const thinkingConditionals = (['pi', 'claude'] as const).map((harness) => {
     const conditional: JsonSchema = {
@@ -116,6 +122,17 @@ function projectWorkflowValidation(schema: JsonSchema, stepSchema: JsonSchema) {
 
   const gate = object(propertiesOf(stepSchema).gate);
   addAtLeastOneConstraint(gate, ['success', 'on_failure']);
+
+  // The step `outputs` field also accepts the reserved tool-step mapping form;
+  // the editor schema keeps describing the declaration form until tool steps
+  // are enabled.
+  const outputs = object(propertiesOf(stepSchema).outputs);
+  outputs.additionalProperties = z.toJSONSchema(workflowDocumentStepOutputDeclarationSchema, {
+    io: 'input',
+    unrepresentable: 'any',
+  });
+  const additionalProperties = outputs.additionalProperties as JsonSchema;
+  delete additionalProperties.$schema;
 }
 
 function addLiteralNamePattern(schema: JsonSchema | undefined) {

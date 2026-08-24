@@ -4,7 +4,7 @@ import {buildWorkflowJsonSchema} from './workflow-json-schema.js';
 type JsonSchema = Record<string, unknown>;
 
 describe('buildWorkflowJsonSchema', () => {
-  it('publishes input declarations without the reserved agent key', () => {
+  it('publishes input declarations without the reserved keys', () => {
     const schema = buildWorkflowJsonSchema();
     const step = stepSchemaFor(schema);
     const output = object(object(object(step.properties).outputs).additionalProperties);
@@ -14,7 +14,11 @@ describe('buildWorkflowJsonSchema', () => {
       $id: 'https://www.shipfox.io/docs/workflow.schema.json',
       title: 'Shipfox Workflow',
     });
-    expect(object(step.properties)).not.toHaveProperty('agent');
+    const stepProperties = object(step.properties);
+    expect(stepProperties).not.toHaveProperty('agent');
+    expect(stepProperties).not.toHaveProperty('tool');
+    expect(stepProperties).not.toHaveProperty('connection');
+    expect(stepProperties).not.toHaveProperty('with');
     expect(output.anyOf).toEqual(
       expect.arrayContaining([
         expect.objectContaining({enum: ['string', 'number', 'boolean', 'json']}),

@@ -160,7 +160,12 @@ parseWorkflowDocument({
   is validated against a fixed set (`off`, `minimal`, `low`, `medium`, `high`,
   `xhigh`). Provider, model, tool, integration connection, and integration
   catalog checks belong to the model layer, not this parser. The `agent` key is
-  reserved for a future step kind and is rejected today.
+  reserved for a future step kind and is rejected today. The `tool`,
+  `connection`, and `with` fields and the expression `outputs` mapping form are
+  reserved for the upcoming tool step kind; any step carrying `tool` is
+  rejected with "Tool steps are not available yet." Their shape still parses:
+  `with` is a JSON tree of tool inputs limited to 32768 serialized bytes and 16
+  nesting levels, and its `method` key is rejected.
 - `env` can be declared on the workflow, a job, or a run step. Values may be
   strings, numbers, or booleans; the model layer stringifies numbers and
   booleans before a run is saved. Values are literal. Expression interpolation

@@ -16,7 +16,10 @@ export class InvalidWorkflowDocumentError extends Error {
 
 export function parseWorkflowDocument(input: unknown): WorkflowDocument {
   const result = workflowDocumentSchema.safeParse(input);
-  if (result.success) return result.data;
+  if (result.success) return result.data as WorkflowDocument;
 
-  throw new InvalidWorkflowDocumentError(result.error);
+  // The step schema also parses the reserved tool-step `outputs` mapping form;
+  // every successful parse still carries only declaration-form outputs, so the
+  // widened schema output and error types narrow to the exported types here.
+  throw new InvalidWorkflowDocumentError(result.error as z.ZodError<WorkflowDocument>);
 }

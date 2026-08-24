@@ -6,6 +6,8 @@ import {
   WORKFLOW_DOCUMENT_STEP_OUTPUT_SCHEMA_MAX_DEPTH,
   WORKFLOW_DOCUMENT_STEP_OUTPUT_SCHEMA_MAX_SERIALIZED_BYTES,
   WORKFLOW_DOCUMENT_STEP_OUTPUTS_MAX_ENTRIES,
+  WORKFLOW_DOCUMENT_TOOL_WITH_MAX_DEPTH,
+  WORKFLOW_DOCUMENT_TOOL_WITH_MAX_SERIALIZED_BYTES,
   workflowDocumentSchema,
 } from './workflow-document.js';
 
@@ -1150,6 +1152,14 @@ describe('workflowDocumentSchema', () => {
     ['model on a run step', {run: 'npm test', model: 'claude-opus-4-8'}],
     ['neither run nor agent', {name: 'noop'}],
     ['reserved agent keyword', {agent: 'producer', model: 'claude-opus-4-8', prompt: 'Fix.'}],
+    ['reserved tool step', {tool: 'send_message'}],
+    ['reserved tool step with connection', {tool: 'send_message', connection: 'slack_acme'}],
+    ['reserved tool step with with', {tool: 'send_message', with: {channel_id: 'C0ABC12345'}}],
+    [
+      'reserved tool step with outputs mapping',
+      {tool: 'get_issue', outputs: {id: interpolation('result.id')}},
+    ],
+    ['tool step on a run step', {run: 'npm test', tool: 'send_message'}],
     ['thinking on a run step', {run: 'npm test', thinking: 'high'}],
     ['harness on a run step', {run: 'npm test', harness: 'pi'}],
     ['provider on a run step', {run: 'npm test', provider: 'openai'}],
@@ -1195,6 +1205,107 @@ describe('workflowDocumentSchema', () => {
 
     const messages = result.success ? [] : result.error.issues.map((issue) => issue.message);
     expect(messages.some((message) => message.includes('reserved'))).toBe(true);
+  });
+
+  it('reports a clear message for reserved tool step fields', () => {
+    const result = workflowDocumentSchema.safeParse({
+      name: 'tool build',
+      jobs: {
+        fix: {
+          steps: [
+            {
+              tool: 'send_message',
+              connection: 'slack_acme',
+              with: {channel_id: 'C0ABC12345'},
+              outputs: {ts: interpolation('result.ts')},
+            },
+          ],
+        },
+      },
+    });
+
+    const messages = result.success ? [] : result.error.issues.map((issue) => issue.message);
+    expect(messages.some((message) => message.includes('not available yet'))).toBe(true);
+  });
+
+  it('rejects a method key in a reserved tool step `with` map', () => {
+    const result = workflowDocumentSchema.safeParse({
+      name: 'tool build',
+      jobs: {fix: {steps: [{tool: 'issue_write.update', with: {method: 'update'}}]}},
+    });
+
+    const issue = result.success
+      ? undefined
+      : result.error.issues.find(
+          (candidate) => candidate.path.join('.') === 'jobs.fix.steps.0.with.method',
+        );
+    expect(issue?.message).toBe(
+      '`method` is not a valid tool input; the server injects it for `family.method` tools.',
+    );
+  });
+
+  it('rejects reserved tool step `with` maps that exceed the byte cap', () => {
+    const result = workflowDocumentSchema.safeParse({
+      name: 'tool build',
+      jobs: {
+        fix: {
+          steps: [
+            {
+              tool: 'send_message',
+              with: {message: 'x'.repeat(WORKFLOW_DOCUMENT_TOOL_WITH_MAX_SERIALIZED_BYTES)},
+            },
+          ],
+        },
+      },
+    });
+
+    const issue = result.success
+      ? undefined
+      : result.error.issues.find(
+          (candidate) => candidate.path.join('.') === 'jobs.fix.steps.0.with',
+        );
+    expect(issue?.message).toBe(
+      `Tool \`with\` cannot serialize to more than ${WORKFLOW_DOCUMENT_TOOL_WITH_MAX_SERIALIZED_BYTES} bytes.`,
+    );
+  });
+
+  it('rejects reserved tool step `with` maps nested deeper than the depth cap', () => {
+    let withValue: unknown = {leaf: 'value'};
+    for (let index = 0; index < WORKFLOW_DOCUMENT_TOOL_WITH_MAX_DEPTH; index += 1) {
+      withValue = {nested: withValue};
+    }
+
+    const result = workflowDocumentSchema.safeParse({
+      name: 'tool build',
+      jobs: {fix: {steps: [{tool: 'get_issue', with: withValue}]}},
+    });
+
+    const issue = result.success
+      ? undefined
+      : result.error.issues.find(
+          (candidate) => candidate.path.join('.') === 'jobs.fix.steps.0.with',
+        );
+    expect(issue?.message).toBe(
+      `Tool \`with\` cannot be nested deeper than ${WORKFLOW_DOCUMENT_TOOL_WITH_MAX_DEPTH} levels.`,
+    );
+  });
+
+  it('rejects the expression-mapped outputs form on non-tool steps', () => {
+    const result = workflowDocumentSchema.safeParse({
+      name: 'typed outputs',
+      jobs: {
+        build: {
+          steps: [{run: 'npm run build', outputs: {sha: interpolation('steps.build.outputs.sha')}}],
+        },
+      },
+    });
+
+    const issue = result.success
+      ? undefined
+      : result.error.issues.find(
+          (candidate) => candidate.path.join('.') === 'jobs.build.steps.0.outputs',
+        );
+    expect(issue?.message).toBe('The `outputs` mapping form is reserved for tool steps.');
   });
 
   it('reports a missing-prompt message on the prompt path', () => {
