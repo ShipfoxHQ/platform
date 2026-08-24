@@ -162,6 +162,12 @@ export interface ManualWorkflowLaunch {
   workflowRunId: string;
 }
 
+export interface DevRunLaunch {
+  workflowRunId: string;
+  /** The commit the dev definition was read from, as the server pinned it. */
+  commit: string;
+}
+
 export function workflowRunTriggerLabel({
   triggerSource,
   triggerEvent,

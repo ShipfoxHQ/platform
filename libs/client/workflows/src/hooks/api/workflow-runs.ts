@@ -161,7 +161,7 @@ export async function fireManualWorkflow({
 const ACTIVE_POLL_MS = 4_000;
 const IDLE_POLL_MS = 30_000;
 
-type RunListInfinite = InfiniteData<WorkflowRunListPage, string | undefined>;
+export type RunListInfinite = InfiniteData<WorkflowRunListPage, string | undefined>;
 
 export function useWorkflowRunsInfiniteQuery(
   projectId: string | undefined,
@@ -379,7 +379,7 @@ function buildTempRun({
   };
 }
 
-function cryptoRandomId(): string {
+export function cryptoRandomId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
   }
@@ -477,7 +477,7 @@ export function useFireManualWorkflowMutation() {
   });
 }
 
-function readFiltersFromKey(queryKey: readonly unknown[]): WorkflowRunFilters | null {
+export function readFiltersFromKey(queryKey: readonly unknown[]): WorkflowRunFilters | null {
   if (queryKey.length < 4) return null;
   const normalized = queryKey[3];
   if (!normalized || typeof normalized !== 'object') return null;

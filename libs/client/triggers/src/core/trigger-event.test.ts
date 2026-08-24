@@ -10,20 +10,29 @@ describe('trigger event policies', () => {
     const filters = normalizeTriggerEventFilters({
       source: ['github', 'gitea', 'github'],
       event: ['push', 'pull_request', 'push'],
+      origin: ['integration', 'dev', 'integration'],
       outcome: ['routed', 'failed', 'routed'],
+      replayable: true,
     });
 
     expect(filters).toEqual({
       source: ['gitea', 'github'],
       event: ['pull_request', 'push'],
+      origin: ['dev', 'integration'],
       outcome: ['failed', 'routed'],
       from: null,
       to: null,
+      replayable: true,
     });
   });
 
   test('treats empty arrays as no active filters', () => {
     expect(hasTriggerEventFilters({source: [], event: [], outcome: []})).toBe(false);
+  });
+
+  test('treats replayable as an active filter', () => {
+    expect(hasTriggerEventFilters({replayable: true})).toBe(true);
+    expect(hasTriggerEventFilters({origin: []})).toBe(false);
   });
 
   test('preserves the failed result filter as both failure outcomes', () => {

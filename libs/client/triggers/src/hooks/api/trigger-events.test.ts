@@ -53,7 +53,15 @@ describe('triggerEventsQueryKeys', () => {
       'list',
       workspaceId,
       50,
-      {source: null, event: null, outcome: null, from: null, to: null},
+      {
+        source: null,
+        event: null,
+        origin: null,
+        outcome: null,
+        from: null,
+        to: null,
+        replayable: null,
+      },
     ]);
     expect(key.slice(0, 3)).toEqual(triggerEventsQueryKeys.lists(workspaceId));
   });
@@ -76,9 +84,11 @@ describe('triggerEventsQueryKeys', () => {
     const allUndefined = triggerEventsQueryKeys.list(workspaceId, {
       source: undefined,
       event: undefined,
+      origin: undefined,
       outcome: undefined,
       from: undefined,
       to: undefined,
+      replayable: undefined,
     });
 
     expect(allUndefined).toEqual(empty);
@@ -98,6 +108,26 @@ describe('triggerEventsQueryKeys', () => {
     const key = triggerEventsQueryKeys.list(workspaceId, {source: [], event: []});
 
     expect(key[4]).toMatchObject({source: null, event: null});
+  });
+
+  test('normalizes origin and replayable so equivalent filters share a key', () => {
+    const workspaceId = WORKSPACE_ID;
+
+    const replayable = triggerEventsQueryKeys.list(workspaceId, {
+      origin: ['integration'],
+      replayable: true,
+    });
+    const equivalent = triggerEventsQueryKeys.list(workspaceId, {
+      origin: ['integration', 'integration'],
+      replayable: true,
+    });
+    const withoutReplayable = triggerEventsQueryKeys.list(workspaceId, {
+      origin: ['integration'],
+    });
+
+    expect(replayable).toEqual(equivalent);
+    expect(replayable[4]).toMatchObject({origin: ['integration'], replayable: true});
+    expect(withoutReplayable[4]).toMatchObject({replayable: null});
   });
 
   test('sorts and de-duplicates outcome so filter order does not split the cache', () => {
@@ -187,9 +217,11 @@ describe('listTriggerEvents', () => {
       filters: {
         source: ['github', 'gitea'],
         event: ['push', 'pull_request'],
+        origin: ['integration'],
         outcome: ['routed', 'failed'],
         from: '2026-06-01T00:00:00.000Z',
         to: '2026-06-22T00:00:00.000Z',
+        replayable: true,
       },
     });
 
@@ -198,9 +230,11 @@ describe('listTriggerEvents', () => {
     expect(url.searchParams.get('cursor')).toBe('cursor-abc');
     expect(url.searchParams.get('source')).toBe('gitea,github');
     expect(url.searchParams.get('event')).toBe('pull_request,push');
+    expect(url.searchParams.get('origin')).toBe('integration');
     expect(url.searchParams.get('from')).toBe('2026-06-01T00:00:00.000Z');
     expect(url.searchParams.get('to')).toBe('2026-06-22T00:00:00.000Z');
     expect(url.searchParams.get('outcome')).toBe('failed,routed');
+    expect(url.searchParams.get('replayable')).toBe('true');
   });
 
   test('omits list params when the filter arrays are empty', async () => {
@@ -212,7 +246,9 @@ describe('listTriggerEvents', () => {
     const url = new URL(requestFrom(fetchImpl).url);
     expect(url.searchParams.has('source')).toBe(false);
     expect(url.searchParams.has('event')).toBe(false);
+    expect(url.searchParams.has('origin')).toBe(false);
     expect(url.searchParams.has('outcome')).toBe(false);
+    expect(url.searchParams.has('replayable')).toBe(false);
   });
 
   test('sorts and de-duplicates the serialized outcome param', async () => {

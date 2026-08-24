@@ -1,5 +1,13 @@
 export type {
+  DefinitionAtRefDiagnostic,
+  DefinitionAtRefFile,
+  DefinitionAtRefListing,
+  DefinitionAtRefTrigger,
+  DefinitionAtRefWarning,
+} from '#core/definitions-at-ref.js';
+export type {
   AgentConfigIssue,
+  DevRunLaunch,
   JobDisplayDuration,
   JobDisplayStatus,
   JobExecutionDisplayDuration,
@@ -36,6 +44,21 @@ export {
   WORKFLOW_RUN_STATUSES,
   workflowRunTriggerLabel,
 } from '#core/workflow-run.js';
+export {
+  type DefinitionsAtRefErrorCopy,
+  definitionsAtRefErrorCopy,
+  definitionsAtRefQueryKeys,
+  definitionsAtRefQueryOptions,
+  listDefinitionsAtRef,
+  useDefinitionsAtRefQuery,
+} from './hooks/api/definitions-at-ref.js';
+export {
+  type CreateDevRunVariables,
+  createDevRun,
+  type DevRunErrorCopy,
+  devRunErrorCopy,
+  useCreateDevRunMutation,
+} from './hooks/api/dev-runs.js';
 export {
   type FireManualWorkflowVariables,
   fireManualWorkflow,
