@@ -5,10 +5,15 @@ import {
   GITHUB_STATELESS_INSTALLATION_TOKEN,
   githubInstallationFactory,
 } from '#test/index.js';
-import {encodeInstallationTokenEnvelope} from './installation-token-envelope.js';
+import {
+  encodeInstallationTokenEnvelope,
+  githubInstallationTokenNamespace,
+} from './installation-token-envelope.js';
 import {createGithubInstallationTokenProvider} from './installation-token-provider.js';
 
 const GITHUB_INSTALLATION_TOKEN_PATTERN = /^ghs_[A-Za-z0-9._-]{36,}$/u;
+const GITHUB_SCOPED_TOKEN_NAMESPACE_PATTERN =
+  /^system\/github\/installation-token\/\d+\/scope\/[0-9a-f]+$/u;
 
 const {
   appOptions,
@@ -151,6 +156,27 @@ describe('GithubInstallationTokenProvider', () => {
     expect(createInstallationAccessTokenMock).toHaveBeenCalledTimes(2);
   });
 
+  it('re-mints instead of serving a token past its expiry', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-10T11:00:00.000Z'));
+    createInstallationAccessTokenMock
+      .mockResolvedValueOnce({
+        data: {token: 'ghs_first', expires_at: '2026-06-10T12:00:00.000Z'},
+      })
+      .mockResolvedValueOnce({
+        data: {token: 'ghs_second', expires_at: '2026-06-10T13:00:00.000Z'},
+      });
+    const provider = createGithubInstallationTokenProvider();
+
+    const first = await provider.getInstallationAccessToken(1);
+    vi.setSystemTime(new Date('2026-06-10T12:30:00.000Z'));
+    const second = await provider.getInstallationAccessToken(1);
+
+    expect(first.token).toBe('ghs_first');
+    expect(second.token).toBe('ghs_second');
+    expect(createInstallationAccessTokenMock).toHaveBeenCalledTimes(2);
+  });
+
   it('dedupes concurrent cold-cache mints for one installation', async () => {
     let resolveMint: (
       value: Awaited<ReturnType<typeof createInstallationAccessTokenMock>>,
@@ -278,6 +304,20 @@ describe('GithubInstallationTokenProvider', () => {
     });
   });
 
+  it('maps a scoped mint 404 to access-denied instead of installation-not-found', async () => {
+    createInstallationAccessTokenMock.mockRejectedValue(new RequestErrorMock('Not Found', 404));
+    const provider = createGithubInstallationTokenProvider();
+
+    const result = provider.getInstallationAccessToken(1, {
+      repositoryId: 456,
+      permissions: {contents: 'write'},
+    });
+
+    await expect(result).rejects.toMatchObject({
+      reason: 'access-denied',
+    });
+  });
+
   it('rejects a response without a token', async () => {
     createInstallationAccessTokenMock.mockResolvedValue({
       data: {expires_at: '2026-06-10T12:00:00.000Z'},
@@ -389,6 +429,65 @@ describe('GithubInstallationTokenProvider', () => {
     expect(createInstallationAccessTokenMock).toHaveBeenCalledTimes(3);
   });
 
+  it('does not reuse a cached token across permission sets for one repository', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-10T11:00:00.000Z'));
+    createInstallationAccessTokenMock
+      .mockResolvedValueOnce({
+        data: {
+          token: 'ghs_scoped_contents',
+          expires_at: '2026-06-10T12:00:00.000Z',
+          permissions: {contents: 'write'},
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          token: 'ghs_scoped_issues',
+          expires_at: '2026-06-10T12:00:00.000Z',
+          permissions: {issues: 'write'},
+        },
+      });
+    const provider = createGithubInstallationTokenProvider();
+
+    const contents = await provider.getInstallationAccessToken(1, {
+      repositoryId: 456,
+      permissions: {contents: 'write'},
+    });
+    const issues = await provider.getInstallationAccessToken(1, {
+      repositoryId: 456,
+      permissions: {issues: 'write'},
+    });
+
+    expect(contents.token).toBe('ghs_scoped_contents');
+    expect(issues.token).toBe('ghs_scoped_issues');
+    expect(createInstallationAccessTokenMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('canonicalizes permission insertion order in the cache key', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-10T11:00:00.000Z'));
+    createInstallationAccessTokenMock.mockResolvedValue({
+      data: {
+        token: 'ghs_scoped',
+        expires_at: '2026-06-10T12:00:00.000Z',
+        permissions: {contents: 'write', issues: 'write'},
+      },
+    });
+    const provider = createGithubInstallationTokenProvider();
+
+    const first = await provider.getInstallationAccessToken(1, {
+      repositoryId: 456,
+      permissions: {contents: 'write', issues: 'write'},
+    });
+    const second = await provider.getInstallationAccessToken(1, {
+      repositoryId: 456,
+      permissions: {issues: 'write', contents: 'write'},
+    });
+
+    expect(first).toEqual(second);
+    expect(createInstallationAccessTokenMock).toHaveBeenCalledTimes(1);
+  });
+
   it('keys shared-cache envelopes by scope', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-06-10T11:00:00.000Z'));
@@ -457,11 +556,17 @@ describe('GithubInstallationTokenProvider', () => {
     expect(broad.token).toBe('ghs_broad');
     expect(scoped.token).toBe('ghs_scoped');
     expect(values.get(`${workspaceId}:${installationId}`)).toContain('ghs_broad');
-    expect(values.get(`${workspaceId}:${installationId}/scope/456/contents-write`)).toContain(
-      'ghs_scoped',
-    );
+    expect(
+      values.get(tieredSecretKey(workspaceId, installationId, '456/contents-write')),
+    ).toContain('ghs_scoped');
     expect(lockCalls).toBe(2);
     expect(createInstallationAccessTokenMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('keys scoped secret namespaces by a bounded hash of the scope', () => {
+    expect(githubInstallationTokenNamespace(123, '456/contents-write')).toMatch(
+      GITHUB_SCOPED_TOKEN_NAMESPACE_PATTERN,
+    );
   });
 
   describe('resolveRepositoryId', () => {
@@ -562,6 +667,97 @@ describe('GithubInstallationTokenProvider', () => {
       });
       expect(createInstallationAccessTokenMock).not.toHaveBeenCalled();
     });
+
+    it('rejects a repository entry without a name as malformed-provider-response', async () => {
+      authMock.mockResolvedValue({token: 'ghs_installationtoken'});
+      listReposAccessibleToInstallationMock.mockResolvedValue({
+        data: {total_count: 1, repositories: [{id: 456}]},
+      });
+      const provider = createGithubInstallationTokenProvider();
+
+      const result = provider.resolveRepositoryId({
+        installationId: 1,
+        fullName: 'shipfoxhq/shipfox',
+      });
+
+      await expect(result).rejects.toMatchObject({
+        reason: 'malformed-provider-response',
+      });
+    });
+
+    it('rejects a repository with an invalid id as malformed-provider-response', async () => {
+      authMock.mockResolvedValue({token: 'ghs_installationtoken'});
+      listReposAccessibleToInstallationMock.mockResolvedValue({
+        data: {total_count: 1, repositories: [{id: 0, full_name: 'ShipfoxHQ/shipfox'}]},
+      });
+      const provider = createGithubInstallationTokenProvider();
+
+      const result = provider.resolveRepositoryId({
+        installationId: 1,
+        fullName: 'shipfoxhq/shipfox',
+      });
+
+      await expect(result).rejects.toMatchObject({
+        reason: 'malformed-provider-response',
+      });
+    });
+
+    it('maps a rate-limited list call to a rate-limited provider error', async () => {
+      authMock.mockResolvedValue({token: 'ghs_installationtoken'});
+      const error = new RequestErrorMock('API rate limit exceeded', 429);
+      Object.assign(error, {response: {headers: {'retry-after': '45'}}});
+      listReposAccessibleToInstallationMock.mockRejectedValue(error);
+      const provider = createGithubInstallationTokenProvider();
+
+      const result = provider.resolveRepositoryId({
+        installationId: 1,
+        fullName: 'shipfoxhq/shipfox',
+      });
+
+      await expect(result).rejects.toMatchObject({
+        reason: 'rate-limited',
+        retryAfterSeconds: 45,
+      });
+    });
+
+    it('maps a forbidden list call to access-denied', async () => {
+      authMock.mockResolvedValue({token: 'ghs_installationtoken'});
+      listReposAccessibleToInstallationMock.mockRejectedValue(
+        new RequestErrorMock('Forbidden', 403),
+      );
+      const provider = createGithubInstallationTokenProvider();
+
+      const result = provider.resolveRepositoryId({
+        installationId: 1,
+        fullName: 'shipfoxhq/shipfox',
+      });
+
+      await expect(result).rejects.toMatchObject({
+        reason: 'access-denied',
+      });
+    });
+
+    it('reuses a cached resolution within the ttl instead of re-authenticating', async () => {
+      authMock.mockResolvedValue({token: 'ghs_installationtoken'});
+      listReposAccessibleToInstallationMock.mockResolvedValue({
+        data: {total_count: 1, repositories: [{id: 456, full_name: 'ShipfoxHQ/shipfox'}]},
+      });
+      const provider = createGithubInstallationTokenProvider();
+
+      const first = await provider.resolveRepositoryId({
+        installationId: 1,
+        fullName: 'shipfoxhq/shipfox',
+      });
+      const second = await provider.resolveRepositoryId({
+        installationId: 1,
+        fullName: 'shipfoxhq/SHIPFOX',
+      });
+
+      expect(first).toBe(456);
+      expect(second).toBe(456);
+      expect(authMock).toHaveBeenCalledTimes(1);
+      expect(listReposAccessibleToInstallationMock).toHaveBeenCalledTimes(1);
+    });
   });
 });
 
@@ -572,5 +768,5 @@ function tieredSecretKey(
 ): string {
   return scopeKey === undefined
     ? `${workspaceId}:${installationId}`
-    : `${workspaceId}:${installationId}/scope/${scopeKey}`;
+    : `${workspaceId}:${githubInstallationTokenNamespace(installationId, scopeKey)}`;
 }

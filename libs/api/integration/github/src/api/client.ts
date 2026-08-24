@@ -603,7 +603,8 @@ export async function mapGithubError<T>(
     | 'installation-not-found'
     | 'file-not-found'
     | 'ref-not-found'
-    | 'provider-rejected' = 'repository-not-found',
+    | 'provider-rejected'
+    | 'access-denied' = 'repository-not-found',
 ): Promise<T> {
   try {
     return await operation();

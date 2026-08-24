@@ -2,6 +2,7 @@ import {GithubIntegrationProviderError} from '#core/errors.js';
 import {
   backoffActive,
   encodeInstallationTokenEnvelope,
+  githubInstallationTokenNamespace,
   needsRefresh,
   stillValid,
   TOKEN_REFRESH_MARGIN_MS,
@@ -88,7 +89,7 @@ function tieredSecretKey(
 ): string {
   return scopeKey === undefined
     ? `${keyWorkspaceId}:${keyInstallationId}`
-    : `${keyWorkspaceId}:${keyInstallationId}/scope/${scopeKey}`;
+    : `${keyWorkspaceId}:${githubInstallationTokenNamespace(keyInstallationId, scopeKey)}`;
 }
 
 describe('SharedInstallationTokenCache', () => {
@@ -302,6 +303,119 @@ describe('SharedInstallationTokenCache', () => {
     });
 
     expect(lockScopeKeys).toEqual([undefined, '456/contents-write']);
+  });
+
+  it('isolates a scoped backoff from the broad envelope', async () => {
+    const values = new Map<string, string>();
+    const store: InstallationTokenSecretStore = {
+      read: (readWorkspaceId, readInstallationId, readScopeKey) =>
+        Promise.resolve(
+          values.get(tieredSecretKey(readWorkspaceId, readInstallationId, readScopeKey)) ?? null,
+        ),
+      write: (writeWorkspaceId, writeInstallationId, envelope, writeScopeKey) => {
+        values.set(
+          tieredSecretKey(writeWorkspaceId, writeInstallationId, writeScopeKey),
+          encodeInstallationTokenEnvelope(envelope),
+        );
+        return Promise.resolve();
+      },
+    };
+    const scopedMint = vi
+      .fn()
+      .mockRejectedValue(new GithubIntegrationProviderError('rate-limited', 'rate limited', 42));
+    const broadMint = vi.fn(() => Promise.resolve(token('ghs_broad')));
+    const shared = cache({store});
+
+    // A scoped mint failure records its backoff under the scoped key only.
+    await expect(
+      shared.getOrMint(installationId, scopedMint, {
+        repositoryId: 456,
+        permissions: {contents: 'write'},
+      }),
+    ).rejects.toMatchObject({reason: 'rate-limited'});
+    expect(
+      values.get(tieredSecretKey(workspaceId, installationId, '456/contents-write')),
+    ).toContain('backoff');
+    expect(values.get(tieredSecretKey(workspaceId, installationId, undefined))).toBeUndefined();
+
+    // A subsequent unscoped request mints a fresh broad token, unaffected by the
+    // scoped backoff.
+    const broad = await shared.getOrMint(installationId, broadMint);
+    expect(broad).toEqual(token('ghs_broad'));
+
+    // The same scope is still backed off with its stored reason.
+    await expect(
+      shared.getOrMint(installationId, scopedMint, {
+        repositoryId: 456,
+        permissions: {contents: 'write'},
+      }),
+    ).rejects.toMatchObject({reason: 'rate-limited', retryAfterSeconds: 42});
+    expect(scopedMint).toHaveBeenCalledTimes(1);
+    expect(broadMint).toHaveBeenCalledTimes(1);
+  });
+
+  it('treats an envelope recorded for another scope as a cache miss', async () => {
+    const values = new Map<string, string>();
+    const store: InstallationTokenSecretStore = {
+      read: (readWorkspaceId, readInstallationId, readScopeKey) =>
+        Promise.resolve(
+          values.get(tieredSecretKey(readWorkspaceId, readInstallationId, readScopeKey)) ?? null,
+        ),
+      write: (writeWorkspaceId, writeInstallationId, envelope, writeScopeKey) => {
+        values.set(
+          tieredSecretKey(writeWorkspaceId, writeInstallationId, writeScopeKey),
+          encodeInstallationTokenEnvelope(envelope),
+        );
+        return Promise.resolve();
+      },
+    };
+    // Seed the scoped slot with an envelope that carries no scope stamp, as a store
+    // that ignores the scopeKey argument (older @shipfox/api-integration-core release
+    // or a custom store) would leave behind.
+    values.set(
+      tieredSecretKey(workspaceId, installationId, '456/contents-write'),
+      encodeInstallationTokenEnvelope({
+        token: 'ghs_wrong_scope',
+        expiresAt: new Date('2026-06-10T12:00:00.000Z'),
+      }),
+    );
+    const mint = vi.fn(() => Promise.resolve(token('ghs_scoped')));
+    const shared = cache({store});
+
+    const result = await shared.getOrMint(installationId, mint, {
+      repositoryId: 456,
+      permissions: {contents: 'write'},
+    });
+
+    expect(result).toEqual(token('ghs_scoped'));
+    expect(mint).toHaveBeenCalledTimes(1);
+    // The replacement envelope is stamped with its scope, so the next same-scope
+    // request is served from the store instead of minting again.
+    const again = await shared.getOrMint(installationId, mint, {
+      repositoryId: 456,
+      permissions: {contents: 'write'},
+    });
+    expect(again).toEqual(token('ghs_scoped'));
+    expect(mint).toHaveBeenCalledTimes(1);
+  });
+
+  it('short-circuits a scoped mint on an installation-wide backoff', async () => {
+    const store = createStore();
+    setEnvelope(store, {
+      backoffUntil: new Date('2026-06-10T11:15:00.000Z'),
+      backoffReason: 'rate-limited',
+    });
+    const mint = vi.fn(() => Promise.resolve(token('ghs_scoped')));
+    const shared = cache({store});
+
+    await expect(
+      shared.getOrMint(installationId, mint, {
+        repositoryId: 456,
+        permissions: {contents: 'write'},
+      }),
+    ).rejects.toMatchObject({reason: 'rate-limited'});
+
+    expect(mint).not.toHaveBeenCalled();
   });
 
   it('returns a minted token when the cache write fails', async () => {

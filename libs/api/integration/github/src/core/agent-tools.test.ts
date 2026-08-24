@@ -1173,6 +1173,44 @@ describe('github agent tool catalog', () => {
     });
   });
 
+  it('rejects a token granting a subset of the required permissions', async () => {
+    const provider = new GithubAgentToolsProvider({
+      getInstallationByConnectionId: vi.fn(() => Promise.resolve(installation())),
+      tokenProvider: {
+        getInstallationAccessToken: vi.fn(() =>
+          Promise.resolve({
+            token: 'scoped-installation-token',
+            expiresAt: new Date(),
+            permissions: {pull_requests: 'write' as const},
+          }),
+        ),
+      },
+    });
+    const tool = githubAgentToolCatalog.find((entry) => entry.id === 'merge_pull_request');
+    if (!tool) throw new Error('Missing merge_pull_request tool');
+    const session = await provider.openSession({
+      connection: connection(),
+      tools: [tool],
+      scope: undefined,
+    });
+
+    const result = await session.call({
+      toolId: 'merge_pull_request',
+      arguments: {owner: 'shipfox', repo: 'platform', pull_number: 1},
+    });
+
+    expect(result).toEqual({
+      isError: true,
+      content: [
+        {
+          type: 'text',
+          text: 'GitHub installation token is missing permission for this operation',
+        },
+      ],
+      structuredContent: {code: 'access-denied'},
+    });
+  });
+
   it('rejects a pending review without a GraphQL node ID', async () => {
     const request = vi.fn().mockResolvedValueOnce({
       data: [{id: 41, state: 'PENDING', user: githubAppReviewUser}],

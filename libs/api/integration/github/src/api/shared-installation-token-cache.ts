@@ -133,6 +133,26 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
       );
     }
 
+    // A mint is authenticated as the GitHub App, so rate-limit and availability
+    // backoffs are installation-wide even though envelopes are keyed per scope.
+    // Consult the installation-wide envelope before a scoped mint so one scope's
+    // 429/outage does not make every other scope retry the shared limit.
+    if (params.scopeKey !== undefined) {
+      const installationEnvelope = await this.readEnvelope(
+        params.workspaceId,
+        params.installationId,
+        undefined,
+      );
+      if (activeBackoff(installationEnvelope, now)) {
+        recordInstallationTokenLookup('backoff');
+        throw providerErrorFromBackoff(
+          installationEnvelope?.backoffReason ?? 'provider-unavailable',
+          (installationEnvelope?.backoffUntil?.getTime() ?? now.getTime()) - now.getTime(),
+          installationEnvelope?.backoffError,
+        );
+      }
+    }
+
     let token: GithubInstallationAccessToken;
     try {
       token = await this.recordMint(params.mint);
@@ -159,13 +179,23 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
         params.scopeKey,
       ).catch((writeError) => {
         logger().warn(
-          {installationId: params.installationId, reason: classified.reason, error: writeError},
+          {
+            installationId: params.installationId,
+            workspaceId: params.workspaceId,
+            scopeKey: params.scopeKey,
+            reason: classified.reason,
+            error: writeError,
+          },
           'github installation token backoff write failed',
         );
         reportError(writeError, {
           boundary: 'integration.cache',
           operation: 'write-backoff-envelope',
-          extra: {installationId: params.installationId},
+          extra: {
+            installationId: params.installationId,
+            workspaceId: params.workspaceId,
+            scopeKey: params.scopeKey,
+          },
         });
       });
 
@@ -177,6 +207,8 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
         logger().warn(
           {
             installationId: params.installationId,
+            workspaceId: params.workspaceId,
+            scopeKey: params.scopeKey,
             expiresAt: envelope.expiresAt?.toISOString(),
             reason: classified.reason,
             backoffUntil: until.toISOString(),
@@ -190,6 +222,8 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
       logger().warn(
         {
           installationId: params.installationId,
+          workspaceId: params.workspaceId,
+          scopeKey: params.scopeKey,
           reason: classified.reason,
           backoffUntil: until.toISOString(),
           error: providerError,
@@ -213,18 +247,33 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
       );
     } catch (error) {
       logger().warn(
-        {installationId: params.installationId, expiresAt: token.expiresAt.toISOString(), error},
+        {
+          installationId: params.installationId,
+          workspaceId: params.workspaceId,
+          scopeKey: params.scopeKey,
+          expiresAt: token.expiresAt.toISOString(),
+          error,
+        },
         'github installation token cache write failed after mint',
       );
       reportError(error, {
         boundary: 'integration.cache',
         operation: 'write-minted-token',
-        extra: {installationId: params.installationId},
+        extra: {
+          installationId: params.installationId,
+          workspaceId: params.workspaceId,
+          scopeKey: params.scopeKey,
+        },
       });
     }
 
     logger().info(
-      {installationId: params.installationId, expiresAt: token.expiresAt.toISOString()},
+      {
+        installationId: params.installationId,
+        workspaceId: params.workspaceId,
+        scopeKey: params.scopeKey,
+        expiresAt: token.expiresAt.toISOString(),
+      },
       'github installation token minted',
     );
     recordInstallationTokenLookup('minted');
@@ -304,7 +353,27 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
 
     const envelope = parseInstallationTokenEnvelope(raw);
     if (envelope === undefined) {
-      logger().warn({installationId}, 'github installation token cache envelope failed to decode');
+      logger().warn(
+        {installationId, workspaceId, scopeKey},
+        'github installation token cache envelope failed to decode',
+      );
+      return undefined;
+    }
+    if (envelope.scopeKey !== scopeKey) {
+      // The secret-store contract is implemented in a separate package; if a store
+      // ignores the scopeKey argument (older core release or a custom store), an
+      // envelope written for one scope could be served for another. Never serve an
+      // envelope whose recorded scope does not match the requested namespace.
+      logger().warn(
+        {
+          installationId,
+          workspaceId,
+          requestedScopeKey: scopeKey,
+          recordedScopeKey: envelope.scopeKey,
+        },
+        'github installation token cache envelope recorded for a different scope; treating as a miss',
+      );
+      return undefined;
     }
     return envelope;
   }
@@ -315,7 +384,15 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
     envelope: InstallationTokenEnvelope,
     scopeKey: string | undefined,
   ): Promise<void> {
-    await this.options.secretStore.write(workspaceId, installationId, envelope, scopeKey);
+    await this.options.secretStore.write(
+      workspaceId,
+      installationId,
+      {
+        ...envelope,
+        ...(scopeKey === undefined ? {} : {scopeKey}),
+      },
+      scopeKey,
+    );
   }
 
   private async resolveWorkspaceId(installationId: number): Promise<string> {

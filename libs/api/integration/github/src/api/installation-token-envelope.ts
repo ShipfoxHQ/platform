@@ -53,6 +53,9 @@ const installationTokenEnvelopeSchema = z.object({
   backoffUntil: z.string().datetime().optional(),
   backoffReason: providerErrorReasonSchema.optional(),
   backoffError: backoffErrorSchema.optional(),
+  // Stamped by the shared cache so a reader can verify an envelope was written for
+  // the scope it is being served under (see readEnvelope).
+  scopeKey: z.string().optional(),
 });
 
 export interface InstallationTokenEnvelope {
@@ -67,6 +70,7 @@ export interface InstallationTokenEnvelope {
         status?: number | undefined;
       }
     | undefined;
+  scopeKey?: string | undefined;
 }
 
 export type MintErrorClass = 'transient' | 'terminal';
@@ -97,12 +101,27 @@ export function githubInstallationTokenNamespace(
   scopeKey?: string | undefined,
 ): string {
   // Scoped tokens live under a child namespace so a scoped request is never served
-  // the installation-wide token envelope (and vice versa). The scope key keeps the
-  // namespace pattern ([a-z0-9_/-] only); uninstall cleanup deliberately only removes
-  // the broad envelope — scoped envelopes hold short-lived, self-expiring tokens.
+  // the installation-wide token envelope (and vice versa). The scope key is derived
+  // from caller-supplied permission names, so the namespace embeds a deterministic
+  // bounded hash of it instead: the fixed-length [0-9a-f] component always satisfies
+  // the secrets namespace pattern and 128-character cap no matter how many
+  // permissions a scope carries, and crafted permission names cannot collide onto
+  // one secret slot. Uninstall cleanup deliberately only removes the broad envelope
+  // — scoped envelopes hold short-lived, self-expiring tokens.
   return scopeKey === undefined
     ? `system/github/installation-token/${installationId}`
-    : `system/github/installation-token/${installationId}/scope/${scopeKey}`;
+    : `system/github/installation-token/${installationId}/scope/${githubInstallationTokenScopeHash(scopeKey)}`;
+}
+
+export function githubInstallationTokenScopeHash(scopeKey: string): string {
+  // FNV-1a 32-bit: deterministic across processes so every tier derives the same
+  // namespace for one scope, and short enough to keep the namespace within bounds.
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < scopeKey.length; index += 1) {
+    hash ^= scopeKey.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16);
 }
 
 export function encodeInstallationTokenEnvelope(envelope: InstallationTokenEnvelope): string {
@@ -115,6 +134,7 @@ export function encodeInstallationTokenEnvelope(envelope: InstallationTokenEnvel
     }),
     ...(envelope.backoffReason !== undefined && {backoffReason: envelope.backoffReason}),
     ...(envelope.backoffError !== undefined && {backoffError: envelope.backoffError}),
+    ...(envelope.scopeKey !== undefined && {scopeKey: envelope.scopeKey}),
   });
 }
 
@@ -136,6 +156,7 @@ export function parseInstallationTokenEnvelope(raw: string): InstallationTokenEn
     backoffUntil: result.data.backoffUntil ? new Date(result.data.backoffUntil) : undefined,
     backoffReason: result.data.backoffReason,
     backoffError: result.data.backoffError,
+    scopeKey: result.data.scopeKey,
   };
 }
 

@@ -50,21 +50,30 @@ export interface GithubInstallationTokenProviderOptions {
 }
 
 const INSTALLATION_REPOSITORY_RESOLUTION_PAGE_SIZE = 100;
+const INSTALLATION_REPOSITORY_RESOLUTION_CACHE_TTL_MS = 5 * 60 * 1000;
 
 export function createGithubInstallationTokenProvider(
   options: GithubInstallationTokenProviderOptions = {},
 ): GithubInstallationTokenProvider & GithubInstallationRepositoryResolver {
-  return new OctokitGithubInstallationTokenProvider(createInstallationTokenCache(options));
+  return new OctokitGithubInstallationTokenProvider(
+    createInstallationTokenCache(options),
+    options.now,
+  );
 }
 
 class OctokitGithubInstallationTokenProvider
   implements GithubInstallationTokenProvider, GithubInstallationRepositoryResolver
 {
   private app: App | undefined;
+  private readonly resolutionCache = new Map<string, {repositoryId: number; expiresAtMs: number}>();
+  private readonly now: () => Date;
 
   constructor(
     private readonly cache: InstallationTokenCache = new InMemoryInstallationTokenCache(),
-  ) {}
+    now?: (() => Date) | undefined,
+  ) {
+    this.now = now ?? (() => new Date());
+  }
 
   getInstallationAccessToken(
     installationId: number,
@@ -78,11 +87,18 @@ class OctokitGithubInstallationTokenProvider
   }
 
   async resolveRepositoryId(input: ResolveGithubInstallationRepositoryInput): Promise<number> {
+    const needle = input.fullName.trim().toLowerCase();
+    const cacheKey = `${input.installationId}:${needle}`;
+    this.pruneResolutionCache();
+    const cached = this.resolutionCache.get(cacheKey);
+    if (cached !== undefined && cached.expiresAtMs > this.now().getTime()) {
+      return cached.repositoryId;
+    }
+
     const octokit = await mapGithubError(
       () => getGithubInstallationOctokit(this.getApp(), input.installationId),
       'installation-not-found',
     );
-    const needle = input.fullName.trim().toLowerCase();
 
     for (let page = 1; ; page += 1) {
       const response = await mapGithubError(() =>
@@ -91,9 +107,15 @@ class OctokitGithubInstallationTokenProvider
           page,
         }),
       );
-      const match = response.data.repositories.find(
-        (repository) => repository.full_name.toLowerCase() === needle,
-      );
+      const match = response.data.repositories.find((repository) => {
+        if (typeof repository.full_name !== 'string') {
+          throw new GithubIntegrationProviderError(
+            'malformed-provider-response',
+            'GitHub repository resolution did not include a repository name',
+          );
+        }
+        return repository.full_name.toLowerCase() === needle;
+      });
       if (match !== undefined) {
         if (!Number.isSafeInteger(match.id) || match.id < 1) {
           throw new GithubIntegrationProviderError(
@@ -101,6 +123,10 @@ class OctokitGithubInstallationTokenProvider
             'GitHub repository resolution did not include a valid repository id',
           );
         }
+        this.resolutionCache.set(cacheKey, {
+          repositoryId: match.id,
+          expiresAtMs: this.now().getTime() + INSTALLATION_REPOSITORY_RESOLUTION_CACHE_TTL_MS,
+        });
         return match.id;
       }
       if (response.data.repositories.length < INSTALLATION_REPOSITORY_RESOLUTION_PAGE_SIZE) break;
@@ -110,6 +136,15 @@ class OctokitGithubInstallationTokenProvider
       'access-denied',
       `GitHub repository ${input.fullName} is not accessible to the GitHub installation`,
     );
+  }
+
+  private pruneResolutionCache(): void {
+    const nowMs = this.now().getTime();
+    for (const [key, entry] of this.resolutionCache) {
+      if (entry.expiresAtMs <= nowMs) {
+        this.resolutionCache.delete(key);
+      }
+    }
   }
 
   private async mintInstallationAccessToken(
@@ -127,7 +162,11 @@ class OctokitGithubInstallationTokenProvider
                 permissions: scope.permissions,
               }),
         }),
-      'installation-not-found',
+      // GitHub returns 404 both for a missing installation and for a repository the
+      // installation cannot access. Unscoped mints are installation-not-found;
+      // scoped mints carry repository_ids, so a 404 means the repository is not
+      // accessible to the installation (consistent with resolveRepositoryId).
+      scope === undefined ? 'installation-not-found' : 'access-denied',
     );
 
     if (typeof response.data.token !== 'string') {
@@ -205,6 +244,7 @@ class InMemoryInstallationTokenCache implements InstallationTokenCache {
     mint: () => Promise<GithubInstallationAccessToken>,
     scope?: GithubInstallationTokenScope | undefined,
   ): Promise<GithubInstallationAccessToken> {
+    this.pruneExpired();
     const key = installationTokenCacheKey(installationId, scope);
     const cached = this.tokens.get(key);
     if (cached && !this.isInsideRefreshMargin(cached.expiresAt)) {
@@ -229,6 +269,18 @@ class InMemoryInstallationTokenCache implements InstallationTokenCache {
 
   private isInsideRefreshMargin(expiresAt: Date): boolean {
     return expiresAt.getTime() <= this.options.now().getTime() + this.options.refreshMarginMs;
+  }
+
+  // Entries are keyed by (installation, scope), so a long-lived process would
+  // otherwise keep one slot per scope ever minted. Sweep on access so entries
+  // only survive while their token could still be served.
+  private pruneExpired(): void {
+    const now = this.options.now().getTime();
+    for (const [key, token] of this.tokens) {
+      if (token.expiresAt.getTime() <= now) {
+        this.tokens.delete(key);
+      }
+    }
   }
 }
 

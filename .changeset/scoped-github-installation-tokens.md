@@ -1,5 +1,5 @@
 ---
-"@shipfox/api-integration-github": patch
+"@shipfox/api-integration-github": minor
 "@shipfox/api-integration-core": patch
 ---
 
