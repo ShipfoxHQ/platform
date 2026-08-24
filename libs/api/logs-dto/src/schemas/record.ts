@@ -123,19 +123,27 @@ export const rawLogRecordSchema = z.discriminatedUnion('type', [
 ]);
 
 /** Stored/read records: regular records, normalized agent sessions, and tombstones. */
-export const logRecordSchema = z.discriminatedUnion('type', [
+const storedLogRecordSchemas = [
   logOutput,
   logGroupStart,
   logGroupEnd,
   logEnd,
   logGap,
   agentSession,
+] as const;
+
+export const logRecordSchema = z.discriminatedUnion('type', [
+  ...storedLogRecordSchemas,
   logCapped,
   logRunnerLost,
 ]);
 
+/** Records a trusted server-origin writer may append: stored records without tombstones. */
+export const serverLogRecordSchema = z.discriminatedUnion('type', storedLogRecordSchemas);
+
 export type RawLogRecord = z.infer<typeof rawLogRecordSchema>;
 export type LogRecord = z.infer<typeof logRecordSchema>;
+export type ServerLogRecord = z.infer<typeof serverLogRecordSchema>;
 
 export function parseLogRecordLine(line: string): LogRecord {
   return logRecordSchema.parse(JSON.parse(line));

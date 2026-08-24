@@ -110,7 +110,10 @@ const excludedDirectoryNames = new Set([
   '.turbo',
   'dist',
   'node_modules',
+  'storybook-output',
+  'storybook-static',
 ]);
+const generatedStorybookDirectoryPattern = /^\.storybook-output-(?:previous|staging)-/u;
 const markdownExtension = '.md';
 const markdownLinkPattern = /!?(?:\[[^\]\n]*\])\(([^)\n]+)\)/g;
 const markdownLinkTargetPattern = /^\S+/;
@@ -371,7 +374,11 @@ async function filesUnder(directory: string): Promise<string[]> {
   const files = await Promise.all(
     entries.map((entry) => {
       if (entry.isDirectory()) {
-        if (excludedDirectoryNames.has(entry.name)) return [];
+        if (
+          excludedDirectoryNames.has(entry.name) ||
+          generatedStorybookDirectoryPattern.test(entry.name)
+        )
+          return [];
         return filesUnder(path.join(directory, entry.name));
       }
       return [path.join(directory, entry.name)];

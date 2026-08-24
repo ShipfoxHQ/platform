@@ -1,5 +1,5 @@
 import {Buffer} from 'node:buffer';
-import {and, asc, eq, gt, lte, sql} from 'drizzle-orm';
+import {and, asc, eq, gt, lte, or, sql} from 'drizzle-orm';
 import {db, type Transaction} from './db.js';
 import {type ChunkOrigin, logChunks} from './schema/chunks.js';
 
@@ -19,6 +19,32 @@ export async function insertChunk(tx: Transaction, params: InsertChunkParams): P
     data: params.data,
     origin: params.origin,
   });
+}
+
+export type AppendWriterOrigin = Exclude<ChunkOrigin, 'control'>;
+
+/**
+ * Returns the durable writer origin for a stream, if one has written a chunk. Control
+ * tombstones do not claim the stream: they are emitted by the lifecycle owner after the
+ * append writer has already been selected.
+ */
+export async function getStreamWriterOrigin(
+  tx: Transaction,
+  streamId: string,
+): Promise<AppendWriterOrigin | null> {
+  const [row] = await tx
+    .select({origin: logChunks.origin})
+    .from(logChunks)
+    .where(
+      and(
+        eq(logChunks.streamId, streamId),
+        or(eq(logChunks.origin, 'runner'), eq(logChunks.origin, 'server')),
+      ),
+    )
+    .orderBy(asc(logChunks.seq))
+    .limit(1);
+
+  return row?.origin === 'runner' || row?.origin === 'server' ? row.origin : null;
 }
 
 export interface ChunkPageRow {

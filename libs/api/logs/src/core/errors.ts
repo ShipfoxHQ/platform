@@ -23,6 +23,22 @@ export class MalformedLogChunkError extends Error {
   }
 }
 
+/** The normalized server-origin batch exceeds the configured append body limit. */
+export class LogAppendBodyTooLargeError extends Error {
+  constructor(public readonly maxBytes: number) {
+    super(`Log append body exceeds ${maxBytes} bytes`);
+    this.name = 'LogAppendBodyTooLargeError';
+  }
+}
+
+/** Runner and server-origin writers cannot share one spool-offset stream. */
+export class LogWriterConflictError extends Error {
+  constructor(public readonly activeOrigin: 'runner' | 'server') {
+    super(`Log stream already has an active ${activeOrigin} writer`);
+    this.name = 'LogWriterConflictError';
+  }
+}
+
 /**
  * The lease's `(workspaceId, projectId, workflowRunAttemptId)` does not match the values
  * stamped on the existing stream row. Since these are functionally determined

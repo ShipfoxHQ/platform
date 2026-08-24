@@ -71,6 +71,26 @@ Two layers stop a runner from writing what it should not:
    tombstone that is otherwise a valid record is logged as a narrowed audit warning (no payload,
    no token).
 
+### Server-origin append
+
+Server-executed steps (the tool step executor) write logs through the inter-module
+`appendServerRecords` method on the Logs contract (`@shipfox/api-logs-dto/inter-module`) instead
+of the lease-bound route. It runs the same offset CAS, accrual budget, cap, and close semantics,
+storing chunks with `origin` `server`; records are already-normalized members of the stored/read
+union without server-only tombstones, so they skip the raw-to-stored normalization the runner path
+applies. The serialized batch is bounded by `LOG_APPEND_BODY_LIMIT_BYTES` and may contain at most
+one `end` record, which must be last. The caller owns no spool cursor, so each batch lands at the
+stream tail (the CAS offset is the current committed length); the in-order CAS still serializes
+concurrent server-origin calls. Callers should coalesce records into batches up to that limit rather than
+flushing one event per transaction; an empty batch is a heartbeat. Streams close through the same
+paths as runner streams, including the step-attempt-terminated subscriber.
+
+Runner-origin and server-origin writers are mutually exclusive for one stream: the runner's local
+spool offset cannot safely account for bytes inserted by another writer. A server append against a
+runner-owned stream returns `runner-writer-active`; a lease append against a server-owned stream
+returns `log-writer-conflict` and the runner stops. This restriction keeps the shared committed
+length meaningful until a future writer-aware offset contract is introduced.
+
 ### Multi-level named groups
 
 `::group::<name>` / `::endgroup::` markers form a tree. The runner keeps a nesting stack: each

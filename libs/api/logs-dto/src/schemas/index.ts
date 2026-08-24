@@ -3,6 +3,8 @@ export {
   type AppendLogsResponseDto,
   appendLogsQuerySchema,
   appendLogsResponseSchema,
+  type LogWriterConflictResponseDto,
+  logWriterConflictResponseSchema,
   type OffsetGapResponseDto,
   offsetGapResponseSchema,
 } from './append.js';
@@ -21,6 +23,8 @@ export {
   parseRawLogRecordLine,
   type RawLogRecord,
   rawLogRecordSchema,
+  type ServerLogRecord,
+  serverLogRecordSchema,
 } from './record.js';
 export {
   SESSION_VIEW_VERSION,

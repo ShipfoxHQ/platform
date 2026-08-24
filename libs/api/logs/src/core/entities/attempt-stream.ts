@@ -10,9 +10,9 @@ export type StreamCloseReason = 'declared' | 'timeout';
  * A single `(job, step, attempt)` log stream. Identity is scoped to the lease's
  * job. `workspaceId`, `projectId`, and `workflowRunAttemptId` are stamped from the lease on
  * stream creation and asserted on subsequent appends, so reads can authorize
- * per-project without joining back to workflows. `committedLength` is the
- * offset-CAS axis: raw NDJSON spool bytes the server has durably accepted from
- * the runner.
+ * per-project without joining back to workflows. `committedLength` is the active
+ * writer's offset-CAS axis: raw or normalized NDJSON bytes the server has durably
+ * accepted from the runner or server-origin writer.
  *
  * `truncated` is an out-of-band terminal flag set when the timeout sweep
  * force-closes a stream the runner never ended. Budget exhaustion ("capped") is a

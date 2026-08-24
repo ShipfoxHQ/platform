@@ -810,6 +810,38 @@ describe('appendStepLogs', () => {
     expect(outcome).toEqual({status: 'stopped'});
   });
 
+  it('returns stopped for a non-offset 409 writer conflict', async () => {
+    stubFetch(() => jsonResponse({code: 'log-writer-conflict'}, 409));
+    const leaseClient = createLeaseClient('lease-log');
+
+    const outcome = await appendStepLogs(leaseClient, {
+      stepId: STEP_ID,
+      attempt: 1,
+      offset: 0,
+      body: new Uint8Array([1]),
+    });
+
+    expect(outcome).toEqual({status: 'stopped'});
+  });
+
+  it.each(['empty', 'malformed'])('returns stopped for a %s 409 response body', async (body) => {
+    stubFetch(() =>
+      body === 'empty'
+        ? new Response(null, {status: 409})
+        : new Response('not json', {status: 409}),
+    );
+    const leaseClient = createLeaseClient('lease-log');
+
+    const outcome = await appendStepLogs(leaseClient, {
+      stepId: STEP_ID,
+      attempt: 1,
+      offset: 0,
+      body: new Uint8Array([1]),
+    });
+
+    expect(outcome).toEqual({status: 'stopped'});
+  });
+
   it('returns stopped when the lease is rejected (401)', async () => {
     stubFetch(() => new Response(null, {status: 401}));
     const leaseClient = createLeaseClient('lease-log');

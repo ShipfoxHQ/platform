@@ -114,4 +114,22 @@ describe('repository documentation policy', () => {
       await rm(root, {recursive: true});
     }
   });
+
+  test('keeps generated Storybook output outside this check', async () => {
+    const root = await fixture({
+      'README.md': '# Repository',
+      'apps/storybook/storybook-output/client-agent/assets/README.md': '[missing](nowhere.md)',
+      'apps/storybook/storybook-static/README.md': '[missing](nowhere.md)',
+      'apps/storybook/.storybook-output-staging-random/client-agent/assets/README.md':
+        '[missing](nowhere.md)',
+      'apps/storybook/.storybook-output-previous-random/client-agent/assets/README.md':
+        '[missing](nowhere.md)',
+    });
+    try {
+      assert.deepEqual(await collectDocumentationFiles(root), ['README.md']);
+      assert.deepEqual((await checkRepositoryDocumentation(root)).violations, []);
+    } finally {
+      await rm(root, {recursive: true});
+    }
+  });
 });
