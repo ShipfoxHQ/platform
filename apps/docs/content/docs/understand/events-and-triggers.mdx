@@ -24,9 +24,9 @@ send a push event, but they do not represent the same trust boundary or
 repository scope. A workflow trigger names the integration connection whose signal it is
 willing to accept.
 
-The exact built-in sources, integration connection rules, and provider event names live in
-[Trigger sources](/reference/trigger-sources) and the [Integrations
-reference](/integrations).
+Provider event names live in the [Integrations reference](/integrations). For
+built-in sources, see [Run manually](/how-to/author-workflows/run-manually) and
+[Schedule workflows](/how-to/author-workflows/schedule-workflows).
 
 ## The trigger owns run-creation policy
 
@@ -35,6 +35,8 @@ A trigger asks three questions.
 1. Did the event come from the intended source?
 2. Is it the kind of event this workflow handles?
 3. Does its data satisfy the optional filter?
+
+When a trigger omits `event`, it subscribes to every event from that source.
 
 Only a match creates a run. The event still exists when no trigger matches, so
 event delivery and workflow policy can be inspected separately.

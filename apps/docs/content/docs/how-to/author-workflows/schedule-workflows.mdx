@@ -30,7 +30,6 @@ You need a project that can sync workflows, an online runner with the
     triggers:
       nightly:
         source: cron
-        event: tick
         config:
           schedule: "0 2 * * *"
           timezone: "Europe/Paris"
@@ -49,8 +48,6 @@ You need a project that can sync workflows, an online runner with the
     Set `config.schedule` to a five-field Cron expression. Set
     `config.timezone` to the time zone that should interpret it. Omit the time
     zone to use the documented default.
-
-    See [Cron triggers](/reference/trigger-sources#cron) for the exact contract.
   </Step>
   <Step>
 

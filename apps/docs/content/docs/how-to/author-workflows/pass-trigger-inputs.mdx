@@ -28,13 +28,11 @@ runner: shipfox
 triggers:
   manual_smoke:
     source: manual
-    event: fire
     with:
       suite: smoke
 
   nightly_full:
     source: cron
-    event: tick
     config:
       schedule: "0 2 * * *"
       timezone: UTC
@@ -75,5 +73,5 @@ Restore `0 2 * * *` after both start paths work.
    under `inputs`.
 
 The [Contexts reference](/reference/contexts#context-availability) defines
-where `inputs` is available. The [Cron reference](/reference/trigger-sources#cron)
-defines schedule fields.
+where `inputs` is available. [Schedule workflows](/how-to/author-workflows/schedule-workflows)
+defines Cron schedule fields.

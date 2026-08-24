@@ -10,7 +10,7 @@ import {registeredIntegrationProviders} from '@/lib/registered-integration-provi
 const githubToolsIssuePattern = /Integration provider "github": add tools\.mdx/;
 const sentryCapabilitiesIssuePattern =
   /Integration provider "sentry": remove the stale "agent_tools" capability/;
-const cronSectionIssuePattern = /Built-in source "cron": add a "## cron" section/;
+const cronEventIssuePattern = /Built-in source "cron": mention event "tick"/;
 const linearMissingSetupIssuePattern =
   /Integration provider "linear": add setup\.mdx for the connectable provider\./;
 
@@ -92,7 +92,7 @@ const validInput: IntegrationDocsCompletenessInput = {
       },
     ),
   },
-  triggerSources: '## Sources at a glance\n| Cron | `cron` | `tick` |\n\n## cron',
+  builtInSourceDocs: {cron: 'source: cron\nThe event is `tick`.'},
 };
 
 test('accepts complete integration documentation', () => {
@@ -120,14 +120,14 @@ test('reports provider-named fixes for missing and stale documentation', () => {
         },
       },
     },
-    triggerSources: '## Sources at a glance\n| Cron | `cron` | `tick` |',
+    builtInSourceDocs: {cron: 'source: cron'},
   };
 
   const issues = collectIntegrationDocIssues(input);
 
   assert.match(issues.join('\n'), githubToolsIssuePattern);
   assert.match(issues.join('\n'), sentryCapabilitiesIssuePattern);
-  assert.match(issues.join('\n'), cronSectionIssuePattern);
+  assert.match(issues.join('\n'), cronEventIssuePattern);
 });
 
 test('reports a missing setup page for a catalog provider', () => {
@@ -148,13 +148,26 @@ test('reports a missing setup page for a catalog provider', () => {
   assert.match(issues.join('\n'), linearMissingSetupIssuePattern);
 });
 
-test('uses the built-in source identifier for the source table row', () => {
+test('accepts built-in source documentation without reference-page structure', () => {
   const input: IntegrationDocsCompletenessInput = {
     ...validInput,
-    triggerSources: '## Sources at a glance\n| Schedule | `cron` | `tick` |\n\n## cron',
+    builtInSourceDocs: {
+      cron: '# Schedule workflows\nsource: cron # every hour\nThe event is `tick`.',
+    },
   };
 
   assert.deepEqual(collectIntegrationDocIssues(input), []);
+});
+
+test('requires an exact built-in source value', () => {
+  const input: IntegrationDocsCompletenessInput = {
+    ...validInput,
+    builtInSourceDocs: {cron: 'source: cronical\nThe event is `tick`.'},
+  };
+
+  assert.deepEqual(collectIntegrationDocIssues(input), [
+    'Built-in source "cron": show `source: cron` in /how-to/author-workflows/schedule-workflows.',
+  ]);
 });
 
 test('reports only the built-in-source diagnostic for its integration directory', () => {
@@ -175,7 +188,7 @@ test('reports only the built-in-source diagnostic for its integration directory'
   assert.deepEqual(
     issues.filter((issue) => issue.includes('integrations/cron')),
     [
-      'Built-in source "cron": remove integrations/cron; it is documented at /reference/trigger-sources.',
+      'Built-in source "cron": remove integrations/cron; it is documented at /how-to/author-workflows/schedule-workflows.',
     ],
   );
 });

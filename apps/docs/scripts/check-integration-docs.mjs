@@ -14,20 +14,13 @@ const generatedCatalogPath = path.join(
   'integrations',
   'catalog.json',
 );
-const triggerSourcesPath = path.join(
-  docsRoot,
-  'content',
-  'docs',
-  'reference',
-  'trigger-sources.mdx',
-);
 const frontmatterPattern = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/u;
 
 const issues = collectIntegrationDocIssues({
   providers: registeredIntegrationProviders,
   generatedCatalog: JSON.parse(readFileSync(generatedCatalogPath, 'utf8')),
   integrationDirectories: readIntegrationDirectories(),
-  triggerSources: readIfExists(triggerSourcesPath),
+  builtInSourceDocs: readBuiltInSourceDocs(),
 });
 
 if (issues.length > 0) {
@@ -76,4 +69,16 @@ function parseOverview(content) {
 
 function readIfExists(file) {
   return existsSync(file) ? readFileSync(file, 'utf8') : undefined;
+}
+
+function readBuiltInSourceDocs() {
+  return Object.fromEntries(
+    registeredIntegrationProviders
+      .filter((provider) => provider.kind === 'built-in-source')
+      .map((provider) => [
+        provider.slug,
+        readIfExists(path.join(docsRoot, 'content', 'docs', `${provider.docRoute.slice(1)}.mdx`)),
+      ])
+      .filter((entry) => entry[1] !== undefined),
+  );
 }

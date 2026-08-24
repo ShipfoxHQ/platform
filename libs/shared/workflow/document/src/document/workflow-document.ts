@@ -174,11 +174,11 @@ export const workflowDocumentStepOutputsSchema = z
 const workflowDocumentTriggerBaseSchema = {
   source: z.string().min(1).meta({
     description:
-      'Integration connection slug or built-in trigger source. See [Trigger sources](/reference/trigger-sources).',
+      'Integration connection slug or built-in trigger source. See [Integrations](/integrations) for provider sources.',
   }),
   with: z.record(z.string(), z.unknown()).optional().meta({
     description:
-      'Provider-specific values used to match or configure the trigger. See [Trigger sources](/reference/trigger-sources).',
+      'Provider-specific values used to match or configure the trigger. See the provider event catalog in [Integrations](/integrations).',
   }),
   filter: z.string().min(1).optional().meta({
     description:
@@ -186,7 +186,7 @@ const workflowDocumentTriggerBaseSchema = {
   }),
   config: z.record(z.string(), z.unknown()).optional().meta({
     description:
-      'Source-specific configuration. It is supported only for top-level triggers with a known built-in source. See [cron triggers](/reference/trigger-sources#cron).',
+      'Source-specific configuration. It is supported only for top-level triggers with a known built-in source. See [Schedule workflows](/how-to/author-workflows/schedule-workflows).',
   }),
 } satisfies z.ZodRawShape;
 

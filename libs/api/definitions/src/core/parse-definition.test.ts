@@ -32,7 +32,7 @@ describe('parseDefinition', () => {
     expect(definition.document.triggers?.on_push?.source).toBe('github_acme');
     expect(definition.document.triggers?.on_push?.event).toBe('push');
     expect(definition.document.triggers?.on_demand?.source).toBe('manual');
-    expect(definition.document.triggers?.on_demand?.event).toBe('fire');
+    expect(definition.document.triggers?.on_demand?.event).toBeUndefined();
     expect(definition.document.jobs.build?.steps).toHaveLength(2);
     expect(definition.document.jobs.build?.steps?.[0]?.run).toBe('npm install');
     const firstStep = definition.model.jobs.find((job) => job.id === 'build')?.steps[0];

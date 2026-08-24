@@ -3,7 +3,6 @@ runner: __RUNNER_LABEL__
 triggers:
   manual:
     source: manual
-    event: fire
 jobs:
   fix:
     steps:

@@ -10,8 +10,7 @@ interface RegisteredBuiltInSource {
   slug: string;
   kind: 'built-in-source';
   events: readonly string[];
-  docRoute: '/reference/trigger-sources';
-  anchor: string;
+  docRoute: string;
 }
 
 export type RegisteredIntegrationProvider =
@@ -53,7 +52,6 @@ export const registeredIntegrationProviders: readonly RegisteredIntegrationProvi
     slug: 'cron',
     kind: 'built-in-source',
     events: ['tick'],
-    docRoute: '/reference/trigger-sources',
-    anchor: 'cron',
+    docRoute: '/how-to/author-workflows/schedule-workflows',
   },
 ];

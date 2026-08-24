@@ -67,7 +67,6 @@ runner: shipfox
 triggers:
   on_deploy_event:
     source: deploy_hook # Replace with the slug of your webhook integration connection.
-    event: received
     filter: event.body.environment == "staging"
 
 jobs:
