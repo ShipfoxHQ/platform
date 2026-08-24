@@ -30,6 +30,8 @@ export const WORKFLOW_FIELD_YAML_KEYS = {
   'checkout.ref': 'jobs.<job_id>.steps[*].checkout.ref',
   'checkout.path': 'jobs.<job_id>.steps[*].checkout.path',
   'step.feedback': 'jobs.<job_id>.steps[*].gate.on_failure.feedback',
+  'tool.with': 'jobs.<job_id>.steps[*].with',
+  'tool.outputs': 'jobs.<job_id>.steps[*].outputs.<name>',
 };
 
 // Keep the shape lookup here so generation and drift checking traverse the same
