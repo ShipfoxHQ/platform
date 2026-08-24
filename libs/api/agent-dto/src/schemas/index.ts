@@ -83,12 +83,18 @@ export {
 } from './harness.js';
 export {
   type ManagedModelApi,
+  type ManagedModelCompat,
   type ManagedModelEntry,
   type ManagedModelMetadata,
   type ManagedModelProvider,
+  type ManagedModelThinkingLevel,
+  type ManagedModelThinkingLevelMap,
   type ManagedProviderRuntimeConfig,
   managedModelApiSchema,
+  managedModelCompatSchema,
   managedModelMetadataSchema,
+  managedModelThinkingLevelMapSchema,
+  managedModelThinkingLevelSchema,
   toCustomAgentModelDto,
 } from './managed-provider.js';
 export {

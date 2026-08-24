@@ -163,6 +163,8 @@ describe('agent config', () => {
         ['string context window', {context_window: '128000'}],
         ['non-boolean reasoning', {reasoning: 'true'}],
         ['non-boolean input image', {input_image: 1}],
+        ['invalid thinking-level map', {thinkingLevelMap: {high: 1}}],
+        ['invalid compatibility metadata', {compat: {thinkingFormat: 'unsupported'}}],
       ] as const
     ).map(
       ([name, metadata]) =>

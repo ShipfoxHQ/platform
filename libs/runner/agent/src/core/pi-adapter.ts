@@ -510,6 +510,8 @@ function toPiCustomProviderModel(
     cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0},
     contextWindow: model.context_window ?? DEFAULT_CUSTOM_MODEL_CONTEXT_WINDOW,
     maxTokens: model.max_output_tokens ?? DEFAULT_CUSTOM_MODEL_MAX_OUTPUT_TOKENS,
+    ...(model.thinking_level_map === undefined ? {} : {thinkingLevelMap: model.thinking_level_map}),
+    ...(model.compat === undefined ? {} : {compat: model.compat}),
   };
   return piModel;
 }

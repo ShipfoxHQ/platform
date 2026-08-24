@@ -1,6 +1,16 @@
 import type {AgentThinking} from '@shipfox/workflow-document';
 import {z} from 'zod';
 import {type CustomAgentModelDto, customAgentModelSchema} from './custom-model-provider.js';
+import {managedModelCompatSchema, managedModelThinkingLevelMapSchema} from './pi-model.js';
+
+export {
+  type ManagedModelCompat,
+  type ManagedModelThinkingLevel,
+  type ManagedModelThinkingLevelMap,
+  managedModelCompatSchema,
+  managedModelThinkingLevelMapSchema,
+  managedModelThinkingLevelSchema,
+} from './pi-model.js';
 
 export const managedModelApiSchema = z.enum([
   'anthropic-messages',
@@ -10,10 +20,17 @@ export const managedModelApiSchema = z.enum([
 
 export type ManagedModelApi = z.infer<typeof managedModelApiSchema>;
 
-export const managedModelMetadataSchema = customAgentModelSchema.omit({
-  id: true,
-  label: true,
-});
+export const managedModelMetadataSchema = customAgentModelSchema
+  .omit({
+    id: true,
+    label: true,
+    thinking_level_map: true,
+    compat: true,
+  })
+  .extend({
+    thinkingLevelMap: managedModelThinkingLevelMapSchema.optional(),
+    compat: managedModelCompatSchema.optional(),
+  });
 
 export type ManagedModelMetadata = z.infer<typeof managedModelMetadataSchema>;
 
@@ -30,10 +47,13 @@ export interface ManagedModelEntry extends Readonly<ManagedModelMetadata> {
 export function toCustomAgentModelDto(
   model: Pick<ManagedModelEntry, 'id' | 'label'> & ManagedModelMetadata,
 ): CustomAgentModelDto {
+  const {thinkingLevelMap, ...metadata} = managedModelMetadataSchema.parse(model);
+
   return {
     id: model.id,
     label: model.label,
-    ...managedModelMetadataSchema.parse(model),
+    ...metadata,
+    ...(thinkingLevelMap === undefined ? {} : {thinking_level_map: thinkingLevelMap}),
   };
 }
 
