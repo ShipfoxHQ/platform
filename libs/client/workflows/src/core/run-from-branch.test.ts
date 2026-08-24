@@ -34,10 +34,10 @@ describe('runFromBranchInputsFromWith', () => {
         tags: ['a', 'b'],
       }),
     ).toEqual([
-      {key: 'environment', value: 'staging'},
-      {key: 'retries', value: '3'},
-      {key: 'canary', value: 'true'},
-      {key: 'tags', value: '["a","b"]'},
+      {key: 'environment', value: 'staging', valueKind: 'string'},
+      {key: 'retries', value: '3', valueKind: 'json'},
+      {key: 'canary', value: 'true', valueKind: 'json'},
+      {key: 'tags', value: '["a","b"]', valueKind: 'json'},
     ]);
   });
 
@@ -54,8 +54,15 @@ describe('runFromBranchInputValue', () => {
     expect(runFromBranchInputValue('0123')).toBe('0123');
   });
 
+  it('keeps string-kind values as text even when they parse as JSON literals', () => {
+    expect(runFromBranchInputValue('1', 'string')).toBe('1');
+    expect(runFromBranchInputValue('true', 'string')).toBe('true');
+    expect(runFromBranchInputValue('["a"]', 'string')).toBe('["a"]');
+  });
+
   it('round-trips JSON values that were stringified for editing', () => {
     expect(runFromBranchInputValue('3')).toBe(3);
+    expect(runFromBranchInputValue('3', 'json')).toBe(3);
     expect(runFromBranchInputValue('true')).toBe(true);
     expect(runFromBranchInputValue('["a","b"]')).toEqual(['a', 'b']);
     expect(runFromBranchInputValue('{"region":"us-east-1"}')).toEqual({region: 'us-east-1'});
@@ -72,6 +79,31 @@ describe('runFromBranchInputsToObject', () => {
         {key: '', value: 'also dropped'},
       ]),
     ).toEqual({environment: 'production', retries: 3});
+  });
+
+  it('keeps string-kind values as strings and parses json-kind values', () => {
+    expect(
+      runFromBranchInputsToObject([
+        {key: 'version', value: '1', valueKind: 'string'},
+        {key: 'flag', value: 'true', valueKind: 'string'},
+        {key: 'retries', value: '3', valueKind: 'json'},
+      ]),
+    ).toEqual({version: '1', flag: 'true', retries: 3});
+  });
+
+  it('round-trips a with block without changing string literal types', () => {
+    const withBlock = {version: '1', flag: 'true', retries: 3, region: 'us-east-1'};
+    expect(runFromBranchInputsToObject(runFromBranchInputsFromWith(withBlock))).toEqual(withBlock);
+  });
+
+  it('stores prototype-named keys as data on a null-prototype object', () => {
+    const inputs = runFromBranchInputsToObject([
+      {key: '__proto__', value: 'polluted', valueKind: 'string'},
+      {key: 'constructor', value: '1', valueKind: 'string'},
+    ]);
+    expect(Object.getPrototypeOf(inputs)).toBeNull();
+    expect(inputs['__proto__']).toBe('polluted');
+    expect(inputs.constructor).toBe('1');
   });
 
   it('returns an empty object for no rows', () => {

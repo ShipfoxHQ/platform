@@ -167,6 +167,15 @@ export function RunFromBranchDialog({
   function handleRefBlur() {
     if (refDraft.trim() === '') {
       setRefBlurredEmpty(true);
+      // Clearing the ref invalidates the previous resolution: without a
+      // listing the next step stays disabled, so a stale pinned commit
+      // cannot be submitted from the old ref.
+      setResolvedRef(undefined);
+      setSelectedConfigPath(undefined);
+      setSelectedTriggerKey(undefined);
+      setInputRows([]);
+      setRefMovedCopy(null);
+      setSubmitError(null);
       return;
     }
     const next = refDraft.trim();

@@ -201,6 +201,22 @@ describe('RunFromBranchDialog', () => {
     expect(screen.getByRole('button', {name: 'Next'})).toBeDisabled();
   });
 
+  test('clears the resolution when the ref blurs empty after a resolve', async () => {
+    renderDialog(createFetch().fetchImpl);
+
+    resolveRefToFileStep();
+    await screen.findByText('Resolved');
+
+    const input = screen.getByLabelText(REF_INPUT_LABEL);
+    fireEvent.change(input, {target: {value: ''}});
+    fireEvent.blur(input);
+
+    // The stale listing is gone: the ref step cannot proceed on the old ref.
+    await waitFor(() => expect(screen.queryByText('Resolved')).not.toBeInTheDocument());
+    expect(input).toHaveAccessibleDescription('Enter a branch or tag name to run from.');
+    expect(screen.getByRole('button', {name: 'Next'})).toBeDisabled();
+  });
+
   test('shows a step-level alert for non-inline listing errors', async () => {
     const {fetchImpl} = createFetch({
       listing: jsonResponse({code: 'source-unavailable'}, {status: 502}),

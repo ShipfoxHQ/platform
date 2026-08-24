@@ -33,30 +33,45 @@ export function runFromBranchTriggerSourceLabel(source: string): string {
 export interface RunFromBranchInputRow {
   key: string;
   value: string;
+  /**
+   * How the row's value round-trips on submit. Rows prefilled from string
+   * `with` values are marked `string` so they stay text even when the text is
+   * a valid JSON literal; rows prefilled from any other JSON value are marked
+   * `json` and parse back. User-added rows carry no kind and keep the
+   * parse-if-valid-JSON behavior.
+   */
+  valueKind?: 'string' | 'json' | undefined;
 }
 
 /**
  * Prefill the inputs form from a trigger's `with` block. String values stay
- * editable text; every other JSON value is stringified so it round-trips
- * through `runFromBranchInputValue`.
+ * editable text and are marked `string` so they round-trip as strings; every
+ * other JSON value is stringified for editing and marked `json` so it parses
+ * back through `runFromBranchInputValue`.
  */
 export function runFromBranchInputsFromWith(
   withBlock: Record<string, unknown> | undefined,
 ): RunFromBranchInputRow[] {
   if (!withBlock) return [];
-  return Object.entries(withBlock).map(([key, value]) => ({
-    key,
-    value: value === undefined ? '' : typeof value === 'string' ? value : JSON.stringify(value),
-  }));
+  return Object.entries(withBlock).map(([key, value]) => {
+    if (typeof value === 'string') {
+      return {key, value, valueKind: 'string'};
+    }
+    return {key, value: value === undefined ? '' : JSON.stringify(value), valueKind: 'json'};
+  });
 }
 
 /**
- * Parse one edited value back into the request shape: JSON values that were
- * stringified for editing (numbers, booleans, objects, arrays) round-trip,
- * and any other text stays a string. An empty value stays an empty string.
+ * Parse one edited value back into the request shape: `string`-kind values
+ * stay text, `json`-kind and user-added values parse valid JSON and fall back
+ * to the raw text. An empty value stays an empty string.
  */
-export function runFromBranchInputValue(value: string): unknown {
+export function runFromBranchInputValue(
+  value: string,
+  valueKind: RunFromBranchInputRow['valueKind'] = undefined,
+): unknown {
   if (value === '') return '';
+  if (valueKind === 'string') return value;
   try {
     return JSON.parse(value) as unknown;
   } catch {
@@ -66,16 +81,18 @@ export function runFromBranchInputValue(value: string): unknown {
 
 /**
  * Build the request `inputs` object from the form rows. Rows with a blank key
- * are dropped; the remaining values are parsed with `runFromBranchInputValue`.
+ * are dropped; the remaining values are parsed with `runFromBranchInputValue`
+ * using each row's kind. The object has a null prototype so keys like
+ * `__proto__` and `constructor` are stored as data, not prototype properties.
  */
 export function runFromBranchInputsToObject(
   rows: readonly RunFromBranchInputRow[],
 ): Record<string, unknown> {
-  const inputs: Record<string, unknown> = {};
+  const inputs: Record<string, unknown> = Object.create(null);
   for (const row of rows) {
     const key = row.key.trim();
     if (!key) continue;
-    inputs[key] = runFromBranchInputValue(row.value);
+    inputs[key] = runFromBranchInputValue(row.value, row.valueKind);
   }
   return inputs;
 }
