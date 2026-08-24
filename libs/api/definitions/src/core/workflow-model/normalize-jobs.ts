@@ -6,11 +6,13 @@ import {
   type ExpressionType,
   type ExpressionTypeEnvironment,
   hoistPlannedRunCommand,
+  parseWorkflowTemplate,
   type ShellReevaluatingConstruct,
   type UnsafeRunInterpolation,
   UnsafeRunInterpolationError,
   type WorkflowJobTypeOverlay,
   type WorkflowStepTypeOverlay,
+  type WorkflowTemplateSegment,
 } from '@shipfox/expression';
 import {
   canonicalizeLabels,
@@ -1010,14 +1012,38 @@ interface SessionSharingStep {
   readonly harness: string | undefined;
 }
 
+// Bounds the cross-job sharing pass so a hostile or degenerate document cannot
+// force unbounded pair work or issue allocation on the shared validation path.
+const MAX_SESSION_SHARING_PAIR_EVALUATIONS = 100_000;
+
+// Context roots whose value is fixed per run. A session key built only from
+// these roots (or from no interpolation at all) resolves identically in every
+// job, so identical template text means the same resolved key. Per-job roots
+// (steps, job, execution, jobs, needs, ...) resolve per job and can make
+// identical templates differ at runtime.
+const RUN_GLOBAL_SESSION_KEY_CONTEXT_ROOTS = new Set<string>([
+  'workflow',
+  'run',
+  'trigger',
+  'event',
+  'inputs',
+  'vars',
+  'secrets',
+]);
+
 // Cross-job authoring checks for shared agent sessions: two resume-mode steps
 // with statically identical session key templates from jobs without a
 // transitive needs ancestry would claim the same session in parallel, and
 // steps sharing a static key must agree on the literal harness because a
 // session is pinned to the harness that created it. Templates are compared
 // literally only; distinct templates that collide at runtime stay the
-// dispatch-time claim's job. Steps within one job are serial and never
-// conflict with each other.
+// dispatch-time claim's job, and templates that reference per-job context are
+// not compared because identical text can resolve to different keys per job.
+// Harness agreement also applies to steps within one job: serial steps never
+// claim in parallel, but a session is pinned to the harness that created it
+// regardless of serialization. At most one issue is reported per session key
+// per code, and the pass stops after a fixed pair budget, so large documents
+// stay bounded.
 function validateAgentSessionSharing(
   document: WorkflowDocument,
   issues: WorkflowModelValidationIssue[],
@@ -1037,22 +1063,53 @@ function validateAgentSessionSharing(
     });
   }
 
+  // Steps whose session field already produced an issue in the per-step pass
+  // can never name a session; stacking sharing issues on them would double-
+  // report a broken key. This mirrors the per-step suppression of
+  // invalid-agent-session-key when any other session issue was raised.
+  const sessionFieldIssueSteps = new Set<string>();
+  for (const entry of issues) {
+    const path = entry.path;
+    if (path.length >= 5 && path[0] === 'jobs' && path[2] === 'steps' && path[4] === 'session') {
+      sessionFieldIssueSteps.add(`${path[1]}\u0000${path[3]}`);
+    }
+  }
+
   const ancestorsByJobName = new Map<string, ReadonlySet<string>>();
+  const parallelResumeReportedKeys = new Set<string>();
+  const harnessMismatchReportedKeys = new Set<string>();
+  let evaluatedPairs = 0;
 
   for (let index = 1; index < steps.length; index += 1) {
     const later = steps[index];
-    if (later === undefined) continue;
+    if (later === undefined || sessionFieldIssueSteps.has(sessionStepPathKey(later))) continue;
 
     for (let priorIndex = 0; priorIndex < index; priorIndex += 1) {
+      if (evaluatedPairs >= MAX_SESSION_SHARING_PAIR_EVALUATIONS) return;
+      evaluatedPairs += 1;
+
       const prior = steps[priorIndex];
-      if (prior === undefined || prior.jobName === later.jobName) continue;
-      // Keys that fail the static grammar are already flagged as
-      // invalid-agent-session-key and can never name a session.
-      if (prior.keySource !== later.keySource || !isStaticallyValidSessionKey(later.keySource)) {
+      if (prior === undefined || sessionFieldIssueSteps.has(sessionStepPathKey(prior))) continue;
+      if (
+        prior.keySource !== later.keySource ||
+        !referencesRunGlobalOnlySessionKey(later.keySource)
+      ) {
+        continue;
+      }
+      // At most one issue per key per code; nothing left to report for keys
+      // that already produced both.
+      if (
+        parallelResumeReportedKeys.has(later.keySource) &&
+        harnessMismatchReportedKeys.has(later.keySource)
+      ) {
         continue;
       }
 
-      if (prior.mode === 'resume' && later.mode === 'resume') {
+      // Serial steps within one job never claim concurrently, so the parallel
+      // resume check only spans jobs. Harness agreement is checked for every
+      // sharing pair, including same-job pairs, because a session is pinned to
+      // the harness that created it.
+      if (prior.jobName !== later.jobName && prior.mode === 'resume' && later.mode === 'resume') {
         const priorAncestors = transitiveNeedsAncestors(
           document,
           prior.jobName,
@@ -1063,11 +1120,16 @@ function validateAgentSessionSharing(
           later.jobName,
           ancestorsByJobName,
         );
-        if (!priorAncestors.has(later.jobName) && !laterAncestors.has(prior.jobName)) {
+        if (
+          !priorAncestors.has(later.jobName) &&
+          !laterAncestors.has(prior.jobName) &&
+          !parallelResumeReportedKeys.has(later.keySource)
+        ) {
+          parallelResumeReportedKeys.add(later.keySource);
           issues.push(
             issue({
               code: 'agent-session-parallel-resume',
-              message: `Agent steps ${sessionSharingStepLabel(prior)} (job "${prior.jobName}") and ${sessionSharingStepLabel(later)} (job "${later.jobName}") both resume session key "${later.keySource}", but their jobs have no transitive "needs" ancestry, so they can run in parallel and would conflict on the session.`,
+              message: `Agent steps ${sessionSharingStepLabel(prior)} (job "${prior.jobName}") and ${sessionSharingStepLabel(later)} (job "${later.jobName}") both resume session key "${later.keySource}", but their jobs have no transitive "needs" ancestry, so they can run in parallel and would conflict on the session. Add a "needs" edge between the jobs, fork the session on one step, or use distinct session keys.`,
               path: ['jobs', later.jobName, 'steps', later.stepIndex, 'session'],
               details: {
                 key: later.keySource,
@@ -1079,15 +1141,22 @@ function validateAgentSessionSharing(
         }
       }
 
+      // A step that omits `harness` resolves at dispatch to the workspace
+      // default harness (or `pi` when none is configured), which this
+      // authoring layer cannot know. Omission is therefore exempt from the
+      // literal agreement check; a mismatch against the resolved default
+      // surfaces at claim time.
       if (
         prior.harness !== undefined &&
         later.harness !== undefined &&
-        prior.harness !== later.harness
+        prior.harness !== later.harness &&
+        !harnessMismatchReportedKeys.has(later.keySource)
       ) {
+        harnessMismatchReportedKeys.add(later.keySource);
         issues.push(
           issue({
             code: 'agent-session-harness-mismatch',
-            message: `Agent steps ${sessionSharingStepLabel(prior)} (job "${prior.jobName}") and ${sessionSharingStepLabel(later)} (job "${later.jobName}") share session key "${later.keySource}" but declare different harnesses: "${prior.harness}" and "${later.harness}". A session is pinned to the harness that created it.`,
+            message: `Agent steps ${sessionSharingStepLabel(prior)} (job "${prior.jobName}") and ${sessionSharingStepLabel(later)} (job "${later.jobName}") share session key "${later.keySource}" but declare different harnesses: "${prior.harness}" and "${later.harness}". A session is pinned to the harness that created it. Declare the same harness on every step that shares the session key.`,
             path: ['jobs', later.jobName, 'steps', later.stepIndex, 'session'],
             details: {
               key: later.keySource,
@@ -1102,9 +1171,30 @@ function validateAgentSessionSharing(
   }
 }
 
-function isStaticallyValidSessionKey(keySource: string): boolean {
-  if (!keySource.includes('${{')) return WORKFLOW_SESSION_KEY_PATTERN.test(keySource);
-  return isValidWorkflowSessionKeyTemplateLiteralParts(keySource);
+function sessionStepPathKey(step: SessionSharingStep): string {
+  return `${step.jobName}\u0000${step.stepIndex}`;
+}
+
+// Only templates built from run-global context (or pure literals) resolve
+// identically in every job, so only they can be compared by exact text.
+function referencesRunGlobalOnlySessionKey(keySource: string): boolean {
+  if (!keySource.includes('${{')) return true;
+
+  let segments: WorkflowTemplateSegment[];
+  try {
+    segments = parseWorkflowTemplate(keySource);
+  } catch {
+    // Unparseable templates are already flagged by the per-step pass.
+    return false;
+  }
+
+  for (const segment of segments) {
+    if (segment.kind !== 'expr') continue;
+    if (segment.contextRoots.some((root) => !RUN_GLOBAL_SESSION_KEY_CONTEXT_ROOTS.has(root))) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function sessionSharingStepLabel(step: SessionSharingStep): string {
