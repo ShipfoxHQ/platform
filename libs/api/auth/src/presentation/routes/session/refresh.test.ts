@@ -1,8 +1,10 @@
 import type {FastifyInstance} from 'fastify';
+import {verifyUserToken} from '#core/jwt.js';
 import {
   cookieHeader,
   createAuthTestApp,
   listMembershipsByUserMock,
+  ROUTE_TEST_SECRET,
   resetCapturedMail,
   signupVerifyLogin,
 } from '#test/routes.js';
@@ -34,6 +36,11 @@ describe('POST /auth/refresh', () => {
     expect(res.statusCode).toBe(200);
     expect(res.json().token).toBeDefined();
     expect(res.json().user.email).toBe(account.email);
+    expect(res.json().impersonator_id).toBeUndefined();
+    // Rotation re-issues an ordinary access token: a marked session's marker
+    // never survives the refresh path, so it can never be refreshed back.
+    const claims = await verifyUserToken({token: res.json().token, secret: ROUTE_TEST_SECRET});
+    expect(claims.impersonatorId).toBeUndefined();
     expect(res.headers['set-cookie']).toContain('shipfox_refresh_token=');
     expect(res.headers['set-cookie']).toContain('HttpOnly');
     expect(res.headers['set-cookie']).toContain('Secure');

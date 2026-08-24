@@ -86,7 +86,7 @@ export function createJwtAuthMethod(): AuthMethod {
     },
     isInvalidTokenError: (error) => error instanceof InvalidJwtTokenError,
     invalidTokenError: {message: 'Invalid or expired token', code: 'unauthorized'},
-    setContext: (request, claims) => {
+    setContext: (request, claims, reply) => {
       const clientContext: ClientContext = buildUserContext({
         userId: claims.sub,
         email: claims.email,
@@ -97,11 +97,20 @@ export function createJwtAuthMethod(): AuthMethod {
       setUserContext(request, clientContext);
       setAuthenticatedSessionContext(request, claims);
       if (claims.impersonatorId !== undefined) {
-        // Marked sessions must be attributable in logs: bind the field on the
-        // request logger and on the request span, so every log line emitted
-        // during the request correlates back to the impersonator.
-        request.log = request.log.child({impersonatorId: claims.impersonatorId});
-        enrichSpanWithMetadata({impersonatorId: claims.impersonatorId});
+        const impersonatorId = claims.impersonatorId;
+        // Marked sessions must stay attributable: bind the marker on the
+        // request logger and on the reply logger (Fastify captured the reply's
+        // logger before hooks ran), and on the request span rather than the
+        // short-lived hook span.
+        const markedLogger = request.log.child({impersonatorId});
+        request.log = markedLogger;
+        if (reply) {
+          reply.log = markedLogger;
+        }
+        const requestSpan = request.opentelemetry?.().span;
+        if (requestSpan) {
+          enrichSpanWithMetadata({impersonatorId}, {span: requestSpan});
+        }
       }
     },
   });

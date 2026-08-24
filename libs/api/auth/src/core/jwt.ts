@@ -11,16 +11,25 @@ export const tokenMembershipSchema = z.object({
 
 export type TokenMembership = z.infer<typeof tokenMembershipSchema>;
 
-export const userTokenClaimsSchema = z.object({
-  sub: z.string().uuid(),
-  refreshSessionId: z.string().uuid().optional(),
-  impersonatorId: z.string().uuid().optional(),
-  email: z.string().email(),
-  name: z.string().nullable().optional(),
-  memberships: z.array(tokenMembershipSchema),
-  iat: z.number().int(),
-  exp: z.number().int(),
-});
+const impersonatorIdSchema = z.string().uuid();
+
+// Rollback hazard: pre-impersonation verifiers strip unknown claims (zod's
+// default object parsing), so a marked token verified by an old build silently
+// loses the marker. Upgrade every verifier before any issuer mints marked tokens.
+export const userTokenClaimsSchema = z
+  .object({
+    sub: z.string().uuid(),
+    refreshSessionId: z.string().uuid().optional(),
+    impersonatorId: impersonatorIdSchema.optional(),
+    email: z.string().email(),
+    name: z.string().nullable().optional(),
+    memberships: z.array(tokenMembershipSchema),
+    iat: z.number().int(),
+    exp: z.number().int(),
+  })
+  .refine((claims) => claims.impersonatorId === undefined || claims.impersonatorId !== claims.sub, {
+    message: 'impersonatorId must differ from sub',
+  });
 
 export type UserTokenClaims = z.infer<typeof userTokenClaimsSchema>;
 
@@ -41,6 +50,15 @@ export interface VerifyUserTokenParams {
 }
 
 export async function signUserToken(params: SignUserTokenParams): Promise<string> {
+  if (params.impersonatorId !== undefined) {
+    if (!impersonatorIdSchema.safeParse(params.impersonatorId).success) {
+      throw new TypeError('impersonatorId must be a UUID');
+    }
+    if (params.impersonatorId === params.userId) {
+      throw new TypeError('impersonatorId must differ from userId');
+    }
+  }
+
   const token = await signHs256({
     payload: {
       email: params.email,

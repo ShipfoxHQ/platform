@@ -68,7 +68,6 @@ export const loginResponseSchema = z.object({
   token: z.string(),
   user: userDtoSchema,
   admin_role: adminRoleSchema.nullable().optional(),
-  impersonator_id: z.string().uuid().optional(),
 });
 
 export type LoginResponseDto = z.infer<typeof loginResponseSchema>;

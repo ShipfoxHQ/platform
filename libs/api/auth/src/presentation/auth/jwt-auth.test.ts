@@ -1,4 +1,5 @@
 import {userAccessTokenKey} from '@shipfox/node-auth-root-key';
+import {contextWithMetadata, trace} from '@shipfox/node-opentelemetry';
 import {hashOpaqueToken} from '@shipfox/node-tokens';
 import type {FastifyInstance} from 'fastify';
 import Fastify from 'fastify';
@@ -317,6 +318,10 @@ describe('request-log context', () => {
     await logApp.close();
   });
 
+  beforeEach(() => {
+    records.length = 0;
+  });
+
   test('binds impersonatorId on the request logger for marked sessions', async () => {
     const user = await createUser({email: emailFor('jwt-imp-log'), hashedPassword: 'h'});
     const impersonatorId = crypto.randomUUID();
@@ -339,6 +344,9 @@ describe('request-log context', () => {
     const probe = [...records].reverse().find((record) => record.msg === 'probe line');
     expect(probe).toBeDefined();
     expect(probe?.impersonatorId).toBe(impersonatorId);
+    const completed = [...records].reverse().find((record) => record.msg === 'request completed');
+    expect(completed).toBeDefined();
+    expect(completed?.impersonatorId).toBe(impersonatorId);
   });
 
   test('leaves ordinary sessions unmarked in the request logger', async () => {
@@ -361,5 +369,86 @@ describe('request-log context', () => {
     const probe = [...records].reverse().find((record) => record.msg === 'probe line');
     expect(probe).toBeDefined();
     expect(probe?.impersonatorId).toBeUndefined();
+    const completed = [...records].reverse().find((record) => record.msg === 'request completed');
+    expect(completed).toBeDefined();
+    expect(completed?.impersonatorId).toBeUndefined();
+  });
+});
+
+describe('span context', () => {
+  let spanApp: FastifyInstance;
+  let setAttribute: ReturnType<typeof vi.spyOn>;
+
+  beforeAll(async () => {
+    const span = trace.getTracer('test').startSpan('request');
+    setAttribute = vi.spyOn(span, 'setAttribute');
+    spanApp = Fastify();
+    spanApp.setValidatorCompiler(validatorCompiler);
+    spanApp.setSerializerCompiler(serializerCompiler);
+    spanApp.decorateRequest('opentelemetry', () => ({
+      enabled: true,
+      span,
+      tracer: trace.getTracer('test'),
+      context: contextWithMetadata({}),
+      inject: () => undefined,
+      extract: () => contextWithMetadata({}),
+    }));
+
+    const authMethod = createJwtAuthMethod();
+    spanApp.addHook('onRequest', async (request, reply) => {
+      await authMethod.authenticate(request, reply);
+    });
+    spanApp.get('/span-probe', () => ({ok: true}));
+    await spanApp.ready();
+  });
+
+  beforeEach(() => {
+    setAttribute.mockClear();
+  });
+
+  afterAll(async () => {
+    await spanApp.close();
+  });
+
+  test('sets impersonatorId on the request span for marked sessions', async () => {
+    const user = await createUser({email: emailFor('jwt-imp-span'), hashedPassword: 'h'});
+    const impersonatorId = crypto.randomUUID();
+    const token = await signUserToken({
+      userId: user.id,
+      email: user.email,
+      memberships: [],
+      impersonatorId,
+      secret: SECRET,
+      expiresIn: '7d',
+    });
+
+    const res = await spanApp.inject({
+      method: 'GET',
+      url: '/span-probe',
+      headers: {authorization: `Bearer ${token}`},
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(setAttribute).toHaveBeenCalledWith('impersonatorId', impersonatorId);
+  });
+
+  test('sets no impersonatorId attribute on the request span for ordinary sessions', async () => {
+    const user = await createUser({email: emailFor('jwt-plain-span'), hashedPassword: 'h'});
+    const token = await signUserToken({
+      userId: user.id,
+      email: user.email,
+      memberships: [],
+      secret: SECRET,
+      expiresIn: '7d',
+    });
+
+    const res = await spanApp.inject({
+      method: 'GET',
+      url: '/span-probe',
+      headers: {authorization: `Bearer ${token}`},
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(setAttribute).not.toHaveBeenCalled();
   });
 });
