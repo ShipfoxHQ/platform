@@ -77,10 +77,12 @@ Server-executed steps (the tool step executor) write logs through the inter-modu
 `appendServerRecords` method on the Logs contract (`@shipfox/api-logs-dto/inter-module`) instead
 of the lease-bound route. It runs the same offset CAS, accrual budget, cap, and close semantics,
 storing chunks with `origin` `server`; records are already-normalized members of the stored/read
-union, so they skip the raw-to-stored normalization the runner path applies. The caller owns no
-spool cursor, so each batch lands at the stream tail (the CAS offset is the current committed
-length); the in-order CAS still serializes concurrent writers. Streams close through the same
-paths as runner streams, including the step-attempt-terminated subscriber.
+union without server-only tombstones, so they skip the raw-to-stored normalization the runner path
+applies. The serialized batch is bounded by `LOG_APPEND_BODY_LIMIT_BYTES` and may contain at most
+one `end` record, which must be last. The caller owns no spool cursor, so each batch lands at the
+stream tail (the CAS offset is the current committed length); the in-order CAS still serializes
+concurrent writers. Streams close through the same paths as runner streams, including the
+step-attempt-terminated subscriber.
 
 ### Multi-level named groups
 

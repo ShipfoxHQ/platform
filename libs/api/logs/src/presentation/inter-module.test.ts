@@ -1,4 +1,5 @@
 import {type LogsModuleClient, logsInterModuleContract} from '@shipfox/api-logs-dto/inter-module';
+import {isInterModuleKnownError} from '@shipfox/inter-module';
 import {
   createInMemoryInterModuleTransport,
   type InterModuleTransport,
@@ -66,5 +67,29 @@ describe('logs inter-module presentation', () => {
     ).rejects.toThrow();
 
     expect(await findStream({...ctx, attempt: 1})).toBeNull();
+  });
+
+  it('maps known domain errors at the transport boundary', async () => {
+    const ctx = newCtx();
+    const logs = buildSealedLogsClient();
+    await logs.appendServerRecords({
+      ...ctx,
+      attempt: 1,
+      records: [{v: 1, ts: 1, type: 'output', stream: 'stdout', data: 'first\n'}],
+    });
+
+    const error = await logs
+      .appendServerRecords({
+        ...ctx,
+        projectId: crypto.randomUUID(),
+        attempt: 1,
+        records: [{v: 1, ts: 1, type: 'output', stream: 'stdout', data: 'more\n'}],
+      })
+      .catch((caught: unknown) => caught);
+
+    expect(
+      isInterModuleKnownError(logsInterModuleContract.methods.appendServerRecords, error),
+    ).toBe(true);
+    expect(error).toMatchObject({code: 'lease-stream-mismatch', details: {}});
   });
 });

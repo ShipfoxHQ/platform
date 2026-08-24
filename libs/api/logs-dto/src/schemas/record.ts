@@ -134,8 +134,19 @@ export const logRecordSchema = z.discriminatedUnion('type', [
   logRunnerLost,
 ]);
 
+/** Records a trusted server-origin writer may append: stored records without tombstones. */
+export const serverLogRecordSchema = z.discriminatedUnion('type', [
+  logOutput,
+  logGroupStart,
+  logGroupEnd,
+  logEnd,
+  logGap,
+  agentSession,
+]);
+
 export type RawLogRecord = z.infer<typeof rawLogRecordSchema>;
 export type LogRecord = z.infer<typeof logRecordSchema>;
+export type ServerLogRecord = z.infer<typeof serverLogRecordSchema>;
 
 export function parseLogRecordLine(line: string): LogRecord {
   return logRecordSchema.parse(JSON.parse(line));

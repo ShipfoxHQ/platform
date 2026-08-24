@@ -1,4 +1,4 @@
-import {type LogRecord, parseLogRecordLine} from '@shipfox/api-logs-dto';
+import {type LogRecord, parseLogRecordLine, type ServerLogRecord} from '@shipfox/api-logs-dto';
 import {appendLogs} from '#core/append-logs.js';
 import {appendServerRecords} from '#core/append-server-records.js';
 import {LeaseStreamMismatchError, MalformedLogChunkError} from '#core/errors.js';
@@ -42,15 +42,15 @@ function newCtx(): Ctx {
   };
 }
 
-function outputRecord(data: string, stream: 'stdout' | 'stderr' = 'stdout'): LogRecord {
+function outputRecord(data: string, stream: 'stdout' | 'stderr' = 'stdout'): ServerLogRecord {
   return {v: 1, ts: 1, type: 'output', stream, data};
 }
 
-function endRecord(totalBytes: number): LogRecord {
+function endRecord(totalBytes: number): ServerLogRecord {
   return {v: 1, ts: 1, type: 'end', total_bytes: totalBytes};
 }
 
-function recordsToBody(records: LogRecord[]): Buffer {
+function recordsToBody(records: ServerLogRecord[]): Buffer {
   return Buffer.from(records.map((record) => `${JSON.stringify(record)}\n`).join(''));
 }
 
@@ -126,6 +126,20 @@ describe('appendServerRecords', () => {
 
       expect(result).toEqual({committedLength: 0, capped: false});
       expect(await findStream({...ctx, attempt: 1})).toBeNull();
+    });
+
+    it('rejects a heartbeat whose identity does not match an existing stream', async () => {
+      const ctx = newCtx();
+      await appendServerRecords({...ctx, attempt: 1, records: [outputRecord('first\n')]});
+
+      const error = await appendServerRecords({
+        ...ctx,
+        workspaceId: crypto.randomUUID(),
+        attempt: 1,
+        records: [],
+      }).catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(LeaseStreamMismatchError);
     });
 
     it('serializes two concurrent first appends without dropping either', async () => {
@@ -260,9 +274,35 @@ describe('appendServerRecords', () => {
       const chunks = await listChunks(stream?.id as string);
       expect(chunks.map((c) => c.origin)).toEqual(['server', 'control']);
     });
+
+    it('does not declared-close when an already-capped job drops an end body', async () => {
+      const ctx = newCtx();
+      await appendServerRecords({...ctx, attempt: 1, records: [outputRecord('x'.repeat(150))]});
+
+      await appendServerRecords({...ctx, attempt: 1, records: [endRecord(4)]});
+
+      const stream = await findStream({...ctx, attempt: 1});
+      expect(stream?.state).toBe('open');
+      expect(stream?.closeReason).toBeNull();
+      expect(stream?.declaredTotalBytes).toBeNull();
+      expect(await listStreamClosedEvents(stream?.id as string)).toHaveLength(0);
+    });
   });
 
   describe('stream lifecycle', () => {
+    it('rejects an end record that is not the final record in the batch', async () => {
+      const ctx = newCtx();
+
+      const error = await appendServerRecords({
+        ...ctx,
+        attempt: 1,
+        records: [endRecord(4), outputRecord('late\n')],
+      }).catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(MalformedLogChunkError);
+      expect(await findStream({...ctx, attempt: 1})).toBeNull();
+    });
+
     it('declared-closes the stream and emits one stream-closed event on an end record', async () => {
       const ctx = newCtx();
       await allowLargeLogBudget(ctx);
@@ -349,6 +389,19 @@ describe('appendServerRecords', () => {
       const after = await findStream({...ctx, attempt: 1});
       expect(await listChunks(after?.id as string)).toHaveLength(1);
     });
+
+    it('rejects a server batch larger than the configured append body limit', async () => {
+      const ctx = newCtx();
+      const records = Array.from({length: 5}, () => outputRecord('x'.repeat(16 * 1024)));
+
+      const error = await appendServerRecords({...ctx, attempt: 1, records}).catch(
+        (e: unknown) => e,
+      );
+
+      expect(error).toBeInstanceOf(MalformedLogChunkError);
+      expect(error).toHaveProperty('message', expect.stringContaining('append body exceeds'));
+      expect(await findStream({...ctx, attempt: 1})).toBeNull();
+    });
   });
 
   describe('byte volume metrics', () => {
@@ -409,6 +462,11 @@ describe('appendServerRecords', () => {
       // The server-injected `capped` tombstone chunk never counts as stored bytes either.
       expect(storedAdd()).toHaveBeenCalledTimes(1);
       expect(storedAdd()).toHaveBeenCalledWith(crossing.length);
+
+      const recordAppended = metricsMocks.counters.get('recordAppendedCount')?.add;
+      expect(recordAppended).toHaveBeenCalledWith(1, {kind: 'output'});
+      expect(recordAppended).toHaveBeenCalledWith(1, {kind: 'capped'});
+      expect(recordAppended).toHaveBeenCalledTimes(2);
     });
   });
 });

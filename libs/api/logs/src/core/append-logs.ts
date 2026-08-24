@@ -407,16 +407,22 @@ export async function appendLogs(
       // Normalized durable bytes; a cap-dropped straggler never reaches this branch.
       metrics.storedBytes += stored.body.length;
       addRecordCounts(metrics.recordCounts, stored.recordCounts);
-      if (stored.claudeParseContext !== undefined) {
-        await setClaudeParseContext(tx, {
-          streamId: stream.id,
-          hasInit: stored.claudeParseContext.hasInit,
-          sessionId: stored.claudeParseContext.sessionId,
-          turn: stored.claudeParseContext.turn,
-          pendingResult: stored.claudePendingResult ?? null,
-          pendingToolRows: stored.claudePendingToolRows ?? [],
-        });
-      }
+    }
+    // A Claude append may normalize to no rows while still advancing its parser state for the
+    // next append. Zero-byte normalization is not a stored chunk, but its state is durable unless
+    // the job is capped and the raw append was dropped.
+    if (
+      stored.claudeParseContext !== undefined &&
+      (chunkStored || (stored.body.length === 0 && !result.capped))
+    ) {
+      await setClaudeParseContext(tx, {
+        streamId: stream.id,
+        hasInit: stored.claudeParseContext.hasInit,
+        sessionId: stored.claudeParseContext.sessionId,
+        turn: stored.claudeParseContext.turn,
+        pendingResult: stored.claudePendingResult ?? null,
+        pendingToolRows: stored.claudePendingToolRows ?? [],
+      });
     }
     addRecordCounts(metrics.recordCounts, recordCounts);
 

@@ -21,6 +21,8 @@ export {
   parseRawLogRecordLine,
   type RawLogRecord,
   rawLogRecordSchema,
+  type ServerLogRecord,
+  serverLogRecordSchema,
 } from './record.js';
 export {
   SESSION_VIEW_VERSION,

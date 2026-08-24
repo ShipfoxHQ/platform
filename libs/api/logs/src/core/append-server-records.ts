@@ -1,5 +1,6 @@
 import {Buffer} from 'node:buffer';
-import {type LogRecord, logRecordSchema} from '@shipfox/api-logs-dto';
+import {type LogRecord, type ServerLogRecord, serverLogRecordSchema} from '@shipfox/api-logs-dto';
+import {config} from '#config.js';
 import {isJobCapped} from '#db/accounting.js';
 import {db} from '#db/db.js';
 import {casExtendCommittedLength, getOrCreateAttemptStreamWithStatus} from '#db/streams.js';
@@ -22,12 +23,13 @@ import {MalformedLogChunkError, OffsetGapError} from './errors.js';
 
 export interface AppendServerRecordsParams extends AppendIdentity {
   /**
-   * Already-normalized stored records (the read union). Server-origin records
-   * skip the raw-to-stored normalization the runner path applies (session
-   * parsing etc.): each record is validated against the shared contract and
-   * stored verbatim as one whole newline-terminated NDJSON line.
+   * Already-normalized server-writable stored records (the read union without
+   * server-only tombstones). Server-origin records skip the raw-to-stored
+   * normalization the runner path applies (session parsing etc.): each record
+   * is validated against the shared contract and stored verbatim as one whole
+   * newline-terminated NDJSON line.
    */
-  records: LogRecord[];
+  records: ServerLogRecord[];
 }
 
 interface ServerBody {
@@ -44,9 +46,16 @@ interface ServerBody {
  * the runner path; the attempt-terminated subscriber still closes streams the
  * server writer never ends.
  */
-function buildServerBody(records: readonly LogRecord[]): ServerBody {
+function buildServerBody(records: readonly ServerLogRecord[]): ServerBody {
   if (records.length === 0)
     return {body: Buffer.alloc(0), declaredTotalBytes: undefined, recordCounts: {}};
+
+  const endIndexes = records.flatMap((record, index) => (record.type === 'end' ? [index] : []));
+  if (endIndexes.length > 1 || (endIndexes[0] ?? records.length - 1) !== records.length - 1) {
+    throw new MalformedLogChunkError(
+      'server append may contain only one end record, and it must be final',
+    );
+  }
 
   const body = Buffer.from(records.map((record) => `${JSON.stringify(record)}\n`).join(''));
   let declaredTotalBytes: number | undefined;
@@ -72,11 +81,16 @@ function buildServerBody(records: readonly LogRecord[]): ServerBody {
 export async function appendServerRecords(
   params: AppendServerRecordsParams,
 ): Promise<AppendLogsResult> {
-  const parsed = logRecordSchema.array().safeParse(params.records);
+  const parsed = serverLogRecordSchema.array().safeParse(params.records);
   if (!parsed.success) {
     throw new MalformedLogChunkError('append records contain an invalid log record');
   }
   const {body, declaredTotalBytes, recordCounts} = buildServerBody(parsed.data);
+  if (body.length > config.LOG_APPEND_BODY_LIMIT_BYTES) {
+    throw new MalformedLogChunkError(
+      `server append body exceeds ${config.LOG_APPEND_BODY_LIMIT_BYTES} bytes`,
+    );
+  }
   const metrics = {
     recordCounts: {} as Partial<Record<LogRecordMetricKind, number>>,
     streamClosedReason: undefined as 'declared' | undefined,
@@ -142,8 +156,8 @@ export async function appendServerRecords(
         // Normalized durable bytes; a cap-dropped straggler never reaches this branch.
         metrics.storedBytes += body.length;
         addRecordCounts(metrics.recordCounts, chunkRecordCounts);
+        addRecordCounts(metrics.recordCounts, recordCounts);
       }
-      addRecordCounts(metrics.recordCounts, recordCounts);
 
       // An `end` record committed in this batch (the offset-CAS guarantees everything
       // before it is already committed), so the stream is whole. Declared-close it

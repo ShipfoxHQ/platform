@@ -8,6 +8,7 @@ import type {ChunkOrigin} from '#db/schema/chunks.js';
 import {getAttemptStream, setDeclaredTotalBytes} from '#db/streams.js';
 import {allowedBudget} from './budget.js';
 import {controlTombstone} from './close-stream.js';
+import {LeaseStreamMismatchError} from './errors.js';
 
 /**
  * The identity a chunk is appended under: the stream is scoped by `(jobId,
@@ -42,6 +43,14 @@ export async function readHeartbeat(
     stepId: params.stepId,
     attempt: params.attempt,
   });
+  if (
+    existing !== null &&
+    (existing.workspaceId !== params.workspaceId ||
+      existing.projectId !== params.projectId ||
+      existing.workflowRunAttemptId !== params.workflowRunAttemptId)
+  ) {
+    throw new LeaseStreamMismatchError();
+  }
   return {
     committedLength: existing?.committedLength ?? 0,
     capped: await isJobCapped(tx, params.jobId),
@@ -88,6 +97,14 @@ export async function storeChunk(
   }: StoreChunkParams,
 ): Promise<StoreChunkResult> {
   await ensureJobAccounting(tx, {jobId: params.jobId, workspaceId: params.workspaceId});
+  if (body.length === 0) {
+    return {
+      committedLength,
+      capped: await isJobCapped(tx, params.jobId),
+      stored: false,
+      recordCounts: {},
+    };
+  }
   const storedByteLen = body.length;
   const accrued = await accrueStoredBytes(tx, {jobId: params.jobId, delta: storedByteLen});
 

@@ -1,6 +1,6 @@
 import {defineInterModuleContract, type InterModuleClient} from '@shipfox/inter-module';
 import {z} from 'zod';
-import {logRecordSchema} from './schemas/index.js';
+import {serverLogRecordSchema} from './schemas/index.js';
 
 const idSchema = z.string().uuid();
 
@@ -29,12 +29,12 @@ export const logsInterModuleContract = defineInterModuleContract({
           .max(2_147_483_647)
           .describe('Attempt number of the step this batch belongs to.'),
         /**
-         * Already-normalized stored records (the read union), serialized to
-         * whole newline-terminated NDJSON lines on ingest. Server-origin
-         * records skip the raw-to-stored normalization the runner path
-         * applies: they are stored verbatim.
+         * Already-normalized server-writable stored records (the read union
+         * without server-only tombstones), serialized to whole newline-terminated
+         * NDJSON lines on ingest. Server-origin records skip the raw-to-stored
+         * normalization the runner path applies: they are stored verbatim.
          */
-        records: z.array(logRecordSchema),
+        records: z.array(serverLogRecordSchema),
       }),
       output: z.object({
         committedLength: z
@@ -50,6 +50,11 @@ export const logsInterModuleContract = defineInterModuleContract({
             'When true, the per-job log budget is exhausted and further output is dropped.',
           ),
       }),
+      errors: {
+        'lease-stream-mismatch': z.object({}),
+        'malformed-log-chunk': z.object({}),
+        'offset-gap': z.object({committedLength: z.number().int().nonnegative()}),
+      },
     },
   },
 });
