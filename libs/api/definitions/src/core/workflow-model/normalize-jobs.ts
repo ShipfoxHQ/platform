@@ -20,7 +20,7 @@ import {
   RUNNER_LABEL_PATTERN,
 } from '@shipfox/runner-labels';
 import {
-  WORKFLOW_SESSION_KEY_MAX_LENGTH,
+  isValidWorkflowSessionKeyTemplateLiteralParts,
   WORKFLOW_SESSION_KEY_PATTERN,
   type WorkflowDocument,
   type WorkflowDocumentJob,
@@ -58,9 +58,6 @@ import {parseInterpolationField} from './parse-interpolation-field.js';
 import {stableId} from './stable-id.js';
 import {unescapeLiteralName, validateLiteralName} from './validate-literal-name.js';
 import {issue} from './validation-issue.js';
-
-const agentSessionKeyLiteralPartPattern = /^[A-Za-z0-9._-]*$/;
-const agentSessionKeyLiteralPartStartPattern = /^[A-Za-z0-9]/;
 
 export interface NormalizeContext {
   readonly defaultRunnerLabels: readonly string[];
@@ -982,7 +979,7 @@ function normalizeAgentStepSession(params: {
     params.issues.length === issueCountBeforeParsing &&
     (template === undefined
       ? !WORKFLOW_SESSION_KEY_PATTERN.test(keySource)
-      : !hasValidAgentSessionTemplateLiteralParts(template));
+      : !isValidWorkflowSessionKeyTemplateLiteralParts(keySource));
 
   if (hasInvalidKey) {
     params.issues.push(
@@ -1000,31 +997,6 @@ function normalizeAgentStepSession(params: {
     key: template ?? [{kind: 'literal' as const, value: keySource}],
     mode: typeof session === 'string' ? 'resume' : (session.mode ?? 'resume'),
   };
-}
-
-function hasValidAgentSessionTemplateLiteralParts(template: WorkflowFieldTemplate): boolean {
-  let expressionSeen = false;
-  let literalLength = 0;
-
-  for (const segment of template) {
-    if (segment.kind === 'deferred') {
-      expressionSeen = true;
-      continue;
-    }
-
-    literalLength += segment.value.length;
-    if (
-      literalLength > WORKFLOW_SESSION_KEY_MAX_LENGTH ||
-      !agentSessionKeyLiteralPartPattern.test(segment.value) ||
-      (!expressionSeen &&
-        segment.value.length > 0 &&
-        !agentSessionKeyLiteralPartStartPattern.test(segment.value))
-    ) {
-      return false;
-    }
-  }
-
-  return true;
 }
 
 function validateAgentStep(params: {

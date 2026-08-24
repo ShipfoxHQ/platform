@@ -16,6 +16,7 @@ export {
   thinkingLevelsForHarness,
 } from './step-enums.js';
 export {
+  isValidWorkflowSessionKeyTemplateLiteralParts,
   triggerSourceConfigSchemas,
   WORKFLOW_DOCUMENT_ENV_MAX_ENTRIES,
   WORKFLOW_DOCUMENT_ENV_MAX_SERIALIZED_BYTES,

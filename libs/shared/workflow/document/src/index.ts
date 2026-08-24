@@ -14,6 +14,7 @@ export {
   harnessSchema,
   InvalidWorkflowDocumentError,
   invalidWorkflowDocumentErrorCode,
+  isValidWorkflowSessionKeyTemplateLiteralParts,
   parseWorkflowDocument,
   piAgentThinkingSchema,
   thinkingLevelsForHarness,

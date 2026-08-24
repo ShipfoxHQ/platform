@@ -687,7 +687,7 @@ export const workflowDocumentSessionSchema = z
       'Named agent session continued across steps of one workflow run. A string names the session and resumes it; an object adds the mode.',
   });
 
-function isValidWorkflowSessionKeyTemplateLiteralParts(source: string): boolean {
+export function isValidWorkflowSessionKeyTemplateLiteralParts(source: string): boolean {
   let cursor = 0;
   let expressionSeen = false;
   let literalLength = 0;
@@ -710,12 +710,94 @@ function isValidWorkflowSessionKeyTemplateLiteralParts(source: string): boolean 
 
     if (opener === -1) return expressionSeen;
 
-    const close = source.indexOf('}}', opener + 3);
+    const close = findWorkflowSessionKeyTemplateClose(source, opener);
     if (close === -1) return false;
 
     expressionSeen = true;
     cursor = close + 2;
   }
+}
+
+function findWorkflowSessionKeyTemplateClose(source: string, openerIndex: number): number {
+  let index = openerIndex + 3;
+  let depth = 0;
+
+  while (index < source.length) {
+    const stringEnd = scanWorkflowSessionKeyStringLiteral(source, index);
+    if (stringEnd !== null) {
+      index = stringEnd;
+      continue;
+    }
+
+    if (source.startsWith('//', index)) {
+      const newline = source.indexOf('\n', index + 2);
+      index = newline === -1 ? source.length : newline;
+      continue;
+    }
+
+    if (depth === 0 && source.startsWith('}}', index)) return index;
+
+    const char = source[index];
+    if (char === '(' || char === '[' || char === '{') {
+      depth += 1;
+    } else if ((char === ')' || char === ']' || char === '}') && depth > 0) {
+      depth -= 1;
+    }
+
+    index += 1;
+  }
+
+  return -1;
+}
+
+function scanWorkflowSessionKeyStringLiteral(source: string, index: number): number | null {
+  for (const prefix of ['r', 'R', 'b', 'B', ''] as const) {
+    if (!source.startsWith(prefix, index)) continue;
+
+    const quoteIndex = index + prefix.length;
+    const quote = source[quoteIndex];
+    if (quote !== '"' && quote !== "'") continue;
+
+    const tripleQuote = quote.repeat(3);
+    if (source.startsWith(tripleQuote, quoteIndex)) {
+      return scanWorkflowSessionKeyQuotedString(
+        source,
+        quoteIndex + 3,
+        tripleQuote,
+        prefix === 'r' || prefix === 'R',
+      );
+    }
+
+    return scanWorkflowSessionKeyQuotedString(
+      source,
+      quoteIndex + 1,
+      quote,
+      prefix === 'r' || prefix === 'R',
+    );
+  }
+
+  return null;
+}
+
+function scanWorkflowSessionKeyQuotedString(
+  source: string,
+  startIndex: number,
+  delimiter: string,
+  raw: boolean,
+): number {
+  let index = startIndex;
+  while (index < source.length) {
+    if (!raw && source[index] === '\\') {
+      index += 2;
+      continue;
+    }
+
+    if (source.startsWith(delimiter, index)) return index + delimiter.length;
+
+    index += 1;
+  }
+
+  return source.length;
 }
 
 export const workflowDocumentAgentStepFields = [

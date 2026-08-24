@@ -548,6 +548,35 @@ describe('normalizeWorkflowDocument', () => {
     });
   });
 
+  it('accepts session interpolation with delimiters inside an expression', () => {
+    const model = normalizeWorkflowDocument({
+      name: 'session build',
+      jobs: {
+        triage: {
+          steps: [
+            {
+              prompt: 'Triage.',
+              session: interpolation('{"key": "a}}b"}.key'),
+            },
+          ],
+        },
+      },
+    });
+
+    expect(model.jobs[0]?.steps[0]).toMatchObject({
+      kind: 'agent',
+      session: {
+        key: [
+          {
+            kind: 'deferred',
+            expression: {source: '{"key": "a}}b"}.key'},
+          },
+        ],
+        mode: 'resume',
+      },
+    });
+  });
+
   it('reports invalid interpolation in agent session keys on the session path', () => {
     const error = expectInvalid({
       name: 'session build',

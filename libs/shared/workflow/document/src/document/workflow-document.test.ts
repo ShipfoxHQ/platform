@@ -1189,6 +1189,10 @@ describe('workflowDocumentSchema', () => {
       {prompt: 'Fix it.', session: {key: interpolation('execution_name'), mode: 'fork'}},
     ],
     [
+      'agent step with delimiters inside session interpolation',
+      {prompt: 'Fix it.', session: interpolation('{"key": "a}}b"}.key')},
+    ],
+    [
       'agent step with gate',
       {model: 'claude-opus-4-8', prompt: 'Fix it.', gate: {success: 'step.exit_code == 0'}},
     ],
