@@ -1020,10 +1020,11 @@ const MAX_SESSION_SHARING_PAIR_EVALUATIONS = 100_000;
 // degenerate group cannot monopolize the pair budget and starve later keys;
 // at most one issue is reported per code per key, so the earliest conflict in
 // the examined window is the one that matters. The window always retains the
-// first step of each distinct job and one step per distinct declared harness
-// before it fills with the earliest remaining steps (see
-// selectSessionSharingWindow), so a job holding many serial steps cannot push
-// another job's sharing step -- or a divergent harness -- out of the window.
+// first resume-mode step of each distinct job and one step per distinct
+// declared harness before it fills with the earliest remaining steps (see
+// selectSessionSharingWindow), so a job holding many serial steps -- or a job
+// whose first sharing step forks the session -- cannot push another job's
+// resume step -- or a divergent harness -- out of the window.
 const MAX_SESSION_SHARING_STEPS_PER_KEY = 100;
 
 // Context roots whose value is fixed per run. A session key built only from
@@ -1056,10 +1057,10 @@ const RUN_GLOBAL_SESSION_KEY_CONTEXT_ROOTS = new Set<string>([
 // and a later key is never skipped because unrelated pairs consumed the
 // budget; the run-global-only classification is memoized per keySource. At
 // most one issue is reported per session key per code, each group is examined
-// up to a fixed step window that always retains the first step of each
-// distinct job and one step per distinct declared harness, and the whole pass
-// stops after a fixed pair budget, so large documents stay bounded and long
-// serial runs cannot hide sharing conflicts.
+// up to a fixed step window that always retains the first resume-mode step of
+// each distinct job and one step per distinct declared harness, and the whole
+// pass stops after a fixed pair budget, so large documents stay bounded and
+// long serial runs cannot hide sharing conflicts.
 function validateAgentSessionSharing(
   document: WorkflowDocument,
   issues: WorkflowModelValidationIssue[],
@@ -1107,11 +1108,12 @@ function validateAgentSessionSharing(
   // one key group: the pair budget then counts relevant work only and cannot
   // be exhausted by unrelated (different-key) pairs before later identical
   // keys are examined. Each group is then cut to a fixed window (see
-  // selectSessionSharingWindow) that always keeps the first step of each
-  // distinct job and one step per distinct declared harness, so a single
-  // degenerate group cannot starve every later key and a long serial job
-  // cannot hide another job's sharing step behind the window. Keys that
-  // reference per-job context resolve per job and stay out.
+  // selectSessionSharingWindow) that always keeps the first resume-mode step
+  // of each distinct job and one step per distinct declared harness, so a
+  // single degenerate group cannot starve every later key and a long serial
+  // job -- or a fork step hiding its job's resume step -- cannot hide another
+  // job's sharing step behind the window. Keys that reference per-job context
+  // resolve per job and stay out.
   const stepsByKeySource = new Map<string, SessionSharingStep[]>();
   for (const step of steps) {
     if (sessionFieldIssueSteps.has(sessionStepPathKey(step))) continue;
@@ -1219,19 +1221,21 @@ function sessionStepPathKey(step: SessionSharingStep): string {
 }
 
 // Cuts a session-key group to the fixed step window while always retaining
-// the first step of each distinct job and one step per distinct declared
-// harness, then fills the remainder with the earliest steps in document
-// order. Without the job retention, one job holding more than
-// MAX_SESSION_SHARING_STEPS_PER_KEY serial steps would fill the window and
-// silently drop another job's sharing step, skipping a real parallel-resume
-// or harness conflict; without the harness retention, a single divergent
-// harness step could sit beyond the window and evade
+// the first resume-mode step of each distinct job and one step per distinct
+// declared harness, then fills the remainder with the earliest steps in
+// document order. Without the resume retention, one job holding more than
+// MAX_SESSION_SHARING_STEPS_PER_KEY serial steps -- or a job whose first
+// sharing step forks the session -- would fill the window and silently drop
+// another job's resume step (or that job's own later resume step), skipping a
+// real parallel-resume conflict; without the harness retention, a single
+// divergent harness step could sit beyond the window and evade
 // agent-session-harness-mismatch. Documents where more than the window of
-// distinct jobs share one key remain bounded: the earliest conflict, which is
-// always between the first two jobs retained, is still reported.
+// distinct jobs share one key remain bounded: the earliest conflict between
+// retained steps, which is always reachable from the first two jobs that
+// contribute resume steps, is still reported.
 function selectSessionSharingWindow(steps: readonly SessionSharingStep[]): SessionSharingStep[] {
   const window: SessionSharingStep[] = [];
-  const jobsInWindow = new Set<string>();
+  const resumeStepsByJob = new Set<string>();
   const harnessesInWindow = new Set<string>();
   const inWindow = new Set<SessionSharingStep>();
 
@@ -1242,14 +1246,17 @@ function selectSessionSharingWindow(steps: readonly SessionSharingStep[]): Sessi
     if (step.harness !== undefined) harnessesInWindow.add(step.harness);
   };
 
+  // Reservation pass: a step is added when it is the first resume-mode step
+  // of its job or the first step with its declared harness. A fork step
+  // therefore never consumes the slot that protects its job's resume step,
+  // and the two roles share the window budget so neither can starve the
+  // other before the fill pass runs.
   for (const step of steps) {
-    if (jobsInWindow.has(step.jobName)) continue;
-    jobsInWindow.add(step.jobName);
-    add(step);
-  }
-
-  for (const step of steps) {
-    if (step.harness === undefined || harnessesInWindow.has(step.harness)) continue;
+    const isFirstResumeOfJob = step.mode === 'resume' && !resumeStepsByJob.has(step.jobName);
+    const isHarnessRepresentative =
+      step.harness !== undefined && !harnessesInWindow.has(step.harness);
+    if (!isFirstResumeOfJob && !isHarnessRepresentative) continue;
+    if (isFirstResumeOfJob) resumeStepsByJob.add(step.jobName);
     add(step);
   }
 

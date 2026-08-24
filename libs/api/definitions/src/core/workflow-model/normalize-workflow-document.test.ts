@@ -1143,11 +1143,14 @@ describe('normalizeWorkflowDocument', () => {
     });
 
     it('still examines a shared key after many unrelated session keys', () => {
-      // Each unrelated key is shared by two jobs so the pairs are evaluated
-      // and count against MAX_SESSION_SHARING_PAIR_EVALUATIONS; a single-step
-      // key never forms a pair and would leave the pair budget untouched. The
-      // second job needs the first so the pairs stay conflict-free and the
-      // only issue is the shared key that is examined last.
+      // Each unrelated key is shared by two jobs so its pair is actually
+      // evaluated (a single-step key never forms a pair), and the second job
+      // needs the first so those pairs stay conflict-free. Grouping confines
+      // pair evaluation to same-key pairs, so the ~501 pairs of this document
+      // stay far below MAX_SESSION_SHARING_PAIR_EVALUATIONS and the last key
+      // is reached; a naive all-pairs loop would evaluate every step pair
+      // (~501k), trip the budget, and return before the 'main' group, so this
+      // guards the grouping that keeps later shared keys visible.
       const jobs: Record<
         string,
         {steps: {key: string; prompt: string; session: string}[]; needs?: string}
@@ -1174,6 +1177,44 @@ describe('normalizeWorkflowDocument', () => {
           code: 'agent-session-parallel-resume',
           path: ['jobs', 'comment', 'steps', 0, 'session'],
           details: {key: 'main', jobs: ['triage', 'comment'], stepIndexes: [0, 0]},
+        }),
+      ]);
+    });
+
+    it('keeps a job first resume step in the window when an earlier step forks the session', () => {
+      // With at least MAX_SESSION_SHARING_STEPS_PER_KEY distinct jobs sharing
+      // one key, a job whose first sharing step forks the session would lose
+      // its later resume step to the window and hide a real parallel-resume
+      // conflict with the first unordered sibling; the window must reserve
+      // the first resume step per job independently of the fork step.
+      const jobs: Record<
+        string,
+        {
+          steps: {key: string; prompt: string; session: string | {key: string; mode: 'fork'}}[];
+          needs?: string;
+        }
+      > = {
+        plan: {
+          steps: [
+            {key: 'fork', prompt: 'Fork.', session: {key: 'main', mode: 'fork'}},
+            {key: 'resume', prompt: 'Resume.', session: 'main'},
+          ],
+        },
+      };
+      for (let index = 0; index < 99; index += 1) {
+        const job: {steps: {key: string; prompt: string; session: string}[]; needs?: string} = {
+          steps: [{key: `follow_${index}`, prompt: `Follow ${index}.`, session: 'main'}],
+        };
+        if (index > 0) job.needs = `follow_${index - 1}`;
+        jobs[`follow_${index}`] = job;
+      }
+
+      const error = expectInvalid({name: 'session sharing', jobs});
+      expect(error.issues).toEqual([
+        expect.objectContaining({
+          code: 'agent-session-parallel-resume',
+          path: ['jobs', 'follow_0', 'steps', 0, 'session'],
+          details: {key: 'main', jobs: ['plan', 'follow_0'], stepIndexes: [1, 0]},
         }),
       ]);
     });
