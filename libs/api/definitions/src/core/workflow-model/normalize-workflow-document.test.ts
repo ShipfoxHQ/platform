@@ -640,6 +640,586 @@ describe('normalizeWorkflowDocument', () => {
     ]);
   });
 
+  describe('agent session sharing', () => {
+    it('reports parallel resume of a static session key across unordered jobs', () => {
+      const error = expectInvalid({
+        name: 'session sharing',
+        jobs: {
+          plan: {
+            steps: [{key: 'plan', prompt: 'Draft a plan.', session: 'main'}],
+          },
+          implement: {
+            steps: [{key: 'implement', prompt: 'Implement the plan.', session: 'main'}],
+          },
+        },
+      });
+
+      expect(error.issues).toEqual([
+        {
+          code: 'agent-session-parallel-resume',
+          message:
+            'Agent steps "plan" (job "plan") and "implement" (job "implement") both resume session key "main", but their jobs have no transitive "needs" ancestry, so they can run in parallel and would conflict on the session. Add a "needs" edge between the jobs, fork the session on one step, or use distinct session keys.',
+          path: ['jobs', 'implement', 'steps', 0, 'session'],
+          details: {
+            key: 'main',
+            jobs: ['plan', 'implement'],
+            stepIndexes: [0, 0],
+          },
+          severity: 'error',
+          scope: 'definition',
+        },
+      ]);
+    });
+
+    it('labels unkeyed steps by index in the parallel resume issue', () => {
+      const error = expectInvalid({
+        name: 'session sharing',
+        jobs: {
+          plan: {
+            steps: [{prompt: 'Plan.', session: 'main'}],
+          },
+          implement: {
+            steps: [{prompt: 'Implement.', session: 'main'}],
+          },
+        },
+      });
+
+      expect(error.issues).toEqual([
+        expect.objectContaining({
+          code: 'agent-session-parallel-resume',
+          message:
+            'Agent steps 0 (job "plan") and 0 (job "implement") both resume session key "main", but their jobs have no transitive "needs" ancestry, so they can run in parallel and would conflict on the session. Add a "needs" edge between the jobs, fork the session on one step, or use distinct session keys.',
+        }),
+      ]);
+    });
+
+    it('allows shared resume keys when one job directly needs the other', () => {
+      const model = normalizeWorkflowDocument({
+        name: 'session sharing',
+        jobs: {
+          plan: {
+            steps: [{key: 'plan', prompt: 'Draft a plan.', session: 'main'}],
+          },
+          implement: {
+            needs: 'plan',
+            steps: [{key: 'implement', prompt: 'Implement the plan.', session: 'main'}],
+          },
+        },
+      });
+
+      expect(model.jobs).toHaveLength(2);
+    });
+
+    it('allows shared resume keys across transitively ordered jobs', () => {
+      const model = normalizeWorkflowDocument({
+        name: 'session sharing',
+        jobs: {
+          plan: {
+            steps: [{key: 'plan', prompt: 'Plan.', session: 'main'}],
+          },
+          review: {
+            needs: 'plan',
+            steps: [{key: 'review', prompt: 'Review.', session: 'main'}],
+          },
+          implement: {
+            needs: 'review',
+            steps: [{key: 'implement', prompt: 'Implement.', session: 'main'}],
+          },
+        },
+      });
+
+      expect(model.jobs).toHaveLength(3);
+    });
+
+    it('does not report parallel resume when one step forks the session', () => {
+      const model = normalizeWorkflowDocument({
+        name: 'session sharing',
+        jobs: {
+          plan: {
+            steps: [{key: 'plan', prompt: 'Plan.', session: {key: 'main', mode: 'fork'}}],
+          },
+          implement: {
+            steps: [{key: 'implement', prompt: 'Implement.', session: 'main'}],
+          },
+        },
+      });
+
+      expect(model.jobs).toHaveLength(2);
+    });
+
+    it('compares interpolated session key templates literally for parallel resume', () => {
+      const key = `triage-${interpolation('event.issue.number')}`;
+      const error = expectInvalid({
+        name: 'session sharing',
+        jobs: {
+          triage: {
+            steps: [{key: 'triage', prompt: 'Triage.', session: key}],
+          },
+          comment: {
+            steps: [{key: 'comment', prompt: 'Comment.', session: key}],
+          },
+        },
+      });
+
+      expect(error.issues).toEqual([
+        expect.objectContaining({
+          code: 'agent-session-parallel-resume',
+          path: ['jobs', 'comment', 'steps', 0, 'session'],
+          details: {key, jobs: ['triage', 'comment'], stepIndexes: [0, 0]},
+        }),
+      ]);
+    });
+
+    it('ignores runtime-only collisions between distinct session key templates', () => {
+      const model = normalizeWorkflowDocument({
+        name: 'session sharing',
+        jobs: {
+          triage: {
+            steps: [
+              {
+                key: 'triage',
+                prompt: 'Triage.',
+                session: `triage-${interpolation('event.issue.number')}`,
+              },
+            ],
+          },
+          comment: {
+            steps: [
+              {
+                key: 'comment',
+                prompt: 'Comment.',
+                session: `comment-${interpolation('event.issue.number')}`,
+              },
+            ],
+          },
+        },
+      });
+
+      expect(model.jobs).toHaveLength(2);
+    });
+
+    it('reports literal harness disagreement between steps sharing a static session key', () => {
+      const error = expectInvalid({
+        name: 'session sharing',
+        jobs: {
+          plan: {
+            steps: [{key: 'plan', prompt: 'Plan.', session: 'main', harness: 'pi'}],
+          },
+          implement: {
+            needs: 'plan',
+            steps: [{key: 'implement', prompt: 'Implement.', session: 'main', harness: 'claude'}],
+          },
+        },
+      });
+
+      expect(error.issues).toEqual([
+        {
+          code: 'agent-session-harness-mismatch',
+          message:
+            'Agent steps "plan" (job "plan") and "implement" (job "implement") share session key "main" but declare different harnesses: "pi" and "claude". A session is pinned to the harness that created it. Declare the same harness on every step that shares the session key.',
+          path: ['jobs', 'implement', 'steps', 0, 'session'],
+          details: {
+            key: 'main',
+            jobs: ['plan', 'implement'],
+            stepIndexes: [0, 0],
+            harnesses: ['pi', 'claude'],
+          },
+          severity: 'error',
+          scope: 'definition',
+        },
+      ]);
+    });
+
+    it('accepts steps sharing a static session key with the same harness', () => {
+      const model = normalizeWorkflowDocument({
+        name: 'session sharing',
+        jobs: {
+          plan: {
+            steps: [{key: 'plan', prompt: 'Plan.', session: 'main', harness: 'pi'}],
+          },
+          implement: {
+            needs: 'plan',
+            steps: [{key: 'implement', prompt: 'Implement.', session: 'main', harness: 'pi'}],
+          },
+        },
+      });
+
+      expect(model.jobs).toHaveLength(2);
+    });
+
+    it('does not report harness disagreement when one step omits the harness', () => {
+      const model = normalizeWorkflowDocument({
+        name: 'session sharing',
+        jobs: {
+          plan: {
+            steps: [{key: 'plan', prompt: 'Plan.', session: 'main', harness: 'pi'}],
+          },
+          implement: {
+            needs: 'plan',
+            steps: [{key: 'implement', prompt: 'Implement.', session: 'main'}],
+          },
+        },
+      });
+
+      expect(model.jobs).toHaveLength(2);
+    });
+
+    it('reports both parallel resume and harness disagreement for a conflicting pair', () => {
+      const error = expectInvalid({
+        name: 'session sharing',
+        jobs: {
+          plan: {
+            steps: [{key: 'plan', prompt: 'Plan.', session: 'main', harness: 'pi'}],
+          },
+          implement: {
+            steps: [{key: 'implement', prompt: 'Implement.', session: 'main', harness: 'claude'}],
+          },
+        },
+      });
+
+      expect(error.issues.map(({code}) => code)).toEqual([
+        'agent-session-parallel-resume',
+        'agent-session-harness-mismatch',
+      ]);
+    });
+
+    it('does not report parallel resume for statically invalid session keys', () => {
+      const error = expectInvalid({
+        name: 'session sharing',
+        jobs: {
+          plan: {
+            steps: [{prompt: 'Plan.', session: 'main session'}],
+          },
+          implement: {
+            steps: [{prompt: 'Implement.', session: 'main session'}],
+          },
+        },
+      });
+
+      expect(error.issues.map(({code}) => code)).toEqual([
+        'invalid-agent-session-key',
+        'invalid-agent-session-key',
+      ]);
+    });
+
+    it('treats a listening job as ordered relative to its needs dependents', () => {
+      const model = normalizeWorkflowDocument({
+        name: 'session sharing',
+        jobs: {
+          plan: {
+            steps: [{key: 'plan', prompt: 'Plan.', session: 'main'}],
+          },
+          review: {
+            needs: 'plan',
+            listening: {
+              on: [{source: 'github', event: 'pull_request_review'}],
+              until: [
+                {source: 'github', event: 'pull_request', filter: 'event.action == "closed"'},
+              ],
+            },
+            steps: [{key: 'address', prompt: 'Address the review.', session: 'main'}],
+          },
+        },
+      });
+
+      expect(model.jobs).toHaveLength(2);
+    });
+
+    it('reports parallel resume between a listening job and an unordered sibling', () => {
+      const error = expectInvalid({
+        name: 'session sharing',
+        jobs: {
+          plan: {
+            steps: [{key: 'plan', prompt: 'Plan.', session: 'main'}],
+          },
+          review: {
+            needs: 'plan',
+            listening: {
+              on: [{source: 'github', event: 'pull_request_review'}],
+              until: [
+                {source: 'github', event: 'pull_request', filter: 'event.action == "closed"'},
+              ],
+            },
+            steps: [{key: 'address', prompt: 'Address the review.', session: 'main'}],
+          },
+          comment: {
+            needs: 'plan',
+            steps: [{key: 'comment', prompt: 'Comment.', session: 'main'}],
+          },
+        },
+      });
+
+      expect(error.issues).toEqual([
+        expect.objectContaining({
+          code: 'agent-session-parallel-resume',
+          path: ['jobs', 'comment', 'steps', 0, 'session'],
+          details: {key: 'main', jobs: ['review', 'comment'], stepIndexes: [0, 0]},
+        }),
+      ]);
+    });
+
+    it('reports harness disagreement between steps of one job', () => {
+      const error = expectInvalid({
+        name: 'session sharing',
+        jobs: {
+          implement: {
+            steps: [
+              {key: 'plan', prompt: 'Plan.', session: 'main', harness: 'pi'},
+              {key: 'implement', prompt: 'Implement.', session: 'main', harness: 'claude'},
+            ],
+          },
+        },
+      });
+
+      expect(error.issues).toEqual([
+        {
+          code: 'agent-session-harness-mismatch',
+          message:
+            'Agent steps "plan" (job "implement") and "implement" (job "implement") share session key "main" but declare different harnesses: "pi" and "claude". A session is pinned to the harness that created it. Declare the same harness on every step that shares the session key.',
+          path: ['jobs', 'implement', 'steps', 1, 'session'],
+          details: {
+            key: 'main',
+            jobs: ['implement', 'implement'],
+            stepIndexes: [0, 1],
+            harnesses: ['pi', 'claude'],
+          },
+          severity: 'error',
+          scope: 'definition',
+        },
+      ]);
+    });
+
+    it('treats object-form sessions with an implicit resume mode as resume across jobs', () => {
+      const error = expectInvalid({
+        name: 'session sharing',
+        jobs: {
+          plan: {
+            steps: [{key: 'plan', prompt: 'Plan.', session: {key: 'main'}}],
+          },
+          implement: {
+            steps: [{key: 'implement', prompt: 'Implement.', session: {key: 'main'}}],
+          },
+        },
+      });
+
+      expect(error.issues).toEqual([
+        expect.objectContaining({
+          code: 'agent-session-parallel-resume',
+          path: ['jobs', 'implement', 'steps', 0, 'session'],
+          details: {key: 'main', jobs: ['plan', 'implement'], stepIndexes: [0, 0]},
+        }),
+      ]);
+    });
+
+    it('treats object-form sessions with an explicit resume mode as resume across jobs', () => {
+      const error = expectInvalid({
+        name: 'session sharing',
+        jobs: {
+          plan: {
+            steps: [{key: 'plan', prompt: 'Plan.', session: {key: 'main', mode: 'resume'}}],
+          },
+          implement: {
+            steps: [
+              {key: 'implement', prompt: 'Implement.', session: {key: 'main', mode: 'resume'}},
+            ],
+          },
+        },
+      });
+
+      expect(error.issues).toEqual([
+        expect.objectContaining({
+          code: 'agent-session-parallel-resume',
+          path: ['jobs', 'implement', 'steps', 0, 'session'],
+          details: {key: 'main', jobs: ['plan', 'implement'], stepIndexes: [0, 0]},
+        }),
+      ]);
+    });
+
+    it('reports harness disagreement between fork-mode steps sharing a static session key', () => {
+      const error = expectInvalid({
+        name: 'session sharing',
+        jobs: {
+          plan: {
+            steps: [
+              {key: 'plan', prompt: 'Plan.', session: {key: 'main', mode: 'fork'}, harness: 'pi'},
+            ],
+          },
+          implement: {
+            steps: [
+              {
+                key: 'implement',
+                prompt: 'Implement.',
+                session: {key: 'main', mode: 'fork'},
+                harness: 'claude',
+              },
+            ],
+          },
+        },
+      });
+
+      expect(error.issues).toEqual([
+        expect.objectContaining({code: 'agent-session-harness-mismatch'}),
+      ]);
+    });
+
+    it('reports harness disagreement between a fork-mode step and a resume-mode step', () => {
+      const error = expectInvalid({
+        name: 'session sharing',
+        jobs: {
+          plan: {
+            steps: [
+              {key: 'plan', prompt: 'Plan.', session: {key: 'main', mode: 'fork'}, harness: 'pi'},
+            ],
+          },
+          implement: {
+            steps: [{key: 'implement', prompt: 'Implement.', session: 'main', harness: 'claude'}],
+          },
+        },
+      });
+
+      expect(error.issues).toEqual([
+        expect.objectContaining({code: 'agent-session-harness-mismatch'}),
+      ]);
+    });
+
+    it('does not stack sharing issues on keys with invalid interpolation expressions', () => {
+      const key = `triage-${interpolation('event.issue.number +')}`;
+      const error = expectInvalid({
+        name: 'session sharing',
+        jobs: {
+          triage: {
+            steps: [{key: 'triage', prompt: 'Triage.', session: key}],
+          },
+          comment: {
+            steps: [{key: 'comment', prompt: 'Comment.', session: key}],
+          },
+        },
+      });
+
+      expect(error.issues.map(({code}) => code)).toEqual([
+        'invalid-interpolation-template',
+        'invalid-interpolation-template',
+      ]);
+    });
+
+    it('does not report parallel resume for identical templates referencing per-job context', () => {
+      const key = `triage-${interpolation('steps.assign.outputs.task_id')}`;
+      const model = normalizeWorkflowDocument({
+        name: 'session sharing',
+        jobs: {
+          triage: {
+            steps: [
+              {key: 'assign', run: 'assign the task'},
+              {key: 'triage', prompt: 'Triage.', session: key},
+            ],
+          },
+          comment: {
+            steps: [
+              {key: 'assign', run: 'assign the task'},
+              {key: 'comment', prompt: 'Comment.', session: key},
+            ],
+          },
+        },
+      });
+
+      expect(model.jobs).toHaveLength(2);
+    });
+
+    it('bounds issue generation for large documents sharing one session key', () => {
+      const jobs: Record<string, {steps: {key: string; prompt: string; session: string}[]}> = {};
+      for (let index = 0; index < 3000; index += 1) {
+        jobs[`job_${index}`] = {
+          steps: [{key: `step_${index}`, prompt: `Prompt ${index}.`, session: 'main'}],
+        };
+      }
+
+      const error = expectInvalid({name: 'session sharing', jobs});
+      expect(error.issues).toEqual([
+        expect.objectContaining({
+          code: 'agent-session-parallel-resume',
+          details: {key: 'main', jobs: ['job_0', 'job_1'], stepIndexes: [0, 0]},
+        }),
+      ]);
+    });
+
+    it('still examines a shared key after many unrelated session keys', () => {
+      // Each unrelated key is shared by two jobs so its pair is actually
+      // evaluated (a single-step key never forms a pair), and the second job
+      // needs the first so those pairs stay conflict-free. Grouping confines
+      // pair evaluation to same-key pairs, so the ~501 pairs of this document
+      // stay far below MAX_SESSION_SHARING_PAIR_EVALUATIONS and the last key
+      // is reached; a naive all-pairs loop would evaluate every step pair
+      // (~501k), trip the budget, and return before the 'main' group, so this
+      // guards the grouping that keeps later shared keys visible.
+      const jobs: Record<
+        string,
+        {steps: {key: string; prompt: string; session: string}[]; needs?: string}
+      > = {};
+      for (let index = 0; index < 500; index += 1) {
+        jobs[`job_${index}_a`] = {
+          steps: [
+            {key: `step_${index}_a`, prompt: `Prompt ${index}.`, session: `session_${index}`},
+          ],
+        };
+        jobs[`job_${index}_b`] = {
+          needs: `job_${index}_a`,
+          steps: [
+            {key: `step_${index}_b`, prompt: `Prompt ${index}.`, session: `session_${index}`},
+          ],
+        };
+      }
+      jobs.triage = {steps: [{key: 'triage', prompt: 'Triage.', session: 'main'}]};
+      jobs.comment = {steps: [{key: 'comment', prompt: 'Comment.', session: 'main'}]};
+
+      const error = expectInvalid({name: 'session sharing', jobs});
+      expect(error.issues).toEqual([
+        expect.objectContaining({
+          code: 'agent-session-parallel-resume',
+          path: ['jobs', 'comment', 'steps', 0, 'session'],
+          details: {key: 'main', jobs: ['triage', 'comment'], stepIndexes: [0, 0]},
+        }),
+      ]);
+    });
+
+    it('keeps a job first resume step in the window when an earlier step forks the session', () => {
+      // With at least MAX_SESSION_SHARING_STEPS_PER_KEY distinct jobs sharing
+      // one key, a job whose first sharing step forks the session would lose
+      // its later resume step to the window and hide a real parallel-resume
+      // conflict with the first unordered sibling; the window must reserve
+      // the first resume step per job independently of the fork step.
+      const jobs: Record<
+        string,
+        {
+          steps: {key: string; prompt: string; session: string | {key: string; mode: 'fork'}}[];
+          needs?: string;
+        }
+      > = {
+        plan: {
+          steps: [
+            {key: 'fork', prompt: 'Fork.', session: {key: 'main', mode: 'fork'}},
+            {key: 'resume', prompt: 'Resume.', session: 'main'},
+          ],
+        },
+      };
+      for (let index = 0; index < 99; index += 1) {
+        const job: {steps: {key: string; prompt: string; session: string}[]; needs?: string} = {
+          steps: [{key: `follow_${index}`, prompt: `Follow ${index}.`, session: 'main'}],
+        };
+        if (index > 0) job.needs = `follow_${index - 1}`;
+        jobs[`follow_${index}`] = job;
+      }
+
+      const error = expectInvalid({name: 'session sharing', jobs});
+      expect(error.issues).toEqual([
+        expect.objectContaining({
+          code: 'agent-session-parallel-resume',
+          path: ['jobs', 'follow_0', 'steps', 0, 'session'],
+          details: {key: 'main', jobs: ['plan', 'follow_0'], stepIndexes: [1, 0]},
+        }),
+      ]);
+    });
+  });
+
   it('normalizes agent step integrations after catalog validation', () => {
     const document: WorkflowDocument = {
       name: 'agent integrations',

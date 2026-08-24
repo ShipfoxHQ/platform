@@ -6,11 +6,13 @@ import {
   type ExpressionType,
   type ExpressionTypeEnvironment,
   hoistPlannedRunCommand,
+  parseWorkflowTemplate,
   type ShellReevaluatingConstruct,
   type UnsafeRunInterpolation,
   UnsafeRunInterpolationError,
   type WorkflowJobTypeOverlay,
   type WorkflowStepTypeOverlay,
+  type WorkflowTemplateSegment,
 } from '@shipfox/expression';
 import {
   canonicalizeLabels,
@@ -127,6 +129,8 @@ export function normalizeJobs(
   for (const [sourceName] of entries) {
     issues.push(...(issuesBySourceName.get(sourceName) ?? []));
   }
+
+  validateAgentSessionSharing(document, issues);
 
   return entries.flatMap(([sourceName]) => {
     const model = modelsBySourceName.get(sourceName);
@@ -997,6 +1001,316 @@ function normalizeAgentStepSession(params: {
     key: template ?? [{kind: 'literal' as const, value: keySource}],
     mode: typeof session === 'string' ? 'resume' : (session.mode ?? 'resume'),
   };
+}
+
+interface SessionSharingStep {
+  readonly jobName: string;
+  readonly stepIndex: number;
+  readonly stepKey: string | undefined;
+  readonly keySource: string;
+  readonly mode: 'resume' | 'fork';
+  readonly harness: string | undefined;
+}
+
+// Bounds the cross-job sharing pass so a hostile or degenerate document cannot
+// force unbounded pair work or issue allocation on the shared validation path.
+const MAX_SESSION_SHARING_PAIR_EVALUATIONS = 100_000;
+
+// Each session-key group is examined up to a fixed step window so one large
+// degenerate group cannot monopolize the pair budget and starve later keys;
+// at most one issue is reported per code per key, so the earliest conflict in
+// the examined window is the one that matters. The window always retains the
+// first resume-mode step of each distinct job and one step per distinct
+// declared harness before it fills with the earliest remaining steps (see
+// selectSessionSharingWindow), so a job holding many serial steps -- or a job
+// whose first sharing step forks the session -- cannot push another job's
+// resume step -- or a divergent harness -- out of the window.
+const MAX_SESSION_SHARING_STEPS_PER_KEY = 100;
+
+// Context roots whose value is fixed per run. A session key built only from
+// these roots (or from no interpolation at all) resolves identically in every
+// job, so identical template text means the same resolved key. Per-job roots
+// (steps, job, execution, jobs, needs, ...) resolve per job and can make
+// identical templates differ at runtime.
+const RUN_GLOBAL_SESSION_KEY_CONTEXT_ROOTS = new Set<string>([
+  'workflow',
+  'run',
+  'trigger',
+  'event',
+  'inputs',
+  'vars',
+  'secrets',
+]);
+
+// Cross-job authoring checks for shared agent sessions: two resume-mode steps
+// with statically identical session key templates from jobs without a
+// transitive needs ancestry would claim the same session in parallel, and
+// steps sharing a static key must agree on the literal harness because a
+// session is pinned to the harness that created it. Templates are compared
+// literally only; distinct templates that collide at runtime stay the
+// dispatch-time claim's job, and templates that reference per-job context are
+// not compared because identical text can resolve to different keys per job.
+// Harness agreement also applies to steps within one job: serial steps never
+// claim in parallel, but a session is pinned to the harness that created it
+// regardless of serialization. Steps are grouped by keySource and pairs are
+// only evaluated inside a group, so the pair budget counts relevant work only
+// and a later key is never skipped because unrelated pairs consumed the
+// budget; the run-global-only classification is memoized per keySource. At
+// most one issue is reported per session key per code, each group is examined
+// up to a fixed step window that always retains the first resume-mode step of
+// each distinct job and one step per distinct declared harness, and the whole
+// pass stops after a fixed pair budget, so large documents stay bounded and
+// long serial runs cannot hide sharing conflicts.
+function validateAgentSessionSharing(
+  document: WorkflowDocument,
+  issues: WorkflowModelValidationIssue[],
+): void {
+  const steps: SessionSharingStep[] = [];
+  for (const [jobName, job] of Object.entries(document.jobs)) {
+    job.steps.forEach((step, stepIndex) => {
+      if (step.session === undefined) return;
+      steps.push({
+        jobName,
+        stepIndex,
+        stepKey: step.key,
+        keySource: typeof step.session === 'string' ? step.session : step.session.key,
+        mode: typeof step.session === 'string' ? 'resume' : (step.session.mode ?? 'resume'),
+        harness: step.harness,
+      });
+    });
+  }
+
+  // Steps whose session field already produced an issue in the per-step pass
+  // can never name a session; stacking sharing issues on them would double-
+  // report a broken key. This mirrors the per-step suppression of
+  // invalid-agent-session-key when any other session issue was raised.
+  const sessionFieldIssueSteps = new Set<string>();
+  for (const entry of issues) {
+    const path = entry.path;
+    if (path.length >= 5 && path[0] === 'jobs' && path[2] === 'steps' && path[4] === 'session') {
+      sessionFieldIssueSteps.add(`${path[1]}\u0000${path[3]}`);
+    }
+  }
+
+  // referencesRunGlobalOnlySessionKey is a pure function of the template text;
+  // memoize it per keySource so a key shared by many steps is parsed once
+  // instead of once per pair.
+  const runGlobalOnlyByKeySource = new Map<string, boolean>();
+  const isRunGlobalOnlyKeySource = (keySource: string): boolean => {
+    const cached = runGlobalOnlyByKeySource.get(keySource);
+    if (cached !== undefined) return cached;
+    const runGlobalOnly = referencesRunGlobalOnlySessionKey(keySource);
+    runGlobalOnlyByKeySource.set(keySource, runGlobalOnly);
+    return runGlobalOnly;
+  };
+
+  // Group eligible steps by keySource so pairs are only ever evaluated inside
+  // one key group: the pair budget then counts relevant work only and cannot
+  // be exhausted by unrelated (different-key) pairs before later identical
+  // keys are examined. Each group is then cut to a fixed window (see
+  // selectSessionSharingWindow) that always keeps the first resume-mode step
+  // of each distinct job and one step per distinct declared harness, so a
+  // single degenerate group cannot starve every later key and a long serial
+  // job -- or a fork step hiding its job's resume step -- cannot hide another
+  // job's sharing step behind the window. Keys that reference per-job context
+  // resolve per job and stay out.
+  const stepsByKeySource = new Map<string, SessionSharingStep[]>();
+  for (const step of steps) {
+    if (sessionFieldIssueSteps.has(sessionStepPathKey(step))) continue;
+    if (!isRunGlobalOnlyKeySource(step.keySource)) continue;
+    let group = stepsByKeySource.get(step.keySource);
+    if (group === undefined) {
+      group = [];
+      stepsByKeySource.set(step.keySource, group);
+    }
+    group.push(step);
+  }
+
+  const ancestorsByJobName = new Map<string, ReadonlySet<string>>();
+  const parallelResumeReportedKeys = new Set<string>();
+  const harnessMismatchReportedKeys = new Set<string>();
+  let evaluatedPairs = 0;
+
+  for (const [keySource, sharingSteps] of stepsByKeySource) {
+    const group = selectSessionSharingWindow(sharingSteps);
+    for (let index = 1; index < group.length; index += 1) {
+      // At most one issue per key per code; nothing left to report for keys
+      // that already produced both.
+      if (parallelResumeReportedKeys.has(keySource) && harnessMismatchReportedKeys.has(keySource)) {
+        break;
+      }
+      const later = group[index];
+      if (later === undefined) continue;
+
+      for (let priorIndex = 0; priorIndex < index; priorIndex += 1) {
+        if (evaluatedPairs >= MAX_SESSION_SHARING_PAIR_EVALUATIONS) return;
+        evaluatedPairs += 1;
+
+        const prior = group[priorIndex];
+        if (prior === undefined) continue;
+
+        // Serial steps within one job never claim concurrently, so the parallel
+        // resume check only spans jobs. Harness agreement is checked for every
+        // sharing pair, including same-job pairs, because a session is pinned
+        // to the harness that created it.
+        if (prior.jobName !== later.jobName && prior.mode === 'resume' && later.mode === 'resume') {
+          const priorAncestors = transitiveNeedsAncestors(
+            document,
+            prior.jobName,
+            ancestorsByJobName,
+          );
+          const laterAncestors = transitiveNeedsAncestors(
+            document,
+            later.jobName,
+            ancestorsByJobName,
+          );
+          if (
+            !priorAncestors.has(later.jobName) &&
+            !laterAncestors.has(prior.jobName) &&
+            !parallelResumeReportedKeys.has(keySource)
+          ) {
+            parallelResumeReportedKeys.add(keySource);
+            issues.push(
+              issue({
+                code: 'agent-session-parallel-resume',
+                message: `Agent steps ${sessionSharingStepLabel(prior)} (job "${prior.jobName}") and ${sessionSharingStepLabel(later)} (job "${later.jobName}") both resume session key "${keySource}", but their jobs have no transitive "needs" ancestry, so they can run in parallel and would conflict on the session. Add a "needs" edge between the jobs, fork the session on one step, or use distinct session keys.`,
+                path: ['jobs', later.jobName, 'steps', later.stepIndex, 'session'],
+                details: {
+                  key: keySource,
+                  jobs: [prior.jobName, later.jobName],
+                  stepIndexes: [prior.stepIndex, later.stepIndex],
+                },
+              }),
+            );
+          }
+        }
+
+        // A step that omits `harness` resolves at dispatch to the workspace
+        // default harness (or `pi` when none is configured), which this
+        // authoring layer cannot know. Omission is therefore exempt from the
+        // literal agreement check; a mismatch against the resolved default
+        // surfaces at claim time.
+        if (
+          prior.harness !== undefined &&
+          later.harness !== undefined &&
+          prior.harness !== later.harness &&
+          !harnessMismatchReportedKeys.has(keySource)
+        ) {
+          harnessMismatchReportedKeys.add(keySource);
+          issues.push(
+            issue({
+              code: 'agent-session-harness-mismatch',
+              message: `Agent steps ${sessionSharingStepLabel(prior)} (job "${prior.jobName}") and ${sessionSharingStepLabel(later)} (job "${later.jobName}") share session key "${keySource}" but declare different harnesses: "${prior.harness}" and "${later.harness}". A session is pinned to the harness that created it. Declare the same harness on every step that shares the session key.`,
+              path: ['jobs', later.jobName, 'steps', later.stepIndex, 'session'],
+              details: {
+                key: keySource,
+                jobs: [prior.jobName, later.jobName],
+                stepIndexes: [prior.stepIndex, later.stepIndex],
+                harnesses: [prior.harness, later.harness],
+              },
+            }),
+          );
+        }
+      }
+    }
+  }
+}
+
+function sessionStepPathKey(step: SessionSharingStep): string {
+  return `${step.jobName}\u0000${step.stepIndex}`;
+}
+
+// Cuts a session-key group to the fixed step window while always retaining
+// the first resume-mode step of each distinct job and one step per distinct
+// declared harness, then fills the remainder with the earliest steps in
+// document order. Without the resume retention, one job holding more than
+// MAX_SESSION_SHARING_STEPS_PER_KEY serial steps -- or a job whose first
+// sharing step forks the session -- would fill the window and silently drop
+// another job's resume step (or that job's own later resume step), skipping a
+// real parallel-resume conflict; without the harness retention, a single
+// divergent harness step could sit beyond the window and evade
+// agent-session-harness-mismatch. Documents where more than the window of
+// distinct jobs share one key remain bounded: the earliest conflict between
+// retained steps, which is always reachable from the first two jobs that
+// contribute resume steps, is still reported.
+function selectSessionSharingWindow(steps: readonly SessionSharingStep[]): SessionSharingStep[] {
+  const window: SessionSharingStep[] = [];
+  const resumeStepsByJob = new Set<string>();
+  const harnessesInWindow = new Set<string>();
+  const inWindow = new Set<SessionSharingStep>();
+
+  const add = (step: SessionSharingStep): void => {
+    if (window.length >= MAX_SESSION_SHARING_STEPS_PER_KEY || inWindow.has(step)) return;
+    inWindow.add(step);
+    window.push(step);
+    if (step.harness !== undefined) harnessesInWindow.add(step.harness);
+  };
+
+  // Reservation pass: a step is added when it is the first resume-mode step
+  // of its job or the first step with its declared harness. A fork step
+  // therefore never consumes the slot that protects its job's resume step,
+  // and the two roles share the window budget so neither can starve the
+  // other before the fill pass runs.
+  for (const step of steps) {
+    const isFirstResumeOfJob = step.mode === 'resume' && !resumeStepsByJob.has(step.jobName);
+    const isHarnessRepresentative =
+      step.harness !== undefined && !harnessesInWindow.has(step.harness);
+    if (!isFirstResumeOfJob && !isHarnessRepresentative) continue;
+    if (isFirstResumeOfJob) resumeStepsByJob.add(step.jobName);
+    add(step);
+  }
+
+  for (const step of steps) {
+    add(step);
+  }
+
+  return window;
+}
+
+// Only templates built from run-global context (or pure literals) resolve
+// identically in every job, so only they can be compared by exact text.
+function referencesRunGlobalOnlySessionKey(keySource: string): boolean {
+  if (!keySource.includes('${{')) return true;
+
+  let segments: WorkflowTemplateSegment[];
+  try {
+    segments = parseWorkflowTemplate(keySource);
+  } catch {
+    // Unparseable templates are already flagged by the per-step pass.
+    return false;
+  }
+
+  for (const segment of segments) {
+    if (segment.kind !== 'expr') continue;
+    if (segment.contextRoots.some((root) => !RUN_GLOBAL_SESSION_KEY_CONTEXT_ROOTS.has(root))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function sessionSharingStepLabel(step: SessionSharingStep): string {
+  return step.stepKey === undefined ? String(step.stepIndex) : `"${step.stepKey}"`;
+}
+
+function transitiveNeedsAncestors(
+  document: WorkflowDocument,
+  jobName: string,
+  cache: Map<string, ReadonlySet<string>>,
+): ReadonlySet<string> {
+  const cached = cache.get(jobName);
+  if (cached !== undefined) return cached;
+
+  const ancestors = new Set<string>();
+  const pending = [...normalizeNeeds(document.jobs[jobName]?.needs)];
+  while (pending.length > 0) {
+    const name = pending.pop();
+    if (name === undefined || ancestors.has(name) || !Object.hasOwn(document.jobs, name)) continue;
+    ancestors.add(name);
+    pending.push(...normalizeNeeds(document.jobs[name]?.needs));
+  }
+  cache.set(jobName, ancestors);
+  return ancestors;
 }
 
 function validateAgentStep(params: {
