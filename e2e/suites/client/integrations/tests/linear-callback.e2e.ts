@@ -53,6 +53,7 @@ test('Linear callback renders recovery without submitting malformed params', asy
 
 test('Linear callback redirects to the verified workspace settings on success', async ({
   auth,
+  integrationsCatalogue,
   page,
   workspaces,
 }) => {
@@ -68,6 +69,7 @@ test('Linear callback redirects to the verified workspace settings on success', 
 
   await expect(page).toHaveURL(new RegExp(`/w/${workspace.slug}/settings/integrations/?$`, 'u'));
   await expect(page.getByText('Linear installed.')).toBeVisible();
+  await expect(integrationsCatalogue.emptyInstalledState()).toBeVisible();
   await stableScreenshot(page, 'integrations/linear-callback-success');
 });
 
