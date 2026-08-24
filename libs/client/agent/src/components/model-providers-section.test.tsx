@@ -112,7 +112,6 @@ describe('WorkspaceModelProvidersSection', () => {
           jsonResponse({
             providers: [managedModelProviderEntry()],
             workspace_providers: 'disabled',
-            instance_default_provider_id: null,
           }),
         );
       }

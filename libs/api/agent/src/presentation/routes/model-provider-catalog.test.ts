@@ -171,7 +171,7 @@ describe('model provider catalog route', () => {
       });
     });
 
-    it('omits a blank instance default provider id', async () => {
+    it('maps a blank instance default provider id to null', async () => {
       vi.resetModules();
       vi.stubEnv('AGENT_DEFAULT_PROVIDER', '');
       const {createAgentRoutes: freshCreateAgentRoutes} = await import('./index.js');
