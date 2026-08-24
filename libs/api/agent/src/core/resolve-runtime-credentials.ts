@@ -21,6 +21,7 @@ import {
 } from './credential-fingerprints.js';
 import type {ModelProviderConfig} from './entities/model-provider-config.js';
 import {ModelProviderConfigNotFoundError, WorkspaceProvidersDisabledError} from './errors.js';
+import {managedProviderAdapterBaseUrl} from './managed-provider-url.js';
 import {getModelProviderEntry, modelProviderCredentialKeysMatch} from './model-provider-policy.js';
 import {type AgentSecretsClient, requireAgentSecretsClient} from './secrets-client.js';
 
@@ -200,11 +201,13 @@ function toResponse(
   if (managed !== undefined) {
     const model = managed.provider.models.find((candidate) => candidate.id === params.model);
     const modelDescriptor = toCustomAgentModelDto(model ?? {id: params.model, label: params.model});
+    const clientApi =
+      params.harness === 'claude' ? 'anthropic-messages' : managed.runtimeConfig.api;
 
     if (params.harness === 'pi') {
       response.custom_provider = {
         api: managed.runtimeConfig.api,
-        base_url: managed.runtimeConfig.baseUrl,
+        base_url: managedProviderAdapterBaseUrl(clientApi, managed.runtimeConfig.baseUrl),
         headers: [],
         secret_header_names: [],
         models: [modelDescriptor],
@@ -216,7 +219,7 @@ function toResponse(
         throw new ModelProviderConfigNotFoundError(params.workspaceId, params.provider);
       }
       response.claude = {
-        base_url: managed.runtimeConfig.baseUrl,
+        base_url: managedProviderAdapterBaseUrl(clientApi, managed.runtimeConfig.baseUrl),
         auth_token: authToken,
       };
     }

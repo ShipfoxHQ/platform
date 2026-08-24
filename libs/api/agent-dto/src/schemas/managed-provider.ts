@@ -71,8 +71,17 @@ export function toCustomAgentModelDto(
   };
 }
 
+/**
+ * Lease-scoped credentials and endpoint returned by a managed provider.
+ *
+ * `baseUrl` is the provider's gateway mount root, including any deployment
+ * path prefix but not a client-specific API path, query, or fragment. The
+ * agent runtime normalizes this root for the client API family before handing
+ * it to a harness client.
+ */
 export interface ManagedProviderRuntimeConfig {
   readonly api: ManagedModelApi;
+  /** Gateway mount root, including path prefixes but no client API path, query, or fragment. */
   readonly baseUrl: string;
   readonly credentials: Record<string, string>;
 }
