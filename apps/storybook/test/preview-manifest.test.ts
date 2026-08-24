@@ -7,12 +7,13 @@ import {
 } from '../preview-manifest.js';
 
 describe('storybook preview manifest', () => {
-  it('contains ten uniquely ordered Storybooks, including client-projects', () => {
-    expect(storybooks).toHaveLength(10);
+  it('contains eleven uniquely ordered Storybooks, including client-onboarding', () => {
+    expect(storybooks).toHaveLength(11);
     expect(storybooks.map(({order}) => order)).toEqual(
-      Array.from({length: 10}, (_, index) => index + 1),
+      Array.from({length: 11}, (_, index) => index + 1),
     );
     expect(new Set(storybooks.map(({id}) => id)).size).toBe(storybooks.length);
+    expect(storybooks.some(({id}) => id === 'client-onboarding')).toBe(true);
     expect(storybooks.some(({id}) => id === 'client-projects')).toBe(true);
   });
 
