@@ -1,5 +1,5 @@
 import type {FastifyInstance} from 'fastify';
-import {signUserToken, verifyUserToken} from '#core/jwt.js';
+import {verifyUserToken} from '#core/jwt.js';
 import {
   cookieHeader,
   createAuthTestApp,
@@ -26,34 +26,23 @@ describe('POST /auth/refresh', () => {
 
   test('returns a fresh access token and rotates the refresh cookie', async () => {
     const account = await signupVerifyLogin(app, 'refresh');
-    // Mark the session the way the impersonate flow would: the client's access
-    // token carries the impersonatorId claim. Refresh must rotate to an
-    // ordinary token and never carry the marker back (ADR 0014 keeps
-    // impersonated sessions access-token-only).
-    const markedToken = await signUserToken({
-      userId: account.userId,
-      impersonatorId: crypto.randomUUID(),
-      email: account.email,
-      memberships: [],
-      secret: ROUTE_TEST_SECRET,
-      expiresIn: '15m',
-    });
 
     const res = await app.inject({
       method: 'POST',
       url: '/auth/refresh',
-      headers: {
-        authorization: `Bearer ${markedToken}`,
-        cookie: cookieHeader(account.refreshCookie),
-      },
+      headers: {cookie: cookieHeader(account.refreshCookie)},
     });
 
     expect(res.statusCode).toBe(200);
     expect(res.json().token).toBeDefined();
     expect(res.json().user.email).toBe(account.email);
+    // The refresh contract stays unmarked: the response never exposes
+    // impersonator_id and rotation re-issues an ordinary access token.
+    // refreshAccessToken signs from (user, memberships, sessionId) and never
+    // sees the access token, so a marker cannot survive rotation here (ADR 0014
+    // keeps impersonated sessions access-token-only; refresh restores the
+    // administrator's session).
     expect(res.json().impersonator_id).toBeUndefined();
-    // Rotation re-issues an ordinary access token: the marker never survives
-    // the refresh path, so a marked session can never be refreshed back.
     const claims = await verifyUserToken({token: res.json().token, secret: ROUTE_TEST_SECRET});
     expect(claims.impersonatorId).toBeUndefined();
     expect(res.headers['set-cookie']).toContain('shipfox_refresh_token=');
