@@ -15,6 +15,7 @@ export type IntegrationAgentToolCallErrorCode =
   | 'invalid-request'
   | 'unknown'
   | 'provider-timeout'
+  | 'cancelled'
   | 'credentials-unavailable'
   | IntegrationProviderErrorReason;
 
@@ -24,6 +25,7 @@ const integrationAgentToolCallErrorCodes = new Set<string>([
   'invalid-request',
   'unknown',
   'provider-timeout',
+  'cancelled',
   'credentials-unavailable',
   'repository-not-found',
   'installation-not-found',

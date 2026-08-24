@@ -4,6 +4,7 @@ import {
   IntegrationCheckoutUnsupportedError,
   IntegrationConnectionInactiveError,
   IntegrationConnectionNotFoundError,
+  IntegrationConnectionProviderChangedError,
   IntegrationConnectionWorkspaceMismatchError,
   IntegrationProviderError,
   type IntegrationProviderErrorReason,
@@ -47,6 +48,9 @@ export function integrationRouteErrorHandler(error: unknown): never {
   }
   if (error instanceof IntegrationConnectionWorkspaceMismatchError) {
     throw new ClientError(error.message, 'forbidden', {status: 403});
+  }
+  if (error instanceof IntegrationConnectionProviderChangedError) {
+    throw new ClientError(error.message, 'integration-connection-provider-changed', {status: 409});
   }
   if (error instanceof IntegrationProviderUnavailableError) {
     throw new ClientError(error.message, 'integration-provider-unavailable', {status: 422});

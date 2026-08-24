@@ -184,7 +184,6 @@ describe('integrationsInterModuleContract', () => {
       stepAttempt: 2,
       callIndex: 3,
     },
-    timeoutMs: 30000,
   };
 
   test('accepts a frozen tool call input with a tool-step caller', () => {
@@ -198,7 +197,6 @@ describe('integrationsInterModuleContract', () => {
     const input = integrationsInterModuleContract.methods.callTool.input.parse({
       ...toolCallInput,
       caller: {kind: 'agent'},
-      timeoutMs: undefined,
       tool: {
         ...toolCallInput.tool,
         method: undefined,
@@ -208,7 +206,6 @@ describe('integrationsInterModuleContract', () => {
     });
 
     expect(input.caller).toEqual({kind: 'agent'});
-    expect(input.timeoutMs).toBeUndefined();
     expect(input.tool.methods).toBeUndefined();
   });
 

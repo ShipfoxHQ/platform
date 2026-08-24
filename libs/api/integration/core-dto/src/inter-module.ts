@@ -217,7 +217,6 @@ export const integrationsInterModuleContract = defineInterModuleContract({
         tool: toolCallTool,
         arguments: z.record(z.string(), z.unknown()),
         caller: toolCallCaller,
-        timeoutMs: z.number().int().positive().optional(),
       }),
       output: toolCallOutcome,
       errors: toolCallErrors,

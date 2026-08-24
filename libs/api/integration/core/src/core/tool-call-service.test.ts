@@ -82,11 +82,6 @@ describe('callIntegrationTool', () => {
       },
     ],
     [
-      'timeouts map to provider-timeout',
-      Object.assign(new Error('request timed out'), {name: 'TimeoutError'}),
-      {code: 'provider-timeout', message: 'Integration provider timed out'},
-    ],
-    [
       'credential failures map to credentials-unavailable',
       Object.assign(new Error('missing token'), {name: 'CredentialError'}),
       {
@@ -100,6 +95,24 @@ describe('callIntegrationTool', () => {
     expect(result).toEqual({outcome: 'error', error: expectedError});
     expect(serviceMocks.loggerError).not.toHaveBeenCalled();
     expect(serviceMocks.reportError).not.toHaveBeenCalled();
+  });
+
+  it('reports provider timeouts at error level with bounded log context', async () => {
+    const timeoutError = Object.assign(new Error('request timed out'), {name: 'TimeoutError'});
+
+    const result = await callIntegrationTool(createInput({callError: timeoutError}));
+
+    expect(result).toEqual({
+      outcome: 'error',
+      error: {code: 'provider-timeout', message: 'Integration provider timed out'},
+    });
+    expect(serviceMocks.loggerError).toHaveBeenCalledWith(
+      expect.objectContaining({err: timeoutError, errorCode: 'provider-timeout'}),
+      'Integration agent tool provider timed out',
+    );
+    expect(serviceMocks.reportError).toHaveBeenCalledWith(timeoutError, {
+      boundary: 'integration.agent-tool',
+    });
   });
 
   it('reports provider outages and unknown failures with bounded log context', async () => {
@@ -220,36 +233,98 @@ describe('callIntegrationTool', () => {
     });
   });
 
-  it('maps a call-time signal abort to provider-timeout and still closes the session', async () => {
+  it('maps an in-flight signal abort to cancellation and still closes the session', async () => {
     const onClose = vi.fn();
     const onCall = vi.fn();
     const controller = new AbortController();
+    let releaseCall: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      releaseCall = resolve;
+    });
     const input = createInput({onClose, onCall});
+    const registry = createIntegrationProviderRegistry([
+      {
+        provider: 'github',
+        displayName: 'GitHub',
+        adapters: {
+          agent_tools: {
+            catalog: () => [catalogTool()],
+            selectionCatalog: () => ({selectors: []}),
+            openSession: () =>
+              Promise.resolve({
+                call: (call: {toolId: string; arguments: Record<string, unknown>}) => {
+                  onCall(call);
+                  return gate.then(() => ({
+                    content: [{type: 'text', text: 'late result'}],
+                  }));
+                },
+                close: () => {
+                  onClose();
+                  return Promise.resolve();
+                },
+              }),
+          },
+        },
+      },
+    ]);
 
-    const call = callIntegrationTool({...input, signal: controller.signal});
+    const call = callIntegrationTool({...input, registry, signal: controller.signal});
+    await vi.waitFor(() => expect(onCall).toHaveBeenCalledTimes(1));
+
     controller.abort();
 
     await expect(call).resolves.toEqual({
       outcome: 'error',
-      error: {code: 'provider-timeout', message: 'Integration provider timed out'},
+      error: {code: 'cancelled', message: 'Integration tool call cancelled'},
     });
-    expect(onCall).toHaveBeenCalledTimes(1);
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(serviceMocks.loggerError).not.toHaveBeenCalled();
+    releaseCall?.();
   });
 
-  it('rejects immediately when the call signal is already aborted', async () => {
+  it('rejects without dispatching when the call signal is already aborted', async () => {
     const controller = new AbortController();
     controller.abort();
+    const onOpenSession = vi.fn();
 
     const result = await callIntegrationTool(
-      createInput({}, {signal: controller.signal, caller: {caller: 'agent'}}),
+      createInput({onOpenSession}, {signal: controller.signal, caller: {caller: 'agent'}}),
     );
 
     expect(result).toEqual({
       outcome: 'error',
-      error: {code: 'provider-timeout', message: 'Integration provider timed out'},
+      error: {code: 'cancelled', message: 'Integration tool call cancelled'},
     });
+    expect(onOpenSession).not.toHaveBeenCalled();
+    expect(serviceMocks.loggerError).not.toHaveBeenCalled();
+  });
+
+  it('maps a provider tool-level error result to a bounded error outcome', async () => {
+    const result = await callIntegrationTool(
+      createInput({
+        result: {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: 'GitHub installation token is missing permission for this operation',
+            },
+          ],
+          structuredContent: {code: 'access-denied', status: 403},
+        },
+      }),
+    );
+
+    expect(result).toEqual({
+      outcome: 'error',
+      error: {
+        code: 'access-denied',
+        message: 'GitHub installation token is missing permission for this operation',
+        status: 403,
+      },
+    });
+    expect(serviceMocks.loggerError).not.toHaveBeenCalled();
+    expect(serviceMocks.reportError).not.toHaveBeenCalled();
   });
 
   it('uses method tokens and omits optional catalog fields when metadata is absent', async () => {
@@ -394,6 +469,17 @@ describe('loadAuthorizedToolConnection', () => {
           connection({id: 'connection-1', workspaceId: 'workspace-1', provider: 'slack'}),
       }),
     ).rejects.toThrow('provider changed');
+  });
+
+  it('rejects with provider-unavailable when the provider is no longer registered', async () => {
+    await expect(
+      loadAuthorizedToolConnection({
+        ...params,
+        registry: createIntegrationProviderRegistry([]),
+        getIntegrationConnectionById: async () =>
+          connection({id: 'connection-1', workspaceId: 'workspace-1'}),
+      }),
+    ).rejects.toThrow('No integration provider registered for github');
   });
 
   it('rejects when the provider no longer exposes agent tools', async () => {
