@@ -1,9 +1,30 @@
 import type {Harness} from '@shipfox/api-agent-dto';
 import {and, eq, sql} from 'drizzle-orm';
 import type {AgentSession} from '#core/entities/agent-session.js';
-import {AgentSessionHeldError} from '#core/errors.js';
+import {
+  AgentSessionCarryOverConflictError,
+  AgentSessionHarnessInvalidError,
+  AgentSessionHarnessMismatchError,
+  AgentSessionHeldError,
+  AgentSessionKeyInvalidError,
+  AgentSessionLockUnavailableError,
+} from '#core/errors.js';
 import {db, type Transaction} from './db.js';
 import {sessions, toAgentSession} from './schema/sessions.js';
+
+const AGENT_SESSION_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
+
+function assertValidSessionKey(key: unknown): asserts key is string {
+  if (typeof key !== 'string' || !AGENT_SESSION_KEY_PATTERN.test(key)) {
+    throw new AgentSessionKeyInvalidError();
+  }
+}
+
+function assertValidSessionHarness(harness: unknown): asserts harness is Harness {
+  if (harness !== 'pi' && harness !== 'claude') {
+    throw new AgentSessionHarnessInvalidError();
+  }
+}
 
 export interface CreateSessionParams {
   workspaceId: string;
@@ -25,6 +46,9 @@ export async function createSession(
   tx: Transaction,
   params: CreateSessionParams,
 ): Promise<AgentSession> {
+  assertValidSessionKey(params.key);
+  assertValidSessionHarness(params.harness);
+
   const rows = await tx
     .insert(sessions)
     .values({
@@ -47,21 +71,26 @@ export interface ClaimSessionParams {
   projectId: string;
   workflowRunAttemptId: string;
   key: string;
-  /** Harness pinned at creation; only applies on first use. */
+  /** Harness resolved for this attempt; it must match an existing pinned session. */
   harness: Harness;
   stepAttemptId: string;
 }
 
 /**
  * Claims a session exclusively for a step attempt, in one short transaction
- * with a `FOR UPDATE` row lock. First use creates the session (empty head,
+ * with a non-blocking `FOR UPDATE SKIP LOCKED` row lock. First use creates the session (empty head,
  * harness pinned to the caller's resolved harness). An unclaimed session, or
  * one already claimed by the same attempt, is granted; a session claimed by
  * another live attempt fails fast with `AgentSessionHeldError` — no waiting,
- * no queue. The create path uses `ON CONFLICT DO NOTHING` so two concurrent
- * first claims serialize on the unique index instead of racing on the insert.
+ * no queue. A re-claim with a different harness fails with
+ * `AgentSessionHarnessMismatchError`. The create path uses `ON CONFLICT DO
+ * NOTHING` so two concurrent first claims serialize on the unique index instead
+ * of racing on the insert.
  */
 export async function claimSession(params: ClaimSessionParams): Promise<AgentSession> {
+  assertValidSessionKey(params.key);
+  assertValidSessionHarness(params.harness);
+
   return await db().transaction(async (tx) => {
     await tx
       .insert(sessions)
@@ -74,17 +103,51 @@ export async function claimSession(params: ClaimSessionParams): Promise<AgentSes
       })
       .onConflictDoNothing();
 
+    const sessionIdentity = and(
+      eq(sessions.workflowRunAttemptId, params.workflowRunAttemptId),
+      eq(sessions.key, params.key),
+    );
     const [row] = await tx
       .select()
       .from(sessions)
-      .where(
-        and(
-          eq(sessions.workflowRunAttemptId, params.workflowRunAttemptId),
-          eq(sessions.key, params.key),
-        ),
-      )
-      .for('update');
-    if (!row) throw new Error('Session missing after claim create');
+      .where(sessionIdentity)
+      .for('update', {skipLocked: true});
+    if (!row) {
+      const [visibleRow] = await tx.select().from(sessions).where(sessionIdentity);
+      if (!visibleRow) throw new Error('Session missing after claim create');
+
+      assertValidSessionKey(visibleRow.key);
+      assertValidSessionHarness(visibleRow.harness);
+      if (
+        visibleRow.claimedByStepAttempt !== null &&
+        visibleRow.claimedByStepAttempt !== params.stepAttemptId
+      ) {
+        throw new AgentSessionHeldError({
+          sessionId: visibleRow.id,
+          workflowRunAttemptId: params.workflowRunAttemptId,
+          key: visibleRow.key,
+          heldByStepAttempt: visibleRow.claimedByStepAttempt,
+        });
+      }
+
+      throw new AgentSessionLockUnavailableError({
+        sessionId: visibleRow.id,
+        workflowRunAttemptId: params.workflowRunAttemptId,
+        key: visibleRow.key,
+      });
+    }
+
+    assertValidSessionKey(row.key);
+    assertValidSessionHarness(row.harness);
+    if (row.harness !== params.harness) {
+      throw new AgentSessionHarnessMismatchError({
+        sessionId: row.id,
+        workflowRunAttemptId: params.workflowRunAttemptId,
+        key: row.key,
+        pinnedHarness: row.harness,
+        requestedHarness: params.harness,
+      });
+    }
 
     if (row.claimedByStepAttempt !== null && row.claimedByStepAttempt !== params.stepAttemptId) {
       throw new AgentSessionHeldError({
@@ -148,7 +211,10 @@ export async function releaseSession(params: {
  * and `carried_from_session_id` recording the provenance. Claims are never
  * carried. The insert is idempotent per `(workflow_run_attempt_id, key)`, so a
  * repeated carry-over call returns the same target rows instead of
- * duplicating them.
+ * duplicating them. Callers must invoke this after the source attempt is
+ * terminal and harness-session termination has committed; workflow state is
+ * owned by another database module and cannot be checked here. Source rows are
+ * locked while their head pointers are copied.
  */
 export async function carryOverSessions(params: {
   fromWorkflowRunAttemptId: string;
@@ -158,10 +224,14 @@ export async function carryOverSessions(params: {
     const sourceRows = await tx
       .select()
       .from(sessions)
-      .where(eq(sessions.workflowRunAttemptId, params.fromWorkflowRunAttemptId));
+      .where(eq(sessions.workflowRunAttemptId, params.fromWorkflowRunAttemptId))
+      .for('update');
 
     for (const source of sourceRows) {
-      await tx
+      assertValidSessionKey(source.key);
+      assertValidSessionHarness(source.harness);
+
+      const [inserted] = await tx
         .insert(sessions)
         .values({
           workspaceId: source.workspaceId,
@@ -179,7 +249,30 @@ export async function carryOverSessions(params: {
         })
         .onConflictDoNothing({
           target: [sessions.workflowRunAttemptId, sessions.key],
-        });
+        })
+        .returning({id: sessions.id});
+
+      if (!inserted) {
+        const [existing] = await tx
+          .select({id: sessions.id, carriedFromSessionId: sessions.carriedFromSessionId})
+          .from(sessions)
+          .where(
+            and(
+              eq(sessions.workflowRunAttemptId, params.toWorkflowRunAttemptId),
+              eq(sessions.key, source.key),
+            ),
+          )
+          .for('update');
+        if (!existing) throw new Error('Session missing after carry-over conflict');
+        if (existing.carriedFromSessionId !== source.id) {
+          throw new AgentSessionCarryOverConflictError({
+            targetWorkflowRunAttemptId: params.toWorkflowRunAttemptId,
+            key: source.key,
+            sourceSessionId: source.id,
+            existingSessionId: existing.id,
+          });
+        }
+      }
     }
 
     const carried = await tx

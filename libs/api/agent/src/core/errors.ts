@@ -161,6 +161,89 @@ export class AgentSessionHeldError extends Error {
   public readonly heldByStepAttempt: string;
 }
 
+export class AgentSessionKeyInvalidError extends Error {
+  readonly code = 'agent_session_key_invalid';
+
+  constructor() {
+    super('Agent session key is invalid');
+    this.name = 'AgentSessionKeyInvalidError';
+  }
+}
+
+export class AgentSessionHarnessInvalidError extends Error {
+  readonly code = 'agent_session_harness_invalid';
+
+  constructor() {
+    super('Agent session harness is invalid');
+    this.name = 'AgentSessionHarnessInvalidError';
+  }
+}
+
+export class AgentSessionHarnessMismatchError extends Error {
+  readonly code = 'agent_session_harness_mismatch';
+
+  constructor(params: {
+    sessionId: string;
+    workflowRunAttemptId: string;
+    key: string;
+    pinnedHarness: Harness;
+    requestedHarness: Harness;
+  }) {
+    super('Agent session harness does not match the pinned harness');
+    this.name = 'AgentSessionHarnessMismatchError';
+    this.sessionId = params.sessionId;
+    this.workflowRunAttemptId = params.workflowRunAttemptId;
+    this.key = params.key;
+    this.pinnedHarness = params.pinnedHarness;
+    this.requestedHarness = params.requestedHarness;
+  }
+
+  public readonly sessionId: string;
+  public readonly workflowRunAttemptId: string;
+  public readonly key: string;
+  public readonly pinnedHarness: Harness;
+  public readonly requestedHarness: Harness;
+}
+
+export class AgentSessionLockUnavailableError extends Error {
+  readonly code = 'agent_session_lock_unavailable';
+
+  constructor(params: {sessionId: string; workflowRunAttemptId: string; key: string}) {
+    super('Agent session is temporarily locked by another operation');
+    this.name = 'AgentSessionLockUnavailableError';
+    this.sessionId = params.sessionId;
+    this.workflowRunAttemptId = params.workflowRunAttemptId;
+    this.key = params.key;
+  }
+
+  public readonly sessionId: string;
+  public readonly workflowRunAttemptId: string;
+  public readonly key: string;
+}
+
+export class AgentSessionCarryOverConflictError extends Error {
+  readonly code = 'agent_session_carry_over_conflict';
+
+  constructor(params: {
+    targetWorkflowRunAttemptId: string;
+    key: string;
+    sourceSessionId: string;
+    existingSessionId: string;
+  }) {
+    super('Agent session carry-over conflicts with an existing target session');
+    this.name = 'AgentSessionCarryOverConflictError';
+    this.targetWorkflowRunAttemptId = params.targetWorkflowRunAttemptId;
+    this.key = params.key;
+    this.sourceSessionId = params.sourceSessionId;
+    this.existingSessionId = params.existingSessionId;
+  }
+
+  public readonly targetWorkflowRunAttemptId: string;
+  public readonly key: string;
+  public readonly sourceSessionId: string;
+  public readonly existingSessionId: string;
+}
+
 export class CustomModelProviderStoredSecretBaseUrlChangeError extends Error {
   constructor(public readonly providerId: ModelProviderRef) {
     super(

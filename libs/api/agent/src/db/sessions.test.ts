@@ -1,6 +1,13 @@
 import crypto from 'node:crypto';
 import {eq} from 'drizzle-orm';
-import {AgentSessionHeldError} from '#core/errors.js';
+import {
+  AgentSessionCarryOverConflictError,
+  AgentSessionHarnessInvalidError,
+  AgentSessionHarnessMismatchError,
+  AgentSessionHeldError,
+  AgentSessionKeyInvalidError,
+  AgentSessionLockUnavailableError,
+} from '#core/errors.js';
 import {
   carryOverSessions,
   claimSession,
@@ -102,6 +109,42 @@ describe('createSession', () => {
     expect(rows).toHaveLength(1);
   });
 
+  it.each([
+    '',
+    'invalid/key',
+    'a'.repeat(129),
+  ])('rejects an invalid session key at the persistence boundary: %s', async (key) => {
+    const ctx = newCtx({key});
+
+    const act = db().transaction((tx) =>
+      createSession(tx, {
+        workspaceId: ctx.workspaceId,
+        projectId: ctx.projectId,
+        workflowRunAttemptId: ctx.workflowRunAttemptId,
+        key: ctx.key,
+        harness: 'pi',
+      }),
+    );
+
+    await expect(act).rejects.toBeInstanceOf(AgentSessionKeyInvalidError);
+  });
+
+  it('rejects an invalid harness at the persistence boundary', async () => {
+    const ctx = newCtx();
+
+    const act = db().transaction((tx) =>
+      createSession(tx, {
+        workspaceId: ctx.workspaceId,
+        projectId: ctx.projectId,
+        workflowRunAttemptId: ctx.workflowRunAttemptId,
+        key: ctx.key,
+        harness: 'unknown' as never,
+      }),
+    );
+
+    await expect(act).rejects.toBeInstanceOf(AgentSessionHarnessInvalidError);
+  });
+
   it('allows the same key in different run attempts', async () => {
     const ctx = newCtx();
     const params = {
@@ -153,6 +196,23 @@ describe('claimSession', () => {
     expect(reClaimed.claimedAt?.getTime()).toBeGreaterThanOrEqual(firstClaimedAt ?? 0);
   });
 
+  it('rejects a re-claim whose harness differs from the pinned harness', async () => {
+    const ctx = newCtx();
+    const first = await claimSession({...ctx, harness: 'pi'});
+
+    const act = claimSession({...ctx, harness: 'claude'});
+
+    await expect(act).rejects.toMatchObject({
+      name: 'AgentSessionHarnessMismatchError',
+      code: 'agent_session_harness_mismatch',
+      pinnedHarness: 'pi',
+      requestedHarness: 'claude',
+    });
+    await expect(act).rejects.toBeInstanceOf(AgentSessionHarnessMismatchError);
+    const row = await findSession(first.id);
+    expect(row).toMatchObject({harness: 'pi', claimedByStepAttempt: ctx.stepAttemptId});
+  });
+
   it('grants a claim to another attempt once the holder released it', async () => {
     const ctx = newCtx();
     const first = await claimSession({...ctx, harness: 'pi'});
@@ -181,6 +241,50 @@ describe('claimSession', () => {
     });
     const row = await findSession(held.id);
     expect(row?.claimedByStepAttempt).toBe(holder);
+  });
+
+  it('fails fast when another transaction holds the session row lock', async () => {
+    const ctx = newCtx();
+    const claimed = await claimSession({...ctx, harness: 'pi'});
+    let releaseLock!: () => void;
+    let resolveLockReady!: () => void;
+    const lockReleased = new Promise<void>((resolve) => {
+      releaseLock = resolve;
+    });
+    const lockReady = new Promise<void>((resolve) => {
+      resolveLockReady = resolve;
+    });
+    const lockHolder = db().transaction(async (tx) => {
+      await tx.select().from(sessions).where(eq(sessions.id, claimed.id)).for('update');
+      resolveLockReady();
+      await lockReleased;
+    });
+    await lockReady;
+
+    const act = claimSession({...ctx, harness: 'pi', stepAttemptId: crypto.randomUUID()});
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    let outcome: unknown;
+    try {
+      outcome = await Promise.race([
+        act.then(
+          () => 'completed' as const,
+          (error: unknown) => error,
+        ),
+        new Promise<'timeout'>((resolve) => {
+          timeoutId = setTimeout(() => resolve('timeout'), 1_000);
+        }),
+      ]);
+    } finally {
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+      releaseLock();
+      await lockHolder;
+      await act.catch(() => undefined);
+    }
+
+    expect(
+      outcome instanceof AgentSessionHeldError ||
+        outcome instanceof AgentSessionLockUnavailableError,
+    ).toBe(true);
   });
 
   it('keeps the held row untouched when a conflicting claim fails', async () => {
@@ -272,7 +376,8 @@ describe('carryOverSessions', () => {
   it('copies sessions into the target run attempt with provenance and the head pointer', async () => {
     const ctx = newCtx();
     const claimed = await claimSession({...ctx, harness: 'claude'});
-    await commitSessionHead(commitParams(claimed.id, ctx.stepAttemptId, 0));
+    const headParams = commitParams(claimed.id, ctx.stepAttemptId, 0);
+    await commitSessionHead(headParams);
     const targetRunAttemptId = crypto.randomUUID();
 
     const carried = await carryOverSessions({
@@ -288,6 +393,8 @@ describe('carryOverSessions', () => {
       key: ctx.key,
       harness: 'claude',
       headSegment: 1,
+      headObjectKey: headParams.headObjectKey,
+      headSizeBytes: headParams.headSizeBytes,
       headCommittedByAttempt: ctx.stepAttemptId,
       headRepoRef: 'refs/heads/main',
       claimedByStepAttempt: null,
@@ -299,6 +406,27 @@ describe('carryOverSessions', () => {
     // The source row is untouched.
     const source = await findSession(claimed.id);
     expect(source?.workflowRunAttemptId).toBe(ctx.workflowRunAttemptId);
+  });
+
+  it('rejects carry-over when the target already has an unrelated session for the key', async () => {
+    const ctx = newCtx();
+    const source = await claimSession({...ctx, harness: 'pi'});
+    const targetWorkflowRunAttemptId = crypto.randomUUID();
+    const target = await claimSession({
+      ...ctx,
+      workflowRunAttemptId: targetWorkflowRunAttemptId,
+      harness: 'pi',
+    });
+
+    const act = carryOverSessions({
+      fromWorkflowRunAttemptId: ctx.workflowRunAttemptId,
+      toWorkflowRunAttemptId: targetWorkflowRunAttemptId,
+    });
+
+    await expect(act).rejects.toBeInstanceOf(AgentSessionCarryOverConflictError);
+    const row = await findSession(target.id);
+    expect(row).toMatchObject({id: target.id, carriedFromSessionId: null});
+    expect(source.id).not.toBe(target.id);
   });
 
   it('is idempotent for a repeated carry-over call', async () => {
@@ -335,15 +463,16 @@ describe('commitSessionHead', () => {
   it('commits a new head segment from the claiming attempt', async () => {
     const ctx = newCtx();
     const claimed = await claimSession({...ctx, harness: 'pi'});
+    const params = commitParams(claimed.id, ctx.stepAttemptId, 0);
 
-    const result = await commitSessionHead(commitParams(claimed.id, ctx.stepAttemptId, 0));
+    const result = await commitSessionHead(params);
     const session = result.session;
 
     expect(result.outcome).toBe('committed');
     expect(session).not.toBeNull();
     expect(session).toMatchObject({
       headSegment: 1,
-      headObjectKey: session?.headObjectKey,
+      headObjectKey: params.headObjectKey,
       headSizeBytes: 128,
       headCommittedByAttempt: ctx.stepAttemptId,
       headRepoRef: 'refs/heads/main',
