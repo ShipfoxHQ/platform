@@ -1134,6 +1134,45 @@ describe('github agent tool catalog', () => {
     });
   });
 
+  it('passes hasGrantedPermissions against a scoped token granted permissions', async () => {
+    const request = vi.fn(() => Promise.resolve({data: {merged: true}}));
+    const provider = new GithubAgentToolsProvider({
+      getInstallationByConnectionId: vi.fn(() => Promise.resolve(installation())),
+      tokenProvider: {
+        getInstallationAccessToken: vi.fn(() =>
+          Promise.resolve({
+            token: 'scoped-installation-token',
+            expiresAt: new Date(),
+            permissions: {contents: 'write' as const, pull_requests: 'write' as const},
+          }),
+        ),
+      },
+      createClient: vi.fn(() => ({request})),
+    });
+    const tool = githubAgentToolCatalog.find((entry) => entry.id === 'merge_pull_request');
+    if (!tool) throw new Error('Missing merge_pull_request tool');
+    const session = await provider.openSession({
+      connection: connection(),
+      tools: [tool],
+      scope: undefined,
+    });
+
+    const result = await session.call({
+      toolId: 'merge_pull_request',
+      arguments: {owner: 'shipfox', repo: 'platform', pull_number: 1},
+    });
+
+    expect(request).toHaveBeenCalledWith('PUT /repos/{owner}/{repo}/pulls/{pull_number}/merge', {
+      owner: 'shipfox',
+      repo: 'platform',
+      pull_number: 1,
+    });
+    expect(result).toEqual({
+      content: [{type: 'text', text: '{"merge":{"merged":true}}'}],
+      structuredContent: {merge: {merged: true}},
+    });
+  });
+
   it('rejects a pending review without a GraphQL node ID', async () => {
     const request = vi.fn().mockResolvedValueOnce({
       data: [{id: 41, state: 'PENDING', user: githubAppReviewUser}],

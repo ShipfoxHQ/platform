@@ -72,6 +72,7 @@ const scopes = {
   pullRequestsWrite: [{permission: 'pull_requests', access: 'write'}],
   actionsRead: [{permission: 'actions', access: 'read'}],
   actionsWrite: [{permission: 'actions', access: 'write'}],
+  contentsWrite: [{permission: 'contents', access: 'write'}],
   mergePullRequest: [
     {permission: 'pull_requests', access: 'write'},
     {permission: 'contents', access: 'write'},

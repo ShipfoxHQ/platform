@@ -33,7 +33,10 @@ export {
 } from '#api/installation-token-envelope.js';
 export {
   createGithubInstallationTokenProvider,
+  type GithubInstallationRepositoryResolver,
   type GithubInstallationTokenProvider,
+  type GithubInstallationTokenScope,
+  type ResolveGithubInstallationRepositoryInput,
 } from '#api/installation-token-provider.js';
 export {
   type GithubAgentToolCatalogEntry,

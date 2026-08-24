@@ -77,8 +77,32 @@ export interface ClassifiedMintError {
   retryAfterSeconds?: number | undefined;
 }
 
-export function githubInstallationTokenNamespace(installationId: number): string {
-  return `system/github/installation-token/${installationId}`;
+export interface GithubInstallationTokenScope {
+  repositoryId: number;
+  permissions: Record<string, 'read' | 'write'>;
+}
+
+export function githubInstallationTokenScopeKey(scope: GithubInstallationTokenScope): string {
+  const permissions = Object.entries(scope.permissions)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([permission, access]) => `${permission}-${access}`)
+    .join('_');
+  return permissions.length === 0
+    ? `${scope.repositoryId}`
+    : `${scope.repositoryId}/${permissions}`;
+}
+
+export function githubInstallationTokenNamespace(
+  installationId: number,
+  scopeKey?: string | undefined,
+): string {
+  // Scoped tokens live under a child namespace so a scoped request is never served
+  // the installation-wide token envelope (and vice versa). The scope key keeps the
+  // namespace pattern ([a-z0-9_/-] only); uninstall cleanup deliberately only removes
+  // the broad envelope — scoped envelopes hold short-lived, self-expiring tokens.
+  return scopeKey === undefined
+    ? `system/github/installation-token/${installationId}`
+    : `system/github/installation-token/${installationId}/scope/${scopeKey}`;
 }
 
 export function encodeInstallationTokenEnvelope(envelope: InstallationTokenEnvelope): string {

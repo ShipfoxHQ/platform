@@ -41,16 +41,16 @@ async function loadGithubModuleParts(
     getIntegrationConnectionById,
     secretStore: options.secrets?.github
       ? {
-          read: async (workspaceId, installationId) =>
+          read: async (workspaceId, installationId, scopeKey) =>
             (await options.secrets?.github?.getSecret({
               workspaceId,
-              namespace: githubInstallationTokenNamespace(installationId),
+              namespace: githubInstallationTokenNamespace(installationId, scopeKey),
               key: 'envelope',
             })) ?? null,
-          write: async (workspaceId, installationId, envelope) => {
+          write: async (workspaceId, installationId, envelope, scopeKey) => {
             await options.secrets?.github?.setSecrets({
               workspaceId,
-              namespace: githubInstallationTokenNamespace(installationId),
+              namespace: githubInstallationTokenNamespace(installationId, scopeKey),
               values: {envelope: encodeInstallationTokenEnvelope(envelope)},
             });
           },

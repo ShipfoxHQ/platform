@@ -6,9 +6,14 @@ import {withInstallationTokenLock} from '#db/installation-token-lock.js';
 import {getGithubInstallationByInstallationId} from '#db/installations.js';
 import {recordInstallationTokenFormat, recordInstallationTokenLookup} from '#metrics/index.js';
 import {type GithubInstallationAccessToken, mapGithubError} from './client.js';
-import {githubInstallationTokenFormatPlugin} from './github-octokit.js';
 import {
+  getGithubInstallationOctokit,
+  githubInstallationTokenFormatPlugin,
+} from './github-octokit.js';
+import {
+  type GithubInstallationTokenScope,
   githubInstallationTokenNamespace,
+  githubInstallationTokenScopeKey,
   TOKEN_REFRESH_MARGIN_MS,
 } from './installation-token-envelope.js';
 import {
@@ -18,8 +23,22 @@ import {
   type SharedInstallationTokenCacheOptions,
 } from './shared-installation-token-cache.js';
 
+export type {GithubInstallationTokenScope} from './installation-token-envelope.js';
+
 export interface GithubInstallationTokenProvider {
-  getInstallationAccessToken(installationId: number): Promise<GithubInstallationAccessToken>;
+  getInstallationAccessToken(
+    installationId: number,
+    scope?: GithubInstallationTokenScope | undefined,
+  ): Promise<GithubInstallationAccessToken>;
+}
+
+export interface ResolveGithubInstallationRepositoryInput {
+  installationId: number;
+  fullName: string;
+}
+
+export interface GithubInstallationRepositoryResolver {
+  resolveRepositoryId(input: ResolveGithubInstallationRepositoryInput): Promise<number>;
 }
 
 export interface GithubInstallationTokenProviderOptions {
@@ -30,32 +49,83 @@ export interface GithubInstallationTokenProviderOptions {
   now?: (() => Date) | undefined;
 }
 
+const INSTALLATION_REPOSITORY_RESOLUTION_PAGE_SIZE = 100;
+const INSTALLATION_REPOSITORY_RESOLUTION_MAX_PAGES = 10;
+
 export function createGithubInstallationTokenProvider(
   options: GithubInstallationTokenProviderOptions = {},
-): GithubInstallationTokenProvider {
+): GithubInstallationTokenProvider & GithubInstallationRepositoryResolver {
   return new OctokitGithubInstallationTokenProvider(createInstallationTokenCache(options));
 }
 
-class OctokitGithubInstallationTokenProvider implements GithubInstallationTokenProvider {
+class OctokitGithubInstallationTokenProvider
+  implements GithubInstallationTokenProvider, GithubInstallationRepositoryResolver
+{
   private app: App | undefined;
 
   constructor(
     private readonly cache: InstallationTokenCache = new InMemoryInstallationTokenCache(),
   ) {}
 
-  getInstallationAccessToken(installationId: number): Promise<GithubInstallationAccessToken> {
-    return this.cache.getOrMint(installationId, () =>
-      this.mintInstallationAccessToken(installationId),
+  getInstallationAccessToken(
+    installationId: number,
+    scope?: GithubInstallationTokenScope | undefined,
+  ): Promise<GithubInstallationAccessToken> {
+    return this.cache.getOrMint(
+      installationId,
+      () => this.mintInstallationAccessToken(installationId, scope),
+      scope,
+    );
+  }
+
+  async resolveRepositoryId(input: ResolveGithubInstallationRepositoryInput): Promise<number> {
+    const octokit = await mapGithubError(() =>
+      getGithubInstallationOctokit(this.getApp(), input.installationId),
+    );
+    const needle = input.fullName.trim().toLowerCase();
+
+    for (let page = 1; page <= INSTALLATION_REPOSITORY_RESOLUTION_MAX_PAGES; page += 1) {
+      const response = await mapGithubError(() =>
+        octokit.rest.apps.listReposAccessibleToInstallation({
+          per_page: INSTALLATION_REPOSITORY_RESOLUTION_PAGE_SIZE,
+          page,
+        }),
+      );
+      const match = response.data.repositories.find(
+        (repository) => repository.full_name.toLowerCase() === needle,
+      );
+      if (match !== undefined) {
+        if (!Number.isSafeInteger(match.id) || match.id < 1) {
+          throw new GithubIntegrationProviderError(
+            'malformed-provider-response',
+            'GitHub repository resolution did not include a valid repository id',
+          );
+        }
+        return match.id;
+      }
+      if (response.data.repositories.length < INSTALLATION_REPOSITORY_RESOLUTION_PAGE_SIZE) break;
+    }
+
+    throw new GithubIntegrationProviderError(
+      'access-denied',
+      `GitHub repository ${input.fullName} is not accessible to the GitHub installation`,
     );
   }
 
   private async mintInstallationAccessToken(
     installationId: number,
+    scope: GithubInstallationTokenScope | undefined,
   ): Promise<GithubInstallationAccessToken> {
     const response = await mapGithubError(
       () =>
         this.getApp().octokit.rest.apps.createInstallationAccessToken({
           installation_id: installationId,
+          ...(scope === undefined
+            ? {}
+            : {
+                repository_ids: [scope.repositoryId],
+                permissions: scope.permissions,
+              }),
         }),
       'installation-not-found',
     );
@@ -86,35 +156,39 @@ class OctokitGithubInstallationTokenProvider implements GithubInstallationTokenP
 
   private getApp(): App {
     if (!this.app) {
-      this.app = new App({
-        appId: config.GITHUB_APP_ID,
-        privateKey: normalizedGithubPrivateKey(),
-        Octokit: Octokit.plugin(githubInstallationTokenFormatPlugin).defaults({
-          baseUrl: normalizedGithubApiBaseUrl(),
-          throttle: {
-            onRateLimit: (
-              _retryAfter: number,
-              _options: unknown,
-              _octokit: unknown,
-              retryCount: number,
-            ) => retryCount === 0,
-            onSecondaryRateLimit: (
-              _retryAfter: number,
-              _options: unknown,
-              _octokit: unknown,
-              retryCount: number,
-            ) => retryCount === 0,
-          },
-        }),
-      });
+      this.app = createGithubApp();
     }
     return this.app;
   }
 }
 
+function createGithubApp(): App {
+  return new App({
+    appId: config.GITHUB_APP_ID,
+    privateKey: normalizedGithubPrivateKey(),
+    Octokit: Octokit.plugin(githubInstallationTokenFormatPlugin).defaults({
+      baseUrl: normalizedGithubApiBaseUrl(),
+      throttle: {
+        onRateLimit: (
+          _retryAfter: number,
+          _options: unknown,
+          _octokit: unknown,
+          retryCount: number,
+        ) => retryCount === 0,
+        onSecondaryRateLimit: (
+          _retryAfter: number,
+          _options: unknown,
+          _octokit: unknown,
+          retryCount: number,
+        ) => retryCount === 0,
+      },
+    }),
+  });
+}
+
 class InMemoryInstallationTokenCache implements InstallationTokenCache {
-  private readonly tokens = new Map<number, GithubInstallationAccessToken>();
-  private readonly inFlightMints = new Map<number, Promise<GithubInstallationAccessToken>>();
+  private readonly tokens = new Map<string, GithubInstallationAccessToken>();
+  private readonly inFlightMints = new Map<string, Promise<GithubInstallationAccessToken>>();
 
   constructor(
     private readonly options: {
@@ -129,31 +203,42 @@ class InMemoryInstallationTokenCache implements InstallationTokenCache {
   getOrMint(
     installationId: number,
     mint: () => Promise<GithubInstallationAccessToken>,
+    scope?: GithubInstallationTokenScope | undefined,
   ): Promise<GithubInstallationAccessToken> {
-    const cached = this.tokens.get(installationId);
+    const key = installationTokenCacheKey(installationId, scope);
+    const cached = this.tokens.get(key);
     if (cached && !this.isInsideRefreshMargin(cached.expiresAt)) {
       recordInstallationTokenLookup('ram-hit');
       return Promise.resolve(cached);
     }
 
-    const inFlightMint = this.inFlightMints.get(installationId);
+    const inFlightMint = this.inFlightMints.get(key);
     if (inFlightMint) return inFlightMint;
 
     const freshToken = mint()
       .then((token) => {
-        this.tokens.set(installationId, token);
+        this.tokens.set(key, token);
         return token;
       })
       .finally(() => {
-        this.inFlightMints.delete(installationId);
+        this.inFlightMints.delete(key);
       });
-    this.inFlightMints.set(installationId, freshToken);
+    this.inFlightMints.set(key, freshToken);
     return freshToken;
   }
 
   private isInsideRefreshMargin(expiresAt: Date): boolean {
     return expiresAt.getTime() <= this.options.now().getTime() + this.options.refreshMarginMs;
   }
+}
+
+function installationTokenCacheKey(
+  installationId: number,
+  scope: GithubInstallationTokenScope | undefined,
+): string {
+  return scope === undefined
+    ? String(installationId)
+    : `${installationId}:${githubInstallationTokenScopeKey(scope)}`;
 }
 
 class TieredInstallationTokenCache implements InstallationTokenCache {
@@ -165,8 +250,13 @@ class TieredInstallationTokenCache implements InstallationTokenCache {
   getOrMint(
     installationId: number,
     mint: () => Promise<GithubInstallationAccessToken>,
+    scope?: GithubInstallationTokenScope | undefined,
   ): Promise<GithubInstallationAccessToken> {
-    return this.ram.getOrMint(installationId, () => this.shared.getOrMint(installationId, mint));
+    return this.ram.getOrMint(
+      installationId,
+      () => this.shared.getOrMint(installationId, mint, scope),
+      scope,
+    );
   }
 }
 
