@@ -10,6 +10,7 @@ import {serializerCompiler, validatorCompiler} from 'fastify-type-provider-zod';
 import {
   DevRunInputsNotAllowedError,
   DevRunReplayEventMismatchError,
+  DevRunReplayEventNotAllowedError,
   DevRunReplayEventNotFoundError,
   DevRunReplayEventRequiredError,
   DevRunReplayEventUnavailableError,
@@ -270,6 +271,19 @@ describe('POST /dev-runs', () => {
 
     expect(res.statusCode).toBe(422);
     expect(res.json().code).toBe('replay-event-required');
+  });
+
+  test('maps replay event ids on non-integration triggers to 422 replay-event-not-allowed', async () => {
+    createDevRunMock.mockRejectedValue(new DevRunReplayEventNotAllowedError('manual'));
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/dev-runs',
+      payload: {...VALID_BODY, replay_event_id: crypto.randomUUID()},
+    });
+
+    expect(res.statusCode).toBe(422);
+    expect(res.json().code).toBe('replay-event-not-allowed');
   });
 
   test('maps a missing replay event to 404 replay-event-not-found', async () => {

@@ -91,6 +91,16 @@ export class DevRunReplayEventRequiredError extends Error {
   }
 }
 
+export class DevRunReplayEventNotAllowedError extends Error {
+  readonly source: string;
+
+  constructor(source: string) {
+    super(`replay_event_id is only supported for integration triggers, not ${source}`);
+    this.name = 'DevRunReplayEventNotAllowedError';
+    this.source = source;
+  }
+}
+
 export class DevRunReplayEventNotFoundError extends Error {
   readonly replayEventId: string;
 
@@ -105,9 +115,7 @@ export class DevRunReplayEventMismatchError extends Error {
   readonly replayEventId: string;
 
   constructor(replayEventId: string) {
-    super(
-      `Journaled event ${replayEventId} does not belong to the caller's workspace or does not match the trigger's source and event`,
-    );
+    super(`Journaled event ${replayEventId} does not match the trigger's source and event`);
     this.name = 'DevRunReplayEventMismatchError';
     this.replayEventId = replayEventId;
   }

@@ -16,6 +16,7 @@ import {createDevRun} from '#core/create-dev-run.js';
 import {
   DevRunInputsNotAllowedError,
   DevRunReplayEventMismatchError,
+  DevRunReplayEventNotAllowedError,
   DevRunReplayEventNotFoundError,
   DevRunReplayEventRequiredError,
   DevRunReplayEventUnavailableError,
@@ -25,10 +26,11 @@ import {
 import {mapStartRunError} from './map-start-run-error.js';
 import {requireProjectAccess} from './project-access.js';
 
-// The route answers 422 with several error shapes: bare codes (`trigger-not-found`, …)
-// and codes with details (`invalid-workflow-definition`, `workflow-interpolation-unresolvable`).
+// Error responses use several shapes: bare codes (`trigger-not-found`, …) and
+// codes with details (`invalid-workflow-definition`, `workflow-interpolation-unresolvable`).
 const errorResponseSchema = z.object({
   code: z.string(),
+  message: z.string().optional(),
   details: z.unknown().optional(),
 });
 
@@ -47,6 +49,9 @@ export function createDevRunRoute(
       response: {
         201: createDevRunResponseSchema,
         422: errorResponseSchema,
+        404: errorResponseSchema,
+        409: errorResponseSchema,
+        410: errorResponseSchema,
       },
     },
     errorHandler: (error) => {
@@ -58,6 +63,9 @@ export function createDevRunRoute(
       }
       if (error instanceof DevRunReplayEventRequiredError) {
         throw new ClientError(error.message, 'replay-event-required', {status: 422});
+      }
+      if (error instanceof DevRunReplayEventNotAllowedError) {
+        throw new ClientError(error.message, 'replay-event-not-allowed', {status: 422});
       }
       if (error instanceof DevRunReplayEventNotFoundError) {
         throw new ClientError(error.message, 'replay-event-not-found', {

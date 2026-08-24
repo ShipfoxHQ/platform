@@ -7,6 +7,7 @@ import {evaluateTriggerFilter} from './config.js';
 import {
   DevRunInputsNotAllowedError,
   DevRunReplayEventMismatchError,
+  DevRunReplayEventNotAllowedError,
   DevRunReplayEventNotFoundError,
   DevRunReplayEventRequiredError,
   DevRunReplayEventUnavailableError,
@@ -31,7 +32,7 @@ export interface CreateDevRunParams {
   /** Manual triggers only; rejected with `inputs-not-allowed` for cron and integration triggers. */
   inputs: Record<string, unknown> | undefined;
   /** Integration triggers only; the journaled event to replay. */
-  replayEventId: string | undefined;
+  replayEventId?: string | undefined;
   userId: string;
 }
 
@@ -65,7 +66,7 @@ export async function createDevRun(params: CreateDevRunParams): Promise<DevRunRe
     throw new DevRunTriggerNotFoundError(params.triggerKey);
   }
 
-  const built = await buildDevRunTrigger(trigger, params, resolved.workflow.id);
+  const built = await buildDevRunTrigger(trigger, params);
 
   // Dev runs have no upstream event id. Use the run id after success; failed
   // attempts need a synthesized ref because there is no run to key on. A
@@ -84,6 +85,14 @@ export async function createDevRun(params: CreateDevRunParams): Promise<DevRunRe
     payload: built.replaySource?.payload ?? null,
     receivedAt: new Date(),
   };
+
+  if (built.kind === 'refused') {
+    const refusal = await beginTriggerHistory({...historyBase, eventRef: randomUUID()});
+    await refusal.devFilterErrored(params.triggerKey, resolved.workflow.id, built.reason);
+    await refusal.discarded();
+    devRunsCount.add(1, {trigger_kind: built.triggerKind, outcome: 'filtered'});
+    throw new DevRunTriggerFilteredError(built.reason);
+  }
 
   let run: {id: string; name: string};
   try {
@@ -128,37 +137,48 @@ export async function createDevRun(params: CreateDevRunParams): Promise<DevRunRe
   return {id: run.id, commit: resolved.commit};
 }
 
-interface BuiltDevRunTrigger {
+interface ReplaySource {
+  provider: string;
+  deliveryId: string;
+  connectionId: string | null;
+  connectionName: string | null;
+  payload: Record<string, unknown>;
+  replayOfEventId: string;
+}
+
+interface DevRunTriggerBase {
   triggerKind: DevRunTriggerKind;
-  triggerPayload: Parameters<WorkflowsModuleClient['startDevRun']>[0]['triggerPayload'];
-  inputs: Record<string, unknown> | undefined;
   event: string;
   /** Replay-only: journal identity taken from the source event row. */
-  replaySource?:
-    | {
-        provider: string;
-        deliveryId: string;
-        connectionId: string | null;
-        connectionName: string | null;
-        payload: Record<string, unknown>;
-        replayOfEventId: string;
-      }
-    | undefined;
+  replaySource?: ReplaySource | undefined;
+}
+
+interface BuiltDevRunTrigger extends DevRunTriggerBase {
+  kind: 'run';
+  triggerPayload: Parameters<WorkflowsModuleClient['startDevRun']>[0]['triggerPayload'];
+  inputs: Record<string, unknown> | undefined;
   /** Replay-only: the connection the source event was received on. */
   triggerConnectionId?: string | undefined;
 }
 
+interface RefusedDevRunTrigger extends DevRunTriggerBase {
+  kind: 'refused';
+  reason: string;
+}
+
+type DevRunTriggerBuild = BuiltDevRunTrigger | RefusedDevRunTrigger;
+
 function buildDevRunTrigger(
   trigger: TriggerDto,
-  params: Pick<
-    CreateDevRunParams,
-    'inputs' | 'replayEventId' | 'triggerKey' | 'userId' | 'workspaceId'
-  >,
-  workflowId: string,
-): BuiltDevRunTrigger | Promise<BuiltDevRunTrigger> {
+  params: Pick<CreateDevRunParams, 'inputs' | 'replayEventId' | 'userId' | 'workspaceId'>,
+): DevRunTriggerBuild | Promise<DevRunTriggerBuild> {
   if (trigger.source === 'manual') {
+    if (params.replayEventId !== undefined) {
+      throw new DevRunReplayEventNotAllowedError(trigger.source);
+    }
     // Request inputs override the trigger's `with` block, as fire-manual does.
     return {
+      kind: 'run',
       triggerKind: 'manual',
       triggerPayload: {
         provider: 'manual',
@@ -171,24 +191,27 @@ function buildDevRunTrigger(
     };
   }
   if (trigger.source === 'cron') {
+    if (params.replayEventId !== undefined) {
+      throw new DevRunReplayEventNotAllowedError(trigger.source);
+    }
     if (params.inputs !== undefined) {
       throw new DevRunInputsNotAllowedError();
     }
     return {
+      kind: 'run',
       triggerKind: 'cron',
       triggerPayload: {provider: 'cron', source: 'cron', event: 'tick'},
       inputs: trigger.with,
       event: trigger.event ?? 'tick',
     };
   }
-  return buildReplayTrigger(trigger, params, workflowId);
+  return buildReplayTrigger(trigger, params);
 }
 
 async function buildReplayTrigger(
   trigger: TriggerDto,
-  params: Pick<CreateDevRunParams, 'inputs' | 'replayEventId' | 'triggerKey' | 'workspaceId'>,
-  workflowId: string,
-): Promise<BuiltDevRunTrigger> {
+  params: Pick<CreateDevRunParams, 'inputs' | 'replayEventId' | 'workspaceId'>,
+): Promise<DevRunTriggerBuild> {
   if (params.inputs !== undefined) {
     throw new DevRunInputsNotAllowedError();
   }
@@ -205,7 +228,7 @@ async function buildReplayTrigger(
   if (
     sourceEvent.origin !== 'integration' ||
     sourceEvent.source !== trigger.source ||
-    sourceEvent.event !== trigger.event
+    (trigger.event !== undefined && sourceEvent.event !== trigger.event)
   ) {
     throw new DevRunReplayEventMismatchError(params.replayEventId);
   }
@@ -220,10 +243,19 @@ async function buildReplayTrigger(
     throw new DevRunReplayEventUnavailableError(params.replayEventId);
   }
 
+  const replaySource = {
+    provider: sourceEvent.provider,
+    deliveryId: sourceEvent.deliveryId,
+    connectionId: sourceEvent.connectionId,
+    connectionName: sourceEvent.connectionName,
+    payload: sourceEvent.payload,
+    replayOfEventId: sourceEvent.id,
+  } satisfies ReplaySource;
+
   // Evaluate the trigger filter exactly as dispatch does: same predicate
   // context, same fail-closed semantics, no override. A false result or an
-  // evaluation error refuses the replay with the reason and is journaled as a
-  // `filter-error` dev decision so the events page shows why it did not run.
+  // evaluation error refuses the replay with the reason. The orchestrator
+  // records the refusal as a terminal dev journal entry.
   const filterResult = evaluateTriggerFilter({
     subscription: {config: {filter: trigger.filter}},
     source: sourceEvent.source,
@@ -233,26 +265,17 @@ async function buildReplayTrigger(
   if (filterResult.kind !== 'matched') {
     const reason =
       filterResult.kind === 'filtered' ? 'Trigger filter evaluated to false' : filterResult.reason;
-    const refusal = await beginTriggerHistory({
-      origin: 'dev',
-      workspaceId: params.workspaceId,
-      provider: sourceEvent.provider,
-      source: sourceEvent.source,
+    return {
+      kind: 'refused',
+      triggerKind: 'replay',
       event: sourceEvent.event,
-      replayOfEventId: sourceEvent.id,
-      deliveryId: sourceEvent.deliveryId,
-      connectionId: sourceEvent.connectionId,
-      connectionName: sourceEvent.connectionName,
-      payload: sourceEvent.payload,
-      receivedAt: new Date(),
-      eventRef: randomUUID(),
-    });
-    await refusal.devFilterErrored(params.triggerKey, workflowId, reason);
-    devRunsCount.add(1, {trigger_kind: 'replay', outcome: 'filtered'});
-    throw new DevRunTriggerFilteredError(reason);
+      replaySource,
+      reason,
+    };
   }
 
   return {
+    kind: 'run',
     triggerKind: 'replay',
     triggerPayload: {
       provider: sourceEvent.provider,
@@ -265,14 +288,7 @@ async function buildReplayTrigger(
     // subscription's `with` through for integration events.
     inputs: trigger.with,
     event: sourceEvent.event,
-    replaySource: {
-      provider: sourceEvent.provider,
-      deliveryId: sourceEvent.deliveryId,
-      connectionId: sourceEvent.connectionId,
-      connectionName: sourceEvent.connectionName,
-      payload: sourceEvent.payload,
-      replayOfEventId: sourceEvent.id,
-    },
+    replaySource,
     triggerConnectionId: sourceEvent.connectionId ?? undefined,
   };
 }

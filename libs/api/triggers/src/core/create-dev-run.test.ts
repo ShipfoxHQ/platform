@@ -11,6 +11,7 @@ import {receivedEventFactory} from '#test/index.js';
 import {
   DevRunInputsNotAllowedError,
   DevRunReplayEventMismatchError,
+  DevRunReplayEventNotAllowedError,
   DevRunReplayEventNotFoundError,
   DevRunReplayEventRequiredError,
   DevRunReplayEventUnavailableError,
@@ -257,6 +258,28 @@ describe('createDevRun', () => {
     expect(await eventsForWorkspace(params.workspaceId)).toHaveLength(0);
   });
 
+  test('refuses replay event ids for manual triggers', async () => {
+    const params = buildParams({replayEventId: crypto.randomUUID()});
+    resolveDefinitionAtRef.mockResolvedValue(resolvedDefinition(undefined));
+
+    await expect(createDevRun(params)).rejects.toThrow(DevRunReplayEventNotAllowedError);
+    expect(startDevRun).not.toHaveBeenCalled();
+    expect(await eventsForWorkspace(params.workspaceId)).toHaveLength(0);
+  });
+
+  test('refuses replay event ids for cron triggers', async () => {
+    const params = buildParams({
+      triggerKey: 'nightly',
+      triggers: {nightly: {source: 'cron', event: 'tick', with: {timeout: 600}}},
+      replayEventId: crypto.randomUUID(),
+    });
+    resolveDefinitionAtRef.mockResolvedValue(resolvedDefinition(params.triggers));
+
+    await expect(createDevRun(params)).rejects.toThrow(DevRunReplayEventNotAllowedError);
+    expect(startDevRun).not.toHaveBeenCalled();
+    expect(await eventsForWorkspace(params.workspaceId)).toHaveLength(0);
+  });
+
   test('refuses a missing trigger key', async () => {
     const params = buildParams({triggerKey: 'missing'});
     resolveDefinitionAtRef.mockResolvedValue(resolvedDefinition(undefined));
@@ -303,13 +326,12 @@ describe('createDevRun', () => {
     expect(await eventsForWorkspace(params.workspaceId)).toHaveLength(0);
   });
 
-  test('replays a journaled integration event with the row payload, connection, and replay link', async () => {
+  test('replays a journaled integration event for an event-less trigger', async () => {
     const params = buildParams({
       triggerKey: 'on_push',
       triggers: {
         on_push: {
           source: 'github',
-          event: 'push',
           filter: 'event.ref == "refs/heads/main"',
           with: {severity: 'high'},
         },
@@ -543,7 +565,9 @@ describe('createDevRun', () => {
       event: 'push',
       replayOfEventId: sourceEvent.id,
       payload: {ref: 'refs/heads/other'},
+      outcome: 'discarded',
     });
+    expect(event.processedAt).toBeInstanceOf(Date);
     expect(event.eventRef).toEqual(expect.stringMatching(SYNTHESIZED_EVENT_REF));
     const decisions = await decisionsForEvent(event.id);
     expect(decisions).toHaveLength(1);
@@ -592,7 +616,11 @@ describe('createDevRun', () => {
     expect(events).toHaveLength(1);
     const event = events[0];
     if (!event) throw new Error('received event not found');
-    expect(event.replayOfEventId).toBe(sourceEvent.id);
+    expect(event).toMatchObject({
+      replayOfEventId: sourceEvent.id,
+      outcome: 'discarded',
+    });
+    expect(event.processedAt).toBeInstanceOf(Date);
     const decisions = await decisionsForEvent(event.id);
     expect(decisions).toHaveLength(1);
     expect(decisions[0]).toMatchObject({
@@ -600,6 +628,79 @@ describe('createDevRun', () => {
       decision: 'filter-error',
       runId: null,
       reason: 'Trigger filter evaluation failed',
+    });
+  });
+
+  test.each([
+    ['permanent', 'errored'],
+    ['retryable', 'failed'],
+  ] as const)('journals replay provenance when startDevRun fails (%s)', async (failureKind, outcome) => {
+    const params = buildParams({
+      triggerKey: 'on_push',
+      triggers: {on_push: {source: 'github', event: 'push'}},
+    });
+    const connectionId = crypto.randomUUID();
+    const payload = {ref: 'refs/heads/main', repository: {full_name: 'shipfox/platform'}};
+    const sourceEvent = await receivedEventFactory.create({
+      workspaceId: params.workspaceId,
+      origin: 'integration',
+      provider: 'github',
+      source: 'github',
+      event: 'push',
+      deliveryId: 'delivery-replay-failure',
+      connectionId,
+      connectionName: 'Acme Production',
+      payload,
+    });
+    resolveDefinitionAtRef.mockResolvedValue(resolvedDefinition(params.triggers));
+    const failure =
+      failureKind === 'permanent'
+        ? createInterModuleKnownError(
+            workflowsInterModuleContract.methods.startDevRun,
+            'workspace-suspended',
+            {workspaceId: params.workspaceId},
+          )
+        : new Error('workflow transport unavailable');
+    startDevRun.mockRejectedValue(failure);
+
+    await expect(createDevRun({...params, replayEventId: sourceEvent.id})).rejects.toBe(failure);
+
+    const events = await devEventsForWorkspace(params.workspaceId);
+    expect(events).toHaveLength(1);
+    const event = events[0];
+    if (!event) throw new Error('received event not found');
+    expect(event).toMatchObject({
+      provider: 'github',
+      source: 'github',
+      event: 'push',
+      replayOfEventId: sourceEvent.id,
+      deliveryId: 'delivery-replay-failure',
+      connectionId,
+      connectionName: 'Acme Production',
+      payload,
+      outcome,
+      matchedCount: 1,
+    });
+    if (outcome === 'errored') {
+      expect(event.processedAt).toBeInstanceOf(Date);
+    } else {
+      expect(event.processedAt).toBeNull();
+    }
+    const decisions = await decisionsForEvent(event.id);
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0]).toMatchObject({
+      subscriptionKind: 'dev',
+      subscriptionName: 'on_push',
+      decision: 'dispatch-error',
+      runId: null,
+      runName: null,
+    });
+    expect(decisions[0]?.reason).toContain(
+      failureKind === 'permanent' ? 'workspace-suspended' : 'workflow transport unavailable',
+    );
+    expect(devRunsCount.add).toHaveBeenCalledWith(1, {
+      trigger_kind: 'replay',
+      outcome,
     });
   });
 
