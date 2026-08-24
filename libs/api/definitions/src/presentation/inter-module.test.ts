@@ -51,7 +51,7 @@ describe('definitions inter-module presentation', () => {
       workflow: {id: '00000000-0000-4000-8000-000000000002', configPath: CONFIG_PATH},
       commit: COMMIT,
       model: {
-        version: 2,
+        version: 3,
         model: {kind: 'workflow', name: 'CI', triggers: [], jobs: [], dependencies: []},
       },
       sourceSnapshot: {content: 'name: CI', format: 'yaml'},

@@ -12,11 +12,36 @@ interface AgentToolSelector {
   readonly sensitive: boolean;
 }
 
+interface AgentToolCatalogMethod {
+  readonly id: string;
+  readonly description: string;
+  readonly sensitivity: 'read' | 'write';
+  readonly sensitive: boolean;
+  readonly requiredScope: unknown;
+}
+
+interface AgentToolCatalogTool {
+  readonly id: string;
+  readonly description: string;
+  readonly sensitivity: 'read' | 'write';
+  readonly sensitive: boolean;
+  readonly requiredScope: unknown;
+  readonly inputSchema: Readonly<Record<string, unknown>>;
+  readonly outputSchema?: Readonly<Record<string, unknown>>;
+  readonly methods?: readonly AgentToolCatalogMethod[];
+}
+
+interface AgentToolCatalog {
+  readonly tools: readonly AgentToolCatalogTool[];
+}
+
 export interface IntegrationValidationContext {
   readonly agentToolSelectionCatalogs: ReadonlyMap<
     IntegrationProviderKind,
     AgentToolSelectionCatalog
   >;
+  /** Full tool catalogs, used to type tool-step inputs and outputs. */
+  readonly agentToolCatalogs: ReadonlyMap<IntegrationProviderKind, AgentToolCatalog>;
   readonly workspaceConnectionSnapshot: ReadonlyMap<
     string,
     {

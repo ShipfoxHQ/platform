@@ -76,6 +76,32 @@ const integrationValidationContext = {
       },
     ],
   ]),
+  agentToolCatalogs: new Map([
+    [
+      'github',
+      {
+        tools: [
+          {
+            id: 'issue_read',
+            description: 'Read issues',
+            sensitivity: 'read',
+            sensitive: false,
+            requiredScope: 'read',
+            inputSchema: {type: 'object', properties: {number: {type: 'integer'}}},
+            methods: [
+              {
+                id: 'get',
+                description: 'Get an issue',
+                sensitivity: 'read',
+                sensitive: false,
+                requiredScope: 'read',
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  ]),
   workspaceConnectionSnapshot: new Map([
     ['github-main', {id: 'connection-1', provider: 'github', capabilities: ['agent_tools']}],
     ['deploy-hook', {id: 'connection-2', provider: 'webhook', capabilities: []}],

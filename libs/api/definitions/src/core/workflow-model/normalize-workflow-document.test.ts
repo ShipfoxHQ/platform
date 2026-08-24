@@ -94,6 +94,173 @@ const integrationValidationContext = {
       },
     ],
   ]),
+  agentToolCatalogs: new Map([
+    [
+      'github',
+      {
+        tools: [
+          {
+            id: 'issue_read',
+            description: 'Read issues',
+            sensitivity: 'read',
+            sensitive: false,
+            requiredScope: 'read',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                owner: {type: 'string'},
+                repo: {type: 'string'},
+                number: {type: 'integer'},
+              },
+              required: ['owner', 'repo'],
+            },
+            methods: [
+              {
+                id: 'get',
+                description: 'Get an issue',
+                sensitivity: 'read',
+                sensitive: false,
+                requiredScope: 'read',
+              },
+              {
+                id: 'create',
+                description: 'Create an issue',
+                sensitivity: 'write',
+                sensitive: false,
+                requiredScope: 'write',
+              },
+            ],
+          },
+          {
+            id: 'issue_write',
+            description: 'Write issues',
+            sensitivity: 'write',
+            sensitive: false,
+            requiredScope: 'write',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                owner: {type: 'string'},
+                repo: {type: 'string'},
+                title: {type: 'string'},
+                labels: {type: 'array', items: {type: 'string'}},
+              },
+              required: ['owner', 'repo'],
+              additionalProperties: false,
+            },
+            methods: [
+              {
+                id: 'create',
+                description: 'Create an issue',
+                sensitivity: 'write',
+                sensitive: false,
+                requiredScope: 'write',
+              },
+            ],
+            outputSchema: {
+              type: 'object',
+              properties: {number: {type: 'integer'}},
+              required: ['number'],
+              additionalProperties: false,
+            },
+          },
+          {
+            id: 'list_issues',
+            description: 'List issues',
+            sensitivity: 'read',
+            sensitive: false,
+            requiredScope: 'read',
+            inputSchema: {
+              type: 'object',
+              properties: {limit: {type: 'integer'}},
+            },
+          },
+          {
+            id: 'merge_pull_request',
+            description: 'Merge a pull request',
+            sensitivity: 'write',
+            sensitive: true,
+            requiredScope: 'write',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                owner: {type: 'string'},
+                repo: {type: 'string'},
+                pull_number: {type: 'integer'},
+                merge_method: {type: 'string'},
+              },
+              required: ['owner', 'repo', 'pull_number'],
+            },
+          },
+        ],
+      },
+    ],
+    [
+      'linear',
+      {
+        tools: [
+          {
+            id: 'get_issue',
+            description: 'Get an issue',
+            sensitivity: 'read',
+            sensitive: false,
+            requiredScope: 'read',
+            inputSchema: {
+              type: 'object',
+              properties: {id: {type: 'string'}},
+              required: ['id'],
+            },
+            outputSchema: {
+              type: 'object',
+              properties: {
+                identifier: {type: 'string'},
+                description: {type: 'string'},
+                state: {type: 'string'},
+              },
+            },
+          },
+          {
+            id: 'save_comment',
+            description: 'Save a comment',
+            sensitivity: 'write',
+            sensitive: false,
+            requiredScope: 'write',
+            inputSchema: {
+              type: 'object',
+              properties: {issueId: {type: 'string'}, body: {type: 'string'}},
+              required: ['issueId', 'body'],
+            },
+          },
+        ],
+      },
+    ],
+    [
+      'jira',
+      {
+        tools: [
+          {
+            id: 'get_issue',
+            description: 'Get an issue',
+            sensitivity: 'read',
+            sensitive: false,
+            requiredScope: 'read',
+            inputSchema: {type: 'object', properties: {id: {type: 'string'}}},
+          },
+          {
+            id: 'add_comment',
+            description: 'Add a comment',
+            sensitivity: 'write',
+            sensitive: false,
+            requiredScope: 'write',
+            inputSchema: {
+              type: 'object',
+              properties: {id: {type: 'string'}, body: {type: 'string'}},
+            },
+          },
+        ],
+      },
+    ],
+  ]),
   workspaceConnectionSnapshot: new Map([
     ['github-main', {id: 'conn_1', provider: 'github', capabilities: ['agent_tools']}],
     ['sentry-main', {id: 'conn_2', provider: 'sentry', capabilities: []}],

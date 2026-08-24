@@ -53,6 +53,7 @@ import {normalizeJobSuccess} from './normalize-job-success.js';
 import {normalizeNeeds} from './normalize-needs.js';
 import {normalizeStepGate} from './normalize-step-gate.js';
 import {normalizeStepOutputs} from './normalize-step-outputs.js';
+import {normalizeToolStep} from './normalize-tool-step.js';
 import {parseDurationMs} from './parse-duration-ms.js';
 import {parseInterpolationField} from './parse-interpolation-field.js';
 import {stableId} from './stable-id.js';
@@ -188,6 +189,10 @@ function normalizeJob(params: {
   const stepTypeOverlay = params.job.steps.some((step) => step.outputs !== undefined)
     ? {}
     : undefined;
+  // Tool steps record a `steps.<key>` type overlay while they normalize, so
+  // later steps and the job outputs see `outputs.result` typed from the
+  // catalog output schema.
+  const toolOverlayByKey = new Map<string, WorkflowStepTypeOverlay>();
   const steps = normalizeJobSteps({
     sourceName: params.sourceName,
     jobId: id,
@@ -201,6 +206,7 @@ function normalizeJob(params: {
     typeOverlay: stepTypeOverlay,
     upstreamJobs,
     directNeedJobs,
+    toolOverlayByKey,
     context: params.context,
   });
   const runner = normalizeRunner({
@@ -243,6 +249,7 @@ function normalizeJob(params: {
     issues: params.issues,
     allowedJobReferences,
     steps: params.job.steps,
+    toolOverlayByKey,
     upstreamJobs,
   });
   if (outputs?.types !== undefined) {
@@ -334,17 +341,21 @@ function directNeedSourceNames(params: {
 function previousStepOverlays(
   steps: readonly WorkflowDocumentStep[],
   index: number,
+  toolOverlayByKey: ReadonlyMap<string, WorkflowStepTypeOverlay>,
 ): readonly WorkflowStepTypeOverlay[] {
   return steps.slice(0, index).flatMap((step) => {
     if (step.key === undefined) return [];
+    const toolOverlay = toolOverlayByKey.get(step.key);
+    if (toolOverlay !== undefined) return [toolOverlay];
     return [{key: step.key, ...(step.outputs === undefined ? {} : {outputs: step.outputs})}];
   });
 }
 
 function allStepOverlays(
   steps: readonly WorkflowDocumentStep[],
+  toolOverlayByKey: ReadonlyMap<string, WorkflowStepTypeOverlay>,
 ): readonly WorkflowStepTypeOverlay[] {
-  return previousStepOverlays(steps, steps.length);
+  return previousStepOverlays(steps, steps.length, toolOverlayByKey);
 }
 
 function upstreamJobTypeOverlays(params: {
@@ -374,6 +385,7 @@ function normalizeJobOutputs(params: {
   issues: WorkflowModelValidationIssue[];
   allowedJobReferences: ReadonlySet<string>;
   steps: readonly WorkflowDocumentStep[];
+  toolOverlayByKey: ReadonlyMap<string, WorkflowStepTypeOverlay>;
   upstreamJobs: readonly WorkflowJobTypeOverlay[];
 }):
   | {templates: WorkflowOutputTemplates; types: Readonly<Record<string, ExpressionType>>}
@@ -392,7 +404,9 @@ function normalizeJobOutputs(params: {
   const typeOverlay =
     hasStepOutputDeclarations || params.upstreamJobs.length > 0
       ? buildTypedRootsEnvironment({
-          ...(hasStepOutputDeclarations ? {steps: allStepOverlays(params.steps)} : {}),
+          ...(hasStepOutputDeclarations
+            ? {steps: allStepOverlays(params.steps, params.toolOverlayByKey)}
+            : {}),
           ...(params.upstreamJobs.length === 0 ? {} : {jobs: params.upstreamJobs}),
         })
       : undefined;
@@ -438,6 +452,7 @@ function normalizeJobSteps(params: {
   typeOverlay?: ExpressionTypeEnvironment | undefined;
   upstreamJobs: readonly WorkflowJobTypeOverlay[];
   directNeedJobs: readonly WorkflowJobTypeOverlay[];
+  toolOverlayByKey: Map<string, WorkflowStepTypeOverlay>;
   context: NormalizeContext;
 }): readonly WorkflowModelStep[] {
   const usedStepIds = new Map<string, number>();
@@ -459,6 +474,7 @@ function normalizeJobSteps(params: {
       typeOverlay: params.typeOverlay,
       upstreamJobs: params.upstreamJobs,
       directNeedJobs: params.directNeedJobs,
+      toolOverlayByKey: params.toolOverlayByKey,
       context: params.context,
     });
     return normalized === undefined ? [] : [normalized];
@@ -481,6 +497,7 @@ function normalizeStep(params: {
   typeOverlay?: ExpressionTypeEnvironment | undefined;
   upstreamJobs: readonly WorkflowJobTypeOverlay[];
   directNeedJobs: readonly WorkflowJobTypeOverlay[];
+  toolOverlayByKey: Map<string, WorkflowStepTypeOverlay>;
   context: NormalizeContext;
 }): WorkflowModelStep | undefined {
   const stepKey = params.step.key;
@@ -503,29 +520,67 @@ function normalizeStep(params: {
     params.usedStepIds.set(stepId, params.index);
   }
 
-  const outputs = normalizeStepOutputs({
-    step: params.step,
-    sourceName: params.sourceName,
-    stepIndex: params.index,
-    issues: params.issues,
-  });
+  const shouldBuildTypeOverlay = params.typeOverlay !== undefined || params.upstreamJobs.length > 0;
+  const previousStepsOverlay = !shouldBuildTypeOverlay
+    ? undefined
+    : buildTypedRootsEnvironment({
+        steps: previousStepOverlays(params.allSteps, params.index, params.toolOverlayByKey),
+        ...(params.upstreamJobs.length === 0 ? {} : {jobs: params.upstreamJobs}),
+      });
+  const sourceLocation = params.stepSourceLocations?.get(params.sourceName)?.get(params.index);
+  const stepBase = {
+    id: stepId,
+    ...(stepKey === undefined ? {} : {key: stepKey}),
+    ...(params.step.name === undefined ? {} : {name: params.step.name}),
+    ...(params.step.working_directory === undefined
+      ? {}
+      : {workingDirectory: params.step.working_directory}),
+    ...(sourceLocation === undefined ? {} : {sourceLocation}),
+  };
+  // Tool steps resolve their catalog-tied fields before the current-step
+  // overlay exists, because that overlay is derived from them.
+  const toolStepResult =
+    params.step.tool === undefined
+      ? undefined
+      : normalizeToolStep({
+          step: params.step,
+          stepBase,
+          sourceName: params.sourceName,
+          stepIndex: params.index,
+          name: normalizeStepName({...params, typeOverlay: previousStepsOverlay}),
+          issues: params.issues,
+          fillSite: params.fillSite,
+          allowedJobReferences: params.allowedJobReferences,
+          typeOverlay: previousStepsOverlay,
+          integrationValidationContext: params.context.integrationValidationContext,
+        });
+  const outputs =
+    toolStepResult === undefined
+      ? normalizeStepOutputs({
+          step: params.step,
+          sourceName: params.sourceName,
+          stepIndex: params.index,
+          issues: params.issues,
+        })
+      : undefined;
   const currentStepOverlay =
     stepKey === undefined
       ? undefined
-      : ({
-          key: stepKey,
-          ...(outputs === undefined ? {} : {outputs}),
-        } satisfies WorkflowStepTypeOverlay);
-  const shouldBuildTypeOverlay = params.typeOverlay !== undefined || params.upstreamJobs.length > 0;
+      : toolStepResult !== undefined
+        ? toolStepResult.overlay
+        : ({
+            key: stepKey,
+            ...(outputs === undefined ? {} : {outputs}),
+          } satisfies WorkflowStepTypeOverlay);
   const typeOverlay = !shouldBuildTypeOverlay
     ? undefined
     : buildTypedRootsEnvironment({
-        steps: previousStepOverlays(params.allSteps, params.index),
+        steps: previousStepOverlays(params.allSteps, params.index, params.toolOverlayByKey),
         ...(currentStepOverlay === undefined ? {} : {currentStep: currentStepOverlay}),
         ...(params.upstreamJobs.length === 0 ? {} : {jobs: params.upstreamJobs}),
       });
   const conditionTypeOverlay = buildTypedRootsEnvironment({
-    steps: previousStepOverlays(params.allSteps, params.index),
+    steps: previousStepOverlays(params.allSteps, params.index, params.toolOverlayByKey),
     ...(currentStepOverlay === undefined ? {} : {currentStep: currentStepOverlay}),
     jobs: params.directNeedJobs,
     needs: params.directNeedJobs,
@@ -554,20 +609,12 @@ function normalizeStep(params: {
     issues: params.issues,
     allowedJobReferences: params.allowedJobReferences,
     typeOverlay,
+    ...(toolStepResult === undefined ? {} : {stepKind: 'tool' as const}),
   });
-  const sourceLocation = params.stepSourceLocations?.get(params.sourceName)?.get(params.index);
   const name =
-    params.step.name === undefined
-      ? undefined
-      : parseInterpolationField({
-          field: 'step.name',
-          source: params.step.name,
-          path: ['jobs', params.sourceName, 'steps', params.index, 'name'],
-          issues: params.issues,
-          fillSite: params.fillSite,
-          allowedJobReferences: params.allowedJobReferences,
-          typeOverlay,
-        });
+    toolStepResult === undefined
+      ? normalizeStepName({...params, typeOverlay})
+      : (toolStepResult.step.templates?.name ?? undefined);
   const workingDirectory =
     params.step.working_directory === undefined
       ? undefined
@@ -580,23 +627,26 @@ function normalizeStep(params: {
           allowedJobReferences: params.allowedJobReferences,
           typeOverlay,
         });
-  const stepBase = {
-    id: stepId,
-    ...(stepKey === undefined ? {} : {key: stepKey}),
-    ...(params.step.name === undefined ? {} : {name: params.step.name}),
-    ...(params.step.working_directory === undefined
-      ? {}
-      : {workingDirectory: params.step.working_directory}),
+  const stepBaseWithOutputs = {
+    ...stepBase,
     ...(outputs === undefined ? {} : {outputs}),
-    ...(sourceLocation === undefined ? {} : {sourceLocation}),
     ...(condition === undefined ? {} : {if: condition}),
     ...(gate === undefined ? {} : {gate}),
   };
 
+  if (toolStepResult !== undefined) {
+    if (stepKey !== undefined) params.toolOverlayByKey.set(stepKey, toolStepResult.overlay);
+    return {
+      ...toolStepResult.step,
+      ...(condition === undefined ? {} : {if: condition}),
+      ...(gate === undefined ? {} : {gate}),
+    };
+  }
+
   if (params.step.run !== undefined) {
     return normalizeRunStep({
       step: params.step,
-      stepBase,
+      stepBase: stepBaseWithOutputs,
       sourceName: params.sourceName,
       stepIndex: params.index,
       workflowEnvKeys: params.workflowEnvKeys,
@@ -613,7 +663,7 @@ function normalizeStep(params: {
   if (params.step.prompt !== undefined) {
     return normalizeAgentStep({
       step: params.step,
-      stepBase,
+      stepBase: stepBaseWithOutputs,
       sourceName: params.sourceName,
       stepIndex: params.index,
       name,
@@ -629,7 +679,7 @@ function normalizeStep(params: {
   if (params.step.checkout !== undefined) {
     return normalizeCheckoutStep({
       step: params.step,
-      stepBase,
+      stepBase: stepBaseWithOutputs,
       name,
       sourceName: params.sourceName,
       stepIndex: params.index,
@@ -641,7 +691,29 @@ function normalizeStep(params: {
   }
 
   // Keep the model-step union honest if callers bypass the document parser.
-  throw new Error(`Workflow step "${stepId}" is neither a run, agent, nor checkout step`);
+  throw new Error(`Workflow step "${stepId}" is neither a run, agent, tool, nor checkout step`);
+}
+
+function normalizeStepName(params: {
+  step: WorkflowDocumentStep;
+  index: number;
+  sourceName: string;
+  issues: WorkflowModelValidationIssue[];
+  fillSite: AvailabilitySite;
+  allowedJobReferences: ReadonlySet<string>;
+  typeOverlay?: ExpressionTypeEnvironment | undefined;
+}): WorkflowFieldTemplate | undefined {
+  if (params.step.name === undefined) return undefined;
+
+  return parseInterpolationField({
+    field: 'step.name',
+    source: params.step.name,
+    path: ['jobs', params.sourceName, 'steps', params.index, 'name'],
+    issues: params.issues,
+    fillSite: params.fillSite,
+    allowedJobReferences: params.allowedJobReferences,
+    typeOverlay: params.typeOverlay,
+  });
 }
 
 function normalizeCheckoutStep(params: {
@@ -1246,7 +1318,7 @@ function validateRunnerLabels(params: {
   }
 }
 
-type WorkflowModelStepBaseFields = Pick<
+export type WorkflowModelStepBaseFields = Pick<
   WorkflowModelStep,
   'id' | 'key' | 'name' | 'workingDirectory' | 'outputs' | 'sourceLocation' | 'gate'
 >;

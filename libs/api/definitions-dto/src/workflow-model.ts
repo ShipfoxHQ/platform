@@ -60,6 +60,25 @@ export type WorkflowFieldTemplate = readonly ResolvedFieldSegment[];
 export type WorkflowEnvTemplates = Readonly<Record<string, WorkflowFieldTemplate>>;
 export type WorkflowOutputTemplates = Readonly<Record<string, WorkflowFieldTemplate>>;
 
+/** A JSON-compatible value tree, the shape of a tool step's `with` payload. */
+export type WorkflowJsonValue =
+  | null
+  | boolean
+  | number
+  | string
+  | readonly WorkflowJsonValue[]
+  | {readonly [key: string]: WorkflowJsonValue};
+
+/**
+ * A mirror of the `with` tree where every interpolated string leaf is replaced
+ * by its parsed template. Leaves without a template stay `undefined`, so the
+ * tree keeps the authored structure for later resolution.
+ */
+export type WorkflowJsonTemplateTree =
+  | WorkflowFieldTemplate
+  | readonly (WorkflowJsonTemplateTree | undefined)[]
+  | {readonly [key: string]: WorkflowJsonTemplateTree | undefined};
+
 export interface WorkflowModel {
   readonly kind: 'workflow';
   readonly name: string;
@@ -124,7 +143,8 @@ export interface WorkflowModelListeningBatch {
 export type WorkflowModelStep =
   | WorkflowModelRunStep
   | WorkflowModelAgentStep
-  | WorkflowModelCheckoutStep;
+  | WorkflowModelCheckoutStep
+  | WorkflowModelToolStep;
 interface WorkflowModelStepBase {
   readonly id: string;
   readonly key?: string;
@@ -171,6 +191,19 @@ export interface WorkflowModelCheckoutStep extends WorkflowModelStepBase {
   readonly checkout: WorkflowModelStepCheckout;
   readonly templates?: {
     readonly workingDirectory?: WorkflowFieldTemplate;
+    readonly name?: WorkflowFieldTemplate;
+  };
+}
+export interface WorkflowModelToolStep extends WorkflowModelStepBase {
+  readonly kind: 'tool';
+  /** `id` is the standalone tool id; `method` is set when the author named `family.method`. */
+  readonly tool: {readonly id: string; readonly method?: string};
+  readonly connection?: string;
+  readonly with?: WorkflowJsonValue;
+  /** Authored output mappings: each value is a single expression over `result` and `vars`. */
+  readonly outputMappings?: Readonly<Record<string, WorkflowExpression>>;
+  readonly templates?: {
+    readonly with?: WorkflowJsonTemplateTree;
     readonly name?: WorkflowFieldTemplate;
   };
 }
@@ -221,18 +254,18 @@ const workflowModelSchema = z.custom<WorkflowModel>(
 );
 
 export const workflowModelSnapshotSchema = z.object({
-  version: z.literal(2),
+  version: z.literal(3),
   model: workflowModelSchema,
 });
 export type WorkflowModelSnapshot = z.infer<typeof workflowModelSnapshotSchema>;
 
 export function createWorkflowModelSnapshot(model: WorkflowModel): WorkflowModelSnapshot {
-  return {version: 2, model};
+  return {version: 3, model};
 }
 
 export function workflowModelFromSnapshot(snapshot: WorkflowModelSnapshot): WorkflowModel {
   switch (snapshot.version) {
-    case 2:
+    case 3:
       return snapshot.model;
   }
 }

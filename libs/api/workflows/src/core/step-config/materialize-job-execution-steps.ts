@@ -168,6 +168,8 @@ function stepDisplayName(step: WorkflowModelStep): string {
         : `${step.model} · ${firstLine(step.prompt)}`;
     case 'checkout':
       return 'Checkout';
+    case 'tool':
+      return step.tool.method === undefined ? step.tool.id : `${step.tool.id}.${step.tool.method}`;
     default:
       return assertNever(step);
   }

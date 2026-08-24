@@ -6,7 +6,7 @@ const WORKFLOW_ID = '00000000-0000-4000-8000-000000000002';
 const REF = 'refs/heads/main';
 const CONFIG_PATH = '.shipfox/workflows/ci.yml';
 const COMMIT = 'a1b2c3d4e5f6a7b8c9d0a1b2c3d4e5f6a7b8c9d0';
-const MODEL = {version: 2 as const, model: {kind: 'workflow'}};
+const MODEL = {version: 3 as const, model: {kind: 'workflow'}};
 
 describe('definitionsInterModuleContract', () => {
   test('exposes a versioned workflow snapshot', () => {
@@ -16,12 +16,12 @@ describe('definitionsInterModuleContract', () => {
         workflowId: '00000000-0000-4000-8000-000000000003',
         projectId: '00000000-0000-4000-8000-000000000002',
         name: 'Deploy',
-        model: {version: 2, model: {kind: 'workflow'}},
+        model: {version: 3, model: {kind: 'workflow'}},
         sourceSnapshot: null,
       },
     });
 
-    expect(result.definition?.model.version).toBe(2);
+    expect(result.definition?.model.version).toBe(3);
     expect(result.definition?.workflowId).toBe('00000000-0000-4000-8000-000000000003');
   });
 
