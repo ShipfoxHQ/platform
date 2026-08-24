@@ -93,6 +93,20 @@ describe('definitionsAtRefQueryOptions', () => {
     expect(ready.queryKey).toEqual(definitionsAtRefQueryKeys.atRef(PROJECT_ID, REF));
     expect(ready.staleTime).toBeUndefined();
   });
+
+  test('retries transient failures with the default budget but skips ref verdicts', () => {
+    const options = definitionsAtRefQueryOptions(PROJECT_ID, REF);
+    const retry = options.retry as (failureCount: number, error: unknown) => boolean;
+
+    // Server verdicts can never succeed on retry and surface immediately.
+    expect(retry(0, apiError('ref-invalid', 400))).toBe(false);
+    expect(retry(0, apiError('ref-not-found', 404))).toBe(false);
+    // Transient server and network errors keep the default retry budget.
+    expect(retry(0, apiError('source-unavailable', 502))).toBe(true);
+    expect(retry(2, apiError('source-unavailable', 502))).toBe(true);
+    expect(retry(3, apiError('source-unavailable', 502))).toBe(false);
+    expect(retry(0, new Error('network down'))).toBe(true);
+  });
 });
 
 function apiError(code: string, status: number, details: unknown = {}) {

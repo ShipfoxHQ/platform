@@ -163,10 +163,13 @@ export function RunFromBranchDialog({
   // match it are selectable (the replay entry point).
   function triggerIsSelectable(trigger: DefinitionAtRefTrigger): boolean {
     if (!fixedEvent) return runFromBranchTriggerKind(trigger.source) !== 'integration';
-    return (
-      trigger.source === fixedEvent.source &&
-      (trigger.event ?? runFromBranchTriggerDefaultEvent(trigger.source)) === fixedEvent.event
-    );
+    if (trigger.source !== fixedEvent.source) return false;
+    if (trigger.event !== undefined) return trigger.event === fixedEvent.event;
+    // A trigger without an explicit event matches any event from its source:
+    // an integration trigger replays a journaled event (a wildcard), while
+    // built-in sources fall back to their dispatch event.
+    if (runFromBranchTriggerKind(trigger.source) === 'integration') return true;
+    return runFromBranchTriggerDefaultEvent(trigger.source) === fixedEvent.event;
   }
 
   // Cron triggers take no inputs, so the inputs step exists only for manual
@@ -731,6 +734,10 @@ function RunFromBranchStepIndicator({
   steps: readonly RunFromBranchStepDef[];
   currentIndex: number;
 }) {
+  // When the selected trigger disappears mid-flow the current step can fall
+  // outside the visible steps (index -1); clamp the live status so it never
+  // announces "Step 0 of N".
+  const clampedIndex = Math.min(Math.max(currentIndex, 0), steps.length - 1);
   return (
     <ol
       className="flex w-full flex-wrap items-center gap-inline"
@@ -773,8 +780,7 @@ function RunFromBranchStepIndicator({
         );
       })}
       <li className="sr-only" aria-live="polite">
-        Step {Math.min(currentIndex + 1, steps.length)} of {steps.length}:{' '}
-        {steps[currentIndex]?.label ?? ''}
+        Step {clampedIndex + 1} of {steps.length}: {steps[clampedIndex]?.label ?? ''}
       </li>
     </ol>
   );

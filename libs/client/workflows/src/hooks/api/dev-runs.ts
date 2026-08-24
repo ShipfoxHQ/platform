@@ -169,8 +169,11 @@ function refreshCachedAtRefListing(
     return Promise.resolve({listing: undefined, refreshFailed: false});
   }
 
+  // The pre-POST refresh is a fast internal preflight: fail it immediately on
+  // transient errors instead of burning the picker's retry budget while the
+  // user waits on the submit spinner. The ref-moved path re-lists separately.
   return queryClient
-    .fetchQuery(definitionsAtRefQueryOptions(projectId, ref))
+    .fetchQuery({...definitionsAtRefQueryOptions(projectId, ref), retry: false})
     .then((listing) => ({listing, refreshFailed: false}))
     .catch(() => ({listing: undefined, refreshFailed: true}));
 }

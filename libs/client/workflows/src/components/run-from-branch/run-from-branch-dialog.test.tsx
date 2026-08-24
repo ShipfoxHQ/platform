@@ -16,6 +16,8 @@ const NIGHTLY_TRIGGER_NAME = /nightly/;
 const SENTRY_TRIGGER_NAME = /sentry_issue/;
 const CONFIRM_AGAIN_TEXT = /confirm the new commit and try again/i;
 const DUPLICATE_KEY_ERROR = /Duplicate input key/;
+const STEP_ONE_OF_THREE_STATUS = /Step 1 of 3: Ref/;
+const WILDCARD_EVENT_DISPLAY = /Event any/;
 
 function jsonResponse(body: unknown, init: ResponseInit = {}) {
   return new Response(JSON.stringify(body), {
@@ -125,7 +127,17 @@ function renderDialog(
     fixedEvent?: {id: string; source: string; event: string};
   } = {},
 ) {
-  const queryClient = new QueryClient({defaultOptions: {queries: {retry: false}}});
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+        // The picker query overrides `retry` to keep the default budget for
+        // transient errors; retry instantly so tests assert the resulting
+        // UI, not the backoff timing.
+        retryDelay: 0,
+      },
+    },
+  });
   configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
 
   const result = render(
@@ -584,6 +596,9 @@ describe('RunFromBranchDialog', () => {
     // primary action is disabled.
     await screen.findByText('The selected trigger is no longer available at this ref.');
     expect(screen.getByRole('button', {name: 'Start run'})).toBeDisabled();
+    // The step indicator stays valid: the current step is gone from the
+    // visible steps, but the live status must not announce "Step 0 of 3".
+    expect(screen.getByText(STEP_ONE_OF_THREE_STATUS)).toBeInTheDocument();
   });
 
   test('flags duplicate input keys and disables Start run', async () => {
@@ -677,6 +692,53 @@ describe('RunFromBranchDialog', () => {
       replay_event_id: 'journaled-event-1',
     });
     expect(getDevRunBodies()[0]?.inputs).toBeUndefined();
+  });
+
+  test('with a fixed event an integration trigger that omits its event is a wildcard match', async () => {
+    const {fetchImpl, getDevRunBodies} = createFetch({
+      listing: jsonResponse(
+        atRefListingDto({
+          files: [
+            {
+              config_path: '.shipfox/workflows/triage-sentry.yml',
+              name: 'Triage Sentry',
+              valid: true,
+              errors: [],
+              warnings: [],
+              triggers: {
+                sentry_issue: {source: 'github_acme'},
+              },
+            },
+          ],
+        }),
+      ),
+    });
+    const onRunCreated = vi.fn();
+    renderDialog(fetchImpl, {
+      onRunCreated,
+      fixedEvent: {id: 'journaled-event-1', source: 'github_acme', event: 'issue.created'},
+    });
+
+    resolveRefToFileStep();
+    await screen.findByText('Resolved');
+    fireEvent.click(screen.getByRole('button', {name: 'Next'}));
+    selectFile('Triage Sentry');
+    fireEvent.click(screen.getByRole('button', {name: 'Next'}));
+
+    // The trigger declares no event, so it matches any event from its source
+    // instead of being rejected against the 'any' display fallback.
+    expect(await screen.findByRole('radio', {name: SENTRY_TRIGGER_NAME})).toBeEnabled();
+    expect(screen.getByText(WILDCARD_EVENT_DISPLAY)).toBeInTheDocument();
+
+    selectTrigger('sentry_issue');
+    expect(screen.getByRole('button', {name: 'Start run'})).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', {name: 'Start run'}));
+
+    await waitFor(() => expect(onRunCreated).toHaveBeenCalledWith(RUN_ID));
+    expect(getDevRunBodies()[0]).toMatchObject({
+      trigger: 'sentry_issue',
+      replay_event_id: 'journaled-event-1',
+    });
   });
 
   test('shows submit errors on the step and stays open', async () => {
