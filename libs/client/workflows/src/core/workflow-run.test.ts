@@ -13,6 +13,7 @@ import {
   workflowRunDetailDto,
   workflowRunDto,
   workflowRunJobSummaryDto,
+  workflowRunListItem,
   workflowRunListResponseDto,
   workflowStepAttemptDto,
   workflowStepDto,
@@ -20,6 +21,10 @@ import {
 import {
   isWorkflowRunTerminal,
   isWorkflowStatus,
+  workflowRunBranchLabel,
+  workflowRunCommitLabel,
+  workflowRunDevSourceLabel,
+  workflowRunInitiatorLabel,
   workflowRunTriggerDisplayLabel,
   workflowRunTriggerLabel,
 } from './workflow-run.js';
@@ -95,6 +100,39 @@ describe('workflow run model mapping', () => {
       sourceSnapshot: null,
       isTemporary: true,
     });
+  });
+
+  test('maps a dev run DTO into origin and dev source provenance', () => {
+    const dto = workflowRunDto({
+      origin: 'dev',
+      dev_source: {
+        ref: 'fix-triage-prompt',
+        commit: 'abcdef1234567890abcdef1234567890abcdef12',
+        config_path: '.shipfox/workflows/triage-sentry.yml',
+        initiated_by_user_id: '99999999-9999-4999-8999-999999999999',
+        replay_of_event_id: null,
+      },
+    });
+
+    const run = toWorkflowRun(dto);
+
+    expect(run.origin).toBe('dev');
+    expect(run.devSource).toEqual({
+      ref: 'fix-triage-prompt',
+      commit: 'abcdef1234567890abcdef1234567890abcdef12',
+      configPath: '.shipfox/workflows/triage-sentry.yml',
+      initiatedByUserId: '99999999-9999-4999-8999-999999999999',
+      replayOfEventId: null,
+    });
+  });
+
+  test('defaults origin and dev source on pre-rollout API responses', () => {
+    const {origin: _origin, dev_source: _devSource, ...legacyDto} = workflowRunDto();
+
+    const run = toWorkflowRun(legacyDto as unknown as Parameters<typeof toWorkflowRun>[0]);
+
+    expect(run.origin).toBe('synced');
+    expect(run.devSource).toBeNull();
   });
 
   test('maps run list projection fields from the current attempt mirror', () => {
@@ -668,5 +706,134 @@ describe('workflow run helpers', () => {
     expect(isWorkflowRunTerminal('running')).toBe(false);
     expect(isWorkflowStatus('pending')).toBe(true);
     expect(isWorkflowStatus('timed_out')).toBe(false);
+  });
+
+  test('branch and commit labels fall back to the dev source without a trigger reference', () => {
+    const devRun = workflowRunListItem({
+      origin: 'dev',
+      dev_source: {
+        ref: 'fix-triage-prompt',
+        commit: 'abcdef1234567890abcdef1234567890abcdef12',
+        config_path: '.shipfox/workflows/triage-sentry.yml',
+        initiated_by_user_id: '99999999-9999-4999-8999-999999999999',
+        replay_of_event_id: null,
+      },
+    });
+
+    expect(workflowRunBranchLabel(devRun)).toBe('fix-triage-prompt');
+    expect(workflowRunCommitLabel(devRun)).toBe('abcdef1');
+  });
+
+  test('branch and commit labels prefer the trigger reference on a dev replay run', () => {
+    const replayedDevRun = workflowRunListItem({
+      origin: 'dev',
+      trigger_reference: {
+        repository: 'acme/api',
+        ref: 'refs/heads/main',
+        commit: '0123456789abcdef0123456789abcdef01234567',
+        actor: 'octocat',
+      },
+      dev_source: {
+        ref: 'fix-triage-prompt',
+        commit: 'abcdef1234567890abcdef1234567890abcdef12',
+        config_path: '.shipfox/workflows/triage-sentry.yml',
+        initiated_by_user_id: '99999999-9999-4999-8999-999999999999',
+        replay_of_event_id: '88888888-8888-4888-8888-888888888888',
+      },
+    });
+
+    expect(workflowRunBranchLabel(replayedDevRun)).toBe('main');
+    expect(workflowRunCommitLabel(replayedDevRun)).toBe('0123456');
+  });
+
+  test('falls back to dev provenance when the trigger reference is partial', () => {
+    const devRun = workflowRunListItem({
+      origin: 'dev',
+      trigger_reference: {
+        repository: 'acme/api',
+        ref: 'refs/heads/incomplete',
+        commit: null,
+        actor: 'octocat',
+      },
+      dev_source: {
+        ref: 'fix-triage-prompt',
+        commit: 'abcdef1234567890abcdef1234567890abcdef12',
+        config_path: '.shipfox/workflows/triage-sentry.yml',
+        initiated_by_user_id: '99999999-9999-4999-8999-999999999999',
+        replay_of_event_id: null,
+      },
+    });
+
+    expect(workflowRunBranchLabel(devRun)).toBe('fix-triage-prompt');
+    expect(workflowRunCommitLabel(devRun)).toBe('abcdef1');
+    expect(workflowRunDevSourceLabel(devRun)).toBe('fix-triage-prompt @ abcdef1');
+  });
+
+  test('keeps a partial trigger ref for synced runs without a dev source', () => {
+    const syncedRun = workflowRunListItem({
+      origin: 'synced',
+      trigger_reference: {
+        repository: 'acme/api',
+        ref: 'refs/heads/main',
+        commit: null,
+        actor: 'octocat',
+      },
+    });
+
+    expect(workflowRunBranchLabel(syncedRun)).toBe('main');
+    expect(workflowRunCommitLabel(syncedRun)).toBeNull();
+  });
+
+  test('formats the dev source as the same resolved ref @ commit shown in the list', () => {
+    const devRun = workflowRunListItem({
+      origin: 'dev',
+      dev_source: {
+        ref: 'fix-triage-prompt',
+        commit: 'abcdef1234567890abcdef1234567890abcdef12',
+        config_path: '.shipfox/workflows/triage-sentry.yml',
+        initiated_by_user_id: '99999999-9999-4999-8999-999999999999',
+        replay_of_event_id: null,
+      },
+    });
+
+    expect(workflowRunDevSourceLabel(devRun)).toBe('fix-triage-prompt @ abcdef1');
+
+    const replayedDevRun = workflowRunListItem({
+      origin: 'dev',
+      trigger_reference: {
+        repository: 'acme/api',
+        ref: 'refs/tags/v2.14.0',
+        commit: '0123456789abcdef0123456789abcdef01234567',
+        actor: 'octocat',
+      },
+      dev_source: {
+        ref: 'fix-triage-prompt',
+        commit: 'abcdef1234567890abcdef1234567890abcdef12',
+        config_path: '.shipfox/workflows/triage-sentry.yml',
+        initiated_by_user_id: '99999999-9999-4999-8999-999999999999',
+        replay_of_event_id: '88888888-8888-4888-8888-888888888888',
+      },
+    });
+
+    expect(workflowRunDevSourceLabel(replayedDevRun)).toBe('v2.14.0 @ 0123456');
+    expect(workflowRunDevSourceLabel(workflowRunListItem())).toBeNull();
+  });
+
+  test('names the initiating member, shortening the id of anyone else', () => {
+    const devRun = workflowRunListItem({
+      origin: 'dev',
+      dev_source: {
+        ref: 'fix-triage-prompt',
+        commit: 'abcdef1234567890abcdef1234567890abcdef12',
+        config_path: '.shipfox/workflows/triage-sentry.yml',
+        initiated_by_user_id: '99999999-9999-4999-8999-999999999999',
+        replay_of_event_id: null,
+      },
+    });
+    const currentUserId = '99999999-9999-4999-8999-999999999999';
+
+    expect(workflowRunInitiatorLabel(devRun, currentUserId)).toBe('You');
+    expect(workflowRunInitiatorLabel(devRun, undefined)).toBe('99999999');
+    expect(workflowRunInitiatorLabel(workflowRunListItem(), currentUserId)).toBeNull();
   });
 });

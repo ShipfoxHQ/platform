@@ -62,6 +62,28 @@ describe('runMatchesSearch', () => {
     expect(runMatchesSearch(run, 'abcdef1')).toBe(true);
   });
 
+  test('matches a dev replay by the dev source ref and commit', () => {
+    const run = workflowRunListItem({
+      origin: 'dev',
+      trigger_reference: {
+        repository: 'acme/api',
+        ref: 'refs/heads/main',
+        commit: '0123456789abcdef',
+        actor: 'octocat',
+      },
+      dev_source: {
+        ref: 'fix-triage-prompt',
+        commit: 'abcdef1234567890abcdef1234567890abcdef12',
+        config_path: '.shipfox/workflows/triage-sentry.yml',
+        initiated_by_user_id: '99999999-9999-4999-8999-999999999999',
+        replay_of_event_id: '88888888-8888-4888-8888-888888888888',
+      },
+    });
+
+    expect(runMatchesSearch(run, 'fix-triage-prompt')).toBe(true);
+    expect(runMatchesSearch(run, 'abcdef1')).toBe(true);
+  });
+
   test('reports no match for an unrelated query', () => {
     expect(runMatchesSearch(workflowRunListItem(), 'no-such-run')).toBe(false);
   });
@@ -126,6 +148,40 @@ describe('runMatchesFilters', () => {
 
     expect(runMatchesFilters(withoutReference, {branch: ['main']})).toBe(false);
     expect(runMatchesFilters(withoutReference, {actor: ['octocat']})).toBe(false);
+  });
+
+  test('accepts a dev run under the dev origin and rejects it under synced', () => {
+    const devRun = workflowRunListItem({
+      origin: 'dev',
+      dev_source: {
+        ref: 'fix-triage-prompt',
+        commit: 'abcdef1234567890abcdef1234567890abcdef12',
+        config_path: '.shipfox/workflows/triage-sentry.yml',
+        initiated_by_user_id: '99999999-9999-4999-8999-999999999999',
+        replay_of_event_id: null,
+      },
+    });
+
+    expect(runMatchesFilters(devRun, {origin: 'dev'})).toBe(true);
+    expect(runMatchesFilters(devRun, {origin: 'synced'})).toBe(false);
+    expect(runMatchesFilters(run, {origin: 'synced'})).toBe(true);
+    expect(runMatchesFilters(run, {origin: 'dev'})).toBe(false);
+  });
+
+  test('finds the dev branch and commit through the search box', () => {
+    const devRun = workflowRunListItem({
+      origin: 'dev',
+      dev_source: {
+        ref: 'fix-triage-prompt',
+        commit: 'abcdef1234567890abcdef1234567890abcdef12',
+        config_path: '.shipfox/workflows/triage-sentry.yml',
+        initiated_by_user_id: '99999999-9999-4999-8999-999999999999',
+        replay_of_event_id: null,
+      },
+    });
+
+    expect(runMatchesSearch(devRun, 'fix-triage')).toBe(true);
+    expect(runMatchesSearch(devRun, 'abcdef1')).toBe(true);
   });
 
   test('treats both date bounds as inclusive', () => {

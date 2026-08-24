@@ -72,11 +72,18 @@ const withAttemptApi: Decorator = (Story) => {
     path: '/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId',
     component: () => <Story />,
   });
+  // The dev replay summary links back to the event detail; the target route has to exist
+  // for the link to render.
+  const eventsRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/w/$workspaceSlug/settings/events',
+    component: () => null,
+  });
   const router = createRouter({
     history: createMemoryHistory({
       initialEntries: [`/w/acme/p/project/runs/${CURRENT_RUN_ID}`],
     }),
-    routeTree: rootRoute.addChildren([runRoute]),
+    routeTree: rootRoute.addChildren([runRoute, eventsRoute]),
   });
 
   return (
@@ -355,6 +362,54 @@ export const MissingTriggerMetadata: Story = {
       trigger_source: '',
       trigger_event: '',
     }),
+  },
+};
+
+const DEV_SOURCE = {
+  ref: 'fix-triage-prompt',
+  commit: 'abcdef1234567890abcdef1234567890abcdef12',
+  config_path: '.shipfox/workflows/triage-sentry.yml',
+  initiated_by_user_id: '99999999-9999-4999-8999-999999999999',
+  replay_of_event_id: null,
+};
+
+/** A dev run started from a branch: badge, ref @ commit, and the member who started it. */
+export const DevManualRun: Story = {
+  args: {
+    run: workflowRunDetail({
+      status: 'succeeded',
+      name: 'triage-sentry',
+      origin: 'dev',
+      trigger_reference: null,
+      dev_source: DEV_SOURCE,
+    }),
+  },
+};
+
+/** A dev run replaying a journaled event: the replay link joins the dev provenance. */
+export const DevReplayRun: Story = {
+  decorators: [withAttemptApi],
+  args: {
+    run: workflowRunDetail({
+      status: 'succeeded',
+      name: 'triage-sentry',
+      origin: 'dev',
+      trigger_provider: 'github',
+      trigger_source: 'github_acme',
+      trigger_event: 'push',
+      trigger_reference: {
+        repository: 'acme/api',
+        ref: 'refs/heads/main',
+        commit: '0123456789abcdef0123456789abcdef01234567',
+        actor: 'octocat',
+      },
+      dev_source: {
+        ...DEV_SOURCE,
+        replay_of_event_id: '88888888-8888-4888-8888-888888888888',
+      },
+    }),
+    workspaceSlug: 'acme',
+    projectSlug: 'project',
   },
 };
 

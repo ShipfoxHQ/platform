@@ -51,6 +51,39 @@ function makeRun(
   });
 }
 
+function makeDevRun(
+  status: WorkflowRunStatus,
+  name: string,
+  minutesAgo: number,
+  {
+    ref,
+    commit,
+    replayOfEventId = null,
+    triggerReference = null,
+    jobs = [],
+  }: {
+    ref: string;
+    commit: string;
+    replayOfEventId?: string | null;
+    triggerReference?: WorkflowRunListItem['triggerReference'];
+    jobs?: JobStatusDto[];
+  },
+): WorkflowRunListItem {
+  return sequencedWorkflowRunListItem(status, name, minutesAgo, {
+    workflow_name: name,
+    origin: 'dev',
+    trigger_reference: triggerReference,
+    dev_source: {
+      ref,
+      commit,
+      config_path: '.shipfox/workflows/triage-sentry.yml',
+      initiated_by_user_id: '99999999-9999-4999-8999-999999999999',
+      replay_of_event_id: replayOfEventId,
+    },
+    ...workflowRunJobsFixture(jobs),
+  });
+}
+
 const SAMPLE_RUNS: WorkflowRunListItem[] = [
   makeRun('running', 'deploy-web', 1, {
     ref: 'refs/pull/482/head',
@@ -100,6 +133,33 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Playground: Story = {};
+
+/** Dev runs carry the Dev badge and fall back to their dev ref and commit for provenance. */
+export const DevRuns: Story = {
+  args: {
+    runs: [
+      makeDevRun('running', 'triage-sentry', 3, {
+        ref: 'fix-triage-prompt',
+        commit: 'abcdef1234567890abcdef1234567890abcdef12',
+      }),
+      makeDevRun('succeeded', 'triage-sentry', 22, {
+        ref: 'fix-triage-prompt',
+        commit: 'abcdef1234567890abcdef1234567890abcdef12',
+        replayOfEventId: '88888888-8888-4888-8888-888888888888',
+        triggerReference: {
+          repository: 'acme/checkout-api',
+          ref: 'refs/heads/main',
+          commit: '0123456789abcdef0123456789abcdef01234567',
+          actor: 'octocat',
+        },
+      }),
+      makeDevRun('failed', 'triage-sentry', 45, {
+        ref: 'refs/tags/v2.14.0',
+        commit: '0123456789abcdef0123456789abcdef01234567',
+      }),
+    ],
+  },
+};
 
 export const ExecutionStates: Story = {
   args: {

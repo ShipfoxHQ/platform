@@ -147,6 +147,8 @@ describe('the run list URL contract', () => {
   test.each([
     ['search', {search: 'deploy-web'}],
     ['status', {status: ['failed' as const, 'running' as const]}],
+    ['origin', {origin: 'dev' as const}],
+    ['origin synced', {origin: 'synced' as const}],
     ['branch', {branch: ['main', 'release/v2']}],
     ['actor', {actor: ['octocat', 'hubot']}],
     ['event', {event: ['push', 'pull_request']}],
@@ -159,6 +161,7 @@ describe('the run list URL contract', () => {
     const search: WorkflowRunsSearch = {
       search: 'deploy',
       status: ['failed', 'cancelled'],
+      origin: 'dev',
       branch: ['main'],
       actor: ['octocat'],
       event: ['push'],
@@ -170,6 +173,10 @@ describe('the run list URL contract', () => {
     };
 
     expect(roundTrip(search)).toEqual(search);
+  });
+
+  test('drops an origin outside the vocabulary instead of rejecting the URL', () => {
+    expect(validateWorkflowRunsSearch({origin: 'staging'})).toEqual({});
   });
 
   test('repeats the key rather than comma-joining a multi-select', () => {
@@ -237,11 +244,21 @@ describe('applyWorkflowRunFilterPatch', () => {
   });
 
   test('deletes a dimension set to undefined, an empty string, or an empty list', () => {
-    const search: WorkflowRunsSearch = {search: 'deploy', status: ['failed'], after: '2026-05-01'};
+    const search: WorkflowRunsSearch = {
+      search: 'deploy',
+      status: ['failed'],
+      origin: 'dev',
+      after: '2026-05-01',
+    };
 
-    expect(applyWorkflowRunFilterPatch(search, {search: '', status: [], after: undefined})).toEqual(
-      {},
-    );
+    expect(
+      applyWorkflowRunFilterPatch(search, {
+        search: '',
+        status: [],
+        origin: undefined,
+        after: undefined,
+      }),
+    ).toEqual({});
   });
 
   test('leaves the run selection parameters alone', () => {
@@ -256,6 +273,7 @@ describe('clearWorkflowRunFilters', () => {
     const cleared = clearWorkflowRunFilters({
       search: 'deploy',
       status: ['failed'],
+      origin: 'dev',
       branch: ['main'],
       actor: ['octocat'],
       event: ['push'],
@@ -272,6 +290,7 @@ describe('hasWorkflowRunFilters', () => {
   test.each([
     ['search', {search: 'deploy'}],
     ['status', {status: ['failed' as const]}],
+    ['origin', {origin: 'dev' as const}],
     ['branch', {branch: ['main']}],
     ['actor', {actor: ['octocat']}],
     ['event', {event: ['push']}],

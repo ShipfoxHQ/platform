@@ -12,6 +12,23 @@ import type {WorkflowRunAttempt, WorkflowRunAttemptSummary} from './workflow-run
 export type WorkflowRunStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 export type WorkflowRunRerunMode = 'all' | 'failed';
 export type WorkflowStatus = WorkflowRunStatus | (typeof WORKFLOW_JOB_STATUSES)[number];
+
+/** Where a run's definition came from: the synced default branch, or a dev run from a ref. */
+export const WORKFLOW_RUN_ORIGINS = ['synced', 'dev'] as const;
+
+export type WorkflowRunOrigin = (typeof WORKFLOW_RUN_ORIGINS)[number];
+
+/**
+ * Dev-run provenance: the ref and pinned commit the definition came from, the file that
+ * ran, the user who started the run, and the journaled event it replays when any.
+ */
+export interface WorkflowRunDevSource {
+  ref: string;
+  commit: string;
+  configPath: string;
+  initiatedByUserId: string;
+  replayOfEventId: string | null;
+}
 /**
  * `listening` is display-only: the API never returns it, and it is derived from the listener
  * state a job already carries.
@@ -97,6 +114,8 @@ export interface WorkflowRun {
   id: string;
   projectId: string;
   definitionId: string;
+  origin: WorkflowRunOrigin;
+  devSource: WorkflowRunDevSource | null;
   number: number | null;
   name: string;
   workflowName: string;
@@ -170,9 +189,16 @@ const PULL_REQUEST_REF_PATTERN = /^refs\/pull\/(\d+)\/head$/u;
  * The ref as a person names it: `main` for a branch, `#42` for a pull request, the tag for a
  * tag. An unrecognized ref is shown verbatim rather than hidden, since a ref nobody can read
  * is still better evidence than a blank cell.
+ *
+ * A dev run without a trigger reference (manual or cron dev runs) has nothing to resolve, so
+ * the label falls back to the dev source's ref: the branch or tag the definition came from.
+ * A dev replay still carries the replayed event's reference and shows that, exactly as the
+ * run list promises.
  */
-export function workflowRunBranchLabel(run: Pick<WorkflowRun, 'triggerReference'>): string | null {
-  const ref = run.triggerReference?.ref;
+export function workflowRunBranchLabel(
+  run: Pick<WorkflowRun, 'triggerReference' | 'devSource'>,
+): string | null {
+  const ref = workflowRunProvenanceSource(run)?.ref ?? null;
   if (!ref) return null;
   const pullRequest = PULL_REQUEST_REF_PATTERN.exec(ref);
   if (pullRequest) return `#${pullRequest[1]}`;
@@ -181,13 +207,59 @@ export function workflowRunBranchLabel(run: Pick<WorkflowRun, 'triggerReference'
   return ref;
 }
 
-export function workflowRunCommitLabel(run: Pick<WorkflowRun, 'triggerReference'>): string | null {
-  const commit = run.triggerReference?.commit;
+export function workflowRunCommitLabel(
+  run: Pick<WorkflowRun, 'triggerReference' | 'devSource'>,
+): string | null {
+  const commit = workflowRunProvenanceSource(run)?.commit ?? null;
   return commit ? commit.slice(0, SHORT_COMMIT_LENGTH) : null;
+}
+
+/**
+ * A partial trigger reference cannot identify the executed source on its own. Keep ref and
+ * commit paired, falling back to the dev source when either trigger value is missing.
+ */
+function workflowRunProvenanceSource(run: Pick<WorkflowRun, 'triggerReference' | 'devSource'>) {
+  const triggerReference = run.triggerReference;
+  if (triggerReference?.ref && triggerReference.commit) return triggerReference;
+
+  const devSource = run.devSource;
+  if (devSource?.ref && devSource.commit) return devSource;
+
+  // Preserve partial trigger data for synced runs; there is no dev source to replace it with.
+  return triggerReference ?? devSource;
 }
 
 export function workflowRunActor(run: Pick<WorkflowRun, 'triggerReference'>): string | null {
   return run.triggerReference?.actor ?? null;
+}
+
+/**
+ * The dev run's effective provenance as one label: `ref @ commit`. Replayed runs use the
+ * trigger reference shown by the list; other dev runs use the dev source. The commit is
+ * shortened like the list row's commit label.
+ */
+export function workflowRunDevSourceLabel(
+  run: Pick<WorkflowRun, 'origin' | 'devSource' | 'triggerReference'>,
+): string | null {
+  if (run.origin !== 'dev' || !run.devSource) return null;
+  const ref = workflowRunBranchLabel(run);
+  const commit = workflowRunCommitLabel(run);
+  if (!ref || !commit) return null;
+  return `${ref} @ ${commit}`;
+}
+
+/**
+ * Who started a dev run, as a person reads it: `You` when the run is the current user's, a
+ * short id otherwise (v1 has no member-directory lookup on this surface). Synced runs have
+ * no initiator: their actor is the triggering event's, which `workflowRunActor` carries.
+ */
+export function workflowRunInitiatorLabel(
+  run: Pick<WorkflowRun, 'origin' | 'devSource'>,
+  currentUserId: string | undefined,
+): string | null {
+  const initiator = run.origin === 'dev' ? run.devSource?.initiatedByUserId : undefined;
+  if (!initiator) return null;
+  return initiator === currentUserId ? 'You' : initiator.slice(0, 8);
 }
 
 export function isWorkflowRunTerminal(status: WorkflowRunStatus): boolean {

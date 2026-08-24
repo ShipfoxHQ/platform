@@ -1,4 +1,5 @@
 import {TriggerSourceIcon} from '@shipfox/client-triggers';
+import {Badge} from '@shipfox/react-ui/badge';
 import {Icon, type IconName} from '@shipfox/react-ui/icon';
 import {RelativeTime} from '@shipfox/react-ui/relative-time';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@shipfox/react-ui/tooltip';
@@ -81,6 +82,11 @@ export function WorkflowRunRow({
   const body = (
     <>
       <WorkflowStatusIcon status={status} size={14} className="shrink-0" />
+      {run.origin === 'dev' ? (
+        <Badge variant="feature" size="2xs">
+          Dev
+        </Badge>
+      ) : null}
 
       <div className="flex min-w-0 flex-1 flex-col gap-tight @min-[976px]:flex-row @min-[976px]:items-center @min-[976px]:gap-cluster">
         <span className="flex min-w-0 items-center gap-inline @min-[976px]:flex-1">
@@ -154,6 +160,7 @@ export function WorkflowRunRow({
         run.triggerLabel,
         branch ? `branch ${branch}` : undefined,
         actor ? `by ${actor}` : undefined,
+        run.origin === 'dev' ? 'dev run' : undefined,
         run.jobs.total > 0 ? jobStatusSummary(run.jobs) : undefined,
       ]
         .filter((part): part is string => Boolean(part))

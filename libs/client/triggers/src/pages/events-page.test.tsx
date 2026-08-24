@@ -106,4 +106,90 @@ describe('EventsPage', () => {
       expect(screen.queryByRole('button', {name: 'Back to events'})).not.toBeInTheDocument();
     });
   });
+
+  test('opens a selected event from route state even when it is outside the loaded page', async () => {
+    useTriggerEventsInfiniteQueryMock.mockReturnValue(makeListQuery([]));
+
+    render(
+      <EventsPage
+        workspaceId={WORKSPACE_ID}
+        filters={{}}
+        selectedEventId={EVENT_ID}
+        onFiltersChange={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByRole('button', {name: 'Back to events'})).toBeInTheDocument();
+    expect(screen.getByRole('region', {name: 'Events'})).toBeInTheDocument();
+  });
+
+  test('keeps a user-selected event eligible for auto-clear after route synchronization', async () => {
+    useTriggerEventsInfiniteQueryMock.mockReturnValue(makeListQuery([makeEvent()]));
+    const onSelectedEventChange = vi.fn();
+    const {rerender} = render(
+      <EventsPage
+        workspaceId={WORKSPACE_ID}
+        filters={{}}
+        onFiltersChange={vi.fn()}
+        onSelectedEventChange={onSelectedEventChange}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole('button', {name: 'Open details for github · push'}));
+    expect(onSelectedEventChange).toHaveBeenCalledWith(EVENT_ID);
+
+    rerender(
+      <EventsPage
+        workspaceId={WORKSPACE_ID}
+        filters={{}}
+        selectedEventId={EVENT_ID}
+        onFiltersChange={vi.fn()}
+        onSelectedEventChange={onSelectedEventChange}
+      />,
+    );
+
+    useTriggerEventsInfiniteQueryMock.mockReturnValue(makeListQuery([]));
+    rerender(
+      <EventsPage
+        workspaceId={WORKSPACE_ID}
+        filters={{}}
+        selectedEventId={EVENT_ID}
+        onFiltersChange={vi.fn()}
+        onSelectedEventChange={onSelectedEventChange}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByRole('button', {name: 'Back to events'})).not.toBeInTheDocument();
+    });
+  });
+
+  test('treats a later route selection as a deep link when no route callback is bound', async () => {
+    useTriggerEventsInfiniteQueryMock.mockReturnValue(makeListQuery([makeEvent()]));
+    const {rerender} = render(
+      <EventsPage workspaceId={WORKSPACE_ID} filters={{}} onFiltersChange={vi.fn()} />,
+    );
+
+    fireEvent.click(await screen.findByRole('button', {name: 'Open details for github · push'}));
+    rerender(
+      <EventsPage
+        workspaceId={WORKSPACE_ID}
+        filters={{}}
+        selectedEventId={EVENT_ID}
+        onFiltersChange={vi.fn()}
+      />,
+    );
+
+    useTriggerEventsInfiniteQueryMock.mockReturnValue(makeListQuery([]));
+    rerender(
+      <EventsPage
+        workspaceId={WORKSPACE_ID}
+        filters={{}}
+        selectedEventId={EVENT_ID}
+        onFiltersChange={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByRole('button', {name: 'Back to events'})).toBeInTheDocument();
+  });
 });

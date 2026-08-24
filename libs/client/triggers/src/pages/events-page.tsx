@@ -1,6 +1,6 @@
 import {RelativeTimeProvider} from '@shipfox/react-ui/relative-time';
 import {cn} from '@shipfox/react-ui/utils';
-import {useEffect, useMemo, useState} from 'react';
+import {useEffect, useMemo, useRef, useState} from 'react';
 import {EventsList} from '#components/events-list.js';
 import {TriggerEventDetail} from '#components/trigger-event-detail.js';
 import type {TriggerEventFilters, TriggerEventSummary} from '#core/trigger-event.js';
@@ -14,6 +14,8 @@ export interface EventsPageProps {
   workspaceSlug?: string | undefined;
   filters: TriggerEventFilters;
   onFiltersChange: (patch: Partial<TriggerEventFilters>) => void;
+  selectedEventId?: string | undefined;
+  onSelectedEventChange?: ((eventId: string | undefined) => void) | undefined;
 }
 
 /**
@@ -25,10 +27,18 @@ export function EventsPage({
   workspaceSlug,
   filters,
   onFiltersChange,
+  selectedEventId: routeSelectedEventId,
+  onSelectedEventChange,
 }: EventsPageProps) {
   const query = useTriggerEventsInfiniteQuery(workspaceId, filters);
   const facetsQuery = useTriggerEventFacetsQuery(workspaceId);
-  const [selectedEventId, setSelectedEventId] = useState<string | undefined>();
+  const [selectedEventId, setSelectedEventId] = useState<string | undefined>(routeSelectedEventId);
+  const [selectionIsFromRoute, setSelectionIsFromRoute] = useState(
+    routeSelectedEventId !== undefined,
+  );
+  // A click updates local selection before the router reflects the same value. Remember that
+  // round trip so the route-sync effect does not turn a user selection into a deep link.
+  const pendingRouteSelectionRef = useRef<string | undefined | null>(null);
 
   const events = useMemo<TriggerEventSummary[]>(
     () => query.data?.pages.flatMap((page) => page.events) ?? [],
@@ -36,9 +46,49 @@ export function EventsPage({
   );
 
   useEffect(() => {
-    if (!selectedEventId || query.isPending || query.isFetching || query.isError) return;
+    const pendingRouteSelection = pendingRouteSelectionRef.current;
+    if (pendingRouteSelection !== null) {
+      pendingRouteSelectionRef.current = null;
+      if (pendingRouteSelection === routeSelectedEventId) return;
+    }
+    setSelectedEventId(routeSelectedEventId);
+    setSelectionIsFromRoute(routeSelectedEventId !== undefined);
+  }, [routeSelectedEventId]);
+
+  useEffect(() => {
+    if (
+      !selectedEventId ||
+      selectionIsFromRoute ||
+      query.isPending ||
+      query.isFetching ||
+      query.isError
+    )
+      return;
     if (!events.some((event) => event.id === selectedEventId)) setSelectedEventId(undefined);
-  }, [events, query.isError, query.isFetching, query.isPending, selectedEventId]);
+  }, [
+    events,
+    query.isError,
+    query.isFetching,
+    query.isPending,
+    selectedEventId,
+    selectionIsFromRoute,
+  ]);
+
+  function selectEvent(eventId: string) {
+    // Router-bound callers acknowledge this selection through routeSelectedEventId. In a
+    // standalone render there is no route round trip to await, so do not leave a stale marker.
+    pendingRouteSelectionRef.current = onSelectedEventChange ? eventId : null;
+    setSelectionIsFromRoute(false);
+    setSelectedEventId(eventId);
+    onSelectedEventChange?.(eventId);
+  }
+
+  function clearSelectedEvent() {
+    pendingRouteSelectionRef.current = undefined;
+    setSelectionIsFromRoute(false);
+    setSelectedEventId(undefined);
+    onSelectedEventChange?.(undefined);
+  }
 
   return (
     <RelativeTimeProvider>
@@ -58,14 +108,14 @@ export function EventsPage({
                 void query.fetchNextPage();
               }}
               selectedEventId={selectedEventId}
-              onSelectEvent={setSelectedEventId}
+              onSelectEvent={selectEvent}
             />
           </div>
           <TriggerEventDetail
             workspaceId={workspaceId}
             workspaceSlug={workspaceSlug}
             eventId={selectedEventId}
-            onBack={() => setSelectedEventId(undefined)}
+            onBack={clearSelectedEvent}
           />
         </div>
       </section>

@@ -65,6 +65,9 @@ describe('WorkflowRunListView', () => {
         within(header as HTMLElement).getByRole('button', {name: filterTrigger('Event')}),
       ).toBeInTheDocument();
       expect(
+        within(header as HTMLElement).queryByRole('button', {name: filterTrigger('Origin')}),
+      ).not.toBeInTheDocument();
+      expect(
         within(header as HTMLElement).getByLabelText('Filter runs by creation date'),
       ).toBeInTheDocument();
       expect(within(body as HTMLElement).getByText('build-image')).toBeInTheDocument();
@@ -171,6 +174,23 @@ describe('WorkflowRunListView', () => {
       expect(trigger).toHaveTextContent('Status: Failed');
       // The value is in the accessible name too, not just the visible label.
       expect(trigger).toHaveAccessibleName('Status: Failed filter');
+    });
+
+    test('includes origin when a controlled consumer uses the default clear path', async () => {
+      const user = userEvent.setup();
+      const onFiltersChange = vi.fn();
+      renderWithRouter(
+        <WorkflowRunListView
+          runs={[run('succeeded', 'triage-sentry', 'run-2', devRunOverrides())]}
+          query={loadedQuery()}
+          search={{origin: 'dev'}}
+          onFiltersChange={onFiltersChange}
+        />,
+      );
+
+      await user.click(await screen.findByRole('button', {name: 'Clear filters'}));
+
+      expect(onFiltersChange).toHaveBeenCalledWith(expect.objectContaining({origin: undefined}));
     });
 
     test('restores every row after the filters are cleared', async () => {
@@ -323,6 +343,26 @@ describe('WorkflowRunListView', () => {
       expect(await screen.findByText('release/v2')).toBeInTheDocument();
       expect(screen.getByText('abcdef1')).toBeInTheDocument();
       expect(screen.getByText('octocat')).toBeInTheDocument();
+    });
+
+    test('labels a dev run with a Dev badge and its ref and commit from the dev source', async () => {
+      renderListView([run('succeeded', 'triage-sentry', 'run-1', devRunOverrides())]);
+
+      expect(await screen.findByText('triage-sentry')).toBeInTheDocument();
+      expect(screen.getByText('Dev')).toHaveClass('bg-tag-purple-bg');
+      // No trigger reference: the row's branch and commit come from the dev source.
+      expect(screen.getByText('fix-triage-prompt')).toBeInTheDocument();
+      expect(screen.getByText('abcdef1')).toBeInTheDocument();
+      expect(
+        screen.getByRole('link', {name: (name) => name.includes('dev run')}),
+      ).toBeInTheDocument();
+    });
+
+    test('shows no Dev badge on a synced run', async () => {
+      renderListView([run('succeeded', 'deploy-web', 'run-1')]);
+
+      expect(await screen.findByText('deploy-web')).toBeInTheDocument();
+      expect(screen.queryByText('Dev')).not.toBeInTheDocument();
     });
 
     test('shows a pull request ref by number rather than as a raw ref', async () => {
@@ -654,7 +694,8 @@ async function selectFilterOption(
 ) {
   await user.click(await screen.findByRole('button', {name: filterTrigger(label)}));
   const menu = await screen.findByRole('menu');
-  await user.click(within(menu).getByRole('menuitemcheckbox', {name: option}));
+  const item = within(menu).getByRole('menuitemcheckbox', {name: option});
+  await user.click(item);
   await user.keyboard('{Escape}');
 }
 
@@ -665,6 +706,20 @@ function reference(overrides: Partial<NonNullable<WorkflowRunListItem['triggerRe
     commit: 'abcdef1234567890',
     actor: 'octocat',
     ...overrides,
+  };
+}
+
+function devRunOverrides(): NonNullable<Parameters<typeof workflowRunListItem>[0]> {
+  return {
+    origin: 'dev',
+    trigger_reference: null,
+    dev_source: {
+      ref: 'fix-triage-prompt',
+      commit: 'abcdef1234567890abcdef1234567890abcdef12',
+      config_path: '.shipfox/workflows/triage-sentry.yml',
+      initiated_by_user_id: '99999999-9999-4999-8999-999999999999',
+      replay_of_event_id: null,
+    },
   };
 }
 

@@ -35,9 +35,11 @@ const DEPLOY_ATTEMPT_TWO_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-000000000002';
 const SMOKE_WEB_RE = /smoke-web/u;
 const DEPLOY_WEB_RE = /deploy-web/u;
 const OLDER_RUN_RE = /older-run/u;
+const TRIAGE_SENTRY_RE = /triage-sentry/u;
 const INTEGRATION_TESTS_RE = /integration-tests/u;
 const BUILD_IMAGE_RE = /build-image/u;
 const STATUS_FILTER_RE = /^Status\b.*filter$/u;
+const ORIGIN_FILTER_RE = /^Origin\b.*filter$/u;
 const JOBS_TAB_NAME = /^Jobs/u;
 const BUILD_JOB_BUTTON_NAME = 'build, Succeeded';
 const DEPLOY_JOB_BUTTON_NAME = 'deploy, Running';
@@ -136,6 +138,34 @@ describe('WorkflowRunPages', () => {
       expect(currentSearch(router).status).toEqual(['failed', 'running']);
     });
     expect(router.state.location.searchStr).toBe('?status=failed&status=running');
+  });
+
+  test('honors an origin deep link and clears it without exposing an Origin filter', async () => {
+    const user = userEvent.setup();
+    const fetchImpl = createMixedOriginRunsFetch();
+    configureApiClient({fetchImpl});
+
+    // A dev deep link reaches the API as origin=dev and shows only dev runs.
+    const {router} = renderRunsPath('?origin=dev');
+
+    expect(await screen.findByRole('link', {name: TRIAGE_SENTRY_RE})).toBeInTheDocument();
+    expect(screen.queryByRole('link', {name: DEPLOY_WEB_RE})).not.toBeInTheDocument();
+    expect(
+      fetchImpl.mock.calls.some((call) => {
+        const url = new URL(requestInputUrl(call[0]));
+        return url.pathname === '/workflows/runs' && url.searchParams.get('origin') === 'dev';
+      }),
+    ).toBe(true);
+
+    expect(screen.queryByRole('button', {name: ORIGIN_FILTER_RE})).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', {name: 'Clear filters'}));
+    await waitFor(() => {
+      expect(currentSearch(router).origin).toBeUndefined();
+    });
+    expect(router.state.location.searchStr).toBe('');
+    expect(await screen.findByRole('link', {name: DEPLOY_WEB_RE})).toBeInTheDocument();
+    expect(screen.getByRole('link', {name: TRIAGE_SENTRY_RE})).toBeInTheDocument();
   });
 
   test('replaces history on a filter change so back leaves the list', async () => {
@@ -410,6 +440,44 @@ function createRunsListFetch() {
     }
     if (url.pathname === `/workflows/runs/${RUN_ID}`) {
       return Promise.resolve(jsonResponse(workflowRunDetailDto({...RUN_OVERRIDES, jobs: []})));
+    }
+
+    return Promise.resolve(jsonResponse({code: 'not-found'}, {status: 404}));
+  });
+}
+
+function createMixedOriginRunsFetch() {
+  const runs = [
+    workflowRunDto(RUN_OVERRIDES),
+    workflowRunDto({
+      id: '66666666-6666-4666-8666-000000000009',
+      name: 'triage-sentry',
+      workflow_name: 'triage-sentry',
+      origin: 'dev',
+      trigger_reference: null,
+      dev_source: {
+        ref: 'fix-triage-prompt',
+        commit: 'abcdef1234567890abcdef1234567890abcdef12',
+        config_path: '.shipfox/workflows/triage-sentry.yml',
+        initiated_by_user_id: '99999999-9999-4999-8999-999999999999',
+        replay_of_event_id: null,
+      },
+    }),
+  ];
+
+  return vi.fn((input: RequestInfo | URL) => {
+    const url = new URL(requestInputUrl(input));
+
+    if (url.pathname === '/workflows/runs') {
+      const origin = url.searchParams.get('origin');
+      const filtered = origin ? runs.filter((run) => run.origin === origin) : runs;
+      return Promise.resolve(
+        jsonResponse({
+          runs: filtered,
+          next_cursor: null,
+          filtered_total_count: filtered.length,
+        }),
+      );
     }
 
     return Promise.resolve(jsonResponse({code: 'not-found'}, {status: 404}));

@@ -27,6 +27,7 @@ import {
   WorkflowRunAttempt,
   WorkflowRunAttemptSummary,
   type WorkflowRunDetail,
+  type WorkflowRunDevSource,
   type WorkflowRunListItem,
   type WorkflowRunListPage,
   type WorkflowRunRecord,
@@ -39,6 +40,10 @@ export function toWorkflowRun(dto: WorkflowRunResponseDto): WorkflowRun {
     id: dto.id,
     projectId: dto.project_id,
     definitionId: dto.definition_id,
+    // The API defaults these during rollout, but older responses predate the fields; mirror
+    // the DTO defaults so every consumer reads a fully-populated model.
+    origin: dto.origin ?? 'synced',
+    devSource: toDevSource(dto.dev_source),
     number: dto.number,
     name: dto.name,
     workflowName: dto.workflow_name,
@@ -63,6 +68,17 @@ export function toWorkflowRun(dto: WorkflowRunResponseDto): WorkflowRun {
     createdAt: dto.created_at,
     updatedAt: dto.updated_at,
     isTemporary: dto.id.startsWith('temp-'),
+  };
+}
+
+function toDevSource(devSource: WorkflowRunResponseDto['dev_source']): WorkflowRunDevSource | null {
+  if (!devSource) return null;
+  return {
+    ref: devSource.ref,
+    commit: devSource.commit,
+    configPath: devSource.config_path,
+    initiatedByUserId: devSource.initiated_by_user_id,
+    replayOfEventId: devSource.replay_of_event_id,
   };
 }
 

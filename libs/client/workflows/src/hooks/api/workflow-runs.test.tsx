@@ -54,6 +54,25 @@ describe('workflow run API hooks', () => {
     configureApiClient({baseUrl: '', fetchImpl: undefined});
   });
 
+  test('sends the origin facet as the origin list query parameter', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(workflowRunListResponseDto()));
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
+
+    renderWithQueryClient(() => useWorkflowRunsInfiniteQuery(PROJECT_ID, {origin: 'dev'}));
+
+    await waitFor(() => expect(fetchImpl).toHaveBeenCalled());
+    const request = firstRequest(fetchImpl);
+    expect(request.url).toBe(
+      `https://api.example.test/workflows/runs?project_id=${PROJECT_ID}&limit=50&origin=dev`,
+    );
+
+    // The origin distinguishes list cache entries, so switching facets refetches rather
+    // than reusing the all-origins page.
+    const allKey = workflowRunsQueryKeys.list(PROJECT_ID, {});
+    const devKey = workflowRunsQueryKeys.list(PROJECT_ID, {origin: 'dev'});
+    expect(devKey).not.toEqual(allKey);
+  });
+
   test('maps list DTO pages to workflow run models before caching', async () => {
     const body = workflowRunListResponseDto({
       runs: [
@@ -309,6 +328,74 @@ describe('workflow run API hooks', () => {
       expect(cached?.pages[0]?.runs[0]?.id).toMatch(TEMP_RUN_ID_PATTERN);
       expect(cached?.pages[0]?.filteredTotalCount).toBe(1);
     });
+
+    if (!resolveFire) throw new Error('Expected manual fire request');
+    const completeFire = resolveFire;
+    act(() => {
+      completeFire(jsonResponse({workflow_run_id: RUN_ID}, {status: 201}));
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+  });
+
+  test('keeps the optimistic manual run out of dev-only lists', async () => {
+    let resolveFire: ((response: Response) => void) | undefined;
+    const fetchImpl = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveFire = resolve;
+        }),
+    );
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
+    const {result, queryClient} = renderWithQueryClient(() => useFireManualWorkflowMutation());
+    const allListKey = workflowRunsQueryKeys.list(PROJECT_ID, {});
+    const syncedListKey = workflowRunsQueryKeys.list(PROJECT_ID, {origin: 'synced'});
+    const devListKey = workflowRunsQueryKeys.list(PROJECT_ID, {origin: 'dev'});
+    queryClient.setQueryData<InfiniteData<WorkflowRunListPage, string | undefined>>(allListKey, {
+      pages: [
+        toWorkflowRunListPage(workflowRunListResponseDto({runs: [], filtered_total_count: 0})),
+      ],
+      pageParams: [undefined],
+    });
+    queryClient.setQueryData<InfiniteData<WorkflowRunListPage, string | undefined>>(devListKey, {
+      pages: [
+        toWorkflowRunListPage(workflowRunListResponseDto({runs: [], filtered_total_count: 0})),
+      ],
+      pageParams: [undefined],
+    });
+    queryClient.setQueryData<InfiniteData<WorkflowRunListPage, string | undefined>>(syncedListKey, {
+      pages: [
+        toWorkflowRunListPage(workflowRunListResponseDto({runs: [], filtered_total_count: 0})),
+      ],
+      pageParams: [undefined],
+    });
+
+    act(() => {
+      result.current.mutate({projectId: PROJECT_ID, definitionId: DEFINITION_ID});
+    });
+
+    // A manual fire of a synced definition is a synced run: the dev list is untouched while
+    // the all-origins list gets the pending row, and the temp row reads as synced.
+    await waitFor(() => {
+      const allCached =
+        queryClient.getQueryData<InfiniteData<WorkflowRunListPage, string | undefined>>(allListKey);
+      expect(allCached?.pages[0]?.runs[0]).toMatchObject({
+        origin: 'synced',
+        devSource: null,
+        status: 'pending',
+      });
+    });
+    const syncedCached =
+      queryClient.getQueryData<InfiniteData<WorkflowRunListPage, string | undefined>>(
+        syncedListKey,
+      );
+    expect(syncedCached?.pages[0]?.runs[0]).toMatchObject({
+      origin: 'synced',
+      status: 'pending',
+    });
+    const devCached =
+      queryClient.getQueryData<InfiniteData<WorkflowRunListPage, string | undefined>>(devListKey);
+    expect(devCached?.pages[0]?.runs).toHaveLength(0);
+    expect(devCached?.pages[0]?.filteredTotalCount).toBe(0);
 
     if (!resolveFire) throw new Error('Expected manual fire request');
     const completeFire = resolveFire;

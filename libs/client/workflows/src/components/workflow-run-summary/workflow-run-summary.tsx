@@ -1,3 +1,4 @@
+import {useAuthState} from '@shipfox/client-shell/runtime';
 import {TriggerSourceIcon} from '@shipfox/client-triggers';
 import {MetadataSeparator} from '@shipfox/client-ui';
 import {Badge} from '@shipfox/react-ui/badge';
@@ -9,11 +10,13 @@ import {
   DropdownMenuTrigger,
 } from '@shipfox/react-ui/dropdown-menu';
 import {useIsTextTruncated} from '@shipfox/react-ui/hooks';
+import {Icon} from '@shipfox/react-ui/icon';
 import {RelativeTime} from '@shipfox/react-ui/relative-time';
 import {TimeTickerProvider} from '@shipfox/react-ui/time-ticker';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@shipfox/react-ui/tooltip';
-import {Header, Text} from '@shipfox/react-ui/typography';
-import {useId} from 'react';
+import {Code, Header, Text} from '@shipfox/react-ui/typography';
+import {Link} from '@tanstack/react-router';
+import {Fragment, type ReactElement, useId} from 'react';
 import {WorkflowRunNumberLabel} from '#components/workflow-run-number-label.js';
 import {
   isWorkflowRunTerminal,
@@ -21,6 +24,10 @@ import {
   WORKFLOW_RUN_STATUSES,
   type WorkflowRunDetail,
   type WorkflowRunRerunMode,
+  workflowRunBranchLabel,
+  workflowRunCommitLabel,
+  workflowRunDevSourceLabel,
+  workflowRunInitiatorLabel,
 } from '#core/workflow-run.js';
 import {WorkflowRunDurationLabel} from '../workflow-run-duration-label.js';
 import {getWorkflowStatusVisual} from '../workflow-status/status-visuals.js';
@@ -67,6 +74,20 @@ export function WorkflowRunSummary({
   const hasStarted = run.hasStartedJobExecution;
   const {ref: headingTextRef, isTruncated: isHeadingTruncated} =
     useIsTextTruncated<HTMLSpanElement>(run.name);
+  const currentUser = useAuthState().user;
+  const branch = workflowRunBranchLabel(run);
+  const commit = workflowRunCommitLabel(run);
+  const devSourceLabel = workflowRunDevSourceLabel(run);
+  const initiator = workflowRunInitiatorLabel(run, currentUser?.id);
+  const replayOfEvent = run.devSource?.replayOfEventId;
+  const isDevRun = run.origin === 'dev';
+  // The provenance segment only earns a leading separator when something already sits on the
+  // line; a run with nothing else (no number, no trigger label) must not start with a dot.
+  const metadataHasLeading =
+    run.number !== null || attemptSwitcher !== null || Boolean(run.triggerDisplayLabel);
+  const hasProvenance = isDevRun
+    ? Boolean(devSourceLabel || initiator || replayOfEvent)
+    : Boolean(branch || commit);
 
   return (
     <TimeTickerProvider intervalMs={1000} reducedMotionIntervalMs={10_000}>
@@ -79,6 +100,12 @@ export function WorkflowRunSummary({
                   {status.label}
                 </span>
               </Badge>
+
+              {isDevRun ? (
+                <Badge variant="feature" size="xs">
+                  Dev
+                </Badge>
+              ) : null}
 
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -111,7 +138,7 @@ export function WorkflowRunSummary({
             </div>
           ) : null}
 
-          <div className="col-span-2 row-start-2 flex min-w-0 items-center gap-cluster overflow-hidden text-foreground-neutral-subtle max-[480px]:col-span-1 max-[480px]:row-start-auto">
+          <div className="col-span-2 row-start-2 flex min-w-0 flex-nowrap items-center gap-cluster overflow-hidden text-foreground-neutral-subtle max-[480px]:col-span-1 max-[480px]:row-start-auto max-[480px]:flex-wrap max-[480px]:overflow-visible">
             {run.number !== null ? (
               <>
                 <WorkflowRunNumberLabel run={run} />
@@ -160,7 +187,25 @@ export function WorkflowRunSummary({
               </>
             ) : null}
 
-            {run.number !== null || attemptSwitcher || run.triggerDisplayLabel ? (
+            {isDevRun ? (
+              <RunProvenanceItems
+                devSourceLabel={devSourceLabel}
+                initiator={initiator}
+                replayOfEventId={replayOfEvent}
+                replayOfEventLabel={run.triggerDisplayLabel}
+                workspaceSlug={workspaceSlug}
+                preceded={metadataHasLeading}
+              />
+            ) : (
+              <RunProvenanceItems
+                branch={branch}
+                commit={commit}
+                workspaceSlug={workspaceSlug}
+                preceded={metadataHasLeading}
+              />
+            )}
+
+            {run.number !== null || attemptSwitcher || run.triggerDisplayLabel || hasProvenance ? (
               <MetadataSeparator />
             ) : null}
             <RelativeTime
@@ -279,6 +324,164 @@ function canRenderWorkflowRunAction(
   if (action === 'cancel') return onCancel !== undefined;
   if (action === 'rerun-all' || action === 'rerun-menu') return onRerun !== undefined;
   return false;
+}
+
+/**
+ * The provenance run of the summary line: branch and commit for a synced run (from the
+ * trigger reference), and for a dev run the effective `ref @ commit`, the member who started
+ * it, and the replay link to the source event when the run replays one.
+ *
+ * Each item is followed by a separator; the line's other segments already do the same, so
+ * the whole metadata row reads as one separated list.
+ */
+function RunProvenanceItems({
+  branch,
+  commit,
+  devSourceLabel,
+  initiator,
+  replayOfEventId,
+  replayOfEventLabel,
+  workspaceSlug,
+  preceded,
+}: {
+  branch?: string | null | undefined;
+  commit?: string | null | undefined;
+  devSourceLabel?: string | null | undefined;
+  initiator?: string | null | undefined;
+  replayOfEventId?: string | null | undefined;
+  replayOfEventLabel?: string | undefined;
+  workspaceSlug?: string | undefined;
+  preceded: boolean;
+}) {
+  const items: ReactElement[] = [
+    branch ? <BranchLabel key="branch" branch={branch} /> : null,
+    commit ? <CommitLabel key="commit" commit={commit} /> : null,
+    devSourceLabel ? <DevSourceLabel key="dev-source" label={devSourceLabel} /> : null,
+    initiator ? <InitiatorLabel key="initiator" label={initiator} /> : null,
+    replayOfEventId ? (
+      <ReplayOfEventLabel
+        key="replay"
+        eventId={replayOfEventId}
+        eventLabel={replayOfEventLabel}
+        workspaceSlug={workspaceSlug}
+      />
+    ) : null,
+  ].filter((item): item is ReactElement => item !== null);
+
+  if (items.length === 0) return null;
+
+  return (
+    <>
+      {preceded ? <MetadataSeparator /> : null}
+      {items.map((item, index) => (
+        <Fragment key={item.key}>
+          {index > 0 ? <MetadataSeparator /> : null}
+          {item}
+        </Fragment>
+      ))}
+    </>
+  );
+}
+
+/** A ref, SHA, or handle: monospace because it is content a user copies or pattern-matches. */
+function ProvenanceChip({
+  icon,
+  title,
+  children,
+}: {
+  icon: 'gitBranchLine' | 'gitCommitLine' | 'userLine';
+  title: string;
+  children: string;
+}) {
+  return (
+    <span
+      role="img"
+      aria-label={title}
+      className="flex min-w-0 shrink-0 items-center gap-tight"
+      title={title}
+    >
+      <Icon name={icon} className="size-12 shrink-0 text-foreground-neutral-muted" aria-hidden />
+      <Code as="span" variant="label" className="min-w-0 truncate">
+        {children}
+      </Code>
+    </span>
+  );
+}
+
+function BranchLabel({branch}: {branch: string}) {
+  return (
+    <ProvenanceChip
+      icon="gitBranchLine"
+      title={branch.startsWith('#') ? `Pull request ${branch}` : `Branch ${branch}`}
+    >
+      {branch}
+    </ProvenanceChip>
+  );
+}
+
+function CommitLabel({commit}: {commit: string}) {
+  return (
+    <ProvenanceChip icon="gitCommitLine" title={`Commit ${commit}`}>
+      {commit}
+    </ProvenanceChip>
+  );
+}
+
+/**
+ * The dev run's provenance in one label: `fix-triage-prompt @ a1b2c3d`. The ref is the
+ * branch or tag the definition came from, the commit the ref was pinned to when the run
+ * started, so a force-push after submit cannot change what the label promises.
+ */
+function DevSourceLabel({label}: {label: string}) {
+  return (
+    <ProvenanceChip icon="gitBranchLine" title={`Dev source ${label}`}>
+      {label}
+    </ProvenanceChip>
+  );
+}
+
+function InitiatorLabel({label}: {label: string}) {
+  return (
+    <ProvenanceChip icon="userLine" title={`Initiated by ${label}`}>
+      {label}
+    </ProvenanceChip>
+  );
+}
+
+/**
+ * The link back to the journaled event a dev run replays. It needs the workspace slug to
+ * navigate; without it (isolated renders) it reads as plain text.
+ */
+function ReplayOfEventLabel({
+  eventId,
+  eventLabel,
+  workspaceSlug,
+}: {
+  eventId: string;
+  eventLabel?: string | undefined;
+  workspaceSlug?: string | undefined;
+}) {
+  const label = `Replay of ${eventLabel || eventId.slice(0, 8)}`;
+  if (!workspaceSlug) {
+    return (
+      <Text as="span" size="xs" className="text-foreground-neutral-subtle">
+        {label}
+      </Text>
+    );
+  }
+  return (
+    <Link
+      to="/w/$workspaceSlug/settings/events"
+      params={{workspaceSlug}}
+      search={{eventId}}
+      className="inline-flex items-center gap-tight text-foreground-neutral-subtle outline-none transition-colors hover:text-foreground-neutral-base focus-visible:shadow-button-neutral-focus"
+    >
+      <Icon name="historyLine" className="size-12 shrink-0" aria-hidden />
+      <Text as="span" size="xs">
+        {label}
+      </Text>
+    </Link>
+  );
 }
 
 function hasFailedOrCancelledJobs(run: WorkflowRunDetail): boolean {
