@@ -10,7 +10,8 @@ CEL checks and run-time evaluation for Shipfox workflow expressions.
 - **`ExpressionTypeEnvironment`**: Lists names and field types for typed checks.
 - **`evaluateWorkflowExpression`**: Runs a checked value against caller data.
 - **`createWorkflowEnvironment`**: Creates an isolated evaluator with the shared
-  `range()`, `toJson()`, and `fromJson()` functions.
+  `list.first()`, `list.last()`, `range()`, `toJson()`, and `fromJson()`
+  functions.
 - **`evaluateWorkflowExpressionWithEnvironment`**: Runs a checked value against
   a caller-owned CEL environment for explicitly scoped custom functions.
 - **`WorkflowExpressionEnvironment`**: The evaluate-only environment shape
@@ -92,9 +93,12 @@ const passed = evaluateWorkflowPredicate(expression, {
 - Context values can include external data. Interpolatable fields rely on their
   structural sink guarantees, while host and availability checks remain enforced.
 - Evaluation is deterministic and has no side effects.
-- Workflow evaluation includes the shared `range()`, `toJson()`, and `fromJson()`
-  functions. Use a caller-owned environment when a custom function is intentionally
-  needed outside that registry.
+- Workflow evaluation includes the shared `list.first()`, `list.last()`,
+  `range()`, `toJson()`, and `fromJson()` functions. Use a caller-owned
+  environment when a custom function is intentionally needed outside that
+  registry.
+- `list.first()` and `list.last()` return the first or final element and
+  preserve its type. An empty list causes an evaluation error.
 - `range()` accepts CEL integers and safe integer values from JavaScript
   contexts. An environment is built once and reused, and each evaluation gets
   its own materialization budget, shared by nested range calls and restored when

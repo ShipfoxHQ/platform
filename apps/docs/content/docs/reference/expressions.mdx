@@ -83,6 +83,8 @@ passes.
 | Call | Example | Result |
 | --- | --- | --- |
 | `list.size()`, `string.size()` | `executions.size() > 1` | Number of elements or characters |
+| `list.first()` | `execution.events.first().data` | The first element of a list |
+| `list.last()` | `execution.events.last().data` | The final element of a list |
 | `list.all(item, predicate)` | `executions.all(e, e.status == "succeeded")` | True when every element matches |
 | `list.exists(item, predicate)` | `execution.events.exists(e, e.event == "push")` | True when at least one element matches |
 | `list.exists_one(item, predicate)` | `needs.exists_one(j, j.status == "failed")` | True when exactly one element matches |
@@ -99,6 +101,10 @@ passes.
 | `range(start, stop, step)` | `range(1, 3, 1)` | An inclusive list of integers |
 | `toJson(value)` | `toJson(event.pull_request.labels)` | The value serialized as compact JSON text |
 | `fromJson(string)` | `fromJson(event.payload)` | The JSON text parsed into a CEL value |
+
+`list.first()` and `list.last()` keep the element's type. Calling either method
+on an empty list causes an evaluation error. Workflow job and step conditions
+record that outcome as errored rather than rejected.
 
 `range()` accepts a positive step and can materialize at most 1,000 values and
 1,000,000 context-byte fan-out units in one evaluation. `toJson()` can produce

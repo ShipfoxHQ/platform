@@ -99,6 +99,104 @@ describe('evaluateWorkflowExpression', () => {
     expect(result).toEqual([2n, 4n, 6n]);
   });
 
+  it.each([
+    ['first', 'first'],
+    ['last', 'last'],
+  ] as const)('evaluates %s through the default workflow environment', (method, expected) => {
+    const expression = createWorkflowExpression({
+      source: `event.values.${method}()`,
+      check: {
+        mode: 'typed',
+        typeEnvironment: {
+          event: {
+            kind: 'object',
+            fields: {values: {kind: 'list', element: 'string'}},
+          },
+        },
+      },
+    });
+
+    const result = evaluateWorkflowExpression(expression, {
+      event: {values: ['first', 'last']},
+    });
+
+    expect(result).toBe(expected);
+  });
+
+  it.each([
+    ['first', 'first'],
+    ['last', 'last'],
+  ] as const)('evaluates chained access after dynamic list %s', (method, expected) => {
+    const expression = createWorkflowExpression({
+      source: `event.values.${method}().label`,
+      check: {mode: 'syntax'},
+    });
+
+    const result = evaluateWorkflowExpression(expression, {
+      event: {values: [{label: 'first'}, {label: 'last'}]},
+    });
+
+    expect(result).toBe(expected);
+  });
+
+  it.each([
+    ['first', 'first'],
+    ['last', 'last'],
+  ] as const)('evaluates a nested call after dynamic list %s', (method, expected) => {
+    const expression = createWorkflowExpression({
+      source: `event.values.${method}().${method}()`,
+      check: {mode: 'syntax'},
+    });
+
+    const result = evaluateWorkflowExpression(expression, {
+      event: {values: [['first'], ['last']]},
+    });
+
+    expect(result).toBe(expected);
+  });
+
+  it.each([
+    ['first', 'first'],
+    ['last', 'last'],
+  ] as const)('evaluates %s for a Set list value', (method, expected) => {
+    const expression = createWorkflowExpression({
+      source: `event.values.${method}()`,
+      check: {mode: 'syntax'},
+    });
+
+    const result = evaluateWorkflowExpression(expression, {
+      event: {values: new Set(['first', 'last'])},
+    });
+
+    expect(result).toBe(expected);
+  });
+
+  it.each([
+    ['first', 'array', []],
+    ['first', 'Set', new Set()],
+    ['last', 'array', []],
+    ['last', 'Set', new Set()],
+  ] as const)('reports %s on an empty %s as an evaluation failure', (method, _kind, values) => {
+    const expression = createWorkflowExpression({
+      source: `event.values.${method}()`,
+      check: {
+        mode: 'typed',
+        typeEnvironment: {
+          event: {
+            kind: 'object',
+            fields: {values: {kind: 'list', element: 'string'}},
+          },
+        },
+      },
+    });
+
+    const evaluateEmpty = () => evaluateWorkflowExpression(expression, {event: {values}});
+    const failClosed = evaluateWorkflowPredicateFailClosed(expression, {event: {values}});
+
+    expect(evaluateEmpty).toThrow(WorkflowExpressionEvaluationError);
+    expect(failClosed).toEqual({value: false, evaluationFailed: true});
+  });
+
   it('gives each default-environment evaluation a full range budget', () => {
     const expression = createWorkflowExpression({
       source: 'range(1, 1000, 1).size()',

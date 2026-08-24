@@ -80,12 +80,75 @@ describe('createWorkflowExpression', () => {
       source: 'range(1, 3, 1).size() == 3',
       check: {mode: 'typed'},
     });
+    const firstExpression = createWorkflowExpression({
+      source: 'event.values.first()',
+      check: {
+        mode: 'typed',
+        typeEnvironment: {
+          event: {
+            kind: 'object',
+            fields: {values: {kind: 'list', element: 'string'}},
+          },
+        },
+      },
+    });
+    const lastExpression = createWorkflowExpression({
+      source: 'event.values.last()',
+      check: {
+        mode: 'typed',
+        typeEnvironment: {
+          event: {
+            kind: 'object',
+            fields: {values: {kind: 'list', element: 'string'}},
+          },
+        },
+      },
+    });
 
     expect(jsonExpression.resultType).toBe('string');
     expect(parsedExpression.check).toBe('typed');
     expect(parsedPredicateExpression.check).toBe('typed');
     expect(dynamicJsonExpression.resultType).toBeUndefined();
     expect(rangeExpression.resultType).toBe('bool');
+    expect(firstExpression.resultType).toBe('string');
+    expect(lastExpression.resultType).toBe('string');
+  });
+
+  it.each(['first', 'last'] as const)('preserves typed object fields through list %s', (method) => {
+    const expression = createWorkflowExpression({
+      source: `event.values.${method}().label`,
+      check: {
+        mode: 'typed',
+        typeEnvironment: {
+          event: {
+            kind: 'object',
+            fields: {
+              values: {
+                kind: 'list',
+                element: {kind: 'object', fields: {label: 'string'}},
+              },
+            },
+          },
+        },
+      },
+    });
+
+    expect(expression.resultType).toBe('string');
+  });
+
+  it.each(['first', 'last'] as const)('rejects %s on a non-list receiver', (method) => {
+    const act = () =>
+      createWorkflowExpression({
+        source: `event.value.${method}()`,
+        check: {
+          mode: 'typed',
+          typeEnvironment: {
+            event: {kind: 'object', fields: {value: 'string'}},
+          },
+        },
+      });
+
+    expect(act).toThrow(InvalidWorkflowExpressionError);
   });
 
   it('does not treat fromJson text in a dynamic expression as a function call', () => {
