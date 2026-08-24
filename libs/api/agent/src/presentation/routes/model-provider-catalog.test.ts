@@ -170,6 +170,32 @@ describe('model provider catalog route', () => {
         instance_default_provider_id: 'anthropic',
       });
     });
+
+    it('omits a blank instance default provider id', async () => {
+      vi.resetModules();
+      vi.stubEnv('AGENT_DEFAULT_PROVIDER', '');
+      const {createAgentRoutes: freshCreateAgentRoutes} = await import('./index.js');
+
+      await closeApp();
+      app = await createApp({
+        auth: [fakeUserAuth],
+        routes: freshCreateAgentRoutes(undefined as never),
+        swagger: false,
+      });
+      await app.ready();
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/agent/model-provider-catalog',
+        headers: {authorization: 'Bearer user'},
+      });
+
+      expect(res.statusCode, res.body).toBe(200);
+      expect(res.json()).toMatchObject({
+        managed_provider_id: null,
+        instance_default_provider_id: null,
+      });
+    });
   });
 });
 

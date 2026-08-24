@@ -12,9 +12,9 @@ let cachedCatalog: readonly ModelProviderCatalogEntryDto[] | undefined;
 
 export interface ModelProviderCatalogResponse {
   readonly providers: readonly ModelProviderCatalogEntryDto[];
-  readonly workspace_providers: WorkspaceProvidersPolicy;
-  readonly managed_provider_id: string | null;
-  readonly instance_default_provider_id: string | null;
+  readonly workspaceProviders: WorkspaceProvidersPolicy;
+  readonly managedProviderId: string | null;
+  readonly instanceDefaultProviderId: string | null;
 }
 
 export function buildModelProviderCatalogResponse(
@@ -29,9 +29,9 @@ export function buildModelProviderCatalogResponse(
       managedProvider: options.managedProvider,
       workspaceProviders,
     }),
-    workspace_providers: workspaceProviders,
-    managed_provider_id: options.managedProvider?.id ?? null,
-    instance_default_provider_id: config.AGENT_DEFAULT_PROVIDER ?? null,
+    workspaceProviders,
+    managedProviderId: options.managedProvider?.id ?? null,
+    instanceDefaultProviderId: config.AGENT_DEFAULT_PROVIDER || null,
   };
 }
 

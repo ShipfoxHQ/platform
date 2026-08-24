@@ -39,6 +39,7 @@ export {
 export {
   buildModelProviderCatalog,
   buildModelProviderCatalogResponse,
+  type ModelProviderCatalogResponse,
 } from './model-provider-catalog.js';
 export {
   deleteModelProviderConfig,

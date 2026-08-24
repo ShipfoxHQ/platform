@@ -1,3 +1,4 @@
+export {toModelProviderCatalogResponseDto} from './model-provider-catalog.js';
 export {
   toCustomModelProviderConfigDto,
   toModelProviderConfigDto,

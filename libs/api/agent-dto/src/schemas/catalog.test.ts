@@ -215,6 +215,8 @@ describe('model provider catalog', () => {
 
     expect(() => parse({managed_provider_id: 42})).toThrow();
     expect(() => parse({instance_default_provider_id: ''})).toThrow();
+    expect(() => parse({managed_provider_id: 'not a provider ref'})).toThrow();
+    expect(() => parse({instance_default_provider_id: 'ab'})).toThrow();
   });
 
   it('rejects an invalid workspace provider policy in the full catalog response', () => {
