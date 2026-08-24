@@ -13,6 +13,7 @@ import {workflowDefinitions} from '#db/schema/definitions.js';
 import {definitionsOutbox} from '#db/schema/outbox.js';
 import {workflowWorkflows} from '#db/schema/workflows.js';
 import {agentValidationCatalog} from '#test/agent-validation-catalog.js';
+import {MAX_WORKFLOW_FILES} from './sync-definitions.js';
 
 const metrics = vi.hoisted(() => ({
   recordDefinitionRefResolution: vi.fn(),
@@ -572,6 +573,37 @@ describe('resolveDefinitionAtRef', () => {
       expect.objectContaining({code: expect.any(String), message: expect.any(String)}),
     );
   });
+
+  test('preserves all validation warnings for single-definition resolution', async () => {
+    const repeatedWarningRun = Array.from({length: 101}, () => 'eval "$MSG"').join('; ');
+    const clients = withClients({
+      integrations: {
+        fetchSourceFile: async () => ({
+          path: CONFIG_PATH,
+          ref: COMMIT,
+          content: `
+name: Many warnings
+runner: ubuntu-latest
+jobs:
+  build:
+    steps:
+      - env:
+          MSG: '${'$'.concat('{{ event.x }}')}'
+        run: ${repeatedWarningRun}
+`,
+        }),
+      },
+    });
+
+    const result = await resolveDefinitionAtRef({
+      projectId: crypto.randomUUID(),
+      ref: 'fix-branch',
+      configPath: CONFIG_PATH,
+      ...clients,
+    });
+
+    expect(result.warnings).toHaveLength(101);
+  });
 });
 
 describe('listDefinitionsAtRef', () => {
@@ -688,7 +720,7 @@ describe('listDefinitionsAtRef', () => {
         fetchSourceFile: async ({path}) => ({path, ref: COMMIT, content: validYaml}),
       },
     });
-    await expectRefError(
+    const error = await expectRefError(
       listDefinitionsAtRef({
         projectId: crypto.randomUUID(),
         ref: 'fix-branch',
@@ -696,7 +728,26 @@ describe('listDefinitionsAtRef', () => {
       }),
       'too-many-files',
     );
+    expect(error.details).toEqual({fileCount: 150});
     expect(metrics.recordDefinitionRefResolution).toHaveBeenCalledWith('too-many-files');
+  });
+
+  test('uses a positive lower bound when an over-limit page is empty', async () => {
+    const clients = withClients({
+      integrations: {
+        listSourceFiles: async () => ({files: [], nextCursor: 'more'}),
+      },
+    });
+    const error = await expectRefError(
+      listDefinitionsAtRef({
+        projectId: crypto.randomUUID(),
+        ref: 'fix-branch',
+        ...clients,
+      }),
+      'too-many-files',
+    );
+
+    expect(error.details).toEqual({fileCount: MAX_WORKFLOW_FILES + 1});
   });
 
   test('reports a file that fails to fetch as invalid', async () => {
@@ -720,7 +771,7 @@ describe('listDefinitionsAtRef', () => {
     expect(result.files[0]).toMatchObject({valid: false, name: null});
   });
 
-  test('answers source-unavailable when a listed file cannot reach the provider', async () => {
+  test('reports a listed file that cannot reach the provider as invalid', async () => {
     const clients = withClients({
       integrations: {
         fetchSourceFile: () => {
@@ -733,15 +784,20 @@ describe('listDefinitionsAtRef', () => {
       },
     });
 
-    await expectRefError(
-      listDefinitionsAtRef({
-        projectId: crypto.randomUUID(),
-        ref: 'fix-branch',
-        ...clients,
-      }),
-      'source-unavailable',
-    );
-    expect(metrics.recordDefinitionRefResolution).toHaveBeenCalledWith('source-unavailable');
+    const result = await listDefinitionsAtRef({
+      projectId: crypto.randomUUID(),
+      ref: 'fix-branch',
+      ...clients,
+    });
+    expect(result.files).toMatchObject([
+      {
+        valid: false,
+        errors: [
+          {message: expect.stringContaining('workflow file at the ref could not be fetched')},
+        ],
+      },
+    ]);
+    expect(metrics.recordDefinitionRefResolution).toHaveBeenCalledWith('resolved');
   });
 
   test('returns validation warnings for warning-only listing entries', async () => {

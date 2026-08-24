@@ -1,4 +1,5 @@
 import {defineInterModuleContract, type InterModuleClient} from '@shipfox/inter-module';
+import {isSafeRefInput} from '@shipfox/regex';
 import {z} from 'zod';
 
 const id = z.string().uuid();
@@ -155,12 +156,5 @@ export const integrationsInterModuleContract = defineInterModuleContract({
     },
   },
 });
-
-function isSafeRefInput(value: string): boolean {
-  return [...value].every((character) => {
-    const code = character.codePointAt(0) ?? 0;
-    return !(code < 0x20 || (code >= 0x7f && code <= 0x9f) || code === 0x2028 || code === 0x2029);
-  });
-}
 
 export type IntegrationsModuleClient = InterModuleClient<typeof integrationsInterModuleContract>;

@@ -52,6 +52,7 @@
   },
   "dependencies": {
     "@shipfox/inter-module": "workspace:*",
+    "@shipfox/regex": "workspace:*",
     "zod": "catalog:"
   },
   "devDependencies": {

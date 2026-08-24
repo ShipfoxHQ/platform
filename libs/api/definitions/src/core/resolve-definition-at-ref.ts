@@ -4,7 +4,13 @@ import type {
   WorkflowModelSnapshot,
   WorkflowSourceSnapshot,
 } from '@shipfox/api-definitions-dto';
-import {createWorkflowModelSnapshot} from '@shipfox/api-definitions-dto';
+import {
+  createWorkflowModelSnapshot,
+  DEFINITION_SYNC_DIAGNOSTICS_MAX_COUNT,
+  DEFINITION_SYNC_WARNING_CODE_MAX_LENGTH,
+  DEFINITION_SYNC_WARNING_MESSAGE_MAX_LENGTH,
+  DEFINITION_SYNC_WARNING_PATH_MAX_LENGTH,
+} from '@shipfox/api-definitions-dto';
 import {
   type IntegrationsModuleClient,
   integrationsInterModuleContract,
@@ -65,7 +71,14 @@ export interface ListDefinitionsAtRefParams {
   projects: ProjectsModuleClient;
   agent: AgentInterModuleClient;
   integrations: IntegrationsModuleClient;
+  project?: DefinitionAtRefProject;
   signal?: AbortSignal;
+}
+
+export interface DefinitionAtRefProject {
+  workspaceId: string;
+  sourceConnectionId: string;
+  sourceExternalRepositoryId: string;
 }
 
 export interface DefinitionAtRefFile {
@@ -112,7 +125,12 @@ async function resolveDefinitionAtRefUnsafe(
   params: ResolveDefinitionAtRefParams,
 ): Promise<ResolvedDefinitionAtRef> {
   throwIfAborted(params.signal);
-  const source = await requireProjectSource(params.projects, params.projectId, params.signal);
+  const source = await requireProjectSource(
+    params.projects,
+    params.projectId,
+    undefined,
+    params.signal,
+  );
   const commit = await resolveRefToCommit({
     integrations: params.integrations,
     source,
@@ -188,7 +206,12 @@ async function listDefinitionsAtRefUnsafe(
   params: ListDefinitionsAtRefParams,
 ): Promise<DefinitionsAtRefListing> {
   throwIfAborted(params.signal);
-  const source = await requireProjectSource(params.projects, params.projectId, params.signal);
+  const source = await requireProjectSource(
+    params.projects,
+    params.projectId,
+    params.project,
+    params.signal,
+  );
   const commit = await resolveRefToCommit({
     integrations: params.integrations,
     source,
@@ -257,14 +280,21 @@ async function listDefinitionsAtRefUnsafe(
 async function requireProjectSource(
   projects: ProjectsModuleClient,
   projectId: string,
+  projectOverride: DefinitionAtRefProject | undefined,
   signal: AbortSignal | undefined,
 ): Promise<ResolvedProjectSource> {
+  if (projectOverride !== undefined) return sourceForProject(projectOverride);
+
   const {project} = await callWithSignal(projects.getProjectById, {projectId}, signal);
   if (project === null) {
     throw new DefinitionAtRefError('project-not-found', `Project not found: ${projectId}`, {
       projectId,
     });
   }
+  return sourceForProject(project);
+}
+
+function sourceForProject(project: DefinitionAtRefProject): ResolvedProjectSource {
   return {
     workspaceId: project.workspaceId,
     connectionId: project.sourceConnectionId,
@@ -338,6 +368,7 @@ async function listWorkflowFilesAtCommit(params: {
     throw new DefinitionAtRefError(
       'too-many-files',
       `More than ${MAX_WORKFLOW_FILES} workflow files were found`,
+      {fileCount: Math.max(page.files.length, MAX_WORKFLOW_FILES + 1)},
     );
   }
   return page.files
@@ -429,7 +460,7 @@ function parseWorkflowDefinition(
       throw new DefinitionAtRefError(
         'invalid-definition',
         `Invalid workflow definition: ${error.message}`,
-        {errors: (error.details ?? []) as ValidationError[]},
+        {errors: boundedValidationErrors((error.details ?? []) as ValidationError[])},
       );
     }
     throw error;
@@ -457,7 +488,10 @@ async function fetchListingFile(params: {
     return {path: snapshot.path, content: snapshot.content};
   } catch (error) {
     if (error instanceof DefinitionAtRefError && isPerFileListingError(error.code)) {
-      return {path: params.path, errors: [{message: error.message}]};
+      return {
+        path: params.path,
+        errors: boundedValidationErrors([{message: error.message}]),
+      };
     }
     throw error;
   }
@@ -473,7 +507,10 @@ function parseListingEntry(
     return {path: entry.path, content: entry.content, definition};
   } catch (error) {
     if (error instanceof DefinitionParseError) {
-      return {path: entry.path, errors: (error.details ?? []) as ValidationError[]};
+      return {
+        path: entry.path,
+        errors: boundedValidationErrors((error.details ?? []) as ValidationError[]),
+      };
     }
     throw error;
   }
@@ -486,7 +523,7 @@ function listingFileFor(entry: ListingEntry): DefinitionAtRefFile {
       name: entry.definition.document.name,
       valid: true,
       errors: [],
-      warnings: warningsFor(entry.definition.diagnostics),
+      warnings: listingWarningsFor(entry.definition.diagnostics),
       triggers: definitionTriggersFor(entry.definition.model),
     };
   }
@@ -504,10 +541,25 @@ function warningsFor(diagnostics: readonly ValidationDiagnostic[]): ValidationWa
   return diagnostics
     .filter((diagnostic) => diagnostic.severity === 'warning')
     .map((diagnostic) => ({
-      code: diagnostic.code,
-      message: diagnostic.message,
-      ...(diagnostic.path === undefined ? {} : {path: diagnostic.path}),
+      code: diagnostic.code.slice(0, DEFINITION_SYNC_WARNING_CODE_MAX_LENGTH),
+      message: diagnostic.message.slice(0, DEFINITION_SYNC_WARNING_MESSAGE_MAX_LENGTH),
+      ...(diagnostic.path === undefined
+        ? {}
+        : {path: diagnostic.path.slice(0, DEFINITION_SYNC_WARNING_PATH_MAX_LENGTH)}),
     }));
+}
+
+function listingWarningsFor(diagnostics: readonly ValidationDiagnostic[]): ValidationWarning[] {
+  return warningsFor(diagnostics).slice(0, DEFINITION_SYNC_DIAGNOSTICS_MAX_COUNT);
+}
+
+function boundedValidationErrors(errors: readonly ValidationError[]): ValidationError[] {
+  return errors.slice(0, DEFINITION_SYNC_DIAGNOSTICS_MAX_COUNT).map((error) => ({
+    message: error.message.slice(0, DEFINITION_SYNC_WARNING_MESSAGE_MAX_LENGTH),
+    ...(error.path === undefined
+      ? {}
+      : {path: error.path.slice(0, DEFINITION_SYNC_WARNING_PATH_MAX_LENGTH)}),
+  }));
 }
 
 async function loadAtRefIntegrationValidationContext(params: {
@@ -529,7 +581,12 @@ async function loadAtRefIntegrationValidationContext(params: {
 }
 
 function isPerFileListingError(code: DefinitionAtRefErrorCode): boolean {
-  return code === 'file-not-found' || code === 'content-too-large' || code === 'invalid-definition';
+  return (
+    code === 'file-not-found' ||
+    code === 'content-too-large' ||
+    code === 'invalid-definition' ||
+    code === 'source-unavailable'
+  );
 }
 
 function callWithSignal<Input, Output>(
@@ -548,5 +605,37 @@ function sourceUnavailable(error: unknown, message: string): DefinitionAtRefErro
   return new DefinitionAtRefError(
     'source-unavailable',
     `${message}: ${error instanceof Error ? error.message : String(error)}`,
+    sourceFailureDetails(error),
   );
+}
+
+function sourceFailureDetails(error: unknown): Record<string, unknown> {
+  const methods = [
+    integrationsInterModuleContract.methods.resolveSourceRef,
+    integrationsInterModuleContract.methods.listSourceFiles,
+    integrationsInterModuleContract.methods.fetchSourceFile,
+    integrationsInterModuleContract.methods.getAgentToolsContext,
+  ] as const;
+
+  for (const method of methods) {
+    if (!isInterModuleKnownError(method, error)) continue;
+    if (
+      error.code === 'connection-not-found' ||
+      error.code === 'connection-inactive' ||
+      error.code === 'connection-workspace-mismatch'
+    ) {
+      return {sourceCode: error.code};
+    }
+    if (error.code === 'provider-failure') {
+      return {
+        sourceCode: error.code,
+        sourceReason: error.details.reason,
+        ...(error.details.retryAfterSeconds === undefined
+          ? {}
+          : {retryAfterSeconds: error.details.retryAfterSeconds}),
+      };
+    }
+  }
+
+  return {};
 }

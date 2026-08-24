@@ -160,7 +160,7 @@ describe('definitions inter-module presentation', () => {
   it('maps the listing file-limit failure to its known error', async () => {
     const method = definitionsInterModuleContract.methods.listDefinitionsAtRef;
     mocks.listDefinitionsAtRef.mockRejectedValueOnce(
-      new DefinitionAtRefError('too-many-files', 'too many files'),
+      new DefinitionAtRefError('too-many-files', 'too many files', {fileCount: 100}),
     );
 
     const error = await rejection(
@@ -172,6 +172,6 @@ describe('definitions inter-module presentation', () => {
 
     expect(isInterModuleKnownError(method, error)).toBe(true);
     expect((error as {code: string}).code).toBe('too-many-files');
-    expect((error as {details: unknown}).details).toEqual({});
+    expect((error as {details: unknown}).details).toEqual({fileCount: 100});
   });
 });

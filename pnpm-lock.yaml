@@ -2543,6 +2543,9 @@ importers:
       '@shipfox/inter-module':
         specifier: workspace:*
         version: link:../../shared/common/inter-module
+      '@shipfox/regex':
+        specifier: workspace:*
+        version: link:../../shared/common/regex
       '@shipfox/workflow-document':
         specifier: workspace:*
         version: link:../../shared/workflow/document
@@ -2829,6 +2832,9 @@ importers:
       '@shipfox/inter-module':
         specifier: workspace:*
         version: link:../../../shared/common/inter-module
+      '@shipfox/regex':
+        specifier: workspace:*
+        version: link:../../../shared/common/regex
       zod:
         specifier: 'catalog:'
         version: 4.4.3

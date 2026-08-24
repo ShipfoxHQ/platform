@@ -91,7 +91,9 @@ function toDefinitionAtRefKnownError(method: InterModuleMethodContract, error: u
         errors: details.errors as Array<{message: string; path?: string}>,
       });
     case 'too-many-files':
-      return createInterModuleKnownError(method, 'too-many-files', {});
+      return createInterModuleKnownError(method, 'too-many-files', {
+        fileCount: Number(details.fileCount),
+      });
     case 'source-unavailable':
       return createInterModuleKnownError(method, 'source-unavailable', {});
   }

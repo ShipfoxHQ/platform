@@ -1,6 +1,6 @@
 import {defineInterModuleContract, type InterModuleClient} from '@shipfox/inter-module';
 import {z} from 'zod';
-import {definitionValidationErrorSchema} from '#schemas/dto.js';
+import {definitionValidationErrorSchema, definitionValidationWarningSchema} from '#schemas/dto.js';
 import {triggerDtoSchema} from '#schemas/trigger.js';
 import {workflowModelSnapshotSchema} from './workflow-model.js';
 
@@ -14,11 +14,6 @@ const definitionSnapshotSchema = z.object({
   name: z.string(),
   model: workflowModelSnapshotSchema,
   sourceSnapshot: z.object({content: z.string(), format: z.literal('yaml')}).nullable(),
-});
-const validationWarningSchema = z.object({
-  code: z.string(),
-  message: z.string(),
-  path: z.string().optional(),
 });
 const refResolutionErrors = {
   'project-not-found': z.object({projectId: idSchema}),
@@ -34,7 +29,7 @@ const refListingErrors = {
   'project-not-found': z.object({projectId: idSchema}),
   'ref-not-found': z.object({ref: refSchema}),
   'ref-invalid': z.object({ref: refSchema}),
-  'too-many-files': z.object({}),
+  'too-many-files': z.object({fileCount: z.number().int().positive()}),
   'source-unavailable': z.object({}),
 };
 const resolvedDefinitionAtRefSchema = z.object({
@@ -43,14 +38,14 @@ const resolvedDefinitionAtRefSchema = z.object({
   model: workflowModelSnapshotSchema,
   sourceSnapshot: z.object({content: z.string(), format: z.literal('yaml')}),
   triggers: z.record(z.string(), triggerDtoSchema),
-  warnings: z.array(validationWarningSchema),
+  warnings: z.array(definitionValidationWarningSchema),
 });
 const definitionAtRefFileSchema = z.object({
   configPath: configPathSchema,
   name: z.string().nullable(),
   valid: z.boolean(),
   errors: z.array(definitionValidationErrorSchema),
-  warnings: z.array(validationWarningSchema),
+  warnings: z.array(definitionValidationWarningSchema),
   triggers: z.record(z.string(), triggerDtoSchema),
 });
 

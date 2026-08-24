@@ -16,6 +16,8 @@ drift.
   letter or number and then use letters, numbers, `_`, or `-`, case-insensitive.
 - **`isLowercaseSha256Hex(value)`** checks the lowercase 64-character hex form
   emitted by Node's `crypto` SHA-256 digest.
+- **`isSafeRefInput(value)`** rejects control and line-separator characters from
+  branch and tag names before they cross a boundary.
 - **`createShipfoxTokenPrefixRegexes(tokenTypeParts)`** builds the unqualified
   and environment-qualified Shipfox opaque-token prefix matchers from the token
   type parts owned by `@shipfox/node-tokens`.
