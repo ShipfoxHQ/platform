@@ -601,6 +601,46 @@ describe('RunFromBranchDialog', () => {
     expect(screen.getByText(STEP_ONE_OF_THREE_STATUS)).toBeInTheDocument();
   });
 
+  test('disables Start run when the selected trigger becomes non-selectable on the inputs step', async () => {
+    const {fetchImpl, queueListing} = createFetch();
+    const {queryClient} = renderDialog(fetchImpl);
+
+    resolveRefToFileStep();
+    await screen.findByText('Resolved');
+    fireEvent.click(screen.getByRole('button', {name: 'Next'}));
+    selectFile('Triage Sentry');
+    fireEvent.click(screen.getByRole('button', {name: 'Next'}));
+    selectTrigger('on_issue');
+    fireEvent.click(screen.getByRole('button', {name: 'Next'}));
+    await screen.findByLabelText('Input 1 value');
+
+    // A listing refresh changes the selected manual trigger's source to an
+    // integration source: the inputs step renders the fallback, and the
+    // primary action must not stay enabled on a submit that cannot proceed.
+    queueListing(
+      jsonResponse(
+        atRefListingDto({
+          files: [
+            {
+              config_path: '.shipfox/workflows/triage-sentry.yml',
+              name: 'Triage Sentry',
+              valid: true,
+              errors: [],
+              warnings: [],
+              triggers: {on_issue: {source: 'github_acme', event: 'issue.created'}},
+            },
+          ],
+        }),
+      ),
+    );
+    await queryClient.refetchQueries({
+      queryKey: definitionsAtRefQueryKeys.atRef(PROJECT_ID, 'fix-triage-prompt'),
+    });
+
+    await screen.findByText('The selected trigger is no longer available at this ref.');
+    expect(screen.getByRole('button', {name: 'Start run'})).toBeDisabled();
+  });
+
   test('flags duplicate input keys and disables Start run', async () => {
     const {fetchImpl, getDevRunBodies} = createFetch();
     renderDialog(fetchImpl);

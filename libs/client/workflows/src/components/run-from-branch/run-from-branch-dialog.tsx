@@ -36,7 +36,11 @@ import {
   definitionsAtRefErrorCopy,
   useDefinitionsAtRefQuery,
 } from '#hooks/api/definitions-at-ref.js';
-import {devRunErrorCopy, useCreateDevRunMutation} from '#hooks/api/dev-runs.js';
+import {
+  devRunErrorCopy,
+  isRefMovedWithFailedRefresh,
+  useCreateDevRunMutation,
+} from '#hooks/api/dev-runs.js';
 
 /**
  * A journaled event fixed by the calling surface. When set, only triggers
@@ -220,7 +224,9 @@ export function RunFromBranchDialog({
 
   const canProceed =
     step === 'inputs'
-      ? selectedTrigger !== undefined && duplicateKeys.length === 0
+      ? selectedTrigger !== undefined &&
+        triggerIsSelectable(selectedTrigger) &&
+        duplicateKeys.length === 0
       : step === 'trigger'
         ? selectedTrigger !== undefined && triggerIsSelectable(selectedTrigger)
         : step === 'file'
@@ -316,7 +322,7 @@ export function RunFromBranchDialog({
         setSelectedTriggerKey(undefined);
         setInputRows([]);
         setStep('file');
-        if (createDevRun.atRefRefreshFailed.current) {
+        if (isRefMovedWithFailedRefresh(error)) {
           setSubmitError({
             title: 'Could not re-list the workflow files',
             message: 'The ref moved and the updated listing could not be loaded. Try again.',

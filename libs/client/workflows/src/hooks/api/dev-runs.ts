@@ -1,7 +1,6 @@
 import {createDevRunResponseSchema} from '@shipfox/api-triggers-dto';
-import {ApiError, checkedApiRequest} from '@shipfox/client-api';
+import {ApiError, checkedApiRequest, isErrorWithCode} from '@shipfox/client-api';
 import {useMutation, useQueryClient} from '@tanstack/react-query';
-import {useRef} from 'react';
 import type {DefinitionAtRefListing, DefinitionAtRefTrigger} from '#core/definitions-at-ref.js';
 import {runFromBranchTriggerDefaultEvent} from '#core/run-from-branch.js';
 import type {DevRunLaunch, WorkflowRunListItem} from '#core/workflow-run.js';
@@ -189,10 +188,6 @@ function refreshCachedAtRefListing(
  */
 export function useCreateDevRunMutation() {
   const queryClient = useQueryClient();
-  // Tracks whether the pre-POST at-ref refresh failed for the latest submit.
-  // The caller uses it to avoid re-confirming a stale listing after a
-  // `ref-moved` answer when the re-list could not be loaded.
-  const atRefRefreshFailed = useRef(false);
   const mutation = useMutation({
     mutationFn: createDevRun,
     onMutate: async (variables) => {
@@ -201,18 +196,17 @@ export function useCreateDevRunMutation() {
         variables.projectId,
         variables.ref,
       );
-      atRefRefreshFailed.current = refreshFailed;
       const file = listing?.files.find((entry) => entry.configPath === variables.configPath);
       const trigger = file?.triggers[variables.trigger];
       if (!listing || !file || !trigger) {
-        return {tempWorkflowRunId: undefined, touchedQueryKeys: []};
+        return {tempWorkflowRunId: undefined, touchedQueryKeys: [], refreshFailed};
       }
 
       // The required commit is the request's compare-and-set value. If the
       // cached listing moved before submission, do not show an optimistic row
       // for a request that the server is expected to reject as `ref-moved`.
       if (listing.commit !== variables.commit) {
-        return {tempWorkflowRunId: undefined, touchedQueryKeys: []};
+        return {tempWorkflowRunId: undefined, touchedQueryKeys: [], refreshFailed};
       }
 
       // An integration trigger without a declared event needs the selected
@@ -220,7 +214,7 @@ export function useCreateDevRunMutation() {
       // can still proceed; omit only the speculative row when that metadata
       // is unavailable.
       if (trigger.source === 'integration' && variables.replayEventId && !variables.replayEvent) {
-        return {tempWorkflowRunId: undefined, touchedQueryKeys: []};
+        return {tempWorkflowRunId: undefined, touchedQueryKeys: [], refreshFailed};
       }
 
       const triggerSource = trigger.source;
@@ -245,11 +239,18 @@ export function useCreateDevRunMutation() {
         accepts: (filters) => filtersAcceptDevPendingRun(filters, triggerSource, now),
       });
 
-      return {tempWorkflowRunId: tempRun.id, touchedQueryKeys};
+      return {tempWorkflowRunId: tempRun.id, touchedQueryKeys, refreshFailed};
     },
-    onError: (_error, _variables, context) => {
+    onError: (error, _variables, context) => {
       if (!context) return;
       removeTemporaryWorkflowRun(queryClient, context.touchedQueryKeys, context.tempWorkflowRunId);
+      // The preflight refresh outcome belongs to this mutation: carry it on
+      // the `ref-moved` error so the caller's handler, which observes the
+      // same error instance, can decide whether a stale listing is
+      // confirmable without sharing state across overlapping mutations.
+      if (context.refreshFailed && isErrorWithCode(error, 'ref-moved')) {
+        (error as RefMovedWithRefreshOutcome).atRefRefreshFailed = true;
+      }
     },
     onSuccess: (_data, variables, context) => {
       if (context) {
@@ -264,8 +265,25 @@ export function useCreateDevRunMutation() {
       });
     },
   });
-  return {...mutation, atRefRefreshFailed};
+  return mutation;
 }
+
+/**
+ * True when the `ref-moved` error's pre-POST at-ref refresh failed: the
+ * caller must not let the user re-confirm the stale listing. The flag is
+ * per-mutation and travels on the error instance the mutation's `onError`
+ * annotated, so overlapping mutations cannot report each other's outcome.
+ */
+export function isRefMovedWithFailedRefresh(error: unknown): boolean {
+  return (
+    isErrorWithCode(error, 'ref-moved') &&
+    error instanceof ApiError &&
+    (error as RefMovedWithRefreshOutcome).atRefRefreshFailed === true
+  );
+}
+
+/** A `ref-moved` ApiError annotated with its own pre-POST refresh outcome. */
+type RefMovedWithRefreshOutcome = ApiError & {atRefRefreshFailed?: boolean};
 
 export interface DevRunErrorCopy {
   title: string;
