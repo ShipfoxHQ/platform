@@ -1,4 +1,5 @@
 import type {Harness} from '@shipfox/api-agent-dto';
+import {AgentSessionHarnessMismatchError} from '#core/errors.js';
 import {assertValidSessionKey, claimSession, getSessionByRunAttemptAndKey} from '#db/index.js';
 
 /**
@@ -49,9 +50,12 @@ function toDescriptor(
  *   first use, pinned to the resolved harness) and returns the current head
  *   segment. Conflicts and harness mismatches fail fast with the domain
  *   errors the presentation maps to contract-known codes.
- * * `fork` performs no claim. It reads whatever head exists; a fork of a
- *   session that does not exist yet returns a null descriptor and creates
- *   nothing.
+ * * `fork` performs no claim. It reads whatever head exists within the caller's
+ *   workspace/project scope; a fork of a session that does not exist yet
+ *   returns a null descriptor and creates nothing. The pinned harness must
+ *   match the caller's resolved harness (the same rule resume enforces), so a
+ *   fork cannot silently run a provider the workspace's current policy
+ *   disallows.
  */
 export async function claimStepSession(
   params: ClaimStepSessionParams,
@@ -60,10 +64,21 @@ export async function claimStepSession(
 
   if (params.mode === 'fork') {
     const session = await getSessionByRunAttemptAndKey({
+      workspaceId: params.workspaceId,
+      projectId: params.projectId,
       workflowRunAttemptId: params.workflowRunAttemptId,
       key: params.key,
     });
     if (!session) return {descriptor: null, harness: params.harness};
+    if (session.harness !== params.harness) {
+      throw new AgentSessionHarnessMismatchError({
+        sessionId: session.id,
+        workflowRunAttemptId: params.workflowRunAttemptId,
+        key: session.key,
+        pinnedHarness: session.harness,
+        requestedHarness: params.harness,
+      });
+    }
     return {descriptor: toDescriptor(session, 'fork'), harness: session.harness};
   }
 

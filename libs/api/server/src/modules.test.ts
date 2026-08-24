@@ -334,7 +334,6 @@ describe('defaultModules', () => {
     expect(mocks.createAgentModule).toHaveBeenCalledWith({
       secrets: expect.any(Object),
       workflows: expect.any(Object),
-      jobLeaseTokenTtlSeconds: expect.any(Number),
     });
     expect(mocks.createAgentModule.mock.calls[0]?.[0].secrets).not.toHaveProperty('getSecret');
   });
@@ -361,7 +360,6 @@ describe('defaultModules', () => {
     expect(agentModule).toHaveBeenCalledWith({
       secrets: expect.any(Object),
       workflows: expect.any(Object),
-      jobLeaseTokenTtlSeconds: expect.any(Number),
     });
     expect(secretValues).toEqual({values: {}});
     expect(mocks.getSecretsByNamespace).toHaveBeenCalledWith(
@@ -373,7 +371,6 @@ describe('defaultModules', () => {
     expect(mocks.createAgentModule).toHaveBeenCalledWith({
       secrets: agentSecrets,
       workflows: expect.any(Object),
-      jobLeaseTokenTtlSeconds: expect.any(Number),
     });
     expect(mocks.createAgentModule).toHaveBeenCalledTimes(1);
     expect(modules.filter((module) => module.name === 'agent')).toEqual([customAgentModule]);

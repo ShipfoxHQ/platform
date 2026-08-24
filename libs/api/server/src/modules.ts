@@ -65,8 +65,12 @@ export type DefaultAuthModuleFactory = (options: {
  */
 export type DefaultAgentModuleFactory = (options: {
   secrets: Pick<SecretsInterModuleClient, 'deleteSecrets' | 'getSecretsByNamespace' | 'setSecrets'>;
-  workflows: WorkflowsModuleClient;
-  jobLeaseTokenTtlSeconds: number;
+  /**
+   * Optional: the claim-release subscribers and worker are only registered when
+   * the workflows client is composed, so a factory built without it stays
+   * claim/release-free (as before the session release stack landed).
+   */
+  workflows?: WorkflowsModuleClient | undefined;
 }) => ShipfoxModule;
 export type DefaultRunnersModuleFactory = (options: {auth: AuthInterModuleClient}) => ShipfoxModule;
 export type DefaultModulesExtension = (options: {
@@ -189,7 +193,6 @@ export async function defaultModules(
   const agentModule = (options.agentModule ?? createAgentModule)({
     secrets: createAgentSecretsClient(secretsClient),
     workflows: workflowsClient,
-    jobLeaseTokenTtlSeconds: durationToSeconds(authConfig.AUTH_JOB_LEASE_TOKEN_EXPIRES_IN),
   });
   if (options.agentModule) validateCustomAgentModule(agentModule);
 

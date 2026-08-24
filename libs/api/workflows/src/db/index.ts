@@ -82,6 +82,7 @@ export {
   getWorkflowRunById,
   getWorkflowRunDetail,
   listRunAttempts,
+  listStepAttemptIdsByJobId,
   listWorkflowRunJobSummaries,
   listWorkflowRuns,
   listWorkflowRunsByProject,

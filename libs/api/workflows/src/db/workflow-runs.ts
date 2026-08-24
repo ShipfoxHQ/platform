@@ -117,6 +117,7 @@ export {
   getStepsByJobExecutionIdForUpdate,
   getStepsByJobId,
   insertRunningStepAttempt,
+  listStepAttemptIdsByJobId,
   markStepRunning,
   markStepSkipped,
   rewindStepsToPending,

@@ -10,8 +10,18 @@ import {
   type WorkspaceProvidersPolicy,
 } from '@shipfox/api-agent-dto';
 import {bool, createConfig, num, str} from '@shipfox/config';
+import {logger} from '@shipfox/node-opentelemetry';
 import {WorkspaceProvidersDisabledError} from '#core/errors.js';
 import {getModelProviderEntry} from '#core/model-provider-policy.js';
+
+/**
+ * Workflows' default maximum job execution duration (`DEFAULT_EXECUTION_MAX_DURATION_MS`
+ * in `job-execution-orchestration.ts`). The session reap threshold must exceed it:
+ * the runner re-mints its job lease on every heartbeat, so a live step can hold a
+ * claim for the whole execution even though the lease TTL is far shorter. This is
+ * the documented floor used for the fail-soft startup warning, not a liveness check.
+ */
+const WORKFLOWS_DEFAULT_MAX_EXECUTION_SECONDS = 6 * 60 * 60;
 
 const AGENT_THINKING_CHOICES = agentThinkingSchema.options;
 const SUPPORTED_PROVIDER_IDS_DESCRIPTION = SUPPORTED_MODEL_PROVIDER_IDS.join(', ');
@@ -60,12 +70,16 @@ export const config = createConfig({
     default: true,
   }),
   AGENT_SESSION_CLOSE_GRACE_SECONDS: num({
-    desc: 'How long to wait after a job reaches a terminal state before force-releasing any agent session claims its steps still hold (a runner that died before reporting, a lost termination event). The wait lets a last in-flight attempt report and release its own claim. Defaults to 120 seconds.',
+    desc: 'How long to wait after a job reaches a terminal state before force-releasing any agent session claims its steps still hold (a runner that died before reporting, a lost termination event). The wait lets a last in-flight attempt report and release its own claim. Must be positive: a zero or negative value makes the sweep fire immediately and race the last in-flight attempt. Defaults to 120 seconds.',
     default: 120,
   }),
   AGENT_SESSION_REAP_AFTER_SECONDS: num({
-    desc: 'How long a session claim may be held before the reaper cron force-releases it as abandoned. This is the backstop for claims the termination subscribers never cleared; a claim older than the Auth job lease lifetime can no longer be live. The application validates that this exceeds the Auth job lease lifetime. Defaults to 7200 seconds (2 hours).',
-    default: 7200,
+    desc: 'How long a session claim may be held before the reaper cron force-releases it as abandoned. This is the backstop for claims the termination subscribers never cleared. The job lease is renewable on every runner heartbeat and executions run up to their configured maximum duration (6 hours by default), so a live step can legitimately hold a claim longer than any lease TTL: set this above the longest job execution duration for this deployment. Defaults to 28800 seconds (8 hours), which covers the 6-hour default maximum execution duration.',
+    default: 28800,
+  }),
+  AGENT_SESSION_REAP_BATCH_LIMIT: num({
+    desc: 'How many stale session claims the reap cron may release per tick. Remaining stale claims are picked up on the next tick. Defaults to 100.',
+    default: 100,
   }),
 });
 
@@ -118,13 +132,36 @@ export function assertAgentConfig(managedProvider?: ManagedModelProvider): void 
   );
 }
 
-export function validateAgentSessionReapAfterSeconds(jobLeaseTokenTtlSeconds: number): void {
-  if (
-    !Number.isFinite(config.AGENT_SESSION_REAP_AFTER_SECONDS) ||
-    config.AGENT_SESSION_REAP_AFTER_SECONDS <= jobLeaseTokenTtlSeconds
-  ) {
-    throw new Error(
-      `AGENT_SESSION_REAP_AFTER_SECONDS (${config.AGENT_SESSION_REAP_AFTER_SECONDS}) must be greater than the Auth job lease TTL (${jobLeaseTokenTtlSeconds}s); a smaller value would let the reaper release a claim a still-valid lease is actively running and break single-writer exclusivity.`,
+/**
+ * Fail-soft startup check for the session claim lifecycle knobs. Logs a warning
+ * instead of aborting module creation: an unsafe value must not take down every
+ * instance for configurations that were valid before these knobs existed. The
+ * reaper threshold is a backstop heuristic, not a liveness signal, so the
+ * warning only flags values that are unsafe against the documented workflows
+ * default maximum execution duration, never against the (renewable) job lease TTL.
+ */
+export function warnOnUnsafeAgentSessionConfig(): void {
+  const reapAfter = config.AGENT_SESSION_REAP_AFTER_SECONDS;
+  if (!Number.isFinite(reapAfter) || reapAfter <= 0) {
+    logger().warn(
+      {reapAfterSeconds: reapAfter},
+      'AGENT_SESSION_REAP_AFTER_SECONDS must be a positive number of seconds above the longest job execution duration; with this value the reaper treats every claim as stale and can break single-writer exclusivity for still-running steps.',
+    );
+  } else if (reapAfter <= WORKFLOWS_DEFAULT_MAX_EXECUTION_SECONDS) {
+    logger().warn(
+      {
+        reapAfterSeconds: reapAfter,
+        workflowsDefaultMaxExecutionSeconds: WORKFLOWS_DEFAULT_MAX_EXECUTION_SECONDS,
+      },
+      'AGENT_SESSION_REAP_AFTER_SECONDS is at or below the workflows default maximum job execution duration: a still-running step can legitimately hold a claim past this threshold (the job lease is renewable on heartbeats), so the reaper may release a live claim. Set it above the longest job execution duration for this deployment.',
+    );
+  }
+
+  const closeGrace = config.AGENT_SESSION_CLOSE_GRACE_SECONDS;
+  if (!Number.isFinite(closeGrace) || closeGrace <= 0) {
+    logger().warn(
+      {closeGraceSeconds: closeGrace},
+      'AGENT_SESSION_CLOSE_GRACE_SECONDS must be positive; a zero or negative value makes the job-terminated sweep fire immediately and race the last in-flight attempt report, defeating the grace window.',
     );
   }
 }

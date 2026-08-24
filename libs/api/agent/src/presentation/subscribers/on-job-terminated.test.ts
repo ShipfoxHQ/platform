@@ -44,6 +44,7 @@ describe('onJobTerminated', () => {
     expect(startMock).toHaveBeenCalledWith('releaseAbandonedSessionClaims', {
       taskQueue: AGENT_SESSION_LIFECYCLE_TASK_QUEUE,
       workflowId: `agent-session-release:${jobId}`,
+      workflowExecutionTimeout: '1 hour',
       args: [{jobId, graceSeconds: config.AGENT_SESSION_CLOSE_GRACE_SECONDS}],
     });
   });

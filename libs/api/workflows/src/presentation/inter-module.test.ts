@@ -21,9 +21,9 @@ import {
 const mocks = vi.hoisted(() => ({
   deliverEventToListener: vi.fn(),
   getJobScope: vi.fn(),
-  getStepAttempts: vi.fn(),
   getStepById: vi.fn(),
   getStepByIdForJobExecution: vi.fn(),
+  listStepAttemptIdsByJobId: vi.fn(),
 }));
 
 vi.mock('#db/index.js', () => mocks);
@@ -48,7 +48,7 @@ const input = {
 describe('Workflows inter-module presentation', () => {
   beforeEach(() => {
     mocks.getJobScope.mockReset();
-    mocks.getStepAttempts.mockReset();
+    mocks.listStepAttemptIdsByJobId.mockReset();
     mocks.getStepById.mockReset();
     mocks.getStepByIdForJobExecution.mockReset();
     mocks.deliverEventToListener.mockReset();
@@ -57,7 +57,7 @@ describe('Workflows inter-module presentation', () => {
 
   it('returns the step attempt ids of a job for the session release sweep', async () => {
     const stepAttemptId = '00000000-0000-4000-8000-000000000010';
-    mocks.getStepAttempts.mockResolvedValue([{id: stepAttemptId}]);
+    mocks.listStepAttemptIdsByJobId.mockResolvedValue([stepAttemptId]);
     const presentation = createWorkflowsInterModulePresentation({
       agent: {} as never,
       definitions: {} as never,
@@ -73,7 +73,9 @@ describe('Workflows inter-module presentation', () => {
       {signal: new AbortController().signal},
     );
 
-    expect(mocks.getStepAttempts).toHaveBeenCalledWith('00000000-0000-4000-8000-000000000006');
+    expect(mocks.listStepAttemptIdsByJobId).toHaveBeenCalledWith(
+      '00000000-0000-4000-8000-000000000006',
+    );
     expect(result).toEqual({stepAttemptIds: [stepAttemptId]});
   });
 

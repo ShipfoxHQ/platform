@@ -10,7 +10,7 @@ import type {WorkflowsModuleClient} from '@shipfox/api-workflows-dto/inter-modul
 import {type ShipfoxModule, subscriberFactory} from '@shipfox/node-module';
 import {
   assertAgentConfig,
-  validateAgentSessionReapAfterSeconds,
+  warnOnUnsafeAgentSessionConfig,
   workspaceProvidersPolicy,
 } from '#config.js';
 import type {AgentSecretsClient} from '#core/secrets-client.js';
@@ -64,11 +64,15 @@ export {
 export function createAgentModule(params: {
   secrets: AgentSecretsClient;
   managedProvider?: ManagedModelProvider | undefined;
-  workflows: WorkflowsModuleClient;
-  jobLeaseTokenTtlSeconds: number;
+  /**
+   * Workflows-facing release seam. When absent, the claim-release subscribers
+   * and worker are not registered, so an external consumer can keep the module
+   * claim/release-free until the workflows integration is composed.
+   */
+  workflows?: WorkflowsModuleClient | undefined;
 }): ShipfoxModule {
   assertAgentConfig(params.managedProvider);
-  validateAgentSessionReapAfterSeconds(params.jobLeaseTokenTtlSeconds);
+  warnOnUnsafeAgentSessionConfig();
 
   const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
   const workflowsPath = resolve(packageRoot, 'dist/temporal/workflows/index.js');
@@ -95,26 +99,34 @@ export function createAgentModule(params: {
     ],
     // Session claims are released on the same signals that close log streams:
     // the step-attempt-terminated event, the job-terminated grace sweep, and a
-    // stale-claim reap cron as the last safety net.
-    subscribers: [
-      subscriber(WORKFLOWS_STEP_ATTEMPT_TERMINATED, onStepAttemptTerminated),
-      subscriber(WORKFLOWS_JOB_TERMINATED, onJobTerminated),
-    ],
-    workers: [
-      {
-        taskQueue: AGENT_SESSION_LIFECYCLE_TASK_QUEUE,
-        workflowsPath,
-        activities: () => createAgentSessionActivities({workflows: params.workflows}),
-        workflows: [
-          // Offset from retention-style top-of-hour sweeps; stale-claim age is
-          // governed by AGENT_SESSION_REAP_AFTER_SECONDS.
-          {
-            name: 'reapStaleSessionClaimsCron',
-            id: 'agent-session-reap-stale-claims',
-            cronSchedule: '5,15,25,35,45,55 * * * *',
-          },
-        ],
-      },
-    ],
+    // stale-claim reap cron as the last safety net. The whole stack is gated on
+    // the workflows client: without it there is no caller to release for.
+    ...(params.workflows === undefined
+      ? {}
+      : {
+          subscribers: [
+            subscriber(WORKFLOWS_STEP_ATTEMPT_TERMINATED, onStepAttemptTerminated),
+            subscriber(WORKFLOWS_JOB_TERMINATED, onJobTerminated),
+          ],
+          workers: [
+            {
+              taskQueue: AGENT_SESSION_LIFECYCLE_TASK_QUEUE,
+              workflowsPath,
+              activities: () =>
+                createAgentSessionActivities({
+                  workflows: params.workflows as WorkflowsModuleClient,
+                }),
+              workflows: [
+                // Offset from retention-style top-of-hour sweeps; stale-claim age is
+                // governed by AGENT_SESSION_REAP_AFTER_SECONDS.
+                {
+                  name: 'reapStaleSessionClaimsCron',
+                  id: 'agent-session-reap-stale-claims',
+                  cronSchedule: '5,15,25,35,45,55 * * * *',
+                },
+              ],
+            },
+          ],
+        }),
   };
 }

@@ -100,6 +100,25 @@ function assertSessionClaimable(row: AgentSessionDb, params: ClaimSessionParams)
   }
 }
 
+/**
+ * Defense-in-depth scope check: the session identity is the `(run attempt, key)`
+ * pair, so a caller that forwards an attempt id from untrusted input could
+ * otherwise read or claim a row belonging to another workspace/project. The
+ * denormalized `workspace_id`/`project_id` must match the caller-supplied scope;
+ * a mismatch is surfaced as `AgentSessionHeldError` (the row is held by another
+ * scope's attempt context) rather than read across the boundary.
+ */
+function assertSessionScopeMatches(row: AgentSessionDb, params: ClaimSessionParams): void {
+  if (row.workspaceId !== params.workspaceId || row.projectId !== params.projectId) {
+    throw new AgentSessionHeldError({
+      sessionId: row.id,
+      workflowRunAttemptId: params.workflowRunAttemptId,
+      key: row.key,
+      heldByStepAttempt: row.claimedByStepAttempt,
+    });
+  }
+}
+
 async function tryAcquireSessionClaimLock(
   tx: Transaction,
   params: ClaimSessionParams,
@@ -142,8 +161,11 @@ export async function claimSession(params: ClaimSessionParams): Promise<AgentSes
       eq(sessions.key, params.key),
     );
     const [existingRow] = await tx.select().from(sessions).where(sessionIdentity);
-    if (existingRow && !(await tryAcquireSessionClaimLock(tx, params))) {
-      throwSessionHeld(existingRow, params);
+    if (existingRow) {
+      assertSessionScopeMatches(existingRow, params);
+      if (!(await tryAcquireSessionClaimLock(tx, params))) {
+        throwSessionHeld(existingRow, params);
+      }
     }
 
     await tx
@@ -232,10 +254,14 @@ export async function releaseSession(params: {
 
 /**
  * Reads the session for a run attempt and resolved key without claiming it.
- * `fork` mode uses this: it never claims and never writes back, so the caller
- * only needs whatever head exists (or nothing, for a fresh ephemeral run).
+ * Scoped to the caller-supplied workspace and project so a forwarded attempt id
+ * can never read another tenant's session. `fork` mode uses this: it never
+ * claims and never writes back, so the caller only needs whatever head exists
+ * (or nothing, for a fresh ephemeral run).
  */
 export async function getSessionByRunAttemptAndKey(params: {
+  workspaceId: string;
+  projectId: string;
   workflowRunAttemptId: string;
   key: string;
 }): Promise<AgentSession | undefined> {
@@ -244,6 +270,8 @@ export async function getSessionByRunAttemptAndKey(params: {
     .from(sessions)
     .where(
       and(
+        eq(sessions.workspaceId, params.workspaceId),
+        eq(sessions.projectId, params.projectId),
         eq(sessions.workflowRunAttemptId, params.workflowRunAttemptId),
         eq(sessions.key, params.key),
       ),
@@ -280,9 +308,13 @@ export async function releaseSessionClaimsHeldByStepAttempts(
 
 /**
  * Lists sessions whose claim has been held longer than `olderThanSeconds`
- * without a release. The reap cron's bounded sweep: a claim older than the
- * job-lease TTL can no longer be live, so clearing it is safe. Bounded per
- * tick; remaining stale claims are picked up on the next cron run.
+ * without a release. The reap cron's bounded sweep: a claim this old can no
+ * longer be assumed live, so clearing it unblocks the key for the next attempt.
+ * This is a backstop heuristic, not a liveness check: the job lease is renewed
+ * on every runner heartbeat, so `olderThanSeconds` must exceed the longest job
+ * execution duration for the deployment (see the AGENT_SESSION_REAP_AFTER_SECONDS
+ * description). Bounded per tick; remaining stale claims are picked up on the
+ * next cron run.
  */
 export async function listStaleClaimedSessions(params: {
   olderThanSeconds: number;

@@ -535,6 +535,21 @@ export async function getStepAttempts(jobId: string): Promise<StepAttempt[]> {
   return rows.map((row) => toStepAttempt(row.stepAttempt));
 }
 
+/**
+ * Lists only the step attempt ids of a job, without materializing the full
+ * attempt entities. The session release sweep only needs the ids to release
+ * claims, so this keeps the per-job-terminated query off a full-row projection.
+ */
+export async function listStepAttemptIdsByJobId(jobId: string): Promise<string[]> {
+  const rows = await db()
+    .select({id: stepAttempts.id})
+    .from(stepAttempts)
+    .innerJoin(steps, eq(stepAttempts.stepId, steps.id))
+    .innerJoin(jobExecutions, eq(steps.jobExecutionId, jobExecutions.id))
+    .where(eq(jobExecutions.jobId, jobId));
+  return rows.map((row) => row.id);
+}
+
 export async function getStepAttemptsByJobIds(jobIds: string[]): Promise<StepAttempt[]> {
   if (jobIds.length === 0) return [];
   const rows = await db()

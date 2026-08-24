@@ -216,6 +216,22 @@ describe('claimSession', () => {
     expect(row).toMatchObject({harness: 'pi', claimedByStepAttempt: ctx.stepAttemptId});
   });
 
+  it('refuses to claim a session held under a different workspace scope', async () => {
+    const ctx = newCtx();
+    const held = await claimSession({...ctx, harness: 'pi'});
+
+    const act = claimSession({
+      ...ctx,
+      workspaceId: crypto.randomUUID(),
+      stepAttemptId: crypto.randomUUID(),
+      harness: 'pi',
+    });
+
+    await expect(act).rejects.toBeInstanceOf(AgentSessionHeldError);
+    const row = await findSession(held.id);
+    expect(row?.claimedByStepAttempt).toBe(ctx.stepAttemptId);
+  });
+
   it('grants a claim to another attempt once the holder released it', async () => {
     const ctx = newCtx();
     const first = await claimSession({...ctx, harness: 'pi'});
@@ -473,6 +489,8 @@ describe('getSessionByRunAttemptAndKey', () => {
     const claimed = await claimSession({...ctx, harness: 'pi'});
 
     const found = await getSessionByRunAttemptAndKey({
+      workspaceId: ctx.workspaceId,
+      projectId: ctx.projectId,
       workflowRunAttemptId: ctx.workflowRunAttemptId,
       key: ctx.key,
     });
@@ -486,6 +504,8 @@ describe('getSessionByRunAttemptAndKey', () => {
     await claimSession({...ctx, harness: 'pi'});
 
     const found = await getSessionByRunAttemptAndKey({
+      workspaceId: ctx.workspaceId,
+      projectId: ctx.projectId,
       workflowRunAttemptId: ctx.workflowRunAttemptId,
       key: 'other',
     });
@@ -498,12 +518,28 @@ describe('getSessionByRunAttemptAndKey', () => {
     const claimed = await claimSession({...ctx, harness: 'pi'});
 
     const otherRun = await getSessionByRunAttemptAndKey({
+      workspaceId: ctx.workspaceId,
+      projectId: ctx.projectId,
       workflowRunAttemptId: crypto.randomUUID(),
       key: ctx.key,
     });
 
     expect(otherRun).toBeUndefined();
     expect(claimed.id).toEqual(expect.any(String));
+  });
+
+  it('never returns a session held under a different workspace scope', async () => {
+    const ctx = newCtx();
+    await claimSession({...ctx, harness: 'pi'});
+
+    const foreignScope = await getSessionByRunAttemptAndKey({
+      workspaceId: crypto.randomUUID(),
+      projectId: ctx.projectId,
+      workflowRunAttemptId: ctx.workflowRunAttemptId,
+      key: ctx.key,
+    });
+
+    expect(foreignScope).toBeUndefined();
   });
 });
 

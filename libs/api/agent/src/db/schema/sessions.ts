@@ -1,6 +1,7 @@
 import type {Harness} from '@shipfox/api-agent-dto';
 import {uuidv7PrimaryKey} from '@shipfox/node-drizzle';
-import {bigint, integer, text, timestamp, uniqueIndex, uuid} from 'drizzle-orm/pg-core';
+import {sql} from 'drizzle-orm';
+import {bigint, index, integer, text, timestamp, uniqueIndex, uuid} from 'drizzle-orm/pg-core';
 import type {AgentSession} from '#core/entities/agent-session.js';
 import {pgTable} from './common.js';
 
@@ -42,6 +43,16 @@ export const sessions = pgTable(
   },
   (table) => [
     uniqueIndex('agent_sessions_run_key_unique').on(table.workflowRunAttemptId, table.key),
+    // The claim release (releaseSessionClaimsHeldByStepAttempts) filters on
+    // claimed_by_step_attempt on every step-attempt-terminated event; the
+    // registry has no deletion path, so without this index the update scans a
+    // table that grows with every run attempt.
+    index('agent_sessions_claimed_by_step_attempt_idx').on(table.claimedByStepAttempt),
+    // The reap sweep (listStaleClaimedSessions) filters on claimed_at; partial
+    // on the claim so it never carries the released (claim-free) tail.
+    index('agent_sessions_claimed_at_partial_idx')
+      .on(table.claimedAt)
+      .where(sql`${table.claimedByStepAttempt} is not null`),
   ],
 );
 

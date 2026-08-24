@@ -161,6 +161,42 @@ describe('agent inter-module claimSession', () => {
       .where(eq(sessions.workflowRunAttemptId, input.workflowRunAttemptId));
     expect(rows).toHaveLength(0);
   });
+
+  it('fails a fork with session-harness-mismatch when the pinned harness differs from the resolved one', async () => {
+    const input = newClaimInput({mode: 'fork', harness: 'pi'});
+    const presentation = createPresentation();
+    await claim(presentation, {
+      ...input,
+      mode: 'resume' as const,
+      stepAttemptId: crypto.randomUUID(),
+    });
+
+    const result = await claim(presentation, {...input, harness: 'claude'}).catch(
+      (error: unknown) => error,
+    );
+
+    expect(isInterModuleKnownError(agentInterModuleContract.methods.claimSession, result)).toBe(
+      true,
+    );
+    if (!isInterModuleKnownError(agentInterModuleContract.methods.claimSession, result)) {
+      throw new Error('Expected a claim known error');
+    }
+    expect(result.code).toBe('session-harness-mismatch');
+  });
+
+  it('returns a null descriptor for a fork of a session held under another workspace', async () => {
+    const input = newClaimInput({mode: 'fork'});
+    const presentation = createPresentation();
+    await claim(presentation, {
+      ...input,
+      mode: 'resume' as const,
+      stepAttemptId: crypto.randomUUID(),
+    });
+
+    const result = await claim(presentation, {...input, workspaceId: crypto.randomUUID()});
+
+    expect(result).toEqual({descriptor: null, harness: 'pi'});
+  });
 });
 
 describe('agent inter-module carryOverSessions', () => {

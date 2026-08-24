@@ -74,10 +74,10 @@ describe('reapStaleSessionClaims', () => {
       batchLimit: 10,
     });
 
-    // The first stale row's release clears both claims (same wedged attempt);
-    // the second row is then a no-op, so the count reports release statements
-    // that cleared something, not rows swept.
-    expect(result.reaped).toBe(1);
+    // Both claims belong to the same wedged attempt, so they dedupe into one
+    // guarded release statement that clears both rows; reaped sums the actual
+    // claims cleared, not the statements issued.
+    expect(result.reaped).toBe(2);
     expect(await findClaim(first.id)).toBeNull();
     expect(await findClaim(second.id)).toBeNull();
   });
