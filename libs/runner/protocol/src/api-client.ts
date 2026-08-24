@@ -547,7 +547,13 @@ export async function appendStepLogs(
     return {status: 'committed', committedLength: committed_length, capped};
   }
   if (response.status === 409) {
-    const parsed = offsetGapResponseSchema.safeParse(await response.json());
+    let body: unknown;
+    try {
+      body = await response.json();
+    } catch {
+      return {status: 'stopped'};
+    }
+    const parsed = offsetGapResponseSchema.safeParse(body);
     if (!parsed.success) return {status: 'stopped'};
     const {details} = parsed.data;
     return {status: 'conflict', committedLength: details.committed_length};
