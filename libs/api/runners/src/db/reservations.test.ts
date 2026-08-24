@@ -115,17 +115,10 @@ describe('pollDemandAndReserve', () => {
 
   it('does not block on reservation locks while observing leaked units', async () => {
     const leakedUnitsBefore = await countLiveReservationLeakUnits();
-    const [reservation] = await db()
-      .insert(reservations)
-      .values({
-        workspaceId,
-        provisionerId,
-        requiredLabels: ['linux'],
-        count: 1,
-        expiresAt: new Date(Date.now() + 60_000),
-      })
-      .returning({id: reservations.id});
-    if (!reservation) throw new Error('Expected reservation');
+    const reservation = await createIntendedReservation({
+      workspaceId,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
     const lockClient = await pgClient().connect();
     let transactionOpen = false;
     let timeout: ReturnType<typeof setTimeout> | undefined;

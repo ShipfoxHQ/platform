@@ -487,10 +487,13 @@ async function listActiveProvisionerReservationRowsTx(
 }
 
 export async function countLiveReservationLeakUnits(): Promise<number> {
-  return await db().transaction(async (tx) => {
-    const rows = await listActiveProvisionerReservationRowsTx(tx, {lockForMutation: false});
-    return rows.reduce((total, row) => total + row.leaked, 0);
-  });
+  return await db().transaction(
+    async (tx) => {
+      const rows = await listActiveProvisionerReservationRowsTx(tx, {lockForMutation: false});
+      return rows.reduce((total, row) => total + row.leaked, 0);
+    },
+    {isolationLevel: 'repeatable read', accessMode: 'read only'},
+  );
 }
 
 function addUsedRunner(
