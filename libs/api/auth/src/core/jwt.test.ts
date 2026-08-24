@@ -31,8 +31,27 @@ describe('jwt', () => {
     expect(claims.name).toBe('Token User');
     expect(claims.memberships).toEqual(memberships);
     expect(claims).not.toHaveProperty('adminRole');
+    expect(claims.impersonatorId).toBeUndefined();
     expect(claims.iat).toBeTypeOf('number');
     expect(claims.exp).toBeGreaterThan(claims.iat);
+  });
+
+  test('signs and verifies a token carrying an impersonatorId claim', async () => {
+    const userId = crypto.randomUUID();
+    const impersonatorId = crypto.randomUUID();
+
+    const token = await signUserToken({
+      userId,
+      impersonatorId,
+      email: `jwt-${crypto.randomUUID()}@example.com`,
+      memberships: [],
+      secret: SECRET,
+      expiresIn: '15m',
+    });
+    const claims = await verifyUserToken({token, secret: SECRET});
+
+    expect(claims.sub).toBe(userId);
+    expect(claims.impersonatorId).toBe(impersonatorId);
   });
 
   test('signs and verifies a token with empty memberships', async () => {

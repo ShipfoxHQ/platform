@@ -34,6 +34,7 @@ export const meRoute = defineRoute({
     return {
       user: toUserDto(result.user),
       admin_role: await getCurrentAdminRole({userId: client.userId}),
+      impersonator_id: client.impersonatorId,
     };
   },
 });

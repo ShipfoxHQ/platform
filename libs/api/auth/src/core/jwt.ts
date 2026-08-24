@@ -14,6 +14,7 @@ export type TokenMembership = z.infer<typeof tokenMembershipSchema>;
 export const userTokenClaimsSchema = z.object({
   sub: z.string().uuid(),
   refreshSessionId: z.string().uuid().optional(),
+  impersonatorId: z.string().uuid().optional(),
   email: z.string().email(),
   name: z.string().nullable().optional(),
   memberships: z.array(tokenMembershipSchema),
@@ -25,6 +26,7 @@ export type UserTokenClaims = z.infer<typeof userTokenClaimsSchema>;
 
 export interface SignUserTokenParams {
   refreshSessionId?: string | undefined;
+  impersonatorId?: string | undefined;
   userId: string;
   email: string;
   name?: string | null | undefined;
@@ -45,6 +47,7 @@ export async function signUserToken(params: SignUserTokenParams): Promise<string
       name: params.name ?? null,
       memberships: params.memberships,
       refreshSessionId: params.refreshSessionId,
+      impersonatorId: params.impersonatorId,
     },
     secret: params.secret,
     expiresIn: params.expiresIn,

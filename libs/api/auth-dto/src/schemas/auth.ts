@@ -68,6 +68,7 @@ export const loginResponseSchema = z.object({
   token: z.string(),
   user: userDtoSchema,
   admin_role: adminRoleSchema.nullable().optional(),
+  impersonator_id: z.string().uuid().optional(),
 });
 
 export type LoginResponseDto = z.infer<typeof loginResponseSchema>;
@@ -79,6 +80,7 @@ export type RefreshResponseDto = z.infer<typeof refreshResponseSchema>;
 export const meResponseSchema = z.object({
   user: userDtoSchema,
   admin_role: adminRoleSchema.nullable().optional(),
+  impersonator_id: z.string().uuid().optional(),
 });
 
 export type MeResponseDto = z.infer<typeof meResponseSchema>;
