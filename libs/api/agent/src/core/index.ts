@@ -7,6 +7,8 @@ export {discoverCustomModelProviderModels} from './discover-custom-model-provide
 export type {AgentWorkspaceSettings} from './entities/agent-workspace-settings.js';
 export type {ModelProviderConfig} from './entities/model-provider-config.js';
 export {
+  AgentSessionUnavailableError,
+  type AgentSessionUnavailableReason,
   CustomModelProviderConfigNotFoundError,
   CustomModelProviderSlugCollisionError,
   CustomModelProviderStoredSecretBaseUrlChangeError,
@@ -65,6 +67,45 @@ export {
   type ResolveRuntimeCredentialsParams,
   resolveRuntimeCredentials,
 } from './resolve-runtime-credentials.js';
+export {
+  aadForSessionObject,
+  type CommitSessionSegmentParams,
+  closeSessionS3Client,
+  createSessionArtifactStore,
+  createSessionKeyProvider,
+  decodeBase64SessionKek,
+  deleteSessionObject,
+  deleteSessionObjects,
+  deriveSessionKekVersion,
+  getSessionObject,
+  listSessionObjectKeys,
+  openSessionBlob,
+  openSessionDek,
+  type ParsedSessionObjectKey,
+  type PutSessionSegmentParams,
+  type PutSessionSegmentResult,
+  parseSessionObjectKey,
+  putSessionObject,
+  type ReadSessionHeadResult,
+  type SegmentManifest,
+  type SessionArtifactStore,
+  SessionDekManager,
+  type SessionKeyProvider,
+  type SessionObjectKeyParams,
+  sealSessionBlob,
+  sealSessionDek,
+  segmentManifestFromMetadata,
+  segmentManifestToMetadata,
+  sessionObjectKey,
+  sessionObjectKeyPrefix,
+  sessionS3Client,
+  type WrappedSessionDek,
+} from './session-artifacts/index.js';
+export {
+  type RunSessionRetentionSweepParams,
+  runSessionRetentionSweep,
+  type SessionRetentionSweepResult,
+} from './session-retention.js';
 export {createWorkspaceAgentDefaultsResolver} from './workspace-agent-defaults-resolver.js';
 export {
   assertWorkspaceProviderConfigurationEnabled,

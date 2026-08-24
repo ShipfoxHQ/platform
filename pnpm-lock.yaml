@@ -1997,6 +1997,9 @@ importers:
 
   libs/api/agent:
     dependencies:
+      '@aws-sdk/client-s3':
+        specifier: 'catalog:'
+        version: 3.1089.0
       '@earendil-works/pi-ai':
         specifier: 'catalog:'
         version: 0.82.0(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
@@ -2048,6 +2051,9 @@ importers:
       '@shipfox/redact':
         specifier: workspace:*
         version: link:../../shared/common/redact
+      '@temporalio/activity':
+        specifier: 'catalog:'
+        version: 1.18.1
       '@temporalio/workflow':
         specifier: 'catalog:'
         version: 1.18.1

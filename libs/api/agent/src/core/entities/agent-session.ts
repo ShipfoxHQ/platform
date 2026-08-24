@@ -40,6 +40,8 @@ export interface AgentSession {
   claimedAt: Date | null;
   /** Session row this one was carried over from on a rerun (provenance). */
   carriedFromSessionId: string | null;
+  /** When the owning run attempt reached a terminal state (retention sweep horizon). */
+  retiredAt: Date | null;
   /** Optimistic-lock counter, bumped on every mutation. */
   version: number;
   createdAt: Date;

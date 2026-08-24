@@ -27,3 +27,32 @@ export const sessionClaimReapFailedCount = meter.createCounter('agent_session_cl
   description:
     'Stale agent session claim reaps that threw and were skipped; retried on the next cron run',
 });
+
+export type SessionCommitOutcome = 'committed' | 'retry_acked' | 'conflict';
+
+/** Session transcript commit attempts by head-flip outcome. Outcome labels only; session keys never become label values. */
+export const sessionCommitsCount = meter.createCounter<{outcome: SessionCommitOutcome}>(
+  'agent_session_commits',
+  {
+    description: 'Agent session transcript commit attempts by outcome',
+  },
+);
+
+const SESSION_BLOB_CAP_BYTES = 64 * 1024 * 1024;
+
+/** Compressed bytes of committed session segments; bounded by the 64 MiB blob cap. */
+export const sessionCommittedBytes = meter.createHistogram<Record<string, never>>(
+  'agent_session_committed',
+  {
+    description: 'Compressed bytes of committed agent session segments',
+    unit: 'By',
+    advice: {
+      explicitBucketBoundaries: [
+        SESSION_BLOB_CAP_BYTES / 64,
+        SESSION_BLOB_CAP_BYTES / 16,
+        SESSION_BLOB_CAP_BYTES / 4,
+        SESSION_BLOB_CAP_BYTES,
+      ],
+    },
+  },
+);

@@ -9,10 +9,11 @@ import {
   SUPPORTED_MODEL_PROVIDER_IDS,
   type WorkspaceProvidersPolicy,
 } from '@shipfox/api-agent-dto';
-import {bool, createConfig, num, str} from '@shipfox/config';
+import {bool, createConfig, num, str, url} from '@shipfox/config';
 import {logger} from '@shipfox/node-opentelemetry';
 import {WorkspaceProvidersDisabledError} from '#core/errors.js';
 import {getModelProviderEntry} from '#core/model-provider-policy.js';
+import {decodeBase64SessionKek} from '#core/session-artifacts/crypto.js';
 
 /**
  * Workflows' default maximum job execution duration (`DEFAULT_EXECUTION_MAX_DURATION_MS`
@@ -96,6 +97,50 @@ export const config = createConfig({
   AGENT_SESSION_REAP_BATCH_LIMIT: num({
     desc: 'How many stale session claims the reap cron may release per tick. Remaining stale claims are picked up on the next tick. Defaults to 100.',
     default: 100,
+  }),
+  AGENT_SESSION_STORAGE_S3_ENDPOINT: url({
+    desc: 'Endpoint URL of the S3-compatible object store that holds encrypted session transcript artifacts. Defaults to the bundled local-development Garage (http://localhost:3900); set it to your object store endpoint for production.',
+    default: 'http://localhost:3900',
+  }),
+  AGENT_SESSION_STORAGE_S3_REGION: str({
+    desc: 'Region passed to the S3 client. Any value works for Garage; set the real region for AWS S3. Defaults to garage for local development.',
+    default: 'garage',
+  }),
+  AGENT_SESSION_STORAGE_S3_BUCKET: str({
+    desc: 'Name of the bucket that stores encrypted session transcript artifacts. Defaults to shipfox-agent-sessions (created by dev/garage/bootstrap.sh); create the bucket and set this for production.',
+    default: 'shipfox-agent-sessions',
+  }),
+  AGENT_SESSION_STORAGE_S3_PREFIX: str({
+    desc: 'Key prefix under which session transcript artifacts are stored in the bucket. Set this to host several modules in one bucket, each under its own prefix. Use a value without a leading or trailing slash. Defaults to agent-sessions.',
+    default: 'agent-sessions',
+  }),
+  AGENT_SESSION_STORAGE_S3_ACCESS_KEY_ID: str({
+    desc: 'Optional access key ID used to authenticate to the object store. Set it together with AGENT_SESSION_STORAGE_S3_SECRET_ACCESS_KEY for an explicit credential pair, or leave both unset to use the standard AWS SDK credential provider chain.',
+    default: undefined,
+  }),
+  AGENT_SESSION_STORAGE_S3_SECRET_ACCESS_KEY: str({
+    desc: 'Optional secret access key used to authenticate to the object store. Set it together with AGENT_SESSION_STORAGE_S3_ACCESS_KEY_ID for an explicit credential pair, or leave both unset to use the standard AWS SDK credential provider chain.',
+    default: undefined,
+  }),
+  AGENT_SESSION_STORAGE_S3_FORCE_PATH_STYLE: bool({
+    desc: 'Whether to address the bucket as a path (endpoint/bucket) instead of a subdomain. Set it to true for Garage and MinIO; false works for AWS S3.',
+    default: true,
+  }),
+  AGENT_SESSION_ENCRYPTION_KEK: str({
+    desc: 'Master key used to wrap per-workspace session transcript data keys. Required. Generate a unique value per environment with openssl rand -base64 32 and provide it from a secret manager. The committed .env value is only for local development. Losing this key makes stored session transcripts unrecoverable.',
+    default: undefined,
+  }),
+  AGENT_SESSION_BLOB_CAP_BYTES: num({
+    desc: 'Maximum size of one compressed session transcript segment, in bytes. The runner uploads the gzipped harness session file; a larger blob fails the commit and the attempt. Defaults to 64 MiB.',
+    default: 67_108_864,
+  }),
+  AGENT_SESSION_RETENTION_DAYS: num({
+    desc: 'How many days a session of a terminated run is kept before the retention cron hard-deletes its transcript objects and database row. Our own worker enforces this (not bucket lifecycle rules), so behavior is identical across object stores. Must be a whole number of days, 1 or greater. Defaults to 90 days.',
+    default: 90,
+  }),
+  AGENT_SESSION_SEGMENT_GRACE_SECONDS: num({
+    desc: 'How long a superseded transcript segment must stay superseded before the retention cron prunes it, and how long a session must stay unclaimed before orphaned segments (objects written but never flipped into the head) are collected. The wait lets a concurrent fork snapshot read keep its object and an in-flight commit land its head flip. Defaults to 600 seconds (10 minutes).',
+    default: 600,
   }),
 });
 
@@ -259,6 +304,41 @@ function isRegisteredProvider(
 ): boolean {
   if (managedProvider?.id === providerId) return true;
   return getModelProviderEntry(providerId)?.support_status === 'supported';
+}
+
+const hasSessionS3AccessKeyId = Boolean(config.AGENT_SESSION_STORAGE_S3_ACCESS_KEY_ID);
+const hasSessionS3SecretAccessKey = Boolean(config.AGENT_SESSION_STORAGE_S3_SECRET_ACCESS_KEY);
+if (hasSessionS3AccessKeyId !== hasSessionS3SecretAccessKey) {
+  throw new Error(
+    'AGENT_SESSION_STORAGE_S3_ACCESS_KEY_ID and AGENT_SESSION_STORAGE_S3_SECRET_ACCESS_KEY must be set together or both left unset.',
+  );
+}
+
+decodeBase64SessionKek(config.AGENT_SESSION_ENCRYPTION_KEK, 'AGENT_SESSION_ENCRYPTION_KEK');
+
+if (
+  !Number.isInteger(config.AGENT_SESSION_RETENTION_DAYS) ||
+  config.AGENT_SESSION_RETENTION_DAYS < 1
+) {
+  throw new Error(
+    `AGENT_SESSION_RETENTION_DAYS (${config.AGENT_SESSION_RETENTION_DAYS}) must be a whole number of days >= 1.`,
+  );
+}
+if (
+  !Number.isInteger(config.AGENT_SESSION_SEGMENT_GRACE_SECONDS) ||
+  config.AGENT_SESSION_SEGMENT_GRACE_SECONDS < 1
+) {
+  throw new Error(
+    `AGENT_SESSION_SEGMENT_GRACE_SECONDS (${config.AGENT_SESSION_SEGMENT_GRACE_SECONDS}) must be a whole number of seconds >= 1.`,
+  );
+}
+if (
+  !Number.isInteger(config.AGENT_SESSION_BLOB_CAP_BYTES) ||
+  config.AGENT_SESSION_BLOB_CAP_BYTES < 1
+) {
+  throw new Error(
+    `AGENT_SESSION_BLOB_CAP_BYTES (${config.AGENT_SESSION_BLOB_CAP_BYTES}) must be a whole number of bytes >= 1.`,
+  );
 }
 
 function assertManagedProvider(provider: ManagedModelProvider): void {

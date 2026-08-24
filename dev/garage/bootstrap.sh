@@ -13,7 +13,8 @@ ADMIN_TOKEN="${GARAGE_ADMIN_TOKEN:-shipfox-dev-admin-token}"
 S3_ENDPOINT="${GARAGE_S3_ENDPOINT:-http://localhost:3900}"
 CORS_ALLOWED_ORIGINS="${GARAGE_CORS_ALLOWED_ORIGINS:-http://localhost:5173}"
 # Dev bucket plus the test bucket the @shipfox/api-logs suite uploads to against real Garage.
-BUCKETS="shipfox-logs shipfox-logs-test"
+# The agent session artifact store uses its own bucket pair (secondary secrets store).
+BUCKETS="shipfox-logs shipfox-logs-test shipfox-agent-sessions shipfox-agent-sessions-test"
 KEY_NAME="local-dev"
 ACCESS_KEY_ID="GK000000000000000000000000"
 SECRET_ACCESS_KEY="0000000000000000000000000000000000000000000000000000000000000000"

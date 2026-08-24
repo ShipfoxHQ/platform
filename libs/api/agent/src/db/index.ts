@@ -10,6 +10,10 @@ export {
   setDefaultHarness,
   setDefaultModelProvider,
 } from './agent-workspace-settings.js';
+export {
+  getSessionDataKey,
+  insertSessionDataKeyIfAbsent,
+} from './data-keys.js';
 export {closeDb, db, schema, type Transaction} from './db.js';
 export type {
   InsertCustomModelProviderConfigParams,
@@ -23,7 +27,15 @@ export {
   updateModelProviderDefaultModel,
   upsertModelProviderConfig,
 } from './model-provider-configs.js';
+export {
+  getSessionById,
+  hasSessionReferencingObjectKey,
+  listExpiredSessions,
+  listSegmentPruneCandidates,
+  retireSessionsForRunAttempt,
+} from './retention.js';
 export {agentWorkspaceSettings} from './schema/agent-workspace-settings.js';
+export {sessionDataKeys} from './schema/data-keys.js';
 export {modelProviderConfigs} from './schema/model-provider-configs.js';
 export {sessions} from './schema/sessions.js';
 export type {
