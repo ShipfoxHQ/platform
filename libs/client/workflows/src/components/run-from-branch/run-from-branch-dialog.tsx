@@ -15,16 +15,20 @@ import {
 import {RadioGroup, RadioGroupItem} from '@shipfox/react-ui/radio-group';
 import {Code, Text} from '@shipfox/react-ui/typography';
 import {cn} from '@shipfox/react-ui/utils';
-import {useEffect, useState} from 'react';
+import {useEffect, useRef, useState} from 'react';
 import type {
   DefinitionAtRefDiagnostic,
   DefinitionAtRefFile,
+  DefinitionAtRefTrigger,
   DefinitionAtRefWarning,
 } from '#core/definitions-at-ref.js';
 import {
   type RunFromBranchInputRow,
+  type RunFromBranchTriggerKind,
+  runFromBranchDuplicateKeys,
   runFromBranchInputsFromWith,
   runFromBranchInputsToObject,
+  runFromBranchTriggerDefaultEvent,
   runFromBranchTriggerKind,
   runFromBranchTriggerSourceLabel,
 } from '#core/run-from-branch.js';
@@ -35,11 +39,10 @@ import {
 import {devRunErrorCopy, useCreateDevRunMutation} from '#hooks/api/dev-runs.js';
 
 /**
- * A journaled event fixed by the calling surface. The events-page entry point
- * (a later issue) opens the dialog with an event pinned: only triggers whose
- * source and event match are selectable then, and the replay id is submitted
- * with the run. Until the event picker step lands, integration-sourced
- * triggers are disabled, so this prop only reserves the API seam.
+ * A journaled event fixed by the calling surface. When set, only triggers
+ * whose source and event match are selectable, and the replay id is submitted
+ * with the run. Without a fixed event, integration-sourced triggers are
+ * disabled because their runs replay a journaled event.
  */
 export interface RunFromBranchFixedEvent {
   id: string;
@@ -51,7 +54,7 @@ export interface RunFromBranchDialogProps {
   projectId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Fixed journaled event for replay entry points; unused until the picker step lands. */
+  /** Fixed journaled event for replay entry points: restricts the selectable triggers and submits the replay id. */
   fixedEvent?: RunFromBranchFixedEvent | undefined;
   /** Called with the created run id; the caller owns navigation to the run detail. */
   onRunCreated?: ((workflowRunId: string) => void) | undefined;
@@ -77,12 +80,6 @@ function shortCommit(commit: string): string {
   return commit.slice(0, SHORT_COMMIT_LENGTH);
 }
 
-function defaultTriggerEvent(kind: 'manual' | 'cron' | 'integration'): string {
-  if (kind === 'manual') return 'fire';
-  if (kind === 'cron') return 'tick';
-  return 'any';
-}
-
 interface RunFromBranchErrorCopy {
   title: string;
   message: string;
@@ -97,27 +94,29 @@ interface RunFromBranchInputDraft extends RunFromBranchInputRow {
   id: number;
 }
 
-let inputRowIdSequence = 0;
-
-function toInputDraft(row: RunFromBranchInputRow): RunFromBranchInputDraft {
-  inputRowIdSequence += 1;
-  return {id: inputRowIdSequence, ...row};
-}
-
 /**
  * The Run from branch dialog: pick a branch or tag, a workflow file at that
  * ref, and a trigger, then start a dev run from the pinned commit. The ref is
  * resolved on blur through `GET /definitions/at-ref`; invalid files cannot be
- * selected, integration-sourced triggers are disabled until the event picker
- * lands, and a `ref-moved` answer re-lists the files for confirmation.
+ * selected, integration-sourced triggers are disabled unless a fixed event
+ * matches, and a `ref-moved` answer re-lists the files for confirmation.
  */
 export function RunFromBranchDialog({
   projectId,
   open,
   onOpenChange,
   onRunCreated,
+  fixedEvent,
 }: RunFromBranchDialogProps) {
   const createDevRun = useCreateDevRunMutation();
+  // Row ids come from an instance-scoped counter so they are stable across
+  // edits and reset with each open, like the rest of the draft state.
+  const inputRowId = useRef(0);
+
+  function nextInputRowId(): number {
+    inputRowId.current += 1;
+    return inputRowId.current;
+  }
 
   const [step, setStep] = useState<RunFromBranchStep>('ref');
   const [refDraft, setRefDraft] = useState('');
@@ -142,9 +141,10 @@ export function RunFromBranchDialog({
     setInputRows([]);
     setRefMovedCopy(null);
     setSubmitError(null);
+    inputRowId.current = 0;
   }, [open]);
 
-  const query = useDefinitionsAtRefQuery(projectId, resolvedRef);
+  const query = useDefinitionsAtRefQuery(projectId, open ? resolvedRef : undefined);
   const listing = query.data;
   const queryErrorCopy =
     query.isError && resolvedRef ? definitionsAtRefErrorCopy(query.error) : null;
@@ -157,6 +157,17 @@ export function RunFromBranchDialog({
   const selectedTriggerKind = selectedTrigger
     ? runFromBranchTriggerKind(selectedTrigger.source)
     : undefined;
+
+  // A trigger is selectable when it is not integration-sourced, unless a
+  // fixed event is set, in which case only triggers whose source and event
+  // match it are selectable (the replay entry point).
+  function triggerIsSelectable(trigger: DefinitionAtRefTrigger): boolean {
+    if (!fixedEvent) return runFromBranchTriggerKind(trigger.source) !== 'integration';
+    return (
+      trigger.source === fixedEvent.source &&
+      (trigger.event ?? runFromBranchTriggerDefaultEvent(trigger.source)) === fixedEvent.event
+    );
+  }
 
   // Cron triggers take no inputs, so the inputs step exists only for manual
   // triggers; for cron the trigger step is the last one and carries the submit.
@@ -202,13 +213,15 @@ export function RunFromBranchDialog({
 
   const refStepError = !queryErrorIsInline ? queryErrorCopy : null;
 
+  const duplicateKeys = runFromBranchDuplicateKeys(inputRows);
+
   const canProceed =
     step === 'inputs'
-      ? true
+      ? selectedTrigger !== undefined && duplicateKeys.length === 0
       : step === 'trigger'
-        ? selectedTrigger !== undefined && selectedTriggerKind !== 'integration'
+        ? selectedTrigger !== undefined && triggerIsSelectable(selectedTrigger)
         : step === 'file'
-          ? selectedConfigPath !== undefined
+          ? selectedConfigPath !== undefined && !query.isError
           : Boolean(listing) && !query.isError;
 
   const isLastStep = step === 'inputs' || (step === 'trigger' && selectedTriggerKind !== 'manual');
@@ -246,7 +259,9 @@ export function RunFromBranchDialog({
     setSelectedTriggerKey(triggerKey);
     const file = listing?.files.find((entry) => entry.configPath === selectedConfigPath);
     const trigger = file?.triggers[triggerKey];
-    setInputRows(runFromBranchInputsFromWith(trigger?.with).map(toInputDraft));
+    setInputRows(
+      runFromBranchInputsFromWith(trigger?.with).map((row) => ({id: nextInputRowId(), ...row})),
+    );
     setSubmitError(null);
   }
 
@@ -266,7 +281,8 @@ export function RunFromBranchDialog({
       !selectedConfigPath ||
       !selectedTriggerKey ||
       !listing ||
-      !selectedTrigger
+      !selectedTrigger ||
+      !triggerIsSelectable(selectedTrigger)
     ) {
       return;
     }
@@ -282,20 +298,27 @@ export function RunFromBranchDialog({
         trigger: selectedTriggerKey,
         inputs:
           selectedTrigger.source === 'manual' ? runFromBranchInputsToObject(inputRows) : undefined,
+        replayEventId: fixedEvent?.id,
       });
       onOpenChange(false);
       onRunCreated?.(result.workflowRunId);
     } catch (error) {
       if (isErrorWithCode(error, 'ref-moved')) {
-        // Re-list the files at the ref's new commit and ask the user to
-        // confirm again. The mutation refreshes the at-ref listing before the
-        // POST; refetch here so the re-listing cannot show stale content.
-        await query.refetch().catch(() => undefined);
+        // The mutation refreshed the at-ref listing before the POST, so the
+        // dialog already observes the ref's current commit; refetching here
+        // would only repeat that refresh. When the refresh failed, the stale
+        // listing must not be presented as confirmable.
         setRefMovedCopy(devRunErrorCopy(error));
         setSelectedConfigPath(undefined);
         setSelectedTriggerKey(undefined);
         setInputRows([]);
         setStep('file');
+        if (createDevRun.atRefRefreshFailed.current) {
+          setSubmitError({
+            title: 'Could not re-list the workflow files',
+            message: 'The ref moved and the updated listing could not be loaded. Try again.',
+          });
+        }
         return;
       }
       setSubmitError(devRunErrorCopy(error));
@@ -303,10 +326,19 @@ export function RunFromBranchDialog({
   }
 
   return (
-    <Modal open={open} onOpenChange={onOpenChange}>
+    <Modal
+      open={open}
+      onOpenChange={(nextOpen: boolean) => {
+        // A run in flight must not be dismissed: the success path would
+        // otherwise navigate to the run detail from a dialog the user
+        // already closed.
+        if (createDevRun.isPending && !nextOpen) return;
+        onOpenChange(nextOpen);
+      }}
+    >
       <ModalContent aria-describedby={undefined} className="max-w-[560px]">
         <ModalTitle className="sr-only">Run from branch</ModalTitle>
-        <ModalHeader title="Run from branch" />
+        <ModalHeader title="Run from branch" showClose={!createDevRun.isPending} />
         <ModalBody className="gap-group">
           <RunFromBranchStepIndicator steps={visibleSteps} currentIndex={stepIndex} />
           {step === 'ref' ? (
@@ -331,23 +363,25 @@ export function RunFromBranchDialog({
                 />
               </FormField>
 
-              {resolvedRef && query.isPending ? (
-                <Text size="xs" className="text-foreground-neutral-muted">
-                  Resolving {resolvedRef}…
-                </Text>
-              ) : null}
-              {resolvedRef && listing ? (
-                <div className="flex items-center gap-inline">
-                  <StatusBadge variant="success">Resolved</StatusBadge>
+              <div aria-live="polite" className="flex w-full flex-col gap-inline">
+                {resolvedRef && query.isPending ? (
                   <Text size="xs" className="text-foreground-neutral-muted">
-                    Pinned commit
+                    Resolving {resolvedRef}…
                   </Text>
-                  <Code variant="label">{shortCommit(listing.commit)}</Code>
-                  <Text size="xs" className="text-foreground-neutral-muted">
-                    {listing.files.length} {listing.files.length === 1 ? 'file' : 'files'}
-                  </Text>
-                </div>
-              ) : null}
+                ) : null}
+                {resolvedRef && listing ? (
+                  <div className="flex items-center gap-inline">
+                    <StatusBadge variant="success">Resolved</StatusBadge>
+                    <Text size="xs" className="text-foreground-neutral-muted">
+                      Pinned commit
+                    </Text>
+                    <Code variant="label">{shortCommit(listing.commit)}</Code>
+                    <Text size="xs" className="text-foreground-neutral-muted">
+                      {listing.files.length} {listing.files.length === 1 ? 'file' : 'files'}
+                    </Text>
+                  </div>
+                ) : null}
+              </div>
 
               {refStepError ? (
                 <Alert variant="error">
@@ -376,13 +410,13 @@ export function RunFromBranchDialog({
                   value={selectedConfigPath ?? ''}
                   onValueChange={handleFileSelect}
                 >
-                  {listing.files.map((file) => (
-                    <RunFromBranchFileItem
-                      key={file.configPath}
-                      file={file}
-                      disabled={!file.valid}
-                    />
-                  ))}
+                  {listing.files.map((file) =>
+                    file.valid ? (
+                      <RunFromBranchFileItem key={file.configPath} file={file} />
+                    ) : (
+                      <RunFromBranchInvalidFileCard key={file.configPath} file={file} />
+                    ),
+                  )}
                 </RadioGroup>
               )}
             </div>
@@ -406,9 +440,9 @@ export function RunFromBranchDialog({
                 >
                   {Object.entries(selectedFile.triggers).map(([triggerKey, trigger]) => {
                     const kind = runFromBranchTriggerKind(trigger.source);
-                    const selectable = kind !== 'integration';
-                    return (
-                      <RadioGroupItem key={triggerKey} value={triggerKey} disabled={!selectable}>
+                    const selectable = triggerIsSelectable(trigger);
+                    return selectable ? (
+                      <RadioGroupItem key={triggerKey} value={triggerKey}>
                         <div className="flex w-full items-center gap-inline">
                           <Text size="sm" bold className="min-w-0 truncate">
                             {triggerKey}
@@ -422,14 +456,22 @@ export function RunFromBranchDialog({
                           </StatusBadge>
                         </div>
                         <Text size="xs" className="text-foreground-neutral-muted">
-                          Event {trigger.event ?? defaultTriggerEvent(kind)}
+                          Event {trigger.event ?? runFromBranchTriggerDefaultEvent(trigger.source)}
                         </Text>
-                        {!selectable ? (
-                          <Text size="xs" className="text-tag-warning-text">
-                            Replay arrives in a later release.
+                        {kind === 'cron' ? (
+                          <Text size="xs" className="text-foreground-neutral-muted">
+                            This scheduled trigger fires now and may overlap the next scheduled run.
                           </Text>
                         ) : null}
                       </RadioGroupItem>
+                    ) : (
+                      <RunFromBranchUnavailableTriggerCard
+                        key={triggerKey}
+                        triggerKey={triggerKey}
+                        kind={kind}
+                        trigger={trigger}
+                        hasFixedEvent={fixedEvent !== undefined}
+                      />
                     );
                   })}
                 </RadioGroup>
@@ -437,74 +479,92 @@ export function RunFromBranchDialog({
             </div>
           ) : null}
 
-          {step === 'inputs' && selectedTrigger && selectedTrigger.source === 'manual' ? (
+          {step === 'inputs' ? (
             <div className="flex w-full flex-col gap-group">
-              <Text size="xs" className="text-foreground-neutral-muted">
-                Inputs override the trigger's{' '}
-                <Code as="span" variant="label">
-                  with
-                </Code>{' '}
-                block for this run.
-              </Text>
-              {inputRows.length === 0 ? (
-                <Text size="sm" className="text-foreground-neutral-muted">
-                  This trigger takes no inputs.
-                </Text>
-              ) : (
-                <div className="flex w-full flex-col gap-inline">
-                  {inputRows.map((row, index) => (
-                    <div
-                      key={row.id}
-                      className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-end gap-inline"
-                    >
-                      <FormField
-                        label={`Input ${index + 1} key`}
-                        id={`run-from-branch-input-key-${index}`}
-                      >
-                        <FormFieldInput
-                          className="font-code"
-                          autoComplete="off"
-                          spellCheck={false}
-                          value={row.key}
-                          onChange={(event) => updateInputRow(index, {key: event.target.value})}
-                        />
-                      </FormField>
-                      <FormField
-                        label={`Input ${index + 1} value`}
-                        id={`run-from-branch-input-value-${index}`}
-                      >
-                        <FormFieldInput
-                          className="font-code"
-                          autoComplete="off"
-                          spellCheck={false}
-                          value={row.value}
-                          onChange={(event) => updateInputRow(index, {value: event.target.value})}
-                        />
-                      </FormField>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        className="shrink-0"
-                        aria-label={`Remove input ${index + 1}`}
-                        onClick={() => removeInputRow(index)}
-                      >
-                        <Icon name="close" />
-                      </Button>
+              {selectedTrigger && selectedTrigger.source === 'manual' ? (
+                <>
+                  <Text size="xs" className="text-foreground-neutral-muted">
+                    Inputs override the trigger's{' '}
+                    <Code as="span" variant="label">
+                      with
+                    </Code>{' '}
+                    block for this run.
+                  </Text>
+                  {inputRows.length === 0 ? (
+                    <Text size="sm" className="text-foreground-neutral-muted">
+                      This trigger takes no inputs.
+                    </Text>
+                  ) : (
+                    <div className="flex w-full flex-col gap-inline">
+                      {inputRows.map((row, index) => (
+                        <div
+                          key={row.id}
+                          className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-end gap-inline"
+                        >
+                          <FormField
+                            label={`Input ${index + 1} key`}
+                            id={`run-from-branch-input-key-${index}`}
+                          >
+                            <FormFieldInput
+                              className="font-code"
+                              autoComplete="off"
+                              spellCheck={false}
+                              value={row.key}
+                              onChange={(event) => updateInputRow(index, {key: event.target.value})}
+                            />
+                          </FormField>
+                          <FormField
+                            label={`Input ${index + 1} value`}
+                            id={`run-from-branch-input-value-${index}`}
+                          >
+                            <FormFieldInput
+                              className="font-code"
+                              autoComplete="off"
+                              spellCheck={false}
+                              value={row.value}
+                              onChange={(event) =>
+                                updateInputRow(index, {value: event.target.value})
+                              }
+                            />
+                          </FormField>
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            className="shrink-0"
+                            aria-label={`Remove input ${index + 1}`}
+                            onClick={() => removeInputRow(index)}
+                          >
+                            <Icon name="close" />
+                          </Button>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
+                  )}
+                  {duplicateKeys.length > 0 ? (
+                    <Text size="xs" className="text-tag-error-text">
+                      {`Duplicate input key${duplicateKeys.length === 1 ? '' : 's'}: ${duplicateKeys.join(', ')}. Each key must be unique.`}
+                    </Text>
+                  ) : null}
+                  <div>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() =>
+                        setInputRows((rows) => [
+                          ...rows,
+                          {id: nextInputRowId(), key: '', value: ''},
+                        ])
+                      }
+                    >
+                      Add input
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <Text size="sm" className="text-foreground-neutral-muted">
+                  The selected trigger is no longer available at this ref.
+                </Text>
               )}
-              <div>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() =>
-                    setInputRows((rows) => [...rows, toInputDraft({key: '', value: ''})])
-                  }
-                >
-                  Add input
-                </Button>
-              </div>
             </div>
           ) : null}
 
@@ -530,32 +590,17 @@ export function RunFromBranchDialog({
   );
 }
 
-function RunFromBranchFileItem({file, disabled}: {file: DefinitionAtRefFile; disabled: boolean}) {
+function RunFromBranchFileItem({file}: {file: DefinitionAtRefFile}) {
   return (
-    <RadioGroupItem value={file.configPath} disabled={disabled}>
+    <RadioGroupItem value={file.configPath}>
       <div className="flex w-full items-center gap-inline">
         <Text size="sm" bold className="min-w-0 truncate">
           {file.name ?? 'Unnamed workflow'}
         </Text>
-        {!file.valid ? (
-          <StatusBadge variant="error">Invalid</StatusBadge>
-        ) : file.warnings.length > 0 ? (
-          <StatusBadge variant="warning">Warnings</StatusBadge>
-        ) : null}
+        {file.warnings.length > 0 ? <StatusBadge variant="warning">Warnings</StatusBadge> : null}
       </div>
       <Code className="truncate text-foreground-neutral-muted">{file.configPath}</Code>
-      {!file.valid && file.errors.length > 0 ? (
-        <ul className="flex flex-col gap-tight">
-          {file.errors.map((diagnostic) => (
-            <RunFromBranchDiagnosticRow
-              key={`${file.configPath}-error-${diagnostic.path ?? ''}-${diagnostic.message}`}
-              diagnostic={diagnostic}
-              severity="error"
-            />
-          ))}
-        </ul>
-      ) : null}
-      {file.valid && file.warnings.length > 0 ? (
+      {file.warnings.length > 0 ? (
         <ul className="flex flex-col gap-tight">
           {file.warnings.map((warning) => (
             <RunFromBranchDiagnosticRow
@@ -567,6 +612,90 @@ function RunFromBranchFileItem({file, disabled}: {file: DefinitionAtRefFile; dis
         </ul>
       ) : null}
     </RadioGroupItem>
+  );
+}
+
+const DISABLED_FILE_SURFACE =
+  'flex min-w-0 items-center gap-cluster rounded-8 border border-border-neutral-base bg-background-neutral-base px-row py-row text-left text-foreground-neutral-base shadow-button-neutral';
+
+/**
+ * An invalid file rendered outside the radio group: a disabled control would
+ * drop the diagnostics from the accessibility tree, so the errors render in
+ * a plain card that stays readable but cannot be selected.
+ */
+function RunFromBranchInvalidFileCard({file}: {file: DefinitionAtRefFile}) {
+  return (
+    <div className={cn(DISABLED_FILE_SURFACE, 'cursor-not-allowed')}>
+      <span
+        aria-hidden="true"
+        className="flex size-16 shrink-0 items-center justify-center rounded-full border border-border-neutral-base"
+      />
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div className="flex w-full items-center gap-inline">
+          <Text size="sm" bold className="min-w-0 truncate">
+            {file.name ?? 'Unnamed workflow'}
+          </Text>
+          <StatusBadge variant="error">Invalid</StatusBadge>
+        </div>
+        <Code className="truncate text-foreground-neutral-muted">{file.configPath}</Code>
+        {file.errors.length > 0 ? (
+          <ul className="flex flex-col gap-tight">
+            {file.errors.map((diagnostic) => (
+              <RunFromBranchDiagnosticRow
+                key={`${file.configPath}-error-${diagnostic.path ?? ''}-${diagnostic.message}`}
+                diagnostic={diagnostic}
+                severity="error"
+              />
+            ))}
+          </ul>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A trigger that cannot be selected, rendered outside the radio group so the
+ * unavailable-reason hint stays in the accessibility tree.
+ */
+function RunFromBranchUnavailableTriggerCard({
+  triggerKey,
+  kind,
+  trigger,
+  hasFixedEvent,
+}: {
+  triggerKey: string;
+  kind: RunFromBranchTriggerKind;
+  trigger: DefinitionAtRefTrigger;
+  hasFixedEvent: boolean;
+}) {
+  return (
+    <div className={cn(DISABLED_FILE_SURFACE, 'cursor-not-allowed')}>
+      <span
+        aria-hidden="true"
+        className="flex size-16 shrink-0 items-center justify-center rounded-full border border-border-neutral-base"
+      />
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div className="flex w-full items-center gap-inline">
+          <Text size="sm" bold className="min-w-0 truncate">
+            {triggerKey}
+          </Text>
+          <StatusBadge
+            variant={kind === 'manual' ? 'info' : kind === 'cron' ? 'feature' : 'neutral'}
+          >
+            {runFromBranchTriggerSourceLabel(trigger.source)}
+          </StatusBadge>
+        </div>
+        <Text size="xs" className="text-foreground-neutral-muted">
+          Event {trigger.event ?? runFromBranchTriggerDefaultEvent(trigger.source)}
+        </Text>
+        <Text size="xs" className="text-tag-warning-text">
+          {hasFixedEvent
+            ? 'Does not match the selected event.'
+            : 'Replay arrives in a later release.'}
+        </Text>
+      </div>
+    </div>
   );
 }
 
@@ -603,18 +732,25 @@ function RunFromBranchStepIndicator({
   currentIndex: number;
 }) {
   return (
-    <ol className="flex w-full items-center gap-inline" aria-label="Run from branch steps">
+    <ol
+      className="flex w-full flex-wrap items-center gap-inline"
+      aria-label="Run from branch steps"
+    >
       {steps.map((stepDef, index) => {
         const state =
           index < currentIndex ? 'done' : index === currentIndex ? 'current' : 'upcoming';
         return (
-          <li key={stepDef.id} className="flex min-w-0 items-center gap-inline">
+          <li
+            key={stepDef.id}
+            className="flex min-w-0 items-center gap-inline"
+            aria-current={state === 'current' ? 'step' : undefined}
+          >
             {index > 0 ? (
               <span aria-hidden="true" className="h-px w-16 shrink-0 bg-border-neutral-base" />
             ) : null}
             <span
               className={cn(
-                'flex items-center gap-tight text-xs whitespace-nowrap',
+                'flex items-center gap-tight text-xs',
                 state === 'current'
                   ? 'text-foreground-neutral-base'
                   : 'text-foreground-neutral-muted',
@@ -636,6 +772,10 @@ function RunFromBranchStepIndicator({
           </li>
         );
       })}
+      <li className="sr-only" aria-live="polite">
+        Step {Math.min(currentIndex + 1, steps.length)} of {steps.length}:{' '}
+        {steps[currentIndex]?.label ?? ''}
+      </li>
     </ol>
   );
 }

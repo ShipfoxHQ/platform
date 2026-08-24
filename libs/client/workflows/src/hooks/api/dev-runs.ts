@@ -1,7 +1,9 @@
 import {createDevRunResponseSchema} from '@shipfox/api-triggers-dto';
 import {ApiError, checkedApiRequest} from '@shipfox/client-api';
 import {useMutation, useQueryClient} from '@tanstack/react-query';
+import {useRef} from 'react';
 import type {DefinitionAtRefListing, DefinitionAtRefTrigger} from '#core/definitions-at-ref.js';
+import {runFromBranchTriggerDefaultEvent} from '#core/run-from-branch.js';
 import type {DevRunLaunch, WorkflowRunListItem} from '#core/workflow-run.js';
 import {
   WorkflowRunAttemptSummary,
@@ -68,9 +70,7 @@ function devRunTriggerEvent(
 ): string {
   if (trigger?.event) return trigger.event;
   if (replayEvent?.event) return replayEvent.event;
-  if (source === 'manual') return 'fire';
-  if (source === 'cron') return 'tick';
-  return '';
+  return runFromBranchTriggerDefaultEvent(source);
 }
 
 function buildTempDevRun({
@@ -163,13 +163,16 @@ function refreshCachedAtRefListing(
   queryClient: ReturnType<typeof useQueryClient>,
   projectId: string,
   ref: string,
-): Promise<DefinitionAtRefListing | undefined> {
+): Promise<{listing: DefinitionAtRefListing | undefined; refreshFailed: boolean}> {
   const queryKey = definitionsAtRefQueryKeys.atRef(projectId, ref);
-  if (!queryClient.getQueryState(queryKey)) return Promise.resolve(undefined);
+  if (!queryClient.getQueryState(queryKey)) {
+    return Promise.resolve({listing: undefined, refreshFailed: false});
+  }
 
   return queryClient
     .fetchQuery(definitionsAtRefQueryOptions(projectId, ref))
-    .catch(() => undefined);
+    .then((listing) => ({listing, refreshFailed: false}))
+    .catch(() => ({listing: undefined, refreshFailed: true}));
 }
 
 /**
@@ -183,14 +186,19 @@ function refreshCachedAtRefListing(
  */
 export function useCreateDevRunMutation() {
   const queryClient = useQueryClient();
-  return useMutation({
+  // Tracks whether the pre-POST at-ref refresh failed for the latest submit.
+  // The caller uses it to avoid re-confirming a stale listing after a
+  // `ref-moved` answer when the re-list could not be loaded.
+  const atRefRefreshFailed = useRef(false);
+  const mutation = useMutation({
     mutationFn: createDevRun,
     onMutate: async (variables) => {
-      const listing = await refreshCachedAtRefListing(
+      const {listing, refreshFailed} = await refreshCachedAtRefListing(
         queryClient,
         variables.projectId,
         variables.ref,
       );
+      atRefRefreshFailed.current = refreshFailed;
       const file = listing?.files.find((entry) => entry.configPath === variables.configPath);
       const trigger = file?.triggers[variables.trigger];
       if (!listing || !file || !trigger) {
@@ -253,6 +261,7 @@ export function useCreateDevRunMutation() {
       });
     },
   });
+  return {...mutation, atRefRefreshFailed};
 }
 
 export interface DevRunErrorCopy {

@@ -15,7 +15,6 @@ const RUN_ID = '66666666-6666-4666-8666-666666666666';
 const OPEN_DIALOG_BUTTON_NAME = 'Open dialog';
 const REF_INPUT_LABEL = 'Branch or tag';
 const NEXT_BUTTON_NAME = 'Next';
-const BROKEN_FILE_NAME = /Broken/;
 const TRIAGE_FILE_NAME = /Triage Sentry/;
 const ON_ISSUE_TRIGGER_NAME = /on_issue/;
 
@@ -145,7 +144,7 @@ async function resolveRef() {
 async function goToFileStep() {
   await resolveRef();
   await userEvent.setup().click(screen.getByRole('button', {name: NEXT_BUTTON_NAME}));
-  await screen.findByRole('radio', {name: BROKEN_FILE_NAME});
+  await screen.findByRole('radio', {name: TRIAGE_FILE_NAME});
 }
 
 async function goToTriggerStep() {

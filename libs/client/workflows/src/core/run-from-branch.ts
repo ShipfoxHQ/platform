@@ -9,12 +9,23 @@ export type RunFromBranchTriggerKind = 'manual' | 'cron' | 'integration';
 /**
  * Classify a trigger source. `manual` and `cron` are the built-in sources; any
  * other source names an integration connection, whose dev runs replay a
- * journaled event (the event picker lands in a later release).
+ * journaled event.
  */
 export function runFromBranchTriggerKind(source: string): RunFromBranchTriggerKind {
   if (source === 'manual') return 'manual';
   if (source === 'cron') return 'cron';
   return 'integration';
+}
+
+/**
+ * The default event for a trigger source, used when the trigger declares no
+ * event. Built-in sources map to their dispatch events; integration sources
+ * replay a journaled event, so the default is only a display fallback.
+ */
+export function runFromBranchTriggerDefaultEvent(source: string): string {
+  if (source === 'manual') return 'fire';
+  if (source === 'cron') return 'tick';
+  return 'any';
 }
 
 /** Display label for a trigger source: the built-in sources, or the connection slug. */
@@ -95,4 +106,23 @@ export function runFromBranchInputsToObject(
     inputs[key] = runFromBranchInputValue(row.value, row.valueKind);
   }
   return inputs;
+}
+
+/**
+ * The trimmed keys that appear on more than one row, in first-appearance
+ * order. Blank keys are ignored the same way `runFromBranchInputsToObject`
+ * drops them; a duplicate would otherwise silently overwrite the first value.
+ */
+export function runFromBranchDuplicateKeys(rows: readonly RunFromBranchInputRow[]): string[] {
+  const seen = new Set<string>();
+  const duplicates: string[] = [];
+  for (const row of rows) {
+    const key = row.key.trim();
+    if (!key) continue;
+    if (seen.has(key) && !duplicates.includes(key)) {
+      duplicates.push(key);
+    }
+    seen.add(key);
+  }
+  return duplicates;
 }

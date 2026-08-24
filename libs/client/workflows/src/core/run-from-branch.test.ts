@@ -1,8 +1,10 @@
 import {describe, expect, it} from '@shipfox/vitest/vi';
 import {
+  runFromBranchDuplicateKeys,
   runFromBranchInputsFromWith,
   runFromBranchInputsToObject,
   runFromBranchInputValue,
+  runFromBranchTriggerDefaultEvent,
   runFromBranchTriggerKind,
   runFromBranchTriggerSourceLabel,
 } from './run-from-branch';
@@ -21,6 +23,14 @@ describe('runFromBranchTriggerSourceLabel', () => {
     expect(runFromBranchTriggerSourceLabel('manual')).toBe('Manual');
     expect(runFromBranchTriggerSourceLabel('cron')).toBe('Cron');
     expect(runFromBranchTriggerSourceLabel('github_acme')).toBe('github_acme');
+  });
+});
+
+describe('runFromBranchTriggerDefaultEvent', () => {
+  it('maps the built-in sources to their dispatch events and integrations to a display fallback', () => {
+    expect(runFromBranchTriggerDefaultEvent('manual')).toBe('fire');
+    expect(runFromBranchTriggerDefaultEvent('cron')).toBe('tick');
+    expect(runFromBranchTriggerDefaultEvent('github_acme')).toBe('any');
   });
 });
 
@@ -102,11 +112,36 @@ describe('runFromBranchInputsToObject', () => {
       {key: 'constructor', value: '1', valueKind: 'string'},
     ]);
     expect(Object.getPrototypeOf(inputs)).toBeNull();
-    expect(inputs['__proto__']).toBe('polluted');
+    expect(Object.hasOwn(inputs, '__proto__')).toBe(true);
+    expect(Object.getOwnPropertyDescriptor(inputs, '__proto__')?.value).toBe('polluted');
     expect(inputs.constructor).toBe('1');
   });
 
   it('returns an empty object for no rows', () => {
     expect(runFromBranchInputsToObject([])).toEqual({});
+  });
+});
+
+describe('runFromBranchDuplicateKeys', () => {
+  it('lists trimmed keys that repeat and ignores blank keys', () => {
+    expect(
+      runFromBranchDuplicateKeys([
+        {key: 'environment', value: 'staging'},
+        {key: 'environment', value: 'production'},
+        {key: ' region ', value: 'us-east-1'},
+        {key: 'region', value: 'eu-west-1'},
+        {key: '', value: 'ignored'},
+        {key: '  ', value: 'ignored'},
+      ]),
+    ).toEqual(['environment', 'region']);
+  });
+
+  it('returns no duplicates for unique keys', () => {
+    expect(
+      runFromBranchDuplicateKeys([
+        {key: 'environment', value: 'staging'},
+        {key: 'region', value: 'us-east-1'},
+      ]),
+    ).toEqual([]);
   });
 });

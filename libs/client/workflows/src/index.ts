@@ -5,14 +5,6 @@ export type {
   DefinitionAtRefTrigger,
   DefinitionAtRefWarning,
 } from '#core/definitions-at-ref.js';
-export {
-  type RunFromBranchInputRow,
-  runFromBranchInputsFromWith,
-  runFromBranchInputsToObject,
-  runFromBranchInputValue,
-  runFromBranchTriggerKind,
-  runFromBranchTriggerSourceLabel,
-} from '#core/run-from-branch.js';
 export type {
   AgentConfigIssue,
   DevRunLaunch,

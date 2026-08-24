@@ -82,6 +82,10 @@ export function definitionsAtRefQueryOptions(
         ? definitionsAtRefQueryKeys.atRef(projectId, ref)
         : ([...definitionsAtRefQueryKeys.all] as const),
     enabled: Boolean(projectId && ref),
+    // `ref-invalid` and `ref-not-found` are server verdicts that can never
+    // succeed on retry; the app default retries every failure with backoff,
+    // which would delay the inline error by seconds per blurred typo.
+    retry: false,
     queryFn: ({signal}) =>
       listDefinitionsAtRef({projectId: projectId ?? '', ref: ref ?? '', signal}),
   });
