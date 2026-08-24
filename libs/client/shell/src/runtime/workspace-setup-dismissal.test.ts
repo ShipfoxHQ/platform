@@ -3,6 +3,7 @@ import {
   clearWorkspaceSetupChecklistDismissal,
   dismissWorkspaceSetupChecklist,
   isWorkspaceSetupChecklistDismissed,
+  WORKSPACE_SETUP_CHECKLIST_DISMISSAL_EVENT,
 } from './workspace-setup-dismissal.js';
 
 const DISMISSED_KEY = 'shipfox.workspaceSetupChecklist.dismissed.workspace.workspace';
@@ -40,6 +41,17 @@ describe('workspace-setup dismissal storage', () => {
 
     expect(isWorkspaceSetupChecklistDismissed('workspace')).toBe(false);
     expect(window.localStorage.getItem(DISMISSED_KEY)).toBeNull();
+  });
+
+  test('notifies same-tab listeners when the flag changes', () => {
+    const listener = vi.fn();
+    window.addEventListener(WORKSPACE_SETUP_CHECKLIST_DISMISSAL_EVENT, listener);
+
+    dismissWorkspaceSetupChecklist('workspace');
+    clearWorkspaceSetupChecklistDismissal('workspace');
+
+    expect(listener).toHaveBeenCalledTimes(2);
+    window.removeEventListener(WORKSPACE_SETUP_CHECKLIST_DISMISSAL_EVENT, listener);
   });
 
   test('tolerates an unparsable persisted value', () => {

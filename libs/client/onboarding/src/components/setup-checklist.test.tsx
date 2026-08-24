@@ -191,7 +191,7 @@ describe('SetupChecklistBody', () => {
     );
     expect(await screen.findByRole('link', {name: 'Read the quickstart'})).toHaveAttribute(
       'href',
-      '/docs/getting-started',
+      'https://www.shipfox.io/docs/getting-started',
     );
     expect(await screen.findByRole('link', {name: 'Invite'})).toHaveAttribute(
       'href',
@@ -387,6 +387,26 @@ describe('workspace checklist hosts', () => {
     });
   });
 
+  test('keeps a local dismissal when browser storage cannot persist it', async () => {
+    const queryClient = createQueryClient();
+    seedQueries(queryClient);
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl: vi.fn()});
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('storage unavailable');
+    });
+
+    renderWithProviders(<WorkspaceSetupChecklist workspace={WORKSPACE} />, queryClient, {
+      capture: vi.fn(),
+    });
+
+    expect(await screen.findByRole('button', {name: 'Hide setup guide'})).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', {name: 'Hide setup guide'}));
+
+    await waitFor(() => {
+      expect(screen.queryByRole('region', {name: 'Get started'})).not.toBeInTheDocument();
+    });
+  });
+
   test('waits for non-base query families before showing completion', async () => {
     const queryClient = createQueryClient();
     const fetchImpl = vi.fn(() => pendingResponse());
@@ -492,6 +512,28 @@ describe('workspace checklist hosts', () => {
       expect(screen.queryByRole('status', {name: 'Loading setup guide'})).not.toBeInTheDocument();
       expect(screen.queryByRole('region', {name: 'Get started'})).not.toBeInTheDocument();
     });
+  });
+
+  test('hides the indicator while optional checklist families are unsettled', async () => {
+    const queryClient = createQueryClient();
+    const fetchImpl = vi.fn(() => pendingResponse());
+    const capture = vi.fn();
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
+    queryClient.setQueryData(integrationProvidersQueryOptions().queryKey, [
+      githubProvider,
+      linearProvider,
+    ]);
+    queryClient.setQueryData(integrationConnectionsQueryOptions(WORKSPACE.id).queryKey, [
+      connection('github', 'active'),
+      connection('linear', 'active'),
+    ]);
+
+    renderWithProviders(<WorkspaceSetupIndicator workspace={WORKSPACE} />, queryClient, {capture});
+
+    await waitFor(() => {
+      expect(screen.queryByRole('button', {name: GET_STARTED_BUTTON_RE})).not.toBeInTheDocument();
+    });
+    expect(capture).not.toHaveBeenCalledWith('onboarding_checklist_shown', {host: 'popover'});
   });
 
   test('does not render an initially complete checklist without a transition', async () => {

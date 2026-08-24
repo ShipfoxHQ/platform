@@ -5,6 +5,8 @@ import {cn} from '@shipfox/react-ui/utils';
 import {Link} from '@tanstack/react-router';
 import type {SetupChecklistItem} from '#core/setup-checklist.js';
 
+const GETTING_STARTED_URL = 'https://www.shipfox.io/docs/getting-started';
+
 export function ChecklistRow({
   item,
   workspaceSlug,
@@ -132,7 +134,7 @@ function ChecklistActionLink({
   if (action.href === '/docs/getting-started') {
     return (
       <ButtonLink asChild variant={variant} underline iconRight="chevronRight">
-        <a href={action.href} onClick={handleClick}>
+        <a href={GETTING_STARTED_URL} onClick={handleClick}>
           {action.label}
         </a>
       </ButtonLink>

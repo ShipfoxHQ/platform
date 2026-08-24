@@ -62,13 +62,15 @@ function WorkspaceSetupIndicatorForWorkspace({workspace}: {workspace: WorkspaceR
     [analytics],
   );
 
+  const indicatorReady = queryState.completionReady || queryState.checklist.openCount > 0;
   const isVisible =
     !dismissal.dismissed &&
     queryState.baseSettled &&
+    indicatorReady &&
     (!queryState.checklist.complete || showCompletion);
   useShownAnalytics('popover', isVisible);
 
-  if (dismissal.dismissed || !queryState.baseSettled) return null;
+  if (dismissal.dismissed || !queryState.baseSettled || !indicatorReady) return null;
   if (queryState.checklist.complete && !showCompletion) return null;
 
   const countLabel = checklistCountLabel(queryState.checklist);
