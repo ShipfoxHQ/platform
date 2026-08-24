@@ -3,13 +3,19 @@ import {requireLeasedJobContext} from '@shipfox/api-auth-context';
 import {
   appendLogsQuerySchema,
   appendLogsResponseSchema,
+  logWriterConflictResponseSchema,
   offsetGapResponseSchema,
 } from '@shipfox/api-logs-dto';
 import type {WorkflowsModuleClient} from '@shipfox/api-workflows-dto/inter-module';
 import {ClientError, defineRoute} from '@shipfox/node-fastify';
 import {z} from 'zod';
 import {appendLogs} from '#core/append-logs.js';
-import {LeaseStreamMismatchError, MalformedLogChunkError, OffsetGapError} from '#core/errors.js';
+import {
+  LeaseStreamMismatchError,
+  LogWriterConflictError,
+  MalformedLogChunkError,
+  OffsetGapError,
+} from '#core/errors.js';
 
 export function createAppendLogsRoute(workflows: WorkflowsModuleClient) {
   return defineRoute({
@@ -21,7 +27,7 @@ export function createAppendLogsRoute(workflows: WorkflowsModuleClient) {
       querystring: appendLogsQuerySchema,
       response: {
         200: appendLogsResponseSchema,
-        409: offsetGapResponseSchema,
+        409: z.union([offsetGapResponseSchema, logWriterConflictResponseSchema]),
       },
     },
     errorHandler: (error) => {
@@ -36,6 +42,9 @@ export function createAppendLogsRoute(workflows: WorkflowsModuleClient) {
       }
       if (error instanceof LeaseStreamMismatchError) {
         throw new ClientError(error.message, 'lease-stream-mismatch', {status: 403});
+      }
+      if (error instanceof LogWriterConflictError) {
+        throw new ClientError(error.message, 'log-writer-conflict', {status: 409});
       }
       throw error;
     },

@@ -10,7 +10,9 @@ const idSchema = z.string().uuid();
  * executor): it writes already-normalized stored records through the same
  * offset-CAS and budget pipeline as the lease-bound runner route, but with
  * chunk `origin` `server` and a tail-derived CAS offset (the caller owns no
- * spool cursor).
+ * spool cursor). This is a trusted internal boundary, not an authorization
+ * boundary: the caller must derive the identity fields from its execution
+ * context rather than pass through arbitrary external input.
  */
 export const logsInterModuleContract = defineInterModuleContract({
   module: 'logs',
@@ -32,7 +34,10 @@ export const logsInterModuleContract = defineInterModuleContract({
          * Already-normalized server-writable stored records (the read union
          * without server-only tombstones), serialized to whole newline-terminated
          * NDJSON lines on ingest. Server-origin records skip the raw-to-stored
-         * normalization the runner path applies: they are stored verbatim.
+         * normalization the runner path applies: they are stored verbatim. Callers should
+         * coalesce records into batches up to (but never over) `LOG_APPEND_BODY_LIMIT_BYTES`;
+         * an empty batch is reserved for a heartbeat. A server-origin writer owns its stream;
+         * it cannot be mixed with a lease-bound runner writer because their byte cursors differ.
          */
         records: z.array(serverLogRecordSchema),
       }),
@@ -53,6 +58,8 @@ export const logsInterModuleContract = defineInterModuleContract({
       errors: {
         'lease-stream-mismatch': z.object({}),
         'malformed-log-chunk': z.object({}),
+        'append-body-too-large': z.object({maxBytes: z.number().int().positive()}),
+        'runner-writer-active': z.object({}),
         'offset-gap': z.object({committedLength: z.number().int().nonnegative()}),
       },
     },

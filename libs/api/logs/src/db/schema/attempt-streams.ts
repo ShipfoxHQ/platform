@@ -22,8 +22,8 @@ import {pgTable} from './common.js';
  * are stamped from the lease at create time; they are functionally determined by
  * `job_id` via workflows FKs, so they are denormalized here for self-contained
  * authorization (per-project read filtering, audit) without joining back to
- * workflows. `committed_length` is the offset-CAS axis (raw NDJSON spool bytes the
- * server has durably accepted from the runner).
+ * workflows. `committed_length` is the active writer's offset-CAS axis (raw or normalized NDJSON
+ * bytes the server has durably accepted from the runner or server-origin writer).
  *
  * `truncated` is an out-of-band terminal flag set when the timeout sweep
  * force-closes a stream the runner never ended; the `AttemptStream` entity is the

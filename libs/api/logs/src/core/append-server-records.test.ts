@@ -1,7 +1,12 @@
 import {type LogRecord, parseLogRecordLine, type ServerLogRecord} from '@shipfox/api-logs-dto';
 import {appendLogs} from '#core/append-logs.js';
 import {appendServerRecords} from '#core/append-server-records.js';
-import {LeaseStreamMismatchError, MalformedLogChunkError} from '#core/errors.js';
+import {
+  LeaseStreamMismatchError,
+  LogAppendBodyTooLargeError,
+  LogWriterConflictError,
+  MalformedLogChunkError,
+} from '#core/errors.js';
 import {jobAccountingFactory} from '#test/factories/job-accounting.js';
 import {ndjsonBody, outputLine} from '#test/fixtures/ndjson.js';
 import {findAccounting, findStream, listChunks, listStreamClosedEvents} from '#test/queries.js';
@@ -165,52 +170,48 @@ describe('appendServerRecords', () => {
     });
   });
 
-  describe('shared CAS axis with the runner path', () => {
-    it('appends at the tail of a stream the runner opened', async () => {
+  describe('writer ownership', () => {
+    it('rejects a server append to a runner-owned stream', async () => {
       const ctx = newCtx();
       await allowLargeLogBudget(ctx);
       const runnerBody = ndjsonBody(outputLine('runner\n'));
       await appendLogs({...ctx, attempt: 1, offset: 0, body: runnerBody});
-      const serverBody = recordsToBody([outputRecord('server\n')]);
 
-      const result = await appendServerRecords({
+      const error = await appendServerRecords({
         ...ctx,
         attempt: 1,
         records: [outputRecord('server\n')],
-      });
+      }).catch((caught: unknown) => caught);
 
-      expect(result.committedLength).toBe(runnerBody.length + serverBody.length);
+      expect(error).toBeInstanceOf(LogWriterConflictError);
+      expect(error).toHaveProperty('activeOrigin', 'runner');
       const stream = await findStream({...ctx, attempt: 1});
       const chunks = await listChunks(stream?.id as string);
-      expect(chunks.map((c) => c.origin)).toEqual(['runner', 'server']);
-      expect(recordsFromChunks(chunks)).toEqual([
-        {v: 1, ts: 1, type: 'output', stream: 'stdout', data: 'runner\n'},
-        {v: 1, ts: 1, type: 'output', stream: 'stdout', data: 'server\n'},
-      ]);
+      expect(chunks.map((c) => c.origin)).toEqual(['runner']);
     });
 
-    it('lets the runner continue from the tail a server append advanced', async () => {
+    it('rejects a runner append to a server-owned stream', async () => {
       const ctx = newCtx();
       await allowLargeLogBudget(ctx);
-      const serverBody = recordsToBody([outputRecord('server\n')]);
       const runnerBody = ndjsonBody(outputLine('runner\n'));
-      const serverResult = await appendServerRecords({
+      await appendServerRecords({
         ...ctx,
         attempt: 1,
         records: [outputRecord('server\n')],
       });
 
-      const runnerResult = await appendLogs({
+      const error = await appendLogs({
         ...ctx,
         attempt: 1,
-        offset: serverResult.committedLength,
+        offset: 0,
         body: runnerBody,
-      });
+      }).catch((caught: unknown) => caught);
 
-      expect(runnerResult.committedLength).toBe(serverBody.length + runnerBody.length);
+      expect(error).toBeInstanceOf(LogWriterConflictError);
+      expect(error).toHaveProperty('activeOrigin', 'server');
       const stream = await findStream({...ctx, attempt: 1});
       const chunks = await listChunks(stream?.id as string);
-      expect(chunks.map((c) => c.origin)).toEqual(['server', 'runner']);
+      expect(chunks.map((c) => c.origin)).toEqual(['server']);
     });
   });
 
@@ -398,8 +399,8 @@ describe('appendServerRecords', () => {
         (e: unknown) => e,
       );
 
-      expect(error).toBeInstanceOf(MalformedLogChunkError);
-      expect(error).toHaveProperty('message', expect.stringContaining('append body exceeds'));
+      expect(error).toBeInstanceOf(LogAppendBodyTooLargeError);
+      expect(error).toHaveProperty('maxBytes', expect.any(Number));
       expect(await findStream({...ctx, attempt: 1})).toBeNull();
     });
   });

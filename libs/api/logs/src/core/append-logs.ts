@@ -12,6 +12,7 @@ import {logger} from '@shipfox/node-opentelemetry';
 import {DEFAULT_HARNESS, type Harness} from '@shipfox/workflow-document';
 import {config} from '#config.js';
 import {isJobCapped} from '#db/accounting.js';
+import {getStreamWriterOrigin} from '#db/chunks.js';
 import {db} from '#db/db.js';
 import {
   casExtendCommittedLength,
@@ -33,7 +34,7 @@ import {
   storeChunk,
 } from './append-chunk.js';
 import {closeStream} from './close-stream.js';
-import {MalformedLogChunkError, OffsetGapError} from './errors.js';
+import {LogWriterConflictError, MalformedLogChunkError, OffsetGapError} from './errors.js';
 import {flushPendingToolRows} from './session/claude/rows.js';
 import {
   type ClaudeParseContext,
@@ -355,6 +356,10 @@ export async function appendLogs(
     // frozen at close, so this reports the final offset and the runner stops cleanly.
     if (stream.state === 'closed') {
       return {committedLength: stream.committedLength, capped: await isJobCapped(tx, params.jobId)};
+    }
+
+    if ((await getStreamWriterOrigin(tx, stream.id)) === 'server') {
+      throw new LogWriterConflictError('server');
     }
 
     const cas = await casExtendCommittedLength(tx, {

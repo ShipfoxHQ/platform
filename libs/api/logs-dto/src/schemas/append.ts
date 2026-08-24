@@ -53,3 +53,10 @@ export const offsetGapResponseSchema = z.object({
 });
 
 export type OffsetGapResponseDto = z.infer<typeof offsetGapResponseSchema>;
+
+/** A lease append was attempted on a stream owned by a server-origin writer. */
+export const logWriterConflictResponseSchema = z.object({
+  code: z.literal('log-writer-conflict'),
+});
+
+export type LogWriterConflictResponseDto = z.infer<typeof logWriterConflictResponseSchema>;

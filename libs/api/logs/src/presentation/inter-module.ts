@@ -5,7 +5,13 @@ import {
   type InterModulePresentation,
 } from '@shipfox/inter-module';
 import {appendServerRecords} from '#core/append-server-records.js';
-import {LeaseStreamMismatchError, MalformedLogChunkError, OffsetGapError} from '#core/errors.js';
+import {
+  LeaseStreamMismatchError,
+  LogAppendBodyTooLargeError,
+  LogWriterConflictError,
+  MalformedLogChunkError,
+  OffsetGapError,
+} from '#core/errors.js';
 
 /**
  * Producer presentation for the Logs inter-module contract: server-origin log
@@ -34,6 +40,14 @@ export function toAppendServerRecordsKnownError(error: unknown): unknown {
   }
   if (error instanceof MalformedLogChunkError) {
     return createInterModuleKnownError(method, 'malformed-log-chunk', {});
+  }
+  if (error instanceof LogAppendBodyTooLargeError) {
+    return createInterModuleKnownError(method, 'append-body-too-large', {
+      maxBytes: error.maxBytes,
+    });
+  }
+  if (error instanceof LogWriterConflictError && error.activeOrigin === 'runner') {
+    return createInterModuleKnownError(method, 'runner-writer-active', {});
   }
   if (error instanceof OffsetGapError) {
     return createInterModuleKnownError(method, 'offset-gap', {

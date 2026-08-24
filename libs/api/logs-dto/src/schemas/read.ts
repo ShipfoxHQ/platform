@@ -70,7 +70,9 @@ const readLogsPresignedSchema = z.object({
     .number()
     .int()
     .min(0)
-    .describe('Committed append byte position for the attempt. This is the runner CAS axis.'),
+    .describe(
+      'Committed append byte position for the attempt. This is the active writer CAS axis.',
+    ),
   truncated: z
     .boolean()
     .describe('True when the stream was force-closed because the runner stopped reporting.'),

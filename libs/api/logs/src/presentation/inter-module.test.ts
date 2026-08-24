@@ -4,7 +4,9 @@ import {
   createInMemoryInterModuleTransport,
   type InterModuleTransport,
 } from '@shipfox/node-module/inter-module';
+import {appendLogs} from '#core/append-logs.js';
 import {createLogsInterModulePresentation} from '#presentation/inter-module.js';
+import {ndjsonBody, outputLine} from '#test/fixtures/ndjson.js';
 import {findStream, listChunks} from '#test/queries.js';
 
 interface Ctx {
@@ -91,5 +93,53 @@ describe('logs inter-module presentation', () => {
       isInterModuleKnownError(logsInterModuleContract.methods.appendServerRecords, error),
     ).toBe(true);
     expect(error).toMatchObject({code: 'lease-stream-mismatch', details: {}});
+  });
+
+  it('keeps a valid oversized batch distinct from malformed records', async () => {
+    const ctx = newCtx();
+    const logs = buildSealedLogsClient();
+
+    const error = await logs
+      .appendServerRecords({
+        ...ctx,
+        attempt: 1,
+        records: Array.from({length: 5}, () => ({
+          v: 1 as const,
+          ts: 1,
+          type: 'output' as const,
+          stream: 'stdout' as const,
+          data: 'x'.repeat(16 * 1024),
+        })),
+      })
+      .catch((caught: unknown) => caught);
+
+    expect(
+      isInterModuleKnownError(logsInterModuleContract.methods.appendServerRecords, error),
+    ).toBe(true);
+    expect(error).toMatchObject({
+      code: 'append-body-too-large',
+      details: {maxBytes: expect.any(Number)},
+    });
+  });
+
+  it('rejects a server append to a runner-owned stream at the contract boundary', async () => {
+    const ctx = newCtx();
+    const logs = buildSealedLogsClient();
+    await appendLogs({
+      ...ctx,
+      attempt: 1,
+      offset: 0,
+      body: ndjsonBody(outputLine('runner\n')),
+    });
+
+    const error = await logs
+      .appendServerRecords({
+        ...ctx,
+        attempt: 1,
+        records: [{v: 1, ts: 1, type: 'output', stream: 'stdout', data: 'server'}],
+      })
+      .catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({code: 'runner-writer-active', details: {}});
   });
 });

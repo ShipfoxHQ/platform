@@ -1,6 +1,7 @@
 import {Buffer} from 'node:buffer';
 import {AUTH_USER} from '@shipfox/api-auth-context';
 import {type AuthMethod, closeApp, createApp, type FastifyInstance} from '@shipfox/node-fastify';
+import {appendServerRecords} from '#core/append-server-records.js';
 import {fakeLeaseTokenAuthMethod, mintLeaseToken} from '#test/fixtures/lease-token.js';
 import {endLine, ndjsonBody, outputLine, recordLine} from '#test/fixtures/ndjson.js';
 import {createTestWorkflowsClient} from '#test/fixtures/workflows-client.js';
@@ -21,10 +22,16 @@ function mintTestLeaseToken(params: {
   jobId?: string;
   stepId: string;
   attempt?: number;
+  workspaceId?: string;
+  projectId?: string;
+  workflowRunAttemptId?: string;
 }): Promise<string> {
   return mintLeaseToken({
     jobId: params.jobId ?? crypto.randomUUID(),
     jobExecutionId: JOB_EXECUTION_ID,
+    ...(params.workspaceId ? {workspaceId: params.workspaceId} : {}),
+    ...(params.projectId ? {projectId: params.projectId} : {}),
+    ...(params.workflowRunAttemptId ? {workflowRunAttemptId: params.workflowRunAttemptId} : {}),
     currentStepId: params.stepId,
     currentStepAttempt: params.attempt ?? 1,
   });
@@ -169,6 +176,40 @@ describe('POST /runs/jobs/current/steps/:stepId/logs', () => {
     expect(res.statusCode).toBe(409);
     expect(res.json().code).toBe('offset-gap');
     expect(res.json().details).toEqual({committed_length: body.length});
+  });
+
+  it('stops a lease append when a server writer owns the stream', async () => {
+    const jobId = crypto.randomUUID();
+    const stepId = crypto.randomUUID();
+    const workspaceId = crypto.randomUUID();
+    const projectId = crypto.randomUUID();
+    const workflowRunAttemptId = crypto.randomUUID();
+    const token = await mintTestLeaseToken({
+      jobId,
+      stepId,
+      workspaceId,
+      projectId,
+      workflowRunAttemptId,
+    });
+    await appendServerRecords({
+      jobId,
+      stepId,
+      workspaceId,
+      projectId,
+      workflowRunAttemptId,
+      attempt: 1,
+      records: [{v: 1, ts: 1, type: 'output', stream: 'stdout', data: 'server\n'}],
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: logsUrl(stepId, 1, 0),
+      headers: {authorization: `Bearer ${token}`, 'content-type': NDJSON},
+      payload: ndjsonBody(outputLine('runner\n')),
+    });
+
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toEqual({code: 'log-writer-conflict'});
   });
 
   it('rejects a forged server-only tombstone with 400', async () => {

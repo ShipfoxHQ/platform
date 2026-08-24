@@ -3,6 +3,8 @@ export {
   type AppendLogsResponseDto,
   appendLogsQuerySchema,
   appendLogsResponseSchema,
+  type LogWriterConflictResponseDto,
+  logWriterConflictResponseSchema,
   type OffsetGapResponseDto,
   offsetGapResponseSchema,
 } from './append.js';

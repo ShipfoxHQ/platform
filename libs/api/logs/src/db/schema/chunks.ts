@@ -6,20 +6,14 @@ import {bytea, pgTable} from './common.js';
 /**
  * Hot, append-only log bytes for open streams, pending compaction.
  *
- * Two byte axes meet here and MUST stay distinct:
- *
- *   Runner spool (CAS axis)          Stored chunk stream (read axis, by seq)
- *   offset 0 ┌────────────┐  ───►  seq 1 │ normalized chunk A │ origin=runner
- *      100   ├─ chunk A ──┤  ───►  seq 2 │ normalized chunk B │ origin=server
- *      250   ├─ chunk B ──┤  ───►  seq 3 │ {capped}           │ origin=control ← server-injected;
- *            └────────────┘                                      does NOT advance committed_length
- *
- * `origin` is `runner` for bytes accepted from a runner append after ingest normalization, `server`
- * for records appended by a server-origin writer (the tool step executor) through the same CAS and
- * budget, and `control` for a server-injected tombstone. `stream_offset` is the runner-axis position
- * of a runner chunk; for a server chunk it is the tail it was appended at and for a `control` chunk it
- * is informational. `seq` (insertion order) is the read axis the reader walks, so server records
- * interleave correctly with normalized runner records.
+ * The active append writer has one byte-CAS axis, and the stored chunk table has a separate read
+ * axis (`seq`). Runner-origin and server-origin writers are mutually exclusive for a stream because
+ * the runner's local spool cursor cannot represent bytes inserted by another origin. `origin` is
+ * `runner` for bytes accepted from a runner append after ingest normalization, `server` for records
+ * appended by the server-origin writer through the same CAS and budget, and `control` for a
+ * server-injected tombstone. Control chunks do not advance `committed_length`; `stream_offset` is
+ * the active writer's CAS position and is informational for control chunks. The reader and
+ * compactor still walk every stored chunk by `seq`.
  */
 export const logChunks = pgTable(
   'chunks',

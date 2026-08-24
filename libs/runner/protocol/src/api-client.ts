@@ -547,7 +547,9 @@ export async function appendStepLogs(
     return {status: 'committed', committedLength: committed_length, capped};
   }
   if (response.status === 409) {
-    const {details} = offsetGapResponseSchema.parse(await response.json());
+    const parsed = offsetGapResponseSchema.safeParse(await response.json());
+    if (!parsed.success) return {status: 'stopped'};
+    const {details} = parsed.data;
     return {status: 'conflict', committedLength: details.committed_length};
   }
   // Any other 4xx is permanent for this request: the endpoint is gone (deploy skew), the
