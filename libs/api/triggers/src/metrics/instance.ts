@@ -26,6 +26,13 @@ export const cronFiredCount = meter.createCounter<{outcome: 'fired' | 'errored'}
   {description: 'Cron schedule slots consumed by the tick, by fire outcome'},
 );
 
+export const devRunsCount = meter.createCounter<{
+  trigger_kind: 'manual' | 'cron';
+  outcome: 'routed' | 'errored' | 'failed';
+}>('triggers_dev_runs', {
+  description: 'Dev runs started from POST /dev-runs by trigger kind and outcome',
+});
+
 export const cronFireLag = meter.createHistogram<Record<string, never>>('triggers_cron_fire_lag', {
   description: 'Delay between a cron scheduled slot and when the tick actually fired it',
   unit: 'ms',

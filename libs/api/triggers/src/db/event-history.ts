@@ -323,8 +323,31 @@ export async function upsertDevFilterErrorDecision(
   );
 }
 
+export interface UpsertDevDispatchErrorDecisionParams {
+  receivedEventId: string;
+  triggerKey: string;
+  workflowDefinitionId: string;
+  reason: string;
+}
+
+// A failed startDevRun leaves the dev journal entry with the failure reason.
+export async function upsertDevDispatchErrorDecision(
+  params: UpsertDevDispatchErrorDecisionParams,
+): Promise<void> {
+  await upsertDevDecision(
+    params,
+    {
+      decision: 'dispatch-error',
+      runId: null,
+      runName: null,
+      reason: params.reason,
+    },
+    {preserveTriggered: true},
+  );
+}
+
 type DevDecisionValues = {
-  decision: 'triggered' | 'filter-error';
+  decision: 'triggered' | 'filter-error' | 'dispatch-error';
   runId: string | null;
   runName: string | null;
   reason: string | null;

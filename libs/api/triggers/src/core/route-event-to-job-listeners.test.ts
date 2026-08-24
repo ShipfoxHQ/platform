@@ -68,6 +68,7 @@ function buildHistory(): TriggerHistoryRecorder {
     triggered: vi.fn(),
     devTriggered: vi.fn(),
     devFilterErrored: vi.fn(),
+    devDispatchErrored: vi.fn(),
     filterErrored: vi.fn(),
     dispatchErrored: vi.fn(),
     listenerTriggered,

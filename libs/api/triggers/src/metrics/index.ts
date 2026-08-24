@@ -1,6 +1,7 @@
 export {
   cronFiredCount,
   cronFireLag,
+  devRunsCount,
   eventOutcomeCount,
   eventReceivedCount,
   subscriptionTriggeredCount,

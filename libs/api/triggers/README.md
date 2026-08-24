@@ -12,6 +12,8 @@ Register the module with the API module runner:
 
 ```ts
 import {createTriggersModule} from '@shipfox/api-triggers';
+import {definitionsInterModuleContract} from '@shipfox/api-definitions-dto/inter-module';
+import {projectsInterModuleContract} from '@shipfox/api-projects-dto/inter-module';
 import {workflowsInterModuleContract} from '@shipfox/api-workflows-dto/inter-module';
 import {createApp, listen} from '@shipfox/node-fastify';
 import {initializeModules, startModuleWorkers} from '@shipfox/node-module';
@@ -22,7 +24,9 @@ import {
 
 const transport = createInMemoryInterModuleTransport();
 const workflows = transport.createClient(workflowsInterModuleContract);
-const modules = [createTriggersModule({workflows}) /* and other modules */];
+const definitions = transport.createClient(definitionsInterModuleContract);
+const projects = transport.createClient(projectsInterModuleContract);
+const modules = [createTriggersModule({workflows, definitions, projects}) /* and other modules */];
 registerInterModulePresentations({transport, modules});
 transport.seal();
 const {auth, routes, workers} = await initializeModules({
@@ -36,18 +40,19 @@ await listen();
 
 ### Migration from `triggersModule`
 
-`triggersModule` is replaced by `createTriggersModule({workflows})`. The API
-composition root creates the Workflows client from
-`@shipfox/api-workflows-dto/inter-module`, passes it to Triggers, registers the
-Workflows presentation, and seals the transport before the server starts. Cron
-activities, integration subscribers, and the manual route use that one injected
-client. Callers must keep the deterministic cron or integration key when they
+`triggersModule` is replaced by `createTriggersModule({workflows, definitions, projects})`. The API
+composition root creates the Workflows, Definitions, and Projects clients from their
+`@shipfox/api-*-dto/inter-module` contracts, passes them to Triggers, registers the
+presentations, and seals the transport before the server starts. Cron
+activities, integration subscribers, and the manual and dev-run routes use those
+injected clients. Callers must keep the deterministic cron or integration key when they
 retry a trigger command. The manual route creates one new key for each request.
 
 This adds:
 
 - triggers database migrations from `libs/api/triggers/drizzle`
 - the `POST /workflow-definitions/:definitionId/fire-manual` route
+- the `POST /dev-runs` route, which creates a run from a workflow file at a git ref without creating a trigger subscription
 - the `GET /trigger-events`, `GET /trigger-events/facets`, and `GET /trigger-events/:id` inspection routes
 - subscribers for `DEFINITION_RESOLVED`, `DEFINITION_DELETED`, and
   `INTEGRATION_EVENT_RECEIVED`
@@ -267,6 +272,11 @@ It also exports lower-level pieces for tests and advanced wiring:
   `TriggerSubscriptionNotFoundError`,
   `TriggerSubscriptionNotManualError`, or
   `TriggerWorkspaceMismatchError`.
+- `createDevRun()`: core function used by `POST /dev-runs`. Resolves the
+  definition at a git ref, fires a manual or cron trigger without a
+  subscription row, and journals the attempt. Throws
+  `DevRunTriggerNotFoundError`, `DevRunInputsNotAllowedError`, or
+  `DevRunReplayEventRequiredError` for integration triggers.
 - `ManualTriggerNotFoundError`: thrown by the route handler when the
   caller's workspace cannot reach the workflow, or the workflow declares
   no manual trigger. Surfaced as `404 manual-trigger-not-found`.

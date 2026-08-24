@@ -3,18 +3,22 @@ import {
   fireManualTriggerBodySchema,
   fireManualTriggerResponseSchema,
 } from '@shipfox/api-triggers-dto';
-import type {WorkflowsModuleClient} from '@shipfox/api-workflows-dto/inter-module';
+import {
+  type WorkflowsModuleClient,
+  workflowsInterModuleContract,
+} from '@shipfox/api-workflows-dto/inter-module';
 import {ClientError, defineRoute} from '@shipfox/node-fastify';
 import {z} from 'zod';
 import {ManualTriggerNotFoundError} from '#core/errors.js';
 import {fireManualSubscription} from '#core/fire-manual.js';
-import {
-  isInterpolationUnresolvableError,
-  isWorkspaceDeletedError,
-  isWorkspaceNotFoundError,
-  isWorkspaceSuspendedError,
-} from '#core/workflows-client.js';
 import {getManualSubscriptionByDefinitionId} from '#db/subscriptions.js';
+import {mapStartRunError} from './map-start-run-error.js';
+
+const startRunErrorDetailsSchema = z.union([
+  z.object({definition_id: z.string()}),
+  z.object({field: z.string(), source: z.string(), env_key: z.string().optional()}),
+  z.object({labels: z.array(z.string())}),
+]);
 
 export function createFireManualTriggerRoute(workflows: WorkflowsModuleClient) {
   return defineRoute({
@@ -30,11 +34,7 @@ export function createFireManualTriggerRoute(workflows: WorkflowsModuleClient) {
         201: fireManualTriggerResponseSchema,
         422: z.object({
           code: z.string(),
-          details: z.object({
-            field: z.string(),
-            source: z.string(),
-            env_key: z.string().optional(),
-          }),
+          details: startRunErrorDetailsSchema.optional(),
         }),
       },
     },
@@ -42,38 +42,11 @@ export function createFireManualTriggerRoute(workflows: WorkflowsModuleClient) {
       if (error instanceof ManualTriggerNotFoundError) {
         throw new ClientError(error.message, 'manual-trigger-not-found', {status: 404});
       }
-      if (isWorkspaceSuspendedError(error)) {
-        throw new ClientError('Workspace is suspended', 'workspace-suspended', {
-          status: 409,
-          cause: error,
-        });
-      }
-      if (isWorkspaceDeletedError(error)) {
-        throw new ClientError('Workspace is deleted', 'workspace-deleted', {
-          status: 404,
-          cause: error,
-        });
-      }
-      if (isWorkspaceNotFoundError(error)) {
-        throw new ClientError('Workspace not found', 'workspace-not-found', {
-          status: 404,
-          cause: error,
-        });
-      }
-      if (isInterpolationUnresolvableError(error)) {
-        throw new ClientError(
-          'Workflow interpolation cannot be resolved',
-          'workflow-interpolation-unresolvable',
-          {
-            status: 422,
-            details: {
-              field: error.details.field,
-              source: error.details.source,
-              ...(error.details.envKey === undefined ? {} : {env_key: error.details.envKey}),
-            },
-          },
-        );
-      }
+      const clientError = mapStartRunError(
+        error,
+        workflowsInterModuleContract.methods.startRunFromTrigger,
+      );
+      if (clientError) throw clientError;
       throw error;
     },
     handler: async (request, reply) => {
