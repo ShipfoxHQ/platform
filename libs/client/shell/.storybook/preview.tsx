@@ -8,7 +8,9 @@ if (typeof document !== 'undefined' && document.fonts) {
     document.fonts.load("italic 16px 'IBM Plex Sans'"),
     document.fonts.load("16px 'Commit Mono'"),
     document.fonts.load("bold 16px 'Commit Mono'"),
-  ]);
+  ]).catch(() => {
+    // Font preloads are best effort; a blocked asset must not fail the suite.
+  });
 }
 
 const withTheme: Decorator = (Story, context) => {

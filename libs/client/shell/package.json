@@ -113,6 +113,7 @@
     "@shipfox/ts-config": "workspace:*",
     "@shipfox/typescript": "workspace:*",
     "@shipfox/tool-utils": "workspace:*",
+    "@shipfox/vite": "workspace:*",
     "@shipfox/vitest": "workspace:*",
     "@storybook/addon-vitest": "catalog:",
     "@storybook/react": "catalog:",

@@ -1,22 +1,22 @@
-import {TooltipProvider} from '@shipfox/react-ui/tooltip';
 import {Text} from '@shipfox/react-ui/typography';
 import type {Meta, StoryObj} from '@storybook/react';
-import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
+import {QueryClient} from '@tanstack/react-query';
 import {
+  type AnyRouter,
   createMemoryHistory,
-  createRootRouteWithContext,
-  createRoute,
   createRouter,
-  Outlet,
   RouterProvider,
 } from '@tanstack/react-router';
-import {createStore, Provider as JotaiProvider} from 'jotai';
-import {useMemo} from 'react';
-import type {NavTabEntry} from '#contract.js';
-import {authStateAtom} from '#runtime/auth.js';
+import {createStore} from 'jotai';
+import {useEffect, useMemo, useState} from 'react';
+import {expect, waitFor, within} from 'storybook/test';
+import {composeClientFeatures} from '#compose/compose-client-features.js';
+import {defineClientFeature} from '#contract.js';
+import {assembleRouteTree} from '#runtime/assemble-route-tree.js';
+import {type AuthStateValue, authStateAtom} from '#runtime/auth.js';
 import {ChromeProvider, type ChromeSlots} from '#runtime/chrome-context.js';
-import type {RouterContext} from '#runtime/router-context.js';
-import {MainLayout} from './main-layout.js';
+import {defineRoute} from '#runtime/define-route.js';
+import {ShellProviders} from '../testing/index.js';
 
 const WORKSPACE = {
   id: '00000000-0000-4000-8000-000000000001',
@@ -25,11 +25,29 @@ const WORKSPACE = {
   membershipId: '10000000-0000-4000-8000-000000000001',
 };
 
-const NAVIGATION: NavTabEntry[] = [
-  {id: 'overview', label: 'Overview', to: '/w/$workspaceSlug/overview', scope: 'workspace'},
-  {id: 'projects', label: 'Projects', to: '/w/$workspaceSlug/projects', scope: 'workspace'},
-  {id: 'runners', label: 'Runners', to: '/w/$workspaceSlug/runners', scope: 'workspace'},
-];
+const AUTH: AuthStateValue = {
+  status: 'authenticated',
+  token: 'story-access-token',
+  user: {id: '00000000-0000-4000-8000-00000000000a', email: 'demo@shipfox.dev'},
+  workspaces: [WORKSPACE],
+  isLoading: false,
+  isAuthenticated: true,
+  hasWorkspace: true,
+};
+
+const SHELL_STORY_FEATURE = defineClientFeature({
+  id: 'acme.shell-story',
+  routes: [
+    {path: '/w/$workspaceSlug/overview', parent: 'workspaceLayout', impl: 'overview'},
+    {path: '/w/$workspaceSlug/projects', parent: 'workspaceLayout', impl: 'projects'},
+    {path: '/w/$workspaceSlug/runners', parent: 'workspaceLayout', impl: 'runners'},
+  ],
+  navigation: [
+    {id: 'overview', label: 'Overview', to: '/w/$workspaceSlug/overview', scope: 'workspace'},
+    {id: 'projects', label: 'Projects', to: '/w/$workspaceSlug/projects', scope: 'workspace'},
+    {id: 'runners', label: 'Runners', to: '/w/$workspaceSlug/runners', scope: 'workspace'},
+  ],
+});
 
 /** Generic filler for the session-banner slot; impersonation UI never ships here. */
 function DemoSessionBanner() {
@@ -67,12 +85,7 @@ function MainLayoutStory({
   );
   const store = useMemo(() => {
     const nextStore = createStore();
-    nextStore.set(authStateAtom, {
-      status: 'authenticated',
-      token: 'story-access-token',
-      user: {id: '00000000-0000-4000-8000-00000000000a', email: 'demo@shipfox.dev'},
-      workspaces: [WORKSPACE],
-    });
+    nextStore.set(authStateAtom, AUTH);
     return nextStore;
   }, []);
   const chrome = useMemo<ChromeSlots>(
@@ -83,62 +96,44 @@ function MainLayoutStory({
     }),
     [withSessionBanner],
   );
-  const router = useMemo(() => {
-    const rootRoute = createRootRouteWithContext<RouterContext>()({component: Outlet});
-    const workspaceRoute = createRoute({
-      getParentRoute: () => rootRoute,
-      path: '/w/$workspaceSlug',
-      component: () => (
-        <MainLayout navigation={NAVIGATION} hideProjectNavigation={hideProjectNavigation} />
-      ),
-    });
-    const overviewRoute = createRoute({
-      getParentRoute: () => workspaceRoute,
-      path: '/overview',
-      component: OverviewPage,
-    });
-    const projectsRoute = createRoute({
-      getParentRoute: () => workspaceRoute,
-      path: '/projects',
-      component: OverviewPage,
-    });
-    const runnersRoute = createRoute({
-      getParentRoute: () => workspaceRoute,
-      path: '/runners',
-      component: OverviewPage,
-    });
-    const routeTree = rootRoute.addChildren([
-      workspaceRoute.addChildren([overviewRoute, projectsRoute, runnersRoute]),
-    ]);
-    return createRouter({
-      routeTree,
-      history: createMemoryHistory({initialEntries: ['/w/acme/overview']}),
-      context: {
-        auth: {
-          status: 'authenticated',
-          token: 'story-access-token',
-          user: {id: '00000000-0000-4000-8000-00000000000a', email: 'demo@shipfox.dev'},
-          workspaces: [WORKSPACE],
-          isLoading: false,
-          isAuthenticated: true,
-          hasWorkspace: true,
-        },
-        queryClient,
-        workspaceSetup: async () => ({hideProjectNavigation}),
-        projectSlugResolver: chrome.projectSlugResolver,
-      },
-    });
+  const [router, setRouter] = useState<AnyRouter | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const composition = composeClientFeatures([SHELL_STORY_FEATURE]);
+      const routeTree = await assembleRouteTree(composition.routes, {
+        layouts: composition.layouts,
+        resolveImpl: () => defineRoute({staticData: {frame: 'content'}, component: OverviewPage}),
+        navigation: composition.navigation,
+        settingsSections: composition.settingsSections,
+      });
+      if (cancelled) return;
+      setRouter(
+        createRouter({
+          routeTree,
+          history: createMemoryHistory({initialEntries: ['/w/acme/overview']}),
+          context: {
+            auth: AUTH,
+            queryClient,
+            workspaceSetup: async () => ({hideProjectNavigation}),
+            projectSlugResolver: chrome.projectSlugResolver,
+          },
+        }),
+      );
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [queryClient, chrome, hideProjectNavigation]);
+
+  if (!router) return null;
 
   return (
     <ChromeProvider chrome={chrome}>
-      <QueryClientProvider client={queryClient}>
-        <JotaiProvider store={store}>
-          <TooltipProvider>
-            <RouterProvider router={router} />
-          </TooltipProvider>
-        </JotaiProvider>
-      </QueryClientProvider>
+      <ShellProviders features={[SHELL_STORY_FEATURE]} queryClient={queryClient} store={store}>
+        <RouterProvider router={router} />
+      </ShellProviders>
     </ChromeProvider>
   );
 }
@@ -158,7 +153,19 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const Playground: Story = {};
+export const Playground: Story = {
+  play: async ({canvasElement}) => {
+    const canvas = within(canvasElement);
+    const main = await canvas.findByRole('main');
+    await waitFor(() => {
+      const banner = canvas.getByText('Session banner slot');
+      const strip = banner.parentElement;
+      expect(strip).not.toBeNull();
+      const expectedHeight = `calc(100dvh - ${96 + Math.round((strip as HTMLElement).getBoundingClientRect().height)}px)`;
+      expect(main.style.getPropertyValue('--app-content-h')).toBe(expectedHeight);
+    });
+  },
+};
 
 export const WithoutBanner: Story = {
   args: {

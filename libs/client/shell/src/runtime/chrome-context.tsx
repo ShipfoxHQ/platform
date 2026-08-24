@@ -25,11 +25,12 @@ export interface ChromeSlots {
   WorkspaceSetupIndicator?: ComponentType;
   /**
    * Optional component the main layout renders above the navigation bar, inside
-   * an error boundary. The layout reserves a fixed-height strip for the slot
-   * and accounts for it in the app-content viewport arithmetic, so a composing
-   * component must fit that strip. The layout renders nothing when the slot is
-   * absent, so a consumer that composes without the session banner is
-   * unaffected.
+   * an error boundary. The layout reserves a minimum-height strip for the slot,
+   * measures its rendered height, and accounts for it in the app-content
+   * viewport arithmetic, so a composing component taller than the minimum is
+   * still fully visible and the content area stays consistent. The layout
+   * renders nothing when the slot is absent, so a consumer that composes
+   * without the session banner is unaffected.
    */
   SessionBanner?: ComponentType;
 }

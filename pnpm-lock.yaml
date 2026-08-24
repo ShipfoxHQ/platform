@@ -5918,6 +5918,9 @@ importers:
       '@shipfox/typescript':
         specifier: workspace:*
         version: link:../../../tools/typescript
+      '@shipfox/vite':
+        specifier: workspace:*
+        version: link:../../../tools/vite
       '@shipfox/vitest':
         specifier: workspace:*
         version: link:../../../tools/vitest
