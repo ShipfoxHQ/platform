@@ -1,14 +1,20 @@
 import {definitionsInterModuleContract} from '@shipfox/api-definitions-dto/inter-module';
 import {workflowsInterModuleContract} from '@shipfox/api-workflows-dto/inter-module';
 import {createInterModuleKnownError} from '@shipfox/inter-module';
-import {eq} from 'drizzle-orm';
+import {and, eq} from 'drizzle-orm';
 import {db} from '#db/db.js';
+import {listReplaysOfTriggerEvent} from '#db/event-queries.js';
 import {triggersDecisions} from '#db/schema/decisions.js';
 import {triggersReceivedEvents} from '#db/schema/received-events.js';
 import {triggerSubscriptions} from '#db/schema/subscriptions.js';
+import {receivedEventFactory} from '#test/index.js';
 import {
   DevRunInputsNotAllowedError,
+  DevRunReplayEventMismatchError,
+  DevRunReplayEventNotFoundError,
   DevRunReplayEventRequiredError,
+  DevRunReplayEventUnavailableError,
+  DevRunTriggerFilteredError,
   DevRunTriggerNotFoundError,
 } from './errors.js';
 
@@ -34,7 +40,11 @@ interface BaseParams {
   commit?: string | undefined;
   inputs?: Record<string, unknown> | undefined;
   triggerKey?: string;
-  triggers?: Record<string, {source: string; event?: string; with?: Record<string, unknown>}>;
+  replayEventId?: string | undefined;
+  triggers?: Record<
+    string,
+    {source: string; event?: string; with?: Record<string, unknown>; filter?: string}
+  >;
 }
 
 function buildParams(overrides: BaseParams = {}) {
@@ -48,6 +58,7 @@ function buildParams(overrides: BaseParams = {}) {
     configPath: '.shipfox/workflows/triage-sentry.yml',
     triggerKey: overrides.triggerKey ?? 'on_demand',
     inputs: overrides.inputs,
+    replayEventId: overrides.replayEventId,
     userId: crypto.randomUUID(),
     triggers: overrides.triggers,
   };
@@ -73,6 +84,18 @@ function eventsForWorkspace(workspaceId: string) {
     .select()
     .from(triggersReceivedEvents)
     .where(eq(triggersReceivedEvents.workspaceId, workspaceId));
+}
+
+function devEventsForWorkspace(workspaceId: string) {
+  return db()
+    .select()
+    .from(triggersReceivedEvents)
+    .where(
+      and(
+        eq(triggersReceivedEvents.workspaceId, workspaceId),
+        eq(triggersReceivedEvents.origin, 'dev'),
+      ),
+    );
 }
 
 function decisionsForEvent(receivedEventId: string) {
@@ -243,7 +266,7 @@ describe('createDevRun', () => {
     expect(await eventsForWorkspace(params.workspaceId)).toHaveLength(0);
   });
 
-  test('refuses integration triggers until targeted replay lands', async () => {
+  test('refuses integration triggers without a replay event id', async () => {
     const params = buildParams({
       triggerKey: 'on_issue',
       triggers: {on_issue: {source: 'sentry_acme', event: 'issue.created'}},
@@ -253,6 +276,331 @@ describe('createDevRun', () => {
     await expect(createDevRun(params)).rejects.toThrow(DevRunReplayEventRequiredError);
     expect(startDevRun).not.toHaveBeenCalled();
     expect(await eventsForWorkspace(params.workspaceId)).toHaveLength(0);
+  });
+
+  test('refuses request inputs for integration triggers', async () => {
+    const sourceEvent = await receivedEventFactory.create({
+      workspaceId: crypto.randomUUID(),
+      origin: 'integration',
+      provider: 'github',
+      source: 'github',
+      event: 'push',
+      deliveryId: 'delivery-abc',
+      connectionId: crypto.randomUUID(),
+      connectionName: 'Acme Production',
+      payload: {ref: 'refs/heads/main'},
+    });
+    const params = buildParams({
+      triggerKey: 'on_push',
+      triggers: {on_push: {source: 'github', event: 'push'}},
+      replayEventId: sourceEvent.id,
+      inputs: {severity: 'high'},
+    });
+    resolveDefinitionAtRef.mockResolvedValue(resolvedDefinition(params.triggers));
+
+    await expect(createDevRun(params)).rejects.toThrow(DevRunInputsNotAllowedError);
+    expect(startDevRun).not.toHaveBeenCalled();
+    expect(await eventsForWorkspace(params.workspaceId)).toHaveLength(0);
+  });
+
+  test('replays a journaled integration event with the row payload, connection, and replay link', async () => {
+    const params = buildParams({
+      triggerKey: 'on_push',
+      triggers: {
+        on_push: {
+          source: 'github',
+          event: 'push',
+          filter: 'event.ref == "refs/heads/main"',
+          with: {severity: 'high'},
+        },
+      },
+    });
+    const connectionId = crypto.randomUUID();
+    const payload = {ref: 'refs/heads/main', repository: {full_name: 'shipfox/platform'}};
+    const sourceEvent = await receivedEventFactory.create({
+      workspaceId: params.workspaceId,
+      origin: 'integration',
+      provider: 'github',
+      source: 'github',
+      event: 'push',
+      deliveryId: 'delivery-abc',
+      connectionId,
+      connectionName: 'Acme Production',
+      payload,
+      outcome: 'routed',
+    });
+    resolveDefinitionAtRef.mockResolvedValue(resolvedDefinition(params.triggers));
+    const run = {id: crypto.randomUUID(), name: 'Dev replay run'};
+    startDevRun.mockResolvedValue(run);
+
+    const result = await createDevRun({...params, replayEventId: sourceEvent.id});
+
+    expect(result).toEqual({id: run.id, commit: COMMIT});
+    expect(devRunsCount.add).toHaveBeenCalledWith(1, {
+      trigger_kind: 'replay',
+      outcome: 'routed',
+    });
+    // The same payload shape and connection id a dispatch would pass, so
+    // `resolveWorkflowRunTriggerReference` resolves the trigger reference as
+    // in production.
+    const [startPayload] = startDevRun.mock.calls[0] as [Record<string, unknown>];
+    expect(startPayload).toMatchObject({
+      workspaceId: params.workspaceId,
+      projectId: params.projectId,
+      workflowId: WORKFLOW_ID,
+      triggerConnectionId: connectionId,
+      inputs: {severity: 'high'},
+      triggerPayload: {
+        provider: 'github',
+        source: 'github',
+        event: 'push',
+        deliveryId: 'delivery-abc',
+        data: payload,
+      },
+      devSource: {
+        ref: params.ref,
+        commit: COMMIT,
+        configPath: params.configPath,
+        initiatedByUserId: params.userId,
+        replayOfEventId: sourceEvent.id,
+      },
+    });
+    expect(startPayload).not.toHaveProperty('idempotencyKey');
+
+    // The dev journal row carries the replayed payload and the forward replay link.
+    const [event] = await db()
+      .select()
+      .from(triggersReceivedEvents)
+      .where(eq(triggersReceivedEvents.eventRef, run.id));
+    if (!event) throw new Error('received event not found');
+    expect(event).toMatchObject({
+      origin: 'dev',
+      provider: 'github',
+      source: 'github',
+      event: 'push',
+      replayOfEventId: sourceEvent.id,
+      deliveryId: 'delivery-abc',
+      connectionId,
+      connectionName: 'Acme Production',
+      payload,
+      outcome: 'routed',
+      matchedCount: 1,
+    });
+
+    const decisions = await decisionsForEvent(event.id);
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0]).toMatchObject({
+      subscriptionKind: 'dev',
+      subscriptionId: null,
+      subscriptionName: 'on_push',
+      workflowDefinitionId: WORKFLOW_ID,
+      decision: 'triggered',
+      runId: run.id,
+      reason: null,
+    });
+
+    // The backward replay link: the source event lists the dev row as a replay.
+    const replays = await listReplaysOfTriggerEvent(sourceEvent.id, params.workspaceId);
+    expect(replays).toEqual([
+      expect.objectContaining({id: event.id, outcome: 'routed', runId: run.id}),
+    ]);
+    expect(await subscriptionsForWorkspace(params.workspaceId)).toHaveLength(0);
+  });
+
+  test('answers not-found for a missing replay event', async () => {
+    const params = buildParams({
+      triggerKey: 'on_push',
+      triggers: {on_push: {source: 'github', event: 'push'}},
+      replayEventId: crypto.randomUUID(),
+    });
+    resolveDefinitionAtRef.mockResolvedValue(resolvedDefinition(params.triggers));
+
+    await expect(createDevRun(params)).rejects.toThrow(DevRunReplayEventNotFoundError);
+    expect(startDevRun).not.toHaveBeenCalled();
+    expect(await eventsForWorkspace(params.workspaceId)).toHaveLength(0);
+  });
+
+  test('answers not-found for a replay event in another workspace', async () => {
+    const params = buildParams({
+      triggerKey: 'on_push',
+      triggers: {on_push: {source: 'github', event: 'push'}},
+    });
+    // The journaled event exists but belongs to a different workspace: the 404
+    // shape must not leak that the id exists.
+    const sourceEvent = await receivedEventFactory.create({
+      workspaceId: crypto.randomUUID(),
+      origin: 'integration',
+      provider: 'github',
+      source: 'github',
+      event: 'push',
+      deliveryId: 'delivery-abc',
+      connectionId: crypto.randomUUID(),
+      connectionName: 'Acme Production',
+      payload: {ref: 'refs/heads/main'},
+    });
+    resolveDefinitionAtRef.mockResolvedValue(resolvedDefinition(params.triggers));
+
+    await expect(createDevRun({...params, replayEventId: sourceEvent.id})).rejects.toThrow(
+      DevRunReplayEventNotFoundError,
+    );
+    expect(startDevRun).not.toHaveBeenCalled();
+    expect(await eventsForWorkspace(params.workspaceId)).toHaveLength(0);
+  });
+
+  test.each([
+    ['a non-integration origin', {origin: 'dev' as const}],
+    ['a different source', {source: 'sentry_acme', event: 'issue.created'}],
+    ['a different event', {event: 'pull_request'}],
+  ] as const)('answers mismatch for %s on the replay event', async (_description, override) => {
+    const params = buildParams({
+      triggerKey: 'on_push',
+      triggers: {on_push: {source: 'github', event: 'push'}},
+    });
+    const sourceEvent = await receivedEventFactory.create({
+      workspaceId: params.workspaceId,
+      origin: 'integration',
+      provider: 'github',
+      source: 'github',
+      event: 'push',
+      deliveryId: 'delivery-abc',
+      connectionId: crypto.randomUUID(),
+      connectionName: 'Acme Production',
+      payload: {ref: 'refs/heads/main'},
+      ...override,
+    });
+    resolveDefinitionAtRef.mockResolvedValue(resolvedDefinition(params.triggers));
+
+    await expect(createDevRun({...params, replayEventId: sourceEvent.id})).rejects.toThrow(
+      DevRunReplayEventMismatchError,
+    );
+    expect(startDevRun).not.toHaveBeenCalled();
+    // Only the planted row exists; the refusal journals nothing.
+    expect(await eventsForWorkspace(params.workspaceId)).toHaveLength(1);
+  });
+
+  test('answers unavailable for a pruned replay event payload', async () => {
+    const params = buildParams({
+      triggerKey: 'on_push',
+      triggers: {on_push: {source: 'github', event: 'push'}},
+    });
+    const sourceEvent = await receivedEventFactory.create({
+      workspaceId: params.workspaceId,
+      origin: 'integration',
+      provider: 'github',
+      source: 'github',
+      event: 'push',
+      deliveryId: 'delivery-abc',
+      connectionId: crypto.randomUUID(),
+      connectionName: 'Acme Production',
+      payload: null,
+    });
+    resolveDefinitionAtRef.mockResolvedValue(resolvedDefinition(params.triggers));
+
+    await expect(createDevRun({...params, replayEventId: sourceEvent.id})).rejects.toThrow(
+      DevRunReplayEventUnavailableError,
+    );
+    expect(startDevRun).not.toHaveBeenCalled();
+    expect(await devEventsForWorkspace(params.workspaceId)).toHaveLength(0);
+  });
+
+  test('refuses a filter-false replay with the reason and journals a filter-error decision', async () => {
+    const params = buildParams({
+      triggerKey: 'on_push',
+      triggers: {
+        on_push: {source: 'github', event: 'push', filter: 'event.ref == "refs/heads/main"'},
+      },
+    });
+    const sourceEvent = await receivedEventFactory.create({
+      workspaceId: params.workspaceId,
+      origin: 'integration',
+      provider: 'github',
+      source: 'github',
+      event: 'push',
+      deliveryId: 'delivery-abc',
+      connectionId: crypto.randomUUID(),
+      connectionName: 'Acme Production',
+      payload: {ref: 'refs/heads/other'},
+    });
+    resolveDefinitionAtRef.mockResolvedValue(resolvedDefinition(params.triggers));
+
+    await expect(createDevRun({...params, replayEventId: sourceEvent.id})).rejects.toThrow(
+      new DevRunTriggerFilteredError('Trigger filter evaluated to false'),
+    );
+    expect(startDevRun).not.toHaveBeenCalled();
+    expect(devRunsCount.add).toHaveBeenCalledWith(1, {
+      trigger_kind: 'replay',
+      outcome: 'filtered',
+    });
+
+    const events = await devEventsForWorkspace(params.workspaceId);
+    expect(events).toHaveLength(1);
+    const event = events[0];
+    if (!event) throw new Error('received event not found');
+    expect(event).toMatchObject({
+      origin: 'dev',
+      provider: 'github',
+      source: 'github',
+      event: 'push',
+      replayOfEventId: sourceEvent.id,
+      payload: {ref: 'refs/heads/other'},
+    });
+    expect(event.eventRef).toEqual(expect.stringMatching(SYNTHESIZED_EVENT_REF));
+    const decisions = await decisionsForEvent(event.id);
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0]).toMatchObject({
+      subscriptionKind: 'dev',
+      subscriptionName: 'on_push',
+      workflowDefinitionId: WORKFLOW_ID,
+      decision: 'filter-error',
+      runId: null,
+      reason: 'Trigger filter evaluated to false',
+    });
+    expect(await subscriptionsForWorkspace(params.workspaceId)).toHaveLength(0);
+  });
+
+  test('refuses a filter-error replay with the evaluation reason and journals it', async () => {
+    const params = buildParams({
+      triggerKey: 'on_push',
+      triggers: {on_push: {source: 'github', event: 'push', filter: 'event.ref.size() > 1'}},
+    });
+    const sourceEvent = await receivedEventFactory.create({
+      workspaceId: params.workspaceId,
+      origin: 'integration',
+      provider: 'github',
+      source: 'github',
+      event: 'push',
+      deliveryId: 'delivery-abc',
+      connectionId: crypto.randomUUID(),
+      connectionName: 'Acme Production',
+      // A null `ref` in the payload: `.size()` on a missing field throws, which
+      // the fail-closed evaluation reports as `filter-error`. (An empty object
+      // would deep-merge with the factory default and keep the sample `ref`.)
+      payload: {ref: null},
+    });
+    resolveDefinitionAtRef.mockResolvedValue(resolvedDefinition(params.triggers));
+
+    await expect(createDevRun({...params, replayEventId: sourceEvent.id})).rejects.toThrow(
+      new DevRunTriggerFilteredError('Trigger filter evaluation failed'),
+    );
+    expect(startDevRun).not.toHaveBeenCalled();
+    expect(devRunsCount.add).toHaveBeenCalledWith(1, {
+      trigger_kind: 'replay',
+      outcome: 'filtered',
+    });
+
+    const events = await devEventsForWorkspace(params.workspaceId);
+    expect(events).toHaveLength(1);
+    const event = events[0];
+    if (!event) throw new Error('received event not found');
+    expect(event.replayOfEventId).toBe(sourceEvent.id);
+    const decisions = await decisionsForEvent(event.id);
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0]).toMatchObject({
+      subscriptionKind: 'dev',
+      decision: 'filter-error',
+      runId: null,
+      reason: 'Trigger filter evaluation failed',
+    });
   });
 
   test('rethrows a ref-moved resolution without journaling', async () => {

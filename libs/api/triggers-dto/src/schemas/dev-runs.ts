@@ -31,8 +31,12 @@ export const createDevRunBodySchema = z
       .refine(isSafeRefInput, 'Config path contains a control character'),
     // Trigger key in the resolved workflow file's `triggers` map.
     trigger: z.string().min(1),
-    // Manual triggers only; rejected with `inputs-not-allowed` for cron.
+    // Manual triggers only; rejected with `inputs-not-allowed` for cron and
+    // integration triggers.
     inputs: z.record(z.string(), z.unknown()).optional(),
+    // Integration triggers only; the journaled event to replay. Missing for an
+    // integration source answers 422 `replay-event-required`.
+    replay_event_id: z.string().uuid().optional(),
   })
   .strict();
 

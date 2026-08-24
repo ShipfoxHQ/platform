@@ -15,7 +15,11 @@ import {z} from 'zod';
 import {createDevRun} from '#core/create-dev-run.js';
 import {
   DevRunInputsNotAllowedError,
+  DevRunReplayEventMismatchError,
+  DevRunReplayEventNotFoundError,
   DevRunReplayEventRequiredError,
+  DevRunReplayEventUnavailableError,
+  DevRunTriggerFilteredError,
   DevRunTriggerNotFoundError,
 } from '#core/errors.js';
 import {mapStartRunError} from './map-start-run-error.js';
@@ -36,7 +40,8 @@ export function createDevRunRoute(
   return defineRoute({
     method: 'POST',
     path: '/',
-    description: 'Create a dev run from a workflow file at a git ref for a manual or cron trigger.',
+    description:
+      'Create a dev run from a workflow file at a git ref for a manual, cron, or replayed integration trigger.',
     schema: {
       body: createDevRunBodySchema,
       response: {
@@ -53,6 +58,34 @@ export function createDevRunRoute(
       }
       if (error instanceof DevRunReplayEventRequiredError) {
         throw new ClientError(error.message, 'replay-event-required', {status: 422});
+      }
+      if (error instanceof DevRunReplayEventNotFoundError) {
+        throw new ClientError(error.message, 'replay-event-not-found', {
+          status: 404,
+          cause: error,
+        });
+      }
+      if (error instanceof DevRunReplayEventMismatchError) {
+        throw new ClientError(error.message, 'replay-event-mismatch', {
+          status: 409,
+          cause: error,
+        });
+      }
+      if (error instanceof DevRunReplayEventUnavailableError) {
+        throw new ClientError(error.message, 'replay-event-unavailable', {
+          status: 410,
+          cause: error,
+        });
+      }
+      if (error instanceof DevRunTriggerFilteredError) {
+        // The reason travels in `details` so the client can show why; the
+        // events page journal shows the same reason on the `filter-error`
+        // decision.
+        throw new ClientError('The trigger filter refused the replayed event', 'trigger-filtered', {
+          status: 409,
+          details: {reason: error.reason},
+          cause: error,
+        });
       }
       if (
         isInterModuleKnownError(
@@ -110,7 +143,7 @@ export function createDevRunRoute(
     },
     handler: async (request, reply) => {
       const userContext = requireUserContext(request);
-      const {project_id, ref, commit, config_path, trigger, inputs} = request.body;
+      const {project_id, ref, commit, config_path, trigger, inputs, replay_event_id} = request.body;
       const {workspaceId} = await requireProjectAccess(request, project_id, projects);
 
       const run = await createDevRun({
@@ -123,6 +156,7 @@ export function createDevRunRoute(
         configPath: config_path,
         triggerKey: trigger,
         inputs,
+        replayEventId: replay_event_id,
         userId: userContext.userId,
       });
 

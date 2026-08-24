@@ -48,6 +48,7 @@ export async function dispatchIntegrationEvent(
     provider: params.provider,
     source: params.source,
     event: params.event,
+    replayOfEventId: null,
     deliveryId: params.deliveryId,
     connectionId: params.connectionId,
     connectionName: params.connectionName,

@@ -50,6 +50,7 @@ export async function fireCronSubscription(
     // Cron has no inbound event. Keep the canonical history event for a row
     // that bypassed the projection write-path validation.
     event: subscription.event ?? 'tick',
+    replayOfEventId: null,
     deliveryId: null,
     connectionId: null,
     connectionName: null,
