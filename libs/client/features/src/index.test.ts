@@ -2,6 +2,7 @@ import {composeClientFeatures} from '@shipfox/client-shell/runtime';
 import {describe, expect, it} from '@shipfox/vitest/vi';
 import manifest from '../package.json' with {type: 'json'};
 import {defaultFeatures} from './index.js';
+import {defaultChrome, defaultWorkspaceSetupGate} from './runtime.js';
 
 const SHIPFOX_PACKAGE_PATTERN = /^(@shipfox\/[^/]+)\//u;
 
@@ -63,5 +64,20 @@ describe('defaultFeatures', () => {
     expect(new Set(composition.settingsSections.map(({id}) => id)).size).toBe(
       composition.settingsSections.length,
     );
+  });
+});
+
+describe('defaultChrome', () => {
+  it('wires the workspace setup checklist and indicator into the default chrome', () => {
+    // Dropping either slot silently removes the Get-started guide from the hub
+    // and the top bar, so the composition contract is asserted here.
+    expect(defaultChrome.WorkspaceSetupChecklist).toBeDefined();
+    expect(defaultChrome.WorkspaceSetupIndicator).toBeDefined();
+    expect(defaultChrome.ProjectBreadcrumb).toBeDefined();
+    expect(defaultChrome.projectSlugResolver).toBeDefined();
+  });
+
+  it('uses the onboarding workspace setup gate by default', () => {
+    expect(defaultWorkspaceSetupGate).toBeDefined();
   });
 });

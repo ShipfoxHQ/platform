@@ -33,7 +33,20 @@ describe('CreateProjectPage', () => {
         return jsonResponse({repositories: [repositoryDto()], next_cursor: null});
       }
       if (request.url.includes('/projects?')) {
-        return jsonResponse({projects: [], next_cursor: null});
+        const url = new URL(request.url);
+        // The pre-create existence snapshot (limit=1) sees an empty workspace;
+        // the home list (limit=50) sees the created project, so the home does
+        // not fall back to the pre-create empty state.
+        if (url.searchParams.get('search')) {
+          return jsonResponse({projects: [], next_cursor: null});
+        }
+        if (url.searchParams.get('limit') === '1') {
+          return jsonResponse({projects: [], next_cursor: null});
+        }
+        return jsonResponse({
+          projects: [projectDto({id: '44444444-4444-4444-8444-444444444444'})],
+          next_cursor: null,
+        });
       }
       if (request.url.endsWith('/projects') && request.method === 'POST') {
         createProjectBody = await request.json();
@@ -80,9 +93,11 @@ describe('CreateProjectPage', () => {
     fireEvent.click(screen.getByRole('button', {name: 'Create project'}));
 
     // The first project lands on the workspace home, where the Get-started
-    // panel is the first panel; the project detail is not shown.
+    // panel is the first panel, the just-created project is listed instead of
+    // the pre-create empty state, and the project detail is not shown.
     expect(await screen.findByRole('searchbox', {name: 'Search projects'})).toBeInTheDocument();
-    expect(await screen.findByText('Create your first project')).toBeInTheDocument();
+    expect(await screen.findByText('Project Detail')).toBeInTheDocument();
+    expect(screen.queryByText('Create your first project')).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', {name: 'Runs'})).not.toBeInTheDocument();
     expect(createProjectBody).toEqual({
       workspace_id: PROJECT_TEST_WID,
@@ -93,6 +108,56 @@ describe('CreateProjectPage', () => {
         external_repository_id: 'platform',
       },
     });
+  }, 10_000);
+
+  test('does not double-submit while the existence snapshot is in flight', async () => {
+    let releaseExistenceRead: (() => void) | undefined;
+    const existenceReadGate = new Promise<void>((resolve) => {
+      releaseExistenceRead = resolve;
+    });
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const request = input as Request;
+      if (request.url.includes('/integration-connections?')) {
+        return jsonResponse({connections: [connectionDto()]});
+      }
+      if (request.url.includes(`/integration-connections/${CONNECTION_ID}/repositories`)) {
+        return jsonResponse({repositories: [repositoryDto()], next_cursor: null});
+      }
+      if (request.url.includes('/projects?')) {
+        const url = new URL(request.url);
+        if (url.searchParams.get('limit') === '1') {
+          await existenceReadGate;
+          return jsonResponse({projects: [], next_cursor: null});
+        }
+        return jsonResponse({
+          projects: [projectDto({id: '44444444-4444-4444-8444-444444444444'})],
+          next_cursor: null,
+        });
+      }
+      if (request.url.endsWith('/projects') && request.method === 'POST') {
+        return jsonResponse(projectDto({id: '44444444-4444-4444-8444-444444444444'}));
+      }
+      return jsonResponse({});
+    });
+    configureApiClient({fetchImpl});
+
+    renderProjectPage(`/w/${PROJECT_TEST_WSLUG}/projects/new`, <CreateProjectPage />);
+    expect((await screen.findAllByText('gitea-owner/platform')).length).toBeGreaterThan(0);
+
+    const createButton = screen.getByRole('button', {name: 'Create project'});
+    fireEvent.click(createButton);
+    fireEvent.click(createButton);
+
+    // The button stays disabled while the existence snapshot runs, so a second
+    // click cannot start a duplicate create.
+    await waitFor(() =>
+      expect(screen.getByRole('button', {name: 'Create project'})).toBeDisabled(),
+    );
+    releaseExistenceRead?.();
+
+    // Exactly one POST and a deterministic landing on the workspace home.
+    expect(await screen.findByRole('searchbox', {name: 'Search projects'})).toBeInTheDocument();
+    expect(projectPostCount(fetchImpl)).toBe(1);
   }, 10_000);
 
   test('does not render an empty source panel when connections fail to load', async () => {

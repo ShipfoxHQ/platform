@@ -19,12 +19,17 @@ import {Panel, PanelActions, PanelBody, PanelHeader, PanelTitle} from '@shipfox/
 import {toast} from '@shipfox/react-ui/toast';
 import {Header, Text} from '@shipfox/react-ui/typography';
 import {useForm} from '@tanstack/react-form';
-import {useQueryClient} from '@tanstack/react-query';
+import {type InfiniteData, useQueryClient} from '@tanstack/react-query';
 import {Link, Navigate, useNavigate} from '@tanstack/react-router';
 import {useEffect, useRef, useState} from 'react';
-import {type CreateProjectCommand, projectNameFromRepository} from '#core/project.js';
+import {
+  type CreateProjectCommand,
+  type ProjectList,
+  projectNameFromRepository,
+} from '#core/project.js';
 import {
   getProject,
+  projectsInfiniteQueryOptions,
   readWorkspaceHasNoProject,
   useCreateProjectMutation,
   useProjectSlugAvailability,
@@ -41,6 +46,10 @@ export function CreateProjectPage() {
   const queryClient = useQueryClient();
   const createProject = useCreateProjectMutation();
   const errorRef = useRef<HTMLDivElement>(null);
+  // The submit flow awaits an existence snapshot before the create mutation, so
+  // the pending state must cover the whole handler, not just the mutation.
+  const submittingRef = useRef(false);
+  const [submitting, setSubmitting] = useState(false);
 
   const connectionsQuery = useSourceConnectionsQuery(workspace?.id);
   const connections = connectionsQuery.data ?? [];
@@ -152,6 +161,9 @@ export function CreateProjectPage() {
       errorRef.current?.focus();
       return;
     }
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    setSubmitting(true);
 
     try {
       // Snapshot project existence before the mutation: after a successful
@@ -173,7 +185,13 @@ export function CreateProjectPage() {
       toast.success('Project created.');
       if (wasFirstProject) {
         // The setup checklist panel is the first thing on the home, so the
-        // first project lands where the Get-started guide lives.
+        // first project lands where the Get-started guide lives. Seed the
+        // workspace list so the home does not re-render the pre-create empty
+        // state while the invalidated list refetches.
+        queryClient.setQueryData<InfiniteData<ProjectList, string | undefined>>(
+          projectsInfiniteQueryOptions(workspace.id).queryKey,
+          {pages: [{projects: [project], nextCursor: null}], pageParams: [undefined]},
+        );
         await navigate({
           to: '/w/$workspaceSlug',
           params: {workspaceSlug: workspace.slug},
@@ -208,6 +226,9 @@ export function CreateProjectPage() {
       }
       setFormError(`${copy.title}: ${copy.message}`);
       requestAnimationFrame(() => errorRef.current?.focus());
+    } finally {
+      submittingRef.current = false;
+      setSubmitting(false);
     }
   }
 
@@ -414,7 +435,7 @@ export function CreateProjectPage() {
               <Button
                 type="submit"
                 iconRight="chevronRight"
-                isLoading={createProject.isPending}
+                isLoading={submitting}
                 disabled={!selectedConnection || !selectedRepository}
                 className="w-full"
               >

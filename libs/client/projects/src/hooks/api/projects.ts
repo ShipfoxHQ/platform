@@ -316,15 +316,32 @@ export async function readWorkspaceHasNoProject({
   try {
     // The landing decision must not trust fresh-but-stale existence data
     // (e.g. a project created in another tab inside the 30s staleTime window),
-    // so force a fresh read for this check.
-    const data = await queryClient.fetchQuery({...options, staleTime: 0});
+    // so force a fresh read for this check. The snapshot also runs without
+    // retry so a slow or failing existence endpoint cannot stall the submit
+    // handler on the app-default retry backoff; the catch falls back to cache.
+    const data = await queryClient.fetchQuery({...options, staleTime: 0, retry: false});
     return data.projects.length === 0;
-  } catch {
+  } catch (error) {
+    reportExistenceReadFailure(error);
     const cached = queryClient.getQueryData<ProjectList>(options.queryKey);
     if (cached !== undefined) return cached.projects.length === 0;
     // Unknown existence keeps the existing project navigation.
     return false;
   }
+}
+
+/**
+ * The existence snapshot is a best-effort pre-flight read: a failure must not
+ * block project creation, but it still reaches the global error-reporting
+ * pipeline so a degrading existence endpoint does not silently misroute the
+ * first-project landing.
+ */
+function reportExistenceReadFailure(error: unknown): void {
+  globalThis.reportError?.(
+    new Error('Failed to read workspace project existence for the first-project landing.', {
+      cause: error,
+    }),
+  );
 }
 
 export function projectQueryOptions(projectId: string | undefined): ProjectDetailQueryOptions {
