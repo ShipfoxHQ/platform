@@ -345,10 +345,7 @@ export const workflowDocumentStepOutputDeclarationSchema = z
 function stepOutputsAreMappingForm(outputs: Readonly<Record<string, unknown>>): boolean {
   const interpolationOpen = '$' + '{{';
   const values = Object.values(outputs);
-  return (
-    values.length > 0 &&
-    values.every((value) => typeof value === 'string' && value.includes(interpolationOpen))
-  );
+  return values.some((value) => typeof value === 'string' && value.includes(interpolationOpen));
 }
 
 function stepOutputsRecordChecks(outputs: Readonly<Record<string, unknown>>, ctx: z.RefinementCtx) {
@@ -932,21 +929,35 @@ export type WorkflowDocumentToolStepOutputs = z.infer<typeof workflowDocumentToo
 export type WorkflowDocumentToolWith = z.infer<typeof workflowDocumentToolStepWithSchema>;
 export type WorkflowDocumentTrigger = z.infer<typeof workflowDocumentTriggerSchema>;
 
+type JsonDepthTask =
+  | {kind: 'enter'; value: unknown; depth: number}
+  | {kind: 'leave'; value: object};
+
 function maxJsonDepth(value: unknown): number {
   let maximumDepth = 0;
-  const seen = new WeakSet<object>();
-  const pending = [{value, depth: 0}];
+  const activeObjects = new Set<object>();
+  const pending: JsonDepthTask[] = [{kind: 'enter', value, depth: 0}];
 
   while (pending.length > 0) {
     const current = pending.pop();
     if (current === undefined) continue;
-    if (current.value === null || typeof current.value !== 'object') continue;
-    if (seen.has(current.value)) continue;
-    seen.add(current.value);
 
+    if (current.kind === 'leave') {
+      activeObjects.delete(current.value);
+      continue;
+    }
+
+    if (current.value === null || typeof current.value !== 'object') continue;
+    if (activeObjects.has(current.value)) continue;
+
+    activeObjects.add(current.value);
     const depth = current.depth + 1;
     maximumDepth = Math.max(maximumDepth, depth);
-    for (const child of Object.values(current.value)) pending.push({value: child, depth});
+    pending.push({kind: 'leave', value: current.value});
+    const children = Object.values(current.value);
+    for (let index = children.length - 1; index >= 0; index -= 1) {
+      pending.push({kind: 'enter', value: children[index], depth});
+    }
   }
 
   return maximumDepth;

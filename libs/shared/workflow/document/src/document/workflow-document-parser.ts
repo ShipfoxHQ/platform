@@ -7,8 +7,8 @@ export class InvalidWorkflowDocumentError extends Error {
   readonly code = invalidWorkflowDocumentErrorCode;
   readonly validationError: z.ZodError<WorkflowDocument>;
 
-  constructor(validationError: z.ZodError<WorkflowDocument>) {
-    super('Invalid workflow document', {cause: validationError});
+  constructor(validationError: z.ZodError<WorkflowDocument>, cause: unknown = validationError) {
+    super('Invalid workflow document', {cause});
     this.name = 'InvalidWorkflowDocumentError';
     this.validationError = validationError;
   }
@@ -30,6 +30,6 @@ export function parseWorkflowDocument(input: unknown): WorkflowDocument {
         message: 'Workflow document could not be parsed.',
       },
     ]) as z.ZodError<WorkflowDocument>;
-    throw new InvalidWorkflowDocumentError(validationError);
+    throw new InvalidWorkflowDocumentError(validationError, error);
   }
 }

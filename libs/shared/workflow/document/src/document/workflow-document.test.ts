@@ -394,6 +394,37 @@ describe('workflowDocumentSchema', () => {
     );
   });
 
+  it('counts shared JSON Schema subtrees at each path', () => {
+    const sharedSchema = {type: 'string'};
+    let deepSchema: Record<string, unknown> = sharedSchema;
+    for (let index = 0; index < WORKFLOW_DOCUMENT_STEP_OUTPUT_SCHEMA_MAX_DEPTH - 1; index += 1) {
+      deepSchema = {items: deepSchema};
+    }
+
+    const result = workflowDocumentSchema.safeParse({
+      name: 'typed outputs',
+      jobs: {
+        build: {
+          steps: [
+            {
+              run: 'npm run build',
+              outputs: {payload: {type: 'json', schema: {deep: deepSchema, shallow: sharedSchema}}},
+            },
+          ],
+        },
+      },
+    });
+
+    const issue = result.success
+      ? undefined
+      : result.error.issues.find(
+          (candidate) => candidate.path.join('.') === 'jobs.build.steps.0.outputs.payload.schema',
+        );
+    expect(issue?.message).toBe(
+      `Output JSON Schema cannot be nested deeper than ${WORKFLOW_DOCUMENT_STEP_OUTPUT_SCHEMA_MAX_DEPTH} levels.`,
+    );
+  });
+
   it.each([
     [
       'top-level string runner',
@@ -1375,6 +1406,32 @@ describe('workflowDocumentSchema', () => {
       jobs: {
         build: {
           steps: [{run: 'npm run build', outputs: {sha: interpolation('steps.build.outputs.sha')}}],
+        },
+      },
+    });
+
+    const issue = result.success
+      ? undefined
+      : result.error.issues.find(
+          (candidate) => candidate.path.join('.') === 'jobs.build.steps.0.outputs',
+        );
+    expect(issue?.message).toBe('The `outputs` mapping form is reserved for tool steps.');
+  });
+
+  it('rejects mixed declaration and expression-mapped outputs on non-tool steps', () => {
+    const result = workflowDocumentSchema.safeParse({
+      name: 'typed outputs',
+      jobs: {
+        build: {
+          steps: [
+            {
+              run: 'npm run build',
+              outputs: {
+                sha: 'string',
+                ref: interpolation('steps.build.outputs.ref'),
+              },
+            },
+          ],
         },
       },
     });
