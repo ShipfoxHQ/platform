@@ -118,6 +118,15 @@ export async function claimSession(params: ClaimSessionParams): Promise<AgentSes
 
       assertValidSessionKey(visibleRow.key);
       assertValidSessionHarness(visibleRow.harness);
+      if (visibleRow.harness !== params.harness) {
+        throw new AgentSessionHarnessMismatchError({
+          sessionId: visibleRow.id,
+          workflowRunAttemptId: params.workflowRunAttemptId,
+          key: visibleRow.key,
+          pinnedHarness: visibleRow.harness,
+          requestedHarness: params.harness,
+        });
+      }
       if (
         visibleRow.claimedByStepAttempt !== null &&
         visibleRow.claimedByStepAttempt !== params.stepAttemptId

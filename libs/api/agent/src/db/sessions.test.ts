@@ -287,6 +287,47 @@ describe('claimSession', () => {
     ).toBe(true);
   });
 
+  it('reports a harness mismatch before classifying a locked session', async () => {
+    const ctx = newCtx();
+    const claimed = await claimSession({...ctx, harness: 'pi'});
+    let releaseLock!: () => void;
+    let resolveLockReady!: () => void;
+    const lockReleased = new Promise<void>((resolve) => {
+      releaseLock = resolve;
+    });
+    const lockReady = new Promise<void>((resolve) => {
+      resolveLockReady = resolve;
+    });
+    const lockHolder = db().transaction(async (tx) => {
+      await tx.select().from(sessions).where(eq(sessions.id, claimed.id)).for('update');
+      resolveLockReady();
+      await lockReleased;
+    });
+    await lockReady;
+
+    const act = claimSession({...ctx, harness: 'claude', stepAttemptId: crypto.randomUUID()});
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    let outcome: unknown;
+    try {
+      outcome = await Promise.race([
+        act.then(
+          () => 'completed' as const,
+          (error: unknown) => error,
+        ),
+        new Promise<'timeout'>((resolve) => {
+          timeoutId = setTimeout(() => resolve('timeout'), 1_000);
+        }),
+      ]);
+    } finally {
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+      releaseLock();
+      await lockHolder;
+      await act.catch(() => undefined);
+    }
+
+    expect(outcome).toBeInstanceOf(AgentSessionHarnessMismatchError);
+  });
+
   it('keeps the held row untouched when a conflicting claim fails', async () => {
     const ctx = newCtx();
     const holder = crypto.randomUUID();
