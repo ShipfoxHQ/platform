@@ -7,16 +7,18 @@ import type {
   WorkflowModelToolWithValue,
   WorkflowOutputTemplates,
 } from '@shipfox/api-definitions-dto';
-import type {
-  AvailabilitySite,
-  ExpressionTypeEnvironment,
-  OutputDeclarations,
-  OutputTypeDeclaration,
+import {
+  type AvailabilitySite,
+  type ExpressionTypeEnvironment,
+  type OutputDeclarations,
+  type OutputTypeDeclaration,
+  parseWorkflowTemplate,
 } from '@shipfox/expression';
-import type {
-  WorkflowDocumentStep,
-  WorkflowDocumentToolStepOutputs,
-  WorkflowDocumentToolWith,
+import {
+  WORKFLOW_DOCUMENT_TOOL_WITH_MAX_DEPTH,
+  type WorkflowDocumentStep,
+  type WorkflowDocumentToolStepOutputs,
+  type WorkflowDocumentToolWith,
 } from '@shipfox/workflow-document';
 import type {
   AgentToolSelector,
@@ -60,7 +62,6 @@ export function normalizeToolStep(params: {
   }
 
   const token = params.step.tool;
-  const selected = splitSelectorToken(token);
   const connectionSlug =
     params.step.connection ?? params.integrationValidationContext?.defaultConnectionSlug;
   const connectionPath = ['jobs', params.sourceName, 'steps', params.stepIndex, 'connection'];
@@ -77,15 +78,20 @@ export function normalizeToolStep(params: {
             'A tool step requires a connection or a default source connection.',
           issues: params.issues,
         });
-  if (resolved !== undefined) {
-    validateToolSelector({
-      token,
-      selectorsByToken: resolved.selectorsByToken,
-      sourceName: params.sourceName,
-      stepIndex: params.stepIndex,
-      issues: params.issues,
-    });
-  }
+  const selector =
+    resolved === undefined
+      ? undefined
+      : validateToolSelector({
+          token,
+          selectorsByToken: resolved.selectorsByToken,
+          sourceName: params.sourceName,
+          stepIndex: params.stepIndex,
+          issues: params.issues,
+        });
+  // A resolved standalone selector is the full tool id even when it contains
+  // a dot; split only family.method selections so consumers round-trip the
+  // exact token the catalog validated.
+  const selected = selector?.kind === 'standalone' ? {tool: token} : splitSelectorToken(token);
 
   const toolWith = normalizeToolWith({
     with: params.step.with,
@@ -121,7 +127,7 @@ function validateToolSelector(params: {
   sourceName: string;
   stepIndex: number;
   issues: WorkflowModelValidationIssue[];
-}): void {
+}): AgentToolSelector | undefined {
   const selector = params.selectorsByToken.get(params.token);
   const path = ['jobs', params.sourceName, 'steps', params.stepIndex, 'tool'];
 
@@ -138,7 +144,7 @@ function validateToolSelector(params: {
         details: {token: params.token},
       }),
     );
-    return;
+    return undefined;
   }
 
   if (selector.kind === 'family' || selector.kind === 'family_wildcard') {
@@ -150,7 +156,7 @@ function validateToolSelector(params: {
         details: {token: params.token, kind: selector.kind},
       }),
     );
-    return;
+    return selector;
   }
 
   if (selector.sensitive) {
@@ -163,6 +169,8 @@ function validateToolSelector(params: {
       }),
     );
   }
+
+  return selector;
 }
 
 function normalizeToolWith(params: {
@@ -193,16 +201,18 @@ function normalizeToolWith(params: {
   ];
 
   for (const [key, raw] of Object.entries(params.with ?? {})) {
-    value[key] = raw as WorkflowModelToolWithValue;
-    const template = normalizeToolWithValue({
+    const node = normalizeToolWithValue({
       value: raw,
+      // The root `with` record is depth 1, mirroring the document schema.
+      depth: 2,
       path: [...path, key],
       issues: params.issues,
       fillSite: params.fillSite,
       allowedJobReferences: params.allowedJobReferences,
       typeOverlay: params.typeOverlay,
     });
-    if (template !== undefined) templates[key] = template;
+    value[key] = node.value;
+    if (node.template !== undefined) templates[key] = node.template;
   }
 
   return {
@@ -215,21 +225,27 @@ function normalizeToolWith(params: {
  * Builds the parallel template tree over a `with` value: a node exists only
  * where a string leaf below it carries a `${{ }}` template, and sequence
  * items and record fields keep their authored positions so materialization
- * can walk both trees in lockstep.
+ * can walk both trees in lockstep. Returns the deep-copied value alongside
+ * the template node so the model never aliases the source document's tree.
  */
 function normalizeToolWithValue(params: {
   value: unknown;
+  depth: number;
   path: readonly WorkflowModelValidationIssuePathSegment[];
   issues: WorkflowModelValidationIssue[];
   fillSite: AvailabilitySite;
   allowedJobReferences: ReadonlySet<string>;
   typeOverlay?: ExpressionTypeEnvironment | undefined;
-}): WorkflowModelToolWithTemplate | undefined {
+}): {
+  value: WorkflowModelToolWithValue;
+  template?: WorkflowModelToolWithTemplate | undefined;
+} {
   const value = params.value;
 
   if (typeof value === 'string') {
-    if (!value.includes('$' + '{{')) return undefined;
+    if (!value.includes('$' + '{{')) return {value};
 
+    const issuesBefore = params.issues.length;
     const template = parseInterpolationField({
       field: 'tool.with',
       source: value,
@@ -239,30 +255,96 @@ function normalizeToolWithValue(params: {
       allowedJobReferences: params.allowedJobReferences,
       typeOverlay: params.typeOverlay,
     });
-    return template === undefined ? undefined : {kind: 'field', template};
+    if (template !== undefined) return {value, template: {kind: 'field', template}};
+    // An all-literal parse means every `${{` opener was escaped with `$${{`;
+    // record a literal node so materialization unescapes the leaf like every
+    // other template field instead of passing the `$${{` text through.
+    if (params.issues.length === issuesBefore) {
+      return {
+        value,
+        template: {
+          kind: 'field',
+          template: [{kind: 'literal' as const, value: unescapeTemplateSource(value)}],
+        },
+      };
+    }
+    return {value};
   }
 
   if (Array.isArray(value)) {
-    const items = value.map((item, index) =>
-      normalizeToolWithValue({...params, value: item, path: [...params.path, index]}),
-    );
-    return items.some((item) => item !== undefined) ? {kind: 'sequence', items} : undefined;
+    if (params.depth > WORKFLOW_DOCUMENT_TOOL_WITH_MAX_DEPTH) {
+      params.issues.push(toolWithDepthIssue(params));
+      return {value: []};
+    }
+    const items: WorkflowModelToolWithValue[] = [];
+    const itemTemplates: (WorkflowModelToolWithTemplate | undefined)[] = [];
+    let hasTemplate = false;
+    value.forEach((item, index) => {
+      const node = normalizeToolWithValue({
+        ...params,
+        value: item,
+        depth: params.depth + 1,
+        path: [...params.path, index],
+      });
+      items.push(node.value);
+      itemTemplates.push(node.template);
+      if (node.template !== undefined) hasTemplate = true;
+    });
+    return {
+      value: items,
+      template: hasTemplate ? {kind: 'sequence', items: itemTemplates} : undefined,
+    };
   }
 
   if (typeof value === 'object' && value !== null) {
-    const fields: Record<string, WorkflowModelToolWithTemplate | undefined> = Object.create(
+    if (params.depth > WORKFLOW_DOCUMENT_TOOL_WITH_MAX_DEPTH) {
+      params.issues.push(toolWithDepthIssue(params));
+      return {value: Object.create(null) as WorkflowModelToolWithValue};
+    }
+    const fields: Record<string, WorkflowModelToolWithValue> = Object.create(null) as Record<
+      string,
+      WorkflowModelToolWithValue
+    >;
+    const templateFields: Record<string, WorkflowModelToolWithTemplate | undefined> = Object.create(
       null,
     ) as Record<string, WorkflowModelToolWithTemplate | undefined>;
     let hasTemplate = false;
     for (const [key, child] of Object.entries(value)) {
-      const node = normalizeToolWithValue({...params, value: child, path: [...params.path, key]});
-      if (node !== undefined) hasTemplate = true;
-      fields[key] = node;
+      const node = normalizeToolWithValue({
+        ...params,
+        value: child,
+        depth: params.depth + 1,
+        path: [...params.path, key],
+      });
+      fields[key] = node.value;
+      templateFields[key] = node.template;
+      if (node.template !== undefined) hasTemplate = true;
     }
-    return hasTemplate ? {kind: 'record', fields} : undefined;
+    return {
+      value: fields,
+      template: hasTemplate ? {kind: 'record', fields: templateFields} : undefined,
+    };
   }
 
-  return undefined;
+  return {value: value as WorkflowModelToolWithValue};
+}
+
+function toolWithDepthIssue(params: {
+  depth: number;
+  path: readonly WorkflowModelValidationIssuePathSegment[];
+}): WorkflowModelValidationIssue {
+  return issue({
+    code: 'tool-with-max-depth-exceeded',
+    message: `Tool \`with\` cannot be nested deeper than ${WORKFLOW_DOCUMENT_TOOL_WITH_MAX_DEPTH} levels.`,
+    path: params.path,
+    details: {depth: params.depth, maxDepth: WORKFLOW_DOCUMENT_TOOL_WITH_MAX_DEPTH},
+  });
+}
+
+function unescapeTemplateSource(source: string): string {
+  return parseWorkflowTemplate(source)
+    .map((segment) => (segment.kind === 'literal' ? segment.text : segment.expression.source))
+    .join('');
 }
 
 export function normalizeToolStepOutputs(params: {
@@ -283,14 +365,16 @@ export function normalizeToolStepOutputs(params: {
   >;
 
   for (const [key, source] of Object.entries(params.outputs)) {
+    // A mapping that parses to an all-literal template (`$${{ ... }}` escape)
+    // falls back to a literal template, mirroring normalizeJobOutputs, so the
+    // key is never silently dropped from the model's outputs.
     const template = parseInterpolationField({
       field: 'tool.outputs',
       source,
       path: ['jobs', params.sourceName, 'steps', params.stepIndex, 'outputs', key],
       issues: params.issues,
       fillSite: 'step-report',
-    });
-    if (template === undefined) continue;
+    }) ?? [{kind: 'literal' as const, value: source}];
 
     templates[key] = template;
     declarations[key] = outputDeclarationForTemplate(template);
@@ -300,6 +384,10 @@ export function normalizeToolStepOutputs(params: {
 }
 
 function outputDeclarationForTemplate(template: WorkflowFieldTemplate): OutputTypeDeclaration {
+  // A mapping with literal segments mixed in fills to a string, mirroring
+  // inferJobOutputType for job outputs.
+  if (template.length !== 1) return {type: 'string'};
+
   const [segment] = template;
   const resultType = segment?.kind === 'deferred' ? segment.expression.resultType : undefined;
 

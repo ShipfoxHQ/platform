@@ -4,7 +4,7 @@ import type {
   ResolvedFieldSegment,
   WorkflowExpression,
 } from '@shipfox/expression';
-import type {Harness} from '@shipfox/workflow-document';
+import type {Harness, WorkflowDocumentJsonValue} from '@shipfox/workflow-document';
 import {z} from 'zod';
 
 export const DEFAULT_RUN_TIMEOUT_MS = 30 * 24 * 60 * 60 * 1000;
@@ -176,13 +176,7 @@ export interface WorkflowModelCheckoutStep extends WorkflowModelStepBase {
   };
 }
 /** A tool-input JSON tree: scalars, nested mappings, and sequences. */
-export type WorkflowModelToolWithValue =
-  | string
-  | number
-  | boolean
-  | null
-  | readonly WorkflowModelToolWithValue[]
-  | {readonly [key: string]: WorkflowModelToolWithValue};
+export type WorkflowModelToolWithValue = WorkflowDocumentJsonValue;
 
 /**
  * Parallel tree over a tool step's `with` values: a node exists only where a

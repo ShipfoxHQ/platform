@@ -58,6 +58,28 @@ describe('needsIntegrationValidationContext', () => {
       }),
       true,
     ],
+    [
+      'a tool step',
+      document({
+        jobs: {
+          build: {
+            steps: [{tool: 'list_issues', with: {}}],
+          },
+        },
+      }),
+      true,
+    ],
+    [
+      'a tool step without a connection',
+      document({
+        jobs: {
+          build: {
+            steps: [{tool: 'issue_read.get', connection: 'github-main', with: {}}],
+          },
+        },
+      }),
+      true,
+    ],
   ] as const)('%s -> %s', (_description, workflow, expected) => {
     expect(needsIntegrationValidationContext(workflow)).toBe(expected);
   });

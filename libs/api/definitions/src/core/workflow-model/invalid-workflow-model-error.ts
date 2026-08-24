@@ -52,6 +52,7 @@ export type WorkflowModelValidationIssueCode =
   | 'tool-step-ambiguous-selector'
   | 'tool-step-missing-connection'
   | 'tool-step-sensitive-tool'
+  | 'tool-with-max-depth-exceeded'
   | 'unknown-secret-store'
   | 'unknown-interpolation-context'
   | 'unknown-trigger-event'

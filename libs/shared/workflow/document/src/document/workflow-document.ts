@@ -93,7 +93,7 @@ const workflowDocumentStepOutputKeyPattern = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 
 // Tool inputs are a JSON tree: scalars, nested mappings, and sequences. String
 // leaves accept `${{ }}` interpolation; the expression layer validates them.
-type WorkflowDocumentJsonValue =
+export type WorkflowDocumentJsonValue =
   | string
   | number
   | boolean

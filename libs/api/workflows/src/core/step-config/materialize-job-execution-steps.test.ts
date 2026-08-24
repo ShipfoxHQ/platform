@@ -195,6 +195,29 @@ describe('materializeJobExecutionSteps', () => {
     });
   });
 
+  it('rejects tool steps until materialization supports them', async () => {
+    const model = workflowModel({
+      jobs: {
+        build: {
+          steps: [
+            {
+              tool: 'list_issues',
+              connection: 'github-main',
+              provider: 'github',
+              with: {},
+            },
+          ],
+        },
+      },
+    });
+    const job = model.jobs[0];
+    if (!job) throw new Error('Expected workflow job');
+
+    await expect(
+      materializeJobExecutionSteps({model, job, context: jobExecutionContext()}),
+    ).rejects.toThrow('Unsupported workflow step kind: tool');
+  });
+
   it('materializes checkout steps with their resolved config and default name', async () => {
     const model = workflowModel({
       jobs: {

@@ -1422,6 +1422,188 @@ describe('normalizeWorkflowDocument', () => {
     });
   });
 
+  it('unescapes escaped tool with leaves through a literal template node', () => {
+    const model = normalizeWorkflowDocument(
+      {
+        name: 'escaped tool with leaf',
+        jobs: {
+          fix: {
+            steps: [
+              {
+                key: 'read',
+                tool: 'list_issues',
+                connection: 'github-main',
+                with: {value: '$${{ run.id }}'},
+              },
+            ],
+          },
+        },
+      } as unknown as WorkflowDocument,
+      {integrationValidationContext},
+    );
+
+    expect(model.jobs[0]?.steps[0]).toMatchObject({
+      kind: 'tool',
+      with: {value: '$${{ run.id }}'},
+      templates: {
+        with: {
+          value: {kind: 'field', template: [{kind: 'literal', value: '$' + '{{ run.id }}'}]},
+        },
+      },
+    });
+  });
+
+  it('keeps templates undefined for fully static tool with containers', () => {
+    const model = normalizeWorkflowDocument(
+      {
+        name: 'static tool with',
+        jobs: {
+          fix: {
+            steps: [
+              {
+                key: 'read',
+                tool: 'list_issues',
+                connection: 'github-main',
+                with: {plain: {a: 'static'}, nums: [1, 2]},
+              },
+            ],
+          },
+        },
+      } as unknown as WorkflowDocument,
+      {integrationValidationContext},
+    );
+
+    expect(model.jobs[0]?.steps[0]).toMatchObject({
+      kind: 'tool',
+      with: {plain: {a: 'static'}, nums: [1, 2]},
+    });
+    expect(model.jobs[0]?.steps[0]).not.toHaveProperty('templates');
+  });
+
+  it('records nested tool with template containers with their authored shapes', () => {
+    const model = normalizeWorkflowDocument(
+      {
+        name: 'nested tool with templates',
+        jobs: {
+          fix: {
+            steps: [
+              {
+                key: 'read',
+                tool: 'list_issues',
+                connection: 'github-main',
+                with: {
+                  list: [interpolation('run.id'), {deep: interpolation('vars.REQUIRED')}],
+                  record: {inner: [interpolation('run.id'), 'static']},
+                },
+              },
+            ],
+          },
+        },
+      } as unknown as WorkflowDocument,
+      {integrationValidationContext},
+    );
+
+    expect(model.jobs[0]?.steps[0]).toMatchObject({
+      kind: 'tool',
+      templates: {
+        with: {
+          list: {
+            kind: 'sequence',
+            items: [{kind: 'field'}, {kind: 'record', fields: {deep: {kind: 'field'}}}],
+          },
+          record: {
+            kind: 'record',
+            fields: {inner: {kind: 'sequence', items: [{kind: 'field'}, undefined]}},
+          },
+        },
+      },
+    });
+  });
+
+  it('preserves escaped tool output mappings as literal templates', () => {
+    const model = normalizeWorkflowDocument(
+      {
+        name: 'escaped tool output',
+        jobs: {
+          fix: {
+            steps: [
+              {
+                key: 'read',
+                tool: 'list_issues',
+                connection: 'github-main',
+                with: {},
+                outputs: {branch: '$${{ result.branch }}'},
+              },
+            ],
+          },
+        },
+      } as unknown as WorkflowDocument,
+      {integrationValidationContext},
+    );
+
+    expect(model.jobs[0]?.steps[0]).toMatchObject({
+      kind: 'tool',
+      outputs: {branch: [{kind: 'literal', value: '$${{ result.branch }}'}]},
+    });
+  });
+
+  it('types mixed tool output mappings as strings for later references', () => {
+    const model = normalizeWorkflowDocument(
+      {
+        name: 'mixed tool outputs',
+        jobs: {
+          fix: {
+            steps: [
+              {
+                key: 'resolve',
+                tool: 'issue_read.get',
+                connection: 'github-main',
+                with: {issue_number: 42},
+                outputs: {sha: `refs/heads/${interpolation('result.head.ref')}`},
+              },
+              {
+                key: 'use',
+                tool: 'list_issues',
+                connection: 'github-main',
+                with: {value: interpolation('"prefix-" + steps.resolve.outputs.sha')},
+              },
+            ],
+          },
+        },
+      } as unknown as WorkflowDocument,
+      {integrationValidationContext},
+    );
+
+    expect(model.jobs[0]?.steps[1]).toMatchObject({
+      kind: 'tool',
+      with: {value: interpolation('"prefix-" + steps.resolve.outputs.sha')},
+    });
+  });
+
+  it('reports tool with trees nested beyond the document depth cap', () => {
+    let nested: Record<string, unknown> = {leaf: 'static'};
+    for (let index = 0; index < 20; index += 1) {
+      nested = {child: nested};
+    }
+    const document = {
+      name: 'deep tool with',
+      jobs: {
+        fix: {
+          steps: [{tool: 'list_issues', connection: 'github-main', with: nested}],
+        },
+      },
+    } as unknown as WorkflowDocument;
+
+    const error = expectInvalid(document, {integrationValidationContext});
+
+    expect(error.issues).toEqual([
+      expect.objectContaining({
+        code: 'tool-with-max-depth-exceeded',
+        path: ['jobs', 'fix', 'steps', 0, 'with', ...Array(16).fill('child')],
+      }),
+    ]);
+  });
+
   it('reports unsupported explicit providers', () => {
     const document: WorkflowDocument = {
       name: 'agent build',

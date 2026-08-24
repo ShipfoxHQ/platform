@@ -1,4 +1,8 @@
-import {DEFAULT_JOB_CHECKOUT, type WorkflowModel} from '@shipfox/api-definitions-dto';
+import {
+  DEFAULT_JOB_CHECKOUT,
+  type WorkflowModel,
+  type WorkflowModelToolWithValue,
+} from '@shipfox/api-definitions-dto';
 import {
   createWorkflowExpression,
   parseWorkflowTemplate,
@@ -41,7 +45,15 @@ interface TestCheckoutStep extends TestWorkflowStepBase {
   readonly checkout: Checkout;
 }
 
-type TestWorkflowStep = TestRunStep | TestAgentStep | TestCheckoutStep;
+interface TestToolStep extends TestWorkflowStepBase {
+  readonly tool: string;
+  readonly method?: string | undefined;
+  readonly connection?: string | undefined;
+  readonly provider?: string | undefined;
+  readonly with: Readonly<Record<string, WorkflowModelToolWithValue>>;
+}
+
+type TestWorkflowStep = TestRunStep | TestAgentStep | TestCheckoutStep | TestToolStep;
 
 const DEFAULT_RUNNER_LABELS = ['ubuntu-latest'] as const;
 
@@ -168,6 +180,18 @@ function normalizeStep(step: TestWorkflowStep, jobId: string, stepIndex: number)
       ...(step.integrations === undefined ? {} : {integrations: step.integrations}),
       prompt: step.prompt,
       ...optionalAgentTemplates(step),
+    };
+  }
+
+  if ('tool' in step) {
+    return {
+      ...base,
+      kind: 'tool',
+      ...(step.connection === undefined ? {} : {connection: step.connection}),
+      ...(step.provider === undefined ? {} : {provider: step.provider}),
+      tool: step.tool,
+      ...(step.method === undefined ? {} : {method: step.method}),
+      with: step.with,
     };
   }
 

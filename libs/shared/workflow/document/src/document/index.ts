@@ -34,6 +34,7 @@ export {
   type WorkflowDocumentEnv,
   type WorkflowDocumentJob,
   type WorkflowDocumentJobCheckout,
+  type WorkflowDocumentJsonValue,
   type WorkflowDocumentRunStepGate,
   type WorkflowDocumentStep,
   type WorkflowDocumentStepIntegration,
