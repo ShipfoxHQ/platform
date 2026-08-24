@@ -19,9 +19,21 @@ import {getModelProviderEntry} from '#core/model-provider-policy.js';
  * in `job-execution-orchestration.ts`). The session reap threshold must exceed it:
  * the runner re-mints its job lease on every heartbeat, so a live step can hold a
  * claim for the whole execution even though the lease TTL is far shorter. This is
- * the documented floor used for the fail-soft startup warning, not a liveness check.
+ * the default for `AGENT_SESSION_MAX_JOB_EXECUTION_SECONDS` and the fallback when
+ * that knob is invalid; it is the safety floor used by the fail-soft startup warning
+ * and the reap activity's self-disable check, not a liveness signal.
  */
 const WORKFLOWS_DEFAULT_MAX_EXECUTION_SECONDS = 6 * 60 * 60;
+
+/**
+ * Upper bound for the resolved job-terminated grace window (one day). The
+ * grace-then-release workflow derives its execution timeout from the grace
+ * (`graceSeconds * 1000` plus the activity timeout and a margin), so an
+ * unbounded finite value could overflow that timeout to `Infinity` and make
+ * `workflow.start` reject; a bound also keeps the `sleep` inside the workflow a
+ * valid Temporal duration.
+ */
+const MAX_CLOSE_GRACE_SECONDS = 24 * 60 * 60;
 
 const AGENT_THINKING_CHOICES = agentThinkingSchema.options;
 const SUPPORTED_PROVIDER_IDS_DESCRIPTION = SUPPORTED_MODEL_PROVIDER_IDS.join(', ');
@@ -70,12 +82,16 @@ export const config = createConfig({
     default: true,
   }),
   AGENT_SESSION_CLOSE_GRACE_SECONDS: num({
-    desc: 'How long to wait after a job reaches a terminal state before force-releasing any agent session claims its steps still hold (a runner that died before reporting, a lost termination event). The wait lets a last in-flight attempt report and release its own claim. Must be positive: a zero or negative value makes the sweep fire immediately and race the last in-flight attempt. Defaults to 120 seconds.',
+    desc: 'How long to wait after a job reaches a terminal state before force-releasing any agent session claims its steps still hold (a runner that died before reporting, a lost termination event). The wait lets a last in-flight attempt report and release its own claim. Must be a positive integer between 1 and 86400: non-finite, fractional, zero, or negative values fall back to a one-second grace period, and values above 86400 are clamped to one day, so a misconfigured value can never fire the sweep immediately or overflow the release workflow timeout. Defaults to 120 seconds.',
     default: 120,
   }),
   AGENT_SESSION_REAP_AFTER_SECONDS: num({
-    desc: 'How long a session claim may be held before the reaper cron force-releases it as abandoned. This is the backstop for claims the termination subscribers never cleared. The job lease is renewable on every runner heartbeat and executions run up to their configured maximum duration (6 hours by default), so a live step can legitimately hold a claim longer than any lease TTL: set this above the longest job execution duration for this deployment. Defaults to 28800 seconds (8 hours), which covers the 6-hour default maximum execution duration.',
+    desc: "How long a session claim may be held before the reaper cron force-releases it as abandoned. This is the backstop for claims the termination subscribers never cleared. The job lease is renewable on every runner heartbeat and executions run up to their configured maximum duration (6 hours by default), so a live step can legitimately hold a claim longer than any lease TTL: set this above the longest job execution duration for this deployment. The safety check compares against AGENT_SESSION_MAX_JOB_EXECUTION_SECONDS (default 21600 seconds, workflows' 6-hour default maximum execution duration); raise that knob when this deployment allows longer job executions. Defaults to 28800 seconds (8 hours), which covers the 6-hour default maximum execution duration.",
     default: 28800,
+  }),
+  AGENT_SESSION_MAX_JOB_EXECUTION_SECONDS: num({
+    desc: 'The longest a job execution may run in this deployment, used as the safety floor for the stale-claim reap threshold: AGENT_SESSION_REAP_AFTER_SECONDS must exceed it, because a live step can legitimately hold a claim for the whole execution (the job lease is renewable on every runner heartbeat). Match it to the maximum job execution duration actually allowed for this deployment; workflows defaults to 6 hours and jobs can raise it per-job via their execution timeout. Defaults to 21600 seconds (6 hours).',
+    default: 21600,
   }),
   AGENT_SESSION_REAP_BATCH_LIMIT: num({
     desc: 'How many stale session claims the reap cron may release per tick. Remaining stale claims are picked up on the next tick. Defaults to 100.',
@@ -133,14 +149,32 @@ export function assertAgentConfig(managedProvider?: ManagedModelProvider): void 
 }
 
 /**
- * Resolved job-terminated grace window: a finite integer of at least 1 second.
- * Non-finite, zero, negative, or fractional values fall back to 1 second so the
+ * Resolved job-terminated grace window: a finite integer between 1 second and
+ * `MAX_CLOSE_GRACE_SECONDS`. Non-finite, fractional, zero, or negative values
+ * fall back to 1 second so a misconfigured value cannot silently produce a
+ * different grace period; values above the cap are clamped so the
  * grace-then-release workflow always sleeps a bounded, positive duration (a
- * non-finite value would otherwise reach `sleep` as `NaN`/`Infinity`).
+ * non-finite value would otherwise reach `sleep` as `NaN`/`Infinity`, and an
+ * unbounded finite value could overflow the derived execution timeout).
  */
 export function resolveCloseGraceSeconds(): number {
   const grace = config.AGENT_SESSION_CLOSE_GRACE_SECONDS;
-  return Number.isFinite(grace) && grace >= 1 ? Math.floor(grace) : 1;
+  if (!Number.isFinite(grace) || !Number.isInteger(grace) || grace < 1) return 1;
+  return Math.min(grace, MAX_CLOSE_GRACE_SECONDS);
+}
+
+/**
+ * Resolved maximum job execution duration for this deployment: a finite integer
+ * of at least 1 second, used as the safety floor for the reap threshold. Invalid
+ * values fall back to the workflows default (6 hours) so a misconfigured knob
+ * can never make the reaper treat an unsafe threshold as safe.
+ */
+export function resolveMaxJobExecutionSeconds(): number {
+  const maxExecution = config.AGENT_SESSION_MAX_JOB_EXECUTION_SECONDS;
+  if (!Number.isFinite(maxExecution) || !Number.isInteger(maxExecution) || maxExecution < 1) {
+    return WORKFLOWS_DEFAULT_MAX_EXECUTION_SECONDS;
+  }
+  return maxExecution;
 }
 
 /**
@@ -156,17 +190,16 @@ export function resolveReapBatchLimit(): number {
 /**
  * Whether the reap threshold is unsafe to run the destructive stale-claim
  * sweep: non-finite or non-positive values treat every claim as stale, and a
- * value at or below the workflows default maximum execution duration can
- * release a claim a still-running step legitimately holds (the job lease is
- * renewable on every heartbeat). When unsafe, the reap activity disables
- * itself instead of force-releasing live claims.
+ * value at or below the maximum job execution duration allowed for this
+ * deployment (`AGENT_SESSION_MAX_JOB_EXECUTION_SECONDS`) can release a claim a
+ * still-running step legitimately holds (the job lease is renewable on every
+ * heartbeat). When unsafe, the reap activity disables itself instead of
+ * force-releasing live claims.
  */
 export function isUnsafeReapAfterSeconds(): boolean {
   const reapAfter = config.AGENT_SESSION_REAP_AFTER_SECONDS;
   return (
-    !Number.isFinite(reapAfter) ||
-    reapAfter <= 0 ||
-    reapAfter <= WORKFLOWS_DEFAULT_MAX_EXECUTION_SECONDS
+    !Number.isFinite(reapAfter) || reapAfter <= 0 || reapAfter <= resolveMaxJobExecutionSeconds()
   );
 }
 
@@ -175,31 +208,39 @@ export function isUnsafeReapAfterSeconds(): boolean {
  * instead of aborting module creation: an unsafe value must not take down every
  * instance for configurations that were valid before these knobs existed. The
  * reaper threshold is a backstop heuristic, not a liveness signal, so the
- * warning only flags values that are unsafe against the documented workflows
- * default maximum execution duration, never against the (renewable) job lease TTL.
+ * warning only flags values that are unsafe against the maximum job execution
+ * duration configured for this deployment, never against the (renewable) job
+ * lease TTL. This is the only place the reap-safety warning is emitted; the
+ * reap activity itself stays silent on unsafe ticks.
  */
 export function warnOnUnsafeAgentSessionConfig(): void {
   const reapAfter = config.AGENT_SESSION_REAP_AFTER_SECONDS;
+  const maxJobExecutionSeconds = resolveMaxJobExecutionSeconds();
   if (!Number.isFinite(reapAfter) || reapAfter <= 0) {
     logger().warn(
       {reapAfterSeconds: reapAfter},
       'AGENT_SESSION_REAP_AFTER_SECONDS must be a positive number of seconds above the longest job execution duration; with this value the reaper treats every claim as stale and can break single-writer exclusivity for still-running steps.',
     );
-  } else if (reapAfter <= WORKFLOWS_DEFAULT_MAX_EXECUTION_SECONDS) {
+  } else if (reapAfter <= maxJobExecutionSeconds) {
     logger().warn(
       {
         reapAfterSeconds: reapAfter,
-        workflowsDefaultMaxExecutionSeconds: WORKFLOWS_DEFAULT_MAX_EXECUTION_SECONDS,
+        maxJobExecutionSeconds,
       },
-      'AGENT_SESSION_REAP_AFTER_SECONDS is at or below the workflows default maximum job execution duration: a still-running step can legitimately hold a claim past this threshold (the job lease is renewable on heartbeats), so the reaper may release a live claim. Set it above the longest job execution duration for this deployment.',
+      'AGENT_SESSION_REAP_AFTER_SECONDS is at or below the configured maximum job execution duration (AGENT_SESSION_MAX_JOB_EXECUTION_SECONDS): a still-running step can legitimately hold a claim past this threshold (the job lease is renewable on heartbeats), so the reaper may release a live claim. Set it above the longest job execution duration for this deployment.',
     );
   }
 
   const closeGrace = config.AGENT_SESSION_CLOSE_GRACE_SECONDS;
-  if (!Number.isFinite(closeGrace) || closeGrace <= 0) {
+  if (!Number.isFinite(closeGrace) || !Number.isInteger(closeGrace) || closeGrace < 1) {
     logger().warn(
       {closeGraceSeconds: closeGrace},
-      'AGENT_SESSION_CLOSE_GRACE_SECONDS must be positive; non-positive values are clamped to a one-second grace period by the job-terminated subscriber, which may race the last in-flight attempt report.',
+      'AGENT_SESSION_CLOSE_GRACE_SECONDS must be a positive integer; invalid values are clamped to a one-second grace period by the job-terminated subscriber, which may race the last in-flight attempt report.',
+    );
+  } else if (closeGrace > MAX_CLOSE_GRACE_SECONDS) {
+    logger().warn(
+      {closeGraceSeconds: closeGrace, maxCloseGraceSeconds: MAX_CLOSE_GRACE_SECONDS},
+      'AGENT_SESSION_CLOSE_GRACE_SECONDS is above the one-day maximum and is clamped by the job-terminated subscriber; set it within the supported range if a longer grace window is intended.',
     );
   }
 

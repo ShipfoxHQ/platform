@@ -18,11 +18,11 @@ const RELEASE_TIMEOUT_MARGIN_MS = 60 * 1000;
  * timeout). Arm the grace-then-release workflow for any of its session claims the
  * step-attempt-terminated subscriber never cleared (a runner that died before
  * reporting, a lost event). Deduped by workflow id, so a redelivered event is a no-op.
- * The grace window is resolved to a finite positive value (see
+ * The grace window is resolved to a bounded positive integer (see
  * `resolveCloseGraceSeconds`) so a misconfigured AGENT_SESSION_CLOSE_GRACE_SECONDS
- * can never fire the sweep immediately or feed a non-finite `sleep`, and the
- * execution timeout is derived from that grace so a long configured grace can
- * never time the workflow out mid-sleep.
+ * can never fire the sweep immediately, feed a non-finite `sleep`, or overflow
+ * the derived execution timeout; the execution timeout is derived from that
+ * grace so a long configured grace can never time the workflow out mid-sleep.
  */
 export async function onJobTerminated(payload: WorkflowsJobTerminatedEventDto): Promise<void> {
   try {
