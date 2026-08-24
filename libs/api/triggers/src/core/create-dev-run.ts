@@ -1,7 +1,7 @@
 import {randomUUID} from 'node:crypto';
 import type {TriggerDto} from '@shipfox/api-definitions-dto';
 import type {DefinitionsInterModuleClient} from '@shipfox/api-definitions-dto/inter-module';
-import {devRunsTotal} from '#metrics/instance.js';
+import {devRunsCount} from '#metrics/instance.js';
 import {
   DevRunInputsNotAllowedError,
   DevRunReplayEventRequiredError,
@@ -93,10 +93,10 @@ export async function createDevRun(params: CreateDevRunParams): Promise<DevRunRe
     const failure = await beginTriggerHistory({...historyBase, eventRef: randomUUID()});
     await failure.devDispatchErrored(params.triggerKey, resolved.workflow.id, toReason(error));
     if (isPermanentStartDevRunError(error)) {
-      devRunsTotal.add(1, {trigger_kind: triggerKind, outcome: 'errored'});
+      devRunsCount.add(1, {trigger_kind: triggerKind, outcome: 'errored'});
       await failure.allErrored(1);
     } else {
-      devRunsTotal.add(1, {trigger_kind: triggerKind, outcome: 'failed'});
+      devRunsCount.add(1, {trigger_kind: triggerKind, outcome: 'failed'});
       await failure.failed(1);
     }
     throw error;
@@ -104,7 +104,7 @@ export async function createDevRun(params: CreateDevRunParams): Promise<DevRunRe
 
   const history = await beginTriggerHistory({...historyBase, eventRef: run.id});
   await history.devTriggered(params.triggerKey, resolved.workflow.id, run);
-  devRunsTotal.add(1, {trigger_kind: triggerKind, outcome: 'routed'});
+  devRunsCount.add(1, {trigger_kind: triggerKind, outcome: 'routed'});
   await history.routed(1);
   return {id: run.id, commit: resolved.commit};
 }
@@ -145,7 +145,6 @@ function devRunTrigger(
       event: trigger.event ?? 'tick',
     };
   }
-  // Integration sources need a journaled event; targeted replay lands in a
-  // follow-up issue, so every integration dev run is refused for now.
+  // Integration sources require a journaled event before dispatch.
   throw new DevRunReplayEventRequiredError(trigger.source);
 }

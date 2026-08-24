@@ -17,14 +17,18 @@ export const createDevRunBodySchema = z
     project_id: z.string().uuid(),
     // A branch or tag name in the project repository. Raw commit SHAs and
     // pull-request refs are rejected by the ref resolution pipeline.
-    ref: z.string().refine(isSafeRefInput, 'Ref contains a control character'),
+    ref: z.string().min(1).max(256).refine(isSafeRefInput, 'Ref contains a control character'),
     // The commit the ref resolved to when the picker listed the file; a
     // mismatch answers 409 `ref-moved`.
     commit: z
       .string()
       .regex(/^[0-9a-f]{40}$/, 'Commit must be a 40-character hex sha')
       .optional(),
-    config_path: z.string().min(1),
+    config_path: z
+      .string()
+      .min(1)
+      .max(1024)
+      .refine(isSafeRefInput, 'Config path contains a control character'),
     // Trigger key in the resolved workflow file's `triggers` map.
     trigger: z.string().min(1),
     // Manual triggers only; rejected with `inputs-not-allowed` for cron.

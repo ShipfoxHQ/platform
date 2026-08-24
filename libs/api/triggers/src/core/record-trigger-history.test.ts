@@ -146,6 +146,7 @@ describe('dev recorder variants', () => {
     insertReceivedEvent.mockReset();
     upsertDevTriggeredDecision.mockReset();
     upsertDevFilterErrorDecision.mockReset();
+    upsertDevDispatchErrorDecision.mockReset();
     insertReceivedEvent.mockResolvedValue(crypto.randomUUID());
   });
 

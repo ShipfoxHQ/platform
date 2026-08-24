@@ -26,12 +26,11 @@ export const cronFiredCount = meter.createCounter<{outcome: 'fired' | 'errored'}
   {description: 'Cron schedule slots consumed by the tick, by fire outcome'},
 );
 
-export const devRunsTotal = meter.createCounter<{
-  trigger_kind: 'manual' | 'cron' | 'replay';
-  outcome: 'routed' | 'filtered' | 'errored' | 'failed';
-}>('triggers_dev_runs_total', {
-  description:
-    'Dev runs started from POST /dev-runs by trigger kind and outcome (replay arrives with targeted event replay)',
+export const devRunsCount = meter.createCounter<{
+  trigger_kind: 'manual' | 'cron';
+  outcome: 'routed' | 'errored' | 'failed';
+}>('triggers_dev_runs', {
+  description: 'Dev runs started from POST /dev-runs by trigger kind and outcome',
 });
 
 export const cronFireLag = meter.createHistogram<Record<string, never>>('triggers_cron_fire_lag', {

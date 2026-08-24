@@ -5,7 +5,10 @@ import {
 } from '@shipfox/api-definitions-dto/inter-module';
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import {createDevRunBodySchema, createDevRunResponseSchema} from '@shipfox/api-triggers-dto';
-import type {WorkflowsModuleClient} from '@shipfox/api-workflows-dto/inter-module';
+import {
+  type WorkflowsModuleClient,
+  workflowsInterModuleContract,
+} from '@shipfox/api-workflows-dto/inter-module';
 import {isInterModuleKnownError} from '@shipfox/inter-module';
 import {ClientError, defineRoute} from '@shipfox/node-fastify';
 import {z} from 'zod';
@@ -15,12 +18,7 @@ import {
   DevRunReplayEventRequiredError,
   DevRunTriggerNotFoundError,
 } from '#core/errors.js';
-import {
-  isDevInterpolationUnresolvableError,
-  isDevWorkspaceDeletedError,
-  isDevWorkspaceNotFoundError,
-  isDevWorkspaceSuspendedError,
-} from '#core/workflows-client.js';
+import {mapStartRunError} from './map-start-run-error.js';
 import {requireProjectAccess} from './project-access.js';
 
 // The route answers 422 with several error shapes: bare codes (`trigger-not-found`, …)
@@ -106,38 +104,8 @@ export function createDevRunRoute(
             });
         }
       }
-      if (isDevWorkspaceSuspendedError(error)) {
-        throw new ClientError('Workspace is suspended', 'workspace-suspended', {
-          status: 409,
-          cause: error,
-        });
-      }
-      if (isDevWorkspaceDeletedError(error)) {
-        throw new ClientError('Workspace is deleted', 'workspace-deleted', {
-          status: 404,
-          cause: error,
-        });
-      }
-      if (isDevWorkspaceNotFoundError(error)) {
-        throw new ClientError('Workspace not found', 'workspace-not-found', {
-          status: 404,
-          cause: error,
-        });
-      }
-      if (isDevInterpolationUnresolvableError(error)) {
-        throw new ClientError(
-          'Workflow interpolation cannot be resolved',
-          'workflow-interpolation-unresolvable',
-          {
-            status: 422,
-            details: {
-              field: error.details.field,
-              source: error.details.source,
-              ...(error.details.envKey === undefined ? {} : {env_key: error.details.envKey}),
-            },
-          },
-        );
-      }
+      const clientError = mapStartRunError(error, workflowsInterModuleContract.methods.startDevRun);
+      if (clientError) throw clientError;
       throw error;
     },
     handler: async (request, reply) => {

@@ -14,6 +14,9 @@ import {
 
 const resolveDefinitionAtRef = vi.fn();
 const startDevRun = vi.fn();
+const devRunsCount = vi.hoisted(() => ({add: vi.fn()}));
+
+vi.mock('#metrics/instance.js', () => ({devRunsCount}));
 
 const {createDevRun} = await import('./create-dev-run.js');
 
@@ -90,6 +93,7 @@ describe('createDevRun', () => {
   beforeEach(() => {
     resolveDefinitionAtRef.mockReset();
     startDevRun.mockReset();
+    devRunsCount.add.mockReset();
   });
 
   test('creates a manual dev run with the trigger `with` inputs and journals one dev decision', async () => {
@@ -101,6 +105,10 @@ describe('createDevRun', () => {
     const result = await createDevRun(params);
 
     expect(result).toEqual({id: run.id, commit: COMMIT});
+    expect(devRunsCount.add).toHaveBeenCalledWith(1, {
+      trigger_kind: 'manual',
+      outcome: 'routed',
+    });
     expect(resolveDefinitionAtRef).toHaveBeenCalledWith({
       projectId: params.projectId,
       ref: params.ref,
@@ -207,6 +215,10 @@ describe('createDevRun', () => {
     expect(event.event).toBe('tick');
     expect(event.payload).toBeNull();
     expect(event.outcome).toBe('routed');
+    expect(devRunsCount.add).toHaveBeenCalledWith(1, {
+      trigger_kind: 'cron',
+      outcome: 'routed',
+    });
   });
 
   test('refuses request inputs for cron triggers', async () => {
@@ -296,6 +308,10 @@ describe('createDevRun', () => {
     expect(event.outcome).toBe('errored');
     expect(event.matchedCount).toBe(1);
     expect(event.processedAt).toBeInstanceOf(Date);
+    expect(devRunsCount.add).toHaveBeenCalledWith(1, {
+      trigger_kind: 'manual',
+      outcome: 'errored',
+    });
     const decisions = await decisionsForEvent(event.id);
     expect(decisions).toHaveLength(1);
     expect(decisions[0]).toMatchObject({
@@ -309,5 +325,40 @@ describe('createDevRun', () => {
     });
     expect(decisions[0]?.reason).toContain('workspace-suspended');
     expect(await subscriptionsForWorkspace(params.workspaceId)).toHaveLength(0);
+  });
+
+  test('journals a retryable dev failure and rethrows the original error', async () => {
+    const params = buildParams();
+    resolveDefinitionAtRef.mockResolvedValue(resolvedDefinition(undefined));
+    const failure = new Error('workflow transport unavailable');
+    startDevRun.mockRejectedValue(failure);
+
+    await expect(createDevRun(params)).rejects.toBe(failure);
+
+    const events = await eventsForWorkspace(params.workspaceId);
+    expect(events).toHaveLength(1);
+    const event = events[0];
+    if (!event) throw new Error('received event not found');
+    expect(event.origin).toBe('dev');
+    expect(event.eventRef).toEqual(expect.stringMatching(SYNTHESIZED_EVENT_REF));
+    expect(event.outcome).toBe('failed');
+    expect(event.matchedCount).toBe(1);
+
+    const decisions = await decisionsForEvent(event.id);
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0]).toMatchObject({
+      subscriptionKind: 'dev',
+      subscriptionId: null,
+      subscriptionName: 'on_demand',
+      workflowDefinitionId: WORKFLOW_ID,
+      decision: 'dispatch-error',
+      runId: null,
+      runName: null,
+    });
+    expect(decisions[0]?.reason).toContain('workflow transport unavailable');
+    expect(devRunsCount.add).toHaveBeenCalledWith(1, {
+      trigger_kind: 'manual',
+      outcome: 'failed',
+    });
   });
 });

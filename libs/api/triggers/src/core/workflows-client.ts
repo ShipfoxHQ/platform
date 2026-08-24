@@ -2,12 +2,16 @@ import {
   type WorkflowsModuleClient,
   workflowsInterModuleContract,
 } from '@shipfox/api-workflows-dto/inter-module';
-import {isInterModuleKnownError} from '@shipfox/inter-module';
+import {type InterModuleKnownErrorFor, isInterModuleKnownError} from '@shipfox/inter-module';
 
 export type {WorkflowsModuleClient};
 
-type StartRunKnownError = NonNullable<ReturnType<typeof startRunKnownError>>;
-type StartDevRunKnownError = NonNullable<ReturnType<typeof startDevRunKnownError>>;
+type StartRunKnownError = InterModuleKnownErrorFor<
+  typeof workflowsInterModuleContract.methods.startRunFromTrigger
+>;
+type StartDevRunKnownError = InterModuleKnownErrorFor<
+  typeof workflowsInterModuleContract.methods.startDevRun
+>;
 
 /**
  * Workflows declares only failures that can never succeed on retry for trigger
@@ -30,75 +34,4 @@ export function isPermanentDeliverEventToJobListenerError(error: unknown): boole
     workflowsInterModuleContract.methods.deliverEventToJobListener,
     error,
   );
-}
-
-export function isWorkspaceSuspendedError(
-  error: unknown,
-): error is Extract<StartRunKnownError, {code: 'workspace-suspended'}> {
-  return isPermanentStartRunError(error) && error.code === 'workspace-suspended';
-}
-
-export function isWorkspaceNotFoundError(
-  error: unknown,
-): error is Extract<StartRunKnownError, {code: 'workspace-not-found'}> {
-  return isPermanentStartRunError(error) && error.code === 'workspace-not-found';
-}
-
-export function isWorkspaceDeletedError(
-  error: unknown,
-): error is Extract<StartRunKnownError, {code: 'workspace-deleted'}> {
-  return isPermanentStartRunError(error) && error.code === 'workspace-deleted';
-}
-
-export function isInterpolationUnresolvableError(
-  error: unknown,
-): error is Extract<ReturnType<typeof startRunKnownError>, {code: 'interpolation-unresolvable'}> {
-  return (
-    isInterModuleKnownError(workflowsInterModuleContract.methods.startRunFromTrigger, error) &&
-    error.code === 'interpolation-unresolvable'
-  );
-}
-
-export function isDevWorkspaceSuspendedError(
-  error: unknown,
-): error is Extract<StartDevRunKnownError, {code: 'workspace-suspended'}> {
-  return isPermanentStartDevRunError(error) && error.code === 'workspace-suspended';
-}
-
-export function isDevWorkspaceNotFoundError(
-  error: unknown,
-): error is Extract<StartDevRunKnownError, {code: 'workspace-not-found'}> {
-  return isPermanentStartDevRunError(error) && error.code === 'workspace-not-found';
-}
-
-export function isDevWorkspaceDeletedError(
-  error: unknown,
-): error is Extract<StartDevRunKnownError, {code: 'workspace-deleted'}> {
-  return isPermanentStartDevRunError(error) && error.code === 'workspace-deleted';
-}
-
-export function isDevInterpolationUnresolvableError(
-  error: unknown,
-): error is Extract<
-  ReturnType<typeof startDevRunKnownError>,
-  {code: 'interpolation-unresolvable'}
-> {
-  return (
-    isInterModuleKnownError(workflowsInterModuleContract.methods.startDevRun, error) &&
-    error.code === 'interpolation-unresolvable'
-  );
-}
-
-function startRunKnownError(error: unknown) {
-  if (!isInterModuleKnownError(workflowsInterModuleContract.methods.startRunFromTrigger, error)) {
-    return undefined;
-  }
-  return error;
-}
-
-function startDevRunKnownError(error: unknown) {
-  if (!isInterModuleKnownError(workflowsInterModuleContract.methods.startDevRun, error)) {
-    return undefined;
-  }
-  return error;
 }

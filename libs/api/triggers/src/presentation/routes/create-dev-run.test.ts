@@ -110,6 +110,22 @@ describe('POST /dev-runs', () => {
     expect(createDevRunMock).not.toHaveBeenCalled();
   });
 
+  test.each([
+    ['an empty ref', {ref: ''}],
+    ['an oversized ref', {ref: 'r'.repeat(257)}],
+    ['an oversized config path', {config_path: 'p'.repeat(1025)}],
+    ['a config path with a control character', {config_path: 'workflow\n.yml'}],
+  ] as const)('rejects %s at the HTTP boundary', async (_description, override) => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/dev-runs',
+      payload: {...VALID_BODY, ...override},
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(createDevRunMock).not.toHaveBeenCalled();
+  });
+
   test('rejects a non-hex pinned commit', async () => {
     const res = await app.inject({
       method: 'POST',
@@ -157,6 +173,34 @@ describe('POST /dev-runs', () => {
 
     expect(res.statusCode).toBe(409);
     expect(res.json().code).toBe('workspace-suspended');
+    expect(createDevRunMock).not.toHaveBeenCalled();
+  });
+
+  test('returns 403 forbidden when the caller is not a member of the project workspace', async () => {
+    memberships = [{workspaceId: crypto.randomUUID(), role: 'admin', workspaceStatus: 'active'}];
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/dev-runs',
+      payload: VALID_BODY,
+    });
+
+    expect(res.statusCode).toBe(403);
+    expect(res.json().code).toBe('forbidden');
+    expect(createDevRunMock).not.toHaveBeenCalled();
+  });
+
+  test('returns 403 workspace-inactive for a deleted membership claim', async () => {
+    memberships = [{workspaceId, role: 'admin', workspaceStatus: 'deleted'}];
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/dev-runs',
+      payload: VALID_BODY,
+    });
+
+    expect(res.statusCode).toBe(403);
+    expect(res.json().code).toBe('workspace-inactive');
     expect(createDevRunMock).not.toHaveBeenCalled();
   });
 
@@ -275,6 +319,26 @@ describe('POST /dev-runs', () => {
     });
   });
 
+  test.each([
+    ['workspace-deleted', 404, 'workspace-deleted', 'Workspace is deleted'],
+    ['workspace-not-found', 404, 'workspace-not-found', 'Workspace not found'],
+  ] as const)('maps %s from startDevRun to %i %s', async (code, status, expectedCode, message) => {
+    createDevRunMock.mockRejectedValue(
+      createInterModuleKnownError(workflowsInterModuleContract.methods.startDevRun, code, {
+        workspaceId,
+      }),
+    );
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/dev-runs',
+      payload: VALID_BODY,
+    });
+
+    expect(res.statusCode).toBe(status);
+    expect(res.json()).toMatchObject({code: expectedCode, message});
+  });
+
   test('maps unresolvable interpolation to 422 workflow-interpolation-unresolvable', async () => {
     createDevRunMock.mockRejectedValue(
       createInterModuleKnownError(
@@ -300,5 +364,40 @@ describe('POST /dev-runs', () => {
       code: 'workflow-interpolation-unresolvable',
       details: {field: 'env', source: 'event.ref', env_key: 'REF'},
     });
+  });
+
+  test.each([
+    [
+      'agent-config-unresolvable',
+      {definitionId: crypto.randomUUID()},
+      {code: 'agent-config-unresolvable', details: {definition_id: expect.any(String)}},
+    ],
+    [
+      'agent-integration-materialization-failed',
+      {},
+      {code: 'agent-integration-materialization-failed'},
+    ],
+    [
+      'invalid-job-runner-labels',
+      {labels: ['gpu']},
+      {code: 'invalid-job-runner-labels', details: {labels: ['gpu']}},
+    ],
+  ] as const)('maps %s from startDevRun to 422 with safe details', async (code, details, expected) => {
+    createDevRunMock.mockRejectedValue(
+      createInterModuleKnownError(
+        workflowsInterModuleContract.methods.startDevRun,
+        code,
+        details as {definitionId: string} | {labels: string[]} | Record<string, never>,
+      ),
+    );
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/dev-runs',
+      payload: VALID_BODY,
+    });
+
+    expect(res.statusCode).toBe(422);
+    expect(res.json()).toMatchObject(expected);
   });
 });
