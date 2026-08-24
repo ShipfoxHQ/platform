@@ -1,6 +1,6 @@
 import type {StorybookConfig} from '@storybook/react-vite';
 import sharedConfig from '../../.storybook/main.ts';
-import {withWorkspaceSource} from './workspace-source.ts';
+import {withWorkspaceSource} from '../../.storybook/workspace-source.ts';
 
 const config: StorybookConfig = {
   ...sharedConfig,

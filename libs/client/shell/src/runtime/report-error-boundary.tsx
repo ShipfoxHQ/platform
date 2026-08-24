@@ -7,6 +7,13 @@ export interface ReportErrorBoundaryProps extends PropsWithChildren {
   onError?: () => void;
   /** Called when the boundary clears the error to retry the slot. */
   onRecovered?: () => void;
+  /**
+   * Stable value the owner changes only when the guarded slot should be
+   * retried. The boundary latches on failure and resets only when this value
+   * changes, so owner rerenders triggered by `onError`/`onRecovered` never
+   * retry the same failing slot in a loop.
+   */
+  retryKey?: unknown;
 }
 
 type ReportErrorBoundaryState = {hasError: boolean};
@@ -24,7 +31,7 @@ function reportFailure(label: string, cause: unknown): void {
 /**
  * Isolates an optional chrome slot from the rest of the shell. A render
  * failure reports the error and renders nothing instead of unmounting the
- * shell; when new children are composed the boundary retries the slot, so a
+ * shell; the owner retries the slot by passing a new `retryKey`, so a
  * transient failure recovers without a reload.
  */
 export class ReportErrorBoundary extends Component<
@@ -43,7 +50,7 @@ export class ReportErrorBoundary extends Component<
   }
 
   override componentDidUpdate(prevProps: ReportErrorBoundaryProps): void {
-    if (this.state.hasError && prevProps.children !== this.props.children) {
+    if (this.state.hasError && prevProps.retryKey !== this.props.retryKey) {
       this.setState({hasError: false});
       this.props.onRecovered?.();
     }

@@ -1,6 +1,6 @@
 import {FullPageLoader} from '@shipfox/react-ui/loader';
 import {Navigate, Outlet, useLocation, useMatches} from '@tanstack/react-router';
-import {type CSSProperties, useEffect, useRef, useState} from 'react';
+import {type CSSProperties, useEffect, useMemo, useRef, useState} from 'react';
 import type {NavTabEntry} from '#contract.js';
 import {useMaybeActiveWorkspace} from '#runtime/active-workspace.js';
 import {useAuthState} from '#runtime/auth.js';
@@ -51,6 +51,13 @@ export function MainLayout({
   const [bannerHeightPx, setBannerHeightPx] = useState(() =>
     SessionBanner ? SESSION_BANNER_HEIGHT_PX : 0,
   );
+  // Retry the banner only when the route or the slot identity changes; the key
+  // stays referentially stable across the onError/onRecovered state toggles so
+  // a persistently failing slot latches instead of being retried in a loop.
+  const bannerRetryKey = useMemo(
+    () => ({href: location.href, slot: SessionBanner}),
+    [location.href, SessionBanner],
+  );
 
   // Keep the app-content deduction aligned with the rendered strip height.
   useEffect(() => {
@@ -89,6 +96,7 @@ export function MainLayout({
       {SessionBanner ? (
         <ReportErrorBoundary
           label="Failed to render session banner."
+          retryKey={bannerRetryKey}
           onError={() => setBannerFailed(true)}
           onRecovered={() => setBannerFailed(false)}
         >
