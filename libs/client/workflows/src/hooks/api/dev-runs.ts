@@ -159,16 +159,6 @@ function filtersAcceptDevPendingRun(
   return true;
 }
 
-function lookupAtRefListing(
-  queryClient: ReturnType<typeof useQueryClient>,
-  projectId: string,
-  ref: string,
-) {
-  return queryClient.getQueryData<DefinitionAtRefListing>(
-    definitionsAtRefQueryKeys.atRef(projectId, ref),
-  );
-}
-
 function refreshCachedAtRefListing(
   queryClient: ReturnType<typeof useQueryClient>,
   projectId: string,
@@ -177,7 +167,9 @@ function refreshCachedAtRefListing(
   const queryKey = definitionsAtRefQueryKeys.atRef(projectId, ref);
   if (!queryClient.getQueryState(queryKey)) return Promise.resolve(undefined);
 
-  return queryClient.fetchQuery(definitionsAtRefQueryOptions(projectId, ref));
+  return queryClient
+    .fetchQuery(definitionsAtRefQueryOptions(projectId, ref))
+    .catch(() => undefined);
 }
 
 /**
@@ -194,9 +186,11 @@ export function useCreateDevRunMutation() {
   return useMutation({
     mutationFn: createDevRun,
     onMutate: async (variables) => {
-      const listing =
-        (await refreshCachedAtRefListing(queryClient, variables.projectId, variables.ref)) ??
-        lookupAtRefListing(queryClient, variables.projectId, variables.ref);
+      const listing = await refreshCachedAtRefListing(
+        queryClient,
+        variables.projectId,
+        variables.ref,
+      );
       const file = listing?.files.find((entry) => entry.configPath === variables.configPath);
       const trigger = file?.triggers[variables.trigger];
       if (!listing || !file || !trigger) {

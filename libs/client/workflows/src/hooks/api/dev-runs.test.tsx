@@ -479,6 +479,54 @@ describe('dev run API hooks', () => {
     expect(cached?.pages[0]?.runs).toHaveLength(0);
   });
 
+  test('continues without an optimistic row when the at-ref refresh fails', async () => {
+    const requestPaths: string[] = [];
+    const postBodies: unknown[] = [];
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const request = input as Request;
+      const path = new URL(request.url).pathname;
+      requestPaths.push(path);
+      if (path === '/definitions/at-ref') {
+        return jsonResponse(
+          {code: 'source-unavailable', message: 'Temporary source-control failure'},
+          {status: 502},
+        );
+      }
+
+      postBodies.push(await request.clone().json());
+      return jsonResponse({workflow_run_id: RUN_ID, commit: COMMIT}, {status: 201});
+    });
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
+    const {result, queryClient} = renderWithQueryClient(() => useCreateDevRunMutation());
+    queryClient.setQueryData(definitionsAtRefQueryKeys.atRef(PROJECT_ID, REF), atRefListing());
+
+    const allListKey = workflowRunsQueryKeys.list(PROJECT_ID, {});
+    seedRunList(queryClient, allListKey);
+
+    await act(async () => {
+      await result.current.mutateAsync({
+        projectId: PROJECT_ID,
+        ref: REF,
+        commit: COMMIT,
+        configPath: CONFIG_PATH,
+        trigger: 'on_issue',
+      });
+    });
+
+    expect(requestPaths).toEqual(['/definitions/at-ref', '/dev-runs']);
+    expect(postBodies).toEqual([
+      {
+        project_id: PROJECT_ID,
+        ref: REF,
+        commit: COMMIT,
+        config_path: CONFIG_PATH,
+        trigger: 'on_issue',
+      },
+    ]);
+    const cached = queryClient.getQueryData<InfiniteData<WorkflowRunListPage>>(allListKey);
+    expect(cached?.pages[0]?.runs).toHaveLength(0);
+  });
+
   test('invalidates the project run lists on success', async () => {
     const fetchImpl = vi.fn(async () =>
       jsonResponse({workflow_run_id: RUN_ID, commit: COMMIT}, {status: 201}),
