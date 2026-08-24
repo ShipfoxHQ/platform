@@ -5,6 +5,7 @@ import {
   cleanupJobAgentState,
   cleanupJobCredentials,
   cleanupJobLogs,
+  cleanupOrphanedJobAgentState,
   cleanupOrphanedJobLogs,
   cleanupWorkspace,
   createJobAgentStateDir,
@@ -278,6 +279,58 @@ describe('cleanupOrphanedJobLogs', () => {
     await expect(stat(orphan)).rejects.toThrow();
     await expect(stat(`${orphan}.lock`)).rejects.toThrow();
     await expect(stat(`${orphan}.lock.reclaim`)).rejects.toThrow();
+  });
+});
+
+describe('cleanupOrphanedJobAgentState', () => {
+  let root: string;
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'shipfox-job-agent-state-sweep-test-'));
+  });
+
+  afterEach(async () => {
+    await rm(root, {recursive: true, force: true});
+  });
+
+  it('removes UUID-named job directories and preserves unrelated entries', async () => {
+    const agentStateRoot = join(root, '.shipfox-runner-agent');
+    const orphan = join(agentStateRoot, 'job-33333333-3333-4333-8333-333333333333');
+    const otherJob = join(agentStateRoot, 'job-not-a-uuid');
+    const unrelatedUuidDir = join(agentStateRoot, 'other-33333333-3333-4333-8333-333333333333');
+    const file = join(agentStateRoot, 'README');
+    await mkdir(orphan, {recursive: true});
+    await writeFile(join(orphan, 'sessions.ndjson'), '{}\n');
+    await mkdir(otherJob, {recursive: true});
+    await mkdir(unrelatedUuidDir, {recursive: true});
+    await writeFile(file, 'keep');
+
+    await cleanupOrphanedJobAgentState(root);
+
+    await expect(stat(orphan)).rejects.toThrow();
+    expect((await stat(otherJob)).isDirectory()).toBe(true);
+    expect((await stat(unrelatedUuidDir)).isDirectory()).toBe(true);
+    expect((await stat(file)).isFile()).toBe(true);
+    expect((await stat(agentStateRoot)).isDirectory()).toBe(true);
+  });
+
+  it('preserves a job directory while the job owns its agent-state lock', async () => {
+    const agentStateRoot = join(root, '.shipfox-runner-agent');
+    const orphan = join(agentStateRoot, 'job-44444444-4444-4444-8444-444444444444');
+    await mkdir(orphan, {recursive: true});
+    await writeFile(join(orphan, 'sessions.ndjson'), '{}\n');
+    await writeFile(`${orphan}.lock`, `${process.pid}\n`);
+
+    await cleanupOrphanedJobAgentState(root);
+
+    expect((await stat(orphan)).isDirectory()).toBe(true);
+    await rm(`${orphan}.lock`, {force: true});
+    await cleanupOrphanedJobAgentState(root);
+    await expect(stat(orphan)).rejects.toThrow();
+  });
+
+  it('does not throw when the runner agent-state root is missing', async () => {
+    await expect(cleanupOrphanedJobAgentState(root)).resolves.toBeUndefined();
   });
 });
 

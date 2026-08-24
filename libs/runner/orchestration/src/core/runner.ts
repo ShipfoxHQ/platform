@@ -32,6 +32,7 @@ import {
   cleanupJobAgentState,
   cleanupJobCredentials,
   cleanupJobLogs,
+  cleanupOrphanedJobAgentState,
   cleanupOrphanedJobLogs,
   cleanupWorkspace,
   createJobAgentStateDir,
@@ -96,6 +97,9 @@ export async function startRunner(
   const workspaceRoot = resolveWorkspaceRootFromEnv();
   void cleanupOrphanedJobLogs(workspaceRoot).catch((error) => {
     logger().warn({err: error, workspaceRoot}, 'Failed to sweep orphaned job logs');
+  });
+  void cleanupOrphanedJobAgentState(workspaceRoot).catch((error) => {
+    logger().warn({err: error, workspaceRoot}, 'Failed to sweep orphaned job agent state');
   });
   requireRunnerLabels();
   warnAboutUnavailablePiExtensions();
@@ -283,9 +287,14 @@ export async function runJob(
 
   try {
     await cleanupJobCredentials(credentialsDir);
-    // The agent-state directory holds harness state (pi session files, the Claude
-    // ephemeral config dir); pre-clean so a crash leftover is never reused.
-    await createJobAgentStateDir(agentStateDir);
+    try {
+      // The agent-state directory holds harness state (pi session files, the Claude
+      // ephemeral config dir); pre-clean so a crash leftover is never reused.
+      await createJobAgentStateDir(agentStateDir);
+    } catch (error) {
+      logger().error({err: error, jobId: job.job_id}, 'Failed to prepare job agent state');
+      return;
+    }
 
     const leaseClient = createLeaseClient(() => currentLeaseToken);
     await runJobSteps({
@@ -317,8 +326,8 @@ export async function runJob(
   } catch (stepLoopError) {
     // A non-retryable error surfaced (e.g. an unexpected throw from the loop).
     // Bail this job; the lease expires server-side and the outer poll moves on.
-    // Do not re-pull (would re-execute). Setup failures do NOT reach here: they
-    // report through the step protocol and finalize the job.
+    // Do not re-pull (would re-execute). Setup failures from the step loop report
+    // through the step protocol before reaching this catch.
     logger().error({err: stepLoopError, jobId: job.job_id}, 'Job step loop failed');
   } finally {
     heartbeatLoop.stop();

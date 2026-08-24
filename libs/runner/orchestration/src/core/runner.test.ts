@@ -27,6 +27,7 @@ vi.mock('@shipfox/runner-workspace', async (importActual) => ({
   cleanupJobAgentState: vi.fn(),
   cleanupJobCredentials: vi.fn(),
   cleanupJobLogs: vi.fn(),
+  cleanupOrphanedJobAgentState: vi.fn(),
   cleanupOrphanedJobLogs: vi.fn(),
   createJobAgentStateDir: vi.fn(),
   jobAgentStatePath: vi.fn(),
@@ -119,6 +120,7 @@ import {
   cleanupJobAgentState,
   cleanupJobCredentials,
   cleanupJobLogs,
+  cleanupOrphanedJobAgentState,
   cleanupOrphanedJobLogs,
   cleanupWorkspace,
   createJobAgentStateDir,
@@ -144,6 +146,7 @@ const mockCreateJobAgentStateDir = vi.mocked(createJobAgentStateDir);
 const mockCleanupJobAgentState = vi.mocked(cleanupJobAgentState);
 const mockCleanupWorkspace = vi.mocked(cleanupWorkspace);
 const mockCleanupJobLogs = vi.mocked(cleanupJobLogs);
+const mockCleanupOrphanedJobAgentState = vi.mocked(cleanupOrphanedJobAgentState);
 const mockCleanupOrphanedJobLogs = vi.mocked(cleanupOrphanedJobLogs);
 const mockCleanupJobCredentials = vi.mocked(cleanupJobCredentials);
 const mockResolveWorkspaceRoot = vi.mocked(resolveWorkspaceRootFromEnv);
@@ -200,6 +203,7 @@ beforeEach(() => {
   mockJobCredentialsPath.mockReturnValue(JOB_CREDENTIALS_DIR);
   mockCreateJobAgentStateDir.mockResolvedValue(undefined);
   mockCleanupJobAgentState.mockResolvedValue(undefined);
+  mockCleanupOrphanedJobAgentState.mockResolvedValue(undefined);
   mockCleanupOrphanedJobLogs.mockResolvedValue(undefined);
   mockRunJobSteps.mockResolvedValue();
 });
@@ -248,9 +252,15 @@ describe('runJob', () => {
       }),
     );
     expect(mockCreateJobAgentStateDir).toHaveBeenCalledWith(JOB_AGENT_STATE_DIR);
+    expect(mockCreateJobAgentStateDir.mock.invocationCallOrder[0]).toBeLessThan(
+      mockRunJobSteps.mock.invocationCallOrder[0] ?? Infinity,
+    );
     expect(mockCleanupWorkspace).toHaveBeenCalledWith(JOB_CWD);
     expect(mockCleanupJobLogs).toHaveBeenCalledWith(JOB_LOGS_DIR);
     expect(mockCleanupJobAgentState).toHaveBeenCalledWith(JOB_AGENT_STATE_DIR);
+    expect(mockRunJobSteps.mock.invocationCallOrder[0]).toBeLessThan(
+      mockCleanupJobAgentState.mock.invocationCallOrder[0] ?? Infinity,
+    );
     expect(mockCleanupJobCredentials).toHaveBeenNthCalledWith(1, JOB_CREDENTIALS_DIR);
     expect(mockCleanupJobCredentials).toHaveBeenNthCalledWith(2, JOB_CREDENTIALS_DIR);
   });
@@ -340,6 +350,23 @@ describe('runJob', () => {
     expect(mockCleanupJobCredentials).toHaveBeenNthCalledWith(2, JOB_CREDENTIALS_DIR);
   });
 
+  it('logs and cleans up when agent-state preparation fails', async () => {
+    const error = new Error('agent state denied');
+    const errorLog = vi.spyOn(logger(), 'error').mockImplementation(() => undefined);
+    mockCreateJobAgentStateDir.mockRejectedValueOnce(error);
+
+    await runJob(JOB, WORKSPACE_ROOT);
+
+    expect(errorLog).toHaveBeenCalledWith(
+      {err: error, jobId: JOB.job_id},
+      'Failed to prepare job agent state',
+    );
+    expect(mockRunJobSteps).not.toHaveBeenCalled();
+    expect(mockCleanupWorkspace).toHaveBeenCalledWith(JOB_CWD);
+    expect(mockCleanupJobLogs).toHaveBeenCalledWith(JOB_LOGS_DIR);
+    expect(mockCleanupJobAgentState).toHaveBeenCalledWith(JOB_AGENT_STATE_DIR);
+  });
+
   it('skips the job without running the loop or cleaning up when the job id is invalid', async () => {
     mockJobWorkspacePath.mockImplementation(() => {
       throw new InvalidJobIdError(JOB.job_id);
@@ -357,13 +384,17 @@ describe('runJob', () => {
 });
 
 describe('startRunner', () => {
-  it('sweeps orphaned job logs before polling', async () => {
+  it('sweeps orphaned job logs and agent state before polling', async () => {
     mockRequestJob.mockRejectedValue(new RunnerSessionExhaustedError());
 
     await startRunner();
 
     expect(mockCleanupOrphanedJobLogs).toHaveBeenCalledWith(WORKSPACE_ROOT);
+    expect(mockCleanupOrphanedJobAgentState).toHaveBeenCalledWith(WORKSPACE_ROOT);
     expect(mockCleanupOrphanedJobLogs.mock.invocationCallOrder[0]).toBeLessThan(
+      mockRegisterRunnerSession.mock.invocationCallOrder[0] ?? Infinity,
+    );
+    expect(mockCleanupOrphanedJobAgentState.mock.invocationCallOrder[0]).toBeLessThan(
       mockRegisterRunnerSession.mock.invocationCallOrder[0] ?? Infinity,
     );
   });

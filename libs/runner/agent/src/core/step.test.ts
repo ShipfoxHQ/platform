@@ -113,6 +113,20 @@ describe('executeAgentStep', () => {
     );
   });
 
+  it('forwards the runner-owned agent-state directory to the harness', async () => {
+    runAgentMock.mockResolvedValue({});
+
+    await executeAgentStep(buildAgentStep(), {
+      cwd: '/work',
+      agentStateDir: '/runner-agent/job-1',
+      runtime: RUNTIME,
+    });
+
+    expect(runAgentMock).toHaveBeenCalledWith(
+      expect.objectContaining({agentStateDir: '/runner-agent/job-1'}),
+    );
+  });
+
   it('forwards runtime provider, model, and thinking to the agent invocation', async () => {
     runAgentMock.mockResolvedValue({});
 

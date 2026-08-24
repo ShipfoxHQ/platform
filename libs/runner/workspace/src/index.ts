@@ -32,6 +32,7 @@ export {
   cleanupJobAgentState,
   cleanupJobCredentials,
   cleanupJobLogs,
+  cleanupOrphanedJobAgentState,
   cleanupOrphanedJobLogs,
   cleanupWorkspace,
   createJobAgentStateDir,
