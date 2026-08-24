@@ -14,6 +14,12 @@ import {fireManualSubscription} from '#core/fire-manual.js';
 import {getManualSubscriptionByDefinitionId} from '#db/subscriptions.js';
 import {mapStartRunError} from './map-start-run-error.js';
 
+const startRunErrorDetailsSchema = z.union([
+  z.object({definition_id: z.string()}),
+  z.object({field: z.string(), source: z.string(), env_key: z.string().optional()}),
+  z.object({labels: z.array(z.string())}),
+]);
+
 export function createFireManualTriggerRoute(workflows: WorkflowsModuleClient) {
   return defineRoute({
     method: 'POST',
@@ -28,7 +34,7 @@ export function createFireManualTriggerRoute(workflows: WorkflowsModuleClient) {
         201: fireManualTriggerResponseSchema,
         422: z.object({
           code: z.string(),
-          details: z.unknown().optional(),
+          details: startRunErrorDetailsSchema.optional(),
         }),
       },
     },
