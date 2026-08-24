@@ -15,6 +15,8 @@ export const WORKFLOW_INTERPOLATED_VALUE_PATTERN = /^(?:[^$]|\$\$\{\{|\$(?!\{\{)
 export const WORKFLOW_SESSION_KEY_MAX_LENGTH = 128;
 export const WORKFLOW_SESSION_KEY_PATTERN_SOURCE = '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$';
 export const WORKFLOW_SESSION_KEY_PATTERN = new RegExp(WORKFLOW_SESSION_KEY_PATTERN_SOURCE);
+const workflowSessionKeyLiteralPartPattern = /^[A-Za-z0-9._-]*$/;
+const workflowSessionKeyLiteralPartStartPattern = /^[A-Za-z0-9]/;
 
 // Reasoning effort is an enum so editors can complete it, and a template so a
 // workflow can choose the effort from run context. The resolved value is
@@ -656,6 +658,10 @@ const workflowSessionKeyTemplateSchema = z
   .min(1)
   .regex(WORKFLOW_INTERPOLATED_VALUE_PATTERN, {
     message: 'Session keys with interpolation must use a $' + '{{ }} template.',
+  })
+  .refine(isValidWorkflowSessionKeyTemplateLiteralParts, {
+    message:
+      'Literal parts of interpolated session keys may contain only letters, numbers, dots, underscores, or hyphens, and may not exceed 128 characters in total.',
   });
 const workflowSessionKeySchema = z.union([
   workflowSessionKeyLiteralSchema,
@@ -680,6 +686,37 @@ export const workflowDocumentSessionSchema = z
     description:
       'Named agent session continued across steps of one workflow run. A string names the session and resumes it; an object adds the mode.',
   });
+
+function isValidWorkflowSessionKeyTemplateLiteralParts(source: string): boolean {
+  let cursor = 0;
+  let expressionSeen = false;
+  let literalLength = 0;
+
+  while (true) {
+    const opener = source.indexOf('${{', cursor);
+    const literalEnd = opener === -1 ? source.length : opener;
+    const literal = source.slice(cursor, literalEnd);
+    literalLength += literal.length;
+
+    if (
+      literalLength > WORKFLOW_SESSION_KEY_MAX_LENGTH ||
+      !workflowSessionKeyLiteralPartPattern.test(literal) ||
+      (!expressionSeen &&
+        literal.length > 0 &&
+        !workflowSessionKeyLiteralPartStartPattern.test(literal))
+    ) {
+      return false;
+    }
+
+    if (opener === -1) return expressionSeen;
+
+    const close = source.indexOf('}}', opener + 3);
+    if (close === -1) return false;
+
+    expressionSeen = true;
+    cursor = close + 2;
+  }
+}
 
 export const workflowDocumentAgentStepFields = [
   'model',

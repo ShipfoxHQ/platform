@@ -1181,6 +1181,14 @@ describe('workflowDocumentSchema', () => {
     ['agent step with name', {name: 'fix', model: 'claude-opus-4-8', prompt: 'Fix it.'}],
     ['agent step with session shorthand', {prompt: 'Fix it.', session: 'main'}],
     [
+      'agent step with interpolated session shorthand',
+      {prompt: 'Fix it.', session: interpolation('execution_name')},
+    ],
+    [
+      'agent step with interpolated session object',
+      {prompt: 'Fix it.', session: {key: interpolation('execution_name'), mode: 'fork'}},
+    ],
+    [
       'agent step with gate',
       {model: 'claude-opus-4-8', prompt: 'Fix it.', gate: {success: 'step.exit_code == 0'}},
     ],
@@ -1243,6 +1251,10 @@ describe('workflowDocumentSchema', () => {
     ['session key with punctuation', {prompt: 'Fix.', session: 'main/session'}],
     ['session key that is too long', {prompt: 'Fix.', session: 'a'.repeat(129)}],
     ['session object key with spaces', {prompt: 'Fix.', session: {key: 'main session'}}],
+    [
+      'interpolated session key with invalid literal text',
+      {prompt: 'Fix.', session: `main session-${interpolation('execution_name')}`},
+    ],
     ['session object with unknown key', {prompt: 'Fix.', session: {key: 'main', extra: true}}],
     ['empty model string', {model: '', prompt: 'Fix.'}],
     ['empty provider string', {model: 'gpt-5.5-pro', prompt: 'Fix.', provider: ''}],

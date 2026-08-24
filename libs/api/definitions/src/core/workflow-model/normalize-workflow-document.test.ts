@@ -502,6 +502,30 @@ describe('normalizeWorkflowDocument', () => {
     ]);
   });
 
+  it.each([
+    ['contains spaces', `main session-${interpolation('event.issue.number')}`],
+    [
+      'exceeds the maximum literal length',
+      `${'a'.repeat(129)}-${interpolation('event.issue.number')}`,
+    ],
+  ])('rejects an interpolated agent session key whose literal text %s', (_reason, key) => {
+    const error = expectInvalid({
+      name: 'session build',
+      jobs: {
+        triage: {
+          steps: [{prompt: 'Triage.', session: key}],
+        },
+      },
+    });
+
+    expect(error.issues).toEqual([
+      expect.objectContaining({
+        code: 'invalid-agent-session-key',
+        path: ['jobs', 'triage', 'steps', 0, 'session'],
+      }),
+    ]);
+  });
+
   it('parses interpolated agent session keys as step-dispatch templates', () => {
     const model = normalizeWorkflowDocument({
       name: 'session build',
