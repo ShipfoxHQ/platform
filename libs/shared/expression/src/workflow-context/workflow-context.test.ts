@@ -9,6 +9,7 @@ import {
   type FillTarget,
   getWorkflowContextTypeEnvironment,
   getWorkflowInterpolationFieldFailurePolicy,
+  getWorkflowInterpolationFieldMinimumFillTarget,
   getWorkflowPredicateContextRoots,
   getWorkflowPredicateFieldMinimumFillTarget,
   getWorkflowPredicateFieldTypeEnvironment,
@@ -17,6 +18,7 @@ import {
   resolveContextRootHost,
   rootsAvailableAt,
   runnerFillTarget,
+  toolStepReportTypeEnvironment,
   unavailableRootsAt,
   type WorkflowInterpolationField,
   workflowContextAvailabilityReference,
@@ -58,6 +60,7 @@ describe('workflow context registry', () => {
     expect(workflowContextReservedRoots).toEqual({
       matrix: {host: 'server', availability: 'job-activation'},
       runner: {host: 'runner'},
+      result: {host: 'server', availability: 'step-report'},
     });
     expect(workflowContextNames).toContain('jobs');
     expect(workflowContextNames).toContain('needs');
@@ -65,6 +68,7 @@ describe('workflow context registry', () => {
     expect(workflowContextNames).toContain('steps');
     expect(workflowContextNames).not.toContain('matrix');
     expect(workflowContextNames).not.toContain('runner');
+    expect(workflowContextNames).not.toContain('result');
   });
 
   it('marks known-shape contexts as typed and open contexts as syntax-only', () => {
@@ -353,6 +357,143 @@ describe('workflow context registry', () => {
     ).not.toThrow();
   });
 
+  it('types tool step entities from the catalog output schema and mapped outputs', () => {
+    const typeEnvironment = buildTypedRootsEnvironment({
+      steps: [
+        {
+          key: 'notify',
+          kind: 'tool',
+          outputs: {ts: {type: 'string'}},
+          outputSchema: {
+            type: 'object',
+            properties: {
+              ts: {type: 'string'},
+              channel: {type: 'string'},
+            },
+            required: ['ts', 'channel'],
+            additionalProperties: false,
+          },
+        },
+      ],
+    });
+
+    expect(() =>
+      createWorkflowExpression({
+        source: 'steps.notify.outputs.ts == steps.notify.outputs.result.channel',
+        check: {mode: 'typed', typeEnvironment},
+      }),
+    ).not.toThrow();
+    expect(() =>
+      createWorkflowExpression({
+        source: 'steps.notify.outputs.result',
+        check: {mode: 'typed', typeEnvironment},
+      }),
+    ).not.toThrow();
+    expect(() =>
+      createWorkflowExpression({
+        source: 'steps.notify.outputs.result.typo',
+        check: {mode: 'typed', typeEnvironment},
+      }),
+    ).toThrow(InvalidWorkflowExpressionError);
+  });
+
+  it('types a tool step result as an open map without a catalog output schema', () => {
+    const typeEnvironment = buildTypedRootsEnvironment({
+      steps: [{key: 'notify', kind: 'tool', outputs: {ts: {type: 'string'}}}],
+    });
+
+    expect(() =>
+      createWorkflowExpression({
+        source: 'steps.notify.outputs.result.anything',
+        check: {mode: 'typed', typeEnvironment},
+      }),
+    ).not.toThrow();
+    expect(() =>
+      createWorkflowExpression({
+        source: 'steps.notify.outputs.ts',
+        check: {mode: 'typed', typeEnvironment},
+      }),
+    ).not.toThrow();
+  });
+
+  it('omits exit_code from tool step entities and self roots', () => {
+    const stepsEnvironment = buildTypedRootsEnvironment({
+      steps: [{key: 'notify', kind: 'tool'}],
+    });
+    const selfEnvironment = buildTypedRootsEnvironment({
+      currentStep: {key: 'notify', kind: 'tool'},
+    });
+
+    for (const source of [
+      'steps.notify.exit_code == 0',
+      'step.exit_code == 0',
+      'steps.notify.gate.exit_code == 0',
+      'steps.notify.attempts[0].gate.exit_code == 0',
+    ]) {
+      for (const typeEnvironment of [stepsEnvironment, selfEnvironment]) {
+        expect(() =>
+          createWorkflowExpression({
+            source,
+            check: {mode: 'typed', typeEnvironment, expectedResultType: 'bool'},
+          }),
+        ).toThrow(InvalidWorkflowExpressionError);
+      }
+    }
+
+    expect(() =>
+      createWorkflowExpression({
+        source: 'steps.notify.status == "succeeded"',
+        check: {mode: 'typed', typeEnvironment: stepsEnvironment},
+      }),
+    ).not.toThrow();
+    expect(() =>
+      createWorkflowExpression({
+        source: 'step.status == "succeeded"',
+        check: {mode: 'typed', typeEnvironment: selfEnvironment},
+      }),
+    ).not.toThrow();
+  });
+
+  it('exposes a tool step gate context without exit_code', () => {
+    expect(() =>
+      createWorkflowExpression({
+        source: 'step.status == "succeeded" && step.outputs != null',
+        check: {
+          mode: 'typed',
+          typeEnvironment: toolStepReportTypeEnvironment,
+          expectedResultType: 'bool',
+        },
+      }),
+    ).not.toThrow();
+    expect(() =>
+      createWorkflowExpression({
+        source: 'step.exit_code == 0',
+        check: {
+          mode: 'typed',
+          typeEnvironment: toolStepReportTypeEnvironment,
+          expectedResultType: 'bool',
+        },
+      }),
+    ).toThrow(InvalidWorkflowExpressionError);
+  });
+
+  it('preserves exit_code through non-tool step overlays', () => {
+    const stepsEnvironment = buildTypedRootsEnvironment({steps: [{key: 'build'}]});
+    const selfEnvironment = buildTypedRootsEnvironment({currentStep: {key: 'build'}});
+
+    for (const [source, typeEnvironment] of [
+      ['steps.build.exit_code == 0', stepsEnvironment],
+      ['step.exit_code == 0', selfEnvironment],
+    ] as const) {
+      expect(() =>
+        createWorkflowExpression({
+          source,
+          check: {mode: 'typed', typeEnvironment, expectedResultType: 'bool'},
+        }),
+      ).not.toThrow();
+    }
+  });
+
   it('builds typed step self-root and upstream job output overlays', () => {
     const typeEnvironment = buildTypedRootsEnvironment({
       currentStep: {key: 'test', outputs: {ready: {type: 'boolean'}}},
@@ -612,6 +753,8 @@ describe('workflow context registry', () => {
     expect(resolveContextRootAvailability('secrets')).toBeUndefined();
     expect(resolveContextRootHost('runner')).toBe('runner');
     expect(resolveContextRootAvailability('runner')).toBeUndefined();
+    expect(resolveContextRootHost('result')).toBe('server');
+    expect(resolveContextRootAvailability('result')).toBe('step-report');
     expect(resolveContextRootHost('unknown')).toBeUndefined();
     expect(resolveContextRootAvailability('unknown')).toBeUndefined();
   });
@@ -639,6 +782,8 @@ describe('workflow context registry', () => {
       expect(getWorkflowInterpolationFieldFailurePolicy('checkout.repository')).toBe('fail');
       expect(getWorkflowInterpolationFieldFailurePolicy('checkout.ref')).toBe('fail');
       expect(getWorkflowInterpolationFieldFailurePolicy('checkout.path')).toBe('fail');
+      expect(getWorkflowInterpolationFieldFailurePolicy('tool.with')).toBe('fail');
+      expect(getWorkflowInterpolationFieldFailurePolicy('tool.outputs')).toBe('fail');
       expect(
         workflowInterpolationFields.map(
           (field) => workflowInterpolationFieldPolicies[field].failurePolicy,
@@ -675,6 +820,22 @@ describe('workflow context registry', () => {
       );
       expect(contextRootsForField('run')).toEqual(workflowContextNames);
       expect(contextRootsForField('env.value')).toContain('secrets');
+    });
+
+    it('declares explicit roots for tool step fields', () => {
+      expect(contextRootsForField('tool.with')).toEqual(
+        workflowContextNames.filter((name) => name !== 'secrets'),
+      );
+      expect(contextRootsForField('tool.outputs')).toEqual(['result', 'vars']);
+    });
+
+    it('declares the minimum fill target of every interpolation field', () => {
+      expect(getWorkflowInterpolationFieldMinimumFillTarget('tool.with')).toBe('step-dispatch');
+      expect(getWorkflowInterpolationFieldMinimumFillTarget('tool.outputs')).toBe('step-report');
+      expect(getWorkflowInterpolationFieldMinimumFillTarget('run')).toBeUndefined();
+      expect(getWorkflowInterpolationFieldMinimumFillTarget('job.outputs')).toBe(
+        'execution-resolution',
+      );
     });
 
     it('declares the runtime roots for every predicate field', () => {
@@ -751,6 +912,15 @@ describe('workflow context registry', () => {
           kind: 'object',
           fields: {
             exit_code: 'int',
+            status: 'string',
+            outputs: {kind: 'map'},
+          },
+        },
+      });
+      expect(getWorkflowPredicateFieldTypeEnvironment('step.success', 'step', 'tool')).toEqual({
+        step: {
+          kind: 'object',
+          fields: {
             status: 'string',
             outputs: {kind: 'map'},
           },
@@ -892,6 +1062,8 @@ describe('workflow interpolation field policies', () => {
       'checkout.repository',
       'checkout.ref',
       'checkout.path',
+      'tool.with',
+      'tool.outputs',
     ]);
     expect(Object.keys(workflowInterpolationFieldPolicies)).toEqual(workflowInterpolationFields);
   });
@@ -927,6 +1099,8 @@ describe('workflow interpolation field policies', () => {
     ['checkout.repository', ['server']],
     ['checkout.ref', ['server']],
     ['checkout.path', ['server']],
+    ['tool.with', ['server']],
+    ['tool.outputs', ['server']],
   ] satisfies readonly [
     WorkflowInterpolationField,
     readonly string[],
@@ -946,6 +1120,8 @@ describe('workflow interpolation field policies', () => {
     expect(workflowInterpolationFieldAcceptsHost('step.name', 'runner')).toBe(false);
     expect(workflowInterpolationFieldAcceptsHost('step.working_directory', 'runner')).toBe(false);
     expect(workflowInterpolationFieldAcceptsHost('step.feedback', 'runner')).toBe(false);
+    expect(workflowInterpolationFieldAcceptsHost('tool.with', 'runner')).toBe(false);
+    expect(workflowInterpolationFieldAcceptsHost('tool.outputs', 'runner')).toBe(false);
   });
 
   it('uses only registered hosts in field policies', () => {

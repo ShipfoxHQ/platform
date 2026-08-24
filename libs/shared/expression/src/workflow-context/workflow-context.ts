@@ -1,6 +1,7 @@
 import type {WorkflowExpressionEvaluationContext} from '../evaluator/evaluate-workflow-expression.js';
 import type {ExpressionType, ExpressionTypeEnvironment} from '../expression/workflow-expression.js';
 import {
+  jsonSchemaToExpressionType,
   type OutputDeclarations,
   outputDeclarationsToExpressionFields,
 } from '../outputs/output-declarations.js';
@@ -59,6 +60,8 @@ export type ReservedRootDefinition =
 export const workflowContextReservedRoots = {
   matrix: {host: 'server', availability: 'job-activation'},
   runner: {host: 'runner'},
+  // The result of a tool step call; readable only from `tool.outputs` mappings.
+  result: {host: 'server', availability: 'step-report'},
 } as const satisfies Record<string, ReservedRootDefinition>;
 export type WorkflowContextReservedRoot = keyof typeof workflowContextReservedRoots;
 
@@ -161,8 +164,7 @@ const executionEventType = {
     received_at: 'timestamp',
     ...triggerReferenceFields,
     data: {
-      kind: 'object',
-      fields: {},
+      kind: 'map',
     },
   },
 } as const;
@@ -207,6 +209,15 @@ const stepGateType = {
     source: 'string',
     reason: 'string',
     exit_code: 'int',
+  },
+} as const;
+
+const toolStepGateType = {
+  kind: 'object',
+  fields: {
+    passed: 'bool',
+    source: 'string',
+    reason: 'string',
   },
 } as const;
 
@@ -260,6 +271,44 @@ const stepReportTypeEnvironment = {
   },
 } as const satisfies ExpressionTypeEnvironment;
 
+/**
+ * Gate context for a tool step: `status` and `outputs`, with no `exit_code`
+ * because a tool step never reports one.
+ */
+export const toolStepReportTypeEnvironment = {
+  step: {
+    kind: 'object',
+    fields: {
+      status: 'string',
+      outputs: {kind: 'map'},
+    },
+  },
+} as const satisfies ExpressionTypeEnvironment;
+
+// A tool step never reports an exit code: the call outcome is the attempt
+// status, and the gate context of a tool step reads `status` and `outputs` only.
+const toolStepAttemptType = {
+  kind: 'object',
+  fields: {
+    status: 'string',
+    outputs: {kind: 'map'},
+    response: 'string',
+    gate: toolStepGateType,
+  },
+} as const;
+
+// The self root of a tool step drops `exit_code` from the shared step fields.
+const toolStepSelfTypeEnvironment = {
+  step: {
+    kind: 'object',
+    fields: {
+      ...stepDispatchTypeEnvironment.step.fields,
+      status: 'string',
+      outputs: {kind: 'map'},
+    },
+  },
+} as const satisfies ExpressionTypeEnvironment;
+
 const stepTypeEnvironment = {
   step: {
     kind: 'object',
@@ -272,9 +321,17 @@ const stepTypeEnvironment = {
 
 type ObjectExpressionType = Extract<ExpressionType, {kind: 'object'}>;
 
+export type WorkflowStepKind = 'run' | 'agent' | 'checkout' | 'tool';
+
 export interface WorkflowStepTypeOverlay {
   readonly key: string;
+  readonly kind?: WorkflowStepKind;
   readonly outputs?: OutputDeclarations;
+  /**
+   * Catalog output schema of a tool step. Types the implicit `result` output
+   * that every tool step exposes, merged with the inferred mapped outputs.
+   */
+  readonly outputSchema?: unknown;
 }
 
 export interface WorkflowJobTypeOverlay {
@@ -424,7 +481,9 @@ export type WorkflowInterpolationField =
   | 'checkout.connection'
   | 'checkout.repository'
   | 'checkout.ref'
-  | 'checkout.path';
+  | 'checkout.path'
+  | 'tool.with'
+  | 'tool.outputs';
 
 export const workflowFieldFailurePolicies = ['fail', 'degrade', 'fail-closed'] as const;
 export type WorkflowFieldFailurePolicy = (typeof workflowFieldFailurePolicies)[number];
@@ -438,6 +497,12 @@ export interface WorkflowInterpolationFieldPolicy {
     readonly root: WorkflowContextName;
     readonly key: string;
   };
+  /**
+   * Explicit root enumeration for fields whose references are not just
+   * host-constrained, such as `tool.outputs` with its reserved `result` root.
+   * When present, callers should use this instead of the accepted-hosts filter.
+   */
+  readonly roots?: readonly (WorkflowContextName | WorkflowContextReservedRoot)[];
 }
 
 const serverOnlyHosts: readonly WorkflowContextHost[] = ['server'];
@@ -522,6 +587,17 @@ export const workflowInterpolationFieldPolicies: Readonly<
   'checkout.path': {
     acceptedHosts: serverOnlyHosts,
     failurePolicy: 'fail',
+  },
+  'tool.with': {
+    acceptedHosts: serverOnlyHosts,
+    failurePolicy: 'fail',
+    minimumFillTarget: 'step-dispatch',
+  },
+  'tool.outputs': {
+    acceptedHosts: serverOnlyHosts,
+    failurePolicy: 'fail',
+    minimumFillTarget: 'step-report',
+    roots: ['result', 'vars'],
   },
 };
 
@@ -642,11 +718,14 @@ export function rootsAvailableAt(site: AvailabilitySite): readonly WorkflowConte
 }
 
 export function unavailableRootsAt(
-  roots: readonly WorkflowContextName[],
+  roots: readonly (WorkflowContextName | WorkflowContextReservedRoot)[],
   site: AvailabilitySite,
-): readonly WorkflowContextName[] {
-  const availableRoots = new Set(rootsAvailableAt(site));
-  return roots.filter((root) => !availableRoots.has(root));
+): readonly (WorkflowContextName | WorkflowContextReservedRoot)[] {
+  const targetSiteIndex = availabilitySites.indexOf(site);
+  return roots.filter((root) => {
+    const availability = resolveContextRootAvailability(root);
+    return availability === undefined || availabilitySites.indexOf(availability) > targetSiteIndex;
+  });
 }
 
 export function getWorkflowContextTypeEnvironment(
@@ -654,6 +733,15 @@ export function getWorkflowContextTypeEnvironment(
 ): ExpressionTypeEnvironment | undefined {
   const context = getWorkflowContextDefinition(name);
   return context.shape === 'known' ? context.typeEnvironment : undefined;
+}
+
+export function getWorkflowInterpolationFieldTypeEnvironment(
+  field: WorkflowInterpolationField,
+  root: WorkflowContextName | WorkflowContextReservedRoot,
+): ExpressionTypeEnvironment | undefined {
+  if (field === 'tool.with' && root === 'step') return stepDispatchTypeEnvironment;
+  if (!isWorkflowContextName(root)) return undefined;
+  return getWorkflowContextTypeEnvironment(root);
 }
 
 export function workflowInterpolationFieldAcceptsHost(
@@ -697,9 +785,13 @@ export function getWorkflowPredicateFieldMinimumFillTarget(
 export function getWorkflowPredicateFieldTypeEnvironment(
   field: WorkflowPredicateField,
   root: WorkflowContextName,
+  stepKind?: WorkflowStepKind,
 ): ExpressionTypeEnvironment | undefined {
-  const typeEnvironment: ExpressionTypeEnvironment | undefined =
-    workflowPredicateFieldTypeEnvironments[field];
+  const fieldTypeEnvironment =
+    field === 'step.success' && stepKind === 'tool'
+      ? toolStepReportTypeEnvironment
+      : workflowPredicateFieldTypeEnvironments[field];
+  const typeEnvironment: ExpressionTypeEnvironment | undefined = fieldTypeEnvironment;
   if (typeEnvironment === undefined) return getWorkflowContextTypeEnvironment(root);
   const rootType = typeEnvironment[root];
   return rootType === undefined ? getWorkflowContextTypeEnvironment(root) : {[root]: rootType};
@@ -716,16 +808,21 @@ export function getWorkflowPredicateContextRoots<Field extends WorkflowPredicate
  *
  * A predicate has an enumerated contract because the runtime assembles one
  * context for it. A template has no single context: each reference is filled
- * where its data arrives, so its only field-level constraint is which host can
- * resolve it. Callers that document or check fields should use this instead of
+ * where its data arrives, so its field-level constraint is which host can
+ * resolve it, except for fields that declare an explicit root list (such as
+ * `tool.outputs`, whose reserved `result` root is not a referenceable context
+ * name). Callers that document or check fields should use this instead of
  * choosing a mechanism themselves.
  */
 export function contextRootsForField(
   field: WorkflowPredicateField | WorkflowInterpolationField,
-): readonly WorkflowContextName[] {
+): readonly (WorkflowContextName | WorkflowContextReservedRoot)[] {
   if (isWorkflowPredicateField(field)) return workflowPredicateContextRoots[field];
 
-  const {acceptedHosts} = workflowInterpolationFieldPolicies[field];
+  const policy = workflowInterpolationFieldPolicies[field];
+  if (policy.roots !== undefined) return policy.roots;
+
+  const {acceptedHosts} = policy;
   return workflowContextNames.filter((name) =>
     acceptedHosts.includes(workflowContextDefinitions[name].host),
   );
@@ -805,7 +902,7 @@ function stepsRootType(steps: readonly WorkflowStepTypeOverlay[]): ExpressionTyp
 }
 
 function stepEntityTypeForStep(step: WorkflowStepTypeOverlay): ExpressionType {
-  const attemptType = stepAttemptTypeForOutputs(outputsTypeForStep(step));
+  const attemptType = stepAttemptTypeForOutputs(outputsTypeForStep(step), step.kind === 'tool');
   return {
     kind: 'object',
     fields: {
@@ -819,26 +916,46 @@ function stepEntityTypeForStep(step: WorkflowStepTypeOverlay): ExpressionType {
 }
 
 function selfStepType(step: WorkflowStepTypeOverlay): ExpressionType {
+  const selfType = step.kind === 'tool' ? toolStepSelfTypeEnvironment : stepTypeEnvironment;
   return {
     kind: 'object',
     fields: {
-      ...stepTypeEnvironment.step.fields,
+      ...selfType.step.fields,
       outputs: outputsTypeForStep(step),
     },
   };
 }
 
-function stepAttemptTypeForOutputs(outputs: ExpressionType): ObjectExpressionType {
+function stepAttemptTypeForOutputs(
+  outputs: ExpressionType,
+  toolStep: boolean,
+): ObjectExpressionType {
   return {
     kind: 'object',
     fields: {
-      ...stepAttemptType.fields,
+      ...(toolStep ? toolStepAttemptType : stepAttemptType).fields,
       outputs,
     },
   };
 }
 
 function outputsTypeForStep(step: WorkflowStepTypeOverlay): ExpressionType {
+  if (step.kind === 'tool') {
+    // Every tool step exposes `outputs.result`, typed from the catalog output
+    // schema when one is declared and open otherwise; `result` always wins
+    // over a mapped output that tries to redeclare it.
+    return {
+      kind: 'object',
+      fields: {
+        ...(step.outputs === undefined ? {} : outputDeclarationsToExpressionFields(step.outputs)),
+        result:
+          step.outputSchema === undefined
+            ? ({kind: 'map'} as const satisfies ExpressionType)
+            : jsonSchemaToExpressionType(step.outputSchema),
+      },
+    };
+  }
+
   if (step.outputs === undefined) return {kind: 'map'};
   return {kind: 'object', fields: outputDeclarationsToExpressionFields(step.outputs)};
 }

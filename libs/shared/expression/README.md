@@ -36,9 +36,14 @@ CEL checks and run-time evaluation for Shipfox workflow expressions.
   `trigger`, `event`, `inputs`, `job`, `executions`, `execution`, `jobs`, `step`) and
   gives each a shape, availability site, sensitivity, and host.
   Known-shape contexts ship a typed environment; open ones use `syntax`.
+- **`buildTypedRootsEnvironment`**: Builds typed step and job roots. Tool steps
+  expose `outputs.result` from their catalog schema and omit `exit_code`.
+- **`toolStepReportTypeEnvironment`** and **`WorkflowStepKind`**: Describe the
+  gate context and kind metadata for tool-step expression checks.
 - **`workflowInterpolationFieldPolicies`**: Defines the host, fill-site, and
   failure constraints for each interpolatable field. Use
-  `workflowInterpolationFieldAcceptsHost` for host checks.
+  `workflowInterpolationFieldAcceptsHost` for host checks and
+  `getWorkflowInterpolationFieldTypeEnvironment` for field-specific types.
 - **`workflowPredicateContextRoots`**: Defines the exact context roots each
   predicate field receives. Read it with `getWorkflowPredicateContextRoots`,
   narrow runtime context with `projectWorkflowPredicateContext`, and read

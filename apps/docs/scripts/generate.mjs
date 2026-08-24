@@ -30,6 +30,7 @@ import {
   contextRootsForField,
   getWorkflowContextTypeEnvironment,
   workflowContextDocs,
+  workflowContextNames,
 } from '@shipfox/expression';
 import {buildWorkflowJsonSchema, thinkingLevelsForHarness} from '@shipfox/workflow-document';
 import {registeredIntegrationProviders} from '@/lib/registered-integration-providers';
@@ -103,6 +104,7 @@ const regions = [
 const contextShapeDeps = {
   getTypeEnvironment: getWorkflowContextTypeEnvironment,
   buildTypedRoots: buildTypedRootsEnvironment,
+  contextNames: workflowContextNames,
 };
 
 function renderContextRoots() {

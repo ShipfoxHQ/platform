@@ -1,4 +1,8 @@
-import type {ExpressionTypeEnvironment, WorkflowExpression} from '@shipfox/expression';
+import type {
+  ExpressionTypeEnvironment,
+  WorkflowExpression,
+  WorkflowStepKind,
+} from '@shipfox/expression';
 import type {WorkflowDocumentStep} from '@shipfox/workflow-document';
 import type {WorkflowModelStepGate} from '../entities/workflow-model.js';
 import type {WorkflowModelValidationIssue} from './invalid-workflow-model-error.js';
@@ -15,6 +19,7 @@ export function normalizeStepGate(params: {
   issues: WorkflowModelValidationIssue[];
   allowedJobReferences: ReadonlySet<string>;
   typeOverlay?: ExpressionTypeEnvironment | undefined;
+  stepKind?: WorkflowStepKind | undefined;
 }): WorkflowModelStepGate | undefined {
   const gate = params.step.gate;
   if (gate === undefined) return undefined;
@@ -26,6 +31,7 @@ export function normalizeStepGate(params: {
     issues: params.issues,
     allowedJobReferences: params.allowedJobReferences,
     typeOverlay: params.typeOverlay,
+    stepKind: params.stepKind,
   });
   const feedbackTemplate =
     gate.on_failure?.feedback === undefined
@@ -73,6 +79,7 @@ function normalizeGateSuccess(params: {
   issues: WorkflowModelValidationIssue[];
   allowedJobReferences: ReadonlySet<string>;
   typeOverlay?: ExpressionTypeEnvironment | undefined;
+  stepKind?: WorkflowStepKind | undefined;
 }): WorkflowExpression | undefined {
   if (params.source === undefined) return undefined;
 
@@ -85,5 +92,6 @@ function normalizeGateSuccess(params: {
     issues: params.issues,
     allowedJobReferences: params.allowedJobReferences,
     typeOverlay: params.typeOverlay,
+    stepKind: params.stepKind,
   });
 }

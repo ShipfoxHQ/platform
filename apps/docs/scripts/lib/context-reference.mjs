@@ -30,18 +30,21 @@ export const WORKFLOW_FIELD_YAML_KEYS = {
   'checkout.ref': 'jobs.<job_id>.steps[*].checkout.ref',
   'checkout.path': 'jobs.<job_id>.steps[*].checkout.path',
   'step.feedback': 'jobs.<job_id>.steps[*].gate.on_failure.feedback',
+  'tool.with': 'jobs.<job_id>.steps[*].with',
+  'tool.outputs': 'jobs.<job_id>.steps[*].outputs.<name>',
 };
 
 // Keep the shape lookup here so generation and drift checking traverse the same
 // typed registry.
 export function contextRootShape(root, deps) {
-  const {getTypeEnvironment, buildTypedRoots} = deps;
+  const {getTypeEnvironment, buildTypedRoots, contextNames} = deps;
   if (root === 'jobs') {
     return objectFields(buildTypedRoots({jobs: [{key: '<job_key>'}]}).jobs)['<job_key>'];
   }
   if (root === 'steps') {
     return objectFields(buildTypedRoots({steps: [{key: '<step_key>'}]}).steps)['<step_key>'];
   }
+  if (!contextNames.includes(root)) return undefined;
 
   const environment = getTypeEnvironment(root);
   const type = environment?.[root];
