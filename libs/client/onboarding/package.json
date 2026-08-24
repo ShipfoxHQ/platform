@@ -27,6 +27,16 @@
         "types": "./dist/index.d.ts",
         "default": "./dist/index.js"
       }
+    },
+    "./feature": {
+      "workspace-source": {
+        "types": "./src/feature.ts",
+        "default": "./src/feature.ts"
+      },
+      "default": {
+        "types": "./dist/feature.d.ts",
+        "default": "./dist/feature.js"
+      }
     }
   },
   "scripts": {
@@ -43,7 +53,10 @@
     "@shipfox/client-agent": "workspace:*",
     "@shipfox/client-integrations": "workspace:*",
     "@shipfox/client-projects": "workspace:*",
+    "@shipfox/client-runners": "workspace:*",
     "@shipfox/client-shell": "workspace:*",
+    "@shipfox/client-workspace-settings": "workspace:*",
+    "@shipfox/react-ui": "workspace:*",
     "@swc/helpers": "catalog:"
   },
   "peerDependencies": {
@@ -58,7 +71,6 @@
     "@shipfox/biome": "workspace:*",
     "@shipfox/client-api": "workspace:*",
     "@shipfox/client-test-setup": "workspace:*",
-    "@shipfox/react-ui": "workspace:*",
     "@shipfox/swc": "workspace:*",
     "@shipfox/ts-config": "workspace:*",
     "@shipfox/typescript": "workspace:*",

@@ -14,6 +14,14 @@ export {
   type SetupChecklistItemStatus,
 } from '#core/setup-checklist.js';
 export {
+  SetupChecklistBody,
+  type SetupChecklistBodyProps,
+  type WorkspaceReference,
+  WorkspaceSetupChecklist,
+  type WorkspaceSetupHostProps,
+  WorkspaceSetupIndicator,
+} from './components/setup-checklist.js';
+export {
   loadWorkspaceSetupRoute,
   type WorkspaceSetupRouteOptions,
 } from './workspace-setup-route.js';

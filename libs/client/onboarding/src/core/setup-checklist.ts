@@ -22,6 +22,8 @@ export interface SetupChecklistItem {
   status: SetupChecklistItemStatus;
   /** Tracked items count toward completion; pointers never do. */
   tracked: boolean;
+  /** The row's underlying integration has a connection that needs attention. */
+  attention?: boolean;
   /** One line of purpose, rendered for open and pointer rows. */
   purpose?: string;
   /** Primary action, a link to the settings page where the work happens. */
@@ -49,7 +51,7 @@ export interface SetupChecklistInput {
 
 const TOOLS_TITLE = 'Connect your tools';
 const TOOLS_PURPOSE =
-  'Connect issue tracking, messaging, observability, or any Shipfox integration so workflows can react to events and agents can use them';
+  'Connect issue tracking, messaging, observability, or any Shipfox integration';
 const RUNNER_PURPOSE = 'Jobs wait in `pending` until a runner is online';
 const MODEL_PROVIDER_PURPOSE = 'Agent steps need a model provider to run';
 const FIRST_WORKFLOW_PURPOSE =
@@ -69,6 +71,8 @@ export function deriveSetupChecklist({
   modelProvider,
   membership,
 }: SetupChecklistInput): SetupChecklist {
+  const toolsAttention =
+    !readiness.hasToolIntegration && attentionToolProviders(readiness).length > 0;
   const items: SetupChecklistItem[] = [
     {id: 'source-control', title: 'Connect source control', status: 'done', tracked: true},
     {id: 'project', title: 'Create a project', status: 'done', tracked: true},
@@ -77,6 +81,7 @@ export function deriveSetupChecklist({
       title: toolsTitle(readiness),
       status: readiness.hasToolIntegration ? 'done' : 'open',
       tracked: true,
+      attention: toolsAttention,
       purpose: TOOLS_PURPOSE,
       action: {label: 'Connect', href: '/settings/integrations'},
     },
@@ -137,20 +142,24 @@ export function deriveSetupChecklist({
 
 function toolsTitle(readiness: WorkspaceIntegrationReadiness): string {
   if (!readiness.hasToolIntegration) {
-    const attentionToolProviders = readiness.attentionProviders
-      .map((providerKey) => readiness.providers.find(({provider}) => provider === providerKey))
-      .filter(
-        (provider) => provider !== undefined && !provider.capabilities.includes('source_control'),
-      );
-    if (attentionToolProviders.length === 1) {
-      const provider = attentionToolProviders[0];
+    const providers = attentionToolProviders(readiness);
+    if (providers.length === 1) {
+      const provider = providers[0];
       if (provider !== undefined) {
         return `${provider.displayName || provider.provider} needs attention`;
       }
     }
-    if (attentionToolProviders.length > 1) {
-      return `${attentionToolProviders.length} integrations need attention`;
+    if (providers.length > 1) {
+      return `${providers.length} integrations need attention`;
     }
   }
   return TOOLS_TITLE;
+}
+
+function attentionToolProviders(readiness: WorkspaceIntegrationReadiness) {
+  return readiness.attentionProviders
+    .map((providerKey) => readiness.providers.find(({provider}) => provider === providerKey))
+    .filter(
+      (provider) => provider !== undefined && !provider.capabilities.includes('source_control'),
+    );
 }

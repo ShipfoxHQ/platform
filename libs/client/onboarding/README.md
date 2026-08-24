@@ -1,7 +1,7 @@
 # Shipfox Client Onboarding
 
-Client onboarding for Shipfox workspaces: the pre-project setup gate and the
-pure derivations behind the post-activation Get-started checklist.
+Client onboarding for Shipfox workspaces: the pre-project setup gate, the
+post-activation Get-started checklist, and its panel and top-bar hosts.
 
 ## What it does
 
@@ -20,10 +20,13 @@ pure derivations behind the post-activation Get-started checklist.
   `complete`. Rows follow the spec order; the runner and model-provider rows
   exist only when the installation does not already provide the capability;
   the first-workflow and teammates rows are pointers that never count.
+- **`WorkspaceSetupChecklist`** and **`WorkspaceSetupIndicator`**: slot-ready
+  hosts that load the five checklist query families, render the checklist in a
+  panel or a non-modal popover, and persist per-device dismissal.
 
-Both derivations are pure functions. They test without React and decide what
-the checklist shows, so the component work in this package renders their
-output without re-deriving anything.
+The derivations are pure functions. They test without React and decide what
+the checklist shows, while the hosts own query freshness, loading and failure
+gating, analytics, completion transitions, and the completion burst.
 
 ## Installation and setup
 
@@ -32,7 +35,8 @@ pnpm add @shipfox/client-onboarding
 ```
 
 The package is part of the `libs/client` workspace. Its runtime dependencies
-are `client-agent`, `client-integrations`, `client-projects`, and `client-shell`.
+are `client-agent`, `client-integrations`, `client-projects`, `client-runners`,
+`client-shell`, and `client-workspace-settings`.
 
 ## Usage
 
@@ -65,6 +69,16 @@ checklist.openCount; // 3
 checklist.complete; // false
 ```
 
+The rendered hosts can be exported through the package feature entry point for
+shell slot composition:
+
+```ts
+import {
+  WorkspaceSetupChecklist,
+  WorkspaceSetupIndicator,
+} from '@shipfox/client-onboarding/feature';
+```
+
 The caller maps its own query results to the derivation inputs:
 
 - `providers` and `connections` use the plain values from
@@ -92,6 +106,11 @@ The caller maps its own query results to the derivation inputs:
   false.
 - The teammates row renders done at `memberCount >= 2` or
   `pendingInvitationCount >= 1`, but stays a pointer.
+- The panel and indicator render nothing for an initially complete checklist;
+  the mounted host that observes the final tracked row transition renders the
+  completion state and owns its one-shot burst.
+- Dismissal is scoped to the workspace and device. A dismissed host does not
+  subscribe to checklist queries until the flag is cleared.
 
 ## Development
 
@@ -103,7 +122,7 @@ turbo build --filter=@shipfox/client-onboarding
 ```
 
 The package runs Storybook per the per-package recipe (`pnpm storybook` on
-port 6015). The Storybook test project activates when checklist stories land.
+port 6015) with stories covering both hosts and each checklist state.
 
 ## License
 
