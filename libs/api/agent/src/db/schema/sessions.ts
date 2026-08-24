@@ -46,8 +46,12 @@ export const sessions = pgTable(
     // The claim release (releaseSessionClaimsHeldByStepAttempts) filters on
     // claimed_by_step_attempt on every step-attempt-terminated event; the
     // registry has no deletion path, so without this index the update scans a
-    // table that grows with every run attempt.
-    index('agent_sessions_claimed_by_step_attempt_idx').on(table.claimedByStepAttempt),
+    // table that grows with every run attempt. Partial on the claim because the
+    // release predicates only ever search claimed (non-null) rows; the released
+    // (claim-free) tail never matches and is not retained in the index.
+    index('agent_sessions_claimed_by_step_attempt_idx')
+      .on(table.claimedByStepAttempt)
+      .where(sql`${table.claimedByStepAttempt} is not null`),
     // The reap sweep (listStaleClaimedSessions) filters on claimed_at; partial
     // on the claim so it never carries the released (claim-free) tail.
     index('agent_sessions_claimed_at_partial_idx')

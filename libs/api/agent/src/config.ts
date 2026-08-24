@@ -133,6 +133,44 @@ export function assertAgentConfig(managedProvider?: ManagedModelProvider): void 
 }
 
 /**
+ * Resolved job-terminated grace window: a finite integer of at least 1 second.
+ * Non-finite, zero, negative, or fractional values fall back to 1 second so the
+ * grace-then-release workflow always sleeps a bounded, positive duration (a
+ * non-finite value would otherwise reach `sleep` as `NaN`/`Infinity`).
+ */
+export function resolveCloseGraceSeconds(): number {
+  const grace = config.AGENT_SESSION_CLOSE_GRACE_SECONDS;
+  return Number.isFinite(grace) && grace >= 1 ? Math.floor(grace) : 1;
+}
+
+/**
+ * Resolved reap batch limit: a finite integer of at least 1. Zero would select
+ * no stale claims per tick; negative or fractional values can fail the SQL
+ * `LIMIT`; invalid values fall back to the documented default of 100.
+ */
+export function resolveReapBatchLimit(): number {
+  const limit = config.AGENT_SESSION_REAP_BATCH_LIMIT;
+  return Number.isFinite(limit) && limit >= 1 ? Math.floor(limit) : 100;
+}
+
+/**
+ * Whether the reap threshold is unsafe to run the destructive stale-claim
+ * sweep: non-finite or non-positive values treat every claim as stale, and a
+ * value at or below the workflows default maximum execution duration can
+ * release a claim a still-running step legitimately holds (the job lease is
+ * renewable on every heartbeat). When unsafe, the reap activity disables
+ * itself instead of force-releasing live claims.
+ */
+export function isUnsafeReapAfterSeconds(): boolean {
+  const reapAfter = config.AGENT_SESSION_REAP_AFTER_SECONDS;
+  return (
+    !Number.isFinite(reapAfter) ||
+    reapAfter <= 0 ||
+    reapAfter <= WORKFLOWS_DEFAULT_MAX_EXECUTION_SECONDS
+  );
+}
+
+/**
  * Fail-soft startup check for the session claim lifecycle knobs. Logs a warning
  * instead of aborting module creation: an unsafe value must not take down every
  * instance for configurations that were valid before these knobs existed. The
@@ -161,7 +199,15 @@ export function warnOnUnsafeAgentSessionConfig(): void {
   if (!Number.isFinite(closeGrace) || closeGrace <= 0) {
     logger().warn(
       {closeGraceSeconds: closeGrace},
-      'AGENT_SESSION_CLOSE_GRACE_SECONDS must be positive; a zero or negative value makes the job-terminated sweep fire immediately and race the last in-flight attempt report, defeating the grace window.',
+      'AGENT_SESSION_CLOSE_GRACE_SECONDS must be positive; non-positive values are clamped to a one-second grace period by the job-terminated subscriber, which may race the last in-flight attempt report.',
+    );
+  }
+
+  const reapBatchLimit = config.AGENT_SESSION_REAP_BATCH_LIMIT;
+  if (!Number.isFinite(reapBatchLimit) || reapBatchLimit < 1 || !Number.isInteger(reapBatchLimit)) {
+    logger().warn(
+      {reapBatchLimit},
+      'AGENT_SESSION_REAP_BATCH_LIMIT must be a finite integer of at least 1; invalid values fall back to the default of 100 for each reap tick.',
     );
   }
 }

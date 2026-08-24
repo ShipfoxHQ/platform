@@ -80,6 +80,12 @@ export interface ClaimSessionParams {
 function assertSessionClaimable(row: AgentSessionDb, params: ClaimSessionParams): void {
   assertValidSessionKey(row.key);
   assertValidSessionHarness(row.harness);
+  // Scope is part of claimability: a row that surfaces after an `ON CONFLICT
+  // DO NOTHING` (a foreign row inserted between the initial SELECT and the
+  // insert) was never covered by the caller's pre-insert scope assertion, so
+  // re-verify the denormalized workspace/project match before classifying or
+  // updating it.
+  assertSessionScopeMatches(row, params);
   if (row.harness !== params.harness) {
     throw new AgentSessionHarnessMismatchError({
       sessionId: row.id,
@@ -286,9 +292,15 @@ export async function getSessionByRunAttemptAndKey(params: {
  * inherent: a row whose claim another attempt just took is untouched, so a
  * stale termination event can never steal a claim. Empty input releases
  * nothing.
+ *
+ * The optional `olderThanSeconds` cutoff (used by the reap cron) adds a
+ * `claimed_at` staleness guard so only claims held past the cutoff are
+ * cleared: an attempt that holds both a stale claim and a live one keeps the
+ * live claim and its single-writer exclusivity.
  */
 export async function releaseSessionClaimsHeldByStepAttempts(
   stepAttemptIds: string[],
+  opts?: {olderThanSeconds?: number | undefined} | undefined,
 ): Promise<number> {
   if (stepAttemptIds.length === 0) return 0;
 
@@ -300,7 +312,14 @@ export async function releaseSessionClaimsHeldByStepAttempts(
       updatedAt: sql`now()`,
       version: sql`${sessions.version} + 1`,
     })
-    .where(inArray(sessions.claimedByStepAttempt, stepAttemptIds))
+    .where(
+      and(
+        inArray(sessions.claimedByStepAttempt, stepAttemptIds),
+        ...(opts?.olderThanSeconds === undefined
+          ? []
+          : [sql`${sessions.claimedAt} < now() - make_interval(secs => ${opts.olderThanSeconds})`]),
+      ),
+    )
     .returning({id: sessions.id});
 
   return rows.length;

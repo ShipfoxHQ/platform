@@ -338,7 +338,8 @@
           "isUnique": false,
           "concurrently": false,
           "method": "btree",
-          "with": {}
+          "with": {},
+          "where": "\"claimed_by_step_attempt\" IS NOT NULL"
         },
         "agent_sessions_claimed_at_partial_idx": {
           "name": "agent_sessions_claimed_at_partial_idx",

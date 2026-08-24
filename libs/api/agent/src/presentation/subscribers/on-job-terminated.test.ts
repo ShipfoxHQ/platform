@@ -1,5 +1,5 @@
 import type {WorkflowsJobTerminatedEventDto} from '@shipfox/api-workflows-dto';
-import {config} from '#config.js';
+import {resolveCloseGraceSeconds} from '#config.js';
 import {AGENT_SESSION_LIFECYCLE_TASK_QUEUE} from '#temporal/constants.js';
 import {onJobTerminated} from './on-job-terminated.js';
 
@@ -37,6 +37,9 @@ describe('onJobTerminated', () => {
 
   it('arms the release-abandoned-session-claims workflow keyed on the job id', async () => {
     const jobId = crypto.randomUUID();
+    // Mirrors the subscriber: the execution timeout covers the resolved grace
+    // sleep plus the release activity's start-to-close timeout and a margin.
+    const graceSeconds = resolveCloseGraceSeconds();
 
     await onJobTerminated(buildPayload(jobId));
 
@@ -44,8 +47,8 @@ describe('onJobTerminated', () => {
     expect(startMock).toHaveBeenCalledWith('releaseAbandonedSessionClaims', {
       taskQueue: AGENT_SESSION_LIFECYCLE_TASK_QUEUE,
       workflowId: `agent-session-release:${jobId}`,
-      workflowExecutionTimeout: '1 hour',
-      args: [{jobId, graceSeconds: config.AGENT_SESSION_CLOSE_GRACE_SECONDS}],
+      workflowExecutionTimeout: graceSeconds * 1000 + 5 * 60 * 1000 + 60 * 1000,
+      args: [{jobId, graceSeconds}],
     });
   });
 

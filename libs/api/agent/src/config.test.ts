@@ -279,6 +279,50 @@ describe('agent config', () => {
 
     await expect(importConfig).rejects.toThrow('AGENT_PI_ENABLED_TOOL_PACKAGES');
   });
+
+  it('clamps a non-positive close grace to one second', async () => {
+    vi.resetModules();
+    vi.stubEnv('AGENT_SESSION_CLOSE_GRACE_SECONDS', '0');
+
+    const module = await import('./config.js');
+
+    expect(module.resolveCloseGraceSeconds()).toBe(1);
+  });
+
+  it('clamps a non-finite close grace to one second', async () => {
+    vi.resetModules();
+    vi.stubEnv('AGENT_SESSION_CLOSE_GRACE_SECONDS', 'Infinity');
+
+    const module = await import('./config.js');
+
+    expect(module.resolveCloseGraceSeconds()).toBe(1);
+  });
+
+  it('falls back to the default reap batch limit for a zero value', async () => {
+    vi.resetModules();
+    vi.stubEnv('AGENT_SESSION_REAP_BATCH_LIMIT', '0');
+
+    const module = await import('./config.js');
+
+    expect(module.resolveReapBatchLimit()).toBe(100);
+  });
+
+  it('flags a reap threshold at or below the workflows max execution as unsafe', async () => {
+    vi.resetModules();
+    vi.stubEnv('AGENT_SESSION_REAP_AFTER_SECONDS', '3600');
+
+    const module = await import('./config.js');
+
+    expect(module.isUnsafeReapAfterSeconds()).toBe(true);
+  });
+
+  it('treats the default reap threshold as safe', async () => {
+    vi.resetModules();
+
+    const module = await import('./config.js');
+
+    expect(module.isUnsafeReapAfterSeconds()).toBe(false);
+  });
 });
 
 function managedProvider(overrides: Partial<ManagedModelProvider> = {}): ManagedModelProvider {

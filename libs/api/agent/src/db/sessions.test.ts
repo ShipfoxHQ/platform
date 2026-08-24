@@ -589,6 +589,24 @@ describe('releaseSessionClaimsHeldByStepAttempts', () => {
     expect(second).toBe(0);
     expect((await findSession(claimed.id))?.claimedByStepAttempt).toBeNull();
   });
+
+  it("with a cutoff releases only rows stale past it, keeping an attempt's live claims", async () => {
+    const ctx = newCtx();
+    const stale = await claimSession({...ctx, key: 'stale', harness: 'pi'});
+    const live = await claimSession({...ctx, key: 'live', harness: 'pi'});
+    await db()
+      .update(sessions)
+      .set({claimedAt: sql`now() - interval '20 years'`})
+      .where(eq(sessions.id, stale.id));
+
+    const released = await releaseSessionClaimsHeldByStepAttempts([ctx.stepAttemptId], {
+      olderThanSeconds: 10 * 365 * 24 * 60 * 60,
+    });
+
+    expect(released).toBe(1);
+    expect((await findSession(stale.id))?.claimedByStepAttempt).toBeNull();
+    expect((await findSession(live.id))?.claimedByStepAttempt).toBe(ctx.stepAttemptId);
+  });
 });
 
 describe('listStaleClaimedSessions', () => {

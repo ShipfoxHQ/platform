@@ -66,9 +66,11 @@ export type DefaultAuthModuleFactory = (options: {
 export type DefaultAgentModuleFactory = (options: {
   secrets: Pick<SecretsInterModuleClient, 'deleteSecrets' | 'getSecretsByNamespace' | 'setSecrets'>;
   /**
-   * Optional: the claim-release subscribers and worker are only registered when
-   * the workflows client is composed, so a factory built without it stays
-   * claim/release-free (as before the session release stack landed).
+   * Optional: the step-attempt-terminated release and the stale-claim reap cron
+   * are always registered so composed claim creators get a release backstop;
+   * only the job-terminated grace sweep is gated on this client, so a factory
+   * built without it stays claim/release-free (as before the session release
+   * stack landed).
    */
   workflows?: WorkflowsModuleClient | undefined;
 }) => ShipfoxModule;

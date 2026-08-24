@@ -42,7 +42,7 @@ describe('reapStaleSessionClaims', () => {
     expect(freshRow?.claimedByStepAttempt).toBe(fresh.claimedByStepAttempt);
   });
 
-  it('is idempotent across overlapping cron runs', async () => {
+  it('is idempotent across sequential cron runs', async () => {
     const ctx = newClaimCtx();
     const claimed = await claimSession({...ctx, key: 'stale'});
     await backdate(claimed.id);

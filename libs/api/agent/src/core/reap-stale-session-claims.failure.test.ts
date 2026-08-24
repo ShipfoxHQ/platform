@@ -88,7 +88,9 @@ describe('reapStaleSessionClaims failure path', () => {
     const result = await reapStaleSessionClaims({olderThanSeconds: 3600, batchLimit: 10});
 
     expect(releaseSessionClaimsHeldByStepAttemptsMock).toHaveBeenCalledTimes(1);
-    expect(releaseSessionClaimsHeldByStepAttemptsMock).toHaveBeenCalledWith([attempt]);
+    expect(releaseSessionClaimsHeldByStepAttemptsMock).toHaveBeenCalledWith([attempt], {
+      olderThanSeconds: 3600,
+    });
     expect(result).toEqual({reaped: 2, failed: 0});
   });
 });

@@ -26,11 +26,13 @@ export interface ReapStaleSessionClaimsParams {
  * Cron-driven backstop that releases session claims the one-shot termination
  * paths missed: a wedged runner, a lost step-attempt-terminated event, or a
  * job-terminated sweep that ran before the claim landed. Distinct claiming
- * attempts are deduped (a wedged attempt's many claims release together) and
- * each releases in its own guarded statement, so a tick/retry overlap is
- * idempotent (a claim another attempt already took is untouched) and one failed
- * attempt is logged and skipped instead of aborting the batch. `reaped` sums
- * the actual claims cleared.
+ * attempts are deduped (a wedged attempt's many stale claims release
+ * together) and each releases in its own guarded statement, so a tick/retry
+ * overlap is idempotent (a claim another attempt already took is untouched)
+ * and one failed attempt is logged and skipped instead of aborting the batch.
+ * Releases are guarded on the stale cutoff itself, so a live (fresh) claim
+ * held by an attempt that also holds stale claims is never swept with them.
+ * `reaped` sums the actual claims cleared.
  */
 export async function reapStaleSessionClaims(
   params: ReapStaleSessionClaimsParams,
@@ -48,7 +50,9 @@ export async function reapStaleSessionClaims(
 
   for (const stepAttemptId of distinctAttemptIds) {
     try {
-      const released = await releaseSessionClaimsHeldByStepAttempts([stepAttemptId]);
+      const released = await releaseSessionClaimsHeldByStepAttempts([stepAttemptId], {
+        olderThanSeconds: params.olderThanSeconds,
+      });
       if (released > 0) {
         result.reaped += released;
         sessionClaimReleaseCount.add(released, {path: 'reap'});
