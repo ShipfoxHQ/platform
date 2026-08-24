@@ -255,6 +255,7 @@ function normalizeJob(params: {
     sourceName: params.sourceName,
     issues: params.issues,
     allowedJobReferences,
+    integrationValidationContext: params.context.integrationValidationContext,
   });
   if (params.job.name !== undefined) {
     validateLiteralName({

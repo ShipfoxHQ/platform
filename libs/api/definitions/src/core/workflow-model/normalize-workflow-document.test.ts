@@ -99,12 +99,14 @@ const integrationValidationContext = {
     ['sentry-main', {id: 'conn_2', provider: 'sentry', capabilities: []}],
     ['linear-main', {id: 'conn_3', provider: 'linear', capabilities: ['agent_tools']}],
     ['jira-main', {id: 'conn_4', provider: 'jira', capabilities: ['agent_tools']}],
+    ['deploy-hook', {id: 'conn_5', provider: 'webhook', capabilities: []}],
   ]),
   eventCatalogs: new Map([
     ['github', new Set(['push', 'pull_request.opened'])],
     ['sentry', new Set(['issue.created'])],
     ['linear', new Set(['Issue'])],
     ['jira', new Set(['jira:issue_created'])],
+    ['webhook', new Set(['received'])],
   ]),
   fixedEventProviders: new Set(['webhook']),
   defaultConnectionSlug: 'github-main',
@@ -1697,6 +1699,106 @@ describe('normalizeWorkflowDocument', () => {
     ]);
     expect(model.jobs[0]?.listening?.on).toEqual([
       {source: 'github', event: 'pull_request_review', filter: 'event.action == "submitted"'},
+    ]);
+  });
+
+  it('warns about an unknown listener on source and keeps the matcher active', () => {
+    const document: WorkflowDocument = {
+      name: 'unknown matcher source',
+      jobs: {
+        review: {
+          listening: {
+            on: [{source: 'unknown_slug', event: 'received'}],
+            max_executions: 1,
+          },
+          steps: [{run: 'echo ok'}],
+        },
+      },
+    };
+
+    const {model, diagnostics} = normalizeWithDiagnostics(document, {
+      integrationValidationContext,
+    });
+
+    expect(diagnostics).toEqual([
+      {
+        code: 'unknown-trigger-source',
+        message:
+          'Source "unknown_slug" matches no connection in this workspace; the trigger stays active and fires once a connection with this slug exists.',
+        path: ['jobs', 'review', 'listening', 'on', 0],
+        details: {source: 'unknown_slug'},
+        severity: 'warning',
+        scope: 'trigger',
+      },
+    ]);
+    expect(model.jobs[0]?.listening?.on).toEqual([{source: 'unknown_slug', event: 'received'}]);
+  });
+
+  it('makes an on matcher with a non-fire manual event inert', () => {
+    const document: WorkflowDocument = {
+      name: 'inert on matcher',
+      jobs: {
+        review: {
+          listening: {
+            on: [
+              {source: 'manual', event: 'run'},
+              {source: 'github-main', event: 'push'},
+            ],
+            max_executions: 1,
+          },
+          steps: [{run: 'echo ok'}],
+        },
+      },
+    };
+
+    const {model, diagnostics} = normalizeWithDiagnostics(document, {
+      integrationValidationContext,
+    });
+
+    expect(diagnostics).toEqual([
+      {
+        code: 'invalid-trigger-event',
+        message: 'A manual trigger must use event "fire"; found "run".',
+        path: ['jobs', 'review', 'listening', 'on', 0, 'event'],
+        details: {event: 'run', source: 'manual'},
+        severity: 'error',
+        scope: 'trigger',
+      },
+    ]);
+    expect(model.jobs[0]?.listening?.on).toEqual([{source: 'github-main', event: 'push'}]);
+  });
+
+  it('warns about an unlisted until matcher event and keeps the matcher active', () => {
+    const document: WorkflowDocument = {
+      name: 'unlisted until event',
+      jobs: {
+        review: {
+          listening: {
+            on: [{source: 'github-main', event: 'push'}],
+            until: [{source: 'github-main', event: 'deployment.created'}],
+          },
+          steps: [{run: 'echo ok'}],
+        },
+      },
+    };
+
+    const {model, diagnostics} = normalizeWithDiagnostics(document, {
+      integrationValidationContext,
+    });
+
+    expect(diagnostics).toEqual([
+      {
+        code: 'unknown-trigger-event',
+        message:
+          'Event "deployment.created" is not in the github event catalog; the trigger stays active because this deployment\'s provider app may deliver it.',
+        path: ['jobs', 'review', 'listening', 'until', 0, 'event'],
+        details: {event: 'deployment.created', source: 'github-main', provider: 'github'},
+        severity: 'warning',
+        scope: 'trigger',
+      },
+    ]);
+    expect(model.jobs[0]?.listening?.until).toEqual([
+      {source: 'github-main', event: 'deployment.created'},
     ]);
   });
 
@@ -4150,15 +4252,352 @@ describe('normalizeWorkflowDocument', () => {
 
     expect(diagnostics).toEqual([
       {
-        code: 'invalid-cron-event',
+        code: 'invalid-trigger-event',
         message: 'A cron trigger must use event "tick"; found "push".',
         path: ['triggers', 'nightly', 'event'],
-        details: {event: 'push'},
+        details: {event: 'push', source: 'cron'},
         severity: 'error',
         scope: 'trigger',
       },
     ]);
     expect(model.triggers).toEqual([]);
+  });
+
+  it('warns about an unknown trigger source and keeps the trigger active', () => {
+    const document: WorkflowDocument = {
+      name: 'unknown source',
+      triggers: {
+        on_deploy: {
+          source: 'deploy_hook',
+          event: 'received',
+        },
+      },
+      jobs: {
+        build: {
+          steps: [{run: 'npm run build'}],
+        },
+      },
+    };
+
+    const {model, diagnostics} = normalizeWithDiagnostics(document, {
+      integrationValidationContext,
+    });
+
+    expect(diagnostics).toEqual([
+      {
+        code: 'unknown-trigger-source',
+        message:
+          'Source "deploy_hook" matches no connection in this workspace; the trigger stays active and fires once a connection with this slug exists.',
+        path: ['triggers', 'on_deploy'],
+        details: {source: 'deploy_hook'},
+        severity: 'warning',
+        scope: 'trigger',
+      },
+    ]);
+    expect(model.triggers).toEqual([
+      {id: 'on-deploy', key: 'on_deploy', source: 'deploy_hook', event: 'received'},
+    ]);
+  });
+
+  it('reports only unknown-trigger-source for an unknown slug with an explicit event', () => {
+    const document: WorkflowDocument = {
+      name: 'unknown source with event',
+      triggers: {
+        on_deploy: {
+          source: 'deploy_hook',
+          event: 'pushh',
+        },
+      },
+      jobs: {
+        build: {
+          steps: [{run: 'npm run build'}],
+        },
+      },
+    };
+
+    const {model, diagnostics} = normalizeWithDiagnostics(document, {
+      integrationValidationContext,
+    });
+
+    expect(diagnostics.map((diagnostic) => diagnostic.code)).toEqual(['unknown-trigger-source']);
+    expect(model.triggers).toEqual([
+      {id: 'on-deploy', key: 'on_deploy', source: 'deploy_hook', event: 'pushh'},
+    ]);
+  });
+
+  it('makes a manual trigger with a non-fire event inert', () => {
+    const document: WorkflowDocument = {
+      name: 'manual trigger',
+      triggers: {
+        on_demand: {
+          source: 'manual',
+          event: 'run',
+        },
+      },
+      jobs: {
+        build: {
+          steps: [{run: 'npm run build'}],
+        },
+      },
+    };
+
+    const {model, diagnostics} = normalizeWithDiagnostics(document);
+
+    expect(diagnostics).toEqual([
+      {
+        code: 'invalid-trigger-event',
+        message: 'A manual trigger must use event "fire"; found "run".',
+        path: ['triggers', 'on_demand', 'event'],
+        details: {event: 'run', source: 'manual'},
+        severity: 'error',
+        scope: 'trigger',
+      },
+    ]);
+    expect(model.triggers).toEqual([]);
+  });
+
+  it('makes a webhook trigger with a non-received event inert', () => {
+    const document: WorkflowDocument = {
+      name: 'webhook trigger',
+      triggers: {
+        on_deploy: {
+          source: 'deploy-hook',
+          event: 'deployed',
+        },
+      },
+      jobs: {
+        build: {
+          steps: [{run: 'npm run build'}],
+        },
+      },
+    };
+
+    const {model, diagnostics} = normalizeWithDiagnostics(document, {
+      integrationValidationContext,
+    });
+
+    expect(diagnostics).toEqual([
+      {
+        code: 'invalid-trigger-event',
+        message: 'A webhook trigger must use event "received"; found "deployed".',
+        path: ['triggers', 'on_deploy', 'event'],
+        details: {event: 'deployed', source: 'deploy-hook', provider: 'webhook'},
+        severity: 'error',
+        scope: 'trigger',
+      },
+    ]);
+    expect(model.triggers).toEqual([]);
+  });
+
+  it('makes a fixed-provider trigger inert when its event catalog is unavailable', () => {
+    const document: WorkflowDocument = {
+      name: 'webhook trigger without catalog',
+      triggers: {
+        on_deploy: {
+          source: 'deploy-hook',
+          event: 'deployed',
+        },
+      },
+      jobs: {
+        build: {
+          steps: [{run: 'npm run build'}],
+        },
+      },
+    };
+    const contextWithoutWebhookCatalog = {
+      ...integrationValidationContext,
+      eventCatalogs: new Map(
+        [...integrationValidationContext.eventCatalogs].filter(
+          ([provider]) => provider !== 'webhook',
+        ),
+      ),
+    };
+
+    const {model, diagnostics} = normalizeWithDiagnostics(document, {
+      integrationValidationContext: contextWithoutWebhookCatalog,
+    });
+
+    expect(diagnostics).toEqual([
+      {
+        code: 'invalid-trigger-event',
+        message:
+          'Provider "webhook" has no fixed event catalog; event "deployed" cannot be validated.',
+        path: ['triggers', 'on_deploy', 'event'],
+        details: {event: 'deployed', source: 'deploy-hook', provider: 'webhook'},
+        severity: 'error',
+        scope: 'trigger',
+      },
+    ]);
+    expect(model.triggers).toEqual([]);
+  });
+
+  it('warns about an unlisted GitHub event and keeps the trigger active', () => {
+    const document: WorkflowDocument = {
+      name: 'github trigger',
+      triggers: {
+        on_deploy: {
+          source: 'github-main',
+          event: 'deployment.created',
+        },
+      },
+      jobs: {
+        build: {
+          steps: [{run: 'npm run build'}],
+        },
+      },
+    };
+
+    const {model, diagnostics} = normalizeWithDiagnostics(document, {
+      integrationValidationContext,
+    });
+
+    expect(diagnostics).toEqual([
+      {
+        code: 'unknown-trigger-event',
+        message:
+          'Event "deployment.created" is not in the github event catalog; the trigger stays active because this deployment\'s provider app may deliver it.',
+        path: ['triggers', 'on_deploy', 'event'],
+        details: {event: 'deployment.created', source: 'github-main', provider: 'github'},
+        severity: 'warning',
+        scope: 'trigger',
+      },
+    ]);
+    expect(model.triggers).toEqual([
+      {id: 'on-deploy', key: 'on_deploy', source: 'github-main', event: 'deployment.created'},
+    ]);
+  });
+
+  it('makes a whitespace-only event inert', () => {
+    const document: WorkflowDocument = {
+      name: 'blank event',
+      triggers: {
+        on_push: {
+          source: 'github-main',
+          event: '   ',
+        },
+      },
+      jobs: {
+        build: {
+          steps: [{run: 'npm run build'}],
+        },
+      },
+    };
+
+    const {model, diagnostics} = normalizeWithDiagnostics(document, {
+      integrationValidationContext,
+    });
+
+    expect(diagnostics).toEqual([
+      {
+        code: 'invalid-trigger-event',
+        message: 'A github-main trigger event cannot be blank.',
+        path: ['triggers', 'on_push', 'event'],
+        details: {event: '', source: 'github-main'},
+        severity: 'error',
+        scope: 'trigger',
+      },
+    ]);
+    expect(model.triggers).toEqual([]);
+  });
+
+  it('trims a padded event before catalog validation and persistence', () => {
+    const document: WorkflowDocument = {
+      name: 'padded event',
+      triggers: {
+        on_push: {
+          source: 'github-main',
+          event: ' push ',
+        },
+      },
+      jobs: {
+        build: {
+          steps: [{run: 'npm run build'}],
+        },
+      },
+    };
+
+    const {model, diagnostics} = normalizeWithDiagnostics(document, {
+      integrationValidationContext,
+    });
+
+    expect(diagnostics).toEqual([]);
+    expect(model.triggers).toEqual([
+      {id: 'on-push', key: 'on_push', source: 'github-main', event: 'push'},
+    ]);
+  });
+
+  it('keeps an explicit catalog event on a resolved slug clean', () => {
+    const document: WorkflowDocument = {
+      name: 'github trigger',
+      triggers: {
+        on_push: {
+          source: 'github-main',
+          event: 'push',
+        },
+      },
+      jobs: {
+        build: {
+          steps: [{run: 'npm run build'}],
+        },
+      },
+    };
+
+    const {model, diagnostics} = normalizeWithDiagnostics(document, {
+      integrationValidationContext,
+    });
+
+    expect(diagnostics).toEqual([]);
+    expect(model.triggers).toEqual([
+      {id: 'on-push', key: 'on_push', source: 'github-main', event: 'push'},
+    ]);
+  });
+
+  it('skips slug and event checks when parsed without an integration context', () => {
+    const document: WorkflowDocument = {
+      name: 'no context',
+      triggers: {
+        on_deploy: {
+          source: 'unknown_slug',
+          event: 'whatever',
+        },
+      },
+      jobs: {
+        build: {
+          steps: [{run: 'npm run build'}],
+        },
+      },
+    };
+
+    const {model, diagnostics} = normalizeWithDiagnostics(document);
+
+    expect(diagnostics).toEqual([]);
+    expect(model.triggers).toEqual([
+      {id: 'on-deploy', key: 'on_deploy', source: 'unknown_slug', event: 'whatever'},
+    ]);
+  });
+
+  it('keeps a blank integration event active when parsed without context', () => {
+    const document: WorkflowDocument = {
+      name: 'blank event without context',
+      triggers: {
+        on_deploy: {
+          source: 'unknown_slug',
+          event: '   ',
+        },
+      },
+      jobs: {
+        build: {
+          steps: [{run: 'npm run build'}],
+        },
+      },
+    };
+
+    const {model, diagnostics} = normalizeWithDiagnostics(document);
+
+    expect(diagnostics).toEqual([]);
+    expect(model.triggers).toEqual([
+      {id: 'on-deploy', key: 'on_deploy', source: 'unknown_slug', event: ''},
+    ]);
   });
 
   it('keeps the event absent for integration triggers with the event omitted', () => {
@@ -4413,7 +4852,7 @@ describe('normalizeWorkflowDocument', () => {
     expect(model.triggers.map((trigger) => trigger.key)).toEqual(['one']);
   });
 
-  it('promotes the first valid manual trigger when an earlier one is inert', () => {
+  it('counts an earlier inert manual trigger toward the manual-trigger limit', () => {
     const document: WorkflowDocument = {
       name: 'manual triggers with an inert first trigger',
       triggers: {
@@ -4440,8 +4879,17 @@ describe('normalizeWorkflowDocument', () => {
         severity: 'error',
         scope: 'trigger',
       }),
+      {
+        code: 'multiple-manual-triggers',
+        message:
+          'A workflow may declare at most one manual trigger; found 2: broken, working. This trigger is inert because it is not the first manual trigger in document order.',
+        path: ['triggers', 'working'],
+        details: {manualTriggerKeys: ['broken', 'working']},
+        severity: 'error',
+        scope: 'trigger',
+      },
     ]);
-    expect(model.triggers.map((trigger) => trigger.key)).toEqual(['working']);
+    expect(model.triggers.map((trigger) => trigger.key)).toEqual([]);
   });
 
   it('accumulates independent semantic issues in one pass', () => {

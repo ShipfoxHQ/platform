@@ -8,8 +8,8 @@ import type {DefinitionSyncErrorCode} from './entities/sync-state.js';
 import type {ValidationDiagnostic} from './entities/validation-diagnostic.js';
 import type {WorkflowDefinitionPayload} from './entities/workflow-definition.js';
 import {DefinitionParseError, DefinitionSyncPermanentError} from './errors.js';
-import {hasAgentStepIntegrations} from './has-agent-step-integrations.js';
 import type {DefinitionsSourceControl} from './integrations.js';
+import {needsIntegrationValidationContext} from './needs-integration-validation-context.js';
 import {parseDefinitionWithDiagnostics, stripDefinitionDiagnostics} from './parse-definition.js';
 
 export const DEFAULT_WORKFLOW_PATH = '.shipfox/workflows/';
@@ -129,7 +129,7 @@ export async function fetchAndParseWorkflows(
 
   if (
     !params.loadIntegrationValidationContext ||
-    !parsed.some((entry) => hasAgentStepIntegrations(entry.definition.document))
+    !parsed.some((entry) => needsIntegrationValidationContext(entry.definition.document))
   ) {
     return parsed.map(({rawContent: _rawContent, ...entry}) => entry);
   }

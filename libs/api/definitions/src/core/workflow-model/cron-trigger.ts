@@ -7,28 +7,13 @@ const cronFieldSeparatorRegex = /\s+/;
 
 export function validateCronTrigger(params: {
   readonly sourceKey: string;
-  readonly trigger: {
-    readonly event?: string | undefined;
-  };
   readonly config: {
     readonly schedule?: string | undefined;
     readonly timezone?: string | undefined;
   };
   readonly issues: WorkflowModelValidationIssue[];
 }): void {
-  const {sourceKey, trigger, config, issues} = params;
-
-  if (trigger.event !== undefined && trigger.event !== 'tick') {
-    issues.push(
-      issue({
-        code: 'invalid-cron-event',
-        message: `A cron trigger must use event "tick"; found "${trigger.event}".`,
-        path: ['triggers', sourceKey, 'event'],
-        details: {event: trigger.event},
-        scope: 'trigger',
-      }),
-    );
-  }
+  const {sourceKey, config, issues} = params;
 
   if (config.schedule === undefined) {
     issues.push(

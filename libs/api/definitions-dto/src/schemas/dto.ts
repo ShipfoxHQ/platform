@@ -43,6 +43,25 @@ export const createDefinitionBodySchema = z
 
 export type CreateDefinitionBodyDto = z.infer<typeof createDefinitionBodySchema>;
 
+export const definitionValidationErrorSchema = z.object({
+  message: z.string(),
+  path: z.string().optional(),
+});
+
+export type DefinitionValidationErrorDto = z.infer<typeof definitionValidationErrorSchema>;
+
+export const definitionValidationDiagnosticSchema = z.object({
+  code: z.string().max(DEFINITION_SYNC_WARNING_CODE_MAX_LENGTH),
+  message: z.string().max(DEFINITION_SYNC_WARNING_MESSAGE_MAX_LENGTH),
+  path: z.string().max(DEFINITION_SYNC_WARNING_PATH_MAX_LENGTH).optional(),
+  file_path: z.string().max(DEFINITION_SYNC_DIAGNOSTIC_FILE_PATH_MAX_LENGTH).optional(),
+  severity: z.enum(['error', 'warning']),
+});
+
+export type DefinitionValidationDiagnosticDto = z.infer<
+  typeof definitionValidationDiagnosticSchema
+>;
+
 export const definitionDtoSchema = z.object({
   id: z.string().uuid(),
   project_id: z.string().uuid(),
@@ -65,28 +84,14 @@ export const definitionDtoSchema = z.object({
 
 export type DefinitionDto = z.infer<typeof definitionDtoSchema>;
 
-export const definitionResponseSchema = definitionDtoSchema;
+export const definitionResponseSchema = definitionDtoSchema.extend({
+  diagnostics: z
+    .array(definitionValidationDiagnosticSchema)
+    .max(DEFINITION_SYNC_DIAGNOSTICS_MAX_COUNT)
+    .optional(),
+});
 
 export type DefinitionResponseDto = z.infer<typeof definitionResponseSchema>;
-
-export const definitionValidationErrorSchema = z.object({
-  message: z.string(),
-  path: z.string().optional(),
-});
-
-export type DefinitionValidationErrorDto = z.infer<typeof definitionValidationErrorSchema>;
-
-export const definitionValidationDiagnosticSchema = z.object({
-  code: z.string().max(DEFINITION_SYNC_WARNING_CODE_MAX_LENGTH),
-  message: z.string().max(DEFINITION_SYNC_WARNING_MESSAGE_MAX_LENGTH),
-  path: z.string().max(DEFINITION_SYNC_WARNING_PATH_MAX_LENGTH).optional(),
-  file_path: z.string().max(DEFINITION_SYNC_DIAGNOSTIC_FILE_PATH_MAX_LENGTH).optional(),
-  severity: z.enum(['error', 'warning']),
-});
-
-export type DefinitionValidationDiagnosticDto = z.infer<
-  typeof definitionValidationDiagnosticSchema
->;
 
 export const definitionListQuerySchema = z.object({
   project_id: z.string().uuid(),

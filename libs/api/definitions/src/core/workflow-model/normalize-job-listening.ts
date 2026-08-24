@@ -1,4 +1,5 @@
 import type {WorkflowDocumentJob} from '@shipfox/workflow-document';
+import type {IntegrationValidationContext} from '../entities/integration-context.js';
 import type {WorkflowModelJobListening} from '../entities/workflow-model.js';
 import {DEFAULT_RUN_TIMEOUT_MS} from './constants.js';
 import type {WorkflowModelValidationIssue} from './invalid-workflow-model-error.js';
@@ -12,6 +13,7 @@ export function normalizeJobListening(params: {
   sourceName: string;
   issues: WorkflowModelValidationIssue[];
   allowedJobReferences: ReadonlySet<string>;
+  integrationValidationContext?: IntegrationValidationContext | undefined;
 }): WorkflowModelJobListening | undefined {
   const path = ['jobs', params.sourceName] as const;
   const listening = params.job.listening;
@@ -44,9 +46,10 @@ export function normalizeJobListening(params: {
       normalizeListeningTrigger({
         trigger,
         field: 'listener.on',
-        path: [...path, 'listening', 'on', index, 'filter'],
+        path: [...path, 'listening', 'on', index],
         issues: params.issues,
         allowedJobReferences: params.allowedJobReferences,
+        integrationValidationContext: params.integrationValidationContext,
       }),
     )
     .filter((matcher): matcher is WorkflowModelJobListening['on'][number] => matcher !== undefined);
@@ -69,9 +72,10 @@ export function normalizeJobListening(params: {
             normalizeListeningTrigger({
               trigger,
               field: 'listener.until',
-              path: [...path, 'listening', 'until', index, 'filter'],
+              path: [...path, 'listening', 'until', index],
               issues: params.issues,
               allowedJobReferences: params.allowedJobReferences,
+              integrationValidationContext: params.integrationValidationContext,
             }),
           )
           .filter(
@@ -128,13 +132,14 @@ function normalizeListeningTrigger(params: {
   path: readonly (string | number)[];
   issues: WorkflowModelValidationIssue[];
   allowedJobReferences: ReadonlySet<string>;
+  integrationValidationContext?: IntegrationValidationContext | undefined;
 }): WorkflowModelJobListening['on'][number] | undefined {
   const matcherIssues: WorkflowModelValidationIssue[] = [];
   if (params.trigger.filter !== undefined) {
     validatePredicateExpression({
       field: params.field,
       source: params.trigger.filter,
-      path: params.path,
+      path: [...params.path, 'filter'],
       invalidCode: 'invalid-listener-filter',
       invalidMessage: `${params.field === 'listener.on' ? 'Listener on' : 'Listener until'} filter must be a valid CEL boolean expression.`,
       issues: matcherIssues,
@@ -142,11 +147,24 @@ function normalizeListeningTrigger(params: {
       scope: 'trigger',
     });
   }
+
+  const normalizedMatcher = normalizeTriggerEntry(params.trigger, {
+    path: params.path,
+    issues: matcherIssues,
+    integrationValidationContext: params.integrationValidationContext,
+  });
   params.issues.push(...matcherIssues);
 
-  // A matcher with a trigger-scoped issue is inert: excluded from the matcher
-  // list while the authored document entry stays untouched.
-  if (matcherIssues.some((candidate) => candidate.scope === 'trigger')) return undefined;
+  // A matcher with a trigger-scoped error is inert: excluded from the matcher
+  // list while the authored document entry stays untouched. Trigger-scoped
+  // warnings (unknown source or event) keep the matcher active.
+  if (
+    matcherIssues.some(
+      (candidate) => candidate.scope === 'trigger' && candidate.severity === 'error',
+    )
+  ) {
+    return undefined;
+  }
 
-  return normalizeTriggerEntry(params.trigger);
+  return normalizedMatcher;
 }

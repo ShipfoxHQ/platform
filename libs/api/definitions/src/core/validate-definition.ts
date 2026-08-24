@@ -21,7 +21,12 @@ export interface DefinitionValidationOptions {
 }
 
 export type ValidationResult =
-  | {valid: true; definition: WorkflowDefinitionPayload; diagnostics: ValidationDiagnostic[]}
+  | {
+      valid: true;
+      definition: WorkflowDefinitionPayload;
+      diagnostics: ValidationDiagnostic[];
+      issues: WorkflowModelValidationIssue[];
+    }
   | {valid: false; errors: ValidationError[]};
 
 export function validateDefinition(
@@ -42,6 +47,7 @@ export function validateDefinition(
       valid: true,
       definition: {document, model},
       diagnostics: validationDiagnosticsFor(diagnostics),
+      issues: diagnostics,
     };
   } catch (error) {
     return {valid: false, errors: validationErrorsFor(error)};
