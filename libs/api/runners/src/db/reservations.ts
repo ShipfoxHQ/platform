@@ -386,8 +386,9 @@ async function pollDemandAndReserveLockedTx(
 
 async function listActiveProvisionerReservationRowsTx(
   tx: Tx,
-  params: {workspaceId?: string; provisionerId?: string},
+  params: {workspaceId?: string; provisionerId?: string; lockForMutation?: boolean},
 ): Promise<ActiveProvisionerReservationRow[]> {
+  const lockForMutation = params.lockForMutation ?? true;
   const candidateRows = await tx
     .select({id: reservations.id, provisionerId: reservations.provisionerId})
     .from(reservations)
@@ -401,22 +402,24 @@ async function listActiveProvisionerReservationRowsTx(
   const candidateIds = candidateRows.map((row) => row.id);
   if (candidateIds.length === 0) return [];
 
-  // Assignment and provider-report transactions use this key before changing runner
-  // links. Lock it before counting so an in-flight assignment cannot expose its unit twice.
-  const candidateIdsByProvisioner = new Map<string, string[]>();
-  for (const row of candidateRows) {
-    const reservationIds = candidateIdsByProvisioner.get(row.provisionerId) ?? [];
-    reservationIds.push(row.id);
-    candidateIdsByProvisioner.set(row.provisionerId, reservationIds);
-  }
-  for (const provisionerId of [...candidateIdsByProvisioner.keys()].sort()) {
-    await lockRunnerReservationAdvisoryKeysTx(tx, {
-      provisionerId,
-      reservationIds: candidateIdsByProvisioner.get(provisionerId) ?? [],
-    });
+  if (lockForMutation) {
+    // Assignment and provider-report transactions use this key before changing runner
+    // links. Lock it before counting so an in-flight assignment cannot expose its unit twice.
+    const candidateIdsByProvisioner = new Map<string, string[]>();
+    for (const row of candidateRows) {
+      const reservationIds = candidateIdsByProvisioner.get(row.provisionerId) ?? [];
+      reservationIds.push(row.id);
+      candidateIdsByProvisioner.set(row.provisionerId, reservationIds);
+    }
+    for (const provisionerId of [...candidateIdsByProvisioner.keys()].sort()) {
+      await lockRunnerReservationAdvisoryKeysTx(tx, {
+        provisionerId,
+        reservationIds: candidateIdsByProvisioner.get(provisionerId) ?? [],
+      });
+    }
   }
 
-  const activeRows = await tx
+  const activeRowsQuery = tx
     .select({
       id: reservations.id,
       provisionerId: reservations.provisionerId,
@@ -431,8 +434,9 @@ async function listActiveProvisionerReservationRowsTx(
         gt(reservations.expiresAt, sql`now()`),
       ),
     )
-    .orderBy(asc(reservations.provisionerId), asc(reservations.id))
-    .for('update');
+    .orderBy(asc(reservations.provisionerId), asc(reservations.id));
+  // Metrics use a point-in-time read and must not contend with scheduling mutations.
+  const activeRows = await (lockForMutation ? activeRowsQuery.for('update') : activeRowsQuery);
   if (activeRows.length === 0) return [];
 
   const activeIds = activeRows.map((row) => row.id);
@@ -484,7 +488,7 @@ async function listActiveProvisionerReservationRowsTx(
 
 export async function countLiveReservationLeakUnits(): Promise<number> {
   return await db().transaction(async (tx) => {
-    const rows = await listActiveProvisionerReservationRowsTx(tx, {});
+    const rows = await listActiveProvisionerReservationRowsTx(tx, {lockForMutation: false});
     return rows.reduce((total, row) => total + row.leaked, 0);
   });
 }

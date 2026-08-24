@@ -4,6 +4,7 @@ import {and, eq, inArray, or, sql, sum} from 'drizzle-orm';
 import type {RunnerInstanceState} from '#core/entities/runner-instance.js';
 import {db} from '#db/db.js';
 import {
+  countLiveReservationLeakUnits,
   deleteExpiredReservations,
   deleteReservationsByIds,
   pollDemandAndReserve,
@@ -111,6 +112,50 @@ describe('pollDemandAndReserve', () => {
     expect(result.reservations).toEqual([expect.objectContaining({labels: ['linux'], count: 1})]);
     expect(result.stats[0]).toMatchObject({queued: 1, reserved: 1});
   });
+
+  it('does not block on reservation locks while observing leaked units', async () => {
+    const leakedUnitsBefore = await countLiveReservationLeakUnits();
+    const [reservation] = await db()
+      .insert(reservations)
+      .values({
+        workspaceId,
+        provisionerId,
+        requiredLabels: ['linux'],
+        count: 1,
+        expiresAt: new Date(Date.now() + 60_000),
+      })
+      .returning({id: reservations.id});
+    if (!reservation) throw new Error('Expected reservation');
+    const lockClient = await pgClient().connect();
+    let transactionOpen = false;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await lockClient.query('BEGIN');
+      transactionOpen = true;
+      await lockClient.query('SELECT id FROM runners_reservations WHERE id = $1 FOR UPDATE', [
+        reservation.id,
+      ]);
+      await lockClient.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
+        `runners_assignment:${provisionerId}:${reservation.id}`,
+      ]);
+
+      const leakedUnits = await Promise.race([
+        countLiveReservationLeakUnits(),
+        new Promise<never>((_, reject) => {
+          timeout = setTimeout(
+            () => reject(new Error('Leak gauge waited on reservation mutation locks')),
+            1_000,
+          );
+        }),
+      ]);
+
+      expect(leakedUnits).toBe(leakedUnitsBefore + 1);
+    } finally {
+      if (timeout) clearTimeout(timeout);
+      if (transactionOpen) await lockClient.query('ROLLBACK');
+      lockClient.release();
+    }
+  }, 10_000);
 
   it('does not create a bound reservation when no idle runner can be rebound', async () => {
     await createPendingJobs(1, ['linux']);
