@@ -25,6 +25,7 @@ import {
   type WorkflowDocument,
   type WorkflowDocumentJob,
   type WorkflowDocumentStep,
+  type WorkflowDocumentToolStepOutputs,
 } from '@shipfox/workflow-document';
 import type {IntegrationValidationContext} from '../entities/integration-context.js';
 import type {
@@ -36,6 +37,7 @@ import type {
   WorkflowModelJob,
   WorkflowModelRunStep,
   WorkflowModelStep,
+  WorkflowModelStepBase,
   WorkflowModelStepCheckout,
   WorkflowOutputTemplates,
   WorkflowStepSourceLocationMap,
@@ -53,6 +55,7 @@ import {normalizeJobSuccess} from './normalize-job-success.js';
 import {normalizeNeeds} from './normalize-needs.js';
 import {normalizeStepGate} from './normalize-step-gate.js';
 import {normalizeStepOutputs} from './normalize-step-outputs.js';
+import {normalizeToolStep, normalizeToolStepOutputs} from './normalize-tool-step.js';
 import {parseDurationMs} from './parse-duration-ms.js';
 import {parseInterpolationField} from './parse-interpolation-field.js';
 import {stableId} from './stable-id.js';
@@ -337,7 +340,13 @@ function previousStepOverlays(
 ): readonly WorkflowStepTypeOverlay[] {
   return steps.slice(0, index).flatMap((step) => {
     if (step.key === undefined) return [];
-    return [{key: step.key, ...(step.outputs === undefined ? {} : {outputs: step.outputs})}];
+    return [
+      {
+        key: step.key,
+        ...(step.tool === undefined ? {} : {kind: 'tool' as const}),
+        ...(step.outputs === undefined ? {} : {outputs: step.outputs}),
+      },
+    ];
   });
 }
 
@@ -503,18 +512,31 @@ function normalizeStep(params: {
     params.usedStepIds.set(stepId, params.index);
   }
 
-  const outputs = normalizeStepOutputs({
-    step: params.step,
-    sourceName: params.sourceName,
-    stepIndex: params.index,
-    issues: params.issues,
-  });
+  const isToolStep = params.step.tool !== undefined;
+  const outputs = isToolStep
+    ? undefined
+    : normalizeStepOutputs({
+        step: params.step,
+        sourceName: params.sourceName,
+        stepIndex: params.index,
+        issues: params.issues,
+      });
+  const toolOutputs = isToolStep
+    ? normalizeToolStepOutputs({
+        outputs: params.step.outputs as WorkflowDocumentToolStepOutputs | undefined,
+        sourceName: params.sourceName,
+        stepIndex: params.index,
+        issues: params.issues,
+      })
+    : undefined;
   const currentStepOverlay =
     stepKey === undefined
       ? undefined
       : ({
           key: stepKey,
+          ...(isToolStep ? {kind: 'tool' as const} : {}),
           ...(outputs === undefined ? {} : {outputs}),
+          ...(toolOutputs === undefined ? {} : {outputs: toolOutputs.declarations}),
         } satisfies WorkflowStepTypeOverlay);
   const shouldBuildTypeOverlay = params.typeOverlay !== undefined || params.upstreamJobs.length > 0;
   const typeOverlay = !shouldBuildTypeOverlay
@@ -640,8 +662,25 @@ function normalizeStep(params: {
     });
   }
 
+  if (params.step.tool !== undefined) {
+    return normalizeToolStep({
+      step: params.step,
+      stepBase,
+      toolOutputs,
+      name,
+      workingDirectory,
+      sourceName: params.sourceName,
+      stepIndex: params.index,
+      issues: params.issues,
+      fillSite: params.fillSite,
+      allowedJobReferences: params.allowedJobReferences,
+      typeOverlay,
+      integrationValidationContext: params.context.integrationValidationContext,
+    });
+  }
+
   // Keep the model-step union honest if callers bypass the document parser.
-  throw new Error(`Workflow step "${stepId}" is neither a run, agent, nor checkout step`);
+  throw new Error(`Workflow step "${stepId}" is neither a run, agent, checkout, nor tool step`);
 }
 
 function normalizeCheckoutStep(params: {
@@ -1247,7 +1286,7 @@ function validateRunnerLabels(params: {
 }
 
 type WorkflowModelStepBaseFields = Pick<
-  WorkflowModelStep,
+  WorkflowModelStepBase,
   'id' | 'key' | 'name' | 'workingDirectory' | 'outputs' | 'sourceLocation' | 'gate'
 >;
 

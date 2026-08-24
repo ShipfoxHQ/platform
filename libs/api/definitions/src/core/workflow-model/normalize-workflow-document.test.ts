@@ -1005,6 +1005,385 @@ describe('normalizeWorkflowDocument', () => {
     expect(error.issues.map((issue) => issue.code)).toEqual(['integration-connection-not-capable']);
   });
 
+  it('normalizes a standalone tool step with with-templates and mapped outputs', () => {
+    const document = {
+      name: 'tool step',
+      jobs: {
+        publish: {
+          steps: [
+            {
+              key: 'resolve',
+              run: 'echo resolved',
+              outputs: {repository: {type: 'string'}},
+            },
+            {
+              key: 'create_branch',
+              tool: 'list_issues',
+              connection: 'github-main',
+              with: {
+                repository: interpolation('steps.resolve.outputs.repository'),
+                labels: [interpolation('vars.REQUIRED'), 'static'],
+                message: {headline: `Implement ${interpolation('run.id')}`},
+              },
+              outputs: {
+                branch: interpolation('result.branch'),
+              },
+            },
+          ],
+        },
+      },
+    } as unknown as WorkflowDocument;
+
+    const model = normalizeWorkflowDocument(document, {integrationValidationContext});
+
+    expect(model.jobs[0]?.steps[1]).toMatchObject({
+      kind: 'tool',
+      connection: 'github-main',
+      provider: 'github',
+      tool: 'list_issues',
+      with: {
+        repository: interpolation('steps.resolve.outputs.repository'),
+        labels: [interpolation('vars.REQUIRED'), 'static'],
+        message: {headline: `Implement ${interpolation('run.id')}`},
+      },
+      templates: {
+        with: {
+          repository: {kind: 'field'},
+          labels: {kind: 'sequence', items: [{kind: 'field'}, undefined]},
+          message: {kind: 'record', fields: {headline: {kind: 'field'}}},
+        },
+      },
+      outputs: {
+        branch: [{kind: 'deferred', roots: ['result'], fillTarget: 'step-report'}],
+      },
+    });
+  });
+
+  it('normalizes an explicit family.method tool selector without allow_write', () => {
+    const model = normalizeWorkflowDocument(
+      {
+        name: 'method tool step',
+        jobs: {
+          fix: {
+            steps: [
+              {
+                key: 'read_issue',
+                tool: 'issue_read.get',
+                connection: 'github-main',
+                with: {issue_number: 42},
+                outputs: {id: interpolation('result.id')},
+              },
+            ],
+          },
+        },
+      } as unknown as WorkflowDocument,
+      {integrationValidationContext},
+    );
+
+    expect(model.jobs[0]?.steps[0]).toMatchObject({
+      kind: 'tool',
+      connection: 'github-main',
+      provider: 'github',
+      tool: 'issue_read',
+      method: 'get',
+      with: {issue_number: 42},
+      outputs: {id: [{kind: 'deferred', roots: ['result'], fillTarget: 'step-report'}]},
+    });
+  });
+
+  it('accepts write tools on tool steps without allow_write', () => {
+    const model = normalizeWorkflowDocument(
+      {
+        name: 'write tool step',
+        jobs: {
+          fix: {
+            steps: [
+              {
+                key: 'comment',
+                tool: 'save_comment',
+                connection: 'linear-main',
+                with: {body: 'Looks good.'},
+              },
+            ],
+          },
+        },
+      },
+      {integrationValidationContext},
+    );
+
+    expect(model.jobs[0]?.steps[0]).toMatchObject({
+      kind: 'tool',
+      connection: 'linear-main',
+      provider: 'linear',
+      tool: 'save_comment',
+    });
+  });
+
+  it('falls back to the default source connection for tool steps', () => {
+    const model = normalizeWorkflowDocument(
+      {
+        name: 'default connection tool step',
+        jobs: {
+          fix: {
+            steps: [{key: 'read', tool: 'list_issues', with: {}}],
+          },
+        },
+      },
+      {integrationValidationContext},
+    );
+
+    expect(model.jobs[0]?.steps[0]).toMatchObject({
+      kind: 'tool',
+      connection: 'github-main',
+      provider: 'github',
+      tool: 'list_issues',
+    });
+  });
+
+  it('requires an explicit connection for tool steps when no default exists', () => {
+    const document: WorkflowDocument = {
+      name: 'missing tool connection',
+      jobs: {
+        fix: {
+          steps: [{tool: 'list_issues', with: {}}],
+        },
+      },
+    };
+    const context = {...integrationValidationContext, defaultConnectionSlug: undefined};
+
+    const error = expectInvalid(document, {integrationValidationContext: context});
+
+    expect(error.issues).toEqual([
+      expect.objectContaining({
+        code: 'tool-step-missing-connection',
+        path: ['jobs', 'fix', 'steps', 0, 'connection'],
+      }),
+    ]);
+  });
+
+  it('rejects tool steps on unknown connections', () => {
+    const document: WorkflowDocument = {
+      name: 'unknown tool connection',
+      jobs: {
+        fix: {
+          steps: [{tool: 'list_issues', connection: 'missing', with: {}}],
+        },
+      },
+    };
+
+    const error = expectInvalid(document, {integrationValidationContext});
+
+    expect(error.issues).toEqual([
+      expect.objectContaining({
+        code: 'integration-connection-not-found',
+        path: ['jobs', 'fix', 'steps', 0, 'connection'],
+        details: {connection: 'missing'},
+      }),
+    ]);
+  });
+
+  it('rejects tool steps on connections without the agent_tools capability', () => {
+    const document: WorkflowDocument = {
+      name: 'not capable tool connection',
+      jobs: {
+        fix: {
+          steps: [{tool: 'list_issues', connection: 'sentry-main', with: {}}],
+        },
+      },
+    };
+
+    const error = expectInvalid(document, {integrationValidationContext});
+
+    expect(error.issues).toEqual([
+      expect.objectContaining({
+        code: 'integration-connection-not-capable',
+        path: ['jobs', 'fix', 'steps', 0, 'connection'],
+        details: expect.objectContaining({connection: 'sentry-main', provider: 'sentry'}),
+      }),
+    ]);
+  });
+
+  it('classifies unknown tool step selectors as tools or methods', () => {
+    const document: WorkflowDocument = {
+      name: 'unknown tool selector',
+      jobs: {
+        fix: {
+          steps: [
+            {tool: 'issue_read.missing', connection: 'github-main', with: {}},
+            {tool: 'no_such_tool', connection: 'github-main', with: {}},
+          ],
+        },
+      },
+    };
+
+    const error = expectInvalid(document, {integrationValidationContext});
+
+    expect(error.issues.map((issue) => issue.code)).toEqual([
+      'unknown-integration-method',
+      'unknown-integration-tool',
+    ]);
+    expect(error.issues[0]?.path).toEqual(['jobs', 'fix', 'steps', 0, 'tool']);
+    expect(error.issues[1]?.path).toEqual(['jobs', 'fix', 'steps', 1, 'tool']);
+  });
+
+  it('rejects family and wildcard tool step selectors as ambiguous', () => {
+    const document: WorkflowDocument = {
+      name: 'ambiguous tool selector',
+      jobs: {
+        fix: {
+          steps: [
+            {tool: 'issue_read.*', connection: 'github-main', with: {}},
+            {tool: 'issue_write', connection: 'github-main', with: {}},
+          ],
+        },
+      },
+    };
+
+    const error = expectInvalid(document, {integrationValidationContext});
+
+    expect(error.issues).toEqual([
+      expect.objectContaining({
+        code: 'tool-step-ambiguous-selector',
+        path: ['jobs', 'fix', 'steps', 0, 'tool'],
+        details: {token: 'issue_read.*', kind: 'family_wildcard'},
+      }),
+      expect.objectContaining({
+        code: 'tool-step-ambiguous-selector',
+        path: ['jobs', 'fix', 'steps', 1, 'tool'],
+        details: {token: 'issue_write', kind: 'family'},
+      }),
+    ]);
+  });
+
+  it('rejects sensitive tools in tool steps', () => {
+    const document: WorkflowDocument = {
+      name: 'sensitive tool step',
+      jobs: {
+        fix: {
+          steps: [{tool: 'merge_pull_request', connection: 'github-main', with: {}}],
+        },
+      },
+    };
+
+    const error = expectInvalid(document, {integrationValidationContext});
+
+    expect(error.issues).toEqual([
+      expect.objectContaining({
+        code: 'tool-step-sensitive-tool',
+        path: ['jobs', 'fix', 'steps', 0, 'tool'],
+        details: {token: 'merge_pull_request'},
+      }),
+    ]);
+  });
+
+  it('reports tool with-template expressions that are invalid at dispatch', () => {
+    const document: WorkflowDocument = {
+      name: 'invalid tool with template',
+      jobs: {
+        fix: {
+          steps: [
+            {
+              tool: 'list_issues',
+              connection: 'github-main',
+              with: {value: interpolation('step.status')},
+            },
+          ],
+        },
+      },
+    };
+
+    const error = expectInvalid(document, {integrationValidationContext});
+
+    expect(error.issues).toEqual([
+      expect.objectContaining({
+        code: 'invalid-interpolation-expression',
+        path: ['jobs', 'fix', 'steps', 0, 'with', 'value'],
+      }),
+    ]);
+  });
+
+  it('reports tool with-templates with invalid interpolation syntax', () => {
+    const document: WorkflowDocument = {
+      name: 'unterminated tool with template',
+      jobs: {
+        fix: {
+          steps: [
+            {
+              tool: 'list_issues',
+              connection: 'github-main',
+              with: {value: '$' + '{{ unterminated'},
+            },
+          ],
+        },
+      },
+    };
+
+    const error = expectInvalid(document, {integrationValidationContext});
+
+    expect(error.issues).toEqual([
+      expect.objectContaining({
+        code: 'invalid-interpolation-template',
+        path: ['jobs', 'fix', 'steps', 0, 'with', 'value'],
+      }),
+    ]);
+  });
+
+  it('restricts tool outputs mappings to the result root', () => {
+    const document = {
+      name: 'invalid tool outputs mapping',
+      jobs: {
+        fix: {
+          steps: [
+            {
+              tool: 'list_issues',
+              connection: 'github-main',
+              with: {},
+              outputs: {value: interpolation('steps.previous.outputs.value')},
+            },
+          ],
+        },
+      },
+    } as unknown as WorkflowDocument;
+
+    const error = expectInvalid(document, {integrationValidationContext});
+
+    expect(error.issues).toEqual([
+      expect.objectContaining({
+        code: 'unknown-interpolation-context',
+        path: ['jobs', 'fix', 'steps', 0, 'outputs', 'value'],
+        details: expect.objectContaining({unknownRoots: ['steps']}),
+      }),
+    ]);
+  });
+
+  it('skips tool catalog and connection checks when no context is injected', () => {
+    const model = normalizeWorkflowDocument({
+      name: 'validate only tool step',
+      jobs: {
+        fix: {
+          steps: [
+            {
+              key: 'read',
+              tool: 'unknown.tool',
+              connection: 'any-connection',
+              with: {value: interpolation('run.id')},
+              outputs: {id: interpolation('result.id')},
+            },
+          ],
+        },
+      },
+    } as unknown as WorkflowDocument);
+
+    expect(model.jobs[0]?.steps[0]).toMatchObject({
+      kind: 'tool',
+      connection: 'any-connection',
+      tool: 'unknown',
+      method: 'tool',
+      with: {value: interpolation('run.id')},
+      outputs: {id: [{kind: 'deferred', roots: ['result'], fillTarget: 'step-report'}]},
+    });
+  });
+
   it('reports unsupported explicit providers', () => {
     const document: WorkflowDocument = {
       name: 'agent build',

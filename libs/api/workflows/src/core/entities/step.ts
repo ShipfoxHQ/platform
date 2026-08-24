@@ -13,7 +13,7 @@ import type {InterpolationUnresolvableField} from '../errors.js';
 
 export type StepStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'skipped';
 
-export const STEP_TYPES = ['setup', 'run', 'agent', 'checkout'] as const;
+export const STEP_TYPES = ['setup', 'run', 'agent', 'checkout', 'tool'] as const;
 
 export type StepType = (typeof STEP_TYPES)[number];
 

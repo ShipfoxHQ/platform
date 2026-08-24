@@ -1,15 +1,12 @@
 import type {WorkflowDocumentStepIntegration} from '@shipfox/workflow-document';
-import type {IntegrationValidationContext} from '../entities/integration-context.js';
+import type {
+  AgentToolSelector,
+  IntegrationValidationContext,
+} from '../entities/integration-context.js';
 import type {WorkflowModelStepIntegration} from '../entities/workflow-model.js';
+import {classifyUnknownSelection, resolveAgentToolConnection} from './agent-tool-selection.js';
 import type {WorkflowModelValidationIssue} from './invalid-workflow-model-error.js';
 import {issue} from './validation-issue.js';
-
-interface AgentToolSelector {
-  readonly token: string;
-  readonly kind: 'family' | 'family_wildcard' | 'method' | 'standalone';
-  readonly sensitivity: 'read' | 'write';
-  readonly sensitive: boolean;
-}
 
 export function normalizeAgentIntegrations(params: {
   integrations: readonly WorkflowDocumentStepIntegration[] | undefined;
@@ -50,69 +47,48 @@ function validateIntegration(params: {
   const context = params.integrationValidationContext;
   if (context === undefined) return;
 
-  const connectionSlug = params.normalized.connection ?? context.defaultConnectionSlug;
-  if (connectionSlug === undefined) {
-    params.issues.push(
-      issue({
-        code: 'missing-connection-for-integration',
-        message: 'Agent step integration requires a connection or a default source connection.',
-        path: integrationPath(params),
-        details: {integrationIndex: params.integrationIndex},
-      }),
-    );
-    return;
-  }
+  const integrationPath = [
+    'jobs',
+    params.sourceName,
+    'steps',
+    params.stepIndex,
+    'integrations',
+    params.integrationIndex,
+  ] as const;
+  const issueDetails = {integrationIndex: params.integrationIndex};
+  const resolved = resolveAgentToolConnection({
+    connectionSlug: params.normalized.connection ?? context.defaultConnectionSlug,
+    context,
+    connectionPath:
+      params.normalized.connection === undefined
+        ? integrationPath
+        : [...integrationPath, 'connection'],
+    missingConnectionPath: integrationPath,
+    missingConnectionCode: 'missing-connection-for-integration',
+    missingConnectionMessage:
+      'Agent step integration requires a connection or a default source connection.',
+    issueDetails,
+    issues: params.issues,
+  });
+  if (resolved === undefined) return;
 
-  const connection = context.workspaceConnectionSnapshot.get(connectionSlug);
-  if (connection === undefined) {
-    params.issues.push(
-      issue({
-        code: 'integration-connection-not-found',
-        message: `Integration connection "${connectionSlug}" was not found in the workspace.`,
-        path: integrationConnectionPath(params),
-        details: {
-          connection: connectionSlug,
-          integrationIndex: params.integrationIndex,
-        },
-      }),
-    );
-    return;
-  }
-
-  const catalog = context.agentToolSelectionCatalogs.get(connection.provider);
-  if (catalog === undefined || !connection.capabilities.includes('agent_tools')) {
-    params.issues.push(
-      issue({
-        code: 'integration-connection-not-capable',
-        message: `Integration connection "${connectionSlug}" does not support agent tools.`,
-        path: integrationConnectionPath(params),
-        details: {
-          connection: connectionSlug,
-          provider: connection.provider,
-          capabilities: connection.capabilities,
-          integrationIndex: params.integrationIndex,
-        },
-      }),
-    );
-    return;
-  }
-
-  const selectorsByToken = new Map(catalog.selectors.map((selector) => [selector.token, selector]));
   validateSelection({
     ...params,
     field: 'include',
     tokens: params.integration.include,
-    selectorsByToken,
+    selectorsByToken: resolved.selectorsByToken,
+    integrationPath,
   });
   if (params.integration.exclude !== undefined) {
     validateSelection({
       ...params,
       field: 'exclude',
       tokens: params.integration.exclude,
-      selectorsByToken,
+      selectorsByToken: resolved.selectorsByToken,
+      integrationPath,
     });
   }
-  validateWriteSelection({...params, selectorsByToken});
+  validateWriteSelection({...params, selectorsByToken: resolved.selectorsByToken});
 }
 
 function validateSelection(params: {
@@ -123,6 +99,7 @@ function validateSelection(params: {
   stepIndex: number;
   integrationIndex: number;
   issues: WorkflowModelValidationIssue[];
+  integrationPath: readonly (string | number)[];
 }): void {
   params.tokens.forEach((token, tokenIndex) => {
     if (params.selectorsByToken.has(token)) return;
@@ -135,7 +112,7 @@ function validateSelection(params: {
           code === 'unknown-integration-method'
             ? `Unknown integration tool method: ${token}.`
             : `Unknown integration tool: ${token}.`,
-        path: [...integrationPath(params), params.field, tokenIndex],
+        path: [...params.integrationPath, params.field, tokenIndex],
         details: {token},
       }),
     );
@@ -164,49 +141,18 @@ function validateWriteSelection(params: {
     issue({
       code: 'integration-write-not-allowed',
       message: `Integration selection includes write-capable tools but allow_write is not true: ${writeTokens.join(', ')}.`,
-      path: [...integrationPath(params), 'include'],
+      path: [
+        'jobs',
+        params.sourceName,
+        'steps',
+        params.stepIndex,
+        'integrations',
+        params.integrationIndex,
+        'include',
+      ],
       details: {tokens: writeTokens},
     }),
   );
-}
-
-function classifyUnknownSelection(
-  token: string,
-  selectorsByToken: ReadonlyMap<string, AgentToolSelector>,
-): 'unknown-integration-method' | 'unknown-integration-tool' {
-  const dotIndex = token.indexOf('.');
-  if (dotIndex < 1) return 'unknown-integration-tool';
-
-  const family = token.slice(0, dotIndex);
-  return selectorsByToken.get(family)?.kind === 'family'
-    ? 'unknown-integration-method'
-    : 'unknown-integration-tool';
-}
-
-function integrationConnectionPath(params: {
-  sourceName: string;
-  stepIndex: number;
-  integrationIndex: number;
-  integration: WorkflowDocumentStepIntegration;
-}): readonly (string | number)[] {
-  const path = integrationPath(params);
-  if (params.integration.connection === undefined) return path;
-  return [...path, 'connection'];
-}
-
-function integrationPath(params: {
-  sourceName: string;
-  stepIndex: number;
-  integrationIndex: number;
-}): readonly (string | number)[] {
-  return [
-    'jobs',
-    params.sourceName,
-    'steps',
-    params.stepIndex,
-    'integrations',
-    params.integrationIndex,
-  ];
 }
 
 function dedupe(values: readonly string[]): readonly string[] {

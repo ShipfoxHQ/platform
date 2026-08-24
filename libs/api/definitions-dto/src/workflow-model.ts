@@ -124,8 +124,9 @@ export interface WorkflowModelListeningBatch {
 export type WorkflowModelStep =
   | WorkflowModelRunStep
   | WorkflowModelAgentStep
-  | WorkflowModelCheckoutStep;
-interface WorkflowModelStepBase {
+  | WorkflowModelCheckoutStep
+  | WorkflowModelToolStep;
+export interface WorkflowModelStepBase {
   readonly id: string;
   readonly key?: string;
   readonly if?: WorkflowExpression;
@@ -172,6 +173,56 @@ export interface WorkflowModelCheckoutStep extends WorkflowModelStepBase {
   readonly templates?: {
     readonly workingDirectory?: WorkflowFieldTemplate;
     readonly name?: WorkflowFieldTemplate;
+  };
+}
+/** A tool-input JSON tree: scalars, nested mappings, and sequences. */
+export type WorkflowModelToolWithValue =
+  | string
+  | number
+  | boolean
+  | null
+  | readonly WorkflowModelToolWithValue[]
+  | {readonly [key: string]: WorkflowModelToolWithValue};
+
+/**
+ * Parallel tree over a tool step's `with` values: a node exists only where a
+ * string leaf below it carries a `${{ }}` template, and sequence items and
+ * record fields keep their authored positions. Materialization walks the
+ * authored `with` tree and the parallel tree in lockstep, filling the leaves
+ * that have nodes and copying the rest literally.
+ */
+export type WorkflowModelToolWithTemplate =
+  | {readonly kind: 'field'; readonly template: WorkflowFieldTemplate}
+  | {
+      readonly kind: 'record';
+      readonly fields: Readonly<Record<string, WorkflowModelToolWithTemplate | undefined>>;
+    }
+  | {
+      readonly kind: 'sequence';
+      readonly items: readonly (WorkflowModelToolWithTemplate | undefined)[];
+    };
+
+export type WorkflowModelToolWithTemplates = Readonly<
+  Record<string, WorkflowModelToolWithTemplate | undefined>
+>;
+export interface WorkflowModelToolStep extends Omit<WorkflowModelStepBase, 'outputs'> {
+  readonly kind: 'tool';
+  /** Connection slug the tool resolves against; the workspace default when the step omits it. */
+  readonly connection?: string;
+  /** Provider kind of the resolved connection; present when the validation context is injected. */
+  readonly provider?: string;
+  /** Standalone tool id, or the family name of a `family.method` selection. */
+  readonly tool: string;
+  /** Method id of a `family.method` selection; absent for standalone tools. */
+  readonly method?: string;
+  /** Authored tool inputs; string leaves may carry `${{ }}` interpolation. */
+  readonly with: Readonly<Record<string, WorkflowModelToolWithValue>>;
+  /** Output key to CEL expression over the tool `result`, parsed at normalization. */
+  readonly outputs?: WorkflowOutputTemplates;
+  readonly templates?: {
+    readonly with?: WorkflowModelToolWithTemplates;
+    readonly name?: WorkflowFieldTemplate;
+    readonly workingDirectory?: WorkflowFieldTemplate;
   };
 }
 export interface WorkflowModelStepIntegration {

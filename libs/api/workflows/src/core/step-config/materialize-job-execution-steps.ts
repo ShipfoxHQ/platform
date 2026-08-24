@@ -169,7 +169,9 @@ function stepDisplayName(step: WorkflowModelStep): string {
     case 'checkout':
       return 'Checkout';
     default:
-      return assertNever(step);
+      // Tool steps are still rejected by the document schema; materialization
+      // gains a real case when the kind is activated.
+      return assertNeverStep(step);
   }
 }
 
@@ -177,6 +179,6 @@ function firstLine(value: string): string {
   return value.split(FIRST_LINE_PATTERN, 1)[0]?.trim() || value.trim();
 }
 
-function assertNever(value: never): never {
-  throw new Error(`Unhandled workflow step kind: ${JSON.stringify(value)}`);
+function assertNeverStep(step: WorkflowModelStep): never {
+  throw new Error(`Unhandled workflow step kind: ${JSON.stringify(step)}`);
 }
