@@ -164,6 +164,7 @@ const mockRequestJob = vi.mocked(requestJob);
 const mockStartHeartbeatLoop = vi.mocked(startHeartbeatLoop);
 const mockRunnerToolCapabilities = vi.mocked(runnerToolCapabilities);
 const mockInterruptibleSleep = vi.mocked(interruptibleSleep);
+const mockReleaseAgentStateLock = vi.fn(async () => undefined);
 
 const JOB = {
   workflow_run_id: '00000000-0000-0000-0000-000000000004',
@@ -201,7 +202,8 @@ beforeEach(() => {
   mockJobLogsPath.mockReturnValue(JOB_LOGS_DIR);
   mockJobAgentStatePath.mockReturnValue(JOB_AGENT_STATE_DIR);
   mockJobCredentialsPath.mockReturnValue(JOB_CREDENTIALS_DIR);
-  mockCreateJobAgentStateDir.mockResolvedValue(undefined);
+  mockReleaseAgentStateLock.mockClear();
+  mockCreateJobAgentStateDir.mockResolvedValue(mockReleaseAgentStateLock);
   mockCleanupJobAgentState.mockResolvedValue(undefined);
   mockCleanupOrphanedJobAgentState.mockResolvedValue(undefined);
   mockCleanupOrphanedJobLogs.mockResolvedValue(undefined);
@@ -219,7 +221,9 @@ describe('runJob', () => {
     mockJobLogsPath.mockReturnValue(JOB_LOGS_DIR);
     mockJobAgentStatePath.mockReturnValue(JOB_AGENT_STATE_DIR);
     mockJobCredentialsPath.mockReturnValue(JOB_CREDENTIALS_DIR);
-    mockRunJobSteps.mockResolvedValue();
+    mockRunJobSteps.mockImplementation(async ({prepareAgentState}) => {
+      await prepareAgentState?.();
+    });
 
     await runJob(JOB, WORKSPACE_ROOT);
 
@@ -249,17 +253,15 @@ describe('runJob', () => {
           jobId: JOB.job_id,
           jobExecutionId: JOB.job_execution_id,
         },
+        prepareAgentState: expect.any(Function),
       }),
     );
     expect(mockCreateJobAgentStateDir).toHaveBeenCalledWith(JOB_AGENT_STATE_DIR);
-    expect(mockCreateJobAgentStateDir.mock.invocationCallOrder[0]).toBeLessThan(
-      mockRunJobSteps.mock.invocationCallOrder[0] ?? Infinity,
-    );
     expect(mockCleanupWorkspace).toHaveBeenCalledWith(JOB_CWD);
     expect(mockCleanupJobLogs).toHaveBeenCalledWith(JOB_LOGS_DIR);
     expect(mockCleanupJobAgentState).toHaveBeenCalledWith(JOB_AGENT_STATE_DIR);
-    expect(mockRunJobSteps.mock.invocationCallOrder[0]).toBeLessThan(
-      mockCleanupJobAgentState.mock.invocationCallOrder[0] ?? Infinity,
+    expect(mockCleanupJobAgentState.mock.invocationCallOrder[0]).toBeLessThan(
+      mockReleaseAgentStateLock.mock.invocationCallOrder[0] ?? Infinity,
     );
     expect(mockCleanupJobCredentials).toHaveBeenNthCalledWith(1, JOB_CREDENTIALS_DIR);
     expect(mockCleanupJobCredentials).toHaveBeenNthCalledWith(2, JOB_CREDENTIALS_DIR);
@@ -339,32 +341,21 @@ describe('runJob', () => {
     mockJobLogsPath.mockReturnValue(JOB_LOGS_DIR);
     mockJobAgentStatePath.mockReturnValue(JOB_AGENT_STATE_DIR);
     mockJobCredentialsPath.mockReturnValue(JOB_CREDENTIALS_DIR);
-    mockRunJobSteps.mockRejectedValue(new Error('aborted'));
+    mockRunJobSteps.mockImplementation(async ({prepareAgentState}) => {
+      await prepareAgentState?.();
+      throw new Error('aborted');
+    });
 
     await runJob(JOB, WORKSPACE_ROOT);
 
     expect(mockCleanupWorkspace).toHaveBeenCalledWith(JOB_CWD);
     expect(mockCleanupJobLogs).toHaveBeenCalledWith(JOB_LOGS_DIR);
     expect(mockCleanupJobAgentState).toHaveBeenCalledWith(JOB_AGENT_STATE_DIR);
+    expect(mockCleanupJobAgentState.mock.invocationCallOrder[0]).toBeLessThan(
+      mockReleaseAgentStateLock.mock.invocationCallOrder[0] ?? Infinity,
+    );
     expect(mockCleanupJobCredentials).toHaveBeenNthCalledWith(1, JOB_CREDENTIALS_DIR);
     expect(mockCleanupJobCredentials).toHaveBeenNthCalledWith(2, JOB_CREDENTIALS_DIR);
-  });
-
-  it('logs and cleans up when agent-state preparation fails', async () => {
-    const error = new Error('agent state denied');
-    const errorLog = vi.spyOn(logger(), 'error').mockImplementation(() => undefined);
-    mockCreateJobAgentStateDir.mockRejectedValueOnce(error);
-
-    await runJob(JOB, WORKSPACE_ROOT);
-
-    expect(errorLog).toHaveBeenCalledWith(
-      {err: error, jobId: JOB.job_id},
-      'Failed to prepare job agent state',
-    );
-    expect(mockRunJobSteps).not.toHaveBeenCalled();
-    expect(mockCleanupWorkspace).toHaveBeenCalledWith(JOB_CWD);
-    expect(mockCleanupJobLogs).toHaveBeenCalledWith(JOB_LOGS_DIR);
-    expect(mockCleanupJobAgentState).toHaveBeenCalledWith(JOB_AGENT_STATE_DIR);
   });
 
   it('skips the job without running the loop or cleaning up when the job id is invalid', async () => {

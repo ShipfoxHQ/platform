@@ -85,6 +85,7 @@ export async function runJobSteps(params: {
   gitConfigPath: string;
   logsDir: string;
   agentStateDir: string;
+  prepareAgentState?: () => Promise<void>;
   jobContext: SetupJobContext;
   onLeaseTokenAdopted?: (leaseToken: string) => void;
 }): Promise<void> {
@@ -97,6 +98,7 @@ export async function runJobSteps(params: {
     gitConfigPath,
     logsDir,
     agentStateDir,
+    prepareAgentState: prepareAgentStateDirectory,
     jobContext,
   } = params;
 
@@ -105,6 +107,7 @@ export async function runJobSteps(params: {
   // against an unprepared cwd.
   let workspacePrepared = false;
   let logsPrepared = false;
+  let agentStatePrepared = false;
   let ambientGitConfigPath: string | undefined;
   let ambientGitConfigSecrets: string[] = [];
   const checkoutDestinations: CheckoutDestinations = new Map();
@@ -140,6 +143,13 @@ export async function runJobSteps(params: {
               logsPrepared = true;
             }
           : undefined;
+      const prepareAgentState =
+        step.type === 'setup' && !agentStatePrepared && prepareAgentStateDirectory !== undefined
+          ? async () => {
+              await prepareAgentStateDirectory();
+              agentStatePrepared = true;
+            }
+          : undefined;
       const execution = await executeStep({
         step,
         attempt,
@@ -160,6 +170,7 @@ export async function runJobSteps(params: {
         jobContext,
         gitConfigPath,
         ...(prepareLogs ? {prepareLogs} : {}),
+        ...(prepareAgentState ? {prepareAgentState} : {}),
       });
       activeStream = execution.stream;
       if (execution.preparedWorkspace) workspacePrepared = true;
@@ -294,6 +305,7 @@ export async function executeStep(params: {
   jobId: string;
   stepLabel: string;
   prepareLogs?: (() => Promise<void>) | undefined;
+  prepareAgentState?: (() => Promise<void>) | undefined;
 }): Promise<StepExecution> {
   const {
     step,
@@ -315,6 +327,7 @@ export async function executeStep(params: {
     jobId,
     stepLabel,
     prepareLogs,
+    prepareAgentState,
   } = params;
 
   let stream: LogStreamLifecycle | undefined;
@@ -351,11 +364,12 @@ export async function executeStep(params: {
       });
 
     if (step.type === 'setup') {
-      if (prepareLogs) {
+      if (prepareLogs || prepareAgentState) {
         try {
-          await prepareLogs();
+          await prepareLogs?.();
+          await prepareAgentState?.();
         } catch (error) {
-          const result = setupLogDirectoryFailure(error);
+          const result = setupWorkspacePreparationFailure(error);
           logger().warn(
             {err: error, jobId, stepId: step.id, attempt, reason: result.error?.reason},
             'Setup step failed',
@@ -716,7 +730,7 @@ function stepSecretsFailure(error: unknown): StepResult {
   };
 }
 
-function setupLogDirectoryFailure(error: unknown): StepResult {
+function setupWorkspacePreparationFailure(error: unknown): StepResult {
   return {
     success: false,
     error: {

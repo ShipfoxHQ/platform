@@ -284,17 +284,10 @@ export async function runJob(
     getToolCapabilities: runnerToolCapabilities,
     onLeaseTokenRenewed: rememberLeaseToken,
   });
+  let releaseAgentStateLock: (() => Promise<void>) | undefined;
 
   try {
     await cleanupJobCredentials(credentialsDir);
-    try {
-      // The agent-state directory holds harness state (pi session files, the Claude
-      // ephemeral config dir); pre-clean so a crash leftover is never reused.
-      await createJobAgentStateDir(agentStateDir);
-    } catch (error) {
-      logger().error({err: error, jobId: job.job_id}, 'Failed to prepare job agent state');
-      return;
-    }
 
     const leaseClient = createLeaseClient(() => currentLeaseToken);
     await runJobSteps({
@@ -311,6 +304,9 @@ export async function runJob(
       gitConfigPath,
       logsDir,
       agentStateDir,
+      prepareAgentState: async () => {
+        releaseAgentStateLock = await createJobAgentStateDir(agentStateDir);
+      },
       jobContext: {
         workflowRunId: job.workflow_run_id,
         workflowRunAttemptId: job.workflow_run_attempt_id,
@@ -336,6 +332,7 @@ export async function runJob(
     await cleanupWorkspace(cwd);
     await cleanupJobLogs(logsDir);
     await cleanupJobAgentState(agentStateDir);
+    await releaseAgentStateLock?.();
   }
 }
 

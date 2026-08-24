@@ -128,10 +128,23 @@ export async function createJobLogsDir(logsDir: string): Promise<void> {
 /**
  * Pre-cleans the runner-owned agent-state directory before recreating it, so a
  * directory left by a previous crash is never reused. The lock coordinates
- * setup with the startup orphan sweep.
+ * setup with the startup orphan sweep. The returned release function keeps the
+ * lock held while the job uses the directory; callers must release it after
+ * the job's final cleanup.
  */
-export async function createJobAgentStateDir(agentStateDir: string): Promise<void> {
-  await withJobDirectoryLock(agentStateDir, true, () => resetDir(agentStateDir));
+export async function createJobAgentStateDir(agentStateDir: string): Promise<() => Promise<void>> {
+  const release = await acquireJobDirectoryLock(agentStateDir, true);
+  if (release === undefined) {
+    throw new Error('Failed to acquire the job agent-state lock');
+  }
+
+  try {
+    await resetDir(agentStateDir);
+    return release;
+  } catch (error) {
+    await release();
+    throw error;
+  }
 }
 
 /**
@@ -199,6 +212,20 @@ async function withJobDirectoryLock<T>(
   waitForLock: boolean,
   action: () => Promise<T>,
 ): Promise<T | undefined> {
+  const release = await acquireJobDirectoryLock(jobDir, waitForLock);
+  if (release === undefined) return undefined;
+
+  try {
+    return await action();
+  } finally {
+    await release();
+  }
+}
+
+async function acquireJobDirectoryLock(
+  jobDir: string,
+  waitForLock: boolean,
+): Promise<(() => Promise<void>) | undefined> {
   const lockPath = `${jobDir}${JOB_DIRECTORY_LOCK_SUFFIX}`;
   await mkdir(dirname(jobDir), {recursive: true});
 
@@ -220,11 +247,12 @@ async function withJobDirectoryLock<T>(
     await new Promise((resolve) => setTimeout(resolve, JOB_DIRECTORY_LOCK_RETRY_MS));
   }
 
-  try {
-    return await action();
-  } finally {
+  let released = false;
+  return async () => {
+    if (released) return;
     await rm(lockPath, {force: true});
-  }
+    released = true;
+  };
 }
 
 type JobDirectoryLock = {

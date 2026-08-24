@@ -200,17 +200,20 @@ describe('createJobAgentStateDir', () => {
   it('creates the per-job agent-state directory', async () => {
     const agentStateDir = join(root, 'job-11111111-1111-4111-8111-111111111111');
 
-    await createJobAgentStateDir(agentStateDir);
+    const release = await createJobAgentStateDir(agentStateDir);
+    await release();
 
     expect((await stat(agentStateDir)).isDirectory()).toBe(true);
   });
 
   it('pre-cleans a dirty directory left from a previous run', async () => {
     const agentStateDir = join(root, 'job-22222222-2222-4222-8222-222222222222');
-    await createJobAgentStateDir(agentStateDir);
+    const releaseFirst = await createJobAgentStateDir(agentStateDir);
+    await releaseFirst();
     await writeFile(join(agentStateDir, 'stale.jsonl'), '{}\n');
 
-    await createJobAgentStateDir(agentStateDir);
+    const releaseSecond = await createJobAgentStateDir(agentStateDir);
+    await releaseSecond();
 
     const readStale = () => stat(join(agentStateDir, 'stale.jsonl'));
     await expect(readStale()).rejects.toThrow();
@@ -317,14 +320,13 @@ describe('cleanupOrphanedJobAgentState', () => {
   it('preserves a job directory while the job owns its agent-state lock', async () => {
     const agentStateRoot = join(root, '.shipfox-runner-agent');
     const orphan = join(agentStateRoot, 'job-44444444-4444-4444-8444-444444444444');
-    await mkdir(orphan, {recursive: true});
+    const release = await createJobAgentStateDir(orphan);
     await writeFile(join(orphan, 'sessions.ndjson'), '{}\n');
-    await writeFile(`${orphan}.lock`, `${process.pid}\n`);
 
     await cleanupOrphanedJobAgentState(root);
 
     expect((await stat(orphan)).isDirectory()).toBe(true);
-    await rm(`${orphan}.lock`, {force: true});
+    await release();
     await cleanupOrphanedJobAgentState(root);
     await expect(stat(orphan)).rejects.toThrow();
   });
