@@ -26,8 +26,6 @@ export function managedProviderAdapterBaseUrl(
   }
   if (url.origin === 'null') return gatewayBaseUrl;
 
-  url.search = '';
-  url.hash = '';
   const gatewayPath = url.pathname
     .replace(TRAILING_SLASHES_PATTERN, '')
     .replace(TRAILING_API_VERSION_PATTERN, '');
