@@ -63,6 +63,30 @@ describe('withInstallationTokenLock', () => {
     expect(held).toEqual({acquired: true, value: 'holder'});
   });
 
+  it('never collides a scoped key with an unscoped key of another installation', async () => {
+    const scopeKey = '456/contents-write';
+    // The legacy scheme folded a 32-bit hash of the scope into the installation
+    // base, so installation (1 + hash) shared the scoped key of installation 1.
+    // Scoped keys live below every unscoped key, so both locks must acquire.
+    let legacyHash = 0;
+    for (let index = 0; index < scopeKey.length; index += 1) {
+      legacyHash = (legacyHash * 31 + scopeKey.charCodeAt(index)) >>> 0;
+    }
+    const holder = holdInstallationTokenLock(1, 'holder', scopeKey);
+
+    await holder.ready;
+    const different = await withInstallationTokenLock(
+      1 + legacyHash,
+      undefined,
+      async () => 'different',
+    );
+    holder.release();
+    const held = await holder.result;
+
+    expect(different).toEqual({acquired: true, value: 'different'});
+    expect(held).toEqual({acquired: true, value: 'holder'});
+  });
+
   it('serializes same-scope contenders for one installation', async () => {
     const holder = holdInstallationTokenLock(9004, 'holder', '456/contents-write');
 

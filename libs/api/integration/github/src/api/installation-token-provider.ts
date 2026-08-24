@@ -129,7 +129,15 @@ class OctokitGithubInstallationTokenProvider
         });
         return match.id;
       }
-      if (response.data.repositories.length < INSTALLATION_REPOSITORY_RESOLUTION_PAGE_SIZE) break;
+      // Stop at the reported repository count so an inaccessible repository (the
+      // access-denied path) does not page past every accessible repository.
+      if (
+        response.data.repositories.length < INSTALLATION_REPOSITORY_RESOLUTION_PAGE_SIZE ||
+        (typeof response.data.total_count === 'number' &&
+          page * INSTALLATION_REPOSITORY_RESOLUTION_PAGE_SIZE >= response.data.total_count)
+      ) {
+        break;
+      }
     }
 
     throw new GithubIntegrationProviderError(

@@ -668,6 +668,32 @@ describe('GithubInstallationTokenProvider', () => {
       expect(createInstallationAccessTokenMock).not.toHaveBeenCalled();
     });
 
+    it('stops paging at the repository total when the repository is not accessible', async () => {
+      authMock.mockResolvedValue({token: 'ghs_installationtoken'});
+      // Three full pages even though total_count reports 250: the loop must stop
+      // at the reported total instead of requesting every page.
+      for (let page = 0; page < 3; page += 1) {
+        listReposAccessibleToInstallationMock.mockResolvedValueOnce({
+          data: {
+            total_count: 250,
+            repositories: Array.from({length: 100}, (_, index) => ({
+              id: page * 100 + index + 1,
+              full_name: `shipfoxhq/repo-${page * 100 + index}`,
+            })),
+          },
+        });
+      }
+      const provider = createGithubInstallationTokenProvider();
+
+      const result = provider.resolveRepositoryId({
+        installationId: 1,
+        fullName: 'shipfoxhq/not-there',
+      });
+
+      await expect(result).rejects.toMatchObject({reason: 'access-denied'});
+      expect(listReposAccessibleToInstallationMock).toHaveBeenCalledTimes(3);
+    });
+
     it('rejects a repository entry without a name as malformed-provider-response', async () => {
       authMock.mockResolvedValue({token: 'ghs_installationtoken'});
       listReposAccessibleToInstallationMock.mockResolvedValue({

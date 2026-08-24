@@ -36,17 +36,27 @@ function installationTokenLockKey(installationId: number, scopeKey: string | und
   }
 
   // Keep these exact per-installation keys away from positive advisory-lock ids.
-  const base = -BigInt(installationId) - 1n;
-  if (scopeKey === undefined) return String(base);
+  if (scopeKey === undefined) return String(-BigInt(installationId) - 1n);
 
-  // Scoped mints serialize per (installation, scope) instead of per installation:
-  // fold a stable hash of the scope into the negative key so same-scope contenders
-  // for one installation contend, while different scopes mint concurrently. A hash
-  // collision only makes unrelated mints serialize briefly; each mint still reads
-  // and writes only its own scope envelope.
-  let hash = 0;
-  for (let index = 0; index < scopeKey.length; index += 1) {
-    hash = (hash * 31 + scopeKey.charCodeAt(index)) >>> 0;
+  // Scoped mints serialize per (installation, scope) instead of per installation.
+  // Unscoped keys occupy [-(2^53), -1] (one per valid installation id), so scoped
+  // keys are placed strictly below -(2^53): a scoped lock can never equal the
+  // unscoped lock of another installation. Same-scope contenders for one
+  // installation contend; a hash collision only makes unrelated mints serialize
+  // briefly, and each mint still reads and writes only its own scope envelope.
+  const hash = installationTokenScopeLockHash(`${installationId}:${scopeKey}`);
+  return String(-(2n ** 53n) - 1n - hash);
+}
+
+// FNV-1a 64-bit masked to 62 bits: deterministic across processes so every
+// instance derives the same advisory-lock key for one (installation, scope), and
+// bounded so the negative key always fits Postgres' signed 64-bit bigint.
+function installationTokenScopeLockHash(input: string): bigint {
+  const prime = 0x100000001b3n;
+  let hash = 0xcbf29ce484222325n;
+  for (let index = 0; index < input.length; index += 1) {
+    hash ^= BigInt(input.charCodeAt(index));
+    hash = (hash * prime) & 0xffffffffffffffffn;
   }
-  return String(base - BigInt(hash));
+  return hash & 0x3fffffffffffffffn;
 }
