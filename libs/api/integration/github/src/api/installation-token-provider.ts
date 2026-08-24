@@ -50,7 +50,6 @@ export interface GithubInstallationTokenProviderOptions {
 }
 
 const INSTALLATION_REPOSITORY_RESOLUTION_PAGE_SIZE = 100;
-const INSTALLATION_REPOSITORY_RESOLUTION_MAX_PAGES = 10;
 
 export function createGithubInstallationTokenProvider(
   options: GithubInstallationTokenProviderOptions = {},
@@ -79,12 +78,13 @@ class OctokitGithubInstallationTokenProvider
   }
 
   async resolveRepositoryId(input: ResolveGithubInstallationRepositoryInput): Promise<number> {
-    const octokit = await mapGithubError(() =>
-      getGithubInstallationOctokit(this.getApp(), input.installationId),
+    const octokit = await mapGithubError(
+      () => getGithubInstallationOctokit(this.getApp(), input.installationId),
+      'installation-not-found',
     );
     const needle = input.fullName.trim().toLowerCase();
 
-    for (let page = 1; page <= INSTALLATION_REPOSITORY_RESOLUTION_MAX_PAGES; page += 1) {
+    for (let page = 1; ; page += 1) {
       const response = await mapGithubError(() =>
         octokit.rest.apps.listReposAccessibleToInstallation({
           per_page: INSTALLATION_REPOSITORY_RESOLUTION_PAGE_SIZE,

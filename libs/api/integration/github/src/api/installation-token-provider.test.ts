@@ -187,7 +187,11 @@ describe('GithubInstallationTokenProvider', () => {
     await githubInstallationFactory.create({installationId: String(installationId), connectionId});
     const values = new Map<string, string>();
     let lockCalls = 0;
-    function withLock<T>(_installationId: number, fn: () => Promise<T>) {
+    function withLock<T>(
+      _installationId: number,
+      _scopeKey: string | undefined,
+      fn: () => Promise<T>,
+    ) {
       lockCalls += 1;
       return fn().then((value) => ({acquired: true as const, value}));
     }
@@ -394,7 +398,11 @@ describe('GithubInstallationTokenProvider', () => {
     await githubInstallationFactory.create({installationId: String(installationId), connectionId});
     const values = new Map<string, string>();
     let lockCalls = 0;
-    function withLock<T>(_installationId: number, fn: () => Promise<T>) {
+    function withLock<T>(
+      _installationId: number,
+      _scopeKey: string | undefined,
+      fn: () => Promise<T>,
+    ) {
       lockCalls += 1;
       return fn().then((value) => ({acquired: true as const, value}));
     }
@@ -504,6 +512,35 @@ describe('GithubInstallationTokenProvider', () => {
       expect(listReposAccessibleToInstallationMock).toHaveBeenLastCalledWith({
         per_page: 100,
         page: 2,
+      });
+    });
+
+    it('resolves a repository beyond the tenth page instead of failing as access-denied', async () => {
+      authMock.mockResolvedValue({token: 'ghs_installationtoken'});
+      const fullPage = Array.from({length: 100}, (_, index) => ({
+        id: index + 1,
+        full_name: `shipfoxhq/repo-${index}`,
+      }));
+      for (let page = 0; page < 10; page += 1) {
+        listReposAccessibleToInstallationMock.mockResolvedValueOnce({
+          data: {total_count: 1001, repositories: fullPage},
+        });
+      }
+      listReposAccessibleToInstallationMock.mockResolvedValueOnce({
+        data: {total_count: 1001, repositories: [{id: 456, full_name: 'ShipfoxHQ/shipfox'}]},
+      });
+      const provider = createGithubInstallationTokenProvider();
+
+      const repositoryId = await provider.resolveRepositoryId({
+        installationId: 1,
+        fullName: 'shipfoxhq/shipfox',
+      });
+
+      expect(repositoryId).toBe(456);
+      expect(listReposAccessibleToInstallationMock).toHaveBeenCalledTimes(11);
+      expect(listReposAccessibleToInstallationMock).toHaveBeenLastCalledWith({
+        per_page: 100,
+        page: 11,
       });
     });
 

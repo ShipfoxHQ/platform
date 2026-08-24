@@ -51,6 +51,7 @@ export interface SharedInstallationTokenCacheOptions {
   secretStore: InstallationTokenSecretStore;
   withLock: <T>(
     installationId: number,
+    scopeKey: string | undefined,
     fn: () => Promise<T>,
   ) => Promise<InstallationTokenLockResult<T>>;
   resolveWorkspaceId: (installationId: number) => Promise<string>;
@@ -94,7 +95,7 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
       return tokenFromEnvelope(envelope);
     }
 
-    const result = await this.options.withLock(installationId, () =>
+    const result = await this.options.withLock(installationId, scopeKey, () =>
       this.mintUnderLock({workspaceId, installationId, scopeKey, mint}),
     );
     if (result.acquired) return result.value;

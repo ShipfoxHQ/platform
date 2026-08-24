@@ -5,8 +5,8 @@ describe('withInstallationTokenLock', () => {
     const first = holdInstallationTokenLock(9001, 'winner');
 
     await first.ready;
-    const contender = await withInstallationTokenLock(9001, async () => 'contender');
-    const different = await withInstallationTokenLock(9002, async () => 'different');
+    const contender = await withInstallationTokenLock(9001, undefined, async () => 'contender');
+    const different = await withInstallationTokenLock(9002, undefined, async () => 'different');
     first.release();
     const winner = await first.result;
 
@@ -19,7 +19,11 @@ describe('withInstallationTokenLock', () => {
     const holder = holdInstallationTokenLock(1, 'holder');
 
     await holder.ready;
-    const different = await withInstallationTokenLock(1 + 2 ** 32, async () => 'different');
+    const different = await withInstallationTokenLock(
+      1 + 2 ** 32,
+      undefined,
+      async () => 'different',
+    );
     holder.release();
     const held = await holder.result;
 
@@ -32,7 +36,9 @@ describe('withInstallationTokenLock', () => {
 
     await holder.ready;
     const contenders = await Promise.all(
-      Array.from({length: 20}, () => withInstallationTokenLock(9010, async () => 'contender')),
+      Array.from({length: 20}, () =>
+        withInstallationTokenLock(9010, undefined, async () => 'contender'),
+      ),
     );
     holder.release();
     const held = await holder.result;
@@ -40,9 +46,41 @@ describe('withInstallationTokenLock', () => {
     expect(contenders).toEqual(Array.from({length: 20}, () => ({acquired: false})));
     expect(held).toEqual({acquired: true, value: 'holder'});
   });
+
+  it('does not contend scoped and unscoped mints for the same installation', async () => {
+    const holder = holdInstallationTokenLock(9003, 'holder');
+
+    await holder.ready;
+    const scoped = await withInstallationTokenLock(
+      9003,
+      '456/contents-write',
+      async () => 'scoped',
+    );
+    holder.release();
+    const held = await holder.result;
+
+    expect(scoped).toEqual({acquired: true, value: 'scoped'});
+    expect(held).toEqual({acquired: true, value: 'holder'});
+  });
+
+  it('serializes same-scope contenders for one installation', async () => {
+    const holder = holdInstallationTokenLock(9004, 'holder', '456/contents-write');
+
+    await holder.ready;
+    const contender = await withInstallationTokenLock(
+      9004,
+      '456/contents-write',
+      async () => 'contender',
+    );
+    holder.release();
+    const held = await holder.result;
+
+    expect(contender).toEqual({acquired: false});
+    expect(held).toEqual({acquired: true, value: 'holder'});
+  });
 });
 
-function holdInstallationTokenLock(installationId: number, value: string) {
+function holdInstallationTokenLock(installationId: number, value: string, scopeKey?: string) {
   let releaseLock: (() => void) | undefined;
   let markReady: () => void = () => undefined;
   const ready = new Promise<void>((resolve) => {
@@ -50,6 +88,7 @@ function holdInstallationTokenLock(installationId: number, value: string) {
   });
   const result = withInstallationTokenLock(
     installationId,
+    scopeKey,
     () =>
       new Promise<string>((resolve) => {
         releaseLock = () => resolve(value);

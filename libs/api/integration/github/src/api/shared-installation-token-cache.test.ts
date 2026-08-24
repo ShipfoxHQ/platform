@@ -54,6 +54,7 @@ function cache(
     withLock?:
       | (<T>(
           installationId: number,
+          scopeKey: string | undefined,
           fn: () => Promise<T>,
         ) => Promise<InstallationTokenLockResult<T>>)
       | undefined;
@@ -64,7 +65,8 @@ function cache(
 ) {
   return new SharedInstallationTokenCache({
     secretStore: options.store ?? createStore(),
-    withLock: options.withLock ?? (async (_id, fn) => ({acquired: true, value: await fn()})),
+    withLock:
+      options.withLock ?? (async (_id, _scopeKey, fn) => ({acquired: true, value: await fn()})),
     resolveWorkspaceId: options.resolveWorkspaceId ?? (() => Promise.resolve(workspaceId)),
     now: () => options.now ?? new Date('2026-06-10T11:00:00.000Z'),
     sleep: options.sleep ?? (() => Promise.resolve()),
@@ -77,6 +79,16 @@ function setEnvelope(
   envelope: Parameters<typeof encodeInstallationTokenEnvelope>[0],
 ) {
   store.values.set(`${workspaceId}:${installationId}`, encodeInstallationTokenEnvelope(envelope));
+}
+
+function tieredSecretKey(
+  keyWorkspaceId: string,
+  keyInstallationId: number,
+  scopeKey: string | undefined,
+): string {
+  return scopeKey === undefined
+    ? `${keyWorkspaceId}:${keyInstallationId}`
+    : `${keyWorkspaceId}:${keyInstallationId}/scope/${scopeKey}`;
 }
 
 describe('SharedInstallationTokenCache', () => {
@@ -257,6 +269,39 @@ describe('SharedInstallationTokenCache', () => {
     await expect(
       shared.getOrMint(installationId, () => Promise.resolve(token('ghs_new'))),
     ).rejects.toMatchObject({reason: 'installation-not-found'});
+  });
+
+  it('keys the mint lock by scope so scoped mints serialize per scope', async () => {
+    const lockScopeKeys: Array<string | undefined> = [];
+    const values = new Map<string, string>();
+    const store: InstallationTokenSecretStore = {
+      read: (readWorkspaceId, readInstallationId, readScopeKey) =>
+        Promise.resolve(
+          values.get(tieredSecretKey(readWorkspaceId, readInstallationId, readScopeKey)) ?? null,
+        ),
+      write: (writeWorkspaceId, writeInstallationId, envelope, writeScopeKey) => {
+        values.set(
+          tieredSecretKey(writeWorkspaceId, writeInstallationId, writeScopeKey),
+          encodeInstallationTokenEnvelope(envelope),
+        );
+        return Promise.resolve();
+      },
+    };
+    const shared = cache({
+      store,
+      withLock: async <T>(_id: number, scopeKey: string | undefined, fn: () => Promise<T>) => {
+        lockScopeKeys.push(scopeKey);
+        return {acquired: true as const, value: await fn()};
+      },
+    });
+
+    await shared.getOrMint(installationId, () => Promise.resolve(token('ghs_broad')));
+    await shared.getOrMint(installationId, () => Promise.resolve(token('ghs_scoped')), {
+      repositoryId: 456,
+      permissions: {contents: 'write'},
+    });
+
+    expect(lockScopeKeys).toEqual([undefined, '456/contents-write']);
   });
 
   it('returns a minted token when the cache write fails', async () => {
