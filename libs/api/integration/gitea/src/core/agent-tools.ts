@@ -130,7 +130,7 @@ export function validateGiteaToolArguments(
     if (schema.type === 'string') {
       if (typeof value !== 'string') return `Parameter ${name} must be a string`;
       if (value.trim().length === 0) return `Parameter ${name} must not be empty`;
-      if (typeof schema.maxLength === 'number' && value.length > schema.maxLength) {
+      if (typeof schema.maxLength === 'number' && [...value].length > schema.maxLength) {
         return `Parameter ${name} must be at most ${schema.maxLength} characters`;
       }
       if (name === 'repo' && !isSafeRepositoryName(value)) {

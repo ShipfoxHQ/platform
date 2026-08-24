@@ -547,6 +547,19 @@ describe('HttpGiteaApiClient', () => {
     await expect(result).rejects.toThrow('Gitea responded 422: comment body is invalid');
   });
 
+  it('does not include a server error body in provider-unavailable messages', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({message: 'internal stack details'}, {status: 500}));
+    const client = createGiteaApiClient();
+
+    const result = client.getRepository({owner: 'shipfox', repo: 'platform'});
+
+    await expect(result).rejects.toMatchObject({
+      reason: 'provider-unavailable',
+      message: 'Gitea responded 500',
+      status: 500,
+    });
+  });
+
   it('rejects a comment response missing required fields', async () => {
     fetchMock.mockResolvedValue(jsonResponse({id: 11, body: 'Hello'}));
     const client = createGiteaApiClient();

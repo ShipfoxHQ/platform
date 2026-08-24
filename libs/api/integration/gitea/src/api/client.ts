@@ -372,6 +372,7 @@ class HttpGiteaApiClient implements GiteaApiClient {
 }
 
 type NotFoundReason = 'repository-not-found' | 'file-not-found' | 'ref-not-found';
+const MAX_PROVIDER_ERROR_BODY_BYTES = 8 * 1024;
 const MAX_PROVIDER_ERROR_MESSAGE_LENGTH = 500;
 
 async function giteaHttpError(
@@ -380,10 +381,10 @@ async function giteaHttpError(
   notFoundMessage?: string,
 ): Promise<GiteaIntegrationProviderError> {
   const status = response.status;
-  const message = await giteaResponseErrorMessage(
-    response,
-    status === 404 && notFoundMessage ? notFoundMessage : `Gitea responded ${status}`,
-  );
+  const fallback =
+    status === 404 && notFoundMessage ? notFoundMessage : `Gitea responded ${status}`;
+  const message =
+    status >= 400 && status < 500 ? await giteaResponseErrorMessage(response, fallback) : fallback;
   if (status === 404) {
     return new GiteaIntegrationProviderError(notFoundReason, message, undefined, status);
   }
@@ -409,7 +410,7 @@ async function giteaHttpError(
 async function giteaResponseErrorMessage(response: Response, fallback: string): Promise<string> {
   let body: string;
   try {
-    body = await response.clone().text();
+    body = await readBoundedResponseText(response);
   } catch {
     return fallback;
   }
@@ -435,9 +436,51 @@ async function giteaResponseErrorMessage(response: Response, fallback: string): 
   return `${fallback}: ${truncate(trimmedBody)}`;
 }
 
+async function readBoundedResponseText(response: Response): Promise<string> {
+  const body = response.clone().body;
+  if (!body) return '';
+
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let byteLength = 0;
+
+  try {
+    while (byteLength < MAX_PROVIDER_ERROR_BODY_BYTES) {
+      const {done, value} = await reader.read();
+      if (done || !value || value.byteLength === 0) break;
+
+      const remaining = MAX_PROVIDER_ERROR_BODY_BYTES - byteLength;
+      if (value.byteLength > remaining) {
+        chunks.push(value.subarray(0, remaining));
+        byteLength += remaining;
+        await reader.cancel();
+        break;
+      }
+
+      chunks.push(value);
+      byteLength += value.byteLength;
+      if (byteLength >= MAX_PROVIDER_ERROR_BODY_BYTES) {
+        await reader.cancel();
+        break;
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const bytes = new Uint8Array(byteLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
+}
+
 function truncate(value: string): string {
-  return value.length > MAX_PROVIDER_ERROR_MESSAGE_LENGTH
-    ? `${value.slice(0, MAX_PROVIDER_ERROR_MESSAGE_LENGTH - 3)}...`
+  const codePoints = [...value];
+  return codePoints.length > MAX_PROVIDER_ERROR_MESSAGE_LENGTH
+    ? `${codePoints.slice(0, MAX_PROVIDER_ERROR_MESSAGE_LENGTH - 3).join('')}...`
     : value;
 }
 

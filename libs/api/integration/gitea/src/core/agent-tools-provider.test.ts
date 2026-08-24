@@ -248,6 +248,28 @@ describe('GiteaAgentToolsProvider', () => {
     expect(options.gitea.createIssueComment).not.toHaveBeenCalled();
   });
 
+  it('counts astral Unicode characters as one comment character', async () => {
+    const options = providerOptions();
+    const session = await openSession(options, ['comment_on_issue']);
+    const body = '😀'.repeat(12_000);
+
+    const result = await session.call({
+      toolId: 'comment_on_issue',
+      arguments: {repo: 'platform', index: 3, body},
+    });
+
+    expect(result).toEqual({
+      content: [{type: 'text', text: JSON.stringify(COMMENT)}],
+      structuredContent: COMMENT,
+    });
+    expect(options.gitea.createIssueComment).toHaveBeenCalledWith({
+      owner: 'shipfox',
+      repo: 'platform',
+      index: 3,
+      body,
+    });
+  });
+
   it('rethrows a missing issue as a stable not-found provider error', async () => {
     const options = providerOptions({
       getIssue: vi.fn(() =>
