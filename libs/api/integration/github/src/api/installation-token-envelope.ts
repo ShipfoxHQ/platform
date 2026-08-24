@@ -1,3 +1,4 @@
+import {createHash} from 'node:crypto';
 import {
   IntegrationProviderError,
   type IntegrationProviderErrorReason,
@@ -114,14 +115,12 @@ export function githubInstallationTokenNamespace(
 }
 
 export function githubInstallationTokenScopeHash(scopeKey: string): string {
-  // FNV-1a 32-bit: deterministic across processes so every tier derives the same
-  // namespace for one scope, and short enough to keep the namespace within bounds.
-  let hash = 0x811c9dc5;
-  for (let index = 0; index < scopeKey.length; index += 1) {
-    hash ^= scopeKey.charCodeAt(index);
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return (hash >>> 0).toString(16);
+  // SHA-256: deterministic across processes so every tier derives the same
+  // namespace for one scope, and collision-resistant so two distinct scopes can
+  // never share a secret slot (a 32-bit FNV-1a hash could collide and turn
+  // scoped-token lookups into repeated GitHub mints). The lowercase hex digest
+  // keeps the namespace within the secrets pattern and 128-character cap.
+  return createHash('sha256').update(scopeKey).digest('hex');
 }
 
 export function encodeInstallationTokenEnvelope(envelope: InstallationTokenEnvelope): string {

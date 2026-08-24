@@ -108,7 +108,11 @@ class OctokitGithubInstallationTokenProvider
         }),
       );
       const match = response.data.repositories.find((repository) => {
-        if (typeof repository.full_name !== 'string') {
+        if (
+          repository === null ||
+          repository === undefined ||
+          typeof repository.full_name !== 'string'
+        ) {
           throw new GithubIntegrationProviderError(
             'malformed-provider-response',
             'GitHub repository resolution did not include a repository name',

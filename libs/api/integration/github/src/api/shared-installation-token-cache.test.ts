@@ -305,7 +305,57 @@ describe('SharedInstallationTokenCache', () => {
     expect(lockScopeKeys).toEqual([undefined, '456/contents-write']);
   });
 
-  it('isolates a scoped backoff from the broad envelope', async () => {
+  it('isolates a repo-specific scoped backoff from the broad envelope', async () => {
+    const values = new Map<string, string>();
+    const store: InstallationTokenSecretStore = {
+      read: (readWorkspaceId, readInstallationId, readScopeKey) =>
+        Promise.resolve(
+          values.get(tieredSecretKey(readWorkspaceId, readInstallationId, readScopeKey)) ?? null,
+        ),
+      write: (writeWorkspaceId, writeInstallationId, envelope, writeScopeKey) => {
+        values.set(
+          tieredSecretKey(writeWorkspaceId, writeInstallationId, writeScopeKey),
+          encodeInstallationTokenEnvelope(envelope),
+        );
+        return Promise.resolve();
+      },
+    };
+    const scopedMint = vi
+      .fn()
+      .mockRejectedValue(new GithubIntegrationProviderError('access-denied', 'not accessible'));
+    const broadMint = vi.fn(() => Promise.resolve(token('ghs_broad')));
+    const shared = cache({store});
+
+    // A scoped mint failure records its backoff under the scoped key only; the
+    // repo-specific denial does not poison the installation-wide envelope.
+    await expect(
+      shared.getOrMint(installationId, scopedMint, {
+        repositoryId: 456,
+        permissions: {contents: 'write'},
+      }),
+    ).rejects.toMatchObject({reason: 'access-denied'});
+    expect(
+      values.get(tieredSecretKey(workspaceId, installationId, '456/contents-write')),
+    ).toContain('backoff');
+    expect(values.get(tieredSecretKey(workspaceId, installationId, undefined))).toBeUndefined();
+
+    // A subsequent unscoped request mints a fresh broad token, unaffected by the
+    // repo-specific scoped backoff.
+    const broad = await shared.getOrMint(installationId, broadMint);
+    expect(broad).toEqual(token('ghs_broad'));
+
+    // The same scope is still backed off with its stored reason.
+    await expect(
+      shared.getOrMint(installationId, scopedMint, {
+        repositoryId: 456,
+        permissions: {contents: 'write'},
+      }),
+    ).rejects.toMatchObject({reason: 'access-denied'});
+    expect(scopedMint).toHaveBeenCalledTimes(1);
+    expect(broadMint).toHaveBeenCalledTimes(1);
+  });
+
+  it('mirrors an installation-wide scoped backoff onto the broad envelope', async () => {
     const values = new Map<string, string>();
     const store: InstallationTokenSecretStore = {
       read: (readWorkspaceId, readInstallationId, readScopeKey) =>
@@ -326,32 +376,29 @@ describe('SharedInstallationTokenCache', () => {
     const broadMint = vi.fn(() => Promise.resolve(token('ghs_broad')));
     const shared = cache({store});
 
-    // A scoped mint failure records its backoff under the scoped key only.
-    await expect(
-      shared.getOrMint(installationId, scopedMint, {
-        repositoryId: 456,
-        permissions: {contents: 'write'},
-      }),
-    ).rejects.toMatchObject({reason: 'rate-limited'});
-    expect(
-      values.get(tieredSecretKey(workspaceId, installationId, '456/contents-write')),
-    ).toContain('backoff');
-    expect(values.get(tieredSecretKey(workspaceId, installationId, undefined))).toBeUndefined();
-
-    // A subsequent unscoped request mints a fresh broad token, unaffected by the
-    // scoped backoff.
-    const broad = await shared.getOrMint(installationId, broadMint);
-    expect(broad).toEqual(token('ghs_broad'));
-
-    // The same scope is still backed off with its stored reason.
+    // A transient scoped mint failure records its backoff under the scoped key and
+    // mirrors it onto the installation-wide envelope.
     await expect(
       shared.getOrMint(installationId, scopedMint, {
         repositoryId: 456,
         permissions: {contents: 'write'},
       }),
     ).rejects.toMatchObject({reason: 'rate-limited', retryAfterSeconds: 42});
+    expect(
+      values.get(tieredSecretKey(workspaceId, installationId, '456/contents-write')),
+    ).toContain('backoff');
+    expect(values.get(tieredSecretKey(workspaceId, installationId, undefined))).toContain(
+      'backoff',
+    );
+
+    // A subsequent unscoped request is short-circuited by the installation-wide
+    // backoff instead of retrying the shared rate limit.
+    await expect(shared.getOrMint(installationId, broadMint)).rejects.toMatchObject({
+      reason: 'rate-limited',
+      retryAfterSeconds: 42,
+    });
+    expect(broadMint).not.toHaveBeenCalled();
     expect(scopedMint).toHaveBeenCalledTimes(1);
-    expect(broadMint).toHaveBeenCalledTimes(1);
   });
 
   it('treats an envelope recorded for another scope as a cache miss', async () => {

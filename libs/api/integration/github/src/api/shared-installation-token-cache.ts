@@ -11,6 +11,7 @@ import type {GithubInstallationAccessToken} from './client.js';
 import {
   backoffActive,
   backoffMs,
+  type ClassifiedMintError,
   classifyMintError,
   type GithubInstallationTokenScope,
   githubInstallationTokenScopeKey,
@@ -136,9 +137,11 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
     // A mint is authenticated as the GitHub App, so rate-limit and availability
     // backoffs are installation-wide even though envelopes are keyed per scope.
     // Consult the installation-wide envelope before a scoped mint so one scope's
-    // 429/outage does not make every other scope retry the shared limit.
+    // 429/outage does not make every other scope retry the shared limit; the same
+    // envelope is kept so a failed scoped mint can mirror its backoff onto it.
+    let installationEnvelope: InstallationTokenEnvelope | undefined;
     if (params.scopeKey !== undefined) {
-      const installationEnvelope = await this.readEnvelope(
+      installationEnvelope = await this.readEnvelope(
         params.workspaceId,
         params.installationId,
         undefined,
@@ -162,42 +165,32 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
       const until = new Date(this.now().getTime() + backoffMs(classified));
       recordInstallationTokenBackoff({reason: classified.reason, class: classified.class});
 
-      await this.writeEnvelope(
-        params.workspaceId,
-        params.installationId,
-        {
-          token: envelope?.token,
-          expiresAt: envelope?.expiresAt,
-          permissions: envelope?.permissions,
-          backoffUntil: until,
-          backoffReason: classified.reason,
-          backoffError: {
-            message: providerError.message,
-            ...(providerError.status === undefined ? {} : {status: providerError.status}),
-          },
-        },
-        params.scopeKey,
-      ).catch((writeError) => {
-        logger().warn(
-          {
-            installationId: params.installationId,
-            workspaceId: params.workspaceId,
-            scopeKey: params.scopeKey,
-            reason: classified.reason,
-            error: writeError,
-          },
-          'github installation token backoff write failed',
-        );
-        reportError(writeError, {
-          boundary: 'integration.cache',
-          operation: 'write-backoff-envelope',
-          extra: {
-            installationId: params.installationId,
-            workspaceId: params.workspaceId,
-            scopeKey: params.scopeKey,
-          },
-        });
+      await this.writeBackoffEnvelope({
+        workspaceId: params.workspaceId,
+        installationId: params.installationId,
+        scopeKey: params.scopeKey,
+        source: envelope,
+        until,
+        classified,
+        providerError,
       });
+
+      // Rate-limit, timeout, and availability failures reflect the shared GitHub
+      // App rather than one repository, so mirror a transient scoped backoff onto
+      // the installation-wide envelope: every other scope and the unscoped path
+      // then respect the shared limit instead of retrying it. Repo-specific
+      // (terminal) failures such as access-denied stay scoped.
+      if (params.scopeKey !== undefined && classified.class === 'transient') {
+        await this.writeBackoffEnvelope({
+          workspaceId: params.workspaceId,
+          installationId: params.installationId,
+          scopeKey: undefined,
+          source: installationEnvelope,
+          until,
+          classified,
+          providerError,
+        });
+      }
 
       if (
         classified.class === 'transient' &&
@@ -278,6 +271,55 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
     );
     recordInstallationTokenLookup('minted');
     return token;
+  }
+
+  private async writeBackoffEnvelope(params: {
+    workspaceId: string;
+    installationId: number;
+    scopeKey: string | undefined;
+    source: InstallationTokenEnvelope | undefined;
+    until: Date;
+    classified: ClassifiedMintError;
+    providerError: GithubIntegrationProviderError;
+  }): Promise<void> {
+    await this.writeEnvelope(
+      params.workspaceId,
+      params.installationId,
+      {
+        token: params.source?.token,
+        expiresAt: params.source?.expiresAt,
+        permissions: params.source?.permissions,
+        backoffUntil: params.until,
+        backoffReason: params.classified.reason,
+        backoffError: {
+          message: params.providerError.message,
+          ...(params.providerError.status === undefined
+            ? {}
+            : {status: params.providerError.status}),
+        },
+      },
+      params.scopeKey,
+    ).catch((writeError) => {
+      logger().warn(
+        {
+          installationId: params.installationId,
+          workspaceId: params.workspaceId,
+          scopeKey: params.scopeKey,
+          reason: params.classified.reason,
+          error: writeError,
+        },
+        'github installation token backoff write failed',
+      );
+      reportError(writeError, {
+        boundary: 'integration.cache',
+        operation: 'write-backoff-envelope',
+        extra: {
+          installationId: params.installationId,
+          workspaceId: params.workspaceId,
+          scopeKey: params.scopeKey,
+        },
+      });
+    });
   }
 
   private async serveStaleOrPoll(params: {

@@ -564,9 +564,15 @@ describe('GithubInstallationTokenProvider', () => {
   });
 
   it('keys scoped secret namespaces by a bounded hash of the scope', () => {
-    expect(githubInstallationTokenNamespace(123, '456/contents-write')).toMatch(
-      GITHUB_SCOPED_TOKEN_NAMESPACE_PATTERN,
+    const namespace = githubInstallationTokenNamespace(123, '456/contents-write');
+    expect(namespace).toMatch(GITHUB_SCOPED_TOKEN_NAMESPACE_PATTERN);
+    // Collision-resistant SHA-256 digest: deterministic across processes so every
+    // tier derives the same namespace for one scope, and two distinct scopes can
+    // never share a secret slot.
+    expect(namespace).toBe(
+      'system/github/installation-token/123/scope/6c624903aa9dcf03b2bf366447d1e92b939289dcf3da65bd537c3f828abe635e',
     );
+    expect(githubInstallationTokenNamespace(123, '456/issues-write')).not.toBe(namespace);
   });
 
   describe('resolveRepositoryId', () => {
@@ -698,6 +704,23 @@ describe('GithubInstallationTokenProvider', () => {
       authMock.mockResolvedValue({token: 'ghs_installationtoken'});
       listReposAccessibleToInstallationMock.mockResolvedValue({
         data: {total_count: 1, repositories: [{id: 456}]},
+      });
+      const provider = createGithubInstallationTokenProvider();
+
+      const result = provider.resolveRepositoryId({
+        installationId: 1,
+        fullName: 'shipfoxhq/shipfox',
+      });
+
+      await expect(result).rejects.toMatchObject({
+        reason: 'malformed-provider-response',
+      });
+    });
+
+    it('rejects a nullish repository entry as malformed-provider-response', async () => {
+      authMock.mockResolvedValue({token: 'ghs_installationtoken'});
+      listReposAccessibleToInstallationMock.mockResolvedValue({
+        data: {total_count: 1, repositories: [null]},
       });
       const provider = createGithubInstallationTokenProvider();
 
