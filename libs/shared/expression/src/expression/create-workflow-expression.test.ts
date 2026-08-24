@@ -136,6 +136,38 @@ describe('createWorkflowExpression', () => {
     expect(expression.resultType).toBe('string');
   });
 
+  it('uses collision-safe names for list object schemas', () => {
+    const typeEnvironment = {
+      foo_bar: {
+        kind: 'object',
+        fields: {
+          items: {
+            kind: 'list',
+            element: {kind: 'object', fields: {left: 'string'}},
+          },
+        },
+      },
+      foo: {
+        kind: 'object',
+        fields: {
+          bar_items: {
+            kind: 'list',
+            element: {kind: 'object', fields: {right: 'int'}},
+          },
+        },
+      },
+    } as const;
+
+    for (const source of ['foo_bar.items[0].left', 'foo.bar_items[0].right']) {
+      expect(() =>
+        createWorkflowExpression({
+          source,
+          check: {mode: 'typed', typeEnvironment},
+        }),
+      ).not.toThrow();
+    }
+  });
+
   it.each(['first', 'last'] as const)('rejects %s on a non-list receiver', (method) => {
     const act = () =>
       createWorkflowExpression({
