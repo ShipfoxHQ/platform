@@ -366,15 +366,16 @@ export function normalizeToolStepOutputs(params: {
 
   for (const [key, source] of Object.entries(params.outputs)) {
     // A mapping that parses to an all-literal template (`$${{ ... }}` escape)
-    // falls back to a literal template, mirroring normalizeJobOutputs, so the
-    // key is never silently dropped from the model's outputs.
+    // falls back to a literal template so the key is never silently dropped
+    // from the model's outputs; the escaped opener is unescaped so the output
+    // fills to the literal `${{ ... }}` text like every other template field.
     const template = parseInterpolationField({
       field: 'tool.outputs',
       source,
       path: ['jobs', params.sourceName, 'steps', params.stepIndex, 'outputs', key],
       issues: params.issues,
       fillSite: 'step-report',
-    }) ?? [{kind: 'literal' as const, value: source}];
+    }) ?? [{kind: 'literal' as const, value: unescapeTemplateSource(source)}];
 
     templates[key] = template;
     declarations[key] = outputDeclarationForTemplate(template);

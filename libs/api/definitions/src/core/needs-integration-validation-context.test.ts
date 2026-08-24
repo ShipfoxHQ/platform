@@ -70,7 +70,7 @@ describe('needsIntegrationValidationContext', () => {
       true,
     ],
     [
-      'a tool step without a connection',
+      'a tool step with a connection',
       document({
         jobs: {
           build: {

@@ -1,6 +1,8 @@
 import {
   DEFAULT_JOB_CHECKOUT,
   type WorkflowModel,
+  type WorkflowModelToolWithTemplate,
+  type WorkflowModelToolWithTemplates,
   type WorkflowModelToolWithValue,
 } from '@shipfox/api-definitions-dto';
 import {
@@ -192,6 +194,7 @@ function normalizeStep(step: TestWorkflowStep, jobId: string, stepIndex: number)
       tool: step.tool,
       ...(step.method === undefined ? {} : {method: step.method}),
       with: step.with,
+      ...optionalToolTemplates(step),
     };
   }
 
@@ -296,6 +299,88 @@ function optionalAgentTemplates(step: TestAgentStep) {
       ...(workingDirectory === undefined ? {} : {workingDirectory}),
     },
   };
+}
+
+function optionalToolTemplates(step: TestToolStep) {
+  const withTemplates = toolWithTemplates(step.with);
+  const name = step.name === undefined ? undefined : fieldTemplate('step.name', step.name);
+  const workingDirectory =
+    step.workingDirectory === undefined
+      ? undefined
+      : fieldTemplate('step.working_directory', step.workingDirectory);
+  if (withTemplates === undefined && name === undefined && workingDirectory === undefined) {
+    return {};
+  }
+  return {
+    templates: {
+      ...(withTemplates === undefined ? {} : {with: withTemplates}),
+      ...(name === undefined ? {} : {name}),
+      ...(workingDirectory === undefined ? {} : {workingDirectory}),
+    },
+  };
+}
+
+/**
+ * Builds the parallel `with` template tree mirroring normalize-tool-step: a
+ * node exists only where a string leaf below it carries a `${{ }}` template,
+ * and sequence items and record fields keep their authored positions so
+ * materialization can walk both trees in lockstep.
+ */
+function toolWithTemplates(
+  withValues: Readonly<Record<string, WorkflowModelToolWithValue>>,
+): WorkflowModelToolWithTemplates | undefined {
+  const templates: Record<string, WorkflowModelToolWithTemplate | undefined> = Object.create(
+    null,
+  ) as Record<string, WorkflowModelToolWithTemplate | undefined>;
+  let hasTemplate = false;
+  for (const [key, value] of Object.entries(withValues)) {
+    const node = toolWithValueTemplate(value);
+    if (node !== undefined) hasTemplate = true;
+    templates[key] = node;
+  }
+  return hasTemplate ? templates : undefined;
+}
+
+function toolWithValueTemplate(value: unknown): WorkflowModelToolWithTemplate | undefined {
+  if (typeof value === 'string') {
+    if (!value.includes('$' + '{{')) return undefined;
+
+    const template = fieldTemplate('tool.with', value);
+    if (template !== undefined) return {kind: 'field', template};
+    // An all-literal parse means every `${{` opener was escaped with `$${{`;
+    // record a literal node so materialization unescapes the leaf like every
+    // other template field, mirroring normalize-tool-step.
+    return {
+      kind: 'field',
+      template: [{kind: 'literal' as const, value: unescapeTemplateSource(value)}],
+    };
+  }
+
+  if (Array.isArray(value)) {
+    const items = value.map((item) => toolWithValueTemplate(item));
+    return items.some((item) => item !== undefined) ? {kind: 'sequence', items} : undefined;
+  }
+
+  if (typeof value === 'object' && value !== null) {
+    const fields: Record<string, WorkflowModelToolWithTemplate | undefined> = Object.create(
+      null,
+    ) as Record<string, WorkflowModelToolWithTemplate | undefined>;
+    let hasTemplate = false;
+    for (const [key, child] of Object.entries(value)) {
+      const node = toolWithValueTemplate(child);
+      if (node !== undefined) hasTemplate = true;
+      fields[key] = node;
+    }
+    return hasTemplate ? {kind: 'record', fields} : undefined;
+  }
+
+  return undefined;
+}
+
+function unescapeTemplateSource(source: string): string {
+  return parseWorkflowTemplate(source)
+    .map((segment) => (segment.kind === 'literal' ? segment.text : segment.expression.source))
+    .join('');
 }
 
 function envTemplates(env: WorkflowModel['env'] | undefined): WorkflowEnvTemplates | undefined {

@@ -1543,7 +1543,7 @@ describe('normalizeWorkflowDocument', () => {
 
     expect(model.jobs[0]?.steps[0]).toMatchObject({
       kind: 'tool',
-      outputs: {branch: [{kind: 'literal', value: '$${{ result.branch }}'}]},
+      outputs: {branch: [{kind: 'literal', value: '$' + '{{ result.branch }}'}]},
     });
   });
 
