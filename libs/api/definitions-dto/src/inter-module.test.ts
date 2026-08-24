@@ -31,6 +31,12 @@ describe('definitionsInterModuleContract', () => {
     ).toThrow();
   });
 
+  test('keeps v2 persisted snapshots readable', () => {
+    expect(readPersistedWorkflowModel({version: 2, model: {kind: 'workflow'}} as never)).toEqual({
+      kind: 'workflow',
+    });
+  });
+
   test('parses at-ref inputs and outputs', () => {
     const resolve = definitionsInterModuleContract.methods.resolveDefinitionAtRef;
     const list = definitionsInterModuleContract.methods.listDefinitionsAtRef;

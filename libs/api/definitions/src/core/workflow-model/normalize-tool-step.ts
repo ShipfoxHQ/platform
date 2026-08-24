@@ -380,8 +380,52 @@ function expressionTypeToDeclaration(type: ExpressionType | undefined): OutputTy
       return {type: 'number'};
     case 'bool':
       return {type: 'boolean'};
-    default:
+    case 'null':
+    case 'timestamp':
       return {type: 'json'};
+    default:
+      // Structured (object/map/list) result types keep their shape in the
+      // declaration schema so the step overlay re-derives list/object typing
+      // for later expressions instead of degrading to schema-less JSON.
+      return type === undefined
+        ? {type: 'json'}
+        : {type: 'json', schema: expressionTypeToJsonSchema(type)};
+  }
+}
+
+function expressionTypeToJsonSchema(type: ExpressionType): Readonly<Record<string, unknown>> {
+  switch (type) {
+    case 'string':
+      return {type: 'string'};
+    case 'int':
+      return {type: 'integer'};
+    case 'double':
+      return {type: 'number'};
+    case 'bool':
+      return {type: 'boolean'};
+    case 'null':
+      return {type: 'null'};
+    case 'timestamp':
+      return {type: 'string', format: 'date-time'};
+    default:
+      switch (type.kind) {
+        case 'object':
+          return {
+            type: 'object',
+            properties: Object.fromEntries(
+              Object.entries(type.fields).map(([field, fieldType]) => [
+                field,
+                expressionTypeToJsonSchema(fieldType),
+              ]),
+            ),
+            required: Object.keys(type.fields),
+            additionalProperties: false,
+          };
+        case 'map':
+          return {type: 'object'};
+        case 'list':
+          return {type: 'array', items: expressionTypeToJsonSchema(type.element)};
+      }
   }
 }
 

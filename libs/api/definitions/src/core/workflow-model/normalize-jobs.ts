@@ -401,10 +401,11 @@ function normalizeJobOutputs(params: {
     ExpressionType
   >;
   const hasStepOutputDeclarations = params.steps.some((step) => step.outputs !== undefined);
+  const hasToolOverlays = params.toolOverlayByKey.size > 0;
   const typeOverlay =
-    hasStepOutputDeclarations || params.upstreamJobs.length > 0
+    hasStepOutputDeclarations || hasToolOverlays || params.upstreamJobs.length > 0
       ? buildTypedRootsEnvironment({
-          ...(hasStepOutputDeclarations
+          ...(hasStepOutputDeclarations || hasToolOverlays
             ? {steps: allStepOverlays(params.steps, params.toolOverlayByKey)}
             : {}),
           ...(params.upstreamJobs.length === 0 ? {} : {jobs: params.upstreamJobs}),
@@ -520,7 +521,10 @@ function normalizeStep(params: {
     params.usedStepIds.set(stepId, params.index);
   }
 
-  const shouldBuildTypeOverlay = params.typeOverlay !== undefined || params.upstreamJobs.length > 0;
+  const shouldBuildTypeOverlay =
+    params.typeOverlay !== undefined ||
+    params.upstreamJobs.length > 0 ||
+    params.toolOverlayByKey.size > 0;
   const previousStepsOverlay = !shouldBuildTypeOverlay
     ? undefined
     : buildTypedRootsEnvironment({

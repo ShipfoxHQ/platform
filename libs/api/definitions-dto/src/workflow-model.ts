@@ -254,7 +254,8 @@ const workflowModelSchema = z.custom<WorkflowModel>(
 );
 
 export const workflowModelSnapshotSchema = z.object({
-  version: z.literal(3),
+  // v2 snapshots predate tool steps and stay readable; new snapshots are v3.
+  version: z.union([z.literal(3), z.literal(2)]),
   model: workflowModelSchema,
 });
 export type WorkflowModelSnapshot = z.infer<typeof workflowModelSnapshotSchema>;
@@ -265,6 +266,9 @@ export function createWorkflowModelSnapshot(model: WorkflowModel): WorkflowModel
 
 export function workflowModelFromSnapshot(snapshot: WorkflowModelSnapshot): WorkflowModel {
   switch (snapshot.version) {
+    // v2 persisted snapshots carry a pre-tool-step model; the model shape
+    // itself is unchanged, so they load as-is and re-serialize as v3.
+    case 2:
     case 3:
       return snapshot.model;
   }

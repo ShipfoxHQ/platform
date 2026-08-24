@@ -654,10 +654,139 @@ describe('normalizeToolStep', () => {
       {integrationValidationContext},
     );
 
-    expect(model.jobs[0]?.outputs).toMatchObject({
-      issueKey: [{kind: 'deferred', roots: ['steps']}],
+    // The job output is typed from the catalog overlay even though the tool
+    // step authored no `outputs` (the toolOverlayByKey guard must stay on).
+    expect(model.jobs[0]?.outputs?.issueKey?.[0]).toMatchObject({
+      kind: 'deferred',
+      expression: expect.objectContaining({check: 'typed', resultType: 'string'}),
     });
     expect(model.jobs[0]?.outputTypes).toEqual({issueKey: 'string'});
+  });
+
+  it('types later step expressions from a tool result overlay without authored outputs', () => {
+    const model = normalize(
+      {
+        name: 'tools',
+        jobs: {
+          use: {
+            steps: [
+              toolStep({
+                key: 'issue',
+                tool: 'get_issue',
+                connection: 'linear-main',
+                with: {id: 'ENG-1'},
+              }),
+              toolStep({
+                key: 'next',
+                tool: 'save_comment',
+                connection: 'linear-main',
+                with: {
+                  issueId: '$' + '{{ steps.issue.outputs.result.identifier }}',
+                  body: 'typed from the tool overlay',
+                },
+              }),
+            ],
+          },
+        },
+      },
+      {integrationValidationContext},
+    );
+
+    const next = model.jobs[0]?.steps[1] as WorkflowModelToolStep;
+    expect(next.templates?.with).toMatchObject({
+      issueId: [
+        {
+          kind: 'deferred',
+          expression: expect.objectContaining({check: 'typed', resultType: 'string'}),
+        },
+      ],
+    });
+  });
+
+  it('preserves structured mapped output types in the step overlay', () => {
+    const linearCatalog = integrationValidationContext.agentToolCatalogs.get('linear');
+    const context: IntegrationValidationContext = {
+      ...integrationValidationContext,
+      agentToolCatalogs: new Map([
+        ...integrationValidationContext.agentToolCatalogs,
+        [
+          'linear',
+          {
+            tools: [
+              ...(linearCatalog?.tools ?? []),
+              {
+                id: 'nested_reader',
+                description: 'Read a nested payload',
+                sensitivity: 'read',
+                sensitive: false,
+                requiredScope: 'read',
+                inputSchema: {
+                  type: 'object',
+                  properties: {id: {type: 'string'}},
+                  required: ['id'],
+                },
+                outputSchema: {
+                  type: 'object',
+                  properties: {
+                    meta: {
+                      type: 'object',
+                      properties: {count: {type: 'integer'}},
+                      required: ['count'],
+                      additionalProperties: false,
+                    },
+                  },
+                  required: ['meta'],
+                  additionalProperties: false,
+                },
+              },
+            ],
+          },
+        ],
+      ]),
+    };
+    const model = normalize(
+      {
+        name: 'tools',
+        jobs: {
+          use: {
+            steps: [
+              toolStep({
+                key: 'nested',
+                tool: 'nested_reader',
+                connection: 'linear-main',
+                with: {id: 'ENG-1'},
+                outputs: mappingOutputs({
+                  meta: '$' + '{{ result.meta }}',
+                }),
+              }),
+              toolStep({
+                key: 'next',
+                tool: 'save_comment',
+                connection: 'linear-main',
+                with: {
+                  issueId: 'ENG-1',
+                  body: '$' + '{{ steps.nested.outputs.meta.count }}',
+                },
+              }),
+            ],
+          },
+        },
+      },
+      {integrationValidationContext: context},
+    );
+
+    const next = model.jobs[0]?.steps[1] as WorkflowModelToolStep;
+    // The mapped `meta` output keeps the catalog object shape instead of
+    // degrading to schema-less JSON, so nested field access stays typed as
+    // `int` rather than falling back to the untyped `string` map lookup.
+    expect(next.templates?.with).toMatchObject({
+      body: [
+        {
+          kind: 'deferred',
+          expression: expect.objectContaining({check: 'typed', resultType: 'int'}),
+        },
+      ],
+    });
   });
 
   it('keeps shape-only checks when the integration context is absent', () => {
