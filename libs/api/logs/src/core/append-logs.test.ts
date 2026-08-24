@@ -215,6 +215,7 @@ describe('appendLogs', () => {
           resolveWorkflowRunTriggerReference: vi.fn(),
           deliverEventToJobListener: vi.fn(),
           getStepLogContext: () => ({harness: 'claude' as const}),
+          listJobStepAttempts: vi.fn(),
           getLeasedAgentToolContext: vi.fn(),
         }),
       }).workflows;
@@ -262,6 +263,7 @@ describe('appendLogs', () => {
           resolveWorkflowRunTriggerReference: vi.fn(),
           deliverEventToJobListener: vi.fn(),
           getStepLogContext: () => ({harness: 'claude' as const}),
+          listJobStepAttempts: vi.fn(),
           getLeasedAgentToolContext: vi.fn(),
         }),
       }).workflows;
@@ -344,6 +346,7 @@ describe('appendLogs', () => {
           resolveWorkflowRunTriggerReference: vi.fn(),
           deliverEventToJobListener: vi.fn(),
           getStepLogContext: () => ({harness: 'claude' as const}),
+          listJobStepAttempts: vi.fn(),
           getLeasedAgentToolContext: vi.fn(),
         }),
       }).workflows;
@@ -403,6 +406,7 @@ describe('appendLogs', () => {
           resolveWorkflowRunTriggerReference: vi.fn(),
           deliverEventToJobListener: vi.fn(),
           getStepLogContext: () => ({harness: 'claude' as const}),
+          listJobStepAttempts: vi.fn(),
           getLeasedAgentToolContext: vi.fn(),
         }),
       }).workflows;

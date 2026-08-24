@@ -162,6 +162,10 @@ export const workflowsInterModuleContract = defineInterModuleContract({
       input: z.object({stepId: idSchema}),
       output: z.object({harness: harnessSchema}),
     },
+    listJobStepAttempts: {
+      input: z.object({jobId: idSchema}),
+      output: z.object({stepAttemptIds: z.array(idSchema)}),
+    },
     getLeasedAgentToolContext: {
       input: z.object({
         jobId: idSchema,

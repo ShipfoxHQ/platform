@@ -34,11 +34,15 @@ export type {
   HeadFlipOutcome,
 } from './sessions.js';
 export {
+  assertValidSessionKey,
   carryOverSessions,
   claimSession,
   commitSessionHead,
   createSession,
+  getSessionByRunAttemptAndKey,
+  listStaleClaimedSessions,
   releaseSession,
+  releaseSessionClaimsHeldByStepAttempts,
 } from './sessions.js';
 
 export const migrationsPath = resolve(dirname(fileURLToPath(import.meta.url)), '../../drizzle');

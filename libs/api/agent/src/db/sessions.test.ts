@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import {eq, sql} from 'drizzle-orm';
+import {eq, inArray, sql} from 'drizzle-orm';
 import {
   AgentSessionCarryOverConflictError,
   AgentSessionHarnessInvalidError,
@@ -14,7 +14,10 @@ import {
   commitSessionHead,
   createSession,
   db,
+  getSessionByRunAttemptAndKey,
+  listStaleClaimedSessions,
   releaseSession,
+  releaseSessionClaimsHeldByStepAttempts,
   sessions,
 } from '#db/index.js';
 
@@ -461,6 +464,138 @@ describe('releaseSession', () => {
     });
 
     expect(releasedAgain).toBe(false);
+  });
+});
+
+describe('getSessionByRunAttemptAndKey', () => {
+  it('returns the session row for a run attempt and key', async () => {
+    const ctx = newCtx();
+    const claimed = await claimSession({...ctx, harness: 'pi'});
+
+    const found = await getSessionByRunAttemptAndKey({
+      workflowRunAttemptId: ctx.workflowRunAttemptId,
+      key: ctx.key,
+    });
+
+    expect(found?.id).toBe(claimed.id);
+    expect(found?.headSegment).toBe(0);
+  });
+
+  it('returns undefined when the run attempt has no such session', async () => {
+    const ctx = newCtx();
+    await claimSession({...ctx, harness: 'pi'});
+
+    const found = await getSessionByRunAttemptAndKey({
+      workflowRunAttemptId: ctx.workflowRunAttemptId,
+      key: 'other',
+    });
+
+    expect(found).toBeUndefined();
+  });
+
+  it('scopes the read to the run attempt, not the key alone', async () => {
+    const ctx = newCtx();
+    const claimed = await claimSession({...ctx, harness: 'pi'});
+
+    const otherRun = await getSessionByRunAttemptAndKey({
+      workflowRunAttemptId: crypto.randomUUID(),
+      key: ctx.key,
+    });
+
+    expect(otherRun).toBeUndefined();
+    expect(claimed.id).toEqual(expect.any(String));
+  });
+});
+
+describe('releaseSessionClaimsHeldByStepAttempts', () => {
+  it('releases every claim held by the given step attempts', async () => {
+    const ctx = newCtx();
+    const first = await claimSession({...ctx, key: 'main', harness: 'pi'});
+    const second = await claimSession({...ctx, key: 'docs', harness: 'pi'});
+
+    const released = await releaseSessionClaimsHeldByStepAttempts([ctx.stepAttemptId]);
+
+    expect(released).toBe(2);
+    expect((await findSession(first.id))?.claimedByStepAttempt).toBeNull();
+    expect((await findSession(second.id))?.claimedByStepAttempt).toBeNull();
+  });
+
+  it('never steals a claim held by another attempt', async () => {
+    const ctx = newCtx();
+    const holder = crypto.randomUUID();
+    const held = await claimSession({...ctx, stepAttemptId: holder, harness: 'pi'});
+
+    const released = await releaseSessionClaimsHeldByStepAttempts([crypto.randomUUID()]);
+
+    expect(released).toBe(0);
+    const row = await findSession(held.id);
+    expect(row?.claimedByStepAttempt).toBe(holder);
+  });
+
+  it('is a no-op for an empty input', async () => {
+    const ctx = newCtx();
+    const claimed = await claimSession({...ctx, harness: 'pi'});
+
+    const released = await releaseSessionClaimsHeldByStepAttempts([]);
+
+    expect(released).toBe(0);
+    expect((await findSession(claimed.id))?.claimedByStepAttempt).toBe(ctx.stepAttemptId);
+  });
+
+  it('is idempotent across redeliveries', async () => {
+    const ctx = newCtx();
+    const claimed = await claimSession({...ctx, harness: 'pi'});
+
+    const first = await releaseSessionClaimsHeldByStepAttempts([ctx.stepAttemptId]);
+    const second = await releaseSessionClaimsHeldByStepAttempts([ctx.stepAttemptId]);
+
+    expect(first).toBe(1);
+    expect(second).toBe(0);
+    expect((await findSession(claimed.id))?.claimedByStepAttempt).toBeNull();
+  });
+});
+
+describe('listStaleClaimedSessions', () => {
+  it('returns only claims held past the cutoff', async () => {
+    const ctx = newCtx();
+    const fresh = await claimSession({...ctx, key: 'fresh', harness: 'pi'});
+    const stale = await claimSession({...ctx, key: 'stale', harness: 'pi'});
+    await db()
+      .update(sessions)
+      .set({claimedAt: sql`now() - interval '2 hours'`})
+      .where(eq(sessions.id, stale.id));
+
+    const found = await listStaleClaimedSessions({olderThanSeconds: 3600, limit: 100});
+
+    expect(found.some((session) => session.id === stale.id)).toBe(true);
+    expect(found.some((session) => session.id === fresh.id)).toBe(false);
+    expect(found.find((session) => session.id === stale.id)?.claimedByStepAttempt).toBe(
+      ctx.stepAttemptId,
+    );
+  });
+
+  it('honors the batch limit', async () => {
+    const ctx = newCtx();
+    const first = await claimSession({...ctx, key: 'one', harness: 'pi'});
+    const second = await claimSession({...ctx, key: 'two', harness: 'pi'});
+    await db()
+      .update(sessions)
+      .set({claimedAt: sql`now() - interval '2 hours'`})
+      .where(inArray(sessions.id, [first.id, second.id]));
+
+    const found = await listStaleClaimedSessions({olderThanSeconds: 3600, limit: 1});
+
+    expect(found).toHaveLength(1);
+  });
+
+  it('excludes released sessions', async () => {
+    const ctx = newCtx();
+    const claimed = await claimSession({...ctx, harness: 'pi'});
+    await releaseSession({sessionId: claimed.id, stepAttemptId: ctx.stepAttemptId});
+
+    const found = await listStaleClaimedSessions({olderThanSeconds: 0, limit: 100});
+
+    expect(found.some((session) => session.id === claimed.id)).toBe(false);
   });
 });
 

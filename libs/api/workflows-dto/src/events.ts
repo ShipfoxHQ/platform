@@ -207,6 +207,11 @@ export const workflowsStepAttemptTerminatedSchema = z.object({
   // before the status field was added. New outbox events always include it.
   status: terminalStatusSchema.optional(),
   logOutcome: logOutcomeSchema,
+  // Optional so the subscriber can continue to consume terminal events written
+  // before the field was added. New outbox events always include the step-attempt
+  // id; consumers that need the exact attempt identity (e.g. session claim
+  // release) fall back to their reap sweep for pre-change rows.
+  stepAttemptId: nonEmptyStringSchema.optional(),
 });
 export type WorkflowsStepAttemptTerminatedEventDto = z.infer<
   typeof workflowsStepAttemptTerminatedSchema

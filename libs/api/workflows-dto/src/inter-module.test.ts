@@ -51,6 +51,9 @@ describe('workflowsInterModuleContract', () => {
   test('accepts the minimal Logs and agent-tools query payloads', () => {
     const stepId = '00000000-0000-4000-8000-000000000006';
     const logContext = workflowsInterModuleContract.methods.getStepLogContext.input.parse({stepId});
+    const jobAttempts = workflowsInterModuleContract.methods.listJobStepAttempts.input.parse({
+      jobId: '00000000-0000-4000-8000-000000000010',
+    });
     const agentTools = workflowsInterModuleContract.methods.getLeasedAgentToolContext.input.parse({
       jobId: '00000000-0000-4000-8000-000000000007',
       jobExecutionId: '00000000-0000-4000-8000-000000000008',
@@ -60,6 +63,7 @@ describe('workflowsInterModuleContract', () => {
     });
 
     expect(logContext).toEqual({stepId});
+    expect(jobAttempts).toEqual({jobId: '00000000-0000-4000-8000-000000000010'});
     expect(agentTools.attempt).toBe(1);
   });
 

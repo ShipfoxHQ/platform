@@ -1,5 +1,5 @@
 import type {Harness} from '@shipfox/api-agent-dto';
-import {and, eq, sql} from 'drizzle-orm';
+import {and, eq, inArray, sql} from 'drizzle-orm';
 import type {AgentSession} from '#core/entities/agent-session.js';
 import {
   AgentSessionCarryOverConflictError,
@@ -15,7 +15,7 @@ import {type AgentSessionDb, sessions, toAgentSession} from './schema/sessions.j
 const AGENT_SESSION_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 const AGENT_SESSION_CLAIM_LOCK_PREFIX = 'agent-session-claim:';
 
-function assertValidSessionKey(key: unknown): asserts key is string {
+export function assertValidSessionKey(key: unknown): asserts key is string {
   if (typeof key !== 'string' || !AGENT_SESSION_KEY_PATTERN.test(key)) {
     throw new AgentSessionKeyInvalidError();
   }
@@ -228,6 +228,77 @@ export async function releaseSession(params: {
     .returning({id: sessions.id});
 
   return rows.length > 0;
+}
+
+/**
+ * Reads the session for a run attempt and resolved key without claiming it.
+ * `fork` mode uses this: it never claims and never writes back, so the caller
+ * only needs whatever head exists (or nothing, for a fresh ephemeral run).
+ */
+export async function getSessionByRunAttemptAndKey(params: {
+  workflowRunAttemptId: string;
+  key: string;
+}): Promise<AgentSession | undefined> {
+  const [row] = await db()
+    .select()
+    .from(sessions)
+    .where(
+      and(
+        eq(sessions.workflowRunAttemptId, params.workflowRunAttemptId),
+        eq(sessions.key, params.key),
+      ),
+    )
+    .limit(1);
+  return row ? toAgentSession(row) : undefined;
+}
+
+/**
+ * Releases every claim held by the given step attempts, in one statement, and
+ * returns how many claims were cleared. The `claimed_by_step_attempt` guard is
+ * inherent: a row whose claim another attempt just took is untouched, so a
+ * stale termination event can never steal a claim. Empty input releases
+ * nothing.
+ */
+export async function releaseSessionClaimsHeldByStepAttempts(
+  stepAttemptIds: string[],
+): Promise<number> {
+  if (stepAttemptIds.length === 0) return 0;
+
+  const rows = await db()
+    .update(sessions)
+    .set({
+      claimedByStepAttempt: null,
+      claimedAt: null,
+      updatedAt: sql`now()`,
+      version: sql`${sessions.version} + 1`,
+    })
+    .where(inArray(sessions.claimedByStepAttempt, stepAttemptIds))
+    .returning({id: sessions.id});
+
+  return rows.length;
+}
+
+/**
+ * Lists sessions whose claim has been held longer than `olderThanSeconds`
+ * without a release. The reap cron's bounded sweep: a claim older than the
+ * job-lease TTL can no longer be live, so clearing it is safe. Bounded per
+ * tick; remaining stale claims are picked up on the next cron run.
+ */
+export async function listStaleClaimedSessions(params: {
+  olderThanSeconds: number;
+  limit: number;
+}): Promise<AgentSession[]> {
+  const rows = await db()
+    .select()
+    .from(sessions)
+    .where(
+      and(
+        sql`${sessions.claimedByStepAttempt} is not null`,
+        sql`${sessions.claimedAt} < now() - make_interval(secs => ${params.olderThanSeconds})`,
+      ),
+    )
+    .limit(params.limit);
+  return rows.map(toAgentSession);
 }
 
 /**

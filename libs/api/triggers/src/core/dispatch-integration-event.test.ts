@@ -19,6 +19,7 @@ const workflows = {
   resolveWorkflowRunTriggerReference: (...args: unknown[]) =>
     resolveWorkflowRunTriggerReference(...args),
   getStepLogContext: async () => ({harness: 'pi' as const}),
+  listJobStepAttempts: async () => ({stepAttemptIds: []}),
   getLeasedAgentToolContext: async () => ({
     workspaceId: crypto.randomUUID(),
     integrations: [],

@@ -197,6 +197,7 @@ export async function bulkUpdateStepStatuses(
       ),
     )
     .returning({
+      id: stepAttempts.id,
       stepId: stepAttempts.stepId,
       attempt: stepAttempts.attempt,
       logOutcome: stepAttempts.logOutcome,
@@ -205,6 +206,7 @@ export async function bulkUpdateStepStatuses(
   if (finalizedAttempts.length > 0) {
     for (const attempt of finalizedAttempts) {
       await writeStepAttemptTerminatedOutbox(tx, {
+        stepAttemptId: attempt.id,
         stepId: attempt.stepId,
         attempt: attempt.attempt,
         status: params.status,
@@ -459,6 +461,7 @@ export async function finishStepAttempt(params: FinishStepAttemptParams, tx: Tx)
       ),
     )
     .returning({
+      id: stepAttempts.id,
       stepId: stepAttempts.stepId,
       attempt: stepAttempts.attempt,
       logOutcome: stepAttempts.logOutcome,
@@ -468,6 +471,7 @@ export async function finishStepAttempt(params: FinishStepAttemptParams, tx: Tx)
   if (!row) return;
 
   await writeStepAttemptTerminatedOutbox(tx, {
+    stepAttemptId: row.id,
     stepId: row.stepId,
     attempt: row.attempt,
     status: params.status,

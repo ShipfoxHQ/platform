@@ -21,6 +21,7 @@ import {
 const mocks = vi.hoisted(() => ({
   deliverEventToListener: vi.fn(),
   getJobScope: vi.fn(),
+  getStepAttempts: vi.fn(),
   getStepById: vi.fn(),
   getStepByIdForJobExecution: vi.fn(),
 }));
@@ -47,10 +48,33 @@ const input = {
 describe('Workflows inter-module presentation', () => {
   beforeEach(() => {
     mocks.getJobScope.mockReset();
+    mocks.getStepAttempts.mockReset();
     mocks.getStepById.mockReset();
     mocks.getStepByIdForJobExecution.mockReset();
     mocks.deliverEventToListener.mockReset();
     mocks.deliverEventToListener.mockResolvedValue({buffered: true, skipped: false});
+  });
+
+  it('returns the step attempt ids of a job for the session release sweep', async () => {
+    const stepAttemptId = '00000000-0000-4000-8000-000000000010';
+    mocks.getStepAttempts.mockResolvedValue([{id: stepAttemptId}]);
+    const presentation = createWorkflowsInterModulePresentation({
+      agent: {} as never,
+      definitions: {} as never,
+      integrations: {} as never,
+      projects: {} as never,
+      runners: {} as never,
+      secrets: {} as never,
+      workspaces: {getWorkspaceOperatingState: vi.fn()} as never,
+    });
+
+    const result = await presentation.handlers.listJobStepAttempts(
+      {jobId: '00000000-0000-4000-8000-000000000006'},
+      {signal: new AbortController().signal},
+    );
+
+    expect(mocks.getStepAttempts).toHaveBeenCalledWith('00000000-0000-4000-8000-000000000006');
+    expect(result).toEqual({stepAttemptIds: [stepAttemptId]});
   });
 
   it('returns only the resolved harness for Logs', async () => {

@@ -32,7 +32,7 @@ import {
 } from '#core/index.js';
 import {resolveWorkflowRunTriggerReference} from '#core/resolve-trigger-reference.js';
 import {assertWorkspaceAdmitsNewJobs} from '#core/workspace-admission.js';
-import {getJobScope, getStepById, getStepByIdForJobExecution} from '#db/index.js';
+import {getJobScope, getStepAttempts, getStepById, getStepByIdForJobExecution} from '#db/index.js';
 import {deliverEventToListener} from '#db/job-listener-events.js';
 
 type WorkspaceAdmissionKnownError = InterModuleKnownErrorFor<
@@ -150,6 +150,10 @@ export function createWorkflowsInterModulePresentation(params: {
       const step = await getStepById(stepId);
       const parsed = harnessSchema.safeParse(step?.config.harness);
       return {harness: parsed.success ? parsed.data : DEFAULT_HARNESS};
+    },
+    listJobStepAttempts: async ({jobId}) => {
+      const attempts = await getStepAttempts(jobId);
+      return {stepAttemptIds: attempts.map((attempt) => attempt.id)};
     },
     getLeasedAgentToolContext: async (input) => {
       const method = workflowsInterModuleContract.methods.getLeasedAgentToolContext;

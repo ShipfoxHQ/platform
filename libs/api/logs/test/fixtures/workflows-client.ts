@@ -13,6 +13,7 @@ export function createTestWorkflowsClient(): WorkflowsModuleClient {
       resolveWorkflowRunTriggerReference: vi.fn(),
       deliverEventToJobListener: vi.fn(),
       getStepLogContext: () => ({harness: 'pi' as const}),
+      listJobStepAttempts: vi.fn(),
       getLeasedAgentToolContext: vi.fn(),
     }),
   }).workflows;

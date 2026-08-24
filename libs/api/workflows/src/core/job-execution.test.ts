@@ -1195,6 +1195,7 @@ describe('step attempts', () => {
         attempt: 1,
         status: 'failed',
         logOutcome: 'abandoned',
+        stepAttemptId: expect.any(String),
       },
     ]);
   });

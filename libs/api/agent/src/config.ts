@@ -59,6 +59,14 @@ export const config = createConfig({
     desc: 'Enables Pi web search tools when pi-web-access is enabled. Set it to false to disable web_search and get_search_content while keeping fetch_content available.',
     default: true,
   }),
+  AGENT_SESSION_CLOSE_GRACE_SECONDS: num({
+    desc: 'How long to wait after a job reaches a terminal state before force-releasing any agent session claims its steps still hold (a runner that died before reporting, a lost termination event). The wait lets a last in-flight attempt report and release its own claim. Defaults to 120 seconds.',
+    default: 120,
+  }),
+  AGENT_SESSION_REAP_AFTER_SECONDS: num({
+    desc: 'How long a session claim may be held before the reaper cron force-releases it as abandoned. This is the backstop for claims the termination subscribers never cleared; a claim older than the Auth job lease lifetime can no longer be live. The application validates that this exceeds the Auth job lease lifetime. Defaults to 7200 seconds (2 hours).',
+    default: 7200,
+  }),
 });
 
 export const workspaceProvidersPolicy =
@@ -108,6 +116,17 @@ export function assertAgentConfig(managedProvider?: ManagedModelProvider): void 
   throw new Error(
     'AGENT_DEFAULT_PROVIDER_API_KEY requires AGENT_DEFAULT_PROVIDER to use exactly one secret api_key credential field.',
   );
+}
+
+export function validateAgentSessionReapAfterSeconds(jobLeaseTokenTtlSeconds: number): void {
+  if (
+    !Number.isFinite(config.AGENT_SESSION_REAP_AFTER_SECONDS) ||
+    config.AGENT_SESSION_REAP_AFTER_SECONDS <= jobLeaseTokenTtlSeconds
+  ) {
+    throw new Error(
+      `AGENT_SESSION_REAP_AFTER_SECONDS (${config.AGENT_SESSION_REAP_AFTER_SECONDS}) must be greater than the Auth job lease TTL (${jobLeaseTokenTtlSeconds}s); a smaller value would let the reaper release a claim a still-valid lease is actively running and break single-writer exclusivity.`,
+    );
+  }
 }
 
 function isRegisteredProvider(
