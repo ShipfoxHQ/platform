@@ -1019,7 +1019,11 @@ const MAX_SESSION_SHARING_PAIR_EVALUATIONS = 100_000;
 // Each session-key group is examined up to a fixed step window so one large
 // degenerate group cannot monopolize the pair budget and starve later keys;
 // at most one issue is reported per code per key, so the earliest conflict in
-// the examined window is the one that matters.
+// the examined window is the one that matters. The window always retains the
+// first step of each distinct job and one step per distinct declared harness
+// before it fills with the earliest remaining steps (see
+// selectSessionSharingWindow), so a job holding many serial steps cannot push
+// another job's sharing step -- or a divergent harness -- out of the window.
 const MAX_SESSION_SHARING_STEPS_PER_KEY = 100;
 
 // Context roots whose value is fixed per run. A session key built only from
@@ -1052,8 +1056,10 @@ const RUN_GLOBAL_SESSION_KEY_CONTEXT_ROOTS = new Set<string>([
 // and a later key is never skipped because unrelated pairs consumed the
 // budget; the run-global-only classification is memoized per keySource. At
 // most one issue is reported per session key per code, each group is examined
-// up to a fixed step window, and the whole pass stops after a fixed pair
-// budget, so large documents stay bounded.
+// up to a fixed step window that always retains the first step of each
+// distinct job and one step per distinct declared harness, and the whole pass
+// stops after a fixed pair budget, so large documents stay bounded and long
+// serial runs cannot hide sharing conflicts.
 function validateAgentSessionSharing(
   document: WorkflowDocument,
   issues: WorkflowModelValidationIssue[],
@@ -1100,10 +1106,12 @@ function validateAgentSessionSharing(
   // Group eligible steps by keySource so pairs are only ever evaluated inside
   // one key group: the pair budget then counts relevant work only and cannot
   // be exhausted by unrelated (different-key) pairs before later identical
-  // keys are examined. Each group keeps its first
-  // MAX_SESSION_SHARING_STEPS_PER_KEY steps, so a single degenerate group
-  // cannot starve every later key either. Keys that reference per-job context
-  // resolve per job and stay out.
+  // keys are examined. Each group is then cut to a fixed window (see
+  // selectSessionSharingWindow) that always keeps the first step of each
+  // distinct job and one step per distinct declared harness, so a single
+  // degenerate group cannot starve every later key and a long serial job
+  // cannot hide another job's sharing step behind the window. Keys that
+  // reference per-job context resolve per job and stay out.
   const stepsByKeySource = new Map<string, SessionSharingStep[]>();
   for (const step of steps) {
     if (sessionFieldIssueSteps.has(sessionStepPathKey(step))) continue;
@@ -1113,9 +1121,7 @@ function validateAgentSessionSharing(
       group = [];
       stepsByKeySource.set(step.keySource, group);
     }
-    if (group.length < MAX_SESSION_SHARING_STEPS_PER_KEY) {
-      group.push(step);
-    }
+    group.push(step);
   }
 
   const ancestorsByJobName = new Map<string, ReadonlySet<string>>();
@@ -1123,7 +1129,8 @@ function validateAgentSessionSharing(
   const harnessMismatchReportedKeys = new Set<string>();
   let evaluatedPairs = 0;
 
-  for (const [keySource, group] of stepsByKeySource) {
+  for (const [keySource, sharingSteps] of stepsByKeySource) {
+    const group = selectSessionSharingWindow(sharingSteps);
     for (let index = 1; index < group.length; index += 1) {
       // At most one issue per key per code; nothing left to report for keys
       // that already produced both.
@@ -1209,6 +1216,48 @@ function validateAgentSessionSharing(
 
 function sessionStepPathKey(step: SessionSharingStep): string {
   return `${step.jobName}\u0000${step.stepIndex}`;
+}
+
+// Cuts a session-key group to the fixed step window while always retaining
+// the first step of each distinct job and one step per distinct declared
+// harness, then fills the remainder with the earliest steps in document
+// order. Without the job retention, one job holding more than
+// MAX_SESSION_SHARING_STEPS_PER_KEY serial steps would fill the window and
+// silently drop another job's sharing step, skipping a real parallel-resume
+// or harness conflict; without the harness retention, a single divergent
+// harness step could sit beyond the window and evade
+// agent-session-harness-mismatch. Documents where more than the window of
+// distinct jobs share one key remain bounded: the earliest conflict, which is
+// always between the first two jobs retained, is still reported.
+function selectSessionSharingWindow(steps: readonly SessionSharingStep[]): SessionSharingStep[] {
+  const window: SessionSharingStep[] = [];
+  const jobsInWindow = new Set<string>();
+  const harnessesInWindow = new Set<string>();
+  const inWindow = new Set<SessionSharingStep>();
+
+  const add = (step: SessionSharingStep): void => {
+    if (window.length >= MAX_SESSION_SHARING_STEPS_PER_KEY || inWindow.has(step)) return;
+    inWindow.add(step);
+    window.push(step);
+    if (step.harness !== undefined) harnessesInWindow.add(step.harness);
+  };
+
+  for (const step of steps) {
+    if (jobsInWindow.has(step.jobName)) continue;
+    jobsInWindow.add(step.jobName);
+    add(step);
+  }
+
+  for (const step of steps) {
+    if (step.harness === undefined || harnessesInWindow.has(step.harness)) continue;
+    add(step);
+  }
+
+  for (const step of steps) {
+    add(step);
+  }
+
+  return window;
 }
 
 // Only templates built from run-global context (or pure literals) resolve

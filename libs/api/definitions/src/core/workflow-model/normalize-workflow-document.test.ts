@@ -1143,10 +1143,26 @@ describe('normalizeWorkflowDocument', () => {
     });
 
     it('still examines a shared key after many unrelated session keys', () => {
-      const jobs: Record<string, {steps: {key: string; prompt: string; session: string}[]}> = {};
+      // Each unrelated key is shared by two jobs so the pairs are evaluated
+      // and count against MAX_SESSION_SHARING_PAIR_EVALUATIONS; a single-step
+      // key never forms a pair and would leave the pair budget untouched. The
+      // second job needs the first so the pairs stay conflict-free and the
+      // only issue is the shared key that is examined last.
+      const jobs: Record<
+        string,
+        {steps: {key: string; prompt: string; session: string}[]; needs?: string}
+      > = {};
       for (let index = 0; index < 500; index += 1) {
-        jobs[`job_${index}`] = {
-          steps: [{key: `step_${index}`, prompt: `Prompt ${index}.`, session: `session_${index}`}],
+        jobs[`job_${index}_a`] = {
+          steps: [
+            {key: `step_${index}_a`, prompt: `Prompt ${index}.`, session: `session_${index}`},
+          ],
+        };
+        jobs[`job_${index}_b`] = {
+          needs: `job_${index}_a`,
+          steps: [
+            {key: `step_${index}_b`, prompt: `Prompt ${index}.`, session: `session_${index}`},
+          ],
         };
       }
       jobs.triage = {steps: [{key: 'triage', prompt: 'Triage.', session: 'main'}]};
