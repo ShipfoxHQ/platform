@@ -468,6 +468,31 @@ describe('workspace checklist hosts', () => {
     expect(screen.queryByText("You're set up")).not.toBeInTheDocument();
   });
 
+  test('does not let a failed optional family block visible completion', async () => {
+    const queryClient = createQueryClient();
+    configureApiClient({
+      baseUrl: 'https://api.example.test',
+      fetchImpl: vi.fn(() => Promise.reject(new Error('optional request failed'))),
+    });
+    queryClient.setQueryData(integrationProvidersQueryOptions().queryKey, [
+      githubProvider,
+      linearProvider,
+    ]);
+    queryClient.setQueryData(integrationConnectionsQueryOptions(WORKSPACE.id).queryKey, [
+      connection('github', 'active'),
+      connection('linear', 'active'),
+    ]);
+
+    renderWithProviders(<WorkspaceSetupChecklist workspace={WORKSPACE} />, queryClient, {
+      capture: vi.fn(),
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status', {name: 'Loading setup guide'})).not.toBeInTheDocument();
+      expect(screen.queryByRole('region', {name: 'Get started'})).not.toBeInTheDocument();
+    });
+  });
+
   test('does not render an initially complete checklist without a transition', async () => {
     const queryClient = createQueryClient();
     seedQueries(queryClient, true);

@@ -83,6 +83,7 @@ export function useSetupChecklistQueryState(
   });
 
   const baseSettled = isSettled(providersQuery) && isSettled(connectionsQuery);
+  const runnerSettled = isSettled(activeProvisionersQuery) && isSettled(runnersStatusQuery);
   const runnerReady = activeProvisionersQuery.isSuccess && runnersStatusQuery.isSuccess;
   const catalogInstallationProvided =
     catalogQuery.data !== undefined &&
@@ -90,12 +91,14 @@ export function useSetupChecklistQueryState(
       catalogQuery.data.instanceDefaultProviderId !== null);
   const modelReady = catalogQuery.isSuccess && configsQuery.isSuccess;
   const membersReady = membersQuery.isSuccess && invitationsQuery.isSuccess;
+  const modelSettled = isSettled(catalogQuery) && isSettled(configsQuery);
+  const membersSettled = isSettled(membersQuery) && isSettled(invitationsQuery);
   const completionReady =
     providersQuery.isSuccess &&
     connectionsQuery.isSuccess &&
-    runnerReady &&
-    modelReady &&
-    membersReady;
+    runnerSettled &&
+    modelSettled &&
+    membersSettled;
 
   const rawChecklist = deriveSetupChecklist({
     readiness: deriveIntegrationReadiness({
