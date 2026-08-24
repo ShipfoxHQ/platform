@@ -3,9 +3,9 @@ import {createWorkflowModelSnapshot, type WorkflowModel} from '@shipfox/api-defi
 import type {DefinitionsInterModuleClient} from '@shipfox/api-definitions-dto/inter-module';
 import {agentValidationCatalog} from '#test/fixtures/agent-inter-module.js';
 import {workflowModel} from '#test/index.js';
-import type {TriggerPayload} from './entities/workflow-run.js';
+import type {TriggerPayload, WorkflowRunDevSource} from './entities/workflow-run.js';
 import {DefinitionNotFoundError, ProjectMismatchError} from './errors.js';
-import {runWorkflow} from './run-workflow.js';
+import {runDevWorkflow, runWorkflow} from './run-workflow.js';
 
 const mockResolveAgentConfig = vi.hoisted(() =>
   vi.fn().mockResolvedValue({
@@ -246,5 +246,104 @@ describe('runWorkflow', () => {
     });
 
     expect(run.inputs).toEqual({env: 'staging'});
+  });
+});
+
+describe('runDevWorkflow', () => {
+  let workspaceId: string;
+  let projectId: string;
+  const agent: AgentInterModuleClient = {
+    getValidationCatalog: vi.fn().mockResolvedValue(agentValidationCatalog),
+    resolveAgentConfig: mockResolveAgentConfig,
+    resolveRuntimeCredentials: vi.fn(),
+  };
+
+  beforeEach(() => {
+    workspaceId = crypto.randomUUID();
+    projectId = crypto.randomUUID();
+    mockResolveAgentConfig.mockClear();
+  });
+
+  const devSource: WorkflowRunDevSource = {
+    ref: 'fix-triage-prompt',
+    commit: 'a'.repeat(40),
+    configPath: '.shipfox/workflows/triage-sentry.yml',
+    initiatedByUserId: crypto.randomUUID(),
+    replayOfEventId: null,
+  };
+
+  function devPayload(): TriggerPayload {
+    return {source: 'manual', event: 'fire', userId: crypto.randomUUID()};
+  }
+
+  function buildDevRun(workflowId: string, triggerPayload: TriggerPayload = devPayload()) {
+    return runDevWorkflow(agent, {
+      workspaceId,
+      projectId,
+      workflowId,
+      model: createWorkflowModelSnapshot(workflowModel({name: 'Dev Workflow'})),
+      sourceSnapshot: {content: 'name: Dev Workflow\n', format: 'yaml'},
+      devSource,
+      triggerPayload,
+    });
+  }
+
+  test('creates a dev run with the lineage id as definition_id and dev provenance', async () => {
+    const workflowId = crypto.randomUUID();
+    const triggerPayload = devPayload();
+    const run = await buildDevRun(workflowId, triggerPayload);
+
+    expect(run.definitionId).toBe(workflowId);
+    expect(run.origin).toBe('dev');
+    expect(run.devSource).toEqual(devSource);
+    expect(run.name).toBe('Dev Workflow');
+    expect(run.workflowName).toBe('Dev Workflow');
+    expect(run.sourceSnapshot).toEqual({content: 'name: Dev Workflow\n', format: 'yaml'});
+    expect(run.triggerPayload).toEqual(triggerPayload);
+    expect(run.triggerIdempotencyKey).toBeNull();
+  });
+
+  test('continues the lineage number sequence across dev and synced runs of one workflow file', async () => {
+    const workflowId = crypto.randomUUID();
+    // The file exists on the branch only: the dev run opens the sequence.
+    const devRun = await buildDevRun(workflowId);
+    expect(devRun.number).toBe(1);
+
+    // After merge, the synced run of the same lineage continues the sequence.
+    const definition = buildDefinition({
+      projectId,
+      id: crypto.randomUUID(),
+      workflowId,
+      model: workflowModel({name: 'Dev Workflow'}),
+    });
+    definitionResponse = definition;
+    const syncedRun = await runWorkflow(definitions, {
+      workspaceId,
+      projectId,
+      definitionId: definition.id,
+      triggerPayload: manualPayload(),
+      agent,
+    });
+    expect(syncedRun.definitionId).toBe(workflowId);
+    expect(syncedRun.origin).toBe('synced');
+    expect(syncedRun.number).toBe(2);
+
+    // And a later dev run of the same file keeps the sequence going.
+    const secondDevRun = await buildDevRun(workflowId);
+    expect(secondDevRun.number).toBe(3);
+  });
+
+  test('accepts a manual payload without a subscription id, as a dev trigger has no row', async () => {
+    const workflowId = crypto.randomUUID();
+    const triggerPayload = {
+      source: 'manual' as const,
+      event: 'fire' as const,
+      userId: crypto.randomUUID(),
+    };
+    const run = await buildDevRun(workflowId, triggerPayload);
+
+    expect(run.triggerProvider).toBeNull();
+    expect(run.triggerSource).toBe('manual');
+    expect(run.triggerPayload).toEqual(triggerPayload);
   });
 });

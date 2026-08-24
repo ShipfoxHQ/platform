@@ -58,14 +58,16 @@ export type TriggerPayload =
       source: 'manual';
       provider?: 'manual' | undefined;
       event: 'fire';
-      subscriptionId: string;
+      // A dev trigger has no subscription row, so the id is optional here.
+      subscriptionId?: string | undefined;
       userId: string;
     }
   | {
       source: 'cron';
       provider?: 'cron' | undefined;
       event: 'tick';
-      scheduleId: string;
+      // A dev trigger has no schedule row, so the id is optional here.
+      scheduleId?: string | undefined;
     }
   // Integration sources (github, gitlab, sentry, …) flow through opaquely: the
   // run records what fired it and carries the raw event payload, without the

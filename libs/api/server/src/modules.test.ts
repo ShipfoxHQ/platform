@@ -246,6 +246,7 @@ describe('defaultModules', () => {
             getLeasedAgentToolContext: vi.fn(),
             getStepLogContext: vi.fn(),
             resolveWorkflowRunTriggerReference: vi.fn(),
+            startDevRun: vi.fn(),
             startRunFromTrigger: vi.fn(),
           },
         },

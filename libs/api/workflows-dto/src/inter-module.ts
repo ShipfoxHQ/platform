@@ -1,4 +1,5 @@
 import {harnessSchema, materializedAgentIntegrationSchema} from '@shipfox/api-agent-dto';
+import {workflowModelSnapshotSchema} from '@shipfox/api-definitions-dto';
 import {defineInterModuleContract, type InterModuleClient} from '@shipfox/inter-module';
 import {z} from 'zod';
 
@@ -15,14 +16,18 @@ const triggerPayloadSchema = z.union([
     provider: z.literal('manual').optional(),
     source: z.literal('manual'),
     event: z.literal('fire'),
-    subscriptionId: idSchema,
+    // A dev trigger has no subscription row, so the id is optional here. Manual
+    // fires from a subscription keep sending it.
+    subscriptionId: idSchema.optional(),
     userId: idSchema,
   }),
   z.object({
     provider: z.literal('cron').optional(),
     source: z.literal('cron'),
     event: z.literal('tick'),
-    scheduleId: idSchema,
+    // A dev trigger has no schedule row, so the id is optional here. Cron fires
+    // from a schedule keep sending it.
+    scheduleId: idSchema.optional(),
   }),
   z.object({
     provider: z.string(),
@@ -78,6 +83,41 @@ export const workflowsInterModuleContract = defineInterModuleContract({
         'workspace-deleted': z.object({workspaceId: idSchema}),
         'definition-not-found': z.object({definitionId: idSchema}),
         'project-mismatch': z.object({}),
+        'agent-config-unresolvable': z.object({definitionId: idSchema}),
+        'agent-integration-materialization-failed': z.object({}),
+        'interpolation-unresolvable': z.object({
+          definitionId: idSchema,
+          field: interpolationFieldSchema,
+          source: z.string(),
+          envKey: z.string().optional(),
+        }),
+        'invalid-job-runner-labels': z.object({labels: z.array(z.string())}),
+      },
+    },
+    startDevRun: {
+      input: z.object({
+        workspaceId: idSchema,
+        projectId: idSchema,
+        // Workflow lineage id, becomes the run's definition_id.
+        workflowId: idSchema,
+        model: workflowModelSnapshotSchema,
+        sourceSnapshot: z.object({content: z.string(), format: z.literal('yaml')}),
+        devSource: z.object({
+          ref: z.string().min(1).max(256),
+          commit: z.string().min(1).max(64),
+          configPath: z.string().min(1).max(1024),
+          initiatedByUserId: idSchema,
+          replayOfEventId: idSchema.optional(),
+        }),
+        triggerConnectionId: idSchema.optional(),
+        triggerPayload: triggerPayloadSchema,
+        inputs: z.record(z.string(), z.unknown()).optional(),
+      }),
+      output: z.object({id: idSchema, name: z.string()}),
+      errors: {
+        'workspace-not-found': z.object({workspaceId: idSchema}),
+        'workspace-suspended': z.object({workspaceId: idSchema}),
+        'workspace-deleted': z.object({workspaceId: idSchema}),
         'agent-config-unresolvable': z.object({definitionId: idSchema}),
         'agent-integration-materialization-failed': z.object({}),
         'interpolation-unresolvable': z.object({

@@ -27,6 +27,7 @@ import {
   DefinitionNotFoundError,
   InterpolationUnresolvableError,
   ProjectMismatchError,
+  runDevWorkflow,
   runWorkflow,
 } from '#core/index.js';
 import {resolveWorkflowRunTriggerReference} from '#core/resolve-trigger-reference.js';
@@ -70,6 +71,34 @@ export function createWorkflowsInterModulePresentation(params: {
         return {id: run.id, name: run.name};
       } catch (error) {
         throw toStartRunKnownError(error, input.definitionId);
+      }
+    },
+    startDevRun: async (input) => {
+      try {
+        await assertWorkspaceAdmitsNewJobs(params.workspaces, input.workspaceId);
+        const run = await runDevWorkflow(
+          params.agent,
+          {
+            workspaceId: input.workspaceId,
+            projectId: input.projectId,
+            workflowId: input.workflowId,
+            model: input.model,
+            sourceSnapshot: input.sourceSnapshot,
+            devSource: {
+              ...input.devSource,
+              replayOfEventId: input.devSource.replayOfEventId ?? null,
+            },
+            triggerPayload: input.triggerPayload,
+            triggerConnectionId: input.triggerConnectionId,
+            inputs: input.inputs,
+            integrations: params.integrations,
+            projects: params.projects,
+          },
+          {secrets: params.secrets},
+        );
+        return {id: run.id, name: run.name};
+      } catch (error) {
+        throw toStartDevRunKnownError(error);
       }
     },
     resolveWorkflowRunTriggerReference: async (input) =>
@@ -158,14 +187,29 @@ export function createWorkflowsInterModulePresentation(params: {
 
 export function toStartRunKnownError(error: unknown, definitionId: string): unknown {
   const method = workflowsInterModuleContract.methods.startRunFromTrigger;
-  const workspaceError = toWorkspaceAdmissionKnownError(method, error);
-  if (workspaceError !== undefined) return workspaceError;
+  const mapped = toRunCreationKnownError(method, error);
+  if (mapped !== undefined) return mapped;
   if (error instanceof DefinitionNotFoundError) {
     return createInterModuleKnownError(method, 'definition-not-found', {definitionId});
   }
   if (error instanceof ProjectMismatchError) {
     return createInterModuleKnownError(method, 'project-mismatch', {});
   }
+  return error;
+}
+
+export function toStartDevRunKnownError(error: unknown): unknown {
+  return toRunCreationKnownError(workflowsInterModuleContract.methods.startDevRun, error) ?? error;
+}
+
+function toRunCreationKnownError(
+  method:
+    | typeof workflowsInterModuleContract.methods.startRunFromTrigger
+    | typeof workflowsInterModuleContract.methods.startDevRun,
+  error: unknown,
+): unknown {
+  const workspaceError = toWorkspaceAdmissionKnownError(method, error);
+  if (workspaceError !== undefined) return workspaceError;
   if (error instanceof AgentConfigUnresolvableError) {
     return createInterModuleKnownError(method, 'agent-config-unresolvable', {
       definitionId: error.definitionId,
@@ -187,12 +231,13 @@ export function toStartRunKnownError(error: unknown, definitionId: string): unkn
       labels: [...error.labels],
     });
   }
-  return error;
+  return undefined;
 }
 
 function toWorkspaceAdmissionKnownError(
   method:
     | typeof workflowsInterModuleContract.methods.startRunFromTrigger
+    | typeof workflowsInterModuleContract.methods.startDevRun
     | typeof workflowsInterModuleContract.methods.deliverEventToJobListener,
   error: unknown,
 ): WorkspaceAdmissionKnownError | undefined {

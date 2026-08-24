@@ -87,6 +87,54 @@ describe('workflow run queries', () => {
         .where(eq(workflowRuns.id, run.id));
     });
 
+    test('persists a dev origin with its dev source', async () => {
+      const devSource = {
+        ref: 'fix-triage-prompt',
+        commit: 'a'.repeat(40),
+        configPath: '.shipfox/workflows/triage-sentry.yml',
+        initiatedByUserId: crypto.randomUUID(),
+        replayOfEventId: null,
+      };
+      const run = await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId,
+        model: buildModel(),
+        triggerPayload: {
+          source: 'manual',
+          event: 'fire',
+          userId: crypto.randomUUID(),
+        },
+        origin: 'dev',
+        devSource,
+      });
+
+      expect(run.origin).toBe('dev');
+      expect(run.devSource).toEqual(devSource);
+      await expect(getWorkflowRunById(run.id)).resolves.toMatchObject({
+        origin: 'dev',
+        devSource,
+      });
+      // The persisted jsonb carries snake_case keys, matching the read boundary.
+      await expect(
+        db()
+          .select({origin: workflowRuns.origin, devSource: workflowRuns.devSource})
+          .from(workflowRuns)
+          .where(eq(workflowRuns.id, run.id)),
+      ).resolves.toEqual([
+        {
+          origin: 'dev',
+          devSource: {
+            ref: devSource.ref,
+            commit: devSource.commit,
+            config_path: devSource.configPath,
+            initiated_by_user_id: devSource.initiatedByUserId,
+            replay_of_event_id: devSource.replayOfEventId,
+          },
+        },
+      ]);
+    });
+
     test('persists normalized integration trigger facts alongside the payload', async () => {
       const triggerConnectionId = crypto.randomUUID();
       const integrations = {

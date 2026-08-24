@@ -1,12 +1,17 @@
 import type {AgentInterModuleClient} from '@shipfox/api-agent-dto/inter-module';
-import {workflowModelFromSnapshot} from '@shipfox/api-definitions-dto';
+import {type WorkflowModelSnapshot, workflowModelFromSnapshot} from '@shipfox/api-definitions-dto';
 import type {DefinitionsInterModuleClient} from '@shipfox/api-definitions-dto/inter-module';
 import type {IntegrationsModuleClient} from '@shipfox/api-integration-core-dto/inter-module';
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import type {SecretsInterModuleClient} from '@shipfox/api-secrets-dto/inter-module';
 import {createWorkflowRun} from '#db/workflow-runs.js';
 import {createAgentDefaultsResolver} from './agent-defaults.js';
-import type {TriggerPayload, WorkflowRun} from './entities/workflow-run.js';
+import type {
+  TriggerPayload,
+  WorkflowRun,
+  WorkflowRunDevSource,
+  WorkflowSourceSnapshot,
+} from './entities/workflow-run.js';
 import {DefinitionNotFoundError, ProjectMismatchError} from './errors.js';
 import {modelHasAgentStep} from './step-config/materialize-workflow-model.js';
 
@@ -52,6 +57,57 @@ export async function runWorkflow(
     inputs: params.inputs,
     sourceSnapshot: definition.sourceSnapshot,
     triggerIdempotencyKey: params.triggerIdempotencyKey,
+    resolveAgentDefaults,
+    secrets: options.secrets,
+    integrations: params.integrations,
+    projects: params.projects,
+  });
+}
+
+export interface RunDevWorkflowParams {
+  workspaceId: string;
+  projectId: string;
+  /** Workflow lineage id, becomes the run's definition_id. */
+  workflowId: string;
+  model: WorkflowModelSnapshot;
+  sourceSnapshot: WorkflowSourceSnapshot;
+  devSource: WorkflowRunDevSource;
+  triggerPayload: TriggerPayload;
+  triggerConnectionId?: string | undefined;
+  inputs?: Record<string, unknown> | undefined;
+  integrations?: IntegrationsModuleClient | undefined;
+  projects?: ProjectsModuleClient | undefined;
+}
+
+/**
+ * Creates a dev run from an inline model and snapshot. Unlike
+ * trigger-originated runs, dev runs do not carry an idempotency key because
+ * each call represents a distinct intent. The lineage id is used as the run's
+ * definition_id so dev runs share the workflow numbering sequence before and
+ * after the file merges.
+ */
+export function runDevWorkflow(
+  agent: AgentInterModuleClient,
+  params: RunDevWorkflowParams,
+  options: {secrets?: Pick<SecretsInterModuleClient, 'getVariablesByNamespace'>} = {},
+): Promise<WorkflowRun> {
+  const model = workflowModelFromSnapshot(params.model);
+  const resolveAgentDefaults = createAgentDefaultsResolver(
+    agent,
+    modelHasAgentStep(model) ? params.workspaceId : null,
+  );
+
+  return createWorkflowRun({
+    workspaceId: params.workspaceId,
+    projectId: params.projectId,
+    definitionId: params.workflowId,
+    model,
+    triggerPayload: params.triggerPayload,
+    triggerConnectionId: params.triggerConnectionId,
+    inputs: params.inputs,
+    sourceSnapshot: params.sourceSnapshot,
+    origin: 'dev',
+    devSource: params.devSource,
     resolveAgentDefaults,
     secrets: options.secrets,
     integrations: params.integrations,
