@@ -1192,6 +1192,47 @@ describe('workflow run queries', () => {
         expected: {field: 'step.working_directory', source: 'vars.REQUIRED'},
       },
       {
+        field: 'tool.with',
+        model: () =>
+          workflowModel({
+            name: 'Missing tool with var',
+            runner: 'ubuntu-latest',
+            jobs: {
+              build: {
+                steps: [
+                  {
+                    tool: 'get_issue',
+                    connection: 'linear-main',
+                    with: {id: template('vars.REQUIRED')},
+                  },
+                ],
+              },
+            },
+          }),
+        expected: {field: 'tool.with', source: 'vars.REQUIRED'},
+      },
+      {
+        field: 'tool.outputs',
+        model: () =>
+          workflowModel({
+            name: 'Missing tool output var',
+            runner: 'ubuntu-latest',
+            jobs: {
+              build: {
+                steps: [
+                  {
+                    tool: 'get_issue',
+                    connection: 'linear-main',
+                    with: {id: 'ENG-1'},
+                    outputs: {sev: template('vars.REQUIRED')},
+                  },
+                ],
+              },
+            },
+          }),
+        expected: {field: 'tool.outputs', envKey: 'sev', source: 'vars.REQUIRED'},
+      },
+      {
         field: 'checkout.repository',
         model: () =>
           workflowModel({

@@ -525,10 +525,18 @@ function normalizeStep(params: {
     params.typeOverlay !== undefined ||
     params.upstreamJobs.length > 0 ||
     params.toolOverlayByKey.size > 0;
+  // Compute the previous-steps overlay list once and reuse it in every typed
+  // environment for this step; the environments differ only in the extra
+  // roots (current step, upstream jobs, direct needs).
+  const previousStepsTypeOverlays = previousStepOverlays(
+    params.allSteps,
+    params.index,
+    params.toolOverlayByKey,
+  );
   const previousStepsOverlay = !shouldBuildTypeOverlay
     ? undefined
     : buildTypedRootsEnvironment({
-        steps: previousStepOverlays(params.allSteps, params.index, params.toolOverlayByKey),
+        steps: previousStepsTypeOverlays,
         ...(params.upstreamJobs.length === 0 ? {} : {jobs: params.upstreamJobs}),
       });
   const sourceLocation = params.stepSourceLocations?.get(params.sourceName)?.get(params.index);
@@ -579,12 +587,12 @@ function normalizeStep(params: {
   const typeOverlay = !shouldBuildTypeOverlay
     ? undefined
     : buildTypedRootsEnvironment({
-        steps: previousStepOverlays(params.allSteps, params.index, params.toolOverlayByKey),
+        steps: previousStepsTypeOverlays,
         ...(currentStepOverlay === undefined ? {} : {currentStep: currentStepOverlay}),
         ...(params.upstreamJobs.length === 0 ? {} : {jobs: params.upstreamJobs}),
       });
   const conditionTypeOverlay = buildTypedRootsEnvironment({
-    steps: previousStepOverlays(params.allSteps, params.index, params.toolOverlayByKey),
+    steps: previousStepsTypeOverlays,
     ...(currentStepOverlay === undefined ? {} : {currentStep: currentStepOverlay}),
     jobs: params.directNeedJobs,
     needs: params.directNeedJobs,

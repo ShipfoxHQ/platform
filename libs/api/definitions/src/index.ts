@@ -44,7 +44,6 @@ export {
   DEFAULT_JOB_CHECKOUT,
   DEFAULT_JOB_SUCCESS,
   DEFAULT_RUN_TIMEOUT_MS,
-  hasIntegrationToolReferences,
   normalizeWorkflowDocument,
 } from '#core/index.js';
 export {db, definitionsOutbox, getDefinitionById, migrationsPath} from '#db/index.js';

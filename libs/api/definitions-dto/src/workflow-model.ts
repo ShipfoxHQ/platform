@@ -271,6 +271,14 @@ export function workflowModelFromSnapshot(snapshot: WorkflowModelSnapshot): Work
     case 2:
     case 3:
       return snapshot.model;
+    default:
+      // Callers that bypass the zod boundary (or a future version) get a
+      // diagnostic naming the received version instead of a silent undefined.
+      throw new Error(
+        `Unsupported workflow model snapshot version ${String(
+          snapshot.version,
+        )}; supported versions are 2 and 3.`,
+      );
   }
 }
 

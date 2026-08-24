@@ -84,6 +84,8 @@ export type InterpolationUnresolvableField =
   | 'step.name'
   | 'step.working_directory'
   | 'step.feedback'
+  | 'tool.with'
+  | 'tool.outputs'
   | 'checkout.project'
   | 'checkout.connection'
   | 'checkout.repository'

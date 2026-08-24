@@ -410,6 +410,12 @@ function isPermissionScope(
   );
 }
 
+/**
+ * Model-level twin of `hasIntegrationToolReferences` in
+ * `libs/api/definitions/src/core/has-integration-tool-references.ts`, which
+ * runs the same criterion over the authored `WorkflowDocument` at sync time.
+ * Keep both in sync.
+ */
 function hasIntegrationToolReferences(
   model: WorkflowModel | null,
   jobs: readonly WorkflowModelJob[] | undefined,

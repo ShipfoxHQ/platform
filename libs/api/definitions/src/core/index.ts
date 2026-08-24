@@ -5,7 +5,6 @@ export {
   DefinitionParseError,
   DefinitionSyncPermanentError,
 } from './errors.js';
-export {hasIntegrationToolReferences} from './has-integration-tool-references.js';
 export {parseDefinition} from './parse-definition.js';
 export {
   type DefinitionAtRefFile,

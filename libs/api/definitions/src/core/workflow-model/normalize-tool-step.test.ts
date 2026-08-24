@@ -156,8 +156,11 @@ const integrationValidationContext = {
                 repo: {type: 'string'},
                 title: {type: 'string'},
                 labels: {type: 'array', items: {type: 'string'}},
+                // Mirror the real provider catalog: `method` is required but
+                // server-injected at dispatch, so authors must not set it.
+                method: {type: 'string'},
               },
-              required: ['owner', 'repo'],
+              required: ['owner', 'repo', 'method'],
               additionalProperties: false,
             },
             methods: [
@@ -354,6 +357,51 @@ describe('normalizeToolStep', () => {
     ]);
   });
 
+  it('rejects a multi-expression output mapping', () => {
+    const error = expectInvalid(
+      toolDocument(
+        toolStep({
+          key: 'issue',
+          tool: 'get_issue',
+          connection: 'linear-main',
+          with: {id: 'ENG-1'},
+          outputs: mappingOutputs({
+            x: '$' + '{{ result.identifier }} $' + '{{ result.description }}',
+          }),
+        }),
+      ),
+      {integrationValidationContext},
+    );
+
+    expect(error.issues).toEqual([
+      expect.objectContaining({
+        code: 'tool-input-invalid',
+        path: ['jobs', 'use', 'steps', 0, 'outputs', 'x'],
+      }),
+    ]);
+  });
+
+  it('accepts a vars-rooted output mapping', () => {
+    const model = normalize(
+      toolDocument(
+        toolStep({
+          key: 'issue',
+          tool: 'get_issue',
+          connection: 'linear-main',
+          with: {id: 'ENG-1'},
+          outputs: mappingOutputs({sev: '$' + '{{ vars.SEVERITY }}'}),
+        }),
+      ),
+      {integrationValidationContext},
+    );
+
+    const step = model.jobs[0]?.steps[0] as WorkflowModelToolStep;
+    expect(step.outputMappings?.sev).toMatchObject({
+      language: 'cel',
+      source: 'vars.SEVERITY',
+    });
+  });
+
   it('rejects a mapped output named result', () => {
     const error = expectInvalid(
       toolDocument(
@@ -526,6 +574,66 @@ describe('normalizeToolStep', () => {
     ]);
   });
 
+  it('rejects a method suffix on a tool without methods', () => {
+    const error = expectInvalid(
+      toolDocument(
+        toolStep({
+          tool: 'get_issue.get',
+          connection: 'linear-main',
+        }),
+      ),
+      {integrationValidationContext},
+    );
+
+    expect(error.issues).toEqual([
+      expect.objectContaining({
+        code: 'unknown-integration-tool',
+        message: 'Unknown integration tool: get_issue.get.',
+        path: ['jobs', 'use', 'steps', 0, 'tool'],
+      }),
+    ]);
+  });
+
+  it('walks nested with arrays and objects for interpolation templates', () => {
+    const model = normalize(
+      toolDocument(
+        toolStep({
+          key: 'issue',
+          tool: 'get_issue',
+          connection: 'linear-main',
+          with: {
+            id: 'ENG-1',
+            labels: ['fixed', '$' + '{{ inputs.label }}'],
+            query: {q: '$' + '{{ vars.QUERY }}'},
+          },
+        }),
+      ),
+      {integrationValidationContext},
+    );
+
+    const step = model.jobs[0]?.steps[0] as WorkflowModelToolStep;
+    expect(step.templates?.with).toMatchObject({
+      labels: [undefined, [{kind: 'deferred', roots: ['inputs']}]],
+      query: {q: [{kind: 'deferred', roots: ['vars']}]},
+    });
+  });
+
+  it('collapses fully-literal nested with values to undefined', () => {
+    const model = normalize(
+      toolDocument(
+        toolStep({
+          key: 'issue',
+          tool: 'get_issue',
+          connection: 'linear-main',
+          with: {id: 'ENG-1', labels: ['fixed', 'closed'], query: {q: 'text'}},
+        }),
+      ),
+      {integrationValidationContext},
+    );
+
+    expect((model.jobs[0]?.steps[0] as WorkflowModelToolStep).templates).toBeUndefined();
+  });
+
   it('rejects missing required tool inputs', () => {
     const error = expectInvalid(
       toolDocument(
@@ -607,7 +715,7 @@ describe('normalizeToolStep', () => {
     ]);
   });
 
-  it('rejects a with.method input on a family.method tool', () => {
+  it('rejects an authored method input on a family.method tool', () => {
     const error = expectInvalid(
       toolDocument(
         toolStep({
@@ -619,16 +727,29 @@ describe('normalizeToolStep', () => {
       {integrationValidationContext},
     );
 
+    // `method` is server-injected for family.method tools, so it is neither a
+    // required nor an unknown input; only the authored-value rejection fires.
     expect(error.issues).toEqual([
-      expect.objectContaining({
-        code: 'tool-input-unknown-key',
-        path: ['jobs', 'use', 'steps', 0, 'with', 'method'],
-      }),
       expect.objectContaining({
         code: 'tool-input-invalid',
         path: ['jobs', 'use', 'steps', 0, 'with', 'method'],
       }),
     ]);
+  });
+
+  it('does not require a server-injected method input on family.method tools', () => {
+    const model = normalize(
+      toolDocument(
+        toolStep({
+          tool: 'issue_write.update',
+          connection: 'github-main',
+          with: {owner: 'acme', repo: 'platform', title: 'Fix'},
+        }),
+      ),
+      {integrationValidationContext},
+    );
+
+    expect(model.jobs[0]?.steps[0]).toMatchObject({kind: 'tool'});
   });
 
   it('types job outputs from a tool step result overlay', () => {

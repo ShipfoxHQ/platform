@@ -214,8 +214,8 @@ function findToolEntry(params: {
     return undefined;
   }
 
-  const methodLabels = entry.methods.map((method) => `${entry.id}.${method.id}`);
   if (params.tool.method === undefined) {
+    const methodLabels = entry.methods.map((method) => `${entry.id}.${method.id}`);
     params.issues.push(
       issue({
         code: 'unknown-integration-tool',
@@ -228,6 +228,7 @@ function findToolEntry(params: {
   }
 
   if (!entry.methods.some((method) => method.id === params.tool.method)) {
+    const methodLabels = entry.methods.map((method) => `${entry.id}.${method.id}`);
     params.issues.push(
       issue({
         code: 'unknown-integration-tool',
@@ -456,9 +457,16 @@ function validateInputRecord(params: {
 }): void {
   const toolDisplayName = toolLabel(params.tool);
   const properties = isPlainRecord(params.schema.properties) ? params.schema.properties : {};
+  // For `family.method` tools the provider catalog lists `method` as a required
+  // schema property, but the server injects it at dispatch and authors cannot
+  // set it (`rejectWithMethod` guards the authored side). Skip it in the
+  // required and unknown-key loops at the top level so the two never conflict.
+  const serverInjectedMethod =
+    params.tool.method === undefined || params.path.length !== 1 ? undefined : 'method';
 
   if (params.schema.additionalProperties === false) {
     for (const key of Object.keys(params.record)) {
+      if (key === serverInjectedMethod) continue;
       if (Object.hasOwn(properties, key)) continue;
       params.issues.push(
         issue({
@@ -472,6 +480,7 @@ function validateInputRecord(params: {
   }
 
   for (const key of requiredKeys(params.schema)) {
+    if (key === serverInjectedMethod) continue;
     if (Object.hasOwn(params.record, key)) continue;
     params.issues.push(
       issue({
