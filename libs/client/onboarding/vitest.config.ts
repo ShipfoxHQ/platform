@@ -48,6 +48,8 @@ function createStorybookProject() {
           launchOptions: {
             args: ['--disable-lcd-text', '--font-render-hinting=none'],
           },
+          // All onboarding stories capture with reduced motion to stabilize the completion burst.
+          contextOptions: {reducedMotion: 'reduce'},
         }),
         instances: [{browser: 'chromium' as const}],
       },

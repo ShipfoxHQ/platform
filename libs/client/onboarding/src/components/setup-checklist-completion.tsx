@@ -2,10 +2,11 @@ import {Button} from '@shipfox/react-ui/button';
 import {Icon} from '@shipfox/react-ui/icon';
 import {Text} from '@shipfox/react-ui/typography';
 import {useEffect, useRef} from 'react';
+import {createConfettiParticles} from './setup-checklist-confetti.js';
 
 const JSDOM_USER_AGENT_RE = /jsdom/u;
 const CONFETTI_DURATION_MS = 2000;
-const CONFETTI_PARTICLE_COUNT = 48;
+const CONFETTI_RANDOM_SEED = 0x5f3759df;
 
 export function SetupChecklistCompletion({
   showBurst,
@@ -59,10 +60,8 @@ function ConfettiBurst({
       onComplete?.();
     };
 
-    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
-      finish();
-      return;
-    }
+    const prefersReducedMotion =
+      window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false;
     if (typeof navigator !== 'undefined' && JSDOM_USER_AGENT_RE.test(navigator.userAgent)) {
       finish();
       return;
@@ -102,29 +101,27 @@ function ConfettiBurst({
       finish();
       return;
     }
-    const palette = colors;
-    const particles = Array.from({length: CONFETTI_PARTICLE_COUNT}, (_, index) => ({
-      x: width / 2 + (Math.random() - 0.5) * width * 0.55,
-      y: height * (0.4 + Math.random() * 0.15),
-      vx: (Math.random() - 0.5) * 2.5,
-      vy: -(Math.random() * 0.7 + 0.4),
-      rotation: Math.random() * Math.PI,
-      size: Math.random() * 5 + 5,
-      color: palette[index % palette.length] ?? palette[0] ?? '',
-    }));
+    const particles = createConfettiParticles(
+      width,
+      height,
+      colors,
+      prefersReducedMotion ? CONFETTI_RANDOM_SEED : undefined,
+    );
     let frame = 0;
-    let startedAt = performance.now();
+    const startedAt = performance.now();
 
-    const draw = (now: number) => {
+    const draw = (now: number, advance = true) => {
       const elapsed = now - startedAt;
       context.clearRect(0, 0, width, height);
       context.globalAlpha = Math.max(0, 1 - elapsed / CONFETTI_DURATION_MS);
       for (const particle of particles) {
-        particle.vy += 0.025;
-        particle.vx *= 0.985;
-        particle.x += particle.vx;
-        particle.y += particle.vy;
-        particle.rotation += 0.1;
+        if (advance) {
+          particle.vy += 0.025;
+          particle.vx *= 0.985;
+          particle.x += particle.vx;
+          particle.y += particle.vy;
+          particle.rotation += 0.1;
+        }
         context.save();
         context.translate(particle.x, particle.y);
         context.rotate(particle.rotation);
@@ -138,6 +135,7 @@ function ConfettiBurst({
         context.restore();
       }
       context.globalAlpha = 1;
+      if (!advance) return;
       if (elapsed < CONFETTI_DURATION_MS) {
         frame = requestAnimationFrame(draw);
       } else {
@@ -145,7 +143,13 @@ function ConfettiBurst({
       }
     };
 
-    startedAt = performance.now();
+    if (prefersReducedMotion) {
+      draw(startedAt, false);
+      finish();
+      // Keep the static frame after hosts consume the burst immediately.
+      return;
+    }
+
     frame = requestAnimationFrame(draw);
     return () => {
       cancelAnimationFrame(frame);
