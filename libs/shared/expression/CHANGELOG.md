@@ -1,5 +1,17 @@
 # @shipfox/expression
 
+## 2.3.0
+
+### Minor Changes
+
+- b7d522a: Adds `list.first()` and `list.last()` to return the first or final element of a non-empty workflow expression list.
+- 050b796: Adds typed tool-step expression contexts, result-output mappings, and reserved-root validation.
+
+### Patch Changes
+
+- Updated dependencies [0b6addb]
+  - @shipfox/workflow-document@3.2.0
+
 ## 2.2.1
 
 ### Patch Changes

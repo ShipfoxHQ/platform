@@ -1,5 +1,11 @@
 # @shipfox/regex
 
+## 0.3.0
+
+### Minor Changes
+
+- a7804a8: Adds a shared ref-safety matcher for branch and tag inputs.
+
 ## 0.2.4
 
 ### Patch Changes

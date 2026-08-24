@@ -1,5 +1,20 @@
 # @shipfox/api-runners
 
+## 15.0.0
+
+### Patch Changes
+
+- Updated dependencies [af095a4]
+  - @shipfox/api-workflows-dto@15.0.0
+  - @shipfox/api-common-dto@15.0.0
+  - @shipfox/node-opentelemetry@0.6.5
+  - @shipfox/node-tokens@0.3.3
+  - @shipfox/api-auth-dto@15.0.0
+  - @shipfox/node-fastify@0.4.3
+  - @shipfox/node-module@1.0.7
+  - @shipfox/node-temporal@0.4.6
+  - @shipfox/api-auth-context@15.0.0
+
 ## 14.0.0
 
 ### Patch Changes

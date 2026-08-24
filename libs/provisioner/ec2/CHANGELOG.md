@@ -1,5 +1,12 @@
 # @shipfox/provisioner-ec2-provider
 
+## 1.0.16
+
+### Patch Changes
+
+- @shipfox/provisioner-core@1.2.3
+- @shipfox/node-opentelemetry@0.6.5
+
 ## 1.0.15
 
 ### Patch Changes

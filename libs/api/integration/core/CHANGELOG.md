@@ -1,5 +1,34 @@
 # @shipfox/api-integration-core
 
+## 15.0.0
+
+### Patch Changes
+
+- 75f6828: No consumer-visible behavior change.
+- Updated dependencies [af095a4]
+- Updated dependencies [6d2c9a8]
+- Updated dependencies [07410fe]
+- Updated dependencies [989eb11]
+- Updated dependencies [a7804a8]
+  - @shipfox/api-workflows-dto@15.0.0
+  - @shipfox/api-integration-gitea@15.0.0
+  - @shipfox/api-agent-dto@15.0.0
+  - @shipfox/regex@0.3.0
+  - @shipfox/api-integration-core-dto@15.0.0
+  - @shipfox/node-opentelemetry@0.6.5
+  - @shipfox/api-workspaces-dto@15.0.0
+  - @shipfox/api-integration-spi@2.0.1
+  - @shipfox/api-integration-github@15.0.0
+  - @shipfox/api-integration-jira@15.0.0
+  - @shipfox/api-integration-linear@15.0.0
+  - @shipfox/api-integration-sentry@15.0.0
+  - @shipfox/api-integration-slack@15.0.0
+  - @shipfox/api-integration-webhook@15.0.0
+  - @shipfox/node-fastify@0.4.3
+  - @shipfox/node-module@1.0.7
+  - @shipfox/node-temporal@0.4.6
+  - @shipfox/api-auth-context@15.0.0
+
 ## 14.0.0
 
 ### Major Changes

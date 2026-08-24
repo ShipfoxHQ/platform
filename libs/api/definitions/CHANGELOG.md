@@ -1,5 +1,35 @@
 # @shipfox/api-definitions
 
+## 15.0.0
+
+### Minor Changes
+
+- a7804a8: Adds `GET /definitions/at-ref` listing workflow definitions at a git ref with their validation state and the pinned commit, backing the run-from-branch picker.
+- 050b796: Adds typed tool-step expression contexts, result-output mappings, and reserved-root validation.
+- 1d16b55: Validates trigger sources and events at sync: unknown connection slugs and unlisted provider events warn, and wrong Shipfox-minted events make the trigger inert.
+
+  Replaces the `invalid-cron-event` diagnostic with `invalid-trigger-event`; consumers matching on the old code must migrate, and existing non-canonical trigger events become inert on their next sync.
+
+### Patch Changes
+
+- Updated dependencies [a7804a8]
+- Updated dependencies [07410fe]
+- Updated dependencies [989eb11]
+- Updated dependencies [b7d522a]
+- Updated dependencies [050b796]
+- Updated dependencies [0b6addb]
+  - @shipfox/api-definitions-dto@15.0.0
+  - @shipfox/api-agent-dto@15.0.0
+  - @shipfox/expression@2.3.0
+  - @shipfox/workflow-document@3.2.0
+  - @shipfox/api-integration-core-dto@15.0.0
+  - @shipfox/node-opentelemetry@0.6.5
+  - @shipfox/api-projects-dto@15.0.0
+  - @shipfox/node-fastify@0.4.3
+  - @shipfox/node-module@1.0.7
+  - @shipfox/node-temporal@0.4.6
+  - @shipfox/api-auth-context@15.0.0
+
 ## 14.0.0
 
 ### Major Changes

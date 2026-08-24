@@ -1,5 +1,11 @@
 # @shipfox/api-integration-spi
 
+## 2.0.1
+
+### Patch Changes
+
+- @shipfox/api-integration-core-dto@15.0.0
+
 ## 2.0.0
 
 ### Major Changes

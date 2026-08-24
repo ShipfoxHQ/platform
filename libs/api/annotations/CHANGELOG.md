@@ -1,5 +1,13 @@
 # @shipfox/annotations
 
+## 15.0.0
+
+### Patch Changes
+
+- @shipfox/node-fastify@0.4.3
+- @shipfox/node-module@1.0.7
+- @shipfox/api-auth-context@15.0.0
+
 ## 12.3.0
 
 ### Minor Changes

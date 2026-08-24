@@ -1,5 +1,11 @@
 # @shipfox/workflow-document
 
+## 3.2.0
+
+### Minor Changes
+
+- 0b6addb: Adds reserved tool step fields (`tool`, `connection`, `with`, and the expression `outputs` mapping form) to the workflow document schema, with `with` size and depth limits. The schema rejects steps that use them for now.
+
 ## 3.1.0
 
 ### Minor Changes

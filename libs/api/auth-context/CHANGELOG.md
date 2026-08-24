@@ -1,5 +1,13 @@
 # @shipfox/api-auth-context
 
+## 15.0.0
+
+### Patch Changes
+
+- @shipfox/api-auth-dto@15.0.0
+- @shipfox/api-workspaces-dto@15.0.0
+- @shipfox/node-fastify@0.4.3
+
 ## 12.2.0
 
 ### Patch Changes

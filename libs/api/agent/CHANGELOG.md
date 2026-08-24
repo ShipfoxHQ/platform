@@ -1,5 +1,22 @@
 # @shipfox/api-agent
 
+## 15.0.0
+
+### Minor Changes
+
+- 07410fe: Preserves Pi thinking-level mappings and provider compatibility metadata for managed models, so gateway-backed custom providers retain their model-specific reasoning behavior.
+
+### Patch Changes
+
+- 989eb11: Adds `managed_provider_id` and `instance_default_provider_id` to the model-provider catalog response so clients can detect when an installation provides inference and omit redundant provider setup.
+- Updated dependencies [07410fe]
+- Updated dependencies [989eb11]
+  - @shipfox/api-agent-dto@15.0.0
+  - @shipfox/node-opentelemetry@0.6.5
+  - @shipfox/node-fastify@0.4.3
+  - @shipfox/node-module@1.0.7
+  - @shipfox/api-auth-context@15.0.0
+
 ## 14.0.0
 
 ### Minor Changes

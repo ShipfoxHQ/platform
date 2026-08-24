@@ -1,5 +1,19 @@
 # @shipfox/api-integration-gitea
 
+## 15.0.0
+
+### Minor Changes
+
+- 6d2c9a8: Adds Gitea agent tools `get_issue` (read) and `comment_on_issue` (write) for issue access and comments. The Gitea client now exposes the matching issue operations.
+
+### Patch Changes
+
+- @shipfox/node-opentelemetry@0.6.5
+- @shipfox/api-integration-gitea-dto@15.0.0
+- @shipfox/api-integration-spi@2.0.1
+- @shipfox/node-fastify@0.4.3
+- @shipfox/api-auth-context@15.0.0
+
 ## 14.0.0
 
 ### Major Changes

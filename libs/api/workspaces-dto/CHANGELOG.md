@@ -1,5 +1,11 @@
 # @shipfox/api-workspaces-dto
 
+## 15.0.0
+
+### Patch Changes
+
+- @shipfox/api-common-dto@15.0.0
+
 ## 12.0.0
 
 ### Minor Changes

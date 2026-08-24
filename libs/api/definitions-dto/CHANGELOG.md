@@ -1,5 +1,21 @@
 # @shipfox/api-definitions-dto
 
+## 15.0.0
+
+### Minor Changes
+
+- a7804a8: Adds `GET /definitions/at-ref` listing workflow definitions at a git ref with their validation state and the pinned commit, backing the run-from-branch picker.
+
+### Patch Changes
+
+- Updated dependencies [b7d522a]
+- Updated dependencies [a7804a8]
+- Updated dependencies [050b796]
+- Updated dependencies [0b6addb]
+  - @shipfox/expression@2.3.0
+  - @shipfox/regex@0.3.0
+  - @shipfox/workflow-document@3.2.0
+
 ## 14.0.0
 
 ### Major Changes

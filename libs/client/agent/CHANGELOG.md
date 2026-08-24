@@ -1,5 +1,19 @@
 # @shipfox/client-agent
 
+## 24.0.0
+
+### Minor Changes
+
+- 989eb11: Adds `managed_provider_id` and `instance_default_provider_id` to the model-provider catalog response so clients can detect when an installation provides inference and omit redundant provider setup.
+
+### Patch Changes
+
+- Updated dependencies [07410fe]
+- Updated dependencies [989eb11]
+  - @shipfox/api-agent-dto@15.0.0
+  - @shipfox/client-ui@24.0.0
+  - @shipfox/client-shell@24.0.0
+
 ## 23.0.0
 
 ### Patch Changes
