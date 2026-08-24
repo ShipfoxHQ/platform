@@ -1,5 +1,6 @@
 import {z} from 'zod';
 import {isReservedModelProviderId, modelProviderRefSchema} from './model-provider-id.js';
+import {managedModelCompatSchema, managedModelThinkingLevelMapSchema} from './pi-model.js';
 
 const MAX_HEADER_COUNT = 32;
 export const MAX_MODEL_COUNT = 128;
@@ -36,6 +37,8 @@ export const customAgentModelSchema = z.object({
   max_output_tokens: z.number().int().positive().optional(),
   input_image: z.boolean().optional(),
   reasoning: z.boolean().optional(),
+  thinking_level_map: managedModelThinkingLevelMapSchema.optional(),
+  compat: managedModelCompatSchema.optional(),
 });
 
 export type CustomAgentModelDto = z.infer<typeof customAgentModelSchema>;

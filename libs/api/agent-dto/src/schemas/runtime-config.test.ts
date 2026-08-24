@@ -25,13 +25,32 @@ describe('agentRuntimeCredentialsResponseSchema', () => {
         base_url: 'https://llm.example.test/v1',
         headers: [{name: 'x-region', value: 'local'}],
         secret_header_names: ['authorization'],
-        models: [{id: 'llama-3.1', label: 'Llama 3.1'}],
+        models: [
+          {
+            id: 'llama-3.1',
+            label: 'Llama 3.1',
+            thinking_level_map: {off: 'none', high: null},
+            compat: {
+              supportsDeveloperRole: true,
+              supportsStrictMode: true,
+              supportsToolSearch: true,
+            },
+          },
+        ],
         requires_api_key: true,
       },
     });
 
     expect(parsed.provider_id).toBe('local-vllm');
     expect(parsed.custom_provider?.api).toBe('openai-responses');
+    expect(parsed.custom_provider?.models[0]).toMatchObject({
+      thinking_level_map: {off: 'none', high: null},
+      compat: {
+        supportsDeveloperRole: true,
+        supportsStrictMode: true,
+        supportsToolSearch: true,
+      },
+    });
   });
 
   it('parses managed Claude runtime credentials without a custom provider descriptor', () => {

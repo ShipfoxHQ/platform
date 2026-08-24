@@ -946,6 +946,12 @@ describe('piHarnessAdapter', () => {
               max_output_tokens: 8_192,
               input_image: true,
               reasoning: true,
+              thinking_level_map: {off: 'none', minimal: null, high: 'high'},
+              compat: {
+                supportsDeveloperRole: true,
+                supportsStrictMode: true,
+                supportsToolSearch: true,
+              },
             },
           ],
         }),
@@ -965,7 +971,125 @@ describe('piHarnessAdapter', () => {
             cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0},
             contextWindow: 64_000,
             maxTokens: 8_192,
+            thinkingLevelMap: {off: 'none', minimal: null, high: 'high'},
+            compat: {
+              supportsDeveloperRole: true,
+              supportsStrictMode: true,
+              supportsToolSearch: true,
+            },
           },
+        ],
+      }),
+    );
+  });
+
+  it.each([
+    {
+      name: 'Anthropic adaptive thinking',
+      api: 'anthropic-messages',
+      thinking_level_map: {off: null, xhigh: 'xhigh', max: 'max'},
+      compat: {forceAdaptiveThinking: true, supportsStrictTools: true},
+    },
+    {
+      name: 'OpenAI Responses effort mapping',
+      api: 'openai-responses',
+      thinking_level_map: {
+        off: 'none',
+        minimal: null,
+        low: 'low',
+        medium: 'medium',
+        high: 'high',
+        xhigh: 'xhigh',
+        max: 'max',
+      },
+      compat: {
+        supportsStrictMode: true,
+        supportsOpenAIGrammarTools: true,
+        supportsToolSearch: true,
+        supportsExplicitPromptCacheMode: true,
+      },
+    },
+    {
+      name: 'DeepSeek reasoning format',
+      api: 'openai-completions',
+      thinking_level_map: {minimal: null, low: null, medium: null, high: 'high', max: 'max'},
+      compat: {
+        supportsStore: false,
+        supportsDeveloperRole: false,
+        requiresReasoningContentOnAssistantMessages: true,
+        thinkingFormat: 'deepseek',
+      },
+    },
+    {
+      name: 'Zai reasoning format',
+      api: 'openai-completions',
+      thinking_level_map: {minimal: null, low: 'high', medium: 'high', high: 'high', max: 'max'},
+      compat: {
+        supportsStore: false,
+        supportsDeveloperRole: false,
+        supportsReasoningEffort: true,
+        thinkingFormat: 'zai',
+        zaiToolStream: true,
+      },
+    },
+    {
+      name: 'Moonshot Kimi reasoning format',
+      api: 'openai-completions',
+      thinking_level_map: {
+        off: null,
+        minimal: null,
+        low: 'low',
+        medium: null,
+        high: 'high',
+        xhigh: null,
+        max: 'max',
+      },
+      compat: {
+        supportsStore: false,
+        supportsDeveloperRole: false,
+        supportsReasoningEffort: true,
+        maxTokensField: 'max_tokens',
+        supportsStrictMode: false,
+        thinkingFormat: 'openai',
+        requiresReasoningContentOnAssistantMessages: true,
+        deferredToolsMode: 'kimi',
+      },
+    },
+  ] as const)('$name metadata remains attached to the gateway model', async (model) => {
+    findMock.mockReturnValue({provider: 'managed', id: 'managed-model'});
+
+    await piHarnessAdapter.run(
+      invocation({
+        provider: 'managed',
+        model: 'managed-model',
+        customProvider: customProvider({
+          api: model.api,
+          base_url: 'https://gateway.example.test/v1',
+          models: [
+            {
+              id: 'managed-model',
+              label: 'Managed model',
+              reasoning: true,
+              thinking_level_map: model.thinking_level_map,
+              compat: model.compat,
+            },
+          ],
+        }),
+      }),
+    );
+
+    expect(registerProviderMock).toHaveBeenCalledWith(
+      'managed',
+      expect.objectContaining({
+        baseUrl: 'https://gateway.example.test/v1',
+        models: [
+          expect.objectContaining({
+            id: 'managed-model',
+            api: model.api,
+            reasoning: true,
+            thinkingLevelMap: model.thinking_level_map,
+            compat: model.compat,
+          }),
         ],
       }),
     );

@@ -86,6 +86,12 @@ describe('resolveRuntimeCredentials', () => {
             max_output_tokens: 65_536,
             reasoning: true,
             input_image: true,
+            thinking_level_map: {off: 'none', minimal: null, high: 'high'},
+            compat: {
+              supportsDeveloperRole: true,
+              supportsStrictMode: true,
+              supportsToolSearch: true,
+            },
           },
         ],
         requires_api_key: true,
@@ -587,6 +593,12 @@ function managedProvider(
         max_output_tokens: 65_536,
         reasoning: true,
         input_image: true,
+        thinkingLevelMap: {off: 'none', minimal: null, high: 'high'},
+        compat: {
+          supportsDeveloperRole: true,
+          supportsStrictMode: true,
+          supportsToolSearch: true,
+        },
       },
       {
         id: 'partial-model',

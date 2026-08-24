@@ -1,6 +1,16 @@
 import type {AgentThinking} from '@shipfox/workflow-document';
 import {z} from 'zod';
 import {type CustomAgentModelDto, customAgentModelSchema} from './custom-model-provider.js';
+import {managedModelCompatSchema, managedModelThinkingLevelMapSchema} from './pi-model.js';
+
+export {
+  type ManagedModelCompat,
+  type ManagedModelThinkingLevel,
+  type ManagedModelThinkingLevelMap,
+  managedModelCompatSchema,
+  managedModelThinkingLevelMapSchema,
+  managedModelThinkingLevelSchema,
+} from './pi-model.js';
 
 export const managedModelApiSchema = z.enum([
   'anthropic-messages',
@@ -10,10 +20,27 @@ export const managedModelApiSchema = z.enum([
 
 export type ManagedModelApi = z.infer<typeof managedModelApiSchema>;
 
-export const managedModelMetadataSchema = customAgentModelSchema.omit({
-  id: true,
-  label: true,
-});
+export const managedModelMetadataSchema = customAgentModelSchema
+  .omit({
+    id: true,
+    label: true,
+    thinking_level_map: true,
+    compat: true,
+  })
+  .extend({
+    thinkingLevelMap: managedModelThinkingLevelMapSchema.optional(),
+    thinking_level_map: managedModelThinkingLevelMapSchema.optional(),
+    compat: managedModelCompatSchema.optional(),
+  })
+  .superRefine((model, ctx) => {
+    if (model.thinkingLevelMap !== undefined && model.thinking_level_map !== undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['thinkingLevelMap'],
+        message: 'Use either thinkingLevelMap or thinking_level_map, not both.',
+      });
+    }
+  });
 
 export type ManagedModelMetadata = z.infer<typeof managedModelMetadataSchema>;
 
@@ -30,10 +57,17 @@ export interface ManagedModelEntry extends Readonly<ManagedModelMetadata> {
 export function toCustomAgentModelDto(
   model: Pick<ManagedModelEntry, 'id' | 'label'> & ManagedModelMetadata,
 ): CustomAgentModelDto {
+  const {thinkingLevelMap, thinking_level_map, ...metadata} =
+    managedModelMetadataSchema.parse(model);
+  const normalizedThinkingLevelMap = thinkingLevelMap ?? thinking_level_map;
+
   return {
     id: model.id,
     label: model.label,
-    ...managedModelMetadataSchema.parse(model),
+    ...metadata,
+    ...(normalizedThinkingLevelMap === undefined
+      ? {}
+      : {thinking_level_map: normalizedThinkingLevelMap}),
   };
 }
 
