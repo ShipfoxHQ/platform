@@ -1,4 +1,8 @@
-import {WORKFLOW_LITERAL_NAME_PATTERN} from './workflow-document.js';
+import {
+  WORKFLOW_LITERAL_NAME_PATTERN,
+  WORKFLOW_SESSION_KEY_MAX_LENGTH,
+  WORKFLOW_SESSION_KEY_PATTERN_SOURCE,
+} from './workflow-document.js';
 import {buildWorkflowJsonSchema} from './workflow-json-schema.js';
 
 type JsonSchema = Record<string, unknown>;
@@ -93,6 +97,44 @@ describe('buildWorkflowJsonSchema', () => {
     });
     expect(requiredAlternatives(gate)).toEqual(['success', 'on_failure']);
     expect(requiredAlternatives(batch)).toEqual(['debounce', 'max_size', 'max_wait']);
+  });
+
+  it('describes the session field with string and object forms', () => {
+    const schema = buildWorkflowJsonSchema();
+    const step = stepSchemaFor(schema);
+    const session = object(object(step.properties).session);
+    const discriminator = objects(step.allOf).find((constraint) => 'oneOf' in constraint);
+    const runBranch = objects(discriminator?.oneOf)[0];
+    const checkoutBranch = objects(discriminator?.oneOf)[2];
+
+    expect(session.description).toContain('session');
+    expect(objects(session.anyOf)).toEqual(
+      expect.arrayContaining([expect.objectContaining({type: 'string', minLength: 1})]),
+    );
+    expect(objects(session.anyOf)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'string',
+          maxLength: WORKFLOW_SESSION_KEY_MAX_LENGTH,
+          pattern: WORKFLOW_SESSION_KEY_PATTERN_SOURCE,
+        }),
+      ]),
+    );
+    const objectForm = objects(session.anyOf).find((branch) => branch.type === 'object');
+    expect(objectForm).toMatchObject({
+      type: 'object',
+      additionalProperties: false,
+      required: ['key'],
+    });
+    expect(object(object(objectForm?.properties).key).description).toContain('interpolation');
+    expect(object(object(objectForm?.properties).mode).enum).toEqual(['resume', 'fork']);
+    expect(strings(runBranch?.required)).toEqual(['run']);
+    expect(object(runBranch?.not).anyOf).toEqual(
+      expect.arrayContaining([expect.objectContaining({required: ['session']})]),
+    );
+    expect(object(checkoutBranch?.not).anyOf).toEqual(
+      expect.arrayContaining([expect.objectContaining({required: ['session']})]),
+    );
   });
 
   it('keeps trigger event optional in the JSON schema', () => {

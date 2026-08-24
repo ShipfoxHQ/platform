@@ -18,6 +18,7 @@ export const WORKFLOW_FIELD_YAML_KEYS = {
   'agent.model': 'jobs.<job_id>.steps[*].model',
   'agent.provider': 'jobs.<job_id>.steps[*].provider',
   'agent.thinking': 'jobs.<job_id>.steps[*].thinking',
+  'agent.session': 'jobs.<job_id>.steps[*].session',
   'job.runner': 'jobs.<job_id>.runner',
   'job.outputs': 'jobs.<job_id>.outputs.<name>',
   'workflow.run_name': 'run_name',

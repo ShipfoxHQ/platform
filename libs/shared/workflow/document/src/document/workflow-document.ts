@@ -12,6 +12,11 @@ export const WORKFLOW_LITERAL_NAME_PATTERN = /^(?:[^$]|\$\$\{\{|\$(?!\{\{))*$/;
 // The inverse of a literal name: a literal prefix followed by an unescaped
 // `${{`. An enum field that also accepts a template matches one or the other.
 export const WORKFLOW_INTERPOLATED_VALUE_PATTERN = /^(?:[^$]|\$\$\{\{|\$(?!\{\{))*\$\{\{/;
+export const WORKFLOW_SESSION_KEY_MAX_LENGTH = 128;
+export const WORKFLOW_SESSION_KEY_PATTERN_SOURCE = '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$';
+export const WORKFLOW_SESSION_KEY_PATTERN = new RegExp(WORKFLOW_SESSION_KEY_PATTERN_SOURCE);
+const workflowSessionKeyLiteralPartPattern = /^[A-Za-z0-9._-]*$/;
+const workflowSessionKeyLiteralPartStartPattern = /^[A-Za-z0-9]/;
 
 // Reasoning effort is an enum so editors can complete it, and a template so a
 // workflow can choose the effort from run context. The resolved value is
@@ -636,6 +641,165 @@ export const workflowDocumentStepIntegrationSchema = z.strictObject({
   }),
 });
 
+// A session names an agent conversation that continues across steps of one run.
+// The shorthand string form names the session and resumes it; the long form
+// adds an explicit mode. The key is a field template, evaluated at step
+// dispatch with the same context roots the prompt sees.
+const workflowSessionKeyLiteralSchema = z
+  .string()
+  .min(1)
+  .max(WORKFLOW_SESSION_KEY_MAX_LENGTH)
+  .regex(WORKFLOW_SESSION_KEY_PATTERN, {
+    message:
+      'Literal session keys must start with a letter or number and contain only letters, numbers, dots, underscores, or hyphens.',
+  });
+const workflowSessionKeyTemplateSchema = z
+  .string()
+  .min(1)
+  .regex(WORKFLOW_INTERPOLATED_VALUE_PATTERN, {
+    message: 'Session keys with interpolation must use a $' + '{{ }} template.',
+  })
+  .refine(isValidWorkflowSessionKeyTemplateLiteralParts, {
+    message:
+      'Literal parts of interpolated session keys may contain only letters, numbers, dots, underscores, or hyphens, and may not exceed 128 characters in total.',
+  });
+const workflowSessionKeySchema = z.union([
+  workflowSessionKeyLiteralSchema,
+  workflowSessionKeyTemplateSchema,
+]);
+
+export const workflowDocumentSessionSchema = z
+  .union([
+    workflowSessionKeyLiteralSchema,
+    workflowSessionKeyTemplateSchema,
+    z.strictObject({
+      key: workflowSessionKeySchema.meta({
+        description: 'Session key, or a $' + '{{ }} interpolation that resolves to one.',
+      }),
+      mode: z.enum(['resume', 'fork']).optional().meta({
+        description:
+          'Session mode. `resume` continues the session and writes back; `fork` reads a snapshot and never writes. Defaults to `resume`.',
+      }),
+    }),
+  ])
+  .meta({
+    description:
+      'Named agent session continued across steps of one workflow run. A string names the session and resumes it; an object adds the mode.',
+  });
+
+export function isValidWorkflowSessionKeyTemplateLiteralParts(source: string): boolean {
+  let cursor = 0;
+  let expressionSeen = false;
+  let literalLength = 0;
+
+  while (true) {
+    const opener = source.indexOf('${{', cursor);
+    const literalEnd = opener === -1 ? source.length : opener;
+    const literal = source.slice(cursor, literalEnd);
+    literalLength += literal.length;
+
+    if (
+      literalLength > WORKFLOW_SESSION_KEY_MAX_LENGTH ||
+      !workflowSessionKeyLiteralPartPattern.test(literal) ||
+      (!expressionSeen &&
+        literal.length > 0 &&
+        !workflowSessionKeyLiteralPartStartPattern.test(literal))
+    ) {
+      return false;
+    }
+
+    if (opener === -1) return expressionSeen;
+
+    const close = findWorkflowSessionKeyTemplateClose(source, opener);
+    if (close === -1) return false;
+
+    expressionSeen = true;
+    cursor = close + 2;
+  }
+}
+
+function findWorkflowSessionKeyTemplateClose(source: string, openerIndex: number): number {
+  let index = openerIndex + 3;
+  let depth = 0;
+
+  while (index < source.length) {
+    const stringEnd = scanWorkflowSessionKeyStringLiteral(source, index);
+    if (stringEnd !== null) {
+      index = stringEnd;
+      continue;
+    }
+
+    if (source.startsWith('//', index)) {
+      const newline = source.indexOf('\n', index + 2);
+      index = newline === -1 ? source.length : newline;
+      continue;
+    }
+
+    if (depth === 0 && source.startsWith('}}', index)) return index;
+
+    const char = source[index];
+    if (char === '(' || char === '[' || char === '{') {
+      depth += 1;
+    } else if ((char === ')' || char === ']' || char === '}') && depth > 0) {
+      depth -= 1;
+    }
+
+    index += 1;
+  }
+
+  return -1;
+}
+
+function scanWorkflowSessionKeyStringLiteral(source: string, index: number): number | null {
+  for (const prefix of ['r', 'R', 'b', 'B', ''] as const) {
+    if (!source.startsWith(prefix, index)) continue;
+
+    const quoteIndex = index + prefix.length;
+    const quote = source[quoteIndex];
+    if (quote !== '"' && quote !== "'") continue;
+
+    const tripleQuote = quote.repeat(3);
+    if (source.startsWith(tripleQuote, quoteIndex)) {
+      return scanWorkflowSessionKeyQuotedString(
+        source,
+        quoteIndex + 3,
+        tripleQuote,
+        prefix === 'r' || prefix === 'R',
+      );
+    }
+
+    return scanWorkflowSessionKeyQuotedString(
+      source,
+      quoteIndex + 1,
+      quote,
+      prefix === 'r' || prefix === 'R',
+    );
+  }
+
+  return null;
+}
+
+function scanWorkflowSessionKeyQuotedString(
+  source: string,
+  startIndex: number,
+  delimiter: string,
+  raw: boolean,
+): number {
+  let index = startIndex;
+  while (index < source.length) {
+    if (!raw && source[index] === '\\') {
+      index += 2;
+      continue;
+    }
+
+    if (source.startsWith(delimiter, index)) return index + delimiter.length;
+
+    index += 1;
+  }
+
+  return source.length;
+}
+
 export const workflowDocumentAgentStepFields = [
   'model',
   'prompt',
@@ -644,6 +808,7 @@ export const workflowDocumentAgentStepFields = [
   'provider',
   'tools',
   'integrations',
+  'session',
 ] as const;
 
 // A step is a run step (`run`), an inline agent step (`prompt`), or a checkout
@@ -692,6 +857,7 @@ const workflowDocumentStepBaseSchema = z.strictObject({
       'Agent harness. When omitted, Shipfox uses the workspace default harness, or `pi` when none is configured.',
   }),
   thinking: agentThinkingFieldSchema.optional(),
+  session: workflowDocumentSessionSchema.optional(),
   provider: z.string().min(1).optional().meta({
     description:
       'Model provider ID for an agent step. It requires `prompt` and is not valid on a run step.',
@@ -927,6 +1093,7 @@ export type WorkflowDocumentStepOutputType = (typeof workflowDocumentStepOutputT
 export type WorkflowDocumentStepOutputs = z.infer<typeof workflowDocumentStepOutputsSchema>;
 export type WorkflowDocumentToolStepOutputs = z.infer<typeof workflowDocumentToolStepOutputsSchema>;
 export type WorkflowDocumentToolWith = z.infer<typeof workflowDocumentToolStepWithSchema>;
+export type WorkflowDocumentSession = z.infer<typeof workflowDocumentSessionSchema>;
 export type WorkflowDocumentTrigger = z.infer<typeof workflowDocumentTriggerSchema>;
 
 type JsonDepthTask =

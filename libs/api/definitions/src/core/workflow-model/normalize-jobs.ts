@@ -19,16 +19,19 @@ import {
   MAX_RUNNER_LABELS,
   RUNNER_LABEL_PATTERN,
 } from '@shipfox/runner-labels';
-import type {
-  WorkflowDocument,
-  WorkflowDocumentJob,
-  WorkflowDocumentStep,
+import {
+  isValidWorkflowSessionKeyTemplateLiteralParts,
+  WORKFLOW_SESSION_KEY_PATTERN,
+  type WorkflowDocument,
+  type WorkflowDocumentJob,
+  type WorkflowDocumentStep,
 } from '@shipfox/workflow-document';
 import type {IntegrationValidationContext} from '../entities/integration-context.js';
 import type {
   WorkflowEnvTemplates,
   WorkflowFieldTemplate,
   WorkflowModelAgentStep,
+  WorkflowModelAgentStepSession,
   WorkflowModelCheckoutStep,
   WorkflowModelJob,
   WorkflowModelRunStep,
@@ -893,6 +896,15 @@ function normalizeAgentStep(params: {
           allowedJobReferences: params.allowedJobReferences,
           typeOverlay: params.typeOverlay,
         });
+  const session = normalizeAgentStepSession({
+    step: params.step,
+    sourceName: params.sourceName,
+    stepIndex: params.stepIndex,
+    issues: params.issues,
+    fillSite: params.fillSite,
+    allowedJobReferences: params.allowedJobReferences,
+    typeOverlay: params.typeOverlay,
+  });
   validateAgentStep({
     step: params.step,
     sourceName: params.sourceName,
@@ -928,9 +940,62 @@ function normalizeAgentStep(params: {
     ...(params.step.provider === undefined ? {} : {provider: params.step.provider}),
     prompt: params.step.prompt,
     ...(params.step.thinking === undefined ? {} : {thinking: params.step.thinking}),
+    ...(session === undefined ? {} : {session}),
     ...(params.step.tools === undefined ? {} : {tools: params.step.tools}),
     ...(integrations === undefined ? {} : {integrations}),
     ...(templates === undefined ? {} : {templates}),
+  };
+}
+
+function normalizeAgentStepSession(params: {
+  step: WorkflowDocumentStep;
+  sourceName: string;
+  stepIndex: number;
+  issues: WorkflowModelValidationIssue[];
+  fillSite: AvailabilitySite;
+  allowedJobReferences: ReadonlySet<string>;
+  typeOverlay?: ExpressionTypeEnvironment | undefined;
+}): WorkflowModelAgentStepSession | undefined {
+  const session = params.step.session;
+  if (session === undefined) return undefined;
+
+  const keySource = typeof session === 'string' ? session : session.key;
+  const path =
+    typeof session === 'string'
+      ? ['jobs', params.sourceName, 'steps', params.stepIndex, 'session']
+      : ['jobs', params.sourceName, 'steps', params.stepIndex, 'session', 'key'];
+  const issueCountBeforeParsing = params.issues.length;
+  const template = parseInterpolationField({
+    field: 'agent.session',
+    source: keySource,
+    path,
+    issues: params.issues,
+    fillSite: params.fillSite,
+    allowedJobReferences: params.allowedJobReferences,
+    typeOverlay: params.typeOverlay,
+  });
+
+  const hasInvalidKey =
+    params.issues.length === issueCountBeforeParsing &&
+    (template === undefined
+      ? !WORKFLOW_SESSION_KEY_PATTERN.test(keySource)
+      : !isValidWorkflowSessionKeyTemplateLiteralParts(keySource));
+
+  if (hasInvalidKey) {
+    params.issues.push(
+      issue({
+        code: 'invalid-agent-session-key',
+        message:
+          'Agent session keys must start with a letter or number and contain only letters, numbers, dots, underscores, or hyphens, with a maximum length of 128 characters.',
+        path,
+        details: {key: keySource},
+      }),
+    );
+  }
+
+  return {
+    key: template ?? [{kind: 'literal' as const, value: keySource}],
+    mode: typeof session === 'string' ? 'resume' : (session.mode ?? 'resume'),
   };
 }
 
