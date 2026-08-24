@@ -88,9 +88,12 @@ export async function listTriggerEvents({
   if (cursor) params.set('cursor', cursor);
   setListParam(params, 'source', filters.source);
   setListParam(params, 'event', filters.event);
+  setListParam(params, 'origin', filters.origin);
   if (filters.from) params.set('from', filters.from);
   if (filters.to) params.set('to', filters.to);
   setListParam(params, 'outcome', filters.outcome);
+  // The picker only ever asks for the true side; the API accepts no `replayable=false`.
+  if (filters.replayable) params.set('replayable', 'true');
 
   const response = await checkedApiRequest(
     triggerEventListResponseSchema,

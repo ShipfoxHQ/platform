@@ -64,6 +64,7 @@
   "dependencies": {
     "@shipfox/annotations-dto": "workspace:*",
     "@shipfox/api-definitions-dto": "workspace:*",
+    "@shipfox/api-triggers-dto": "workspace:*",
     "@shipfox/api-workflows-dto": "workspace:*",
     "@shipfox/client-api": "workspace:*",
     "@shipfox/client-logs": "workspace:*",

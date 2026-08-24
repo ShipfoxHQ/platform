@@ -66,9 +66,12 @@ export interface TriggerEventListPage {
 export interface TriggerEventFilters {
   source?: string[] | undefined;
   event?: string[] | undefined;
+  origin?: TriggerEventOrigin[] | undefined;
   outcome?: TriggerEventOutcome[] | undefined;
   from?: string | undefined;
   to?: string | undefined;
+  /** Only events a dev run can replay (integration origin with a stored payload). */
+  replayable?: boolean | undefined;
 }
 
 export function normalizeTriggerEventFilterValues(
@@ -81,16 +84,24 @@ export function normalizeTriggerEventFilters(filters: TriggerEventFilters) {
   return {
     source: normalizeTriggerEventFilterValues(filters.source),
     event: normalizeTriggerEventFilterValues(filters.event),
+    origin: normalizeTriggerEventFilterValues(filters.origin),
     outcome: normalizeTriggerEventFilterValues(filters.outcome),
     from: filters.from ?? null,
     to: filters.to ?? null,
+    replayable: filters.replayable ? true : null,
   };
 }
 
 export function hasTriggerEventFilters(filters: TriggerEventFilters): boolean {
   const normalized = normalizeTriggerEventFilters(filters);
   return Boolean(
-    normalized.source || normalized.event || normalized.outcome || normalized.from || normalized.to,
+    normalized.source ||
+      normalized.event ||
+      normalized.origin ||
+      normalized.outcome ||
+      normalized.from ||
+      normalized.to ||
+      normalized.replayable,
   );
 }
 
