@@ -55,7 +55,11 @@ import {normalizeJobSuccess} from './normalize-job-success.js';
 import {normalizeNeeds} from './normalize-needs.js';
 import {normalizeStepGate} from './normalize-step-gate.js';
 import {normalizeStepOutputs} from './normalize-step-outputs.js';
-import {normalizeToolStep, normalizeToolStepOutputs} from './normalize-tool-step.js';
+import {
+  type NormalizedToolStepOutputs,
+  normalizeToolStep,
+  normalizeToolStepOutputs,
+} from './normalize-tool-step.js';
 import {parseDurationMs} from './parse-duration-ms.js';
 import {parseInterpolationField} from './parse-interpolation-field.js';
 import {stableId} from './stable-id.js';
@@ -191,6 +195,7 @@ function normalizeJob(params: {
   const stepTypeOverlay = params.job.steps.some((step) => step.outputs !== undefined)
     ? {}
     : undefined;
+  const toolOutputsByStepIndex = new Map<number, NormalizedToolStepOutputs>();
   const steps = normalizeJobSteps({
     sourceName: params.sourceName,
     jobId: id,
@@ -205,6 +210,7 @@ function normalizeJob(params: {
     upstreamJobs,
     directNeedJobs,
     context: params.context,
+    toolOutputsByStepIndex,
   });
   const runner = normalizeRunner({
     document: params.document,
@@ -247,6 +253,7 @@ function normalizeJob(params: {
     allowedJobReferences,
     steps: params.job.steps,
     upstreamJobs,
+    toolOutputsByStepIndex,
   });
   if (outputs?.types !== undefined) {
     params.jobOutputTypesBySourceName.set(params.sourceName, outputs.types);
@@ -336,15 +343,21 @@ function directNeedSourceNames(params: {
 
 function previousStepOverlays(
   steps: readonly WorkflowDocumentStep[],
+  toolOutputsByStepIndex: ReadonlyMap<number, NormalizedToolStepOutputs>,
   index: number,
 ): readonly WorkflowStepTypeOverlay[] {
-  return steps.slice(0, index).flatMap((step) => {
+  return steps.slice(0, index).flatMap((step, offset) => {
     if (step.key === undefined) return [];
+    const toolOutputs = toolOutputsByStepIndex.get(offset);
     return [
       {
         key: step.key,
         ...(step.tool === undefined ? {} : {kind: 'tool' as const}),
-        ...(step.outputs === undefined ? {} : {outputs: step.outputs}),
+        // For tool steps the authored `outputs` mapping is a CEL string map, not
+        // the declaration form that `outputsTypeForStep` expects; use the
+        // normalized declarations so prior tool steps type like their own
+        // `currentStepOverlay`.
+        ...(step.outputs === undefined ? {} : {outputs: toolOutputs?.declarations ?? step.outputs}),
       },
     ];
   });
@@ -352,8 +365,9 @@ function previousStepOverlays(
 
 function allStepOverlays(
   steps: readonly WorkflowDocumentStep[],
+  toolOutputsByStepIndex: ReadonlyMap<number, NormalizedToolStepOutputs>,
 ): readonly WorkflowStepTypeOverlay[] {
-  return previousStepOverlays(steps, steps.length);
+  return previousStepOverlays(steps, toolOutputsByStepIndex, steps.length);
 }
 
 function upstreamJobTypeOverlays(params: {
@@ -384,6 +398,7 @@ function normalizeJobOutputs(params: {
   allowedJobReferences: ReadonlySet<string>;
   steps: readonly WorkflowDocumentStep[];
   upstreamJobs: readonly WorkflowJobTypeOverlay[];
+  toolOutputsByStepIndex: ReadonlyMap<number, NormalizedToolStepOutputs>;
 }):
   | {templates: WorkflowOutputTemplates; types: Readonly<Record<string, ExpressionType>>}
   | undefined {
@@ -401,7 +416,9 @@ function normalizeJobOutputs(params: {
   const typeOverlay =
     hasStepOutputDeclarations || params.upstreamJobs.length > 0
       ? buildTypedRootsEnvironment({
-          ...(hasStepOutputDeclarations ? {steps: allStepOverlays(params.steps)} : {}),
+          ...(hasStepOutputDeclarations
+            ? {steps: allStepOverlays(params.steps, params.toolOutputsByStepIndex)}
+            : {}),
           ...(params.upstreamJobs.length === 0 ? {} : {jobs: params.upstreamJobs}),
         })
       : undefined;
@@ -448,6 +465,7 @@ function normalizeJobSteps(params: {
   upstreamJobs: readonly WorkflowJobTypeOverlay[];
   directNeedJobs: readonly WorkflowJobTypeOverlay[];
   context: NormalizeContext;
+  toolOutputsByStepIndex: Map<number, NormalizedToolStepOutputs>;
 }): readonly WorkflowModelStep[] {
   const usedStepIds = new Map<string, number>();
 
@@ -469,6 +487,7 @@ function normalizeJobSteps(params: {
       upstreamJobs: params.upstreamJobs,
       directNeedJobs: params.directNeedJobs,
       context: params.context,
+      toolOutputsByStepIndex: params.toolOutputsByStepIndex,
     });
     return normalized === undefined ? [] : [normalized];
   });
@@ -491,6 +510,7 @@ function normalizeStep(params: {
   upstreamJobs: readonly WorkflowJobTypeOverlay[];
   directNeedJobs: readonly WorkflowJobTypeOverlay[];
   context: NormalizeContext;
+  toolOutputsByStepIndex: Map<number, NormalizedToolStepOutputs>;
 }): WorkflowModelStep | undefined {
   const stepKey = params.step.key;
   const stepId =
@@ -529,6 +549,9 @@ function normalizeStep(params: {
         issues: params.issues,
       })
     : undefined;
+  if (toolOutputs !== undefined) {
+    params.toolOutputsByStepIndex.set(params.index, toolOutputs);
+  }
   const currentStepOverlay =
     stepKey === undefined
       ? undefined
@@ -542,12 +565,12 @@ function normalizeStep(params: {
   const typeOverlay = !shouldBuildTypeOverlay
     ? undefined
     : buildTypedRootsEnvironment({
-        steps: previousStepOverlays(params.allSteps, params.index),
+        steps: previousStepOverlays(params.allSteps, params.toolOutputsByStepIndex, params.index),
         ...(currentStepOverlay === undefined ? {} : {currentStep: currentStepOverlay}),
         ...(params.upstreamJobs.length === 0 ? {} : {jobs: params.upstreamJobs}),
       });
   const conditionTypeOverlay = buildTypedRootsEnvironment({
-    steps: previousStepOverlays(params.allSteps, params.index),
+    steps: previousStepOverlays(params.allSteps, params.toolOutputsByStepIndex, params.index),
     ...(currentStepOverlay === undefined ? {} : {currentStep: currentStepOverlay}),
     jobs: params.directNeedJobs,
     needs: params.directNeedJobs,

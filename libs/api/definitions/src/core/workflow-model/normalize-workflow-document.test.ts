@@ -1384,6 +1384,44 @@ describe('normalizeWorkflowDocument', () => {
     });
   });
 
+  it('types prior tool step mapped outputs for later steps and job outputs', () => {
+    const model = normalizeWorkflowDocument(
+      {
+        name: 'prior tool step outputs',
+        jobs: {
+          fix: {
+            steps: [
+              {
+                key: 'resolve',
+                tool: 'issue_read.get',
+                connection: 'github-main',
+                with: {issue_number: 42},
+                outputs: {id: interpolation('result.id')},
+              },
+              {
+                key: 'comment',
+                tool: 'save_comment',
+                connection: 'linear-main',
+                with: {issue: interpolation('steps.resolve.outputs.id')},
+              },
+            ],
+            outputs: {issue_id: interpolation('steps.resolve.outputs.id')},
+          },
+        },
+      } as unknown as WorkflowDocument,
+      {integrationValidationContext},
+    );
+
+    expect(model.jobs[0]?.steps[1]).toMatchObject({
+      kind: 'tool',
+      tool: 'save_comment',
+      with: {issue: interpolation('steps.resolve.outputs.id')},
+    });
+    expect(model.jobs[0]?.outputs).toEqual({
+      issue_id: [expect.objectContaining({kind: 'deferred', roots: ['steps']})],
+    });
+  });
+
   it('reports unsupported explicit providers', () => {
     const document: WorkflowDocument = {
       name: 'agent build',
