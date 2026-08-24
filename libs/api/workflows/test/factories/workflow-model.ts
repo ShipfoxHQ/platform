@@ -330,11 +330,12 @@ function outputMappings(outputs: Readonly<Record<string, string>>) {
   return Object.fromEntries(
     Object.entries(outputs).map(([key, source]) => {
       const template = fieldTemplate('tool.outputs', source);
-      const segment = template?.find((candidate) => candidate.kind === 'deferred');
-      if (segment === undefined || segment.kind !== 'deferred') {
-        throw new Error(`Expected test tool output mapping expression for ${key}: ${source}`);
+      if (template === undefined || template.length !== 1 || template[0]?.kind !== 'deferred') {
+        throw new Error(
+          `Expected test tool output mapping to be exactly one expression for ${key}: ${source}`,
+        );
       }
-      return [key, segment.expression];
+      return [key, template[0].expression];
     }),
   );
 }
