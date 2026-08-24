@@ -150,6 +150,7 @@ export interface AgentToolsProviderOptions {
   result?: CallToolResult | undefined;
   openSessionError?: unknown;
   callError?: unknown;
+  closeError?: unknown;
   onOpenSession?(input: {
     connection: IntegrationConnection;
     tools: readonly AgentToolCatalogEntry[];
@@ -187,6 +188,7 @@ export function agentToolsProvider(
         },
         close: () => {
           options.onClose?.();
+          if (options.closeError !== undefined) return Promise.reject(options.closeError);
           return Promise.resolve();
         },
       });
