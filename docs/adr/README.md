@@ -23,7 +23,7 @@ documentation model and other engineering sources, start with the
 | [0011: Semantic spacing layer](0011-semantic-spacing-layer.md) | Accepted | Semantic spacing roles, the component boundary, the sizing exclusion, and density posture. |
 | [0012: Client route frames](0012-client-route-frames.md) | Accepted; amends ADR 0001 | Shell-owned content, data, and focused frame declarations and validation for composed routes. |
 | [0013: Workspace setup composition seams](0013-workspace-setup-composition-seams.md) | Accepted; amends ADR 0001 | Workspace-setup chrome slots, client analytics isolation, and shared dismissal ownership. |
-| [0014: Admin user impersonation](0014-admin-user-impersonation.md) | Accepted; supersedes the ADR 0008 "User impersonation" non-goal by reference | The access-token-only session model, renewal semantics, authorization and anti-escalation rules, and capability placement. |
+| [0014: Admin user impersonation](0014-admin-user-impersonation.md) | Accepted; amends ADR 0001; supersedes the private 2026-07-27 "User impersonation" non-goal by reference | The access-token-only session model, renewal semantics, authorization and anti-escalation rules, and capability placement. |
 
 When a decision changes, add a new ADR that supersedes or amends the earlier
 record. Keep the original record intact so readers can understand why the
