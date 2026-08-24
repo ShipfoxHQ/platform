@@ -39,6 +39,17 @@ jobs:
       invalid indentation here
 `;
 
+const warningYaml = `
+name: Warning only
+runner: ubuntu-latest
+jobs:
+  build:
+    steps:
+      - env:
+          MSG: '${'$'.concat('{{ event.x }}')}'
+        run: eval "$MSG"
+`;
+
 const projectAccessState = vi.hoisted(() => ({
   workspaceId: '',
   sourceConnectionId: '',
@@ -146,7 +157,9 @@ describe('GET /api/definitions/at-ref', () => {
     });
     expect(integrationsMocks.listSourceFiles).toHaveBeenCalledWith(
       expect.objectContaining({ref: COMMIT, prefix: '.shipfox/workflows/', limit: 100}),
+      {signal: expect.any(AbortSignal)},
     );
+    expect(projectsMocks.getProjectById).toHaveBeenCalledOnce();
   });
 
   test('returns 200 listing an invalid file with its errors instead of failing', async () => {
@@ -189,8 +202,53 @@ describe('GET /api/definitions/at-ref', () => {
       triggers: {},
     });
     expect(
-      files.find((file: {config_path: string}) => file.config_path === BROKEN_PATH).errors.length,
-    ).toBeGreaterThan(0);
+      files.find((file: {config_path: string}) => file.config_path === BROKEN_PATH),
+    ).toMatchObject({
+      errors: [
+        {
+          message: expect.any(String),
+          path: expect.any(String),
+        },
+      ],
+    });
+  });
+
+  test('returns warning diagnostics for a valid workflow', async () => {
+    integrationsMocks.fetchSourceFile.mockResolvedValue({
+      path: CONFIG_PATH,
+      ref: COMMIT,
+      content: warningYaml,
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/definitions/at-ref?project_id=${projectId}&ref=fix-branch`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().files[0].warnings).toEqual([
+      expect.objectContaining({
+        code: 're-evaluating-command',
+        message: expect.stringContaining('re-executed as code'),
+        path: 'jobs.build.steps.0.run',
+      }),
+    ]);
+  });
+
+  test('returns an empty listing when the ref has no workflow files', async () => {
+    integrationsMocks.listSourceFiles.mockResolvedValue({
+      files: [{path: '.shipfox/workflows/README.md', type: 'file', size: 8}],
+      nextCursor: null,
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/definitions/at-ref?project_id=${projectId}&ref=fix-branch`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ref: 'fix-branch', commit: COMMIT, files: []});
+    expect(integrationsMocks.fetchSourceFile).not.toHaveBeenCalled();
   });
 
   test('returns 404 ref-not-found for a missing ref', async () => {
@@ -247,6 +305,67 @@ describe('GET /api/definitions/at-ref', () => {
     expect(res.json().code).toBe('source-unavailable');
   });
 
+  test('returns 422 when the source connection is inactive', async () => {
+    integrationsMocks.resolveSourceRef.mockRejectedValue(
+      createInterModuleKnownError(
+        integrationsInterModuleContract.methods.resolveSourceRef,
+        'connection-inactive',
+        {connectionId: sourceConnectionId},
+      ),
+    );
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/definitions/at-ref?project_id=${projectId}&ref=fix-branch`,
+    });
+
+    expect(res.statusCode).toBe(422);
+    expect(res.json().code).toBe('integration-connection-inactive');
+  });
+
+  test('returns 429 and retry details when the source provider rate-limits', async () => {
+    integrationsMocks.resolveSourceRef.mockRejectedValue(
+      createInterModuleKnownError(
+        integrationsInterModuleContract.methods.resolveSourceRef,
+        'provider-failure',
+        {reason: 'rate-limited', retryAfterSeconds: 30},
+      ),
+    );
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/definitions/at-ref?project_id=${projectId}&ref=fix-branch`,
+    });
+
+    expect(res.statusCode).toBe(429);
+    expect(res.json()).toMatchObject({
+      code: 'rate-limited',
+      details: {retry_after_seconds: 30},
+    });
+  });
+
+  test('returns 422 with the observed file count when the workflow limit is exceeded', async () => {
+    integrationsMocks.listSourceFiles.mockResolvedValue({
+      files: Array.from({length: 100}, (_, index) => ({
+        path: `.shipfox/workflows/workflow-${index}.yml`,
+        type: 'file',
+        size: 1,
+      })),
+      nextCursor: 'more',
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/definitions/at-ref?project_id=${projectId}&ref=fix-branch`,
+    });
+
+    expect(res.statusCode).toBe(422);
+    expect(res.json()).toMatchObject({
+      code: 'too-many-files',
+      details: {file_count: 100},
+    });
+  });
+
   test('returns 404 project-not-found for an unknown project', async () => {
     projectsMocks.getProjectById.mockResolvedValue({project: null});
 
@@ -278,5 +397,15 @@ describe('GET /api/definitions/at-ref', () => {
     });
 
     expect(res.statusCode).toBe(400);
+  });
+
+  test('returns 400 for a ref containing a control character', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/definitions/at-ref?project_id=${projectId}&ref=main%0A`,
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(projectsMocks.getProjectById).not.toHaveBeenCalled();
   });
 });

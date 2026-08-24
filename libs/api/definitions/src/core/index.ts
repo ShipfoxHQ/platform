@@ -8,6 +8,7 @@ export {
 export {parseDefinition} from './parse-definition.js';
 export {
   type DefinitionAtRefFile,
+  type DefinitionAtRefProject,
   type DefinitionsAtRefListing,
   type ListDefinitionsAtRefParams,
   listDefinitionsAtRef,

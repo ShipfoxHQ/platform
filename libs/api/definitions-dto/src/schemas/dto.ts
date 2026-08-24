@@ -146,17 +146,22 @@ export type DefinitionValidationWarningDto = z.infer<typeof definitionValidation
 
 export const definitionAtRefQuerySchema = z.object({
   project_id: z.string().uuid(),
-  ref: z.string().min(1),
+  ref: z.string().min(1).refine(isSafeRefInput, 'Ref contains a control character'),
 });
 
 export type DefinitionAtRefQueryDto = z.infer<typeof definitionAtRefQuerySchema>;
+
+const definitionAtRefValidationErrorSchema = definitionValidationErrorSchema.extend({
+  message: z.string().max(DEFINITION_SYNC_WARNING_MESSAGE_MAX_LENGTH),
+  path: z.string().max(DEFINITION_SYNC_WARNING_PATH_MAX_LENGTH).optional(),
+});
 
 export const definitionAtRefFileSchema = z.object({
   config_path: z.string().min(1),
   name: z.string().nullable(),
   valid: z.boolean(),
-  errors: z.array(definitionValidationErrorSchema),
-  warnings: z.array(definitionValidationWarningSchema),
+  errors: z.array(definitionAtRefValidationErrorSchema).max(DEFINITION_SYNC_DIAGNOSTICS_MAX_COUNT),
+  warnings: z.array(definitionValidationWarningSchema).max(DEFINITION_SYNC_DIAGNOSTICS_MAX_COUNT),
   triggers: z.record(z.string(), triggerDtoSchema),
 });
 
@@ -169,3 +174,10 @@ export const definitionAtRefResponseSchema = z.object({
 });
 
 export type DefinitionAtRefResponseDto = z.infer<typeof definitionAtRefResponseSchema>;
+
+function isSafeRefInput(value: string): boolean {
+  return [...value].every((character) => {
+    const code = character.codePointAt(0) ?? 0;
+    return !(code < 0x20 || (code >= 0x7f && code <= 0x9f) || code === 0x2028 || code === 0x2029);
+  });
+}

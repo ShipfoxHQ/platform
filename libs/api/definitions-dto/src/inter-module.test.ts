@@ -100,7 +100,7 @@ describe('definitionsInterModuleContract', () => {
     ['project-not-found', {projectId: PROJECT_ID}],
     ['ref-not-found', {ref: REF}],
     ['ref-invalid', {ref: REF}],
-    ['too-many-files', {}],
+    ['too-many-files', {fileCount: 100}],
     ['source-unavailable', {}],
   ] as const)('defines the %s listing error', (code, details) => {
     const method = definitionsInterModuleContract.methods.listDefinitionsAtRef;

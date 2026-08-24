@@ -682,7 +682,7 @@ describe('listDefinitionsAtRef', () => {
         fetchSourceFile: async ({path}) => ({path, ref: COMMIT, content: validYaml}),
       },
     });
-    await expectRefError(
+    const error = await expectRefError(
       listDefinitionsAtRef({
         projectId: crypto.randomUUID(),
         ref: 'fix-branch',
@@ -690,6 +690,7 @@ describe('listDefinitionsAtRef', () => {
       }),
       'too-many-files',
     );
+    expect(error.details).toEqual({fileCount: 150});
     expect(metrics.recordDefinitionRefResolution).toHaveBeenCalledWith('too-many-files');
   });
 
@@ -714,7 +715,7 @@ describe('listDefinitionsAtRef', () => {
     expect(result.files[0]).toMatchObject({valid: false, name: null});
   });
 
-  test('answers source-unavailable when a listed file cannot reach the provider', async () => {
+  test('reports a listed file that cannot reach the provider as invalid', async () => {
     const clients = withClients({
       integrations: {
         fetchSourceFile: () => {
@@ -727,15 +728,20 @@ describe('listDefinitionsAtRef', () => {
       },
     });
 
-    await expectRefError(
-      listDefinitionsAtRef({
-        projectId: crypto.randomUUID(),
-        ref: 'fix-branch',
-        ...clients,
-      }),
-      'source-unavailable',
-    );
-    expect(metrics.recordDefinitionRefResolution).toHaveBeenCalledWith('source-unavailable');
+    const result = await listDefinitionsAtRef({
+      projectId: crypto.randomUUID(),
+      ref: 'fix-branch',
+      ...clients,
+    });
+    expect(result.files).toMatchObject([
+      {
+        valid: false,
+        errors: [
+          {message: expect.stringContaining('workflow file at the ref could not be fetched')},
+        ],
+      },
+    ]);
+    expect(metrics.recordDefinitionRefResolution).toHaveBeenCalledWith('resolved');
   });
 
   test('returns validation warnings for warning-only listing entries', async () => {

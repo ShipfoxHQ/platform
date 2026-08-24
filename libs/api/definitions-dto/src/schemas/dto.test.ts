@@ -1,4 +1,9 @@
-import {definitionAtRefResponseSchema, definitionSyncSummarySchema} from './dto.js';
+import {
+  DEFINITION_SYNC_DIAGNOSTICS_MAX_COUNT,
+  definitionAtRefQuerySchema,
+  definitionAtRefResponseSchema,
+  definitionSyncSummarySchema,
+} from './dto.js';
 
 describe('definitionSyncSummarySchema', () => {
   test('round trips diagnostics with mixed severities', () => {
@@ -100,6 +105,42 @@ describe('definitionAtRefResponseSchema', () => {
       definitionAtRefResponseSchema.parse({
         ref: 'fix-branch',
         files: [],
+      }),
+    ).toThrow();
+  });
+
+  test('bounds per-file diagnostics', () => {
+    const baseFile = {
+      config_path: '.shipfox/workflows/ci.yml',
+      name: 'CI',
+      valid: false,
+      errors: [],
+      warnings: [],
+      triggers: {},
+    };
+    const tooManyErrors = {
+      ...baseFile,
+      errors: Array.from({length: DEFINITION_SYNC_DIAGNOSTICS_MAX_COUNT + 1}, () => ({
+        message: 'Invalid workflow',
+      })),
+    };
+
+    expect(() =>
+      definitionAtRefResponseSchema.parse({
+        ref: 'fix-branch',
+        commit: 'a1b2c3d4e5f6a7b8c9d0a1b2c3d4e5f6a7b8c9d0',
+        files: [tooManyErrors],
+      }),
+    ).toThrow();
+  });
+});
+
+describe('definitionAtRefQuerySchema', () => {
+  test('rejects control characters in refs', () => {
+    expect(() =>
+      definitionAtRefQuerySchema.parse({
+        project_id: '00000000-0000-4000-8000-000000000001',
+        ref: 'main\n',
       }),
     ).toThrow();
   });
