@@ -4,6 +4,8 @@ import {Text} from '@shipfox/react-ui/typography';
 import {useEffect, useRef} from 'react';
 
 const JSDOM_USER_AGENT_RE = /jsdom/u;
+const CONFETTI_DURATION_MS = 2000;
+const CONFETTI_PARTICLE_COUNT = 48;
 
 export function SetupChecklistCompletion({
   showBurst,
@@ -101,13 +103,13 @@ function ConfettiBurst({
       return;
     }
     const palette = colors;
-    const particles = Array.from({length: 32}, (_, index) => ({
-      x: width / 2 + (Math.random() - 0.5) * width * 0.3,
-      y: height * 0.15,
-      vx: (Math.random() - 0.5) * 3,
-      vy: -(Math.random() * 3 + 2),
+    const particles = Array.from({length: CONFETTI_PARTICLE_COUNT}, (_, index) => ({
+      x: width / 2 + (Math.random() - 0.5) * width * 0.55,
+      y: height * (0.4 + Math.random() * 0.15),
+      vx: (Math.random() - 0.5) * 2.5,
+      vy: -(Math.random() * 0.7 + 0.4),
       rotation: Math.random() * Math.PI,
-      size: Math.random() * 4 + 3,
+      size: Math.random() * 5 + 5,
       color: palette[index % palette.length] ?? palette[0] ?? '',
     }));
     let frame = 0;
@@ -116,13 +118,13 @@ function ConfettiBurst({
     const draw = (now: number) => {
       const elapsed = now - startedAt;
       context.clearRect(0, 0, width, height);
-      context.globalAlpha = Math.max(0, 1 - elapsed / 1500);
+      context.globalAlpha = Math.max(0, 1 - elapsed / CONFETTI_DURATION_MS);
       for (const particle of particles) {
-        particle.vy += 0.12;
-        particle.vx *= 0.99;
+        particle.vy += 0.025;
+        particle.vx *= 0.985;
         particle.x += particle.vx;
         particle.y += particle.vy;
-        particle.rotation += 0.12;
+        particle.rotation += 0.1;
         context.save();
         context.translate(particle.x, particle.y);
         context.rotate(particle.rotation);
@@ -136,7 +138,7 @@ function ConfettiBurst({
         context.restore();
       }
       context.globalAlpha = 1;
-      if (elapsed < 1500) {
+      if (elapsed < CONFETTI_DURATION_MS) {
         frame = requestAnimationFrame(draw);
       } else {
         finish();
