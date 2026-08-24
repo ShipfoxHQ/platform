@@ -1,5 +1,7 @@
+import {vi} from '@shipfox/vitest/vi';
 import {ZodError} from 'zod';
 import simpleBuildWorkflowDocument from '#test/data/simple-build.json' with {type: 'json'};
+import {workflowDocumentSchema} from './workflow-document.js';
 import {
   InvalidWorkflowDocumentError,
   invalidWorkflowDocumentErrorCode,
@@ -7,6 +9,8 @@ import {
 } from './workflow-document-parser.js';
 
 describe('parseWorkflowDocument', () => {
+  afterEach(() => vi.restoreAllMocks());
+
   it('parses the simple build fixture', () => {
     const result = parseWorkflowDocument(simpleBuildWorkflowDocument);
 
@@ -80,6 +84,29 @@ describe('parseWorkflowDocument', () => {
     );
     expect((error as InvalidWorkflowDocumentError).validationError.issues).toEqual([
       expect.objectContaining({path: ['jobs']}),
+    ]);
+  });
+
+  it('preserves unexpected parser failures as the domain error cause', () => {
+    const unexpected = new Error('schema parser failed');
+    vi.spyOn(workflowDocumentSchema, 'safeParse').mockImplementation(() => {
+      throw unexpected;
+    });
+
+    let error: unknown;
+    try {
+      parseWorkflowDocument({});
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(InvalidWorkflowDocumentError);
+    expect((error as InvalidWorkflowDocumentError).cause).toBe(unexpected);
+    expect((error as InvalidWorkflowDocumentError).validationError.issues).toEqual([
+      expect.objectContaining({
+        message: 'Workflow document could not be parsed.',
+        path: [],
+      }),
     ]);
   });
 });

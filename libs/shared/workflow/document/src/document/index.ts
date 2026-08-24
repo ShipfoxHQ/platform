@@ -23,6 +23,8 @@ export {
   WORKFLOW_DOCUMENT_STEP_OUTPUT_SCHEMA_MAX_DEPTH,
   WORKFLOW_DOCUMENT_STEP_OUTPUT_SCHEMA_MAX_SERIALIZED_BYTES,
   WORKFLOW_DOCUMENT_STEP_OUTPUTS_MAX_ENTRIES,
+  WORKFLOW_DOCUMENT_TOOL_WITH_MAX_DEPTH,
+  WORKFLOW_DOCUMENT_TOOL_WITH_MAX_SERIALIZED_BYTES,
   type WorkflowDocument,
   type WorkflowDocumentCheckout,
   type WorkflowDocumentEnv,
@@ -33,6 +35,8 @@ export {
   type WorkflowDocumentStepIntegration,
   type WorkflowDocumentStepOutputs,
   type WorkflowDocumentStepOutputType,
+  type WorkflowDocumentToolStepOutputs,
+  type WorkflowDocumentToolWith,
   type WorkflowDocumentTrigger,
   workflowDocumentCheckoutSchema,
   workflowDocumentEnvSchema,
@@ -43,6 +47,8 @@ export {
   workflowDocumentStepOutputsSchema,
   workflowDocumentStepOutputTypes,
   workflowDocumentStepSchema,
+  workflowDocumentToolStepOutputsSchema,
+  workflowDocumentToolStepWithSchema,
   workflowDocumentTriggerSchema,
 } from './workflow-document.js';
 export {
