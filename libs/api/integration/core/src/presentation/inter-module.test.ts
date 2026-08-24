@@ -490,6 +490,61 @@ describe('integrations inter-module callTool', () => {
     ).rejects.toMatchObject({name: 'TimeoutError'});
   });
 
+  it('maps a deadline abort during the provider call to a provider-timeout outcome', async () => {
+    const transport = createInMemoryInterModuleTransport();
+    const presentation = createIntegrationsInterModulePresentation({
+      registry: createIntegrationProviderRegistry([
+        {
+          provider: 'github',
+          displayName: 'GitHub',
+          adapters: {
+            agent_tools: {
+              catalog: () => [catalogTool()],
+              selectionCatalog: () => ({selectors: []}),
+              openSession: () =>
+                Promise.resolve({
+                  // A call that never settles: only the deadline can end it.
+                  call: () => new Promise(() => undefined),
+                  close: () => Promise.resolve(),
+                }),
+            },
+          },
+        },
+      ]),
+      sourceControl: createSourceControlIntegrationService({
+        registry: createIntegrationProviderRegistry([]),
+        getIntegrationConnectionById: async () => undefined,
+      }),
+      getIntegrationConnectionById: async () => connection({id: connectionId, workspaceId}),
+    });
+    transport.register(presentation);
+    transport.seal();
+
+    const result = await presentation.handlers.callTool(toolCallInput, {
+      signal: AbortSignal.timeout(20),
+    });
+
+    expect(result).toEqual({
+      outcome: 'error',
+      code: 'provider-timeout',
+      message: 'Integration provider timed out',
+    });
+  });
+
+  it('keeps a completed call success when the audit recorder throws', async () => {
+    const client = createToolCallClient(
+      {},
+      async () => connection({id: connectionId, workspaceId}),
+      () => () => {
+        throw new Error('audit backend unavailable');
+      },
+    );
+
+    const result = await client.callTool(toolCallInput);
+
+    expect(result.outcome).toBe('success');
+  });
+
   it('propagates a provider error with retry and status details', async () => {
     const client = createToolCallClient({
       callError: new IntegrationProviderError('rate-limited', 'Try again later', 30, 429),

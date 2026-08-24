@@ -340,7 +340,7 @@ function recordCallOutcome(
   method: string,
   outcome: IntegrationToolCallOutcome,
 ): void {
-  recorder({
+  recordToolCall(recorder, {
     authorizedTool: target,
     arguments: argumentsValue,
     method,

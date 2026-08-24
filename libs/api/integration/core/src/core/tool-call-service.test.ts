@@ -299,6 +299,51 @@ describe('callIntegrationTool', () => {
     expect(serviceMocks.loggerError).not.toHaveBeenCalled();
   });
 
+  it('closes a session that resolves after an abort during session opening', async () => {
+    const onClose = vi.fn();
+    const controller = new AbortController();
+    let releaseOpen: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      releaseOpen = resolve;
+    });
+    const input = createInput({onClose});
+    const registry = createIntegrationProviderRegistry([
+      {
+        provider: 'github',
+        displayName: 'GitHub',
+        adapters: {
+          agent_tools: {
+            catalog: () => [catalogTool()],
+            selectionCatalog: () => ({selectors: []}),
+            openSession: () =>
+              gate.then(() => ({
+                call: () => Promise.resolve({content: [{type: 'text', text: 'never called'}]}),
+                close: () => {
+                  onClose();
+                  return Promise.resolve();
+                },
+              })),
+          },
+        },
+      },
+    ]);
+
+    const call = callIntegrationTool({...input, registry, signal: controller.signal});
+    await vi.waitFor(() => expect(releaseOpen).toBeDefined());
+
+    controller.abort();
+
+    await expect(call).resolves.toEqual({
+      outcome: 'error',
+      error: {code: 'cancelled', message: 'Integration tool call cancelled'},
+    });
+    expect(onClose).not.toHaveBeenCalled();
+    expect(serviceMocks.loggerError).not.toHaveBeenCalled();
+
+    releaseOpen?.();
+    await vi.waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+  });
+
   it('maps a provider tool-level error result to a bounded error outcome', async () => {
     const result = await callIntegrationTool(
       createInput({
@@ -321,6 +366,33 @@ describe('callIntegrationTool', () => {
         code: 'access-denied',
         message: 'GitHub installation token is missing permission for this operation',
         status: 403,
+      },
+    });
+    expect(serviceMocks.loggerError).not.toHaveBeenCalled();
+    expect(serviceMocks.reportError).not.toHaveBeenCalled();
+  });
+
+  it('keeps the backoff hint from a rate-limited provider tool error', async () => {
+    const result = await callIntegrationTool(
+      createInput({
+        result: {
+          isError: true,
+          content: [
+            {type: 'text', text: 'Rate limited'},
+            {type: 'text', text: 'ignored'},
+          ],
+          structuredContent: {code: 'rate-limited', retryAfterSeconds: 30, status: 429},
+        },
+      }),
+    );
+
+    expect(result).toEqual({
+      outcome: 'error',
+      error: {
+        code: 'rate-limited',
+        message: 'Rate limited',
+        retryAfterSeconds: 30,
+        status: 429,
       },
     });
     expect(serviceMocks.loggerError).not.toHaveBeenCalled();

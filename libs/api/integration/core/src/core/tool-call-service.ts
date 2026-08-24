@@ -68,6 +68,7 @@ export async function callIntegrationTool(
   const log = input.logger ?? logger;
   const report = input.reportError ?? reportError;
   let session: AgentToolSession<CallToolResult> | undefined;
+  let openingSession: Promise<AgentToolSession<CallToolResult>> | undefined;
 
   try {
     // A caller that already cancelled must not trigger a provider round-trip:
@@ -85,14 +86,12 @@ export async function callIntegrationTool(
       typeof input.integration,
       CallToolResult
     >;
-    session = await raceWithSignal(
-      adapter.openSession({
-        connection: input.connection,
-        tools: [agentToolCatalogEntry(input)],
-        scope: input.integration,
-      }),
-      input.signal,
-    );
+    openingSession = adapter.openSession({
+      connection: input.connection,
+      tools: [agentToolCatalogEntry(input)],
+      scope: input.integration,
+    });
+    session = await raceWithSignal(openingSession, input.signal);
 
     // The signal may have aborted while the session was opening: the session
     // is closed by the `finally` below, but the call must not be dispatched.
@@ -118,6 +117,15 @@ export async function callIntegrationTool(
     // A caller-initiated abort is a cancellation, not a provider failure: keep
     // it out of the timeout/unknown error classes and out of error monitoring.
     if (input.signal?.aborted) {
+      // An abort that fired while the session was still opening leaves the
+      // `session` handle unset for `finally`; close the session when the
+      // opening promise settles so it cannot leak.
+      if (openingSession !== undefined && session === undefined) {
+        void openingSession.then(
+          (opened) => closeSession(opened, log, report),
+          () => undefined,
+        );
+      }
       return {outcome: 'error', error: abortOutcome(input.signal)};
     }
     const errorRecord = errorResult(error);
@@ -303,10 +311,12 @@ function providerToolError(result: CallToolResult): IntegrationToolCallError {
     ? result.structuredContent
     : undefined;
   const status = statusCode(structuredContent?.status);
+  const retryAfterSeconds = retryAfterSecondsValue(structuredContent?.retryAfterSeconds);
   return {
     code: normalizeIntegrationAgentToolCallErrorCode(structuredContent?.code),
     message: textContent(result.content) ?? 'Integration tool call failed',
     ...(status === undefined ? {} : {status}),
+    ...(retryAfterSeconds === undefined ? {} : {retryAfterSeconds}),
   };
 }
 
@@ -319,6 +329,10 @@ function statusCode(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isInteger(value) && value >= 100 && value <= 599
     ? value
     : undefined;
+}
+
+function retryAfterSecondsValue(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
