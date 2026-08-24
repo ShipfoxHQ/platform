@@ -32,6 +32,8 @@ export interface IntegrationDocsCompletenessInput {
 
 const canonicalPages = ['index', 'setup', 'events', 'tools'];
 const hardcodedCountPattern = /\b\d+\s+(?:events?|tools?)\b/iu;
+const lineBreakPattern = /\r?\n/u;
+const yamlCommentPattern = /\s+#/u;
 
 export function collectIntegrationDocIssues(input: IntegrationDocsCompletenessInput): string[] {
   const issues: string[] = [];
@@ -174,12 +176,22 @@ function collectBuiltInSourceIssues(
     issues.push(`${prefix}: document it at ${provider.docRoute}.`);
     return;
   }
-  if (!source.includes(`source: ${provider.slug}`))
+  if (!hasSourceExample(source, provider.slug))
     issues.push(`${prefix}: show \`source: ${provider.slug}\` in ${provider.docRoute}.`);
   for (const event of provider.events) {
     if (!source.includes(`\`${event}\``))
       issues.push(`${prefix}: mention event "${event}" in ${provider.docRoute}.mdx.`);
   }
+}
+
+function hasSourceExample(source: string, providerSlug: string): boolean {
+  return source.split(lineBreakPattern).some((line) => {
+    const value = line.trim();
+    if (!value.startsWith('source:')) return false;
+
+    const [sourceValue] = value.slice('source:'.length).trim().split(yamlCommentPattern);
+    return sourceValue === providerSlug;
+  });
 }
 
 function strings(value: unknown): string[] {

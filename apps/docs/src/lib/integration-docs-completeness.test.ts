@@ -151,10 +151,23 @@ test('reports a missing setup page for a catalog provider', () => {
 test('accepts built-in source documentation without reference-page structure', () => {
   const input: IntegrationDocsCompletenessInput = {
     ...validInput,
-    builtInSourceDocs: {cron: '# Schedule workflows\nsource: cron\nThe event is `tick`.'},
+    builtInSourceDocs: {
+      cron: '# Schedule workflows\nsource: cron # every hour\nThe event is `tick`.',
+    },
   };
 
   assert.deepEqual(collectIntegrationDocIssues(input), []);
+});
+
+test('requires an exact built-in source value', () => {
+  const input: IntegrationDocsCompletenessInput = {
+    ...validInput,
+    builtInSourceDocs: {cron: 'source: cronical\nThe event is `tick`.'},
+  };
+
+  assert.deepEqual(collectIntegrationDocIssues(input), [
+    'Built-in source "cron": show `source: cron` in /how-to/author-workflows/schedule-workflows.',
+  ]);
 });
 
 test('reports only the built-in-source diagnostic for its integration directory', () => {
