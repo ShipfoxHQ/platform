@@ -28,11 +28,7 @@ export function createFireManualTriggerRoute(workflows: WorkflowsModuleClient) {
         201: fireManualTriggerResponseSchema,
         422: z.object({
           code: z.string(),
-          details: z.object({
-            field: z.string(),
-            source: z.string(),
-            env_key: z.string().optional(),
-          }),
+          details: z.unknown().optional(),
         }),
       },
     },
