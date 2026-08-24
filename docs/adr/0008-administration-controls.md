@@ -6,6 +6,10 @@
 - **Related:** [ADR 0001: Public client composition contract](0001-client-composition-contract.md),
   [ADR 0002: Server inter-module architecture](0002-api-inter-module-architecture.md),
   and [ADR 0006: Database ownership boundaries](0006-database-ownership-boundaries.md).
+- **Extended by:** [ADR 0014: Admin user impersonation](0014-admin-user-impersonation.md),
+  which supersedes the "User impersonation" non-goal in the scoping specification behind
+  this record. The role model, idempotency, audit, and suspension semantics here are
+  unchanged.
 
 ## Context
 
