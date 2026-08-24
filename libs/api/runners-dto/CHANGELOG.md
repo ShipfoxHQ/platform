@@ -1,5 +1,11 @@
 # @shipfox/api-runners-dto
 
+## 16.0.0
+
+### Patch Changes
+
+- 8eda9d4: Makes runner reservation accounting self-correcting across claimed, terminal, released, and unlaunched runner units, and labels reservation-release metrics by lifecycle surface including first-claim releases.
+
 ## 14.0.0
 
 ### Minor Changes

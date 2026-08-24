@@ -1,5 +1,16 @@
 # @shipfox/expression
 
+## 2.4.0
+
+### Minor Changes
+
+- 117edfd: Adds named agent sessions with validated keys and resume or fork modes.
+
+### Patch Changes
+
+- Updated dependencies [117edfd]
+  - @shipfox/workflow-document@3.3.0
+
 ## 2.3.0
 
 ### Minor Changes

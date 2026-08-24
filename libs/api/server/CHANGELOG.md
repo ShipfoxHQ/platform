@@ -1,5 +1,32 @@
 # @shipfox/api-server
 
+## 16.0.0
+
+### Patch Changes
+
+- Updated dependencies [9b7cdcc]
+- Updated dependencies [80d0263]
+- Updated dependencies [568c90b]
+- Updated dependencies [03e03c7]
+- Updated dependencies [117edfd]
+- Updated dependencies [8eda9d4]
+- Updated dependencies [64155fb]
+  - @shipfox/api-agent@16.0.0
+  - @shipfox/api-definitions@16.0.0
+  - @shipfox/api-integration-core@16.0.0
+  - @shipfox/api-integration-core-dto@16.0.0
+  - @shipfox/api-agent-dto@16.0.0
+  - @shipfox/api-definitions-dto@16.0.0
+  - @shipfox/api-runners@16.0.0
+  - @shipfox/api-runners-dto@16.0.0
+  - @shipfox/api-logs@16.0.0
+  - @shipfox/api-projects@16.0.0
+  - @shipfox/api-triggers@16.0.0
+  - @shipfox/api-workflows@16.0.0
+  - @shipfox/api-workflows-dto@16.0.0
+  - @shipfox/api-dispatcher@15.0.0
+  - @shipfox/api-workspaces@16.0.0
+
 ## 15.0.0
 
 ### Patch Changes

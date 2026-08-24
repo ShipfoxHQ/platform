@@ -1,5 +1,15 @@
 # Changelog
 
+## 25.0.0
+
+### Minor Changes
+
+- af27652: Adds an optional `SessionBanner` chrome slot rendered above the navigation bar.
+
+### Patch Changes
+
+- f57bcc3: Adds the workspace setup checklist panel and top-bar indicator.
+
 ## 24.0.0
 
 ### Patch Changes

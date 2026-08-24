@@ -1,5 +1,23 @@
 # @shipfox/api-definitions
 
+## 16.0.0
+
+### Minor Changes
+
+- 80d0263: Adds authoring checks for shared agent sessions. Checks parallel resume of statically identical session keys across unordered jobs and literal harness disagreement between steps sharing a session key.
+- 117edfd: Adds named agent sessions with validated keys and resume or fork modes.
+
+### Patch Changes
+
+- Updated dependencies [568c90b]
+- Updated dependencies [03e03c7]
+- Updated dependencies [117edfd]
+  - @shipfox/api-integration-core-dto@16.0.0
+  - @shipfox/api-agent-dto@16.0.0
+  - @shipfox/workflow-document@3.3.0
+  - @shipfox/api-definitions-dto@16.0.0
+  - @shipfox/expression@2.4.0
+
 ## 15.0.0
 
 ### Minor Changes

@@ -1,5 +1,12 @@
 # @shipfox/api-integration-slack
 
+## 16.0.0
+
+### Patch Changes
+
+- @shipfox/api-integration-slack-dto@16.0.0
+- @shipfox/api-integration-spi@2.0.2
+
 ## 15.0.0
 
 ### Patch Changes

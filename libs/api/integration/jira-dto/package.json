@@ -1,7 +1,7 @@
 {
   "name": "@shipfox/api-integration-jira-dto",
   "license": "MIT",
-  "version": "15.0.0",
+  "version": "16.0.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ShipfoxHQ/shipfox.git",

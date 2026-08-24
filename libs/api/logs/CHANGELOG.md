@@ -1,5 +1,19 @@
 # @shipfox/api-logs
 
+## 16.0.0
+
+### Minor Changes
+
+- 64155fb: Adds the server-origin log append contract and enforces bounded, validated writes.
+
+### Patch Changes
+
+- Updated dependencies [117edfd]
+- Updated dependencies [64155fb]
+  - @shipfox/workflow-document@3.3.0
+  - @shipfox/api-logs-dto@16.0.0
+  - @shipfox/api-workflows-dto@16.0.0
+
 ## 15.0.0
 
 ### Patch Changes

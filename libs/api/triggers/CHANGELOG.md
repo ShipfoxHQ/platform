@@ -1,5 +1,17 @@
 # @shipfox/api-triggers
 
+## 16.0.0
+
+### Patch Changes
+
+- Updated dependencies [568c90b]
+- Updated dependencies [117edfd]
+  - @shipfox/api-integration-core-dto@16.0.0
+  - @shipfox/workflow-document@3.3.0
+  - @shipfox/api-definitions-dto@16.0.0
+  - @shipfox/expression@2.4.0
+  - @shipfox/api-workflows-dto@16.0.0
+
 ## 15.0.0
 
 ### Major Changes

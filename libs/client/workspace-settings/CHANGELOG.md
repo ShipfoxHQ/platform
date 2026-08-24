@@ -1,5 +1,14 @@
 # @shipfox/client-workspace-settings
 
+## 25.0.0
+
+### Patch Changes
+
+- Updated dependencies [af27652]
+- Updated dependencies [f57bcc3]
+  - @shipfox/client-shell@25.0.0
+  - @shipfox/client-auth@25.0.0
+
 ## 24.0.0
 
 ### Patch Changes
