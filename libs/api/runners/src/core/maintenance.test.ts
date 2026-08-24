@@ -85,7 +85,7 @@ describe('reapStaleRunnerInstances', () => {
 
     expect(result).toEqual({reaped: 1, reservationsReleased: 1});
     expect(reapedSpy).toHaveBeenCalledWith(1);
-    expect(releasedSpy).toHaveBeenCalledWith(1);
+    expect(releasedSpy).toHaveBeenCalledWith(1, {surface: 'reconcile'});
   });
 });
 

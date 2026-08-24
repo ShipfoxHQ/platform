@@ -1,6 +1,7 @@
 import {getServiceMetricsProvider} from '@shipfox/node-opentelemetry';
 import {config} from '#config.js';
 import {getJobExecutionQueueDepth} from '#db/job-executions.js';
+import {countLiveReservationLeakUnits} from '#db/reservations.js';
 import {
   countStaleEnrolledRunnerInstances,
   listProviderRunnerByPhaseMetrics,
@@ -43,17 +44,25 @@ export function registerRunnersServiceMetrics(): void {
       unit: 'ms',
     },
   );
+  const reservationLeakUnits = meter.createObservableGauge('runners_reservation_leaked_units', {
+    description: 'Live reservation units without an unclaimed runner behind them',
+  });
 
   meter.addBatchObservableCallback(
     async (observer) => {
-      const [depthResult, staleEnrolledRunnerCountResult, providerRunnersByPhaseResult] =
-        await Promise.allSettled([
-          getJobExecutionQueueDepth(),
-          countStaleEnrolledRunnerInstances({
-            graceSeconds: config.RUNNER_STALE_PROVISIONED_RUNNER_THRESHOLD_SECONDS,
-          }),
-          listProviderRunnerByPhaseMetrics(),
-        ]);
+      const [
+        depthResult,
+        staleEnrolledRunnerCountResult,
+        providerRunnersByPhaseResult,
+        reservationLeakUnitsResult,
+      ] = await Promise.allSettled([
+        getJobExecutionQueueDepth(),
+        countStaleEnrolledRunnerInstances({
+          graceSeconds: config.RUNNER_STALE_PROVISIONED_RUNNER_THRESHOLD_SECONDS,
+        }),
+        listProviderRunnerByPhaseMetrics(),
+        countLiveReservationLeakUnits(),
+      ]);
 
       if (depthResult.status === 'fulfilled') {
         observer.observe(pendingJobExecutions, depthResult.value.pendingJobExecutions);
@@ -77,6 +86,9 @@ export function registerRunnersServiceMetrics(): void {
           );
         }
       }
+      if (reservationLeakUnitsResult.status === 'fulfilled') {
+        observer.observe(reservationLeakUnits, reservationLeakUnitsResult.value);
+      }
     },
     [
       pendingJobExecutions,
@@ -84,6 +96,7 @@ export function registerRunnersServiceMetrics(): void {
       enrolledRunnersWithoutRecentReport,
       providerRunnersByPhase,
       providerRunnersByPhaseOldestAge,
+      reservationLeakUnits,
     ],
   );
 }

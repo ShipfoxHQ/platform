@@ -26,7 +26,7 @@ export const demandStatSchema = z.object({
     .int()
     .min(0)
     .describe(
-      'Active reservations for this label set; advisory, may exceed `queued` during heavy claiming.',
+      'Queued jobs for this label set covered by unclaimed reserved runners or reservations created in this poll; advisory scheduling estimate.',
     ),
   oldest_queued_at: z.string().datetime(),
 });

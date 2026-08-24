@@ -4,6 +4,7 @@ import {and, eq, inArray, or, sql, sum} from 'drizzle-orm';
 import type {RunnerInstanceState} from '#core/entities/runner-instance.js';
 import {db} from '#db/db.js';
 import {
+  countLiveReservationLeakUnits,
   deleteExpiredReservations,
   deleteReservationsByIds,
   pollDemandAndReserve,
@@ -41,6 +42,182 @@ describe('pollDemandAndReserve', () => {
     expect(result.reservations).toHaveLength(1);
     expect(result.reservations[0]?.count).toBe(20);
     expect(result.stats[0]).toMatchObject({labels: ['linux'], queued: 50, reserved: 20});
+  });
+
+  it('does not mask demand with a claimed reservation unit', async () => {
+    const reservation = await createIntendedReservation({
+      workspaceId,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    await createIdleRunner({
+      labels: ['linux'],
+      workspaceId,
+      reservationId: reservation.id,
+      firstClaimedAt: new Date(),
+      controlSessionExpiresAt: new Date(Date.now() - 1_000),
+    });
+    await createPendingJobs(1, ['linux']);
+
+    const result = await pollDemandAndReserve({
+      workspaceId,
+      provisionerId,
+      maxReservations: 1,
+      ttlSeconds: 60,
+      templates: [template('linux', ['linux'], 1)],
+    });
+
+    expect(result.reservations).toEqual([expect.objectContaining({labels: ['linux'], count: 1})]);
+    expect(result.stats[0]).toMatchObject({queued: 1, reserved: 1});
+  });
+
+  it('masks exactly one unit for a booting unclaimed runner', async () => {
+    const reservation = await createIntendedReservation({
+      workspaceId,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    await createIdleRunner({
+      labels: ['linux'],
+      reservationId: reservation.id,
+      firstClaimedAt: null,
+    });
+    await createPendingJobs(1, ['linux']);
+
+    const result = await pollDemandAndReserve({
+      workspaceId,
+      provisionerId,
+      maxReservations: 1,
+      ttlSeconds: 60,
+      templates: [template('linux', ['linux'], 1)],
+    });
+
+    expect(result.reservations).toEqual([]);
+    expect(result.stats[0]).toMatchObject({queued: 1, reserved: 1});
+  });
+
+  it('does not mask demand when a granted unit has no live unclaimed runner', async () => {
+    await createIntendedReservation({
+      workspaceId,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    await createPendingJobs(1, ['linux']);
+
+    const result = await pollDemandAndReserve({
+      workspaceId,
+      provisionerId,
+      maxReservations: 1,
+      ttlSeconds: 60,
+      templates: [template('linux', ['linux'], 1)],
+    });
+
+    expect(result.reservations).toEqual([expect.objectContaining({labels: ['linux'], count: 1})]);
+    expect(result.stats[0]).toMatchObject({queued: 1, reserved: 1});
+  });
+
+  it('does not block on reservation locks while observing leaked units', async () => {
+    const leakedUnitsBefore = await countLiveReservationLeakUnits();
+    const reservation = await createIntendedReservation({
+      workspaceId,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    const lockClient = await pgClient().connect();
+    let transactionOpen = false;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await lockClient.query('BEGIN');
+      transactionOpen = true;
+      await lockClient.query('SELECT id FROM runners_reservations WHERE id = $1 FOR UPDATE', [
+        reservation.id,
+      ]);
+      await lockClient.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
+        `runners_assignment:${provisionerId}:${reservation.id}`,
+      ]);
+
+      const leakedUnits = await Promise.race([
+        countLiveReservationLeakUnits(),
+        new Promise<never>((_, reject) => {
+          timeout = setTimeout(
+            () => reject(new Error('Leak gauge waited on reservation mutation locks')),
+            1_000,
+          );
+        }),
+      ]);
+
+      expect(leakedUnits).toBe(leakedUnitsBefore + 1);
+    } finally {
+      if (timeout) clearTimeout(timeout);
+      if (transactionOpen) await lockClient.query('ROLLBACK');
+      lockClient.release();
+    }
+  }, 10_000);
+
+  it('counts leaked units across live reservation lifecycle states', async () => {
+    const leakedUnitsBefore = await countLiveReservationLeakUnits();
+    await createIntendedReservation({
+      workspaceId,
+      count: 1,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    const partialReservation = await createIntendedReservation({
+      workspaceId,
+      count: 2,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    await createIdleRunner({
+      labels: ['linux'],
+      reservationId: partialReservation.id,
+      firstClaimedAt: null,
+    });
+
+    const claimedReservation = await createIntendedReservation({
+      workspaceId,
+      count: 1,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    await createIdleRunner({
+      labels: ['linux'],
+      reservationId: claimedReservation.id,
+      firstClaimedAt: new Date(),
+    });
+
+    const terminalReservation = await createIntendedReservation({
+      workspaceId,
+      count: 1,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    await createIdleRunner({
+      labels: ['linux'],
+      reservationId: terminalReservation.id,
+      state: 'terminated',
+    });
+
+    const releasedReservation = await createIntendedReservation({
+      workspaceId,
+      count: 1,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    await createIdleRunner({
+      labels: ['linux'],
+      reservationId: releasedReservation.id,
+      reservationReleasedAt: new Date(),
+    });
+
+    const coveredReservation = await createIntendedReservation({
+      workspaceId,
+      count: 1,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    await createIdleRunner({
+      labels: ['linux'],
+      reservationId: coveredReservation.id,
+      firstClaimedAt: null,
+    });
+    await createIntendedReservation({
+      workspaceId,
+      count: 1,
+      expiresAt: new Date(Date.now() - 60_000),
+    });
+
+    expect(await countLiveReservationLeakUnits()).toBe(leakedUnitsBefore + 5);
   });
 
   it('does not create a bound reservation when no idle runner can be rebound', async () => {
@@ -368,7 +545,7 @@ describe('pollDemandAndReserve', () => {
     ).toHaveLength(1);
   });
 
-  it('does not charge adopted runners against later overlapping demand', async () => {
+  it('keeps a booting adopted runner in later overlapping demand accounting', async () => {
     const adoptedRunner = await createIdleRunner({labels: ['linux', 'gpu']});
     await createPendingJobs(1, ['linux', 'gpu']);
 
@@ -394,26 +571,17 @@ describe('pollDemandAndReserve', () => {
     const boundReservation = storedReservations.find(
       (reservation) => reservation.requiredLabels.includes('gpu') && reservation.kind === 'bound',
     );
-    const launchReservation = storedReservations.find(
-      (reservation) => !reservation.requiredLabels.includes('gpu') && reservation.kind === 'launch',
-    );
     const [storedRunner] = await db()
       .select()
       .from(providerRunners)
       .where(eq(providerRunners.id, adoptedRunner.id));
 
-    expect(result.reservations).toEqual([
-      expect.objectContaining({
-        reservationId: launchReservation?.id,
-        labels: ['linux'],
-        count: 1,
-      }),
-    ]);
+    expect(result.reservations).toEqual([]);
     expect(boundReservation).toMatchObject({kind: 'bound', count: 1});
     expect(storedRunner?.reservationId).toBe(boundReservation?.id);
   });
 
-  it('deducts only pending launch units from a partially adopted reservation', async () => {
+  it('deducts all booting units from a partially adopted reservation', async () => {
     await createIdleRunner({labels: ['linux', 'gpu']});
     await createIdleRunner({labels: ['linux', 'gpu']});
     await createPendingJobs(3, ['linux', 'gpu']);
@@ -436,12 +604,10 @@ describe('pollDemandAndReserve', () => {
       templates: [template('linux-gpu', ['linux', 'gpu'], 2)],
     });
 
-    expect(secondPoll.reservations).toEqual([
-      expect.objectContaining({labels: ['linux'], count: 1}),
-    ]);
+    expect(secondPoll.reservations).toEqual([]);
   });
 
-  it('deducts a launch reservation with no adopted units in full', async () => {
+  it('does not let a launch reservation with no live runner mask demand', async () => {
     await createPendingJobs(1, ['linux', 'gpu']);
 
     const firstPoll = await pollDemandAndReserve({
@@ -462,10 +628,12 @@ describe('pollDemandAndReserve', () => {
       templates: [template('linux-gpu', ['linux', 'gpu'], 1)],
     });
 
-    expect(secondPoll.reservations).toEqual([]);
+    expect(secondPoll.reservations).toEqual([
+      expect.objectContaining({labels: ['gpu', 'linux'], count: 1}),
+    ]);
   });
 
-  it('counts an intended runner while its reservation assignment is in flight', async () => {
+  it('keeps an intended runner while its reservation assignment is in flight in accounting', async () => {
     const intendedReservation = await createIntendedReservation({
       workspaceId,
       expiresAt: new Date(Date.now() + 60_000),
@@ -484,12 +652,10 @@ describe('pollDemandAndReserve', () => {
       templates: [template('linux-gpu', ['linux', 'gpu'], 1)],
     });
 
-    expect(result.reservations).toEqual([
-      expect.objectContaining({labels: ['gpu', 'linux'], count: 1}),
-    ]);
+    expect(result.reservations).toEqual([]);
   });
 
-  it('deducts a released runner reservation unit as pending', async () => {
+  it('does not deduct a released runner reservation unit from capacity', async () => {
     const reservation = await createIntendedReservation({
       workspaceId,
       expiresAt: new Date(Date.now() + 60_000),
@@ -509,10 +675,12 @@ describe('pollDemandAndReserve', () => {
       templates: [template('linux-gpu', ['linux', 'gpu'], 1)],
     });
 
-    expect(result.reservations).toEqual([]);
+    expect(result.reservations).toEqual([
+      expect.objectContaining({labels: ['gpu', 'linux'], count: 1}),
+    ]);
   });
 
-  it('deducts a terminal intended runner reservation unit as pending', async () => {
+  it('does not deduct a terminal intended runner reservation unit from capacity', async () => {
     const reservation = await createIntendedReservation({
       workspaceId,
       expiresAt: new Date(Date.now() + 60_000),
@@ -532,10 +700,12 @@ describe('pollDemandAndReserve', () => {
       templates: [template('linux-gpu', ['linux', 'gpu'], 1)],
     });
 
-    expect(result.reservations).toEqual([]);
+    expect(result.reservations).toEqual([
+      expect.objectContaining({labels: ['gpu', 'linux'], count: 1}),
+    ]);
   });
 
-  it('deducts a terminal assigned runner reservation unit as pending', async () => {
+  it('does not deduct a terminal assigned runner reservation unit from capacity', async () => {
     const reservation = await createIntendedReservation({
       workspaceId,
       expiresAt: new Date(Date.now() + 60_000),
@@ -555,7 +725,9 @@ describe('pollDemandAndReserve', () => {
       templates: [template('linux-gpu', ['linux', 'gpu'], 1)],
     });
 
-    expect(result.reservations).toEqual([]);
+    expect(result.reservations).toEqual([
+      expect.objectContaining({labels: ['gpu', 'linux'], count: 1}),
+    ]);
   });
 
   it('counts only active assigned runners when deducting provisioner reservations', async () => {
@@ -1190,7 +1362,26 @@ describe('pollDemandAndReserve', () => {
     ]);
   });
 
-  it('serializes multiple provisioners so total active reservations do not exceed queued demand', async () => {
+  it('applies existing booting reservations across multiple provisioners', async () => {
+    const reservedProvisionerId = crypto.randomUUID();
+    const [reservedReservation] = await db()
+      .insert(reservations)
+      .values({
+        workspaceId,
+        provisionerId: reservedProvisionerId,
+        requiredLabels: ['linux'],
+        count: 5,
+        expiresAt: new Date(Date.now() + 60_000),
+      })
+      .returning({id: reservations.id});
+    if (!reservedReservation) throw new Error('Expected reservation');
+    for (let index = 0; index < 5; index++) {
+      await createIdleRunner({
+        provisionerId: reservedProvisionerId,
+        labels: ['linux'],
+        reservationId: reservedReservation.id,
+      });
+    }
     await createPendingJobs(5, ['linux']);
 
     await Promise.all([
@@ -1211,7 +1402,7 @@ describe('pollDemandAndReserve', () => {
     ]);
 
     const reserved = await activeReservedCount();
-    expect(reserved).toBeLessThanOrEqual(5);
+    expect(reserved).toBe(5);
   });
 
   it('allocates eligible workspace heads in oldest-demand order without overselling templates', async () => {
@@ -1332,7 +1523,7 @@ describe('pollDemandAndReserve', () => {
     expect(result.stats[0]).toMatchObject({queued: 1, reserved: 1});
   });
 
-  it('deducts this provisioner active reservations from advertised capacity', async () => {
+  it('does not mask demand with spent reservations from this provisioner', async () => {
     await createPendingJobs(10, ['linux']);
     await reservationFactory.create({
       workspaceId,
@@ -1351,9 +1542,9 @@ describe('pollDemandAndReserve', () => {
     });
 
     const reserved = await activeReservedCount();
-    expect(result.reservations).toEqual([]);
+    expect(result.reservations).toEqual([expect.objectContaining({labels: ['linux'], count: 5})]);
     expect(result.stats[0]).toMatchObject({queued: 10, reserved: 5});
-    expect(reserved).toBe(5);
+    expect(reserved).toBe(10);
   });
 
   it('returns multiple reservation groups in one response', async () => {
@@ -1964,6 +2155,7 @@ describe('pollDemandAndReserve', () => {
 
   async function createIntendedReservation(params: {
     workspaceId: string;
+    count?: number;
     expiresAt: Date;
   }): Promise<{id: string}> {
     const [reservation] = await db()
@@ -1972,7 +2164,7 @@ describe('pollDemandAndReserve', () => {
         workspaceId: params.workspaceId,
         provisionerId,
         requiredLabels: ['linux'],
-        count: 1,
+        count: params.count ?? 1,
         expiresAt: params.expiresAt,
       })
       .returning({id: reservations.id});
@@ -1982,6 +2174,7 @@ describe('pollDemandAndReserve', () => {
 
   async function createIdleRunner(params: {
     id?: string;
+    provisionerId?: string;
     labels: string[];
     createdAt?: Date;
     controlSessionExpiresAt?: Date;
@@ -1990,20 +2183,23 @@ describe('pollDemandAndReserve', () => {
     reservationId?: string | null;
     intendedReservationId?: string | null;
     reservationReleasedAt?: Date | null;
+    firstClaimedAt?: Date | null;
     state?: RunnerInstanceState;
   }) {
     const createdAt = params.createdAt ?? new Date();
+    const runnerProvisionerId = params.provisionerId ?? provisionerId;
     const [runner] = await db()
       .insert(providerRunners)
       .values({
         ...(params.id ? {id: params.id} : {}),
-        provisionerId,
+        provisionerId: runnerProvisionerId,
         workspaceId: params.workspaceId,
         reservationId: params.reservationId,
         providerRunnerId: crypto.randomUUID(),
         launchKind: params.launchKind ?? 'manual',
         intendedReservationId: params.intendedReservationId,
         reservationReleasedAt: params.reservationReleasedAt,
+        firstClaimedAt: params.firstClaimedAt,
         labels: params.labels,
         state: params.state ?? 'running',
         reportedAt: createdAt,
@@ -2017,7 +2213,7 @@ describe('pollDemandAndReserve', () => {
       .insert(runnerControlSessions)
       .values({
         runnerInstanceId: runner.id,
-        provisionerId,
+        provisionerId: runnerProvisionerId,
         hashedToken: crypto.randomUUID(),
         prefix: 'test',
         expiresAt: params.controlSessionExpiresAt ?? new Date(Date.now() + 60_000),
