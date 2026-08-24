@@ -142,6 +142,22 @@ describe('evaluateWorkflowExpression', () => {
   it.each([
     ['first', 'first'],
     ['last', 'last'],
+  ] as const)('evaluates a nested call after dynamic list %s', (method, expected) => {
+    const expression = createWorkflowExpression({
+      source: `event.values.${method}().${method}()`,
+      check: {mode: 'syntax'},
+    });
+
+    const result = evaluateWorkflowExpression(expression, {
+      event: {values: [['first'], ['last']]},
+    });
+
+    expect(result).toBe(expected);
+  });
+
+  it.each([
+    ['first', 'first'],
+    ['last', 'last'],
   ] as const)('evaluates %s for a Set list value', (method, expected) => {
     const expression = createWorkflowExpression({
       source: `event.values.${method}()`,
