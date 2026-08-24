@@ -49,6 +49,7 @@
     "@shipfox/api-workflows-dto": "workspace:*",
     "@shipfox/workflow-document": "workspace:*",
     "@shipfox/config": "workspace:*",
+    "@shipfox/inter-module": "workspace:*",
     "@shipfox/node-drizzle": "workspace:*",
     "@shipfox/node-error-monitoring": "workspace:*",
     "@shipfox/node-fastify": "workspace:*",
@@ -65,7 +66,6 @@
   "devDependencies": {
     "@anthropic-ai/claude-agent-sdk": "catalog:",
     "@shipfox/api-auth-dto": "workspace:*",
-    "@shipfox/inter-module": "workspace:*",
     "@shipfox/biome": "workspace:*",
     "@shipfox/depcruise": "workspace:*",
     "@shipfox/swc": "workspace:*",

@@ -18,7 +18,7 @@ export const streamOpenedCount = meter.createCounter<Record<string, never>>('log
 // metric name. The two ingest axes MUST stay distinct:
 //
 //   raw ingested (CAS axis)      normalized stored (read axis)
-//   runner body bytes accepted   durable chunk bytes written after ingest
+//   append body bytes accepted   durable chunk bytes written after ingest
 //   by the offset-CAS, before    normalization (agent_session records are parsed
 //   normalization                into view rows), excluding server tombstones
 //
@@ -26,7 +26,8 @@ export const streamOpenedCount = meter.createCounter<Record<string, never>>('log
 // including cap-crossing appends and post-cap accept-and-drop stragglers (their
 // `committed_length` advances, so they are accepted even though nothing is stored).
 // Retries, gaps, closed-stream appends, and empty heartbeats never extend the CAS and are
-// never counted, so the same bytes are never double-counted.
+// never counted, so the same bytes are never double-counted. Runner and server-origin
+// appends share the axis; the server-origin append derives its offset from the stream tail.
 //
 // `logs_bytes_stored` counts only normalized bodies durably written as chunk rows, so a
 // capped job's dropped straggler and server-injected `capped`/`runner_lost` tombstones do
@@ -35,14 +36,14 @@ export const bytesIngestedCount = meter.createCounter<Record<string, never>>(
   'logs_bytes_ingested',
   {
     description:
-      'Raw runner bytes accepted after offset validation (in-order CAS extension; retries, gaps, closed-stream and cap-dropped bodies excluded)',
+      'Append body bytes accepted after offset validation (in-order CAS extension; retries, gaps, closed-stream and cap-dropped bodies excluded)',
     unit: 'By',
   },
 );
 
 export const bytesStoredCount = meter.createCounter<Record<string, never>>('logs_bytes_stored', {
   description:
-    'Normalized durable bytes written to log chunks from runner appends (server tombstones and cap-dropped bodies excluded)',
+    'Normalized durable bytes written to log chunks from runner and server appends (server tombstones and cap-dropped bodies excluded)',
   unit: 'By',
 });
 

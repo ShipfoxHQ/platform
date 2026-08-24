@@ -13,6 +13,7 @@ import {db} from '#db/db.js';
 import {migrationsPath} from '#db/index.js';
 import {logsOutbox} from '#db/schema/outbox.js';
 import {registerLogsServiceMetrics} from '#metrics/service.js';
+import {createLogsInterModulePresentation} from '#presentation/inter-module.js';
 import {createLogsRoutes} from '#presentation/routes/index.js';
 import {onJobTerminated} from '#presentation/subscribers/on-job-terminated.js';
 import {onLogStreamClosed} from '#presentation/subscribers/on-log-stream-closed.js';
@@ -41,6 +42,7 @@ export function createLogsModule({
     database: {db, migrationsPath, databaseNamespace: 'logs'},
     routes: createLogsRoutes(workflows),
     metrics: registerLogsServiceMetrics,
+    interModulePresentations: [createLogsInterModulePresentation()],
     // `logs.stream.closed` is written by the close paths: the job-terminated subscriber
     // force-closes streams the runner never ended, and the closed event drives compaction.
     publishers: [{name: 'logs', table: logsOutbox, db, eventSchemas: logsEventSchemas}],

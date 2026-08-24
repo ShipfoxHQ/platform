@@ -28,6 +28,16 @@
         "types": "./dist/index.d.ts",
         "default": "./dist/index.js"
       }
+    },
+    "./inter-module": {
+      "workspace-source": {
+        "types": "./src/inter-module.ts",
+        "default": "./src/inter-module.ts"
+      },
+      "default": {
+        "types": "./dist/inter-module.d.ts",
+        "default": "./dist/inter-module.js"
+      }
     }
   },
   "scripts": {
@@ -41,6 +51,7 @@
     "type:emit": "shipfox-tsc-emit"
   },
   "dependencies": {
+    "@shipfox/inter-module": "workspace:*",
     "zod": "catalog:"
   },
   "devDependencies": {

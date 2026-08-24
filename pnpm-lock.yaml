@@ -3601,6 +3601,9 @@ importers:
       '@shipfox/config':
         specifier: workspace:*
         version: link:../../shared/common/config
+      '@shipfox/inter-module':
+        specifier: workspace:*
+        version: link:../../shared/common/inter-module
       '@shipfox/node-drizzle':
         specifier: workspace:*
         version: link:../../shared/node/drizzle
@@ -3653,9 +3656,6 @@ importers:
       '@shipfox/depcruise':
         specifier: workspace:*
         version: link:../../../tools/depcruise
-      '@shipfox/inter-module':
-        specifier: workspace:*
-        version: link:../../shared/common/inter-module
       '@shipfox/swc':
         specifier: workspace:*
         version: link:../../../tools/swc
@@ -3698,6 +3698,9 @@ importers:
 
   libs/api/logs-dto:
     dependencies:
+      '@shipfox/inter-module':
+        specifier: workspace:*
+        version: link:../../shared/common/inter-module
       zod:
         specifier: 'catalog:'
         version: 4.4.3

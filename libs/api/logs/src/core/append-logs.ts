@@ -11,15 +11,12 @@ import type {WorkflowsModuleClient} from '@shipfox/api-workflows-dto/inter-modul
 import {logger} from '@shipfox/node-opentelemetry';
 import {DEFAULT_HARNESS, type Harness} from '@shipfox/workflow-document';
 import {config} from '#config.js';
-import {accrueStoredBytes, claimCap, ensureJobAccounting, isJobCapped} from '#db/accounting.js';
-import {insertChunk} from '#db/chunks.js';
-import {db, type Transaction} from '#db/db.js';
+import {isJobCapped} from '#db/accounting.js';
+import {db} from '#db/db.js';
 import {
   casExtendCommittedLength,
-  getAttemptStream,
   getOrCreateAttemptStreamWithStatus,
   setClaudeParseContext,
-  setDeclaredTotalBytes,
 } from '#db/streams.js';
 import {
   bytesIngestedCount,
@@ -29,8 +26,13 @@ import {
   streamClosedCount,
   streamOpenedCount,
 } from '#metrics/instance.js';
-import {allowedBudget} from './budget.js';
-import {closeStream, controlTombstone} from './close-stream.js';
+import {
+  type AppendIdentity,
+  type AppendLogsResult,
+  readHeartbeat,
+  storeChunk,
+} from './append-chunk.js';
+import {closeStream} from './close-stream.js';
 import {MalformedLogChunkError, OffsetGapError} from './errors.js';
 import {flushPendingToolRows} from './session/claude/rows.js';
 import {
@@ -42,21 +44,12 @@ import type {SessionParseContext} from './session/parse-session.js';
 import {parseSessionRecord} from './session/parse-session.js';
 import type {AgentSessionRecord} from './session/session-record.js';
 
-export interface AppendLogsParams {
-  jobId: string;
-  workspaceId: string;
-  projectId: string;
-  workflowRunAttemptId: string;
-  stepId: string;
-  attempt: number;
+export interface AppendLogsParams extends AppendIdentity {
   offset: number;
   body: Buffer;
 }
 
-export interface AppendLogsResult {
-  committedLength: number;
-  capped: boolean;
-}
+export type {AppendLogsResult} from './append-chunk.js';
 
 interface ParsedBody {
   declaredTotalBytes?: number;
@@ -144,105 +137,12 @@ async function getSessionHarness(
   return workflows ? (await workflows.getStepLogContext({stepId})).harness : DEFAULT_HARNESS;
 }
 
-/**
- * Empty-body heartbeat: report the current committed length without materializing
- * a stream, so a runner cannot mint unbounded rows with empty appends.
- */
-async function readHeartbeat(tx: Transaction, params: AppendLogsParams): Promise<AppendLogsResult> {
-  const existing = await getAttemptStream(tx, {
-    jobId: params.jobId,
-    stepId: params.stepId,
-    attempt: params.attempt,
-  });
-  return {
-    committedLength: existing?.committedLength ?? 0,
-    capped: await isJobCapped(tx, params.jobId),
-  };
-}
-
-interface StoreChunkParams {
-  params: AppendLogsParams;
-  streamId: string;
-  body: Buffer;
-  committedLength: number;
-  declaredTotalBytes: number | undefined;
-}
-
-interface StoreChunkResult extends AppendLogsResult {
-  /**
-   * Whether the runner chunk was persisted. False only when the job was already
-   * capped and the body (including any `end` record) was dropped, so the stream is
-   * not whole and must not be declared-closed.
-   */
-  stored: boolean;
-  recordCounts: Partial<Record<LogRecord['type'], number>>;
-}
-
 interface StoredBody {
   body: Buffer;
   recordCounts: Partial<Record<LogRecord['type'], number>>;
   claudeParseContext: ClaudeParseContext | undefined;
   claudePendingResult: SessionViewLifecycleRow | null | undefined;
   claudePendingToolRows: readonly SessionViewRow[] | undefined;
-}
-
-/**
- * Accrues the stored bytes, persists the chunk, and trips the per-job cap when
- * this append crosses the budget. Runs only after the offset-CAS extended
- * `committed_length`, so the committed length already reflects the accepted bytes.
- */
-async function storeChunk(
-  tx: Transaction,
-  {params, streamId, body, committedLength, declaredTotalBytes}: StoreChunkParams,
-): Promise<StoreChunkResult> {
-  await ensureJobAccounting(tx, {jobId: params.jobId, workspaceId: params.workspaceId});
-  const storedByteLen = body.length;
-  const accrued = await accrueStoredBytes(tx, {jobId: params.jobId, delta: storedByteLen});
-
-  // Already capped: accept-and-drop. committed_length has advanced so the runner
-  // drains its spool cleanly instead of retry-looping; nothing is stored.
-  if (!accrued) return {committedLength, capped: true, stored: false, recordCounts: {}};
-
-  await insertChunk(tx, {
-    streamId,
-    streamOffset: params.offset,
-    byteLen: storedByteLen,
-    data: body,
-    origin: 'runner',
-  });
-  if (declaredTotalBytes !== undefined) {
-    await setDeclaredTotalBytes(tx, {streamId, declaredTotalBytes});
-  }
-
-  const allowed = allowedBudget({
-    baseBytes: config.LOG_BUDGET_BASE_BYTES,
-    ratePerMinuteBytes: config.LOG_BUDGET_RATE_BYTES_PER_MINUTE,
-    elapsedMs: Date.now() - accrued.startedAt.getTime(),
-  });
-  if (accrued.used <= allowed) {
-    return {committedLength, capped: false, stored: true, recordCounts: {}};
-  }
-
-  // Over budget. No hard ceiling: this crossing append is stored in full (overshoot
-  // bounded by one body). Claim the cap once and inject an in-band `capped` tombstone
-  // for the winner.
-  const won = await claimCap(tx, params.jobId);
-  if (won) {
-    const tombstone = controlTombstone('capped');
-    await insertChunk(tx, {
-      streamId,
-      streamOffset: committedLength,
-      byteLen: tombstone.length,
-      data: tombstone,
-      origin: 'control',
-    });
-  }
-  return {
-    committedLength,
-    capped: true,
-    stored: true,
-    recordCounts: won ? {capped: 1} : {},
-  };
 }
 
 function buildStoredBody(
@@ -497,9 +397,11 @@ export async function appendLogs(
     } = await storeChunk(tx, {
       params,
       streamId: stream.id,
+      streamOffset: params.offset,
       body: stored.body,
       committedLength: cas.committedLength,
       declaredTotalBytes,
+      origin: 'runner',
     });
     if (chunkStored) {
       // Normalized durable bytes; a cap-dropped straggler never reaches this branch.
