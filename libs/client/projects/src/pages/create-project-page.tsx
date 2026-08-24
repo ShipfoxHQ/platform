@@ -187,16 +187,25 @@ export function CreateProjectPage() {
         // The setup checklist panel is the first thing on the home, so the
         // first project lands where the Get-started guide lives. Seed the
         // workspace list so the home does not re-render the pre-create empty
-        // state, then refetch the authoritative list so a project created
-        // concurrently (another tab, import, or API) is not hidden by the seed
-        // for the stale window. The seed stays as the fallback when the
-        // refetch fails, so the home never shows a stale empty state.
+        // state, then fetch the authoritative list: the seeded entry has no
+        // queryFn of its own (no observer mounted it), so refetching it would
+        // fail and a project created concurrently (another tab, import, or
+        // API) would stay hidden for the stale window. Fetching with
+        // staleTime: 0 forces a fresh read that replaces the seed; a failed
+        // fetch is swallowed so the seeded project remains the fallback and
+        // the home never shows a stale empty state.
         const listQueryKey = projectsInfiniteQueryOptions(workspace.id).queryKey;
         queryClient.setQueryData<InfiniteData<ProjectList, string | undefined>>(listQueryKey, {
           pages: [{projects: [project], nextCursor: null}],
           pageParams: [undefined],
         });
-        await queryClient.refetchQueries({queryKey: listQueryKey, type: 'all'});
+        await queryClient
+          .fetchInfiniteQuery({
+            ...projectsInfiniteQueryOptions(workspace.id),
+            staleTime: 0,
+            retry: false,
+          })
+          .catch(() => undefined);
         await navigate({
           to: '/w/$workspaceSlug',
           params: {workspaceSlug: workspace.slug},
