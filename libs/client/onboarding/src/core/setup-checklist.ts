@@ -51,7 +51,7 @@ export interface SetupChecklistInput {
 
 const TOOLS_TITLE = 'Connect your tools';
 const TOOLS_PURPOSE =
-  'Connect issue tracking, messaging, observability, or any Shipfox integration so workflows can react to events and agents can use them';
+  'Connect issue tracking, messaging, observability, or any Shipfox integration';
 const RUNNER_PURPOSE = 'Jobs wait in `pending` until a runner is online';
 const MODEL_PROVIDER_PURPOSE = 'Agent steps need a model provider to run';
 const FIRST_WORKFLOW_PURPOSE =

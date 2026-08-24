@@ -197,7 +197,8 @@ describe('SetupChecklistBody', () => {
       'href',
       `/w/${WORKSPACE.slug}/settings/members`,
     );
-    expect(await screen.findAllByText('Next', {exact: true})).toHaveLength(2);
+    expect(screen.queryByText('Next', {exact: true})).not.toBeInTheDocument();
+    expect(await screen.findAllByText('next step', {exact: true})).toHaveLength(2);
     expect(
       screen
         .getAllByText('done', {exact: true})
