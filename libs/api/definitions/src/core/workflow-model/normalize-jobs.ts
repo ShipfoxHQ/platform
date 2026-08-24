@@ -128,6 +128,8 @@ export function normalizeJobs(
     issues.push(...(issuesBySourceName.get(sourceName) ?? []));
   }
 
+  validateAgentSessionSharing(document, issues);
+
   return entries.flatMap(([sourceName]) => {
     const model = modelsBySourceName.get(sourceName);
     return model === undefined ? [] : [model];
@@ -997,6 +999,136 @@ function normalizeAgentStepSession(params: {
     key: template ?? [{kind: 'literal' as const, value: keySource}],
     mode: typeof session === 'string' ? 'resume' : (session.mode ?? 'resume'),
   };
+}
+
+interface SessionSharingStep {
+  readonly jobName: string;
+  readonly stepIndex: number;
+  readonly stepKey: string | undefined;
+  readonly keySource: string;
+  readonly mode: 'resume' | 'fork';
+  readonly harness: string | undefined;
+}
+
+// Cross-job authoring checks for shared agent sessions: two resume-mode steps
+// with statically identical session key templates from jobs without a
+// transitive needs ancestry would claim the same session in parallel, and
+// steps sharing a static key must agree on the literal harness because a
+// session is pinned to the harness that created it. Templates are compared
+// literally only; distinct templates that collide at runtime stay the
+// dispatch-time claim's job. Steps within one job are serial and never
+// conflict with each other.
+function validateAgentSessionSharing(
+  document: WorkflowDocument,
+  issues: WorkflowModelValidationIssue[],
+): void {
+  const steps: SessionSharingStep[] = [];
+  for (const [jobName, job] of Object.entries(document.jobs)) {
+    job.steps.forEach((step, stepIndex) => {
+      if (step.session === undefined) return;
+      steps.push({
+        jobName,
+        stepIndex,
+        stepKey: step.key,
+        keySource: typeof step.session === 'string' ? step.session : step.session.key,
+        mode: typeof step.session === 'string' ? 'resume' : (step.session.mode ?? 'resume'),
+        harness: step.harness,
+      });
+    });
+  }
+
+  const ancestorsByJobName = new Map<string, ReadonlySet<string>>();
+
+  for (let index = 1; index < steps.length; index += 1) {
+    const later = steps[index];
+    if (later === undefined) continue;
+
+    for (let priorIndex = 0; priorIndex < index; priorIndex += 1) {
+      const prior = steps[priorIndex];
+      if (prior === undefined || prior.jobName === later.jobName) continue;
+      // Keys that fail the static grammar are already flagged as
+      // invalid-agent-session-key and can never name a session.
+      if (prior.keySource !== later.keySource || !isStaticallyValidSessionKey(later.keySource)) {
+        continue;
+      }
+
+      if (prior.mode === 'resume' && later.mode === 'resume') {
+        const priorAncestors = transitiveNeedsAncestors(
+          document,
+          prior.jobName,
+          ancestorsByJobName,
+        );
+        const laterAncestors = transitiveNeedsAncestors(
+          document,
+          later.jobName,
+          ancestorsByJobName,
+        );
+        if (!priorAncestors.has(later.jobName) && !laterAncestors.has(prior.jobName)) {
+          issues.push(
+            issue({
+              code: 'agent-session-parallel-resume',
+              message: `Agent steps ${sessionSharingStepLabel(prior)} (job "${prior.jobName}") and ${sessionSharingStepLabel(later)} (job "${later.jobName}") both resume session key "${later.keySource}", but their jobs have no transitive "needs" ancestry, so they can run in parallel and would conflict on the session.`,
+              path: ['jobs', later.jobName, 'steps', later.stepIndex, 'session'],
+              details: {
+                key: later.keySource,
+                jobs: [prior.jobName, later.jobName],
+                stepIndexes: [prior.stepIndex, later.stepIndex],
+              },
+            }),
+          );
+        }
+      }
+
+      if (
+        prior.harness !== undefined &&
+        later.harness !== undefined &&
+        prior.harness !== later.harness
+      ) {
+        issues.push(
+          issue({
+            code: 'agent-session-harness-mismatch',
+            message: `Agent steps ${sessionSharingStepLabel(prior)} (job "${prior.jobName}") and ${sessionSharingStepLabel(later)} (job "${later.jobName}") share session key "${later.keySource}" but declare different harnesses: "${prior.harness}" and "${later.harness}". A session is pinned to the harness that created it.`,
+            path: ['jobs', later.jobName, 'steps', later.stepIndex, 'session'],
+            details: {
+              key: later.keySource,
+              jobs: [prior.jobName, later.jobName],
+              stepIndexes: [prior.stepIndex, later.stepIndex],
+              harnesses: [prior.harness, later.harness],
+            },
+          }),
+        );
+      }
+    }
+  }
+}
+
+function isStaticallyValidSessionKey(keySource: string): boolean {
+  if (!keySource.includes('${{')) return WORKFLOW_SESSION_KEY_PATTERN.test(keySource);
+  return isValidWorkflowSessionKeyTemplateLiteralParts(keySource);
+}
+
+function sessionSharingStepLabel(step: SessionSharingStep): string {
+  return step.stepKey === undefined ? String(step.stepIndex) : `"${step.stepKey}"`;
+}
+
+function transitiveNeedsAncestors(
+  document: WorkflowDocument,
+  jobName: string,
+  cache: Map<string, ReadonlySet<string>>,
+): ReadonlySet<string> {
+  const cached = cache.get(jobName);
+  if (cached !== undefined) return cached;
+
+  const ancestors = new Set<string>();
+  const pending = [...normalizeNeeds(document.jobs[jobName]?.needs)];
+  while (pending.length > 0) {
+    const name = pending.pop();
+    if (name === undefined || ancestors.has(name) || !Object.hasOwn(document.jobs, name)) continue;
+    ancestors.add(name);
+    pending.push(...normalizeNeeds(document.jobs[name]?.needs));
+  }
+  cache.set(jobName, ancestors);
+  return ancestors;
 }
 
 function validateAgentStep(params: {
