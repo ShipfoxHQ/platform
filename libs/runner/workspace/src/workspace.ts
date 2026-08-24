@@ -8,6 +8,7 @@ import {isUuid} from '@shipfox/regex';
 import {config} from '#config.js';
 
 const RUNNER_LOGS_DIR = '.shipfox-runner-logs';
+const RUNNER_AGENT_STATE_DIR = '.shipfox-runner-agent';
 const RUNNER_CRED_DIR = '.shipfox-runner-cred';
 const JOB_LOG_LOCK_SUFFIX = '.lock';
 const JOB_LOG_LOCK_RETRY_MS = 10;
@@ -86,6 +87,13 @@ export function jobLogsPath(jobId: string, root: string): string {
   return join(root, RUNNER_LOGS_DIR, `job-${jobId}`);
 }
 
+export function jobAgentStatePath(jobId: string, root: string): string {
+  if (!isUuid(jobId)) {
+    throw new InvalidJobIdError(jobId);
+  }
+  return join(root, RUNNER_AGENT_STATE_DIR, `job-${jobId}`);
+}
+
 export function jobCredentialsPath(jobId: string, root: string): string {
   if (!isUuid(jobId)) {
     throw new InvalidJobIdError(jobId);
@@ -115,6 +123,15 @@ export async function createJobDir(cwd: string): Promise<void> {
  */
 export async function createJobLogsDir(logsDir: string): Promise<void> {
   await withJobLogLock(logsDir, true, () => resetDir(logsDir));
+}
+
+/**
+ * Pre-cleans the runner-owned agent-state directory before recreating it, so a
+ * directory left by a previous crash is never reused. Managed by `runJob`: the
+ * setup step does not touch it, so it needs no lock coordination.
+ */
+export async function createJobAgentStateDir(agentStateDir: string): Promise<void> {
+  await resetDir(agentStateDir);
 }
 
 /**
@@ -298,6 +315,14 @@ export async function cleanupJobLogs(logsDir: string): Promise<void> {
     await rm(logsDir, {recursive: true, force: true});
   } catch (err) {
     logger().warn({err, logsDir}, 'Failed to clean up job logs');
+  }
+}
+
+export async function cleanupJobAgentState(agentStateDir: string): Promise<void> {
+  try {
+    await rm(agentStateDir, {recursive: true, force: true});
+  } catch (err) {
+    logger().warn({err, agentStateDir}, 'Failed to clean up job agent state');
   }
 }
 

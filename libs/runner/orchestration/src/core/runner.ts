@@ -29,10 +29,13 @@ import {
   runnerStartupMode,
 } from '@shipfox/runner-protocol';
 import {
+  cleanupJobAgentState,
   cleanupJobCredentials,
   cleanupJobLogs,
   cleanupOrphanedJobLogs,
   cleanupWorkspace,
+  createJobAgentStateDir,
+  jobAgentStatePath,
   jobCredentialsPath,
   jobLogsPath,
   jobWorkspacePath,
@@ -228,10 +231,12 @@ export async function runJob(
   // an internal/claim error: bail before starting any per-job resources.
   let cwd: string;
   let logsDir: string;
+  let agentStateDir: string;
   let credentialsDir: string;
   try {
     cwd = jobWorkspacePath(job.job_id, workspaceRoot);
     logsDir = jobLogsPath(job.job_id, workspaceRoot);
+    agentStateDir = jobAgentStatePath(job.job_id, workspaceRoot);
     credentialsDir = jobCredentialsPath(job.job_id, workspaceRoot);
   } catch (error) {
     logger().error({err: error, jobId: job.job_id}, 'Invalid job id; skipping job');
@@ -278,6 +283,9 @@ export async function runJob(
 
   try {
     await cleanupJobCredentials(credentialsDir);
+    // The agent-state directory holds harness state (pi session files, the Claude
+    // ephemeral config dir); pre-clean so a crash leftover is never reused.
+    await createJobAgentStateDir(agentStateDir);
 
     const leaseClient = createLeaseClient(() => currentLeaseToken);
     await runJobSteps({
@@ -293,6 +301,7 @@ export async function runJob(
       cwd,
       gitConfigPath,
       logsDir,
+      agentStateDir,
       jobContext: {
         workflowRunId: job.workflow_run_id,
         workflowRunAttemptId: job.workflow_run_attempt_id,
@@ -317,6 +326,7 @@ export async function runJob(
     await cleanupJobCredentials(credentialsDir);
     await cleanupWorkspace(cwd);
     await cleanupJobLogs(logsDir);
+    await cleanupJobAgentState(agentStateDir);
   }
 }
 

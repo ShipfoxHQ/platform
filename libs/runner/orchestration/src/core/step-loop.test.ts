@@ -118,6 +118,7 @@ const agentStepModuleEvaluatedDuringStepLoopImport = agentStepModuleEvaluated.va
 const JOB_ID = '00000000-0000-0000-0000-0000000000aa';
 const RUN_ID = '00000000-0000-0000-0000-0000000000ab';
 const LOGS_DIR = '/runner-logs/job-1';
+const AGENT_STATE_DIR = '/runner-agent/job-1';
 const GIT_CONFIG_PATH = '/runner-cred/job-1/git-cred.config';
 const JOB_CONTEXT = {
   workflowRunId: '00000000-0000-0000-0000-000000000004',
@@ -220,6 +221,7 @@ function runLoop(params: {
     cwd: params.cwd ?? '/work',
     gitConfigPath: GIT_CONFIG_PATH,
     logsDir: LOGS_DIR,
+    agentStateDir: AGENT_STATE_DIR,
     jobContext: JOB_CONTEXT,
     ...(params.onLeaseTokenAdopted ? {onLeaseTokenAdopted: params.onLeaseTokenAdopted} : {}),
   });
@@ -1515,7 +1517,7 @@ describe('runJobSteps', () => {
     expect(executeAgentStepMock).toHaveBeenCalledWith(agent, {
       signal: ac.signal,
       cwd: '/work',
-      logsDir: LOGS_DIR,
+      agentStateDir: AGENT_STATE_DIR,
       runtime: {
         harness: 'pi',
         provider: 'anthropic',
@@ -1871,7 +1873,7 @@ describe('runJobSteps', () => {
     expect(executeAgentStepMock).toHaveBeenCalledWith(agent, {
       signal: ac.signal,
       cwd: '/work',
-      logsDir: LOGS_DIR,
+      agentStateDir: AGENT_STATE_DIR,
       runtime: {
         harness: 'pi',
         provider: 'anthropic',
@@ -1934,6 +1936,7 @@ describe('runJobSteps', () => {
       attempt: 1,
       cwd: '/work',
       logsDir: LOGS_DIR,
+      agentStateDir: AGENT_STATE_DIR,
       jobContext: JOB_CONTEXT,
       leaseClient,
       leaseToken: leaseTokenSource,
@@ -1972,6 +1975,7 @@ describe('runJobSteps', () => {
       attempt: 1,
       cwd: '/work',
       logsDir: LOGS_DIR,
+      agentStateDir: AGENT_STATE_DIR,
       jobContext: JOB_CONTEXT,
       leaseClient,
       leaseToken: leaseTokenSource,

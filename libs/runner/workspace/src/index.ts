@@ -29,13 +29,16 @@ export {
   WorkingDirectoryNotFoundError,
 } from '#working-directory.js';
 export {
+  cleanupJobAgentState,
   cleanupJobCredentials,
   cleanupJobLogs,
   cleanupOrphanedJobLogs,
   cleanupWorkspace,
+  createJobAgentStateDir,
   createJobDir,
   createJobLogsDir,
   InvalidJobIdError,
+  jobAgentStatePath,
   jobCredentialsPath,
   jobLogsPath,
   jobWorkspacePath,

@@ -84,10 +84,21 @@ export async function runJobSteps(params: {
   cwd: string;
   gitConfigPath: string;
   logsDir: string;
+  agentStateDir: string;
   jobContext: SetupJobContext;
   onLeaseTokenAdopted?: (leaseToken: string) => void;
 }): Promise<void> {
-  const {jobId, leaseClient, secrets, signal, cwd, gitConfigPath, logsDir, jobContext} = params;
+  const {
+    jobId,
+    leaseClient,
+    secrets,
+    signal,
+    cwd,
+    gitConfigPath,
+    logsDir,
+    agentStateDir,
+    jobContext,
+  } = params;
 
   // The setup step prepares the workspace; every run step assumes it ran. A run
   // step pulled before a successful setup is failed cleanly rather than spawned
@@ -133,6 +144,7 @@ export async function runJobSteps(params: {
         step,
         attempt,
         cwd,
+        agentStateDir,
         leaseClient,
         leaseToken: params.leaseToken,
         secrets,
@@ -267,6 +279,7 @@ export async function executeStep(params: {
   attempt: number;
   cwd: string;
   logsDir: string;
+  agentStateDir: string;
   jobContext: SetupJobContext;
   leaseClient: KyInstance;
   leaseToken: LeaseTokenSource;
@@ -287,6 +300,7 @@ export async function executeStep(params: {
     attempt,
     cwd,
     logsDir,
+    agentStateDir,
     jobContext,
     leaseClient,
     leaseToken,
@@ -506,7 +520,7 @@ export async function executeStep(params: {
       const result = await executeAgentStep(step, {
         signal,
         cwd: stepCwd,
-        logsDir,
+        agentStateDir,
         ...(ambientGitConfigPath ? {gitConfigGlobal: ambientGitConfigPath} : {}),
         runtime: {
           harness: runtimeConfig.harness,

@@ -65,7 +65,7 @@ export const piHarnessAdapter: HarnessAdapter = {run: runPiAgent};
 async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult> {
   const {
     cwd,
-    logsDir,
+    agentStateDir,
     model: modelId,
     provider,
     thinking,
@@ -87,7 +87,7 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
   // tokens after the step loop has moved on. Guard on entry, then again once the
   // session exists so a mid-creation abort still stops pi.
   if (signal.aborted) throw new Error('Agent step aborted before the pi session started');
-  if (logsDir === undefined) throw new Error('Agent logs directory is required');
+  if (agentStateDir === undefined) throw new Error('Agent state directory is required');
 
   const modelRuntime = await ModelRuntime.create({
     credentials: createInMemoryCredentialStore(
@@ -115,7 +115,7 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
   let mcpConfig: PiMcpConfig | undefined;
 
   try {
-    mcpConfig = await createPiMcpConfig(logsDir, mcpServers);
+    mcpConfig = await createPiMcpConfig(agentStateDir, mcpServers);
     const extensionPackageNames = [
       ...(isPiExtensionAvailable({packageName: 'pi-web-access'}) ? ['pi-web-access'] : []),
       ...(mcpConfig === undefined ? [] : ['pi-mcp-adapter']),
@@ -176,9 +176,9 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
       thinkingLevel: thinking as PiThinkingLevel,
       ...piToolsOption(tools, customProvider, mcpConfig !== undefined),
       ...(hasDeclaredOutputs ? {customTools: [setOutputTool(collector)]} : {}),
-      // Keep the session JSONL in the runner-owned job logs directory so it forwards from a
+      // Keep the session JSONL in the runner-owned agent-state directory so it forwards from a
       // deterministic path and is cleaned up with the job; pi's default lives under ~/.pi.
-      sessionManager: SessionManager.create(cwd, join(logsDir, 'agent-sessions')),
+      sessionManager: SessionManager.create(cwd, join(agentStateDir, 'agent-sessions')),
     });
     const piSession = createdSession.session;
     session = piSession;
@@ -321,13 +321,13 @@ function createInMemoryCredentialStore(credentials: Record<string, Credential>):
 }
 
 async function createPiMcpConfig(
-  logsDir: string,
+  agentStateDir: string,
   mcpServers: HarnessInvocation['mcpServers'],
 ): Promise<PiMcpConfig | undefined> {
   if (mcpServers === undefined || mcpServers.length === 0) return undefined;
 
-  await mkdir(logsDir, {recursive: true});
-  const directory = await mkdtemp(join(logsDir, 'pi-mcp-'));
+  await mkdir(agentStateDir, {recursive: true});
+  const directory = await mkdtemp(join(agentStateDir, 'pi-mcp-'));
   const path = join(directory, 'mcp.json');
   try {
     const serverEntries = await Promise.all(

@@ -10,7 +10,7 @@ import type {IntegrationToolsBridge} from '#core/integration-tools-bridge.js';
 export interface HarnessInvocation {
   readonly cwd: string;
   /** Runner-owned per-job directory for harness state, outside the checked-out workspace. */
-  readonly logsDir?: string | undefined;
+  readonly agentStateDir?: string | undefined;
   readonly model: string;
   readonly provider: string;
   readonly thinking: string;
