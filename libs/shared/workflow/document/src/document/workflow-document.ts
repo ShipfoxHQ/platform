@@ -12,6 +12,9 @@ export const WORKFLOW_LITERAL_NAME_PATTERN = /^(?:[^$]|\$\$\{\{|\$(?!\{\{))*$/;
 // The inverse of a literal name: a literal prefix followed by an unescaped
 // `${{`. An enum field that also accepts a template matches one or the other.
 export const WORKFLOW_INTERPOLATED_VALUE_PATTERN = /^(?:[^$]|\$\$\{\{|\$(?!\{\{))*\$\{\{/;
+export const WORKFLOW_SESSION_KEY_MAX_LENGTH = 128;
+export const WORKFLOW_SESSION_KEY_PATTERN_SOURCE = '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$';
+export const WORKFLOW_SESSION_KEY_PATTERN = new RegExp(WORKFLOW_SESSION_KEY_PATTERN_SOURCE);
 
 // Reasoning effort is an enum so editors can complete it, and a template so a
 // workflow can choose the effort from run context. The resolved value is
@@ -640,21 +643,33 @@ export const workflowDocumentStepIntegrationSchema = z.strictObject({
 // The shorthand string form names the session and resumes it; the long form
 // adds an explicit mode. The key is a field template, evaluated at step
 // dispatch with the same context roots the prompt sees.
+const workflowSessionKeyLiteralSchema = z
+  .string()
+  .min(1)
+  .max(WORKFLOW_SESSION_KEY_MAX_LENGTH)
+  .regex(WORKFLOW_SESSION_KEY_PATTERN, {
+    message:
+      'Literal session keys must start with a letter or number and contain only letters, numbers, dots, underscores, or hyphens.',
+  });
+const workflowSessionKeyTemplateSchema = z
+  .string()
+  .min(1)
+  .regex(WORKFLOW_INTERPOLATED_VALUE_PATTERN, {
+    message: 'Session keys with interpolation must use a $' + '{{ }} template.',
+  });
+const workflowSessionKeySchema = z.union([
+  workflowSessionKeyLiteralSchema,
+  workflowSessionKeyTemplateSchema,
+]);
+
 export const workflowDocumentSessionSchema = z
   .union([
-    z
-      .string()
-      .min(1)
-      .meta({
+    workflowSessionKeyLiteralSchema,
+    workflowSessionKeyTemplateSchema,
+    z.strictObject({
+      key: workflowSessionKeySchema.meta({
         description: 'Session key, or a $' + '{{ }} interpolation that resolves to one.',
       }),
-    z.strictObject({
-      key: z
-        .string()
-        .min(1)
-        .meta({
-          description: 'Session key, or a $' + '{{ }} interpolation that resolves to one.',
-        }),
       mode: z.enum(['resume', 'fork']).optional().meta({
         description:
           'Session mode. `resume` continues the session and writes back; `fork` reads a snapshot and never writes. Defaults to `resume`.',

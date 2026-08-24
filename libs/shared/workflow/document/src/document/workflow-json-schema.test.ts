@@ -1,4 +1,8 @@
-import {WORKFLOW_LITERAL_NAME_PATTERN} from './workflow-document.js';
+import {
+  WORKFLOW_LITERAL_NAME_PATTERN,
+  WORKFLOW_SESSION_KEY_MAX_LENGTH,
+  WORKFLOW_SESSION_KEY_PATTERN_SOURCE,
+} from './workflow-document.js';
 import {buildWorkflowJsonSchema} from './workflow-json-schema.js';
 
 type JsonSchema = Record<string, unknown>;
@@ -104,6 +108,18 @@ describe('buildWorkflowJsonSchema', () => {
     const checkoutBranch = objects(discriminator?.oneOf)[2];
 
     expect(session.description).toContain('session');
+    expect(objects(session.anyOf)).toEqual(
+      expect.arrayContaining([expect.objectContaining({type: 'string', minLength: 1})]),
+    );
+    expect(objects(session.anyOf)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'string',
+          maxLength: WORKFLOW_SESSION_KEY_MAX_LENGTH,
+          pattern: WORKFLOW_SESSION_KEY_PATTERN_SOURCE,
+        }),
+      ]),
+    );
     const objectForm = objects(session.anyOf).find((branch) => branch.type === 'object');
     expect(objectForm).toMatchObject({
       type: 'object',

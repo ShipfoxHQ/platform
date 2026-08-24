@@ -19,10 +19,11 @@ import {
   MAX_RUNNER_LABELS,
   RUNNER_LABEL_PATTERN,
 } from '@shipfox/runner-labels';
-import type {
-  WorkflowDocument,
-  WorkflowDocumentJob,
-  WorkflowDocumentStep,
+import {
+  WORKFLOW_SESSION_KEY_PATTERN,
+  type WorkflowDocument,
+  type WorkflowDocumentJob,
+  type WorkflowDocumentStep,
 } from '@shipfox/workflow-document';
 import type {IntegrationValidationContext} from '../entities/integration-context.js';
 import type {
@@ -958,18 +959,36 @@ function normalizeAgentStepSession(params: {
   if (session === undefined) return undefined;
 
   const keySource = typeof session === 'string' ? session : session.key;
+  const path =
+    typeof session === 'string'
+      ? ['jobs', params.sourceName, 'steps', params.stepIndex, 'session']
+      : ['jobs', params.sourceName, 'steps', params.stepIndex, 'session', 'key'];
+  const issueCountBeforeParsing = params.issues.length;
   const template = parseInterpolationField({
     field: 'agent.session',
     source: keySource,
-    path:
-      typeof session === 'string'
-        ? ['jobs', params.sourceName, 'steps', params.stepIndex, 'session']
-        : ['jobs', params.sourceName, 'steps', params.stepIndex, 'session', 'key'],
+    path,
     issues: params.issues,
     fillSite: params.fillSite,
     allowedJobReferences: params.allowedJobReferences,
     typeOverlay: params.typeOverlay,
   });
+
+  if (
+    template === undefined &&
+    params.issues.length === issueCountBeforeParsing &&
+    !WORKFLOW_SESSION_KEY_PATTERN.test(keySource)
+  ) {
+    params.issues.push(
+      issue({
+        code: 'invalid-agent-session-key',
+        message:
+          'Agent session keys must start with a letter or number and contain only letters, numbers, dots, underscores, or hyphens, with a maximum length of 128 characters.',
+        path,
+        details: {key: keySource},
+      }),
+    );
+  }
 
   return {
     key: template ?? [{kind: 'literal' as const, value: keySource}],

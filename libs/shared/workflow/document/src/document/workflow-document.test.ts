@@ -1179,6 +1179,7 @@ describe('workflowDocumentSchema', () => {
       },
     ],
     ['agent step with name', {name: 'fix', model: 'claude-opus-4-8', prompt: 'Fix it.'}],
+    ['agent step with session shorthand', {prompt: 'Fix it.', session: 'main'}],
     [
       'agent step with gate',
       {model: 'claude-opus-4-8', prompt: 'Fix it.', gate: {success: 'step.exit_code == 0'}},
@@ -1238,6 +1239,10 @@ describe('workflowDocumentSchema', () => {
     ['unknown session mode', {prompt: 'Fix.', session: {key: 'main', mode: 'parallel'}}],
     ['empty session string', {prompt: 'Fix.', session: ''}],
     ['empty session key', {prompt: 'Fix.', session: {key: ''}}],
+    ['session key with spaces', {prompt: 'Fix.', session: 'main session'}],
+    ['session key with punctuation', {prompt: 'Fix.', session: 'main/session'}],
+    ['session key that is too long', {prompt: 'Fix.', session: 'a'.repeat(129)}],
+    ['session object key with spaces', {prompt: 'Fix.', session: {key: 'main session'}}],
     ['session object with unknown key', {prompt: 'Fix.', session: {key: 'main', extra: true}}],
     ['empty model string', {model: '', prompt: 'Fix.'}],
     ['empty provider string', {model: 'gpt-5.5-pro', prompt: 'Fix.', provider: ''}],

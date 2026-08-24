@@ -462,6 +462,46 @@ describe('normalizeWorkflowDocument', () => {
     });
   });
 
+  it.each([
+    ['contains spaces', 'main session'],
+    ['contains punctuation', 'main/session'],
+    ['exceeds the maximum length', 'a'.repeat(129)],
+  ])('rejects a literal agent session key that %s', (_reason, key) => {
+    const error = expectInvalid({
+      name: 'session build',
+      jobs: {
+        plan: {
+          steps: [{prompt: 'Plan.', session: key}],
+        },
+      },
+    });
+
+    expect(error.issues).toEqual([
+      expect.objectContaining({
+        code: 'invalid-agent-session-key',
+        path: ['jobs', 'plan', 'steps', 0, 'session'],
+      }),
+    ]);
+  });
+
+  it('rejects an invalid literal object-form agent session key on the key path', () => {
+    const error = expectInvalid({
+      name: 'session build',
+      jobs: {
+        plan: {
+          steps: [{prompt: 'Plan.', session: {key: 'main session', mode: 'fork'}}],
+        },
+      },
+    });
+
+    expect(error.issues).toEqual([
+      expect.objectContaining({
+        code: 'invalid-agent-session-key',
+        path: ['jobs', 'plan', 'steps', 0, 'session', 'key'],
+      }),
+    ]);
+  });
+
   it('parses interpolated agent session keys as step-dispatch templates', () => {
     const model = normalizeWorkflowDocument({
       name: 'session build',
@@ -498,6 +538,51 @@ describe('normalizeWorkflowDocument', () => {
       expect.objectContaining({
         code: 'invalid-interpolation-template',
         path: ['jobs', 'triage', 'steps', 0, 'session'],
+      }),
+    ]);
+  });
+
+  it('parses interpolated object-form agent session keys on the key path', () => {
+    const model = normalizeWorkflowDocument({
+      name: 'session build',
+      jobs: {
+        triage: {
+          steps: [
+            {
+              prompt: 'Triage.',
+              session: {key: `triage-${interpolation('event.issue.number')}`, mode: 'fork'},
+            },
+          ],
+        },
+      },
+    });
+
+    expect(model.jobs[0]?.steps[0]).toMatchObject({
+      kind: 'agent',
+      session: {
+        key: [
+          {kind: 'literal', value: 'triage-'},
+          {kind: 'deferred', expression: {source: 'event.issue.number'}, roots: ['event']},
+        ],
+        mode: 'fork',
+      },
+    });
+  });
+
+  it('reports invalid interpolation in object-form agent session keys on the key path', () => {
+    const error = expectInvalid({
+      name: 'session build',
+      jobs: {
+        triage: {
+          steps: [{prompt: 'Triage.', session: {key: 'triage-${{ broken'}}],
+        },
+      },
+    });
+
+    expect(error.issues).toEqual([
+      expect.objectContaining({
+        code: 'invalid-interpolation-template',
+        path: ['jobs', 'triage', 'steps', 0, 'session', 'key'],
       }),
     ]);
   });

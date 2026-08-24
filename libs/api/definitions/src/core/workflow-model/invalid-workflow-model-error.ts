@@ -29,6 +29,7 @@ export type WorkflowModelValidationIssueCode =
   | 'invalid-job-success'
   | 'invalid-output-schema'
   | 'invalid-runner-label'
+  | 'invalid-agent-session-key'
   | 'invalid-step-gate-restart-from'
   | 'invalid-step-gate-success'
   | 'invalid-step-if'
