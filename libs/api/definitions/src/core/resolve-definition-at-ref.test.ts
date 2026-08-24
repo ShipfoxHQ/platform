@@ -13,6 +13,7 @@ import {workflowDefinitions} from '#db/schema/definitions.js';
 import {definitionsOutbox} from '#db/schema/outbox.js';
 import {workflowWorkflows} from '#db/schema/workflows.js';
 import {agentValidationCatalog} from '#test/agent-validation-catalog.js';
+import {MAX_WORKFLOW_FILES} from './sync-definitions.js';
 
 const metrics = vi.hoisted(() => ({
   recordDefinitionRefResolution: vi.fn(),
@@ -740,7 +741,7 @@ describe('listDefinitionsAtRef', () => {
       'too-many-files',
     );
 
-    expect(error.details).toEqual({fileCount: 101});
+    expect(error.details).toEqual({fileCount: MAX_WORKFLOW_FILES + 1});
   });
 
   test('reports a file that fails to fetch as invalid', async () => {
