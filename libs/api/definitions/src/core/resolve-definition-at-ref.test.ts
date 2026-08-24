@@ -569,6 +569,37 @@ describe('resolveDefinitionAtRef', () => {
       expect.objectContaining({code: expect.any(String), message: expect.any(String)}),
     );
   });
+
+  test('preserves all validation warnings for single-definition resolution', async () => {
+    const repeatedWarningRun = Array.from({length: 101}, () => 'eval "$MSG"').join('; ');
+    const clients = withClients({
+      integrations: {
+        fetchSourceFile: async () => ({
+          path: CONFIG_PATH,
+          ref: COMMIT,
+          content: `
+name: Many warnings
+runner: ubuntu-latest
+jobs:
+  build:
+    steps:
+      - env:
+          MSG: '${'$'.concat('{{ event.x }}')}'
+        run: ${repeatedWarningRun}
+`,
+        }),
+      },
+    });
+
+    const result = await resolveDefinitionAtRef({
+      projectId: crypto.randomUUID(),
+      ref: 'fix-branch',
+      configPath: CONFIG_PATH,
+      ...clients,
+    });
+
+    expect(result.warnings).toHaveLength(101);
+  });
 });
 
 describe('listDefinitionsAtRef', () => {
@@ -692,6 +723,24 @@ describe('listDefinitionsAtRef', () => {
     );
     expect(error.details).toEqual({fileCount: 150});
     expect(metrics.recordDefinitionRefResolution).toHaveBeenCalledWith('too-many-files');
+  });
+
+  test('uses a positive lower bound when an over-limit page is empty', async () => {
+    const clients = withClients({
+      integrations: {
+        listSourceFiles: async () => ({files: [], nextCursor: 'more'}),
+      },
+    });
+    const error = await expectRefError(
+      listDefinitionsAtRef({
+        projectId: crypto.randomUUID(),
+        ref: 'fix-branch',
+        ...clients,
+      }),
+      'too-many-files',
+    );
+
+    expect(error.details).toEqual({fileCount: 101});
   });
 
   test('reports a file that fails to fetch as invalid', async () => {

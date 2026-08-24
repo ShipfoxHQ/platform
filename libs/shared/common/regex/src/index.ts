@@ -34,6 +34,13 @@ export function hasDisplayNameDisallowedCharacter(value: string): boolean {
   return DISPLAY_NAME_DISALLOWED_CHARACTER_RE.test(value);
 }
 
+export function isSafeRefInput(value: string): boolean {
+  return [...value].every((character) => {
+    const code = character.codePointAt(0) ?? 0;
+    return !(code < 0x20 || (code >= 0x7f && code <= 0x9f) || code === 0x2028 || code === 0x2029);
+  });
+}
+
 export function createShipfoxTokenPrefixRegexes(
   tokenTypeParts: ReadonlyArray<string>,
 ): ShipfoxTokenPrefixRegexes {

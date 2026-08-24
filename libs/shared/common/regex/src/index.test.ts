@@ -6,6 +6,7 @@ import {
   isAlnumSlug,
   isLowercaseAlphaSlug,
   isLowercaseSha256Hex,
+  isSafeRefInput,
   isUuid,
   LOWERCASE_ALPHA_SLUG_RE,
   LOWERCASE_SHA256_HEX_RE,
@@ -114,6 +115,25 @@ describe('display name character matcher', () => {
     const result = hasDisplayNameDisallowedCharacter(value);
 
     expect(result).toBe(false);
+  });
+});
+
+describe('safe ref input matcher', () => {
+  it.each([
+    'main',
+    'refs/heads/fix-triage-prompt',
+    'release/v1.0 🚀',
+  ])('accepts visible ref %s', (value) => {
+    expect(isSafeRefInput(value)).toBe(true);
+  });
+
+  it.each([
+    'main\n',
+    'main\u0000',
+    'main\u0085',
+    'main\u2028',
+  ])('rejects control characters in %s', (value) => {
+    expect(isSafeRefInput(value)).toBe(false);
   });
 });
 

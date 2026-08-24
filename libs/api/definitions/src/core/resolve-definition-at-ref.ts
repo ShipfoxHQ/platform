@@ -367,7 +367,7 @@ async function listWorkflowFilesAtCommit(params: {
     throw new DefinitionAtRefError(
       'too-many-files',
       `More than ${MAX_WORKFLOW_FILES} workflow files were found`,
-      {fileCount: page.files.length},
+      {fileCount: Math.max(page.files.length, MAX_WORKFLOW_FILES + 1)},
     );
   }
   return page.files
@@ -522,7 +522,7 @@ function listingFileFor(entry: ListingEntry): DefinitionAtRefFile {
       name: entry.definition.document.name,
       valid: true,
       errors: [],
-      warnings: warningsFor(entry.definition.diagnostics),
+      warnings: listingWarningsFor(entry.definition.diagnostics),
       triggers: definitionTriggersFor(entry.definition.model),
     };
   }
@@ -539,7 +539,6 @@ function listingFileFor(entry: ListingEntry): DefinitionAtRefFile {
 function warningsFor(diagnostics: readonly ValidationDiagnostic[]): ValidationWarning[] {
   return diagnostics
     .filter((diagnostic) => diagnostic.severity === 'warning')
-    .slice(0, DEFINITION_SYNC_DIAGNOSTICS_MAX_COUNT)
     .map((diagnostic) => ({
       code: diagnostic.code.slice(0, DEFINITION_SYNC_WARNING_CODE_MAX_LENGTH),
       message: diagnostic.message.slice(0, DEFINITION_SYNC_WARNING_MESSAGE_MAX_LENGTH),
@@ -547,6 +546,10 @@ function warningsFor(diagnostics: readonly ValidationDiagnostic[]): ValidationWa
         ? {}
         : {path: diagnostic.path.slice(0, DEFINITION_SYNC_WARNING_PATH_MAX_LENGTH)}),
     }));
+}
+
+function listingWarningsFor(diagnostics: readonly ValidationDiagnostic[]): ValidationWarning[] {
+  return warningsFor(diagnostics).slice(0, DEFINITION_SYNC_DIAGNOSTICS_MAX_COUNT);
 }
 
 function boundedValidationErrors(errors: readonly ValidationError[]): ValidationError[] {

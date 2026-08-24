@@ -35,23 +35,14 @@ export function buildAtRefRoute(options: AtRefRouteOptions) {
       if (error instanceof DefinitionAtRefError) throw toAtRefClientError(error);
       throw error;
     },
-    handler: async (request, reply) => {
+    handler: async (request) => {
       const {project_id: projectId, ref} = request.query;
-      const abortController = new AbortController();
-      let responseFinished = false;
-      reply.raw.on('finish', () => {
-        responseFinished = true;
-      });
-      reply.raw.on('close', () => {
-        if (!responseFinished) abortController.abort();
-      });
-
       const project = await requireProjectAccess(request, projectId, options.projects);
       const listing = await listDefinitionsAtRef({
         projectId,
         ref,
         project,
-        signal: abortController.signal,
+        signal: request.signal,
         ...options,
       });
       return {

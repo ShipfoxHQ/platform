@@ -344,7 +344,7 @@ describe('GET /api/definitions/at-ref', () => {
     });
   });
 
-  test('returns 422 with the observed file count when the workflow limit is exceeded', async () => {
+  test('returns 422 with a positive file count when the workflow limit is exceeded', async () => {
     integrationsMocks.listSourceFiles.mockResolvedValue({
       files: Array.from({length: 100}, (_, index) => ({
         path: `.shipfox/workflows/workflow-${index}.yml`,
@@ -362,7 +362,7 @@ describe('GET /api/definitions/at-ref', () => {
     expect(res.statusCode).toBe(422);
     expect(res.json()).toMatchObject({
       code: 'too-many-files',
-      details: {file_count: 100},
+      details: {file_count: 101},
     });
   });
 
