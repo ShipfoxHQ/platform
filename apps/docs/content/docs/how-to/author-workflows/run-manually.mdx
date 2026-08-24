@@ -30,7 +30,6 @@ You need a project that can sync workflows and an online runner with the
     triggers:
       manual:
         source: manual
-        event: fire
 
     jobs:
       checks:
@@ -64,5 +63,4 @@ You need a project that can sync workflows and an online runner with the
 
 The event journal for the workspace records the manual call with source `manual` and
 event `fire`. Open **Settings → Events** when the action succeeds but no run
-appears. A workflow accepts at most one manual trigger; see the [trigger sources
-reference](/reference/trigger-sources#manual).
+appears. A workflow accepts at most one manual trigger.

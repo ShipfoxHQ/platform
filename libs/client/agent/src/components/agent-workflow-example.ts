@@ -22,7 +22,6 @@ export function buildAgentWorkflowExample({
     'triggers:',
     '  on_demand:',
     '    source: manual',
-    '    event: fire',
     'jobs:',
     '  agent:',
     '    runner: ubuntu-latest',

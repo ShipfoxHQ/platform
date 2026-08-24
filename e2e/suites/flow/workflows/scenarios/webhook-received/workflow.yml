@@ -3,7 +3,6 @@ runner: __RUNNER_LABEL__
 triggers:
   on_webhook:
     source: __WEBHOOK_SOURCE__
-    event: received
 jobs:
   build:
     steps:

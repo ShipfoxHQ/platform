@@ -27,7 +27,7 @@ export interface IntegrationDocsCompletenessInput {
   providers: readonly RegisteredIntegrationProvider[];
   generatedCatalog: Readonly<Record<string, GeneratedIntegrationCatalogEntry>>;
   integrationDirectories: Readonly<Record<string, IntegrationDocsDirectory>>;
-  triggerSources?: string;
+  builtInSourceDocs?: Readonly<Record<string, string>>;
 }
 
 const canonicalPages = ['index', 'setup', 'events', 'tools'];
@@ -169,20 +169,13 @@ function collectBuiltInSourceIssues(
       `${prefix}: remove integrations/${provider.slug}; it is documented at ${provider.docRoute}.`,
     );
 
-  const source = input.triggerSources;
+  const source = input.builtInSourceDocs?.[provider.slug];
   if (!source) {
-    issues.push(`${prefix}: add ${provider.docRoute}.mdx with its trigger source reference.`);
+    issues.push(`${prefix}: document it at ${provider.docRoute}.`);
     return;
   }
-  if (!new RegExp(`^##\\s+${escapeRegExp(provider.anchor)}\\s*$`, 'imu').test(source))
-    issues.push(`${prefix}: add a "## ${provider.anchor}" section to ${provider.docRoute}.mdx.`);
-  const sourceTableRow = source
-    .split('\n')
-    .find((line) => line.startsWith('|') && line.includes(`\`${provider.slug}\``));
-  if (!sourceTableRow)
-    issues.push(
-      `${prefix}: add its \`${provider.slug}\` row to the "Sources at a glance" table in ${provider.docRoute}.mdx.`,
-    );
+  if (!source.includes(`source: ${provider.slug}`))
+    issues.push(`${prefix}: show \`source: ${provider.slug}\` in ${provider.docRoute}.`);
   for (const event of provider.events) {
     if (!source.includes(`\`${event}\``))
       issues.push(`${prefix}: mention event "${event}" in ${provider.docRoute}.mdx.`);
@@ -201,8 +194,4 @@ function sameStrings(actual: readonly string[] | undefined, expected: readonly s
     actual.length === expected.length &&
     actual.every((item, index) => item === expected[index])
   );
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
 }

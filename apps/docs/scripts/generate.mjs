@@ -396,7 +396,7 @@ function renderWorkflowSchemaReference() {
         jobs: recordType('Job'),
       },
     }),
-    component('TriggerFields', object(trigger.properties), {required: ['source', 'event']}),
+    component('TriggerFields', object(trigger.properties), {required: strings(trigger.required)}),
     component('JobFields', object(jobs.properties), {
       required: ['steps'],
       nested: {

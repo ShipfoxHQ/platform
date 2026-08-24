@@ -6,7 +6,6 @@
     "runner-labels",
     "contexts",
     "expressions",
-    "trigger-sources",
     "secrets-variables",
     "model-providers",
     "limits",

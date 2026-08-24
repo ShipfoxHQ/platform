@@ -32,7 +32,6 @@ runner: shipfox
 triggers:
   task_started:
     source: task_hook # Replace with the slug of your webhook integration connection.
-    event: received
     filter: event.body.kind == "start"
 
 jobs:
@@ -53,11 +52,9 @@ jobs:
     listening:
       on:
         - source: task_hook # Replace with the same integration connection slug.
-          event: received
           filter: event.body.kind == "check" && event.body.task_id == jobs.remember.outputs.task_id
       until:
         - source: task_hook # Replace with the same integration connection slug.
-          event: received
           filter: event.body.kind == "finish" && event.body.task_id == jobs.remember.outputs.task_id
       timeout: 30m
       max_executions: 3

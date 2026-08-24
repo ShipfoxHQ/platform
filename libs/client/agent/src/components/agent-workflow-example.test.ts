@@ -68,7 +68,7 @@ describe('buildAgentWorkflowExample', () => {
     expect(lines).toContain(expectedHarness);
     expect(lines).toContain(expectedProvider);
     expect(lines).toContain(expectedModel);
-    expect(example.highlightedLineRange).toEqual({startLine: 11, endLine: 13});
-    expect(lines.slice(10, 13)).toEqual([expectedHarness, expectedProvider, expectedModel]);
+    expect(example.highlightedLineRange).toEqual({startLine: 10, endLine: 12});
+    expect(lines.slice(9, 12)).toEqual([expectedHarness, expectedProvider, expectedModel]);
   });
 });

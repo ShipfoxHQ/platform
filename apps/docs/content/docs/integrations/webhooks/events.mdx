@@ -28,13 +28,12 @@ the header is absent.
 
 ## Trigger fragment
 
-Replace `deploy_hook` with the integration connection slug:
+Replace `deploy_hook` with the slug of your integration connection for the custom webhook:
 
 ```yaml
 triggers:
   on_webhook:
     source: deploy_hook
-    event: received
 ```
 
 For trigger field rules, see the [workflow schema reference](/reference/workflow-schema#trigger-fields).

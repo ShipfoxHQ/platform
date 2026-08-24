@@ -38,7 +38,7 @@ This glossary defines the core terms used in Shipfox documentation and in the pr
   </Accordion>
 
   <Accordion title="Filter">
-    An optional CEL expression on a trigger (or on a listening job's `on`/`until` entries) that narrows which events fire it. For example, `event.ref == "refs/heads/main"` on a GitHub push trigger restricts to pushes on `main`. The filter is evaluated when the event arrives: a false result skips the event, and an expression error fails closed. See the [Trigger Sources reference](/reference/trigger-sources#filter).
+    An optional CEL expression on a trigger (or on a listening job's `on`/`until` entries) that narrows which events fire it. For example, `event.ref == "refs/heads/main"` on a GitHub push trigger restricts to pushes on `main`. The filter is evaluated when the event arrives: a false result skips the event, and an expression error fails closed. See [Expressions](/reference/expressions) and the [trigger fields](/reference/workflow-schema#trigger-fields).
   </Accordion>
 
   <Accordion title="Gate">
@@ -114,7 +114,7 @@ This glossary defines the core terms used in Shipfox documentation and in the pr
   </Accordion>
 
   <Accordion title="Trigger">
-    Defines when a workflow run starts. Configured in the `triggers:` section of a workflow YAML. Each trigger has a `source` (an integration connection slug or built-in source) and an `event` from that source. An optional `filter` CEL expression narrows which events fire the trigger, evaluated when the event arrives. See the [Trigger Sources reference](/reference/trigger-sources).
+    Defines when a workflow run starts. Configured in the `triggers:` section of a workflow YAML. Each trigger has a `source` (an integration connection slug or built-in source) and an optional `event` from that source. An optional `filter` CEL expression narrows which events fire the trigger, evaluated when the event arrives. See the [trigger fields](/reference/workflow-schema#trigger-fields) and [integration event catalogs](/integrations).
   </Accordion>
 
   <Accordion title="Variable">
