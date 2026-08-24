@@ -2,21 +2,11 @@ import {Button} from '@shipfox/react-ui/button';
 import {Icon} from '@shipfox/react-ui/icon';
 import {Text} from '@shipfox/react-ui/typography';
 import {useEffect, useRef} from 'react';
+import {createConfettiParticles} from './setup-checklist-confetti.js';
 
 const JSDOM_USER_AGENT_RE = /jsdom/u;
 const CONFETTI_DURATION_MS = 2000;
-const CONFETTI_PARTICLE_COUNT = 48;
 const CONFETTI_RANDOM_SEED = 0x5f3759df;
-
-interface ConfettiParticle {
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-  rotation: number;
-  size: number;
-  color: string;
-}
 
 export function SetupChecklistCompletion({
   showBurst,
@@ -111,7 +101,12 @@ function ConfettiBurst({
       finish();
       return;
     }
-    const particles = createConfettiParticles(width, height, colors);
+    const particles = createConfettiParticles(
+      width,
+      height,
+      colors,
+      prefersReducedMotion ? CONFETTI_RANDOM_SEED : undefined,
+    );
     let frame = 0;
     const startedAt = performance.now();
 
@@ -151,9 +146,8 @@ function ConfettiBurst({
     if (prefersReducedMotion) {
       draw(startedAt, false);
       finish();
-      return () => {
-        context.clearRect(0, 0, width, height);
-      };
+      // Keep the static frame after hosts consume the burst immediately.
+      return;
     }
 
     frame = requestAnimationFrame(draw);
@@ -168,31 +162,4 @@ function ConfettiBurst({
       <canvas ref={canvasRef} className="size-full" />
     </div>
   );
-}
-
-export function createConfettiParticles(
-  width: number,
-  height: number,
-  palette: readonly string[],
-): ConfettiParticle[] {
-  const random = createSeededRandom(CONFETTI_RANDOM_SEED);
-
-  return Array.from({length: CONFETTI_PARTICLE_COUNT}, (_, index) => ({
-    x: width / 2 + (random() - 0.5) * width * 0.55,
-    y: height * (0.4 + random() * 0.15),
-    vx: (random() - 0.5) * 2.5,
-    vy: -(random() * 0.7 + 0.4),
-    rotation: random() * Math.PI,
-    size: random() * 5 + 5,
-    color: palette[index % palette.length] ?? palette[0] ?? '',
-  }));
-}
-
-function createSeededRandom(seed: number): () => number {
-  let state = seed >>> 0;
-
-  return () => {
-    state = (Math.imul(state, 1_664_525) + 1_013_904_223) >>> 0;
-    return state / 2 ** 32;
-  };
 }
