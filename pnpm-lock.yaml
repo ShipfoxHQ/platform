@@ -5397,9 +5397,15 @@ importers:
       '@shipfox/client-projects':
         specifier: workspace:*
         version: link:../projects
+      '@shipfox/client-runners':
+        specifier: workspace:*
+        version: link:../runners
       '@shipfox/client-shell':
         specifier: workspace:*
         version: link:../shell
+      '@shipfox/client-workspace-settings':
+        specifier: workspace:*
+        version: link:../workspace-settings
       '@swc/helpers':
         specifier: 'catalog:'
         version: 0.5.23

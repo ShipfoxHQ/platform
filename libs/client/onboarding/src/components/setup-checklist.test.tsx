@@ -1,0 +1,286 @@
+// @vitest-environment jsdom
+import '@testing-library/jest-dom/vitest';
+import {modelProviderQueryKeys} from '@shipfox/client-agent';
+import {configureApiClient} from '@shipfox/client-api';
+import {
+  type IntegrationConnection,
+  type IntegrationProvider,
+  integrationConnectionsQueryOptions,
+  integrationProvidersQueryOptions,
+} from '@shipfox/client-integrations';
+import {provisionerTokenQueryKeys} from '@shipfox/client-runners';
+import {
+  type ClientAnalytics,
+  ClientAnalyticsProvider,
+  clearWorkspaceSetupChecklistDismissal,
+  dismissWorkspaceSetupChecklist,
+} from '@shipfox/client-shell/runtime';
+import {listInvitationsQueryKey, listMembersQueryKey} from '@shipfox/client-workspace-settings';
+import {afterEach, beforeEach, describe, expect, test, vi} from '@shipfox/vitest/vi';
+import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
+import {
+  createMemoryHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+  Outlet,
+  RouterProvider,
+} from '@tanstack/react-router';
+import {act, cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react';
+import {deriveIntegrationReadiness} from '#core/integration-readiness.js';
+import {deriveSetupChecklist} from '#core/setup-checklist.js';
+import {
+  SetupChecklistBody,
+  type WorkspaceReference,
+  WorkspaceSetupChecklist,
+  WorkspaceSetupIndicator,
+} from './setup-checklist.js';
+
+const WORKSPACE: WorkspaceReference = {id: 'test-workspace', slug: 'acme'};
+const now = new Date().toISOString();
+const githubProvider: IntegrationProvider = {
+  provider: 'github',
+  displayName: 'GitHub',
+  capabilities: ['source_control'],
+};
+const linearProvider: IntegrationProvider = {
+  provider: 'linear',
+  displayName: 'Linear',
+  capabilities: ['agent_tools'],
+};
+
+function connection(
+  provider: 'github' | 'linear',
+  lifecycleStatus: IntegrationConnection['lifecycleStatus'],
+): IntegrationConnection {
+  return {
+    id: `${provider}-connection`,
+    workspaceId: WORKSPACE.id,
+    provider,
+    externalAccountId: `${provider}-account`,
+    slug: `${provider}-account`,
+    displayName: provider === 'github' ? 'GitHub' : 'Linear',
+    lifecycleStatus,
+    capabilities: provider === 'github' ? ['source_control'] : ['agent_tools'],
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+function createQueryClient() {
+  return new QueryClient({defaultOptions: {queries: {retry: false}}});
+}
+
+function seedQueries(queryClient: QueryClient, toolsConnected = false) {
+  queryClient.setQueryData(integrationProvidersQueryOptions().queryKey, [
+    githubProvider,
+    linearProvider,
+  ]);
+  queryClient.setQueryData(integrationConnectionsQueryOptions(WORKSPACE.id).queryKey, [
+    connection('github', 'active'),
+    ...(toolsConnected ? [connection('linear', 'active')] : []),
+  ]);
+  queryClient.setQueryData(provisionerTokenQueryKeys.active(WORKSPACE.id), {
+    provisioners: [],
+    installationRunners: 'managed' as const,
+  });
+  queryClient.setQueryData(modelProviderQueryKeys.catalog(), {
+    providers: [],
+    workspaceProviders: 'enabled' as const,
+    managedProviderId: 'managed-default',
+    instanceDefaultProviderId: null,
+  });
+  queryClient.setQueryData(modelProviderQueryKeys.configs(WORKSPACE.id), {
+    configs: [],
+    defaultHarnessId: null,
+    defaultProviderId: null,
+  });
+  queryClient.setQueryData(listMembersQueryKey(WORKSPACE.id), [
+    {
+      id: 'member-1',
+      userId: 'user-1',
+      workspaceId: WORKSPACE.id,
+      email: 'you@example.com',
+      name: 'You',
+      role: 'admin' as const,
+      joinedAt: now,
+      updatedAt: now,
+    },
+  ]);
+  queryClient.setQueryData(listInvitationsQueryKey(WORKSPACE.id), []);
+}
+
+function renderWithProviders(
+  element: React.ReactElement,
+  queryClient: QueryClient,
+  analytics: ClientAnalytics,
+) {
+  const rootRoute = createRootRoute({component: Outlet});
+  const routePaths = [
+    '/w/$workspaceSlug',
+    '/w/$workspaceSlug/settings/integrations',
+    '/w/$workspaceSlug/settings/runners',
+    '/w/$workspaceSlug/settings/agents',
+    '/w/$workspaceSlug/settings/members',
+  ];
+  const routes = routePaths.map((path) =>
+    createRoute({
+      getParentRoute: () => rootRoute,
+      path,
+      component: () => element,
+    }),
+  );
+  const router = createRouter({
+    routeTree: rootRoute.addChildren(routes),
+    history: createMemoryHistory({initialEntries: ['/w/acme']}),
+  });
+
+  return render(
+    <ClientAnalyticsProvider analytics={analytics}>
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>
+    </ClientAnalyticsProvider>,
+  );
+}
+
+describe('SetupChecklistBody', () => {
+  test('renders ordered statuses, purposes, and actions', async () => {
+    const checklist = deriveSetupChecklist({
+      readiness: deriveIntegrationReadiness({
+        providers: [githubProvider, linearProvider],
+        connections: [connection('github', 'active')],
+      }),
+      installationRunners: 'none',
+      workspaceRunnerCapacity: false,
+      modelProvider: {installationProvided: false, configured: false},
+      membership: {memberCount: 1, pendingInvitationCount: 0},
+    });
+    const queryClient = createQueryClient();
+
+    renderWithProviders(
+      <SetupChecklistBody checklist={checklist} workspaceSlug={WORKSPACE.slug} />,
+      queryClient,
+      {capture: vi.fn()},
+    );
+
+    expect(await screen.findByRole('list', {name: 'Setup steps'})).toBeInTheDocument();
+    expect(screen.getAllByRole('listitem')).toHaveLength(7);
+    expect(await screen.findByText('Connect your tools')).toBeInTheDocument();
+    expect(
+      await screen.findByText('Jobs wait in `pending` until a runner is online'),
+    ).toBeInTheDocument();
+    expect(await screen.findByRole('link', {name: 'Connect'})).toHaveAttribute(
+      'href',
+      `/w/${WORKSPACE.slug}/settings/integrations`,
+    );
+    expect(await screen.findAllByText('Next', {exact: true})).toHaveLength(2);
+    expect(
+      screen
+        .getAllByText('done', {exact: true})
+        .every((node) => node.classList.contains('sr-only')),
+    ).toBe(true);
+    expect(
+      screen
+        .getAllByText('to do', {exact: true})
+        .every((node) => node.classList.contains('sr-only')),
+    ).toBe(true);
+  });
+});
+
+describe('workspace checklist hosts', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl: vi.fn()});
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+  });
+
+  afterEach(() => {
+    cleanup();
+    window.localStorage.clear();
+    vi.restoreAllMocks();
+  });
+
+  test('does not subscribe to checklist queries after dismissal', () => {
+    const queryClient = createQueryClient();
+    const fetchImpl = vi.fn();
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
+    dismissWorkspaceSetupChecklist(WORKSPACE.id);
+
+    renderWithProviders(<WorkspaceSetupChecklist workspace={WORKSPACE} />, queryClient, {
+      capture: vi.fn(),
+    });
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(
+      queryClient
+        .getQueryCache()
+        .find({queryKey: integrationProvidersQueryOptions().queryKey})
+        ?.getObserversCount() ?? 0,
+    ).toBe(0);
+    clearWorkspaceSetupChecklistDismissal(WORKSPACE.id);
+  });
+
+  test('renders the completion state only after an observed false-to-true transition', async () => {
+    const queryClient = createQueryClient();
+    seedQueries(queryClient);
+    const capture = vi.fn();
+
+    renderWithProviders(<WorkspaceSetupChecklist workspace={WORKSPACE} />, queryClient, {capture});
+
+    expect(screen.queryByText("You're set up")).not.toBeInTheDocument();
+    expect(await screen.findByText('Connect your tools')).toBeInTheDocument();
+
+    act(() => {
+      queryClient.setQueryData(integrationConnectionsQueryOptions(WORKSPACE.id).queryKey, [
+        connection('github', 'active'),
+        connection('linear', 'active'),
+      ]);
+    });
+
+    expect(await screen.findByText("You're set up")).toBeInTheDocument();
+    expect(capture).toHaveBeenCalledWith('onboarding_checklist_shown', {host: 'panel'});
+    expect(capture).toHaveBeenCalledWith('onboarding_checklist_completed', {host: 'panel'});
+
+    fireEvent.click(screen.getByRole('button', {name: 'Done'}));
+    expect(capture).toHaveBeenCalledWith('onboarding_checklist_dismissed', {host: 'panel'});
+  });
+
+  test('captures row clicks with the checklist row id', async () => {
+    const queryClient = createQueryClient();
+    seedQueries(queryClient);
+    const capture = vi.fn();
+
+    renderWithProviders(<WorkspaceSetupChecklist workspace={WORKSPACE} />, queryClient, {capture});
+
+    fireEvent.click(await screen.findByRole('link', {name: 'Connect'}));
+
+    expect(capture).toHaveBeenCalledWith('onboarding_checklist_row_clicked', {row_id: 'tools'});
+  });
+
+  test('exposes the indicator progress without duplicating its completion label', async () => {
+    const queryClient = createQueryClient();
+    seedQueries(queryClient);
+
+    renderWithProviders(<WorkspaceSetupIndicator workspace={WORKSPACE} />, queryClient, {
+      capture: vi.fn(),
+    });
+
+    expect(
+      await screen.findByRole('button', {name: 'Get started, 2 of 3 done'}),
+    ).toBeInTheDocument();
+  });
+
+  test('does not render an initially complete checklist without a transition', async () => {
+    const queryClient = createQueryClient();
+    seedQueries(queryClient, true);
+
+    renderWithProviders(<WorkspaceSetupChecklist workspace={WORKSPACE} />, queryClient, {
+      capture: vi.fn(),
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByRole('region', {name: 'Get started'})).not.toBeInTheDocument();
+    });
+  });
+});
