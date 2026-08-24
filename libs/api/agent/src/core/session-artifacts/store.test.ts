@@ -9,9 +9,10 @@ import {
   decodeBase64SessionKek,
   type SegmentManifest,
   SessionDekManager,
+  segmentManifestToMetadata,
   sessionObjectKey,
 } from '#core/session-artifacts/index.js';
-import {listSessionObjectKeys} from '#core/session-artifacts/object-storage.js';
+import {listSessionObjectKeys, putSessionObject} from '#core/session-artifacts/object-storage.js';
 import {claimSession, createSession, db, sessions} from '#db/index.js';
 
 describe('session artifact store', () => {
@@ -220,6 +221,45 @@ describe('session artifact store', () => {
     expect(retry.session?.headObjectKey).toBe(first.session?.headObjectKey);
   });
 
+  it('serializes concurrent duplicate commits: exactly one upload and one retry-ack', async () => {
+    const ctx = newCtx();
+    const session = await arrangeClaimedSession(ctx);
+    const blob = Buffer.from('deterministic duplicate bytes');
+
+    const [a, b] = await Promise.all([
+      store.commitSegment({
+        session,
+        stepAttemptId: ctx.stepAttemptId,
+        baseSegment: 0,
+        blob,
+        manifest: manifest({committedByStepAttempt: ctx.stepAttemptId}),
+        headRepoRef: null,
+      }),
+      store.commitSegment({
+        session,
+        stepAttemptId: ctx.stepAttemptId,
+        baseSegment: 0,
+        blob,
+        manifest: manifest({committedByStepAttempt: ctx.stepAttemptId}),
+        headRepoRef: null,
+      }),
+    ]);
+
+    // The commit runs under the session row lock, so the two requests
+    // serialize: one lands the upload and flips the head, the other re-reads
+    // the landed commit and is acked as a retry without re-uploading.
+    expect([a.outcome, b.outcome].sort()).toEqual(['committed', 'retry-acked']);
+
+    // Exactly one object exists and it decrypts to the committed blob.
+    const keys = await listSessionObjectKeys(
+      `${config.AGENT_SESSION_STORAGE_S3_PREFIX}/${ctx.workspaceId}/${ctx.workflowRunAttemptId}/${session.id}`,
+    );
+    expect(keys).toHaveLength(1);
+    const winner = a.outcome === 'committed' ? a : b;
+    const read = await store.readHeadSegment({...session, ...requireSession(winner)});
+    expect(read?.blob).toEqual(blob);
+  });
+
   it('returns conflict for a stale base segment or a caller without the claim', async () => {
     const ctx = newCtx();
     const session = await arrangeClaimedSession(ctx);
@@ -310,6 +350,13 @@ describe('session artifact store', () => {
       workflowRunAttemptId: crypto.randomUUID(),
       sessionId: crypto.randomUUID(),
       segment: 99,
+    });
+    // The carried-over head key must exist in the store for the exact-key delete
+    // branch to be exercised; otherwise the assertion below is vacuous.
+    await putSessionObject({
+      key: carriedHeadKey,
+      body: Buffer.from('carried-over head object'),
+      metadata: segmentManifestToMetadata(manifest({committedByStepAttempt: ctx.stepAttemptId})),
     });
     const carriedSession = {
       ...session,

@@ -127,7 +127,11 @@ export const config = createConfig({
     default: true,
   }),
   AGENT_SESSION_ENCRYPTION_KEK: str({
-    desc: 'Master key used to wrap per-workspace session transcript data keys. Required. Generate a unique value per environment with openssl rand -base64 32 and provide it from a secret manager. The committed .env value is only for local development. Losing this key makes stored session transcripts unrecoverable.',
+    desc: 'Master key used to wrap per-workspace session transcript data keys. Required. Generate a unique value per environment with openssl rand -base64 32 and provide it from a secret manager. The committed .env value is only for local development. Losing this key makes stored session transcripts unrecoverable. To rotate it, set AGENT_SESSION_ENCRYPTION_KEK_PREVIOUS to the old value during the rotation window.',
+    default: undefined,
+  }),
+  AGENT_SESSION_ENCRYPTION_KEK_PREVIOUS: str({
+    desc: 'Previous master key, set only during a KEK rotation window so DEKs wrapped under the old key stay readable. Optional. Generate with openssl rand -base64 32 and provide it from a secret manager; clear it once every wrapped DEK has been rewrapped under the current key.',
     default: undefined,
   }),
   AGENT_SESSION_BLOB_CAP_BYTES: num({
@@ -315,6 +319,12 @@ if (hasSessionS3AccessKeyId !== hasSessionS3SecretAccessKey) {
 }
 
 decodeBase64SessionKek(config.AGENT_SESSION_ENCRYPTION_KEK, 'AGENT_SESSION_ENCRYPTION_KEK');
+if (config.AGENT_SESSION_ENCRYPTION_KEK_PREVIOUS) {
+  decodeBase64SessionKek(
+    config.AGENT_SESSION_ENCRYPTION_KEK_PREVIOUS,
+    'AGENT_SESSION_ENCRYPTION_KEK_PREVIOUS',
+  );
+}
 
 if (
   !Number.isInteger(config.AGENT_SESSION_RETENTION_DAYS) ||

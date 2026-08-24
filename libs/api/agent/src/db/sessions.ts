@@ -465,12 +465,17 @@ export interface CommitSessionHeadResult {
  * * `conflict` — every other combination: a caller without the claim (zombie
  *   writer), a stale base, or a duplicate from a superseded attempt can never
  *   land.
+ *
+ * Pass a `tx` to run the flip inside an existing transaction (the artifact
+ * store holds the row lock across upload and flip so duplicate commits
+ * serialize instead of racing an overwrite of the same object key).
  */
-export async function commitSessionHead(
+export function commitSessionHead(
   params: CommitSessionHeadParams,
+  tx?: Transaction,
 ): Promise<CommitSessionHeadResult> {
-  return await db().transaction(async (tx) => {
-    const [row] = await tx
+  const run = async (executor: Transaction): Promise<CommitSessionHeadResult> => {
+    const [row] = await executor
       .select()
       .from(sessions)
       .where(eq(sessions.id, params.sessionId))
@@ -481,7 +486,7 @@ export async function commitSessionHead(
       row.headSegment === params.baseSegment &&
       row.claimedByStepAttempt === params.stepAttemptId
     ) {
-      const updated = await tx
+      const updated = await executor
         .update(sessions)
         .set({
           headSegment: params.baseSegment + 1,
@@ -508,5 +513,7 @@ export async function commitSessionHead(
       return {outcome: 'retry-acked', session};
     }
     return {outcome: 'conflict', session};
-  });
+  };
+
+  return tx ? run(tx) : db().transaction(run);
 }

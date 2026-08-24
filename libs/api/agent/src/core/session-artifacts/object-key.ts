@@ -33,19 +33,22 @@ export interface ParsedSessionObjectKey {
 /**
  * Parses the segment (and identity) back out of an object key. Returns null for
  * keys that do not match the layout, so a stray object under a session prefix
- * is never misclassified or deleted by segment pruning.
+ * is never misclassified or deleted by segment pruning. The key must start with
+ * the configured bucket prefix and carry exactly the four expected trailing
+ * components (`{prefix}/{workspace}/{runAttempt}/{session}/{segment}`): an
+ * extra component or a foreign prefix is rejected even when the final
+ * component looks numeric.
  */
-export function parseSessionObjectKey(key: string): ParsedSessionObjectKey | null {
-  const parts = key.split('/');
-  if (parts.length < 5) return null;
+export function parseSessionObjectKey(key: string, prefix: string): ParsedSessionObjectKey | null {
+  const prefixWithSlash = `${prefix}/`;
+  if (!key.startsWith(prefixWithSlash)) return null;
 
-  const segment = parts.at(-1);
-  if (segment === undefined || !SEGMENT_PATTERN.test(segment)) return null;
+  const parts = key.slice(prefixWithSlash.length).split('/');
+  if (parts.length !== 4) return null;
 
-  const workspaceId = parts.at(-4);
-  const workflowRunAttemptId = parts.at(-3);
-  const sessionId = parts.at(-2);
-  if (!workspaceId || !workflowRunAttemptId || !sessionId) return null;
+  const [workspaceId, workflowRunAttemptId, sessionId, segment] = parts;
+  if (!workspaceId || !workflowRunAttemptId || !sessionId || !segment) return null;
+  if (!SEGMENT_PATTERN.test(segment)) return null;
 
   return {
     workspaceId,

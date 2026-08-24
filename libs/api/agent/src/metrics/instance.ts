@@ -1,5 +1,6 @@
 import type {SupportedModelProviderId} from '@shipfox/api-agent-dto';
 import {instanceMetrics} from '@shipfox/node-opentelemetry';
+import {config} from '#config.js';
 
 const meter = instanceMetrics.getMeter('agent');
 
@@ -38,20 +39,20 @@ export const sessionCommitsCount = meter.createCounter<{outcome: SessionCommitOu
   },
 );
 
-const SESSION_BLOB_CAP_BYTES = 64 * 1024 * 1024;
+const sessionBlobCapBytes = config.AGENT_SESSION_BLOB_CAP_BYTES;
 
-/** Compressed bytes of committed session segments; bounded by the 64 MiB blob cap. */
+/** Compressed bytes of committed session segments; bounded by the configured blob cap. */
 export const sessionCommittedBytes = meter.createHistogram<Record<string, never>>(
   'agent_session_committed',
   {
-    description: 'Compressed bytes of committed agent session segments',
+    description: `Compressed bytes of committed agent session segments (bounded by the ${sessionBlobCapBytes}-byte configured blob cap)`,
     unit: 'By',
     advice: {
       explicitBucketBoundaries: [
-        SESSION_BLOB_CAP_BYTES / 64,
-        SESSION_BLOB_CAP_BYTES / 16,
-        SESSION_BLOB_CAP_BYTES / 4,
-        SESSION_BLOB_CAP_BYTES,
+        sessionBlobCapBytes / 64,
+        sessionBlobCapBytes / 16,
+        sessionBlobCapBytes / 4,
+        sessionBlobCapBytes,
       ],
     },
   },

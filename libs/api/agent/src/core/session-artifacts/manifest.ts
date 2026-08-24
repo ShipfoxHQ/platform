@@ -25,12 +25,23 @@ const METADATA_KEYS: Record<keyof SegmentManifest, string> = {
 };
 
 export function segmentManifestToMetadata(manifest: SegmentManifest): Record<string, string> {
+  // Mirror the read side: an empty field would be written here but rejected by
+  // segmentManifestFromMetadata, so reject it at the write boundary instead of
+  // persisting metadata this module cannot read back.
+  const requireValue = (key: keyof SegmentManifest): string => {
+    const value = manifest[key];
+    if (value === '') {
+      throw new Error(`Session segment manifest ${key} must be non-empty`);
+    }
+    return value;
+  };
+
   return {
-    [METADATA_KEYS.harness]: manifest.harness,
-    [METADATA_KEYS.sdkVersion]: manifest.sdkVersion,
-    [METADATA_KEYS.model]: manifest.model,
-    [METADATA_KEYS.provider]: manifest.provider,
-    [METADATA_KEYS.committedByStepAttempt]: manifest.committedByStepAttempt,
+    [METADATA_KEYS.harness]: requireValue('harness'),
+    [METADATA_KEYS.sdkVersion]: requireValue('sdkVersion'),
+    [METADATA_KEYS.model]: requireValue('model'),
+    [METADATA_KEYS.provider]: requireValue('provider'),
+    [METADATA_KEYS.committedByStepAttempt]: requireValue('committedByStepAttempt'),
   };
 }
 

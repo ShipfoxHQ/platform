@@ -1,6 +1,6 @@
 import {and, asc, eq, isNotNull, isNull, lt, notInArray, sql} from 'drizzle-orm';
 import type {AgentSession} from '#core/entities/agent-session.js';
-import {db, type Transaction} from './db.js';
+import {type Database, db, type Transaction} from './db.js';
 import {sessions, toAgentSession} from './schema/sessions.js';
 
 /**
@@ -36,9 +36,10 @@ export async function listExpiredSessions(params: {
 /**
  * Lists sessions whose last mutation (head flip, claim, or release) is older
  * than the segment grace, so their superseded segments and orphans may be
- * pruned. Orphans (objects written but never flipped into the head) are only
- * collected while the session is unclaimed: an in-flight commit always holds
- * the claim, so the claim check makes the sweep's fresh-read guard race-free.
+ * pruned. Orphan candidates are only collected while the session is unclaimed;
+ * the sweep re-verifies the claim under a `FOR UPDATE` lock held through the
+ * object deletion (see `pruneSessionSegments`), because a claim granted after
+ * this list read could land an upload the sweep would otherwise delete.
  */
 export async function listSegmentPruneCandidates(params: {
   graceSeconds: number;
@@ -73,14 +74,17 @@ export async function getSessionById(sessionId: string): Promise<AgentSession | 
 /**
  * Whether another session row references the object key as its head. Rerun
  * carry-over copies the source head pointer, so an expired source session must
- * keep its head object until every carried-over target is gone too.
+ * keep its head object until every carried-over target is gone too. Accepts
+ * the plain database as well as a transaction so both the retention sweep
+ * (inside its row-locked transaction) and the store-level deletion path use
+ * the same ownership check.
  */
 export async function hasSessionReferencingObjectKey(
-  tx: Transaction,
+  executor: Transaction | Database,
   sessionId: string,
   objectKey: string,
 ): Promise<boolean> {
-  const [row] = await tx
+  const [row] = await executor
     .select({id: sessions.id})
     .from(sessions)
     .where(and(eq(sessions.headObjectKey, objectKey), sql`${sessions.id} <> ${sessionId}`))

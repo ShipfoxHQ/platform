@@ -1,6 +1,14 @@
+import {eq} from 'drizzle-orm';
 import {config} from '#config.js';
 import type {AgentSession} from '#core/entities/agent-session.js';
-import {type CommitSessionHeadResult, commitSessionHead, getSessionById} from '#db/index.js';
+import {
+  type CommitSessionHeadResult,
+  commitSessionHead,
+  db,
+  hasSessionReferencingObjectKey,
+  sessions,
+} from '#db/index.js';
+import {toAgentSession} from '#db/schema/sessions.js';
 import {sessionCommitsCount, sessionCommittedBytes} from '#metrics/instance.js';
 import {AgentSessionUnavailableError} from '../errors.js';
 import {aadForSessionObject, openSessionBlob, sealSessionBlob} from './crypto.js';
@@ -12,7 +20,6 @@ import {
 } from './manifest.js';
 import {parseSessionObjectKey, sessionObjectKey} from './object-key.js';
 import {
-  deleteSessionObject,
   deleteSessionObjects,
   getSessionObject,
   listSessionObjectKeys,
@@ -62,12 +69,12 @@ export interface SessionArtifactStore {
   putSegment(params: PutSessionSegmentParams): Promise<PutSessionSegmentResult>;
   /**
    * The B4 commit path: writes segment `baseSegment + 1` and advances the head
-   * through the B1 CAS. Before any upload, the caller's claim and base segment
-   * are verified against the live row, so a stale-base or claim-less write never
-   * touches the object store: a retry of the caller's own landed commit is acked
-   * without rewriting (objects stay immutable), and every other combination is
-   * `conflict` with nothing written. The B1 CAS remains the authoritative guard;
-   * the pre-check only keeps unreferenced bytes out of the bucket.
+   * through the B1 CAS. The whole commit runs under the session row lock, so
+   * the claim/base verification is authoritative (not a pre-check): the
+   * request that wins the lock uploads exactly once and flips the head; every
+   * concurrent duplicate of the same attempt re-reads the landed commit under
+   * the same lock and is acked as a retry without ever touching the object
+   * store, so an immutable object key is never re-uploaded or overwritten.
    */
   commitSegment(params: CommitSessionSegmentParams): Promise<CommitSessionHeadResult>;
   /**
@@ -78,7 +85,9 @@ export interface SessionArtifactStore {
   readHeadSegment(session: AgentSession): Promise<ReadSessionHeadResult | null>;
   /**
    * Deletes every object under the session's prefix plus the exact head key of
-   * a carried-over row (which points at another run attempt's prefix).
+   * a carried-over row (which points at another run attempt's prefix). The
+   * head object is kept while another session row still references it,
+   * mirroring the retention sweep's carried-over guard.
    */
   deleteSessionObjects(session: AgentSession): Promise<void>;
 }
@@ -126,31 +135,36 @@ export function createSessionArtifactStore(params: {
     async commitSegment({session, stepAttemptId, baseSegment, blob, manifest, headRepoRef}) {
       const segment = baseSegment + 1;
 
-      // Pre-check against the live row, before any upload: while the caller holds
-      // the claim, only its own commits can move the head, so this read is stable
-      // for the duration of the request. A retry of the caller's own landed
-      // commit is acked without rewriting; anything else conflicts without
-      // writing, keeping every existing object immutable.
-      const current = await getSessionById(session.id);
-      if (current === null) return {outcome: 'conflict', session: null};
-      if (current.headSegment === segment && current.headCommittedByAttempt === stepAttemptId) {
-        sessionCommitsCount.add(1, {outcome: 'retry_acked'});
-        return {outcome: 'retry-acked', session: current};
-      }
-      if (current.claimedByStepAttempt !== stepAttemptId || current.headSegment !== baseSegment) {
-        sessionCommitsCount.add(1, {outcome: 'conflict'});
-        return {outcome: 'conflict', session: current};
-      }
+      let committedSizeBytes: number | undefined;
+      const result = await db().transaction(async (tx) => {
+        const [row] = await tx
+          .select()
+          .from(sessions)
+          .where(eq(sessions.id, session.id))
+          .for('update');
+        if (!row) return {outcome: 'conflict', session: null} as const;
 
-      const put = await this.putSegment({session: current, segment, blob, manifest});
+        const current = toAgentSession(row);
+        if (current.headSegment === segment && current.headCommittedByAttempt === stepAttemptId) {
+          return {outcome: 'retry-acked', session: current} as const;
+        }
+        if (current.claimedByStepAttempt !== stepAttemptId || current.headSegment !== baseSegment) {
+          return {outcome: 'conflict', session: current} as const;
+        }
 
-      const result = await commitSessionHead({
-        sessionId: session.id,
-        stepAttemptId,
-        baseSegment,
-        headObjectKey: put.objectKey,
-        headSizeBytes: put.sizeBytes,
-        headRepoRef,
+        const put = await this.putSegment({session: current, segment, blob, manifest});
+        committedSizeBytes = put.sizeBytes;
+        return commitSessionHead(
+          {
+            sessionId: session.id,
+            stepAttemptId,
+            baseSegment,
+            headObjectKey: put.objectKey,
+            headSizeBytes: put.sizeBytes,
+            headRepoRef,
+          },
+          tx,
+        );
       });
 
       sessionCommitsCount.add(1, {
@@ -161,8 +175,8 @@ export function createSessionArtifactStore(params: {
               ? 'retry_acked'
               : 'conflict',
       });
-      if (result.outcome === 'committed') {
-        sessionCommittedBytes.record(put.sizeBytes);
+      if (result.outcome === 'committed' && committedSizeBytes !== undefined) {
+        sessionCommittedBytes.record(committedSizeBytes);
       }
       return result;
     },
@@ -179,7 +193,10 @@ export function createSessionArtifactStore(params: {
       // The AAD binds the session that WROTE the object. A carried-over row's
       // head points into the source session's prefix, so the session id comes
       // from the key, not the row.
-      const keySessionId = parseSessionObjectKey(session.headObjectKey)?.sessionId;
+      const keySessionId = parseSessionObjectKey(
+        session.headObjectKey,
+        config.AGENT_SESSION_STORAGE_S3_PREFIX,
+      )?.sessionId;
       const blob = openSessionBlob({
         key: dek,
         sealed: object.body,
@@ -196,17 +213,22 @@ export function createSessionArtifactStore(params: {
     async deleteSessionObjects(session) {
       const prefix = sessionPrefix(session);
       const keys = await listSessionObjectKeys(prefix);
-      if (keys.length > 0) await deleteSessionObjects(keys);
 
-      // Carried-over rows point at the source run attempt's prefix; the exact
-      // head key must be removed here because the source prefix is not ours.
-      if (
-        session.headObjectKey !== null &&
-        !session.headObjectKey.startsWith(`${prefix}/`) &&
-        !keys.includes(session.headObjectKey)
-      ) {
-        await deleteSessionObject(session.headObjectKey);
+      let deletable = keys;
+      if (session.headObjectKey !== null) {
+        if (await hasSessionReferencingObjectKey(db(), session.id, session.headObjectKey)) {
+          // A carried-over rerun row still references this head object; keep it
+          // until every referencing row is gone, mirroring the retention sweep's
+          // carried-over guard in deleteExpiredSession.
+          deletable = deletable.filter((key) => key !== session.headObjectKey);
+        } else if (!keys.includes(session.headObjectKey)) {
+          // Carried-over rows point at the source run attempt's prefix; the exact
+          // head key must be removed here because the source prefix is not ours.
+          deletable = [...deletable, session.headObjectKey];
+        }
       }
+
+      if (deletable.length > 0) await deleteSessionObjects(deletable);
     },
   };
 }

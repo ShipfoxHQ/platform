@@ -16,15 +16,22 @@ export interface WrappedSessionDek {
  */
 export interface SessionKeyProvider {
   readonly currentKeyVersion: string;
+  /** KEK version from the previous rotation window; null when never rotated. */
+  readonly previousKeyVersion: string | null;
   wrapDek(workspaceId: string, plaintextDek: Buffer): WrappedSessionDek;
   unwrapDek(workspaceId: string, wrappedDek: string, kekVersion: string): Buffer;
 }
 
-export function createSessionKeyProvider(currentKek: Buffer): SessionKeyProvider {
+export function createSessionKeyProvider(
+  currentKek: Buffer,
+  previousKek?: Buffer | undefined,
+): SessionKeyProvider {
   const currentKeyVersion = deriveSessionKekVersion(currentKek);
+  const previousKeyVersion = previousKek ? deriveSessionKekVersion(previousKek) : null;
 
   return {
     currentKeyVersion,
+    previousKeyVersion,
     wrapDek(workspaceId, plaintextDek) {
       try {
         return {
@@ -40,12 +47,19 @@ export function createSessionKeyProvider(currentKek: Buffer): SessionKeyProvider
       }
     },
     unwrapDek(workspaceId, wrappedDek, kekVersion) {
-      if (kekVersion !== currentKeyVersion) {
-        throw new AgentSessionUnavailableError('decryption_failed');
-      }
+      // Select the wrapping KEK by the recorded version so DEKs wrapped under
+      // the previous KEK stay readable during the rotation window, exactly as
+      // the secrets store's key provider does.
+      const key =
+        kekVersion === currentKeyVersion
+          ? currentKek
+          : kekVersion === previousKeyVersion
+            ? previousKek
+            : undefined;
+      if (!key) throw new AgentSessionUnavailableError('decryption_failed');
       try {
         return openSessionDek({
-          key: currentKek,
+          key,
           encoded: wrappedDek,
           aad: aadForSessionDek(workspaceId, kekVersion),
         });

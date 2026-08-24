@@ -52,6 +52,29 @@ describe('session artifact envelope crypto', () => {
     ).toThrow(AgentSessionUnavailableError);
   });
 
+  it('unwraps DEKs wrapped under the previous KEK during rotation', () => {
+    const previousKek = newKek();
+    const currentKek = newKek();
+    const previousProvider = createSessionKeyProvider(previousKek);
+    const dek = crypto.randomBytes(32);
+    const wrapped = previousProvider.wrapDek('workspace-1', dek);
+
+    expect(createSessionKeyProvider(previousKek).currentKeyVersion).toBe(wrapped.kekVersion);
+
+    const rotated = createSessionKeyProvider(currentKek, previousKek);
+    expect(rotated.previousKeyVersion).toBe(previousProvider.currentKeyVersion);
+    expect(rotated.unwrapDek('workspace-1', wrapped.wrappedDek, wrapped.kekVersion)).toEqual(dek);
+
+    // Without the previous KEK configured, the same DEK is unreadable again.
+    expect(() =>
+      createSessionKeyProvider(currentKek).unwrapDek(
+        'workspace-1',
+        wrapped.wrappedDek,
+        wrapped.kekVersion,
+      ),
+    ).toThrow(AgentSessionUnavailableError);
+  });
+
   it('derives a stable local KEK version per key', () => {
     const kek = newKek();
     const version = deriveSessionKekVersion(kek);

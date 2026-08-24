@@ -1,16 +1,15 @@
 import {reportError} from '@shipfox/node-error-monitoring';
 import {logger} from '@shipfox/node-opentelemetry';
-import {eq} from 'drizzle-orm';
+import {eq, sql} from 'drizzle-orm';
 import {config} from '#config.js';
 import type {AgentSession} from '#core/entities/agent-session.js';
 import {db} from '#db/db.js';
 import {
-  getSessionById,
   hasSessionReferencingObjectKey,
   listExpiredSessions,
   listSegmentPruneCandidates,
 } from '#db/retention.js';
-import {sessions} from '#db/schema/sessions.js';
+import {sessions, toAgentSession} from '#db/schema/sessions.js';
 import {parseSessionObjectKey, sessionObjectKeyPrefix} from './session-artifacts/object-key.js';
 import {deleteSessionObjects, listSessionObjectKeys} from './session-artifacts/object-storage.js';
 
@@ -57,9 +56,11 @@ export interface RunSessionRetentionSweepParams {
  *   last head flip: it is bumped by every mutation, so pruning only when it is
  *   older than the grace can never delete a segment younger than the grace.
  * * Orphans (segment > head, from a crash between write and head flip, or a
- *   losing CAS) are collected only for sessions that are unclaimed and whose
- *   last mutation is older than the grace. An in-flight commit always holds the
- *   claim, which makes the per-session fresh-read guard race-free.
+ *   losing CAS) are collected only for sessions that are unclaimed at a fresh
+ *   `FOR UPDATE` read held through the deletion: a claim granted after that
+ *   read cannot land an upload the sweep would then delete, because the claim
+ *   itself needs the row lock the sweep already holds. A session whose last
+ *   mutation is younger than the grace is skipped entirely.
  */
 export async function runSessionRetentionSweep(
   params: RunSessionRetentionSweepParams,
@@ -144,6 +145,10 @@ export async function runSessionRetentionSweep(
         const outcome = await pruneSessionSegments(session, now(), graceMs);
         result.supersededPruned += outcome.superseded;
         result.orphansPruned += outcome.orphans;
+        // A successfully pruned session stays done for the rest of this run.
+        // Without this, the candidate query re-selects the same oldest-by-
+        // `updated_at` batch on every pass and a large backlog never advances.
+        skip.add(session.id);
       },
     );
     if (!more) break;
@@ -158,6 +163,12 @@ export async function runSessionRetentionSweep(
  * row delete happen under a `FOR UPDATE` lock on the session row, so a
  * concurrent `carryOverSessions` (which locks the same source rows) can never
  * copy a head pointer to an object deleted by this sweep.
+ *
+ * When the head object is shared with carried-over rows, a transaction-scoped
+ * advisory lock keyed on the object key serializes the ownership decision
+ * between concurrent sweep executions: whichever row is deleted last sees the
+ * other rows gone and deletes the object, so two sweeps processing the same
+ * shared head can never both preserve it and leave a permanent storage orphan.
  */
 async function deleteExpiredSession(session: AgentSession): Promise<void> {
   await db().transaction(async (tx) => {
@@ -167,6 +178,16 @@ async function deleteExpiredSession(session: AgentSession): Promise<void> {
       .where(eq(sessions.id, session.id))
       .for('update');
     if (!row) return;
+
+    // Serialize the shared-head ownership check across concurrent sweeps (by
+    // object key, per the retention model): the lock is held until this
+    // transaction commits, so a concurrent sweep processing a row that shares
+    // this head object waits here and then sees this row already deleted.
+    if (row.headObjectKey !== null) {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${row.headObjectKey}, 0))`,
+      );
+    }
 
     const prefix = sessionObjectKeyPrefix(config.AGENT_SESSION_STORAGE_S3_PREFIX, {
       workspaceId: session.workspaceId,
@@ -199,41 +220,52 @@ async function deleteExpiredSession(session: AgentSession): Promise<void> {
 
 /**
  * Prunes a session's superseded segments and, when the session is unclaimed,
- * its orphans. The fresh read is the race anchor: any commit in flight implies
- * a claim granted before its upload, so a session that is claimed at read time
- * keeps its orphans, and a claim granted after the read cannot flip before this
- * function's deletes complete (the flip re-uploads the segment it commits).
+ * its orphans. The whole pass runs under a `FOR UPDATE` lock on the session
+ * row, held until the object deletes commit, and the classification uses that
+ * locked fresh read: a claim granted concurrently (by a rerun about to commit
+ * segment `head + 1`) needs the same row lock, so it either commits before the
+ * read — making the session claimed and its segments safe — or fails fast on
+ * the `SKIP LOCKED` claim while the sweep holds the lock. A stale unlocked
+ * read could classify an in-flight commit's freshly uploaded segment as an
+ * orphan and delete the object the commit then flips to.
  */
-async function pruneSessionSegments(
+function pruneSessionSegments(
   session: AgentSession,
   now: number,
   graceMs: number,
 ): Promise<{superseded: number; orphans: number}> {
-  const fresh = await getSessionById(session.id);
-  if (!fresh) return {superseded: 0, orphans: 0};
-  if (fresh.updatedAt.getTime() >= now - graceMs) return {superseded: 0, orphans: 0};
+  return db().transaction(async (tx) => {
+    const [freshRow] = await tx
+      .select()
+      .from(sessions)
+      .where(eq(sessions.id, session.id))
+      .for('update');
+    if (!freshRow) return {superseded: 0, orphans: 0};
+    const fresh = toAgentSession(freshRow);
+    if (fresh.updatedAt.getTime() >= now - graceMs) return {superseded: 0, orphans: 0};
 
-  const prefix = sessionObjectKeyPrefix(config.AGENT_SESSION_STORAGE_S3_PREFIX, {
-    workspaceId: fresh.workspaceId,
-    workflowRunAttemptId: fresh.workflowRunAttemptId,
-    sessionId: fresh.id,
-  });
-  const keys = await listSessionObjectKeys(prefix);
+    const prefix = sessionObjectKeyPrefix(config.AGENT_SESSION_STORAGE_S3_PREFIX, {
+      workspaceId: fresh.workspaceId,
+      workflowRunAttemptId: fresh.workflowRunAttemptId,
+      sessionId: fresh.id,
+    });
+    const keys = await listSessionObjectKeys(prefix);
 
-  const superseded: string[] = [];
-  const orphans: string[] = [];
-  for (const key of keys) {
-    const parsed = parseSessionObjectKey(key);
-    if (!parsed) continue;
-    if (parsed.segment === fresh.headSegment) continue;
-    if (parsed.segment < fresh.headSegment) {
-      superseded.push(key);
-    } else if (fresh.claimedByStepAttempt === null) {
-      orphans.push(key);
+    const superseded: string[] = [];
+    const orphans: string[] = [];
+    for (const key of keys) {
+      const parsed = parseSessionObjectKey(key, config.AGENT_SESSION_STORAGE_S3_PREFIX);
+      if (!parsed) continue;
+      if (parsed.segment === fresh.headSegment) continue;
+      if (parsed.segment < fresh.headSegment) {
+        superseded.push(key);
+      } else if (fresh.claimedByStepAttempt === null) {
+        orphans.push(key);
+      }
     }
-  }
 
-  if (superseded.length > 0) await deleteSessionObjects(superseded);
-  if (orphans.length > 0) await deleteSessionObjects(orphans);
-  return {superseded: superseded.length, orphans: orphans.length};
+    if (superseded.length > 0) await deleteSessionObjects(superseded);
+    if (orphans.length > 0) await deleteSessionObjects(orphans);
+    return {superseded: superseded.length, orphans: orphans.length};
+  });
 }
