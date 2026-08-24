@@ -24,6 +24,7 @@ export function managedProviderAdapterBaseUrl(
     // Preserve the existing downstream DTO validation for malformed provider data.
     return gatewayBaseUrl;
   }
+  if (url.origin === 'null') return gatewayBaseUrl;
 
   url.search = '';
   url.hash = '';

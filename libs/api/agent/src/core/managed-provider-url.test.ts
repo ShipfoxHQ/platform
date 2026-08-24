@@ -49,6 +49,9 @@ describe.each([
   });
 });
 
-it('passes malformed values through for runtime DTO validation', () => {
-  expect(managedProviderAdapterBaseUrl('openai-responses', 'not a url')).toBe('not a url');
+it.each([
+  'not a url',
+  'localhost:8000/inference',
+])('passes malformed values through for runtime DTO validation: %s', (baseUrl) => {
+  expect(managedProviderAdapterBaseUrl('openai-responses', baseUrl)).toBe(baseUrl);
 });
