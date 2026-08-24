@@ -1141,6 +1141,26 @@ describe('normalizeWorkflowDocument', () => {
         }),
       ]);
     });
+
+    it('still examines a shared key after many unrelated session keys', () => {
+      const jobs: Record<string, {steps: {key: string; prompt: string; session: string}[]}> = {};
+      for (let index = 0; index < 500; index += 1) {
+        jobs[`job_${index}`] = {
+          steps: [{key: `step_${index}`, prompt: `Prompt ${index}.`, session: `session_${index}`}],
+        };
+      }
+      jobs.triage = {steps: [{key: 'triage', prompt: 'Triage.', session: 'main'}]};
+      jobs.comment = {steps: [{key: 'comment', prompt: 'Comment.', session: 'main'}]};
+
+      const error = expectInvalid({name: 'session sharing', jobs});
+      expect(error.issues).toEqual([
+        expect.objectContaining({
+          code: 'agent-session-parallel-resume',
+          path: ['jobs', 'comment', 'steps', 0, 'session'],
+          details: {key: 'main', jobs: ['triage', 'comment'], stepIndexes: [0, 0]},
+        }),
+      ]);
+    });
   });
 
   it('normalizes agent step integrations after catalog validation', () => {

@@ -1016,6 +1016,12 @@ interface SessionSharingStep {
 // force unbounded pair work or issue allocation on the shared validation path.
 const MAX_SESSION_SHARING_PAIR_EVALUATIONS = 100_000;
 
+// Each session-key group is examined up to a fixed step window so one large
+// degenerate group cannot monopolize the pair budget and starve later keys;
+// at most one issue is reported per code per key, so the earliest conflict in
+// the examined window is the one that matters.
+const MAX_SESSION_SHARING_STEPS_PER_KEY = 100;
+
 // Context roots whose value is fixed per run. A session key built only from
 // these roots (or from no interpolation at all) resolves identically in every
 // job, so identical template text means the same resolved key. Per-job roots
@@ -1041,9 +1047,13 @@ const RUN_GLOBAL_SESSION_KEY_CONTEXT_ROOTS = new Set<string>([
 // not compared because identical text can resolve to different keys per job.
 // Harness agreement also applies to steps within one job: serial steps never
 // claim in parallel, but a session is pinned to the harness that created it
-// regardless of serialization. At most one issue is reported per session key
-// per code, and the pass stops after a fixed pair budget, so large documents
-// stay bounded.
+// regardless of serialization. Steps are grouped by keySource and pairs are
+// only evaluated inside a group, so the pair budget counts relevant work only
+// and a later key is never skipped because unrelated pairs consumed the
+// budget; the run-global-only classification is memoized per keySource. At
+// most one issue is reported per session key per code, each group is examined
+// up to a fixed step window, and the whole pass stops after a fixed pair
+// budget, so large documents stay bounded.
 function validateAgentSessionSharing(
   document: WorkflowDocument,
   issues: WorkflowModelValidationIssue[],
@@ -1075,97 +1085,123 @@ function validateAgentSessionSharing(
     }
   }
 
+  // referencesRunGlobalOnlySessionKey is a pure function of the template text;
+  // memoize it per keySource so a key shared by many steps is parsed once
+  // instead of once per pair.
+  const runGlobalOnlyByKeySource = new Map<string, boolean>();
+  const isRunGlobalOnlyKeySource = (keySource: string): boolean => {
+    const cached = runGlobalOnlyByKeySource.get(keySource);
+    if (cached !== undefined) return cached;
+    const runGlobalOnly = referencesRunGlobalOnlySessionKey(keySource);
+    runGlobalOnlyByKeySource.set(keySource, runGlobalOnly);
+    return runGlobalOnly;
+  };
+
+  // Group eligible steps by keySource so pairs are only ever evaluated inside
+  // one key group: the pair budget then counts relevant work only and cannot
+  // be exhausted by unrelated (different-key) pairs before later identical
+  // keys are examined. Each group keeps its first
+  // MAX_SESSION_SHARING_STEPS_PER_KEY steps, so a single degenerate group
+  // cannot starve every later key either. Keys that reference per-job context
+  // resolve per job and stay out.
+  const stepsByKeySource = new Map<string, SessionSharingStep[]>();
+  for (const step of steps) {
+    if (sessionFieldIssueSteps.has(sessionStepPathKey(step))) continue;
+    if (!isRunGlobalOnlyKeySource(step.keySource)) continue;
+    let group = stepsByKeySource.get(step.keySource);
+    if (group === undefined) {
+      group = [];
+      stepsByKeySource.set(step.keySource, group);
+    }
+    if (group.length < MAX_SESSION_SHARING_STEPS_PER_KEY) {
+      group.push(step);
+    }
+  }
+
   const ancestorsByJobName = new Map<string, ReadonlySet<string>>();
   const parallelResumeReportedKeys = new Set<string>();
   const harnessMismatchReportedKeys = new Set<string>();
   let evaluatedPairs = 0;
 
-  for (let index = 1; index < steps.length; index += 1) {
-    const later = steps[index];
-    if (later === undefined || sessionFieldIssueSteps.has(sessionStepPathKey(later))) continue;
-
-    for (let priorIndex = 0; priorIndex < index; priorIndex += 1) {
-      if (evaluatedPairs >= MAX_SESSION_SHARING_PAIR_EVALUATIONS) return;
-      evaluatedPairs += 1;
-
-      const prior = steps[priorIndex];
-      if (prior === undefined || sessionFieldIssueSteps.has(sessionStepPathKey(prior))) continue;
-      if (
-        prior.keySource !== later.keySource ||
-        !referencesRunGlobalOnlySessionKey(later.keySource)
-      ) {
-        continue;
-      }
+  for (const [keySource, group] of stepsByKeySource) {
+    for (let index = 1; index < group.length; index += 1) {
       // At most one issue per key per code; nothing left to report for keys
       // that already produced both.
-      if (
-        parallelResumeReportedKeys.has(later.keySource) &&
-        harnessMismatchReportedKeys.has(later.keySource)
-      ) {
-        continue;
+      if (parallelResumeReportedKeys.has(keySource) && harnessMismatchReportedKeys.has(keySource)) {
+        break;
       }
+      const later = group[index];
+      if (later === undefined) continue;
 
-      // Serial steps within one job never claim concurrently, so the parallel
-      // resume check only spans jobs. Harness agreement is checked for every
-      // sharing pair, including same-job pairs, because a session is pinned to
-      // the harness that created it.
-      if (prior.jobName !== later.jobName && prior.mode === 'resume' && later.mode === 'resume') {
-        const priorAncestors = transitiveNeedsAncestors(
-          document,
-          prior.jobName,
-          ancestorsByJobName,
-        );
-        const laterAncestors = transitiveNeedsAncestors(
-          document,
-          later.jobName,
-          ancestorsByJobName,
-        );
+      for (let priorIndex = 0; priorIndex < index; priorIndex += 1) {
+        if (evaluatedPairs >= MAX_SESSION_SHARING_PAIR_EVALUATIONS) return;
+        evaluatedPairs += 1;
+
+        const prior = group[priorIndex];
+        if (prior === undefined) continue;
+
+        // Serial steps within one job never claim concurrently, so the parallel
+        // resume check only spans jobs. Harness agreement is checked for every
+        // sharing pair, including same-job pairs, because a session is pinned
+        // to the harness that created it.
+        if (prior.jobName !== later.jobName && prior.mode === 'resume' && later.mode === 'resume') {
+          const priorAncestors = transitiveNeedsAncestors(
+            document,
+            prior.jobName,
+            ancestorsByJobName,
+          );
+          const laterAncestors = transitiveNeedsAncestors(
+            document,
+            later.jobName,
+            ancestorsByJobName,
+          );
+          if (
+            !priorAncestors.has(later.jobName) &&
+            !laterAncestors.has(prior.jobName) &&
+            !parallelResumeReportedKeys.has(keySource)
+          ) {
+            parallelResumeReportedKeys.add(keySource);
+            issues.push(
+              issue({
+                code: 'agent-session-parallel-resume',
+                message: `Agent steps ${sessionSharingStepLabel(prior)} (job "${prior.jobName}") and ${sessionSharingStepLabel(later)} (job "${later.jobName}") both resume session key "${keySource}", but their jobs have no transitive "needs" ancestry, so they can run in parallel and would conflict on the session. Add a "needs" edge between the jobs, fork the session on one step, or use distinct session keys.`,
+                path: ['jobs', later.jobName, 'steps', later.stepIndex, 'session'],
+                details: {
+                  key: keySource,
+                  jobs: [prior.jobName, later.jobName],
+                  stepIndexes: [prior.stepIndex, later.stepIndex],
+                },
+              }),
+            );
+          }
+        }
+
+        // A step that omits `harness` resolves at dispatch to the workspace
+        // default harness (or `pi` when none is configured), which this
+        // authoring layer cannot know. Omission is therefore exempt from the
+        // literal agreement check; a mismatch against the resolved default
+        // surfaces at claim time.
         if (
-          !priorAncestors.has(later.jobName) &&
-          !laterAncestors.has(prior.jobName) &&
-          !parallelResumeReportedKeys.has(later.keySource)
+          prior.harness !== undefined &&
+          later.harness !== undefined &&
+          prior.harness !== later.harness &&
+          !harnessMismatchReportedKeys.has(keySource)
         ) {
-          parallelResumeReportedKeys.add(later.keySource);
+          harnessMismatchReportedKeys.add(keySource);
           issues.push(
             issue({
-              code: 'agent-session-parallel-resume',
-              message: `Agent steps ${sessionSharingStepLabel(prior)} (job "${prior.jobName}") and ${sessionSharingStepLabel(later)} (job "${later.jobName}") both resume session key "${later.keySource}", but their jobs have no transitive "needs" ancestry, so they can run in parallel and would conflict on the session. Add a "needs" edge between the jobs, fork the session on one step, or use distinct session keys.`,
+              code: 'agent-session-harness-mismatch',
+              message: `Agent steps ${sessionSharingStepLabel(prior)} (job "${prior.jobName}") and ${sessionSharingStepLabel(later)} (job "${later.jobName}") share session key "${keySource}" but declare different harnesses: "${prior.harness}" and "${later.harness}". A session is pinned to the harness that created it. Declare the same harness on every step that shares the session key.`,
               path: ['jobs', later.jobName, 'steps', later.stepIndex, 'session'],
               details: {
-                key: later.keySource,
+                key: keySource,
                 jobs: [prior.jobName, later.jobName],
                 stepIndexes: [prior.stepIndex, later.stepIndex],
+                harnesses: [prior.harness, later.harness],
               },
             }),
           );
         }
-      }
-
-      // A step that omits `harness` resolves at dispatch to the workspace
-      // default harness (or `pi` when none is configured), which this
-      // authoring layer cannot know. Omission is therefore exempt from the
-      // literal agreement check; a mismatch against the resolved default
-      // surfaces at claim time.
-      if (
-        prior.harness !== undefined &&
-        later.harness !== undefined &&
-        prior.harness !== later.harness &&
-        !harnessMismatchReportedKeys.has(later.keySource)
-      ) {
-        harnessMismatchReportedKeys.add(later.keySource);
-        issues.push(
-          issue({
-            code: 'agent-session-harness-mismatch',
-            message: `Agent steps ${sessionSharingStepLabel(prior)} (job "${prior.jobName}") and ${sessionSharingStepLabel(later)} (job "${later.jobName}") share session key "${later.keySource}" but declare different harnesses: "${prior.harness}" and "${later.harness}". A session is pinned to the harness that created it. Declare the same harness on every step that shares the session key.`,
-            path: ['jobs', later.jobName, 'steps', later.stepIndex, 'session'],
-            details: {
-              key: later.keySource,
-              jobs: [prior.jobName, later.jobName],
-              stepIndexes: [prior.stepIndex, later.stepIndex],
-              harnesses: [prior.harness, later.harness],
-            },
-          }),
-        );
       }
     }
   }
