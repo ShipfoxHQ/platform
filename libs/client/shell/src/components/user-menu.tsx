@@ -11,7 +11,8 @@ import {
 } from '@shipfox/react-ui/dropdown-menu';
 import {useTheme} from '@shipfox/react-ui/hooks';
 import type {Theme} from '@shipfox/react-ui/theme';
-import {Link} from '@tanstack/react-router';
+import {Link, useLocation} from '@tanstack/react-router';
+import {useMemo} from 'react';
 import {useAuthState} from '#runtime/auth.js';
 import {useChrome} from '#runtime/chrome-context.js';
 import {ReportErrorBoundary} from '#runtime/report-error-boundary.js';
@@ -26,7 +27,16 @@ export function UserMenu() {
   const {user} = useAuthState();
   const {AccountMenuEntry} = useChrome();
   const {theme, setTheme} = useTheme();
+  const location = useLocation();
   const email = user?.email ?? '';
+  // Retry the account-menu slot only when the route or the slot identity
+  // changes, matching the session-banner boundary: the key stays referentially
+  // stable across rerenders so a persistently failing slot latches instead of
+  // being retried in a loop.
+  const accountMenuRetryKey = useMemo(
+    () => ({href: location.href, slot: AccountMenuEntry}),
+    [location.href, AccountMenuEntry],
+  );
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -54,7 +64,10 @@ export function UserMenu() {
           ))}
         </DropdownMenuRadioGroup>
         {AccountMenuEntry ? (
-          <ReportErrorBoundary label="Failed to render account menu entry.">
+          <ReportErrorBoundary
+            label="Failed to render account menu entry."
+            retryKey={accountMenuRetryKey}
+          >
             <AccountMenuEntry />
           </ReportErrorBoundary>
         ) : undefined}
