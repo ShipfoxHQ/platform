@@ -20,10 +20,14 @@ test('maps provider catalog entries before they reach the client domain', () => 
 
 test('maps the managed-only workspace policy and managed provider models', () => {
   const catalog = toProviderCatalog(
-    modelProviderCatalogResponse([managedModelProviderEntry()], 'disabled'),
+    modelProviderCatalogResponse([managedModelProviderEntry()], 'disabled', {
+      managedProviderId: 'shipfox',
+    }),
   );
 
   expect(catalog.workspaceProviders).toBe('disabled');
+  expect(catalog.managedProviderId).toBe('shipfox');
+  expect(catalog.instanceDefaultProviderId).toBeNull();
   expect(catalog.providers[0]).toEqual(
     expect.objectContaining({
       id: 'shipfox',
@@ -33,6 +37,20 @@ test('maps the managed-only workspace policy and managed provider models', () =>
       ],
     }),
   );
+});
+
+test('maps the managed provider id and instance default provider id from a mixed catalog', () => {
+  const catalog = toProviderCatalog(
+    modelProviderCatalogResponse([modelProviderEntry(), managedModelProviderEntry()], 'enabled', {
+      managedProviderId: 'shipfox',
+      instanceDefaultProviderId: 'anthropic',
+    }),
+  );
+
+  expect(catalog.workspaceProviders).toBe('enabled');
+  expect(catalog.managedProviderId).toBe('shipfox');
+  expect(catalog.instanceDefaultProviderId).toBe('anthropic');
+  expect(catalog.providers).toHaveLength(2);
 });
 
 test('maps configuration response defaults and provider config fields', () => {

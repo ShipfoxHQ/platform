@@ -4,7 +4,8 @@ import {
   type WorkspaceProvidersPolicy,
 } from '@shipfox/api-agent-dto';
 import {defineRoute} from '@shipfox/node-fastify';
-import {buildModelProviderCatalog} from '#core/index.js';
+import {buildModelProviderCatalogResponse} from '#core/index.js';
+import {toModelProviderCatalogResponseDto} from '#presentation/dto/index.js';
 
 export function createListModelProviderCatalogRoute(
   options: {
@@ -23,13 +24,13 @@ export function createListModelProviderCatalogRoute(
         200: modelProviderCatalogResponseSchema,
       },
     },
-    handler: () => ({
-      providers: buildModelProviderCatalog({
-        managedProvider: options.managedProvider,
-        workspaceProviders,
-      }),
-      workspace_providers: workspaceProviders,
-    }),
+    handler: () =>
+      toModelProviderCatalogResponseDto(
+        buildModelProviderCatalogResponse({
+          managedProvider: options.managedProvider,
+          workspaceProviders,
+        }),
+      ),
   });
 }
 

@@ -24,6 +24,8 @@ export function toProviderCatalog(response: ModelProviderCatalogResponseDto): Pr
   return {
     providers: response.providers.map(toProviderCatalogEntry),
     workspaceProviders: response.workspace_providers ?? 'enabled',
+    managedProviderId: response.managed_provider_id ?? null,
+    instanceDefaultProviderId: response.instance_default_provider_id ?? null,
   };
 }
 

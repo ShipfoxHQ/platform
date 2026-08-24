@@ -113,10 +113,13 @@ export function customModelProviderConfig(
 export function modelProviderCatalogResponse(
   modelProviders: ModelProviderCatalogEntryDto[] = [modelProviderEntry()],
   workspaceProviders?: WorkspaceProvidersPolicy,
+  providerIds: {managedProviderId?: string | null; instanceDefaultProviderId?: string | null} = {},
 ): ModelProviderCatalogResponseDto {
   return {
     providers: modelProviders,
     ...(workspaceProviders === undefined ? {} : {workspace_providers: workspaceProviders}),
+    managed_provider_id: providerIds.managedProviderId ?? null,
+    instance_default_provider_id: providerIds.instanceDefaultProviderId ?? null,
   };
 }
 

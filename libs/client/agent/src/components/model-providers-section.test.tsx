@@ -66,7 +66,11 @@ describe('WorkspaceModelProvidersSection', () => {
     const fetchImpl = vi.fn((input: RequestInfo | URL) => {
       if (requestPath(input).endsWith('/agent/model-provider-catalog')) {
         return Promise.resolve(
-          jsonResponse(modelProviderCatalogResponse([managedModelProviderEntry()], 'disabled')),
+          jsonResponse(
+            modelProviderCatalogResponse([managedModelProviderEntry()], 'disabled', {
+              managedProviderId: 'shipfox',
+            }),
+          ),
         );
       }
       return Promise.resolve(
@@ -99,6 +103,29 @@ describe('WorkspaceModelProvidersSection', () => {
     });
     expect(usageDialog).toHaveTextContent('provider: shipfox');
     expect(usageDialog).toHaveTextContent('model: claude-opus-4-8');
+  });
+
+  test('renders managed provider models from an older managed-only catalog response', async () => {
+    const fetchImpl = vi.fn((input: RequestInfo | URL) => {
+      if (requestPath(input).endsWith('/agent/model-provider-catalog')) {
+        return Promise.resolve(
+          jsonResponse({
+            providers: [managedModelProviderEntry()],
+            workspace_providers: 'disabled',
+          }),
+        );
+      }
+      return Promise.resolve(
+        jsonResponse(modelProviderConfigsResponse({configs: [], default_provider_id: null})),
+      );
+    });
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
+
+    renderModelProviders(<WorkspaceModelProvidersSection workspaceId={AGENT_TEST_WORKSPACE_ID} />);
+
+    expect(await screen.findByText('Managed provider')).toBeVisible();
+    expect(screen.getByText('Shipfox Managed')).toBeVisible();
+    expect(screen.queryByText('Managed provider unavailable')).not.toBeInTheDocument();
   });
 
   test('renders configured, available, and unsupported providers', async () => {

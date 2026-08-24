@@ -79,11 +79,13 @@ describe('ModelProviderOnboardingPage', () => {
 
   test('continues directly when workspace providers are managed by the instance', async () => {
     const onConfigured = vi.fn();
-    const fetchImpl = vi
-      .fn()
-      .mockResolvedValue(
-        jsonResponse(modelProviderCatalogResponse([managedModelProviderEntry()], 'disabled')),
-      );
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse(
+        modelProviderCatalogResponse([managedModelProviderEntry()], 'disabled', {
+          managedProviderId: 'shipfox',
+        }),
+      ),
+    );
     configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
 
     renderOnboarding(

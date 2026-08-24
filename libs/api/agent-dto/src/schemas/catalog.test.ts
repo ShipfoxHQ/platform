@@ -180,6 +180,45 @@ describe('model provider catalog', () => {
     }
   });
 
+  it('parses managed and instance default provider ids through the full catalog response', () => {
+    const parsed = modelProviderCatalogResponseSchema.parse({
+      providers: [managedProviderCatalogEntry],
+      workspace_providers: 'enabled',
+      managed_provider_id: 'shipfox-managed',
+      instance_default_provider_id: 'anthropic',
+    });
+
+    expect(parsed.managed_provider_id).toBe('shipfox-managed');
+    expect(parsed.instance_default_provider_id).toBe('anthropic');
+  });
+
+  it('accepts null ids and defaults them for responses from older servers', () => {
+    const parsed = modelProviderCatalogResponseSchema.parse({
+      providers: [managedProviderCatalogEntry],
+      workspace_providers: 'enabled',
+      managed_provider_id: null,
+    });
+
+    expect(parsed.managed_provider_id).toBeNull();
+    expect(parsed.instance_default_provider_id).toBeNull();
+  });
+
+  it('rejects non-string provider ids in the full catalog response', () => {
+    const parse = (ids: Record<string, unknown>) =>
+      modelProviderCatalogResponseSchema.parse({
+        providers: [managedProviderCatalogEntry],
+        workspace_providers: 'enabled',
+        managed_provider_id: null,
+        instance_default_provider_id: null,
+        ...ids,
+      });
+
+    expect(() => parse({managed_provider_id: 42})).toThrow();
+    expect(() => parse({instance_default_provider_id: ''})).toThrow();
+    expect(() => parse({managed_provider_id: 'not a provider ref'})).toThrow();
+    expect(() => parse({instance_default_provider_id: 'ab'})).toThrow();
+  });
+
   it('rejects an invalid workspace provider policy in the full catalog response', () => {
     const parse = () =>
       modelProviderCatalogResponseSchema.parse({

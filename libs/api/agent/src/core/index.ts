@@ -36,7 +36,11 @@ export {
   listHarnessTools,
   probeHarnessProviderCredentials,
 } from './harness/index.js';
-export {buildModelProviderCatalog} from './model-provider-catalog.js';
+export {
+  buildModelProviderCatalog,
+  buildModelProviderCatalogResponse,
+  type ModelProviderCatalogResponse,
+} from './model-provider-catalog.js';
 export {
   deleteModelProviderConfig,
   testAndSaveModelProviderConfig,

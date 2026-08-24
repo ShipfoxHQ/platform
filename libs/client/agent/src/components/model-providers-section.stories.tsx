@@ -239,7 +239,9 @@ function fetchForScenario(scenario: Scenario): typeof fetch {
       return Promise.resolve(
         jsonResponse({
           providers: catalogForScenario(scenario),
-          ...(scenario === 'managed-only' ? {workspace_providers: 'disabled'} : {}),
+          ...(scenario === 'managed-only'
+            ? {workspace_providers: 'disabled', managed_provider_id: 'shipfox'}
+            : {}),
         }),
       );
     }
