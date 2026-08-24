@@ -304,7 +304,8 @@ describe('GithubInstallationTokenProvider', () => {
     });
   });
 
-  it('maps a scoped mint 404 to access-denied instead of installation-not-found', async () => {
+  it('maps a scoped mint 404 to access-denied when the installation still exists', async () => {
+    authMock.mockResolvedValue({token: 'ghs_installationtoken'});
     createInstallationAccessTokenMock.mockRejectedValue(new RequestErrorMock('Not Found', 404));
     const provider = createGithubInstallationTokenProvider();
 
@@ -315,6 +316,24 @@ describe('GithubInstallationTokenProvider', () => {
 
     await expect(result).rejects.toMatchObject({
       reason: 'access-denied',
+    });
+    // The 404 was disambiguated by verifying the installation still exists before
+    // classifying it as a repository-access denial.
+    expect(authMock).toHaveBeenCalledWith({type: 'installation', installationId: 1});
+  });
+
+  it('maps a scoped mint 404 to installation-not-found when the installation was removed', async () => {
+    authMock.mockRejectedValue(new RequestErrorMock('Not Found', 404));
+    createInstallationAccessTokenMock.mockRejectedValue(new RequestErrorMock('Not Found', 404));
+    const provider = createGithubInstallationTokenProvider();
+
+    const result = provider.getInstallationAccessToken(1, {
+      repositoryId: 456,
+      permissions: {contents: 'write'},
+    });
+
+    await expect(result).rejects.toMatchObject({
+      reason: 'installation-not-found',
     });
   });
 

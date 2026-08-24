@@ -176,10 +176,24 @@ class OctokitGithubInstallationTokenProvider
         }),
       // GitHub returns 404 both for a missing installation and for a repository the
       // installation cannot access. Unscoped mints are installation-not-found;
-      // scoped mints carry repository_ids, so a 404 means the repository is not
-      // accessible to the installation (consistent with resolveRepositoryId).
+      // scoped mints carry repository_ids, so a 404 usually means the repository is
+      // not accessible to the installation (consistent with resolveRepositoryId).
       scope === undefined ? 'installation-not-found' : 'access-denied',
-    );
+    ).catch(async (error: unknown) => {
+      // A scoped 404 can also mean the installation itself was removed after its
+      // repository id was resolved (for example while the id sat in the resolution
+      // cache). Verify the installation still exists before settling on
+      // access-denied: authenticating as the installation 404s when it is gone,
+      // which maps to installation-not-found.
+      if (
+        scope !== undefined &&
+        error instanceof GithubIntegrationProviderError &&
+        error.status === 404
+      ) {
+        await this.assertInstallationExists(installationId);
+      }
+      throw error;
+    });
 
     if (typeof response.data.token !== 'string') {
       throw new GithubIntegrationProviderError(
@@ -203,6 +217,13 @@ class OctokitGithubInstallationTokenProvider
       expiresAt,
       ...(response.data.permissions === undefined ? {} : {permissions: response.data.permissions}),
     };
+  }
+
+  private async assertInstallationExists(installationId: number): Promise<void> {
+    await mapGithubError(
+      () => getGithubInstallationOctokit(this.getApp(), installationId),
+      'installation-not-found',
+    );
   }
 
   private getApp(): App {
