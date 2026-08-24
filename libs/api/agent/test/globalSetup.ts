@@ -10,6 +10,7 @@ export async function setup() {
   await runMigrations(db(), migrationsPath, '__drizzle_migrations_agent');
   await db().execute(sql`TRUNCATE agent_model_provider_configs CASCADE`);
   await db().execute(sql`TRUNCATE agent_workspace_settings CASCADE`);
+  await db().execute(sql`TRUNCATE agent_sessions CASCADE`);
 
   closeDb();
   await closePostgresClient();

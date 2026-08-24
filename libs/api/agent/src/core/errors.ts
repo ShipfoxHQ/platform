@@ -136,6 +136,31 @@ export class InvalidCustomModelProviderHeaderKeepError extends Error {
   }
 }
 
+export class AgentSessionHeldError extends Error {
+  constructor(params: {
+    sessionId: string;
+    workflowRunAttemptId: string;
+    key: string;
+    heldByStepAttempt: string;
+  }) {
+    super(
+      `Agent session is claimed by another live attempt: ${params.workflowRunAttemptId}/${params.key} (held by ${params.heldByStepAttempt})`,
+    );
+    this.name = 'AgentSessionHeldError';
+    this.sessionId = params.sessionId;
+    this.workflowRunAttemptId = params.workflowRunAttemptId;
+    this.key = params.key;
+    this.heldByStepAttempt = params.heldByStepAttempt;
+  }
+
+  /** The claimed session row. */
+  public readonly sessionId: string;
+  public readonly workflowRunAttemptId: string;
+  public readonly key: string;
+  /** The step attempt currently holding the exclusive claim. */
+  public readonly heldByStepAttempt: string;
+}
+
 export class CustomModelProviderStoredSecretBaseUrlChangeError extends Error {
   constructor(public readonly providerId: ModelProviderRef) {
     super(

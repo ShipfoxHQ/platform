@@ -10,7 +10,7 @@ export {
   setDefaultHarness,
   setDefaultModelProvider,
 } from './agent-workspace-settings.js';
-export {closeDb, db, schema} from './db.js';
+export {closeDb, db, schema, type Transaction} from './db.js';
 export type {
   InsertCustomModelProviderConfigParams,
   UpsertModelProviderConfigParams,
@@ -25,5 +25,20 @@ export {
 } from './model-provider-configs.js';
 export {agentWorkspaceSettings} from './schema/agent-workspace-settings.js';
 export {modelProviderConfigs} from './schema/model-provider-configs.js';
+export {sessions} from './schema/sessions.js';
+export type {
+  ClaimSessionParams,
+  CommitSessionHeadParams,
+  CommitSessionHeadResult,
+  CreateSessionParams,
+  HeadFlipOutcome,
+} from './sessions.js';
+export {
+  carryOverSessions,
+  claimSession,
+  commitSessionHead,
+  createSession,
+  releaseSession,
+} from './sessions.js';
 
 export const migrationsPath = resolve(dirname(fileURLToPath(import.meta.url)), '../../drizzle');
