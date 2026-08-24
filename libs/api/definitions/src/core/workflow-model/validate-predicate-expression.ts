@@ -15,6 +15,7 @@ import {
   type WorkflowContextName,
   type WorkflowExpression,
   type WorkflowPredicateField,
+  type WorkflowStepKind,
   workflowContextNames,
 } from '@shipfox/expression';
 import type {
@@ -36,6 +37,7 @@ export function validatePredicateExpression(params: {
   issues: WorkflowModelValidationIssue[];
   allowedJobReferences?: ReadonlySet<string>;
   typeOverlay?: ExpressionTypeEnvironment | undefined;
+  stepKind?: WorkflowStepKind | undefined;
   /** Scope for the invalidCode issue; other issues keep the definition scope. */
   scope?: WorkflowModelValidationIssueScope | undefined;
 }): WorkflowExpression | undefined {
@@ -127,7 +129,12 @@ export function validatePredicateExpression(params: {
         mode: 'typed',
         // `undefined` preserves the legacy syntax-only path above. `{}` means
         // callers intentionally requested typed checking with the standard roots.
-        typeEnvironment: mergeTypeEnvironments(params.field, knownRoots, params.typeOverlay),
+        typeEnvironment: mergeTypeEnvironments(
+          params.field,
+          knownRoots,
+          params.typeOverlay,
+          params.stepKind,
+        ),
         expectedResultType: 'bool',
       },
     });
@@ -271,6 +278,7 @@ function mergeTypeEnvironments(
   field: WorkflowPredicateField,
   roots: readonly string[],
   typeOverlay?: ExpressionTypeEnvironment,
+  stepKind?: WorkflowStepKind,
 ): ExpressionTypeEnvironment {
   const typeEnvironment: Record<string, ExpressionTypeEnvironment[string]> = {};
 
@@ -282,7 +290,7 @@ function mergeTypeEnvironments(
       continue;
     }
 
-    const contextTypeEnvironment = getWorkflowPredicateFieldTypeEnvironment(field, root);
+    const contextTypeEnvironment = getWorkflowPredicateFieldTypeEnvironment(field, root, stepKind);
     if (contextTypeEnvironment === undefined) {
       if (overlayType !== undefined) typeEnvironment[root] = overlayType;
       else typeEnvironment[root] = {kind: 'map'};

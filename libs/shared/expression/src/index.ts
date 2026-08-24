@@ -149,6 +149,7 @@ export {
   getWorkflowContextTypeEnvironment,
   getWorkflowInterpolationFieldFailurePolicy,
   getWorkflowInterpolationFieldSelfReference,
+  getWorkflowInterpolationFieldTypeEnvironment,
   getWorkflowPredicateContextRoots,
   getWorkflowPredicateFieldMinimumFillTarget,
   getWorkflowPredicateFieldTypeEnvironment,

@@ -3,20 +3,22 @@ import {
   type AvailabilitySite,
   analyzeContextKeyAccess,
   analyzeContextRootKeyAccess,
+  contextRootsForField,
   createWorkflowExpression,
   type ExpressionTypeEnvironment,
-  getWorkflowContextAvailability,
-  getWorkflowContextDefinition,
-  getWorkflowContextHost,
   getWorkflowContextTypeEnvironment,
   getWorkflowInterpolationFieldSelfReference,
+  getWorkflowInterpolationFieldTypeEnvironment,
   InvalidWorkflowExpressionError,
   InvalidWorkflowTemplateError,
   type PlanViolation,
   parseWorkflowTemplate,
   planInterpolationField,
+  resolveContextRootAvailability,
+  resolveContextRootHost,
   unavailableRootsAt,
   type WorkflowContextName,
+  type WorkflowContextReservedRoot,
   type WorkflowInterpolationField,
   type WorkflowTemplateExprSegment,
   type WorkflowTemplateSegment,
@@ -49,7 +51,9 @@ export type StoredInterpolationField =
   | 'checkout.connection'
   | 'checkout.repository'
   | 'checkout.ref'
-  | 'checkout.path';
+  | 'checkout.path'
+  | 'tool.with'
+  | 'tool.outputs';
 
 export function parseInterpolationField(params: {
   field: StoredInterpolationField;
@@ -155,16 +159,20 @@ function validateExpressionSegment(params: {
   typeOverlay?: ExpressionTypeEnvironment | undefined;
 }): WorkflowTemplateExprSegment | undefined {
   const contextRoots = uniqueStrings(params.segment.contextRoots);
-  const knownRoots = contextRoots.filter(isWorkflowContextName);
-  const unknownRoots = contextRoots.filter((root) => !isWorkflowContextName(root));
+  const fieldRoots = new Set<string>(contextRootsForField(params.field));
+  const recognizedRoots = contextRoots.filter(isWorkflowContextRoot);
 
-  const rejectedHostRoots = knownRoots.filter(
-    (root) => !workflowInterpolationFieldAcceptsHost(params.field, getWorkflowContextHost(root)),
-  );
+  const rejectedHostRoots = recognizedRoots.filter((root) => {
+    const host = resolveContextRootHost(root);
+    return host !== undefined && !workflowInterpolationFieldAcceptsHost(params.field, host);
+  });
   if (rejectedHostRoots.length > 0) {
     params.issues.push(runnerContextInFieldIssue({...params, contextRoots, rejectedHostRoots}));
     return undefined;
   }
+
+  const knownRoots = recognizedRoots.filter((root) => fieldRoots.has(root));
+  const unknownRoots = contextRoots.filter((root) => !fieldRoots.has(root));
 
   const keyAccess = analyzeContextKeyAccess(params.segment.expression);
   if (keyAccess.violations.length > 0) {
@@ -234,7 +242,7 @@ function validateExpressionSegment(params: {
 
   const fillSite = params.fillSite;
   if (fillSite !== undefined) {
-    const serverRoots = knownRoots.filter((root) => getWorkflowContextHost(root) === 'server');
+    const serverRoots = knownRoots.filter((root) => resolveContextRootHost(root) === 'server');
     const unavailableRoots = unavailableRootsAt(serverRoots, fillSite);
     if (unavailableRoots.length > 0) {
       params.issues.push(
@@ -260,7 +268,7 @@ function validateExpressionSegment(params: {
           mode: 'typed',
           // `undefined` preserves the legacy syntax-only path above. `{}` means
           // callers intentionally requested typed checking with the standard roots.
-          typeEnvironment: mergeTypeEnvironments(knownRoots, params.typeOverlay),
+          typeEnvironment: mergeTypeEnvironments(params.field, knownRoots, params.typeOverlay),
         },
       }),
     };
@@ -291,7 +299,7 @@ function runnerContextInFieldIssue(params: {
   source: string;
   path: readonly WorkflowModelValidationIssuePathSegment[];
   contextRoots: readonly string[];
-  rejectedHostRoots: readonly WorkflowContextName[];
+  rejectedHostRoots: readonly string[];
 }): WorkflowModelValidationIssue {
   return issue({
     code: 'runner-context-in-field',
@@ -384,7 +392,7 @@ function unavailableContextIssue(params: {
   path: readonly WorkflowModelValidationIssuePathSegment[];
   segment: WorkflowTemplateExprSegment;
   contextRoots: readonly string[];
-  unavailableRoots: readonly WorkflowContextName[];
+  unavailableRoots: readonly (WorkflowContextName | WorkflowContextReservedRoot)[];
   fillSite: AvailabilitySite;
 }): WorkflowModelValidationIssue {
   return issue({
@@ -445,16 +453,16 @@ function planViolationIssue(
   });
 }
 
-function contextNoun(roots: readonly WorkflowContextName[]): 'context' | 'contexts' {
+function contextNoun(roots: readonly string[]): 'context' | 'contexts' {
   return roots.length === 1 ? 'context' : 'contexts';
 }
 
-function availabilityVerb(roots: readonly WorkflowContextName[]): 'is' | 'are' {
+function availabilityVerb(roots: readonly string[]): 'is' | 'are' {
   return roots.length === 1 ? 'is' : 'are';
 }
 
-function unavailableRootAvailabilityMessage(root: WorkflowContextName): string {
-  const availability = getWorkflowContextAvailability(root);
+function unavailableRootAvailabilityMessage(root: string): string {
+  const availability = resolveContextRootAvailability(root);
   if (availability === undefined) return `"${root}" is not available at any server site.`;
   return `"${root}" becomes available at ${describeAvailabilitySite(availability)}.`;
 }
@@ -463,12 +471,14 @@ function describeAvailabilitySite(site: AvailabilitySite): string {
   return availabilitySiteLabels[site];
 }
 
-function hasSyntaxOnlyCheckMode(root: WorkflowContextName): boolean {
-  return getWorkflowContextDefinition(root).checkMode === 'syntax';
+function hasSyntaxOnlyCheckMode(root: string): boolean {
+  if (!isWorkflowContextName(root)) return resolveContextRootHost(root) === 'server';
+  return getWorkflowContextTypeEnvironment(root) === undefined;
 }
 
 function mergeTypeEnvironments(
-  roots: readonly WorkflowContextName[],
+  field: WorkflowInterpolationField,
+  roots: readonly (WorkflowContextName | WorkflowContextReservedRoot)[],
   typeOverlay?: ExpressionTypeEnvironment,
 ): ExpressionTypeEnvironment {
   const typeEnvironment: Record<string, ExpressionTypeEnvironment[string]> = {};
@@ -480,7 +490,7 @@ function mergeTypeEnvironments(
       continue;
     }
 
-    const contextTypeEnvironment = getWorkflowContextTypeEnvironment(root);
+    const contextTypeEnvironment = getWorkflowInterpolationFieldTypeEnvironment(field, root);
     if (contextTypeEnvironment === undefined) {
       if (typeOverlay !== undefined) typeEnvironment[root] = {kind: 'map'};
       continue;
@@ -500,6 +510,12 @@ function isExpressionSegment(
 
 function isWorkflowContextName(root: string): root is WorkflowContextName {
   return (workflowContextNames as readonly string[]).includes(root);
+}
+
+function isWorkflowContextRoot(
+  root: string,
+): root is WorkflowContextName | WorkflowContextReservedRoot {
+  return resolveContextRootHost(root) !== undefined;
 }
 
 function uniqueStrings(values: readonly string[]): readonly string[] {

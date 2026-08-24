@@ -164,8 +164,7 @@ const executionEventType = {
     received_at: 'timestamp',
     ...triggerReferenceFields,
     data: {
-      kind: 'object',
-      fields: {},
+      kind: 'map',
     },
   },
 } as const;
@@ -210,6 +209,15 @@ const stepGateType = {
     source: 'string',
     reason: 'string',
     exit_code: 'int',
+  },
+} as const;
+
+const toolStepGateType = {
+  kind: 'object',
+  fields: {
+    passed: 'bool',
+    source: 'string',
+    reason: 'string',
   },
 } as const;
 
@@ -285,7 +293,7 @@ const toolStepAttemptType = {
     status: 'string',
     outputs: {kind: 'map'},
     response: 'string',
-    gate: stepGateType,
+    gate: toolStepGateType,
   },
 } as const;
 
@@ -710,11 +718,14 @@ export function rootsAvailableAt(site: AvailabilitySite): readonly WorkflowConte
 }
 
 export function unavailableRootsAt(
-  roots: readonly WorkflowContextName[],
+  roots: readonly (WorkflowContextName | WorkflowContextReservedRoot)[],
   site: AvailabilitySite,
-): readonly WorkflowContextName[] {
-  const availableRoots = new Set(rootsAvailableAt(site));
-  return roots.filter((root) => !availableRoots.has(root));
+): readonly (WorkflowContextName | WorkflowContextReservedRoot)[] {
+  const targetSiteIndex = availabilitySites.indexOf(site);
+  return roots.filter((root) => {
+    const availability = resolveContextRootAvailability(root);
+    return availability === undefined || availabilitySites.indexOf(availability) > targetSiteIndex;
+  });
 }
 
 export function getWorkflowContextTypeEnvironment(
@@ -722,6 +733,15 @@ export function getWorkflowContextTypeEnvironment(
 ): ExpressionTypeEnvironment | undefined {
   const context = getWorkflowContextDefinition(name);
   return context.shape === 'known' ? context.typeEnvironment : undefined;
+}
+
+export function getWorkflowInterpolationFieldTypeEnvironment(
+  field: WorkflowInterpolationField,
+  root: WorkflowContextName | WorkflowContextReservedRoot,
+): ExpressionTypeEnvironment | undefined {
+  if (field === 'tool.with' && root === 'step') return stepDispatchTypeEnvironment;
+  if (!isWorkflowContextName(root)) return undefined;
+  return getWorkflowContextTypeEnvironment(root);
 }
 
 export function workflowInterpolationFieldAcceptsHost(
@@ -765,9 +785,13 @@ export function getWorkflowPredicateFieldMinimumFillTarget(
 export function getWorkflowPredicateFieldTypeEnvironment(
   field: WorkflowPredicateField,
   root: WorkflowContextName,
+  stepKind?: WorkflowStepKind,
 ): ExpressionTypeEnvironment | undefined {
-  const typeEnvironment: ExpressionTypeEnvironment | undefined =
-    workflowPredicateFieldTypeEnvironments[field];
+  const fieldTypeEnvironment =
+    field === 'step.success' && stepKind === 'tool'
+      ? toolStepReportTypeEnvironment
+      : workflowPredicateFieldTypeEnvironments[field];
+  const typeEnvironment: ExpressionTypeEnvironment | undefined = fieldTypeEnvironment;
   if (typeEnvironment === undefined) return getWorkflowContextTypeEnvironment(root);
   const rootType = typeEnvironment[root];
   return rootType === undefined ? getWorkflowContextTypeEnvironment(root) : {[root]: rootType};

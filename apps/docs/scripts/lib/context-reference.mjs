@@ -37,13 +37,14 @@ export const WORKFLOW_FIELD_YAML_KEYS = {
 // Keep the shape lookup here so generation and drift checking traverse the same
 // typed registry.
 export function contextRootShape(root, deps) {
-  const {getTypeEnvironment, buildTypedRoots} = deps;
+  const {getTypeEnvironment, buildTypedRoots, contextNames} = deps;
   if (root === 'jobs') {
     return objectFields(buildTypedRoots({jobs: [{key: '<job_key>'}]}).jobs)['<job_key>'];
   }
   if (root === 'steps') {
     return objectFields(buildTypedRoots({steps: [{key: '<step_key>'}]}).steps)['<step_key>'];
   }
+  if (!contextNames.includes(root)) return undefined;
 
   const environment = getTypeEnvironment(root);
   const type = environment?.[root];

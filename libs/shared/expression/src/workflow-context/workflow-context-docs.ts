@@ -1,4 +1,4 @@
-import type {WorkflowContextName} from './workflow-context.js';
+import type {WorkflowContextName, WorkflowContextReservedRoot} from './workflow-context.js';
 
 /**
  * Reader-facing descriptions for every context root and property.
@@ -9,7 +9,7 @@ import type {WorkflowContextName} from './workflow-context.js';
  * description for a property that no longer exists.
  */
 export interface WorkflowContextDoc {
-  readonly root: WorkflowContextName;
+  readonly root: WorkflowContextName | WorkflowContextReservedRoot;
   readonly summary: string;
   /** Why an open-shape root has no property table. */
   readonly shapeNote?: string;
@@ -190,5 +190,11 @@ export const workflowContextDocs = [
     summary: 'Workspace and project secrets.',
     shapeNote:
       'The keys are the secret names the workspace defines. See [Secrets and variables](/reference/secrets-variables).',
+  },
+  {
+    root: 'result',
+    summary: 'The result returned by the current tool step.',
+    shapeNote:
+      'The selected tool catalog defines this value. It is readable only while mapping tool outputs at step reporting.',
   },
 ] as const satisfies readonly WorkflowContextDoc[];

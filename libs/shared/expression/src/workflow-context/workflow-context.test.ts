@@ -424,7 +424,12 @@ describe('workflow context registry', () => {
       currentStep: {key: 'notify', kind: 'tool'},
     });
 
-    for (const source of ['steps.notify.exit_code == 0', 'step.exit_code == 0']) {
+    for (const source of [
+      'steps.notify.exit_code == 0',
+      'step.exit_code == 0',
+      'steps.notify.gate.exit_code == 0',
+      'steps.notify.attempts[0].gate.exit_code == 0',
+    ]) {
       for (const typeEnvironment of [stepsEnvironment, selfEnvironment]) {
         expect(() =>
           createWorkflowExpression({
@@ -470,6 +475,23 @@ describe('workflow context registry', () => {
         },
       }),
     ).toThrow(InvalidWorkflowExpressionError);
+  });
+
+  it('preserves exit_code through non-tool step overlays', () => {
+    const stepsEnvironment = buildTypedRootsEnvironment({steps: [{key: 'build'}]});
+    const selfEnvironment = buildTypedRootsEnvironment({currentStep: {key: 'build'}});
+
+    for (const [source, typeEnvironment] of [
+      ['steps.build.exit_code == 0', stepsEnvironment],
+      ['step.exit_code == 0', selfEnvironment],
+    ] as const) {
+      expect(() =>
+        createWorkflowExpression({
+          source,
+          check: {mode: 'typed', typeEnvironment, expectedResultType: 'bool'},
+        }),
+      ).not.toThrow();
+    }
   });
 
   it('builds typed step self-root and upstream job output overlays', () => {
@@ -890,6 +912,15 @@ describe('workflow context registry', () => {
           kind: 'object',
           fields: {
             exit_code: 'int',
+            status: 'string',
+            outputs: {kind: 'map'},
+          },
+        },
+      });
+      expect(getWorkflowPredicateFieldTypeEnvironment('step.success', 'step', 'tool')).toEqual({
+        step: {
+          kind: 'object',
+          fields: {
             status: 'string',
             outputs: {kind: 'map'},
           },

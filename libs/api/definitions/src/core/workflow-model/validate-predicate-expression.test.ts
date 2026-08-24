@@ -1,3 +1,4 @@
+import type {WorkflowStepKind} from '@shipfox/expression';
 import {
   type ExpressionTypeEnvironment,
   getWorkflowPredicateFieldMinimumFillTarget,
@@ -10,6 +11,7 @@ function validate(params: {
   field: Parameters<typeof validatePredicateExpression>[0]['field'];
   allowedJobReferences?: ReadonlySet<string>;
   typeOverlay?: ExpressionTypeEnvironment;
+  stepKind?: WorkflowStepKind;
 }): {
   readonly expression: ReturnType<typeof validatePredicateExpression>;
   readonly issues: WorkflowModelValidationIssue[];
@@ -26,12 +28,36 @@ function validate(params: {
       ? {}
       : {allowedJobReferences: params.allowedJobReferences}),
     ...(params.typeOverlay === undefined ? {} : {typeOverlay: params.typeOverlay}),
+    ...(params.stepKind === undefined ? {} : {stepKind: params.stepKind}),
   });
 
   return {expression, issues};
 }
 
 describe('validatePredicateExpression', () => {
+  it('uses the tool step gate environment when the step kind is tool', () => {
+    const valid = validate({
+      field: 'step.success',
+      source: 'step.status == "succeeded"',
+      stepKind: 'tool',
+    });
+    const invalid = validate({
+      field: 'step.success',
+      source: 'step.exit_code == 0',
+      stepKind: 'tool',
+    });
+
+    expect(valid.issues).toEqual([]);
+    expect(valid.expression).toMatchObject({source: 'step.status == "succeeded"'});
+    expect(invalid.expression).toBeUndefined();
+    expect(invalid.issues).toEqual([
+      expect.objectContaining({
+        code: 'invalid-job-success',
+        details: expect.objectContaining({source: 'step.exit_code == 0'}),
+      }),
+    ]);
+  });
+
   it.each([
     ['event.ref == "refs/heads/main"', 'syntax'],
     ['trigger.event == "push"', 'typed'],

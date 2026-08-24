@@ -146,25 +146,53 @@ function toCelType(
 
   return {
     schema: Object.fromEntries(
-      Object.entries(type.fields).map(([name, field]) => [name, toCelSchemaType(field)]),
+      Object.entries(type.fields).map(([name, field]) => [
+        name,
+        toCelSchemaType(field, environment, `${variableName}_${name}`),
+      ]),
     ),
   };
 }
 
-function toCelSchemaType(type: ExpressionType): string | CelSchema {
+function toCelSchemaType(
+  type: ExpressionType,
+  environment: Environment,
+  path: string,
+): string | CelSchema {
   if (typeof type === 'string') return scalarTypeToCelType[type];
-  if (type.kind === 'list') return `list<${toCelSchemaListElementType(type.element)}>`;
+  if (type.kind === 'list') {
+    return `list<${toCelSchemaListElementType(type.element, environment, path)}>`;
+  }
   if (type.kind === 'map') return 'map';
   return Object.fromEntries(
-    Object.entries(type.fields).map(([name, field]) => [name, toCelSchemaType(field)]),
+    Object.entries(type.fields).map(([name, field]) => [
+      name,
+      toCelSchemaType(field, environment, `${path}_${name}`),
+    ]),
   );
 }
 
-function toCelSchemaListElementType(type: ExpressionType): string {
+function toCelSchemaListElementType(
+  type: ExpressionType,
+  environment: Environment,
+  path: string,
+): string {
   if (typeof type === 'string') return scalarTypeToCelType[type];
   if (type.kind === 'map') return 'map';
-  if (type.kind === 'object') return 'dyn';
-  return `list<${toCelSchemaListElementType(type.element)}>`;
+  if (type.kind === 'object') {
+    const typeName = `$${path}_item`;
+    environment.registerType({
+      name: typeName,
+      schema: Object.fromEntries(
+        Object.entries(type.fields).map(([name, field]) => [
+          name,
+          toCelSchemaType(field, environment, `${path}_item_${name}`),
+        ]),
+      ),
+    });
+    return typeName;
+  }
+  return `list<${toCelSchemaListElementType(type.element, environment, `${path}_item`)}>`;
 }
 
 function toCelListElementType(
@@ -179,12 +207,15 @@ function toCelListElementType(
     environment.registerType({
       name: typeName,
       schema: Object.fromEntries(
-        Object.entries(type.fields).map(([name, field]) => [name, toCelSchemaType(field)]),
+        Object.entries(type.fields).map(([name, field]) => [
+          name,
+          toCelSchemaType(field, environment, `${variableName}_item_${name}`),
+        ]),
       ),
     });
     return typeName;
   }
-  return 'dyn';
+  return `list<${toCelSchemaListElementType(type.element, environment, `${variableName}_item`)}>`;
 }
 
 function fromCelType(type: string | undefined, ast: ASTNode): ExpressionType | undefined {
