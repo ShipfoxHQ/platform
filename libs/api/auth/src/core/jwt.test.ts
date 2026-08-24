@@ -81,12 +81,42 @@ describe('jwt', () => {
     ).rejects.toThrow('impersonatorId must differ from userId');
   });
 
+  test('rejects a self-impersonation impersonatorId in a different UUID casing', async () => {
+    const userId = crypto.randomUUID();
+    await expect(
+      signUserToken({
+        userId,
+        impersonatorId: userId.toUpperCase(),
+        email: `jwt-${crypto.randomUUID()}@example.com`,
+        memberships: [],
+        secret: SECRET,
+        expiresIn: '15m',
+      }),
+    ).rejects.toThrow('impersonatorId must differ from userId');
+  });
+
   test('rejects a crafted token whose impersonatorId equals sub', async () => {
     const userId = crypto.randomUUID();
     const token = await new SignJWT({
       email: `jwt-${crypto.randomUUID()}@example.com`,
       memberships: [],
       impersonatorId: userId,
+    })
+      .setProtectedHeader({alg: 'HS256'})
+      .setSubject(userId)
+      .setIssuedAt()
+      .setExpirationTime('7d')
+      .sign(encodeSecret(SECRET));
+
+    await expect(verifyUserToken({token, secret: SECRET})).rejects.toThrow();
+  });
+
+  test('rejects a crafted token whose impersonatorId equals sub in a different casing', async () => {
+    const userId = crypto.randomUUID();
+    const token = await new SignJWT({
+      email: `jwt-${crypto.randomUUID()}@example.com`,
+      memberships: [],
+      impersonatorId: userId.toUpperCase(),
     })
       .setProtectedHeader({alg: 'HS256'})
       .setSubject(userId)

@@ -13,6 +13,12 @@ export type TokenMembership = z.infer<typeof tokenMembershipSchema>;
 
 const impersonatorIdSchema = z.string().uuid();
 
+// UUIDs are case-insensitive hex strings: compare normalized values so a
+// re-cased impersonatorId cannot pass off the subject as its own impersonator.
+function isSameUuid(a: string, b: string): boolean {
+  return a.toLowerCase() === b.toLowerCase();
+}
+
 // Rollback hazard: pre-impersonation verifiers strip unknown claims (zod's
 // default object parsing), so a marked token verified by an old build silently
 // loses the marker. Upgrade every verifier before any issuer mints marked tokens.
@@ -27,9 +33,11 @@ export const userTokenClaimsSchema = z
     iat: z.number().int(),
     exp: z.number().int(),
   })
-  .refine((claims) => claims.impersonatorId === undefined || claims.impersonatorId !== claims.sub, {
-    message: 'impersonatorId must differ from sub',
-  });
+  .refine(
+    (claims) =>
+      claims.impersonatorId === undefined || !isSameUuid(claims.impersonatorId, claims.sub),
+    {message: 'impersonatorId must differ from sub'},
+  );
 
 export type UserTokenClaims = z.infer<typeof userTokenClaimsSchema>;
 
@@ -54,7 +62,7 @@ export async function signUserToken(params: SignUserTokenParams): Promise<string
     if (!impersonatorIdSchema.safeParse(params.impersonatorId).success) {
       throw new TypeError('impersonatorId must be a UUID');
     }
-    if (params.impersonatorId === params.userId) {
+    if (isSameUuid(params.impersonatorId, params.userId)) {
       throw new TypeError('impersonatorId must differ from userId');
     }
   }
