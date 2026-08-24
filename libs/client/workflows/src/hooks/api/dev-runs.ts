@@ -8,7 +8,7 @@ import {
   workflowRunTriggerDisplayLabel,
   workflowRunTriggerLabel,
 } from '#core/workflow-run.js';
-import {definitionsAtRefQueryKeys} from './definitions-at-ref.js';
+import {definitionsAtRefQueryKeys, definitionsAtRefQueryOptions} from './definitions-at-ref.js';
 import {sharedWorkflowErrorCopy} from './workflow-error-copy.js';
 import {
   cryptoRandomId,
@@ -169,6 +169,17 @@ function lookupAtRefListing(
   );
 }
 
+function refreshCachedAtRefListing(
+  queryClient: ReturnType<typeof useQueryClient>,
+  projectId: string,
+  ref: string,
+): Promise<DefinitionAtRefListing | undefined> {
+  const queryKey = definitionsAtRefQueryKeys.atRef(projectId, ref);
+  if (!queryClient.getQueryState(queryKey)) return Promise.resolve(undefined);
+
+  return queryClient.fetchQuery(definitionsAtRefQueryOptions(projectId, ref));
+}
+
 /**
  * Create a dev run and show it in the project run lists immediately.
  *
@@ -182,11 +193,20 @@ export function useCreateDevRunMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: createDevRun,
-    onMutate: (variables) => {
-      const listing = lookupAtRefListing(queryClient, variables.projectId, variables.ref);
+    onMutate: async (variables) => {
+      const listing =
+        (await refreshCachedAtRefListing(queryClient, variables.projectId, variables.ref)) ??
+        lookupAtRefListing(queryClient, variables.projectId, variables.ref);
       const file = listing?.files.find((entry) => entry.configPath === variables.configPath);
       const trigger = file?.triggers[variables.trigger];
       if (!listing || !file || !trigger) {
+        return {tempWorkflowRunId: undefined, touchedQueryKeys: []};
+      }
+
+      // The required commit is the request's compare-and-set value. If the
+      // cached listing moved before submission, do not show an optimistic row
+      // for a request that the server is expected to reject as `ref-moved`.
+      if (listing.commit !== variables.commit) {
         return {tempWorkflowRunId: undefined, touchedQueryKeys: []};
       }
 

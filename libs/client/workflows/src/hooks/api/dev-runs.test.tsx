@@ -15,6 +15,7 @@ const RUN_ID = '66666666-6666-4666-8666-666666666666';
 const REF = 'fix-triage-prompt';
 const CONFIG_PATH = '.shipfox/workflows/triage-sentry.yml';
 const COMMIT = 'abc123def456abc123def456abc123def456abc123';
+const FRESH_COMMIT = 'def456abc123def456abc123def456abc123def456';
 const REPLAY_EVENT_ID = '22222222-2222-4222-8222-222222222222';
 const TEMP_RUN_ID_PATTERN = /^temp-/;
 
@@ -56,6 +57,35 @@ function atRefListing(
       },
     ],
   };
+}
+
+function atRefResponseIfRequested(
+  input: RequestInfo | URL,
+  {
+    commit = COMMIT,
+    triggers = {on_issue: {source: 'cron', event: 'tick'}},
+  }: {
+    commit?: string;
+    triggers?: DefinitionAtRefListing['files'][number]['triggers'];
+  } = {},
+): Response | undefined {
+  const url = input instanceof Request ? input.url : String(input);
+  if (new URL(url).pathname !== '/definitions/at-ref') return undefined;
+
+  return jsonResponse({
+    ref: REF,
+    commit,
+    files: [
+      {
+        config_path: CONFIG_PATH,
+        name: 'triage-sentry',
+        valid: true,
+        errors: [],
+        warnings: [],
+        triggers,
+      },
+    ],
+  });
 }
 
 function seedRunList(queryClient: QueryClient, key: readonly unknown[], filteredTotalCount = 0) {
@@ -148,12 +178,13 @@ describe('dev run API hooks', () => {
 
   test('optimistically inserts dev runs into all-origins and dev lists from the at-ref cache', async () => {
     let resolveRun: ((response: Response) => void) | undefined;
-    const fetchImpl = vi.fn(
-      () =>
-        new Promise<Response>((resolve) => {
-          resolveRun = resolve;
-        }),
-    );
+    const fetchImpl = vi.fn((input: RequestInfo | URL) => {
+      const atRefResponse = atRefResponseIfRequested(input);
+      if (atRefResponse) return Promise.resolve(atRefResponse);
+      return new Promise<Response>((resolve) => {
+        resolveRun = resolve;
+      });
+    });
     configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
     const {result, queryClient} = renderWithQueryClient(() => useCreateDevRunMutation());
     queryClient.setQueryData(definitionsAtRefQueryKeys.atRef(PROJECT_ID, REF), atRefListing());
@@ -211,12 +242,13 @@ describe('dev run API hooks', () => {
 
   test('keeps the optimistic dev run out of synced-only and definition-scoped lists', async () => {
     let resolveRun: ((response: Response) => void) | undefined;
-    const fetchImpl = vi.fn(
-      () =>
-        new Promise<Response>((resolve) => {
-          resolveRun = resolve;
-        }),
-    );
+    const fetchImpl = vi.fn((input: RequestInfo | URL) => {
+      const atRefResponse = atRefResponseIfRequested(input);
+      if (atRefResponse) return Promise.resolve(atRefResponse);
+      return new Promise<Response>((resolve) => {
+        resolveRun = resolve;
+      });
+    });
     configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
     const {result, queryClient} = renderWithQueryClient(() => useCreateDevRunMutation());
     queryClient.setQueryData(definitionsAtRefQueryKeys.atRef(PROJECT_ID, REF), atRefListing());
@@ -267,12 +299,13 @@ describe('dev run API hooks', () => {
 
   test('only inserts pending dev runs into compatible list filters', async () => {
     let resolveRun: ((response: Response) => void) | undefined;
-    const fetchImpl = vi.fn(
-      () =>
-        new Promise<Response>((resolve) => {
-          resolveRun = resolve;
-        }),
-    );
+    const fetchImpl = vi.fn((input: RequestInfo | URL) => {
+      const atRefResponse = atRefResponseIfRequested(input);
+      if (atRefResponse) return Promise.resolve(atRefResponse);
+      return new Promise<Response>((resolve) => {
+        resolveRun = resolve;
+      });
+    });
     configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
     const {result, queryClient} = renderWithQueryClient(() => useCreateDevRunMutation());
     queryClient.setQueryData(definitionsAtRefQueryKeys.atRef(PROJECT_ID, REF), atRefListing());
@@ -319,12 +352,15 @@ describe('dev run API hooks', () => {
 
   test('keeps replay provenance for an integration trigger without a declared event', async () => {
     let resolveRun: ((response: Response) => void) | undefined;
-    const fetchImpl = vi.fn(
-      () =>
-        new Promise<Response>((resolve) => {
-          resolveRun = resolve;
-        }),
-    );
+    const fetchImpl = vi.fn((input: RequestInfo | URL) => {
+      const atRefResponse = atRefResponseIfRequested(input, {
+        triggers: {on_issue: {source: 'integration'}},
+      });
+      if (atRefResponse) return Promise.resolve(atRefResponse);
+      return new Promise<Response>((resolve) => {
+        resolveRun = resolve;
+      });
+    });
     configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
     const {result, queryClient} = renderWithQueryClient(() => useCreateDevRunMutation());
     queryClient.setQueryData(
@@ -401,6 +437,48 @@ describe('dev run API hooks', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
   });
 
+  test('refreshes a cached at-ref listing before creating a run', async () => {
+    const requestPaths: string[] = [];
+    const postBodies: unknown[] = [];
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const request = input as Request;
+      requestPaths.push(new URL(request.url).pathname);
+      const atRefResponse = atRefResponseIfRequested(input, {commit: FRESH_COMMIT});
+      if (atRefResponse) return atRefResponse;
+      postBodies.push(await request.clone().json());
+      return jsonResponse({workflow_run_id: RUN_ID, commit: COMMIT}, {status: 201});
+    });
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
+    const {result, queryClient} = renderWithQueryClient(() => useCreateDevRunMutation());
+    queryClient.setQueryData(definitionsAtRefQueryKeys.atRef(PROJECT_ID, REF), atRefListing());
+
+    const allListKey = workflowRunsQueryKeys.list(PROJECT_ID, {});
+    seedRunList(queryClient, allListKey);
+
+    await act(async () => {
+      await result.current.mutateAsync({
+        projectId: PROJECT_ID,
+        ref: REF,
+        commit: COMMIT,
+        configPath: CONFIG_PATH,
+        trigger: 'on_issue',
+      });
+    });
+
+    expect(requestPaths).toEqual(['/definitions/at-ref', '/dev-runs']);
+    expect(postBodies).toEqual([
+      {
+        project_id: PROJECT_ID,
+        ref: REF,
+        commit: COMMIT,
+        config_path: CONFIG_PATH,
+        trigger: 'on_issue',
+      },
+    ]);
+    const cached = queryClient.getQueryData<InfiniteData<WorkflowRunListPage>>(allListKey);
+    expect(cached?.pages[0]?.runs).toHaveLength(0);
+  });
+
   test('invalidates the project run lists on success', async () => {
     const fetchImpl = vi.fn(async () =>
       jsonResponse({workflow_run_id: RUN_ID, commit: COMMIT}, {status: 201}),
@@ -426,12 +504,13 @@ describe('dev run API hooks', () => {
 
   test('removes the optimistic dev run on failure and keeps newer rows', async () => {
     const runRequests: Array<{resolve: (response: Response) => void}> = [];
-    const fetchImpl = vi.fn(
-      () =>
-        new Promise<Response>((resolve) => {
-          runRequests.push({resolve});
-        }),
-    );
+    const fetchImpl = vi.fn((input: RequestInfo | URL) => {
+      const atRefResponse = atRefResponseIfRequested(input);
+      if (atRefResponse) return Promise.resolve(atRefResponse);
+      return new Promise<Response>((resolve) => {
+        runRequests.push({resolve});
+      });
+    });
     configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
     const {result, queryClient} = renderWithQueryClient(() => useCreateDevRunMutation());
     queryClient.setQueryData(definitionsAtRefQueryKeys.atRef(PROJECT_ID, REF), atRefListing());

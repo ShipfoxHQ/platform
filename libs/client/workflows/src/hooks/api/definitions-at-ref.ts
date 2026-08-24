@@ -84,7 +84,6 @@ export function definitionsAtRefQueryOptions(
     enabled: Boolean(projectId && ref),
     queryFn: ({signal}) =>
       listDefinitionsAtRef({projectId: projectId ?? '', ref: ref ?? '', signal}),
-    staleTime: 30_000,
   });
 }
 
