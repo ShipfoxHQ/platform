@@ -3,7 +3,12 @@ import {
   materializedSecretBindingSchema,
   type StepSecretDto,
 } from '@shipfox/api-secrets-dto';
-import type {LogOutcomeDto, NextStepResponseDto, StepDto} from '@shipfox/api-workflows-dto';
+import type {
+  LogOutcomeDto,
+  NextStepResponseDto,
+  StepDto,
+  StepErrorReasonDto,
+} from '@shipfox/api-workflows-dto';
 import {logger} from '@shipfox/node-opentelemetry';
 import {redactSecrets} from '@shipfox/redact';
 import {
@@ -364,12 +369,23 @@ export async function executeStep(params: {
       });
 
     if (step.type === 'setup') {
-      if (prepareLogs || prepareAgentState) {
+      if (prepareLogs) {
         try {
-          await prepareLogs?.();
-          await prepareAgentState?.();
+          await prepareLogs();
         } catch (error) {
-          const result = setupWorkspacePreparationFailure(error);
+          const result = setupPreparationFailure(error, 'workspace_prep_failed');
+          logger().warn(
+            {err: error, jobId, stepId: step.id, attempt, reason: result.error?.reason},
+            'Setup step failed',
+          );
+          return {result, logOutcome: 'abandoned', preparedWorkspace: false};
+        }
+      }
+      if (prepareAgentState) {
+        try {
+          await prepareAgentState();
+        } catch (error) {
+          const result = setupPreparationFailure(error, 'agent_harness_unavailable');
           logger().warn(
             {err: error, jobId, stepId: step.id, attempt, reason: result.error?.reason},
             'Setup step failed',
@@ -730,12 +746,12 @@ function stepSecretsFailure(error: unknown): StepResult {
   };
 }
 
-function setupWorkspacePreparationFailure(error: unknown): StepResult {
+function setupPreparationFailure(error: unknown, reason: StepErrorReasonDto): StepResult {
   return {
     success: false,
     error: {
       message: error instanceof Error ? error.message : String(error),
-      reason: 'workspace_prep_failed',
+      reason,
     },
     exit_code: null,
   };

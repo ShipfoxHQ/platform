@@ -1198,7 +1198,7 @@ describe('runJobSteps', () => {
 
   it('reports agent-state directory preparation failures through the setup step', async () => {
     const setup = buildSetupStep();
-    const error = {message: 'agent state denied', reason: 'workspace_prep_failed' as const};
+    const error = {message: 'agent state denied', reason: 'agent_harness_unavailable' as const};
     const prepareAgentState = vi.fn().mockRejectedValueOnce(new Error(error.message));
     requestNextStepMock.mockResolvedValueOnce(stepResponse(setup, 1));
     reportStepMock.mockResolvedValueOnce({ok: true, cancel: true});
