@@ -13,6 +13,8 @@ export interface InsertReceivedEventParams {
   provider: string | null;
   source: string;
   event: string;
+  /** Source event this entry replays (dev runs only). */
+  replayOfEventId: string | null;
   deliveryId: string | null;
   connectionId: string | null;
   connectionName: string | null;
@@ -32,6 +34,7 @@ export async function insertReceivedEvent(params: InsertReceivedEventParams): Pr
       provider: params.provider,
       source: params.source,
       event: params.event,
+      replayOfEventId: params.replayOfEventId,
       deliveryId: params.deliveryId,
       connectionId: params.connectionId,
       connectionName: params.connectionName,

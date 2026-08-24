@@ -9,7 +9,12 @@ import Fastify from 'fastify';
 import {serializerCompiler, validatorCompiler} from 'fastify-type-provider-zod';
 import {
   DevRunInputsNotAllowedError,
+  DevRunReplayEventMismatchError,
+  DevRunReplayEventNotAllowedError,
+  DevRunReplayEventNotFoundError,
   DevRunReplayEventRequiredError,
+  DevRunReplayEventUnavailableError,
+  DevRunTriggerFilteredError,
   DevRunTriggerNotFoundError,
 } from '#core/errors.js';
 import {db} from '#db/db.js';
@@ -137,11 +142,36 @@ describe('POST /dev-runs', () => {
     expect(createDevRunMock).not.toHaveBeenCalled();
   });
 
+  test('passes the replay event id through to the core use case', async () => {
+    const replayEventId = crypto.randomUUID();
+    createDevRunMock.mockResolvedValue({id: crypto.randomUUID(), commit: COMMIT});
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/dev-runs',
+      payload: {...VALID_BODY, replay_event_id: replayEventId},
+    });
+
+    expect(res.statusCode).toBe(201);
+    expect(createDevRunMock).toHaveBeenCalledWith(expect.objectContaining({replayEventId}));
+  });
+
+  test('rejects a non-uuid replay event id', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/dev-runs',
+      payload: {...VALID_BODY, replay_event_id: 'not-a-uuid'},
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(createDevRunMock).not.toHaveBeenCalled();
+  });
+
   test('rejects an unknown body key', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/dev-runs',
-      payload: {...VALID_BODY, replay_event_id: crypto.randomUUID()},
+      payload: {...VALID_BODY, unknown_field: 'nope'},
     });
 
     expect(res.statusCode).toBe(400);
@@ -241,6 +271,79 @@ describe('POST /dev-runs', () => {
 
     expect(res.statusCode).toBe(422);
     expect(res.json().code).toBe('replay-event-required');
+  });
+
+  test('maps replay event ids on non-integration triggers to 422 replay-event-not-allowed', async () => {
+    createDevRunMock.mockRejectedValue(new DevRunReplayEventNotAllowedError('manual'));
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/dev-runs',
+      payload: {...VALID_BODY, replay_event_id: crypto.randomUUID()},
+    });
+
+    expect(res.statusCode).toBe(422);
+    expect(res.json().code).toBe('replay-event-not-allowed');
+  });
+
+  test('maps a missing replay event to 404 replay-event-not-found', async () => {
+    createDevRunMock.mockRejectedValue(new DevRunReplayEventNotFoundError(crypto.randomUUID()));
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/dev-runs',
+      payload: {...VALID_BODY, replay_event_id: crypto.randomUUID()},
+    });
+
+    expect(res.statusCode).toBe(404);
+    expect(res.json().code).toBe('replay-event-not-found');
+  });
+
+  test('maps a mismatched replay event to 409 replay-event-mismatch', async () => {
+    createDevRunMock.mockRejectedValue(new DevRunReplayEventMismatchError(crypto.randomUUID()));
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/dev-runs',
+      payload: {...VALID_BODY, replay_event_id: crypto.randomUUID()},
+    });
+
+    expect(res.statusCode).toBe(409);
+    expect(res.json().code).toBe('replay-event-mismatch');
+  });
+
+  test('maps a pruned replay event to 410 replay-event-unavailable', async () => {
+    createDevRunMock.mockRejectedValue(new DevRunReplayEventUnavailableError(crypto.randomUUID()));
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/dev-runs',
+      payload: {...VALID_BODY, replay_event_id: crypto.randomUUID()},
+    });
+
+    expect(res.statusCode).toBe(410);
+    expect(res.json().code).toBe('replay-event-unavailable');
+  });
+
+  test('maps a filter refusal to 409 trigger-filtered with the reason in details', async () => {
+    createDevRunMock.mockRejectedValue(
+      new DevRunTriggerFilteredError('Trigger filter evaluated to false'),
+    );
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/dev-runs',
+      payload: {...VALID_BODY, replay_event_id: crypto.randomUUID()},
+    });
+
+    expect(res.statusCode).toBe(409);
+    // The test app uses Fastify's fallback error serialization (the shared
+    // error handler in production answers `{code, details}`); the reason also
+    // rides in `details` for the client adapter.
+    expect(res.json()).toMatchObject({
+      code: 'trigger-filtered',
+      message: 'The trigger filter refused the replayed event',
+    });
   });
 
   test.each([

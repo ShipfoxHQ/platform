@@ -60,7 +60,9 @@ export function evaluateStoredFilter(params: EvaluateStoredFilterParams): Stored
 }
 
 export interface EvaluateTriggerFilterParams {
-  subscription: TriggerSubscription;
+  // Only `config.filter` is read; dev triggers evaluate through a subscription-
+  // shaped adapter so replay uses the exact same path as dispatch.
+  subscription: Pick<TriggerSubscription, 'config'>;
   source: string;
   event: string;
   payload: unknown;

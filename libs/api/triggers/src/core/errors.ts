@@ -74,7 +74,9 @@ export class DevRunTriggerNotFoundError extends Error {
 
 export class DevRunInputsNotAllowedError extends Error {
   constructor() {
-    super('Cron dev runs do not accept request inputs; the trigger `with` block is used');
+    super(
+      'Request inputs apply to manual triggers only; cron and integration triggers use their `with` block',
+    );
     this.name = 'DevRunInputsNotAllowedError';
   }
 }
@@ -86,5 +88,55 @@ export class DevRunReplayEventRequiredError extends Error {
     super(`Replaying a ${source} trigger requires a journaled event (replay_event_id)`);
     this.name = 'DevRunReplayEventRequiredError';
     this.source = source;
+  }
+}
+
+export class DevRunReplayEventNotAllowedError extends Error {
+  readonly source: string;
+
+  constructor(source: string) {
+    super(`replay_event_id is only supported for integration triggers, not ${source}`);
+    this.name = 'DevRunReplayEventNotAllowedError';
+    this.source = source;
+  }
+}
+
+export class DevRunReplayEventNotFoundError extends Error {
+  readonly replayEventId: string;
+
+  constructor(replayEventId: string) {
+    super(`No journaled event found for replay_event_id ${replayEventId}`);
+    this.name = 'DevRunReplayEventNotFoundError';
+    this.replayEventId = replayEventId;
+  }
+}
+
+export class DevRunReplayEventMismatchError extends Error {
+  readonly replayEventId: string;
+
+  constructor(replayEventId: string) {
+    super(`Journaled event ${replayEventId} does not match the trigger's source and event`);
+    this.name = 'DevRunReplayEventMismatchError';
+    this.replayEventId = replayEventId;
+  }
+}
+
+export class DevRunReplayEventUnavailableError extends Error {
+  readonly replayEventId: string;
+
+  constructor(replayEventId: string) {
+    super(`Journaled event ${replayEventId} has no stored payload and cannot be replayed`);
+    this.name = 'DevRunReplayEventUnavailableError';
+    this.replayEventId = replayEventId;
+  }
+}
+
+export class DevRunTriggerFilteredError extends Error {
+  readonly reason: string;
+
+  constructor(reason: string) {
+    super(reason);
+    this.name = 'DevRunTriggerFilteredError';
+    this.reason = reason;
   }
 }

@@ -32,6 +32,7 @@ function buildEventParams(
     provider: 'github',
     source: 'github',
     event: 'push',
+    replayOfEventId: null,
     deliveryId: null,
     connectionId: null,
     connectionName: null,

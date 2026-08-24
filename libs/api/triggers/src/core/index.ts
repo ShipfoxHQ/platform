@@ -21,7 +21,12 @@ export type {CronSchedule} from './entities/cron-schedule.js';
 export type {TriggerSubscription} from './entities/subscription.js';
 export {
   DevRunInputsNotAllowedError,
+  DevRunReplayEventMismatchError,
+  DevRunReplayEventNotAllowedError,
+  DevRunReplayEventNotFoundError,
   DevRunReplayEventRequiredError,
+  DevRunReplayEventUnavailableError,
+  DevRunTriggerFilteredError,
   DevRunTriggerNotFoundError,
   ManualTriggerNotFoundError,
   TriggerSubscriptionNotCronError,

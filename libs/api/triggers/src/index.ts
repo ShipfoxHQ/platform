@@ -43,7 +43,12 @@ export type {TriggerSubscription} from '#core/entities/subscription.js';
 export {
   createDevRun,
   DevRunInputsNotAllowedError,
+  DevRunReplayEventMismatchError,
+  DevRunReplayEventNotAllowedError,
+  DevRunReplayEventNotFoundError,
   DevRunReplayEventRequiredError,
+  DevRunReplayEventUnavailableError,
+  DevRunTriggerFilteredError,
   DevRunTriggerNotFoundError,
   fireCronSubscription,
   fireManualSubscription,

@@ -49,6 +49,7 @@ export async function fireManualSubscription(
     // Manual triggers have no inbound event. Keep the canonical history event
     // for a row that bypassed the projection write-path validation.
     event: subscription.event ?? 'fire',
+    replayOfEventId: null,
     deliveryId: null,
     connectionId: null,
     connectionName: null,

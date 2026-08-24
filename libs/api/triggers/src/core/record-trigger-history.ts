@@ -68,6 +68,8 @@ export interface BeginTriggerHistoryParams {
   provider: string | null;
   source: string;
   event: string;
+  /** Source event this entry replays (dev runs only). */
+  replayOfEventId: string | null;
   deliveryId: string | null;
   connectionId: string | null;
   connectionName: string | null;
