@@ -1162,6 +1162,47 @@ describe('github agent tool catalog', () => {
     });
   });
 
+  it('accepts empty base64 contents as an empty file', async () => {
+    const request = vi.fn();
+    const graphql = vi.fn().mockResolvedValueOnce({
+      createCommitOnBranch: {
+        commit: {
+          oid: 'c'.repeat(40),
+          url: `https://github.com/shipfox/platform/commit/${'c'.repeat(40)}`,
+        },
+      },
+    });
+    const provider = createAgentToolsProvider({request, graphql});
+    const session = await provider.openSession({
+      connection: connection(),
+      tools: [createCommitTool()],
+      scope: undefined,
+    });
+
+    await session.call({
+      toolId: 'create_commit',
+      arguments: {
+        repository: 'shipfox/platform',
+        branch: 'feature',
+        expected_head_oid: 'd'.repeat(40),
+        message: {headline: 'Add empty file'},
+        additions: [{path: 'assets/empty.bin', contents: '', encoding: 'base64'}],
+      },
+    });
+
+    expect(graphql.mock.calls[0]?.[1]).toEqual({
+      input: {
+        branch: {repositoryNameWithOwner: 'shipfox/platform', branchName: 'feature'},
+        expectedHeadOid: 'd'.repeat(40),
+        message: {headline: 'Add empty file'},
+        fileChanges: {
+          additions: [{path: 'assets/empty.bin', contents: ''}],
+          deletions: [],
+        },
+      },
+    });
+  });
+
   it('accepts a 64-character SHA-256 oid', async () => {
     const request = vi.fn();
     const graphql = vi.fn().mockResolvedValueOnce({
@@ -1543,6 +1584,13 @@ describe('github agent tool catalog', () => {
         expected_head_oid: 'a'.repeat(40),
         message: {headline: 'Unpaired surrogate'},
         additions: [{path: 'a.txt', contents: '\uD800'}],
+      },
+      {
+        repository: 'shipfox/platform',
+        branch: 'feature',
+        expected_head_oid: 'a'.repeat(40),
+        message: {headline: 'Unpaired surrogate with explicit utf8'},
+        additions: [{path: 'a.txt', contents: '\uD800', encoding: 'utf8'}],
       },
       {
         repository: 'shipfox/platform',

@@ -1072,7 +1072,9 @@ function isFileAdditionList(value: unknown): value is readonly Record<string, un
       if (typeof item.encoding !== 'string' || !CREATE_COMMIT_ENCODINGS.has(item.encoding)) {
         return false;
       }
-      return item.encoding !== 'base64' || isWellFormedBase64(item.contents);
+      return item.encoding === 'base64'
+        ? isWellFormedBase64(item.contents)
+        : !CREATE_COMMIT_UNPAIRED_SURROGATE_PATTERN.test(item.contents);
     }
     return !CREATE_COMMIT_UNPAIRED_SURROGATE_PATTERN.test(item.contents);
   });
@@ -1102,7 +1104,7 @@ function containsCreateCommitControlCharacter(value: string): boolean {
 }
 
 function isWellFormedBase64(value: string): boolean {
-  if (value.length === 0 || value.length % 4 !== 0) return false;
+  if (value.length % 4 !== 0) return false;
   if (!CREATE_COMMIT_BASE64_PATTERN.test(value)) return false;
   return Buffer.from(value, 'base64').toString('base64') === value;
 }
