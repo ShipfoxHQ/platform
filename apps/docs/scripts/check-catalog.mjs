@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {githubEventCatalog} from '@shipfox/api-integration-github-dto';
+import {githubAgentToolCatalog} from '@shipfox/api-integration-github/agent-tools';
 import {validateIntegrationCatalog} from '@/lib/integration-catalog-validation';
 
 const providers = [
@@ -14,7 +15,7 @@ const providers = [
     overviewHref: '/integrations/github',
     setupHref: '/integrations/github/setup',
     eventCount: githubEventCatalog.events.length,
-    toolCount: 24,
+    toolCount: githubAgentToolCatalog.length,
   },
   {
     slug: 'sentry',

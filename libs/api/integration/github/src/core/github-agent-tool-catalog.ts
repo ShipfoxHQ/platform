@@ -875,7 +875,7 @@ export const githubAgentToolCatalog = [
     id: 'create_branch',
     category: 'repository',
     description:
-      'Create a branch in a GitHub repository pointing at a commit. Provide `from` as a 40-character commit oid (for example, the checkout commit of a step) or as an existing branch name, which the server resolves to its current head. Creating a branch that already exists is rejected with an error instead of silently reusing it.',
+      'Create a branch in a GitHub repository pointing at a commit. Provide `from` as a 40-character commit oid (for example, the checkout commit of a step) or as an existing branch name, which the server resolves to its current head at call time. An existing branch is reused when it already points at the requested commit, and rejected otherwise. Creating a branch fires GitHub push-event workflows from the new ref, so only branch from commits you intend to activate.',
     sensitivity: 'write',
     sensitive: false,
     requiredScope: scopes.contentsWrite,

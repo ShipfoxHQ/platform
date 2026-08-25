@@ -427,6 +427,7 @@ const githubOperationRouteCases = [
       branch: 'feature',
       from: 'aa218f56b14c9653891f9e74264a383fa43fefbd',
     },
+    runtimeInjectedProperties: ['owner', 'repo'],
     expectedRoute: 'POST /repos/{owner}/{repo}/git/refs',
   },
   {
@@ -1863,7 +1864,7 @@ describe('github agent tool catalog', () => {
       content: [
         {
           type: 'text',
-          text: 'GitHub installation token is missing permission for this operation',
+          text: 'GitHub installation token is missing permission for this operation: list_issues requires issues: read',
         },
       ],
       structuredContent: {code: 'access-denied'},
@@ -1977,7 +1978,7 @@ describe('github agent tool catalog', () => {
     });
   });
 
-  it('reports a provider-rejected error when the branch already exists', async () => {
+  it('reports a provider-rejected error when the branch already exists at a different commit', async () => {
     const providerError = new RequestError('Reference already exists', 422, {
       request: {
         method: 'POST',
@@ -1985,6 +1986,19 @@ describe('github agent tool catalog', () => {
         headers: {},
       },
     });
+    const request = vi
+      .fn()
+      .mockRejectedValueOnce(providerError)
+      .mockResolvedValueOnce({
+        data: {
+          ref: 'refs/heads/feature',
+          url: 'https://api.github.com/repos/shipfox/platform/git/refs/heads/feature',
+          object: {
+            sha: 'ffffffffffffffffffffffffffffffffffffffff',
+            type: 'commit',
+          },
+        },
+      });
 
     await expect(
       callGithubToolWithRequest(
@@ -1994,13 +2008,103 @@ describe('github agent tool catalog', () => {
           branch: 'feature',
           from: 'aa218f56b14c9653891f9e74264a383fa43fefbd',
         },
-        vi.fn(() => Promise.reject(providerError)),
+        request,
       ),
     ).rejects.toMatchObject({
       reason: 'provider-rejected',
       message: "Branch 'feature' already exists in repository shipfox/platform",
       status: 422,
     });
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+
+  it('reuses an existing branch that already points at the requested commit', async () => {
+    const providerError = new RequestError('Reference already exists', 422, {
+      request: {
+        method: 'POST',
+        url: 'https://api.github.com/repos/shipfox/platform/git/refs',
+        headers: {},
+      },
+    });
+    const request = vi
+      .fn()
+      .mockRejectedValueOnce(providerError)
+      .mockResolvedValueOnce({
+        data: {
+          ref: 'refs/heads/feature',
+          url: 'https://api.github.com/repos/shipfox/platform/git/refs/heads/feature',
+          object: {
+            sha: 'aa218f56b14c9653891f9e74264a383fa43fefbd',
+            type: 'commit',
+          },
+        },
+      });
+
+    const result = await callGithubToolWithRequest(
+      'create_branch',
+      {
+        repository: 'shipfox/platform',
+        branch: 'feature',
+        from: 'aa218f56b14c9653891f9e74264a383fa43fefbd',
+      },
+      request,
+    );
+
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(request).toHaveBeenNthCalledWith(1, 'POST /repos/{owner}/{repo}/git/refs', {
+      owner: 'shipfox',
+      repo: 'platform',
+      ref: 'refs/heads/feature',
+      sha: 'aa218f56b14c9653891f9e74264a383fa43fefbd',
+    });
+    expect(request).toHaveBeenNthCalledWith(2, 'GET /repos/{owner}/{repo}/git/ref/heads/{branch}', {
+      owner: 'shipfox',
+      repo: 'platform',
+      branch: 'feature',
+    });
+    expect(result).toEqual({
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            branch: 'feature',
+            oid: 'aa218f56b14c9653891f9e74264a383fa43fefbd',
+            url: 'https://api.github.com/repos/shipfox/platform/git/refs/heads/feature',
+          }),
+        },
+      ],
+      structuredContent: {
+        branch: 'feature',
+        oid: 'aa218f56b14c9653891f9e74264a383fa43fefbd',
+        url: 'https://api.github.com/repos/shipfox/platform/git/refs/heads/feature',
+      },
+    });
+  });
+
+  it('keeps the provider message for a 422 that is not an already-exists error', async () => {
+    const providerError = new RequestError('Invalid ref name', 422, {
+      request: {
+        method: 'POST',
+        url: 'https://api.github.com/repos/shipfox/platform/git/refs',
+        headers: {},
+      },
+    });
+    const error: unknown = await callGithubToolWithRequest(
+      'create_branch',
+      {
+        repository: 'shipfox/platform',
+        branch: 'feature',
+        from: 'aa218f56b14c9653891f9e74264a383fa43fefbd',
+      },
+      vi.fn(() => Promise.reject(providerError)),
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      reason: 'provider-rejected',
+      message: 'Invalid ref name',
+      status: 422,
+    });
+    expect(String((error as Error).message).toLowerCase()).not.toContain('already exists');
   });
 
   it('reports a provider-rejected error when the from branch does not exist', async () => {
@@ -2024,7 +2128,8 @@ describe('github agent tool catalog', () => {
       ),
     ).rejects.toMatchObject({
       reason: 'provider-rejected',
-      message: "Branch 'missing' does not exist in repository shipfox/platform",
+      message:
+        "Branch 'missing' does not exist in repository shipfox/platform; from must be a 40-character commit oid or an existing branch name",
       status: 404,
     });
   });
@@ -2064,7 +2169,7 @@ describe('github agent tool catalog', () => {
       content: [
         {
           type: 'text',
-          text: 'GitHub installation token is missing permission for this operation',
+          text: 'GitHub installation token is missing permission for this operation: create_branch requires contents: write',
         },
       ],
       structuredContent: {code: 'access-denied'},
@@ -2102,6 +2207,195 @@ describe('github agent tool catalog', () => {
     ).rejects.toMatchObject({
       reason: 'ref-invalid',
       message: 'Parameter branch must be a non-empty branch name without a refs/ prefix',
+    });
+  });
+
+  it('rejects a malformed branch argument before resolving a branch-name from', async () => {
+    const request = vi.fn(() => Promise.reject(new Error('must not be called')));
+
+    await expect(
+      callGithubToolWithRequest(
+        'create_branch',
+        {
+          repository: 'shipfox/platform',
+          branch: 'refs/heads/feature',
+          from: 'missing',
+        },
+        request,
+      ),
+    ).rejects.toMatchObject({
+      reason: 'ref-invalid',
+      message: 'Parameter branch must be a non-empty branch name without a refs/ prefix',
+    });
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it('rejects an empty branch argument', async () => {
+    await expect(
+      callGithubTool(
+        'create_branch',
+        {
+          repository: 'shipfox/platform',
+          branch: '',
+          from: 'aa218f56b14c9653891f9e74264a383fa43fefbd',
+        },
+        {},
+      ),
+    ).rejects.toMatchObject({
+      reason: 'ref-invalid',
+      message: 'Parameter branch must be a non-empty branch name without a refs/ prefix',
+    });
+  });
+
+  it('rejects an empty from argument', async () => {
+    await expect(
+      callGithubTool(
+        'create_branch',
+        {
+          repository: 'shipfox/platform',
+          branch: 'feature',
+          from: '',
+        },
+        {},
+      ),
+    ).rejects.toMatchObject({
+      reason: 'ref-invalid',
+      message: 'Parameter from must be a 40-character commit oid or a branch name',
+    });
+  });
+
+  it('rejects a from argument that carries a refs/ prefix', async () => {
+    await expect(
+      callGithubTool(
+        'create_branch',
+        {
+          repository: 'shipfox/platform',
+          branch: 'feature',
+          from: 'refs/heads/main',
+        },
+        {},
+      ),
+    ).rejects.toMatchObject({
+      reason: 'ref-invalid',
+      message:
+        'Parameter from must be a 40-character commit oid or a branch name without a refs/ prefix',
+    });
+  });
+
+  it('rejects a repository argument with multiple slashes', async () => {
+    await expect(
+      callGithubTool(
+        'create_branch',
+        {
+          repository: 'owner/name/extra',
+          branch: 'feature',
+          from: 'aa218f56b14c9653891f9e74264a383fa43fefbd',
+        },
+        {},
+      ),
+    ).rejects.toMatchObject({
+      reason: 'ref-invalid',
+      message: 'Parameter repository must be a string in owner/name form: owner/name/extra',
+    });
+  });
+
+  it('rejects a repository argument with a trailing slash', async () => {
+    await expect(
+      callGithubTool(
+        'create_branch',
+        {
+          repository: 'owner/',
+          branch: 'feature',
+          from: 'aa218f56b14c9653891f9e74264a383fa43fefbd',
+        },
+        {},
+      ),
+    ).rejects.toMatchObject({
+      reason: 'ref-invalid',
+      message: 'Parameter repository must be a string in owner/name form: owner/',
+    });
+  });
+
+  it('rejects a non-string repository argument', async () => {
+    await expect(
+      callGithubTool(
+        'create_branch',
+        {
+          repository: 42,
+          branch: 'feature',
+          from: 'aa218f56b14c9653891f9e74264a383fa43fefbd',
+        },
+        {},
+      ),
+    ).rejects.toMatchObject({
+      reason: 'ref-invalid',
+      message: 'Parameter repository must be a string in owner/name form',
+    });
+  });
+
+  it('reports a missing repository parameter as an invalid request', async () => {
+    const request = vi.fn();
+
+    const result = await callGithubToolWithRequest(
+      'create_branch',
+      {
+        branch: 'feature',
+        from: 'aa218f56b14c9653891f9e74264a383fa43fefbd',
+      },
+      request,
+    );
+
+    expect(result).toEqual({
+      isError: true,
+      content: [{type: 'text', text: 'Missing required parameter: repository'}],
+      structuredContent: {code: 'invalid-request'},
+    });
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it('reports a malformed branch head resolution response', async () => {
+    const request = vi.fn(() => Promise.resolve({data: {}}));
+
+    await expect(
+      callGithubToolWithRequest(
+        'create_branch',
+        {
+          repository: 'shipfox/platform',
+          branch: 'feature',
+          from: 'main',
+        },
+        request,
+      ),
+    ).rejects.toMatchObject({
+      reason: 'malformed-provider-response',
+      message: 'GitHub branch head resolution response was malformed',
+    });
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a malformed create branch response', async () => {
+    const request = vi.fn(() =>
+      Promise.resolve({
+        data: {
+          ref: 'refs/heads/feature',
+          url: 'https://api.github.com/repos/shipfox/platform/git/refs/heads/feature',
+        },
+      }),
+    );
+
+    await expect(
+      callGithubToolWithRequest(
+        'create_branch',
+        {
+          repository: 'shipfox/platform',
+          branch: 'feature',
+          from: 'aa218f56b14c9653891f9e74264a383fa43fefbd',
+        },
+        request,
+      ),
+    ).rejects.toMatchObject({
+      reason: 'malformed-provider-response',
+      message: 'GitHub create branch response was malformed',
     });
   });
 

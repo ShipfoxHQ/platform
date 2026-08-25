@@ -8,7 +8,7 @@ import type {
   OpenAgentToolsSessionInput,
 } from '@shipfox/api-integration-spi';
 import {MAX_REPOSITORY_FILE_BYTES} from '@shipfox/api-integration-spi';
-import {Octokit, RequestError} from 'octokit';
+import {Octokit} from 'octokit';
 import {mapGithubError} from '#api/client.js';
 import {
   createGithubInstallationTokenProvider,
@@ -203,10 +203,7 @@ export class GithubAgentToolsProvider
         tokenPromise ??= this.tokenProvider.getInstallationAccessToken(installationId);
         const token = await tokenPromise;
         if (!hasGrantedPermissions(token.permissions ?? {}, tool, call)) {
-          return githubToolError(
-            'GitHub installation token is missing permission for this operation',
-            'access-denied',
-          );
+          return githubToolError(githubPermissionDeniedMessage(tool, call), 'access-denied');
         }
         const client = (this.options.createClient ?? createOctokitClient)(token.token);
         const method =
@@ -694,12 +691,6 @@ export function projectGithubOperationParameters(
   args: Record<string, unknown>,
 ): Record<string, unknown> {
   const parameters = {...args};
-  if (toolId === 'create_branch') {
-    const {owner, repo} = splitRepositoryName(parameters.repository);
-    parameters.owner = owner;
-    parameters.repo = repo;
-    delete parameters.repository;
-  }
   if (toolId === 'add_issue_comment' && parameters.reaction !== undefined) {
     parameters.content = parameters.reaction;
     delete parameters.reaction;
@@ -755,6 +746,14 @@ async function resolveCreateBranchParameters(
   client: GithubToolClient,
   parameters: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
+  const {owner, repo} = splitRepositoryName(parameters.repository);
+  const branch = parameters.branch;
+  if (typeof branch !== 'string' || branch.length === 0 || branch.startsWith('refs/')) {
+    throw new GithubIntegrationProviderError(
+      'ref-invalid',
+      'Parameter branch must be a non-empty branch name without a refs/ prefix',
+    );
+  }
   const from = parameters.from;
   if (typeof from !== 'string' || from.length === 0) {
     throw new GithubIntegrationProviderError(
@@ -762,33 +761,43 @@ async function resolveCreateBranchParameters(
       'Parameter from must be a 40-character commit oid or a branch name',
     );
   }
+  if (from.startsWith('refs/')) {
+    throw new GithubIntegrationProviderError(
+      'ref-invalid',
+      'Parameter from must be a 40-character commit oid or a branch name without a refs/ prefix',
+    );
+  }
   const sha = GITHUB_COMMIT_OID_PATTERN.test(from)
     ? from
-    : await resolveBranchHeadOid(client, parameters.owner, parameters.repo, from);
-  const {from: _from, ...rest} = parameters;
-  return {...rest, sha};
+    : await resolveBranchHeadOid(client, owner, repo, from);
+  const {repository: _repository, from: _from, ...rest} = parameters;
+  return {...rest, owner, repo, sha};
 }
 
 async function resolveBranchHeadOid(
   client: GithubToolClient,
-  owner: unknown,
-  repo: unknown,
+  owner: string,
+  repo: string,
   branch: string,
 ): Promise<string> {
   let response: GithubToolResponse;
   try {
-    response = await client.request('GET /repos/{owner}/{repo}/git/ref/heads/{branch}', {
-      owner,
-      repo,
-      branch,
-    });
+    response = await mapGithubError(
+      () =>
+        client.request('GET /repos/{owner}/{repo}/git/ref/heads/{branch}', {
+          owner,
+          repo,
+          branch,
+        }),
+      'ref-not-found',
+    );
   } catch (error) {
-    if (error instanceof RequestError && error.status === 404) {
+    if (error instanceof GithubIntegrationProviderError && error.status === 404) {
       throw new GithubIntegrationProviderError(
         'provider-rejected',
-        `Branch '${branch}' does not exist in repository ${owner}/${repo}`,
+        `Branch '${branch}' does not exist in repository ${owner}/${repo}; from must be a 40-character commit oid or an existing branch name`,
         undefined,
-        404,
+        error.status,
       );
     }
     throw error;
@@ -823,37 +832,63 @@ async function createGitBranch(
   parameters: Record<string, unknown>,
 ): Promise<GithubToolResponse> {
   const branch = parameters.branch;
-  if (typeof branch !== 'string' || branch.length === 0 || branch.startsWith('refs/')) {
-    throw new GithubIntegrationProviderError(
-      'ref-invalid',
-      'Parameter branch must be a non-empty branch name without a refs/ prefix',
-    );
-  }
   const owner = parameters.owner;
   const repo = parameters.repo;
-  const requestParameters = {
-    owner,
-    repo,
-    ref: `refs/heads/${branch}`,
-    sha: parameters.sha,
-  };
+  const sha = parameters.sha;
+  let response: GithubToolResponse;
   try {
-    return await client.request('POST /repos/{owner}/{repo}/git/refs', requestParameters);
+    response = await mapGithubError(() =>
+      client.request('POST /repos/{owner}/{repo}/git/refs', {
+        owner,
+        repo,
+        ref: `refs/heads/${branch}`,
+        sha,
+      }),
+    );
   } catch (error) {
-    if (error instanceof RequestError && error.status === 422 && isAlreadyExistsError(error)) {
-      throw new GithubIntegrationProviderError(
-        'provider-rejected',
-        `Branch '${branch}' already exists in repository ${owner}/${repo}`,
-        undefined,
-        422,
-      );
+    if (
+      error instanceof GithubIntegrationProviderError &&
+      error.status === 422 &&
+      isAlreadyExistsMessage(error.message)
+    ) {
+      return await reconcileExistingBranch(client, owner, repo, branch, sha);
     }
     throw error;
   }
+  return response;
 }
 
-function isAlreadyExistsError(error: RequestError): boolean {
-  return error.message.toLowerCase().includes('already exists');
+async function reconcileExistingBranch(
+  client: GithubToolClient,
+  owner: unknown,
+  repo: unknown,
+  branch: unknown,
+  sha: unknown,
+): Promise<GithubToolResponse> {
+  try {
+    const existing = await mapGithubError(() =>
+      client.request('GET /repos/{owner}/{repo}/git/ref/heads/{branch}', {
+        owner,
+        repo,
+        branch,
+      }),
+    );
+    const object =
+      isRecord(existing.data) && isRecord(existing.data.object) ? existing.data.object : undefined;
+    if (object?.sha === sha) return existing;
+  } catch {
+    // Fall through to the already-exists rejection when the existing ref cannot be read.
+  }
+  throw new GithubIntegrationProviderError(
+    'provider-rejected',
+    `Branch '${branch}' already exists in repository ${owner}/${repo}`,
+    undefined,
+    422,
+  );
+}
+
+function isAlreadyExistsMessage(message: string): boolean {
+  return message.toLowerCase().includes('already exists');
 }
 
 function splitRepositoryName(value: unknown): {owner: string; repo: string} {
@@ -1303,6 +1338,17 @@ function methodRequiredParameters(
   }
 
   return [];
+}
+
+function githubPermissionDeniedMessage(
+  tool: AgentToolCatalogEntry<GithubAgentToolRequiredScope>,
+  call: AgentToolCallInput,
+): string {
+  const method = typeof call.arguments.method === 'string' ? call.arguments.method : undefined;
+  const required =
+    tool.methods?.find((candidate) => candidate.id === method)?.requiredScope ?? tool.requiredScope;
+  const scope = required.map(({permission, access}) => `${permission}: ${access}`).join(', ');
+  return `GitHub installation token is missing permission for this operation: ${tool.id} requires ${scope}`;
 }
 
 function hasGrantedPermissions(
