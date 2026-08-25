@@ -1,14 +1,7 @@
-import type {LoginResponseDto, UserDto} from '@shipfox/api-auth-dto';
+import type {SessionResponseDto, UserDto} from '@shipfox/api-auth-dto';
 import type {AuthenticatedSession, UserIdentity} from '#core/session.js';
 
-/**
- * A session response that may carry the optional impersonation mark. The
- * cookie-based login and refresh responses never set it; an externally minted
- * session response does.
- */
-export interface SessionResponseDto extends LoginResponseDto {
-  impersonator_id?: string;
-}
+export type {SessionResponseDto};
 
 export function toUserIdentity(dto: UserDto): UserIdentity {
   return {

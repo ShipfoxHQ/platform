@@ -13,6 +13,10 @@ import {lastWorkspaceIdAtom} from './last-workspace.js';
 
 const REFRESH_EARLY_MS = 5 * 60 * 1000;
 const REFRESH_RETRY_DELAY_MS = 60_000;
+// Consecutive renewal responses that do not advance the adopted window (a
+// malformed response, or an expiry earlier than the one already held) end the
+// adoption instead of driving an unbounded zero-delay renew loop.
+const ADOPTED_RENEWAL_STALL_LIMIT = 3;
 const BASE64_URL_REPLACEMENTS = {dash: /-/g, underscore: /_/g} as const;
 const refreshPromises = new WeakMap<QueryClient, Promise<AuthenticatedSession>>();
 
@@ -56,6 +60,12 @@ interface AdoptedSessionRuntimeState extends AdoptedSessionState {
    * past the later-`expires_at` check while the longer one is entering.
    */
   pendingRenewalExpiryMs: number;
+  /**
+   * Consecutive renewal responses that did not advance the window. Capped at
+   * {@link ADOPTED_RENEWAL_STALL_LIMIT} before the adoption falls back to the
+   * ordinary cookie refresh.
+   */
+  stalledRenewals: number;
 }
 
 const adoptedSessionAtom = atom<AdoptedSessionRuntimeState | null>(null);
@@ -233,11 +243,26 @@ export function useAuthTransition() {
 
 export function useRefreshAuth() {
   const queryClient = useQueryClient();
+  const store = useStore();
   const {beginAuthTransition, enterAuthenticated, enterGuest} = useAuthTransition();
 
   return useCallback(() => {
     const existingRefresh = refreshPromises.get(queryClient);
     if (existingRefresh) return existingRefresh;
+
+    if (store.get(adoptedSessionAtom) !== null) {
+      // The ordinary refresh restores the cookie principal; running it while
+      // an adoption is live would desync the adopted token from its metadata
+      // and make product requests carry the administrator credential. ADR
+      // 0014: the adopted bearer token is the only request credential.
+      return Promise.reject(
+        new ApiError({
+          message: 'The adopted session must end before the ordinary cookie refresh.',
+          code: 'unauthorized',
+          status: 401,
+        }),
+      );
+    }
 
     const transitionEpoch = beginAuthTransition();
     const refresh = (async () => {
@@ -269,7 +294,7 @@ export function useRefreshAuth() {
       },
     );
     return refresh;
-  }, [beginAuthTransition, enterAuthenticated, enterGuest, queryClient]);
+  }, [beginAuthTransition, enterAuthenticated, enterGuest, queryClient, store]);
 }
 
 /**
@@ -282,23 +307,40 @@ export function useRefreshAuth() {
  * ending the adoption, and a mint or renewal response is adopted only when its
  * generation still matches the current one. Tabs share no adopted token and no
  * release state.
+ *
+ * The renew timer asks the supplier near the issuer expiry without operator
+ * action. ADR 0014 renewal is a deliberate administrator action, so callers
+ * gate the supplier on the operator's Extend signal (returning `null`
+ * otherwise) to keep every extension deliberate and audited.
  */
 export function useAdoptedSession() {
   const store = useStore();
   const queryClient = useQueryClient();
-  const {beginAuthTransition, enterAuthenticated} = useAuthTransition();
+  const {beginAuthTransition, enterAuthenticated, enterGuest} = useAuthTransition();
   const refreshAuth = useRefreshAuth();
   const adoptedSession = useAtomValue(adoptedSessionAtom);
 
   const endAdoption = useCallback(async () => {
     store.set(adoptionGenerationAtom, store.get(adoptionGenerationAtom) + 1);
     store.set(adoptedSessionAtom, null);
-    await refreshAuth();
-  }, [refreshAuth, store]);
+    try {
+      await refreshAuth();
+    } catch {
+      // The cookie restore failed (transient network error, or a cookie that
+      // died while the adoption suspended the refresh). The adopted token must
+      // never remain the ambient request credential after Stop, so fall back
+      // to guest instead of leaving the tab under the adopted principal.
+      if (store.get(authStateAtom).status !== 'guest') await enterGuest();
+    }
+  }, [enterGuest, refreshAuth, store]);
 
   const adoptSession = useCallback(
     async (session: AuthenticatedSession, options: AdoptSessionOptions): Promise<boolean> => {
-      const generation = store.get(adoptionGenerationAtom);
+      // Each adoption starts a new generation: a renewal still in flight from
+      // a previous adoption, or a release racing the mint, must not land over
+      // the new adoption.
+      const generation = store.get(adoptionGenerationAtom) + 1;
+      store.set(adoptionGenerationAtom, generation);
       const transitionEpoch = beginAuthTransition();
       // The transition supersedes any cookie refresh still in flight; leaving
       // it in the map would make the release fallback reuse a promise that
@@ -306,7 +348,9 @@ export function useAdoptedSession() {
       invalidateRefresh(queryClient);
       // The token's server-side lifetime started when it was received; a slow
       // workspace hydration must not push the renewal point past expiresAt.
-      const receivedAtMs = Date.now();
+      // The monotonic clock keeps the elapsed measurement immune to wall-clock
+      // steps (NTP correction, VM suspend/resume).
+      const receivedAtMs = performance.now();
       const accepted = await enterAuthenticated(session, transitionEpoch);
       if (!accepted || store.get(adoptionGenerationAtom) !== generation) return false;
       store.set(adoptedSessionAtom, {
@@ -317,6 +361,7 @@ export function useAdoptedSession() {
         serverTime: options.serverTime,
         renew: options.renew,
         pendingRenewalExpiryMs: 0,
+        stalledRenewals: 0,
       });
       return true;
     },
@@ -345,12 +390,28 @@ export function useAdoptedSession() {
     }
 
     const candidateExpiryMs = Date.parse(result.expiresAt);
+    const candidateServerTimeMs = Date.parse(result.serverTime);
+    const candidateValid =
+      Number.isFinite(candidateExpiryMs) &&
+      Number.isFinite(candidateServerTimeMs) &&
+      candidateExpiryMs > candidateServerTimeMs;
     const current = store.get(adoptedSessionAtom);
     if (
       current !== null &&
-      candidateExpiryMs < Math.max(Date.parse(current.expiresAt), current.pendingRenewalExpiryMs)
+      (!candidateValid ||
+        candidateExpiryMs < Math.max(Date.parse(current.expiresAt), current.pendingRenewalExpiryMs))
     ) {
-      // A racing renewal already adopted or reserved a later expiry; keep it.
+      // A malformed response (non-finite or non-positive issuer window) is
+      // never adopted, and a racing renewal already adopted or reserved a
+      // later expiry; keep the later token. Either way the adoption did not
+      // move, so count a stall: a supplier stuck on such responses must not
+      // drive an unbounded zero-delay renew loop, so the adoption falls back
+      // to the cookie refresh at the limit.
+      const stalled = {...current, stalledRenewals: current.stalledRenewals + 1};
+      store.set(adoptedSessionAtom, stalled);
+      if (stalled.stalledRenewals >= ADOPTED_RENEWAL_STALL_LIMIT) {
+        await endAdoption();
+      }
       return null;
     }
     if (current === null) return null;
@@ -360,7 +421,7 @@ export function useAdoptedSession() {
       store.set(adoptedSessionAtom, {...current, pendingRenewalExpiryMs: candidateExpiryMs});
     }
 
-    const receivedAtMs = Date.now();
+    const receivedAtMs = performance.now();
     const transitionEpoch = beginAuthTransition();
     // The renewal transition supersedes any cookie refresh still in flight;
     // release must not reuse a promise that will reject as superseded.
@@ -383,6 +444,7 @@ export function useAdoptedSession() {
       serverTime: result.serverTime,
       renew: adopted.renew,
       pendingRenewalExpiryMs: 0,
+      stalledRenewals: 0,
     });
     return result;
   }, [beginAuthTransition, endAdoption, enterAuthenticated, queryClient, store]);
@@ -415,9 +477,12 @@ export function AuthRuntime({children, effects = true}: AuthRuntimeProps) {
         if (store.get(adoptedSessionAtom) !== null) {
           // A 401 under an adopted token ends the adoption: the cookie
           // refresh restores the cookie's principal, and the renew timer must
-          // not resurrect the adopted session afterwards.
+          // not resurrect the adopted session afterwards. The falsy result
+          // stops the failed request from being re-sent under the restored
+          // administrator's principal (ADR 0014: the adopted bearer token is
+          // the only request credential).
           await releaseAdoptedSession();
-          return store.get(authStateAtom).token ?? '';
+          return undefined;
         }
         return (await refreshAuth()).accessToken;
       },
@@ -507,14 +572,15 @@ export function AuthRuntime({children, effects = true}: AuthRuntimeProps) {
       clearRenewTimer();
       const current = store.get(adoptedSessionAtom);
       if (current === null) return;
-      // The fire point comes from the issuer timestamps; the local clock only
-      // measures elapsed time, so a skewed browser clock cannot shift it.
-      const durationMs = Date.parse(current.expiresAt) - Date.parse(current.serverTime);
-      const earlyFireAtMs = current.receivedAtMs + durationMs - REFRESH_EARLY_MS;
+      // The fire point comes from the issuer timestamps; elapsed time is
+      // measured on the monotonic clock so a wall-clock step (NTP correction,
+      // VM suspend/resume) cannot shift the renewal point.
+      const earlyFireAtMs =
+        current.receivedAtMs + getAdoptedSessionRenewDelayMs(current.expiresAt, current.serverTime);
       // A missed early point (tab suspended, timer throttled) must renew now
       // instead of waiting for the hard expiry.
-      nextFireAtMs = Math.max(earlyFireAtMs, Date.now());
-      timeout = setTimeout(runRenew, Math.max(0, nextFireAtMs - Date.now()));
+      nextFireAtMs = Math.max(earlyFireAtMs, performance.now());
+      timeout = setTimeout(runRenew, Math.max(0, nextFireAtMs - performance.now()));
     };
     const runRenew = () => {
       if (disposed || renewing) return;
@@ -531,7 +597,7 @@ export function AuthRuntime({children, effects = true}: AuthRuntimeProps) {
         });
     };
     const renewIfDue = () => {
-      if (Date.now() >= nextFireAtMs) runRenew();
+      if (performance.now() >= nextFireAtMs) runRenew();
     };
     const renewIfVisible = () => {
       if (document.visibilityState === 'visible') renewIfDue();

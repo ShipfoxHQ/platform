@@ -1,6 +1,11 @@
 // @vitest-environment jsdom
 import type {LoginResponseDto, UserDto} from '@shipfox/api-auth-dto';
-import {configureApiClient, resetApiClient} from '@shipfox/client-api';
+import {
+  checkedApiRequest,
+  configureApiClient,
+  emptyResponseSchema,
+  resetApiClient,
+} from '@shipfox/client-api';
 import {QueryClient} from '@tanstack/react-query';
 import {cleanup, render, waitFor} from '@testing-library/react';
 import {createStore} from 'jotai';
@@ -12,6 +17,7 @@ import {
   authStateAtom,
   getAdoptedSessionRenewDelayMs,
   useAdoptedSession,
+  useRefreshAuth,
 } from './auth.js';
 import {ShellProviderStack} from './provider-stack.js';
 
@@ -85,18 +91,30 @@ interface AdoptedSessionApi {
   renewAdoptedSession: () => Promise<AdoptedSessionRenewal | null>;
   releaseAdoptedSession: () => Promise<void>;
   adoptedSession: AdoptedSessionState | null;
+  refreshAuth: () => Promise<AuthenticatedSession>;
 }
 
 function AuthHarness({apiRef}: {apiRef: {current: AdoptedSessionApi | null}}) {
   const {adoptSession, renewAdoptedSession, releaseAdoptedSession, adoptedSession} =
     useAdoptedSession();
-  apiRef.current = {adoptSession, renewAdoptedSession, releaseAdoptedSession, adoptedSession};
+  const refreshAuth = useRefreshAuth();
+  apiRef.current = {
+    adoptSession,
+    renewAdoptedSession,
+    releaseAdoptedSession,
+    adoptedSession,
+    refreshAuth,
+  };
   return null;
 }
 
 function renderAuthHarness(
   adminToken: string = ADMIN_SESSION_DTO.token,
-  options: {holdSecondRefresh?: boolean} = {},
+  options: {
+    holdSecondRefresh?: boolean;
+    failRefreshFromCall?: number;
+    unauthorizedPaths?: string[];
+  } = {},
 ) {
   const queryClient = new QueryClient({defaultOptions: {queries: {retry: false}}});
   const store = createStore();
@@ -107,6 +125,12 @@ function renderAuthHarness(
     const url = input instanceof Request ? input.url : String(input);
     if (url.endsWith('/auth/refresh')) {
       refreshCalls += 1;
+      if (
+        options.failRefreshFromCall !== undefined &&
+        refreshCalls >= options.failRefreshFromCall
+      ) {
+        return Promise.reject(new TypeError('Failed to fetch'));
+      }
       // Only the mount refresh carries the caller-provided token; later
       // refreshes restore the plain cookie session token.
       if (options.holdSecondRefresh && refreshCalls === 2) {
@@ -118,6 +142,9 @@ function renderAuthHarness(
         ...ADMIN_SESSION_DTO,
         token: refreshCalls === 1 ? adminToken : ADMIN_SESSION_DTO.token,
       });
+    }
+    if (options.unauthorizedPaths?.some((path) => url.endsWith(path))) {
+      return jsonResponsePromise({message: 'Unauthorized', code: 'unauthorized'}, {status: 401});
     }
     if (url.endsWith('/workspaces')) return jsonResponsePromise({memberships: []});
     return jsonResponsePromise({message: 'Not found', code: 'not-found'}, {status: 404});
@@ -475,5 +502,205 @@ describe('adopted-session runtime seam', () => {
 
     expect(store.get(authStateAtom).token).toBe('later-token');
     await waitFor(() => expect(apiRef.current?.adoptedSession?.expiresAt).toBe(laterExpiresAt));
+  });
+
+  test('a 401 under an adopted token ends the adoption without replaying the request as the administrator', async () => {
+    const {apiRef, fetchImpl, store} = renderAuthHarness(ADMIN_SESSION_DTO.token, {
+      unauthorizedPaths: ['/widgets'],
+    });
+    await waitForCookieSession(store, ADMIN_SESSION_DTO.token);
+
+    const api = harnessApi(apiRef);
+    const renew = vi.fn(() => Promise.resolve(null));
+    await api.adoptSession(ADOPTED_SESSION, {
+      expiresAt: EXPIRES_AT,
+      serverTime: SERVER_TIME,
+      renew,
+    });
+
+    // A product request made under the adopted token is refused with a 401.
+    await expect(checkedApiRequest(emptyResponseSchema, '/widgets')).rejects.toMatchObject({
+      status: 401,
+      code: 'unauthorized',
+    });
+
+    // The adoption ended and the cookie principal was restored...
+    await waitForCookieSession(store, ADMIN_SESSION_DTO.token);
+    await waitFor(() => expect(apiRef.current?.adoptedSession).toBeNull());
+    // ...the failed request was not re-executed under the administrator...
+    const widgetCalls = fetchImpl.mock.calls.filter(([input]) => {
+      const url = input instanceof Request ? input.url : String(input);
+      return url.endsWith('/widgets');
+    });
+    expect(widgetCalls).toHaveLength(1);
+    // ...and the renew supplier is never asked afterwards.
+    expect(renew).not.toHaveBeenCalled();
+  });
+
+  test('a failed cookie restore at release leaves no adopted credential behind', async () => {
+    const {apiRef, store} = renderAuthHarness(ADMIN_SESSION_DTO.token, {
+      failRefreshFromCall: 2,
+    });
+    await waitForCookieSession(store, ADMIN_SESSION_DTO.token);
+
+    const api = harnessApi(apiRef);
+    const renew = vi.fn(() => Promise.resolve(null));
+    await api.adoptSession(ADOPTED_SESSION, {
+      expiresAt: EXPIRES_AT,
+      serverTime: SERVER_TIME,
+      renew,
+    });
+
+    await expect(api.releaseAdoptedSession()).resolves.toBeUndefined();
+
+    // The cookie restore failed, so the release fell back to guest: the
+    // adopted token is no longer the ambient request credential.
+    expect(store.get(authStateAtom).status).toBe('guest');
+    expect(store.get(authStateAtom).token).toBeUndefined();
+    await waitFor(() => expect(apiRef.current?.adoptedSession).toBeNull());
+  });
+
+  test('re-adoption invalidates a renewal still in flight from the previous adoption', async () => {
+    const {apiRef, store} = renderAuthHarness();
+    await waitForCookieSession(store, ADMIN_SESSION_DTO.token);
+
+    let resolveRenew: (result: AdoptedSessionRenewal | null) => void = () => undefined;
+    const firstRenew = vi.fn(
+      () =>
+        new Promise<AdoptedSessionRenewal | null>((resolve) => {
+          resolveRenew = resolve;
+        }),
+    );
+    const api = harnessApi(apiRef);
+    await api.adoptSession(ADOPTED_SESSION, {
+      expiresAt: EXPIRES_AT,
+      serverTime: SERVER_TIME,
+      renew: firstRenew,
+    });
+
+    const inFlightRenewal = api.renewAdoptedSession();
+
+    const secondSession: AuthenticatedSession = {
+      ...ADOPTED_SESSION,
+      accessToken: 'second-adopted-token',
+    };
+    await api.adoptSession(secondSession, {
+      expiresAt: EXPIRES_AT,
+      serverTime: SERVER_TIME,
+      renew: vi.fn(() => Promise.resolve(null)),
+    });
+
+    // The stale renewal lands after the re-adoption and must be discarded:
+    // it must not overwrite the new adoption with the previous target's token.
+    resolveRenew({
+      session: {...ADOPTED_SESSION, accessToken: 'stale-token'},
+      expiresAt: '2026-08-25T09:30:00.000Z',
+      serverTime: SERVER_TIME,
+    });
+    await expect(inFlightRenewal).resolves.toBeNull();
+
+    expect(store.get(authStateAtom).token).toBe('second-adopted-token');
+    await waitFor(() =>
+      expect(apiRef.current?.adoptedSession?.session.accessToken).toBe('second-adopted-token'),
+    );
+  });
+
+  test('repeated discarded renewals fall back to the ordinary cookie refresh', async () => {
+    useFakeTimersWithWaitFor();
+    const {apiRef, store} = renderAuthHarness();
+    await waitForCookieSession(store, ADMIN_SESSION_DTO.token);
+
+    // Every renewal returns a valid but earlier expiry: it is discarded, and
+    // without the stall cap the timer would re-fire immediately forever.
+    const renewal: AdoptedSessionRenewal = {
+      session: {...ADOPTED_SESSION, accessToken: 'shorter-token'},
+      expiresAt: '2026-08-25T08:30:00.000Z',
+      serverTime: SERVER_TIME,
+    };
+    const renew = vi.fn(() => Promise.resolve(renewal));
+    const api = harnessApi(apiRef);
+    await api.adoptSession(ADOPTED_SESSION, {
+      expiresAt: EXPIRES_AT,
+      serverTime: SERVER_TIME,
+      renew,
+    });
+
+    await waitFor(() => expect(apiRef.current?.adoptedSession).not.toBeNull());
+    // The fire point sits 40 minutes out on the fake clock; drive the renew
+    // timer through three zero-delay re-arms and the cookie fallback.
+    await vi.advanceTimersByTimeAsync(40 * 60_000 + 1_000);
+    await waitFor(() => expect(apiRef.current?.adoptedSession).toBeNull());
+    expect(renew).toHaveBeenCalledTimes(3);
+    expect(store.get(authStateAtom).token).toBe(ADMIN_SESSION_DTO.token);
+  });
+
+  test('a malformed renewal response is never adopted and degrades to the cookie refresh', async () => {
+    useFakeTimersWithWaitFor();
+    const {apiRef, store} = renderAuthHarness();
+    await waitForCookieSession(store, ADMIN_SESSION_DTO.token);
+
+    const renewal: AdoptedSessionRenewal = {
+      session: {...ADOPTED_SESSION, accessToken: 'malformed-token'},
+      expiresAt: 'not-a-date',
+      serverTime: SERVER_TIME,
+    };
+    const renew = vi.fn(() => Promise.resolve(renewal));
+    const api = harnessApi(apiRef);
+    await api.adoptSession(ADOPTED_SESSION, {
+      expiresAt: EXPIRES_AT,
+      serverTime: SERVER_TIME,
+      renew,
+    });
+
+    await waitFor(() => expect(apiRef.current?.adoptedSession).not.toBeNull());
+    // The fire point sits 40 minutes out on the fake clock; drive the renew
+    // timer through three zero-delay re-arms and the cookie fallback.
+    await vi.advanceTimersByTimeAsync(40 * 60_000 + 1_000);
+    await waitFor(() => expect(apiRef.current?.adoptedSession).toBeNull());
+    expect(renew).toHaveBeenCalledTimes(3);
+    expect(store.get(authStateAtom).token).toBe(ADMIN_SESSION_DTO.token);
+    expect(store.get(authStateAtom).user?.id).toBe(ADMIN_USER.id);
+  });
+
+  test('adoptSession resolves false when a competing transition supersedes the mint', async () => {
+    const {apiRef, store} = renderAuthHarness();
+    await waitForCookieSession(store, ADMIN_SESSION_DTO.token);
+
+    const api = harnessApi(apiRef);
+    const adoptPromise = api.adoptSession(ADOPTED_SESSION, {
+      expiresAt: EXPIRES_AT,
+      serverTime: SERVER_TIME,
+      renew: vi.fn(() => Promise.resolve(null)),
+    });
+    // The ordinary refresh starts a competing transition while the mint is
+    // still entering, so the mint must be refused without setting the atom.
+    const refreshPromise = api.refreshAuth();
+    await expect(adoptPromise).resolves.toBe(false);
+    await expect(refreshPromise).resolves.toBeDefined();
+    expect(apiRef.current?.adoptedSession).toBeNull();
+    expect(store.get(authStateAtom).token).toBe(ADMIN_SESSION_DTO.token);
+  });
+
+  test('renews immediately when the issuer expiry already passed at adoption', async () => {
+    useFakeTimersWithWaitFor();
+    const {apiRef, store} = renderAuthHarness();
+    await waitForCookieSession(store, ADMIN_SESSION_DTO.token);
+
+    // The session expired before it was adopted, so the renewal point is long
+    // past: renewal must run now instead of waiting for the hard expiry.
+    const serverTime = new Date(Date.now() - 10 * 60_000).toISOString();
+    const expiresAt = new Date(Date.now() - 5 * 60_000).toISOString();
+    const renewal: AdoptedSessionRenewal = {
+      session: {...ADOPTED_SESSION, accessToken: 'renewed-token'},
+      expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+      serverTime,
+    };
+    const renew = vi.fn(() => Promise.resolve(renewal));
+    const api = harnessApi(apiRef);
+    await api.adoptSession(ADOPTED_SESSION, {expiresAt, serverTime, renew});
+
+    await waitFor(() => expect(renew).toHaveBeenCalledTimes(1));
+    expect(store.get(authStateAtom).token).toBe('renewed-token');
+    await waitFor(() => expect(apiRef.current?.adoptedSession?.expiresAt).toBe(renewal.expiresAt));
   });
 });

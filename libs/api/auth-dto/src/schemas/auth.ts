@@ -72,6 +72,18 @@ export const loginResponseSchema = z.object({
 
 export type LoginResponseDto = z.infer<typeof loginResponseSchema>;
 
+/**
+ * A session response for an externally minted (adopted) session, which may
+ * carry the optional impersonation mark. The cookie-based login and refresh
+ * responses never set it. ADR 0014 mint, replay, and renewal responses use
+ * this shape; the route that emits it is not implemented yet.
+ */
+export const sessionResponseSchema = loginResponseSchema.extend({
+  impersonator_id: z.string().uuid().optional(),
+});
+
+export type SessionResponseDto = z.infer<typeof sessionResponseSchema>;
+
 export const refreshResponseSchema = loginResponseSchema;
 
 export type RefreshResponseDto = z.infer<typeof refreshResponseSchema>;
