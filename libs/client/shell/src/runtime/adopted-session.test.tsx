@@ -114,13 +114,16 @@ function renderAuthHarness(
     holdSecondRefresh?: boolean;
     failRefreshFromCall?: number;
     unauthorizedPaths?: string[];
+    holdWorkspacesFromCall?: number;
   } = {},
 ) {
   const queryClient = new QueryClient({defaultOptions: {queries: {retry: false}}});
   const store = createStore();
   const apiRef: {current: AdoptedSessionApi | null} = {current: null};
   let refreshCalls = 0;
+  let workspacesCalls = 0;
   let releaseSecondRefresh: (() => void) | undefined;
+  let releaseHeldWorkspaces: (() => void) | undefined;
   const fetchImpl = vi.fn((input: RequestInfo | URL) => {
     const url = input instanceof Request ? input.url : String(input);
     if (url.endsWith('/auth/refresh')) {
@@ -146,7 +149,18 @@ function renderAuthHarness(
     if (options.unauthorizedPaths?.some((path) => url.endsWith(path))) {
       return jsonResponsePromise({message: 'Unauthorized', code: 'unauthorized'}, {status: 401});
     }
-    if (url.endsWith('/workspaces')) return jsonResponsePromise({memberships: []});
+    if (url.endsWith('/workspaces')) {
+      workspacesCalls += 1;
+      if (
+        options.holdWorkspacesFromCall !== undefined &&
+        workspacesCalls >= options.holdWorkspacesFromCall
+      ) {
+        return new Promise<Response>((resolve) => {
+          releaseHeldWorkspaces = () => resolve(jsonResponse({memberships: []}));
+        });
+      }
+      return jsonResponsePromise({memberships: []});
+    }
     return jsonResponsePromise({message: 'Not found', code: 'not-found'}, {status: 404});
   });
   resetApiClient();
@@ -167,6 +181,7 @@ function renderAuthHarness(
     queryClient,
     store,
     releaseSecondRefresh: () => releaseSecondRefresh?.(),
+    releaseHeldWorkspaces: () => releaseHeldWorkspaces?.(),
   };
 }
 
@@ -502,6 +517,45 @@ describe('adopted-session runtime seam', () => {
 
     expect(store.get(authStateAtom).token).toBe('later-token');
     await waitFor(() => expect(apiRef.current?.adoptedSession?.expiresAt).toBe(laterExpiresAt));
+  });
+
+  test('a slow renewal transition does not re-invoke the supplier while it is pending', async () => {
+    useFakeTimersWithWaitFor();
+    const {apiRef, store, releaseHeldWorkspaces} = renderAuthHarness(ADMIN_SESSION_DTO.token, {
+      // 1 = mount hydration, 2 = mint hydration, 3 = renewal transition
+      // hydration, which stays held until the test releases it.
+      holdWorkspacesFromCall: 3,
+    });
+    await waitForCookieSession(store, ADMIN_SESSION_DTO.token);
+
+    // The adopted session is already past its early renewal point, so the
+    // renew timer fires as soon as the adoption lands.
+    const serverTime = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + 3 * 60_000).toISOString();
+    const renewal: AdoptedSessionRenewal = {
+      session: {...ADOPTED_SESSION, accessToken: 'renewed-token'},
+      expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+      serverTime,
+    };
+    const renew = vi.fn(() => Promise.resolve(renewal));
+
+    const api = harnessApi(apiRef);
+    await api.adoptSession(ADOPTED_SESSION, {expiresAt, serverTime, renew});
+    await waitFor(() => expect(renew).toHaveBeenCalledTimes(1));
+
+    // The response was accepted and its expiry reserved, but the workspace
+    // hydration of the adoption transition is still pending. The reservation
+    // must not re-arm the renew timer into a second supplier call while the
+    // first transition is in flight.
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(renew).toHaveBeenCalledTimes(1);
+
+    // The transition completes; the renewal is applied exactly once.
+    releaseHeldWorkspaces();
+    await waitFor(() => expect(store.get(authStateAtom).token).toBe('renewed-token'));
+    await waitFor(() => expect(apiRef.current?.adoptedSession?.expiresAt).toBe(renewal.expiresAt));
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(renew).toHaveBeenCalledTimes(1);
   });
 
   test('a 401 under an adopted token ends the adoption without replaying the request as the administrator', async () => {

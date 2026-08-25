@@ -55,12 +55,6 @@ interface AdoptedSessionRuntimeState extends AdoptedSessionState {
   receivedAtMs: number;
   renew: AdoptedSessionRenewalSupplier;
   /**
-   * Expiry reserved by a renewal whose adoption transition is still running.
-   * Overlapping renewals compare against it so a shorter response cannot slip
-   * past the later-`expires_at` check while the longer one is entering.
-   */
-  pendingRenewalExpiryMs: number;
-  /**
    * Consecutive renewal responses that did not advance the window. Capped at
    * {@link ADOPTED_RENEWAL_STALL_LIMIT} before the adoption falls back to the
    * ordinary cookie refresh.
@@ -70,6 +64,18 @@ interface AdoptedSessionRuntimeState extends AdoptedSessionState {
 
 const adoptedSessionAtom = atom<AdoptedSessionRuntimeState | null>(null);
 const adoptionGenerationAtom = atom(0);
+/**
+ * Expiry reserved by a renewal whose adoption transition is still running.
+ * Overlapping renewals compare against it so a shorter response cannot slip
+ * past the later-`expires_at` check while the longer one is entering.
+ *
+ * It lives in its own atom instead of inside {@link adoptedSessionAtom} so a
+ * reservation write does not re-run `AuthRuntime`'s renewal effect: an effect
+ * re-run while the first transition is still pending would reset the
+ * in-flight guard and schedule another renewal from the old expiry, letting
+ * an already-due adoption invoke the supplier a second time.
+ */
+const adoptedRenewalReservationAtom = atom(0);
 
 function invalidateRefresh(queryClient: QueryClient): void {
   refreshPromises.delete(queryClient);
@@ -322,6 +328,7 @@ export function useAdoptedSession() {
 
   const endAdoption = useCallback(async () => {
     store.set(adoptionGenerationAtom, store.get(adoptionGenerationAtom) + 1);
+    store.set(adoptedRenewalReservationAtom, 0);
     store.set(adoptedSessionAtom, null);
     try {
       await refreshAuth();
@@ -341,6 +348,9 @@ export function useAdoptedSession() {
       // the new adoption.
       const generation = store.get(adoptionGenerationAtom) + 1;
       store.set(adoptionGenerationAtom, generation);
+      // A fresh adoption must not inherit an expiry reserved by a renewal of
+      // the previous adoption whose transition is still in flight.
+      store.set(adoptedRenewalReservationAtom, 0);
       const transitionEpoch = beginAuthTransition();
       // The transition supersedes any cookie refresh still in flight; leaving
       // it in the map would make the release fallback reuse a promise that
@@ -360,7 +370,6 @@ export function useAdoptedSession() {
         expiresAt: options.expiresAt,
         serverTime: options.serverTime,
         renew: options.renew,
-        pendingRenewalExpiryMs: 0,
         stalledRenewals: 0,
       });
       return true;
@@ -399,7 +408,8 @@ export function useAdoptedSession() {
     if (
       current !== null &&
       (!candidateValid ||
-        candidateExpiryMs < Math.max(Date.parse(current.expiresAt), current.pendingRenewalExpiryMs))
+        candidateExpiryMs <
+          Math.max(Date.parse(current.expiresAt), store.get(adoptedRenewalReservationAtom)))
     ) {
       // A malformed response (non-finite or non-positive issuer window) is
       // never adopted, and a racing renewal already adopted or reserved a
@@ -415,10 +425,12 @@ export function useAdoptedSession() {
       return null;
     }
     if (current === null) return null;
-    if (candidateExpiryMs > current.pendingRenewalExpiryMs) {
+    if (candidateExpiryMs > store.get(adoptedRenewalReservationAtom)) {
       // Reserve the candidate expiry before the asynchronous transition so an
-      // overlapping shorter response cannot overwrite the longer token.
-      store.set(adoptedSessionAtom, {...current, pendingRenewalExpiryMs: candidateExpiryMs});
+      // overlapping shorter response cannot overwrite the longer token. The
+      // reservation lives outside adoptedSessionAtom so this write does not
+      // re-run the renew effect while the transition is still pending.
+      store.set(adoptedRenewalReservationAtom, candidateExpiryMs);
     }
 
     const receivedAtMs = performance.now();
@@ -430,12 +442,12 @@ export function useAdoptedSession() {
     if (!accepted || store.get(adoptionGenerationAtom) !== generation) {
       // Drop our reservation only while it is still the current one; another
       // renewal may have reserved a later expiry meanwhile.
-      const latest = store.get(adoptedSessionAtom);
-      if (latest !== null && latest.pendingRenewalExpiryMs === candidateExpiryMs) {
-        store.set(adoptedSessionAtom, {...latest, pendingRenewalExpiryMs: 0});
+      if (store.get(adoptedRenewalReservationAtom) === candidateExpiryMs) {
+        store.set(adoptedRenewalReservationAtom, 0);
       }
       return null;
     }
+    store.set(adoptedRenewalReservationAtom, 0);
     store.set(adoptedSessionAtom, {
       generation,
       receivedAtMs,
@@ -443,7 +455,6 @@ export function useAdoptedSession() {
       expiresAt: result.expiresAt,
       serverTime: result.serverTime,
       renew: adopted.renew,
-      pendingRenewalExpiryMs: 0,
       stalledRenewals: 0,
     });
     return result;
