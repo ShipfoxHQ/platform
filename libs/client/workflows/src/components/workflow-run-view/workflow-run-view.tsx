@@ -650,6 +650,7 @@ function AnnotationJobFilter({
   const sortedJobs = [...jobs].sort(
     (left, right) => left.position - right.position || left.id.localeCompare(right.id),
   );
+  const selectedJobName = jobs.find((job) => job.id === selectedJobId)?.displayName;
 
   return (
     <Select
@@ -659,6 +660,9 @@ function AnnotationJobFilter({
       <SelectTrigger
         size="small"
         aria-label="Filter annotations by job"
+        // Job names are user-authored and the trigger truncates them. Radix renders the value
+        // itself, so only a caller that knows the selected job can offer the full name back.
+        title={selectedJobName ?? 'All jobs'}
         className="w-full min-[480px]:w-240"
       >
         <SelectValue />
