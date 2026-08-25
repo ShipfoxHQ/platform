@@ -207,6 +207,12 @@ describe('manual registration token routes', () => {
 
       expect(res.statusCode).toBe(403);
       expect(res.json().code).toBe('impersonation-not-permitted');
+
+      const rows = await db()
+        .select()
+        .from(manualRegistrationTokens)
+        .where(eq(manualRegistrationTokens.workspaceId, workspaceId));
+      expect(rows).toHaveLength(0);
     });
   });
 

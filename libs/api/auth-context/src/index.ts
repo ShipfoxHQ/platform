@@ -93,14 +93,15 @@ export function requireUserContext(request: RequestWithContext): UserContext {
 }
 
 /**
- * Rejects a request whose user context carries an impersonator (the D6
+ * Rejects a request whose user context carries an impersonator (the
  * durable-artefact deny-list). Routes that issue a credential or create a
  * durable grant call this so an impersonated session cannot leave anything
- * behind that outlives its bounded token window.
+ * behind that outlives its bounded token window. Requires a user context:
+ * callers must run it on routes whose auth method has set one.
  */
 export function rejectImpersonatedSession(request: RequestWithContext): void {
-  const context = getUserContext(request);
-  if (context?.impersonatorId) {
+  const context = requireUserContext(request);
+  if (context.impersonatorId) {
     throw new ClientError(
       'Impersonated sessions cannot issue credentials or create durable grants',
       'impersonation-not-permitted',

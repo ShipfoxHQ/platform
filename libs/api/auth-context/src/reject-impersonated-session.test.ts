@@ -15,8 +15,10 @@ describe('rejectImpersonatedSession', () => {
     expect(() => rejectImpersonatedSession(request)).not.toThrow();
   });
 
-  test('does nothing when no user context is set', () => {
-    expect(() => rejectImpersonatedSession({})).not.toThrow();
+  test('throws when no user context is set', () => {
+    expect(() => rejectImpersonatedSession({})).toThrow(
+      'User context is not available on this request',
+    );
   });
 
   test('throws impersonation-not-permitted for an impersonated session', () => {

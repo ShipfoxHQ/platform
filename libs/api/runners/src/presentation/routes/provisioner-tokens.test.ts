@@ -240,6 +240,12 @@ describe('provisioner token routes', () => {
 
       expect(res.statusCode).toBe(403);
       expect(res.json().code).toBe('impersonation-not-permitted');
+
+      const rows = await db()
+        .select()
+        .from(provisionerTokens)
+        .where(eq(provisionerTokens.workspaceId, workspaceId));
+      expect(rows).toHaveLength(0);
     });
 
     it('rejects a token TTL above one year', async () => {
