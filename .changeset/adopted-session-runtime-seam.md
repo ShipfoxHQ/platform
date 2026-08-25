@@ -2,4 +2,4 @@
 "@shipfox/client-shell": minor
 ---
 
-Adds the adopted-session runtime seam: `adoptSession` enters an externally minted session, suspends the cookie-based proactive refresh, and renews against the issuer clock near expiry; `releaseAdoptedSession` ends the adoption for the tab with a generation guard. Adds the optional `impersonatorId` to `AuthenticatedSession` and its session-mapper mapping.
+Adds `adoptSession` to enter an externally minted session that renews near expiry and falls back to the cookie session. Adds `releaseAdoptedSession` to end an adoption and restore the cookie session. Adds the optional `impersonatorId` to `AuthenticatedSession`.

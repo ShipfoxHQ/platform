@@ -50,6 +50,12 @@ interface AdoptedSessionRuntimeState extends AdoptedSessionState {
   generation: number;
   receivedAtMs: number;
   renew: AdoptedSessionRenewalSupplier;
+  /**
+   * Expiry reserved by a renewal whose adoption transition is still running.
+   * Overlapping renewals compare against it so a shorter response cannot slip
+   * past the later-`expires_at` check while the longer one is entering.
+   */
+  pendingRenewalExpiryMs: number;
 }
 
 const adoptedSessionAtom = atom<AdoptedSessionRuntimeState | null>(null);
@@ -160,10 +166,18 @@ export function useAuthTransition() {
     return transitionEpoch;
   }, [store]);
 
-  const clearPrivateState = useCallback(async () => {
-    await queryClient.cancelQueries();
-    queryClient.clear();
-  }, [queryClient]);
+  const clearPrivateState = useCallback(
+    async (epoch: number): Promise<boolean> => {
+      await queryClient.cancelQueries();
+      // A superseded transition must not clear the cache: the clear would
+      // destroy an in-flight query owned by the transition that superseded it
+      // (for example the cookie fallback started by a release during a mint).
+      if (store.get(authTransitionEpochAtom) !== epoch) return false;
+      queryClient.clear();
+      return true;
+    },
+    [queryClient, store],
+  );
 
   const enterGuest = useCallback(
     async (transitionEpoch?: number) => {
@@ -172,8 +186,7 @@ export function useAuthTransition() {
       if (isExternalTransition) invalidateRefresh(queryClient);
       if (store.get(authTransitionEpochAtom) !== epoch) return false;
 
-      await clearPrivateState();
-      if (store.get(authTransitionEpochAtom) !== epoch) return false;
+      if (!(await clearPrivateState(epoch))) return false;
       setLastWorkspaceId(undefined);
       setState({status: 'guest'});
       return true;
@@ -192,9 +205,10 @@ export function useAuthTransition() {
       const principalChanged =
         previousState.status !== 'authenticated' || previousState.user?.id !== session.user.id;
 
-      if (principalChanged) await clearPrivateState();
-      if (store.get(authTransitionEpochAtom) !== epoch) return false;
-      if (principalChanged) setLastWorkspaceId(undefined);
+      if (principalChanged) {
+        if (!(await clearPrivateState(epoch))) return false;
+        setLastWorkspaceId(undefined);
+      }
 
       queryClient.setQueryData(authRefreshQueryKey, session);
       let workspaces: WorkspaceSummary[] = [];
@@ -271,6 +285,7 @@ export function useRefreshAuth() {
  */
 export function useAdoptedSession() {
   const store = useStore();
+  const queryClient = useQueryClient();
   const {beginAuthTransition, enterAuthenticated} = useAuthTransition();
   const refreshAuth = useRefreshAuth();
   const adoptedSession = useAtomValue(adoptedSessionAtom);
@@ -285,19 +300,27 @@ export function useAdoptedSession() {
     async (session: AuthenticatedSession, options: AdoptSessionOptions): Promise<boolean> => {
       const generation = store.get(adoptionGenerationAtom);
       const transitionEpoch = beginAuthTransition();
+      // The transition supersedes any cookie refresh still in flight; leaving
+      // it in the map would make the release fallback reuse a promise that
+      // rejects as superseded instead of restoring the cookie session.
+      invalidateRefresh(queryClient);
+      // The token's server-side lifetime started when it was received; a slow
+      // workspace hydration must not push the renewal point past expiresAt.
+      const receivedAtMs = Date.now();
       const accepted = await enterAuthenticated(session, transitionEpoch);
       if (!accepted || store.get(adoptionGenerationAtom) !== generation) return false;
       store.set(adoptedSessionAtom, {
         generation,
-        receivedAtMs: Date.now(),
+        receivedAtMs,
         session,
         expiresAt: options.expiresAt,
         serverTime: options.serverTime,
         renew: options.renew,
+        pendingRenewalExpiryMs: 0,
       });
       return true;
     },
-    [beginAuthTransition, enterAuthenticated, store],
+    [beginAuthTransition, enterAuthenticated, queryClient, store],
   );
 
   const renewAdoptedSession = useCallback(async (): Promise<AdoptedSessionRenewal | null> => {
@@ -321,30 +344,55 @@ export function useAdoptedSession() {
       return null;
     }
 
+    const candidateExpiryMs = Date.parse(result.expiresAt);
     const current = store.get(adoptedSessionAtom);
-    if (current !== null && Date.parse(result.expiresAt) < Date.parse(current.expiresAt)) {
-      // Racing responses keep the token with the later expires_at.
-      return result;
+    if (
+      current !== null &&
+      candidateExpiryMs < Math.max(Date.parse(current.expiresAt), current.pendingRenewalExpiryMs)
+    ) {
+      // A racing renewal already adopted or reserved a later expiry; keep it.
+      return null;
+    }
+    if (current === null) return null;
+    if (candidateExpiryMs > current.pendingRenewalExpiryMs) {
+      // Reserve the candidate expiry before the asynchronous transition so an
+      // overlapping shorter response cannot overwrite the longer token.
+      store.set(adoptedSessionAtom, {...current, pendingRenewalExpiryMs: candidateExpiryMs});
     }
 
+    const receivedAtMs = Date.now();
     const transitionEpoch = beginAuthTransition();
+    // The renewal transition supersedes any cookie refresh still in flight;
+    // release must not reuse a promise that will reject as superseded.
+    invalidateRefresh(queryClient);
     const accepted = await enterAuthenticated(result.session, transitionEpoch);
-    if (!accepted || store.get(adoptionGenerationAtom) !== generation) return null;
+    if (!accepted || store.get(adoptionGenerationAtom) !== generation) {
+      // Drop our reservation only while it is still the current one; another
+      // renewal may have reserved a later expiry meanwhile.
+      const latest = store.get(adoptedSessionAtom);
+      if (latest !== null && latest.pendingRenewalExpiryMs === candidateExpiryMs) {
+        store.set(adoptedSessionAtom, {...latest, pendingRenewalExpiryMs: 0});
+      }
+      return null;
+    }
     store.set(adoptedSessionAtom, {
       generation,
-      receivedAtMs: Date.now(),
+      receivedAtMs,
       session: result.session,
       expiresAt: result.expiresAt,
       serverTime: result.serverTime,
       renew: adopted.renew,
+      pendingRenewalExpiryMs: 0,
     });
     return result;
-  }, [beginAuthTransition, endAdoption, enterAuthenticated, store]);
+  }, [beginAuthTransition, endAdoption, enterAuthenticated, queryClient, store]);
 
   const releaseAdoptedSession = useCallback(async () => {
-    if (store.get(adoptedSessionAtom) === null) return;
+    // Always advance the generation and fall back to the cookie: a release
+    // while a mint is still entering must still invalidate that mint, or the
+    // mint would re-enter the session after Stop.
     await endAdoption();
-  }, [endAdoption, store]);
+  }, [endAdoption]);
 
   return {adoptSession, renewAdoptedSession, releaseAdoptedSession, adoptedSession};
 }
@@ -463,8 +511,9 @@ export function AuthRuntime({children, effects = true}: AuthRuntimeProps) {
       // measures elapsed time, so a skewed browser clock cannot shift it.
       const durationMs = Date.parse(current.expiresAt) - Date.parse(current.serverTime);
       const earlyFireAtMs = current.receivedAtMs + durationMs - REFRESH_EARLY_MS;
-      const expiryFireAtMs = current.receivedAtMs + durationMs;
-      nextFireAtMs = earlyFireAtMs >= Date.now() ? earlyFireAtMs : expiryFireAtMs;
+      // A missed early point (tab suspended, timer throttled) must renew now
+      // instead of waiting for the hard expiry.
+      nextFireAtMs = Math.max(earlyFireAtMs, Date.now());
       timeout = setTimeout(runRenew, Math.max(0, nextFireAtMs - Date.now()));
     };
     const runRenew = () => {
