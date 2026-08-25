@@ -12,13 +12,14 @@ import {AUTH_USER} from '@shipfox/api-auth-context';
 import {workflowsInterModuleContract} from '@shipfox/api-workflows-dto/inter-module';
 import {createInterModuleKnownError} from '@shipfox/inter-module';
 import {type AuthMethod, closeApp, createApp, type FastifyInstance} from '@shipfox/node-fastify';
-import {eq, inArray} from 'drizzle-orm';
+import {inArray} from 'drizzle-orm';
 import {config} from '#config.js';
 import type {AgentSession} from '#core/entities/agent-session.js';
+import {AgentSessionUnavailableError} from '#core/errors.js';
 import {decodeBase64SessionKek} from '#core/session-artifacts/crypto.js';
 import {SessionDekManager} from '#core/session-artifacts/dek-manager.js';
 import {createSessionKeyProvider} from '#core/session-artifacts/key-provider.js';
-import type {SegmentManifest} from '#core/session-artifacts/manifest.js';
+import * as objectStorage from '#core/session-artifacts/object-storage.js';
 import {
   deleteSessionObjects,
   listSessionObjectKeys,
@@ -66,6 +67,14 @@ function manifestHeaders(): Record<string, string> {
   };
 }
 
+function commitHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  return {
+    'content-type': SESSION_TRANSCRIPT_CONTENT_TYPE,
+    ...manifestHeaders(),
+    ...extra,
+  };
+}
+
 describe('lease-authed session transcript routes', () => {
   let app: FastifyInstance;
   let store: SessionArtifactStore;
@@ -92,17 +101,6 @@ describe('lease-authed session transcript routes', () => {
     key: string;
     stepAttemptId: string;
     stepId: string;
-  }
-
-  function manifest(overrides: Partial<SegmentManifest> = {}): SegmentManifest {
-    return {
-      harness: 'pi',
-      sdkVersion: '0.82.0',
-      model: 'gpt-5.2',
-      provider: 'openai',
-      committedByStepAttempt: crypto.randomUUID(),
-      ...overrides,
-    };
   }
 
   async function arrangeClaimedSession(ctx: SessionCtx): Promise<AgentSession> {
@@ -222,20 +220,22 @@ describe('lease-authed session transcript routes', () => {
     it('returns the decrypted, still-gzipped head snapshot with manifest headers', async () => {
       const ctx = newCtx();
       const session = await arrangeClaimedSession(ctx);
-      await store.commitSegment({
-        session,
-        stepAttemptId: ctx.stepAttemptId,
-        baseSegment: 0,
-        blob: Buffer.from('gzipped transcript bytes'),
-        manifest: manifest({committedByStepAttempt: ctx.stepAttemptId}),
-        headRepoRef: null,
-      });
-      await db()
-        .update(sessions)
-        .set({harnessSessionId: 'harness-session-1'})
-        .where(eq(sessions.id, session.id));
       await createAppWithWorkflows(workflowsClientFor(ctx, session));
       const token = await mintTestLeaseToken(ctx);
+
+      // End-to-end harness-session-id round trip: the runner reports the
+      // harness-native session id on the commit, the server persists it on the
+      // row when the head flips, and the GET serves it back.
+      const commit = await app.inject({
+        method: 'POST',
+        url: commitUrl(ctx.stepId, 1, 0),
+        headers: {
+          authorization: `Bearer ${token}`,
+          ...commitHeaders({[SESSION_TRANSCRIPT_HARNESS_SESSION_ID_HEADER]: 'harness-session-1'}),
+        },
+        payload: Buffer.from('gzipped transcript bytes'),
+      });
+      expect(commit.statusCode).toBe(200);
 
       const res = await app.inject({
         method: 'GET',
@@ -368,6 +368,102 @@ describe('lease-authed session transcript routes', () => {
       expect(res.statusCode).toBe(404);
       expect(res.json().code).toBe('lease-not-active');
     });
+
+    test.each([
+      ['step-not-found', 404],
+      ['job-not-found', 404],
+      ['step-attempt-mismatch', 409],
+      ['step-not-running', 409],
+      ['leased-step-not-agent', 409],
+      ['step-session-config-invalid', 409],
+    ] as const)('maps a workflows %s known error to %i', async (code, status) => {
+      const ctx = newCtx();
+      const workflows = createTestWorkflowsClient({
+        getLeasedAgentSessionContext: () =>
+          Promise.reject(
+            createInterModuleKnownError(
+              workflowsInterModuleContract.methods.getLeasedAgentSessionContext,
+              code,
+              {},
+            ),
+          ),
+      });
+      await createAppWithWorkflows(workflows);
+      const token = await mintTestLeaseToken(ctx);
+
+      const res = await app.inject({
+        method: 'GET',
+        url: sessionUrl(ctx.stepId, 1),
+        headers: {authorization: `Bearer ${token}`},
+      });
+
+      expect(res.statusCode).toBe(status);
+      expect(res.json().code).toBe(code);
+    });
+
+    it('maps a missing head object to 503 session-unavailable with the reason', async () => {
+      const ctx = newCtx();
+      const session = await arrangeClaimedSession(ctx);
+      await createAppWithWorkflows(workflowsClientFor(ctx, session));
+      // The row points at a head that no longer exists in the object store:
+      // the store raises object_missing, which must surface as the stable
+      // session-unavailable contract instead of a 500.
+      vi.spyOn(store, 'readHeadSegment').mockRejectedValue(
+        new AgentSessionUnavailableError('object_missing'),
+      );
+      const token = await mintTestLeaseToken(ctx);
+
+      const res = await app.inject({
+        method: 'GET',
+        url: sessionUrl(ctx.stepId, 1),
+        headers: {authorization: `Bearer ${token}`},
+      });
+
+      expect(res.statusCode).toBe(503);
+      expect(res.json()).toEqual({
+        code: 'session-unavailable',
+        details: {reason: 'object_missing'},
+      });
+    });
+
+    it('rejects a descriptor naming a session row of another workspace', async () => {
+      const ctxA = newCtx();
+      const other = newCtx();
+      // A real session row in workspace B.
+      const foreignSession = await arrangeClaimedSession(other);
+      // The lease resolves to workspace A but returns B's session id: a
+      // forwarded descriptor must not reach another tenant's session.
+      const workflows = createTestWorkflowsClient({
+        getLeasedAgentSessionContext: () =>
+          Promise.resolve({
+            workspaceId: ctxA.workspaceId,
+            projectId: ctxA.projectId,
+            workflowRunAttemptId: ctxA.workflowRunAttemptId,
+            stepAttemptId: ctxA.stepAttemptId,
+            session: {
+              id: foreignSession.id,
+              key: other.key,
+              mode: 'resume',
+              segment: 0,
+            },
+          }),
+      });
+      await createAppWithWorkflows(workflows);
+      // The store must never be touched: resolution fails before any object
+      // access under the foreign workspace's prefix.
+      const readSpy = vi.spyOn(store, 'readHeadSegment');
+      const token = await mintTestLeaseToken(ctxA);
+
+      const res = await app.inject({
+        method: 'GET',
+        url: sessionUrl(ctxA.stepId, 1),
+        headers: {authorization: `Bearer ${token}`},
+      });
+
+      expect(res.statusCode).toBe(404);
+      expect(res.json().code).toBe('session-not-found');
+      expect(readSpy).not.toHaveBeenCalled();
+    });
   });
 
   describe('POST /runs/jobs/current/steps/:stepId/session', () => {
@@ -403,23 +499,169 @@ describe('lease-authed session transcript routes', () => {
       const session = await arrangeClaimedSession(ctx);
       await createAppWithWorkflows(workflowsClientFor(ctx, session));
       const token = await mintTestLeaseToken(ctx);
+
+      const first = await app.inject({
+        method: 'POST',
+        url: commitUrl(ctx.stepId, 1, 0),
+        headers: {authorization: `Bearer ${token}`, ...commitHeaders()},
+        payload: Buffer.from('gzipped transcript bytes'),
+      });
+      expect(first.statusCode).toBe(200);
+      expect(first.json()).toEqual({status: 'committed', segment: 1});
+
+      // The retry carries a distinct payload; if the retry path re-sealed or
+      // re-uploaded the object (or re-flipped the head to a new key) while
+      // still acking, the follow-up GET would expose the rewritten bytes or a
+      // moved segment header.
+      const retried = await app.inject({
+        method: 'POST',
+        url: commitUrl(ctx.stepId, 1, 0),
+        headers: {authorization: `Bearer ${token}`, ...commitHeaders()},
+        payload: Buffer.from('distinct retry payload that must not land'),
+      });
+
+      expect(retried.statusCode).toBe(200);
+      expect(retried.json()).toEqual({status: 'retry-acked', segment: 1});
+
+      const head = await app.inject({
+        method: 'GET',
+        url: sessionUrl(ctx.stepId, 1),
+        headers: {authorization: `Bearer ${token}`},
+      });
+      expect(head.statusCode).toBe(200);
+      expect(head.rawPayload).toEqual(Buffer.from('gzipped transcript bytes'));
+      expect(head.headers[SESSION_TRANSCRIPT_SEGMENT_HEADER]).toBe('1');
+    });
+
+    it('serializes concurrent duplicate commits: one committed, one retry-acked, one upload', async () => {
+      const ctx = newCtx();
+      const session = await arrangeClaimedSession(ctx);
+      await createAppWithWorkflows(workflowsClientFor(ctx, session));
+      const token = await mintTestLeaseToken(ctx);
+      const putSpy = vi.spyOn(objectStorage, 'putSessionObject');
+
       const inject = () =>
         app.inject({
           method: 'POST',
           url: commitUrl(ctx.stepId, 1, 0),
-          headers: {
-            authorization: `Bearer ${token}`,
-            'content-type': SESSION_TRANSCRIPT_CONTENT_TYPE,
-            ...manifestHeaders(),
-          },
+          headers: {authorization: `Bearer ${token}`, ...commitHeaders()},
           payload: Buffer.from('gzipped transcript bytes'),
         });
 
-      expect((await inject()).json()).toEqual({status: 'committed', segment: 1});
-      const retried = await inject();
+      const [a, b] = await Promise.all([inject(), inject()]);
 
-      expect(retried.statusCode).toBe(200);
-      expect(retried.json()).toEqual({status: 'retry-acked', segment: 1});
+      const outcomes = [a.json(), b.json()].map((r) => r.status);
+      expect(outcomes.sort()).toEqual(['committed', 'retry-acked']);
+      expect(a.statusCode).toBe(200);
+      expect(b.statusCode).toBe(200);
+      // The row lock serializes the duplicates: the winner uploads exactly
+      // once and flips the head; the loser is acked without touching the
+      // object store.
+      expect(putSpy).toHaveBeenCalledTimes(1);
+
+      const committed = await getSessionById(session.id);
+      expect(committed).not.toBeNull();
+      const head = committed ? await store.readHeadSegment(committed) : null;
+      expect(head?.blob).toEqual(Buffer.from('gzipped transcript bytes'));
+    });
+
+    it('commits a second forward segment (base 1 -> 2) and flips the head', async () => {
+      const ctx = newCtx();
+      const session = await arrangeClaimedSession(ctx);
+      await createAppWithWorkflows(workflowsClientFor(ctx, session));
+      const token = await mintTestLeaseToken(ctx);
+
+      const first = await app.inject({
+        method: 'POST',
+        url: commitUrl(ctx.stepId, 1, 0),
+        headers: {authorization: `Bearer ${token}`, ...commitHeaders()},
+        payload: Buffer.from('first segment bytes'),
+      });
+      expect(first.statusCode).toBe(200);
+      expect(first.json()).toEqual({status: 'committed', segment: 1});
+
+      const second = await app.inject({
+        method: 'POST',
+        url: commitUrl(ctx.stepId, 1, 1),
+        headers: {authorization: `Bearer ${token}`, ...commitHeaders()},
+        payload: Buffer.from('second segment bytes'),
+      });
+      expect(second.statusCode).toBe(200);
+      expect(second.json()).toEqual({status: 'committed', segment: 2});
+
+      // GET serves segment 2 with the second blob.
+      const head = await app.inject({
+        method: 'GET',
+        url: sessionUrl(ctx.stepId, 1),
+        headers: {authorization: `Bearer ${token}`},
+      });
+      expect(head.statusCode).toBe(200);
+      expect(head.rawPayload).toEqual(Buffer.from('second segment bytes'));
+      expect(head.headers[SESSION_TRANSCRIPT_SEGMENT_HEADER]).toBe('2');
+
+      // A stale base (0) against head 2 conflicts with the current head.
+      const stale = await app.inject({
+        method: 'POST',
+        url: commitUrl(ctx.stepId, 1, 0),
+        headers: {authorization: `Bearer ${token}`, ...commitHeaders()},
+        payload: Buffer.from('stale commit'),
+      });
+      expect(stale.statusCode).toBe(409);
+      expect(stale.json()).toEqual({
+        code: 'session-commit-conflict',
+        details: {head_segment: 2},
+      });
+    });
+
+    it('persists the reported harness session id on the row when the head flips', async () => {
+      const ctx = newCtx();
+      const session = await arrangeClaimedSession(ctx);
+      await createAppWithWorkflows(workflowsClientFor(ctx, session));
+      const token = await mintTestLeaseToken(ctx);
+
+      const res = await app.inject({
+        method: 'POST',
+        url: commitUrl(ctx.stepId, 1, 0),
+        headers: {
+          authorization: `Bearer ${token}`,
+          ...commitHeaders({[SESSION_TRANSCRIPT_HARNESS_SESSION_ID_HEADER]: 'harness-session-9'}),
+        },
+        payload: Buffer.from('gzipped transcript bytes'),
+      });
+
+      expect(res.statusCode).toBe(200);
+      const committed = await getSessionById(session.id);
+      expect(committed?.harnessSessionId).toBe('harness-session-9');
+    });
+
+    it('rejects an absent commit body with 400', async () => {
+      const ctx = newCtx();
+      const session = await arrangeClaimedSession(ctx);
+      await createAppWithWorkflows(workflowsClientFor(ctx, session));
+      const token = await mintTestLeaseToken(ctx);
+
+      // No Content-Type and no body: the raw-body plugin never parses it, so
+      // the handler sees no body.
+      const noBody = await app.inject({
+        method: 'POST',
+        url: commitUrl(ctx.stepId, 1, 0),
+        headers: {authorization: `Bearer ${token}`, ...manifestHeaders()},
+      });
+
+      expect(noBody.statusCode).toBe(400);
+      expect(noBody.json().code).toBe('empty-session-transcript');
+
+      // A zero-length body with the session content type parses to an empty
+      // Buffer; a gzipped harness session file is never zero bytes.
+      const emptyBody = await app.inject({
+        method: 'POST',
+        url: commitUrl(ctx.stepId, 1, 0),
+        headers: {authorization: `Bearer ${token}`, ...commitHeaders()},
+        payload: Buffer.alloc(0),
+      });
+
+      expect(emptyBody.statusCode).toBe(400);
+      expect(emptyBody.json().code).toBe('empty-session-transcript');
     });
 
     it('returns 409 on a stale base segment', async () => {
@@ -515,6 +757,47 @@ describe('lease-authed session transcript routes', () => {
 
       expect(res.statusCode).toBe(413);
       expect(res.json().code).toBe('blob-cap-exceeded');
+    });
+
+    it('commits a blob exactly at the platform cap', async () => {
+      const ctx = newCtx();
+      const session = await arrangeClaimedSession(ctx);
+      await createAppWithWorkflows(workflowsClientFor(ctx, session));
+      const token = await mintTestLeaseToken(ctx);
+
+      const res = await app.inject({
+        method: 'POST',
+        url: commitUrl(ctx.stepId, 1, 0),
+        headers: {authorization: `Bearer ${token}`, ...commitHeaders()},
+        payload: Buffer.alloc(config.AGENT_SESSION_BLOB_CAP_BYTES),
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({status: 'committed', segment: 1});
+    });
+
+    it('rejects a blob over the raw-body limit with the same blob-cap-exceeded contract', async () => {
+      const ctx = newCtx();
+      const session = await arrangeClaimedSession(ctx);
+      await createAppWithWorkflows(workflowsClientFor(ctx, session));
+      const token = await mintTestLeaseToken(ctx);
+
+      // The parser limit sits one MiB above the cap as a memory guard; a blob
+      // beyond it is rejected by Fastify before the handler runs and must
+      // surface under the same contract as the store's precise cap check.
+      const overLimit = Buffer.alloc(config.AGENT_SESSION_BLOB_CAP_BYTES + 1024 * 1024 + 1);
+      const res = await app.inject({
+        method: 'POST',
+        url: commitUrl(ctx.stepId, 1, 0),
+        headers: {authorization: `Bearer ${token}`, ...commitHeaders()},
+        payload: overLimit,
+      });
+
+      expect(res.statusCode).toBe(413);
+      expect(res.json()).toEqual({
+        code: 'blob-cap-exceeded',
+        details: {max_bytes: config.AGENT_SESSION_BLOB_CAP_BYTES},
+      });
     });
 
     it('rejects a commit without the manifest headers', async () => {

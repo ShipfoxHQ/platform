@@ -1,6 +1,7 @@
 import {
   commitSessionTranscriptQuerySchema,
   commitSessionTranscriptResponseSchema,
+  SESSION_TRANSCRIPT_HARNESS_SESSION_ID_HEADER,
   SESSION_TRANSCRIPT_MODEL_HEADER,
   SESSION_TRANSCRIPT_PROVIDER_HEADER,
   SESSION_TRANSCRIPT_SDK_VERSION_HEADER,
@@ -42,6 +43,18 @@ function manifestFromHeaders(
   };
 }
 
+/**
+ * Reads the optional runner-reported harness-native session id from the commit
+ * request headers. Absent or blank means the runner did not report one; the
+ * existing row value is then preserved on the head flip.
+ */
+function harnessSessionIdFromHeaders(
+  headers: Record<string, string | string[] | undefined>,
+): string | undefined {
+  const value = headers[SESSION_TRANSCRIPT_HARNESS_SESSION_ID_HEADER];
+  return typeof value === 'string' && value.trim() !== '' ? value : undefined;
+}
+
 export function createCommitSessionTranscriptRoute(params: {
   workflows: WorkflowsModuleClient;
   store: SessionArtifactStore;
@@ -50,7 +63,7 @@ export function createCommitSessionTranscriptRoute(params: {
     method: 'POST',
     path: '/steps/:stepId/session',
     description:
-      'Commits the leased agent step session transcript: the body is the gzipped harness session file. The commit applies only when the calling attempt holds the claim and base_segment equals the current head; the server then writes segment base_segment + 1 and flips the head. A retried POST of an already-landed commit is acked without rewriting; every other combination is a 409. The platform blob cap is enforced here.',
+      'Commits the leased agent step session transcript: the body is the gzipped harness session file and must be non-empty. The commit applies only when the calling attempt holds the claim and base_segment equals the current head; the server then writes segment base_segment + 1 and flips the head. A retried POST of an already-landed commit is acked without rewriting; every other combination is a 409. The platform blob cap is enforced here.',
     schema: {
       params: z.object({stepId: z.string().uuid()}),
       querystring: commitSessionTranscriptQuerySchema,
@@ -70,15 +83,33 @@ export function createCommitSessionTranscriptRoute(params: {
         attempt,
       });
 
+      // The raw-body plugin parses only `application/octet-stream`, so a POST
+      // without the content type reaches the handler with no body and an empty
+      // body parses to a zero-length Buffer. A gzipped harness session file is
+      // never zero bytes, so an empty commit can only be a client bug or a
+      // truncated upload; committing it would supersede (and later hard-delete)
+      // the previous head, so reject it instead of storing it.
+      const blob = request.body as Buffer | undefined;
+      if (blob === undefined || blob.length === 0) {
+        throw new ClientError(
+          'Session transcript body must be a non-empty gzipped harness session file',
+          'empty-session-transcript',
+          {status: 400},
+        );
+      }
+
       const result = await params.store.commitSegment({
         session,
         stepAttemptId: context.stepAttemptId,
         baseSegment: base_segment,
-        blob: (request.body as Buffer | undefined) ?? Buffer.alloc(0),
+        blob,
         manifest: manifestFromHeaders(
           request.headers as Record<string, string | string[] | undefined>,
           session.harness,
           context.stepAttemptId,
+        ),
+        harnessSessionId: harnessSessionIdFromHeaders(
+          request.headers as Record<string, string | string[] | undefined>,
         ),
         headRepoRef: null,
       });

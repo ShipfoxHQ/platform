@@ -443,6 +443,12 @@ export interface CommitSessionHeadParams {
   headObjectKey: string;
   /** Compressed size of the newly written transcript artifact. */
   headSizeBytes: number;
+  /**
+   * Harness-native session id reported by the committing runner. Set on the
+   * row when the head flips; omitted (undefined) preserves the existing value
+   * so an older runner that does not report one never wipes a carried-over id.
+   */
+  harnessSessionId?: string | undefined;
   /** Checkout ref the segment ran on (preamble/audit metadata). */
   headRepoRef: string | null;
 }
@@ -493,6 +499,9 @@ export function commitSessionHead(
           headObjectKey: params.headObjectKey,
           headSizeBytes: params.headSizeBytes,
           headCommittedByAttempt: params.stepAttemptId,
+          ...(params.harnessSessionId !== undefined
+            ? {harnessSessionId: params.harnessSessionId}
+            : {}),
           headRepoRef: params.headRepoRef,
           updatedAt: sql`now()`,
           version: sql`${sessions.version} + 1`,

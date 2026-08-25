@@ -142,5 +142,17 @@ export function toSessionTranscriptRouteError(error: unknown): never {
     });
   }
 
+  // The raw-body parser limit sits a margin above the cap as a memory guard;
+  // a blob over that limit is rejected by Fastify before the handler runs.
+  // Surface it under the same contract as the store's precise cap check so a
+  // runner keying retry/cap logic on `blob-cap-exceeded` never sees two codes
+  // for the same logical rejection.
+  if (error instanceof Error && 'code' in error && error.code === 'FST_ERR_CTP_BODY_TOO_LARGE') {
+    throw new ClientError('Session transcript blob exceeds the platform cap', 'blob-cap-exceeded', {
+      status: 413,
+      details: {max_bytes: config.AGENT_SESSION_BLOB_CAP_BYTES},
+    });
+  }
+
   throw error;
 }

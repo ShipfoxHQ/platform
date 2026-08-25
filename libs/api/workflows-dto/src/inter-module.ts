@@ -201,6 +201,13 @@ export const workflowsInterModuleContract = defineInterModuleContract({
      * recorded on the step attempt at dispatch (`null` for steps without a
      * session). Table, objects, and crypto stay inside the agent module; this
      * method is the workflows-owned half of the resolution.
+     *
+     * Adding a required method to the published contract is a compile-time
+     * break for every implementer or fake, so this expansion is only safe
+     * because the implementer surface is internal-only (the presentation in
+     * the workflows package and the in-repo test fakes); no out-of-repo
+     * implementer exists, which is why the minor bump carries it. Keep any
+     * future required additions to the same internal-only assumption.
      */
     getLeasedAgentSessionContext: {
       input: z.object({

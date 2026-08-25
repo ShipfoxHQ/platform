@@ -34,17 +34,20 @@ export const SESSION_TRANSCRIPT_CONTENT_TYPE = 'application/octet-stream' as con
  */
 export const SESSION_TRANSCRIPT_SEGMENT_HEADER = 'x-session-segment' as const;
 export const SESSION_TRANSCRIPT_HARNESS_HEADER = 'x-session-harness' as const;
-export const SESSION_TRANSCRIPT_HARNESS_SESSION_ID_HEADER = 'x-session-harness-session-id' as const;
 
 /**
  * Request headers carrying the segment manifest inputs on the lease-authed
- * POST. The runner is the only authority on the harness SDK version and the
- * model/provider actually used by the invocation, so the commit route reads
- * them here rather than guessing from dispatch-time state.
+ * POST. The runner is the only authority on the harness SDK version, the
+ * model/provider actually used by the invocation, and the harness-native
+ * session id, so the commit route reads them here rather than guessing from
+ * dispatch-time state. `x-session-harness-session-id` is optional; when the
+ * runner reports it, the server persists it on the session row when the head
+ * flips so the GET can serve it back.
  */
 export const SESSION_TRANSCRIPT_SDK_VERSION_HEADER = 'x-session-sdk-version' as const;
 export const SESSION_TRANSCRIPT_MODEL_HEADER = 'x-session-model' as const;
 export const SESSION_TRANSCRIPT_PROVIDER_HEADER = 'x-session-provider' as const;
+export const SESSION_TRANSCRIPT_HARNESS_SESSION_ID_HEADER = 'x-session-harness-session-id' as const;
 
 /** GET query: the step attempt whose session head snapshot is being loaded. */
 export const sessionTranscriptQuerySchema = z.object({
@@ -60,14 +63,17 @@ export type SessionTranscriptQueryDto = z.infer<typeof sessionTranscriptQuerySch
 
 /**
  * POST query: `base_segment` is the head segment the runner loaded (the CAS
- * token); the commit writes `base_segment + 1` and flips the head.
+ * token); the commit writes `base_segment + 1` and flips the head. The max is
+ * one below the int4 head_segment column's max, because the commit computes
+ * `base_segment + 1` before storing it: a schema-accepted base must always
+ * land.
  */
 export const commitSessionTranscriptQuerySchema = sessionTranscriptQuerySchema.extend({
   base_segment: z.coerce
     .number()
     .int()
     .min(0)
-    .max(2_147_483_647)
+    .max(2_147_483_646)
     .describe(
       'Head segment the caller loaded (0 = fresh session). The commit applies only when it equals the current head; otherwise the server returns 409.',
     ),

@@ -17,6 +17,7 @@ import {
   type InterModulePresentation,
 } from '@shipfox/inter-module';
 import {DEFAULT_HARNESS, harnessSchema} from '@shipfox/workflow-document';
+import type {Step} from '#core/entities/step.js';
 import type {WorkflowRunTriggerReference} from '#core/entities/workflow-run.js';
 import {
   InvalidJobRunnerLabelsError,
@@ -57,6 +58,65 @@ export function createWorkflowsInterModulePresentation(params: {
   integrations: IntegrationsModuleClient;
   projects: ProjectsModuleClient;
 }): InterModulePresentation<typeof workflowsInterModuleContract> {
+  /**
+   * Shared lease + running-agent-step resolution for the lease-authed
+   * inter-module methods (`getLeasedAgentToolContext` and
+   * `getLeasedAgentSessionContext`): verifies the runner lease, resolves the
+   * step for the job execution, then validates the job scope, attempt, status,
+   * and agent type in one canonical order. The two seams previously
+   * copy-pasted this chain with diverging check orders (the tool method
+   * resolved the job scope before the attempt/status checks, the session
+   * method after), so the same underlying state surfaced different errors
+   * depending on the method; a single helper keeps error codes and check
+   * ordering from drifting.
+   *
+   * `loadRunningLeasedStep` (routes) deliberately keeps its own copy: it
+   * returns the run scope (trigger reference/origin state), skips the
+   * agent-type check, and speaks HTTP `ClientError`s instead of contract
+   * known errors.
+   */
+  async function resolveLeasedAgentStep(resolution: {
+    method:
+      | typeof workflowsInterModuleContract.methods.getLeasedAgentToolContext
+      | typeof workflowsInterModuleContract.methods.getLeasedAgentSessionContext;
+    input: {
+      jobId: string;
+      jobExecutionId: string;
+      runnerSessionId: string;
+      stepId: string;
+      attempt: number;
+    };
+  }): Promise<{
+    step: Step;
+    scope: NonNullable<Awaited<ReturnType<typeof getJobScope>>>;
+  }> {
+    const {active: leaseIsActive} = await params.runners.getLeaseState({
+      jobId: resolution.input.jobId,
+      jobExecutionId: resolution.input.jobExecutionId,
+      runnerSessionId: resolution.input.runnerSessionId,
+    });
+    if (!leaseIsActive)
+      throw createInterModuleKnownError(resolution.method, 'lease-not-active', {});
+
+    const step = await getStepByIdForJobExecution({
+      stepId: resolution.input.stepId,
+      jobExecutionId: resolution.input.jobExecutionId,
+    });
+    if (!step) throw createInterModuleKnownError(resolution.method, 'step-not-found', {});
+
+    const scope = await getJobScope(resolution.input.jobId);
+    if (!scope) throw createInterModuleKnownError(resolution.method, 'job-not-found', {});
+    if (step.currentAttempt !== resolution.input.attempt) {
+      throw createInterModuleKnownError(resolution.method, 'step-attempt-mismatch', {});
+    }
+    if (step.status !== 'running')
+      throw createInterModuleKnownError(resolution.method, 'step-not-running', {});
+    if (step.type !== 'agent')
+      throw createInterModuleKnownError(resolution.method, 'leased-step-not-agent', {});
+
+    return {step, scope};
+  }
+
   return defineInterModulePresentation(workflowsInterModuleContract, {
     startRunFromTrigger: async (input) => {
       try {
@@ -165,28 +225,7 @@ export function createWorkflowsInterModulePresentation(params: {
     },
     getLeasedAgentToolContext: async (input) => {
       const method = workflowsInterModuleContract.methods.getLeasedAgentToolContext;
-      const {active: leaseIsActive} = await params.runners.getLeaseState({
-        jobId: input.jobId,
-        jobExecutionId: input.jobExecutionId,
-        runnerSessionId: input.runnerSessionId,
-      });
-      if (!leaseIsActive) throw createInterModuleKnownError(method, 'lease-not-active', {});
-
-      const step = await getStepByIdForJobExecution({
-        stepId: input.stepId,
-        jobExecutionId: input.jobExecutionId,
-      });
-      if (!step) throw createInterModuleKnownError(method, 'step-not-found', {});
-
-      const scope = await getJobScope(input.jobId);
-      if (!scope) throw createInterModuleKnownError(method, 'job-not-found', {});
-      if (step.currentAttempt !== input.attempt) {
-        throw createInterModuleKnownError(method, 'step-attempt-mismatch', {});
-      }
-      if (step.status !== 'running')
-        throw createInterModuleKnownError(method, 'step-not-running', {});
-      if (step.type !== 'agent')
-        throw createInterModuleKnownError(method, 'leased-step-not-agent', {});
+      const {step, scope} = await resolveLeasedAgentStep({method, input});
 
       const config = materializedAgentStepConfigSchema.safeParse(step.config);
       if (!config.success) {
@@ -196,28 +235,7 @@ export function createWorkflowsInterModulePresentation(params: {
     },
     getLeasedAgentSessionContext: async (input) => {
       const method = workflowsInterModuleContract.methods.getLeasedAgentSessionContext;
-      const {active: leaseIsActive} = await params.runners.getLeaseState({
-        jobId: input.jobId,
-        jobExecutionId: input.jobExecutionId,
-        runnerSessionId: input.runnerSessionId,
-      });
-      if (!leaseIsActive) throw createInterModuleKnownError(method, 'lease-not-active', {});
-
-      const step = await getStepByIdForJobExecution({
-        stepId: input.stepId,
-        jobExecutionId: input.jobExecutionId,
-      });
-      if (!step) throw createInterModuleKnownError(method, 'step-not-found', {});
-      if (step.currentAttempt !== input.attempt) {
-        throw createInterModuleKnownError(method, 'step-attempt-mismatch', {});
-      }
-      if (step.status !== 'running')
-        throw createInterModuleKnownError(method, 'step-not-running', {});
-      if (step.type !== 'agent')
-        throw createInterModuleKnownError(method, 'leased-step-not-agent', {});
-
-      const scope = await getJobScope(input.jobId);
-      if (!scope) throw createInterModuleKnownError(method, 'job-not-found', {});
+      const {scope} = await resolveLeasedAgentStep({method, input});
 
       const detail = await getStepAttemptDetail({stepId: input.stepId, attempt: input.attempt});
       if (!detail) throw createInterModuleKnownError(method, 'step-attempt-mismatch', {});

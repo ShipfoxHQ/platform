@@ -316,6 +316,47 @@ describe('Workflows inter-module presentation', () => {
         code,
       );
     });
+
+    it('maps a missing job scope to job-not-found', async () => {
+      mocks.getStepByIdForJobExecution.mockResolvedValue({
+        currentAttempt: input.attempt,
+        status: 'running',
+        type: 'agent',
+        config: {},
+      });
+      mocks.getJobScope.mockResolvedValue(undefined);
+      const runners = {getLeaseState: vi.fn().mockResolvedValue({active: true})};
+
+      await expectKnownError(
+        presentation(runners).handlers.getLeasedAgentSessionContext(input, {
+          signal: new AbortController().signal,
+        }),
+        'job-not-found',
+      );
+      expect(mocks.getStepAttemptDetail).not.toHaveBeenCalled();
+    });
+
+    it('maps a missing step attempt detail to step-attempt-mismatch', async () => {
+      mocks.getStepByIdForJobExecution.mockResolvedValue({
+        currentAttempt: input.attempt,
+        status: 'running',
+        type: 'agent',
+        config: {},
+      });
+      mocks.getJobScope.mockResolvedValue({
+        workspaceId: '00000000-0000-4000-8000-000000000010',
+        projectId: '00000000-0000-4000-8000-000000000011',
+      });
+      mocks.getStepAttemptDetail.mockResolvedValue(undefined);
+      const runners = {getLeaseState: vi.fn().mockResolvedValue({active: true})};
+
+      await expectKnownError(
+        presentation(runners).handlers.getLeasedAgentSessionContext(input, {
+          signal: new AbortController().signal,
+        }),
+        'step-attempt-mismatch',
+      );
+    });
   });
 
   test.each([

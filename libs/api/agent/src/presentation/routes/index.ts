@@ -22,9 +22,10 @@ import {createUpdateModelProviderDefaultModelRoute} from './update-model-provide
 import {createUpsertModelProviderConfigRoute} from './upsert-model-provider-config.js';
 
 // The raw-body parser limit is a memory guard, not the cap check: the artifact
-// store compares the blob against AGENT_SESSION_BLOB_CAP_BYTES precisely and
-// fails with the stable `blob-cap-exceeded` contract, so the parser limit sits
-// a margin above the cap to stay out of its way.
+// store compares the blob against AGENT_SESSION_BLOB_CAP_BYTES precisely, and
+// a blob over the parser limit (cap + a margin) is surfaced by the route error
+// mapper under the same `blob-cap-exceeded` contract, so a runner keying on
+// that code sees one shape for every over-cap payload.
 const SESSION_TRANSCRIPT_BODY_LIMIT_MARGIN_BYTES = 1024 * 1024;
 
 export function createAgentRoutes(

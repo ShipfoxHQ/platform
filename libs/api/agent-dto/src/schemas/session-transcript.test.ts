@@ -31,6 +31,25 @@ describe('commitSessionTranscriptQuerySchema', () => {
 
     expect(parse).toThrow();
   });
+
+  it('accepts a base segment one below the int4 head_segment max', () => {
+    const parsed = commitSessionTranscriptQuerySchema.parse({
+      attempt: '1',
+      base_segment: '2147483646',
+    });
+
+    expect(parsed).toEqual({attempt: 1, base_segment: 2_147_483_646});
+  });
+
+  it('rejects a base segment whose +1 would overflow the int4 head_segment column', () => {
+    const parse = () =>
+      commitSessionTranscriptQuerySchema.parse({
+        attempt: '1',
+        base_segment: '2147483647',
+      });
+
+    expect(parse).toThrow();
+  });
 });
 
 describe('commitSessionTranscriptResponseSchema', () => {

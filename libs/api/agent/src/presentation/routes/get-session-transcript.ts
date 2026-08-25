@@ -1,3 +1,4 @@
+import {Buffer} from 'node:buffer';
 import {
   SESSION_TRANSCRIPT_CONTENT_TYPE,
   SESSION_TRANSCRIPT_HARNESS_HEADER,
@@ -24,6 +25,7 @@ export function createGetSessionTranscriptRoute(params: {
       params: z.object({stepId: z.string().uuid()}),
       querystring: sessionTranscriptQuerySchema,
       response: {
+        200: z.instanceof(Buffer),
         204: z.void(),
       },
     },
