@@ -15,6 +15,11 @@ export function createObjectStorageS3Clients(
   profile: ObjectStorageS3Profile,
   options: ObjectStorageS3ClientOptions = {},
 ): ObjectStorageS3Clients {
+  const transferRequestTimeoutMs = options.transferRequestTimeoutMs ?? 0;
+  if (!Number.isSafeInteger(transferRequestTimeoutMs) || transferRequestTimeoutMs < 0) {
+    throw new RangeError('Object-storage transfer request timeout must be a non-negative integer.');
+  }
+
   const connection = {
     endpoint: profile.endpoint,
     region: profile.region,
@@ -37,8 +42,8 @@ export function createObjectStorageS3Clients(
       maxAttempts: 3,
       requestHandler: {
         connectionTimeout: 5_000,
-        requestTimeout: options.transferRequestTimeoutMs ?? 0,
-        throwOnRequestTimeout: (options.transferRequestTimeoutMs ?? 0) > 0,
+        requestTimeout: transferRequestTimeoutMs,
+        throwOnRequestTimeout: transferRequestTimeoutMs > 0,
       },
     }),
   };

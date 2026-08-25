@@ -28,6 +28,12 @@ describe('S3ObjectStore scope', () => {
     );
   });
 
+  it('rejects an invalid transfer timeout before constructing clients', () => {
+    expect(() =>
+      createS3ObjectStore({profile, prefix: 'logs', transferRequestTimeoutMs: Number.NaN}),
+    ).toThrow('Object-storage transfer request timeout must be a non-negative integer.');
+  });
+
   it('rejects keys outside the consumer prefix before sending a command', async () => {
     const send = vi.spyOn(S3Client.prototype, 'send');
     const store = createS3ObjectStore({profile, prefix: 'logs'});

@@ -56,4 +56,15 @@ describe('createObjectStorageS3Clients', () => {
     clients.control.destroy();
     clients.transfer.destroy();
   });
+
+  it.each([
+    -1,
+    1.5,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+  ])('rejects the invalid transfer timeout %s', (transferRequestTimeoutMs) => {
+    expect(() => createObjectStorageS3Clients(profile, {transferRequestTimeoutMs})).toThrow(
+      'Object-storage transfer request timeout must be a non-negative integer.',
+    );
+  });
 });
