@@ -11,6 +11,7 @@ import {
   type SDKUserMessage,
   tool,
 } from '@anthropic-ai/claude-agent-sdk';
+import {claudeRuntimeConfigSchema, isReservedModelProviderId} from '@shipfox/api-agent-dto';
 import {logger} from '@shipfox/node-opentelemetry';
 import {z} from 'zod';
 import {config} from '#config.js';
@@ -65,11 +66,24 @@ async function runClaudeAgent(invocation: HarnessInvocation): Promise<HarnessRes
 
   if (signal.aborted) throw new Error('Agent step aborted before the Claude session started');
   if (agentStateDir === undefined) throw new Error('Agent state directory is required');
-  if (provider !== 'anthropic') {
+  // The server-issued per-step claude block is the discriminator for a managed
+  // provider serving the anthropic-messages dialect; its provider ID (e.g.
+  // "shipfox") is preserved for policy and usage attribution. The adapter is an
+  // unvalidated surface for direct harness callers, so the block shape is
+  // checked here rather than only at the runner DTO boundary.
+  const claudeBlock = invocation.claude;
+  if (claudeBlock !== undefined && !claudeRuntimeConfigSchema.safeParse(claudeBlock).success) {
     throw new AgentConfigError(
-      `Harness "claude" only supports provider "anthropic"; received "${provider}".`,
-      'provider_unsupported',
+      'Harness "claude" received a malformed per-step claude runtime block.',
+      'step_config_invalid',
     );
+  }
+  const providerUnsupported = provider !== 'anthropic' && claudeBlock === undefined;
+  if (providerUnsupported) {
+    const unsupportedReason = isReservedModelProviderId(provider)
+      ? `Harness "claude" only supports provider "anthropic"; received "${provider}".`
+      : `Harness "claude" requires the server-issued per-step claude runtime block for provider "${provider}"; the block was not present in this invocation.`;
+    throw new AgentConfigError(unsupportedReason, 'provider_unsupported');
   }
   if (customProvider !== undefined) {
     throw new AgentConfigError(

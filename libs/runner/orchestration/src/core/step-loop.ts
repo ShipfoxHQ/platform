@@ -527,9 +527,12 @@ export async function executeStep(params: {
       }
 
       let sessionStream: SessionLogStream | undefined;
-      const runtimeCredentialValues = Object.values(runtimeConfig.credentials);
-      const runtimeSecretVariants = buildSecretVariants(runtimeCredentialValues);
-      const agentSecrets = [...secrets, ...runtimeCredentialValues];
+      const runtimeSecretValues = [
+        ...Object.values(runtimeConfig.credentials),
+        ...(runtimeConfig.claude !== undefined ? [runtimeConfig.claude.auth_token] : []),
+      ];
+      const runtimeSecretVariants = buildSecretVariants(runtimeSecretValues);
+      const agentSecrets = [...secrets, ...runtimeSecretValues];
       try {
         sessionStream = createSessionLogStream({
           logsDir,

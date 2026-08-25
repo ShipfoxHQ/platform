@@ -350,6 +350,120 @@ describe('claudeHarnessAdapter', () => {
     expect(lastQueryOptions().env).not.toHaveProperty('ANTHROPIC_MODEL');
   });
 
+  it('accepts a managed provider with the per-step claude runtime block', async () => {
+    queryMock.mockReturnValue(makeQuery([successMessage]));
+
+    const result = await claudeHarnessAdapter.run(
+      invocation({
+        provider: 'shipfox',
+        credentials: {api_key: 'managed-token'},
+        claude: {
+          base_url: 'https://inference.shipfox.dev/v1',
+          auth_token: 'managed-token',
+        },
+      }),
+    );
+
+    expect(result).toEqual({response: 'done'});
+    expect(assertEgressAllowedMock).toHaveBeenCalledWith(
+      'https://inference.shipfox.dev/v1',
+      expect.objectContaining({allowPrivateNetworks: true}),
+    );
+    expect(queryMock).toHaveBeenCalledWith({
+      prompt: expect.any(Object),
+      options: expect.objectContaining({
+        model: 'claude-opus-4-8',
+        env: expect.objectContaining({
+          ANTHROPIC_API_KEY: '',
+          ANTHROPIC_AUTH_TOKEN: 'managed-token',
+          ANTHROPIC_BASE_URL: 'https://inference.shipfox.dev/v1',
+        }),
+      }),
+    });
+    expect(lastQueryOptions().env).not.toHaveProperty('ANTHROPIC_MODEL');
+  });
+
+  it('rejects a managed provider without the per-step claude runtime block', async () => {
+    const result = claudeHarnessAdapter.run(invocation({provider: 'shipfox'}));
+
+    await expect(result).rejects.toEqual(
+      new AgentConfigError(
+        'Harness "claude" requires the server-issued per-step claude runtime block for provider "shipfox"; the block was not present in this invocation.',
+        'provider_unsupported',
+      ),
+    );
+    expect(queryMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects a malformed per-step claude runtime block', async () => {
+    const result = claudeHarnessAdapter.run(
+      invocation({
+        provider: 'shipfox',
+        credentials: {api_key: 'managed-token'},
+        claude: {base_url: '', auth_token: ''},
+      }),
+    );
+
+    await expect(result).rejects.toEqual(
+      new AgentConfigError(
+        'Harness "claude" received a malformed per-step claude runtime block.',
+        'step_config_invalid',
+      ),
+    );
+    expect(queryMock).not.toHaveBeenCalled();
+  });
+
+  it('maps a managed provider egress denial to AgentConfigError', async () => {
+    assertEgressAllowedMock.mockRejectedValue(
+      new EgressDeniedErrorMock('host-denied', 'inference.shipfox.dev'),
+    );
+
+    const result = claudeHarnessAdapter.run(
+      invocation({
+        provider: 'shipfox',
+        credentials: {api_key: 'managed-token'},
+        claude: {
+          base_url: 'https://inference.shipfox.dev/v1',
+          auth_token: 'managed-token',
+        },
+      }),
+    );
+
+    await expect(result).rejects.toEqual(
+      new AgentConfigError(
+        'Claude Anthropic per-step endpoint blocked by egress policy: host-denied (inference.shipfox.dev).',
+        'step_config_invalid',
+      ),
+    );
+    expect(queryMock).not.toHaveBeenCalled();
+  });
+
+  it('surfaces a managed provider error result instead of swallowing it', async () => {
+    queryMock.mockReturnValue(
+      makeQuery([
+        {
+          type: 'result',
+          subtype: 'error_during_execution',
+          is_error: true,
+          errors: ['managed provider rejected the request'],
+        },
+      ]),
+    );
+
+    const result = claudeHarnessAdapter.run(
+      invocation({
+        provider: 'shipfox',
+        credentials: {api_key: 'managed-token'},
+        claude: {
+          base_url: 'https://inference.shipfox.dev/v1',
+          auth_token: 'managed-token',
+        },
+      }),
+    );
+
+    await expect(result).rejects.toThrow('managed provider rejected the request');
+  });
+
   it('keeps integration bridges available with the Anthropic base URL override', async () => {
     configMock.AGENT_CLAUDE_ANTHROPIC_BASE_URL = 'http://127.0.0.1:11434';
     const bridge = mcpBridge();

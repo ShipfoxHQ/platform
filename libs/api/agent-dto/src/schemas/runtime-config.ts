@@ -28,6 +28,15 @@ export const agentRuntimeCredentialsResponseSchema = z
     claude: claudeRuntimeConfigSchema.optional(),
   })
   .superRefine((response, ctx) => {
+    if (response.claude !== undefined && isReservedModelProviderId(response.provider_id)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['claude'],
+        message: 'The per-step claude runtime block is only issued for managed model providers.',
+      });
+      return;
+    }
+
     if (
       isReservedModelProviderId(response.provider_id) ||
       response.custom_provider !== undefined ||
