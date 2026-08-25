@@ -39,6 +39,7 @@ import {
   AuthDependencyUnavailableError,
   EmailNotVerifiedError,
   EmailTakenError,
+  ImpersonationDisabledError,
   InvalidCredentialsError,
   InvitationEmailMismatchError,
   SignupNotAllowedError,
@@ -509,6 +510,11 @@ function impersonationTtlSeconds(): number {
 export async function createImpersonatedSessionToken(
   params: CreateImpersonatedSessionTokenParams,
 ): Promise<CreateImpersonatedSessionTokenResult> {
+  // Rule 1 lives in the mint primitive as well as the command entry, so the
+  // exported package API can never bypass the kill switch: the flag is a
+  // configuration read that also holds on the in-transaction replay path.
+  if (!config.AUTH_IMPERSONATION_ENABLED) throw new ImpersonationDisabledError();
+
   const user = await findUserById({id: params.targetUserId});
   if (!user) {
     throw new UserNotFoundError(params.targetUserId);

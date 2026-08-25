@@ -1144,9 +1144,9 @@ describe('Auth administration routes', () => {
     const stored = storedRows[0]?.result;
     if (!stored || !('impersonation' in stored)) throw new Error('Missing stored result');
     expect(stored.impersonation).toEqual({
-      target_user_id: target.userId,
-      expires_at: body.expires_at,
-      token_fingerprints: [hashOpaqueToken(body.token)],
+      targetUserId: target.userId,
+      expiresAt: body.expires_at,
+      tokenFingerprints: [hashOpaqueToken(body.token)],
     });
     expect(JSON.stringify(storedRows[0]?.result)).not.toContain(body.token);
   });
@@ -1323,11 +1323,11 @@ describe('Auth administration routes', () => {
       .where(eq(adminCommandResults.command, 'auth.user.impersonate'));
     const stored = storedRows[0]?.result;
     if (!stored || !('impersonation' in stored)) throw new Error('Missing stored result');
-    expect(stored.impersonation.token_fingerprints).toEqual([
+    expect(stored.impersonation.tokenFingerprints).toEqual([
       hashOpaqueToken(first.token),
       hashOpaqueToken(second.token),
     ]);
-    expect(stored.impersonation.expires_at).toBe(first.expires_at);
+    expect(stored.impersonation.expiresAt).toBe(first.expires_at);
     expect(JSON.stringify(storedRows[0]?.result)).not.toContain(first.token);
     expect(JSON.stringify(storedRows[0]?.result)).not.toContain(second.token);
   });
@@ -1355,7 +1355,7 @@ describe('Auth administration routes', () => {
         result: {
           impersonation: {
             ...stored.impersonation,
-            expires_at: new Date(Date.now() - 1000).toISOString(),
+            expiresAt: new Date(Date.now() - 1000).toISOString(),
           },
         },
       })

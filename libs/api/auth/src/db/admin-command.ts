@@ -101,6 +101,7 @@ export async function updateAdminCommandResult(
       and(
         eq(adminCommandResults.actorId, params.actorId),
         eq(adminCommandResults.idempotencyKeyFingerprint, params.idempotencyKeyFingerprint),
+        eq(adminCommandResults.requestFingerprint, params.requestFingerprint),
       ),
     );
 }

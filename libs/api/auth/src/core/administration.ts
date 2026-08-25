@@ -379,7 +379,7 @@ export async function impersonateUser(params: ImpersonateUserParams): Promise<Im
     // Rule 2: minimum admin-operator, the same bar as suspension and session
     // revocation. Re-checked inside the transaction on every path, replay
     // included, so a revocation mid-window ends the capability immediately.
-    const actorRole = await requireAdminRole({
+    await requireAdminRole({
       userId: params.actorId,
       minimumRole: ADMIN_OPERATOR_ROLE,
     });
@@ -387,7 +387,6 @@ export async function impersonateUser(params: ImpersonateUserParams): Promise<Im
       actorId: params.actorId,
       targetUserId: params.targetUserId,
       reason: params.reason,
-      actorRole,
       idempotencyKeyFingerprint,
       requestFingerprint,
       correlationId: params.correlationId,

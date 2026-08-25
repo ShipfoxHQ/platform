@@ -22,6 +22,7 @@ import {
 import {
   findAdminCommandResult,
   lockAdminCommand,
+  lockAdminOwnerGrants,
   storeAdminCommandResult,
   type Tx,
   updateAdminCommandResult,
@@ -40,7 +41,6 @@ export interface ImpersonationCommandParams {
   actorId: string;
   targetUserId: string;
   reason: string;
-  actorRole: AdminRole;
   idempotencyKeyFingerprint: string;
   requestFingerprint: string;
   correlationId: string;
@@ -121,15 +121,21 @@ async function requireNonAdministratorTarget(tx: Tx, targetUserId: string): Prom
 /**
  * The in-transaction authorization and eligibility ladder (rules 2, 4, 5, and
  * 6). Rule 1 (`AUTH_IMPERSONATION_ENABLED`) is a configuration read checked at
- * the command entry, and rule 3 (the actor's own session is not impersonated)
- * is the positional `/admin` route guard; both run on every invocation,
- * replay included.
+ * the command entry and inside the mint primitive, and rule 3 (the actor's own
+ * session is not impersonated) is the positional `/admin` route guard; all run
+ * on every invocation, replay included. Returns the actor's current role read
+ * in this transaction, so the audit event records the role that actually
+ * authorized the mint rather than a pre-transaction snapshot.
  */
-async function runImpersonationLadder(tx: Tx, params: {actorId: string; targetUserId: string}) {
-  await requireActiveAdminOperator(tx, params.actorId);
+async function runImpersonationLadder(
+  tx: Tx,
+  params: {actorId: string; targetUserId: string},
+): Promise<AdminRole> {
+  const actorRole = await requireActiveAdminOperator(tx, params.actorId);
   if (isSameUuid(params.targetUserId, params.actorId)) throw new CannotImpersonateSelfError();
   await requireEligibleImpersonationTarget(tx, params.targetUserId);
   await requireNonAdministratorTarget(tx, params.targetUserId);
+  return actorRole;
 }
 
 function toImpersonationResult(
@@ -151,6 +157,12 @@ export async function impersonateUserWithAudit(
 ): Promise<ImpersonationResult> {
   return await db().transaction(async (tx) => {
     await lockAdminCommand(tx, params);
+    // Every audited administrator grant mutation (bootstrap, grant, revoke,
+    // and suspension) takes this advisory lock, so serializing the ladder and
+    // the mint against it closes the race where a concurrent grant mutation
+    // changes actor or target eligibility after the ladder read but before
+    // the token is signed.
+    await lockAdminOwnerGrants(tx);
 
     const existing = await findAdminCommandResult(tx, {
       actorId: params.actorId,
@@ -168,19 +180,20 @@ export async function impersonateUserWithAudit(
       // A replay hands back a usable bearer token, so it is an issuance, not a
       // read: it re-runs the full ladder and re-signs instead of returning the
       // stored result, and a replay after expiry is a terminal failure.
-      const storedExpiresAt = new Date(stored.expires_at);
+      const storedExpiresAt = new Date(stored.expiresAt);
       if (storedExpiresAt.getTime() <= Date.now()) throw new ImpersonationExpiredError();
-      await runImpersonationLadder(tx, {
+      const actorRole = await runImpersonationLadder(tx, {
         actorId: params.actorId,
-        targetUserId: stored.target_user_id,
+        targetUserId: stored.targetUserId,
       });
 
-      const remainingSeconds = Math.max(
-        1,
-        Math.floor((storedExpiresAt.getTime() - Date.now()) / 1000),
-      );
+      // A replay never extends the window: the re-signed token's TTL is the
+      // remaining time to the canonical `expiresAt`, so a sub-second remainder
+      // is treated as already-expired instead of flooring up to a new token.
+      const remainingSeconds = Math.floor((storedExpiresAt.getTime() - Date.now()) / 1000);
+      if (remainingSeconds <= 0) throw new ImpersonationExpiredError();
       const minted = await createImpersonatedSessionToken({
-        targetUserId: stored.target_user_id,
+        targetUserId: stored.targetUserId,
         impersonatorId: params.actorId,
         workspaces: params.workspaces,
         expiresIn: `${remainingSeconds}s`,
@@ -196,18 +209,18 @@ export async function impersonateUserWithAudit(
         {
           impersonation: {
             ...stored,
-            token_fingerprints: [...stored.token_fingerprints, fingerprint],
+            tokenFingerprints: [...stored.tokenFingerprints, fingerprint],
           },
         },
       );
       // Replays publish their own event with the same idempotency-key
       // fingerprint: the second event under one fingerprint is the replay
       // marker. It commits atomically with the updated command result.
-      await writeAdminAction(tx, impersonationEvent(params, 'succeeded'));
+      await writeAdminAction(tx, impersonationEvent({...params, actorRole}, 'succeeded'));
       return toImpersonationResult(params, minted, storedExpiresAt);
     }
 
-    await runImpersonationLadder(tx, {
+    const actorRole = await runImpersonationLadder(tx, {
       actorId: params.actorId,
       targetUserId: params.targetUserId,
     });
@@ -217,9 +230,9 @@ export async function impersonateUserWithAudit(
       workspaces: params.workspaces,
     });
     const stored: StoredImpersonationResult = {
-      target_user_id: params.targetUserId,
-      expires_at: minted.expiresAt.toISOString(),
-      token_fingerprints: [hashOpaqueToken(minted.token)],
+      targetUserId: params.targetUserId,
+      expiresAt: minted.expiresAt.toISOString(),
+      tokenFingerprints: [hashOpaqueToken(minted.token)],
     };
     await storeAdminCommandResult(
       tx,
@@ -231,7 +244,7 @@ export async function impersonateUserWithAudit(
       },
       {impersonation: stored},
     );
-    await writeAdminAction(tx, impersonationEvent(params, 'succeeded'));
+    await writeAdminAction(tx, impersonationEvent({...params, actorRole}, 'succeeded'));
     return toImpersonationResult(params, minted, minted.expiresAt);
   });
 }
