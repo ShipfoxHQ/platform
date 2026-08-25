@@ -875,8 +875,17 @@ async function reconcileExistingBranch(
     );
     const object =
       isRecord(existing.data) && isRecord(existing.data.object) ? existing.data.object : undefined;
-    if (object?.sha === sha) return existing;
-  } catch {
+    if (
+      typeof sha === 'string' &&
+      typeof object?.sha === 'string' &&
+      object.sha.toLowerCase() === sha.toLowerCase()
+    ) {
+      return existing;
+    }
+  } catch (error) {
+    if (!(error instanceof GithubIntegrationProviderError && error.status === 404)) {
+      throw error;
+    }
     // Fall through to the already-exists rejection when the existing ref cannot be read.
   }
   throw new GithubIntegrationProviderError(

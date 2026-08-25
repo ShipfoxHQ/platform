@@ -224,7 +224,7 @@ const expectedCatalogRows = [
   },
   {
     id: 'create_branch',
-    category: 'repositories',
+    category: 'repository',
     sensitivity: 'write',
     sensitive: false,
     requiredScope: [{permission: 'contents', access: 'write'}],
@@ -1665,7 +1665,10 @@ describe('github agent tool catalog', () => {
     expect(result).toEqual({
       isError: true,
       content: [
-        {type: 'text', text: 'GitHub installation token is missing permission for this operation'},
+        {
+          type: 'text',
+          text: 'GitHub installation token is missing permission for this operation: create_commit requires contents: write',
+        },
       ],
       structuredContent: {code: 'access-denied'},
     });

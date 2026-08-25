@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import {githubEventCatalog} from '@shipfox/api-integration-github-dto';
 import {githubAgentToolCatalog} from '@shipfox/api-integration-github/agent-tools';
+import {githubEventCatalog} from '@shipfox/api-integration-github-dto';
 import {validateIntegrationCatalog} from '@/lib/integration-catalog-validation';
 
 const providers = [
