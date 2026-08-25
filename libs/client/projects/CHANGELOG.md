@@ -1,5 +1,22 @@
 # @shipfox/client-projects
 
+## 26.0.0
+
+### Patch Changes
+
+- 48e8c4a: Wire the workspace setup checklist into the workspace home and top bar, land the first project on the home, and retire the model-provider reminder banner.
+- Updated dependencies [79e1ed7]
+- Updated dependencies [79e1ed7]
+- Updated dependencies [79e1ed7]
+- Updated dependencies [870523f]
+  - @shipfox/client-ui@26.0.0
+  - @shipfox/react-ui@2.3.0
+  - @shipfox/api-definitions-dto@16.1.0
+  - @shipfox/client-agent@26.0.0
+  - @shipfox/client-auth@26.0.0
+  - @shipfox/client-integrations@26.0.0
+  - @shipfox/client-shell@26.0.0
+
 ## 25.0.0
 
 ### Patch Changes

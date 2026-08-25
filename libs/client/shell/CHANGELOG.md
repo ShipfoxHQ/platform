@@ -1,5 +1,16 @@
 # Changelog
 
+## 26.0.0
+
+### Patch Changes
+
+- Updated dependencies [79e1ed7]
+- Updated dependencies [79e1ed7]
+- Updated dependencies [79e1ed7]
+  - @shipfox/client-ui@26.0.0
+  - @shipfox/react-ui@2.3.0
+  - @shipfox/client-config@26.0.0
+
 ## 25.0.0
 
 ### Minor Changes

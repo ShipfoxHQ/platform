@@ -1,5 +1,18 @@
 # @shipfox/runner-agent
 
+## 0.2.17
+
+### Patch Changes
+
+- c1e5dfd: Allows the Claude harness to run managed providers that carry a per-step claude runtime block, preserving the managed provider ID for policy and usage attribution. The managed auth token is masked alongside runtime credentials in step logs.
+- Updated dependencies [d1fb0a3]
+- Updated dependencies [c1e5dfd]
+- Updated dependencies [870523f]
+  - @shipfox/api-agent-dto@16.1.0
+  - @shipfox/api-workflows-dto@16.1.0
+  - @shipfox/runner-protocol@0.2.23
+  - @shipfox/runner-execution@0.1.30
+
 ## 0.2.16
 
 ### Patch Changes
