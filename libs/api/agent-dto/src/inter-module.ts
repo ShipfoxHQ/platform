@@ -44,6 +44,20 @@ const resolvedAgentConfigSchema = z.object({
   thinking: agentThinkingSchema,
 });
 
+/**
+ * Resolved session identity handed to workflows dispatch: which registry row
+ * the step runs against, in which mode, and which head segment it loads.
+ * `segment` is the current head segment (0 = fresh session).
+ */
+export const agentSessionDescriptorSchema = z.object({
+  id: z.string().uuid(),
+  key: z.string().min(1),
+  mode: z.enum(['resume', 'fork']),
+  segment: z.number().int().nonnegative(),
+});
+
+export type AgentSessionDescriptorDto = z.infer<typeof agentSessionDescriptorSchema>;
+
 export const agentInterModuleContract = defineInterModuleContract({
   module: 'agent',
   methods: {
@@ -80,6 +94,49 @@ export const agentInterModuleContract = defineInterModuleContract({
           message: z.string().min(1).optional(),
           managed_provider_id: modelProviderRefSchema,
         }),
+      },
+    },
+    claimSession: {
+      input: z.object({
+        workspaceId: z.string().uuid(),
+        projectId: z.string().uuid(),
+        workflowRunAttemptId: z.string().uuid(),
+        key: z.string().min(1),
+        /** Harness resolved for this attempt; a resume claim must match the session's pinned harness. */
+        harness: harnessSchema,
+        stepAttemptId: z.string().uuid(),
+        /** `resume` claims exclusively and may write back; `fork` only reads the current head. */
+        mode: z.enum(['resume', 'fork']),
+      }),
+      output: z.object({
+        /** Null when a `fork` targets a session that does not exist yet: the step runs fresh and creates nothing. */
+        descriptor: agentSessionDescriptorSchema.nullable(),
+        /** Harness the session is pinned to (the resolved harness when no session exists). */
+        harness: harnessSchema,
+      }),
+      errors: {
+        'session-key-invalid': z.object({}),
+        'session-held': z.object({}),
+        'session-harness-mismatch': z.object({}),
+        'session-lock-unavailable': z.object({}),
+      },
+    },
+    carryOverSessions: {
+      input: z.object({
+        fromWorkflowRunAttemptId: z.string().uuid(),
+        toWorkflowRunAttemptId: z.string().uuid(),
+      }),
+      output: z.object({
+        sessions: z.array(
+          z.object({
+            id: z.string().uuid(),
+            key: z.string().min(1),
+            segment: z.number().int().nonnegative(),
+          }),
+        ),
+      }),
+      errors: {
+        'carry-over-conflict': z.object({}),
       },
     },
   },

@@ -119,6 +119,7 @@ const validStepAttemptTerminated = {
   attempt: 1,
   status: 'failed',
   logOutcome: 'drained',
+  stepAttemptId: 'step-attempt-1',
 };
 
 describe('workflowsJobTerminatedSchema', () => {
@@ -402,6 +403,16 @@ describe.each([
     const parse = () => schema.parse(withoutRequiredKey);
 
     expect(parse).toThrow();
+  });
+});
+
+describe('workflowsStepAttemptTerminatedSchema', () => {
+  it('accepts a payload without the optional stepAttemptId (pre-change events)', () => {
+    const {stepAttemptId: _stepAttemptId, ...withoutStepAttemptId} = validStepAttemptTerminated;
+
+    const result = workflowsStepAttemptTerminatedSchema.parse(withoutStepAttemptId);
+
+    expect(result.stepAttemptId).toBeUndefined();
   });
 });
 

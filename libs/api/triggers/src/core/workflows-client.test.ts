@@ -94,6 +94,7 @@ function localWorkflowsClient(): WorkflowsModuleClient {
         return {buffered: true, skipped: false};
       },
       getStepLogContext: () => ({harness: 'pi' as const}),
+      listJobStepAttempts: () => ({stepAttemptIds: []}),
       getLeasedAgentToolContext: () => ({
         workspaceId: '00000000-0000-4000-8000-000000000006',
         integrations: [],

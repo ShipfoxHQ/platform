@@ -16,3 +16,14 @@ export const agentRuntimeConfigResolvedCount = meter.createCounter<{
 }>('agent_runtime_config_resolved', {
   description: 'Lease-scoped agent runtime credential resolution by source and outcome',
 });
+
+export const sessionClaimReleaseCount = meter.createCounter<{
+  path: 'step-attempt' | 'job-grace' | 'reap';
+}>('agent_session_claim_released', {
+  description: 'Agent session claims released by release path',
+});
+
+export const sessionClaimReapFailedCount = meter.createCounter('agent_session_claim_reap_failed', {
+  description:
+    'Stale agent session claim reaps that threw and were skipped; retried on the next cron run',
+});

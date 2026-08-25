@@ -1,5 +1,5 @@
 import type {Harness} from '@shipfox/api-agent-dto';
-import {and, eq, sql} from 'drizzle-orm';
+import {and, eq, inArray, sql} from 'drizzle-orm';
 import type {AgentSession} from '#core/entities/agent-session.js';
 import {
   AgentSessionCarryOverConflictError,
@@ -15,7 +15,7 @@ import {type AgentSessionDb, sessions, toAgentSession} from './schema/sessions.j
 const AGENT_SESSION_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 const AGENT_SESSION_CLAIM_LOCK_PREFIX = 'agent-session-claim:';
 
-function assertValidSessionKey(key: unknown): asserts key is string {
+export function assertValidSessionKey(key: unknown): asserts key is string {
   if (typeof key !== 'string' || !AGENT_SESSION_KEY_PATTERN.test(key)) {
     throw new AgentSessionKeyInvalidError();
   }
@@ -80,6 +80,12 @@ export interface ClaimSessionParams {
 function assertSessionClaimable(row: AgentSessionDb, params: ClaimSessionParams): void {
   assertValidSessionKey(row.key);
   assertValidSessionHarness(row.harness);
+  // Scope is part of claimability: a row that surfaces after an `ON CONFLICT
+  // DO NOTHING` (a foreign row inserted between the initial SELECT and the
+  // insert) was never covered by the caller's pre-insert scope assertion, so
+  // re-verify the denormalized workspace/project match before classifying or
+  // updating it.
+  assertSessionScopeMatches(row, params);
   if (row.harness !== params.harness) {
     throw new AgentSessionHarnessMismatchError({
       sessionId: row.id,
@@ -91,6 +97,25 @@ function assertSessionClaimable(row: AgentSessionDb, params: ClaimSessionParams)
   }
 
   if (row.claimedByStepAttempt !== null && row.claimedByStepAttempt !== params.stepAttemptId) {
+    throw new AgentSessionHeldError({
+      sessionId: row.id,
+      workflowRunAttemptId: params.workflowRunAttemptId,
+      key: row.key,
+      heldByStepAttempt: row.claimedByStepAttempt,
+    });
+  }
+}
+
+/**
+ * Defense-in-depth scope check: the session identity is the `(run attempt, key)`
+ * pair, so a caller that forwards an attempt id from untrusted input could
+ * otherwise read or claim a row belonging to another workspace/project. The
+ * denormalized `workspace_id`/`project_id` must match the caller-supplied scope;
+ * a mismatch is surfaced as `AgentSessionHeldError` (the row is held by another
+ * scope's attempt context) rather than read across the boundary.
+ */
+function assertSessionScopeMatches(row: AgentSessionDb, params: ClaimSessionParams): void {
+  if (row.workspaceId !== params.workspaceId || row.projectId !== params.projectId) {
     throw new AgentSessionHeldError({
       sessionId: row.id,
       workflowRunAttemptId: params.workflowRunAttemptId,
@@ -142,8 +167,11 @@ export async function claimSession(params: ClaimSessionParams): Promise<AgentSes
       eq(sessions.key, params.key),
     );
     const [existingRow] = await tx.select().from(sessions).where(sessionIdentity);
-    if (existingRow && !(await tryAcquireSessionClaimLock(tx, params))) {
-      throwSessionHeld(existingRow, params);
+    if (existingRow) {
+      assertSessionScopeMatches(existingRow, params);
+      if (!(await tryAcquireSessionClaimLock(tx, params))) {
+        throwSessionHeld(existingRow, params);
+      }
     }
 
     await tx
@@ -228,6 +256,100 @@ export async function releaseSession(params: {
     .returning({id: sessions.id});
 
   return rows.length > 0;
+}
+
+/**
+ * Reads the session for a run attempt and resolved key without claiming it.
+ * Scoped to the caller-supplied workspace and project so a forwarded attempt id
+ * can never read another tenant's session. `fork` mode uses this: it never
+ * claims and never writes back, so the caller only needs whatever head exists
+ * (or nothing, for a fresh ephemeral run).
+ */
+export async function getSessionByRunAttemptAndKey(params: {
+  workspaceId: string;
+  projectId: string;
+  workflowRunAttemptId: string;
+  key: string;
+}): Promise<AgentSession | undefined> {
+  const [row] = await db()
+    .select()
+    .from(sessions)
+    .where(
+      and(
+        eq(sessions.workspaceId, params.workspaceId),
+        eq(sessions.projectId, params.projectId),
+        eq(sessions.workflowRunAttemptId, params.workflowRunAttemptId),
+        eq(sessions.key, params.key),
+      ),
+    )
+    .limit(1);
+  return row ? toAgentSession(row) : undefined;
+}
+
+/**
+ * Releases every claim held by the given step attempts, in one statement, and
+ * returns how many claims were cleared. The `claimed_by_step_attempt` guard is
+ * inherent: a row whose claim another attempt just took is untouched, so a
+ * stale termination event can never steal a claim. Empty input releases
+ * nothing.
+ *
+ * The optional `olderThanSeconds` cutoff (used by the reap cron) adds a
+ * `claimed_at` staleness guard so only claims held past the cutoff are
+ * cleared: an attempt that holds both a stale claim and a live one keeps the
+ * live claim and its single-writer exclusivity.
+ */
+export async function releaseSessionClaimsHeldByStepAttempts(
+  stepAttemptIds: string[],
+  opts?: {olderThanSeconds?: number | undefined} | undefined,
+): Promise<number> {
+  if (stepAttemptIds.length === 0) return 0;
+
+  const rows = await db()
+    .update(sessions)
+    .set({
+      claimedByStepAttempt: null,
+      claimedAt: null,
+      updatedAt: sql`now()`,
+      version: sql`${sessions.version} + 1`,
+    })
+    .where(
+      and(
+        inArray(sessions.claimedByStepAttempt, stepAttemptIds),
+        ...(opts?.olderThanSeconds === undefined
+          ? []
+          : [sql`${sessions.claimedAt} < now() - make_interval(secs => ${opts.olderThanSeconds})`]),
+      ),
+    )
+    .returning({id: sessions.id});
+
+  return rows.length;
+}
+
+/**
+ * Lists sessions whose claim has been held longer than `olderThanSeconds`
+ * without a release. The reap cron's bounded sweep: a claim this old can no
+ * longer be assumed live, so clearing it unblocks the key for the next attempt.
+ * This is a backstop heuristic, not a liveness check: the job lease is renewed
+ * on every runner heartbeat, so `olderThanSeconds` must exceed the longest job
+ * execution duration for the deployment (see the AGENT_SESSION_REAP_AFTER_SECONDS
+ * description). Bounded per tick; remaining stale claims are picked up on the
+ * next cron run.
+ */
+export async function listStaleClaimedSessions(params: {
+  olderThanSeconds: number;
+  limit: number;
+}): Promise<AgentSession[]> {
+  const rows = await db()
+    .select()
+    .from(sessions)
+    .where(
+      and(
+        sql`${sessions.claimedByStepAttempt} is not null`,
+        sql`${sessions.claimedAt} < now() - make_interval(secs => ${params.olderThanSeconds})`,
+      ),
+    )
+    .limit(params.limit);
+  return rows.map(toAgentSession);
 }
 
 /**

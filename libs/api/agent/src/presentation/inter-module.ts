@@ -7,7 +7,13 @@ import {
   type InterModulePresentation,
   isInterModuleKnownError,
 } from '@shipfox/inter-module';
+import {claimStepSession} from '#core/claim-step-session.js';
 import {
+  AgentSessionCarryOverConflictError,
+  AgentSessionHarnessMismatchError,
+  AgentSessionHeldError,
+  AgentSessionKeyInvalidError,
+  AgentSessionLockUnavailableError,
   InvalidAgentModelError,
   ModelProviderConfigNotFoundError,
   UnsupportedHarnessProviderError,
@@ -20,6 +26,7 @@ import {resolveRuntimeCredentials} from '#core/resolve-runtime-credentials.js';
 import type {AgentSecretsClient} from '#core/secrets-client.js';
 import {getAgentValidationCatalog} from '#core/validation-catalog.js';
 import {createWorkspaceAgentDefaultsResolver} from '#core/workspace-agent-defaults-resolver.js';
+import {carryOverSessions} from '#db/index.js';
 
 export function createAgentInterModulePresentation(params: {
   secrets: AgentSecretsClient;
@@ -57,6 +64,27 @@ export function createAgentInterModulePresentation(params: {
         });
       } catch (error) {
         throw toResolveRuntimeCredentialsKnownError(error);
+      }
+    },
+    claimSession: async (input) => {
+      try {
+        return await claimStepSession(input);
+      } catch (error) {
+        throw toClaimSessionKnownError(error);
+      }
+    },
+    carryOverSessions: async (input) => {
+      try {
+        const carried = await carryOverSessions(input);
+        return {
+          sessions: carried.map((session) => ({
+            id: session.id,
+            key: session.key,
+            segment: session.headSegment,
+          })),
+        };
+      } catch (error) {
+        throw toCarryOverSessionsKnownError(error);
       }
     },
   });
@@ -105,6 +133,34 @@ function toResolveRuntimeCredentialsKnownError(error: unknown): unknown {
     return createInterModuleKnownError(
       agentInterModuleContract.methods.resolveRuntimeCredentials,
       'model-provider-credentials-invalid',
+      {},
+    );
+  }
+  return error;
+}
+
+function toClaimSessionKnownError(error: unknown): unknown {
+  const method = agentInterModuleContract.methods.claimSession;
+  if (error instanceof AgentSessionKeyInvalidError) {
+    return createInterModuleKnownError(method, 'session-key-invalid', {});
+  }
+  if (error instanceof AgentSessionHeldError) {
+    return createInterModuleKnownError(method, 'session-held', {});
+  }
+  if (error instanceof AgentSessionHarnessMismatchError) {
+    return createInterModuleKnownError(method, 'session-harness-mismatch', {});
+  }
+  if (error instanceof AgentSessionLockUnavailableError) {
+    return createInterModuleKnownError(method, 'session-lock-unavailable', {});
+  }
+  return error;
+}
+
+function toCarryOverSessionsKnownError(error: unknown): unknown {
+  if (error instanceof AgentSessionCarryOverConflictError) {
+    return createInterModuleKnownError(
+      agentInterModuleContract.methods.carryOverSessions,
+      'carry-over-conflict',
       {},
     );
   }

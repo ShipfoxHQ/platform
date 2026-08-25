@@ -62,6 +62,8 @@ describe('runWorkflow', () => {
     getValidationCatalog: vi.fn().mockResolvedValue(agentValidationCatalog),
     resolveAgentConfig: mockResolveAgentConfig,
     resolveRuntimeCredentials: vi.fn(),
+    claimSession: vi.fn(),
+    carryOverSessions: vi.fn(),
   };
 
   beforeEach(() => {
@@ -256,6 +258,8 @@ describe('runDevWorkflow', () => {
     getValidationCatalog: vi.fn().mockResolvedValue(agentValidationCatalog),
     resolveAgentConfig: mockResolveAgentConfig,
     resolveRuntimeCredentials: vi.fn(),
+    claimSession: vi.fn(),
+    carryOverSessions: vi.fn(),
   };
 
   beforeEach(() => {

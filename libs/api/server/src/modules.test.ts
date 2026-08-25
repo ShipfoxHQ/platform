@@ -207,6 +207,8 @@ describe('defaultModules', () => {
             getValidationCatalog: vi.fn(),
             resolveAgentConfig: vi.fn(),
             resolveRuntimeCredentials: vi.fn(),
+            claimSession: vi.fn(),
+            carryOverSessions: vi.fn(),
           },
         },
       ],
@@ -246,6 +248,7 @@ describe('defaultModules', () => {
             deliverEventToJobListener: vi.fn(),
             getLeasedAgentToolContext: vi.fn(),
             getStepLogContext: vi.fn(),
+            listJobStepAttempts: vi.fn(),
             resolveWorkflowRunTriggerReference: vi.fn(),
             startDevRun: vi.fn(),
             startRunFromTrigger: vi.fn(),
@@ -329,15 +332,18 @@ describe('defaultModules', () => {
   it('uses the default Agent module factory when none is supplied', async () => {
     await defaultModules();
 
-    expect(mocks.createAgentModule).toHaveBeenCalledWith({secrets: expect.any(Object)});
+    expect(mocks.createAgentModule).toHaveBeenCalledWith({
+      secrets: expect.any(Object),
+      workflows: expect.any(Object),
+    });
     expect(mocks.createAgentModule.mock.calls[0]?.[0].secrets).not.toHaveProperty('getSecret');
   });
 
   it('composes Agent with the shared Secrets client and registers the supplied module', async () => {
     const customAgentModule = mocks.createAgentModule();
     mocks.createAgentModule.mockClear();
-    const agentModule = vi.fn<DefaultAgentModuleFactory>(({secrets}) =>
-      mocks.createAgentModule({secrets}),
+    const agentModule = vi.fn<DefaultAgentModuleFactory>((options) =>
+      mocks.createAgentModule(options),
     );
 
     const modules = await defaultModules({agentModule});
@@ -352,7 +358,10 @@ describe('defaultModules', () => {
     };
     const secretValues = await agentSecrets.getSecretsByNamespace(scope);
 
-    expect(agentModule).toHaveBeenCalledWith({secrets: expect.any(Object)});
+    expect(agentModule).toHaveBeenCalledWith({
+      secrets: expect.any(Object),
+      workflows: expect.any(Object),
+    });
     expect(secretValues).toEqual({values: {}});
     expect(mocks.getSecretsByNamespace).toHaveBeenCalledWith(
       scope,
@@ -360,7 +369,10 @@ describe('defaultModules', () => {
     );
     expect(agentSecrets).not.toHaveProperty('getSecret');
     expect(agentSecrets).not.toHaveProperty('getVariablesByNamespace');
-    expect(mocks.createAgentModule).toHaveBeenCalledWith({secrets: agentSecrets});
+    expect(mocks.createAgentModule).toHaveBeenCalledWith({
+      secrets: agentSecrets,
+      workflows: expect.any(Object),
+    });
     expect(mocks.createAgentModule).toHaveBeenCalledTimes(1);
     expect(modules.filter((module) => module.name === 'agent')).toEqual([customAgentModule]);
     expect(

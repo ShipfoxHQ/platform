@@ -197,6 +197,7 @@ export async function bulkUpdateStepStatuses(
       ),
     )
     .returning({
+      id: stepAttempts.id,
       stepId: stepAttempts.stepId,
       attempt: stepAttempts.attempt,
       logOutcome: stepAttempts.logOutcome,
@@ -205,6 +206,7 @@ export async function bulkUpdateStepStatuses(
   if (finalizedAttempts.length > 0) {
     for (const attempt of finalizedAttempts) {
       await writeStepAttemptTerminatedOutbox(tx, {
+        stepAttemptId: attempt.id,
         stepId: attempt.stepId,
         attempt: attempt.attempt,
         status: params.status,
@@ -459,6 +461,7 @@ export async function finishStepAttempt(params: FinishStepAttemptParams, tx: Tx)
       ),
     )
     .returning({
+      id: stepAttempts.id,
       stepId: stepAttempts.stepId,
       attempt: stepAttempts.attempt,
       logOutcome: stepAttempts.logOutcome,
@@ -468,6 +471,7 @@ export async function finishStepAttempt(params: FinishStepAttemptParams, tx: Tx)
   if (!row) return;
 
   await writeStepAttemptTerminatedOutbox(tx, {
+    stepAttemptId: row.id,
     stepId: row.stepId,
     attempt: row.attempt,
     status: params.status,
@@ -529,6 +533,21 @@ export async function getStepAttempts(jobId: string): Promise<StepAttempt[]> {
     .where(eq(jobExecutions.jobId, jobId))
     .orderBy(asc(stepAttempts.executionOrder));
   return rows.map((row) => toStepAttempt(row.stepAttempt));
+}
+
+/**
+ * Lists only the step attempt ids of a job, without materializing the full
+ * attempt entities. The session release sweep only needs the ids to release
+ * claims, so this keeps the per-job-terminated query off a full-row projection.
+ */
+export async function listStepAttemptIdsByJobId(jobId: string): Promise<string[]> {
+  const rows = await db()
+    .select({id: stepAttempts.id})
+    .from(stepAttempts)
+    .innerJoin(steps, eq(stepAttempts.stepId, steps.id))
+    .innerJoin(jobExecutions, eq(steps.jobExecutionId, jobExecutions.id))
+    .where(eq(jobExecutions.jobId, jobId));
+  return rows.map((row) => row.id);
 }
 
 export async function getStepAttemptsByJobIds(jobIds: string[]): Promise<StepAttempt[]> {

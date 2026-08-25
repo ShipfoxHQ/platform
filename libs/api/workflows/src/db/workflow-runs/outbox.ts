@@ -99,6 +99,7 @@ export async function writeJobStepsSettledOutbox(
 export async function writeStepAttemptTerminatedOutbox(
   tx: Tx,
   params: {
+    stepAttemptId: string;
     stepId: string;
     attempt: number;
     status: 'succeeded' | 'failed' | 'cancelled';
@@ -119,6 +120,7 @@ export async function writeStepAttemptTerminatedOutbox(
       attempt: params.attempt,
       status: params.status,
       logOutcome: params.logOutcome,
+      stepAttemptId: params.stepAttemptId,
     },
   });
 }

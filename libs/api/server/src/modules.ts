@@ -26,7 +26,10 @@ import {
 } from '@shipfox/api-secrets-dto/inter-module';
 import {createTriggersModule} from '@shipfox/api-triggers';
 import {createWorkflowsModule} from '@shipfox/api-workflows';
-import {workflowsInterModuleContract} from '@shipfox/api-workflows-dto/inter-module';
+import {
+  type WorkflowsModuleClient,
+  workflowsInterModuleContract,
+} from '@shipfox/api-workflows-dto/inter-module';
 import {createWorkspacesModule} from '@shipfox/api-workspaces';
 import {
   type WorkspacesInterModuleClient,
@@ -62,6 +65,14 @@ export type DefaultAuthModuleFactory = (options: {
  */
 export type DefaultAgentModuleFactory = (options: {
   secrets: Pick<SecretsInterModuleClient, 'deleteSecrets' | 'getSecretsByNamespace' | 'setSecrets'>;
+  /**
+   * Optional: the step-attempt-terminated release and the stale-claim reap cron
+   * are always registered so composed claim creators get a release backstop;
+   * only the job-terminated grace sweep is gated on this client, so a factory
+   * built without it stays claim/release-free (as before the session release
+   * stack landed).
+   */
+  workflows?: WorkflowsModuleClient | undefined;
 }) => ShipfoxModule;
 export type DefaultRunnersModuleFactory = (options: {auth: AuthInterModuleClient}) => ShipfoxModule;
 export type DefaultModulesExtension = (options: {
@@ -183,6 +194,7 @@ export async function defaultModules(
   const extensionModules = options.extension?.({workspaces: workspacesClient}) ?? [];
   const agentModule = (options.agentModule ?? createAgentModule)({
     secrets: createAgentSecretsClient(secretsClient),
+    workflows: workflowsClient,
   });
   if (options.agentModule) validateCustomAgentModule(agentModule);
 

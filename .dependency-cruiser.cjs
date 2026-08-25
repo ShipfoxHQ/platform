@@ -209,7 +209,9 @@ module.exports = {
           },
         ]
       : []),
-    ...(['@shipfox/api-logs', '@shipfox/api-integration-core'].includes(currentPackage.name)
+    ...(['@shipfox/api-agent', '@shipfox/api-logs', '@shipfox/api-integration-core'].includes(
+      currentPackage.name,
+    )
       ? [
           {
             name: 'workflows-consumers-use-workflows-inter-module-api',

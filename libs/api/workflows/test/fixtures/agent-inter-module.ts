@@ -46,6 +46,8 @@ export const agentTestClient: AgentInterModuleClient = {
       credentials: {api_key: 'test-agent-credential'},
     });
   },
+  claimSession: vi.fn(),
+  carryOverSessions: vi.fn(),
 };
 
 export const resolveTestAgentDefaults: AgentDefaultsResolver = (config) => {

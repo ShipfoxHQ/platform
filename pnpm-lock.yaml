@@ -2012,6 +2012,9 @@ importers:
       '@shipfox/api-secrets-dto':
         specifier: workspace:*
         version: link:../secrets-dto
+      '@shipfox/api-workflows-dto':
+        specifier: workspace:*
+        version: link:../workflows-dto
       '@shipfox/config':
         specifier: workspace:*
         version: link:../../shared/common/config
@@ -2039,9 +2042,15 @@ importers:
       '@shipfox/node-postgres':
         specifier: workspace:*
         version: link:../../shared/node/postgres
+      '@shipfox/node-temporal':
+        specifier: workspace:*
+        version: link:../../shared/node/temporal
       '@shipfox/redact':
         specifier: workspace:*
         version: link:../../shared/common/redact
+      '@temporalio/workflow':
+        specifier: 'catalog:'
+        version: 1.18.1
       drizzle-orm:
         specifier: 'catalog:'
         version: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(pg@8.21.0)
