@@ -25,7 +25,6 @@ describe('ProjectsHubPage', () => {
     configureApiClient({
       fetchImpl: createHubFetch({
         projects: jsonResponse({projects: [], next_cursor: null}),
-        modelProviders: jsonResponse(modelProviderConfigsDto()),
       }),
     });
 
@@ -46,13 +45,16 @@ describe('ProjectsHubPage', () => {
     configureApiClient({
       fetchImpl: createHubFetch({
         projects: jsonResponse({projects: [], next_cursor: null}),
-        modelProviders: jsonResponse(modelProviderConfigsDto()),
       }),
     });
 
     renderProjectPage(`/w/${PROJECT_TEST_WSLUG}`, <ProjectsHubPage />);
 
     expect(await screen.findByText('Create your first project')).toBeInTheDocument();
+    // Without the slot, the hub renders no checklist panel above the projects.
+    expect(
+      screen.queryByRole('region', {name: 'Workspace setup checklist'}),
+    ).not.toBeInTheDocument();
     const projectsRegion = screen.getByRole('region', {name: 'Projects'});
     expect(projectsRegion.querySelectorAll('[data-slot="panel"]')).toHaveLength(1);
     const panelHeader = projectsRegion.querySelector<HTMLElement>('[data-slot="panel-header"]');
@@ -74,50 +76,9 @@ describe('ProjectsHubPage', () => {
     ).toBe(WORKSPACE_PROJECTS_NEW_HREF);
   });
 
-  test('shows and dismisses the model provider reminder when no provider is configured', async () => {
-    const fetchImpl = createHubFetch({
-      projects: jsonResponse({projects: [], next_cursor: null}),
-      modelProviders: jsonResponse({
-        configs: [],
-        default_provider_id: null,
-        default_harness_id: null,
-      }),
-    });
-    configureApiClient({fetchImpl});
-
-    renderProjectPage(`/w/${PROJECT_TEST_WSLUG}`, <ProjectsHubPage />);
-
-    expect(await screen.findByText('Finish setting up a model provider')).toBeInTheDocument();
-    expect(screen.getByRole('link', {name: 'Agents'})).toHaveAttribute(
-      'href',
-      `/w/${PROJECT_TEST_WSLUG}/settings/agents`,
-    );
-    fireEvent.click(screen.getByRole('button', {name: 'Close'}));
-
-    await waitFor(() => {
-      expect(screen.queryByText('Finish setting up a model provider')).not.toBeInTheDocument();
-    });
-  });
-
-  test('hides the model provider reminder when a provider is configured', async () => {
-    const fetchImpl = createHubFetch({
-      projects: jsonResponse({projects: [], next_cursor: null}),
-      modelProviders: jsonResponse(modelProviderConfigsDto()),
-    });
-    configureApiClient({fetchImpl});
-
-    renderProjectPage(`/w/${PROJECT_TEST_WSLUG}`, <ProjectsHubPage />);
-
-    expect(await screen.findByText('Create your first project')).toBeInTheDocument();
-    expect(screen.queryByText('Finish setting up a model provider')).not.toBeInTheDocument();
-  });
-
   test('renders projects and loads the next cursor page', async () => {
     const fetchImpl = vi.fn((input: RequestInfo | URL) => {
       const url = new URL(requestInputUrl(input));
-      if (url.pathname.endsWith('/agent/model-providers')) {
-        return Promise.resolve(jsonResponse(modelProviderConfigsDto()));
-      }
       if (url.pathname === '/integration-connections') {
         return Promise.resolve(jsonResponse(connectionsDto()));
       }
@@ -188,9 +149,6 @@ describe('ProjectsHubPage', () => {
     let cursorRequests = 0;
     const fetchImpl = vi.fn((input: RequestInfo | URL) => {
       const url = new URL(requestInputUrl(input));
-      if (url.pathname.endsWith('/agent/model-providers')) {
-        return Promise.resolve(jsonResponse(modelProviderConfigsDto()));
-      }
       if (url.pathname === '/integration-connections') {
         return Promise.resolve(jsonResponse(connectionsDto()));
       }
@@ -336,17 +294,12 @@ function createHubFetch({
     next_cursor: null,
   }),
   connections = jsonResponse(connectionsDto()),
-  modelProviders = jsonResponse(modelProviderConfigsDto()),
 }: {
   projects?: Response;
   connections?: Response;
-  modelProviders?: Response;
 } = {}) {
   return vi.fn((input: RequestInfo | URL) => {
     const url = new URL(requestInputUrl(input));
-    if (url.pathname.endsWith('/agent/model-providers')) {
-      return Promise.resolve(modelProviders.clone());
-    }
     if (url.pathname === '/integration-connections') {
       return Promise.resolve(connections.clone());
     }
@@ -384,22 +337,6 @@ function projectDto({
     },
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
-  };
-}
-
-function modelProviderConfigsDto() {
-  return {
-    configs: [
-      {
-        kind: 'builtin',
-        provider_id: 'anthropic',
-        default_model: null,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      },
-    ],
-    default_provider_id: 'anthropic',
-    default_harness_id: null,
   };
 }
 

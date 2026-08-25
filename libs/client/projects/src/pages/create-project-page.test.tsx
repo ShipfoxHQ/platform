@@ -2,7 +2,7 @@ import {configureApiClient} from '@shipfox/client-api';
 import {QueryClient} from '@tanstack/react-query';
 import {fireEvent, screen, waitFor, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import {projectsQueryKeys} from '#hooks/api/projects.js';
+import {projectExistenceQueryOptions, projectsQueryKeys} from '#hooks/api/projects.js';
 import {
   jsonResponse,
   PROJECT_TEST_WID,
@@ -22,7 +22,7 @@ describe('CreateProjectPage', () => {
     window.sessionStorage.clear();
   });
 
-  test('with a single connection: pre-selects, renders repos, creates a project', async () => {
+  test('with a single connection: pre-selects, renders repos, and lands the first project on the workspace home', async () => {
     let createProjectBody: unknown;
     const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
       const request = input as Request;
@@ -31,6 +31,22 @@ describe('CreateProjectPage', () => {
       }
       if (request.url.includes(`/integration-connections/${CONNECTION_ID}/repositories`)) {
         return jsonResponse({repositories: [repositoryDto()], next_cursor: null});
+      }
+      if (request.url.includes('/projects?')) {
+        const url = new URL(request.url);
+        // The pre-create existence snapshot (limit=1) sees an empty workspace;
+        // the home list (limit=50) sees the created project, so the home does
+        // not fall back to the pre-create empty state.
+        if (url.searchParams.get('search')) {
+          return jsonResponse({projects: [], next_cursor: null});
+        }
+        if (url.searchParams.get('limit') === '1') {
+          return jsonResponse({projects: [], next_cursor: null});
+        }
+        return jsonResponse({
+          projects: [projectDto({id: '44444444-4444-4444-8444-444444444444'})],
+          next_cursor: null,
+        });
       }
       if (request.url.endsWith('/projects') && request.method === 'POST') {
         createProjectBody = await request.json();
@@ -76,7 +92,13 @@ describe('CreateProjectPage', () => {
     expect(screen.getByText('/w/acme/p/launchpad')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', {name: 'Create project'}));
 
-    expect(await screen.findByRole('heading', {name: 'Runs'})).toBeInTheDocument();
+    // The first project lands on the workspace home, where the Get-started
+    // panel is the first panel, the just-created project is listed instead of
+    // the pre-create empty state, and the project detail is not shown.
+    expect(await screen.findByRole('searchbox', {name: 'Search projects'})).toBeInTheDocument();
+    expect(await screen.findByText('Project Detail')).toBeInTheDocument();
+    expect(screen.queryByText('Create your first project')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', {name: 'Runs'})).not.toBeInTheDocument();
     expect(createProjectBody).toEqual({
       workspace_id: PROJECT_TEST_WID,
       name: 'Launch Pad',
@@ -86,6 +108,56 @@ describe('CreateProjectPage', () => {
         external_repository_id: 'platform',
       },
     });
+  }, 10_000);
+
+  test('does not double-submit while the existence snapshot is in flight', async () => {
+    let releaseExistenceRead: (() => void) | undefined;
+    const existenceReadGate = new Promise<void>((resolve) => {
+      releaseExistenceRead = resolve;
+    });
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const request = input as Request;
+      if (request.url.includes('/integration-connections?')) {
+        return jsonResponse({connections: [connectionDto()]});
+      }
+      if (request.url.includes(`/integration-connections/${CONNECTION_ID}/repositories`)) {
+        return jsonResponse({repositories: [repositoryDto()], next_cursor: null});
+      }
+      if (request.url.includes('/projects?')) {
+        const url = new URL(request.url);
+        if (url.searchParams.get('limit') === '1') {
+          await existenceReadGate;
+          return jsonResponse({projects: [], next_cursor: null});
+        }
+        return jsonResponse({
+          projects: [projectDto({id: '44444444-4444-4444-8444-444444444444'})],
+          next_cursor: null,
+        });
+      }
+      if (request.url.endsWith('/projects') && request.method === 'POST') {
+        return jsonResponse(projectDto({id: '44444444-4444-4444-8444-444444444444'}));
+      }
+      return jsonResponse({});
+    });
+    configureApiClient({fetchImpl});
+
+    renderProjectPage(`/w/${PROJECT_TEST_WSLUG}/projects/new`, <CreateProjectPage />);
+    expect((await screen.findAllByText('gitea-owner/platform')).length).toBeGreaterThan(0);
+
+    const createButton = screen.getByRole('button', {name: 'Create project'});
+    fireEvent.click(createButton);
+    fireEvent.click(createButton);
+
+    // The button stays disabled while the existence snapshot runs, so a second
+    // click cannot start a duplicate create.
+    await waitFor(() =>
+      expect(screen.getByRole('button', {name: 'Create project'})).toBeDisabled(),
+    );
+    releaseExistenceRead?.();
+
+    // Exactly one POST and a deterministic landing on the workspace home.
+    expect(await screen.findByRole('searchbox', {name: 'Search projects'})).toBeInTheDocument();
+    expect(projectPostCount(fetchImpl)).toBe(1);
   }, 10_000);
 
   test('does not render an empty source panel when connections fail to load', async () => {
@@ -334,6 +406,56 @@ describe('CreateProjectPage', () => {
     expect(projectPostCount(fetchImpl)).toBe(0);
   });
 
+  test('with an existing project: keeps navigating to the created project', async () => {
+    let createProjectBody: unknown;
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const request = input as Request;
+      if (request.url.includes('/integration-connections?')) {
+        return jsonResponse({connections: [connectionDto()]});
+      }
+      if (request.url.includes(`/integration-connections/${CONNECTION_ID}/repositories`)) {
+        return jsonResponse({repositories: [repositoryDto()], next_cursor: null});
+      }
+      if (request.url.endsWith('/projects') && request.method === 'POST') {
+        createProjectBody = await request.json();
+        return jsonResponse(projectDto({id: '44444444-4444-4444-8444-444444444444'}));
+      }
+      return jsonResponse(projectDto({id: '44444444-4444-4444-8444-444444444444'}));
+    });
+    configureApiClient({fetchImpl});
+    const queryClient = new QueryClient({defaultOptions: {queries: {retry: false}}});
+    queryClient.setQueryData(projectExistenceQueryOptions(PROJECT_TEST_WID).queryKey, {
+      projects: [
+        {
+          id: '55555555-5555-4555-8555-555555555555',
+          workspaceId: PROJECT_TEST_WID,
+          name: 'Platform',
+          slug: 'platform',
+          source: {connectionId: CONNECTION_ID, externalRepositoryId: 'platform'},
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      ],
+      nextCursor: null,
+    });
+
+    renderProjectPage(`/w/${PROJECT_TEST_WSLUG}/projects/new`, <CreateProjectPage />, queryClient);
+    expect((await screen.findAllByText('gitea-owner/platform')).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole('button', {name: 'Create project'}));
+
+    // A workspace that already has a project keeps landing on the project.
+    expect(await screen.findByRole('heading', {name: 'Runs'})).toBeInTheDocument();
+    expect(createProjectBody).toEqual({
+      workspace_id: PROJECT_TEST_WID,
+      name: 'Platform',
+      slug: 'platform',
+      source: {
+        connection_id: CONNECTION_ID,
+        external_repository_id: 'platform',
+      },
+    });
+  }, 10_000);
+
   test('with a single connection: shows workspace-scoped "Add another integration" link', async () => {
     configureApiClient({
       fetchImpl: vi.fn((input: RequestInfo | URL) => {
@@ -353,33 +475,6 @@ describe('CreateProjectPage', () => {
     renderProjectPage(`/w/${PROJECT_TEST_WSLUG}/projects/new`, <CreateProjectPage />);
     const link = await screen.findByRole('link', {name: 'Add another integration'});
     expect(link).toHaveAttribute('href', `/w/${PROJECT_TEST_WSLUG}/integrations`);
-  });
-
-  test('shows the model provider reminder on project creation when no provider is configured', async () => {
-    const fetchImpl = vi.fn((input: RequestInfo | URL) => {
-      const request = input as Request;
-      if (request.url.endsWith('/agent/model-providers')) {
-        return Promise.resolve(
-          jsonResponse({configs: [], default_provider_id: null, default_harness_id: null}),
-        );
-      }
-      if (request.url.includes('/integration-connections?')) {
-        return Promise.resolve(jsonResponse({connections: [connectionDto()]}));
-      }
-      if (request.url.includes(`/integration-connections/${CONNECTION_ID}/repositories`)) {
-        return Promise.resolve(jsonResponse({repositories: [repositoryDto()], next_cursor: null}));
-      }
-      return Promise.resolve(jsonResponse({}));
-    });
-    configureApiClient({fetchImpl});
-
-    renderProjectPage(`/w/${PROJECT_TEST_WSLUG}/projects/new`, <CreateProjectPage />);
-
-    expect(await screen.findByText('Finish setting up a model provider')).toBeInTheDocument();
-    expect(screen.getByRole('link', {name: 'Agents'})).toHaveAttribute(
-      'href',
-      `/w/${PROJECT_TEST_WSLUG}/settings/agents`,
-    );
   });
 
   test('navigates to the existing project for duplicate recovery', async () => {

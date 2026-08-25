@@ -104,6 +104,13 @@ export const clientArchitectureExceptions = {
         'The OAuth callback passes the auth cache to the workspace navigation coordinator after completion.',
       test: 'libs/client/integrations/src/pages/slack-callback-page.test.tsx',
     },
+    {
+      file: 'libs/client/projects/src/pages/create-project-page.tsx',
+      owner: 'create-project page coordinator',
+      reason:
+        'Project creation reads workspace project existence from the query cache before the first-project mutation to pick the landing route and seeds the project list cache before landing the first project on the home.',
+      test: 'libs/client/projects/src/pages/create-project-page.test.tsx',
+    },
   ],
   queryPolicy: [stepLogsQueryException],
 } as const satisfies ClientArchitectureExceptionRegistry;

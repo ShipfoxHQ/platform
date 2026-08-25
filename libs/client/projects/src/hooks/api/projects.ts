@@ -305,6 +305,52 @@ export function projectExistenceQueryOptions(
   });
 }
 
+export async function readWorkspaceHasNoProject({
+  queryClient,
+  workspaceId,
+}: {
+  queryClient: QueryClient;
+  workspaceId: string;
+}): Promise<boolean> {
+  const options = projectExistenceQueryOptions(workspaceId);
+  // A cached non-empty list already rules out the first-project landing, so
+  // skip the fresh read entirely: the snapshot only steers navigation for the
+  // empty-workspace case, and a failed fresh read here would otherwise report
+  // a global error on every create in an established workspace without
+  // changing the landing.
+  const cached = queryClient.getQueryData<ProjectList>(options.queryKey);
+  if (cached !== undefined && cached.projects.length > 0) return false;
+  try {
+    // The landing decision must not trust fresh-but-stale existence data
+    // (e.g. a project created in another tab inside the 30s staleTime window),
+    // so force a fresh read for this check. The snapshot also runs without
+    // retry so a slow or failing existence endpoint cannot stall the submit
+    // handler on the app-default retry backoff; the catch falls back to cache.
+    const data = await queryClient.fetchQuery({...options, staleTime: 0, retry: false});
+    return data.projects.length === 0;
+  } catch (error) {
+    reportExistenceReadFailure(error);
+    const fallback = queryClient.getQueryData<ProjectList>(options.queryKey);
+    if (fallback !== undefined) return fallback.projects.length === 0;
+    // Unknown existence keeps the existing project navigation.
+    return false;
+  }
+}
+
+/**
+ * The existence snapshot is a best-effort pre-flight read: a failure must not
+ * block project creation, but it still reaches the global error-reporting
+ * pipeline so a degrading existence endpoint does not silently misroute the
+ * first-project landing.
+ */
+function reportExistenceReadFailure(error: unknown): void {
+  globalThis.reportError?.(
+    new Error('Failed to read workspace project existence for the first-project landing.', {
+      cause: error,
+    }),
+  );
+}
+
 export function projectQueryOptions(projectId: string | undefined): ProjectDetailQueryOptions {
   return queryOptions({
     queryKey: projectId

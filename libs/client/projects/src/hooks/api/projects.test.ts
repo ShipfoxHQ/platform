@@ -4,9 +4,11 @@ import {
   createProject,
   isProjectSlugAvailable,
   listProjects,
+  projectExistenceQueryOptions,
   projectSlugQueryOptions,
   projectsInfiniteQueryOptions,
   projectsQueryKeys,
+  readWorkspaceHasNoProject,
   resolveProjectSlug,
   updateProject,
 } from './projects.js';
@@ -43,6 +45,123 @@ describe('listProjects', () => {
     expect(url.searchParams.get('limit')).toBe('25');
     expect(url.searchParams.get('cursor')).toBe('cursor-1');
     expect(url.searchParams.get('search')).toBe('platform api');
+  });
+});
+
+describe('readWorkspaceHasNoProject', () => {
+  const WORKSPACE_ID = '11111111-1111-4111-8111-111111111111';
+
+  beforeEach(() => {
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl: undefined});
+  });
+
+  test('returns true when the fresh existence read returns an empty list', async () => {
+    configureApiClient({
+      fetchImpl: vi.fn().mockResolvedValue(jsonResponse({projects: [], next_cursor: null})),
+    });
+
+    await expect(
+      readWorkspaceHasNoProject({queryClient: new QueryClient(), workspaceId: WORKSPACE_ID}),
+    ).resolves.toBe(true);
+  });
+
+  test('returns false when the fresh existence read returns a project', async () => {
+    configureApiClient({
+      fetchImpl: vi.fn().mockResolvedValue(
+        jsonResponse({
+          projects: [
+            {
+              id: '44444444-4444-4444-8444-444444444444',
+              workspace_id: WORKSPACE_ID,
+              name: 'Platform',
+              slug: 'platform',
+              source: {
+                connection_id: '33333333-3333-4333-8333-333333333333',
+                external_repository_id: 'platform',
+              },
+              created_at: '2026-05-07T01:00:00.000Z',
+              updated_at: '2026-05-07T01:00:00.000Z',
+            },
+          ],
+          next_cursor: null,
+        }),
+      ),
+    });
+
+    await expect(
+      readWorkspaceHasNoProject({queryClient: new QueryClient(), workspaceId: WORKSPACE_ID}),
+    ).resolves.toBe(false);
+  });
+
+  test('falls back to a cached empty list when the fresh read fails', async () => {
+    configureApiClient({
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValue(jsonResponse({message: 'upstream unavailable'}, {status: 500})),
+    });
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(projectExistenceQueryOptions(WORKSPACE_ID).queryKey, {
+      projects: [],
+      nextCursor: null,
+    });
+
+    await expect(readWorkspaceHasNoProject({queryClient, workspaceId: WORKSPACE_ID})).resolves.toBe(
+      true,
+    );
+  });
+
+  test('skips the fresh read when a cached non-empty list rules out the first-project path', async () => {
+    const fetchImpl = vi.fn().mockRejectedValue(new Error('unexpected fetch'));
+    configureApiClient({fetchImpl});
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(projectExistenceQueryOptions(WORKSPACE_ID).queryKey, {
+      projects: [
+        {
+          id: '55555555-5555-4555-8555-555555555555',
+          workspaceId: WORKSPACE_ID,
+          name: 'Platform',
+          slug: 'platform',
+          source: {connectionId: 'c', externalRepositoryId: 'platform'},
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      ],
+      nextCursor: null,
+    });
+
+    await expect(readWorkspaceHasNoProject({queryClient, workspaceId: WORKSPACE_ID})).resolves.toBe(
+      false,
+    );
+    // The landing is already decided, so no existence request is issued and no
+    // failure is reported for an established workspace.
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  test('returns false when the fresh read fails without any cache', async () => {
+    configureApiClient({
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValue(jsonResponse({message: 'upstream unavailable'}, {status: 500})),
+    });
+
+    await expect(
+      readWorkspaceHasNoProject({queryClient: new QueryClient(), workspaceId: WORKSPACE_ID}),
+    ).resolves.toBe(false);
+  });
+
+  test('reports the failed fresh read to the error-reporting pipeline', async () => {
+    const reportErrorSpy = vi.fn();
+    vi.stubGlobal('reportError', reportErrorSpy);
+    configureApiClient({
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValue(jsonResponse({message: 'upstream unavailable'}, {status: 500})),
+    });
+
+    await readWorkspaceHasNoProject({queryClient: new QueryClient(), workspaceId: WORKSPACE_ID});
+
+    expect(reportErrorSpy).toHaveBeenCalledOnce();
+    vi.unstubAllGlobals();
   });
 });
 
