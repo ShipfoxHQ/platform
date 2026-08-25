@@ -18,11 +18,24 @@ const ANNOTATION_ROW_CLASS =
   'items-start justify-start gap-cluster hover:bg-background-neutral-base';
 
 /**
- * The server mints `failure:step:<uuid>` and `failure:job:<uuid>` for annotations it derives
- * from a failure. Those are routing keys, not something a reader named, and the row already
- * links to the step they point at.
+ * Contexts the server mints itself, each with the heading to use when the job that would
+ * normally name the row cannot be resolved.
+ *
+ * These are routing keys rather than something a reader chose, so they never become the
+ * heading. The convention is re-derived here from the server's producers
+ * (`on-failure-annotations.ts`, `agent-tool-capability-warning.ts`), which means a step is free
+ * to pick a context that collides with one of these prefixes and get retitled. Carrying the
+ * distinction on the annotation record instead would remove the guesswork.
  */
-const GENERATED_CONTEXT = /^failure:(?:job|step):/;
+const MINTED_CONTEXTS = [
+  {prefix: 'failure:step:', fallbackTitle: 'Step failure'},
+  {prefix: 'failure:job:', fallbackTitle: 'Job failure'},
+  {prefix: 'agent-tool-capability:', fallbackTitle: 'Agent tool capability'},
+] as const;
+
+function mintedContext(context: string) {
+  return MINTED_CONTEXTS.find(({prefix}) => context.startsWith(prefix));
+}
 
 export interface RunAnnotationItemProps {
   entry: RunAnnotationEntry;
@@ -48,8 +61,11 @@ export function RunAnnotationItem({
 }: RunAnnotationItemProps) {
   const {annotation, origin} = entry;
   const canLink = Boolean(origin && workspaceSlug && projectSlug);
-  const namedContext = GENERATED_CONTEXT.test(annotation.context) ? null : annotation.context;
-  const title = namedContext ?? entry.jobName ?? annotation.context;
+  // A minted context is never the heading, not even as a last resort: a run that no longer
+  // contains the emitting job resolves no name, and printing the routing key would put a bare
+  // uuid where the row's subject belongs.
+  const minted = mintedContext(annotation.context);
+  const title = minted ? (entry.jobName ?? minted.fallbackTitle) : annotation.context;
 
   return (
     <AnnotationRow>
@@ -57,7 +73,7 @@ export function RunAnnotationItem({
         style={annotation.style}
         title={title}
         titleAs="h3"
-        provenance={<RunAnnotationProvenance entry={entry} showJobName={Boolean(namedContext)} />}
+        provenance={<RunAnnotationProvenance entry={entry} showJobName={!minted} />}
         body={annotation.body}
         action={
           canLink && origin ? (
@@ -142,10 +158,11 @@ function AnnotationRow({children}: {children: ReactNode}) {
 /**
  * `execution #2 · run tests · attempt 1`, dropping any part the run no longer resolves.
  *
- * Held to one line. A step with no `name` is labelled by its prompt, which arrives already cut
- * by the server, and letting that sprawl over three wrapped lines presents a severed sentence as
- * if it were a complete label. Truncating says the value was cut; the title attribute returns
- * the rest.
+ * Bounded to two lines. A step with no `name` is labelled by its prompt, which arrives already
+ * cut by the server, and letting that sprawl unbounded presents a severed sentence as if it were
+ * a complete label. Two lines rather than one because the title attribute is the only other way
+ * to read the rest and a touch device never surfaces it, so the clamp has to carry most labels
+ * on its own; the ellipsis still says the value was cut.
  */
 function RunAnnotationProvenance({
   entry,
@@ -170,7 +187,7 @@ function RunAnnotationProvenance({
       as="p"
       size="xs"
       title={label}
-      className="min-w-0 truncate font-code text-foreground-neutral-subtle"
+      className="min-w-0 line-clamp-2 font-code text-foreground-neutral-subtle"
     >
       {label}
     </Text>

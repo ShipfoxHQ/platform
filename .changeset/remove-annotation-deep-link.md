@@ -1,18 +1,10 @@
 ---
 '@shipfox/client-workflows': patch
-'@shipfox/client-ui': minor
+'@shipfox/client-ui': major
 ---
 
-Remove the annotation deep link and its selected-row state.
+Remove the `?annotation=<id>` deep link and its selected-row scroll and focus behaviour from the
+workflow run page. No surface ever produced that URL, so the state was unreachable.
 
-`?annotation=<id>` was parsed, carried across navigation, and stripped in three places, but no
-surface in the product ever wrote it. No link, no redirect, no server-emitted URL. The only way
-to reach the state was to hand-write a URL containing an annotation id the product never shows
-you, so the selected row, its scroll-and-focus effect, and the render window it forced open were
-unreachable.
-
-Deleting it also removes two side effects that only fired from that unreachable state: synthetic
-job diagnostics were hidden while an annotation was selected, and the parameter counted toward
-"filters are active", which changed which empty state the reader got.
-
-`AnnotationCard` drops its `id` prop, which existed to be that deep link's scroll target.
+`AnnotationCard` no longer accepts an `id` prop, which existed only as that deep link's scroll
+target.

@@ -79,6 +79,9 @@ const RUN_RESPONSE: WorkflowRunDetailResponseDto = workflowRunDetailDto({
 });
 const RUN_ATTEMPTS_RESPONSE = runAttemptsResponseDto({attempts: []});
 
+/** Stable identity: a fresh `[]` per render would retrigger the API-client effect every render. */
+const NO_ANNOTATIONS: AnnotationDto[] = [];
+
 const RUN_ANNOTATIONS: AnnotationDto[] = [
   annotationDto({
     id: 'aaaaaaaa-aaaa-4aaa-8aaa-000000000001',
@@ -105,7 +108,7 @@ const RUN_ANNOTATIONS: AnnotationDto[] = [
 
 const withRunApi: Decorator = (Story, context) => (
   <RunWorkspaceStoryProviders
-    annotations={(context.parameters.annotations ?? []) as AnnotationDto[]}
+    annotations={(context.parameters.annotations ?? NO_ANNOTATIONS) as AnnotationDto[]}
   >
     <Story />
   </RunWorkspaceStoryProviders>

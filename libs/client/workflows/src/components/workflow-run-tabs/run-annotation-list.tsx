@@ -79,9 +79,7 @@ export function RunAnnotationList({
 
   if (query.isError && entries === undefined) {
     return (
-      <PanelBody className="p-panel">
-        <QueryLoadError query={query} subject="annotations" icon="fileDamageLine" />
-      </PanelBody>
+      <QueryLoadError query={query} subject="annotations" icon="fileDamageLine" variant="panel" />
     );
   }
 
