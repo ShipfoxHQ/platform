@@ -167,7 +167,10 @@ function adoptAdministrationGuardIn(route: RouteExport, parentPrefix: string): R
       ),
     };
   }
-  if (!isAdministrationPrefix(parentPrefix)) {
+  if (
+    !isAdministrationPrefix(parentPrefix) &&
+    !isAdministrationPrefix(`${parentPrefix}${route.path}`)
+  ) {
     return route;
   }
   const preHandler: RoutePreHandler[] = [

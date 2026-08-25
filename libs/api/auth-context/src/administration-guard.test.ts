@@ -29,6 +29,7 @@ describe('requireAdministrationActor', () => {
       buildUserContext({
         userId: crypto.randomUUID(),
         email: 'target@example.com',
+        memberships: [{workspaceId: crypto.randomUUID(), role: 'admin', workspaceStatus: 'active'}],
         impersonatorId: crypto.randomUUID(),
       }),
     );
@@ -78,6 +79,13 @@ describe('adoptAdministrationActorGuard', () => {
 
     const nested = (group.routes[0] as RouteGroup).routes as RouteDefinition[];
     expect(nested[0]?.preHandler).toHaveLength(1);
+  });
+
+  test('guards a root route whose own path is under /admin', () => {
+    const guarded = adoptAdministrationActorGuard(route('/admin/things')) as RouteDefinition;
+
+    expect(guarded.preHandler).toHaveLength(1);
+    expect(typeof guarded.preHandler?.[0]).toBe('function');
   });
 
   test('leaves routes outside an /admin prefix untouched', () => {
