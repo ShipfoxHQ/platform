@@ -31,6 +31,8 @@ export class DataKeyManager {
   readonly #repository: DataKeyRepository;
   readonly #options: {maxEntries: number; ttlMs: number};
   readonly #sweepTimer: ReturnType<typeof setInterval>;
+  /** Set by `dispose()`; in-flight completions stop re-seeding the cache. */
+  #disposed = false;
 
   constructor(
     keyProvider: EnvelopeKeyProvider,
@@ -61,7 +63,10 @@ export class DataKeyManager {
     if (existing) {
       const dek = this.#keyProvider.unwrapDek(keyId, existing.wrappedDek, existing.kekVersion);
       try {
-        this.#set(keyId, dek);
+        // A completion that lands after `dispose()` must not re-seed the cache:
+        // the expiration sweeper is stopped, so the plaintext key would never
+        // be wiped. The caller still gets its key; nothing is retained.
+        if (!this.#disposed) this.#set(keyId, dek);
         return {
           dek: Buffer.from(dek),
           outcome: hadExpiredCache ? 'cache_expired' : 'db_unwrapped',
@@ -88,7 +93,7 @@ export class DataKeyManager {
     if (!persisted) throw new Error(`Data key was not persisted for ${keyId}`);
     const dek = this.#keyProvider.unwrapDek(keyId, persisted.wrappedDek, persisted.kekVersion);
     try {
-      this.#set(keyId, dek);
+      if (!this.#disposed) this.#set(keyId, dek);
       return {dek: Buffer.from(dek), outcome: inserted ? 'generated' : 'db_unwrapped'};
     } finally {
       dek.fill(0);
@@ -105,10 +110,14 @@ export class DataKeyManager {
   }
 
   /**
-   * Releases the manager: evicts cached plaintext keys and stops the periodic
-   * expiration sweeper. After `dispose()`, the manager must not be reused.
+   * Releases the manager: marks it disposed, evicts cached plaintext keys, and
+   * stops the periodic expiration sweeper. A `getPlaintextDataKey()` completion
+   * that lands after `dispose()` still returns its key but is no longer cached,
+   * so no plaintext key outlives the sweeper that bounds its TTL. After
+   * `dispose()`, the manager must not be reused.
    */
   dispose(): void {
+    this.#disposed = true;
     clearInterval(this.#sweepTimer);
     for (const keyId of this.#cache.keys()) this.#delete(keyId);
   }

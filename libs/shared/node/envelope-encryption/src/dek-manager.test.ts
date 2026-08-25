@@ -147,4 +147,45 @@ describe('data key manager', () => {
       vi.useRealTimers();
     }
   });
+
+  test('a completion landing after dispose() returns its key without caching it', async () => {
+    const provider = createLocalKeyProvider({
+      currentKek: crypto.randomBytes(32),
+      keyVersionDomain: 'test-domain',
+    });
+    const dek = crypto.randomBytes(32);
+    const wrapped = provider.wrapDek('workspace-1', dek);
+    let resolveGet!: (record: DataKeyRecord | undefined) => void;
+    let reads = 0;
+    const repository: DataKeyRepository = {
+      get() {
+        reads += 1;
+        if (reads === 1) {
+          return new Promise<DataKeyRecord | undefined>((resolve) => {
+            resolveGet = resolve;
+          });
+        }
+        return Promise.resolve({keyId: 'workspace-1', ...wrapped});
+      },
+      insertIfAbsent() {
+        return Promise.resolve(false);
+      },
+    };
+    const manager = new DataKeyManager(provider, repository, {maxEntries: 10, ttlMs: 60_000});
+
+    const pending = manager.getPlaintextDataKey('workspace-1');
+    manager.dispose();
+    resolveGet({keyId: 'workspace-1', ...wrapped});
+
+    const result = await pending;
+    expect(result.outcome).toBe('db_unwrapped');
+    expect(result.dek).toEqual(dek);
+
+    // The completion finished after dispose, so it must not have re-seeded the
+    // cache that the stopped sweeper would otherwise never expire: the next
+    // read is a fresh repository lookup, not a cache hit.
+    const after = await manager.getPlaintextDataKey('workspace-1');
+    expect(after.outcome).toBe('db_unwrapped');
+    expect(reads).toBe(2);
+  });
 });
