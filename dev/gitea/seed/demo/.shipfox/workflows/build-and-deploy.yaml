@@ -5,7 +5,7 @@ triggers:
     source: manual
     event: fire
   on_push:
-    source: gitea
+    source: gitea_shipfox
     event: push
     filter: 'event.ref == "refs/heads/main"'
 jobs:
