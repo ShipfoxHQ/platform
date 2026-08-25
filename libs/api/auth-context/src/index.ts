@@ -1,6 +1,11 @@
 import type {JobLeaseTokenClaims, RunnerSessionTokenClaims} from '@shipfox/api-auth-dto';
 import type {WorkspaceRole} from '@shipfox/api-workspaces-dto';
-import {ClientError} from '@shipfox/node-fastify';
+import {
+  ClientError,
+  isRouteGroup,
+  type RouteExport,
+  type RoutePreHandler,
+} from '@shipfox/node-fastify';
 
 export const AUTH_USER = 'user';
 export const AUTH_RUNNER_REGISTRATION_TOKEN = 'runner-registration-token';
@@ -147,6 +152,92 @@ export function requireWorkspaceAccess(
   }
 
   return {workspaceId: params.workspaceId, userId: context.userId, role: membership.role};
+}
+
+/**
+ * Rejects an impersonated session before any administrator authority is
+ * consulted. Every route under an `/admin` prefix runs this guard: a request
+ * whose context carries `impersonatorId` receives the same `admin-role-required`
+ * failure a role-less actor would, before roles are read, so a target that
+ * gains a grant inside the token window still cannot act on it. The check is
+ * request-scoped on purpose: the inter-module `requireAdminRole` contract only
+ * carries `{userId, minimumRole}` and cannot transport the mark.
+ */
+export function requireAdministrationActor(request: RequestWithContext): void {
+  const context = getUserContext(request);
+  if (context?.impersonatorId != null) {
+    throw new ClientError('Administrator role required', 'admin-role-required', {status: 403});
+  }
+}
+
+const ADMINISTRATION_PREFIX = '/admin';
+const TRAILING_SLASHES = /\/+$/;
+const LEADING_SLASHES = /^\/+/;
+
+function isAdministrationPrefix(prefix: string): boolean {
+  return prefix === ADMINISTRATION_PREFIX || prefix.startsWith(`${ADMINISTRATION_PREFIX}/`);
+}
+
+/**
+ * Joins a parent prefix and a child prefix or route path the way Fastify
+ * resolves the mounted URL: surrounding slashes are trimmed and segments are
+ * joined with a single `/`, and a leading slash is added when the joined path
+ * is non-empty. Raw concatenation would diverge from Fastify's resolution for
+ * slash-less prefixes (`/admin` + `things` -> `/adminthings` while Fastify
+ * mounts `/admin/things`) and let a route escape the guard while still
+ * mounting under `/admin`.
+ */
+function joinRoutePath(parent: string, child: string): string {
+  if (parent === '') {
+    return child.startsWith('/') ? child : `/${child}`;
+  }
+  if (child === '') {
+    return parent;
+  }
+  return `${parent.replace(TRAILING_SLASHES, '')}/${child.replace(LEADING_SLASHES, '')}`;
+}
+
+function adoptAdministrationGuardIn(route: RouteExport, parentPrefix: string): RouteExport {
+  if (isRouteGroup(route)) {
+    return {
+      ...route,
+      routes: route.routes.map((child) =>
+        adoptAdministrationGuardIn(child, joinRoutePath(parentPrefix, route.prefix)),
+      ),
+    };
+  }
+  const effectivePath = joinRoutePath(parentPrefix, route.path);
+  if (!isAdministrationPrefix(parentPrefix) && !isAdministrationPrefix(effectivePath)) {
+    return route;
+  }
+  const preHandler: RoutePreHandler[] = [
+    (request) => {
+      requireAdministrationActor(request);
+      return undefined;
+    },
+    ...(route.preHandler === undefined
+      ? []
+      : Array.isArray(route.preHandler)
+        ? route.preHandler
+        : [route.preHandler]),
+  ];
+  return {...route, preHandler};
+}
+
+/**
+ * Positionally adopts the impersonated-session rejection for every route under
+ * an `/admin` prefix in the given route tree: the rule is "every `/admin`
+ * route", so an administration surface added later under the prefix inherits
+ * the guard without anyone remembering to attach it. The guard runs before any
+ * existing preHandler, so roles are never consulted for an impersonated
+ * context — including on role-check-free routes such as the first-owner
+ * bootstrap.
+ */
+export function adoptAdministrationActorGuard<T extends RouteExport | RouteExport[]>(routes: T): T {
+  if (Array.isArray(routes)) {
+    return routes.map((route) => adoptAdministrationGuardIn(route, '')) as T;
+  }
+  return adoptAdministrationGuardIn(routes, '') as T;
 }
 
 /**

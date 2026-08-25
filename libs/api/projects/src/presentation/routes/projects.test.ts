@@ -24,6 +24,7 @@ import {projectsOutbox} from '#db/schema/outbox.js';
 import {createProjectRoutes} from './index.js';
 
 let authenticatedMemberships: UserContextMembership[] = [];
+let authenticatedImpersonatorId: string | undefined;
 
 const fakeUserAuth: AuthMethod = {
   name: AUTH_USER,
@@ -35,6 +36,7 @@ const fakeUserAuth: AuthMethod = {
         email: 'user@example.com',
         name: 'User One',
         memberships: authenticatedMemberships,
+        impersonatorId: authenticatedImpersonatorId,
       }),
     );
     return Promise.resolve();
@@ -53,6 +55,7 @@ describe('project routes', () => {
     workspaceId = crypto.randomUUID();
     sourceConnectionId = crypto.randomUUID();
     authenticatedMemberships = [{workspaceId, role: 'admin', workspaceStatus: 'active'}];
+    authenticatedImpersonatorId = undefined;
     integrations = {
       resolveSourceRepository: vi.fn(async () => {
         await Promise.resolve();
@@ -579,6 +582,20 @@ describe('project routes', () => {
       userId: 'user-1',
       minimumRole: 'admin-observer',
     });
+  });
+
+  test('rejects an impersonated session before consulting the administrator role', async () => {
+    authenticatedImpersonatorId = crypto.randomUUID();
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/admin/projects',
+      headers: {authorization: 'Bearer user'},
+    });
+
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toEqual({code: 'admin-role-required'});
+    expect(auth.requireAdminRole).not.toHaveBeenCalled();
   });
 
   test('rejects unbounded lookup parameters and malformed cursors', async () => {

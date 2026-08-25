@@ -4,6 +4,7 @@ import {
   AUTH_RUNNER_REGISTRATION_TOKEN,
   AUTH_RUNNER_SESSION,
   AUTH_USER,
+  adoptAdministrationActorGuard,
 } from '@shipfox/api-auth-context';
 import type {AuthInterModuleClient} from '@shipfox/api-auth-dto/inter-module';
 import type {RouteGroup} from '@shipfox/node-fastify';
@@ -124,7 +125,7 @@ export function createRunnerRoutes(
   options: CreateRunnersModuleOptions = {},
 ): RouteGroup[] {
   const runnerOnlyRoutes = createRunnerOnlyRoutes(auth);
-  return [
+  return adoptAdministrationActorGuard([
     ...runnerOnlyRoutes.map((route) =>
       route.routes.includes(pollDemandRoute)
         ? {
@@ -137,5 +138,5 @@ export function createRunnerRoutes(
     ),
     ...runnerControlRoutes,
     ...provisionerRoutes,
-  ];
+  ]);
 }

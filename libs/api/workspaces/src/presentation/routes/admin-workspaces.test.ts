@@ -27,12 +27,19 @@ function adminHeaders(idempotencyKey: string) {
   };
 }
 
+let authenticatedImpersonatorId: string | undefined;
+
 const fakeUserAuth: AuthMethod = {
   name: AUTH_USER,
   authenticate: (request: FastifyRequest) => {
     setUserContext(
       request,
-      buildUserContext({userId: USER_ID, email: 'admin@example.com', memberships: []}),
+      buildUserContext({
+        userId: USER_ID,
+        email: 'admin@example.com',
+        memberships: [],
+        impersonatorId: authenticatedImpersonatorId,
+      }),
     );
     return Promise.resolve();
   },
@@ -46,6 +53,7 @@ describe('GET /admin/workspaces', () => {
 
   beforeEach(async () => {
     await closeApp();
+    authenticatedImpersonatorId = undefined;
     await db().execute(
       sql`TRUNCATE workspaces_admin_command_results, workspaces_outbox, workspaces_workspaces CASCADE`,
     );
@@ -412,6 +420,20 @@ describe('GET /admin/workspaces', () => {
         job_counts: {state: 'unknown'},
       }),
     ]);
+  });
+
+  test('rejects an impersonated session before consulting the administrator role', async () => {
+    authenticatedImpersonatorId = crypto.randomUUID();
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/admin/workspaces',
+      headers: {authorization: 'Bearer user'},
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toEqual({code: 'admin-role-required'});
+    expect(auth.requireAdminRole).not.toHaveBeenCalled();
   });
 
   test('maps an insufficient administrator role to forbidden', async () => {

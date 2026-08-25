@@ -1,4 +1,4 @@
-import {AUTH_USER, getUserContext} from '@shipfox/api-auth-context';
+import {AUTH_USER, adoptAdministrationActorGuard, getUserContext} from '@shipfox/api-auth-context';
 import {
   type AuthInterModuleClient,
   authInterModuleContract,
@@ -219,5 +219,8 @@ export function createAdminWorkspacesRoutes(params: {
     execute: reactivateWorkspace,
   });
 
-  return {prefix: '/admin/workspaces', routes: [listRoute, suspendRoute, reactivateRoute]};
+  return adoptAdministrationActorGuard({
+    prefix: '/admin/workspaces',
+    routes: [listRoute, suspendRoute, reactivateRoute],
+  });
 }

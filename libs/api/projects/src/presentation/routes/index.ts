@@ -1,3 +1,4 @@
+import {adoptAdministrationActorGuard} from '@shipfox/api-auth-context';
 import type {AuthInterModuleClient} from '@shipfox/api-auth-dto/inter-module';
 import type {IntegrationsModuleClient} from '@shipfox/api-integration-core-dto/inter-module';
 import type {RouteGroup} from '@shipfox/node-fastify';
@@ -11,7 +12,7 @@ export function createProjectRoutes(
   integrations: IntegrationsModuleClient,
   auth: Pick<AuthInterModuleClient, 'requireAdminRole'>,
 ): RouteGroup[] {
-  return [
+  return adoptAdministrationActorGuard([
     {
       prefix: '/projects',
       routes: [
@@ -25,5 +26,5 @@ export function createProjectRoutes(
       prefix: '/admin/projects',
       routes: [createAdminProjectsRoute(auth)],
     },
-  ];
+  ]);
 }

@@ -1,4 +1,4 @@
-import {AUTH_USER} from '@shipfox/api-auth-context';
+import {AUTH_USER, adoptAdministrationActorGuard} from '@shipfox/api-auth-context';
 import {
   adminBootstrapStateSchema,
   administratorUserLookupQuerySchema,
@@ -362,20 +362,20 @@ const revokeRoute = defineRoute({
   },
 });
 
-export const administrationRoutes: RouteGroup = {
+export const administrationRoutes: RouteGroup = adoptAdministrationActorGuard({
   prefix: '/admin/auth/admin-grants',
   auth: AUTH_USER,
   routes: [bootstrapRoute, listRoute, grantRoute, revokeRoute],
-};
+});
 
-export const administrationBootstrapRoutes: RouteGroup = {
+export const administrationBootstrapRoutes: RouteGroup = adoptAdministrationActorGuard({
   prefix: '/admin/auth',
   auth: AUTH_USER,
   routes: [bootstrapStateRoute],
-};
+});
 
-export const administrationUserRoutes: RouteGroup = {
+export const administrationUserRoutes: RouteGroup = adoptAdministrationActorGuard({
   prefix: '/admin/auth/users',
   auth: AUTH_USER,
   routes: [userLookupRoute, suspendUserRoute, reactivateUserRoute, revokeUserSessionsRoute],
-};
+});
