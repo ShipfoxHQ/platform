@@ -69,7 +69,7 @@ function resolvedDefinition(triggers: BaseParams['triggers']) {
   return {
     workflow: {id: WORKFLOW_ID, configPath: '.shipfox/workflows/triage-sentry.yml'},
     commit: COMMIT,
-    model: {version: 2, model: {kind: 'workflow', name: 'Triage', triggers: [], jobs: []}},
+    model: {version: 3, model: {kind: 'workflow', name: 'Triage', triggers: [], jobs: []}},
     sourceSnapshot: {content: 'name: Triage\n', format: 'yaml'},
     triggers: triggers ?? {
       on_demand: {source: 'manual', event: 'fire', with: {severity: 'high'}},

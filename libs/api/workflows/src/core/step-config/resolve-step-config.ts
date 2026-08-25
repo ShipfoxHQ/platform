@@ -154,7 +154,10 @@ function resolveWorkingDirectoryConfig(
   params: Omit<BuildStepConfigParams, 'context'> & {readonly context: WorkflowEvaluationContext},
 ): WorkingDirectoryConfig {
   const value = params.step.workingDirectory;
-  const template = params.step.templates?.workingDirectory;
+  // Tool steps have no working tree, so they never carry a working-directory
+  // template; the union narrows the remaining kinds to those that can.
+  const template =
+    params.step.kind === 'tool' ? undefined : params.step.templates?.workingDirectory;
   if (value === undefined) {
     return {
       config: {},

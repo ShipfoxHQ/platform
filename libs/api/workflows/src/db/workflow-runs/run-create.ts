@@ -1,6 +1,7 @@
 import {
   createWorkflowModelSnapshot,
   WORKFLOW_MODEL_CHECKOUT_TARGET_FIELDS,
+  type WorkflowJsonTemplateTree,
   type WorkflowModel,
 } from '@shipfox/api-definitions-dto';
 import type {IntegrationsModuleClient} from '@shipfox/api-integration-core-dto/inter-module';
@@ -455,9 +456,13 @@ function referencedVariables(
 
     for (const step of job.steps) {
       collectFieldVariableReferences(step.templates?.name, references, {field: 'step.name'});
-      collectFieldVariableReferences(step.templates?.workingDirectory, references, {
-        field: 'step.working_directory',
-      });
+      collectFieldVariableReferences(
+        step.kind === 'tool' ? undefined : step.templates?.workingDirectory,
+        references,
+        {
+          field: 'step.working_directory',
+        },
+      );
       if (step.kind === 'run') {
         collectFieldVariableReferences(step.templates?.command, references, {field: 'run'});
         collectTemplateVariableReferences(step.templates?.env, references);
@@ -467,6 +472,16 @@ function referencedVariables(
         collectFieldVariableReferences(step.templates?.provider, references, {
           field: 'agent.provider',
         });
+      } else if (step.kind === 'tool') {
+        collectTemplateTreeVariableReferences(step.templates?.with, references, {
+          field: 'tool.with',
+        });
+        for (const [key, expression] of Object.entries(step.outputMappings ?? {})) {
+          collectExpressionVariableReferences(expression, references, {
+            field: 'tool.outputs',
+            envKey: key,
+          });
+        }
       } else if (step.kind === 'checkout') {
         for (const [key, field] of WORKFLOW_MODEL_CHECKOUT_TARGET_FIELDS) {
           collectFieldVariableReferences(step.checkout.templates?.[key], references, {field});
@@ -531,6 +546,69 @@ function collectFieldVariableReferences(
         envKey: source.envKey,
       });
     }
+  }
+}
+
+/**
+ * Collect `vars.*` references from a tool step's `with` template tree: a
+ * `WorkflowJsonTemplateTree` mirrors the authored `with` payload with every
+ * interpolated string leaf replaced by its parsed template, so walk it like
+ * the authored structure and collect from each leaf template.
+ */
+function collectTemplateTreeVariableReferences(
+  tree: WorkflowJsonTemplateTree | undefined,
+  references: ReferencedVariable[],
+  source: {
+    readonly field: InterpolationUnresolvableError['field'];
+    readonly envKey?: string | undefined;
+  },
+): void {
+  if (tree === undefined) return;
+
+  if (Array.isArray(tree)) {
+    // A field template is itself an array of segments; a `with` list is an
+    // array of child trees. Segments carry a `kind`, so distinguish the two.
+    if (tree.every((element) => isFieldTemplateSegment(element))) {
+      collectFieldVariableReferences(tree, references, source);
+      return;
+    }
+    for (const child of tree) collectTemplateTreeVariableReferences(child, references, source);
+    return;
+  }
+
+  if (typeof tree === 'object') {
+    for (const child of Object.values(tree)) {
+      collectTemplateTreeVariableReferences(child, references, source);
+    }
+  }
+}
+
+function isFieldTemplateSegment(value: unknown): value is ResolvedFieldSegment {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    ((value as {kind?: unknown}).kind === 'literal' ||
+      (value as {kind?: unknown}).kind === 'deferred')
+  );
+}
+
+function collectExpressionVariableReferences(
+  expression: WorkflowExpression,
+  references: ReferencedVariable[],
+  source: {
+    readonly field: InterpolationUnresolvableError['field'];
+    readonly envKey?: string | undefined;
+  },
+): void {
+  const keyAccess = analyzeContextKeyAccess(expression);
+  for (const reference of keyAccess.references) {
+    if (reference.root !== 'vars') continue;
+    references.push({
+      key: reference.key,
+      field: source.field,
+      source: expression.source,
+      envKey: source.envKey,
+    });
   }
 }
 

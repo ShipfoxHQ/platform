@@ -97,7 +97,7 @@ describe('workflowsInterModuleContract', () => {
     projectId: '00000000-0000-4000-8000-000000000002',
     workflowId: '00000000-0000-4000-8000-000000000003',
     model: {
-      version: 2 as const,
+      version: 3 as const,
       model: {
         kind: 'workflow' as const,
         name: 'Dev Workflow',

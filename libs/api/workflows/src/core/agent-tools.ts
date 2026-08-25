@@ -61,7 +61,7 @@ export async function loadAgentToolMaterializationContext(params: {
   readonly projects?: ProjectsModuleClient | undefined;
   readonly jobs?: readonly WorkflowModelJob[] | undefined;
 }): Promise<AgentToolMaterializationContext | undefined> {
-  if (!modelHasAgentStepIntegrations(params.model, params.jobs)) return undefined;
+  if (!hasIntegrationToolReferences(params.model, params.jobs)) return undefined;
 
   if (params.projects === undefined) {
     throw new AgentIntegrationMaterializationError('Project access is not configured');
@@ -410,12 +410,20 @@ function isPermissionScope(
   );
 }
 
-function modelHasAgentStepIntegrations(
+/**
+ * Model-level twin of `hasIntegrationToolReferences` in
+ * `libs/api/definitions/src/core/has-integration-tool-references.ts`, which
+ * runs the same criterion over the authored `WorkflowDocument` at sync time.
+ * Keep both in sync.
+ */
+function hasIntegrationToolReferences(
   model: WorkflowModel | null,
   jobs: readonly WorkflowModelJob[] | undefined,
 ): boolean {
   if (model === null) return false;
   return (jobs ?? model.jobs).some((job) =>
-    job.steps.some((step) => step.kind === 'agent' && step.integrations !== undefined),
+    job.steps.some(
+      (step) => step.kind === 'tool' || (step.kind === 'agent' && step.integrations !== undefined),
+    ),
   );
 }

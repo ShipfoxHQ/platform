@@ -34,6 +34,18 @@ export async function loadIntegrationValidationContext(
     agentToolSelectionCatalogs: new Map(
       context.selectionCatalogs.map(({provider, selectors}) => [provider, {selectors}]),
     ),
+    agentToolCatalogs: new Map(
+      context.catalogs.map(({provider, tools}) => [
+        provider,
+        {
+          tools: tools.map(({outputSchema, methods, ...tool}) => ({
+            ...tool,
+            ...(outputSchema === undefined ? {} : {outputSchema}),
+            ...(methods === undefined ? {} : {methods}),
+          })),
+        },
+      ]),
+    ),
     workspaceConnectionSnapshot: new Map(
       context.workspaceConnections.map(({slug, ...connection}) => [slug, connection]),
     ),

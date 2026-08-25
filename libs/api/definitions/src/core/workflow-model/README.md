@@ -11,6 +11,11 @@ Code that turns a checked workflow document into the model used by definitions.
 - **Step gates**: Parse run-step `gate.success` as a server-evaluated CEL
   predicate against context roots available at step reporting, and check
   `gate.on_failure.restart_from` against earlier named steps in the same job.
+  Tool-step gates validate against the no-`exit_code` report environment.
+- **Tool steps**: `normalizeToolStep` splits `family.method` tool ids, parses
+  `with` interpolation trees and `outputs` mappings (typed from the catalog
+  `outputSchema`), records the `steps.<key>` type overlay, and validates the
+  connection, tool, and inputs against the optional integration context.
 - **`InvalidWorkflowModelError`**: Reports semantic workflow errors found during
   normalization.
 

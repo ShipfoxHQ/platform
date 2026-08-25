@@ -33,7 +33,7 @@ const devRunInput = {
   projectId: input.projectId,
   workflowId: input.definitionId,
   model: {
-    version: 2 as const,
+    version: 3 as const,
     model: {
       kind: 'workflow' as const,
       name: 'Build',

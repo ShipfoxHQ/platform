@@ -1,4 +1,9 @@
-import {DEFAULT_JOB_CHECKOUT, type WorkflowModel} from '@shipfox/api-definitions-dto';
+import {
+  DEFAULT_JOB_CHECKOUT,
+  type WorkflowJsonTemplateTree,
+  type WorkflowJsonValue,
+  type WorkflowModel,
+} from '@shipfox/api-definitions-dto';
 import {
   createWorkflowExpression,
   parseWorkflowTemplate,
@@ -41,7 +46,14 @@ interface TestCheckoutStep extends TestWorkflowStepBase {
   readonly checkout: Checkout;
 }
 
-type TestWorkflowStep = TestRunStep | TestAgentStep | TestCheckoutStep;
+interface TestToolStep extends TestWorkflowStepBase {
+  readonly tool: string;
+  readonly connection?: string | undefined;
+  readonly with?: WorkflowJsonValue | undefined;
+  readonly outputs?: Readonly<Record<string, string>> | undefined;
+}
+
+type TestWorkflowStep = TestRunStep | TestAgentStep | TestCheckoutStep | TestToolStep;
 
 const DEFAULT_RUNNER_LABELS = ['ubuntu-latest'] as const;
 
@@ -171,6 +183,18 @@ function normalizeStep(step: TestWorkflowStep, jobId: string, stepIndex: number)
     };
   }
 
+  if ('tool' in step) {
+    return {
+      ...base,
+      kind: 'tool',
+      tool: splitToolId(step.tool),
+      ...(step.connection === undefined ? {} : {connection: step.connection}),
+      ...(step.with === undefined ? {} : {with: step.with}),
+      ...(step.outputs === undefined ? {} : {outputMappings: outputMappings(step.outputs)}),
+      ...optionalToolTemplates(step),
+    };
+  }
+
   return {
     ...base,
     kind: 'checkout',
@@ -272,6 +296,54 @@ function optionalAgentTemplates(step: TestAgentStep) {
       ...(workingDirectory === undefined ? {} : {workingDirectory}),
     },
   };
+}
+
+function optionalToolTemplates(step: TestToolStep) {
+  const withTree = step.with === undefined ? undefined : withTemplateTree(step.with);
+  const name = step.name === undefined ? undefined : fieldTemplate('step.name', step.name);
+  if (withTree === undefined && name === undefined) return {};
+  return {
+    templates: {
+      ...(withTree === undefined ? {} : {with: withTree}),
+      ...(name === undefined ? {} : {name}),
+    },
+  };
+}
+
+function withTemplateTree(value: WorkflowJsonValue): WorkflowJsonTemplateTree | undefined {
+  if (Array.isArray(value)) {
+    const trees = value.map((child) => withTemplateTree(child));
+    return trees.every((tree) => tree === undefined) ? undefined : trees;
+  }
+  if (typeof value === 'object' && value !== null) {
+    const entries = Object.entries(value).flatMap(([key, child]) => {
+      const tree = withTemplateTree(child);
+      return tree === undefined ? [] : [[key, tree] as const];
+    });
+    return entries.length === 0 ? undefined : Object.fromEntries(entries);
+  }
+  if (typeof value !== 'string') return undefined;
+  return fieldTemplate('tool.with', value);
+}
+
+function outputMappings(outputs: Readonly<Record<string, string>>) {
+  return Object.fromEntries(
+    Object.entries(outputs).map(([key, source]) => {
+      const template = fieldTemplate('tool.outputs', source);
+      if (template === undefined || template.length !== 1 || template[0]?.kind !== 'deferred') {
+        throw new Error(
+          `Expected test tool output mapping to be exactly one expression for ${key}: ${source}`,
+        );
+      }
+      return [key, template[0].expression];
+    }),
+  );
+}
+
+function splitToolId(source: string): {readonly id: string; readonly method?: string} {
+  const dotIndex = source.indexOf('.');
+  if (dotIndex < 1 || dotIndex === source.length - 1) return {id: source};
+  return {id: source.slice(0, dotIndex), method: source.slice(dotIndex + 1)};
 }
 
 function envTemplates(env: WorkflowModel['env'] | undefined): WorkflowEnvTemplates | undefined {
