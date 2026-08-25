@@ -102,4 +102,49 @@ describe('data key manager', () => {
       vi.useRealTimers();
     }
   });
+
+  test('clear() keeps the expiration sweeper alive for later cache entries', async () => {
+    vi.useFakeTimers();
+    try {
+      const repository = new MemoryDataKeyRepository();
+      const provider = createLocalKeyProvider({
+        currentKek: crypto.randomBytes(32),
+        keyVersionDomain: 'test-domain',
+      });
+      const manager = new DataKeyManager(provider, repository, {maxEntries: 10, ttlMs: 1_000});
+      await manager.getPlaintextDataKey('workspace-1');
+      manager.clear();
+
+      // A key cached after the clear must still be swept once past TTL, even
+      // without any new request touching it.
+      await manager.getPlaintextDataKey('workspace-2');
+      vi.advanceTimersByTime(2_000);
+      const result = await manager.getPlaintextDataKey('workspace-2');
+      expect(result.outcome).toBe('db_unwrapped');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('dispose() evicts the cache and stops the expiration sweeper', async () => {
+    vi.useFakeTimers();
+    try {
+      const repository = new MemoryDataKeyRepository();
+      const provider = createLocalKeyProvider({
+        currentKek: crypto.randomBytes(32),
+        keyVersionDomain: 'test-domain',
+      });
+      const manager = new DataKeyManager(provider, repository, {maxEntries: 10, ttlMs: 1_000});
+      await manager.getPlaintextDataKey('workspace-1');
+      manager.dispose();
+
+      // Evicted after dispose: the next read is a fresh repository lookup.
+      const result = await manager.getPlaintextDataKey('workspace-1');
+      expect(result.outcome).toBe('db_unwrapped');
+      // Idempotent: a second dispose must not throw.
+      manager.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

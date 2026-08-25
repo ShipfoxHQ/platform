@@ -99,7 +99,16 @@ export class DataKeyManager {
     this.#delete(keyId);
   }
 
+  /** Evicts every cached plaintext key; the expiration sweeper keeps running. */
   clear(): void {
+    for (const keyId of this.#cache.keys()) this.#delete(keyId);
+  }
+
+  /**
+   * Releases the manager: evicts cached plaintext keys and stops the periodic
+   * expiration sweeper. After `dispose()`, the manager must not be reused.
+   */
+  dispose(): void {
     clearInterval(this.#sweepTimer);
     for (const keyId of this.#cache.keys()) this.#delete(keyId);
   }
