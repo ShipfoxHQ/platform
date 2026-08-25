@@ -135,6 +135,17 @@ const RESOLVE_PULL_REQUEST_REVIEW_THREAD_MUTATION = `
   }
 `;
 
+const CREATE_COMMIT_ON_BRANCH_MUTATION = `
+  mutation CreateCommitOnBranch($input: CreateCommitOnBranchInput!) {
+    createCommitOnBranch(input: $input) {
+      commit {
+        oid
+        url
+      }
+    }
+  }
+`;
+
 export class GithubAgentToolsProvider
   implements
     AgentToolsProvider<
@@ -399,6 +410,8 @@ export function githubOperationRoute(
       return 'GET /search/issues';
     case 'create_pull_request.':
       return `POST ${repoPath}/pulls`;
+    case 'create_commit.':
+      return GITHUB_GRAPHQL_ROUTE;
     case 'update_pull_request.':
       return `PATCH ${repoPath}/pulls/${pull}`;
     case 'add_reply_to_pull_request_comment.':
@@ -519,12 +532,106 @@ async function executeGithubGraphqlOperation(
       });
     case 'add_comment_to_pending_review.':
       return await addCommentToPendingReview(client, parameters);
+    case 'create_commit.':
+      return await createCommitOnBranch(client, parameters);
     default:
       throw new GithubIntegrationProviderError(
         'malformed-provider-response',
         'GitHub operation does not support GraphQL operations',
       );
   }
+}
+
+const CREATE_COMMIT_STALE_HEAD_TYPE_PATTERN = /^STALE_(HEAD_OID|DATA)$/u;
+const CREATE_COMMIT_STALE_HEAD_MESSAGE_PATTERN = /Expected branch to point to/u;
+const CREATE_COMMIT_RATE_LIMITED_TYPE = 'RATE_LIMITED';
+const CREATE_COMMIT_REPOSITORY_PATTERN = /^[^/\s]+\/[^/\s]+$/u;
+const CREATE_COMMIT_OID_PATTERN = /^[0-9a-f]{40}$/iu;
+const CREATE_COMMIT_ENCODINGS = new Set(['utf8', 'base64']);
+
+async function createCommitOnBranch(
+  client: GithubToolClient,
+  parameters: Record<string, unknown>,
+): Promise<unknown> {
+  const graphql = client.graphql;
+  if (graphql === undefined) {
+    throw new GithubIntegrationProviderError(
+      'malformed-provider-response',
+      'GitHub client does not support GraphQL operations',
+    );
+  }
+  const message = isRecord(parameters.message) ? parameters.message : undefined;
+  const additions = Array.isArray(parameters.additions)
+    ? parameters.additions.filter(isRecord)
+    : [];
+  const deletions = Array.isArray(parameters.deletions)
+    ? parameters.deletions.filter(isRecord)
+    : [];
+  const input = {
+    branch: {
+      repositoryNameWithOwner: parameters.repository,
+      branchName: parameters.branch,
+    },
+    expectedHeadOid: parameters.expected_head_oid,
+    message: {
+      headline: message?.headline,
+      ...(message?.body === undefined ? {} : {body: message.body}),
+    },
+    fileChanges: {
+      additions: additions.map(transcodeFileAddition),
+      deletions: deletions.map((deletion) => ({path: deletion.path})),
+    },
+  };
+
+  try {
+    return await graphql(CREATE_COMMIT_ON_BRANCH_MUTATION, {input});
+  } catch (error) {
+    throw mapCreateCommitError(error, parameters.expected_head_oid);
+  }
+}
+
+function transcodeFileAddition(addition: Record<string, unknown>): Record<string, unknown> {
+  const contents = typeof addition.contents === 'string' ? addition.contents : '';
+  const contentsBase64 =
+    addition.encoding === 'base64' ? contents : Buffer.from(contents, 'utf8').toString('base64');
+  return {path: addition.path, contents: contentsBase64};
+}
+
+function mapCreateCommitError(error: unknown, expectedHeadOid: unknown): never {
+  const graphqlError = createCommitGraphqlError(error);
+  if (graphqlError === undefined) throw error;
+  if (graphqlError.type === CREATE_COMMIT_RATE_LIMITED_TYPE) {
+    throw new GithubIntegrationProviderError('rate-limited', graphqlError.message);
+  }
+  if (isStaleHeadCreateCommitError(graphqlError)) {
+    throw new GithubIntegrationProviderError(
+      'provider-rejected',
+      `Stale branch head (stale-head): expected_head_oid ${String(expectedHeadOid)} did not match the branch tip. ${graphqlError.message}`,
+    );
+  }
+  throw new GithubIntegrationProviderError('provider-rejected', graphqlError.message);
+}
+
+function createCommitGraphqlError(
+  error: unknown,
+): {type?: string | undefined; message: string} | undefined {
+  if (!isRecord(error) || !Array.isArray(error.errors)) return undefined;
+  const first = error.errors[0];
+  if (!isRecord(first) || typeof first.message !== 'string') return undefined;
+  return {
+    ...(typeof first.type === 'string' ? {type: first.type} : {}),
+    message: first.message,
+  };
+}
+
+function isStaleHeadCreateCommitError(error: {
+  type?: string | undefined;
+  message: string;
+}): boolean {
+  return (
+    (error.type !== undefined && CREATE_COMMIT_STALE_HEAD_TYPE_PATTERN.test(error.type)) ||
+    CREATE_COMMIT_STALE_HEAD_MESSAGE_PATTERN.test(error.message)
+  );
 }
 
 export function projectGithubOperationParameters(
@@ -772,6 +879,17 @@ function projectGithubToolOutput(
       return {pull_request: data};
     case 'merge_pull_request':
       return {merge: data};
+    case 'create_commit': {
+      const payload = isRecord(data) ? data.createCommitOnBranch : undefined;
+      const commit = isRecord(payload) ? payload.commit : undefined;
+      if (!isRecord(commit) || typeof commit.oid !== 'string' || typeof commit.url !== 'string') {
+        throw new GithubIntegrationProviderError(
+          'malformed-provider-response',
+          'GitHub createCommitOnBranch response did not include a commit oid and url',
+        );
+      }
+      return {commit: {oid: commit.oid, url: commit.url}};
+    }
     default:
       return isRecord(data) ? data : {result: data};
   }
@@ -847,7 +965,66 @@ function validateGithubToolArguments(
     }
     if (type === 'array' && !Array.isArray(value)) return `Parameter ${name} must be an array`;
   }
+  if (tool.id === 'create_commit') return validateCreateCommitArguments(arguments_);
   return undefined;
+}
+
+function validateCreateCommitArguments(arguments_: Record<string, unknown>): string | undefined {
+  const repository = arguments_.repository;
+  if (typeof repository !== 'string' || !CREATE_COMMIT_REPOSITORY_PATTERN.test(repository)) {
+    return 'Parameter repository must be a repository in owner/name format';
+  }
+  const branch = arguments_.branch;
+  if (typeof branch !== 'string' || branch.trim().length === 0) {
+    return 'Parameter branch must be a non-empty branch name';
+  }
+  const expectedHeadOid = arguments_.expected_head_oid;
+  if (typeof expectedHeadOid !== 'string' || !CREATE_COMMIT_OID_PATTERN.test(expectedHeadOid)) {
+    return 'Parameter expected_head_oid must be a 40-character commit oid';
+  }
+  const message = arguments_.message;
+  if (
+    !isRecord(message) ||
+    typeof message.headline !== 'string' ||
+    message.headline.trim().length === 0
+  ) {
+    return 'Parameter message must be an object with a headline string';
+  }
+  const additions = arguments_.additions;
+  if (additions !== undefined && !isFileAdditionList(additions)) {
+    return 'Parameter additions must be an array of {path, contents, encoding?} objects';
+  }
+  const deletions = arguments_.deletions;
+  if (deletions !== undefined && !isFileDeletionList(deletions)) {
+    return 'Parameter deletions must be an array of {path} objects';
+  }
+  if (
+    (!Array.isArray(additions) || additions.length === 0) &&
+    (!Array.isArray(deletions) || deletions.length === 0)
+  ) {
+    return 'At least one addition or deletion is required to create a commit';
+  }
+  return undefined;
+}
+
+function isFileAdditionList(value: unknown): value is readonly Record<string, unknown>[] {
+  if (!Array.isArray(value)) return false;
+  return value.every((item) => {
+    if (!isRecord(item)) return false;
+    if (typeof item.path !== 'string' || item.path.length === 0) return false;
+    if (typeof item.contents !== 'string') return false;
+    return (
+      item.encoding === undefined ||
+      (typeof item.encoding === 'string' && CREATE_COMMIT_ENCODINGS.has(item.encoding))
+    );
+  });
+}
+
+function isFileDeletionList(value: unknown): value is readonly Record<string, unknown>[] {
+  if (!Array.isArray(value)) return false;
+  return value.every(
+    (item) => isRecord(item) && typeof item.path === 'string' && item.path.length > 0,
+  );
 }
 
 function methodRequiredParameters(

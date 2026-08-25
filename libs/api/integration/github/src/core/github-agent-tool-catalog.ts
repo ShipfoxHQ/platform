@@ -33,7 +33,7 @@ interface AgentToolSelectionCatalog {
 
 export const DEFAULT_JOB_LOG_TAIL_LINES = 500;
 
-export type GithubAgentToolCategory = 'issues' | 'pull_requests' | 'actions';
+export type GithubAgentToolCategory = 'issues' | 'pull_requests' | 'actions' | 'repository';
 export type GithubAgentToolPermission = 'actions' | 'contents' | 'issues' | 'pull_requests';
 export type GithubAgentToolPermissionAccess = 'read' | 'write';
 export type GithubAgentToolSensitivity = 'read' | 'write';
@@ -72,6 +72,7 @@ const scopes = {
   pullRequestsWrite: [{permission: 'pull_requests', access: 'write'}],
   actionsRead: [{permission: 'actions', access: 'read'}],
   actionsWrite: [{permission: 'actions', access: 'write'}],
+  contentsWrite: [{permission: 'contents', access: 'write'}],
   mergePullRequest: [
     {permission: 'pull_requests', access: 'write'},
     {permission: 'contents', access: 'write'},
@@ -580,6 +581,59 @@ export const githubAgentToolCatalog = [
     outputSchema: objectSchema({pull_request: openObjectSchema('Created GitHub pull request')}, [
       'pull_request',
     ]),
+  }),
+  tool({
+    id: 'create_commit',
+    category: 'repository',
+    description:
+      'Create a commit on an existing branch in a GitHub repository. The commit is authored and signed by GitHub on behalf of the Shipfox bot (shipfox-ai[bot]) and shows the Verified badge. Renames are expressed as a deletion of the old path plus an addition of the new path. File contents are limited by the agent bridge payload bound of about 1 MiB per call; keep edits small and explicit. Text contents are sent as utf8 and transcoded to base64 by the server; binary contents can be provided with encoding base64. The expected_head_oid must be the current head of the branch (compare-and-swap): if the branch moved, the commit is rejected with a stale-head error and the call should be retried with the new head.',
+    sensitivity: 'write',
+    sensitive: false,
+    requiredScope: scopes.contentsWrite,
+    inputSchema: objectSchema(
+      {
+        repository: stringSchema(
+          'Repository in owner/name format. Must be a repository the connection can access.',
+        ),
+        branch: stringSchema('The name of the existing branch to commit to'),
+        expected_head_oid: stringSchema(
+          'The 40-character commit oid the branch head is expected to point to (compare-and-swap)',
+        ),
+        message: objectSchema(
+          {
+            headline: stringSchema('Commit headline'),
+            body: stringSchema('Commit body'),
+          },
+          ['headline'],
+        ),
+        additions: arraySchema(
+          objectSchema(
+            {
+              path: stringSchema('Repository-relative file path'),
+              contents: stringSchema('File contents'),
+              encoding: enumSchema(['utf8', 'base64'], 'Contents encoding (default utf8)'),
+            },
+            ['path', 'contents'],
+          ),
+        ),
+        deletions: arraySchema(
+          objectSchema({path: stringSchema('Repository-relative file path to delete')}, ['path']),
+        ),
+      },
+      ['repository', 'branch', 'expected_head_oid', 'message'],
+    ),
+    outputSchema: objectSchema(
+      {
+        commit: objectSchema(
+          {
+            oid: stringSchema('The oid of the created commit'),
+            url: stringSchema('The URL of the created commit'),
+          },
+          ['oid', 'url'],
+        ),
+      },
+      ['commit'],
+    ),
   }),
   tool({
     id: 'update_pull_request',
