@@ -45,7 +45,7 @@ export function JobDetailHeader({
   const jobStatus = getWorkflowStatusVisual(selectedStatus);
 
   return (
-    <header className="border-b border-border-neutral-base px-row py-row">
+    <header className="px-row py-row">
       <div className="flex min-w-0 items-start justify-between gap-cluster">
         <div className="flex min-w-0 flex-col gap-inline">
           <div className="flex min-w-0 items-center gap-inline">
