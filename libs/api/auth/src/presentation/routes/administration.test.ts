@@ -1677,7 +1677,10 @@ describe('Auth administration routes', () => {
     expect(ipBlocked.statusCode).toBe(429);
 
     // The per-actor bucket is consumed the same way: the marked token's
-    // subject is the actor keying the bucket.
+    // subject is the actor keying the bucket. The limiter enforces IP before
+    // actor, and the first half exhausted the 127.0.0.1 IP bucket, so the
+    // probe must come from a fresh source IP for the 429 to be attributable
+    // to the seeded actor bucket alone.
     await seedExhaustedIpBucket({
       action: 'impersonate',
       scope: 'actor',
@@ -1689,6 +1692,7 @@ describe('Auth administration routes', () => {
       method: 'POST',
       url: `/admin/auth/users/${target.userId}/impersonate`,
       headers: authHeaders(markedToken, 'impersonate-probe-mint'),
+      remoteAddress: '10.0.0.1',
       payload: {reason: 'Nested impersonation attempt'},
     });
     expect(actorBlocked.statusCode).toBe(429);

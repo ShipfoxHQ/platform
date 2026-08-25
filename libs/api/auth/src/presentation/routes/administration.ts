@@ -1,3 +1,4 @@
+import {randomUUID} from 'node:crypto';
 import {
   AUTH_USER,
   adoptAdministrationActorGuard,
@@ -456,7 +457,12 @@ function createImpersonateUserRoute(workspaces: WorkspacesInterModuleClient) {
         targetUserId: request.params.userId,
         reason: request.body.reason,
         idempotencyKey: requireIdempotencyKey(request),
-        correlationId: request.id,
+        // Fastify's default request IDs are process-local counters that reset
+        // after a redeploy, so a replay could collide with an earlier mint's
+        // ID and suppress the required failure event in the ambiguous-COMMIT
+        // reconciliation. The correlation is a fresh process-independent UUID
+        // per invocation.
+        correlationId: randomUUID(),
         workspaces,
       });
       // `server_time` is the issuer's clock at response time: the banner
