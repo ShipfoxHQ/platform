@@ -20,10 +20,12 @@ import {
 } from '#db/admin-user-moderation.js';
 import {findAdministratorUser as findAdministratorUserInDb} from '#db/admin-users.js';
 import {
+  committedImpersonationResultExists,
   type ImpersonationResult,
   impersonateUserWithAudit,
   publishImpersonationFailure,
 } from '#db/impersonation.js';
+import {recordImpersonationOutcome} from '#metrics/index.js';
 import {getCurrentAdminRole, requireAdminRole} from './admin-role.js';
 import type {AdminGrant} from './entities/admin-grant.js';
 import type {
@@ -38,10 +40,12 @@ import {
   AdminRoleRequiredError,
   CannotImpersonateAdministratorError,
   CannotImpersonateSelfError,
+  EmailNotVerifiedError,
   ImpersonationDisabledError,
   ImpersonationExpiredError,
   ImpersonationTargetNotActiveError,
   InvalidAdminBootstrapTokenError,
+  InvalidCredentialsError,
   LastAdminOwnerError,
   UserNotFoundError,
 } from './errors.js';
@@ -56,6 +60,34 @@ const SUSPEND_USER_COMMAND = 'auth.user.suspend';
 const REACTIVATE_USER_COMMAND = 'auth.user.reactivate';
 const REVOKE_USER_SESSIONS_COMMAND = 'auth.user.revoke-sessions';
 const IMPERSONATE_COMMAND = 'auth.user.impersonate';
+
+/**
+ * Client-contract errors are reported to the caller, not the denial stream: a
+ * 404 for an unknown target or a 409 for a reused key is a request mistake,
+ * and auditing each retry would drown the `failed` event stream under durable
+ * rows that a security review cannot distinguish from genuine denials.
+ */
+function isImpersonationClientContractError(error: unknown): boolean {
+  return error instanceof AdminIdempotencyKeyReuseError || error instanceof UserNotFoundError;
+}
+
+/**
+ * Deterministic authorization and eligibility denials. They are raised before
+ * the command transaction writes anything, so the transaction is known to have
+ * rolled back and the failure event is an unambiguous audit of the denial.
+ */
+function isImpersonationDenial(error: unknown): boolean {
+  return (
+    error instanceof ImpersonationDisabledError ||
+    error instanceof AdminRoleRequiredError ||
+    error instanceof CannotImpersonateSelfError ||
+    error instanceof CannotImpersonateAdministratorError ||
+    error instanceof ImpersonationTargetNotActiveError ||
+    error instanceof ImpersonationExpiredError ||
+    error instanceof EmailNotVerifiedError ||
+    error instanceof InvalidCredentialsError
+  );
+}
 
 export function administrationCommandFingerprint(command: string, input: unknown): string {
   return hashOpaqueToken(`${command}:${JSON.stringify(input)}`);
@@ -383,7 +415,7 @@ export async function impersonateUser(params: ImpersonateUserParams): Promise<Im
       userId: params.actorId,
       minimumRole: ADMIN_OPERATOR_ROLE,
     });
-    return await impersonateUserWithAudit({
+    const result = await impersonateUserWithAudit({
       actorId: params.actorId,
       targetUserId: params.targetUserId,
       reason: params.reason,
@@ -392,26 +424,72 @@ export async function impersonateUser(params: ImpersonateUserParams): Promise<Im
       correlationId: params.correlationId,
       workspaces: params.workspaces,
     });
+    recordImpersonationOutcome('succeeded');
+    return result;
   } catch (error) {
-    // Failures publish from a separate committed transaction after the
-    // rollback: the main transaction is gone, so an event written inside it
-    // would disappear, and the role check runs before it even opens.
-    let actorRole: AdminRole | null = null;
-    try {
-      actorRole = await getCurrentAdminRole({userId: params.actorId});
-    } catch {
-      // The failure event is best-effort; never mask the original error.
+    // The command did not hand out a token, so the attempt is a failed outcome
+    // regardless of why: mint-volume and denial-spike alerts key off this.
+    recordImpersonationOutcome('failed');
+    // Client-contract errors (unknown target, reused key) are reported to the
+    // caller and never enter the denial stream.
+    if (isImpersonationClientContractError(error)) throw error;
+    // Deterministic denials always audit: their transaction rolled back with
+    // nothing written, so the `failed` event is unambiguous even when a
+    // previous mint under the same key left a committed result row.
+    if (isImpersonationDenial(error)) {
+      await publishImpersonationFailureForActor(params, {
+        idempotencyKeyFingerprint,
+        correlationId: params.correlationId,
+      });
+      throw error;
     }
-    await publishImpersonationFailure({
-      actorId: params.actorId,
-      targetUserId: params.targetUserId,
-      reason: params.reason,
-      actorRole,
-      idempotencyKeyFingerprint,
-      correlationId: params.correlationId,
-    });
+    // An unexpected error may be an ambiguous COMMIT: the mint transaction
+    // committed (result row and `succeeded` event are durable) but the driver
+    // raised on the acknowledgement. Publishing a `failed` event then would
+    // contradict the committed trail, so reconcile against the committed row
+    // before writing anything. The reconcile is best-effort: never mask the
+    // original error.
+    let committed = false;
+    try {
+      committed = await committedImpersonationResultExists({
+        actorId: params.actorId,
+        idempotencyKeyFingerprint,
+        requestFingerprint,
+      });
+    } catch {
+      // Fall through: publish the failure event rather than losing the denial.
+    }
+    if (!committed) {
+      await publishImpersonationFailureForActor(params, {
+        idempotencyKeyFingerprint,
+        correlationId: params.correlationId,
+      });
+    }
     throw error;
   }
+}
+
+async function publishImpersonationFailureForActor(
+  params: ImpersonateUserParams,
+  audit: {idempotencyKeyFingerprint: string; correlationId: string},
+): Promise<void> {
+  // Failures publish from a separate committed transaction after the rollback:
+  // the main transaction is gone, so an event written inside it would
+  // disappear, and the role check runs before it even opens.
+  let actorRole: AdminRole | null = null;
+  try {
+    actorRole = await getCurrentAdminRole({userId: params.actorId});
+  } catch {
+    // The failure event is best-effort; never mask the original error.
+  }
+  await publishImpersonationFailure({
+    actorId: params.actorId,
+    targetUserId: params.targetUserId,
+    reason: params.reason,
+    actorRole,
+    idempotencyKeyFingerprint: audit.idempotencyKeyFingerprint,
+    correlationId: audit.correlationId,
+  });
 }
 
 export {

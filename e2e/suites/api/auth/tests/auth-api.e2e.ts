@@ -8,7 +8,13 @@ const SIGNUP_NOT_ALLOWED_MESSAGE =
   process.env.AUTH_SIGNUP_NOT_ALLOWED_MESSAGE ??
   'This E2E deployment does not accept new accounts.';
 
-const ADMIN_BOOTSTRAP_TOKEN = process.env.ADMIN_BOOTSTRAP_TOKEN ?? 'e2e-admin-bootstrap-token';
+const ADMIN_BOOTSTRAP_TOKEN = process.env.ADMIN_BOOTSTRAP_TOKEN;
+if (!ADMIN_BOOTSTRAP_TOKEN) {
+  throw new Error(
+    'ADMIN_BOOTSTRAP_TOKEN is required: the E2E harness injects a per-run random ' +
+      'token so the admin bootstrap step cannot be claimed with a well-known value.',
+  );
+}
 
 function refreshCookieValue(setCookie: string): string {
   const cookie = setCookie.split(';')[0];
@@ -109,6 +115,17 @@ test(
       const meBody = meResponseSchema.parse(await me.json());
       expect(meBody.user.id).toBe(target.user.id);
       expect(meBody.impersonator_id).toBe(operator.user.id);
+
+      // A membership-gated route proves the token carries the target's real
+      // membership claims: `requireWorkspaceAccess` reads them from the signed
+      // token, so a token signed with empty or foreign memberships would be
+      // rejected here even though `/auth/me` only reads the `sub` claim.
+      const members = await request.get(`${config.API_URL}/workspaces/${workspace.id}/members`, {
+        headers,
+      });
+      expect(members.status()).toBe(200);
+      const membersBody = (await members.json()) as {members: Array<{user: {id: string}}>};
+      expect(membersBody.members.some((member) => member.user.id === target.user.id)).toBe(true);
     });
 
     await test.step('rejects the marked session on every /admin route', async () => {

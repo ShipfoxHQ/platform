@@ -48,7 +48,7 @@ import {
   TokenInvalidError,
   UserNotFoundError,
 } from './errors.js';
-import {signUserToken, type TokenMembership} from './jwt.js';
+import {signUserToken, type TokenMembership, verifyUserToken} from './jwt.js';
 import {hashPassword, verifyPassword} from './password.js';
 import type {SignupPolicy} from './ports.js';
 import {createEnvironmentSignupPolicy} from './signup-policy.js';
@@ -547,7 +547,15 @@ export async function createImpersonatedSessionToken(
     expiresIn: `${ttlSeconds}s`,
   });
 
-  return {token, expiresAt: new Date(Date.now() + ttlSeconds * 1000), user};
+  // The advertised expiry is the token's actual signed `exp`, never a
+  // clock-derived estimate: the signer stamps `iat`/`exp` in whole seconds, so
+  // `Date.now() + ttl` could drift up to a second from the signed claims in
+  // either direction. Deriving `expiresAt` from the signed token keeps the
+  // response, the stored command result, and the bearer token exactly aligned,
+  // which is what lets a replay re-sign with a TTL that never extends the
+  // window (`exp` of the re-signed token is at most the original `exp`).
+  const claims = await verifyUserToken({token, secret: userAccessTokenKey()});
+  return {token, expiresAt: new Date(claims.exp * 1000), user};
 }
 
 export interface RefreshAccessTokenResult {

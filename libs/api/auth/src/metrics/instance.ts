@@ -10,8 +10,9 @@ export type AuthRateLimitAction =
   | 'bootstrap-state'
   | 'lookup'
   | 'impersonate';
-export type AuthRateLimitScope = 'ip' | 'email';
+export type AuthRateLimitScope = 'ip' | 'email' | 'actor';
 export type AuthRateLimitOutcome = 'allowed' | 'blocked' | 'unavailable';
+export type AuthImpersonationOutcome = 'succeeded' | 'failed';
 
 const meter = instanceMetrics.getMeter('auth');
 
@@ -40,6 +41,11 @@ const rateLimitCheckCount = meter.createCounter<{
 const rateLimitPruneFailureCount = meter.createCounter('auth_rate_limit_prune_failures', {
   description: 'Authentication rate limit prune failures',
 });
+
+const impersonationCommandCount = meter.createCounter<{outcome: AuthImpersonationOutcome}>(
+  'auth_impersonation_commands',
+  {description: 'Impersonation mint command attempts by outcome'},
+);
 
 function recordMetric(record: () => void): void {
   try {
@@ -80,4 +86,8 @@ export function recordAuthRateLimitCheck(params: {
 
 export function recordAuthRateLimitPruneFailure(): void {
   recordMetric(() => rateLimitPruneFailureCount.add(1));
+}
+
+export function recordImpersonationOutcome(outcome: AuthImpersonationOutcome): void {
+  recordMetric(() => impersonationCommandCount.add(1, {outcome}));
 }

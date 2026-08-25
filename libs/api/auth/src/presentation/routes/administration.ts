@@ -50,16 +50,18 @@ import {
   AdminRoleRequiredError,
   CannotImpersonateAdministratorError,
   CannotImpersonateSelfError,
+  EmailNotVerifiedError,
   ImpersonationDisabledError,
   ImpersonationExpiredError,
   ImpersonationTargetNotActiveError,
   InvalidAdminBootstrapTokenError,
+  InvalidCredentialsError,
   LastAdminOwnerError,
   UserNotFoundError,
 } from '#core/errors.js';
 import {getClientContext} from '#presentation/auth/jwt-auth.js';
 import {toUserDto} from '#presentation/dto/user.js';
-import {createAuthIpRateLimitPreHandler} from './rate-limit.js';
+import {createAuthActorRateLimitPreHandler, createAuthIpRateLimitPreHandler} from './rate-limit.js';
 
 const idempotencyKeyMaxLength = 256;
 
@@ -185,6 +187,15 @@ function translateAdministrationError(error: unknown): never {
     );
   }
   if (error instanceof ImpersonationTargetNotActiveError) {
+    throw new ClientError('User cannot be impersonated', 'impersonation-target-not-active', {
+      status: 403,
+    });
+  }
+  // The mint primitive re-checks login eligibility (active, verified) on the
+  // row it reads, and a concurrent suspension or unverification between the
+  // in-transaction ladder read and that read surfaces these errors. Map them
+  // to the same documented client error instead of a generic 500.
+  if (error instanceof EmailNotVerifiedError || error instanceof InvalidCredentialsError) {
     throw new ClientError('User cannot be impersonated', 'impersonation-target-not-active', {
       status: 403,
     });
@@ -420,7 +431,7 @@ function createImpersonateUserRoute(workspaces: WorkspacesInterModuleClient) {
       body: impersonateUserBodySchema,
       response: {200: impersonateResponseSchema},
     },
-    preHandler: createAuthIpRateLimitPreHandler('impersonate'),
+    preHandler: createAuthActorRateLimitPreHandler('impersonate'),
     errorHandler: translateAdministrationError,
     handler: async (request) => {
       const client = getClientContext(request);

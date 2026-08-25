@@ -31,6 +31,7 @@ import {
 import {requireActiveAdminOperator} from './admin-user-moderation.js';
 import {db} from './db.js';
 import type {StoredImpersonationResult} from './schema/admin-command-results.js';
+import {adminCommandResults} from './schema/admin-command-results.js';
 import {adminGrants} from './schema/admin-grants.js';
 import {users} from './schema/users.js';
 
@@ -150,6 +151,37 @@ function toImpersonationResult(
     impersonatorId: params.actorId,
     correlationId: params.correlationId,
   };
+}
+
+export interface ImpersonationResultKey {
+  actorId: string;
+  idempotencyKeyFingerprint: string;
+  requestFingerprint: string;
+}
+
+/**
+ * True when an impersonation command result row has committed for the given
+ * key. The command entry reconciles against this before publishing a `failed`
+ * event for an unexpected error: if the row exists, the mint transaction
+ * committed (the driver may still have raised on the COMMIT acknowledgement),
+ * so a failure event would contradict the durable `succeeded` trail.
+ */
+export async function committedImpersonationResultExists(
+  params: ImpersonationResultKey,
+): Promise<boolean> {
+  const rows = await db()
+    .select({id: adminCommandResults.id})
+    .from(adminCommandResults)
+    .where(
+      and(
+        eq(adminCommandResults.actorId, params.actorId),
+        eq(adminCommandResults.idempotencyKeyFingerprint, params.idempotencyKeyFingerprint),
+        eq(adminCommandResults.requestFingerprint, params.requestFingerprint),
+        eq(adminCommandResults.command, IMPERSONATE_COMMAND),
+      ),
+    )
+    .limit(1);
+  return rows.length > 0;
 }
 
 export async function impersonateUserWithAudit(

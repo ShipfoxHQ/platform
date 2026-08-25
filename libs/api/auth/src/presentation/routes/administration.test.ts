@@ -1,9 +1,10 @@
 import {impersonateResponseSchema} from '@shipfox/api-auth-dto';
 import {ADMINISTRATION_ACTION_PERFORMED} from '@shipfox/api-common-dto';
+import {userAccessTokenKey} from '@shipfox/node-auth-root-key';
 import {hashOpaqueToken} from '@shipfox/node-tokens';
 import {asc, eq, sql} from 'drizzle-orm';
 import type {FastifyInstance} from 'fastify';
-import {signUserToken} from '#core/jwt.js';
+import {signUserToken, verifyUserToken} from '#core/jwt.js';
 import {type AuthRateLimitAction, hashAuthRateLimitIdentifier} from '#core/rate-limit.js';
 import {db} from '#db/db.js';
 import {adminCommandResults} from '#db/schema/admin-command-results.js';
@@ -20,6 +21,7 @@ import {
   login,
   ROUTE_TEST_SECRET,
   resetCapturedMail,
+  setAuthJwtExpiresIn,
   setImpersonationEnabled,
 } from '#test/routes.js';
 
@@ -55,17 +57,19 @@ async function seedExhaustedIpBucket(params: {
   identifier: string;
   limit: number;
   windowSeconds: number;
+  scope?: 'ip' | 'actor';
 }): Promise<void> {
+  const scope = params.scope ?? 'ip';
   const windowMs = params.windowSeconds * 1000;
   const windowStart = new Date(Math.floor(Date.now() / windowMs) * windowMs);
   await db()
     .insert(authRateLimits)
     .values({
       action: params.action,
-      scope: 'ip',
+      scope,
       identifierHmac: hashAuthRateLimitIdentifier({
         action: params.action,
-        scope: 'ip',
+        scope,
         identifier: params.identifier,
       }),
       windowStart,
@@ -84,6 +88,7 @@ describe('Auth administration routes', () => {
   beforeEach(async () => {
     resetCapturedMail();
     setImpersonationEnabled(true);
+    setAuthJwtExpiresIn('15m');
     await resetAdministrationState();
   });
 
@@ -1241,6 +1246,22 @@ describe('Auth administration routes', () => {
     });
     expect(missingTarget.statusCode).toBe(404);
     expect(missingTarget.json().code).toBe('not-found');
+
+    // Every ladder denial by an identifiable admin role is audited with one
+    // `failed` event carrying the actor, the reason, and the key fingerprint.
+    const events = await impersonationEvents();
+    expect(events).toHaveLength(2);
+    expect(events.map((event) => event.result)).toEqual(['failed', 'failed']);
+    expect(events.every((event) => event.actorRole === 'admin-owner')).toBe(true);
+    expect(events.every((event) => event.reason === 'Support reproduction')).toBe(true);
+    // The unknown-target 404 is a client-contract error, not a denial: it is
+    // reported to the caller and never enters the failure-event stream.
+    expect(
+      events.some(
+        (event) =>
+          event.idempotencyKeyFingerprint === hashOpaqueToken('impersonate-ladder-missing'),
+      ),
+    ).toBe(false);
   });
 
   test('rejects impersonating an administrator target even for an owner', async () => {
@@ -1260,6 +1281,13 @@ describe('Auth administration routes', () => {
     });
     expect(response.statusCode).toBe(403);
     expect(response.json().code).toBe('cannot-impersonate-administrator');
+    const events = await impersonationEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      result: 'failed',
+      actorRole: 'admin-owner',
+      reason: 'Support reproduction',
+    });
   });
 
   test('rejects self-impersonation with cannot-impersonate-self', async () => {
@@ -1279,6 +1307,13 @@ describe('Auth administration routes', () => {
     });
     expect(response.statusCode).toBe(403);
     expect(response.json().code).toBe('cannot-impersonate-self');
+    const events = await impersonationEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      result: 'failed',
+      actorRole: 'admin-operator',
+      reason: 'Support reproduction',
+    });
   });
 
   test('replays in-window with the original expiry, a fresh signature, and its own event', async () => {
@@ -1302,6 +1337,14 @@ describe('Auth administration routes', () => {
     const second = impersonateResponseSchema.parse(replayed.json());
     expect(second.expires_at).toBe(first.expires_at);
     expect(second.token).not.toBe(first.token);
+
+    // The re-signed token's `exp` never exceeds the advertised expiry: the
+    // replay re-signs with the remaining lifetime to the stored `expires_at`,
+    // and the initial mint advertises the token's actual signed `exp`.
+    const firstClaims = await verifyUserToken({token: first.token, secret: userAccessTokenKey()});
+    expect(firstClaims.exp * 1000).toBe(Date.parse(first.expires_at));
+    const secondClaims = await verifyUserToken({token: second.token, secret: userAccessTokenKey()});
+    expect(secondClaims.exp * 1000).toBeLessThanOrEqual(Date.parse(first.expires_at));
 
     const me = await app.inject({
       method: 'GET',
@@ -1451,6 +1494,96 @@ describe('Auth administration routes', () => {
     });
   });
 
+  test('a replay after the target is suspended mid-window fails closed and is audited', async () => {
+    const ownerToken = await bootstrapOwner('impersonate-target-suspend');
+    const target = await createVerifiedSession('impersonate-target-suspend-target');
+
+    const minted = await impersonateMint({
+      token: ownerToken,
+      targetUserId: target.userId,
+      idempotencyKey: 'impersonate-target-suspend',
+    });
+    expect(minted.statusCode).toBe(200);
+
+    // Suspend the target mid-window, then replay the same key: the ladder
+    // re-runs on every replay, so the suspension ends the capability.
+    await db().update(users).set({status: 'suspended'}).where(eq(users.id, target.userId));
+
+    const replayed = await impersonateMint({
+      token: ownerToken,
+      targetUserId: target.userId,
+      idempotencyKey: 'impersonate-target-suspend',
+    });
+    expect(replayed.statusCode).toBe(403);
+    expect(replayed.json().code).toBe('impersonation-target-not-active');
+
+    const events = await impersonationEvents();
+    expect(events).toHaveLength(2);
+    expect(events[1]).toMatchObject({
+      result: 'failed',
+      actorRole: 'admin-owner',
+      idempotencyKeyFingerprint: events[0]?.idempotencyKeyFingerprint,
+    });
+  });
+
+  test('a replay after the target gains an administrator grant mid-window fails closed and is audited', async () => {
+    const ownerToken = await bootstrapOwner('impersonate-target-grant');
+    const target = await createVerifiedSession('impersonate-target-grant-target');
+
+    const minted = await impersonateMint({
+      token: ownerToken,
+      targetUserId: target.userId,
+      idempotencyKey: 'impersonate-target-grant',
+    });
+    expect(minted.statusCode).toBe(200);
+
+    // Promote the target mid-window: the anti-escalation rule (no active
+    // administrator grant on the target) must hold on the replay path too.
+    await app.inject({
+      method: 'POST',
+      url: '/admin/auth/admin-grants',
+      headers: authHeaders(ownerToken, 'impersonate-target-grant-grant'),
+      payload: {user_id: target.userId, role: 'admin-operator', reason: 'Mid-window promotion'},
+    });
+
+    const replayed = await impersonateMint({
+      token: ownerToken,
+      targetUserId: target.userId,
+      idempotencyKey: 'impersonate-target-grant',
+    });
+    expect(replayed.statusCode).toBe(403);
+    expect(replayed.json().code).toBe('cannot-impersonate-administrator');
+
+    const events = await impersonationEvents();
+    expect(events).toHaveLength(2);
+    expect(events[1]).toMatchObject({
+      result: 'failed',
+      actorRole: 'admin-owner',
+      idempotencyKeyFingerprint: events[0]?.idempotencyKeyFingerprint,
+    });
+  });
+
+  test('mints with AUTH_JWT_EXPIRES_IN below the 15-minute cap', async () => {
+    const ownerToken = await bootstrapOwner('impersonate-below-cap');
+    const target = await createVerifiedSession('impersonate-below-cap-target');
+    setAuthJwtExpiresIn('5m');
+
+    const minted = await impersonateMint({
+      token: ownerToken,
+      targetUserId: target.userId,
+      idempotencyKey: 'impersonate-below-cap',
+    });
+    expect(minted.statusCode).toBe(200);
+    const body = impersonateResponseSchema.parse(minted.json());
+    const ttlSeconds = (Date.parse(body.expires_at) - Date.parse(body.server_time)) / 1000;
+    expect(ttlSeconds).toBeGreaterThan(290);
+    expect(ttlSeconds).toBeLessThanOrEqual(300);
+    // The signed token carries the same whole-second expiry as the response.
+    const claims = await verifyUserToken({token: body.token, secret: userAccessTokenKey()});
+    expect(claims.exp - claims.iat).toBe(300);
+    expect(new Date(claims.exp * 1000).toISOString()).toBe(body.expires_at);
+  });
+
   test('rejects idempotency-key reuse across different targets', async () => {
     const ownerToken = await bootstrapOwner('impersonate-key-reuse');
     const first = await createVerifiedSession('impersonate-key-reuse-first');
@@ -1470,6 +1603,11 @@ describe('Auth administration routes', () => {
     });
     expect(reused.statusCode).toBe(409);
     expect(reused.json().code).toBe('idempotency-key-reused');
+    // The 409 is a client-contract error: no denial event is published under
+    // the same fingerprint, so replay markers stay unambiguous.
+    const events = await impersonationEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0]?.result).toBe('succeeded');
   });
 
   test('rate-limits impersonation mints by source IP', async () => {
@@ -1486,6 +1624,32 @@ describe('Auth administration routes', () => {
       token: ownerToken,
       targetUserId: target.userId,
       idempotencyKey: 'impersonate-rate-limit',
+    });
+    expect(blocked.statusCode).toBe(429);
+  });
+
+  test('rate-limits impersonation mints per actor', async () => {
+    const owner = await createVerifiedSession('impersonate-actor-limit-owner');
+    const bootstrap = await app.inject({
+      method: 'POST',
+      url: '/admin/auth/admin-grants/bootstrap',
+      headers: authHeaders(owner.token, 'impersonate-actor-limit-bootstrap'),
+      payload: {bootstrap_token: BOOTSTRAP_TOKEN},
+    });
+    expect(bootstrap.statusCode).toBe(201);
+    const target = await createVerifiedSession('impersonate-actor-limit-target');
+
+    await seedExhaustedIpBucket({
+      action: 'impersonate',
+      scope: 'actor',
+      identifier: owner.userId,
+      limit: 20,
+      windowSeconds: 15 * 60,
+    });
+    const blocked = await impersonateMint({
+      token: owner.token,
+      targetUserId: target.userId,
+      idempotencyKey: 'impersonate-actor-limit',
     });
     expect(blocked.statusCode).toBe(429);
   });

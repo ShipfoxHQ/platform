@@ -479,6 +479,9 @@ describe('auth core', () => {
     // TTL is capped at 15 minutes (AUTH_JWT_EXPIRES_IN is 15m in this suite).
     expect(claims.exp - claims.iat).toBeLessThanOrEqual(15 * 60);
     expect(claims.exp - claims.iat).toBeGreaterThan(0);
+    // The advertised expiry is the token's actual signed `exp`, never a
+    // clock-derived estimate: the response and the bearer token cannot diverge.
+    expect(result.expiresAt.getTime()).toBe(claims.exp * 1000);
 
     // No refresh session row and no refresh token material for the target.
     const sessions = await db()

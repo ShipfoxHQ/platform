@@ -114,6 +114,11 @@ export function setImpersonationEnabled(enabled: boolean): void {
   testConfig.authConfig.AUTH_IMPERSONATION_ENABLED = enabled;
 }
 
+/** Flips `AUTH_JWT_EXPIRES_IN` for the shared route-test config mock. */
+export function setAuthJwtExpiresIn(expiresIn: string): void {
+  testConfig.authConfig.AUTH_JWT_EXPIRES_IN = expiresIn;
+}
+
 export function capturedMail(): MailMessage[] {
   return testConfig.captured;
 }

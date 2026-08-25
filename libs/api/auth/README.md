@@ -163,8 +163,11 @@ be removed or forged by a client.
   belongs to the administrator and can only restore their identity); it expires
   at most 15 minutes after issuance; and every `/admin` route rejects a request
   whose context carries `impersonatorId` with `admin-role-required`, before
-  roles are consulted. Routes that issue credentials or create durable grants
-  reject impersonated sessions with `impersonation-not-permitted`.
+  roles are consulted. The durable-artefact deny-list (runner registration
+  tokens, provisioner tokens, and workspace invitations) rejects impersonated
+  sessions with `impersonation-not-permitted`; the list is enumerated and
+  documented in ADR 0014, and adding a credential-issuing or grant-creating
+  route means adding it there.
 - **No token at rest:** the idempotent command result stores only the target
   user ID, the expiry, and a list of SHA-256 fingerprints of the tokens issued
   under the key. The raw token is never logged or persisted, and a token
@@ -343,7 +346,7 @@ All routes are mounted under `/admin/auth/users` and require an authenticated be
 | `POST` | `/:userId/revoke-sessions` | `admin-operator` | Revokes all refresh sessions without changing account status and returns the number of affected sessions. Issued access tokens remain valid until `exp`. |
 | `POST` | `/:userId/impersonate` | `admin-operator` | Mints a short-lived, marked, audited impersonated session for an active, verified, non-administrator user. See below. |
 
-`POST /:userId/impersonate` requires an `Idempotency-Key` and a bounded reason, and is rate limited under the `impersonate` IP bucket. It returns `{token, expires_at, server_time, impersonator_id, user}` and sets no cookie. The target must be active with a verified email and hold no active administrator grant; the actor must not be the target. The mint, a same-key in-window replay, and a renewal each re-run the full authorization and eligibility ladder and publish their own `administration.action.performed` event. A replay re-signs for the same target with the original `expires_at` and never extends the window; a replay after expiry returns `410 impersonation-expired`. The stored command result holds only SHA-256 fingerprints of the issued tokens; failures are audited from their own committed transaction.
+`POST /:userId/impersonate` requires an `Idempotency-Key` and a bounded reason, and is rate limited under the `impersonate` bucket by source IP and by actor. It returns `{token, expires_at, server_time, impersonator_id, user}` and sets no cookie. The target must be active with a verified email and hold no active administrator grant; the actor must not be the target. The mint, a same-key in-window replay, and a renewal each re-run the full authorization and eligibility ladder and publish their own `administration.action.performed` event. A replay re-signs for the same target with the original `expires_at` and never extends the window; after the window passes, the key is consumed for good: every further replay returns `410 impersonation-expired`, and a fresh `Idempotency-Key` is required for a new mint. The stored command result holds only SHA-256 fingerprints of the issued tokens. Failures are audited from their own committed transaction when the actor holds an identifiable administrator role (the strict event schema carries the actor role); role-less denials (a revoked grant, a suspended actor, or a non-admin probing the route) fail closed without an event, and client-contract errors (`404 not-found` for an unknown target, `409 idempotency-key-reused`) are reported to the caller and never enter the failure stream.
 
 Each command requires an `Idempotency-Key`. Suspension requires a bounded reason; reactivation and session revocation accept an optional bounded reason. Repeating a successful command returns its committed result. Reusing a key for a different command or request returns `409 idempotency-key-reused`.
 
