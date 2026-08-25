@@ -873,14 +873,16 @@ const workflowDocumentStepBaseSchema = z.strictObject({
   agent: z.unknown().optional().meta({
     description: 'Reserved keyword. It is rejected; use `prompt` to define an agent step.',
   }),
-  tool: z.string().min(1).optional().meta({
+  tool: literalNameSchema('Tool id must be literal. Interpolation is rejected.').optional().meta({
     description:
       'Literal integration tool id for a tool step. It is rejected; tool steps are not available yet.',
   }),
-  connection: z.string().min(1).optional().meta({
-    description:
-      'Literal integration connection slug for a tool step. It is rejected; tool steps are not available yet.',
-  }),
+  connection: literalNameSchema('Connection slug must be literal. Interpolation is rejected.')
+    .optional()
+    .meta({
+      description:
+        'Literal integration connection slug for a tool step. It is rejected; tool steps are not available yet.',
+    }),
   with: workflowDocumentToolStepWithSchema.optional(),
   gate: workflowDocumentStepGateSchema.optional().meta({
     description: 'Success gate and optional restart behavior after the step runs.',
@@ -915,6 +917,18 @@ export const workflowDocumentStepSchema = workflowDocumentStepBaseSchema
 
     const reservedToolField =
       step.tool !== undefined ? 'tool' : step.connection !== undefined ? 'connection' : undefined;
+    const reservedToolValue =
+      reservedToolField === 'tool'
+        ? step.tool
+        : reservedToolField === 'connection'
+          ? step.connection
+          : undefined;
+    if (reservedToolValue !== undefined && !WORKFLOW_LITERAL_NAME_PATTERN.test(reservedToolValue)) {
+      // The field-level literal-name check already rejected the interpolated
+      // value; skip the reserved-field issue so one defect does not report
+      // twice at the same path.
+      return;
+    }
     if (reservedToolField !== undefined || step.with !== undefined) {
       ctx.addIssue({
         code: 'custom',

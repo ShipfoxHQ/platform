@@ -4,6 +4,7 @@ import {
   type ExpressionTypeEnvironment,
   jsonSchemaToExpressionType,
   type OutputTypeDeclaration,
+  parseWorkflowTemplate,
   type WorkflowExpression,
   type WorkflowStepTypeOverlay,
 } from '@shipfox/expression';
@@ -54,11 +55,36 @@ export function normalizeToolStep(params: {
   typeOverlay?: ExpressionTypeEnvironment | undefined;
   integrationValidationContext?: IntegrationValidationContext | undefined;
 }): NormalizedToolStep {
-  const tool = splitToolId(params.step.tool);
-  const catalogEntry = validateConnectionAndTool({
-    ...params,
-    tool,
+  // The document schema rejects interpolated `tool` and `connection` values at
+  // parse. Mirror that at the model boundary so typed callers that bypass the
+  // schema cannot freeze a raw template into the model: a non-literal id or
+  // slug fails with `tool-id-invalid` and skips the catalog lookup so each
+  // root cause reports exactly one issue.
+  const tool = splitToolId({
+    source: params.step.tool,
+    sourceName: params.sourceName,
+    stepIndex: params.stepIndex,
+    issues: params.issues,
   });
+  const connectionIsInterpolated =
+    params.step.connection !== undefined && isInterpolated(params.step.connection);
+  if (connectionIsInterpolated) {
+    params.issues.push(
+      issue({
+        code: 'tool-id-invalid',
+        message: `Connection slug "${params.step.connection}" must be literal. Interpolation is rejected.`,
+        path: toolConnectionPath(params),
+        details: {connection: params.step.connection},
+      }),
+    );
+  }
+  const catalogEntry =
+    tool === undefined || connectionIsInterpolated
+      ? undefined
+      : validateConnectionAndTool({
+          ...params,
+          tool,
+        });
   const outputSchema = catalogEntry?.outputSchema;
 
   const withTemplates = normalizeWithTemplates({
@@ -71,7 +97,7 @@ export function normalizeToolStep(params: {
     resultTypeOverlay:
       outputSchema === undefined ? undefined : {result: jsonSchemaToExpressionType(outputSchema)},
   });
-  if (catalogEntry !== undefined) {
+  if (catalogEntry !== undefined && tool !== undefined) {
     validateToolInputs({
       ...params,
       tool,
@@ -79,14 +105,16 @@ export function normalizeToolStep(params: {
       schema: catalogEntry.inputSchema,
     });
   }
-  if (tool.method !== undefined && params.step.with !== undefined) {
+  if (tool !== undefined && tool.method !== undefined && params.step.with !== undefined) {
     rejectWithMethod({...params, tool, withValue: params.step.with});
   }
 
   const step: WorkflowModelToolStep = {
     ...params.stepBase,
     kind: 'tool',
-    tool,
+    // An invalid id (interpolated or mis-shaped) is frozen unsplit; the emitted
+    // `tool-id-invalid` issue fails normalization, so the model is never used.
+    tool: tool ?? {id: params.step.tool ?? ''},
     ...(params.step.connection === undefined ? {} : {connection: params.step.connection}),
     ...(params.step.with === undefined ? {} : {with: params.step.with}),
     ...(outputMappings === undefined ? {} : {outputMappings}),
@@ -113,11 +141,66 @@ export function normalizeToolStep(params: {
   };
 }
 
-function splitToolId(source: string | undefined): {readonly id: string; readonly method?: string} {
-  const toolId = source ?? '';
+function splitToolId(params: {
+  source: string | undefined;
+  sourceName: string;
+  stepIndex: number;
+  issues: WorkflowModelValidationIssue[];
+}): {readonly id: string; readonly method?: string} | undefined {
+  const toolId = params.source ?? '';
+
+  if (isInterpolated(toolId)) {
+    params.issues.push(
+      issue({
+        code: 'tool-id-invalid',
+        message: 'Tool id must be literal. Interpolation is rejected.',
+        path: toolIdPath(params),
+        details: {tool: toolId},
+      }),
+    );
+    return undefined;
+  }
+
   const dotIndex = toolId.indexOf('.');
-  if (dotIndex < 1 || dotIndex === toolId.length - 1) return {id: toolId};
-  return {id: toolId.slice(0, dotIndex), method: toolId.slice(dotIndex + 1)};
+  if (dotIndex < 0) return {id: toolId};
+
+  if (dotIndex === 0 || dotIndex === toolId.length - 1) {
+    params.issues.push(toolIdInvalidIssue(params, toolId));
+    return undefined;
+  }
+
+  const method = toolId.slice(dotIndex + 1);
+  if (method.includes('.')) {
+    params.issues.push(toolIdInvalidIssue(params, toolId));
+    return undefined;
+  }
+  return {id: toolId.slice(0, dotIndex), method};
+}
+
+function toolIdInvalidIssue(
+  params: {sourceName: string; stepIndex: number},
+  toolId: string,
+): WorkflowModelValidationIssue {
+  return issue({
+    code: 'tool-id-invalid',
+    message: `Tool id "${toolId}" must be a standalone tool id or "family.method" with a single dot.`,
+    path: toolIdPath(params),
+    details: {tool: toolId},
+  });
+}
+
+/**
+ * True when the source carries an interpolation expression. Mirrors the
+ * document schema's literal-name rule: `$${{` is the escaped literal form and
+ * stays literal, while any other `${{ ... }}` expression is rejected.
+ */
+function isInterpolated(source: string): boolean {
+  try {
+    return parseWorkflowTemplate(source).some((segment) => segment.kind === 'expr');
+  } catch {
+    // Malformed template syntax can never be a literal id or slug.
+    return true;
+  }
 }
 
 function validateConnectionAndTool(params: {
@@ -308,54 +391,58 @@ function normalizeOutputMappings(params: {
 }): Readonly<Record<string, WorkflowExpression>> | undefined {
   if (params.outputs === undefined) return undefined;
 
-  const mappings: Record<string, WorkflowExpression> = {};
-  for (const [key, source] of Object.entries(params.outputs)) {
-    if (key === 'result') {
-      params.issues.push(
-        issue({
-          code: 'tool-input-invalid',
-          message: 'The "result" output is reserved for the tool result and cannot be redeclared.',
-          path: ['jobs', params.sourceName, 'steps', params.stepIndex, 'outputs', key],
-          details: {output: key},
-        }),
-      );
-      continue;
-    }
+  const mappings: Readonly<Record<string, WorkflowExpression>> = Object.fromEntries(
+    Object.entries(params.outputs).flatMap(([key, source]) => {
+      if (key === 'result') {
+        params.issues.push(
+          issue({
+            code: 'tool-output-invalid',
+            message:
+              'The "result" output is reserved for the tool result and cannot be redeclared.',
+            path: ['jobs', params.sourceName, 'steps', params.stepIndex, 'outputs', key],
+            details: {output: key},
+          }),
+        );
+        return [];
+      }
 
-    if (typeof source !== 'string') {
-      params.issues.push(
-        issue({
-          code: 'tool-input-invalid',
-          message: `Tool step output "${key}" must be a mapping of keys to exactly one $${'{{ }}'} expression.`,
-          path: ['jobs', params.sourceName, 'steps', params.stepIndex, 'outputs', key],
-          details: {output: key},
-        }),
-      );
-      continue;
-    }
+      if (typeof source !== 'string') {
+        params.issues.push(
+          issue({
+            code: 'tool-output-invalid',
+            message: `Tool step output "${key}" must be a mapping of keys to exactly one $${'{{ }}'} expression.`,
+            path: ['jobs', params.sourceName, 'steps', params.stepIndex, 'outputs', key],
+            details: {output: key},
+          }),
+        );
+        return [];
+      }
 
-    const template = parseInterpolationField({
-      field: 'tool.outputs',
-      source,
-      path: ['jobs', params.sourceName, 'steps', params.stepIndex, 'outputs', key],
-      issues: params.issues,
-      fillSite: 'step-report',
-      typeOverlay: params.resultTypeOverlay,
-    });
-    if (template === undefined || template.length !== 1 || template[0]?.kind !== 'deferred') {
-      params.issues.push(
-        issue({
-          code: 'tool-input-invalid',
-          message: `Tool step output mapping "${key}" must be exactly one $${'{{ }}'} expression over "result" or "vars".`,
-          path: ['jobs', params.sourceName, 'steps', params.stepIndex, 'outputs', key],
-          details: {output: key, source},
-        }),
-      );
-      continue;
-    }
+      const template = parseInterpolationField({
+        field: 'tool.outputs',
+        source,
+        path: ['jobs', params.sourceName, 'steps', params.stepIndex, 'outputs', key],
+        issues: params.issues,
+        fillSite: 'step-report',
+        typeOverlay: params.resultTypeOverlay,
+      });
+      if (template === undefined || template.length !== 1 || template[0]?.kind !== 'deferred') {
+        params.issues.push(
+          issue({
+            code: 'tool-output-invalid',
+            message: `Tool step output mapping "${key}" must be exactly one $${'{{ }}'} expression over "result" or "vars".`,
+            path: ['jobs', params.sourceName, 'steps', params.stepIndex, 'outputs', key],
+            details: {output: key, source},
+          }),
+        );
+        return [];
+      }
 
-    mappings[key] = template[0].expression;
-  }
+      // `Object.fromEntries` creates `__proto__` as an own data property;
+      // assigning `mappings[key]` would hit the prototype setter instead.
+      return [[key, template[0].expression] as const];
+    }),
+  );
 
   return Object.keys(mappings).length === 0 ? undefined : mappings;
 }

@@ -1303,6 +1303,39 @@ describe('workflowDocumentSchema', () => {
   });
 
   it.each([
+    ['tool', {tool: interpolation('steps.setup.outputs.tool_id')}],
+    ['connection', {connection: interpolation('inputs.connection')}],
+  ] as const)('rejects an interpolated tool step %s as non-literal with a single issue at the field', (field, step) => {
+    const result = workflowDocumentSchema.safeParse({
+      name: 'tool build',
+      jobs: {fix: {steps: [step]}},
+    });
+
+    const issues = result.success ? [] : result.error.issues;
+    expect(result.success).toBe(false);
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toMatchObject({
+      path: ['jobs', 'fix', 'steps', 0, field],
+      message: expect.stringContaining('Interpolation is rejected'),
+    });
+  });
+
+  it('accepts a literal dotted tool id and connection with a single reserved-field issue', () => {
+    const result = workflowDocumentSchema.safeParse({
+      name: 'tool build',
+      jobs: {fix: {steps: [{tool: 'issue_read.get', connection: 'github-main'}]}},
+    });
+
+    const issues = result.success ? [] : result.error.issues;
+    expect(result.success).toBe(false);
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toMatchObject({
+      path: ['jobs', 'fix', 'steps', 0, 'tool'],
+      message: 'Tool steps are not available yet.',
+    });
+  });
+
+  it.each([
     ['run step connection', {run: 'npm test', connection: 'slack_acme'}, 'connection'],
     ['agent step with', {prompt: 'Review the change.', with: {channel_id: 'C0ABC12345'}}, 'with'],
     [
