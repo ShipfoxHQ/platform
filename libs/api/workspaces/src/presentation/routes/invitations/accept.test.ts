@@ -60,6 +60,37 @@ describe('POST /invitations/accept', () => {
     );
   });
 
+  test('rejects an impersonated session with impersonation-not-permitted', async () => {
+    const owner = await signupVerifyLogin(app, 'accept-impersonated-owner');
+    const guest = await signupVerifyLogin(app, 'accept-impersonated-guest');
+    const workspaceId = await createWorkspace(app, owner.token);
+    const invite = await createInvite(app, {
+      token: owner.token,
+      workspaceId,
+      email: guest.email,
+    });
+    const impersonatorId = crypto.randomUUID();
+    const token = `claim:${guest.userId}:${guest.email}:${workspaceId}:active:${impersonatorId}`;
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/invitations/accept',
+      headers: {authorization: `Bearer ${token}`},
+      payload: {token: invite.rawToken},
+    });
+    const members = await app.inject({
+      method: 'GET',
+      url: `/workspaces/${workspaceId}/members`,
+      headers: {authorization: `Bearer ${owner.token}`},
+    });
+
+    expect(res.statusCode).toBe(403);
+    expect(res.json().code).toBe('impersonation-not-permitted');
+    expect(
+      members.json().members.map((member: {user_email: string}) => member.user_email),
+    ).not.toContain(guest.email);
+  });
+
   test('returns 200 when the invitee is already a member', async () => {
     const owner = await signupVerifyLogin(app, 'accept-existing-owner');
     const workspaceId = await createWorkspace(app, owner.token);

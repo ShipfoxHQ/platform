@@ -1,3 +1,4 @@
+import {rejectImpersonatedSession} from '@shipfox/api-auth-context';
 import {
   createManualRegistrationTokenBodySchema,
   createManualRegistrationTokenResponseSchema,
@@ -20,6 +21,7 @@ export const createManualRegistrationTokenRoute = defineRoute({
   },
   handler: async (request, reply) => {
     const {workspaceId} = request.params;
+    rejectImpersonatedSession(request);
     requireManualRegistrationTokenWorkspaceMembership({request, workspaceId});
     const {name, ttl_seconds} = request.body;
 

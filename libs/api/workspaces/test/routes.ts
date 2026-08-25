@@ -57,7 +57,7 @@ const fakeUserAuth: AuthMethod = {
       throw new ClientError('Authentication required', 'unauthorized', {status: 401});
     }
     if (raw?.startsWith('claim:')) {
-      const [, userId, email, workspaceId, status] = raw.split(':');
+      const [, userId, email, workspaceId, status, impersonatorId] = raw.split(':');
       if (!userId || !email || !workspaceId) throw new Error('Invalid test user claim token');
       const workspaceStatus = status === 'suspended' || status === 'deleted' ? status : 'active';
       setUserContext(
@@ -66,6 +66,7 @@ const fakeUserAuth: AuthMethod = {
           userId,
           email,
           memberships: [{workspaceId, role: 'admin', workspaceStatus}],
+          impersonatorId: impersonatorId || undefined,
         }),
       );
       return;

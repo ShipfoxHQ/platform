@@ -1,4 +1,8 @@
-import {requireUserContext, requireWorkspaceAccess} from '@shipfox/api-auth-context';
+import {
+  rejectImpersonatedSession,
+  requireUserContext,
+  requireWorkspaceAccess,
+} from '@shipfox/api-auth-context';
 import {
   createProvisionerTokenBodySchema,
   createProvisionerTokenResponseSchema,
@@ -21,6 +25,7 @@ export const createProvisionerTokenRoute = defineRoute({
   },
   handler: async (request, reply) => {
     const {workspaceId} = request.params;
+    rejectImpersonatedSession(request);
     requireWorkspaceAccess({request, workspaceId});
     const user = requireUserContext(request);
     const {name, ttl_seconds} = request.body;

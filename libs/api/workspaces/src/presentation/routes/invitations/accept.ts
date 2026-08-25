@@ -1,4 +1,4 @@
-import {AUTH_USER, getUserContext} from '@shipfox/api-auth-context';
+import {AUTH_USER, getUserContext, rejectImpersonatedSession} from '@shipfox/api-auth-context';
 import {
   acceptInvitationBodySchema,
   acceptInvitationResponseSchema,
@@ -48,6 +48,7 @@ export const acceptInvitationRoute = defineRoute({
     if (!client) {
       throw new ClientError('Authentication required', 'unauthorized', {status: 401});
     }
+    rejectImpersonatedSession(request);
 
     const {token} = request.body;
     const result = await acceptWorkspaceInvitation({

@@ -19,6 +19,7 @@ import {createListActiveProvisionersRoute} from './list-active-provisioners.js';
 
 const userId = crypto.randomUUID();
 let authenticatedMemberships: ReadonlyArray<UserContextMembership> = [];
+let impersonatorId: string | undefined;
 
 const fakeUserAuth: AuthMethod = {
   name: AUTH_USER,
@@ -33,6 +34,7 @@ const fakeUserAuth: AuthMethod = {
         userId,
         email: 'user@example.com',
         memberships: authenticatedMemberships,
+        impersonatorId,
       }),
     );
     return Promise.resolve();
@@ -47,6 +49,7 @@ describe('provisioner token routes', () => {
     await closeApp();
     workspaceId = crypto.randomUUID();
     authenticatedMemberships = [{workspaceId, role: 'admin', workspaceStatus: 'active'}];
+    impersonatorId = undefined;
     app = await createApp({
       auth: [fakeUserAuth, createProvisionerTokenAuthMethod()],
       routes: provisionerRoutes,
@@ -223,6 +226,26 @@ describe('provisioner token routes', () => {
         .where(eq(provisionerTokens.id, body.id));
       expect(rows[0]?.hashedToken).toBe(hashOpaqueToken(body.raw_token));
       expect(rows[0]?.hashedToken).not.toBe(body.raw_token);
+    });
+
+    it('rejects an impersonated session with impersonation-not-permitted', async () => {
+      impersonatorId = crypto.randomUUID();
+
+      const res = await app.inject({
+        method: 'POST',
+        url: `/workspaces/${workspaceId}/provisioners/tokens`,
+        headers: {authorization: 'Bearer user'},
+        payload: {name: 'scaler'},
+      });
+
+      expect(res.statusCode).toBe(403);
+      expect(res.json().code).toBe('impersonation-not-permitted');
+
+      const rows = await db()
+        .select()
+        .from(provisionerTokens)
+        .where(eq(provisionerTokens.workspaceId, workspaceId));
+      expect(rows).toHaveLength(0);
     });
 
     it('rejects a token TTL above one year', async () => {
