@@ -2027,6 +2027,9 @@ importers:
       '@shipfox/node-egress-guard':
         specifier: workspace:*
         version: link:../../shared/node/egress-guard
+      '@shipfox/node-envelope-encryption':
+        specifier: workspace:*
+        version: link:../../shared/node/envelope-encryption
       '@shipfox/node-error-monitoring':
         specifier: workspace:*
         version: link:../../shared/node/error-monitoring
@@ -2036,6 +2039,9 @@ importers:
       '@shipfox/node-module':
         specifier: workspace:*
         version: link:../../shared/node/module
+      '@shipfox/node-object-storage':
+        specifier: workspace:*
+        version: link:../../shared/node/object-storage
       '@shipfox/node-opentelemetry':
         specifier: workspace:*
         version: link:../../shared/node/opentelemetry
@@ -2048,6 +2054,9 @@ importers:
       '@shipfox/redact':
         specifier: workspace:*
         version: link:../../shared/common/redact
+      '@temporalio/activity':
+        specifier: 'catalog:'
+        version: 1.18.1
       '@temporalio/workflow':
         specifier: 'catalog:'
         version: 1.18.1
@@ -3589,15 +3598,6 @@ importers:
 
   libs/api/logs:
     dependencies:
-      '@aws-sdk/client-s3':
-        specifier: 'catalog:'
-        version: 3.1089.0
-      '@aws-sdk/lib-storage':
-        specifier: 'catalog:'
-        version: 3.1089.0(@aws-sdk/client-s3@3.1089.0)
-      '@aws-sdk/s3-request-presigner':
-        specifier: 'catalog:'
-        version: 3.1089.0
       '@shipfox/api-auth-context':
         specifier: workspace:*
         version: link:../auth-context
@@ -3625,6 +3625,9 @@ importers:
       '@shipfox/node-module':
         specifier: workspace:*
         version: link:../../shared/node/module
+      '@shipfox/node-object-storage':
+        specifier: workspace:*
+        version: link:../../shared/node/object-storage
       '@shipfox/node-opentelemetry':
         specifier: workspace:*
         version: link:../../shared/node/opentelemetry
@@ -4033,6 +4036,9 @@ importers:
       '@shipfox/node-drizzle':
         specifier: workspace:*
         version: link:../../shared/node/drizzle
+      '@shipfox/node-envelope-encryption':
+        specifier: workspace:*
+        version: link:../../shared/node/envelope-encryption
       '@shipfox/node-fastify':
         specifier: workspace:*
         version: link:../../shared/node/fastify
@@ -7125,6 +7131,24 @@ importers:
         specifier: 'catalog:'
         version: 5.0.0
 
+  libs/shared/node/envelope-encryption:
+    devDependencies:
+      '@shipfox/biome':
+        specifier: workspace:*
+        version: link:../../../../tools/biome
+      '@shipfox/swc':
+        specifier: workspace:*
+        version: link:../../../../tools/swc
+      '@shipfox/ts-config':
+        specifier: workspace:*
+        version: link:../../../../tools/ts-config
+      '@shipfox/typescript':
+        specifier: workspace:*
+        version: link:../../../../tools/typescript
+      '@shipfox/vitest':
+        specifier: workspace:*
+        version: link:../../../../tools/vitest
+
   libs/shared/node/error-monitoring:
     dependencies:
       '@sentry/node':
@@ -7318,6 +7342,37 @@ importers:
       zod:
         specifier: 'catalog:'
         version: 4.4.3
+    devDependencies:
+      '@shipfox/biome':
+        specifier: workspace:*
+        version: link:../../../../tools/biome
+      '@shipfox/swc':
+        specifier: workspace:*
+        version: link:../../../../tools/swc
+      '@shipfox/ts-config':
+        specifier: workspace:*
+        version: link:../../../../tools/ts-config
+      '@shipfox/typescript':
+        specifier: workspace:*
+        version: link:../../../../tools/typescript
+      '@shipfox/vitest':
+        specifier: workspace:*
+        version: link:../../../../tools/vitest
+
+  libs/shared/node/object-storage:
+    dependencies:
+      '@aws-sdk/client-s3':
+        specifier: 'catalog:'
+        version: 3.1089.0
+      '@aws-sdk/lib-storage':
+        specifier: 'catalog:'
+        version: 3.1089.0(@aws-sdk/client-s3@3.1089.0)
+      '@aws-sdk/s3-request-presigner':
+        specifier: 'catalog:'
+        version: 3.1089.0
+      '@shipfox/config':
+        specifier: workspace:*
+        version: link:../../common/config
     devDependencies:
       '@shipfox/biome':
         specifier: workspace:*

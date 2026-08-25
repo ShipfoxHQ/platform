@@ -4,6 +4,7 @@ import type {ManagedModelProvider} from '@shipfox/api-agent-dto';
 import {
   WORKFLOWS_JOB_TERMINATED,
   WORKFLOWS_STEP_ATTEMPT_TERMINATED,
+  WORKFLOWS_WORKFLOW_RUN_TERMINATED,
   type WorkflowsEventMapDto,
 } from '@shipfox/api-workflows-dto';
 import type {WorkflowsModuleClient} from '@shipfox/api-workflows-dto/inter-module';
@@ -20,12 +21,14 @@ import {createAgentInterModulePresentation} from '#presentation/inter-module.js'
 import {createAgentRoutes} from '#presentation/routes/index.js';
 import {onJobTerminated} from '#presentation/subscribers/on-job-terminated.js';
 import {onStepAttemptTerminated} from '#presentation/subscribers/on-step-attempt-terminated.js';
+import {onWorkflowRunTerminated} from '#presentation/subscribers/on-workflow-run-terminated.js';
 import {createAgentSessionActivities} from '#temporal/activities/index.js';
 import {AGENT_SESSION_LIFECYCLE_TASK_QUEUE} from '#temporal/constants.js';
 
 export {
   type AgentConfigResolutionContext,
   type AgentDefaultsResolver,
+  AgentSessionKekVersionStrandedError,
   type AgentWorkspaceSettings,
   buildModelProviderCatalog,
   type ContextualAgentConfig,
@@ -48,6 +51,7 @@ export {
   type ResolveRuntimeCredentialsParams,
   resolveAgentConfig,
   resolveRuntimeCredentials,
+  rotateAgentSessionDataKeys,
   testAndSaveModelProviderConfig,
   UnsupportedModelProviderError,
   updateCustomModelProviderConfig,
@@ -109,6 +113,7 @@ export function createAgentModule(params: {
     // that subscriber is gated on the optional argument.
     subscribers: [
       subscriber(WORKFLOWS_STEP_ATTEMPT_TERMINATED, onStepAttemptTerminated),
+      subscriber(WORKFLOWS_WORKFLOW_RUN_TERMINATED, onWorkflowRunTerminated),
       ...(params.workflows === undefined
         ? []
         : [subscriber(WORKFLOWS_JOB_TERMINATED, onJobTerminated)]),
@@ -125,6 +130,12 @@ export function createAgentModule(params: {
             name: 'reapStaleSessionClaimsCron',
             id: 'agent-session-reap-stale-claims',
             cronSchedule: '5,15,25,35,45,55 * * * *',
+          },
+          // Offset from the logs retention cron's top-of-hour sweep.
+          {
+            name: 'sessionRetentionSweepCron',
+            id: 'agent-session-retention-sweep',
+            cronSchedule: '30 * * * *',
           },
         ],
       },

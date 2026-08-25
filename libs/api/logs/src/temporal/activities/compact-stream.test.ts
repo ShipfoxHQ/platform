@@ -1,10 +1,14 @@
 import {Buffer} from 'node:buffer';
 import {Readable} from 'node:stream';
 import {createGzip, gunzipSync} from 'node:zlib';
-import {GetObjectCommand, HeadObjectCommand, ListObjectsV2Command} from '@aws-sdk/client-s3';
 import {MockActivityEnvironment} from '@temporalio/testing';
 import {eq} from 'drizzle-orm';
-import {deleteObject, s3Client} from '#api/object-storage.js';
+import {
+  deleteObject,
+  listObjectKeys,
+  getObjectBytes as readObjectBytes,
+  headObject as readObjectHead,
+} from '#api/object-storage.js';
 import {config} from '#config.js';
 import {compactedGzipStream} from '#core/compaction.js';
 import {logObjectKey} from '#core/entities/log-object.js';
@@ -46,27 +50,19 @@ function runCompaction(
 }
 
 async function getObjectBytes(key: string): Promise<Buffer> {
-  const res = await s3Client().send(
-    new GetObjectCommand({Bucket: config.LOG_STORAGE_S3_BUCKET, Key: key}),
-  );
-  if (!res.Body) throw new Error('object has no body');
-  return Buffer.from(await res.Body.transformToByteArray());
+  const body = await readObjectBytes(key);
+  if (!body) throw new Error('object has no body');
+  return body;
 }
 
 function headObject(key: string) {
-  return s3Client().send(new HeadObjectCommand({Bucket: config.LOG_STORAGE_S3_BUCKET, Key: key}));
+  return readObjectHead(key);
 }
 
 // Every attempt's object lives under the stream's stable prefix; listing it proves both the
 // winner's object and that losing/failed attempts left nothing behind.
-async function listKeysUnderStream(identity: ClosedStreamIdentity): Promise<string[]> {
-  const res = await s3Client().send(
-    new ListObjectsV2Command({
-      Bucket: config.LOG_STORAGE_S3_BUCKET,
-      Prefix: `${logObjectKey(config.LOG_STORAGE_S3_PREFIX, identity)}/`,
-    }),
-  );
-  return (res.Contents ?? []).map((object) => object.Key ?? '');
+function listKeysUnderStream(identity: ClosedStreamIdentity): Promise<string[]> {
+  return listObjectKeys(`${logObjectKey(config.LOG_STORAGE_S3_PREFIX, identity)}/`);
 }
 
 function compactedKey(result: CompactStreamResult): string {
@@ -99,10 +95,10 @@ describe('compactStreamActivity', () => {
     expect(await listKeysUnderStream(identity)).toEqual([key]);
 
     const head = await headObject(key);
-    expect(head.ContentEncoding).toBe('gzip');
-    expect(head.ContentType).toBe('application/x-ndjson');
-    expect(head.Metadata?.stream_id).toBe(stream.id);
-    expect(head.Metadata?.chunk_count).toBe('3');
+    expect(head?.contentEncoding).toBe('gzip');
+    expect(head?.contentType).toBe('application/x-ndjson');
+    expect(head?.metadata.stream_id).toBe(stream.id);
+    expect(head?.metadata.chunk_count).toBe('3');
 
     expect(gunzipSync(await getObjectBytes(key))).toEqual(Buffer.concat(chunks));
 
@@ -121,7 +117,7 @@ describe('compactStreamActivity', () => {
     const key = compactedKey(result);
     expect(result.outcome === 'compacted' && result.chunkCount).toBe(150);
     expect(gunzipSync(await getObjectBytes(key))).toEqual(Buffer.concat(chunks));
-    expect((await headObject(key)).Metadata?.chunk_count).toBe('150');
+    expect((await headObject(key))?.metadata.chunk_count).toBe('150');
     expect(await listChunks(stream.id)).toHaveLength(0);
 
     await deleteObject(key);
@@ -146,7 +142,7 @@ describe('compactStreamActivity', () => {
 
     const key = compactedKey(result);
     expect(gunzipSync(await getObjectBytes(key))).toHaveLength(0);
-    expect((await headObject(key)).Metadata?.chunk_count).toBe('0');
+    expect((await headObject(key))?.metadata.chunk_count).toBe('0');
 
     await deleteObject(key);
   });

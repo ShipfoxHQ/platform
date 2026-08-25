@@ -246,6 +246,40 @@ export class AgentSessionCarryOverConflictError extends Error {
   public readonly existingSessionId: string;
 }
 
+export type AgentSessionUnavailableReason =
+  | 'blob_cap_exceeded'
+  | 'encryption_failed'
+  | 'decryption_failed'
+  | 'invalid_manifest'
+  | 'object_missing'
+  | 'storage_unavailable';
+
+/**
+ * A session transcript could not be stored or loaded: the compressed blob is
+ * over the cap, envelope crypto or manifest validation failed, the object is
+ * missing, or the object store is unreachable. Maps to the
+ * `agent_session_unavailable` step error; the attempt fails deterministically
+ * and is never retried transparently.
+ */
+export class AgentSessionUnavailableError extends Error {
+  readonly code = 'agent_session_unavailable';
+
+  constructor(
+    /** Stable reason; safe for logs and error reporting. */
+    public readonly reason: AgentSessionUnavailableReason,
+  ) {
+    super(`Agent session transcript is unavailable: ${reason}`);
+    this.name = 'AgentSessionUnavailableError';
+  }
+}
+
+export class AgentSessionKekVersionStrandedError extends Error {
+  constructor(public readonly kekVersion: string) {
+    super(`Agent session data key is stranded on unknown KEK version: ${kekVersion}`);
+    this.name = 'AgentSessionKekVersionStrandedError';
+  }
+}
+
 export class CustomModelProviderStoredSecretBaseUrlChangeError extends Error {
   constructor(public readonly providerId: ModelProviderRef) {
     super(

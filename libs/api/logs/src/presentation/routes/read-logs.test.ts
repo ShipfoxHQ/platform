@@ -1,6 +1,5 @@
 import {Buffer} from 'node:buffer';
 import {gunzipSync} from 'node:zlib';
-import {GetObjectCommand} from '@aws-sdk/client-s3';
 import {
   AUTH_LEASED_JOB,
   AUTH_USER,
@@ -22,7 +21,7 @@ import {
 import {MockActivityEnvironment} from '@temporalio/testing';
 import {eq, sql} from 'drizzle-orm';
 import type {FastifyRequest} from 'fastify';
-import {deleteObject, s3Client} from '#api/object-storage.js';
+import {deleteObject, getObjectBytes as readObjectBytes} from '#api/object-storage.js';
 import {config} from '#config.js';
 import type {AttemptStream} from '#core/entities/attempt-stream.js';
 import {buildLogReadResult} from '#core/read-logs.js';
@@ -139,11 +138,9 @@ async function consumeTerminatedEvent(
 }
 
 async function getObjectBytes(key: string): Promise<Buffer> {
-  const res = await s3Client().send(
-    new GetObjectCommand({Bucket: config.LOG_STORAGE_S3_BUCKET, Key: key}),
-  );
-  if (!res.Body) throw new Error('object has no body');
-  return Buffer.from(await res.Body.transformToByteArray());
+  const body = await readObjectBytes(key);
+  if (!body) throw new Error('object has no body');
+  return body;
 }
 
 function runCompaction(streamId: string): Promise<CompactStreamResult> {

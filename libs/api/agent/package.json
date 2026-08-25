@@ -81,7 +81,6 @@
     "type:emit": "shipfox-tsc-emit"
   },
   "dependencies": {
-    "@shipfox/node-error-monitoring": "workspace:*",
     "@earendil-works/pi-ai": "catalog:",
     "@opentelemetry/api": "catalog:",
     "@shipfox/api-agent-dto": "workspace:*",
@@ -92,12 +91,16 @@
     "@shipfox/config": "workspace:*",
     "@shipfox/node-drizzle": "workspace:*",
     "@shipfox/node-egress-guard": "workspace:*",
+    "@shipfox/node-envelope-encryption": "workspace:*",
+    "@shipfox/node-error-monitoring": "workspace:*",
     "@shipfox/node-fastify": "workspace:*",
     "@shipfox/node-module": "workspace:*",
     "@shipfox/node-opentelemetry": "workspace:*",
+    "@shipfox/node-object-storage": "workspace:*",
     "@shipfox/node-postgres": "workspace:*",
     "@shipfox/node-temporal": "workspace:*",
     "@shipfox/redact": "workspace:*",
+    "@temporalio/activity": "catalog:",
     "@temporalio/workflow": "catalog:",
     "drizzle-orm": "catalog:",
     "zod": "catalog:"

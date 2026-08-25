@@ -1,6 +1,6 @@
 # Local object storage (Garage)
 
-Runner logs are compacted into an S3-compatible object store. For local
+Runner logs and encrypted agent session transcripts use an S3-compatible object store. For local
 development and self-hosting, `compose.yml` bundles [Garage](https://garagehq.deuxfleurs.fr/);
 any S3-compatible endpoint (AWS S3, Cloudflare R2, Backblaze B2, MinIO, …) works
 in production.
@@ -9,12 +9,16 @@ in production.
 | -- | -- |
 | Endpoint | `http://localhost:3900` |
 | Region | `garage` |
-| Bucket | `shipfox-logs` |
+| Bucket | `shipfox` |
 | Access key id | `GK000000000000000000000000` |
 
 The secret in `garage.toml` and the access key are **development-only**.
 Generate fresh credentials for any shared or production environment, and set the
-`LOG_STORAGE_S3_*` variables accordingly (see `libs/api/logs/src/config.ts`).
+`OBJECT_STORAGE_S3_*` variables accordingly (see `libs/shared/node/object-storage/src/config.ts`).
+
+Logs use the `logs` key prefix. Agent session transcripts use the
+`agent-sessions` key prefix. Set a consumer-specific `*_STORAGE_S3_*` override
+only when that consumer needs another bucket or object store.
 
 ## Bucket lifecycle (production)
 

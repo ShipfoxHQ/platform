@@ -8,6 +8,33 @@ export {DatabaseError} from 'pg';
 
 let _pool: pg.Pool | undefined;
 
+async function closePoolConnections(pool: pg.Pool): Promise<void> {
+  const connectionCount = pool.totalCount;
+  if (connectionCount === 0) {
+    await pool.end();
+    return;
+  }
+
+  let removedConnectionCount = 0;
+  let resolveConnectionsClosed: (() => void) | undefined;
+  const connectionsClosed = new Promise<void>((resolve) => {
+    resolveConnectionsClosed = resolve;
+  });
+  const onRemove = () => {
+    removedConnectionCount += 1;
+    if (removedConnectionCount === connectionCount) resolveConnectionsClosed?.();
+  };
+  pool.on('remove', onRemove);
+
+  try {
+    // Pool.end() clears idle clients before their underlying connections emit `end`.
+    await pool.end();
+    await connectionsClosed;
+  } finally {
+    pool.off('remove', onRemove);
+  }
+}
+
 export function createPostgresClient(options?: pg.PoolConfig): pg.Pool {
   if (_pool) {
     throw new Error('Postgres client has already been created');
@@ -44,7 +71,9 @@ export async function withPostgresSession<T>(fn: (client: pg.Client) => Promise<
 }
 
 export async function closePostgresClient() {
-  await _pool?.end();
+  if (!_pool) return;
+
+  await closePoolConnections(_pool);
   _pool = undefined;
 }
 

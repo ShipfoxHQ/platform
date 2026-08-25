@@ -1,8 +1,7 @@
 import {Buffer} from 'node:buffer';
-import {HeadObjectCommand, PutObjectCommand} from '@aws-sdk/client-s3';
 import {eq, sql} from 'drizzle-orm';
 import * as objectStorage from '#api/object-storage.js';
-import {s3Client} from '#api/object-storage.js';
+import {headObject, putObjectBytes} from '#api/object-storage.js';
 import {config} from '#config.js';
 import {logObjectKey} from '#core/entities/log-object.js';
 import {db} from '#db/db.js';
@@ -60,18 +59,11 @@ async function setObjectKey(streamId: string, objectKey: string): Promise<void> 
 }
 
 async function putObject(key: string, body: Buffer): Promise<void> {
-  await s3Client().send(
-    new PutObjectCommand({Bucket: config.LOG_STORAGE_S3_BUCKET, Key: key, Body: body}),
-  );
+  await putObjectBytes(key, body);
 }
 
 async function objectExists(key: string): Promise<boolean> {
-  try {
-    await s3Client().send(new HeadObjectCommand({Bucket: config.LOG_STORAGE_S3_BUCKET, Key: key}));
-    return true;
-  } catch {
-    return false;
-  }
+  return (await headObject(key)) !== null;
 }
 
 describe('runRetentionSweep', () => {

@@ -166,6 +166,7 @@ Install the package from the registry:
 pnpm add @shipfox/api-logs
 ```
 
-Configuration lives in `src/config.ts` (object storage for compacted logs, the per-job budget,
-the close grace period, the append body limit, and the read path's presigned-URL TTL and inline
-page cap). See each variable's `desc` for what to set.
+Object storage uses the shared `OBJECT_STORAGE_S3_*` profile from
+`@shipfox/node-object-storage`. Optional log-specific overrides, the per-job budget, the close
+grace period, the append body limit, and the read path's presigned-URL TTL and inline page cap
+live in `src/config.ts`. See each variable's `desc` for what to set.

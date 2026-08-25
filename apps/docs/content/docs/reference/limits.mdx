@@ -55,6 +55,14 @@ serialized outputs object, including output keys and JSON syntax.
 | Output group nesting | 32 levels | No | Past the cap a group is flattened into plain output. Wrap output in `::group::<name>` / `::endgroup::` marker lines to create collapsible sections. |
 | Output group name | 1 KiB | No | The runner byte-truncates longer marker names before upload. Direct log records over the cap are rejected at the record level. |
 
+## Agent sessions
+
+| Limit | Default | Configurable | Details |
+| --- | --- | --- | --- |
+| Session transcript segment | 64 MiB compressed | Self-host: `AGENT_SESSION_BLOB_CAP_BYTES` | One committed segment per reported attempt; a larger compressed blob fails the commit and the attempt. Transcripts are encrypted at rest with the workspace envelope-crypto scheme and are never client-readable. |
+| Session retention | 90 days | Self-host: `AGENT_SESSION_RETENTION_DAYS` | Session rows and their transcript objects are deleted after the run terminates and this window elapses. |
+| Superseded segment grace | 10 minutes | Self-host: `AGENT_SESSION_SEGMENT_GRACE_SECONDS` | Pruning of superseded segments is deferred by this window so concurrent fork snapshot reads keep their object. |
+
 ## Related pages
 
 <Cards>

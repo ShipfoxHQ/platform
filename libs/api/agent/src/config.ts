@@ -9,10 +9,12 @@ import {
   SUPPORTED_MODEL_PROVIDER_IDS,
   type WorkspaceProvidersPolicy,
 } from '@shipfox/api-agent-dto';
-import {bool, createConfig, num, str} from '@shipfox/config';
+import {bool, createConfig, num, str, url} from '@shipfox/config';
+import {assertObjectStoragePrefix} from '@shipfox/node-object-storage';
 import {logger} from '@shipfox/node-opentelemetry';
 import {WorkspaceProvidersDisabledError} from '#core/errors.js';
 import {getModelProviderEntry} from '#core/model-provider-policy.js';
+import {decodeBase64SessionKek} from '#core/session-artifacts/crypto.js';
 
 /**
  * Workflows' default maximum job execution duration (`DEFAULT_EXECUTION_MAX_DURATION_MS`
@@ -96,6 +98,56 @@ export const config = createConfig({
   AGENT_SESSION_REAP_BATCH_LIMIT: num({
     desc: 'How many stale session claims the reap cron may release per tick. Remaining stale claims are picked up on the next tick. Defaults to 100.',
     default: 100,
+  }),
+  AGENT_SESSION_STORAGE_S3_ENDPOINT: url({
+    desc: 'Optional endpoint override for encrypted session transcripts. Leave it unset to use OBJECT_STORAGE_S3_ENDPOINT.',
+    default: undefined,
+  }),
+  AGENT_SESSION_STORAGE_S3_REGION: str({
+    desc: 'Optional region override for encrypted session transcripts. Leave it unset to use OBJECT_STORAGE_S3_REGION.',
+    default: undefined,
+  }),
+  AGENT_SESSION_STORAGE_S3_BUCKET: str({
+    desc: 'Optional bucket override for encrypted session transcripts. Leave it unset to use OBJECT_STORAGE_S3_BUCKET.',
+    default: undefined,
+  }),
+  AGENT_SESSION_STORAGE_S3_PREFIX: str({
+    desc: 'Key prefix under which session transcript artifacts are stored in the bucket. Set this to host several modules in one bucket, each under its own prefix. Use a value without a leading or trailing slash. Defaults to agent-sessions.',
+    default: 'agent-sessions',
+  }),
+  AGENT_SESSION_STORAGE_S3_ACCESS_KEY_ID: str({
+    desc: 'Optional access key ID override for encrypted session transcripts. Set it with AGENT_SESSION_STORAGE_S3_SECRET_ACCESS_KEY, or leave both unset to use the shared object-store credentials.',
+    default: undefined,
+  }),
+  AGENT_SESSION_STORAGE_S3_SECRET_ACCESS_KEY: str({
+    desc: 'Optional secret access key override for encrypted session transcripts. Set it with AGENT_SESSION_STORAGE_S3_ACCESS_KEY_ID, or leave both unset to use the shared object-store credentials.',
+    default: undefined,
+  }),
+  AGENT_SESSION_STORAGE_S3_FORCE_PATH_STYLE: bool({
+    desc: 'Optional addressing-mode override for encrypted session transcripts. Leave it unset to use OBJECT_STORAGE_S3_FORCE_PATH_STYLE.',
+    default: undefined,
+  }),
+  AGENT_SESSION_ENCRYPTION_KEK: str({
+    // No default: envalid enforces this as a required variable at startup, and
+    // the module-level `decodeBase64SessionKek` below stays as the second layer
+    // that also rejects a malformed (non-canonical base64) value.
+    desc: 'Master key used to wrap per-workspace session transcript data keys. Required. Generate a unique value per environment with openssl rand -base64 32 and provide it from a secret manager. Do not reuse SECRETS_ENCRYPTION_KEK. The committed .env value is only for local development. Losing this key makes stored session transcripts unrecoverable. To rotate it, set AGENT_SESSION_ENCRYPTION_KEK_PREVIOUS to the old value during the rotation window.',
+  }),
+  AGENT_SESSION_ENCRYPTION_KEK_PREVIOUS: str({
+    desc: 'Previous master key, set only during a KEK rotation window so DEKs wrapped under the old key stay readable. Optional. Generate with openssl rand -base64 32 and provide it from a secret manager; clear it once every wrapped DEK has been rewrapped under the current key.',
+    default: undefined,
+  }),
+  AGENT_SESSION_BLOB_CAP_BYTES: num({
+    desc: 'Maximum size of one compressed session transcript segment, in bytes. The runner uploads the gzipped harness session file; a larger blob fails the commit and the attempt. Defaults to 64 MiB.',
+    default: 67_108_864,
+  }),
+  AGENT_SESSION_RETENTION_DAYS: num({
+    desc: 'How many days a session of a terminated run is kept before the retention cron hard-deletes its transcript objects and database row. Our own worker enforces this (not bucket lifecycle rules), so behavior is identical across object stores. Must be a whole number of days, 1 or greater. Defaults to 90 days.',
+    default: 90,
+  }),
+  AGENT_SESSION_SEGMENT_GRACE_SECONDS: num({
+    desc: 'How long a superseded transcript segment must stay superseded before the retention cron prunes it, and how long a session must stay unclaimed before orphaned segments (objects written but never flipped into the head) are collected. The wait lets a concurrent fork snapshot read keep its object and an in-flight commit land its head flip. Defaults to 600 seconds (10 minutes).',
+    default: 600,
   }),
 });
 
@@ -259,6 +311,41 @@ function isRegisteredProvider(
 ): boolean {
   if (managedProvider?.id === providerId) return true;
   return getModelProviderEntry(providerId)?.support_status === 'supported';
+}
+
+decodeBase64SessionKek(config.AGENT_SESSION_ENCRYPTION_KEK, 'AGENT_SESSION_ENCRYPTION_KEK');
+if (config.AGENT_SESSION_ENCRYPTION_KEK_PREVIOUS) {
+  decodeBase64SessionKek(
+    config.AGENT_SESSION_ENCRYPTION_KEK_PREVIOUS,
+    'AGENT_SESSION_ENCRYPTION_KEK_PREVIOUS',
+  );
+}
+
+assertObjectStoragePrefix(config.AGENT_SESSION_STORAGE_S3_PREFIX);
+
+if (
+  !Number.isInteger(config.AGENT_SESSION_RETENTION_DAYS) ||
+  config.AGENT_SESSION_RETENTION_DAYS < 1
+) {
+  throw new Error(
+    `AGENT_SESSION_RETENTION_DAYS (${config.AGENT_SESSION_RETENTION_DAYS}) must be a whole number of days >= 1.`,
+  );
+}
+if (
+  !Number.isInteger(config.AGENT_SESSION_SEGMENT_GRACE_SECONDS) ||
+  config.AGENT_SESSION_SEGMENT_GRACE_SECONDS < 1
+) {
+  throw new Error(
+    `AGENT_SESSION_SEGMENT_GRACE_SECONDS (${config.AGENT_SESSION_SEGMENT_GRACE_SECONDS}) must be a whole number of seconds >= 1.`,
+  );
+}
+if (
+  !Number.isInteger(config.AGENT_SESSION_BLOB_CAP_BYTES) ||
+  config.AGENT_SESSION_BLOB_CAP_BYTES < 1
+) {
+  throw new Error(
+    `AGENT_SESSION_BLOB_CAP_BYTES (${config.AGENT_SESSION_BLOB_CAP_BYTES}) must be a whole number of bytes >= 1.`,
+  );
 }
 
 function assertManagedProvider(provider: ManagedModelProvider): void {

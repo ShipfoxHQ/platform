@@ -18,6 +18,10 @@ import {pgTable} from './common.js';
  * `claimed_by_step_attempt`/`claimed_at` mark the exclusive resume writer and
  * are the `FOR UPDATE` contention axis. `version` is an optimistic-lock
  * counter, bumped on every mutation.
+ *
+ * `retired_at` is stamped by the run-terminated subscriber when the run attempt
+ * reaches a terminal state; the retention sweep deletes rows whose retirement
+ * is older than the retention window, mirroring the logs `closed_at` lifecycle.
  */
 export const sessions = pgTable(
   'sessions',
@@ -37,6 +41,7 @@ export const sessions = pgTable(
     claimedByStepAttempt: uuid('claimed_by_step_attempt'),
     claimedAt: timestamp('claimed_at', {withTimezone: true}),
     carriedFromSessionId: uuid('carried_from_session_id'),
+    retiredAt: timestamp('retired_at', {withTimezone: true}),
     version: integer('version').notNull().default(1),
     createdAt: timestamp('created_at', {withTimezone: true}).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', {withTimezone: true}).notNull().defaultNow(),
@@ -57,6 +62,19 @@ export const sessions = pgTable(
     index('agent_sessions_claimed_at_partial_idx')
       .on(table.claimedAt)
       .where(sql`${table.claimedByStepAttempt} is not null`),
+    // Retention scans retired sessions by retirement age; partial so it never carries
+    // the live (in-run) set. Written once per session, so it does not churn.
+    index('agent_sessions_retired_at_idx').on(table.retiredAt).where(sql`"retired_at" is not null`),
+    // Shared carried-over heads are checked by exact object key before an
+    // expired row deletes its object. Exclude rows without a head because they
+    // can never participate in that ownership check.
+    index('agent_sessions_head_object_key_idx')
+      .on(table.headObjectKey)
+      .where(sql`${table.headObjectKey} is not null`),
+    // Segment pruning pages candidates by updated_at and id. Keep the cursor
+    // order in the index so a large retention set does not need a full sort on
+    // every bounded batch.
+    index('agent_sessions_updated_at_id_idx').on(table.updatedAt, table.id),
   ],
 );
 
@@ -80,6 +98,7 @@ export function toAgentSession(row: AgentSessionDb): AgentSession {
     claimedByStepAttempt: row.claimedByStepAttempt,
     claimedAt: row.claimedAt,
     carriedFromSessionId: row.carriedFromSessionId,
+    retiredAt: row.retiredAt,
     version: row.version,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,

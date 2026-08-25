@@ -1,6 +1,7 @@
 import {drizzle, type NodePgDatabase} from '@shipfox/node-drizzle';
 import {pgClient} from '@shipfox/node-postgres';
 import {agentWorkspaceSettings} from './schema/agent-workspace-settings.js';
+import {sessionDataKeys} from './schema/data-keys.js';
 import {modelProviderConfigs} from './schema/model-provider-configs.js';
 import {sessions} from './schema/sessions.js';
 
@@ -8,6 +9,7 @@ export const schema = {
   modelProviderConfigs,
   agentWorkspaceSettings,
   sessions,
+  sessionDataKeys,
 };
 
 export type Database = NodePgDatabase<typeof schema>;
