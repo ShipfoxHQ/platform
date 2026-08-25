@@ -5,7 +5,11 @@ import {PanelRow} from '@shipfox/react-ui/panel';
 import {Text} from '@shipfox/react-ui/typography';
 import {Link} from '@tanstack/react-router';
 import type {ReactNode} from 'react';
-import type {RunAnnotationEntry, RunAnnotationStyle} from '#core/run-annotation.js';
+import type {
+  RunAnnotationEntry,
+  RunAnnotationRecord,
+  RunAnnotationStyle,
+} from '#core/run-annotation.js';
 import {workflowJobSearchParams} from '#routes/inputs.js';
 
 /**
@@ -18,23 +22,35 @@ const ANNOTATION_ROW_CLASS =
   'items-start justify-start gap-cluster hover:bg-background-neutral-base';
 
 /**
- * Contexts the server mints itself, each with the heading to use when the job that would
- * normally name the row cannot be resolved.
+ * The contexts the server mints itself, each rebuilt exactly as its producer builds it, with the
+ * heading to use when the job that would normally name the row cannot be resolved.
  *
- * These are routing keys rather than something a reader chose, so they never become the
- * heading. The convention is re-derived here from the server's producers
- * (`on-failure-annotations.ts`, `agent-tool-capability-warning.ts`), which means a step is free
- * to pick a context that collides with one of these prefixes and get retitled. Carrying the
- * distinction on the annotation record instead would remove the guesswork.
+ * These are routing keys rather than something a reader chose, so they never become the heading.
+ * Rebuilt whole rather than matched by prefix: `context` is caller-chosen with no reserved
+ * namespace, so a prefix would claim any annotation a step happened to name `failure:...`. Every
+ * producer keys off an id the annotation already carries, so reconstructing the entire key means
+ * a step has to choose a context identical to one built from its own step or job id before it is
+ * mistaken for a diagnostic.
  */
 const MINTED_CONTEXTS = [
-  {prefix: 'failure:step:', fallbackTitle: 'Step failure'},
-  {prefix: 'failure:job:', fallbackTitle: 'Job failure'},
-  {prefix: 'agent-tool-capability:', fallbackTitle: 'Agent tool capability'},
+  {
+    key: ({originStepId}: MintedContextSource) => `failure:step:${originStepId}`,
+    fallbackTitle: 'Step failure',
+  },
+  {
+    key: ({jobId}: MintedContextSource) => `failure:job:${jobId}`,
+    fallbackTitle: 'Job failure',
+  },
+  {
+    key: ({originStepId}: MintedContextSource) => `agent-tool-capability:${originStepId}`,
+    fallbackTitle: 'Agent tool capability',
+  },
 ] as const;
 
-function mintedContext(context: string) {
-  return MINTED_CONTEXTS.find(({prefix}) => context.startsWith(prefix));
+type MintedContextSource = Pick<RunAnnotationRecord, 'context' | 'jobId' | 'originStepId'>;
+
+function mintedContext(annotation: MintedContextSource) {
+  return MINTED_CONTEXTS.find(({key}) => key(annotation) === annotation.context);
 }
 
 export interface RunAnnotationItemProps {
@@ -64,7 +80,7 @@ export function RunAnnotationItem({
   // A minted context is never the heading, not even as a last resort: a run that no longer
   // contains the emitting job resolves no name, and printing the routing key would put a bare
   // uuid where the row's subject belongs.
-  const minted = mintedContext(annotation.context);
+  const minted = mintedContext(annotation);
   const title = minted ? (entry.jobName ?? minted.fallbackTitle) : annotation.context;
 
   return (

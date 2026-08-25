@@ -50,6 +50,16 @@ describe('RunAnnotationList', () => {
     expect(await screen.findByRole('heading', {level: 3, name: 'build'})).toBeInTheDocument();
   });
 
+  test('leaves a step-chosen context that only looks minted as the heading', async () => {
+    // `context` is caller-chosen with no reserved namespace, so matching the server's keys by
+    // prefix would silently retitle a step's own annotation and hide the name it picked.
+    renderList([annotation({id: 'a1', context: 'failure:step: see the runbook'})]);
+
+    expect(
+      await screen.findByRole('heading', {level: 3, name: 'failure:step: see the runbook'}),
+    ).toBeInTheDocument();
+  });
+
   test('names a minted context whose job the run no longer resolves', async () => {
     // A job missing from the run snapshot resolves no name and no step link, so the routing key
     // would otherwise be the only text on the row.
