@@ -8,6 +8,8 @@ import {
   bootstrapAdminOwnerResponseSchema,
   grantAdminRoleBodySchema,
   grantAdminRoleResponseSchema,
+  impersonateResponseSchema,
+  impersonateUserBodySchema,
   listAdminGrantsQuerySchema,
   listAdminGrantsResponseSchema,
   reactivateAdministratorUserBodySchema,
@@ -17,6 +19,7 @@ import {
   revokeAdministratorUserSessionsResponseSchema,
   suspendAdministratorUserBodySchema,
 } from '@shipfox/api-auth-dto';
+import type {WorkspacesInterModuleClient} from '@shipfox/api-workspaces-dto/inter-module';
 import {decodeTimestampIdCursor, encodeTimestampIdCursor} from '@shipfox/node-drizzle';
 import {ClientError, defineRoute, type RouteGroup} from '@shipfox/node-fastify';
 import type {FastifyRequest} from 'fastify';
@@ -27,6 +30,7 @@ import {
   findAdministratorUserSummary,
   getAdminBootstrapState,
   grantAdministratorRole,
+  impersonateUser,
   listAdministratorGrantSummaries,
   reactivateAdministratorUser,
   revokeAdministratorGrant,
@@ -44,11 +48,17 @@ import {
   AdminGrantNotFoundError,
   AdminIdempotencyKeyReuseError,
   AdminRoleRequiredError,
+  CannotImpersonateAdministratorError,
+  CannotImpersonateSelfError,
+  ImpersonationDisabledError,
+  ImpersonationExpiredError,
+  ImpersonationTargetNotActiveError,
   InvalidAdminBootstrapTokenError,
   LastAdminOwnerError,
   UserNotFoundError,
 } from '#core/errors.js';
 import {getClientContext} from '#presentation/auth/jwt-auth.js';
+import {toUserDto} from '#presentation/dto/user.js';
 import {createAuthIpRateLimitPreHandler} from './rate-limit.js';
 
 const idempotencyKeyMaxLength = 256;
@@ -158,6 +168,31 @@ function translateAdministrationError(error: unknown): never {
       'idempotency-key-reused',
       {status: 409},
     );
+  }
+  if (error instanceof ImpersonationDisabledError) {
+    throw new ClientError('Impersonation is disabled', 'impersonation-disabled', {status: 403});
+  }
+  if (error instanceof CannotImpersonateSelfError) {
+    throw new ClientError('Cannot impersonate yourself', 'cannot-impersonate-self', {
+      status: 403,
+    });
+  }
+  if (error instanceof CannotImpersonateAdministratorError) {
+    throw new ClientError(
+      'Cannot impersonate an administrator',
+      'cannot-impersonate-administrator',
+      {status: 403},
+    );
+  }
+  if (error instanceof ImpersonationTargetNotActiveError) {
+    throw new ClientError('User cannot be impersonated', 'impersonation-target-not-active', {
+      status: 403,
+    });
+  }
+  if (error instanceof ImpersonationExpiredError) {
+    throw new ClientError('Impersonation session has expired', 'impersonation-expired', {
+      status: 410,
+    });
   }
   throw error;
 }
@@ -374,8 +409,55 @@ export const administrationBootstrapRoutes: RouteGroup = adoptAdministrationActo
   routes: [bootstrapStateRoute],
 });
 
-export const administrationUserRoutes: RouteGroup = adoptAdministrationActorGuard({
-  prefix: '/admin/auth/users',
-  auth: AUTH_USER,
-  routes: [userLookupRoute, suspendUserRoute, reactivateUserRoute, revokeUserSessionsRoute],
-});
+function createImpersonateUserRoute(workspaces: WorkspacesInterModuleClient) {
+  return defineRoute({
+    method: 'POST',
+    path: '/:userId/impersonate',
+    description:
+      'Mint a short-lived, marked, audited impersonated session for an active, verified, non-administrator user.',
+    schema: {
+      params: z.object({userId: z.string().uuid()}),
+      body: impersonateUserBodySchema,
+      response: {200: impersonateResponseSchema},
+    },
+    preHandler: createAuthIpRateLimitPreHandler('impersonate'),
+    errorHandler: translateAdministrationError,
+    handler: async (request) => {
+      const client = getClientContext(request);
+      const result = await impersonateUser({
+        actorId: requireActorId(request),
+        ...(client?.impersonatorId ? {actorImpersonatorId: client.impersonatorId} : {}),
+        targetUserId: request.params.userId,
+        reason: request.body.reason,
+        idempotencyKey: requireIdempotencyKey(request),
+        correlationId: request.id,
+        workspaces,
+      });
+      // `server_time` is the issuer's clock at response time: the banner
+      // derives its countdown and Extend availability from this anchor.
+      return {
+        token: result.token,
+        expires_at: result.expiresAt.toISOString(),
+        server_time: new Date().toISOString(),
+        impersonator_id: result.impersonatorId,
+        user: toUserDto(result.user),
+      };
+    },
+  });
+}
+
+export function createAdministrationUserRoutes(
+  workspaces: WorkspacesInterModuleClient,
+): RouteGroup {
+  return adoptAdministrationActorGuard({
+    prefix: '/admin/auth/users',
+    auth: AUTH_USER,
+    routes: [
+      userLookupRoute,
+      suspendUserRoute,
+      reactivateUserRoute,
+      revokeUserSessionsRoute,
+      createImpersonateUserRoute(workspaces),
+    ],
+  });
+}

@@ -1,11 +1,14 @@
 import {randomUUID} from 'node:crypto';
-import {meResponseSchema} from '@shipfox/api-auth-dto';
+import {impersonateResponseSchema, meResponseSchema} from '@shipfox/api-auth-dto';
 import {config} from '@shipfox/e2e-core';
+import {createWorkspace} from '@shipfox/e2e-setup-workspaces';
 import {expect, test} from './test.js';
 
 const SIGNUP_NOT_ALLOWED_MESSAGE =
   process.env.AUTH_SIGNUP_NOT_ALLOWED_MESSAGE ??
   'This E2E deployment does not accept new accounts.';
+
+const ADMIN_BOOTSTRAP_TOKEN = process.env.ADMIN_BOOTSTRAP_TOKEN ?? 'e2e-admin-bootstrap-token';
 
 test('creates an E2E user, session, and reads the authenticated user', async ({request, auth}) => {
   const user = await auth.createUser();
@@ -38,3 +41,161 @@ test('rejects a password signup outside the configured allowlist', async ({reque
     details: {message: SIGNUP_NOT_ALLOWED_MESSAGE},
   });
 });
+
+test(
+  'impersonation: a minted token acts as the target on user routes, is rejected on every admin ' +
+    'and deny-listed route, cannot refresh, and a replay re-runs the authorization ladder',
+  async ({request, auth}) => {
+    // Operator: the bootstrapped first owner (admin-owner >= admin-operator).
+    const operator = await auth.createUser();
+    const operatorSession = await auth.createSession({user_id: operator.user.id});
+    const bootstrap = await request.post(`${config.API_URL}/admin/auth/admin-grants/bootstrap`, {
+      headers: {
+        authorization: `Bearer ${operatorSession.token}`,
+        'idempotency-key': 'e2e-impersonation-bootstrap',
+      },
+      data: {bootstrap_token: ADMIN_BOOTSTRAP_TOKEN},
+    });
+    expect(bootstrap.status()).toBe(201);
+
+    const target = await auth.createUser();
+    await auth.createSession({user_id: target.user.id});
+    const workspace = await createWorkspace({userId: target.user.id, userEmail: target.user.email});
+
+    const mint = await request.post(
+      `${config.API_URL}/admin/auth/users/${target.user.id}/impersonate`,
+      {
+        headers: {
+          authorization: `Bearer ${operatorSession.token}`,
+          'idempotency-key': 'e2e-impersonation-mint',
+        },
+        data: {reason: 'E2E support reproduction'},
+      },
+    );
+    expect(mint.status()).toBe(200);
+    // The mint never sets a refresh cookie: the session is access-token-only.
+    expect(mint.headers()['set-cookie']).toBeUndefined();
+    const body = impersonateResponseSchema.parse(await mint.json());
+    expect(body.impersonator_id).toBe(operator.user.id);
+    expect(body.user.id).toBe(target.user.id);
+    const ttlMs = Date.parse(body.expires_at) - Date.parse(body.server_time);
+    expect(ttlMs).toBeGreaterThan(0);
+    expect(ttlMs).toBeLessThanOrEqual(15 * 60 * 1000);
+    const headers = {authorization: `Bearer ${body.token}`};
+
+    // Ordinary user routes: the impersonated token is the target's session.
+    const me = await request.get(`${config.API_URL}/auth/me`, {headers});
+    expect(me.status()).toBe(200);
+    const meBody = meResponseSchema.parse(await me.json());
+    expect(meBody.user.id).toBe(target.user.id);
+    expect(meBody.impersonator_id).toBe(operator.user.id);
+
+    // Every /admin route group rejects the marked session with
+    // admin-role-required, before roles are consulted (U2).
+    const adminRoutes = [
+      '/admin/auth/bootstrap-state',
+      '/admin/auth/admin-grants',
+      `/admin/auth/users?user_id=${target.user.id}`,
+      '/admin/projects',
+      '/admin/workspaces',
+      '/admin/runners/provisioner-tokens',
+      '/admin/runners/instances',
+    ];
+    for (const route of adminRoutes) {
+      const response = await request.get(`${config.API_URL}${route}`, {headers});
+      expect(response.status(), route).toBe(403);
+      expect(await response.json(), route).toEqual({code: 'admin-role-required'});
+    }
+
+    // Every deny-listed route rejects the marked session with
+    // impersonation-not-permitted: no durable artefact can outlive the window
+    // (U2b).
+    const denyListedRoutes = [
+      {
+        path: `/workspaces/${workspace.id}/runners/manual-registration-tokens`,
+        data: {name: 'e2e-denied'},
+      },
+      {
+        path: `/workspaces/${workspace.id}/provisioners/tokens`,
+        data: {name: 'e2e-denied'},
+      },
+      {
+        path: `/workspaces/${workspace.id}/invitations`,
+        data: {email: `invite-${randomUUID()}@example.test`},
+      },
+      {path: '/invitations/accept', data: {token: 'e2e-invalid-invitation-token'}},
+    ];
+    for (const {path, data} of denyListedRoutes) {
+      const response = await request.post(`${config.API_URL}${path}`, {headers, data});
+      expect(response.status(), path).toBe(403);
+      expect(await response.json(), path).toEqual({code: 'impersonation-not-permitted'});
+    }
+
+    // The impersonated session cannot be refreshed: there is no refresh
+    // session behind it, and the operator's cookie only restores the operator.
+    const refresh = await request.post(`${config.API_URL}/auth/refresh`, {
+      headers: {cookie: `shipfox_refresh_token=${body.token}`},
+      data: {},
+    });
+    expect(refresh.status()).toBe(401);
+
+    // An in-window replay with the same key returns the same expires_at with
+    // a freshly signed token (the response-lost retry case).
+    const replay = await request.post(
+      `${config.API_URL}/admin/auth/users/${target.user.id}/impersonate`,
+      {
+        headers: {
+          authorization: `Bearer ${operatorSession.token}`,
+          'idempotency-key': 'e2e-impersonation-mint',
+        },
+        data: {reason: 'E2E support reproduction'},
+      },
+    );
+    expect(replay.status()).toBe(200);
+    const replayBody = impersonateResponseSchema.parse(await replay.json());
+    expect(replayBody.expires_at).toBe(body.expires_at);
+    expect(replayBody.token).not.toBe(body.token);
+
+    // Replay with a revoked operator grant fails closed: the ladder re-runs,
+    // so a revocation mid-window ends the capability (ADR 0014 deviation).
+    const secondOwner = await auth.createUser();
+    await auth.createSession({user_id: secondOwner.user.id});
+    const grantSecondOwner = await request.post(`${config.API_URL}/admin/auth/admin-grants`, {
+      headers: {
+        authorization: `Bearer ${operatorSession.token}`,
+        'idempotency-key': 'e2e-impersonation-second-owner',
+      },
+      data: {user_id: secondOwner.user.id, role: 'admin-owner', reason: 'E2E second owner'},
+    });
+    expect(grantSecondOwner.status()).toBe(201);
+
+    const grants = await request.get(`${config.API_URL}/admin/auth/admin-grants`, {
+      headers: {authorization: `Bearer ${operatorSession.token}`},
+    });
+    const grantId = (await grants.json()).grants.find(
+      (grant: {user: {id: string}}) => grant.user.id === operator.user.id,
+    )?.grant_id;
+    expect(grantId).toBeDefined();
+    const revoke = await request.delete(`${config.API_URL}/admin/auth/admin-grants/${grantId}`, {
+      headers: {
+        authorization: `Bearer ${operatorSession.token}`,
+        'idempotency-key': 'e2e-impersonation-revoke',
+      },
+      data: {reason: 'E2E grant revocation'},
+    });
+    expect(revoke.status()).toBe(200);
+
+    const replayAfterRevoke = await request.post(
+      `${config.API_URL}/admin/auth/users/${target.user.id}/impersonate`,
+      {
+        headers: {
+          authorization: `Bearer ${operatorSession.token}`,
+          'idempotency-key': 'e2e-impersonation-mint',
+        },
+        data: {reason: 'E2E support reproduction'},
+      },
+    );
+    expect(replayAfterRevoke.status()).toBe(403);
+    expect((await replayAfterRevoke.json()).code).toBe('forbidden');
+  },
+);

@@ -84,7 +84,11 @@ async function storeCommandResult(
   params: UserModerationCommandParams,
   result: StoredAdminUserModerationResult,
 ): Promise<void> {
-  await storeAdminCommandResult(tx, params, {userModeration: result});
+  await storeAdminCommandResult(
+    tx,
+    {...params, command: params.event.command},
+    {userModeration: result},
+  );
 }
 
 async function readTargetUserForUpdate(tx: Tx, userId: string) {
@@ -99,7 +103,7 @@ async function readTargetUserForUpdate(tx: Tx, userId: string) {
   return user;
 }
 
-async function requireActiveAdminOperator(tx: Tx, actorId: string): Promise<void> {
+export async function requireActiveAdminOperator(tx: Tx, actorId: string): Promise<void> {
   const actorRows = await tx
     .select({status: users.status})
     .from(users)

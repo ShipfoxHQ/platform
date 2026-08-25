@@ -218,7 +218,11 @@ async function storeCommandResult(
   params: AuditedAdminCommandParams,
   grant: AdminGrant,
 ): Promise<void> {
-  await storeAdminCommandResult(tx, params, {grant: toStoredAdminGrant(grant)});
+  await storeAdminCommandResult(
+    tx,
+    {...params, command: params.event.command},
+    {grant: toStoredAdminGrant(grant)},
+  );
 }
 
 export async function bootstrapFirstAdminOwner(

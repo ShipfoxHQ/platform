@@ -6,6 +6,7 @@ import {and, desc, eq, sql} from 'drizzle-orm';
 import {
   changePassword,
   confirmPasswordReset as coreConfirmPasswordReset,
+  createImpersonatedSessionToken as coreCreateImpersonatedSessionToken,
   createSessionForUser as coreCreateSessionForUser,
   login as coreLogin,
   refreshAccessToken as coreRefreshAccessToken,
@@ -93,6 +94,11 @@ const workspaces = {
 const login = (params: {email: string; password: string}) => coreLogin({...params, workspaces});
 const createSessionForUser = (params: {userId?: string; email?: string}) =>
   coreCreateSessionForUser({...params, workspaces});
+const createImpersonatedSessionToken = (params: {
+  targetUserId: string;
+  impersonatorId: string;
+  expiresIn?: string;
+}) => coreCreateImpersonatedSessionToken({...params, workspaces});
 const refreshAccessToken = (params: {refreshToken: string}) =>
   coreRefreshAccessToken({...params, workspaces});
 const confirmPasswordReset = (params: {token: string; newPassword: string}) =>
@@ -443,6 +449,75 @@ describe('auth core', () => {
     ).rejects.toBeInstanceOf(InvalidCredentialsError);
 
     await Promise.all([unverifiedExpectation, suspendedExpectation]);
+  });
+
+  test('createImpersonatedSessionToken mints a marked access-token-only session with a capped TTL', async () => {
+    const target = await userFactory.create({emailVerifiedAt: new Date()});
+    const impersonatorId = crypto.randomUUID();
+    const membership = {
+      workspaceId: crypto.randomUUID(),
+      role: 'admin' as const,
+      workspaceStatus: 'active' as const,
+    };
+    listMembershipsByUserMock.mockResolvedValue({memberships: [membership]});
+
+    const result = await createImpersonatedSessionToken({
+      targetUserId: target.id,
+      impersonatorId,
+    });
+
+    expect(result.user.id).toBe(target.id);
+    expect(result.expiresAt.getTime() - Date.now()).toBeGreaterThan(0);
+    expect(result.expiresAt.getTime() - Date.now()).toBeLessThanOrEqual(15 * 60 * 1000);
+
+    const claims = await verifyUserToken({token: result.token, secret: userAccessTokenKey()});
+    expect(claims.sub).toBe(target.id);
+    expect(claims.impersonatorId).toBe(impersonatorId);
+    expect(claims.refreshSessionId).toBeUndefined();
+    expect(claims.memberships).toEqual([membership]);
+    // TTL is capped at 15 minutes (AUTH_JWT_EXPIRES_IN is 15m in this suite).
+    expect(claims.exp - claims.iat).toBeLessThanOrEqual(15 * 60);
+    expect(claims.exp - claims.iat).toBeGreaterThan(0);
+
+    // No refresh session row and no refresh token material for the target.
+    const sessions = await db()
+      .select({sessionId: refreshTokens.sessionId})
+      .from(refreshTokens)
+      .where(eq(refreshTokens.userId, target.id));
+    expect(sessions).toHaveLength(0);
+  });
+
+  test('createImpersonatedSessionToken re-signs with an explicit lifetime without extending the cap', async () => {
+    const target = await userFactory.create({emailVerifiedAt: new Date()});
+
+    const result = await createImpersonatedSessionToken({
+      targetUserId: target.id,
+      impersonatorId: crypto.randomUUID(),
+      expiresIn: '30m',
+    });
+
+    const claims = await verifyUserToken({token: result.token, secret: userAccessTokenKey()});
+    expect(claims.exp - claims.iat).toBeLessThanOrEqual(15 * 60);
+  });
+
+  test('createImpersonatedSessionToken reuses the createSessionForUser eligibility rules', async () => {
+    const unverified = await userFactory.create();
+    const suspended = await userFactory.create({emailVerifiedAt: new Date()});
+    await db().update(users).set({status: 'suspended'}).where(eq(users.id, suspended.id));
+    const impersonatorId = crypto.randomUUID();
+
+    await expect(
+      createImpersonatedSessionToken({targetUserId: unverified.id, impersonatorId}),
+    ).rejects.toBeInstanceOf(EmailNotVerifiedError);
+    await expect(
+      createImpersonatedSessionToken({targetUserId: suspended.id, impersonatorId}),
+    ).rejects.toBeInstanceOf(InvalidCredentialsError);
+    await expect(
+      createImpersonatedSessionToken({
+        targetUserId: crypto.randomUUID(),
+        impersonatorId,
+      }),
+    ).rejects.toBeInstanceOf(UserNotFoundError);
   });
 
   test('refreshAccessToken rotates the refresh token', async () => {

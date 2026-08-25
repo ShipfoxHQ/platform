@@ -11,7 +11,7 @@ import {createJwtAuthMethod} from '#presentation/auth/jwt-auth.js';
 import {
   administrationBootstrapRoutes,
   administrationRoutes,
-  administrationUserRoutes,
+  createAdministrationUserRoutes,
 } from '#presentation/routes/administration.js';
 import {buildAuthRoutes} from '#presentation/routes/index.js';
 
@@ -21,6 +21,20 @@ const testConfig = vi.hoisted(
     challenges: Map<string, string>;
     mailer: Mailer;
     clientBaseUrl: string;
+    authConfig: {
+      ADMIN_BOOTSTRAP_TOKEN: string;
+      AUTH_JWT_EXPIRES_IN: string;
+      AUTH_IMPERSONATION_ENABLED: boolean;
+      AUTH_REFRESH_TOKEN_EXPIRES_IN_DAYS: number;
+      AUTH_REFRESH_ROTATION_GRACE_SECONDS: number;
+      AUTH_REFRESH_COOKIE_NAME: string;
+      AUTH_PASSWORD_ENABLED: boolean;
+      AUTH_SIGNUP_GATE_ENABLED: boolean;
+      AUTH_SIGNUP_ALLOWED_EMAIL_DOMAINS: string;
+      AUTH_SIGNUP_ALLOWED_EMAILS: string;
+      AUTH_SIGNUP_NOT_ALLOWED_MESSAGE: string | undefined;
+      CLIENT_BASE_URL: string;
+    };
   } => {
     const captured: MailMessage[] = [];
     const mailer: Mailer = {
@@ -29,11 +43,26 @@ const testConfig = vi.hoisted(
         return Promise.resolve();
       },
     };
+    const authConfig = {
+      ADMIN_BOOTSTRAP_TOKEN: 'test-bootstrap-token',
+      AUTH_JWT_EXPIRES_IN: '15m',
+      AUTH_IMPERSONATION_ENABLED: true,
+      AUTH_REFRESH_TOKEN_EXPIRES_IN_DAYS: 14,
+      AUTH_REFRESH_ROTATION_GRACE_SECONDS: 30,
+      AUTH_REFRESH_COOKIE_NAME: 'shipfox_refresh_token',
+      AUTH_PASSWORD_ENABLED: true,
+      AUTH_SIGNUP_GATE_ENABLED: false,
+      AUTH_SIGNUP_ALLOWED_EMAIL_DOMAINS: '',
+      AUTH_SIGNUP_ALLOWED_EMAILS: '',
+      AUTH_SIGNUP_NOT_ALLOWED_MESSAGE: undefined,
+      CLIENT_BASE_URL: 'https://app.example.test',
+    };
     return {
       captured,
       challenges: new Map(),
       mailer,
-      clientBaseUrl: 'https://app.example.test',
+      clientBaseUrl: authConfig.CLIENT_BASE_URL,
+      authConfig,
     };
   },
 );
@@ -52,19 +81,7 @@ const workspaceTestDoubles = vi.hoisted(() => {
 const workspaces = workspaceTestDoubles as unknown as WorkspacesInterModuleClient;
 
 vi.mock('#config.js', () => ({
-  config: {
-    ADMIN_BOOTSTRAP_TOKEN: 'test-bootstrap-token',
-    AUTH_JWT_EXPIRES_IN: '15m',
-    AUTH_REFRESH_TOKEN_EXPIRES_IN_DAYS: 14,
-    AUTH_REFRESH_ROTATION_GRACE_SECONDS: 30,
-    AUTH_REFRESH_COOKIE_NAME: 'shipfox_refresh_token',
-    AUTH_PASSWORD_ENABLED: true,
-    AUTH_SIGNUP_GATE_ENABLED: false,
-    AUTH_SIGNUP_ALLOWED_EMAIL_DOMAINS: '',
-    AUTH_SIGNUP_ALLOWED_EMAILS: '',
-    AUTH_SIGNUP_NOT_ALLOWED_MESSAGE: undefined,
-    CLIENT_BASE_URL: testConfig.clientBaseUrl,
-  },
+  config: testConfig.authConfig,
   mailer: testConfig.mailer,
 }));
 
@@ -90,6 +107,11 @@ export function resetCapturedMail(): void {
   peekInvitationByRawTokenMock.mockReset();
   listMembershipsByUserMock.mockReset();
   listMembershipsByUserMock.mockResolvedValue({memberships: []});
+}
+
+/** Flips `AUTH_IMPERSONATION_ENABLED` for the shared route-test config mock. */
+export function setImpersonationEnabled(enabled: boolean): void {
+  testConfig.authConfig.AUTH_IMPERSONATION_ENABLED = enabled;
 }
 
 export function capturedMail(): MailMessage[] {
@@ -162,7 +184,7 @@ export async function createAuthTestApp(params?: {
       buildAuthRoutes(true, workspaces),
       administrationBootstrapRoutes,
       administrationRoutes,
-      administrationUserRoutes,
+      createAdministrationUserRoutes(workspaces),
     ],
     swagger: false,
   };

@@ -28,6 +28,10 @@ const policies: Record<
   lookup: {
     ip: {limit: 60, windowSeconds: 5 * 60},
   },
+  impersonate: {
+    // Bounds mint and probing attempts; every denial is audited regardless.
+    ip: {limit: 20, windowSeconds: 15 * 60},
+  },
 };
 
 interface EmailBody {

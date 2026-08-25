@@ -11,6 +11,7 @@ import {
 } from '@shipfox/api-workspaces-dto/inter-module';
 import {isInterModuleKnownError} from '@shipfox/inter-module';
 import {userAccessTokenKey} from '@shipfox/node-auth-root-key';
+import {durationToSeconds} from '@shipfox/node-jwt';
 import {generateOpaqueToken, hashOpaqueToken} from '@shipfox/node-tokens';
 import {config} from '#config.js';
 import {consumePasswordReset, createPasswordReset} from '#db/password-resets.js';
@@ -459,6 +460,88 @@ export async function createSessionForUser(
   const {token, refreshToken, adminRole} = await createSessionTokens(user, params.workspaces);
 
   return {token, refreshToken, user, adminRole};
+}
+
+/**
+ * Cap for impersonated session tokens: the TTL is min(`AUTH_JWT_EXPIRES_IN`,
+ * this), so an impersonated window can never outlive 15 minutes no matter how
+ * the deployment configures ordinary access tokens.
+ */
+export const IMPERSONATION_MAX_TTL_SECONDS = 15 * 60;
+
+export interface CreateImpersonatedSessionTokenParams {
+  targetUserId: string;
+  /** The administrator the token is minted for; signed into the `impersonatorId` claim. */
+  impersonatorId: string;
+  workspaces: WorkspacesInterModuleClient;
+  /**
+   * Re-sign lifetime override used by an idempotent replay: the remaining
+   * lifetime to the stored `expires_at`, so a replay never extends the window.
+   * Defaults to min(`AUTH_JWT_EXPIRES_IN`, 15 minutes).
+   */
+  expiresIn?: string | undefined;
+}
+
+export interface CreateImpersonatedSessionTokenResult {
+  token: string;
+  expiresAt: Date;
+  user: User;
+}
+
+function impersonationTtlSeconds(): number {
+  const configuredSeconds = durationToSeconds(config.AUTH_JWT_EXPIRES_IN);
+  const ttlSeconds = Math.min(configuredSeconds, IMPERSONATION_MAX_TTL_SECONDS);
+  if (ttlSeconds <= 0) {
+    throw new TypeError(
+      `AUTH_JWT_EXPIRES_IN must be a valid duration of at least 1 second, got ${config.AUTH_JWT_EXPIRES_IN}`,
+    );
+  }
+  return ttlSeconds;
+}
+
+/**
+ * Mints an access-token-only impersonated session for a target user: the same
+ * eligibility as login (active account, verified email), the target's real
+ * membership claims, a capped TTL, the `impersonatorId` claim, and **no**
+ * `refreshSessionId`. It creates no refresh session and sets no cookie, so
+ * nothing persisted can resurrect the session after the token window.
+ */
+export async function createImpersonatedSessionToken(
+  params: CreateImpersonatedSessionTokenParams,
+): Promise<CreateImpersonatedSessionTokenResult> {
+  const user = await findUserById({id: params.targetUserId});
+  if (!user) {
+    throw new UserNotFoundError(params.targetUserId);
+  }
+  if (user.emailVerifiedAt === null) {
+    throw new EmailNotVerifiedError();
+  }
+  if (user.status !== 'active') {
+    throw new InvalidCredentialsError();
+  }
+
+  const memberships = await loadTokenMemberships(user.id, params.workspaces);
+  const ttlSeconds =
+    params.expiresIn === undefined
+      ? impersonationTtlSeconds()
+      : Math.min(durationToSeconds(params.expiresIn), IMPERSONATION_MAX_TTL_SECONDS);
+  if (ttlSeconds <= 0) {
+    throw new TypeError(
+      `Impersonation token TTL must be at least 1 second, got ${params.expiresIn}`,
+    );
+  }
+
+  const token = await signUserToken({
+    userId: user.id,
+    email: user.email,
+    name: user.name,
+    memberships,
+    impersonatorId: params.impersonatorId,
+    secret: userAccessTokenKey(),
+    expiresIn: `${ttlSeconds}s`,
+  });
+
+  return {token, expiresAt: new Date(Date.now() + ttlSeconds * 1000), user};
 }
 
 export interface RefreshAccessTokenResult {

@@ -75,14 +75,32 @@ export type LoginResponseDto = z.infer<typeof loginResponseSchema>;
 /**
  * A session response for an externally minted (adopted) session, which may
  * carry the optional impersonation mark. The cookie-based login and refresh
- * responses never set it. ADR 0014 mint, replay, and renewal responses use
- * this shape; the route that emits it is not implemented yet.
+ * responses never set it. The impersonation mint route emits its own
+ * `impersonateResponseSchema`; client shells map that shape into this one.
  */
 export const sessionResponseSchema = loginResponseSchema.extend({
   impersonator_id: z.string().uuid().optional(),
 });
 
 export type SessionResponseDto = z.infer<typeof sessionResponseSchema>;
+
+/**
+ * The impersonation mint, replay, and renewal response. Mirrors
+ * `loginResponseSchema` with deliberate deviations: no refresh cookie is set,
+ * no `admin_role` exists (the target can hold none), and `expires_at`,
+ * `server_time`, and `impersonator_id` are explicit so the client never
+ * decodes the JWT. `server_time` is the issuer's clock at response time; the
+ * client anchors countdown and Extend availability on it.
+ */
+export const impersonateResponseSchema = z.object({
+  token: z.string(),
+  expires_at: z.string().datetime(),
+  server_time: z.string().datetime(),
+  impersonator_id: z.string().uuid(),
+  user: userDtoSchema,
+});
+
+export type ImpersonateResponseDto = z.infer<typeof impersonateResponseSchema>;
 
 export const refreshResponseSchema = loginResponseSchema;
 

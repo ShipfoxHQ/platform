@@ -57,6 +57,7 @@ Required environment:
 | --- | --- | --- |
 | `AUTH_ROOT_KEY` | none | Canonical base64 for 32 random bytes used to derive separate authentication and email-challenge keys. Generate it with `openssl rand -base64 32`. |
 | `AUTH_JWT_EXPIRES_IN` | `15m` | Access token lifetime. |
+| `AUTH_IMPERSONATION_ENABLED` | `false` | Enables the administrator impersonation mint command. Defaults to `false` because the source-available client ships no impersonation banner; enable it only where every signed-in surface renders one. |
 | `AUTH_JOB_LEASE_TOKEN_EXPIRES_IN` | `90m` | Job lease token lifetime. |
 | `AUTH_RUNNER_SESSION_TOKEN_EXPIRES_IN` | `1h` | Runner session token lifetime. |
 | `AUTH_REFRESH_TOKEN_EXPIRES_IN_DAYS` | `14` | Refresh token and cookie lifetime. |
@@ -142,6 +143,38 @@ itself.
   membership or workspace-status change only takes effect on the next token
   issuance or refresh. Accepted because the recommended lifetime is 15 minutes,
   so the staleness window is bounded and a per-request membership read is avoided.
+
+### Impersonated session token
+
+An impersonated session is a signed user access token and nothing else. It is
+minted by `POST /admin/auth/users/:userId/impersonate` (see
+[Administrator user moderation](#administrator-user-moderation)) and carries the
+administrator's user ID in the signed `impersonatorId` claim, so the mark cannot
+be removed or forged by a client.
+
+- **Design:** the target user's ordinary access token (same `sub` and real
+  membership claims as login) plus the `impersonatorId` claim. The token carries
+  **no `refreshSessionId`**, and the command creates no refresh session and no
+  cookie, so nothing persisted can resurrect the session after the window.
+- **Lifetime:** TTL is `min(AUTH_JWT_EXPIRES_IN, 15 minutes)`. The mint,
+  replay, and renewal responses carry `expires_at` and a `server_time` anchor
+  from the issuer; the client never decodes the JWT.
+- **Invariants:** the session cannot be refreshed (the refresh cookie still
+  belongs to the administrator and can only restore their identity); it expires
+  at most 15 minutes after issuance; and every `/admin` route rejects a request
+  whose context carries `impersonatorId` with `admin-role-required`, before
+  roles are consulted. Routes that issue credentials or create durable grants
+  reject impersonated sessions with `impersonation-not-permitted`.
+- **No token at rest:** the idempotent command result stores only the target
+  user ID, the expiry, and a list of SHA-256 fingerprints of the tokens issued
+  under the key. The raw token is never logged or persisted, and a token
+  recovered from a log or proxy capture can be hashed and matched back to the
+  command that minted it.
+- **Irrevocability window:** like every user access token, an issued
+  impersonated token is not revocable before `exp`. Suspending the target,
+  revoking the administrator's grant, or disabling `AUTH_IMPERSONATION_ENABLED`
+  blocks the next mint, replay, or renewal but does not kill an already-issued
+  token; the ≤15-minute window bounds the residual risk.
 
 ### Runner session token
 
@@ -285,6 +318,7 @@ The public auth endpoints include an application-layer abuse baseline for open s
 | `POST /auth/verify-email/resend` | Shared with password reset | Shared with password reset |
 | `POST /admin/auth/admin-grants/bootstrap` | 5 attempts per 15 minutes | n/a |
 | `GET /admin/auth/users` | 60 attempts per 5 minutes | n/a |
+| `POST /admin/auth/users/:userId/impersonate` | 20 attempts per 15 minutes | n/a |
 
 Counters are stored in PostgreSQL as fixed windows in `auth_rate_limits`. IP addresses and email addresses are HMAC-SHA256 values before storage; raw identifiers are not persisted. The identifier key is derived from `AUTH_ROOT_KEY` separately from every token key.
 
@@ -307,6 +341,9 @@ All routes are mounted under `/admin/auth/users` and require an authenticated be
 | `POST` | `/:userId/suspend` | `admin-operator` | Suspends the user, revokes all refresh sessions, and returns the final safe user summary with a correlation ID. Issued access tokens remain valid until `exp`. |
 | `POST` | `/:userId/reactivate` | `admin-operator` | Restores sign-in eligibility without restoring revoked sessions. |
 | `POST` | `/:userId/revoke-sessions` | `admin-operator` | Revokes all refresh sessions without changing account status and returns the number of affected sessions. Issued access tokens remain valid until `exp`. |
+| `POST` | `/:userId/impersonate` | `admin-operator` | Mints a short-lived, marked, audited impersonated session for an active, verified, non-administrator user. See below. |
+
+`POST /:userId/impersonate` requires an `Idempotency-Key` and a bounded reason, and is rate limited under the `impersonate` IP bucket. It returns `{token, expires_at, server_time, impersonator_id, user}` and sets no cookie. The target must be active with a verified email and hold no active administrator grant; the actor must not be the target. The mint, a same-key in-window replay, and a renewal each re-run the full authorization and eligibility ladder and publish their own `administration.action.performed` event. A replay re-signs for the same target with the original `expires_at` and never extends the window; a replay after expiry returns `410 impersonation-expired`. The stored command result holds only SHA-256 fingerprints of the issued tokens; failures are audited from their own committed transaction.
 
 Each command requires an `Idempotency-Key`. Suspension requires a bounded reason; reactivation and session revocation accept an optional bounded reason. Repeating a successful command returns its committed result. Reusing a key for a different command or request returns `409 idempotency-key-reused`.
 
@@ -336,6 +373,7 @@ It also exports lower-level pieces for tests and advanced integration:
 - `issueJobLeaseToken(claims)` / `verifyJobLeaseToken(token)`: mint and verify job lease tokens.
 - `createEnvironmentSignupPolicy()`: creates the environment-backed signup policy used by default. Pass `signupPolicy` to `createAuthModule` to replace it. A denied custom policy can opt into sanitized Markdown with `format: 'markdown'`; without a format, its message stays plain text.
 - `getClientContext(request)`: reads the authenticated user context from a Fastify request.
+- `createImpersonatedSessionToken({targetUserId, impersonatorId, workspaces})`: mints an access-token-only impersonated session (capped TTL, `impersonatorId` claim, no refresh material). The `impersonateUser` administration command owns the authorization ladder, idempotency, and audit flow.
 - `getAuthenticatedSessionContext(request)`: reads the user ID and required refresh-session ID from verified access-token claims. It does not check whether the refresh session is still active.
 - `findUserByEmail({email})`: read-only lookup of the current owner of a normalized email; see below.
 - Entity types: `User`, `UserStatus`, `RefreshToken`, `PasswordReset`, and `EmailOwner`.

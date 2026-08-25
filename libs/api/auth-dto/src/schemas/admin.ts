@@ -95,6 +95,12 @@ export const suspendAdministratorUserBodySchema = z.object({
 
 export type SuspendAdministratorUserBodyDto = z.infer<typeof suspendAdministratorUserBodySchema>;
 
+export const impersonateUserBodySchema = z.object({
+  reason: reasonSchema,
+});
+
+export type ImpersonateUserBodyDto = z.infer<typeof impersonateUserBodySchema>;
+
 export const reactivateAdministratorUserBodySchema = z
   .object({
     reason: reasonSchema.optional(),

@@ -7,6 +7,7 @@ import {dirname, join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
 const defaultE2eAdminApiKey = 'e2e-admin-api-key';
+const defaultE2eAdminBootstrapToken = 'e2e-admin-bootstrap-token';
 const defaultApiUrl = 'http://localhost:16101';
 const defaultClientUrl = 'http://localhost:5173';
 const defaultAuthSignupGateEnabled = 'true';
@@ -186,6 +187,11 @@ export function e2eEnv(sourceEnv) {
     E2E_ENABLED: sourceEnv.E2E_ENABLED ?? 'true',
     AUTH_ROOT_KEY:
       sourceEnv.AUTH_ROOT_KEY ?? 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=',
+    // Impersonation ships disabled by default; the E2E deployment opts in so
+    // the mint route is live for the suite that exercises it.
+    AUTH_IMPERSONATION_ENABLED: sourceEnv.AUTH_IMPERSONATION_ENABLED ?? 'true',
+    ADMIN_BOOTSTRAP_TOKEN:
+      sourceEnv.ADMIN_BOOTSTRAP_TOKEN ?? defaultE2eAdminBootstrapToken,
     AUTH_SIGNUP_GATE_ENABLED:
       sourceEnv.AUTH_SIGNUP_GATE_ENABLED ?? defaultAuthSignupGateEnabled,
     AUTH_SIGNUP_ALLOWED_EMAIL_DOMAINS:

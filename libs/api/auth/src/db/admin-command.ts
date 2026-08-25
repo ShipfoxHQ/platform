@@ -22,6 +22,16 @@ export interface AdminCommandTransactionParams {
   event: AdministrationActionEvent;
 }
 
+export type AdminCommandResultLookup = Pick<
+  AdminCommandTransactionParams,
+  'actorId' | 'idempotencyKeyFingerprint' | 'requestFingerprint'
+> & {command: string};
+
+export type AdminCommandResultKey = Pick<
+  AdminCommandTransactionParams,
+  'actorId' | 'idempotencyKeyFingerprint' | 'requestFingerprint'
+>;
+
 export async function lockAdminCommand(
   tx: Tx,
   params: Pick<AdminCommandTransactionParams, 'actorId' | 'idempotencyKeyFingerprint'>,
@@ -37,10 +47,7 @@ export async function lockAdminOwnerGrants(tx: Tx): Promise<void> {
 
 export async function findAdminCommandResult(
   tx: Tx,
-  params: Pick<
-    AdminCommandTransactionParams,
-    'actorId' | 'idempotencyKeyFingerprint' | 'requestFingerprint'
-  > & {command: string},
+  params: AdminCommandResultLookup,
 ): Promise<AdminCommandResultDb | undefined> {
   const rows = await tx
     .select()
@@ -65,16 +72,37 @@ export async function findAdminCommandResult(
 
 export async function storeAdminCommandResult(
   tx: Tx,
-  params: AdminCommandTransactionParams,
+  params: AdminCommandResultLookup,
   result: StoredAdminCommandResult,
 ): Promise<void> {
   await tx.insert(adminCommandResults).values({
     actorId: params.actorId,
     idempotencyKeyFingerprint: params.idempotencyKeyFingerprint,
-    command: params.event.command,
+    command: params.command,
     requestFingerprint: params.requestFingerprint,
     result,
   });
+}
+
+/**
+ * Replaces the stored result of an already-committed command, used by
+ * impersonation replays to append the newly issued token's fingerprint while
+ * keeping the original `expires_at`.
+ */
+export async function updateAdminCommandResult(
+  tx: Tx,
+  params: AdminCommandResultKey,
+  result: StoredAdminCommandResult,
+): Promise<void> {
+  await tx
+    .update(adminCommandResults)
+    .set({result})
+    .where(
+      and(
+        eq(adminCommandResults.actorId, params.actorId),
+        eq(adminCommandResults.idempotencyKeyFingerprint, params.idempotencyKeyFingerprint),
+      ),
+    );
 }
 
 export async function writeAdminAction(tx: Tx, event: AdministrationActionEvent): Promise<void> {

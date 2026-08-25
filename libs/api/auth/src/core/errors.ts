@@ -137,6 +137,41 @@ export class AdminIdempotencyKeyReuseError extends Error {
   }
 }
 
+export class ImpersonationDisabledError extends Error {
+  constructor() {
+    super('Impersonation is disabled');
+    this.name = 'ImpersonationDisabledError';
+  }
+}
+
+export class CannotImpersonateSelfError extends Error {
+  constructor() {
+    super('Cannot impersonate yourself');
+    this.name = 'CannotImpersonateSelfError';
+  }
+}
+
+export class CannotImpersonateAdministratorError extends Error {
+  constructor() {
+    super('Cannot impersonate an administrator');
+    this.name = 'CannotImpersonateAdministratorError';
+  }
+}
+
+export class ImpersonationTargetNotActiveError extends Error {
+  constructor() {
+    super('Impersonation target is not active or verified');
+    this.name = 'ImpersonationTargetNotActiveError';
+  }
+}
+
+export class ImpersonationExpiredError extends Error {
+  constructor() {
+    super('Impersonation session has expired');
+    this.name = 'ImpersonationExpiredError';
+  }
+}
+
 export class TokenInvalidError extends Error {
   constructor(reason?: string) {
     super(reason ? `Invalid token: ${reason}` : 'Invalid token');

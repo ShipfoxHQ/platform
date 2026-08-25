@@ -8,7 +8,8 @@ export type AuthRateLimitAction =
   | 'email-send'
   | 'bootstrap'
   | 'bootstrap-state'
-  | 'lookup';
+  | 'lookup'
+  | 'impersonate';
 export type AuthRateLimitScope = 'ip' | 'email';
 export type AuthRateLimitOutcome = 'allowed' | 'blocked' | 'unavailable';
 
