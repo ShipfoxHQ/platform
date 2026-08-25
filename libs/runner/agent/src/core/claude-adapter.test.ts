@@ -52,11 +52,18 @@ vi.mock('@shipfox/node-egress-guard', () => ({
 import {mkdtempSync, rmSync, symlinkSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {CLAUDE_MODEL_LINE} from '@shipfox/api-agent-dto';
+import {
+  CLAUDE_MANAGED_MODEL_FAMILY_IDS,
+  CLAUDE_MODEL_FAMILY_IDS,
+  CLAUDE_MODEL_LINE,
+} from '@shipfox/api-agent-dto';
 import {claudeHarnessAdapter} from '#core/claude-adapter.js';
 import {AgentConfigError, AgentPermissionModeError} from '#core/errors.js';
 import type {HarnessInvocation} from '#core/harness.js';
 import type {IntegrationToolsBridge} from '#core/integration-tools-bridge.js';
+
+// Mirrors claudeModelCapabilities() family normalization in the adapter.
+const CLAUDE_SNAPSHOT_DATE_SUFFIX = /-\d{8}$/;
 
 function invocation(overrides: Partial<HarnessInvocation> = {}): HarnessInvocation {
   return {
@@ -716,6 +723,27 @@ describe('claudeHarnessAdapter', () => {
 
       expect(lastQueryOptions().thinking).toBeDefined();
       queryMock.mockClear();
+    }
+  });
+
+  it('keys Claude capability metadata only to known Claude model families', () => {
+    // Reverse direction of the catalog→capability test above: every capability
+    // family must be reachable from the built-in catalog (CLAUDE_MODEL_LINE) or
+    // be a managed shipfox-provider family, and every catalog family must have
+    // a capability row. The adapter's CLAUDE_MODEL_CAPABILITIES keys are also
+    // type-checked against CLAUDE_MODEL_FAMILY_IDS, so a mismatch between the
+    // two lists fails here or at compile time instead of reaching production.
+    const catalogFamilies = new Set(
+      CLAUDE_MODEL_LINE.map(({id}) => id.replace(CLAUDE_SNAPSHOT_DATE_SUFFIX, '')),
+    );
+    const managedFamilies = new Set<string>(CLAUDE_MANAGED_MODEL_FAMILY_IDS);
+    const capabilityFamilies = new Set<string>(CLAUDE_MODEL_FAMILY_IDS);
+
+    for (const familyId of capabilityFamilies) {
+      expect(catalogFamilies.has(familyId) || managedFamilies.has(familyId)).toBe(true);
+    }
+    for (const familyId of catalogFamilies) {
+      expect(capabilityFamilies.has(familyId)).toBe(true);
     }
   });
 

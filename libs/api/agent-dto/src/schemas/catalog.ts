@@ -62,6 +62,41 @@ export const CLAUDE_MODEL_LINE: AgentModelOptionDto[] = [
   {id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6'},
 ];
 
+/**
+ * Managed `shipfox`-provider Claude model families. These models are served by
+ * the Shipfox inference endpoint without a built-in provider catalog entry,
+ * but the runner's Claude adapter must still resolve thinking capabilities for
+ * them, so they join the `CLAUDE_MODEL_LINE` families in
+ * `CLAUDE_MODEL_FAMILY_IDS`.
+ */
+export const CLAUDE_MANAGED_MODEL_FAMILY_IDS = [
+  'claude-fable-5',
+  'claude-opus-5',
+  'claude-sonnet-5',
+] as const;
+
+/**
+ * Every Claude model family the runner's Claude adapter must resolve thinking
+ * capabilities for: the `CLAUDE_MODEL_LINE` families plus
+ * `CLAUDE_MANAGED_MODEL_FAMILY_IDS`. The runner keys its capability table with
+ * these ids, so a capability row without a family here, or a family here
+ * without a capability row, fails type checking instead of silently dropping
+ * thinking control.
+ */
+export const CLAUDE_MODEL_FAMILY_IDS = [
+  'claude-haiku-4-5',
+  'claude-opus-4-1',
+  'claude-opus-4-5',
+  'claude-opus-4-6',
+  'claude-opus-4-7',
+  'claude-opus-4-8',
+  'claude-sonnet-4-5',
+  'claude-sonnet-4-6',
+  ...CLAUDE_MANAGED_MODEL_FAMILY_IDS,
+] as const;
+
+export type ClaudeModelFamilyId = (typeof CLAUDE_MODEL_FAMILY_IDS)[number];
+
 export const modelProviderCredentialFieldSchema = z.object({
   key: z.string().min(1),
   label: z.string().min(1),

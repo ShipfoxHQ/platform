@@ -12,7 +12,11 @@ import {
   type ThinkingConfig,
   tool,
 } from '@anthropic-ai/claude-agent-sdk';
-import {claudeRuntimeConfigSchema, isReservedModelProviderId} from '@shipfox/api-agent-dto';
+import {
+  type ClaudeModelFamilyId,
+  claudeRuntimeConfigSchema,
+  isReservedModelProviderId,
+} from '@shipfox/api-agent-dto';
 import {logger} from '@shipfox/node-opentelemetry';
 import {z} from 'zod';
 import {config} from '#config.js';
@@ -56,8 +60,11 @@ const LEGACY_THINKING_BUDGETS: Readonly<Record<string, number>> = {
  * which requires a live session; the adapter needs the same facts before query
  * construction, so the supported Claude catalog (the built-in `anthropic`
  * catalog plus managed catalog entries such as `claude-fable-5`) is mirrored
- * here as typed compatibility metadata. Keep it in sync when a Claude model
- * enters either catalog.
+ * here as typed compatibility metadata. The table keys are type-checked
+ * against `CLAUDE_MODEL_FAMILY_IDS` from `@shipfox/api-agent-dto` (the
+ * built-in `anthropic` catalog plus managed families), so a capability row
+ * without a catalog entry — or a catalog addition without a capability row —
+ * fails to compile instead of silently dropping thinking control.
  *
  * Thinking modes follow Anthropic's per-model table: 4.5 and earlier families
  * support only budget-based extended thinking and reject `adaptive`; the 4.6
@@ -138,7 +145,7 @@ const CLAUDE_MODEL_CAPABILITIES: Readonly<Record<string, ClaudeModelCapabilities
     supportsEffort: true,
     supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
   },
-} satisfies Readonly<Record<string, ClaudeModelCapabilities>>;
+} satisfies Readonly<Record<ClaudeModelFamilyId, ClaudeModelCapabilities>>;
 
 interface ClaudeThinkingOptions {
   readonly thinking?: ThinkingConfig;
