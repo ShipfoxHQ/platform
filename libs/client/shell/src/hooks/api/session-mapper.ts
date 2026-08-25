@@ -1,5 +1,7 @@
-import type {LoginResponseDto, UserDto} from '@shipfox/api-auth-dto';
+import type {SessionResponseDto, UserDto} from '@shipfox/api-auth-dto';
 import type {AuthenticatedSession, UserIdentity} from '#core/session.js';
+
+export type {SessionResponseDto};
 
 export function toUserIdentity(dto: UserDto): UserIdentity {
   return {
@@ -10,12 +12,13 @@ export function toUserIdentity(dto: UserDto): UserIdentity {
   };
 }
 
-export function toAuthenticatedSession(dto: LoginResponseDto): AuthenticatedSession {
+export function toAuthenticatedSession(dto: SessionResponseDto): AuthenticatedSession {
   return {
     accessToken: dto.token,
     user: {
       ...toUserIdentity(dto.user),
       ...(dto.admin_role ? {adminRole: dto.admin_role} : {}),
     },
+    ...(dto.impersonator_id ? {impersonatorId: dto.impersonator_id} : {}),
   };
 }
