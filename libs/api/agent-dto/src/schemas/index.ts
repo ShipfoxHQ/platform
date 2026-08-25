@@ -4,6 +4,7 @@ export {
   agentModelOptionSchema,
   agentThinkingByHarness,
   agentThinkingSchema,
+  CLAUDE_MODEL_LINE,
   claudeAgentThinkingSchema,
   DEFAULT_AGENT_THINKING,
   DEFAULT_HARNESS,

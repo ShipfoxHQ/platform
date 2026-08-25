@@ -52,6 +52,7 @@ vi.mock('@shipfox/node-egress-guard', () => ({
 import {mkdtempSync, rmSync, symlinkSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {CLAUDE_MODEL_LINE} from '@shipfox/api-agent-dto';
 import {claudeHarnessAdapter} from '#core/claude-adapter.js';
 import {AgentConfigError, AgentPermissionModeError} from '#core/errors.js';
 import type {HarnessInvocation} from '#core/harness.js';
@@ -658,6 +659,42 @@ describe('claudeHarnessAdapter', () => {
       thinking: {type: 'enabled', budgetTokens: 32_768},
       effort: 'high',
     });
+  });
+
+  it.each([
+    'xhigh',
+    'max',
+  ] as const)('caps Claude Opus 4.1 thinking level %s to the 32,000-token output ceiling', async (thinking) => {
+    queryMock.mockReturnValue(makeQuery([successMessage]));
+
+    await claudeHarnessAdapter.run(invocation({model: 'claude-opus-4-1', thinking}));
+
+    expect(lastQueryOptions()).toMatchObject({
+      model: 'claude-opus-4-1',
+      thinking: {type: 'enabled', budgetTokens: 31_999},
+    });
+    expect(lastQueryOptions()).not.toHaveProperty('effort');
+  });
+
+  it('keeps Claude Opus 4.1 thinking budgets below the output ceiling unchanged', async () => {
+    queryMock.mockReturnValue(makeQuery([successMessage]));
+
+    await claudeHarnessAdapter.run(invocation({model: 'claude-opus-4-1', thinking: 'medium'}));
+
+    expect(lastQueryOptions()).toMatchObject({
+      thinking: {type: 'enabled', budgetTokens: 8_192},
+    });
+  });
+
+  it('resolves every catalog Claude model to capability metadata', async () => {
+    queryMock.mockReturnValue(makeQuery([successMessage]));
+
+    for (const model of CLAUDE_MODEL_LINE) {
+      await claudeHarnessAdapter.run(invocation({model: model.id, thinking: 'low'}));
+
+      expect(lastQueryOptions().thinking).toBeDefined();
+      queryMock.mockClear();
+    }
   });
 
   it('caps an unsupported effort level to the highest level an adaptive model accepts', async () => {

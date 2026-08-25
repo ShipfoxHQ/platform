@@ -37,7 +37,8 @@ const CLAUDE_THINKING_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as cons
 // Shipfox thinking level → extended-thinking budget for legacy Claude models.
 // Budgets follow Anthropic's extended-thinking rules (minimum 1,024 tokens;
 // max_tokens must exceed the budget) and cap at Claude Code's 63,999-token
-// default manual budget for the 4.5 family.
+// default manual budget for the 4.5 family. Models with a lower output
+// ceiling clamp per-model via `ClaudeModelCapabilities.maxThinkingTokens`.
 const LEGACY_THINKING_BUDGETS: Readonly<Record<string, number>> = {
   low: 4_096,
   medium: 8_192,
@@ -68,6 +69,13 @@ interface ClaudeModelCapabilities {
   readonly supportsEffort: boolean;
   /** Ascending, so the last entry is the highest level the model accepts. */
   readonly supportedEffortLevels: readonly EffortLevel[];
+  /**
+   * Highest extended-thinking budget the model accepts. Anthropic requires
+   * budget_tokens < max_tokens, so a model whose output caps at 32,000 tokens
+   * (Claude Opus 4.1) accepts at most 31,999. Absent means the shared legacy
+   * table's ceiling (63,999) applies.
+   */
+  readonly maxThinkingTokens?: number;
 }
 
 const CLAUDE_MODEL_CAPABILITIES: Readonly<Record<string, ClaudeModelCapabilities>> = {
@@ -80,6 +88,8 @@ const CLAUDE_MODEL_CAPABILITIES: Readonly<Record<string, ClaudeModelCapabilities
     supportsAdaptiveThinking: false,
     supportsEffort: false,
     supportedEffortLevels: [],
+    // Output caps at 32,000 tokens; Anthropic requires budget_tokens < max_tokens.
+    maxThinkingTokens: 31_999,
   },
   'claude-opus-4-5': {
     supportsAdaptiveThinking: false,
@@ -158,10 +168,31 @@ function claudeThinkingOptions(model: string, thinking: string): ClaudeThinkingO
   }
   const thinkingOptions: ClaudeThinkingOptions = capabilities.supportsAdaptiveThinking
     ? {thinking: {type: 'adaptive'}}
-    : {thinking: {type: 'enabled', budgetTokens: budget}};
+    : {
+        thinking: {
+          type: 'enabled',
+          budgetTokens: claudeThinkingBudget(model, capabilities, budget),
+        },
+      };
   return capabilities.supportsEffort
     ? {...thinkingOptions, effort: claudeEffortLevel(capabilities, thinking, model)}
     : thinkingOptions;
+}
+
+function claudeThinkingBudget(
+  model: string,
+  capabilities: ClaudeModelCapabilities,
+  requested: number,
+): number {
+  const ceiling = capabilities.maxThinkingTokens;
+  if (ceiling === undefined || requested <= ceiling) return requested;
+  // Anthropic rejects budgets at or above the model's max output (budget_tokens
+  // must stay below max_tokens), so clamp to the model's ceiling.
+  logger().warn(
+    {model, requested, applied: ceiling},
+    'Claude model caps its thinking budget below the requested level; applying the model maximum',
+  );
+  return ceiling;
 }
 
 function claudeEffortLevel(

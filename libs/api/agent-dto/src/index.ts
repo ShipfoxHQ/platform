@@ -14,6 +14,7 @@ export {
   agentThinkingSchema,
   buildHarnessToolDeploymentConfig,
   CLAUDE_HARNESS,
+  CLAUDE_MODEL_LINE,
   type ClaudeRuntimeConfigDto,
   type CreateCustomModelProviderBodyDto,
   type CustomAgentModelDto,

@@ -41,6 +41,27 @@ export const agentModelOptionSchema = z.object({
 
 export type AgentModelOptionDto = z.infer<typeof agentModelOptionSchema>;
 
+/**
+ * Static Claude model options for the built-in `anthropic` provider. This is
+ * the wire shape of the Claude harness model picker; the Agent harness catalog
+ * and the runner's Claude adapter read the same list so a catalog addition
+ * cannot silently lose runner-side capability handling.
+ */
+export const CLAUDE_MODEL_LINE: AgentModelOptionDto[] = [
+  {id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5 (latest)'},
+  {id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5'},
+  {id: 'claude-opus-4-1', label: 'Claude Opus 4.1 (latest)'},
+  {id: 'claude-opus-4-1-20250805', label: 'Claude Opus 4.1'},
+  {id: 'claude-opus-4-5', label: 'Claude Opus 4.5 (latest)'},
+  {id: 'claude-opus-4-5-20251101', label: 'Claude Opus 4.5'},
+  {id: 'claude-opus-4-6', label: 'Claude Opus 4.6'},
+  {id: 'claude-opus-4-7', label: 'Claude Opus 4.7'},
+  {id: 'claude-opus-4-8', label: 'Claude Opus 4.8'},
+  {id: 'claude-sonnet-4-5', label: 'Claude Sonnet 4.5 (latest)'},
+  {id: 'claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4.5'},
+  {id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6'},
+];
+
 export const modelProviderCredentialFieldSchema = z.object({
   key: z.string().min(1),
   label: z.string().min(1),
