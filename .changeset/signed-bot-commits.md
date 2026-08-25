@@ -2,4 +2,4 @@
 "@shipfox/api-integration-github": minor
 ---
 
-Adds the `create_commit` agent tool, which creates commits through the GitHub GraphQL `createCommitOnBranch` mutation. Commits are authored by the GitHub App bot, signed by GitHub, and show the Verified badge. The tool takes a repository (`owner/name`), branch, `expected_head_oid` (compare-and-swap), commit message, and file additions and deletions. The server transcodes utf8 contents to base64 and rejects empty change sets at validation. Stale-head, unique-path, and nonexistent-deletion failures surface as readable provider rejections.
+Adds the `create_commit` agent tool, which creates commits signed by GitHub and attributed to the GitHub App bot. The tool takes a repository (`owner/name`), branch, expected head OID, commit message, and file additions and deletions. When the expected head OID no longer matches, or inputs collide or reference missing files, the tool rejects the request with a readable provider error.

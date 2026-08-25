@@ -986,9 +986,10 @@ function validateCreateCommitArguments(arguments_: Record<string, unknown>): str
   if (
     !isRecord(message) ||
     typeof message.headline !== 'string' ||
-    message.headline.trim().length === 0
+    message.headline.trim().length === 0 ||
+    (message.body !== undefined && typeof message.body !== 'string')
   ) {
-    return 'Parameter message must be an object with a headline string';
+    return 'Parameter message must be an object with a headline string and optional body string';
   }
   const additions = arguments_.additions;
   if (additions !== undefined && !isFileAdditionList(additions)) {

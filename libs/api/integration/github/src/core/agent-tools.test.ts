@@ -1070,7 +1070,7 @@ describe('github agent tool catalog', () => {
     });
   });
 
-  it('models renames as a deletion plus an addition with the same path', async () => {
+  it('models renames as a deletion of the old path plus an addition of the new path', async () => {
     const request = vi.fn();
     const graphql = vi.fn().mockResolvedValueOnce({
       createCommitOnBranch: {
@@ -1342,6 +1342,13 @@ describe('github agent tool catalog', () => {
         expected_head_oid: 'a'.repeat(40),
         message: {headline: 'Bad encoding'},
         additions: [{path: 'a.txt', contents: 'x', encoding: 'hex'}],
+      },
+      {
+        repository: 'shipfox/platform',
+        branch: 'feature',
+        expected_head_oid: 'a'.repeat(40),
+        message: {headline: 'Bad body', body: 42},
+        additions: [{path: 'a.txt', contents: 'x'}],
       },
     ];
 
