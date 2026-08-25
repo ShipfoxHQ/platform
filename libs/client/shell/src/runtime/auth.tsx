@@ -14,8 +14,9 @@ import {lastWorkspaceIdAtom} from './last-workspace.js';
 const REFRESH_EARLY_MS = 5 * 60 * 1000;
 const REFRESH_RETRY_DELAY_MS = 60_000;
 // Consecutive renewal responses that do not advance the adopted window (a
-// malformed response, or an expiry earlier than the one already held) end the
-// adoption instead of driving an unbounded zero-delay renew loop.
+// malformed response, or an expiry no later than the one already held) end
+// the adoption instead of driving an unbounded zero-delay renew loop. A
+// valid response that merely lost a race to a longer expiry is not one.
 const ADOPTED_RENEWAL_STALL_LIMIT = 3;
 const BASE64_URL_REPLACEMENTS = {dash: /-/g, underscore: /_/g} as const;
 const refreshPromises = new WeakMap<QueryClient, Promise<AuthenticatedSession>>();
@@ -55,7 +56,8 @@ interface AdoptedSessionRuntimeState extends AdoptedSessionState {
   receivedAtMs: number;
   renew: AdoptedSessionRenewalSupplier;
   /**
-   * Consecutive renewal responses that did not advance the window. Capped at
+   * Consecutive malformed or non-advancing renewal responses (responses that
+   * merely lost a race to a longer expiry excluded). Capped at
    * {@link ADOPTED_RENEWAL_STALL_LIMIT} before the adoption falls back to the
    * ordinary cookie refresh.
    */
@@ -332,7 +334,13 @@ export function useAdoptedSession() {
     store.set(adoptedSessionAtom, null);
     try {
       await refreshAuth();
-    } catch {
+    } catch (error) {
+      // A superseded restore is not a failure: a newer transition (for
+      // example a fresh adoption) already owns the session, and forcing
+      // guest would log out that newer session.
+      if (error instanceof ApiError && error.message === 'Authentication refresh was superseded.') {
+        return;
+      }
       // The cookie restore failed (transient network error, or a cookie that
       // died while the adoption suspended the refresh). The adopted token must
       // never remain the ambient request credential after Stop, so fall back
@@ -405,26 +413,36 @@ export function useAdoptedSession() {
       Number.isFinite(candidateServerTimeMs) &&
       candidateExpiryMs > candidateServerTimeMs;
     const current = store.get(adoptedSessionAtom);
-    if (
-      current !== null &&
-      (!candidateValid ||
-        candidateExpiryMs <
-          Math.max(Date.parse(current.expiresAt), store.get(adoptedRenewalReservationAtom)))
-    ) {
-      // A malformed response (non-finite or non-positive issuer window) is
-      // never adopted, and a racing renewal already adopted or reserved a
-      // later expiry; keep the later token. Either way the adoption did not
-      // move, so count a stall: a supplier stuck on such responses must not
-      // drive an unbounded zero-delay renew loop, so the adoption falls back
-      // to the cookie refresh at the limit.
-      const stalled = {...current, stalledRenewals: current.stalledRenewals + 1};
-      store.set(adoptedSessionAtom, stalled);
-      if (stalled.stalledRenewals >= ADOPTED_RENEWAL_STALL_LIMIT) {
-        await endAdoption();
+    if (current === null) return null;
+    const currentExpiryMs = Date.parse(current.expiresAt);
+    const bestReservedExpiryMs = Math.max(
+      currentExpiryMs,
+      store.get(adoptedRenewalReservationAtom),
+    );
+    // A candidate that is malformed, stuck on the expiry the adoption already
+    // holds, or shorter than the best expiry adopted or reserved by another
+    // renewal did not advance the window and is never adopted.
+    const windowDidNotAdvance = !candidateValid || candidateExpiryMs <= bestReservedExpiryMs;
+    if (windowDidNotAdvance) {
+      // Count a stall only when the window really did not move: a malformed
+      // response, or one stuck on an expiry the adoption already holds. A
+      // valid response that merely lost a race to a longer expiry adopted or
+      // reserved while this renewal was in flight is a healthy concurrent
+      // renewal; counting it would burn the stall budget and fire extra
+      // supplier requests. The cap ends the adoption instead of driving an
+      // unbounded zero-delay renew loop and falls back to the cookie refresh.
+      const lostRace =
+        candidateValid &&
+        (candidateExpiryMs > currentExpiryMs || currentExpiryMs > Date.parse(adopted.expiresAt));
+      if (!candidateValid || !lostRace) {
+        const stalled = {...current, stalledRenewals: current.stalledRenewals + 1};
+        store.set(adoptedSessionAtom, stalled);
+        if (stalled.stalledRenewals >= ADOPTED_RENEWAL_STALL_LIMIT) {
+          await endAdoption();
+        }
       }
       return null;
     }
-    if (current === null) return null;
     if (candidateExpiryMs > store.get(adoptedRenewalReservationAtom)) {
       // Reserve the candidate expiry before the asynchronous transition so an
       // overlapping shorter response cannot overwrite the longer token. The

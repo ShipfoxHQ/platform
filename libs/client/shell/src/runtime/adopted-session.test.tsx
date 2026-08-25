@@ -474,6 +474,44 @@ describe('adopted-session runtime seam', () => {
     await waitFor(() => expect(apiRef.current?.adoptedSession).toBeNull());
   });
 
+  test('a release whose cookie restore is superseded keeps the newer adoption', async () => {
+    const {apiRef, store, releaseSecondRefresh} = renderAuthHarness(ADMIN_SESSION_DTO.token, {
+      holdSecondRefresh: true,
+    });
+    await waitForCookieSession(store, ADMIN_SESSION_DTO.token);
+
+    const api = harnessApi(apiRef);
+    await api.adoptSession(ADOPTED_SESSION, {
+      expiresAt: EXPIRES_AT,
+      serverTime: SERVER_TIME,
+      renew: vi.fn(() => Promise.resolve(null)),
+    });
+
+    // Release starts the cookie restore; its transition is still in flight
+    // when a fresh adoption supersedes it. The restore rejects as superseded,
+    // and the release must not then log the newer adoption out by falling
+    // back to guest.
+    const releasePromise = api.releaseAdoptedSession();
+    const nextSession: AuthenticatedSession = {
+      ...ADOPTED_SESSION,
+      accessToken: 'second-adopted-token',
+    };
+    await api.adoptSession(nextSession, {
+      expiresAt: EXPIRES_AT,
+      serverTime: SERVER_TIME,
+      renew: vi.fn(() => Promise.resolve(null)),
+    });
+
+    releaseSecondRefresh();
+    await expect(releasePromise).resolves.toBeUndefined();
+
+    expect(store.get(authStateAtom).status).toBe('authenticated');
+    expect(store.get(authStateAtom).token).toBe('second-adopted-token');
+    await waitFor(() =>
+      expect(apiRef.current?.adoptedSession?.session.accessToken).toBe('second-adopted-token'),
+    );
+  });
+
   test('keeps the token with the later expires_at when renewal responses race', async () => {
     const {apiRef, store} = renderAuthHarness();
     await waitForCookieSession(store, ADMIN_SESSION_DTO.token);
@@ -517,6 +555,69 @@ describe('adopted-session runtime seam', () => {
 
     expect(store.get(authStateAtom).token).toBe('later-token');
     await waitFor(() => expect(apiRef.current?.adoptedSession?.expiresAt).toBe(laterExpiresAt));
+  });
+
+  test('renewals that lose a race to a longer reserved window do not count as stalls', async () => {
+    const {apiRef, fetchImpl, store} = renderAuthHarness();
+    await waitForCookieSession(store, ADMIN_SESSION_DTO.token);
+
+    const resolvers: Array<(result: AdoptedSessionRenewal | null) => void> = [];
+    const renew = vi.fn(
+      () =>
+        new Promise<AdoptedSessionRenewal | null>((resolve) => {
+          resolvers.push(resolve);
+        }),
+    );
+    const api = harnessApi(apiRef);
+    await api.adoptSession(ADOPTED_SESSION, {
+      expiresAt: EXPIRES_AT,
+      serverTime: SERVER_TIME,
+      renew,
+    });
+
+    const renewal = (expiresAt: string): AdoptedSessionRenewal => ({
+      session: {...ADOPTED_SESSION, accessToken: 'winner-token'},
+      expiresAt,
+      serverTime: SERVER_TIME,
+    });
+
+    // One winner and three losers race. The winner reserves its later expiry
+    // while its adoption transition is still running, and the three
+    // valid-but-earlier responses resolve against that reservation. Each is a
+    // lost race, not a stall — counting three of them would end the adoption
+    // and fall back to the cookie refresh while the supplier is healthy.
+    const winner = api.renewAdoptedSession();
+    const losers = [
+      api.renewAdoptedSession(),
+      api.renewAdoptedSession(),
+      api.renewAdoptedSession(),
+    ];
+    const [resolveWinner, resolveLoser1, resolveLoser2, resolveLoser3] = resolvers;
+    if (
+      resolveWinner === undefined ||
+      resolveLoser1 === undefined ||
+      resolveLoser2 === undefined ||
+      resolveLoser3 === undefined
+    ) {
+      throw new Error('All renewal requests must have started.');
+    }
+    const winnerExpiresAt = new Date(Date.parse(EXPIRES_AT) + 30 * 60_000).toISOString();
+    const loserExpiresAt = new Date(Date.parse(EXPIRES_AT) + 15 * 60_000).toISOString();
+
+    resolveWinner(renewal(winnerExpiresAt));
+    resolveLoser1(renewal(loserExpiresAt));
+    await expect(losers[0]).resolves.toBeNull();
+    resolveLoser2(renewal(loserExpiresAt));
+    await expect(losers[1]).resolves.toBeNull();
+    resolveLoser3(renewal(loserExpiresAt));
+    await expect(losers[2]).resolves.toBeNull();
+    await expect(winner).resolves.toMatchObject({expiresAt: winnerExpiresAt});
+
+    // The adoption survived the three lost races: no stall-limit fallback
+    // ran, so no cookie refresh was triggered.
+    await waitFor(() => expect(apiRef.current?.adoptedSession?.expiresAt).toBe(winnerExpiresAt));
+    expect(store.get(authStateAtom).token).toBe('winner-token');
+    expect(refreshCallCount(fetchImpl)).toBe(1);
   });
 
   test('a slow renewal transition does not re-invoke the supplier while it is pending', async () => {
@@ -669,6 +770,36 @@ describe('adopted-session runtime seam', () => {
     const renewal: AdoptedSessionRenewal = {
       session: {...ADOPTED_SESSION, accessToken: 'shorter-token'},
       expiresAt: '2026-08-25T08:30:00.000Z',
+      serverTime: SERVER_TIME,
+    };
+    const renew = vi.fn(() => Promise.resolve(renewal));
+    const api = harnessApi(apiRef);
+    await api.adoptSession(ADOPTED_SESSION, {
+      expiresAt: EXPIRES_AT,
+      serverTime: SERVER_TIME,
+      renew,
+    });
+
+    await waitFor(() => expect(apiRef.current?.adoptedSession).not.toBeNull());
+    // The fire point sits 40 minutes out on the fake clock; drive the renew
+    // timer through three zero-delay re-arms and the cookie fallback.
+    await vi.advanceTimersByTimeAsync(40 * 60_000 + 1_000);
+    await waitFor(() => expect(apiRef.current?.adoptedSession).toBeNull());
+    expect(renew).toHaveBeenCalledTimes(3);
+    expect(store.get(authStateAtom).token).toBe(ADMIN_SESSION_DTO.token);
+  });
+
+  test('a renewal stuck on the same expiry as the adoption is a stalled renewal', async () => {
+    useFakeTimersWithWaitFor();
+    const {apiRef, store} = renderAuthHarness();
+    await waitForCookieSession(store, ADMIN_SESSION_DTO.token);
+
+    // Every renewal returns the same expiry the adoption already holds: the
+    // window never advances, so each response is a stall and the adoption
+    // falls back to the ordinary cookie refresh at the limit.
+    const renewal: AdoptedSessionRenewal = {
+      session: {...ADOPTED_SESSION, accessToken: 'same-expiry-token'},
+      expiresAt: EXPIRES_AT,
       serverTime: SERVER_TIME,
     };
     const renew = vi.fn(() => Promise.resolve(renewal));
