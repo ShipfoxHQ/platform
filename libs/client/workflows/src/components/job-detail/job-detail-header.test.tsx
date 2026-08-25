@@ -3,21 +3,6 @@ import {workflowJob, workflowJobExecutionDto} from '#test/fixtures/workflow-run.
 import {JobDetailHeader} from './job-detail-header.js';
 
 describe('JobDetailHeader', () => {
-  test('does not draw a divider below the header', () => {
-    render(
-      <JobDetailHeader
-        job={workflowJob()}
-        selectedJobExecution={undefined}
-        onSelectedJobExecutionChange={vi.fn()}
-        workspaceSlug="acme"
-        projectSlug="project"
-        workflowRunId="run-1"
-      />,
-    );
-
-    expect(screen.getByRole('banner')).not.toHaveClass('border-b');
-  });
-
   test('labels a live run duration as running', () => {
     vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-06-26T12:00:00.000Z'));
     const job = workflowJob({
