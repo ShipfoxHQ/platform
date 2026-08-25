@@ -1,5 +1,15 @@
 # @shipfox/react-ui
 
+## 2.3.0
+
+### Minor Changes
+
+- 79e1ed7: Truncate a long `Select` value instead of letting it wrap out of the trigger, and grow the
+  trigger to the touch minimum where the pointer is coarse.
+
+  Adds a `pt-panel-compact` spacing utility. A Markdown body that fails to render now falls back
+  onto the same code surface a rendered fence uses.
+
 ## 2.2.0
 
 ### Minor Changes

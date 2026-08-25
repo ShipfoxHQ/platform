@@ -1,5 +1,38 @@
 # @shipfox/client-workflows
 
+## 26.0.0
+
+### Patch Changes
+
+- 79e1ed7: Render run annotations as rows of the annotations panel instead of bordered cards inside it.
+
+  Each row is headed by the block the emitting step named, or by its job when the server minted
+  the context from a failure, and its provenance line is bounded rather than sprawling. Job
+  diagnostics with no execution record lead the list and count toward its total.
+
+  `AnnotationCard` draws no frame of its own and exports the style glyph and tone maps it uses.
+
+- 79e1ed7: Remove the `?annotation=<id>` deep link and its selected-row scroll and focus behaviour from the
+  workflow run page. No surface ever produced that URL, so the state was unreachable.
+
+  `AnnotationCard` no longer accepts an `id` prop, which existed only as that deep link's scroll
+  target.
+
+- Updated dependencies [d1fb0a3]
+- Updated dependencies [79e1ed7]
+- Updated dependencies [79e1ed7]
+- Updated dependencies [79e1ed7]
+- Updated dependencies [48e8c4a]
+- Updated dependencies [870523f]
+  - @shipfox/api-workflows-dto@16.1.0
+  - @shipfox/client-ui@26.0.0
+  - @shipfox/react-ui@2.3.0
+  - @shipfox/client-projects@26.0.0
+  - @shipfox/api-definitions-dto@16.1.0
+  - @shipfox/client-shell@26.0.0
+  - @shipfox/client-triggers@26.0.0
+  - @shipfox/client-logs@26.0.0
+
 ## 25.0.0
 
 ### Patch Changes

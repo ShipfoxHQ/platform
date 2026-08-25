@@ -1,5 +1,19 @@
 # @shipfox/api-agent-dto
 
+## 16.1.0
+
+### Minor Changes
+
+- d1fb0a3: Adds the agent session claim and carry-over inter-module methods (`claimSession`, `carryOverSessions`) with the session descriptor (`id`, `key`, `mode`, `segment`), so workflows can resume or fork a session and rerun attempts can carry sessions forward.
+
+  Session claims are released automatically on step-attempt and job termination, with a stale-claim reap cron as a backstop.
+
+  The previously required `jobLeaseTokenTtlSeconds` option on `createAgentModule` is removed; pass an optional `workflows` client to enable the job-terminated grace sweep.
+
+### Patch Changes
+
+- c1e5dfd: Rejects the per-step `claude` runtime block when attached to reserved model provider ids such as `anthropic`; the block is only accepted alongside a managed (non-reserved) provider id.
+
 ## 16.0.0
 
 ### Major Changes

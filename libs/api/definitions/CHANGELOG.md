@@ -1,5 +1,19 @@
 # @shipfox/api-definitions
 
+## 16.1.0
+
+### Minor Changes
+
+- 870523f: Adds the tool step model: a `kind: 'tool'` step in the `definitions-dto` step union (snapshot version 3) carrying `tool`, `connection`, `with`, `outputMappings`, and `templates`, with sync-time validation (`missing-connection-for-tool`, `integration-connection-not-found` / `-not-capable`, `unknown-integration-tool`, `tool-input-invalid`, `tool-input-unknown-key`). `@shipfox/api-workflows` and `@shipfox/api-workflows-dto` add the tool step to the run-graph step type union and its display name. The workflow document parser still rejects tool-step fields, so nothing is user-authorable yet.
+
+### Patch Changes
+
+- Updated dependencies [d1fb0a3]
+- Updated dependencies [c1e5dfd]
+- Updated dependencies [870523f]
+  - @shipfox/api-agent-dto@16.1.0
+  - @shipfox/api-definitions-dto@16.1.0
+
 ## 16.0.0
 
 ### Minor Changes
