@@ -72,6 +72,23 @@ describe('agentRuntimeCredentialsResponseSchema', () => {
     });
   });
 
+  it('rejects a claude runtime block for a reserved provider id', () => {
+    const parse = () =>
+      agentRuntimeCredentialsResponseSchema.parse({
+        harness: 'claude',
+        provider_id: 'anthropic',
+        model: 'claude-opus-4-8',
+        thinking: 'high',
+        credentials: {api_key: 'secret'},
+        claude: {
+          base_url: 'https://gateway.example.test',
+          auth_token: 'managed-token',
+        },
+      });
+
+    expect(parse).toThrow();
+  });
+
   it('rejects a custom model provider descriptor without key intent', () => {
     const parse = () =>
       agentRuntimeCredentialsResponseSchema.parse({
