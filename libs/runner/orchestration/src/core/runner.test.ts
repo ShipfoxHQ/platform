@@ -221,8 +221,10 @@ describe('runJob', () => {
     mockJobLogsPath.mockReturnValue(JOB_LOGS_DIR);
     mockJobAgentStatePath.mockReturnValue(JOB_AGENT_STATE_DIR);
     mockJobCredentialsPath.mockReturnValue(JOB_CREDENTIALS_DIR);
+    const harnessStarted = vi.fn();
     mockRunJobSteps.mockImplementation(async ({prepareAgentState}) => {
       await prepareAgentState?.();
+      harnessStarted();
     });
 
     await runJob(JOB, WORKSPACE_ROOT);
@@ -257,9 +259,15 @@ describe('runJob', () => {
       }),
     );
     expect(mockCreateJobAgentStateDir).toHaveBeenCalledWith(JOB_AGENT_STATE_DIR);
+    expect(mockCreateJobAgentStateDir.mock.invocationCallOrder[0]).toBeLessThan(
+      harnessStarted.mock.invocationCallOrder[0] ?? Infinity,
+    );
     expect(mockCleanupWorkspace).toHaveBeenCalledWith(JOB_CWD);
     expect(mockCleanupJobLogs).toHaveBeenCalledWith(JOB_LOGS_DIR);
     expect(mockCleanupJobAgentState).toHaveBeenCalledWith(JOB_AGENT_STATE_DIR);
+    expect(harnessStarted.mock.invocationCallOrder[0]).toBeLessThan(
+      mockCleanupJobAgentState.mock.invocationCallOrder[0] ?? Infinity,
+    );
     expect(mockCleanupJobAgentState.mock.invocationCallOrder[0]).toBeLessThan(
       mockReleaseAgentStateLock.mock.invocationCallOrder[0] ?? Infinity,
     );
