@@ -222,6 +222,13 @@ const expectedCatalogRows = [
     sensitive: false,
     requiredScope: [{permission: 'actions', access: 'read'}],
   },
+  {
+    id: 'create_branch',
+    category: 'repositories',
+    sensitivity: 'write',
+    sensitive: false,
+    requiredScope: [{permission: 'contents', access: 'write'}],
+  },
 ];
 
 type GithubOperationRouteCase = {
@@ -412,6 +419,15 @@ const githubOperationRouteCases = [
     toolId: 'create_commit',
     args: {},
     expectedRoute: 'POST /graphql',
+  },
+  {
+    toolId: 'create_branch',
+    args: {
+      repository: 'shipfox/platform',
+      branch: 'feature',
+      from: 'aa218f56b14c9653891f9e74264a383fa43fefbd',
+    },
+    expectedRoute: 'POST /repos/{owner}/{repo}/git/refs',
   },
   {
     toolId: 'update_pull_request',
@@ -1854,6 +1870,241 @@ describe('github agent tool catalog', () => {
     });
   });
 
+  it('creates a branch from a commit oid through the provider session', async () => {
+    const request = vi.fn(() =>
+      Promise.resolve({
+        data: {
+          ref: 'refs/heads/shipfox/implement-1',
+          url: 'https://api.github.com/repos/shipfox/platform/git/refs/heads/shipfox/implement-1',
+          object: {
+            sha: 'aa218f56b14c9653891f9e74264a383fa43fefbd',
+            type: 'commit',
+            url: 'https://api.github.com/repos/shipfox/platform/git/commits/aa218f56b14c9653891f9e74264a383fa43fefbd',
+          },
+        },
+      }),
+    );
+
+    const result = await callGithubToolWithRequest(
+      'create_branch',
+      {
+        repository: 'shipfox/platform',
+        branch: 'shipfox/implement-1',
+        from: 'aa218f56b14c9653891f9e74264a383fa43fefbd',
+      },
+      request,
+    );
+
+    expect(request).toHaveBeenCalledOnce();
+    expect(request).toHaveBeenCalledWith('POST /repos/{owner}/{repo}/git/refs', {
+      owner: 'shipfox',
+      repo: 'platform',
+      ref: 'refs/heads/shipfox/implement-1',
+      sha: 'aa218f56b14c9653891f9e74264a383fa43fefbd',
+    });
+    expect(result).toEqual({
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            branch: 'shipfox/implement-1',
+            oid: 'aa218f56b14c9653891f9e74264a383fa43fefbd',
+            url: 'https://api.github.com/repos/shipfox/platform/git/refs/heads/shipfox/implement-1',
+          }),
+        },
+      ],
+      structuredContent: {
+        branch: 'shipfox/implement-1',
+        oid: 'aa218f56b14c9653891f9e74264a383fa43fefbd',
+        url: 'https://api.github.com/repos/shipfox/platform/git/refs/heads/shipfox/implement-1',
+      },
+    });
+  });
+
+  it('resolves a from branch name to its head before creating the branch', async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({
+        data: {
+          ref: 'refs/heads/main',
+          url: 'https://api.github.com/repos/shipfox/platform/git/refs/heads/main',
+          object: {
+            sha: 'b1f2c3d4e5f60718293a4b5c6d7e8f901a2b3c4d',
+            type: 'commit',
+          },
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          ref: 'refs/heads/feature',
+          url: 'https://api.github.com/repos/shipfox/platform/git/refs/heads/feature',
+          object: {
+            sha: 'b1f2c3d4e5f60718293a4b5c6d7e8f901a2b3c4d',
+            type: 'commit',
+          },
+        },
+      });
+
+    const result = await callGithubToolWithRequest(
+      'create_branch',
+      {
+        repository: 'shipfox/platform',
+        branch: 'feature',
+        from: 'main',
+      },
+      request,
+    );
+
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(request).toHaveBeenNthCalledWith(1, 'GET /repos/{owner}/{repo}/git/ref/heads/{branch}', {
+      owner: 'shipfox',
+      repo: 'platform',
+      branch: 'main',
+    });
+    expect(request).toHaveBeenNthCalledWith(2, 'POST /repos/{owner}/{repo}/git/refs', {
+      owner: 'shipfox',
+      repo: 'platform',
+      ref: 'refs/heads/feature',
+      sha: 'b1f2c3d4e5f60718293a4b5c6d7e8f901a2b3c4d',
+    });
+    expect(result).toEqual({
+      content: [{type: 'text', text: expect.stringContaining('"branch":"feature"')}],
+      structuredContent: {
+        branch: 'feature',
+        oid: 'b1f2c3d4e5f60718293a4b5c6d7e8f901a2b3c4d',
+        url: 'https://api.github.com/repos/shipfox/platform/git/refs/heads/feature',
+      },
+    });
+  });
+
+  it('reports a provider-rejected error when the branch already exists', async () => {
+    const providerError = new RequestError('Reference already exists', 422, {
+      request: {
+        method: 'POST',
+        url: 'https://api.github.com/repos/shipfox/platform/git/refs',
+        headers: {},
+      },
+    });
+
+    await expect(
+      callGithubToolWithRequest(
+        'create_branch',
+        {
+          repository: 'shipfox/platform',
+          branch: 'feature',
+          from: 'aa218f56b14c9653891f9e74264a383fa43fefbd',
+        },
+        vi.fn(() => Promise.reject(providerError)),
+      ),
+    ).rejects.toMatchObject({
+      reason: 'provider-rejected',
+      message: "Branch 'feature' already exists in repository shipfox/platform",
+      status: 422,
+    });
+  });
+
+  it('reports a provider-rejected error when the from branch does not exist', async () => {
+    const providerError = new RequestError('Not Found', 404, {
+      request: {
+        method: 'GET',
+        url: 'https://api.github.com/repos/shipfox/platform/git/ref/heads/missing',
+        headers: {},
+      },
+    });
+
+    await expect(
+      callGithubToolWithRequest(
+        'create_branch',
+        {
+          repository: 'shipfox/platform',
+          branch: 'feature',
+          from: 'missing',
+        },
+        vi.fn(() => Promise.reject(providerError)),
+      ),
+    ).rejects.toMatchObject({
+      reason: 'provider-rejected',
+      message: "Branch 'missing' does not exist in repository shipfox/platform",
+      status: 404,
+    });
+  });
+
+  it('returns an access-denied code when the installation lacks contents write permission', async () => {
+    const provider = new GithubAgentToolsProvider({
+      getInstallationByConnectionId: vi.fn(() => Promise.resolve(installation())),
+      tokenProvider: {
+        getInstallationAccessToken: vi.fn(() =>
+          Promise.resolve({
+            token: 'installation-token',
+            expiresAt: new Date(),
+            permissions: {pull_requests: 'write' as const},
+          }),
+        ),
+      },
+    });
+    const tool = githubAgentToolCatalog.find((entry) => entry.id === 'create_branch');
+    if (!tool) throw new Error('Missing create_branch tool');
+    const session = await provider.openSession({
+      connection: connection(),
+      tools: [tool],
+      scope: undefined,
+    });
+
+    const result = await session.call({
+      toolId: 'create_branch',
+      arguments: {
+        repository: 'shipfox/platform',
+        branch: 'feature',
+        from: 'aa218f56b14c9653891f9e74264a383fa43fefbd',
+      },
+    });
+
+    expect(result).toEqual({
+      isError: true,
+      content: [
+        {
+          type: 'text',
+          text: 'GitHub installation token is missing permission for this operation',
+        },
+      ],
+      structuredContent: {code: 'access-denied'},
+    });
+  });
+
+  it('rejects a repository argument that is not in owner/name form', async () => {
+    await expect(
+      callGithubTool(
+        'create_branch',
+        {
+          repository: 'platform',
+          branch: 'feature',
+          from: 'aa218f56b14c9653891f9e74264a383fa43fefbd',
+        },
+        {},
+      ),
+    ).rejects.toMatchObject({
+      reason: 'ref-invalid',
+      message: 'Parameter repository must be a string in owner/name form: platform',
+    });
+  });
+
+  it('rejects a branch argument that carries a refs/ prefix', async () => {
+    await expect(
+      callGithubTool(
+        'create_branch',
+        {
+          repository: 'shipfox/platform',
+          branch: 'refs/heads/feature',
+          from: 'aa218f56b14c9653891f9e74264a383fa43fefbd',
+        },
+        {},
+      ),
+    ).rejects.toMatchObject({
+      reason: 'ref-invalid',
+      message: 'Parameter branch must be a non-empty branch name without a refs/ prefix',
+    });
+  });
+
   it('rejects a pending review without a GraphQL node ID', async () => {
     const request = vi.fn().mockResolvedValueOnce({
       data: [{id: 41, state: 'PENDING', user: githubAppReviewUser}],
@@ -2291,6 +2542,28 @@ describe('github agent tool catalog', () => {
       arguments: {owner: 'shipfox', repo: 'platform', pull_number: 2},
       data: {merged: true},
       expected: {merge: {merged: true}},
+    },
+    {
+      toolId: 'create_branch',
+      arguments: {
+        repository: 'shipfox/platform',
+        branch: 'feature',
+        from: 'aa218f56b14c9653891f9e74264a383fa43fefbd',
+      },
+      data: {
+        ref: 'refs/heads/feature',
+        url: 'https://api.github.com/repos/shipfox/platform/git/refs/heads/feature',
+        object: {
+          sha: 'aa218f56b14c9653891f9e74264a383fa43fefbd',
+          type: 'commit',
+          url: 'https://api.github.com/repos/shipfox/platform/git/commits/aa218f56b14c9653891f9e74264a383fa43fefbd',
+        },
+      },
+      expected: {
+        branch: 'feature',
+        oid: 'aa218f56b14c9653891f9e74264a383fa43fefbd',
+        url: 'https://api.github.com/repos/shipfox/platform/git/refs/heads/feature',
+      },
     },
     {
       toolId: 'pull_request_read',

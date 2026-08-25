@@ -38,4 +38,12 @@ describe('githubAgentToolSelectionCatalog', () => {
       sensitive: true,
     });
   });
+
+  it('exposes create_branch as a standalone write selector', () => {
+    expect(selectors.get('create_branch')).toMatchObject({
+      kind: 'standalone',
+      sensitivity: 'write',
+      sensitive: false,
+    });
+  });
 });

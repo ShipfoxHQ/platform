@@ -19,6 +19,8 @@ schema reference](/reference/workflow-schema#agent-integration-fields).
 
 Grant the GitHub App only the repository permissions required by selected tools.
 The catalog states each tool's read or write sensitivity and its required GitHub
-permissions.
+permissions. Write tools (for example `create_branch` and `merge_pull_request`)
+require the workflow step's `integrations` entry to set `allow_write: true`;
+without it, Shipfox rejects the step at validation.
 
 <GithubTools />
