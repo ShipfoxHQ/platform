@@ -11,6 +11,12 @@ export interface UserIdentity {
 export interface AuthenticatedSession {
   accessToken: string;
   user: UserIdentity;
+  /**
+   * Present only for externally minted sessions (for example an adopted
+   * session whose token carries the claim); ordinary cookie sessions never
+   * set it.
+   */
+  impersonatorId?: string;
 }
 
 export interface WorkspaceMembership {

@@ -16,6 +16,45 @@ const REFRESH_RETRY_DELAY_MS = 60_000;
 const BASE64_URL_REPLACEMENTS = {dash: /-/g, underscore: /_/g} as const;
 const refreshPromises = new WeakMap<QueryClient, Promise<AuthenticatedSession>>();
 
+/**
+ * A renewal response for an adopted session. `expiresAt` and `serverTime` are
+ * both issuer timestamps; their difference is the server-side remaining
+ * lifetime, which is the renewal scheduling anchor.
+ */
+export interface AdoptedSessionRenewal {
+  session: AuthenticatedSession;
+  expiresAt: string;
+  serverTime: string;
+}
+
+export type AdoptedSessionRenewalSupplier = () => Promise<AdoptedSessionRenewal | null>;
+
+/**
+ * Options for the adopted-session renewal. A `null` renewal result ends the
+ * adoption and falls back to the ordinary cookie refresh.
+ */
+export interface AdoptSessionOptions {
+  expiresAt: string;
+  serverTime: string;
+  renew: AdoptedSessionRenewalSupplier;
+}
+
+/** The adopted session as exposed to composing consumers. */
+export interface AdoptedSessionState {
+  session: AuthenticatedSession;
+  expiresAt: string;
+  serverTime: string;
+}
+
+interface AdoptedSessionRuntimeState extends AdoptedSessionState {
+  generation: number;
+  receivedAtMs: number;
+  renew: AdoptedSessionRenewalSupplier;
+}
+
+const adoptedSessionAtom = atom<AdoptedSessionRuntimeState | null>(null);
+const adoptionGenerationAtom = atom(0);
+
 function invalidateRefresh(queryClient: QueryClient): void {
   refreshPromises.delete(queryClient);
 }
@@ -97,6 +136,16 @@ function readJwtExp(token: string): number | undefined {
 export function getAuthRefreshDelayMs(token: string, nowMs = Date.now()): number | undefined {
   const exp = readJwtExp(token);
   return exp === undefined ? undefined : exp * 1000 - nowMs - REFRESH_EARLY_MS;
+}
+
+/**
+ * Delay until the adopted session's renewal point, derived from the issuer
+ * timestamps only. Both values come from the server, so a skewed browser
+ * clock cannot shorten or lengthen the window. Negative when the renewal
+ * point already passed; callers clamp.
+ */
+export function getAdoptedSessionRenewDelayMs(expiresAt: string, serverTime: string): number {
+  return Date.parse(expiresAt) - Date.parse(serverTime) - REFRESH_EARLY_MS;
 }
 
 export function useAuthTransition() {
@@ -209,6 +258,97 @@ export function useRefreshAuth() {
   }, [beginAuthTransition, enterAuthenticated, enterGuest, queryClient]);
 }
 
+/**
+ * The adopted-session runtime seam. An adopted session is an externally minted
+ * access-token-only session entered through the ordinary authenticated path;
+ * it suspends the cookie-based proactive refresh and runs until its issuer
+ * expiry, then asks the renewal supplier or falls back to the cookie.
+ *
+ * Release is terminal for the tab: it increments an adoption generation before
+ * ending the adoption, and a mint or renewal response is adopted only when its
+ * generation still matches the current one. Tabs share no adopted token and no
+ * release state.
+ */
+export function useAdoptedSession() {
+  const store = useStore();
+  const {beginAuthTransition, enterAuthenticated} = useAuthTransition();
+  const refreshAuth = useRefreshAuth();
+  const adoptedSession = useAtomValue(adoptedSessionAtom);
+
+  const endAdoption = useCallback(async () => {
+    store.set(adoptionGenerationAtom, store.get(adoptionGenerationAtom) + 1);
+    store.set(adoptedSessionAtom, null);
+    await refreshAuth();
+  }, [refreshAuth, store]);
+
+  const adoptSession = useCallback(
+    async (session: AuthenticatedSession, options: AdoptSessionOptions): Promise<boolean> => {
+      const generation = store.get(adoptionGenerationAtom);
+      const transitionEpoch = beginAuthTransition();
+      const accepted = await enterAuthenticated(session, transitionEpoch);
+      if (!accepted || store.get(adoptionGenerationAtom) !== generation) return false;
+      store.set(adoptedSessionAtom, {
+        generation,
+        receivedAtMs: Date.now(),
+        session,
+        expiresAt: options.expiresAt,
+        serverTime: options.serverTime,
+        renew: options.renew,
+      });
+      return true;
+    },
+    [beginAuthTransition, enterAuthenticated, store],
+  );
+
+  const renewAdoptedSession = useCallback(async (): Promise<AdoptedSessionRenewal | null> => {
+    const adopted = store.get(adoptedSessionAtom);
+    if (adopted === null) return null;
+    const generation = store.get(adoptionGenerationAtom);
+
+    let result: AdoptedSessionRenewal | null;
+    try {
+      result = await adopted.renew();
+    } catch {
+      // A failed renewal degrades like a refused one: back to the cookie.
+      result = null;
+    }
+
+    // The generation is captured when the request started; a response that
+    // resolves after a release is discarded.
+    if (store.get(adoptionGenerationAtom) !== generation) return null;
+    if (result === null) {
+      await endAdoption();
+      return null;
+    }
+
+    const current = store.get(adoptedSessionAtom);
+    if (current !== null && Date.parse(result.expiresAt) < Date.parse(current.expiresAt)) {
+      // Racing responses keep the token with the later expires_at.
+      return result;
+    }
+
+    const transitionEpoch = beginAuthTransition();
+    const accepted = await enterAuthenticated(result.session, transitionEpoch);
+    if (!accepted || store.get(adoptionGenerationAtom) !== generation) return null;
+    store.set(adoptedSessionAtom, {
+      generation,
+      receivedAtMs: Date.now(),
+      session: result.session,
+      expiresAt: result.expiresAt,
+      serverTime: result.serverTime,
+      renew: adopted.renew,
+    });
+    return result;
+  }, [beginAuthTransition, endAdoption, enterAuthenticated, store]);
+
+  const releaseAdoptedSession = useCallback(async () => {
+    if (store.get(adoptedSessionAtom) === null) return;
+    await endAdoption();
+  }, [endAdoption, store]);
+
+  return {adoptSession, renewAdoptedSession, releaseAdoptedSession, adoptedSession};
+}
+
 export interface AuthRuntimeProps extends PropsWithChildren {
   effects?: boolean;
 }
@@ -217,14 +357,24 @@ export function AuthRuntime({children, effects = true}: AuthRuntimeProps) {
   const store = useStore();
   const authState = useAtomValue(authStateAtom);
   const refreshAuth = useRefreshAuth();
+  const {adoptedSession, renewAdoptedSession, releaseAdoptedSession} = useAdoptedSession();
 
   useEffect(() => {
     if (!effects) return;
     configureApiClient({
       getAccessToken: () => store.get(authStateAtom).token,
-      refreshAccessToken: async () => (await refreshAuth()).accessToken,
+      refreshAccessToken: async () => {
+        if (store.get(adoptedSessionAtom) !== null) {
+          // A 401 under an adopted token ends the adoption: the cookie
+          // refresh restores the cookie's principal, and the renew timer must
+          // not resurrect the adopted session afterwards.
+          await releaseAdoptedSession();
+          return store.get(authStateAtom).token ?? '';
+        }
+        return (await refreshAuth()).accessToken;
+      },
     });
-  }, [effects, refreshAuth, store]);
+  }, [effects, refreshAuth, releaseAdoptedSession, store]);
 
   useEffect(() => {
     if (!effects) return;
@@ -232,7 +382,14 @@ export function AuthRuntime({children, effects = true}: AuthRuntimeProps) {
   }, [effects, refreshAuth]);
 
   useEffect(() => {
-    if (!effects || authState.status !== 'authenticated' || !authState.token) return;
+    if (
+      !effects ||
+      authState.status !== 'authenticated' ||
+      !authState.token ||
+      adoptedSession !== null
+    ) {
+      return;
+    }
 
     let timeout: ReturnType<typeof setTimeout> | undefined;
     let disposed = false;
@@ -248,11 +405,12 @@ export function AuthRuntime({children, effects = true}: AuthRuntimeProps) {
     const retryIfStillDue = () => {
       const current = store.get(authStateAtom);
       if (current.status !== 'authenticated' || !current.token) return;
+      if (store.get(adoptedSessionAtom) !== null) return;
       const delay = getAuthRefreshDelayMs(current.token);
       if (delay !== undefined && delay <= 0) scheduleRefresh(REFRESH_RETRY_DELAY_MS);
     };
     function runRefresh() {
-      if (disposed || refreshing) return;
+      if (disposed || refreshing || store.get(adoptedSessionAtom) !== null) return;
       refreshing = true;
       clearRefreshTimer();
       refreshAuth()
@@ -265,6 +423,7 @@ export function AuthRuntime({children, effects = true}: AuthRuntimeProps) {
     const refreshIfDue = () => {
       const current = store.get(authStateAtom);
       if (current.status !== 'authenticated' || !current.token) return;
+      if (store.get(adoptedSessionAtom) !== null) return;
       const delay = getAuthRefreshDelayMs(current.token);
       if (delay !== undefined && delay <= 0) runRefresh();
     };
@@ -283,7 +442,63 @@ export function AuthRuntime({children, effects = true}: AuthRuntimeProps) {
       window.removeEventListener('online', refreshIfDue);
       document.removeEventListener('visibilitychange', refreshIfVisible);
     };
-  }, [authState.status, authState.token, effects, refreshAuth, store]);
+  }, [adoptedSession, authState.status, authState.token, effects, refreshAuth, store]);
+
+  useEffect(() => {
+    if (!effects || adoptedSession === null) return;
+
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    let disposed = false;
+    let renewing = false;
+    let nextFireAtMs = 0;
+    const clearRenewTimer = () => {
+      if (timeout !== undefined) clearTimeout(timeout);
+      timeout = undefined;
+    };
+    const scheduleRenew = () => {
+      clearRenewTimer();
+      const current = store.get(adoptedSessionAtom);
+      if (current === null) return;
+      // The fire point comes from the issuer timestamps; the local clock only
+      // measures elapsed time, so a skewed browser clock cannot shift it.
+      const durationMs = Date.parse(current.expiresAt) - Date.parse(current.serverTime);
+      const earlyFireAtMs = current.receivedAtMs + durationMs - REFRESH_EARLY_MS;
+      const expiryFireAtMs = current.receivedAtMs + durationMs;
+      nextFireAtMs = earlyFireAtMs >= Date.now() ? earlyFireAtMs : expiryFireAtMs;
+      timeout = setTimeout(runRenew, Math.max(0, nextFireAtMs - Date.now()));
+    };
+    const runRenew = () => {
+      if (disposed || renewing) return;
+      renewing = true;
+      clearRenewTimer();
+      renewAdoptedSession()
+        .catch(() => undefined)
+        .finally(() => {
+          renewing = false;
+          // Re-arm when the adoption survived (for example a racing response
+          // with an earlier expiry was discarded); the effect re-runs and
+          // re-arms when a renewal is adopted instead.
+          if (!disposed) scheduleRenew();
+        });
+    };
+    const renewIfDue = () => {
+      if (Date.now() >= nextFireAtMs) runRenew();
+    };
+    const renewIfVisible = () => {
+      if (document.visibilityState === 'visible') renewIfDue();
+    };
+    scheduleRenew();
+    window.addEventListener('focus', renewIfDue);
+    window.addEventListener('online', renewIfDue);
+    document.addEventListener('visibilitychange', renewIfVisible);
+    return () => {
+      disposed = true;
+      clearRenewTimer();
+      window.removeEventListener('focus', renewIfDue);
+      window.removeEventListener('online', renewIfDue);
+      document.removeEventListener('visibilitychange', renewIfVisible);
+    };
+  }, [adoptedSession, effects, renewAdoptedSession, store]);
 
   return children;
 }

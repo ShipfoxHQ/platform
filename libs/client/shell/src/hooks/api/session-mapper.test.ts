@@ -1,6 +1,6 @@
 import type {LoginResponseDto, UserDto} from '@shipfox/api-auth-dto';
 import type {AdminRole} from '#core/session.js';
-import {toAuthenticatedSession, toUserIdentity} from './session-mapper.js';
+import {type SessionResponseDto, toAuthenticatedSession, toUserIdentity} from './session-mapper.js';
 
 type Exact<Left, Right> =
   (<Type>() => Type extends Left ? 1 : 2) extends <Type>() => Type extends Right ? 1 : 2
@@ -64,5 +64,26 @@ describe('toAuthenticatedSession', () => {
     };
 
     expect(toAuthenticatedSession(dto).user.adminRole).toBe('admin-owner');
+  });
+
+  test('omits impersonatorId when the response carries no impersonation mark', () => {
+    const dto: LoginResponseDto = {token: 'access-token', user: baseUser};
+
+    expect(toAuthenticatedSession(dto).impersonatorId).toBeUndefined();
+  });
+
+  test('maps impersonator_id into impersonatorId when the response carries it', () => {
+    const impersonatorId = '22222222-2222-4222-8222-222222222222';
+    const dto: SessionResponseDto = {
+      token: 'access-token',
+      user: baseUser,
+      impersonator_id: impersonatorId,
+    };
+
+    expect(toAuthenticatedSession(dto)).toMatchObject({
+      accessToken: 'access-token',
+      impersonatorId,
+      user: {id: baseUser.id, email: baseUser.email},
+    });
   });
 });
