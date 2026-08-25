@@ -19,13 +19,13 @@ export {
   sessionObjectKeyPrefix,
 } from './object-key.js';
 export {
-  closeSessionS3Client,
+  closeSessionObjectStore,
   deleteSessionObject,
   deleteSessionObjects,
   getSessionObject,
   listSessionObjectKeys,
   putSessionObject,
-  sessionS3Client,
+  sessionObjectStore,
 } from './object-storage.js';
 export type {
   RotateAgentSessionDataKeysOptions,

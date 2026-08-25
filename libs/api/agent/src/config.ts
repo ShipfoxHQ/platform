@@ -99,32 +99,32 @@ export const config = createConfig({
     default: 100,
   }),
   AGENT_SESSION_STORAGE_S3_ENDPOINT: url({
-    desc: 'Endpoint URL of the S3-compatible object store that holds encrypted session transcript artifacts. Defaults to the bundled local-development Garage (http://localhost:3900); set it to your object store endpoint for production.',
-    default: 'http://localhost:3900',
+    desc: 'Optional endpoint override for encrypted session transcripts. Leave it unset to use OBJECT_STORAGE_S3_ENDPOINT.',
+    default: undefined,
   }),
   AGENT_SESSION_STORAGE_S3_REGION: str({
-    desc: 'Region passed to the S3 client. Any value works for Garage; set the real region for AWS S3. Defaults to garage for local development.',
-    default: 'garage',
+    desc: 'Optional region override for encrypted session transcripts. Leave it unset to use OBJECT_STORAGE_S3_REGION.',
+    default: undefined,
   }),
   AGENT_SESSION_STORAGE_S3_BUCKET: str({
-    desc: 'Name of the bucket that stores encrypted session transcript artifacts. Defaults to shipfox-agent-sessions (created by dev/garage/bootstrap.sh); create the bucket and set this for production.',
-    default: 'shipfox-agent-sessions',
+    desc: 'Optional bucket override for encrypted session transcripts. Leave it unset to use OBJECT_STORAGE_S3_BUCKET.',
+    default: undefined,
   }),
   AGENT_SESSION_STORAGE_S3_PREFIX: str({
     desc: 'Key prefix under which session transcript artifacts are stored in the bucket. Set this to host several modules in one bucket, each under its own prefix. Use a value without a leading or trailing slash. Defaults to agent-sessions.',
     default: 'agent-sessions',
   }),
   AGENT_SESSION_STORAGE_S3_ACCESS_KEY_ID: str({
-    desc: 'Optional access key ID used to authenticate to the object store. Set it together with AGENT_SESSION_STORAGE_S3_SECRET_ACCESS_KEY for an explicit credential pair, or leave both unset to use the standard AWS SDK credential provider chain.',
+    desc: 'Optional access key ID override for encrypted session transcripts. Set it with AGENT_SESSION_STORAGE_S3_SECRET_ACCESS_KEY, or leave both unset to use the shared object-store credentials.',
     default: undefined,
   }),
   AGENT_SESSION_STORAGE_S3_SECRET_ACCESS_KEY: str({
-    desc: 'Optional secret access key used to authenticate to the object store. Set it together with AGENT_SESSION_STORAGE_S3_ACCESS_KEY_ID for an explicit credential pair, or leave both unset to use the standard AWS SDK credential provider chain.',
+    desc: 'Optional secret access key override for encrypted session transcripts. Set it with AGENT_SESSION_STORAGE_S3_ACCESS_KEY_ID, or leave both unset to use the shared object-store credentials.',
     default: undefined,
   }),
   AGENT_SESSION_STORAGE_S3_FORCE_PATH_STYLE: bool({
-    desc: 'Whether to address the bucket as a path (endpoint/bucket) instead of a subdomain. Set it to true for Garage and MinIO; false works for AWS S3.',
-    default: true,
+    desc: 'Optional addressing-mode override for encrypted session transcripts. Leave it unset to use OBJECT_STORAGE_S3_FORCE_PATH_STYLE.',
+    default: undefined,
   }),
   AGENT_SESSION_ENCRYPTION_KEK: str({
     // No default: envalid enforces this as a required variable at startup, and
@@ -310,14 +310,6 @@ function isRegisteredProvider(
 ): boolean {
   if (managedProvider?.id === providerId) return true;
   return getModelProviderEntry(providerId)?.support_status === 'supported';
-}
-
-const hasSessionS3AccessKeyId = Boolean(config.AGENT_SESSION_STORAGE_S3_ACCESS_KEY_ID);
-const hasSessionS3SecretAccessKey = Boolean(config.AGENT_SESSION_STORAGE_S3_SECRET_ACCESS_KEY);
-if (hasSessionS3AccessKeyId !== hasSessionS3SecretAccessKey) {
-  throw new Error(
-    'AGENT_SESSION_STORAGE_S3_ACCESS_KEY_ID and AGENT_SESSION_STORAGE_S3_SECRET_ACCESS_KEY must be set together or both left unset.',
-  );
 }
 
 decodeBase64SessionKek(config.AGENT_SESSION_ENCRYPTION_KEK, 'AGENT_SESSION_ENCRYPTION_KEK');

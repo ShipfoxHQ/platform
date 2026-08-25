@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# Bootstraps the local-development Garage over its admin API: single-node layout, the log
+# Bootstraps the local-development Garage over its admin API: single-node layout, the shared
 # buckets (dev + test), and a fixed dev access key matching the committed .env. Idempotent,
 # so re-running is safe. The garage-init compose service runs it automatically; it is also
 # launchable by hand (defaults target the published localhost ports).
@@ -12,9 +12,8 @@ GARAGE_URL="${GARAGE_URL:-http://localhost:3903}"
 ADMIN_TOKEN="${GARAGE_ADMIN_TOKEN:-shipfox-dev-admin-token}"
 S3_ENDPOINT="${GARAGE_S3_ENDPOINT:-http://localhost:3900}"
 CORS_ALLOWED_ORIGINS="${GARAGE_CORS_ALLOWED_ORIGINS:-http://localhost:5173}"
-# Dev bucket plus the test bucket the @shipfox/api-logs suite uploads to against real Garage.
-# The agent session artifact store uses its own bucket pair (secondary secrets store).
-BUCKETS="shipfox-logs shipfox-logs-test shipfox-agent-sessions shipfox-agent-sessions-test"
+# Shared development bucket plus the test bucket used by object-storage integration tests.
+BUCKETS="shipfox shipfox-test"
 KEY_NAME="local-dev"
 ACCESS_KEY_ID="GK000000000000000000000000"
 SECRET_ACCESS_KEY="0000000000000000000000000000000000000000000000000000000000000000"

@@ -2,32 +2,32 @@ import {bool, createConfig, num, str, url} from '@shipfox/config';
 
 export const config = createConfig({
   LOG_STORAGE_S3_ENDPOINT: url({
-    desc: 'Endpoint URL of the S3-compatible object store that holds compacted logs. Defaults to the bundled local-development Garage (http://localhost:3900); set it to your object store endpoint for production.',
-    default: 'http://localhost:3900',
+    desc: 'Optional endpoint override for compacted logs. Leave it unset to use OBJECT_STORAGE_S3_ENDPOINT.',
+    default: undefined,
   }),
   LOG_STORAGE_S3_REGION: str({
-    desc: 'Region passed to the S3 client. Any value works for Garage; set the real region for AWS S3. Defaults to garage for local development.',
-    default: 'garage',
+    desc: 'Optional region override for compacted logs. Leave it unset to use OBJECT_STORAGE_S3_REGION.',
+    default: undefined,
   }),
   LOG_STORAGE_S3_BUCKET: str({
-    desc: 'Name of the bucket that stores compacted log objects. Defaults to shipfox-logs (created by dev/garage/bootstrap.sh); create the bucket and set this for production.',
-    default: 'shipfox-logs',
+    desc: 'Optional bucket override for compacted logs. Leave it unset to use OBJECT_STORAGE_S3_BUCKET.',
+    default: undefined,
   }),
   LOG_STORAGE_S3_PREFIX: str({
     desc: 'Key prefix under which compacted log objects are stored in the bucket. Set this to host several modules in one bucket, each under its own prefix. Use a value without a leading or trailing slash. Defaults to logs.',
     default: 'logs',
   }),
   LOG_STORAGE_S3_ACCESS_KEY_ID: str({
-    desc: 'Optional access key ID used to authenticate to the object store. Set it together with LOG_STORAGE_S3_SECRET_ACCESS_KEY for an explicit credential pair, or leave both unset to use the standard AWS SDK credential provider chain.',
+    desc: 'Optional access key ID override for compacted logs. Set it with LOG_STORAGE_S3_SECRET_ACCESS_KEY, or leave both unset to use the shared object-store credentials.',
     default: undefined,
   }),
   LOG_STORAGE_S3_SECRET_ACCESS_KEY: str({
-    desc: 'Optional secret access key used to authenticate to the object store. Set it together with LOG_STORAGE_S3_ACCESS_KEY_ID for an explicit credential pair, or leave both unset to use the standard AWS SDK credential provider chain.',
+    desc: 'Optional secret access key override for compacted logs. Set it with LOG_STORAGE_S3_ACCESS_KEY_ID, or leave both unset to use the shared object-store credentials.',
     default: undefined,
   }),
   LOG_STORAGE_S3_FORCE_PATH_STYLE: bool({
-    desc: 'Whether to address the bucket as a path (endpoint/bucket) instead of a subdomain. Set it to true for Garage and MinIO; false works for AWS S3.',
-    default: true,
+    desc: 'Optional addressing-mode override for compacted logs. Leave it unset to use OBJECT_STORAGE_S3_FORCE_PATH_STYLE.',
+    default: undefined,
   }),
   LOG_BUDGET_BASE_BYTES: num({
     desc: 'Base of the per-job log accrual budget, in stored bytes (normalized NDJSON the server keeps, framing included). A job may always store this much before the time-based rate is added. Sized to hold a few inline agent_session entries (such as base64 images) before the shared per-job cap trips. Defaults to 32 MiB.',
@@ -70,14 +70,6 @@ export const config = createConfig({
     default: 90,
   }),
 });
-
-const hasS3AccessKeyId = Boolean(config.LOG_STORAGE_S3_ACCESS_KEY_ID);
-const hasS3SecretAccessKey = Boolean(config.LOG_STORAGE_S3_SECRET_ACCESS_KEY);
-if (hasS3AccessKeyId !== hasS3SecretAccessKey) {
-  throw new Error(
-    'LOG_STORAGE_S3_ACCESS_KEY_ID and LOG_STORAGE_S3_SECRET_ACCESS_KEY must be set together or both left unset.',
-  );
-}
 
 // SigV4 caps a presigned URL's lifetime at 7 days, so a larger TTL would fail at signing
 // time on every cold read. Reject out-of-range values at startup rather than per request.

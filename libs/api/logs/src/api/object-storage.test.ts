@@ -1,21 +1,14 @@
 import {Buffer} from 'node:buffer';
 import {Readable} from 'node:stream';
 import {createGzip} from 'node:zlib';
-import {HeadObjectCommand} from '@aws-sdk/client-s3';
-import {config} from '#config.js';
-import {deleteObject, putCompactedObject, s3Client} from './object-storage.js';
+import {deleteObject, headObject, putCompactedObject} from './object-storage.js';
 
 function testKey(): string {
   return `logs/test/${crypto.randomUUID()}`;
 }
 
 async function objectExists(key: string): Promise<boolean> {
-  try {
-    await s3Client().send(new HeadObjectCommand({Bucket: config.LOG_STORAGE_S3_BUCKET, Key: key}));
-    return true;
-  } catch {
-    return false;
-  }
+  return (await headObject(key)) !== null;
 }
 
 describe('putCompactedObject', () => {

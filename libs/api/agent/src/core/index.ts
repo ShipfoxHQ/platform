@@ -71,7 +71,7 @@ export {
 export {
   aadForSessionObject,
   type CommitSessionSegmentParams,
-  closeSessionS3Client,
+  closeSessionObjectStore,
   createSessionArtifactStore,
   createSessionKeyProvider,
   decodeBase64SessionKek,
@@ -104,7 +104,7 @@ export {
   sessionKeyProvider,
   sessionObjectKey,
   sessionObjectKeyPrefix,
-  sessionS3Client,
+  sessionObjectStore,
   type WrappedSessionDek,
 } from './session-artifacts/index.js';
 export {

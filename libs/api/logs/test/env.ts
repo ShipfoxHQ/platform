@@ -22,14 +22,14 @@ process.env.LOG_MAX_SESSION_LINE_BYTES = '512';
 // Tiny inline read page so the read-path drain/has_more test pages with small fixtures.
 process.env.LOG_READ_INLINE_MAX_BYTES = '256';
 
-// Real Garage dev credentials (bootstrap.sh creates the shipfox-logs-test bucket and grants
-// this key). Compaction tests upload to and read back from live Garage from compose.yml.
-process.env.LOG_STORAGE_S3_ENDPOINT ??= 'http://localhost:3900';
-process.env.LOG_STORAGE_S3_REGION = 'garage';
-process.env.LOG_STORAGE_S3_BUCKET = 'shipfox-logs-test';
-process.env.LOG_STORAGE_S3_ACCESS_KEY_ID = 'GK000000000000000000000000';
-process.env.LOG_STORAGE_S3_SECRET_ACCESS_KEY =
+// Real Garage dev credentials. Compaction tests use the logs prefix in the shared
+// test bucket that bootstrap.sh creates.
+process.env.OBJECT_STORAGE_S3_ENDPOINT ??= 'http://localhost:3900';
+process.env.OBJECT_STORAGE_S3_REGION = 'garage';
+process.env.OBJECT_STORAGE_S3_BUCKET = 'shipfox-test';
+process.env.OBJECT_STORAGE_S3_ACCESS_KEY_ID = 'GK000000000000000000000000';
+process.env.OBJECT_STORAGE_S3_SECRET_ACCESS_KEY =
   '0000000000000000000000000000000000000000000000000000000000000000';
-process.env.LOG_STORAGE_S3_FORCE_PATH_STYLE = 'true';
+process.env.OBJECT_STORAGE_S3_FORCE_PATH_STYLE = 'true';
 
 process.env.TZ = 'UTC';

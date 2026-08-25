@@ -81,7 +81,6 @@
     "type:emit": "shipfox-tsc-emit"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "catalog:",
     "@earendil-works/pi-ai": "catalog:",
     "@opentelemetry/api": "catalog:",
     "@shipfox/api-agent-dto": "workspace:*",
@@ -97,6 +96,7 @@
     "@shipfox/node-fastify": "workspace:*",
     "@shipfox/node-module": "workspace:*",
     "@shipfox/node-opentelemetry": "workspace:*",
+    "@shipfox/node-object-storage": "workspace:*",
     "@shipfox/node-postgres": "workspace:*",
     "@shipfox/node-temporal": "workspace:*",
     "@shipfox/redact": "workspace:*",

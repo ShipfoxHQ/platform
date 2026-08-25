@@ -41,9 +41,6 @@
     "type:emit": "shipfox-tsc-emit"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "catalog:",
-    "@aws-sdk/lib-storage": "catalog:",
-    "@aws-sdk/s3-request-presigner": "catalog:",
     "@shipfox/api-auth-context": "workspace:*",
     "@shipfox/api-logs-dto": "workspace:*",
     "@shipfox/api-workflows-dto": "workspace:*",
@@ -55,6 +52,7 @@
     "@shipfox/node-fastify": "workspace:*",
     "@shipfox/node-module": "workspace:*",
     "@shipfox/node-opentelemetry": "workspace:*",
+    "@shipfox/node-object-storage": "workspace:*",
     "@shipfox/node-outbox": "workspace:*",
     "@shipfox/node-postgres": "workspace:*",
     "@shipfox/node-temporal": "workspace:*",
