@@ -20,9 +20,9 @@ import {
 } from '#db/admin-user-moderation.js';
 import {findAdministratorUser as findAdministratorUserInDb} from '#db/admin-users.js';
 import {
-  committedImpersonationResultExists,
   type ImpersonationResult,
   impersonateUserWithAudit,
+  impersonationSucceededEventExists,
   publishImpersonationFailure,
 } from '#db/impersonation.js';
 import {recordImpersonationOutcome} from '#metrics/index.js';
@@ -446,15 +446,18 @@ export async function impersonateUser(params: ImpersonateUserParams): Promise<Im
     // An unexpected error may be an ambiguous COMMIT: the mint transaction
     // committed (result row and `succeeded` event are durable) but the driver
     // raised on the acknowledgement. Publishing a `failed` event then would
-    // contradict the committed trail, so reconcile against the committed row
-    // before writing anything. The reconcile is best-effort: never mask the
-    // original error.
+    // contradict the committed trail, so reconcile against the committed
+    // `succeeded` event for THIS invocation before writing anything: the event
+    // is written atomically with the result row, and its correlationId is
+    // unique per request, so a result row committed by an earlier mint or
+    // replay under the same key is never mistaken for this invocation's
+    // commit. The reconcile is best-effort: never mask the original error.
     let committed = false;
     try {
-      committed = await committedImpersonationResultExists({
+      committed = await impersonationSucceededEventExists({
         actorId: params.actorId,
         idempotencyKeyFingerprint,
-        requestFingerprint,
+        correlationId: params.correlationId,
       });
     } catch {
       // Fall through: publish the failure event rather than losing the denial.

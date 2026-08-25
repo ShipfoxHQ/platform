@@ -1,12 +1,13 @@
 import type {AdminRole} from '@shipfox/api-auth-dto';
 import {
+  ADMINISTRATION_ACTION_PERFORMED,
   type AdministrationActionEvent,
   type AdministrationActionResult,
   createAdministrationActionEvent,
 } from '@shipfox/api-common-dto';
 import type {WorkspacesInterModuleClient} from '@shipfox/api-workspaces-dto/inter-module';
 import {hashOpaqueToken} from '@shipfox/node-tokens';
-import {and, eq, isNull} from 'drizzle-orm';
+import {and, eq, isNull, sql} from 'drizzle-orm';
 import {highestAdminRole} from '#core/admin-role-model.js';
 import {
   type CreateImpersonatedSessionTokenResult,
@@ -31,8 +32,8 @@ import {
 import {requireActiveAdminOperator} from './admin-user-moderation.js';
 import {db} from './db.js';
 import type {StoredImpersonationResult} from './schema/admin-command-results.js';
-import {adminCommandResults} from './schema/admin-command-results.js';
 import {adminGrants} from './schema/admin-grants.js';
+import {authOutbox} from './schema/outbox.js';
 import {users} from './schema/users.js';
 
 export const IMPERSONATE_COMMAND = 'auth.user.impersonate';
@@ -153,31 +154,34 @@ function toImpersonationResult(
   };
 }
 
-export interface ImpersonationResultKey {
+/**
+ * True when the current invocation's mint committed: a `succeeded` event
+ * carrying this invocation's `correlationId` is durable under the idempotency
+ * key. The event is written atomically with the result row, and the
+ * correlationId is unique per request, so a result row committed by an earlier
+ * mint or replay under the same key can never be mistaken for this
+ * invocation's commit. The command entry reconciles against this before
+ * publishing a `failed` event for an unexpected error: if the event exists,
+ * the mint transaction committed (the driver may still have raised on the
+ * COMMIT acknowledgement), so a failure event would contradict the durable
+ * `succeeded` trail.
+ */
+export async function impersonationSucceededEventExists(params: {
   actorId: string;
   idempotencyKeyFingerprint: string;
-  requestFingerprint: string;
-}
-
-/**
- * True when an impersonation command result row has committed for the given
- * key. The command entry reconciles against this before publishing a `failed`
- * event for an unexpected error: if the row exists, the mint transaction
- * committed (the driver may still have raised on the COMMIT acknowledgement),
- * so a failure event would contradict the durable `succeeded` trail.
- */
-export async function committedImpersonationResultExists(
-  params: ImpersonationResultKey,
-): Promise<boolean> {
+  correlationId: string;
+}): Promise<boolean> {
   const rows = await db()
-    .select({id: adminCommandResults.id})
-    .from(adminCommandResults)
+    .select({id: authOutbox.id})
+    .from(authOutbox)
     .where(
       and(
-        eq(adminCommandResults.actorId, params.actorId),
-        eq(adminCommandResults.idempotencyKeyFingerprint, params.idempotencyKeyFingerprint),
-        eq(adminCommandResults.requestFingerprint, params.requestFingerprint),
-        eq(adminCommandResults.command, IMPERSONATE_COMMAND),
+        eq(authOutbox.eventType, ADMINISTRATION_ACTION_PERFORMED),
+        sql`${authOutbox.payload}->>'command' = ${IMPERSONATE_COMMAND}`,
+        sql`${authOutbox.payload}->>'actorId' = ${params.actorId}`,
+        sql`${authOutbox.payload}->>'idempotencyKeyFingerprint' = ${params.idempotencyKeyFingerprint}`,
+        sql`${authOutbox.payload}->>'correlationId' = ${params.correlationId}`,
+        sql`${authOutbox.payload}->>'result' = 'succeeded'`,
       ),
     )
     .limit(1);

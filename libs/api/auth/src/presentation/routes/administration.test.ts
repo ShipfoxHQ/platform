@@ -1654,6 +1654,46 @@ describe('Auth administration routes', () => {
     expect(blocked.statusCode).toBe(429);
   });
 
+  test('rate-limits an impersonated-session probe on the mint route before the guard rejects it', async () => {
+    const owner = await createVerifiedSession('impersonate-probe-owner');
+    const target = await createVerifiedSession('impersonate-probe-target');
+    const markedToken = await impersonatedToken(owner.userId, owner.email);
+
+    // The limiter runs ahead of the administration guard, so a marked-session
+    // probe consumes the `impersonate` buckets and is throttled (429) instead
+    // of being rejected by the guard first and bypassing the limiter (403).
+    await seedExhaustedIpBucket({
+      action: 'impersonate',
+      identifier: '127.0.0.1',
+      limit: 20,
+      windowSeconds: 15 * 60,
+    });
+    const ipBlocked = await app.inject({
+      method: 'POST',
+      url: `/admin/auth/users/${target.userId}/impersonate`,
+      headers: authHeaders(markedToken, 'impersonate-probe-mint'),
+      payload: {reason: 'Nested impersonation attempt'},
+    });
+    expect(ipBlocked.statusCode).toBe(429);
+
+    // The per-actor bucket is consumed the same way: the marked token's
+    // subject is the actor keying the bucket.
+    await seedExhaustedIpBucket({
+      action: 'impersonate',
+      scope: 'actor',
+      identifier: owner.userId,
+      limit: 20,
+      windowSeconds: 15 * 60,
+    });
+    const actorBlocked = await app.inject({
+      method: 'POST',
+      url: `/admin/auth/users/${target.userId}/impersonate`,
+      headers: authHeaders(markedToken, 'impersonate-probe-mint'),
+      payload: {reason: 'Nested impersonation attempt'},
+    });
+    expect(actorBlocked.statusCode).toBe(429);
+  });
+
   test('rejects an impersonated actor on the mint route before any side effect', async () => {
     const owner = await createVerifiedSession('impersonate-actor');
     const target = await createVerifiedSession('impersonate-actor-target');

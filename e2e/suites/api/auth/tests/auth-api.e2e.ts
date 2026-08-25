@@ -124,8 +124,10 @@ test(
         headers,
       });
       expect(members.status()).toBe(200);
-      const membersBody = (await members.json()) as {members: Array<{user: {id: string}}>};
-      expect(membersBody.members.some((member) => member.user.id === target.user.id)).toBe(true);
+      // The members response is the flat `membershipWithUserSchema`
+      // (`user_id`, `user_email`, `user_name`), not a nested `user` object.
+      const membersBody = (await members.json()) as {members: Array<{user_id: string}>};
+      expect(membersBody.members.some((member) => member.user_id === target.user.id)).toBe(true);
     });
 
     await test.step('rejects the marked session on every /admin route', async () => {

@@ -1,4 +1,8 @@
-import {AUTH_USER, adoptAdministrationActorGuard} from '@shipfox/api-auth-context';
+import {
+  AUTH_USER,
+  adoptAdministrationActorGuard,
+  requireAdministrationActor,
+} from '@shipfox/api-auth-context';
 import {
   adminBootstrapStateSchema,
   administratorUserLookupQuerySchema,
@@ -431,7 +435,18 @@ function createImpersonateUserRoute(workspaces: WorkspacesInterModuleClient) {
       body: impersonateUserBodySchema,
       response: {200: impersonateResponseSchema},
     },
-    preHandler: createAuthActorRateLimitPreHandler('impersonate'),
+    // The limiter runs ahead of the impersonated-session rejection: a request
+    // carrying an already-issued impersonated token must consume the
+    // `impersonate` IP and actor buckets instead of being rejected by the
+    // guard first, or marked-session probes would bypass the limiter entirely.
+    // The guard still runs before the authorization inside the command.
+    preHandler: [
+      createAuthActorRateLimitPreHandler('impersonate'),
+      (request) => {
+        requireAdministrationActor(request);
+        return undefined;
+      },
+    ],
     errorHandler: translateAdministrationError,
     handler: async (request) => {
       const client = getClientContext(request);
@@ -459,16 +474,21 @@ function createImpersonateUserRoute(workspaces: WorkspacesInterModuleClient) {
 
 export function createAdministrationUserRoutes(
   workspaces: WorkspacesInterModuleClient,
-): RouteGroup {
-  return adoptAdministrationActorGuard({
-    prefix: '/admin/auth/users',
-    auth: AUTH_USER,
-    routes: [
-      userLookupRoute,
-      suspendUserRoute,
-      reactivateUserRoute,
-      revokeUserSessionsRoute,
-      createImpersonateUserRoute(workspaces),
-    ],
-  });
+): RouteGroup[] {
+  return [
+    adoptAdministrationActorGuard({
+      prefix: '/admin/auth/users',
+      auth: AUTH_USER,
+      routes: [userLookupRoute, suspendUserRoute, reactivateUserRoute, revokeUserSessionsRoute],
+    }),
+    // The impersonate route mounts outside the adopted guard on purpose: its
+    // limiter must run before the impersonated-session rejection (see
+    // `createImpersonateUserRoute`), so the guard is applied positionally
+    // there. Every other route under `/admin/auth/users` keeps the adoption.
+    {
+      prefix: '/admin/auth/users',
+      auth: AUTH_USER,
+      routes: [createImpersonateUserRoute(workspaces)],
+    },
+  ];
 }

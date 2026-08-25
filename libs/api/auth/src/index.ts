@@ -129,7 +129,7 @@ export function createAuthModule({
       buildAuthRoutes(config.AUTH_PASSWORD_ENABLED, workspaces, signupPolicy),
       administrationBootstrapRoutes,
       administrationRoutes,
-      createAdministrationUserRoutes(workspaces),
+      ...createAdministrationUserRoutes(workspaces),
     ],
     e2eRoutes: [createAuthE2eRoutes(workspaces)],
     publishers: [{name: 'auth', table: authOutbox, db, eventSchemas: authPublisherEventSchemas}],

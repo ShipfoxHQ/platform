@@ -189,7 +189,7 @@ export async function createAuthTestApp(params?: {
       buildAuthRoutes(true, workspaces),
       administrationBootstrapRoutes,
       administrationRoutes,
-      createAdministrationUserRoutes(workspaces),
+      ...createAdministrationUserRoutes(workspaces),
     ],
     swagger: false,
   };
