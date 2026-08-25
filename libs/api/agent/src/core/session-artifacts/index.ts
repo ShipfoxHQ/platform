@@ -1,4 +1,4 @@
-export {sessionKeyProvider} from './composition.js';
+export {rotateAgentSessionDataKeys, sessionKeyProvider} from './composition.js';
 export {
   aadForSessionObject,
   decodeBase64SessionKek,
@@ -27,6 +27,11 @@ export {
   putSessionObject,
   sessionS3Client,
 } from './object-storage.js';
+export type {
+  RotateAgentSessionDataKeysOptions,
+  RotateAgentSessionDataKeysResult,
+} from './rotate-kek.js';
+export {rotateAgentSessionDataKeysWithProvider} from './rotate-kek.js';
 export type {
   CommitSessionSegmentParams,
   PutSessionSegmentParams,

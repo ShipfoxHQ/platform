@@ -135,6 +135,8 @@ Secret management routes should keep secret values write-only at the HTTP bounda
 
 Secret values use envelope encryption.
 
+`@shipfox/node-envelope-encryption` owns the shared cipher, key-provider, cache, and rotation mechanics. This module owns its KEK configuration, AAD, tables, metrics, and domain errors.
+
 - Each workspace has one 32-byte data-encryption key (DEK).
 - The DEK is generated with `crypto.randomBytes(32)` on first use.
 - The DEK is wrapped with the configured key-encryption key (KEK) and stored in `secrets_data_keys`.

@@ -271,6 +271,13 @@ export class AgentSessionUnavailableError extends Error {
   }
 }
 
+export class AgentSessionKekVersionStrandedError extends Error {
+  constructor(public readonly kekVersion: string) {
+    super(`Agent session data key is stranded on unknown KEK version: ${kekVersion}`);
+    this.name = 'AgentSessionKekVersionStrandedError';
+  }
+}
+
 export class CustomModelProviderStoredSecretBaseUrlChangeError extends Error {
   constructor(public readonly providerId: ModelProviderRef) {
     super(

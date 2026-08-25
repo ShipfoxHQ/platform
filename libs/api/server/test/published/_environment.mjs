@@ -43,7 +43,7 @@ export function publishedTestEnvironment() {
     LOG_STORAGE_S3_FORCE_PATH_STYLE: 'true',
     LOG_STORAGE_S3_REGION: 'garage',
     LOG_STORAGE_S3_SECRET_ACCESS_KEY: 'external-consumer-secret-key',
-    AGENT_SESSION_ENCRYPTION_KEK: 'ZmVkY2JhOTg3NjU0MzIxMGZlZGNiYTk4NzY1NDMyMTA=',
+    AGENT_SESSION_ENCRYPTION_KEK: 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=',
     AGENT_SESSION_STORAGE_S3_ACCESS_KEY_ID: 'external-consumer-access-key',
     AGENT_SESSION_STORAGE_S3_BUCKET: 'shipfox-agent-sessions',
     AGENT_SESSION_STORAGE_S3_ENDPOINT: 'http://127.0.0.1:3900',

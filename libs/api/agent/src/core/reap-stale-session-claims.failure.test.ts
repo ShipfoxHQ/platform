@@ -14,7 +14,12 @@ vi.mock('@shipfox/node-error-monitoring', () => ({reportError: reportErrorMock})
 
 vi.mock('@shipfox/node-opentelemetry', () => ({
   logger: () => ({error: loggerErrorMock}),
-  instanceMetrics: {getMeter: () => ({createCounter: () => ({add: vi.fn()})})},
+  instanceMetrics: {
+    getMeter: () => ({
+      createCounter: () => ({add: vi.fn()}),
+      createHistogram: () => ({record: vi.fn()}),
+    }),
+  },
 }));
 
 function staleRow(stepAttemptId: string | null) {

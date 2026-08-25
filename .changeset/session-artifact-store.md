@@ -1,5 +1,7 @@
 ---
-"@shipfox/api-agent": patch
+"@shipfox/api-agent": minor
+"@shipfox/api-secrets": patch
+"@shipfox/node-envelope-encryption": minor
 ---
 
-Persists encrypted agent session transcripts to object storage and adds a retention sweep that deletes expired sessions.
+Persists encrypted agent session transcripts, adds KEK rotation, and centralizes envelope-encryption infrastructure shared with Secrets.

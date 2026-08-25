@@ -65,6 +65,7 @@ const architecturePackages = {
       'libs/shared/node/drizzle',
       'libs/shared/node/egress-guard',
       'libs/shared/node/email',
+      'libs/shared/node/envelope-encryption',
       'libs/shared/node/error-monitoring',
       'libs/shared/node/fastify',
       'libs/shared/node/jwt',

@@ -1,17 +1,16 @@
 import {config} from '#config.js';
 import {decodeBase64SessionKek} from './crypto.js';
 import {createSessionKeyProvider, type SessionKeyProvider} from './key-provider.js';
+import {
+  type RotateAgentSessionDataKeysOptions,
+  rotateAgentSessionDataKeysWithProvider,
+} from './rotate-kek.js';
 
 let memoizedKeyProvider: SessionKeyProvider | undefined;
 
 /**
- * Production session-key provider built from configuration, mirroring the
- * secrets module's `keyProvider()` (`libs/api/secrets/src/core/index.ts`):
- * the current KEK (`AGENT_SESSION_ENCRYPTION_KEK`) wraps new DEKs, and the
- * previous KEK (`AGENT_SESSION_ENCRYPTION_KEK_PREVIOUS`), when set, keeps DEKs
- * wrapped before a rotation readable during the rotation window. Callers
- * compose this provider with a `SessionDekManager` and
- * `createSessionArtifactStore`.
+ * The current KEK wraps new session DEKs. The optional previous KEK keeps old
+ * wraps readable until `rotateAgentSessionDataKeys` finishes rewrapping them.
  */
 export function sessionKeyProvider(): SessionKeyProvider {
   if (memoizedKeyProvider) return memoizedKeyProvider;
@@ -25,4 +24,8 @@ export function sessionKeyProvider(): SessionKeyProvider {
       : undefined,
   );
   return memoizedKeyProvider;
+}
+
+export function rotateAgentSessionDataKeys(options: RotateAgentSessionDataKeysOptions = {}) {
+  return rotateAgentSessionDataKeysWithProvider(sessionKeyProvider(), options);
 }

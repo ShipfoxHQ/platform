@@ -28,6 +28,7 @@ import {AGENT_SESSION_LIFECYCLE_TASK_QUEUE} from '#temporal/constants.js';
 export {
   type AgentConfigResolutionContext,
   type AgentDefaultsResolver,
+  AgentSessionKekVersionStrandedError,
   type AgentWorkspaceSettings,
   buildModelProviderCatalog,
   type ContextualAgentConfig,
@@ -50,6 +51,7 @@ export {
   type ResolveRuntimeCredentialsParams,
   resolveAgentConfig,
   resolveRuntimeCredentials,
+  rotateAgentSessionDataKeys,
   testAndSaveModelProviderConfig,
   UnsupportedModelProviderError,
   updateCustomModelProviderConfig,

@@ -436,10 +436,7 @@
     "public.agent_model_provider_config_kind": {
       "name": "agent_model_provider_config_kind",
       "schema": "public",
-      "values": [
-        "builtin",
-        "custom"
-      ]
+      "values": ["builtin", "custom"]
     }
   },
   "schemas": {},

@@ -92,6 +92,7 @@
     "@shipfox/config": "workspace:*",
     "@shipfox/node-drizzle": "workspace:*",
     "@shipfox/node-egress-guard": "workspace:*",
+    "@shipfox/node-envelope-encryption": "workspace:*",
     "@shipfox/node-error-monitoring": "workspace:*",
     "@shipfox/node-fastify": "workspace:*",
     "@shipfox/node-module": "workspace:*",

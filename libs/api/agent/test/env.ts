@@ -6,7 +6,7 @@ process.env.POSTGRES_DATABASE = 'api_test';
 process.env.POSTGRES_MAX_CONNECTIONS ??= '5';
 process.env.TZ = 'UTC';
 process.env.SECRETS_ENCRYPTION_KEK = 'ZmVkY2JhOTg3NjU0MzIxMGZlZGNiYTk4NzY1NDMyMTA=';
-process.env.AGENT_SESSION_ENCRYPTION_KEK = 'ZmVkY2JhOTg3NjU0MzIxMGZlZGNiYTk4NzY1NDMyMTA=';
+process.env.AGENT_SESSION_ENCRYPTION_KEK = 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=';
 
 // Real Garage dev credentials (bootstrap.sh creates the shipfox-agent-sessions-test
 // bucket and grants this key). Artifact store tests upload to and read back from live

@@ -1,6 +1,7 @@
 import type {SupportedModelProviderId} from '@shipfox/api-agent-dto';
 import {instanceMetrics} from '@shipfox/node-opentelemetry';
 import {config} from '#config.js';
+import {AgentSessionKekVersionStrandedError} from '#core/errors.js';
 
 const meter = instanceMetrics.getMeter('agent');
 
@@ -57,3 +58,47 @@ export const sessionCommittedBytes = meter.createHistogram<Record<string, never>
     },
   },
 );
+
+export type SessionKekRotationOutcome =
+  | 'rotated'
+  | 'skipped_current'
+  | 'skipped_race'
+  | 'none'
+  | 'stranded'
+  | 'failure';
+
+const sessionKekRotationCount = meter.createCounter<{outcome: SessionKekRotationOutcome}>(
+  'agent_session_kek_rotation',
+  {description: 'Agent session data-key KEK rotation outcomes'},
+);
+
+const sessionKekRotationDuration = meter.createHistogram<{
+  outcome: SessionKekRotationOutcome;
+}>('agent_session_kek_rotation_duration', {
+  description: 'Agent session data-key KEK rotation duration',
+  unit: 'ms',
+  advice: {explicitBucketBoundaries: [10, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000]},
+});
+
+export function recordSessionKekRotation(params: {
+  outcome: SessionKekRotationOutcome;
+  count?: number | undefined;
+  durationMs?: number | undefined;
+}): void {
+  const count = params.count ?? 1;
+  if (count <= 0 && params.durationMs === undefined) return;
+
+  try {
+    if (count > 0) sessionKekRotationCount.add(count, {outcome: params.outcome});
+    if (params.durationMs !== undefined) {
+      sessionKekRotationDuration.record(params.durationMs, {outcome: params.outcome});
+    }
+  } catch {
+    // Metrics must not affect session-key rotation outcomes.
+  }
+}
+
+export function classifySessionKekRotationError(error: unknown): SessionKekRotationOutcome {
+  if (error instanceof AgentSessionKekVersionStrandedError) return 'stranded';
+  return 'failure';
+}

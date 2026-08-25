@@ -2030,6 +2030,9 @@ importers:
       '@shipfox/node-egress-guard':
         specifier: workspace:*
         version: link:../../shared/node/egress-guard
+      '@shipfox/node-envelope-encryption':
+        specifier: workspace:*
+        version: link:../../shared/node/envelope-encryption
       '@shipfox/node-error-monitoring':
         specifier: workspace:*
         version: link:../../shared/node/error-monitoring
@@ -4039,6 +4042,9 @@ importers:
       '@shipfox/node-drizzle':
         specifier: workspace:*
         version: link:../../shared/node/drizzle
+      '@shipfox/node-envelope-encryption':
+        specifier: workspace:*
+        version: link:../../shared/node/envelope-encryption
       '@shipfox/node-fastify':
         specifier: workspace:*
         version: link:../../shared/node/fastify
@@ -7130,6 +7136,24 @@ importers:
       '@types/mjml':
         specifier: 'catalog:'
         version: 5.0.0
+
+  libs/shared/node/envelope-encryption:
+    devDependencies:
+      '@shipfox/biome':
+        specifier: workspace:*
+        version: link:../../../../tools/biome
+      '@shipfox/swc':
+        specifier: workspace:*
+        version: link:../../../../tools/swc
+      '@shipfox/ts-config':
+        specifier: workspace:*
+        version: link:../../../../tools/ts-config
+      '@shipfox/typescript':
+        specifier: workspace:*
+        version: link:../../../../tools/typescript
+      '@shipfox/vitest':
+        specifier: workspace:*
+        version: link:../../../../tools/vitest
 
   libs/shared/node/error-monitoring:
     dependencies:

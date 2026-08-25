@@ -7,6 +7,7 @@ export {discoverCustomModelProviderModels} from './discover-custom-model-provide
 export type {AgentWorkspaceSettings} from './entities/agent-workspace-settings.js';
 export type {ModelProviderConfig} from './entities/model-provider-config.js';
 export {
+  AgentSessionKekVersionStrandedError,
   AgentSessionUnavailableError,
   type AgentSessionUnavailableReason,
   CustomModelProviderConfigNotFoundError,
@@ -87,6 +88,10 @@ export {
   parseSessionObjectKey,
   putSessionObject,
   type ReadSessionHeadResult,
+  type RotateAgentSessionDataKeysOptions,
+  type RotateAgentSessionDataKeysResult,
+  rotateAgentSessionDataKeys,
+  rotateAgentSessionDataKeysWithProvider,
   type SegmentManifest,
   type SessionArtifactStore,
   SessionDekManager,

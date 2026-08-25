@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import {BINARY_ENVELOPE_OVERHEAD_BYTES} from '@shipfox/node-envelope-encryption';
 import {AgentSessionUnavailableError} from '#core/errors.js';
 import {
   aadForSessionDek,
@@ -94,7 +95,7 @@ describe('session artifact envelope crypto', () => {
     );
   });
 
-  it('round-trips a sealed blob in raw binary form', () => {
+  it('round-trips a sealed blob in the versioned binary format', () => {
     const dek = crypto.randomBytes(32);
     const aad = aadForSessionObject({
       workspaceId: 'workspace-1',
@@ -104,8 +105,7 @@ describe('session artifact envelope crypto', () => {
     const plaintext = crypto.randomBytes(1024);
 
     const sealed = sealSessionBlob({key: dek, plaintext, aad});
-    // Raw binary: iv (12) + auth tag (16) + ciphertext, no base64 expansion.
-    expect(sealed.length).toBe(28 + plaintext.length);
+    expect(sealed.length).toBe(BINARY_ENVELOPE_OVERHEAD_BYTES + plaintext.length);
 
     expect(openSessionBlob({key: dek, sealed, aad})).toEqual(plaintext);
   });

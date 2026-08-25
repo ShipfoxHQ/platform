@@ -13,6 +13,9 @@ export {
 export {
   getSessionDataKey,
   insertSessionDataKeyIfAbsent,
+  listSessionDataKeysPage,
+  listSessionDataKeyVersions,
+  updateSessionDataKeyWrapCas,
 } from './data-keys.js';
 export {closeDb, db, schema, type Transaction} from './db.js';
 export type {

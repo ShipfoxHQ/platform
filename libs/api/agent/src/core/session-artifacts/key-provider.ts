@@ -1,6 +1,10 @@
-import crypto from 'node:crypto';
+import {
+  createLocalKeyProvider,
+  DataKeyUnwrapError,
+  DataKeyWrapError,
+  deriveLocalKeyVersion,
+} from '@shipfox/node-envelope-encryption';
 import {AgentSessionUnavailableError} from '../errors.js';
-import {aadForSessionDek, openSessionDek, sealSessionDek} from './crypto.js';
 
 const KEK_VERSION_DOMAIN = 'shipfox-agent-session-kek-version';
 
@@ -9,14 +13,8 @@ export interface WrappedSessionDek {
   kekVersion: string;
 }
 
-/**
- * Wraps and unwraps per-workspace session data-encryption keys under the
- * session-artifact KEK, mirroring the secrets store's `KeyProvider`
- * (`libs/api/secrets/src/core/key-provider.ts`).
- */
 export interface SessionKeyProvider {
   readonly currentKeyVersion: string;
-  /** KEK version from the previous rotation window; null when never rotated. */
   readonly previousKeyVersion: string | null;
   wrapDek(workspaceId: string, plaintextDek: Buffer): WrappedSessionDek;
   unwrapDek(workspaceId: string, wrappedDek: string, kekVersion: string): Buffer;
@@ -26,51 +24,37 @@ export function createSessionKeyProvider(
   currentKek: Buffer,
   previousKek?: Buffer | undefined,
 ): SessionKeyProvider {
-  const currentKeyVersion = deriveSessionKekVersion(currentKek);
-  const previousKeyVersion = previousKek ? deriveSessionKekVersion(previousKek) : null;
-
+  const provider = createLocalKeyProvider({
+    currentKek,
+    previousKek,
+    keyVersionDomain: KEK_VERSION_DOMAIN,
+  });
   return {
-    currentKeyVersion,
-    previousKeyVersion,
+    currentKeyVersion: provider.currentKeyVersion,
+    previousKeyVersion: provider.previousKeyVersion,
     wrapDek(workspaceId, plaintextDek) {
       try {
-        return {
-          wrappedDek: sealSessionDek({
-            key: currentKek,
-            plaintext: plaintextDek,
-            aad: aadForSessionDek(workspaceId, currentKeyVersion),
-          }),
-          kekVersion: currentKeyVersion,
-        };
-      } catch {
-        throw new AgentSessionUnavailableError('encryption_failed');
+        return provider.wrapDek(workspaceId, plaintextDek);
+      } catch (error) {
+        if (error instanceof DataKeyWrapError) {
+          throw new AgentSessionUnavailableError('encryption_failed');
+        }
+        throw error;
       }
     },
     unwrapDek(workspaceId, wrappedDek, kekVersion) {
-      // Select the wrapping KEK by the recorded version so DEKs wrapped under
-      // the previous KEK stay readable during the rotation window, exactly as
-      // the secrets store's key provider does.
-      const key =
-        kekVersion === currentKeyVersion
-          ? currentKek
-          : kekVersion === previousKeyVersion
-            ? previousKek
-            : undefined;
-      if (!key) throw new AgentSessionUnavailableError('decryption_failed');
       try {
-        return openSessionDek({
-          key,
-          encoded: wrappedDek,
-          aad: aadForSessionDek(workspaceId, kekVersion),
-        });
-      } catch {
-        throw new AgentSessionUnavailableError('decryption_failed');
+        return provider.unwrapDek(workspaceId, wrappedDek, kekVersion);
+      } catch (error) {
+        if (error instanceof DataKeyUnwrapError) {
+          throw new AgentSessionUnavailableError('decryption_failed');
+        }
+        throw error;
       }
     },
   };
 }
 
 export function deriveSessionKekVersion(kek: Buffer): string {
-  const hash = crypto.createHash('sha256').update(KEK_VERSION_DOMAIN).update(kek).digest('hex');
-  return `local:${hash.slice(0, 16)}`;
+  return deriveLocalKeyVersion(kek, KEK_VERSION_DOMAIN);
 }
