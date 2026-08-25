@@ -34,6 +34,13 @@ const workflows = {
     workspaceId: crypto.randomUUID(),
     integrations: [],
   }),
+  getLeasedAgentSessionContext: async () => ({
+    workspaceId: crypto.randomUUID(),
+    projectId: crypto.randomUUID(),
+    workflowRunAttemptId: crypto.randomUUID(),
+    stepAttemptId: crypto.randomUUID(),
+    session: null,
+  }),
 };
 
 describe('dispatchIntegrationEvent resilience to history-write failure', () => {

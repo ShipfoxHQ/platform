@@ -21,6 +21,7 @@ import {
 const mocks = vi.hoisted(() => ({
   deliverEventToListener: vi.fn(),
   getJobScope: vi.fn(),
+  getStepAttemptDetail: vi.fn(),
   getStepById: vi.fn(),
   getStepByIdForJobExecution: vi.fn(),
   listStepAttemptIdsByJobId: vi.fn(),
@@ -49,6 +50,7 @@ describe('Workflows inter-module presentation', () => {
   beforeEach(() => {
     mocks.getJobScope.mockReset();
     mocks.listStepAttemptIdsByJobId.mockReset();
+    mocks.getStepAttemptDetail.mockReset();
     mocks.getStepById.mockReset();
     mocks.getStepByIdForJobExecution.mockReset();
     mocks.deliverEventToListener.mockReset();
@@ -159,6 +161,160 @@ describe('Workflows inter-module presentation', () => {
       jobId: input.jobId,
       jobExecutionId: input.jobExecutionId,
       runnerSessionId: input.runnerSessionId,
+    });
+  });
+
+  describe('getLeasedAgentSessionContext', () => {
+    const input = {
+      jobId: '00000000-0000-4000-8000-000000000006',
+      jobExecutionId: '00000000-0000-4000-8000-000000000007',
+      runnerSessionId: '00000000-0000-4000-8000-000000000008',
+      stepId: '00000000-0000-4000-8000-000000000009',
+      attempt: 1,
+    };
+
+    const method = workflowsInterModuleContract.methods.getLeasedAgentSessionContext;
+
+    function presentation(runners: {getLeaseState: ReturnType<typeof vi.fn>}) {
+      return createWorkflowsInterModulePresentation({
+        agent: {} as never,
+        definitions: {} as never,
+        integrations: {} as never,
+        projects: {} as never,
+        runners: runners as never,
+        secrets: {} as never,
+        workspaces: {getWorkspaceOperatingState: vi.fn()} as never,
+      });
+    }
+
+    async function expectKnownError(call: Promise<unknown> | unknown, code: string): Promise<void> {
+      try {
+        await call;
+        throw new Error(`Expected contract error ${code}, but the call succeeded`);
+      } catch (error) {
+        expect(isInterModuleKnownError(method, error) && (error as {code: string}).code).toBe(code);
+      }
+    }
+
+    function arrangeRunningAgentStep() {
+      mocks.getStepByIdForJobExecution.mockResolvedValue({
+        currentAttempt: input.attempt,
+        status: 'running',
+        type: 'agent',
+        config: {},
+      });
+      mocks.getJobScope.mockResolvedValue({
+        workspaceId: '00000000-0000-4000-8000-000000000010',
+        projectId: '00000000-0000-4000-8000-000000000011',
+      });
+    }
+
+    it('returns the recorded session descriptor with the resolved scope', async () => {
+      const stepAttemptId = '00000000-0000-4000-8000-000000000012';
+      const sessionId = '00000000-0000-4000-8000-000000000013';
+      arrangeRunningAgentStep();
+      mocks.getStepAttemptDetail.mockResolvedValue({
+        workflowRunId: '00000000-0000-4000-8000-000000000014',
+        workflowRunAttemptId: '00000000-0000-4000-8000-000000000015',
+        step: {},
+        attempt: {
+          id: stepAttemptId,
+          config: {
+            session: {id: sessionId, key: 'main', mode: 'resume', segment: 3},
+          },
+        },
+      });
+      const runners = {getLeaseState: vi.fn().mockResolvedValue({active: true})};
+
+      const result = await presentation(runners).handlers.getLeasedAgentSessionContext(input, {
+        signal: new AbortController().signal,
+      });
+
+      expect(result).toEqual({
+        workspaceId: '00000000-0000-4000-8000-000000000010',
+        projectId: '00000000-0000-4000-8000-000000000011',
+        workflowRunAttemptId: '00000000-0000-4000-8000-000000000015',
+        stepAttemptId,
+        session: {id: sessionId, key: 'main', mode: 'resume', segment: 3},
+      });
+      expect(mocks.getStepAttemptDetail).toHaveBeenCalledWith({
+        stepId: input.stepId,
+        attempt: input.attempt,
+      });
+    });
+
+    it('returns a null session when the step has no recorded descriptor', async () => {
+      arrangeRunningAgentStep();
+      mocks.getStepAttemptDetail.mockResolvedValue({
+        workflowRunId: '00000000-0000-4000-8000-000000000014',
+        workflowRunAttemptId: '00000000-0000-4000-8000-000000000015',
+        step: {},
+        attempt: {id: '00000000-0000-4000-8000-000000000012', config: null},
+      });
+      const runners = {getLeaseState: vi.fn().mockResolvedValue({active: true})};
+
+      const result = await presentation(runners).handlers.getLeasedAgentSessionContext(input, {
+        signal: new AbortController().signal,
+      });
+
+      expect(result.session).toBeNull();
+    });
+
+    it('fails fast when the lease is not active', async () => {
+      arrangeRunningAgentStep();
+      const runners = {getLeaseState: vi.fn().mockResolvedValue({active: false})};
+
+      await expectKnownError(
+        presentation(runners).handlers.getLeasedAgentSessionContext(input, {
+          signal: new AbortController().signal,
+        }),
+        'lease-not-active',
+      );
+      expect(mocks.getStepAttemptDetail).not.toHaveBeenCalled();
+    });
+
+    it('rejects a malformed recorded descriptor', async () => {
+      arrangeRunningAgentStep();
+      mocks.getStepAttemptDetail.mockResolvedValue({
+        workflowRunId: '00000000-0000-4000-8000-000000000014',
+        workflowRunAttemptId: '00000000-0000-4000-8000-000000000015',
+        step: {},
+        attempt: {
+          id: '00000000-0000-4000-8000-000000000012',
+          config: {session: {id: 'not-a-uuid', key: 'main', mode: 'resume', segment: 1}},
+        },
+      });
+      const runners = {getLeaseState: vi.fn().mockResolvedValue({active: true})};
+
+      await expectKnownError(
+        presentation(runners).handlers.getLeasedAgentSessionContext(input, {
+          signal: new AbortController().signal,
+        }),
+        'step-session-config-invalid',
+      );
+    });
+
+    test.each([
+      ['step-not-found', undefined],
+      ['step-attempt-mismatch', {currentAttempt: 2, status: 'running', type: 'agent'}],
+      ['step-not-running', {currentAttempt: 1, status: 'succeeded', type: 'agent'}],
+      ['leased-step-not-agent', {currentAttempt: 1, status: 'running', type: 'run'}],
+    ] as const)('maps a %s step to the published contract error', async (code, step) => {
+      const runners = {getLeaseState: vi.fn().mockResolvedValue({active: true})};
+      mocks.getStepByIdForJobExecution.mockResolvedValue(step);
+      if (step !== undefined) {
+        mocks.getJobScope.mockResolvedValue({
+          workspaceId: '00000000-0000-4000-8000-000000000010',
+          projectId: '00000000-0000-4000-8000-000000000011',
+        });
+      }
+
+      await expectKnownError(
+        presentation(runners).handlers.getLeasedAgentSessionContext(input, {
+          signal: new AbortController().signal,
+        }),
+        code,
+      );
     });
   });
 

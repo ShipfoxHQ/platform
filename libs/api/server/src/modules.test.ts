@@ -246,6 +246,7 @@ describe('defaultModules', () => {
           contract: workflowsInterModuleContract,
           handlers: {
             deliverEventToJobListener: vi.fn(),
+            getLeasedAgentSessionContext: vi.fn(),
             getLeasedAgentToolContext: vi.fn(),
             getStepLogContext: vi.fn(),
             listJobStepAttempts: vi.fn(),

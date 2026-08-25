@@ -1,4 +1,7 @@
-import {materializedAgentStepConfigSchema} from '@shipfox/api-agent-dto';
+import {
+  agentSessionDescriptorSchema,
+  materializedAgentStepConfigSchema,
+} from '@shipfox/api-agent-dto';
 import type {AgentInterModuleClient} from '@shipfox/api-agent-dto/inter-module';
 import type {DefinitionsInterModuleClient} from '@shipfox/api-definitions-dto/inter-module';
 import type {IntegrationsModuleClient} from '@shipfox/api-integration-core-dto/inter-module';
@@ -34,6 +37,7 @@ import {resolveWorkflowRunTriggerReference} from '#core/resolve-trigger-referenc
 import {assertWorkspaceAdmitsNewJobs} from '#core/workspace-admission.js';
 import {
   getJobScope,
+  getStepAttemptDetail,
   getStepById,
   getStepByIdForJobExecution,
   listStepAttemptIdsByJobId,
@@ -189,6 +193,58 @@ export function createWorkflowsInterModulePresentation(params: {
         throw createInterModuleKnownError(method, 'agent-step-config-invalid', {});
       }
       return {workspaceId: scope.workspaceId, integrations: config.data.integrations ?? []};
+    },
+    getLeasedAgentSessionContext: async (input) => {
+      const method = workflowsInterModuleContract.methods.getLeasedAgentSessionContext;
+      const {active: leaseIsActive} = await params.runners.getLeaseState({
+        jobId: input.jobId,
+        jobExecutionId: input.jobExecutionId,
+        runnerSessionId: input.runnerSessionId,
+      });
+      if (!leaseIsActive) throw createInterModuleKnownError(method, 'lease-not-active', {});
+
+      const step = await getStepByIdForJobExecution({
+        stepId: input.stepId,
+        jobExecutionId: input.jobExecutionId,
+      });
+      if (!step) throw createInterModuleKnownError(method, 'step-not-found', {});
+      if (step.currentAttempt !== input.attempt) {
+        throw createInterModuleKnownError(method, 'step-attempt-mismatch', {});
+      }
+      if (step.status !== 'running')
+        throw createInterModuleKnownError(method, 'step-not-running', {});
+      if (step.type !== 'agent')
+        throw createInterModuleKnownError(method, 'leased-step-not-agent', {});
+
+      const scope = await getJobScope(input.jobId);
+      if (!scope) throw createInterModuleKnownError(method, 'job-not-found', {});
+
+      const detail = await getStepAttemptDetail({stepId: input.stepId, attempt: input.attempt});
+      if (!detail) throw createInterModuleKnownError(method, 'step-attempt-mismatch', {});
+
+      // The dispatch integration records the resolved descriptor on the step
+      // attempt's config; anything else is a recording we cannot trust.
+      const recorded = detail.attempt.config?.session;
+      if (recorded === undefined || recorded === null) {
+        return {
+          workspaceId: scope.workspaceId,
+          projectId: scope.projectId,
+          workflowRunAttemptId: detail.workflowRunAttemptId,
+          stepAttemptId: detail.attempt.id,
+          session: null,
+        };
+      }
+      const parsed = agentSessionDescriptorSchema.safeParse(recorded);
+      if (!parsed.success) {
+        throw createInterModuleKnownError(method, 'step-session-config-invalid', {});
+      }
+      return {
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        workflowRunAttemptId: detail.workflowRunAttemptId,
+        stepAttemptId: detail.attempt.id,
+        session: parsed.data,
+      };
     },
   });
 }

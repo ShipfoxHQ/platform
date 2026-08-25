@@ -1,4 +1,8 @@
-import {harnessSchema, materializedAgentIntegrationSchema} from '@shipfox/api-agent-dto';
+import {
+  agentSessionDescriptorSchema,
+  harnessSchema,
+  materializedAgentIntegrationSchema,
+} from '@shipfox/api-agent-dto';
 import {workflowModelSnapshotSchema} from '@shipfox/api-definitions-dto';
 import {defineInterModuleContract, type InterModuleClient} from '@shipfox/inter-module';
 import {z} from 'zod';
@@ -188,6 +192,41 @@ export const workflowsInterModuleContract = defineInterModuleContract({
         'step-not-running': z.object({}),
         'leased-step-not-agent': z.object({}),
         'agent-step-config-invalid': z.object({}),
+      },
+    },
+    /**
+     * Lease resolution for the agent module's session transcript routes, the
+     * `getStepLogContext` equivalent for sessions: verifies the lease and the
+     * running agent step, and returns the scope plus the session descriptor
+     * recorded on the step attempt at dispatch (`null` for steps without a
+     * session). Table, objects, and crypto stay inside the agent module; this
+     * method is the workflows-owned half of the resolution.
+     */
+    getLeasedAgentSessionContext: {
+      input: z.object({
+        jobId: idSchema,
+        jobExecutionId: idSchema,
+        runnerSessionId: idSchema,
+        stepId: idSchema,
+        attempt: z.number().int().positive(),
+      }),
+      output: z.object({
+        workspaceId: idSchema,
+        projectId: idSchema,
+        workflowRunAttemptId: idSchema,
+        /** Step attempt the lease resolved to; the claim/commit discriminator. */
+        stepAttemptId: idSchema,
+        /** Resolved session descriptor recorded on the step attempt; null when the step has no session. */
+        session: agentSessionDescriptorSchema.nullable(),
+      }),
+      errors: {
+        'lease-not-active': z.object({}),
+        'step-not-found': z.object({}),
+        'job-not-found': z.object({}),
+        'step-attempt-mismatch': z.object({}),
+        'step-not-running': z.object({}),
+        'leased-step-not-agent': z.object({}),
+        'step-session-config-invalid': z.object({}),
       },
     },
   },

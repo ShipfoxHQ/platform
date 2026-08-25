@@ -149,6 +149,25 @@ export {
   claudeRuntimeConfigSchema,
 } from './runtime-config.js';
 export {
+  type AgentSessionDescriptorDto,
+  agentSessionDescriptorSchema,
+  type CommitSessionTranscriptQueryDto,
+  type CommitSessionTranscriptResponseDto,
+  commitSessionTranscriptQuerySchema,
+  commitSessionTranscriptResponseSchema,
+  SESSION_TRANSCRIPT_CONTENT_TYPE,
+  SESSION_TRANSCRIPT_HARNESS_HEADER,
+  SESSION_TRANSCRIPT_HARNESS_SESSION_ID_HEADER,
+  SESSION_TRANSCRIPT_MODEL_HEADER,
+  SESSION_TRANSCRIPT_PROVIDER_HEADER,
+  SESSION_TRANSCRIPT_SDK_VERSION_HEADER,
+  SESSION_TRANSCRIPT_SEGMENT_HEADER,
+  type SessionCommitConflictResponseDto,
+  type SessionTranscriptQueryDto,
+  sessionCommitConflictResponseSchema,
+  sessionTranscriptQuerySchema,
+} from './session-transcript.js';
+export {
   type SetDefaultHarnessBodyDto,
   type SetDefaultHarnessResponseDto,
   setDefaultHarnessBodySchema,

@@ -70,6 +70,7 @@ export {
 } from './resolve-runtime-credentials.js';
 export {
   rotateAgentSessionDataKeys,
+  sessionArtifactStore,
   sessionKeyProvider,
 } from './session-artifacts/composition.js';
 export {

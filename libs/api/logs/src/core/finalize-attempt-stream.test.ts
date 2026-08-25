@@ -102,6 +102,7 @@ describe('finalizeAttemptLogStream', () => {
         getStepLogContext: () => ({harness: 'claude' as const}),
         listJobStepAttempts: vi.fn(),
         getLeasedAgentToolContext: vi.fn(),
+        getLeasedAgentSessionContext: vi.fn(),
       }),
     }).workflows;
     const body = ndjsonBody(
