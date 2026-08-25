@@ -65,7 +65,9 @@ This glossary defines the core terms used in Shipfox documentation and in the pr
   </Accordion>
 
   <Accordion title="Model">
-    The AI model used by an agent step (for example, `claude-opus-4-8`, `gpt-5.5-pro`). Specified with the `model` field on an agent step. When omitted, the model is resolved at runtime from the workspace provider configuration. Model catalog validation happens at runtime, not at parse time. See [Model Providers](/reference/model-providers).
+    `model` selects an agent model, such as `gpt-5.6-luna`. The [workspace
+    provider](/reference/model-providers) supplies a default. Shipfox validates
+    the model at runtime.
   </Accordion>
 
   <Accordion title="Pipeline">

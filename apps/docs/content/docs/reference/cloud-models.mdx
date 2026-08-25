@@ -1,0 +1,73 @@
+---
+title: "Shipfox Cloud Agent Models Reference"
+sidebarTitle: "Agent Models"
+description: "All agent models available on Shipfox Cloud."
+---
+
+Shipfox Cloud provides the following managed models for agent steps. Use the
+exact `model` ID when selecting one in workflow YAML.
+
+<Callout title="Self-hosted providers" type="info">
+    Self-hosted installations must configure [model providers](/reference/model-providers).
+</Callout>
+
+## Model selection
+
+```yaml title=".shipfox/workflows/review-repository.yml"
+# yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
+name: Review the repository
+runner: shipfox
+
+triggers:
+  manual:
+    source: manual
+
+jobs:
+  review:
+    steps:
+      - model: gpt-5.6-luna
+        prompt: |
+          Review the repository and summarize the main risks.
+          Do not change any files.
+```
+
+For every agent field, see the [workflow schema
+reference](/reference/workflow-schema#agent-step-fields).
+
+## Available models
+
+| Model | `model` ID |
+| --- | --- |
+| Claude Fable 5 | `claude-fable-5` |
+| Claude Opus 5 | `claude-opus-5` |
+| Claude Opus 4.8 | `claude-opus-4.8` |
+| Claude Opus 4.7 | `claude-opus-4.7` |
+| Claude Opus 4.6 | `claude-opus-4.6` |
+| Claude Sonnet 5 | `claude-sonnet-5` |
+| Claude Sonnet 4.6 | `claude-sonnet-4.6` |
+| Claude Sonnet 4.5 | `claude-sonnet-4.5` |
+| Claude Haiku 4.5 | `claude-haiku-4.5` |
+| GPT-5.6 Luna | `gpt-5.6-luna` |
+| GPT-5.6 Terra | `gpt-5.6-terra` |
+| GPT-5.6 Sol | `gpt-5.6-sol` |
+| GPT-5.5 | `gpt-5.5` |
+| GPT-5.5 pro | `gpt-5.5-pro` |
+| GPT-5.4 | `gpt-5.4` |
+| GPT-5.4 nano | `gpt-5.4-nano` |
+| GPT-5.4 mini | `gpt-5.4-mini` |
+| GPT-5.4 pro | `gpt-5.4-pro` |
+| DeepSeek V4 Flash (0731) | `deepseek-v4-flash-0731` |
+| DeepSeek V4 Pro (0813) | `deepseek-v4-pro-0813` |
+| DeepSeek V4 Pro | `deepseek-v4-pro` |
+| GLM-5.2 | `glm-5.2` |
+| GLM-5.1 | `glm-5.1` |
+| Kimi K3 | `kimi-k3` |
+| Kimi K2.7 Code | `kimi-k2.7-code` |
+| Kimi K2.6 | `kimi-k2.6` |
+| Qwen3.8 2.4T A95B | `qwen3.8-2.4t-a95b` |
+| Qwen3.6 35 B A3B | `qwen3.6-35b-a3b` |
+| Qwen3.5 397 B A17B | `qwen3.5-397b-a17b` |
+| MiMo V2.5 Pro | `mimo-v2.5-pro` |
+| MiniMax M2.7 | `minimax-m2.7` |
+| MiniMax M2.7 Turbo | `minimax-m2.7-turbo` |
+| MiniMax M3 | `minimax-m3` |

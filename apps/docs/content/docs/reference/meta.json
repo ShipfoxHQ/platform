@@ -3,6 +3,7 @@
   "pages": [
     "index",
     "workflow-schema",
+    "cloud-models",
     "runner-labels",
     "contexts",
     "expressions",
