@@ -351,7 +351,7 @@ describe('normalizeToolStep', () => {
 
     expect(error.issues).toEqual([
       expect.objectContaining({
-        code: 'tool-input-invalid',
+        code: 'tool-output-invalid',
         path: ['jobs', 'use', 'steps', 0, 'outputs', 'title'],
       }),
     ]);
@@ -375,8 +375,32 @@ describe('normalizeToolStep', () => {
 
     expect(error.issues).toEqual([
       expect.objectContaining({
-        code: 'tool-input-invalid',
+        code: 'tool-output-invalid',
         path: ['jobs', 'use', 'steps', 0, 'outputs', 'x'],
+      }),
+    ]);
+  });
+
+  it('rejects a non-string output mapping value', () => {
+    const error = expectInvalid(
+      toolDocument(
+        toolStep({
+          key: 'issue',
+          tool: 'get_issue',
+          connection: 'linear-main',
+          with: {id: 'ENG-1'},
+          // The declaration form is not valid on a tool step: every value must
+          // be a single interpolation expression string.
+          outputs: {ts: {type: 'string'}},
+        }),
+      ),
+      {integrationValidationContext},
+    );
+
+    expect(error.issues).toEqual([
+      expect.objectContaining({
+        code: 'tool-output-invalid',
+        path: ['jobs', 'use', 'steps', 0, 'outputs', 'ts'],
       }),
     ]);
   });
@@ -418,7 +442,7 @@ describe('normalizeToolStep', () => {
 
     expect(error.issues).toEqual([
       expect.objectContaining({
-        code: 'tool-input-invalid',
+        code: 'tool-output-invalid',
         message: 'The "result" output is reserved for the tool result and cannot be redeclared.',
         path: ['jobs', 'use', 'steps', 0, 'outputs', 'result'],
       }),
@@ -589,6 +613,52 @@ describe('normalizeToolStep', () => {
       expect.objectContaining({
         code: 'unknown-integration-tool',
         message: 'Unknown integration tool: get_issue.get.',
+        path: ['jobs', 'use', 'steps', 0, 'tool'],
+      }),
+    ]);
+  });
+
+  it('rejects a tool id with a second dot in family.method', () => {
+    const error = expectInvalid(
+      toolDocument(
+        toolStep({
+          tool: 'issue_write.update.extra',
+          connection: 'github-main',
+        }),
+      ),
+      {integrationValidationContext},
+    );
+
+    expect(error.issues).toEqual([
+      expect.objectContaining({
+        code: 'tool-id-invalid',
+        message:
+          'Tool id "issue_write.update.extra" must be a standalone tool id or "family.method" with a single dot.',
+        path: ['jobs', 'use', 'steps', 0, 'tool'],
+      }),
+      // The split still names a family with an unknown method, so the catalog
+      // lookup adds its own diagnostic on top of the structural rejection.
+      expect.objectContaining({
+        code: 'unknown-integration-tool',
+        path: ['jobs', 'use', 'steps', 0, 'tool'],
+      }),
+    ]);
+  });
+
+  it('rejects a tool id with a second dot without an integration context', () => {
+    const error = expectInvalid(
+      toolDocument(
+        toolStep({
+          tool: 'issue_write.update.extra',
+        }),
+      ),
+    );
+
+    expect(error.issues).toEqual([
+      expect.objectContaining({
+        code: 'tool-id-invalid',
+        message:
+          'Tool id "issue_write.update.extra" must be a standalone tool id or "family.method" with a single dot.',
         path: ['jobs', 'use', 'steps', 0, 'tool'],
       }),
     ]);

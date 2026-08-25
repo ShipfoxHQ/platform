@@ -873,14 +873,22 @@ const workflowDocumentStepBaseSchema = z.strictObject({
   agent: z.unknown().optional().meta({
     description: 'Reserved keyword. It is rejected; use `prompt` to define an agent step.',
   }),
-  tool: z.string().min(1).optional().meta({
-    description:
-      'Literal integration tool id for a tool step. It is rejected; tool steps are not available yet.',
-  }),
-  connection: z.string().min(1).optional().meta({
-    description:
-      'Literal integration connection slug for a tool step. It is rejected; tool steps are not available yet.',
-  }),
+  tool: literalNameSchema(
+    'Tool id must be literal. Interpolation is rejected so the catalog entry can be frozen at materialization and validated at sync.',
+  )
+    .optional()
+    .meta({
+      description:
+        'Literal integration tool id for a tool step. It is rejected; tool steps are not available yet.',
+    }),
+  connection: literalNameSchema(
+    'Connection slug must be literal. Interpolation is rejected so the connection can be frozen at materialization and validated at sync.',
+  )
+    .optional()
+    .meta({
+      description:
+        'Literal integration connection slug for a tool step. It is rejected; tool steps are not available yet.',
+    }),
   with: workflowDocumentToolStepWithSchema.optional(),
   gate: workflowDocumentStepGateSchema.optional().meta({
     description: 'Success gate and optional restart behavior after the step runs.',

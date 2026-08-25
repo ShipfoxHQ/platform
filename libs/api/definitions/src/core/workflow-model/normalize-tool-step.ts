@@ -54,7 +54,12 @@ export function normalizeToolStep(params: {
   typeOverlay?: ExpressionTypeEnvironment | undefined;
   integrationValidationContext?: IntegrationValidationContext | undefined;
 }): NormalizedToolStep {
-  const tool = splitToolId(params.step.tool);
+  const tool = splitToolId({
+    source: params.step.tool,
+    sourceName: params.sourceName,
+    stepIndex: params.stepIndex,
+    issues: params.issues,
+  });
   const catalogEntry = validateConnectionAndTool({
     ...params,
     tool,
@@ -113,11 +118,28 @@ export function normalizeToolStep(params: {
   };
 }
 
-function splitToolId(source: string | undefined): {readonly id: string; readonly method?: string} {
-  const toolId = source ?? '';
+function splitToolId(params: {
+  source: string | undefined;
+  sourceName: string;
+  stepIndex: number;
+  issues: WorkflowModelValidationIssue[];
+}): {readonly id: string; readonly method?: string} {
+  const toolId = params.source ?? '';
   const dotIndex = toolId.indexOf('.');
   if (dotIndex < 1 || dotIndex === toolId.length - 1) return {id: toolId};
-  return {id: toolId.slice(0, dotIndex), method: toolId.slice(dotIndex + 1)};
+
+  const method = toolId.slice(dotIndex + 1);
+  if (method.includes('.')) {
+    params.issues.push(
+      issue({
+        code: 'tool-id-invalid',
+        message: `Tool id "${toolId}" must be a standalone tool id or "family.method" with a single dot.`,
+        path: toolIdPath(params),
+        details: {tool: toolId},
+      }),
+    );
+  }
+  return {id: toolId.slice(0, dotIndex), method};
 }
 
 function validateConnectionAndTool(params: {
@@ -313,7 +335,7 @@ function normalizeOutputMappings(params: {
     if (key === 'result') {
       params.issues.push(
         issue({
-          code: 'tool-input-invalid',
+          code: 'tool-output-invalid',
           message: 'The "result" output is reserved for the tool result and cannot be redeclared.',
           path: ['jobs', params.sourceName, 'steps', params.stepIndex, 'outputs', key],
           details: {output: key},
@@ -325,7 +347,7 @@ function normalizeOutputMappings(params: {
     if (typeof source !== 'string') {
       params.issues.push(
         issue({
-          code: 'tool-input-invalid',
+          code: 'tool-output-invalid',
           message: `Tool step output "${key}" must be a mapping of keys to exactly one $${'{{ }}'} expression.`,
           path: ['jobs', params.sourceName, 'steps', params.stepIndex, 'outputs', key],
           details: {output: key},
@@ -345,7 +367,7 @@ function normalizeOutputMappings(params: {
     if (template === undefined || template.length !== 1 || template[0]?.kind !== 'deferred') {
       params.issues.push(
         issue({
-          code: 'tool-input-invalid',
+          code: 'tool-output-invalid',
           message: `Tool step output mapping "${key}" must be exactly one $${'{{ }}'} expression over "result" or "vars".`,
           path: ['jobs', params.sourceName, 'steps', params.stepIndex, 'outputs', key],
           details: {output: key, source},

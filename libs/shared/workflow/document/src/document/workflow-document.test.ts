@@ -1303,6 +1303,24 @@ describe('workflowDocumentSchema', () => {
   });
 
   it.each([
+    ['tool', {tool: interpolation('steps.setup.outputs.tool_id')}],
+    ['connection', {connection: interpolation('inputs.connection')}],
+  ] as const)('rejects an interpolated tool step %s as non-literal', (_field, step) => {
+    const result = workflowDocumentSchema.safeParse({
+      name: 'tool build',
+      jobs: {fix: {steps: [step]}},
+    });
+
+    const messages = result.success ? [] : result.error.issues.map((issue) => issue.message);
+    expect(
+      messages.some(
+        (message) =>
+          message.includes('must be literal') && message.includes('Interpolation is rejected'),
+      ),
+    ).toBe(true);
+  });
+
+  it.each([
     ['run step connection', {run: 'npm test', connection: 'slack_acme'}, 'connection'],
     ['agent step with', {prompt: 'Review the change.', with: {channel_id: 'C0ABC12345'}}, 'with'],
     [

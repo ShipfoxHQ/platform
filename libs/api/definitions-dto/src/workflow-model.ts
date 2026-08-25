@@ -71,8 +71,9 @@ export type WorkflowJsonValue =
 
 /**
  * A mirror of the `with` tree where every interpolated string leaf is replaced
- * by its parsed template. Leaves without a template stay `undefined`, so the
- * tree keeps the authored structure for later resolution.
+ * by its parsed template. Fully-literal children are pruned: object entries
+ * without a template disappear from the tree, while arrays keep positional
+ * `undefined` so indices stay aligned with the authored payload.
  */
 export type WorkflowJsonTemplateTree =
   | WorkflowFieldTemplate
