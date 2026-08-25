@@ -1,12 +1,13 @@
-import {AnnotationCard, QueryLoadError, type QueryLoadErrorQuery} from '@shipfox/client-ui';
+import {QueryLoadError, type QueryLoadErrorQuery} from '@shipfox/client-ui';
 import {Button} from '@shipfox/react-ui/button';
-import {Callout} from '@shipfox/react-ui/callout';
+import {Callout, CalloutContent} from '@shipfox/react-ui/callout';
 import {EmptyState} from '@shipfox/react-ui/empty-state';
+import {PanelBody, PanelRow} from '@shipfox/react-ui/panel';
 import {Skeleton} from '@shipfox/react-ui/skeleton';
 import {Text} from '@shipfox/react-ui/typography';
-import {useState} from 'react';
+import {type ReactNode, useState} from 'react';
 import type {RunAnnotationEntry, RunAnnotationStyle} from '#core/run-annotation.js';
-import {RunAnnotationItem} from './run-annotation-item.js';
+import {RunAnnotationItem, RunDerivedAnnotationItem} from './run-annotation-item.js';
 import {RunAnnotationsEmpty} from './run-annotations-empty.js';
 
 export interface RunAnnotationListQuery extends QueryLoadErrorQuery {
@@ -31,13 +32,12 @@ export interface RunAnnotationListProps {
   filteredSeverity?: string | undefined;
   filtered: boolean;
   onClearFilters?: (() => void) | undefined;
-  /** Annotation id from `?annotation=`, which the matching card scrolls to and focuses. */
-  selectedAnnotationId?: string | undefined;
 }
 
 export interface DerivedRunAnnotation {
   id: string;
   style: RunAnnotationStyle;
+  jobName: string;
   body: string;
 }
 
@@ -51,7 +51,11 @@ export interface DerivedRunAnnotation {
 const RENDER_WINDOW = 25;
 
 /**
- * The annotations list.
+ * The annotations list, and the whole body of the panel it sits in.
+ *
+ * It owns the panel body rather than being dropped into a padded one, because each of its
+ * states wants a different treatment: rows are flush cells divided by hairlines, an empty state
+ * fills the body, and the banners above and below the rows are bands with their own padding.
  *
  * Loading, empty, error, and stale are four distinct renderings on purpose: coalescing a failed
  * fetch into an empty result tells a reader their run is clean when the truth is unknown.
@@ -68,31 +72,28 @@ export function RunAnnotationList({
   filteredSeverity,
   filtered,
   onClearFilters,
-  selectedAnnotationId,
 }: RunAnnotationListProps) {
   const [visibleCount, setVisibleCount] = useState(RENDER_WINDOW);
-
-  // A deep-linked annotation past the window would otherwise be unreachable: it is in the data,
-  // absent from the DOM, and nothing on screen says so.
-  const selectedIndex = selectedAnnotationId
-    ? (entries?.findIndex((entry) => entry.annotation.id === selectedAnnotationId) ?? -1)
-    : -1;
-  const renderCount = Math.max(visibleCount, selectedIndex + 1);
 
   if (query.isPending) return <RunAnnotationListSkeleton />;
 
   if (query.isError && entries === undefined) {
-    return <QueryLoadError query={query} subject="annotations" icon="fileDamageLine" />;
+    return (
+      <PanelBody className="p-panel">
+        <QueryLoadError query={query} subject="annotations" icon="fileDamageLine" />
+      </PanelBody>
+    );
   }
 
   if (entries === undefined) return <RunAnnotationListSkeleton />;
 
-  const visible = entries.slice(0, renderCount);
+  const visible = entries.slice(0, visibleCount);
   const hiddenCount = entries.length - visible.length;
-  const hasContent = entries.length > 0 || derivedAnnotations.length > 0;
+  const totalCount = entries.length + derivedAnnotations.length;
+  const hasContent = totalCount > 0;
 
   return (
-    <div className="flex min-w-0 flex-col gap-cluster">
+    <>
       {query.isError ? <RunAnnotationStaleError query={query} /> : null}
 
       {!hasContent ? (
@@ -107,50 +108,70 @@ export function RunAnnotationList({
           <RunAnnotationsEmpty />
         )
       ) : (
-        <ol className="flex min-w-0 flex-col gap-cluster">
-          {visible.map((entry) => (
-            <RunAnnotationItem
-              key={entry.annotation.id}
-              entry={entry}
-              workspaceSlug={workspaceSlug}
-              projectSlug={projectSlug}
-              workflowRunId={workflowRunId}
-              runAttempt={runAttempt}
-              selected={entry.annotation.id === selectedAnnotationId}
-            />
-          ))}
-          {derivedAnnotations.map((annotation) => (
-            <li key={annotation.id}>
-              <AnnotationCard style={annotation.style} body={annotation.body} />
-            </li>
-          ))}
-        </ol>
+        <PanelBody asChild>
+          <ol>
+            {/* A job that failed before it ever created an execution is the most upstream thing
+                in the run, and it has no step to link to. It leads rather than trailing behind a
+                render window that could bury it. */}
+            {derivedAnnotations.map((annotation) => (
+              <RunDerivedAnnotationItem
+                key={annotation.id}
+                style={annotation.style}
+                jobName={annotation.jobName}
+                body={annotation.body}
+              />
+            ))}
+            {visible.map((entry) => (
+              <RunAnnotationItem
+                key={entry.annotation.id}
+                entry={entry}
+                workspaceSlug={workspaceSlug}
+                projectSlug={projectSlug}
+                workflowRunId={workflowRunId}
+                runAttempt={runAttempt}
+              />
+            ))}
+          </ol>
+        </PanelBody>
       )}
 
       {hiddenCount > 0 ? (
-        <Button
-          type="button"
-          size="sm"
-          variant="secondary"
-          className="self-start [@media(pointer:coarse)]:min-h-44"
-          onClick={() => setVisibleCount((current) => current + RENDER_WINDOW)}
-        >
-          Show {Math.min(hiddenCount, RENDER_WINDOW)} more of {entries.length}
-        </Button>
+        <RunAnnotationListFooter>
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            className="[@media(pointer:coarse)]:min-h-44"
+            onClick={() => setVisibleCount((current) => current + RENDER_WINDOW)}
+          >
+            Show {Math.min(hiddenCount, RENDER_WINDOW)} more of {totalCount}
+          </Button>
+        </RunAnnotationListFooter>
       ) : query.hasNextPage ? (
-        <Button
-          type="button"
-          size="sm"
-          variant="secondary"
-          className="self-start [@media(pointer:coarse)]:min-h-44"
-          isLoading={query.isFetchingNextPage}
-          onClick={() => {
-            void query.fetchNextPage();
-          }}
-        >
-          Load more annotations
-        </Button>
+        <RunAnnotationListFooter>
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            className="[@media(pointer:coarse)]:min-h-44"
+            isLoading={query.isFetchingNextPage}
+            onClick={() => {
+              void query.fetchNextPage();
+            }}
+          >
+            Load more annotations
+          </Button>
+        </RunAnnotationListFooter>
       ) : null}
+    </>
+  );
+}
+
+/** A band below the rows, separated by the same hairline that divides them. */
+function RunAnnotationListFooter({children}: {children: ReactNode}) {
+  return (
+    <div className="flex border-t border-border-neutral-base bg-background-neutral-base px-row py-row">
+      {children}
     </div>
   );
 }
@@ -202,24 +223,25 @@ function RunAnnotationsFilteredEmpty({
   onClearFilters: (() => void) | undefined;
 }) {
   return (
-    <div className="flex flex-col items-center gap-cluster">
-      <EmptyState
-        icon="fileDamageLine"
-        title={incomplete ? 'No matches in loaded annotations' : 'No matching annotations'}
-        description={filteredEmptyDescription({jobName, severity, incomplete})}
-      />
-      {onClearFilters ? (
-        <Button
-          type="button"
-          size="sm"
-          variant="secondary"
-          className="[@media(pointer:coarse)]:min-h-44"
-          onClick={onClearFilters}
-        >
-          Clear filters
-        </Button>
-      ) : null}
-    </div>
+    <EmptyState
+      variant="panel"
+      icon="fileDamageLine"
+      title={incomplete ? 'No matches in loaded annotations' : 'No matching annotations'}
+      description={filteredEmptyDescription({jobName, severity, incomplete})}
+      action={
+        onClearFilters ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            className="[@media(pointer:coarse)]:min-h-44"
+            onClick={onClearFilters}
+          >
+            Clear filters
+          </Button>
+        ) : null
+      }
+    />
   );
 }
 
@@ -227,26 +249,31 @@ function RunAnnotationsFilteredEmpty({
  * A failed poll keeps the annotations already on screen and marks them stale rather than
  * clearing. Polite rather than assertive: the poll runs every 4s and a flapping API would
  * otherwise interrupt a screen reader on every cycle.
+ *
+ * A band inside the panel rather than a bordered notice, because the hairline below it already
+ * separates it from the rows and a second frame would be a box inside a box.
  */
 function RunAnnotationStaleError({query}: {query: QueryLoadErrorQuery}) {
   return (
-    <Callout role="status" aria-live="polite" type="error">
-      <div className="flex w-full items-center justify-between gap-inline">
-        <Text size="xs">Could not refresh annotations.</Text>
-        <Button
-          type="button"
-          size="2xs"
-          variant="secondary"
-          className="[@media(pointer:coarse)]:min-h-44"
-          isLoading={query.isFetching}
-          onClick={() => {
-            void query.refetch();
-          }}
-        >
-          Retry
-        </Button>
-      </div>
-    </Callout>
+    <div className="border-b border-border-neutral-base bg-background-neutral-base px-row py-row">
+      <Callout role="status" aria-live="polite" type="error" variant="secondary">
+        <CalloutContent className="flex items-center justify-between gap-inline">
+          <Text size="xs">Could not refresh annotations.</Text>
+          <Button
+            type="button"
+            size="2xs"
+            variant="secondary"
+            className="[@media(pointer:coarse)]:min-h-44"
+            isLoading={query.isFetching}
+            onClick={() => {
+              void query.refetch();
+            }}
+          >
+            Retry
+          </Button>
+        </CalloutContent>
+      </Callout>
+    </div>
   );
 }
 
@@ -254,20 +281,25 @@ const ANNOTATION_SKELETON_ROWS = ['first', 'second', 'third'];
 
 function RunAnnotationListSkeleton() {
   return (
-    <section aria-label="Loading annotations" className="flex flex-col gap-cluster">
-      {ANNOTATION_SKELETON_ROWS.map((row) => (
-        <div
-          key={row}
-          className="flex gap-cluster rounded-8 border border-border-neutral-base bg-background-components-base px-[12px] py-[8px]"
-        >
-          <Skeleton className="h-40 w-4 rounded-full" />
-          <div className="flex min-w-0 flex-1 flex-col gap-inline">
-            <Skeleton className="h-20 w-160 rounded-4" />
-            <Skeleton className="h-16 w-240 rounded-4" />
-            <Skeleton className="h-40 w-full rounded-4" />
-          </div>
-        </div>
-      ))}
-    </section>
+    <PanelBody asChild>
+      <ul aria-label="Loading annotations" role="status">
+        {ANNOTATION_SKELETON_ROWS.map((row) => (
+          <PanelRow
+            asChild
+            key={row}
+            className="items-start justify-start gap-cluster hover:bg-background-neutral-base"
+          >
+            <li>
+              <Skeleton className="size-16 shrink-0 rounded-full" />
+              <div className="flex min-w-0 flex-1 flex-col gap-inline">
+                <Skeleton className="h-20 w-160 rounded-4" />
+                <Skeleton className="h-16 w-240 rounded-4" />
+                <Skeleton className="h-40 w-full rounded-4" />
+              </div>
+            </li>
+          </PanelRow>
+        ))}
+      </ul>
+    </PanelBody>
   );
 }

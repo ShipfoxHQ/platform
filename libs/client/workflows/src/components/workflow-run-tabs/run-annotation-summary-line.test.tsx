@@ -94,15 +94,6 @@ describe('RunAnnotationSummaryLine', () => {
     expect(screen.queryByRole('link')).not.toBeInTheDocument();
   });
 
-  test('clears a stale annotation when linking to a severity', async () => {
-    await renderSummaryLine({annotation: 'annotation-old'});
-
-    expect(screen.getByRole('link', {name: '2 errors'})).toHaveAttribute(
-      'href',
-      '/w/acme/p/project/runs/run-1?tab=annotations&severity=error',
-    );
-  });
-
   test('marks a truncated read as a lower bound', async () => {
     await renderSummaryLine({}, {...ANNOTATION_SUMMARY, truncated: true});
 

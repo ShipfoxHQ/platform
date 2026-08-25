@@ -3,6 +3,7 @@ import {EmptyState} from '@shipfox/react-ui/empty-state';
 export function RunAnnotationsEmpty({jobName}: {jobName?: string | undefined} = {}) {
   return (
     <EmptyState
+      variant="panel"
       icon="fileDamageLine"
       title="No annotations"
       description={

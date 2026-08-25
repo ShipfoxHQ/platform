@@ -1,12 +1,28 @@
 import {AnnotationCard} from '@shipfox/client-ui';
 import {Button} from '@shipfox/react-ui/button';
 import {Icon} from '@shipfox/react-ui/icon';
+import {PanelRow} from '@shipfox/react-ui/panel';
 import {Text} from '@shipfox/react-ui/typography';
-import {cn} from '@shipfox/react-ui/utils';
 import {Link} from '@tanstack/react-router';
-import {useEffect, useRef} from 'react';
-import type {RunAnnotationEntry} from '#core/run-annotation.js';
+import type {ReactNode} from 'react';
+import type {RunAnnotationEntry, RunAnnotationStyle} from '#core/run-annotation.js';
 import {workflowJobSearchParams} from '#routes/inputs.js';
+
+/**
+ * Annotations are cells inside the run's annotations panel, separated by the panel's own
+ * hairlines. `items-start` because a row holds a block of Markdown rather than a single line,
+ * and the row hover fill is cancelled because the row is not itself a target: the only thing to
+ * open is the button inside it.
+ */
+const ANNOTATION_ROW_CLASS =
+  'items-start justify-start gap-cluster hover:bg-background-neutral-base';
+
+/**
+ * The server mints `failure:step:<uuid>` and `failure:job:<uuid>` for annotations it derives
+ * from a failure. Those are routing keys, not something a reader named, and the row already
+ * links to the step they point at.
+ */
+const GENERATED_CONTEXT = /^failure:(?:job|step):/;
 
 export interface RunAnnotationItemProps {
   entry: RunAnnotationEntry;
@@ -14,15 +30,14 @@ export interface RunAnnotationItemProps {
   projectSlug?: string | undefined;
   workflowRunId: string;
   runAttempt?: number | undefined;
-  /** Deep-link target from `?annotation=`, which takes focus rather than only being scrolled to. */
-  selected?: boolean | undefined;
 }
 
 /**
  * One annotation, and the only place in the product that renders an annotation body.
  *
- * The title is the annotation's `context`, which is what the emitting step named the block.
- * Everything below it exists so a reader can get from a diagnostic back to its cause.
+ * The heading answers "what is this", which is the block the emitting step named when it chose
+ * one, and the job that produced it otherwise. Everything below it exists so a reader can get
+ * from a diagnostic back to its cause.
  */
 export function RunAnnotationItem({
   entry,
@@ -30,43 +45,19 @@ export function RunAnnotationItem({
   projectSlug,
   workflowRunId,
   runAttempt,
-  selected = false,
 }: RunAnnotationItemProps) {
   const {annotation, origin} = entry;
   const canLink = Boolean(origin && workspaceSlug && projectSlug);
-  const itemRef = useRef<HTMLLIElement>(null);
-  const focusedRef = useRef(false);
-
-  useEffect(() => {
-    if (!selected) {
-      focusedRef.current = false;
-      return;
-    }
-    if (focusedRef.current) return;
-
-    // A deep link that only scrolls leaves a keyboard or screen-reader user at the document
-    // start while the page moves under them.
-    focusedRef.current = true;
-    itemRef.current?.focus({preventScroll: true});
-    itemRef.current?.scrollIntoView({block: 'nearest'});
-  }, [selected]);
+  const namedContext = GENERATED_CONTEXT.test(annotation.context) ? null : annotation.context;
+  const title = namedContext ?? entry.jobName ?? annotation.context;
 
   return (
-    <li
-      ref={itemRef}
-      tabIndex={-1}
-      aria-current={selected ? 'true' : undefined}
-      className={cn(
-        'rounded-8 outline-none focus-visible:shadow-border-interactive-with-active',
-        selected && 'shadow-border-interactive-with-active',
-      )}
-    >
+    <AnnotationRow>
       <AnnotationCard
-        id={annotationElementId(annotation.id)}
         style={annotation.style}
-        title={annotation.context}
+        title={title}
         titleAs="h3"
-        provenance={<RunAnnotationProvenance entry={entry} />}
+        provenance={<RunAnnotationProvenance entry={entry} showJobName={Boolean(namedContext)} />}
         body={annotation.body}
         action={
           canLink && origin ? (
@@ -100,24 +91,88 @@ export function RunAnnotationItem({
           ) : null
         }
       />
-    </li>
+    </AnnotationRow>
   );
 }
 
-/** `job · execution #2 · run tests · attempt 1`, dropping any part the run no longer resolves. */
-function RunAnnotationProvenance({entry}: {entry: RunAnnotationEntry}) {
-  const parts = [entry.jobName, entry.executionLabel, entry.stepLabel, entry.attemptLabel].filter(
-    (part): part is string => Boolean(part),
+export interface RunDerivedAnnotationItemProps {
+  style: RunAnnotationStyle;
+  jobName: string;
+  body: string;
+}
+
+/**
+ * A terminal job that never created an execution record.
+ *
+ * It has no step to link to and no context of its own, so it is titled by its job and says
+ * plainly that no execution exists. It renders in the same row as every other annotation, since
+ * a job that failed before it started is a diagnostic like any other, and often the first one
+ * worth reading.
+ */
+export function RunDerivedAnnotationItem({style, jobName, body}: RunDerivedAnnotationItemProps) {
+  return (
+    <AnnotationRow>
+      <AnnotationCard
+        style={style}
+        title={jobName}
+        titleAs="h3"
+        provenance={
+          <Text
+            as="p"
+            size="xs"
+            className="min-w-0 truncate font-code text-foreground-neutral-subtle"
+          >
+            no execution recorded
+          </Text>
+        }
+        body={body}
+      />
+    </AnnotationRow>
   );
+}
+
+function AnnotationRow({children}: {children: ReactNode}) {
+  return (
+    <PanelRow asChild className={ANNOTATION_ROW_CLASS}>
+      <li>{children}</li>
+    </PanelRow>
+  );
+}
+
+/**
+ * `execution #2 · run tests · attempt 1`, dropping any part the run no longer resolves.
+ *
+ * Held to one line. A step with no `name` is labelled by its prompt, which arrives already cut
+ * by the server, and letting that sprawl over three wrapped lines presents a severed sentence as
+ * if it were a complete label. Truncating says the value was cut; the title attribute returns
+ * the rest.
+ */
+function RunAnnotationProvenance({
+  entry,
+  showJobName,
+}: {
+  entry: RunAnnotationEntry;
+  showJobName: boolean;
+}) {
+  const parts = [
+    showJobName ? entry.jobName : null,
+    entry.executionLabel,
+    entry.stepLabel,
+    entry.attemptLabel,
+  ].filter((part): part is string => Boolean(part));
+
+  if (parts.length === 0) return null;
+
+  const label = parts.join(' · ');
 
   return (
-    <Text as="p" size="xs" className="min-w-0 break-words font-code text-foreground-neutral-subtle">
-      {parts.join(' · ')}
+    <Text
+      as="p"
+      size="xs"
+      title={label}
+      className="min-w-0 truncate font-code text-foreground-neutral-subtle"
+    >
+      {label}
     </Text>
   );
-}
-
-/** Stable element id so `?annotation=<id>` can scroll to and highlight one annotation. */
-export function annotationElementId(annotationId: string): string {
-  return `run-annotation-${annotationId}`;
 }

@@ -130,18 +130,11 @@ function SeverityLink({
     return <span className="inline-flex items-center gap-tight">{content}</span>;
   }
 
-  const searchWithoutAnnotation = withoutAnnotation(search);
-
   return (
     <Link
       to="/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId"
       params={{workspaceSlug, projectSlug, workflowRunId}}
-      search={
-        workflowRunSearchParams(
-          {...searchWithoutAnnotation, tab: 'annotations', severity},
-          search,
-        ) as never
-      }
+      search={workflowRunSearchParams({...search, tab: 'annotations', severity}, search) as never}
       className="inline-flex items-center gap-tight rounded-4 outline-none hover:underline focus-visible:shadow-border-interactive-with-active"
     >
       {content}
@@ -149,15 +142,8 @@ function SeverityLink({
   );
 }
 
-/** A selected annotation is stale the moment the list it was chosen from is refiltered. */
-function withoutAnnotation(search: WorkflowRunsSearch): WorkflowRunsSearch {
-  const next = {...search};
-  delete next.annotation;
-  return next;
-}
-
 function withoutSeverity(search: WorkflowRunsSearch): WorkflowRunsSearch {
-  const next = withoutAnnotation(search);
+  const next = {...search};
   delete next.severity;
   return next;
 }

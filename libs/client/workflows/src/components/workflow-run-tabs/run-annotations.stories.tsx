@@ -1,3 +1,4 @@
+import {Panel, PanelHeader} from '@shipfox/react-ui/panel';
 import type {Meta, StoryObj} from '@storybook/react';
 import type {ReactNode} from 'react';
 import {
@@ -14,7 +15,11 @@ import {
   workflowStepDto,
 } from '#test/fixtures/workflow-run.js';
 import {RunAnnotationCountChip} from './run-annotation-count-chip.js';
-import {RunAnnotationList, type RunAnnotationListQuery} from './run-annotation-list.js';
+import {
+  type DerivedRunAnnotation,
+  RunAnnotationList,
+  type RunAnnotationListQuery,
+} from './run-annotation-list.js';
 import {RunAnnotationSummaryLine} from './run-annotation-summary-line.js';
 
 const WORKSPACE_SLUG = 'acme';
@@ -37,6 +42,12 @@ const LONG_BODY = [
     (_unused, index) => `- \`packages/web/src/route-${index}.test.ts\` expected 200, received 503`,
   ),
 ].join('\n');
+
+/**
+ * An agent step with no `name` is labelled by its prompt, which the server has already cut.
+ * The row must hold that to one line rather than letting a severed sentence sprawl.
+ */
+const UNNAMED_AGENT_STEP = 'claude-fable-5 · Reply to this prompt with exactly "Hello world". Then';
 
 const meta = {
   title: 'Workflows/RunAnnotations',
@@ -68,6 +79,15 @@ export const Playground: Story = {
         originStepId: TEST_STEP_ID,
         body: '2 specs retried before passing.\n\n| Spec | Retries |\n| --- | --- |\n| `checkout.spec.ts` | 1 |\n| `billing.spec.ts` | 2 |',
       }),
+      // No context of its own: the server minted the key from the failing step, so the row falls
+      // back to naming its job.
+      annotation({
+        id: 'a5',
+        context: `failure:step:${BUILD_STEP_ID}`,
+        style: 'error',
+        sequence: 5,
+        body: '**Step failed**\n\nReason: `agent_config_invalid`\nExit code: `none`\n\nHarness "claude" only supports provider "anthropic"; received "shipfox".',
+      }),
       annotation({
         id: 'a3',
         context: 'deploy',
@@ -84,17 +104,23 @@ export const Playground: Story = {
       }),
     ];
 
-    return <AnnotationsFrame annotations={annotations} />;
+    return (
+      <AnnotationsFrame
+        annotations={annotations}
+        derivedAnnotations={[
+          {
+            id: 'derived-deploy',
+            style: 'warning',
+            jobName: 'deploy production',
+            body: 'Skipped before an execution was created.\n\nReview its dependencies or condition before re-running.\nReason: `dependency_failed`',
+          },
+        ]}
+      />
+    );
   },
 };
 
 export const BoundedBody: Story = {
-  // The only story in this package that earns a second Argos mode. The clamp's fade is the one
-  // gradient in the client, and it blends a surface token that flips with the theme, so a
-  // dark-only capture would never catch it breaking on a light card.
-  parameters: {
-    argos: {modes: {dark: {theme: 'dark'}, light: {theme: 'light'}}},
-  },
   render: () => (
     <AnnotationsFrame
       annotations={[
@@ -130,12 +156,50 @@ export const DataStates: Story = {
         <StateExample label="Filtered miss">
           <AnnotationsList annotations={[]} filtered filteredJobName="build" />
         </StateExample>
-        <StateExample label="Truncated counts">
-          <RunAnnotationSummaryLine
-            summary={{...summarizeRunAnnotations(loaded), total: 500, error: 12, truncated: true}}
-            workspaceSlug={WORKSPACE_SLUG}
-            projectSlug={PROJECT_SLUG}
-            workflowRunId={RUN_ID}
+        {/* A filtered miss while a page is still unread says so, and offers the fetch that could
+            still find a match. The two states share a panel and must not read as the same one. */}
+        <StateExample label="Filtered miss, page unread">
+          <AnnotationsList
+            annotations={[]}
+            filtered
+            filteredSeverity="error"
+            query={storyQuery({hasNextPage: true})}
+          />
+        </StateExample>
+        {/* The footer band against the last row: `border-t` meeting `last:border-b-0` is one
+            hairline or two, and only a capture with rows above it shows which.
+            The sibling "Show N more of M" band is the same chrome with a different label, and its
+            counting is pinned by a unit test, so it is not captured here at 25 rows. */}
+        <StateExample label="Another page to load">
+          <AnnotationsList
+            annotations={[
+              annotation({id: 'p1', context: 'deploy', style: 'success'}),
+              annotation({id: 'p2', context: 'coverage', style: 'info', sequence: 2}),
+            ]}
+            query={storyQuery({hasNextPage: true})}
+          />
+        </StateExample>
+        {/* `default` carries no severity, so it is the one style with a neutral glyph and nothing
+            announced to a screen reader. */}
+        <StateExample label="No severity">
+          <AnnotationsList
+            annotations={[annotation({id: 'plain', context: 'release notes', style: 'default'})]}
+          />
+        </StateExample>
+        <StateExample label="Unnamed agent step">
+          <AnnotationsList
+            annotations={[
+              annotation({
+                id: 'unnamed',
+                context: `failure:step:${TEST_STEP_ID}`,
+                style: 'error',
+                jobId: TEST_JOB_ID,
+                jobExecutionId: TEST_EXECUTION_ID,
+                originStepId: TEST_STEP_ID,
+                body: 'Reason: `agent_config_invalid`',
+              }),
+            ]}
+            jobs={jobsWithUnnamedAgentStep}
           />
         </StateExample>
       </div>
@@ -166,45 +230,82 @@ export const CountChips: Story = {
   ),
 };
 
-function AnnotationsFrame({annotations}: {annotations: RunAnnotationRecord[]}) {
+function AnnotationsFrame({
+  annotations,
+  derivedAnnotations,
+}: {
+  annotations: RunAnnotationRecord[];
+  derivedAnnotations?: readonly DerivedRunAnnotation[];
+}) {
   return (
-    <div className="min-h-screen bg-background-neutral-base py-16">
-      <div className="mx-auto flex w-full max-w-[1120px] flex-col gap-16 px-24">
-        <RunAnnotationSummaryLine
+    <div className="min-h-screen bg-background-subtle-base py-16">
+      <div className="mx-auto flex w-full max-w-[1120px] flex-col px-24">
+        <AnnotationsList
+          annotations={annotations}
+          derivedAnnotations={derivedAnnotations}
           summary={summarizeRunAnnotations(annotations)}
-          workspaceSlug={WORKSPACE_SLUG}
-          projectSlug={PROJECT_SLUG}
-          workflowRunId={RUN_ID}
         />
-        <AnnotationsList annotations={annotations} />
       </div>
     </div>
   );
 }
 
+/**
+ * The list is the body of a panel, so every story renders it inside one. Capturing it loose on
+ * the canvas would hide the thing most likely to break: whether its rows read as cells of the
+ * panel or as tiles floating inside it.
+ */
 function AnnotationsList({
   annotations,
+  derivedAnnotations,
+  jobs: jobsOverride,
   query = storyQuery(),
   filtered = false,
   filteredJobName,
+  filteredSeverity,
+  summary,
 }: {
   annotations: RunAnnotationRecord[];
+  derivedAnnotations?: readonly DerivedRunAnnotation[];
+  jobs?: Job[];
   query?: RunAnnotationListQuery;
   filtered?: boolean;
   filteredJobName?: string;
+  filteredSeverity?: string;
+  summary?: ReturnType<typeof summarizeRunAnnotations>;
 }) {
+  const resolvedJobs = jobsOverride ?? jobs;
+
   return (
-    <RunAnnotationList
-      query={query}
-      entries={query.data === undefined ? undefined : buildRunAnnotationList({annotations, jobs})}
-      workspaceSlug={WORKSPACE_SLUG}
-      projectSlug={PROJECT_SLUG}
-      workflowRunId={RUN_ID}
-      runAttempt={1}
-      filtered={filtered}
-      filteredJobName={filteredJobName}
-      onClearFilters={() => undefined}
-    />
+    <Panel>
+      {summary ? (
+        <PanelHeader className="flex-wrap">
+          <RunAnnotationSummaryLine
+            summary={summary}
+            workspaceSlug={WORKSPACE_SLUG}
+            projectSlug={PROJECT_SLUG}
+            workflowRunId={RUN_ID}
+          />
+        </PanelHeader>
+      ) : null}
+      <RunAnnotationList
+        query={query}
+        entries={
+          query.data === undefined
+            ? undefined
+            : buildRunAnnotationList({annotations, jobs: resolvedJobs})
+        }
+        derivedAnnotations={derivedAnnotations}
+        workspaceSlug={WORKSPACE_SLUG}
+        projectSlug={PROJECT_SLUG}
+        workflowRunId={RUN_ID}
+        runAttempt={1}
+        filtered={filtered}
+        filteredJobName={filteredJobName}
+        filteredSeverity={filteredSeverity}
+        onClearFilters={() => undefined}
+      />
+    </Panel>
   );
 }
 
@@ -282,6 +383,31 @@ const jobs: Job[] = [
           workflowStepDto({
             id: TEST_STEP_ID,
             name: 'vitest',
+            attempts: [
+              workflowStepAttemptDto({id: TEST_ATTEMPT_ID, step_id: TEST_STEP_ID, attempt: 1}),
+            ],
+          }),
+        ],
+      }),
+    ],
+  }),
+];
+
+const jobsWithUnnamedAgentStep: Job[] = [
+  jobs[0] as Job,
+  workflowJob({
+    id: TEST_JOB_ID,
+    key: 'test',
+    name: 'Hello world on Anthropic models with Claude',
+    position: 1,
+    job_executions: [
+      workflowJobExecutionDto({
+        id: TEST_EXECUTION_ID,
+        job_id: TEST_JOB_ID,
+        steps: [
+          workflowStepDto({
+            id: TEST_STEP_ID,
+            name: UNNAMED_AGENT_STEP,
             attempts: [
               workflowStepAttemptDto({id: TEST_ATTEMPT_ID, step_id: TEST_STEP_ID, attempt: 1}),
             ],

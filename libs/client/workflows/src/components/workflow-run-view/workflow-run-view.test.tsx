@@ -223,30 +223,6 @@ describe('WorkflowRunView', () => {
     expect(screen.queryByRole('button', {name: SHOW_MORE_PATTERN})).not.toBeInTheDocument();
   });
 
-  test('focuses a deep-linked annotation beyond the render window', async () => {
-    const deepLinkedId = 'aaaaaaaa-aaaa-4aaa-8aaa-000000000029';
-    configureRunFetch(
-      Array.from({length: 30}, (_unused, index) =>
-        annotationDto({
-          id:
-            index === 29
-              ? deepLinkedId
-              : `aaaaaaaa-aaaa-4aaa-8aaa-${String(index).padStart(12, '0')}`,
-          context: `context-${index}`,
-          sequence: index + 1,
-        }),
-      ),
-    );
-
-    renderView({tab: 'annotations', selection: {annotation: deepLinkedId}});
-
-    const target = await screen.findByRole('heading', {level: 3, name: 'context-29'});
-    const selected = target.closest('li');
-    await waitFor(() => expect(selected).toHaveFocus());
-    expect(selected).toHaveAttribute('aria-current', 'true');
-    expect(selected).toHaveClass('shadow-border-interactive-with-active');
-  });
-
   test('separates a filtered miss from a run with no annotations', async () => {
     configureRunFetch([annotationDto({id: ANNOTATION_ID_ONE, context: 'coverage', style: 'info'})]);
 
@@ -290,7 +266,6 @@ describe('WorkflowRunView', () => {
         stepId: BUILD_STEP_ID,
         stepAttemptId: BUILD_ATTEMPT_ID,
         severity: 'error',
-        annotation: ANNOTATION_ID_ONE,
       },
     });
 

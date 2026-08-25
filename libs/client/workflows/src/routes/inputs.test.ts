@@ -121,9 +121,10 @@ describe('the job detail URL contract', () => {
   });
 
   test('accepts known tabs and annotation severities while dropping unknown values', () => {
-    expect(
-      validateWorkflowRunsSearch({tab: 'annotations', annotation: 'run-1', severity: 'error'}),
-    ).toEqual({tab: 'annotations', annotation: 'run-1', severity: 'error'});
+    expect(validateWorkflowRunsSearch({tab: 'annotations', severity: 'error'})).toEqual({
+      tab: 'annotations',
+      severity: 'error',
+    });
     expect(validateWorkflowRunsSearch({tab: 'unknown', severity: 'critical'})).toEqual({});
     expect(workflowRunTab({})).toBe('summary');
     expect(workflowRunTab({tab: 'source'})).toBe('source');
@@ -168,7 +169,6 @@ describe('the run list URL contract', () => {
       after: '2026-05-01',
       before: '2026-05-31',
       tab: 'annotations',
-      annotation: 'annotation-1',
       severity: 'warning',
     };
 
@@ -216,7 +216,6 @@ describe('the run list URL contract', () => {
         search: 'deploy',
         status: ['running'],
         tab: 'jobs',
-        annotation: 'annotation-1',
         severity: 'error',
         jobId: 'job-1',
       }),

@@ -1,5 +1,5 @@
 export {RunAnnotationCountChip} from './run-annotation-count-chip.js';
-export {annotationElementId, RunAnnotationItem} from './run-annotation-item.js';
+export {RunAnnotationItem} from './run-annotation-item.js';
 export {
   type DerivedRunAnnotation,
   RunAnnotationList,

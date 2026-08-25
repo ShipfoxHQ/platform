@@ -1,18 +1,15 @@
+import {ANNOTATION_STYLE_ICON, ANNOTATION_STYLE_TONE} from '@shipfox/client-ui';
 import type {IconName} from '@shipfox/react-ui/icon';
 import type {RunAnnotationSeverity} from '#core/run-annotation.js';
 
 /**
  * The glyph vocabulary for annotation severity, shared by every count surface.
  *
- * Deliberately the same marks the `Callout` uses on the cards themselves, so the glyph beside
- * `1 error` in the summary is the glyph on the error card below it.
+ * Re-exported rather than restated: these are the same marks the annotation rows render, so the
+ * glyph beside `1 error` in the summary is the glyph on the error row below it, by construction
+ * rather than by two lists agreeing.
  */
-export const SEVERITY_ICON: Record<RunAnnotationSeverity, IconName> = {
-  error: 'closeCircleFill',
-  warning: 'errorWarningFill',
-  info: 'info',
-  success: 'checkboxCircleFill',
-};
+export const SEVERITY_ICON: Record<RunAnnotationSeverity, IconName> = ANNOTATION_STYLE_ICON;
 
 /**
  * Severity tone lives in the glyph, never in the label.
@@ -21,12 +18,7 @@ export const SEVERITY_ICON: Record<RunAnnotationSeverity, IconName> = {
  * reserves for links, focus, and "you are here". Shape plus tone in a 12px mark distinguishes
  * an error from a warning without either of them shouting.
  */
-export const SEVERITY_ICON_TONE: Record<RunAnnotationSeverity, string> = {
-  error: 'text-tag-error-icon',
-  warning: 'text-tag-warning-icon',
-  info: 'text-tag-blue-icon',
-  success: 'text-tag-success-icon',
-};
+export const SEVERITY_ICON_TONE: Record<RunAnnotationSeverity, string> = ANNOTATION_STYLE_TONE;
 
 /** Hairline tone for a bordered count chip, matching the glyph it sits beside. */
 export const SEVERITY_CHIP_TONE: Record<RunAnnotationSeverity, string> = {
