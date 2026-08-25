@@ -162,6 +162,37 @@ describe('Auth administration routes', () => {
     expect(response.json()).toEqual({code: 'admin-role-required'});
   });
 
+  test('rejects an impersonated session on the grant route before any side effect', async () => {
+    const owner = await createVerifiedSession('admin-grant-impersonated');
+    const target = await createVerifiedSession('admin-grant-impersonated-target');
+
+    const bootstrap = await app.inject({
+      method: 'POST',
+      url: '/admin/auth/admin-grants/bootstrap',
+      headers: authHeaders(owner.token, 'grant-impersonated-bootstrap'),
+      payload: {bootstrap_token: BOOTSTRAP_TOKEN},
+    });
+    expect(bootstrap.statusCode).toBe(201);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/admin/auth/admin-grants',
+      headers: authHeaders(
+        await impersonatedToken(owner.userId, owner.email),
+        'impersonated-grant',
+      ),
+      payload: {user_id: target.userId, role: 'admin-observer', reason: 'Impersonated attempt'},
+    });
+
+    // The impersonated subject is an owner, so a guard that consulted roles
+    // would let the grant through; rejection proves the mark wins first and
+    // that no grant or audit event is left behind.
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toEqual({code: 'admin-role-required'});
+    await expect(db().select().from(adminGrants)).resolves.toHaveLength(1);
+    await expect(db().select().from(authOutbox)).resolves.toHaveLength(1);
+  });
+
   test('reports only available or closed bootstrap state', async () => {
     const account = await createVerifiedSession('admin-bootstrap-state');
 

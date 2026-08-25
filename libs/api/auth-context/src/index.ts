@@ -147,15 +147,36 @@ export function requireWorkspaceAccess(
  */
 export function requireAdministrationActor(request: RequestWithContext): void {
   const context = getUserContext(request);
-  if (context?.impersonatorId !== undefined) {
+  if (context?.impersonatorId != null) {
     throw new ClientError('Administrator role required', 'admin-role-required', {status: 403});
   }
 }
 
 const ADMINISTRATION_PREFIX = '/admin';
+const TRAILING_SLASHES = /\/+$/;
+const LEADING_SLASHES = /^\/+/;
 
 function isAdministrationPrefix(prefix: string): boolean {
   return prefix === ADMINISTRATION_PREFIX || prefix.startsWith(`${ADMINISTRATION_PREFIX}/`);
+}
+
+/**
+ * Joins a parent prefix and a child prefix or route path the way Fastify
+ * resolves the mounted URL: surrounding slashes are trimmed and segments are
+ * joined with a single `/`, and a leading slash is added when the joined path
+ * is non-empty. Raw concatenation would diverge from Fastify's resolution for
+ * slash-less prefixes (`/admin` + `things` -> `/adminthings` while Fastify
+ * mounts `/admin/things`) and let a route escape the guard while still
+ * mounting under `/admin`.
+ */
+function joinRoutePath(parent: string, child: string): string {
+  if (parent === '') {
+    return child.startsWith('/') ? child : `/${child}`;
+  }
+  if (child === '') {
+    return parent;
+  }
+  return `${parent.replace(TRAILING_SLASHES, '')}/${child.replace(LEADING_SLASHES, '')}`;
 }
 
 function adoptAdministrationGuardIn(route: RouteExport, parentPrefix: string): RouteExport {
@@ -163,14 +184,12 @@ function adoptAdministrationGuardIn(route: RouteExport, parentPrefix: string): R
     return {
       ...route,
       routes: route.routes.map((child) =>
-        adoptAdministrationGuardIn(child, `${parentPrefix}${route.prefix}`),
+        adoptAdministrationGuardIn(child, joinRoutePath(parentPrefix, route.prefix)),
       ),
     };
   }
-  if (
-    !isAdministrationPrefix(parentPrefix) &&
-    !isAdministrationPrefix(`${parentPrefix}${route.path}`)
-  ) {
+  const effectivePath = joinRoutePath(parentPrefix, route.path);
+  if (!isAdministrationPrefix(parentPrefix) && !isAdministrationPrefix(effectivePath)) {
     return route;
   }
   const preHandler: RoutePreHandler[] = [
