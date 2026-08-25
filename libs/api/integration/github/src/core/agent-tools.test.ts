@@ -1,7 +1,9 @@
+import {MAX_REPOSITORY_FILE_BYTES} from '@shipfox/api-integration-spi';
 import {RequestError} from 'octokit';
 import type {GithubApiClient} from '#api/client.js';
 import {DEFAULT_JOB_LOG_TAIL_LINES} from '#core/actions-logs.js';
 import {
+  CREATE_COMMIT_ON_BRANCH_MUTATION,
   type GithubAgentToolId,
   GithubAgentToolsProvider,
   type GithubToolClient,
@@ -1032,7 +1034,7 @@ describe('github agent tool catalog', () => {
     });
 
     expect(request).not.toHaveBeenCalled();
-    expect(graphql).toHaveBeenCalledWith(expect.stringContaining('createCommitOnBranch'), {
+    expect(graphql).toHaveBeenCalledWith(CREATE_COMMIT_ON_BRANCH_MUTATION, {
       input: {
         branch: {repositoryNameWithOwner: 'shipfox/platform', branchName: 'feature'},
         expectedHeadOid: 'fedcba9876543210fedcba9876543210fedcba98',
@@ -1160,6 +1162,42 @@ describe('github agent tool catalog', () => {
     });
   });
 
+  it('accepts a 64-character SHA-256 oid', async () => {
+    const request = vi.fn();
+    const graphql = vi.fn().mockResolvedValueOnce({
+      createCommitOnBranch: {
+        commit: {
+          oid: 'e'.repeat(64),
+          url: `https://github.com/shipfox/platform/commit/${'e'.repeat(64)}`,
+        },
+      },
+    });
+    const provider = createAgentToolsProvider({request, graphql});
+    const session = await provider.openSession({
+      connection: connection(),
+      tools: [createCommitTool()],
+      scope: undefined,
+    });
+
+    const result = await session.call({
+      toolId: 'create_commit',
+      arguments: {
+        repository: 'shipfox/platform',
+        branch: 'feature',
+        expected_head_oid: 'f'.repeat(64),
+        message: {headline: 'SHA-256 repo'},
+        additions: [{path: 'docs/README.md', contents: 'content'}],
+      },
+    });
+
+    expect(graphql).toHaveBeenCalledWith(CREATE_COMMIT_ON_BRANCH_MUTATION, {
+      input: expect.objectContaining({expectedHeadOid: 'f'.repeat(64)}),
+    });
+    expect(result).toMatchObject({
+      structuredContent: {commit: {oid: 'e'.repeat(64)}},
+    });
+  });
+
   it('maps an expectedHeadOid mismatch to a provider-rejected stale-head error', async () => {
     const request = vi.fn();
     const providerMessage =
@@ -1221,6 +1259,76 @@ describe('github agent tool catalog', () => {
     ).rejects.toMatchObject({
       reason: 'provider-rejected',
       message: expect.stringContaining('stale-head'),
+    });
+  });
+
+  it('maps a message-only expectedHeadOid mismatch to a stale-head error', async () => {
+    const request = vi.fn();
+    const providerMessage =
+      'Expected branch to point to "0123456789abcdef0123456789abcdef01234567" but it did not. Pull and try again.';
+    const graphql = vi.fn().mockRejectedValue(graphqlError([{message: providerMessage}]));
+    const provider = createAgentToolsProvider({request, graphql});
+    const session = await provider.openSession({
+      connection: connection(),
+      tools: [createCommitTool()],
+      scope: undefined,
+    });
+
+    await expect(
+      session.call({
+        toolId: 'create_commit',
+        arguments: {
+          repository: 'shipfox/platform',
+          branch: 'feature',
+          expected_head_oid: '0123456789abcdef0123456789abcdef01234567',
+          message: {headline: 'Race'},
+          additions: [{path: 'docs/README.md', contents: 'content'}],
+        },
+      }),
+    ).rejects.toMatchObject({
+      reason: 'provider-rejected',
+      message:
+        'Stale branch head (stale-head): expected_head_oid 0123456789abcdef0123456789abcdef01234567 did not match the branch tip. ' +
+        providerMessage,
+    });
+  });
+
+  it('maps a RATE_LIMITED GraphQL error anywhere in the errors list with retry context', async () => {
+    const request = vi.fn();
+    const graphql = vi
+      .fn()
+      .mockRejectedValue(
+        graphqlError(
+          [
+            {message: 'A non-classified error appears first'},
+            {type: 'RATE_LIMITED', message: 'The GraphQL rate limit has been hit'},
+          ],
+          {status: 403, headers: {'retry-after': '60'}},
+        ),
+      );
+    const provider = createAgentToolsProvider({request, graphql});
+    const session = await provider.openSession({
+      connection: connection(),
+      tools: [createCommitTool()],
+      scope: undefined,
+    });
+
+    await expect(
+      session.call({
+        toolId: 'create_commit',
+        arguments: {
+          repository: 'shipfox/platform',
+          branch: 'feature',
+          expected_head_oid: 'a'.repeat(40),
+          message: {headline: 'Rate limited'},
+          additions: [{path: 'docs/README.md', contents: 'content'}],
+        },
+      }),
+    ).rejects.toMatchObject({
+      reason: 'rate-limited',
+      message: 'The GraphQL rate limit has been hit',
+      retryAfterSeconds: 60,
+      status: 403,
     });
   });
 
@@ -1349,6 +1457,106 @@ describe('github agent tool catalog', () => {
         expected_head_oid: 'a'.repeat(40),
         message: {headline: 'Bad body', body: 42},
         additions: [{path: 'a.txt', contents: 'x'}],
+      },
+      {
+        repository: 'shipfox/platform',
+        branch: '   ',
+        expected_head_oid: 'a'.repeat(40),
+        message: {headline: 'Blank branch'},
+        additions: [{path: 'a.txt', contents: 'x'}],
+      },
+      {
+        repository: 'shipfox/platform',
+        branch: 'feature',
+        expected_head_oid: 'a'.repeat(40),
+        message: 'not-an-object',
+        additions: [{path: 'a.txt', contents: 'x'}],
+      },
+      {
+        repository: 'shipfox/platform',
+        branch: 'feature',
+        expected_head_oid: 'a'.repeat(40),
+        message: {headline: '   '},
+        additions: [{path: 'a.txt', contents: 'x'}],
+      },
+      {
+        repository: 'shipfox/platform',
+        branch: 'feature',
+        expected_head_oid: 'a'.repeat(40),
+        message: {headline: 'Bad additions type'},
+        additions: 'x',
+      },
+      {
+        repository: 'shipfox/platform',
+        branch: 'feature',
+        expected_head_oid: 'a'.repeat(40),
+        message: {headline: 'Bad deletions type'},
+        additions: [{path: 'a.txt', contents: 'x'}],
+        deletions: 'x',
+      },
+      {
+        repository: 'shipfox/platform',
+        branch: 'feature',
+        expected_head_oid: 'a'.repeat(40),
+        message: {headline: 'Empty addition path'},
+        additions: [{path: '', contents: 'x'}],
+      },
+      {
+        repository: 'shipfox/platform',
+        branch: 'feature',
+        expected_head_oid: 'a'.repeat(40),
+        message: {headline: 'Non-string contents'},
+        additions: [{path: 'a.txt', contents: 42}],
+      },
+      {
+        repository: 'shipfox/platform',
+        branch: 'feature',
+        expected_head_oid: 'a'.repeat(40),
+        message: {headline: 'Empty deletion path'},
+        additions: [{path: 'a.txt', contents: 'x'}],
+        deletions: [{path: ''}],
+      },
+      {
+        repository: 'shipfox/platform',
+        branch: 'feature',
+        expected_head_oid: 'a'.repeat(40),
+        message: {headline: 'Parent traversal path'},
+        additions: [{path: '../escape.txt', contents: 'x'}],
+      },
+      {
+        repository: 'shipfox/platform',
+        branch: 'feature',
+        expected_head_oid: 'a'.repeat(40),
+        message: {headline: 'Absolute path'},
+        additions: [{path: '/etc/passwd', contents: 'x'}],
+      },
+      {
+        repository: 'shipfox/platform',
+        branch: 'feature',
+        expected_head_oid: 'a'.repeat(40),
+        message: {headline: 'Dotgit path'},
+        additions: [{path: '.git/config', contents: 'x'}],
+      },
+      {
+        repository: 'shipfox/platform',
+        branch: 'feature',
+        expected_head_oid: 'a'.repeat(40),
+        message: {headline: 'Unpaired surrogate'},
+        additions: [{path: 'a.txt', contents: '\uD800'}],
+      },
+      {
+        repository: 'shipfox/platform',
+        branch: 'feature',
+        expected_head_oid: 'a'.repeat(40),
+        message: {headline: 'Malformed base64'},
+        additions: [{path: 'a.bin', contents: 'not!base64', encoding: 'base64'}],
+      },
+      {
+        repository: 'shipfox/platform',
+        branch: 'feature',
+        expected_head_oid: 'a'.repeat(40),
+        message: {headline: 'Oversized contents'},
+        additions: [{path: 'a.txt', contents: 'x'.repeat(MAX_REPOSITORY_FILE_BYTES + 1)}],
       },
     ];
 
@@ -2150,12 +2358,17 @@ function createCommitTool() {
   return tool;
 }
 
-function graphqlError(errors: Array<{type?: string; message: string}>) {
+function graphqlError(
+  errors: Array<{type?: string; message: string}>,
+  response?: {status?: number; headers?: Record<string, string | number | undefined>},
+) {
   const error = new Error(errors[0]?.message ?? 'GraphQL error') as Error & {
     errors: Array<{type?: string; message: string}>;
+    response?: {status?: number; headers?: Record<string, string | number | undefined>};
   };
   error.name = 'GraphqlResponseError';
   error.errors = errors;
+  if (response !== undefined) error.response = response;
   return error;
 }
 

@@ -7,6 +7,7 @@ import type {
   IntegrationConnection,
   OpenAgentToolsSessionInput,
 } from '@shipfox/api-integration-spi';
+import {MAX_REPOSITORY_FILE_BYTES} from '@shipfox/api-integration-spi';
 import {Octokit} from 'octokit';
 import {mapGithubError} from '#api/client.js';
 import {
@@ -135,7 +136,7 @@ const RESOLVE_PULL_REQUEST_REVIEW_THREAD_MUTATION = `
   }
 `;
 
-const CREATE_COMMIT_ON_BRANCH_MUTATION = `
+export const CREATE_COMMIT_ON_BRANCH_MUTATION = `
   mutation CreateCommitOnBranch($input: CreateCommitOnBranchInput!) {
     createCommitOnBranch(input: $input) {
       commit {
@@ -546,8 +547,10 @@ const CREATE_COMMIT_STALE_HEAD_TYPE_PATTERN = /^STALE_(HEAD_OID|DATA)$/u;
 const CREATE_COMMIT_STALE_HEAD_MESSAGE_PATTERN = /Expected branch to point to/u;
 const CREATE_COMMIT_RATE_LIMITED_TYPE = 'RATE_LIMITED';
 const CREATE_COMMIT_REPOSITORY_PATTERN = /^[^/\s]+\/[^/\s]+$/u;
-const CREATE_COMMIT_OID_PATTERN = /^[0-9a-f]{40}$/iu;
+const CREATE_COMMIT_OID_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu;
 const CREATE_COMMIT_ENCODINGS = new Set(['utf8', 'base64']);
+const CREATE_COMMIT_UNPAIRED_SURROGATE_PATTERN = /[\uD800-\uDFFF]/u;
+const CREATE_COMMIT_BASE64_PATTERN = /^[A-Za-z0-9+/]*={0,2}$/u;
 
 async function createCommitOnBranch(
   client: GithubToolClient,
@@ -598,30 +601,74 @@ function transcodeFileAddition(addition: Record<string, unknown>): Record<string
 }
 
 function mapCreateCommitError(error: unknown, expectedHeadOid: unknown): never {
-  const graphqlError = createCommitGraphqlError(error);
-  if (graphqlError === undefined) throw error;
-  if (graphqlError.type === CREATE_COMMIT_RATE_LIMITED_TYPE) {
-    throw new GithubIntegrationProviderError('rate-limited', graphqlError.message);
-  }
-  if (isStaleHeadCreateCommitError(graphqlError)) {
+  const graphqlErrors = createCommitGraphqlErrors(error);
+  if (graphqlErrors.length === 0) throw error;
+  const rateLimited = graphqlErrors.find(
+    (graphqlError) => graphqlError.type === CREATE_COMMIT_RATE_LIMITED_TYPE,
+  );
+  if (rateLimited !== undefined) {
     throw new GithubIntegrationProviderError(
-      'provider-rejected',
-      `Stale branch head (stale-head): expected_head_oid ${String(expectedHeadOid)} did not match the branch tip. ${graphqlError.message}`,
+      'rate-limited',
+      rateLimited.message,
+      createCommitRateLimitRetryAfterSeconds(error),
+      githubGraphqlResponseStatus(error),
     );
   }
-  throw new GithubIntegrationProviderError('provider-rejected', graphqlError.message);
+  const staleHead = graphqlErrors.find(isStaleHeadCreateCommitError);
+  if (staleHead !== undefined) {
+    throw new GithubIntegrationProviderError(
+      'provider-rejected',
+      `Stale branch head (stale-head): expected_head_oid ${String(expectedHeadOid)} did not match the branch tip. ${staleHead.message}`,
+    );
+  }
+  const first = graphqlErrors[0];
+  if (first === undefined) throw error;
+  throw new GithubIntegrationProviderError('provider-rejected', first.message);
 }
 
-function createCommitGraphqlError(
-  error: unknown,
-): {type?: string | undefined; message: string} | undefined {
-  if (!isRecord(error) || !Array.isArray(error.errors)) return undefined;
-  const first = error.errors[0];
-  if (!isRecord(first) || typeof first.message !== 'string') return undefined;
-  return {
-    ...(typeof first.type === 'string' ? {type: first.type} : {}),
-    message: first.message,
-  };
+interface CreateCommitGraphqlError {
+  type?: string | undefined;
+  message: string;
+}
+
+function createCommitGraphqlErrors(error: unknown): CreateCommitGraphqlError[] {
+  if (!isRecord(error) || !Array.isArray(error.errors)) return [];
+  const graphqlErrors: CreateCommitGraphqlError[] = [];
+  for (const entry of error.errors) {
+    if (!isRecord(entry) || typeof entry.message !== 'string') continue;
+    graphqlErrors.push({
+      ...(typeof entry.type === 'string' ? {type: entry.type} : {}),
+      message: entry.message,
+    });
+  }
+  return graphqlErrors;
+}
+
+function createCommitRateLimitRetryAfterSeconds(error: unknown): number | undefined {
+  const headers = githubGraphqlResponseHeaders(error);
+  if (headers === undefined) return undefined;
+  const retryAfter = parseCreateCommitHeaderSeconds(headers['retry-after']);
+  if (retryAfter !== undefined) return retryAfter;
+  const resetAt = parseCreateCommitHeaderSeconds(headers['x-ratelimit-reset']);
+  if (resetAt === undefined) return undefined;
+  const seconds = resetAt - Math.floor(Date.now() / 1000);
+  return seconds > 0 ? seconds : undefined;
+}
+
+function githubGraphqlResponseHeaders(error: unknown): Record<string, unknown> | undefined {
+  if (!isRecord(error) || !isRecord(error.response)) return undefined;
+  return isRecord(error.response.headers) ? error.response.headers : undefined;
+}
+
+function githubGraphqlResponseStatus(error: unknown): number | undefined {
+  if (!isRecord(error) || !isRecord(error.response)) return undefined;
+  return typeof error.response.status === 'number' ? error.response.status : undefined;
+}
+
+function parseCreateCommitHeaderSeconds(value: unknown): number | undefined {
+  if (typeof value !== 'string' && typeof value !== 'number') return undefined;
+  const parsed = Number.parseInt(String(value), 10);
+  return Number.isNaN(parsed) ? undefined : parsed;
 }
 
 function isStaleHeadCreateCommitError(error: {
@@ -980,7 +1027,7 @@ function validateCreateCommitArguments(arguments_: Record<string, unknown>): str
   }
   const expectedHeadOid = arguments_.expected_head_oid;
   if (typeof expectedHeadOid !== 'string' || !CREATE_COMMIT_OID_PATTERN.test(expectedHeadOid)) {
-    return 'Parameter expected_head_oid must be a 40-character commit oid';
+    return 'Parameter expected_head_oid must be a 40- or 64-character commit oid';
   }
   const message = arguments_.message;
   if (
@@ -1000,6 +1047,13 @@ function validateCreateCommitArguments(arguments_: Record<string, unknown>): str
     return 'Parameter deletions must be an array of {path} objects';
   }
   if (
+    Array.isArray(additions) &&
+    additions.length > 0 &&
+    createCommitAdditionsByteLength(additions) > MAX_REPOSITORY_FILE_BYTES
+  ) {
+    return 'Parameter additions must fit within the 1 MiB payload bound per call';
+  }
+  if (
     (!Array.isArray(additions) || additions.length === 0) &&
     (!Array.isArray(deletions) || deletions.length === 0)
   ) {
@@ -1012,20 +1066,56 @@ function isFileAdditionList(value: unknown): value is readonly Record<string, un
   if (!Array.isArray(value)) return false;
   return value.every((item) => {
     if (!isRecord(item)) return false;
-    if (typeof item.path !== 'string' || item.path.length === 0) return false;
+    if (typeof item.path !== 'string' || !isSafeRepositoryPath(item.path)) return false;
     if (typeof item.contents !== 'string') return false;
-    return (
-      item.encoding === undefined ||
-      (typeof item.encoding === 'string' && CREATE_COMMIT_ENCODINGS.has(item.encoding))
-    );
+    if (item.encoding !== undefined) {
+      if (typeof item.encoding !== 'string' || !CREATE_COMMIT_ENCODINGS.has(item.encoding)) {
+        return false;
+      }
+      return item.encoding !== 'base64' || isWellFormedBase64(item.contents);
+    }
+    return !CREATE_COMMIT_UNPAIRED_SURROGATE_PATTERN.test(item.contents);
   });
 }
 
 function isFileDeletionList(value: unknown): value is readonly Record<string, unknown>[] {
   if (!Array.isArray(value)) return false;
   return value.every(
-    (item) => isRecord(item) && typeof item.path === 'string' && item.path.length > 0,
+    (item) => isRecord(item) && typeof item.path === 'string' && isSafeRepositoryPath(item.path),
   );
+}
+
+function isSafeRepositoryPath(path: string): boolean {
+  if (path.startsWith('/') || path.includes('\\')) return false;
+  if (containsCreateCommitControlCharacter(path)) return false;
+  return path.split('/').every((segment) => {
+    return segment.length > 0 && segment !== '.' && segment !== '..' && segment !== '.git';
+  });
+}
+
+function containsCreateCommitControlCharacter(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code < 0x20 || code === 0x7f) return true;
+  }
+  return false;
+}
+
+function isWellFormedBase64(value: string): boolean {
+  if (value.length === 0 || value.length % 4 !== 0) return false;
+  if (!CREATE_COMMIT_BASE64_PATTERN.test(value)) return false;
+  return Buffer.from(value, 'base64').toString('base64') === value;
+}
+
+function createCommitAdditionsByteLength(additions: readonly Record<string, unknown>[]): number {
+  return additions.reduce((total, addition) => total + createCommitAdditionByteLength(addition), 0);
+}
+
+function createCommitAdditionByteLength(addition: Record<string, unknown>): number {
+  const contents = typeof addition.contents === 'string' ? addition.contents : '';
+  return addition.encoding === 'base64'
+    ? Buffer.from(contents, 'base64').byteLength
+    : Buffer.byteLength(contents, 'utf8');
 }
 
 function methodRequiredParameters(

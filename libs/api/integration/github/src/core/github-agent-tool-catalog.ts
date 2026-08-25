@@ -586,7 +586,7 @@ export const githubAgentToolCatalog = [
     id: 'create_commit',
     category: 'repository',
     description:
-      'Create a commit on an existing branch in a GitHub repository. The commit is authored and signed by GitHub on behalf of the Shipfox bot (shipfox-ai[bot]) and shows the Verified badge. Renames are expressed as a deletion of the old path plus an addition of the new path. File contents are limited by the agent bridge payload bound of about 1 MiB per call; keep edits small and explicit. Text contents are sent as utf8 and transcoded to base64 by the server; binary contents can be provided with encoding base64. The expected_head_oid must be the current head of the branch (compare-and-swap): if the branch moved, the commit is rejected with a stale-head error and the call should be retried with the new head.',
+      'Create a commit on an existing branch in a GitHub repository. The commit is authored and signed by GitHub on behalf of the Shipfox bot (shipfox-ai[bot]) and shows the Verified badge. Renames are expressed as a deletion of the old path plus an addition of the new path. File contents are validated server-side and limited to a total of about 1 MiB per call; keep edits small and explicit. Text contents are sent as utf8 and transcoded to base64 by the server; binary contents can be provided with encoding base64. The expected_head_oid must be the current head of the branch (compare-and-swap): if the branch moved, the commit is rejected with a stale-head error and the call should be retried with the new head. When issuing several dependent commits, derive each expected_head_oid from the returned oid of the previous commit so the commits land in order. Branch protection rules are the only barrier to writing the default branch.',
     sensitivity: 'write',
     sensitive: false,
     requiredScope: scopes.contentsWrite,
@@ -597,7 +597,7 @@ export const githubAgentToolCatalog = [
         ),
         branch: stringSchema('The name of the existing branch to commit to'),
         expected_head_oid: stringSchema(
-          'The 40-character commit oid the branch head is expected to point to (compare-and-swap)',
+          'The commit oid (40 or 64 hexadecimal characters) the branch head is expected to point to (compare-and-swap)',
         ),
         message: objectSchema(
           {
