@@ -31,6 +31,7 @@ describe('package release workflows', () => {
     assert.ok(workflow.includes('cancel-in-progress: false'));
     assert.ok(workflow.includes('ref: $' + '{{ needs.authorize-release.outputs.revision }}'));
     assert.ok(workflow.includes('verify-generated-release'));
+    assert.ok(workflow.includes('SHIPFOX_PUBLICATION_REGISTRY_BASE:'));
     assert.ok(workflow.includes('NPM_CONFIG_PROVENANCE: "true"'));
     assert.ok(workflow.includes('package-release-workflow.mjs authorize'));
     assert.ok(workflow.includes('steps.release-app-token.outputs.app-slug'));
