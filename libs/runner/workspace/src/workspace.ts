@@ -8,9 +8,10 @@ import {isUuid} from '@shipfox/regex';
 import {config} from '#config.js';
 
 const RUNNER_LOGS_DIR = '.shipfox-runner-logs';
+const RUNNER_AGENT_STATE_DIR = '.shipfox-runner-agent';
 const RUNNER_CRED_DIR = '.shipfox-runner-cred';
-const JOB_LOG_LOCK_SUFFIX = '.lock';
-const JOB_LOG_LOCK_RETRY_MS = 10;
+const JOB_DIRECTORY_LOCK_SUFFIX = '.lock';
+const JOB_DIRECTORY_LOCK_RETRY_MS = 10;
 
 /**
  * Thrown when `SHIPFOX_RUNNER_WORKSPACE_ROOT` resolves to a path we refuse to
@@ -86,6 +87,13 @@ export function jobLogsPath(jobId: string, root: string): string {
   return join(root, RUNNER_LOGS_DIR, `job-${jobId}`);
 }
 
+export function jobAgentStatePath(jobId: string, root: string): string {
+  if (!isUuid(jobId)) {
+    throw new InvalidJobIdError(jobId);
+  }
+  return join(root, RUNNER_AGENT_STATE_DIR, `job-${jobId}`);
+}
+
 export function jobCredentialsPath(jobId: string, root: string): string {
   if (!isUuid(jobId)) {
     throw new InvalidJobIdError(jobId);
@@ -114,21 +122,66 @@ export async function createJobDir(cwd: string): Promise<void> {
  * Resets the runner-owned log directory before a job can reuse it after a crash.
  */
 export async function createJobLogsDir(logsDir: string): Promise<void> {
-  await withJobLogLock(logsDir, true, () => resetDir(logsDir));
+  await withJobDirectoryLock(logsDir, true, () => resetDir(logsDir));
 }
 
 /**
- * Removes only UUID-named per-job log directories left under the runner log root.
- * The log root itself and unrelated entries are preserved.
+ * Pre-cleans the runner-owned agent-state directory before recreating it, so a
+ * directory left by a previous crash is never reused. The lock coordinates
+ * setup with the startup orphan sweep. The returned release function keeps the
+ * lock held while the job uses the directory; callers must release it after
+ * the job's final cleanup.
+ */
+export async function createJobAgentStateDir(agentStateDir: string): Promise<() => Promise<void>> {
+  const release = await acquireJobDirectoryLock(agentStateDir, true);
+  if (release === undefined) {
+    throw new Error('Failed to acquire the job agent-state lock');
+  }
+
+  try {
+    await resetDir(agentStateDir);
+    return release;
+  } catch (error) {
+    await release();
+    throw error;
+  }
+}
+
+/**
+ * Removes only UUID-named per-job directories left under a runner-owned root.
+ * The root itself and unrelated entries are preserved.
  */
 export async function cleanupOrphanedJobLogs(root: string): Promise<void> {
-  const logsRoot = join(root, RUNNER_LOGS_DIR);
+  await cleanupOrphanedJobDirectories(
+    root,
+    RUNNER_LOGS_DIR,
+    cleanupJobLogs,
+    'Failed to sweep orphaned job logs',
+  );
+}
+
+export async function cleanupOrphanedJobAgentState(root: string): Promise<void> {
+  await cleanupOrphanedJobDirectories(
+    root,
+    RUNNER_AGENT_STATE_DIR,
+    cleanupJobAgentState,
+    'Failed to sweep orphaned job agent state',
+  );
+}
+
+async function cleanupOrphanedJobDirectories(
+  root: string,
+  directoryName: string,
+  cleanupJob: (jobDir: string) => Promise<void>,
+  failureMessage: string,
+): Promise<void> {
+  const jobsRoot = join(root, directoryName);
   let entries: Dirent[];
   try {
-    entries = await readdir(logsRoot, {withFileTypes: true});
+    entries = await readdir(jobsRoot, {withFileTypes: true});
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
-    logger().warn({err, logsRoot}, 'Failed to sweep orphaned job logs');
+    logger().warn({err, jobsRoot}, failureMessage);
     return;
   }
 
@@ -141,8 +194,8 @@ export async function cleanupOrphanedJobLogs(root: string): Promise<void> {
           isUuid(entry.name.slice('job-'.length)),
       )
       .map((entry) =>
-        withJobLogLock(join(logsRoot, entry.name), false, () =>
-          cleanupJobLogs(join(logsRoot, entry.name)),
+        withJobDirectoryLock(join(jobsRoot, entry.name), false, () =>
+          cleanupJob(join(jobsRoot, entry.name)),
         ),
       ),
   );
@@ -154,45 +207,60 @@ export async function cleanupOrphanedJobLogs(root: string): Promise<void> {
  * lock before recreating the directory. The pid makes locks left by a crashed
  * runner recoverable without weakening the mutual exclusion for live runners.
  */
-async function withJobLogLock<T>(
-  logsDir: string,
+async function withJobDirectoryLock<T>(
+  jobDir: string,
   waitForLock: boolean,
   action: () => Promise<T>,
 ): Promise<T | undefined> {
-  const lockPath = `${logsDir}${JOB_LOG_LOCK_SUFFIX}`;
-  await mkdir(dirname(logsDir), {recursive: true});
+  const release = await acquireJobDirectoryLock(jobDir, waitForLock);
+  if (release === undefined) return undefined;
+
+  try {
+    return await action();
+  } finally {
+    await release();
+  }
+}
+
+async function acquireJobDirectoryLock(
+  jobDir: string,
+  waitForLock: boolean,
+): Promise<(() => Promise<void>) | undefined> {
+  const lockPath = `${jobDir}${JOB_DIRECTORY_LOCK_SUFFIX}`;
+  await mkdir(dirname(jobDir), {recursive: true});
 
   while (true) {
-    if (await tryAcquireJobLogLock(lockPath)) {
+    if (await tryAcquireJobDirectoryLock(lockPath)) {
       break;
     }
 
-    const existingLock = await readJobLogLock(lockPath);
+    const existingLock = await readJobDirectoryLock(lockPath);
     if (existingLock === undefined) continue;
     if (
       isProcessDead(existingLock.pid) &&
-      (await tryReclaimStaleJobLogLock(lockPath, existingLock.raw))
+      (await tryReclaimStaleJobDirectoryLock(lockPath, existingLock.raw))
     ) {
       continue;
     }
     if (!waitForLock) return undefined;
 
-    await new Promise((resolve) => setTimeout(resolve, JOB_LOG_LOCK_RETRY_MS));
+    await new Promise((resolve) => setTimeout(resolve, JOB_DIRECTORY_LOCK_RETRY_MS));
   }
 
-  try {
-    return await action();
-  } finally {
+  let released = false;
+  return async () => {
+    if (released) return;
     await rm(lockPath, {force: true});
-  }
+    released = true;
+  };
 }
 
-type JobLogLock = {
+type JobDirectoryLock = {
   pid: number;
   raw: string;
 };
 
-async function tryAcquireJobLogLock(lockPath: string): Promise<boolean> {
+async function tryAcquireJobDirectoryLock(lockPath: string): Promise<boolean> {
   const lockOwner = `${process.pid}:${randomUUID()}`;
   const temporaryLockPath = `${lockPath}.${process.pid}.${randomUUID()}.tmp`;
 
@@ -210,7 +278,7 @@ async function tryAcquireJobLogLock(lockPath: string): Promise<boolean> {
   }
 }
 
-async function readJobLogLock(lockPath: string): Promise<JobLogLock | undefined> {
+async function readJobDirectoryLock(lockPath: string): Promise<JobDirectoryLock | undefined> {
   let raw: string;
   try {
     raw = (await readFile(lockPath, 'utf8')).trim();
@@ -239,7 +307,10 @@ function isProcessDead(pid: number): boolean {
  * reclaimer pid, so another process can safely take over if the reclaimer
  * crashes; no process unlinks the lock after a separate liveness check.
  */
-async function tryReclaimStaleJobLogLock(lockPath: string, expectedLock: string): Promise<boolean> {
+async function tryReclaimStaleJobDirectoryLock(
+  lockPath: string,
+  expectedLock: string,
+): Promise<boolean> {
   const reclaimPath = `${lockPath}.reclaim`;
 
   while (true) {
@@ -256,7 +327,7 @@ async function tryReclaimStaleJobLogLock(lockPath: string, expectedLock: string)
   }
 
   try {
-    const currentLock = await readJobLogLock(lockPath);
+    const currentLock = await readJobDirectoryLock(lockPath);
     if (currentLock?.raw !== expectedLock) return false;
 
     try {
@@ -298,6 +369,14 @@ export async function cleanupJobLogs(logsDir: string): Promise<void> {
     await rm(logsDir, {recursive: true, force: true});
   } catch (err) {
     logger().warn({err, logsDir}, 'Failed to clean up job logs');
+  }
+}
+
+export async function cleanupJobAgentState(agentStateDir: string): Promise<void> {
+  try {
+    await rm(agentStateDir, {recursive: true, force: true});
+  } catch (err) {
+    logger().warn({err, agentStateDir}, 'Failed to clean up job agent state');
   }
 }
 

@@ -118,6 +118,7 @@ const agentStepModuleEvaluatedDuringStepLoopImport = agentStepModuleEvaluated.va
 const JOB_ID = '00000000-0000-0000-0000-0000000000aa';
 const RUN_ID = '00000000-0000-0000-0000-0000000000ab';
 const LOGS_DIR = '/runner-logs/job-1';
+const AGENT_STATE_DIR = '/runner-agent/job-1';
 const GIT_CONFIG_PATH = '/runner-cred/job-1/git-cred.config';
 const JOB_CONTEXT = {
   workflowRunId: '00000000-0000-0000-0000-000000000004',
@@ -208,6 +209,7 @@ function runLoop(params: {
   secrets?: string[];
   cwd?: string;
   subscribeSecrets?: (subscriber: (secrets: string[]) => void) => () => void;
+  prepareAgentState?: () => Promise<void>;
   onLeaseTokenAdopted?: (leaseToken: string) => void;
 }): Promise<void> {
   return runJobSteps({
@@ -220,7 +222,9 @@ function runLoop(params: {
     cwd: params.cwd ?? '/work',
     gitConfigPath: GIT_CONFIG_PATH,
     logsDir: LOGS_DIR,
+    agentStateDir: AGENT_STATE_DIR,
     jobContext: JOB_CONTEXT,
+    ...(params.prepareAgentState ? {prepareAgentState: params.prepareAgentState} : {}),
     ...(params.onLeaseTokenAdopted ? {onLeaseTokenAdopted: params.onLeaseTokenAdopted} : {}),
   });
 }
@@ -1192,6 +1196,30 @@ describe('runJobSteps', () => {
     expect(executeSetupStepMock).not.toHaveBeenCalled();
   });
 
+  it('reports agent-state directory preparation failures through the setup step', async () => {
+    const setup = buildSetupStep();
+    const error = {message: 'agent state denied', reason: 'agent_harness_unavailable' as const};
+    const prepareAgentState = vi.fn().mockRejectedValueOnce(new Error(error.message));
+    requestNextStepMock.mockResolvedValueOnce(stepResponse(setup, 1));
+    reportStepMock.mockResolvedValueOnce({ok: true, cancel: true});
+    const ac = new AbortController();
+
+    await runLoop({signal: ac.signal, prepareAgentState});
+
+    expect(prepareAgentState).toHaveBeenCalledOnce();
+    expect(createStepLogStreamMock).not.toHaveBeenCalled();
+    expect(reportStepMock).toHaveBeenCalledWith(leaseClient, {
+      stepId: setup.id,
+      attempt: 1,
+      status: 'failed',
+      error,
+      exitCode: null,
+      logOutcome: 'abandoned',
+      signal: ac.signal,
+    });
+    expect(executeSetupStepMock).not.toHaveBeenCalled();
+  });
+
   it('prepares the log directory once across setup retries', async () => {
     const setup = buildSetupStep();
     requestNextStepMock
@@ -1204,6 +1232,20 @@ describe('runJobSteps', () => {
 
     expect(createJobLogsDirMock).toHaveBeenCalledOnce();
     expect(createJobLogsDirMock).toHaveBeenCalledWith(LOGS_DIR);
+    expect(executeSetupStepMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('prepares the agent-state directory once across setup retries', async () => {
+    const setup = buildSetupStep();
+    const prepareAgentState = vi.fn().mockResolvedValue(undefined);
+    requestNextStepMock
+      .mockResolvedValueOnce(stepResponse(setup, 1))
+      .mockResolvedValueOnce(stepResponse(setup, 2))
+      .mockResolvedValueOnce({kind: 'done', status: 'succeeded'});
+
+    await runLoop({signal: new AbortController().signal, prepareAgentState});
+
+    expect(prepareAgentState).toHaveBeenCalledOnce();
     expect(executeSetupStepMock).toHaveBeenCalledTimes(2);
   });
 
@@ -1515,7 +1557,7 @@ describe('runJobSteps', () => {
     expect(executeAgentStepMock).toHaveBeenCalledWith(agent, {
       signal: ac.signal,
       cwd: '/work',
-      logsDir: LOGS_DIR,
+      agentStateDir: AGENT_STATE_DIR,
       runtime: {
         harness: 'pi',
         provider: 'anthropic',
@@ -1871,7 +1913,7 @@ describe('runJobSteps', () => {
     expect(executeAgentStepMock).toHaveBeenCalledWith(agent, {
       signal: ac.signal,
       cwd: '/work',
-      logsDir: LOGS_DIR,
+      agentStateDir: AGENT_STATE_DIR,
       runtime: {
         harness: 'pi',
         provider: 'anthropic',
@@ -1934,6 +1976,7 @@ describe('runJobSteps', () => {
       attempt: 1,
       cwd: '/work',
       logsDir: LOGS_DIR,
+      agentStateDir: AGENT_STATE_DIR,
       jobContext: JOB_CONTEXT,
       leaseClient,
       leaseToken: leaseTokenSource,
@@ -1972,6 +2015,7 @@ describe('runJobSteps', () => {
       attempt: 1,
       cwd: '/work',
       logsDir: LOGS_DIR,
+      agentStateDir: AGENT_STATE_DIR,
       jobContext: JOB_CONTEXT,
       leaseClient,
       leaseToken: leaseTokenSource,

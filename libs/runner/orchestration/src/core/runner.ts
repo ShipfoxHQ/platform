@@ -29,10 +29,14 @@ import {
   runnerStartupMode,
 } from '@shipfox/runner-protocol';
 import {
+  cleanupJobAgentState,
   cleanupJobCredentials,
   cleanupJobLogs,
+  cleanupOrphanedJobAgentState,
   cleanupOrphanedJobLogs,
   cleanupWorkspace,
+  createJobAgentStateDir,
+  jobAgentStatePath,
   jobCredentialsPath,
   jobLogsPath,
   jobWorkspacePath,
@@ -93,6 +97,9 @@ export async function startRunner(
   const workspaceRoot = resolveWorkspaceRootFromEnv();
   void cleanupOrphanedJobLogs(workspaceRoot).catch((error) => {
     logger().warn({err: error, workspaceRoot}, 'Failed to sweep orphaned job logs');
+  });
+  void cleanupOrphanedJobAgentState(workspaceRoot).catch((error) => {
+    logger().warn({err: error, workspaceRoot}, 'Failed to sweep orphaned job agent state');
   });
   requireRunnerLabels();
   warnAboutUnavailablePiExtensions();
@@ -228,10 +235,12 @@ export async function runJob(
   // an internal/claim error: bail before starting any per-job resources.
   let cwd: string;
   let logsDir: string;
+  let agentStateDir: string;
   let credentialsDir: string;
   try {
     cwd = jobWorkspacePath(job.job_id, workspaceRoot);
     logsDir = jobLogsPath(job.job_id, workspaceRoot);
+    agentStateDir = jobAgentStatePath(job.job_id, workspaceRoot);
     credentialsDir = jobCredentialsPath(job.job_id, workspaceRoot);
   } catch (error) {
     logger().error({err: error, jobId: job.job_id}, 'Invalid job id; skipping job');
@@ -275,6 +284,7 @@ export async function runJob(
     getToolCapabilities: runnerToolCapabilities,
     onLeaseTokenRenewed: rememberLeaseToken,
   });
+  let releaseAgentStateLock: (() => Promise<void>) | undefined;
 
   try {
     await cleanupJobCredentials(credentialsDir);
@@ -293,6 +303,10 @@ export async function runJob(
       cwd,
       gitConfigPath,
       logsDir,
+      agentStateDir,
+      prepareAgentState: async () => {
+        releaseAgentStateLock = await createJobAgentStateDir(agentStateDir);
+      },
       jobContext: {
         workflowRunId: job.workflow_run_id,
         workflowRunAttemptId: job.workflow_run_attempt_id,
@@ -308,8 +322,8 @@ export async function runJob(
   } catch (stepLoopError) {
     // A non-retryable error surfaced (e.g. an unexpected throw from the loop).
     // Bail this job; the lease expires server-side and the outer poll moves on.
-    // Do not re-pull (would re-execute). Setup failures do NOT reach here: they
-    // report through the step protocol and finalize the job.
+    // Do not re-pull (would re-execute). Setup failures from the step loop report
+    // through the step protocol before reaching this catch.
     logger().error({err: stepLoopError, jobId: job.job_id}, 'Job step loop failed');
   } finally {
     heartbeatLoop.stop();
@@ -317,6 +331,8 @@ export async function runJob(
     await cleanupJobCredentials(credentialsDir);
     await cleanupWorkspace(cwd);
     await cleanupJobLogs(logsDir);
+    await cleanupJobAgentState(agentStateDir);
+    await releaseAgentStateLock?.();
   }
 }
 

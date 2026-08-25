@@ -2,13 +2,17 @@ import {mkdir, mkdtemp, rm, stat, writeFile} from 'node:fs/promises';
 import {homedir, tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {
+  cleanupJobAgentState,
   cleanupJobCredentials,
   cleanupJobLogs,
+  cleanupOrphanedJobAgentState,
   cleanupOrphanedJobLogs,
   cleanupWorkspace,
+  createJobAgentStateDir,
   createJobDir,
   createJobLogsDir,
   InvalidJobIdError,
+  jobAgentStatePath,
   jobCredentialsPath,
   jobLogsPath,
   jobWorkspacePath,
@@ -79,6 +83,24 @@ describe('jobLogsPath', () => {
 
   it('rejects a job id that is not a UUID', () => {
     const resolve = () => jobLogsPath('../../etc/passwd', root);
+
+    expect(resolve).toThrow(InvalidJobIdError);
+  });
+});
+
+describe('jobAgentStatePath', () => {
+  const root = '/var/shipfox/work';
+
+  it('names the runner-owned agent-state directory after the job id under the root', () => {
+    const jobId = '55555555-5555-4555-8555-555555555555';
+
+    const agentStateDir = jobAgentStatePath(jobId, root);
+
+    expect(agentStateDir).toBe(join(root, '.shipfox-runner-agent', `job-${jobId}`));
+  });
+
+  it('rejects a job id that is not a UUID', () => {
+    const resolve = () => jobAgentStatePath('../../etc/passwd', root);
 
     expect(resolve).toThrow(InvalidJobIdError);
   });
@@ -164,6 +186,40 @@ describe('createJobLogsDir', () => {
   });
 });
 
+describe('createJobAgentStateDir', () => {
+  let root: string;
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'shipfox-job-agent-state-create-test-'));
+  });
+
+  afterEach(async () => {
+    await rm(root, {recursive: true, force: true});
+  });
+
+  it('creates the per-job agent-state directory', async () => {
+    const agentStateDir = join(root, 'job-11111111-1111-4111-8111-111111111111');
+
+    const release = await createJobAgentStateDir(agentStateDir);
+    await release();
+
+    expect((await stat(agentStateDir)).isDirectory()).toBe(true);
+  });
+
+  it('pre-cleans a dirty directory left from a previous run', async () => {
+    const agentStateDir = join(root, 'job-22222222-2222-4222-8222-222222222222');
+    const releaseFirst = await createJobAgentStateDir(agentStateDir);
+    await releaseFirst();
+    await writeFile(join(agentStateDir, 'stale.jsonl'), '{}\n');
+
+    const releaseSecond = await createJobAgentStateDir(agentStateDir);
+    await releaseSecond();
+
+    const readStale = () => stat(join(agentStateDir, 'stale.jsonl'));
+    await expect(readStale()).rejects.toThrow();
+  });
+});
+
 describe('cleanupOrphanedJobLogs', () => {
   let root: string;
 
@@ -229,6 +285,57 @@ describe('cleanupOrphanedJobLogs', () => {
   });
 });
 
+describe('cleanupOrphanedJobAgentState', () => {
+  let root: string;
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'shipfox-job-agent-state-sweep-test-'));
+  });
+
+  afterEach(async () => {
+    await rm(root, {recursive: true, force: true});
+  });
+
+  it('removes UUID-named job directories and preserves unrelated entries', async () => {
+    const agentStateRoot = join(root, '.shipfox-runner-agent');
+    const orphan = join(agentStateRoot, 'job-33333333-3333-4333-8333-333333333333');
+    const otherJob = join(agentStateRoot, 'job-not-a-uuid');
+    const unrelatedUuidDir = join(agentStateRoot, 'other-33333333-3333-4333-8333-333333333333');
+    const file = join(agentStateRoot, 'README');
+    await mkdir(orphan, {recursive: true});
+    await writeFile(join(orphan, 'sessions.ndjson'), '{}\n');
+    await mkdir(otherJob, {recursive: true});
+    await mkdir(unrelatedUuidDir, {recursive: true});
+    await writeFile(file, 'keep');
+
+    await cleanupOrphanedJobAgentState(root);
+
+    await expect(stat(orphan)).rejects.toThrow();
+    expect((await stat(otherJob)).isDirectory()).toBe(true);
+    expect((await stat(unrelatedUuidDir)).isDirectory()).toBe(true);
+    expect((await stat(file)).isFile()).toBe(true);
+    expect((await stat(agentStateRoot)).isDirectory()).toBe(true);
+  });
+
+  it('preserves a job directory while the job owns its agent-state lock', async () => {
+    const agentStateRoot = join(root, '.shipfox-runner-agent');
+    const orphan = join(agentStateRoot, 'job-44444444-4444-4444-8444-444444444444');
+    const release = await createJobAgentStateDir(orphan);
+    await writeFile(join(orphan, 'sessions.ndjson'), '{}\n');
+
+    await cleanupOrphanedJobAgentState(root);
+
+    expect((await stat(orphan)).isDirectory()).toBe(true);
+    await release();
+    await cleanupOrphanedJobAgentState(root);
+    await expect(stat(orphan)).rejects.toThrow();
+  });
+
+  it('does not throw when the runner agent-state root is missing', async () => {
+    await expect(cleanupOrphanedJobAgentState(root)).resolves.toBeUndefined();
+  });
+});
+
 describe('cleanupWorkspace', () => {
   it('does not throw when the directory is missing', async () => {
     const missing = join(tmpdir(), 'shipfox-job-does-not-exist-xyz');
@@ -267,6 +374,39 @@ describe('cleanupJobLogs', () => {
     const missing = join(root, 'shipfox-job-logs-does-not-exist-xyz');
 
     const result = await cleanupJobLogs(missing);
+
+    expect(result).toBeUndefined();
+  });
+});
+
+describe('cleanupJobAgentState', () => {
+  let root: string;
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'shipfox-job-agent-state-test-'));
+  });
+
+  afterEach(async () => {
+    await rm(root, {recursive: true, force: true});
+  });
+
+  it('removes an existing job agent-state directory without touching the root', async () => {
+    const agentStateDir = join(root, 'job-33333333-3333-4333-8333-333333333333');
+    await mkdir(agentStateDir, {recursive: true});
+    await writeFile(join(agentStateDir, 'sessions.ndjson'), '{}\n');
+
+    const result = await cleanupJobAgentState(agentStateDir);
+
+    const readAgentStateDir = () => stat(agentStateDir);
+    await expect(readAgentStateDir()).rejects.toThrow();
+    expect((await stat(root)).isDirectory()).toBe(true);
+    expect(result).toBeUndefined();
+  });
+
+  it('does not throw when the directory is missing', async () => {
+    const missing = join(root, 'shipfox-job-agent-state-does-not-exist-xyz');
+
+    const result = await cleanupJobAgentState(missing);
 
     expect(result).toBeUndefined();
   });

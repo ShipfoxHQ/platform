@@ -3,7 +3,12 @@ import {
   materializedSecretBindingSchema,
   type StepSecretDto,
 } from '@shipfox/api-secrets-dto';
-import type {LogOutcomeDto, NextStepResponseDto, StepDto} from '@shipfox/api-workflows-dto';
+import type {
+  LogOutcomeDto,
+  NextStepResponseDto,
+  StepDto,
+  StepErrorReasonDto,
+} from '@shipfox/api-workflows-dto';
 import {logger} from '@shipfox/node-opentelemetry';
 import {redactSecrets} from '@shipfox/redact';
 import {
@@ -84,16 +89,30 @@ export async function runJobSteps(params: {
   cwd: string;
   gitConfigPath: string;
   logsDir: string;
+  agentStateDir: string;
+  prepareAgentState?: () => Promise<void>;
   jobContext: SetupJobContext;
   onLeaseTokenAdopted?: (leaseToken: string) => void;
 }): Promise<void> {
-  const {jobId, leaseClient, secrets, signal, cwd, gitConfigPath, logsDir, jobContext} = params;
+  const {
+    jobId,
+    leaseClient,
+    secrets,
+    signal,
+    cwd,
+    gitConfigPath,
+    logsDir,
+    agentStateDir,
+    prepareAgentState: prepareAgentStateDirectory,
+    jobContext,
+  } = params;
 
   // The setup step prepares the workspace; every run step assumes it ran. A run
   // step pulled before a successful setup is failed cleanly rather than spawned
   // against an unprepared cwd.
   let workspacePrepared = false;
   let logsPrepared = false;
+  let agentStatePrepared = false;
   let ambientGitConfigPath: string | undefined;
   let ambientGitConfigSecrets: string[] = [];
   const checkoutDestinations: CheckoutDestinations = new Map();
@@ -129,10 +148,18 @@ export async function runJobSteps(params: {
               logsPrepared = true;
             }
           : undefined;
+      const prepareAgentState =
+        step.type === 'setup' && !agentStatePrepared && prepareAgentStateDirectory !== undefined
+          ? async () => {
+              await prepareAgentStateDirectory();
+              agentStatePrepared = true;
+            }
+          : undefined;
       const execution = await executeStep({
         step,
         attempt,
         cwd,
+        agentStateDir,
         leaseClient,
         leaseToken: params.leaseToken,
         secrets,
@@ -148,6 +175,7 @@ export async function runJobSteps(params: {
         jobContext,
         gitConfigPath,
         ...(prepareLogs ? {prepareLogs} : {}),
+        ...(prepareAgentState ? {prepareAgentState} : {}),
       });
       activeStream = execution.stream;
       if (execution.preparedWorkspace) workspacePrepared = true;
@@ -267,6 +295,7 @@ export async function executeStep(params: {
   attempt: number;
   cwd: string;
   logsDir: string;
+  agentStateDir: string;
   jobContext: SetupJobContext;
   leaseClient: KyInstance;
   leaseToken: LeaseTokenSource;
@@ -281,12 +310,14 @@ export async function executeStep(params: {
   jobId: string;
   stepLabel: string;
   prepareLogs?: (() => Promise<void>) | undefined;
+  prepareAgentState?: (() => Promise<void>) | undefined;
 }): Promise<StepExecution> {
   const {
     step,
     attempt,
     cwd,
     logsDir,
+    agentStateDir,
     jobContext,
     leaseClient,
     leaseToken,
@@ -301,6 +332,7 @@ export async function executeStep(params: {
     jobId,
     stepLabel,
     prepareLogs,
+    prepareAgentState,
   } = params;
 
   let stream: LogStreamLifecycle | undefined;
@@ -341,7 +373,19 @@ export async function executeStep(params: {
         try {
           await prepareLogs();
         } catch (error) {
-          const result = setupLogDirectoryFailure(error);
+          const result = setupPreparationFailure(error, 'workspace_prep_failed');
+          logger().warn(
+            {err: error, jobId, stepId: step.id, attempt, reason: result.error?.reason},
+            'Setup step failed',
+          );
+          return {result, logOutcome: 'abandoned', preparedWorkspace: false};
+        }
+      }
+      if (prepareAgentState) {
+        try {
+          await prepareAgentState();
+        } catch (error) {
+          const result = setupPreparationFailure(error, 'agent_harness_unavailable');
           logger().warn(
             {err: error, jobId, stepId: step.id, attempt, reason: result.error?.reason},
             'Setup step failed',
@@ -506,7 +550,7 @@ export async function executeStep(params: {
       const result = await executeAgentStep(step, {
         signal,
         cwd: stepCwd,
-        logsDir,
+        agentStateDir,
         ...(ambientGitConfigPath ? {gitConfigGlobal: ambientGitConfigPath} : {}),
         runtime: {
           harness: runtimeConfig.harness,
@@ -702,12 +746,12 @@ function stepSecretsFailure(error: unknown): StepResult {
   };
 }
 
-function setupLogDirectoryFailure(error: unknown): StepResult {
+function setupPreparationFailure(error: unknown, reason: StepErrorReasonDto): StepResult {
   return {
     success: false,
     error: {
       message: error instanceof Error ? error.message : String(error),
-      reason: 'workspace_prep_failed',
+      reason,
     },
     exit_code: null,
   };

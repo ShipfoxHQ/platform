@@ -155,7 +155,7 @@ function expectResolvedExtensionPaths(
 function invocation(overrides: Partial<HarnessInvocation> = {}): HarnessInvocation {
   return {
     cwd: '/work',
-    logsDir: '/runner-logs/job-1',
+    agentStateDir: '/runner-agent/job-1',
     model: 'claude-opus-4-8',
     provider: 'anthropic',
     thinking: 'high',
@@ -306,9 +306,9 @@ describe('piHarnessAdapter', () => {
     expect(createAgentSessionMock).toHaveBeenCalled();
   });
 
-  it('configures eager loopback MCP proxy access in the runner job logs directory', async () => {
+  it('configures eager loopback MCP proxy access in the runner job agent-state directory', async () => {
     sessionDir = mkdtempSync(join(tmpdir(), 'shipfox-pi-mcp-'));
-    const logsDir = join(sessionDir, 'runner-logs');
+    const agentStateDir = join(sessionDir, 'runner-agent');
     const bridge = mcpBridge();
     let configPath = '';
     let config: unknown;
@@ -318,14 +318,14 @@ describe('piHarnessAdapter', () => {
       return piServices(sessionDir);
     });
 
-    await piHarnessAdapter.run(invocation({cwd: sessionDir, logsDir, mcpServers: [bridge]}));
+    await piHarnessAdapter.run(invocation({cwd: sessionDir, agentStateDir, mcpServers: [bridge]}));
 
     expect(bridge.activateHttp).toHaveBeenCalledTimes(1);
     expect(bindExtensionsMock).toHaveBeenCalledWith(expect.objectContaining({mode: 'print'}));
-    expect(configPath).toMatch(`${logsDir}/pi-mcp-`);
+    expect(configPath).toMatch(`${agentStateDir}/pi-mcp-`);
     expect(sessionManagerCreateMock).toHaveBeenCalledWith(
       sessionDir,
-      join(logsDir, 'agent-sessions'),
+      join(agentStateDir, 'agent-sessions'),
     );
     expect(config).toEqual({
       settings: {toolPrefix: 'none'},
@@ -363,7 +363,7 @@ describe('piHarnessAdapter', () => {
     const result = piHarnessAdapter.run(
       invocation({
         cwd: sessionDir,
-        logsDir: join(sessionDir, 'runner-logs'),
+        agentStateDir: join(sessionDir, 'runner-agent'),
         signal: abortController.signal,
         mcpServers: [mcpBridge()],
       }),
@@ -454,7 +454,7 @@ describe('piHarnessAdapter', () => {
       .run(
         invocation({
           cwd: sessionDir,
-          logsDir: join(sessionDir, 'runner-logs'),
+          agentStateDir: join(sessionDir, 'runner-agent'),
           mcpServers: [mcpBridge()],
         }),
       )
@@ -476,7 +476,7 @@ describe('piHarnessAdapter', () => {
       .run(
         invocation({
           cwd: sessionDir,
-          logsDir: join(sessionDir, 'runner-logs'),
+          agentStateDir: join(sessionDir, 'runner-agent'),
           mcpServers: [mcpBridge()],
         }),
       )
@@ -488,7 +488,7 @@ describe('piHarnessAdapter', () => {
       environment: {extensionPaths: ['pi-web-access', 'pi-mcp-adapter']},
     });
     expect(createAgentSessionServicesMock).not.toHaveBeenCalled();
-    expect(readdirSync(join(sessionDir, 'runner-logs'))).toEqual([]);
+    expect(readdirSync(join(sessionDir, 'runner-agent'))).toEqual([]);
   });
 
   it('registers the output tool for steps with declared outputs', async () => {
@@ -528,7 +528,7 @@ describe('piHarnessAdapter', () => {
     await piHarnessAdapter.run(
       invocation({
         cwd: sessionDir,
-        logsDir: join(sessionDir, 'runner-logs'),
+        agentStateDir: join(sessionDir, 'runner-agent'),
         mcpServers: [mcpBridge()],
         tools: ['read', 'mcp', 'web_search'],
       }),
@@ -544,7 +544,7 @@ describe('piHarnessAdapter', () => {
     await piHarnessAdapter.run(
       invocation({
         cwd: sessionDir,
-        logsDir: join(sessionDir, 'runner-logs'),
+        agentStateDir: join(sessionDir, 'runner-agent'),
         mcpServers: [mcpBridge()],
         tools: ['read', 'web_search'],
       }),
@@ -587,7 +587,7 @@ describe('piHarnessAdapter', () => {
     await piHarnessAdapter.run(
       invocation({
         cwd: sessionDir,
-        logsDir: join(sessionDir, 'runner-logs'),
+        agentStateDir: join(sessionDir, 'runner-agent'),
         provider: 'local-ollama',
         model: 'llama',
         mcpServers: [mcpBridge()],

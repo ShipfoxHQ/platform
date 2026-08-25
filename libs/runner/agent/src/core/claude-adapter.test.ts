@@ -60,7 +60,7 @@ import type {IntegrationToolsBridge} from '#core/integration-tools-bridge.js';
 function invocation(overrides: Partial<HarnessInvocation> = {}): HarnessInvocation {
   return {
     cwd: testCwd,
-    logsDir: join(testCwd, 'runner-logs'),
+    agentStateDir: join(testCwd, 'runner-agent'),
     model: 'claude-opus-4-8',
     provider: 'anthropic',
     thinking: 'xhigh',
@@ -477,7 +477,7 @@ describe('claudeHarnessAdapter', () => {
       }),
     });
     const env = lastQueryOptions().env;
-    expect(env.CLAUDE_CONFIG_DIR).toMatch(`${testCwd}/runner-logs/claude-config-`);
+    expect(env.CLAUDE_CONFIG_DIR).toMatch(`${testCwd}/runner-agent/claude-config-`);
     expect(lastQueryOptions()).not.toHaveProperty('tools');
     expect(lastQueryOptions().mcpServers).toBeUndefined();
   });
