@@ -393,7 +393,7 @@ Compact values apply below an ancestor with `data-density="compact"`.
 | --- | --- |
 | Gaps | `gap-tight` 4 / 2, `gap-inline` 8 / 4, `gap-cluster` 12 / 8, `gap-group` 16 / 12, `gap-section` 24 / 16, `gap-region` 32 / 24 |
 | Axis gaps | `gap-x-*` and `gap-y-*` in the same six roles and the same values, for a grid whose column and row rhythm differ |
-| Padding | `p-menu-surface` 4 / 2, `p-tight` and `px-tight` 8 / 4, `px-row` 16 / 12, `py-row` 12 / 8, `p-panel-compact` 16 / 12, `p-panel` and `pb-panel` 24 / 16, `px-frame` 24 / 16, `py-frame` 32 / 24 |
+| Padding | `p-menu-surface` 4 / 2, `p-tight` and `px-tight` 8 / 4, `px-row` 16 / 12, `py-row` 12 / 8, `p-panel-compact` and `pt-panel-compact` 16 / 12, `p-panel` and `pb-panel` 24 / 16, `px-frame` 24 / 16, `py-frame` 32 / 24 |
 | Margins | `ms-inline` 8 / 4, `my-region` 32 / 24, `mt-page` 48 / 32, `-mt-inline`, `-mr-inline`, and `-mx-inline` -8 / -4 |
 
 Use a parent `gap-*` role before adding a child margin, and reach for `gap-x-*`

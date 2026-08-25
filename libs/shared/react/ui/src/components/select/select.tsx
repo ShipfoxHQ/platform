@@ -14,14 +14,26 @@ function SelectGroup({...props}: ComponentProps<typeof SelectPrimitive.Group>) {
   return <SelectPrimitive.Group data-slot="select-group" {...props} />;
 }
 
-function SelectValue({...props}: ComponentProps<typeof SelectPrimitive.Value>) {
-  return <SelectPrimitive.Value data-slot="select-value" {...props} />;
+function SelectValue({className, ...props}: ComponentProps<typeof SelectPrimitive.Value>) {
+  return (
+    // Selected values are frequently names a user authored, such as a job or a workflow, and
+    // nothing bounds their length. Without this the value wraps and spills out of the trigger's
+    // fixed height instead of ending in an ellipsis.
+    <SelectPrimitive.Value
+      data-slot="select-value"
+      className={cn('min-w-0 truncate text-left', className)}
+      {...props}
+    />
+  );
 }
 
 const selectTriggerVariants = cva(
   [
     'flex items-center justify-between gap-8',
-    'w-full rounded-6 px-8 text-sm leading-20',
+    'w-full min-w-0 rounded-6 px-8 text-sm leading-20',
+    // The trigger keeps its compact height so it sits level with the metadata beside it, and
+    // grows to the touch minimum only where the pointer is coarse.
+    '[@media(pointer:coarse)]:min-h-44',
     'bg-background-field-base text-foreground-neutral-subtle',
     'shadow-button-neutral transition-[color,box-shadow] outline-none',
     'hover:bg-background-field-hover',

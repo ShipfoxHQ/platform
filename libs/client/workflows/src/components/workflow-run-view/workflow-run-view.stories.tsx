@@ -1,3 +1,4 @@
+import type {AnnotationDto} from '@shipfox/annotations-dto';
 import type {WorkflowRunDetailResponseDto} from '@shipfox/api-workflows-dto';
 import {configureApiClient} from '@shipfox/client-api';
 import type {Decorator, Meta, StoryObj} from '@storybook/react';
@@ -6,7 +7,10 @@ import {type ReactNode, useEffect, useState} from 'react';
 import {
   runAttemptsResponseDto,
   workflowJobDto,
+  workflowJobExecutionDto,
   workflowRunDetailDto,
+  workflowStepAttemptDto,
+  workflowStepDto,
 } from '#test/fixtures/workflow-run.js';
 import {WorkflowRunView} from './workflow-run-view.js';
 
@@ -14,6 +18,10 @@ const PROJECT_ID = '22222222-2222-4222-8222-222222222222';
 const RUN_ID = '11111111-1111-4111-8111-111111111111';
 const RUN_STARTED_AT = '2026-06-26T11:57:00.000Z';
 const RUN_FINISHED_AT = '2026-06-26T11:59:00.000Z';
+const BUILD_JOB_ID = '44444444-4444-4444-8444-00000000000b';
+const BUILD_EXECUTION_ID = '77777777-7777-4777-8777-00000000000b';
+const BUILD_STEP_ID = '55555555-5555-4555-8555-00000000000b';
+const BUILD_ATTEMPT_ID = '66666666-6666-4666-8666-00000000000b';
 
 const RUN_RESPONSE: WorkflowRunDetailResponseDto = workflowRunDetailDto({
   id: RUN_ID,
@@ -25,10 +33,33 @@ const RUN_RESPONSE: WorkflowRunDetailResponseDto = workflowRunDetailDto({
   has_started_job_execution: true,
   jobs: [
     workflowJobDto({
+      id: BUILD_JOB_ID,
       key: 'build',
       name: 'build',
       status: 'succeeded',
       position: 0,
+      job_executions: [
+        workflowJobExecutionDto({
+          id: BUILD_EXECUTION_ID,
+          job_id: BUILD_JOB_ID,
+          status: 'succeeded',
+          steps: [
+            workflowStepDto({
+              id: BUILD_STEP_ID,
+              name: 'run smoke checks',
+              status: 'succeeded',
+              attempts: [
+                workflowStepAttemptDto({
+                  id: BUILD_ATTEMPT_ID,
+                  step_id: BUILD_STEP_ID,
+                  attempt: 1,
+                  status: 'succeeded',
+                }),
+              ],
+            }),
+          ],
+        }),
+      ],
     }),
     workflowJobDto({
       key: 'deploy',
@@ -48,8 +79,37 @@ const RUN_RESPONSE: WorkflowRunDetailResponseDto = workflowRunDetailDto({
 });
 const RUN_ATTEMPTS_RESPONSE = runAttemptsResponseDto({attempts: []});
 
-const withRunApi: Decorator = (Story) => (
-  <RunWorkspaceStoryProviders>
+/** Stable identity: a fresh `[]` per render would retrigger the API-client effect every render. */
+const NO_ANNOTATIONS: AnnotationDto[] = [];
+
+const RUN_ANNOTATIONS: AnnotationDto[] = [
+  annotationDto({
+    id: 'aaaaaaaa-aaaa-4aaa-8aaa-000000000001',
+    context: 'smoke check',
+    style: 'error',
+    sequence: 3,
+    body: 'Task nine failed the smoke check against `https://preview.example.com`.\n\n```sh\ncurl -sSf https://preview.example.com/healthz\n```',
+  }),
+  annotationDto({
+    id: 'aaaaaaaa-aaaa-4aaa-8aaa-000000000002',
+    context: 'flaky tests',
+    style: 'warning',
+    sequence: 2,
+    body: '2 specs retried before passing.',
+  }),
+  annotationDto({
+    id: 'aaaaaaaa-aaaa-4aaa-8aaa-000000000003',
+    context: 'deploy',
+    style: 'success',
+    sequence: 1,
+    body: 'Deployed **v42** to staging.',
+  }),
+];
+
+const withRunApi: Decorator = (Story, context) => (
+  <RunWorkspaceStoryProviders
+    annotations={(context.parameters.annotations ?? NO_ANNOTATIONS) as AnnotationDto[]}
+  >
     <Story />
   </RunWorkspaceStoryProviders>
 );
@@ -91,7 +151,39 @@ type Story = StoryObj<typeof meta>;
 
 export const WideViewport: Story = {};
 
-function RunWorkspaceStoryProviders({children}: {children: ReactNode}) {
+/**
+ * The annotations section in the page frame it actually ships in.
+ *
+ * The standalone `Workflows/RunAnnotations` stories capture the panel on its own, which cannot
+ * show the two things that only exist here: the rail marking the section, and how the panel and
+ * its rows sit against the run header and the frame gutters.
+ */
+export const Annotations: Story = {
+  parameters: {annotations: RUN_ANNOTATIONS},
+  args: {tab: 'annotations'},
+};
+
+function annotationDto(overrides: Partial<AnnotationDto> & {id: string}): AnnotationDto {
+  return {
+    job_id: BUILD_JOB_ID,
+    job_execution_id: BUILD_EXECUTION_ID,
+    origin_step_id: BUILD_STEP_ID,
+    origin_step_attempt: 1,
+    context: 'default',
+    style: 'default',
+    sequence: 1,
+    body: 'Body',
+    ...overrides,
+  };
+}
+
+function RunWorkspaceStoryProviders({
+  annotations,
+  children,
+}: {
+  annotations: AnnotationDto[];
+  children: ReactNode;
+}) {
   const [queryClient] = useState(
     () => new QueryClient({defaultOptions: {queries: {retry: false}}}),
   );
@@ -107,7 +199,7 @@ function RunWorkspaceStoryProviders({children}: {children: ReactNode}) {
         const response =
           path === '/annotations'
             ? {
-                body: {annotations: [], has_more: false, next_cursor: null},
+                body: {annotations, has_more: false, next_cursor: null},
                 status: 200,
               }
             : path === `/workflows/runs/${RUN_ID}/attempts`
@@ -126,7 +218,7 @@ function RunWorkspaceStoryProviders({children}: {children: ReactNode}) {
     return () => {
       configureApiClient({baseUrl: '', fetchImpl: undefined});
     };
-  }, []);
+  }, [annotations]);
 
   if (!configured) return null;
 

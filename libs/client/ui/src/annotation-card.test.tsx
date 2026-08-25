@@ -6,34 +6,53 @@ import {AnnotationCard, type AnnotationCardProps} from './annotation-card.js';
 
 const styles = ['default', 'info', 'success', 'warning', 'error'] as const;
 const stylesWithDefaultGlyph = ['info', 'success', 'warning', 'error'] as const;
+const SEVERITY_LABEL = {
+  info: 'Info:',
+  success: 'Success:',
+  warning: 'Warning:',
+  error: 'Error:',
+} as const satisfies Record<(typeof stylesWithDefaultGlyph)[number], string>;
 /** Markdown link syntax that reached the DOM as text, which means the source was cut mid-link. */
 const UNPARSED_LINK_PATTERN = /^\[documentation\]/u;
 const OPEN_DOCUMENTATION_PATTERN = /Open documentation/;
 const PREFIX_PATTERN = /prefix/u;
 const DOCUMENTATION_PATTERN = /documentation/u;
+/** Any frame the card might draw around itself: a border, a radius, or the inline chip fill. */
+const CARD_FRAME_PATTERN = /\b(?:border|rounded-|bg-background-components)/u;
 
 describe('AnnotationCard', () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  test.each(styles)('renders %s annotations as callouts', (style) => {
+  test.each(styles)('carries %s severity in a glyph', (style) => {
     const {container} = renderAnnotationCard({style, body: `**${style}** body`});
 
-    expect(container.querySelector('[data-slot="callout"]')).not.toBeNull();
+    expect(container.querySelector('[data-slot="annotation-style-icon"]')).not.toBeNull();
   });
 
-  test.each(stylesWithDefaultGlyph)('renders the default %s glyph', (style) => {
-    const {container} = renderAnnotationCard({style, body: 'Body'});
+  test.each(stylesWithDefaultGlyph)('announces %s severity to a screen reader', (style) => {
+    // The glyph is the only thing carrying severity, and it is hidden from assistive tech.
+    renderAnnotationCard({style, body: 'Body'});
 
-    expect(container.querySelector('[data-slot="callout-icon"]')).not.toBeNull();
+    expect(screen.getByText(SEVERITY_LABEL[style], {selector: '.sr-only'})).toBeInTheDocument();
   });
 
-  test('renders default style with the side-line treatment', () => {
+  test('leaves the default style unannounced', () => {
     const {container} = renderAnnotationCard({style: 'default', body: 'Body'});
 
-    expect(container.querySelector('[data-slot="callout-icon"]')).toBeNull();
-    expect(container.querySelector('[data-slot="callout-line"]')).not.toBeNull();
+    expect(container.querySelector('[data-slot="annotation-style-icon"]')).not.toBeNull();
+    expect(container.querySelector('.sr-only')).toBeNull();
+  });
+
+  test('renders no frame of its own', () => {
+    // The list it belongs to owns the row padding and the hairline between rows. A bordered box
+    // here would be a second frame inside the annotations panel.
+    const {container} = renderAnnotationCard({style: 'error', body: 'Body', title: 'deploy'});
+    const root = container.firstElementChild;
+
+    expect(container.querySelector('[data-slot="callout"]')).toBeNull();
+    expect(root?.className).not.toMatch(CARD_FRAME_PATTERN);
   });
 
   test('renders sanitized Markdown', () => {

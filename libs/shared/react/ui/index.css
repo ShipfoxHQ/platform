@@ -1211,6 +1211,10 @@
   padding-bottom: var(--pad-panel);
 }
 
+@utility pt-panel-compact {
+  padding-top: var(--pad-panel-compact);
+}
+
 @utility px-tight {
   padding-inline: var(--pad-tight);
 }

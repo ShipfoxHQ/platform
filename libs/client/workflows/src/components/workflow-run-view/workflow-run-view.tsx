@@ -263,7 +263,6 @@ function RunViewContent({
     delete nextSearch.stepId;
     delete nextSearch.stepAttemptId;
     delete nextSearch.severity;
-    delete nextSearch.annotation;
 
     void navigate({
       to: '/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId',
@@ -396,7 +395,7 @@ function RunSectionContent({
     return (
       <section
         aria-label="All jobs summary"
-        className="min-h-0 flex-1 overflow-auto pb-panel pt-[16px]"
+        className="min-h-0 flex-1 overflow-auto pb-panel pt-panel-compact"
       >
         <div className="flex w-full flex-col gap-group">
           <Text as="h2" className="sr-only">
@@ -436,7 +435,7 @@ function RunSectionContent({
   return (
     <section
       aria-label="Workflow source"
-      className="min-h-0 flex-1 overflow-auto pb-panel pt-[16px]"
+      className="min-h-0 flex-1 overflow-auto pb-panel pt-panel-compact"
     >
       <div className="flex min-h-full w-full flex-col">
         <Text as="h2" className="sr-only">
@@ -525,6 +524,7 @@ function RunAnnotationsSection({
       .map((job) => ({
         id: `derived-${job.id}`,
         style: job.status === 'failed' ? 'error' : 'warning',
+        jobName: job.displayName,
         body: derivedJobAnnotation(job),
       }));
   }, [records, run.jobs, selectedJob, selection]);
@@ -536,7 +536,7 @@ function RunAnnotationsSection({
   return (
     <section
       aria-label="Run annotations"
-      className="min-h-0 flex-1 overflow-auto pb-panel pt-[16px]"
+      className="min-h-0 flex-1 overflow-auto pb-panel pt-panel-compact"
     >
       <div className="flex w-full flex-col">
         <Text as="h2" className="sr-only">
@@ -557,29 +557,28 @@ function RunAnnotationsSection({
               onSelect={onSelectAnnotationJob}
             />
           </PanelHeader>
-          <PanelBody className="gap-group p-panel">
-            <RunAnnotationList
-              // Remounting on a filter or run-attempt change resets the render window, so the next
-              // list never inherits a "show more" position from different data.
-              key={`${run.id}:${run.runAttempt.attempt}:${severity ?? 'all'}:${selectedJob?.id ?? 'all'}`}
-              query={annotations.query}
-              entries={entries}
-              derivedAnnotations={derivedAnnotations}
-              workspaceSlug={workspaceSlug}
-              projectSlug={projectSlug}
-              workflowRunId={run.id}
-              runAttempt={run.runAttempt.attempt}
-              // A run with no annotations at all offers no filter to clear, whatever the URL says.
-              filtered={Boolean(
-                (severity || selectedJob || selection?.annotation) &&
-                  ((annotationSummary?.total ?? 0) > 0 || hasSynthesizedJobAnnotations),
-              )}
-              filteredJobName={selectedJob?.displayName}
-              filteredSeverity={severity}
-              onClearFilters={onClearAnnotationFilters}
-              selectedAnnotationId={selection?.annotation}
-            />
-          </PanelBody>
+          {/* The list owns the panel body: its rows are flush cells divided by the panel's own
+              hairlines, and each of its other states wants its own padding. */}
+          <RunAnnotationList
+            // Remounting on a filter or run-attempt change resets the render window, so the next
+            // list never inherits a "show more" position from different data.
+            key={`${run.id}:${run.runAttempt.attempt}:${severity ?? 'all'}:${selectedJob?.id ?? 'all'}`}
+            query={annotations.query}
+            entries={entries}
+            derivedAnnotations={derivedAnnotations}
+            workspaceSlug={workspaceSlug}
+            projectSlug={projectSlug}
+            workflowRunId={run.id}
+            runAttempt={run.runAttempt.attempt}
+            // A run with no annotations at all offers no filter to clear, whatever the URL says.
+            filtered={Boolean(
+              (severity || selectedJob) &&
+                ((annotationSummary?.total ?? 0) > 0 || hasSynthesizedJobAnnotations),
+            )}
+            filteredJobName={selectedJob?.displayName}
+            filteredSeverity={severity}
+            onClearFilters={onClearAnnotationFilters}
+          />
         </Panel>
       </div>
     </section>
@@ -590,12 +589,10 @@ function matchesDerivedAnnotationFilters(
   style: 'warning' | 'error',
   selection: WorkflowRunsSearch | undefined,
 ): boolean {
-  if (selection?.severity && style !== selection.severity) return false;
-  // A selected annotation is a deep-link to a real annotation record. Synthetic diagnostics
-  // have no id or context, so they must not remain visible behind that selection.
-  return !selection?.annotation;
+  return !selection?.severity || style === selection.severity;
 }
 
+/** The row is titled by its job, so the body opens with what happened rather than repeating it. */
 function derivedJobAnnotation(job: Job): string {
   const reason = job.statusReason ? `Reason: \`${job.statusReason}\`` : null;
   const traceSummary = formatConditionEvaluation(job.evaluationTrace);
@@ -603,7 +600,7 @@ function derivedJobAnnotation(job: Job): string {
 
   if (job.status === 'skipped') {
     return [
-      `**${job.displayName}** was skipped before an execution was created.`,
+      'Skipped before an execution was created.',
       '',
       'Review its dependencies or condition before re-running.',
       details,
@@ -612,7 +609,7 @@ function derivedJobAnnotation(job: Job): string {
       .join('\n');
   }
   return [
-    `**${job.displayName}** failed before an execution was created.`,
+    'Failed before an execution was created.',
     '',
     'Check runner availability and workflow configuration before re-running.',
     details,
@@ -653,6 +650,7 @@ function AnnotationJobFilter({
   const sortedJobs = [...jobs].sort(
     (left, right) => left.position - right.position || left.id.localeCompare(right.id),
   );
+  const selectedJobName = jobs.find((job) => job.id === selectedJobId)?.displayName;
 
   return (
     <Select
@@ -662,6 +660,9 @@ function AnnotationJobFilter({
       <SelectTrigger
         size="small"
         aria-label="Filter annotations by job"
+        // Job names are user-authored and the trigger truncates them. Radix renders the value
+        // itself, so only a caller that knows the selected job can offer the full name back.
+        title={selectedJobName ?? 'All jobs'}
         className="w-full min-[480px]:w-240"
       >
         <SelectValue />

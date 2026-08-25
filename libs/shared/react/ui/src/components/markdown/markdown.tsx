@@ -248,7 +248,9 @@ class MarkdownRenderGuard extends Component<MarkdownRenderGuardProps, MarkdownRe
     if (this.state.hasError) {
       return (
         <pre
-          className="min-w-0 whitespace-pre-wrap rounded-8 bg-background-components-base p-12 font-code text-xs leading-20 text-foreground-neutral-base [overflow-wrap:anywhere]"
+          // The same code surface a rendered fence lands on, so a body that fails to parse still
+          // reads as code rather than as a chip the size of a paragraph.
+          className="min-w-0 whitespace-pre-wrap rounded-8 bg-background-contrast-base p-12 font-code text-xs leading-20 text-foreground-contrast-primary [overflow-wrap:anywhere]"
           dir="auto"
         >
           {this.props.body}

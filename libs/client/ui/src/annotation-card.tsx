@@ -1,6 +1,6 @@
 import type {AnnotationStyleDto} from '@shipfox/annotations-dto';
 import {Button} from '@shipfox/react-ui/button';
-import {Callout, CalloutContent} from '@shipfox/react-ui/callout';
+import {Icon, type IconName} from '@shipfox/react-ui/icon';
 import {Markdown} from '@shipfox/react-ui/markdown';
 import {cn} from '@shipfox/react-ui/utils';
 import {type ReactNode, useEffect, useId, useRef, useState} from 'react';
@@ -26,6 +26,42 @@ const OVERFLOW_TOLERANCE = 8;
 const MAX_COLLAPSED_BODY_CHARS = 4_000;
 
 /**
+ * The glyph vocabulary for annotation style.
+ *
+ * One map, so the mark beside `1 error` in a summary line is the mark on the error row below it.
+ */
+const ANNOTATION_STYLE_ICON = {
+  default: 'fileTextLine',
+  info: 'info',
+  success: 'checkboxCircleFill',
+  warning: 'errorWarningFill',
+  error: 'closeCircleFill',
+} as const satisfies Record<AnnotationStyleDto, IconName>;
+
+/**
+ * Style tone lives in the glyph, never in the surface behind it.
+ *
+ * A row tinted to match its severity turns a list of warnings into one warning band, and leaves
+ * the reader no calm ground to scan.
+ */
+const ANNOTATION_STYLE_TONE = {
+  default: 'text-tag-neutral-icon',
+  info: 'text-tag-blue-icon',
+  success: 'text-tag-success-icon',
+  warning: 'text-tag-warning-icon',
+  error: 'text-tag-error-icon',
+} as const satisfies Record<AnnotationStyleDto, string>;
+
+/** Severity is carried by a colored glyph, which a screen reader cannot see. */
+const ANNOTATION_STYLE_LABEL = {
+  default: null,
+  info: 'Info',
+  success: 'Success',
+  warning: 'Warning',
+  error: 'Error',
+} as const satisfies Record<AnnotationStyleDto, string | null>;
+
+/**
  * Cuts Markdown source at a line boundary.
  *
  * Only the line boundary needs handling: a mid-line cut can split a link or inline code and
@@ -46,10 +82,19 @@ function collapsedPreview(body: string): string {
 const BODY_MEASURE =
   '[&>p]:max-w-[75ch] [&>ul]:max-w-[75ch] [&>ol]:max-w-[75ch] [&>blockquote]:max-w-[75ch] [&>h1]:max-w-[75ch] [&>h2]:max-w-[75ch] [&>h3]:max-w-[75ch] [&>h4]:max-w-[75ch]';
 
+/**
+ * Fades the clipped body into whatever is behind it.
+ *
+ * A mask rather than a gradient overlay because the card draws no surface of its own: the row
+ * behind it belongs to the caller, so there is no color here to fade a painted overlay to.
+ */
+const BODY_CLAMP_FADE =
+  '[mask-image:linear-gradient(to_bottom,#000_calc(100%_-_48px),transparent)]';
+
 type AnnotationCardProps = {
   style: AnnotationStyleDto;
   body: string;
-  /** The annotation's `context`, shown as its title. */
+  /** The row's heading, which is the job the annotation came from. */
   title?: string | undefined;
   /** Heading element for the title. Callers own the document outline. */
   titleAs?: 'h2' | 'h3' | 'h4' | undefined;
@@ -58,10 +103,15 @@ type AnnotationCardProps = {
   /** A single action, such as a link back to the emitting step. */
   action?: ReactNode | undefined;
   maxBodyHeight?: number | undefined;
-  id?: string | undefined;
 };
 
 /**
+ * One annotation's content: severity glyph, heading, provenance, and body.
+ *
+ * It renders no frame of its own. The list it belongs to owns the row padding and the hairline
+ * that separates one annotation from the next, because a bordered tile inside the annotations
+ * panel would be two frames around one thing.
+ *
  * Deliberately not memoized: `provenance` and `action` are elements the caller builds fresh on
  * every render, so a shallow compare could never hit. The parse cost that actually matters is
  * held by `Markdown`, which memoizes on its primitive props.
@@ -74,7 +124,6 @@ function AnnotationCard({
   provenance,
   action,
   maxBodyHeight = DEFAULT_MAX_BODY_HEIGHT,
-  id,
 }: AnnotationCardProps) {
   const bodyId = useId();
   const contentRef = useRef<HTMLDivElement>(null);
@@ -124,15 +173,26 @@ function AnnotationCard({
   // over the budget is never clipped without a disclosure to open it.
   const collapsed = hasBody && !expanded && (!measured || disclosable);
   const rendered = collapsed && truncated ? collapsedPreview(body) : body;
+  const styleLabel = ANNOTATION_STYLE_LABEL[style];
 
   return (
-    <Callout id={id} type={style}>
-      <CalloutContent className="flex flex-col gap-6">
+    <div className="flex min-w-0 flex-1 gap-cluster">
+      {styleLabel ? <span className="sr-only">{styleLabel}: </span> : null}
+      <Icon
+        data-slot="annotation-style-icon"
+        name={ANNOTATION_STYLE_ICON[style]}
+        size={16}
+        aria-hidden="true"
+        // Optically centered on the 20px line box of the title beside it, not on the column.
+        className={cn('mt-2 shrink-0', ANNOTATION_STYLE_TONE[style])}
+      />
+
+      <div className="flex min-w-0 flex-1 flex-col gap-inline">
         {hasHeader ? (
-          <div className="flex min-w-0 items-start justify-between gap-8">
-            <div className="flex min-w-0 flex-col gap-2">
+          <div className="flex min-w-0 items-start justify-between gap-cluster">
+            <div className="flex min-w-0 flex-col gap-tight">
               {title ? (
-                <TitleTag className="min-w-0 break-words font-code text-sm font-medium leading-20 text-foreground-neutral-base">
+                <TitleTag className="min-w-0 break-words text-sm font-medium leading-20 text-foreground-neutral-base">
                   {title}
                 </TitleTag>
               ) : null}
@@ -143,10 +203,14 @@ function AnnotationCard({
         ) : null}
 
         {hasBody ? (
-          <div className="flex min-w-0 flex-col gap-4">
+          <div className="flex min-w-0 flex-col gap-tight">
             <div
               id={bodyId}
-              className={cn('relative min-w-0', collapsed && 'overflow-hidden')}
+              className={cn(
+                'relative min-w-0',
+                collapsed && 'overflow-hidden',
+                collapsed && disclosable && BODY_CLAMP_FADE,
+              )}
               style={collapsed ? {maxHeight: maxBodyHeight} : undefined}
               // Tabbing to a link inside a clipped body cannot scroll it into view, so reveal the
               // body rather than move focus somewhere invisible.
@@ -157,12 +221,6 @@ function AnnotationCard({
                   {rendered}
                 </Markdown>
               </div>
-              {collapsed && disclosable ? (
-                <div
-                  aria-hidden="true"
-                  className="pointer-events-none absolute inset-x-0 bottom-0 h-48 bg-linear-to-t from-background-components-base to-transparent"
-                />
-              ) : null}
             </div>
             {disclosable ? (
               // The fade above it carries the "there is more" signal, so the control itself
@@ -181,9 +239,15 @@ function AnnotationCard({
             ) : null}
           </div>
         ) : null}
-      </CalloutContent>
-    </Callout>
+      </div>
+    </div>
   );
 }
 
-export {AnnotationCard, type AnnotationCardProps, DEFAULT_MAX_BODY_HEIGHT};
+export {
+  ANNOTATION_STYLE_ICON,
+  ANNOTATION_STYLE_TONE,
+  AnnotationCard,
+  type AnnotationCardProps,
+  DEFAULT_MAX_BODY_HEIGHT,
+};

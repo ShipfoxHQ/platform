@@ -42,7 +42,6 @@ export interface WorkflowRunsSearch extends WorkflowRunSelectionInput {
   /** Inclusive upper bound on the run's local calendar date, `YYYY-MM-DD`. */
   before?: string;
   tab?: WorkflowRunTab;
-  annotation?: string;
   severity?: WorkflowRunAnnotationSeverity;
 }
 
@@ -76,7 +75,6 @@ export function validateWorkflowRunsSearch(input: Record<string, unknown>): Work
   const before = calendarDate(input.before);
   const tabValue = string(input.tab);
   const tab = tabValue && TAB_VALUES.has(tabValue) ? (tabValue as WorkflowRunTab) : undefined;
-  const annotation = string(input.annotation);
   const severityValue = string(input.severity);
   const severity =
     severityValue && ANNOTATION_SEVERITY_VALUES.has(severityValue)
@@ -93,7 +91,6 @@ export function validateWorkflowRunsSearch(input: Record<string, unknown>): Work
     ...(after ? {after} : {}),
     ...(before ? {before} : {}),
     ...(tab ? {tab} : {}),
-    ...(annotation ? {annotation} : {}),
     ...(severity ? {severity} : {}),
     ...workflowSelectionFromSearch(input, true),
   };
@@ -125,7 +122,6 @@ export function workflowRunSearchParams(
     ...(search.after ? {after: search.after} : {}),
     ...(search.before ? {before: search.before} : {}),
     ...(search.tab && search.tab !== 'summary' ? {tab: search.tab} : {}),
-    ...(search.annotation ? {annotation: search.annotation} : {}),
     ...(search.severity ? {severity: search.severity} : {}),
     ...workflowSelectionSearchParams(selection, true),
   };
@@ -145,7 +141,7 @@ export function workflowRunTab(
 
 /** Serializes only list filters when leaving a run detail page for the run list. */
 export function workflowRunListSearchParams(search: WorkflowRunsSearch) {
-  const {tab: _tab, annotation: _annotation, severity: _severity, ...listSearch} = search;
+  const {tab: _tab, severity: _severity, ...listSearch} = search;
   return workflowRunSearchParams(listSearch, {});
 }
 
