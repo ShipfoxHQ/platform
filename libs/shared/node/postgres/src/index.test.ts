@@ -23,6 +23,17 @@ describe('Postgres client', () => {
     expect(act).toThrow('Postgres client has not been created');
   });
 
+  it('waits for open connections to close during shutdown', async () => {
+    const pool = createPostgresClient();
+    await pool.query('SELECT 1');
+    const remove = vi.fn();
+    pool.on('remove', remove);
+
+    await closePostgresClient();
+
+    expect(remove).toHaveBeenCalledOnce();
+  });
+
   it('reports a successful health query', async () => {
     const pool = createPostgresClient();
     vi.spyOn(pool, 'query').mockResolvedValue({rowCount: 1} as never);
