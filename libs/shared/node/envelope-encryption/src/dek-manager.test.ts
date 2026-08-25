@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import {describe, expect, test, vi} from '@shipfox/vitest/vi';
 import {
   createLocalKeyProvider,
   DataKeyManager,
@@ -76,5 +77,29 @@ describe('data key manager', () => {
     manager.invalidate('workspace-1');
 
     expect((await manager.getPlaintextDataKey('workspace-1')).outcome).toBe('db_unwrapped');
+  });
+
+  test('periodically wipes expired plaintext keys without a new request', async () => {
+    vi.useFakeTimers();
+    try {
+      const repository = new MemoryDataKeyRepository();
+      const provider = createLocalKeyProvider({
+        currentKek: crypto.randomBytes(32),
+        keyVersionDomain: 'test-domain',
+      });
+      // Sweep interval is max(1000, ttlMs / 2) = 1000 ms for this TTL.
+      const manager = new DataKeyManager(provider, repository, {maxEntries: 10, ttlMs: 1_000});
+      await manager.getPlaintextDataKey('workspace-1');
+
+      // Past TTL and past the first sweep tick: the entry must be gone, so the
+      // next read is a fresh repository lookup instead of a cache-expired one.
+      vi.advanceTimersByTime(2_000);
+      const result = await manager.getPlaintextDataKey('workspace-1');
+      expect(result.outcome).toBe('db_unwrapped');
+
+      manager.clear();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

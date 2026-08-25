@@ -30,6 +30,7 @@ export class DataKeyManager {
   readonly #keyProvider: EnvelopeKeyProvider;
   readonly #repository: DataKeyRepository;
   readonly #options: {maxEntries: number; ttlMs: number};
+  readonly #sweepTimer: ReturnType<typeof setInterval>;
 
   constructor(
     keyProvider: EnvelopeKeyProvider,
@@ -39,6 +40,11 @@ export class DataKeyManager {
     this.#keyProvider = keyProvider;
     this.#repository = repository;
     this.#options = options;
+    // Periodically wipe expired plaintext keys even when no new request touches
+    // them, so the TTL also bounds plaintext retention for idle workspaces.
+    const sweepIntervalMs = Math.max(1_000, Math.floor(this.#options.ttlMs / 2));
+    this.#sweepTimer = setInterval(() => this.#sweepExpired(), sweepIntervalMs);
+    this.#sweepTimer.unref();
   }
 
   async getPlaintextDataKey(keyId: string): Promise<PlaintextDataKey> {
@@ -94,7 +100,15 @@ export class DataKeyManager {
   }
 
   clear(): void {
+    clearInterval(this.#sweepTimer);
     for (const keyId of this.#cache.keys()) this.#delete(keyId);
+  }
+
+  #sweepExpired(): void {
+    const now = Date.now();
+    for (const [keyId, entry] of this.#cache) {
+      if (entry.expiresAt <= now) this.#delete(keyId);
+    }
   }
 
   #set(keyId: string, dek: Buffer): void {

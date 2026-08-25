@@ -33,6 +33,11 @@ export async function rotateDataKeys(params: {
   repository: DataKeyRotationRepository;
   pageSize?: number | undefined;
 }): Promise<RotateDataKeysResult> {
+  const pageSize = params.pageSize ?? 100;
+  if (!Number.isInteger(pageSize) || pageSize < 1) {
+    throw new RangeError(`pageSize must be a positive integer, got ${params.pageSize}`);
+  }
+
   const knownVersions = [
     params.keyProvider.currentKeyVersion,
     params.keyProvider.previousKeyVersion,
@@ -50,7 +55,7 @@ export async function rotateDataKeys(params: {
   while (true) {
     const page = await params.repository.listPage({
       afterKeyId,
-      limit: params.pageSize ?? 100,
+      limit: pageSize,
     });
     if (page.length === 0) break;
 
@@ -84,4 +89,75 @@ export async function rotateDataKeys(params: {
     skippedCurrent,
     skippedRace,
   };
+}
+
+export interface RotateDataKeysWithTelemetryParams<TOutcome extends string> {
+  keyProvider: EnvelopeKeyProvider;
+  repository: DataKeyRotationRepository;
+  pageSize?: number | undefined;
+  /**
+   * Records rotation telemetry. Called with the same outcome labels the module
+   * already emits; a `durationMs`-only call records the rotation duration.
+   */
+  record: (params: {
+    outcome: TOutcome;
+    count?: number | undefined;
+    durationMs?: number | undefined;
+  }) => void;
+  /** Maps a thrown error to the module's rotation outcome label. */
+  classifyError: (error: unknown) => TOutcome;
+  /** Maps the shared stranded-key error to the module's domain error. */
+  strandedError: (keyVersion: string) => unknown;
+}
+
+export interface RotateDataKeysWithTelemetryResult {
+  rotated: number;
+  skipped: number;
+}
+
+/**
+ * Runs the shared `rotateDataKeys` sweep with timing, per-outcome telemetry,
+ * and domain error mapping, so store wrappers (Secrets, Agent sessions) stay
+ * free of duplicated orchestration and cannot drift apart.
+ */
+export async function rotateDataKeysWithTelemetry<TOutcome extends string>(
+  params: RotateDataKeysWithTelemetryParams<TOutcome>,
+): Promise<RotateDataKeysWithTelemetryResult> {
+  const startedAt = Date.now();
+  try {
+    const result = await rotateDataKeys({
+      keyProvider: params.keyProvider,
+      repository: params.repository,
+      pageSize: params.pageSize,
+    });
+
+    params.record({outcome: 'rotated' as TOutcome, count: result.rotated});
+    params.record({outcome: 'skipped_current' as TOutcome, count: result.skippedCurrent});
+    params.record({outcome: 'skipped_race' as TOutcome, count: result.skippedRace});
+    params.record({
+      outcome: rotationDurationOutcome(result) as TOutcome,
+      count: 0,
+      durationMs: Date.now() - startedAt,
+    });
+    return {rotated: result.rotated, skipped: result.skipped};
+  } catch (error) {
+    const domainError =
+      error instanceof DataKeyVersionStrandedError ? params.strandedError(error.keyVersion) : error;
+    params.record({
+      outcome: params.classifyError(domainError),
+      durationMs: Date.now() - startedAt,
+    });
+    throw domainError;
+  }
+}
+
+function rotationDurationOutcome(params: {
+  rotated: number;
+  skippedCurrent: number;
+  skippedRace: number;
+}): 'rotated' | 'skipped_race' | 'none' | 'skipped_current' {
+  if (params.rotated > 0) return 'rotated';
+  if (params.skippedRace > 0) return 'skipped_race';
+  if (params.skippedCurrent === 0) return 'none';
+  return 'skipped_current';
 }

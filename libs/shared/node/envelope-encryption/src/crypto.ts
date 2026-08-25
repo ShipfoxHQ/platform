@@ -8,7 +8,6 @@ const IV_BYTES = 12;
 const AUTH_TAG_BYTES = 16;
 const KEY_BYTES = 32;
 const BASE64_PATTERN = /^[A-Za-z0-9+/]+={0,2}$/u;
-const BASE64_PADDING_SUFFIX = /=+$/u;
 
 export const BINARY_ENVELOPE_OVERHEAD_BYTES =
   BINARY_ENVELOPE_PREFIX.length + IV_BYTES + AUTH_TAG_BYTES;
@@ -41,11 +40,10 @@ export function openEnvelopeText(params: TextEnvelopeOpenParams): Buffer {
   const encodedPayload = params.encoded.slice(TEXT_ENVELOPE_PREFIX.length);
   const payload = Buffer.from(encodedPayload, 'base64');
   const canonical = payload.toString('base64');
-  if (
-    !BASE64_PATTERN.test(encodedPayload) ||
-    canonical.replace(BASE64_PADDING_SUFFIX, '') !==
-      encodedPayload.replace(BASE64_PADDING_SUFFIX, '')
-  ) {
+  // The payload must use the exact canonical base64 encoding (including padding)
+  // emitted by `sealEnvelopeText`; omitting or shortening trailing padding must
+  // not decode to an accepted envelope.
+  if (!BASE64_PATTERN.test(encodedPayload) || canonical !== encodedPayload) {
     throw new EnvelopeDecryptionError();
   }
 

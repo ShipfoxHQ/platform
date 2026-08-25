@@ -5,6 +5,7 @@ import {
   DataKeyVersionStrandedError,
   type RotatableDataKeyRecord,
   rotateDataKeys,
+  rotateDataKeysWithTelemetry,
 } from './index.js';
 
 class MemoryRotationRepository implements DataKeyRotationRepository {
@@ -94,5 +95,73 @@ describe('data key rotation', () => {
     await expect(rotateDataKeys({keyProvider: provider, repository})).rejects.toThrow(
       DataKeyVersionStrandedError,
     );
+  });
+
+  test('rejects a pageSize that is not a positive integer', async () => {
+    const provider = createLocalKeyProvider({
+      currentKek: crypto.randomBytes(32),
+      keyVersionDomain: 'test-domain',
+    });
+    const repository = new MemoryRotationRepository([]);
+
+    for (const pageSize of [0, -1, 1.5, Number.NaN]) {
+      await expect(rotateDataKeys({keyProvider: provider, repository, pageSize})).rejects.toThrow(
+        RangeError,
+      );
+    }
+  });
+
+  test('rotateDataKeysWithTelemetry records outcomes, duration, and maps stranded errors', async () => {
+    const previousKek = crypto.randomBytes(32);
+    const currentKek = crypto.randomBytes(32);
+    const previousProvider = createLocalKeyProvider({
+      currentKek: previousKek,
+      keyVersionDomain: 'test-domain',
+    });
+    const plaintextDek = crypto.randomBytes(32);
+    const wrapped = previousProvider.wrapDek('workspace-1', plaintextDek);
+    const repository = new MemoryRotationRepository([{keyId: 'workspace-1', ...wrapped}]);
+    const provider = createLocalKeyProvider({
+      currentKek,
+      previousKek,
+      keyVersionDomain: 'test-domain',
+    });
+
+    const recorded: Array<{
+      outcome: string;
+      count?: number | undefined;
+      durationMs?: number | undefined;
+    }> = [];
+    const result = await rotateDataKeysWithTelemetry({
+      keyProvider: provider,
+      repository,
+      record: (params) => recorded.push(params),
+      classifyError: () => 'failure',
+      strandedError: (keyVersion) => new Error(`stranded: ${keyVersion}`),
+    });
+
+    expect(result).toEqual({rotated: 1, skipped: 0});
+    expect(recorded.map((entry) => entry.outcome)).toEqual([
+      'rotated',
+      'skipped_current',
+      'skipped_race',
+      'rotated',
+    ]);
+    expect(recorded[0]).toMatchObject({count: 1});
+    expect(recorded[3]).toMatchObject({count: 0, durationMs: expect.any(Number)});
+
+    const stranded = new Error('domain stranded');
+    const strandedRepository = new MemoryRotationRepository([
+      {keyId: 'workspace-2', wrappedDek: 'v1:AAAA', kekVersion: 'unknown'},
+    ]);
+    await expect(
+      rotateDataKeysWithTelemetry({
+        keyProvider: provider,
+        repository: strandedRepository,
+        record: () => undefined,
+        classifyError: () => 'stranded',
+        strandedError: () => stranded,
+      }),
+    ).rejects.toThrow('domain stranded');
   });
 });

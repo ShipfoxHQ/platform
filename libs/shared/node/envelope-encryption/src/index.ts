@@ -34,5 +34,8 @@ export {
   type DataKeyRotationRepository,
   type RotatableDataKeyRecord,
   type RotateDataKeysResult,
+  type RotateDataKeysWithTelemetryParams,
+  type RotateDataKeysWithTelemetryResult,
   rotateDataKeys,
+  rotateDataKeysWithTelemetry,
 } from './rotation.js';

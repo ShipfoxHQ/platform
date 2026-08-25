@@ -1,4 +1,4 @@
-import {DataKeyVersionStrandedError, rotateDataKeys} from '@shipfox/node-envelope-encryption';
+import {rotateDataKeysWithTelemetry} from '@shipfox/node-envelope-encryption';
 import {listDataKeysPage, listDataKeyVersions, updateDataKeyWrapCas} from '#db/index.js';
 import {classifyKekRotationError, recordSecretsKekRotation} from '#metrics/instance.js';
 import {KekVersionStrandedError} from './errors.js';
@@ -13,66 +13,35 @@ export interface RotateWorkspaceDataKeysOptions {
   workspaceIds?: string[] | undefined;
 }
 
-export async function rotateWorkspaceDataKeysWithProvider(
+export function rotateWorkspaceDataKeysWithProvider(
   keyProvider: KeyProvider,
   options: RotateWorkspaceDataKeysOptions = {},
 ): Promise<RotateWorkspaceDataKeysResult> {
-  const startedAt = Date.now();
-  try {
-    const result = await rotateDataKeys({
-      keyProvider,
-      repository: {
-        listUnknownKeyVersions(knownVersions) {
-          return listDataKeyVersions(knownVersions, {workspaceIds: options.workspaceIds});
-        },
-        async listPage(params) {
-          const rows = await listDataKeysPage({
-            afterWorkspaceId: params.afterKeyId,
-            limit: params.limit,
-            workspaceIds: options.workspaceIds,
-          });
-          return rows.map((row) => ({keyId: row.workspaceId, ...row}));
-        },
-        updateWrapCas(params) {
-          return updateDataKeyWrapCas({
-            workspaceId: params.keyId,
-            oldKekVersion: params.oldKekVersion,
-            wrappedDek: params.wrappedDek,
-            kekVersion: params.kekVersion,
-          });
-        },
+  return rotateDataKeysWithTelemetry({
+    keyProvider,
+    repository: {
+      listUnknownKeyVersions(knownVersions) {
+        return listDataKeyVersions(knownVersions, {workspaceIds: options.workspaceIds});
       },
-    });
-
-    recordSecretsKekRotation({outcome: 'rotated', count: result.rotated});
-    recordSecretsKekRotation({outcome: 'skipped_current', count: result.skippedCurrent});
-    recordSecretsKekRotation({outcome: 'skipped_race', count: result.skippedRace});
-    recordSecretsKekRotation({
-      outcome: rotationDurationOutcome(result),
-      count: 0,
-      durationMs: Date.now() - startedAt,
-    });
-    return {rotated: result.rotated, skipped: result.skipped};
-  } catch (error) {
-    const domainError =
-      error instanceof DataKeyVersionStrandedError
-        ? new KekVersionStrandedError(error.keyVersion)
-        : error;
-    recordSecretsKekRotation({
-      outcome: classifyKekRotationError(domainError),
-      durationMs: Date.now() - startedAt,
-    });
-    throw domainError;
-  }
-}
-
-function rotationDurationOutcome(params: {
-  rotated: number;
-  skippedCurrent: number;
-  skippedRace: number;
-}) {
-  if (params.rotated > 0) return 'rotated';
-  if (params.skippedRace > 0) return 'skipped_race';
-  if (params.skippedCurrent === 0) return 'none';
-  return 'skipped_current';
+      async listPage(params) {
+        const rows = await listDataKeysPage({
+          afterWorkspaceId: params.afterKeyId,
+          limit: params.limit,
+          workspaceIds: options.workspaceIds,
+        });
+        return rows.map((row) => ({keyId: row.workspaceId, ...row}));
+      },
+      updateWrapCas(params) {
+        return updateDataKeyWrapCas({
+          workspaceId: params.keyId,
+          oldKekVersion: params.oldKekVersion,
+          wrappedDek: params.wrappedDek,
+          kekVersion: params.kekVersion,
+        });
+      },
+    },
+    record: recordSecretsKekRotation,
+    classifyError: classifyKekRotationError,
+    strandedError: (keyVersion) => new KekVersionStrandedError(keyVersion),
+  });
 }

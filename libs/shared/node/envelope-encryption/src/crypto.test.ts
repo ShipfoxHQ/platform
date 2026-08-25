@@ -11,6 +11,8 @@ import {
 } from './index.js';
 
 const TEXT_ENVELOPE_PATTERN = /^v1:[A-Za-z0-9+/]+={0,2}$/u;
+const BASE64_PADDING_STRIP_PATTERN = /=+$/u;
+const BASE64_SINGLE_PADDING_STRIP_PATTERN = /=$/u;
 
 describe('envelope codecs', () => {
   test('round-trips the text envelope and keeps the existing v1 format', () => {
@@ -53,7 +55,9 @@ describe('envelope codecs', () => {
 
   test('rejects tampered and non-canonical text envelopes', () => {
     const key = crypto.randomBytes(32);
-    const encoded = sealEnvelopeText({key, plaintext: Buffer.from('value'), aad: 'scope'});
+    // 'values' (6 bytes) yields a 34-byte payload whose canonical base64 ends
+    // with one padding character, so the padding variants below are meaningful.
+    const encoded = sealEnvelopeText({key, plaintext: Buffer.from('values'), aad: 'scope'});
     const payload = Buffer.from(encoded.slice(3), 'base64');
     payload[payload.length - 1] = (payload[payload.length - 1] ?? 0) ^ 1;
 
@@ -63,6 +67,23 @@ describe('envelope codecs', () => {
     expect(() => openEnvelopeText({key, encoded: 'v1: YWJj', aad: 'scope'})).toThrow(
       EnvelopeDecryptionError,
     );
+
+    // Trailing padding is part of the canonical encoding: omitting or shortening
+    // it decodes to the same payload but must still be rejected.
+    expect(() =>
+      openEnvelopeText({
+        key,
+        encoded: encoded.replace(BASE64_PADDING_STRIP_PATTERN, ''),
+        aad: 'scope',
+      }),
+    ).toThrow(EnvelopeDecryptionError);
+    expect(() =>
+      openEnvelopeText({
+        key,
+        encoded: encoded.replace(BASE64_SINGLE_PADDING_STRIP_PATTERN, ''),
+        aad: 'scope',
+      }),
+    ).toThrow(EnvelopeDecryptionError);
   });
 
   test('accepts only canonical base64 32-byte keys', () => {
