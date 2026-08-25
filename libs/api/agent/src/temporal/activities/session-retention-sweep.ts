@@ -4,6 +4,7 @@ import {
   runSessionRetentionSweep,
   type SessionRetentionSweepResult,
 } from '#core/session-retention.js';
+import {recordSessionRetentionSweep} from '#metrics/instance.js';
 import {
   SESSION_RETENTION_BATCH_LIMIT,
   SESSION_RETENTION_MAX_ITERATIONS,
@@ -15,9 +16,9 @@ import {
  * transcript segments. Heartbeats per session; the core loop owns the
  * wall-clock budget because Temporal timeouts do not stop already-running JS.
  */
-export function sessionRetentionSweepActivity(): Promise<SessionRetentionSweepResult> {
+export async function sessionRetentionSweepActivity(): Promise<SessionRetentionSweepResult> {
   const ctx = Context.current();
-  return runSessionRetentionSweep({
+  const result = await runSessionRetentionSweep({
     retentionDays: config.AGENT_SESSION_RETENTION_DAYS,
     segmentGraceSeconds: config.AGENT_SESSION_SEGMENT_GRACE_SECONDS,
     batchLimit: SESSION_RETENTION_BATCH_LIMIT,
@@ -25,4 +26,6 @@ export function sessionRetentionSweepActivity(): Promise<SessionRetentionSweepRe
     maxIterations: SESSION_RETENTION_MAX_ITERATIONS,
     onProgress: () => ctx.heartbeat(),
   });
+  recordSessionRetentionSweep(result);
+  return result;
 }

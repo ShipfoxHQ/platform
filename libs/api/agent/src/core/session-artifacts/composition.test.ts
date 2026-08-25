@@ -31,6 +31,7 @@ describe('session artifact composition', () => {
   it('exposes only the current KEK when no previous key is configured', async () => {
     vi.resetModules();
     vi.stubEnv('AGENT_SESSION_ENCRYPTION_KEK', crypto.randomBytes(32).toString('base64'));
+    vi.stubEnv('AGENT_SESSION_ENCRYPTION_KEK_PREVIOUS', '');
 
     const {sessionKeyProvider} = await import('./composition.js');
 

@@ -7,7 +7,7 @@ Shared Node infrastructure for scoped S3-compatible object storage.
 - **Shared S3 profile**: Loads one endpoint, region, bucket, credential pair, and addressing mode.
 - **`S3ObjectStore`**: Restricts object operations to one non-empty key prefix.
 - **Object operations**: Uploads and reads bytes, streams multipart uploads, signs reads, lists keys, and deletes objects.
-- **Client policies**: Uses short timeouts for control operations and long-lived clients for data transfer.
+- **Client policies**: Uses enforced short timeouts for control operations and lets each consumer bound data-transfer requests when needed.
 
 ## Installation and setup
 
@@ -28,6 +28,7 @@ import {
 const sessions = createS3ObjectStore({
   profile: objectStorageS3Profile,
   prefix: 'agent-sessions',
+  transferRequestTimeoutMs: 300_000,
 });
 
 await sessions.putBytes({

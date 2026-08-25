@@ -56,4 +56,26 @@ describe('resolveObjectStorageS3Profile', () => {
       'AGENT_SESSION_STORAGE_S3_ACCESS_KEY_ID and AGENT_SESSION_STORAGE_S3_SECRET_ACCESS_KEY must be set together',
     );
   });
+
+  it('keeps shared credentials when consumer credential overrides are empty', () => {
+    const resolved = resolveObjectStorageS3Profile(
+      base,
+      {accessKeyId: '', secretAccessKey: ''},
+      'AGENT_SESSION_STORAGE_S3',
+    );
+
+    expect(resolved.credentials).toEqual(base.credentials);
+  });
+
+  it('rejects a non-empty consumer credential paired with an empty override', () => {
+    expect(() =>
+      resolveObjectStorageS3Profile(
+        base,
+        {accessKeyId: 'override-access', secretAccessKey: ''},
+        'AGENT_SESSION_STORAGE_S3',
+      ),
+    ).toThrow(
+      'AGENT_SESSION_STORAGE_S3_ACCESS_KEY_ID and AGENT_SESSION_STORAGE_S3_SECRET_ACCESS_KEY must be set together',
+    );
+  });
 });

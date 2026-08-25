@@ -1,17 +1,22 @@
 import crypto from 'node:crypto';
 import {afterEach, describe, expect, it} from '@shipfox/vitest/vi';
-import {eq, sql} from 'drizzle-orm';
+import {eq, inArray, sql} from 'drizzle-orm';
 import {createSession, db, sessions} from '#db/index.js';
 import {onWorkflowRunTerminated} from '#presentation/subscribers/on-workflow-run-terminated.js';
 
 describe('onWorkflowRunTerminated', () => {
+  const workspaceIds = new Set<string>();
+
   afterEach(async () => {
-    await db().execute(sql`TRUNCATE agent_sessions CASCADE`);
+    const ids = [...workspaceIds];
+    if (ids.length > 0) await db().delete(sessions).where(inArray(sessions.workspaceId, ids));
+    workspaceIds.clear();
   });
 
   it('stamps retired_at on every session of the terminated run attempt', async () => {
     const workflowRunAttemptId = crypto.randomUUID();
     const workspaceId = crypto.randomUUID();
+    workspaceIds.add(workspaceId);
     const projectId = crypto.randomUUID();
     for (const key of ['main', 'triage']) {
       await db().transaction((tx) =>
@@ -53,6 +58,7 @@ describe('onWorkflowRunTerminated', () => {
   it('keeps the original stamp on a redelivered event', async () => {
     const workflowRunAttemptId = crypto.randomUUID();
     const workspaceId = crypto.randomUUID();
+    workspaceIds.add(workspaceId);
     const projectId = crypto.randomUUID();
     const session = await db().transaction((tx) =>
       createSession(tx, {workspaceId, projectId, workflowRunAttemptId, key: 'main', harness: 'pi'}),

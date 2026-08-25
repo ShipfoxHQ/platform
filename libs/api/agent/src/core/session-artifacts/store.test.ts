@@ -1,25 +1,31 @@
 import crypto from 'node:crypto';
-import {afterEach, describe, expect, it} from '@shipfox/vitest/vi';
-import {eq, sql} from 'drizzle-orm';
+import {S3ObjectStore} from '@shipfox/node-object-storage';
+import {afterEach, describe, expect, it, vi} from '@shipfox/vitest/vi';
+import {eq, inArray} from 'drizzle-orm';
 import {config} from '#config.js';
 import type {AgentSession} from '#core/entities/agent-session.js';
+import {decodeBase64SessionKek} from '#core/session-artifacts/crypto.js';
+import {SessionDekManager} from '#core/session-artifacts/dek-manager.js';
+import {createSessionKeyProvider} from '#core/session-artifacts/key-provider.js';
+import {type SegmentManifest, segmentManifestToMetadata} from '#core/session-artifacts/manifest.js';
+import {sessionObjectKey} from '#core/session-artifacts/object-key.js';
 import {
-  createSessionArtifactStore,
-  createSessionKeyProvider,
-  decodeBase64SessionKek,
-  type SegmentManifest,
-  SessionDekManager,
-  segmentManifestToMetadata,
-  sessionObjectKey,
-} from '#core/session-artifacts/index.js';
-import {listSessionObjectKeys, putSessionObject} from '#core/session-artifacts/object-storage.js';
-import {claimSession, createSession, db, sessions} from '#db/index.js';
+  deleteSessionObjects as deleteSessionObjectKeys,
+  getSessionObject,
+  listSessionObjectKeys,
+  putSessionObject,
+} from '#core/session-artifacts/object-storage.js';
+import {createSessionArtifactStore} from '#core/session-artifacts/store.js';
+import {claimSession, createSession, db, sessionDataKeys, sessions} from '#db/index.js';
 
 describe('session artifact store', () => {
+  const workspaceIds = new Set<string>();
+
   afterEach(async () => {
+    vi.restoreAllMocks();
     await cleanupArtifacts();
-    await db().execute(sql`TRUNCATE agent_sessions CASCADE`);
-    await db().execute(sql`TRUNCATE agent_data_keys CASCADE`);
+    await cleanupDatabase();
+    workspaceIds.clear();
   });
 
   const KEK = decodeBase64SessionKek(
@@ -53,7 +59,7 @@ describe('session artifact store', () => {
   }
 
   function newCtx(overrides: Partial<SessionCtx> = {}): SessionCtx {
-    return {
+    const ctx = {
       workspaceId: crypto.randomUUID(),
       projectId: crypto.randomUUID(),
       workflowRunAttemptId: crypto.randomUUID(),
@@ -61,6 +67,8 @@ describe('session artifact store', () => {
       stepAttemptId: crypto.randomUUID(),
       ...overrides,
     };
+    workspaceIds.add(ctx.workspaceId);
+    return ctx;
   }
 
   async function arrangeClaimedSession(ctx: SessionCtx): Promise<AgentSession> {
@@ -99,9 +107,19 @@ describe('session artifact store', () => {
   }
 
   async function cleanupArtifacts(): Promise<void> {
-    const {deleteSessionObjects} = await import('#core/session-artifacts/object-storage.js');
-    const keys = await listSessionObjectKeys(`${config.AGENT_SESSION_STORAGE_S3_PREFIX}/`);
-    if (keys.length > 0) await deleteSessionObjects(keys);
+    for (const workspaceId of workspaceIds) {
+      const keys = await listSessionObjectKeys(
+        `${config.AGENT_SESSION_STORAGE_S3_PREFIX}/${workspaceId}`,
+      );
+      if (keys.length > 0) await deleteSessionObjectKeys(keys);
+    }
+  }
+
+  async function cleanupDatabase(): Promise<void> {
+    const ids = [...workspaceIds];
+    if (ids.length === 0) return;
+    await db().delete(sessions).where(inArray(sessions.workspaceId, ids));
+    await db().delete(sessionDataKeys).where(inArray(sessionDataKeys.workspaceId, ids));
   }
 
   it('commits a segment: writes the encrypted object and flips the head', async () => {
@@ -322,6 +340,50 @@ describe('session artifact store', () => {
     });
   });
 
+  it('maps invalid head metadata to a stable unavailable reason', async () => {
+    const ctx = newCtx();
+    const session = await arrangeClaimedSession(ctx);
+    const committed = await store.commitSegment({
+      session,
+      stepAttemptId: ctx.stepAttemptId,
+      baseSegment: 0,
+      blob: Buffer.from('segment with metadata'),
+      manifest: manifest({committedByStepAttempt: ctx.stepAttemptId}),
+      headRepoRef: null,
+    });
+    expect(committed.outcome).toBe('committed');
+    const current = requireSession(committed);
+    if (current.headObjectKey === null) throw new Error('Expected a committed head object');
+    const stored = await getSessionObject(current.headObjectKey);
+    if (stored === null) throw new Error('Expected the committed head object');
+    await putSessionObject({key: current.headObjectKey, body: stored.body, metadata: {}});
+
+    await expect(store.readHeadSegment(current)).rejects.toMatchObject({
+      code: 'agent_session_unavailable',
+      reason: 'invalid_manifest',
+    });
+  });
+
+  it('maps S3 transfer failures to storage_unavailable', async () => {
+    const ctx = newCtx();
+    const session = await arrangeClaimedSession(ctx);
+    vi.spyOn(S3ObjectStore.prototype, 'putBytes').mockRejectedValueOnce(
+      new Error('S3 unavailable'),
+    );
+
+    await expect(
+      store.putSegment({
+        session,
+        segment: 1,
+        blob: Buffer.from('segment'),
+        manifest: manifest({committedByStepAttempt: ctx.stepAttemptId}),
+      }),
+    ).rejects.toMatchObject({
+      code: 'agent_session_unavailable',
+      reason: 'storage_unavailable',
+    });
+  });
+
   it('deletes every object under the session prefix plus a carried-over head key', async () => {
     const ctx = newCtx();
     const session = await arrangeClaimedSession(ctx);
@@ -362,6 +424,10 @@ describe('session artifact store', () => {
       ...session,
       headObjectKey: carriedHeadKey,
     } as AgentSession;
+    await db()
+      .update(sessions)
+      .set({headObjectKey: carriedHeadKey})
+      .where(eq(sessions.id, session.id));
 
     await store.deleteSessionObjects(carriedSession);
 
@@ -370,5 +436,58 @@ describe('session artifact store', () => {
     );
     expect(keys).toHaveLength(0);
     expect(await objectExists(carriedHeadKey)).toBe(false);
+  });
+
+  it('uses the freshly locked head when a stale caller deletes session objects', async () => {
+    const source = newCtx();
+    const sourceSession = await arrangeClaimedSession(source);
+    const first = await store.commitSegment({
+      session: sourceSession,
+      stepAttemptId: source.stepAttemptId,
+      baseSegment: 0,
+      blob: Buffer.from('segment one'),
+      manifest: manifest({committedByStepAttempt: source.stepAttemptId}),
+      headRepoRef: null,
+    });
+    expect(first.outcome).toBe('committed');
+    const staleSource = requireSession(first);
+    const second = await store.commitSegment({
+      session: staleSource,
+      stepAttemptId: source.stepAttemptId,
+      baseSegment: 1,
+      blob: Buffer.from('segment two'),
+      manifest: manifest({committedByStepAttempt: source.stepAttemptId}),
+      headRepoRef: null,
+    });
+    expect(second.outcome).toBe('committed');
+    const currentSource = requireSession(second);
+    if (staleSource.headObjectKey === null || currentSource.headObjectKey === null) {
+      throw new Error('Expected committed head objects');
+    }
+
+    const target = newCtx({workspaceId: source.workspaceId, projectId: source.projectId});
+    const targetSession = await db().transaction((tx) =>
+      createSession(tx, {
+        workspaceId: target.workspaceId,
+        projectId: target.projectId,
+        workflowRunAttemptId: target.workflowRunAttemptId,
+        key: target.key,
+        harness: 'pi',
+      }),
+    );
+    await db()
+      .update(sessions)
+      .set({
+        headSegment: currentSource.headSegment,
+        headObjectKey: currentSource.headObjectKey,
+        headSizeBytes: currentSource.headSizeBytes,
+        headCommittedByAttempt: currentSource.headCommittedByAttempt,
+      })
+      .where(eq(sessions.id, targetSession.id));
+
+    await store.deleteSessionObjects(staleSource);
+
+    expect(await objectExists(staleSource.headObjectKey)).toBe(false);
+    expect(await objectExists(currentSource.headObjectKey)).toBe(true);
   });
 });

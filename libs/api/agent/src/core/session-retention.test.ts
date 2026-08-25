@@ -1,17 +1,15 @@
 import crypto from 'node:crypto';
-import {afterEach, describe, expect, it} from '@shipfox/vitest/vi';
-import {eq, sql} from 'drizzle-orm';
+import {afterEach, describe, expect, it, vi} from '@shipfox/vitest/vi';
+import {eq, inArray, sql} from 'drizzle-orm';
 import {config} from '#config.js';
 import type {AgentSession} from '#core/entities/agent-session.js';
-import {
-  createSessionArtifactStore,
-  createSessionKeyProvider,
-  decodeBase64SessionKek,
-  type SegmentManifest,
-  SessionDekManager,
-  sessionObjectKey,
-} from '#core/session-artifacts/index.js';
-import {listSessionObjectKeys} from '#core/session-artifacts/object-storage.js';
+import {decodeBase64SessionKek} from '#core/session-artifacts/crypto.js';
+import {SessionDekManager} from '#core/session-artifacts/dek-manager.js';
+import {createSessionKeyProvider} from '#core/session-artifacts/key-provider.js';
+import type {SegmentManifest} from '#core/session-artifacts/manifest.js';
+import {sessionObjectKey} from '#core/session-artifacts/object-key.js';
+import * as sessionObjectStorage from '#core/session-artifacts/object-storage.js';
+import {createSessionArtifactStore} from '#core/session-artifacts/store.js';
 import {runSessionRetentionSweep} from '#core/session-retention.js';
 import {
   claimSession,
@@ -19,8 +17,11 @@ import {
   createSession,
   db,
   releaseSession,
+  sessionDataKeys,
   sessions,
 } from '#db/index.js';
+
+const {deleteSessionObjects: deleteSessionObjectKeys, listSessionObjectKeys} = sessionObjectStorage;
 
 const KEK = decodeBase64SessionKek(
   config.AGENT_SESSION_ENCRYPTION_KEK,
@@ -32,6 +33,7 @@ const store = createSessionArtifactStore({
     ttlMs: 60_000,
   }),
 });
+const workspaceIds = new Set<string>();
 
 const GRACE_SECONDS = 600;
 const RETENTION_DAYS = 90;
@@ -45,7 +47,7 @@ interface SessionCtx {
 }
 
 function newCtx(overrides: Partial<SessionCtx> = {}): SessionCtx {
-  return {
+  const ctx = {
     workspaceId: crypto.randomUUID(),
     projectId: crypto.randomUUID(),
     workflowRunAttemptId: crypto.randomUUID(),
@@ -53,6 +55,8 @@ function newCtx(overrides: Partial<SessionCtx> = {}): SessionCtx {
     stepAttemptId: crypto.randomUUID(),
     ...overrides,
   };
+  workspaceIds.add(ctx.workspaceId);
+  return ctx;
 }
 
 function manifest(committedByStepAttempt: string): SegmentManifest {
@@ -146,9 +150,19 @@ async function findSession(sessionId: string) {
 }
 
 async function cleanupArtifacts(): Promise<void> {
-  const {deleteSessionObjects} = await import('#core/session-artifacts/object-storage.js');
-  const keys = await listSessionObjectKeys(`${config.AGENT_SESSION_STORAGE_S3_PREFIX}/`);
-  if (keys.length > 0) await deleteSessionObjects(keys);
+  for (const workspaceId of workspaceIds) {
+    const keys = await listSessionObjectKeys(
+      `${config.AGENT_SESSION_STORAGE_S3_PREFIX}/${workspaceId}`,
+    );
+    if (keys.length > 0) await deleteSessionObjectKeys(keys);
+  }
+}
+
+async function cleanupDatabase(): Promise<void> {
+  const ids = [...workspaceIds];
+  if (ids.length === 0) return;
+  await db().delete(sessions).where(inArray(sessions.workspaceId, ids));
+  await db().delete(sessionDataKeys).where(inArray(sessionDataKeys.workspaceId, ids));
 }
 
 function sweep(overrides: Partial<Parameters<typeof runSessionRetentionSweep>[0]> = {}) {
@@ -164,9 +178,10 @@ function sweep(overrides: Partial<Parameters<typeof runSessionRetentionSweep>[0]
 
 describe('session retention sweep', () => {
   afterEach(async () => {
+    vi.restoreAllMocks();
     await cleanupArtifacts();
-    await db().execute(sql`TRUNCATE agent_sessions CASCADE`);
-    await db().execute(sql`TRUNCATE agent_data_keys CASCADE`);
+    await cleanupDatabase();
+    workspaceIds.clear();
   });
 
   it('deletes expired sessions: objects before the row, and only after the retention window', async () => {
@@ -263,6 +278,58 @@ describe('session retention sweep', () => {
     expect(keys).toEqual([headKey]);
     expect(result.supersededPruned).toBe(2);
     expect(await findSession(session.id)).not.toBeNull();
+  });
+
+  it('advances through more prune candidates than fit in one batch', async () => {
+    const sessionsToPrune: AgentSession[] = [];
+    for (let index = 0; index < 3; index += 1) {
+      const ctx = newCtx();
+      const session = await arrangeSession(ctx);
+      await arrangeHead(session, ctx, 2);
+      await releaseSession({sessionId: session.id, stepAttemptId: ctx.stepAttemptId});
+      await backdate(session.id, 'updatedAt', '2 hours');
+      sessionsToPrune.push(session);
+    }
+
+    const result = await sweep({batchLimit: 1, maxIterations: 10});
+
+    expect(result.supersededPruned).toBe(3);
+    for (const session of sessionsToPrune) {
+      expect(await sessionKeys(session)).toHaveLength(1);
+    }
+  });
+
+  it('isolates one session deletion failure and retries it on the next sweep', async () => {
+    const expiredSessions: AgentSession[] = [];
+    for (let index = 0; index < 2; index += 1) {
+      const ctx = newCtx();
+      const session = await arrangeSession(ctx);
+      await arrangeHead(session, ctx, 1);
+      await backdate(session.id, 'retiredAt', '100 days');
+      expiredSessions.push(session);
+    }
+    vi.spyOn(sessionObjectStorage, 'deleteSessionObjects').mockRejectedValueOnce(
+      new Error('injected object-store failure'),
+    );
+
+    const first = await sweep();
+
+    expect(first.failed).toBe(1);
+    expect(first.sessionsDeleted).toBe(1);
+    const remaining: AgentSession[] = [];
+    for (const session of expiredSessions) {
+      if ((await findSession(session.id)) !== null) remaining.push(session);
+    }
+    expect(remaining).toHaveLength(1);
+    const failedSession = remaining[0];
+    if (!failedSession) throw new Error('Expected one failed session');
+    expect(await sessionKeys(failedSession)).toHaveLength(1);
+
+    vi.restoreAllMocks();
+    const retry = await sweep();
+
+    expect(retry.failed).toBe(0);
+    expect(await findSession(failedSession.id)).toBeNull();
   });
 
   it('does not prune superseded segments while the grace is still running', async () => {

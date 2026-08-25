@@ -21,6 +21,8 @@ import {
 export interface CreateS3ObjectStoreOptions {
   readonly profile: ObjectStorageS3Profile;
   readonly prefix: string;
+  /** Maximum duration of one data-transfer request. Zero leaves it unbounded. */
+  readonly transferRequestTimeoutMs?: number | undefined;
 }
 
 export interface PutObjectBytesParams {
@@ -68,15 +70,11 @@ export class S3ObjectStore {
   readonly #prefix: string;
   readonly #clients: ObjectStorageS3Clients;
 
-  constructor({profile, prefix}: CreateS3ObjectStoreOptions) {
-    if (prefix === '' || prefix.startsWith('/') || prefix.endsWith('/')) {
-      throw new Error(
-        'Object-storage prefix must be non-empty without a leading or trailing slash.',
-      );
-    }
+  constructor({profile, prefix, transferRequestTimeoutMs}: CreateS3ObjectStoreOptions) {
+    assertObjectStoragePrefix(prefix);
     this.#bucket = profile.bucket;
     this.#prefix = prefix;
-    this.#clients = createObjectStorageS3Clients(profile);
+    this.#clients = createObjectStorageS3Clients(profile, {transferRequestTimeoutMs});
   }
 
   async checkReachable(): Promise<boolean> {
@@ -269,6 +267,19 @@ export class S3ObjectStore {
 
 export function createS3ObjectStore(options: CreateS3ObjectStoreOptions): S3ObjectStore {
   return new S3ObjectStore(options);
+}
+
+export function assertObjectStoragePrefix(prefix: string): void {
+  if (
+    prefix === '' ||
+    prefix.startsWith('/') ||
+    prefix.endsWith('/') ||
+    prefix.split('/').some((segment) => segment === '' || segment === '..')
+  ) {
+    throw new Error(
+      'Object-storage prefix must be non-empty without leading, trailing, repeated, or parent-directory segments.',
+    );
+  }
 }
 
 function isNotFoundError(error: unknown): boolean {

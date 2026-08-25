@@ -73,10 +73,11 @@ export function resolveObjectStorageS3Profile(
   overrides: ObjectStorageS3ProfileOverrides,
   overrideName: string,
 ): ObjectStorageS3Profile {
-  const hasCredentialOverride =
-    overrides.accessKeyId !== undefined || overrides.secretAccessKey !== undefined;
+  const accessKeyId = emptyStringAsUndefined(overrides.accessKeyId);
+  const secretAccessKey = emptyStringAsUndefined(overrides.secretAccessKey);
+  const hasCredentialOverride = accessKeyId !== undefined || secretAccessKey !== undefined;
   const credentials = hasCredentialOverride
-    ? credentialPair(overrides.accessKeyId, overrides.secretAccessKey, overrideName)
+    ? credentialPair(accessKeyId, secretAccessKey, overrideName)
     : base.credentials;
 
   return {
@@ -86,6 +87,10 @@ export function resolveObjectStorageS3Profile(
     credentials,
     forcePathStyle: overrides.forcePathStyle ?? base.forcePathStyle,
   };
+}
+
+function emptyStringAsUndefined(value: string | undefined): string | undefined {
+  return value === '' ? undefined : value;
 }
 
 function credentialPair(

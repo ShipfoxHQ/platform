@@ -1,16 +1,28 @@
-import {and, asc, eq, isNotNull, isNull, lt, sql} from 'drizzle-orm';
+import {and, asc, eq, getTableColumns, isNotNull, isNull, lt, sql} from 'drizzle-orm';
 import type {AgentSession} from '#core/entities/agent-session.js';
 import {type Database, db, type Transaction} from './db.js';
 import {sessions, toAgentSession} from './schema/sessions.js';
 
 export interface ExpiredSessionsCursor {
-  retiredAt: Date;
+  /** PostgreSQL timestamp text, preserving precision beyond JavaScript milliseconds. */
+  retiredAt: string;
   id: string;
 }
 
 export interface PruneCandidatesCursor {
-  updatedAt: Date;
+  /** PostgreSQL timestamp text, preserving precision beyond JavaScript milliseconds. */
+  updatedAt: string;
   id: string;
+}
+
+export interface ExpiredSessionCandidate {
+  session: AgentSession;
+  cursor: ExpiredSessionsCursor;
+}
+
+export interface PruneSessionCandidate {
+  session: AgentSession;
+  cursor: PruneCandidatesCursor;
 }
 
 /**
@@ -19,25 +31,27 @@ export interface PruneCandidatesCursor {
  * previous pass's last row (cursor paging) instead of accumulating processed
  * IDs in an ever-growing `NOT IN` list, so a large backlog never makes the
  * query heavier or trips the driver's bind-parameter limit. The cursor keeps
- * the id tiebreak, so the millisecond truncation of a JS `Date` cannot skip or
- * repeat rows: rows with a finer `retired_at` sort strictly after the
- * truncated cursor value, and rows sharing the truncated value are resolved by
- * id.
+ * the exact PostgreSQL timestamp text plus the id tiebreak. A JavaScript
+ * `Date` would truncate PostgreSQL microseconds and could reselect the cursor
+ * row forever.
  */
 export async function listExpiredSessions(params: {
   retentionDays: number;
   limit: number;
   after?: ExpiredSessionsCursor | undefined;
-}): Promise<AgentSession[]> {
+}): Promise<ExpiredSessionCandidate[]> {
   const rows = await db()
-    .select()
+    .select({
+      ...getTableColumns(sessions),
+      cursorRetiredAt: sql<string>`${sessions.retiredAt}::text`,
+    })
     .from(sessions)
     .where(
       and(
         isNotNull(sessions.retiredAt),
         lt(sessions.retiredAt, sql`now() - make_interval(days => ${params.retentionDays})`),
         params.after
-          ? sql`(${sessions.retiredAt} > ${params.after.retiredAt} or (${sessions.retiredAt} = ${params.after.retiredAt} and ${sessions.id} > ${params.after.id}))`
+          ? sql`(${sessions.retiredAt}, ${sessions.id}) > (${params.after.retiredAt}::timestamptz, ${params.after.id}::uuid)`
           : undefined,
       ),
     )
@@ -45,7 +59,10 @@ export async function listExpiredSessions(params: {
     .limit(params.limit)
     .for('update', {skipLocked: true});
 
-  return rows.map(toAgentSession);
+  return rows.map((row) => ({
+    session: toAgentSession(row),
+    cursor: {retiredAt: row.cursorRetiredAt, id: row.id},
+  }));
 }
 
 /**
@@ -62,16 +79,19 @@ export async function listSegmentPruneCandidates(params: {
   graceSeconds: number;
   limit: number;
   after?: PruneCandidatesCursor | undefined;
-}): Promise<AgentSession[]> {
+}): Promise<PruneSessionCandidate[]> {
   const rows = await db()
-    .select()
+    .select({
+      ...getTableColumns(sessions),
+      cursorUpdatedAt: sql<string>`${sessions.updatedAt}::text`,
+    })
     .from(sessions)
     .where(
       and(
         lt(sessions.updatedAt, sql`now() - make_interval(secs => ${params.graceSeconds})`),
         sql`(${sessions.headSegment} >= 2 or ${sessions.claimedByStepAttempt} is null)`,
         params.after
-          ? sql`(${sessions.updatedAt} > ${params.after.updatedAt} or (${sessions.updatedAt} = ${params.after.updatedAt} and ${sessions.id} > ${params.after.id}))`
+          ? sql`(${sessions.updatedAt}, ${sessions.id}) > (${params.after.updatedAt}::timestamptz, ${params.after.id}::uuid)`
           : undefined,
       ),
     )
@@ -79,7 +99,10 @@ export async function listSegmentPruneCandidates(params: {
     .limit(params.limit)
     .for('update', {skipLocked: true});
 
-  return rows.map(toAgentSession);
+  return rows.map((row) => ({
+    session: toAgentSession(row),
+    cursor: {updatedAt: row.cursorUpdatedAt, id: row.id},
+  }));
 }
 
 /** Fresh read used as the sweep's per-session guard before any object is deleted. */

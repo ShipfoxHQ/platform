@@ -225,7 +225,14 @@ export function createSessionArtifactStore(params: {
         }),
       });
 
-      return {blob, manifest: segmentManifestFromMetadata(object.metadata)};
+      let manifest: SegmentManifest;
+      try {
+        manifest = segmentManifestFromMetadata(object.metadata);
+      } catch {
+        throw new AgentSessionUnavailableError('invalid_manifest');
+      }
+
+      return {blob, manifest};
     },
 
     async deleteSessionObjects(session) {
@@ -235,17 +242,17 @@ export function createSessionArtifactStore(params: {
         // concurrent carry-over (which locks the same source rows) can never
         // copy this head pointer between the check and the deletion.
         const [row] = await tx
-          .select({id: sessions.id})
+          .select({id: sessions.id, headObjectKey: sessions.headObjectKey})
           .from(sessions)
           .where(eq(sessions.id, session.id))
           .for('update');
         if (!row) return;
 
-        if (session.headObjectKey !== null) {
+        if (row.headObjectKey !== null) {
           // Serialize the shared-head ownership decision with concurrent sweeps
           // and store-level deletions, exactly like the retention sweep does.
           await tx.execute(
-            sql`select pg_advisory_xact_lock(hashtextextended(${session.headObjectKey}, 0))`,
+            sql`select pg_advisory_xact_lock(hashtextextended(${row.headObjectKey}, 0))`,
           );
         }
 
@@ -253,16 +260,16 @@ export function createSessionArtifactStore(params: {
         const keys = await listSessionObjectKeys(prefix);
 
         let deletable = keys;
-        if (session.headObjectKey !== null) {
-          if (await hasSessionReferencingObjectKey(tx, session.id, session.headObjectKey)) {
+        if (row.headObjectKey !== null) {
+          if (await hasSessionReferencingObjectKey(tx, session.id, row.headObjectKey)) {
             // A carried-over rerun row still references this head object; keep it
             // until every referencing row is gone, mirroring the retention sweep's
             // carried-over guard in deleteExpiredSession.
-            deletable = deletable.filter((key) => key !== session.headObjectKey);
-          } else if (!keys.includes(session.headObjectKey)) {
+            deletable = deletable.filter((key) => key !== row.headObjectKey);
+          } else if (!keys.includes(row.headObjectKey)) {
             // Carried-over rows point at the source run attempt's prefix; the exact
             // head key must be removed here because the source prefix is not ours.
-            deletable = [...deletable, session.headObjectKey];
+            deletable = [...deletable, row.headObjectKey];
           }
         }
 

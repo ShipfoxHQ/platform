@@ -10,6 +10,7 @@ import {
   type WorkspaceProvidersPolicy,
 } from '@shipfox/api-agent-dto';
 import {bool, createConfig, num, str, url} from '@shipfox/config';
+import {assertObjectStoragePrefix} from '@shipfox/node-object-storage';
 import {logger} from '@shipfox/node-opentelemetry';
 import {WorkspaceProvidersDisabledError} from '#core/errors.js';
 import {getModelProviderEntry} from '#core/model-provider-policy.js';
@@ -319,6 +320,8 @@ if (config.AGENT_SESSION_ENCRYPTION_KEK_PREVIOUS) {
     'AGENT_SESSION_ENCRYPTION_KEK_PREVIOUS',
   );
 }
+
+assertObjectStoragePrefix(config.AGENT_SESSION_STORAGE_S3_PREFIX);
 
 if (
   !Number.isInteger(config.AGENT_SESSION_RETENTION_DAYS) ||

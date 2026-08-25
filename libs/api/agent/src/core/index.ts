@@ -69,44 +69,59 @@ export {
   resolveRuntimeCredentials,
 } from './resolve-runtime-credentials.js';
 export {
+  rotateAgentSessionDataKeys,
+  sessionKeyProvider,
+} from './session-artifacts/composition.js';
+export {
   aadForSessionObject,
-  type CommitSessionSegmentParams,
-  closeSessionObjectStore,
-  createSessionArtifactStore,
-  createSessionKeyProvider,
   decodeBase64SessionKek,
-  deleteSessionObject,
-  deleteSessionObjects,
-  deriveSessionKekVersion,
-  getSessionObject,
-  listSessionObjectKeys,
   openSessionBlob,
   openSessionDek,
-  type ParsedSessionObjectKey,
-  type PutSessionSegmentParams,
-  type PutSessionSegmentResult,
-  parseSessionObjectKey,
-  putSessionObject,
-  type ReadSessionHeadResult,
-  type RotateAgentSessionDataKeysOptions,
-  type RotateAgentSessionDataKeysResult,
-  rotateAgentSessionDataKeys,
-  rotateAgentSessionDataKeysWithProvider,
-  type SegmentManifest,
-  type SessionArtifactStore,
-  SessionDekManager,
-  type SessionKeyProvider,
-  type SessionObjectKeyParams,
   sealSessionBlob,
   sealSessionDek,
+} from './session-artifacts/crypto.js';
+export {SessionDekManager} from './session-artifacts/dek-manager.js';
+export type {SessionKeyProvider, WrappedSessionDek} from './session-artifacts/key-provider.js';
+export {
+  createSessionKeyProvider,
+  deriveSessionKekVersion,
+} from './session-artifacts/key-provider.js';
+export type {SegmentManifest} from './session-artifacts/manifest.js';
+export {
   segmentManifestFromMetadata,
   segmentManifestToMetadata,
-  sessionKeyProvider,
+} from './session-artifacts/manifest.js';
+export type {
+  ParsedSessionObjectKey,
+  SessionObjectKeyParams,
+} from './session-artifacts/object-key.js';
+export {
+  parseSessionObjectKey,
   sessionObjectKey,
   sessionObjectKeyPrefix,
+} from './session-artifacts/object-key.js';
+export {
+  closeSessionObjectStore,
+  deleteSessionObject,
+  deleteSessionObjects,
+  getSessionObject,
+  listSessionObjectKeys,
+  putSessionObject,
   sessionObjectStore,
-  type WrappedSessionDek,
-} from './session-artifacts/index.js';
+} from './session-artifacts/object-storage.js';
+export type {
+  RotateAgentSessionDataKeysOptions,
+  RotateAgentSessionDataKeysResult,
+} from './session-artifacts/rotate-kek.js';
+export {rotateAgentSessionDataKeysWithProvider} from './session-artifacts/rotate-kek.js';
+export type {
+  CommitSessionSegmentParams,
+  PutSessionSegmentParams,
+  PutSessionSegmentResult,
+  ReadSessionHeadResult,
+  SessionArtifactStore,
+} from './session-artifacts/store.js';
+export {createSessionArtifactStore} from './session-artifacts/store.js';
 export {
   type RunSessionRetentionSweepParams,
   runSessionRetentionSweep,

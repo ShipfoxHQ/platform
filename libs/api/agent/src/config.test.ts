@@ -361,6 +361,35 @@ describe('agent config', () => {
 
     expect(module.isUnsafeReapAfterSeconds()).toBe(false);
   });
+
+  it('rejects a malformed session encryption key at import', async () => {
+    vi.resetModules();
+    vi.stubEnv('AGENT_SESSION_ENCRYPTION_KEK', 'not-base64');
+
+    await expect(import('./config.js')).rejects.toThrow(
+      'AGENT_SESSION_ENCRYPTION_KEK must be a canonical base64-encoded 32-byte key',
+    );
+  });
+
+  it.each([
+    ['AGENT_SESSION_RETENTION_DAYS', '0', 'must be a whole number of days >= 1'],
+    ['AGENT_SESSION_SEGMENT_GRACE_SECONDS', '1.5', 'must be a whole number of seconds >= 1'],
+    ['AGENT_SESSION_BLOB_CAP_BYTES', '0', 'must be a whole number of bytes >= 1'],
+  ] as const)('rejects invalid %s at import', async (name, value, message) => {
+    vi.resetModules();
+    vi.stubEnv(name, value);
+
+    await expect(import('./config.js')).rejects.toThrow(message);
+  });
+
+  it('rejects an unsafe session object-storage prefix at import', async () => {
+    vi.resetModules();
+    vi.stubEnv('AGENT_SESSION_STORAGE_S3_PREFIX', 'agent-sessions/../logs');
+
+    await expect(import('./config.js')).rejects.toThrow(
+      'Object-storage prefix must be non-empty without leading, trailing, repeated, or parent-directory segments',
+    );
+  });
 });
 
 function managedProvider(overrides: Partial<ManagedModelProvider> = {}): ManagedModelProvider {

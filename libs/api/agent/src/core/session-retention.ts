@@ -115,7 +115,8 @@ export async function runSessionRetentionSweep(
     return batch.length >= params.batchLimit;
   };
 
-  // Phase 1: expired sessions — objects before row, guarded on carried-over references.
+  // Phase 1: expired sessions. Objects are deleted before the row and guarded
+  // on carried-over references.
   // Cursor paging on `(retired_at, id)`: every pass advances past the previous
   // batch, so a large backlog never re-selects the same rows and processed IDs
   // are not accumulated in an ever-growing `NOT IN` list.
@@ -129,15 +130,8 @@ export async function runSessionRetentionSweep(
           after: expiredCursor,
         });
         const last = batch[batch.length - 1];
-        if (last) {
-          if (last.retiredAt === null) {
-            // listExpiredSessions filters `retired_at is not null`, so this
-            // only guards the cursor type, never a real row.
-            throw new Error(`Expired session row missing retired_at: ${last.id}`);
-          }
-          expiredCursor = {retiredAt: last.retiredAt, id: last.id};
-        }
-        return batch;
+        if (last) expiredCursor = last.cursor;
+        return batch.map(({session}) => session);
       },
       async (session) => {
         await deleteExpiredSession(session);
@@ -162,8 +156,8 @@ export async function runSessionRetentionSweep(
           after: pruneCursor,
         });
         const last = batch[batch.length - 1];
-        if (last) pruneCursor = {updatedAt: last.updatedAt, id: last.id};
-        return batch;
+        if (last) pruneCursor = last.cursor;
+        return batch.map(({session}) => session);
       },
       async (session) => {
         const outcome = await pruneSessionSegments(session, now(), graceMs);
@@ -244,7 +238,7 @@ async function deleteExpiredSession(session: AgentSession): Promise<void> {
  * row, held until the object deletes commit, and the classification uses that
  * locked fresh read: a claim granted concurrently (by a rerun about to commit
  * segment `head + 1`) needs the same row lock, so it either commits before the
- * read — making the session claimed and its segments safe — or fails fast on
+ * read (making the session claimed and its segments safe) or fails fast on
  * the `SKIP LOCKED` claim while the sweep holds the lock. A stale unlocked
  * read could classify an in-flight commit's freshly uploaded segment as an
  * orphan and delete the object the commit then flips to.

@@ -16,6 +16,18 @@ describe('S3ObjectStore scope', () => {
     vi.restoreAllMocks();
   });
 
+  it.each([
+    '',
+    '/logs',
+    'logs/',
+    'logs//archive',
+    'logs/../agent-sessions',
+  ])('rejects the invalid prefix %j', (prefix) => {
+    expect(() => createS3ObjectStore({profile, prefix})).toThrow(
+      'Object-storage prefix must be non-empty without leading, trailing, repeated, or parent-directory segments.',
+    );
+  });
+
   it('rejects keys outside the consumer prefix before sending a command', async () => {
     const send = vi.spyOn(S3Client.prototype, 'send');
     const store = createS3ObjectStore({profile, prefix: 'logs'});

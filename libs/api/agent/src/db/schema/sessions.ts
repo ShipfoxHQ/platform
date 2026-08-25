@@ -65,6 +65,16 @@ export const sessions = pgTable(
     // Retention scans retired sessions by retirement age; partial so it never carries
     // the live (in-run) set. Written once per session, so it does not churn.
     index('agent_sessions_retired_at_idx').on(table.retiredAt).where(sql`"retired_at" is not null`),
+    // Shared carried-over heads are checked by exact object key before an
+    // expired row deletes its object. Exclude rows without a head because they
+    // can never participate in that ownership check.
+    index('agent_sessions_head_object_key_idx')
+      .on(table.headObjectKey)
+      .where(sql`${table.headObjectKey} is not null`),
+    // Segment pruning pages candidates by updated_at and id. Keep the cursor
+    // order in the index so a large retention set does not need a full sort on
+    // every bounded batch.
+    index('agent_sessions_updated_at_id_idx').on(table.updatedAt, table.id),
   ],
 );
 

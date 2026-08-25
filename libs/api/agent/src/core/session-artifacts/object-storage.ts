@@ -7,6 +7,10 @@ import {
 } from '@shipfox/node-object-storage';
 import {logger} from '@shipfox/node-opentelemetry';
 import {config} from '#config.js';
+import {
+  type SessionArtifactStorageOperation,
+  sessionArtifactStorageFailureCount,
+} from '#metrics/instance.js';
 import {AgentSessionUnavailableError} from '../errors.js';
 
 let _store: S3ObjectStore | undefined;
@@ -27,6 +31,10 @@ export function sessionObjectStore(): S3ObjectStore {
         'AGENT_SESSION_STORAGE_S3',
       ),
       prefix: config.AGENT_SESSION_STORAGE_S3_PREFIX,
+      // Session segments are capped at 64 MiB by default. Five minutes keeps a
+      // stalled S3 transfer from holding a commit/read forever while remaining
+      // practical for slower self-hosted object stores.
+      transferRequestTimeoutMs: 5 * 60 * 1000,
     });
   }
   return _store;
@@ -52,7 +60,7 @@ export async function putSessionObject(params: PutSessionObjectParams): Promise<
       metadata: params.metadata,
     });
   } catch (error) {
-    throw toStorageUnavailable(error);
+    throw toStorageUnavailable(error, 'put');
   }
 }
 
@@ -66,7 +74,7 @@ export async function getSessionObject(key: string): Promise<GetSessionObjectRes
     const object = await sessionObjectStore().getBytes(key);
     return object ? {body: object.body, metadata: object.metadata} : null;
   } catch (error) {
-    throw toStorageUnavailable(error);
+    throw toStorageUnavailable(error, 'get');
   }
 }
 
@@ -74,7 +82,7 @@ export async function listSessionObjectKeys(prefix: string): Promise<string[]> {
   try {
     return await sessionObjectStore().listKeys(prefix);
   } catch (error) {
-    throw toStorageUnavailable(error);
+    throw toStorageUnavailable(error, 'list');
   }
 }
 
@@ -82,7 +90,7 @@ export async function deleteSessionObjects(keys: string[]): Promise<void> {
   try {
     await sessionObjectStore().deleteObjects(keys);
   } catch (error) {
-    throw toStorageUnavailable(error);
+    throw toStorageUnavailable(error, 'delete');
   }
 }
 
@@ -90,12 +98,13 @@ export async function deleteSessionObject(key: string): Promise<void> {
   try {
     await sessionObjectStore().deleteObject(key);
   } catch (error) {
-    throw toStorageUnavailable(error);
+    throw toStorageUnavailable(error, 'delete');
   }
 }
 
-function toStorageUnavailable(error: unknown): never {
+function toStorageUnavailable(error: unknown, operation: SessionArtifactStorageOperation): never {
   if (error instanceof AgentSessionUnavailableError) throw error;
+  sessionArtifactStorageFailureCount.add(1, {operation});
   logger().error({err: error}, 'Agent session artifact object store operation failed');
   reportError(error, {boundary: 'agent.session-artifacts', operation: 'object-store'});
   throw new AgentSessionUnavailableError('storage_unavailable');

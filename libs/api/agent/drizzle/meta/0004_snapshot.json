@@ -422,6 +422,43 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "agent_sessions_head_object_key_idx": {
+          "name": "agent_sessions_head_object_key_idx",
+          "columns": [
+            {
+              "expression": "head_object_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"agent_sessions\".\"head_object_key\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "agent_sessions_updated_at_id_idx": {
+          "name": "agent_sessions_updated_at_id_idx",
+          "columns": [
+            {
+              "expression": "updated_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {},

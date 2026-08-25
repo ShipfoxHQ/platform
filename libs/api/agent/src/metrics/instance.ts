@@ -59,6 +59,53 @@ export const sessionCommittedBytes = meter.createHistogram<Record<string, never>
   },
 );
 
+export type SessionArtifactStorageOperation = 'put' | 'get' | 'list' | 'delete';
+
+/** Failed session transcript object-store operations by bounded operation name. */
+export const sessionArtifactStorageFailureCount = meter.createCounter<{
+  operation: SessionArtifactStorageOperation;
+}>('agent_session_artifact_storage_failed', {
+  description: 'Agent session transcript object-store failures by operation',
+});
+
+export type SessionRetentionAction =
+  | 'sessions_deleted'
+  | 'superseded_pruned'
+  | 'orphans_pruned'
+  | 'failed';
+
+const sessionRetentionSweepCount = meter.createCounter<{outcome: 'completed' | 'timed_out'}>(
+  'agent_session_retention_sweeps',
+  {description: 'Agent session retention sweep runs by completion outcome'},
+);
+const sessionRetentionActionCount = meter.createCounter<{action: SessionRetentionAction}>(
+  'agent_session_retention_actions',
+  {description: 'Agent session retention actions and isolated failures'},
+);
+
+export function recordSessionRetentionSweep(result: {
+  sessionsDeleted: number;
+  supersededPruned: number;
+  orphansPruned: number;
+  failed: number;
+  timedOut: boolean;
+}): void {
+  try {
+    sessionRetentionSweepCount.add(1, {outcome: result.timedOut ? 'timed_out' : 'completed'});
+    const actions: ReadonlyArray<readonly [SessionRetentionAction, number]> = [
+      ['sessions_deleted', result.sessionsDeleted],
+      ['superseded_pruned', result.supersededPruned],
+      ['orphans_pruned', result.orphansPruned],
+      ['failed', result.failed],
+    ];
+    for (const [action, count] of actions) {
+      if (count > 0) sessionRetentionActionCount.add(count, {action});
+    }
+  } catch {
+    // Metrics must not change retention outcomes.
+  }
+}
+
 export type SessionKekRotationOutcome =
   | 'rotated'
   | 'skipped_current'

@@ -23,4 +23,4 @@ export type {
   StoredObjectBytes,
   StoredObjectHead,
 } from './store.js';
-export {createS3ObjectStore, S3ObjectStore} from './store.js';
+export {assertObjectStoragePrefix, createS3ObjectStore, S3ObjectStore} from './store.js';
