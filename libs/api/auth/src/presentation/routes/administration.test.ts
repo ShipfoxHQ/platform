@@ -1,8 +1,10 @@
 import {ADMINISTRATION_ACTION_PERFORMED} from '@shipfox/api-common-dto';
 import {eq, sql} from 'drizzle-orm';
 import type {FastifyInstance} from 'fastify';
+import {signUserToken} from '#core/jwt.js';
 import {type AuthRateLimitAction, hashAuthRateLimitIdentifier} from '#core/rate-limit.js';
 import {db} from '#db/db.js';
+import {adminGrants} from '#db/schema/admin-grants.js';
 import {authOutbox} from '#db/schema/outbox.js';
 import {authRateLimits} from '#db/schema/rate-limits.js';
 import {refreshTokens} from '#db/schema/refresh-tokens.js';
@@ -13,6 +15,7 @@ import {
   createVerifiedSession,
   getSetCookie,
   login,
+  ROUTE_TEST_SECRET,
   resetCapturedMail,
 } from '#test/routes.js';
 
@@ -29,6 +32,18 @@ function authHeaders(token: string, idempotencyKey: string) {
     authorization: `Bearer ${token}`,
     'idempotency-key': idempotencyKey,
   };
+}
+
+function impersonatedToken(userId: string, email: string): Promise<string> {
+  return signUserToken({
+    userId,
+    email,
+    name: 'Impersonated User',
+    memberships: [],
+    impersonatorId: crypto.randomUUID(),
+    secret: ROUTE_TEST_SECRET,
+    expiresIn: '15m',
+  });
 }
 
 async function seedExhaustedIpBucket(params: {
@@ -90,6 +105,61 @@ describe('Auth administration routes', () => {
     });
 
     expect(response.statusCode).toBe(401);
+  });
+
+  test('rejects an impersonated session on the bootstrap route before any side effect', async () => {
+    const account = await createVerifiedSession('admin-bootstrap-impersonated');
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/admin/auth/admin-grants/bootstrap',
+      headers: authHeaders(
+        await impersonatedToken(account.userId, account.email),
+        'impersonated-bootstrap',
+      ),
+      payload: {bootstrap_token: BOOTSTRAP_TOKEN},
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toEqual({code: 'admin-role-required'});
+    await expect(db().select().from(adminGrants)).resolves.toHaveLength(0);
+    await expect(db().select().from(authOutbox)).resolves.toHaveLength(0);
+  });
+
+  test('rejects an impersonated session on the bootstrap-state route', async () => {
+    const account = await createVerifiedSession('admin-bootstrap-state-impersonated');
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/admin/auth/bootstrap-state',
+      headers: {authorization: `Bearer ${await impersonatedToken(account.userId, account.email)}`},
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toEqual({code: 'admin-role-required'});
+  });
+
+  test('rejects an impersonated session on user administration before roles are consulted', async () => {
+    const owner = await createVerifiedSession('admin-users-impersonated');
+
+    const bootstrap = await app.inject({
+      method: 'POST',
+      url: '/admin/auth/admin-grants/bootstrap',
+      headers: authHeaders(owner.token, 'users-impersonated-bootstrap'),
+      payload: {bootstrap_token: BOOTSTRAP_TOKEN},
+    });
+    expect(bootstrap.statusCode).toBe(201);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/admin/auth/users?user_id=${owner.userId}`,
+      headers: {authorization: `Bearer ${await impersonatedToken(owner.userId, owner.email)}`},
+    });
+
+    // The impersonated subject is an owner, so a guard that consulted roles
+    // would let the request through; rejection proves the mark wins first.
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toEqual({code: 'admin-role-required'});
   });
 
   test('reports only available or closed bootstrap state', async () => {

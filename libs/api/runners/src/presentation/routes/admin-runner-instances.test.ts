@@ -25,6 +25,8 @@ import {createRunnerRoutes} from './index.js';
 
 const USER_ID = '00000000-0000-4000-8000-000000000001';
 
+let authenticatedImpersonatorId: string | undefined;
+
 const fakeUserAuth: AuthMethod = {
   name: AUTH_USER,
   authenticate: (request: FastifyRequest) => {
@@ -39,6 +41,7 @@ const fakeUserAuth: AuthMethod = {
         email: 'admin@example.com',
         name: 'Administrator',
         memberships: [],
+        impersonatorId: authenticatedImpersonatorId,
       }),
     );
     return Promise.resolve();
@@ -56,6 +59,7 @@ describe('GET /admin/runners/instances', () => {
 
   beforeEach(async () => {
     await closeApp();
+    authenticatedImpersonatorId = undefined;
     auth = {
       ...runnersTestAuthClient,
       requireAdminRole: vi.fn().mockResolvedValue({role: 'admin-observer'}),
@@ -76,6 +80,20 @@ describe('GET /admin/runners/instances', () => {
 
   afterEach(async () => {
     await closeApp();
+  });
+
+  test('rejects an impersonated session before consulting the administrator role', async () => {
+    authenticatedImpersonatorId = crypto.randomUUID();
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/admin/runners/instances',
+      headers: {authorization: 'Bearer user'},
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toEqual({code: 'admin-role-required'});
+    expect(auth.requireAdminRole).not.toHaveBeenCalled();
   });
 
   test('returns a bounded safe installation inventory with deterministic pagination', async () => {
