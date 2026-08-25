@@ -449,6 +449,31 @@ describe('normalizeToolStep', () => {
     ]);
   });
 
+  it('keeps a __proto__ output key as an own mapping', () => {
+    const model = normalize(
+      toolDocument(
+        toolStep({
+          key: 'issue',
+          tool: 'get_issue',
+          connection: 'linear-main',
+          with: {id: 'ENG-1'},
+          outputs: mappingOutputs(
+            Object.fromEntries([['__proto__', '$' + '{{ result.identifier }}']]),
+          ),
+        }),
+      ),
+      {integrationValidationContext},
+    );
+
+    const step = model.jobs[0]?.steps[0] as WorkflowModelToolStep;
+    expect(step.outputMappings).toBeDefined();
+    expect(Object.hasOwn(step.outputMappings as object, '__proto__')).toBe(true);
+    expect(step.outputMappings?.['__proto__']).toMatchObject({
+      language: 'cel',
+      source: 'result.identifier',
+    });
+  });
+
   it('rejects secrets in tool inputs as runner context', () => {
     const error = expectInvalid(
       toolDocument(
@@ -629,17 +654,13 @@ describe('normalizeToolStep', () => {
       {integrationValidationContext},
     );
 
+    // The structural failure is reported once; the catalog lookup is skipped
+    // so the same root cause does not surface again as unknown-integration-tool.
     expect(error.issues).toEqual([
       expect.objectContaining({
         code: 'tool-id-invalid',
         message:
           'Tool id "issue_write.update.extra" must be a standalone tool id or "family.method" with a single dot.',
-        path: ['jobs', 'use', 'steps', 0, 'tool'],
-      }),
-      // The split still names a family with an unknown method, so the catalog
-      // lookup adds its own diagnostic on top of the structural rejection.
-      expect.objectContaining({
-        code: 'unknown-integration-tool',
         path: ['jobs', 'use', 'steps', 0, 'tool'],
       }),
     ]);
@@ -662,6 +683,97 @@ describe('normalizeToolStep', () => {
         path: ['jobs', 'use', 'steps', 0, 'tool'],
       }),
     ]);
+  });
+
+  it.each([
+    'issue_write.',
+    '.issue_read.get',
+  ] as const)('rejects a boundary-dot tool id "%s" as tool-id-invalid', (toolId) => {
+    const error = expectInvalid(
+      toolDocument(
+        toolStep({
+          tool: toolId,
+          connection: 'github-main',
+        }),
+      ),
+      {integrationValidationContext},
+    );
+
+    expect(error.issues).toEqual([
+      expect.objectContaining({
+        code: 'tool-id-invalid',
+        message: `Tool id "${toolId}" must be a standalone tool id or "family.method" with a single dot.`,
+        path: ['jobs', 'use', 'steps', 0, 'tool'],
+      }),
+    ]);
+  });
+
+  it.each([
+    ['with', {integrationValidationContext}],
+    ['without', undefined],
+  ] as const)('rejects an interpolated tool id %s an integration context', (_label, options) => {
+    const error = expectInvalid(
+      toolDocument(
+        toolStep({
+          tool: '$' + '{{ steps.setup.outputs.tool_id }}',
+          connection: 'github-main',
+        }),
+      ),
+      options,
+    );
+
+    expect(error.issues).toEqual([
+      expect.objectContaining({
+        code: 'tool-id-invalid',
+        message: 'Tool id must be literal. Interpolation is rejected.',
+        path: ['jobs', 'use', 'steps', 0, 'tool'],
+      }),
+    ]);
+  });
+
+  it.each([
+    ['with', {integrationValidationContext}],
+    ['without', undefined],
+  ] as const)('rejects an interpolated connection %s an integration context', (_label, options) => {
+    const connection = '$' + '{{ inputs.connection }}';
+    const error = expectInvalid(
+      toolDocument(
+        toolStep({
+          tool: 'get_issue',
+          connection,
+        }),
+      ),
+      options,
+    );
+
+    expect(error.issues).toEqual([
+      expect.objectContaining({
+        code: 'tool-id-invalid',
+        message: `Connection slug "${connection}" must be literal. Interpolation is rejected.`,
+        path: ['jobs', 'use', 'steps', 0, 'connection'],
+      }),
+    ]);
+  });
+
+  it('treats an escaped $${{ sequence in a tool id as literal', () => {
+    const model = normalize(
+      toolDocument(
+        toolStep({
+          key: 'issue',
+          tool: 'slack' + '$${{channel}}',
+          connection: 'linear-main',
+          with: {id: 'ENG-1'},
+        }),
+      ),
+    );
+
+    // The document schema treats `$${{` as the escaped literal form; the model
+    // boundary mirrors that rule and reports no interpolation issue, freezing
+    // the raw source as the standalone id.
+    expect(model.jobs[0]?.steps[0]).toMatchObject({
+      kind: 'tool',
+      tool: {id: 'slack' + '$${{channel}}'},
+    });
   });
 
   it('walks nested with arrays and objects for interpolation templates', () => {

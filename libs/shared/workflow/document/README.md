@@ -165,7 +165,8 @@ parseWorkflowDocument({
   reserved for the upcoming tool step kind; any step carrying one of these
   fields is rejected with "Tool steps are not available yet." Their shape still parses:
   `with` is a JSON tree of tool inputs limited to 32768 serialized bytes and 16
-  nesting levels, and its `method` key is rejected.
+  nesting levels, and its `method` key is rejected. `tool` and `connection` must
+  be literal names; interpolated values such as `${{ ... }}` are rejected at parse.
 - `env` can be declared on the workflow, a job, or a run step. Values may be
   strings, numbers, or booleans; the model layer stringifies numbers and
   booleans before a run is saved. Values are literal. Expression interpolation

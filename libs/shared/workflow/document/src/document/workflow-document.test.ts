@@ -1305,19 +1305,34 @@ describe('workflowDocumentSchema', () => {
   it.each([
     ['tool', {tool: interpolation('steps.setup.outputs.tool_id')}],
     ['connection', {connection: interpolation('inputs.connection')}],
-  ] as const)('rejects an interpolated tool step %s as non-literal', (_field, step) => {
+  ] as const)('rejects an interpolated tool step %s as non-literal with a single issue at the field', (field, step) => {
     const result = workflowDocumentSchema.safeParse({
       name: 'tool build',
       jobs: {fix: {steps: [step]}},
     });
 
-    const messages = result.success ? [] : result.error.issues.map((issue) => issue.message);
-    expect(
-      messages.some(
-        (message) =>
-          message.includes('must be literal') && message.includes('Interpolation is rejected'),
-      ),
-    ).toBe(true);
+    const issues = result.success ? [] : result.error.issues;
+    expect(result.success).toBe(false);
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toMatchObject({
+      path: ['jobs', 'fix', 'steps', 0, field],
+      message: expect.stringContaining('Interpolation is rejected'),
+    });
+  });
+
+  it('accepts a literal dotted tool id and connection with a single reserved-field issue', () => {
+    const result = workflowDocumentSchema.safeParse({
+      name: 'tool build',
+      jobs: {fix: {steps: [{tool: 'issue_read.get', connection: 'github-main'}]}},
+    });
+
+    const issues = result.success ? [] : result.error.issues;
+    expect(result.success).toBe(false);
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toMatchObject({
+      path: ['jobs', 'fix', 'steps', 0, 'tool'],
+      message: 'Tool steps are not available yet.',
+    });
   });
 
   it.each([
