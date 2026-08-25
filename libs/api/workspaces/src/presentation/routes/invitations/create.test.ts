@@ -81,6 +81,23 @@ describe('POST /workspaces/:workspaceId/invitations', () => {
     expect(res.json().code).toBe('workspace-suspended');
   });
 
+  test('rejects an impersonated session with impersonation-not-permitted', async () => {
+    const workspaceId = crypto.randomUUID();
+    const inviteeEmail = uniqueEmail('impersonated-invite');
+    const token = `claim:${crypto.randomUUID()}:impersonated-invite-create@example.com:${workspaceId}:active:${crypto.randomUUID()}`;
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/workspaces/${workspaceId}/invitations`,
+      headers: {authorization: `Bearer ${token}`},
+      payload: {email: inviteeEmail},
+    });
+
+    expect(res.statusCode).toBe(403);
+    expect(res.json().code).toBe('impersonation-not-permitted');
+    expect(await invitationOutboxEventsTo(inviteeEmail)).toHaveLength(0);
+  });
+
   test('transforms a whitespace/case-equivalent duplicate open invitation into 409', async () => {
     const owner = await signupVerifyLogin(app, 'invite-create-duplicate-equivalent');
     const workspaceId = await createWorkspace(app, owner.token);

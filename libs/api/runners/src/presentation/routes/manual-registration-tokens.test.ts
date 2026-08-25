@@ -26,6 +26,7 @@ import {
 import {createRunnerRoutes} from './index.js';
 
 let authenticatedMemberships: ReadonlyArray<UserContextMembership> = [];
+let impersonatorId: string | undefined;
 
 const fakeUserAuth: AuthMethod = {
   name: AUTH_USER,
@@ -40,6 +41,7 @@ const fakeUserAuth: AuthMethod = {
         userId: 'user-1',
         email: 'user@example.com',
         memberships: authenticatedMemberships,
+        impersonatorId,
       }),
     );
     return Promise.resolve();
@@ -59,6 +61,7 @@ describe('manual registration token routes', () => {
     await closeApp();
     workspaceId = crypto.randomUUID();
     authenticatedMemberships = [{workspaceId, role: 'admin', workspaceStatus: 'active'}];
+    impersonatorId = undefined;
     app = await createApp({
       auth: [
         fakeUserAuth,
@@ -190,6 +193,20 @@ describe('manual registration token routes', () => {
         .where(eq(manualRegistrationTokens.id, body.id));
       expect(rows[0]?.hashedToken).toBe(hashOpaqueToken(body.raw_token));
       expect(rows[0]?.hashedToken).not.toBe(body.raw_token);
+    });
+
+    it('rejects an impersonated session with impersonation-not-permitted', async () => {
+      impersonatorId = crypto.randomUUID();
+
+      const res = await app.inject({
+        method: 'POST',
+        url: `/workspaces/${workspaceId}/runners/manual-registration-tokens`,
+        headers: {authorization: 'Bearer user'},
+        payload: {name: 'builder'},
+      });
+
+      expect(res.statusCode).toBe(403);
+      expect(res.json().code).toBe('impersonation-not-permitted');
     });
   });
 
