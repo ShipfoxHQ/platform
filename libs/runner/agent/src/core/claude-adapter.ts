@@ -65,7 +65,10 @@ async function runClaudeAgent(invocation: HarnessInvocation): Promise<HarnessRes
 
   if (signal.aborted) throw new Error('Agent step aborted before the Claude session started');
   if (agentStateDir === undefined) throw new Error('Agent state directory is required');
-  if (provider !== 'anthropic') {
+  // The server-issued per-step claude block is the discriminator for a managed
+  // provider serving the anthropic-messages dialect; its provider ID (e.g.
+  // "shipfox") is preserved for policy and usage attribution.
+  if (provider !== 'anthropic' && invocation.claude === undefined) {
     throw new AgentConfigError(
       `Harness "claude" only supports provider "anthropic"; received "${provider}".`,
       'provider_unsupported',
