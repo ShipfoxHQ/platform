@@ -7,6 +7,10 @@ import {parse} from 'yaml';
 const packageDirectory = dirname(fileURLToPath(import.meta.url));
 const workflowPath = resolve(packageDirectory, '../../../.github/workflows/ci.yml');
 const mainRefConditionPattern = /github\.ref == 'refs\/heads\/main'/;
+const pullRequestBaseExpression =
+  '${{' + " github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}";
+const pullRequestRequiredExpression =
+  '${{' + " github.event_name == 'pull_request' && needs.release-mode.outputs.mode != 'normal' }}";
 
 function readWorkflow() {
   return readFile(workflowPath, 'utf8');
@@ -79,6 +83,21 @@ describe('generated release CI path', () => {
     assert.ok(workflow.includes('oras tag "$APPLICATION_IMAGE_REPOSITORY@$digest"'));
     assert.ok(workflow.includes('--reuse-from-revision "$PREVIOUS_REVISION"'));
     assert.ok(workflow.includes('application image rebuilds, and Packer runner candidates'));
+  });
+
+  test('keeps version-only static verification independent from publication timing', async () => {
+    const workflow = await readWorkflow();
+    const parsedWorkflow = parse(workflow);
+    const staticVerification = parsedWorkflow.jobs['static-verification'];
+
+    assert.equal(
+      staticVerification.env.SHIPFOX_PUBLICATION_REGISTRY_BASE,
+      pullRequestBaseExpression,
+    );
+    assert.equal(
+      staticVerification.env.SHIPFOX_PUBLICATION_REGISTRY_REQUIRED,
+      pullRequestRequiredExpression,
+    );
   });
 
   test('keeps required checks successful when the image matrix is intentionally skipped', async () => {
