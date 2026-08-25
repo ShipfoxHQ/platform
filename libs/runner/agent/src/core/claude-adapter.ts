@@ -36,15 +36,17 @@ const CLAUDE_THINKING_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as cons
 
 // Shipfox thinking level → extended-thinking budget for legacy Claude models.
 // Budgets follow Anthropic's extended-thinking rules (minimum 1,024 tokens;
-// max_tokens must exceed the budget) and cap at Claude Code's 63,999-token
-// default manual budget for the 4.5 family. Models with a lower output
-// ceiling clamp per-model via `ClaudeModelCapabilities.maxThinkingTokens`.
+// max_tokens must exceed the budget) and cap at the ceiling legacy models can
+// actually take: their max output defaults to 32,000 tokens and Claude Code
+// clamps an enabled-thinking budget to max_tokens - 1, so 31,999 is the
+// highest value that reaches the API. Models with a lower output ceiling
+// clamp per-model via `ClaudeModelCapabilities.maxThinkingTokens`.
 const LEGACY_THINKING_BUDGETS: Readonly<Record<string, number>> = {
   low: 4_096,
   medium: 8_192,
   high: 16_384,
-  xhigh: 32_768,
-  max: 63_999,
+  xhigh: 31_999,
+  max: 31_999,
 };
 
 /**
@@ -73,7 +75,7 @@ interface ClaudeModelCapabilities {
    * Highest extended-thinking budget the model accepts. Anthropic requires
    * budget_tokens < max_tokens, so a model whose output caps at 32,000 tokens
    * (Claude Opus 4.1) accepts at most 31,999. Absent means the shared legacy
-   * table's ceiling (63,999) applies.
+   * table's ceiling (31,999) applies.
    */
   readonly maxThinkingTokens?: number;
 }
@@ -126,6 +128,16 @@ const CLAUDE_MODEL_CAPABILITIES: Readonly<Record<string, ClaudeModelCapabilities
     supportsEffort: true,
     supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
   },
+  'claude-opus-5': {
+    supportsAdaptiveThinking: true,
+    supportsEffort: true,
+    supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+  },
+  'claude-sonnet-5': {
+    supportsAdaptiveThinking: true,
+    supportsEffort: true,
+    supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+  },
 } satisfies Readonly<Record<string, ClaudeModelCapabilities>>;
 
 interface ClaudeThinkingOptions {
@@ -133,11 +145,14 @@ interface ClaudeThinkingOptions {
   readonly effort?: EffortLevel;
 }
 
-// Dated snapshot IDs (claude-haiku-4-5-20251001) resolve to their family row.
+// Dated snapshot IDs (claude-haiku-4-5-20251001) resolve to their family row,
+// and dotted managed-catalog IDs (claude-haiku-4.5, claude-opus-4.8) resolve
+// to their dashed family row (claude-haiku-4-5, claude-opus-4-8).
 const MODEL_SNAPSHOT_DATE_SUFFIX = /-\d{8}$/;
 
 function claudeModelCapabilities(model: string): ClaudeModelCapabilities | undefined {
-  return CLAUDE_MODEL_CAPABILITIES[model.replace(MODEL_SNAPSHOT_DATE_SUFFIX, '')];
+  const familyId = model.replace(MODEL_SNAPSHOT_DATE_SUFFIX, '').replaceAll('.', '-');
+  return CLAUDE_MODEL_CAPABILITIES[familyId];
 }
 
 /**
@@ -195,6 +210,11 @@ function claudeThinkingBudget(
   return ceiling;
 }
 
+// Canonical effort ladder, ascending. Each model's `supportedEffortLevels` is a
+// subset of this ladder, so an unsupported request falls back to the nearest
+// level at or below it.
+const EFFORT_LEVELS: readonly EffortLevel[] = ['low', 'medium', 'high', 'xhigh', 'max'];
+
 function claudeEffortLevel(
   capabilities: ClaudeModelCapabilities,
   thinking: string,
@@ -202,14 +222,19 @@ function claudeEffortLevel(
 ): EffortLevel {
   const requested = thinking as EffortLevel;
   if (capabilities.supportedEffortLevels.includes(requested)) return requested;
-  // Cap at the highest supported level, mirroring Claude Code's behavior for
-  // levels a model does not offer; Anthropic rejects unsupported levels with
-  // HTTP 400, so the request must never carry one.
-  const capped = capabilities.supportedEffortLevels.at(-1);
+  // Fall back to the nearest supported level at or below the requested one,
+  // matching Claude Code's resolution for levels a model does not offer.
+  // Anthropic rejects unsupported levels with HTTP 400, so the request must
+  // never carry one; escalating to the highest supported level would silently
+  // spend more than the user asked for (xhigh is the harness default).
+  const requestedIndex = EFFORT_LEVELS.indexOf(requested);
+  const capped = capabilities.supportedEffortLevels
+    .filter((level) => EFFORT_LEVELS.indexOf(level) <= requestedIndex)
+    .at(-1);
   if (capped !== undefined) {
     logger().warn(
       {model, requested, supported: capabilities.supportedEffortLevels, applied: capped},
-      'Claude model does not support the requested effort level; capping to the highest supported level',
+      'Claude model does not support the requested effort level; falling back to the nearest supported level at or below it',
     );
     return capped;
   }

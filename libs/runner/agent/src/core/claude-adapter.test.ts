@@ -626,6 +626,25 @@ describe('claudeHarnessAdapter', () => {
     expect(lastQueryOptions()).not.toHaveProperty('effort');
   });
 
+  it('resolves dotted managed-catalog model IDs to their family capabilities', async () => {
+    queryMock.mockReturnValue(makeQuery([successMessage]));
+
+    await claudeHarnessAdapter.run(invocation({model: 'claude-opus-4.8', thinking: 'high'}));
+
+    expect(lastQueryOptions()).toMatchObject({
+      thinking: {type: 'adaptive'},
+      effort: 'high',
+    });
+    queryMock.mockClear();
+
+    await claudeHarnessAdapter.run(invocation({model: 'claude-haiku-4.5', thinking: 'medium'}));
+
+    expect(lastQueryOptions()).toMatchObject({
+      thinking: {type: 'enabled', budgetTokens: 8_192},
+    });
+    expect(lastQueryOptions()).not.toHaveProperty('effort');
+  });
+
   it('sends budget-based extended thinking without effort for Claude Sonnet 4.5', async () => {
     queryMock.mockReturnValue(makeQuery([successMessage]));
 
@@ -650,13 +669,16 @@ describe('claudeHarnessAdapter', () => {
     });
   });
 
-  it('caps an unsupported effort level to the highest level Claude Opus 4.5 accepts', async () => {
+  it.each([
+    'xhigh',
+    'max',
+  ] as const)('caps Claude Opus 4.5 thinking level %s to the 31,999-token budget ceiling and falls back to the nearest supported effort level', async (thinking) => {
     queryMock.mockReturnValue(makeQuery([successMessage]));
 
-    await claudeHarnessAdapter.run(invocation({model: 'claude-opus-4-5', thinking: 'xhigh'}));
+    await claudeHarnessAdapter.run(invocation({model: 'claude-opus-4-5', thinking}));
 
     expect(lastQueryOptions()).toMatchObject({
-      thinking: {type: 'enabled', budgetTokens: 32_768},
+      thinking: {type: 'enabled', budgetTokens: 31_999},
       effort: 'high',
     });
   });
@@ -697,14 +719,14 @@ describe('claudeHarnessAdapter', () => {
     }
   });
 
-  it('caps an unsupported effort level to the highest level an adaptive model accepts', async () => {
+  it('falls back to the nearest supported effort level on an adaptive model', async () => {
     queryMock.mockReturnValue(makeQuery([successMessage]));
 
     await claudeHarnessAdapter.run(invocation({model: 'claude-opus-4-6', thinking: 'xhigh'}));
 
     expect(lastQueryOptions()).toMatchObject({
       thinking: {type: 'adaptive'},
-      effort: 'max',
+      effort: 'high',
     });
   });
 
@@ -718,6 +740,20 @@ describe('claudeHarnessAdapter', () => {
       thinking: {type: 'adaptive'},
       effort: 'xhigh',
     });
+  });
+
+  it('uses the override model for the thinking capability lookup when it differs from the invocation model', async () => {
+    configMock.AGENT_CLAUDE_ANTHROPIC_BASE_URL = 'http://127.0.0.1:11434';
+    configMock.AGENT_CLAUDE_ANTHROPIC_MODEL = 'claude-haiku-4-5';
+    queryMock.mockReturnValue(makeQuery([successMessage]));
+
+    await claudeHarnessAdapter.run(invocation({model: 'claude-opus-4-8', thinking: 'medium'}));
+
+    expect(lastQueryOptions()).toMatchObject({
+      model: 'claude-haiku-4-5',
+      thinking: {type: 'enabled', budgetTokens: 8_192},
+    });
+    expect(lastQueryOptions()).not.toHaveProperty('effort');
   });
 
   it('sends no effort for a managed Haiku 4.5 step with medium thinking', async () => {
