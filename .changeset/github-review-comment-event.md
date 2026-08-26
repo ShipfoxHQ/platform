@@ -1,5 +1,5 @@
 ---
-"@shipfox/api-integration-github-dto": patch
+"@shipfox/api-integration-github-dto": minor
 ---
 
-Completes the documented GitHub webhook action coverage for the existing integration catalogue families.
+Adds the complete set of documented GitHub webhook actions for the `pull_request`, `pull_request_review_comment`, `issues`, and `release` events to the integration catalogue (52 events total).

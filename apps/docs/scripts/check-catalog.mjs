@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {githubEventCatalog} from '@shipfox/api-integration-github-dto';
 import {validateIntegrationCatalog} from '@/lib/integration-catalog-validation';
 
 const providers = [
@@ -12,7 +13,7 @@ const providers = [
     icon: 'github',
     overviewHref: '/integrations/github',
     setupHref: '/integrations/github/setup',
-    eventCount: 52,
+    eventCount: githubEventCatalog.events.length,
     toolCount: 24,
   },
   {
