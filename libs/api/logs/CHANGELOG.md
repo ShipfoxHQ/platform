@@ -1,5 +1,12 @@
 # @shipfox/api-logs
 
+## 17.0.1
+
+### Patch Changes
+
+- Updated dependencies [a616842]
+  - @shipfox/node-object-storage@0.1.1
+
 ## 17.0.0
 
 ### Major Changes

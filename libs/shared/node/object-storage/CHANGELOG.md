@@ -1,5 +1,11 @@
 # @shipfox/node-object-storage
 
+## 0.1.1
+
+### Patch Changes
+
+- a616842: Allow deployments to leave the shared object-storage bucket unset when each consumer provides its own bucket override.
+
 ## 0.1.0
 
 ### Minor Changes

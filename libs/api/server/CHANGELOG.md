@@ -1,5 +1,12 @@
 # @shipfox/api-server
 
+## 17.0.1
+
+### Patch Changes
+
+- @shipfox/api-agent@17.0.1
+- @shipfox/api-logs@17.0.1
+
 ## 17.0.0
 
 ### Patch Changes
