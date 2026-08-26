@@ -182,6 +182,56 @@ describe('resolveAgentConfig', () => {
     expect(resolved.model).toBe('responses-model');
   });
 
+  test('keeps the instance default provider when a managed provider exists', () => {
+    const resolved = resolveAgentConfig(
+      {},
+      {
+        workspaceDefaultProviderId: 'anthropic',
+        instanceDefaultProvider: 'openai',
+        instanceDefaultModel: 'gpt-5.5-pro',
+        managedProvider: managedProvider(),
+      },
+    );
+
+    expect(resolved.provider).toBe('openai');
+    expect(resolved.model).toBe('gpt-5.5-pro');
+  });
+
+  test('falls back by harness without restoring the workspace default provider', () => {
+    const resolved = resolveAgentConfig(
+      {harness: 'claude'},
+      {
+        workspaceDefaultProviderId: 'openai',
+        managedProvider: {
+          ...managedProvider(),
+          models: [
+            {
+              id: 'responses-model',
+              label: 'Responses model',
+              api: 'openai-responses' as const,
+            },
+          ],
+        },
+      },
+    );
+
+    expect(resolved.provider).toBe('anthropic');
+    expect(resolved.model).toBe('claude-opus-5');
+  });
+
+  test('does not infer a workspace provider from an explicit workspace-only model', () => {
+    const resolve = () =>
+      resolveAgentConfig(
+        {model: 'gpt-5.5-pro'},
+        {
+          workspaceDefaultProviderId: 'openai',
+          managedProvider: managedProvider(),
+        },
+      );
+
+    expect(resolve).toThrow(InvalidAgentModelError);
+  });
+
   test('keeps an explicit workspace provider when a managed provider exists', () => {
     const resolved = resolveAgentConfig(
       {provider: 'openai', model: 'gpt-5.5-pro'},
