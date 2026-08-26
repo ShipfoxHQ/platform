@@ -258,7 +258,6 @@ interface ClaudeAnthropicOverride {
   readonly model: string | undefined;
   readonly smallFastModel: string | undefined;
   readonly authToken: string;
-  readonly disableDefaultTools: boolean;
 }
 
 interface ClaudeAuth {
@@ -355,7 +354,7 @@ async function runClaudeAgent(invocation: HarnessInvocation): Promise<HarnessRes
         strictMcpConfig: true,
         ...thinkingOptions,
         abortController: controller,
-        ...claudeToolsOption(tools, override),
+        ...claudeToolsOption(tools),
         ...claudeSystemPromptOption(),
         env: claudeEnvironment(auth, configDir, gitConfigGlobal, override),
         ...(mcpServers === undefined ? {} : {mcpServers}),
@@ -428,12 +427,9 @@ function claudeMcpServers(
   return Object.keys(servers).length === 0 ? undefined : servers;
 }
 
-function claudeToolsOption(
-  tools: readonly string[] | undefined,
-  override: ClaudeAnthropicOverride | undefined,
-): {readonly tools?: string[]} {
+function claudeToolsOption(tools: readonly string[] | undefined): {readonly tools?: string[]} {
   if (tools !== undefined) return {tools: [...tools]};
-  return override?.disableDefaultTools === true ? {tools: []} : {};
+  return {};
 }
 
 function setOutputTool(collector: OutputCollector) {
@@ -693,7 +689,6 @@ function claudeAnthropicOverride(
       model: undefined,
       smallFastModel: undefined,
       authToken: runtimeConfig.auth_token,
-      disableDefaultTools: false,
     };
   }
 
@@ -704,7 +699,6 @@ function claudeAnthropicOverride(
     model: config.AGENT_CLAUDE_ANTHROPIC_MODEL,
     smallFastModel: config.AGENT_CLAUDE_ANTHROPIC_SMALL_FAST_MODEL,
     authToken: OLLAMA_ANTHROPIC_AUTH_TOKEN,
-    disableDefaultTools: true,
   };
 }
 

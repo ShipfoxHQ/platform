@@ -562,9 +562,10 @@ describe('piHarnessAdapter', () => {
 
     const options = createAgentSessionMock.mock.calls[0]?.[0];
     expect(options).not.toHaveProperty('tools');
+    expect(options).not.toHaveProperty('noTools');
   });
 
-  it('disables default Pi tools for custom providers unless tools are selected', async () => {
+  it('keeps default Pi tools for custom providers when tools are not selected', async () => {
     const model = {provider: 'local-ollama', id: 'llama'};
     findMock.mockReturnValue(model);
 
@@ -576,12 +577,13 @@ describe('piHarnessAdapter', () => {
       }),
     );
 
-    expect(createAgentSessionMock).toHaveBeenCalledWith(
-      expect.objectContaining({model, noTools: 'builtin'}),
-    );
+    const options = createAgentSessionMock.mock.calls[0]?.[0];
+    expect(options).toEqual(expect.objectContaining({model}));
+    expect(options).not.toHaveProperty('tools');
+    expect(options).not.toHaveProperty('noTools');
   });
 
-  it('preserves custom-provider builtin suppression when MCP is configured', async () => {
+  it('keeps default Pi tools for custom providers when MCP is configured', async () => {
     const model = {provider: 'local-ollama', id: 'llama'};
     findMock.mockReturnValue(model);
     sessionDir = mkdtempSync(join(tmpdir(), 'shipfox-pi-mcp-'));
@@ -597,9 +599,10 @@ describe('piHarnessAdapter', () => {
       }),
     );
 
-    expect(createAgentSessionMock).toHaveBeenCalledWith(
-      expect.objectContaining({model, noTools: 'builtin'}),
-    );
+    const options = createAgentSessionMock.mock.calls[0]?.[0];
+    expect(options).toEqual(expect.objectContaining({model}));
+    expect(options).not.toHaveProperty('tools');
+    expect(options).not.toHaveProperty('noTools');
   });
 
   it('keeps output tools available for custom providers with declared outputs', async () => {
@@ -616,13 +619,15 @@ describe('piHarnessAdapter', () => {
     );
 
     await expect(result).rejects.toThrow('Agent step finished without required outputs: message');
-    expect(createAgentSessionMock).toHaveBeenCalledWith(
+    const options = createAgentSessionMock.mock.calls[0]?.[0];
+    expect(options).toEqual(
       expect.objectContaining({
         model,
-        noTools: 'builtin',
         customTools: [expect.objectContaining({name: 'set_output'})],
       }),
     );
+    expect(options).not.toHaveProperty('tools');
+    expect(options).not.toHaveProperty('noTools');
   });
 
   it('fails when Pi records an assistant error message', async () => {

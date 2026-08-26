@@ -174,7 +174,7 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
       services,
       model,
       thinkingLevel: thinking as PiThinkingLevel,
-      ...piToolsOption(tools, customProvider, mcpConfig !== undefined),
+      ...piToolsOption(tools, mcpConfig !== undefined),
       ...(hasDeclaredOutputs ? {customTools: [setOutputTool(collector)]} : {}),
       // Keep the session JSONL in the runner-owned agent-state directory so it forwards from a
       // deterministic path and is cleaned up with the job; pi's default lives under ~/.pi.
@@ -269,14 +269,13 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
 
 function piToolsOption(
   tools: readonly string[] | undefined,
-  customProvider: CustomModelProviderRuntimeConfigDto | undefined,
   hasMcpServers: boolean,
-): {tools: string[]} | {noTools: 'builtin'} | Record<string, never> {
+): {tools: string[]} | Record<string, never> {
   if (tools !== undefined) {
     const needsMcpTool = hasMcpServers && !tools.includes('mcp');
     return {tools: needsMcpTool ? [...tools, 'mcp'] : [...tools]};
   }
-  return customProvider === undefined ? {} : {noTools: 'builtin'};
+  return {};
 }
 
 interface PiMcpConfig {

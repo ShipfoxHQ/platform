@@ -315,7 +315,6 @@ describe('claudeHarnessAdapter', () => {
       prompt: expect.any(Object),
       options: expect.objectContaining({
         model: 'smollm2:135m-instruct-q2_K',
-        tools: [],
         env: expect.objectContaining({
           ANTHROPIC_API_KEY: '',
           ANTHROPIC_AUTH_TOKEN: 'ollama',
@@ -325,6 +324,7 @@ describe('claudeHarnessAdapter', () => {
         }),
       }),
     });
+    expect(lastQueryOptions()).not.toHaveProperty('tools');
     expect(lastQueryOptions().mcpServers).toBeUndefined();
   });
 
@@ -484,7 +484,6 @@ describe('claudeHarnessAdapter', () => {
     await claudeHarnessAdapter.run(invocation({credentials: {}, mcpServers: [bridge]}));
 
     expect(lastQueryOptions()).toMatchObject({
-      tools: [],
       mcpServers: {
         shipfox_integration_tools: {
           type: 'sdk',
@@ -493,6 +492,7 @@ describe('claudeHarnessAdapter', () => {
         },
       },
     });
+    expect(lastQueryOptions()).not.toHaveProperty('tools');
   });
 
   it('registers declared output tools when the Anthropic base URL override is active', async () => {
@@ -519,12 +519,12 @@ describe('claudeHarnessAdapter', () => {
     expect(queryMock).toHaveBeenCalledWith({
       prompt: expect.any(Object),
       options: expect.objectContaining({
-        tools: [],
         mcpServers: expect.objectContaining({
           shipfox_outputs: expect.objectContaining({name: 'shipfox_outputs'}),
         }),
       }),
     });
+    expect(lastQueryOptions()).not.toHaveProperty('tools');
   });
 
   it('maps Anthropic override egress denial to AgentConfigError', async () => {
