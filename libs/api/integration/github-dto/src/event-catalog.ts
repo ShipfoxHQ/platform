@@ -3,6 +3,84 @@ import type {IntegrationEventCatalog} from '@shipfox/api-integration-core-dto';
 const githubWebhookPayloadDocsUrl =
   'https://docs.github.com/en/webhooks/webhook-events-and-payloads';
 
+type GithubWebhookActionDetail = readonly [action: string, summary: string];
+
+const pullRequestActions = [
+  ['opened', 'A pull request opens.'],
+  ['closed', 'A pull request closes or merges.'],
+  ['synchronize', 'A pull request head branch receives commits.'],
+  ['reopened', 'A closed pull request reopens.'],
+  ['assigned', 'A pull request is assigned to a user.'],
+  ['unassigned', 'A user is unassigned from a pull request.'],
+  ['labeled', 'A label is added to a pull request.'],
+  ['unlabeled', 'A label is removed from a pull request.'],
+  ['edited', 'A pull request title, body, or branch changes.'],
+  ['converted_to_draft', 'A pull request is converted to draft.'],
+  ['locked', 'Conversation on a pull request is locked.'],
+  ['unlocked', 'Conversation on a pull request is unlocked.'],
+  ['enqueued', 'A pull request is added to the merge queue.'],
+  ['dequeued', 'A pull request is removed from the merge queue.'],
+  ['milestoned', 'A pull request is added to a milestone.'],
+  ['demilestoned', 'A pull request is removed from a milestone.'],
+  ['ready_for_review', 'A draft pull request is marked ready for review.'],
+  ['review_requested', 'A review is requested on a pull request.'],
+  ['review_request_removed', 'A pull request review request is removed.'],
+  ['auto_merge_enabled', 'Auto-merge is enabled for a pull request.'],
+  ['auto_merge_disabled', 'Auto-merge is disabled for a pull request.'],
+] as const satisfies readonly GithubWebhookActionDetail[];
+
+const pullRequestReviewCommentActions = [
+  ['created', 'A comment on a pull request diff is created.'],
+  ['edited', 'A comment on a pull request diff is edited.'],
+  ['deleted', 'A comment on a pull request diff is deleted.'],
+] as const satisfies readonly GithubWebhookActionDetail[];
+
+const issueActions = [
+  ['opened', 'An issue opens.'],
+  ['closed', 'An issue closes.'],
+  ['reopened', 'A closed issue reopens.'],
+  ['edited', 'An issue title or body changes.'],
+  ['labeled', 'A label is added to an issue.'],
+  ['unlabeled', 'A label is removed from an issue.'],
+  ['assigned', 'An issue is assigned to a user.'],
+  ['unassigned', 'A user is unassigned from an issue.'],
+  ['deleted', 'An issue is deleted.'],
+  ['transferred', 'An issue is transferred to another repository.'],
+  ['pinned', 'An issue is pinned.'],
+  ['unpinned', 'An issue is unpinned.'],
+  ['locked', 'Conversation on an issue is locked.'],
+  ['unlocked', 'Conversation on an issue is unlocked.'],
+  ['milestoned', 'An issue is added to a milestone.'],
+  ['demilestoned', 'An issue is removed from a milestone.'],
+  ['typed', 'An issue type is added to an issue.'],
+  ['untyped', 'An issue type is removed from an issue.'],
+  ['field_added', 'A field is added to an issue.'],
+  ['field_removed', 'A field is removed from an issue.'],
+] as const satisfies readonly GithubWebhookActionDetail[];
+
+const releaseActions = [
+  ['published', 'A release is published.'],
+  ['unpublished', 'A release is unpublished.'],
+  ['created', 'A draft release is created or saved.'],
+  ['edited', 'A release is edited.'],
+  ['deleted', 'A release is deleted.'],
+  ['prereleased', 'A release is published as a pre-release.'],
+  ['released', 'A release is published from a pre-release.'],
+] as const satisfies readonly GithubWebhookActionDetail[];
+
+function githubActionEvents(
+  family: string,
+  actions: readonly GithubWebhookActionDetail[],
+): IntegrationEventCatalog['events'] {
+  return actions.map(([action, summary]) => ({
+    name: `${family}.${action}`,
+    summary,
+    emittedWhen: `GitHub sends a ${family} webhook with the ${action} action.`,
+    payloadKind: 'raw-provider',
+    payloadDocUrl: githubWebhookPayloadDocsUrl,
+  }));
+}
+
 export const githubEventCatalog = {
   provider: 'GitHub',
   passthrough: true,
@@ -15,82 +93,9 @@ export const githubEventCatalog = {
       payloadKind: 'raw-provider',
       payloadDocUrl: githubWebhookPayloadDocsUrl,
     },
-    {
-      name: 'pull_request.opened',
-      summary: 'A pull request opens.',
-      emittedWhen: 'GitHub sends a pull_request webhook with the opened action.',
-      payloadKind: 'raw-provider',
-      payloadDocUrl: githubWebhookPayloadDocsUrl,
-    },
-    {
-      name: 'pull_request.closed',
-      summary: 'A pull request closes or merges.',
-      emittedWhen: 'GitHub sends a pull_request webhook with the closed action.',
-      payloadKind: 'raw-provider',
-      payloadDocUrl: githubWebhookPayloadDocsUrl,
-    },
-    {
-      name: 'pull_request.synchronize',
-      summary: 'A pull request head branch receives commits.',
-      emittedWhen: 'GitHub sends a pull_request webhook with the synchronize action.',
-      payloadKind: 'raw-provider',
-      payloadDocUrl: githubWebhookPayloadDocsUrl,
-    },
-    {
-      name: 'pull_request.reopened',
-      summary: 'A closed pull request reopens.',
-      emittedWhen: 'GitHub sends a pull_request webhook with the reopened action.',
-      payloadKind: 'raw-provider',
-      payloadDocUrl: githubWebhookPayloadDocsUrl,
-    },
-    {
-      name: 'issues.opened',
-      summary: 'An issue opens.',
-      emittedWhen: 'GitHub sends an issues webhook with the opened action.',
-      payloadKind: 'raw-provider',
-      payloadDocUrl: githubWebhookPayloadDocsUrl,
-    },
-    {
-      name: 'issues.closed',
-      summary: 'An issue closes.',
-      emittedWhen: 'GitHub sends an issues webhook with the closed action.',
-      payloadKind: 'raw-provider',
-      payloadDocUrl: githubWebhookPayloadDocsUrl,
-    },
-    {
-      name: 'issues.reopened',
-      summary: 'A closed issue reopens.',
-      emittedWhen: 'GitHub sends an issues webhook with the reopened action.',
-      payloadKind: 'raw-provider',
-      payloadDocUrl: githubWebhookPayloadDocsUrl,
-    },
-    {
-      name: 'issues.edited',
-      summary: 'An issue title or body changes.',
-      emittedWhen: 'GitHub sends an issues webhook with the edited action.',
-      payloadKind: 'raw-provider',
-      payloadDocUrl: githubWebhookPayloadDocsUrl,
-    },
-    {
-      name: 'issues.labeled',
-      summary: 'A label is added to an issue.',
-      emittedWhen: 'GitHub sends an issues webhook with the labeled action.',
-      payloadKind: 'raw-provider',
-      payloadDocUrl: githubWebhookPayloadDocsUrl,
-    },
-    {
-      name: 'issues.unlabeled',
-      summary: 'A label is removed from an issue.',
-      emittedWhen: 'GitHub sends an issues webhook with the unlabeled action.',
-      payloadKind: 'raw-provider',
-      payloadDocUrl: githubWebhookPayloadDocsUrl,
-    },
-    {
-      name: 'release.published',
-      summary: 'A release is published.',
-      emittedWhen: 'GitHub sends a release webhook with the published action.',
-      payloadKind: 'raw-provider',
-      payloadDocUrl: githubWebhookPayloadDocsUrl,
-    },
+    ...githubActionEvents('pull_request', pullRequestActions),
+    ...githubActionEvents('pull_request_review_comment', pullRequestReviewCommentActions),
+    ...githubActionEvents('issues', issueActions),
+    ...githubActionEvents('release', releaseActions),
   ],
 } as const satisfies IntegrationEventCatalog;

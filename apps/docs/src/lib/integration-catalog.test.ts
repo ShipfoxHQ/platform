@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {describe, it} from 'node:test';
+import {githubEventCatalog} from '@shipfox/api-integration-github-dto';
 import {
   type CatalogProvider,
   countFacetValues,
@@ -17,7 +18,7 @@ const providers: CatalogProvider[] = [
     aliases: ['git'],
     icon: 'github',
     overviewHref: '/integrations/github',
-    eventCount: 12,
+    eventCount: githubEventCatalog.events.length,
     toolCount: 21,
   },
   {
