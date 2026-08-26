@@ -517,15 +517,22 @@ describe('piHarnessAdapter', () => {
     );
   });
 
-  it('keeps the output tool enabled when Pi tools are explicitly selected', async () => {
+  it('keeps runner-managed tools enabled when Pi tools are explicitly selected', async () => {
+    sessionDir = mkdtempSync(join(tmpdir(), 'shipfox-pi-mcp-'));
     const result = piHarnessAdapter.run(
-      invocation({tools: ['read'], outputs: {summary: {type: 'string'}}}),
+      invocation({
+        cwd: sessionDir,
+        agentStateDir: join(sessionDir, 'runner-agent'),
+        tools: ['read'],
+        mcpServers: [mcpBridge()],
+        outputs: {summary: {type: 'string'}},
+      }),
     );
 
     await expect(result).rejects.toThrow('Agent step finished without required outputs: summary');
     expect(createAgentSessionMock.mock.calls[0]?.[0]).toEqual(
       expect.objectContaining({
-        tools: ['read', 'set_output'],
+        tools: ['read', 'mcp', 'set_output'],
         customTools: [expect.objectContaining({name: 'set_output'})],
       }),
     );

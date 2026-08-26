@@ -43,10 +43,11 @@ import {
   piExtensionDirectories,
 } from '#core/pi-extensions.js';
 import {type SessionForwarder, startSessionForwarder} from '#core/session-forwarder.js';
+import {toolSelectionOption} from '#core/tool-selection.js';
 
 const KEYLESS_CUSTOM_PROVIDER_API_KEY = 'shipfox-keyless-custom-provider-placeholder';
 const SECRET_HEADER_CREDENTIAL_PREFIX = 'header:';
-const OUTPUT_TOOL_NAME = 'set_output';
+const PI_MCP_TOOL_NAME = 'mcp';
 
 type PiThinkingLevel = NonNullable<CreateAgentSessionOptions['thinkingLevel']>;
 type ModelRuntimeInstance = Awaited<ReturnType<typeof ModelRuntime.create>>;
@@ -82,6 +83,7 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
   const collector = new OutputCollector(invocation.outputs);
   const hasDeclaredOutputs =
     invocation.outputs !== undefined && Object.keys(invocation.outputs).length > 0;
+  const customTools = hasDeclaredOutputs ? [setOutputTool(collector)] : [];
 
   // A listener added to an already-aborted signal never fires, so an abort that lands
   // before this point (or during the awaits below) would leave pi running and burning
@@ -175,8 +177,11 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
       services,
       model,
       thinkingLevel: thinking as PiThinkingLevel,
-      ...piToolsOption(tools, mcpConfig !== undefined, hasDeclaredOutputs),
-      ...(hasDeclaredOutputs ? {customTools: [setOutputTool(collector)]} : {}),
+      ...toolSelectionOption(tools, [
+        ...(mcpConfig === undefined ? [] : [PI_MCP_TOOL_NAME]),
+        ...customTools.map((tool) => tool.name),
+      ]),
+      ...(customTools.length === 0 ? {} : {customTools}),
       // Keep the session JSONL in the runner-owned agent-state directory so it forwards from a
       // deterministic path and is cleaned up with the job; pi's default lives under ~/.pi.
       sessionManager: SessionManager.create(cwd, join(agentStateDir, 'agent-sessions')),
@@ -266,22 +271,6 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
   } finally {
     await closePiSession({session, mcpConfig});
   }
-}
-
-function piToolsOption(
-  tools: readonly string[] | undefined,
-  hasMcpServers: boolean,
-  hasDeclaredOutputs: boolean,
-): {tools: string[]} | Record<string, never> {
-  if (tools !== undefined) {
-    const selectedTools = [...tools];
-    if (hasMcpServers && !selectedTools.includes('mcp')) selectedTools.push('mcp');
-    if (hasDeclaredOutputs && !selectedTools.includes(OUTPUT_TOOL_NAME)) {
-      selectedTools.push(OUTPUT_TOOL_NAME);
-    }
-    return {tools: selectedTools};
-  }
-  return {};
 }
 
 interface PiMcpConfig {
@@ -411,7 +400,7 @@ function isAssistantMessage(message: unknown): message is {
 
 function setOutputTool(collector: OutputCollector) {
   return defineTool({
-    name: OUTPUT_TOOL_NAME,
+    name: 'set_output',
     label: 'Set output',
     description: 'Set one structured output value for this workflow step.',
     promptSnippet: 'set_output records a workflow step output.',

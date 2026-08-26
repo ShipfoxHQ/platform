@@ -1017,15 +1017,20 @@ describe('claudeHarnessAdapter', () => {
     });
   });
 
-  it('merges integration bridges with output tools', async () => {
+  it('merges configured, integration, and managed tools', async () => {
     const bridge = mcpBridge();
     queryMock.mockReturnValue(makeQuery([successMessage, successMessage, successMessage]));
 
     const result = claudeHarnessAdapter.run(
-      invocation({mcpServers: [bridge], outputs: {summary: {type: 'string'}}}),
+      invocation({
+        tools: ['Read'],
+        mcpServers: [bridge],
+        outputs: {summary: {type: 'string'}},
+      }),
     );
 
     await expect(result).rejects.toThrow('Agent step finished without required outputs: summary');
+    expect(lastQueryOptions().tools).toEqual(['Read', 'mcp__shipfox_outputs__set_output']);
     expect(lastQueryOptions().mcpServers).toEqual(
       expect.objectContaining({
         shipfox_integration_tools: {
