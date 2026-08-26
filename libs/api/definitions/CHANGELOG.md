@@ -1,5 +1,36 @@
 # @shipfox/api-definitions
 
+## 17.0.0
+
+### Patch Changes
+
+- 9fdba44: Hardens tool-step validation while the fields stay reserved:
+  - `tool` and `connection` reject interpolation at document parse and at
+    workflow-model normalization (`tool-id-invalid`).
+  - A tool id that is not a standalone id or `family.method` with a single dot
+    fails normalization with `tool-id-invalid`. This covers boundary dots
+    (`issue_write.`, `.issue_read.get`) and a second dot
+    (`issue_write.update.extra`).
+  - The three output-mapping structural failures (a duplicate `result`
+    declaration, non-string mapping values, and values that are not exactly one
+    expression) now emit `tool-output-invalid` instead of `tool-input-invalid`;
+    `tool-input-invalid` stays reserved for input validation failures.
+
+- Updated dependencies [a4f56ff]
+- Updated dependencies [ed4981e]
+- Updated dependencies [a591e8a]
+- Updated dependencies [9f898d9]
+- Updated dependencies [9f898d9]
+- Updated dependencies [9fdba44]
+- Updated dependencies [be5fb95]
+  - @shipfox/api-auth-context@17.0.0
+  - @shipfox/api-agent-dto@17.0.0
+  - @shipfox/node-postgres@0.5.1
+  - @shipfox/workflow-document@3.3.1
+  - @shipfox/node-outbox@0.2.6
+  - @shipfox/api-definitions-dto@17.0.0
+  - @shipfox/expression@2.4.1
+
 ## 16.1.0
 
 ### Minor Changes

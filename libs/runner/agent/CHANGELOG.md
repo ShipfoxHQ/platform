@@ -1,5 +1,20 @@
 # @shipfox/runner-agent
 
+## 0.2.18
+
+### Patch Changes
+
+- 83b6b73: Claude steps now build their thinking and effort options from the selected model's capabilities instead of always sending adaptive thinking with an effort level. Haiku 4.5 and Sonnet 4.5 steps use budget-based extended thinking without an effort parameter, and Opus 4.5 keeps budget thinking with a supported effort, so these steps no longer fail with an HTTP 400. Legacy models now reserve a thinking-token budget per turn and can cost more and take longer than before.
+- be5fb95: Upgrade Pi to 0.84.2, refresh its supported provider catalog and flagship defaults, expose current direct Anthropic models to the Claude harness, and allow Pi workflow steps to use `thinking: max`.
+- Updated dependencies [ed4981e]
+- Updated dependencies [9f898d9]
+- Updated dependencies [be5fb95]
+  - @shipfox/api-agent-dto@17.0.0
+  - @shipfox/api-workflows-dto@17.0.0
+  - @shipfox/runner-protocol@0.2.24
+  - @shipfox/runner-execution@0.1.31
+  - @shipfox/expression@2.4.1
+
 ## 0.2.17
 
 ### Patch Changes

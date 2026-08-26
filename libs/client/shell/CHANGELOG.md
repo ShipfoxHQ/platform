@@ -1,5 +1,21 @@
 # Changelog
 
+## 27.0.0
+
+### Minor Changes
+
+- 5ae8b3d: Adds `adoptSession` to enter an externally minted session that renews near expiry and falls back to the cookie session. Adds `releaseAdoptedSession` to end an adoption and restore the cookie session. Adds the optional `impersonatorId` to `AuthenticatedSession`.
+
+### Patch Changes
+
+- Updated dependencies [5ae8b3d]
+- Updated dependencies [918d84a]
+- Updated dependencies [515b14c]
+  - @shipfox/api-auth-dto@17.0.0
+  - @shipfox/react-ui@2.3.1
+  - @shipfox/client-config@27.0.0
+  - @shipfox/client-ui@27.0.0
+
 ## 26.0.0
 
 ### Patch Changes

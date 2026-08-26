@@ -1,5 +1,33 @@
 # @shipfox/api-agent
 
+## 17.0.0
+
+### Major Changes
+
+- 9f898d9: Replaces the logs-only `LOG_STORAGE_S3_*` base configuration with shared `OBJECT_STORAGE_S3_*` settings, per-consumer prefixes, and optional overrides, and adds encrypted agent-session transcript persistence. Self-hosters must migrate their S3 settings and provide `AGENT_SESSION_ENCRYPTION_KEK`; the DTO packages receive matching major versions for the API package-family release without DTO schema changes.
+
+### Minor Changes
+
+- ed4981e: Adds the lease-authed agent session transcript transport: `GET /runs/jobs/current/steps/:stepId/session` returns the decrypted, still-gzipped head snapshot with manifest headers (or a 204 no-head marker), and `POST .../session?attempt=N&base_segment=S` commits segment `S + 1` under the claim/base CAS with idempotent-retry acks and 409 conflicts. The routes resolve the leased step through a new workflows inter-module method (`getLeasedAgentSessionContext`); the artifact store enforces the session blob cap.
+- 9f898d9: Persists encrypted agent session transcripts to object storage, adds a retention sweep that deletes expired sessions, and adds KEK rotation for envelope-encrypted artifacts. Deployments must set `AGENT_SESSION_ENCRYPTION_KEK` to a unique base64-encoded 32-byte key before upgrading.
+
+### Patch Changes
+
+- be5fb95: Upgrade Pi to 0.84.2, refresh its supported provider catalog and flagship defaults, expose current direct Anthropic models to the Claude harness, and allow Pi workflow steps to use `thinking: max`.
+- Updated dependencies [a4f56ff]
+- Updated dependencies [ed4981e]
+- Updated dependencies [a591e8a]
+- Updated dependencies [9f898d9]
+- Updated dependencies [9f898d9]
+- Updated dependencies [9f898d9]
+- Updated dependencies [be5fb95]
+  - @shipfox/api-auth-context@17.0.0
+  - @shipfox/api-agent-dto@17.0.0
+  - @shipfox/api-workflows-dto@17.0.0
+  - @shipfox/node-postgres@0.5.1
+  - @shipfox/node-envelope-encryption@0.2.0
+  - @shipfox/node-object-storage@0.1.0
+
 ## 16.1.0
 
 ### Minor Changes

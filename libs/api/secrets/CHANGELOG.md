@@ -1,5 +1,19 @@
 # @shipfox/api-secrets
 
+## 17.0.0
+
+### Patch Changes
+
+- 9f898d9: Persists encrypted agent session transcripts to object storage, adds a retention sweep that deletes expired sessions, and adds KEK rotation for envelope-encrypted artifacts. Deployments must set `AGENT_SESSION_ENCRYPTION_KEK` to a unique base64-encoded 32-byte key before upgrading.
+- Updated dependencies [a4f56ff]
+- Updated dependencies [a591e8a]
+- Updated dependencies [9f898d9]
+- Updated dependencies [9f898d9]
+  - @shipfox/api-auth-context@17.0.0
+  - @shipfox/node-postgres@0.5.1
+  - @shipfox/node-envelope-encryption@0.2.0
+  - @shipfox/node-outbox@0.2.6
+
 ## 15.0.0
 
 ### Patch Changes

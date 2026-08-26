@@ -1,5 +1,18 @@
 # @shipfox/api-auth-context
 
+## 17.0.0
+
+### Minor Changes
+
+- a4f56ff: Adds the `requireAdministrationActor` guard to `@shipfox/api-auth-context`. The guard rejects impersonated sessions (`UserContext` carrying `impersonatorId`) with the `admin-role-required` failure on every `/admin` route in the auth, projects, workspaces, and runners modules. It protects the first-owner bootstrap route before the system checks roles.
+- a591e8a: Adds `rejectImpersonatedSession` to `@shipfox/api-auth-context`, which throws `impersonation-not-permitted` when the request's user context carries an `impersonatorId`. The runner manual-registration-token, provisioner-token, and workspace invitation routes (create and accept) now reject impersonated sessions, so an impersonated session cannot use these routes to leave behind a credential or durable grant that outlives its bounded token window.
+
+### Patch Changes
+
+- Updated dependencies [5ae8b3d]
+- Updated dependencies [918d84a]
+  - @shipfox/api-auth-dto@17.0.0
+
 ## 15.0.0
 
 ### Patch Changes

@@ -1,5 +1,15 @@
 # @shipfox/api-integration-sentry
 
+## 17.0.0
+
+### Patch Changes
+
+- Updated dependencies [a4f56ff]
+- Updated dependencies [a591e8a]
+- Updated dependencies [9f898d9]
+  - @shipfox/api-auth-context@17.0.0
+  - @shipfox/node-postgres@0.5.1
+
 ## 16.0.0
 
 ### Patch Changes

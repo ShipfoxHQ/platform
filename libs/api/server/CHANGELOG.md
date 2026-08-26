@@ -1,5 +1,39 @@
 # @shipfox/api-server
 
+## 17.0.0
+
+### Patch Changes
+
+- Updated dependencies [a4f56ff]
+- Updated dependencies [5ae8b3d]
+- Updated dependencies [ed4981e]
+- Updated dependencies [a591e8a]
+- Updated dependencies [918d84a]
+- Updated dependencies [9f898d9]
+- Updated dependencies [9f898d9]
+- Updated dependencies [9f898d9]
+- Updated dependencies [9fdba44]
+- Updated dependencies [be5fb95]
+  - @shipfox/api-auth@17.0.0
+  - @shipfox/api-projects@17.0.0
+  - @shipfox/api-runners@17.0.0
+  - @shipfox/api-workspaces@17.0.0
+  - @shipfox/api-auth-dto@17.0.0
+  - @shipfox/api-agent@17.0.0
+  - @shipfox/api-agent-dto@17.0.0
+  - @shipfox/api-workflows@17.0.0
+  - @shipfox/api-workflows-dto@17.0.0
+  - @shipfox/node-postgres@0.5.1
+  - @shipfox/api-secrets@17.0.0
+  - @shipfox/api-logs@17.0.0
+  - @shipfox/api-definitions@17.0.0
+  - @shipfox/annotations@17.0.0
+  - @shipfox/api-integration-core@17.0.0
+  - @shipfox/api-triggers@17.0.0
+  - @shipfox/api-dispatcher@17.0.0
+  - @shipfox/api-email-challenges@1.1.11
+  - @shipfox/api-definitions-dto@17.0.0
+
 ## 16.1.0
 
 ### Minor Changes

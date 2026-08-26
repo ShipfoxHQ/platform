@@ -1,5 +1,28 @@
 # @shipfox/api-integration-core
 
+## 17.0.0
+
+### Patch Changes
+
+- Updated dependencies [a4f56ff]
+- Updated dependencies [ed4981e]
+- Updated dependencies [a591e8a]
+- Updated dependencies [9f898d9]
+- Updated dependencies [9f898d9]
+- Updated dependencies [be5fb95]
+  - @shipfox/api-auth-context@17.0.0
+  - @shipfox/api-agent-dto@17.0.0
+  - @shipfox/api-workflows-dto@17.0.0
+  - @shipfox/node-postgres@0.5.1
+  - @shipfox/api-integration-gitea@17.0.0
+  - @shipfox/api-integration-github@17.0.0
+  - @shipfox/api-integration-jira@17.0.0
+  - @shipfox/api-integration-linear@17.0.0
+  - @shipfox/api-integration-sentry@17.0.0
+  - @shipfox/api-integration-slack@17.0.0
+  - @shipfox/api-integration-webhook@17.0.0
+  - @shipfox/node-outbox@0.2.6
+
 ## 16.1.0
 
 ### Patch Changes
