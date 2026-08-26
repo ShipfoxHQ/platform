@@ -1227,6 +1227,14 @@
   padding-block: var(--pad-row-y);
 }
 
+@utility pt-row {
+  padding-top: var(--pad-row-y);
+}
+
+@utility pb-row {
+  padding-bottom: var(--pad-row-y);
+}
+
 @utility px-frame {
   padding-inline: var(--pad-frame-x);
 }
