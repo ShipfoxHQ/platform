@@ -1,5 +1,11 @@
 # @shipfox/api-runners
 
+## 17.1.0
+
+### Patch Changes
+
+- @shipfox/api-workflows-dto@17.1.0
+
 ## 17.0.0
 
 ### Minor Changes

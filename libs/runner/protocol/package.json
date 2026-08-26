@@ -1,7 +1,7 @@
 {
   "name": "@shipfox/runner-protocol",
   "license": "MIT",
-  "version": "0.2.24",
+  "version": "0.2.25",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ShipfoxHQ/shipfox.git",

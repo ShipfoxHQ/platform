@@ -1,5 +1,21 @@
 # @shipfox/api-server
 
+## 17.1.0
+
+### Patch Changes
+
+- Updated dependencies [fd6cee5]
+- Updated dependencies [fd6cee5]
+  - @shipfox/api-agent@17.1.0
+  - @shipfox/api-agent-dto@17.1.0
+  - @shipfox/api-definitions@17.1.0
+  - @shipfox/api-integration-core@17.1.0
+  - @shipfox/api-workflows@17.1.0
+  - @shipfox/api-workflows-dto@17.1.0
+  - @shipfox/api-logs@17.1.0
+  - @shipfox/api-runners@17.1.0
+  - @shipfox/api-triggers@17.1.0
+
 ## 17.0.1
 
 ### Patch Changes

@@ -1,5 +1,16 @@
 # @shipfox/client-triggers
 
+## 27.0.1
+
+### Patch Changes
+
+- Updated dependencies [87b71ed]
+  - @shipfox/react-ui@2.3.2
+  - @shipfox/client-projects@27.0.1
+  - @shipfox/client-shell@27.0.1
+  - @shipfox/client-ui@27.0.1
+  - @shipfox/integration-icons@0.3.10
+
 ## 27.0.0
 
 ### Patch Changes

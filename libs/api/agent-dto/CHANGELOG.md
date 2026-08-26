@@ -1,5 +1,12 @@
 # @shipfox/api-agent-dto
 
+## 17.1.0
+
+### Minor Changes
+
+- fd6cee5: Allows managed catalog models to declare an optional `claudeModelId` for the Claude harness.
+  Runtime resolution keeps the catalog model ID when the field is absent.
+
 ## 17.0.0
 
 ### Major Changes

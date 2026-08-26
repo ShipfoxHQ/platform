@@ -1,5 +1,20 @@
 # @shipfox/api-agent
 
+## 17.1.0
+
+### Minor Changes
+
+- fd6cee5: Ignores stored workspace provider defaults when an instance managed provider is available.
+  Providerless steps still honor instance defaults and otherwise use the managed provider.
+- fd6cee5: Allows managed catalog models to declare an optional `claudeModelId` for the Claude harness.
+  Runtime resolution keeps the catalog model ID when the field is absent.
+
+### Patch Changes
+
+- Updated dependencies [fd6cee5]
+  - @shipfox/api-agent-dto@17.1.0
+  - @shipfox/api-workflows-dto@17.1.0
+
 ## 17.0.1
 
 ### Patch Changes

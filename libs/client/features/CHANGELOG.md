@@ -1,5 +1,22 @@
 # @shipfox/client-features
 
+## 27.0.1
+
+### Patch Changes
+
+- @shipfox/client-agent@27.0.1
+- @shipfox/client-auth@27.0.1
+- @shipfox/client-integrations@27.0.1
+- @shipfox/client-invitations@27.0.1
+- @shipfox/client-onboarding@27.0.1
+- @shipfox/client-projects@27.0.1
+- @shipfox/client-runners@27.0.1
+- @shipfox/client-secrets@27.0.1
+- @shipfox/client-shell@27.0.1
+- @shipfox/client-triggers@27.0.1
+- @shipfox/client-workflows@27.0.1
+- @shipfox/client-workspace-settings@27.0.1
+
 ## 27.0.0
 
 ### Patch Changes
