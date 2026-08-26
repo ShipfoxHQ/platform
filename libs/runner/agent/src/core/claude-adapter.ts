@@ -29,10 +29,12 @@ import {
   runOutputTurnLoop,
   withOutputGuidance,
 } from '#core/output-collector.js';
+import {toolSelectionOption} from '#core/tool-selection.js';
 
 const ANTHROPIC_API_URL = 'https://api.anthropic.com';
 const OLLAMA_ANTHROPIC_AUTH_TOKEN = 'ollama';
 const REQUESTED_PERMISSION_MODE = 'bypassPermissions';
+const OUTPUT_MCP_SERVER_NAME = 'shipfox_outputs';
 const MAX_REPOSITORY_INSTRUCTIONS_BYTES = 64 * 1024;
 const REPOSITORY_INSTRUCTIONS_HEADER =
   'Repository instructions; they do not override the task above:';
@@ -258,7 +260,6 @@ interface ClaudeAnthropicOverride {
   readonly model: string | undefined;
   readonly smallFastModel: string | undefined;
   readonly authToken: string;
-  readonly disableDefaultTools: boolean;
 }
 
 interface ClaudeAuth {
@@ -323,7 +324,8 @@ async function runClaudeAgent(invocation: HarnessInvocation): Promise<HarnessRes
   const hasDeclaredOutputs =
     invocation.outputs !== undefined && Object.keys(invocation.outputs).length > 0;
   const useOutputTools = hasDeclaredOutputs;
-  const mcpServers = claudeMcpServers(invocation.mcpServers, collector, useOutputTools);
+  const managedMcpServers = useOutputTools ? [outputMcpServer(collector)] : [];
+  const mcpServers = claudeMcpServers(invocation.mcpServers, managedMcpServers);
 
   await assertRunnerEgressAllowed(targetUrl, targetLabel);
 
@@ -355,7 +357,10 @@ async function runClaudeAgent(invocation: HarnessInvocation): Promise<HarnessRes
         strictMcpConfig: true,
         ...thinkingOptions,
         abortController: controller,
-        ...claudeToolsOption(tools, override),
+        ...toolSelectionOption(
+          tools,
+          managedMcpServers.flatMap((server) => server.requiredToolNames),
+        ),
         ...claudeSystemPromptOption(),
         env: claudeEnvironment(auth, configDir, gitConfigGlobal, override),
         ...(mcpServers === undefined ? {} : {mcpServers}),
@@ -407,8 +412,7 @@ async function runClaudeAgent(invocation: HarnessInvocation): Promise<HarnessRes
 
 function claudeMcpServers(
   integrationMcpServers: HarnessInvocation['mcpServers'],
-  collector: OutputCollector,
-  useOutputTools: boolean,
+  managedMcpServers: readonly ClaudeManagedMcpServer[],
 ) {
   const servers = Object.fromEntries(
     (integrationMcpServers ?? []).map((server) => [
@@ -416,24 +420,42 @@ function claudeMcpServers(
       {type: 'sdk' as const, name: server.name, instance: server.server},
     ]),
   );
-  if (useOutputTools) {
-    servers.shipfox_outputs = createSdkMcpServer({
-      name: 'shipfox_outputs',
-      version: '1.0.0',
-      instructions: collector.guidanceText(),
-      tools: [setOutputTool(collector)],
-      alwaysLoad: true,
-    });
+  for (const server of managedMcpServers) {
+    servers[server.name] = server.config;
   }
   return Object.keys(servers).length === 0 ? undefined : servers;
 }
 
-function claudeToolsOption(
-  tools: readonly string[] | undefined,
-  override: ClaudeAnthropicOverride | undefined,
-): {readonly tools?: string[]} {
-  if (tools !== undefined) return {tools: [...tools]};
-  return override?.disableDefaultTools === true ? {tools: []} : {};
+interface ClaudeManagedMcpServer {
+  readonly name: string;
+  readonly config: ReturnType<typeof createSdkMcpServer>;
+  readonly requiredToolNames: readonly string[];
+}
+
+type ClaudeMcpTools = NonNullable<Parameters<typeof createSdkMcpServer>[0]['tools']>;
+
+function outputMcpServer(collector: OutputCollector): ClaudeManagedMcpServer {
+  return managedMcpServer({
+    name: OUTPUT_MCP_SERVER_NAME,
+    version: '1.0.0',
+    instructions: collector.guidanceText(),
+    tools: [setOutputTool(collector)],
+  });
+}
+
+function managedMcpServer<Tools extends ClaudeMcpTools>(params: {
+  name: string;
+  version: string;
+  instructions: string;
+  tools: Tools;
+}): ClaudeManagedMcpServer {
+  return {
+    name: params.name,
+    config: createSdkMcpServer({...params, alwaysLoad: true}),
+    requiredToolNames: params.tools.map(
+      (managedTool) => `mcp__${params.name}__${managedTool.name}`,
+    ),
+  };
 }
 
 function setOutputTool(collector: OutputCollector) {
@@ -693,7 +715,6 @@ function claudeAnthropicOverride(
       model: undefined,
       smallFastModel: undefined,
       authToken: runtimeConfig.auth_token,
-      disableDefaultTools: false,
     };
   }
 
@@ -704,7 +725,6 @@ function claudeAnthropicOverride(
     model: config.AGENT_CLAUDE_ANTHROPIC_MODEL,
     smallFastModel: config.AGENT_CLAUDE_ANTHROPIC_SMALL_FAST_MODEL,
     authToken: OLLAMA_ANTHROPIC_AUTH_TOKEN,
-    disableDefaultTools: true,
   };
 }
 

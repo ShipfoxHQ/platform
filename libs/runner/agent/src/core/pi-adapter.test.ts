@@ -517,6 +517,27 @@ describe('piHarnessAdapter', () => {
     );
   });
 
+  it('keeps runner-managed tools enabled when Pi tools are explicitly selected', async () => {
+    sessionDir = mkdtempSync(join(tmpdir(), 'shipfox-pi-mcp-'));
+    const result = piHarnessAdapter.run(
+      invocation({
+        cwd: sessionDir,
+        agentStateDir: join(sessionDir, 'runner-agent'),
+        tools: ['read'],
+        mcpServers: [mcpBridge()],
+        outputs: {summary: {type: 'string'}},
+      }),
+    );
+
+    await expect(result).rejects.toThrow('Agent step finished without required outputs: summary');
+    expect(createAgentSessionMock.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        tools: ['read', 'mcp', 'set_output'],
+        customTools: [expect.objectContaining({name: 'set_output'})],
+      }),
+    );
+  });
+
   it('passes selected Pi tool names through unchanged', async () => {
     await piHarnessAdapter.run(invocation({tools: ['read', 'web_search', 'fetch_content']}));
 
@@ -562,9 +583,10 @@ describe('piHarnessAdapter', () => {
 
     const options = createAgentSessionMock.mock.calls[0]?.[0];
     expect(options).not.toHaveProperty('tools');
+    expect(options).not.toHaveProperty('noTools');
   });
 
-  it('disables default Pi tools for custom providers unless tools are selected', async () => {
+  it('keeps default Pi tools for custom providers when tools are not selected', async () => {
     const model = {provider: 'local-ollama', id: 'llama'};
     findMock.mockReturnValue(model);
 
@@ -576,12 +598,13 @@ describe('piHarnessAdapter', () => {
       }),
     );
 
-    expect(createAgentSessionMock).toHaveBeenCalledWith(
-      expect.objectContaining({model, noTools: 'builtin'}),
-    );
+    const options = createAgentSessionMock.mock.calls[0]?.[0];
+    expect(options).toEqual(expect.objectContaining({model}));
+    expect(options).not.toHaveProperty('tools');
+    expect(options).not.toHaveProperty('noTools');
   });
 
-  it('preserves custom-provider builtin suppression when MCP is configured', async () => {
+  it('keeps default Pi tools for custom providers when MCP is configured', async () => {
     const model = {provider: 'local-ollama', id: 'llama'};
     findMock.mockReturnValue(model);
     sessionDir = mkdtempSync(join(tmpdir(), 'shipfox-pi-mcp-'));
@@ -597,9 +620,10 @@ describe('piHarnessAdapter', () => {
       }),
     );
 
-    expect(createAgentSessionMock).toHaveBeenCalledWith(
-      expect.objectContaining({model, noTools: 'builtin'}),
-    );
+    const options = createAgentSessionMock.mock.calls[0]?.[0];
+    expect(options).toEqual(expect.objectContaining({model}));
+    expect(options).not.toHaveProperty('tools');
+    expect(options).not.toHaveProperty('noTools');
   });
 
   it('keeps output tools available for custom providers with declared outputs', async () => {
@@ -616,13 +640,15 @@ describe('piHarnessAdapter', () => {
     );
 
     await expect(result).rejects.toThrow('Agent step finished without required outputs: message');
-    expect(createAgentSessionMock).toHaveBeenCalledWith(
+    const options = createAgentSessionMock.mock.calls[0]?.[0];
+    expect(options).toEqual(
       expect.objectContaining({
         model,
-        noTools: 'builtin',
         customTools: [expect.objectContaining({name: 'set_output'})],
       }),
     );
+    expect(options).not.toHaveProperty('tools');
+    expect(options).not.toHaveProperty('noTools');
   });
 
   it('fails when Pi records an assistant error message', async () => {

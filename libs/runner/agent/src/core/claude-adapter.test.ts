@@ -315,7 +315,6 @@ describe('claudeHarnessAdapter', () => {
       prompt: expect.any(Object),
       options: expect.objectContaining({
         model: 'smollm2:135m-instruct-q2_K',
-        tools: [],
         env: expect.objectContaining({
           ANTHROPIC_API_KEY: '',
           ANTHROPIC_AUTH_TOKEN: 'ollama',
@@ -325,6 +324,7 @@ describe('claudeHarnessAdapter', () => {
         }),
       }),
     });
+    expect(lastQueryOptions()).not.toHaveProperty('tools');
     expect(lastQueryOptions().mcpServers).toBeUndefined();
   });
 
@@ -484,7 +484,6 @@ describe('claudeHarnessAdapter', () => {
     await claudeHarnessAdapter.run(invocation({credentials: {}, mcpServers: [bridge]}));
 
     expect(lastQueryOptions()).toMatchObject({
-      tools: [],
       mcpServers: {
         shipfox_integration_tools: {
           type: 'sdk',
@@ -493,6 +492,7 @@ describe('claudeHarnessAdapter', () => {
         },
       },
     });
+    expect(lastQueryOptions()).not.toHaveProperty('tools');
   });
 
   it('registers declared output tools when the Anthropic base URL override is active', async () => {
@@ -519,12 +519,30 @@ describe('claudeHarnessAdapter', () => {
     expect(queryMock).toHaveBeenCalledWith({
       prompt: expect.any(Object),
       options: expect.objectContaining({
-        tools: [],
         mcpServers: expect.objectContaining({
           shipfox_outputs: expect.objectContaining({name: 'shipfox_outputs'}),
         }),
       }),
     });
+    expect(lastQueryOptions()).not.toHaveProperty('tools');
+  });
+
+  it('keeps the output tool enabled when Claude tools are explicitly selected', async () => {
+    queryMock.mockReturnValue(makeQuery([successMessage, successMessage, successMessage]));
+
+    const result = claudeHarnessAdapter.run(
+      invocation({tools: ['Read'], outputs: {summary: {type: 'string'}}}),
+    );
+
+    await expect(result).rejects.toThrow('Agent step finished without required outputs: summary');
+    expect(lastQueryOptions()).toEqual(
+      expect.objectContaining({
+        tools: ['Read', 'mcp__shipfox_outputs__set_output'],
+        mcpServers: expect.objectContaining({
+          shipfox_outputs: expect.objectContaining({name: 'shipfox_outputs'}),
+        }),
+      }),
+    );
   });
 
   it('maps Anthropic override egress denial to AgentConfigError', async () => {
@@ -999,15 +1017,20 @@ describe('claudeHarnessAdapter', () => {
     });
   });
 
-  it('merges integration bridges with output tools', async () => {
+  it('merges configured, integration, and managed tools', async () => {
     const bridge = mcpBridge();
     queryMock.mockReturnValue(makeQuery([successMessage, successMessage, successMessage]));
 
     const result = claudeHarnessAdapter.run(
-      invocation({mcpServers: [bridge], outputs: {summary: {type: 'string'}}}),
+      invocation({
+        tools: ['Read'],
+        mcpServers: [bridge],
+        outputs: {summary: {type: 'string'}},
+      }),
     );
 
     await expect(result).rejects.toThrow('Agent step finished without required outputs: summary');
+    expect(lastQueryOptions().tools).toEqual(['Read', 'mcp__shipfox_outputs__set_output']);
     expect(lastQueryOptions().mcpServers).toEqual(
       expect.objectContaining({
         shipfox_integration_tools: {
