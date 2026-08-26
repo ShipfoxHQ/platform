@@ -48,6 +48,7 @@ export type AgentModelOptionDto = z.infer<typeof agentModelOptionSchema>;
  * cannot silently lose runner-side capability handling.
  */
 export const CLAUDE_MODEL_LINE: AgentModelOptionDto[] = [
+  {id: 'claude-fable-5', label: 'Claude Fable 5'},
   {id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5 (latest)'},
   {id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5'},
   {id: 'claude-opus-4-1', label: 'Claude Opus 4.1 (latest)'},
@@ -61,16 +62,15 @@ export const CLAUDE_MODEL_LINE: AgentModelOptionDto[] = [
   {id: 'claude-sonnet-4-5', label: 'Claude Sonnet 4.5 (latest)'},
   {id: 'claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4.5'},
   {id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6'},
+  {id: 'claude-sonnet-5', label: 'Claude Sonnet 5'},
 ];
 
 /**
  * Managed `shipfox`-provider Claude model families not exposed through the
- * built-in Claude harness picker. The runner's Claude adapter must still
- * resolve thinking capabilities for them, so they join the
- * `CLAUDE_MODEL_LINE` families in
- * `CLAUDE_MODEL_FAMILY_IDS`.
+ * built-in Claude harness picker. Retained as a public extension point for a
+ * managed model that is not available from Anthropic directly.
  */
-export const CLAUDE_MANAGED_MODEL_FAMILY_IDS = ['claude-fable-5', 'claude-sonnet-5'] as const;
+export const CLAUDE_MANAGED_MODEL_FAMILY_IDS = [] as const;
 
 /**
  * Every Claude model family the runner's Claude adapter must resolve thinking
@@ -81,6 +81,7 @@ export const CLAUDE_MANAGED_MODEL_FAMILY_IDS = ['claude-fable-5', 'claude-sonnet
  * thinking control.
  */
 export const CLAUDE_MODEL_FAMILY_IDS = [
+  'claude-fable-5',
   'claude-haiku-4-5',
   'claude-opus-4-1',
   'claude-opus-4-5',
@@ -90,6 +91,7 @@ export const CLAUDE_MODEL_FAMILY_IDS = [
   'claude-opus-5',
   'claude-sonnet-4-5',
   'claude-sonnet-4-6',
+  'claude-sonnet-5',
   ...CLAUDE_MANAGED_MODEL_FAMILY_IDS,
 ] as const;
 

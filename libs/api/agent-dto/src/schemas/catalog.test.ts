@@ -164,9 +164,17 @@ describe('model provider catalog', () => {
     });
   });
 
-  it('offers the latest Anthropic default to the Claude harness', () => {
-    expect(CLAUDE_MODEL_LINE).toContainEqual({id: 'claude-opus-5', label: 'Claude Opus 5'});
-    expect(CLAUDE_MANAGED_MODEL_FAMILY_IDS).not.toContain('claude-opus-5');
+  it('offers the latest direct Anthropic models to the Claude harness', () => {
+    const directAnthropicModels = [
+      {id: 'claude-fable-5', label: 'Claude Fable 5'},
+      {id: 'claude-opus-5', label: 'Claude Opus 5'},
+      {id: 'claude-sonnet-5', label: 'Claude Sonnet 5'},
+    ];
+
+    for (const model of directAnthropicModels) {
+      expect(CLAUDE_MODEL_LINE).toContainEqual(model);
+      expect(CLAUDE_MANAGED_MODEL_FAMILY_IDS).not.toContain(model.id);
+    }
   });
 
   it('defines non-empty supported credential fields with at least one secret field', () => {
