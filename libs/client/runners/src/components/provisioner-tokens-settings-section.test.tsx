@@ -172,7 +172,9 @@ describe('WorkspaceProvisionerTokensSettingsSection', () => {
     await user.unhover(expiresDateTrigger);
     await user.hover(createdDateTrigger);
 
-    expect(await screen.findByRole('tooltip')).toHaveTextContent(formatTimestamp(createdAt));
+    await waitFor(() => {
+      expect(screen.getByRole('tooltip')).toHaveTextContent(formatTimestamp(createdAt));
+    });
   });
 
   test('truncates long token names and shows the full name in a tooltip', async () => {
