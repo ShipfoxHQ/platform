@@ -128,6 +128,18 @@ function resolveProvider(
     return provider;
   }
 
+  if (ctx.managedProvider !== undefined) {
+    const provider = ctx.managedProvider.id;
+    if (!isHarnessCompatible(harness, provider, getProviderConfig(provider, ctx))) {
+      throw new UnsupportedHarnessProviderError(
+        harness,
+        provider,
+        supportedProviderIds(harness, descriptor, ctx),
+      );
+    }
+    return provider;
+  }
+
   const candidates = [
     ctx.workspaceDefaultProviderId,
     ctx.instanceDefaultProvider,
