@@ -57,23 +57,20 @@ export const CLAUDE_MODEL_LINE: AgentModelOptionDto[] = [
   {id: 'claude-opus-4-6', label: 'Claude Opus 4.6'},
   {id: 'claude-opus-4-7', label: 'Claude Opus 4.7'},
   {id: 'claude-opus-4-8', label: 'Claude Opus 4.8'},
+  {id: 'claude-opus-5', label: 'Claude Opus 5'},
   {id: 'claude-sonnet-4-5', label: 'Claude Sonnet 4.5 (latest)'},
   {id: 'claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4.5'},
   {id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6'},
 ];
 
 /**
- * Managed `shipfox`-provider Claude model families. These models are served by
- * the Shipfox inference endpoint without a built-in provider catalog entry,
- * but the runner's Claude adapter must still resolve thinking capabilities for
- * them, so they join the `CLAUDE_MODEL_LINE` families in
+ * Managed `shipfox`-provider Claude model families not exposed through the
+ * built-in Claude harness picker. The runner's Claude adapter must still
+ * resolve thinking capabilities for them, so they join the
+ * `CLAUDE_MODEL_LINE` families in
  * `CLAUDE_MODEL_FAMILY_IDS`.
  */
-export const CLAUDE_MANAGED_MODEL_FAMILY_IDS = [
-  'claude-fable-5',
-  'claude-opus-5',
-  'claude-sonnet-5',
-] as const;
+export const CLAUDE_MANAGED_MODEL_FAMILY_IDS = ['claude-fable-5', 'claude-sonnet-5'] as const;
 
 /**
  * Every Claude model family the runner's Claude adapter must resolve thinking
@@ -90,6 +87,7 @@ export const CLAUDE_MODEL_FAMILY_IDS = [
   'claude-opus-4-6',
   'claude-opus-4-7',
   'claude-opus-4-8',
+  'claude-opus-5',
   'claude-sonnet-4-5',
   'claude-sonnet-4-6',
   ...CLAUDE_MANAGED_MODEL_FAMILY_IDS,
@@ -206,11 +204,11 @@ const cloudflareWorkersAiCredentialFields = [
 ];
 
 export const MODEL_PROVIDER_CATALOG_SEED: ModelProviderCatalogSeedDto[] = [
-  supportedProvider('anthropic', 'Anthropic', 'claude-opus-4-8'),
+  supportedProvider('anthropic', 'Anthropic', 'claude-opus-5'),
   supportedProvider('ant-ling', 'Ant Ling', 'Ring-2.6-1T'),
-  supportedProvider('azure-openai-responses', 'Azure OpenAI', 'gpt-5.5-pro', azureCredentialFields),
+  supportedProvider('azure-openai-responses', 'Azure OpenAI', 'gpt-5.6-sol', azureCredentialFields),
   supportedProvider('baseten', 'Baseten', 'zai-org/GLM-5.2'),
-  supportedProvider('openai', 'OpenAI', 'gpt-5.5-pro'),
+  supportedProvider('openai', 'OpenAI', 'gpt-5.6-sol'),
   supportedProvider('deepseek', 'DeepSeek', 'deepseek-v4-pro'),
   supportedProvider('nvidia', 'NVIDIA', 'nvidia/nemotron-3-ultra-550b-a55b'),
   supportedProvider('google', 'Google AI Studio', 'gemini-3.1-pro-preview'),
@@ -220,7 +218,7 @@ export const MODEL_PROVIDER_CATALOG_SEED: ModelProviderCatalogSeedDto[] = [
   supportedProvider(
     'cloudflare-ai-gateway',
     'Cloudflare AI Gateway',
-    'claude-opus-4-8',
+    'claude-opus-5',
     cloudflareAiGatewayCredentialFields,
   ),
   supportedProvider(
@@ -230,23 +228,23 @@ export const MODEL_PROVIDER_CATALOG_SEED: ModelProviderCatalogSeedDto[] = [
     cloudflareWorkersAiCredentialFields,
   ),
   supportedProvider('xai', 'xAI', 'grok-4.6'),
-  supportedProvider('openrouter', 'OpenRouter', 'anthropic/claude-opus-4.8'),
-  supportedProvider('vercel-ai-gateway', 'Vercel AI Gateway', 'anthropic/claude-opus-4.8'),
+  supportedProvider('openrouter', 'OpenRouter', 'anthropic/claude-opus-5'),
+  supportedProvider('vercel-ai-gateway', 'Vercel AI Gateway', 'anthropic/claude-opus-5'),
   supportedProvider('zai', 'Z.ai', 'glm-5.3'),
   supportedProvider('zai-coding-cn', 'Z.ai Coding CN', 'glm-5.3'),
-  supportedProvider('opencode', 'OpenCode', 'claude-opus-4-8'),
-  supportedProvider('opencode-go', 'OpenCode Go', 'kimi-k2.7-code'),
+  supportedProvider('opencode', 'OpenCode', 'claude-opus-5'),
+  supportedProvider('opencode-go', 'OpenCode Go', 'kimi-k3'),
   supportedProvider('huggingface', 'Hugging Face', 'deepseek-ai/DeepSeek-V4-Pro'),
   supportedProvider('fireworks', 'Fireworks', 'accounts/fireworks/models/deepseek-v4-pro'),
   supportedProvider('together', 'Together AI', 'deepseek-ai/DeepSeek-V4-Pro'),
-  supportedProvider('kimi-coding', 'Kimi Coding', 'kimi-for-coding'),
+  supportedProvider('kimi-coding', 'Kimi Coding', 'k3-256k'),
   supportedProvider('qwen-token-plan', 'Qwen Token Plan', 'qwen3.8-max'),
   supportedProvider('qwen-token-plan-cn', 'Qwen Token Plan CN', 'qwen3.8-max'),
   supportedProvider('qwen-token-plan-individual', 'Qwen Token Plan Individual', 'qwen3.8-max'),
   supportedProvider('minimax', 'MiniMax', 'MiniMax-M3'),
   supportedProvider('minimax-cn', 'MiniMax CN', 'MiniMax-M3'),
-  supportedProvider('moonshotai', 'Moonshot AI', 'kimi-k2.7-code'),
-  supportedProvider('moonshotai-cn', 'Moonshot AI CN', 'kimi-k2.7-code'),
+  supportedProvider('moonshotai', 'Moonshot AI', 'kimi-k3'),
+  supportedProvider('moonshotai-cn', 'Moonshot AI CN', 'kimi-k3'),
   supportedProvider('xiaomi', 'Xiaomi', 'mimo-v2.5-pro'),
   supportedProvider('xiaomi-token-plan-cn', 'Xiaomi Token Plan CN', 'mimo-v2.5-pro'),
   supportedProvider('xiaomi-token-plan-ams', 'Xiaomi Token Plan AMS', 'mimo-v2.5-pro'),
