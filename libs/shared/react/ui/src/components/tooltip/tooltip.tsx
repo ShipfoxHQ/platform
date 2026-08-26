@@ -2,9 +2,13 @@
 
 import * as TooltipPrimitive from '@radix-ui/react-tooltip';
 import {cva, type VariantProps} from 'class-variance-authority';
-import {motion, type Transition} from 'framer-motion';
-import type {ComponentProps} from 'react';
+import {type HTMLMotionProps, motion, type Transition, useReducedMotion} from 'framer-motion';
+import {type ComponentProps, createContext, forwardRef, useContext} from 'react';
 import {cn} from '#utils/cn.js';
+
+const defaultDelayDuration = 200;
+const defaultSkipDelayDuration = 300;
+const TooltipProviderContext = createContext(false);
 
 const tooltipContentVariants = cva(
   'rounded-8 px-8 py-4 text-xs font-medium leading-20 z-50 w-fit text-balance shadow-tooltip',
@@ -28,25 +32,30 @@ const tooltipContentVariants = cva(
   },
 );
 
+/** Shares the standard cold-open delay and warm window across descendant tooltips. */
 function TooltipProvider({
-  delayDuration = 0,
+  delayDuration = defaultDelayDuration,
+  skipDelayDuration = defaultSkipDelayDuration,
   ...props
 }: ComponentProps<typeof TooltipPrimitive.Provider>) {
   return (
-    <TooltipPrimitive.Provider
-      data-slot="tooltip-provider"
-      delayDuration={delayDuration}
-      {...props}
-    />
+    <TooltipProviderContext.Provider value={true}>
+      <TooltipPrimitive.Provider
+        data-slot="tooltip-provider"
+        delayDuration={delayDuration}
+        skipDelayDuration={skipDelayDuration}
+        {...props}
+      />
+    </TooltipProviderContext.Provider>
   );
 }
 
+/** Uses the nearest provider, or supplies the standard timing when rendered alone. */
 function Tooltip({...props}: ComponentProps<typeof TooltipPrimitive.Root>) {
-  return (
-    <TooltipProvider>
-      <TooltipPrimitive.Root data-slot="tooltip" {...props} />
-    </TooltipProvider>
-  );
+  const hasProvider = useContext(TooltipProviderContext);
+  const root = <TooltipPrimitive.Root data-slot="tooltip" {...props} />;
+
+  return hasProvider ? root : <TooltipProvider>{root}</TooltipProvider>;
 }
 
 function TooltipTrigger({...props}: ComponentProps<typeof TooltipPrimitive.Trigger>) {
@@ -64,6 +73,30 @@ type TooltipContentProps = ComponentProps<typeof TooltipPrimitive.Content> &
     animated?: boolean;
     transition?: Transition;
   };
+
+type AnimatedTooltipContentProps = Omit<HTMLMotionProps<'div'>, 'transition'> & {
+  'data-state'?: 'closed' | 'delayed-open' | 'instant-open';
+  transition: Transition;
+};
+
+const AnimatedTooltipContent = forwardRef<HTMLDivElement, AnimatedTooltipContentProps>(
+  function AnimatedTooltipContent({'data-state': state, transition, ...props}, ref) {
+    const reducedMotion = useReducedMotion();
+    const shouldAnimate = !reducedMotion && state !== 'instant-open';
+
+    return (
+      <motion.div
+        ref={ref}
+        data-state={state}
+        {...props}
+        initial={shouldAnimate ? {opacity: 0, scale: 0.95} : false}
+        animate={{opacity: 1, scale: 1}}
+        {...(shouldAnimate ? {exit: {opacity: 0, scale: 0.95}} : {})}
+        transition={shouldAnimate ? transition : {duration: 0}}
+      />
+    );
+  },
+);
 
 function TooltipContent({
   className,
@@ -84,15 +117,12 @@ function TooltipContent({
           asChild
           {...props}
         >
-          <motion.div
+          <AnimatedTooltipContent
             className={cn(tooltipContentVariants({variant, size, className}))}
-            initial={{opacity: 0, scale: 0.95}}
-            animate={{opacity: 1, scale: 1}}
-            exit={{opacity: 0, scale: 0.95}}
             transition={transition}
           >
             {children}
-          </motion.div>
+          </AnimatedTooltipContent>
         </TooltipPrimitive.Content>
       </TooltipPrimitive.Portal>
     );

@@ -41,7 +41,7 @@ const meta = {
   },
   args: {
     defaultOpen: false,
-    delayDuration: 0,
+    delayDuration: 200,
     variant: 'default',
     size: 'md',
     side: 'top',
