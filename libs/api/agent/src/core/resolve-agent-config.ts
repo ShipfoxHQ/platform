@@ -129,8 +129,9 @@ function resolveProvider(
   }
 
   const candidates = [
-    ctx.workspaceDefaultProviderId,
+    ctx.managedProvider === undefined ? ctx.workspaceDefaultProviderId : undefined,
     ctx.instanceDefaultProvider,
+    ctx.managedProvider?.id,
     descriptor.defaultProviderId,
   ];
   for (const candidate of candidates) {

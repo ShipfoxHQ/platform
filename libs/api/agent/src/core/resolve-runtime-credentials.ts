@@ -176,10 +176,13 @@ function toResponse(
       }
     | undefined,
 ): AgentRuntimeCredentialsResponseDto {
+  const managedModel = managed?.provider.models.find((candidate) => candidate.id === params.model);
+  const runtimeModel =
+    params.harness === 'claude' ? (managedModel?.claudeModelId ?? params.model) : params.model;
   const response: AgentRuntimeCredentialsResponseDto = {
     harness: params.harness,
     provider_id: params.provider,
-    model: params.model,
+    model: runtimeModel,
     thinking: params.thinking,
     credentials,
   };
@@ -199,8 +202,9 @@ function toResponse(
   }
 
   if (managed !== undefined) {
-    const model = managed.provider.models.find((candidate) => candidate.id === params.model);
-    const modelDescriptor = toCustomAgentModelDto(model ?? {id: params.model, label: params.model});
+    const modelDescriptor = toCustomAgentModelDto(
+      managedModel ?? {id: params.model, label: params.model},
+    );
     const clientApi =
       params.harness === 'claude' ? 'anthropic-messages' : managed.runtimeConfig.api;
 

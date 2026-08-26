@@ -136,6 +136,115 @@ describe('resolveAgentConfig', () => {
     expect(incompatible).toThrow(InvalidAgentModelError);
   });
 
+  test.each([
+    'gpt-5.6-luna',
+    'deepseek-v4-flash-0731',
+  ])('resolves explicit managed model %s without an explicit provider', (model) => {
+    const resolved = resolveAgentConfig(
+      {harness: 'pi', model, thinking: 'max'},
+      {
+        workspaceDefaultProviderId: 'anthropic',
+        managedProvider: managedProvider(),
+      },
+    );
+
+    expect(resolved).toEqual({
+      harness: 'pi',
+      provider: 'shipfox',
+      model,
+      thinking: 'max',
+    });
+  });
+
+  test('prefers the managed provider when the workspace default serves the same model id', () => {
+    const resolved = resolveAgentConfig(
+      {harness: 'pi', model: 'claude-opus-5'},
+      {
+        workspaceDefaultProviderId: 'anthropic',
+        managedProvider: managedProvider(),
+      },
+    );
+
+    expect(resolved.provider).toBe('shipfox');
+    expect(resolved.model).toBe('claude-opus-5');
+  });
+
+  test('ignores the workspace default provider when a managed provider exists', () => {
+    const resolved = resolveAgentConfig(
+      {},
+      {
+        workspaceDefaultProviderId: 'openai',
+        managedProvider: managedProvider(),
+      },
+    );
+
+    expect(resolved.provider).toBe('shipfox');
+    expect(resolved.model).toBe('responses-model');
+  });
+
+  test('keeps the instance default provider when a managed provider exists', () => {
+    const resolved = resolveAgentConfig(
+      {},
+      {
+        workspaceDefaultProviderId: 'anthropic',
+        instanceDefaultProvider: 'openai',
+        instanceDefaultModel: 'gpt-5.5-pro',
+        managedProvider: managedProvider(),
+      },
+    );
+
+    expect(resolved.provider).toBe('openai');
+    expect(resolved.model).toBe('gpt-5.5-pro');
+  });
+
+  test('falls back by harness without restoring the workspace default provider', () => {
+    const resolved = resolveAgentConfig(
+      {harness: 'claude'},
+      {
+        workspaceDefaultProviderId: 'openai',
+        managedProvider: {
+          ...managedProvider(),
+          models: [
+            {
+              id: 'responses-model',
+              label: 'Responses model',
+              api: 'openai-responses' as const,
+            },
+          ],
+        },
+      },
+    );
+
+    expect(resolved.provider).toBe('anthropic');
+    expect(resolved.model).toBe('claude-opus-5');
+  });
+
+  test('does not infer a workspace provider from an explicit workspace-only model', () => {
+    const resolve = () =>
+      resolveAgentConfig(
+        {model: 'gpt-5.5-pro'},
+        {
+          workspaceDefaultProviderId: 'openai',
+          managedProvider: managedProvider(),
+        },
+      );
+
+    expect(resolve).toThrow(InvalidAgentModelError);
+  });
+
+  test('keeps an explicit workspace provider when a managed provider exists', () => {
+    const resolved = resolveAgentConfig(
+      {provider: 'openai', model: 'gpt-5.5-pro'},
+      {
+        workspaceDefaultProviderId: 'anthropic',
+        managedProvider: managedProvider(),
+      },
+    );
+
+    expect(resolved.provider).toBe('openai');
+    expect(resolved.model).toBe('gpt-5.5-pro');
+  });
+
   test('instance model and thinking overrides win over managed provider defaults', () => {
     const resolved = resolveAgentConfig(
       {provider: 'shipfox'},
@@ -521,6 +630,13 @@ function managedProvider() {
       {id: 'claude-model', label: 'Claude model', api: 'anthropic-messages' as const},
       {id: 'responses-model', label: 'Responses model', api: 'openai-responses' as const},
       {id: 'completion-model', label: 'Completions model', api: 'openai-completions' as const},
+      {id: 'gpt-5.6-luna', label: 'GPT-5.6 Luna', api: 'openai-responses' as const},
+      {
+        id: 'deepseek-v4-flash-0731',
+        label: 'DeepSeek V4 Flash (0731)',
+        api: 'openai-responses' as const,
+      },
+      {id: 'claude-opus-5', label: 'Claude Opus 5', api: 'anthropic-messages' as const},
     ],
     defaultModel: 'responses-model',
     defaultThinking: 'low' as const,

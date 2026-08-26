@@ -154,13 +154,11 @@ interface ClaudeThinkingOptions {
   readonly effort?: EffortLevel;
 }
 
-// Dated snapshot IDs (claude-haiku-4-5-20251001) resolve to their family row,
-// and dotted managed-catalog IDs (claude-haiku-4.5, claude-opus-4.8) resolve
-// to their dashed family row (claude-haiku-4-5, claude-opus-4-8).
+// Dated snapshot IDs (claude-haiku-4-5-20251001) resolve to their family row.
 const MODEL_SNAPSHOT_DATE_SUFFIX = /-\d{8}$/;
 
 function claudeModelCapabilities(model: string): ClaudeModelCapabilities | undefined {
-  const familyId = model.replace(MODEL_SNAPSHOT_DATE_SUFFIX, '').replaceAll('.', '-');
+  const familyId = model.replace(MODEL_SNAPSHOT_DATE_SUFFIX, '');
   return CLAUDE_MODEL_CAPABILITIES[familyId];
 }
 
