@@ -17,7 +17,7 @@ const providers: CatalogProvider[] = [
     aliases: ['git'],
     icon: 'github',
     overviewHref: '/integrations/github',
-    eventCount: 12,
+    eventCount: 52,
     toolCount: 21,
   },
   {

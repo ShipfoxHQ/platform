@@ -12,7 +12,7 @@ const providers = [
     icon: 'github',
     overviewHref: '/integrations/github',
     setupHref: '/integrations/github/setup',
-    eventCount: 12,
+    eventCount: 52,
     toolCount: 24,
   },
   {
