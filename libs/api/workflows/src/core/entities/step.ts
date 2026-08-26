@@ -81,6 +81,11 @@ export interface StepConfigDispatchPlan {
     provider?: ResolvedField;
     harness?: Harness;
     thinking?: ResolvedField;
+    // The session key template deferred to the dispatch site (same roots as the
+    // prompt) plus the step's authored mode. Completed into the step config as
+    // `session: {key, mode}` before the dispatch-time claim replaces it with
+    // the resolved session descriptor.
+    session?: {key: ResolvedField; mode: 'resume' | 'fork'};
     tools?: readonly string[];
     integrations?: readonly MaterializedAgentIntegrationConfigDto[];
     mcpServers?: readonly AgentIntegrationMcpServerConfigDto[];

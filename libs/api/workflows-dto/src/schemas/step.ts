@@ -20,6 +20,12 @@ export type StepStatusReasonDto = z.infer<typeof stepStatusReasonSchema>;
 // `agent_harness_unavailable` means the runner could not start its harness, so the model
 // was never called. The latter carries no `agent_config_issue`, because every issue code
 // names a user-fixable cause. (Aborts are never reported: the step loop stops before reporting.)
+// The `agent_session_*` values are produced server-side at dispatch when claiming a
+// named agent session fails: the interpolated key violates the key grammar
+// (`agent_session_key_invalid`), a `resume` claim conflicts with a live attempt
+// (`agent_session_held`), the resolved harness differs from the session's pinned harness
+// (`agent_session_harness_mismatch`), or the session transcript cannot be served
+// (`agent_session_unavailable`). They never carry an `agent_config_issue`.
 export const stepErrorReasonSchema = z.enum([
   'checkout_failed',
   'checkout_auth_failed',
@@ -34,9 +40,28 @@ export const stepErrorReasonSchema = z.enum([
   'agent_config_invalid',
   'agent_invocation_failed',
   'agent_harness_unavailable',
+  'agent_session_key_invalid',
+  'agent_session_held',
+  'agent_session_harness_mismatch',
+  'agent_session_unavailable',
 ]);
 
 export type StepErrorReasonDto = z.infer<typeof stepErrorReasonSchema>;
+
+/**
+ * Resolved session identity embedded in the dispatch payload of an agent step
+ * that names a session: which registry row the step runs against, in which
+ * mode, and which head segment it loads (0 = fresh session). Absent (null) on
+ * steps without a session and on a `fork` of a session that does not exist yet.
+ */
+export const agentStepSessionDescriptorSchema = z.object({
+  id: z.string().uuid(),
+  key: z.string().min(1),
+  mode: z.enum(['resume', 'fork']),
+  segment: z.number().int().nonnegative(),
+});
+
+export type AgentStepSessionDescriptorDto = z.infer<typeof agentStepSessionDescriptorSchema>;
 
 export const agentConfigIssueSchema = z.enum([
   'step_config_invalid',
@@ -104,6 +129,10 @@ export const stepDtoSchema = z.object({
   config: z.record(z.string(), z.unknown()),
   evaluation_trace: evaluationTraceSchema.nullable(),
   error: stepErrorDtoSchema,
+  // Session descriptor for agent steps that name a session (see
+  // agentStepSessionDescriptorSchema). Null when the step has no session or
+  // the session does not exist and the step forks it.
+  session: agentStepSessionDescriptorSchema.nullable(),
   position: z.number(),
   // Execution-attempt identity of the current projection (>1 after a restart).
   current_attempt: z.number().int(),

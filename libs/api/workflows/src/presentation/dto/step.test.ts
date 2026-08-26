@@ -243,6 +243,49 @@ describe('toStepDto error category', () => {
 
     expect(dto.source_location).toBeNull();
   });
+
+  it('surfaces the resolved session descriptor from the dispatch config', () => {
+    const dto = toStepDto(
+      step({
+        type: 'agent',
+        error: null,
+        config: {
+          prompt: 'Plan.',
+          session: {
+            id: '00000000-0000-4000-8000-000000000001',
+            key: 'main',
+            mode: 'resume',
+            segment: 2,
+          },
+        },
+      }),
+    );
+
+    expect(dto.session).toEqual({
+      id: '00000000-0000-4000-8000-000000000001',
+      key: 'main',
+      mode: 'resume',
+      segment: 2,
+    });
+  });
+
+  it('surfaces null when the config carries no session descriptor', () => {
+    const dto = toStepDto(step({type: 'agent', error: null, config: {prompt: 'Plan.'}}));
+
+    expect(dto.session).toBeNull();
+  });
+
+  it('surfaces null for an authored session intent that never resolved to a descriptor', () => {
+    const dto = toStepDto(
+      step({
+        type: 'agent',
+        error: null,
+        config: {prompt: 'Plan.', session: {key: 'main', mode: 'resume'}},
+      }),
+    );
+
+    expect(dto.session).toBeNull();
+  });
 });
 
 const baseAttempt: StepAttempt = {

@@ -45,6 +45,7 @@ const interpolationFieldSchema = z.enum([
   'agent.model',
   'agent.provider',
   'agent.thinking',
+  'agent.session',
   'job.runner',
   'job.outputs',
   'job.execution_name',

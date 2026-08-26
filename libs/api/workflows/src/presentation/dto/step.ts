@@ -1,5 +1,6 @@
 import {
   agentConfigIssueSchema,
+  agentStepSessionDescriptorSchema,
   type StepAttemptDetailResponseDto,
   type StepAttemptDto,
   type StepDto,
@@ -109,6 +110,7 @@ function toStepGateResultDto(
 }
 
 export function toStepDto(step: Step): StepDto {
+  const session = agentStepSessionDescriptorSchema.safeParse(step.config.session);
   return {
     id: step.id,
     job_execution_id: step.jobExecutionId,
@@ -124,6 +126,7 @@ export function toStepDto(step: Step): StepDto {
       step.error,
       step.type === 'setup' || step.type === 'checkout' ? 'setup' : 'user',
     ),
+    session: session.success ? session.data : null,
     position: step.position,
     current_attempt: step.currentAttempt,
     created_at: step.createdAt.toISOString(),

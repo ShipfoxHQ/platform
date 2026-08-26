@@ -40,6 +40,7 @@ interface TestAgentStep extends TestWorkflowStepBase {
   readonly thinking?: AgentThinking | undefined;
   readonly tools?: readonly string[] | undefined;
   readonly integrations?: Extract<ModelStep, {kind: 'agent'}>['integrations'] | undefined;
+  readonly session?: string | {key: string; mode?: 'resume' | 'fork'} | undefined;
 }
 
 interface TestCheckoutStep extends TestWorkflowStepBase {
@@ -178,6 +179,7 @@ function normalizeStep(step: TestWorkflowStep, jobId: string, stepIndex: number)
       ...(step.thinking === undefined ? {} : {thinking: step.thinking}),
       ...(step.tools === undefined ? {} : {tools: step.tools}),
       ...(step.integrations === undefined ? {} : {integrations: step.integrations}),
+      ...(step.session === undefined ? {} : {session: testAgentStepSession(step.session)}),
       prompt: step.prompt,
       ...optionalAgentTemplates(step),
     };
@@ -199,6 +201,17 @@ function normalizeStep(step: TestWorkflowStep, jobId: string, stepIndex: number)
     ...base,
     kind: 'checkout',
     checkout: step.checkout,
+  };
+}
+
+function testAgentStepSession(
+  session: NonNullable<TestAgentStep['session']>,
+): NonNullable<Extract<ModelStep, {kind: 'agent'}>['session']> {
+  const keySource = typeof session === 'string' ? session : session.key;
+  const mode = typeof session === 'string' ? 'resume' : (session.mode ?? 'resume');
+  return {
+    key: fieldTemplate('agent.session', keySource) ?? [{kind: 'literal', value: keySource}],
+    mode,
   };
 }
 

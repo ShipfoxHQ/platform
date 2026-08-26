@@ -317,16 +317,18 @@ export async function dispatchStepWithCompletedConfig(
   const row = rows[0];
   if (!row) return null;
   const step = toStep(row);
-  await insertRunningStepAttempt(
-    {
-      jobExecutionId: step.jobExecutionId,
-      stepId: step.id,
-      attempt: step.currentAttempt,
+  // The running attempt row was already opened before the dispatch-time session
+  // claim (dispatch needs its id to claim); record the final config -- which
+  // carries the resolved session descriptor -- on that row. The attempt guard
+  // mirrors the insert's idempotency anchor: a duplicate dispatch updates the
+  // same (step_id, attempt) row instead of opening a second one.
+  await tx
+    .update(stepAttempts)
+    .set({
       config: params.config,
-      evaluationTrace: params.evaluationTrace,
-    },
-    tx,
-  );
+      evaluationTrace: params.evaluationTrace ?? null,
+    })
+    .where(and(eq(stepAttempts.stepId, step.id), eq(stepAttempts.attempt, step.currentAttempt)));
   return step;
 }
 
@@ -398,10 +400,17 @@ export interface InsertRunningStepAttemptParams {
   evaluationTrace?: readonly PersistedEvaluationTraceEntry[] | null;
 }
 
+/**
+ * Opens the running attempt row for a dispatch. Returns the attempt row id when
+ * the row was inserted (the normal dispatch path), or undefined when a racing
+ * or legacy dispatch already created the `(step_id, attempt)` row. The id is
+ * the identity stamped on agent session claims, so dispatch inserts the row
+ * before claiming and hands the returned id to `claimSession`.
+ */
 export async function insertRunningStepAttempt(
   params: InsertRunningStepAttemptParams,
   tx: Tx,
-): Promise<void> {
+): Promise<string | undefined> {
   const [{nextExecutionOrder} = {nextExecutionOrder: 1}] = await tx
     .select({
       nextExecutionOrder: sql<number>`coalesce(max(${stepAttempts.executionOrder}), 0) + 1`,
@@ -409,7 +418,7 @@ export async function insertRunningStepAttempt(
     .from(stepAttempts)
     .where(eq(stepAttempts.jobExecutionId, params.jobExecutionId));
 
-  await tx
+  const rows = await tx
     .insert(stepAttempts)
     .values({
       jobExecutionId: params.jobExecutionId,
@@ -420,7 +429,10 @@ export async function insertRunningStepAttempt(
       config: params.config ?? null,
       evaluationTrace: params.evaluationTrace ?? null,
     })
-    .onConflictDoNothing({target: [stepAttempts.stepId, stepAttempts.attempt]});
+    .onConflictDoNothing({target: [stepAttempts.stepId, stepAttempts.attempt]})
+    .returning({id: stepAttempts.id});
+
+  return rows[0]?.id;
 }
 
 export interface FinishStepAttemptParams {

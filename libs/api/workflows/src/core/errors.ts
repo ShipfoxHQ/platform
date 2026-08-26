@@ -63,6 +63,30 @@ export class AgentConfigUnresolvableError extends Error {
   }
 }
 
+/** The step error reason a failed session claim maps to (see the `agent_session_*` family). */
+export type AgentStepSessionClaimReason =
+  | 'agent_session_key_invalid'
+  | 'agent_session_held'
+  | 'agent_session_harness_mismatch'
+  | 'agent_session_unavailable';
+
+/**
+ * A named agent session could not be claimed at step dispatch: the resolved key
+ * violates the key grammar, a `resume` claim conflicted with a live attempt,
+ * the resolved harness differs from the session's pinned harness, or the session
+ * registry was unavailable. Fails the attempt deterministically through the
+ * config-evaluation-failure path; none of the reasons are retried transparently.
+ */
+export class AgentStepSessionClaimError extends Error {
+  constructor(
+    readonly reason: AgentStepSessionClaimReason,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'AgentStepSessionClaimError';
+  }
+}
+
 export class AgentIntegrationMaterializationError extends Error {
   constructor(message: string) {
     super(message);
@@ -77,6 +101,7 @@ export type InterpolationUnresolvableField =
   | 'agent.model'
   | 'agent.provider'
   | 'agent.thinking'
+  | 'agent.session'
   | 'job.runner'
   | 'job.outputs'
   | 'job.execution_name'

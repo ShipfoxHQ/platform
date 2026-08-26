@@ -25,6 +25,15 @@ function plannedField(source: string) {
   return plan.plan.field;
 }
 
+function plannedSessionField(source: string) {
+  const plan = planInterpolationField({
+    field: 'agent.session',
+    segments: parseWorkflowTemplate(source),
+  });
+  if (!plan.ok) throw new Error('Expected session field plan to be valid');
+  return plan.plan.field;
+}
+
 function template(source: string): string {
   return '$'.concat('{{ ', source, ' }}');
 }
@@ -114,6 +123,69 @@ function integrationMcpServers(
 }
 
 describe('completeStepDispatchConfig', () => {
+  it('completes a deferred session key at the dispatch site with the authored mode', async () => {
+    const pending = step({
+      type: 'agent',
+      config: {
+        harness: 'pi',
+        provider: 'anthropic',
+        model: 'claude-opus-4-8',
+        thinking: 'high',
+      },
+      configPlan: {
+        agent: {
+          prompt: plannedField(template('steps.build.outputs.sha')),
+          session: {
+            key: plannedSessionField(`triage-${template('steps.build.outputs.sha')}`),
+            mode: 'fork',
+          },
+        },
+      },
+    });
+
+    const result = await completeStepDispatchConfig({
+      step: pending,
+      context,
+      resolveAgentDefaults,
+      definitionId: 'def-1',
+    });
+
+    expect(result.config.session).toEqual({key: 'triage-abc123', mode: 'fork'});
+    expect(result.trace).toEqual(
+      expect.arrayContaining([expect.objectContaining({field: 'agent.session'})]),
+    );
+  });
+
+  it('fails the dispatch config when the session key template cannot resolve', async () => {
+    const pending = step({
+      type: 'agent',
+      config: {
+        harness: 'pi',
+        provider: 'anthropic',
+        model: 'claude-opus-4-8',
+        thinking: 'high',
+      },
+      configPlan: {
+        agent: {
+          prompt: plannedField(template('steps.build.outputs.sha')),
+          session: {
+            key: plannedSessionField(template('steps.build.outputs.missing')),
+            mode: 'resume',
+          },
+        },
+      },
+    });
+
+    await expect(
+      completeStepDispatchConfig({
+        step: pending,
+        context,
+        resolveAgentDefaults,
+        definitionId: 'def-1',
+      }),
+    ).rejects.toBeInstanceOf(InterpolationUnresolvableError);
+  });
+
   it('copies frozen agent integrations from the dispatch plan', async () => {
     const integrations = [materializedIntegration()];
     const pending = step({

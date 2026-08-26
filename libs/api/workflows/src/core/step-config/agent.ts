@@ -43,6 +43,7 @@ interface AgentFieldResolutions {
   readonly model: FieldResolution | undefined;
   readonly provider: FieldResolution | undefined;
   readonly thinking: FieldResolution | undefined;
+  readonly session: {readonly key: FieldResolution; readonly mode: 'resume' | 'fork'} | undefined;
   readonly hasTemplates: boolean;
 }
 
@@ -76,7 +77,8 @@ export async function resolveAgentStepConfig(
   const hasDeferredAgentField =
     fields.model?.kind === 'residual' ||
     fields.provider?.kind === 'residual' ||
-    fields.thinking?.kind === 'residual';
+    fields.thinking?.kind === 'residual' ||
+    fields.session?.key.kind === 'residual';
   if (hasDeferredAgentField) return deferredAgentStepConfig(params, fields);
 
   return await agentStepConfigWithDefaults(params.step, params, fields);
@@ -134,6 +136,16 @@ export async function completeAgentConfig(params: {
   params.config.model = defaults.model;
   params.config.thinking = defaults.thinking;
   params.config.prompt = prompt;
+  if (agent.session !== undefined) {
+    params.config.session = {
+      key: completeAgentField({
+        field: 'agent.session',
+        template: agent.session.key,
+        params,
+      }),
+      mode: agent.session.mode,
+    };
+  }
   if (agent.tools !== undefined) params.config.tools = [...agent.tools];
   const integrations = agent.integrations === undefined ? undefined : [...agent.integrations];
   if (integrations !== undefined) params.config.integrations = integrations;
@@ -144,7 +156,12 @@ export async function completeAgentConfig(params: {
 }
 
 function completeAgentField(args: {
-  readonly field: 'agent.prompt' | 'agent.model' | 'agent.provider' | 'agent.thinking';
+  readonly field:
+    | 'agent.prompt'
+    | 'agent.model'
+    | 'agent.provider'
+    | 'agent.thinking'
+    | 'agent.session';
   readonly template: ResolvedField;
   readonly params: {
     readonly context: WorkflowEvaluationContext;
@@ -211,6 +228,22 @@ function resolveAgentFields(params: ResolveAgentStepConfigParams): AgentFieldRes
     trace,
     definitionId: params.definitionId,
   });
+  const session =
+    params.step.session === undefined
+      ? undefined
+      : {
+          key: resolveAgentField({
+            field: 'agent.session',
+            value: sessionKeySource(params.step.session.key),
+            template: params.step.session.key,
+            context: params.context,
+            mode: params.mode,
+            diagnostics,
+            trace,
+            definitionId: params.definitionId,
+          }),
+          mode: params.step.session.mode,
+        };
   const model = resolveOptionalAgentField({
     field: 'agent.model',
     value: params.step.model,
@@ -245,9 +278,10 @@ function resolveAgentFields(params: ResolveAgentStepConfigParams): AgentFieldRes
     params.step.templates?.prompt !== undefined ||
     params.step.templates?.model !== undefined ||
     params.step.templates?.provider !== undefined ||
-    params.step.templates?.thinking !== undefined;
+    params.step.templates?.thinking !== undefined ||
+    params.step.session !== undefined;
 
-  return {diagnostics, trace, prompt, model, provider, thinking, hasTemplates};
+  return {diagnostics, trace, prompt, model, provider, thinking, session, hasTemplates};
 }
 
 function authoredAgentStepConfig(
@@ -260,6 +294,7 @@ function authoredAgentStepConfig(
       ...(step.model === undefined ? {} : {model: step.model}),
       ...(step.harness === undefined ? {} : {harness: step.harness}),
       ...(step.thinking === undefined ? {} : {thinking: step.thinking}),
+      ...(step.session === undefined ? {} : {session: authoredSession(step.session)}),
       ...agentToolsConfig(step),
       ...authoredAgentIntegrationsConfig(step),
       prompt: step.prompt,
@@ -285,6 +320,9 @@ function deferredAgentStepConfig(
         ...(fields.provider === undefined ? {} : {provider: dispatchPlanField(fields.provider)}),
         ...(step.harness === undefined ? {} : {harness: step.harness}),
         ...(fields.thinking === undefined ? {} : {thinking: dispatchPlanField(fields.thinking)}),
+        ...(fields.session === undefined
+          ? {}
+          : {session: {key: dispatchPlanField(fields.session.key), mode: fields.session.mode}}),
         ...agentToolsConfig(step),
         ...materializedAgentIntegrationsConfig(params),
       },
@@ -319,6 +357,9 @@ async function agentStepConfigWithDefaults(
         model: resolved.model,
         harness: resolved.harness,
         thinking: resolved.thinking,
+        ...(fields.session === undefined
+          ? {}
+          : {session: {key: frozenFieldValue(fields.session.key), mode: fields.session.mode}}),
       },
       configPlan: {
         agent: {
@@ -340,6 +381,9 @@ async function agentStepConfigWithDefaults(
       model: resolved.model,
       harness: resolved.harness,
       thinking: resolved.thinking,
+      ...(fields.session === undefined
+        ? {}
+        : {session: {key: frozenFieldValue(fields.session.key), mode: fields.session.mode}}),
       ...agentToolsConfig(step),
       ...materializedAgentIntegrationsConfig(params),
       prompt: promptValue,
@@ -408,7 +452,12 @@ function frozenFieldValue(field: FieldResolution | undefined): string | undefine
 }
 
 function resolveAgentField(params: {
-  readonly field: 'agent.prompt' | 'agent.model' | 'agent.provider' | 'agent.thinking';
+  readonly field:
+    | 'agent.prompt'
+    | 'agent.model'
+    | 'agent.provider'
+    | 'agent.thinking'
+    | 'agent.session';
   readonly value: string;
   readonly template: ResolvedField['segments'] | undefined;
   readonly context: WorkflowEvaluationContext;
@@ -438,7 +487,12 @@ function resolveAgentField(params: {
 }
 
 function resolveOptionalAgentField(params: {
-  readonly field: 'agent.prompt' | 'agent.model' | 'agent.provider' | 'agent.thinking';
+  readonly field:
+    | 'agent.prompt'
+    | 'agent.model'
+    | 'agent.provider'
+    | 'agent.thinking'
+    | 'agent.session';
   readonly value: string | undefined;
   readonly template: ResolvedField['segments'] | undefined;
   readonly context: WorkflowEvaluationContext;
@@ -455,6 +509,26 @@ function resolveOptionalAgentField(params: {
 function fieldResolution(resolved: SiteResolvedField): FieldResolution {
   if (resolved.kind === 'residual') return {kind: 'residual', field: resolved.field};
   return {kind: 'frozen', value: resolved.value};
+}
+
+/**
+ * The authored source of a session key template, for the authored config
+ * snapshot: literal segments verbatim, deferred segments wrapped in their
+ * `${{ }}` syntax.
+ */
+function sessionKeySource(key: NonNullable<WorkflowModelAgentStep['session']>['key']): string {
+  return key
+    .map((segment) =>
+      segment.kind === 'literal' ? segment.value : '${{ ' + segment.expression.source + ' }}',
+    )
+    .join('');
+}
+
+function authoredSession(session: NonNullable<WorkflowModelAgentStep['session']>): {
+  key: string;
+  mode: 'resume' | 'fork';
+} {
+  return {key: sessionKeySource(session.key), mode: session.mode};
 }
 
 function readConfigString(config: Record<string, unknown>, key: string): string | undefined {

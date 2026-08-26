@@ -1,7 +1,9 @@
 import {
+  agentStepSessionDescriptorSchema,
   STEP_ERROR_MESSAGE_MAX_LENGTH,
   STEP_STATUS_REASONS,
   stepAttemptDtoSchema,
+  stepDtoSchema,
   stepErrorDtoSchema,
   stepStatusReasonSchema,
 } from './step.js';
@@ -129,6 +131,103 @@ describe('stepErrorDtoSchema', () => {
       message: 'Pi extension setup failed: Unknown option: --mcp-config',
       reason: 'agent_harness_unavailable',
     });
+  });
+
+  it.each([
+    'agent_session_key_invalid',
+    'agent_session_held',
+    'agent_session_harness_mismatch',
+    'agent_session_unavailable',
+  ] as const)('accepts the dispatch-time session failure reason %s', (reason) => {
+    const result = stepErrorDtoSchema.parse({
+      message: 'Agent session could not be claimed.',
+      reason,
+    });
+
+    expect(result).toEqual({
+      message: 'Agent session could not be claimed.',
+      reason,
+    });
+  });
+
+  it.each([
+    'agent_session_key_invalid',
+    'agent_session_held',
+    'agent_session_harness_mismatch',
+    'agent_session_unavailable',
+  ] as const)('rejects an agent config issue on the session failure reason %s', (reason) => {
+    const result = stepErrorDtoSchema.safeParse({
+      message: 'Agent session could not be claimed.',
+      reason,
+      agent_config_issue: 'step_config_invalid',
+    });
+
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('agentStepSessionDescriptorSchema', () => {
+  it('accepts a resolved resume descriptor', () => {
+    const result = agentStepSessionDescriptorSchema.parse({
+      id: '11111111-1111-4111-8111-111111111111',
+      key: 'main',
+      mode: 'resume',
+      segment: 3,
+    });
+
+    expect(result).toEqual({id: expect.any(String), key: 'main', mode: 'resume', segment: 3});
+  });
+
+  it('rejects a non-uuid id', () => {
+    const result = agentStepSessionDescriptorSchema.safeParse({
+      id: 'not-a-uuid',
+      key: 'main',
+      mode: 'resume',
+      segment: 0,
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects an empty key and a negative segment', () => {
+    const emptyKey = agentStepSessionDescriptorSchema.safeParse({
+      id: '11111111-1111-4111-8111-111111111111',
+      key: '',
+      mode: 'resume',
+      segment: 0,
+    });
+    const negativeSegment = agentStepSessionDescriptorSchema.safeParse({
+      id: '11111111-1111-4111-8111-111111111111',
+      key: 'main',
+      mode: 'resume',
+      segment: -1,
+    });
+
+    expect(emptyKey.success).toBe(false);
+    expect(negativeSegment.success).toBe(false);
+  });
+
+  it('carries a null session on the step DTO when the step has no session', () => {
+    const result = stepDtoSchema.parse({
+      id: '11111111-1111-4111-8111-111111111111',
+      job_execution_id: '33333333-3333-4333-8333-333333333333',
+      key: null,
+      name: 'Plan',
+      status: 'pending',
+      status_reason: null,
+      type: 'agent',
+      config: {prompt: 'Plan the work.'},
+      evaluation_trace: null,
+      error: null,
+      source_location: null,
+      session: null,
+      position: 1,
+      current_attempt: 1,
+      created_at: '2026-01-01T00:00:00.000Z',
+      updated_at: '2026-01-01T00:00:00.000Z',
+    });
+
+    expect(result.session).toBeNull();
   });
 });
 

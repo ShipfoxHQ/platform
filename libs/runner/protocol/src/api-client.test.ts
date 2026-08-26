@@ -307,6 +307,7 @@ describe('api-client auth contexts', () => {
       config: {run: 'echo ok'},
       evaluation_trace: null,
       error: null,
+      session: null,
       position: 1,
       current_attempt: 2,
       created_at: '2026-01-01T00:00:00.000Z',

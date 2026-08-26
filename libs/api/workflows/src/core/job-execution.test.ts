@@ -16,13 +16,22 @@ import {
 } from '@shipfox/expression';
 import {createInterModuleKnownError} from '@shipfox/inter-module';
 import {and, eq, sql} from 'drizzle-orm';
-import {db} from '#db/db.js';
+import {db, withTransaction} from '#db/db.js';
 import {workflowsOutbox} from '#db/schema/outbox.js';
 import {stepAttempts as stepAttemptsTable} from '#db/schema/step-attempts.js';
 import {steps as stepsTable} from '#db/schema/steps.js';
-import {getStepAttempts, getStepsByJobId} from '#db/workflow-runs.js';
+import {
+  createWorkflowRun,
+  getJobsByWorkflowRunId,
+  getStepAttempts,
+  getStepsByJobId,
+  getWorkflowContextForJob,
+} from '#db/workflow-runs.js';
+import {agentTestClient, resolveTestAgentDefaults} from '#test/fixtures/agent-inter-module.js';
 import {arrangeJobWithSteps} from '#test/fixtures/job-with-steps.js';
+import {stripSetupStep} from '#test/fixtures/strip-setup-step.js';
 import {bulkUpdateJobStepStatuses} from '#test/helpers/workflow-runs.js';
+import {workflowModel} from '#test/index.js';
 import type {Step} from './entities/step.js';
 import {
   JobNotFoundError,
@@ -52,6 +61,49 @@ function plannedField(field: 'run' | 'step.feedback', source: string) {
   const plan = planInterpolationField({field, segments: parseWorkflowTemplate(source)});
   if (!plan.ok) throw new Error('Expected test template to plan');
   return plan.plan.field;
+}
+
+async function arrangeJobWithAgentStep(step: {
+  readonly prompt: string;
+  readonly session?: string | {key: string; mode?: 'resume' | 'fork'} | undefined;
+}): Promise<{jobId: string; steps: Step[]}> {
+  const model = workflowModel({
+    name: 'Test Workflow',
+    jobs: {
+      build: {
+        steps: [
+          {
+            prompt: step.prompt,
+            ...(step.session === undefined ? {} : {session: step.session}),
+          },
+        ],
+      },
+    },
+  });
+  const run = await createWorkflowRun({
+    workspaceId: crypto.randomUUID(),
+    projectId: crypto.randomUUID(),
+    definitionId: crypto.randomUUID(),
+    model,
+    triggerPayload: {
+      source: 'manual',
+      event: 'fire',
+      subscriptionId: crypto.randomUUID(),
+      userId: crypto.randomUUID(),
+    },
+    resolveAgentDefaults: resolveTestAgentDefaults,
+  });
+  const jobs = await getJobsByWorkflowRunId(run.id);
+  const jobId = jobs[0]?.id as string;
+
+  await stripSetupStep(jobId);
+
+  const steps = await getStepsByJobId(jobId);
+  return {jobId, steps};
+}
+
+function workflowContextForJob(jobId: string) {
+  return withTransaction((tx) => getWorkflowContextForJob(jobId, tx));
 }
 
 async function jobStepsSettledEvents(jobId: string): Promise<Array<{status: string}>> {
@@ -530,6 +582,199 @@ describe('nextStepForJob', () => {
           field: 'step.default_gate',
         },
       ],
+    });
+  });
+});
+
+describe('nextStepForJob session claims', () => {
+  test('claims the named session at dispatch and embeds the descriptor in the dispatch config', async () => {
+    const {jobId, steps} = await arrangeJobWithAgentStep({
+      prompt: 'Plan the work.',
+      session: 'main',
+    });
+    const step = steps[0];
+    if (!step) throw new Error('Expected arranged step');
+    const sessionId = crypto.randomUUID();
+    const claimSession = vi.mocked(agentTestClient.claimSession);
+    claimSession.mockResolvedValue({
+      descriptor: {id: sessionId, key: 'main', mode: 'resume', segment: 0},
+      harness: 'pi',
+    });
+
+    const next = await nextStepForJob(jobId, agentTestClient);
+
+    expect(next).toEqual({
+      kind: 'step',
+      step: expect.objectContaining({
+        id: step.id,
+        config: expect.objectContaining({
+          session: {id: sessionId, key: 'main', mode: 'resume', segment: 0},
+        }),
+      }),
+      dispatched: true,
+    });
+    const context = await workflowContextForJob(jobId);
+    expect(claimSession).toHaveBeenCalledWith({
+      workspaceId: context.workspaceId,
+      projectId: context.projectId,
+      workflowRunAttemptId: context.workflowRunAttemptId,
+      key: 'main',
+      harness: 'pi',
+      stepAttemptId: expect.any(String),
+      mode: 'resume',
+    });
+    const attempts = await getStepAttempts(jobId);
+    const attempt = attempts[0];
+    expect(attempt).toMatchObject({
+      status: 'running',
+      config: expect.objectContaining({
+        session: {id: sessionId, key: 'main', mode: 'resume', segment: 0},
+      }),
+    });
+    expect(claimSession.mock.calls[0]?.[0]?.stepAttemptId).toBe(attempt?.id);
+  });
+
+  test('resolves an interpolated session key at the dispatch site before claiming', async () => {
+    const {jobId, steps} = await arrangeJobWithSteps(2);
+    const producer = steps[0];
+    const consumer = steps[1];
+    if (!producer || !consumer) throw new Error('Expected arranged steps');
+    await db().update(stepsTable).set({key: 'build'}).where(eq(stepsTable.id, producer.id));
+    await db()
+      .update(stepsTable)
+      .set({
+        type: 'agent',
+        config: {prompt: 'Draft the plan.'},
+        configPlan: {
+          agent: {
+            prompt: {segments: [{kind: 'literal', value: 'Draft the plan.'}]},
+            session: {
+              key: {
+                segments: [
+                  {kind: 'literal', value: 'triage-'},
+                  {
+                    kind: 'deferred',
+                    expression: createWorkflowExpression({
+                      source: 'steps.build.outputs.issue',
+                      check: {mode: 'syntax'},
+                    }),
+                    roots: ['steps'],
+                    fillTarget: 'step-dispatch',
+                  },
+                ],
+              },
+              mode: 'resume',
+            },
+          },
+        },
+      })
+      .where(eq(stepsTable.id, consumer.id));
+    const claimSession = vi.mocked(agentTestClient.claimSession);
+    claimSession.mockResolvedValue({
+      descriptor: {id: crypto.randomUUID(), key: 'triage-abc123', mode: 'resume', segment: 2},
+      harness: 'pi',
+    });
+    await nextStepForJob(jobId);
+    await recordStepResult({
+      jobId,
+      stepId: producer.id,
+      status: 'succeeded',
+      output: {issue: 'abc123'},
+    });
+
+    const next = await nextStepForJob(jobId, agentTestClient);
+
+    expect(next).toEqual({
+      kind: 'step',
+      step: expect.objectContaining({
+        id: consumer.id,
+        config: expect.objectContaining({
+          session: expect.objectContaining({key: 'triage-abc123', mode: 'resume', segment: 2}),
+        }),
+      }),
+      dispatched: true,
+    });
+    expect(claimSession).toHaveBeenCalledWith(
+      expect.objectContaining({key: 'triage-abc123', mode: 'resume'}),
+    );
+  });
+
+  test('a fork of a nonexistent session dispatches without a descriptor', async () => {
+    const {jobId, steps} = await arrangeJobWithAgentStep({
+      prompt: 'Plan the work.',
+      session: {key: 'main', mode: 'fork'},
+    });
+    const step = steps[0];
+    if (!step) throw new Error('Expected arranged step');
+    const claimSession = vi.mocked(agentTestClient.claimSession);
+    claimSession.mockResolvedValue({descriptor: null, harness: 'pi'});
+
+    const next = await nextStepForJob(jobId, agentTestClient);
+
+    expect(next).toEqual({
+      kind: 'step',
+      step: expect.objectContaining({id: step.id}),
+      dispatched: true,
+    });
+    expect(next.kind === 'step' ? next.step.config.session : 'unexpected').toBeUndefined();
+    expect(claimSession).toHaveBeenCalledWith(expect.objectContaining({mode: 'fork'}));
+    const attempts = await getStepAttempts(jobId);
+    expect(attempts[0]?.config).not.toHaveProperty('session');
+  });
+
+  test.each([
+    {
+      name: 'conflicts with a live attempt',
+      code: 'session-held',
+      reason: 'agent_session_held',
+    },
+    {
+      name: 'violates the key grammar',
+      code: 'session-key-invalid',
+      reason: 'agent_session_key_invalid',
+    },
+    {
+      name: 'mismatches the pinned harness',
+      code: 'session-harness-mismatch',
+      reason: 'agent_session_harness_mismatch',
+    },
+    {
+      name: 'hits an unavailable registry',
+      code: 'session-lock-unavailable',
+      reason: 'agent_session_unavailable',
+    },
+  ] as const)('fails the job through the config-evaluation path when the claim $name', async ({
+    code,
+    reason,
+  }) => {
+    const {jobId, steps} = await arrangeJobWithAgentStep({
+      prompt: 'Plan the work.',
+      session: 'main',
+    });
+    const step = steps[0];
+    if (!step) throw new Error('Expected arranged step');
+    const claimSession = vi.mocked(agentTestClient.claimSession);
+    claimSession.mockRejectedValue(
+      createInterModuleKnownError(agentInterModuleContract.methods.claimSession, code, {}),
+    );
+
+    const next = await nextStepForJob(jobId, agentTestClient);
+
+    expect(next).toEqual({kind: 'done', status: 'failed'});
+    const after = await getStepsByJobId(jobId);
+    expect(after[0]).toMatchObject({
+      status: 'failed',
+      error: {
+        reason,
+        field: 'agent.session',
+        source: 'agent',
+      },
+    });
+    const attempts = await getStepAttempts(jobId);
+    expect(attempts[0]).toMatchObject({
+      status: 'failed',
+      error: expect.objectContaining({reason}),
+      logOutcome: 'abandoned',
     });
   });
 });

@@ -1,10 +1,13 @@
+import {setTimeout as sleep} from 'node:timers/promises';
 import type {AgentInterModuleClient} from '@shipfox/api-agent-dto/inter-module';
-import type {LogOutcomeDto} from '@shipfox/api-workflows-dto';
+import {agentInterModuleContract} from '@shipfox/api-agent-dto/inter-module';
+import type {AgentStepSessionDescriptorDto, LogOutcomeDto} from '@shipfox/api-workflows-dto';
 import {
   coerceStepOutputs,
   evaluatePlannedPredicateAtSite,
   type StepOutputCoercionError,
 } from '@shipfox/expression';
+import {isInterModuleKnownError} from '@shipfox/inter-module';
 import {type Tx, withTransaction} from '#db/db.js';
 import {
   countStepAttempts,
@@ -32,6 +35,7 @@ import type {JobExecution} from './entities/job-execution.js';
 import type {PersistedEvaluationTraceEntry, Step, StepStatusReason} from './entities/step.js';
 import {
   AgentConfigUnresolvableError,
+  AgentStepSessionClaimError,
   InterpolationUnresolvableError,
   JobNotFoundError,
   StepAttemptAheadError,
@@ -75,7 +79,10 @@ export type NextStep =
   | {kind: 'step'; step: Step; dispatched: boolean}
   | {kind: 'done'; status: CompletionStatus};
 
-type DispatchConfigError = InterpolationUnresolvableError | AgentConfigUnresolvableError;
+type DispatchConfigError =
+  | InterpolationUnresolvableError
+  | AgentConfigUnresolvableError
+  | AgentStepSessionClaimError;
 
 interface PendingStepDispatchParams {
   readonly jobExecutionId: string;
@@ -84,6 +91,7 @@ interface PendingStepDispatchParams {
   readonly context: WorkflowEvaluationContext;
   readonly tx: Tx;
   readonly agent?: AgentInterModuleClient | undefined;
+  readonly workflowContext: Awaited<ReturnType<typeof getWorkflowContextForJob>>;
 }
 
 interface ResolvePendingStepParams {
@@ -95,6 +103,7 @@ interface ResolvePendingStepParams {
   readonly vars: Record<string, string> | undefined;
   readonly tx: Tx;
   readonly agent?: AgentInterModuleClient | undefined;
+  readonly workflowContext: Awaited<ReturnType<typeof getWorkflowContextForJob>>;
 }
 
 type StepConditionOutcome =
@@ -141,6 +150,7 @@ async function nextStepForJobExecutionInTransaction(
     attempts,
     jobs,
     vars: workflowContext.vars ?? undefined,
+    workflowContext,
     tx,
     agent,
   });
@@ -153,6 +163,7 @@ async function resolveNextPendingStep({
   attempts,
   jobs,
   vars,
+  workflowContext,
   tx,
   agent,
 }: ResolvePendingStepParams): Promise<NextStep> {
@@ -184,7 +195,15 @@ async function resolveNextPendingStep({
     });
     const condition = evaluateStepCondition({step: pending, context});
     if (condition.kind === 'run') {
-      return dispatchPendingStep({jobExecutionId, pending, jobExecution, context, tx, agent});
+      return dispatchPendingStep({
+        jobExecutionId,
+        pending,
+        jobExecution,
+        context,
+        workflowContext,
+        tx,
+        agent,
+      });
     }
 
     const skipped = await markStepSkipped(
@@ -212,6 +231,13 @@ async function dispatchPendingStep(params: PendingStepDispatchParams): Promise<N
   const hasConfigPlan = params.pending.configPlan !== null;
   if (hasConfigPlan) return dispatchPendingStepWithConfigPlan(params);
 
+  // Agent steps that name a session claim it at dispatch even when their config
+  // is fully frozen (no dispatch plan): route them through the completion path,
+  // which treats a plan-less step as a passthrough and performs the claim.
+  const hasFrozenSession =
+    params.pending.type === 'agent' && params.pending.config.session !== undefined;
+  if (hasFrozenSession) return dispatchPendingStepWithConfigPlan(params);
+
   const marked = await markStepRunning(
     {jobExecutionId: params.jobExecutionId, stepId: params.pending.id},
     params.tx,
@@ -224,6 +250,7 @@ async function dispatchPendingStepWithConfigPlan({
   pending,
   jobExecution,
   context,
+  workflowContext,
   tx,
   agent,
 }: PendingStepDispatchParams): Promise<NextStep> {
@@ -234,16 +261,36 @@ async function dispatchPendingStepWithConfigPlan({
       resolveAgentDefaults: agent ? createAgentDefaultsResolver(agent, null) : undefined,
       definitionId: jobExecution.jobId,
     });
-    const marked = await dispatchStepWithCompletedConfig(
+    // Open the attempt row before the claim: the claim stamps the attempt id,
+    // and the release subscribers resolve claims by that id. The completed
+    // config is recorded on the row first, then refreshed with the resolved
+    // session descriptor once the claim lands.
+    const stepAttemptId = await insertRunningStepAttempt(
       {
         jobExecutionId,
         stepId: pending.id,
+        attempt: pending.currentAttempt,
         config: completed.config,
         evaluationTrace: completed.trace,
       },
       tx,
     );
-    return {kind: 'step', step: marked ?? {...pending, config: completed.config}, dispatched: true};
+    const config = await claimStepSessionForDispatch({
+      config: completed.config,
+      stepAttemptId,
+      workflowContext,
+      agent,
+    });
+    const marked = await dispatchStepWithCompletedConfig(
+      {
+        jobExecutionId,
+        stepId: pending.id,
+        config,
+        evaluationTrace: completed.trace,
+      },
+      tx,
+    );
+    return {kind: 'step', step: marked ?? {...pending, config}, dispatched: true};
   } catch (error) {
     const configError = toDispatchConfigError(error);
     const isConfigError = configError !== null;
@@ -278,6 +325,134 @@ async function dispatchPendingStepWithConfigPlan({
     return status === null
       ? nextStepForJobExecutionInTransaction(jobExecutionId, tx, agent)
       : {kind: 'done', status};
+  }
+}
+
+// Session claims are released asynchronously through the workflows outbox, so a
+// dispatch racing its own previous attempt's termination can briefly find the
+// claim still held by the attempt that just finished. Tolerate that window with
+// a short bounded retry (a few outbox poll cycles) before failing the attempt
+// deterministically; a genuine conflict with a live attempt fails after the
+// same bound, never queueing.
+const AGENT_SESSION_CLAIM_RETRY_ATTEMPTS = 8;
+const AGENT_SESSION_CLAIM_RETRY_DELAY_MS = 250;
+
+type StepSessionIntent = {key: string; mode: 'resume' | 'fork'};
+
+function sessionIntentFromConfig(config: Record<string, unknown>): StepSessionIntent | undefined {
+  const session = config.session;
+  if (typeof session !== 'object' || session === null || Array.isArray(session)) return undefined;
+  const candidate = session as Record<string, unknown>;
+  if (typeof candidate.key !== 'string' || candidate.key === '') return undefined;
+  if (candidate.mode !== 'resume' && candidate.mode !== 'fork') return undefined;
+  return {key: candidate.key, mode: candidate.mode};
+}
+
+function configHarness(config: Record<string, unknown>): 'pi' | 'claude' | undefined {
+  return config.harness === 'pi' || config.harness === 'claude' ? config.harness : undefined;
+}
+
+/**
+ * Claims the step's named session at dispatch and embeds the resolved
+ * descriptor in the dispatch config. Steps without a session, dispatches
+ * without an attempt id (a racing re-dispatch), and forks of a session that
+ * does not exist yet (null descriptor) carry no descriptor: the last drops the
+ * authored session intent so the step runs fresh and creates nothing.
+ */
+async function claimStepSessionForDispatch(params: {
+  readonly config: Record<string, unknown>;
+  readonly stepAttemptId: string | undefined;
+  readonly workflowContext: Awaited<ReturnType<typeof getWorkflowContextForJob>>;
+  readonly agent?: AgentInterModuleClient | undefined;
+}): Promise<Record<string, unknown>> {
+  const session = sessionIntentFromConfig(params.config);
+  if (session === undefined || params.agent === undefined || params.stepAttemptId === undefined) {
+    return params.config;
+  }
+
+  const harness = configHarness(params.config);
+  if (harness === undefined) {
+    throw new AgentStepSessionClaimError(
+      'agent_session_unavailable',
+      'Agent session claim requires a resolved harness',
+    );
+  }
+
+  const {descriptor} = await claimSessionWithRetry({
+    agent: params.agent,
+    workspaceId: params.workflowContext.workspaceId,
+    projectId: params.workflowContext.projectId,
+    workflowRunAttemptId: params.workflowContext.workflowRunAttemptId,
+    key: session.key,
+    harness,
+    stepAttemptId: params.stepAttemptId,
+    mode: session.mode,
+  });
+
+  if (descriptor === null) {
+    const {session: _session, ...rest} = params.config;
+    return rest;
+  }
+  return {...params.config, session: descriptor};
+}
+
+async function claimSessionWithRetry(params: {
+  readonly agent: AgentInterModuleClient;
+  readonly workspaceId: string;
+  readonly projectId: string;
+  readonly workflowRunAttemptId: string;
+  readonly key: string;
+  readonly harness: 'pi' | 'claude';
+  readonly stepAttemptId: string;
+  readonly mode: 'resume' | 'fork';
+}): Promise<{readonly descriptor: AgentStepSessionDescriptorDto | null}> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await params.agent.claimSession({
+        workspaceId: params.workspaceId,
+        projectId: params.projectId,
+        workflowRunAttemptId: params.workflowRunAttemptId,
+        key: params.key,
+        harness: params.harness,
+        stepAttemptId: params.stepAttemptId,
+        mode: params.mode,
+      });
+    } catch (error) {
+      if (!isInterModuleKnownError(agentInterModuleContract.methods.claimSession, error)) {
+        throw error;
+      }
+      const code = error.code;
+      const isTransient = code === 'session-held' || code === 'session-lock-unavailable';
+      if (isTransient && attempt < AGENT_SESSION_CLAIM_RETRY_ATTEMPTS) {
+        await sleep(AGENT_SESSION_CLAIM_RETRY_DELAY_MS);
+        continue;
+      }
+      throw new AgentStepSessionClaimError(
+        code === 'session-key-invalid'
+          ? 'agent_session_key_invalid'
+          : code === 'session-harness-mismatch'
+            ? 'agent_session_harness_mismatch'
+            : code === 'session-held'
+              ? 'agent_session_held'
+              : 'agent_session_unavailable',
+        agentSessionClaimMessage(code),
+      );
+    }
+  }
+}
+
+function agentSessionClaimMessage(code: string): string {
+  switch (code) {
+    case 'session-key-invalid':
+      return 'Agent session key is invalid: the resolved key must start with a letter or number and contain only letters, numbers, dots, underscores, or hyphens, with a maximum length of 128 characters.';
+    case 'session-held':
+      return 'Agent session is claimed by another live attempt.';
+    case 'session-harness-mismatch':
+      return 'Agent session harness does not match the pinned harness.';
+    case 'session-lock-unavailable':
+      return 'Agent session is temporarily unavailable; retry the run.';
+    default:
+      return 'Agent session could not be claimed.';
   }
 }
 
@@ -326,6 +501,9 @@ function toDispatchConfigError(error: unknown): DispatchConfigError | null {
   const isAgentConfigError = error instanceof AgentConfigUnresolvableError;
   if (isAgentConfigError) return error;
 
+  const isSessionClaimError = error instanceof AgentStepSessionClaimError;
+  if (isSessionClaimError) return error;
+
   return null;
 }
 
@@ -336,6 +514,15 @@ function dispatchConfigError(error: DispatchConfigError): Record<string, unknown
       reason: 'config_unresolvable',
       field: error.envKey === undefined ? error.field : `${error.field}.${error.envKey}`,
       source: error.source,
+    };
+  }
+
+  if (error instanceof AgentStepSessionClaimError) {
+    return {
+      message: error.message,
+      reason: error.reason,
+      field: 'agent.session',
+      source: 'agent',
     };
   }
 

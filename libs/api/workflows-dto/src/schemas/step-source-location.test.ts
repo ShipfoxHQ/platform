@@ -11,6 +11,7 @@ const baseStep = {
   config: {run: 'echo hello'},
   evaluation_trace: null,
   error: null,
+  session: null,
   position: 1,
   current_attempt: 1,
   created_at: '2026-06-16T00:00:00.000Z',
