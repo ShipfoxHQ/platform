@@ -11,7 +11,10 @@ describe('getAgentValidationCatalog', () => {
       expect.arrayContaining(pi?.supported_provider_ids ?? []),
     );
     expect(pi?.model_ids_by_provider?.anthropic).toContain('claude-opus-4-8');
+    expect(pi?.model_ids_by_provider?.baseten).toContain('zai-org/GLM-5.2');
     expect(pi?.model_ids_by_provider?.openai).toContain('gpt-5.5-pro');
+    expect(pi?.model_ids_by_provider?.['qwen-token-plan-individual']).toContain('qwen3.8-max');
+    expect(pi?.thinking_levels).toContain('max');
     expect(claude?.model_ids_by_provider?.anthropic).toContain('claude-opus-4-8');
   });
 

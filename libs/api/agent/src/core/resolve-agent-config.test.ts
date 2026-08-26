@@ -323,10 +323,10 @@ describe('resolveAgentConfig', () => {
 
   test('validates thinking against the selected harness', () => {
     const claudeOff = () => resolveAgentConfig({harness: 'claude', thinking: 'off'});
-    const piMax = () => resolveAgentConfig({harness: 'pi', thinking: 'max'});
+    const piMax = resolveAgentConfig({harness: 'pi', thinking: 'max'});
 
     expect(claudeOff).toThrow(UnsupportedHarnessThinkingError);
-    expect(piMax).toThrow(UnsupportedHarnessThinkingError);
+    expect(piMax.thinking).toBe('max');
   });
 
   test('ignores stale provider thinking defaults outside the selected harness', () => {

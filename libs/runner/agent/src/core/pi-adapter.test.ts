@@ -257,11 +257,13 @@ describe('piHarnessAdapter', () => {
     sessionDir = undefined;
   });
 
-  it('resolves the configured model under the requested provider and runs the prompt', async () => {
+  it('resolves the configured model and forwards max thinking to Pi', async () => {
     const model = {provider: 'openai', id: 'gpt-5.1'};
     findMock.mockReturnValue(model);
 
-    const result = await piHarnessAdapter.run(invocation({provider: 'openai', model: 'gpt-5.1'}));
+    const result = await piHarnessAdapter.run(
+      invocation({provider: 'openai', model: 'gpt-5.1', thinking: 'max'}),
+    );
 
     expect(findMock).toHaveBeenCalledWith('openai', 'gpt-5.1');
     expectResolvedExtensionPaths(
@@ -273,7 +275,7 @@ describe('piHarnessAdapter', () => {
     expect(createAgentSessionMock).toHaveBeenCalledWith(
       expect.objectContaining({
         services: expect.objectContaining({cwd: '/work'}),
-        thinkingLevel: 'high',
+        thinkingLevel: 'max',
         model,
       }),
     );
