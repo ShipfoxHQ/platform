@@ -14,6 +14,7 @@ import {
   warnOnUnsafeAgentSessionConfig,
   workspaceProvidersPolicy,
 } from '#config.js';
+import {sessionArtifactStore} from '#core/index.js';
 import type {AgentSecretsClient} from '#core/secrets-client.js';
 import {db, migrationsPath} from '#db/index.js';
 import {createAgentE2eRoutes} from '#presentation/e2eRoutes/index.js';
@@ -90,6 +91,11 @@ export function createAgentModule(params: {
     routes: createAgentRoutes(params.secrets, {
       managedProvider: params.managedProvider,
       workspaceProviders: workspaceProvidersPolicy,
+      workflows: params.workflows,
+      // The store memoizes its key provider (the KEK is decoded on first use)
+      // and the transcript routes are gated on the workflows client, so a
+      // composition without workflows never constructs the store at all.
+      sessionArtifactStore: params.workflows === undefined ? undefined : sessionArtifactStore(),
     }),
     e2eRoutes: [
       createAgentE2eRoutes(params.secrets, {

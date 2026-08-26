@@ -67,6 +67,19 @@ describe('workflowsInterModuleContract', () => {
     expect(agentTools.attempt).toBe(1);
   });
 
+  test('accepts the session transcript lease context payload', () => {
+    const sessionContext =
+      workflowsInterModuleContract.methods.getLeasedAgentSessionContext.input.parse({
+        jobId: '00000000-0000-4000-8000-000000000007',
+        jobExecutionId: '00000000-0000-4000-8000-000000000008',
+        runnerSessionId: '00000000-0000-4000-8000-000000000009',
+        stepId: '00000000-0000-4000-8000-000000000006',
+        attempt: 1,
+      });
+
+    expect(sessionContext.attempt).toBe(1);
+  });
+
   test.each([
     ['workspace-not-found', {workspaceId: '00000000-0000-4000-8000-000000000010'}],
     ['workspace-suspended', {workspaceId: '00000000-0000-4000-8000-000000000010'}],

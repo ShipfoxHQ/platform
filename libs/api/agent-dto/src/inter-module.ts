@@ -2,6 +2,7 @@ import {defineInterModuleContract, type InterModuleClient} from '@shipfox/inter-
 import {z} from 'zod';
 import {
   agentRuntimeCredentialsResponseSchema,
+  agentSessionDescriptorSchema,
   agentThinkingSchema,
   harnessSchema,
   modelProviderRefSchema,
@@ -44,19 +45,7 @@ const resolvedAgentConfigSchema = z.object({
   thinking: agentThinkingSchema,
 });
 
-/**
- * Resolved session identity handed to workflows dispatch: which registry row
- * the step runs against, in which mode, and which head segment it loads.
- * `segment` is the current head segment (0 = fresh session).
- */
-export const agentSessionDescriptorSchema = z.object({
-  id: z.string().uuid(),
-  key: z.string().min(1),
-  mode: z.enum(['resume', 'fork']),
-  segment: z.number().int().nonnegative(),
-});
-
-export type AgentSessionDescriptorDto = z.infer<typeof agentSessionDescriptorSchema>;
+export {type AgentSessionDescriptorDto, agentSessionDescriptorSchema} from '#schemas/index.js';
 
 export const agentInterModuleContract = defineInterModuleContract({
   module: 'agent',

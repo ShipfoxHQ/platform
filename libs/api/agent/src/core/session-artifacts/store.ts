@@ -50,6 +50,12 @@ export interface CommitSessionSegmentParams {
   /** The complete harness-native session file, gzip-compressed by the runner. */
   blob: Buffer;
   manifest: SegmentManifest;
+  /**
+   * Harness-native session id reported by the runner for this commit. Stored on
+   * the row when the head flips so the lease-authed GET can serve it back;
+   * undefined preserves the row's existing value (no report from the runner).
+   */
+  harnessSessionId?: string | undefined;
   /** Checkout ref the segment ran on (preamble/audit metadata). */
   headRepoRef: string | null;
 }
@@ -143,7 +149,15 @@ export function createSessionArtifactStore(params: {
       });
     },
 
-    async commitSegment({session, stepAttemptId, baseSegment, blob, manifest, headRepoRef}) {
+    async commitSegment({
+      session,
+      stepAttemptId,
+      baseSegment,
+      blob,
+      manifest,
+      harnessSessionId,
+      headRepoRef,
+    }) {
       const segment = baseSegment + 1;
 
       // Resolve the workspace DEK before opening the commit transaction:
@@ -179,6 +193,7 @@ export function createSessionArtifactStore(params: {
             baseSegment,
             headObjectKey: put.objectKey,
             headSizeBytes: put.sizeBytes,
+            harnessSessionId,
             headRepoRef,
           },
           tx,

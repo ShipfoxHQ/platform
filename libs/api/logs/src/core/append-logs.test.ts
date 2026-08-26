@@ -217,6 +217,7 @@ describe('appendLogs', () => {
           getStepLogContext: () => ({harness: 'claude' as const}),
           listJobStepAttempts: vi.fn(),
           getLeasedAgentToolContext: vi.fn(),
+          getLeasedAgentSessionContext: vi.fn(),
         }),
       }).workflows;
       const body = ndjsonBody(
@@ -265,6 +266,7 @@ describe('appendLogs', () => {
           getStepLogContext: () => ({harness: 'claude' as const}),
           listJobStepAttempts: vi.fn(),
           getLeasedAgentToolContext: vi.fn(),
+          getLeasedAgentSessionContext: vi.fn(),
         }),
       }).workflows;
       const init = sessionLine(
@@ -348,6 +350,7 @@ describe('appendLogs', () => {
           getStepLogContext: () => ({harness: 'claude' as const}),
           listJobStepAttempts: vi.fn(),
           getLeasedAgentToolContext: vi.fn(),
+          getLeasedAgentSessionContext: vi.fn(),
         }),
       }).workflows;
       const init = sessionLine(
@@ -408,6 +411,7 @@ describe('appendLogs', () => {
           getStepLogContext: () => ({harness: 'claude' as const}),
           listJobStepAttempts: vi.fn(),
           getLeasedAgentToolContext: vi.fn(),
+          getLeasedAgentSessionContext: vi.fn(),
         }),
       }).workflows;
       const first = ndjsonBody(

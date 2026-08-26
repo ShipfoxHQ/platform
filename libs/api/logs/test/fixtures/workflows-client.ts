@@ -15,6 +15,7 @@ export function createTestWorkflowsClient(): WorkflowsModuleClient {
       getStepLogContext: () => ({harness: 'pi' as const}),
       listJobStepAttempts: vi.fn(),
       getLeasedAgentToolContext: vi.fn(),
+      getLeasedAgentSessionContext: vi.fn(),
     }),
   }).workflows;
 }
