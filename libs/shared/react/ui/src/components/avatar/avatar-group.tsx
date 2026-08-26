@@ -142,7 +142,7 @@ export function AvatarGroup({
   }, [childrenArray, maxVisible]);
 
   return (
-    <TooltipProvider delayDuration={0}>
+    <TooltipProvider>
       <div
         className={cn(avatarGroupVariants({size: normalizedSize}), className)}
         data-slot="avatar-group"
