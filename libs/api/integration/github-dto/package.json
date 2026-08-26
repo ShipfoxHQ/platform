@@ -1,7 +1,7 @@
 {
   "name": "@shipfox/api-integration-github-dto",
   "license": "MIT",
-  "version": "16.0.0",
+  "version": "17.1.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ShipfoxHQ/shipfox.git",

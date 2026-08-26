@@ -1,5 +1,11 @@
 # @shipfox/react-ui
 
+## 2.3.2
+
+### Patch Changes
+
+- 87b71ed: Restores density-aware top and bottom row padding utilities.
+
 ## 2.3.1
 
 ### Patch Changes

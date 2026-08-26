@@ -1,5 +1,11 @@
 # @shipfox/api-integration-github-dto
 
+## 17.1.0
+
+### Minor Changes
+
+- b7ae751: Adds the complete set of documented GitHub webhook actions for the `pull_request`, `pull_request_review_comment`, `issues`, and `release` events to the integration catalogue (52 events total).
+
 ## 16.0.0
 
 ### Patch Changes
