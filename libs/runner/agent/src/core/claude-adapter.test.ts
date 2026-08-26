@@ -633,22 +633,22 @@ describe('claudeHarnessAdapter', () => {
     expect(lastQueryOptions()).not.toHaveProperty('effort');
   });
 
-  it('resolves dotted managed-catalog model IDs to their family capabilities', async () => {
+  it('passes managed model IDs through without punctuation-based rewriting', async () => {
     queryMock.mockReturnValue(makeQuery([successMessage]));
 
-    await claudeHarnessAdapter.run(invocation({model: 'claude-opus-4.8', thinking: 'high'}));
+    await claudeHarnessAdapter.run(
+      invocation({
+        provider: 'shipfox',
+        model: 'catalog.model-id',
+        claude: {
+          base_url: 'https://inference.shipfox.dev/v1',
+          auth_token: 'managed-token',
+        },
+      }),
+    );
 
-    expect(lastQueryOptions()).toMatchObject({
-      thinking: {type: 'adaptive'},
-      effort: 'high',
-    });
-    queryMock.mockClear();
-
-    await claudeHarnessAdapter.run(invocation({model: 'claude-haiku-4.5', thinking: 'medium'}));
-
-    expect(lastQueryOptions()).toMatchObject({
-      thinking: {type: 'enabled', budgetTokens: 8_192},
-    });
+    expect(lastQueryOptions().model).toBe('catalog.model-id');
+    expect(lastQueryOptions()).not.toHaveProperty('thinking');
     expect(lastQueryOptions()).not.toHaveProperty('effort');
   });
 
@@ -784,13 +784,13 @@ describe('claudeHarnessAdapter', () => {
     expect(lastQueryOptions()).not.toHaveProperty('effort');
   });
 
-  it('normalizes a managed Haiku 4.5 model for Claude Code and sends no effort', async () => {
+  it('sends no effort for a managed Haiku 4.5 step with medium thinking', async () => {
     queryMock.mockReturnValue(makeQuery([successMessage]));
 
     const result = await claudeHarnessAdapter.run(
       invocation({
         provider: 'shipfox',
-        model: 'claude-haiku-4.5',
+        model: 'claude-haiku-4-5',
         thinking: 'medium',
         credentials: {api_key: 'managed-token'},
         claude: {

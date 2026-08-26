@@ -232,6 +232,48 @@ describe('resolveRuntimeCredentials', () => {
   });
 
   it('resolves managed provider credentials into the Claude per-step contract', async () => {
+    const runId = crypto.randomUUID();
+    const stepAttemptId = crypto.randomUUID();
+    const resolveCredentials = vi.fn<ManagedModelProvider['resolveCredentials']>();
+    resolveCredentials.mockResolvedValue({
+      api: 'anthropic-messages',
+      baseUrl: 'https://gateway.example.test/inference/v1/',
+      credentials: {api_key: 'managed-token'},
+    });
+
+    const result = await resolveRuntimeCredentials(
+      {
+        workspaceId,
+        runId,
+        stepAttemptId,
+        harness: 'claude',
+        provider: 'shipfox',
+        model: 'claude-model',
+        thinking: 'high',
+      },
+      {managedProvider: managedProvider(resolveCredentials)},
+    );
+
+    expect(resolveCredentials).toHaveBeenCalledWith({
+      workspaceId,
+      runId,
+      stepAttemptId,
+      model: 'claude-model',
+    });
+    expect(result).toEqual({
+      harness: 'claude',
+      provider_id: 'shipfox',
+      model: 'claude-haiku-4-5',
+      thinking: 'high',
+      credentials: {api_key: 'managed-token'},
+      claude: {
+        base_url: 'https://gateway.example.test/inference',
+        auth_token: 'managed-token',
+      },
+    });
+  });
+
+  it('keeps the catalog model ID when a managed model has no Claude model ID', async () => {
     const resolveCredentials = vi.fn<ManagedModelProvider['resolveCredentials']>();
     resolveCredentials.mockResolvedValue({
       api: 'anthropic-messages',
@@ -246,23 +288,13 @@ describe('resolveRuntimeCredentials', () => {
         stepAttemptId: crypto.randomUUID(),
         harness: 'claude',
         provider: 'shipfox',
-        model: 'claude-model',
+        model: 'unmapped-claude-model',
         thinking: 'high',
       },
       {managedProvider: managedProvider(resolveCredentials)},
     );
 
-    expect(result).toEqual({
-      harness: 'claude',
-      provider_id: 'shipfox',
-      model: 'claude-model',
-      thinking: 'high',
-      credentials: {api_key: 'managed-token'},
-      claude: {
-        base_url: 'https://gateway.example.test/inference',
-        auth_token: 'managed-token',
-      },
-    });
+    expect(result.model).toBe('unmapped-claude-model');
   });
 
   it.each([
@@ -297,6 +329,7 @@ describe('resolveRuntimeCredentials', () => {
         {managedProvider: managedProvider(resolveCredentials)},
       );
 
+      expect(runtime.model).toBe(model);
       const apiKey = runtime.credentials.api_key;
       if (apiKey === undefined) {
         throw new Error('Expected managed Pi API key');
@@ -769,7 +802,17 @@ function managedProvider(
     id: 'shipfox',
     label: 'Shipfox',
     models: [
-      {id: 'claude-model', label: 'Claude model', api: 'anthropic-messages'},
+      {
+        id: 'claude-model',
+        label: 'Claude model',
+        api: 'anthropic-messages',
+        claudeModelId: 'claude-haiku-4-5',
+      },
+      {
+        id: 'unmapped-claude-model',
+        label: 'Unmapped Claude model',
+        api: 'anthropic-messages',
+      },
       {
         id: 'responses-model',
         label: 'Responses model',

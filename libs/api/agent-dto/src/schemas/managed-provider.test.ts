@@ -17,6 +17,7 @@ describe('managed provider model metadata', () => {
     const dto = toCustomAgentModelDto({
       id: 'gpt-5.6-sol',
       label: 'GPT 5.6 Sol',
+      claudeModelId: 'claude-opus-5',
       thinkingLevelMap,
       compat,
     });
@@ -60,10 +61,12 @@ describe('managed provider model metadata', () => {
     expect(managedModelCompatSchema.safeParse({thinkingFormat: 'unsupported'}).success).toBe(false);
     expect(
       managedModelMetadataSchema.safeParse({
+        claudeModelId: 'claude-haiku-4-5',
         thinkingLevelMap: {minimal: null},
         compat: {supportsStore: false, thinkingFormat: 'deepseek'},
       }).success,
     ).toBe(true);
+    expect(managedModelMetadataSchema.safeParse({claudeModelId: ''}).success).toBe(false);
     expect(
       managedModelMetadataSchema.safeParse({
         thinkingLevelMap: {minimal: null},

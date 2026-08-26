@@ -28,6 +28,7 @@ export const managedModelMetadataSchema = customAgentModelSchema
     compat: true,
   })
   .extend({
+    claudeModelId: z.string().min(1).max(128).optional(),
     thinkingLevelMap: managedModelThinkingLevelMapSchema.optional(),
     thinking_level_map: managedModelThinkingLevelMapSchema.optional(),
     compat: managedModelCompatSchema.optional(),
@@ -57,8 +58,12 @@ export interface ManagedModelEntry extends Readonly<ManagedModelMetadata> {
 export function toCustomAgentModelDto(
   model: Pick<ManagedModelEntry, 'id' | 'label'> & ManagedModelMetadata,
 ): CustomAgentModelDto {
-  const {thinkingLevelMap, thinking_level_map, ...metadata} =
-    managedModelMetadataSchema.parse(model);
+  const {
+    claudeModelId: _claudeModelId,
+    thinkingLevelMap,
+    thinking_level_map,
+    ...metadata
+  } = managedModelMetadataSchema.parse(model);
   const normalizedThinkingLevelMap = thinkingLevelMap ?? thinking_level_map;
 
   return {
