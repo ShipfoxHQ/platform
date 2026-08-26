@@ -20,7 +20,7 @@ import {createAuthInterModulePresentation} from '#presentation/inter-module.js';
 import {
   administrationBootstrapRoutes,
   administrationRoutes,
-  administrationUserRoutes,
+  createAdministrationUserRoutes,
 } from '#presentation/routes/administration.js';
 import {buildAuthRoutes} from '#presentation/routes/index.js';
 import {onPasswordResetSendRequested} from '#presentation/subscribers/index.js';
@@ -40,18 +40,21 @@ export {
 export {
   bootstrapFirstAdminOwner,
   grantAdministratorRole,
+  impersonateUser,
   reactivateAdministratorUser,
   revokeAdministratorGrant,
   revokeAdministratorUserSessions,
   suspendAdministratorUser,
 } from '#core/administration.js';
 export type {
+  CreateImpersonatedSessionTokenParams,
+  CreateImpersonatedSessionTokenResult,
   CreateSessionForUserError,
   CreateSessionForUserParams,
   CreateSessionForUserResult,
   ProvisionUserParams,
 } from '#core/auth.js';
-export {createSessionForUser, provisionUser} from '#core/auth.js';
+export {createImpersonatedSessionToken, createSessionForUser, provisionUser} from '#core/auth.js';
 export type {EmailOwner, FindUserByEmailParams} from '#core/email-owner.js';
 export {findUserByEmail} from '#core/email-owner.js';
 export type {AdminGrant} from '#core/entities/admin-grant.js';
@@ -63,7 +66,12 @@ export {
   AdminIdempotencyKeyReuseError,
   AdminRoleRequiredError,
   AuthDependencyUnavailableError,
+  CannotImpersonateAdministratorError,
+  CannotImpersonateSelfError,
   EmailNotVerifiedError,
+  ImpersonationDisabledError,
+  ImpersonationExpiredError,
+  ImpersonationTargetNotActiveError,
   InvalidAdminBootstrapTokenError,
   InvalidCredentialsError,
   LastAdminOwnerError,
@@ -84,6 +92,7 @@ export {
   createEnvironmentSignupPolicy,
   DEFAULT_SIGNUP_NOT_ALLOWED_MESSAGE,
 } from '#core/signup-policy.js';
+export type {ImpersonationResult} from '#db/impersonation.js';
 export {
   type AuthenticatedSessionContext,
   createJwtAuthMethod,
@@ -120,7 +129,7 @@ export function createAuthModule({
       buildAuthRoutes(config.AUTH_PASSWORD_ENABLED, workspaces, signupPolicy),
       administrationBootstrapRoutes,
       administrationRoutes,
-      administrationUserRoutes,
+      ...createAdministrationUserRoutes(workspaces),
     ],
     e2eRoutes: [createAuthE2eRoutes(workspaces)],
     publishers: [{name: 'auth', table: authOutbox, db, eventSchemas: authPublisherEventSchemas}],

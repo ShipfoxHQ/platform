@@ -10,6 +10,10 @@ export const config = createConfig({
     desc: 'How long an access token stays valid. Accepts a duration string such as 15m, 1h, or 7d.',
     default: '15m',
   }),
+  AUTH_IMPERSONATION_ENABLED: bool({
+    desc: 'Whether administrators can mint impersonated sessions for target users. Defaults to false: the source-available client ships no impersonation banner, so enable it only where every signed-in surface renders one.',
+    default: false,
+  }),
   AUTH_JOB_LEASE_TOKEN_EXPIRES_IN: str({
     desc: 'How long a job lease token stays valid. Set it longer than the longest job (JOB_MAX_DURATION is 60 minutes) plus a safety margin.',
     default: '90m',

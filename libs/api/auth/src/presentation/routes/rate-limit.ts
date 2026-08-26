@@ -1,3 +1,4 @@
+import {getUserContext} from '@shipfox/api-auth-context';
 import {ClientError, type FastifyReply, type FastifyRequest} from '@shipfox/node-fastify';
 import {enforceRateLimit as enforceSharedRateLimit} from '@shipfox/node-rate-limit';
 import {
@@ -27,6 +28,16 @@ const policies: Record<
   },
   lookup: {
     ip: {limit: 60, windowSeconds: 5 * 60},
+  },
+  impersonate: {
+    // Bounds mint and probing attempts: the IP bucket bounds aggregate source
+    // traffic, and the actor bucket is a per-actor cap that prevents an actor
+    // from evading the bound by rotating IPs (every request still consumes the
+    // IP bucket first, so a shared NAT cannot exhaust it faster by pooling
+    // actors). Ladder denials by an identifiable actor role are audited as
+    // `failed` events.
+    ip: {limit: 20, windowSeconds: 15 * 60},
+    actor: {limit: 20, windowSeconds: 15 * 60},
   },
 };
 
@@ -109,5 +120,34 @@ export function createAuthIpRateLimitPreHandler(action: AuthRateLimitAction) {
       scope: 'ip',
       identifier: request.ip,
     });
+  };
+}
+
+/**
+ * Rate limits an authenticated route by source IP and by actor. Every request
+ * consumes the IP bucket, which bounds aggregate source traffic; the actor
+ * bucket is an additional per-actor cap that prevents an actor from evading
+ * the bound by rotating IPs. Runs after authentication (auth is an `onRequest`
+ * hook), so the user context is set.
+ */
+export function createAuthActorRateLimitPreHandler(action: AuthRateLimitAction) {
+  return async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    await enforceRateLimit({
+      request,
+      reply,
+      action,
+      scope: 'ip',
+      identifier: request.ip,
+    });
+    const client = getUserContext(request);
+    if (client) {
+      await enforceRateLimit({
+        request,
+        reply,
+        action,
+        scope: 'actor',
+        identifier: client.userId,
+      });
+    }
   };
 }

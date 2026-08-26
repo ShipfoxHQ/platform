@@ -1,3 +1,4 @@
+import type {AdminRole} from '@shipfox/api-auth-dto';
 import type {AdministrationActionEvent} from '@shipfox/api-common-dto';
 import {and, eq, gt, isNull, sql} from 'drizzle-orm';
 import {hasMinimumAdminRole, highestAdminRole} from '#core/admin-role-model.js';
@@ -84,7 +85,11 @@ async function storeCommandResult(
   params: UserModerationCommandParams,
   result: StoredAdminUserModerationResult,
 ): Promise<void> {
-  await storeAdminCommandResult(tx, params, {userModeration: result});
+  await storeAdminCommandResult(
+    tx,
+    {...params, command: params.event.command},
+    {userModeration: result},
+  );
 }
 
 async function readTargetUserForUpdate(tx: Tx, userId: string) {
@@ -99,7 +104,7 @@ async function readTargetUserForUpdate(tx: Tx, userId: string) {
   return user;
 }
 
-async function requireActiveAdminOperator(tx: Tx, actorId: string): Promise<void> {
+export async function requireActiveAdminOperator(tx: Tx, actorId: string): Promise<AdminRole> {
   const actorRows = await tx
     .select({status: users.status})
     .from(users)
@@ -115,6 +120,7 @@ async function requireActiveAdminOperator(tx: Tx, actorId: string): Promise<void
   if (actor?.status !== 'active' || !role || !hasMinimumAdminRole(role, 'admin-operator')) {
     throw new AdminRoleRequiredError('admin-operator');
   }
+  return role;
 }
 
 async function revokeActiveSessions(tx: Tx, userId: string): Promise<number> {

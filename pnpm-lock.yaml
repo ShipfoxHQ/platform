@@ -1543,6 +1543,9 @@ importers:
       '@shipfox/e2e-setup-auth':
         specifier: workspace:*
         version: link:../../../setup/auth
+      '@shipfox/e2e-setup-workspaces':
+        specifier: workspace:*
+        version: link:../../../setup/workspaces
       '@shipfox/playwright':
         specifier: workspace:*
         version: link:../../../../tools/playwright

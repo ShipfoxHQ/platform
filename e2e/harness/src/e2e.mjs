@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import {spawn, spawnSync} from 'node:child_process';
-import {generateKeyPairSync} from 'node:crypto';
+import {generateKeyPairSync, randomBytes} from 'node:crypto';
 import {closeSync, openSync} from 'node:fs';
 import {cp, mkdir, readdir, stat} from 'node:fs/promises';
 import {dirname, join, resolve} from 'node:path';
@@ -17,6 +17,7 @@ const defaultShutdownTimeoutMs = 15_000;
 const defaultTurboTask = 'test:e2e';
 const trailingSlashPattern = /\/$/;
 let generatedGithubAppPrivateKey;
+let generatedE2eBootstrapToken;
 
 if (isCliEntryPoint()) {
   main(process.argv.slice(2)).catch((error) => {
@@ -186,6 +187,14 @@ export function e2eEnv(sourceEnv) {
     E2E_ENABLED: sourceEnv.E2E_ENABLED ?? 'true',
     AUTH_ROOT_KEY:
       sourceEnv.AUTH_ROOT_KEY ?? 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=',
+    // Impersonation ships disabled by default; the E2E deployment opts in so
+    // the mint route is live for the suite that exercises it. The admin
+    // bootstrap token is generated per run and never defaults to a well-known
+    // literal: claiming the first admin owner requires knowing it, so a
+    // harness-defaulted deployment is not bootstrap-able by anyone with
+    // repository access.
+    AUTH_IMPERSONATION_ENABLED: sourceEnv.AUTH_IMPERSONATION_ENABLED ?? 'true',
+    ADMIN_BOOTSTRAP_TOKEN: sourceEnv.ADMIN_BOOTSTRAP_TOKEN ?? e2eBootstrapToken(),
     AUTH_SIGNUP_GATE_ENABLED:
       sourceEnv.AUTH_SIGNUP_GATE_ENABLED ?? defaultAuthSignupGateEnabled,
     AUTH_SIGNUP_ALLOWED_EMAIL_DOMAINS:
@@ -269,6 +278,11 @@ function e2eGithubAppPrivateKey() {
     publicKeyEncoding: {format: 'pem', type: 'spki'},
   }).privateKey;
   return generatedGithubAppPrivateKey;
+}
+
+function e2eBootstrapToken() {
+  generatedE2eBootstrapToken ??= randomBytes(32).toString('base64url');
+  return generatedE2eBootstrapToken;
 }
 
 export function e2eLinearMcpEndpoint(apiUrl) {

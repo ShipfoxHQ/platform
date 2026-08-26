@@ -78,7 +78,7 @@ describe('authModule', () => {
         getWorkspaceOperatingState: vi.fn(),
       },
     });
-    expect(module.routes).toHaveLength(4);
+    expect(module.routes).toHaveLength(5);
     expect(module.routes).toEqual(
       expect.arrayContaining([expect.objectContaining({prefix: '/admin/auth'})]),
     );

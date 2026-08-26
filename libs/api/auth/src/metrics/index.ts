@@ -1,4 +1,5 @@
 export {
+  type AuthImpersonationOutcome,
   type AuthRateLimitAction,
   type AuthRateLimitOutcome,
   type AuthRateLimitScope,
@@ -7,6 +8,7 @@ export {
   type AuthTokenVerificationOutcome,
   recordAuthRateLimitCheck,
   recordAuthRateLimitPruneFailure,
+  recordImpersonationOutcome,
   recordTokenIssued,
   recordTokenRefreshed,
   recordTokenVerified,

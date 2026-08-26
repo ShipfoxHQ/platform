@@ -1,4 +1,9 @@
-import {AUTH_USER, adoptAdministrationActorGuard} from '@shipfox/api-auth-context';
+import {randomUUID} from 'node:crypto';
+import {
+  AUTH_USER,
+  adoptAdministrationActorGuard,
+  requireAdministrationActor,
+} from '@shipfox/api-auth-context';
 import {
   adminBootstrapStateSchema,
   administratorUserLookupQuerySchema,
@@ -8,6 +13,8 @@ import {
   bootstrapAdminOwnerResponseSchema,
   grantAdminRoleBodySchema,
   grantAdminRoleResponseSchema,
+  impersonateResponseSchema,
+  impersonateUserBodySchema,
   listAdminGrantsQuerySchema,
   listAdminGrantsResponseSchema,
   reactivateAdministratorUserBodySchema,
@@ -17,6 +24,7 @@ import {
   revokeAdministratorUserSessionsResponseSchema,
   suspendAdministratorUserBodySchema,
 } from '@shipfox/api-auth-dto';
+import type {WorkspacesInterModuleClient} from '@shipfox/api-workspaces-dto/inter-module';
 import {decodeTimestampIdCursor, encodeTimestampIdCursor} from '@shipfox/node-drizzle';
 import {ClientError, defineRoute, type RouteGroup} from '@shipfox/node-fastify';
 import type {FastifyRequest} from 'fastify';
@@ -27,6 +35,7 @@ import {
   findAdministratorUserSummary,
   getAdminBootstrapState,
   grantAdministratorRole,
+  impersonateUser,
   listAdministratorGrantSummaries,
   reactivateAdministratorUser,
   revokeAdministratorGrant,
@@ -44,12 +53,20 @@ import {
   AdminGrantNotFoundError,
   AdminIdempotencyKeyReuseError,
   AdminRoleRequiredError,
+  CannotImpersonateAdministratorError,
+  CannotImpersonateSelfError,
+  EmailNotVerifiedError,
+  ImpersonationDisabledError,
+  ImpersonationExpiredError,
+  ImpersonationTargetNotActiveError,
   InvalidAdminBootstrapTokenError,
+  InvalidCredentialsError,
   LastAdminOwnerError,
   UserNotFoundError,
 } from '#core/errors.js';
 import {getClientContext} from '#presentation/auth/jwt-auth.js';
-import {createAuthIpRateLimitPreHandler} from './rate-limit.js';
+import {toUserDto} from '#presentation/dto/user.js';
+import {createAuthActorRateLimitPreHandler, createAuthIpRateLimitPreHandler} from './rate-limit.js';
 
 const idempotencyKeyMaxLength = 256;
 
@@ -158,6 +175,40 @@ function translateAdministrationError(error: unknown): never {
       'idempotency-key-reused',
       {status: 409},
     );
+  }
+  if (error instanceof ImpersonationDisabledError) {
+    throw new ClientError('Impersonation is disabled', 'impersonation-disabled', {status: 403});
+  }
+  if (error instanceof CannotImpersonateSelfError) {
+    throw new ClientError('Cannot impersonate yourself', 'cannot-impersonate-self', {
+      status: 403,
+    });
+  }
+  if (error instanceof CannotImpersonateAdministratorError) {
+    throw new ClientError(
+      'Cannot impersonate an administrator',
+      'cannot-impersonate-administrator',
+      {status: 403},
+    );
+  }
+  if (error instanceof ImpersonationTargetNotActiveError) {
+    throw new ClientError('User cannot be impersonated', 'impersonation-target-not-active', {
+      status: 403,
+    });
+  }
+  // The mint primitive re-checks login eligibility (active, verified) on the
+  // row it reads, and a concurrent suspension or unverification between the
+  // in-transaction ladder read and that read surfaces these errors. Map them
+  // to the same documented client error instead of a generic 500.
+  if (error instanceof EmailNotVerifiedError || error instanceof InvalidCredentialsError) {
+    throw new ClientError('User cannot be impersonated', 'impersonation-target-not-active', {
+      status: 403,
+    });
+  }
+  if (error instanceof ImpersonationExpiredError) {
+    throw new ClientError('Impersonation session has expired', 'impersonation-expired', {
+      status: 410,
+    });
   }
   throw error;
 }
@@ -374,8 +425,76 @@ export const administrationBootstrapRoutes: RouteGroup = adoptAdministrationActo
   routes: [bootstrapStateRoute],
 });
 
-export const administrationUserRoutes: RouteGroup = adoptAdministrationActorGuard({
-  prefix: '/admin/auth/users',
-  auth: AUTH_USER,
-  routes: [userLookupRoute, suspendUserRoute, reactivateUserRoute, revokeUserSessionsRoute],
-});
+function createImpersonateUserRoute(workspaces: WorkspacesInterModuleClient) {
+  return defineRoute({
+    method: 'POST',
+    path: '/:userId/impersonate',
+    description:
+      'Mint a short-lived, marked, audited impersonated session for an active, verified, non-administrator user.',
+    schema: {
+      params: z.object({userId: z.string().uuid()}),
+      body: impersonateUserBodySchema,
+      response: {200: impersonateResponseSchema},
+    },
+    // The limiter runs ahead of the impersonated-session rejection: a request
+    // carrying an already-issued impersonated token must consume the
+    // `impersonate` IP and actor buckets instead of being rejected by the
+    // guard first, or marked-session probes would bypass the limiter entirely.
+    // The guard still runs before the authorization inside the command.
+    preHandler: [
+      createAuthActorRateLimitPreHandler('impersonate'),
+      (request) => {
+        requireAdministrationActor(request);
+        return undefined;
+      },
+    ],
+    errorHandler: translateAdministrationError,
+    handler: async (request) => {
+      const client = getClientContext(request);
+      const result = await impersonateUser({
+        actorId: requireActorId(request),
+        ...(client?.impersonatorId ? {actorImpersonatorId: client.impersonatorId} : {}),
+        targetUserId: request.params.userId,
+        reason: request.body.reason,
+        idempotencyKey: requireIdempotencyKey(request),
+        // Fastify's default request IDs are process-local counters that reset
+        // after a redeploy, so a replay could collide with an earlier mint's
+        // ID and suppress the required failure event in the ambiguous-COMMIT
+        // reconciliation. The correlation is a fresh process-independent UUID
+        // per invocation.
+        correlationId: randomUUID(),
+        workspaces,
+      });
+      // `server_time` is the issuer's clock at response time: the banner
+      // derives its countdown and Extend availability from this anchor.
+      return {
+        token: result.token,
+        expires_at: result.expiresAt.toISOString(),
+        server_time: new Date().toISOString(),
+        impersonator_id: result.impersonatorId,
+        user: toUserDto(result.user),
+      };
+    },
+  });
+}
+
+export function createAdministrationUserRoutes(
+  workspaces: WorkspacesInterModuleClient,
+): RouteGroup[] {
+  return [
+    adoptAdministrationActorGuard({
+      prefix: '/admin/auth/users',
+      auth: AUTH_USER,
+      routes: [userLookupRoute, suspendUserRoute, reactivateUserRoute, revokeUserSessionsRoute],
+    }),
+    // The impersonate route mounts outside the adopted guard on purpose: its
+    // limiter must run before the impersonated-session rejection (see
+    // `createImpersonateUserRoute`), so the guard is applied positionally
+    // there. Every other route under `/admin/auth/users` keeps the adoption.
+    {
+      prefix: '/admin/auth/users',
+      auth: AUTH_USER,
+      routes: [createImpersonateUserRoute(workspaces)],
+    },
+  ];
+}
