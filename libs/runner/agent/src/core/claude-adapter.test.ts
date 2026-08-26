@@ -52,10 +52,18 @@ vi.mock('@shipfox/node-egress-guard', () => ({
 import {mkdtempSync, rmSync, symlinkSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {
+  CLAUDE_MANAGED_MODEL_FAMILY_IDS,
+  CLAUDE_MODEL_FAMILY_IDS,
+  CLAUDE_MODEL_LINE,
+} from '@shipfox/api-agent-dto';
 import {claudeHarnessAdapter} from '#core/claude-adapter.js';
 import {AgentConfigError, AgentPermissionModeError} from '#core/errors.js';
 import type {HarnessInvocation} from '#core/harness.js';
 import type {IntegrationToolsBridge} from '#core/integration-tools-bridge.js';
+
+// Mirrors claudeModelCapabilities() family normalization in the adapter.
+const CLAUDE_SNAPSHOT_DATE_SUFFIX = /-\d{8}$/;
 
 function invocation(overrides: Partial<HarnessInvocation> = {}): HarnessInvocation {
   return {
@@ -126,6 +134,8 @@ function lastQueryOptions(): {
   tools?: string[];
   settingSources?: string[];
   strictMcpConfig?: boolean;
+  thinking?: unknown;
+  effort?: unknown;
 } {
   const call = queryMock.mock.calls[0] as
     | [
@@ -138,6 +148,8 @@ function lastQueryOptions(): {
             tools?: string[];
             settingSources?: string[];
             strictMcpConfig?: boolean;
+            thinking?: unknown;
+            effort?: unknown;
           };
         },
       ]
@@ -594,6 +606,228 @@ describe('claudeHarnessAdapter', () => {
     expect(env.CLAUDE_CONFIG_DIR).toMatch(`${testCwd}/runner-agent/claude-config-`);
     expect(lastQueryOptions()).not.toHaveProperty('tools');
     expect(lastQueryOptions().mcpServers).toBeUndefined();
+  });
+
+  it('sends budget-based extended thinking without effort for Claude Haiku 4.5', async () => {
+    queryMock.mockReturnValue(makeQuery([successMessage]));
+
+    await claudeHarnessAdapter.run(invocation({model: 'claude-haiku-4-5', thinking: 'medium'}));
+
+    expect(lastQueryOptions()).toMatchObject({
+      model: 'claude-haiku-4-5',
+      thinking: {type: 'enabled', budgetTokens: 8_192},
+    });
+    expect(lastQueryOptions()).not.toHaveProperty('effort');
+  });
+
+  it('resolves dated Claude snapshot IDs to their family capabilities', async () => {
+    queryMock.mockReturnValue(makeQuery([successMessage]));
+
+    await claudeHarnessAdapter.run(
+      invocation({model: 'claude-haiku-4-5-20251001', thinking: 'low'}),
+    );
+
+    expect(lastQueryOptions()).toMatchObject({
+      thinking: {type: 'enabled', budgetTokens: 4_096},
+    });
+    expect(lastQueryOptions()).not.toHaveProperty('effort');
+  });
+
+  it('resolves dotted managed-catalog model IDs to their family capabilities', async () => {
+    queryMock.mockReturnValue(makeQuery([successMessage]));
+
+    await claudeHarnessAdapter.run(invocation({model: 'claude-opus-4.8', thinking: 'high'}));
+
+    expect(lastQueryOptions()).toMatchObject({
+      thinking: {type: 'adaptive'},
+      effort: 'high',
+    });
+    queryMock.mockClear();
+
+    await claudeHarnessAdapter.run(invocation({model: 'claude-haiku-4.5', thinking: 'medium'}));
+
+    expect(lastQueryOptions()).toMatchObject({
+      thinking: {type: 'enabled', budgetTokens: 8_192},
+    });
+    expect(lastQueryOptions()).not.toHaveProperty('effort');
+  });
+
+  it('sends budget-based extended thinking without effort for Claude Sonnet 4.5', async () => {
+    queryMock.mockReturnValue(makeQuery([successMessage]));
+
+    await claudeHarnessAdapter.run(invocation({model: 'claude-sonnet-4-5', thinking: 'high'}));
+
+    expect(lastQueryOptions()).toMatchObject({
+      model: 'claude-sonnet-4-5',
+      thinking: {type: 'enabled', budgetTokens: 16_384},
+    });
+    expect(lastQueryOptions()).not.toHaveProperty('effort');
+  });
+
+  it('sends budget-based thinking with a supported effort level for Claude Opus 4.5', async () => {
+    queryMock.mockReturnValue(makeQuery([successMessage]));
+
+    await claudeHarnessAdapter.run(invocation({model: 'claude-opus-4-5', thinking: 'medium'}));
+
+    expect(lastQueryOptions()).toMatchObject({
+      model: 'claude-opus-4-5',
+      thinking: {type: 'enabled', budgetTokens: 8_192},
+      effort: 'medium',
+    });
+  });
+
+  it.each([
+    'xhigh',
+    'max',
+  ] as const)('caps Claude Opus 4.5 thinking level %s to the 31,999-token budget ceiling and falls back to the nearest supported effort level', async (thinking) => {
+    queryMock.mockReturnValue(makeQuery([successMessage]));
+
+    await claudeHarnessAdapter.run(invocation({model: 'claude-opus-4-5', thinking}));
+
+    expect(lastQueryOptions()).toMatchObject({
+      thinking: {type: 'enabled', budgetTokens: 31_999},
+      effort: 'high',
+    });
+  });
+
+  it.each([
+    'xhigh',
+    'max',
+  ] as const)('caps Claude Opus 4.1 thinking level %s to the 32,000-token output ceiling', async (thinking) => {
+    queryMock.mockReturnValue(makeQuery([successMessage]));
+
+    await claudeHarnessAdapter.run(invocation({model: 'claude-opus-4-1', thinking}));
+
+    expect(lastQueryOptions()).toMatchObject({
+      model: 'claude-opus-4-1',
+      thinking: {type: 'enabled', budgetTokens: 31_999},
+    });
+    expect(lastQueryOptions()).not.toHaveProperty('effort');
+  });
+
+  it('keeps Claude Opus 4.1 thinking budgets below the output ceiling unchanged', async () => {
+    queryMock.mockReturnValue(makeQuery([successMessage]));
+
+    await claudeHarnessAdapter.run(invocation({model: 'claude-opus-4-1', thinking: 'medium'}));
+
+    expect(lastQueryOptions()).toMatchObject({
+      thinking: {type: 'enabled', budgetTokens: 8_192},
+    });
+  });
+
+  it('resolves every catalog Claude model to capability metadata', async () => {
+    queryMock.mockReturnValue(makeQuery([successMessage]));
+
+    for (const model of CLAUDE_MODEL_LINE) {
+      await claudeHarnessAdapter.run(invocation({model: model.id, thinking: 'low'}));
+
+      expect(lastQueryOptions().thinking).toBeDefined();
+      queryMock.mockClear();
+    }
+  });
+
+  it('keys Claude capability metadata only to known Claude model families', () => {
+    // Reverse direction of the catalog→capability test above: every capability
+    // family must be reachable from the built-in catalog (CLAUDE_MODEL_LINE) or
+    // be a managed shipfox-provider family, and every catalog family must have
+    // a capability row. The adapter's CLAUDE_MODEL_CAPABILITIES keys are also
+    // type-checked against CLAUDE_MODEL_FAMILY_IDS, so a mismatch between the
+    // two lists fails here or at compile time instead of reaching production.
+    const catalogFamilies = new Set(
+      CLAUDE_MODEL_LINE.map(({id}) => id.replace(CLAUDE_SNAPSHOT_DATE_SUFFIX, '')),
+    );
+    const managedFamilies = new Set<string>(CLAUDE_MANAGED_MODEL_FAMILY_IDS);
+    const capabilityFamilies = new Set<string>(CLAUDE_MODEL_FAMILY_IDS);
+
+    for (const familyId of capabilityFamilies) {
+      expect(catalogFamilies.has(familyId) || managedFamilies.has(familyId)).toBe(true);
+    }
+    for (const familyId of catalogFamilies) {
+      expect(capabilityFamilies.has(familyId)).toBe(true);
+    }
+  });
+
+  it('falls back to the nearest supported effort level on an adaptive model', async () => {
+    queryMock.mockReturnValue(makeQuery([successMessage]));
+
+    await claudeHarnessAdapter.run(invocation({model: 'claude-opus-4-6', thinking: 'xhigh'}));
+
+    expect(lastQueryOptions()).toMatchObject({
+      thinking: {type: 'adaptive'},
+      effort: 'high',
+    });
+  });
+
+  it('keeps adaptive thinking and a supported effort level for an adaptive model', async () => {
+    queryMock.mockReturnValue(makeQuery([successMessage]));
+
+    await claudeHarnessAdapter.run(invocation({model: 'claude-opus-4-8', thinking: 'xhigh'}));
+
+    expect(lastQueryOptions()).toMatchObject({
+      model: 'claude-opus-4-8',
+      thinking: {type: 'adaptive'},
+      effort: 'xhigh',
+    });
+  });
+
+  it('uses the override model for the thinking capability lookup when it differs from the invocation model', async () => {
+    configMock.AGENT_CLAUDE_ANTHROPIC_BASE_URL = 'http://127.0.0.1:11434';
+    configMock.AGENT_CLAUDE_ANTHROPIC_MODEL = 'claude-haiku-4-5';
+    queryMock.mockReturnValue(makeQuery([successMessage]));
+
+    await claudeHarnessAdapter.run(invocation({model: 'claude-opus-4-8', thinking: 'medium'}));
+
+    expect(lastQueryOptions()).toMatchObject({
+      model: 'claude-haiku-4-5',
+      thinking: {type: 'enabled', budgetTokens: 8_192},
+    });
+    expect(lastQueryOptions()).not.toHaveProperty('effort');
+  });
+
+  it('sends no effort for a managed Haiku 4.5 step with medium thinking', async () => {
+    queryMock.mockReturnValue(makeQuery([successMessage]));
+
+    const result = await claudeHarnessAdapter.run(
+      invocation({
+        provider: 'shipfox',
+        model: 'claude-haiku-4-5',
+        thinking: 'medium',
+        credentials: {api_key: 'managed-token'},
+        claude: {
+          base_url: 'https://inference.shipfox.dev/v1',
+          auth_token: 'managed-token',
+        },
+      }),
+    );
+
+    expect(result).toEqual({response: 'done'});
+    expect(lastQueryOptions()).toMatchObject({
+      model: 'claude-haiku-4-5',
+      thinking: {type: 'enabled', budgetTokens: 8_192},
+    });
+    expect(lastQueryOptions()).not.toHaveProperty('effort');
+  });
+
+  it('rejects a thinking level the Claude harness does not support', async () => {
+    const result = claudeHarnessAdapter.run(invocation({thinking: 'off'}));
+
+    await expect(result).rejects.toEqual(
+      new AgentConfigError(
+        'Harness "claude" does not support thinking level "off". ' +
+          'Supported levels: low, medium, high, xhigh, max.',
+        'step_config_invalid',
+      ),
+    );
+    expect(queryMock).not.toHaveBeenCalled();
+  });
+
+  it('omits thinking and effort options for a model without capability metadata', async () => {
+    queryMock.mockReturnValue(makeQuery([successMessage]));
+
+    await claudeHarnessAdapter.run(invocation({model: 'claude-sonnet-4', thinking: 'high'}));
+
+    expect(lastQueryOptions()).not.toHaveProperty('thinking');
+    expect(lastQueryOptions()).not.toHaveProperty('effort');
   });
 
   it('injects CLAUDE.md into the user prompt without promoting it to the system prompt', async () => {

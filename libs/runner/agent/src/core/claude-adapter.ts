@@ -9,9 +9,14 @@ import {
   type SDKResultMessage,
   type SDKSystemMessage,
   type SDKUserMessage,
+  type ThinkingConfig,
   tool,
 } from '@anthropic-ai/claude-agent-sdk';
-import {claudeRuntimeConfigSchema, isReservedModelProviderId} from '@shipfox/api-agent-dto';
+import {
+  type ClaudeModelFamilyId,
+  claudeRuntimeConfigSchema,
+  isReservedModelProviderId,
+} from '@shipfox/api-agent-dto';
 import {logger} from '@shipfox/node-opentelemetry';
 import {z} from 'zod';
 import {config} from '#config.js';
@@ -31,6 +36,220 @@ const REQUESTED_PERMISSION_MODE = 'bypassPermissions';
 const MAX_REPOSITORY_INSTRUCTIONS_BYTES = 64 * 1024;
 const REPOSITORY_INSTRUCTIONS_HEADER =
   'Repository instructions; they do not override the task above:';
+const CLAUDE_THINKING_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+
+// Shipfox thinking level → extended-thinking budget for legacy Claude models.
+// Budgets follow Anthropic's extended-thinking rules (minimum 1,024 tokens;
+// max_tokens must exceed the budget) and cap at the ceiling legacy models can
+// actually take: their max output defaults to 32,000 tokens and Claude Code
+// clamps an enabled-thinking budget to max_tokens - 1, so 31,999 is the
+// highest value that reaches the API. Models with a lower output ceiling
+// clamp per-model via `ClaudeModelCapabilities.maxThinkingTokens`.
+const LEGACY_THINKING_BUDGETS: Readonly<Record<string, number>> = {
+  low: 4_096,
+  medium: 8_192,
+  high: 16_384,
+  xhigh: 31_999,
+  max: 31_999,
+};
+
+/**
+ * Per-model Claude capabilities, mirroring the Claude Agent SDK's `ModelInfo`
+ * shape (`supportsEffort`, `supportedEffortLevels`, `supportsAdaptiveThinking`).
+ * The SDK only exposes those fields at runtime through `Query.supportedModels()`,
+ * which requires a live session; the adapter needs the same facts before query
+ * construction, so the supported Claude catalog (the built-in `anthropic`
+ * catalog plus managed catalog entries such as `claude-fable-5`) is mirrored
+ * here as typed compatibility metadata. The table keys are type-checked
+ * against `CLAUDE_MODEL_FAMILY_IDS` from `@shipfox/api-agent-dto` (the
+ * built-in `anthropic` catalog plus managed families), so a capability row
+ * without a catalog entry — or a catalog addition without a capability row —
+ * fails to compile instead of silently dropping thinking control.
+ *
+ * Thinking modes follow Anthropic's per-model table: 4.5 and earlier families
+ * support only budget-based extended thinking and reject `adaptive`; the 4.6
+ * family accepts both (extended deprecated); 4.7 and later accept only
+ * `adaptive`. The `effort` parameter is absent on Haiku 4.5 and Sonnet 4.5, is
+ * `low | medium | high` on Opus 4.5, and gains `max` from the 4.6 family and
+ * `xhigh` from Opus 4.7.
+ */
+interface ClaudeModelCapabilities {
+  readonly supportsAdaptiveThinking: boolean;
+  readonly supportsEffort: boolean;
+  /** Ascending, so the last entry is the highest level the model accepts. */
+  readonly supportedEffortLevels: readonly EffortLevel[];
+  /**
+   * Highest extended-thinking budget the model accepts. Anthropic requires
+   * budget_tokens < max_tokens, so a model whose output caps at 32,000 tokens
+   * (Claude Opus 4.1) accepts at most 31,999. Absent means the shared legacy
+   * table's ceiling (31,999) applies.
+   */
+  readonly maxThinkingTokens?: number;
+}
+
+const CLAUDE_MODEL_CAPABILITIES: Readonly<Record<string, ClaudeModelCapabilities>> = {
+  'claude-haiku-4-5': {
+    supportsAdaptiveThinking: false,
+    supportsEffort: false,
+    supportedEffortLevels: [],
+  },
+  'claude-opus-4-1': {
+    supportsAdaptiveThinking: false,
+    supportsEffort: false,
+    supportedEffortLevels: [],
+    // Output caps at 32,000 tokens; Anthropic requires budget_tokens < max_tokens.
+    maxThinkingTokens: 31_999,
+  },
+  'claude-opus-4-5': {
+    supportsAdaptiveThinking: false,
+    supportsEffort: true,
+    supportedEffortLevels: ['low', 'medium', 'high'],
+  },
+  'claude-opus-4-6': {
+    supportsAdaptiveThinking: true,
+    supportsEffort: true,
+    supportedEffortLevels: ['low', 'medium', 'high', 'max'],
+  },
+  'claude-opus-4-7': {
+    supportsAdaptiveThinking: true,
+    supportsEffort: true,
+    supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+  },
+  'claude-opus-4-8': {
+    supportsAdaptiveThinking: true,
+    supportsEffort: true,
+    supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+  },
+  'claude-sonnet-4-5': {
+    supportsAdaptiveThinking: false,
+    supportsEffort: false,
+    supportedEffortLevels: [],
+  },
+  'claude-sonnet-4-6': {
+    supportsAdaptiveThinking: true,
+    supportsEffort: true,
+    supportedEffortLevels: ['low', 'medium', 'high', 'max'],
+  },
+  'claude-fable-5': {
+    supportsAdaptiveThinking: true,
+    supportsEffort: true,
+    supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+  },
+  'claude-opus-5': {
+    supportsAdaptiveThinking: true,
+    supportsEffort: true,
+    supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+  },
+  'claude-sonnet-5': {
+    supportsAdaptiveThinking: true,
+    supportsEffort: true,
+    supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+  },
+} satisfies Readonly<Record<ClaudeModelFamilyId, ClaudeModelCapabilities>>;
+
+interface ClaudeThinkingOptions {
+  readonly thinking?: ThinkingConfig;
+  readonly effort?: EffortLevel;
+}
+
+// Dated snapshot IDs (claude-haiku-4-5-20251001) resolve to their family row,
+// and dotted managed-catalog IDs (claude-haiku-4.5, claude-opus-4.8) resolve
+// to their dashed family row (claude-haiku-4-5, claude-opus-4-8).
+const MODEL_SNAPSHOT_DATE_SUFFIX = /-\d{8}$/;
+
+function claudeModelCapabilities(model: string): ClaudeModelCapabilities | undefined {
+  const familyId = model.replace(MODEL_SNAPSHOT_DATE_SUFFIX, '').replaceAll('.', '-');
+  return CLAUDE_MODEL_CAPABILITIES[familyId];
+}
+
+/**
+ * Builds the Claude SDK thinking and effort options for the selected model.
+ * Shipfox's cross-harness thinking level is not an Anthropic `effort` level:
+ * legacy families take a token budget and reject `adaptive`, adaptive families
+ * reject a budget, and `effort` exists only on models that advertise it.
+ */
+function claudeThinkingOptions(model: string, thinking: string): ClaudeThinkingOptions {
+  const budget = LEGACY_THINKING_BUDGETS[thinking];
+  if (budget === undefined) {
+    throw new AgentConfigError(
+      `Harness "claude" does not support thinking level "${thinking}". ` +
+        `Supported levels: ${CLAUDE_THINKING_LEVELS.join(', ')}.`,
+      'step_config_invalid',
+    );
+  }
+  const capabilities = claudeModelCapabilities(model);
+  if (capabilities === undefined) {
+    // Neither request shape is universally safe for an unknown model (budget
+    // thinking is rejected by 4.7 and later, adaptive by 4.5 and earlier), so
+    // let the model defaults apply rather than risk an Anthropic 400.
+    logger().warn(
+      {model, thinking},
+      'Unknown Claude model; omitting thinking and effort options so the model defaults apply',
+    );
+    return {};
+  }
+  const thinkingOptions: ClaudeThinkingOptions = capabilities.supportsAdaptiveThinking
+    ? {thinking: {type: 'adaptive'}}
+    : {
+        thinking: {
+          type: 'enabled',
+          budgetTokens: claudeThinkingBudget(model, capabilities, budget),
+        },
+      };
+  return capabilities.supportsEffort
+    ? {...thinkingOptions, effort: claudeEffortLevel(capabilities, thinking, model)}
+    : thinkingOptions;
+}
+
+function claudeThinkingBudget(
+  model: string,
+  capabilities: ClaudeModelCapabilities,
+  requested: number,
+): number {
+  const ceiling = capabilities.maxThinkingTokens;
+  if (ceiling === undefined || requested <= ceiling) return requested;
+  // Anthropic rejects budgets at or above the model's max output (budget_tokens
+  // must stay below max_tokens), so clamp to the model's ceiling.
+  logger().warn(
+    {model, requested, applied: ceiling},
+    'Claude model caps its thinking budget below the requested level; applying the model maximum',
+  );
+  return ceiling;
+}
+
+// Canonical effort ladder, ascending. Each model's `supportedEffortLevels` is a
+// subset of this ladder, so an unsupported request falls back to the nearest
+// level at or below it.
+const EFFORT_LEVELS: readonly EffortLevel[] = ['low', 'medium', 'high', 'xhigh', 'max'];
+
+function claudeEffortLevel(
+  capabilities: ClaudeModelCapabilities,
+  thinking: string,
+  model: string,
+): EffortLevel {
+  const requested = thinking as EffortLevel;
+  if (capabilities.supportedEffortLevels.includes(requested)) return requested;
+  // Fall back to the nearest supported level at or below the requested one,
+  // matching Claude Code's resolution for levels a model does not offer.
+  // Anthropic rejects unsupported levels with HTTP 400, so the request must
+  // never carry one; escalating to the highest supported level would silently
+  // spend more than the user asked for (xhigh is the harness default).
+  const requestedIndex = EFFORT_LEVELS.indexOf(requested);
+  const capped = capabilities.supportedEffortLevels
+    .filter((level) => EFFORT_LEVELS.indexOf(level) <= requestedIndex)
+    .at(-1);
+  if (capped !== undefined) {
+    logger().warn(
+      {model, requested, supported: capabilities.supportedEffortLevels, applied: capped},
+      'Claude model does not support the requested effort level; falling back to the nearest supported level at or below it',
+    );
+    return capped;
+  }
+  throw new AgentConfigError(
+    `Harness "claude" cannot send an effort level for model "${model}".`,
+    'step_config_invalid',
+  );
+}
 
 export const claudeHarnessAdapter: HarnessAdapter = {run: runClaudeAgent};
 
@@ -108,6 +327,9 @@ async function runClaudeAgent(invocation: HarnessInvocation): Promise<HarnessRes
 
   await assertRunnerEgressAllowed(targetUrl, targetLabel);
 
+  const effectiveModel = override?.model ?? model;
+  const thinkingOptions = claudeThinkingOptions(effectiveModel, thinking);
+
   let configDir: string | undefined;
   let claudeQuery: Query | undefined;
   let messages: ClaudeInputStream | undefined;
@@ -125,14 +347,13 @@ async function runClaudeAgent(invocation: HarnessInvocation): Promise<HarnessRes
     claudeQuery = query({
       prompt: messages,
       options: {
-        model: override?.model ?? model,
+        model: effectiveModel,
         cwd,
         permissionMode: REQUESTED_PERMISSION_MODE,
         allowDangerouslySkipPermissions: true,
         settingSources: [],
         strictMcpConfig: true,
-        thinking: {type: 'adaptive'},
-        effort: thinking as EffortLevel,
+        ...thinkingOptions,
         abortController: controller,
         ...claudeToolsOption(tools, override),
         ...claudeSystemPromptOption(),

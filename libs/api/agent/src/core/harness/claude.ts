@@ -1,4 +1,4 @@
-import {type AgentModelOptionDto, CLAUDE_HARNESS} from '@shipfox/api-agent-dto';
+import {CLAUDE_HARNESS, CLAUDE_MODEL_LINE} from '@shipfox/api-agent-dto';
 import {config} from '#config.js';
 import type {HarnessProviderCatalog} from './registry.js';
 
@@ -7,22 +7,7 @@ const ANTHROPIC_VERSION = '2023-06-01';
 const PROBE_MAX_TOKENS = 64;
 const PROBE_PROMPT = 'Reply with OK.';
 
-export const CLAUDE_MODEL_LINE: AgentModelOptionDto[] = [
-  {id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5 (latest)'},
-  {id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5'},
-  {id: 'claude-opus-4-1', label: 'Claude Opus 4.1 (latest)'},
-  {id: 'claude-opus-4-1-20250805', label: 'Claude Opus 4.1'},
-  {id: 'claude-opus-4-5', label: 'Claude Opus 4.5 (latest)'},
-  {id: 'claude-opus-4-5-20251101', label: 'Claude Opus 4.5'},
-  {id: 'claude-opus-4-6', label: 'Claude Opus 4.6'},
-  {id: 'claude-opus-4-7', label: 'Claude Opus 4.7'},
-  {id: 'claude-opus-4-8', label: 'Claude Opus 4.8'},
-  {id: 'claude-sonnet-4-5', label: 'Claude Sonnet 4.5 (latest)'},
-  {id: 'claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4.5'},
-  {id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6'},
-];
-
-export {CLAUDE_HARNESS};
+export {CLAUDE_HARNESS, CLAUDE_MODEL_LINE};
 
 export const claudeHarnessCatalog: HarnessProviderCatalog = {
   listModels: () => CLAUDE_MODEL_LINE,
