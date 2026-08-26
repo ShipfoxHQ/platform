@@ -13,6 +13,14 @@ export interface ObjectStorageS3Profile {
   readonly forcePathStyle: boolean;
 }
 
+export interface ObjectStorageS3BaseProfile {
+  readonly endpoint: string;
+  readonly region: string;
+  readonly bucket?: string | undefined;
+  readonly credentials?: ObjectStorageS3Credentials | undefined;
+  readonly forcePathStyle: boolean;
+}
+
 export interface ObjectStorageS3ProfileOverrides {
   readonly endpoint?: string | undefined;
   readonly region?: string | undefined;
@@ -32,8 +40,8 @@ export const objectStorageConfigSchema = {
     default: 'garage',
   }),
   OBJECT_STORAGE_S3_BUCKET: str({
-    desc: 'Bucket used by Shipfox object-storage consumers. Each consumer uses a separate key prefix. Defaults to shipfox, which dev/garage/bootstrap.sh creates.',
-    default: 'shipfox',
+    desc: 'Optional default bucket used by Shipfox object-storage consumers. Leave it unset when every consumer selects its own bucket. Local development sets it to the shipfox bucket that dev/garage/bootstrap.sh creates.',
+    default: undefined,
   }),
   OBJECT_STORAGE_S3_ACCESS_KEY_ID: str({
     desc: 'Optional access key ID used to authenticate to the shared object store. Set it with OBJECT_STORAGE_S3_SECRET_ACCESS_KEY, or leave both unset to use the standard AWS SDK credential provider chain.',
@@ -51,7 +59,7 @@ export const objectStorageConfigSchema = {
 
 export function loadObjectStorageS3Profile(
   update?: Partial<NodeJS.ProcessEnv>,
-): ObjectStorageS3Profile {
+): ObjectStorageS3BaseProfile {
   const loaded = createConfig(objectStorageConfigSchema, update);
   const credentials = credentialPair(
     loaded.OBJECT_STORAGE_S3_ACCESS_KEY_ID,
@@ -69,7 +77,7 @@ export function loadObjectStorageS3Profile(
 }
 
 export function resolveObjectStorageS3Profile(
-  base: ObjectStorageS3Profile,
+  base: ObjectStorageS3BaseProfile,
   overrides: ObjectStorageS3ProfileOverrides,
   overrideName: string,
 ): ObjectStorageS3Profile {
@@ -79,11 +87,15 @@ export function resolveObjectStorageS3Profile(
   const credentials = hasCredentialOverride
     ? credentialPair(accessKeyId, secretAccessKey, overrideName)
     : base.credentials;
+  const bucket = emptyStringAsUndefined(overrides.bucket) ?? base.bucket;
+  if (!bucket) {
+    throw new Error(`${overrideName}_BUCKET or OBJECT_STORAGE_S3_BUCKET must be set.`);
+  }
 
   return {
     endpoint: overrides.endpoint ?? base.endpoint,
     region: overrides.region ?? base.region,
-    bucket: overrides.bucket ?? base.bucket,
+    bucket,
     credentials,
     forcePathStyle: overrides.forcePathStyle ?? base.forcePathStyle,
   };

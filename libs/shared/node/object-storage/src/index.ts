@@ -1,4 +1,5 @@
 export type {
+  ObjectStorageS3BaseProfile,
   ObjectStorageS3Credentials,
   ObjectStorageS3Profile,
   ObjectStorageS3ProfileOverrides,

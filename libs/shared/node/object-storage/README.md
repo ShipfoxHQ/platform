@@ -4,7 +4,7 @@ Shared Node infrastructure for scoped S3-compatible object storage.
 
 ## What it does
 
-- **Shared S3 profile**: Loads one endpoint, region, bucket, credential pair, and addressing mode.
+- **Shared S3 profile**: Loads common endpoint, region, credentials, and addressing mode, with an optional default bucket.
 - **`S3ObjectStore`**: Restricts object operations to one non-empty key prefix.
 - **Object operations**: Uploads and reads bytes, streams multipart uploads, signs reads, lists keys, and deletes objects.
 - **Client policies**: Uses enforced short timeouts for control operations and lets each consumer bound data-transfer requests when needed.
@@ -15,7 +15,7 @@ Shared Node infrastructure for scoped S3-compatible object storage.
 pnpm add @shipfox/node-object-storage
 ```
 
-Set the `OBJECT_STORAGE_S3_*` variables for the deployment. Leave both credential variables unset to use the AWS SDK credential provider chain.
+Set the shared `OBJECT_STORAGE_S3_*` connection variables for the deployment. Set `OBJECT_STORAGE_S3_BUCKET` when consumers share a default bucket, or leave it unset when every consumer selects its own bucket. Leave both credential variables unset to use the AWS SDK credential provider chain.
 
 ## Usage
 
@@ -23,10 +23,15 @@ Set the `OBJECT_STORAGE_S3_*` variables for the deployment. Leave both credentia
 import {
   createS3ObjectStore,
   objectStorageS3Profile,
+  resolveObjectStorageS3Profile,
 } from '@shipfox/node-object-storage';
 
 const sessions = createS3ObjectStore({
-  profile: objectStorageS3Profile,
+  profile: resolveObjectStorageS3Profile(
+    objectStorageS3Profile,
+    {bucket: 'shipfox-sessions'},
+    'SESSION_STORAGE_S3',
+  ),
   prefix: 'agent-sessions',
   transferRequestTimeoutMs: 300_000,
 });
@@ -42,7 +47,7 @@ sessions.close();
 
 ## Environment
 
-The schema in `src/config.ts` owns the shared S3 variables and their defaults. Consumers can resolve package-specific overrides with `resolveObjectStorageS3Profile`.
+The schema in `src/config.ts` owns the shared S3 variables and their defaults. Consumers resolve package-specific overrides with `resolveObjectStorageS3Profile`. Resolution fails when neither the consumer nor the shared profile selects a bucket.
 
 ## Behavior notes
 
