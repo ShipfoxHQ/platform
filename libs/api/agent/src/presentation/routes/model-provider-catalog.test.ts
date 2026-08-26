@@ -1,4 +1,4 @@
-import type {ManagedModelProvider} from '@shipfox/api-agent-dto';
+import {type ManagedModelProvider, MODEL_PROVIDER_IDS} from '@shipfox/api-agent-dto';
 import {AUTH_USER, buildUserContext, setUserContext} from '@shipfox/api-auth-context';
 import type {AuthMethod, FastifyRequest} from '@shipfox/node-fastify';
 import {ClientError, closeApp, createApp} from '@shipfox/node-fastify';
@@ -64,7 +64,7 @@ describe('model provider catalog route', () => {
         managed_provider_id: null,
         instance_default_provider_id: null,
       });
-      expect(res.json().providers).toHaveLength(37);
+      expect(res.json().providers).toHaveLength(MODEL_PROVIDER_IDS.length);
       for (const provider of res.json().providers) {
         if (provider.support_status === 'supported') {
           expect(provider.models.length).toBeGreaterThan(0);
@@ -136,7 +136,7 @@ describe('model provider catalog route', () => {
         managed_provider_id: 'shipfox',
         instance_default_provider_id: null,
       });
-      expect(res.json().providers).toHaveLength(38);
+      expect(res.json().providers).toHaveLength(MODEL_PROVIDER_IDS.length + 1);
       expect(res.json().providers.at(-1)).toMatchObject({
         id: 'shipfox',
         support_status: 'supported',

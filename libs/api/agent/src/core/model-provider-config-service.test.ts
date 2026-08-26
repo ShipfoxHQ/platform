@@ -56,7 +56,7 @@ describe('testAndSaveModelProviderConfig', () => {
 
     expect(probe).toHaveBeenCalledWith({
       providerId: 'anthropic',
-      model: 'claude-opus-4-8',
+      model: 'claude-opus-5',
       credentials,
     });
     expect(stored).toEqual(config);
@@ -101,7 +101,7 @@ describe('testAndSaveModelProviderConfig', () => {
 
     expect(probe).toHaveBeenCalledWith({
       providerId: 'anthropic',
-      model: 'claude-opus-4-8',
+      model: 'claude-opus-5',
       credentials,
       signal: abortController.signal,
     });
@@ -180,7 +180,7 @@ describe('testAndSaveModelProviderConfig', () => {
     const stored = await getModelProviderConfig({workspaceId, providerId: 'anthropic'});
     expect(probe).toHaveBeenCalledWith({
       providerId: 'anthropic',
-      model: 'claude-opus-4-8',
+      model: 'claude-opus-5',
       credentials,
     });
     expect(stored).toEqual(config);

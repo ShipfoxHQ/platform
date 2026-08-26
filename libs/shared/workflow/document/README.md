@@ -158,7 +158,7 @@ parseWorkflowDocument({
   `model`, `harness`, `thinking`, `provider`, `tools`, and `integrations` are
   valid only on an agent step; using them on a run step is rejected. `thinking`
   is validated against a fixed set (`off`, `minimal`, `low`, `medium`, `high`,
-  `xhigh`). Provider, model, tool, integration connection, and integration
+  `xhigh`, `max`). Provider, model, tool, integration connection, and integration
   catalog checks belong to the model layer, not this parser. The `agent` key is
   reserved for a future step kind and is rejected today. The `tool`,
   `connection`, and `with` fields and the expression `outputs` mapping form are

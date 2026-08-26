@@ -73,7 +73,7 @@ describe('resolveAgentConfig', () => {
     expect(explicit.model).toBe('gpt-5.5-pro');
     expect(workspace.model).toBe('gpt-5.5-pro');
     expect(instance.model).toBe('claude-opus-4-8');
-    expect(workspaceLatest.model).toBe('claude-opus-4-8');
+    expect(workspaceLatest.model).toBe('claude-opus-5');
     expect(catalog.model).toBe('deepseek-v4-pro');
   });
 
@@ -194,7 +194,7 @@ describe('resolveAgentConfig', () => {
     expect(resolved).toEqual({
       harness: 'pi',
       provider: 'openai',
-      model: 'gpt-5.5-pro',
+      model: 'gpt-5.6-sol',
       thinking: 'xhigh',
     });
   });
@@ -300,7 +300,7 @@ describe('resolveAgentConfig', () => {
       },
     );
 
-    expect(resolved.model).toBe('claude-opus-4-8');
+    expect(resolved.model).toBe('claude-opus-5');
   });
 
   test('does not evaluate catalog model fallback before a valid workspace default model', () => {
@@ -323,10 +323,10 @@ describe('resolveAgentConfig', () => {
 
   test('validates thinking against the selected harness', () => {
     const claudeOff = () => resolveAgentConfig({harness: 'claude', thinking: 'off'});
-    const piMax = () => resolveAgentConfig({harness: 'pi', thinking: 'max'});
+    const piMax = resolveAgentConfig({harness: 'pi', thinking: 'max'});
 
     expect(claudeOff).toThrow(UnsupportedHarnessThinkingError);
-    expect(piMax).toThrow(UnsupportedHarnessThinkingError);
+    expect(piMax.thinking).toBe('max');
   });
 
   test('ignores stale provider thinking defaults outside the selected harness', () => {
@@ -369,7 +369,7 @@ describe('resolveAgentConfig', () => {
       },
     );
 
-    expect(resolved.model).toBe('claude-opus-4-8');
+    expect(resolved.model).toBe('claude-opus-5');
   });
 
   test('catalogDefaultAgentResolver uses catalog-only defaults', () => {
@@ -378,7 +378,7 @@ describe('resolveAgentConfig', () => {
     expect(resolved).toEqual({
       harness: 'pi',
       provider: 'openai',
-      model: 'gpt-5.5-pro',
+      model: 'gpt-5.6-sol',
       thinking: 'xhigh',
     });
   });
@@ -412,7 +412,7 @@ describe('createWorkspaceAgentDefaultsResolver', () => {
     expect(resolved).toEqual({
       harness: 'claude',
       provider: 'anthropic',
-      model: 'claude-opus-4-8',
+      model: 'claude-opus-5',
       thinking: 'xhigh',
     });
   });
@@ -425,7 +425,7 @@ describe('createWorkspaceAgentDefaultsResolver', () => {
     expect(resolved).toEqual({
       harness: 'pi',
       provider: 'anthropic',
-      model: 'claude-opus-4-8',
+      model: 'claude-opus-5',
       thinking: 'xhigh',
     });
   });
@@ -467,7 +467,7 @@ describe('createWorkspaceAgentDefaultsResolver', () => {
     expect(resolved).toEqual({
       harness: 'pi',
       provider: 'openai',
-      model: 'gpt-5.5-pro',
+      model: 'gpt-5.6-sol',
       thinking: 'medium',
     });
   });

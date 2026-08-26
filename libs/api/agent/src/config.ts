@@ -55,7 +55,7 @@ export const config = createConfig({
     default: undefined,
   }),
   AGENT_DEFAULT_PROVIDER_THINKING: str({
-    desc: 'Instance-wide default thinking effort used when the resolved provider matches AGENT_DEFAULT_PROVIDER and no workflow or workspace thinking effort is set. Optional. Accepted values are off, minimal, low, medium, high, and xhigh.',
+    desc: 'Instance-wide default thinking effort used when the resolved provider matches AGENT_DEFAULT_PROVIDER and no workflow or workspace thinking effort is set. Optional. Accepted values are off, minimal, low, medium, high, xhigh, and max.',
     choices: AGENT_THINKING_CHOICES,
     default: undefined,
   }),

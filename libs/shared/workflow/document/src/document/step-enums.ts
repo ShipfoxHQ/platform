@@ -7,7 +7,15 @@ export const harnessSchema = z.enum(['pi', 'claude']).meta({
 export type Harness = z.infer<typeof harnessSchema>;
 export const DEFAULT_HARNESS = 'pi' as const satisfies Harness;
 
-export const piAgentThinkingSchema = z.enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh']);
+export const piAgentThinkingSchema = z.enum([
+  'off',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+]);
 export const claudeAgentThinkingSchema = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
 export const agentThinkingSchema = z
   .enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])

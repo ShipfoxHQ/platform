@@ -1,5 +1,7 @@
 import {
   agentThinkingSchema,
+  CLAUDE_MANAGED_MODEL_FAMILY_IDS,
+  CLAUDE_MODEL_LINE,
   DEFAULT_AGENT_THINKING,
   getModelProviderEntry,
   listSupportedModelProviders,
@@ -28,7 +30,7 @@ describe('model provider catalog', () => {
   it('parses the catalog seed', () => {
     const parsed = modelProviderCatalogSeedSchema.array().parse(MODEL_PROVIDER_CATALOG_SEED);
 
-    expect(parsed).toHaveLength(37);
+    expect(parsed).toHaveLength(MODEL_PROVIDER_IDS.length);
   });
 
   it('rejects a supported provider without a default model', () => {
@@ -116,6 +118,65 @@ describe('model provider catalog', () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
+  it('uses the current flagship model as each supported provider default', () => {
+    const defaultModels = Object.fromEntries(
+      MODEL_PROVIDER_CATALOG_SEED.filter((entry) => entry.support_status === 'supported').map(
+        (entry) => [entry.id, entry.default_model],
+      ),
+    );
+
+    expect(defaultModels).toEqual({
+      anthropic: 'claude-opus-5',
+      'ant-ling': 'Ring-2.6-1T',
+      'azure-openai-responses': 'gpt-5.6-sol',
+      baseten: 'zai-org/GLM-5.2',
+      openai: 'gpt-5.6-sol',
+      deepseek: 'deepseek-v4-pro',
+      nvidia: 'nvidia/nemotron-3-ultra-550b-a55b',
+      google: 'gemini-3.1-pro-preview',
+      mistral: 'mistral-large-latest',
+      groq: 'openai/gpt-oss-120b',
+      cerebras: 'gpt-oss-120b',
+      'cloudflare-ai-gateway': 'claude-opus-5',
+      'cloudflare-workers-ai': '@cf/moonshotai/kimi-k2.7-code',
+      xai: 'grok-4.6',
+      openrouter: 'anthropic/claude-opus-5',
+      'vercel-ai-gateway': 'anthropic/claude-opus-5',
+      zai: 'glm-5.3',
+      'zai-coding-cn': 'glm-5.3',
+      opencode: 'claude-opus-5',
+      'opencode-go': 'kimi-k3',
+      huggingface: 'deepseek-ai/DeepSeek-V4-Pro',
+      fireworks: 'accounts/fireworks/models/deepseek-v4-pro',
+      together: 'deepseek-ai/DeepSeek-V4-Pro',
+      'kimi-coding': 'k3-256k',
+      'qwen-token-plan': 'qwen3.8-max',
+      'qwen-token-plan-cn': 'qwen3.8-max',
+      'qwen-token-plan-individual': 'qwen3.8-max',
+      minimax: 'MiniMax-M3',
+      'minimax-cn': 'MiniMax-M3',
+      moonshotai: 'kimi-k3',
+      'moonshotai-cn': 'kimi-k3',
+      xiaomi: 'mimo-v2.5-pro',
+      'xiaomi-token-plan-cn': 'mimo-v2.5-pro',
+      'xiaomi-token-plan-ams': 'mimo-v2.5-pro',
+      'xiaomi-token-plan-sgp': 'mimo-v2.5-pro',
+    });
+  });
+
+  it('offers the latest direct Anthropic models to the Claude harness', () => {
+    const directAnthropicModels = [
+      {id: 'claude-fable-5', label: 'Claude Fable 5'},
+      {id: 'claude-opus-5', label: 'Claude Opus 5'},
+      {id: 'claude-sonnet-5', label: 'Claude Sonnet 5'},
+    ];
+
+    for (const model of directAnthropicModels) {
+      expect(CLAUDE_MODEL_LINE).toContainEqual(model);
+      expect(CLAUDE_MANAGED_MODEL_FAMILY_IDS).not.toContain(model.id);
+    }
+  });
+
   it('defines non-empty supported credential fields with at least one secret field', () => {
     const supportedEntries = MODEL_PROVIDER_CATALOG_SEED.filter(
       (entry) => entry.support_status === 'supported',
@@ -160,7 +221,7 @@ describe('model provider catalog', () => {
 
     const parsed = modelProviderCatalogEntrySchema.array().parse(responseEntries);
 
-    expect(parsed).toHaveLength(37);
+    expect(parsed).toHaveLength(MODEL_PROVIDER_IDS.length);
   });
 
   it('parses a managed provider response entry', () => {
@@ -271,7 +332,7 @@ describe('model provider catalog', () => {
 
     expect(found?.id).toBe('openai');
     expect(missing).toBeUndefined();
-    expect(supportedEntries).toHaveLength(33);
+    expect(supportedEntries).toHaveLength(SUPPORTED_MODEL_PROVIDER_IDS.length);
     expect(supportedEntries.every((entry) => entry.support_status === 'supported')).toBe(true);
   });
 

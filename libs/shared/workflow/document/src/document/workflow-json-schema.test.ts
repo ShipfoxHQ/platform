@@ -66,6 +66,7 @@ describe('buildWorkflowJsonSchema', () => {
       'medium',
       'high',
       'xhigh',
+      'max',
     ]);
     expect(thinkingValuesFor(conditionals, 'claude')).toEqual([
       'low',

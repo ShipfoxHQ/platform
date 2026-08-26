@@ -2075,6 +2075,25 @@ describe('normalizeWorkflowDocument', () => {
     });
   });
 
+  it('accepts max thinking for the Pi harness', () => {
+    const document: WorkflowDocument = {
+      name: 'agent build',
+      jobs: {
+        fix: {
+          steps: [{harness: 'pi', prompt: 'Fix it.', thinking: 'max'}],
+        },
+      },
+    };
+
+    const model = normalizeWorkflowDocument(document);
+
+    expect(model.jobs[0]?.steps[0]).toMatchObject({
+      kind: 'agent',
+      harness: 'pi',
+      thinking: 'max',
+    });
+  });
+
   it('defers an interpolated thinking level to dispatch', () => {
     const document: WorkflowDocument = {
       name: 'agent build',
