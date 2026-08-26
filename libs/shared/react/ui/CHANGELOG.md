@@ -1,5 +1,11 @@
 # @shipfox/react-ui
 
+## 2.3.1
+
+### Patch Changes
+
+- 515b14c: Delay initial tooltip hovers and open adjacent tooltips immediately while the interface is warm.
+
 ## 2.3.0
 
 ### Minor Changes

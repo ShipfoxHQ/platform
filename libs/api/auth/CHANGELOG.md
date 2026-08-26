@@ -1,5 +1,25 @@
 # @shipfox/api-auth
 
+## 17.0.0
+
+### Minor Changes
+
+- a4f56ff: Adds the `requireAdministrationActor` guard to `@shipfox/api-auth-context`. The guard rejects impersonated sessions (`UserContext` carrying `impersonatorId`) with the `admin-role-required` failure on every `/admin` route in the auth, projects, workspaces, and runners modules. It protects the first-owner bootstrap route before the system checks roles.
+- 918d84a: Adds the impersonation mint command and admin route: `POST /admin/auth/users/:user_id/impersonate` mints a short-lived, marked, audited impersonated session for an active, verified, non-administrator user, gated behind the opt-in `AUTH_IMPERSONATION_ENABLED` flag (defaults to `false`). The response DTO `impersonateResponseSchema` carries `token`, `expires_at`, `server_time`, `impersonator_id`, and the target user.
+
+### Patch Changes
+
+- Updated dependencies [a4f56ff]
+- Updated dependencies [5ae8b3d]
+- Updated dependencies [a591e8a]
+- Updated dependencies [918d84a]
+- Updated dependencies [9f898d9]
+  - @shipfox/api-auth-context@17.0.0
+  - @shipfox/api-auth-dto@17.0.0
+  - @shipfox/node-postgres@0.5.1
+  - @shipfox/api-email-challenges@1.1.11
+  - @shipfox/node-outbox@0.2.6
+
 ## 15.0.0
 
 ### Patch Changes

@@ -1,5 +1,23 @@
 # @shipfox/workflow-document
 
+## 3.3.1
+
+### Patch Changes
+
+- 9fdba44: Hardens tool-step validation while the fields stay reserved:
+  - `tool` and `connection` reject interpolation at document parse and at
+    workflow-model normalization (`tool-id-invalid`).
+  - A tool id that is not a standalone id or `family.method` with a single dot
+    fails normalization with `tool-id-invalid`. This covers boundary dots
+    (`issue_write.`, `.issue_read.get`) and a second dot
+    (`issue_write.update.extra`).
+  - The three output-mapping structural failures (a duplicate `result`
+    declaration, non-string mapping values, and values that are not exactly one
+    expression) now emit `tool-output-invalid` instead of `tool-input-invalid`;
+    `tool-input-invalid` stays reserved for input validation failures.
+
+- be5fb95: Upgrade Pi to 0.84.2, refresh its supported provider catalog and flagship defaults, expose current direct Anthropic models to the Claude harness, and allow Pi workflow steps to use `thinking: max`.
+
 ## 3.3.0
 
 ### Minor Changes

@@ -1,5 +1,20 @@
 # @shipfox/client-agent
 
+## 27.0.0
+
+### Patch Changes
+
+- be5fb95: Upgrade Pi to 0.84.2, refresh its supported provider catalog and flagship defaults, expose current direct Anthropic models to the Claude harness, and allow Pi workflow steps to use `thinking: max`.
+- Updated dependencies [5ae8b3d]
+- Updated dependencies [ed4981e]
+- Updated dependencies [515b14c]
+- Updated dependencies [9f898d9]
+- Updated dependencies [be5fb95]
+  - @shipfox/client-shell@27.0.0
+  - @shipfox/api-agent-dto@17.0.0
+  - @shipfox/react-ui@2.3.1
+  - @shipfox/client-ui@27.0.0
+
 ## 26.0.0
 
 ### Patch Changes

@@ -1,5 +1,28 @@
 # @shipfox/api-logs
 
+## 17.0.0
+
+### Major Changes
+
+- 9f898d9: Replaces the logs-only `LOG_STORAGE_S3_*` base configuration with shared `OBJECT_STORAGE_S3_*` settings, per-consumer prefixes, and optional overrides, and adds encrypted agent-session transcript persistence. Self-hosters must migrate their S3 settings and provide `AGENT_SESSION_ENCRYPTION_KEK`; the DTO packages receive matching major versions for the API package-family release without DTO schema changes.
+
+### Patch Changes
+
+- Updated dependencies [a4f56ff]
+- Updated dependencies [ed4981e]
+- Updated dependencies [a591e8a]
+- Updated dependencies [9f898d9]
+- Updated dependencies [9f898d9]
+- Updated dependencies [9fdba44]
+- Updated dependencies [be5fb95]
+  - @shipfox/api-auth-context@17.0.0
+  - @shipfox/api-workflows-dto@17.0.0
+  - @shipfox/node-postgres@0.5.1
+  - @shipfox/api-logs-dto@17.0.0
+  - @shipfox/node-object-storage@0.1.0
+  - @shipfox/workflow-document@3.3.1
+  - @shipfox/node-outbox@0.2.6
+
 ## 16.1.0
 
 ### Patch Changes

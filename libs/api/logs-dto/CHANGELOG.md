@@ -1,5 +1,11 @@
 # @shipfox/api-logs-dto
 
+## 17.0.0
+
+### Major Changes
+
+- 9f898d9: Replaces the logs-only `LOG_STORAGE_S3_*` base configuration with shared `OBJECT_STORAGE_S3_*` settings, per-consumer prefixes, and optional overrides, and adds encrypted agent-session transcript persistence. Self-hosters must migrate their S3 settings and provide `AGENT_SESSION_ENCRYPTION_KEK`; the DTO packages receive matching major versions for the API package-family release without DTO schema changes.
+
 ## 16.0.0
 
 ### Minor Changes

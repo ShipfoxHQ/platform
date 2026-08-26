@@ -1,5 +1,12 @@
 # @shipfox/api-email-challenges
 
+## 1.1.11
+
+### Patch Changes
+
+- Updated dependencies [9f898d9]
+  - @shipfox/node-postgres@0.5.1
+
 ## 1.1.10
 
 ### Patch Changes

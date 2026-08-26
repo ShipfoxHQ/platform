@@ -1,5 +1,11 @@
 # @shipfox/node-pg
 
+## 0.5.1
+
+### Patch Changes
+
+- 9f898d9: Waits for every pooled PostgreSQL connection to close before shared client shutdown completes.
+
 ## 0.5.0
 
 ### Minor Changes

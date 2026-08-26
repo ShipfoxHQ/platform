@@ -1,5 +1,23 @@
 # @shipfox/api-triggers
 
+## 17.0.0
+
+### Patch Changes
+
+- Updated dependencies [a4f56ff]
+- Updated dependencies [ed4981e]
+- Updated dependencies [a591e8a]
+- Updated dependencies [9f898d9]
+- Updated dependencies [9fdba44]
+- Updated dependencies [be5fb95]
+  - @shipfox/api-auth-context@17.0.0
+  - @shipfox/api-workflows-dto@17.0.0
+  - @shipfox/node-postgres@0.5.1
+  - @shipfox/workflow-document@3.3.1
+  - @shipfox/node-outbox@0.2.6
+  - @shipfox/api-definitions-dto@17.0.0
+  - @shipfox/expression@2.4.1
+
 ## 16.1.0
 
 ### Patch Changes

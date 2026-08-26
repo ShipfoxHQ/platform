@@ -1,5 +1,14 @@
 # @shipfox/api-definitions-dto
 
+## 17.0.0
+
+### Patch Changes
+
+- Updated dependencies [9fdba44]
+- Updated dependencies [be5fb95]
+  - @shipfox/workflow-document@3.3.1
+  - @shipfox/expression@2.4.1
+
 ## 16.1.0
 
 ### Minor Changes
