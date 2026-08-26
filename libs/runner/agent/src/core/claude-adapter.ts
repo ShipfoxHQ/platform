@@ -162,6 +162,12 @@ function claudeModelCapabilities(model: string): ClaudeModelCapabilities | undef
   return CLAUDE_MODEL_CAPABILITIES[familyId];
 }
 
+function claudeCodeModel(model: string, usesManagedEndpoint: boolean): string {
+  // Claude Code treats dotted managed catalog IDs as unknown models and then
+  // replaces legacy thinking with adaptive thinking plus its default effort.
+  return usesManagedEndpoint ? model.replaceAll('.', '-') : model;
+}
+
 /**
  * Builds the Claude SDK thinking and effort options for the selected model.
  * Shipfox's cross-harness thinking level is not an Anthropic `effort` level:
@@ -327,7 +333,7 @@ async function runClaudeAgent(invocation: HarnessInvocation): Promise<HarnessRes
 
   await assertRunnerEgressAllowed(targetUrl, targetLabel);
 
-  const effectiveModel = override?.model ?? model;
+  const effectiveModel = override?.model ?? claudeCodeModel(model, invocation.claude !== undefined);
   const thinkingOptions = claudeThinkingOptions(effectiveModel, thinking);
 
   let configDir: string | undefined;

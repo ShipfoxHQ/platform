@@ -784,13 +784,13 @@ describe('claudeHarnessAdapter', () => {
     expect(lastQueryOptions()).not.toHaveProperty('effort');
   });
 
-  it('sends no effort for a managed Haiku 4.5 step with medium thinking', async () => {
+  it('normalizes a managed Haiku 4.5 model for Claude Code and sends no effort', async () => {
     queryMock.mockReturnValue(makeQuery([successMessage]));
 
     const result = await claudeHarnessAdapter.run(
       invocation({
         provider: 'shipfox',
-        model: 'claude-haiku-4-5',
+        model: 'claude-haiku-4.5',
         thinking: 'medium',
         credentials: {api_key: 'managed-token'},
         claude: {
