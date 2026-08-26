@@ -46,6 +46,7 @@ import {type SessionForwarder, startSessionForwarder} from '#core/session-forwar
 
 const KEYLESS_CUSTOM_PROVIDER_API_KEY = 'shipfox-keyless-custom-provider-placeholder';
 const SECRET_HEADER_CREDENTIAL_PREFIX = 'header:';
+const OUTPUT_TOOL_NAME = 'set_output';
 
 type PiThinkingLevel = NonNullable<CreateAgentSessionOptions['thinkingLevel']>;
 type ModelRuntimeInstance = Awaited<ReturnType<typeof ModelRuntime.create>>;
@@ -174,7 +175,7 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
       services,
       model,
       thinkingLevel: thinking as PiThinkingLevel,
-      ...piToolsOption(tools, mcpConfig !== undefined),
+      ...piToolsOption(tools, mcpConfig !== undefined, hasDeclaredOutputs),
       ...(hasDeclaredOutputs ? {customTools: [setOutputTool(collector)]} : {}),
       // Keep the session JSONL in the runner-owned agent-state directory so it forwards from a
       // deterministic path and is cleaned up with the job; pi's default lives under ~/.pi.
@@ -270,10 +271,15 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
 function piToolsOption(
   tools: readonly string[] | undefined,
   hasMcpServers: boolean,
+  hasDeclaredOutputs: boolean,
 ): {tools: string[]} | Record<string, never> {
   if (tools !== undefined) {
-    const needsMcpTool = hasMcpServers && !tools.includes('mcp');
-    return {tools: needsMcpTool ? [...tools, 'mcp'] : [...tools]};
+    const selectedTools = [...tools];
+    if (hasMcpServers && !selectedTools.includes('mcp')) selectedTools.push('mcp');
+    if (hasDeclaredOutputs && !selectedTools.includes(OUTPUT_TOOL_NAME)) {
+      selectedTools.push(OUTPUT_TOOL_NAME);
+    }
+    return {tools: selectedTools};
   }
   return {};
 }
@@ -405,7 +411,7 @@ function isAssistantMessage(message: unknown): message is {
 
 function setOutputTool(collector: OutputCollector) {
   return defineTool({
-    name: 'set_output',
+    name: OUTPUT_TOOL_NAME,
     label: 'Set output',
     description: 'Set one structured output value for this workflow step.',
     promptSnippet: 'set_output records a workflow step output.',

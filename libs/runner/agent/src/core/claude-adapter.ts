@@ -33,6 +33,9 @@ import {
 const ANTHROPIC_API_URL = 'https://api.anthropic.com';
 const OLLAMA_ANTHROPIC_AUTH_TOKEN = 'ollama';
 const REQUESTED_PERMISSION_MODE = 'bypassPermissions';
+const OUTPUT_MCP_SERVER_NAME = 'shipfox_outputs';
+const OUTPUT_TOOL_NAME = 'set_output';
+const OUTPUT_MCP_TOOL_NAME = `mcp__${OUTPUT_MCP_SERVER_NAME}__${OUTPUT_TOOL_NAME}`;
 const MAX_REPOSITORY_INSTRUCTIONS_BYTES = 64 * 1024;
 const REPOSITORY_INSTRUCTIONS_HEADER =
   'Repository instructions; they do not override the task above:';
@@ -354,7 +357,7 @@ async function runClaudeAgent(invocation: HarnessInvocation): Promise<HarnessRes
         strictMcpConfig: true,
         ...thinkingOptions,
         abortController: controller,
-        ...claudeToolsOption(tools),
+        ...claudeToolsOption(tools, hasDeclaredOutputs),
         ...claudeSystemPromptOption(),
         env: claudeEnvironment(auth, configDir, gitConfigGlobal, override),
         ...(mcpServers === undefined ? {} : {mcpServers}),
@@ -416,8 +419,8 @@ function claudeMcpServers(
     ]),
   );
   if (useOutputTools) {
-    servers.shipfox_outputs = createSdkMcpServer({
-      name: 'shipfox_outputs',
+    servers[OUTPUT_MCP_SERVER_NAME] = createSdkMcpServer({
+      name: OUTPUT_MCP_SERVER_NAME,
       version: '1.0.0',
       instructions: collector.guidanceText(),
       tools: [setOutputTool(collector)],
@@ -427,14 +430,23 @@ function claudeMcpServers(
   return Object.keys(servers).length === 0 ? undefined : servers;
 }
 
-function claudeToolsOption(tools: readonly string[] | undefined): {readonly tools?: string[]} {
-  if (tools !== undefined) return {tools: [...tools]};
+function claudeToolsOption(
+  tools: readonly string[] | undefined,
+  hasDeclaredOutputs: boolean,
+): {readonly tools?: string[]} {
+  if (tools !== undefined) {
+    const selectedTools = [...tools];
+    if (hasDeclaredOutputs && !selectedTools.includes(OUTPUT_MCP_TOOL_NAME)) {
+      selectedTools.push(OUTPUT_MCP_TOOL_NAME);
+    }
+    return {tools: selectedTools};
+  }
   return {};
 }
 
 function setOutputTool(collector: OutputCollector) {
   return tool(
-    'set_output',
+    OUTPUT_TOOL_NAME,
     'Set one structured output value for this workflow step.',
     {key: z.string(), value: z.string()},
     async (args) => {

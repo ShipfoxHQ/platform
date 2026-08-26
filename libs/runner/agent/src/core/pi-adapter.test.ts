@@ -517,6 +517,20 @@ describe('piHarnessAdapter', () => {
     );
   });
 
+  it('keeps the output tool enabled when Pi tools are explicitly selected', async () => {
+    const result = piHarnessAdapter.run(
+      invocation({tools: ['read'], outputs: {summary: {type: 'string'}}}),
+    );
+
+    await expect(result).rejects.toThrow('Agent step finished without required outputs: summary');
+    expect(createAgentSessionMock.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        tools: ['read', 'set_output'],
+        customTools: [expect.objectContaining({name: 'set_output'})],
+      }),
+    );
+  });
+
   it('passes selected Pi tool names through unchanged', async () => {
     await piHarnessAdapter.run(invocation({tools: ['read', 'web_search', 'fetch_content']}));
 

@@ -527,6 +527,24 @@ describe('claudeHarnessAdapter', () => {
     expect(lastQueryOptions()).not.toHaveProperty('tools');
   });
 
+  it('keeps the output tool enabled when Claude tools are explicitly selected', async () => {
+    queryMock.mockReturnValue(makeQuery([successMessage, successMessage, successMessage]));
+
+    const result = claudeHarnessAdapter.run(
+      invocation({tools: ['Read'], outputs: {summary: {type: 'string'}}}),
+    );
+
+    await expect(result).rejects.toThrow('Agent step finished without required outputs: summary');
+    expect(lastQueryOptions()).toEqual(
+      expect.objectContaining({
+        tools: ['Read', 'mcp__shipfox_outputs__set_output'],
+        mcpServers: expect.objectContaining({
+          shipfox_outputs: expect.objectContaining({name: 'shipfox_outputs'}),
+        }),
+      }),
+    );
+  });
+
   it('maps Anthropic override egress denial to AgentConfigError', async () => {
     configMock.AGENT_CLAUDE_ANTHROPIC_BASE_URL = 'http://blocked.example.test';
     assertEgressAllowedMock.mockRejectedValue(
