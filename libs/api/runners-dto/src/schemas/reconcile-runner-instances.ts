@@ -23,6 +23,9 @@ export const reconcileRunnerInstancesBodySchema = z
     },
   );
 
+export const runnerJobStopReasonSchema = z.enum(['run_cancelled', 'timed_out']);
+export type RunnerJobStopReasonDto = z.infer<typeof runnerJobStopReasonSchema>;
+
 export const reconcileDesiredIntentSchema = z.enum(['keep', 'terminate']);
 
 export const reconciledBoundJobSchema = z
@@ -31,6 +34,8 @@ export const reconciledBoundJobSchema = z
     workflow_run_attempt_id: z.string().uuid(),
     last_heartbeat_at: z.string().datetime(),
     cancellation_requested_at: z.string().datetime().nullable(),
+    // Optional for compatibility with older runner API responses.
+    cancellation_reason: runnerJobStopReasonSchema.nullable().optional(),
   })
   .strict();
 

@@ -108,6 +108,7 @@ export {
   type RunnerHarnessToolCapabilitiesDto,
   type RunnerInstanceReportEventDto,
   type RunnerInstanceStateDto,
+  type RunnerJobStopReasonDto,
   type RunnerToolCapabilitiesDto,
   reconcileDesiredIntentSchema,
   reconciledBoundJobSchema,
@@ -137,6 +138,7 @@ export {
   runnerEnrollmentResponseSchema,
   runnerFeaturesSchema,
   runnerHarnessToolCapabilitiesSchema,
+  runnerJobStopReasonSchema,
   runnerToolCapabilitiesSchema,
 } from '#schemas/index.js';
 export {

@@ -43,6 +43,13 @@
       "when": 1786106547187,
       "tag": "0005_previous_lenny_balinger",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1787820107205,
+      "tag": "0006_preserve_job_stop_reason",
+      "breakpoints": true
     }
   ]
 }

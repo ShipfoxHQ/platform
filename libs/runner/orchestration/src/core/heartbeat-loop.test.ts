@@ -186,8 +186,12 @@ describe('startHeartbeatLoop', () => {
     handle.stop();
   });
 
-  test('cancel:true aborts the job AbortController and stops the loop', async () => {
-    heartbeatMock.mockResolvedValueOnce({cancel: true, lease_token: 'lease-2'});
+  test('cancel:true aborts the job AbortController with the stop reason and stops the loop', async () => {
+    heartbeatMock.mockResolvedValueOnce({
+      cancel: true,
+      cancellation_reason: 'timed_out',
+      lease_token: 'lease-2',
+    });
     const ac = new AbortController();
 
     const handle = startHeartbeatLoop('job-1', () => 'lease-1', ac, {
@@ -198,6 +202,7 @@ describe('startHeartbeatLoop', () => {
     await vi.advanceTimersByTimeAsync(100);
     expect(heartbeatMock).toHaveBeenCalledTimes(1);
     expect(ac.signal.aborted).toBe(true);
+    expect(ac.signal.reason).toBe('timed_out');
 
     await vi.advanceTimersByTimeAsync(500);
     expect(heartbeatMock).toHaveBeenCalledTimes(1);

@@ -81,6 +81,9 @@ export const workflowsJobExecutionQueuedSchema = z.object({
 });
 export type WorkflowsJobExecutionQueuedEventDto = z.infer<typeof workflowsJobExecutionQueuedSchema>;
 
+export const workflowStopReasonSchema = z.enum(['run_cancelled', 'timed_out']);
+export type WorkflowStopReasonDto = z.infer<typeof workflowStopReasonSchema>;
+
 export const workflowsJobExecutionTerminatedSchema = z.object({
   jobId: nonEmptyStringSchema,
   jobExecutionId: nonEmptyStringSchema,
@@ -88,6 +91,8 @@ export const workflowsJobExecutionTerminatedSchema = z.object({
   workflowRunAttemptId: nonEmptyStringSchema,
   status: workflowRunTerminalStatusSchema,
   statusReason: jobStatusReasonSchema.nullable(),
+  // Optional so consumers can continue to read terminal events emitted before this field existed.
+  cancellationReason: workflowStopReasonSchema.nullable().optional(),
   statusReasonMessage: z.string().nullable().optional(),
 });
 export type WorkflowsJobExecutionTerminatedEventDto = z.infer<

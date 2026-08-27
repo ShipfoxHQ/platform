@@ -28,7 +28,7 @@ export interface HeartbeatLoopHandle {
  * the current one resolves, rejects, or is aborted by the max-stale guard.
  *
  *   tick fires → heartbeat resolves before maxStaleMs ──► schedule next tick
- *                heartbeat returns cancel:true ──────────► jobAc.abort('cancelled'); stop
+ *                heartbeat returns cancel:true ──────────► jobAc.abort(reason); stop
  *                heartbeat returns 404 ──────────────────► jobAc.abort('orphaned');  stop
  *                maxStaleMs elapses ─────────────────────► httpAc.abort(); schedule next tick
  *                other error ────────────────────────────► log warn; schedule next tick
@@ -67,7 +67,11 @@ export function startHeartbeatLoop(
 
     try {
       const capabilities = options.getToolCapabilities?.();
-      const {cancel, lease_token: renewedLeaseToken} = await heartbeat(jobId, sentLeaseToken, {
+      const {
+        cancel,
+        cancellation_reason: cancellationReason,
+        lease_token: renewedLeaseToken,
+      } = await heartbeat(jobId, sentLeaseToken, {
         signal: httpAc.signal,
         ...(capabilities ? {capabilities} : {}),
       });
@@ -77,7 +81,7 @@ export function startHeartbeatLoop(
       }
       if (cancel) {
         logger().info({jobId}, 'Heartbeat returned cancel:true; aborting job');
-        jobAbortController.abort('cancelled');
+        jobAbortController.abort(cancellationReason ?? 'cancelled');
         return;
       }
       scheduleNext();

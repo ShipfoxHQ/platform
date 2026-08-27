@@ -60,6 +60,7 @@ describe('onWorkflowsJobExecutionTerminated', () => {
       workflowRunAttemptId,
       status: 'cancelled',
       statusReason: 'run_cancelled',
+      cancellationReason: 'run_cancelled',
       statusReasonMessage: null,
     };
 
@@ -79,6 +80,7 @@ describe('onWorkflowsJobExecutionTerminated', () => {
       .from(runningJobExecutions)
       .where(eq(runningJobExecutions.jobExecutionId, jobExecutionId));
     expect(lease?.cancellationRequestedAt).toBeInstanceOf(Date);
+    expect(lease?.cancellationReason).toBe('run_cancelled');
   });
 
   it('keeps the reservation while the provider runner is non-terminal', async () => {

@@ -29,6 +29,7 @@ export function toReconcileRunnerInstancesResponseDto(
       workflow_run_attempt_id: string;
       last_heartbeat_at: string;
       cancellation_requested_at: string | null;
+      cancellation_reason?: 'run_cancelled' | 'timed_out' | null;
     } | null;
     desired_intent: ReconcileRunnerInstancesResult['runners'][number]['desiredIntent'];
   }>;
@@ -50,6 +51,9 @@ export function toReconcileRunnerInstancesResponseDto(
             last_heartbeat_at: runner.boundJobExecution.lastHeartbeatAt.toISOString(),
             cancellation_requested_at:
               runner.boundJobExecution.cancellationRequestedAt?.toISOString() ?? null,
+            ...(runner.boundJobExecution.cancellationReason === null
+              ? {}
+              : {cancellation_reason: runner.boundJobExecution.cancellationReason}),
           }
         : null,
       desired_intent: runner.desiredIntent,

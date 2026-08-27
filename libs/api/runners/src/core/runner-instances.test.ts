@@ -116,5 +116,6 @@ function boundJobExecution(params: {
     startedAt: new Date('2025-01-01T00:00:00.000Z'),
     lastHeartbeatAt: new Date('2025-01-01T00:00:00.000Z'),
     cancellationRequestedAt: params.cancellationRequestedAt ?? null,
+    cancellationReason: null,
   };
 }

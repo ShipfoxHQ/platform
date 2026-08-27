@@ -1,8 +1,13 @@
 import {uuidv7PrimaryKey} from '@shipfox/node-drizzle';
 import {sql} from 'drizzle-orm';
-import {check, index, text, timestamp, uuid} from 'drizzle-orm/pg-core';
+import {check, index, pgEnum, text, timestamp, uuid} from 'drizzle-orm/pg-core';
 import {pgTable} from './common.js';
 import {runnerSessions} from './runner-sessions.js';
+
+export const runnerJobStopReasonEnum = pgEnum('runners_job_stop_reason', [
+  'run_cancelled',
+  'timed_out',
+]);
 
 export const runningJobExecutions = pgTable(
   'running_jobs',
@@ -25,6 +30,7 @@ export const runningJobExecutions = pgTable(
     firstHeartbeatAt: timestamp('first_heartbeat_at', {withTimezone: true}),
     lastHeartbeatAt: timestamp('last_heartbeat_at', {withTimezone: true}).notNull().defaultNow(),
     cancellationRequestedAt: timestamp('cancellation_requested_at', {withTimezone: true}),
+    cancellationReason: runnerJobStopReasonEnum('cancellation_reason'),
   },
   (table) => [
     index('runners_running_jobs_no_first_heartbeat_started_idx')

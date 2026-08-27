@@ -227,7 +227,7 @@ describe('POST /runners/jobs/:jobId/heartbeat', () => {
   it('returns 200 + cancel:true after reconcileTerminalJobExecution', async () => {
     const {jobId, jobExecutionId, workflowRunId, workflowRunAttemptId, leaseToken} =
       await claimAvailableJob();
-    await reconcileTerminalJobExecution({jobExecutionId});
+    await reconcileTerminalJobExecution({jobExecutionId, cancellationReason: 'run_cancelled'});
 
     const res = await app.inject({
       method: 'POST',
@@ -236,8 +236,16 @@ describe('POST /runners/jobs/:jobId/heartbeat', () => {
     });
 
     expect(res.statusCode).toBe(200);
-    const body = res.json<{cancel: boolean; lease_token: string}>();
-    expect(body).toEqual({cancel: true, lease_token: expect.any(String)});
+    const body = res.json<{
+      cancel: boolean;
+      lease_token: string;
+      cancellation_reason?: string;
+    }>();
+    expect(body).toEqual({
+      cancel: true,
+      lease_token: expect.any(String),
+      cancellation_reason: 'run_cancelled',
+    });
     const refreshedLease = getLeaseTokenClaims(body.lease_token);
     expect(refreshedLease).toMatchObject({
       jobId,
