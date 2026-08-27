@@ -1,12 +1,10 @@
 import {harnessSchema} from '@shipfox/api-agent-dto';
 import type {AgentInterModuleClient} from '@shipfox/api-agent-dto/inter-module';
 import {agentInterModuleContract} from '@shipfox/api-agent-dto/inter-module';
-import {
-  type AgentStepSessionDescriptorDto,
-  type AgentStepSessionIntentDto,
-  agentStepSessionDescriptorSchema,
-  agentStepSessionIntentSchema,
-  type LogOutcomeDto,
+import type {
+  AgentStepSessionDescriptorDto,
+  AgentStepSessionIntentDto,
+  LogOutcomeDto,
 } from '@shipfox/api-workflows-dto';
 import {
   coerceStepOutputs,
@@ -48,6 +46,7 @@ import {
   StepNotFoundError,
   StepNotRunningError,
 } from './errors.js';
+import {readAgentStepSessionIntent} from './step-config/agent.js';
 import {assembleStepDispatchContext} from './step-config/assemble-run-context.js';
 import {completeStepDispatchConfig} from './step-config/complete-step-dispatch-config.js';
 import type {WorkflowEvaluationContext} from './step-config/workflow-evaluation-context.js';
@@ -92,6 +91,7 @@ interface PendingSessionClaim {
   readonly stepId: string;
   readonly attempt: number;
   readonly stepAttemptId: string | undefined;
+  readonly session: AgentStepSessionIntentDto;
   readonly config: Record<string, unknown>;
   readonly evaluationTrace: readonly PersistedEvaluationTraceEntry[] | null;
   readonly workflowContext: Awaited<ReturnType<typeof getWorkflowContextForJob>>;
@@ -152,7 +152,8 @@ async function nextStepForJobExecutionInTransaction(
   const running = steps.find((step) => step.status === 'running');
   const hasRunningStep = running !== undefined;
   if (hasRunningStep) {
-    const session = running.type === 'agent' ? sessionIntentFromConfig(running.config) : undefined;
+    const session =
+      running.type === 'agent' ? readAgentStepSessionIntent(running.config) : undefined;
     if (session !== undefined) {
       const jobExecution = await getJobExecutionById(jobExecutionId, tx);
       if (!jobExecution) throw new JobNotFoundError(jobExecutionId);
@@ -183,6 +184,7 @@ async function nextStepForJobExecutionInTransaction(
         stepId: running.id,
         attempt: running.currentAttempt,
         stepAttemptId,
+        session,
         config: running.config,
         evaluationTrace: currentAttempt?.evaluationTrace ?? running.evaluationTrace,
         workflowContext,
@@ -321,7 +323,7 @@ async function dispatchPendingStepWithConfigPlan({
       resolveAgentDefaults: agent ? createAgentDefaultsResolver(agent, null) : undefined,
       definitionId: jobExecution.jobId,
     });
-    const session = sessionIntentFromConfig(completed.config);
+    const session = completed.sessionIntent;
 
     // Persist the attempt and resolved intent before calling the Agent module. The
     // claim is completed after this Workflows transaction commits, so a rollback
@@ -352,6 +354,7 @@ async function dispatchPendingStepWithConfigPlan({
         stepId: pending.id,
         attempt: pending.currentAttempt,
         stepAttemptId,
+        session,
         config: step.config,
         evaluationTrace: completed.trace,
         workflowContext,
@@ -396,13 +399,6 @@ async function dispatchPendingStepWithConfigPlan({
   }
 }
 
-type StepSessionIntent = AgentStepSessionIntentDto;
-
-function sessionIntentFromConfig(config: Record<string, unknown>): StepSessionIntent | undefined {
-  const parsed = agentStepSessionIntentSchema.safeParse(config.session);
-  return parsed.success ? parsed.data : undefined;
-}
-
 function configHarness(config: Record<string, unknown>): 'pi' | 'claude' | undefined {
   const parsed = harnessSchema.safeParse(config.harness);
   return parsed.success ? parsed.data : undefined;
@@ -411,20 +407,11 @@ function configHarness(config: Record<string, unknown>): 'pi' | 'claude' | undef
 async function claimStepSessionForDispatch(params: {
   readonly config: Record<string, unknown>;
   readonly stepAttemptId: string | undefined;
+  readonly session: AgentStepSessionIntentDto;
   readonly workflowContext: Awaited<ReturnType<typeof getWorkflowContextForJob>>;
   readonly agent?: AgentInterModuleClient | undefined;
 }): Promise<Record<string, unknown>> {
-  const rawSession = params.config.session;
-  const session = sessionIntentFromConfig(params.config);
-  if (rawSession === undefined || rawSession === null) return params.config;
-  if (session === undefined) {
-    if (agentStepSessionDescriptorSchema.safeParse(rawSession).success) return params.config;
-    throw new AgentStepSessionClaimError(
-      'agent_session_key_invalid',
-      'Agent session configuration is invalid',
-    );
-  }
-  if (session.key.trim().length === 0) {
+  if (params.session.key.trim().length === 0) {
     throw new AgentStepSessionClaimError(
       'agent_session_key_invalid',
       'Agent session key is invalid',
@@ -451,10 +438,10 @@ async function claimStepSessionForDispatch(params: {
       workspaceId: params.workflowContext.workspaceId,
       projectId: params.workflowContext.projectId,
       workflowRunAttemptId: params.workflowContext.workflowRunAttemptId,
-      key: session.key,
+      key: params.session.key,
       harness,
       stepAttemptId: params.stepAttemptId,
-      mode: session.mode,
+      mode: params.session.mode,
     });
   } catch (error) {
     if (!isInterModuleKnownError(agentInterModuleContract.methods.claimSession, error)) {
@@ -485,6 +472,7 @@ async function completePendingSessionClaim(
     config = await claimStepSessionForDispatch({
       config: pending.config,
       stepAttemptId: pending.stepAttemptId,
+      session: pending.session,
       workflowContext: pending.workflowContext,
       agent: pending.agent,
     });

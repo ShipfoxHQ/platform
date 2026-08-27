@@ -8,6 +8,10 @@ import {
 } from '@shipfox/api-agent-dto';
 import {agentInterModuleContract} from '@shipfox/api-agent-dto/inter-module';
 import type {WorkflowModel} from '@shipfox/api-definitions-dto';
+import {
+  type AgentStepSessionIntentDto,
+  agentStepSessionIntentSchema,
+} from '@shipfox/api-workflows-dto';
 import type {ResolvedField, SiteResolvedField} from '@shipfox/expression';
 import {isInterModuleKnownError} from '@shipfox/inter-module';
 import type {AgentThinking} from '@shipfox/workflow-document';
@@ -91,9 +95,9 @@ export async function completeAgentConfig(params: {
   readonly resolveAgentDefaults?: AgentDefaultsResolver | undefined;
   readonly definitionId: string;
   readonly trace: PersistedEvaluationTraceEntry[];
-}): Promise<void> {
+}): Promise<AgentStepSessionIntentDto | undefined> {
   const agent = params.plan.agent;
-  if (agent === undefined) return;
+  if (agent === undefined) return undefined;
 
   const prompt =
     agent.prompt === undefined
@@ -136,15 +140,17 @@ export async function completeAgentConfig(params: {
   params.config.model = defaults.model;
   params.config.thinking = defaults.thinking;
   params.config.prompt = prompt;
+  let sessionIntent: AgentStepSessionIntentDto | undefined;
   if (agent.session !== undefined) {
-    params.config.session = {
+    sessionIntent = {
       key: completeAgentField({
         field: 'agent.session',
         template: agent.session.key,
         params,
       }),
       mode: agent.session.mode,
-    };
+    } satisfies AgentStepSessionIntentDto;
+    params.config.session = sessionIntent;
   }
   if (agent.tools !== undefined) params.config.tools = [...agent.tools];
   const integrations = agent.integrations === undefined ? undefined : [...agent.integrations];
@@ -153,6 +159,20 @@ export async function completeAgentConfig(params: {
     agent.mcpServers ??
     (integrations === undefined ? undefined : agentIntegrationMcpServers(integrations));
   if (mcpServers !== undefined) params.config.mcpServers = [...mcpServers];
+  return sessionIntent;
+}
+
+/**
+ * Decodes the intent retained in a running step after the dispatch transaction
+ * has committed. The shared schema is the single source of truth for this
+ * recovery boundary; normal dispatches receive the typed value directly from
+ * completeAgentConfig instead.
+ */
+export function readAgentStepSessionIntent(
+  config: Record<string, unknown>,
+): AgentStepSessionIntentDto | undefined {
+  const parsed = agentStepSessionIntentSchema.safeParse(config.session);
+  return parsed.success ? parsed.data : undefined;
 }
 
 function completeAgentField(args: {

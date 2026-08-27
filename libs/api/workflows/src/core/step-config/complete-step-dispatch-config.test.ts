@@ -151,6 +151,7 @@ describe('completeStepDispatchConfig', () => {
     });
 
     expect(result.config.session).toEqual({key: 'triage-abc123', mode: 'fork'});
+    expect(result.sessionIntent).toEqual({key: 'triage-abc123', mode: 'fork'});
     expect(result.trace).toEqual(
       expect.arrayContaining([expect.objectContaining({field: 'agent.session'})]),
     );
