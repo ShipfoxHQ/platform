@@ -68,6 +68,19 @@ const releaseActions = [
   ['released', 'A release is published from a pre-release.'],
 ] as const satisfies readonly GithubWebhookActionDetail[];
 
+const workflowJobActions = [
+  ['completed', 'A job in a workflow run finishes.'],
+  ['in_progress', 'A job in a workflow run started processing on a runner.'],
+  ['queued', 'A job in a workflow run was created.'],
+  ['waiting', 'A job in a workflow run was created and is waiting for approvals.'],
+] as const satisfies readonly GithubWebhookActionDetail[];
+
+const workflowRunActions = [
+  ['completed', 'A workflow run finishes.'],
+  ['in_progress', 'A workflow run started processing on a runner.'],
+  ['requested', 'A workflow run was triggered.'],
+] as const satisfies readonly GithubWebhookActionDetail[];
+
 function githubActionEvents(
   family: string,
   actions: readonly GithubWebhookActionDetail[],
@@ -97,5 +110,7 @@ export const githubEventCatalog = {
     ...githubActionEvents('pull_request_review_comment', pullRequestReviewCommentActions),
     ...githubActionEvents('issues', issueActions),
     ...githubActionEvents('release', releaseActions),
+    ...githubActionEvents('workflow_job', workflowJobActions),
+    ...githubActionEvents('workflow_run', workflowRunActions),
   ],
 } as const satisfies IntegrationEventCatalog;
