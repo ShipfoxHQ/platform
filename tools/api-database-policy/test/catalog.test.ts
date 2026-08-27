@@ -20,9 +20,11 @@ import {
   dedupeExpectedObjects,
   type ExpectedCatalogObject,
   expectedHistoryForUnit,
+  expectedObjectsAfterMigrations,
   formatCatalogJsonReport,
   migrationHistoryName,
   type PostgresCatalog,
+  parseMigrationChanges,
   parseMigrationSql,
 } from '../src/catalog.js';
 
@@ -184,6 +186,31 @@ describe('PostgreSQL catalog verifier', () => {
           schemaName: 'public',
         },
       ],
+    );
+  });
+
+  test('removes dropped tables and dependent indexes from catalog expectations', () => {
+    const initialChanges = parseMigrationChanges({
+      source: `
+        CREATE TABLE "agent_jobs" ("id" uuid NOT NULL);
+        CREATE TABLE "agent_rate_limits" ("id" uuid NOT NULL);
+        CREATE UNIQUE INDEX "agent_rate_limits_window_unique" ON "agent_rate_limits" USING btree ("id");
+        CREATE INDEX "agent_rate_limits_expires_at_idx" ON "agent_rate_limits" USING btree ("id");
+      `,
+      sourcePath: 'test/fixtures/catalog/0000_initial.sql',
+      unit: agentUnit,
+    });
+    const removalChanges = parseMigrationChanges({
+      source: 'DROP TABLE IF EXISTS "agent_rate_limits" CASCADE;',
+      sourcePath: 'test/fixtures/catalog/0001_remove_rate_limits.sql',
+      unit: agentUnit,
+    });
+
+    const objects = expectedObjectsAfterMigrations([...initialChanges, ...removalChanges]);
+
+    assert.deepEqual(
+      objects.map(({kind, name}) => `${kind}:${name}`),
+      ['table:agent_jobs'],
     );
   });
 

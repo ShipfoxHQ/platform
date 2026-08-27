@@ -23,6 +23,7 @@ export interface ExpectedCatalogObject {
   migrationUnitId: string;
   namespace: string;
   relationName?: string;
+  relationSchemaName?: string;
   sourcePath: string;
   line: number;
 }
@@ -164,11 +165,17 @@ interface ParsedTableRange {
 }
 
 interface ParsedMigrationStatement {
+  operation: 'create' | 'drop';
   kind: Exclude<CatalogObjectKind, 'migration-history' | 'schema'> | 'type';
   name: ParsedIdentifier;
   relationName?: string;
   relationSchemaName?: string;
   start: number;
+}
+
+export interface ParsedMigrationChange {
+  operation: 'create' | 'drop';
+  object: ExpectedCatalogObject;
 }
 
 const identifierStartExpression = /[A-Za-z_]/;
@@ -178,6 +185,8 @@ const dollarQuoteTagPartExpression = /[A-Za-z0-9_]/;
 const enumExpression = /\bAS\s+ENUM\b/i;
 const ifNotExistsExpression = /^IF\s+NOT\s+EXISTS\b/i;
 const ifExistsExpression = /^IF\s+EXISTS\b/i;
+const concurrentlyExpression = /^CONCURRENTLY\b/i;
+const dropConstraintExpression = /\bDROP\s+CONSTRAINT\b/i;
 const whitespaceExpression = /\s/;
 const postgresIdentifierLimit = 63;
 
@@ -417,15 +426,22 @@ function addParsedStatement(
   source: string,
   match: RegExpExecArray,
   kind: ParsedMigrationStatement['kind'],
+  operation: ParsedMigrationStatement['operation'] = 'create',
 ): ParsedMigrationStatement | undefined {
-  const nameOffset = skipWhitespace(source, (match.index ?? 0) + match[0].length);
-  const afterIfNotExists = ifNotExistsExpression.exec(source.slice(nameOffset));
+  let nameOffset = skipWhitespace(source, (match.index ?? 0) + match[0].length);
+  if (operation === 'drop' && kind === 'index') {
+    const concurrently = concurrentlyExpression.exec(source.slice(nameOffset));
+    if (concurrently) nameOffset += concurrently[0].length;
+  }
+  const existsExpression = operation === 'drop' ? ifExistsExpression : ifNotExistsExpression;
+  const afterIfExists = existsExpression.exec(source.slice(nameOffset));
   const parsedName = readQualifiedIdentifier(
     source,
-    afterIfNotExists ? nameOffset + afterIfNotExists[0].length : nameOffset,
+    afterIfExists ? nameOffset + afterIfExists[0].length : nameOffset,
   );
   if (!parsedName) return undefined;
   const statement: ParsedMigrationStatement = {
+    operation,
     kind,
     name: parsedName,
     start: match.index ?? 0,
@@ -463,6 +479,32 @@ function parseMigrationStatements(source: string): ParsedMigrationStatement[] {
     }
   }
 
+  const dropExpression =
+    /\bDROP\s+((?:MATERIALIZED\s+VIEW|FOREIGN\s+TABLE|TABLE|TYPE|INDEX|SEQUENCE|VIEW|TRIGGER))\b/gi;
+  match = dropExpression.exec(searchableSource);
+  while (match) {
+    const dropMatch = match;
+    match = dropExpression.exec(searchableSource);
+    const keyword = dropMatch[1]?.toLowerCase();
+    if (!keyword) continue;
+    let kind = keyword as ParsedMigrationStatement['kind'];
+    if (keyword === 'materialized view') kind = 'view';
+    if (keyword === 'foreign table') kind = 'table';
+    const statement = addParsedStatement(statements, source, dropMatch, kind, 'drop');
+    if (!statement) continue;
+    const end = statementEnd(source, statement.name.end);
+    if (kind === 'trigger') {
+      const onOffset = firstKeywordOffset(searchableSource, 'ON', statement.name.end, end);
+      if (onOffset !== -1) {
+        const relation = readQualifiedIdentifier(source, onOffset + 2);
+        if (relation) {
+          statement.relationName = relation.name;
+          if (relation.schemaName) statement.relationSchemaName = relation.schemaName;
+        }
+      }
+    }
+  }
+
   const alterExpression = /\bALTER\s+TABLE\b/gi;
   const parsedConstraintOffsets = new Set<number>();
   match = alterExpression.exec(searchableSource);
@@ -481,7 +523,13 @@ function parseMigrationStatements(source: string): ParsedMigrationStatement[] {
     if (constraintOffset === -1) continue;
     const constraint = readIdentifier(source, constraintOffset + 'CONSTRAINT'.length);
     if (!constraint) continue;
+    const operation: ParsedMigrationStatement['operation'] = dropConstraintExpression.test(
+      searchableSource.slice(table.end, end),
+    )
+      ? 'drop'
+      : 'create';
     statements.push({
+      operation,
       kind: 'constraint',
       name: constraint,
       relationName: table.name,
@@ -513,6 +561,7 @@ function parseMigrationStatements(source: string): ParsedMigrationStatement[] {
         (constraintMatch.index ?? 0) <= candidate.end,
     );
     statements.push({
+      operation: 'create',
       kind: 'constraint',
       name,
       ...(range?.name ? {relationName: range.name} : {}),
@@ -533,28 +582,90 @@ export function parseMigrationSql({
   sourcePath: string;
   unit: DatabaseMigrationUnit;
 }): ExpectedCatalogObject[] {
-  const result: ExpectedCatalogObject[] = [];
+  return migrationChangesForSource({source, sourcePath, unit})
+    .filter((change) => change.operation === 'create')
+    .map(({object}) => object);
+}
+
+export function parseMigrationChanges({
+  source,
+  sourcePath,
+  unit,
+}: {
+  source: string;
+  sourcePath: string;
+  unit: DatabaseMigrationUnit;
+}): ParsedMigrationChange[] {
+  return migrationChangesForSource({source, sourcePath, unit, sortBySourcePosition: true});
+}
+
+function migrationChangesForSource({
+  source,
+  sourcePath,
+  unit,
+  sortBySourcePosition = false,
+}: {
+  source: string;
+  sourcePath: string;
+  unit: DatabaseMigrationUnit;
+  sortBySourcePosition?: boolean;
+}): ParsedMigrationChange[] {
   const searchableSource = maskSqlForStatements(source);
-  for (const statement of parseMigrationStatements(source)) {
+  const statements = parseMigrationStatements(source);
+  if (sortBySourcePosition) statements.sort((left, right) => left.start - right.start);
+  return statements.flatMap((statement): ParsedMigrationChange[] => {
     if (statement.kind === 'type') {
       const end = statementEnd(source, statement.name.end);
       const statementText = searchableSource.slice(statement.name.end, end);
-      if (!enumExpression.test(statementText)) continue;
+      if (!enumExpression.test(statementText)) return [];
     }
     const kind = statement.kind === 'type' ? 'enum' : statement.kind;
-    result.push({
-      kind,
-      schemaName: statement.name.schemaName ?? 'public',
-      name: statement.name.name,
-      ownerId: unit.ownerId,
-      migrationUnitId: unit.id,
-      namespace: unit.namespace,
-      ...(statement.relationName ? {relationName: statement.relationName} : {}),
-      sourcePath,
-      line: lineNumber(source, statement.start),
-    });
+    return [
+      {
+        operation: statement.operation,
+        object: {
+          kind,
+          schemaName: statement.name.schemaName ?? 'public',
+          name: statement.name.name,
+          ownerId: unit.ownerId,
+          migrationUnitId: unit.id,
+          namespace: unit.namespace,
+          ...(statement.relationName ? {relationName: statement.relationName} : {}),
+          ...(statement.relationSchemaName
+            ? {relationSchemaName: statement.relationSchemaName}
+            : {}),
+          sourcePath,
+          line: lineNumber(source, statement.start),
+        },
+      },
+    ];
+  });
+}
+
+export function expectedObjectsAfterMigrations(
+  changes: readonly ParsedMigrationChange[],
+): ExpectedCatalogObject[] {
+  const activeObjects = new Map<string, ExpectedCatalogObject>();
+  for (const change of changes) {
+    const {object} = change;
+    const key = objectKey(object.kind, object.schemaName, object.name);
+    if (change.operation === 'create') {
+      activeObjects.set(key, object);
+      continue;
+    }
+
+    activeObjects.delete(key);
+    if (object.kind !== 'table') continue;
+    for (const [candidateKey, candidate] of activeObjects) {
+      if (
+        candidate.relationName === object.name &&
+        (candidate.relationSchemaName ?? 'public') === object.schemaName
+      ) {
+        activeObjects.delete(candidateKey);
+      }
+    }
   }
-  return result;
+  return dedupeExpectedObjects([...activeObjects.values()]);
 }
 
 export function migrationHistoryName(namespace: string): string {
