@@ -34,10 +34,6 @@ export const config = createConfig({
     desc: 'Comma-separated labels that only installation-scope provisioners may advertise. Any other provisioner or runner has them removed.',
     default: '',
   }),
-  RUNNERS_RATE_LIMIT_TIMEOUT_MS: num({
-    desc: 'Maximum time, in milliseconds, a runners rate-limit storage check may wait before the request fails closed.',
-    default: 250,
-  }),
   RESERVATION_TTL_SECONDS: num({
     desc: 'Activation grace period for a rebound runner reservation, in seconds. A runner without a session can be rebound again only after this deadline. It is also the default lifetime for launch reservations when a provisioner does not request a provider-specific value.',
     default: 60,
@@ -227,14 +223,6 @@ if (
   throw new Error(
     `RUNNER_ASSIGNMENT_POLL_INTERVAL_MS (${config.RUNNER_ASSIGNMENT_POLL_INTERVAL_MS}) must be a whole number >= 0.`,
   );
-}
-
-for (const [name, value] of [
-  ['RUNNERS_RATE_LIMIT_TIMEOUT_MS', config.RUNNERS_RATE_LIMIT_TIMEOUT_MS],
-] as const) {
-  if (!Number.isInteger(value) || value < 1) {
-    throw new Error(`${name} (${value}) must be a whole number >= 1.`);
-  }
 }
 
 if (!Number.isInteger(config.RESERVATION_TTL_SECONDS) || config.RESERVATION_TTL_SECONDS < 1) {

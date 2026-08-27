@@ -125,29 +125,6 @@ describe('reservation TTL ceiling validation', () => {
   });
 });
 
-describe.each(['RUNNERS_RATE_LIMIT_TIMEOUT_MS'] as const)('%s validation', (name) => {
-  afterEach(() => {
-    vi.unstubAllEnvs();
-    vi.resetModules();
-  });
-
-  it.each(['0', '-5', '1.5'])('fails startup when the value is %s', async (value) => {
-    vi.stubEnv(name, value);
-    vi.resetModules();
-
-    await expect(import('#config.js')).rejects.toThrow(name);
-  });
-
-  it('accepts a whole number >= 1', async () => {
-    vi.stubEnv(name, '1');
-    vi.resetModules();
-
-    const {config} = await import('#config.js');
-
-    expect(config[name]).toBe(1);
-  });
-});
-
 describe('RUNNER_NO_FIRST_HEARTBEAT_GRACE_SECONDS validation', () => {
   afterEach(() => {
     vi.unstubAllEnvs();

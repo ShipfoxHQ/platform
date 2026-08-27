@@ -56,7 +56,6 @@
     "@shipfox/node-opentelemetry": "workspace:*",
     "@shipfox/node-outbox": "workspace:*",
     "@shipfox/node-postgres": "workspace:*",
-    "@shipfox/node-rate-limit": "workspace:*",
     "@shipfox/node-temporal": "workspace:*",
     "@shipfox/node-tokens": "workspace:*",
     "@shipfox/runner-labels": "workspace:*",
