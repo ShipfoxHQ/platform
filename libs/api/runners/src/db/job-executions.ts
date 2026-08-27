@@ -554,10 +554,7 @@ export async function expireStuckJobExecutions(params: {
     await tx.execute(sql`set transaction isolation level repeatable read read only`);
     const [counts] = await tx
       .select({
-        staleCount: sql<number>`count(*) filter (where ${and(
-          stalePredicate,
-          isNotNull(runningJobExecutions.firstHeartbeatAt),
-        )})`,
+        staleCount: sql<number>`count(*) filter (where ${stalePredicate})`,
         liveLeaseCount: count(),
       })
       .from(runningJobExecutions);
