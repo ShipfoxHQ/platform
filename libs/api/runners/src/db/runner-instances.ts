@@ -80,82 +80,84 @@ export async function authorizeRunnerTermination(params: {
   providerRunnerId: string;
   reason: string;
 }): Promise<TerminationAuthorizationResult> {
-  return await db().transaction(async (tx) => {
-    const [runner] = await tx
-      .select({
-        id: providerRunners.id,
-        terminationAuthorizedAt: providerRunners.terminationAuthorizedAt,
-        terminationReason: providerRunners.terminationReason,
-      })
-      .from(providerRunners)
-      .where(
-        and(
-          eq(providerRunners.provisionerId, params.provisionerId),
-          eq(providerRunners.providerRunnerId, params.providerRunnerId),
-        ),
-      )
-      .limit(1)
-      .for('update');
+  return await db().transaction((tx) => authorizeRunnerTerminationTx(tx, params));
+}
 
-    if (!runner) {
+async function authorizeRunnerTerminationTx(
+  tx: Tx,
+  params: {provisionerId: string; providerRunnerId: string; reason: string},
+): Promise<TerminationAuthorizationResult> {
+  const [runner] = await tx
+    .select({
+      id: providerRunners.id,
+      terminationAuthorizedAt: providerRunners.terminationAuthorizedAt,
+      terminationReason: providerRunners.terminationReason,
+    })
+    .from(providerRunners)
+    .where(
+      and(
+        eq(providerRunners.provisionerId, params.provisionerId),
+        eq(providerRunners.providerRunnerId, params.providerRunnerId),
+      ),
+    )
+    .limit(1)
+    .for('update');
+
+  if (!runner) {
+    logger().warn(
+      {provisionerId: params.provisionerId, providerRunnerId: params.providerRunnerId},
+      'termination authorization rejected for unknown runner',
+    );
+    return {desiredIntent: 'keep', terminationAuthorizedAt: null, terminationReason: null};
+  }
+
+  if (!runner.terminationAuthorizedAt || !runner.terminationReason) {
+    if (!terminationReasons.has(params.reason)) {
       logger().warn(
-        {provisionerId: params.provisionerId, providerRunnerId: params.providerRunnerId},
-        'termination authorization rejected for unknown runner',
+        {
+          provisionerId: params.provisionerId,
+          providerRunnerId: params.providerRunnerId,
+          reason: params.reason,
+        },
+        'termination authorization rejected for unknown reason',
       );
       return {desiredIntent: 'keep', terminationAuthorizedAt: null, terminationReason: null};
     }
-
-    if (!runner.terminationAuthorizedAt || !runner.terminationReason) {
-      if (!terminationReasons.has(params.reason)) {
-        logger().warn(
-          {
-            provisionerId: params.provisionerId,
-            providerRunnerId: params.providerRunnerId,
-            reason: params.reason,
-          },
-          'termination authorization rejected for unknown reason',
-        );
-        return {desiredIntent: 'keep', terminationAuthorizedAt: null, terminationReason: null};
-      }
-
-      const reason = params.reason as RunnerTerminationReason;
-      const gate = terminationReasonGate[reason];
-      if (!config[gate]) {
-        logger().warn(
-          {provisionerId: params.provisionerId, providerRunnerId: params.providerRunnerId, reason},
-          'termination authorization rejected by disabled reason gate',
-        );
-        return {desiredIntent: 'keep', terminationAuthorizedAt: null, terminationReason: null};
-      }
-
-      const authorizedAt = new Date();
-      const [authorized] = await tx
-        .update(providerRunners)
-        .set({
-          terminationAuthorizedAt: authorizedAt,
-          terminationReason: reason,
-          updatedAt: authorizedAt,
-        })
-        .where(eq(providerRunners.id, runner.id))
-        .returning({
-          terminationAuthorizedAt: providerRunners.terminationAuthorizedAt,
-          terminationReason: providerRunners.terminationReason,
-        });
-      if (!authorized?.terminationAuthorizedAt || !authorized.terminationReason)
-        throw new Error('Termination authorization was not persisted');
-      return {
-        desiredIntent: 'terminate',
-        terminationAuthorizedAt: authorized.terminationAuthorizedAt,
-        terminationReason: authorized.terminationReason,
-      };
+    const reason = params.reason as RunnerTerminationReason;
+    if (!config[terminationReasonGate[reason]]) {
+      logger().warn(
+        {provisionerId: params.provisionerId, providerRunnerId: params.providerRunnerId, reason},
+        'termination authorization rejected by disabled reason gate',
+      );
+      return {desiredIntent: 'keep', terminationAuthorizedAt: null, terminationReason: null};
     }
-
+    const authorizedAt = new Date();
+    const [authorized] = await tx
+      .update(providerRunners)
+      .set({
+        terminationAuthorizedAt: authorizedAt,
+        terminationReason: reason,
+        updatedAt: authorizedAt,
+      })
+      .where(eq(providerRunners.id, runner.id))
+      .returning({
+        terminationAuthorizedAt: providerRunners.terminationAuthorizedAt,
+        terminationReason: providerRunners.terminationReason,
+      });
+    if (!authorized?.terminationAuthorizedAt || !authorized.terminationReason)
+      throw new Error('Termination authorization was not persisted');
     return {
       desiredIntent: 'terminate',
-      terminationAuthorizedAt: runner.terminationAuthorizedAt,
-      terminationReason: runner.terminationReason,
+      terminationAuthorizedAt: authorized.terminationAuthorizedAt,
+      terminationReason: authorized.terminationReason,
     };
-  });
+  }
+
+  return {
+    desiredIntent: 'terminate',
+    terminationAuthorizedAt: runner.terminationAuthorizedAt,
+    terminationReason: runner.terminationReason,
+  };
 }
 
 export interface RunnerInstanceTerminateIntent {
