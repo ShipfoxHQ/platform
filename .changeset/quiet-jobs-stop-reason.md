@@ -6,4 +6,4 @@
 '@shipfox/runner-orchestration': patch
 ---
 
-Preserve whether workflow job stopping was caused by user cancellation or a maximum-duration timeout across runner reconciliation and terminal audit events.
+Expose the `cancellation_reason` field so consumers can distinguish user cancellation from maximum-duration timeouts.
