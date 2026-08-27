@@ -32,12 +32,13 @@ import {
   type JobExecutionQueueTimeObservation,
   jobExecutionEnqueuedCount,
   jobExecutionLeaseExpiredCount,
-  jobLeaseExpiryDeferredCount,
   type ProviderRunnerLifecycleObservation,
+  recordDeferredJobLeaseExpiry,
   recordJobExecutionQueueTime,
   recordProviderRunnerActivationToFirstClaim,
   recordRunnerReservationReleased,
-  staleJobCandidateRatio,
+  recordShadowedJobLeaseExpiry,
+  recordStaleJobCandidateRatio,
 } from '#metrics/instance.js';
 import type {Tx} from './db.js';
 import {db} from './db.js';
@@ -547,24 +548,42 @@ export async function expireStuckJobExecutions(params: {
     ),
   );
 
-  const correlated = await db().transaction(async (tx) => {
+  // Keep the fleet-wide observation consistent without weakening the fresh liveness
+  // re-check in the destructive transaction below.
+  const {correlated, staleRatio} = await db().transaction(async (tx) => {
     await tx.execute(sql`set transaction isolation level repeatable read read only`);
-    const [staleCountRow] = await tx
-      .select({staleCount: count()})
-      .from(runningJobExecutions)
-      .where(stalePredicate);
-    const [liveLeaseCountRow] = await tx
-      .select({liveLeaseCount: count()})
+    const [counts] = await tx
+      .select({
+        staleCount: sql<number>`count(*) filter (where ${and(
+          stalePredicate,
+          isNotNull(runningJobExecutions.firstHeartbeatAt),
+        )})`,
+        liveLeaseCount: count(),
+      })
       .from(runningJobExecutions);
-    const staleCount = Number(staleCountRow?.staleCount ?? 0);
-    const liveLeaseCount = Number(liveLeaseCountRow?.liveLeaseCount ?? 0);
+    const staleCount = Number(counts?.staleCount ?? 0);
+    const liveLeaseCount = Number(counts?.liveLeaseCount ?? 0);
     const staleRatio = liveLeaseCount > 0 ? staleCount / liveLeaseCount : 0;
-    staleJobCandidateRatio.record(staleRatio);
-    return (
-      staleCount >= (params.correlatedStaleMinCount ?? 3) &&
-      staleRatio >= (params.correlatedStaleRatio ?? 0.5)
-    );
+    return {
+      staleRatio,
+      correlated:
+        staleCount >= (params.correlatedStaleMinCount ?? 3) &&
+        staleRatio >= (params.correlatedStaleRatio ?? 0.5),
+    };
   });
+
+  recordStaleJobCandidateRatio(staleRatio);
+
+  const shouldDefer =
+    correlated && !params.correlatedStaleOverride && params.correlatedStaleMode !== 'shadow';
+  if (correlated && !params.correlatedStaleOverride) {
+    if (params.correlatedStaleMode === 'shadow') {
+      recordShadowedJobLeaseExpiry();
+    } else {
+      recordDeferredJobLeaseExpiry();
+    }
+  }
+  if (shouldDefer) return [];
 
   const reaped = await db().transaction(async (tx) => {
     const staleRows = await tx
@@ -592,12 +611,6 @@ export async function expireStuckJobExecutions(params: {
       .limit(params.limit ?? 100);
 
     if (staleRows.length === 0) return [];
-
-    if (correlated && !params.correlatedStaleOverride && params.correlatedStaleMode !== 'shadow') {
-      // Keep the metric bounded to the recovery batch; the fleet-wide count can be unbounded.
-      jobLeaseExpiryDeferredCount.add(staleRows.length, {cause: 'correlated-stale'});
-      return [];
-    }
 
     const staleIds = staleRows.map((row) => row.id);
     const staleJobExecutionIds = staleRows.map((row) => row.jobExecutionId);

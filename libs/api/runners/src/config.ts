@@ -107,7 +107,7 @@ export const config = createConfig({
   }),
   RUNNER_CORRELATED_STALE_LEASE_MODE: str({
     desc: 'Correlated stale-lease circuit-breaker mode. defer prevents expiry during a correlated outage; shadow records the decision but preserves legacy expiry behavior.',
-    default: 'defer',
+    default: 'shadow',
   }),
   RUNNER_CORRELATED_STALE_LEASE_OVERRIDE: bool({
     desc: 'Explicit operator override that permits bounded stale-lease recovery while the correlated stale-lease circuit breaker is open.',

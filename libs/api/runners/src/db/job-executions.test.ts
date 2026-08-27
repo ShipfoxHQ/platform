@@ -1469,6 +1469,21 @@ describe('detectAndExpireStuckJobs', () => {
     expect(await outboxForJobs(staleJobs.map(({jobId}) => jobId))).toHaveLength(3);
   });
 
+  it('reaps a correlated stale batch in shadow mode', async () => {
+    const staleJobs = [await makeStaleJob(600), await makeStaleJob(600), await makeStaleJob(600)];
+
+    const reaped = await expireStuckJobExecutions({
+      thresholdSeconds: 180,
+      noFirstHeartbeatGraceSeconds: 60,
+      correlatedStaleMinCount: 3,
+      correlatedStaleRatio: Number.MIN_VALUE,
+      correlatedStaleMode: 'shadow',
+    });
+
+    expect(reaped).toHaveLength(3);
+    expect(await outboxForJobs(staleJobs.map(({jobId}) => jobId))).toHaveLength(3);
+  });
+
   it('releases a terminal runner reservation when its stuck lease is reaped', async () => {
     const stale = await makeStaleJob(600);
     const provisionerId = crypto.randomUUID();
