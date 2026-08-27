@@ -578,6 +578,32 @@ describe('executeRunStep', () => {
     expect(stderr).not.toContain(hex);
   });
 
+  it('redacts secrets registered while a run step is live, including Basic forms', async () => {
+    const token = 'ghs-dynamic-token-for-redaction';
+    const credential = Buffer.from(`x-access-token:${token}`).toString('base64');
+    const step = buildStep({
+      config: {
+        run: `node -e ${JSON.stringify(
+          `setTimeout(() => console.log(${JSON.stringify(`${token} ${credential}`)}), 30)`,
+        )}`,
+      },
+    });
+    const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true as never);
+
+    const result = await executeRunStep(step, {
+      subscribeSecrets: (subscriber) => {
+        const timer = setTimeout(() => subscriber([token, credential]), 5);
+        return () => clearTimeout(timer);
+      },
+    });
+
+    const stdout = stdoutWrite.mock.calls.map((call) => String(call[0])).join('');
+    expect(result.success).toBe(true);
+    expect(stdout).toContain('*** ***');
+    expect(stdout).not.toContain(token);
+    expect(stdout).not.toContain(credential);
+  });
+
   it('redacts persisted Git credential forms from a config dump', async () => {
     const token = 'ghs-persisted-token-for-redaction';
     const credential = Buffer.from(`x-access-token:${token}`).toString('base64');

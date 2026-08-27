@@ -30,7 +30,9 @@ export interface SessionLogStream extends LogStreamLifecycle {
   writeEntry(line: string): void;
   /** Registers additional secrets for subsequent agent session entries. */
   addSecrets(secrets: string[]): void;
-  /** Replaces the bounded rotating secret slot for renewed lease tokens. */
+  /** Replaces the dynamic job secret set used for subsequent entries. */
+  setSecrets(secrets: string[]): void;
+  /** @deprecated Use setSecrets. */
   setRotatingSecrets(secrets: string[]): void;
 }
 
@@ -96,9 +98,13 @@ export function createSessionLogStream(options: SessionLogStreamOptions): Sessio
       refreshSecrets();
     },
 
-    setRotatingSecrets(secrets) {
+    setSecrets(secrets) {
       rotatingSecrets = [...new Set(secrets.filter((secret) => secret.length > 0))];
       refreshSecrets();
+    },
+
+    setRotatingSecrets(secrets) {
+      this.setSecrets(secrets);
     },
 
     close() {

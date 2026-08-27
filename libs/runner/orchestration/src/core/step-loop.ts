@@ -85,6 +85,7 @@ export async function runJobSteps(params: {
   /** Secrets masked out of captured output before it reaches the spool. */
   secrets: string[];
   subscribeSecrets?: (subscriber: (secrets: string[]) => void) => () => void;
+  registerSecrets?: (secrets: string[]) => void;
   signal: AbortSignal;
   cwd: string;
   gitConfigPath: string;
@@ -181,6 +182,7 @@ export async function runJobSteps(params: {
       if (execution.preparedWorkspace) workspacePrepared = true;
       if (execution.ambientGitConfigPath) ambientGitConfigPath = execution.ambientGitConfigPath;
       if (execution.ambientGitConfigSecrets) {
+        params.registerSecrets?.(execution.ambientGitConfigSecrets);
         ambientGitConfigSecrets = [
           ...new Set([...ambientGitConfigSecrets, ...execution.ambientGitConfigSecrets]),
         ];
@@ -337,24 +339,32 @@ export async function executeStep(params: {
 
   let stream: LogStreamLifecycle | undefined;
   let runStream: StepLogStream | undefined;
-  let unsubscribeSecrets: (() => void) | undefined;
+  const unsubscribeSecrets: Array<() => void> = [];
+  let subscribedSecrets = [...secrets];
   let crashSecretVariants = buildSecretVariants(secrets);
   const registerStreamSecrets = (
     target:
       | {
           addSecrets?: (secrets: string[]) => void;
+          setSecrets?: (secrets: string[]) => void;
           setRotatingSecrets?: (secrets: string[]) => void;
         }
       | undefined,
   ) => {
-    if (!target?.setRotatingSecrets && !target?.addSecrets) return;
-    unsubscribeSecrets = subscribeSecrets?.((registeredSecrets) => {
+    if (!target?.setSecrets && !target?.setRotatingSecrets && !target?.addSecrets) return;
+    const unsubscribe = subscribeSecrets?.((registeredSecrets) => {
+      subscribedSecrets = [...new Set([...subscribedSecrets, ...registeredSecrets])];
+      if (target.setSecrets) {
+        target.setSecrets(registeredSecrets);
+        return;
+      }
       if (target.setRotatingSecrets) {
         target.setRotatingSecrets(registeredSecrets);
         return;
       }
       target.addSecrets?.(registeredSecrets);
     });
+    if (unsubscribe) unsubscribeSecrets.push(unsubscribe);
   };
   try {
     // Both step kinds capture to the same per-attempt stream contract (one stream per
@@ -531,8 +541,8 @@ export async function executeStep(params: {
         ...Object.values(runtimeConfig.credentials),
         ...(runtimeConfig.claude !== undefined ? [runtimeConfig.claude.auth_token] : []),
       ];
-      const runtimeSecretVariants = buildSecretVariants(runtimeSecretValues);
       const agentSecrets = [...secrets, ...runtimeSecretValues];
+      crashSecretVariants = buildSecretVariants(agentSecrets);
       try {
         sessionStream = createSessionLogStream({
           logsDir,
@@ -573,7 +583,10 @@ export async function executeStep(params: {
           : {}),
       });
       return {
-        result: maskAgentResult(result, runtimeSecretVariants),
+        result: maskAgentResult(
+          result,
+          buildSecretVariants([...agentSecrets, ...subscribedSecrets, ...secrets]),
+        ),
         stream,
         logOutcome: sessionStream ? undefined : 'abandoned',
         preparedWorkspace: false,
@@ -629,11 +642,15 @@ export async function executeStep(params: {
       workspace: cwd,
       ...(ambientGitConfigPath ? {gitConfigGlobal: ambientGitConfigPath} : {}),
       ...(runSecretMaterial?.secretEnv ? {secretEnv: runSecretMaterial.secretEnv} : {}),
-      ...(runSecretValues.length > 0 ? {secretValues: runSecretValues} : {}),
+      ...(runSecretValues.length > 0 ? {secretValues: [...runSecrets]} : {}),
+      ...(subscribeSecrets ? {subscribeSecrets} : {}),
       onCommandStart: (metadata) => writeCommandMetadata(stepStream, metadata),
       onOutput: (chunk, source) => stepStream?.write(chunk, source),
     });
-    result = maskRunStepOutputs(result, runSecretVariants);
+    result = maskRunStepOutputs(
+      result,
+      buildSecretVariants([...runSecrets, ...subscribedSecrets, ...secrets]),
+    );
     writeRunFailureContext(stepStream, result);
     return {
       result,
@@ -651,7 +668,7 @@ export async function executeStep(params: {
       error: {
         message: redactSecrets(
           error instanceof Error ? error.message : String(error),
-          crashSecretVariants,
+          buildSecretVariants([...crashSecretVariants, ...subscribedSecrets, ...secrets]),
         ),
       },
       exit_code: null,
@@ -664,7 +681,7 @@ export async function executeStep(params: {
       preparedWorkspace: false,
     };
   } finally {
-    unsubscribeSecrets?.();
+    for (const unsubscribe of unsubscribeSecrets) unsubscribe();
     runStream?.writeGroupEnd();
   }
 }

@@ -57,6 +57,8 @@ interface RunStepOptions {
   gitConfigGlobal?: string;
   secretEnv?: Readonly<Record<string, string>>;
   secretValues?: readonly string[];
+  /** Updates the tee redactors when a job registers another secret. */
+  subscribeSecrets?: (subscriber: (secrets: string[]) => void) => () => void;
   onOutput?: OutputSink;
   onCommandStart?: CommandStartSink;
 }
@@ -161,9 +163,20 @@ function spawnAndCapture(
 ): Promise<StepResult> {
   return new Promise((resolve) => {
     const {shell} = metadata;
-    const teeSecretVariants = buildSecretVariants(options.secretValues ?? []);
-    const stdoutTeeRedactor = createTeeRedactor(teeSecretVariants);
-    const stderrTeeRedactor = createTeeRedactor(teeSecretVariants);
+    let teeSecrets = [...(options.secretValues ?? [])];
+    const stdoutTeeRedactor = createTeeRedactor(
+      buildSecretVariants(teeSecrets),
+      options.subscribeSecrets !== undefined,
+    );
+    const stderrTeeRedactor = createTeeRedactor(
+      buildSecretVariants(teeSecrets),
+      options.subscribeSecrets !== undefined,
+    );
+    const unsubscribeSecrets = options.subscribeSecrets?.((secrets) => {
+      teeSecrets = [...new Set([...teeSecrets, ...secrets])];
+      stdoutTeeRedactor?.setSecrets(buildSecretVariants(teeSecrets));
+      stderrTeeRedactor?.setSecrets(buildSecretVariants(teeSecrets));
+    });
 
     // detached:true makes the shell a process-group leader so killGroup() can
     // SIGKILL its grandchildren too (Linux does not propagate signals down the
@@ -246,6 +259,7 @@ function spawnAndCapture(
 
     child.on('close', (code, signal) => {
       cleanupAbortListener();
+      unsubscribeSecrets?.();
       if (abortKillSignal && isSignalKillResult(code, abortKillSignal)) {
         const resultSignal = signal ?? abortKillSignal;
         resolve({
@@ -278,6 +292,7 @@ function spawnAndCapture(
 
     child.on('error', (err) => {
       cleanupAbortListener();
+      unsubscribeSecrets?.();
       logger().error({err}, 'Failed to spawn shell process');
       resolve({
         success: false,
@@ -376,17 +391,24 @@ function flushTeeOutput(stream: NodeJS.WriteStream, redactor: TeeRedactor | unde
   if (output.length > 0) stream.write(output);
 }
 
-function createTeeRedactor(secretVariants: readonly string[]): TeeRedactor | undefined {
-  if (secretVariants.length === 0) return undefined;
+function createTeeRedactor(
+  secretVariants: readonly string[],
+  dynamic = false,
+): TeeRedactor | undefined {
+  if (secretVariants.length === 0 && !dynamic) return undefined;
   return new TeeRedactor(secretVariants);
 }
 
 class TeeRedactor {
   private readonly decoder = new TextDecoder('utf-8', {ignoreBOM: true, fatal: false});
-  private readonly variants: string[];
+  private variants: string[];
   private buffer = '';
 
   constructor(variants: readonly string[]) {
+    this.variants = [...variants];
+  }
+
+  setSecrets(variants: readonly string[]): void {
     this.variants = [...variants];
   }
 

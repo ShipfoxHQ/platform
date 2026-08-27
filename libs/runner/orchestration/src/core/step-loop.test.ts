@@ -755,7 +755,7 @@ describe('runJobSteps', () => {
       run,
       expect.objectContaining({
         secretEnv: {TOKEN: 'prefix-runtime-secret', REUSED: 'runtime-secret'},
-        secretValues: ['runtime-secret'],
+        secretValues: expect.arrayContaining(['checkout-secret', 'runtime-secret']),
       }),
     );
   });
