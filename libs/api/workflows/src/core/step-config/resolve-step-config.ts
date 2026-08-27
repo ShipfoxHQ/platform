@@ -134,6 +134,7 @@ async function buildStepConfig(
       ...(params.agentToolSnapshot === undefined
         ? {}
         : {agentToolSnapshot: params.agentToolSnapshot}),
+      mode: params.mode,
     });
     return {
       config: {...tool.config, ...gate},

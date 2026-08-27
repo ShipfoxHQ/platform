@@ -767,7 +767,7 @@ function dispatchConfigError(error: DispatchConfigError): Record<string, unknown
       field: 'tool',
       source: 'tool',
       code: error.code,
-      agentConfigIssue: error.code,
+      agentConfigIssue: 'step_config_invalid',
     };
   }
 

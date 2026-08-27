@@ -20,6 +20,7 @@ export function resolveToolStepConfig(params: {
   readonly definitionId: string;
   readonly agentToolContext?: AgentToolMaterializationContext;
   readonly agentToolSnapshot?: AgentToolMaterializationSnapshot | null;
+  readonly mode?: 'effective' | 'authored';
 }): {
   readonly config: Record<string, unknown>;
   readonly configPlan: Pick<StepConfigDispatchPlan, 'tool'> | undefined;
@@ -39,7 +40,7 @@ export function resolveToolStepConfig(params: {
   const withValue = params.step.with;
   const tree = params.step.templates?.with;
   const result =
-    tree === undefined
+    tree === undefined || params.mode === 'authored'
       ? {value: withValue}
       : resolveWith({
           value: withValue,
@@ -154,6 +155,12 @@ function isFieldTemplate(
 ): value is readonly ResolvedFieldSegment[] {
   return (
     Array.isArray(value) &&
-    value.every((segment) => segment !== null && typeof segment === 'object' && 'kind' in segment)
+    value.every(
+      (segment) =>
+        segment !== null &&
+        typeof segment === 'object' &&
+        'kind' in segment &&
+        (segment.kind === 'literal' || segment.kind === 'deferred'),
+    )
   );
 }

@@ -142,7 +142,9 @@ function completeToolConfig(params: {
     );
   }
   if (!valid) throw new ToolConfigInvalidError(`Tool input is invalid: ${ajv.errorsText()}`);
-  if (method !== undefined) toolConfig.method = method;
+  if (method !== undefined) {
+    toolConfig.with = {...(toolConfig.with as Record<string, unknown>), method};
+  }
   params.config.tool = toolConfig;
 }
 
@@ -157,6 +159,17 @@ function mergeToolWith(
   field: 'tool.with',
 ): unknown {
   if (plan === undefined) return base;
+  if (isFieldTemplate(plan)) {
+    const resolved = completeStepFieldWithTypeAndTrace({
+      field,
+      template: {segments: plan},
+      context: params.context,
+      definitionId: params.definitionId,
+      errorField: field,
+    });
+    params.trace.push(...resolved.trace.map((entry) => ({...entry, field})));
+    return resolved.value;
+  }
   if (Array.isArray(plan)) {
     const values = Array.isArray(base) ? [...base] : [];
     plan.forEach((child, index) => {
@@ -175,15 +188,20 @@ function mergeToolWith(
     }
     return values;
   }
-  const resolved = completeStepFieldWithTypeAndTrace({
-    field,
-    template: {segments: plan as unknown as readonly ResolvedFieldSegment[]},
-    context: params.context,
-    definitionId: params.definitionId,
-    errorField: field,
-  });
-  params.trace.push(...resolved.trace.map((entry) => ({...entry, field})));
-  return resolved.value;
+  throw new ToolConfigInvalidError('Tool input template plan is invalid');
+}
+
+function isFieldTemplate(value: unknown): value is readonly ResolvedFieldSegment[] {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (segment) =>
+        segment !== null &&
+        typeof segment === 'object' &&
+        'kind' in segment &&
+        (segment.kind === 'literal' || segment.kind === 'deferred'),
+    )
+  );
 }
 
 function withoutInjectedMethod(schema: unknown): unknown {
