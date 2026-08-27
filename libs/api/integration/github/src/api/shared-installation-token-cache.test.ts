@@ -323,12 +323,10 @@ describe('SharedInstallationTokenCache', () => {
 
   it('reports one read failure across a contended poll', async () => {
     const store = createStore();
+    store.failReads = true;
     const shared = cache({
       store,
-      withLock: () => {
-        store.failReads = true;
-        return Promise.resolve({acquired: false});
-      },
+      withLock: () => Promise.resolve({acquired: false}),
       pollDelaysMs: [1],
     });
 

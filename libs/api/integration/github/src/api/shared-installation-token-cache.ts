@@ -82,10 +82,7 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
     const reportReadFailure = (error: unknown) => {
       if (readFailureReported) return;
       readFailureReported = true;
-      logger().warn(
-        {installationId, error},
-        'github installation token cache read failed; falling back to mint',
-      );
+      logger().warn({installationId, error}, 'github installation token cache read failed');
       reportError(error, {
         boundary: 'integration.cache',
         operation: 'read-envelope',
