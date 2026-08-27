@@ -3,6 +3,7 @@
 "@shipfox/api-integration-core-dto": minor
 "@shipfox/api-integration-core": minor
 "@shipfox/api-workflows-dto": minor
+"@shipfox/api-workflows": minor
 ---
 
-Adds lifecycle and generation fields for renewable checkout credentials.
+Adds `generation` and `renewal` checkout-credential fields and `createCheckoutCredentials`, which accepts the frozen connection, stable repository ID, exact permissions, and rejected generation.

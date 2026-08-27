@@ -51,7 +51,7 @@ export class IntegrationCapabilityUnavailableError extends Error {
 
 export class IntegrationCheckoutUnsupportedError extends Error {
   constructor(public readonly provider: IntegrationProviderKind) {
-    super(`Integration provider ${provider} cannot create a checkout spec`);
+    super(`Integration provider ${provider} does not support checkout operations`);
   }
 }
 

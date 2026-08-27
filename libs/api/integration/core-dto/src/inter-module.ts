@@ -29,10 +29,10 @@ const checkoutCredentialRenewal = z.discriminatedUnion('mode', [
   z.object({mode: z.literal('on-rejection')}),
 ]);
 const checkoutCredentials = z.object({
-  username: z.string(),
-  token: z.string(),
+  username: z.string().min(1),
+  token: z.string().min(1),
   expiresAt: z.string().datetime(),
-  generation: z.string().optional(),
+  generation: z.string().min(1).optional(),
   renewal: checkoutCredentialRenewal.optional(),
 });
 const toolCallTool = z.object({
