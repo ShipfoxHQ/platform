@@ -1775,6 +1775,46 @@ describe('listProvisionerTerminateIntents', () => {
     expect(result).toEqual(['provisioned-runner-a', 'provisioned-runner-b']);
   });
 
+  it('fills the limit with later authorized intents when earlier candidates are rejected', async () => {
+    for (const providerRunnerId of [
+      'provisioned-runner-a',
+      'provisioned-runner-b',
+      'provisioned-runner-c',
+    ]) {
+      await createRunnerInstance({providerRunnerId});
+      await insertRunningJobRow({
+        workspaceId,
+        provisionerId,
+        providerRunnerId,
+        cancellationRequestedAt: new Date('2025-01-01T00:01:00.000Z'),
+      });
+    }
+
+    const authorizedProviderRunnerIds: string[] = [];
+    const result = await db().transaction((tx) =>
+      listProvisionerTerminateIntentRowsTx(
+        tx,
+        {workspaceId, provisionerId, limit: 2},
+        {
+          authorize: ({providerRunnerId}) => {
+            authorizedProviderRunnerIds.push(providerRunnerId);
+            return Promise.resolve(providerRunnerId !== 'provisioned-runner-a');
+          },
+        },
+      ),
+    );
+
+    expect(result).toEqual([
+      {providerRunnerId: 'provisioned-runner-b', reason: 'job-cancelled'},
+      {providerRunnerId: 'provisioned-runner-c', reason: 'job-cancelled'},
+    ]);
+    expect(authorizedProviderRunnerIds).toEqual([
+      'provisioned-runner-a',
+      'provisioned-runner-b',
+      'provisioned-runner-c',
+    ]);
+  });
+
   async function createRunnerInstance(params: {
     providerRunnerId: string;
     provisionerId?: string;

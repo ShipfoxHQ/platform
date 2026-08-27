@@ -167,7 +167,7 @@ export const config = createConfig({
   }),
   RUNNER_TERMINATION_REASON_ACTIVATION_TIMEOUT_ENABLED: bool({
     desc: 'Allow activation-timeout termination authorization.',
-    default: false,
+    default: true,
   }),
   RUNNER_TERMINATION_REASON_RUNNER_UNRESPONSIVE_ENABLED: bool({
     desc: 'Allow runner-unresponsive termination authorization.',
@@ -191,7 +191,7 @@ export const config = createConfig({
   }),
   RUNNER_TERMINATION_REASON_JOB_CANCELLED_ENABLED: bool({
     desc: 'Allow job-cancelled termination authorization.',
-    default: false,
+    default: true,
   }),
   RUNNER_TERMINATION_REASON_JOB_TIMEOUT_ENABLED: bool({
     desc: 'Allow job-timeout termination authorization.',
@@ -199,7 +199,7 @@ export const config = createConfig({
   }),
   RUNNER_TERMINATION_REASON_TERMINAL_STATE_ENABLED: bool({
     desc: 'Allow terminal-state termination authorization.',
-    default: false,
+    default: true,
   }),
 });
 
