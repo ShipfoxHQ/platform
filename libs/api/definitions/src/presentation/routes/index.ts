@@ -23,7 +23,7 @@ export function createDefinitionRoutes(options: DefinitionRouteOptions): RouteGr
         buildCreateDefinitionRoute(options),
         buildListDefinitionsRoute(options.projects),
         buildGetDefinitionRoute(options.projects),
-        buildValidateDefinitionRoute(options.agent),
+        buildValidateDefinitionRoute(options),
         buildAtRefRoute(options),
       ],
     },

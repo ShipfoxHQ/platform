@@ -1,3 +1,5 @@
+import {buildUserContext, setUserContext} from '@shipfox/api-auth-context';
+import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import type {FastifyInstance} from 'fastify';
 import Fastify from 'fastify';
 import {serializerCompiler, validatorCompiler} from 'fastify-type-provider-zod';
@@ -6,19 +8,40 @@ import {buildValidateDefinitionRoute} from './validate-definition.js';
 
 describe('POST /definitions/validate', () => {
   let app: FastifyInstance;
-  const getValidationCatalog = vi.fn(() => agentValidationCatalog);
+  let projectId = crypto.randomUUID();
+  let workspaceId = crypto.randomUUID();
+  const getProjectById = vi.fn();
+  const getValidationCatalogV2 = vi.fn(() => agentValidationCatalog);
 
   beforeAll(async () => {
     app = Fastify();
     app.setValidatorCompiler(validatorCompiler);
     app.setSerializerCompiler(serializerCompiler);
+    app.addHook('onRequest', (request, _reply, done) => {
+      setUserContext(
+        request,
+        buildUserContext({
+          userId: crypto.randomUUID(),
+          email: 'user@example.com',
+          memberships: [{workspaceId, role: 'admin', workspaceStatus: 'active'}],
+        }),
+      );
+      done();
+    });
     app.post(
       '/definitions/validate',
       buildValidateDefinitionRoute({
-        getValidationCatalog,
-      } as never),
+        agent: {getValidationCatalogV2} as never,
+        projects: {getProjectById} as Pick<ProjectsModuleClient, 'getProjectById'> as never,
+      }),
     );
     await app.ready();
+  });
+
+  beforeEach(() => {
+    projectId = crypto.randomUUID();
+    workspaceId = crypto.randomUUID();
+    getProjectById.mockResolvedValue({project: {id: projectId, workspaceId}});
   });
 
   test('valid YAML returns 200 with { valid: true }', async () => {
@@ -43,7 +66,29 @@ jobs:
     expect(body.diagnostics).toEqual([]);
     expect(body.workflow_document.name).toBe('Test');
     expect(body.workflow_model.kind).toBe('workflow');
-    expect(getValidationCatalog).toHaveBeenCalledWith({workspaceId: null});
+    expect(getValidationCatalogV2).toHaveBeenCalledWith({workspaceId: null});
+  });
+
+  test('uses the project workspace default when project context is provided', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/definitions/validate',
+      payload: {
+        project_id: projectId,
+        yaml: `
+name: Test
+runner: ubuntu-latest
+jobs:
+  build:
+    steps:
+      - run: echo hello
+`,
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(getProjectById).toHaveBeenCalledWith({projectId});
+    expect(getValidationCatalogV2).toHaveBeenCalledWith({workspaceId});
   });
 
   test('invalid YAML returns 200 with { valid: false, errors }', async () => {

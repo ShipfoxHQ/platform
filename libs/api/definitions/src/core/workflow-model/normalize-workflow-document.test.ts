@@ -1,4 +1,4 @@
-import type {AgentValidationCatalog} from '@shipfox/api-agent-dto/inter-module';
+import type {AgentValidationCatalogV2} from '@shipfox/api-agent-dto/inter-module';
 import type {WorkflowDocument} from '@shipfox/workflow-document';
 import {agentValidationCatalog} from '#test/agent-validation-catalog.js';
 import type {IntegrationValidationContext} from '../entities/integration-context.js';
@@ -6895,7 +6895,7 @@ describe('normalizeWorkflowDocument', () => {
 
     it('accepts a managed provider on Claude when the catalog exposes an Anthropic model', () => {
       const providerId = 'shipfox-managed';
-      const managedCatalog: AgentValidationCatalog = {
+      const managedCatalog: AgentValidationCatalogV2 = {
         ...agentValidationCatalog,
         providers: [
           ...agentValidationCatalog.providers,

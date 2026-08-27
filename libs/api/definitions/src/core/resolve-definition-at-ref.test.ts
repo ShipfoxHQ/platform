@@ -137,7 +137,7 @@ function makeClients(projectId = crypto.randomUUID(), workspaceId = crypto.rando
       getAgentToolsContext: vi.fn(async () => agentToolsContext),
     } as unknown as IntegrationsModuleClient,
     agent: {
-      getValidationCatalog: vi.fn(async () => agentValidationCatalog),
+      getValidationCatalogV2: vi.fn(async () => agentValidationCatalog),
     } as unknown as AgentInterModuleClient,
   };
 }
@@ -217,7 +217,7 @@ describe('resolveDefinitionAtRef', () => {
       expect.objectContaining({ref: COMMIT, path: CONFIG_PATH}),
     );
     expect(clients.integrations.getAgentToolsContext).toHaveBeenCalled();
-    expect(clients.agent.getValidationCatalog).toHaveBeenCalledWith({workspaceId});
+    expect(clients.agent.getValidationCatalogV2).toHaveBeenCalledWith({workspaceId});
 
     // Only the lineage row exists: no definition row and no outbox event.
     const lineages = await countLineageRows(projectId);

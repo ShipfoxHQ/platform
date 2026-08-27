@@ -13,7 +13,7 @@ import {buildCreateDefinitionRoute} from './create-definition.js';
 
 const getProjectById = vi.fn();
 const projects = {getProjectById} as Pick<ProjectsModuleClient, 'getProjectById'>;
-const agent = {getValidationCatalog: vi.fn(() => agentValidationCatalog)};
+const agent = {getValidationCatalogV2: vi.fn(() => agentValidationCatalog)};
 
 describe('POST /api/definitions', () => {
   let app: FastifyInstance;
@@ -89,7 +89,7 @@ jobs:
     expect(body.sha).toBeNull();
     expect(body.ref).toBeNull();
     expect(body.fetched_at).toBeDefined();
-    expect(agent.getValidationCatalog).toHaveBeenLastCalledWith({workspaceId});
+    expect(agent.getValidationCatalogV2).toHaveBeenLastCalledWith({workspaceId});
   });
 
   test('skips connection snapshot loading when YAML has no integrations', async () => {

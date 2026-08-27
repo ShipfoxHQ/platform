@@ -11,7 +11,7 @@ const projects = {
 } as unknown as ProjectsModuleClient;
 const definitionRoutes = createDefinitionRoutes({
   projects,
-  agent: {getValidationCatalog: vi.fn(() => agentValidationCatalog)} as never,
+  agent: {getValidationCatalogV2: vi.fn(() => agentValidationCatalog)} as never,
   integrations: {} as never,
 });
 

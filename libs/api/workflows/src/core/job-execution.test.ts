@@ -345,6 +345,7 @@ describe('nextStepForJob', () => {
 
     const agent = {
       getValidationCatalog: vi.fn(),
+      getValidationCatalogV2: vi.fn(),
       resolveAgentConfig: vi.fn().mockRejectedValue(
         createInterModuleKnownError(
           agentInterModuleContract.methods.resolveAgentConfig,

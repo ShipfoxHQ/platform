@@ -1,4 +1,4 @@
-import type {AgentValidationCatalog} from '@shipfox/api-agent-dto/inter-module';
+import type {AgentValidationCatalogV2} from '@shipfox/api-agent-dto/inter-module';
 import {
   type AvailabilitySite,
   buildTypedRootsEnvironment,
@@ -64,7 +64,7 @@ import {issue} from './validation-issue.js';
 
 export interface NormalizeContext {
   readonly defaultRunnerLabels: readonly string[];
-  readonly agentValidationCatalog: AgentValidationCatalog;
+  readonly agentValidationCatalog: AgentValidationCatalogV2;
   readonly integrationValidationContext?: IntegrationValidationContext | undefined;
 }
 
@@ -1394,7 +1394,7 @@ function validateAgentStep(params: {
   issues: WorkflowModelValidationIssue[];
   validateLiteralModel: boolean;
   validateLiteralProvider: boolean;
-  agentValidationCatalog: AgentValidationCatalog;
+  agentValidationCatalog: AgentValidationCatalogV2;
 }): void {
   validateHarnessThinking(params);
   validateHarnessTools(params);
@@ -1476,7 +1476,7 @@ function validateHarnessTools(params: {
   sourceName: string;
   stepIndex: number;
   issues: WorkflowModelValidationIssue[];
-  agentValidationCatalog: AgentValidationCatalog;
+  agentValidationCatalog: AgentValidationCatalogV2;
 }): void {
   const {tools} = params.step;
   if (tools === undefined) return;
@@ -1506,7 +1506,7 @@ function validateHarnessThinking(params: {
   sourceName: string;
   stepIndex: number;
   issues: WorkflowModelValidationIssue[];
-  agentValidationCatalog: AgentValidationCatalog;
+  agentValidationCatalog: AgentValidationCatalogV2;
 }): void {
   const {thinking} = params.step;
   if (thinking === undefined) return;

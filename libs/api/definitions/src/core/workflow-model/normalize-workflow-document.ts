@@ -1,4 +1,4 @@
-import type {AgentValidationCatalog} from '@shipfox/api-agent-dto/inter-module';
+import type {AgentValidationCatalogV2} from '@shipfox/api-agent-dto/inter-module';
 import {canonicalizeLabels} from '@shipfox/runner-labels';
 import type {WorkflowDocument} from '@shipfox/workflow-document';
 import type {IntegrationValidationContext} from '../entities/integration-context.js';
@@ -19,7 +19,7 @@ export function normalizeWorkflowDocument(
   document: WorkflowDocument,
   options: {
     defaultRunnerLabels?: readonly string[] | undefined;
-    agentValidationCatalog: AgentValidationCatalog;
+    agentValidationCatalog: AgentValidationCatalogV2;
     integrationValidationContext?: IntegrationValidationContext | undefined;
     stepSourceLocations?: WorkflowStepSourceLocationMap | undefined;
     /** Provide a fresh array for each call to collect non-fatal validation issues. */

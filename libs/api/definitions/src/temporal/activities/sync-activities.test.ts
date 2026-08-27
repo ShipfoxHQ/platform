@@ -9,8 +9,8 @@ import {workflowDefinitions} from '#db/schema/definitions.js';
 import {agentValidationCatalog} from '#test/agent-validation-catalog.js';
 import {createDefinitionSyncActivities} from './sync-activities.js';
 
-const getValidationCatalog = vi.fn(() => agentValidationCatalog);
-const agent = {getValidationCatalog} as never;
+const getValidationCatalogV2 = vi.fn(() => agentValidationCatalog);
+const agent = {getValidationCatalogV2} as never;
 
 vi.mock('@temporalio/activity', () => ({
   Context: {
@@ -239,7 +239,7 @@ describe('definition sync activities', () => {
       expect(result.appliedCount).toBe(1);
       expect(result.deletedCount).toBe(0);
       expect(result.diagnostics).toEqual([]);
-      expect(getValidationCatalog).toHaveBeenLastCalledWith({workspaceId});
+      expect(getValidationCatalogV2).toHaveBeenLastCalledWith({workspaceId});
     });
 
     it('adds the workflow file path to persisted diagnostics', async () => {

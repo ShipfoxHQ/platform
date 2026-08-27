@@ -5,7 +5,71 @@ import {setDefaultHarness} from '#db/index.js';
 import {agentTestSecretsClient} from '#test/fixtures/secrets-client.js';
 import {createAgentInterModulePresentation} from './inter-module.js';
 
+const workspaceDefaultsResolverMocks = vi.hoisted(() => ({
+  getWorkspaceAgentValidationCatalog: vi.fn(),
+}));
+
+vi.mock('#core/workspace-agent-defaults-resolver.js', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('#core/workspace-agent-defaults-resolver.js')>();
+  workspaceDefaultsResolverMocks.getWorkspaceAgentValidationCatalog.mockImplementation(
+    actual.getWorkspaceAgentValidationCatalog,
+  );
+  return {
+    ...actual,
+    getWorkspaceAgentValidationCatalog:
+      workspaceDefaultsResolverMocks.getWorkspaceAgentValidationCatalog,
+  };
+});
+
 describe('agent inter-module presentation', () => {
+  beforeEach(() => {
+    workspaceDefaultsResolverMocks.getWorkspaceAgentValidationCatalog.mockClear();
+  });
+
+  test('preserves the original validation catalog response', async () => {
+    const presentation = createAgentInterModulePresentation({secrets: agentTestSecretsClient});
+
+    const catalog = await presentation.handlers.getValidationCatalog(
+      {},
+      {signal: new AbortController().signal},
+    );
+
+    expect(catalog.version).toBe(1);
+    expect(catalog).not.toHaveProperty('default_harness_id');
+  });
+
+  test('uses the built-in default harness without workspace context', async () => {
+    const presentation = createAgentInterModulePresentation({secrets: agentTestSecretsClient});
+
+    const catalog = await presentation.handlers.getValidationCatalogV2(
+      {workspaceId: null},
+      {signal: new AbortController().signal},
+    );
+
+    expect(catalog.default_harness_id).toBe('pi');
+    expect(
+      workspaceDefaultsResolverMocks.getWorkspaceAgentValidationCatalog,
+    ).not.toHaveBeenCalled();
+  });
+
+  test('uses the built-in default harness for a workspace without settings', async () => {
+    const workspaceId = crypto.randomUUID();
+    const presentation = createAgentInterModulePresentation({secrets: agentTestSecretsClient});
+
+    const catalog = await presentation.handlers.getValidationCatalogV2(
+      {workspaceId},
+      {signal: new AbortController().signal},
+    );
+
+    expect(catalog.default_harness_id).toBe('pi');
+    expect(workspaceDefaultsResolverMocks.getWorkspaceAgentValidationCatalog).toHaveBeenCalledWith(
+      workspaceId,
+      undefined,
+      undefined,
+    );
+  });
+
   test('loads the workspace default harness for managed inference validation', async () => {
     const workspaceId = crypto.randomUUID();
     await setDefaultHarness({workspaceId, harnessId: 'claude'});
@@ -21,7 +85,7 @@ describe('agent inter-module presentation', () => {
       workspaceProviders: 'disabled',
     });
 
-    const catalog = await presentation.handlers.getValidationCatalog(
+    const catalog = await presentation.handlers.getValidationCatalogV2(
       {workspaceId},
       {signal: new AbortController().signal},
     );

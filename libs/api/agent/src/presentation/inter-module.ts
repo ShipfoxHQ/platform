@@ -24,7 +24,7 @@ import {
 import {resolveAgentConfig} from '#core/resolve-agent-config.js';
 import {resolveRuntimeCredentials} from '#core/resolve-runtime-credentials.js';
 import type {AgentSecretsClient} from '#core/secrets-client.js';
-import {getAgentValidationCatalog} from '#core/validation-catalog.js';
+import {getAgentValidationCatalog, getAgentValidationCatalogV2} from '#core/validation-catalog.js';
 import {
   createWorkspaceAgentDefaultsResolver,
   getWorkspaceAgentValidationCatalog,
@@ -37,9 +37,11 @@ export function createAgentInterModulePresentation(params: {
   workspaceProviders?: WorkspaceProvidersPolicy | undefined;
 }): InterModulePresentation<typeof agentInterModuleContract> {
   return defineInterModulePresentation(agentInterModuleContract, {
-    getValidationCatalog: async ({workspaceId}) =>
+    getValidationCatalog: () =>
+      getAgentValidationCatalog(params.managedProvider, params.workspaceProviders),
+    getValidationCatalogV2: async ({workspaceId}) =>
       workspaceId === null
-        ? getAgentValidationCatalog(params.managedProvider, params.workspaceProviders)
+        ? getAgentValidationCatalogV2(params.managedProvider, params.workspaceProviders)
         : await getWorkspaceAgentValidationCatalog(
             workspaceId,
             params.managedProvider,

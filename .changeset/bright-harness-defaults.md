@@ -1,7 +1,7 @@
 ---
 "@shipfox/api-agent": minor
 "@shipfox/api-agent-dto": minor
-"@shipfox/api-definitions": patch
+"@shipfox/api-definitions": minor
 ---
 
-Uses each workspace's default agent harness when validating harness-specific workflow fields, including tools, for managed inference and workspace provider configurations.
+Adds workspace-aware validation that applies the configured default agent harness to harness-specific workflow fields.

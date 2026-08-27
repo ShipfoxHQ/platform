@@ -52,6 +52,7 @@ const resolveRuntimeCredentials = vi.fn<AgentInterModuleClient['resolveRuntimeCr
 );
 const agentTestClient: AgentInterModuleClient = {
   getValidationCatalog: vi.fn(),
+  getValidationCatalogV2: vi.fn(),
   resolveAgentConfig: vi.fn(),
   resolveRuntimeCredentials,
   claimSession: vi.fn(),
