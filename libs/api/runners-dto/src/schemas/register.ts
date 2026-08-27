@@ -22,7 +22,7 @@ export const registerRunnerBodySchema = z.object({
 export const registerRunnerResponseSchema = z.object({
   session_token: z.string().min(1),
   session_id: z.string().uuid(),
-  mode: z.enum(['manual', 'ephemeral', 'activation']),
+  mode: z.enum(['manual', 'activation']),
   max_claims: z.number().int().positive().nullable(),
 });
 
