@@ -85,6 +85,7 @@ export interface CreateGithubIntegrationProviderOptions
   recordDeliveryOnly: RecordDeliveryOnlyFn;
   getIntegrationConnectionById: GetIntegrationConnectionByIdFn;
   getGithubInstallationByConnectionId?: typeof getGithubInstallationByConnectionId | undefined;
+  getGithubInstallationByInstallationId?: typeof getGithubInstallationByInstallationId | undefined;
   deleteSecrets?:
     | ((params: {workspaceId: string; namespace: string}) => Promise<number>)
     | undefined;
@@ -137,7 +138,9 @@ export function createGithubIntegrationProvider(options: CreateGithubIntegration
         tokenProvider:
           options.agentTools?.tokenProvider ??
           createGithubInstallationTokenProvider({
-            getGithubInstallationByInstallationId,
+            getGithubInstallationByInstallationId:
+              options.getGithubInstallationByInstallationId ??
+              getGithubInstallationByInstallationId,
           }),
       }),
     },
