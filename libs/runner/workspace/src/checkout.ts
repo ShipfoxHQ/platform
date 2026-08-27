@@ -255,6 +255,7 @@ export function writeAmbientGitCredential(params: {
         await appendFile(temporaryConfigPath, `${current.endsWith('\n') ? '' : '\n'}${additions}`);
       }
 
+      if (!auth) await validateAmbientGitConfig(temporaryConfigPath);
       await chmod(temporaryConfigPath, 0o600);
       await rename(temporaryConfigPath, configPath);
     } finally {
@@ -298,6 +299,10 @@ function basicCredential(auth: {username: string; token: string}): string {
 function authorizationValue(auth: CheckoutTokenAuthDto): string {
   if (auth.kind === 'bearer') return `Bearer ${auth.token}`;
   return `Basic ${basicCredential(auth)}`;
+}
+
+async function validateAmbientGitConfig(configPath: string): Promise<void> {
+  await execFileAsync('git', ['config', '--file', configPath, '--list']);
 }
 
 async function unsetAmbientGitCredential(configPath: string, repositoryUrl: string): Promise<void> {

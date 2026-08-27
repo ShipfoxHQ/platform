@@ -422,4 +422,34 @@ describe('writeAmbientGitCredential (real git)', () => {
     ).rejects.toThrow();
     await expect(readFile(configPath, 'utf8')).resolves.toBe(malformed);
   });
+
+  it('leaves the existing config in place when an author-only staged copy is malformed', async () => {
+    const configPath = join(workdir, 'git-cred.config');
+    const repositoryUrl = 'https://github.com/acme/author-only.git';
+
+    await writeAmbientGitCredential({
+      configPath,
+      repositoryUrl,
+      auth: {
+        kind: 'bearer',
+        token: 'first-token',
+        expires_at: '2026-01-01T00:00:00Z',
+        carry: 'header',
+        host: 'github.com',
+        persist: true,
+      },
+    });
+    const original = await readFile(configPath, 'utf8');
+    const malformed = `${original}[broken\n`;
+    await writeFile(configPath, malformed);
+
+    await expect(
+      writeAmbientGitCredential({
+        configPath,
+        repositoryUrl,
+        gitAuthor: {name: 'First Author', email: 'first@example.com'},
+      }),
+    ).rejects.toThrow();
+    await expect(readFile(configPath, 'utf8')).resolves.toBe(malformed);
+  });
 });
