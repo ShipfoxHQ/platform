@@ -172,6 +172,21 @@ describe('POST /provisioners/runner-instances/reconcile', () => {
       state: 'stopped',
       desired_intent: 'terminate',
     });
+    const [runner] = await db()
+      .select({
+        terminationAuthorizedAt: providerRunners.terminationAuthorizedAt,
+        terminationReason: providerRunners.terminationReason,
+      })
+      .from(providerRunners)
+      .where(
+        and(
+          eq(providerRunners.workspaceId, workspaceId),
+          eq(providerRunners.provisionerId, provisionerTokenId),
+          eq(providerRunners.providerRunnerId, 'provisioned-runner-1'),
+        ),
+      );
+    expect(runner?.terminationAuthorizedAt).toBeInstanceOf(Date);
+    expect(runner?.terminationReason).toBe('terminal-state');
   });
 
   it('returns keep for orphan observed ids without leaking ownership details', async () => {

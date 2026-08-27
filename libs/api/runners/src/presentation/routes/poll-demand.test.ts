@@ -14,10 +14,11 @@ import {
   extractBearerToken,
 } from '@shipfox/node-fastify';
 import {vi} from '@shipfox/vitest/vi';
-import {eq} from 'drizzle-orm';
+import {and, eq} from 'drizzle-orm';
 import type {FastifyInstance, FastifyRequest} from 'fastify';
 import {db} from '#db/db.js';
 import {provisionerCapabilitySnapshots} from '#db/schema/provisioner-capability-snapshots.js';
+import {providerRunners} from '#db/schema/runner-instances.js';
 import {runningJobExecutions} from '#db/schema/running-job-executions.js';
 import {
   providerRunnerActivationOutcomeCount,
@@ -299,6 +300,21 @@ describe('POST /provisioners/demand/poll', () => {
       reservations: [],
       terminate_provider_runner_ids: ['provisioned-runner-1'],
     });
+    const [runner] = await db()
+      .select({
+        terminationAuthorizedAt: providerRunners.terminationAuthorizedAt,
+        terminationReason: providerRunners.terminationReason,
+      })
+      .from(providerRunners)
+      .where(
+        and(
+          eq(providerRunners.workspaceId, workspaceId),
+          eq(providerRunners.provisionerId, provisionerTokenId),
+          eq(providerRunners.providerRunnerId, 'provisioned-runner-1'),
+        ),
+      );
+    expect(runner?.terminationAuthorizedAt).toBeInstanceOf(Date);
+    expect(runner?.terminationReason).toBe('job-cancelled');
   });
 
   it('records count divergence and terminate-intent metrics for the returned poll result', async () => {

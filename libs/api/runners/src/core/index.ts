@@ -65,7 +65,6 @@ export {
 export {
   type ActiveRunner,
   attachRunnerInstanceProviderId,
-  authorizeRunnerTermination,
   listActiveRunners,
   type ReconcileDesiredIntent,
   type ReconciledBoundJobExecution,
@@ -86,3 +85,4 @@ export {
   EMPTY_RUNNER_TOOL_CAPABILITIES,
   effectiveRunnerToolCapabilities,
 } from './runner-tool-capabilities.js';
+export {authorizeRunnerTermination} from './termination-authorization.js';

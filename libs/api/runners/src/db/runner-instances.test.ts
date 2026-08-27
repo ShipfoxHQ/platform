@@ -1,5 +1,6 @@
 import {pgClient} from '@shipfox/node-postgres';
 import {and, desc, eq, inArray, or, sql} from 'drizzle-orm';
+import {authorizeRunnerTermination} from '#core/termination-authorization.js';
 import {db} from '#db/db.js';
 import {createRunnerSessionConsumingEphemeralToken} from '#db/ephemeral-registration-tokens.js';
 import {
@@ -8,7 +9,6 @@ import {
 } from '#db/reservations.js';
 import {
   attachRunnerInstanceProviderId,
-  authorizeRunnerTermination,
   countStaleEnrolledRunnerInstances,
   listActiveRunnerInstanceCountsByTemplateTx,
   listActiveRunnerInstances,
@@ -105,7 +105,7 @@ describe('authorizeRunnerTermination', () => {
     const disabled = await authorizeRunnerTermination({
       provisionerId: runner.provisionerId,
       providerRunnerId: runner.providerRunnerId,
-      reason: 'terminal-state',
+      reason: 'registration-deadline',
     });
     const unknown = await authorizeRunnerTermination({
       provisionerId: runner.provisionerId,

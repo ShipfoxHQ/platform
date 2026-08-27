@@ -60,32 +60,22 @@ export type TerminationAuthorizationResult =
       terminationReason: RunnerTerminationReason;
     };
 
-const terminationReasonGate: Record<RunnerTerminationReason, keyof typeof config> = {
-  'registration-deadline': 'RUNNER_TERMINATION_REASON_REGISTRATION_DEADLINE_ENABLED',
-  'activation-timeout': 'RUNNER_TERMINATION_REASON_ACTIVATION_TIMEOUT_ENABLED',
-  'runner-unresponsive': 'RUNNER_TERMINATION_REASON_RUNNER_UNRESPONSIVE_ENABLED',
-  'lease-expired': 'RUNNER_TERMINATION_REASON_LEASE_EXPIRED_ENABLED',
-  'session-exhausted': 'RUNNER_TERMINATION_REASON_SESSION_EXHAUSTED_ENABLED',
-  'stopping-timeout': 'RUNNER_TERMINATION_REASON_STOPPING_TIMEOUT_ENABLED',
-  'provider-health-failed': 'RUNNER_TERMINATION_REASON_PROVIDER_HEALTH_FAILED_ENABLED',
-  'job-cancelled': 'RUNNER_TERMINATION_REASON_JOB_CANCELLED_ENABLED',
-  'job-timeout': 'RUNNER_TERMINATION_REASON_JOB_TIMEOUT_ENABLED',
-  'terminal-state': 'RUNNER_TERMINATION_REASON_TERMINAL_STATE_ENABLED',
-};
-
-const terminationReasons = new Set<string>(Object.keys(terminationReasonGate));
-
-export async function authorizeRunnerTermination(params: {
+interface PersistRunnerTerminationAuthorizationParams {
   provisionerId: string;
   providerRunnerId: string;
   reason: string;
-}): Promise<TerminationAuthorizationResult> {
-  return await db().transaction((tx) => authorizeRunnerTerminationTx(tx, params));
+  resolveTerminationReason: (reason: string) => RunnerTerminationReason | null;
 }
 
-async function authorizeRunnerTerminationTx(
+export async function persistRunnerTerminationAuthorization(
+  params: PersistRunnerTerminationAuthorizationParams,
+): Promise<TerminationAuthorizationResult> {
+  return await db().transaction((tx) => persistRunnerTerminationAuthorizationTx(tx, params));
+}
+
+export async function persistRunnerTerminationAuthorizationTx(
   tx: Tx,
-  params: {provisionerId: string; providerRunnerId: string; reason: string},
+  params: PersistRunnerTerminationAuthorizationParams,
 ): Promise<TerminationAuthorizationResult> {
   const [runner] = await tx
     .select({
@@ -112,25 +102,9 @@ async function authorizeRunnerTerminationTx(
   }
 
   if (!runner.terminationAuthorizedAt || !runner.terminationReason) {
-    if (!terminationReasons.has(params.reason)) {
-      logger().warn(
-        {
-          provisionerId: params.provisionerId,
-          providerRunnerId: params.providerRunnerId,
-          reason: params.reason,
-        },
-        'termination authorization rejected for unknown reason',
-      );
+    const reason = params.resolveTerminationReason(params.reason);
+    if (!reason)
       return {desiredIntent: 'keep', terminationAuthorizedAt: null, terminationReason: null};
-    }
-    const reason = params.reason as RunnerTerminationReason;
-    if (!config[terminationReasonGate[reason]]) {
-      logger().warn(
-        {provisionerId: params.provisionerId, providerRunnerId: params.providerRunnerId, reason},
-        'termination authorization rejected by disabled reason gate',
-      );
-      return {desiredIntent: 'keep', terminationAuthorizedAt: null, terminationReason: null};
-    }
     const authorizedAt = new Date();
     const [authorized] = await tx
       .update(providerRunners)
@@ -658,6 +632,12 @@ export async function listProvisionerTerminateIntentRowsTx(
     provisionerId: string;
     limit: number;
   },
+  options?: {
+    authorize?: (params: {
+      providerRunnerId: string;
+      reason: RunnerInstanceTerminateIntentReason;
+    }) => Promise<boolean>;
+  },
 ): Promise<RunnerInstanceTerminateIntent[]> {
   const rows = await provisionerTerminateIntentsQuery(tx, params)
     .orderBy(asc(providerRunners.providerRunnerId))
@@ -677,7 +657,11 @@ export async function listProvisionerTerminateIntentRowsTx(
     );
   }
 
-  const activationTimeoutRunnerIds = returnedRows.flatMap((row) =>
+  const authorizedRows = options?.authorize
+    ? await filterAuthorizedTerminateIntentRows(returnedRows, options.authorize)
+    : returnedRows;
+
+  const activationTimeoutRunnerIds = authorizedRows.flatMap((row) =>
     row.reason === 'activation-timeout' && row.providerRunnerId ? [row.providerRunnerId] : [],
   );
   if (activationTimeoutRunnerIds.length > 0) {
@@ -694,7 +678,27 @@ export async function listProvisionerTerminateIntentRowsTx(
       );
   }
 
-  return returnedRows.flatMap((row) => toRunnerInstanceTerminateIntent(row));
+  return authorizedRows.flatMap((row) => toRunnerInstanceTerminateIntent(row));
+}
+
+async function filterAuthorizedTerminateIntentRows(
+  rows: Array<{
+    providerRunnerId: string | null;
+    reason: RunnerInstanceTerminateIntentReason;
+    activationTimeoutRetry: boolean;
+  }>,
+  authorize: (params: {
+    providerRunnerId: string;
+    reason: RunnerInstanceTerminateIntentReason;
+  }) => Promise<boolean>,
+): Promise<typeof rows> {
+  const authorizedRows: typeof rows = [];
+  for (const row of rows) {
+    if (!row.providerRunnerId) continue;
+    if (!(await authorize({providerRunnerId: row.providerRunnerId, reason: row.reason}))) continue;
+    authorizedRows.push(row);
+  }
+  return authorizedRows;
 }
 
 function toRunnerInstanceTerminateIntent(row: {
