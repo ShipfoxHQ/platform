@@ -120,12 +120,7 @@ function findCredential(
   authorization: string | undefined,
 ): GitHttpCredential | undefined {
   if (authorization?.startsWith('Basic ') !== true) return undefined;
-  let decoded: string;
-  try {
-    decoded = Buffer.from(authorization.slice('Basic '.length), 'base64').toString('utf8');
-  } catch {
-    return undefined;
-  }
+  const decoded = Buffer.from(authorization.slice('Basic '.length), 'base64').toString('utf8');
   const separator = decoded.indexOf(':');
   if (separator < 0) return undefined;
   return [...credentials.values()].find(
