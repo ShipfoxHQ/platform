@@ -19,6 +19,10 @@ export async function detectAndExpireStuckJobs(
     noFirstHeartbeatGraceSeconds:
       params.noFirstHeartbeatGraceSeconds ?? config.RUNNER_NO_FIRST_HEARTBEAT_GRACE_SECONDS,
     thresholdSeconds: params.thresholdSeconds ?? STUCK_JOB_THRESHOLD_SECONDS,
+    correlatedStaleMinCount: config.RUNNER_CORRELATED_STALE_MIN_COUNT,
+    correlatedStaleRatio: config.RUNNER_CORRELATED_STALE_RATIO,
+    correlatedStaleMode: config.RUNNER_CORRELATED_STALE_LEASE_MODE as 'defer' | 'shadow',
+    correlatedStaleOverride: config.RUNNER_CORRELATED_STALE_LEASE_OVERRIDE,
   });
   return {expired: reaped.length};
 }

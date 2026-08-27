@@ -128,6 +128,25 @@ export const jobExecutionLeaseExpiredCount = meter.createCounter<Record<string, 
   {description: 'Job execution leases reaped after passing the heartbeat threshold'},
 );
 
+export const staleJobCandidateRatio = meter.createHistogram<Record<string, never>>(
+  'runners_job_stale_candidate_ratio',
+  {
+    description:
+      'Proportion of running job leases that are stale, observed in one database snapshot',
+    advice: {explicitBucketBoundaries: [0, 0.1, 0.25, 0.5, 0.75, 0.9, 1]},
+  },
+);
+
+export const jobLeaseExpiryDeferredCount = meter.createCounter<{cause: 'correlated-stale'}>(
+  'runners_job_lease_expiry_deferred',
+  {description: 'Stale job lease expiry batches deferred by the circuit breaker'},
+);
+
+export const jobLeaseExpiryShadowCount = meter.createCounter<{cause: 'correlated-stale'}>(
+  'runners_job_lease_expiry_shadow',
+  {description: 'Stale job lease expiry batches that would be deferred by the circuit breaker'},
+);
+
 export const providerRunnerReportCount = meter.createCounter<{
   state: 'starting' | 'running' | 'stopping' | 'stopped' | 'failed' | 'terminated';
 }>('runners_provider_runner_reported', {
@@ -222,6 +241,18 @@ export function recordRunnerReservationReleased(params: {
 }): void {
   if (params.count <= 0) return;
   recordMetric(() => reservationReleasedCount.add(params.count, {surface: params.surface}));
+}
+
+export function recordStaleJobCandidateRatio(value: number): void {
+  recordMetric(() => staleJobCandidateRatio.record(value));
+}
+
+export function recordDeferredJobLeaseExpiry(): void {
+  recordMetric(() => jobLeaseExpiryDeferredCount.add(1, {cause: 'correlated-stale'}));
+}
+
+export function recordShadowedJobLeaseExpiry(): void {
+  recordMetric(() => jobLeaseExpiryShadowCount.add(1, {cause: 'correlated-stale'}));
 }
 
 export type RunnerReservationPromotionFailureReason =

@@ -97,6 +97,22 @@ export const config = createConfig({
     desc: 'Grace window, in seconds, before maintenance expires a claimed job that has not sent its first heartbeat. Set this lower than the normal stuck-job threshold so startup crashes release work quickly.',
     default: 60,
   }),
+  RUNNER_CORRELATED_STALE_MIN_COUNT: num({
+    desc: 'Minimum number of stale job leases required, together with RUNNER_CORRELATED_STALE_RATIO, to defer lease expiry for a suspected control-plane outage.',
+    default: 3,
+  }),
+  RUNNER_CORRELATED_STALE_RATIO: num({
+    desc: 'Minimum stale-lease ratio required, together with RUNNER_CORRELATED_STALE_MIN_COUNT, to defer lease expiry for a suspected control-plane outage. Set between 0 and 1.',
+    default: 0.5,
+  }),
+  RUNNER_CORRELATED_STALE_LEASE_MODE: str({
+    desc: 'Correlated stale-lease circuit-breaker mode. defer prevents expiry during a correlated outage; shadow records the decision but preserves legacy expiry behavior.',
+    default: 'defer',
+  }),
+  RUNNER_CORRELATED_STALE_LEASE_OVERRIDE: bool({
+    desc: 'Explicit operator override that permits bounded stale-lease recovery while the correlated stale-lease circuit breaker is open.',
+    default: false,
+  }),
   RUNNER_RECONCILE_TERMINATE_GRACE_SECONDS: num({
     desc: 'Grace window, in seconds, before reconcile marks an absent provisioned runner as terminated. Set this higher than the provisioner report interval so a transient empty or partial observed set does not kill a live runner.',
     default: 120,
@@ -311,6 +327,30 @@ if (
 ) {
   throw new Error(
     `RUNNER_NO_FIRST_HEARTBEAT_GRACE_SECONDS (${config.RUNNER_NO_FIRST_HEARTBEAT_GRACE_SECONDS}) must be a whole number of seconds >= 1 and < ${STUCK_JOB_THRESHOLD_SECONDS}.`,
+  );
+}
+
+if (
+  !Number.isInteger(config.RUNNER_CORRELATED_STALE_MIN_COUNT) ||
+  config.RUNNER_CORRELATED_STALE_MIN_COUNT < 1
+) {
+  throw new Error(
+    `RUNNER_CORRELATED_STALE_MIN_COUNT (${config.RUNNER_CORRELATED_STALE_MIN_COUNT}) must be a whole number >= 1.`,
+  );
+}
+
+if (config.RUNNER_CORRELATED_STALE_RATIO <= 0 || config.RUNNER_CORRELATED_STALE_RATIO > 1) {
+  throw new Error(
+    `RUNNER_CORRELATED_STALE_RATIO (${config.RUNNER_CORRELATED_STALE_RATIO}) must be greater than 0 and no greater than 1.`,
+  );
+}
+
+if (
+  config.RUNNER_CORRELATED_STALE_LEASE_MODE !== 'defer' &&
+  config.RUNNER_CORRELATED_STALE_LEASE_MODE !== 'shadow'
+) {
+  throw new Error(
+    `RUNNER_CORRELATED_STALE_LEASE_MODE (${config.RUNNER_CORRELATED_STALE_LEASE_MODE}) must be defer or shadow.`,
   );
 }
 

@@ -1444,6 +1444,50 @@ describe('detectAndExpireStuckJobs', () => {
     expect(payload.steps).toBeUndefined();
   });
 
+  it('defers a correlated stale batch and recovers it with the operator override', async () => {
+    const staleJobs = [await makeStaleJob(600), await makeStaleJob(600), await makeStaleJob(600)];
+
+    // Any non-zero stale proportion meets this threshold; the minimum stale count
+    // still keeps the scenario specific to a correlated batch.
+    const deferred = await expireStuckJobExecutions({
+      thresholdSeconds: 180,
+      noFirstHeartbeatGraceSeconds: 60,
+      correlatedStaleMinCount: 3,
+      correlatedStaleRatio: Number.MIN_VALUE,
+      correlatedStaleMode: 'defer',
+    });
+
+    expect(deferred).toHaveLength(0);
+    expect(await runningJobsForTest()).toHaveLength(3);
+
+    const recovered = await expireStuckJobExecutions({
+      thresholdSeconds: 180,
+      noFirstHeartbeatGraceSeconds: 60,
+      correlatedStaleMinCount: 3,
+      correlatedStaleRatio: Number.MIN_VALUE,
+      correlatedStaleOverride: true,
+    });
+
+    expect(recovered).toHaveLength(3);
+    expect(await runningJobsForTest()).toHaveLength(0);
+    expect(await outboxForJobs(staleJobs.map(({jobId}) => jobId))).toHaveLength(3);
+  });
+
+  it('reaps a correlated stale batch in shadow mode', async () => {
+    const staleJobs = [await makeStaleJob(600), await makeStaleJob(600), await makeStaleJob(600)];
+
+    const reaped = await expireStuckJobExecutions({
+      thresholdSeconds: 180,
+      noFirstHeartbeatGraceSeconds: 60,
+      correlatedStaleMinCount: 3,
+      correlatedStaleRatio: Number.MIN_VALUE,
+      correlatedStaleMode: 'shadow',
+    });
+
+    expect(reaped).toHaveLength(3);
+    expect(await outboxForJobs(staleJobs.map(({jobId}) => jobId))).toHaveLength(3);
+  });
+
   it('releases a terminal runner reservation when its stuck lease is reaped', async () => {
     const stale = await makeStaleJob(600);
     const provisionerId = crypto.randomUUID();

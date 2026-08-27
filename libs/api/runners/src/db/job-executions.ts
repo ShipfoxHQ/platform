@@ -34,9 +34,12 @@ import {
   jobExecutionEnqueuedCount,
   jobExecutionLeaseExpiredCount,
   type ProviderRunnerLifecycleObservation,
+  recordDeferredJobLeaseExpiry,
   recordJobExecutionQueueTime,
   recordProviderRunnerActivationToFirstClaim,
   recordRunnerReservationReleased,
+  recordShadowedJobLeaseExpiry,
+  recordStaleJobCandidateRatio,
 } from '#metrics/instance.js';
 import type {Tx} from './db.js';
 import {db} from './db.js';
@@ -517,6 +520,10 @@ async function touchRunnerSessionLiveness(params: {
 export async function expireStuckJobExecutions(params: {
   thresholdSeconds: number;
   noFirstHeartbeatGraceSeconds: number;
+  correlatedStaleMinCount?: number;
+  correlatedStaleRatio?: number;
+  correlatedStaleMode?: 'defer' | 'shadow';
+  correlatedStaleOverride?: boolean;
   limit?: number;
 }): Promise<
   Array<{
@@ -526,24 +533,58 @@ export async function expireStuckJobExecutions(params: {
     jobExecutionId: string;
   }>
 > {
-  const reaped = await db().transaction(async (tx) => {
-    const heartbeatCutoff = sql`now() - (${params.thresholdSeconds} || ' seconds')::interval`;
-    const firstHeartbeatCutoff = sql`now() - (${params.noFirstHeartbeatGraceSeconds} || ' seconds')::interval`;
-    const stalePredicate = or(
-      and(
-        isNull(runningJobExecutions.firstHeartbeatAt),
-        lte(runningJobExecutions.lastHeartbeatAt, runningJobExecutions.startedAt),
-        lt(runningJobExecutions.startedAt, firstHeartbeatCutoff),
+  const heartbeatCutoff = sql`now() - (${params.thresholdSeconds} || ' seconds')::interval`;
+  const firstHeartbeatCutoff = sql`now() - (${params.noFirstHeartbeatGraceSeconds} || ' seconds')::interval`;
+  const stalePredicate = or(
+    and(
+      isNull(runningJobExecutions.firstHeartbeatAt),
+      lte(runningJobExecutions.lastHeartbeatAt, runningJobExecutions.startedAt),
+      lt(runningJobExecutions.startedAt, firstHeartbeatCutoff),
+    ),
+    and(
+      or(
+        isNotNull(runningJobExecutions.firstHeartbeatAt),
+        gt(runningJobExecutions.lastHeartbeatAt, runningJobExecutions.startedAt),
       ),
-      and(
-        or(
-          isNotNull(runningJobExecutions.firstHeartbeatAt),
-          gt(runningJobExecutions.lastHeartbeatAt, runningJobExecutions.startedAt),
-        ),
-        lt(runningJobExecutions.lastHeartbeatAt, heartbeatCutoff),
-      ),
-    );
+      lt(runningJobExecutions.lastHeartbeatAt, heartbeatCutoff),
+    ),
+  );
 
+  // Keep the fleet-wide observation consistent without weakening the fresh liveness
+  // re-check in the destructive transaction below.
+  const {correlated, staleRatio} = await db().transaction(async (tx) => {
+    await tx.execute(sql`set transaction isolation level repeatable read read only`);
+    const [counts] = await tx
+      .select({
+        staleCount: sql<number>`count(*) filter (where ${stalePredicate})`,
+        liveLeaseCount: count(),
+      })
+      .from(runningJobExecutions);
+    const staleCount = Number(counts?.staleCount ?? 0);
+    const liveLeaseCount = Number(counts?.liveLeaseCount ?? 0);
+    const staleRatio = liveLeaseCount > 0 ? staleCount / liveLeaseCount : 0;
+    return {
+      staleRatio,
+      correlated:
+        staleCount >= (params.correlatedStaleMinCount ?? 3) &&
+        staleRatio >= (params.correlatedStaleRatio ?? 0.5),
+    };
+  });
+
+  recordStaleJobCandidateRatio(staleRatio);
+
+  const shouldDefer =
+    correlated && !params.correlatedStaleOverride && params.correlatedStaleMode !== 'shadow';
+  if (correlated && !params.correlatedStaleOverride) {
+    if (params.correlatedStaleMode === 'shadow') {
+      recordShadowedJobLeaseExpiry();
+    } else {
+      recordDeferredJobLeaseExpiry();
+    }
+  }
+  if (shouldDefer) return [];
+
+  const reaped = await db().transaction(async (tx) => {
     const staleRows = await tx
       .select({
         id: runningJobExecutions.id,
