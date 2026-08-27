@@ -97,6 +97,7 @@ export {
   type RevokeProvisionerTokenResponseDto,
   RUNNER_ASSIGNMENT_POLL_DEFAULT_WAIT_SECONDS,
   RUNNER_INSTANCE_NOT_ASSIGNABLE_ERROR_CODE,
+  RUNNER_LOCAL_ISOLATION_TIMEOUT_HARD_MAX_SECONDS,
   RUNNER_SESSION_EXHAUSTED_CODE,
   type RunnerAdministratorInstanceDto,
   type RunnerAssignmentPollQueryDto,

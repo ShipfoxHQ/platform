@@ -1,4 +1,7 @@
-import {RUNNER_ASSIGNMENT_POLL_DEFAULT_WAIT_SECONDS} from '@shipfox/api-runners-dto';
+import {
+  RUNNER_ASSIGNMENT_POLL_DEFAULT_WAIT_SECONDS,
+  RUNNER_LOCAL_ISOLATION_TIMEOUT_HARD_MAX_SECONDS,
+} from '@shipfox/api-runners-dto';
 import {bool, createConfig, num, str} from '@shipfox/config';
 import {findInvalidLabels, parseLabelList} from '@shipfox/runner-labels';
 import {STUCK_JOB_THRESHOLD_SECONDS} from '#core/maintenance-policy.js';
@@ -7,7 +10,6 @@ const EPHEMERAL_REGISTRATION_TOKEN_TTL_HARD_MAX_SECONDS = 3600;
 const REGISTRATION_TOKEN_BATCH_HARD_MAX = 1000;
 const RUNNER_CONTROL_PLANE_TOKEN_TTL_HARD_MAX_SECONDS = 3600;
 const RESERVATION_TTL_HARD_MAX_SECONDS = 3600;
-const RUNNER_LOCAL_ISOLATION_TIMEOUT_HARD_MAX_SECONDS = 86400;
 
 export const config = createConfig({
   RUNNER_BOOTSTRAP_TOKEN_TTL_SECONDS: num({

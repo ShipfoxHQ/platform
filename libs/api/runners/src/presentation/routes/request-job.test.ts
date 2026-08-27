@@ -4,6 +4,7 @@ import {closeApp, createApp} from '@shipfox/node-fastify';
 import {generateOpaqueToken} from '@shipfox/node-tokens';
 import {eq} from 'drizzle-orm';
 import type {FastifyInstance} from 'fastify';
+import {config} from '#config.js';
 import {db} from '#db/db.js';
 import {runnerSessions} from '#db/schema/runner-sessions.js';
 import {createRunnerRegistrationTokenAuthMethod} from '#presentation/auth/index.js';
@@ -117,6 +118,7 @@ describe('POST /runners/jobs/request', () => {
     expect(typeof body.lease_token).toBe('string');
     expect(body.job_name).toBeUndefined();
     expect(body.steps).toBeUndefined();
+    expect(body.isolation_timeout_seconds).toBeUndefined();
 
     const claims = getLeaseTokenClaims(body.lease_token);
     expect(claims).toMatchObject({
@@ -140,7 +142,9 @@ describe('POST /runners/jobs/request', () => {
     });
 
     expect(res.statusCode).toBe(200);
-    expect(res.json().isolation_timeout_seconds).toBeGreaterThan(0);
+    expect(res.json().isolation_timeout_seconds).toBe(
+      config.RUNNER_LOCAL_ISOLATION_TIMEOUT_SECONDS,
+    );
     const [session] = await db()
       .select()
       .from(runnerSessions)

@@ -108,6 +108,8 @@ describe('POST /runners/register', () => {
     expect(rows[0]?.providerRunnerId).toBeNull();
     expect(rows[0]?.toolCapabilities).toBeNull();
     expect(rows[0]?.toolCapabilitiesReportedAt).toBeNull();
+    expect(rows[0]?.lifecycleCapabilities).toBeNull();
+    expect(rows[0]?.lifecycleCapabilitiesReportedAt).toBeNull();
   });
 
   it('persists a full capability report for a manual runner session', async () => {

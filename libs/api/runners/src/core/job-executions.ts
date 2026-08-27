@@ -1,5 +1,4 @@
 import type {AuthInterModuleClient} from '@shipfox/api-auth-dto/inter-module';
-import type {RunnerLifecycleCapabilitiesDto} from '@shipfox/api-runners-dto';
 import {claimPendingJobExecution} from '#db/job-executions.js';
 import {jobExecutionClaimedCount} from '#metrics/instance.js';
 import {config} from '../config.js';
@@ -19,7 +18,7 @@ export async function claimJobExecution(params: {
   runnerSessionId: string;
   sessionLabels: string[];
   maxClaims: number | null;
-  lifecycleCapabilities?: RunnerLifecycleCapabilitiesDto | null;
+  lifecycleCapabilities?: ReadonlyArray<string> | null | undefined;
 }): Promise<ClaimJobExecutionResult | null> {
   const claimed = await claimPendingJobExecution({
     ...params,
