@@ -201,8 +201,12 @@ async function runSelectedHarness(params: {
       success: true,
       response: harnessResult.response ?? '',
       ...(harnessResult.outputs === undefined ? {} : {outputs: harnessResult.outputs}),
-      ...(harnessResult.sessionFile === undefined ? {} : {sessionFile: harnessResult.sessionFile}),
-      ...(harnessResult.sessionId === undefined ? {} : {sessionId: harnessResult.sessionId}),
+      ...(sessionMode === 'fork' || harnessResult.sessionFile === undefined
+        ? {}
+        : {sessionFile: harnessResult.sessionFile}),
+      ...(sessionMode === 'fork' || harnessResult.sessionId === undefined
+        ? {}
+        : {sessionId: harnessResult.sessionId}),
       error: null,
       exit_code: 0,
     };

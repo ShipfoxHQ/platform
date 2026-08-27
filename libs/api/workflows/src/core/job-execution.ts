@@ -530,11 +530,7 @@ async function completePendingSessionClaim(
       // logic decide whether this job is complete or needs another claim.
       return {
         kind: 'release',
-        next: await nextStepForJobExecutionInTransaction(
-          pending.jobExecutionId,
-          tx,
-          pending.agent,
-        ),
+        next: await nextStepForJobExecutionInTransaction(pending.jobExecutionId, tx, pending.agent),
       };
     });
 

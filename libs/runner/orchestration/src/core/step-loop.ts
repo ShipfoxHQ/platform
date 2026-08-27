@@ -1,4 +1,4 @@
-import {readFile, writeFile} from 'node:fs/promises';
+import {mkdir, readFile, writeFile} from 'node:fs/promises';
 import {promisify} from 'node:util';
 import {gunzip, gzip} from 'node:zlib';
 import {
@@ -555,6 +555,7 @@ export async function executeStep(params: {
         sessionBaseSegment = transcript.segment;
         if (transcript.blob !== null) {
           sessionFile = `${agentStateDir}/agent-sessions/dispatch-session.jsonl`;
+          await mkdir(`${agentStateDir}/agent-sessions`, {recursive: true});
           await writeFile(sessionFile, await gunzipAsync(transcript.blob));
         }
       }

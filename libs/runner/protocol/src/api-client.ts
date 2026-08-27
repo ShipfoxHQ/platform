@@ -487,7 +487,9 @@ export async function requestSessionTranscript(
     retry: {methods: ['get'], statusCodes: [429, 500, 502, 503, 504]},
     ...(params.signal ? {signal: params.signal} : {}),
   });
-  const segment = Number(response.headers.get(SESSION_TRANSCRIPT_SEGMENT_HEADER));
+  const segmentHeader = response.headers.get(SESSION_TRANSCRIPT_SEGMENT_HEADER);
+  if (segmentHeader === null) throw new Error('Missing session transcript segment');
+  const segment = Number(segmentHeader);
   if (!Number.isSafeInteger(segment) || segment < 0)
     throw new Error('Invalid session transcript segment');
   if (response.status === 204) return {blob: null, segment};

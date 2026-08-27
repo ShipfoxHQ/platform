@@ -261,8 +261,8 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
         return {
           response,
           ...(Object.keys(outputs).length === 0 ? {} : {outputs}),
-          sessionFile: piSession.sessionFile,
-          sessionId: piSession.sessionId,
+          ...(sessionMode === 'fork' ? {} : {sessionFile: piSession.sessionFile}),
+          ...(sessionMode === 'fork' ? {} : {sessionId: piSession.sessionId}),
         };
       } catch (error) {
         if (error instanceof RequiredOutputsMissingError) {
