@@ -15,6 +15,7 @@ export type {
 export type {
   RunnerInstance,
   RunnerInstanceState,
+  RunnerTerminationReason,
 } from './entities/runner-instance.js';
 export type {RunnerSession} from './entities/runner-session.js';
 export {
@@ -84,3 +85,4 @@ export {
   EMPTY_RUNNER_TOOL_CAPABILITIES,
   effectiveRunnerToolCapabilities,
 } from './runner-tool-capabilities.js';
+export {authorizeRunnerTermination} from './termination-authorization.js';

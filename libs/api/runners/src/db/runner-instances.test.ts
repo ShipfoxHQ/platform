@@ -1,5 +1,6 @@
 import {pgClient} from '@shipfox/node-postgres';
 import {and, desc, eq, inArray, or, sql} from 'drizzle-orm';
+import {authorizeRunnerTermination} from '#core/termination-authorization.js';
 import {db} from '#db/db.js';
 import {createRunnerSessionConsumingEphemeralToken} from '#db/ephemeral-registration-tokens.js';
 import {
@@ -93,6 +94,56 @@ async function insertRunningJobRow(params: {
       cancellationRequestedAt: params.cancellationRequestedAt ?? null,
     });
 }
+
+describe('authorizeRunnerTermination', () => {
+  it('keeps disabled and unknown reasons from authorizing termination', async () => {
+    const runner = await providerRunnerFactory.create({
+      workspaceId: crypto.randomUUID(),
+      state: 'running',
+    });
+
+    const disabled = await authorizeRunnerTermination({
+      provisionerId: runner.provisionerId,
+      providerRunnerId: runner.providerRunnerId,
+      reason: 'registration-deadline',
+    });
+    const unknown = await authorizeRunnerTermination({
+      provisionerId: runner.provisionerId,
+      providerRunnerId: runner.providerRunnerId,
+      reason: 'not-a-reason',
+    });
+
+    expect(disabled.desiredIntent).toBe('keep');
+    expect(unknown.desiredIntent).toBe('keep');
+    expect(
+      await db()
+        .select({authorizedAt: providerRunners.terminationAuthorizedAt})
+        .from(providerRunners)
+        .where(eq(providerRunners.id, runner.id)),
+    ).toEqual([{authorizedAt: null}]);
+  });
+
+  it('reuses an existing authorization and its first reason', async () => {
+    const runner = await providerRunnerFactory.create({workspaceId: crypto.randomUUID()});
+    const authorizedAt = new Date('2026-01-01T00:00:00.000Z');
+    await db()
+      .update(providerRunners)
+      .set({terminationAuthorizedAt: authorizedAt, terminationReason: 'terminal-state'})
+      .where(eq(providerRunners.id, runner.id));
+
+    const result = await authorizeRunnerTermination({
+      provisionerId: runner.provisionerId,
+      providerRunnerId: runner.providerRunnerId,
+      reason: 'job-timeout',
+    });
+
+    expect(result).toEqual({
+      desiredIntent: 'terminate',
+      terminationAuthorizedAt: authorizedAt,
+      terminationReason: 'terminal-state',
+    });
+  });
+});
 
 describe('reportRunnerInstances', () => {
   let workspaceId: string;
@@ -1722,6 +1773,46 @@ describe('listProvisionerTerminateIntents', () => {
     const result = await listProvisionerTerminateIntents({workspaceId, provisionerId, limit: 2});
 
     expect(result).toEqual(['provisioned-runner-a', 'provisioned-runner-b']);
+  });
+
+  it('fills the limit with later authorized intents when earlier candidates are rejected', async () => {
+    for (const providerRunnerId of [
+      'provisioned-runner-a',
+      'provisioned-runner-b',
+      'provisioned-runner-c',
+    ]) {
+      await createRunnerInstance({providerRunnerId});
+      await insertRunningJobRow({
+        workspaceId,
+        provisionerId,
+        providerRunnerId,
+        cancellationRequestedAt: new Date('2025-01-01T00:01:00.000Z'),
+      });
+    }
+
+    const authorizedProviderRunnerIds: string[] = [];
+    const result = await db().transaction((tx) =>
+      listProvisionerTerminateIntentRowsTx(
+        tx,
+        {workspaceId, provisionerId, limit: 2},
+        {
+          authorize: ({providerRunnerId}) => {
+            authorizedProviderRunnerIds.push(providerRunnerId);
+            return Promise.resolve(providerRunnerId !== 'provisioned-runner-a');
+          },
+        },
+      ),
+    );
+
+    expect(result).toEqual([
+      {providerRunnerId: 'provisioned-runner-b', reason: 'job-cancelled'},
+      {providerRunnerId: 'provisioned-runner-c', reason: 'job-cancelled'},
+    ]);
+    expect(authorizedProviderRunnerIds).toEqual([
+      'provisioned-runner-a',
+      'provisioned-runner-b',
+      'provisioned-runner-c',
+    ]);
   });
 
   async function createRunnerInstance(params: {

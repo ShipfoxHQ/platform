@@ -20,6 +20,7 @@ import {
   providerRunnerTerminateIntentIssuedCount,
   recordProviderRunnerActivationOutcome,
 } from '#metrics/instance.js';
+import {authorizeRunnerTerminationTx} from './termination-authorization.js';
 
 export interface PollDemandParams {
   workspaceId: string;
@@ -84,11 +85,24 @@ export async function pollDemand(params: PollDemandParams): Promise<PollDemandRe
         activationGraceSeconds: config.RESERVATION_TTL_SECONDS,
         templates: params.templates,
       });
-      const terminateIntents = await listProvisionerTerminateIntentRowsTx(tx, {
-        workspaceId: params.workspaceId,
-        provisionerId: params.provisionerId,
-        limit: params.terminateIntentLimit,
-      });
+      const terminateIntents = await listProvisionerTerminateIntentRowsTx(
+        tx,
+        {
+          workspaceId: params.workspaceId,
+          provisionerId: params.provisionerId,
+          limit: params.terminateIntentLimit,
+        },
+        {
+          authorize: async ({providerRunnerId, reason}) =>
+            (
+              await authorizeRunnerTerminationTx(tx, {
+                provisionerId: params.provisionerId,
+                providerRunnerId,
+                reason,
+              })
+            ).desiredIntent === 'terminate',
+        },
+      );
       const newlyReservedCount = demand.newlyReservedUnits.reduce(
         (total, reservation) => total + reservation.count,
         0,

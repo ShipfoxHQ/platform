@@ -8,6 +8,18 @@ export type RunnerInstanceState =
 
 export type RunnerInstanceLaunchKind = 'demand' | 'warm' | 'manual';
 
+export type RunnerTerminationReason =
+  | 'registration-deadline'
+  | 'activation-timeout'
+  | 'runner-unresponsive'
+  | 'lease-expired'
+  | 'session-exhausted'
+  | 'stopping-timeout'
+  | 'provider-health-failed'
+  | 'job-cancelled'
+  | 'job-timeout'
+  | 'terminal-state';
+
 export interface RunnerInstance {
   id: string;
   workspaceId: string | null;
@@ -29,6 +41,8 @@ export interface RunnerInstance {
   stoppedAt: Date | null;
   failedAt: Date | null;
   terminatedAt: Date | null;
+  terminationAuthorizedAt?: Date | null;
+  terminationReason?: RunnerTerminationReason | null;
   reservationReleasedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;

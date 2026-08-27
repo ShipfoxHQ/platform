@@ -22,6 +22,7 @@ import {
   recordRunnerReservationReleased,
 } from '#metrics/instance.js';
 import {config} from '../config.js';
+import {authorizeRunnerTermination} from './termination-authorization.js';
 
 export interface ReportRunnerInstancesParams {
   scope: 'installation' | 'workspace';
@@ -122,11 +123,25 @@ export async function reconcileRunnerInstances(
   providerRunnerReconcileCallCount.add(1);
   if (result.absentIds.length > 0) providerRunnerAbsentTerminatedCount.add(result.absentIds.length);
 
-  const runners = reconcileRunnerInstancesFromDbResult({
+  const reconciledRunners = reconcileRunnerInstancesFromDbResult({
     observedRunnerInstanceIds: params.observedRunnerInstanceIds,
     observedRows: result.observedRows,
     boundJobExecutionsByRunnerInstanceId: result.boundJobExecutionsByRunnerInstanceId,
   });
+  const runners = await Promise.all(
+    reconciledRunners.map(async (runner) => {
+      if (!runner.desiredIntentReason) return runner;
+
+      const authorization = await authorizeRunnerTermination({
+        provisionerId: params.provisionerId,
+        providerRunnerId: runner.providerRunnerId,
+        reason: runner.desiredIntentReason,
+      });
+      if (authorization.desiredIntent === 'terminate') return runner;
+
+      return {...runner, desiredIntent: 'keep' as const, desiredIntentReason: null};
+    }),
+  );
   for (const runner of runners) {
     if (runner.desiredIntentReason) {
       providerRunnerTerminateIntentIssuedCount.add(1, {

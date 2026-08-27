@@ -18,7 +18,11 @@ import {
 } from 'drizzle-orm';
 import {alias} from 'drizzle-orm/pg-core';
 import {config} from '#config.js';
-import type {RunnerInstance, RunnerInstanceState} from '#core/entities/runner-instance.js';
+import type {
+  RunnerInstance,
+  RunnerInstanceState,
+  RunnerTerminationReason,
+} from '#core/entities/runner-instance.js';
 import {sanitizeRunnerLabels} from '#core/runner-labels.js';
 import {recordRunnerReservationCapacityFailure} from '#metrics/index.js';
 import type {Tx} from './db.js';
@@ -46,11 +50,101 @@ export const divergenceCountStates = ['starting', 'running'] as const satisfies 
 
 export type RunnerInstanceTerminateIntentReason = 'activation-timeout' | 'job-cancelled';
 
+export type {RunnerTerminationReason} from '#core/entities/runner-instance.js';
+
+export type TerminationAuthorizationResult =
+  | {desiredIntent: 'keep'; terminationAuthorizedAt: null; terminationReason: null}
+  | {
+      desiredIntent: 'terminate';
+      terminationAuthorizedAt: Date;
+      terminationReason: RunnerTerminationReason;
+    };
+
+interface PersistRunnerTerminationAuthorizationParams {
+  provisionerId: string;
+  providerRunnerId: string;
+  reason: string;
+  resolveTerminationReason: (reason: string) => RunnerTerminationReason | null;
+}
+
+export async function persistRunnerTerminationAuthorization(
+  params: PersistRunnerTerminationAuthorizationParams,
+): Promise<TerminationAuthorizationResult> {
+  return await db().transaction((tx) => persistRunnerTerminationAuthorizationTx(tx, params));
+}
+
+export async function persistRunnerTerminationAuthorizationTx(
+  tx: Tx,
+  params: PersistRunnerTerminationAuthorizationParams,
+): Promise<TerminationAuthorizationResult> {
+  const [runner] = await tx
+    .select({
+      id: providerRunners.id,
+      terminationAuthorizedAt: providerRunners.terminationAuthorizedAt,
+      terminationReason: providerRunners.terminationReason,
+    })
+    .from(providerRunners)
+    .where(
+      and(
+        eq(providerRunners.provisionerId, params.provisionerId),
+        eq(providerRunners.providerRunnerId, params.providerRunnerId),
+      ),
+    )
+    .limit(1)
+    .for('update');
+
+  if (!runner) {
+    logger().warn(
+      {provisionerId: params.provisionerId, providerRunnerId: params.providerRunnerId},
+      'termination authorization rejected for unknown runner',
+    );
+    return {desiredIntent: 'keep', terminationAuthorizedAt: null, terminationReason: null};
+  }
+
+  if (!runner.terminationAuthorizedAt || !runner.terminationReason) {
+    const reason = params.resolveTerminationReason(params.reason);
+    if (!reason)
+      return {desiredIntent: 'keep', terminationAuthorizedAt: null, terminationReason: null};
+    const authorizedAt = new Date();
+    const [authorized] = await tx
+      .update(providerRunners)
+      .set({
+        terminationAuthorizedAt: authorizedAt,
+        terminationReason: reason,
+        updatedAt: authorizedAt,
+      })
+      .where(eq(providerRunners.id, runner.id))
+      .returning({
+        terminationAuthorizedAt: providerRunners.terminationAuthorizedAt,
+        terminationReason: providerRunners.terminationReason,
+      });
+    if (!authorized?.terminationAuthorizedAt || !authorized.terminationReason)
+      throw new Error('Termination authorization was not persisted');
+    return {
+      desiredIntent: 'terminate',
+      terminationAuthorizedAt: authorized.terminationAuthorizedAt,
+      terminationReason: authorized.terminationReason,
+    };
+  }
+
+  return {
+    desiredIntent: 'terminate',
+    terminationAuthorizedAt: runner.terminationAuthorizedAt,
+    terminationReason: runner.terminationReason,
+  };
+}
+
 export interface RunnerInstanceTerminateIntent {
   providerRunnerId: string;
   reason: RunnerInstanceTerminateIntentReason;
   activationTimeoutRetry?: boolean;
 }
+
+type ProvisionerTerminateIntentRow = {
+  providerRunnerId: string | null;
+  reason: RunnerInstanceTerminateIntentReason;
+  activationTimeoutRetry: boolean;
+};
 
 export interface ActiveRunnerInstanceTemplateCount {
   templateKey: string;
@@ -544,13 +638,29 @@ export async function listProvisionerTerminateIntentRowsTx(
     provisionerId: string;
     limit: number;
   },
+  options?: {
+    authorize?: (params: {
+      providerRunnerId: string;
+      reason: RunnerInstanceTerminateIntentReason;
+    }) => Promise<boolean>;
+  },
 ): Promise<RunnerInstanceTerminateIntent[]> {
-  const rows = await provisionerTerminateIntentsQuery(tx, params)
-    .orderBy(asc(providerRunners.providerRunnerId))
-    .limit(params.limit + 1);
+  let returnedRows: ProvisionerTerminateIntentRow[];
+  let truncated: boolean;
+  if (options?.authorize) {
+    ({rows: returnedRows, truncated} = await listAuthorizedProvisionerTerminateIntentRowsTx(
+      tx,
+      params,
+      options.authorize,
+    ));
+  } else {
+    const rows = await provisionerTerminateIntentsQuery(tx, params)
+      .orderBy(asc(providerRunners.providerRunnerId))
+      .limit(params.limit + 1);
+    truncated = rows.length > params.limit;
+    returnedRows = truncated ? rows.slice(0, params.limit) : rows;
+  }
 
-  const truncated = rows.length > params.limit;
-  const returnedRows = truncated ? rows.slice(0, params.limit) : rows;
   if (truncated) {
     logger().warn(
       {
@@ -583,6 +693,61 @@ export async function listProvisionerTerminateIntentRowsTx(
   return returnedRows.flatMap((row) => toRunnerInstanceTerminateIntent(row));
 }
 
+async function listAuthorizedProvisionerTerminateIntentRowsTx(
+  tx: Tx,
+  params: {workspaceId: string; provisionerId: string; limit: number},
+  authorize: (params: {
+    providerRunnerId: string;
+    reason: RunnerInstanceTerminateIntentReason;
+  }) => Promise<boolean>,
+): Promise<{rows: ProvisionerTerminateIntentRow[]; truncated: boolean}> {
+  const authorizedRows: ProvisionerTerminateIntentRow[] = [];
+  let providerRunnerIdAfter: string | undefined;
+
+  while (authorizedRows.length < params.limit) {
+    const remaining = params.limit - authorizedRows.length;
+    const rows = await provisionerTerminateIntentsQuery(
+      tx,
+      providerRunnerIdAfter ? {...params, providerRunnerIdAfter} : params,
+    )
+      .orderBy(asc(providerRunners.providerRunnerId))
+      .limit(remaining + 1);
+    const candidateRows = rows.length > remaining ? rows.slice(0, remaining) : rows;
+    const authorizedPageRows = await filterAuthorizedTerminateIntentRows(candidateRows, authorize);
+    authorizedRows.push(...authorizedPageRows);
+
+    if (authorizedRows.length >= params.limit) {
+      return {
+        rows: authorizedRows,
+        truncated: rows.length > candidateRows.length,
+      };
+    }
+    if (rows.length <= remaining) break;
+
+    const lastCandidateRow = candidateRows.at(-1);
+    if (!lastCandidateRow?.providerRunnerId) break;
+    providerRunnerIdAfter = lastCandidateRow.providerRunnerId;
+  }
+
+  return {rows: authorizedRows, truncated: false};
+}
+
+async function filterAuthorizedTerminateIntentRows(
+  rows: ProvisionerTerminateIntentRow[],
+  authorize: (params: {
+    providerRunnerId: string;
+    reason: RunnerInstanceTerminateIntentReason;
+  }) => Promise<boolean>,
+): Promise<typeof rows> {
+  const authorizedRows: typeof rows = [];
+  for (const row of rows) {
+    if (!row.providerRunnerId) continue;
+    if (!(await authorize({providerRunnerId: row.providerRunnerId, reason: row.reason}))) continue;
+    authorizedRows.push(row);
+  }
+  return authorizedRows;
+}
+
 function toRunnerInstanceTerminateIntent(row: {
   providerRunnerId: string | null;
   reason: RunnerInstanceTerminateIntentReason;
@@ -603,7 +768,12 @@ function toRunnerInstanceTerminateIntent(row: {
 
 function provisionerTerminateIntentsQuery(
   tx: Tx,
-  params: {workspaceId: string; provisionerId: string; providerRunnerIds?: string[]},
+  params: {
+    workspaceId: string;
+    provisionerId: string;
+    providerRunnerIds?: string[];
+    providerRunnerIdAfter?: string;
+  },
 ) {
   const newerRunningJobExecutions = alias(runningJobExecutions, 'newer_running_jobs');
   const latestCancelledJob = exists(
@@ -687,6 +857,9 @@ function provisionerTerminateIntentsQuery(
         inArray(providerRunners.state, activeStates),
         params.providerRunnerIds && params.providerRunnerIds.length > 0
           ? inArray(providerRunners.providerRunnerId, params.providerRunnerIds)
+          : undefined,
+        params.providerRunnerIdAfter
+          ? gt(providerRunners.providerRunnerId, params.providerRunnerIdAfter)
           : undefined,
         or(latestCancelledJob, activationTimeout),
       ),

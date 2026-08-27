@@ -97,6 +97,8 @@ function providerRunner(params: {
     stoppedAt: null,
     failedAt: null,
     terminatedAt: null,
+    terminationAuthorizedAt: null,
+    terminationReason: null,
     reservationReleasedAt: null,
     createdAt: new Date(),
     updatedAt: new Date(),
