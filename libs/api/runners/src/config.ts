@@ -3,8 +3,26 @@ import {
   RUNNER_LOCAL_ISOLATION_TIMEOUT_HARD_MAX_SECONDS,
 } from '@shipfox/api-runners-dto';
 import {bool, createConfig, num, str} from '@shipfox/config';
+import {logger} from '@shipfox/node-opentelemetry';
 import {findInvalidLabels, parseLabelList} from '@shipfox/runner-labels';
 import {STUCK_JOB_THRESHOLD_SECONDS} from '#core/maintenance-policy.js';
+
+const LEGACY_RATE_LIMIT_ENV_VARS = [
+  'PROVISIONER_MINT_RATE_LIMIT_MAX_REQUESTS',
+  'PROVISIONER_MINT_RATE_LIMIT_WINDOW_SECONDS',
+  'EPHEMERAL_REGISTER_RATE_LIMIT_MAX_REQUESTS',
+  'EPHEMERAL_REGISTER_RATE_LIMIT_WINDOW_SECONDS',
+] as const;
+const configuredLegacyRateLimitEnvVars = LEGACY_RATE_LIMIT_ENV_VARS.filter(
+  (name) => process.env[name] !== undefined,
+);
+
+if (configuredLegacyRateLimitEnvVars.length > 0) {
+  logger().warn(
+    {variables: configuredLegacyRateLimitEnvVars},
+    'Legacy runner rate-limit environment variables are no longer supported and are ignored.',
+  );
+}
 
 const RUNNER_CONTROL_PLANE_TOKEN_TTL_HARD_MAX_SECONDS = 3600;
 const RESERVATION_TTL_HARD_MAX_SECONDS = 3600;
