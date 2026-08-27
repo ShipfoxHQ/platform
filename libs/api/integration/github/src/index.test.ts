@@ -33,6 +33,39 @@ describe('createGithubIntegrationProvider', () => {
       deleteSecrets,
     });
     expect(provider.eventCatalog).toBe(githubEventCatalog);
+    const deleteConnectionSecrets = provider.deleteConnectionSecrets;
+    expect(deleteConnectionSecrets).toBeDefined();
+    if (!deleteConnectionSecrets) throw new Error('Expected connection secret cleanup');
+    const connection = {
+      id: 'connection-1',
+      provider: 'github' as const,
+      workspaceId: 'workspace-1',
+      externalAccountId: '123',
+      slug: 'github_shipfox',
+      displayName: 'GitHub',
+      lifecycleStatus: 'active' as const,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    await deleteConnectionSecrets?.(connection);
+    await deleteConnectionSecrets?.(connection);
+    expect(deleteSecrets).toHaveBeenNthCalledWith(1, {
+      workspaceId: 'workspace-1',
+      namespace: githubInstallationTokenNamespace(123),
+    });
+    expect(deleteSecrets).toHaveBeenNthCalledWith(2, {
+      workspaceId: 'workspace-1',
+      namespace: githubInstallationTokenNamespace(123),
+    });
+
+    await expect(
+      deleteConnectionSecrets({...connection, externalAccountId: '0123'}),
+    ).rejects.toThrow('Invalid GitHub installation id: 0123');
+    await expect(
+      deleteConnectionSecrets({...connection, externalAccountId: '+123'}),
+    ).rejects.toThrow('Invalid GitHub installation id: +123');
+    expect(deleteSecrets).toHaveBeenCalledTimes(2);
+
     const processorOptions = state.processorOptions as {
       deleteInstallationTokenSecret: (params: {
         workspaceId: string;

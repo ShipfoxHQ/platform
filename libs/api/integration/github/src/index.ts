@@ -1,6 +1,7 @@
 import {githubEventCatalog} from '@shipfox/api-integration-github-dto';
 import type {
   GetIntegrationConnectionByIdFn,
+  IntegrationConnection,
   PublishIntegrationEventReceivedFn,
   PublishSourcePushFn,
   PublishSourceRepositoryUpdatedFn,
@@ -9,12 +10,18 @@ import type {
 import type {NodePgDatabase} from 'drizzle-orm/node-postgres';
 import {createGithubApiClient, type GithubApiClient} from '#api/client.js';
 import type {GithubInstallationTokenProvider} from '#api/installation-token-provider.js';
-import {deleteGithubInstallationTokenSecret} from '#api/installation-token-provider.js';
+import {
+  createGithubInstallationTokenProvider,
+  deleteGithubInstallationTokenSecret,
+} from '#api/installation-token-provider.js';
 import {GithubAgentToolsProvider} from '#core/agent-tools.js';
 import {GithubSourceControlProvider} from '#core/source-control.js';
 import {createGithubWebhookProcessor} from '#core/webhook-processor.js';
 import {closeDb, db} from '#db/db.js';
-import {getGithubInstallationByConnectionId} from '#db/installations.js';
+import {
+  getGithubInstallationByConnectionId,
+  getGithubInstallationByInstallationId,
+} from '#db/installations.js';
 import {migrationsPath} from '#db/migrations.js';
 import {
   type CreateGithubE2eRoutesOptions,
@@ -25,6 +32,8 @@ import {
   createGithubIntegrationRoutes,
 } from '#presentation/routes/install.js';
 import {createGithubWebhookRoutes} from '#presentation/routes/webhooks.js';
+
+const GITHUB_INSTALLATION_ID_PATTERN = /^[1-9]\d*$/u;
 
 export type {GithubApiClient} from '#api/client.js';
 export {
@@ -76,6 +85,7 @@ export interface CreateGithubIntegrationProviderOptions
   recordDeliveryOnly: RecordDeliveryOnlyFn;
   getIntegrationConnectionById: GetIntegrationConnectionByIdFn;
   getGithubInstallationByConnectionId?: typeof getGithubInstallationByConnectionId | undefined;
+  getGithubInstallationByInstallationId?: typeof getGithubInstallationByInstallationId | undefined;
   deleteSecrets?:
     | ((params: {workspaceId: string; namespace: string}) => Promise<number>)
     | undefined;
@@ -95,6 +105,23 @@ export function createGithubIntegrationProvider(options: CreateGithubIntegration
           deleteSecrets,
         })
     : undefined;
+  const deleteConnectionSecrets = deleteSecrets
+    ? async (connection: IntegrationConnection<'github'>): Promise<void> => {
+        const {externalAccountId} = connection;
+        if (!GITHUB_INSTALLATION_ID_PATTERN.test(externalAccountId)) {
+          throw new Error(`Invalid GitHub installation id: ${externalAccountId}`);
+        }
+        const installationId = Number(externalAccountId);
+        if (!Number.isSafeInteger(installationId)) {
+          throw new Error(`Invalid GitHub installation id: ${externalAccountId}`);
+        }
+        await deleteGithubInstallationTokenSecret({
+          workspaceId: connection.workspaceId,
+          installationId,
+          deleteSecrets,
+        });
+      }
+    : undefined;
   const webhookProcessor = createGithubWebhookProcessor({
     ...options,
     deleteInstallationTokenSecret,
@@ -108,9 +135,16 @@ export function createGithubIntegrationProvider(options: CreateGithubIntegration
       source_control: new GithubSourceControlProvider(github),
       agent_tools: new GithubAgentToolsProvider({
         getInstallationByConnectionId: getInstallationByConnectionId,
-        tokenProvider: options.agentTools?.tokenProvider,
+        tokenProvider:
+          options.agentTools?.tokenProvider ??
+          createGithubInstallationTokenProvider({
+            getGithubInstallationByInstallationId:
+              options.getGithubInstallationByInstallationId ??
+              getGithubInstallationByInstallationId,
+          }),
       }),
     },
+    ...(deleteConnectionSecrets ? {deleteConnectionSecrets} : {}),
     async connectionExternalUrl(connection: {id: string}): Promise<string | undefined> {
       const installation = await getInstallationByConnectionId(connection.id);
       if (!installation) return undefined;
