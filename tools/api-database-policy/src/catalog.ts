@@ -15,6 +15,11 @@ export type CatalogFindingClassification = 'cross-owner' | 'misnamed' | 'missing
 
 export type CatalogObjectClassification = 'compliant' | CatalogFindingClassification;
 
+export interface ExpectedRelationReference {
+  schemaName: string;
+  name: string;
+}
+
 export interface ExpectedCatalogObject {
   kind: Exclude<CatalogObjectKind, 'migration-history' | 'schema'>;
   schemaName: string;
@@ -24,8 +29,7 @@ export interface ExpectedCatalogObject {
   namespace: string;
   relationName?: string;
   relationSchemaName?: string;
-  referencedRelationName?: string;
-  referencedRelationSchemaName?: string;
+  referencedRelations?: readonly ExpectedRelationReference[];
   sourcePath: string;
   line: number;
 }
@@ -172,8 +176,7 @@ interface ParsedMigrationStatement {
   name: ParsedIdentifier;
   relationName?: string;
   relationSchemaName?: string;
-  referencedRelationName?: string;
-  referencedRelationSchemaName?: string;
+  referencedRelations?: ExpectedRelationReference[];
   cascade?: boolean;
   start: number;
 }
@@ -428,6 +431,38 @@ function firstKeywordOffset(source: string, keyword: string, offset: number, end
   return match?.index === undefined ? -1 : offset + match.index;
 }
 
+function readRelationReferences(
+  source: string,
+  searchableSource: string,
+  keyword: string,
+  start: number,
+  end: number,
+): ExpectedRelationReference[] {
+  const references: ExpectedRelationReference[] = [];
+  const searchableStatement = searchableSource.slice(start, end);
+  const keywordExpression = new RegExp(`\\b${keyword}\\b`, 'gi');
+  let match = keywordExpression.exec(searchableStatement);
+  while (match) {
+    const relation = readQualifiedIdentifier(source, start + (match.index ?? 0) + match[0].length);
+    if (relation) {
+      const reference = {
+        schemaName: relation.schemaName ?? 'public',
+        name: relation.name,
+      };
+      if (
+        !references.some(
+          (candidate) =>
+            candidate.schemaName === reference.schemaName && candidate.name === reference.name,
+        )
+      ) {
+        references.push(reference);
+      }
+    }
+    match = keywordExpression.exec(searchableStatement);
+  }
+  return references;
+}
+
 function addParsedStatement(
   statements: ParsedMigrationStatement[],
   source: string,
@@ -474,7 +509,13 @@ function parseMigrationStatements(source: string): ParsedMigrationStatement[] {
     const statement = addParsedStatement(statements, source, createMatch, kind);
     if (!statement) continue;
     const end = statementEnd(source, statement.name.end);
-    if (kind === 'index' || kind === 'trigger') {
+    if (kind === 'view') {
+      const references = [
+        ...readRelationReferences(source, searchableSource, 'FROM', statement.name.end, end),
+        ...readRelationReferences(source, searchableSource, 'JOIN', statement.name.end, end),
+      ];
+      if (references.length > 0) statement.referencedRelations = references;
+    } else if (kind === 'index' || kind === 'trigger') {
       const onOffset = firstKeywordOffset(searchableSource, 'ON', statement.name.end, end);
       if (onOffset !== -1) {
         const relation = readQualifiedIdentifier(source, onOffset + 2);
@@ -600,17 +641,14 @@ function parseMigrationStatements(source: string): ParsedMigrationStatement[] {
       statementEndOffset,
     );
     const end = nextConstraintOffset === -1 ? statementEndOffset : nextConstraintOffset;
-    const referencesOffset = firstKeywordOffset(
+    const references = readRelationReferences(
+      source,
       searchableSource,
       'REFERENCES',
       statement.name.end,
       end,
     );
-    if (referencesOffset === -1) continue;
-    const relation = readQualifiedIdentifier(source, referencesOffset + 'REFERENCES'.length);
-    if (!relation) continue;
-    statement.referencedRelationName = relation.name;
-    if (relation.schemaName) statement.referencedRelationSchemaName = relation.schemaName;
+    if (references.length > 0) statement.referencedRelations = references;
   }
 
   return statements;
@@ -678,11 +716,8 @@ function migrationChangesForSource({
           ...(statement.relationSchemaName
             ? {relationSchemaName: statement.relationSchemaName}
             : {}),
-          ...(statement.referencedRelationName
-            ? {referencedRelationName: statement.referencedRelationName}
-            : {}),
-          ...(statement.referencedRelationSchemaName
-            ? {referencedRelationSchemaName: statement.referencedRelationSchemaName}
+          ...(statement.referencedRelations
+            ? {referencedRelations: statement.referencedRelations}
             : {}),
           sourcePath,
           line: lineNumber(source, statement.start),
@@ -705,16 +740,17 @@ export function expectedObjectsAfterMigrations(
     }
 
     activeObjects.delete(key);
-    if (object.kind !== 'table') continue;
+    if (object.kind !== 'table' && object.kind !== 'view') continue;
     for (const [candidateKey, candidate] of activeObjects) {
       const relationMatches =
         candidate.relationName === object.name &&
         (candidate.relationSchemaName ?? 'public') === object.schemaName;
       const referencedRelationMatches =
         change.cascade === true &&
-        candidate.kind === 'constraint' &&
-        candidate.referencedRelationName === object.name &&
-        (candidate.referencedRelationSchemaName ?? 'public') === object.schemaName;
+        candidate.referencedRelations?.some(
+          (reference) =>
+            reference.name === object.name && reference.schemaName === object.schemaName,
+        );
       if (relationMatches || referencedRelationMatches) {
         activeObjects.delete(candidateKey);
       }

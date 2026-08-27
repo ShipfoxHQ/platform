@@ -242,6 +242,27 @@ describe('PostgreSQL catalog verifier', () => {
     );
   });
 
+  test('removes views that cascade with a dropped referenced table', () => {
+    const initialChanges = parseMigrationChanges({
+      source: `
+        CREATE TABLE "agent_workspaces" ("id" uuid NOT NULL);
+        CREATE VIEW "agent_workspace_view" AS
+          SELECT "id" FROM "agent_workspaces";
+      `,
+      sourcePath: 'test/fixtures/catalog/0000_initial.sql',
+      unit: agentUnit,
+    });
+    const removalChanges = parseMigrationChanges({
+      source: 'DROP TABLE "agent_workspaces" CASCADE;',
+      sourcePath: 'test/fixtures/catalog/0001_remove_workspaces.sql',
+      unit: agentUnit,
+    });
+
+    const objects = expectedObjectsAfterMigrations([...initialChanges, ...removalChanges]);
+
+    assert.deepEqual(objects, []);
+  });
+
   test('applies DROP TYPE and DROP CONSTRAINT IF EXISTS changes', () => {
     const initialChanges = parseMigrationChanges({
       source: `
