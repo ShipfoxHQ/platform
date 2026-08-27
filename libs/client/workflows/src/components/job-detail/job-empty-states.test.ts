@@ -51,6 +51,48 @@ describe('toSelectedAttemptError', () => {
       agentConfigIssue: 'provider_unsupported',
     });
   });
+
+  test.each([
+    'setup',
+    'checkout',
+    'agent',
+    'run',
+  ] as const)('derives the error category for %s steps', (type) => {
+    for (const reason of [
+      'checkout_auth_failed',
+      'checkout_unavailable',
+      'checkout_failed',
+      'checkout_path_invalid',
+      'checkout_destination_occupied',
+      'git_unavailable',
+      'workspace_prep_failed',
+      'setup_aborted',
+    ] as const) {
+      const error = toSelectedAttemptError({type} as Step, {
+        message: 'Checkout failed',
+        reason,
+      });
+
+      expect(error).toMatchObject({
+        reason,
+        category: 'setup',
+      });
+    }
+  });
+
+  test.each([
+    ['setup', 'setup'],
+    ['checkout', 'setup'],
+    ['agent', 'user'],
+    ['run', 'user'],
+  ] as const)('keeps config failures in the expected category for %s steps', (type, category) => {
+    const error = toSelectedAttemptError({type} as Step, {
+      message: 'Command failed',
+      reason: 'config_unresolvable',
+    });
+
+    expect(error).toMatchObject({reason: 'config_unresolvable', category});
+  });
 });
 
 describe('skippedJobDescription', () => {

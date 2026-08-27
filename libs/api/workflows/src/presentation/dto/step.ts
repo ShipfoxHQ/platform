@@ -1,9 +1,9 @@
 import {
   agentConfigIssueSchema,
+  deriveStepErrorCategory,
   type StepAttemptDetailResponseDto,
   type StepAttemptDto,
   type StepDto,
-  type StepErrorCategoryDto,
   type StepErrorDto,
   type StepGateResultDto,
   stepErrorReasonSchema,
@@ -14,12 +14,9 @@ import {toEvaluationTraceDto} from './evaluation-trace.js';
 
 // Domain `error` is loosely typed (jsonb), so narrow it to the fixed runner
 // contract rather than trusting whatever shape the row happens to hold. `category`
-// is not stored on the row; the caller derives it from the step type and passes it
-// in (server-authoritative, never trusted from the runner).
-function toStepErrorDto(
-  error: Record<string, unknown> | null,
-  category: StepErrorCategoryDto,
-): StepErrorDto {
+// is not stored on the row; the caller derives it from the step type and error
+// reason (server-authoritative, never trusted from the runner).
+function toStepErrorDto(error: Record<string, unknown> | null, stepType: string): StepErrorDto {
   if (error === null) return null;
   const message = typeof error.message === 'string' ? error.message : '';
   const code = typeof error.code === 'string' ? error.code : undefined;
@@ -31,6 +28,7 @@ function toStepErrorDto(
   const source = typeof error.source === 'string' ? error.source : undefined;
   const reason = stepErrorReasonSchema.safeParse(error.reason);
   const agentConfigIssue = agentConfigIssueSchema.safeParse(error.agentConfigIssue);
+  const category = deriveStepErrorCategory(stepType, reason.success ? reason.data : undefined);
   return {
     message,
     ...(code === undefined ? {} : {code}),
@@ -47,8 +45,8 @@ function toStepErrorDto(
 
 // Inverse of toStepErrorDto: reported wire errors land on the domain row in
 // camelCase so the read path renders them back without a special case. `category`
-// is intentionally NOT persisted: the server derives it from the step type on
-// read, so a runner-supplied category is ignored here.
+// is intentionally NOT persisted: the server derives it from the step type and
+// reason on read, so a runner-supplied category is ignored here.
 export function fromStepErrorDto(error: StepErrorDto | undefined): Record<string, unknown> | null {
   if (!error) return null;
   return {
@@ -120,10 +118,7 @@ export function toStepDto(step: Step): StepDto {
     type: step.type,
     config: step.config,
     evaluation_trace: toEvaluationTraceDto(step.evaluationTrace),
-    error: toStepErrorDto(
-      step.error,
-      step.type === 'setup' || step.type === 'checkout' ? 'setup' : 'user',
-    ),
+    error: toStepErrorDto(step.error, step.type),
     position: step.position,
     current_attempt: step.currentAttempt,
     created_at: step.createdAt.toISOString(),

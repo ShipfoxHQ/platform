@@ -15,6 +15,7 @@ export {
   checkoutTokenParamsSchema,
   checkoutTokenQuerySchema,
   checkoutTokenResponseSchema,
+  deriveStepErrorCategory,
   type EvaluationTraceDto,
   type EvaluationTraceEntryDto,
   evaluationTraceEntrySchema,
