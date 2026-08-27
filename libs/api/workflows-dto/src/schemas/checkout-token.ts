@@ -25,11 +25,12 @@ function validateRenewalWindow<
   if (auth.renewal?.mode !== 'refresh-at') return;
 
   const refreshAt = Date.parse(auth.renewal.refresh_at);
-  if (refreshAt <= Date.now() || refreshAt >= Date.parse(auth.expires_at)) {
+  const expiresAt = Date.parse(auth.expires_at);
+  if (!Number.isFinite(refreshAt) || !Number.isFinite(expiresAt) || refreshAt >= expiresAt) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['renewal', 'refresh_at'],
-      message: 'refresh_at must be in the future and earlier than expires_at',
+      message: 'refresh_at must be earlier than expires_at',
     });
   }
 }

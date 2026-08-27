@@ -187,12 +187,24 @@ describe('checkoutTokenResponseSchema', () => {
     expect(() => checkoutTokenResponseSchema.parse(input)).toThrow();
   });
 
-  it('rejects a refresh-at renewal that is already past', () => {
+  it('accepts a past refresh-at renewal when it is structurally before expiry', () => {
     const input = {
       ...bearerResponse,
       auth: {
         ...bearerResponse.auth,
         renewal: {mode: 'refresh-at', refresh_at: '2020-01-01T00:00:00.000Z'},
+      },
+    };
+
+    expect(checkoutTokenResponseSchema.parse(input)).toEqual(input);
+  });
+
+  it('rejects a refresh-at renewal with an unparseable timestamp', () => {
+    const input = {
+      ...bearerResponse,
+      auth: {
+        ...bearerResponse.auth,
+        renewal: {mode: 'refresh-at', refresh_at: '2026-13-10T12:00:00.000Z'},
       },
     };
 
