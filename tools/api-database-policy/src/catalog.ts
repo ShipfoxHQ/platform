@@ -24,6 +24,8 @@ export interface ExpectedCatalogObject {
   namespace: string;
   relationName?: string;
   relationSchemaName?: string;
+  referencedRelationName?: string;
+  referencedRelationSchemaName?: string;
   sourcePath: string;
   line: number;
 }
@@ -170,11 +172,15 @@ interface ParsedMigrationStatement {
   name: ParsedIdentifier;
   relationName?: string;
   relationSchemaName?: string;
+  referencedRelationName?: string;
+  referencedRelationSchemaName?: string;
+  cascade?: boolean;
   start: number;
 }
 
 export interface ParsedMigrationChange {
   operation: 'create' | 'drop';
+  cascade?: boolean;
   object: ExpectedCatalogObject;
 }
 
@@ -187,6 +193,7 @@ const ifNotExistsExpression = /^IF\s+NOT\s+EXISTS\b/i;
 const ifExistsExpression = /^IF\s+EXISTS\b/i;
 const concurrentlyExpression = /^CONCURRENTLY\b/i;
 const dropConstraintExpression = /\bDROP\s+CONSTRAINT\b/i;
+const cascadeExpression = /\bCASCADE\b/i;
 const whitespaceExpression = /\s/;
 const postgresIdentifierLimit = 63;
 
@@ -493,6 +500,9 @@ function parseMigrationStatements(source: string): ParsedMigrationStatement[] {
     const statement = addParsedStatement(statements, source, dropMatch, kind, 'drop');
     if (!statement) continue;
     const end = statementEnd(source, statement.name.end);
+    if (statement.operation === 'drop' && kind === 'table') {
+      statement.cascade = cascadeExpression.test(searchableSource.slice(statement.name.end, end));
+    }
     if (kind === 'trigger') {
       const onOffset = firstKeywordOffset(searchableSource, 'ON', statement.name.end, end);
       if (onOffset !== -1) {
@@ -521,11 +531,21 @@ function parseMigrationStatements(source: string): ParsedMigrationStatement[] {
     const end = statementEnd(source, table.end);
     const constraintOffset = firstKeywordOffset(searchableSource, 'CONSTRAINT', table.end, end);
     if (constraintOffset === -1) continue;
-    const constraint = readIdentifier(source, constraintOffset + 'CONSTRAINT'.length);
-    if (!constraint) continue;
-    const operation: ParsedMigrationStatement['operation'] = dropConstraintExpression.test(
+    const isDroppingConstraint = dropConstraintExpression.test(
       searchableSource.slice(table.end, end),
-    )
+    );
+    const constraintNameOffset = skipWhitespace(source, constraintOffset + 'CONSTRAINT'.length);
+    const afterConstraintIfExists = isDroppingConstraint
+      ? ifExistsExpression.exec(searchableSource.slice(constraintNameOffset))
+      : undefined;
+    const constraint = readIdentifier(
+      source,
+      afterConstraintIfExists
+        ? constraintNameOffset + afterConstraintIfExists[0].length
+        : constraintNameOffset,
+    );
+    if (!constraint) continue;
+    const operation: ParsedMigrationStatement['operation'] = isDroppingConstraint
       ? 'drop'
       : 'create';
     statements.push({
@@ -568,6 +588,29 @@ function parseMigrationStatements(source: string): ParsedMigrationStatement[] {
       ...(range?.schemaName ? {relationSchemaName: range.schemaName} : {}),
       start: constraintMatch.index ?? 0,
     });
+  }
+
+  for (const statement of statements) {
+    if (statement.kind !== 'constraint') continue;
+    const statementEndOffset = statementEnd(source, statement.name.end);
+    const nextConstraintOffset = firstKeywordOffset(
+      searchableSource,
+      'CONSTRAINT',
+      statement.name.end,
+      statementEndOffset,
+    );
+    const end = nextConstraintOffset === -1 ? statementEndOffset : nextConstraintOffset;
+    const referencesOffset = firstKeywordOffset(
+      searchableSource,
+      'REFERENCES',
+      statement.name.end,
+      end,
+    );
+    if (referencesOffset === -1) continue;
+    const relation = readQualifiedIdentifier(source, referencesOffset + 'REFERENCES'.length);
+    if (!relation) continue;
+    statement.referencedRelationName = relation.name;
+    if (relation.schemaName) statement.referencedRelationSchemaName = relation.schemaName;
   }
 
   return statements;
@@ -617,12 +660,13 @@ function migrationChangesForSource({
     if (statement.kind === 'type') {
       const end = statementEnd(source, statement.name.end);
       const statementText = searchableSource.slice(statement.name.end, end);
-      if (!enumExpression.test(statementText)) return [];
+      if (statement.operation === 'create' && !enumExpression.test(statementText)) return [];
     }
     const kind = statement.kind === 'type' ? 'enum' : statement.kind;
     return [
       {
         operation: statement.operation,
+        ...(statement.cascade ? {cascade: true} : {}),
         object: {
           kind,
           schemaName: statement.name.schemaName ?? 'public',
@@ -633,6 +677,12 @@ function migrationChangesForSource({
           ...(statement.relationName ? {relationName: statement.relationName} : {}),
           ...(statement.relationSchemaName
             ? {relationSchemaName: statement.relationSchemaName}
+            : {}),
+          ...(statement.referencedRelationName
+            ? {referencedRelationName: statement.referencedRelationName}
+            : {}),
+          ...(statement.referencedRelationSchemaName
+            ? {referencedRelationSchemaName: statement.referencedRelationSchemaName}
             : {}),
           sourcePath,
           line: lineNumber(source, statement.start),
@@ -657,10 +707,15 @@ export function expectedObjectsAfterMigrations(
     activeObjects.delete(key);
     if (object.kind !== 'table') continue;
     for (const [candidateKey, candidate] of activeObjects) {
-      if (
+      const relationMatches =
         candidate.relationName === object.name &&
-        (candidate.relationSchemaName ?? 'public') === object.schemaName
-      ) {
+        (candidate.relationSchemaName ?? 'public') === object.schemaName;
+      const referencedRelationMatches =
+        change.cascade === true &&
+        candidate.kind === 'constraint' &&
+        candidate.referencedRelationName === object.name &&
+        (candidate.referencedRelationSchemaName ?? 'public') === object.schemaName;
+      if (relationMatches || referencedRelationMatches) {
         activeObjects.delete(candidateKey);
       }
     }

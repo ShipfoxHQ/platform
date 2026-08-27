@@ -11,7 +11,6 @@ export const tokenTypeParts = {
   passwordReset: 'pr',
   refreshToken: 'r',
   manualRegistrationToken: 'mrt',
-  ephemeralRegistrationToken: 'ert',
   runnerBootstrapToken: 'rbt',
   runnerControlSession: 'rcs',
   runnerActivationToken: 'rat',

@@ -7,20 +7,23 @@ import {logger} from '@shipfox/node-opentelemetry';
 import {findInvalidLabels, parseLabelList} from '@shipfox/runner-labels';
 import {STUCK_JOB_THRESHOLD_SECONDS} from '#core/maintenance-policy.js';
 
-const LEGACY_RATE_LIMIT_ENV_VARS = [
+const LEGACY_EPHEMERAL_REGISTRATION_ENV_VARS = [
+  'EPHEMERAL_REGISTRATION_TOKEN_TTL_SECONDS',
+  'REGISTRATION_TOKEN_BATCH_MAX',
   'PROVISIONER_MINT_RATE_LIMIT_MAX_REQUESTS',
   'PROVISIONER_MINT_RATE_LIMIT_WINDOW_SECONDS',
   'EPHEMERAL_REGISTER_RATE_LIMIT_MAX_REQUESTS',
   'EPHEMERAL_REGISTER_RATE_LIMIT_WINDOW_SECONDS',
+  'RUNNERS_RATE_LIMIT_TIMEOUT_MS',
 ] as const;
-const configuredLegacyRateLimitEnvVars = LEGACY_RATE_LIMIT_ENV_VARS.filter(
+const configuredLegacyEphemeralRegistrationEnvVars = LEGACY_EPHEMERAL_REGISTRATION_ENV_VARS.filter(
   (name) => process.env[name] !== undefined,
 );
 
-if (configuredLegacyRateLimitEnvVars.length > 0) {
+if (configuredLegacyEphemeralRegistrationEnvVars.length > 0) {
   logger().warn(
-    {variables: configuredLegacyRateLimitEnvVars},
-    'Legacy runner rate-limit environment variables are no longer supported and are ignored.',
+    {variables: configuredLegacyEphemeralRegistrationEnvVars},
+    'Legacy ephemeral registration-token environment variables are no longer supported and are ignored.',
   );
 }
 

@@ -224,7 +224,7 @@ describe('POST /runners/register', () => {
     const request = {
       method: 'POST',
       url: '/runners/register',
-      headers: {authorization: `Bearer ${generateOpaqueToken('ephemeralRegistrationToken')}`},
+      headers: {authorization: 'Bearer sf_ert_Ab3xY7890123456789'},
       payload: {labels: ['linux']},
     } as const;
 

@@ -214,6 +214,63 @@ describe('PostgreSQL catalog verifier', () => {
     );
   });
 
+  test('removes foreign keys that cascade with a dropped referenced table', () => {
+    const initialChanges = parseMigrationChanges({
+      source: `
+        CREATE TABLE "agent_workspaces" ("id" uuid NOT NULL);
+        CREATE TABLE "agent_jobs" (
+          "id" uuid NOT NULL,
+          "workspace_id" uuid NOT NULL,
+          CONSTRAINT "agent_jobs_workspace_id_fk"
+            FOREIGN KEY ("workspace_id") REFERENCES "agent_workspaces" ("id")
+        );
+      `,
+      sourcePath: 'test/fixtures/catalog/0000_initial.sql',
+      unit: agentUnit,
+    });
+    const removalChanges = parseMigrationChanges({
+      source: 'DROP TABLE "agent_workspaces" CASCADE;',
+      sourcePath: 'test/fixtures/catalog/0001_remove_workspaces.sql',
+      unit: agentUnit,
+    });
+
+    const objects = expectedObjectsAfterMigrations([...initialChanges, ...removalChanges]);
+
+    assert.deepEqual(
+      objects.map(({kind, name}) => `${kind}:${name}`),
+      ['table:agent_jobs'],
+    );
+  });
+
+  test('applies DROP TYPE and DROP CONSTRAINT IF EXISTS changes', () => {
+    const initialChanges = parseMigrationChanges({
+      source: `
+        CREATE TYPE "agent_status" AS ENUM ('ready');
+        CREATE TABLE "agent_jobs" ("id" uuid NOT NULL);
+        ALTER TABLE "agent_jobs"
+          ADD CONSTRAINT "agent_jobs_check" CHECK (true);
+      `,
+      sourcePath: 'test/fixtures/catalog/0000_initial.sql',
+      unit: agentUnit,
+    });
+    const removalChanges = parseMigrationChanges({
+      source: `
+        ALTER TABLE IF EXISTS "agent_jobs"
+          DROP CONSTRAINT IF EXISTS "agent_jobs_check";
+        DROP TYPE IF EXISTS "agent_status";
+      `,
+      sourcePath: 'test/fixtures/catalog/0001_remove_status.sql',
+      unit: agentUnit,
+    });
+
+    const objects = expectedObjectsAfterMigrations([...initialChanges, ...removalChanges]);
+
+    assert.deepEqual(
+      objects.map(({kind, name}) => `${kind}:${name}`),
+      ['table:agent_jobs'],
+    );
+  });
+
   test('ignores DDL-looking text inside dollar-quoted function bodies', () => {
     const objects = parseMigrationSql({
       source: `

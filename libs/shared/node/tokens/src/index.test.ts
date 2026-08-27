@@ -102,6 +102,12 @@ describe('tokens', () => {
       expect(type).toBeUndefined();
     });
 
+    it('returns undefined for the retired ephemeral registration token prefix', () => {
+      const type = getTokenType('sf_ert_Ab3xY7890123456789');
+
+      expect(type).toBeUndefined();
+    });
+
     it('does not return a type for an unqualified token when an environment is configured', async () => {
       vi.stubEnv('TOKEN_ENVIRONMENT', 'staging');
       vi.resetModules();
