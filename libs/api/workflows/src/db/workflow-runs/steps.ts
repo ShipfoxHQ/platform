@@ -289,6 +289,8 @@ export async function markStepRunning(params: MarkStepRunningParams, tx: Tx): Pr
 export interface DispatchStepWithCompletedConfigParams {
   jobExecutionId: string;
   stepId: string;
+  attempt: number;
+  stepAttemptId?: string | undefined;
   config: Record<string, unknown>;
   evaluationTrace: readonly PersistedEvaluationTraceEntry[] | null;
 }
@@ -310,6 +312,7 @@ export async function dispatchStepWithCompletedConfig(
       and(
         eq(steps.id, params.stepId),
         eq(steps.jobExecutionId, params.jobExecutionId),
+        eq(steps.currentAttempt, params.attempt),
         NON_TERMINAL_STEP_STATUS_FILTER,
       ),
     )
@@ -320,19 +323,26 @@ export async function dispatchStepWithCompletedConfig(
   // The attempt row is opened before dispatch when a session claim needs its
   // id. Refresh that same row with the completed config and trace instead of
   // opening a second row after the claim.
+  const attemptFilter =
+    params.stepAttemptId === undefined
+      ? and(
+          eq(stepAttempts.stepId, step.id),
+          eq(stepAttempts.attempt, params.attempt),
+          eq(stepAttempts.status, 'running'),
+        )
+      : and(
+          eq(stepAttempts.id, params.stepAttemptId),
+          eq(stepAttempts.stepId, step.id),
+          eq(stepAttempts.attempt, params.attempt),
+          eq(stepAttempts.status, 'running'),
+        );
   await tx
     .update(stepAttempts)
     .set({
       config: params.config,
       evaluationTrace: params.evaluationTrace ?? null,
     })
-    .where(
-      and(
-        eq(stepAttempts.stepId, step.id),
-        eq(stepAttempts.attempt, step.currentAttempt),
-        eq(stepAttempts.status, 'running'),
-      ),
-    );
+    .where(attemptFilter);
   return step;
 }
 

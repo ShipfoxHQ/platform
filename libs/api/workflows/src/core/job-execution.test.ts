@@ -643,6 +643,100 @@ describe('nextStepForJob session claims', () => {
     expect(claimSession.mock.calls[0]?.[0]?.stepAttemptId).toBe(attempt?.id);
   });
 
+  test('does not apply a delayed claim result to a restarted attempt', async () => {
+    const {jobId, steps} = await arrangeJobWithAgentStep({
+      prompt: 'Plan the work.',
+      session: 'main',
+    });
+    const step = steps[0];
+    if (!step) throw new Error('Expected arranged step');
+    const claimSession = vi.mocked(agentTestClient.claimSession);
+    claimSession.mockReset();
+    const firstSessionId = crypto.randomUUID();
+    const secondSessionId = crypto.randomUUID();
+    let claimCount = 0;
+    claimSession.mockImplementation(async () => {
+      claimCount += 1;
+      if (claimCount === 1) {
+        await db()
+          .update(stepsTable)
+          .set({status: 'pending', currentAttempt: sql`${stepsTable.currentAttempt} + 1`})
+          .where(eq(stepsTable.id, step.id));
+      }
+      const sessionId = claimCount === 1 ? firstSessionId : secondSessionId;
+      return {
+        descriptor: {id: sessionId, key: 'main', mode: 'resume', segment: claimCount},
+        harness: 'pi',
+      };
+    });
+
+    const next = await nextStepForJob(jobId, agentTestClient);
+
+    expect(claimSession).toHaveBeenCalledTimes(2);
+    expect(next).toEqual({
+      kind: 'step',
+      step: expect.objectContaining({
+        id: step.id,
+        currentAttempt: 2,
+        config: expect.objectContaining({
+          session: expect.objectContaining({id: secondSessionId}),
+        }),
+      }),
+      dispatched: true,
+    });
+    expect((await getStepAttempts(jobId)).map((attempt) => attempt.attempt)).toEqual([1, 2]);
+  });
+
+  test('does not apply a delayed claim failure to a restarted attempt', async () => {
+    const {jobId, steps} = await arrangeJobWithAgentStep({
+      prompt: 'Plan the work.',
+      session: 'main',
+    });
+    const step = steps[0];
+    if (!step) throw new Error('Expected arranged step');
+    const claimSession = vi.mocked(agentTestClient.claimSession);
+    claimSession.mockReset();
+    const sessionId = crypto.randomUUID();
+    let claimCount = 0;
+    claimSession.mockImplementation(async () => {
+      claimCount += 1;
+      if (claimCount === 1) {
+        await db()
+          .update(stepsTable)
+          .set({status: 'pending', currentAttempt: sql`${stepsTable.currentAttempt} + 1`})
+          .where(eq(stepsTable.id, step.id));
+        throw createInterModuleKnownError(
+          agentInterModuleContract.methods.claimSession,
+          'session-held',
+          {},
+        );
+      }
+      return {
+        descriptor: {id: sessionId, key: 'main', mode: 'resume', segment: 1},
+        harness: 'pi',
+      };
+    });
+
+    const next = await nextStepForJob(jobId, agentTestClient);
+
+    expect(claimSession).toHaveBeenCalledTimes(2);
+    expect(next).toEqual({
+      kind: 'step',
+      step: expect.objectContaining({
+        id: step.id,
+        currentAttempt: 2,
+        config: expect.objectContaining({
+          session: expect.objectContaining({id: sessionId}),
+        }),
+      }),
+      dispatched: true,
+    });
+    expect((await getStepsByJobId(jobId))[0]).toMatchObject({
+      status: 'running',
+      currentAttempt: 2,
+    });
+  });
+
   test('resolves an interpolated session key at dispatch before claiming it', async () => {
     const {jobId, steps} = await arrangeJobWithSteps(2);
     const producer = steps[0];

@@ -340,6 +340,8 @@ async function dispatchPendingStepWithConfigPlan({
       {
         jobExecutionId,
         stepId: pending.id,
+        attempt: pending.currentAttempt,
+        stepAttemptId,
         config: completed.config,
         evaluationTrace: completed.trace,
       },
@@ -484,10 +486,16 @@ async function completePendingSessionClaim(
   }
 
   return withTransaction(async (tx) => {
+    if (!(await isCurrentPendingSessionClaim(pending, tx))) {
+      return continueAfterStalePendingSessionClaim(pending, tx);
+    }
+
     const marked = await dispatchStepWithCompletedConfig(
       {
         jobExecutionId: pending.jobExecutionId,
         stepId: pending.stepId,
+        attempt: pending.attempt,
+        stepAttemptId: pending.stepAttemptId,
         config,
         evaluationTrace: pending.evaluationTrace,
       },
@@ -507,6 +515,10 @@ async function settlePreparedSessionClaimFailure(
   failureError: Record<string, unknown>,
   tx: Tx,
 ): Promise<NextStepResolution> {
+  if (!(await isCurrentPendingSessionClaim(pending, tx))) {
+    return continueAfterStalePendingSessionClaim(pending, tx);
+  }
+
   // This is idempotent for a concurrently finalized attempt. If the attempt
   // was never persisted (or was already terminal), settling the step still
   // records the dispatch failure on the current projection.
@@ -540,6 +552,38 @@ async function settlePreparedSessionClaimFailure(
   return status === null
     ? nextStepForJobExecutionInTransaction(pending.jobExecutionId, tx, pending.agent)
     : {kind: 'done', status};
+}
+
+async function isCurrentPendingSessionClaim(
+  pending: PendingSessionClaim,
+  tx: Tx,
+): Promise<boolean> {
+  const steps = await getStepsByJobExecutionIdForUpdate(pending.jobExecutionId, tx);
+  const step = steps.find((candidate) => candidate.id === pending.stepId);
+  if (step === undefined || step.status !== 'running' || step.currentAttempt !== pending.attempt) {
+    return false;
+  }
+  if (pending.stepAttemptId === undefined) return true;
+
+  const attempts = await getStepAttemptsByJobExecutionId(pending.jobExecutionId, tx);
+  const attempt = attempts.find(
+    (candidate) => candidate.stepId === pending.stepId && candidate.attempt === pending.attempt,
+  );
+  return attempt?.id === pending.stepAttemptId && attempt.status === 'running';
+}
+
+async function continueAfterStalePendingSessionClaim(
+  pending: PendingSessionClaim,
+  tx: Tx,
+): Promise<NextStepResolution> {
+  const steps = await getStepsByJobExecutionIdForUpdate(pending.jobExecutionId, tx);
+  const currentStep = steps.find((step) => step.id === pending.stepId);
+  // A newer attempt may already be in its own claim window. Return it without
+  // re-entering session recovery, which would compete with that claim.
+  if (currentStep?.status === 'running') {
+    return {kind: 'step', step: currentStep, dispatched: false};
+  }
+  return nextStepForJobExecutionInTransaction(pending.jobExecutionId, tx, pending.agent);
 }
 
 function agentSessionClaimReason(
