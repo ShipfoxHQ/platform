@@ -10,12 +10,18 @@ import type {
 import type {NodePgDatabase} from 'drizzle-orm/node-postgres';
 import {createGithubApiClient, type GithubApiClient} from '#api/client.js';
 import type {GithubInstallationTokenProvider} from '#api/installation-token-provider.js';
-import {deleteGithubInstallationTokenSecret} from '#api/installation-token-provider.js';
+import {
+  createGithubInstallationTokenProvider,
+  deleteGithubInstallationTokenSecret,
+} from '#api/installation-token-provider.js';
 import {GithubAgentToolsProvider} from '#core/agent-tools.js';
 import {GithubSourceControlProvider} from '#core/source-control.js';
 import {createGithubWebhookProcessor} from '#core/webhook-processor.js';
 import {closeDb, db} from '#db/db.js';
-import {getGithubInstallationByConnectionId} from '#db/installations.js';
+import {
+  getGithubInstallationByConnectionId,
+  getGithubInstallationByInstallationId,
+} from '#db/installations.js';
 import {migrationsPath} from '#db/migrations.js';
 import {
   type CreateGithubE2eRoutesOptions,
@@ -26,6 +32,8 @@ import {
   createGithubIntegrationRoutes,
 } from '#presentation/routes/install.js';
 import {createGithubWebhookRoutes} from '#presentation/routes/webhooks.js';
+
+const GITHUB_INSTALLATION_ID_PATTERN = /^[1-9]\d*$/u;
 
 export type {GithubApiClient} from '#api/client.js';
 export {
@@ -98,9 +106,13 @@ export function createGithubIntegrationProvider(options: CreateGithubIntegration
     : undefined;
   const deleteConnectionSecrets = deleteSecrets
     ? async (connection: IntegrationConnection<'github'>): Promise<void> => {
-        const installationId = Number(connection.externalAccountId);
-        if (!Number.isSafeInteger(installationId) || installationId <= 0) {
-          throw new Error(`Invalid GitHub installation id: ${connection.externalAccountId}`);
+        const {externalAccountId} = connection;
+        if (!GITHUB_INSTALLATION_ID_PATTERN.test(externalAccountId)) {
+          throw new Error(`Invalid GitHub installation id: ${externalAccountId}`);
+        }
+        const installationId = Number(externalAccountId);
+        if (!Number.isSafeInteger(installationId)) {
+          throw new Error(`Invalid GitHub installation id: ${externalAccountId}`);
         }
         await deleteGithubInstallationTokenSecret({
           workspaceId: connection.workspaceId,
@@ -122,7 +134,11 @@ export function createGithubIntegrationProvider(options: CreateGithubIntegration
       source_control: new GithubSourceControlProvider(github),
       agent_tools: new GithubAgentToolsProvider({
         getInstallationByConnectionId: getInstallationByConnectionId,
-        tokenProvider: options.agentTools?.tokenProvider,
+        tokenProvider:
+          options.agentTools?.tokenProvider ??
+          createGithubInstallationTokenProvider({
+            getGithubInstallationByInstallationId,
+          }),
       }),
     },
     ...(deleteConnectionSecrets ? {deleteConnectionSecrets} : {}),
