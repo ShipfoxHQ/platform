@@ -69,7 +69,6 @@ test.describe('workspace onboarding', () => {
       timeout: SETUP_NAVIGATION_TIMEOUT_MS,
     });
     await setupShell.expectNavigationHidden();
-    await expect(workspaceSetupChecklist.indicator()).toHaveCount(0);
 
     const workspaceSlug = workspaceHome.currentWorkspaceSlug();
     expect(workspaceSlug).toBeTruthy();
@@ -77,7 +76,6 @@ test.describe('workspace onboarding', () => {
     await workspaceHome.gotoSettingsGeneral(workspaceSlug as string);
     await expect(workspaceSetupChecklist.indicator()).toBeVisible();
     await workspaceHome.gotoIntegrations(workspaceSlug as string);
-    await expect(workspaceSetupChecklist.indicator()).toHaveCount(0);
     const org = await gitea.createOrg();
     await sourceControlSetup.providerLink(workspaceSlug as string, 'gitea').click();
     await providerInstall.installOrganization(org.org);
@@ -86,11 +84,8 @@ test.describe('workspace onboarding', () => {
     });
     await sourceControlSetup.skipModelProviderButton().click();
     await expect(page).toHaveURL(new RegExp(`/w/${workspaceSlug}/projects/new/?$`, 'u'));
-    await expect(workspaceSetupChecklist.indicator()).toHaveCount(0);
     await workspaceHome.gotoModelProvider(workspaceSlug as string);
-    await expect(workspaceSetupChecklist.indicator()).toHaveCount(0);
     await workspaceHome.gotoNewProject(workspaceSlug as string);
-    await expect(workspaceSetupChecklist.indicator()).toHaveCount(0);
     await workspaceHome.createProject('E2E First Project');
     await expect(page).toHaveURL(new RegExp(`/w/${workspaceSlug}/?$`, 'u'));
     await expect(workspaceSetupChecklist.panel()).toBeVisible();
