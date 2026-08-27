@@ -270,7 +270,7 @@ describe('PostgreSQL catalog verifier', () => {
         CREATE TABLE "agent_workspace_members" ("id" uuid NOT NULL);
         CREATE VIEW "agent_workspace_view" AS
           SELECT "agent_workspaces"."id"
-          FROM ONLY "agent_workspaces", ONLY "agent_workspace_members";
+          FROM ONLY ("agent_workspaces"), ONLY "agent_workspace_members";
       `,
       sourcePath: 'test/fixtures/catalog/0000_initial.sql',
       unit: agentUnit,

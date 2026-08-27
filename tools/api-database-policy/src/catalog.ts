@@ -477,10 +477,15 @@ function readFromRelationIdentifier(
 ): ParsedIdentifier | undefined {
   const relationOffset = skipWhitespace(source, offset);
   const onlyMatch = fromOnlyExpression.exec(searchableSource.slice(relationOffset));
-  return readQualifiedIdentifier(
-    source,
-    onlyMatch ? relationOffset + onlyMatch[0].length : relationOffset,
-  );
+  if (!onlyMatch) return readQualifiedIdentifier(source, relationOffset);
+
+  const onlyOffset = skipWhitespace(source, relationOffset + onlyMatch[0].length);
+  const isParenthesized = source[onlyOffset] === '(';
+  const relation = readQualifiedIdentifier(source, isParenthesized ? onlyOffset + 1 : onlyOffset);
+  if (!relation || !isParenthesized) return relation;
+
+  const closingOffset = skipWhitespace(source, relation.end);
+  return source[closingOffset] === ')' ? {...relation, end: closingOffset + 1} : relation;
 }
 
 function readFromRelationReferences(
