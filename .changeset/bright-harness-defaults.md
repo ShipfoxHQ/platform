@@ -4,4 +4,4 @@
 "@shipfox/api-definitions": minor
 ---
 
-Adds workspace-aware validation that applies the configured default agent harness to harness-specific workflow fields.
+Applies each workspace's configured default harness when checking harness-specific tools, thinking, models, and shared sessions. Managed-inference workspaces using Pi can use Pi tool names without declaring the harness.
