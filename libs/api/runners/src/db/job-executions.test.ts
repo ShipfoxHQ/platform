@@ -1111,13 +1111,17 @@ describe('reconcileTerminalJobExecution', () => {
     const claimed = await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: null});
     expect(claimed?.jobExecutionId).toBe(pending.jobExecutionId);
 
-    await reconcileTerminalJobExecution({jobExecutionId: pending.jobExecutionId});
+    await reconcileTerminalJobExecution({
+      jobExecutionId: pending.jobExecutionId,
+      cancellationReason: 'timed_out',
+    });
 
     const rows = await db()
       .select()
       .from(runningJobExecutions)
       .where(eq(runningJobExecutions.jobExecutionId, pending.jobExecutionId));
     expect(rows[0]?.cancellationRequestedAt).not.toBeNull();
+    expect(rows[0]?.cancellationReason).toBe('timed_out');
   });
 
   it('does not double-release a reservation when a claimed runner becomes terminal', async () => {

@@ -1,3 +1,4 @@
+import type {RunnerJobStopReasonDto} from '@shipfox/api-runners-dto';
 import type {RunnerInstance, RunnerInstanceState} from '#core/entities/runner-instance.js';
 import {
   attachRunnerInstanceProviderId as attachRunnerInstanceProviderIdDb,
@@ -57,6 +58,7 @@ export interface ReconciledBoundJobExecution {
   workflowRunAttemptId: string;
   lastHeartbeatAt: Date;
   cancellationRequestedAt: Date | null;
+  cancellationReason: RunnerJobStopReasonDto | null;
 }
 
 export interface ReconciledRunnerInstance {
@@ -194,6 +196,7 @@ function toReconciledBoundJobExecution(
     workflowRunAttemptId: jobExecution.workflowRunAttemptId,
     lastHeartbeatAt: jobExecution.lastHeartbeatAt,
     cancellationRequestedAt: jobExecution.cancellationRequestedAt,
+    cancellationReason: jobExecution.cancellationReason,
   };
 }
 

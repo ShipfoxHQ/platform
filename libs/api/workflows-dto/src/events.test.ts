@@ -221,6 +221,17 @@ describe('workflowsJobExecutionTerminatedSchema', () => {
 
     expect(parse).toThrow();
   });
+
+  it('accepts a maximum-duration timeout reason', () => {
+    const input = {
+      ...validJobExecutionTerminated,
+      status: 'failed',
+      statusReason: 'timed_out',
+      cancellationReason: 'timed_out',
+    };
+
+    expect(workflowsJobExecutionTerminatedSchema.parse(input)).toEqual(input);
+  });
 });
 
 describe('workflowsWorkflowRunTerminatedSchema', () => {

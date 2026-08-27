@@ -1,6 +1,7 @@
 import {
   RUNNER_JOB_CLAIMED,
   RUNNER_JOB_LEASE_EXPIRED,
+  type RunnerJobStopReasonDto,
   type RunnersEventMap,
   type RunnerToolCapabilitiesDto,
 } from '@shipfox/api-runners-dto';
@@ -213,6 +214,7 @@ export interface RunnerInstanceBoundJobExecution {
   startedAt: Date;
   lastHeartbeatAt: Date;
   cancellationRequestedAt: Date | null;
+  cancellationReason: RunnerJobStopReasonDto | null;
 }
 
 export async function claimPendingJobExecution(params: {
@@ -714,6 +716,7 @@ export async function listRunningJobExecutionsByRunnerInstanceTx(
     startedAt: Date | string;
     lastHeartbeatAt: Date | string;
     cancellationRequestedAt: Date | string | null;
+    cancellationReason: RunnerJobStopReasonDto | null;
   }>(sql`
     SELECT DISTINCT ON (${runningJobExecutions.providerRunnerId})
       ${runningJobExecutions.workflowRunId} AS "workflowRunId",
@@ -723,7 +726,8 @@ export async function listRunningJobExecutionsByRunnerInstanceTx(
       ${runningJobExecutions.providerRunnerId} AS "providerRunnerId",
       ${runningJobExecutions.startedAt} AS "startedAt",
       ${runningJobExecutions.lastHeartbeatAt} AS "lastHeartbeatAt",
-      ${runningJobExecutions.cancellationRequestedAt} AS "cancellationRequestedAt"
+      ${runningJobExecutions.cancellationRequestedAt} AS "cancellationRequestedAt",
+      ${runningJobExecutions.cancellationReason} AS "cancellationReason"
     FROM ${runningJobExecutions}
     WHERE
       ${runningJobExecutions.workspaceId} = ${params.workspaceId}
@@ -746,6 +750,7 @@ export async function listRunningJobExecutionsByRunnerInstanceTx(
     cancellationRequestedAt: row.cancellationRequestedAt
       ? toDate(row.cancellationRequestedAt)
       : null,
+    cancellationReason: row.cancellationReason,
   }));
 }
 
@@ -779,6 +784,7 @@ export async function recordHeartbeat(params: {
   toolCapabilities?: RunnerToolCapabilitiesDto | null;
 }): Promise<{
   cancellationRequested: boolean;
+  cancellationReason: RunnerJobStopReasonDto | null;
   previousToolCapabilities: RunnerToolCapabilitiesDto | null;
   currentToolCapabilities: RunnerToolCapabilitiesDto | null;
   runningJobExecution: {
@@ -806,6 +812,7 @@ export async function recordHeartbeat(params: {
       )
       .returning({
         cancellationRequestedAt: runningJobExecutions.cancellationRequestedAt,
+        cancellationReason: runningJobExecutions.cancellationReason,
         workflowRunId: runningJobExecutions.workflowRunId,
         workflowRunAttemptId: runningJobExecutions.workflowRunAttemptId,
         jobId: runningJobExecutions.jobId,
@@ -846,6 +853,7 @@ export async function recordHeartbeat(params: {
   if (!row) throw new RunningJobExecutionNotFoundError(params.jobExecutionId);
   return {
     cancellationRequested: row.cancellationRequestedAt !== null,
+    cancellationReason: row.cancellationReason,
     previousToolCapabilities: result.previousToolCapabilities,
     currentToolCapabilities: result.currentToolCapabilities,
     runningJobExecution: {
@@ -867,6 +875,7 @@ export async function recordHeartbeat(params: {
  */
 export async function reconcileTerminalJobExecution(params: {
   jobExecutionId: string;
+  cancellationReason?: RunnerJobStopReasonDto | null;
 }): Promise<void> {
   await db().transaction(async (tx) => {
     await lockJobExecution(tx, params.jobExecutionId);
@@ -881,6 +890,11 @@ export async function reconcileTerminalJobExecution(params: {
       .update(runningJobExecutions)
       .set({
         cancellationRequestedAt: sql`COALESCE(${runningJobExecutions.cancellationRequestedAt}, now())`,
+        ...(params.cancellationReason
+          ? {
+              cancellationReason: sql`COALESCE(${runningJobExecutions.cancellationReason}, ${params.cancellationReason})`,
+            }
+          : {}),
       })
       .where(eq(runningJobExecutions.jobExecutionId, params.jobExecutionId))
       .returning({

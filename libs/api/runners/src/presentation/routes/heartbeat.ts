@@ -73,7 +73,13 @@ export function createHeartbeatRoute(auth: AuthInterModuleClient) {
           : {}),
       });
 
-      return {cancel: heartbeatResult.cancellationRequested, lease_token: leaseToken};
+      return {
+        cancel: heartbeatResult.cancellationRequested,
+        lease_token: leaseToken,
+        ...(heartbeatResult.cancellationReason
+          ? {cancellation_reason: heartbeatResult.cancellationReason}
+          : {}),
+      };
     },
   });
 }

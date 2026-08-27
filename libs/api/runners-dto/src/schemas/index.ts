@@ -105,11 +105,13 @@ export {
   type ReconciledRunnerInstanceDto,
   type ReconcileRunnerInstancesBodyDto,
   type ReconcileRunnerInstancesResponseDto,
+  type RunnerJobStopReasonDto,
   reconcileDesiredIntentSchema,
   reconciledBoundJobSchema,
   reconciledRunnerInstanceSchema,
   reconcileRunnerInstancesBodySchema,
   reconcileRunnerInstancesResponseSchema,
+  runnerJobStopReasonSchema,
 } from './reconcile-runner-instances.js';
 export {
   type RegisterRunnerBodyDto,
