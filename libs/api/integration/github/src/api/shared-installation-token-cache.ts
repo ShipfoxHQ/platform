@@ -78,7 +78,7 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
     mint: () => Promise<GithubInstallationAccessToken>,
   ): Promise<GithubInstallationAccessToken> {
     const workspaceId = await this.resolveWorkspaceId(installationId);
-    const envelope = await this.readEnvelope(workspaceId, installationId);
+    const envelope = await this.readEnvelope(workspaceId, installationId, {reportFailure: true});
     if (usable(envelope, this.now())) {
       recordInstallationTokenLookup('db-hit');
       return tokenFromEnvelope(envelope);
@@ -97,7 +97,9 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
     installationId: number;
     mint: () => Promise<GithubInstallationAccessToken>;
   }): Promise<GithubInstallationAccessToken> {
-    const envelope = await this.readEnvelope(params.workspaceId, params.installationId);
+    const envelope = await this.readEnvelope(params.workspaceId, params.installationId, {
+      reportFailure: false,
+    });
     const now = this.now();
     if (usable(envelope, now)) {
       recordInstallationTokenLookup('db-hit');
@@ -226,7 +228,9 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
 
     for (const delayMs of this.pollDelaysMs) {
       await this.sleep(delayMs);
-      const envelope = await this.readEnvelope(params.workspaceId, params.installationId);
+      const envelope = await this.readEnvelope(params.workspaceId, params.installationId, {
+        reportFailure: false,
+      });
       const now = this.now();
       if (usable(envelope, now)) {
         recordInstallationTokenLookup('contended-poll');
@@ -266,20 +270,23 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
   private async readEnvelope(
     workspaceId: string,
     installationId: number,
+    options: {reportFailure: boolean},
   ): Promise<InstallationTokenEnvelope | undefined> {
     let raw: string | null;
     try {
       raw = await this.options.secretStore.read(workspaceId, installationId);
     } catch (error) {
-      logger().warn(
-        {installationId, error},
-        'github installation token cache read failed; falling back to mint',
-      );
-      reportError(error, {
-        boundary: 'integration.cache',
-        operation: 'read-envelope',
-        extra: {installationId},
-      });
+      if (options.reportFailure) {
+        logger().warn(
+          {installationId, error},
+          'github installation token cache read failed; falling back to mint',
+        );
+        reportError(error, {
+          boundary: 'integration.cache',
+          operation: 'read-envelope',
+          extra: {installationId},
+        });
+      }
       return undefined;
     }
     if (raw === null) return undefined;

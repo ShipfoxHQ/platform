@@ -709,6 +709,18 @@ describe('defaultModules', () => {
     });
     expect(githubSecret).toBe('secret');
     expect(githubDeleted).toBe(1);
+    expect(mocks.getSecret.mock.calls.map(([params]) => params)).toContainEqual({
+      key: 'token',
+      namespace: githubScope.namespace,
+      projectId: null,
+      workspaceId: scope.workspaceId,
+    });
+    expect(mocks.deleteSecrets.mock.calls.map(([params]) => params)).toContainEqual({
+      keys: ['token'],
+      namespace: githubScope.namespace,
+      projectId: null,
+      workspaceId: scope.workspaceId,
+    });
     const editedBy = crypto.randomUUID();
     await integrationsOptions.secrets.github.setSecrets({
       ...githubScope,
