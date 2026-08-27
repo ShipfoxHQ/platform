@@ -530,28 +530,25 @@ export async function expireStuckJobExecutions(params: {
     jobExecutionId: string;
   }>
 > {
-  const reaped = await db().transaction(async (tx) => {
-    // READ COMMITTED gives each statement a different snapshot. The stale count, denominator,
-    // and candidate rows must describe the same observation, so make this maintenance decision
-    // under one repeatable-read snapshot.
-    await tx.execute(sql`set transaction isolation level repeatable read`);
-    const heartbeatCutoff = sql`now() - (${params.thresholdSeconds} || ' seconds')::interval`;
-    const firstHeartbeatCutoff = sql`now() - (${params.noFirstHeartbeatGraceSeconds} || ' seconds')::interval`;
-    const stalePredicate = or(
-      and(
-        isNull(runningJobExecutions.firstHeartbeatAt),
-        lte(runningJobExecutions.lastHeartbeatAt, runningJobExecutions.startedAt),
-        lt(runningJobExecutions.startedAt, firstHeartbeatCutoff),
+  const heartbeatCutoff = sql`now() - (${params.thresholdSeconds} || ' seconds')::interval`;
+  const firstHeartbeatCutoff = sql`now() - (${params.noFirstHeartbeatGraceSeconds} || ' seconds')::interval`;
+  const stalePredicate = or(
+    and(
+      isNull(runningJobExecutions.firstHeartbeatAt),
+      lte(runningJobExecutions.lastHeartbeatAt, runningJobExecutions.startedAt),
+      lt(runningJobExecutions.startedAt, firstHeartbeatCutoff),
+    ),
+    and(
+      or(
+        isNotNull(runningJobExecutions.firstHeartbeatAt),
+        gt(runningJobExecutions.lastHeartbeatAt, runningJobExecutions.startedAt),
       ),
-      and(
-        or(
-          isNotNull(runningJobExecutions.firstHeartbeatAt),
-          gt(runningJobExecutions.lastHeartbeatAt, runningJobExecutions.startedAt),
-        ),
-        lt(runningJobExecutions.lastHeartbeatAt, heartbeatCutoff),
-      ),
-    );
+      lt(runningJobExecutions.lastHeartbeatAt, heartbeatCutoff),
+    ),
+  );
 
+  const correlated = await db().transaction(async (tx) => {
+    await tx.execute(sql`set transaction isolation level repeatable read read only`);
     const [staleCountRow] = await tx
       .select({staleCount: count()})
       .from(runningJobExecutions)
@@ -563,10 +560,13 @@ export async function expireStuckJobExecutions(params: {
     const liveLeaseCount = Number(liveLeaseCountRow?.liveLeaseCount ?? 0);
     const staleRatio = liveLeaseCount > 0 ? staleCount / liveLeaseCount : 0;
     staleJobCandidateRatio.record(staleRatio);
-    const correlated =
+    return (
       staleCount >= (params.correlatedStaleMinCount ?? 3) &&
-      staleRatio >= (params.correlatedStaleRatio ?? 0.5);
+      staleRatio >= (params.correlatedStaleRatio ?? 0.5)
+    );
+  });
 
+  const reaped = await db().transaction(async (tx) => {
     const staleRows = await tx
       .select({
         id: runningJobExecutions.id,

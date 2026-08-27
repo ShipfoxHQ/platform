@@ -1443,13 +1443,13 @@ describe('detectAndExpireStuckJobs', () => {
   it('defers a correlated stale batch and recovers it with the operator override', async () => {
     const staleJobs = [await makeStaleJob(600), await makeStaleJob(600), await makeStaleJob(600)];
 
-    // Use explicit thresholds here so this fleet-level decision is isolated from
-    // running leases created by other concurrently executed test files.
+    // Any non-zero stale proportion meets this threshold; the minimum stale count
+    // still keeps the scenario specific to a correlated batch.
     const deferred = await expireStuckJobExecutions({
       thresholdSeconds: 180,
       noFirstHeartbeatGraceSeconds: 60,
       correlatedStaleMinCount: 3,
-      correlatedStaleRatio: 0.01,
+      correlatedStaleRatio: Number.MIN_VALUE,
       correlatedStaleMode: 'defer',
     });
 
@@ -1460,7 +1460,7 @@ describe('detectAndExpireStuckJobs', () => {
       thresholdSeconds: 180,
       noFirstHeartbeatGraceSeconds: 60,
       correlatedStaleMinCount: 3,
-      correlatedStaleRatio: 0.01,
+      correlatedStaleRatio: Number.MIN_VALUE,
       correlatedStaleOverride: true,
     });
 
