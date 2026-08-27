@@ -33,6 +33,10 @@ describe('poll config validation', () => {
   });
 
   it('accepts the documented poll defaults', async () => {
+    vi.stubEnv('SHIPFOX_POLL_INTERVAL_MS', undefined);
+    vi.stubEnv('SHIPFOX_POLL_MAX_INTERVAL_MS', undefined);
+    vi.stubEnv('SHIPFOX_POLL_MAX_DURATION_MS', undefined);
+    vi.stubEnv('SHIPFOX_BOOT_CONSOLE_FD', undefined);
     vi.resetModules();
 
     const {config} = await import('#config.js');
@@ -41,5 +45,14 @@ describe('poll config validation', () => {
     expect(config.SHIPFOX_POLL_MAX_INTERVAL_MS).toBe(5000);
     expect(config.SHIPFOX_POLL_MAX_DURATION_MS).toBe(300_000);
     expect(config.SHIPFOX_BOOT_CONSOLE_FD).toBeUndefined();
+  });
+
+  it('accepts the runner image boot console descriptor', async () => {
+    vi.stubEnv('SHIPFOX_BOOT_CONSOLE_FD', '3');
+    vi.resetModules();
+
+    const {config} = await import('#config.js');
+
+    expect(config.SHIPFOX_BOOT_CONSOLE_FD).toBe(3);
   });
 });
