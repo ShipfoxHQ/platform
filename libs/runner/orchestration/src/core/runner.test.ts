@@ -135,7 +135,7 @@ import {
 import {TimeoutError} from 'ky';
 import {config as runnerConfig} from '#config.js';
 import {startHeartbeatLoop} from '#core/heartbeat-loop.js';
-import {nextPollDeadline, runJob, runnerCapabilities, startRunner} from '#core/runner.js';
+import {nextPollDeadline, runJob, startRunner} from '#core/runner.js';
 import {runJobSteps} from '#core/step-loop.js';
 
 const mockJobWorkspacePath = vi.mocked(jobWorkspacePath);
@@ -236,7 +236,7 @@ describe('runJob', () => {
       expect.objectContaining({
         intervalMs: 10_000,
         maxStaleMs: 10_000,
-        getToolCapabilities: runnerCapabilities,
+        getToolCapabilities: runnerToolCapabilities,
       }),
     );
     const leaseTokenSource = mockCreateLeaseClient.mock.calls[0]?.[0];
@@ -445,7 +445,7 @@ describe('startRunner', () => {
 
     expect(mockRegisterRunnerSession).toHaveBeenCalledTimes(1);
     expect(mockRegisterRunnerSession).toHaveBeenCalledWith({
-      capabilities: {features: {renewable_git: false}, harnesses: {pi: {tools: ['read']}}},
+      capabilities: {harnesses: {pi: {tools: ['read']}}},
     });
     expect(mockRunnerToolCapabilities).toHaveBeenCalled();
     expect(mockRequestJob).toHaveBeenCalledTimes(1);
@@ -553,7 +553,7 @@ describe('startRunner', () => {
     expect(mockExchangeRunnerBootstrapToken).toHaveBeenCalledWith('sf_rbt_bootstrap-token');
     expect(mockEnrollRunnerControlSession).toHaveBeenCalledWith({
       controlSessionToken: 'control-token',
-      capabilities: {features: {renewable_git: false}, harnesses: {pi: {tools: ['read']}}},
+      capabilities: {harnesses: {pi: {tools: ['read']}}},
       providerKind: 'ec2',
       protocolVersion: '1',
     });
@@ -563,7 +563,7 @@ describe('startRunner', () => {
     );
     expect(mockPollRunnerAssignment).toHaveBeenCalledWith('control-token', expect.any(AbortSignal));
     expect(mockRegisterRunnerSession).toHaveBeenCalledWith({
-      capabilities: {features: {renewable_git: false}, harnesses: {pi: {tools: ['read']}}},
+      capabilities: {harnesses: {pi: {tools: ['read']}}},
       registrationToken: 'activation-token',
     });
     expect(mockRequestJob).toHaveBeenCalledWith('session-token', expect.any(AbortSignal));
@@ -649,7 +649,7 @@ describe('startRunner', () => {
 
     expect(mockPollRunnerAssignment).toHaveBeenCalledTimes(2);
     expect(mockRegisterRunnerSession).toHaveBeenCalledWith({
-      capabilities: {features: {renewable_git: false}, harnesses: {pi: {tools: ['read']}}},
+      capabilities: {harnesses: {pi: {tools: ['read']}}},
       registrationToken: 'activation-token',
     });
   });
@@ -703,7 +703,7 @@ describe('startRunner', () => {
 
     expect(mockPollRunnerAssignment).not.toHaveBeenCalled();
     expect(mockRegisterRunnerSession).toHaveBeenCalledWith({
-      capabilities: {features: {renewable_git: false}, harnesses: {pi: {tools: ['read']}}},
+      capabilities: {harnesses: {pi: {tools: ['read']}}},
       registrationToken: 'enrollment-activation-token',
     });
   });

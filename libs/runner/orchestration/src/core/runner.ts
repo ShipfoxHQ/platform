@@ -129,7 +129,7 @@ export async function startRunner(
   while (running) {
     try {
       if (!runnerSession) {
-        runnerSession = await registerRunnerSession({capabilities: runnerCapabilities()});
+        runnerSession = await registerRunnerSession({capabilities: runnerToolCapabilities()});
         logger().info({runnerSessionId: runnerSession.session_id}, 'Runner session registered');
       }
 
@@ -213,19 +213,6 @@ function warnAboutUnavailablePiExtensions(): void {
   );
 }
 
-/**
- * Reports the runner's protocol capabilities while renewable Git remains dormant.
- * A false value keeps the feature schema exercised without advertising support.
- */
-export function runnerCapabilities(): ReturnType<typeof runnerToolCapabilities> & {
-  features: {renewable_git: false};
-} {
-  return {
-    ...runnerToolCapabilities(),
-    features: {renewable_git: false},
-  };
-}
-
 export function nextBackoffInterval(ms: number): number {
   return calculateNextBackoffInterval(ms, {maxMs: config.SHIPFOX_POLL_MAX_INTERVAL_MS});
 }
@@ -294,7 +281,7 @@ export async function runJob(
   const heartbeatLoop = startHeartbeatLoop(job.job_id, () => currentLeaseToken, ac, {
     intervalMs: config.SHIPFOX_HEARTBEAT_INTERVAL_MS,
     maxStaleMs: config.SHIPFOX_HEARTBEAT_MAX_STALE_MS,
-    getToolCapabilities: runnerCapabilities,
+    getToolCapabilities: runnerToolCapabilities,
     onLeaseTokenRenewed: rememberLeaseToken,
   });
   let releaseAgentStateLock: (() => Promise<void>) | undefined;
@@ -359,7 +346,7 @@ async function initializeManagedRunnerSession(
   const enrollmentConfig = managedRunnerEnrollmentConfig();
   const enrollmentActivationToken = await enrollRunnerControlSession({
     controlSessionToken,
-    capabilities: runnerCapabilities(),
+    capabilities: runnerToolCapabilities(),
     providerKind: enrollmentConfig.providerKind,
     protocolVersion: enrollmentConfig.protocolVersion,
   });
@@ -376,7 +363,7 @@ async function initializeManagedRunnerSession(
   if (!activationToken) return undefined;
 
   const runnerSession = await registerRunnerSession({
-    capabilities: runnerCapabilities(),
+    capabilities: runnerToolCapabilities(),
     registrationToken: activationToken,
   });
   runnerBootPhaseTimeline.mark('activation_uptime_seconds');

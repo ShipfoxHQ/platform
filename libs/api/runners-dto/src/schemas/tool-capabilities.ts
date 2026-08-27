@@ -2,7 +2,7 @@ import {z} from 'zod';
 
 export const runnerFeaturesSchema = z
   .object({
-    renewable_git: z.boolean().optional(),
+    renewable_git: z.boolean(),
   })
   .strict();
 

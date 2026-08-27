@@ -24,6 +24,15 @@ describe('runnerToolCapabilitiesSchema', () => {
     expect(result.success).toBe(true);
   });
 
+  it('requires renewable_git when protocol features are present', () => {
+    const result = runnerToolCapabilitiesSchema.safeParse({
+      features: {},
+      harnesses: {},
+    });
+
+    expect(result.success).toBe(false);
+  });
+
   it('accepts no harness support', () => {
     const result = runnerToolCapabilitiesSchema.safeParse({harnesses: {}});
 
