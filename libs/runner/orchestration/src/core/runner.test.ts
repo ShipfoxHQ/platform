@@ -305,15 +305,73 @@ describe('runJob', () => {
 
     expect((leaseTokenSource as () => string)()).toBe('lease-fourth');
     expect(observedSecrets).toEqual([
-      ['lease-next'],
-      ['lease-next', 'lease-third'],
-      ['lease-third', 'lease-fourth'],
+      ['sf_mrt_runner-registration-token', JOB.lease_token, 'lease-next'],
+      ['sf_mrt_runner-registration-token', JOB.lease_token, 'lease-next', 'lease-third'],
+      ['sf_mrt_runner-registration-token', JOB.lease_token, 'lease-third', 'lease-fourth'],
     ]);
     expect(stepParams?.secrets).toEqual([
       'sf_mrt_runner-registration-token',
       JOB.lease_token,
       'lease-third',
       'lease-fourth',
+    ]);
+  });
+
+  it('keeps registered checkout secrets when the lease token rotates', async () => {
+    mockJobWorkspacePath.mockReturnValue(JOB_CWD);
+    mockJobLogsPath.mockReturnValue(JOB_LOGS_DIR);
+    mockJobAgentStatePath.mockReturnValue(JOB_AGENT_STATE_DIR);
+    mockJobCredentialsPath.mockReturnValue(JOB_CREDENTIALS_DIR);
+    const observedSecrets: string[][] = [];
+    mockRunJobSteps.mockImplementation((params) => {
+      params.subscribeSecrets?.((secrets) => observedSecrets.push(secrets));
+      params.registerSecrets?.(['checkout-token', 'basic-credential']);
+      return Promise.resolve();
+    });
+
+    await runJob(JOB, WORKSPACE_ROOT);
+
+    const heartbeatOptions = mockStartHeartbeatLoop.mock.calls[0]?.[3];
+    heartbeatOptions?.onLeaseTokenRenewed?.('lease-next');
+
+    expect(observedSecrets).toEqual([
+      ['sf_mrt_runner-registration-token', JOB.lease_token, 'checkout-token', 'basic-credential'],
+      [
+        'sf_mrt_runner-registration-token',
+        JOB.lease_token,
+        'lease-next',
+        'checkout-token',
+        'basic-credential',
+      ],
+    ]);
+  });
+
+  it('broadcasts registered secrets to each live subscriber independently', async () => {
+    const firstSecrets: string[][] = [];
+    const secondSecrets: string[][] = [];
+    let unsubscribeFirst: (() => void) | undefined;
+    mockRunJobSteps.mockImplementation((params) => {
+      unsubscribeFirst = params.subscribeSecrets?.((secrets) => firstSecrets.push(secrets));
+      params.subscribeSecrets?.((secrets) => secondSecrets.push(secrets));
+      params.registerSecrets?.(['checkout-token']);
+      unsubscribeFirst?.();
+      params.registerSecrets?.(['rotated-checkout-token']);
+      return Promise.resolve();
+    });
+
+    await runJob(JOB, WORKSPACE_ROOT);
+
+    expect(firstSecrets).toEqual([
+      ['sf_mrt_runner-registration-token', JOB.lease_token, 'checkout-token'],
+    ]);
+    expect(secondSecrets).toEqual([
+      ['sf_mrt_runner-registration-token', JOB.lease_token, 'checkout-token'],
+      [
+        'sf_mrt_runner-registration-token',
+        JOB.lease_token,
+        'checkout-token',
+        'rotated-checkout-token',
+      ],
     ]);
   });
 

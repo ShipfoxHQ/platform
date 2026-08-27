@@ -257,12 +257,22 @@ export async function runJob(
   let previousRenewedLeaseToken: string | undefined;
   let currentRenewedLeaseToken: string | undefined;
   const runnerSecrets = runnerSecret.length > 0 ? [runnerSecret] : [];
+  const registeredSecrets: string[] = [];
   const secrets = [...runnerSecrets, initialLeaseToken];
-  const leaseTokenSecretSubscribers = new Set<(secrets: string[]) => void>();
+  const secretSubscribers = new Set<(secrets: string[]) => void>();
   const rotatingLeaseSecrets = () =>
     [previousRenewedLeaseToken, currentRenewedLeaseToken].filter(
       (secret): secret is string => secret !== undefined,
     );
+  const notifySecretSubscribers = () => {
+    for (const subscriber of secretSubscribers) {
+      try {
+        subscriber([...secrets]);
+      } catch (error) {
+        logger().warn({err: error, jobId: job.job_id}, 'Secret redaction subscriber failed');
+      }
+    }
+  };
   const rememberLeaseToken = (leaseToken: string) => {
     if (leaseToken === currentLeaseToken) return;
     previousRenewedLeaseToken = currentRenewedLeaseToken;
@@ -274,8 +284,18 @@ export async function runJob(
       ...runnerSecrets,
       initialLeaseToken,
       ...rotatingLeaseSecrets(),
+      ...registeredSecrets,
     );
-    for (const subscriber of leaseTokenSecretSubscribers) subscriber(rotatingLeaseSecrets());
+    notifySecretSubscribers();
+  };
+  const registerSecrets = (additionalSecrets: string[]) => {
+    const newSecrets = additionalSecrets.filter(
+      (secret) => secret.length > 0 && !secrets.includes(secret),
+    );
+    if (newSecrets.length === 0) return;
+    registeredSecrets.push(...newSecrets);
+    secrets.push(...newSecrets);
+    notifySecretSubscribers();
   };
 
   const heartbeatLoop = startHeartbeatLoop(job.job_id, () => currentLeaseToken, ac, {
@@ -296,9 +316,10 @@ export async function runJob(
       leaseToken: () => currentLeaseToken,
       secrets,
       subscribeSecrets: (subscriber) => {
-        leaseTokenSecretSubscribers.add(subscriber);
-        return () => leaseTokenSecretSubscribers.delete(subscriber);
+        secretSubscribers.add(subscriber);
+        return () => secretSubscribers.delete(subscriber);
       },
+      registerSecrets,
       signal: ac.signal,
       cwd,
       gitConfigPath,

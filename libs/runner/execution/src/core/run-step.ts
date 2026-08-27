@@ -57,6 +57,8 @@ interface RunStepOptions {
   gitConfigGlobal?: string;
   secretEnv?: Readonly<Record<string, string>>;
   secretValues?: readonly string[];
+  /** Updates the tee redactors when a job registers another secret. */
+  subscribeSecrets?: (subscriber: (secrets: string[]) => void) => () => void;
   onOutput?: OutputSink;
   onCommandStart?: CommandStartSink;
 }
@@ -161,28 +163,63 @@ function spawnAndCapture(
 ): Promise<StepResult> {
   return new Promise((resolve) => {
     const {shell} = metadata;
-    const teeSecretVariants = buildSecretVariants(options.secretValues ?? []);
-    const stdoutTeeRedactor = createTeeRedactor(teeSecretVariants);
-    const stderrTeeRedactor = createTeeRedactor(teeSecretVariants);
+    let teeSecrets = [...(options.secretValues ?? [])];
+    const stdoutTeeRedactor = createTeeRedactor(
+      buildSecretVariants(teeSecrets),
+      options.subscribeSecrets !== undefined,
+    );
+    const stderrTeeRedactor = createTeeRedactor(
+      buildSecretVariants(teeSecrets),
+      options.subscribeSecrets !== undefined,
+    );
+    const unsubscribeSecrets = options.subscribeSecrets?.((secrets) => {
+      teeSecrets = [...new Set([...teeSecrets, ...secrets])];
+      stdoutTeeRedactor?.setSecrets(buildSecretVariants(teeSecrets));
+      stderrTeeRedactor?.setSecrets(buildSecretVariants(teeSecrets));
+    });
 
     // detached:true makes the shell a process-group leader so killGroup() can
     // SIGKILL its grandchildren too (Linux does not propagate signals down the
     // parent chain). We don't unref(): output capture still needs `close`.
-    const child = spawn(shell.executable, shell.args, {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      detached: true,
-      cwd: options.cwd,
-      env: {
-        ...process.env,
-        ...stepEnv,
-        ...((options.workspace ?? options.cwd)
-          ? {SHIPFOX_WORKSPACE: options.workspace ?? options.cwd}
-          : {}),
-        ...(options.gitConfigGlobal ? {GIT_CONFIG_GLOBAL: options.gitConfigGlobal} : {}),
-        SHIPFOX_OUTPUT: outputPath,
-        ...(annotationSpool?.env ?? {}),
-      },
-    });
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(shell.executable, shell.args, {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        detached: true,
+        cwd: options.cwd,
+        env: {
+          ...process.env,
+          ...stepEnv,
+          ...((options.workspace ?? options.cwd)
+            ? {SHIPFOX_WORKSPACE: options.workspace ?? options.cwd}
+            : {}),
+          ...(options.gitConfigGlobal ? {GIT_CONFIG_GLOBAL: options.gitConfigGlobal} : {}),
+          SHIPFOX_OUTPUT: outputPath,
+          ...(annotationSpool?.env ?? {}),
+        },
+      });
+    } catch (err) {
+      unsubscribeSecrets?.();
+      logger().error({err}, 'Failed to spawn shell process');
+      resolve({
+        success: false,
+        error: {
+          message: `Failed to spawn process: ${err instanceof Error ? err.message : String(err)}`,
+        },
+        exit_code: null,
+      });
+      return;
+    }
+
+    if (!child.stdout || !child.stderr) {
+      unsubscribeSecrets?.();
+      resolve({
+        success: false,
+        error: {message: 'Failed to spawn process without output pipes'},
+        exit_code: null,
+      });
+      return;
+    }
 
     // stdout and stderr are two separate pipes, so the sink sees them merged by
     // arrival order, not kernel/wall-clock order; origin is preserved per chunk.
@@ -246,6 +283,7 @@ function spawnAndCapture(
 
     child.on('close', (code, signal) => {
       cleanupAbortListener();
+      unsubscribeSecrets?.();
       if (abortKillSignal && isSignalKillResult(code, abortKillSignal)) {
         const resultSignal = signal ?? abortKillSignal;
         resolve({
@@ -278,6 +316,7 @@ function spawnAndCapture(
 
     child.on('error', (err) => {
       cleanupAbortListener();
+      unsubscribeSecrets?.();
       logger().error({err}, 'Failed to spawn shell process');
       resolve({
         success: false,
@@ -376,17 +415,27 @@ function flushTeeOutput(stream: NodeJS.WriteStream, redactor: TeeRedactor | unde
   if (output.length > 0) stream.write(output);
 }
 
-function createTeeRedactor(secretVariants: readonly string[]): TeeRedactor | undefined {
-  if (secretVariants.length === 0) return undefined;
-  return new TeeRedactor(secretVariants);
+function createTeeRedactor(
+  secretVariants: readonly string[],
+  dynamic = false,
+): TeeRedactor | undefined {
+  if (secretVariants.length === 0 && !dynamic) return undefined;
+  return new TeeRedactor(secretVariants, dynamic);
 }
 
 class TeeRedactor {
   private readonly decoder = new TextDecoder('utf-8', {ignoreBOM: true, fatal: false});
-  private readonly variants: string[];
+  private variants: string[];
   private buffer = '';
 
-  constructor(variants: readonly string[]) {
+  constructor(
+    variants: readonly string[],
+    private readonly dynamic = false,
+  ) {
+    this.variants = [...variants];
+  }
+
+  setSecrets(variants: readonly string[]): void {
     this.variants = [...variants];
   }
 
@@ -401,6 +450,13 @@ class TeeRedactor {
   }
 
   private drain(final: boolean): string {
+    if (this.variants.length === 0) {
+      if (!final) return '';
+      const output = this.buffer;
+      this.buffer = '';
+      return output;
+    }
+
     let output = '';
     let newline = this.buffer.indexOf('\n');
     while (newline !== -1) {
@@ -417,7 +473,10 @@ class TeeRedactor {
       return output;
     }
 
-    const cut = safeRedactionPrefixLength(this.buffer, this.variants);
+    const cut =
+      this.dynamic && this.variants.length === 0
+        ? 0
+        : safeRedactionPrefixLength(this.buffer, this.variants);
     if (cut > 0) {
       output += redactSecrets(this.buffer.slice(0, cut), this.variants);
       this.buffer = this.buffer.slice(cut);

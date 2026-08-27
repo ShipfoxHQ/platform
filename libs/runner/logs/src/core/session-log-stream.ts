@@ -30,7 +30,9 @@ export interface SessionLogStream extends LogStreamLifecycle {
   writeEntry(line: string): void;
   /** Registers additional secrets for subsequent agent session entries. */
   addSecrets(secrets: string[]): void;
-  /** Replaces the bounded rotating secret slot for renewed lease tokens. */
+  /** Replaces the dynamic job secret set used for subsequent entries. */
+  setSecrets(secrets: string[]): void;
+  /** @deprecated Use setSecrets. */
   setRotatingSecrets(secrets: string[]): void;
 }
 
@@ -48,6 +50,10 @@ export function createSessionLogStream(options: SessionLogStreamOptions): Sessio
   let addedSecrets: string[] = [];
   let rotatingSecrets: string[] = [];
   let variants = buildSecretVariants(baseSecrets);
+  const setSecrets = (secrets: string[]) => {
+    rotatingSecrets = [...new Set(secrets.filter((secret) => secret.length > 0))];
+    refreshSecrets();
+  };
 
   const sink = createRecordSink({
     logsDir: options.logsDir,
@@ -96,10 +102,9 @@ export function createSessionLogStream(options: SessionLogStreamOptions): Sessio
       refreshSecrets();
     },
 
-    setRotatingSecrets(secrets) {
-      rotatingSecrets = [...new Set(secrets.filter((secret) => secret.length > 0))];
-      refreshSecrets();
-    },
+    setSecrets,
+
+    setRotatingSecrets: setSecrets,
 
     close() {
       return Promise.resolve(sink.closeWithEnd());

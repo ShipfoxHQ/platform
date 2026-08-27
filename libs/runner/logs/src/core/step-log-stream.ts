@@ -33,7 +33,9 @@ export interface StepLogStream extends LogStreamLifecycle {
   write(chunk: Buffer, source: OutputSource): void;
   /** Registers additional secrets for subsequent runner metadata and captured output. */
   addSecrets(secrets: string[]): void;
-  /** Replaces the bounded rotating secret slot for renewed lease tokens. */
+  /** Replaces the dynamic job secret set used for subsequent output. */
+  setSecrets(secrets: string[]): void;
+  /** @deprecated Use setSecrets. */
   setRotatingSecrets(secrets: string[]): void;
   /** Opens a runner-originated group without writing marker text into the output stream. */
   writeGroupStart(name: string): void;
@@ -148,6 +150,11 @@ export function createStepLogStream(options: StepLogStreamOptions): StepLogStrea
     transformer.setSecrets(secrets);
   }
 
+  const setSecrets = (secrets: string[]) => {
+    rotatingSecrets = [...new Set(secrets.filter((secret) => secret.length > 0))];
+    refreshSecrets();
+  };
+
   return {
     addSecrets(secrets) {
       if (secrets.length === 0) return;
@@ -157,10 +164,9 @@ export function createStepLogStream(options: StepLogStreamOptions): StepLogStrea
       refreshSecrets();
     },
 
-    setRotatingSecrets(secrets) {
-      rotatingSecrets = [...new Set(secrets.filter((secret) => secret.length > 0))];
-      refreshSecrets();
-    },
+    setSecrets,
+
+    setRotatingSecrets: setSecrets,
 
     write(chunk, source) {
       // Once the server caps the budget the runner stops emitting; the cap

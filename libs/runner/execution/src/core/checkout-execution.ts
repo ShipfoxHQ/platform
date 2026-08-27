@@ -44,6 +44,7 @@ export async function requestCheckoutCredentials(params: {
       lines: ['Requesting short-lived repository access from Shipfox.'],
     });
     const checkout = await requestCheckoutToken(leaseClient, {stepId, attempt, signal});
+    if (checkout.auth) log?.addSecrets(ambientGitCredentialSecrets(checkout.auth));
     log?.writeGroup({
       name: 'Repository access granted',
       lines: credentialLines(checkout.auth),
