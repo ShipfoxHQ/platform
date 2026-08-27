@@ -160,6 +160,7 @@ describe('GET /api/definitions/at-ref', () => {
       {signal: expect.any(AbortSignal)},
     );
     expect(projectsMocks.getProjectById).toHaveBeenCalledOnce();
+    expect(agentMocks.getValidationCatalog).toHaveBeenCalledWith({workspaceId}, expect.anything());
   });
 
   test('returns 200 listing an invalid file with its errors instead of failing', async () => {

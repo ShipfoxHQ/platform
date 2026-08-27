@@ -39,7 +39,6 @@ export type WorkflowModelValidationIssueCode =
   | 'listening-job-missing-resolution-source'
   | 'listening-job-no-active-matcher'
   | 'listening-timeout-exceeds-run-timeout'
-  | 'missing-harness-for-tools'
   | 'missing-connection-for-integration'
   | 'missing-connection-for-tool'
   | 'missing-job-needs-edge'

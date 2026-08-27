@@ -115,10 +115,10 @@ interface Clients {
   agent: AgentInterModuleClient;
 }
 
-function makeClients(projectId = crypto.randomUUID()): Clients {
+function makeClients(projectId = crypto.randomUUID(), workspaceId = crypto.randomUUID()): Clients {
   const project = {
     id: projectId,
-    workspaceId: crypto.randomUUID(),
+    workspaceId,
     sourceConnectionId: crypto.randomUUID(),
     sourceExternalRepositoryId: 'gitea:gitea-owner/platform',
     name: 'Platform',
@@ -187,7 +187,8 @@ beforeEach(() => {
 describe('resolveDefinitionAtRef', () => {
   test('resolves a valid definition at the pinned commit and creates only the lineage', async () => {
     const projectId = crypto.randomUUID();
-    const clients = makeClients(projectId);
+    const workspaceId = crypto.randomUUID();
+    const clients = makeClients(projectId, workspaceId);
 
     const result = await resolveDefinitionAtRef({
       projectId,
@@ -216,6 +217,7 @@ describe('resolveDefinitionAtRef', () => {
       expect.objectContaining({ref: COMMIT, path: CONFIG_PATH}),
     );
     expect(clients.integrations.getAgentToolsContext).toHaveBeenCalled();
+    expect(clients.agent.getValidationCatalog).toHaveBeenCalledWith({workspaceId});
 
     // Only the lineage row exists: no definition row and no outbox event.
     const lineages = await countLineageRows(projectId);

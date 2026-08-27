@@ -39,7 +39,7 @@ export function buildValidateDefinitionRoute(agent: AgentInterModuleClient) {
     handler: async (request) => {
       const {yaml} = request.body;
       const result = validateDefinition(yaml, {
-        agentValidationCatalog: await agent.getValidationCatalog({}),
+        agentValidationCatalog: await agent.getValidationCatalog({workspaceId: null}),
       });
 
       if (result.valid) {

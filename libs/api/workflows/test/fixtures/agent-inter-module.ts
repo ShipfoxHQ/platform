@@ -14,6 +14,7 @@ import type {AgentDefaultsResolver} from '#core/agent-defaults.js';
 
 export const agentValidationCatalog: AgentValidationCatalog = {
   version: 1,
+  default_harness_id: 'pi',
   providers: MODEL_PROVIDER_IDS.map((id) => ({
     id,
     support_status:

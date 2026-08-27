@@ -89,6 +89,7 @@ jobs:
     expect(body.sha).toBeNull();
     expect(body.ref).toBeNull();
     expect(body.fetched_at).toBeDefined();
+    expect(agent.getValidationCatalog).toHaveBeenLastCalledWith({workspaceId});
   });
 
   test('skips connection snapshot loading when YAML has no integrations', async () => {

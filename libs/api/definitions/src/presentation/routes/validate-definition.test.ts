@@ -6,6 +6,7 @@ import {buildValidateDefinitionRoute} from './validate-definition.js';
 
 describe('POST /definitions/validate', () => {
   let app: FastifyInstance;
+  const getValidationCatalog = vi.fn(() => agentValidationCatalog);
 
   beforeAll(async () => {
     app = Fastify();
@@ -14,7 +15,7 @@ describe('POST /definitions/validate', () => {
     app.post(
       '/definitions/validate',
       buildValidateDefinitionRoute({
-        getValidationCatalog: vi.fn(() => agentValidationCatalog),
+        getValidationCatalog,
       } as never),
     );
     await app.ready();
@@ -42,6 +43,7 @@ jobs:
     expect(body.diagnostics).toEqual([]);
     expect(body.workflow_document.name).toBe('Test');
     expect(body.workflow_model.kind).toBe('workflow');
+    expect(getValidationCatalog).toHaveBeenCalledWith({workspaceId: null});
   });
 
   test('invalid YAML returns 200 with { valid: false, errors }', async () => {

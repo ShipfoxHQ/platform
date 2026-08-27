@@ -1,10 +1,34 @@
 import type {ManagedModelProvider} from '@shipfox/api-agent-dto';
 import {agentInterModuleContract} from '@shipfox/api-agent-dto/inter-module';
 import {isInterModuleKnownError} from '@shipfox/inter-module';
+import {setDefaultHarness} from '#db/index.js';
 import {agentTestSecretsClient} from '#test/fixtures/secrets-client.js';
 import {createAgentInterModulePresentation} from './inter-module.js';
 
 describe('agent inter-module presentation', () => {
+  test('loads the workspace default harness for managed inference validation', async () => {
+    const workspaceId = crypto.randomUUID();
+    await setDefaultHarness({workspaceId, harnessId: 'claude'});
+    const presentation = createAgentInterModulePresentation({
+      secrets: agentTestSecretsClient,
+      managedProvider: {
+        id: 'shipfox',
+        label: 'Shipfox',
+        models: [{id: 'managed-model', label: 'Managed model', api: 'anthropic-messages'}],
+        defaultModel: 'managed-model',
+        resolveCredentials: vi.fn(),
+      },
+      workspaceProviders: 'disabled',
+    });
+
+    const catalog = await presentation.handlers.getValidationCatalog(
+      {workspaceId},
+      {signal: new AbortController().signal},
+    );
+
+    expect(catalog.default_harness_id).toBe('claude');
+  });
+
   test('preserves managed provider policy details for runtime credentials', async () => {
     const managedProvider: ManagedModelProvider = {
       id: 'shipfox',

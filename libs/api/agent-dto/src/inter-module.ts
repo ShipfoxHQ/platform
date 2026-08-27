@@ -10,6 +10,7 @@ import {
 
 const agentValidationCatalogSchema = z.object({
   version: z.literal(1),
+  default_harness_id: harnessSchema,
   providers: z.array(
     z.object({
       id: z.string().min(1),
@@ -51,7 +52,7 @@ export const agentInterModuleContract = defineInterModuleContract({
   module: 'agent',
   methods: {
     getValidationCatalog: {
-      input: z.object({}),
+      input: z.object({workspaceId: z.string().uuid().nullable()}),
       output: agentValidationCatalogSchema,
       errors: {},
     },

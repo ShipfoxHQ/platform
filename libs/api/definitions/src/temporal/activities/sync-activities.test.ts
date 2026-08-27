@@ -9,7 +9,8 @@ import {workflowDefinitions} from '#db/schema/definitions.js';
 import {agentValidationCatalog} from '#test/agent-validation-catalog.js';
 import {createDefinitionSyncActivities} from './sync-activities.js';
 
-const agent = {getValidationCatalog: vi.fn(() => agentValidationCatalog)} as never;
+const getValidationCatalog = vi.fn(() => agentValidationCatalog);
+const agent = {getValidationCatalog} as never;
 
 vi.mock('@temporalio/activity', () => ({
   Context: {
@@ -224,10 +225,11 @@ describe('definition sync activities', () => {
   describe('fetchAndApplyDefinitionWorkflows', () => {
     it('upserts workflow definitions and soft-deletes orphans', async () => {
       const activities = createDefinitionSyncActivities(sourceControl(), agent);
+      const workspaceId = crypto.randomUUID();
 
       const result = await activities.fetchAndApplyDefinitionWorkflows({
         projectId,
-        workspaceId: crypto.randomUUID(),
+        workspaceId,
         sourceConnectionId,
         sourceExternalRepositoryId: 'gitea:gitea-owner/platform',
         sourceRef: 'main',
@@ -237,6 +239,7 @@ describe('definition sync activities', () => {
       expect(result.appliedCount).toBe(1);
       expect(result.deletedCount).toBe(0);
       expect(result.diagnostics).toEqual([]);
+      expect(getValidationCatalog).toHaveBeenLastCalledWith({workspaceId});
     });
 
     it('adds the workflow file path to persisted diagnostics', async () => {

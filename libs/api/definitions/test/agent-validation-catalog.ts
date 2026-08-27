@@ -24,6 +24,7 @@ const piModelIdsByProvider = Object.fromEntries(
 
 export const agentValidationCatalog: AgentValidationCatalog = {
   version: 1,
+  default_harness_id: 'pi',
   providers: MODEL_PROVIDER_IDS.map((id) => ({
     id,
     support_status:

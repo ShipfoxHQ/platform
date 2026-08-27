@@ -139,7 +139,9 @@ function createFetchAndApplyActivity(
         ...input,
         ref: input.sourceCommitSha ?? input.sourceRef,
         sourceControl,
-        agentValidationCatalog: await agent.getValidationCatalog({}),
+        agentValidationCatalog: await agent.getValidationCatalog({
+          workspaceId: input.workspaceId,
+        }),
         onProgress: (path) => Context.current().heartbeat({path}),
         loadIntegrationValidationContext:
           integrations === undefined

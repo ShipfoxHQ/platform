@@ -1,13 +1,29 @@
-import type {
-  AgentThinking,
-  ManagedModelProvider,
-  ModelProviderRef,
-  WorkspaceProvidersPolicy,
+import {
+  type AgentThinking,
+  DEFAULT_HARNESS,
+  type ManagedModelProvider,
+  type ModelProviderRef,
+  type WorkspaceProvidersPolicy,
 } from '@shipfox/api-agent-dto';
+import type {AgentValidationCatalog} from '@shipfox/api-agent-dto/inter-module';
 import {config} from '#config.js';
 import {getAgentWorkspaceDefaultsSnapshot} from '#db/index.js';
 import type {AgentConfigResolutionContext, AgentDefaultsResolver} from './resolve-agent-config.js';
 import {resolveAgentConfig} from './resolve-agent-config.js';
+import {getAgentValidationCatalog} from './validation-catalog.js';
+
+export async function getWorkspaceAgentValidationCatalog(
+  workspaceId: string,
+  managedProvider?: ManagedModelProvider | undefined,
+  workspaceProviders?: WorkspaceProvidersPolicy | undefined,
+): Promise<AgentValidationCatalog> {
+  const snapshot = await getAgentWorkspaceDefaultsSnapshot(workspaceId);
+  return getAgentValidationCatalog(
+    managedProvider,
+    workspaceProviders,
+    snapshot.defaultHarnessId ?? DEFAULT_HARNESS,
+  );
+}
 
 export async function createWorkspaceAgentDefaultsResolver(
   workspaceId: string,

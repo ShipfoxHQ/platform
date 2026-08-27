@@ -1,9 +1,11 @@
 import type {
+  Harness,
   HarnessDescriptor,
   ManagedModelProvider,
   WorkspaceProvidersPolicy,
 } from '@shipfox/api-agent-dto';
 import {
+  DEFAULT_HARNESS,
   listEnabledHarnessTools,
   listHarnessDescriptors,
   MODEL_PROVIDER_IDS,
@@ -19,11 +21,13 @@ type HarnessValidationCatalog = AgentValidationCatalog['harnesses'][number];
 export function getAgentValidationCatalog(
   managedProvider?: ManagedModelProvider | undefined,
   workspaceProviders: WorkspaceProvidersPolicy = 'enabled',
+  defaultHarnessId: Harness = DEFAULT_HARNESS,
 ): AgentValidationCatalog {
   const managedOnly = workspaceProviders === 'disabled';
 
   return {
     version: 1,
+    default_harness_id: defaultHarnessId,
     providers: buildValidationProviders(managedProvider, managedOnly),
     harnesses: listHarnessDescriptors().map((harness) =>
       buildHarnessValidationCatalog(harness, managedProvider, managedOnly),

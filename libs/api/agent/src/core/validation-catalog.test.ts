@@ -7,6 +7,7 @@ describe('getAgentValidationCatalog', () => {
     const pi = catalog.harnesses.find((harness) => harness.id === 'pi');
     const claude = catalog.harnesses.find((harness) => harness.id === 'claude');
 
+    expect(catalog.default_harness_id).toBe('pi');
     expect(Object.keys(pi?.model_ids_by_provider ?? {})).toEqual(
       expect.arrayContaining(pi?.supported_provider_ids ?? []),
     );
@@ -16,6 +17,12 @@ describe('getAgentValidationCatalog', () => {
     expect(pi?.model_ids_by_provider?.['qwen-token-plan-individual']).toContain('qwen3.8-max');
     expect(pi?.thinking_levels).toContain('max');
     expect(claude?.model_ids_by_provider?.anthropic).toContain('claude-opus-4-8');
+  });
+
+  it('includes the configured default harness', () => {
+    const catalog = getAgentValidationCatalog(undefined, 'enabled', 'claude');
+
+    expect(catalog.default_harness_id).toBe('claude');
   });
 
   it('includes injected managed providers with harness-compatible models', () => {
