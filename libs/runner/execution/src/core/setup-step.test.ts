@@ -237,6 +237,45 @@ describe('executeSetupStep', () => {
     });
   });
 
+  it('keeps the author when credentials are not persisted', async () => {
+    requestCheckoutTokenMock.mockResolvedValue(
+      checkoutResponse(
+        {
+          kind: 'bearer',
+          token: 't',
+          expires_at: '2026-01-01T00:00:00Z',
+          carry: 'header',
+          host: 'github.com',
+          persist: false,
+        },
+        {name: 'First Author', email: 'first@example.com'},
+      ),
+    );
+
+    const result = await run();
+
+    expect(writeAmbientGitCredentialMock).toHaveBeenCalledWith({
+      configPath: GIT_CONFIG_PATH,
+      repositoryUrl: 'https://github.com/acme/repo.git',
+      gitAuthor: {name: 'First Author', email: 'first@example.com'},
+    });
+    expect(result).toEqual({
+      result: {
+        success: true,
+        error: null,
+        exit_code: 0,
+        checkout: {
+          repository: 'https://github.com/acme/repo.git',
+          ref: 'main',
+          commit: 'abc123',
+          path: CWD,
+        },
+      },
+      ambientGitConfigPath: GIT_CONFIG_PATH,
+      ambientGitConfigSecrets: [],
+    });
+  });
+
   it('does not persist ambient credentials when persist is false', async () => {
     requestCheckoutTokenMock.mockResolvedValue(
       checkoutResponse({

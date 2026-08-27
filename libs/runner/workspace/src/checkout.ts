@@ -200,10 +200,14 @@ export async function checkoutRepository(params: {
   }
 }
 
+/**
+ * Adds a checkout's token-free author and, when supplied, its persisted repository credential.
+ * An omitted auth leaves existing repository credentials unchanged.
+ */
 export function writeAmbientGitCredential(params: {
   configPath: string;
   repositoryUrl: string;
-  auth: CheckoutTokenAuthDto;
+  auth?: CheckoutTokenAuthDto | undefined;
   gitAuthor?: {name: string; email: string} | undefined;
 }): Promise<void> {
   const {configPath, repositoryUrl, auth, gitAuthor} = params;
@@ -218,10 +222,12 @@ export function writeAmbientGitCredential(params: {
           `\temail = ${gitConfigQuotedValue(gitAuthor.email)}`,
         ]
       : [];
-    const repositoryLines = [
-      `[http "${gitConfigSubsection(repositoryUrl)}"]`,
-      `\textraHeader = ${gitConfigQuotedValue(`Authorization: ${authorizationValue(auth)}`)}`,
-    ];
+    const repositoryLines = auth
+      ? [
+          `[http "${gitConfigSubsection(repositoryUrl)}"]`,
+          `\textraHeader = ${gitConfigQuotedValue(`Authorization: ${authorizationValue(auth)}`)}`,
+        ]
+      : [];
 
     await mkdir(dirname(configPath), {recursive: true});
     const temporaryConfigPath = `${configPath}.${randomUUID()}.tmp`;
@@ -236,7 +242,7 @@ export function writeAmbientGitCredential(params: {
         await writeFile(temporaryConfigPath, lines.join('\n'), {flag: 'wx', mode: 0o600});
       } else {
         await writeFile(temporaryConfigPath, existing, {flag: 'wx', mode: 0o600});
-        await unsetAmbientGitCredential(temporaryConfigPath, repositoryUrl);
+        if (auth) await unsetAmbientGitCredential(temporaryConfigPath, repositoryUrl);
 
         const current = await readFile(temporaryConfigPath, 'utf8');
         // [user] applies to the whole ambient config. Keep the first author for v1; per-repository
@@ -249,6 +255,7 @@ export function writeAmbientGitCredential(params: {
         await appendFile(temporaryConfigPath, `${current.endsWith('\n') ? '' : '\n'}${additions}`);
       }
 
+      if (!auth) await validateAmbientGitConfig(temporaryConfigPath);
       await chmod(temporaryConfigPath, 0o600);
       await rename(temporaryConfigPath, configPath);
     } finally {
@@ -292,6 +299,10 @@ function basicCredential(auth: {username: string; token: string}): string {
 function authorizationValue(auth: CheckoutTokenAuthDto): string {
   if (auth.kind === 'bearer') return `Bearer ${auth.token}`;
   return `Basic ${basicCredential(auth)}`;
+}
+
+async function validateAmbientGitConfig(configPath: string): Promise<void> {
+  await execFileAsync('git', ['config', '--file', configPath, '--list']);
 }
 
 async function unsetAmbientGitCredential(configPath: string, repositoryUrl: string): Promise<void> {
