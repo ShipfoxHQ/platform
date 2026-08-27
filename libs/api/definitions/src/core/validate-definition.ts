@@ -1,4 +1,4 @@
-import type {AgentValidationCatalog} from '@shipfox/api-agent-dto/inter-module';
+import type {AgentValidationCatalogV2} from '@shipfox/api-agent-dto/inter-module';
 import {InvalidWorkflowDocumentError} from '@shipfox/workflow-document';
 import {definitionDefaultRunnerLabels} from '../config.js';
 import type {IntegrationValidationContext} from './entities/integration-context.js';
@@ -16,7 +16,7 @@ export type {ValidationDiagnostic} from './entities/validation-diagnostic.js';
 
 export interface DefinitionValidationOptions {
   defaultRunnerLabels?: readonly string[];
-  agentValidationCatalog: AgentValidationCatalog;
+  agentValidationCatalog: AgentValidationCatalogV2;
   integrationValidationContext?: IntegrationValidationContext;
 }
 

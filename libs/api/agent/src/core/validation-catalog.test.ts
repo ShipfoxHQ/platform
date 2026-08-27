@@ -1,5 +1,5 @@
 import type {ManagedModelProvider} from '@shipfox/api-agent-dto';
-import {getAgentValidationCatalog} from './validation-catalog.js';
+import {getAgentValidationCatalog, getAgentValidationCatalogV2} from './validation-catalog.js';
 
 describe('getAgentValidationCatalog', () => {
   it('includes the model allowlist for each harness/provider pair', () => {
@@ -16,6 +16,18 @@ describe('getAgentValidationCatalog', () => {
     expect(pi?.model_ids_by_provider?.['qwen-token-plan-individual']).toContain('qwen3.8-max');
     expect(pi?.thinking_levels).toContain('max');
     expect(claude?.model_ids_by_provider?.anthropic).toContain('claude-opus-4-8');
+  });
+
+  it('includes the built-in default harness in the V2 catalog', () => {
+    const catalog = getAgentValidationCatalogV2();
+
+    expect(catalog.default_harness_id).toBe('pi');
+  });
+
+  it('includes the configured default harness in the V2 catalog', () => {
+    const catalog = getAgentValidationCatalogV2(undefined, 'enabled', 'claude');
+
+    expect(catalog.default_harness_id).toBe('claude');
   });
 
   it('includes injected managed providers with harness-compatible models', () => {

@@ -4,12 +4,15 @@ import {
   definitionValidationDiagnosticSchema,
   definitionValidationErrorSchema,
 } from '@shipfox/api-definitions-dto';
+import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import {defineRoute} from '@shipfox/node-fastify';
 import {z} from 'zod';
 import {validateDefinition} from '#core/validate-definition.js';
+import {requireProjectAccess} from './project-access.js';
 
 const validateBodySchema = z.object({
   yaml: z.string().min(1).max(1_000_000),
+  project_id: z.string().uuid().optional(),
 });
 
 const validationResultSchema = z.union([
@@ -25,7 +28,10 @@ const validationResultSchema = z.union([
   }),
 ]);
 
-export function buildValidateDefinitionRoute(agent: AgentInterModuleClient) {
+export function buildValidateDefinitionRoute(options: {
+  agent: AgentInterModuleClient;
+  projects: ProjectsModuleClient;
+}) {
   return defineRoute({
     method: 'POST',
     path: '/validate',
@@ -37,9 +43,13 @@ export function buildValidateDefinitionRoute(agent: AgentInterModuleClient) {
       },
     },
     handler: async (request) => {
-      const {yaml} = request.body;
+      const {yaml, project_id: projectId} = request.body;
+      const workspaceId =
+        projectId === undefined
+          ? null
+          : (await requireProjectAccess(request, projectId, options.projects)).workspaceId;
       const result = validateDefinition(yaml, {
-        agentValidationCatalog: await agent.getValidationCatalog({}),
+        agentValidationCatalog: await options.agent.getValidationCatalogV2({workspaceId}),
       });
 
       if (result.valid) {

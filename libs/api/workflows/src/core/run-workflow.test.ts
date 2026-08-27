@@ -1,7 +1,10 @@
 import type {AgentInterModuleClient} from '@shipfox/api-agent-dto/inter-module';
 import {createWorkflowModelSnapshot, type WorkflowModel} from '@shipfox/api-definitions-dto';
 import type {DefinitionsInterModuleClient} from '@shipfox/api-definitions-dto/inter-module';
-import {agentValidationCatalog} from '#test/fixtures/agent-inter-module.js';
+import {
+  agentValidationCatalog,
+  agentValidationCatalogV2,
+} from '#test/fixtures/agent-inter-module.js';
 import {workflowModel} from '#test/index.js';
 import type {TriggerPayload, WorkflowRunDevSource} from './entities/workflow-run.js';
 import {DefinitionNotFoundError, ProjectMismatchError} from './errors.js';
@@ -60,6 +63,7 @@ describe('runWorkflow', () => {
   let projectId: string;
   const agent: AgentInterModuleClient = {
     getValidationCatalog: vi.fn().mockResolvedValue(agentValidationCatalog),
+    getValidationCatalogV2: vi.fn().mockResolvedValue(agentValidationCatalogV2),
     resolveAgentConfig: mockResolveAgentConfig,
     resolveRuntimeCredentials: vi.fn(),
     claimSession: vi.fn(),
@@ -256,6 +260,7 @@ describe('runDevWorkflow', () => {
   let projectId: string;
   const agent: AgentInterModuleClient = {
     getValidationCatalog: vi.fn().mockResolvedValue(agentValidationCatalog),
+    getValidationCatalogV2: vi.fn().mockResolvedValue(agentValidationCatalogV2),
     resolveAgentConfig: mockResolveAgentConfig,
     resolveRuntimeCredentials: vi.fn(),
     claimSession: vi.fn(),

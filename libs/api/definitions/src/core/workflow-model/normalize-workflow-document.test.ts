@@ -1,4 +1,4 @@
-import type {AgentValidationCatalog} from '@shipfox/api-agent-dto/inter-module';
+import type {AgentValidationCatalogV2} from '@shipfox/api-agent-dto/inter-module';
 import type {WorkflowDocument} from '@shipfox/workflow-document';
 import {agentValidationCatalog} from '#test/agent-validation-catalog.js';
 import type {IntegrationValidationContext} from '../entities/integration-context.js';
@@ -983,7 +983,7 @@ describe('normalizeWorkflowDocument', () => {
         {
           code: 'agent-session-harness-mismatch',
           message:
-            'Agent steps "plan" (job "plan") and "implement" (job "implement") share session key "main" but declare different harnesses: "pi" and "claude". A session is pinned to the harness that created it. Declare the same harness on every step that shares the session key.',
+            'Agent steps "plan" (job "plan") and "implement" (job "implement") share session key "main" but resolve to different harnesses: "pi" and "claude". A session is pinned to the harness that created it. Ensure every step that shares the session key resolves to the same harness.',
           path: ['jobs', 'implement', 'steps', 0, 'session'],
           details: {
             key: 'main',
@@ -1014,7 +1014,7 @@ describe('normalizeWorkflowDocument', () => {
       expect(model.jobs).toHaveLength(2);
     });
 
-    it('does not report harness disagreement when one step omits the harness', () => {
+    it('uses the default harness when one session-sharing step omits it', () => {
       const model = normalizeWorkflowDocument({
         name: 'session sharing',
         jobs: {
@@ -1029,6 +1029,36 @@ describe('normalizeWorkflowDocument', () => {
       });
 
       expect(model.jobs).toHaveLength(2);
+    });
+
+    it('reports harness disagreement against the configured default harness', () => {
+      const error = expectInvalid(
+        {
+          name: 'session sharing',
+          jobs: {
+            plan: {
+              steps: [{key: 'plan', prompt: 'Plan.', session: 'main', harness: 'pi'}],
+            },
+            implement: {
+              needs: 'plan',
+              steps: [{key: 'implement', prompt: 'Implement.', session: 'main'}],
+            },
+          },
+        },
+        {
+          agentValidationCatalog: {
+            ...agentValidationCatalog,
+            default_harness_id: 'claude',
+          },
+        },
+      );
+
+      expect(error.issues).toEqual([
+        expect.objectContaining({
+          code: 'agent-session-harness-mismatch',
+          details: expect.objectContaining({harnesses: ['pi', 'claude']}),
+        }),
+      ]);
     });
 
     it('reports both parallel resume and harness disagreement for a conflicting pair', () => {
@@ -1142,7 +1172,7 @@ describe('normalizeWorkflowDocument', () => {
         {
           code: 'agent-session-harness-mismatch',
           message:
-            'Agent steps "plan" (job "implement") and "implement" (job "implement") share session key "main" but declare different harnesses: "pi" and "claude". A session is pinned to the harness that created it. Declare the same harness on every step that shares the session key.',
+            'Agent steps "plan" (job "implement") and "implement" (job "implement") share session key "main" but resolve to different harnesses: "pi" and "claude". A session is pinned to the harness that created it. Ensure every step that shares the session key resolves to the same harness.',
           path: ['jobs', 'implement', 'steps', 1, 'session'],
           details: {
             key: 'main',
@@ -1853,7 +1883,7 @@ describe('normalizeWorkflowDocument', () => {
     });
   });
 
-  it('defers harness-specific validation when harness is omitted', () => {
+  it('uses the configured default for harness-specific validation', () => {
     const document: WorkflowDocument = {
       name: 'workspace-default harness',
       jobs: {
@@ -1861,7 +1891,7 @@ describe('normalizeWorkflowDocument', () => {
           steps: [
             {
               provider: 'anthropic',
-              model: 'claude-sonnet-4-6',
+              model: 'claude-opus-4-8',
               prompt: 'Fix it.',
             },
           ],
@@ -1869,12 +1899,14 @@ describe('normalizeWorkflowDocument', () => {
       },
     };
 
-    const model = normalizeWorkflowDocument(document);
+    const model = normalizeWorkflowDocument(document, {
+      agentValidationCatalog: {...agentValidationCatalog, default_harness_id: 'claude'},
+    });
 
     expect(model.jobs[0]?.steps[0]).toMatchObject({
       kind: 'agent',
       provider: 'anthropic',
-      model: 'claude-sonnet-4-6',
+      model: 'claude-opus-4-8',
     });
   });
 
@@ -1962,28 +1994,60 @@ describe('normalizeWorkflowDocument', () => {
     });
   });
 
-  it('rejects tools without an explicit harness', () => {
+  it('accepts tools supported by the default harness', () => {
     const document: WorkflowDocument = {
       name: 'agent build',
       jobs: {
         fix: {
-          steps: [{prompt: 'Search it.', tools: ['Read']}],
+          steps: [{prompt: 'Search it.', tools: ['read', 'web_search']}],
         },
       },
     };
 
-    const error = expectInvalid(document);
+    const model = normalizeWorkflowDocument(document);
+
+    expect(model.jobs[0]?.steps[0]).toMatchObject({
+      kind: 'agent',
+      tools: ['read', 'web_search'],
+    });
+  });
+
+  it('accepts tools supported by a configured Claude default harness', () => {
+    const document: WorkflowDocument = {
+      name: 'agent build',
+      jobs: {
+        fix: {
+          steps: [{prompt: 'Search it.', tools: ['Read', 'WebSearch']}],
+        },
+      },
+    };
+
+    const model = normalizeWorkflowDocument(document, {
+      agentValidationCatalog: {...agentValidationCatalog, default_harness_id: 'claude'},
+    });
+
+    expect(model.jobs[0]?.steps[0]).toMatchObject({
+      kind: 'agent',
+      tools: ['Read', 'WebSearch'],
+    });
+  });
+
+  it('rejects tools unsupported by the default harness', () => {
+    const error = expectInvalid({
+      name: 'agent build',
+      jobs: {
+        fix: {
+          steps: [{prompt: 'Search it.', tools: ['WebSearch']}],
+        },
+      },
+    });
 
     expect(error.issues).toEqual([
-      {
-        code: 'missing-harness-for-tools',
-        message:
-          'Agent step tools require an explicit harness because tool names are harness-specific.',
-        path: ['jobs', 'fix', 'steps', 0, 'tools'],
-        details: {tools: ['Read']},
-        severity: 'error',
-        scope: 'definition',
-      },
+      expect.objectContaining({
+        code: 'harness-tool-incompatible',
+        path: ['jobs', 'fix', 'steps', 0, 'tools', 0],
+        details: expect.objectContaining({harness: 'pi', tool: 'WebSearch'}),
+      }),
     ]);
   });
 
@@ -6831,7 +6895,7 @@ describe('normalizeWorkflowDocument', () => {
 
     it('accepts a managed provider on Claude when the catalog exposes an Anthropic model', () => {
       const providerId = 'shipfox-managed';
-      const managedCatalog: AgentValidationCatalog = {
+      const managedCatalog: AgentValidationCatalogV2 = {
         ...agentValidationCatalog,
         providers: [
           ...agentValidationCatalog.providers,

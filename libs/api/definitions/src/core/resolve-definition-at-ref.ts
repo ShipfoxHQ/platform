@@ -242,8 +242,8 @@ async function listDefinitionsAtRefUnsafe(
   );
   throwIfAborted(params.signal);
   const agentValidationCatalog = await callWithSignal(
-    params.agent.getValidationCatalog,
-    {},
+    params.agent.getValidationCatalogV2,
+    {workspaceId: source.workspaceId},
     params.signal,
   );
   throwIfAborted(params.signal);
@@ -430,8 +430,8 @@ async function parseDefinitionAtRef(params: {
   signal: AbortSignal | undefined;
 }): Promise<ParsedDefinition> {
   const agentValidationCatalog = await callWithSignal(
-    params.agent.getValidationCatalog,
-    {},
+    params.agent.getValidationCatalogV2,
+    {workspaceId: params.source.workspaceId},
     params.signal,
   );
   throwIfAborted(params.signal);

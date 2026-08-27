@@ -1,5 +1,5 @@
 import {createHash} from 'node:crypto';
-import type {AgentValidationCatalog} from '@shipfox/api-agent-dto/inter-module';
+import type {AgentValidationCatalogV2} from '@shipfox/api-agent-dto/inter-module';
 import {integrationsInterModuleContract} from '@shipfox/api-integration-core-dto/inter-module';
 import {isInterModuleKnownError} from '@shipfox/inter-module';
 import {boundedMap} from '@shipfox/node-module';
@@ -87,7 +87,7 @@ export interface FetchAndParseWorkflowsParams extends SyncSourceContext {
   ref: string;
   paths: string[];
   onProgress?: ((path: string) => void) | undefined;
-  agentValidationCatalog: AgentValidationCatalog;
+  agentValidationCatalog: AgentValidationCatalogV2;
   loadIntegrationValidationContext?: (() => Promise<IntegrationValidationContext>) | undefined;
 }
 
@@ -149,7 +149,7 @@ function parseWorkflowSnapshot(params: {
   path: string;
   content: string;
   integrationValidationContext?: IntegrationValidationContext | undefined;
-  agentValidationCatalog: AgentValidationCatalog;
+  agentValidationCatalog: AgentValidationCatalogV2;
 }): ParsedWorkflow {
   try {
     const definition =

@@ -8,8 +8,7 @@ import {
   modelProviderRefSchema,
 } from '#schemas/index.js';
 
-const agentValidationCatalogSchema = z.object({
-  version: z.literal(1),
+const agentValidationCatalogFieldsSchema = z.object({
   providers: z.array(
     z.object({
       id: z.string().min(1),
@@ -27,7 +26,17 @@ const agentValidationCatalogSchema = z.object({
   ),
 });
 
+const agentValidationCatalogSchema = agentValidationCatalogFieldsSchema.extend({
+  version: z.literal(1),
+});
+
+const agentValidationCatalogV2Schema = agentValidationCatalogFieldsSchema.extend({
+  version: z.literal(2),
+  default_harness_id: harnessSchema,
+});
+
 export type AgentValidationCatalog = z.infer<typeof agentValidationCatalogSchema>;
+export type AgentValidationCatalogV2 = z.infer<typeof agentValidationCatalogV2Schema>;
 
 const agentConfigInputSchema = z.object({
   harness: harnessSchema.optional(),
@@ -53,6 +62,11 @@ export const agentInterModuleContract = defineInterModuleContract({
     getValidationCatalog: {
       input: z.object({}),
       output: agentValidationCatalogSchema,
+      errors: {},
+    },
+    getValidationCatalogV2: {
+      input: z.object({workspaceId: z.string().uuid().nullable()}),
+      output: agentValidationCatalogV2Schema,
       errors: {},
     },
     resolveAgentConfig: {

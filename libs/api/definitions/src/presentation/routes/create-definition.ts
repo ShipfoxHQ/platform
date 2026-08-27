@@ -57,7 +57,9 @@ export function buildCreateDefinitionRoute(options: CreateDefinitionRouteOptions
       const {project_id: projectId, config_path, source, yaml: yamlString, sha, ref} = request.body;
       const project = await requireProjectAccess(request, projectId, options.projects);
 
-      const agentValidationCatalog = await options.agent.getValidationCatalog({});
+      const agentValidationCatalog = await options.agent.getValidationCatalogV2({
+        workspaceId: project.workspaceId,
+      });
       const structurallyParsed = parseDefinitionForCreate(yamlString, {agentValidationCatalog});
       const {integrations} = options;
       const parsed =

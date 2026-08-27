@@ -5,7 +5,7 @@ import {
   MODEL_PROVIDER_CATALOG_SEED,
   MODEL_PROVIDER_IDS,
 } from '@shipfox/api-agent-dto';
-import type {AgentValidationCatalog} from '@shipfox/api-agent-dto/inter-module';
+import type {AgentValidationCatalogV2} from '@shipfox/api-agent-dto/inter-module';
 
 const piModelIdsByProvider = Object.fromEntries(
   MODEL_PROVIDER_CATALOG_SEED.filter((entry) => entry.support_status === 'supported').map(
@@ -22,8 +22,9 @@ const piModelIdsByProvider = Object.fromEntries(
   ),
 );
 
-export const agentValidationCatalog: AgentValidationCatalog = {
-  version: 1,
+export const agentValidationCatalog: AgentValidationCatalogV2 = {
+  version: 2,
+  default_harness_id: 'pi',
   providers: MODEL_PROVIDER_IDS.map((id) => ({
     id,
     support_status:

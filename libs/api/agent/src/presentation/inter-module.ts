@@ -24,8 +24,11 @@ import {
 import {resolveAgentConfig} from '#core/resolve-agent-config.js';
 import {resolveRuntimeCredentials} from '#core/resolve-runtime-credentials.js';
 import type {AgentSecretsClient} from '#core/secrets-client.js';
-import {getAgentValidationCatalog} from '#core/validation-catalog.js';
-import {createWorkspaceAgentDefaultsResolver} from '#core/workspace-agent-defaults-resolver.js';
+import {getAgentValidationCatalog, getAgentValidationCatalogV2} from '#core/validation-catalog.js';
+import {
+  createWorkspaceAgentDefaultsResolver,
+  getWorkspaceAgentValidationCatalog,
+} from '#core/workspace-agent-defaults-resolver.js';
 import {carryOverSessions} from '#db/index.js';
 
 export function createAgentInterModulePresentation(params: {
@@ -36,6 +39,14 @@ export function createAgentInterModulePresentation(params: {
   return defineInterModulePresentation(agentInterModuleContract, {
     getValidationCatalog: () =>
       getAgentValidationCatalog(params.managedProvider, params.workspaceProviders),
+    getValidationCatalogV2: async ({workspaceId}) =>
+      workspaceId === null
+        ? getAgentValidationCatalogV2(params.managedProvider, params.workspaceProviders)
+        : await getWorkspaceAgentValidationCatalog(
+            workspaceId,
+            params.managedProvider,
+            params.workspaceProviders,
+          ),
     resolveAgentConfig: async ({workspaceId, config}) => {
       try {
         const resolve =

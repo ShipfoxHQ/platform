@@ -1,14 +1,19 @@
 import type {
+  Harness,
   HarnessDescriptor,
   ManagedModelProvider,
   WorkspaceProvidersPolicy,
 } from '@shipfox/api-agent-dto';
 import {
+  DEFAULT_HARNESS,
   listEnabledHarnessTools,
   listHarnessDescriptors,
   MODEL_PROVIDER_IDS,
 } from '@shipfox/api-agent-dto';
-import type {AgentValidationCatalog} from '@shipfox/api-agent-dto/inter-module';
+import type {
+  AgentValidationCatalog,
+  AgentValidationCatalogV2,
+} from '@shipfox/api-agent-dto/inter-module';
 import {harnessToolDeploymentConfig} from '#config.js';
 import {listHarnessProviderModels} from './harness/index.js';
 import {getModelProviderEntry} from './model-provider-policy.js';
@@ -28,6 +33,18 @@ export function getAgentValidationCatalog(
     harnesses: listHarnessDescriptors().map((harness) =>
       buildHarnessValidationCatalog(harness, managedProvider, managedOnly),
     ),
+  };
+}
+
+export function getAgentValidationCatalogV2(
+  managedProvider?: ManagedModelProvider | undefined,
+  workspaceProviders: WorkspaceProvidersPolicy = 'enabled',
+  defaultHarnessId: Harness = DEFAULT_HARNESS,
+): AgentValidationCatalogV2 {
+  return {
+    ...getAgentValidationCatalog(managedProvider, workspaceProviders),
+    version: 2,
+    default_harness_id: defaultHarnessId,
   };
 }
 

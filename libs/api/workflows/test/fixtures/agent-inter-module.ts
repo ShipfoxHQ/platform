@@ -8,6 +8,7 @@ import {
 import type {
   AgentInterModuleClient,
   AgentValidationCatalog,
+  AgentValidationCatalogV2,
 } from '@shipfox/api-agent-dto/inter-module';
 import {agentThinkingSchema} from '@shipfox/workflow-document';
 import type {AgentDefaultsResolver} from '#core/agent-defaults.js';
@@ -30,9 +31,18 @@ export const agentValidationCatalog: AgentValidationCatalog = {
   })),
 };
 
+export const agentValidationCatalogV2: AgentValidationCatalogV2 = {
+  ...agentValidationCatalog,
+  version: 2,
+  default_harness_id: 'pi',
+};
+
 export const agentTestClient: AgentInterModuleClient = {
   getValidationCatalog() {
     return Promise.resolve(agentValidationCatalog);
+  },
+  getValidationCatalogV2() {
+    return Promise.resolve(agentValidationCatalogV2);
   },
   resolveAgentConfig({config}) {
     return Promise.resolve(resolveTestAgentDefaults(config));

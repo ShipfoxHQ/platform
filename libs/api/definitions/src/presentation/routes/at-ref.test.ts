@@ -70,7 +70,7 @@ const integrationsMocks = {
 const integrations = integrationsMocks as unknown as IntegrationsModuleClient;
 
 const agentMocks = {
-  getValidationCatalog: vi.fn(),
+  getValidationCatalogV2: vi.fn(),
 };
 const agent = agentMocks as unknown as AgentInterModuleClient;
 
@@ -120,7 +120,7 @@ describe('GET /api/definitions/at-ref', () => {
       ref: COMMIT,
       content: validYaml,
     });
-    agentMocks.getValidationCatalog.mockResolvedValue(agentValidationCatalog);
+    agentMocks.getValidationCatalogV2.mockResolvedValue(agentValidationCatalog);
     projectsMocks.getProjectById.mockImplementation(({projectId}) =>
       Promise.resolve({
         project: {
@@ -160,6 +160,10 @@ describe('GET /api/definitions/at-ref', () => {
       {signal: expect.any(AbortSignal)},
     );
     expect(projectsMocks.getProjectById).toHaveBeenCalledOnce();
+    expect(agentMocks.getValidationCatalogV2).toHaveBeenCalledWith(
+      {workspaceId},
+      expect.anything(),
+    );
   });
 
   test('returns 200 listing an invalid file with its errors instead of failing', async () => {

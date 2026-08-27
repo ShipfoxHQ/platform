@@ -1,4 +1,4 @@
-import type {AgentValidationCatalog} from '@shipfox/api-agent-dto/inter-module';
+import type {AgentValidationCatalogV2} from '@shipfox/api-agent-dto/inter-module';
 import {
   type AvailabilitySite,
   buildTypedRootsEnvironment,
@@ -64,7 +64,7 @@ import {issue} from './validation-issue.js';
 
 export interface NormalizeContext {
   readonly defaultRunnerLabels: readonly string[];
-  readonly agentValidationCatalog: AgentValidationCatalog;
+  readonly agentValidationCatalog: AgentValidationCatalogV2;
   readonly integrationValidationContext?: IntegrationValidationContext | undefined;
 }
 
@@ -131,7 +131,7 @@ export function normalizeJobs(
     issues.push(...(issuesBySourceName.get(sourceName) ?? []));
   }
 
-  validateAgentSessionSharing(document, issues);
+  validateAgentSessionSharing(document, issues, context.agentValidationCatalog.default_harness_id);
 
   return entries.flatMap(([sourceName]) => {
     const model = modelsBySourceName.get(sourceName);
@@ -1093,7 +1093,7 @@ interface SessionSharingStep {
   readonly stepKey: string | undefined;
   readonly keySource: string;
   readonly mode: 'resume' | 'fork';
-  readonly harness: string | undefined;
+  readonly harness: string;
 }
 
 // Bounds the cross-job sharing pass so a hostile or degenerate document cannot
@@ -1105,7 +1105,7 @@ const MAX_SESSION_SHARING_PAIR_EVALUATIONS = 100_000;
 // at most one issue is reported per code per key, so the earliest conflict in
 // the examined window is the one that matters. The window always retains the
 // first resume-mode step of each distinct job and one step per distinct
-// declared harness before it fills with the earliest remaining steps (see
+// effective harness before it fills with the earliest remaining steps (see
 // selectSessionSharingWindow), so a job holding many serial steps -- or a job
 // whose first sharing step forks the session -- cannot push another job's
 // resume step -- or a divergent harness -- out of the window.
@@ -1129,7 +1129,7 @@ const RUN_GLOBAL_SESSION_KEY_CONTEXT_ROOTS = new Set<string>([
 // Cross-job authoring checks for shared agent sessions: two resume-mode steps
 // with statically identical session key templates from jobs without a
 // transitive needs ancestry would claim the same session in parallel, and
-// steps sharing a static key must agree on the literal harness because a
+// steps sharing a static key must agree on the effective harness because a
 // session is pinned to the harness that created it. Templates are compared
 // literally only; distinct templates that collide at runtime stay the
 // dispatch-time claim's job, and templates that reference per-job context are
@@ -1142,12 +1142,13 @@ const RUN_GLOBAL_SESSION_KEY_CONTEXT_ROOTS = new Set<string>([
 // budget; the run-global-only classification is memoized per keySource. At
 // most one issue is reported per session key per code, each group is examined
 // up to a fixed step window that always retains the first resume-mode step of
-// each distinct job and one step per distinct declared harness, and the whole
+// each distinct job and one step per distinct effective harness, and the whole
 // pass stops after a fixed pair budget, so large documents stay bounded and
 // long serial runs cannot hide sharing conflicts.
 function validateAgentSessionSharing(
   document: WorkflowDocument,
   issues: WorkflowModelValidationIssue[],
+  defaultHarnessId: string,
 ): void {
   const steps: SessionSharingStep[] = [];
   for (const [jobName, job] of Object.entries(document.jobs)) {
@@ -1159,7 +1160,7 @@ function validateAgentSessionSharing(
         stepKey: step.key,
         keySource: typeof step.session === 'string' ? step.session : step.session.key,
         mode: typeof step.session === 'string' ? 'resume' : (step.session.mode ?? 'resume'),
-        harness: step.harness,
+        harness: step.harness ?? defaultHarnessId,
       });
     });
   }
@@ -1193,7 +1194,7 @@ function validateAgentSessionSharing(
   // be exhausted by unrelated (different-key) pairs before later identical
   // keys are examined. Each group is then cut to a fixed window (see
   // selectSessionSharingWindow) that always keeps the first resume-mode step
-  // of each distinct job and one step per distinct declared harness, so a
+  // of each distinct job and one step per distinct effective harness, so a
   // single degenerate group cannot starve every later key and a long serial
   // job -- or a fork step hiding its job's resume step -- cannot hide another
   // job's sharing step behind the window. Keys that reference per-job context
@@ -1269,22 +1270,12 @@ function validateAgentSessionSharing(
           }
         }
 
-        // A step that omits `harness` resolves at dispatch to the workspace
-        // default harness (or `pi` when none is configured), which this
-        // authoring layer cannot know. Omission is therefore exempt from the
-        // literal agreement check; a mismatch against the resolved default
-        // surfaces at claim time.
-        if (
-          prior.harness !== undefined &&
-          later.harness !== undefined &&
-          prior.harness !== later.harness &&
-          !harnessMismatchReportedKeys.has(keySource)
-        ) {
+        if (prior.harness !== later.harness && !harnessMismatchReportedKeys.has(keySource)) {
           harnessMismatchReportedKeys.add(keySource);
           issues.push(
             issue({
               code: 'agent-session-harness-mismatch',
-              message: `Agent steps ${sessionSharingStepLabel(prior)} (job "${prior.jobName}") and ${sessionSharingStepLabel(later)} (job "${later.jobName}") share session key "${keySource}" but declare different harnesses: "${prior.harness}" and "${later.harness}". A session is pinned to the harness that created it. Declare the same harness on every step that shares the session key.`,
+              message: `Agent steps ${sessionSharingStepLabel(prior)} (job "${prior.jobName}") and ${sessionSharingStepLabel(later)} (job "${later.jobName}") share session key "${keySource}" but resolve to different harnesses: "${prior.harness}" and "${later.harness}". A session is pinned to the harness that created it. Ensure every step that shares the session key resolves to the same harness.`,
               path: ['jobs', later.jobName, 'steps', later.stepIndex, 'session'],
               details: {
                 key: keySource,
@@ -1306,7 +1297,7 @@ function sessionStepPathKey(step: SessionSharingStep): string {
 
 // Cuts a session-key group to the fixed step window while always retaining
 // the first resume-mode step of each distinct job and one step per distinct
-// declared harness, then fills the remainder with the earliest steps in
+// effective harness, then fills the remainder with the earliest steps in
 // document order. Without the resume retention, one job holding more than
 // MAX_SESSION_SHARING_STEPS_PER_KEY serial steps -- or a job whose first
 // sharing step forks the session -- would fill the window and silently drop
@@ -1327,18 +1318,17 @@ function selectSessionSharingWindow(steps: readonly SessionSharingStep[]): Sessi
     if (window.length >= MAX_SESSION_SHARING_STEPS_PER_KEY || inWindow.has(step)) return;
     inWindow.add(step);
     window.push(step);
-    if (step.harness !== undefined) harnessesInWindow.add(step.harness);
+    harnessesInWindow.add(step.harness);
   };
 
   // Reservation pass: a step is added when it is the first resume-mode step
-  // of its job or the first step with its declared harness. A fork step
+  // of its job or the first step with its effective harness. A fork step
   // therefore never consumes the slot that protects its job's resume step,
   // and the two roles share the window budget so neither can starve the
   // other before the fill pass runs.
   for (const step of steps) {
     const isFirstResumeOfJob = step.mode === 'resume' && !resumeStepsByJob.has(step.jobName);
-    const isHarnessRepresentative =
-      step.harness !== undefined && !harnessesInWindow.has(step.harness);
+    const isHarnessRepresentative = !harnessesInWindow.has(step.harness);
     if (!isFirstResumeOfJob && !isHarnessRepresentative) continue;
     if (isFirstResumeOfJob) resumeStepsByJob.add(step.jobName);
     add(step);
@@ -1404,12 +1394,12 @@ function validateAgentStep(params: {
   issues: WorkflowModelValidationIssue[];
   validateLiteralModel: boolean;
   validateLiteralProvider: boolean;
-  agentValidationCatalog: AgentValidationCatalog;
+  agentValidationCatalog: AgentValidationCatalogV2;
 }): void {
   validateHarnessThinking(params);
   validateHarnessTools(params);
   const providerId = params.step.provider;
-  const harness = params.step.harness;
+  const harness = params.step.harness ?? params.agentValidationCatalog.default_harness_id;
   const provider =
     providerId === undefined
       ? undefined
@@ -1441,8 +1431,6 @@ function validateAgentStep(params: {
       return;
     }
 
-    if (harness === undefined) return;
-
     const descriptor = params.agentValidationCatalog.harnesses.find(
       (entry) => entry.id === harness,
     );
@@ -1463,7 +1451,7 @@ function validateAgentStep(params: {
     }
   }
 
-  if (!params.validateLiteralModel || providerId === undefined || harness === undefined) return;
+  if (!params.validateLiteralModel || providerId === undefined) return;
   if (provider === undefined || provider.support_status !== 'supported') return;
 
   const model = params.step.model;
@@ -1488,23 +1476,11 @@ function validateHarnessTools(params: {
   sourceName: string;
   stepIndex: number;
   issues: WorkflowModelValidationIssue[];
-  agentValidationCatalog: AgentValidationCatalog;
+  agentValidationCatalog: AgentValidationCatalogV2;
 }): void {
-  const {harness, tools} = params.step;
+  const {tools} = params.step;
   if (tools === undefined) return;
-
-  if (harness === undefined) {
-    params.issues.push(
-      issue({
-        code: 'missing-harness-for-tools',
-        message:
-          'Agent step tools require an explicit harness because tool names are harness-specific.',
-        path: ['jobs', params.sourceName, 'steps', params.stepIndex, 'tools'],
-        details: {tools},
-      }),
-    );
-    return;
-  }
+  const harness = params.step.harness ?? params.agentValidationCatalog.default_harness_id;
 
   const supportedTools =
     params.agentValidationCatalog.harnesses.find((entry) => entry.id === harness)
@@ -1530,10 +1506,11 @@ function validateHarnessThinking(params: {
   sourceName: string;
   stepIndex: number;
   issues: WorkflowModelValidationIssue[];
-  agentValidationCatalog: AgentValidationCatalog;
+  agentValidationCatalog: AgentValidationCatalogV2;
 }): void {
-  const {harness, thinking} = params.step;
-  if (harness === undefined || thinking === undefined) return;
+  const {thinking} = params.step;
+  if (thinking === undefined) return;
+  const harness = params.step.harness ?? params.agentValidationCatalog.default_harness_id;
   // An interpolated level is only known when the step dispatches, so the agent
   // module checks it against the resolved harness there.
   if (hasInterpolationSyntax(thinking)) return;

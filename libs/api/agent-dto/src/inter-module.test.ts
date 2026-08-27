@@ -3,6 +3,33 @@ import {agentInterModuleContract, agentSessionDescriptorSchema} from './inter-mo
 const UUID = '00000000-0000-4000-8000-000000000001';
 
 describe('agentInterModuleContract', () => {
+  test('preserves the original validation catalog contract', () => {
+    const input = agentInterModuleContract.methods.getValidationCatalog.input.parse({});
+    const output = agentInterModuleContract.methods.getValidationCatalog.output.parse({
+      version: 1,
+      providers: [],
+      harnesses: [],
+    });
+
+    expect(input).toEqual({});
+    expect(output).toEqual({version: 1, providers: [], harnesses: []});
+  });
+
+  test('carries workspace context and the effective default harness in the V2 catalog', () => {
+    const input = agentInterModuleContract.methods.getValidationCatalogV2.input.parse({
+      workspaceId: UUID,
+    });
+    const output = agentInterModuleContract.methods.getValidationCatalogV2.output.parse({
+      version: 2,
+      default_harness_id: 'pi',
+      providers: [],
+      harnesses: [],
+    });
+
+    expect(input).toEqual({workspaceId: UUID});
+    expect(output.default_harness_id).toBe('pi');
+  });
+
   test('accepts valid claimSession payloads in both modes', () => {
     const input = {
       workspaceId: UUID,
