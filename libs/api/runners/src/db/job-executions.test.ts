@@ -1440,6 +1440,35 @@ describe('detectAndExpireStuckJobs', () => {
     expect(payload.steps).toBeUndefined();
   });
 
+  it('defers a correlated stale batch and recovers it with the operator override', async () => {
+    const staleJobs = [await makeStaleJob(600), await makeStaleJob(600), await makeStaleJob(600)];
+
+    // Use explicit thresholds here so this fleet-level decision is isolated from
+    // running leases created by other concurrently executed test files.
+    const deferred = await expireStuckJobExecutions({
+      thresholdSeconds: 180,
+      noFirstHeartbeatGraceSeconds: 60,
+      correlatedStaleMinCount: 3,
+      correlatedStaleRatio: 0.01,
+      correlatedStaleMode: 'defer',
+    });
+
+    expect(deferred).toHaveLength(0);
+    expect(await runningJobsForTest()).toHaveLength(3);
+
+    const recovered = await expireStuckJobExecutions({
+      thresholdSeconds: 180,
+      noFirstHeartbeatGraceSeconds: 60,
+      correlatedStaleMinCount: 3,
+      correlatedStaleRatio: 0.01,
+      correlatedStaleOverride: true,
+    });
+
+    expect(recovered).toHaveLength(3);
+    expect(await runningJobsForTest()).toHaveLength(0);
+    expect(await outboxForJobs(staleJobs.map(({jobId}) => jobId))).toHaveLength(3);
+  });
+
   it('releases a terminal runner reservation when its stuck lease is reaped', async () => {
     const stale = await makeStaleJob(600);
     const provisionerId = crypto.randomUUID();

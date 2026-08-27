@@ -128,6 +128,16 @@ export const jobExecutionLeaseExpiredCount = meter.createCounter<Record<string, 
   {description: 'Job execution leases reaped after passing the heartbeat threshold'},
 );
 
+export const staleJobCandidateRatio = meter.createHistogram<Record<string, never>>(
+  'runners_job_stale_candidate_ratio',
+  {description: 'Ratio of stale job leases to live job leases observed in one database snapshot'},
+);
+
+export const jobLeaseExpiryDeferredCount = meter.createCounter<{cause: 'correlated-stale'}>(
+  'runners_job_lease_expiry_deferred',
+  {description: 'Bounded stale job lease expiry batches deferred by the circuit breaker'},
+);
+
 export const providerRunnerReportCount = meter.createCounter<{
   state: 'starting' | 'running' | 'stopping' | 'stopped' | 'failed' | 'terminated';
 }>('runners_provider_runner_reported', {
