@@ -159,8 +159,10 @@ export {
   runnerEnrollmentResponseSchema,
 } from './runner-enrollment.js';
 export {
+  type RunnerFeaturesDto,
   type RunnerHarnessToolCapabilitiesDto,
   type RunnerToolCapabilitiesDto,
+  runnerFeaturesSchema,
   runnerHarnessToolCapabilitiesSchema,
   runnerToolCapabilitiesSchema,
 } from './tool-capabilities.js';
