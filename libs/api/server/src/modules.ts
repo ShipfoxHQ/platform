@@ -182,15 +182,28 @@ export async function defaultModules(
           ).deleted,
       },
       github: {
-        getSecret: async (params) => (await secretsClient.getSecret(params)).value,
+        getSecret: async (params) =>
+          (
+            await secretsClient.getSecret({
+              ...params,
+              namespace: requireGithubSecretNamespace(params.namespace),
+            })
+          ).value,
         setSecrets: async (params) => {
           const {editedBy, ...secretParams} = params;
           await secretsClient.setSecrets({
             ...secretParams,
+            namespace: requireGithubSecretNamespace(secretParams.namespace),
             ...(editedBy === undefined ? {} : {editedBy}),
           });
         },
-        deleteSecrets: async (params) => (await secretsClient.deleteSecrets(params)).deleted,
+        deleteSecrets: async (params) =>
+          (
+            await secretsClient.deleteSecrets({
+              ...params,
+              namespace: requireGithubSecretNamespace(params.namespace),
+            })
+          ).deleted,
       },
     },
     agentTools: {workflows: workflowsClient},
@@ -252,6 +265,15 @@ type AgentModuleSecretsClient = Pick<
   SecretsInterModuleClient,
   'deleteSecrets' | 'getSecretsByNamespace' | 'setSecrets'
 >;
+
+const GITHUB_SECRET_NAMESPACE_PREFIX = 'system/github/';
+
+function requireGithubSecretNamespace(namespace: string): string {
+  if (!namespace.startsWith(GITHUB_SECRET_NAMESPACE_PREFIX)) {
+    throw new Error('GitHub secret namespaces must start with system/github/');
+  }
+  return namespace;
+}
 
 function createAgentSecretsClient(
   secretsClient: SecretsInterModuleClient,

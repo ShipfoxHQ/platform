@@ -23,12 +23,15 @@ function token(tokenValue: string, expiresAt = '2026-06-10T12:00:00.000Z') {
 function createStore(): InstallationTokenSecretStore & {
   values: Map<string, string>;
   failWrites: boolean;
+  failReads: boolean;
 } {
   const values = new Map<string, string>();
   const store = {
     values,
     failWrites: false,
+    failReads: false,
     read(readWorkspaceId: string, readInstallationId: number) {
+      if (store.failReads) return Promise.reject(new Error('read failed'));
       return Promise.resolve(values.get(`${readWorkspaceId}:${readInstallationId}`) ?? null);
     },
     write(
@@ -90,6 +93,48 @@ describe('SharedInstallationTokenCache', () => {
     expect(result).toEqual(token('ghs_new'));
     expect(mint).toHaveBeenCalledTimes(1);
     expect(store.values.get(`${workspaceId}:${installationId}`)).toContain('ghs_new');
+  });
+
+  it('shares one mint between two concurrent cache replicas', async () => {
+    const store = createStore();
+    let lockHeld = false;
+    let releaseLock: () => void = () => undefined;
+    const lockReleased = new Promise<void>((resolve) => {
+      releaseLock = resolve;
+    });
+    let resolveMintStarted: () => void = () => undefined;
+    const mintStarted = new Promise<void>((resolve) => {
+      resolveMintStarted = resolve;
+    });
+    const withLock = async <T>(_id: number, fn: () => Promise<T>) => {
+      if (lockHeld) return {acquired: false as const};
+      lockHeld = true;
+      try {
+        return {acquired: true as const, value: await fn()};
+      } finally {
+        lockHeld = false;
+        releaseLock();
+      }
+    };
+    const mint = vi.fn(() => {
+      resolveMintStarted();
+      return Promise.resolve(token('ghs_shared'));
+    });
+    const firstReplica = cache({store, withLock});
+    const secondReplica = cache({
+      store,
+      withLock,
+      sleep: () => lockReleased,
+      pollDelaysMs: [1],
+    });
+
+    const first = firstReplica.getOrMint(installationId, mint);
+    await mintStarted;
+    const second = secondReplica.getOrMint(installationId, mint);
+    const results = await Promise.all([first, second]);
+
+    expect(results).toEqual([token('ghs_shared'), token('ghs_shared')]);
+    expect(mint).toHaveBeenCalledTimes(1);
   });
 
   it('returns a warm store hit without minting', async () => {
@@ -257,6 +302,16 @@ describe('SharedInstallationTokenCache', () => {
     await expect(
       shared.getOrMint(installationId, () => Promise.resolve(token('ghs_new'))),
     ).rejects.toMatchObject({reason: 'installation-not-found'});
+  });
+
+  it('returns a minted token when the cache read fails', async () => {
+    const store = createStore();
+    store.failReads = true;
+    const shared = cache({store});
+
+    const result = await shared.getOrMint(installationId, () => Promise.resolve(token('ghs_new')));
+
+    expect(result).toEqual(token('ghs_new'));
   });
 
   it('returns a minted token when the cache write fails', async () => {

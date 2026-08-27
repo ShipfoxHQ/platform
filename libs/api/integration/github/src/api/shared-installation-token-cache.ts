@@ -267,7 +267,21 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
     workspaceId: string,
     installationId: number,
   ): Promise<InstallationTokenEnvelope | undefined> {
-    const raw = await this.options.secretStore.read(workspaceId, installationId);
+    let raw: string | null;
+    try {
+      raw = await this.options.secretStore.read(workspaceId, installationId);
+    } catch (error) {
+      logger().warn(
+        {installationId, error},
+        'github installation token cache read failed; falling back to mint',
+      );
+      reportError(error, {
+        boundary: 'integration.cache',
+        operation: 'read-envelope',
+        extra: {installationId},
+      });
+      return undefined;
+    }
     if (raw === null) return undefined;
 
     const envelope = parseInstallationTokenEnvelope(raw);
