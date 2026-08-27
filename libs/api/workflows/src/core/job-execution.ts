@@ -1,10 +1,12 @@
 import type {AgentInterModuleClient} from '@shipfox/api-agent-dto/inter-module';
-import type {LogOutcomeDto} from '@shipfox/api-workflows-dto';
+import {agentInterModuleContract} from '@shipfox/api-agent-dto/inter-module';
+import type {AgentStepSessionDescriptorDto, LogOutcomeDto} from '@shipfox/api-workflows-dto';
 import {
   coerceStepOutputs,
   evaluatePlannedPredicateAtSite,
   type StepOutputCoercionError,
 } from '@shipfox/expression';
+import {isInterModuleKnownError} from '@shipfox/inter-module';
 import {type Tx, withTransaction} from '#db/db.js';
 import {
   countStepAttempts,
@@ -32,6 +34,7 @@ import type {JobExecution} from './entities/job-execution.js';
 import type {PersistedEvaluationTraceEntry, Step, StepStatusReason} from './entities/step.js';
 import {
   AgentConfigUnresolvableError,
+  AgentStepSessionClaimError,
   InterpolationUnresolvableError,
   JobNotFoundError,
   StepAttemptAheadError,
@@ -75,7 +78,10 @@ export type NextStep =
   | {kind: 'step'; step: Step; dispatched: boolean}
   | {kind: 'done'; status: CompletionStatus};
 
-type DispatchConfigError = InterpolationUnresolvableError | AgentConfigUnresolvableError;
+type DispatchConfigError =
+  | InterpolationUnresolvableError
+  | AgentConfigUnresolvableError
+  | AgentStepSessionClaimError;
 
 interface PendingStepDispatchParams {
   readonly jobExecutionId: string;
@@ -84,6 +90,7 @@ interface PendingStepDispatchParams {
   readonly context: WorkflowEvaluationContext;
   readonly tx: Tx;
   readonly agent?: AgentInterModuleClient | undefined;
+  readonly workflowContext: Awaited<ReturnType<typeof getWorkflowContextForJob>>;
 }
 
 interface ResolvePendingStepParams {
@@ -95,6 +102,7 @@ interface ResolvePendingStepParams {
   readonly vars: Record<string, string> | undefined;
   readonly tx: Tx;
   readonly agent?: AgentInterModuleClient | undefined;
+  readonly workflowContext: Awaited<ReturnType<typeof getWorkflowContextForJob>>;
 }
 
 type StepConditionOutcome =
@@ -141,6 +149,7 @@ async function nextStepForJobExecutionInTransaction(
     attempts,
     jobs,
     vars: workflowContext.vars ?? undefined,
+    workflowContext,
     tx,
     agent,
   });
@@ -153,6 +162,7 @@ async function resolveNextPendingStep({
   attempts,
   jobs,
   vars,
+  workflowContext,
   tx,
   agent,
 }: ResolvePendingStepParams): Promise<NextStep> {
@@ -184,7 +194,15 @@ async function resolveNextPendingStep({
     });
     const condition = evaluateStepCondition({step: pending, context});
     if (condition.kind === 'run') {
-      return dispatchPendingStep({jobExecutionId, pending, jobExecution, context, tx, agent});
+      return dispatchPendingStep({
+        jobExecutionId,
+        pending,
+        jobExecution,
+        context,
+        workflowContext,
+        tx,
+        agent,
+      });
     }
 
     const skipped = await markStepSkipped(
@@ -212,6 +230,13 @@ async function dispatchPendingStep(params: PendingStepDispatchParams): Promise<N
   const hasConfigPlan = params.pending.configPlan !== null;
   if (hasConfigPlan) return dispatchPendingStepWithConfigPlan(params);
 
+  // A fully resolved agent step still carries a session intent in its config.
+  // Route it through the claim path even though no other field needs dispatch
+  // completion.
+  const hasSessionIntent =
+    params.pending.type === 'agent' && params.pending.config.session !== undefined;
+  if (hasSessionIntent) return dispatchPendingStepWithConfigPlan(params);
+
   const marked = await markStepRunning(
     {jobExecutionId: params.jobExecutionId, stepId: params.pending.id},
     params.tx,
@@ -224,6 +249,7 @@ async function dispatchPendingStepWithConfigPlan({
   pending,
   jobExecution,
   context,
+  workflowContext,
   tx,
   agent,
 }: PendingStepDispatchParams): Promise<NextStep> {
@@ -234,16 +260,34 @@ async function dispatchPendingStepWithConfigPlan({
       resolveAgentDefaults: agent ? createAgentDefaultsResolver(agent, null) : undefined,
       definitionId: jobExecution.jobId,
     });
-    const marked = await dispatchStepWithCompletedConfig(
+    // Open the attempt before claiming: the Agent module uses this id as the
+    // claim owner, and the release subscribers resolve claims by that id.
+    const stepAttemptId = await insertRunningStepAttempt(
       {
         jobExecutionId,
         stepId: pending.id,
+        attempt: pending.currentAttempt,
         config: completed.config,
         evaluationTrace: completed.trace,
       },
       tx,
     );
-    return {kind: 'step', step: marked ?? {...pending, config: completed.config}, dispatched: true};
+    const config = await claimStepSessionForDispatch({
+      config: completed.config,
+      stepAttemptId,
+      workflowContext,
+      agent,
+    });
+    const marked = await dispatchStepWithCompletedConfig(
+      {
+        jobExecutionId,
+        stepId: pending.id,
+        config,
+        evaluationTrace: completed.trace,
+      },
+      tx,
+    );
+    return {kind: 'step', step: marked ?? {...pending, config}, dispatched: true};
   } catch (error) {
     const configError = toDispatchConfigError(error);
     const isConfigError = configError !== null;
@@ -278,6 +322,113 @@ async function dispatchPendingStepWithConfigPlan({
     return status === null
       ? nextStepForJobExecutionInTransaction(jobExecutionId, tx, agent)
       : {kind: 'done', status};
+  }
+}
+
+type StepSessionIntent = {key: string; mode: 'resume' | 'fork'};
+
+function sessionIntentFromConfig(config: Record<string, unknown>): StepSessionIntent | undefined {
+  const session = config.session;
+  if (typeof session !== 'object' || session === null || Array.isArray(session)) return undefined;
+
+  const candidate = session as Record<string, unknown>;
+  if (typeof candidate.key !== 'string' || candidate.key.length === 0) return undefined;
+  if (candidate.mode !== 'resume' && candidate.mode !== 'fork') return undefined;
+  return {key: candidate.key, mode: candidate.mode};
+}
+
+function configHarness(config: Record<string, unknown>): 'pi' | 'claude' | undefined {
+  return config.harness === 'pi' || config.harness === 'claude' ? config.harness : undefined;
+}
+
+async function claimStepSessionForDispatch(params: {
+  readonly config: Record<string, unknown>;
+  readonly stepAttemptId: string | undefined;
+  readonly workflowContext: Awaited<ReturnType<typeof getWorkflowContextForJob>>;
+  readonly agent?: AgentInterModuleClient | undefined;
+}): Promise<Record<string, unknown>> {
+  const session = sessionIntentFromConfig(params.config);
+  if (session === undefined) return params.config;
+  if (params.agent === undefined || params.stepAttemptId === undefined) {
+    throw new AgentStepSessionClaimError(
+      'agent_session_unavailable',
+      'Agent session claim is unavailable for this step dispatch',
+    );
+  }
+
+  const harness = configHarness(params.config);
+  if (harness === undefined) {
+    throw new AgentStepSessionClaimError(
+      'agent_session_unavailable',
+      'Agent session claim requires a resolved harness',
+    );
+  }
+
+  let result: {readonly descriptor: AgentStepSessionDescriptorDto | null};
+  try {
+    result = await params.agent.claimSession({
+      workspaceId: params.workflowContext.workspaceId,
+      projectId: params.workflowContext.projectId,
+      workflowRunAttemptId: params.workflowContext.workflowRunAttemptId,
+      key: session.key,
+      harness,
+      stepAttemptId: params.stepAttemptId,
+      mode: session.mode,
+    });
+  } catch (error) {
+    if (!isInterModuleKnownError(agentInterModuleContract.methods.claimSession, error)) {
+      throw error;
+    }
+    throw new AgentStepSessionClaimError(
+      agentSessionClaimReason(error.code),
+      agentSessionClaimMessage(error.code),
+    );
+  }
+
+  // A missing fork starts a fresh session and must not leak the authored intent
+  // to the runner, which would otherwise try to load a non-existent transcript.
+  if (result.descriptor === null) {
+    const {session: _session, ...configWithoutSession} = params.config;
+    return configWithoutSession;
+  }
+  return {...params.config, session: result.descriptor};
+}
+
+function agentSessionClaimReason(
+  code:
+    | 'session-key-invalid'
+    | 'session-held'
+    | 'session-harness-mismatch'
+    | 'session-lock-unavailable',
+): AgentStepSessionClaimError['reason'] {
+  switch (code) {
+    case 'session-key-invalid':
+      return 'agent_session_key_invalid';
+    case 'session-held':
+      return 'agent_session_held';
+    case 'session-harness-mismatch':
+      return 'agent_session_harness_mismatch';
+    case 'session-lock-unavailable':
+      return 'agent_session_unavailable';
+  }
+}
+
+function agentSessionClaimMessage(
+  code:
+    | 'session-key-invalid'
+    | 'session-held'
+    | 'session-harness-mismatch'
+    | 'session-lock-unavailable',
+): string {
+  switch (code) {
+    case 'session-key-invalid':
+      return 'Agent session key is invalid';
+    case 'session-held':
+      return 'Agent session is held by another live attempt';
+    case 'session-harness-mismatch':
+      return 'Agent session harness does not match the pinned harness';
+    case 'session-lock-unavailable':
+      return 'Agent session registry is unavailable';
   }
 }
 
@@ -326,6 +477,9 @@ function toDispatchConfigError(error: unknown): DispatchConfigError | null {
   const isAgentConfigError = error instanceof AgentConfigUnresolvableError;
   if (isAgentConfigError) return error;
 
+  const isSessionClaimError = error instanceof AgentStepSessionClaimError;
+  if (isSessionClaimError) return error;
+
   return null;
 }
 
@@ -333,9 +487,18 @@ function dispatchConfigError(error: DispatchConfigError): Record<string, unknown
   if (error instanceof InterpolationUnresolvableError) {
     return {
       message: error.message,
-      reason: 'config_unresolvable',
+      reason: error.field === 'agent.session' ? 'agent_session_key_invalid' : 'config_unresolvable',
       field: error.envKey === undefined ? error.field : `${error.field}.${error.envKey}`,
       source: error.source,
+    };
+  }
+
+  if (error instanceof AgentStepSessionClaimError) {
+    return {
+      message: error.message,
+      reason: error.reason,
+      field: 'agent.session',
+      source: 'agent',
     };
   }
 

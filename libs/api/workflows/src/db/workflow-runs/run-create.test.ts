@@ -1152,6 +1152,16 @@ describe('workflow run queries', () => {
         expected: {field: 'agent.provider', source: 'vars.REQUIRED'},
       },
       {
+        field: 'agent.session',
+        model: () =>
+          workflowModel({
+            name: 'Missing session var',
+            runner: 'ubuntu-latest',
+            jobs: {fix: {steps: [{prompt: 'Fix it', session: template('vars.REQUIRED')}]}},
+          }),
+        expected: {field: 'agent.session', source: 'vars.REQUIRED'},
+      },
+      {
         field: 'job.runner',
         model: () =>
           workflowModel({

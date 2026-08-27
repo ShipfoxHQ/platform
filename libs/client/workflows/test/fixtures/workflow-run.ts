@@ -355,6 +355,7 @@ export function workflowStepDto(
     config: {},
     evaluation_trace: null,
     error: null,
+    session: null,
     position: 0,
     current_attempt: 1,
     exit_code: null,

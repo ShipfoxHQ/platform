@@ -317,16 +317,16 @@ export async function dispatchStepWithCompletedConfig(
   const row = rows[0];
   if (!row) return null;
   const step = toStep(row);
-  await insertRunningStepAttempt(
-    {
-      jobExecutionId: step.jobExecutionId,
-      stepId: step.id,
-      attempt: step.currentAttempt,
+  // The attempt row is opened before dispatch when a session claim needs its
+  // id. Refresh that same row with the completed config and trace instead of
+  // opening a second row after the claim.
+  await tx
+    .update(stepAttempts)
+    .set({
       config: params.config,
-      evaluationTrace: params.evaluationTrace,
-    },
-    tx,
-  );
+      evaluationTrace: params.evaluationTrace ?? null,
+    })
+    .where(and(eq(stepAttempts.stepId, step.id), eq(stepAttempts.attempt, step.currentAttempt)));
   return step;
 }
 
@@ -401,7 +401,7 @@ export interface InsertRunningStepAttemptParams {
 export async function insertRunningStepAttempt(
   params: InsertRunningStepAttemptParams,
   tx: Tx,
-): Promise<void> {
+): Promise<string | undefined> {
   const [{nextExecutionOrder} = {nextExecutionOrder: 1}] = await tx
     .select({
       nextExecutionOrder: sql<number>`coalesce(max(${stepAttempts.executionOrder}), 0) + 1`,
@@ -409,7 +409,7 @@ export async function insertRunningStepAttempt(
     .from(stepAttempts)
     .where(eq(stepAttempts.jobExecutionId, params.jobExecutionId));
 
-  await tx
+  const rows = await tx
     .insert(stepAttempts)
     .values({
       jobExecutionId: params.jobExecutionId,
@@ -420,7 +420,18 @@ export async function insertRunningStepAttempt(
       config: params.config ?? null,
       evaluationTrace: params.evaluationTrace ?? null,
     })
-    .onConflictDoNothing({target: [stepAttempts.stepId, stepAttempts.attempt]});
+    .onConflictDoNothing({target: [stepAttempts.stepId, stepAttempts.attempt]})
+    .returning({id: stepAttempts.id});
+
+  const inserted = rows[0]?.id;
+  if (inserted !== undefined) return inserted;
+
+  const [existing] = await tx
+    .select({id: stepAttempts.id, status: stepAttempts.status})
+    .from(stepAttempts)
+    .where(and(eq(stepAttempts.stepId, params.stepId), eq(stepAttempts.attempt, params.attempt)))
+    .limit(1);
+  return existing?.status === 'running' ? existing.id : undefined;
 }
 
 export interface FinishStepAttemptParams {

@@ -74,6 +74,7 @@ function buildAgentStep(overrides: Partial<StepDto> = {}): StepDto {
     config: {model: 'claude-opus-4-8', thinking: 'high', prompt: 'Fix the failing tests.'},
     error: null,
     evaluation_trace: null,
+    session: null,
     position: 1,
     current_attempt: 1,
     created_at: '2026-01-01T00:00:00.000Z',

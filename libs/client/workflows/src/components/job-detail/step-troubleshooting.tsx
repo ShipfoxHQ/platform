@@ -440,6 +440,14 @@ function failureTitle(reason: string | JobStatusReason): string {
       return 'Agent invocation failed';
     case 'agent_harness_unavailable':
       return 'Agent harness was unavailable';
+    case 'agent_session_key_invalid':
+      return 'Agent session key is invalid';
+    case 'agent_session_held':
+      return 'Agent session is held by another attempt';
+    case 'agent_session_harness_mismatch':
+      return 'Agent session harness does not match';
+    case 'agent_session_unavailable':
+      return 'Agent session is unavailable';
     case 'runner_lost':
       return 'Runner stopped responding';
     case 'output_too_large':
@@ -489,6 +497,14 @@ function failureDescription(reason: string | JobStatusReason): string {
       return 'The agent invocation failed after configuration was accepted.';
     case 'agent_harness_unavailable':
       return 'The runner could not start the agent harness.';
+    case 'agent_session_key_invalid':
+      return 'The resolved agent session key does not match the allowed key format.';
+    case 'agent_session_held':
+      return 'Another running step currently holds this agent session. Parallel steps cannot share a session in resume mode.';
+    case 'agent_session_harness_mismatch':
+      return 'The step harness differs from the harness the agent session is pinned to.';
+    case 'agent_session_unavailable':
+      return 'The agent session transcript could not be loaded or stored.';
     case 'runner_lost':
       return 'The runner stopped responding before the step completed.';
     case 'output_too_large':

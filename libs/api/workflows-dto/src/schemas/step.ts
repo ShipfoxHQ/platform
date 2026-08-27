@@ -1,3 +1,4 @@
+import {type AgentSessionDescriptorDto, agentSessionDescriptorSchema} from '@shipfox/api-agent-dto';
 import {z} from 'zod';
 import {evaluationTraceSchema} from './evaluation-trace.js';
 
@@ -34,6 +35,10 @@ export const stepErrorReasonSchema = z.enum([
   'agent_config_invalid',
   'agent_invocation_failed',
   'agent_harness_unavailable',
+  'agent_session_key_invalid',
+  'agent_session_held',
+  'agent_session_harness_mismatch',
+  'agent_session_unavailable',
 ]);
 
 export type StepErrorReasonDto = z.infer<typeof stepErrorReasonSchema>;
@@ -59,6 +64,11 @@ export function deriveStepErrorCategory(
     ? 'setup'
     : 'user';
 }
+
+// Keep the dispatch payload on the same descriptor contract as the Agent
+// module. The workflows name is retained as the public payload vocabulary.
+export const agentStepSessionDescriptorSchema = agentSessionDescriptorSchema;
+export type AgentStepSessionDescriptorDto = AgentSessionDescriptorDto;
 
 export const agentConfigIssueSchema = z.enum([
   'step_config_invalid',
@@ -126,6 +136,7 @@ export const stepDtoSchema = z.object({
   config: z.record(z.string(), z.unknown()),
   evaluation_trace: evaluationTraceSchema.nullable(),
   error: stepErrorDtoSchema,
+  session: agentStepSessionDescriptorSchema.nullable(),
   position: z.number(),
   // Execution-attempt identity of the current projection (>1 after a restart).
   current_attempt: z.number().int(),
