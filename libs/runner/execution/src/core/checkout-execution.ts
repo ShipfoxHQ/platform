@@ -152,16 +152,20 @@ async function persistAmbientGitCredential(params: {
 }): Promise<{path: string; secrets: string[]} | undefined> {
   const {gitConfigPath, checkout, log, scope} = params;
   const auth = checkout.auth;
-  if (!auth?.persist || auth.carry !== 'header') return undefined;
+  const shouldPersistCredential = auth?.persist === true && auth.carry === 'header';
+  if (!shouldPersistCredential && checkout.git_author === undefined) return undefined;
 
   try {
     await writeAmbientGitCredential({
       configPath: gitConfigPath,
       repositoryUrl: checkout.repository_url,
-      auth,
+      ...(shouldPersistCredential && auth ? {auth} : {}),
       ...(checkout.git_author ? {gitAuthor: checkout.git_author} : {}),
     });
-    return {path: gitConfigPath, secrets: ambientGitCredentialSecrets(auth)};
+    return {
+      path: gitConfigPath,
+      secrets: shouldPersistCredential && auth ? ambientGitCredentialSecrets(auth) : [],
+    };
   } catch (error) {
     writeWarning(
       log,
