@@ -29,7 +29,7 @@ import {
   createWorkspaceAgentDefaultsResolver,
   getWorkspaceAgentValidationCatalog,
 } from '#core/workspace-agent-defaults-resolver.js';
-import {carryOverSessions} from '#db/index.js';
+import {carryOverSessions, releaseSession} from '#db/index.js';
 
 export function createAgentInterModulePresentation(params: {
   secrets: AgentSecretsClient;
@@ -84,6 +84,9 @@ export function createAgentInterModulePresentation(params: {
         throw toClaimSessionKnownError(error);
       }
     },
+    releaseSession: async (input) => ({
+      released: await releaseSession(input),
+    }),
     carryOverSessions: async (input) => {
       try {
         const carried = await carryOverSessions(input);

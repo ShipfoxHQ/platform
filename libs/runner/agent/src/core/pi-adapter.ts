@@ -68,6 +68,8 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
   const {
     cwd,
     agentStateDir,
+    sessionFile,
+    sessionMode,
     model: modelId,
     provider,
     thinking,
@@ -184,7 +186,15 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
       ...(customTools.length === 0 ? {} : {customTools}),
       // Keep the session JSONL in the runner-owned agent-state directory so it forwards from a
       // deterministic path and is cleaned up with the job; pi's default lives under ~/.pi.
-      sessionManager: SessionManager.create(cwd, join(agentStateDir, 'agent-sessions')),
+      sessionManager:
+        sessionFile === undefined
+          ? SessionManager.create(cwd, join(agentStateDir, 'agent-sessions'))
+          : openHarnessSession({
+              cwd,
+              sessionFile,
+              sessionDir: join(agentStateDir, 'agent-sessions'),
+              mode: sessionMode ?? 'resume',
+            }),
     });
     const piSession = createdSession.session;
     session = piSession;
@@ -251,6 +261,8 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
         return {
           response,
           ...(Object.keys(outputs).length === 0 ? {} : {outputs}),
+          sessionFile: piSession.sessionFile,
+          sessionId: piSession.sessionId,
         };
       } catch (error) {
         if (error instanceof RequiredOutputsMissingError) {
@@ -271,6 +283,19 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
   } finally {
     await closePiSession({session, mcpConfig});
   }
+}
+
+function openHarnessSession(params: {
+  cwd: string;
+  sessionFile: string;
+  sessionDir: string;
+  mode: 'resume' | 'fork';
+}): SessionManager {
+  const manager = SessionManager.open(params.sessionFile, params.sessionDir, params.cwd);
+  if (params.mode === 'fork') {
+    manager.newSession({parentSession: params.sessionFile});
+  }
+  return manager;
 }
 
 interface PiMcpConfig {

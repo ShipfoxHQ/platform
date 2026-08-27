@@ -2,6 +2,7 @@ import {agentThinkingSchema, harnessSchema} from '@shipfox/workflow-document';
 import {z} from 'zod';
 import {customModelProviderRuntimeConfigSchema} from './custom-model-provider.js';
 import {isReservedModelProviderId, modelProviderRefSchema} from './model-provider-id.js';
+import {agentSessionDescriptorSchema} from './session-transcript.js';
 
 const credentialKeySchema = z.string().min(1);
 const credentialValueSchema = z.string().min(1);
@@ -26,6 +27,7 @@ export const agentRuntimeCredentialsResponseSchema = z
     credentials: z.record(credentialKeySchema, credentialValueSchema),
     custom_provider: customModelProviderRuntimeConfigSchema.optional(),
     claude: claudeRuntimeConfigSchema.optional(),
+    session: agentSessionDescriptorSchema.optional(),
   })
   .superRefine((response, ctx) => {
     if (response.claude !== undefined && isReservedModelProviderId(response.provider_id)) {

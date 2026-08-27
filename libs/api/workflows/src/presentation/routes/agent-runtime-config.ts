@@ -124,7 +124,10 @@ export function createAgentRuntimeConfigRoute(params: {
       });
 
       reply.header('cache-control', 'no-store');
-      return runtimeConfig;
+      return {
+        ...runtimeConfig,
+        ...(agentConfig.session === undefined ? {} : {session: agentConfig.session}),
+      };
     },
   });
 }

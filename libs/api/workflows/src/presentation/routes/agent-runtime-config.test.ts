@@ -56,6 +56,7 @@ const agentTestClient: AgentInterModuleClient = {
   resolveAgentConfig: vi.fn(),
   resolveRuntimeCredentials,
   claimSession: vi.fn(),
+  releaseSession: vi.fn(),
   carryOverSessions: vi.fn(),
 };
 

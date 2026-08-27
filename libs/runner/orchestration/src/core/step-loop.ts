@@ -1,3 +1,6 @@
+import {readFile, writeFile} from 'node:fs/promises';
+import {promisify} from 'node:util';
+import {gunzip, gzip} from 'node:zlib';
 import {
   type MaterializedSecretBindingDto,
   materializedSecretBindingSchema,
@@ -33,6 +36,7 @@ import {
   AgentRuntimeConfigRequestError,
   type AnnotationWriteOutcome,
   appendStepLogs,
+  commitSessionTranscript,
   HTTPError,
   integrationToolsGatewayUrl,
   type LeaseTokenSource,
@@ -40,12 +44,16 @@ import {
   reportStep,
   requestAgentRuntimeConfig,
   requestNextStep,
+  requestSessionTranscript,
   requestStepSecrets,
   StepSecretsRequestError,
   writeStepAnnotations,
 } from '@shipfox/runner-protocol';
 import {createJobLogsDir, resolveWorkingDirectory} from '@shipfox/runner-workspace';
 import type {KyInstance} from 'ky';
+
+const gzipAsync = promisify(gzip);
+const gunzipAsync = promisify(gunzip);
 
 const WHITESPACE_REGEX = /\s+/;
 export type RunnerAgentStepModule = typeof import('@shipfox/runner-agent/step');
@@ -536,6 +544,21 @@ export async function executeStep(params: {
         };
       }
 
+      let sessionFile: string | undefined;
+      let sessionBaseSegment: number | undefined;
+      if (runtimeConfig.session !== undefined) {
+        const transcript = await requestSessionTranscript(leaseClient, {
+          stepId: step.id,
+          attempt,
+          signal,
+        });
+        sessionBaseSegment = transcript.segment;
+        if (transcript.blob !== null) {
+          sessionFile = `${agentStateDir}/agent-sessions/dispatch-session.jsonl`;
+          await writeFile(sessionFile, await gunzipAsync(transcript.blob));
+        }
+      }
+
       let sessionStream: SessionLogStream | undefined;
       const runtimeSecretValues = [
         ...Object.values(runtimeConfig.credentials),
@@ -564,6 +587,8 @@ export async function executeStep(params: {
         signal,
         cwd: stepCwd,
         agentStateDir,
+        ...(sessionFile === undefined ? {} : {sessionFile}),
+        ...(runtimeConfig.session === undefined ? {} : {sessionMode: runtimeConfig.session.mode}),
         ...(ambientGitConfigPath ? {gitConfigGlobal: ambientGitConfigPath} : {}),
         runtime: {
           harness: runtimeConfig.harness,
@@ -582,6 +607,26 @@ export async function executeStep(params: {
           ? {onSessionEntry: (line: string) => sessionStream?.writeEntry(line)}
           : {}),
       });
+      if (
+        runtimeConfig.session !== undefined &&
+        sessionBaseSegment !== undefined &&
+        result.success &&
+        result.sessionFile !== undefined
+      ) {
+        const transcriptBlob = await gzipAsync(await readFile(result.sessionFile));
+        await commitSessionTranscript(leaseClient, {
+          stepId: step.id,
+          attempt,
+          baseSegment: sessionBaseSegment,
+          blob: transcriptBlob,
+          harness: runtimeConfig.harness,
+          model: runtimeConfig.model,
+          provider: runtimeConfig.provider_id,
+          sdkVersion: 'pi-coding-agent',
+          ...(result.sessionId === undefined ? {} : {harnessSessionId: result.sessionId}),
+          signal,
+        });
+      }
       return {
         result: maskAgentResult(
           result,

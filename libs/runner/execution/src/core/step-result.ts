@@ -9,6 +9,9 @@ export interface StepResult {
   response?: string;
   // Step key/value outputs reported in the API report `output` field.
   outputs?: Record<string, string>;
+  // Runner-local session transport metadata; removed before reporting the attempt.
+  sessionFile?: string;
+  sessionId?: string;
   // Run-step annotations posted before reporting the step result.
   annotations?: LeasedWriteAnnotationOperationDto[];
   // Resolved checkout details reported by setup or an explicit checkout step.
