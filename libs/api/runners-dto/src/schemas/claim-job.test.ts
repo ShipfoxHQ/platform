@@ -11,6 +11,20 @@ describe('claimedJobResponseSchema', () => {
     });
 
     expect(parsed.lease_token).toBe('lease-abc');
+    expect(parsed.isolation_timeout_seconds).toBeUndefined();
+  });
+
+  it('parses the negotiated isolation timeout', () => {
+    const parsed = claimedJobResponseSchema.parse({
+      job_id: crypto.randomUUID(),
+      job_execution_id: crypto.randomUUID(),
+      workflow_run_id: crypto.randomUUID(),
+      workflow_run_attempt_id: crypto.randomUUID(),
+      lease_token: 'lease-abc',
+      isolation_timeout_seconds: 300,
+    });
+
+    expect(parsed.isolation_timeout_seconds).toBe(300);
   });
 
   it('rejects a missing lease token', () => {

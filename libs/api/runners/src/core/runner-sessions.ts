@@ -1,5 +1,8 @@
 import type {AuthInterModuleClient} from '@shipfox/api-auth-dto/inter-module';
-import type {RunnerToolCapabilitiesDto} from '@shipfox/api-runners-dto';
+import type {
+  RunnerLifecycleCapabilitiesDto,
+  RunnerToolCapabilitiesDto,
+} from '@shipfox/api-runners-dto';
 import {canonicalizeLabels} from '@shipfox/runner-labels';
 import {createRunnerSessionConsumingEphemeralToken} from '#db/ephemeral-registration-tokens.js';
 import {
@@ -38,6 +41,7 @@ export async function registerRunnerSession(params: {
   credential: RunnerRegistrationCredential;
   labels: string[];
   toolCapabilities?: RunnerToolCapabilitiesDto | null;
+  lifecycleCapabilities?: RunnerLifecycleCapabilitiesDto | null;
 }): Promise<RegisterRunnerSessionResult> {
   const labels =
     params.credential.kind === 'manual'
@@ -58,6 +62,7 @@ export async function registerRunnerSession(params: {
           registrationTokenId: params.credential.registrationTokenId,
           labels,
           toolCapabilities: params.toolCapabilities ?? null,
+          lifecycleCapabilities: params.lifecycleCapabilities ?? null,
         })
       : params.credential.kind === 'ephemeral'
         ? await createRunnerSessionConsumingEphemeralToken({
@@ -65,12 +70,14 @@ export async function registerRunnerSession(params: {
             workspaceId: params.credential.workspaceId,
             labels,
             toolCapabilities: params.toolCapabilities ?? null,
+            lifecycleCapabilities: params.lifecycleCapabilities ?? null,
             maxClaims: 1,
           })
         : await createRunnerSessionConsumingActivationToken({
             activationTokenId: params.credential.activationTokenId,
             labels,
             toolCapabilities: params.toolCapabilities ?? null,
+            lifecycleCapabilities: params.lifecycleCapabilities ?? null,
           });
   const {token: sessionToken} = await params.auth.mintRunnerSessionToken({
     runnerSessionId: session.id,

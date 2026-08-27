@@ -2,7 +2,12 @@ import {Factory} from 'fishery';
 import type {RunnerSession} from '#core/entities/runner-session.js';
 import {createRunnerSession} from '#db/runner-sessions.js';
 
-export const runnerSessionFactory = Factory.define<RunnerSession>(({onCreate}) => {
+export const runnerSessionFactory = Factory.define<
+  RunnerSession,
+  unknown,
+  RunnerSession,
+  Partial<RunnerSession>
+>(({onCreate}) => {
   onCreate((session) => {
     return createRunnerSession({
       workspaceId: session.workspaceId,
@@ -10,6 +15,7 @@ export const runnerSessionFactory = Factory.define<RunnerSession>(({onCreate}) =
       registrationTokenId: session.registrationTokenId,
       labels: session.labels,
       toolCapabilities: session.toolCapabilities,
+      lifecycleCapabilities: session.lifecycleCapabilities,
     });
   });
 
@@ -25,6 +31,8 @@ export const runnerSessionFactory = Factory.define<RunnerSession>(({onCreate}) =
     labels: ['linux', 'x64'],
     toolCapabilities: null,
     toolCapabilitiesReportedAt: null,
+    lifecycleCapabilities: null,
+    lifecycleCapabilitiesReportedAt: null,
     maxClaims: null,
     claimsUsed: 0,
     revokedAt: null,

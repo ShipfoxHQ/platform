@@ -2,7 +2,10 @@ import {AUTH_PROVISIONER_TOKEN, AUTH_USER} from '@shipfox/api-auth-context';
 import type {AuthMethod} from '@shipfox/node-fastify';
 import {closeApp, createApp} from '@shipfox/node-fastify';
 import {generateOpaqueToken} from '@shipfox/node-tokens';
+import {eq} from 'drizzle-orm';
 import type {FastifyInstance} from 'fastify';
+import {db} from '#db/db.js';
+import {runnerSessions} from '#db/schema/runner-sessions.js';
 import {createRunnerRegistrationTokenAuthMethod} from '#presentation/auth/index.js';
 import {
   ephemeralRegistrationTokenFactory,
@@ -62,12 +65,16 @@ describe('POST /runners/jobs/request', () => {
 
   async function registerSession(
     token: string,
+    lifecycleCapabilities?: string[],
   ): Promise<{sessionToken: string; runnerSessionId: string}> {
     const res = await app.inject({
       method: 'POST',
       url: '/runners/register',
       headers: {authorization: `Bearer ${token}`},
-      payload: {labels: ['Linux', 'x64']},
+      payload: {
+        labels: ['Linux', 'x64'],
+        ...(lifecycleCapabilities ? {lifecycle_capabilities: lifecycleCapabilities} : {}),
+      },
     });
     expect(res.statusCode).toBe(200);
     const body = res.json();
@@ -120,6 +127,26 @@ describe('POST /runners/jobs/request', () => {
       workspaceId,
       runnerSessionId,
     });
+  });
+
+  it('returns the negotiated isolation timeout to a capable runner', async () => {
+    const capable = await registerSession(rawToken, ['local_execution_fence_v1']);
+    const created = await pendingJobFactory.create({workspaceId});
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/runners/jobs/request',
+      headers: {authorization: `Bearer ${capable.sessionToken}`},
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().isolation_timeout_seconds).toBeGreaterThan(0);
+    const [session] = await db()
+      .select()
+      .from(runnerSessions)
+      .where(eq(runnerSessions.id, capable.runnerSessionId));
+    expect(session?.lifecycleCapabilities).toEqual(['local_execution_fence_v1']);
+    expect(res.json().job_id).toBe(created.jobId);
   });
 
   it('returns 204 when no jobs are available for the session workspace', async () => {

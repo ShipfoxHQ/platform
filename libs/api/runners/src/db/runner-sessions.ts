@@ -1,4 +1,7 @@
-import type {RunnerToolCapabilitiesDto} from '@shipfox/api-runners-dto';
+import type {
+  RunnerLifecycleCapabilitiesDto,
+  RunnerToolCapabilitiesDto,
+} from '@shipfox/api-runners-dto';
 import {and, asc, eq, gt, inArray, isNull, lt, notExists, or, sql} from 'drizzle-orm';
 import type {RunnerSession} from '#core/entities/runner-session.js';
 import {EmptyRunnerLabelsError} from '#core/errors.js';
@@ -21,6 +24,7 @@ export interface CreateRunnerSessionParams {
   registrationTokenId: string;
   labels: string[];
   toolCapabilities?: RunnerToolCapabilitiesDto | null;
+  lifecycleCapabilities?: RunnerLifecycleCapabilitiesDto | null;
 }
 
 export async function createRunnerSession(
@@ -36,6 +40,8 @@ export async function createRunnerSession(
       labels: params.labels,
       toolCapabilities: params.toolCapabilities ?? null,
       toolCapabilitiesReportedAt: params.toolCapabilities ? sql`now()` : null,
+      lifecycleCapabilities: params.lifecycleCapabilities ?? null,
+      lifecycleCapabilitiesReportedAt: params.lifecycleCapabilities ? sql`now()` : null,
       maxClaims: null,
       claimsUsed: 0,
     })
@@ -61,6 +67,7 @@ export async function createRunnerSessionConsumingActivationToken(params: {
   activationTokenId: string;
   labels: string[];
   toolCapabilities?: RunnerToolCapabilitiesDto | null;
+  lifecycleCapabilities?: RunnerLifecycleCapabilitiesDto | null;
 }) {
   let assignmentToActivationObservation: ProviderRunnerLifecycleObservation | null = null;
   const session = await db().transaction(async (tx) => {
@@ -124,6 +131,8 @@ export async function createRunnerSessionConsumingActivationToken(params: {
         labels,
         toolCapabilities: params.toolCapabilities ?? null,
         toolCapabilitiesReportedAt: params.toolCapabilities ? sql`now()` : null,
+        lifecycleCapabilities: params.lifecycleCapabilities ?? null,
+        lifecycleCapabilitiesReportedAt: params.lifecycleCapabilities ? sql`now()` : null,
         maxClaims: 1,
         claimsUsed: 0,
       })

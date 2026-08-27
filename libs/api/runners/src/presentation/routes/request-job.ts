@@ -4,6 +4,7 @@ import {claimedJobResponseSchema} from '@shipfox/api-runners-dto';
 import {ClientError, defineRoute} from '@shipfox/node-fastify';
 import {RunnerSessionExhaustedError} from '#core/errors.js';
 import {claimJobExecution} from '#core/job-executions.js';
+import {getRunnerSessionById} from '#db/runner-sessions.js';
 
 export function createRequestJobRoute(auth: AuthInterModuleClient) {
   return defineRoute({
@@ -26,12 +27,14 @@ export function createRequestJobRoute(auth: AuthInterModuleClient) {
     handler: async (_request, reply) => {
       const runner = requireRunnerSessionContext(_request);
 
+      const session = await getRunnerSessionById(runner.runnerSessionId);
       const jobExecution = await claimJobExecution({
         auth,
         workspaceId: runner.workspaceId,
         runnerSessionId: runner.runnerSessionId,
         sessionLabels: runner.labels,
         maxClaims: runner.maxClaims,
+        lifecycleCapabilities: session?.lifecycleCapabilities ?? null,
       });
 
       if (!jobExecution) {
@@ -45,6 +48,9 @@ export function createRequestJobRoute(auth: AuthInterModuleClient) {
         job_id: jobExecution.jobId,
         job_execution_id: jobExecution.jobExecutionId,
         lease_token: jobExecution.leaseToken,
+        ...(jobExecution.isolationTimeoutSeconds
+          ? {isolation_timeout_seconds: jobExecution.isolationTimeoutSeconds}
+          : {}),
       };
     },
   });

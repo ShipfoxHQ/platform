@@ -115,7 +115,11 @@ describe('POST /runners/register', () => {
       method: 'POST',
       url: '/runners/register',
       headers: {authorization: `Bearer ${rawToken}`},
-      payload: {labels: ['linux'], capabilities: fullCapabilities},
+      payload: {
+        labels: ['linux'],
+        capabilities: fullCapabilities,
+        lifecycle_capabilities: ['local_execution_fence_v1'],
+      },
     });
 
     expect(res.statusCode).toBe(200);
@@ -125,6 +129,8 @@ describe('POST /runners/register', () => {
       .where(eq(runnerSessions.id, res.json().session_id));
     expect(session?.toolCapabilities).toEqual(fullCapabilities);
     expect(session?.toolCapabilitiesReportedAt).toBeInstanceOf(Date);
+    expect(session?.lifecycleCapabilities).toEqual(['local_execution_fence_v1']);
+    expect(session?.lifecycleCapabilitiesReportedAt).toBeInstanceOf(Date);
   });
 
   it('strips reserved labels from manual registration', async () => {

@@ -48,6 +48,12 @@ export {
   heartbeatResponseSchema,
 } from './heartbeat.js';
 export {
+  type RunnerLifecycleCapabilitiesDto,
+  type RunnerLifecycleCapability,
+  runnerLifecycleCapabilitiesSchema,
+  runnerLifecycleCapabilitySchema,
+} from './lifecycle-capabilities.js';
+export {
   type ActiveProvisionerDto,
   activeProvisionerDtoSchema,
   type InstallationRunnersStatus,

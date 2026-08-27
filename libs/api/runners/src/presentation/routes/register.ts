@@ -73,6 +73,7 @@ export function createRegisterRoute(auth: AuthInterModuleClient) {
             : runner,
         labels: request.body.labels,
         toolCapabilities: request.body.capabilities ?? null,
+        lifecycleCapabilities: request.body.lifecycle_capabilities ?? null,
       });
 
       return {
