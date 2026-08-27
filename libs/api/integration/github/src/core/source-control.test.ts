@@ -79,11 +79,14 @@ describe('GithubSourceControlProvider', () => {
     installationId = Math.floor(Math.random() * 1_000_000) + 1;
   });
 
-  async function createInstallation(): Promise<void> {
+  async function createInstallation(
+    overrides: {suspendedAt?: Date | null; deletedAt?: Date | null} = {},
+  ): Promise<void> {
     await githubInstallationFactory.create({
       connectionId,
       installationId: String(installationId),
       latestEvent: {id: 123},
+      ...overrides,
     });
   }
 
@@ -236,6 +239,20 @@ describe('GithubSourceControlProvider', () => {
     });
 
     await expect(result).rejects.toBeInstanceOf(GithubIntegrationProviderError);
+  });
+
+  it.each([
+    ['suspended', {suspendedAt: new Date()}],
+    ['deleted', {deletedAt: new Date()}],
+  ])('rejects %s installations before provider access', async (_state, state) => {
+    await createInstallation(state);
+    const github = githubClient();
+    const provider = new GithubSourceControlProvider(github);
+
+    await expect(
+      provider.listRepositories({connection: connection(), limit: 50}),
+    ).rejects.toMatchObject({reason: 'access-denied'});
+    expect(github.listInstallationRepositories).not.toHaveBeenCalled();
   });
 
   it('lists repository files using the provider-owned repository id', async () => {

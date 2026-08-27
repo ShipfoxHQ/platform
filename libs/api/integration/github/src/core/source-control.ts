@@ -50,14 +50,8 @@ export class GithubSourceControlProvider
     input: ListRepositoriesInput<GithubIntegrationConnection>,
   ): Promise<RepositoryPage> {
     const installation = await getGithubInstallationByConnectionId(input.connection.id);
-    if (!installation) {
-      throw new GithubIntegrationProviderError(
-        'access-denied',
-        'GitHub installation details were not found for the connection',
-      );
-    }
+    const installationId = this.requireActiveInstallation(installation);
 
-    const installationId = Number.parseInt(installation.installationId, 10);
     const needle = input.search?.trim().toLowerCase();
 
     if (!needle) {
@@ -256,10 +250,16 @@ export class GithubSourceControlProvider
 
   private async installationId(connectionId: string): Promise<number> {
     const installation = await getGithubInstallationByConnectionId(connectionId);
-    if (!installation) {
+    return this.requireActiveInstallation(installation);
+  }
+
+  private requireActiveInstallation(
+    installation: Awaited<ReturnType<typeof getGithubInstallationByConnectionId>>,
+  ): number {
+    if (!installation || installation.suspendedAt !== null || installation.deletedAt !== null) {
       throw new GithubIntegrationProviderError(
         'access-denied',
-        'GitHub installation details were not found for the connection',
+        'GitHub installation is not active for the connection',
       );
     }
 

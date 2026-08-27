@@ -1,6 +1,7 @@
 import {githubEventCatalog} from '@shipfox/api-integration-github-dto';
 import type {
   GetIntegrationConnectionByIdFn,
+  IntegrationConnection,
   PublishIntegrationEventReceivedFn,
   PublishSourcePushFn,
   PublishSourceRepositoryUpdatedFn,
@@ -95,6 +96,19 @@ export function createGithubIntegrationProvider(options: CreateGithubIntegration
           deleteSecrets,
         })
     : undefined;
+  const deleteConnectionSecrets = deleteSecrets
+    ? async (connection: IntegrationConnection<'github'>): Promise<void> => {
+        const installationId = Number(connection.externalAccountId);
+        if (!Number.isSafeInteger(installationId) || installationId <= 0) {
+          throw new Error(`Invalid GitHub installation id: ${connection.externalAccountId}`);
+        }
+        await deleteGithubInstallationTokenSecret({
+          workspaceId: connection.workspaceId,
+          installationId,
+          deleteSecrets,
+        });
+      }
+    : undefined;
   const webhookProcessor = createGithubWebhookProcessor({
     ...options,
     deleteInstallationTokenSecret,
@@ -111,6 +125,7 @@ export function createGithubIntegrationProvider(options: CreateGithubIntegration
         tokenProvider: options.agentTools?.tokenProvider,
       }),
     },
+    ...(deleteConnectionSecrets ? {deleteConnectionSecrets} : {}),
     async connectionExternalUrl(connection: {id: string}): Promise<string | undefined> {
       const installation = await getInstallationByConnectionId(connection.id);
       if (!installation) return undefined;

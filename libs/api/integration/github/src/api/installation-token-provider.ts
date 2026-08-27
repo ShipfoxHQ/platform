@@ -25,6 +25,7 @@ export interface GithubInstallationTokenProvider {
 export interface GithubInstallationTokenProviderOptions {
   cache?: InstallationTokenCache | undefined;
   getIntegrationConnectionById?: GetIntegrationConnectionByIdFn | undefined;
+  getGithubInstallationByInstallationId?: typeof getGithubInstallationByInstallationId | undefined;
   secretStore?: InstallationTokenSecretStore | undefined;
   withLock?: SharedInstallationTokenCacheOptions['withLock'] | undefined;
   now?: (() => Date) | undefined;
@@ -33,7 +34,11 @@ export interface GithubInstallationTokenProviderOptions {
 export function createGithubInstallationTokenProvider(
   options: GithubInstallationTokenProviderOptions = {},
 ): GithubInstallationTokenProvider {
-  return new OctokitGithubInstallationTokenProvider(createInstallationTokenCache(options));
+  return new OctokitGithubInstallationTokenProvider(
+    createInstallationTokenCache(options),
+    options.getGithubInstallationByInstallationId ??
+      (options.getIntegrationConnectionById ? getGithubInstallationByInstallationId : undefined),
+  );
 }
 
 class OctokitGithubInstallationTokenProvider implements GithubInstallationTokenProvider {
@@ -41,12 +46,27 @@ class OctokitGithubInstallationTokenProvider implements GithubInstallationTokenP
 
   constructor(
     private readonly cache: InstallationTokenCache = new InMemoryInstallationTokenCache(),
+    private readonly getInstallationByInstallationId?: typeof getGithubInstallationByInstallationId,
   ) {}
 
-  getInstallationAccessToken(installationId: number): Promise<GithubInstallationAccessToken> {
-    return this.cache.getOrMint(installationId, () =>
+  async getInstallationAccessToken(installationId: number): Promise<GithubInstallationAccessToken> {
+    await this.assertInstallationIsActive(installationId);
+    return await this.cache.getOrMint(installationId, () =>
       this.mintInstallationAccessToken(installationId),
     );
+  }
+
+  private async assertInstallationIsActive(installationId: number): Promise<void> {
+    // Providers without integration composition (for example isolated unit callers) do
+    // not have installation state available; production composition always supplies it.
+    if (!this.getInstallationByInstallationId) return;
+    const installation = await this.getInstallationByInstallationId(String(installationId));
+    if (!installation || installation.suspendedAt !== null || installation.deletedAt !== null) {
+      throw new GithubIntegrationProviderError(
+        'access-denied',
+        `GitHub installation is not active: ${installationId}`,
+      );
+    }
   }
 
   private async mintInstallationAccessToken(

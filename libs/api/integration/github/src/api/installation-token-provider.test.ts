@@ -109,6 +109,22 @@ describe('GithubInstallationTokenProvider', () => {
     expect(createInstallationAccessTokenMock).toHaveBeenCalledTimes(1);
   });
 
+  it.each([
+    ['suspended', {suspendedAt: new Date()}],
+    ['deleted', {deletedAt: new Date()}],
+  ])('fails closed for %s installations before reading the cache', async (_state, state) => {
+    const installationId = Math.floor(Math.random() * 1_000_000_000);
+    await githubInstallationFactory.create({installationId: String(installationId), ...state});
+    const provider = createGithubInstallationTokenProvider({
+      getIntegrationConnectionById: vi.fn(),
+    });
+
+    await expect(provider.getInstallationAccessToken(installationId)).rejects.toMatchObject({
+      reason: 'access-denied',
+    });
+    expect(createInstallationAccessTokenMock).not.toHaveBeenCalled();
+  });
+
   it('mints a fresh token inside the expiry refresh margin', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-06-10T12:00:00.000Z'));
