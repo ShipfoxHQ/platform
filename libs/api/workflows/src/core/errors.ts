@@ -63,6 +63,24 @@ export class AgentConfigUnresolvableError extends Error {
   }
 }
 
+/** The step error reason a failed session claim maps to. */
+export type AgentStepSessionClaimReason =
+  | 'agent_session_key_invalid'
+  | 'agent_session_held'
+  | 'agent_session_harness_mismatch'
+  | 'agent_session_unavailable';
+
+/** A named agent session could not be claimed at step dispatch. */
+export class AgentStepSessionClaimError extends Error {
+  constructor(
+    readonly reason: AgentStepSessionClaimReason,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'AgentStepSessionClaimError';
+  }
+}
+
 export class AgentIntegrationMaterializationError extends Error {
   constructor(message: string) {
     super(message);
@@ -77,6 +95,7 @@ export type InterpolationUnresolvableField =
   | 'agent.model'
   | 'agent.provider'
   | 'agent.thinking'
+  | 'agent.session'
   | 'job.runner'
   | 'job.outputs'
   | 'job.execution_name'

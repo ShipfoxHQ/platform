@@ -472,6 +472,7 @@ function referencedVariables(
         collectFieldVariableReferences(step.templates?.provider, references, {
           field: 'agent.provider',
         });
+        collectFieldVariableReferences(step.session?.key, references, {field: 'agent.session'});
       } else if (step.kind === 'tool') {
         collectTemplateTreeVariableReferences(step.templates?.with, references, {
           field: 'tool.with',

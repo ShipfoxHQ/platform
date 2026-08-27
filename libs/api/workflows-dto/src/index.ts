@@ -1,8 +1,12 @@
 export {
   type AgentConfigIssueDto,
   type AgentRuntimeConfigQueryDto,
+  type AgentStepSessionDescriptorDto,
+  type AgentStepSessionIntentDto,
   agentConfigIssueSchema,
   agentRuntimeConfigQuerySchema,
+  agentStepSessionDescriptorSchema,
+  agentStepSessionIntentSchema,
   type CheckoutIntentDto,
   type CheckoutResultDto,
   type CheckoutTokenAuthDto,

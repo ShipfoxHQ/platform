@@ -1,9 +1,14 @@
 import {WORKFLOW_MODEL_CHECKOUT_TARGET_FIELDS} from '@shipfox/api-definitions-dto';
-import {assertWorkingDirectory} from '@shipfox/api-workflows-dto';
+import {
+  type AgentStepSessionIntentDto,
+  agentStepSessionDescriptorSchema,
+  assertWorkingDirectory,
+} from '@shipfox/api-workflows-dto';
 import {capTraceEntries} from '@shipfox/expression';
 import type {AgentDefaultsResolver} from '#core/agent-defaults.js';
 import type {PersistedEvaluationTraceEntry, Step} from '#core/entities/step.js';
-import {completeAgentConfig} from './agent.js';
+import {AgentStepSessionClaimError} from '#core/errors.js';
+import {completeAgentConfig, readAgentStepSessionIntent} from './agent.js';
 import {completeStepFieldWithTrace} from './fields.js';
 import {completeRunDispatchConfig} from './run.js';
 import type {WorkflowEvaluationContext} from './workflow-evaluation-context.js';
@@ -16,11 +21,16 @@ export async function completeStepDispatchConfig(params: {
 }): Promise<{
   readonly config: Record<string, unknown>;
   readonly trace: readonly PersistedEvaluationTraceEntry[];
+  readonly sessionIntent: AgentStepSessionIntentDto | undefined;
 }> {
   const plan = params.step.configPlan;
   if (plan === null) {
     assertWorkingDirectoryIfPresent(params.step.config.working_directory);
-    return {config: params.step.config, trace: []};
+    return {
+      config: params.step.config,
+      trace: [],
+      sessionIntent: validateSessionConfig(params.step.config),
+    };
   }
 
   const config = {...params.step.config};
@@ -33,7 +43,7 @@ export async function completeStepDispatchConfig(params: {
     definitionId: params.definitionId,
     trace,
   });
-  await completeAgentConfig({
+  const completedSessionIntent = await completeAgentConfig({
     config,
     plan,
     context: params.context,
@@ -57,7 +67,27 @@ export async function completeStepDispatchConfig(params: {
   });
   assertWorkingDirectoryIfPresent(config.working_directory);
 
-  return {config, trace: capTraceEntries(trace)};
+  return {
+    config,
+    trace: capTraceEntries(trace),
+    sessionIntent: validateSessionConfig(config) ?? completedSessionIntent,
+  };
+}
+
+function validateSessionConfig(
+  config: Record<string, unknown>,
+): AgentStepSessionIntentDto | undefined {
+  const rawSession = config.session;
+  if (rawSession === undefined || rawSession === null) return undefined;
+
+  const intent = readAgentStepSessionIntent(config);
+  if (intent !== undefined) return intent;
+  if (agentStepSessionDescriptorSchema.safeParse(rawSession).success) return undefined;
+
+  throw new AgentStepSessionClaimError(
+    'agent_session_key_invalid',
+    'Agent session configuration is invalid',
+  );
 }
 
 function completeCheckoutConfig(params: {

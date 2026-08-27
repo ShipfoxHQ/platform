@@ -11,6 +11,7 @@ import {
 import {act, render, screen} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {useState} from 'react';
+import type {StepErrorReason} from '#core/workflow-run.js';
 import {
   workflowJob,
   workflowJobExecutionDto,
@@ -56,6 +57,42 @@ describe('StepInspectorSheet', () => {
     expect(screen.queryByRole('alert')).toBeNull();
     await user.click(screen.getByRole('button', {name: INSPECTOR_TRIGGER_NAME}));
     expect(await screen.findByRole('alert')).toBeInTheDocument();
+  });
+
+  it.each([
+    {
+      reason: 'agent_session_key_invalid',
+      title: 'Agent session key is invalid',
+      description: 'The resolved agent session key does not match the allowed key format.',
+    },
+    {
+      reason: 'agent_session_held',
+      title: 'Agent session is held by another attempt',
+      description:
+        'Another running step currently holds this agent session. Parallel steps cannot share a session in resume mode.',
+    },
+    {
+      reason: 'agent_session_harness_mismatch',
+      title: 'Agent session harness does not match',
+      description: 'The step harness differs from the harness the agent session is pinned to.',
+    },
+    {
+      reason: 'agent_session_unavailable',
+      title: 'Agent session is unavailable',
+      description:
+        'The agent session was unavailable during dispatch. Review the error details below and retry after resolving the cause.',
+    },
+  ] as const)('explains the $reason failure', async ({reason, title, description}) => {
+    const user = userEvent.setup();
+    configureApiClient({
+      fetchImpl: vi.fn(() => new Promise<Response>(() => undefined)),
+    });
+
+    await renderPanel({entry: stepEntry(reason)});
+    await user.click(screen.getByRole('button', {name: INSPECTOR_TRIGGER_NAME}));
+
+    expect(await screen.findByText(title)).toBeInTheDocument();
+    expect(screen.getByText(description)).toBeInTheDocument();
   });
 
   it('shows the evaluation count only after the lazy detail response arrives', async () => {
@@ -232,7 +269,7 @@ function PanelHarness({
   );
 }
 
-function stepEntry(): StepListEntryModel {
+function stepEntry(reason: StepErrorReason = 'agent_invocation_failed'): StepListEntryModel {
   const jobId = '44444444-4444-4444-8444-444444444444';
   const job = workflowJob({
     id: jobId,
@@ -250,7 +287,9 @@ function stepEntry(): StepListEntryModel {
             job_execution_id: EXECUTION_ID,
             name: 'Run verification',
             status: 'failed',
+            type: 'agent',
             config: {run: 'pnpm test'},
+            error: {message: 'Agent dispatch failed', reason},
             evaluation_trace: [
               {
                 expression: 'inputs.message',

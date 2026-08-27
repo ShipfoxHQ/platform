@@ -81,6 +81,10 @@ export interface StepConfigDispatchPlan {
     provider?: ResolvedField;
     harness?: Harness;
     thinking?: ResolvedField;
+    session?: {
+      key: ResolvedField;
+      mode: 'resume' | 'fork';
+    };
     tools?: readonly string[];
     integrations?: readonly MaterializedAgentIntegrationConfigDto[];
     mcpServers?: readonly AgentIntegrationMcpServerConfigDto[];

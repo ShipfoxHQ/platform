@@ -43,6 +43,7 @@ function makeStep(overrides: Partial<WorkflowRunStepDetailDto> = {}): WorkflowRu
     type: 'run',
     config: {},
     evaluation_trace: null,
+    session: null,
     error: null,
     position: 0,
     current_attempt: 1,
