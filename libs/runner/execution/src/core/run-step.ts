@@ -396,7 +396,7 @@ function createTeeRedactor(
   dynamic = false,
 ): TeeRedactor | undefined {
   if (secretVariants.length === 0 && !dynamic) return undefined;
-  return new TeeRedactor(secretVariants);
+  return new TeeRedactor(secretVariants, dynamic);
 }
 
 class TeeRedactor {
@@ -404,7 +404,10 @@ class TeeRedactor {
   private variants: string[];
   private buffer = '';
 
-  constructor(variants: readonly string[]) {
+  constructor(
+    variants: readonly string[],
+    private readonly dynamic = false,
+  ) {
     this.variants = [...variants];
   }
 
@@ -426,6 +429,7 @@ class TeeRedactor {
     let output = '';
     let newline = this.buffer.indexOf('\n');
     while (newline !== -1) {
+      if (this.dynamic && this.variants.length === 0) return output;
       const line = this.buffer.slice(0, newline + 1);
       this.buffer = this.buffer.slice(newline + 1);
       output += redactSecrets(line, this.variants);
@@ -439,7 +443,10 @@ class TeeRedactor {
       return output;
     }
 
-    const cut = safeRedactionPrefixLength(this.buffer, this.variants);
+    const cut =
+      this.dynamic && this.variants.length === 0
+        ? 0
+        : safeRedactionPrefixLength(this.buffer, this.variants);
     if (cut > 0) {
       output += redactSecrets(this.buffer.slice(0, cut), this.variants);
       this.buffer = this.buffer.slice(cut);

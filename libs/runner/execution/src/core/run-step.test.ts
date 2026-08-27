@@ -584,7 +584,7 @@ describe('executeRunStep', () => {
     const step = buildStep({
       config: {
         run: `node -e ${JSON.stringify(
-          `setTimeout(() => console.log(${JSON.stringify(`${token} ${credential}`)}), 30)`,
+          `process.stdout.write(${JSON.stringify(`${token.slice(0, 10)}`)}); setTimeout(() => console.log(${JSON.stringify(`${token.slice(10)} ${credential}`)}), 30)`,
         )}`,
       },
     });

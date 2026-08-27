@@ -612,10 +612,6 @@ export async function executeStep(params: {
       ...ambientGitConfigSecrets,
       ...(runSecretMaterial?.secretValues ?? []),
     ];
-    const runSecretValues = [
-      ...ambientGitConfigSecrets,
-      ...(runSecretMaterial?.secretValues ?? []),
-    ];
     const runSecretVariants = buildSecretVariants(runSecrets);
     crashSecretVariants = runSecretVariants;
     try {
@@ -642,7 +638,7 @@ export async function executeStep(params: {
       workspace: cwd,
       ...(ambientGitConfigPath ? {gitConfigGlobal: ambientGitConfigPath} : {}),
       ...(runSecretMaterial?.secretEnv ? {secretEnv: runSecretMaterial.secretEnv} : {}),
-      ...(runSecretValues.length > 0 ? {secretValues: [...runSecrets]} : {}),
+      ...(runSecrets.length > 0 ? {secretValues: [...runSecrets]} : {}),
       ...(subscribeSecrets ? {subscribeSecrets} : {}),
       onCommandStart: (metadata) => writeCommandMetadata(stepStream, metadata),
       onOutput: (chunk, source) => stepStream?.write(chunk, source),

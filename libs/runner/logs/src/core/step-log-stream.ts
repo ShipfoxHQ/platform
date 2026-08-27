@@ -150,6 +150,11 @@ export function createStepLogStream(options: StepLogStreamOptions): StepLogStrea
     transformer.setSecrets(secrets);
   }
 
+  const setSecrets = (secrets: string[]) => {
+    rotatingSecrets = [...new Set(secrets.filter((secret) => secret.length > 0))];
+    refreshSecrets();
+  };
+
   return {
     addSecrets(secrets) {
       if (secrets.length === 0) return;
@@ -159,14 +164,9 @@ export function createStepLogStream(options: StepLogStreamOptions): StepLogStrea
       refreshSecrets();
     },
 
-    setSecrets(secrets) {
-      rotatingSecrets = [...new Set(secrets.filter((secret) => secret.length > 0))];
-      refreshSecrets();
-    },
+    setSecrets,
 
-    setRotatingSecrets(secrets) {
-      this.setSecrets(secrets);
-    },
+    setRotatingSecrets: setSecrets,
 
     write(chunk, source) {
       // Once the server caps the budget the runner stops emitting; the cap
