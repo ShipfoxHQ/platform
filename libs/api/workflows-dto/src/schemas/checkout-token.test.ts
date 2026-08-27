@@ -208,7 +208,9 @@ describe('checkoutTokenResponseSchema', () => {
       },
     };
 
-    expect(() => checkoutTokenResponseSchema.parse(input)).toThrow();
+    expect(() => checkoutTokenResponseSchema.parse(input)).toThrow(
+      'refresh_at and expires_at must be valid timestamps',
+    );
   });
 
   it('rejects refresh-at renewal without refresh_at', () => {

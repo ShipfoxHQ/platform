@@ -26,7 +26,13 @@ function validateRenewalWindow<
 
   const refreshAt = Date.parse(auth.renewal.refresh_at);
   const expiresAt = Date.parse(auth.expires_at);
-  if (!Number.isFinite(refreshAt) || !Number.isFinite(expiresAt) || refreshAt >= expiresAt) {
+  if (!Number.isFinite(refreshAt) || !Number.isFinite(expiresAt)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['renewal', 'refresh_at'],
+      message: 'refresh_at and expires_at must be valid timestamps',
+    });
+  } else if (refreshAt >= expiresAt) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['renewal', 'refresh_at'],
