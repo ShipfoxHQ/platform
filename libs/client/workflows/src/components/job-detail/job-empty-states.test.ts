@@ -57,20 +57,27 @@ describe('toSelectedAttemptError', () => {
     'checkout',
     'agent',
     'run',
-  ] as const)('derives setup for %s steps with checkout failure reasons', (type) => {
+  ] as const)('derives the error category for %s steps', (type) => {
     for (const reason of [
       'checkout_auth_failed',
       'checkout_unavailable',
       'checkout_failed',
       'checkout_path_invalid',
       'checkout_destination_occupied',
+      'git_unavailable',
     ] as const) {
       const error = toSelectedAttemptError({type} as Step, {
         message: 'Checkout failed',
         reason,
       });
 
-      expect(error).toMatchObject({reason, category: 'setup'});
+      expect(error).toMatchObject({
+        reason,
+        category:
+          reason.startsWith('checkout_') || type === 'setup' || type === 'checkout'
+            ? 'setup'
+            : 'user',
+      });
     }
   });
 });
