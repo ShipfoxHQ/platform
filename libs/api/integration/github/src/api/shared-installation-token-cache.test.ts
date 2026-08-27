@@ -13,6 +13,9 @@ import {
   SharedInstallationTokenCache,
 } from './shared-installation-token-cache.js';
 
+const errorMonitoring = vi.hoisted(() => ({reportError: vi.fn()}));
+vi.mock('@shipfox/node-error-monitoring', () => errorMonitoring);
+
 const workspaceId = '00000000-0000-4000-8000-000000000001';
 const installationId = 123;
 
@@ -83,6 +86,10 @@ function setEnvelope(
 }
 
 describe('SharedInstallationTokenCache', () => {
+  beforeEach(() => {
+    errorMonitoring.reportError.mockReset();
+  });
+
   it('mints once on a cold winner miss and writes the secret envelope', async () => {
     const store = createStore();
     const mint = vi.fn(() => Promise.resolve(token('ghs_new')));
@@ -312,6 +319,24 @@ describe('SharedInstallationTokenCache', () => {
     const result = await shared.getOrMint(installationId, () => Promise.resolve(token('ghs_new')));
 
     expect(result).toEqual(token('ghs_new'));
+  });
+
+  it('reports one read failure across a contended poll', async () => {
+    const store = createStore();
+    const shared = cache({
+      store,
+      withLock: () => {
+        store.failReads = true;
+        return Promise.resolve({acquired: false});
+      },
+      pollDelaysMs: [1],
+    });
+
+    await expect(
+      shared.getOrMint(installationId, () => Promise.resolve(token('ghs_new'))),
+    ).rejects.toMatchObject({reason: 'provider-unavailable'});
+
+    expect(errorMonitoring.reportError).toHaveBeenCalledTimes(1);
   });
 
   it('returns a minted token when the cache write fails', async () => {
