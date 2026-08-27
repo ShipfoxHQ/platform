@@ -158,7 +158,11 @@ export class WorkspaceSetupChecklistScreen {
   }
 
   completionMessage(): Locator {
-    return this.page.getByText("You're set up");
+    return this.panel().getByText("You're set up");
+  }
+
+  status(): Locator {
+    return this.page.getByRole('status');
   }
 
   doneButton(): Locator {

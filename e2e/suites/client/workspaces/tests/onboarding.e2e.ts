@@ -1,6 +1,7 @@
 import {randomUUID} from 'node:crypto';
 import {stableScreenshot} from '@shipfox/e2e-kit/ui';
 import {createLinearConnection} from '@shipfox/e2e-setup-integrations';
+import type {Page} from '@shipfox/playwright';
 import {expect, test} from './test.js';
 import {
   ONBOARDING_URL_RE,
@@ -9,9 +10,41 @@ import {
 } from './workspace-urls.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
-const INITIAL_CHECKLIST_COUNT_RE = /2 of [45] done/u;
-const LINEAR_CHECKLIST_COUNT_RE = /3 of [45] done/u;
+const INITIAL_CHECKLIST_COUNT_RE = /2 of 4 done/u;
+const LINEAR_CHECKLIST_COUNT_RE = /3 of 4 done/u;
 const CLOUD_CHECKLIST_COUNT_RE = /2 of 3 done/u;
+
+async function stubModelProviderDependencies(page: Page, workspaceId: string) {
+  await page.route('**/agent/model-provider-catalog', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        providers: [],
+        managed_provider_id: 'managed-default',
+        instance_default_provider_id: null,
+      }),
+    });
+  });
+  await page.route(`**/workspaces/${workspaceId}/agent/model-providers`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({configs: [], default_provider_id: null, default_harness_id: null}),
+    });
+  });
+}
+
+async function stubChecklistDependencies(page: Page, workspaceId: string) {
+  await page.route(`**/workspaces/${workspaceId}/provisioners/active`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({provisioners: [], installation_runners: 'none'}),
+    });
+  });
+  await stubModelProviderDependencies(page, workspaceId);
+}
 
 test.describe('workspace onboarding', () => {
   test('redirects a no-workspace user from / to onboarding', async ({
@@ -73,6 +106,7 @@ test.describe('workspace onboarding', () => {
     const workspaceSlug = workspaceHome.currentWorkspaceSlug();
     expect(workspaceSlug).toBeTruthy();
     expect(workspaceSlug).not.toMatch(UUID_RE);
+    await stubChecklistDependencies(page, await workspaceHome.readLastWorkspaceId(user.user.id));
     await workspaceHome.gotoSettingsGeneral(workspaceSlug as string);
     await expect(workspaceSetupChecklist.indicator()).toBeVisible();
     await workspaceHome.gotoIntegrations(workspaceSlug as string);
@@ -125,6 +159,7 @@ test.describe('workspace onboarding', () => {
     });
     await projects.createProject({workspaceId: workspace.id});
     await auth.loginAs(page, user);
+    await stubChecklistDependencies(page, workspace.id);
 
     await page.route('**/integrations/linear/callback/api**', async (route) => {
       await route.fulfill({
@@ -152,37 +187,53 @@ test.describe('workspace onboarding', () => {
       'aria-label',
       INITIAL_CHECKLIST_COUNT_RE,
     );
-    await workspaceSetupChecklist.connectLink().click();
-    await expect(page).toHaveURL(new RegExp(`/w/${workspace.slug}/settings/integrations/?$`, 'u'));
-    await integrationsCatalogue.installLink('Linear').click();
-    await createLinearConnection({
-      workspaceId: workspace.id,
-      organizationId: 'linear-e2e-org',
-      organizationUrlKey: 'linear-e2e',
-      appUserId: 'linear-e2e-app-user',
-      displayName: 'Linear E2E',
-      accessToken: 'linear-e2e-token',
+    await test.step('install Linear and verify checklist progress', async () => {
+      await workspaceSetupChecklist.connectLink().click();
+      await expect(page).toHaveURL(
+        new RegExp(`/w/${workspace.slug}/settings/integrations/?$`, 'u'),
+      );
+      await integrationsCatalogue.installLink('Linear').click();
+      await createLinearConnection({
+        workspaceId: workspace.id,
+        organizationId: 'linear-e2e-org',
+        organizationUrlKey: 'linear-e2e',
+        appUserId: 'linear-e2e-app-user',
+        displayName: 'Linear E2E',
+        accessToken: 'linear-e2e-token',
+      });
+      await page.goto('/integrations/linear/callback?code=e2e-code&state=e2e-state');
+      await expect(page).toHaveURL(
+        new RegExp(`/w/${workspace.slug}/settings/integrations/?$`, 'u'),
+      );
+      await workspaceHome.goto(workspace.slug);
+      await expect(workspaceSetupChecklist.indicator()).toHaveAttribute(
+        'aria-label',
+        LINEAR_CHECKLIST_COUNT_RE,
+      );
+      await expect(workspaceSetupChecklist.status()).toHaveText(LINEAR_CHECKLIST_COUNT_RE);
+      await expect(workspaceSetupChecklist.text('Set up runner capacity')).toBeVisible();
     });
-    await page.goto('/integrations/linear/callback?code=e2e-code&state=e2e-state');
-    await expect(page).toHaveURL(new RegExp(`/w/${workspace.slug}/settings/integrations/?$`, 'u'));
-    await workspaceHome.goto(workspace.slug);
-    await expect(workspaceSetupChecklist.indicator()).toHaveAttribute(
-      'aria-label',
-      LINEAR_CHECKLIST_COUNT_RE,
-    );
-    await expect(workspaceSetupChecklist.text('Set up runner capacity')).toBeVisible();
 
-    await workspaceSetupChecklist.indicator().click();
-    await expect(workspaceSetupChecklist.text('Set up runner capacity')).toBeVisible();
-    await workspaceSetupChecklist.hideButton().click();
-    await expect(workspaceSetupChecklist.panel()).toHaveCount(0);
-    await expect(workspaceSetupChecklist.indicator()).toHaveCount(0);
-    await workspaceHome.gotoSettingsGeneral(workspace.slug);
-    await expect(workspaceHome.showSetupGuideButton()).toBeVisible();
-    await workspaceHome.showSetupGuideButton().click();
-    await expect(workspaceHome.showSetupGuideButton()).toHaveCount(0);
-    await workspaceHome.goto(workspace.slug);
+    await test.step('dismiss and re-enter the setup guide', async () => {
+      await workspaceSetupChecklist.indicator().click();
+      await expect(workspaceSetupChecklist.text('Set up runner capacity')).toBeVisible();
+      await workspaceSetupChecklist.hideButton().click();
+      await expect(workspaceSetupChecklist.panel()).toHaveCount(0);
+      await expect(workspaceSetupChecklist.indicator()).toHaveCount(0);
+      await workspaceHome.gotoSettingsGeneral(workspace.slug);
+      await expect(workspaceHome.showSetupGuideButton()).toBeVisible();
+      await workspaceHome.showSetupGuideButton().click();
+      await expect(workspaceHome.showSetupGuideButton()).toHaveCount(0);
+      await workspaceHome.goto(workspace.slug);
+      await expect(workspaceSetupChecklist.panel()).toBeVisible();
+    });
+
+    await workspaceSetupChecklist.indicator().focus();
+    await page.keyboard.press('Enter');
     await expect(workspaceSetupChecklist.panel()).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(workspaceSetupChecklist.panel()).toHaveCount(0);
+    await expect(workspaceSetupChecklist.indicator()).toBeFocused();
   });
 
   test('completes the checklist when the installation provides runners and inference', async ({
@@ -201,31 +252,7 @@ test.describe('workspace onboarding', () => {
     await projects.createProject({workspaceId: workspace.id});
     await auth.loginAs(page, user);
 
-    await page.route(`**/workspaces/${workspace.id}/provisioners/active`, async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({provisioners: [], installation_runners: 'managed'}),
-      });
-    });
-    await page.route('**/agent/model-provider-catalog', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          providers: [],
-          managed_provider_id: 'managed-default',
-          instance_default_provider_id: null,
-        }),
-      });
-    });
-    await page.route(`**/workspaces/${workspace.id}/agent/model-providers`, async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({configs: [], default_provider_id: null, default_harness_id: null}),
-      });
-    });
+    await stubModelProviderDependencies(page, workspace.id);
 
     await workspaceHome.goto(workspace.slug);
     await expect(workspaceSetupChecklist.countLabel(CLOUD_CHECKLIST_COUNT_RE)).toBeVisible();
@@ -238,8 +265,8 @@ test.describe('workspace onboarding', () => {
       displayName: 'Linear Cloud E2E',
       accessToken: 'linear-cloud-e2e-token',
     });
-    await page.reload();
     await expect(workspaceSetupChecklist.completionMessage()).toBeVisible();
+    await expect(workspaceSetupChecklist.status()).toHaveText("You're set up");
     await workspaceSetupChecklist.doneButton().click();
     await expect(workspaceSetupChecklist.panel()).toHaveCount(0);
     await expect(workspaceSetupChecklist.indicator()).toHaveCount(0);
