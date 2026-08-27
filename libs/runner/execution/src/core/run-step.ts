@@ -460,7 +460,6 @@ class TeeRedactor {
     let output = '';
     let newline = this.buffer.indexOf('\n');
     while (newline !== -1) {
-      if (this.dynamic && this.variants.length === 0 && !final) return output;
       const line = this.buffer.slice(0, newline + 1);
       this.buffer = this.buffer.slice(newline + 1);
       output += redactSecrets(line, this.variants);
