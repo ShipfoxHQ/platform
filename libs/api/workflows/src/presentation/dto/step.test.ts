@@ -159,13 +159,16 @@ describe('toStepDto error category', () => {
     'checkout',
     'agent',
     'run',
-  ] as const)('derives category setup for %s steps with checkout failure reasons', (type) => {
+  ] as const)('derives category setup for %s steps with infrastructure failure reasons', (type) => {
     for (const reason of [
       'checkout_auth_failed',
       'checkout_unavailable',
       'checkout_failed',
       'checkout_path_invalid',
       'checkout_destination_occupied',
+      'git_unavailable',
+      'workspace_prep_failed',
+      'setup_aborted',
     ] as const) {
       const dto = toStepDto(step({type, error: {message: 'Checkout failed', reason}}));
 
@@ -175,6 +178,19 @@ describe('toStepDto error category', () => {
         category: 'setup',
       });
     }
+  });
+
+  it.each([
+    ['setup', 'setup'],
+    ['checkout', 'setup'],
+    ['agent', 'user'],
+    ['run', 'user'],
+  ] as const)('keeps config failures in the expected category for %s steps', (type, category) => {
+    const dto = toStepDto(
+      step({type, error: {message: 'Command failed', reason: 'config_unresolvable'}}),
+    );
+
+    expect(dto.error?.category).toBe(category);
   });
 
   it("derives category 'user' for a run step error", () => {

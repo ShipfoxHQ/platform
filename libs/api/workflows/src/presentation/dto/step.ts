@@ -1,9 +1,9 @@
 import {
   agentConfigIssueSchema,
+  deriveStepErrorCategory,
   type StepAttemptDetailResponseDto,
   type StepAttemptDto,
   type StepDto,
-  type StepErrorCategoryDto,
   type StepErrorDto,
   type StepGateResultDto,
   stepErrorReasonSchema,
@@ -16,10 +16,7 @@ import {toEvaluationTraceDto} from './evaluation-trace.js';
 // contract rather than trusting whatever shape the row happens to hold. `category`
 // is not stored on the row; the caller derives it from the step type and error
 // reason (server-authoritative, never trusted from the runner).
-function toStepErrorDto(
-  error: Record<string, unknown> | null,
-  category: StepErrorCategoryDto,
-): StepErrorDto {
+function toStepErrorDto(error: Record<string, unknown> | null, stepType: string): StepErrorDto {
   if (error === null) return null;
   const message = typeof error.message === 'string' ? error.message : '';
   const code = typeof error.code === 'string' ? error.code : undefined;
@@ -31,6 +28,7 @@ function toStepErrorDto(
   const source = typeof error.source === 'string' ? error.source : undefined;
   const reason = stepErrorReasonSchema.safeParse(error.reason);
   const agentConfigIssue = agentConfigIssueSchema.safeParse(error.agentConfigIssue);
+  const category = deriveStepErrorCategory(stepType, reason.success ? reason.data : undefined);
   return {
     message,
     ...(code === undefined ? {} : {code}),
@@ -120,14 +118,7 @@ export function toStepDto(step: Step): StepDto {
     type: step.type,
     config: step.config,
     evaluation_trace: toEvaluationTraceDto(step.evaluationTrace),
-    error: toStepErrorDto(
-      step.error,
-      typeof step.error?.reason === 'string' && step.error.reason.startsWith('checkout_')
-        ? 'setup'
-        : step.type === 'setup' || step.type === 'checkout'
-          ? 'setup'
-          : 'user',
-    ),
+    error: toStepErrorDto(step.error, step.type),
     position: step.position,
     current_attempt: step.currentAttempt,
     created_at: step.createdAt.toISOString(),

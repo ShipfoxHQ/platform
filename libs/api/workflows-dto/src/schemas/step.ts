@@ -38,6 +38,28 @@ export const stepErrorReasonSchema = z.enum([
 
 export type StepErrorReasonDto = z.infer<typeof stepErrorReasonSchema>;
 
+const SETUP_ERROR_REASONS = new Set<StepErrorReasonDto>([
+  'checkout_failed',
+  'checkout_auth_failed',
+  'checkout_unavailable',
+  'checkout_path_invalid',
+  'checkout_destination_occupied',
+  'git_unavailable',
+  'workspace_prep_failed',
+  'setup_aborted',
+]);
+
+export function deriveStepErrorCategory(
+  stepType: string,
+  reason: StepErrorReasonDto | undefined,
+): StepErrorCategoryDto {
+  return stepType === 'setup' ||
+    stepType === 'checkout' ||
+    (reason !== undefined && SETUP_ERROR_REASONS.has(reason))
+    ? 'setup'
+    : 'user';
+}
+
 export const agentConfigIssueSchema = z.enum([
   'step_config_invalid',
   'provider_not_configured',

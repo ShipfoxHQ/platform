@@ -65,6 +65,8 @@ describe('toSelectedAttemptError', () => {
       'checkout_path_invalid',
       'checkout_destination_occupied',
       'git_unavailable',
+      'workspace_prep_failed',
+      'setup_aborted',
     ] as const) {
       const error = toSelectedAttemptError({type} as Step, {
         message: 'Checkout failed',
@@ -73,12 +75,23 @@ describe('toSelectedAttemptError', () => {
 
       expect(error).toMatchObject({
         reason,
-        category:
-          reason.startsWith('checkout_') || type === 'setup' || type === 'checkout'
-            ? 'setup'
-            : 'user',
+        category: 'setup',
       });
     }
+  });
+
+  test.each([
+    ['setup', 'setup'],
+    ['checkout', 'setup'],
+    ['agent', 'user'],
+    ['run', 'user'],
+  ] as const)('keeps config failures in the expected category for %s steps', (type, category) => {
+    const error = toSelectedAttemptError({type} as Step, {
+      message: 'Command failed',
+      reason: 'config_unresolvable',
+    });
+
+    expect(error).toMatchObject({reason: 'config_unresolvable', category});
   });
 });
 

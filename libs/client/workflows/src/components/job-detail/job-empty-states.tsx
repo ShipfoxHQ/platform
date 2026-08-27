@@ -1,3 +1,4 @@
+import {deriveStepErrorCategory} from '@shipfox/api-workflows-dto';
 import {Callout, CalloutContent, CalloutDescription, CalloutTitle} from '@shipfox/react-ui/callout';
 import {EmptyState} from '@shipfox/react-ui/empty-state';
 import type {Job, JobExecution, Step, StepError} from '#core/workflow-run.js';
@@ -308,10 +309,7 @@ export function toSelectedAttemptError(
     signal: typeof error.signal === 'string' ? error.signal : undefined,
     reason: resolvedReason,
     agentConfigIssue,
-    category:
-      resolvedReason.startsWith('checkout_') || step.type === 'setup' || step.type === 'checkout'
-        ? 'setup'
-        : 'user',
+    category: deriveStepErrorCategory(step.type, resolvedReason),
   };
 }
 
