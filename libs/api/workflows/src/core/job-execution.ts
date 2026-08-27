@@ -45,6 +45,7 @@ import {
   StepAttemptAheadError,
   StepNotFoundError,
   StepNotRunningError,
+  ToolConfigInvalidError,
 } from './errors.js';
 import {readAgentStepSessionIntent} from './step-config/agent.js';
 import {assembleStepDispatchContext} from './step-config/assemble-run-context.js';
@@ -103,7 +104,8 @@ type NextStepResolution = NextStep | PendingSessionClaim;
 type DispatchConfigError =
   | InterpolationUnresolvableError
   | AgentConfigUnresolvableError
-  | AgentStepSessionClaimError;
+  | AgentStepSessionClaimError
+  | ToolConfigInvalidError;
 
 interface PendingStepDispatchParams {
   readonly jobExecutionId: string;
@@ -290,7 +292,7 @@ async function resolveNextPendingStep({
 }
 
 async function dispatchPendingStep(params: PendingStepDispatchParams): Promise<NextStepResolution> {
-  const hasConfigPlan = params.pending.configPlan !== null;
+  const hasConfigPlan = params.pending.configPlan !== null || params.pending.type === 'tool';
   if (hasConfigPlan) return dispatchPendingStepWithConfigPlan(params);
 
   // A fully resolved agent step still carries a session intent in its config.
@@ -742,6 +744,9 @@ function toDispatchConfigError(error: unknown): DispatchConfigError | null {
   const isSessionClaimError = error instanceof AgentStepSessionClaimError;
   if (isSessionClaimError) return error;
 
+  const isToolConfigError = error instanceof ToolConfigInvalidError;
+  if (isToolConfigError) return error;
+
   return null;
 }
 
@@ -752,6 +757,17 @@ function dispatchConfigError(error: DispatchConfigError): Record<string, unknown
       reason: 'config_unresolvable',
       field: error.envKey === undefined ? error.field : `${error.field}.${error.envKey}`,
       source: error.source,
+    };
+  }
+
+  if (error instanceof ToolConfigInvalidError) {
+    return {
+      message: error.message,
+      reason: 'agent_config_invalid',
+      field: 'tool',
+      source: 'tool',
+      code: error.code,
+      agentConfigIssue: error.code,
     };
   }
 

@@ -90,7 +90,7 @@ export async function materializeJobExecutionSteps(
         });
         return {
           key: step.key ?? null,
-          name: resolved.name ?? stepDisplayName(step),
+          name: resolved.name ?? stepDisplayName(step, resolved.config),
           sourceLocation: step.sourceLocation ?? null,
           status: 'pending' as const,
           type: step.kind,
@@ -157,7 +157,10 @@ function materializedConfigPlan(
   return {configPlan: {...(configPlan ?? {}), ...(trace.length === 0 ? {} : {trace})}};
 }
 
-function stepDisplayName(step: WorkflowModelStep): string {
+function stepDisplayName(
+  step: WorkflowModelStep,
+  config: Readonly<Record<string, unknown>>,
+): string {
   const {kind} = step;
   switch (kind) {
     case 'run':
@@ -168,8 +171,16 @@ function stepDisplayName(step: WorkflowModelStep): string {
         : `${step.model} · ${firstLine(step.prompt)}`;
     case 'checkout':
       return 'Checkout';
-    case 'tool':
-      return step.tool.method === undefined ? step.tool.id : `${step.tool.id}.${step.tool.method}`;
+    case 'tool': {
+      const tool = config.tool;
+      const connectionSlug =
+        tool !== null && typeof tool === 'object' && !Array.isArray(tool)
+          ? (tool as Record<string, unknown>).connection_slug
+          : undefined;
+      const label =
+        step.tool.method === undefined ? step.tool.id : `${step.tool.id}.${step.tool.method}`;
+      return typeof connectionSlug === 'string' ? `${connectionSlug}.${label}` : label;
+    }
     default:
       return assertNever(step);
   }

@@ -88,6 +88,15 @@ export class AgentIntegrationMaterializationError extends Error {
   }
 }
 
+export class ToolConfigInvalidError extends Error {
+  readonly code = 'tool_config_invalid';
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'ToolConfigInvalidError';
+  }
+}
+
 export type InterpolationUnresolvableField =
   | 'run'
   | 'env'

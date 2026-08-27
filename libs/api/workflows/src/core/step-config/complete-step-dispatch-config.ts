@@ -4,12 +4,13 @@ import {
   agentStepSessionDescriptorSchema,
   assertWorkingDirectory,
 } from '@shipfox/api-workflows-dto';
-import {capTraceEntries} from '@shipfox/expression';
+import {capTraceEntries, type ResolvedFieldSegment} from '@shipfox/expression';
+import {Ajv, type AnySchema} from 'ajv';
 import type {AgentDefaultsResolver} from '#core/agent-defaults.js';
 import type {PersistedEvaluationTraceEntry, Step} from '#core/entities/step.js';
-import {AgentStepSessionClaimError} from '#core/errors.js';
+import {AgentStepSessionClaimError, ToolConfigInvalidError} from '#core/errors.js';
 import {completeAgentConfig, readAgentStepSessionIntent} from './agent.js';
-import {completeStepFieldWithTrace} from './fields.js';
+import {completeStepFieldWithTrace, completeStepFieldWithTypeAndTrace} from './fields.js';
 import {completeRunDispatchConfig} from './run.js';
 import type {WorkflowEvaluationContext} from './workflow-evaluation-context.js';
 
@@ -25,6 +26,15 @@ export async function completeStepDispatchConfig(params: {
 }> {
   const plan = params.step.configPlan;
   if (plan === null) {
+    if (params.step.type === 'tool') {
+      completeToolConfig({
+        config: params.step.config,
+        plan: {},
+        context: params.context,
+        definitionId: params.definitionId,
+        trace: [],
+      });
+    }
     assertWorkingDirectoryIfPresent(params.step.config.working_directory);
     return {
       config: params.step.config,
@@ -36,6 +46,13 @@ export async function completeStepDispatchConfig(params: {
   const config = {...params.step.config};
   delete config.secret_bindings;
   const trace: PersistedEvaluationTraceEntry[] = [...(plan.trace ?? [])];
+  completeToolConfig({
+    config,
+    plan,
+    definitionId: params.definitionId,
+    context: params.context,
+    trace,
+  });
   completeRunDispatchConfig({
     config,
     plan,
@@ -88,6 +105,96 @@ function validateSessionConfig(
     'agent_session_key_invalid',
     'Agent session configuration is invalid',
   );
+}
+
+function completeToolConfig(params: {
+  readonly config: Record<string, unknown>;
+  readonly plan: Step['configPlan'] & object;
+  readonly context: WorkflowEvaluationContext;
+  readonly definitionId: string;
+  readonly trace: PersistedEvaluationTraceEntry[];
+}): void {
+  const toolPlan = params.plan.tool;
+  const tool = params.config.tool;
+  if (toolPlan === undefined && (tool === undefined || tool === null)) return;
+  if (tool === null || typeof tool !== 'object' || Array.isArray(tool)) {
+    throw new ToolConfigInvalidError('Tool dispatch config is missing an object');
+  }
+  const toolConfig = {...tool} as Record<string, unknown>;
+  const baseWith = toolConfig.with;
+  toolConfig.with = mergeToolWith(baseWith, toolPlan?.with, params, 'tool.with');
+  const method = toolConfig.method;
+  const input = toolConfig.with ?? {};
+  const schema = withoutInjectedMethod(toolConfig.input_schema);
+  const ajv = new Ajv({
+    strict: true,
+    coerceTypes: false,
+    useDefaults: false,
+    removeAdditional: false,
+  });
+  let valid = false;
+  try {
+    const validate = ajv.compile(schema as AnySchema);
+    valid = validate(input) === true;
+  } catch (error) {
+    throw new ToolConfigInvalidError(
+      `Tool input schema is invalid: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  if (!valid) throw new ToolConfigInvalidError(`Tool input is invalid: ${ajv.errorsText()}`);
+  if (method !== undefined) toolConfig.method = method;
+  params.config.tool = toolConfig;
+}
+
+function mergeToolWith(
+  base: unknown,
+  plan: NonNullable<NonNullable<Step['configPlan']>['tool']>['with'] | undefined,
+  params: {
+    readonly context: WorkflowEvaluationContext;
+    readonly definitionId: string;
+    readonly trace: PersistedEvaluationTraceEntry[];
+  },
+  field: 'tool.with',
+): unknown {
+  if (plan === undefined) return base;
+  if (Array.isArray(plan)) {
+    const values = Array.isArray(base) ? [...base] : [];
+    plan.forEach((child, index) => {
+      if (child !== undefined) values[index] = mergeToolWith(values[index], child, params, field);
+    });
+    return values;
+  }
+  if (typeof plan === 'object' && plan !== null && !('segments' in plan)) {
+    const source =
+      base !== null && typeof base === 'object' && !Array.isArray(base)
+        ? (base as Record<string, unknown>)
+        : {};
+    const values = {...source};
+    for (const [key, child] of Object.entries(plan)) {
+      if (child !== undefined) values[key] = mergeToolWith(source[key], child, params, field);
+    }
+    return values;
+  }
+  const resolved = completeStepFieldWithTypeAndTrace({
+    field,
+    template: {segments: plan as unknown as readonly ResolvedFieldSegment[]},
+    context: params.context,
+    definitionId: params.definitionId,
+    errorField: field,
+  });
+  params.trace.push(...resolved.trace.map((entry) => ({...entry, field})));
+  return resolved.value;
+}
+
+function withoutInjectedMethod(schema: unknown): unknown {
+  if (schema === null || typeof schema !== 'object' || Array.isArray(schema)) return schema;
+  const copy = {...(schema as Record<string, unknown>)};
+  if (copy.properties && typeof copy.properties === 'object' && !Array.isArray(copy.properties)) {
+    copy.properties = {...(copy.properties as Record<string, unknown>)};
+    delete (copy.properties as Record<string, unknown>).method;
+  }
+  if (Array.isArray(copy.required)) copy.required = copy.required.filter((key) => key !== 'method');
+  return copy;
 }
 
 function completeCheckoutConfig(params: {
