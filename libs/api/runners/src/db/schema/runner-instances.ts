@@ -20,6 +20,19 @@ export const providerRunnerLaunchKindEnum = pgEnum('runners_provider_runner_laun
   'manual',
 ]);
 
+export const terminationReasonEnum = pgEnum('runners_termination_reason', [
+  'registration-deadline',
+  'activation-timeout',
+  'runner-unresponsive',
+  'lease-expired',
+  'session-exhausted',
+  'stopping-timeout',
+  'provider-health-failed',
+  'job-cancelled',
+  'job-timeout',
+  'terminal-state',
+]);
+
 export const providerRunners = pgTable(
   'runner_instances',
   {
@@ -48,6 +61,8 @@ export const providerRunners = pgTable(
     stoppedAt: timestamp('stopped_at', {withTimezone: true}),
     failedAt: timestamp('failed_at', {withTimezone: true}),
     terminatedAt: timestamp('terminated_at', {withTimezone: true}),
+    terminationAuthorizedAt: timestamp('termination_authorized_at', {withTimezone: true}),
+    terminationReason: terminationReasonEnum('termination_reason'),
     reservationReleasedAt: timestamp('reservation_released_at', {withTimezone: true}),
     createdAt: timestamp('created_at', {withTimezone: true}).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', {withTimezone: true}).notNull().defaultNow(),
@@ -105,6 +120,8 @@ export function toRunnerInstance(row: RunnerInstanceDb): RunnerInstance {
     stoppedAt: row.stoppedAt,
     failedAt: row.failedAt,
     terminatedAt: row.terminatedAt,
+    terminationAuthorizedAt: row.terminationAuthorizedAt,
+    terminationReason: row.terminationReason,
     reservationReleasedAt: row.reservationReleasedAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,

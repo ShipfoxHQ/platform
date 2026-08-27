@@ -8,6 +8,7 @@ import {
 } from '#db/reservations.js';
 import {
   attachRunnerInstanceProviderId,
+  authorizeRunnerTermination,
   countStaleEnrolledRunnerInstances,
   listActiveRunnerInstanceCountsByTemplateTx,
   listActiveRunnerInstances,
@@ -93,6 +94,56 @@ async function insertRunningJobRow(params: {
       cancellationRequestedAt: params.cancellationRequestedAt ?? null,
     });
 }
+
+describe('authorizeRunnerTermination', () => {
+  it('keeps disabled and unknown reasons from authorizing termination', async () => {
+    const runner = await providerRunnerFactory.create({
+      workspaceId: crypto.randomUUID(),
+      state: 'running',
+    });
+
+    const disabled = await authorizeRunnerTermination({
+      provisionerId: runner.provisionerId,
+      providerRunnerId: runner.providerRunnerId,
+      reason: 'terminal-state',
+    });
+    const unknown = await authorizeRunnerTermination({
+      provisionerId: runner.provisionerId,
+      providerRunnerId: runner.providerRunnerId,
+      reason: 'not-a-reason',
+    });
+
+    expect(disabled.desiredIntent).toBe('keep');
+    expect(unknown.desiredIntent).toBe('keep');
+    expect(
+      await db()
+        .select({authorizedAt: providerRunners.terminationAuthorizedAt})
+        .from(providerRunners)
+        .where(eq(providerRunners.id, runner.id)),
+    ).toEqual([{authorizedAt: null}]);
+  });
+
+  it('reuses an existing authorization and its first reason', async () => {
+    const runner = await providerRunnerFactory.create({workspaceId: crypto.randomUUID()});
+    const authorizedAt = new Date('2026-01-01T00:00:00.000Z');
+    await db()
+      .update(providerRunners)
+      .set({terminationAuthorizedAt: authorizedAt, terminationReason: 'terminal-state'})
+      .where(eq(providerRunners.id, runner.id));
+
+    const result = await authorizeRunnerTermination({
+      provisionerId: runner.provisionerId,
+      providerRunnerId: runner.providerRunnerId,
+      reason: 'job-timeout',
+    });
+
+    expect(result).toEqual({
+      desiredIntent: 'terminate',
+      terminationAuthorizedAt: authorizedAt,
+      terminationReason: 'terminal-state',
+    });
+  });
+});
 
 describe('reportRunnerInstances', () => {
   let workspaceId: string;

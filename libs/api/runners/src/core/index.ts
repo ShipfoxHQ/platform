@@ -15,6 +15,7 @@ export type {
 export type {
   RunnerInstance,
   RunnerInstanceState,
+  RunnerTerminationReason,
 } from './entities/runner-instance.js';
 export type {RunnerSession} from './entities/runner-session.js';
 export {
@@ -64,6 +65,7 @@ export {
 export {
   type ActiveRunner,
   attachRunnerInstanceProviderId,
+  authorizeRunnerTermination,
   listActiveRunners,
   type ReconcileDesiredIntent,
   type ReconciledBoundJobExecution,

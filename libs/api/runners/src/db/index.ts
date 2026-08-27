@@ -85,9 +85,12 @@ export type {
   RunnerInstanceReportEvent,
   RunnerInstanceTerminateIntent,
   RunnerInstanceTerminateIntentReason,
+  RunnerTerminationReason,
+  TerminationAuthorizationResult,
 } from './runner-instances.js';
 export {
   attachRunnerInstanceProviderId,
+  authorizeRunnerTermination,
   countStaleEnrolledRunnerInstances,
   isTerminalState,
   listActiveRunnerInstanceCountsByTemplateTx,

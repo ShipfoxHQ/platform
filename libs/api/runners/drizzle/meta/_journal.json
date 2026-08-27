@@ -50,6 +50,13 @@
       "when": 1787820107205,
       "tag": "0006_preserve_job_stop_reason",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1786106547188,
+      "tag": "0007_canonical_termination_authorization",
+      "breakpoints": true
     }
   ]
 }

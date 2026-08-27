@@ -2,6 +2,7 @@ import type {RunnerJobStopReasonDto} from '@shipfox/api-runners-dto';
 import type {RunnerInstance, RunnerInstanceState} from '#core/entities/runner-instance.js';
 import {
   attachRunnerInstanceProviderId as attachRunnerInstanceProviderIdDb,
+  authorizeRunnerTermination as authorizeRunnerTerminationDb,
   isTerminalState,
   listActiveRunnerInstances,
   listActiveRunningJobExecutions,
@@ -28,6 +29,12 @@ export interface ReportRunnerInstancesParams {
   workspaceId: string | null;
   provisionerId: string;
   events: RunnerInstanceReportEvent[];
+}
+
+export function authorizeRunnerTermination(
+  params: Parameters<typeof authorizeRunnerTerminationDb>[0],
+) {
+  return authorizeRunnerTerminationDb(params);
 }
 
 export function attachRunnerInstanceProviderId(params: {
