@@ -1,5 +1,18 @@
 // Import #config.js inside each test so env validation reruns after vi.stubEnv.
 
+const defaultedEnvNames = [
+  'SHIPFOX_API_URL',
+  'SHIPFOX_RUNNER_API_URL',
+  'SHIPFOX_PROVISIONER_POLL_WAIT_SECONDS',
+  'SHIPFOX_PROVISIONER_POLL_INTERVAL_MS',
+  'SHIPFOX_PROVISIONER_POLL_MAX_INTERVAL_MS',
+  'SHIPFOX_PROVISIONER_CONVERGE_INTERVAL_MS',
+  'SHIPFOX_PROVISIONER_MAX_RESERVATIONS',
+  'SHIPFOX_PROVISIONER_RUNNER_INSTANCE_BATCH_SIZE',
+  'SHIPFOX_RUNNER_POLL_MAX_DURATION_MS',
+  'SHIPFOX_RUNNER_MAX_LIFETIME_SECONDS',
+] as const;
+
 describe('provisioner core config validation', () => {
   afterEach(() => {
     vi.unstubAllEnvs();
@@ -89,7 +102,7 @@ describe('provisioner core config validation', () => {
   });
 
   it('accepts the documented defaults', async () => {
-    vi.stubEnv('SHIPFOX_API_URL', undefined);
+    for (const name of defaultedEnvNames) vi.stubEnv(name, undefined);
     vi.resetModules();
 
     const {config} = await import('#config.js');
