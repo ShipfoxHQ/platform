@@ -584,11 +584,12 @@ describe('executeRunStep', () => {
     const step = buildStep({
       config: {
         run: `node -e ${JSON.stringify(
-          `process.stdout.write(${JSON.stringify(`${token.slice(0, 10)}`)}); setTimeout(() => console.log(${JSON.stringify(`${token.slice(10)} ${credential}`)}), 30)`,
+          `process.stdout.write(${JSON.stringify(`${token.slice(0, 10)}`)}); setTimeout(() => { console.log(${JSON.stringify(`${token.slice(10)} ${credential}`)}); console.error(${JSON.stringify(`${token} ${credential}`)}); }, 30)`,
         )}`,
       },
     });
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true as never);
+    const stderrWrite = vi.spyOn(process.stderr, 'write').mockImplementation(() => true as never);
 
     const result = await executeRunStep(step, {
       subscribeSecrets: (subscriber) => {
@@ -598,10 +599,14 @@ describe('executeRunStep', () => {
     });
 
     const stdout = stdoutWrite.mock.calls.map((call) => String(call[0])).join('');
+    const stderr = stderrWrite.mock.calls.map((call) => String(call[0])).join('');
     expect(result.success).toBe(true);
     expect(stdout).toContain('*** ***');
+    expect(stderr).toContain('*** ***');
     expect(stdout).not.toContain(token);
     expect(stdout).not.toContain(credential);
+    expect(stderr).not.toContain(token);
+    expect(stderr).not.toContain(credential);
   });
 
   it('redacts persisted Git credential forms from a config dump', async () => {

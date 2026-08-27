@@ -264,6 +264,15 @@ export async function runJob(
     [previousRenewedLeaseToken, currentRenewedLeaseToken].filter(
       (secret): secret is string => secret !== undefined,
     );
+  const notifySecretSubscribers = () => {
+    for (const subscriber of secretSubscribers) {
+      try {
+        subscriber([...secrets]);
+      } catch (error) {
+        logger().warn({err: error, jobId: job.job_id}, 'Secret redaction subscriber failed');
+      }
+    }
+  };
   const rememberLeaseToken = (leaseToken: string) => {
     if (leaseToken === currentLeaseToken) return;
     previousRenewedLeaseToken = currentRenewedLeaseToken;
@@ -277,7 +286,7 @@ export async function runJob(
       ...rotatingLeaseSecrets(),
       ...registeredSecrets,
     );
-    for (const subscriber of secretSubscribers) subscriber([...secrets]);
+    notifySecretSubscribers();
   };
   const registerSecrets = (additionalSecrets: string[]) => {
     const newSecrets = additionalSecrets.filter(
@@ -286,7 +295,7 @@ export async function runJob(
     if (newSecrets.length === 0) return;
     registeredSecrets.push(...newSecrets);
     secrets.push(...newSecrets);
-    for (const subscriber of secretSubscribers) subscriber([...secrets]);
+    notifySecretSubscribers();
   };
 
   const heartbeatLoop = startHeartbeatLoop(job.job_id, () => currentLeaseToken, ac, {

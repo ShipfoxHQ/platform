@@ -209,6 +209,7 @@ function runLoop(params: {
   secrets?: string[];
   cwd?: string;
   subscribeSecrets?: (subscriber: (secrets: string[]) => void) => () => void;
+  registerSecrets?: (secrets: string[]) => void;
   prepareAgentState?: () => Promise<void>;
   onLeaseTokenAdopted?: (leaseToken: string) => void;
 }): Promise<void> {
@@ -218,6 +219,7 @@ function runLoop(params: {
     leaseToken: params.leaseToken ?? leaseTokenSource,
     secrets: params.secrets ?? [],
     ...(params.subscribeSecrets ? {subscribeSecrets: params.subscribeSecrets} : {}),
+    ...(params.registerSecrets ? {registerSecrets: params.registerSecrets} : {}),
     signal: params.signal,
     cwd: params.cwd ?? '/work',
     gitConfigPath: GIT_CONFIG_PATH,
@@ -1669,10 +1671,12 @@ describe('runJobSteps', () => {
       .mockResolvedValueOnce(stepResponse(run, 1))
       .mockResolvedValueOnce({kind: 'done', status: 'succeeded'});
     executeRunStepMock.mockResolvedValue({success: true, error: null, exit_code: 0});
+    const registerSecrets = vi.fn();
     const ac = new AbortController();
 
-    await runLoop({signal: ac.signal});
+    await runLoop({signal: ac.signal, registerSecrets});
 
+    expect(registerSecrets).toHaveBeenCalledWith(['checkout-token', 'basic-credential']);
     expect(executeRunStepMock).toHaveBeenCalledWith(
       run,
       expect.objectContaining({
@@ -1955,6 +1959,134 @@ describe('runJobSteps', () => {
       leaseClient,
       expect.objectContaining({stepId: agent.id}),
     );
+  });
+
+  it('redacts initial checkout secrets from agent sessions and results', async () => {
+    const setup = buildSetupStep();
+    const agent = buildAgentStep();
+    const checkoutToken = 'checkout-token-for-agent';
+    const basicCredential = Buffer.from(`x-access-token:${checkoutToken}`).toString('base64');
+    executeSetupStepMock.mockResolvedValueOnce({
+      result: {success: true, error: null, exit_code: 0},
+      ambientGitConfigPath: GIT_CONFIG_PATH,
+      ambientGitConfigSecrets: [checkoutToken, basicCredential],
+    });
+    requestNextStepMock
+      .mockResolvedValueOnce(stepResponse(setup, 1))
+      .mockResolvedValueOnce(stepResponse(agent, 1))
+      .mockResolvedValueOnce({kind: 'done', status: 'succeeded'});
+    executeAgentStepMock.mockImplementationOnce(
+      (_step: StepDto, opts: {onSessionEntry?: (line: string) => void}) => {
+        opts.onSessionEntry?.(`session echoed ${checkoutToken} ${basicCredential}`);
+        return Promise.resolve({
+          success: true,
+          response: `agent echoed ${checkoutToken} ${basicCredential}`,
+          error: null,
+          exit_code: 0,
+        });
+      },
+    );
+    const ac = new AbortController();
+    const jobSecrets: string[] = [];
+
+    await runLoop({
+      signal: ac.signal,
+      secrets: jobSecrets,
+      registerSecrets: (registeredSecrets) => jobSecrets.push(...registeredSecrets),
+    });
+
+    const sessionSecrets = createSessionLogStreamMock.mock.calls[0]?.[0].secrets;
+    expect(sessionSecrets).toEqual(expect.arrayContaining([checkoutToken, basicCredential]));
+    const agentReport = reportStepMock.mock.calls.find((call) => call[1]?.stepId === agent.id);
+    expect(agentReport?.[1]).toEqual(
+      expect.objectContaining({
+        response: 'agent echoed *** ***',
+        error: null,
+      }),
+    );
+  });
+
+  it('redacts secrets registered during a run before output serialization', async () => {
+    const run = buildRunStep();
+    const token = 'mid-step-token';
+    const credential = Buffer.from(`x-access-token:${token}`).toString('base64');
+    executeRunStepMock.mockImplementationOnce(
+      (
+        _step: StepDto,
+        opts: {subscribeSecrets?: (callback: (secrets: string[]) => void) => void},
+      ) => {
+        opts.subscribeSecrets?.(() => undefined);
+        return Promise.resolve({
+          success: true,
+          outputs: {token, credential},
+          error: null,
+          exit_code: 0,
+        });
+      },
+    );
+    const ac = new AbortController();
+
+    const execution = await executeStep({
+      step: run,
+      attempt: 1,
+      cwd: '/work',
+      logsDir: LOGS_DIR,
+      agentStateDir: AGENT_STATE_DIR,
+      jobContext: JOB_CONTEXT,
+      leaseClient,
+      leaseToken: leaseTokenSource,
+      secrets: [],
+      subscribeSecrets: (subscriber) => {
+        subscriber([token, credential]);
+        return () => undefined;
+      },
+      signal: ac.signal,
+      workspacePrepared: true,
+      gitConfigPath: GIT_CONFIG_PATH,
+      jobId: JOB_ID,
+      stepLabel: 'run',
+    });
+
+    expect(execution.result.outputs).toEqual({token: '***', credential: '***'});
+  });
+
+  it('redacts secrets registered during a run from crash errors', async () => {
+    const run = buildRunStep();
+    const token = 'mid-step-crash-token';
+    const credential = Buffer.from(`x-access-token:${token}`).toString('base64');
+    executeRunStepMock.mockImplementationOnce(
+      (
+        _step: StepDto,
+        opts: {subscribeSecrets?: (callback: (secrets: string[]) => void) => void},
+      ) => {
+        opts.subscribeSecrets?.(() => undefined);
+        throw new Error(`crashed with ${token} ${credential}`);
+      },
+    );
+    const ac = new AbortController();
+
+    const execution = await executeStep({
+      step: run,
+      attempt: 1,
+      cwd: '/work',
+      logsDir: LOGS_DIR,
+      agentStateDir: AGENT_STATE_DIR,
+      jobContext: JOB_CONTEXT,
+      leaseClient,
+      leaseToken: leaseTokenSource,
+      secrets: [],
+      subscribeSecrets: (subscriber) => {
+        subscriber([token, credential]);
+        return () => undefined;
+      },
+      signal: ac.signal,
+      workspacePrepared: true,
+      gitConfigPath: GIT_CONFIG_PATH,
+      jobId: JOB_ID,
+      stepLabel: 'run',
+    });
+
+    expect(execution.result.error?.message).toBe('crashed with *** ***');
   });
 
   it('redacts runtime credential values from agent failures and responses', async () => {

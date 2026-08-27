@@ -346,6 +346,35 @@ describe('runJob', () => {
     ]);
   });
 
+  it('broadcasts registered secrets to each live subscriber independently', async () => {
+    const firstSecrets: string[][] = [];
+    const secondSecrets: string[][] = [];
+    let unsubscribeFirst: (() => void) | undefined;
+    mockRunJobSteps.mockImplementation((params) => {
+      unsubscribeFirst = params.subscribeSecrets?.((secrets) => firstSecrets.push(secrets));
+      params.subscribeSecrets?.((secrets) => secondSecrets.push(secrets));
+      params.registerSecrets?.(['checkout-token']);
+      unsubscribeFirst?.();
+      params.registerSecrets?.(['rotated-checkout-token']);
+      return Promise.resolve();
+    });
+
+    await runJob(JOB, WORKSPACE_ROOT);
+
+    expect(firstSecrets).toEqual([
+      ['sf_mrt_runner-registration-token', JOB.lease_token, 'checkout-token'],
+    ]);
+    expect(secondSecrets).toEqual([
+      ['sf_mrt_runner-registration-token', JOB.lease_token, 'checkout-token'],
+      [
+        'sf_mrt_runner-registration-token',
+        JOB.lease_token,
+        'checkout-token',
+        'rotated-checkout-token',
+      ],
+    ]);
+  });
+
   it('adopts next-step lease tokens for requests, redaction, and heartbeat generation', async () => {
     const heartbeatHandle = {stop: vi.fn(), bumpGeneration: vi.fn()};
     mockStartHeartbeatLoop.mockReturnValueOnce(heartbeatHandle);

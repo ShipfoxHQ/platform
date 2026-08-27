@@ -181,21 +181,45 @@ function spawnAndCapture(
     // detached:true makes the shell a process-group leader so killGroup() can
     // SIGKILL its grandchildren too (Linux does not propagate signals down the
     // parent chain). We don't unref(): output capture still needs `close`.
-    const child = spawn(shell.executable, shell.args, {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      detached: true,
-      cwd: options.cwd,
-      env: {
-        ...process.env,
-        ...stepEnv,
-        ...((options.workspace ?? options.cwd)
-          ? {SHIPFOX_WORKSPACE: options.workspace ?? options.cwd}
-          : {}),
-        ...(options.gitConfigGlobal ? {GIT_CONFIG_GLOBAL: options.gitConfigGlobal} : {}),
-        SHIPFOX_OUTPUT: outputPath,
-        ...(annotationSpool?.env ?? {}),
-      },
-    });
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(shell.executable, shell.args, {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        detached: true,
+        cwd: options.cwd,
+        env: {
+          ...process.env,
+          ...stepEnv,
+          ...((options.workspace ?? options.cwd)
+            ? {SHIPFOX_WORKSPACE: options.workspace ?? options.cwd}
+            : {}),
+          ...(options.gitConfigGlobal ? {GIT_CONFIG_GLOBAL: options.gitConfigGlobal} : {}),
+          SHIPFOX_OUTPUT: outputPath,
+          ...(annotationSpool?.env ?? {}),
+        },
+      });
+    } catch (err) {
+      unsubscribeSecrets?.();
+      logger().error({err}, 'Failed to spawn shell process');
+      resolve({
+        success: false,
+        error: {
+          message: `Failed to spawn process: ${err instanceof Error ? err.message : String(err)}`,
+        },
+        exit_code: null,
+      });
+      return;
+    }
+
+    if (!child.stdout || !child.stderr) {
+      unsubscribeSecrets?.();
+      resolve({
+        success: false,
+        error: {message: 'Failed to spawn process without output pipes'},
+        exit_code: null,
+      });
+      return;
+    }
 
     // stdout and stderr are two separate pipes, so the sink sees them merged by
     // arrival order, not kernel/wall-clock order; origin is preserved per chunk.
@@ -426,6 +450,13 @@ class TeeRedactor {
   }
 
   private drain(final: boolean): string {
+    if (this.variants.length === 0) {
+      if (!final) return '';
+      const output = this.buffer;
+      this.buffer = '';
+      return output;
+    }
+
     let output = '';
     let newline = this.buffer.indexOf('\n');
     while (newline !== -1) {
