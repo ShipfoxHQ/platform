@@ -199,6 +199,7 @@ const dropConstraintExpression = /\bDROP\s+CONSTRAINT\b/i;
 const cascadeExpression = /\bCASCADE\b/i;
 const fromClauseBoundaryExpression =
   /^(?:JOIN|WHERE|GROUP|ORDER|LIMIT|OFFSET|UNION|INTERSECT|EXCEPT|FETCH|FOR|HAVING|WINDOW)\b/i;
+const fromOnlyExpression = /^ONLY\b/i;
 const whitespaceExpression = /\s/;
 const postgresIdentifierLimit = 63;
 
@@ -469,6 +470,19 @@ function readRelationReferences(
   return references;
 }
 
+function readFromRelationIdentifier(
+  source: string,
+  searchableSource: string,
+  offset: number,
+): ParsedIdentifier | undefined {
+  const relationOffset = skipWhitespace(source, offset);
+  const onlyMatch = fromOnlyExpression.exec(searchableSource.slice(relationOffset));
+  return readQualifiedIdentifier(
+    source,
+    onlyMatch ? relationOffset + onlyMatch[0].length : relationOffset,
+  );
+}
+
 function readFromRelationReferences(
   source: string,
   searchableSource: string,
@@ -481,7 +495,7 @@ function readFromRelationReferences(
   let match = keywordExpression.exec(searchableStatement);
   while (match) {
     let cursor = start + (match.index ?? 0) + match[0].length;
-    let relation = readQualifiedIdentifier(source, cursor);
+    let relation = readFromRelationIdentifier(source, searchableSource, cursor);
     if (relation) {
       references.push({
         schemaName: relation.schemaName ?? 'public',
@@ -499,7 +513,7 @@ function readFromRelationReferences(
         if (parenthesisDepth === 0) break;
         parenthesisDepth -= 1;
       } else if (parenthesisDepth === 0 && character === ',') {
-        const nextRelation = readQualifiedIdentifier(source, cursor + 1);
+        const nextRelation = readFromRelationIdentifier(source, searchableSource, cursor + 1);
         if (!nextRelation) break;
         references.push({
           schemaName: nextRelation.schemaName ?? 'public',
