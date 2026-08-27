@@ -21,6 +21,7 @@ export async function issueRunnerSessionToken(
       scope: claims.scope,
       labels: claims.labels,
       maxClaims: claims.maxClaims,
+      lifecycleCapabilities: claims.lifecycleCapabilities,
     },
     secret: runnerSessionTokenKey(),
     expiresIn: config.AUTH_RUNNER_SESSION_TOKEN_EXPIRES_IN,

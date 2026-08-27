@@ -14,6 +14,7 @@ function claims() {
     scope: 'workspace' as const,
     labels: ['linux', 'x64'],
     maxClaims: null,
+    lifecycleCapabilities: ['local_execution_fence_v1'],
   };
 }
 
@@ -30,6 +31,7 @@ describe('runner-session-token', () => {
     expect(verified?.scope).toBe(input.scope);
     expect(verified?.labels).toEqual(input.labels);
     expect(verified?.maxClaims).toBeNull();
+    expect(verified?.lifecycleCapabilities).toEqual(input.lifecycleCapabilities);
     expect(verified?.aud).toBe(RUNNER_SESSION_TOKEN_AUDIENCE);
     expect(verified?.iat).toBeTypeOf('number');
     expect(verified?.exp).toBeGreaterThan(verified?.iat ?? 0);
