@@ -24,6 +24,17 @@ const triggerReference = z.object({
   actor: z.string().nullable(),
 });
 const sourceInput = z.object({workspaceId: id, connectionId: id, externalRepositoryId: z.string()});
+const checkoutCredentialRenewal = z.discriminatedUnion('mode', [
+  z.object({mode: z.literal('refresh-at'), refreshAt: z.string().datetime()}),
+  z.object({mode: z.literal('on-rejection')}),
+]);
+const checkoutCredentials = z.object({
+  username: z.string(),
+  token: z.string(),
+  expiresAt: z.string().datetime(),
+  generation: z.string().optional(),
+  renewal: checkoutCredentialRenewal.optional(),
+});
 const toolCallTool = z.object({
   id: z.string().min(1),
   provider,
@@ -151,11 +162,17 @@ export const integrationsInterModuleContract = defineInterModuleContract({
       output: z.object({
         repositoryUrl: z.string(),
         ref: z.string(),
-        credentials: z
-          .object({username: z.string(), token: z.string(), expiresAt: z.string().datetime()})
-          .optional(),
+        credentials: checkoutCredentials.optional(),
         gitAuthor: z.object({name: z.string(), email: z.string()}).optional(),
       }),
+      errors: sourceErrors,
+    },
+    createCheckoutCredentials: {
+      input: sourceInput.extend({
+        permissions: z.object({contents: z.enum(['read', 'write'])}),
+        rejectedGeneration: z.string().optional(),
+      }),
+      output: checkoutCredentials,
       errors: sourceErrors,
     },
     getAgentToolsContext: {

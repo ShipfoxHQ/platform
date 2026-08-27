@@ -58,7 +58,13 @@ export async function createStepCheckoutSpec({
   spec: {
     repositoryUrl: string;
     ref: string;
-    credentials?: {username: string; token: string; expiresAt: Date};
+    credentials?: {
+      username: string;
+      token: string;
+      expiresAt: Date;
+      generation?: string | undefined;
+      renewal?: {mode: 'refresh-at'; refreshAt: Date} | {mode: 'on-rejection'} | undefined;
+    };
     gitAuthor?: {name: string; email: string};
   };
   fetchDepth: number;
@@ -112,8 +118,23 @@ export async function createStepCheckoutSpec({
       ...(response.credentials
         ? {
             credentials: {
-              ...response.credentials,
+              username: response.credentials.username,
+              token: response.credentials.token,
               expiresAt: new Date(response.credentials.expiresAt),
+              ...(response.credentials.generation === undefined
+                ? {}
+                : {generation: response.credentials.generation}),
+              ...(response.credentials.renewal === undefined
+                ? {}
+                : {
+                    renewal:
+                      response.credentials.renewal.mode === 'refresh-at'
+                        ? {
+                            mode: 'refresh-at' as const,
+                            refreshAt: new Date(response.credentials.renewal.refreshAt),
+                          }
+                        : {mode: 'on-rejection' as const},
+                  }),
             },
           }
         : {}),

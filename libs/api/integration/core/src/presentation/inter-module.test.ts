@@ -27,6 +27,11 @@ function createClient(
   resolveRepository: SourceControlProvider['resolveRepository'] = () => {
     throw new Error('not used');
   },
+  createCheckoutCredentials: SourceControlProvider['createCheckoutCredentials'] = async () => ({
+    username: 'x-access-token',
+    token: 'token',
+    expiresAt: new Date('2026-01-01T00:00:00.000Z'),
+  }),
 ) {
   const transport = createInMemoryInterModuleTransport();
   const client = transport.createClient(integrationsInterModuleContract);
@@ -44,6 +49,7 @@ function createClient(
             fetchFile: vi.fn(),
             resolveTriggerReference: () => null,
             resolveRef: async (input) => await resolveRef(input),
+            createCheckoutCredentials,
           },
         },
       },
@@ -82,6 +88,69 @@ describe('integrations inter-module presentation', () => {
     connectionId,
     externalRepositoryId: 'gitea:gitea-owner/platform',
   };
+
+  it('round-trips credential-only checkout delivery through the transport', async () => {
+    const client = createClient(
+      async (input) => ({ref: input.ref, commit: 'a'.repeat(40)}),
+      undefined,
+      async (_input) => ({
+        username: 'x-access-token',
+        token: 'secret',
+        expiresAt: new Date('2026-01-01T00:00:00.000Z'),
+        generation: 'generation-2',
+        renewal: {mode: 'refresh-at', refreshAt: new Date('2025-12-31T23:55:00.000Z')},
+      }),
+    );
+
+    const result = await client.createCheckoutCredentials({
+      workspaceId,
+      connectionId,
+      externalRepositoryId: 'gitea:gitea-owner/platform',
+      permissions: {contents: 'read'},
+      rejectedGeneration: 'generation-1',
+    });
+
+    expect(result).toEqual({
+      username: 'x-access-token',
+      token: 'secret',
+      expiresAt: '2026-01-01T00:00:00.000Z',
+      generation: 'generation-2',
+      renewal: {mode: 'refresh-at', refreshAt: '2025-12-31T23:55:00.000Z'},
+    });
+  });
+
+  it('rejects a provider response that echoes the rejected generation', async () => {
+    const client = createClient(
+      async () => ({ref: 'main', commit: 'a'.repeat(40)}),
+      undefined,
+      async () => ({
+        username: 'x-access-token',
+        token: 'secret',
+        expiresAt: new Date('2026-01-01T00:00:00.000Z'),
+        generation: 'rejected-generation',
+      }),
+    );
+
+    const error = await client
+      .createCheckoutCredentials({
+        ...input,
+        permissions: {contents: 'read'},
+        rejectedGeneration: 'rejected-generation',
+      })
+      .catch((caught: unknown) => caught);
+
+    if (
+      isInterModuleKnownError(
+        integrationsInterModuleContract.methods.createCheckoutCredentials,
+        error,
+      )
+    ) {
+      expect(error.code).toBe('provider-failure');
+      expect(error.details).toEqual({reason: 'provider-rejected'});
+    } else {
+      throw error;
+    }
+  });
 
   it('resolves a source ref through the transport', async () => {
     const client = createClient(async (input) => ({

@@ -3,7 +3,13 @@ import {toCheckoutTokenDto} from './checkout-token.js';
 type CheckoutSpec = {
   repositoryUrl: string;
   ref: string;
-  credentials?: {username: string; token: string; expiresAt: Date};
+  credentials?: {
+    username: string;
+    token: string;
+    expiresAt: Date;
+    generation?: string;
+    renewal?: {mode: 'refresh-at'; refreshAt: Date} | {mode: 'on-rejection'};
+  };
   gitAuthor?: {name: string; email: string};
 };
 
@@ -42,6 +48,31 @@ describe('toCheckoutTokenDto', () => {
         host: 'github.com',
         persist: true,
       },
+    });
+  });
+
+  it('maps credential generation and renewal lifecycle into auth', () => {
+    const dto = toCheckoutTokenDto(
+      {
+        repositoryUrl: 'https://github.com/acme/repo.git',
+        ref: 'main',
+        credentials: {
+          username: 'x-access-token',
+          token: 'ghs-token',
+          expiresAt: new Date('2026-06-10T12:00:00.000Z'),
+          generation: 'generation-2',
+          renewal: {
+            mode: 'refresh-at',
+            refreshAt: new Date('2026-06-10T11:55:00.000Z'),
+          },
+        },
+      },
+      {fetchDepth: 1, persist: true},
+    );
+
+    expect(dto.auth).toMatchObject({
+      generation: 'generation-2',
+      renewal: {mode: 'refresh-at', refresh_at: '2026-06-10T11:55:00.000Z'},
     });
   });
 

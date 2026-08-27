@@ -114,12 +114,48 @@ export function createIntegrationsInterModulePresentation(params: {
           ...(spec.credentials
             ? {
                 credentials: {
-                  ...spec.credentials,
+                  username: spec.credentials.username,
+                  token: spec.credentials.token,
+                  ...(spec.credentials.generation === undefined
+                    ? {}
+                    : {generation: spec.credentials.generation}),
                   expiresAt: spec.credentials.expiresAt.toISOString(),
+                  ...(spec.credentials.renewal === undefined
+                    ? {}
+                    : {
+                        renewal:
+                          spec.credentials.renewal.mode === 'refresh-at'
+                            ? {
+                                mode: 'refresh-at' as const,
+                                refreshAt: spec.credentials.renewal.refreshAt.toISOString(),
+                              }
+                            : {mode: 'on-rejection' as const},
+                      }),
                 },
               }
             : {}),
           ...(spec.gitAuthor === undefined ? {} : {gitAuthor: spec.gitAuthor}),
+        };
+      }),
+    createCheckoutCredentials: async (input) =>
+      await known(contract.methods.createCheckoutCredentials, input, async () => {
+        const credentials = await params.sourceControl.createCheckoutCredentials(input);
+        return {
+          username: credentials.username,
+          token: credentials.token,
+          ...(credentials.generation === undefined ? {} : {generation: credentials.generation}),
+          expiresAt: credentials.expiresAt.toISOString(),
+          ...(credentials.renewal === undefined
+            ? {}
+            : {
+                renewal:
+                  credentials.renewal.mode === 'refresh-at'
+                    ? {
+                        mode: 'refresh-at' as const,
+                        refreshAt: credentials.renewal.refreshAt.toISOString(),
+                      }
+                    : {mode: 'on-rejection' as const},
+              }),
         };
       }),
     getAgentToolsContext: async (input) =>

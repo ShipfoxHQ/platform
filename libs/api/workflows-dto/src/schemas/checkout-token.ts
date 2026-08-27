@@ -11,11 +11,18 @@ const checkoutGitAuthorSchema = z.object({
   email: z.string().min(1),
 });
 
+const checkoutCredentialRenewalSchema = z.discriminatedUnion('mode', [
+  z.object({mode: z.literal('refresh-at'), refresh_at: z.string().datetime({offset: true})}),
+  z.object({mode: z.literal('on-rejection')}),
+]);
+
 const checkoutTokenBasicAuthSchema = z.object({
   kind: z.literal('basic'),
   username: z.string().min(1),
   token: z.string().min(1),
   expires_at: z.string().datetime({offset: true}),
+  generation: z.string().min(1).optional(),
+  renewal: checkoutCredentialRenewalSchema.optional(),
   ...carryFields,
 });
 
@@ -23,6 +30,8 @@ const checkoutTokenBearerAuthSchema = z.object({
   kind: z.literal('bearer'),
   token: z.string().min(1),
   expires_at: z.string().datetime({offset: true}),
+  generation: z.string().min(1).optional(),
+  renewal: checkoutCredentialRenewalSchema.optional(),
   ...carryFields,
 });
 

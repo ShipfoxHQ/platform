@@ -1,7 +1,15 @@
 type CheckoutSpec = {
   repositoryUrl: string;
   ref: string;
-  credentials?: {username: string; token: string; expiresAt: Date} | undefined;
+  credentials?:
+    | {
+        username: string;
+        token: string;
+        expiresAt: Date;
+        generation?: string | undefined;
+        renewal?: {mode: 'refresh-at'; refreshAt: Date} | {mode: 'on-rejection'} | undefined;
+      }
+    | undefined;
   gitAuthor?: {name: string; email: string} | undefined;
 };
 
@@ -68,6 +76,20 @@ export function toCheckoutTokenDto(
             username: spec.credentials.username,
             token: spec.credentials.token,
             expires_at: spec.credentials.expiresAt.toISOString(),
+            ...(spec.credentials.generation === undefined
+              ? {}
+              : {generation: spec.credentials.generation}),
+            ...(spec.credentials.renewal === undefined
+              ? {}
+              : {
+                  renewal:
+                    spec.credentials.renewal.mode === 'refresh-at'
+                      ? {
+                          mode: 'refresh-at' as const,
+                          refresh_at: spec.credentials.renewal.refreshAt.toISOString(),
+                        }
+                      : {mode: 'on-rejection' as const},
+                }),
             carry: 'header' as const,
             host: checkoutHost(spec.repositoryUrl),
             persist: options.persist,
