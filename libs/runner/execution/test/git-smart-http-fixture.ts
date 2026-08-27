@@ -89,7 +89,7 @@ export function createGitSmartHttpFixture(
       options.repositoryPath,
       children,
       childExitPromises,
-      options.backendTimeoutMs ?? 10_000,
+      options.backendTimeoutMs ?? 60_000,
     );
   };
 

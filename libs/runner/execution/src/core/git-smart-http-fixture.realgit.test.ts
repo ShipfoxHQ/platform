@@ -119,16 +119,19 @@ describe('Git smart-HTTP fixture (real git)', () => {
     const spies = [vi.spyOn(console, 'log'), vi.spyOn(console, 'error'), vi.spyOn(console, 'warn')];
 
     try {
-      await fixture.start();
-      await git(['ls-remote', fixture.url], workdir, TOKEN_B);
-    } finally {
-      await fixture.close();
-    }
+      try {
+        await fixture.start();
+        await git(['ls-remote', fixture.url], workdir, TOKEN_B);
+      } finally {
+        await fixture.close();
+      }
 
-    const output = spies.flatMap((spy) => spy.mock.calls.flat()).join(' ');
-    expect(output).not.toContain(TOKEN_B);
-    expect(output).not.toContain(`Authorization: Basic`);
-    for (const spy of spies) spy.mockRestore();
+      const output = spies.flatMap((spy) => spy.mock.calls.flat()).join(' ');
+      expect(output).not.toContain(TOKEN_B);
+      expect(output).not.toContain(`Authorization: Basic`);
+    } finally {
+      for (const spy of spies) spy.mockRestore();
+    }
   });
 
   it('rejects anonymous and malformed requests and reports an invalid repository cleanly', async () => {
