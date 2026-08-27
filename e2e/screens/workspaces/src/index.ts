@@ -4,6 +4,7 @@ import type {Page} from '@shipfox/playwright';
 type Locator = ReturnType<Page['locator']>;
 type FixtureUse<T> = (fixture: T) => Promise<void>;
 const LAST_WORKSPACE_KEY = 'shipfox.lastWorkspaceId';
+const SETUP_INDICATOR_NAME_RE = /Get started/u;
 
 function lastWorkspaceStorageKey(principalId: string): string {
   return `${LAST_WORKSPACE_KEY}.principal.${encodeURIComponent(principalId)}`;
@@ -57,8 +58,37 @@ export class WorkspaceHomeScreen {
     await this.page.goto(`/w/${workspaceSlug}/settings`);
   }
 
+  async gotoSettingsGeneral(workspaceSlug: string): Promise<void> {
+    await this.page.goto(`/w/${workspaceSlug}/settings/general`);
+  }
+
+  async gotoModelProvider(workspaceSlug: string): Promise<void> {
+    await this.page.goto(`/w/${workspaceSlug}/model-provider`);
+  }
+
+  async gotoNewProject(workspaceSlug: string): Promise<void> {
+    await this.page.goto(`/w/${workspaceSlug}/projects/new`);
+  }
+
   settingsTab(): Locator {
     return this.page.getByRole('tab', {name: 'Settings'});
+  }
+
+  createProjectNameField(): Locator {
+    return this.page.getByLabel('Project name');
+  }
+
+  createProjectButton(): Locator {
+    return this.page.getByRole('button', {name: 'Create project'});
+  }
+
+  async createProject(name: string): Promise<void> {
+    await this.createProjectNameField().fill(name);
+    await this.createProjectButton().click();
+  }
+
+  showSetupGuideButton(): Locator {
+    return this.page.getByRole('button', {name: 'Show the setup guide'});
   }
 
   currentWorkspaceSlug(): string | undefined {
@@ -88,6 +118,53 @@ export class WorkspaceHomeScreen {
   }
 }
 
+export class WorkspaceSetupChecklistScreen {
+  constructor(private readonly page: Page) {}
+
+  panel(): Locator {
+    return this.page.getByRole('region', {name: 'Get started'});
+  }
+
+  indicator(): Locator {
+    return this.page.getByRole('button', {name: SETUP_INDICATOR_NAME_RE});
+  }
+
+  row(title: string | RegExp): Locator {
+    return this.panel().getByRole('listitem').filter({hasText: title});
+  }
+
+  heading(): Locator {
+    return this.panel().getByRole('heading', {name: 'Get started'});
+  }
+
+  firstRow(): Locator {
+    return this.panel().getByRole('listitem').first();
+  }
+
+  connectLink(): Locator {
+    return this.panel().getByRole('link', {name: 'Connect'});
+  }
+
+  text(text: string | RegExp): Locator {
+    return this.panel().getByText(text);
+  }
+
+  countLabel(count: string | RegExp): Locator {
+    return this.panel().getByText(count);
+  }
+
+  hideButton(): Locator {
+    return this.panel().getByRole('button', {name: 'Hide setup guide'});
+  }
+
+  completionMessage(): Locator {
+    return this.page.getByText("You're set up");
+  }
+
+  doneButton(): Locator {
+    return this.page.getByRole('button', {name: 'Done'});
+  }
+}
 export class MembersSettingsScreen {
   private readonly shell: SettingsShell;
 
@@ -189,6 +266,7 @@ export interface WorkspacesScreenFixtures {
   membersSettings: MembersSettingsScreen;
   workspaceHome: WorkspaceHomeScreen;
   workspaceOnboarding: WorkspaceOnboardingScreen;
+  workspaceSetupChecklist: WorkspaceSetupChecklistScreen;
 }
 
 export const workspacesScreens = {
@@ -203,5 +281,11 @@ export const workspacesScreens = {
   },
   workspaceOnboarding: async ({page}: {page: Page}, use: FixtureUse<WorkspaceOnboardingScreen>) => {
     await use(new WorkspaceOnboardingScreen(page));
+  },
+  workspaceSetupChecklist: async (
+    {page}: {page: Page},
+    use: FixtureUse<WorkspaceSetupChecklistScreen>,
+  ) => {
+    await use(new WorkspaceSetupChecklistScreen(page));
   },
 };
