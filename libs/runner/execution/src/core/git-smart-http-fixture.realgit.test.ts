@@ -74,10 +74,11 @@ describe('Git smart-HTTP fixture (real git)', () => {
       expect(rejected.headers.get('www-authenticate')).toBe('Basic realm="shipfox-test-git"');
 
       await expect(git(['ls-remote', fixture.url], workdir, TOKEN_A)).rejects.toThrow();
+      const rejectedRequestCount = fixture.requestCount;
       fixture.setGeneration(2);
-      expect(fixture.authorizationHeaders).toContain(
-        `Basic ${Buffer.from(`${USERNAME}:${TOKEN_A}`).toString('base64')}`,
-      );
+      const acceptedAuthorization = `Basic ${Buffer.from(`${USERNAME}:${TOKEN_B}`).toString('base64')}`;
+      const rejectedAuthorization = `Basic ${Buffer.from(`${USERNAME}:${TOKEN_A}`).toString('base64')}`;
+      expect(fixture.authorizationHeaders).toContain(rejectedAuthorization);
       expect(fixture.requests).toContainEqual({
         method: 'GET',
         path: '/repo.git/info/refs?service=git-upload-pack',
@@ -99,26 +100,72 @@ describe('Git smart-HTTP fixture (real git)', () => {
       await git(['-C', clone, 'push', 'origin', 'main'], workdir, TOKEN_B);
 
       expect(fixture.requestCount).toBeGreaterThan(3);
-      expect(
-        fixture.authorizationHeaders.filter((header) => header?.includes(TOKEN_A)),
-      ).toHaveLength(0);
+      expect(fixture.authorizationHeaders.slice(rejectedRequestCount)).not.toContain(
+        rejectedAuthorization,
+      );
+      expect(fixture.authorizationHeaders.slice(rejectedRequestCount)).toContain(
+        acceptedAuthorization,
+      );
     } finally {
       await fixture.close();
     }
   });
 
-  it('does not print or expose credentials through fixture lifecycle output', async () => {
+  it('does not print credentials through the fixture lifecycle', async () => {
     const fixture = createGitSmartHttpFixture({
       repositoryPath: bareRepository,
       credentials: [{generation: 'fresh', username: USERNAME, token: TOKEN_B, accepted: true}],
     });
-    const log = vi.spyOn(console, 'log');
+    const spies = [vi.spyOn(console, 'log'), vi.spyOn(console, 'error'), vi.spyOn(console, 'warn')];
 
+    try {
+      await fixture.start();
+      await git(['ls-remote', fixture.url], workdir, TOKEN_B);
+    } finally {
+      await fixture.close();
+    }
+
+    const output = spies.flatMap((spy) => spy.mock.calls.flat()).join(' ');
+    expect(output).not.toContain(TOKEN_B);
+    expect(output).not.toContain(`Authorization: Basic`);
+    for (const spy of spies) spy.mockRestore();
+  });
+
+  it('rejects anonymous and malformed requests and reports an invalid repository cleanly', async () => {
+    expect(() =>
+      createGitSmartHttpFixture({
+        repositoryPath: bareRepository,
+        credentials: [
+          {generation: 'duplicate', username: USERNAME, token: TOKEN_A, accepted: false},
+          {generation: 'duplicate', username: USERNAME, token: TOKEN_B, accepted: true},
+        ],
+      }),
+    ).toThrow('Duplicate Git credential generation');
+
+    const fixture = createGitSmartHttpFixture({
+      repositoryPath: bareRepository,
+      credentials: [{generation: 'fresh', username: USERNAME, token: TOKEN_B, accepted: true}],
+    });
     await fixture.start();
-    await git(['ls-remote', fixture.url], workdir, TOKEN_B);
-    await fixture.close();
 
-    expect(log).not.toHaveBeenCalled();
-    log.mockRestore();
+    try {
+      const anonymous = await fetch(fixture.url);
+      expect(anonymous.status).toBe(401);
+      expect(anonymous.headers.get('www-authenticate')).toBe('Basic realm="shipfox-test-git"');
+      expect(await anonymous.text()).toBe('');
+
+      const malformed = await fetch(fixture.url, {headers: {authorization: 'Basic not-base64'}});
+      expect(malformed.status).toBe(401);
+      expect(() => fixture.setGeneration('missing')).toThrow('Unknown Git credential generation');
+
+      const invalidRepository = await fetch(`${fixture.url}/missing`, {
+        headers: {
+          authorization: `Basic ${Buffer.from(`${USERNAME}:${TOKEN_B}`).toString('base64')}`,
+        },
+      });
+      expect(invalidRepository.status).toBe(404);
+    } finally {
+      await fixture.close();
+    }
   });
 });

@@ -1,4 +1,4 @@
-import {spawn} from 'node:child_process';
+import {type ChildProcess, spawn} from 'node:child_process';
 import {createServer, type IncomingMessage, type Server, type ServerResponse} from 'node:http';
 import {basename, dirname} from 'node:path';
 
@@ -15,6 +15,7 @@ export interface GitSmartHttpFixtureOptions {
   repositoryPath: string;
   credentials: GitHttpCredential[];
   realm?: string;
+  backendTimeoutMs?: number;
 }
 
 export interface GitSmartHttpRequest {
@@ -41,12 +42,29 @@ export interface GitSmartHttpFixture {
 export function createGitSmartHttpFixture(
   options: GitSmartHttpFixtureOptions,
 ): GitSmartHttpFixture {
+  const duplicateGeneration = options.credentials.find(
+    (credential, index) =>
+      options.credentials.findIndex(
+        (candidate) => candidate.generation === credential.generation,
+      ) !== index,
+  );
+  if (duplicateGeneration !== undefined) {
+    throw new Error(
+      `Duplicate Git credential generation: ${String(duplicateGeneration.generation)}`,
+    );
+  }
+
   const credentials = new Map(
     options.credentials.map((credential) => [credential.generation, credential]),
   );
   const realm = options.realm ?? 'shipfox-test-git';
+  const initialGeneration = options.credentials.find(
+    (credential) => credential.accepted,
+  )?.generation;
   const requests: GitSmartHttpRequest[] = [];
-  let generation = options.credentials.find((credential) => credential.accepted)?.generation;
+  const children = new Set<ChildProcess>();
+  const childExitPromises = new Map<ChildProcess, Promise<number>>();
+  let generation = initialGeneration;
   let server: Server | undefined;
   let address: string | undefined;
 
@@ -65,7 +83,14 @@ export function createGitSmartHttpFixture(
       return;
     }
 
-    await proxyToGitHttpBackend(request, response, options.repositoryPath);
+    await proxyToGitHttpBackend(
+      request,
+      response,
+      options.repositoryPath,
+      children,
+      childExitPromises,
+      options.backendTimeoutMs ?? 10_000,
+    );
   };
 
   return {
@@ -84,6 +109,8 @@ export function createGitSmartHttpFixture(
     },
     async start() {
       if (server !== undefined) return;
+      requests.length = 0;
+      generation = initialGeneration;
       server = createServer((request, response) => {
         void handler(request, response).catch(() => {
           if (!response.headersSent) response.writeHead(500);
@@ -102,6 +129,9 @@ export function createGitSmartHttpFixture(
       const currentServer = server;
       server = undefined;
       address = undefined;
+      currentServer.closeAllConnections();
+      for (const child of children) child.kill();
+      await Promise.allSettled(childExitPromises.values());
       await new Promise<void>((resolve, reject) => {
         currentServer.close((error) => (error ? reject(error) : resolve()));
       });
@@ -134,6 +164,9 @@ async function proxyToGitHttpBackend(
   request: IncomingMessage,
   response: ServerResponse,
   repositoryPath: string,
+  children: Set<ChildProcess>,
+  childExitPromises: Map<ChildProcess, Promise<number>>,
+  timeoutMs: number,
 ): Promise<void> {
   const requestUrl = new URL(request.url ?? '/', 'http://fixture.invalid');
   const child = spawn('git', ['http-backend'], {
@@ -149,11 +182,20 @@ async function proxyToGitHttpBackend(
     },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
+  children.add(child);
 
   const output = collect(child.stdout);
   const error = collect(child.stderr);
+  const exitPromise = waitForExit(child, timeoutMs);
+  childExitPromises.set(child, exitPromise);
+  child.stdin.on('error', () => request.unpipe(child.stdin));
   request.pipe(child.stdin);
-  const [body, errorOutput, exitCode] = await Promise.all([output, error, waitForExit(child)]);
+  const [body, errorOutput, exitCode] = await Promise.all([output, error, exitPromise]).finally(
+    () => {
+      children.delete(child);
+      childExitPromises.delete(child);
+    },
+  );
   if (exitCode !== 0) throw new Error(`git-http-backend failed: ${errorOutput.toString('utf8')}`);
 
   const separator = body.indexOf(Buffer.from('\r\n\r\n'));
@@ -182,10 +224,20 @@ function collect(stream: NodeJS.ReadableStream): Promise<Buffer> {
   });
 }
 
-function waitForExit(child: ReturnType<typeof spawn>): Promise<number> {
+function waitForExit(child: ReturnType<typeof spawn>, timeoutMs: number): Promise<number> {
   return new Promise((resolve, reject) => {
-    child.once('error', reject);
-    child.once('close', (code) => resolve(code ?? 1));
+    const timer = setTimeout(() => {
+      child.kill();
+      reject(new Error(`git-http-backend timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    child.once('error', (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.once('close', (code) => {
+      clearTimeout(timer);
+      resolve(code ?? 1);
+    });
   });
 }
 
