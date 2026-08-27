@@ -227,10 +227,13 @@ export function createSourceControlIntegrationService({
         permissions,
         rejectedGeneration,
       });
-      if (credentials.generation !== undefined && credentials.generation === rejectedGeneration) {
+      if (
+        rejectedGeneration !== undefined &&
+        (credentials.generation === undefined || credentials.generation === rejectedGeneration)
+      ) {
         throw new IntegrationProviderError(
           'provider-rejected',
-          'Provider returned a rejected checkout credential generation',
+          'Provider returned a rejected or unidentified checkout credential generation',
         );
       }
       return credentials;

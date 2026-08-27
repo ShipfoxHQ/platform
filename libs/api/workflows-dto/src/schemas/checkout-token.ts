@@ -16,24 +16,46 @@ const checkoutCredentialRenewalSchema = z.discriminatedUnion('mode', [
   z.object({mode: z.literal('on-rejection')}),
 ]);
 
-const checkoutTokenBasicAuthSchema = z.object({
-  kind: z.literal('basic'),
-  username: z.string().min(1),
-  token: z.string().min(1),
-  expires_at: z.string().datetime({offset: true}),
-  generation: z.string().min(1).optional(),
-  renewal: checkoutCredentialRenewalSchema.optional(),
-  ...carryFields,
-});
+function validateRenewalWindow<
+  T extends {
+    expires_at: string;
+    renewal?: {mode: 'refresh-at'; refresh_at: string} | {mode: 'on-rejection'} | undefined;
+  },
+>(auth: T, ctx: z.RefinementCtx) {
+  if (auth.renewal?.mode !== 'refresh-at') return;
 
-const checkoutTokenBearerAuthSchema = z.object({
-  kind: z.literal('bearer'),
-  token: z.string().min(1),
-  expires_at: z.string().datetime({offset: true}),
-  generation: z.string().min(1).optional(),
-  renewal: checkoutCredentialRenewalSchema.optional(),
-  ...carryFields,
-});
+  const refreshAt = Date.parse(auth.renewal.refresh_at);
+  if (refreshAt <= Date.now() || refreshAt >= Date.parse(auth.expires_at)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['renewal', 'refresh_at'],
+      message: 'refresh_at must be in the future and earlier than expires_at',
+    });
+  }
+}
+
+const checkoutTokenBasicAuthSchema = z
+  .object({
+    kind: z.literal('basic'),
+    username: z.string().min(1),
+    token: z.string().min(1),
+    expires_at: z.string().datetime({offset: true}),
+    generation: z.string().min(1).optional(),
+    renewal: checkoutCredentialRenewalSchema.optional(),
+    ...carryFields,
+  })
+  .superRefine(validateRenewalWindow);
+
+const checkoutTokenBearerAuthSchema = z
+  .object({
+    kind: z.literal('bearer'),
+    token: z.string().min(1),
+    expires_at: z.string().datetime({offset: true}),
+    generation: z.string().min(1).optional(),
+    renewal: checkoutCredentialRenewalSchema.optional(),
+    ...carryFields,
+  })
+  .superRefine(validateRenewalWindow);
 
 export const checkoutTokenAuthSchema = z.discriminatedUnion('kind', [
   checkoutTokenBasicAuthSchema,

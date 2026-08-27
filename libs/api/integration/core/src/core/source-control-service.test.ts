@@ -289,6 +289,26 @@ describe('integration source-control service', () => {
     await expect(result).rejects.toMatchObject({reason: 'access-denied'});
   });
 
+  it('rejects credentials without a generation when retrying a rejected generation', async () => {
+    const service = createService({
+      createCheckoutCredentials: async () => ({
+        username: 'x-access-token',
+        token: 'secret',
+        expiresAt: new Date('2027-01-01T00:00:00.000Z'),
+      }),
+    });
+
+    await expect(
+      service.createCheckoutCredentials({
+        workspaceId,
+        connectionId: connection.id,
+        externalRepositoryId: repository.externalRepositoryId,
+        permissions: {contents: 'read'},
+        rejectedGeneration: 'generation-1',
+      }),
+    ).rejects.toMatchObject({reason: 'provider-rejected'});
+  });
+
   it('rejects when the provider does not support creating a checkout spec', async () => {
     const service = createService({}, {omitCheckoutSpec: true});
 

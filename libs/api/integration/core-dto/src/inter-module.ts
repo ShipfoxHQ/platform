@@ -28,13 +28,26 @@ const checkoutCredentialRenewal = z.discriminatedUnion('mode', [
   z.object({mode: z.literal('refresh-at'), refreshAt: z.string().datetime()}),
   z.object({mode: z.literal('on-rejection')}),
 ]);
-const checkoutCredentials = z.object({
-  username: z.string().min(1),
-  token: z.string().min(1),
-  expiresAt: z.string().datetime(),
-  generation: z.string().min(1).optional(),
-  renewal: checkoutCredentialRenewal.optional(),
-});
+const checkoutCredentials = z
+  .object({
+    username: z.string().min(1),
+    token: z.string().min(1),
+    expiresAt: z.string().datetime(),
+    generation: z.string().min(1).optional(),
+    renewal: checkoutCredentialRenewal.optional(),
+  })
+  .superRefine(({expiresAt, renewal}, ctx) => {
+    if (renewal?.mode !== 'refresh-at') return;
+
+    const refreshAt = Date.parse(renewal.refreshAt);
+    if (refreshAt <= Date.now() || refreshAt >= Date.parse(expiresAt)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['renewal', 'refreshAt'],
+        message: 'refreshAt must be in the future and earlier than expiresAt',
+      });
+    }
+  });
 const toolCallTool = z.object({
   id: z.string().min(1),
   provider,

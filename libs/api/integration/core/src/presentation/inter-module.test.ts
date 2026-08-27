@@ -96,9 +96,9 @@ describe('integrations inter-module presentation', () => {
       async (_input) => ({
         username: 'x-access-token',
         token: 'secret',
-        expiresAt: new Date('2026-01-01T00:00:00.000Z'),
+        expiresAt: new Date('2027-01-01T00:00:00.000Z'),
         generation: 'generation-2',
-        renewal: {mode: 'refresh-at', refreshAt: new Date('2025-12-31T23:55:00.000Z')},
+        renewal: {mode: 'refresh-at', refreshAt: new Date('2026-12-31T23:55:00.000Z')},
       }),
     );
 
@@ -113,9 +113,9 @@ describe('integrations inter-module presentation', () => {
     expect(result).toEqual({
       username: 'x-access-token',
       token: 'secret',
-      expiresAt: '2026-01-01T00:00:00.000Z',
+      expiresAt: '2027-01-01T00:00:00.000Z',
       generation: 'generation-2',
-      renewal: {mode: 'refresh-at', refreshAt: '2025-12-31T23:55:00.000Z'},
+      renewal: {mode: 'refresh-at', refreshAt: '2026-12-31T23:55:00.000Z'},
     });
   });
 
@@ -150,6 +150,67 @@ describe('integrations inter-module presentation', () => {
     } else {
       throw error;
     }
+  });
+
+  it('round-trips on-rejection renewal without a refresh timestamp', async () => {
+    const client = createClient(
+      async (input) => ({ref: input.ref, commit: 'a'.repeat(40)}),
+      undefined,
+      async () => ({
+        username: 'x-access-token',
+        token: 'secret',
+        expiresAt: new Date('2027-01-01T00:00:00.000Z'),
+        generation: 'generation-2',
+        renewal: {mode: 'on-rejection'},
+      }),
+    );
+
+    await expect(
+      client.createCheckoutCredentials({...input, permissions: {contents: 'read'}}),
+    ).resolves.toEqual({
+      username: 'x-access-token',
+      token: 'secret',
+      expiresAt: '2027-01-01T00:00:00.000Z',
+      generation: 'generation-2',
+      renewal: {mode: 'on-rejection'},
+    });
+  });
+
+  it('rejects an empty credential generation at the transport boundary', async () => {
+    const client = createClient(
+      async (input) => ({ref: input.ref, commit: 'a'.repeat(40)}),
+      undefined,
+      async () => ({
+        username: 'x-access-token',
+        token: 'secret',
+        expiresAt: new Date('2027-01-01T00:00:00.000Z'),
+        generation: '',
+      }),
+    );
+
+    await expect(
+      client.createCheckoutCredentials({...input, permissions: {contents: 'read'}}),
+    ).rejects.toBeDefined();
+  });
+
+  it.each([
+    ['after expiry', '2027-01-01T00:01:00.000Z'],
+    ['already past', '2020-01-01T00:00:00.000Z'],
+  ])('rejects a refresh-at renewal that is %s', async (_case, refreshAt) => {
+    const client = createClient(
+      async (input) => ({ref: input.ref, commit: 'a'.repeat(40)}),
+      undefined,
+      async () => ({
+        username: 'x-access-token',
+        token: 'secret',
+        expiresAt: new Date('2027-01-01T00:00:00.000Z'),
+        renewal: {mode: 'refresh-at', refreshAt: new Date(refreshAt)},
+      }),
+    );
+
+    await expect(
+      client.createCheckoutCredentials({...input, permissions: {contents: 'read'}}),
+    ).rejects.toBeDefined();
   });
 
   it('resolves a source ref through the transport', async () => {
