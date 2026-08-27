@@ -1,8 +1,9 @@
 import {runnerToolCapabilitiesSchema} from './tool-capabilities.js';
 
 describe('runnerToolCapabilitiesSchema', () => {
-  it('accepts a full capability report', () => {
+  it('accepts a capability report with protocol features separate from harness tools', () => {
     const result = runnerToolCapabilitiesSchema.safeParse({
+      features: {renewable_git: true},
       harnesses: {
         pi: {tools: ['read', 'bash', 'web_search']},
         claude: {tools: ['Read', 'Bash', 'WebSearch']},
@@ -10,9 +11,10 @@ describe('runnerToolCapabilitiesSchema', () => {
     });
 
     expect(result.success).toBe(true);
+    if (result.success) expect(result.data.features?.renewable_git).toBe(true);
   });
 
-  it('accepts a partial capability report', () => {
+  it('accepts a partial capability report without features for old runners', () => {
     const result = runnerToolCapabilitiesSchema.safeParse({
       harnesses: {
         pi: {tools: ['read']},
@@ -26,6 +28,15 @@ describe('runnerToolCapabilitiesSchema', () => {
     const result = runnerToolCapabilitiesSchema.safeParse({harnesses: {}});
 
     expect(result.success).toBe(true);
+  });
+
+  it('rejects unknown protocol features', () => {
+    const result = runnerToolCapabilitiesSchema.safeParse({
+      features: {renewable_git: false, unknown_feature: true},
+      harnesses: {},
+    });
+
+    expect(result.success).toBe(false);
   });
 
   it('accepts an empty tool array', () => {

@@ -1,1 +1,1 @@
-export {startRunner} from '#core/runner.js';
+export {runnerCapabilities, startRunner} from '#core/runner.js';
