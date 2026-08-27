@@ -597,9 +597,17 @@ describe('nextStepForJob session claims', () => {
     const sessionId = crypto.randomUUID();
     const claimSession = vi.mocked(agentTestClient.claimSession);
     claimSession.mockReset();
-    claimSession.mockResolvedValue({
-      descriptor: {id: sessionId, key: 'main', mode: 'resume', segment: 0},
-      harness: 'pi',
+    claimSession.mockImplementation(async () => {
+      const attempts = await getStepAttempts(jobId);
+      expect(attempts[0]).toMatchObject({
+        stepId: step.id,
+        attempt: 1,
+        status: 'running',
+      });
+      return {
+        descriptor: {id: sessionId, key: 'main', mode: 'resume', segment: 0},
+        harness: 'pi',
+      };
     });
 
     const next = await nextStepForJob(jobId, agentTestClient);
@@ -701,6 +709,65 @@ describe('nextStepForJob session claims', () => {
     );
   });
 
+  test('reports an unresolved interpolated session key as configuration failure', async () => {
+    const {jobId, steps} = await arrangeJobWithSteps(2);
+    const producer = steps[0];
+    const consumer = steps[1];
+    if (!producer || !consumer) throw new Error('Expected arranged steps');
+    await db().update(stepsTable).set({key: 'build'}).where(eq(stepsTable.id, producer.id));
+    await db()
+      .update(stepsTable)
+      .set({
+        type: 'agent',
+        config: {prompt: 'Draft the plan.'},
+        configPlan: {
+          agent: {
+            prompt: {segments: [{kind: 'literal', value: 'Draft the plan.'}]},
+            session: {
+              key: {
+                segments: [
+                  {kind: 'literal', value: 'triage-'},
+                  {
+                    kind: 'deferred',
+                    expression: createWorkflowExpression({
+                      source: 'steps.build.outputs.issue',
+                      check: {mode: 'syntax'},
+                    }),
+                    roots: ['steps'],
+                    fillTarget: 'step-dispatch',
+                  },
+                ],
+              },
+              mode: 'resume',
+            },
+          },
+        },
+      })
+      .where(eq(stepsTable.id, consumer.id));
+    const claimSession = vi.mocked(agentTestClient.claimSession);
+    claimSession.mockReset();
+
+    await nextStepForJob(jobId);
+    await recordStepResult({
+      jobId,
+      stepId: producer.id,
+      status: 'succeeded',
+      output: {},
+    });
+
+    const next = await nextStepForJob(jobId, agentTestClient);
+
+    expect(next).toEqual({kind: 'done', status: 'failed'});
+    expect(claimSession).not.toHaveBeenCalled();
+    expect((await getStepsByJobId(jobId)).find((step) => step.id === consumer.id)).toMatchObject({
+      status: 'failed',
+      error: {
+        reason: 'config_unresolvable',
+        field: 'agent.session',
+      },
+    });
+  });
+
   test('a fork of a nonexistent session dispatches without a descriptor', async () => {
     const {jobId, steps} = await arrangeJobWithAgentStep({
       prompt: 'Plan the work.',
@@ -723,6 +790,60 @@ describe('nextStepForJob session claims', () => {
     expect(claimSession).toHaveBeenCalledWith(expect.objectContaining({mode: 'fork'}));
     const attempts = await getStepAttempts(jobId);
     expect(attempts[0]?.config).not.toHaveProperty('session');
+  });
+
+  test('rejects an empty resolved session key before calling Agent', async () => {
+    const {jobId, steps} = await arrangeJobWithAgentStep({
+      prompt: 'Plan the work.',
+      session: '',
+    });
+    const step = steps[0];
+    if (!step) throw new Error('Expected arranged step');
+    const claimSession = vi.mocked(agentTestClient.claimSession);
+    claimSession.mockReset();
+
+    const next = await nextStepForJob(jobId, agentTestClient);
+
+    expect(next).toEqual({kind: 'done', status: 'failed'});
+    expect(claimSession).not.toHaveBeenCalled();
+    expect((await getStepsByJobId(jobId))[0]).toMatchObject({
+      id: step.id,
+      status: 'failed',
+      error: {reason: 'agent_session_key_invalid', field: 'agent.session'},
+    });
+  });
+
+  test('fails cleanly when the current attempt already has a terminal row', async () => {
+    const {jobId, steps} = await arrangeJobWithAgentStep({
+      prompt: 'Plan the work.',
+      session: 'main',
+    });
+    const step = steps[0];
+    if (!step) throw new Error('Expected arranged step');
+    await db()
+      .insert(stepAttemptsTable)
+      .values({
+        jobExecutionId: step.jobExecutionId,
+        stepId: step.id,
+        attempt: step.currentAttempt,
+        executionOrder: 1,
+        status: 'succeeded',
+        config: {prompt: 'already completed'},
+      });
+    const claimSession = vi.mocked(agentTestClient.claimSession);
+    claimSession.mockReset();
+
+    const next = await nextStepForJob(jobId, agentTestClient);
+
+    expect(next).toEqual({kind: 'done', status: 'failed'});
+    expect(claimSession).not.toHaveBeenCalled();
+    expect(await getStepAttempts(jobId)).toMatchObject([
+      {status: 'succeeded', config: {prompt: 'already completed'}},
+    ]);
+    expect((await getStepsByJobId(jobId))[0]).toMatchObject({
+      status: 'failed',
+      error: {reason: 'agent_session_unavailable'},
+    });
   });
 
   test.each([

@@ -326,7 +326,13 @@ export async function dispatchStepWithCompletedConfig(
       config: params.config,
       evaluationTrace: params.evaluationTrace ?? null,
     })
-    .where(and(eq(stepAttempts.stepId, step.id), eq(stepAttempts.attempt, step.currentAttempt)));
+    .where(
+      and(
+        eq(stepAttempts.stepId, step.id),
+        eq(stepAttempts.attempt, step.currentAttempt),
+        eq(stepAttempts.status, 'running'),
+      ),
+    );
   return step;
 }
 

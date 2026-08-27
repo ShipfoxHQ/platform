@@ -108,7 +108,11 @@ function toStepGateResultDto(
 }
 
 export function toStepDto(step: Step): StepDto {
-  const session = agentStepSessionDescriptorSchema.safeParse(step.config.session);
+  const sessionValue = step.config.session;
+  const session =
+    sessionValue === undefined || sessionValue === null
+      ? null
+      : agentStepSessionDescriptorSchema.safeParse(sessionValue);
   return {
     id: step.id,
     job_execution_id: step.jobExecutionId,
@@ -121,7 +125,7 @@ export function toStepDto(step: Step): StepDto {
     config: step.config,
     evaluation_trace: toEvaluationTraceDto(step.evaluationTrace),
     error: toStepErrorDto(step.error, step.type),
-    session: session.success ? session.data : null,
+    session: session === null ? null : session.success ? session.data : null,
     position: step.position,
     current_attempt: step.currentAttempt,
     created_at: step.createdAt.toISOString(),

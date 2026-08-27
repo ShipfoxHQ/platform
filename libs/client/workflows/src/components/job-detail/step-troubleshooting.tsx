@@ -504,7 +504,7 @@ function failureDescription(reason: string | JobStatusReason): string {
     case 'agent_session_harness_mismatch':
       return 'The step harness differs from the harness the agent session is pinned to.';
     case 'agent_session_unavailable':
-      return 'The agent session transcript could not be loaded or stored.';
+      return 'The agent session was unavailable during dispatch. Review the error details below and retry after resolving the cause.';
     case 'runner_lost':
       return 'The runner stopped responding before the step completed.';
     case 'output_too_large':

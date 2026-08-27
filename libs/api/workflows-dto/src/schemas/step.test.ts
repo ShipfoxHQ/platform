@@ -1,5 +1,6 @@
 import {
   agentStepSessionDescriptorSchema,
+  agentStepSessionIntentSchema,
   STEP_ERROR_MESSAGE_MAX_LENGTH,
   STEP_STATUS_REASONS,
   stepAttemptDtoSchema,
@@ -191,6 +192,21 @@ describe('agentStepSessionDescriptorSchema', () => {
     expect(result.success).toBe(false);
   });
 
+  it('keeps the authored intent distinct from a resolved descriptor', () => {
+    expect(agentStepSessionIntentSchema.parse({key: 'main', mode: 'resume'})).toEqual({
+      key: 'main',
+      mode: 'resume',
+    });
+    expect(
+      agentStepSessionIntentSchema.safeParse({
+        id: '11111111-1111-4111-8111-111111111111',
+        key: 'main',
+        mode: 'resume',
+        segment: 0,
+      }).success,
+    ).toBe(false);
+  });
+
   it('carries a nullable session on the step DTO', () => {
     const result = stepDtoSchema.parse({
       id: '11111111-1111-4111-8111-111111111111',
@@ -212,6 +228,31 @@ describe('agentStepSessionDescriptorSchema', () => {
     });
 
     expect(result.session).toBeNull();
+  });
+
+  it('accepts a legacy step DTO without the additive session field', () => {
+    const {session: _session, ...legacyStep} = {
+      id: '11111111-1111-4111-8111-111111111111',
+      job_execution_id: '33333333-3333-4333-8333-333333333333',
+      key: null,
+      name: 'Plan',
+      source_location: null,
+      status: 'pending',
+      status_reason: null,
+      type: 'agent',
+      config: {prompt: 'Plan the work.'},
+      evaluation_trace: null,
+      error: null,
+      session: null,
+      position: 1,
+      current_attempt: 1,
+      created_at: '2026-01-01T00:00:00.000Z',
+      updated_at: '2026-01-01T00:00:00.000Z',
+    };
+
+    const result = stepDtoSchema.parse(legacyStep);
+
+    expect(result.session).toBeUndefined();
   });
 });
 

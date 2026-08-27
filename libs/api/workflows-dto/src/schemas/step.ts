@@ -15,12 +15,11 @@ export type StepStatusReasonDto = z.infer<typeof stepStatusReasonSchema>;
 // Machine-readable cause of a step failure, for DB troubleshooting. The runner
 // reports it and the server stores it as-is. The `checkout_*`, `git_unavailable`,
 // `workspace_prep_failed`, and `setup_aborted` values cover checkout/setup failures.
-// For agent steps the cause is split three ways: `agent_config_invalid` is a user-fixable
-// configuration error and carries an `agent_config_issue`; `agent_invocation_failed`
-// covers a provider/API failure once the configuration is valid; and
-// `agent_harness_unavailable` means the runner could not start its harness, so the model
-// was never called. The latter carries no `agent_config_issue`, because every issue code
-// names a user-fixable cause. (Aborts are never reported: the step loop stops before reporting.)
+// For agent steps the cause is split into configuration, invocation, harness-startup, and
+// dispatch-time session-claim failures. `agent_config_invalid` is a user-fixable configuration
+// error and carries an `agent_config_issue`; the other reasons carry no issue code because
+// they describe the provider call, harness startup, or session claim. (Aborts are never
+// reported: the step loop stops before reporting.)
 export const stepErrorReasonSchema = z.enum([
   'checkout_failed',
   'checkout_auth_failed',
@@ -69,6 +68,17 @@ export function deriveStepErrorCategory(
 // module. The workflows name is retained as the public payload vocabulary.
 export const agentStepSessionDescriptorSchema = agentSessionDescriptorSchema;
 export type AgentStepSessionDescriptorDto = AgentSessionDescriptorDto;
+
+// This is the internal shape persisted while a dispatch is waiting for the Agent module to
+// resolve a session descriptor. Keep it strict so a resolved descriptor cannot be mistaken for
+// an authored intent on a later dispatch.
+export const agentStepSessionIntentSchema = z
+  .object({
+    key: z.string(),
+    mode: z.enum(['resume', 'fork']),
+  })
+  .strict();
+export type AgentStepSessionIntentDto = z.infer<typeof agentStepSessionIntentSchema>;
 
 export const agentConfigIssueSchema = z.enum([
   'step_config_invalid',
@@ -136,7 +146,8 @@ export const stepDtoSchema = z.object({
   config: z.record(z.string(), z.unknown()),
   evaluation_trace: evaluationTraceSchema.nullable(),
   error: stepErrorDtoSchema,
-  session: agentStepSessionDescriptorSchema.nullable(),
+  // Optional for mixed-version readers: older servers do not emit the additive session field.
+  session: agentStepSessionDescriptorSchema.nullable().optional(),
   position: z.number(),
   // Execution-attempt identity of the current projection (>1 after a restart).
   current_attempt: z.number().int(),
