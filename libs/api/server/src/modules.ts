@@ -181,6 +181,17 @@ export async function defaultModules(
             })
           ).deleted,
       },
+      github: {
+        getSecret: async (params) => (await secretsClient.getSecret(params)).value,
+        setSecrets: async (params) => {
+          const {editedBy, ...secretParams} = params;
+          await secretsClient.setSecrets({
+            ...secretParams,
+            ...(editedBy === undefined ? {} : {editedBy}),
+          });
+        },
+        deleteSecrets: async (params) => (await secretsClient.deleteSecrets(params)).deleted,
+      },
     },
     agentTools: {workflows: workflowsClient},
     webhookDeliverySource: options.webhookDeliverySource,
