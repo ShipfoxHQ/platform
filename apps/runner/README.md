@@ -27,8 +27,8 @@ the step.
 
 At startup, the runner uses exactly one of two modes. Direct runners exchange
 `SHIPFOX_RUNNER_REGISTRATION_TOKEN` for a short-lived runner session token using
-`SHIPFOX_RUNNER_LABELS`. The value can be a manual token (`sf_mrt_...`) or an
-ephemeral token (`sf_ert_...`). Provisioner-managed runners exchange
+`SHIPFOX_RUNNER_LABELS`. The value is a manual token (`sf_mrt_...`).
+Provisioner-managed runners exchange
 `SHIPFOX_RUNNER_BOOTSTRAP_TOKEN`, enroll with their labels and capabilities,
 heartbeat while waiting for their own assignment, then exchange the delivered
 activation token through the same registration endpoint. The bootstrap and
@@ -69,7 +69,7 @@ configured root is empty, the filesystem root (`/`), or a home directory.
 | Variable | Default | Description |
 | --- | --- | --- |
 | `SHIPFOX_API_URL` | N/A | Base URL of the Shipfox API. |
-| `SHIPFOX_RUNNER_REGISTRATION_TOKEN` | N/A | Manual (`sf_mrt_...`) or ephemeral (`sf_ert_...`) registration token. Set this or `SHIPFOX_RUNNER_BOOTSTRAP_TOKEN`, not both. |
+| `SHIPFOX_RUNNER_REGISTRATION_TOKEN` | N/A | Manual (`sf_mrt_...`) registration token. Set this or `SHIPFOX_RUNNER_BOOTSTRAP_TOKEN`, not both. |
 | `SHIPFOX_RUNNER_BOOTSTRAP_TOKEN` | N/A | One-use managed-runner bootstrap token. The runner enrolls and waits for an assignment before exchanging its activation token for a runner session. Set this or `SHIPFOX_RUNNER_REGISTRATION_TOKEN`, not both. |
 | `SHIPFOX_RUNNER_PROVIDER_KIND` | N/A | Provider kind the managed runner declares during enrollment, such as `ec2` or `docker`. Required with `SHIPFOX_RUNNER_BOOTSTRAP_TOKEN`. |
 | `SHIPFOX_RUNNER_PROTOCOL_VERSION` | `1` | Protocol version the managed runner declares during enrollment. |

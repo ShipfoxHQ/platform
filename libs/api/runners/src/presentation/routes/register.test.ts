@@ -3,24 +3,18 @@ import type {RunnerToolCapabilitiesDto} from '@shipfox/api-runners-dto';
 import type {AuthMethod} from '@shipfox/node-fastify';
 import {ClientError, closeApp, createApp} from '@shipfox/node-fastify';
 import {generateOpaqueToken} from '@shipfox/node-tokens';
-import {eq, sql} from 'drizzle-orm';
+import {eq} from 'drizzle-orm';
 import type {FastifyInstance, FastifyReply, FastifyRequest} from 'fastify';
-import {config} from '#config.js';
 import {RunnerLabelsReservedError} from '#core/errors.js';
-import {hashRunnersRateLimitIdentifier} from '#core/rate-limit.js';
 import {db} from '#db/db.js';
 import {revokeManualRegistrationToken} from '#db/manual-registration-tokens.js';
-import {ephemeralRegistrationTokens} from '#db/schema/ephemeral-registration-tokens.js';
-import {runnersRateLimits} from '#db/schema/rate-limits.js';
 import {runnerSessions} from '#db/schema/runner-sessions.js';
 import {createRunnerRegistrationTokenAuthMethod} from '#presentation/auth/index.js';
 import {
-  ephemeralRegistrationTokenFactory,
   fakeLeaseTokenAuthMethod,
   fakeRunnerSessionAuthMethod,
   getRunnerSessionTokenClaims,
   manualRegistrationTokenFactory,
-  provisionerTokenFactory,
   runnersTestAuthClient,
 } from '#test/index.js';
 import {createRunnerRoutes} from './index.js';
@@ -167,107 +161,6 @@ describe('POST /runners/register', () => {
     });
   });
 
-  it('exchanges an ephemeral registration token for a one-claim runner session', async () => {
-    const ephemeralRawToken = generateOpaqueToken('ephemeralRegistrationToken');
-    const token = await ephemeralRegistrationTokenFactory.create(
-      {workspaceId},
-      {transient: {rawToken: ephemeralRawToken}},
-    );
-
-    const res = await app.inject({
-      method: 'POST',
-      url: '/runners/register',
-      headers: {authorization: `Bearer ${ephemeralRawToken}`},
-      payload: {labels: ['Linux', 'x64'], capabilities: {harnesses: {pi: {tools: ['read']}}}},
-    });
-
-    expect(res.statusCode).toBe(200);
-    const body = res.json();
-    expect(body.mode).toBe('ephemeral');
-    expect(body.max_claims).toBe(1);
-
-    const claims = getRunnerSessionTokenClaims(body.session_token);
-    expect(claims?.maxClaims).toBe(1);
-
-    const [session] = await db()
-      .select()
-      .from(runnerSessions)
-      .where(eq(runnerSessions.id, body.session_id));
-    expect(session?.registrationTokenKind).toBe('ephemeral');
-    expect(session?.provisionerId).toBe(token.provisionerId);
-    expect(session?.providerRunnerId).toBe(token.providerRunnerId);
-    expect(session?.maxClaims).toBe(1);
-    expect(session?.claimsUsed).toBe(0);
-    expect(session?.toolCapabilities).toEqual({harnesses: {pi: {tools: ['read']}}});
-    expect(session?.toolCapabilitiesReportedAt).toBeInstanceOf(Date);
-
-    const [consumed] = await db()
-      .select()
-      .from(ephemeralRegistrationTokens)
-      .where(eq(ephemeralRegistrationTokens.id, token.id));
-    expect(consumed?.consumedAt).toBeInstanceOf(Date);
-    expect(consumed?.consumedSessionId).toBe(body.session_id);
-  });
-
-  it('strips reserved labels from ephemeral registration', async () => {
-    const ephemeralRawToken = generateOpaqueToken('ephemeralRegistrationToken');
-    const provisioner = await provisionerTokenFactory.create({
-      scope: 'workspace',
-      workspaceId,
-    });
-    const token = await ephemeralRegistrationTokenFactory.create(
-      {workspaceId, provisionerId: provisioner.id},
-      {transient: {rawToken: ephemeralRawToken}},
-    );
-
-    const res = await app.inject({
-      method: 'POST',
-      url: '/runners/register',
-      headers: {authorization: `Bearer ${ephemeralRawToken}`},
-      payload: {labels: ['linux', 'shipfox-managed']},
-    });
-
-    const [session] = await db()
-      .select()
-      .from(runnerSessions)
-      .where(eq(runnerSessions.id, res.json().session_id));
-
-    expect(res.statusCode).toBe(200);
-    expect(session).toMatchObject({
-      id: res.json().session_id,
-      provisionerId: token.provisionerId,
-      labels: ['linux'],
-    });
-  });
-
-  it('preserves reserved labels for installation-scope ephemeral registration', async () => {
-    const ephemeralRawToken = generateOpaqueToken('ephemeralRegistrationToken');
-    const provisioner = await provisionerTokenFactory.create({scope: 'installation'});
-    const token = await ephemeralRegistrationTokenFactory.create(
-      {workspaceId, provisionerId: provisioner.id},
-      {transient: {rawToken: ephemeralRawToken}},
-    );
-
-    const res = await app.inject({
-      method: 'POST',
-      url: '/runners/register',
-      headers: {authorization: `Bearer ${ephemeralRawToken}`},
-      payload: {labels: ['linux', 'shipfox-managed']},
-    });
-
-    const [session] = await db()
-      .select()
-      .from(runnerSessions)
-      .where(eq(runnerSessions.id, res.json().session_id));
-
-    expect(res.statusCode).toBe(200);
-    expect(session).toMatchObject({
-      id: res.json().session_id,
-      provisionerId: token.provisionerId,
-      labels: ['linux', 'shipfox-managed'],
-    });
-  });
-
   it('rejects malformed capability reports without creating a runner session', async () => {
     const res = await app.inject({
       method: 'POST',
@@ -327,138 +220,21 @@ describe('POST /runners/register', () => {
     expect(res.json().code).toBe('registration-token-expired');
   });
 
-  it('returns 409 when an ephemeral registration token is reused', async () => {
-    const ephemeralRawToken = generateOpaqueToken('ephemeralRegistrationToken');
-    await ephemeralRegistrationTokenFactory.create(
-      {workspaceId},
-      {transient: {rawToken: ephemeralRawToken}},
-    );
+  it('returns a stable unauthorized response for legacy ephemeral tokens', async () => {
     const request = {
       method: 'POST',
       url: '/runners/register',
-      headers: {authorization: `Bearer ${ephemeralRawToken}`},
+      headers: {authorization: `Bearer ${generateOpaqueToken('ephemeralRegistrationToken')}`},
       payload: {labels: ['linux']},
     } as const;
 
     const first = await app.inject(request);
     const second = await app.inject(request);
 
-    expect(first.statusCode).toBe(200);
-    expect(second.statusCode).toBe(409);
-    expect(second.json().code).toBe('registration-token-consumed');
-  });
-
-  it('returns 429 when the ephemeral registration rate limit is exceeded', async () => {
-    const ephemeralRawToken = generateOpaqueToken('ephemeralRegistrationToken');
-    const token = await ephemeralRegistrationTokenFactory.create(
-      {workspaceId},
-      {transient: {rawToken: ephemeralRawToken}},
-    );
-    await seedEphemeralRegisterRateLimit(
-      token.id,
-      config.EPHEMERAL_REGISTER_RATE_LIMIT_MAX_REQUESTS,
-    );
-
-    const res = await app.inject({
-      method: 'POST',
-      url: '/runners/register',
-      headers: {authorization: `Bearer ${ephemeralRawToken}`},
-      payload: {labels: ['linux']},
-    });
-
-    const [persistedToken] = await db()
-      .select()
-      .from(ephemeralRegistrationTokens)
-      .where(eq(ephemeralRegistrationTokens.id, token.id));
-    expect(res.statusCode).toBe(429);
-    expect(res.headers['retry-after']).toEqual(expect.any(String));
-    expect(res.json()).toMatchObject({
-      code: 'rate-limited',
-      details: {retry_after_seconds: expect.any(Number)},
-    });
-    expect(persistedToken?.consumedAt).toBeNull();
-  });
-
-  it('returns 503 when the ephemeral registration rate limiter is unavailable', async () => {
-    const ephemeralRawToken = generateOpaqueToken('ephemeralRegistrationToken');
-    const token = await ephemeralRegistrationTokenFactory.create(
-      {workspaceId},
-      {transient: {rawToken: ephemeralRawToken}},
-    );
-    const identifierHmac = await seedEphemeralRegisterRateLimit(token.id, 1);
-
-    await db().transaction(async (tx) => {
-      await tx.execute(sql`
-        SELECT 1
-        FROM runners_rate_limits
-        WHERE identifier_hmac = ${identifierHmac}
-        FOR UPDATE
-      `);
-
-      const res = await app.inject({
-        method: 'POST',
-        url: '/runners/register',
-        headers: {authorization: `Bearer ${ephemeralRawToken}`},
-        payload: {labels: ['linux']},
-      });
-
-      expect(res.statusCode).toBe(503);
-      expect(res.json().code).toBe('runners-rate-limit-unavailable');
-    });
-
-    const [persistedToken] = await db()
-      .select()
-      .from(ephemeralRegistrationTokens)
-      .where(eq(ephemeralRegistrationTokens.id, token.id));
-    expect(persistedToken?.consumedAt).toBeNull();
-  });
-
-  it('does not apply the ephemeral registration rate limit to manual registration', async () => {
-    const statusCodes: number[] = [];
-
-    for (let index = 0; index <= config.EPHEMERAL_REGISTER_RATE_LIMIT_MAX_REQUESTS; index += 1) {
-      const res = await app.inject({
-        method: 'POST',
-        url: '/runners/register',
-        headers: {authorization: `Bearer ${rawToken}`},
-        payload: {labels: [`linux-${index}`]},
-      });
-      statusCodes.push(res.statusCode);
-    }
-
-    expect(statusCodes).toEqual(
-      Array.from({length: config.EPHEMERAL_REGISTER_RATE_LIMIT_MAX_REQUESTS + 1}, () => 200),
-    );
-  });
-
-  it('returns 401 when an ephemeral registration token is expired', async () => {
-    const ephemeralRawToken = generateOpaqueToken('ephemeralRegistrationToken');
-    await ephemeralRegistrationTokenFactory.create(
-      {workspaceId, expiresAt: new Date(Date.now() - 1000)},
-      {transient: {rawToken: ephemeralRawToken}},
-    );
-
-    const res = await app.inject({
-      method: 'POST',
-      url: '/runners/register',
-      headers: {authorization: `Bearer ${ephemeralRawToken}`},
-      payload: {labels: ['linux']},
-    });
-
-    expect(res.statusCode).toBe(401);
-    expect(res.json().code).toBe('registration-token-expired');
-  });
-
-  it('returns 401 when an ephemeral registration token is not found', async () => {
-    const res = await app.inject({
-      method: 'POST',
-      url: '/runners/register',
-      headers: {authorization: `Bearer ${generateOpaqueToken('ephemeralRegistrationToken')}`},
-      payload: {labels: ['linux']},
-    });
-
-    expect(res.statusCode).toBe(401);
-    expect(res.json().code).toBe('unauthorized');
+    expect(first.statusCode).toBe(401);
+    expect(first.json()).toMatchObject({code: 'unauthorized'});
+    expect(second.statusCode).toBe(401);
+    expect(second.json()).toMatchObject({code: 'unauthorized'});
   });
 
   it('returns 401 when the registration token is revoked', async () => {
@@ -540,39 +316,4 @@ describe('POST /runners/register', () => {
       });
     }
   });
-
-  async function seedEphemeralRegisterRateLimit(
-    tokenId: string,
-    seedCount: number,
-  ): Promise<string> {
-    const identifierHmac = hashRunnersRateLimitIdentifier({
-      action: 'ephemeral-register',
-      scope: 'ephemeral-token',
-      identifier: tokenId,
-    });
-    const windows = rateLimitWindows(config.EPHEMERAL_REGISTER_RATE_LIMIT_WINDOW_SECONDS);
-
-    await db()
-      .insert(runnersRateLimits)
-      .values(
-        windows.map((windowStart) => ({
-          action: 'ephemeral-register',
-          scope: 'ephemeral-token',
-          identifierHmac,
-          windowStart,
-          count: seedCount,
-          expiresAt: new Date(
-            windowStart.getTime() + config.EPHEMERAL_REGISTER_RATE_LIMIT_WINDOW_SECONDS * 1000,
-          ),
-        })),
-      );
-
-    return identifierHmac;
-  }
-
-  function rateLimitWindows(windowSeconds: number): [Date, Date] {
-    const windowMs = windowSeconds * 1000;
-    const currentWindowStart = Math.floor(Date.now() / windowMs) * windowMs;
-    return [new Date(currentWindowStart), new Date(currentWindowStart + windowMs)];
-  }
 });

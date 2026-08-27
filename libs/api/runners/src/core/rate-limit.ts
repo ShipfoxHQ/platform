@@ -11,8 +11,8 @@ import {config} from '#config.js';
 import {consumeRunnersRateLimit, pruneExpiredRunnersRateLimits} from '#db/rate-limits.js';
 import {recordRunnersRateLimitCheck, recordRunnersRateLimitPruneFailure} from '#metrics/index.js';
 
-export type RunnersRateLimitAction = 'provisioner-mint' | 'ephemeral-register';
-export type RunnersRateLimitScope = 'provisioner' | 'ephemeral-token';
+export type RunnersRateLimitAction = 'provisioner-mint';
+export type RunnersRateLimitScope = 'provisioner';
 export type RunnersRateLimitOutcome = RateLimitOutcome;
 export type RunnersRateLimitPolicy = RateLimitPolicy;
 

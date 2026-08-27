@@ -279,8 +279,8 @@ export const runnerReservationCapacityFailureCount = meter.createCounter<{
   description: 'Runner reservation admission shortfalls by reason',
 });
 
-export type RunnersRateLimitAction = 'provisioner-mint' | 'ephemeral-register';
-export type RunnersRateLimitScope = 'provisioner' | 'ephemeral-token';
+export type RunnersRateLimitAction = 'provisioner-mint';
+export type RunnersRateLimitScope = 'provisioner';
 export type RunnersRateLimitOutcome = 'allowed' | 'blocked' | 'unavailable';
 
 const rateLimitCheckCount = meter.createCounter<{

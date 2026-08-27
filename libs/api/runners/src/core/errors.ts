@@ -56,45 +56,6 @@ export class EmptyRequiredLabelsError extends Error {
   }
 }
 
-export class RegistrationTokenConsumedError extends Error {
-  constructor(public readonly ephemeralTokenId: string) {
-    super(`Ephemeral registration token has already been consumed: ${ephemeralTokenId}`);
-    this.name = 'RegistrationTokenConsumedError';
-  }
-}
-
-export class RegistrationTokenExpiredError extends Error {
-  constructor(public readonly ephemeralTokenId: string) {
-    super(`Ephemeral registration token has expired: ${ephemeralTokenId}`);
-    this.name = 'RegistrationTokenExpiredError';
-  }
-}
-
-export class RegistrationTokenWorkspaceMismatchError extends Error {
-  constructor(
-    public readonly ephemeralTokenId: string,
-    public readonly workspaceId: string,
-  ) {
-    super(
-      `Ephemeral registration token ${ephemeralTokenId} does not belong to workspace ${workspaceId}`,
-    );
-    this.name = 'RegistrationTokenWorkspaceMismatchError';
-  }
-}
-
-export class ActiveEphemeralRegistrationTokenExistsError extends Error {
-  constructor(
-    public readonly workspaceId: string,
-    public readonly provisionerId: string,
-    public readonly providerRunnerId: string,
-  ) {
-    super(
-      `Active ephemeral registration token already exists for provisioned runner ${providerRunnerId} in workspace ${workspaceId}`,
-    );
-    this.name = 'ActiveEphemeralRegistrationTokenExistsError';
-  }
-}
-
 export class ReservationNotFoundError extends Error {
   constructor(public readonly reservationId: string) {
     super(`Reservation not found: ${reservationId}`);
@@ -154,40 +115,6 @@ export class ReservationAlreadyAssignedError extends Error {
   constructor(public readonly reservationId: string) {
     super(`Reservation is already assigned: ${reservationId}`);
     this.name = 'ReservationAlreadyAssignedError';
-  }
-}
-
-export class RegistrationTokenBatchTooLargeError extends Error {
-  constructor(
-    public readonly requested: number,
-    public readonly max: number,
-  ) {
-    super(
-      `Registration token batch requested ${requested} provisioned runners, exceeding max ${max}`,
-    );
-    this.name = 'RegistrationTokenBatchTooLargeError';
-  }
-}
-
-export class RegistrationTokenBatchExceedsReservationError extends Error {
-  constructor(
-    public readonly requested: number,
-    public readonly reservationCount: number,
-    public readonly alreadyMinted: number = 0,
-  ) {
-    super(
-      `Registration token batch requested ${requested} provisioned runners with ${alreadyMinted} already minted, exceeding reservation count ${reservationCount}`,
-    );
-    this.name = 'RegistrationTokenBatchExceedsReservationError';
-  }
-}
-
-export class ActiveEphemeralRegistrationTokensExistError extends Error {
-  constructor(public readonly providerRunnerIds: string[]) {
-    super(
-      `Active ephemeral registration tokens already exist for provisioned runners: ${providerRunnerIds.join(', ')}`,
-    );
-    this.name = 'ActiveEphemeralRegistrationTokensExistError';
   }
 }
 

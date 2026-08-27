@@ -4,7 +4,6 @@ import type {
   RunnerToolCapabilitiesDto,
 } from '@shipfox/api-runners-dto';
 import {canonicalizeLabels} from '@shipfox/runner-labels';
-import {createRunnerSessionConsumingEphemeralToken} from '#db/ephemeral-registration-tokens.js';
 import {
   createRunnerSession,
   createRunnerSessionConsumingActivationToken,
@@ -16,7 +15,7 @@ import {sanitizeRunnerLabelsOrThrow} from './runner-labels.js';
 export interface RegisterRunnerSessionResult {
   session: RunnerSession;
   sessionToken: string;
-  mode: 'manual' | 'ephemeral' | 'activation';
+  mode: 'manual' | 'activation';
   maxClaims: number | null;
 }
 
@@ -25,14 +24,6 @@ export type RunnerRegistrationCredential =
       kind: 'manual';
       registrationTokenId: string;
       workspaceId: string;
-    }
-  | {
-      kind: 'ephemeral';
-      ephemeralTokenId: string;
-      workspaceId: string;
-      provisionerId: string;
-      reservationId: string | null;
-      providerRunnerId: string;
     }
   | {kind: 'activation'; activationTokenId: string; workspaceId: string};
 
@@ -64,21 +55,12 @@ export async function registerRunnerSession(params: {
           toolCapabilities: params.toolCapabilities ?? null,
           lifecycleCapabilities: params.lifecycleCapabilities ?? null,
         })
-      : params.credential.kind === 'ephemeral'
-        ? await createRunnerSessionConsumingEphemeralToken({
-            ephemeralTokenId: params.credential.ephemeralTokenId,
-            workspaceId: params.credential.workspaceId,
-            labels,
-            toolCapabilities: params.toolCapabilities ?? null,
-            lifecycleCapabilities: params.lifecycleCapabilities ?? null,
-            maxClaims: 1,
-          })
-        : await createRunnerSessionConsumingActivationToken({
-            activationTokenId: params.credential.activationTokenId,
-            labels,
-            toolCapabilities: params.toolCapabilities ?? null,
-            lifecycleCapabilities: params.lifecycleCapabilities ?? null,
-          });
+      : await createRunnerSessionConsumingActivationToken({
+          activationTokenId: params.credential.activationTokenId,
+          labels,
+          toolCapabilities: params.toolCapabilities ?? null,
+          lifecycleCapabilities: params.lifecycleCapabilities ?? null,
+        });
   const {token: sessionToken} = await params.auth.mintRunnerSessionToken({
     runnerSessionId: session.id,
     workspaceId: session.workspaceId,

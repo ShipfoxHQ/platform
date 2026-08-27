@@ -37,41 +37,6 @@ describe('checkRunnersRateLimit', () => {
     expect(rows).toEqual([{identifierHmac}]);
   });
 
-  it('rejects the first over-limit attempt with retry-after seconds', async () => {
-    const identifier = `ephemeral-${crypto.randomUUID()}`;
-    const now = new Date('2026-06-23T00:00:10Z');
-
-    await checkRunnersRateLimit({
-      action: 'ephemeral-register',
-      scope: 'ephemeral-token',
-      identifier,
-      limit: 2,
-      windowSeconds: 60,
-      now,
-    });
-    await checkRunnersRateLimit({
-      action: 'ephemeral-register',
-      scope: 'ephemeral-token',
-      identifier,
-      limit: 2,
-      windowSeconds: 60,
-      now,
-    });
-    const result = checkRunnersRateLimit({
-      action: 'ephemeral-register',
-      scope: 'ephemeral-token',
-      identifier,
-      limit: 2,
-      windowSeconds: 60,
-      now,
-    });
-
-    await expect(result).rejects.toMatchObject({
-      name: 'RunnersRateLimitExceededError',
-      retryAfterSeconds: 50,
-    });
-  });
-
   it('fails closed when the limiter query times out', async () => {
     const identifier = `provisioner-${crypto.randomUUID()}`;
     const identifierHmac = hashRunnersRateLimitIdentifier({

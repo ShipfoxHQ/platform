@@ -2,7 +2,6 @@ import {pgClient} from '@shipfox/node-postgres';
 import {and, desc, eq, inArray, or, sql} from 'drizzle-orm';
 import {authorizeRunnerTermination} from '#core/termination-authorization.js';
 import {db} from '#db/db.js';
-import {createRunnerSessionConsumingEphemeralToken} from '#db/ephemeral-registration-tokens.js';
 import {
   pollDemandAndReserve,
   releaseTerminalRunnerInstanceReservationsByIds,
@@ -26,7 +25,6 @@ import {providerRunners} from '#db/schema/runner-instances.js';
 import {runnerSessions} from '#db/schema/runner-sessions.js';
 import {runningJobExecutions} from '#db/schema/running-job-executions.js';
 import {
-  ephemeralRegistrationTokenFactory,
   pendingJobFactory,
   providerRunnerFactory,
   provisionerTokenFactory,
@@ -1294,50 +1292,6 @@ describe('reportRunnerInstances', () => {
     expect(reservationRows).toHaveLength(0);
     expect(runningJobRows).toHaveLength(1);
     expect(runningJobRows[0]?.cancellationRequestedAt).toBeInstanceOf(Date);
-  });
-
-  it('uses the consumed ephemeral token session before releasing a terminal report', async () => {
-    const reservationId = await createReservation(1);
-    const token = await ephemeralRegistrationTokenFactory.create({
-      workspaceId,
-      provisionerId,
-      reservationId,
-      providerRunnerId: 'provisioned-runner-1',
-    });
-    await providerRunnerFactory.create({
-      workspaceId,
-      provisionerId,
-      providerRunnerId: 'provisioned-runner-1',
-      reservationId,
-      state: 'running',
-    });
-    const session = await createRunnerSessionConsumingEphemeralToken({
-      ephemeralTokenId: token.id,
-      workspaceId,
-      labels: ['linux'],
-      maxClaims: 1,
-    });
-
-    const result = await reportRunnerInstances({
-      scope: 'workspace',
-      workspaceId,
-      provisionerId,
-      events: [
-        event({
-          providerRunnerId: 'provisioned-runner-1',
-          reservationId,
-          state: 'failed',
-          runnerSessionId: crypto.randomUUID(),
-        }),
-      ],
-    });
-
-    const reservationRows = await reservationRowsFor({workspaceId, provisionerId});
-    const providerRunnerRows = await providerRunnerRowsFor({workspaceId, provisionerId});
-    expect(result).toEqual({accepted: 1, reservationsReleased: 1, terminateIntentsHonored: []});
-    expect(reservationRows).toHaveLength(0);
-    expect(providerRunnerRows[0]?.runnerSessionId).toBe(session.id);
-    expect(providerRunnerRows[0]?.reservationReleasedAt).toBeInstanceOf(Date);
   });
 
   it('preserves claimed runner session metadata when a terminal state wins the batch', async () => {
