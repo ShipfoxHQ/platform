@@ -87,6 +87,7 @@ describe('registerRunnerSession', () => {
     const claims = getRunnerSessionTokenClaims(result.sessionToken);
     expect(claims?.labels).toEqual(['linux', 'x64']);
     expect(claims?.maxClaims).toBeNull();
+    expect(claims).not.toHaveProperty('lifecycleCapabilities');
   });
 
   it('throws EmptyRunnerLabelsError when labels canonicalize to empty', async () => {

@@ -85,7 +85,9 @@ export async function registerRunnerSession(params: {
     scope: session.scope,
     labels: session.labels,
     maxClaims,
-    lifecycleCapabilities: session.lifecycleCapabilities ?? undefined,
+    ...(session.lifecycleCapabilities !== null
+      ? {lifecycleCapabilities: session.lifecycleCapabilities}
+      : {}),
   });
 
   return {session, sessionToken, mode, maxClaims};
