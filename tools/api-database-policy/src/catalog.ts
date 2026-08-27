@@ -197,6 +197,8 @@ const ifExistsExpression = /^IF\s+EXISTS\b/i;
 const concurrentlyExpression = /^CONCURRENTLY\b/i;
 const dropConstraintExpression = /\bDROP\s+CONSTRAINT\b/i;
 const cascadeExpression = /\bCASCADE\b/i;
+const fromClauseBoundaryExpression =
+  /^(?:JOIN|WHERE|GROUP|ORDER|LIMIT|OFFSET|UNION|INTERSECT|EXCEPT|FETCH|FOR|HAVING|WINDOW)\b/i;
 const whitespaceExpression = /\s/;
 const postgresIdentifierLimit = 63;
 
@@ -438,6 +440,10 @@ function readRelationReferences(
   start: number,
   end: number,
 ): ExpectedRelationReference[] {
+  if (keyword === 'FROM') {
+    return readFromRelationReferences(source, searchableSource, start, end);
+  }
+
   const references: ExpectedRelationReference[] = [];
   const searchableStatement = searchableSource.slice(start, end);
   const keywordExpression = new RegExp(`\\b${keyword}\\b`, 'gi');
@@ -461,6 +467,66 @@ function readRelationReferences(
     match = keywordExpression.exec(searchableStatement);
   }
   return references;
+}
+
+function readFromRelationReferences(
+  source: string,
+  searchableSource: string,
+  start: number,
+  end: number,
+): ExpectedRelationReference[] {
+  const references: ExpectedRelationReference[] = [];
+  const searchableStatement = searchableSource.slice(start, end);
+  const keywordExpression = /\bFROM\b/gi;
+  let match = keywordExpression.exec(searchableStatement);
+  while (match) {
+    let cursor = start + (match.index ?? 0) + match[0].length;
+    let relation = readQualifiedIdentifier(source, cursor);
+    if (relation) {
+      references.push({
+        schemaName: relation.schemaName ?? 'public',
+        name: relation.name,
+      });
+      cursor = relation.end;
+    }
+
+    let parenthesisDepth = 0;
+    while (relation && cursor < end) {
+      const character = searchableSource[cursor];
+      if (character === '(') {
+        parenthesisDepth += 1;
+      } else if (character === ')') {
+        if (parenthesisDepth === 0) break;
+        parenthesisDepth -= 1;
+      } else if (parenthesisDepth === 0 && character === ',') {
+        const nextRelation = readQualifiedIdentifier(source, cursor + 1);
+        if (!nextRelation) break;
+        references.push({
+          schemaName: nextRelation.schemaName ?? 'public',
+          name: nextRelation.name,
+        });
+        relation = nextRelation;
+        cursor = relation.end;
+        continue;
+      } else if (
+        parenthesisDepth === 0 &&
+        fromClauseBoundaryExpression.test(searchableSource.slice(cursor))
+      ) {
+        break;
+      }
+      cursor += 1;
+    }
+
+    match = keywordExpression.exec(searchableStatement);
+  }
+
+  return references.filter(
+    (reference, index) =>
+      references.findIndex(
+        (candidate) =>
+          candidate.schemaName === reference.schemaName && candidate.name === reference.name,
+      ) === index,
+  );
 }
 
 function addParsedStatement(
@@ -741,18 +807,35 @@ export function expectedObjectsAfterMigrations(
 
     activeObjects.delete(key);
     if (object.kind !== 'table' && object.kind !== 'view') continue;
-    for (const [candidateKey, candidate] of activeObjects) {
-      const relationMatches =
-        candidate.relationName === object.name &&
-        (candidate.relationSchemaName ?? 'public') === object.schemaName;
-      const referencedRelationMatches =
-        change.cascade === true &&
-        candidate.referencedRelations?.some(
-          (reference) =>
-            reference.name === object.name && reference.schemaName === object.schemaName,
-        );
-      if (relationMatches || referencedRelationMatches) {
+
+    const pendingRelations: ExpectedRelationReference[] = [
+      {schemaName: object.schemaName, name: object.name},
+    ];
+    for (const droppedRelation of pendingRelations) {
+      for (const [candidateKey, candidate] of activeObjects) {
+        const relationMatches =
+          candidate.relationName === droppedRelation.name &&
+          (candidate.relationSchemaName ?? 'public') === droppedRelation.schemaName;
+        const referencedRelationMatches =
+          change.cascade === true &&
+          candidate.referencedRelations?.some(
+            (reference) =>
+              reference.name === droppedRelation.name &&
+              reference.schemaName === droppedRelation.schemaName,
+          );
+        if (!relationMatches && !referencedRelationMatches) continue;
+
         activeObjects.delete(candidateKey);
+        if (
+          change.cascade === true &&
+          (candidate.kind === 'table' || candidate.kind === 'view') &&
+          !pendingRelations.some(
+            (relation) =>
+              relation.name === candidate.name && relation.schemaName === candidate.schemaName,
+          )
+        ) {
+          pendingRelations.push({schemaName: candidate.schemaName, name: candidate.name});
+        }
       }
     }
   }

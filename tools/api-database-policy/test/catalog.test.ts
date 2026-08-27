@@ -263,6 +263,55 @@ describe('PostgreSQL catalog verifier', () => {
     assert.deepEqual(objects, []);
   });
 
+  test('removes views that cascade with a dropped comma-separated source', () => {
+    const initialChanges = parseMigrationChanges({
+      source: `
+        CREATE TABLE "agent_workspaces" ("id" uuid NOT NULL);
+        CREATE TABLE "agent_workspace_members" ("id" uuid NOT NULL);
+        CREATE VIEW "agent_workspace_view" AS
+          SELECT "agent_workspaces"."id"
+          FROM "agent_workspaces", "agent_workspace_members";
+      `,
+      sourcePath: 'test/fixtures/catalog/0000_initial.sql',
+      unit: agentUnit,
+    });
+    const removalChanges = parseMigrationChanges({
+      source: 'DROP TABLE "agent_workspace_members" CASCADE;',
+      sourcePath: 'test/fixtures/catalog/0001_remove_members.sql',
+      unit: agentUnit,
+    });
+
+    const objects = expectedObjectsAfterMigrations([...initialChanges, ...removalChanges]);
+
+    assert.deepEqual(
+      objects.map(({kind, name}) => `${kind}:${name}`),
+      ['table:agent_workspaces'],
+    );
+  });
+
+  test('removes nested views from a cascaded dependency closure', () => {
+    const initialChanges = parseMigrationChanges({
+      source: `
+        CREATE TABLE "agent_workspaces" ("id" uuid NOT NULL);
+        CREATE VIEW "agent_workspace_view" AS
+          SELECT "id" FROM "agent_workspaces";
+        CREATE VIEW "agent_workspace_summary" AS
+          SELECT "id" FROM "agent_workspace_view";
+      `,
+      sourcePath: 'test/fixtures/catalog/0000_initial.sql',
+      unit: agentUnit,
+    });
+    const removalChanges = parseMigrationChanges({
+      source: 'DROP TABLE "agent_workspaces" CASCADE;',
+      sourcePath: 'test/fixtures/catalog/0001_remove_workspaces.sql',
+      unit: agentUnit,
+    });
+
+    const objects = expectedObjectsAfterMigrations([...initialChanges, ...removalChanges]);
+
+    assert.deepEqual(objects, []);
+  });
+
   test('applies DROP TYPE and DROP CONSTRAINT IF EXISTS changes', () => {
     const initialChanges = parseMigrationChanges({
       source: `
