@@ -11,20 +11,58 @@ const checkoutGitAuthorSchema = z.object({
   email: z.string().min(1),
 });
 
-const checkoutTokenBasicAuthSchema = z.object({
-  kind: z.literal('basic'),
-  username: z.string().min(1),
-  token: z.string().min(1),
-  expires_at: z.string().datetime({offset: true}),
-  ...carryFields,
-});
+const checkoutCredentialRenewalSchema = z.discriminatedUnion('mode', [
+  z.object({mode: z.literal('refresh-at'), refresh_at: z.string().datetime({offset: true})}),
+  z.object({mode: z.literal('on-rejection')}),
+]);
 
-const checkoutTokenBearerAuthSchema = z.object({
-  kind: z.literal('bearer'),
-  token: z.string().min(1),
-  expires_at: z.string().datetime({offset: true}),
-  ...carryFields,
-});
+function validateRenewalWindow<
+  T extends {
+    expires_at: string;
+    renewal?: {mode: 'refresh-at'; refresh_at: string} | {mode: 'on-rejection'} | undefined;
+  },
+>(auth: T, ctx: z.RefinementCtx) {
+  if (auth.renewal?.mode !== 'refresh-at') return;
+
+  const refreshAt = Date.parse(auth.renewal.refresh_at);
+  const expiresAt = Date.parse(auth.expires_at);
+  if (!Number.isFinite(refreshAt) || !Number.isFinite(expiresAt)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['renewal', 'refresh_at'],
+      message: 'refresh_at and expires_at must be valid timestamps',
+    });
+  } else if (refreshAt >= expiresAt) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['renewal', 'refresh_at'],
+      message: 'refresh_at must be earlier than expires_at',
+    });
+  }
+}
+
+const checkoutTokenBasicAuthSchema = z
+  .object({
+    kind: z.literal('basic'),
+    username: z.string().min(1),
+    token: z.string().min(1),
+    expires_at: z.string().datetime({offset: true}),
+    generation: z.string().min(1).optional(),
+    renewal: checkoutCredentialRenewalSchema.optional(),
+    ...carryFields,
+  })
+  .superRefine(validateRenewalWindow);
+
+const checkoutTokenBearerAuthSchema = z
+  .object({
+    kind: z.literal('bearer'),
+    token: z.string().min(1),
+    expires_at: z.string().datetime({offset: true}),
+    generation: z.string().min(1).optional(),
+    renewal: checkoutCredentialRenewalSchema.optional(),
+    ...carryFields,
+  })
+  .superRefine(validateRenewalWindow);
 
 export const checkoutTokenAuthSchema = z.discriminatedUnion('kind', [
   checkoutTokenBasicAuthSchema,

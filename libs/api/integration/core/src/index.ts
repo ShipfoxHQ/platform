@@ -100,9 +100,11 @@ export type {
 export {redactCheckoutSpec} from '#core/providers/redact-checkout-spec.js';
 export type {IntegrationProviderRegistry} from '#core/providers/registry.js';
 export type {
+  CheckoutCredentialRenewal,
   CheckoutCredentials,
   CheckoutPermissions,
   CheckoutSpec,
+  CreateCheckoutCredentialsInput,
   CreateCheckoutSpecInput,
   FetchFileInput,
   FileEntry,
@@ -119,7 +121,10 @@ export type {
   SourceControlProvider,
   TriggerReference,
 } from '#core/providers/source-control.js';
-export type {IntegrationSourceControlService} from '#core/source-control-service.js';
+export type {
+  CreateSourceCheckoutCredentialsInput,
+  IntegrationSourceControlService,
+} from '#core/source-control-service.js';
 export {createSourceControlIntegrationService} from '#core/source-control-service.js';
 export type {
   CreateIntegrationToolCallRecorderOptions,

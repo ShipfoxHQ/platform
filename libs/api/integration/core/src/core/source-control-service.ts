@@ -4,9 +4,11 @@ import {
   IntegrationConnectionInactiveError,
   IntegrationConnectionNotFoundError,
   IntegrationConnectionWorkspaceMismatchError,
+  IntegrationProviderError,
 } from './errors.js';
 import type {IntegrationProviderRegistry} from './providers/registry.js';
 import type {
+  CheckoutCredentials,
   CheckoutPermissions,
   CheckoutSpec,
   FilePage,
@@ -26,6 +28,9 @@ export interface IntegrationSourceControlService {
   listFiles(input: ListSourceFilesInput): Promise<FilePage>;
   fetchFile(input: FetchSourceFileInput): Promise<FileSnapshot>;
   createCheckoutSpec(input: CreateSourceCheckoutSpecInput): Promise<CheckoutSpec>;
+  createCheckoutCredentials(
+    input: CreateSourceCheckoutCredentialsInput,
+  ): Promise<CheckoutCredentials>;
 }
 
 export interface ListSourceRepositoriesInput {
@@ -66,6 +71,11 @@ export interface FetchSourceFileInput extends ResolveSourceRepositoryInput {
 export interface CreateSourceCheckoutSpecInput extends ResolveSourceRepositoryInput {
   ref?: string | undefined;
   permissions?: CheckoutPermissions | undefined;
+}
+
+export interface CreateSourceCheckoutCredentialsInput extends ResolveSourceRepositoryInput {
+  permissions: CheckoutPermissions;
+  rejectedGeneration?: string | undefined;
 }
 
 export interface ResolvedSourceRepository {
@@ -193,6 +203,40 @@ export function createSourceControlIntegrationService({
         ref,
         permissions,
       });
+    },
+
+    async createCheckoutCredentials({
+      workspaceId,
+      connectionId,
+      externalRepositoryId,
+      permissions,
+      rejectedGeneration,
+    }) {
+      const connection = await getConnection(connectionId);
+      if (connection.workspaceId !== workspaceId) {
+        throw new IntegrationConnectionWorkspaceMismatchError(connectionId);
+      }
+      const sourceControl = registry.get(connection.provider).adapters.source_control;
+      if (!sourceControl?.createCheckoutCredentials) {
+        throw new IntegrationCheckoutUnsupportedError(connection.provider);
+      }
+
+      const credentials = await sourceControl.createCheckoutCredentials({
+        connection,
+        externalRepositoryId,
+        permissions,
+        rejectedGeneration,
+      });
+      if (
+        rejectedGeneration !== undefined &&
+        (credentials.generation === undefined || credentials.generation === rejectedGeneration)
+      ) {
+        throw new IntegrationProviderError(
+          'provider-rejected',
+          'Provider returned a rejected or unidentified checkout credential generation',
+        );
+      }
+      return credentials;
     },
   };
 }

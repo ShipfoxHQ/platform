@@ -1,4 +1,5 @@
 import {
+  checkoutTokenAuthSchema,
   checkoutTokenParamsSchema,
   checkoutTokenQuerySchema,
   checkoutTokenResponseSchema,
@@ -146,6 +147,79 @@ describe('checkoutTokenResponseSchema', () => {
     const parse = () => checkoutTokenResponseSchema.parse(input);
 
     expect(parse).toThrow();
+  });
+
+  it('rejects refresh-at renewal without a future deadline before expiry', () => {
+    const input = {
+      ...bearerResponse,
+      auth: {
+        ...bearerResponse.auth,
+        renewal: {mode: 'refresh-at', refresh_at: '2026-06-10T12:00:00.000Z'},
+      },
+    };
+
+    expect(() => checkoutTokenResponseSchema.parse(input)).toThrow();
+  });
+
+  it('accepts and round-trips on-rejection renewal for bearer auth', () => {
+    const auth = {
+      ...bearerResponse.auth,
+      generation: 'generation-2',
+      renewal: {mode: 'on-rejection'},
+    };
+
+    expect(checkoutTokenAuthSchema.parse(auth)).toEqual(auth);
+  });
+
+  it('rejects an empty credential generation', () => {
+    expect(() => checkoutTokenAuthSchema.parse({...bearerResponse.auth, generation: ''})).toThrow();
+  });
+
+  it('rejects refresh-at renewal after expiry', () => {
+    const input = {
+      ...bearerResponse,
+      auth: {
+        ...bearerResponse.auth,
+        renewal: {mode: 'refresh-at', refresh_at: '2026-06-10T12:01:00.000Z'},
+      },
+    };
+
+    expect(() => checkoutTokenResponseSchema.parse(input)).toThrow();
+  });
+
+  it('accepts a past refresh-at renewal when it is structurally before expiry', () => {
+    const input = {
+      ...bearerResponse,
+      auth: {
+        ...bearerResponse.auth,
+        renewal: {mode: 'refresh-at', refresh_at: '2020-01-01T00:00:00.000Z'},
+      },
+    };
+
+    expect(checkoutTokenResponseSchema.parse(input)).toEqual(input);
+  });
+
+  it('rejects a refresh-at renewal with an unparseable timestamp', () => {
+    const input = {
+      ...bearerResponse,
+      auth: {
+        ...bearerResponse.auth,
+        renewal: {mode: 'refresh-at', refresh_at: '2026-13-10T12:00:00.000Z'},
+      },
+    };
+
+    expect(() => checkoutTokenResponseSchema.parse(input)).toThrow(
+      'refresh_at and expires_at must be valid timestamps',
+    );
+  });
+
+  it('rejects refresh-at renewal without refresh_at', () => {
+    const input = {
+      ...bearerResponse,
+      auth: {...bearerResponse.auth, renewal: {mode: 'refresh-at'}},
+    };
+
+    expect(() => checkoutTokenResponseSchema.parse(input)).toThrow();
   });
 
   it('accepts userinfo carry mode', () => {

@@ -94,10 +94,17 @@ export interface FetchFileInput<Connection extends IntegrationConnection = Integ
   path: string;
 }
 
+export type CheckoutCredentialRenewal =
+  | {mode: 'refresh-at'; refreshAt: Date}
+  | {mode: 'on-rejection'};
+
 export interface CheckoutCredentials {
   username: string;
   token: string;
   expiresAt: Date;
+  /** Opaque, non-secret value identifying this credential delivery. */
+  generation?: string | undefined;
+  renewal?: CheckoutCredentialRenewal | undefined;
 }
 
 export interface CheckoutGitAuthor {
@@ -123,6 +130,14 @@ export interface CreateCheckoutSpecInput<
   permissions?: CheckoutPermissions | undefined;
 }
 
+/** Requests credentials without asking the provider to resolve repository metadata. */
+export interface CreateCheckoutCredentialsInput<
+  Connection extends IntegrationConnection = IntegrationConnection,
+> extends ResolveRepositoryInput<Connection> {
+  permissions: CheckoutPermissions;
+  rejectedGeneration?: string | undefined;
+}
+
 export interface TriggerReference {
   externalRepositoryId: string;
   ref: string;
@@ -145,6 +160,9 @@ export interface SourceControlProvider<
    */
   resolveRef(input: ResolveRefInput<Connection>): Promise<ResolvedRef>;
   createCheckoutSpec?(input: CreateCheckoutSpecInput<Connection>): Promise<CheckoutSpec>;
+  createCheckoutCredentials?(
+    input: CreateCheckoutCredentialsInput<Connection>,
+  ): Promise<CheckoutCredentials>;
 }
 
 export type AgentToolSensitivity = 'read' | 'write';
