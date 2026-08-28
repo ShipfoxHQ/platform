@@ -215,8 +215,9 @@ async function lockClaimableSession(
 export async function claimSession(params: ClaimSessionParams): Promise<AgentSession> {
   assertValidSessionKey(params.key);
   assertValidSessionHarness(params.harness);
+  let created = false;
   try {
-    return await db().transaction(async (tx) => {
+    const result = await db().transaction(async (tx) => {
       const [existingRow] = await tx.select().from(sessions).where(claimSessionIdentity(params));
       await acquireExistingSessionClaim(tx, existingRow, params);
 
@@ -231,7 +232,7 @@ export async function claimSession(params: ClaimSessionParams): Promise<AgentSes
         })
         .onConflictDoNothing()
         .returning({id: sessions.id});
-      if (inserted.length > 0) sessionCreatedCount.add(1);
+      created = inserted.length > 0;
 
       await assertClaimLockAvailable(tx, params);
       const row = await lockClaimableSession(tx, params);
@@ -251,11 +252,22 @@ export async function claimSession(params: ClaimSessionParams): Promise<AgentSes
       if (!updatedRow) throw new Error('Session update returned no rows after claim');
       return toAgentSession(updatedRow);
     });
+
+    try {
+      if (created) sessionCreatedCount.add(1);
+    } catch {
+      // Metrics must not change session claim outcomes.
+    }
+    return result;
   } catch (error) {
-    if (error instanceof AgentSessionHeldError) {
-      sessionClaimConflictCount.add(1, {outcome: 'held'});
-    } else if (error instanceof AgentSessionLockUnavailableError) {
-      sessionClaimConflictCount.add(1, {outcome: 'lock_unavailable'});
+    try {
+      if (error instanceof AgentSessionHeldError) {
+        sessionClaimConflictCount.add(1, {outcome: 'held'});
+      } else if (error instanceof AgentSessionLockUnavailableError) {
+        sessionClaimConflictCount.add(1, {outcome: 'lock_unavailable'});
+      }
+    } catch {
+      // Metrics must not change session claim outcomes.
     }
     throw error;
   }
@@ -400,7 +412,8 @@ export async function carryOverSessions(params: {
   fromWorkflowRunAttemptId: string;
   toWorkflowRunAttemptId: string;
 }): Promise<AgentSession[]> {
-  return await db().transaction(async (tx) => {
+  let createdCount = 0;
+  const carried = await db().transaction(async (tx) => {
     const sourceRows = await tx
       .select()
       .from(sessions)
@@ -433,7 +446,9 @@ export async function carryOverSessions(params: {
         })
         .returning({id: sessions.id});
 
-      if (!inserted) {
+      if (inserted) {
+        createdCount += 1;
+      } else {
         const [existing] = await tx
           .select({id: sessions.id, carriedFromSessionId: sessions.carriedFromSessionId})
           .from(sessions)
@@ -456,12 +471,19 @@ export async function carryOverSessions(params: {
       }
     }
 
-    const carried = await tx
+    const rows = await tx
       .select()
       .from(sessions)
       .where(eq(sessions.workflowRunAttemptId, params.toWorkflowRunAttemptId));
-    return carried.map(toAgentSession);
+    return rows.map(toAgentSession);
   });
+
+  try {
+    if (createdCount > 0) sessionCreatedCount.add(createdCount);
+  } catch {
+    // Metrics must not change session carry-over outcomes.
+  }
+  return carried;
 }
 
 export type HeadFlipOutcome = 'committed' | 'retry-acked' | 'conflict';
