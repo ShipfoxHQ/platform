@@ -23,6 +23,21 @@ export {
   resolveCheckoutPath,
 } from '#checkout-path.js';
 export {
+  type BrokerCredential,
+  type BrokerCredentialInput,
+  CredentialBroker,
+  type CredentialBrokerOptions,
+  CredentialBrokerShutdownError,
+  type CredentialLookup,
+  type CredentialRenewal,
+  type CredentialRenewalRequest,
+  createCredentialBroker,
+  normalizeRepositoryUrl,
+  type RegisterCredentialOptions,
+  type RejectionResult,
+  TransientCredentialRenewalError,
+} from '#credential-broker.js';
+export {
   resolveWorkingDirectory,
   WorkingDirectoryEscapeError,
   WorkingDirectoryNotDirectoryError,
