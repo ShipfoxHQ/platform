@@ -63,16 +63,15 @@ export async function claimStepSession(
 ): Promise<ClaimStepSessionResult> {
   assertValidSessionKey(params.key);
 
-  const existingSession = await getSessionByRunAttemptAndKey({
-    workspaceId: params.workspaceId,
-    projectId: params.projectId,
-    workflowRunAttemptId: params.workflowRunAttemptId,
-    key: params.key,
-  });
-
   if (params.mode === 'fork') {
+    const existingSession = await getSessionByRunAttemptAndKey({
+      workspaceId: params.workspaceId,
+      projectId: params.projectId,
+      workflowRunAttemptId: params.workflowRunAttemptId,
+      key: params.key,
+    });
     if (!existingSession) return {descriptor: null, harness: params.harness};
-    if (params.harnessExplicit && existingSession.harness !== params.harness) {
+    if (existingSession.harness !== params.harness) {
       throw new AgentSessionHarnessMismatchError({
         sessionId: existingSession.id,
         workflowRunAttemptId: params.workflowRunAttemptId,
@@ -89,12 +88,10 @@ export async function claimStepSession(
     projectId: params.projectId,
     workflowRunAttemptId: params.workflowRunAttemptId,
     key: params.key,
-    // An omitted harness inherits the existing row's pin. For first use the
-    // resolved workspace harness is still used to create and pin the row.
-    harness:
-      params.harnessExplicit && existingSession !== undefined
-        ? params.harness
-        : (existingSession?.harness ?? params.harness),
+    // claimSession resolves an omitted harness inside the claim transaction,
+    // so a concurrent first claim cannot race this selection.
+    harness: params.harness,
+    harnessExplicit: params.harnessExplicit,
     stepAttemptId: params.stepAttemptId,
   });
   return {descriptor: toDescriptor(session, 'resume'), harness: session.harness};

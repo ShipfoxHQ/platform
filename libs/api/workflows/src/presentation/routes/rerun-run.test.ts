@@ -13,6 +13,7 @@ import {serializerCompiler, validatorCompiler} from 'fastify-type-provider-zod';
 import {
   createWorkflowRun,
   getJobsByWorkflowRunId,
+  listRunAttempts,
   updateJobStatus,
   updateWorkflowRunStatus,
 } from '#db/workflow-runs.js';
@@ -121,6 +122,12 @@ describe('POST /api/workflows/runs/:id/rerun', () => {
   test('creates a new attempt for failed mode and carries sessions', async () => {
     const source = await createFailedRunWithFailedJob();
 
+    const [sourceAttempt] = await listRunAttempts({
+      workflowRunId: source.id,
+      projectId,
+    });
+    if (!sourceAttempt) throw new Error('Expected source run attempt');
+
     const res = await app.inject({
       method: 'POST',
       url: `/api/workflows/runs/${source.id}/rerun`,
@@ -134,9 +141,17 @@ describe('POST /api/workflows/runs/:id/rerun', () => {
       latest_attempt: 2,
       status: 'pending',
     });
+    const targetAttempts = await listRunAttempts({
+      workflowRunId: source.id,
+      projectId,
+    });
+    const targetAttempt = targetAttempts.find((attempt) => attempt.attempt === 2);
+    if (!targetAttempt) throw new Error('Expected target run attempt');
+
+    expect(targetAttempt.id).not.toBe(sourceAttempt.id);
     expect(agent.carryOverSessions).toHaveBeenCalledWith({
-      fromWorkflowRunAttemptId: expect.any(String),
-      toWorkflowRunAttemptId: expect.any(String),
+      fromWorkflowRunAttemptId: sourceAttempt.id,
+      toWorkflowRunAttemptId: targetAttempt.id,
     });
   });
 

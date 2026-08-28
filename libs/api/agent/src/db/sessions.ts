@@ -72,8 +72,10 @@ export interface ClaimSessionParams {
   projectId: string;
   workflowRunAttemptId: string;
   key: string;
-  /** Harness resolved for this attempt; it must match an existing pinned session. */
+  /** Harness resolved for this attempt; omitted harnesses inherit an existing pin. */
   harness: Harness;
+  /** Whether the caller authored the harness. Defaults to true for internal callers. */
+  harnessExplicit?: boolean;
   stepAttemptId: string;
 }
 
@@ -86,7 +88,7 @@ function assertSessionClaimable(row: AgentSessionDb, params: ClaimSessionParams)
   // re-verify the denormalized workspace/project match before classifying or
   // updating it.
   assertSessionScopeMatches(row, params);
-  if (row.harness !== params.harness) {
+  if ((params.harnessExplicit ?? true) && row.harness !== params.harness) {
     throw new AgentSessionHarnessMismatchError({
       sessionId: row.id,
       workflowRunAttemptId: params.workflowRunAttemptId,
@@ -211,7 +213,6 @@ async function lockClaimableSession(
 export async function claimSession(params: ClaimSessionParams): Promise<AgentSession> {
   assertValidSessionKey(params.key);
   assertValidSessionHarness(params.harness);
-
   return await db().transaction(async (tx) => {
     const [existingRow] = await tx.select().from(sessions).where(claimSessionIdentity(params));
     await acquireExistingSessionClaim(tx, existingRow, params);
