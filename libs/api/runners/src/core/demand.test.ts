@@ -184,9 +184,6 @@ describe('pollDemand', () => {
         stats: [],
         reservations: [],
         terminateRunnerInstanceIds: ['provisioned-runner-1'],
-        terminationAuthorizations: [
-          {providerRunnerId: 'provisioned-runner-1', reason: 'job-cancelled'},
-        ],
       });
       expect(pollDemandAndReserveTx).toHaveBeenCalledOnce();
       expect(listProvisionerTerminateIntentRowsTx).toHaveBeenCalledOnce();
@@ -258,13 +255,6 @@ describe('pollDemand', () => {
         stats: [],
         reservations: [],
         terminateRunnerInstanceIds: ['stale-demand-runner'],
-        terminationAuthorizations: [
-          {
-            providerRunnerId: 'stale-demand-runner',
-            reason: 'activation-timeout',
-            activationTimeoutRetry: true,
-          },
-        ],
       });
       expect(listProvisionerTerminateIntentRowsTx).toHaveBeenCalledTimes(2);
     } finally {

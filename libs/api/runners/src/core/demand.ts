@@ -153,7 +153,7 @@ export async function pollDemand(params: PollDemandParams): Promise<PollDemandRe
         reservations: demand.reservations,
         ...(newlyReservedCount > 0 ? {newlyReservedCount} : {}),
         terminateRunnerInstanceIds: deliveredIntents.map((intent) => intent.providerRunnerId),
-        ...(deliveredIntents.length > 0 ? {terminationAuthorizations: deliveredIntents} : {}),
+        ...(terminateIntents.length > 0 ? {terminationAuthorizations: terminateIntents} : {}),
       };
 
       if (

@@ -206,7 +206,7 @@ describe('POST /provisioners/runner-instances/reconcile', () => {
     });
   });
 
-  it('returns terminate for an active runner with a cancelled bound job', async () => {
+  it('returns keep for an active runner with a cancelled bound job', async () => {
     const intentSpy = vi.spyOn(providerRunnerTerminateIntentIssuedCount, 'add');
     await createRunnerInstance({providerRunnerId: 'provisioned-runner-1'});
     await insertRunningJob({
