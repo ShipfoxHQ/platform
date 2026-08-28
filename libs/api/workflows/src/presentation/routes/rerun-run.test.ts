@@ -1,4 +1,3 @@
-import type {AgentInterModuleClient} from '@shipfox/api-agent-dto/inter-module';
 import {buildUserContext, setUserContext} from '@shipfox/api-auth-context';
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import {
@@ -13,7 +12,6 @@ import {serializerCompiler, validatorCompiler} from 'fastify-type-provider-zod';
 import {
   createWorkflowRun,
   getJobsByWorkflowRunId,
-  listRunAttempts,
   updateJobStatus,
   updateWorkflowRunStatus,
 } from '#db/workflow-runs.js';
@@ -29,10 +27,6 @@ const projects = {
 } as unknown as ProjectsModuleClient;
 const getWorkspaceOperatingState = vi.fn();
 const workspaces = {getWorkspaceOperatingState} as unknown as WorkspacesInterModuleClient;
-const agent = {
-  carryOverSessions: vi.fn(),
-} as unknown as AgentInterModuleClient;
-
 describe('POST /api/workflows/runs/:id/rerun', () => {
   let app: FastifyInstance;
   let workspaceId: string;
@@ -53,12 +47,11 @@ describe('POST /api/workflows/runs/:id/rerun', () => {
       );
       done();
     });
-    app.post('/api/workflows/runs/:id/rerun', rerunRunRoute(projects, workspaces, agent));
+    app.post('/api/workflows/runs/:id/rerun', rerunRunRoute(projects, workspaces));
     await app.ready();
   });
 
   beforeEach(() => {
-    vi.mocked(agent.carryOverSessions).mockReset();
     workspaceId = crypto.randomUUID();
     projectId = crypto.randomUUID();
     projectAccessState.workspaceId = workspaceId;
@@ -100,7 +93,7 @@ describe('POST /api/workflows/runs/:id/rerun', () => {
     return run;
   }
 
-  test('creates a new attempt for all mode without carrying sessions', async () => {
+  test('creates a new attempt for all mode', async () => {
     const source = await createTerminalRun('failed');
 
     const res = await app.inject({
@@ -116,17 +109,10 @@ describe('POST /api/workflows/runs/:id/rerun', () => {
       latest_attempt: 2,
       status: 'pending',
     });
-    expect(agent.carryOverSessions).not.toHaveBeenCalled();
   });
 
-  test('creates a new attempt for failed mode and carries sessions', async () => {
+  test('creates a new attempt for failed mode', async () => {
     const source = await createFailedRunWithFailedJob();
-
-    const [sourceAttempt] = await listRunAttempts({
-      workflowRunId: source.id,
-      projectId,
-    });
-    if (!sourceAttempt) throw new Error('Expected source run attempt');
 
     const res = await app.inject({
       method: 'POST',
@@ -140,18 +126,6 @@ describe('POST /api/workflows/runs/:id/rerun', () => {
       current_attempt: 2,
       latest_attempt: 2,
       status: 'pending',
-    });
-    const targetAttempts = await listRunAttempts({
-      workflowRunId: source.id,
-      projectId,
-    });
-    const targetAttempt = targetAttempts.find((attempt) => attempt.attempt === 2);
-    if (!targetAttempt) throw new Error('Expected target run attempt');
-
-    expect(targetAttempt.id).not.toBe(sourceAttempt.id);
-    expect(agent.carryOverSessions).toHaveBeenCalledWith({
-      fromWorkflowRunAttemptId: sourceAttempt.id,
-      toWorkflowRunAttemptId: targetAttempt.id,
     });
   });
 
