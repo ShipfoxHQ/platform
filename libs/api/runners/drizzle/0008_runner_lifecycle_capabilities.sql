@@ -1,0 +1,2 @@
+ALTER TABLE "runners_runner_sessions" ADD COLUMN "lifecycle_capabilities" jsonb;--> statement-breakpoint
+ALTER TABLE "runners_runner_sessions" ADD COLUMN "lifecycle_capabilities_reported_at" timestamp with time zone;

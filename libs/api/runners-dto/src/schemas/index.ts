@@ -47,6 +47,14 @@ export {
   heartbeatBodySchema,
   heartbeatResponseSchema,
 } from './heartbeat.js';
+export const RUNNER_LOCAL_ISOLATION_TIMEOUT_HARD_MAX_SECONDS = 86400;
+
+export {
+  type RunnerLifecycleCapabilitiesDto,
+  type RunnerLifecycleCapability,
+  runnerLifecycleCapabilitiesSchema,
+  runnerLifecycleCapabilitySchema,
+} from './lifecycle-capabilities.js';
 export {
   type ActiveProvisionerDto,
   activeProvisionerDtoSchema,

@@ -1,4 +1,7 @@
-import type {RunnerToolCapabilitiesDto} from '@shipfox/api-runners-dto';
+import type {
+  RunnerLifecycleCapabilitiesDto,
+  RunnerToolCapabilitiesDto,
+} from '@shipfox/api-runners-dto';
 
 export interface RunnerSession {
   id: string;
@@ -12,6 +15,8 @@ export interface RunnerSession {
   labels: string[];
   toolCapabilities: RunnerToolCapabilitiesDto | null;
   toolCapabilitiesReportedAt: Date | null;
+  lifecycleCapabilities: RunnerLifecycleCapabilitiesDto | null;
+  lifecycleCapabilitiesReportedAt: Date | null;
   maxClaims: number | null;
   claimsUsed: number;
   revokedAt: Date | null;

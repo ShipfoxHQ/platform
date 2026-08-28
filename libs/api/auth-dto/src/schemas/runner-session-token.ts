@@ -13,6 +13,7 @@ export const runnerSessionTokenClaimsSchema = z.object({
   scope: z.literal('workspace'),
   labels: z.array(z.string()).min(1),
   maxClaims: z.number().int().positive().nullable(),
+  lifecycleCapabilities: z.array(z.string()).max(8).optional(),
   aud: z.literal(RUNNER_SESSION_TOKEN_AUDIENCE),
   iat: z.number().int(),
   exp: z.number().int(),

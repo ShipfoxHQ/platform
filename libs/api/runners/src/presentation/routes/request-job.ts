@@ -32,6 +32,7 @@ export function createRequestJobRoute(auth: AuthInterModuleClient) {
         runnerSessionId: runner.runnerSessionId,
         sessionLabels: runner.labels,
         maxClaims: runner.maxClaims,
+        lifecycleCapabilities: runner.lifecycleCapabilities,
       });
 
       if (!jobExecution) {
@@ -45,6 +46,9 @@ export function createRequestJobRoute(auth: AuthInterModuleClient) {
         job_id: jobExecution.jobId,
         job_execution_id: jobExecution.jobExecutionId,
         lease_token: jobExecution.leaseToken,
+        ...(jobExecution.isolationTimeoutSeconds
+          ? {isolation_timeout_seconds: jobExecution.isolationTimeoutSeconds}
+          : {}),
       };
     },
   });

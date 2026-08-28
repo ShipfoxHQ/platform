@@ -57,6 +57,13 @@
       "when": 1786106547188,
       "tag": "0007_canonical_termination_authorization",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1787844980837,
+      "tag": "0008_runner_lifecycle_capabilities",
+      "breakpoints": true
     }
   ]
 }

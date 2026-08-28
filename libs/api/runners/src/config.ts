@@ -1,4 +1,7 @@
-import {RUNNER_ASSIGNMENT_POLL_DEFAULT_WAIT_SECONDS} from '@shipfox/api-runners-dto';
+import {
+  RUNNER_ASSIGNMENT_POLL_DEFAULT_WAIT_SECONDS,
+  RUNNER_LOCAL_ISOLATION_TIMEOUT_HARD_MAX_SECONDS,
+} from '@shipfox/api-runners-dto';
 import {bool, createConfig, num, str} from '@shipfox/config';
 import {findInvalidLabels, parseLabelList} from '@shipfox/runner-labels';
 import {STUCK_JOB_THRESHOLD_SECONDS} from '#core/maintenance-policy.js';
@@ -128,6 +131,10 @@ export const config = createConfig({
   RUNNER_SESSION_LIVENESS_THROTTLE_SECONDS: num({
     desc: 'Minimum time, in seconds, between runner session liveness writes from job request polls. Set this lower than RUNNER_STALE_PROVISIONED_RUNNER_THRESHOLD_SECONDS so active idle runners stay fresh.',
     default: 10,
+  }),
+  RUNNER_LOCAL_ISOLATION_TIMEOUT_SECONDS: num({
+    desc: 'Server-selected local isolation timeout returned to runners advertising local_execution_fence_v1. This is a bounded protocol value, not provider termination authorization.',
+    default: 300,
   }),
   RUNNER_SESSION_MANUAL_RETENTION_DAYS: num({
     desc: 'How long manual runner sessions are retained before maintenance deletes them, in days. Set this longer than AUTH_RUNNER_SESSION_TOKEN_EXPIRES_IN so a valid session token never outlives its row.',
@@ -418,6 +425,16 @@ if (
 ) {
   throw new Error(
     `RUNNER_STALE_PROVISIONED_RUNNER_REAPER_LIMIT (${config.RUNNER_STALE_PROVISIONED_RUNNER_REAPER_LIMIT}) must be a whole number >= 1.`,
+  );
+}
+
+if (
+  !Number.isInteger(config.RUNNER_LOCAL_ISOLATION_TIMEOUT_SECONDS) ||
+  config.RUNNER_LOCAL_ISOLATION_TIMEOUT_SECONDS < 1 ||
+  config.RUNNER_LOCAL_ISOLATION_TIMEOUT_SECONDS > RUNNER_LOCAL_ISOLATION_TIMEOUT_HARD_MAX_SECONDS
+) {
+  throw new Error(
+    `RUNNER_LOCAL_ISOLATION_TIMEOUT_SECONDS (${config.RUNNER_LOCAL_ISOLATION_TIMEOUT_SECONDS}) must be a whole number of seconds between 1 and ${RUNNER_LOCAL_ISOLATION_TIMEOUT_HARD_MAX_SECONDS}.`,
   );
 }
 

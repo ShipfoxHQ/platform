@@ -9,6 +9,7 @@ export interface ClaimJobExecutionResult {
   jobId: string;
   jobExecutionId: string;
   leaseToken: string;
+  isolationTimeoutSeconds?: number;
 }
 
 export async function claimJobExecution(params: {
@@ -17,6 +18,7 @@ export async function claimJobExecution(params: {
   runnerSessionId: string;
   sessionLabels: string[];
   maxClaims: number | null;
+  lifecycleCapabilities?: ReadonlyArray<string> | null | undefined;
 }): Promise<ClaimJobExecutionResult | null> {
   const claimed = await claimPendingJobExecution({
     ...params,
@@ -44,5 +46,8 @@ export async function claimJobExecution(params: {
     jobId: claimed.jobId,
     jobExecutionId: claimed.jobExecutionId,
     leaseToken,
+    ...(params.lifecycleCapabilities?.includes('local_execution_fence_v1')
+      ? {isolationTimeoutSeconds: config.RUNNER_LOCAL_ISOLATION_TIMEOUT_SECONDS}
+      : {}),
   };
 }
