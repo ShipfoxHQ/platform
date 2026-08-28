@@ -204,6 +204,17 @@ describe('api-client auth contexts', () => {
     });
   });
 
+  it('registerRunnerSession advertises lifecycle capabilities when provided', async () => {
+    stubFetch(() => jsonResponse(registerResponse()));
+
+    await registerRunnerSession({lifecycleCapabilities: ['local_execution_fence_v1']});
+
+    expect(JSON.parse(calls[0]?.body ?? '{}')).toEqual({
+      labels: ['linux', 'x64'],
+      lifecycle_capabilities: ['local_execution_fence_v1'],
+    });
+  });
+
   it('requestJob sends the runner session token and parses the step-less claim + lease token', async () => {
     stubFetch(() => jsonResponse(claimResponse()));
 

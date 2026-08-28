@@ -17,6 +17,7 @@ import {
   type RegisterRunnerResponseDto,
   RUNNER_ASSIGNMENT_POLL_DEFAULT_WAIT_SECONDS,
   RUNNER_SESSION_EXHAUSTED_CODE,
+  type RunnerLifecycleCapabilitiesDto,
   type RunnerToolCapabilitiesDto,
   registerRunnerBodySchema,
   registerRunnerResponseSchema,
@@ -157,7 +158,11 @@ export function requireRunnerLabels(): string[] {
 }
 
 export async function registerRunnerSession(
-  options: {capabilities?: RunnerToolCapabilitiesDto; registrationToken?: string} = {},
+  options: {
+    capabilities?: RunnerToolCapabilitiesDto;
+    lifecycleCapabilities?: RunnerLifecycleCapabilitiesDto;
+    registrationToken?: string;
+  } = {},
 ): Promise<RegisterRunnerResponseDto> {
   const labels = configuredRunnerLabels();
 
@@ -166,6 +171,9 @@ export async function registerRunnerSession(
   const body = registerRunnerBodySchema.parse({
     labels,
     ...(options.capabilities ? {capabilities: options.capabilities} : {}),
+    ...(options.lifecycleCapabilities
+      ? {lifecycle_capabilities: options.lifecycleCapabilities}
+      : {}),
   });
   const response = await createRegistrationApi(
     options.registrationToken ?? config.SHIPFOX_RUNNER_REGISTRATION_TOKEN,

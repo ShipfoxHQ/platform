@@ -174,6 +174,7 @@ const JOB = {
   job_name: 'test-job',
   steps: [],
   lease_token: 'lease-token',
+  isolation_timeout_seconds: 300,
 } as Parameters<typeof runJob>[0];
 
 const WORKSPACE_ROOT = '/tmp/shipfox-test-root';
@@ -236,6 +237,7 @@ describe('runJob', () => {
       expect.objectContaining({
         intervalMs: 10_000,
         maxStaleMs: 10_000,
+        isolationTimeoutSeconds: 300,
         getToolCapabilities: runnerToolCapabilities,
       }),
     );
@@ -504,6 +506,7 @@ describe('startRunner', () => {
     expect(mockRegisterRunnerSession).toHaveBeenCalledTimes(1);
     expect(mockRegisterRunnerSession).toHaveBeenCalledWith({
       capabilities: {harnesses: {pi: {tools: ['read']}}},
+      lifecycleCapabilities: ['local_execution_fence_v1'],
     });
     expect(mockRunnerToolCapabilities).toHaveBeenCalled();
     expect(mockRequestJob).toHaveBeenCalledTimes(1);
@@ -622,6 +625,7 @@ describe('startRunner', () => {
     expect(mockPollRunnerAssignment).toHaveBeenCalledWith('control-token', expect.any(AbortSignal));
     expect(mockRegisterRunnerSession).toHaveBeenCalledWith({
       capabilities: {harnesses: {pi: {tools: ['read']}}},
+      lifecycleCapabilities: ['local_execution_fence_v1'],
       registrationToken: 'activation-token',
     });
     expect(mockRequestJob).toHaveBeenCalledWith('session-token', expect.any(AbortSignal));
@@ -708,6 +712,7 @@ describe('startRunner', () => {
     expect(mockPollRunnerAssignment).toHaveBeenCalledTimes(2);
     expect(mockRegisterRunnerSession).toHaveBeenCalledWith({
       capabilities: {harnesses: {pi: {tools: ['read']}}},
+      lifecycleCapabilities: ['local_execution_fence_v1'],
       registrationToken: 'activation-token',
     });
   });
@@ -762,6 +767,7 @@ describe('startRunner', () => {
     expect(mockPollRunnerAssignment).not.toHaveBeenCalled();
     expect(mockRegisterRunnerSession).toHaveBeenCalledWith({
       capabilities: {harnesses: {pi: {tools: ['read']}}},
+      lifecycleCapabilities: ['local_execution_fence_v1'],
       registrationToken: 'enrollment-activation-token',
     });
   });

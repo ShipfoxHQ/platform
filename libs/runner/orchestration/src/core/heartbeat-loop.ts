@@ -12,6 +12,10 @@ export interface HeartbeatLoopOptions {
    */
   maxStaleMs: number;
   getToolCapabilities?: () => HeartbeatCapabilities;
+  /** Server-selected maximum time without a successful lease confirmation. */
+  isolationTimeoutSeconds?: number;
+  /** Monotonic clock, injectable to make the fence deterministic in tests. */
+  nowMs?: () => number;
   onLeaseTokenRenewed?: (leaseToken: string) => void;
 }
 
@@ -43,6 +47,35 @@ export function startHeartbeatLoop(
   let generation = 0;
   let pendingTimer: NodeJS.Timeout | undefined;
   let currentHttpAc: AbortController | undefined;
+  let isolationTimer: NodeJS.Timeout | undefined;
+  const nowMs = options.nowMs ?? (() => performance.now());
+  let lastServerConfirmationAt = nowMs();
+
+  const clearIsolationTimer = () => {
+    if (isolationTimer) clearTimeout(isolationTimer);
+    isolationTimer = undefined;
+  };
+
+  const stopForIsolation = () => {
+    if (stopped) return;
+    stopped = true;
+    if (pendingTimer) clearTimeout(pendingTimer);
+    clearIsolationTimer();
+    logger().warn(
+      {jobId, isolationTimeoutSeconds: options.isolationTimeoutSeconds},
+      'Heartbeat isolation fence elapsed; stopping local job work',
+    );
+    jobAbortController.abort('isolated');
+    currentHttpAc?.abort();
+  };
+
+  const scheduleIsolationFence = () => {
+    if (options.isolationTimeoutSeconds === undefined || stopped) return;
+    clearIsolationTimer();
+    const timeoutMs = options.isolationTimeoutSeconds * 1000;
+    const remainingMs = Math.max(0, timeoutMs - (nowMs() - lastServerConfirmationAt));
+    isolationTimer = setTimeout(stopForIsolation, remainingMs);
+  };
 
   const scheduleNext = () => {
     if (stopped) return;
@@ -76,6 +109,8 @@ export function startHeartbeatLoop(
         ...(capabilities ? {capabilities} : {}),
       });
       if (stopped) return;
+      lastServerConfirmationAt = nowMs();
+      scheduleIsolationFence();
       if (generation === sentGeneration && renewedLeaseToken !== getLeaseToken()) {
         options.onLeaseTokenRenewed?.(renewedLeaseToken);
       }
@@ -108,6 +143,7 @@ export function startHeartbeatLoop(
     }
   };
 
+  scheduleIsolationFence();
   pendingTimer = setTimeout(tick, options.intervalMs);
 
   return {
@@ -115,6 +151,7 @@ export function startHeartbeatLoop(
       if (stopped) return;
       stopped = true;
       if (pendingTimer) clearTimeout(pendingTimer);
+      clearIsolationTimer();
       if (currentHttpAc) currentHttpAc.abort();
     },
     bumpGeneration: () => {
