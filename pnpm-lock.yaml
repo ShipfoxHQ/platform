@@ -2057,6 +2057,9 @@ importers:
       '@shipfox/redact':
         specifier: workspace:*
         version: link:../../shared/common/redact
+      '@shipfox/workflow-document':
+        specifier: workspace:*
+        version: link:../../shared/workflow/document
       '@temporalio/activity':
         specifier: 'catalog:'
         version: 1.18.1

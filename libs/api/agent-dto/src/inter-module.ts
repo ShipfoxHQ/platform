@@ -124,6 +124,13 @@ export const agentInterModuleContract = defineInterModuleContract({
         'session-lock-unavailable': z.object({}),
       },
     },
+    releaseSession: {
+      input: z.object({
+        sessionId: z.string().uuid(),
+        stepAttemptId: z.string().uuid(),
+      }),
+      output: z.object({released: z.boolean()}),
+    },
     carryOverSessions: {
       input: z.object({
         fromWorkflowRunAttemptId: z.string().uuid(),

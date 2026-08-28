@@ -1,4 +1,5 @@
 import type {Harness} from '@shipfox/api-agent-dto';
+import {WORKFLOW_SESSION_KEY_PATTERN} from '@shipfox/workflow-document';
 import {and, eq, inArray, sql} from 'drizzle-orm';
 import type {AgentSession} from '#core/entities/agent-session.js';
 import {
@@ -12,11 +13,10 @@ import {
 import {db, type Transaction} from './db.js';
 import {type AgentSessionDb, sessions, toAgentSession} from './schema/sessions.js';
 
-const AGENT_SESSION_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 const AGENT_SESSION_CLAIM_LOCK_PREFIX = 'agent-session-claim:';
 
 export function assertValidSessionKey(key: unknown): asserts key is string {
-  if (typeof key !== 'string' || !AGENT_SESSION_KEY_PATTERN.test(key)) {
+  if (typeof key !== 'string' || !WORKFLOW_SESSION_KEY_PATTERN.test(key)) {
     throw new AgentSessionKeyInvalidError();
   }
 }

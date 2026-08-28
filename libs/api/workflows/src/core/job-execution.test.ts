@@ -720,7 +720,7 @@ describe('nextStepForJob session claims', () => {
 
     const next = await nextStepForJob(jobId, agentTestClient);
 
-    expect(claimSession).toHaveBeenCalledTimes(2);
+    expect(claimSession).toHaveBeenCalledTimes(3);
     expect(next).toEqual({
       kind: 'step',
       step: expect.objectContaining({
@@ -981,7 +981,7 @@ describe('nextStepForJob session claims', () => {
     const next = await nextStepForJob(jobId, agentTestClient);
 
     expect(next).toEqual({kind: 'done', status: 'failed'});
-    expect(claimSession).toHaveBeenCalledTimes(1);
+    expect(claimSession).toHaveBeenCalledTimes(code === 'session-held' ? 3 : 1);
     const after = await getStepsByJobId(jobId);
     expect(after[0]).toMatchObject({
       status: 'failed',

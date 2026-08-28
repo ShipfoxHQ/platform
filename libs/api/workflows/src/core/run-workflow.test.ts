@@ -67,6 +67,7 @@ describe('runWorkflow', () => {
     resolveAgentConfig: mockResolveAgentConfig,
     resolveRuntimeCredentials: vi.fn(),
     claimSession: vi.fn(),
+    releaseSession: vi.fn(),
     carryOverSessions: vi.fn(),
   };
 
@@ -264,6 +265,7 @@ describe('runDevWorkflow', () => {
     resolveAgentConfig: mockResolveAgentConfig,
     resolveRuntimeCredentials: vi.fn(),
     claimSession: vi.fn(),
+    releaseSession: vi.fn(),
     carryOverSessions: vi.fn(),
   };
 

@@ -406,13 +406,18 @@ function configHarness(config: Record<string, unknown>): 'pi' | 'claude' | undef
   return parsed.success ? parsed.data : undefined;
 }
 
+interface ClaimedStepSession {
+  readonly config: Record<string, unknown>;
+  readonly sessionId: string | undefined;
+}
+
 async function claimStepSessionForDispatch(params: {
   readonly config: Record<string, unknown>;
   readonly stepAttemptId: string | undefined;
   readonly session: AgentStepSessionIntentDto;
   readonly workflowContext: Awaited<ReturnType<typeof getWorkflowContextForJob>>;
   readonly agent?: AgentInterModuleClient | undefined;
-}): Promise<Record<string, unknown>> {
+}): Promise<ClaimedStepSession> {
   if (params.session.key.trim().length === 0) {
     throw new AgentStepSessionClaimError(
       'agent_session_key_invalid',
@@ -436,7 +441,8 @@ async function claimStepSessionForDispatch(params: {
 
   let result: {readonly descriptor: AgentStepSessionDescriptorDto | null};
   try {
-    result = await params.agent.claimSession({
+    result = await claimSessionWithRetry({
+      agent: params.agent,
       workspaceId: params.workflowContext.workspaceId,
       projectId: params.workflowContext.projectId,
       workflowRunAttemptId: params.workflowContext.workflowRunAttemptId,
@@ -459,19 +465,19 @@ async function claimStepSessionForDispatch(params: {
   // to the runner, which would otherwise try to load a non-existent transcript.
   if (result.descriptor === null) {
     const {session: _session, ...configWithoutSession} = params.config;
-    return configWithoutSession;
+    return {config: configWithoutSession, sessionId: undefined};
   }
-  return {...params.config, session: result.descriptor};
+  return {config: {...params.config, session: result.descriptor}, sessionId: result.descriptor.id};
 }
 
 async function completePendingSessionClaim(
   pending: PendingSessionClaim,
 ): Promise<NextStepResolution> {
-  let config: Record<string, unknown>;
+  let claimed: ClaimedStepSession;
   try {
     // This call deliberately happens after the transaction that persisted the
     // running attempt and authored session intent has committed.
-    config = await claimStepSessionForDispatch({
+    claimed = await claimStepSessionForDispatch({
       config: pending.config,
       stepAttemptId: pending.stepAttemptId,
       session: pending.session,
@@ -485,29 +491,58 @@ async function completePendingSessionClaim(
     return withTransaction((tx) => settlePreparedSessionClaimFailure(pending, failureError, tx));
   }
 
-  return withTransaction(async (tx) => {
-    if (!(await isCurrentPendingSessionClaim(pending, tx))) {
-      return continueAfterStalePendingSessionClaim(pending, tx);
+  const release = async (): Promise<void> => {
+    if (claimed.sessionId === undefined || pending.stepAttemptId === undefined) return;
+    await releaseClaim({
+      agent: pending.agent,
+      sessionId: claimed.sessionId,
+      stepAttemptId: pending.stepAttemptId,
+    });
+  };
+
+  try {
+    const resolution = await withTransaction<
+      | {readonly kind: 'dispatched'; readonly step: Step}
+      | {readonly kind: 'release'; readonly next: NextStepResolution}
+    >(async (tx) => {
+      if (!(await isCurrentPendingSessionClaim(pending, tx))) {
+        return {
+          kind: 'release',
+          next: await continueAfterStalePendingSessionClaim(pending, tx),
+        };
+      }
+
+      const marked = await dispatchStepWithCompletedConfig(
+        {
+          jobExecutionId: pending.jobExecutionId,
+          stepId: pending.stepId,
+          attempt: pending.attempt,
+          stepAttemptId: pending.stepAttemptId,
+          config: claimed.config,
+          evaluationTrace: pending.evaluationTrace,
+        },
+        tx,
+      );
+      if (marked) return {kind: 'dispatched', step: marked};
+
+      // Another terminal transition won the race while the Agent call was in
+      // flight. Re-read the durable projection and let the normal progression
+      // logic decide whether this job is complete or needs another claim.
+      return {
+        kind: 'release',
+        next: await nextStepForJobExecutionInTransaction(pending.jobExecutionId, tx, pending.agent),
+      };
+    });
+
+    if (resolution.kind === 'release') {
+      await release();
+      return resolution.next;
     }
-
-    const marked = await dispatchStepWithCompletedConfig(
-      {
-        jobExecutionId: pending.jobExecutionId,
-        stepId: pending.stepId,
-        attempt: pending.attempt,
-        stepAttemptId: pending.stepAttemptId,
-        config,
-        evaluationTrace: pending.evaluationTrace,
-      },
-      tx,
-    );
-    if (marked) return {kind: 'step', step: marked, dispatched: true};
-
-    // Another terminal transition won the race while the Agent call was in
-    // flight. Re-read the durable projection and let the normal progression
-    // logic decide whether this job is complete or needs another claim.
-    return nextStepForJobExecutionInTransaction(pending.jobExecutionId, tx, pending.agent);
-  });
+    return {kind: 'step', step: resolution.step, dispatched: true};
+  } catch (error) {
+    await release();
+    throw error;
+  }
 }
 
 async function settlePreparedSessionClaimFailure(
@@ -660,6 +695,41 @@ function evaluateStepCondition(params: {
   return outcome.value
     ? {kind: 'run'}
     : {kind: 'skip', statusReason: 'condition_rejected', evaluationTrace};
+}
+
+async function claimSessionWithRetry(
+  params: Parameters<NonNullable<AgentInterModuleClient['claimSession']>>[0] & {
+    agent: AgentInterModuleClient;
+  },
+): ReturnType<AgentInterModuleClient['claimSession']> {
+  const {agent, ...input} = params;
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await agent.claimSession(input);
+    } catch (error) {
+      const isHeld =
+        isInterModuleKnownError(agentInterModuleContract.methods.claimSession, error) &&
+        error.code === 'session-held';
+      if (!isHeld || attempt >= 2) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 50 * 2 ** attempt));
+    }
+  }
+}
+
+async function releaseClaim(params: {
+  agent: AgentInterModuleClient | undefined;
+  sessionId: string;
+  stepAttemptId: string;
+}): Promise<void> {
+  if (params.agent === undefined) return;
+  try {
+    await params.agent.releaseSession({
+      sessionId: params.sessionId,
+      stepAttemptId: params.stepAttemptId,
+    });
+  } catch {
+    // Preserve the dispatch failure; stale-claim cleanup remains the fallback.
+  }
 }
 
 function toDispatchConfigError(error: unknown): DispatchConfigError | null {

@@ -1,6 +1,7 @@
 import {agentThinkingSchema, DEFAULT_HARNESS, harnessSchema} from '@shipfox/workflow-document';
 import {z} from 'zod';
 import {modelProviderRefSchema} from './model-provider-id.js';
+import {agentSessionDescriptorSchema} from './session-transcript.js';
 
 const agentToolSensitivitySchema = z.enum(['read', 'write']);
 const agentToolJsonSchema = z.record(z.string(), z.unknown());
@@ -56,6 +57,7 @@ export const materializedAgentStepConfigSchema = z
     integrations: z.array(materializedAgentIntegrationSchema).min(1).optional(),
     mcpServers: z.array(agentIntegrationMcpServerSchema).length(1).optional(),
     prompt: z.string(),
+    session: agentSessionDescriptorSchema.optional(),
   })
   .strip();
 

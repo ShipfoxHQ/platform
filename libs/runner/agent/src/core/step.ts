@@ -39,6 +39,8 @@ export async function executeAgentStep(
     signal?: AbortSignal;
     cwd?: string;
     agentStateDir?: string | undefined;
+    sessionFile?: string | undefined;
+    sessionMode?: 'resume' | 'fork' | undefined;
     runtime: {
       harness: Harness;
       provider: string;
@@ -102,6 +104,8 @@ export async function executeAgentStep(
       attempt: step.current_attempt,
       cwd: options.cwd ?? process.cwd(),
       agentStateDir: options.agentStateDir,
+      sessionFile: options.sessionFile,
+      sessionMode: options.sessionMode,
       harness: options.runtime.harness,
       model: options.runtime.model,
       outputs: outputDeclarationsFromConfig(step.config.outputs),
@@ -128,6 +132,8 @@ async function runSelectedHarness(params: {
   attempt: number;
   cwd: string;
   agentStateDir: string | undefined;
+  sessionFile: string | undefined;
+  sessionMode: 'resume' | 'fork' | undefined;
   harness: Harness;
   model: string;
   outputs: OutputDeclarations | undefined;
@@ -149,6 +155,8 @@ async function runSelectedHarness(params: {
     attempt,
     cwd,
     agentStateDir,
+    sessionFile,
+    sessionMode,
     harness,
     model,
     outputs,
@@ -167,10 +175,12 @@ async function runSelectedHarness(params: {
 
   try {
     const adapter = await selectHarnessAdapter(harness);
-    const {response, outputs: collectedOutputs} = await raceAbort(
+    const harnessResult = await raceAbort(
       adapter.run({
         cwd,
         ...(agentStateDir === undefined ? {} : {agentStateDir}),
+        ...(sessionFile === undefined ? {} : {sessionFile}),
+        ...(sessionMode === undefined ? {} : {sessionMode}),
         model,
         provider,
         thinking,
@@ -189,8 +199,14 @@ async function runSelectedHarness(params: {
     );
     return {
       success: true,
-      response: response ?? '',
-      ...(collectedOutputs === undefined ? {} : {outputs: collectedOutputs}),
+      response: harnessResult.response ?? '',
+      ...(harnessResult.outputs === undefined ? {} : {outputs: harnessResult.outputs}),
+      ...(sessionMode === 'fork' || harnessResult.sessionFile === undefined
+        ? {}
+        : {sessionFile: harnessResult.sessionFile}),
+      ...(sessionMode === 'fork' || harnessResult.sessionId === undefined
+        ? {}
+        : {sessionId: harnessResult.sessionId}),
       error: null,
       exit_code: 0,
     };

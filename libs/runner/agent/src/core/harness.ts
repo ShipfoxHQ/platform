@@ -11,6 +11,9 @@ export interface HarnessInvocation {
   readonly cwd: string;
   /** Runner-owned per-job directory for harness state, outside the checked-out workspace. */
   readonly agentStateDir?: string | undefined;
+  /** Existing harness session JSONL to resume or fork from. */
+  readonly sessionFile?: string | undefined;
+  readonly sessionMode?: 'resume' | 'fork' | undefined;
   readonly model: string;
   readonly provider: string;
   readonly thinking: string;
@@ -30,6 +33,9 @@ export interface HarnessInvocation {
 export interface HarnessResult {
   readonly response?: string;
   readonly outputs?: Record<string, string>;
+  /** Persisted session artifact produced by the harness, when session transport is enabled. */
+  readonly sessionFile?: string | undefined;
+  readonly sessionId?: string | undefined;
 }
 
 export interface HarnessAdapter {

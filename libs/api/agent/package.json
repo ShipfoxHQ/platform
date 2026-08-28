@@ -98,6 +98,7 @@
     "@shipfox/node-opentelemetry": "workspace:*",
     "@shipfox/node-object-storage": "workspace:*",
     "@shipfox/node-postgres": "workspace:*",
+    "@shipfox/workflow-document": "workspace:*",
     "@shipfox/node-temporal": "workspace:*",
     "@shipfox/redact": "workspace:*",
     "@temporalio/activity": "catalog:",

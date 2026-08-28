@@ -216,6 +216,36 @@ describe('completeStepDispatchConfig', () => {
     expect(result.config.mcpServers).toEqual(integrationMcpServers(integrations));
   });
 
+  it('resolves session keys and records their evaluation trace', async () => {
+    const pending = step({
+      type: 'agent',
+      config: {harness: 'pi', provider: 'openai', model: 'gpt-5.5', thinking: 'off'},
+      configPlan: {
+        agent: {
+          prompt: plannedField('Continue'),
+          session: {key: plannedField(template('steps.build.outputs.sha')), mode: 'resume'},
+        },
+      },
+    });
+
+    const result = await completeStepDispatchConfig({
+      step: pending,
+      context,
+      resolveAgentDefaults,
+      definitionId: 'def-1',
+    });
+
+    expect(result.sessionIntent).toEqual({key: 'abc123', mode: 'resume'});
+    expect(result.trace).toContainEqual({
+      expression: 'steps.build.outputs.sha',
+      roots: ['steps'],
+      fillTarget: 'step-dispatch',
+      evaluatedAt: 'step-dispatch',
+      value: 'abc123',
+      field: 'agent.session',
+    });
+  });
+
   it('serializes residual secret env values as secret bindings without writing env values', async () => {
     const pending = step({
       config: {},

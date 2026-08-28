@@ -57,6 +57,7 @@ export const agentTestClient: AgentInterModuleClient = {
     });
   },
   claimSession: vi.fn(),
+  releaseSession: vi.fn(),
   carryOverSessions: vi.fn(),
 };
 

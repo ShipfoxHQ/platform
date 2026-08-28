@@ -209,6 +209,7 @@ describe('defaultModules', () => {
             resolveAgentConfig: vi.fn(),
             resolveRuntimeCredentials: vi.fn(),
             claimSession: vi.fn(),
+            releaseSession: vi.fn(),
             carryOverSessions: vi.fn(),
           },
         },
