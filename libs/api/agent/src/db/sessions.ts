@@ -398,6 +398,7 @@ export async function carryOverSessions(params: {
       assertValidSessionKey(source.key);
       assertValidSessionHarness(source.harness);
 
+      const expectedCarriedFromSessionId = source.carriedFromSessionId ?? source.id;
       const [inserted] = await tx
         .insert(sessions)
         .values({
@@ -412,7 +413,7 @@ export async function carryOverSessions(params: {
           headSizeBytes: source.headSizeBytes,
           headCommittedByAttempt: source.headCommittedByAttempt,
           headRepoRef: source.headRepoRef,
-          carriedFromSessionId: source.carriedFromSessionId ?? source.id,
+          carriedFromSessionId: expectedCarriedFromSessionId,
         })
         .onConflictDoNothing({
           target: [sessions.workflowRunAttemptId, sessions.key],
@@ -431,7 +432,7 @@ export async function carryOverSessions(params: {
           )
           .for('update');
         if (!existing) throw new Error('Session missing after carry-over conflict');
-        if (existing.carriedFromSessionId !== source.id) {
+        if (existing.carriedFromSessionId !== expectedCarriedFromSessionId) {
           throw new AgentSessionCarryOverConflictError({
             targetWorkflowRunAttemptId: params.toWorkflowRunAttemptId,
             key: source.key,

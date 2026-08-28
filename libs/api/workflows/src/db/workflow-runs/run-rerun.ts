@@ -174,7 +174,7 @@ function rerunStepConfig(step: StepDb): Record<string, unknown> {
   const session = authoredConfig?.session;
   if (session === undefined) delete config.session;
   else config.session = session;
-  if (authoredConfig?.harness === undefined) delete config.harness;
+  if (authoredConfig?.harness !== undefined) config.harness = authoredConfig.harness;
   return config;
 }
 

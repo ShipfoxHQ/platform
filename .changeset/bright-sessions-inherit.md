@@ -4,4 +4,4 @@
 "@shipfox/api-workflows": patch
 ---
 
-Preserves pinned agent harnesses across session claims and workflow reruns.
+Preserves the pinned agent harness across workflow reruns.
