@@ -21,5 +21,13 @@ export function toPollDemandResponseDto(result: PollDemandResult): PollDemandRes
       ? {newly_reserved_count: result.newlyReservedCount}
       : {}),
     terminate_provider_runner_ids: result.terminateRunnerInstanceIds,
+    ...(result.terminationAuthorizations && result.terminationAuthorizations.length > 0
+      ? {
+          termination_authorizations: result.terminationAuthorizations.map((authorization) => ({
+            provider_runner_id: authorization.providerRunnerId,
+            reason: authorization.reason,
+          })),
+        }
+      : {}),
   };
 }

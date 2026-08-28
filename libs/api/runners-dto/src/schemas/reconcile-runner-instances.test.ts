@@ -80,6 +80,27 @@ describe('reconcileRunnerInstancesResponseSchema', () => {
     expect(Object.hasOwn(runner, 'intended_reservation_id')).toBe(false);
   });
 
+  it('preserves unknown runner fields for older provisioners', () => {
+    const result = reconcileRunnerInstancesResponseSchema.parse({
+      runners: [
+        {
+          provider_runner_id: 'provisioned-runner-1',
+          state: 'running',
+          reservation_id: null,
+          runner_session_id: null,
+          bound_job: null,
+          desired_intent: 'keep',
+          future_field: 'preserved',
+        },
+      ],
+      terminated_absent_provider_runner_ids: [],
+    });
+
+    const runner = result.runners[0];
+    if (!runner) throw new Error('Expected one parsed runner');
+    expect((runner as Record<string, unknown>).future_field).toBe('preserved');
+  });
+
   it('keeps an explicit null field present for current responses', () => {
     const result = reconcileRunnerInstancesResponseSchema.parse({
       runners: [

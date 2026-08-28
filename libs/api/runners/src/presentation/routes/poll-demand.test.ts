@@ -313,8 +313,10 @@ describe('POST /provisioners/demand/poll', () => {
           eq(providerRunners.providerRunnerId, 'provisioned-runner-1'),
         ),
       );
-    expect(runner?.terminationAuthorizedAt).toBeInstanceOf(Date);
-    expect(runner?.terminationReason).toBe('job-cancelled');
+    // Cancellation remains on the legacy delivery path until graceful cleanup
+    // can safely persist its authorization.
+    expect(runner?.terminationAuthorizedAt).toBeNull();
+    expect(runner?.terminationReason).toBeNull();
   });
 
   it('records count divergence and terminate-intent metrics for the returned poll result', async () => {
@@ -415,6 +417,9 @@ describe('POST /provisioners/demand/poll', () => {
     expect(firstResponse.json()).toMatchObject({
       reservations: [],
       terminate_provider_runner_ids: ['stale-demand-runner'],
+      termination_authorizations: [
+        {provider_runner_id: 'stale-demand-runner', reason: 'activation-timeout'},
+      ],
     });
     expect(retryResponse.json()).toMatchObject({
       reservations: [],

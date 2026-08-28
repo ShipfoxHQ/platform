@@ -47,7 +47,7 @@ export const divergenceCountStates = ['starting', 'running'] as const satisfies 
   'starting' | 'running'
 >[];
 
-export type RunnerInstanceTerminateIntentReason = 'activation-timeout' | 'job-cancelled';
+export type RunnerInstanceTerminateIntentReason = RunnerTerminationReason;
 
 export type {RunnerTerminationReason} from '#core/entities/runner-instance.js';
 
@@ -628,6 +628,71 @@ export async function listProvisionerTerminateIntents(params: {
     const rows = await listProvisionerTerminateIntentRowsTx(tx, params);
     return rows.map((row) => row.providerRunnerId);
   });
+}
+
+/** Return the durable termination decisions that are ready for provisioner delivery. */
+export async function listProvisionerTerminationAuthorizations(params: {
+  workspaceId: string | null;
+  provisionerId: string;
+  providerRunnerIds?: string[];
+  limit: number;
+}): Promise<RunnerInstanceTerminateIntent[]> {
+  return await db().transaction((tx) => listProvisionerTerminationAuthorizationsTx(tx, params));
+}
+
+export async function listProvisionerTerminationAuthorizationsTx(
+  tx: Tx,
+  params: {
+    workspaceId: string | null;
+    provisionerId: string;
+    providerRunnerIds?: string[];
+    limit: number;
+  },
+): Promise<RunnerInstanceTerminateIntent[]> {
+  const rows = await tx
+    .select({
+      providerRunnerId: providerRunners.providerRunnerId,
+      terminationReason: providerRunners.terminationReason,
+      // The legacy query owns the first-delivery/retry signal. A durable
+      // authorization has no reliable delivery marker, so it is a first
+      // delivery when it is not also returned by that compatibility query.
+      activationTimeoutRetry: sql<boolean>`false`,
+    })
+    .from(providerRunners)
+    .where(
+      and(
+        params.workspaceId
+          ? eq(providerRunners.workspaceId, params.workspaceId)
+          : isNull(providerRunners.workspaceId),
+        eq(providerRunners.provisionerId, params.provisionerId),
+        // Terminal runners are handled by reconcile's compatibility adapter;
+        // poll-demand only needs authorizations for runners still awaiting
+        // provisioner action.
+        inArray(providerRunners.state, activeStates),
+        isNotNull(providerRunners.providerRunnerId),
+        isNotNull(providerRunners.terminationAuthorizedAt),
+        isNotNull(providerRunners.terminationReason),
+        params.providerRunnerIds && params.providerRunnerIds.length > 0
+          ? inArray(providerRunners.providerRunnerId, params.providerRunnerIds)
+          : undefined,
+      ),
+    )
+    .orderBy(asc(providerRunners.providerRunnerId))
+    .limit(params.limit);
+
+  return rows.flatMap((row) =>
+    row.providerRunnerId && row.terminationReason
+      ? [
+          {
+            providerRunnerId: row.providerRunnerId,
+            reason: row.terminationReason,
+            ...(row.terminationReason === 'activation-timeout' && row.activationTimeoutRetry
+              ? {activationTimeoutRetry: true}
+              : {}),
+          },
+        ]
+      : [],
+  );
 }
 
 export async function listProvisionerTerminateIntentRowsTx(

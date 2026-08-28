@@ -32,6 +32,7 @@ export function toReconcileRunnerInstancesResponseDto(
       cancellation_reason?: 'run_cancelled' | 'timed_out' | null;
     } | null;
     desired_intent: ReconcileRunnerInstancesResult['runners'][number]['desiredIntent'];
+    termination_reason?: ReconcileRunnerInstancesResult['runners'][number]['terminationReason'];
   }>;
   terminated_absent_provider_runner_ids: string[];
 } {
@@ -57,6 +58,7 @@ export function toReconcileRunnerInstancesResponseDto(
           }
         : null,
       desired_intent: runner.desiredIntent,
+      ...(runner.terminationReason ? {termination_reason: runner.terminationReason} : {}),
     })),
     terminated_absent_provider_runner_ids: result.terminatedAbsentRunnerInstanceIds,
   };

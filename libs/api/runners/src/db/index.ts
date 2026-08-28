@@ -84,6 +84,8 @@ export {
   listActiveRunnerInstances,
   listProvisionerTerminateIntentRowsTx,
   listProvisionerTerminateIntents,
+  listProvisionerTerminationAuthorizations,
+  listProvisionerTerminationAuthorizationsTx,
   reapStaleRunnerInstances,
   reconcileRunnerInstances,
   reportRunnerInstances,
