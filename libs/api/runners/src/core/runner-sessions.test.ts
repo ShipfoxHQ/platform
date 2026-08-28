@@ -28,6 +28,7 @@ const activationTokenNotIssuedCases: Array<{
   {reason: 'runner-not-found', update: {}, provisionerId: crypto.randomUUID()},
   {reason: 'missing-workspace', update: {workspaceId: null}},
   {reason: 'existing-session', update: {}},
+  {reason: 'termination-authorized', update: {terminationAuthorizedAt: new Date()}},
   {reason: 'not-running', update: {state: 'starting'}},
 ];
 
@@ -38,9 +39,13 @@ function activationTokenMetricCalls(spy: {mock: {calls: unknown[][]}}): unknown[
     const reason = (attributes as {reason?: unknown}).reason;
     const surface = (attributes as {surface?: unknown}).surface;
     return (
-      ['runner-not-found', 'missing-workspace', 'existing-session', 'not-running'].includes(
-        String(reason),
-      ) && ['enrollment', 'poll'].includes(String(surface))
+      [
+        'runner-not-found',
+        'missing-workspace',
+        'existing-session',
+        'termination-authorized',
+        'not-running',
+      ].includes(String(reason)) && ['enrollment', 'poll'].includes(String(surface))
     );
   });
 }
@@ -210,6 +215,7 @@ describe('activation runner sessions', () => {
             maxClaims: 1,
             claimsUsed: 0,
           });
+        expect(await getRunnerAssignment({runnerInstanceId, provisionerId})).toBeNull();
       } else if (Object.keys(update).length > 0) {
         await db()
           .update(providerRunners)
@@ -247,6 +253,34 @@ describe('activation runner sessions', () => {
     } finally {
       addSpy.mockRestore();
     }
+  });
+
+  it('does not poll for an assignment after termination authorization', async () => {
+    await db()
+      .update(providerRunners)
+      .set({terminationAuthorizedAt: new Date()})
+      .where(eq(providerRunners.id, runnerInstanceId));
+
+    const assignment = await getRunnerAssignment({runnerInstanceId, provisionerId});
+
+    expect(assignment).toBeNull();
+  });
+
+  it('treats a stale runner session pointer as an existing session', async () => {
+    await db()
+      .update(providerRunners)
+      .set({runnerSessionId: crypto.randomUUID()})
+      .where(eq(providerRunners.id, runnerInstanceId));
+
+    expect(
+      await issueRunnerActivationToken({
+        runnerInstanceId,
+        provisionerId,
+        ttlSeconds: 60,
+        surface: 'poll',
+      }),
+    ).toBeNull();
+    expect(await getRunnerAssignment({runnerInstanceId, provisionerId})).toBeNull();
   });
 
   it('does not poll for an assignment while the runner is not running', async () => {

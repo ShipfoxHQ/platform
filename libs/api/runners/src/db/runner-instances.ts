@@ -24,7 +24,10 @@ import type {
   RunnerTerminationReason,
 } from '#core/entities/runner-instance.js';
 import {sanitizeRunnerLabels} from '#core/runner-labels.js';
-import {recordRunnerReservationCapacityFailure} from '#metrics/index.js';
+import {
+  recordRunnerEnrollmentCredentialRevoked,
+  recordRunnerReservationCapacityFailure,
+} from '#metrics/index.js';
 import type {Tx} from './db.js';
 import {db} from './db.js';
 import {lockRunnerEnrollmentTx} from './enrollment-locks.js';
@@ -153,11 +156,14 @@ export async function persistRunnerTerminationAuthorizationTx(
   };
 }
 
+/**
+ * Revocation is an intentional, non-revertible data side effect of termination authorization.
+ */
 async function revokeRunnerEnrollmentCredentialsTx(
   tx: Tx,
   runnerInstanceId: string,
 ): Promise<void> {
-  await tx
+  const revokedTokens = await tx
     .update(runnerActivationTokens)
     .set({revokedAt: sql`now()`})
     .where(
@@ -167,7 +173,7 @@ async function revokeRunnerEnrollmentCredentialsTx(
         isNull(runnerActivationTokens.revokedAt),
       ),
     );
-  await tx
+  const closedControlSessions = await tx
     .update(runnerControlSessions)
     .set({closedAt: sql`now()`, closeReason: 'termination-authorized'})
     .where(
@@ -176,6 +182,22 @@ async function revokeRunnerEnrollmentCredentialsTx(
         isNull(runnerControlSessions.closedAt),
       ),
     );
+  recordRunnerEnrollmentCredentialRevoked({
+    credential: 'activation-token',
+    count: revokedTokens.rowCount ?? 0,
+  });
+  recordRunnerEnrollmentCredentialRevoked({
+    credential: 'control-session',
+    count: closedControlSessions.rowCount ?? 0,
+  });
+  logger().info(
+    {
+      runnerInstanceId,
+      revokedActivationTokenCount: revokedTokens.rowCount ?? 0,
+      closedControlSessionCount: closedControlSessions.rowCount ?? 0,
+    },
+    'Revoked runner enrollment credentials after termination authorization',
+  );
 }
 
 export interface RunnerInstanceTerminateIntent {

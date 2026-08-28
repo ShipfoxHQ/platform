@@ -2,8 +2,10 @@ import {sql} from 'drizzle-orm';
 import type {Tx} from './db.js';
 
 /**
- * The enrollment/termination lock order. Keep every path that can issue or
- * consume an activation token, or authorize termination, in this order.
+ * The enrollment/termination lock order for runners with a workspace. Callers
+ * handling an unassigned runner may skip the workspace lock because there is
+ * no workspace-scoped enrollment to serialize; termination authorization and
+ * token consumption always have a workspace before taking this lock.
  */
 export async function lockRunnerEnrollmentTx(
   tx: Tx,

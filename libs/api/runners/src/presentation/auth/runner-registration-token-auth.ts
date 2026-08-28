@@ -67,6 +67,7 @@ async function authenticateActivationToken(
         gt(runnerActivationTokens.expiresAt, sql`now()`),
         or(isNull(provisionerTokens.id), isNull(provisionerTokens.revokedAt)),
         isNull(providerRunners.runnerSessionId),
+        isNull(providerRunners.terminationAuthorizedAt),
       ),
     )
     .limit(1);

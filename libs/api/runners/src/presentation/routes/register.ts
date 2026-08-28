@@ -1,7 +1,11 @@
 import type {AuthInterModuleClient} from '@shipfox/api-auth-dto/inter-module';
 import {registerRunnerBodySchema, registerRunnerResponseSchema} from '@shipfox/api-runners-dto';
 import {ClientError, defineRoute} from '@shipfox/node-fastify';
-import {EmptyRunnerLabelsError, RunnerLabelsReservedError} from '#core/errors.js';
+import {
+  EmptyRunnerLabelsError,
+  RunnerActivationTokenInvalidError,
+  RunnerLabelsReservedError,
+} from '#core/errors.js';
 import {registerRunnerSession} from '#core/runner-sessions.js';
 import {getRunnerContext} from '#presentation/auth/index.js';
 
@@ -26,6 +30,8 @@ export function createRegisterRoute(auth: AuthInterModuleClient) {
       if (error instanceof EmptyRunnerLabelsError) {
         throw new ClientError(error.message, 'empty-runner-labels', {status: 400});
       }
+      if (error instanceof RunnerActivationTokenInvalidError)
+        throw new ClientError('Invalid runner registration token', 'unauthorized', {status: 401});
       throw error;
     },
     handler: async (request) => {

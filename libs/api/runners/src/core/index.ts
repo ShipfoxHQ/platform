@@ -24,6 +24,7 @@ export {
   ProvisionerAdminIdempotencyKeyReuseError,
   ProvisionerAdminIdempotencyReplayUnavailableError,
   ProvisionerTokenNotFoundError,
+  RunnerActivationTokenInvalidError,
   RunnerLabelsReservedError,
   RunnerSessionExhaustedError,
   RunningJobExecutionNotFoundError,

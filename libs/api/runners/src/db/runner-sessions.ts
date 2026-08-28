@@ -4,7 +4,7 @@ import type {
 } from '@shipfox/api-runners-dto';
 import {and, asc, eq, gt, inArray, isNull, lt, notExists, or, sql} from 'drizzle-orm';
 import type {RunnerSession} from '#core/entities/runner-session.js';
-import {EmptyRunnerLabelsError} from '#core/errors.js';
+import {EmptyRunnerLabelsError, RunnerActivationTokenInvalidError} from '#core/errors.js';
 import {sanitizeRunnerLabelsOrThrow} from '#core/runner-labels.js';
 import {
   type ProviderRunnerLifecycleObservation,
@@ -88,20 +88,23 @@ export async function createRunnerSessionConsumingActivationToken(params: {
       .where(eq(runnerActivationTokens.id, params.activationTokenId))
       .limit(1);
     if (!runner?.workspaceId || !runner.providerRunnerId)
-      throw new Error('Runner activation token is invalid, expired, or has already been used');
+      throw new RunnerActivationTokenInvalidError();
 
     await lockRunnerEnrollmentTx(tx, {
       workspaceId: runner.workspaceId,
       runnerInstanceId: runner.runnerInstanceId,
     });
     const [lockedRunner] = await tx
-      .select({terminationAuthorizedAt: providerRunners.terminationAuthorizedAt})
+      .select({
+        runnerSessionId: providerRunners.runnerSessionId,
+        terminationAuthorizedAt: providerRunners.terminationAuthorizedAt,
+      })
       .from(providerRunners)
       .where(eq(providerRunners.id, runner.runnerInstanceId))
       .limit(1)
       .for('update');
-    if (lockedRunner?.terminationAuthorizedAt)
-      throw new Error('Runner activation token is invalid, expired, or has already been used');
+    if (lockedRunner?.runnerSessionId || lockedRunner?.terminationAuthorizedAt)
+      throw new RunnerActivationTokenInvalidError();
     const [enrolledSession] = await tx
       .select({id: runnerSessions.id})
       .from(runnerSessions)
@@ -113,8 +116,7 @@ export async function createRunnerSessionConsumingActivationToken(params: {
         ),
       )
       .limit(1);
-    if (enrolledSession)
-      throw new Error('Runner activation token is invalid, expired, or has already been used');
+    if (enrolledSession) throw new RunnerActivationTokenInvalidError();
 
     const [activationToken] = await tx
       .select({id: runnerActivationTokens.id})
@@ -195,7 +197,7 @@ export async function createRunnerSessionConsumingActivationToken(params: {
 
 function assertValidActivationToken<T>(token: T | undefined): asserts token is T {
   if (token === undefined) {
-    throw new Error('Runner activation token is invalid, expired, or has already been used');
+    throw new RunnerActivationTokenInvalidError();
   }
 }
 

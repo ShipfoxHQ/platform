@@ -4,7 +4,17 @@ import type {
 } from '@shipfox/api-runners-dto';
 import {uuidv7PrimaryKey} from '@shipfox/node-drizzle';
 import {sql} from 'drizzle-orm';
-import {check, index, integer, jsonb, pgEnum, text, timestamp, uuid} from 'drizzle-orm/pg-core';
+import {
+  check,
+  index,
+  integer,
+  jsonb,
+  pgEnum,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core';
 import type {RunnerSession} from '#core/entities/runner-session.js';
 import {pgTable} from './common.js';
 
@@ -58,6 +68,9 @@ export const runnerSessions = pgTable(
     index('runners_runner_sessions_provider_runner_updated_idx')
       .on(table.workspaceId, table.provisionerId, table.providerRunnerId, table.updatedAt)
       .where(sql`"provisioner_id" IS NOT NULL`),
+    uniqueIndex('runners_runner_sessions_active_activation_unique')
+      .on(table.runnerInstanceId)
+      .where(sql`${table.registrationTokenKind} = 'activation' AND ${table.revokedAt} IS NULL`),
   ],
 );
 

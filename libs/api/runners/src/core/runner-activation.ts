@@ -120,6 +120,8 @@ export async function getRunnerAssignment(params: {
     .select({
       workspaceId: providerRunners.workspaceId,
       state: providerRunners.state,
+      runnerSessionId: providerRunners.runnerSessionId,
+      terminationAuthorizedAt: providerRunners.terminationAuthorizedAt,
       providerRunnerId: providerRunners.providerRunnerId,
     })
     .from(providerRunners)
@@ -130,7 +132,14 @@ export async function getRunnerAssignment(params: {
       ),
     )
     .limit(1);
-  if (!runner?.workspaceId || !runner.providerRunnerId || runner.state !== 'running') return null;
+  if (
+    !runner?.workspaceId ||
+    !runner.providerRunnerId ||
+    runner.runnerSessionId ||
+    runner.terminationAuthorizedAt ||
+    runner.state !== 'running'
+  )
+    return null;
   const [session] = await db()
     .select({id: runnerSessions.id})
     .from(runnerSessions)
