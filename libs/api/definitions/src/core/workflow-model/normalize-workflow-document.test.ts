@@ -72,6 +72,12 @@ const integrationValidationContext = {
             sensitivity: 'write',
             sensitive: true,
           },
+          {
+            token: 'create_branch',
+            kind: 'standalone',
+            sensitivity: 'write',
+            sensitive: false,
+          },
         ],
       },
     ],
@@ -1584,6 +1590,54 @@ describe('normalizeWorkflowDocument', () => {
         details: {tokens: ['issue_write', 'merge_pull_request']},
       },
     ]);
+  });
+
+  it('requires allow_write for the create_branch GitHub tool', () => {
+    const document: WorkflowDocument = {
+      name: 'create branch integrations',
+      jobs: {
+        fix: {
+          steps: [
+            {
+              prompt: 'Create a branch.',
+              integrations: [{include: ['create_branch']}],
+            },
+          ],
+        },
+      },
+    };
+
+    const error = expectInvalid(document, {integrationValidationContext});
+
+    expect(error.issues).toMatchObject([
+      {
+        code: 'integration-write-not-allowed',
+        details: {tokens: ['create_branch']},
+      },
+    ]);
+  });
+
+  it('accepts the create_branch GitHub tool when allow_write is true', () => {
+    const document: WorkflowDocument = {
+      name: 'create branch integrations',
+      jobs: {
+        fix: {
+          steps: [
+            {
+              prompt: 'Create a branch.',
+              integrations: [{include: ['create_branch'], allow_write: true}],
+            },
+          ],
+        },
+      },
+    };
+
+    const model = normalizeWorkflowDocument(document, {integrationValidationContext});
+
+    expect(model.jobs[0]?.steps[0]).toMatchObject({
+      kind: 'agent',
+      integrations: [{include: ['create_branch'], allowWrite: true}],
+    });
   });
 
   it('does not let exclude mask a write-capable include token', () => {

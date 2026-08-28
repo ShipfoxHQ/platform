@@ -871,6 +871,33 @@ export const githubAgentToolCatalog = [
     }),
     outputSchema: openObjectSchema('GitHub Actions workflow job logs'),
   }),
+  tool({
+    id: 'create_branch',
+    category: 'repository',
+    description:
+      'Create a branch in a GitHub repository pointing at a commit. Provide `from` as a 40-character commit oid (for example, the checkout commit of a step) or as an existing branch name, which the server resolves to its current head at call time. An existing branch is reused when it already points at the requested commit, and rejected otherwise. Creating a branch fires GitHub push-event workflows from the new ref, so only branch from commits you intend to activate.',
+    sensitivity: 'write',
+    sensitive: false,
+    requiredScope: scopes.contentsWrite,
+    inputSchema: objectSchema(
+      {
+        repository: stringSchema('The repository in owner/name form'),
+        branch: stringSchema('The name of the branch to create, without any refs/ prefix'),
+        from: stringSchema(
+          'The 40-character commit oid or existing branch name the new branch points at',
+        ),
+      },
+      ['repository', 'branch', 'from'],
+    ),
+    outputSchema: objectSchema(
+      {
+        branch: stringSchema('The name of the created branch'),
+        oid: stringSchema('The commit oid the created branch points at'),
+        url: stringSchema('The API URL of the created git ref'),
+      },
+      ['branch', 'oid', 'url'],
+    ),
+  }),
 ] as const satisfies readonly GithubAgentToolCatalogEntry[];
 
 export type GithubAgentToolId = (typeof githubAgentToolCatalog)[number]['id'];

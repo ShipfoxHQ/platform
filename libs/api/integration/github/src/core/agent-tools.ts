@@ -203,10 +203,7 @@ export class GithubAgentToolsProvider
         tokenPromise ??= this.tokenProvider.getInstallationAccessToken(installationId);
         const token = await tokenPromise;
         if (!hasGrantedPermissions(token.permissions ?? {}, tool, call)) {
-          return githubToolError(
-            'GitHub installation token is missing permission for this operation',
-            'access-denied',
-          );
+          return githubToolError(githubPermissionDeniedMessage(tool, call), 'access-denied');
         }
         const client = (this.options.createClient ?? createOctokitClient)(token.token);
         const method =
@@ -228,7 +225,7 @@ export class GithubAgentToolsProvider
         }
 
         const operationParameters = await mapGithubError(() =>
-          resolvePendingReviewParameters(
+          resolveGithubOperationParameters(
             client,
             operation.parameters,
             tool.id as GithubAgentToolId,
@@ -239,7 +236,12 @@ export class GithubAgentToolsProvider
           return githubToolError(NO_PENDING_REVIEW_MESSAGE, 'provider-rejected');
         }
         const response = await mapGithubError(() =>
-          client.request(operation.route, operationParameters),
+          executeGithubRestOperation(
+            client,
+            operation.route,
+            operationParameters,
+            tool.id as GithubAgentToolId,
+          ),
         );
         return githubToolResult(
           tool.id as GithubAgentToolId,
@@ -413,6 +415,8 @@ export function githubOperationRoute(
       return `POST ${repoPath}/pulls`;
     case 'create_commit.':
       return GITHUB_GRAPHQL_ROUTE;
+    case 'create_branch.':
+      return `POST ${repoPath}/git/refs`;
     case 'update_pull_request.':
       return `PATCH ${repoPath}/pulls/${pull}`;
     case 'add_reply_to_pull_request_comment.':
@@ -698,23 +702,25 @@ export function projectGithubOperationParameters(
   return parameters;
 }
 
-async function resolvePendingReviewParameters(
+async function resolveGithubOperationParameters(
   client: GithubToolClient,
   parameters: Record<string, unknown>,
   toolId: GithubAgentToolId,
   method: string | undefined,
 ): Promise<Record<string, unknown> | undefined> {
-  if (!isPendingReviewOperation(toolId, method)) return parameters;
-
-  const review = await latestPendingReview(client, parameters, 'id');
-  if (review === undefined) return undefined;
-  if (review.id === undefined) {
-    throw new GithubIntegrationProviderError(
-      'malformed-provider-response',
-      'GitHub pending pull request review did not include a numeric ID',
-    );
+  if (isPendingReviewOperation(toolId, method)) {
+    const review = await latestPendingReview(client, parameters, 'id');
+    if (review === undefined) return undefined;
+    if (review.id === undefined) {
+      throw new GithubIntegrationProviderError(
+        'malformed-provider-response',
+        'GitHub pending pull request review did not include a numeric ID',
+      );
+    }
+    return {...parameters, review_id: review.id};
   }
-  return {...parameters, review_id: review.id};
+  if (toolId === 'create_branch') return resolveCreateBranchParameters(client, parameters);
+  return parameters;
 }
 
 function isPendingReviewOperation(toolId: GithubAgentToolId, method: string | undefined): boolean {
@@ -722,6 +728,193 @@ function isPendingReviewOperation(toolId: GithubAgentToolId, method: string | un
     toolId === 'pull_request_review_write' &&
     (method === 'submit_pending' || method === 'delete_pending')
   );
+}
+
+const GITHUB_COMMIT_OID_PATTERN = /^[0-9a-f]{40}$/iu;
+
+async function executeGithubRestOperation(
+  client: GithubToolClient,
+  route: string,
+  parameters: Record<string, unknown>,
+  toolId: GithubAgentToolId,
+): Promise<GithubToolResponse> {
+  if (toolId === 'create_branch') return await createGitBranch(client, parameters);
+  return await client.request(route, parameters);
+}
+
+async function resolveCreateBranchParameters(
+  client: GithubToolClient,
+  parameters: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const {owner, repo} = splitRepositoryName(parameters.repository);
+  const branch = parameters.branch;
+  if (typeof branch !== 'string' || branch.length === 0 || branch.startsWith('refs/')) {
+    throw new GithubIntegrationProviderError(
+      'ref-invalid',
+      'Parameter branch must be a non-empty branch name without a refs/ prefix',
+    );
+  }
+  const from = parameters.from;
+  if (typeof from !== 'string' || from.length === 0) {
+    throw new GithubIntegrationProviderError(
+      'ref-invalid',
+      'Parameter from must be a 40-character commit oid or a branch name',
+    );
+  }
+  if (from.startsWith('refs/')) {
+    throw new GithubIntegrationProviderError(
+      'ref-invalid',
+      'Parameter from must be a 40-character commit oid or a branch name without a refs/ prefix',
+    );
+  }
+  const sha = GITHUB_COMMIT_OID_PATTERN.test(from)
+    ? from
+    : await resolveBranchHeadOid(client, owner, repo, from);
+  const {repository: _repository, from: _from, ...rest} = parameters;
+  return {...rest, owner, repo, sha};
+}
+
+async function resolveBranchHeadOid(
+  client: GithubToolClient,
+  owner: string,
+  repo: string,
+  branch: string,
+): Promise<string> {
+  let response: GithubToolResponse;
+  try {
+    response = await mapGithubError(
+      () =>
+        client.request('GET /repos/{owner}/{repo}/git/ref/heads/{branch}', {
+          owner,
+          repo,
+          branch,
+        }),
+      'ref-not-found',
+    );
+  } catch (error) {
+    if (error instanceof GithubIntegrationProviderError && error.status === 404) {
+      throw new GithubIntegrationProviderError(
+        'provider-rejected',
+        `Branch '${branch}' does not exist in repository ${owner}/${repo}; from must be a 40-character commit oid or an existing branch name`,
+        undefined,
+        error.status,
+      );
+    }
+    throw error;
+  }
+
+  const data = response.data;
+  if (!isRecord(data)) {
+    throw new GithubIntegrationProviderError(
+      'malformed-provider-response',
+      'GitHub branch head resolution response was malformed',
+    );
+  }
+  const object = data.object;
+  if (!isRecord(object)) {
+    throw new GithubIntegrationProviderError(
+      'malformed-provider-response',
+      'GitHub branch head resolution response was malformed',
+    );
+  }
+  const sha = object.sha;
+  if (typeof sha !== 'string' || !GITHUB_COMMIT_OID_PATTERN.test(sha)) {
+    throw new GithubIntegrationProviderError(
+      'malformed-provider-response',
+      'GitHub branch head resolution response was malformed',
+    );
+  }
+  return sha;
+}
+
+async function createGitBranch(
+  client: GithubToolClient,
+  parameters: Record<string, unknown>,
+): Promise<GithubToolResponse> {
+  const branch = parameters.branch;
+  const owner = parameters.owner;
+  const repo = parameters.repo;
+  const sha = parameters.sha;
+  let response: GithubToolResponse;
+  try {
+    response = await mapGithubError(() =>
+      client.request('POST /repos/{owner}/{repo}/git/refs', {
+        owner,
+        repo,
+        ref: `refs/heads/${branch}`,
+        sha,
+      }),
+    );
+  } catch (error) {
+    if (
+      error instanceof GithubIntegrationProviderError &&
+      error.status === 422 &&
+      isAlreadyExistsMessage(error.message)
+    ) {
+      return await reconcileExistingBranch(client, owner, repo, branch, sha);
+    }
+    throw error;
+  }
+  return response;
+}
+
+async function reconcileExistingBranch(
+  client: GithubToolClient,
+  owner: unknown,
+  repo: unknown,
+  branch: unknown,
+  sha: unknown,
+): Promise<GithubToolResponse> {
+  try {
+    const existing = await mapGithubError(() =>
+      client.request('GET /repos/{owner}/{repo}/git/ref/heads/{branch}', {
+        owner,
+        repo,
+        branch,
+      }),
+    );
+    const object =
+      isRecord(existing.data) && isRecord(existing.data.object) ? existing.data.object : undefined;
+    if (
+      typeof sha === 'string' &&
+      typeof object?.sha === 'string' &&
+      object.sha.toLowerCase() === sha.toLowerCase()
+    ) {
+      return existing;
+    }
+  } catch (error) {
+    if (!(error instanceof GithubIntegrationProviderError && error.status === 404)) {
+      throw error;
+    }
+    // Fall through to the already-exists rejection when the existing ref cannot be read.
+  }
+  throw new GithubIntegrationProviderError(
+    'provider-rejected',
+    `Branch '${branch}' already exists in repository ${owner}/${repo}`,
+    undefined,
+    422,
+  );
+}
+
+function isAlreadyExistsMessage(message: string): boolean {
+  return message.toLowerCase().includes('already exists');
+}
+
+function splitRepositoryName(value: unknown): {owner: string; repo: string} {
+  if (typeof value !== 'string') {
+    throw new GithubIntegrationProviderError(
+      'ref-invalid',
+      'Parameter repository must be a string in owner/name form',
+    );
+  }
+  const slashIndex = value.indexOf('/');
+  if (slashIndex < 1 || slashIndex !== value.lastIndexOf('/') || slashIndex === value.length - 1) {
+    throw new GithubIntegrationProviderError(
+      'ref-invalid',
+      `Parameter repository must be a string in owner/name form: ${value}`,
+    );
+  }
+  return {owner: value.slice(0, slashIndex), repo: value.slice(slashIndex + 1)};
 }
 
 interface PendingReviewReference {
@@ -924,6 +1117,8 @@ function projectGithubToolOutput(
     case 'create_pull_request':
     case 'update_pull_request':
       return {pull_request: data};
+    case 'create_branch':
+      return projectGithubCreateBranchOutput(data);
     case 'merge_pull_request':
       return {merge: data};
     case 'create_commit': {
@@ -940,6 +1135,32 @@ function projectGithubToolOutput(
     default:
       return isRecord(data) ? data : {result: data};
   }
+}
+
+function projectGithubCreateBranchOutput(data: unknown): Record<string, unknown> {
+  if (!isRecord(data)) throw malformedCreateBranchResponse();
+
+  const ref = data.ref;
+  if (typeof ref !== 'string' || !ref.startsWith('refs/heads/')) {
+    throw malformedCreateBranchResponse();
+  }
+  const branch = ref.slice('refs/heads/'.length);
+
+  if (!isRecord(data.object) || typeof data.object.sha !== 'string') {
+    throw malformedCreateBranchResponse();
+  }
+  const oid = data.object.sha;
+
+  if (typeof data.url !== 'string') throw malformedCreateBranchResponse();
+
+  return {branch, oid, url: data.url};
+}
+
+function malformedCreateBranchResponse(): GithubIntegrationProviderError {
+  return new GithubIntegrationProviderError(
+    'malformed-provider-response',
+    'GitHub create branch response was malformed',
+  );
 }
 
 function projectGithubArtifactDownloadOutput(
@@ -1137,6 +1358,17 @@ function methodRequiredParameters(
   }
 
   return [];
+}
+
+function githubPermissionDeniedMessage(
+  tool: AgentToolCatalogEntry<GithubAgentToolRequiredScope>,
+  call: AgentToolCallInput,
+): string {
+  const method = typeof call.arguments.method === 'string' ? call.arguments.method : undefined;
+  const required =
+    tool.methods?.find((candidate) => candidate.id === method)?.requiredScope ?? tool.requiredScope;
+  const scope = required.map(({permission, access}) => `${permission}: ${access}`).join(', ');
+  return `GitHub installation token is missing permission for this operation: ${tool.id} requires ${scope}`;
 }
 
 function hasGrantedPermissions(
