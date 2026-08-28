@@ -79,6 +79,7 @@ export async function issueRunnerActivationTokenTx(
           eq(runnerSessions.workspaceId, runner.workspaceId),
           eq(runnerSessions.provisionerId, runner.provisionerId),
           eq(runnerSessions.providerRunnerId, runner.providerRunnerId),
+          isNull(runnerSessions.revokedAt),
         ),
       )
       .limit(1);
@@ -146,6 +147,7 @@ export async function getRunnerAssignment(params: {
         eq(runnerSessions.workspaceId, runner.workspaceId),
         eq(runnerSessions.provisionerId, params.provisionerId),
         eq(runnerSessions.providerRunnerId, runner.providerRunnerId),
+        isNull(runnerSessions.revokedAt),
       ),
     )
     .limit(1);

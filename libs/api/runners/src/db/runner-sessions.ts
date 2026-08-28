@@ -95,16 +95,12 @@ export async function createRunnerSessionConsumingActivationToken(params: {
       runnerInstanceId: runner.runnerInstanceId,
     });
     const [lockedRunner] = await tx
-      .select({
-        runnerSessionId: providerRunners.runnerSessionId,
-        terminationAuthorizedAt: providerRunners.terminationAuthorizedAt,
-      })
+      .select({terminationAuthorizedAt: providerRunners.terminationAuthorizedAt})
       .from(providerRunners)
       .where(eq(providerRunners.id, runner.runnerInstanceId))
       .limit(1)
       .for('update');
-    if (lockedRunner?.runnerSessionId || lockedRunner?.terminationAuthorizedAt)
-      throw new RunnerActivationTokenInvalidError();
+    if (lockedRunner?.terminationAuthorizedAt) throw new RunnerActivationTokenInvalidError();
     const [enrolledSession] = await tx
       .select({id: runnerSessions.id})
       .from(runnerSessions)
@@ -113,6 +109,7 @@ export async function createRunnerSessionConsumingActivationToken(params: {
           eq(runnerSessions.workspaceId, runner.workspaceId),
           eq(runnerSessions.provisionerId, runner.provisionerId),
           eq(runnerSessions.providerRunnerId, runner.providerRunnerId),
+          isNull(runnerSessions.revokedAt),
         ),
       )
       .limit(1);
