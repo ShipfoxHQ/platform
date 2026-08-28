@@ -67,9 +67,10 @@ export class TransientCredentialRenewalError extends Error {
  */
 export class CredentialBroker {
   private readonly entries = new Map<string, Entry>();
-  private readonly flights = new Map<string, Promise<void>>();
+  private readonly flights = new Map<string, Flight>();
   private readonly now: () => number;
   private readonly backoffMs: number;
+  private publication: Promise<void> = Promise.resolve();
   private stopped = false;
 
   constructor(private readonly options: CredentialBrokerOptions) {
@@ -120,7 +121,12 @@ export class CredentialBroker {
     if (entry.credential.renewal?.mode !== 'on-rejection') {
       return rejectedGeneration === undefined ? {} : {rejectedGeneration};
     }
+    const flightKey = `${entry.subject}\u0000${entry.url}`;
+    const flight = this.flights.get(flightKey);
+    const wasRefreshing = flight?.entry === entry && !flight.rejectionRequested;
     await this.renewEntry(entry, rejectedGeneration, true);
+    if (wasRefreshing && entry.rejected && !this.stopped)
+      await this.renewEntry(entry, rejectedGeneration, true);
     return rejectedGeneration === undefined ? {} : {rejectedGeneration};
   }
 
@@ -137,7 +143,7 @@ export class CredentialBroker {
     this.stopped = true;
     this.entries.clear();
     this.flights.clear();
-    void Promise.resolve(this.options.clearSecrets?.()).catch(() => undefined);
+    void this.publication.then(() => this.options.clearSecrets?.()).catch(() => undefined);
   }
 
   private renewEntry(
@@ -147,17 +153,17 @@ export class CredentialBroker {
   ): Promise<void> {
     const flightKey = `${entry.subject}\u0000${entry.url}`;
     const existing = this.flights.get(flightKey);
-    if (existing) return existing;
+    if (existing?.entry === entry) return existing.promise;
     if (entry.backoffUntil !== undefined && this.now() < entry.backoffUntil)
       return Promise.resolve();
 
-    const flight = this.performRenewal(entry, rejectedGeneration, rejectionRequested).finally(
+    const promise = this.performRenewal(entry, rejectedGeneration, rejectionRequested).finally(
       () => {
-        if (this.flights.get(flightKey) === flight) this.flights.delete(flightKey);
+        if (this.flights.get(flightKey)?.promise === promise) this.flights.delete(flightKey);
       },
     );
-    this.flights.set(flightKey, flight);
-    return flight;
+    this.flights.set(flightKey, {entry, promise, rejectionRequested});
+    return promise;
   }
 
   private async performRenewal(
@@ -181,10 +187,12 @@ export class CredentialBroker {
         entry.backoffUntil = undefined;
         return;
       }
+      if (this.entries.get(entry.url) !== entry || (!rejectionRequested && entry.rejected)) return;
       entry.credential = credential;
       entry.rejected = false;
       entry.backoffUntil = undefined;
       await this.publish(credential);
+      if (this.entries.get(entry.url) !== entry || (!rejectionRequested && entry.rejected)) return;
     } catch (error) {
       if (error instanceof TransientCredentialRenewalError) {
         entry.backoffUntil = this.now() + this.backoffMs;
@@ -195,10 +203,15 @@ export class CredentialBroker {
     }
   }
 
-  private async publish(credential: BrokerCredential): Promise<void> {
-    if (!this.options.publishSecrets) return;
+  private publish(credential: BrokerCredential): Promise<void> {
+    if (!this.options.publishSecrets) return Promise.resolve();
     const basic = Buffer.from(`${credential.username}:${credential.token}`).toString('base64');
-    await this.options.publishSecrets([credential.token, basic]);
+    const publication = this.publication.then(async () => {
+      if (this.stopped) return;
+      await this.options.publishSecrets?.([credential.token, basic]);
+    });
+    this.publication = publication.catch(() => undefined);
+    return publication;
   }
 
   private assertRunning(): void {
@@ -212,6 +225,12 @@ type Entry = {
   credential: BrokerCredential;
   rejected?: boolean;
   backoffUntil: number | undefined;
+};
+
+type Flight = {
+  entry: Entry;
+  promise: Promise<void>;
+  rejectionRequested: boolean;
 };
 
 export function normalizeRepositoryUrl(value: string): string {
@@ -271,7 +290,8 @@ function normalizeCredential(input: BrokerCredentialInput): BrokerCredential {
   if (input.renewal === undefined) return credential;
   if (input.renewal.mode === 'refresh-at') {
     const refreshAt = timestamp(input.renewal.refreshAt);
-    if (!Number.isFinite(refreshAt)) throw new TypeError('Invalid credential refresh deadline');
+    if (!Number.isFinite(refreshAt) || refreshAt >= expiresAt)
+      throw new TypeError('Invalid credential refresh deadline');
     return {...credential, renewal: {mode: 'refresh-at', refreshAt}};
   }
   if (input.renewal.mode !== 'on-rejection')
