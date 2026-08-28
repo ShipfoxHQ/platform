@@ -7,7 +7,7 @@ import type {
 } from '#core/agent-tools.js';
 import {materializeToolStep} from '#core/agent-tools.js';
 import type {StepConfigDispatchPlan} from '#core/entities/step.js';
-import {resolveStepField} from './fields.js';
+import {resolveStepFieldWithType} from './fields.js';
 import type {WorkflowEvaluationContext} from './workflow-evaluation-context.js';
 
 type Job = WorkflowModel['jobs'][number];
@@ -93,7 +93,7 @@ function resolveWith(params: {
 }): {readonly value: unknown; readonly plan?: WorkflowJsonTemplateTree} {
   if (params.tree === undefined) return {value: params.value};
   if (isFieldTemplate(params.tree)) {
-    const resolved = resolveStepField({
+    const resolved = resolveStepFieldWithType({
       field: 'tool.with',
       template: {segments: params.tree},
       context: params.context,
@@ -140,7 +140,10 @@ function resolveWith(params: {
       });
       if (resolved.value !== undefined) values[key] = resolved.value;
       if (resolved.plan !== undefined) {
-        delete values[key];
+        // A nested object/array can contain both frozen values and a residual
+        // field. Drop only an unresolved leaf; retaining a partially resolved
+        // container preserves its static siblings for dispatch-time merging.
+        if (resolved.value === undefined) delete values[key];
         plans[key] = resolved.plan;
         hasPlan = true;
       }

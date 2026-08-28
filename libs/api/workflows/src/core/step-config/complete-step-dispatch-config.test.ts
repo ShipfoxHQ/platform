@@ -461,6 +461,75 @@ describe('completeStepDispatchConfig', () => {
     });
   });
 
+  it('completes typed tool inputs and injects a server-owned method', async () => {
+    const pending = step({
+      type: 'tool',
+      config: {
+        tool: {
+          connection_id: 'connection-1',
+          connection_slug: 'github-main',
+          provider: 'github',
+          id: 'issue_write',
+          method: 'update',
+          sensitivity: 'write',
+          sensitive: false,
+          required_scope: [],
+          input_schema: {
+            type: 'object',
+            properties: {
+              owner: {type: 'string'},
+              count: {type: 'integer'},
+              enabled: {type: 'boolean'},
+              options: {type: 'object'},
+              method: {type: 'string'},
+            },
+            required: ['owner', 'count', 'enabled', 'options', 'method'],
+            additionalProperties: false,
+          },
+          with: {owner: 'acme'},
+          output_mappings: {identifier: {source: 'result.identifier'}},
+        },
+      },
+      configPlan: {
+        tool: {
+          with: {
+            count: plannedField(template('steps.build.outputs.count')).segments,
+            enabled: plannedField(template('steps.build.outputs.enabled')).segments,
+            options: plannedField(template('steps.build.outputs.options')).segments,
+          },
+        },
+      },
+    });
+
+    const result = await completeStepDispatchConfig({
+      step: pending,
+      context: {
+        ...context,
+        values: {
+          ...context.values,
+          steps: {
+            build: {
+              outputs: {count: 3, enabled: true, options: {mode: 'fast'}},
+            },
+          },
+        },
+      },
+      resolveAgentDefaults,
+      definitionId: 'def-1',
+    });
+
+    expect(result.config.tool).toMatchObject({
+      with: {
+        owner: 'acme',
+        count: 3,
+        enabled: true,
+        options: {mode: 'fast'},
+        method: 'update',
+      },
+      output_mappings: {identifier: {source: 'result.identifier'}},
+    });
+  });
+
   it('rejects invalid resolved working directories', async () => {
     const pending = step({
       config: {working_directory: '../outside'},

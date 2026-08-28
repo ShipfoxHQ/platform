@@ -174,6 +174,28 @@ function githubAgentToolCatalog(): readonly AgentToolCatalogEntry[] {
   ];
 }
 
+function typedToolCatalog(): readonly AgentToolCatalogEntry[] {
+  return [
+    {
+      id: 'typed_tool',
+      description: 'Accepts typed input values.',
+      sensitivity: 'read',
+      sensitive: false,
+      requiredScope: [],
+      inputSchema: {
+        type: 'object',
+        properties: {
+          count: {type: 'integer'},
+          enabled: {type: 'boolean'},
+          options: {type: 'object'},
+        },
+        required: ['count', 'enabled', 'options'],
+        additionalProperties: false,
+      },
+    },
+  ];
+}
+
 describe('materializeJobExecutionSteps', () => {
   it('resolves static job names through the job execution context', async () => {
     const model = workflowModel({
@@ -587,6 +609,84 @@ describe('materializeJobExecutionSteps', () => {
         integrations,
       },
     ]);
+  });
+
+  it('preserves exact typed tool input expressions before dispatch', async () => {
+    const model = workflowModel({
+      jobs: {
+        call: {
+          steps: [
+            {
+              tool: 'typed_tool',
+              connection: 'github-main',
+              with: {
+                count: template('inputs.count'),
+                enabled: template('inputs.enabled'),
+                options: template('inputs.options'),
+              },
+            },
+          ],
+        },
+      },
+    });
+    const job = model.jobs[0];
+    if (!job) throw new Error('Expected workflow job');
+    const baseContext = jobExecutionContext();
+
+    const steps = await materializeJobExecutionSteps({
+      model,
+      job,
+      context: {
+        ...baseContext,
+        site: 'step-dispatch',
+        values: {
+          ...baseContext.values,
+          inputs: {count: 3, enabled: true, options: {mode: 'fast'}},
+        },
+      },
+      agentToolContext: githubAgentToolContext(typedToolCatalog()),
+    });
+
+    expect(steps[1]?.config.tool).toMatchObject({
+      with: {count: 3, enabled: true, options: {mode: 'fast'}},
+    });
+  });
+
+  it('keeps static siblings when a nested tool input remains deferred', async () => {
+    const model = workflowModel({
+      jobs: {
+        call: {
+          steps: [
+            {
+              tool: 'typed_tool',
+              connection: 'github-main',
+              with: {
+                payload: {
+                  static: 'keep me',
+                  dynamic: template('steps.previous.outputs.value'),
+                },
+              },
+            },
+          ],
+        },
+      },
+    });
+    const job = model.jobs[0];
+    if (!job) throw new Error('Expected workflow job');
+
+    const steps = await materializeJobExecutionSteps({
+      model,
+      job,
+      context: jobExecutionContext(),
+      agentToolContext: githubAgentToolContext(typedToolCatalog()),
+    });
+
+    expect(steps[1]?.config.tool).toMatchObject({with: {payload: {static: 'keep me'}}});
+    expect(steps[1]?.configPlan?.tool?.with).toMatchObject({
+      payload: {
+        dynamic: [expect.objectContaining({kind: 'deferred', roots: ['steps']})],
+      },
+    });
   });
 
   it('carries frozen integrations through the agent dispatch plan when prompt is deferred', async () => {

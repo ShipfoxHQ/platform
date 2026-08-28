@@ -117,6 +117,9 @@ export function normalizeToolStep(params: {
     tool: tool ?? {id: params.step.tool ?? ''},
     ...(params.step.connection === undefined ? {} : {connection: params.step.connection}),
     ...(params.step.with === undefined ? {} : {with: params.step.with}),
+    ...(outputMappings === undefined
+      ? {}
+      : {outputs: outputMappingsToDeclarations(outputMappings)}),
     ...(outputMappings === undefined ? {} : {outputMappings}),
     ...(withTemplates === undefined && params.name === undefined
       ? {}
