@@ -10,6 +10,7 @@ import {
   type ProviderRunnerLifecycleObservation,
   recordProviderRunnerAssignmentToActivation,
 } from '#metrics/instance.js';
+import type {Tx} from './db.js';
 import {db} from './db.js';
 import {lockRunnerEnrollmentTx} from './enrollment-locks.js';
 import {provisionerTokens} from './schema/provisioner-tokens.js';
@@ -90,30 +91,12 @@ export async function createRunnerSessionConsumingActivationToken(params: {
     if (!runner?.workspaceId || !runner.providerRunnerId)
       throw new RunnerActivationTokenInvalidError();
 
-    await lockRunnerEnrollmentTx(tx, {
+    await lockAndAssertRunnerEnrollmentAvailableTx(tx, {
       workspaceId: runner.workspaceId,
       runnerInstanceId: runner.runnerInstanceId,
+      provisionerId: runner.provisionerId,
+      providerRunnerId: runner.providerRunnerId,
     });
-    const [lockedRunner] = await tx
-      .select({terminationAuthorizedAt: providerRunners.terminationAuthorizedAt})
-      .from(providerRunners)
-      .where(eq(providerRunners.id, runner.runnerInstanceId))
-      .limit(1)
-      .for('update');
-    if (lockedRunner?.terminationAuthorizedAt) throw new RunnerActivationTokenInvalidError();
-    const [enrolledSession] = await tx
-      .select({id: runnerSessions.id})
-      .from(runnerSessions)
-      .where(
-        and(
-          eq(runnerSessions.workspaceId, runner.workspaceId),
-          eq(runnerSessions.provisionerId, runner.provisionerId),
-          eq(runnerSessions.providerRunnerId, runner.providerRunnerId),
-          isNull(runnerSessions.revokedAt),
-        ),
-      )
-      .limit(1);
-    if (enrolledSession) throw new RunnerActivationTokenInvalidError();
 
     const [activationToken] = await tx
       .select({id: runnerActivationTokens.id})
@@ -190,6 +173,41 @@ export async function createRunnerSessionConsumingActivationToken(params: {
   if (assignmentToActivationObservation)
     recordProviderRunnerAssignmentToActivation(assignmentToActivationObservation);
   return session;
+}
+
+async function lockAndAssertRunnerEnrollmentAvailableTx(
+  tx: Tx,
+  runner: {
+    workspaceId: string;
+    runnerInstanceId: string;
+    provisionerId: string;
+    providerRunnerId: string;
+  },
+): Promise<void> {
+  await lockRunnerEnrollmentTx(tx, {
+    workspaceId: runner.workspaceId,
+    runnerInstanceId: runner.runnerInstanceId,
+  });
+  const [lockedRunner] = await tx
+    .select({terminationAuthorizedAt: providerRunners.terminationAuthorizedAt})
+    .from(providerRunners)
+    .where(eq(providerRunners.id, runner.runnerInstanceId))
+    .limit(1)
+    .for('update');
+  if (lockedRunner?.terminationAuthorizedAt) throw new RunnerActivationTokenInvalidError();
+  const [enrolledSession] = await tx
+    .select({id: runnerSessions.id})
+    .from(runnerSessions)
+    .where(
+      and(
+        eq(runnerSessions.workspaceId, runner.workspaceId),
+        eq(runnerSessions.provisionerId, runner.provisionerId),
+        eq(runnerSessions.providerRunnerId, runner.providerRunnerId),
+        isNull(runnerSessions.revokedAt),
+      ),
+    )
+    .limit(1);
+  if (enrolledSession) throw new RunnerActivationTokenInvalidError();
 }
 
 function assertValidActivationToken<T>(token: T | undefined): asserts token is T {

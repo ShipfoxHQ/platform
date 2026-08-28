@@ -5,6 +5,7 @@ import type {Tx} from '#db/db.js';
 import {
   persistRunnerTerminationAuthorization,
   persistRunnerTerminationAuthorizationTx,
+  type RunnerEnrollmentRevocationCounts,
   type TerminationAuthorizationResult,
 } from '#db/runner-instances.js';
 
@@ -41,11 +42,16 @@ export async function authorizeRunnerTermination(
 export async function authorizeRunnerTerminationTx(
   tx: Tx,
   params: RunnerTerminationAuthorizationParams,
+  onRevocation?: (counts: RunnerEnrollmentRevocationCounts) => void,
 ): Promise<TerminationAuthorizationResult> {
-  return await persistRunnerTerminationAuthorizationTx(tx, {
-    ...params,
-    resolveTerminationReason: () => resolveTerminationReason(params),
-  });
+  return await persistRunnerTerminationAuthorizationTx(
+    tx,
+    {
+      ...params,
+      resolveTerminationReason: () => resolveTerminationReason(params),
+    },
+    onRevocation,
+  );
 }
 
 function resolveTerminationReason(

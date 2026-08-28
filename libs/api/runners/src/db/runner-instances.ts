@@ -71,7 +71,7 @@ interface PersistRunnerTerminationAuthorizationParams {
   resolveTerminationReason: (reason: string) => RunnerTerminationReason | null;
 }
 
-interface RunnerEnrollmentRevocationCounts {
+export interface RunnerEnrollmentRevocationCounts {
   runnerInstanceId: string;
   revokedActivationTokenCount: number;
   closedControlSessionCount: number;
