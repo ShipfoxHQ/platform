@@ -78,26 +78,47 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
     mint: () => Promise<GithubInstallationAccessToken>,
   ): Promise<GithubInstallationAccessToken> {
     const workspaceId = await this.resolveWorkspaceId(installationId);
-    const envelope = await this.readEnvelope(workspaceId, installationId);
+    let readFailureReported = false;
+    const reportReadFailure = (error: unknown) => {
+      if (readFailureReported) return;
+      readFailureReported = true;
+      logger().warn({installationId, error}, 'github installation token cache read failed');
+      reportError(error, {
+        boundary: 'integration.cache',
+        operation: 'read-envelope',
+        extra: {installationId},
+      });
+    };
+    const envelope = await this.readEnvelope(workspaceId, installationId, reportReadFailure);
     if (usable(envelope, this.now())) {
       recordInstallationTokenLookup('db-hit');
       return tokenFromEnvelope(envelope);
     }
 
     const result = await this.options.withLock(installationId, () =>
-      this.mintUnderLock({workspaceId, installationId, mint}),
+      this.mintUnderLock({workspaceId, installationId, mint, reportReadFailure}),
     );
     if (result.acquired) return result.value;
 
-    return await this.serveStaleOrPoll({workspaceId, installationId, envelope});
+    return await this.serveStaleOrPoll({
+      workspaceId,
+      installationId,
+      envelope,
+      reportReadFailure,
+    });
   }
 
   private async mintUnderLock(params: {
     workspaceId: string;
     installationId: number;
     mint: () => Promise<GithubInstallationAccessToken>;
+    reportReadFailure: (error: unknown) => void;
   }): Promise<GithubInstallationAccessToken> {
-    const envelope = await this.readEnvelope(params.workspaceId, params.installationId);
+    const envelope = await this.readEnvelope(
+      params.workspaceId,
+      params.installationId,
+      params.reportReadFailure,
+    );
     const now = this.now();
     if (usable(envelope, now)) {
       recordInstallationTokenLookup('db-hit');
@@ -209,6 +230,7 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
     workspaceId: string;
     installationId: number;
     envelope: InstallationTokenEnvelope | undefined;
+    reportReadFailure: (error: unknown) => void;
   }): Promise<GithubInstallationAccessToken> {
     const initialNow = this.now();
     if (canServeStale(params.envelope, initialNow)) {
@@ -226,7 +248,11 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
 
     for (const delayMs of this.pollDelaysMs) {
       await this.sleep(delayMs);
-      const envelope = await this.readEnvelope(params.workspaceId, params.installationId);
+      const envelope = await this.readEnvelope(
+        params.workspaceId,
+        params.installationId,
+        params.reportReadFailure,
+      );
       const now = this.now();
       if (usable(envelope, now)) {
         recordInstallationTokenLookup('contended-poll');
@@ -266,8 +292,15 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
   private async readEnvelope(
     workspaceId: string,
     installationId: number,
+    reportReadFailure: (error: unknown) => void,
   ): Promise<InstallationTokenEnvelope | undefined> {
-    const raw = await this.options.secretStore.read(workspaceId, installationId);
+    let raw: string | null;
+    try {
+      raw = await this.options.secretStore.read(workspaceId, installationId);
+    } catch (error) {
+      reportReadFailure(error);
+      return undefined;
+    }
     if (raw === null) return undefined;
 
     const envelope = parseInstallationTokenEnvelope(raw);

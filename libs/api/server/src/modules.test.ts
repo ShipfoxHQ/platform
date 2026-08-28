@@ -563,6 +563,11 @@ describe('defaultModules', () => {
       workspaces: expect.anything(),
       secrets: {
         deleteSecrets: expect.any(Function),
+        github: {
+          deleteSecrets: expect.any(Function),
+          getSecret: expect.any(Function),
+          setSecrets: expect.any(Function),
+        },
         linear: {
           deleteSecrets: expect.any(Function),
           getSecret: expect.any(Function),
@@ -585,6 +590,7 @@ describe('defaultModules', () => {
 
     const integrationsOptions = mocks.createIntegrationsContext.mock.calls[0]?.[0] as {
       secrets: {
+        github: Pick<SecretsInterModuleClient, 'deleteSecrets' | 'getSecret' | 'setSecrets'>;
         linear: Pick<SecretsInterModuleClient, 'deleteSecrets' | 'getSecret' | 'setSecrets'>;
         jira: Pick<SecretsInterModuleClient, 'deleteSecrets' | 'getSecret' | 'setSecrets'>;
         slack: Pick<SecretsInterModuleClient, 'deleteSecrets' | 'getSecret' | 'setSecrets'>;
@@ -599,7 +605,25 @@ describe('defaultModules', () => {
       jobLeaseTokenTtlSeconds: 5400,
     });
 
-    const scope = {workspaceId: crypto.randomUUID(), projectId: null, namespace: 'workspace'};
+    const scope = {
+      workspaceId: crypto.randomUUID(),
+      projectId: null,
+      namespace: 'workspace',
+    };
+    const githubScope = {
+      workspaceId: scope.workspaceId,
+      projectId: null,
+      namespace: 'system/github/installation-token/1',
+    };
+    const githubSecret = await integrationsOptions.secrets.github.getSecret({
+      ...githubScope,
+      key: 'token',
+    });
+    const githubDeleted = await integrationsOptions.secrets.github.deleteSecrets({
+      ...githubScope,
+      keys: ['token'],
+    });
+
     await Promise.all([
       integrationsOptions.secrets.linear.getSecret({...scope, key: 'token'}),
       integrationsOptions.secrets.linear.setSecrets({
@@ -622,6 +646,11 @@ describe('defaultModules', () => {
         editedBy: undefined,
       }),
       integrationsOptions.secrets.slack.deleteSecrets({...scope, keys: ['token']}),
+      integrationsOptions.secrets.github.setSecrets({
+        ...githubScope,
+        values: {token: 'secret'},
+        editedBy: undefined,
+      }),
     ]);
 
     expect(mocks.getSecret.mock.calls.map(([params]) => params)).toContainEqual({
@@ -678,6 +707,36 @@ describe('defaultModules', () => {
       projectId: null,
       workspaceId: scope.workspaceId,
     });
+    expect(githubSecret).toBe('secret');
+    expect(githubDeleted).toBe(1);
+    expect(mocks.getSecret.mock.calls.map(([params]) => params)).toContainEqual({
+      key: 'token',
+      namespace: githubScope.namespace,
+      projectId: null,
+      workspaceId: scope.workspaceId,
+    });
+    expect(mocks.deleteSecrets.mock.calls.map(([params]) => params)).toContainEqual({
+      keys: ['token'],
+      namespace: githubScope.namespace,
+      projectId: null,
+      workspaceId: scope.workspaceId,
+    });
+    const editedBy = crypto.randomUUID();
+    await integrationsOptions.secrets.github.setSecrets({
+      ...githubScope,
+      values: {token: 'secret'},
+      editedBy,
+    });
+    expect(mocks.setSecrets.mock.calls.map(([params]) => params)).toContainEqual({
+      values: {token: 'secret'},
+      namespace: githubScope.namespace,
+      workspaceId: scope.workspaceId,
+      projectId: null,
+      editedBy,
+    });
+    await expect(
+      integrationsOptions.secrets.github.getSecret({...scope, key: 'token'}),
+    ).rejects.toThrow('GitHub secret namespaces must start with system/github/');
   });
 
   it('passes an optional webhook delivery source to integration composition', async () => {
