@@ -37,7 +37,7 @@ export function NavBar({hideProjectNavigation = false}: {hideProjectNavigation?:
         </>
       )}
       <div className="flex-1" />
-      <Button asChild variant="transparent" size="sm" iconRight="externalLink">
+      <Button asChild variant="transparent" size="sm" className="text-foreground-neutral-subtle">
         <a
           href="https://shipfox.io/docs"
           target="_blank"
