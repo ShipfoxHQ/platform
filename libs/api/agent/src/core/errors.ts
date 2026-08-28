@@ -142,6 +142,7 @@ export class AgentSessionHeldError extends Error {
     workflowRunAttemptId: string;
     key: string;
     heldByStepAttempt: string | null;
+    scopeMismatch?: boolean;
   }) {
     super(
       params.heldByStepAttempt === null
@@ -153,8 +154,11 @@ export class AgentSessionHeldError extends Error {
     this.workflowRunAttemptId = params.workflowRunAttemptId;
     this.key = params.key;
     this.heldByStepAttempt = params.heldByStepAttempt;
+    this.scopeMismatch = params.scopeMismatch === true;
   }
 
+  /** Whether the rejection was caused by a workspace/project scope mismatch. */
+  public readonly scopeMismatch: boolean;
   /** The claimed session row. */
   public readonly sessionId: string;
   public readonly workflowRunAttemptId: string;

@@ -222,14 +222,12 @@ describe('workflow run API hooks', () => {
       step_id: '88888888-8888-4888-8888-888888888888',
       attempt: 3,
       authored_config: {prompt: 'Continue'},
-      config: {
-        prompt: 'Continue',
-        session: {
-          id: '99999999-9999-4999-8999-999999999999',
-          key: 'main',
-          mode: 'resume',
-          segment: 7,
-        },
+      config: {prompt: 'Continue'},
+      session: {
+        id: '99999999-9999-4999-8999-999999999999',
+        key: 'main',
+        mode: 'resume',
+        segment: 7,
       },
       evaluation_trace: null,
     };

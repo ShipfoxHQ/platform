@@ -65,7 +65,7 @@ export async function createSession(
 
   const row = rows[0];
   if (!row) throw new Error('Session insert returned no rows');
-  sessionCreatedCount.add(1);
+  sessionCreatedCount.add(1, {source: 'carry_over'});
   return toAgentSession(row);
 }
 
@@ -125,6 +125,7 @@ function assertSessionScopeMatches(row: AgentSessionDb, params: ClaimSessionPara
       workflowRunAttemptId: params.workflowRunAttemptId,
       key: row.key,
       heldByStepAttempt: row.claimedByStepAttempt,
+      scopeMismatch: true,
     });
   }
 }
@@ -254,7 +255,7 @@ export async function claimSession(params: ClaimSessionParams): Promise<AgentSes
     });
 
     try {
-      if (created) sessionCreatedCount.add(1);
+      if (created) sessionCreatedCount.add(1, {source: 'claim'});
     } catch {
       // Metrics must not change session claim outcomes.
     }
@@ -262,7 +263,9 @@ export async function claimSession(params: ClaimSessionParams): Promise<AgentSes
   } catch (error) {
     try {
       if (error instanceof AgentSessionHeldError) {
-        sessionClaimConflictCount.add(1, {outcome: 'held'});
+        sessionClaimConflictCount.add(1, {
+          outcome: error.scopeMismatch ? 'scope_mismatch' : 'held',
+        });
       } else if (error instanceof AgentSessionLockUnavailableError) {
         sessionClaimConflictCount.add(1, {outcome: 'lock_unavailable'});
       }
@@ -479,7 +482,7 @@ export async function carryOverSessions(params: {
   });
 
   try {
-    if (createdCount > 0) sessionCreatedCount.add(createdCount);
+    if (createdCount > 0) sessionCreatedCount.add(createdCount, {source: 'carry_over'});
   } catch {
     // Metrics must not change session carry-over outcomes.
   }

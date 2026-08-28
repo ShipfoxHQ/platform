@@ -248,10 +248,7 @@ export function createSessionArtifactStore(params: {
       } catch (error) {
         try {
           sessionLoadFailureCount.add(1, {
-            outcome:
-              error instanceof AgentSessionUnavailableError && error.reason === 'object_missing'
-                ? 'object_missing'
-                : 'unavailable',
+            outcome: error instanceof AgentSessionUnavailableError ? error.reason : 'unavailable',
           });
         } catch {
           // Metrics must not change session load outcomes.

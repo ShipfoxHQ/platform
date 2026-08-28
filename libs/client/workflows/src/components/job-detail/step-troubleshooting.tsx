@@ -343,10 +343,12 @@ function SessionChip({session}: {session: NonNullable<StepAttemptDetail['session
       variant="feature"
       size="2xs"
       radius="rounded"
-      aria-label={`Agent session ${session.key}, ${session.mode} mode, segment ${session.segment} loaded`}
-      className="w-fit font-code"
+      role="group"
+      aria-label={`Agent session ${session.key}, ${session.mode} mode, ${session.segment === 0 ? 'no prior session loaded' : `segment ${session.segment} loaded`}`}
+      className="w-fit max-w-full truncate font-code"
     >
-      Session {session.key} · {session.mode} · segment {session.segment} loaded
+      Session {session.key} · {session.mode} ·{' '}
+      {session.segment === 0 ? 'no prior session loaded' : `segment ${session.segment} loaded`}
     </Badge>
   );
 }

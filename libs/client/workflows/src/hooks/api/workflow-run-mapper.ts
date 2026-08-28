@@ -1,19 +1,18 @@
-import {
-  agentStepSessionDescriptorSchema,
-  type EvaluationTraceDto,
-  type JobListeningDto,
-  type StepAttemptDetailResponseDto,
-  type StepAttemptDto,
-  type StepGateResultDto,
-  type WorkflowExecutionEventDto,
-  type WorkflowRunAttemptDto,
-  type WorkflowRunDetailResponseDto,
-  type WorkflowRunJobDetailDto,
-  type WorkflowRunJobExecutionDetailDto,
-  type WorkflowRunListItemDto,
-  type WorkflowRunListResponseDto,
-  type WorkflowRunResponseDto,
-  type WorkflowRunStepDetailDto,
+import type {
+  EvaluationTraceDto,
+  JobListeningDto,
+  StepAttemptDetailResponseDto,
+  StepAttemptDto,
+  StepGateResultDto,
+  WorkflowExecutionEventDto,
+  WorkflowRunAttemptDto,
+  WorkflowRunDetailResponseDto,
+  WorkflowRunJobDetailDto,
+  WorkflowRunJobExecutionDetailDto,
+  WorkflowRunListItemDto,
+  WorkflowRunListResponseDto,
+  WorkflowRunResponseDto,
+  WorkflowRunStepDetailDto,
 } from '@shipfox/api-workflows-dto';
 import {
   type EvaluationTraceEntry,
@@ -275,9 +274,8 @@ export function toStepAttempt(dto: StepAttemptDto, jobExecutionId: string): Step
 }
 
 export function toStepAttemptDetail(dto: StepAttemptDetailResponseDto) {
-  const session = agentStepSessionDescriptorSchema.safeParse(dto.config?.session);
-  const mappedSession: StepAttemptSession | null = session.success
-    ? {key: session.data.key, mode: session.data.mode, segment: session.data.segment}
+  const mappedSession: StepAttemptSession | null = dto.session
+    ? {key: dto.session.key, mode: dto.session.mode, segment: dto.session.segment}
     : null;
 
   return {

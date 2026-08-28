@@ -125,6 +125,54 @@ describe('StepInspectorSheet', () => {
     expect((await screen.findAllByText('Evaluation')).length).toBeGreaterThan(0);
   });
 
+  it('shows the session descriptor without transcript data', async () => {
+    const user = userEvent.setup();
+    configureApiClient({
+      fetchImpl: vi.fn(async () =>
+        jsonResponse({
+          step_id: STEP_ID,
+          attempt: 1,
+          authored_config: {run: 'pnpm test'},
+          config: {run: 'pnpm test --filter=client'},
+          session: {
+            id: '99999999-9999-4999-8999-999999999999',
+            key: 'main',
+            mode: 'resume',
+            segment: 2,
+          },
+          evaluation_trace: null,
+        }),
+      ),
+    });
+
+    await renderPanel();
+    await user.click(screen.getByRole('button', {name: INSPECTOR_TRIGGER_NAME}));
+
+    expect(await screen.findByText('Session main · resume · segment 2 loaded')).toBeInTheDocument();
+  });
+
+  it('hides an absent session descriptor while preserving the inspector', async () => {
+    const user = userEvent.setup();
+    configureApiClient({
+      fetchImpl: vi.fn(async () =>
+        jsonResponse({
+          step_id: STEP_ID,
+          attempt: 1,
+          authored_config: {run: 'pnpm test'},
+          config: {run: 'pnpm test --filter=client'},
+          session: null,
+          evaluation_trace: null,
+        }),
+      ),
+    });
+
+    await renderPanel();
+    await user.click(screen.getByRole('button', {name: INSPECTOR_TRIGGER_NAME}));
+
+    expect(await screen.findByRole('region', {name: 'Inputs'})).toBeInTheDocument();
+    expect(screen.queryByText('Session')).toBeNull();
+  });
+
   it('shows an actionable error and retries the detail request', async () => {
     const user = userEvent.setup();
     const fetchImpl = vi

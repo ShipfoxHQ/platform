@@ -196,6 +196,7 @@ export function toStepAttemptDetailResponseDto(
     attempt: attempt.attempt,
     authored_config: step.authoredConfig,
     config: attempt.config,
+    session: toStepDto(step).session,
     evaluation_trace: toEvaluationTraceDto(attempt.evaluationTrace),
   };
 }
