@@ -191,7 +191,7 @@ export class CredentialBroker {
     if (!this.options.clearSecrets) return;
     for (const entry of this.entries.values()) {
       if (entry === excluded || entry.rejected || !isUsable(entry.credential, this.now())) continue;
-      await this.publish(entry.credential);
+      await this.publish(entry.credential).catch(() => undefined);
     }
   }
 
