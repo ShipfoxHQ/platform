@@ -170,9 +170,11 @@ async function loadRerunSourceGraph(
 
 function rerunStepConfig(step: StepDb): Record<string, unknown> {
   const config = {...step.config};
-  const session = step.authoredConfig?.session;
+  const authoredConfig = step.authoredConfig;
+  const session = authoredConfig?.session;
   if (session === undefined) delete config.session;
   else config.session = session;
+  if (authoredConfig?.harness === undefined) delete config.harness;
   return config;
 }
 

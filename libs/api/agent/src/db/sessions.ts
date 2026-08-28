@@ -412,7 +412,7 @@ export async function carryOverSessions(params: {
           headSizeBytes: source.headSizeBytes,
           headCommittedByAttempt: source.headCommittedByAttempt,
           headRepoRef: source.headRepoRef,
-          carriedFromSessionId: source.id,
+          carriedFromSessionId: source.carriedFromSessionId ?? source.id,
         })
         .onConflictDoNothing({
           target: [sessions.workflowRunAttemptId, sessions.key],

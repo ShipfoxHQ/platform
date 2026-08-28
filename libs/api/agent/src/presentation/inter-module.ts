@@ -81,7 +81,9 @@ export function createAgentInterModulePresentation(params: {
       try {
         return await claimStepSession({
           ...input,
-          harnessExplicit: input.harnessExplicit ?? false,
+          // Older callers resolve a harness and must keep the mismatch guard.
+          // Only the new explicit false value requests session-pin inheritance.
+          harnessExplicit: input.harnessExplicit ?? true,
         });
       } catch (error) {
         throw toClaimSessionKnownError(error);

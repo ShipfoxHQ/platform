@@ -201,6 +201,28 @@ describe('agent inter-module claimSession', () => {
     expect(result.code).toBe('session-harness-mismatch');
   });
 
+  it('keeps fork harness validation when harness is omitted', async () => {
+    const input = newClaimInput({mode: 'fork', harness: 'pi', harnessExplicit: false});
+    const presentation = createPresentation();
+    await claim(presentation, {
+      ...input,
+      mode: 'resume' as const,
+      stepAttemptId: crypto.randomUUID(),
+    });
+
+    const result = await claim(presentation, {...input, harness: 'claude'}).catch(
+      (error: unknown) => error,
+    );
+
+    expect(isInterModuleKnownError(agentInterModuleContract.methods.claimSession, result)).toBe(
+      true,
+    );
+    if (!isInterModuleKnownError(agentInterModuleContract.methods.claimSession, result)) {
+      throw new Error('Expected a claim known error');
+    }
+    expect(result.code).toBe('session-harness-mismatch');
+  });
+
   it('returns a null descriptor for a fork of a session held under another workspace', async () => {
     const input = newClaimInput({mode: 'fork'});
     const presentation = createPresentation();

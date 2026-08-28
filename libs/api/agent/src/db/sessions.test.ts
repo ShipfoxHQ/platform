@@ -710,6 +710,24 @@ describe('carryOverSessions', () => {
     expect(source.id).not.toBe(target.id);
   });
 
+  it('preserves root provenance across repeated reruns', async () => {
+    const ctx = newCtx();
+    const source = await claimSession({...ctx, harness: 'pi'});
+    const middleAttemptId = crypto.randomUUID();
+    await carryOverSessions({
+      fromWorkflowRunAttemptId: ctx.workflowRunAttemptId,
+      toWorkflowRunAttemptId: middleAttemptId,
+    });
+    const finalAttemptId = crypto.randomUUID();
+
+    const carried = await carryOverSessions({
+      fromWorkflowRunAttemptId: middleAttemptId,
+      toWorkflowRunAttemptId: finalAttemptId,
+    });
+
+    expect(carried[0]?.carriedFromSessionId).toBe(source.id);
+  });
+
   it('is idempotent for a repeated carry-over call', async () => {
     const ctx = newCtx();
     await claimSession({...ctx, harness: 'pi'});
