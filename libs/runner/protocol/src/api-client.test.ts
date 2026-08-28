@@ -802,10 +802,10 @@ describe('session transcript transport', () => {
   it.each([
     [
       'a non-success load response',
-      500,
+      400,
       null,
       {'x-session-segment': '3'},
-      'Session transcript load failed with status 500',
+      'Session transcript load failed with status 400',
     ],
     [
       'an empty load response',

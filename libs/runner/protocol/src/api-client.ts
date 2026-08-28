@@ -489,21 +489,28 @@ export async function requestSessionTranscript(
   | {blob: Buffer; segment: number; harness: string; harnessSessionId?: string}
 > {
   const query = sessionTranscriptQuerySchema.parse({attempt: params.attempt});
-  const response = await leaseClient.get(`runs/jobs/current/steps/${params.stepId}/session`, {
-    searchParams: {attempt: query.attempt},
-    headers: {accept: SESSION_TRANSCRIPT_CONTENT_TYPE},
-    throwHttpErrors: false,
-    retry: {methods: ['get'], statusCodes: [429, 500, 502, 503, 504]},
-    ...(params.signal ? {signal: params.signal} : {}),
-  });
+  let response: Response;
+  try {
+    response = await leaseClient.get(`runs/jobs/current/steps/${params.stepId}/session`, {
+      searchParams: {attempt: query.attempt},
+      headers: {accept: SESSION_TRANSCRIPT_CONTENT_TYPE},
+      retry: {methods: ['get'], statusCodes: [429, 500, 502, 503, 504]},
+      ...(params.signal ? {signal: params.signal} : {}),
+    });
+  } catch (error) {
+    if (error instanceof HTTPError) {
+      throw new Error(`Session transcript load failed with status ${error.response.status}`);
+    }
+    throw error;
+  }
+  if (response.status !== 200 && response.status !== 204)
+    throw new Error(`Session transcript load failed with status ${response.status}`);
   const segmentHeader = response.headers.get(SESSION_TRANSCRIPT_SEGMENT_HEADER);
   if (segmentHeader === null) throw new Error('Missing session transcript segment');
   const segment = Number(segmentHeader);
   if (!Number.isSafeInteger(segment) || segment < 0)
     throw new Error('Invalid session transcript segment');
   if (response.status === 204) return {blob: null, segment};
-  if (response.status !== 200)
-    throw new Error(`Session transcript load failed with status ${response.status}`);
   const blob = Buffer.from(await response.arrayBuffer());
   if (blob.length === 0) throw new Error('Empty session transcript response');
   const harness = response.headers.get(SESSION_TRANSCRIPT_HARNESS_HEADER);

@@ -547,23 +547,16 @@ export async function executeStep(params: {
       let sessionFile: string | undefined;
       let sessionBaseSegment: number | undefined;
       if (runtimeConfig.session !== undefined) {
-        try {
-          const transcript = await requestSessionTranscript(leaseClient, {
-            stepId: step.id,
-            attempt,
-            signal,
-          });
-          sessionBaseSegment = transcript.segment;
-          if (transcript.blob !== null) {
-            sessionFile = `${agentStateDir}/agent-sessions/dispatch-session.jsonl`;
-            await mkdir(`${agentStateDir}/agent-sessions`, {recursive: true});
-            await writeFile(sessionFile, await gunzipAsync(transcript.blob));
-          }
-        } catch (error) {
-          logger().warn(
-            {err: error, jobId, stepId: step.id, attempt},
-            'Failed to load agent session transcript; running the step without it',
-          );
+        const transcript = await requestSessionTranscript(leaseClient, {
+          stepId: step.id,
+          attempt,
+          signal,
+        });
+        sessionBaseSegment = transcript.segment;
+        if (transcript.blob !== null) {
+          sessionFile = `${agentStateDir}/agent-sessions/dispatch-session.jsonl`;
+          await mkdir(`${agentStateDir}/agent-sessions`, {recursive: true});
+          await writeFile(sessionFile, await gunzipAsync(transcript.blob));
         }
       }
 
