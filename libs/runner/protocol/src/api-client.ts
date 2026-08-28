@@ -6,6 +6,8 @@ import {
 import {
   type AgentRuntimeCredentialsResponseDto,
   agentRuntimeCredentialsResponseSchema,
+  commitSessionTranscriptQuerySchema,
+  commitSessionTranscriptResponseSchema,
   SESSION_TRANSCRIPT_CONTENT_TYPE,
   SESSION_TRANSCRIPT_HARNESS_HEADER,
   SESSION_TRANSCRIPT_HARNESS_SESSION_ID_HEADER,
@@ -13,6 +15,8 @@ import {
   SESSION_TRANSCRIPT_PROVIDER_HEADER,
   SESSION_TRANSCRIPT_SDK_VERSION_HEADER,
   SESSION_TRANSCRIPT_SEGMENT_HEADER,
+  sessionCommitConflictResponseSchema,
+  sessionTranscriptQuerySchema,
 } from '@shipfox/api-agent-dto';
 import {appendLogsResponseSchema, offsetGapResponseSchema} from '@shipfox/api-logs-dto';
 import {
@@ -481,8 +485,9 @@ export async function requestSessionTranscript(
   leaseClient: KyInstance,
   params: {stepId: string; attempt: number; signal?: AbortSignal},
 ): Promise<{blob: Buffer | null; segment: number; harness?: string; harnessSessionId?: string}> {
+  const query = sessionTranscriptQuerySchema.parse({attempt: params.attempt});
   const response = await leaseClient.get(`runs/jobs/current/steps/${params.stepId}/session`, {
-    searchParams: {attempt: params.attempt},
+    searchParams: {attempt: query.attempt},
     headers: {accept: SESSION_TRANSCRIPT_CONTENT_TYPE},
     retry: {methods: ['get'], statusCodes: [429, 500, 502, 503, 504]},
     ...(params.signal ? {signal: params.signal} : {}),
@@ -493,14 +498,19 @@ export async function requestSessionTranscript(
   if (!Number.isSafeInteger(segment) || segment < 0)
     throw new Error('Invalid session transcript segment');
   if (response.status === 204) return {blob: null, segment};
+  if (response.status !== 200)
+    throw new Error(`Session transcript load failed with status ${response.status}`);
   const blob = Buffer.from(await response.arrayBuffer());
   if (blob.length === 0) throw new Error('Empty session transcript response');
   const harness = response.headers.get(SESSION_TRANSCRIPT_HARNESS_HEADER);
+  if (harness === null || harness.length === 0) {
+    throw new Error('Missing session transcript harness');
+  }
   const harnessSessionId = response.headers.get(SESSION_TRANSCRIPT_HARNESS_SESSION_ID_HEADER);
   return {
     blob,
     segment,
-    ...(harness === null ? {} : {harness}),
+    harness,
     ...(harnessSessionId === null || harnessSessionId === '' ? {} : {harnessSessionId}),
   };
 }
@@ -519,7 +529,15 @@ export async function commitSessionTranscript(
     harnessSessionId?: string;
     signal?: AbortSignal;
   },
-): Promise<{status: 'committed' | 'retry-acked'; segment: number}> {
+): Promise<
+  {status: 'committed' | 'retry-acked'; segment: number} | {status: 'conflict'; headSegment: number}
+> {
+  const query = commitSessionTranscriptQuerySchema.parse({
+    attempt: params.attempt,
+    base_segment: params.baseSegment,
+  });
+  if (params.blob.length === 0) throw new Error('Empty session transcript commit');
+
   const headers: Record<string, string> = {
     'content-type': SESSION_TRANSCRIPT_CONTENT_TYPE,
     [SESSION_TRANSCRIPT_MODEL_HEADER]: params.model,
@@ -532,12 +550,20 @@ export async function commitSessionTranscript(
         }),
   };
   const response = await leaseClient.post(`runs/jobs/current/steps/${params.stepId}/session`, {
-    searchParams: {attempt: params.attempt, base_segment: params.baseSegment},
+    searchParams: {attempt: query.attempt, base_segment: query.base_segment},
     headers,
     body: params.blob,
+    throwHttpErrors: false,
     ...(params.signal ? {signal: params.signal} : {}),
   });
-  return (await response.json()) as {status: 'committed' | 'retry-acked'; segment: number};
+  if (response.status === 409) {
+    const conflict = sessionCommitConflictResponseSchema.safeParse(await response.json());
+    if (!conflict.success) throw new Error('Invalid session transcript conflict response');
+    return {status: 'conflict', headSegment: conflict.data.details.head_segment};
+  }
+  if (!response.ok)
+    throw new Error(`Session transcript commit failed with status ${response.status}`);
+  return commitSessionTranscriptResponseSchema.parse(await response.json());
 }
 
 export async function requestStepSecrets(
