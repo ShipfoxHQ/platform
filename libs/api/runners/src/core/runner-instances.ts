@@ -4,13 +4,12 @@ import type {
   RunnerInstanceState,
   RunnerTerminationReason,
 } from '#core/entities/runner-instance.js';
-import {db} from '#db/db.js';
 import {
   attachRunnerInstanceProviderId as attachRunnerInstanceProviderIdDb,
   isTerminalState,
   listActiveRunnerInstances,
   listActiveRunningJobExecutions,
-  listProvisionerTerminationAuthorizationsTx,
+  listProvisionerTerminationAuthorizations,
   type RunnerInstanceReportEvent,
   reconcileRunnerInstances as reconcileRunnerInstancesDb,
   reportRunnerInstances as reportRunnerInstancesDb,
@@ -152,33 +151,28 @@ export async function reconcileRunnerInstances(
     ),
   );
   const terminalAuthorizationByRunnerId = new Map(terminalAuthorizations);
-  const authorizations = await db().transaction((tx) =>
-    listProvisionerTerminationAuthorizationsTx(tx, {
-      workspaceId: params.workspaceId,
-      provisionerId: params.provisionerId,
-      providerRunnerIds: params.observedRunnerInstanceIds,
-      limit: params.observedRunnerInstanceIds.length,
-    }),
-  );
+  const authorizations = await listProvisionerTerminationAuthorizations({
+    workspaceId: params.workspaceId,
+    provisionerId: params.provisionerId,
+    providerRunnerIds: params.observedRunnerInstanceIds,
+    limit: params.observedRunnerInstanceIds.length,
+  });
   const authorizationByRunnerId = new Map(
     authorizations.map((authorization) => [authorization.providerRunnerId, authorization.reason]),
   );
   const runners = reconciledRunners.map((runner) => {
     const authorization = terminalAuthorizationByRunnerId.get(runner.providerRunnerId);
     const reason = authorizationByRunnerId.get(runner.providerRunnerId);
-    const authorizationRejected =
-      runner.desiredIntentReason === 'terminal-state' && authorization?.desiredIntent === 'keep';
-    const effectiveReason = authorizationRejected
-      ? null
-      : (reason ??
-        (authorization?.desiredIntent === 'terminate'
-          ? authorization.terminationReason
-          : runner.desiredIntentReason));
+    const effectiveReason =
+      reason ??
+      (authorization?.desiredIntent === 'terminate' ? authorization.terminationReason : null);
     return {
       ...runner,
       desiredIntent: (effectiveReason ? 'terminate' : 'keep') as ReconcileDesiredIntent,
       desiredIntentReason: effectiveReason,
-      terminationReason: reason ?? null,
+      terminationReason:
+        reason ??
+        (authorization?.desiredIntent === 'terminate' ? authorization.terminationReason : null),
     };
   });
   for (const runner of runners) {

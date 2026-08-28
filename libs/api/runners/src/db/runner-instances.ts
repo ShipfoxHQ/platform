@@ -631,6 +631,15 @@ export async function listProvisionerTerminateIntents(params: {
 }
 
 /** Return the durable termination decisions that are ready for provisioner delivery. */
+export async function listProvisionerTerminationAuthorizations(params: {
+  workspaceId: string | null;
+  provisionerId: string;
+  providerRunnerIds?: string[];
+  limit: number;
+}): Promise<RunnerInstanceTerminateIntent[]> {
+  return await db().transaction((tx) => listProvisionerTerminationAuthorizationsTx(tx, params));
+}
+
 export async function listProvisionerTerminationAuthorizationsTx(
   tx: Tx,
   params: {
@@ -644,7 +653,10 @@ export async function listProvisionerTerminationAuthorizationsTx(
     .select({
       providerRunnerId: providerRunners.providerRunnerId,
       terminationReason: providerRunners.terminationReason,
-      activationTimeoutRetry: isNotNull(providerRunners.reservationReleasedAt),
+      // The legacy query owns the first-delivery/retry signal. A durable
+      // authorization has no reliable delivery marker, so it is a first
+      // delivery when it is not also returned by that compatibility query.
+      activationTimeoutRetry: sql<boolean>`false`,
     })
     .from(providerRunners)
     .where(
@@ -653,6 +665,10 @@ export async function listProvisionerTerminationAuthorizationsTx(
           ? eq(providerRunners.workspaceId, params.workspaceId)
           : isNull(providerRunners.workspaceId),
         eq(providerRunners.provisionerId, params.provisionerId),
+        // Terminal runners are handled by reconcile's compatibility adapter;
+        // poll-demand only needs authorizations for runners still awaiting
+        // provisioner action.
+        inArray(providerRunners.state, activeStates),
         isNotNull(providerRunners.providerRunnerId),
         isNotNull(providerRunners.terminationAuthorizedAt),
         isNotNull(providerRunners.terminationReason),

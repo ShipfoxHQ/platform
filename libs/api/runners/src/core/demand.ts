@@ -122,6 +122,9 @@ export async function pollDemand(params: PollDemandParams): Promise<PollDemandRe
       const legacyIntentByRunnerId = new Map(
         legacyTerminateIntents.map((intent) => [intent.providerRunnerId, intent]),
       );
+      const canonicalRunnerIds = new Set(
+        terminateIntents.map((authorization) => authorization.providerRunnerId),
+      );
       const deliveredIntents = [
         ...terminateIntents.map((authorization) => {
           const legacyIntent = legacyIntentByRunnerId.get(authorization.providerRunnerId);
@@ -137,10 +140,7 @@ export async function pollDemand(params: PollDemandParams): Promise<PollDemandRe
               };
         }),
         ...legacyTerminateIntents.filter(
-          (legacyIntent) =>
-            !terminateIntents.some(
-              (authorization) => authorization.providerRunnerId === legacyIntent.providerRunnerId,
-            ),
+          (legacyIntent) => !canonicalRunnerIds.has(legacyIntent.providerRunnerId),
         ),
       ].slice(0, params.terminateIntentLimit);
       const newlyReservedCount = demand.newlyReservedUnits.reduce(
@@ -152,7 +152,7 @@ export async function pollDemand(params: PollDemandParams): Promise<PollDemandRe
         reservations: demand.reservations,
         ...(newlyReservedCount > 0 ? {newlyReservedCount} : {}),
         terminateRunnerInstanceIds: deliveredIntents.map((intent) => intent.providerRunnerId),
-        ...(terminateIntents.length > 0 ? {terminationAuthorizations: terminateIntents} : {}),
+        ...(deliveredIntents.length > 0 ? {terminationAuthorizations: deliveredIntents} : {}),
       };
 
       if (

@@ -228,11 +228,12 @@ describe('POST /provisioners/runner-instances/reconcile', () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.json().runners[0]).toMatchObject({
-      desired_intent: 'terminate',
+      desired_intent: 'keep',
       bound_job: {
         cancellation_requested_at: '2025-01-01T00:01:00.000Z',
       },
     });
+    expect(Object.hasOwn(res.json().runners[0], 'termination_reason')).toBe(false);
     const intentCalls = intentSpy.mock.calls
       .slice(intentCallsBefore)
       .filter(
@@ -241,7 +242,7 @@ describe('POST /provisioners/runner-instances/reconcile', () => {
           JSON.stringify(attributes) ===
             JSON.stringify({surface: 'reconcile', reason: 'job-cancelled'}),
       );
-    expect(intentCalls).toHaveLength(1);
+    expect(intentCalls).toHaveLength(0);
   });
 
   it('returns an empty result for an empty observed set without reaping absent runners', async () => {
