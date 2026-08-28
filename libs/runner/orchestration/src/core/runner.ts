@@ -52,6 +52,7 @@ let running = true;
 let warnedAboutUnavailablePiExtensions = false;
 const bootTimeline = createBootTimelineCollector();
 type RunnerBootPhaseTimeline = ReturnType<typeof createRunnerBootPhaseTimeline>;
+const RUNNER_LIFECYCLE_CAPABILITIES: ['local_execution_fence_v1'] = ['local_execution_fence_v1'];
 let bootPhaseTimeline: RunnerBootPhaseTimeline | undefined;
 // Module-level so the long-lived SIGINT handler can reach the in-flight job's
 // controller; locally-scoped capture isn't possible from a process-global handler.
@@ -129,7 +130,10 @@ export async function startRunner(
   while (running) {
     try {
       if (!runnerSession) {
-        runnerSession = await registerRunnerSession({capabilities: runnerToolCapabilities()});
+        runnerSession = await registerRunnerSession({
+          capabilities: runnerToolCapabilities(),
+          lifecycleCapabilities: RUNNER_LIFECYCLE_CAPABILITIES,
+        });
         logger().info({runnerSessionId: runnerSession.session_id}, 'Runner session registered');
       }
 
@@ -301,6 +305,9 @@ export async function runJob(
   const heartbeatLoop = startHeartbeatLoop(job.job_id, () => currentLeaseToken, ac, {
     intervalMs: config.SHIPFOX_HEARTBEAT_INTERVAL_MS,
     maxStaleMs: config.SHIPFOX_HEARTBEAT_MAX_STALE_MS,
+    ...(job.isolation_timeout_seconds !== undefined
+      ? {isolationTimeoutSeconds: job.isolation_timeout_seconds}
+      : {}),
     getToolCapabilities: runnerToolCapabilities,
     onLeaseTokenRenewed: rememberLeaseToken,
   });
@@ -385,6 +392,7 @@ async function initializeManagedRunnerSession(
 
   const runnerSession = await registerRunnerSession({
     capabilities: runnerToolCapabilities(),
+    lifecycleCapabilities: RUNNER_LIFECYCLE_CAPABILITIES,
     registrationToken: activationToken,
   });
   runnerBootPhaseTimeline.mark('activation_uptime_seconds');

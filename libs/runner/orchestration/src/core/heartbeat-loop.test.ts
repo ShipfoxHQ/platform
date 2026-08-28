@@ -197,6 +197,7 @@ describe('startHeartbeatLoop', () => {
     const handle = startHeartbeatLoop('job-1', () => 'lease-1', ac, {
       intervalMs: 100,
       maxStaleMs: 1000,
+      isolationTimeoutSeconds: 1,
     });
 
     await vi.advanceTimersByTimeAsync(100);
@@ -204,6 +205,8 @@ describe('startHeartbeatLoop', () => {
     expect(ac.signal.aborted).toBe(true);
     expect(ac.signal.reason).toBe('timed_out');
 
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(ac.signal.reason).toBe('timed_out');
     await vi.advanceTimersByTimeAsync(500);
     expect(heartbeatMock).toHaveBeenCalledTimes(1);
 
@@ -217,16 +220,123 @@ describe('startHeartbeatLoop', () => {
     const handle = startHeartbeatLoop('job-1', () => 'lease-1', ac, {
       intervalMs: 100,
       maxStaleMs: 1000,
+      isolationTimeoutSeconds: 1,
     });
 
     await vi.advanceTimersByTimeAsync(100);
     expect(heartbeatMock).toHaveBeenCalledTimes(1);
     expect(ac.signal.aborted).toBe(true);
+    expect(ac.signal.reason).toBe('orphaned');
 
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(ac.signal.reason).toBe('orphaned');
     await vi.advanceTimersByTimeAsync(500);
     expect(heartbeatMock).toHaveBeenCalledTimes(1);
 
     handle.stop();
+  });
+
+  test('a transient failure does not stop a fenced job', async () => {
+    heartbeatMock
+      .mockRejectedValueOnce(buildHTTPError(500))
+      .mockResolvedValueOnce({cancel: false, lease_token: 'lease-1'})
+      .mockRejectedValue(buildHTTPError(500));
+    const ac = new AbortController();
+    const nowMs = vi.fn(() => Date.now());
+
+    const handle = startHeartbeatLoop('job-1', () => 'lease-1', ac, {
+      intervalMs: 100,
+      maxStaleMs: 1000,
+      isolationTimeoutSeconds: 1,
+      nowMs,
+    });
+
+    await vi.advanceTimersByTimeAsync(100);
+    expect(ac.signal.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(899);
+    expect(ac.signal.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(ac.signal.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(ac.signal.reason).toBe('isolated');
+
+    handle.stop();
+  });
+
+  test('stops local work at the isolation deadline after sustained heartbeat failures', async () => {
+    heartbeatMock.mockRejectedValue(buildHTTPError(500));
+    const ac = new AbortController();
+
+    const handle = startHeartbeatLoop('job-1', () => 'lease-1', ac, {
+      intervalMs: 100,
+      maxStaleMs: 1000,
+      isolationTimeoutSeconds: 1,
+    });
+
+    await vi.advanceTimersByTimeAsync(1100);
+
+    expect(ac.signal.aborted).toBe(true);
+    expect(ac.signal.reason).toBe('isolated');
+    handle.stop();
+  });
+
+  test('initial isolation fence waits for the first heartbeat interval', async () => {
+    heartbeatMock.mockResolvedValue({cancel: false, lease_token: 'lease-1'});
+    const ac = new AbortController();
+
+    const handle = startHeartbeatLoop('job-1', () => 'lease-1', ac, {
+      intervalMs: 100,
+      maxStaleMs: 1000,
+      isolationTimeoutSeconds: 0.01,
+    });
+
+    await vi.advanceTimersByTimeAsync(10);
+    expect(heartbeatMock).not.toHaveBeenCalled();
+    expect(ac.signal.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(90);
+    expect(heartbeatMock).toHaveBeenCalledTimes(1);
+    expect(ac.signal.aborted).toBe(false);
+
+    handle.stop();
+  });
+
+  test('successful confirmation resets the isolation deadline', async () => {
+    heartbeatMock
+      .mockResolvedValueOnce({cancel: false, lease_token: 'lease-1'})
+      .mockImplementation(() => new Promise(() => undefined));
+    const ac = new AbortController();
+
+    const handle = startHeartbeatLoop('job-1', () => 'lease-1', ac, {
+      intervalMs: 100,
+      maxStaleMs: 1000,
+      isolationTimeoutSeconds: 1,
+    });
+
+    await vi.advanceTimersByTimeAsync(100);
+    await vi.advanceTimersByTimeAsync(899);
+    expect(ac.signal.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(ac.signal.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(ac.signal.aborted).toBe(true);
+
+    handle.stop();
+  });
+
+  test('stop() clears the isolation fence before its deadline', async () => {
+    heartbeatMock.mockImplementation(() => new Promise(() => undefined));
+    const ac = new AbortController();
+
+    const handle = startHeartbeatLoop('job-1', () => 'lease-1', ac, {
+      intervalMs: 100,
+      maxStaleMs: 10_000,
+      isolationTimeoutSeconds: 1,
+    });
+
+    handle.stop();
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(ac.signal.aborted).toBe(false);
   });
 
   test('non-404 errors are transient: log and schedule next tick', async () => {
