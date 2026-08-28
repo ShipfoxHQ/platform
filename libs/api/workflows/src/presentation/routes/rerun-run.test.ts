@@ -1,3 +1,4 @@
+import type {AgentInterModuleClient} from '@shipfox/api-agent-dto/inter-module';
 import {buildUserContext, setUserContext} from '@shipfox/api-auth-context';
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import {
@@ -27,6 +28,9 @@ const projects = {
 } as unknown as ProjectsModuleClient;
 const getWorkspaceOperatingState = vi.fn();
 const workspaces = {getWorkspaceOperatingState} as unknown as WorkspacesInterModuleClient;
+const agent = {
+  carryOverSessions: vi.fn(),
+} as unknown as AgentInterModuleClient;
 
 describe('POST /api/workflows/runs/:id/rerun', () => {
   let app: FastifyInstance;
@@ -48,11 +52,12 @@ describe('POST /api/workflows/runs/:id/rerun', () => {
       );
       done();
     });
-    app.post('/api/workflows/runs/:id/rerun', rerunRunRoute(projects, workspaces));
+    app.post('/api/workflows/runs/:id/rerun', rerunRunRoute(projects, workspaces, agent));
     await app.ready();
   });
 
   beforeEach(() => {
+    vi.mocked(agent.carryOverSessions).mockReset();
     workspaceId = crypto.randomUUID();
     projectId = crypto.randomUUID();
     projectAccessState.workspaceId = workspaceId;
@@ -94,7 +99,7 @@ describe('POST /api/workflows/runs/:id/rerun', () => {
     return run;
   }
 
-  test('creates a new attempt for all mode', async () => {
+  test('creates a new attempt for all mode without carrying sessions', async () => {
     const source = await createTerminalRun('failed');
 
     const res = await app.inject({
@@ -110,9 +115,10 @@ describe('POST /api/workflows/runs/:id/rerun', () => {
       latest_attempt: 2,
       status: 'pending',
     });
+    expect(agent.carryOverSessions).not.toHaveBeenCalled();
   });
 
-  test('creates a new attempt for failed mode', async () => {
+  test('creates a new attempt for failed mode and carries sessions', async () => {
     const source = await createFailedRunWithFailedJob();
 
     const res = await app.inject({
@@ -127,6 +133,10 @@ describe('POST /api/workflows/runs/:id/rerun', () => {
       current_attempt: 2,
       latest_attempt: 2,
       status: 'pending',
+    });
+    expect(agent.carryOverSessions).toHaveBeenCalledWith({
+      fromWorkflowRunAttemptId: expect.any(String),
+      toWorkflowRunAttemptId: expect.any(String),
     });
   });
 

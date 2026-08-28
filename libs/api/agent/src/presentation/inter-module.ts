@@ -79,7 +79,10 @@ export function createAgentInterModulePresentation(params: {
     },
     claimSession: async (input) => {
       try {
-        return await claimStepSession(input);
+        return await claimStepSession({
+          ...input,
+          harnessExplicit: input.harnessExplicit ?? false,
+        });
       } catch (error) {
         throw toClaimSessionKnownError(error);
       }

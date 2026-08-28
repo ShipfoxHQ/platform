@@ -168,6 +168,14 @@ async function loadRerunSourceGraph(
   return {sourceJobExecutionByJobId, sourceJobByJobExecutionId, sourceSteps};
 }
 
+function rerunStepConfig(step: StepDb): Record<string, unknown> {
+  const config = {...step.config};
+  const session = step.authoredConfig?.session;
+  if (session === undefined) delete config.session;
+  else config.session = session;
+  return config;
+}
+
 interface MaterializeRerunGraphParams {
   readonly mode: CreateRerunWorkflowRunParams['mode'];
   readonly sourceRun: WorkflowRun;
@@ -254,7 +262,7 @@ function materializeRerunGraphJob(
         status: carriedOver ? step.status : 'pending',
         statusReason: carriedOver ? step.statusReason : null,
         type: step.type,
-        config: step.config,
+        config: rerunStepConfig(step),
         condition: step.condition ?? null,
         configPlan: step.configPlan,
         authoredConfig: step.authoredConfig,
