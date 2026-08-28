@@ -10,6 +10,7 @@ import {
   AgentSessionKeyInvalidError,
   AgentSessionLockUnavailableError,
 } from '#core/errors.js';
+import {sessionClaimConflictCount, sessionCreatedCount} from '#metrics/instance.js';
 import {db, type Transaction} from './db.js';
 import {type AgentSessionDb, sessions, toAgentSession} from './schema/sessions.js';
 
@@ -64,6 +65,7 @@ export async function createSession(
 
   const row = rows[0];
   if (!row) throw new Error('Session insert returned no rows');
+  sessionCreatedCount.add(1);
   return toAgentSession(row);
 }
 
@@ -213,39 +215,50 @@ async function lockClaimableSession(
 export async function claimSession(params: ClaimSessionParams): Promise<AgentSession> {
   assertValidSessionKey(params.key);
   assertValidSessionHarness(params.harness);
-  return await db().transaction(async (tx) => {
-    const [existingRow] = await tx.select().from(sessions).where(claimSessionIdentity(params));
-    await acquireExistingSessionClaim(tx, existingRow, params);
+  try {
+    return await db().transaction(async (tx) => {
+      const [existingRow] = await tx.select().from(sessions).where(claimSessionIdentity(params));
+      await acquireExistingSessionClaim(tx, existingRow, params);
 
-    await tx
-      .insert(sessions)
-      .values({
-        workspaceId: params.workspaceId,
-        projectId: params.projectId,
-        workflowRunAttemptId: params.workflowRunAttemptId,
-        key: params.key,
-        harness: params.harness,
-      })
-      .onConflictDoNothing();
+      const inserted = await tx
+        .insert(sessions)
+        .values({
+          workspaceId: params.workspaceId,
+          projectId: params.projectId,
+          workflowRunAttemptId: params.workflowRunAttemptId,
+          key: params.key,
+          harness: params.harness,
+        })
+        .onConflictDoNothing()
+        .returning({id: sessions.id});
+      if (inserted.length > 0) sessionCreatedCount.add(1);
 
-    await assertClaimLockAvailable(tx, params);
-    const row = await lockClaimableSession(tx, params);
+      await assertClaimLockAvailable(tx, params);
+      const row = await lockClaimableSession(tx, params);
 
-    const updated = await tx
-      .update(sessions)
-      .set({
-        claimedByStepAttempt: params.stepAttemptId,
-        claimedAt: sql`now()`,
-        updatedAt: sql`now()`,
-        version: sql`${sessions.version} + 1`,
-      })
-      .where(eq(sessions.id, row.id))
-      .returning();
+      const updated = await tx
+        .update(sessions)
+        .set({
+          claimedByStepAttempt: params.stepAttemptId,
+          claimedAt: sql`now()`,
+          updatedAt: sql`now()`,
+          version: sql`${sessions.version} + 1`,
+        })
+        .where(eq(sessions.id, row.id))
+        .returning();
 
-    const updatedRow = updated[0];
-    if (!updatedRow) throw new Error('Session update returned no rows after claim');
-    return toAgentSession(updatedRow);
-  });
+      const updatedRow = updated[0];
+      if (!updatedRow) throw new Error('Session update returned no rows after claim');
+      return toAgentSession(updatedRow);
+    });
+  } catch (error) {
+    if (error instanceof AgentSessionHeldError) {
+      sessionClaimConflictCount.add(1, {outcome: 'held'});
+    } else if (error instanceof AgentSessionLockUnavailableError) {
+      sessionClaimConflictCount.add(1, {outcome: 'lock_unavailable'});
+    }
+    throw error;
+  }
 }
 
 /**

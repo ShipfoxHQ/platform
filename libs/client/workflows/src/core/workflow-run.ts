@@ -51,6 +51,7 @@ export type {
   EvaluationTraceValueEntry,
   StepAttemptDetail,
   StepAttemptDisplayDuration,
+  StepAttemptSession,
   StepGateResult,
 } from './entities/step-attempt.js';
 export {StepAttempt} from './entities/step-attempt.js';

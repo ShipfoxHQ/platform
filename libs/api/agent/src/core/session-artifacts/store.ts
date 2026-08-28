@@ -7,6 +7,7 @@ import {
   type SessionCommitOutcome,
   sessionCommitsCount,
   sessionCommittedBytes,
+  sessionLoadFailureCount,
 } from '#metrics/instance.js';
 import {AgentSessionUnavailableError} from '../errors.js';
 import {aadForSessionObject, openSessionBlob, sealSessionBlob} from './crypto.js';
@@ -212,37 +213,47 @@ export function createSessionArtifactStore(params: {
     async readHeadSegment(session) {
       if (session.headObjectKey === null || session.headSegment === 0) return null;
 
-      const object = await getSessionObject(session.headObjectKey);
-      if (object === null) {
-        throw new AgentSessionUnavailableError('object_missing');
-      }
-
-      const dek = await params.dekManager.getPlaintextDek(session.workspaceId);
-      // The AAD binds the session that WROTE the object. A carried-over row's
-      // head points into the source session's prefix, so the session id comes
-      // from the key, not the row.
-      const keySessionId = parseSessionObjectKey(
-        session.headObjectKey,
-        config.AGENT_SESSION_STORAGE_S3_PREFIX,
-      )?.sessionId;
-      const blob = openSessionBlob({
-        key: dek,
-        sealed: object.body,
-        aad: aadForSessionObject({
-          workspaceId: session.workspaceId,
-          sessionId: keySessionId ?? session.id,
-          segment: session.headSegment,
-        }),
-      });
-
-      let manifest: SegmentManifest;
       try {
-        manifest = segmentManifestFromMetadata(object.metadata);
-      } catch {
-        throw new AgentSessionUnavailableError('invalid_manifest');
-      }
+        const object = await getSessionObject(session.headObjectKey);
+        if (object === null) {
+          throw new AgentSessionUnavailableError('object_missing');
+        }
 
-      return {blob, manifest};
+        const dek = await params.dekManager.getPlaintextDek(session.workspaceId);
+        // The AAD binds the session that WROTE the object. A carried-over row's
+        // head points into the source session's prefix, so the session id comes
+        // from the key, not the row.
+        const keySessionId = parseSessionObjectKey(
+          session.headObjectKey,
+          config.AGENT_SESSION_STORAGE_S3_PREFIX,
+        )?.sessionId;
+        const blob = openSessionBlob({
+          key: dek,
+          sealed: object.body,
+          aad: aadForSessionObject({
+            workspaceId: session.workspaceId,
+            sessionId: keySessionId ?? session.id,
+            segment: session.headSegment,
+          }),
+        });
+
+        let manifest: SegmentManifest;
+        try {
+          manifest = segmentManifestFromMetadata(object.metadata);
+        } catch {
+          throw new AgentSessionUnavailableError('invalid_manifest');
+        }
+
+        return {blob, manifest};
+      } catch (error) {
+        sessionLoadFailureCount.add(1, {
+          outcome:
+            error instanceof AgentSessionUnavailableError && error.reason === 'object_missing'
+              ? 'object_missing'
+              : 'unavailable',
+        });
+        throw error;
+      }
     },
 
     async deleteSessionObjects(session) {

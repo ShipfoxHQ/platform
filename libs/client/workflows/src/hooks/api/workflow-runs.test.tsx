@@ -200,6 +200,7 @@ describe('workflow run API hooks', () => {
     expect(toStepAttemptDetail(dto)).toEqual({
       stepId: dto.step_id,
       attempt: 2,
+      session: null,
       authoredConfig: dto.authored_config,
       config: dto.config,
       evaluationTrace: [
@@ -213,6 +214,30 @@ describe('workflow run API hooks', () => {
           degraded: false,
         },
       ],
+    });
+  });
+
+  test('maps the recorded session descriptor without exposing transcript data', () => {
+    const dto: StepAttemptDetailResponseDto = {
+      step_id: '88888888-8888-4888-8888-888888888888',
+      attempt: 3,
+      authored_config: {prompt: 'Continue'},
+      config: {
+        prompt: 'Continue',
+        session: {
+          id: '99999999-9999-4999-8999-999999999999',
+          key: 'main',
+          mode: 'resume',
+          segment: 7,
+        },
+      },
+      evaluation_trace: null,
+    };
+
+    expect(toStepAttemptDetail(dto).session).toEqual({
+      key: 'main',
+      mode: 'resume',
+      segment: 7,
     });
   });
 

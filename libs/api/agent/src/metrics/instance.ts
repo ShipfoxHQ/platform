@@ -32,6 +32,35 @@ export const sessionClaimReapFailedCount = meter.createCounter('agent_session_cl
 
 export type SessionCommitOutcome = 'committed' | 'retry_acked' | 'conflict';
 
+export const sessionCreatedCount = meter.createCounter<Record<string, never>>(
+  'agent_session_created',
+  {description: 'Agent session registry rows created'},
+);
+
+export const sessionResumedCount = meter.createCounter<{outcome: 'claimed'}>(
+  'agent_session_resumed',
+  {description: 'Agent session resume dispatches accepted'},
+);
+
+export const sessionForkedCount = meter.createCounter<{outcome: 'loaded' | 'fresh'}>(
+  'agent_session_forked',
+  {description: 'Agent session fork dispatches by whether a head was loaded'},
+);
+
+export type SessionClaimConflictOutcome = 'held' | 'lock_unavailable';
+
+export const sessionClaimConflictCount = meter.createCounter<{
+  outcome: SessionClaimConflictOutcome;
+}>('agent_session_claim_conflict', {
+  description: 'Agent session claim conflicts by bounded outcome',
+});
+
+export const sessionLoadFailureCount = meter.createCounter<{
+  outcome: 'object_missing' | 'unavailable';
+}>('agent_session_load_failed', {
+  description: 'Agent session transcript load failures by bounded outcome',
+});
+
 /** Session transcript commit attempts by head-flip outcome. Outcome labels only; session keys never become label values. */
 export const sessionCommitsCount = meter.createCounter<{outcome: SessionCommitOutcome}>(
   'agent_session_commits',

@@ -78,9 +78,16 @@ export class StepAttempt {
   }
 }
 
+export interface StepAttemptSession {
+  key: string;
+  mode: 'resume' | 'fork';
+  segment: number;
+}
+
 export interface StepAttemptDetail {
   stepId: string;
   attempt: number;
+  session: StepAttemptSession | null;
   authoredConfig: Record<string, unknown> | null;
   config: Record<string, unknown> | null;
   evaluationTrace: EvaluationTraceEntry[] | null;
