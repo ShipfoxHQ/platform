@@ -239,7 +239,8 @@ describe('startHeartbeatLoop', () => {
   test('a transient failure does not stop a fenced job', async () => {
     heartbeatMock
       .mockRejectedValueOnce(buildHTTPError(500))
-      .mockResolvedValueOnce({cancel: false, lease_token: 'lease-1'});
+      .mockResolvedValueOnce({cancel: false, lease_token: 'lease-1'})
+      .mockRejectedValue(buildHTTPError(500));
     const ac = new AbortController();
     const nowMs = vi.fn(() => Date.now());
 
@@ -272,7 +273,7 @@ describe('startHeartbeatLoop', () => {
       isolationTimeoutSeconds: 1,
     });
 
-    await vi.advanceTimersByTimeAsync(1000);
+    await vi.advanceTimersByTimeAsync(1100);
 
     expect(ac.signal.aborted).toBe(true);
     expect(ac.signal.reason).toBe('isolated');

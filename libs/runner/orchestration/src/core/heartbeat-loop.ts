@@ -152,7 +152,7 @@ export function startHeartbeatLoop(
   pendingTimer = setTimeout(tick, options.intervalMs);
   // Ensure the first heartbeat gets a chance to confirm the lease, even when
   // the server-selected timeout is shorter than the heartbeat interval.
-  scheduleIsolationFence(options.intervalMs);
+  scheduleIsolationFence(options.intervalMs + options.maxStaleMs);
 
   return {
     stop: () => {
