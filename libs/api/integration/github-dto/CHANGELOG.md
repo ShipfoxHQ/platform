@@ -1,5 +1,16 @@
 # @shipfox/api-integration-github-dto
 
+## 18.0.0
+
+### Minor Changes
+
+- 3a41fbf: Adds the documented GitHub Actions workflow job and workflow run events to the integration catalogue.
+
+### Patch Changes
+
+- Updated dependencies [b2aad90]
+  - @shipfox/api-integration-core-dto@18.0.0
+
 ## 17.1.0
 
 ### Minor Changes

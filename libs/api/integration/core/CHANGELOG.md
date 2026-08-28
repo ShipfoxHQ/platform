@@ -1,5 +1,33 @@
 # @shipfox/api-integration-core
 
+## 18.0.0
+
+### Minor Changes
+
+- b2aad90: Adds `generation` and `renewal` checkout-credential fields and `createCheckoutCredentials`, which accepts the frozen connection, stable repository ID, exact permissions, and rejected generation.
+
+### Patch Changes
+
+- Updated dependencies [151f750]
+- Updated dependencies [a6f242c]
+- Updated dependencies [b2aad90]
+- Updated dependencies [40a3514]
+- Updated dependencies [a50e2dc]
+- Updated dependencies [242bd21]
+- Updated dependencies [7bec22a]
+  - @shipfox/api-workflows-dto@18.0.0
+  - @shipfox/api-agent-dto@18.0.0
+  - @shipfox/api-integration-spi@2.1.0
+  - @shipfox/api-integration-core-dto@18.0.0
+  - @shipfox/api-integration-github@18.0.0
+  - @shipfox/api-auth-context@18.0.0
+  - @shipfox/api-integration-gitea@18.0.0
+  - @shipfox/api-integration-jira@18.0.0
+  - @shipfox/api-integration-linear@18.0.0
+  - @shipfox/api-integration-sentry@18.0.0
+  - @shipfox/api-integration-slack@18.0.0
+  - @shipfox/api-integration-webhook@18.0.0
+
 ## 17.1.0
 
 ### Patch Changes

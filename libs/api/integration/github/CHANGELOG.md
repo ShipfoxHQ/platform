@@ -1,5 +1,26 @@
 # @shipfox/api-integration-github
 
+## 18.0.0
+
+### Minor Changes
+
+- 40a3514: Adds the `create_branch` agent tool to the GitHub integration catalog. The tool
+  creates a branch via `POST /repos/{owner}/{repo}/git/refs` from a commit oid or
+  an existing branch name. It requires the `contents: write` GitHub permission.
+  Existing branches that already point at the requested commit are reused; other
+  conflicts are reported as `provider-rejected` errors.
+- 7bec22a: Adds the `create_commit` agent tool, which creates commits signed by GitHub and attributed to the GitHub App bot. The tool takes a repository (`owner/name`), branch, expected head OID (40 or 64 hexadecimal characters), commit message, and file additions and deletions. Inputs are validated server-side: paths must be repository-relative (no `..` or `.git` segments), contents are bounded to about 1 MiB per call, and malformed encodings are rejected. When the expected head OID no longer matches, or inputs collide or reference missing files, the tool rejects the request with a readable provider error, and rate-limited calls carry retry context.
+
+  The `GithubAgentToolCategory` union gains a `repository` member, so consumers that switch over the union exhaustively must handle the new member.
+
+### Patch Changes
+
+- Updated dependencies [3a41fbf]
+- Updated dependencies [b2aad90]
+  - @shipfox/api-integration-github-dto@18.0.0
+  - @shipfox/api-integration-spi@2.1.0
+  - @shipfox/api-auth-context@18.0.0
+
 ## 17.1.0
 
 ### Patch Changes

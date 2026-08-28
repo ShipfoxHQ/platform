@@ -1,5 +1,14 @@
 # @shipfox/client-auth
 
+## 28.0.0
+
+### Patch Changes
+
+- Updated dependencies [fff528a]
+  - @shipfox/api-auth-dto@18.0.0
+  - @shipfox/client-invitations@28.0.0
+  - @shipfox/client-shell@28.0.0
+
 ## 27.0.1
 
 ### Patch Changes

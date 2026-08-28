@@ -1,5 +1,17 @@
 # @shipfox/api-runners-dto
 
+## 18.0.0
+
+### Major Changes
+
+- defc3e6: Remove ephemeral runner registration-token issuance and consumption from the public runner APIs and token helpers.
+
+### Minor Changes
+
+- fff528a: Adds lifecycle capability negotiation for runner job claims and records the selected local isolation timeout.
+- 60061fb: Add the renewable Git capability to the runner DTO contract.
+- a50e2dc: Expose the `cancellation_reason` field so consumers can distinguish user cancellation from maximum-duration timeouts.
+
 ## 16.0.0
 
 ### Patch Changes

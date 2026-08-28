@@ -1,5 +1,11 @@
 # @shipfox/api-auth-dto
 
+## 18.0.0
+
+### Minor Changes
+
+- fff528a: Adds lifecycle capability negotiation for runner job claims and records the selected local isolation timeout.
+
 ## 17.0.0
 
 ### Minor Changes

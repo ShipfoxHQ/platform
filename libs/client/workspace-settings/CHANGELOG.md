@@ -1,5 +1,12 @@
 # @shipfox/client-workspace-settings
 
+## 28.0.0
+
+### Patch Changes
+
+- @shipfox/client-auth@28.0.0
+- @shipfox/client-shell@28.0.0
+
 ## 27.0.1
 
 ### Patch Changes

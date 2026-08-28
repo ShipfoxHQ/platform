@@ -1,5 +1,38 @@
 # @shipfox/api-server
 
+## 18.0.0
+
+### Patch Changes
+
+- 4998203: Wires GitHub installation-token caching through the encrypted Secrets module.
+- Updated dependencies [151f750]
+- Updated dependencies [a6f242c]
+- Updated dependencies [fff528a]
+- Updated dependencies [60061fb]
+- Updated dependencies [ebee403]
+- Updated dependencies [b2aad90]
+- Updated dependencies [a50e2dc]
+- Updated dependencies [33b4eea]
+- Updated dependencies [242bd21]
+- Updated dependencies [defc3e6]
+  - @shipfox/api-workflows@18.0.0
+  - @shipfox/api-workflows-dto@18.0.0
+  - @shipfox/api-agent@18.0.0
+  - @shipfox/api-agent-dto@18.0.0
+  - @shipfox/api-definitions@18.0.0
+  - @shipfox/api-auth-dto@18.0.0
+  - @shipfox/api-runners@18.0.0
+  - @shipfox/api-runners-dto@18.0.0
+  - @shipfox/api-integration-core-dto@18.0.0
+  - @shipfox/api-integration-core@18.0.0
+  - @shipfox/api-logs@18.0.0
+  - @shipfox/api-triggers@18.0.0
+  - @shipfox/annotations@18.0.0
+  - @shipfox/api-auth@18.0.0
+  - @shipfox/api-projects@18.0.0
+  - @shipfox/api-workspaces@18.0.0
+  - @shipfox/api-secrets@18.0.0
+
 ## 17.1.0
 
 ### Patch Changes

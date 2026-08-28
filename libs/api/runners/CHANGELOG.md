@@ -1,5 +1,33 @@
 # @shipfox/api-runners
 
+## 18.0.0
+
+### Major Changes
+
+- defc3e6: Remove ephemeral runner registration-token issuance and consumption from the public runner APIs and token helpers.
+
+### Minor Changes
+
+- fff528a: Adds lifecycle capability negotiation for runner job claims and records the selected local isolation timeout.
+- a50e2dc: Expose the `cancellation_reason` field so consumers can distinguish user cancellation from maximum-duration timeouts.
+- 33b4eea: Persist canonical, gated runner termination authorizations with a stable bounded reason.
+
+### Patch Changes
+
+- ebee403: Defers correlated stale-lease expiry to protect running jobs during suspected control-plane outages.
+- Updated dependencies [151f750]
+- Updated dependencies [fff528a]
+- Updated dependencies [60061fb]
+- Updated dependencies [b2aad90]
+- Updated dependencies [a50e2dc]
+- Updated dependencies [242bd21]
+- Updated dependencies [defc3e6]
+  - @shipfox/api-workflows-dto@18.0.0
+  - @shipfox/api-auth-dto@18.0.0
+  - @shipfox/api-runners-dto@18.0.0
+  - @shipfox/node-tokens@1.0.0
+  - @shipfox/api-auth-context@18.0.0
+
 ## 17.1.0
 
 ### Patch Changes
