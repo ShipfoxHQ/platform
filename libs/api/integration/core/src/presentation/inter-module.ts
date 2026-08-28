@@ -30,6 +30,7 @@ import {
 import {buildFixedEventProviders, buildProviderEventCatalogs} from '#core/event-catalogs.js';
 import type {AgentToolCatalogEntry} from '#core/providers/agent-tools.js';
 import type {IntegrationProviderRegistry} from '#core/providers/registry.js';
+import type {CheckoutSpec} from '#core/providers/source-control.js';
 import type {IntegrationSourceControlService} from '#core/source-control-service.js';
 import {
   createIntegrationToolCallRecorder,
@@ -50,6 +51,57 @@ import {
   getIntegrationConnectionById,
   getIntegrationConnectionBySlug,
 } from '#db/connections.js';
+
+type CheckoutCredentialsDto = {
+  username: string;
+  token: string;
+  expiresAt: string;
+  generation?: string;
+  renewal?: {mode: 'refresh-at'; refreshAt: string} | {mode: 'on-rejection'};
+};
+
+type CheckoutSpecDto = {
+  repositoryUrl: string;
+  ref: string;
+  credentials?: CheckoutCredentialsDto;
+  gitAuthor?: {name: string; email: string};
+};
+
+function toCheckoutCredentialsDto(
+  credentials: NonNullable<CheckoutSpec['credentials']>,
+): CheckoutCredentialsDto {
+  const result: CheckoutCredentialsDto = {
+    username: credentials.username,
+    token: credentials.token,
+    expiresAt: credentials.expiresAt.toISOString(),
+  };
+  if (credentials.generation !== undefined) {
+    result.generation = credentials.generation;
+  }
+  if (credentials.renewal?.mode === 'refresh-at') {
+    result.renewal = {
+      mode: 'refresh-at',
+      refreshAt: credentials.renewal.refreshAt.toISOString(),
+    };
+  } else if (credentials.renewal !== undefined) {
+    result.renewal = {mode: 'on-rejection'};
+  }
+  return result;
+}
+
+function toCheckoutSpecDto(spec: CheckoutSpec): CheckoutSpecDto {
+  const result: CheckoutSpecDto = {
+    repositoryUrl: spec.repositoryUrl,
+    ref: spec.ref,
+  };
+  if (spec.credentials !== undefined) {
+    result.credentials = toCheckoutCredentialsDto(spec.credentials);
+  }
+  if (spec.gitAuthor !== undefined) {
+    result.gitAuthor = spec.gitAuthor;
+  }
+  return result;
+}
 
 export function createIntegrationsInterModulePresentation(params: {
   registry: IntegrationProviderRegistry;
@@ -108,55 +160,12 @@ export function createIntegrationsInterModulePresentation(params: {
     createCheckoutSpec: async (input) =>
       await known(contract.methods.createCheckoutSpec, input, async () => {
         const spec = await params.sourceControl.createCheckoutSpec(input);
-        return {
-          repositoryUrl: spec.repositoryUrl,
-          ref: spec.ref,
-          ...(spec.credentials
-            ? {
-                credentials: {
-                  username: spec.credentials.username,
-                  token: spec.credentials.token,
-                  ...(spec.credentials.generation === undefined
-                    ? {}
-                    : {generation: spec.credentials.generation}),
-                  expiresAt: spec.credentials.expiresAt.toISOString(),
-                  ...(spec.credentials.renewal === undefined
-                    ? {}
-                    : {
-                        renewal:
-                          spec.credentials.renewal.mode === 'refresh-at'
-                            ? {
-                                mode: 'refresh-at' as const,
-                                refreshAt: spec.credentials.renewal.refreshAt.toISOString(),
-                              }
-                            : {mode: 'on-rejection' as const},
-                      }),
-                },
-              }
-            : {}),
-          ...(spec.gitAuthor === undefined ? {} : {gitAuthor: spec.gitAuthor}),
-        };
+        return toCheckoutSpecDto(spec);
       }),
     createCheckoutCredentials: async (input) =>
       await known(contract.methods.createCheckoutCredentials, input, async () => {
         const credentials = await params.sourceControl.createCheckoutCredentials(input);
-        return {
-          username: credentials.username,
-          token: credentials.token,
-          ...(credentials.generation === undefined ? {} : {generation: credentials.generation}),
-          expiresAt: credentials.expiresAt.toISOString(),
-          ...(credentials.renewal === undefined
-            ? {}
-            : {
-                renewal:
-                  credentials.renewal.mode === 'refresh-at'
-                    ? {
-                        mode: 'refresh-at' as const,
-                        refreshAt: credentials.renewal.refreshAt.toISOString(),
-                      }
-                    : {mode: 'on-rejection' as const},
-              }),
-        };
+        return toCheckoutCredentialsDto(credentials);
       }),
     getAgentToolsContext: async (input) =>
       await known(contract.methods.getAgentToolsContext, input, async () => {
