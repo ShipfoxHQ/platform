@@ -37,8 +37,13 @@ export function NavBar({hideProjectNavigation = false}: {hideProjectNavigation?:
         </>
       )}
       <div className="flex-1" />
-      <Button asChild variant="transparentMuted" size="sm" iconRight="externalLink">
-        <a href="https://shipfox.io/docs" target="_blank" rel="noreferrer noopener">
+      <Button asChild variant="transparent" size="sm" iconRight="externalLink">
+        <a
+          href="https://shipfox.io/docs"
+          target="_blank"
+          rel="noreferrer noopener"
+          aria-label="Docs (opens in new tab)"
+        >
           Docs
         </a>
       </Button>
