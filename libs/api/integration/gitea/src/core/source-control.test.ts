@@ -580,6 +580,8 @@ describe('GiteaSourceControlProvider', () => {
           username: 'shipfox-bot',
           token: 'test-service-token',
           expiresAt: new Date('2026-06-20T00:05:00.000Z'),
+          generation: expect.any(String),
+          renewal: {mode: 'on-rejection'},
         },
       });
       const url = new URL(result.repositoryUrl);
@@ -589,6 +591,45 @@ describe('GiteaSourceControlProvider', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('creates credential-only delivery without repository metadata lookup', async () => {
+    const gitea = giteaClient();
+    const provider = new GiteaSourceControlProvider(gitea);
+
+    const result = await provider.createCheckoutCredentials({
+      connection: connection(),
+      externalRepositoryId: 'gitea:shipfox/platform',
+      permissions: {contents: 'read'},
+    });
+
+    expect(result).toMatchObject({
+      username: 'shipfox-bot',
+      token: 'test-service-token',
+      generation: expect.any(String),
+      renewal: {mode: 'on-rejection'},
+    });
+    expect(gitea.getRepository).not.toHaveBeenCalled();
+  });
+
+  it('returns a fresh generation and does not echo a rejected generation', async () => {
+    const provider = new GiteaSourceControlProvider(giteaClient());
+
+    const first = await provider.createCheckoutCredentials({
+      connection: connection(),
+      externalRepositoryId: 'gitea:shipfox/platform',
+      permissions: {contents: 'read'},
+    });
+    const second = await provider.createCheckoutCredentials({
+      connection: connection(),
+      externalRepositoryId: 'gitea:shipfox/platform',
+      permissions: {contents: 'read'},
+      rejectedGeneration: first.generation,
+    });
+
+    expect(second.token).toBe(first.token);
+    expect(second.generation).not.toBe(first.generation);
+    expect(second.renewal).toEqual({mode: 'on-rejection'});
   });
 
   it('defaults the checkout ref to the repository default branch', async () => {

@@ -1,8 +1,11 @@
 import {Buffer} from 'node:buffer';
+import {randomUUID} from 'node:crypto';
 import {
   asRecord,
   buildProviderRepositoryId,
+  type CheckoutCredentials,
   type CheckoutSpec,
+  type CreateCheckoutCredentialsInput,
   type CreateCheckoutSpecInput,
   type FetchFileInput,
   type FilePage,
@@ -229,22 +232,45 @@ export class GithubSourceControlProvider
     const {repositoryId} = parseGithubRepositoryLocator(input.externalRepositoryId);
     const repository = await this.github.getRepository({installationId, repositoryId});
     const ref = input.ref?.trim() || repository.defaultBranch;
-    const {token, expiresAt} = await this.github.createInstallationAccessToken({
-      installationId,
-      repositoryId,
-      permissions: input.permissions,
+    const credentials = await this.createCheckoutCredentials({
+      connection: input.connection,
+      externalRepositoryId: input.externalRepositoryId,
+      permissions: input.permissions ?? {contents: 'read'},
     });
     const botLogin = this.appBotLogin();
     const gitAuthor =
       botLogin && input.permissions?.contents === 'write'
-        ? await githubAppGitAuthor(this.github, token, botLogin)
+        ? await githubAppGitAuthor(this.github, credentials.token, botLogin)
         : undefined;
 
     return {
       repositoryUrl: repository.cloneUrl,
       ref,
-      credentials: {username: 'x-access-token', token, expiresAt},
+      credentials,
       ...(gitAuthor ? {gitAuthor} : {}),
+    };
+  }
+
+  async createCheckoutCredentials(
+    input: CreateCheckoutCredentialsInput<GithubIntegrationConnection>,
+  ): Promise<CheckoutCredentials> {
+    const installationId = await this.installationId(input.connection.id);
+    const {repositoryId} = parseGithubRepositoryLocator(input.externalRepositoryId);
+    const {token, expiresAt} = await this.github.createInstallationAccessToken({
+      installationId,
+      repositoryId,
+      permissions: input.permissions,
+    });
+    const refreshAt = new Date(expiresAt.getTime() - 5 * 60 * 1000);
+    let generation = randomUUID();
+    while (generation === input.rejectedGeneration) generation = randomUUID();
+
+    return {
+      username: 'x-access-token',
+      token,
+      expiresAt,
+      generation,
+      renewal: {mode: 'refresh-at' as const, refreshAt},
     };
   }
 
