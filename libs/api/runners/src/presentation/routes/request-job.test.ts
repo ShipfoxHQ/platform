@@ -1,7 +1,6 @@
 import {AUTH_PROVISIONER_TOKEN, AUTH_USER} from '@shipfox/api-auth-context';
 import type {AuthMethod} from '@shipfox/node-fastify';
 import {closeApp, createApp} from '@shipfox/node-fastify';
-import {generateOpaqueToken} from '@shipfox/node-tokens';
 import {eq} from 'drizzle-orm';
 import type {FastifyInstance} from 'fastify';
 import {config} from '#config.js';
