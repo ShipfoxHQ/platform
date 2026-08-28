@@ -71,15 +71,50 @@ interface PersistRunnerTerminationAuthorizationParams {
   resolveTerminationReason: (reason: string) => RunnerTerminationReason | null;
 }
 
+interface RunnerEnrollmentRevocationCounts {
+  runnerInstanceId: string;
+  revokedActivationTokenCount: number;
+  closedControlSessionCount: number;
+}
+
 export async function persistRunnerTerminationAuthorization(
   params: PersistRunnerTerminationAuthorizationParams,
 ): Promise<TerminationAuthorizationResult> {
-  return await db().transaction((tx) => persistRunnerTerminationAuthorizationTx(tx, params));
+  let revocationCounts: RunnerEnrollmentRevocationCounts | undefined;
+  const result = await db().transaction((tx) =>
+    persistRunnerTerminationAuthorizationTx(tx, params, (counts) => {
+      revocationCounts = counts;
+    }),
+  );
+  if (revocationCounts) {
+    recordRunnerEnrollmentCredentialRevoked({
+      credential: 'activation-token',
+      count: revocationCounts.revokedActivationTokenCount,
+    });
+    recordRunnerEnrollmentCredentialRevoked({
+      credential: 'control-session',
+      count: revocationCounts.closedControlSessionCount,
+    });
+    if (
+      revocationCounts.revokedActivationTokenCount > 0 ||
+      revocationCounts.closedControlSessionCount > 0
+    )
+      logger().info(
+        {
+          runnerInstanceId: revocationCounts.runnerInstanceId,
+          revokedActivationTokenCount: revocationCounts.revokedActivationTokenCount,
+          closedControlSessionCount: revocationCounts.closedControlSessionCount,
+        },
+        'Revoked runner enrollment credentials after termination authorization',
+      );
+  }
+  return result;
 }
 
 export async function persistRunnerTerminationAuthorizationTx(
   tx: Tx,
   params: PersistRunnerTerminationAuthorizationParams,
+  onRevocation?: (counts: RunnerEnrollmentRevocationCounts) => void,
 ): Promise<TerminationAuthorizationResult> {
   const [candidate] = await tx
     .select({id: providerRunners.id, workspaceId: providerRunners.workspaceId})
@@ -137,7 +172,7 @@ export async function persistRunnerTerminationAuthorizationTx(
       });
     if (!authorized?.terminationAuthorizedAt || !authorized.terminationReason)
       throw new Error('Termination authorization was not persisted');
-    await revokeRunnerEnrollmentCredentialsTx(tx, candidate.id);
+    await revokeRunnerEnrollmentCredentialsTx(tx, candidate.id, onRevocation);
     return {
       desiredIntent: 'terminate',
       terminationAuthorizedAt: authorized.terminationAuthorizedAt,
@@ -145,7 +180,7 @@ export async function persistRunnerTerminationAuthorizationTx(
     };
   }
 
-  await revokeRunnerEnrollmentCredentialsTx(tx, candidate.id);
+  await revokeRunnerEnrollmentCredentialsTx(tx, candidate.id, onRevocation);
   return {
     desiredIntent: 'terminate',
     terminationAuthorizedAt: runner.terminationAuthorizedAt,
@@ -159,6 +194,7 @@ export async function persistRunnerTerminationAuthorizationTx(
 async function revokeRunnerEnrollmentCredentialsTx(
   tx: Tx,
   runnerInstanceId: string,
+  onRevocation?: (counts: RunnerEnrollmentRevocationCounts) => void,
 ): Promise<void> {
   const revokedTokens = await tx
     .update(runnerActivationTokens)
@@ -179,22 +215,11 @@ async function revokeRunnerEnrollmentCredentialsTx(
         isNull(runnerControlSessions.closedAt),
       ),
     );
-  recordRunnerEnrollmentCredentialRevoked({
-    credential: 'activation-token',
-    count: revokedTokens.rowCount ?? 0,
+  onRevocation?.({
+    runnerInstanceId,
+    revokedActivationTokenCount: revokedTokens.rowCount ?? 0,
+    closedControlSessionCount: closedControlSessions.rowCount ?? 0,
   });
-  recordRunnerEnrollmentCredentialRevoked({
-    credential: 'control-session',
-    count: closedControlSessions.rowCount ?? 0,
-  });
-  logger().info(
-    {
-      runnerInstanceId,
-      revokedActivationTokenCount: revokedTokens.rowCount ?? 0,
-      closedControlSessionCount: closedControlSessions.rowCount ?? 0,
-    },
-    'Revoked runner enrollment credentials after termination authorization',
-  );
 }
 
 export interface RunnerInstanceTerminateIntent {
