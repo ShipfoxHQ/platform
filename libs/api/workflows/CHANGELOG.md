@@ -1,5 +1,33 @@
 # @shipfox/api-workflows
 
+## 18.0.0
+
+### Minor Changes
+
+- 151f750: Claims agent sessions at step dispatch and carries the session descriptor:
+  - Resolves the session key template at the step-dispatch context site with the same roots as the prompt and calls the agent-module `claimSession` before the step is handed to the runner. A `resume` claim that conflicts with a live attempt, a resolved harness that differs from the session's pinned harness, an invalid resolved key, or an unavailable session registry fails the attempt through the config-evaluation-failure path with one of the new step error reasons: `agent_session_key_invalid`, `agent_session_held`, `agent_session_harness_mismatch`, `agent_session_unavailable`.
+  - Embeds the resolved session descriptor `{id, key, mode, segment}` in the step dispatch config and exposes it as a typed nullable `session` field on the step DTO; the attempt config records the descriptor for the UI and audits.
+
+- b2aad90: Adds `generation` and `renewal` checkout-credential fields and `createCheckoutCredentials`, which accepts the frozen connection, stable repository ID, exact permissions, and rejected generation.
+- a50e2dc: Expose the `cancellation_reason` field so consumers can distinguish user cancellation from maximum-duration timeouts.
+
+### Patch Changes
+
+- Updated dependencies [151f750]
+- Updated dependencies [a6f242c]
+- Updated dependencies [fff528a]
+- Updated dependencies [60061fb]
+- Updated dependencies [b2aad90]
+- Updated dependencies [a50e2dc]
+- Updated dependencies [242bd21]
+- Updated dependencies [defc3e6]
+  - @shipfox/api-workflows-dto@18.0.0
+  - @shipfox/api-agent-dto@18.0.0
+  - @shipfox/api-auth-dto@18.0.0
+  - @shipfox/api-runners-dto@18.0.0
+  - @shipfox/api-integration-core-dto@18.0.0
+  - @shipfox/api-auth-context@18.0.0
+
 ## 17.1.0
 
 ### Patch Changes

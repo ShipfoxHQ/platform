@@ -1,5 +1,12 @@
 # @shipfox/client-triggers
 
+## 28.0.0
+
+### Patch Changes
+
+- @shipfox/client-shell@28.0.0
+- @shipfox/client-projects@28.0.0
+
 ## 27.0.1
 
 ### Patch Changes

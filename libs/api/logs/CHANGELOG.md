@@ -1,5 +1,16 @@
 # @shipfox/api-logs
 
+## 18.0.0
+
+### Patch Changes
+
+- Updated dependencies [151f750]
+- Updated dependencies [b2aad90]
+- Updated dependencies [a50e2dc]
+- Updated dependencies [242bd21]
+  - @shipfox/api-workflows-dto@18.0.0
+  - @shipfox/api-auth-context@18.0.0
+
 ## 17.1.0
 
 ### Patch Changes

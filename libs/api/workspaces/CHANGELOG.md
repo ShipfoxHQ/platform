@@ -1,5 +1,18 @@
 # @shipfox/api-workspaces
 
+## 18.0.0
+
+### Patch Changes
+
+- Updated dependencies [fff528a]
+- Updated dependencies [60061fb]
+- Updated dependencies [a50e2dc]
+- Updated dependencies [defc3e6]
+  - @shipfox/api-auth-dto@18.0.0
+  - @shipfox/api-runners-dto@18.0.0
+  - @shipfox/node-tokens@1.0.0
+  - @shipfox/api-auth-context@18.0.0
+
 ## 17.0.0
 
 ### Minor Changes

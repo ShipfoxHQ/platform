@@ -1,5 +1,11 @@
 # @shipfox/node-tokens
 
+## 1.0.0
+
+### Major Changes
+
+- defc3e6: Remove ephemeral runner registration-token issuance and consumption from the public runner APIs and token helpers.
+
 ## 0.3.3
 
 ### Patch Changes

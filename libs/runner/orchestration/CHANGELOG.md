@@ -1,5 +1,21 @@
 # @shipfox/runner-orchestration
 
+## 0.1.35
+
+### Patch Changes
+
+- a50e2dc: Expose the `cancellation_reason` field so consumers can distinguish user cancellation from maximum-duration timeouts.
+- Updated dependencies [151f750]
+- Updated dependencies [b2aad90]
+- Updated dependencies [a50e2dc]
+- Updated dependencies [242bd21]
+  - @shipfox/api-workflows-dto@18.0.0
+  - @shipfox/runner-agent@0.2.20
+  - @shipfox/runner-execution@0.1.33
+  - @shipfox/runner-protocol@0.2.26
+  - @shipfox/runner-workspace@0.0.28
+  - @shipfox/runner-logs@0.1.32
+
 ## 0.1.34
 
 ### Patch Changes

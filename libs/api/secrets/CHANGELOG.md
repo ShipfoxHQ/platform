@@ -1,5 +1,11 @@
 # @shipfox/api-secrets
 
+## 18.0.0
+
+### Patch Changes
+
+- @shipfox/api-auth-context@18.0.0
+
 ## 17.0.0
 
 ### Patch Changes

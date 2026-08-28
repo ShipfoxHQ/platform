@@ -1,5 +1,11 @@
 # @shipfox/api-agent-dto
 
+## 18.0.0
+
+### Minor Changes
+
+- a6f242c: Applies each workspace's configured default harness when checking harness-specific tools, thinking, models, and shared sessions. Managed-inference workspaces using Pi can use Pi tool names without declaring the harness.
+
 ## 17.1.0
 
 ### Minor Changes
