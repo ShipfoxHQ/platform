@@ -30,6 +30,7 @@ export type CredentialBrokerOptions = {
   publishSecrets?: (secrets: readonly string[]) => void | Promise<void>;
   clearSecrets?: () => void | Promise<void>;
   backoffMs?: number;
+  renewalTimeoutMs?: number;
 };
 
 export type RegisterCredentialOptions = {
@@ -70,14 +71,19 @@ export class CredentialBroker {
   private readonly flights = new Map<string, Flight>();
   private readonly now: () => number;
   private readonly backoffMs: number;
+  private readonly renewalTimeoutMs: number;
   private publication: Promise<void> = Promise.resolve();
   private stopped = false;
 
   constructor(private readonly options: CredentialBrokerOptions) {
     this.now = options.now ?? Date.now;
     this.backoffMs = options.backoffMs ?? 1000;
+    this.renewalTimeoutMs = options.renewalTimeoutMs ?? 30_000;
     if (!Number.isFinite(this.backoffMs) || this.backoffMs < 0) {
       throw new RangeError('backoffMs must be a non-negative finite number');
+    }
+    if (!Number.isFinite(this.renewalTimeoutMs) || this.renewalTimeoutMs < 0) {
+      throw new RangeError('renewalTimeoutMs must be a non-negative finite number');
     }
   }
 
@@ -86,7 +92,15 @@ export class CredentialBroker {
     const url = normalizeRepositoryUrl(options.repositoryUrl);
     if (!options.subject) throw new TypeError('Credential checkout subject is required');
     const credential = normalizeCredential(options.credential);
-    this.entries.set(url, {url, subject: options.subject, credential, backoffUntil: undefined});
+    const flightKey = `${options.subject}\u0000${url}`;
+    this.flights.delete(flightKey);
+    this.entries.set(url, {
+      url,
+      subject: options.subject,
+      credential,
+      rejectedGeneration: undefined,
+      backoffUntil: undefined,
+    });
     void this.publish(credential).catch(() => undefined);
   }
 
@@ -95,7 +109,16 @@ export class CredentialBroker {
     const url = tryNormalizeRepositoryUrl(repositoryUrl);
     if (url === undefined) return undefined;
     const entry = this.entries.get(url);
-    if (!entry || entry.rejected) return undefined;
+    if (!entry) return undefined;
+    if (entry.rejected) {
+      if (entry.credential.renewal?.mode !== 'refresh-at') return undefined;
+      await this.renewEntry(entry, entry.rejectedGeneration, true);
+      if (this.stopped) return undefined;
+      const renewed = this.entries.get(url);
+      if (!renewed || renewed.rejected || !isUsable(renewed.credential, this.now()))
+        return undefined;
+      return toLookup(renewed.credential);
+    }
 
     if (shouldRefresh(entry.credential, this.now())) {
       await this.renewEntry(entry);
@@ -105,7 +128,11 @@ export class CredentialBroker {
         return undefined;
       return toLookup(renewed.credential);
     }
-    if (!isUsable(entry.credential, this.now())) return undefined;
+    if (
+      entry.credential.renewal?.mode !== 'on-rejection' &&
+      !isUsable(entry.credential, this.now())
+    )
+      return undefined;
 
     return toLookup(entry.credential);
   }
@@ -117,7 +144,9 @@ export class CredentialBroker {
     const entry = this.entries.get(url);
     if (!entry) return {};
     entry.rejected = true;
-    const rejectedGeneration = entry.credential.generation;
+    entry.rejectedGeneration = entry.credential.generation;
+    const rejectedGeneration = entry.rejectedGeneration;
+    await this.clearPublishedSecrets();
     if (entry.credential.renewal?.mode !== 'on-rejection') {
       return rejectedGeneration === undefined ? {} : {rejectedGeneration};
     }
@@ -146,6 +175,13 @@ export class CredentialBroker {
     void this.publication.then(() => this.options.clearSecrets?.()).catch(() => undefined);
   }
 
+  private clearPublishedSecrets(): Promise<void> {
+    if (!this.options.clearSecrets) return Promise.resolve();
+    const clear = this.publication.then(() => this.options.clearSecrets?.());
+    this.publication = clear.catch(() => undefined);
+    return clear;
+  }
+
   private renewEntry(
     entry: Entry,
     rejectedGeneration?: string,
@@ -171,12 +207,22 @@ export class CredentialBroker {
     rejectedGeneration: string | undefined,
     rejectionRequested: boolean,
   ): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      const input = await this.options.renew({
-        repositoryUrl: entry.url,
-        subject: entry.subject,
-        ...(rejectedGeneration === undefined ? {} : {rejectedGeneration}),
+      const renewal = Promise.resolve().then(() =>
+        this.options.renew({
+          repositoryUrl: entry.url,
+          subject: entry.subject,
+          ...(rejectedGeneration === undefined ? {} : {rejectedGeneration}),
+        }),
+      );
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new TransientCredentialRenewalError('Credential renewal timed out')),
+          this.renewalTimeoutMs,
+        );
       });
+      const input = await Promise.race([renewal, timeout]);
       if (this.stopped) return;
       const credential = normalizeCredential(input);
       const hasFreshGeneration =
@@ -190,16 +236,20 @@ export class CredentialBroker {
       if (this.entries.get(entry.url) !== entry || (!rejectionRequested && entry.rejected)) return;
       entry.credential = credential;
       entry.rejected = false;
+      entry.rejectedGeneration = undefined;
       entry.backoffUntil = undefined;
-      await this.publish(credential);
+      await this.publish(credential).catch(() => undefined);
       if (this.entries.get(entry.url) !== entry || (!rejectionRequested && entry.rejected)) return;
     } catch (error) {
       if (error instanceof TransientCredentialRenewalError) {
         entry.backoffUntil = this.now() + this.backoffMs;
-        if (isUsable(entry.credential, this.now()) && !entry.rejected) return;
+        if (!isUsable(entry.credential, this.now())) entry.rejected = true;
+        return;
       }
       entry.rejected = true;
       entry.backoffUntil = undefined;
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
     }
   }
 
@@ -224,6 +274,7 @@ type Entry = {
   subject: string;
   credential: BrokerCredential;
   rejected?: boolean;
+  rejectedGeneration: string | undefined;
   backoffUntil: number | undefined;
 };
 

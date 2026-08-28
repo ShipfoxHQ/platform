@@ -25,6 +25,18 @@ describe('repository URL normalization', () => {
   ])('rejects unsafe or incomplete URLs: %s', (url) => {
     expect(() => normalizeRepositoryUrl(url)).toThrow();
   });
+
+  it('rejects a refresh deadline at or after expiry', () => {
+    const renew = vi.fn();
+    const broker = new CredentialBroker({renew});
+    expect(() =>
+      broker.register({
+        repositoryUrl: repository,
+        subject: 'checkout',
+        credential: {...baseCredential, renewal: {mode: 'refresh-at', refreshAt: 10_000}},
+      }),
+    ).toThrow();
+  });
 });
 
 describe('credential broker', () => {
@@ -169,6 +181,84 @@ describe('credential broker', () => {
       token: 'token-c',
     });
     expect(published.at(-1)).toEqual(['token-c', Buffer.from('runner:token-c').toString('base64')]);
+  });
+
+  it('renews a refresh-at credential after rejection on a later lookup', async () => {
+    const renew = vi.fn().mockResolvedValue({
+      ...baseCredential,
+      token: 'token-b',
+      generation: 'generation-b',
+    });
+    const broker = new CredentialBroker({renew, now: () => now});
+    broker.register({repositoryUrl: repository, subject: 'checkout', credential: baseCredential});
+
+    await expect(broker.reject(repository)).resolves.toEqual({rejectedGeneration: 'generation-a'});
+    await expect(broker.lookup(repository)).resolves.toEqual({
+      username: 'runner',
+      token: 'token-b',
+    });
+    expect(renew).toHaveBeenCalledWith({
+      repositoryUrl: 'https://gitea.example/Org/Repo/',
+      subject: 'checkout',
+      rejectedGeneration: 'generation-a',
+    });
+  });
+
+  it('serves an on-rejection credential after its advisory expiry', async () => {
+    const renew = vi.fn();
+    const broker = new CredentialBroker({renew, now: () => now});
+    broker.register({
+      repositoryUrl: repository,
+      subject: 'checkout',
+      credential: {...baseCredential, renewal: {mode: 'on-rejection' as const}},
+    });
+    now = 20_000;
+
+    await expect(broker.lookup(repository)).resolves.toEqual({
+      username: 'runner',
+      token: 'token-a',
+    });
+    expect(renew).not.toHaveBeenCalled();
+  });
+
+  it('keeps a renewed credential usable when publishing fails', async () => {
+    const renew = vi.fn().mockResolvedValue({
+      ...baseCredential,
+      token: 'token-b',
+      generation: 'generation-b',
+    });
+    const broker = new CredentialBroker({
+      renew,
+      now: () => 5_000,
+      publishSecrets: () => Promise.reject(new Error('registry unavailable')),
+    });
+    broker.register({repositoryUrl: repository, subject: 'checkout', credential: baseCredential});
+
+    await expect(broker.lookup(repository)).resolves.toEqual({
+      username: 'runner',
+      token: 'token-b',
+    });
+  });
+
+  it('times out a renewal and applies backoff', async () => {
+    const renew = vi.fn(() => new Promise<never>(() => undefined));
+    const broker = new CredentialBroker({
+      renew,
+      now: () => 5_000,
+      renewalTimeoutMs: 1,
+      backoffMs: 500,
+    });
+    broker.register({repositoryUrl: repository, subject: 'checkout', credential: baseCredential});
+
+    await expect(broker.lookup(repository)).resolves.toEqual({
+      username: 'runner',
+      token: 'token-a',
+    });
+    await expect(broker.lookup(repository)).resolves.toEqual({
+      username: 'runner',
+      token: 'token-a',
+    });
+    expect(renew).toHaveBeenCalledTimes(1);
   });
 
   it('serves a valid old credential through a transient refresh failure, then backs off', async () => {
