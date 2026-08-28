@@ -152,30 +152,12 @@ export function materializeToolStep(params: {
   if (params.context === undefined) {
     throw new AgentIntegrationMaterializationError('Tool steps require materialization context');
   }
-  const connection =
-    params.connection === undefined
-      ? params.context.defaultConnection
-      : (() => {
-          const value = params.context?.workspaceConnectionSnapshot.get(params.connection);
-          if (value === undefined)
-            throw new AgentIntegrationMaterializationError(
-              `Integration connection ${params.connection} was not found while materializing tool step`,
-            );
-          return {id: value.id, slug: params.connection, provider: value.provider};
-        })();
+  const connection = resolveToolConnection(params.connection, params.context);
   const catalog = params.context.catalogs.get(connection.provider);
   const entry = catalog?.find((candidate) => candidate.id === params.tool.id);
   if (entry === undefined)
     throw new AgentIntegrationMaterializationError(`Unknown integration tool: ${params.tool.id}`);
-  const method =
-    params.tool.method === undefined
-      ? undefined
-      : entry.methods?.find((candidate) => candidate.id === params.tool.method);
-  if (params.tool.method !== undefined && method === undefined) {
-    throw new AgentIntegrationMaterializationError(
-      `Unknown integration tool: ${params.tool.id}.${params.tool.method}`,
-    );
-  }
+  const method = resolveToolMethod(entry, params.tool.method);
   return deepFreeze({
     connectionId: connection.id,
     connectionSlug: connection.slug,
@@ -188,6 +170,36 @@ export function materializeToolStep(params: {
     inputSchema: cloneJson(entry.inputSchema),
     ...(entry.outputSchema === undefined ? {} : {outputSchema: cloneJson(entry.outputSchema)}),
   });
+}
+
+function resolveToolConnection(
+  connectionSlug: string | undefined,
+  context: AgentToolMaterializationContext,
+): {readonly id: string; readonly slug: string; readonly provider: IntegrationProviderKind} {
+  if (connectionSlug === undefined) return context.defaultConnection;
+
+  const connection = context.workspaceConnectionSnapshot.get(connectionSlug);
+  if (connection === undefined) {
+    throw new AgentIntegrationMaterializationError(
+      `Integration connection ${connectionSlug} was not found while materializing tool step`,
+    );
+  }
+  return {id: connection.id, slug: connectionSlug, provider: connection.provider};
+}
+
+function resolveToolMethod(
+  entry: AgentToolCatalogEntry,
+  methodId: string | undefined,
+): AgentToolCatalogMethod | undefined {
+  if (methodId === undefined) return undefined;
+
+  const method = entry.methods?.find((candidate) => candidate.id === methodId);
+  if (method === undefined) {
+    throw new AgentIntegrationMaterializationError(
+      `Unknown integration tool: ${entry.id}.${methodId}`,
+    );
+  }
+  return method;
 }
 
 function cloneJson<T>(value: T): T {
