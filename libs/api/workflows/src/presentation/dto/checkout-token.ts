@@ -13,7 +13,7 @@ type CheckoutSpec = {
   gitAuthor?: {name: string; email: string} | undefined;
 };
 
-import type {CheckoutTokenResponseDto} from '@shipfox/api-workflows-dto';
+import type {CheckoutTokenAuthDto, CheckoutTokenResponseDto} from '@shipfox/api-workflows-dto';
 
 const SCP_LIKE_HOST_RE = /^(?:[^@:/]+@)?([^:/]+):/;
 
@@ -70,33 +70,42 @@ export function toCheckoutTokenDto(
       ? {git_author: {name: spec.gitAuthor.name, email: spec.gitAuthor.email}}
       : {}),
     ...(spec.credentials
-      ? {
-          auth: {
-            kind: 'basic' as const,
-            username: spec.credentials.username,
-            token: spec.credentials.token,
-            expires_at: spec.credentials.expiresAt.toISOString(),
-            ...(spec.credentials.generation === undefined
-              ? {}
-              : {generation: spec.credentials.generation}),
-            ...(spec.credentials.renewal === undefined
-              ? {}
-              : {
-                  renewal:
-                    spec.credentials.renewal.mode === 'refresh-at'
-                      ? {
-                          mode: 'refresh-at' as const,
-                          refresh_at: spec.credentials.renewal.refreshAt.toISOString(),
-                        }
-                      : {mode: 'on-rejection' as const},
-                }),
-            carry: 'header' as const,
-            host: checkoutHost(spec.repositoryUrl),
-            persist: options.persist,
-          },
-        }
+      ? {auth: toCheckoutTokenAuthDto(spec.repositoryUrl, spec.credentials, options.persist)}
       : {}),
   };
+}
+
+type CheckoutCredentials = NonNullable<CheckoutSpec['credentials']>;
+
+function toCheckoutTokenAuthDto(
+  repositoryUrl: string,
+  credentials: CheckoutCredentials,
+  persist: boolean,
+): CheckoutTokenAuthDto {
+  const auth: CheckoutTokenAuthDto = {
+    kind: 'basic',
+    username: credentials.username,
+    token: credentials.token,
+    expires_at: credentials.expiresAt.toISOString(),
+    carry: 'header',
+    host: checkoutHost(repositoryUrl),
+    persist,
+  };
+
+  if (credentials.generation !== undefined) auth.generation = credentials.generation;
+  if (credentials.renewal !== undefined) {
+    auth.renewal = toCheckoutTokenRenewalDto(credentials.renewal);
+  }
+
+  return auth;
+}
+
+function toCheckoutTokenRenewalDto(renewal: CheckoutCredentials['renewal']) {
+  if (renewal === undefined) return undefined;
+  if (renewal.mode === 'refresh-at') {
+    return {mode: 'refresh-at' as const, refresh_at: renewal.refreshAt.toISOString()};
+  }
+  return {mode: 'on-rejection' as const};
 }
 
 function checkoutHost(repositoryUrl: string): string {
