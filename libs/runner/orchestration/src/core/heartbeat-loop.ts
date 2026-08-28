@@ -69,11 +69,11 @@ export function startHeartbeatLoop(
     currentHttpAc?.abort();
   };
 
-  const scheduleIsolationFence = () => {
+  const scheduleIsolationFence = (minimumDelayMs = 0) => {
     if (options.isolationTimeoutSeconds === undefined || stopped) return;
     clearIsolationTimer();
     const timeoutMs = options.isolationTimeoutSeconds * 1000;
-    const remainingMs = Math.max(0, timeoutMs - (nowMs() - lastServerConfirmationAt));
+    const remainingMs = Math.max(minimumDelayMs, timeoutMs - (nowMs() - lastServerConfirmationAt));
     isolationTimer = setTimeout(stopForIsolation, remainingMs);
   };
 
@@ -117,6 +117,7 @@ export function startHeartbeatLoop(
       if (cancel) {
         logger().info({jobId}, 'Heartbeat returned cancel:true; aborting job');
         jobAbortController.abort(cancellationReason ?? 'cancelled');
+        clearIsolationTimer();
         return;
       }
       scheduleNext();
@@ -133,6 +134,7 @@ export function startHeartbeatLoop(
           'Heartbeat returned 404; orchestration finalized this job, aborting runner-side',
         );
         jobAbortController.abort('orphaned');
+        clearIsolationTimer();
         return;
       }
       logger().warn({jobId, err: String(err)}, 'Heartbeat failed; scheduling next tick');
@@ -143,8 +145,10 @@ export function startHeartbeatLoop(
     }
   };
 
-  scheduleIsolationFence();
   pendingTimer = setTimeout(tick, options.intervalMs);
+  // Ensure the first heartbeat gets a chance to confirm the lease, even when
+  // the server-selected timeout is shorter than the heartbeat interval.
+  scheduleIsolationFence(options.intervalMs);
 
   return {
     stop: () => {

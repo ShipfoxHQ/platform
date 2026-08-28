@@ -197,6 +197,7 @@ describe('startHeartbeatLoop', () => {
     const handle = startHeartbeatLoop('job-1', () => 'lease-1', ac, {
       intervalMs: 100,
       maxStaleMs: 1000,
+      isolationTimeoutSeconds: 1,
     });
 
     await vi.advanceTimersByTimeAsync(100);
@@ -204,6 +205,8 @@ describe('startHeartbeatLoop', () => {
     expect(ac.signal.aborted).toBe(true);
     expect(ac.signal.reason).toBe('timed_out');
 
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(ac.signal.reason).toBe('timed_out');
     await vi.advanceTimersByTimeAsync(500);
     expect(heartbeatMock).toHaveBeenCalledTimes(1);
 
@@ -217,12 +220,16 @@ describe('startHeartbeatLoop', () => {
     const handle = startHeartbeatLoop('job-1', () => 'lease-1', ac, {
       intervalMs: 100,
       maxStaleMs: 1000,
+      isolationTimeoutSeconds: 1,
     });
 
     await vi.advanceTimersByTimeAsync(100);
     expect(heartbeatMock).toHaveBeenCalledTimes(1);
     expect(ac.signal.aborted).toBe(true);
+    expect(ac.signal.reason).toBe('orphaned');
 
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(ac.signal.reason).toBe('orphaned');
     await vi.advanceTimersByTimeAsync(500);
     expect(heartbeatMock).toHaveBeenCalledTimes(1);
 
@@ -261,6 +268,26 @@ describe('startHeartbeatLoop', () => {
 
     expect(ac.signal.aborted).toBe(true);
     expect(ac.signal.reason).toBe('isolated');
+    handle.stop();
+  });
+
+  test('initial isolation fence waits for the first heartbeat interval', async () => {
+    heartbeatMock.mockResolvedValue({cancel: false, lease_token: 'lease-1'});
+    const ac = new AbortController();
+
+    const handle = startHeartbeatLoop('job-1', () => 'lease-1', ac, {
+      intervalMs: 100,
+      maxStaleMs: 1000,
+      isolationTimeoutSeconds: 0.01,
+    });
+
+    await vi.advanceTimersByTimeAsync(10);
+    expect(heartbeatMock).not.toHaveBeenCalled();
+    expect(ac.signal.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(90);
+    expect(heartbeatMock).toHaveBeenCalledTimes(1);
+    expect(ac.signal.aborted).toBe(false);
+
     handle.stop();
   });
 
