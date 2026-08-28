@@ -145,6 +145,10 @@ export {
   runnerLifecycleCapabilitiesSchema,
   runnerLifecycleCapabilitySchema,
   runnerToolCapabilitiesSchema,
+  type TerminationAuthorizationDto,
+  type TerminationReasonDto,
+  terminationAuthorizationSchema,
+  terminationReasonSchema,
 } from '#schemas/index.js';
 export {
   RUNNER_JOB_CLAIMED,

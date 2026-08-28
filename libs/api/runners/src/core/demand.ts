@@ -13,6 +13,7 @@ import {
   type ActiveRunnerInstanceTemplateCount,
   listActiveRunnerInstanceCountsByTemplateTx,
   listProvisionerTerminateIntentRowsTx,
+  listProvisionerTerminationAuthorizationsTx,
   type RunnerInstanceTerminateIntent,
 } from '#db/runner-instances.js';
 import {
@@ -37,6 +38,7 @@ export interface PollDemandResult {
   stats: DemandStat[];
   reservations: ReservationGrant[];
   terminateRunnerInstanceIds: string[];
+  terminationAuthorizations?: RunnerInstanceTerminateIntent[];
   /** Units reserved this poll. A bound-only allocation carries no launch grant, so this is what ends the long poll. */
   newlyReservedCount?: number;
 }
@@ -85,7 +87,10 @@ export async function pollDemand(params: PollDemandParams): Promise<PollDemandRe
         activationGraceSeconds: config.RESERVATION_TTL_SECONDS,
         templates: params.templates,
       });
-      const terminateIntents = await listProvisionerTerminateIntentRowsTx(
+      // Compatibility only: activation-timeout was historically derived by this
+      // channel. Cancellation remains owned by the existing direct path until
+      // graceful cleanup is implemented; it must never be authorized here.
+      const legacyTerminateIntents = await listProvisionerTerminateIntentRowsTx(
         tx,
         {
           workspaceId: params.workspaceId,
@@ -93,16 +98,49 @@ export async function pollDemand(params: PollDemandParams): Promise<PollDemandRe
           limit: params.terminateIntentLimit,
         },
         {
-          authorize: async ({providerRunnerId, reason}) =>
-            (
-              await authorizeRunnerTerminationTx(tx, {
-                provisionerId: params.provisionerId,
-                providerRunnerId,
-                reason,
-              })
-            ).desiredIntent === 'terminate',
+          authorize: async ({providerRunnerId, reason}) => {
+            if (reason !== 'activation-timeout') return true;
+            return (
+              (
+                await authorizeRunnerTerminationTx(tx, {
+                  provisionerId: params.provisionerId,
+                  providerRunnerId,
+                  reason,
+                })
+              ).desiredIntent === 'terminate'
+            );
+          },
         },
       );
+      const terminateIntents = await listProvisionerTerminationAuthorizationsTx(tx, {
+        workspaceId: params.workspaceId,
+        provisionerId: params.provisionerId,
+        limit: params.terminateIntentLimit,
+      });
+      const legacyIntentByRunnerId = new Map(
+        legacyTerminateIntents.map((intent) => [intent.providerRunnerId, intent]),
+      );
+      const deliveredIntents = [
+        ...terminateIntents.map((authorization) => {
+          const legacyIntent = legacyIntentByRunnerId.get(authorization.providerRunnerId);
+          if (legacyIntent?.reason !== authorization.reason) return authorization;
+          // The legacy query observes whether this is the first delivery before
+          // it marks an activation timeout as reaped. Preserve that signal on
+          // the canonical authorization rather than reading the post-update row.
+          return legacyIntent.activationTimeoutRetry
+            ? {...authorization, activationTimeoutRetry: true}
+            : {
+                providerRunnerId: authorization.providerRunnerId,
+                reason: authorization.reason,
+              };
+        }),
+        ...legacyTerminateIntents.filter(
+          (legacyIntent) =>
+            !terminateIntents.some(
+              (authorization) => authorization.providerRunnerId === legacyIntent.providerRunnerId,
+            ),
+        ),
+      ].slice(0, params.terminateIntentLimit);
       const newlyReservedCount = demand.newlyReservedUnits.reduce(
         (total, reservation) => total + reservation.count,
         0,
@@ -111,7 +149,8 @@ export async function pollDemand(params: PollDemandParams): Promise<PollDemandRe
         stats: demand.stats,
         reservations: demand.reservations,
         ...(newlyReservedCount > 0 ? {newlyReservedCount} : {}),
-        terminateRunnerInstanceIds: terminateIntents.map((intent) => intent.providerRunnerId),
+        terminateRunnerInstanceIds: deliveredIntents.map((intent) => intent.providerRunnerId),
+        ...(terminateIntents.length > 0 ? {terminationAuthorizations: terminateIntents} : {}),
       };
 
       if (
@@ -120,7 +159,7 @@ export async function pollDemand(params: PollDemandParams): Promise<PollDemandRe
           params.maxReservations,
           totalCapacity,
           deadlinePassed,
-          terminateIntents,
+          deliveredIntents,
         )
       ) {
         return {result, terminateIntents, divergences: []};
@@ -128,7 +167,7 @@ export async function pollDemand(params: PollDemandParams): Promise<PollDemandRe
 
       return {
         result,
-        terminateIntents,
+        terminateIntents: deliveredIntents,
         divergences: calculateRunnerInstanceCountDivergences({
           advertisedTemplates: params.templates,
           backendCounts: await listActiveRunnerInstanceCountsByTemplateTx(tx, {

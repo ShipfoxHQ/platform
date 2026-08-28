@@ -87,6 +87,8 @@ export {
   pollDemandTemplateSchema,
   type ReservationGrantDto,
   reservationGrantSchema,
+  type TerminationAuthorizationDto,
+  terminationAuthorizationSchema,
 } from './poll-demand.js';
 export {
   type CreateProvisionerTokenBodyDto,
@@ -120,6 +122,8 @@ export {
   reconcileRunnerInstancesBodySchema,
   reconcileRunnerInstancesResponseSchema,
   runnerJobStopReasonSchema,
+  type TerminationReasonDto,
+  terminationReasonSchema,
 } from './reconcile-runner-instances.js';
 export {
   type RegisterRunnerBodyDto,

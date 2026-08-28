@@ -1,10 +1,16 @@
 import type {RunnerJobStopReasonDto} from '@shipfox/api-runners-dto';
-import type {RunnerInstance, RunnerInstanceState} from '#core/entities/runner-instance.js';
+import type {
+  RunnerInstance,
+  RunnerInstanceState,
+  RunnerTerminationReason,
+} from '#core/entities/runner-instance.js';
+import {db} from '#db/db.js';
 import {
   attachRunnerInstanceProviderId as attachRunnerInstanceProviderIdDb,
   isTerminalState,
   listActiveRunnerInstances,
   listActiveRunningJobExecutions,
+  listProvisionerTerminationAuthorizationsTx,
   type RunnerInstanceReportEvent,
   reconcileRunnerInstances as reconcileRunnerInstancesDb,
   reportRunnerInstances as reportRunnerInstancesDb,
@@ -51,7 +57,7 @@ export interface ReconcileRunnerInstancesParams {
 }
 
 export type ReconcileDesiredIntent = 'keep' | 'terminate';
-type ReconcileDesiredIntentReason = 'job-cancelled' | 'terminal-state';
+type ReconcileDesiredIntentReason = RunnerTerminationReason;
 
 export interface ReconciledBoundJobExecution {
   jobId: string;
@@ -71,6 +77,8 @@ export interface ReconciledRunnerInstance {
   boundJobExecution: ReconciledBoundJobExecution | null;
   desiredIntent: ReconcileDesiredIntent;
   desiredIntentReason: ReconcileDesiredIntentReason | null;
+  /** The durable authorization reason when one has been issued. */
+  terminationReason: RunnerTerminationReason | null;
 }
 
 export interface ReconcileRunnerInstancesResult {
@@ -128,20 +136,43 @@ export async function reconcileRunnerInstances(
     observedRows: result.observedRows,
     boundJobExecutionsByRunnerInstanceId: result.boundJobExecutionsByRunnerInstanceId,
   });
-  const runners = await Promise.all(
-    reconciledRunners.map(async (runner) => {
-      if (!runner.desiredIntentReason) return runner;
-
-      const authorization = await authorizeRunnerTermination({
-        provisionerId: params.provisionerId,
-        providerRunnerId: runner.providerRunnerId,
-        reason: runner.desiredIntentReason,
-      });
-      if (authorization.desiredIntent === 'terminate') return runner;
-
-      return {...runner, desiredIntent: 'keep' as const, desiredIntentReason: null};
+  // Compatibility adapter for the old terminal-state decision. Cancellation
+  // and timeout are intentionally not authorized until graceful cleanup exists.
+  await Promise.all(
+    reconciledRunners.flatMap((runner) =>
+      runner.desiredIntentReason === 'terminal-state'
+        ? [
+            authorizeRunnerTermination({
+              provisionerId: params.provisionerId,
+              providerRunnerId: runner.providerRunnerId,
+              reason: runner.desiredIntentReason,
+            }),
+          ]
+        : [],
+    ),
+  );
+  const authorizations = await db().transaction((tx) =>
+    listProvisionerTerminationAuthorizationsTx(tx, {
+      workspaceId: params.workspaceId,
+      provisionerId: params.provisionerId,
+      providerRunnerIds: params.observedRunnerInstanceIds,
+      limit: params.observedRunnerInstanceIds.length,
     }),
   );
+  const authorizationByRunnerId = new Map(
+    authorizations.map((authorization) => [authorization.providerRunnerId, authorization.reason]),
+  );
+  const runners = reconciledRunners.map((runner) => {
+    const reason = authorizationByRunnerId.get(runner.providerRunnerId);
+    return {
+      ...runner,
+      desiredIntent: (reason || runner.desiredIntentReason
+        ? 'terminate'
+        : 'keep') as ReconcileDesiredIntent,
+      desiredIntentReason: reason ?? runner.desiredIntentReason,
+      terminationReason: reason ?? null,
+    };
+  });
   for (const runner of runners) {
     if (runner.desiredIntentReason) {
       providerRunnerTerminateIntentIssuedCount.add(1, {
@@ -183,6 +214,7 @@ export function reconcileRunnerInstancesFromDbResult(params: {
         : null,
       desiredIntent: desiredIntentReason ? 'terminate' : 'keep',
       desiredIntentReason,
+      terminationReason: null,
     };
   });
 }
@@ -225,7 +257,7 @@ export function desiredIntent(
 function getDesiredIntentReason(
   row: RunnerInstance | undefined,
   boundJobExecution: RunnerInstanceBoundJobExecution | undefined,
-): ReconcileDesiredIntentReason | null {
+): RunnerTerminationReason | null {
   if (!row) return null;
   if (isTerminalState(row.state)) return 'terminal-state';
   if (boundJobExecution?.cancellationRequestedAt) return 'job-cancelled';

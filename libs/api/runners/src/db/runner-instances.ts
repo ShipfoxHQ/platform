@@ -47,7 +47,7 @@ export const divergenceCountStates = ['starting', 'running'] as const satisfies 
   'starting' | 'running'
 >[];
 
-export type RunnerInstanceTerminateIntentReason = 'activation-timeout' | 'job-cancelled';
+export type RunnerInstanceTerminateIntentReason = RunnerTerminationReason;
 
 export type {RunnerTerminationReason} from '#core/entities/runner-instance.js';
 
@@ -628,6 +628,55 @@ export async function listProvisionerTerminateIntents(params: {
     const rows = await listProvisionerTerminateIntentRowsTx(tx, params);
     return rows.map((row) => row.providerRunnerId);
   });
+}
+
+/** Return the durable termination decisions that are ready for provisioner delivery. */
+export async function listProvisionerTerminationAuthorizationsTx(
+  tx: Tx,
+  params: {
+    workspaceId: string | null;
+    provisionerId: string;
+    providerRunnerIds?: string[];
+    limit: number;
+  },
+): Promise<RunnerInstanceTerminateIntent[]> {
+  const rows = await tx
+    .select({
+      providerRunnerId: providerRunners.providerRunnerId,
+      terminationReason: providerRunners.terminationReason,
+      activationTimeoutRetry: isNotNull(providerRunners.reservationReleasedAt),
+    })
+    .from(providerRunners)
+    .where(
+      and(
+        params.workspaceId
+          ? eq(providerRunners.workspaceId, params.workspaceId)
+          : isNull(providerRunners.workspaceId),
+        eq(providerRunners.provisionerId, params.provisionerId),
+        isNotNull(providerRunners.providerRunnerId),
+        isNotNull(providerRunners.terminationAuthorizedAt),
+        isNotNull(providerRunners.terminationReason),
+        params.providerRunnerIds && params.providerRunnerIds.length > 0
+          ? inArray(providerRunners.providerRunnerId, params.providerRunnerIds)
+          : undefined,
+      ),
+    )
+    .orderBy(asc(providerRunners.providerRunnerId))
+    .limit(params.limit);
+
+  return rows.flatMap((row) =>
+    row.providerRunnerId && row.terminationReason
+      ? [
+          {
+            providerRunnerId: row.providerRunnerId,
+            reason: row.terminationReason,
+            ...(row.terminationReason === 'activation-timeout' && row.activationTimeoutRetry
+              ? {activationTimeoutRetry: true}
+              : {}),
+          },
+        ]
+      : [],
+  );
 }
 
 export async function listProvisionerTerminateIntentRowsTx(

@@ -171,6 +171,7 @@ describe('POST /provisioners/runner-instances/reconcile', () => {
       provider_runner_id: 'provisioned-runner-1',
       state: 'stopped',
       desired_intent: 'terminate',
+      termination_reason: 'terminal-state',
     });
     const [runner] = await db()
       .select({

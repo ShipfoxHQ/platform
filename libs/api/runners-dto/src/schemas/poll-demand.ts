@@ -1,5 +1,6 @@
 import {MAX_RUNNER_LABELS} from '@shipfox/runner-labels';
 import {z} from 'zod';
+import {terminationReasonSchema} from './reconcile-runner-instances.js';
 import {runnerLabelSchema} from './register.js';
 
 export const pollDemandTemplateSchema = z.object({
@@ -39,6 +40,12 @@ export const reservationGrantSchema = z.object({
   expires_at: z.string().datetime(),
 });
 
+export const terminationAuthorizationSchema = z.object({
+  provider_runner_id: z.string(),
+  reason: terminationReasonSchema,
+});
+export type TerminationAuthorizationDto = z.infer<typeof terminationAuthorizationSchema>;
+
 export const pollDemandResponseSchema = z.object({
   stats: z.array(demandStatSchema),
   reservations: z.array(reservationGrantSchema),
@@ -51,6 +58,9 @@ export const pollDemandResponseSchema = z.object({
       'Reservation units created by this poll, including units satisfied by adopted runners.',
     ),
   terminate_provider_runner_ids: z.array(z.string()),
+  // Additive delivery of the same durable decision for provisioners that need
+  // the reason; legacy provisioners continue using the ID list above.
+  termination_authorizations: z.array(terminationAuthorizationSchema).optional(),
 });
 
 export type PollDemandTemplateDto = z.infer<typeof pollDemandTemplateSchema>;

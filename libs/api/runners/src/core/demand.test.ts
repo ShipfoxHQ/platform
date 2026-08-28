@@ -159,6 +159,7 @@ describe('pollDemand', () => {
     vi.doMock('#db/runner-instances.js', () => ({
       listActiveRunnerInstanceCountsByTemplateTx,
       listProvisionerTerminateIntentRowsTx,
+      listProvisionerTerminationAuthorizationsTx: vi.fn().mockResolvedValue([]),
       persistRunnerTerminationAuthorization: vi.fn(),
       persistRunnerTerminationAuthorizationTx: vi.fn(),
     }));
@@ -223,6 +224,7 @@ describe('pollDemand', () => {
     vi.doMock('#db/runner-instances.js', () => ({
       listActiveRunnerInstanceCountsByTemplateTx,
       listProvisionerTerminateIntentRowsTx,
+      listProvisionerTerminationAuthorizationsTx: vi.fn().mockResolvedValue([]),
       persistRunnerTerminationAuthorization: vi.fn(),
       persistRunnerTerminationAuthorizationTx: vi.fn(),
     }));
@@ -284,6 +286,7 @@ describe('pollDemand', () => {
     vi.doMock('#db/runner-instances.js', () => ({
       listActiveRunnerInstanceCountsByTemplateTx,
       listProvisionerTerminateIntentRowsTx,
+      listProvisionerTerminationAuthorizationsTx: vi.fn().mockResolvedValue([]),
       persistRunnerTerminationAuthorization: vi.fn(),
       persistRunnerTerminationAuthorizationTx: vi.fn(),
     }));
@@ -341,6 +344,7 @@ describe('pollDemand', () => {
     vi.doMock('#db/runner-instances.js', () => ({
       listActiveRunnerInstanceCountsByTemplateTx,
       listProvisionerTerminateIntentRowsTx,
+      listProvisionerTerminationAuthorizationsTx: vi.fn().mockResolvedValue([]),
       persistRunnerTerminationAuthorization: vi.fn(),
       persistRunnerTerminationAuthorizationTx: vi.fn(),
     }));
@@ -392,6 +396,7 @@ describe('pollDemand', () => {
     vi.doMock('#db/runner-instances.js', () => ({
       listActiveRunnerInstanceCountsByTemplateTx,
       listProvisionerTerminateIntentRowsTx,
+      listProvisionerTerminationAuthorizationsTx: vi.fn().mockResolvedValue([]),
       persistRunnerTerminationAuthorization: vi.fn(),
       persistRunnerTerminationAuthorizationTx: vi.fn(),
     }));

@@ -1,4 +1,5 @@
 import {instanceMetrics, logger} from '@shipfox/node-opentelemetry';
+import type {RunnerTerminationReason} from '#core/entities/runner-instance.js';
 import type {RunnerAssignmentRejectionReason} from '#core/errors.js';
 
 const meter = instanceMetrics.getMeter('runners');
@@ -210,13 +211,13 @@ export const providerRunnerAbsentTerminatedCount = meter.createCounter<Record<st
 
 export const providerRunnerTerminateIntentIssuedCount = meter.createCounter<{
   surface: 'poll-demand' | 'reconcile';
-  reason: 'activation-timeout' | 'job-cancelled' | 'terminal-state';
+  reason: RunnerTerminationReason;
 }>('runners_provider_runner_terminate_intent_issued', {
   description: 'Provisioned runner terminate intents returned to provisioners',
 });
 
 export const providerRunnerTerminateIntentHonoredCount = meter.createCounter<{
-  reason: 'activation-timeout' | 'job-cancelled';
+  reason: RunnerTerminationReason;
 }>('runners_provider_runner_terminate_intent_honored', {
   description: 'Provisioned runner terminate intents honored by first transition to terminated',
 });

@@ -27,6 +27,19 @@ export const runnerJobStopReasonSchema = z.enum(['run_cancelled', 'timed_out']);
 export type RunnerJobStopReasonDto = z.infer<typeof runnerJobStopReasonSchema>;
 
 export const reconcileDesiredIntentSchema = z.enum(['keep', 'terminate']);
+export const terminationReasonSchema = z.enum([
+  'registration-deadline',
+  'activation-timeout',
+  'runner-unresponsive',
+  'lease-expired',
+  'session-exhausted',
+  'stopping-timeout',
+  'provider-health-failed',
+  'job-cancelled',
+  'job-timeout',
+  'terminal-state',
+]);
+export type TerminationReasonDto = z.infer<typeof terminationReasonSchema>;
 
 export const reconciledBoundJobSchema = z
   .object({
@@ -48,6 +61,8 @@ export const reconciledRunnerInstanceSchema = z
     runner_session_id: z.string().uuid().nullable(),
     bound_job: reconciledBoundJobSchema.nullable(),
     desired_intent: reconcileDesiredIntentSchema,
+    // Additive so older provisioners can continue decoding this response.
+    termination_reason: terminationReasonSchema.nullable().optional(),
   })
   .strict();
 
