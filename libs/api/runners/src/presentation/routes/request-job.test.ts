@@ -1,7 +1,6 @@
 import {AUTH_PROVISIONER_TOKEN, AUTH_USER} from '@shipfox/api-auth-context';
 import type {AuthMethod} from '@shipfox/node-fastify';
 import {closeApp, createApp} from '@shipfox/node-fastify';
-import {generateOpaqueToken} from '@shipfox/node-tokens';
 import {eq} from 'drizzle-orm';
 import type {FastifyInstance} from 'fastify';
 import {config} from '#config.js';
@@ -9,7 +8,6 @@ import {db} from '#db/db.js';
 import {runnerSessions} from '#db/schema/runner-sessions.js';
 import {createRunnerRegistrationTokenAuthMethod} from '#presentation/auth/index.js';
 import {
-  ephemeralRegistrationTokenFactory,
   fakeLeaseTokenAuthMethod,
   fakeRunnerSessionAuthMethod,
   getLeaseTokenClaims,
@@ -196,33 +194,6 @@ describe('POST /runners/jobs/request', () => {
     expect(firstRes.json().job_id).toBe(first.jobId);
     expect(secondRes.statusCode).toBe(200);
     expect(secondRes.json().job_id).toBe(second.jobId);
-  });
-
-  it('returns 409 after an ephemeral session claims one job', async () => {
-    const ephemeralRawToken = generateOpaqueToken('ephemeralRegistrationToken');
-    await ephemeralRegistrationTokenFactory.create(
-      {workspaceId},
-      {transient: {rawToken: ephemeralRawToken}},
-    );
-    const registered = await registerSession(ephemeralRawToken);
-    const created = await pendingJobFactory.create({workspaceId});
-    await pendingJobFactory.create({workspaceId});
-
-    const firstRes = await app.inject({
-      method: 'POST',
-      url: '/runners/jobs/request',
-      headers: {authorization: `Bearer ${registered.sessionToken}`},
-    });
-    const secondRes = await app.inject({
-      method: 'POST',
-      url: '/runners/jobs/request',
-      headers: {authorization: `Bearer ${registered.sessionToken}`},
-    });
-
-    expect(firstRes.statusCode).toBe(200);
-    expect(firstRes.json().job_id).toBe(created.jobId);
-    expect(secondRes.statusCode).toBe(409);
-    expect(secondRes.json().code).toBe('runner-session-exhausted');
   });
 
   it('returns 401 when the runner session token is expired', async () => {

@@ -1,8 +1,4 @@
 export {
-  type EphemeralRegistrationTokenFactoryTransientParams,
-  ephemeralRegistrationTokenFactory,
-} from './factories/ephemeral-registration-token.js';
-export {
   type ManualRegistrationTokenFactoryTransientParams,
   manualRegistrationTokenFactory,
 } from './factories/manual-registration-token.js';

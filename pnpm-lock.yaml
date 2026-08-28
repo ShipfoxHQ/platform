@@ -3920,9 +3920,6 @@ importers:
       '@shipfox/node-postgres':
         specifier: workspace:*
         version: link:../../shared/node/postgres
-      '@shipfox/node-rate-limit':
-        specifier: workspace:*
-        version: link:../../shared/node/rate-limit
       '@shipfox/node-temporal':
         specifier: workspace:*
         version: link:../../shared/node/temporal

@@ -20,15 +20,15 @@ import {
   type CatalogNamespace,
   type CatalogRelation,
   type CatalogTrigger,
-  dedupeExpectedObjects,
   type ExpectedCatalogObject,
   type ExpectedMigrationHistory,
   expectedHistoryForUnit,
+  expectedObjectsAfterMigrations,
   formatCatalogJsonReport,
   formatCatalogReport,
   migrationHistoryName,
   type PostgresCatalog,
-  parseMigrationSql,
+  parseMigrationChanges,
 } from './catalog.js';
 
 const repositoryRoot = fileURLToPath(new URL('../../../', import.meta.url));
@@ -119,10 +119,10 @@ function prepareMigrationUnits(
 function expectedObjectsForUnits(
   preparedUnits: readonly PreparedMigrationUnit[],
 ): ExpectedCatalogObject[] {
-  return dedupeExpectedObjects(
+  return expectedObjectsAfterMigrations(
     preparedUnits.flatMap(({unit, sources}) =>
       sources.flatMap(({path: sourcePath, source}) =>
-        parseMigrationSql({source, sourcePath, unit}),
+        parseMigrationChanges({source, sourcePath, unit}),
       ),
     ),
   );

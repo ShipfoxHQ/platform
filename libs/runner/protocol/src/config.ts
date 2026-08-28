@@ -8,7 +8,7 @@ export const config = createConfig({
     desc: 'Base URL of the Shipfox API the runner connects to, such as https://api.shipfox.io. Required.',
   }),
   SHIPFOX_RUNNER_REGISTRATION_TOKEN: str({
-    desc: 'Manual or ephemeral registration token the runner exchanges for a short-lived runner session token at startup. Use a value starting with sf_mrt_ or sf_ert_. Set this or SHIPFOX_RUNNER_BOOTSTRAP_TOKEN, but not both.',
+    desc: 'Manual registration token the runner exchanges for a short-lived runner session token at startup. Use a value starting with sf_mrt_. Set this or SHIPFOX_RUNNER_BOOTSTRAP_TOKEN, but not both.',
     default: '',
   }),
   SHIPFOX_RUNNER_BOOTSTRAP_TOKEN: str({

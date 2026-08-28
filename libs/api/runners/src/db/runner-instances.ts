@@ -35,7 +35,6 @@ import {lockRunnerReservationAdvisoryKeysTx} from './reservation-locks.js';
 import {releaseTerminalRunnerInstanceReservationsByIds} from './reservations.js';
 import {validateRunnerReservationCapacityTx} from './runner-assignments.js';
 import {activeStates, terminalStates} from './runner-states.js';
-import {ephemeralRegistrationTokens} from './schema/ephemeral-registration-tokens.js';
 import {provisionerTokens} from './schema/provisioner-tokens.js';
 import {reservations} from './schema/reservations.js';
 import {runnerControlSessions} from './schema/runner-control-sessions.js';
@@ -244,7 +243,7 @@ export async function reportRunnerInstances(params: ReportRunnerInstancesParams)
       );
     }
 
-    const events = await hydrateRunnerSessionIdsFromConsumedTokens(tx, params, aggregatedEvents);
+    const events = aggregatedEvents;
     const reservationSafeEvents = await guardReportedReservationIdsTx(tx, params, events);
     const existingReportedAtByProviderRunnerId = hasTerminalEvent
       ? await listExistingProviderRunnerReportedAtTx(tx, params, reservationSafeEvents)
@@ -1190,50 +1189,6 @@ function groupRunnerInstanceIds(
     groups.set(key, group);
   }
   return [...groups.values()];
-}
-
-async function hydrateRunnerSessionIdsFromConsumedTokens(
-  tx: Tx,
-  params: ReportRunnerInstancesParams,
-  events: RunnerInstanceReportRow[],
-): Promise<RunnerInstanceReportRow[]> {
-  if (!params.workspaceId) return events;
-  const providerRunnerIds = [...new Set(events.map((event) => event.providerRunnerId))];
-  if (providerRunnerIds.length === 0) return events;
-
-  const tokenRows = await tx
-    .select({
-      providerRunnerId: ephemeralRegistrationTokens.providerRunnerId,
-      consumedSessionId: ephemeralRegistrationTokens.consumedSessionId,
-    })
-    .from(ephemeralRegistrationTokens)
-    .where(
-      and(
-        eq(ephemeralRegistrationTokens.workspaceId, params.workspaceId),
-        eq(ephemeralRegistrationTokens.provisionerId, params.provisionerId),
-        inArray(ephemeralRegistrationTokens.providerRunnerId, providerRunnerIds),
-        isNotNull(ephemeralRegistrationTokens.consumedSessionId),
-      ),
-    )
-    .orderBy(
-      desc(ephemeralRegistrationTokens.consumedAt),
-      desc(ephemeralRegistrationTokens.createdAt),
-    );
-
-  const consumedSessionIdsByRunnerInstanceId = new Map<string, string>();
-  for (const row of tokenRows) {
-    if (!row.consumedSessionId) continue;
-    if (consumedSessionIdsByRunnerInstanceId.has(row.providerRunnerId)) continue;
-    consumedSessionIdsByRunnerInstanceId.set(row.providerRunnerId, row.consumedSessionId);
-  }
-
-  if (consumedSessionIdsByRunnerInstanceId.size === 0) return events;
-
-  return events.map((event) => {
-    const consumedSessionId = consumedSessionIdsByRunnerInstanceId.get(event.providerRunnerId);
-    if (!consumedSessionId || event.runnerSessionId === consumedSessionId) return event;
-    return {...event, runnerSessionId: consumedSessionId};
-  });
 }
 
 function aggregateEvents(

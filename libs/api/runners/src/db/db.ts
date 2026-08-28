@@ -7,7 +7,6 @@ import {runnersOutbox} from './schema/outbox.js';
 import {pendingJobExecutions} from './schema/pending-job-executions.js';
 import {provisionerCapabilitySnapshots} from './schema/provisioner-capability-snapshots.js';
 import {provisionerTokens} from './schema/provisioner-tokens.js';
-import {runnersRateLimits} from './schema/rate-limits.js';
 import {reservations} from './schema/reservations.js';
 import {runnerActivationTokens} from './schema/runner-activation-tokens.js';
 import {runnerBootstrapTokens, runnerControlSessions} from './schema/runner-control-sessions.js';
@@ -22,7 +21,6 @@ export const schema = {
   providerRunners,
   provisionerCapabilitySnapshots,
   provisionerTokens,
-  runnersRateLimits,
   reservations,
   runnerSessions,
   runnerBootstrapTokens,

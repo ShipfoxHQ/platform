@@ -64,6 +64,13 @@
       "when": 1787844980837,
       "tag": "0008_runner_lifecycle_capabilities",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1787845525869,
+      "tag": "0009_bright_firebird",
+      "breakpoints": true
     }
   ]
 }

@@ -15,6 +15,11 @@ export type CatalogFindingClassification = 'cross-owner' | 'misnamed' | 'missing
 
 export type CatalogObjectClassification = 'compliant' | CatalogFindingClassification;
 
+export interface ExpectedRelationReference {
+  schemaName: string;
+  name: string;
+}
+
 export interface ExpectedCatalogObject {
   kind: Exclude<CatalogObjectKind, 'migration-history' | 'schema'>;
   schemaName: string;
@@ -23,6 +28,8 @@ export interface ExpectedCatalogObject {
   migrationUnitId: string;
   namespace: string;
   relationName?: string;
+  relationSchemaName?: string;
+  referencedRelations?: readonly ExpectedRelationReference[];
   sourcePath: string;
   line: number;
 }
@@ -164,11 +171,20 @@ interface ParsedTableRange {
 }
 
 interface ParsedMigrationStatement {
+  operation: 'create' | 'drop';
   kind: Exclude<CatalogObjectKind, 'migration-history' | 'schema'> | 'type';
   name: ParsedIdentifier;
   relationName?: string;
   relationSchemaName?: string;
+  referencedRelations?: ExpectedRelationReference[];
+  cascade?: boolean;
   start: number;
+}
+
+export interface ParsedMigrationChange {
+  operation: 'create' | 'drop';
+  cascade?: boolean;
+  object: ExpectedCatalogObject;
 }
 
 const identifierStartExpression = /[A-Za-z_]/;
@@ -178,6 +194,12 @@ const dollarQuoteTagPartExpression = /[A-Za-z0-9_]/;
 const enumExpression = /\bAS\s+ENUM\b/i;
 const ifNotExistsExpression = /^IF\s+NOT\s+EXISTS\b/i;
 const ifExistsExpression = /^IF\s+EXISTS\b/i;
+const concurrentlyExpression = /^CONCURRENTLY\b/i;
+const dropConstraintExpression = /\bDROP\s+CONSTRAINT\b/i;
+const cascadeExpression = /\bCASCADE\b/i;
+const fromClauseBoundaryExpression =
+  /^(?:JOIN|WHERE|GROUP|ORDER|LIMIT|OFFSET|UNION|INTERSECT|EXCEPT|FETCH|FOR|HAVING|WINDOW)\b/i;
+const fromOnlyExpression = /^ONLY\b/i;
 const whitespaceExpression = /\s/;
 const postgresIdentifierLimit = 63;
 
@@ -412,20 +434,141 @@ function firstKeywordOffset(source: string, keyword: string, offset: number, end
   return match?.index === undefined ? -1 : offset + match.index;
 }
 
+function readRelationReferences(
+  source: string,
+  searchableSource: string,
+  keyword: string,
+  start: number,
+  end: number,
+): ExpectedRelationReference[] {
+  if (keyword === 'FROM') {
+    return readFromRelationReferences(source, searchableSource, start, end);
+  }
+
+  const references: ExpectedRelationReference[] = [];
+  const searchableStatement = searchableSource.slice(start, end);
+  const keywordExpression = new RegExp(`\\b${keyword}\\b`, 'gi');
+  let match = keywordExpression.exec(searchableStatement);
+  while (match) {
+    const relation = readQualifiedIdentifier(source, start + (match.index ?? 0) + match[0].length);
+    if (relation) {
+      const reference = {
+        schemaName: relation.schemaName ?? 'public',
+        name: relation.name,
+      };
+      if (
+        !references.some(
+          (candidate) =>
+            candidate.schemaName === reference.schemaName && candidate.name === reference.name,
+        )
+      ) {
+        references.push(reference);
+      }
+    }
+    match = keywordExpression.exec(searchableStatement);
+  }
+  return references;
+}
+
+function readFromRelationIdentifier(
+  source: string,
+  searchableSource: string,
+  offset: number,
+): ParsedIdentifier | undefined {
+  const relationOffset = skipWhitespace(source, offset);
+  const onlyMatch = fromOnlyExpression.exec(searchableSource.slice(relationOffset));
+  if (!onlyMatch) return readQualifiedIdentifier(source, relationOffset);
+
+  const onlyOffset = skipWhitespace(source, relationOffset + onlyMatch[0].length);
+  const isParenthesized = source[onlyOffset] === '(';
+  const relation = readQualifiedIdentifier(source, isParenthesized ? onlyOffset + 1 : onlyOffset);
+  if (!relation || !isParenthesized) return relation;
+
+  const closingOffset = skipWhitespace(source, relation.end);
+  return source[closingOffset] === ')' ? {...relation, end: closingOffset + 1} : relation;
+}
+
+function readFromRelationReferences(
+  source: string,
+  searchableSource: string,
+  start: number,
+  end: number,
+): ExpectedRelationReference[] {
+  const references: ExpectedRelationReference[] = [];
+  const searchableStatement = searchableSource.slice(start, end);
+  const keywordExpression = /\bFROM\b/gi;
+  let match = keywordExpression.exec(searchableStatement);
+  while (match) {
+    let cursor = start + (match.index ?? 0) + match[0].length;
+    let relation = readFromRelationIdentifier(source, searchableSource, cursor);
+    if (relation) {
+      references.push({
+        schemaName: relation.schemaName ?? 'public',
+        name: relation.name,
+      });
+      cursor = relation.end;
+    }
+
+    let parenthesisDepth = 0;
+    while (relation && cursor < end) {
+      const character = searchableSource[cursor];
+      if (character === '(') {
+        parenthesisDepth += 1;
+      } else if (character === ')') {
+        if (parenthesisDepth === 0) break;
+        parenthesisDepth -= 1;
+      } else if (parenthesisDepth === 0 && character === ',') {
+        const nextRelation = readFromRelationIdentifier(source, searchableSource, cursor + 1);
+        if (!nextRelation) break;
+        references.push({
+          schemaName: nextRelation.schemaName ?? 'public',
+          name: nextRelation.name,
+        });
+        relation = nextRelation;
+        cursor = relation.end;
+        continue;
+      } else if (
+        parenthesisDepth === 0 &&
+        fromClauseBoundaryExpression.test(searchableSource.slice(cursor))
+      ) {
+        break;
+      }
+      cursor += 1;
+    }
+
+    match = keywordExpression.exec(searchableStatement);
+  }
+
+  return references.filter(
+    (reference, index) =>
+      references.findIndex(
+        (candidate) =>
+          candidate.schemaName === reference.schemaName && candidate.name === reference.name,
+      ) === index,
+  );
+}
+
 function addParsedStatement(
   statements: ParsedMigrationStatement[],
   source: string,
   match: RegExpExecArray,
   kind: ParsedMigrationStatement['kind'],
+  operation: ParsedMigrationStatement['operation'] = 'create',
 ): ParsedMigrationStatement | undefined {
-  const nameOffset = skipWhitespace(source, (match.index ?? 0) + match[0].length);
-  const afterIfNotExists = ifNotExistsExpression.exec(source.slice(nameOffset));
+  let nameOffset = skipWhitespace(source, (match.index ?? 0) + match[0].length);
+  if (operation === 'drop' && kind === 'index') {
+    const concurrently = concurrentlyExpression.exec(source.slice(nameOffset));
+    if (concurrently) nameOffset += concurrently[0].length;
+  }
+  const existsExpression = operation === 'drop' ? ifExistsExpression : ifNotExistsExpression;
+  const afterIfExists = existsExpression.exec(source.slice(nameOffset));
   const parsedName = readQualifiedIdentifier(
     source,
-    afterIfNotExists ? nameOffset + afterIfNotExists[0].length : nameOffset,
+    afterIfExists ? nameOffset + afterIfExists[0].length : nameOffset,
   );
   if (!parsedName) return undefined;
   const statement: ParsedMigrationStatement = {
+    operation,
     kind,
     name: parsedName,
     start: match.index ?? 0,
@@ -451,7 +594,42 @@ function parseMigrationStatements(source: string): ParsedMigrationStatement[] {
     const statement = addParsedStatement(statements, source, createMatch, kind);
     if (!statement) continue;
     const end = statementEnd(source, statement.name.end);
-    if (kind === 'index' || kind === 'trigger') {
+    if (kind === 'view') {
+      const references = [
+        ...readRelationReferences(source, searchableSource, 'FROM', statement.name.end, end),
+        ...readRelationReferences(source, searchableSource, 'JOIN', statement.name.end, end),
+      ];
+      if (references.length > 0) statement.referencedRelations = references;
+    } else if (kind === 'index' || kind === 'trigger') {
+      const onOffset = firstKeywordOffset(searchableSource, 'ON', statement.name.end, end);
+      if (onOffset !== -1) {
+        const relation = readQualifiedIdentifier(source, onOffset + 2);
+        if (relation) {
+          statement.relationName = relation.name;
+          if (relation.schemaName) statement.relationSchemaName = relation.schemaName;
+        }
+      }
+    }
+  }
+
+  const dropExpression =
+    /\bDROP\s+((?:MATERIALIZED\s+VIEW|FOREIGN\s+TABLE|TABLE|TYPE|INDEX|SEQUENCE|VIEW|TRIGGER))\b/gi;
+  match = dropExpression.exec(searchableSource);
+  while (match) {
+    const dropMatch = match;
+    match = dropExpression.exec(searchableSource);
+    const keyword = dropMatch[1]?.toLowerCase();
+    if (!keyword) continue;
+    let kind = keyword as ParsedMigrationStatement['kind'];
+    if (keyword === 'materialized view') kind = 'view';
+    if (keyword === 'foreign table') kind = 'table';
+    const statement = addParsedStatement(statements, source, dropMatch, kind, 'drop');
+    if (!statement) continue;
+    const end = statementEnd(source, statement.name.end);
+    if (statement.operation === 'drop' && kind === 'table') {
+      statement.cascade = cascadeExpression.test(searchableSource.slice(statement.name.end, end));
+    }
+    if (kind === 'trigger') {
       const onOffset = firstKeywordOffset(searchableSource, 'ON', statement.name.end, end);
       if (onOffset !== -1) {
         const relation = readQualifiedIdentifier(source, onOffset + 2);
@@ -479,9 +657,25 @@ function parseMigrationStatements(source: string): ParsedMigrationStatement[] {
     const end = statementEnd(source, table.end);
     const constraintOffset = firstKeywordOffset(searchableSource, 'CONSTRAINT', table.end, end);
     if (constraintOffset === -1) continue;
-    const constraint = readIdentifier(source, constraintOffset + 'CONSTRAINT'.length);
+    const isDroppingConstraint = dropConstraintExpression.test(
+      searchableSource.slice(table.end, end),
+    );
+    const constraintNameOffset = skipWhitespace(source, constraintOffset + 'CONSTRAINT'.length);
+    const afterConstraintIfExists = isDroppingConstraint
+      ? ifExistsExpression.exec(searchableSource.slice(constraintNameOffset))
+      : undefined;
+    const constraint = readIdentifier(
+      source,
+      afterConstraintIfExists
+        ? constraintNameOffset + afterConstraintIfExists[0].length
+        : constraintNameOffset,
+    );
     if (!constraint) continue;
+    const operation: ParsedMigrationStatement['operation'] = isDroppingConstraint
+      ? 'drop'
+      : 'create';
     statements.push({
+      operation,
       kind: 'constraint',
       name: constraint,
       relationName: table.name,
@@ -513,12 +707,33 @@ function parseMigrationStatements(source: string): ParsedMigrationStatement[] {
         (constraintMatch.index ?? 0) <= candidate.end,
     );
     statements.push({
+      operation: 'create',
       kind: 'constraint',
       name,
       ...(range?.name ? {relationName: range.name} : {}),
       ...(range?.schemaName ? {relationSchemaName: range.schemaName} : {}),
       start: constraintMatch.index ?? 0,
     });
+  }
+
+  for (const statement of statements) {
+    if (statement.kind !== 'constraint') continue;
+    const statementEndOffset = statementEnd(source, statement.name.end);
+    const nextConstraintOffset = firstKeywordOffset(
+      searchableSource,
+      'CONSTRAINT',
+      statement.name.end,
+      statementEndOffset,
+    );
+    const end = nextConstraintOffset === -1 ? statementEndOffset : nextConstraintOffset;
+    const references = readRelationReferences(
+      source,
+      searchableSource,
+      'REFERENCES',
+      statement.name.end,
+      end,
+    );
+    if (references.length > 0) statement.referencedRelations = references;
   }
 
   return statements;
@@ -533,28 +748,117 @@ export function parseMigrationSql({
   sourcePath: string;
   unit: DatabaseMigrationUnit;
 }): ExpectedCatalogObject[] {
-  const result: ExpectedCatalogObject[] = [];
+  return migrationChangesForSource({source, sourcePath, unit})
+    .filter((change) => change.operation === 'create')
+    .map(({object}) => object);
+}
+
+export function parseMigrationChanges({
+  source,
+  sourcePath,
+  unit,
+}: {
+  source: string;
+  sourcePath: string;
+  unit: DatabaseMigrationUnit;
+}): ParsedMigrationChange[] {
+  return migrationChangesForSource({source, sourcePath, unit, sortBySourcePosition: true});
+}
+
+function migrationChangesForSource({
+  source,
+  sourcePath,
+  unit,
+  sortBySourcePosition = false,
+}: {
+  source: string;
+  sourcePath: string;
+  unit: DatabaseMigrationUnit;
+  sortBySourcePosition?: boolean;
+}): ParsedMigrationChange[] {
   const searchableSource = maskSqlForStatements(source);
-  for (const statement of parseMigrationStatements(source)) {
+  const statements = parseMigrationStatements(source);
+  if (sortBySourcePosition) statements.sort((left, right) => left.start - right.start);
+  return statements.flatMap((statement): ParsedMigrationChange[] => {
     if (statement.kind === 'type') {
       const end = statementEnd(source, statement.name.end);
       const statementText = searchableSource.slice(statement.name.end, end);
-      if (!enumExpression.test(statementText)) continue;
+      if (statement.operation === 'create' && !enumExpression.test(statementText)) return [];
     }
     const kind = statement.kind === 'type' ? 'enum' : statement.kind;
-    result.push({
-      kind,
-      schemaName: statement.name.schemaName ?? 'public',
-      name: statement.name.name,
-      ownerId: unit.ownerId,
-      migrationUnitId: unit.id,
-      namespace: unit.namespace,
-      ...(statement.relationName ? {relationName: statement.relationName} : {}),
-      sourcePath,
-      line: lineNumber(source, statement.start),
-    });
+    return [
+      {
+        operation: statement.operation,
+        ...(statement.cascade ? {cascade: true} : {}),
+        object: {
+          kind,
+          schemaName: statement.name.schemaName ?? 'public',
+          name: statement.name.name,
+          ownerId: unit.ownerId,
+          migrationUnitId: unit.id,
+          namespace: unit.namespace,
+          ...(statement.relationName ? {relationName: statement.relationName} : {}),
+          ...(statement.relationSchemaName
+            ? {relationSchemaName: statement.relationSchemaName}
+            : {}),
+          ...(statement.referencedRelations
+            ? {referencedRelations: statement.referencedRelations}
+            : {}),
+          sourcePath,
+          line: lineNumber(source, statement.start),
+        },
+      },
+    ];
+  });
+}
+
+export function expectedObjectsAfterMigrations(
+  changes: readonly ParsedMigrationChange[],
+): ExpectedCatalogObject[] {
+  const activeObjects = new Map<string, ExpectedCatalogObject>();
+  for (const change of changes) {
+    const {object} = change;
+    const key = objectKey(object.kind, object.schemaName, object.name);
+    if (change.operation === 'create') {
+      activeObjects.set(key, object);
+      continue;
+    }
+
+    activeObjects.delete(key);
+    if (object.kind !== 'table' && object.kind !== 'view') continue;
+
+    const pendingRelations: ExpectedRelationReference[] = [
+      {schemaName: object.schemaName, name: object.name},
+    ];
+    for (const droppedRelation of pendingRelations) {
+      for (const [candidateKey, candidate] of activeObjects) {
+        const relationMatches =
+          candidate.relationName === droppedRelation.name &&
+          (candidate.relationSchemaName ?? 'public') === droppedRelation.schemaName;
+        const referencedRelationMatches =
+          change.cascade === true &&
+          candidate.referencedRelations?.some(
+            (reference) =>
+              reference.name === droppedRelation.name &&
+              reference.schemaName === droppedRelation.schemaName,
+          );
+        if (!relationMatches && !referencedRelationMatches) continue;
+
+        activeObjects.delete(candidateKey);
+        if (
+          change.cascade === true &&
+          (candidate.kind === 'table' || candidate.kind === 'view') &&
+          !pendingRelations.some(
+            (relation) =>
+              relation.name === candidate.name && relation.schemaName === candidate.schemaName,
+          )
+        ) {
+          pendingRelations.push({schemaName: candidate.schemaName, name: candidate.name});
+        }
+      }
+    }
   }
-  return result;
+  return dedupeExpectedObjects([...activeObjects.values()]);
 }
 
 export function migrationHistoryName(namespace: string): string {

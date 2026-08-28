@@ -228,9 +228,38 @@ describe('deleteExpiredEphemeralRegistrationTokens', () => {
     expect(remaining.map((row) => row.id)).toEqual([keptId]);
   });
 
+  it('uses consumed time for consumed-token retention', async () => {
+    const staleConsumedId = crypto.randomUUID();
+    const recentConsumedId = crypto.randomUUID();
+    await db()
+      .insert(ephemeralRegistrationTokens)
+      .values([
+        buildEphemeralToken({
+          id: staleConsumedId,
+          expiresAt: new Date(Date.now() - 3650 * DAY_MS),
+          consumedAt: new Date(Date.now() - 8 * DAY_MS),
+        }),
+        buildEphemeralToken({
+          id: recentConsumedId,
+          expiresAt: new Date(Date.now() - 3650 * DAY_MS),
+          consumedAt: new Date(Date.now() - 4 * DAY_MS),
+        }),
+      ]);
+
+    const result = await deleteExpiredEphemeralRegistrationTokens({retentionDays: 5});
+
+    const remaining = await db()
+      .select({id: ephemeralRegistrationTokens.id})
+      .from(ephemeralRegistrationTokens)
+      .where(eq(ephemeralRegistrationTokens.workspaceId, workspaceId));
+    expect(result.deleted).toBe(1);
+    expect(remaining.map((row) => row.id)).toEqual([recentConsumedId]);
+  });
+
   function buildEphemeralToken(params: {
     id: string;
     expiresAt: Date;
+    consumedAt?: Date | null;
   }): typeof ephemeralRegistrationTokens.$inferInsert {
     return {
       id: params.id,
@@ -240,7 +269,7 @@ describe('deleteExpiredEphemeralRegistrationTokens', () => {
       hashedToken: crypto.randomUUID(),
       prefix: 'sfxr_test',
       expiresAt: params.expiresAt,
-      consumedAt: null,
+      consumedAt: params.consumedAt ?? null,
       createdAt: params.expiresAt,
     };
   }

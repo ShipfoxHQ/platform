@@ -20,7 +20,6 @@ Supported token types:
 | `passwordReset` | `pr` |
 | `refreshToken` | `r` |
 | `manualRegistrationToken` | `mrt` |
-| `ephemeralRegistrationToken` | `ert` |
 | `provisionerToken` | `pt` |
 
 ## Usage

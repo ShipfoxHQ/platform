@@ -37,33 +37,6 @@ describe('RUNNER_RESERVED_LABELS', () => {
   });
 });
 
-describe('EPHEMERAL_REGISTRATION_TOKEN_TTL_SECONDS validation', () => {
-  afterEach(() => {
-    vi.unstubAllEnvs();
-    vi.resetModules();
-  });
-
-  it.each([
-    '0',
-    '-5',
-    '1.5',
-    '3601',
-  ])('fails startup when EPHEMERAL_REGISTRATION_TOKEN_TTL_SECONDS is %s', async (value) => {
-    vi.stubEnv('EPHEMERAL_REGISTRATION_TOKEN_TTL_SECONDS', value);
-    vi.resetModules();
-
-    await expect(import('#config.js')).rejects.toThrow('EPHEMERAL_REGISTRATION_TOKEN_TTL_SECONDS');
-  });
-
-  it('accepts a whole-second value inside the hard ceiling', async () => {
-    vi.stubEnv('EPHEMERAL_REGISTRATION_TOKEN_TTL_SECONDS', '3600');
-    vi.resetModules();
-
-    const {config} = await import('#config.js');
-
-    expect(config.EPHEMERAL_REGISTRATION_TOKEN_TTL_SECONDS).toBe(3600);
-  });
-});
 describe('runner assignment polling defaults', () => {
   afterEach(() => {
     vi.unstubAllEnvs();
@@ -149,63 +122,6 @@ describe('reservation TTL ceiling validation', () => {
     vi.resetModules();
 
     await expect(import('#config.js')).rejects.toThrow('RESERVATION_TTL_SECONDS');
-  });
-});
-
-describe('REGISTRATION_TOKEN_BATCH_MAX validation', () => {
-  afterEach(() => {
-    vi.unstubAllEnvs();
-    vi.resetModules();
-  });
-
-  it.each([
-    '0',
-    '-5',
-    '1.5',
-    '1001',
-  ])('fails startup when REGISTRATION_TOKEN_BATCH_MAX is %s', async (value) => {
-    vi.stubEnv('REGISTRATION_TOKEN_BATCH_MAX', value);
-    vi.resetModules();
-
-    await expect(import('#config.js')).rejects.toThrow('REGISTRATION_TOKEN_BATCH_MAX');
-  });
-
-  it('accepts a whole-number value inside the DTO hard ceiling', async () => {
-    vi.stubEnv('REGISTRATION_TOKEN_BATCH_MAX', '1000');
-    vi.resetModules();
-
-    const {config} = await import('#config.js');
-
-    expect(config.REGISTRATION_TOKEN_BATCH_MAX).toBe(1000);
-  });
-});
-
-describe.each([
-  'PROVISIONER_MINT_RATE_LIMIT_MAX_REQUESTS',
-  'PROVISIONER_MINT_RATE_LIMIT_WINDOW_SECONDS',
-  'EPHEMERAL_REGISTER_RATE_LIMIT_MAX_REQUESTS',
-  'EPHEMERAL_REGISTER_RATE_LIMIT_WINDOW_SECONDS',
-  'RUNNERS_RATE_LIMIT_TIMEOUT_MS',
-] as const)('%s validation', (name) => {
-  afterEach(() => {
-    vi.unstubAllEnvs();
-    vi.resetModules();
-  });
-
-  it.each(['0', '-5', '1.5'])('fails startup when the value is %s', async (value) => {
-    vi.stubEnv(name, value);
-    vi.resetModules();
-
-    await expect(import('#config.js')).rejects.toThrow(name);
-  });
-
-  it('accepts a whole number >= 1', async () => {
-    vi.stubEnv(name, '1');
-    vi.resetModules();
-
-    const {config} = await import('#config.js');
-
-    expect(config[name]).toBe(1);
   });
 });
 

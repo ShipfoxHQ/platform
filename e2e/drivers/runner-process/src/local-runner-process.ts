@@ -8,7 +8,7 @@ const DEFAULT_SIGTERM_TIMEOUT_MS = 15_000;
 
 export interface StartLocalRunnerParams {
   workspaceId: string;
-  /** Manual or ephemeral registration token the runner exchanges at startup. */
+  /** Manual registration token the runner exchanges at startup. */
   registrationToken: string;
   /** Labels the runner registers with. */
   labels: readonly string[];

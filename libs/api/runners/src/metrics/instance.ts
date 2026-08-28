@@ -279,22 +279,6 @@ export const runnerReservationCapacityFailureCount = meter.createCounter<{
   description: 'Runner reservation admission shortfalls by reason',
 });
 
-export type RunnersRateLimitAction = 'provisioner-mint' | 'ephemeral-register';
-export type RunnersRateLimitScope = 'provisioner' | 'ephemeral-token';
-export type RunnersRateLimitOutcome = 'allowed' | 'blocked' | 'unavailable';
-
-const rateLimitCheckCount = meter.createCounter<{
-  action: RunnersRateLimitAction;
-  scope: RunnersRateLimitScope;
-  outcome: RunnersRateLimitOutcome;
-}>('runners_rate_limit_checks', {
-  description: 'Runners rate limit checks by action, scope, and outcome',
-});
-
-const rateLimitPruneFailureCount = meter.createCounter('runners_rate_limit_prune_failures', {
-  description: 'Runners rate limit prune failures',
-});
-
 function recordMetric(record: () => void): void {
   try {
     record();
@@ -400,24 +384,6 @@ export function recordRunnerReservationCapacityFailure(
 ): void {
   if (count <= 0) return;
   recordMetric(() => runnerReservationCapacityFailureCount.add(count, {reason}));
-}
-
-export function recordRunnersRateLimitCheck(params: {
-  action: RunnersRateLimitAction;
-  scope: RunnersRateLimitScope;
-  outcome: RunnersRateLimitOutcome;
-}): void {
-  recordMetric(() =>
-    rateLimitCheckCount.add(1, {
-      action: params.action,
-      scope: params.scope,
-      outcome: params.outcome,
-    }),
-  );
-}
-
-export function recordRunnersRateLimitPruneFailure(): void {
-  recordMetric(() => rateLimitPruneFailureCount.add(1));
 }
 
 export function recordProviderRunnerActivationOutcome(params: {

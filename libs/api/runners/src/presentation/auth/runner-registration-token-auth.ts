@@ -4,7 +4,6 @@ import {getTokenType, hashOpaqueToken} from '@shipfox/node-tokens';
 import {and, eq, gt, isNull, or, sql} from 'drizzle-orm';
 import type {FastifyRequest} from 'fastify';
 import {db} from '#db/db.js';
-import {resolveEphemeralRegistrationTokenByHash} from '#db/ephemeral-registration-tokens.js';
 import {resolveManualRegistrationTokenByHash} from '#db/manual-registration-tokens.js';
 import {provisionerTokens} from '#db/schema/provisioner-tokens.js';
 import {runnerActivationTokens} from '#db/schema/runner-activation-tokens.js';
@@ -17,14 +16,6 @@ export type RunnerRegistrationContext =
       kind: 'manual';
       registrationTokenId: string;
       workspaceId: string;
-    }
-  | {
-      kind: 'ephemeral';
-      ephemeralTokenId: string;
-      workspaceId: string;
-      provisionerId: string;
-      reservationId: string | null;
-      providerRunnerId: string;
     }
   | {kind: 'activation'; activationTokenId: string; workspaceId: string};
 
@@ -77,34 +68,6 @@ export function createRunnerRegistrationTokenAuthMethod(): AuthMethod {
           kind: 'activation',
           activationTokenId: activation.id,
           workspaceId: activation.workspaceId,
-        } satisfies RunnerRegistrationContext;
-        return;
-      }
-
-      if (tokenType === 'ephemeralRegistrationToken') {
-        const ephemeralToken = await resolveEphemeralRegistrationTokenByHash(
-          hashOpaqueToken(rawToken),
-        );
-        if (!ephemeralToken) {
-          throw new ClientError('Invalid runner registration token', 'unauthorized', {
-            status: 401,
-          });
-        }
-        if (ephemeralToken.expiresAt < new Date()) {
-          throw new ClientError(
-            'Ephemeral registration token has expired',
-            'registration-token-expired',
-            {status: 401},
-          );
-        }
-
-        (request as unknown as Record<string, unknown>)[RUNNER_CONTEXT_KEY] = {
-          kind: 'ephemeral',
-          ephemeralTokenId: ephemeralToken.id,
-          workspaceId: ephemeralToken.workspaceId,
-          provisionerId: ephemeralToken.provisionerId,
-          reservationId: ephemeralToken.reservationId,
-          providerRunnerId: ephemeralToken.providerRunnerId,
         } satisfies RunnerRegistrationContext;
         return;
       }

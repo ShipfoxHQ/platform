@@ -14,7 +14,7 @@ environments](/understand/runners-and-execution-environments). To start one, see
 | Variable | Purpose |
 | --- | --- |
 | `SHIPFOX_API_URL` | Base URL of the Shipfox API the runner connects to, such as `https://api.shipfox.io`. |
-| `SHIPFOX_RUNNER_REGISTRATION_TOKEN` | Registration token the runner exchanges for a short-lived session token at startup. Accepts `sf_mrt_…` (manual) or `sf_ert_…` (ephemeral) tokens; see [Token types](#token-types). Set this or `SHIPFOX_RUNNER_BOOTSTRAP_TOKEN`, but not both. |
+| `SHIPFOX_RUNNER_REGISTRATION_TOKEN` | Manual registration token (`sf_mrt_…`) the runner exchanges for a short-lived session token at startup. Set this or `SHIPFOX_RUNNER_BOOTSTRAP_TOKEN`, but not both. |
 | `SHIPFOX_RUNNER_BOOTSTRAP_TOKEN` | One-use provisioner-managed bootstrap token (`sf_rbt_…`); see [Token types](#token-types). The runner exchanges it for a workspace-neutral control session before waiting for an assignment. Set this or `SHIPFOX_RUNNER_REGISTRATION_TOKEN`, but not both. |
 | `SHIPFOX_RUNNER_LABELS` | Comma-separated labels this runner registers with, such as `linux,x64,self-hosted`. |
 
@@ -38,7 +38,6 @@ labels](/reference/runner-labels).
 | Prefix | Name | Created by | Lifetime |
 | --- | --- | --- | --- |
 | `sf_mrt_` | Manual registration token | **Settings → Runners** in the dashboard | Long-lived; revocable in the dashboard; value shown once at creation. |
-| `sf_ert_` | Ephemeral registration token | A [runner provisioner](/reference/runner-provisioner) | Single-use; minted per provisioned runner; expires if unused. |
 | `sf_rbt_` | Bootstrap token | A [runner provisioner](/reference/runner-provisioner) | Single-use; grants only enrollment into a workspace-neutral control session, not a workspace, reservation, or job credential. |
 
 ## Optional variables

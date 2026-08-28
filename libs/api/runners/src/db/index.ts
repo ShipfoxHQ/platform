@@ -9,16 +9,8 @@ export type {
 } from './admin-runner-instances.js';
 export {listAdministratorRunnerInstances} from './admin-runner-instances.js';
 export {closeDb, db, schema} from './db.js';
-export type {
-  CreateEphemeralRegistrationTokenParams,
-  DeleteExpiredEphemeralRegistrationTokensParams,
-} from './ephemeral-registration-tokens.js';
-export {
-  createEphemeralRegistrationToken,
-  createRunnerSessionConsumingEphemeralToken,
-  deleteExpiredEphemeralRegistrationTokens,
-  resolveEphemeralRegistrationTokenByHash,
-} from './ephemeral-registration-tokens.js';
+export type {DeleteExpiredEphemeralRegistrationTokensParams} from './ephemeral-registration-tokens.js';
+export {deleteExpiredEphemeralRegistrationTokens} from './ephemeral-registration-tokens.js';
 export type {
   ClaimedJobExecution,
   EnqueueJobExecutionParams,
@@ -59,10 +51,6 @@ export {
   revokeProvisionerToken,
   touchProvisionerLastSeen,
 } from './provisioner-tokens.js';
-export {
-  consumeRunnersRateLimit,
-  pruneExpiredRunnersRateLimits,
-} from './rate-limits.js';
 export type {
   DemandStat,
   PollDemandAndReserveParams,

@@ -20,9 +20,11 @@ import {
   dedupeExpectedObjects,
   type ExpectedCatalogObject,
   expectedHistoryForUnit,
+  expectedObjectsAfterMigrations,
   formatCatalogJsonReport,
   migrationHistoryName,
   type PostgresCatalog,
+  parseMigrationChanges,
   parseMigrationSql,
 } from '../src/catalog.js';
 
@@ -184,6 +186,158 @@ describe('PostgreSQL catalog verifier', () => {
           schemaName: 'public',
         },
       ],
+    );
+  });
+
+  test('removes dropped tables and dependent indexes from catalog expectations', () => {
+    const initialChanges = parseMigrationChanges({
+      source: `
+        CREATE TABLE "agent_jobs" ("id" uuid NOT NULL);
+        CREATE TABLE "agent_rate_limits" ("id" uuid NOT NULL);
+        CREATE UNIQUE INDEX "agent_rate_limits_window_unique" ON "agent_rate_limits" USING btree ("id");
+        CREATE INDEX "agent_rate_limits_expires_at_idx" ON "agent_rate_limits" USING btree ("id");
+      `,
+      sourcePath: 'test/fixtures/catalog/0000_initial.sql',
+      unit: agentUnit,
+    });
+    const removalChanges = parseMigrationChanges({
+      source: 'DROP TABLE IF EXISTS "agent_rate_limits" CASCADE;',
+      sourcePath: 'test/fixtures/catalog/0001_remove_rate_limits.sql',
+      unit: agentUnit,
+    });
+
+    const objects = expectedObjectsAfterMigrations([...initialChanges, ...removalChanges]);
+
+    assert.deepEqual(
+      objects.map(({kind, name}) => `${kind}:${name}`),
+      ['table:agent_jobs'],
+    );
+  });
+
+  test('removes foreign keys that cascade with a dropped referenced table', () => {
+    const initialChanges = parseMigrationChanges({
+      source: `
+        CREATE TABLE "agent_workspaces" ("id" uuid NOT NULL);
+        CREATE TABLE "agent_jobs" (
+          "id" uuid NOT NULL,
+          "workspace_id" uuid NOT NULL,
+          CONSTRAINT "agent_jobs_workspace_id_fk"
+            FOREIGN KEY ("workspace_id") REFERENCES "agent_workspaces" ("id")
+        );
+      `,
+      sourcePath: 'test/fixtures/catalog/0000_initial.sql',
+      unit: agentUnit,
+    });
+    const removalChanges = parseMigrationChanges({
+      source: 'DROP TABLE "agent_workspaces" CASCADE;',
+      sourcePath: 'test/fixtures/catalog/0001_remove_workspaces.sql',
+      unit: agentUnit,
+    });
+
+    const objects = expectedObjectsAfterMigrations([...initialChanges, ...removalChanges]);
+
+    assert.deepEqual(
+      objects.map(({kind, name}) => `${kind}:${name}`),
+      ['table:agent_jobs'],
+    );
+  });
+
+  test('removes views that cascade with a dropped referenced table', () => {
+    const initialChanges = parseMigrationChanges({
+      source: `
+        CREATE TABLE "agent_workspaces" ("id" uuid NOT NULL);
+        CREATE VIEW "agent_workspace_view" AS
+          SELECT "id" FROM "agent_workspaces";
+      `,
+      sourcePath: 'test/fixtures/catalog/0000_initial.sql',
+      unit: agentUnit,
+    });
+    const removalChanges = parseMigrationChanges({
+      source: 'DROP TABLE "agent_workspaces" CASCADE;',
+      sourcePath: 'test/fixtures/catalog/0001_remove_workspaces.sql',
+      unit: agentUnit,
+    });
+
+    const objects = expectedObjectsAfterMigrations([...initialChanges, ...removalChanges]);
+
+    assert.deepEqual(objects, []);
+  });
+
+  test('removes views that cascade with a dropped comma-separated source', () => {
+    const initialChanges = parseMigrationChanges({
+      source: `
+        CREATE TABLE "agent_workspaces" ("id" uuid NOT NULL);
+        CREATE TABLE "agent_workspace_members" ("id" uuid NOT NULL);
+        CREATE VIEW "agent_workspace_view" AS
+          SELECT "agent_workspaces"."id"
+          FROM ONLY ("agent_workspaces"), ONLY "agent_workspace_members";
+      `,
+      sourcePath: 'test/fixtures/catalog/0000_initial.sql',
+      unit: agentUnit,
+    });
+    const removalChanges = parseMigrationChanges({
+      source: 'DROP TABLE "agent_workspace_members" CASCADE;',
+      sourcePath: 'test/fixtures/catalog/0001_remove_members.sql',
+      unit: agentUnit,
+    });
+
+    const objects = expectedObjectsAfterMigrations([...initialChanges, ...removalChanges]);
+
+    assert.deepEqual(
+      objects.map(({kind, name}) => `${kind}:${name}`),
+      ['table:agent_workspaces'],
+    );
+  });
+
+  test('removes nested views from a cascaded dependency closure', () => {
+    const initialChanges = parseMigrationChanges({
+      source: `
+        CREATE TABLE "agent_workspaces" ("id" uuid NOT NULL);
+        CREATE VIEW "agent_workspace_view" AS
+          SELECT "id" FROM "agent_workspaces";
+        CREATE VIEW "agent_workspace_summary" AS
+          SELECT "id" FROM "agent_workspace_view";
+      `,
+      sourcePath: 'test/fixtures/catalog/0000_initial.sql',
+      unit: agentUnit,
+    });
+    const removalChanges = parseMigrationChanges({
+      source: 'DROP TABLE "agent_workspaces" CASCADE;',
+      sourcePath: 'test/fixtures/catalog/0001_remove_workspaces.sql',
+      unit: agentUnit,
+    });
+
+    const objects = expectedObjectsAfterMigrations([...initialChanges, ...removalChanges]);
+
+    assert.deepEqual(objects, []);
+  });
+
+  test('applies DROP TYPE and DROP CONSTRAINT IF EXISTS changes', () => {
+    const initialChanges = parseMigrationChanges({
+      source: `
+        CREATE TYPE "agent_status" AS ENUM ('ready');
+        CREATE TABLE "agent_jobs" ("id" uuid NOT NULL);
+        ALTER TABLE "agent_jobs"
+          ADD CONSTRAINT "agent_jobs_check" CHECK (true);
+      `,
+      sourcePath: 'test/fixtures/catalog/0000_initial.sql',
+      unit: agentUnit,
+    });
+    const removalChanges = parseMigrationChanges({
+      source: `
+        ALTER TABLE IF EXISTS "agent_jobs"
+          DROP CONSTRAINT IF EXISTS "agent_jobs_check";
+        DROP TYPE IF EXISTS "agent_status";
+      `,
+      sourcePath: 'test/fixtures/catalog/0001_remove_status.sql',
+      unit: agentUnit,
+    });
+
+    const objects = expectedObjectsAfterMigrations([...initialChanges, ...removalChanges]);
+
+    assert.deepEqual(
+      objects.map(({kind, name}) => `${kind}:${name}`),
+      ['table:agent_jobs'],
     );
   });
 
