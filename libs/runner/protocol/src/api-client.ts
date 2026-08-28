@@ -484,11 +484,15 @@ export async function requestAgentRuntimeConfig(
 export async function requestSessionTranscript(
   leaseClient: KyInstance,
   params: {stepId: string; attempt: number; signal?: AbortSignal},
-): Promise<{blob: Buffer | null; segment: number; harness?: string; harnessSessionId?: string}> {
+): Promise<
+  | {blob: null; segment: number}
+  | {blob: Buffer; segment: number; harness: string; harnessSessionId?: string}
+> {
   const query = sessionTranscriptQuerySchema.parse({attempt: params.attempt});
   const response = await leaseClient.get(`runs/jobs/current/steps/${params.stepId}/session`, {
     searchParams: {attempt: query.attempt},
     headers: {accept: SESSION_TRANSCRIPT_CONTENT_TYPE},
+    throwHttpErrors: false,
     retry: {methods: ['get'], statusCodes: [429, 500, 502, 503, 504]},
     ...(params.signal ? {signal: params.signal} : {}),
   });
@@ -562,6 +566,15 @@ export async function commitSessionTranscript(
       body = await response.json();
     } catch {
       throw new Error('Invalid session transcript conflict response');
+    }
+    if (
+      typeof body === 'object' &&
+      body !== null &&
+      'code' in body &&
+      typeof body.code === 'string' &&
+      body.code !== 'session-commit-conflict'
+    ) {
+      throw new Error(`Session transcript commit failed with code ${body.code}`);
     }
     const conflict = sessionCommitConflictResponseSchema.safeParse(body);
     if (!conflict.success) throw new Error('Invalid session transcript conflict response');

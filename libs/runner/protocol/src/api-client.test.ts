@@ -800,6 +800,44 @@ describe('session transcript transport', () => {
   });
 
   it.each([
+    [
+      'a non-success load response',
+      500,
+      null,
+      {'x-session-segment': '3'},
+      'Session transcript load failed with status 500',
+    ],
+    [
+      'an empty load response',
+      200,
+      null,
+      {'x-session-segment': '3'},
+      'Empty session transcript response',
+    ],
+    [
+      'a load response without a harness',
+      200,
+      Buffer.from([31, 139, 8]),
+      {'x-session-segment': '3'},
+      'Missing session transcript harness',
+    ],
+    [
+      'a load response with a blank harness',
+      200,
+      Buffer.from([31, 139, 8]),
+      {'x-session-segment': '3', [SESSION_TRANSCRIPT_HARNESS_HEADER]: ''},
+      'Missing session transcript harness',
+    ],
+  ] as const)('rejects %s', async (_name, status, body, headers, message) => {
+    stubFetch(() => new Response(body, {status, headers}));
+    const leaseClient = createLeaseClient('lease-session');
+
+    await expect(
+      requestSessionTranscript(leaseClient, {stepId: STEP_ID, attempt: 1}),
+    ).rejects.toThrow(message);
+  });
+
+  it.each([
     ['committed', {status: 'committed', segment: 2}],
     ['retry-acked', {status: 'retry-acked', segment: 2}],
   ] as const)('parses a %s commit outcome', async (_name, outcome) => {
@@ -853,6 +891,42 @@ describe('session transcript transport', () => {
       [SESSION_TRANSCRIPT_PROVIDER_HEADER]: 'provider-1',
       [SESSION_TRANSCRIPT_SDK_VERSION_HEADER]: 'sdk-1',
     });
+  });
+
+  it('rejects non-conflict 409 responses with their server error code', async () => {
+    stubFetch(() => jsonResponse({code: 'step-not-running'}, 409));
+    const leaseClient = createLeaseClient('lease-session');
+
+    await expect(
+      commitSessionTranscript(leaseClient, {
+        stepId: STEP_ID,
+        attempt: 1,
+        baseSegment: 0,
+        blob: Buffer.from([31, 139, 8]),
+        harness: 'pi',
+        model: 'model-1',
+        provider: 'provider-1',
+        sdkVersion: 'sdk-1',
+      }),
+    ).rejects.toThrow('Session transcript commit failed with code step-not-running');
+  });
+
+  it('rejects a non-conflict HTTP error', async () => {
+    stubFetch(() => new Response('upstream failure', {status: 500}));
+    const leaseClient = createLeaseClient('lease-session');
+
+    await expect(
+      commitSessionTranscript(leaseClient, {
+        stepId: STEP_ID,
+        attempt: 1,
+        baseSegment: 0,
+        blob: Buffer.from([31, 139, 8]),
+        harness: 'pi',
+        model: 'model-1',
+        provider: 'provider-1',
+        sdkVersion: 'sdk-1',
+      }),
+    ).rejects.toThrow('Session transcript commit failed with status 500');
   });
 
   it('rejects malformed conflict responses', async () => {
