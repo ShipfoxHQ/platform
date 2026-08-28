@@ -255,6 +255,7 @@ export class GiteaSourceControlProvider
   async createCheckoutCredentials(
     input: CreateCheckoutCredentialsInput<GiteaIntegrationConnection>,
   ): Promise<CheckoutCredentials> {
+    parseGiteaRepositoryLocator(input.externalRepositoryId, input.connection.externalAccountId);
     // Gitea has no per-repo, auto-expiring token like a GitHub App installation
     // token, so checkout reuses the long-lived service credential. `expiresAt`
     // remains a synthetic legacy field for old runners; renewal is rejection-only.

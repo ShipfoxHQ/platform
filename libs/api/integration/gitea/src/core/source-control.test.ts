@@ -593,6 +593,20 @@ describe('GiteaSourceControlProvider', () => {
     }
   });
 
+  it('rejects credential-only delivery outside the connection account before returning credentials', async () => {
+    const gitea = giteaClient();
+    const provider = new GiteaSourceControlProvider(gitea);
+
+    const result = provider.createCheckoutCredentials({
+      connection: connection(),
+      externalRepositoryId: 'gitea:intruder/platform',
+      permissions: {contents: 'read'},
+    });
+
+    await expect(result).rejects.toMatchObject({reason: 'repository-not-found'});
+    expect(gitea.getRepository).not.toHaveBeenCalled();
+  });
+
   it('creates credential-only delivery without repository metadata lookup', async () => {
     const gitea = giteaClient();
     const provider = new GiteaSourceControlProvider(gitea);
