@@ -109,13 +109,16 @@ export function startHeartbeatLoop(
         ...(capabilities ? {capabilities} : {}),
       });
       if (stopped) return;
-      lastServerConfirmationAt = nowMs();
-      scheduleIsolationFence();
-      if (generation === sentGeneration && renewedLeaseToken !== getLeaseToken()) {
-        options.onLeaseTokenRenewed?.(renewedLeaseToken);
+      if (generation === sentGeneration) {
+        lastServerConfirmationAt = nowMs();
+        scheduleIsolationFence();
+        if (renewedLeaseToken !== getLeaseToken()) {
+          options.onLeaseTokenRenewed?.(renewedLeaseToken);
+        }
       }
       if (cancel) {
         logger().info({jobId}, 'Heartbeat returned cancel:true; aborting job');
+        stopped = true;
         jobAbortController.abort(cancellationReason ?? 'cancelled');
         clearIsolationTimer();
         return;
@@ -133,6 +136,7 @@ export function startHeartbeatLoop(
           {jobId},
           'Heartbeat returned 404; orchestration finalized this job, aborting runner-side',
         );
+        stopped = true;
         jobAbortController.abort('orphaned');
         clearIsolationTimer();
         return;

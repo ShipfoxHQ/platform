@@ -277,6 +277,19 @@ describe('runJob', () => {
     expect(mockCleanupJobCredentials).toHaveBeenNthCalledWith(2, JOB_CREDENTIALS_DIR);
   });
 
+  it('does not enable the isolation fence for jobs without a server timeout', async () => {
+    const {isolation_timeout_seconds: _isolationTimeoutSeconds, ...legacyJob} = JOB;
+
+    await runJob(legacyJob, WORKSPACE_ROOT);
+
+    expect(mockStartHeartbeatLoop).toHaveBeenCalledWith(
+      legacyJob.job_id,
+      expect.any(Function),
+      expect.any(AbortController),
+      expect.not.objectContaining({isolationTimeoutSeconds: expect.anything()}),
+    );
+  });
+
   it('rotates the lease token used by step requests and redaction', async () => {
     mockJobWorkspacePath.mockReturnValue(JOB_CWD);
     mockJobLogsPath.mockReturnValue(JOB_LOGS_DIR);
