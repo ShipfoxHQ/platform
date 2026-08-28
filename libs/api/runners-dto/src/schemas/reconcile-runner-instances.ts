@@ -61,10 +61,10 @@ export const reconciledRunnerInstanceSchema = z
     runner_session_id: z.string().uuid().nullable(),
     bound_job: reconciledBoundJobSchema.nullable(),
     desired_intent: reconcileDesiredIntentSchema,
-    // Additive so older provisioners can continue decoding this response.
+    // Keep unknown fields so provisioners can receive additive response fields.
     termination_reason: terminationReasonSchema.nullable().optional(),
   })
-  .strict();
+  .passthrough();
 
 export const reconcileRunnerInstancesResponseSchema = z
   .object({

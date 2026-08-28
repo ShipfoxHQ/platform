@@ -138,7 +138,7 @@ export async function reconcileRunnerInstances(
   });
   // Compatibility adapter for the old terminal-state decision. Cancellation
   // and timeout are intentionally not authorized until graceful cleanup exists.
-  await Promise.all(
+  const terminalAuthorizations = await Promise.all(
     reconciledRunners.flatMap((runner) =>
       runner.desiredIntentReason === 'terminal-state'
         ? [
@@ -146,11 +146,12 @@ export async function reconcileRunnerInstances(
               provisionerId: params.provisionerId,
               providerRunnerId: runner.providerRunnerId,
               reason: runner.desiredIntentReason,
-            }),
+            }).then((authorization) => [runner.providerRunnerId, authorization] as const),
           ]
         : [],
     ),
   );
+  const terminalAuthorizationByRunnerId = new Map(terminalAuthorizations);
   const authorizations = await db().transaction((tx) =>
     listProvisionerTerminationAuthorizationsTx(tx, {
       workspaceId: params.workspaceId,
@@ -163,13 +164,20 @@ export async function reconcileRunnerInstances(
     authorizations.map((authorization) => [authorization.providerRunnerId, authorization.reason]),
   );
   const runners = reconciledRunners.map((runner) => {
+    const authorization = terminalAuthorizationByRunnerId.get(runner.providerRunnerId);
     const reason = authorizationByRunnerId.get(runner.providerRunnerId);
+    const authorizationRejected =
+      runner.desiredIntentReason === 'terminal-state' && authorization?.desiredIntent === 'keep';
+    const effectiveReason = authorizationRejected
+      ? null
+      : (reason ??
+        (authorization?.desiredIntent === 'terminate'
+          ? authorization.terminationReason
+          : runner.desiredIntentReason));
     return {
       ...runner,
-      desiredIntent: (reason || runner.desiredIntentReason
-        ? 'terminate'
-        : 'keep') as ReconcileDesiredIntent,
-      desiredIntentReason: reason ?? runner.desiredIntentReason,
+      desiredIntent: (effectiveReason ? 'terminate' : 'keep') as ReconcileDesiredIntent,
+      desiredIntentReason: effectiveReason,
       terminationReason: reason ?? null,
     };
   });

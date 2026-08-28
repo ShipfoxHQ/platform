@@ -115,7 +115,9 @@ export async function pollDemand(params: PollDemandParams): Promise<PollDemandRe
       const terminateIntents = await listProvisionerTerminationAuthorizationsTx(tx, {
         workspaceId: params.workspaceId,
         provisionerId: params.provisionerId,
-        limit: params.terminateIntentLimit,
+        // Reserve delivery capacity for legacy intents so canonical authorizations
+        // cannot starve them from the bounded response.
+        limit: Math.max(0, params.terminateIntentLimit - legacyTerminateIntents.length),
       });
       const legacyIntentByRunnerId = new Map(
         legacyTerminateIntents.map((intent) => [intent.providerRunnerId, intent]),
