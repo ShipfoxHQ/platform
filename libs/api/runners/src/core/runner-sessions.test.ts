@@ -266,7 +266,7 @@ describe('activation runner sessions', () => {
     expect(assignment).toBeNull();
   });
 
-  it('treats a stale runner session pointer as an existing session', async () => {
+  it('allows re-enrollment when the runner session pointer is stale', async () => {
     await db()
       .update(providerRunners)
       .set({runnerSessionId: crypto.randomUUID()})
@@ -279,8 +279,11 @@ describe('activation runner sessions', () => {
         ttlSeconds: 60,
         surface: 'poll',
       }),
-    ).toBeNull();
-    expect(await getRunnerAssignment({runnerInstanceId, provisionerId})).toBeNull();
+    ).not.toBeNull();
+    expect(await getRunnerAssignment({runnerInstanceId, provisionerId})).toEqual({
+      workspaceId,
+      runnerSessionId: null,
+    });
   });
 
   it('does not poll for an assignment while the runner is not running', async () => {

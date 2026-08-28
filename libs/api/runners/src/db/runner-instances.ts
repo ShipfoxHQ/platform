@@ -111,12 +111,9 @@ export async function persistRunnerTerminationAuthorizationTx(
       terminationReason: providerRunners.terminationReason,
     })
     .from(providerRunners)
-    .where(
-      and(
-        eq(providerRunners.id, candidate.id),
-        eq(providerRunners.workspaceId, candidate.workspaceId),
-      ),
-    )
+    // The runner lock serializes rebinding with this read. Use the current row
+    // after taking it so cleanup that clears workspaceId is still authorized.
+    .where(eq(providerRunners.id, candidate.id))
     .limit(1)
     .for('update');
   if (!runner) throw new Error('Termination authorization runner disappeared');

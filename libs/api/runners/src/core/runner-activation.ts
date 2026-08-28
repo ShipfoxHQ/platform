@@ -69,7 +69,7 @@ export async function issueRunnerActivationTokenTx(
     )
     .limit(1)
     .for('update');
-  let enrolledSession = Boolean(runner?.runnerSessionId);
+  let enrolledSession = false;
   if (runner?.workspaceId && runner.providerRunnerId && runner.provisionerId) {
     const [session] = await tx
       .select({id: runnerSessions.id})
@@ -120,7 +120,6 @@ export async function getRunnerAssignment(params: {
     .select({
       workspaceId: providerRunners.workspaceId,
       state: providerRunners.state,
-      runnerSessionId: providerRunners.runnerSessionId,
       terminationAuthorizedAt: providerRunners.terminationAuthorizedAt,
       providerRunnerId: providerRunners.providerRunnerId,
     })
@@ -135,7 +134,6 @@ export async function getRunnerAssignment(params: {
   if (
     !runner?.workspaceId ||
     !runner.providerRunnerId ||
-    runner.runnerSessionId ||
     runner.terminationAuthorizedAt ||
     runner.state !== 'running'
   )
