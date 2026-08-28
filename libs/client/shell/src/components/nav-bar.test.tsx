@@ -47,7 +47,21 @@ async function renderWorkspacePage(options: {
   });
 }
 
-describe('NavBar workspace-setup indicator', () => {
+describe('NavBar', () => {
+  test('links to the documentation before the user menu', async () => {
+    await renderWorkspacePage({path: '/w/workspace/workspace'});
+
+    const docsLink = await screen.findByRole('link', {name: 'Docs (opens in new tab)'});
+    const userMenu = screen.getByRole('button', {name: 'User menu'});
+
+    expect(docsLink).toHaveAttribute('href', 'https://shipfox.io/docs');
+    expect(docsLink).toHaveAttribute('target', '_blank');
+    expect(docsLink).toHaveAttribute('rel', 'noreferrer noopener');
+    expect(docsLink.compareDocumentPosition(userMenu) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+  });
+
   test('renders no indicator when the slot is absent', async () => {
     await renderWorkspacePage({path: '/w/workspace/workspace'});
 
@@ -88,6 +102,13 @@ describe('NavBar workspace-setup indicator', () => {
     });
 
     expect(await screen.findByRole('heading', {name: 'Page'})).toBeVisible();
+    const docsLink = screen.getByRole('link', {name: 'Docs (opens in new tab)'});
+    const userMenu = screen.getByRole('button', {name: 'User menu'});
+
+    expect(docsLink).toBeVisible();
+    expect(docsLink.compareDocumentPosition(userMenu) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
     expect(screen.queryByRole('button', {name: 'Get started'})).not.toBeInTheDocument();
   });
 });

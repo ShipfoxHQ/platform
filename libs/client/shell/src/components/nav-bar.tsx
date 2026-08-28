@@ -1,3 +1,4 @@
+import {Button} from '@shipfox/react-ui/button';
 import {Logo} from '@shipfox/react-ui/logo';
 import {Link} from '@tanstack/react-router';
 import {useActiveWorkspace} from '#runtime/active-workspace.js';
@@ -36,6 +37,16 @@ export function NavBar({hideProjectNavigation = false}: {hideProjectNavigation?:
         </>
       )}
       <div className="flex-1" />
+      <Button asChild variant="transparent" size="sm" className="text-foreground-neutral-subtle">
+        <a
+          href="https://shipfox.io/docs"
+          target="_blank"
+          rel="noreferrer noopener"
+          aria-label="Docs (opens in new tab)"
+        >
+          Docs
+        </a>
+      </Button>
       <UserMenu />
     </header>
   );
