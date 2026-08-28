@@ -67,6 +67,7 @@
     "@shipfox/workflow-document": "workspace:*",
     "@temporalio/common": "catalog:",
     "@temporalio/workflow": "catalog:",
+    "ajv": "catalog:",
     "drizzle-orm": "catalog:",
     "js-yaml": "catalog:",
     "zod": "catalog:"

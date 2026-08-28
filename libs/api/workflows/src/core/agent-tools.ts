@@ -44,7 +44,21 @@ export interface AgentToolMaterializationSnapshot {
 export interface AgentToolMaterializationSnapshotStep {
   readonly jobKey: string;
   readonly stepId: string;
-  readonly integrations: readonly MaterializedAgentIntegrationConfigDto[];
+  readonly integrations?: readonly MaterializedAgentIntegrationConfigDto[];
+  readonly tool?: MaterializedToolStep;
+}
+
+export interface MaterializedToolStep {
+  readonly connectionId: string;
+  readonly connectionSlug: string;
+  readonly provider: string;
+  readonly id: string;
+  readonly method?: string;
+  readonly sensitivity: 'read' | 'write';
+  readonly sensitive: boolean;
+  readonly requiredScope: readonly unknown[];
+  readonly inputSchema: Readonly<Record<string, unknown>>;
+  readonly outputSchema?: Readonly<Record<string, unknown>>;
 }
 
 interface SelectedToolState {
@@ -109,7 +123,9 @@ export function materializeAgentIntegrations(params: {
   readonly snapshot?: AgentToolMaterializationSnapshot | null | undefined;
 }): MaterializedAgentIntegrationConfigDto[] | undefined {
   const snapshot = findSnapshotStep(params);
-  if (snapshot !== undefined) return snapshot.integrations.map(copyMaterializedIntegration);
+  if (snapshot !== undefined && snapshot.integrations !== undefined) {
+    return snapshot.integrations.map(copyMaterializedIntegration);
+  }
   if (params.integrations === undefined) return undefined;
   if (params.context === undefined) {
     throw new AgentIntegrationMaterializationError(
@@ -123,14 +139,89 @@ export function materializeAgentIntegrations(params: {
   );
 }
 
+export function materializeToolStep(params: {
+  readonly jobKey: string;
+  readonly stepId: string;
+  readonly tool: {readonly id: string; readonly method?: string};
+  readonly connection?: string | undefined;
+  readonly context: AgentToolMaterializationContext | undefined;
+  readonly snapshot?: AgentToolMaterializationSnapshot | null | undefined;
+}): MaterializedToolStep {
+  const snapshot = findSnapshotStep(params)?.tool;
+  if (snapshot !== undefined) return {...snapshot, requiredScope: [...snapshot.requiredScope]};
+  if (params.context === undefined) {
+    throw new AgentIntegrationMaterializationError('Tool steps require materialization context');
+  }
+  const connection = resolveConnection({
+    connectionSlug: params.connection,
+    context: params.context,
+    missingMessage: `Integration connection ${params.connection} was not found while materializing tool step`,
+  });
+  const catalog = params.context.catalogs.get(connection.provider);
+  const entry = catalog?.find((candidate) => candidate.id === params.tool.id);
+  if (entry === undefined)
+    throw new AgentIntegrationMaterializationError(`Unknown integration tool: ${params.tool.id}`);
+  const method = resolveToolMethod(entry, params.tool.method);
+  return deepFreeze({
+    connectionId: connection.id,
+    connectionSlug: connection.slug,
+    provider: connection.provider,
+    id: entry.id,
+    ...(method === undefined ? {} : {method: method.id}),
+    sensitivity: method?.sensitivity ?? entry.sensitivity,
+    sensitive: method?.sensitive ?? entry.sensitive,
+    requiredScope: normalizeRequiredScope(method?.requiredScope ?? entry.requiredScope),
+    inputSchema: cloneJson(entry.inputSchema),
+    ...(entry.outputSchema === undefined ? {} : {outputSchema: cloneJson(entry.outputSchema)}),
+  });
+}
+
+function resolveToolMethod(
+  entry: AgentToolCatalogEntry,
+  methodId: string | undefined,
+): AgentToolCatalogMethod | undefined {
+  if (methodId === undefined) return undefined;
+
+  const method = entry.methods?.find((candidate) => candidate.id === methodId);
+  if (method === undefined) {
+    throw new AgentIntegrationMaterializationError(
+      `Unknown integration tool: ${entry.id}.${methodId}`,
+    );
+  }
+  return method;
+}
+
+function cloneJson<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function deepFreeze<T>(value: T): T {
+  if (value !== null && typeof value === 'object' && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child);
+  }
+  return value;
+}
+
 export function createAgentToolMaterializationSnapshot(params: {
   readonly model: WorkflowModel;
   readonly context: AgentToolMaterializationContext | undefined;
 }): AgentToolMaterializationSnapshot | null {
   if (params.context === undefined) return null;
 
-  const steps = params.model.jobs.flatMap((job) =>
-    job.steps.flatMap((step) => {
+  const steps: AgentToolMaterializationSnapshotStep[] = params.model.jobs.flatMap((job) =>
+    job.steps.flatMap((step): AgentToolMaterializationSnapshotStep[] => {
+      if (step.kind === 'tool') {
+        const tool = materializeToolStep({
+          jobKey: job.key,
+          stepId: step.id,
+          tool: step.tool,
+          connection: step.connection,
+          context: params.context,
+          snapshot: undefined,
+        });
+        return [{jobKey: job.key, stepId: step.id, tool}];
+      }
       if (step.kind !== 'agent' || step.integrations === undefined) return [];
       const integrations = materializeAgentIntegrations({
         jobKey: job.key,
@@ -139,13 +230,7 @@ export function createAgentToolMaterializationSnapshot(params: {
         context: params.context,
       });
       if (integrations === undefined) return [];
-      return [
-        {
-          jobKey: job.key,
-          stepId: step.id,
-          integrations,
-        },
-      ];
+      return [{jobKey: job.key, stepId: step.id, integrations}];
     }),
   );
 
@@ -166,7 +251,11 @@ function materializeAgentIntegration(params: {
   readonly integration: WorkflowModelStepIntegration;
   readonly context: AgentToolMaterializationContext;
 }): MaterializedAgentIntegrationConfigDto {
-  const connection = resolveConnection(params);
+  const connection = resolveConnection({
+    connectionSlug: params.integration.connection,
+    context: params.context,
+    missingMessage: `Integration connection ${params.integration.connection} was not found while materializing agent integrations`,
+  });
   const catalog = params.context.catalogs.get(connection.provider);
   if (catalog === undefined) {
     throw new AgentIntegrationMaterializationError(
@@ -212,20 +301,19 @@ function copyMaterializedIntegration(
 }
 
 function resolveConnection(params: {
-  readonly integration: WorkflowModelStepIntegration;
+  readonly connectionSlug: string | undefined;
   readonly context: AgentToolMaterializationContext;
+  readonly missingMessage: string;
 }): AgentToolMaterializationContext['defaultConnection'] {
-  if (params.integration.connection === undefined) return params.context.defaultConnection;
+  if (params.connectionSlug === undefined) return params.context.defaultConnection;
 
-  const connection = params.context.workspaceConnectionSnapshot.get(params.integration.connection);
+  const connection = params.context.workspaceConnectionSnapshot.get(params.connectionSlug);
   if (connection === undefined) {
-    throw new AgentIntegrationMaterializationError(
-      `Integration connection ${params.integration.connection} was not found while materializing agent integrations`,
-    );
+    throw new AgentIntegrationMaterializationError(params.missingMessage);
   }
   return {
     id: connection.id,
-    slug: params.integration.connection,
+    slug: params.connectionSlug,
     provider: connection.provider,
   };
 }

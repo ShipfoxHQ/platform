@@ -38,7 +38,9 @@ export function resolveStepField(params: ResolveStepFieldParams): SiteResolvedFi
   return resolveStepFieldAtSite(params, false);
 }
 
-function resolveStepFieldWithType(params: ResolveStepFieldParams): SiteResolvedField<unknown> {
+export function resolveStepFieldWithType(
+  params: ResolveStepFieldParams,
+): SiteResolvedField<unknown> {
   return resolveStepFieldAtSite(params, true);
 }
 

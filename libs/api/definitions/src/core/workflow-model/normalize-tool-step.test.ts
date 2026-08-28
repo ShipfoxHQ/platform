@@ -223,6 +223,7 @@ describe('normalizeToolStep', () => {
     expect(step.outputMappings).toMatchObject({
       title: {language: 'cel', source: 'result.title'},
     });
+    expect(step.outputs).toEqual({title: {type: 'string'}});
   });
 
   it('records a steps.<key> overlay typed from the catalog output schema', () => {

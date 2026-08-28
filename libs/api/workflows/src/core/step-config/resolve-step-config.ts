@@ -21,6 +21,7 @@ import {
   type WorkflowStepTemplateDiagnostic,
 } from './fields.js';
 import {resolveRunStepConfig, type StepConfigMode} from './run.js';
+import {resolveToolStepConfig} from './tool.js';
 import type {WorkflowEvaluationContext} from './workflow-evaluation-context.js';
 
 type WorkflowModelJob = WorkflowModel['jobs'][number];
@@ -28,6 +29,7 @@ type WorkflowModelStep = WorkflowModelJob['steps'][number];
 type WorkflowModelRunStep = Extract<WorkflowModelStep, {kind: 'run'}>;
 type WorkflowModelAgentStep = Extract<WorkflowModelStep, {kind: 'agent'}>;
 type WorkflowModelCheckoutStep = Extract<WorkflowModelStep, {kind: 'checkout'}>;
+type WorkflowModelToolStep = Extract<WorkflowModelStep, {kind: 'tool'}>;
 
 export type {StepConfigField, WorkflowStepTemplateDiagnostic};
 
@@ -118,6 +120,28 @@ async function buildStepConfig(
       diagnostics: [...workingDirectory.diagnostics, ...run.diagnostics],
       trace: [...workingDirectory.trace, ...run.trace],
       hasTemplates: run.hasTemplates || workingDirectory.hasTemplates,
+    };
+  }
+
+  const toolStep = toolStepOrNull(params.step);
+  if (toolStep !== null) {
+    const tool = resolveToolStepConfig({
+      step: toolStep,
+      jobKey: params.jobKey,
+      context: params.context,
+      definitionId: params.definitionId,
+      ...(params.agentToolContext === undefined ? {} : {agentToolContext: params.agentToolContext}),
+      ...(params.agentToolSnapshot === undefined
+        ? {}
+        : {agentToolSnapshot: params.agentToolSnapshot}),
+      mode: params.mode,
+    });
+    return {
+      config: {...tool.config, ...gate},
+      configPlan: tool.configPlan ?? null,
+      diagnostics: tool.diagnostics,
+      trace: tool.trace,
+      hasTemplates: tool.hasTemplates,
     };
   }
 
@@ -240,6 +264,11 @@ function agentStepOrNull(step: WorkflowModelStep): WorkflowModelAgentStep | null
 function checkoutStepOrNull(step: WorkflowModelStep): WorkflowModelCheckoutStep | null {
   const isCheckoutStep = step.kind === 'checkout';
   return isCheckoutStep ? step : null;
+}
+
+function toolStepOrNull(step: WorkflowModelStep): WorkflowModelToolStep | null {
+  const isToolStep = step.kind === 'tool';
+  return isToolStep ? step : null;
 }
 
 function resolveCheckoutStepConfig(

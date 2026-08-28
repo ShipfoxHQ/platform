@@ -2,6 +2,7 @@ import type {
   AgentIntegrationMcpServerConfigDto,
   MaterializedAgentIntegrationConfigDto,
 } from '@shipfox/api-agent-dto';
+import type {WorkflowJsonTemplateTree} from '@shipfox/api-definitions-dto';
 import type {
   EvaluationTraceEntry,
   EvaluationTraceLimitEntry,
@@ -74,6 +75,9 @@ export interface StepConfigDispatchPlan {
     repository?: ResolvedField;
     ref?: ResolvedField;
     path?: ResolvedField;
+  };
+  tool?: {
+    with?: WorkflowJsonTemplateTree;
   };
   agent?: {
     prompt?: ResolvedField;
