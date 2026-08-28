@@ -3,6 +3,14 @@
 // from test/env.ts (setupFiles), loaded before config is imported.
 
 import {
+  SESSION_TRANSCRIPT_CONTENT_TYPE,
+  SESSION_TRANSCRIPT_HARNESS_HEADER,
+  SESSION_TRANSCRIPT_HARNESS_SESSION_ID_HEADER,
+  SESSION_TRANSCRIPT_MODEL_HEADER,
+  SESSION_TRANSCRIPT_PROVIDER_HEADER,
+  SESSION_TRANSCRIPT_SDK_VERSION_HEADER,
+} from '@shipfox/api-agent-dto';
+import {
   RUNNER_SESSION_EXHAUSTED_CODE,
   type RunnerToolCapabilitiesDto,
 } from '@shipfox/api-runners-dto';
@@ -10,6 +18,7 @@ import {STEP_ERROR_MESSAGE_MAX_LENGTH, STEP_RESPONSE_MAX_LENGTH} from '@shipfox/
 import {
   AgentRuntimeConfigRequestError,
   appendStepLogs,
+  commitSessionTranscript,
   createLeaseClient,
   enrollRunnerControlSession,
   exchangeRunnerBootstrapToken,
@@ -24,6 +33,7 @@ import {
   requestCheckoutToken,
   requestJob,
   requestNextStep,
+  requestSessionTranscript,
   requestStepSecrets,
   requireRunnerLabels,
   StepSecretsRequestError,
@@ -50,6 +60,7 @@ let calls: Array<{
   url: string;
   method: string;
   authorization: string | null;
+  headers: Record<string, string>;
   body: string;
   signal: AbortSignal;
 }>;
@@ -319,11 +330,11 @@ describe('api-client auth contexts', () => {
       config: {run: 'echo ok'},
       evaluation_trace: null,
       error: null,
-      session: null,
       position: 1,
       current_attempt: 2,
       created_at: '2026-01-01T00:00:00.000Z',
       updated_at: '2026-01-01T00:00:00.000Z',
+      session: {id: SESSION_ID, key: 'shared', mode: 'resume', segment: 2},
     };
     stubFetch(() =>
       jsonResponse({kind: 'step', step, attempt: 2, lease_token: 'lease-step-scoped'}),
@@ -762,6 +773,228 @@ describe('api-client auth contexts', () => {
   });
 });
 
+describe('session transcript transport', () => {
+  it('loads a no-head marker from the lease-authed endpoint', async () => {
+    stubFetch(() => new Response(null, {status: 204, headers: {'x-session-segment': '0'}}));
+    const leaseClient = createLeaseClient('lease-session');
+
+    const transcript = await requestSessionTranscript(leaseClient, {stepId: STEP_ID, attempt: 2});
+
+    expect(transcript).toEqual({blob: null, segment: 0});
+    expect(calls[0]?.url).toContain(`runs/jobs/current/steps/${STEP_ID}/session?attempt=2`);
+    expect(calls[0]?.authorization).toBe('Bearer lease-session');
+  });
+
+  it('loads the gzipped head and its manifest headers', async () => {
+    const blob = new Uint8Array([31, 139, 8, 0]);
+    stubFetch(
+      () =>
+        new Response(blob, {
+          status: 200,
+          headers: {
+            'x-session-segment': '3',
+            [SESSION_TRANSCRIPT_HARNESS_HEADER]: 'pi',
+            [SESSION_TRANSCRIPT_HARNESS_SESSION_ID_HEADER]: 'harness-session-3',
+          },
+        }),
+    );
+    const leaseClient = createLeaseClient('lease-session');
+
+    const transcript = await requestSessionTranscript(leaseClient, {stepId: STEP_ID, attempt: 1});
+
+    expect(transcript).toEqual({
+      blob: Buffer.from(blob),
+      segment: 3,
+      harness: 'pi',
+      harnessSessionId: 'harness-session-3',
+    });
+  });
+
+  it.each([
+    [
+      'a non-success load response',
+      400,
+      null,
+      {'x-session-segment': '3'},
+      'Session transcript load failed with status 400',
+    ],
+    [
+      'an empty load response',
+      200,
+      null,
+      {'x-session-segment': '3'},
+      'Empty session transcript response',
+    ],
+    [
+      'a load response without a harness',
+      200,
+      Buffer.from([31, 139, 8]),
+      {'x-session-segment': '3'},
+      'Missing session transcript harness',
+    ],
+    [
+      'a load response with a blank harness',
+      200,
+      Buffer.from([31, 139, 8]),
+      {'x-session-segment': '3', [SESSION_TRANSCRIPT_HARNESS_HEADER]: ''},
+      'Missing session transcript harness',
+    ],
+  ] as const)('rejects %s', async (_name, status, body, headers, message) => {
+    stubFetch(() => new Response(body, {status, headers}));
+    const leaseClient = createLeaseClient('lease-session');
+
+    await expect(
+      requestSessionTranscript(leaseClient, {stepId: STEP_ID, attempt: 1}),
+    ).rejects.toThrow(message);
+  });
+
+  it.each([
+    ['committed', {status: 'committed', segment: 2}],
+    ['retry-acked', {status: 'retry-acked', segment: 2}],
+  ] as const)('parses a %s commit outcome', async (_name, outcome) => {
+    stubFetch(() => jsonResponse(outcome));
+    const leaseClient = createLeaseClient('lease-session');
+
+    const result = await commitSessionTranscript(leaseClient, {
+      stepId: STEP_ID,
+      attempt: 1,
+      baseSegment: 1,
+      blob: Buffer.from([31, 139, 8]),
+      harness: 'pi',
+      model: 'model-1',
+      provider: 'provider-1',
+      sdkVersion: 'sdk-1',
+      harnessSessionId: 'native-1',
+    });
+
+    expect(result).toEqual(outcome);
+    expect(calls[0]?.authorization).toBe('Bearer lease-session');
+    expect(new URL(calls[0]?.url ?? '').searchParams.get('base_segment')).toBe('1');
+    expect(calls[0]?.body).toBe(Buffer.from([31, 139, 8]).toString());
+    expect(calls[0]?.headers).toMatchObject({
+      [SESSION_TRANSCRIPT_HARNESS_SESSION_ID_HEADER]: 'native-1',
+    });
+  });
+
+  it('returns the current head for a commit conflict and sends the manifest headers', async () => {
+    stubFetch(() =>
+      jsonResponse({code: 'session-commit-conflict', details: {head_segment: 4}}, 409),
+    );
+    const leaseClient = createLeaseClient('lease-session');
+
+    const result = await commitSessionTranscript(leaseClient, {
+      stepId: STEP_ID,
+      attempt: 1,
+      baseSegment: 3,
+      blob: Buffer.from([31, 139, 8]),
+      harness: 'pi',
+      model: 'model-1',
+      provider: 'provider-1',
+      sdkVersion: 'sdk-1',
+    });
+
+    expect(result).toEqual({status: 'conflict', headSegment: 4});
+    expect(calls[0]?.method).toBe('POST');
+    expect(calls[0]?.authorization).toBe('Bearer lease-session');
+    expect(calls[0]?.headers).toMatchObject({
+      'content-type': SESSION_TRANSCRIPT_CONTENT_TYPE,
+      [SESSION_TRANSCRIPT_MODEL_HEADER]: 'model-1',
+      [SESSION_TRANSCRIPT_PROVIDER_HEADER]: 'provider-1',
+      [SESSION_TRANSCRIPT_SDK_VERSION_HEADER]: 'sdk-1',
+    });
+  });
+
+  it('rejects non-conflict 409 responses with their server error code', async () => {
+    stubFetch(() => jsonResponse({code: 'step-not-running'}, 409));
+    const leaseClient = createLeaseClient('lease-session');
+
+    await expect(
+      commitSessionTranscript(leaseClient, {
+        stepId: STEP_ID,
+        attempt: 1,
+        baseSegment: 0,
+        blob: Buffer.from([31, 139, 8]),
+        harness: 'pi',
+        model: 'model-1',
+        provider: 'provider-1',
+        sdkVersion: 'sdk-1',
+      }),
+    ).rejects.toThrow('Session transcript commit failed with code step-not-running');
+  });
+
+  it('rejects a non-conflict HTTP error', async () => {
+    stubFetch(() => new Response('upstream failure', {status: 500}));
+    const leaseClient = createLeaseClient('lease-session');
+
+    await expect(
+      commitSessionTranscript(leaseClient, {
+        stepId: STEP_ID,
+        attempt: 1,
+        baseSegment: 0,
+        blob: Buffer.from([31, 139, 8]),
+        harness: 'pi',
+        model: 'model-1',
+        provider: 'provider-1',
+        sdkVersion: 'sdk-1',
+      }),
+    ).rejects.toThrow('Session transcript commit failed with status 500');
+  });
+
+  it('rejects malformed conflict responses', async () => {
+    stubFetch(() => new Response('upstream failure', {status: 409}));
+    const leaseClient = createLeaseClient('lease-session');
+
+    await expect(
+      commitSessionTranscript(leaseClient, {
+        stepId: STEP_ID,
+        attempt: 1,
+        baseSegment: 0,
+        blob: Buffer.from([31, 139, 8]),
+        harness: 'pi',
+        model: 'model-1',
+        provider: 'provider-1',
+        sdkVersion: 'sdk-1',
+      }),
+    ).rejects.toThrow('Invalid session transcript conflict response');
+  });
+
+  it('rejects malformed commit responses', async () => {
+    stubFetch(() => new Response('upstream failure', {status: 200}));
+    const leaseClient = createLeaseClient('lease-session');
+
+    await expect(
+      commitSessionTranscript(leaseClient, {
+        stepId: STEP_ID,
+        attempt: 1,
+        baseSegment: 0,
+        blob: Buffer.from([31, 139, 8]),
+        harness: 'pi',
+        model: 'model-1',
+        provider: 'provider-1',
+        sdkVersion: 'sdk-1',
+      }),
+    ).rejects.toThrow('Invalid session transcript commit response');
+  });
+
+  it('rejects an empty commit before making a request', async () => {
+    const leaseClient = createLeaseClient('lease-session');
+
+    await expect(
+      commitSessionTranscript(leaseClient, {
+        stepId: STEP_ID,
+        attempt: 1,
+        baseSegment: 0,
+        blob: Buffer.alloc(0),
+        harness: 'pi',
+        model: 'model-1',
+        provider: 'provider-1',
+        sdkVersion: 'sdk-1',
+      }),
+    ).rejects.toThrow('Empty session transcript commit');
+    expect(calls).toHaveLength(0);
+  });
+});
+
 describe('appendStepLogs', () => {
   it('posts NDJSON to the lease-authed logs endpoint and parses committed', async () => {
     stubFetch(() => jsonResponse({committed_length: 42, capped: false}));
@@ -1058,6 +1291,7 @@ function stubFetch(handler: (url: string) => Response | Promise<Response>): void
       url: request.url,
       method: request.method,
       authorization: request.headers.get('authorization'),
+      headers: Object.fromEntries(request.headers.entries()),
       body: await request.clone().text(),
       signal: request.signal,
     });
