@@ -1117,23 +1117,8 @@ function projectGithubToolOutput(
     case 'create_pull_request':
     case 'update_pull_request':
       return {pull_request: data};
-    case 'create_branch': {
-      const ref = isRecord(data) ? data : undefined;
-      const object = ref !== undefined && isRecord(ref.object) ? ref.object : undefined;
-      const branch =
-        typeof ref?.ref === 'string' && ref.ref.startsWith('refs/heads/')
-          ? ref.ref.slice('refs/heads/'.length)
-          : undefined;
-      const oid = typeof object?.sha === 'string' ? object.sha : undefined;
-      const url = typeof ref?.url === 'string' ? ref.url : undefined;
-      if (branch === undefined || oid === undefined || url === undefined) {
-        throw new GithubIntegrationProviderError(
-          'malformed-provider-response',
-          'GitHub create branch response was malformed',
-        );
-      }
-      return {branch, oid, url};
-    }
+    case 'create_branch':
+      return projectGithubCreateBranchOutput(data);
     case 'merge_pull_request':
       return {merge: data};
     case 'create_commit': {
@@ -1150,6 +1135,32 @@ function projectGithubToolOutput(
     default:
       return isRecord(data) ? data : {result: data};
   }
+}
+
+function projectGithubCreateBranchOutput(data: unknown): Record<string, unknown> {
+  if (!isRecord(data)) throw malformedCreateBranchResponse();
+
+  const ref = data.ref;
+  if (typeof ref !== 'string' || !ref.startsWith('refs/heads/')) {
+    throw malformedCreateBranchResponse();
+  }
+  const branch = ref.slice('refs/heads/'.length);
+
+  if (!isRecord(data.object) || typeof data.object.sha !== 'string') {
+    throw malformedCreateBranchResponse();
+  }
+  const oid = data.object.sha;
+
+  if (typeof data.url !== 'string') throw malformedCreateBranchResponse();
+
+  return {branch, oid, url: data.url};
+}
+
+function malformedCreateBranchResponse(): GithubIntegrationProviderError {
+  return new GithubIntegrationProviderError(
+    'malformed-provider-response',
+    'GitHub create branch response was malformed',
+  );
 }
 
 function projectGithubArtifactDownloadOutput(
