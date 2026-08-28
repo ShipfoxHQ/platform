@@ -148,6 +148,56 @@ describe('credential broker', () => {
     });
   });
 
+  it('renews for a generation rejected during an in-flight replacement publication', async () => {
+    let releasePublication!: () => void;
+    const publicationPending = new Promise<void>((resolve) => (releasePublication = resolve));
+    let renewalPublished!: () => void;
+    const replacementPublished = new Promise<void>((resolve) => (renewalPublished = resolve));
+    const renew = vi
+      .fn()
+      .mockResolvedValueOnce({...baseCredential, token: 'token-b', generation: 'generation-b'})
+      .mockResolvedValueOnce({...baseCredential, token: 'token-c', generation: 'generation-c'});
+    const broker = new CredentialBroker({
+      renew,
+      now: () => now,
+      publishSecrets: async ([token]) => {
+        if (token === 'token-b') {
+          renewalPublished();
+          await publicationPending;
+        }
+      },
+    });
+    broker.register({
+      repositoryUrl: repository,
+      subject: 'checkout',
+      credential: {...baseCredential, renewal: {mode: 'on-rejection' as const}},
+    });
+
+    const firstRejection = broker.reject(repository);
+    await replacementPublished;
+    const secondRejection = broker.reject(repository);
+    releasePublication();
+
+    await expect(Promise.all([firstRejection, secondRejection])).resolves.toEqual([
+      {rejectedGeneration: 'generation-a'},
+      {rejectedGeneration: 'generation-b'},
+    ]);
+    await expect(broker.lookup(repository)).resolves.toEqual({
+      username: 'runner',
+      token: 'token-c',
+    });
+    expect(renew).toHaveBeenNthCalledWith(1, {
+      repositoryUrl: 'https://gitea.example/Org/Repo/',
+      subject: 'checkout',
+      rejectedGeneration: 'generation-a',
+    });
+    expect(renew).toHaveBeenNthCalledWith(2, {
+      repositoryUrl: 'https://gitea.example/Org/Repo/',
+      subject: 'checkout',
+      rejectedGeneration: 'generation-b',
+    });
+  });
+
   it('renews on rejection, rejects echoed generations, and publishes fresh secrets', async () => {
     const published: string[][] = [];
     const renew = vi

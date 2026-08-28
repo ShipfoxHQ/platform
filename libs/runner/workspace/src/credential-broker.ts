@@ -153,8 +153,12 @@ export class CredentialBroker {
     const flightKey = `${entry.subject}\u0000${entry.url}`;
     const flight = this.flights.get(flightKey);
     const wasRefreshing = flight?.entry === entry && !flight.rejectionRequested;
+    const needsFollowUp =
+      flight?.entry === entry &&
+      flight.rejectionRequested &&
+      flight.rejectedGeneration !== rejectedGeneration;
     await this.renewEntry(entry, rejectedGeneration, true);
-    if (wasRefreshing && entry.rejected && !this.stopped)
+    if ((wasRefreshing || needsFollowUp) && entry.rejected && !this.stopped)
       await this.renewEntry(entry, rejectedGeneration, true);
     return rejectedGeneration === undefined ? {} : {rejectedGeneration};
   }
@@ -198,7 +202,12 @@ export class CredentialBroker {
         if (this.flights.get(flightKey)?.promise === promise) this.flights.delete(flightKey);
       },
     );
-    this.flights.set(flightKey, {entry, promise, rejectionRequested});
+    this.flights.set(flightKey, {
+      entry,
+      promise,
+      rejectionRequested,
+      rejectedGeneration,
+    });
     return promise;
   }
 
@@ -282,6 +291,7 @@ type Flight = {
   entry: Entry;
   promise: Promise<void>;
   rejectionRequested: boolean;
+  rejectedGeneration: string | undefined;
 };
 
 export function normalizeRepositoryUrl(value: string): string {
