@@ -7,6 +7,7 @@ import {reservations} from '#db/schema/reservations.js';
 import {runnerActivationTokens} from '#db/schema/runner-activation-tokens.js';
 import {runnerControlSessions} from '#db/schema/runner-control-sessions.js';
 import {providerRunners} from '#db/schema/runner-instances.js';
+import {runnerSessions} from '#db/schema/runner-sessions.js';
 import {
   type RunnerReservationPromotionFailureReason,
   runnerActivationTokenNotIssuedCount,
@@ -224,11 +225,30 @@ describe('enrollRunnerControlSession', () => {
     const runnerInstanceId = await createRunner({
       provisionerId,
       intendedReservationId: reservation.id,
+      workspaceId: reservation.workspaceId,
+      providerRunnerId: 'existing-provider-runner',
     });
-    await db()
-      .update(providerRunners)
-      .set({runnerSessionId: crypto.randomUUID()})
+    const [runner] = await db()
+      .select({
+        workspaceId: providerRunners.workspaceId,
+        providerRunnerId: providerRunners.providerRunnerId,
+      })
+      .from(providerRunners)
       .where(eq(providerRunners.id, runnerInstanceId));
+    if (!runner?.workspaceId || !runner.providerRunnerId) throw new Error('Missing runner tuple');
+    await db()
+      .insert(runnerSessions)
+      .values({
+        workspaceId: runner.workspaceId,
+        registrationTokenId: crypto.randomUUID(),
+        registrationTokenKind: 'activation',
+        runnerInstanceId,
+        provisionerId,
+        providerRunnerId: runner.providerRunnerId,
+        labels: ['linux'],
+        maxClaims: 1,
+        claimsUsed: 0,
+      });
     const addSpy = vi.spyOn(runnerActivationTokenNotIssuedCount, 'add');
 
     try {
@@ -257,7 +277,7 @@ describe('enrollRunnerControlSession', () => {
         reservationId: reservation.id,
         assignedAt: expect.any(Date),
         intendedReservationId: null,
-        runnerSessionId: expect.any(String),
+        runnerSessionId: null,
         state: 'running',
       });
       // The test setup uses a shared NoopMeter counter; count only this metric's label shape.
@@ -488,6 +508,7 @@ async function createRunner(params: {
   protocolVersion?: string | null;
   capabilities?: RunnerToolCapabilitiesDto | null;
   assignedAt?: Date | null;
+  providerRunnerId?: string;
 }): Promise<string> {
   const defaultAssignedAt = params.reservationId ? new Date() : null;
 
@@ -510,7 +531,7 @@ async function createRunner(params: {
       intendedReservationId: params.intendedReservationId ?? null,
       reservationId: params.reservationId ?? null,
       workspaceId: params.workspaceId ?? null,
-      providerRunnerId: crypto.randomUUID(),
+      providerRunnerId: params.providerRunnerId ?? crypto.randomUUID(),
       labels: params.labels ?? [],
       providerKind: params.providerKind ?? null,
       protocolVersion: params.protocolVersion ?? null,

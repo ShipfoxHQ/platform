@@ -11,6 +11,7 @@ import {
   recordProviderRunnerAssignmentToActivation,
 } from '#metrics/instance.js';
 import {db} from './db.js';
+import {lockRunnerEnrollmentTx} from './enrollment-locks.js';
 import {provisionerTokens} from './schema/provisioner-tokens.js';
 import {runnerActivationTokens} from './schema/runner-activation-tokens.js';
 import {runnerControlSessions} from './schema/runner-control-sessions.js';
@@ -81,14 +82,38 @@ export async function createRunnerSessionConsumingActivationToken(params: {
         assignedAt: providerRunners.assignedAt,
         provider: providerRunners.providerKind,
         launchKind: providerRunners.launchKind,
-        runnerSessionId: providerRunners.runnerSessionId,
       })
       .from(runnerActivationTokens)
       .innerJoin(providerRunners, eq(providerRunners.id, runnerActivationTokens.runnerInstanceId))
       .where(eq(runnerActivationTokens.id, params.activationTokenId))
+      .limit(1);
+    if (!runner?.workspaceId || !runner.providerRunnerId)
+      throw new Error('Runner activation token is invalid, expired, or has already been used');
+
+    await lockRunnerEnrollmentTx(tx, {
+      workspaceId: runner.workspaceId,
+      runnerInstanceId: runner.runnerInstanceId,
+    });
+    const [lockedRunner] = await tx
+      .select({terminationAuthorizedAt: providerRunners.terminationAuthorizedAt})
+      .from(providerRunners)
+      .where(eq(providerRunners.id, runner.runnerInstanceId))
       .limit(1)
-      .for('update', {of: providerRunners});
-    if (!runner?.workspaceId || !runner.providerRunnerId || runner.runnerSessionId)
+      .for('update');
+    if (lockedRunner?.terminationAuthorizedAt)
+      throw new Error('Runner activation token is invalid, expired, or has already been used');
+    const [enrolledSession] = await tx
+      .select({id: runnerSessions.id})
+      .from(runnerSessions)
+      .where(
+        and(
+          eq(runnerSessions.workspaceId, runner.workspaceId),
+          eq(runnerSessions.provisionerId, runner.provisionerId),
+          eq(runnerSessions.providerRunnerId, runner.providerRunnerId),
+        ),
+      )
+      .limit(1);
+    if (enrolledSession)
       throw new Error('Runner activation token is invalid, expired, or has already been used');
 
     const [activationToken] = await tx
@@ -144,12 +169,7 @@ export async function createRunnerSessionConsumingActivationToken(params: {
     await tx
       .update(providerRunners)
       .set({runnerSessionId: session.id, updatedAt: sql`now()`})
-      .where(
-        and(
-          eq(providerRunners.id, runner.runnerInstanceId),
-          isNull(providerRunners.runnerSessionId),
-        ),
-      );
+      .where(and(eq(providerRunners.id, runner.runnerInstanceId)));
     await tx
       .update(runnerControlSessions)
       .set({closedAt: sql`now()`, closeReason: 'activated'})

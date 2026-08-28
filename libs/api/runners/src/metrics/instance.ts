@@ -164,6 +164,7 @@ export type RunnerActivationTokenNotIssuedReason =
   | 'runner-not-found'
   | 'missing-workspace'
   | 'existing-session'
+  | 'termination-authorized'
   | 'not-running';
 
 export type RunnerActivationTokenNotIssuedSurface = 'enrollment' | 'poll';

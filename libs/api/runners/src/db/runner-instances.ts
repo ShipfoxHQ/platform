@@ -27,6 +27,7 @@ import {sanitizeRunnerLabels} from '#core/runner-labels.js';
 import {recordRunnerReservationCapacityFailure} from '#metrics/index.js';
 import type {Tx} from './db.js';
 import {db} from './db.js';
+import {lockRunnerEnrollmentTx} from './enrollment-locks.js';
 import {
   listRunningJobExecutionsByRunnerInstanceTx,
   type RunnerInstanceBoundJobExecution,
@@ -37,6 +38,7 @@ import {validateRunnerReservationCapacityTx} from './runner-assignments.js';
 import {activeStates, terminalStates} from './runner-states.js';
 import {provisionerTokens} from './schema/provisioner-tokens.js';
 import {reservations} from './schema/reservations.js';
+import {runnerActivationTokens} from './schema/runner-activation-tokens.js';
 import {runnerControlSessions} from './schema/runner-control-sessions.js';
 import {providerRunners, toRunnerInstance} from './schema/runner-instances.js';
 import {runnerSessions} from './schema/runner-sessions.js';
@@ -76,12 +78,8 @@ export async function persistRunnerTerminationAuthorizationTx(
   tx: Tx,
   params: PersistRunnerTerminationAuthorizationParams,
 ): Promise<TerminationAuthorizationResult> {
-  const [runner] = await tx
-    .select({
-      id: providerRunners.id,
-      terminationAuthorizedAt: providerRunners.terminationAuthorizedAt,
-      terminationReason: providerRunners.terminationReason,
-    })
+  const [candidate] = await tx
+    .select({id: providerRunners.id, workspaceId: providerRunners.workspaceId})
     .from(providerRunners)
     .where(
       and(
@@ -89,16 +87,31 @@ export async function persistRunnerTerminationAuthorizationTx(
         eq(providerRunners.providerRunnerId, params.providerRunnerId),
       ),
     )
-    .limit(1)
-    .for('update');
+    .limit(1);
 
-  if (!runner) {
+  if (!candidate?.workspaceId) {
     logger().warn(
       {provisionerId: params.provisionerId, providerRunnerId: params.providerRunnerId},
       'termination authorization rejected for unknown runner',
     );
     return {desiredIntent: 'keep', terminationAuthorizedAt: null, terminationReason: null};
   }
+
+  await lockRunnerEnrollmentTx(tx, {
+    workspaceId: candidate.workspaceId,
+    runnerInstanceId: candidate.id,
+  });
+  const [runner] = await tx
+    .select({
+      id: providerRunners.id,
+      terminationAuthorizedAt: providerRunners.terminationAuthorizedAt,
+      terminationReason: providerRunners.terminationReason,
+    })
+    .from(providerRunners)
+    .where(eq(providerRunners.id, candidate.id))
+    .limit(1)
+    .for('update');
+  if (!runner) throw new Error('Termination authorization runner disappeared');
 
   if (!runner.terminationAuthorizedAt || !runner.terminationReason) {
     const reason = params.resolveTerminationReason(params.reason);
@@ -119,6 +132,7 @@ export async function persistRunnerTerminationAuthorizationTx(
       });
     if (!authorized?.terminationAuthorizedAt || !authorized.terminationReason)
       throw new Error('Termination authorization was not persisted');
+    await revokeRunnerEnrollmentCredentialsTx(tx, candidate.id);
     return {
       desiredIntent: 'terminate',
       terminationAuthorizedAt: authorized.terminationAuthorizedAt,
@@ -126,11 +140,37 @@ export async function persistRunnerTerminationAuthorizationTx(
     };
   }
 
+  await revokeRunnerEnrollmentCredentialsTx(tx, candidate.id);
   return {
     desiredIntent: 'terminate',
     terminationAuthorizedAt: runner.terminationAuthorizedAt,
     terminationReason: runner.terminationReason,
   };
+}
+
+async function revokeRunnerEnrollmentCredentialsTx(
+  tx: Tx,
+  runnerInstanceId: string,
+): Promise<void> {
+  await tx
+    .update(runnerActivationTokens)
+    .set({revokedAt: sql`now()`})
+    .where(
+      and(
+        eq(runnerActivationTokens.runnerInstanceId, runnerInstanceId),
+        isNull(runnerActivationTokens.consumedAt),
+        isNull(runnerActivationTokens.revokedAt),
+      ),
+    );
+  await tx
+    .update(runnerControlSessions)
+    .set({closedAt: sql`now()`, closeReason: 'termination-authorized'})
+    .where(
+      and(
+        eq(runnerControlSessions.runnerInstanceId, runnerInstanceId),
+        isNull(runnerControlSessions.closedAt),
+      ),
+    );
 }
 
 export interface RunnerInstanceTerminateIntent {

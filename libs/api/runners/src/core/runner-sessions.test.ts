@@ -27,7 +27,7 @@ const activationTokenNotIssuedCases: Array<{
 }> = [
   {reason: 'runner-not-found', update: {}, provisionerId: crypto.randomUUID()},
   {reason: 'missing-workspace', update: {workspaceId: null}},
-  {reason: 'existing-session', update: {runnerSessionId: crypto.randomUUID()}},
+  {reason: 'existing-session', update: {}},
   {reason: 'not-running', update: {state: 'starting'}},
 ];
 
@@ -187,7 +187,30 @@ describe('activation runner sessions', () => {
     const addSpy = vi.spyOn(runnerActivationTokenNotIssuedCount, 'add');
 
     try {
-      if (Object.keys(update).length > 0) {
+      if (reason === 'existing-session') {
+        const [runner] = await db()
+          .select({
+            workspaceId: providerRunners.workspaceId,
+            providerRunnerId: providerRunners.providerRunnerId,
+          })
+          .from(providerRunners)
+          .where(eq(providerRunners.id, runnerInstanceId));
+        if (!runner?.workspaceId || !runner.providerRunnerId)
+          throw new Error('Missing runner tuple');
+        await db()
+          .insert(runnerSessions)
+          .values({
+            workspaceId: runner.workspaceId,
+            registrationTokenId: crypto.randomUUID(),
+            registrationTokenKind: 'activation',
+            runnerInstanceId,
+            provisionerId,
+            providerRunnerId: runner.providerRunnerId,
+            labels: ['linux'],
+            maxClaims: 1,
+            claimsUsed: 0,
+          });
+      } else if (Object.keys(update).length > 0) {
         await db()
           .update(providerRunners)
           .set(update)
