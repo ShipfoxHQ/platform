@@ -200,12 +200,16 @@ export function createSessionArtifactStore(params: {
         );
       });
 
-      let metricOutcome: SessionCommitOutcome = 'conflict';
-      if (result.outcome === 'committed') metricOutcome = 'committed';
-      else if (result.outcome === 'retry-acked') metricOutcome = 'retry_acked';
-      sessionCommitsCount.add(1, {outcome: metricOutcome});
-      if (result.outcome === 'committed' && committedSizeBytes !== undefined) {
-        sessionCommittedBytes.record(committedSizeBytes);
+      try {
+        let metricOutcome: SessionCommitOutcome = 'conflict';
+        if (result.outcome === 'committed') metricOutcome = 'committed';
+        else if (result.outcome === 'retry-acked') metricOutcome = 'retry_acked';
+        sessionCommitsCount.add(1, {outcome: metricOutcome});
+        if (result.outcome === 'committed' && committedSizeBytes !== undefined) {
+          sessionCommittedBytes.record(committedSizeBytes);
+        }
+      } catch {
+        // Metrics must not change session commit outcomes.
       }
       return result;
     },

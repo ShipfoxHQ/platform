@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import {describe, expect, it, vi} from '@shipfox/vitest/vi';
 import {eq, inArray, sql} from 'drizzle-orm';
 import {
   AgentSessionCarryOverConflictError,
@@ -20,6 +21,7 @@ import {
   releaseSessionClaimsHeldByStepAttempts,
   sessions,
 } from '#db/index.js';
+import {sessionClaimConflictCount} from '#metrics/instance.js';
 
 interface SessionCtx {
   workspaceId: string;
@@ -248,6 +250,7 @@ describe('claimSession', () => {
     const ctx = newCtx();
     const holder = crypto.randomUUID();
     const held = await claimSession({...ctx, stepAttemptId: holder, harness: 'pi'});
+    const conflictMetric = vi.spyOn(sessionClaimConflictCount, 'add');
 
     const act = claimSession({...ctx, harness: 'pi'});
 
@@ -258,6 +261,8 @@ describe('claimSession', () => {
       key: ctx.key,
       heldByStepAttempt: holder,
     });
+    expect(conflictMetric).toHaveBeenCalledOnce();
+    expect(conflictMetric).toHaveBeenCalledWith(1, {outcome: 'held'});
     const row = await findSession(held.id);
     expect(row?.claimedByStepAttempt).toBe(holder);
   });
