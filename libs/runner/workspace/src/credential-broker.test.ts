@@ -198,6 +198,41 @@ describe('credential broker', () => {
     });
   });
 
+  it('republishes unaffected credentials after clearing rejected secrets', async () => {
+    const published: string[][] = [];
+    const broker = new CredentialBroker({
+      now: () => now,
+      renew: vi.fn().mockResolvedValue({
+        ...baseCredential,
+        token: 'token-one-b',
+        generation: 'generation-one-b',
+      }),
+      publishSecrets: (secrets) => {
+        published.push([...secrets]);
+      },
+      clearSecrets: vi.fn(),
+    });
+    broker.register({
+      repositoryUrl: 'https://example.test/one',
+      subject: 'one',
+      credential: {...baseCredential, renewal: {mode: 'on-rejection' as const}},
+    });
+    broker.register({
+      repositoryUrl: 'https://example.test/two',
+      subject: 'two',
+      credential: {...baseCredential, token: 'token-two'},
+    });
+
+    await broker.reject('https://example.test/one');
+
+    expect(published.map(([token]) => token)).toEqual([
+      'token-a',
+      'token-two',
+      'token-two',
+      'token-one-b',
+    ]);
+  });
+
   it('renews on rejection, rejects echoed generations, and publishes fresh secrets', async () => {
     const published: string[][] = [];
     const renew = vi

@@ -147,6 +147,7 @@ export class CredentialBroker {
     entry.rejectedGeneration = entry.credential.generation;
     const rejectedGeneration = entry.rejectedGeneration;
     await this.clearPublishedSecrets();
+    await this.republishValidEntries(entry);
     if (entry.credential.renewal?.mode !== 'on-rejection') {
       return rejectedGeneration === undefined ? {} : {rejectedGeneration};
     }
@@ -184,6 +185,14 @@ export class CredentialBroker {
     const clear = this.publication.then(() => this.options.clearSecrets?.());
     this.publication = clear.catch(() => undefined);
     return clear;
+  }
+
+  private async republishValidEntries(excluded: Entry): Promise<void> {
+    if (!this.options.clearSecrets) return;
+    for (const entry of this.entries.values()) {
+      if (entry === excluded || entry.rejected || !isUsable(entry.credential, this.now())) continue;
+      await this.publish(entry.credential);
+    }
   }
 
   private renewEntry(
