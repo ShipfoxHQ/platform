@@ -88,12 +88,6 @@ export async function claimStepSession(
     return {descriptor: toDescriptor(existingSession, 'fork'), harness: existingSession.harness};
   }
 
-  const existingSession = await getSessionByRunAttemptAndKey({
-    workspaceId: params.workspaceId,
-    projectId: params.projectId,
-    workflowRunAttemptId: params.workflowRunAttemptId,
-    key: params.key,
-  });
   const session = await claimSession({
     workspaceId: params.workspaceId,
     projectId: params.projectId,
@@ -105,7 +99,7 @@ export async function claimStepSession(
     harnessExplicit: params.harnessExplicit,
     stepAttemptId: params.stepAttemptId,
   });
-  if (existingSession) {
+  if (!session.created) {
     try {
       sessionResumedCount.add(1, {outcome: 'claimed'});
     } catch {

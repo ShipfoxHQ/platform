@@ -131,13 +131,15 @@ function toStepGateResultDto(
   return {kind: 'unknown', data: gateResult};
 }
 
+function toSessionDto(config: Record<string, unknown> | null): StepDto['session'] {
+  const sessionValue = config?.session;
+  if (sessionValue === undefined || sessionValue === null) return null;
+  const session = agentStepSessionDescriptorSchema.safeParse(sessionValue);
+  return session.success ? session.data : null;
+}
+
 export function toStepDto(step: Step): StepDto {
-  const sessionValue = step.config.session;
-  const session =
-    sessionValue === undefined || sessionValue === null
-      ? null
-      : agentStepSessionDescriptorSchema.safeParse(sessionValue);
-  const sessionDto = session?.success ? session.data : null;
+  const session = toSessionDto(step.config);
   return {
     id: step.id,
     job_execution_id: step.jobExecutionId,
@@ -150,7 +152,7 @@ export function toStepDto(step: Step): StepDto {
     config: step.config,
     evaluation_trace: toEvaluationTraceDto(step.evaluationTrace),
     error: toStepErrorDto(step.error, step.type),
-    session: sessionDto,
+    session,
     position: step.position,
     current_attempt: step.currentAttempt,
     created_at: step.createdAt.toISOString(),
@@ -196,7 +198,7 @@ export function toStepAttemptDetailResponseDto(
     attempt: attempt.attempt,
     authored_config: step.authoredConfig,
     config: attempt.config,
-    session: toStepDto(step).session,
+    session: toSessionDto(attempt.config),
     evaluation_trace: toEvaluationTraceDto(attempt.evaluationTrace),
   };
 }

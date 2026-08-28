@@ -345,10 +345,12 @@ function SessionChip({session}: {session: NonNullable<StepAttemptDetail['session
       radius="rounded"
       role="group"
       aria-label={`Agent session ${session.key}, ${session.mode} mode, ${session.segment === 0 ? 'no prior session loaded' : `segment ${session.segment} loaded`}`}
-      className="w-fit max-w-full truncate font-code"
+      className="w-fit max-w-full font-code"
     >
-      Session {session.key} · {session.mode} ·{' '}
-      {session.segment === 0 ? 'no prior session loaded' : `segment ${session.segment} loaded`}
+      <span className="block min-w-0 truncate">
+        Session {session.key} · {session.mode} ·{' '}
+        {session.segment === 0 ? 'no prior session loaded' : `segment ${session.segment} loaded`}
+      </span>
     </Badge>
   );
 }

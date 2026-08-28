@@ -170,7 +170,6 @@ describe('StepInspectorSheet', () => {
     await user.click(screen.getByRole('button', {name: INSPECTOR_TRIGGER_NAME}));
 
     expect(await screen.findByRole('region', {name: 'Inputs'})).toBeInTheDocument();
-    expect(screen.queryByText('Session')).toBeNull();
   });
 
   it('shows an actionable error and retries the detail request', async () => {

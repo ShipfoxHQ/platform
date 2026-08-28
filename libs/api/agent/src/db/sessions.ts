@@ -213,7 +213,9 @@ async function lockClaimableSession(
  * of racing on the insert. A transaction advisory lock identifies another
  * in-flight claim even when its row update is not visible to this transaction.
  */
-export async function claimSession(params: ClaimSessionParams): Promise<AgentSession> {
+export async function claimSession(
+  params: ClaimSessionParams,
+): Promise<AgentSession & {created: boolean}> {
   assertValidSessionKey(params.key);
   assertValidSessionHarness(params.harness);
   let created = false;
@@ -259,7 +261,7 @@ export async function claimSession(params: ClaimSessionParams): Promise<AgentSes
     } catch {
       // Metrics must not change session claim outcomes.
     }
-    return result;
+    return {...result, created};
   } catch (error) {
     try {
       if (error instanceof AgentSessionHeldError) {
