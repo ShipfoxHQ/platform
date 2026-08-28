@@ -557,13 +557,27 @@ export async function commitSessionTranscript(
     ...(params.signal ? {signal: params.signal} : {}),
   });
   if (response.status === 409) {
-    const conflict = sessionCommitConflictResponseSchema.safeParse(await response.json());
+    let body: unknown;
+    try {
+      body = await response.json();
+    } catch {
+      throw new Error('Invalid session transcript conflict response');
+    }
+    const conflict = sessionCommitConflictResponseSchema.safeParse(body);
     if (!conflict.success) throw new Error('Invalid session transcript conflict response');
     return {status: 'conflict', headSegment: conflict.data.details.head_segment};
   }
   if (!response.ok)
     throw new Error(`Session transcript commit failed with status ${response.status}`);
-  return commitSessionTranscriptResponseSchema.parse(await response.json());
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    throw new Error('Invalid session transcript commit response');
+  }
+  const commit = commitSessionTranscriptResponseSchema.safeParse(body);
+  if (!commit.success) throw new Error('Invalid session transcript commit response');
+  return commit.data;
 }
 
 export async function requestStepSecrets(

@@ -822,6 +822,9 @@ describe('session transcript transport', () => {
     expect(calls[0]?.authorization).toBe('Bearer lease-session');
     expect(new URL(calls[0]?.url ?? '').searchParams.get('base_segment')).toBe('1');
     expect(calls[0]?.body).toBe(Buffer.from([31, 139, 8]).toString());
+    expect(calls[0]?.headers).toMatchObject({
+      [SESSION_TRANSCRIPT_HARNESS_SESSION_ID_HEADER]: 'native-1',
+    });
   });
 
   it('returns the current head for a commit conflict and sends the manifest headers', async () => {
@@ -850,6 +853,42 @@ describe('session transcript transport', () => {
       [SESSION_TRANSCRIPT_PROVIDER_HEADER]: 'provider-1',
       [SESSION_TRANSCRIPT_SDK_VERSION_HEADER]: 'sdk-1',
     });
+  });
+
+  it('rejects malformed conflict responses', async () => {
+    stubFetch(() => new Response('upstream failure', {status: 409}));
+    const leaseClient = createLeaseClient('lease-session');
+
+    await expect(
+      commitSessionTranscript(leaseClient, {
+        stepId: STEP_ID,
+        attempt: 1,
+        baseSegment: 0,
+        blob: Buffer.from([31, 139, 8]),
+        harness: 'pi',
+        model: 'model-1',
+        provider: 'provider-1',
+        sdkVersion: 'sdk-1',
+      }),
+    ).rejects.toThrow('Invalid session transcript conflict response');
+  });
+
+  it('rejects malformed commit responses', async () => {
+    stubFetch(() => new Response('upstream failure', {status: 200}));
+    const leaseClient = createLeaseClient('lease-session');
+
+    await expect(
+      commitSessionTranscript(leaseClient, {
+        stepId: STEP_ID,
+        attempt: 1,
+        baseSegment: 0,
+        blob: Buffer.from([31, 139, 8]),
+        harness: 'pi',
+        model: 'model-1',
+        provider: 'provider-1',
+        sdkVersion: 'sdk-1',
+      }),
+    ).rejects.toThrow('Invalid session transcript commit response');
   });
 
   it('rejects an empty commit before making a request', async () => {

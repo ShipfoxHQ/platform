@@ -615,7 +615,7 @@ export async function executeStep(params: {
         result.sessionFile !== undefined
       ) {
         const transcriptBlob = await gzipAsync(await readFile(result.sessionFile));
-        await commitSessionTranscript(leaseClient, {
+        const commit = await commitSessionTranscript(leaseClient, {
           stepId: step.id,
           attempt,
           baseSegment: sessionBaseSegment,
@@ -627,6 +627,11 @@ export async function executeStep(params: {
           ...(result.sessionId === undefined ? {} : {harnessSessionId: result.sessionId}),
           signal,
         });
+        if (commit.status === 'conflict') {
+          throw new Error(
+            `Session transcript commit conflict at head segment ${commit.headSegment}`,
+          );
+        }
       }
       return {
         result: maskAgentResult(
