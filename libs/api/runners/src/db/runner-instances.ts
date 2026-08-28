@@ -108,7 +108,12 @@ export async function persistRunnerTerminationAuthorizationTx(
       terminationReason: providerRunners.terminationReason,
     })
     .from(providerRunners)
-    .where(eq(providerRunners.id, candidate.id))
+    .where(
+      and(
+        eq(providerRunners.id, candidate.id),
+        eq(providerRunners.workspaceId, candidate.workspaceId),
+      ),
+    )
     .limit(1)
     .for('update');
   if (!runner) throw new Error('Termination authorization runner disappeared');

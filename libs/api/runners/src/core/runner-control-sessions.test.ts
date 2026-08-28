@@ -30,6 +30,9 @@ afterEach(async () => {
     await db()
       .delete(runnerControlSessions)
       .where(inArray(runnerControlSessions.runnerInstanceId, runnerInstanceIds));
+    await db()
+      .delete(runnerSessions)
+      .where(inArray(runnerSessions.runnerInstanceId, runnerInstanceIds));
     await db().delete(providerRunners).where(inArray(providerRunners.id, runnerInstanceIds));
   }
   if (reservationIds.length > 0)

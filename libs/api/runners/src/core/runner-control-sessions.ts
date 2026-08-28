@@ -14,6 +14,7 @@ import {
 import {sanitizeRunnerLabels} from '#core/runner-labels.js';
 import {db, type schema, type Tx} from '#db/db.js';
 import {lockRunnerEnrollmentTx} from '#db/enrollment-locks.js';
+import {lockRunnerReservationAdvisoryKeysTx} from '#db/reservation-locks.js';
 import {
   assignRunnerInstancesTx,
   validateRunnerReservationCapacityTx,
@@ -235,7 +236,10 @@ export async function enrollRunnerControlSession(params: {
 }): Promise<string | null> {
   const result = await db().transaction(async (tx) => {
     const [candidate] = await tx
-      .select({workspaceId: providerRunners.workspaceId})
+      .select({
+        workspaceId: providerRunners.workspaceId,
+        intendedReservationId: providerRunners.intendedReservationId,
+      })
       .from(providerRunners)
       .where(
         and(
@@ -244,6 +248,11 @@ export async function enrollRunnerControlSession(params: {
         ),
       );
     if (!candidate) throw new RunnerControlSessionInvalidError();
+    if (candidate.intendedReservationId)
+      await lockRunnerReservationAdvisoryKeysTx(tx, {
+        provisionerId: params.provisionerId,
+        reservationIds: [candidate.intendedReservationId],
+      });
     if (candidate.workspaceId)
       await lockRunnerEnrollmentTx(tx, {
         workspaceId: candidate.workspaceId,
@@ -265,10 +274,6 @@ export async function enrollRunnerControlSession(params: {
       .limit(1)
       .for('update');
     if (!current) throw new RunnerControlSessionInvalidError();
-    if (current.intendedReservationId)
-      await tx.execute(
-        sql`select pg_advisory_xact_lock(hashtext(${`runners_assignment:${params.provisionerId}:${current.intendedReservationId}`}))`,
-      );
 
     // Provider reports may populate reservationId before the assignment commits. assignedAt is
     // written by the assignment transaction, so keep the guard on that write boundary.

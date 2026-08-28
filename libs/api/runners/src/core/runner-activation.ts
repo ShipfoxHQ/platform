@@ -55,6 +55,7 @@ export async function issueRunnerActivationTokenTx(
     .select({
       workspaceId: providerRunners.workspaceId,
       state: providerRunners.state,
+      runnerSessionId: providerRunners.runnerSessionId,
       terminationAuthorizedAt: providerRunners.terminationAuthorizedAt,
       providerRunnerId: providerRunners.providerRunnerId,
       provisionerId: providerRunners.provisionerId,
@@ -68,7 +69,7 @@ export async function issueRunnerActivationTokenTx(
     )
     .limit(1)
     .for('update');
-  let enrolledSession = false;
+  let enrolledSession = Boolean(runner?.runnerSessionId);
   if (runner?.workspaceId && runner.providerRunnerId && runner.provisionerId) {
     const [session] = await tx
       .select({id: runnerSessions.id})
@@ -81,7 +82,7 @@ export async function issueRunnerActivationTokenTx(
         ),
       )
       .limit(1);
-    enrolledSession = Boolean(session);
+    enrolledSession ||= Boolean(session);
   }
   const notIssuedReason = runner
     ? getRunnerActivationTokenNotIssuedReason(runner, enrolledSession)
