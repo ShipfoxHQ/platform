@@ -1,5 +1,7 @@
 import {configureApiClient} from '@shipfox/client-api';
+import {QueryClient} from '@tanstack/react-query';
 import {fireEvent, screen, waitFor, within} from '@testing-library/react';
+import {projectsQueryKeys} from '#hooks/api/projects.js';
 import {
   jsonResponse,
   PROJECT_TEST_WID,
@@ -198,6 +200,36 @@ describe('ProjectsHubPage', () => {
     expect(screen.getByRole('button', {name: 'Retry loading projects'})).toBeInTheDocument();
   });
 
+  test.each([
+    ['', 'Create your first project'],
+    ['missing', 'No projects match “missing”'],
+  ])('does not hide a cached-empty refresh failure for search %j', async (search, emptyState) => {
+    let projectRequests = 0;
+    configureApiClient({
+      fetchImpl: createHubFetch({
+        projects: () => {
+          projectRequests += 1;
+          return projectRequests === 1
+            ? jsonResponse({projects: [], next_cursor: null})
+            : jsonResponse({code: 'server-error'}, {status: 500});
+        },
+      }),
+    });
+    const queryClient = new QueryClient({defaultOptions: {queries: {retry: false}}});
+
+    renderProjectPage(`/w/${PROJECT_TEST_WSLUG}`, <ProjectsHubPage search={search} />, queryClient);
+    expect(await screen.findByText(emptyState)).toBeInTheDocument();
+
+    await queryClient.refetchQueries({queryKey: projectsQueryKeys.list(PROJECT_TEST_WID, search)});
+
+    await waitFor(() =>
+      expect(
+        queryClient.getQueryState(projectsQueryKeys.list(PROJECT_TEST_WID, search))?.status,
+      ).toBe('error'),
+    );
+    expect(screen.queryByText(emptyState)).not.toBeInTheDocument();
+  });
+
   test('shows no status pill or repository id for a connected source', async () => {
     configureApiClient({
       fetchImpl: createHubFetch({
@@ -295,7 +327,7 @@ function createHubFetch({
   }),
   connections = jsonResponse(connectionsDto()),
 }: {
-  projects?: Response;
+  projects?: Response | (() => Response);
   connections?: Response;
 } = {}) {
   return vi.fn((input: RequestInfo | URL) => {
@@ -304,7 +336,7 @@ function createHubFetch({
       return Promise.resolve(connections.clone());
     }
     if (url.pathname === '/projects') {
-      return Promise.resolve(projects.clone());
+      return Promise.resolve(typeof projects === 'function' ? projects() : projects.clone());
     }
     return Promise.resolve(jsonResponse({code: 'not-found'}, {status: 404}));
   });

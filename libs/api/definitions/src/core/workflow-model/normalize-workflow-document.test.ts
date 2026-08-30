@@ -5957,6 +5957,28 @@ describe('normalizeWorkflowDocument', () => {
     expect(model.triggers.map((trigger) => trigger.key)).toEqual(['one']);
   });
 
+  it('reports an invalid event before the duplicate-manual diagnostic', () => {
+    const document: WorkflowDocument = {
+      name: 'invalid duplicate manual trigger',
+      triggers: {
+        one: {source: 'manual', event: 'fire'},
+        two: {source: 'manual', event: 'run'},
+      },
+      jobs: {
+        build: {
+          steps: [{run: 'npm run build'}],
+        },
+      },
+    };
+
+    const {diagnostics} = normalizeWithDiagnostics(document);
+
+    expect(diagnostics.map((diagnostic) => diagnostic.code)).toEqual([
+      'invalid-trigger-event',
+      'multiple-manual-triggers',
+    ]);
+  });
+
   it('counts an earlier inert manual trigger toward the manual-trigger limit', () => {
     const document: WorkflowDocument = {
       name: 'manual triggers with an inert first trigger',

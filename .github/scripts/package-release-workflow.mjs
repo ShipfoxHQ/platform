@@ -93,10 +93,14 @@ function authorizationReason(release, repository, expectedAppId) {
   ) {
     return 'missing-release-metadata';
   }
+  return releaseMetadataReason(release, repository, expectedAppId) ?? 'authorized';
+}
+
+function releaseMetadataReason(release, repository, expectedAppId) {
   if (release.headRepository !== repository) return 'head-repository-mismatch';
   if (release.headRef !== 'changeset-release/main') return 'release-branch-mismatch';
   if (release.authorId !== expectedAppId) return 'release-app-mismatch';
-  return 'authorized';
+  return undefined;
 }
 
 async function resolveWorkflowDispatchRelease(eventName, repository, revision, fallback) {
@@ -163,13 +167,6 @@ function classificationResult(values, reason, message) {
     reason,
     message,
   };
-}
-
-function releaseMetadataResult({authorId, expectedAppId, headRef, headRepository, repository}) {
-  if (headRepository !== repository) return 'head-repository-mismatch';
-  if (headRef !== 'changeset-release/main') return 'release-branch-mismatch';
-  if (authorId !== expectedAppId) return 'release-app-mismatch';
-  return undefined;
 }
 
 async function writeMainClassification(result) {
@@ -352,13 +349,11 @@ async function classifyMain() {
   const headRepository = releasePullRequest.head?.repo?.full_name ?? '';
   const headRef = releasePullRequest.head?.ref ?? '';
   const authorId = String(releasePullRequest.user?.id ?? '');
-  const metadataResult = releaseMetadataResult({
-    authorId,
-    expectedAppId,
-    headRef,
-    headRepository,
+  const metadataResult = releaseMetadataReason(
+    {authorId, headRef, headRepository},
     repository,
-  });
+    expectedAppId,
+  );
 
   if (metadataResult) {
     await writeMainClassification(

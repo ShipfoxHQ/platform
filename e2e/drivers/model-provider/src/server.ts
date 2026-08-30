@@ -61,7 +61,7 @@ interface RequestRoute {
   url: URL;
 }
 
-function authorizeAdminRoute(params: RouteParams): boolean {
+function authorizeAdminRouteOrWriteUnauthorized(params: RouteParams): boolean {
   if (isAuthorized(params.request, params.adminToken)) return true;
   writeUnauthorized(params.response);
   return false;
@@ -69,7 +69,7 @@ function authorizeAdminRoute(params: RouteParams): boolean {
 
 function handleHealthRoute(params: RouteParams, route: RequestRoute): boolean {
   if (route.pathname !== '/healthz' || route.method !== 'GET') return false;
-  if (authorizeAdminRoute(params)) writeJson(params.response, 200, {ok: true});
+  if (authorizeAdminRouteOrWriteUnauthorized(params)) writeJson(params.response, 200, {ok: true});
   return true;
 }
 
@@ -78,7 +78,7 @@ async function handleScriptRegistration(
   route: RequestRoute,
 ): Promise<boolean> {
   if (route.pathname !== '/scripts' || route.method !== 'POST') return false;
-  if (!authorizeAdminRoute(params)) return true;
+  if (!authorizeAdminRouteOrWriteUnauthorized(params)) return true;
 
   const script = await readJson<FakeOpenAiScript>(params.request);
   validateScriptRegistration(script);
@@ -95,7 +95,7 @@ async function handleScriptRegistration(
 function handleScriptReset(params: RouteParams, route: RequestRoute): boolean {
   const match = resetPathRe.exec(route.pathname);
   if (!match || route.method !== 'POST') return false;
-  if (!authorizeAdminRoute(params)) return true;
+  if (!authorizeAdminRouteOrWriteUnauthorized(params)) return true;
 
   params.registry.reset(decodeURIComponent(match[1] ?? ''));
   params.response.statusCode = 204;
@@ -106,7 +106,7 @@ function handleScriptReset(params: RouteParams, route: RequestRoute): boolean {
 function handleRecordedRequests(params: RouteParams, route: RequestRoute): boolean {
   const match = requestsPathRe.exec(route.pathname);
   if (!match || route.method !== 'GET') return false;
-  if (!authorizeAdminRoute(params)) return true;
+  if (!authorizeAdminRouteOrWriteUnauthorized(params)) return true;
 
   const scriptId = decodeURIComponent(match[1] ?? '');
   writeJson(params.response, 200, {

@@ -16,10 +16,11 @@ import {
 import {
   type AppendIdentity,
   type AppendLogsResult,
+  closeDeclaredStream,
   readHeartbeat,
+  recordStoredChunk,
   storeChunk,
 } from './append-chunk.js';
-import {closeStream} from './close-stream.js';
 import {
   LogAppendBodyTooLargeError,
   LogWriterConflictError,
@@ -196,31 +197,8 @@ async function storeServerAppend(
     origin: 'server',
   });
   if (chunkStored) {
-    metrics.storedBytes += body.length;
-    addRecordCounts(metrics.recordCounts, chunkRecordCounts);
-    addRecordCounts(metrics.recordCounts, recordCounts);
+    recordStoredChunk(metrics, body.length, chunkRecordCounts, recordCounts);
   }
-  await closeDeclaredServerStream(tx, streamId, declaredTotalBytes, chunkStored, metrics);
+  await closeDeclaredStream(tx, streamId, declaredTotalBytes, chunkStored, metrics);
   return result;
-}
-
-async function closeDeclaredServerStream(
-  tx: Transaction,
-  streamId: string,
-  declaredTotalBytes: number | undefined,
-  chunkStored: boolean,
-  metrics: AppendServerMetrics,
-): Promise<void> {
-  if (declaredTotalBytes === undefined || !chunkStored) return;
-  const closed = await closeStream(tx, {streamId, reason: 'declared'});
-  if (closed) metrics.streamClosedReason = 'declared';
-}
-
-function addRecordCounts(
-  target: Partial<Record<LogRecordMetricKind, number>>,
-  source: Partial<Record<LogRecordMetricKind, number>>,
-): void {
-  for (const [kind, count] of Object.entries(source)) {
-    target[kind as LogRecordMetricKind] = (target[kind as LogRecordMetricKind] ?? 0) + (count ?? 0);
-  }
 }

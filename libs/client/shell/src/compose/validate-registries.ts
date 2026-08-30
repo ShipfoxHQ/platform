@@ -1,4 +1,4 @@
-import type {ClientFeature, NavTabEntry, RouteParentId} from '#contract.js';
+import type {ClientFeature, LayoutNavigationEntry, NavTabEntry, RouteParentId} from '#contract.js';
 import {NavCompositionError, SettingsCompositionError} from './errors.js';
 import {normalizeRoutePath} from './normalize-route-path.js';
 
@@ -137,7 +137,7 @@ function validateUniqueNavigationEntry(
 }
 
 function validateLayoutNavigationEntry(
-  entry: Extract<NavTabEntry, {scope: 'layout'}>,
+  entry: LayoutNavigationEntry,
   feature: ClientFeature,
   target: string,
   routeReferences: RouteReferences,

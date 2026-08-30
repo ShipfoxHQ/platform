@@ -15,7 +15,7 @@ import {
   recordWorkspaceMembershipChanged,
 } from '#metrics/instance.js';
 import {db} from './db.js';
-import {membershipValues} from './memberships.js';
+import {findMembership, membershipValues} from './memberships.js';
 import {invitations, toInvitation} from './schema/invitations.js';
 import {memberships, toMembership} from './schema/memberships.js';
 import {workspacesOutbox} from './schema/outbox.js';
@@ -228,20 +228,6 @@ async function reconcileInvitationInTransaction(
   } as const;
 }
 
-async function findMembership(
-  tx: WorkspacesTx,
-  userId: string,
-  workspaceId: string,
-): Promise<Membership | undefined> {
-  const rows = await tx
-    .select()
-    .from(memberships)
-    .where(and(eq(memberships.userId, userId), eq(memberships.workspaceId, workspaceId)))
-    .limit(1);
-  const row = rows[0];
-  return row ? toMembership(row) : undefined;
-}
-
 async function reconcileAlreadyAcceptedInvitation(
   tx: WorkspacesTx,
   params: ReconcileInvitationAcceptanceParams,
@@ -250,7 +236,10 @@ async function reconcileAlreadyAcceptedInvitation(
   if (invitation.acceptedByUserId !== params.acceptedByUserId) {
     return {status: 'consumed_by_another_user'};
   }
-  const membership = await findMembership(tx, params.acceptedByUserId, invitation.workspaceId);
+  const membership = await findMembership(
+    {userId: params.acceptedByUserId, workspaceId: invitation.workspaceId},
+    {tx},
+  );
   if (!membership) throw new Error('Accepted invitation has no membership');
   return {status: 'already_accepted', invitation, membership};
 }
@@ -270,7 +259,10 @@ async function ensureInvitationMembership(
   params: ReconcileInvitationAcceptanceParams,
   invitation: Invitation,
 ): Promise<{membership: Membership; alreadyMember: boolean}> {
-  const existing = await findMembership(tx, params.acceptedByUserId, invitation.workspaceId);
+  const existing = await findMembership(
+    {userId: params.acceptedByUserId, workspaceId: invitation.workspaceId},
+    {tx},
+  );
   if (existing) return {membership: existing, alreadyMember: true};
   const created = await tx
     .insert(memberships)

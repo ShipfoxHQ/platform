@@ -78,7 +78,8 @@ function renewalCandidate(
 ): RenewalCandidate {
   const expiryMs = Date.parse(result.expiresAt);
   const serverTimeMs = Date.parse(result.serverTime);
-  const currentExpiryMs = Date.parse(current.expiresAt);
+  const parsedCurrentExpiryMs = Date.parse(current.expiresAt);
+  const currentExpiryMs = Number.isFinite(parsedCurrentExpiryMs) ? parsedCurrentExpiryMs : 0;
   const valid =
     Number.isFinite(expiryMs) && Number.isFinite(serverTimeMs) && expiryMs > serverTimeMs;
   return {

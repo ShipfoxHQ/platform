@@ -50,4 +50,4 @@
 "@shipfox/worktree-services": patch
 ---
 
-Simplifies complex control flow to meet shared readability limits.
+Simplifies internal control flow with no change to public APIs or behavior.

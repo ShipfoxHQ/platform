@@ -129,8 +129,10 @@ function ProjectsPanelContent({
   if (query.isError && hasNoData) {
     return <QueryLoadError query={query} subject="projects" variant="panel" />;
   }
-  if (projects.length === 0 && !search) return <EmptyProjects workspaceSlug={workspaceSlug} />;
-  if (!query.isFetching && projects.length === 0 && search) {
+  if (projects.length === 0 && !search && !query.isError) {
+    return <EmptyProjects workspaceSlug={workspaceSlug} />;
+  }
+  if (!query.isFetching && projects.length === 0 && search && !query.isError) {
     return <NoSearchResults search={search} onClear={onClear} />;
   }
   if (projects.length === 0) return null;

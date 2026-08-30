@@ -3,15 +3,15 @@ import {logger} from '@shipfox/node-opentelemetry';
 import {eq, sql} from 'drizzle-orm';
 import {config} from '#config.js';
 import type {AgentSession} from '#core/entities/agent-session.js';
-import {db, type Transaction} from '#db/db.js';
+import {db} from '#db/db.js';
 import {
   type ExpiredSessionsCursor,
-  hasSessionReferencingObjectKey,
   listExpiredSessions,
   listSegmentPruneCandidates,
   type PruneCandidatesCursor,
 } from '#db/retention.js';
 import {sessions, toAgentSession} from '#db/schema/sessions.js';
+import {deletableSessionObjectKeys} from './session-artifacts/deletable-object-keys.js';
 import {parseSessionObjectKey, sessionObjectKeyPrefix} from './session-artifacts/object-key.js';
 import {deleteSessionObjects, listSessionObjectKeys} from './session-artifacts/object-storage.js';
 
@@ -210,7 +210,7 @@ async function deleteExpiredSession(session: AgentSession): Promise<void> {
     });
     const keys = await listSessionObjectKeys(prefix);
 
-    const deletable = await deletableExpiredSessionKeys(tx, session.id, row.headObjectKey, keys);
+    const deletable = await deletableSessionObjectKeys(tx, session.id, row.headObjectKey, keys);
 
     if (deletable.length > 0) await deleteSessionObjects(deletable);
 
@@ -220,21 +220,6 @@ async function deleteExpiredSession(session: AgentSession): Promise<void> {
       .returning({id: sessions.id});
     if (rows.length === 0) throw new Error(`Session row disappeared mid-retention: ${session.id}`);
   });
-}
-
-async function deletableExpiredSessionKeys(
-  tx: Transaction,
-  sessionId: string,
-  headObjectKey: string | null,
-  keys: string[],
-): Promise<string[]> {
-  if (headObjectKey === null) return keys;
-  if (await hasSessionReferencingObjectKey(tx, sessionId, headObjectKey)) {
-    return keys.filter((key) => key !== headObjectKey);
-  }
-  // Carried-over rows can point outside their own prefix.
-  if (!keys.includes(headObjectKey)) return [...keys, headObjectKey];
-  return keys;
 }
 
 function classifySessionSegment(

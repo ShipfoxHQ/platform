@@ -1,7 +1,7 @@
 import {readLogsResponseSchema} from '@shipfox/api-logs-dto';
 import {ApiError, checkedApiRequest} from '@shipfox/client-api';
 import {useQuery, useQueryClient} from '@tanstack/react-query';
-import {type MutableRefObject, useCallback, useRef} from 'react';
+import {type RefObject, useCallback, useRef} from 'react';
 import {
   mergeLogRead,
   STEP_LOG_LIVE_REFETCH_MS,
@@ -156,8 +156,8 @@ async function loadStepLogsQuery(params: {
   queryKey: readonly unknown[];
   queryClient: ReturnType<typeof useQueryClient>;
   options: UseStepAttemptLogsQueryOptions;
-  manualRefetchRef: MutableRefObject<boolean>;
-  missingStreamFailureCountRef: MutableRefObject<number>;
+  manualRefetchRef: RefObject<boolean>;
+  missingStreamFailureCountRef: RefObject<number>;
 }): Promise<StepLogSnapshot> {
   const previous = params.queryClient.getQueryData<StepLogSnapshot>(params.queryKey);
   const manualRefetch = params.manualRefetchRef.current;

@@ -1,14 +1,7 @@
 import {eq, sql} from 'drizzle-orm';
 import {config} from '#config.js';
 import type {AgentSession} from '#core/entities/agent-session.js';
-import {
-  type CommitSessionHeadResult,
-  commitSessionHead,
-  db,
-  hasSessionReferencingObjectKey,
-  sessions,
-  type Transaction,
-} from '#db/index.js';
+import {type CommitSessionHeadResult, commitSessionHead, db, sessions} from '#db/index.js';
 import {toAgentSession} from '#db/schema/sessions.js';
 import {
   type SessionCommitOutcome,
@@ -18,6 +11,7 @@ import {
 import {AgentSessionUnavailableError} from '../errors.js';
 import {aadForSessionObject, openSessionBlob, sealSessionBlob} from './crypto.js';
 import type {SessionDekManager} from './dek-manager.js';
+import {deletableSessionObjectKeys} from './deletable-object-keys.js';
 import {
   type SegmentManifest,
   segmentManifestFromMetadata,
@@ -69,20 +63,6 @@ export interface ReadSessionHeadResult {
   /** The decrypted, still-gzipped harness-native session file. */
   blob: Buffer;
   manifest: SegmentManifest;
-}
-
-async function deletableSessionObjectKeys(
-  tx: Transaction,
-  sessionId: string,
-  headObjectKey: string | null,
-  keys: string[],
-): Promise<string[]> {
-  if (headObjectKey === null) return keys;
-  if (await hasSessionReferencingObjectKey(tx, sessionId, headObjectKey)) {
-    return keys.filter((key) => key !== headObjectKey);
-  }
-  if (!keys.includes(headObjectKey)) return [...keys, headObjectKey];
-  return keys;
 }
 
 export interface SessionArtifactStore {

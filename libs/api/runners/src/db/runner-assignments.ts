@@ -247,10 +247,9 @@ function assertNoConflictingRunnerAssignment(
   runners: readonly AssignmentRunnerRow[],
   reservationId: string,
 ): void {
-  const conflicting = runners.find(
-    (runner) => runner.reservationId !== null && runner.reservationId !== reservationId,
-  );
-  if (conflicting) throw new RunnerInstanceAlreadyAssignedError(conflicting.id);
+  const assigned = runners.filter((runner) => runner.reservationId !== null);
+  const hasConflict = assigned.some((runner) => runner.reservationId !== reservationId);
+  if (hasConflict) throw new RunnerInstanceAlreadyAssignedError(assigned[0]?.id ?? '');
 }
 
 function assertRunnerAssignmentCapacity(

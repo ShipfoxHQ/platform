@@ -73,6 +73,7 @@ function normalizeTopLevelTrigger(params: {
     issues: triggerIssues,
     integrationValidationContext: params.integrationValidationContext,
   });
+  validateAdditionalManualTrigger(params, triggerIssues);
   params.issues.push(...triggerIssues);
   const triggerIsInert = triggerIssues.some(
     (candidate) => candidate.scope === 'trigger' && candidate.severity === 'error',
@@ -108,6 +109,13 @@ function validateTopLevelTrigger(
     trigger: params.trigger,
     issues: triggerIssues,
   });
+  return triggerIssues;
+}
+
+function validateAdditionalManualTrigger(
+  params: Parameters<typeof normalizeTopLevelTrigger>[0],
+  triggerIssues: WorkflowModelValidationIssue[],
+): void {
   if (params.trigger.source === manualTriggerSource && params.state.manualTriggerSeen) {
     triggerIssues.push(
       issue({
@@ -119,7 +127,6 @@ function validateTopLevelTrigger(
       }),
     );
   }
-  return triggerIssues;
 }
 
 function normalizeCronTrigger(

@@ -7,7 +7,7 @@ import type {Transaction} from '#db/db.js';
 import type {ChunkOrigin} from '#db/schema/chunks.js';
 import {getAttemptStream, setDeclaredTotalBytes} from '#db/streams.js';
 import {allowedBudget} from './budget.js';
-import {controlTombstone} from './close-stream.js';
+import {closeStream, controlTombstone} from './close-stream.js';
 import {LeaseStreamMismatchError} from './errors.js';
 
 /**
@@ -28,6 +28,12 @@ export interface AppendIdentity {
 export interface AppendLogsResult {
   committedLength: number;
   capped: boolean;
+}
+
+export interface AppendChunkMetrics {
+  readonly recordCounts: Partial<Record<LogRecord['type'], number>>;
+  streamClosedReason: 'declared' | undefined;
+  storedBytes: number;
 }
 
 /**
@@ -152,4 +158,35 @@ export async function storeChunk(
     stored: true,
     recordCounts: won ? {capped: 1} : {},
   };
+}
+
+export function recordStoredChunk(
+  metrics: AppendChunkMetrics,
+  storedBytes: number,
+  ...recordCounts: Array<Partial<Record<LogRecord['type'], number>>>
+): void {
+  metrics.storedBytes += storedBytes;
+  for (const counts of recordCounts) addRecordCounts(metrics.recordCounts, counts);
+}
+
+export function addRecordCounts(
+  target: Partial<Record<LogRecord['type'], number>>,
+  source: Partial<Record<LogRecord['type'], number>>,
+): void {
+  for (const [kind, count] of Object.entries(source)) {
+    const recordKind = kind as LogRecord['type'];
+    target[recordKind] = (target[recordKind] ?? 0) + (count ?? 0);
+  }
+}
+
+export async function closeDeclaredStream(
+  tx: Transaction,
+  streamId: string,
+  declaredTotalBytes: number | undefined,
+  chunkStored: boolean,
+  metrics: Pick<AppendChunkMetrics, 'streamClosedReason'>,
+): Promise<void> {
+  if (declaredTotalBytes === undefined || !chunkStored) return;
+  const closed = await closeStream(tx, {streamId, reason: 'declared'});
+  if (closed) metrics.streamClosedReason = 'declared';
 }

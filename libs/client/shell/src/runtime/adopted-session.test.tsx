@@ -577,6 +577,27 @@ describe('adopted-session runtime seam', () => {
     await waitFor(() => expect(apiRef.current?.adoptedSession?.expiresAt).toBe(laterExpiresAt));
   });
 
+  test('adopts a valid renewal when the current expiry is malformed', async () => {
+    const {apiRef, store} = renderAuthHarness();
+    await waitForCookieSession(store, ADMIN_SESSION_DTO.token);
+    const renewal: AdoptedSessionRenewal = {
+      session: {...ADOPTED_SESSION, accessToken: 'repaired-token'},
+      expiresAt: EXPIRES_AT,
+      serverTime: SERVER_TIME,
+    };
+    const renew = vi.fn(() => Promise.resolve(renewal));
+    const api = harnessApi(apiRef);
+
+    await api.adoptSession(ADOPTED_SESSION, {
+      expiresAt: 'malformed-expiry',
+      serverTime: SERVER_TIME,
+      renew,
+    });
+
+    await waitFor(() => expect(store.get(authStateAtom).token).toBe('repaired-token'));
+    expect(apiRef.current?.adoptedSession?.expiresAt).toBe(EXPIRES_AT);
+  });
+
   test('renewals that lose a race to a longer reserved window do not count as stalls', async () => {
     const {apiRef, fetchImpl, store} = renderAuthHarness();
     await waitForCookieSession(store, ADMIN_SESSION_DTO.token);

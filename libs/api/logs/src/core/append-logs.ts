@@ -30,10 +30,12 @@ import {
 import {
   type AppendIdentity,
   type AppendLogsResult,
+  addRecordCounts,
+  closeDeclaredStream,
   readHeartbeat,
+  recordStoredChunk,
   storeChunk,
 } from './append-chunk.js';
-import {closeStream} from './close-stream.js';
 import {LogWriterConflictError, MalformedLogChunkError, OffsetGapError} from './errors.js';
 import {flushPendingToolRows} from './session/claude/rows.js';
 import {
@@ -486,9 +488,10 @@ async function storeRunnerAppend(
     declaredTotalBytes: parsed.declaredTotalBytes,
     origin: 'runner',
   });
-  recordStoredRunnerChunk(stored, chunkStored, recordCounts, metrics);
+  if (chunkStored) recordStoredChunk(metrics, stored.body.length, stored.recordCounts);
+  addRecordCounts(metrics.recordCounts, recordCounts);
   await persistClaudeParseContext(tx, stream.id, stored, chunkStored, result.capped);
-  await closeDeclaredRunnerStream(tx, stream.id, parsed.declaredTotalBytes, chunkStored, metrics);
+  await closeDeclaredStream(tx, stream.id, parsed.declaredTotalBytes, chunkStored, metrics);
   return result;
 }
 
@@ -521,19 +524,6 @@ function runnerStoredBody(
   );
 }
 
-function recordStoredRunnerChunk(
-  stored: StoredBody,
-  chunkStored: boolean,
-  chunkRecordCounts: Partial<Record<LogRecordMetricKind, number>>,
-  metrics: AppendLogsMetrics,
-): void {
-  if (chunkStored) {
-    metrics.storedBytes += stored.body.length;
-    addRecordCounts(metrics.recordCounts, stored.recordCounts);
-  }
-  addRecordCounts(metrics.recordCounts, chunkRecordCounts);
-}
-
 async function persistClaudeParseContext(
   tx: Transaction,
   streamId: string,
@@ -551,25 +541,4 @@ async function persistClaudeParseContext(
     pendingResult: stored.claudePendingResult ?? null,
     pendingToolRows: stored.claudePendingToolRows ?? [],
   });
-}
-
-async function closeDeclaredRunnerStream(
-  tx: Transaction,
-  streamId: string,
-  declaredTotalBytes: number | undefined,
-  chunkStored: boolean,
-  metrics: AppendLogsMetrics,
-): Promise<void> {
-  if (declaredTotalBytes === undefined || !chunkStored) return;
-  const closed = await closeStream(tx, {streamId, reason: 'declared'});
-  if (closed) metrics.streamClosedReason = 'declared';
-}
-
-function addRecordCounts(
-  target: Partial<Record<LogRecordMetricKind, number>>,
-  source: Partial<Record<LogRecordMetricKind, number>>,
-): void {
-  for (const [kind, count] of Object.entries(source)) {
-    target[kind as LogRecordMetricKind] = (target[kind as LogRecordMetricKind] ?? 0) + (count ?? 0);
-  }
 }

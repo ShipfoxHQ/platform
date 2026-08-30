@@ -638,9 +638,9 @@ function mapGithubRequestError(
     retryAfter = retryAfterSeconds(error);
   } else if (error.status >= 500) {
     reason = 'provider-unavailable';
-  } else {
+  } else if (error.status >= 400) {
     reason = 'provider-rejected';
-  }
+  } else throw error;
   return new GithubIntegrationProviderError(reason, error.message, retryAfter, error.status);
 }
 
