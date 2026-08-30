@@ -7,6 +7,7 @@ import {
   useDefinitionsInfiniteQuery,
   useProjectQuery,
 } from '@shipfox/client-projects';
+import {useActiveWorkspace} from '@shipfox/client-shell/runtime';
 import {QueryLoadError} from '@shipfox/client-ui';
 import {Button} from '@shipfox/react-ui/button';
 import {Callout} from '@shipfox/react-ui/callout';
@@ -34,7 +35,9 @@ import {
 } from '@shipfox/react-ui/table';
 import {toast} from '@shipfox/react-ui/toast';
 import {Code, Header, Text} from '@shipfox/react-ui/typography';
+import {useNavigate} from '@tanstack/react-router';
 import {useState} from 'react';
+import {RunFromBranchDialog} from '#components/run-from-branch/run-from-branch-dialog.js';
 import {useFireManualWorkflowMutation} from '#hooks/api/workflow-runs.js';
 
 export function ProjectWorkflowsPage({projectId}: {projectId: string}) {
@@ -46,11 +49,14 @@ export function ProjectWorkflowsPage({projectId}: {projectId: string}) {
 }
 
 function ProjectWorkflowsPageInner({projectId}: {projectId: string}) {
+  const navigate = useNavigate();
+  const workspace = useActiveWorkspace();
   const projectQuery = useProjectQuery(projectId);
   const definitionsQuery = useDefinitionsInfiniteQuery(projectId);
   const fireManual = useFireManualWorkflowMutation();
   const [selectedDefinition, setSelectedDefinition] = useState<Definition | null>(null);
   const [runError, setRunError] = useState<{definitionId: string; message: string} | null>(null);
+  const [runFromBranchOpen, setRunFromBranchOpen] = useState(false);
   const definitions = definitionsQuery.data?.pages.flatMap((page) => page.definitions) ?? [];
   const sync = definitionsQuery.data?.pages[0]?.sync;
 
@@ -99,6 +105,11 @@ function ProjectWorkflowsPageInner({projectId}: {projectId: string}) {
             externalRepositoryId={projectQuery.data.source.externalRepositoryId}
             sync={sync}
             isPending={definitionsQuery.isPending}
+            actions={
+              <Button size="sm" variant="secondary" onClick={() => setRunFromBranchOpen(true)}>
+                Run from branch
+              </Button>
+            }
           />
 
           <WorkflowSyncAlert sync={sync} />
@@ -132,6 +143,20 @@ function ProjectWorkflowsPageInner({projectId}: {projectId: string}) {
         definition={selectedDefinition}
         onOpenChange={(open) => {
           if (!open) setSelectedDefinition(null);
+        }}
+      />
+
+      <RunFromBranchDialog
+        projectId={projectId}
+        open={runFromBranchOpen}
+        onOpenChange={setRunFromBranchOpen}
+        onRunCreated={(workflowRunId) => {
+          const project = projectQuery.data;
+          if (!project) return;
+          void navigate({
+            to: '/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId',
+            params: {workspaceSlug: workspace.slug, projectSlug: project.slug, workflowRunId},
+          });
         }}
       />
     </div>

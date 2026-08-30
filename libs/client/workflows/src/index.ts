@@ -45,6 +45,11 @@ export {
   workflowRunTriggerLabel,
 } from '#core/workflow-run.js';
 export {
+  RunFromBranchDialog,
+  type RunFromBranchDialogProps,
+  type RunFromBranchFixedEvent,
+} from './components/run-from-branch/run-from-branch-dialog.js';
+export {
   type DefinitionsAtRefErrorCopy,
   definitionsAtRefErrorCopy,
   definitionsAtRefQueryKeys,

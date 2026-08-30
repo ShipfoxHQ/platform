@@ -245,6 +245,36 @@ describe('ProjectWorkflowsPage', () => {
     expect(await screen.findByText('Run queued')).toBeInTheDocument();
   });
 
+  test('opens the run-from-branch dialog from the sync badge row and navigates to the run detail on success', async () => {
+    configureApiClient({fetchImpl: createProjectDetailFetch()});
+
+    const {router} = renderWorkflowsPage();
+
+    const sourcePanel = await screen.findByRole('region', {name: 'Project source'});
+    const runFromBranchButton = within(sourcePanel).getByRole('button', {name: 'Run from branch'});
+    expect(runFromBranchButton).toBeInTheDocument();
+    fireEvent.click(runFromBranchButton);
+
+    const dialog = await screen.findByRole('dialog', {name: 'Run from branch'});
+    const refInput = within(dialog).getByLabelText(REF_INPUT_LABEL);
+    fireEvent.change(refInput, {target: {value: 'fix-triage-prompt'}});
+    fireEvent.blur(refInput);
+
+    await waitFor(() => expect(within(dialog).getByText('Resolved')).toBeInTheDocument());
+    fireEvent.click(within(dialog).getByRole('button', {name: 'Next'}));
+    fireEvent.click(await within(dialog).findByRole('radio', {name: TRIAGE_FILE_NAME}));
+    fireEvent.click(within(dialog).getByRole('button', {name: 'Next'}));
+    fireEvent.click(await within(dialog).findByRole('radio', {name: ON_ISSUE_TRIGGER_NAME}));
+    fireEvent.click(within(dialog).getByRole('button', {name: 'Next'}));
+    fireEvent.click(await within(dialog).findByRole('button', {name: 'Start run'}));
+
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe(
+        `/w/${PROJECT_TEST_WSLUG}/p/platform/runs/66666666-6666-4666-8666-666666666666`,
+      ),
+    );
+  });
+
   test('renders not found state', async () => {
     configureApiClient({
       fetchImpl: vi.fn((input) => {
@@ -265,6 +295,10 @@ describe('ProjectWorkflowsPage', () => {
   });
 });
 
+const REF_INPUT_LABEL = 'Branch or tag';
+const TRIAGE_FILE_NAME = /Triage Sentry/;
+const ON_ISSUE_TRIGGER_NAME = /on_issue/;
+
 function renderWorkflowsPage() {
   return renderProjectPage(`/w/${PROJECT_TEST_WSLUG}/p/project/workflows`, () => (
     <ProjectWorkflowsPage projectId={PROJECT_ID} />
@@ -276,11 +310,15 @@ function createProjectDetailFetch({
   definitions = jsonResponse(definitionsDto()),
   run = jsonResponse(runDto(), {status: 201}),
   connections = jsonResponse(connectionsDto()),
+  atRef = jsonResponse(atRefDto()),
+  devRun = jsonResponse(devRunDto(), {status: 201}),
 }: {
   project?: Response;
   definitions?: Response;
   run?: Response;
   connections?: Response;
+  atRef?: Response;
+  devRun?: Response;
 } = {}) {
   return vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(requestInputUrl(input));
@@ -291,6 +329,12 @@ function createProjectDetailFetch({
     }
     if (url.pathname === '/definitions') {
       return Promise.resolve(definitions.clone());
+    }
+    if (url.pathname === '/definitions/at-ref') {
+      return Promise.resolve(atRef.clone());
+    }
+    if (url.pathname === '/dev-runs' && method === 'POST') {
+      return Promise.resolve(devRun.clone());
     }
     if (url.pathname === '/integration-connections') {
       return Promise.resolve(connections.clone());
@@ -388,4 +432,30 @@ function baseDefinitionsDto() {
 
 function runDto() {
   return {workflow_run_id: '66666666-6666-4666-8666-666666666666'};
+}
+
+function atRefDto() {
+  return {
+    ref: 'fix-triage-prompt',
+    commit: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0',
+    files: [
+      {
+        config_path: '.shipfox/workflows/triage-sentry.yml',
+        name: 'Triage Sentry',
+        valid: true,
+        errors: [],
+        warnings: [],
+        triggers: {
+          on_issue: {source: 'manual', event: 'fire', with: {environment: 'staging'}},
+        },
+      },
+    ],
+  };
+}
+
+function devRunDto() {
+  return {
+    workflow_run_id: '66666666-6666-4666-8666-666666666666',
+    commit: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0',
+  };
 }
