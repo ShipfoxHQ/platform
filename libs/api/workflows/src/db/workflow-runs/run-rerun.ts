@@ -168,7 +168,7 @@ async function loadRerunSourceGraph(
   return {sourceJobExecutionByJobId, sourceJobByJobExecutionId, sourceSteps};
 }
 
-function materializeRerunGraphJobs(params: {
+interface MaterializeRerunGraphParams {
   readonly mode: CreateRerunWorkflowRunParams['mode'];
   readonly sourceRun: WorkflowRun;
   readonly sourceAttempt: WorkflowRunAttemptDb;
@@ -176,7 +176,11 @@ function materializeRerunGraphJobs(params: {
   readonly sourceJobExecutionByJobId: ReadonlyMap<string, JobExecutionDb>;
   readonly sourceJobByJobExecutionId: ReadonlyMap<string, JobDb>;
   readonly sourceSteps: readonly StepDb[];
-}): readonly MaterializedRunGraphJob[] {
+}
+
+function materializeRerunGraphJobs(
+  params: MaterializeRerunGraphParams,
+): readonly MaterializedRunGraphJob[] {
   const sourceModel =
     params.sourceAttempt.model === null
       ? null
@@ -191,89 +195,112 @@ function materializeRerunGraphJobs(params: {
     sourceStepsByJobId.set(sourceJob.id, sourceJobSteps);
   }
 
-  return params.sourceJobs.map((sourceJob) => {
-    const carriedOver = params.mode === 'failed' && sourceJob.status === 'succeeded';
-    const modelJob = sourceModelJobByKey.get(sourceJob.key);
-    const modelCheckout = modelJob?.checkout;
-    const resolvedModelCheckout = modelCheckout === false ? undefined : modelCheckout;
+  return params.sourceJobs.map((sourceJob) =>
+    materializeRerunGraphJob(
+      params,
+      sourceJob,
+      sourceModelJobByKey.get(sourceJob.key),
+      sourceStepsByJobId.get(sourceJob.id) ?? [],
+    ),
+  );
+}
 
-    return {
-      job: {
-        key: sourceJob.key,
-        name: sourceJob.name,
-        mode: sourceJob.mode,
-        status: carriedOver ? ('succeeded' as const) : ('pending' as const),
-        statusReason: null,
-        carriedOver,
-        checkoutPersistCredentials:
-          resolvedModelCheckout?.persistCredentials ?? sourceJob.checkoutPersistCredentials,
-        checkoutPermissionsContents:
-          resolvedModelCheckout?.permissions?.contents ?? sourceJob.checkoutPermissionsContents,
-        success: sourceJob.success,
-        executionTimeoutMs: sourceJob.executionTimeoutMs,
-        listeningTimeoutMs: sourceJob.listeningTimeoutMs,
-        maxExecutions: sourceJob.maxExecutions,
-        onResolve: sourceJob.onResolve,
-        batchDebounceMs: sourceJob.batchDebounceMs,
-        batchMaxSize: sourceJob.batchMaxSize,
-        batchMaxWaitMs: sourceJob.batchMaxWaitMs,
-        listenerStatus: 'inactive' as const,
-        resolutionReason: null,
-        listeningOn: sourceJob.listeningOn ? [...sourceJob.listeningOn] : null,
-        listeningUntil: sourceJob.listeningUntil ? [...sourceJob.listeningUntil] : null,
-        outputs: carriedOver && sourceJob.outputs ? {...sourceJob.outputs} : null,
-        dependencies: [...sourceJob.dependencies],
-        runner: sourceJob.runner ? [...sourceJob.runner] : null,
-        position: sourceJob.position,
-      },
-      createExecution: (job) => {
-        if (job.mode === 'listening') return undefined;
+function materializeRerunGraphJob(
+  params: MaterializeRerunGraphParams,
+  sourceJob: JobDb,
+  modelJob: ReturnType<typeof readPersistedWorkflowModel>['jobs'][number] | undefined,
+  sourceJobSteps: readonly StepDb[],
+): MaterializedRunGraphJob {
+  const carriedOver = params.mode === 'failed' && sourceJob.status === 'succeeded';
+  const modelCheckout = modelJob?.checkout;
+  const resolvedModelCheckout = modelCheckout === false ? undefined : modelCheckout;
 
-        const sourceExecution = params.sourceJobExecutionByJobId.get(sourceJob.id);
-        const nameOverride = sourceExecution?.name ?? null;
-        const executionName = nameOverride ?? job.name ?? job.key;
-        const runner =
-          carriedOver || modelJob === undefined
-            ? (sourceExecution?.runner ?? job.runner ?? null)
-            : deriveJobExecutionRunner({
-                run: params.sourceRun,
-                modelJob,
-                jobId: job.id,
-                sequence: 1,
-                nameOverride,
-                executionName,
-                jobName: job.name,
-                status: 'pending',
-              });
+  return {
+    job: {
+      key: sourceJob.key,
+      name: sourceJob.name,
+      mode: sourceJob.mode,
+      status: carriedOver ? 'succeeded' : 'pending',
+      statusReason: null,
+      carriedOver,
+      checkoutPersistCredentials:
+        resolvedModelCheckout?.persistCredentials ?? sourceJob.checkoutPersistCredentials,
+      checkoutPermissionsContents:
+        resolvedModelCheckout?.permissions?.contents ?? sourceJob.checkoutPermissionsContents,
+      success: sourceJob.success,
+      executionTimeoutMs: sourceJob.executionTimeoutMs,
+      listeningTimeoutMs: sourceJob.listeningTimeoutMs,
+      maxExecutions: sourceJob.maxExecutions,
+      onResolve: sourceJob.onResolve,
+      batchDebounceMs: sourceJob.batchDebounceMs,
+      batchMaxSize: sourceJob.batchMaxSize,
+      batchMaxWaitMs: sourceJob.batchMaxWaitMs,
+      listenerStatus: 'inactive',
+      resolutionReason: null,
+      listeningOn: sourceJob.listeningOn ? [...sourceJob.listeningOn] : null,
+      listeningUntil: sourceJob.listeningUntil ? [...sourceJob.listeningUntil] : null,
+      outputs: carriedOver && sourceJob.outputs ? {...sourceJob.outputs} : null,
+      dependencies: [...sourceJob.dependencies],
+      runner: sourceJob.runner ? [...sourceJob.runner] : null,
+      position: sourceJob.position,
+    },
+    createExecution: (job) =>
+      createRerunJobExecution({params, sourceJob, modelJob, carriedOver, job}),
+    createSteps: () =>
+      sourceJobSteps.map((step) => ({
+        key: step.key,
+        name: step.name,
+        sourceLocation: step.sourceLocation,
+        status: carriedOver ? step.status : 'pending',
+        statusReason: carriedOver ? step.statusReason : null,
+        type: step.type,
+        config: step.config,
+        condition: step.condition ?? null,
+        configPlan: step.configPlan,
+        authoredConfig: step.authoredConfig,
+        error: null,
+        position: step.position,
+        currentAttempt: 1,
+      })),
+  };
+}
 
-        return {
+function createRerunJobExecution(params: {
+  readonly params: MaterializeRerunGraphParams;
+  readonly sourceJob: JobDb;
+  readonly modelJob: ReturnType<typeof readPersistedWorkflowModel>['jobs'][number] | undefined;
+  readonly carriedOver: boolean;
+  readonly job: Parameters<NonNullable<MaterializedRunGraphJob['createExecution']>>[0];
+}) {
+  const {job, sourceJob, carriedOver, modelJob} = params;
+  if (job.mode === 'listening') return undefined;
+
+  const sourceExecution = params.params.sourceJobExecutionByJobId.get(sourceJob.id);
+  const nameOverride = sourceExecution?.name ?? null;
+  const executionName = nameOverride ?? job.name ?? job.key;
+  const runner =
+    carriedOver || modelJob === undefined
+      ? (sourceExecution?.runner ?? job.runner ?? null)
+      : deriveJobExecutionRunner({
+          run: params.params.sourceRun,
+          modelJob,
+          jobId: job.id,
           sequence: 1,
-          // Reruns preserve the authored/resolved override, never the
-          // effective fallback exposed by the core entity.
-          name: nameOverride,
-          runner: runner ? [...runner] : null,
-          status: carriedOver ? ('succeeded' as const) : ('pending' as const),
-          statusReason: null,
-          outputs: carriedOver && sourceExecution?.outputs ? {...sourceExecution.outputs} : null,
-          ...(carriedOver ? {finishedAt: sql`now()`} : {}),
-        };
-      },
-      createSteps: () =>
-        (sourceStepsByJobId.get(sourceJob.id) ?? []).map((step) => ({
-          key: step.key,
-          name: step.name,
-          sourceLocation: step.sourceLocation,
-          status: carriedOver ? step.status : ('pending' as const),
-          statusReason: carriedOver ? step.statusReason : null,
-          type: step.type,
-          config: step.config,
-          condition: step.condition ?? null,
-          configPlan: step.configPlan,
-          authoredConfig: step.authoredConfig,
-          error: null,
-          position: step.position,
-          currentAttempt: 1,
-        })),
-    };
-  });
+          nameOverride,
+          executionName,
+          jobName: job.name,
+          status: 'pending',
+        });
+
+  return {
+    sequence: 1,
+    // Reruns preserve the authored/resolved override, never the
+    // effective fallback exposed by the core entity.
+    name: nameOverride,
+    runner: runner ? [...runner] : null,
+    status: carriedOver ? ('succeeded' as const) : ('pending' as const),
+    statusReason: null,
+    outputs: carriedOver && sourceExecution?.outputs ? {...sourceExecution.outputs} : null,
+    ...(carriedOver ? {finishedAt: sql`now()`} : {}),
+  };
 }

@@ -285,121 +285,142 @@ export async function updateWorkflowRunStatus(
   params: UpdateWorkflowRunStatusParams,
 ): Promise<WorkflowRun> {
   const result = await db().transaction(async (tx) => {
-    const [attemptRef] = params.workflowRunAttemptId
-      ? await tx
-          .select({
-            id: workflowRunAttempts.id,
-            workflowRunId: workflowRunAttempts.workflowRunId,
-          })
-          .from(workflowRunAttempts)
-          .where(eq(workflowRunAttempts.id, params.workflowRunAttemptId))
-          .limit(1)
-      : [];
-
-    const workflowRunId = attemptRef?.workflowRunId ?? params.workflowRunId ?? '';
-    const lockedRun = await lockWorkflowRun(workflowRunId, tx);
-
-    if (!lockedRun) {
-      throw new WorkflowRunNotFoundError(params.workflowRunId ?? params.workflowRunAttemptId ?? '');
-    }
-
-    const [lockedAttempt] = await tx
-      .select()
-      .from(workflowRunAttempts)
-      .where(
-        params.workflowRunAttemptId
-          ? eq(workflowRunAttempts.id, params.workflowRunAttemptId)
-          : and(
-              eq(workflowRunAttempts.workflowRunId, lockedRun.id),
-              eq(workflowRunAttempts.attempt, lockedRun.currentAttempt),
-            ),
-      )
-      .limit(1)
-      .for('update');
-
-    if (!lockedAttempt) {
-      throw new WorkflowRunNotFoundError(params.workflowRunId ?? params.workflowRunAttemptId ?? '');
-    }
-
-    const target = {run: lockedRun, attempt: lockedAttempt};
-
-    const rows = await tx
-      .update(workflowRunAttempts)
-      .set({
-        status: params.status,
-        version: sql`${workflowRunAttempts.version} + 1`,
-        updatedAt: new Date(),
-        ...(params.status === 'running'
-          ? {startedAt: sql`coalesce(${workflowRunAttempts.startedAt}, now())`}
-          : {}),
-        ...(isWorkflowRunTerminal(params.status) ? {finishedAt: sql`now()`} : {}),
-      })
-      .where(
-        and(
-          eq(workflowRunAttempts.id, target.attempt.id),
-          eq(workflowRunAttempts.version, params.expectedVersion),
-          notInArray(workflowRunAttempts.status, TERMINAL_WORKFLOW_RUN_STATUSES),
-        ),
-      )
-      .returning();
-
-    const attemptRow = rows[0];
-    if (!attemptRow) {
-      const existing = await tx
-        .select()
-        .from(workflowRunAttempts)
-        .where(eq(workflowRunAttempts.id, target.attempt.id))
-        .limit(1);
-      const existingRow = existing[0];
-      if (
-        existingRow &&
-        (existingRow.status === params.status || isWorkflowRunTerminal(existingRow.status))
-      ) {
-        return {
-          run: {...toWorkflowRun(target.run), version: existingRow.version},
-          changed: false,
-        };
-      }
-      throw new Error(
-        `Optimistic lock failure: run attempt ${target.attempt.id} version ${params.expectedVersion}`,
-      );
-    }
+    const target = await loadWorkflowRunStatusTarget(params, tx);
+    const attemptRow = await updateWorkflowRunAttemptStatus(target.attempt.id, params, tx);
+    if (!attemptRow) return resolveWorkflowRunStatusConflict(target, params, tx);
 
     const shouldMirror = target.run.currentAttempt === attemptRow.attempt;
-    const [runRow] = shouldMirror
-      ? await tx
-          .update(workflowRuns)
-          .set({
-            status: params.status,
-            version: sql`${workflowRuns.version} + 1`,
-            updatedAt: new Date(),
-            ...(params.status === 'running'
-              ? {startedAt: sql`coalesce(${workflowRuns.startedAt}, now())`}
-              : {}),
-            ...(isWorkflowRunTerminal(params.status) ? {finishedAt: sql`now()`} : {}),
-          })
-          .where(eq(workflowRuns.id, target.run.id))
-          .returning()
-      : [target.run];
-
-    const run = {...toWorkflowRun(runRow ?? target.run), version: attemptRow.version};
-
-    if (shouldMirror && isWorkflowRunTerminal(run.status)) {
-      await writeWorkflowsOutboxEvent(tx, {
-        type: WORKFLOWS_WORKFLOW_RUN_TERMINATED,
-        payload: {
-          workflowRunId: run.id,
-          workflowRunAttemptId: attemptRow.id,
-          projectId: run.projectId,
-          status: run.status,
-        },
-      });
-    }
-
+    const run = await mirrorWorkflowRunStatus(
+      target.run,
+      attemptRow.version,
+      params,
+      shouldMirror,
+      tx,
+    );
+    await writeRunTerminatedIfNeeded(run, attemptRow.id, shouldMirror, tx);
     return {run, changed: true};
   });
 
   if (result.changed) recordWorkflowRunStatusChanged(result.run.status);
 
   return result.run;
+}
+
+async function loadWorkflowRunStatusTarget(params: UpdateWorkflowRunStatusParams, tx: Tx) {
+  const [attemptRef] = params.workflowRunAttemptId
+    ? await tx
+        .select({workflowRunId: workflowRunAttempts.workflowRunId})
+        .from(workflowRunAttempts)
+        .where(eq(workflowRunAttempts.id, params.workflowRunAttemptId))
+        .limit(1)
+    : [];
+  const requestedId = params.workflowRunId ?? params.workflowRunAttemptId ?? '';
+  const lockedRun = await lockWorkflowRun(
+    attemptRef?.workflowRunId ?? params.workflowRunId ?? '',
+    tx,
+  );
+  if (!lockedRun) throw new WorkflowRunNotFoundError(requestedId);
+
+  const [lockedAttempt] = await tx
+    .select()
+    .from(workflowRunAttempts)
+    .where(
+      params.workflowRunAttemptId
+        ? eq(workflowRunAttempts.id, params.workflowRunAttemptId)
+        : and(
+            eq(workflowRunAttempts.workflowRunId, lockedRun.id),
+            eq(workflowRunAttempts.attempt, lockedRun.currentAttempt),
+          ),
+    )
+    .limit(1)
+    .for('update');
+  if (!lockedAttempt) throw new WorkflowRunNotFoundError(requestedId);
+  return {run: lockedRun, attempt: lockedAttempt};
+}
+
+async function updateWorkflowRunAttemptStatus(
+  attemptId: string,
+  params: UpdateWorkflowRunStatusParams,
+  tx: Tx,
+) {
+  const [attemptRow] = await tx
+    .update(workflowRunAttempts)
+    .set({
+      status: params.status,
+      version: sql`${workflowRunAttempts.version} + 1`,
+      updatedAt: new Date(),
+      ...(params.status === 'running'
+        ? {startedAt: sql`coalesce(${workflowRunAttempts.startedAt}, now())`}
+        : {}),
+      ...(isWorkflowRunTerminal(params.status) ? {finishedAt: sql`now()`} : {}),
+    })
+    .where(
+      and(
+        eq(workflowRunAttempts.id, attemptId),
+        eq(workflowRunAttempts.version, params.expectedVersion),
+        notInArray(workflowRunAttempts.status, TERMINAL_WORKFLOW_RUN_STATUSES),
+      ),
+    )
+    .returning();
+  return attemptRow;
+}
+
+async function resolveWorkflowRunStatusConflict(
+  target: Awaited<ReturnType<typeof loadWorkflowRunStatusTarget>>,
+  params: UpdateWorkflowRunStatusParams,
+  tx: Tx,
+) {
+  const [existing] = await tx
+    .select()
+    .from(workflowRunAttempts)
+    .where(eq(workflowRunAttempts.id, target.attempt.id))
+    .limit(1);
+  if (existing && (existing.status === params.status || isWorkflowRunTerminal(existing.status))) {
+    return {run: {...toWorkflowRun(target.run), version: existing.version}, changed: false};
+  }
+  throw new Error(
+    `Optimistic lock failure: run attempt ${target.attempt.id} version ${params.expectedVersion}`,
+  );
+}
+
+async function mirrorWorkflowRunStatus(
+  runRow: typeof workflowRuns.$inferSelect,
+  attemptVersion: number,
+  params: UpdateWorkflowRunStatusParams,
+  shouldMirror: boolean,
+  tx: Tx,
+): Promise<WorkflowRun> {
+  if (!shouldMirror) return {...toWorkflowRun(runRow), version: attemptVersion};
+  const [updated] = await tx
+    .update(workflowRuns)
+    .set({
+      status: params.status,
+      version: sql`${workflowRuns.version} + 1`,
+      updatedAt: new Date(),
+      ...(params.status === 'running'
+        ? {startedAt: sql`coalesce(${workflowRuns.startedAt}, now())`}
+        : {}),
+      ...(isWorkflowRunTerminal(params.status) ? {finishedAt: sql`now()`} : {}),
+    })
+    .where(eq(workflowRuns.id, runRow.id))
+    .returning();
+  return {...toWorkflowRun(updated ?? runRow), version: attemptVersion};
+}
+
+async function writeRunTerminatedIfNeeded(
+  run: WorkflowRun,
+  attemptId: string,
+  shouldMirror: boolean,
+  tx: Tx,
+): Promise<void> {
+  if (!shouldMirror || !isWorkflowRunTerminal(run.status)) return;
+  await writeWorkflowsOutboxEvent(tx, {
+    type: WORKFLOWS_WORKFLOW_RUN_TERMINATED,
+    payload: {
+      workflowRunId: run.id,
+      workflowRunAttemptId: attemptId,
+      projectId: run.projectId,
+      status: run.status,
+    },
+  });
 }

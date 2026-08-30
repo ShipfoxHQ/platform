@@ -19,12 +19,10 @@ export function useResolvedTheme(): 'light' | 'dark' {
         mql.removeEventListener('change', callback);
       };
     },
-    (): 'light' | 'dark' =>
-      typeof window !== 'undefined' && theme === 'system'
-        ? window.matchMedia('(prefers-color-scheme: dark)').matches
-          ? 'dark'
-          : 'light'
-        : 'light',
+    (): 'light' | 'dark' => {
+      if (typeof window === 'undefined' || theme !== 'system') return 'light';
+      return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    },
     (): 'light' | 'dark' => 'light',
   );
 

@@ -5,7 +5,7 @@ import {FullPageLoader} from '@shipfox/react-ui/loader';
 import {toast} from '@shipfox/react-ui/toast';
 import {useQueryClient} from '@tanstack/react-query';
 import {useNavigate} from '@tanstack/react-router';
-import {useEffect, useMemo, useState} from 'react';
+import {type Dispatch, type SetStateAction, useEffect, useMemo, useState} from 'react';
 import {useCompleteIntegrationCallback} from '#application/complete-integration-callback.js';
 import {CallbackStatusShell} from '#components/callback-status-shell.js';
 import type {IntegrationConnection} from '#core/models.js';
@@ -56,51 +56,16 @@ export function SlackCallbackPage() {
         }),
     );
     request.then(
-      async (connection) => {
-        if (disposed) return;
-        if (completedCallbacks.has(key)) {
-          const workspaceSlug = await resolveWorkspaceSlug({
-            workspaceId: connection.workspaceId,
-            fallbackWorkspaces: workspaces,
-            queryClient,
-          });
-          if (!disposed) setCompletedWorkspace(workspaceSlug ? {slug: workspaceSlug} : {});
-          return;
-        }
-        rememberCallbackKey(completedCallbacks, key);
-        try {
-          clearSlackInstallWorkspace(sessionStorageOrUndefined());
-        } catch {
-          // The successful API response remains the source of truth.
-        }
-        if (disposed) return;
-        if (!toastedCallbacks.has(key)) {
-          rememberCallbackKey(toastedCallbacks, key);
-          toast.success('Slack installed.');
-        }
-        let workspaceSlug: string | undefined;
-        try {
-          if (disposed) return;
-          workspaceSlug = await resolveWorkspaceSlug({
-            workspaceId: connection.workspaceId,
-            fallbackWorkspaces: workspaces,
-            queryClient,
-          });
-          if (disposed) return;
-          if (!workspaceSlug) {
-            setCompletedWorkspace({});
-            return;
-          }
-          setCompletedWorkspace({slug: workspaceSlug});
-          await navigate({
-            to: '/w/$workspaceSlug/settings/integrations',
-            params: {workspaceSlug},
-            replace: true,
-          });
-        } catch {
-          if (!disposed) setCompletedWorkspace({slug: workspaceSlug});
-        }
-      },
+      async (connection) =>
+        await handleSlackCallbackSuccess({
+          connection,
+          key,
+          isDisposed: () => disposed,
+          workspaces,
+          queryClient,
+          navigate,
+          setCompletedWorkspace,
+        }),
       (error: unknown) => {
         if (!disposed) setFailure(classifySlackCallbackError(error));
       },
@@ -153,4 +118,71 @@ export function SlackCallbackPage() {
       />
     );
   return <FullPageLoader aria-label="Connecting Slack" />;
+}
+
+type SlackWorkspaceResolution = {
+  connection: IntegrationConnection;
+  isDisposed: () => boolean;
+  workspaces: ReturnType<typeof useAuthState>['workspaces'];
+  queryClient: ReturnType<typeof useQueryClient>;
+  setCompletedWorkspace: Dispatch<SetStateAction<{slug?: string | undefined} | undefined>>;
+};
+
+async function handleSlackCallbackSuccess(
+  params: SlackWorkspaceResolution & {key: string; navigate: ReturnType<typeof useNavigate>},
+) {
+  if (params.isDisposed()) return;
+  if (completedCallbacks.has(params.key)) {
+    await showResolvedSlackWorkspace(params);
+    return;
+  }
+  rememberCallbackKey(completedCallbacks, params.key);
+  try {
+    clearSlackInstallWorkspace(sessionStorageOrUndefined());
+  } catch {
+    // The successful API response remains the source of truth.
+  }
+  if (params.isDisposed()) return;
+  if (!toastedCallbacks.has(params.key)) {
+    rememberCallbackKey(toastedCallbacks, params.key);
+    toast.success('Slack installed.');
+  }
+  await navigateToSlackWorkspace(params);
+}
+
+async function showResolvedSlackWorkspace(params: SlackWorkspaceResolution) {
+  const workspaceSlug = await resolveWorkspaceSlug({
+    workspaceId: params.connection.workspaceId,
+    fallbackWorkspaces: params.workspaces,
+    queryClient: params.queryClient,
+  });
+  if (!params.isDisposed()) {
+    params.setCompletedWorkspace(workspaceSlug ? {slug: workspaceSlug} : {});
+  }
+}
+
+async function navigateToSlackWorkspace(
+  params: SlackWorkspaceResolution & {navigate: ReturnType<typeof useNavigate>},
+) {
+  let workspaceSlug: string | undefined;
+  try {
+    workspaceSlug = await resolveWorkspaceSlug({
+      workspaceId: params.connection.workspaceId,
+      fallbackWorkspaces: params.workspaces,
+      queryClient: params.queryClient,
+    });
+    if (params.isDisposed()) return;
+    if (!workspaceSlug) {
+      params.setCompletedWorkspace({});
+      return;
+    }
+    params.setCompletedWorkspace({slug: workspaceSlug});
+    await params.navigate({
+      to: '/w/$workspaceSlug/settings/integrations',
+      params: {workspaceSlug},
+      replace: true,
+    });
+  } catch {
+    if (!params.isDisposed()) params.setCompletedWorkspace({slug: workspaceSlug});
+  }
 }

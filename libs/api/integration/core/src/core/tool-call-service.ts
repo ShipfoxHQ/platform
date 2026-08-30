@@ -62,96 +62,100 @@ export interface IntegrationToolCallInput {
   reportError?: typeof reportError;
 }
 
+interface ToolSessionState {
+  session: AgentToolSession<CallToolResult> | undefined;
+  openingSession: Promise<AgentToolSession<CallToolResult>> | undefined;
+}
+
+async function executeIntegrationTool(
+  input: IntegrationToolCallInput,
+  state: ToolSessionState,
+): Promise<IntegrationToolCallOutcome> {
+  if (input.signal?.aborted) return {outcome: 'error', error: abortOutcome(input.signal)};
+  const adapter = input.registry.getAdapter(
+    input.integration.provider,
+    'agent_tools',
+  ) as AgentToolsProvider<
+    typeof input.connection,
+    unknown,
+    typeof input.integration,
+    CallToolResult
+  >;
+  state.openingSession = adapter.openSession({
+    connection: input.connection,
+    tools: [agentToolCatalogEntry(input)],
+    scope: input.integration,
+  });
+  state.session = await raceWithSignal(state.openingSession, input.signal);
+  if (input.signal?.aborted) return {outcome: 'error', error: abortOutcome(input.signal)};
+  const result = await raceWithSignal(
+    state.session.call({toolId: input.tool.id, arguments: input.arguments}),
+    input.signal,
+  );
+  if (result.isError === true) return {outcome: 'error', error: providerToolError(result)};
+  return {outcome: 'success', result};
+}
+
+function logIntegrationToolError(
+  input: IntegrationToolCallInput,
+  error: unknown,
+  errorRecord: IntegrationToolCallError,
+  log: typeof logger,
+  report: typeof reportError,
+): void {
+  if (!['provider-unavailable', 'provider-timeout', 'unknown'].includes(errorRecord.code)) return;
+  let message = 'Integration agent tool call failed';
+  if (errorRecord.code === 'provider-unavailable') {
+    message = 'Integration agent tool provider was unavailable';
+  } else if (errorRecord.code === 'provider-timeout') {
+    message = 'Integration agent tool provider timed out';
+  }
+  log().error(
+    {
+      ...toolCallLogContext(input),
+      err: error,
+      errorCode: errorRecord.code,
+      ...(errorRecord.status === undefined ? {} : {providerStatus: errorRecord.status}),
+    },
+    message,
+  );
+  report(error, {boundary: 'integration.agent-tool'});
+}
+
+function handleIntegrationToolError(
+  input: IntegrationToolCallInput,
+  error: unknown,
+  state: ToolSessionState,
+  log: typeof logger,
+  report: typeof reportError,
+): IntegrationToolCallOutcome {
+  if (input.signal?.aborted) {
+    if (state.openingSession !== undefined && state.session === undefined) {
+      void state.openingSession.then(
+        (opened) => closeSession(opened, log, report),
+        () => undefined,
+      );
+    }
+    return {outcome: 'error', error: abortOutcome(input.signal)};
+  }
+  const errorRecord = errorResult(error);
+  logIntegrationToolError(input, error, errorRecord, log, report);
+  return {outcome: 'error', error: errorRecord};
+}
+
 export async function callIntegrationTool(
   input: IntegrationToolCallInput,
 ): Promise<IntegrationToolCallOutcome> {
   const log = input.logger ?? logger;
   const report = input.reportError ?? reportError;
-  let session: AgentToolSession<CallToolResult> | undefined;
-  let openingSession: Promise<AgentToolSession<CallToolResult>> | undefined;
+  const state: ToolSessionState = {session: undefined, openingSession: undefined};
 
   try {
-    // A caller that already cancelled must not trigger a provider round-trip:
-    // for a write tool that would run a mutation after cancellation.
-    if (input.signal?.aborted) {
-      return {outcome: 'error', error: abortOutcome(input.signal)};
-    }
-
-    const adapter = input.registry.getAdapter(
-      input.integration.provider,
-      'agent_tools',
-    ) as AgentToolsProvider<
-      typeof input.connection,
-      unknown,
-      typeof input.integration,
-      CallToolResult
-    >;
-    openingSession = adapter.openSession({
-      connection: input.connection,
-      tools: [agentToolCatalogEntry(input)],
-      scope: input.integration,
-    });
-    session = await raceWithSignal(openingSession, input.signal);
-
-    // The signal may have aborted while the session was opening: the session
-    // is closed by the `finally` below, but the call must not be dispatched.
-    if (input.signal?.aborted) {
-      return {outcome: 'error', error: abortOutcome(input.signal)};
-    }
-
-    const result = await raceWithSignal(
-      session.call({
-        toolId: input.tool.id,
-        arguments: input.arguments,
-      }),
-      input.signal,
-    );
-    if (result.isError === true) {
-      // GitHub, gitea, jira, and slack surface provider tool-level failures as
-      // `isError` results instead of throwing; surface them as the bounded
-      // error outcome the same way the MCP gateway classifies them.
-      return {outcome: 'error', error: providerToolError(result)};
-    }
-    return {outcome: 'success', result};
+    return await executeIntegrationTool(input, state);
   } catch (error) {
-    // A caller-initiated abort is a cancellation, not a provider failure: keep
-    // it out of the timeout/unknown error classes and out of error monitoring.
-    if (input.signal?.aborted) {
-      // An abort that fired while the session was still opening leaves the
-      // `session` handle unset for `finally`; close the session when the
-      // opening promise settles so it cannot leak.
-      if (openingSession !== undefined && session === undefined) {
-        void openingSession.then(
-          (opened) => closeSession(opened, log, report),
-          () => undefined,
-        );
-      }
-      return {outcome: 'error', error: abortOutcome(input.signal)};
-    }
-    const errorRecord = errorResult(error);
-    if (
-      errorRecord.code === 'provider-unavailable' ||
-      errorRecord.code === 'provider-timeout' ||
-      errorRecord.code === 'unknown'
-    ) {
-      log().error(
-        {
-          ...toolCallLogContext(input),
-          err: error,
-          errorCode: errorRecord.code,
-          ...(errorRecord.status === undefined ? {} : {providerStatus: errorRecord.status}),
-        },
-        errorRecord.code === 'provider-unavailable'
-          ? 'Integration agent tool provider was unavailable'
-          : errorRecord.code === 'provider-timeout'
-            ? 'Integration agent tool provider timed out'
-            : 'Integration agent tool call failed',
-      );
-      report(error, {boundary: 'integration.agent-tool'});
-    }
-    return {outcome: 'error', error: errorRecord};
+    return handleIntegrationToolError(input, error, state, log, report);
   } finally {
-    await closeSession(session, log, report);
+    await closeSession(state.session, log, report);
   }
 }
 

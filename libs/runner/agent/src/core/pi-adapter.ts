@@ -51,6 +51,7 @@ const PI_MCP_TOOL_NAME = 'mcp';
 
 type PiThinkingLevel = NonNullable<CreateAgentSessionOptions['thinkingLevel']>;
 type ModelRuntimeInstance = Awaited<ReturnType<typeof ModelRuntime.create>>;
+type PiSession = Awaited<ReturnType<typeof createAgentSessionFromServices>>['session'];
 type CustomProviderConfig = Parameters<ModelRuntimeInstance['registerProvider']>[1];
 type CustomProviderModel = NonNullable<CustomProviderConfig['models']>[number];
 
@@ -65,19 +66,15 @@ export const piHarnessAdapter: HarnessAdapter = {run: runPiAgent};
  * separately from structured outputs.
  */
 async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult> {
+  assertPiInvocation(invocation);
   const {
     cwd,
     agentStateDir,
     sessionFile,
     sessionMode,
-    model: modelId,
-    provider,
     thinking,
     prompt,
     tools,
-    mcpServers,
-    credentials,
-    customProvider,
     gitConfigGlobal,
     signal,
     onSessionEntry,
@@ -91,197 +88,301 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
   // before this point (or during the awaits below) would leave pi running and burning
   // tokens after the step loop has moved on. Guard on entry, then again once the
   // session exists so a mid-creation abort still stops pi.
-  if (signal.aborted) throw new Error('Agent step aborted before the pi session started');
-  if (agentStateDir === undefined) throw new Error('Agent state directory is required');
+  const {modelRuntime, model} = await preparePiModelRuntime(invocation);
 
+  let session: PiSession | undefined;
+  let mcpConfig: PiMcpConfig | undefined;
+
+  try {
+    mcpConfig = await createPiMcpConfig(agentStateDir, invocation.mcpServers);
+    const prepared = await preparePiSessionServices({
+      invocation,
+      mcpConfig,
+      modelRuntime,
+    });
+    session = await createPiSession({
+      services: prepared.services,
+      model,
+      thinking,
+      tools,
+      customTools,
+      mcpConfig,
+      cwd,
+      agentStateDir,
+      sessionFile,
+      sessionMode,
+    });
+    return await runPiSession({
+      session,
+      signal,
+      mcpConfig,
+      onSessionEntry,
+      gitConfigGlobal,
+      hasDeclaredOutputs,
+      prompt,
+      collector,
+      sessionMode,
+    });
+  } finally {
+    await closePiSession({session, mcpConfig});
+  }
+}
+
+async function createPiSession(params: {
+  services: Awaited<ReturnType<typeof createAgentSessionServices>>;
+  model: ReturnType<typeof resolveModel>;
+  thinking: string;
+  tools: readonly string[] | undefined;
+  customTools: ReturnType<typeof setOutputTool>[];
+  mcpConfig: PiMcpConfig | undefined;
+  cwd: string;
+  agentStateDir: string;
+  sessionFile: string | undefined;
+  sessionMode: HarnessInvocation['sessionMode'];
+}): Promise<PiSession> {
+  const created = await createAgentSessionFromServices({
+    services: params.services,
+    model: params.model,
+    thinkingLevel: params.thinking as PiThinkingLevel,
+    ...toolSelectionOption(params.tools, [
+      ...(params.mcpConfig === undefined ? [] : [PI_MCP_TOOL_NAME]),
+      ...params.customTools.map((tool) => tool.name),
+    ]),
+    ...(params.customTools.length === 0 ? {} : {customTools: params.customTools}),
+    sessionManager: createPiSessionManager(params),
+  });
+  return created.session;
+}
+
+async function runPiSession(params: {
+  session: PiSession;
+  signal: AbortSignal;
+  mcpConfig: PiMcpConfig | undefined;
+  onSessionEntry: HarnessInvocation['onSessionEntry'];
+  gitConfigGlobal: string | undefined;
+  hasDeclaredOutputs: boolean;
+  prompt: string;
+  collector: OutputCollector;
+  sessionMode: HarnessInvocation['sessionMode'];
+}): Promise<HarnessResult> {
+  const abortSession = () => {
+    Promise.resolve(params.session.abort()).catch(() => undefined);
+  };
+  if (params.signal.aborted) {
+    abortSession();
+    throw new Error('Agent step aborted during pi session creation');
+  }
+  params.signal.addEventListener('abort', abortSession, {once: true});
+  try {
+    return await runActivePiSession(params);
+  } finally {
+    params.signal.removeEventListener('abort', abortSession);
+  }
+}
+
+async function runActivePiSession(
+  params: Parameters<typeof runPiSession>[0],
+): Promise<HarnessResult> {
+  if (params.mcpConfig !== undefined) {
+    await params.session.bindExtensions({
+      mode: 'print',
+      onError: (error) => logger().warn({err: error}, 'Pi extension failed'),
+    });
+  }
+  if (params.signal.aborted) throw new Error('Agent step aborted during pi session creation');
+
+  const forwarder = startForwarding(params.session.sessionFile, params.onSessionEntry);
+  const stopForwarder = () => forwarder?.stop();
+  params.signal.addEventListener('abort', stopForwarder, {once: true});
+  const restoreGitConfigGlobal = createGitConfigGlobalRestorer(params.gitConfigGlobal);
+  if (params.gitConfigGlobal) {
+    process.env.GIT_CONFIG_GLOBAL = params.gitConfigGlobal;
+    params.signal.addEventListener('abort', restoreGitConfigGlobal, {once: true});
+  }
+  try {
+    return await runPiOutputTurns(params);
+  } finally {
+    forwarder?.stop();
+    restoreGitConfigGlobal();
+    params.signal.removeEventListener('abort', stopForwarder);
+    params.signal.removeEventListener('abort', restoreGitConfigGlobal);
+  }
+}
+
+async function runPiOutputTurns(
+  params: Parameters<typeof runPiSession>[0],
+): Promise<HarnessResult> {
+  let response = '';
+  try {
+    await runOutputTurnLoop({
+      signal: params.signal,
+      prompt: params.hasDeclaredOutputs
+        ? withOutputGuidance(params.prompt, params.collector.guidanceText())
+        : params.prompt,
+      runTurn: async (message) => {
+        await params.session.prompt(message);
+        const assistantError = lastAssistantError(params.session.messages);
+        if (assistantError !== undefined) {
+          throw new AgentInvocationError(
+            assistantError,
+            params.session.getLastAssistantText() ?? '',
+          );
+        }
+        response = params.session.getLastAssistantText() ?? '';
+      },
+      missingRequired: () => params.collector.missingRequired(),
+      guidanceForMissing: (missing) => params.collector.guidanceTextFor(missing),
+    });
+  } catch (error) {
+    if (error instanceof RequiredOutputsMissingError) {
+      throw new AgentInvocationError(error.message, params.session.getLastAssistantText() ?? '');
+    }
+    throw error;
+  }
+  const outputs = params.collector.snapshot();
+  return {
+    response,
+    ...(Object.keys(outputs).length === 0 ? {} : {outputs}),
+    ...(params.sessionMode === 'fork' ? {} : {sessionFile: params.session.sessionFile}),
+    ...(params.sessionMode === 'fork' ? {} : {sessionId: params.session.sessionId}),
+  };
+}
+
+function createPiSessionManager(
+  params: Pick<
+    Parameters<typeof createPiSession>[0],
+    'cwd' | 'agentStateDir' | 'sessionFile' | 'sessionMode'
+  >,
+): SessionManager {
+  const sessionDirectory = join(params.agentStateDir, 'agent-sessions');
+  if (params.sessionFile === undefined) {
+    return SessionManager.create(params.cwd, sessionDirectory);
+  }
+  return openHarnessSession({
+    cwd: params.cwd,
+    sessionFile: params.sessionFile,
+    sessionDir: sessionDirectory,
+    mode: params.sessionMode ?? 'resume',
+  });
+}
+
+function assertPiInvocation(
+  invocation: HarnessInvocation,
+): asserts invocation is HarnessInvocation & {agentStateDir: string} {
+  if (invocation.signal.aborted)
+    throw new Error('Agent step aborted before the pi session started');
+  if (invocation.agentStateDir === undefined) throw new Error('Agent state directory is required');
+}
+
+async function preparePiModelRuntime(
+  invocation: HarnessInvocation,
+): Promise<{modelRuntime: ModelRuntimeInstance; model: ReturnType<typeof resolveModel>}> {
   const modelRuntime = await ModelRuntime.create({
     credentials: createInMemoryCredentialStore(
-      customProvider === undefined
-        ? {[provider]: toPiRuntimeCredential(provider, credentials)}
+      invocation.customProvider === undefined
+        ? {
+            [invocation.provider]: toPiRuntimeCredential(
+              invocation.provider,
+              invocation.credentials,
+            ),
+          }
         : {},
     ),
   });
-  if (customProvider !== undefined) {
-    await registerCustomProvider(modelRuntime, provider, credentials, customProvider);
+  if (invocation.customProvider !== undefined) {
+    await registerCustomProvider(
+      modelRuntime,
+      invocation.provider,
+      invocation.credentials,
+      invocation.customProvider,
+    );
   }
-  const model = resolveModel(modelRuntime, provider, modelId);
-
-  // Surface a missing key up front as a config error: otherwise it fails deep inside the
-  // provider call as an opaque invocation failure, hiding that the fix is workspace config.
+  const model = resolveModel(modelRuntime, invocation.provider, invocation.model);
   if (!modelRuntime.hasConfiguredAuth(model.provider)) {
     throw new AgentConfigError(
-      `No credentials configured for provider "${provider}". ` +
+      `No credentials configured for provider "${invocation.provider}". ` +
         'Verify the provider is configured for this workspace.',
       'provider_not_configured',
     );
   }
+  return {modelRuntime, model};
+}
 
-  let session: Awaited<ReturnType<typeof createAgentSessionFromServices>>['session'] | undefined;
-  let mcpConfig: PiMcpConfig | undefined;
-
-  try {
-    mcpConfig = await createPiMcpConfig(agentStateDir, mcpServers);
-    const extensionPackageNames = [
-      ...(isPiExtensionAvailable({packageName: 'pi-web-access'}) ? ['pi-web-access'] : []),
-      ...(mcpConfig === undefined ? [] : ['pi-mcp-adapter']),
-    ];
-    let extensionDirectories: string[];
-    try {
-      extensionDirectories = piExtensionDirectories({packageNames: extensionPackageNames});
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      throw new AgentHarnessUnavailableError({
-        diagnostics: [{type: 'error', message}],
-        environment: {
-          cwd,
-          provider,
-          model: modelId,
-          thinking,
-          extensionPaths: extensionPackageNames,
-        },
-      });
-    }
-    const services = await createAgentSessionServices({
+async function preparePiSessionServices(params: {
+  invocation: HarnessInvocation;
+  mcpConfig: PiMcpConfig | undefined;
+  modelRuntime: ModelRuntimeInstance;
+}): Promise<{
+  services: Awaited<ReturnType<typeof createAgentSessionServices>>;
+}> {
+  const {cwd, provider, model, thinking} = params.invocation;
+  const {mcpConfig} = params;
+  const extensionPackageNames = [
+    ...(isPiExtensionAvailable({packageName: 'pi-web-access'}) ? ['pi-web-access'] : []),
+    ...(mcpConfig === undefined ? [] : ['pi-mcp-adapter']),
+  ];
+  const extensionDirectories = resolvePiExtensionDirectories({
+    cwd,
+    provider,
+    model,
+    thinking,
+    extensionPackageNames,
+  });
+  const services = await createAgentSessionServices({
+    cwd,
+    modelRuntime: params.modelRuntime,
+    ...(mcpConfig === undefined
+      ? {}
+      : {extensionFlagValues: new Map([['mcp-config', mcpConfig.path]])}),
+    resourceLoaderOptions: {additionalExtensionPaths: extensionDirectories},
+  });
+  const extensionResult = services.resourceLoader?.getExtensions?.();
+  assertPiServiceDiagnostics(
+    services.diagnostics,
+    {
       cwd,
-      modelRuntime,
-      ...(mcpConfig === undefined
-        ? {}
-        : {extensionFlagValues: new Map([['mcp-config', mcpConfig.path]])}),
-      resourceLoaderOptions: {
-        additionalExtensionPaths: extensionDirectories,
-      },
-    });
-    const extensionResult = services.resourceLoader?.getExtensions?.();
-    assertPiServiceDiagnostics(
-      services.diagnostics,
-      {
-        cwd,
-        provider,
-        model: modelId,
-        thinking,
-        extensionPaths: extensionPackageNames,
-        ...(extensionResult === undefined
-          ? {}
-          : {
-              resolvedExtensionPaths: extensionResult.extensions.map(
-                (extension) => extension.resolvedPath,
-              ),
-            }),
-      },
-      extensionResult?.errors,
-    );
-    assertPiExtensionsLoaded({
-      resourceLoader: services.resourceLoader,
-      directories: extensionDirectories,
-    });
-
-    const createdSession = await createAgentSessionFromServices({
-      services,
+      provider,
       model,
-      thinkingLevel: thinking as PiThinkingLevel,
-      ...toolSelectionOption(tools, [
-        ...(mcpConfig === undefined ? [] : [PI_MCP_TOOL_NAME]),
-        ...customTools.map((tool) => tool.name),
-      ]),
-      ...(customTools.length === 0 ? {} : {customTools}),
-      // Keep the session JSONL in the runner-owned agent-state directory so it forwards from a
-      // deterministic path and is cleaned up with the job; pi's default lives under ~/.pi.
-      sessionManager:
-        sessionFile === undefined
-          ? SessionManager.create(cwd, join(agentStateDir, 'agent-sessions'))
-          : openHarnessSession({
-              cwd,
-              sessionFile,
-              sessionDir: join(agentStateDir, 'agent-sessions'),
-              mode: sessionMode ?? 'resume',
-            }),
+      thinking,
+      extensionPaths: extensionPackageNames,
+      ...(extensionResult === undefined
+        ? {}
+        : {
+            resolvedExtensionPaths: extensionResult.extensions.map(
+              (extension) => extension.resolvedPath,
+            ),
+          }),
+    },
+    extensionResult?.errors,
+  );
+  assertPiExtensionsLoaded({
+    resourceLoader: services.resourceLoader,
+    directories: extensionDirectories,
+  });
+  return {services};
+}
+
+function resolvePiExtensionDirectories(params: {
+  cwd: string;
+  provider: string;
+  model: string;
+  thinking: string;
+  extensionPackageNames: string[];
+}): string[] {
+  try {
+    return piExtensionDirectories({packageNames: params.extensionPackageNames});
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new AgentHarnessUnavailableError({
+      diagnostics: [{type: 'error', message}],
+      environment: {
+        cwd: params.cwd,
+        provider: params.provider,
+        model: params.model,
+        thinking: params.thinking,
+        extensionPaths: params.extensionPackageNames,
+      },
     });
-    const piSession = createdSession.session;
-    session = piSession;
-    const abortSession = () => {
-      Promise.resolve(piSession.abort()).catch(() => undefined);
-    };
-
-    if (signal.aborted) {
-      abortSession();
-      throw new Error('Agent step aborted during pi session creation');
-    }
-
-    signal.addEventListener('abort', abortSession, {once: true});
-    try {
-      if (mcpConfig !== undefined) {
-        await piSession.bindExtensions({
-          mode: 'print',
-          onError: (error) => {
-            logger().warn({err: error}, 'Pi extension failed');
-          },
-        });
-      }
-
-      if (signal.aborted) {
-        throw new Error('Agent step aborted during pi session creation');
-      }
-
-      const forwarder = startForwarding(piSession.sessionFile, onSessionEntry);
-      // pi may not settle session.prompt() promptly on abort (step.ts races the call), so the
-      // finally below can be delayed indefinitely. Stop the forwarder on abort too, or its poll
-      // timer leaks past workspace teardown. stop() is idempotent, so the finally re-calling it is
-      // safe, and the early stop still does its final drain.
-      const stopForwarder = () => forwarder?.stop();
-      signal.addEventListener('abort', stopForwarder, {once: true});
-      const restoreGitConfigGlobal = createGitConfigGlobalRestorer(gitConfigGlobal);
-      if (gitConfigGlobal) {
-        // The runner executes one agent step at a time in this process; restore promptly so the
-        // process-global Git config cannot leak into the next step.
-        process.env.GIT_CONFIG_GLOBAL = gitConfigGlobal;
-        signal.addEventListener('abort', restoreGitConfigGlobal, {once: true});
-      }
-      try {
-        let response = '';
-        await runOutputTurnLoop({
-          signal,
-          prompt: hasDeclaredOutputs
-            ? withOutputGuidance(prompt, collector.guidanceText())
-            : prompt,
-          runTurn: async (message) => {
-            await piSession.prompt(message);
-            const assistantError = lastAssistantError(piSession.messages);
-            if (assistantError !== undefined) {
-              throw new AgentInvocationError(
-                assistantError,
-                piSession.getLastAssistantText() ?? '',
-              );
-            }
-            response = piSession.getLastAssistantText() ?? '';
-          },
-          missingRequired: () => collector.missingRequired(),
-          guidanceForMissing: (missing) => collector.guidanceTextFor(missing),
-        });
-        const outputs = collector.snapshot();
-        return {
-          response,
-          ...(Object.keys(outputs).length === 0 ? {} : {outputs}),
-          ...(sessionMode === 'fork' ? {} : {sessionFile: piSession.sessionFile}),
-          ...(sessionMode === 'fork' ? {} : {sessionId: piSession.sessionId}),
-        };
-      } catch (error) {
-        if (error instanceof RequiredOutputsMissingError) {
-          throw new AgentInvocationError(error.message, piSession.getLastAssistantText() ?? '');
-        }
-        throw error;
-      } finally {
-        // A final synchronous read forwards every entry written before the caller closes the log
-        // stream, so all session records precede its end marker.
-        forwarder?.stop();
-        restoreGitConfigGlobal();
-        signal.removeEventListener('abort', stopForwarder);
-        signal.removeEventListener('abort', restoreGitConfigGlobal);
-      }
-    } finally {
-      signal.removeEventListener('abort', abortSession);
-    }
-  } finally {
-    await closePiSession({session, mcpConfig});
   }
 }
 

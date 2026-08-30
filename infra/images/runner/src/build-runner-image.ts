@@ -9,16 +9,44 @@ import {
 
 export const AWS_ACCOUNT_ID_PATTERN = /^\d{12}$/u;
 
+function buildEnvironment(env: NodeJS.ProcessEnv): {
+  architecture: 'amd64' | 'arm64';
+  buildAttempt: string;
+  buildNumber: string;
+} {
+  const buildNumber = required(env.BUILD_NUMBER, 'BUILD_NUMBER');
+  const buildAttempt = required(env.BUILD_ATTEMPT, 'BUILD_ATTEMPT');
+  const architecture = env.BUILD_ARCH;
+  if (architecture !== 'amd64' && architecture !== 'arm64') {
+    throw new Error('BUILD_ARCH must be amd64 or arm64.');
+  }
+  return {
+    architecture,
+    buildAttempt,
+    buildNumber,
+  };
+}
+
+function candidatePlatformMetadata(platform: string, env: NodeJS.ProcessEnv) {
+  if (platform !== 'aws') return {};
+  return {
+    candidateKmsKeyId: required(
+      env.BUILD_CANDIDATE_KMS_KEY_ID ?? env.AWS_RUNNER_IMAGE_CANDIDATE_KMS_KEY_ID,
+      'BUILD_CANDIDATE_KMS_KEY_ID',
+    ),
+    candidateConsumerAccountIds: parseCandidateConsumerAccountIds(
+      env.BUILD_CANDIDATE_CONSUMER_ACCOUNT_IDS ??
+        env.AWS_RUNNER_IMAGE_CANDIDATE_CONSUMER_ACCOUNT_IDS,
+    ),
+  };
+}
+
 export function parseBuildRunnerImageArgs(args: string[], env = process.env, nodeVersion?: string) {
   const [os, platform, ...extraPackerArgs] = args;
   if (!os || !platform)
     throw new Error('Usage: build-runner-image <os> <aws|qemu> [packer options]');
   if (!['aws', 'qemu'].includes(platform)) throw new Error('Platform must be aws or qemu.');
-  if (!env.BUILD_NUMBER) throw new Error('BUILD_NUMBER is not set.');
-  if (!env.BUILD_ATTEMPT) throw new Error('BUILD_ATTEMPT is not set.');
-  if (!env.BUILD_ARCH || !['amd64', 'arm64'].includes(env.BUILD_ARCH)) {
-    throw new Error('BUILD_ARCH must be amd64 or arm64.');
-  }
+  const validatedEnvironment = buildEnvironment(env);
   const lifecycle = (env.BUILD_IMAGE_LIFECYCLE ?? 'release') as RunnerImageLifecycle;
   if (!['candidate', 'release'].includes(lifecycle)) {
     throw new Error('BUILD_IMAGE_LIFECYCLE must be candidate or release.');
@@ -26,31 +54,16 @@ export function parseBuildRunnerImageArgs(args: string[], env = process.env, nod
   const sharedBuild = {
     os,
     platform: platform as RunnerImagePlatform,
-    architecture: env.BUILD_ARCH as 'amd64' | 'arm64',
-    buildAttempt: env.BUILD_ATTEMPT,
-    buildNumber: env.BUILD_NUMBER,
+    ...validatedEnvironment,
     lifecycle,
     nodeVersion: nodeVersion ?? readMiseNodeVersion(),
     revision: env.BUILD_REVISION ?? env.GITHUB_SHA ?? 'local',
     extraPackerArgs,
   };
   if (lifecycle === 'candidate') {
-    const candidateMetadata =
-      platform === 'aws'
-        ? {
-            candidateKmsKeyId: required(
-              env.BUILD_CANDIDATE_KMS_KEY_ID ?? env.AWS_RUNNER_IMAGE_CANDIDATE_KMS_KEY_ID,
-              'BUILD_CANDIDATE_KMS_KEY_ID',
-            ),
-            candidateConsumerAccountIds: parseCandidateConsumerAccountIds(
-              env.BUILD_CANDIDATE_CONSUMER_ACCOUNT_IDS ??
-                env.AWS_RUNNER_IMAGE_CANDIDATE_CONSUMER_ACCOUNT_IDS,
-            ),
-          }
-        : {};
     return {
       ...sharedBuild,
-      ...candidateMetadata,
+      ...candidatePlatformMetadata(platform, env),
       candidateExpiresAt: required(env.BUILD_CANDIDATE_EXPIRES_AT, 'BUILD_CANDIDATE_EXPIRES_AT'),
       candidateId: required(env.BUILD_CANDIDATE_ID, 'BUILD_CANDIDATE_ID'),
     };

@@ -64,6 +64,41 @@ interface AdoptedSessionRuntimeState extends AdoptedSessionState {
   stalledRenewals: number;
 }
 
+type RenewalCandidate = {
+  expiryMs: number;
+  currentExpiryMs: number;
+  valid: boolean;
+  advancesWindow: boolean;
+};
+
+function renewalCandidate(
+  result: AdoptedSessionRenewal,
+  current: AdoptedSessionRuntimeState,
+  reservedExpiryMs: number,
+): RenewalCandidate {
+  const expiryMs = Date.parse(result.expiresAt);
+  const serverTimeMs = Date.parse(result.serverTime);
+  const currentExpiryMs = Date.parse(current.expiresAt);
+  const valid =
+    Number.isFinite(expiryMs) && Number.isFinite(serverTimeMs) && expiryMs > serverTimeMs;
+  return {
+    expiryMs,
+    currentExpiryMs,
+    valid,
+    advancesWindow: valid && expiryMs > Math.max(currentExpiryMs, reservedExpiryMs),
+  };
+}
+
+async function requestAdoptedRenewal(
+  adopted: AdoptedSessionRuntimeState,
+): Promise<AdoptedSessionRenewal | null> {
+  try {
+    return await adopted.renew();
+  } catch {
+    return null;
+  }
+}
+
 const adoptedSessionAtom = atom<AdoptedSessionRuntimeState | null>(null);
 const adoptionGenerationAtom = atom(0);
 /**
@@ -385,18 +420,68 @@ export function useAdoptedSession() {
     [beginAuthTransition, enterAuthenticated, queryClient, store],
   );
 
+  const handleNonAdvancingRenewal = useCallback(
+    async (
+      candidate: RenewalCandidate,
+      current: AdoptedSessionRuntimeState,
+      adopted: AdoptedSessionRuntimeState,
+    ): Promise<void> => {
+      const lostRace =
+        candidate.valid &&
+        (candidate.expiryMs > candidate.currentExpiryMs ||
+          candidate.currentExpiryMs > Date.parse(adopted.expiresAt));
+      if (candidate.valid && lostRace) return;
+
+      const stalled = {...current, stalledRenewals: current.stalledRenewals + 1};
+      store.set(adoptedSessionAtom, stalled);
+      if (stalled.stalledRenewals >= ADOPTED_RENEWAL_STALL_LIMIT) await endAdoption();
+    },
+    [endAdoption, store],
+  );
+
+  const adoptRenewalResult = useCallback(
+    async ({
+      result,
+      candidateExpiryMs,
+      generation,
+      adopted,
+    }: {
+      result: AdoptedSessionRenewal;
+      candidateExpiryMs: number;
+      generation: number;
+      adopted: AdoptedSessionRuntimeState;
+    }): Promise<AdoptedSessionRenewal | null> => {
+      const receivedAtMs = performance.now();
+      const transitionEpoch = beginAuthTransition();
+      invalidateRefresh(queryClient);
+      const accepted = await enterAuthenticated(result.session, transitionEpoch);
+      if (!accepted || store.get(adoptionGenerationAtom) !== generation) {
+        if (store.get(adoptedRenewalReservationAtom) === candidateExpiryMs) {
+          store.set(adoptedRenewalReservationAtom, 0);
+        }
+        return null;
+      }
+      store.set(adoptedRenewalReservationAtom, 0);
+      store.set(adoptedSessionAtom, {
+        generation,
+        receivedAtMs,
+        session: result.session,
+        expiresAt: result.expiresAt,
+        serverTime: result.serverTime,
+        renew: adopted.renew,
+        stalledRenewals: 0,
+      });
+      return result;
+    },
+    [beginAuthTransition, enterAuthenticated, queryClient, store],
+  );
+
   const renewAdoptedSession = useCallback(async (): Promise<AdoptedSessionRenewal | null> => {
     const adopted = store.get(adoptedSessionAtom);
     if (adopted === null) return null;
     const generation = store.get(adoptionGenerationAtom);
 
-    let result: AdoptedSessionRenewal | null;
-    try {
-      result = await adopted.renew();
-    } catch {
-      // A failed renewal degrades like a refused one: back to the cookie.
-      result = null;
-    }
+    const result = await requestAdoptedRenewal(adopted);
 
     // The generation is captured when the request started; a response that
     // resolves after a release is discarded.
@@ -406,77 +491,27 @@ export function useAdoptedSession() {
       return null;
     }
 
-    const candidateExpiryMs = Date.parse(result.expiresAt);
-    const candidateServerTimeMs = Date.parse(result.serverTime);
-    const candidateValid =
-      Number.isFinite(candidateExpiryMs) &&
-      Number.isFinite(candidateServerTimeMs) &&
-      candidateExpiryMs > candidateServerTimeMs;
     const current = store.get(adoptedSessionAtom);
     if (current === null) return null;
-    const currentExpiryMs = Date.parse(current.expiresAt);
-    const bestReservedExpiryMs = Math.max(
-      currentExpiryMs,
-      store.get(adoptedRenewalReservationAtom),
-    );
-    // A candidate that is malformed, stuck on the expiry the adoption already
-    // holds, or shorter than the best expiry adopted or reserved by another
-    // renewal did not advance the window and is never adopted.
-    const windowDidNotAdvance = !candidateValid || candidateExpiryMs <= bestReservedExpiryMs;
-    if (windowDidNotAdvance) {
-      // Count a stall only when the window really did not move: a malformed
-      // response, or one stuck on an expiry the adoption already holds. A
-      // valid response that merely lost a race to a longer expiry adopted or
-      // reserved while this renewal was in flight is a healthy concurrent
-      // renewal; counting it would burn the stall budget and fire extra
-      // supplier requests. The cap ends the adoption instead of driving an
-      // unbounded zero-delay renew loop and falls back to the cookie refresh.
-      const lostRace =
-        candidateValid &&
-        (candidateExpiryMs > currentExpiryMs || currentExpiryMs > Date.parse(adopted.expiresAt));
-      if (!candidateValid || !lostRace) {
-        const stalled = {...current, stalledRenewals: current.stalledRenewals + 1};
-        store.set(adoptedSessionAtom, stalled);
-        if (stalled.stalledRenewals >= ADOPTED_RENEWAL_STALL_LIMIT) {
-          await endAdoption();
-        }
-      }
+    const candidate = renewalCandidate(result, current, store.get(adoptedRenewalReservationAtom));
+    if (!candidate.advancesWindow) {
+      await handleNonAdvancingRenewal(candidate, current, adopted);
       return null;
     }
-    if (candidateExpiryMs > store.get(adoptedRenewalReservationAtom)) {
+    if (candidate.expiryMs > store.get(adoptedRenewalReservationAtom)) {
       // Reserve the candidate expiry before the asynchronous transition so an
       // overlapping shorter response cannot overwrite the longer token. The
       // reservation lives outside adoptedSessionAtom so this write does not
       // re-run the renew effect while the transition is still pending.
-      store.set(adoptedRenewalReservationAtom, candidateExpiryMs);
+      store.set(adoptedRenewalReservationAtom, candidate.expiryMs);
     }
-
-    const receivedAtMs = performance.now();
-    const transitionEpoch = beginAuthTransition();
-    // The renewal transition supersedes any cookie refresh still in flight;
-    // release must not reuse a promise that will reject as superseded.
-    invalidateRefresh(queryClient);
-    const accepted = await enterAuthenticated(result.session, transitionEpoch);
-    if (!accepted || store.get(adoptionGenerationAtom) !== generation) {
-      // Drop our reservation only while it is still the current one; another
-      // renewal may have reserved a later expiry meanwhile.
-      if (store.get(adoptedRenewalReservationAtom) === candidateExpiryMs) {
-        store.set(adoptedRenewalReservationAtom, 0);
-      }
-      return null;
-    }
-    store.set(adoptedRenewalReservationAtom, 0);
-    store.set(adoptedSessionAtom, {
+    return await adoptRenewalResult({
+      result,
+      candidateExpiryMs: candidate.expiryMs,
       generation,
-      receivedAtMs,
-      session: result.session,
-      expiresAt: result.expiresAt,
-      serverTime: result.serverTime,
-      renew: adopted.renew,
-      stalledRenewals: 0,
+      adopted,
     });
-    return result;
-  }, [beginAuthTransition, endAdoption, enterAuthenticated, queryClient, store]);
+  }, [adoptRenewalResult, endAdoption, handleNonAdvancingRenewal, store]);
 
   const releaseAdoptedSession = useCallback(async () => {
     // Always advance the generation and fall back to the cookie: a release

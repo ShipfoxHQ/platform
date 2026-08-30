@@ -9,7 +9,16 @@ import {toast} from '@shipfox/react-ui/toast';
 import {Header, Text} from '@shipfox/react-ui/typography';
 import {useQueryClient} from '@tanstack/react-query';
 import {Link, useNavigate} from '@tanstack/react-router';
-import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {
+  type Dispatch,
+  type MutableRefObject,
+  type SetStateAction,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   useCompleteIntegrationCallback,
   useCompleteIntegrationCallbackResult,
@@ -36,6 +45,62 @@ import {
 import {classifyJiraCallbackError, type JiraCallbackFailure} from '#jira-form-errors.js';
 import {rememberCallbackKey, resolveWorkspaceSlug} from '#workspace-navigation.js';
 
+type CompletedWorkspace = {slug?: string | undefined};
+type JiraConnectionCompletion = {
+  connection: IntegrationConnection;
+  isActive: () => boolean;
+  disposedRef: MutableRefObject<boolean>;
+  workspaces: ReturnType<typeof useAuthState>['workspaces'];
+  queryClient: ReturnType<typeof useQueryClient>;
+  setCompletedWorkspace: Dispatch<SetStateAction<CompletedWorkspace | undefined>>;
+};
+
+function jiraCompletionInactive(
+  disposedRef: MutableRefObject<boolean>,
+  isActive: () => boolean,
+): boolean {
+  return disposedRef.current || !isActive();
+}
+
+async function restoreCompletedJiraConnection(params: JiraConnectionCompletion) {
+  const workspaceSlug = await resolveWorkspaceSlug({
+    workspaceId: params.connection.workspaceId,
+    fallbackWorkspaces: params.workspaces,
+    queryClient: params.queryClient,
+  });
+  if (!jiraCompletionInactive(params.disposedRef, params.isActive)) {
+    params.setCompletedWorkspace(workspaceSlug ? {slug: workspaceSlug} : {});
+  }
+}
+
+async function navigateFromCompletedJiraConnection(
+  params: JiraConnectionCompletion & {navigate: ReturnType<typeof useNavigate>},
+) {
+  let workspaceSlug: string | undefined;
+  try {
+    workspaceSlug = await resolveWorkspaceSlug({
+      workspaceId: params.connection.workspaceId,
+      fallbackWorkspaces: params.workspaces,
+      queryClient: params.queryClient,
+    });
+    if (jiraCompletionInactive(params.disposedRef, params.isActive)) return;
+    if (!workspaceSlug) {
+      params.setCompletedWorkspace({});
+      return;
+    }
+    params.setCompletedWorkspace({slug: workspaceSlug});
+    await params.navigate({
+      to: '/w/$workspaceSlug/settings/integrations',
+      params: {workspaceSlug},
+      replace: true,
+    });
+  } catch {
+    if (!jiraCompletionInactive(params.disposedRef, params.isActive)) {
+      params.setCompletedWorkspace({slug: workspaceSlug});
+    }
+  }
+}
+
 export function JiraCallbackPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -51,9 +116,7 @@ export function JiraCallbackPage() {
   const [sites, setSites] = useState<JiraSite[] | undefined>();
   const [failure, setFailure] = useState<JiraCallbackFailure | undefined>();
   const [selectedCloudId, setSelectedCloudId] = useState<string | undefined>();
-  const [completedWorkspace, setCompletedWorkspace] = useState<{
-    slug?: string | undefined;
-  }>();
+  const [completedWorkspace, setCompletedWorkspace] = useState<CompletedWorkspace>();
   const disposedRef = useRef(false);
   const callbackKeyRef = useRef(callbackKey);
   callbackKeyRef.current = callbackKey;
@@ -72,16 +135,17 @@ export function JiraCallbackPage() {
       callbackKey: string,
       isActive: () => boolean = () => true,
     ) => {
-      if (disposedRef.current || !isActive()) return;
+      if (jiraCompletionInactive(disposedRef, isActive)) return;
       const completedConnection = jiraCompletedConnections.get(callbackKey);
       if (completedConnection) {
-        const workspaceSlug = await resolveWorkspaceSlug({
-          workspaceId: completedConnection.workspaceId,
-          fallbackWorkspaces: workspaces,
+        await restoreCompletedJiraConnection({
+          connection: completedConnection,
+          isActive,
+          disposedRef,
+          workspaces,
           queryClient,
+          setCompletedWorkspace,
         });
-        if (!disposedRef.current && isActive())
-          setCompletedWorkspace(workspaceSlug ? {slug: workspaceSlug} : {});
         return;
       }
       rememberCompletedConnection(callbackKey, connection);
@@ -90,32 +154,20 @@ export function JiraCallbackPage() {
       } catch {
         // The successful API response remains the source of truth for navigation.
       }
-      if (disposedRef.current || !isActive()) return;
+      if (jiraCompletionInactive(disposedRef, isActive)) return;
       if (!jiraToastedCallbacks.has(callbackKey)) {
         rememberCallbackKey(jiraToastedCallbacks, callbackKey);
         toast.success('Jira installed.');
       }
-      let workspaceSlug: string | undefined;
-      try {
-        workspaceSlug = await resolveWorkspaceSlug({
-          workspaceId: connection.workspaceId,
-          fallbackWorkspaces: workspaces,
-          queryClient,
-        });
-        if (disposedRef.current || !isActive()) return;
-        if (!workspaceSlug) {
-          setCompletedWorkspace({});
-          return;
-        }
-        setCompletedWorkspace({slug: workspaceSlug});
-        await navigate({
-          to: '/w/$workspaceSlug/settings/integrations',
-          params: {workspaceSlug},
-          replace: true,
-        });
-      } catch {
-        if (!disposedRef.current && isActive()) setCompletedWorkspace({slug: workspaceSlug});
-      }
+      await navigateFromCompletedJiraConnection({
+        connection,
+        isActive,
+        disposedRef,
+        workspaces,
+        queryClient,
+        setCompletedWorkspace,
+        navigate,
+      });
     },
     [navigate, queryClient, workspaces],
   );

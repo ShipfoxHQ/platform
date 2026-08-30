@@ -106,7 +106,8 @@ export async function main(argv) {
 
 export function parseArgs(argv) {
   const args = [...argv];
-  const command = args[0] && !args[0].startsWith('-') ? args.shift() : 'run';
+  let command = 'run';
+  if (args[0] && !args[0].startsWith('-')) command = args.shift();
   if (command !== 'run') {
     throw new Error(`Unknown command: ${command}`);
   }
@@ -126,44 +127,13 @@ export function parseArgs(argv) {
       options.turboArgs.push(...args.slice(index + 1));
       break;
     }
-    if (arg === '--help' || arg === '-h') {
-      options.help = true;
+    if (applyBooleanOption(arg, options)) continue;
+    const valueOptionIndex = applyValueOption(args, index, arg, options);
+    if (valueOptionIndex !== null) {
+      index = valueOptionIndex;
       continue;
     }
-    if (arg === '--keep-open') {
-      options.keepOpen = true;
-      continue;
-    }
-    if (arg === '--log-dir') {
-      index += 1;
-      options.logDir = requireValue(args, index, arg);
-      continue;
-    }
-    if (arg.startsWith('--log-dir=')) {
-      options.logDir = arg.slice('--log-dir='.length);
-      continue;
-    }
-    if (arg === '--timeout-ms') {
-      index += 1;
-      options.readinessTimeoutMs = parsePositiveInteger(requireValue(args, index, arg), arg);
-      continue;
-    }
-    if (arg.startsWith('--timeout-ms=')) {
-      options.readinessTimeoutMs = parsePositiveInteger(
-        arg.slice('--timeout-ms='.length),
-        '--timeout-ms',
-      );
-      continue;
-    }
-    if (arg === '--task') {
-      index += 1;
-      options.turboTask = requireValue(args, index, arg);
-      continue;
-    }
-    if (arg.startsWith('--task=')) {
-      options.turboTask = arg.slice('--task='.length);
-      continue;
-    }
+    if (applyInlineOption(arg, options)) continue;
 
     options.turboArgs.push(arg);
   }
@@ -171,73 +141,168 @@ export function parseArgs(argv) {
   return options;
 }
 
+function applyBooleanOption(arg, options) {
+  if (arg === '--help' || arg === '-h') {
+    options.help = true;
+    return true;
+  }
+  if (arg === '--keep-open') {
+    options.keepOpen = true;
+    return true;
+  }
+  return false;
+}
+
+function applyValueOption(args, index, arg, options) {
+  if (arg === '--log-dir') {
+    options.logDir = requireValue(args, index + 1, arg);
+    return index + 1;
+  }
+  if (arg === '--timeout-ms') {
+    options.readinessTimeoutMs = parsePositiveInteger(requireValue(args, index + 1, arg), arg);
+    return index + 1;
+  }
+  if (arg === '--task') {
+    options.turboTask = requireValue(args, index + 1, arg);
+    return index + 1;
+  }
+  return null;
+}
+
+function applyInlineOption(arg, options) {
+  if (arg.startsWith('--log-dir=')) {
+    options.logDir = arg.slice('--log-dir='.length);
+    return true;
+  }
+  if (arg.startsWith('--timeout-ms=')) {
+    options.readinessTimeoutMs = parsePositiveInteger(
+      arg.slice('--timeout-ms='.length),
+      '--timeout-ms',
+    );
+    return true;
+  }
+  if (arg.startsWith('--task=')) {
+    options.turboTask = arg.slice('--task='.length);
+    return true;
+  }
+  return false;
+}
+
+function valueOr(value, fallback) {
+  if (value !== undefined && value !== null) return value;
+  return typeof fallback === 'function' ? fallback() : fallback;
+}
+
 export function e2eEnv(sourceEnv) {
-  const apiUrl = sourceEnv.API_URL ?? sourceEnv.SHIPFOX_API_URL ?? defaultApiUrl;
-  const clientUrl = sourceEnv.CLIENT_URL ?? sourceEnv.CLIENT_BASE_URL ?? defaultClientUrl;
-  const giteaUrl = sourceEnv.E2E_GITEA_URL ?? sourceEnv.GITEA_BASE_URL ?? 'http://localhost:3000';
-  const linearMcpEndpoint = sourceEnv.LINEAR_MCP_ENDPOINT ?? e2eLinearMcpEndpoint(apiUrl);
-  const githubApiBaseUrl = sourceEnv.GITHUB_API_BASE_URL ?? e2eGithubApiBaseUrl(apiUrl);
-  const slackApiBaseUrl = sourceEnv.SLACK_API_BASE_URL ?? e2eSlackApiBaseUrl(apiUrl);
+  const apiUrl = valueOr(sourceEnv.API_URL, valueOr(sourceEnv.SHIPFOX_API_URL, defaultApiUrl));
+  const clientUrl = valueOr(
+    sourceEnv.CLIENT_URL,
+    valueOr(sourceEnv.CLIENT_BASE_URL, defaultClientUrl),
+  );
+  const giteaUrl = valueOr(
+    sourceEnv.E2E_GITEA_URL,
+    valueOr(sourceEnv.GITEA_BASE_URL, 'http://localhost:3000'),
+  );
+  const linearMcpEndpoint = valueOr(sourceEnv.LINEAR_MCP_ENDPOINT, () =>
+    e2eLinearMcpEndpoint(apiUrl),
+  );
+  const githubApiBaseUrl = valueOr(sourceEnv.GITHUB_API_BASE_URL, () =>
+    e2eGithubApiBaseUrl(apiUrl),
+  );
+  const slackApiBaseUrl = valueOr(sourceEnv.SLACK_API_BASE_URL, () => e2eSlackApiBaseUrl(apiUrl));
   return {
     ...sourceEnv,
     API_URL: apiUrl,
-    CLIENT_BASE_URL: sourceEnv.CLIENT_BASE_URL ?? clientUrl,
+    CLIENT_BASE_URL: valueOr(sourceEnv.CLIENT_BASE_URL, clientUrl),
     CLIENT_URL: clientUrl,
-    E2E_ADMIN_API_KEY: sourceEnv.E2E_ADMIN_API_KEY ?? defaultE2eAdminApiKey,
-    E2E_ENABLED: sourceEnv.E2E_ENABLED ?? 'true',
-    AUTH_ROOT_KEY:
-      sourceEnv.AUTH_ROOT_KEY ?? 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=',
+    E2E_ADMIN_API_KEY: valueOr(sourceEnv.E2E_ADMIN_API_KEY, defaultE2eAdminApiKey),
+    E2E_ENABLED: valueOr(sourceEnv.E2E_ENABLED, 'true'),
+    AUTH_ROOT_KEY: valueOr(sourceEnv.AUTH_ROOT_KEY, 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY='),
     // Impersonation ships disabled by default; the E2E deployment opts in so
     // the mint route is live for the suite that exercises it. The admin
     // bootstrap token is generated per run and never defaults to a well-known
     // literal: claiming the first admin owner requires knowing it, so a
     // harness-defaulted deployment is not bootstrap-able by anyone with
     // repository access.
-    AUTH_IMPERSONATION_ENABLED: sourceEnv.AUTH_IMPERSONATION_ENABLED ?? 'true',
-    ADMIN_BOOTSTRAP_TOKEN: sourceEnv.ADMIN_BOOTSTRAP_TOKEN ?? e2eBootstrapToken(),
-    AUTH_SIGNUP_GATE_ENABLED:
-      sourceEnv.AUTH_SIGNUP_GATE_ENABLED ?? defaultAuthSignupGateEnabled,
-    AUTH_SIGNUP_ALLOWED_EMAIL_DOMAINS:
-      sourceEnv.AUTH_SIGNUP_ALLOWED_EMAIL_DOMAINS ?? defaultAuthSignupAllowedEmailDomains,
-    AUTH_SIGNUP_NOT_ALLOWED_MESSAGE:
-      sourceEnv.AUTH_SIGNUP_NOT_ALLOWED_MESSAGE ?? defaultAuthSignupNotAllowedMessage,
+    AUTH_IMPERSONATION_ENABLED: valueOr(sourceEnv.AUTH_IMPERSONATION_ENABLED, 'true'),
+    ADMIN_BOOTSTRAP_TOKEN: valueOr(sourceEnv.ADMIN_BOOTSTRAP_TOKEN, e2eBootstrapToken),
+    AUTH_SIGNUP_GATE_ENABLED: valueOr(
+      sourceEnv.AUTH_SIGNUP_GATE_ENABLED,
+      defaultAuthSignupGateEnabled,
+    ),
+    AUTH_SIGNUP_ALLOWED_EMAIL_DOMAINS: valueOr(
+      sourceEnv.AUTH_SIGNUP_ALLOWED_EMAIL_DOMAINS,
+      defaultAuthSignupAllowedEmailDomains,
+    ),
+    AUTH_SIGNUP_NOT_ALLOWED_MESSAGE: valueOr(
+      sourceEnv.AUTH_SIGNUP_NOT_ALLOWED_MESSAGE,
+      defaultAuthSignupNotAllowedMessage,
+    ),
     E2E_GITEA_URL: giteaUrl,
-    GITEA_CLONE_BASE_URL: sourceEnv.GITEA_CLONE_BASE_URL ?? giteaUrl,
-    HOST: sourceEnv.HOST ?? '0.0.0.0',
+    GITEA_CLONE_BASE_URL: valueOr(sourceEnv.GITEA_CLONE_BASE_URL, giteaUrl),
+    HOST: valueOr(sourceEnv.HOST, '0.0.0.0'),
     GITHUB_API_BASE_URL: githubApiBaseUrl,
-    GITHUB_INSTALLATION_TOKEN_FORMAT_OVERRIDE:
-      sourceEnv.GITHUB_INSTALLATION_TOKEN_FORMAT_OVERRIDE ?? 'enabled',
-    GITHUB_APP_CLIENT_ID: sourceEnv.GITHUB_APP_CLIENT_ID ?? 'e2e-github-client-id',
-    GITHUB_APP_CLIENT_SECRET: sourceEnv.GITHUB_APP_CLIENT_SECRET ?? 'e2e-github-client-secret',
-    GITHUB_APP_ID: sourceEnv.GITHUB_APP_ID ?? '1',
-    GITHUB_APP_PRIVATE_KEY:
-      sourceEnv.GITHUB_APP_PRIVATE_KEY ?? e2eGithubAppPrivateKey(),
-    GITHUB_APP_SLUG: sourceEnv.GITHUB_APP_SLUG ?? 'shipfox-e2e',
-    GITHUB_APP_USERNAME: sourceEnv.GITHUB_APP_USERNAME ?? 'shipfox-e2e',
-    GITHUB_APP_WEBHOOK_SECRET:
-      sourceEnv.GITHUB_APP_WEBHOOK_SECRET ?? 'e2e-github-webhook-secret',
-    GITHUB_INSTALL_STATE_SECRET:
-      sourceEnv.GITHUB_INSTALL_STATE_SECRET ?? 'e2e-github-install-state-secret',
-    INTEGRATIONS_ENABLE_GITHUB_PROVIDER: sourceEnv.INTEGRATIONS_ENABLE_GITHUB_PROVIDER ?? 'true',
-    INTEGRATIONS_ENABLE_LINEAR_PROVIDER: sourceEnv.INTEGRATIONS_ENABLE_LINEAR_PROVIDER ?? 'true',
-    INTEGRATIONS_ENABLE_SLACK_PROVIDER: sourceEnv.INTEGRATIONS_ENABLE_SLACK_PROVIDER ?? 'true',
+    GITHUB_INSTALLATION_TOKEN_FORMAT_OVERRIDE: valueOr(
+      sourceEnv.GITHUB_INSTALLATION_TOKEN_FORMAT_OVERRIDE,
+      'enabled',
+    ),
+    GITHUB_APP_CLIENT_ID: valueOr(sourceEnv.GITHUB_APP_CLIENT_ID, 'e2e-github-client-id'),
+    GITHUB_APP_CLIENT_SECRET: valueOr(
+      sourceEnv.GITHUB_APP_CLIENT_SECRET,
+      'e2e-github-client-secret',
+    ),
+    GITHUB_APP_ID: valueOr(sourceEnv.GITHUB_APP_ID, '1'),
+    GITHUB_APP_PRIVATE_KEY: valueOr(sourceEnv.GITHUB_APP_PRIVATE_KEY, e2eGithubAppPrivateKey),
+    GITHUB_APP_SLUG: valueOr(sourceEnv.GITHUB_APP_SLUG, 'shipfox-e2e'),
+    GITHUB_APP_USERNAME: valueOr(sourceEnv.GITHUB_APP_USERNAME, 'shipfox-e2e'),
+    GITHUB_APP_WEBHOOK_SECRET: valueOr(
+      sourceEnv.GITHUB_APP_WEBHOOK_SECRET,
+      'e2e-github-webhook-secret',
+    ),
+    GITHUB_INSTALL_STATE_SECRET: valueOr(
+      sourceEnv.GITHUB_INSTALL_STATE_SECRET,
+      'e2e-github-install-state-secret',
+    ),
+    INTEGRATIONS_ENABLE_GITHUB_PROVIDER: valueOr(
+      sourceEnv.INTEGRATIONS_ENABLE_GITHUB_PROVIDER,
+      'true',
+    ),
+    INTEGRATIONS_ENABLE_LINEAR_PROVIDER: valueOr(
+      sourceEnv.INTEGRATIONS_ENABLE_LINEAR_PROVIDER,
+      'true',
+    ),
+    INTEGRATIONS_ENABLE_SLACK_PROVIDER: valueOr(
+      sourceEnv.INTEGRATIONS_ENABLE_SLACK_PROVIDER,
+      'true',
+    ),
     LINEAR_MCP_ENDPOINT: linearMcpEndpoint,
-    LINEAR_OAUTH_CLIENT_ID: sourceEnv.LINEAR_OAUTH_CLIENT_ID ?? 'e2e-linear-client-id',
-    LINEAR_OAUTH_CLIENT_SECRET:
-      sourceEnv.LINEAR_OAUTH_CLIENT_SECRET ?? 'e2e-linear-client-secret',
-    LINEAR_OAUTH_REDIRECT_URL:
-      sourceEnv.LINEAR_OAUTH_REDIRECT_URL ?? `${clientUrl}/integrations/linear/callback`,
-    LINEAR_WEBHOOK_SIGNING_SECRET:
-      sourceEnv.LINEAR_WEBHOOK_SIGNING_SECRET ?? 'e2e-linear-webhook-secret',
+    LINEAR_OAUTH_CLIENT_ID: valueOr(sourceEnv.LINEAR_OAUTH_CLIENT_ID, 'e2e-linear-client-id'),
+    LINEAR_OAUTH_CLIENT_SECRET: valueOr(
+      sourceEnv.LINEAR_OAUTH_CLIENT_SECRET,
+      'e2e-linear-client-secret',
+    ),
+    LINEAR_OAUTH_REDIRECT_URL: valueOr(
+      sourceEnv.LINEAR_OAUTH_REDIRECT_URL,
+      `${clientUrl}/integrations/linear/callback`,
+    ),
+    LINEAR_WEBHOOK_SIGNING_SECRET: valueOr(
+      sourceEnv.LINEAR_WEBHOOK_SIGNING_SECRET,
+      'e2e-linear-webhook-secret',
+    ),
     SLACK_API_BASE_URL: slackApiBaseUrl,
-    SLACK_OAUTH_CLIENT_ID: sourceEnv.SLACK_OAUTH_CLIENT_ID ?? 'e2e-slack-client-id',
-    SLACK_OAUTH_CLIENT_SECRET: sourceEnv.SLACK_OAUTH_CLIENT_SECRET ?? 'e2e-slack-client-secret',
-    SLACK_OAUTH_REDIRECT_URL:
-      sourceEnv.SLACK_OAUTH_REDIRECT_URL ?? `${clientUrl}/integrations/slack/callback`,
-    SLACK_SIGNING_SECRET: sourceEnv.SLACK_SIGNING_SECRET ?? 'e2e-slack-signing-secret',
-    VITE_API_URL: sourceEnv.VITE_API_URL ?? apiUrl,
-    VITE_ENABLE_TEST_VCS_PROVIDER: sourceEnv.VITE_ENABLE_TEST_VCS_PROVIDER ?? 'true',
-    WEBHOOK_PUBLIC_URL: sourceEnv.WEBHOOK_PUBLIC_URL ?? apiUrl,
+    SLACK_OAUTH_CLIENT_ID: valueOr(sourceEnv.SLACK_OAUTH_CLIENT_ID, 'e2e-slack-client-id'),
+    SLACK_OAUTH_CLIENT_SECRET: valueOr(
+      sourceEnv.SLACK_OAUTH_CLIENT_SECRET,
+      'e2e-slack-client-secret',
+    ),
+    SLACK_OAUTH_REDIRECT_URL: valueOr(
+      sourceEnv.SLACK_OAUTH_REDIRECT_URL,
+      `${clientUrl}/integrations/slack/callback`,
+    ),
+    SLACK_SIGNING_SECRET: valueOr(sourceEnv.SLACK_SIGNING_SECRET, 'e2e-slack-signing-secret'),
+    VITE_API_URL: valueOr(sourceEnv.VITE_API_URL, apiUrl),
+    VITE_ENABLE_TEST_VCS_PROVIDER: valueOr(sourceEnv.VITE_ENABLE_TEST_VCS_PROVIDER, 'true'),
+    WEBHOOK_PUBLIC_URL: valueOr(sourceEnv.WEBHOOK_PUBLIC_URL, apiUrl),
   };
 }
 

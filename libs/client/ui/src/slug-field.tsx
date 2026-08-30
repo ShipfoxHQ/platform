@@ -93,14 +93,12 @@ export function SlugField({
     (availability.value === value && availability.status === 'taken'
       ? 'This slug is already taken.'
       : undefined);
-  const liveStatus =
-    availability.value !== value
-      ? undefined
-      : availability.status === 'checking'
-        ? 'Checking availability…'
-        : availability.status === 'available'
-          ? 'Slug is available.'
-          : undefined;
+  let liveStatus: string | undefined;
+  if (availability.value === value && availability.status === 'checking') {
+    liveStatus = 'Checking availability…';
+  } else if (availability.value === value && availability.status === 'available') {
+    liveStatus = 'Slug is available.';
+  }
 
   return (
     <FormField

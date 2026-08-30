@@ -59,27 +59,35 @@ export function FormField({label, id, error, description, className, children}: 
   const errorId = `${fieldId}-error`;
   const descriptionId = `${fieldId}-description`;
   const invalid = Boolean(error);
-  const describedBy = error ? errorId : description ? descriptionId : undefined;
+  let describedBy: string | undefined;
+  if (error) describedBy = errorId;
+  else if (description) describedBy = descriptionId;
 
   const value = useMemo<FormFieldContextValue>(
     () => ({id: fieldId, errorId, descriptionId, invalid, describedBy}),
     [fieldId, errorId, descriptionId, invalid, describedBy],
   );
+  let supportingText: ReactNode = null;
+  if (error) {
+    supportingText = (
+      <Text as="p" size="xs" className="text-tag-error-text" id={errorId} aria-live="polite">
+        {error}
+      </Text>
+    );
+  } else if (description) {
+    supportingText = (
+      <Text as="p" size="xs" className="text-foreground-neutral-muted" id={descriptionId}>
+        {description}
+      </Text>
+    );
+  }
 
   return (
     <FormFieldContext.Provider value={value}>
       <div className={cn('flex flex-col gap-8', className)}>
         <Label htmlFor={fieldId}>{label}</Label>
         {children}
-        {error ? (
-          <Text as="p" size="xs" className="text-tag-error-text" id={errorId} aria-live="polite">
-            {error}
-          </Text>
-        ) : description ? (
-          <Text as="p" size="xs" className="text-foreground-neutral-muted" id={descriptionId}>
-            {description}
-          </Text>
-        ) : null}
+        {supportingText}
       </div>
     </FormFieldContext.Provider>
   );

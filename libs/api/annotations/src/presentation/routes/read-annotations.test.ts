@@ -5,6 +5,12 @@ import {annotationFactory} from '#test/index.js';
 import {readAnnotationSummaryRoute} from './read-annotation-summary.js';
 import {readAnnotationsRoute} from './read-annotations.js';
 
+function workspaceStatus(value: string | undefined): 'active' | 'suspended' | 'deleted' {
+  if (value === 'suspended') return 'suspended';
+  if (value === 'deleted') return 'deleted';
+  return 'active';
+}
+
 const fakeUserAuth: AuthMethod = {
   name: AUTH_USER,
   authenticate: (request: FastifyRequest) => {
@@ -20,9 +26,7 @@ const fakeUserAuth: AuthMethod = {
       .map((value) => {
         const [workspaceId, status] = value.split('|');
         if (!workspaceId) throw new Error('missing test workspace id');
-        const workspaceStatus: 'active' | 'suspended' | 'deleted' =
-          status === 'suspended' ? 'suspended' : status === 'deleted' ? 'deleted' : 'active';
-        return {workspaceId, role: 'admin' as const, workspaceStatus};
+        return {workspaceId, role: 'admin' as const, workspaceStatus: workspaceStatus(status)};
       });
 
     setUserContext(

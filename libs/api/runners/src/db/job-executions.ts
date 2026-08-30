@@ -220,13 +220,23 @@ export interface RunnerInstanceBoundJobExecution {
   cancellationReason: RunnerJobStopReasonDto | null;
 }
 
-export async function claimPendingJobExecution(params: {
+interface ClaimPendingJobExecutionParams {
   workspaceId: string;
   runnerSessionId: string;
   sessionLabels: string[];
   maxClaims: number | null;
   runnerSessionLivenessThrottleSeconds: number;
-}): Promise<ClaimedJobExecution | null> {
+}
+
+interface ClaimRunnerContext {
+  provisionerId: string | null;
+  providerRunnerId: string | null;
+  runnerInstanceCondition: ReturnType<typeof eq> | undefined;
+}
+
+export async function claimPendingJobExecution(
+  params: ClaimPendingJobExecutionParams,
+): Promise<ClaimedJobExecution | null> {
   await touchRunnerSessionLiveness({
     workspaceId: params.workspaceId,
     runnerSessionId: params.runnerSessionId,
@@ -239,126 +249,16 @@ export async function claimPendingJobExecution(params: {
   let queueTimeObservation: JobExecutionQueueTimeObservation | null = null;
   let firstClaimReservationReleaseCount = 0;
   const result = await db().transaction(async (tx) => {
-    let provisionerId: string | null = null;
-    let providerRunnerId: string | null = null;
-    let runnerInstanceId: string | null = null;
-
-    if (params.maxClaims !== null) {
-      const [session] = await tx
-        .select({
-          maxClaims: runnerSessions.maxClaims,
-          claimsUsed: runnerSessions.claimsUsed,
-          revokedAt: runnerSessions.revokedAt,
-          runnerInstanceId: runnerSessions.runnerInstanceId,
-          provisionerId: runnerSessions.provisionerId,
-          providerRunnerId: runnerSessions.providerRunnerId,
-        })
-        .from(runnerSessions)
-        .where(eq(runnerSessions.id, params.runnerSessionId))
-        .limit(1)
-        .for('update');
-
-      if (
-        !session ||
-        session.revokedAt ||
-        session.maxClaims === null ||
-        session.claimsUsed >= session.maxClaims
-      ) {
-        throw new RunnerSessionExhaustedError(params.runnerSessionId);
-      }
-
-      // Ephemeral sessions are the only capped sessions, and the DB check keeps
-      // their provisioned-runner link present as a pair.
-      runnerInstanceId = session.runnerInstanceId;
-      provisionerId = session.provisionerId;
-      providerRunnerId = session.providerRunnerId;
-    }
-
-    const runnerInstanceCondition = runnerInstanceId
-      ? eq(providerRunners.id, runnerInstanceId)
-      : provisionerId && providerRunnerId
-        ? and(
-            eq(providerRunners.provisionerId, provisionerId),
-            eq(providerRunners.providerRunnerId, providerRunnerId),
-          )
-        : null;
-    if (runnerInstanceCondition && provisionerId) {
-      const [runner] = await tx
-        .select({
-          reservationId: providerRunners.reservationId,
-          intendedReservationId: providerRunners.intendedReservationId,
-        })
-        .from(providerRunners)
-        .where(runnerInstanceCondition)
-        .limit(1);
-      await lockRunnerReservationAdvisoryKeysTx(tx, {
-        provisionerId,
-        reservationIds: [runner?.reservationId, runner?.intendedReservationId].filter(
-          (reservationId): reservationId is string =>
-            reservationId !== null && reservationId !== undefined,
-        ),
-      });
-    }
+    const {provisionerId, providerRunnerId, runnerInstanceCondition} =
+      await loadClaimRunnerContextTx(tx, params);
 
     // `id` is a uuidv7 (time-ordered), so it is a deterministic FIFO tiebreaker
     // for rows sharing a created_at within a batch. Lock only the FIFO candidate before
     // attempting its execution advisory lock; putting pg_try_advisory_xact_lock in this
     // predicate would evaluate it while scanning and temporarily lock many queue entries.
-    const candidate = tx
-      .select()
-      .from(pendingJobExecutions)
-      .where(
-        and(
-          eq(pendingJobExecutions.workspaceId, params.workspaceId),
-          arrayContained(pendingJobExecutions.requiredLabels, params.sessionLabels),
-        ),
-      )
-      .orderBy(asc(pendingJobExecutions.createdAt), asc(pendingJobExecutions.id))
-      .limit(1)
-      .for('update', {skipLocked: true})
-      .as('pending_candidate');
-
-    const [row] = await tx
-      .select()
-      .from(candidate)
-      .where(
-        sql`
-          pg_try_advisory_xact_lock(
-            hashtext(${runnerJobExecutionLockPrefix} || ${candidate.jobExecutionId}::text)
-          )
-        `,
-      );
-
-    if (!row) return null;
-
-    await tx.delete(pendingJobExecutions).where(eq(pendingJobExecutions.id, row.id));
-
-    // An enqueue retry that lands after a prior claim can leave an orphan pending
-    // row whose jobExecutionId is already in `runners_running_jobs`. Insert-or-skip
-    // on the jobExecutionId unique constraint: when the job execution is already running
-    // the insert touches no row, so we commit the orphan's deletion and return
-    // null rather than let the unique violation roll the claim back into a poison
-    // loop. The runner just re-polls for a real job execution.
-    const inserted = await tx
-      .insert(runningJobExecutions)
-      .values({
-        workspaceId: row.workspaceId,
-        workflowRunId: row.workflowRunId,
-        workflowRunAttemptId: row.workflowRunAttemptId,
-        jobId: row.jobId,
-        jobExecutionId: row.jobExecutionId,
-        projectId: row.projectId,
-        runnerSessionId: params.runnerSessionId,
-        provisionerId,
-        providerRunnerId,
-        requiredLabels: row.requiredLabels,
-        runnerLabels: params.sessionLabels,
-      })
-      .onConflictDoNothing({target: runningJobExecutions.jobExecutionId})
-      .returning({claimedAt: runningJobExecutions.startedAt});
-
-    const claimed = inserted[0];
-    if (!claimed) return null;
+    const pendingClaim = await claimPendingCandidateTx(tx, params, provisionerId, providerRunnerId);
+    if (!pendingClaim) return null;
+    const {row, claimed} = pendingClaim;
 
     queueTimeObservation = {
       durationMilliseconds: claimed.claimedAt.getTime() - row.createdAt.getTime(),
@@ -367,85 +267,18 @@ export async function claimPendingJobExecution(params: {
     };
 
     if (runnerInstanceCondition) {
-      const [claimedRunner] = await tx
-        .update(providerRunners)
-        .set({
-          firstClaimedAt: sql`coalesce(${providerRunners.firstClaimedAt}, ${claimed.claimedAt})`,
-          updatedAt: sql`now()`,
-        })
-        .where(runnerInstanceCondition)
-        .returning({
-          firstClaimedAt: providerRunners.firstClaimedAt,
-          isFirstClaim: sql<boolean>`${providerRunners.firstClaimedAt} = ${claimed.claimedAt}`,
-          provider: providerRunners.providerKind,
-          launchKind: providerRunners.launchKind,
-          runnerInstanceId: providerRunners.id,
-          reservationId: providerRunners.reservationId,
-          intendedReservationId: providerRunners.intendedReservationId,
-          sessionCreatedAtEpochMs: sql<number | null>`(
-            select extract(epoch from ${runnerSessions.createdAt})::double precision * 1000
-            from ${runnerSessions}
-            where ${runnerSessions.id} = ${params.runnerSessionId}
-          )`,
-        });
-      if (claimedRunner && queueTimeObservation) {
-        queueTimeObservation.provider = claimedRunner.provider;
-        queueTimeObservation.launchKind = claimedRunner.launchKind;
+      const runnerClaim = await recordClaimedRunnerTx(
+        tx,
+        params.runnerSessionId,
+        runnerInstanceCondition,
+        claimed.claimedAt,
+      );
+      if (runnerClaim.claimedRunner && queueTimeObservation) {
+        queueTimeObservation.provider = runnerClaim.claimedRunner.providerKind;
+        queueTimeObservation.launchKind = runnerClaim.claimedRunner.launchKind;
       }
-      if (claimedRunner?.isFirstClaim) {
-        const [releasedRunner] = await tx
-          .update(providerRunners)
-          .set({
-            intendedReservationId: null,
-            reservationReleasedAt: sql`now()`,
-            updatedAt: sql`now()`,
-          })
-          .where(
-            and(
-              eq(providerRunners.id, claimedRunner.runnerInstanceId),
-              or(
-                isNotNull(providerRunners.reservationId),
-                isNotNull(providerRunners.intendedReservationId),
-              ),
-              isNull(providerRunners.reservationReleasedAt),
-            ),
-          )
-          .returning({
-            provisionerId: providerRunners.provisionerId,
-          });
-        const reservationId = claimedRunner.intendedReservationId ?? claimedRunner.reservationId;
-        if (releasedRunner?.provisionerId && reservationId) {
-          const [reservation] = await tx
-            .select({workspaceId: reservations.workspaceId})
-            .from(reservations)
-            .where(
-              and(
-                eq(reservations.id, reservationId),
-                eq(reservations.provisionerId, releasedRunner.provisionerId),
-              ),
-            )
-            .limit(1);
-          if (reservation)
-            firstClaimReservationReleaseCount += await releaseReservationUnits(tx, {
-              workspaceId: reservation.workspaceId,
-              provisionerId: releasedRunner.provisionerId,
-              releases: [{reservationId, count: 1}],
-            });
-        }
-      }
-      if (
-        claimedRunner?.isFirstClaim &&
-        claimedRunner.firstClaimedAt !== null &&
-        claimedRunner.sessionCreatedAtEpochMs !== null &&
-        claimedRunner.sessionCreatedAtEpochMs !== undefined
-      )
-        activationToFirstClaimObservation = {
-          durationMilliseconds:
-            claimedRunner.firstClaimedAt.getTime() - claimedRunner.sessionCreatedAtEpochMs,
-          provider: claimedRunner.provider,
-          launchKind: claimedRunner.launchKind,
-          runnerInstanceId: claimedRunner.runnerInstanceId,
-        };
+      firstClaimReservationReleaseCount += runnerClaim.reservationReleaseCount;
+      activationToFirstClaimObservation = runnerClaim.activationToFirstClaimObservation;
     }
 
     if (params.maxClaims !== null) {
@@ -485,6 +318,247 @@ export async function claimPendingJobExecution(params: {
   if (activationToFirstClaimObservation)
     recordProviderRunnerActivationToFirstClaim(activationToFirstClaimObservation);
   return result;
+}
+
+async function loadClaimRunnerContextTx(
+  tx: Tx,
+  params: ClaimPendingJobExecutionParams,
+): Promise<ClaimRunnerContext> {
+  let runnerInstanceId: string | null = null;
+  let provisionerId: string | null = null;
+  let providerRunnerId: string | null = null;
+  if (params.maxClaims !== null) {
+    const [session] = await tx
+      .select({
+        maxClaims: runnerSessions.maxClaims,
+        claimsUsed: runnerSessions.claimsUsed,
+        revokedAt: runnerSessions.revokedAt,
+        runnerInstanceId: runnerSessions.runnerInstanceId,
+        provisionerId: runnerSessions.provisionerId,
+        providerRunnerId: runnerSessions.providerRunnerId,
+      })
+      .from(runnerSessions)
+      .where(eq(runnerSessions.id, params.runnerSessionId))
+      .limit(1)
+      .for('update');
+    assertClaimSessionAvailable(session, params.runnerSessionId);
+    runnerInstanceId = session.runnerInstanceId;
+    provisionerId = session.provisionerId;
+    providerRunnerId = session.providerRunnerId;
+  }
+  const runnerInstanceCondition = claimRunnerInstanceCondition(
+    runnerInstanceId,
+    provisionerId,
+    providerRunnerId,
+  );
+  if (runnerInstanceCondition && provisionerId) {
+    await lockClaimRunnerReservationIdsTx(tx, provisionerId, runnerInstanceCondition);
+  }
+  return {provisionerId, providerRunnerId, runnerInstanceCondition};
+}
+
+function assertClaimSessionAvailable<
+  T extends {revokedAt: Date | null; maxClaims: number | null; claimsUsed: number},
+>(session: T | undefined, runnerSessionId: string): asserts session is T {
+  if (
+    !session ||
+    session.revokedAt ||
+    session.maxClaims === null ||
+    session.claimsUsed >= session.maxClaims
+  ) {
+    throw new RunnerSessionExhaustedError(runnerSessionId);
+  }
+}
+
+function claimRunnerInstanceCondition(
+  runnerInstanceId: string | null,
+  provisionerId: string | null,
+  providerRunnerId: string | null,
+): ReturnType<typeof eq> | undefined {
+  if (runnerInstanceId) return eq(providerRunners.id, runnerInstanceId);
+  if (provisionerId && providerRunnerId) {
+    return and(
+      eq(providerRunners.provisionerId, provisionerId),
+      eq(providerRunners.providerRunnerId, providerRunnerId),
+    );
+  }
+  return undefined;
+}
+
+async function lockClaimRunnerReservationIdsTx(
+  tx: Tx,
+  provisionerId: string,
+  runnerInstanceCondition: ReturnType<typeof eq>,
+): Promise<void> {
+  const [runner] = await tx
+    .select({
+      reservationId: providerRunners.reservationId,
+      intendedReservationId: providerRunners.intendedReservationId,
+    })
+    .from(providerRunners)
+    .where(runnerInstanceCondition)
+    .limit(1);
+  await lockRunnerReservationAdvisoryKeysTx(tx, {
+    provisionerId,
+    reservationIds: [runner?.reservationId, runner?.intendedReservationId].filter(
+      (reservationId): reservationId is string =>
+        reservationId !== null && reservationId !== undefined,
+    ),
+  });
+}
+
+async function claimPendingCandidateTx(
+  tx: Tx,
+  params: ClaimPendingJobExecutionParams,
+  provisionerId: string | null,
+  providerRunnerId: string | null,
+): Promise<{
+  row: typeof pendingJobExecutions.$inferSelect;
+  claimed: {claimedAt: Date};
+} | null> {
+  const candidate = tx
+    .select()
+    .from(pendingJobExecutions)
+    .where(
+      and(
+        eq(pendingJobExecutions.workspaceId, params.workspaceId),
+        arrayContained(pendingJobExecutions.requiredLabels, params.sessionLabels),
+      ),
+    )
+    .orderBy(asc(pendingJobExecutions.createdAt), asc(pendingJobExecutions.id))
+    .limit(1)
+    .for('update', {skipLocked: true})
+    .as('pending_candidate');
+  const [row] = await tx
+    .select()
+    .from(candidate)
+    .where(
+      sql`pg_try_advisory_xact_lock(
+        hashtext(${runnerJobExecutionLockPrefix} || ${candidate.jobExecutionId}::text)
+      )`,
+    );
+  if (!row) return null;
+  await tx.delete(pendingJobExecutions).where(eq(pendingJobExecutions.id, row.id));
+  const [claimed] = await tx
+    .insert(runningJobExecutions)
+    .values({
+      workspaceId: row.workspaceId,
+      workflowRunId: row.workflowRunId,
+      workflowRunAttemptId: row.workflowRunAttemptId,
+      jobId: row.jobId,
+      jobExecutionId: row.jobExecutionId,
+      projectId: row.projectId,
+      runnerSessionId: params.runnerSessionId,
+      provisionerId,
+      providerRunnerId,
+      requiredLabels: row.requiredLabels,
+      runnerLabels: params.sessionLabels,
+    })
+    .onConflictDoNothing({target: runningJobExecutions.jobExecutionId})
+    .returning({claimedAt: runningJobExecutions.startedAt});
+  return claimed ? {row, claimed} : null;
+}
+
+type ClaimedProviderRunner = Pick<
+  typeof providerRunners.$inferSelect,
+  | 'firstClaimedAt'
+  | 'providerKind'
+  | 'launchKind'
+  | 'id'
+  | 'reservationId'
+  | 'intendedReservationId'
+> & {isFirstClaim: boolean; sessionCreatedAtEpochMs: number | null};
+
+async function recordClaimedRunnerTx(
+  tx: Tx,
+  runnerSessionId: string,
+  runnerInstanceCondition: ReturnType<typeof eq>,
+  claimedAt: Date,
+): Promise<{
+  claimedRunner: ClaimedProviderRunner | undefined;
+  reservationReleaseCount: number;
+  activationToFirstClaimObservation: ProviderRunnerLifecycleObservation | null;
+}> {
+  const [row] = await tx
+    .update(providerRunners)
+    .set({
+      firstClaimedAt: sql`coalesce(${providerRunners.firstClaimedAt}, ${claimedAt})`,
+      updatedAt: sql`now()`,
+    })
+    .where(runnerInstanceCondition)
+    .returning({
+      firstClaimedAt: providerRunners.firstClaimedAt,
+      isFirstClaim: sql<boolean>`${providerRunners.firstClaimedAt} = ${claimedAt}`,
+      providerKind: providerRunners.providerKind,
+      launchKind: providerRunners.launchKind,
+      id: providerRunners.id,
+      reservationId: providerRunners.reservationId,
+      intendedReservationId: providerRunners.intendedReservationId,
+      sessionCreatedAtEpochMs: sql<number | null>`(
+        select extract(epoch from ${runnerSessions.createdAt})::double precision * 1000
+        from ${runnerSessions}
+        where ${runnerSessions.id} = ${runnerSessionId}
+      )`,
+    });
+  const reservationReleaseCount = row?.isFirstClaim
+    ? await releaseFirstClaimReservationTx(tx, row)
+    : 0;
+  return {
+    claimedRunner: row,
+    reservationReleaseCount,
+    activationToFirstClaimObservation: activationToFirstClaimObservationFor(row),
+  };
+}
+
+async function releaseFirstClaimReservationTx(
+  tx: Tx,
+  runner: ClaimedProviderRunner,
+): Promise<number> {
+  const [releasedRunner] = await tx
+    .update(providerRunners)
+    .set({intendedReservationId: null, reservationReleasedAt: sql`now()`, updatedAt: sql`now()`})
+    .where(
+      and(
+        eq(providerRunners.id, runner.id),
+        or(
+          isNotNull(providerRunners.reservationId),
+          isNotNull(providerRunners.intendedReservationId),
+        ),
+        isNull(providerRunners.reservationReleasedAt),
+      ),
+    )
+    .returning({provisionerId: providerRunners.provisionerId});
+  const reservationId = runner.intendedReservationId ?? runner.reservationId;
+  if (!releasedRunner?.provisionerId || !reservationId) return 0;
+  const [reservation] = await tx
+    .select({workspaceId: reservations.workspaceId})
+    .from(reservations)
+    .where(
+      and(
+        eq(reservations.id, reservationId),
+        eq(reservations.provisionerId, releasedRunner.provisionerId),
+      ),
+    )
+    .limit(1);
+  if (!reservation) return 0;
+  return releaseReservationUnits(tx, {
+    workspaceId: reservation.workspaceId,
+    provisionerId: releasedRunner.provisionerId,
+    releases: [{reservationId, count: 1}],
+  });
+}
+
+function activationToFirstClaimObservationFor(
+  runner: ClaimedProviderRunner | undefined,
+): ProviderRunnerLifecycleObservation | null {
+  if (!runner?.isFirstClaim || runner.firstClaimedAt === null) return null;
+  if (runner.sessionCreatedAtEpochMs === null) return null;
+  return {
+    durationMilliseconds: runner.firstClaimedAt.getTime() - runner.sessionCreatedAtEpochMs,
+    provider: runner.providerKind,
+    launchKind: runner.launchKind,
+    runnerInstanceId: runner.id,
+  };
 }
 
 async function touchRunnerSessionLiveness(params: {

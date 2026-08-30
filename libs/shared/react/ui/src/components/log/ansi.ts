@@ -128,33 +128,70 @@ function applyCodes(style: AnsiStyle, raw: string): AnsiStyle {
   for (let i = 0; i < codes.length; i++) {
     const code = codes[i];
     if (code === undefined) continue;
-    if (code === 0) next = {};
-    else if (code === 1) next.bold = true;
-    else if (code === 2) next.dim = true;
-    else if (code === 3) next.italic = true;
-    else if (code === 4) next.underline = true;
-    else if (code === 22) {
-      next.bold = false;
-      next.dim = false;
-    } else if (code === 23) next.italic = false;
-    else if (code === 24) next.underline = false;
-    else if (code === 39) next.fg = undefined;
-    else if (code === 49) next.bg = undefined;
-    else if (FOREGROUND[code]) next.fg = FOREGROUND[code];
-    else if (BACKGROUND[code]) next.bg = BACKGROUND[code];
-    else if (code === 38 || code === 48) {
-      // Extended color: 256/truecolor is unsupported, so clear the channel it
-      // sets rather than leak the previous color, and consume its operands so
-      // the trailing numbers never render as literal text.
-      if (code === 38) next.fg = undefined;
-      else next.bg = undefined;
-      const mode = codes[i + 1];
-      if (mode === 5) i += 2;
-      else if (mode === 2) i += 4;
+    switch (code) {
+      case 0:
+        next = {};
+        break;
+      case 1:
+        next.bold = true;
+        break;
+      case 2:
+        next.dim = true;
+        break;
+      case 3:
+        next.italic = true;
+        break;
+      case 4:
+        next.underline = true;
+        break;
+      case 22:
+        next.bold = false;
+        next.dim = false;
+        break;
+      case 23:
+        next.italic = false;
+        break;
+      case 24:
+        next.underline = false;
+        break;
+      case 39:
+        next.fg = undefined;
+        break;
+      case 49:
+        next.bg = undefined;
+        break;
+      case 38:
+      case 48:
+        clearExtendedColor(next, code);
+        i += extendedColorOperandCount(codes[i + 1]);
+        break;
+      default:
+        applyNamedAnsiColor(next, code);
     }
   }
 
   return next;
+}
+
+function clearExtendedColor(style: AnsiStyle, code: number): void {
+  if (code === 38) style.fg = undefined;
+  else style.bg = undefined;
+}
+
+function extendedColorOperandCount(mode: number | undefined): number {
+  if (mode === 5) return 2;
+  if (mode === 2) return 4;
+  return 0;
+}
+
+function applyNamedAnsiColor(style: AnsiStyle, code: number): void {
+  const foreground = FOREGROUND[code];
+  if (foreground) {
+    style.fg = foreground;
+    return;
+  }
+  const background = BACKGROUND[code];
+  if (background) style.bg = background;
 }
 
 function styleToClassName(style: AnsiStyle): string {

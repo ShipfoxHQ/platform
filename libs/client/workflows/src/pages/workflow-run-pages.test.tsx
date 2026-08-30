@@ -371,32 +371,39 @@ describe('WorkflowRunPages', () => {
 function renderRunsPath(search = '') {
   return renderProjectPage(
     `/w/${PROJECT_TEST_WSLUG}/p/project/runs${search}`,
-    ({workflowRunId, jobId, search}) =>
-      workflowRunId && jobId ? (
-        <WorkflowJobDetailPage
-          projectId={PROJECT_ID}
-          workspaceSlug={PROJECT_TEST_WSLUG}
-          projectSlug="project"
-          workflowRunId={workflowRunId}
-          jobId={jobId}
-          search={search as WorkflowJobSearch}
-        />
-      ) : workflowRunId ? (
-        <WorkflowRunDetailPage
-          projectId={PROJECT_ID}
-          workspaceSlug={PROJECT_TEST_WSLUG}
-          projectSlug="project"
-          workflowRunId={workflowRunId}
-          search={search as WorkflowRunsSearch}
-        />
-      ) : (
+    ({workflowRunId, jobId, search}) => {
+      if (workflowRunId && jobId) {
+        return (
+          <WorkflowJobDetailPage
+            projectId={PROJECT_ID}
+            workspaceSlug={PROJECT_TEST_WSLUG}
+            projectSlug="project"
+            workflowRunId={workflowRunId}
+            jobId={jobId}
+            search={search as WorkflowJobSearch}
+          />
+        );
+      }
+      if (workflowRunId) {
+        return (
+          <WorkflowRunDetailPage
+            projectId={PROJECT_ID}
+            workspaceSlug={PROJECT_TEST_WSLUG}
+            projectSlug="project"
+            workflowRunId={workflowRunId}
+            search={search as WorkflowRunsSearch}
+          />
+        );
+      }
+      return (
         <WorkflowRunsPage
           projectId={PROJECT_ID}
           workspaceSlug={PROJECT_TEST_WSLUG}
           projectSlug="project"
           search={search as WorkflowRunsSearch}
         />
-      ),
+      );
+    },
   );
 }
 

@@ -131,9 +131,11 @@ async function findOrCreateWorkflows(
   tx: Tx,
   params: {projectId: string; configPaths: string[]},
 ): Promise<Map<string, string>> {
-  const configPaths = [...new Set(params.configPaths)].sort((left, right) =>
-    left < right ? -1 : left > right ? 1 : 0,
-  );
+  const configPaths = [...new Set(params.configPaths)].sort((left, right) => {
+    if (left < right) return -1;
+    if (left > right) return 1;
+    return 0;
+  });
   if (configPaths.length === 0) return new Map();
 
   await tx
@@ -502,40 +504,97 @@ export interface ApplyVcsDefinitionsBatchResult {
   deletedCount: number;
 }
 
+interface PreparedVcsDefinition {
+  item: ApplyVcsDefinitionsBatchParams['upserts'][number];
+  unchanged: boolean;
+  workflowId: string | null | undefined;
+}
+
+async function prepareVcsDefinition(
+  tx: Tx,
+  params: ApplyVcsDefinitionsBatchParams,
+  item: ApplyVcsDefinitionsBatchParams['upserts'][number],
+): Promise<PreparedVcsDefinition> {
+  const existing = await tx
+    .select({
+      contentHash: workflowDefinitions.contentHash,
+      deletedAt: workflowDefinitions.deletedAt,
+      workflowId: workflowDefinitions.workflowId,
+    })
+    .from(workflowDefinitions)
+    .where(
+      and(
+        eq(workflowDefinitions.projectId, params.projectId),
+        eq(workflowDefinitions.ref, params.ref),
+        eq(workflowDefinitions.configPath, item.configPath),
+      ),
+    )
+    .limit(1);
+  const previous = existing[0];
+  const unchanged =
+    previous !== undefined &&
+    previous.deletedAt === null &&
+    previous.contentHash === item.contentHash;
+  return {item, unchanged, workflowId: previous?.workflowId};
+}
+
+async function applyPreparedVcsDefinition(
+  tx: Tx,
+  params: ApplyVcsDefinitionsBatchParams,
+  prepared: PreparedVcsDefinition,
+  workflowIds: ReadonlyMap<string, string>,
+): Promise<boolean> {
+  let workflowId = workflowIds.get(prepared.item.configPath);
+  if (prepared.unchanged) {
+    workflowId =
+      prepared.workflowId ??
+      (await findOrCreateWorkflow(tx, {
+        projectId: params.projectId,
+        configPath: prepared.item.configPath,
+      }));
+  }
+  if (!workflowId) {
+    throw new Error(
+      `Workflow lineage missing for project ${params.projectId} and config path ${prepared.item.configPath}`,
+    );
+  }
+  const rows = await buildUpsertQuery(tx, {
+    projectId: params.projectId,
+    workspaceId: params.workspaceId,
+    workflowId,
+    configPath: prepared.item.configPath,
+    source: 'vcs',
+    ref: params.ref,
+    name: prepared.item.name,
+    document: prepared.item.document,
+    model: prepared.item.model,
+    sourceSnapshot: prepared.item.sourceSnapshot ?? null,
+    contentHash: prepared.item.contentHash,
+  });
+  const row = rows[0];
+  if (!row) throw new Error('Upsert returned no rows');
+  if (prepared.unchanged) return false;
+  await writeOutboxEvent<DefinitionsEventMap>(tx, definitionsOutbox, {
+    type: DEFINITION_RESOLVED,
+    payload: {
+      definitionId: row.id,
+      projectId: row.projectId,
+      workspaceId: params.workspaceId,
+      configPath: row.configPath,
+      triggers: definitionTriggersFor(row.definition.model),
+    },
+  });
+  return true;
+}
+
 export async function applyVcsDefinitionsBatch(
   params: ApplyVcsDefinitionsBatchParams,
 ): Promise<ApplyVcsDefinitionsBatchResult> {
   return await db().transaction(async (tx) => {
     let appliedCount = 0;
-    const prepared: Array<{
-      item: (typeof params.upserts)[number];
-      unchanged: boolean;
-      workflowId: string | null | undefined;
-    }> = [];
+    const prepared: PreparedVcsDefinition[] = [];
     for (const item of params.upserts) {
-      const existing = await tx
-        .select({
-          contentHash: workflowDefinitions.contentHash,
-          deletedAt: workflowDefinitions.deletedAt,
-          workflowId: workflowDefinitions.workflowId,
-        })
-        .from(workflowDefinitions)
-        .where(
-          and(
-            eq(workflowDefinitions.projectId, params.projectId),
-            eq(workflowDefinitions.ref, params.ref),
-            eq(workflowDefinitions.configPath, item.configPath),
-          ),
-        )
-        .limit(1);
-
-      const previous = existing[0];
-      const unchanged =
-        previous !== undefined &&
-        previous.deletedAt === null &&
-        previous.contentHash === item.contentHash;
-
-      prepared.push({item, unchanged, workflowId: previous?.workflowId});
+      prepared.push(await prepareVcsDefinition(tx, params, item));
     }
 
     const workflowIds = await findOrCreateWorkflows(tx, {
@@ -543,48 +602,8 @@ export async function applyVcsDefinitionsBatch(
       configPaths: prepared.filter(({unchanged}) => !unchanged).map(({item}) => item.configPath),
     });
 
-    for (const {item, unchanged, workflowId: previousWorkflowId} of prepared) {
-      const workflowId = unchanged
-        ? (previousWorkflowId ??
-          (await findOrCreateWorkflow(tx, {
-            projectId: params.projectId,
-            configPath: item.configPath,
-          })))
-        : workflowIds.get(item.configPath);
-      if (!workflowId) {
-        throw new Error(
-          `Workflow lineage missing for project ${params.projectId} and config path ${item.configPath}`,
-        );
-      }
-      const rows = await buildUpsertQuery(tx, {
-        projectId: params.projectId,
-        workspaceId: params.workspaceId,
-        workflowId,
-        configPath: item.configPath,
-        source: 'vcs',
-        ref: params.ref,
-        name: item.name,
-        document: item.document,
-        model: item.model,
-        sourceSnapshot: item.sourceSnapshot ?? null,
-        contentHash: item.contentHash,
-      });
-      const row = rows[0];
-      if (!row) throw new Error('Upsert returned no rows');
-
-      if (!unchanged) {
-        await writeOutboxEvent<DefinitionsEventMap>(tx, definitionsOutbox, {
-          type: DEFINITION_RESOLVED,
-          payload: {
-            definitionId: row.id,
-            projectId: row.projectId,
-            workspaceId: params.workspaceId,
-            configPath: row.configPath,
-            triggers: definitionTriggersFor(row.definition.model),
-          },
-        });
-        appliedCount += 1;
-      }
+    for (const item of prepared) {
+      if (await applyPreparedVcsDefinition(tx, params, item, workflowIds)) appliedCount += 1;
     }
 
     const keepConfigPaths = params.upserts.map((upsert) => upsert.configPath);

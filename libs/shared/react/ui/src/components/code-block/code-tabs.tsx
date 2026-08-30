@@ -144,11 +144,9 @@ export function CodeTabs({
   const isControlled = controlledValue !== undefined;
   // When uncontrolled, the selected tab can disappear if `codes` changes
   // (dynamic/async sources). Fall back to the first key so a tab is always active.
-  const value = isControlled
-    ? controlledValue
-    : Object.hasOwn(codes, internalValue)
-      ? internalValue
-      : firstKey;
+  let value = firstKey;
+  if (isControlled) value = controlledValue;
+  else if (Object.hasOwn(codes, internalValue)) value = internalValue;
 
   const onValueChange = useCallback(
     (next: string) => {

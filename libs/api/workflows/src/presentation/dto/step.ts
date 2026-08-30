@@ -32,15 +32,39 @@ function toStepErrorDto(error: Record<string, unknown> | null, stepType: string)
   const category = deriveStepErrorCategory(stepType, reason.success ? reason.data : undefined);
   return {
     message,
-    ...(code === undefined ? {} : {code}),
-    ...(managedProviderId === undefined ? {} : {managed_provider_id: managedProviderId}),
-    ...(exitCode === null || typeof exitCode === 'number' ? {exit_code: exitCode} : {}),
-    ...(signal === undefined ? {} : {signal}),
+    ...toStepErrorScalarFields({code, managedProviderId, exitCode, signal}),
     ...(reason.success ? {reason: reason.data} : {}),
-    ...(field === undefined ? {} : {field}),
-    ...(source === undefined ? {} : {source}),
+    ...toStepErrorSourceFields(field, source),
     ...(agentConfigIssue.success ? {agent_config_issue: agentConfigIssue.data} : {}),
     category,
+  };
+}
+
+function toStepErrorScalarFields(params: {
+  code: string | undefined;
+  managedProviderId: string | undefined;
+  exitCode: unknown;
+  signal: string | undefined;
+}): Partial<StepErrorDto> {
+  return {
+    ...(params.code === undefined ? {} : {code: params.code}),
+    ...(params.managedProviderId === undefined
+      ? {}
+      : {managed_provider_id: params.managedProviderId}),
+    ...(params.exitCode === null || typeof params.exitCode === 'number'
+      ? {exit_code: params.exitCode}
+      : {}),
+    ...(params.signal === undefined ? {} : {signal: params.signal}),
+  };
+}
+
+function toStepErrorSourceFields(
+  field: string | undefined,
+  source: string | undefined,
+): Partial<StepErrorDto> {
+  return {
+    ...(field === undefined ? {} : {field}),
+    ...(source === undefined ? {} : {source}),
   };
 }
 
@@ -113,6 +137,7 @@ export function toStepDto(step: Step): StepDto {
     sessionValue === undefined || sessionValue === null
       ? null
       : agentStepSessionDescriptorSchema.safeParse(sessionValue);
+  const sessionDto = session?.success ? session.data : null;
   return {
     id: step.id,
     job_execution_id: step.jobExecutionId,
@@ -125,7 +150,7 @@ export function toStepDto(step: Step): StepDto {
     config: step.config,
     evaluation_trace: toEvaluationTraceDto(step.evaluationTrace),
     error: toStepErrorDto(step.error, step.type),
-    session: session === null ? null : session.success ? session.data : null,
+    session: sessionDto,
     position: step.position,
     current_attempt: step.currentAttempt,
     created_at: step.createdAt.toISOString(),

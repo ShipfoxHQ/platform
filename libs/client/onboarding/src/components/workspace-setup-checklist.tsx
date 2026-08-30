@@ -61,6 +61,21 @@ function WorkspaceSetupChecklistForWorkspace({workspace}: {workspace: WorkspaceR
 
   if (queryState.baseSettled && queryState.checklist.complete && !showCompletion) return null;
 
+  let checklistBody = <ChecklistSkeleton />;
+  if (queryState.baseSettled) {
+    checklistBody = (
+      <SetupChecklistBody
+        checklist={queryState.checklist}
+        workspaceSlug={workspace.slug}
+        completion={showCompletion}
+        showBurst={burstPending}
+        onBurstComplete={consumeBurst}
+        onAction={handleAction}
+        onDone={dismiss}
+      />
+    );
+  }
+
   return (
     <Panel asChild className="w-full">
       <section aria-label="Get started">
@@ -68,23 +83,7 @@ function WorkspaceSetupChecklistForWorkspace({workspace}: {workspace: WorkspaceR
           count={queryState.baseSettled ? checklistCountLabel(queryState.checklist) : undefined}
           onDismiss={dismiss}
         />
-        <PanelBody>
-          {queryState.baseSettled ? (
-            queryState.checklist.complete && !showCompletion ? null : (
-              <SetupChecklistBody
-                checklist={queryState.checklist}
-                workspaceSlug={workspace.slug}
-                completion={showCompletion}
-                showBurst={burstPending}
-                onBurstComplete={consumeBurst}
-                onAction={handleAction}
-                onDone={dismiss}
-              />
-            )
-          ) : (
-            <ChecklistSkeleton />
-          )}
-        </PanelBody>
+        <PanelBody>{checklistBody}</PanelBody>
       </section>
     </Panel>
   );

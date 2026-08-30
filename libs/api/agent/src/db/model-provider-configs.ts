@@ -32,6 +32,38 @@ export type InsertCustomModelProviderConfigParams = Omit<
   'kind' | 'requiresApiKey'
 > & {kind: 'custom'; requiresApiKey: boolean};
 
+type ModelProviderConfigValues = Pick<
+  typeof modelProviderConfigs.$inferInsert,
+  | 'api'
+  | 'baseUrl'
+  | 'defaultModel'
+  | 'defaultThinking'
+  | 'displayName'
+  | 'headers'
+  | 'kind'
+  | 'models'
+  | 'requiresApiKey'
+  | 'secretHeaderNames'
+>;
+
+function modelProviderConfigValues(
+  params: UpsertModelProviderConfigParams,
+): ModelProviderConfigValues {
+  const values: ModelProviderConfigValues = {
+    defaultModel: params.defaultModel,
+    defaultThinking: params.defaultThinking,
+  };
+  if (params.kind !== undefined) values.kind = params.kind;
+  if (params.displayName !== undefined) values.displayName = params.displayName;
+  if (params.api !== undefined) values.api = params.api;
+  if (params.baseUrl !== undefined) values.baseUrl = params.baseUrl;
+  if (params.headers !== undefined) values.headers = params.headers;
+  if (params.secretHeaderNames !== undefined) values.secretHeaderNames = params.secretHeaderNames;
+  if (params.models !== undefined) values.models = params.models;
+  if (params.requiresApiKey !== undefined) values.requiresApiKey = params.requiresApiKey;
+  return values;
+}
+
 export async function insertCustomModelProviderConfig(
   params: InsertCustomModelProviderConfigParams,
 ): Promise<ModelProviderConfig | undefined> {
@@ -84,39 +116,18 @@ export async function upsertModelProviderConfig(
   params: UpsertModelProviderConfigParams,
 ): Promise<ModelProviderConfig> {
   return await db().transaction(async (tx) => {
+    const values = modelProviderConfigValues(params);
     const rows = await tx
       .insert(modelProviderConfigs)
       .values({
         workspaceId: params.workspaceId,
         providerId: params.providerId,
-        ...(params.kind !== undefined ? {kind: params.kind} : {}),
-        ...(params.displayName !== undefined ? {displayName: params.displayName} : {}),
-        ...(params.api !== undefined ? {api: params.api} : {}),
-        ...(params.baseUrl !== undefined ? {baseUrl: params.baseUrl} : {}),
-        ...(params.headers !== undefined ? {headers: params.headers} : {}),
-        ...(params.secretHeaderNames !== undefined
-          ? {secretHeaderNames: params.secretHeaderNames}
-          : {}),
-        ...(params.models !== undefined ? {models: params.models} : {}),
-        ...(params.requiresApiKey !== undefined ? {requiresApiKey: params.requiresApiKey} : {}),
-        defaultModel: params.defaultModel,
-        defaultThinking: params.defaultThinking,
+        ...values,
       })
       .onConflictDoUpdate({
         target: [modelProviderConfigs.workspaceId, modelProviderConfigs.providerId],
         set: {
-          ...(params.kind !== undefined ? {kind: params.kind} : {}),
-          ...(params.displayName !== undefined ? {displayName: params.displayName} : {}),
-          ...(params.api !== undefined ? {api: params.api} : {}),
-          ...(params.baseUrl !== undefined ? {baseUrl: params.baseUrl} : {}),
-          ...(params.headers !== undefined ? {headers: params.headers} : {}),
-          ...(params.secretHeaderNames !== undefined
-            ? {secretHeaderNames: params.secretHeaderNames}
-            : {}),
-          ...(params.models !== undefined ? {models: params.models} : {}),
-          ...(params.requiresApiKey !== undefined ? {requiresApiKey: params.requiresApiKey} : {}),
-          defaultModel: params.defaultModel,
-          defaultThinking: params.defaultThinking,
+          ...values,
           updatedAt: sql`NOW()`,
         },
       })

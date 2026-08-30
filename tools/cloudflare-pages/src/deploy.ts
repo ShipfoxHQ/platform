@@ -247,54 +247,19 @@ export async function deployCloudflarePages({
     const outputDirectory = await mkdtemp(join(tmpdir(), 'shipfox-cloudflare-pages-'));
     const outputPath = join(outputDirectory, 'wrangler-output.json');
     try {
-      const args = [
-        'pages',
-        'deploy',
-        resolvedDirectory,
-        `--project-name=${resolvedProject}`,
-        ...(branch === null ? [] : [`--branch=${branch}`]),
-        `--commit-hash=${resolvedCommitSha}`,
-      ];
-      const result = await runner(command, args, {
-        cwd,
-        env: {...process.env, WRANGLER_OUTPUT_FILE_PATH: outputPath},
-        timeoutMs,
-      });
-      const structuredOutput = await readWranglerDeploymentOutput(outputPath);
-      if (environment === 'production') {
-        if (structuredOutput === undefined) {
-          throw new Error(
-            'Cloudflare did not return structured deployment metadata for the production upload',
-          );
-        }
-        if (structuredOutput.environment !== 'production') {
-          throw new Error(
-            `Cloudflare deployment resolved to the ${typeof structuredOutput.environment === 'string' ? structuredOutput.environment : 'missing'} environment instead of production`,
-          );
-        }
-        if (
-          typeof structuredOutput.production_branch !== 'string' ||
-          structuredOutput.production_branch.length === 0 ||
-          branch === null ||
-          branch.length === 0 ||
-          structuredOutput.production_branch !== branch
-        ) {
-          throw new Error(
-            `Cloudflare Pages production branch is ${typeof structuredOutput.production_branch === 'string' ? structuredOutput.production_branch : 'missing'}, expected ${branch !== null && branch.length > 0 ? branch : 'an explicit branch'}`,
-          );
-        }
-      }
-      const url = getCloudflareDeploymentUrl(result.output, structuredOutput);
-      if (url === null) throw new Error('Cloudflare did not return a pages.dev deployment URL');
-
-      return {
-        url,
+      return await deployCloudflarePagesAttempt({
         directory: resolvedDirectory,
         project: resolvedProject,
         branch,
+        environment,
         commitSha: resolvedCommitSha,
-        attempts: attempt,
-      };
+        command,
+        cwd,
+        runner,
+        timeoutMs,
+        outputPath,
+        attempt,
+      });
     } catch (error) {
       lastError = error;
       if (attempt < attempts && retryDelayMs > 0) await wait(attempt * retryDelayMs);
@@ -308,6 +273,75 @@ export async function deployCloudflarePages({
       lastError instanceof Error ? lastError.message : lastError
     }`,
   );
+}
+
+async function deployCloudflarePagesAttempt(params: {
+  directory: string;
+  project: string;
+  branch: string | null;
+  environment: string | undefined;
+  commitSha: string;
+  command: string;
+  cwd: string;
+  runner: CommandRunner;
+  timeoutMs: number;
+  outputPath: string;
+  attempt: number;
+}): Promise<CloudflarePagesSingleDeployment> {
+  const args = [
+    'pages',
+    'deploy',
+    params.directory,
+    `--project-name=${params.project}`,
+    ...(params.branch === null ? [] : [`--branch=${params.branch}`]),
+    `--commit-hash=${params.commitSha}`,
+  ];
+  const result = await params.runner(params.command, args, {
+    cwd: params.cwd,
+    env: {...process.env, WRANGLER_OUTPUT_FILE_PATH: params.outputPath},
+    timeoutMs: params.timeoutMs,
+  });
+  const structuredOutput = await readWranglerDeploymentOutput(params.outputPath);
+  if (params.environment === 'production')
+    assertProductionDeployment(structuredOutput, params.branch);
+  const url = getCloudflareDeploymentUrl(result.output, structuredOutput);
+  if (url === null) throw new Error('Cloudflare did not return a pages.dev deployment URL');
+  return {
+    url,
+    directory: params.directory,
+    project: params.project,
+    branch: params.branch,
+    commitSha: params.commitSha,
+    attempts: params.attempt,
+  };
+}
+
+function assertProductionDeployment(
+  output: Awaited<ReturnType<typeof readWranglerDeploymentOutput>>,
+  branch: string | null,
+): void {
+  if (output === undefined) {
+    throw new Error(
+      'Cloudflare did not return structured deployment metadata for the production upload',
+    );
+  }
+  if (output.environment !== 'production') {
+    const environment = typeof output.environment === 'string' ? output.environment : 'missing';
+    throw new Error(
+      `Cloudflare deployment resolved to the ${environment} environment instead of production`,
+    );
+  }
+  const validBranch =
+    typeof output.production_branch === 'string' &&
+    output.production_branch.length > 0 &&
+    branch !== null &&
+    branch.length > 0 &&
+    output.production_branch === branch;
+  if (validBranch) return;
+  const actual =
+    typeof output.production_branch === 'string' ? output.production_branch : 'missing';
+  const expected = branch !== null && branch.length > 0 ? branch : 'an explicit branch';
+  throw new Error(`Cloudflare Pages production branch is ${actual}, expected ${expected}`);
 }
 
 /**

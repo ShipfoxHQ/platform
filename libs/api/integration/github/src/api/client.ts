@@ -307,51 +307,49 @@ class OctokitGithubApiClient implements GithubApiClient, GithubBotUserClient {
     const overflowLimit = start + input.limit + 1;
 
     type GetContentData = Awaited<ReturnType<typeof octokit.rest.repos.getContent>>['data'];
+    type GetContentEntry = Extract<GetContentData, unknown[]>[number];
+
+    const fetchContent = async (path: string): Promise<GetContentData | undefined> => {
+      try {
+        const response = await mapGithubError(
+          () => octokit.rest.repos.getContent({owner, repo, path, ref: input.ref}),
+          'file-not-found',
+        );
+        return response.data;
+      } catch (error) {
+        if (error instanceof GithubIntegrationProviderError && error.reason === 'file-not-found') {
+          return undefined;
+        }
+        throw error;
+      }
+    };
+
+    const collectFile = (data: {path?: string; size?: number; type: string}): void => {
+      if (data.type !== 'file' || !data.path) return;
+      collected.push({path: data.path, size: typeof data.size === 'number' ? data.size : null});
+    };
 
     const walk = async (path: string, depth: number): Promise<void> => {
       if (collected.length >= overflowLimit) return;
       if (depth > MAX_TREE_WALK_DEPTH) return;
-
-      let data: GetContentData;
-      try {
-        const response = await mapGithubError(
-          () =>
-            octokit.rest.repos.getContent({
-              owner,
-              repo,
-              path,
-              ref: input.ref,
-            }),
-          'file-not-found',
-        );
-        data = response.data;
-      } catch (error) {
-        if (error instanceof GithubIntegrationProviderError && error.reason === 'file-not-found') {
-          return;
-        }
-        throw error;
-      }
-
+      const data = await fetchContent(path);
+      if (data === undefined) return;
       if (!Array.isArray(data)) {
-        if (data.type === 'file' && data.path) {
-          collected.push({path: data.path, size: typeof data.size === 'number' ? data.size : null});
-        }
+        collectFile(data);
         return;
       }
-
       const entries = [...data].sort((a, b) => (a.path ?? '').localeCompare(b.path ?? ''));
       for (const entry of entries) {
-        if (collected.length >= overflowLimit) return;
-        if (!entry.path) continue;
-        if (entry.type === 'file') {
-          collected.push({
-            path: entry.path,
-            size: typeof entry.size === 'number' ? entry.size : null,
-          });
-        } else if (entry.type === 'dir') {
-          await walk(entry.path, depth + 1);
-        }
+        if (!(await collectGithubEntry(entry, depth))) return;
       }
+    };
+
+    const collectGithubEntry = async (entry: GetContentEntry, depth: number): Promise<boolean> => {
+      if (collected.length >= overflowLimit) return false;
+      if (!entry.path) return true;
+      if (entry.type === 'file') collectFile(entry);
+      else if (entry.type === 'dir') await walk(entry.path, depth + 1);
+      return true;
     };
 
     await walk(startPath, 0);
@@ -612,58 +610,38 @@ export async function mapGithubError<T>(
     if (isGithubTimeoutError(error)) {
       throw new GithubIntegrationProviderError('timeout', 'GitHub request timed out');
     }
-    if (error instanceof RequestError) {
-      if (error.status === 404) {
-        throw new GithubIntegrationProviderError(
-          notFoundReason === 'ref-not-found' ? 'repository-not-found' : notFoundReason,
-          error.message,
-          undefined,
-          error.status,
-        );
-      }
-      if (notFoundReason === 'ref-not-found' && (error.status === 409 || error.status === 422)) {
-        throw new GithubIntegrationProviderError(
-          'ref-not-found',
-          error.message,
-          undefined,
-          error.status,
-        );
-      }
-      if (error.status === 429 || isGithubRateLimitError(error)) {
-        throw new GithubIntegrationProviderError(
-          'rate-limited',
-          error.message,
-          retryAfterSeconds(error),
-          error.status,
-        );
-      }
-      if (error.status === 401 || error.status === 403) {
-        throw new GithubIntegrationProviderError(
-          'access-denied',
-          error.message,
-          retryAfterSeconds(error),
-          error.status,
-        );
-      }
-      if (error.status >= 500) {
-        throw new GithubIntegrationProviderError(
-          'provider-unavailable',
-          error.message,
-          undefined,
-          error.status,
-        );
-      }
-      if (error.status >= 400) {
-        throw new GithubIntegrationProviderError(
-          'provider-rejected',
-          error.message,
-          undefined,
-          error.status,
-        );
-      }
-    }
+    if (error instanceof RequestError) throw mapGithubRequestError(error, notFoundReason);
     throw error;
   }
+}
+
+function mapGithubRequestError(
+  error: RequestError,
+  notFoundReason:
+    | 'repository-not-found'
+    | 'installation-not-found'
+    | 'file-not-found'
+    | 'ref-not-found'
+    | 'provider-rejected',
+): GithubIntegrationProviderError {
+  let reason: ConstructorParameters<typeof GithubIntegrationProviderError>[0];
+  let retryAfter: number | undefined;
+  if (error.status === 404) {
+    reason = notFoundReason === 'ref-not-found' ? 'repository-not-found' : notFoundReason;
+  } else if (notFoundReason === 'ref-not-found' && (error.status === 409 || error.status === 422)) {
+    reason = 'ref-not-found';
+  } else if (error.status === 429 || isGithubRateLimitError(error)) {
+    reason = 'rate-limited';
+    retryAfter = retryAfterSeconds(error);
+  } else if (error.status === 401 || error.status === 403) {
+    reason = 'access-denied';
+    retryAfter = retryAfterSeconds(error);
+  } else if (error.status >= 500) {
+    reason = 'provider-unavailable';
+  } else {
+    reason = 'provider-rejected';
+  }
+  return new GithubIntegrationProviderError(reason, error.message, retryAfter, error.status);
 }
 
 function isGithubTimeoutError(error: unknown): boolean {

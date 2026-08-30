@@ -1,7 +1,7 @@
 import type {DemandStatDto} from '@shipfox/api-runners-dto';
-import {getServiceMetricsProvider, logger} from '@shipfox/node-opentelemetry';
+import {getServiceMetricsProvider, logger, type ObservableGauge} from '@shipfox/node-opentelemetry';
 import {type ProvisionerTemplate, rankTemplatesForLabels} from '@shipfox/provisioner-core';
-import type {Ec2Engine, Ec2InstanceState} from '#ec2-engine.js';
+import type {Ec2Engine, Ec2InstanceState, Ec2InstanceView} from '#ec2-engine.js';
 import {parseInstanceIdentity} from '#instance-identity.js';
 import type {Ec2TemplateSpec} from '#templates.js';
 
@@ -11,6 +11,13 @@ type ServiceMetricLabels = {
 };
 type TemplateRunnerCounts = {starting: number; running: number};
 type TemplateDemand = {queued: number; oldestQueuedAtMs?: number};
+interface BatchMetricObserver {
+  observe(
+    gauge: ObservableGauge<ServiceMetricLabels>,
+    value: number,
+    labels?: ServiceMetricLabels,
+  ): void;
+}
 
 export interface RegisterEc2ServiceMetricsOptions {
   readonly engine: Ec2Engine;
@@ -56,26 +63,11 @@ export function registerEc2ServiceMetrics(options: RegisterEc2ServiceMetricsOpti
     async (observer) => {
       try {
         const instances = await options.engine.listManaged(options.provisionerId);
-        const counts = new Map<Ec2InstanceState, number>();
-        for (const instance of instances)
-          counts.set(instance.state, (counts.get(instance.state) ?? 0) + 1);
-        for (const [state, count] of counts) observer.observe(managedInstances, count, {state});
-
-        const countsByTemplate = new Map<string, TemplateRunnerCounts>(
-          options.templates.map((template) => [template.key, {starting: 0, running: 0}]),
+        observeManagedInstanceCounts(observer, managedInstances, instances);
+        const {countsByTemplate, unattributedCount} = countTemplateRunners(
+          options.templates,
+          instances,
         );
-        let unattributedCount = 0;
-        for (const instance of instances) {
-          const templateKey = parseInstanceIdentity(instance).templateKey;
-          if (!templateKey || !countsByTemplate.has(templateKey)) {
-            unattributedCount += 1;
-            continue;
-          }
-          const state = templateRunnerState(instance.state);
-          if (!state) continue;
-          const templateCounts = countsByTemplate.get(templateKey);
-          if (templateCounts) templateCounts[state] += 1;
-        }
         if (unattributedCount !== 0 && unattributedCount !== lastUnattributedCount) {
           logger().warn(
             {
@@ -87,52 +79,14 @@ export function registerEc2ServiceMetrics(options: RegisterEc2ServiceMetricsOpti
           );
         }
         lastUnattributedCount = unattributedCount;
-
-        const demandByTemplate = new Map<string, TemplateDemand>(
-          options.templates.map((template) => [template.key, {queued: 0}]),
-        );
-        for (const stat of options.getDemandStats()) {
-          if (stat.queued === 0) continue;
-          const oldestQueuedAtMs = Date.parse(stat.oldest_queued_at);
-          for (const template of rankTemplatesForLabels(stat.labels, options.templates)) {
-            const demand = demandByTemplate.get(template.key);
-            if (!demand) continue;
-            demand.queued += stat.queued;
-            if (Number.isFinite(oldestQueuedAtMs)) {
-              demand.oldestQueuedAtMs =
-                demand.oldestQueuedAtMs === undefined
-                  ? oldestQueuedAtMs
-                  : Math.min(demand.oldestQueuedAtMs, oldestQueuedAtMs);
-            }
-          }
-        }
-
-        for (const template of options.templates) {
-          const labels = {template_key: template.key};
-          const countsForTemplate = countsByTemplate.get(template.key) ?? {
-            starting: 0,
-            running: 0,
-          };
-          const demand = demandByTemplate.get(template.key) ?? {queued: 0};
-          observer.observe(templateRunners, countsForTemplate.starting, {
-            ...labels,
-            state: 'starting',
-          });
-          observer.observe(templateRunners, countsForTemplate.running, {
-            ...labels,
-            state: 'running',
-          });
-          observer.observe(templateMaxConcurrency, template.maxConcurrency, labels);
-          observer.observe(templateTargetConcurrency, template.targetConcurrency ?? 0, labels);
-          observer.observe(templateQueuedDemand, demand.queued, labels);
-          observer.observe(
-            templateOldestQueuedAge,
-            demand.oldestQueuedAtMs === undefined
-              ? 0
-              : Math.max(0, Date.now() - demand.oldestQueuedAtMs),
-            labels,
-          );
-        }
+        const demandByTemplate = calculateTemplateDemand(options);
+        observeTemplateMetrics(observer, options.templates, countsByTemplate, demandByTemplate, {
+          templateRunners,
+          templateMaxConcurrency,
+          templateTargetConcurrency,
+          templateQueuedDemand,
+          templateOldestQueuedAge,
+        });
       } catch (error) {
         logger().warn(
           {
@@ -153,6 +107,93 @@ export function registerEc2ServiceMetrics(options: RegisterEc2ServiceMetricsOpti
       templateOldestQueuedAge,
     ],
   );
+}
+
+function observeManagedInstanceCounts(
+  observer: BatchMetricObserver,
+  gauge: ObservableGauge<ServiceMetricLabels>,
+  instances: readonly Ec2InstanceView[],
+): void {
+  const counts = new Map<Ec2InstanceState, number>();
+  for (const instance of instances)
+    counts.set(instance.state, (counts.get(instance.state) ?? 0) + 1);
+  for (const [state, count] of counts) observer.observe(gauge, count, {state});
+}
+
+function countTemplateRunners(
+  templates: RegisterEc2ServiceMetricsOptions['templates'],
+  instances: readonly Ec2InstanceView[],
+): {countsByTemplate: Map<string, TemplateRunnerCounts>; unattributedCount: number} {
+  const countsByTemplate = new Map<string, TemplateRunnerCounts>(
+    templates.map((template) => [template.key, {starting: 0, running: 0}]),
+  );
+  let unattributedCount = 0;
+  for (const instance of instances) {
+    const templateKey = parseInstanceIdentity(instance).templateKey;
+    if (!templateKey || !countsByTemplate.has(templateKey)) {
+      unattributedCount += 1;
+      continue;
+    }
+    const state = templateRunnerState(instance.state);
+    if (!state) continue;
+    const templateCounts = countsByTemplate.get(templateKey);
+    if (templateCounts) templateCounts[state] += 1;
+  }
+  return {countsByTemplate, unattributedCount};
+}
+
+function calculateTemplateDemand(
+  options: RegisterEc2ServiceMetricsOptions,
+): Map<string, TemplateDemand> {
+  const demandByTemplate = new Map<string, TemplateDemand>(
+    options.templates.map((template) => [template.key, {queued: 0}]),
+  );
+  for (const stat of options.getDemandStats()) {
+    if (stat.queued === 0) continue;
+    const oldestQueuedAtMs = Date.parse(stat.oldest_queued_at);
+    for (const template of rankTemplatesForLabels(stat.labels, options.templates)) {
+      const demand = demandByTemplate.get(template.key);
+      if (!demand) continue;
+      demand.queued += stat.queued;
+      if (Number.isFinite(oldestQueuedAtMs)) {
+        demand.oldestQueuedAtMs =
+          demand.oldestQueuedAtMs === undefined
+            ? oldestQueuedAtMs
+            : Math.min(demand.oldestQueuedAtMs, oldestQueuedAtMs);
+      }
+    }
+  }
+  return demandByTemplate;
+}
+
+interface TemplateMetricGauges {
+  templateRunners: ObservableGauge<ServiceMetricLabels>;
+  templateMaxConcurrency: ObservableGauge<ServiceMetricLabels>;
+  templateTargetConcurrency: ObservableGauge<ServiceMetricLabels>;
+  templateQueuedDemand: ObservableGauge<ServiceMetricLabels>;
+  templateOldestQueuedAge: ObservableGauge<ServiceMetricLabels>;
+}
+
+function observeTemplateMetrics(
+  observer: BatchMetricObserver,
+  templates: RegisterEc2ServiceMetricsOptions['templates'],
+  countsByTemplate: ReadonlyMap<string, TemplateRunnerCounts>,
+  demandByTemplate: ReadonlyMap<string, TemplateDemand>,
+  gauges: TemplateMetricGauges,
+): void {
+  for (const template of templates) {
+    const labels = {template_key: template.key};
+    const counts = countsByTemplate.get(template.key) ?? {starting: 0, running: 0};
+    const demand = demandByTemplate.get(template.key) ?? {queued: 0};
+    observer.observe(gauges.templateRunners, counts.starting, {...labels, state: 'starting'});
+    observer.observe(gauges.templateRunners, counts.running, {...labels, state: 'running'});
+    observer.observe(gauges.templateMaxConcurrency, template.maxConcurrency, labels);
+    observer.observe(gauges.templateTargetConcurrency, template.targetConcurrency ?? 0, labels);
+    observer.observe(gauges.templateQueuedDemand, demand.queued, labels);
+    const oldestAge =
+      demand.oldestQueuedAtMs === undefined ? 0 : Math.max(0, Date.now() - demand.oldestQueuedAtMs);
+    observer.observe(gauges.templateOldestQueuedAge, oldestAge, labels);
+  }
 }
 
 function templateRunnerState(state: Ec2InstanceState): 'starting' | 'running' | undefined {

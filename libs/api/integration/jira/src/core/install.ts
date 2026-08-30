@@ -151,77 +151,100 @@ async function verifyClaims(
   return claims;
 }
 
-function resolveJiraSite(
-  params: Omit<HandleJiraCallbackParams, 'code'> & {
-    authorization: JiraAuthorization;
-    site: JiraAccessibleResource;
-    claims: {workspaceId: string; userId: string};
-  },
-): Promise<IntegrationConnection<'jira'>> {
+type ResolveJiraSiteParams = Omit<HandleJiraCallbackParams, 'code'> & {
+  authorization: JiraAuthorization;
+  site: JiraAccessibleResource;
+  claims: {workspaceId: string; userId: string};
+};
+
+function resolveJiraSite(params: ResolveJiraSiteParams): Promise<IntegrationConnection<'jira'>> {
   const withInstallationLock = params.withJiraInstallationLock ?? withJiraInstallationLock;
-  return withInstallationLock(params.site.cloudId, async () => {
-    const existing = await params.getExistingJiraConnection({cloudId: params.site.cloudId});
-    if (existing && existing.workspaceId !== params.claims.workspaceId)
-      throw new JiraInstallationAlreadyLinkedError(params.site.cloudId);
-    const identity = await params.jira.getMyself({
-      accessToken: params.authorization.accessToken,
-      cloudId: params.site.cloudId,
-    });
-    const installationInput = {
-      workspaceId: params.claims.workspaceId,
-      cloudId: params.site.cloudId,
-      siteUrl: params.site.url,
-      siteName: params.site.name,
-      authorizingAccountId: identity.accountId,
-      scopes: params.site.scopes,
-      tokenExpiresAt: params.authorization.expiresAt ?? null,
-      displayName: `Jira ${params.site.name}`,
-    };
-    let connection = existing;
-    try {
-      if (!connection) connection = await params.connectJiraInstallation(installationInput);
-      await params.tokenStore.storeTokens({
-        connectionId: connection.id,
-        accessToken: params.authorization.accessToken,
-        refreshToken: params.authorization.refreshToken,
-        editedBy: params.claims.userId,
-      });
-      if (existing) connection = await params.connectJiraInstallation(installationInput);
-    } catch (error) {
-      if (existing) {
-        const markedError = await bestEffortMarkConnectionError(params, existing.id);
-        if (!markedError) await bestEffortMarkConnectionError(params, existing.id);
-      } else if (connection) {
-        await bestEffortDisconnect(params, connection.id);
-      }
-      throw error;
-    }
+  return withInstallationLock(params.site.cloudId, () => resolveJiraSiteWithLock(params));
+}
 
-    let registrationFailureHandled = false;
-    try {
-      await params.registerJiraWebhook({
-        connectionId: connection.id,
-        cloudId: params.site.cloudId,
-        accessToken: params.authorization.accessToken,
-        withRegistrationLock: async (_lockKey, fn) => fn(),
-        onRegistrationSuccess: async ({tx}) => {
-          await params.markConnectionActive(connectionLifecycleInput(connection.id, tx));
-        },
-        onRegistrationFailure: async ({tx}) => {
-          registrationFailureHandled = await bestEffortMarkConnectionError(
-            params,
-            connection.id,
-            tx,
-          );
-        },
-      });
-    } catch (error) {
-      if (!registrationFailureHandled) await bestEffortMarkConnectionError(params, connection.id);
-      throw error;
-    }
-
-    return connection;
+async function resolveJiraSiteWithLock(
+  params: ResolveJiraSiteParams,
+): Promise<IntegrationConnection<'jira'>> {
+  const existing = await params.getExistingJiraConnection({cloudId: params.site.cloudId});
+  if (existing && existing.workspaceId !== params.claims.workspaceId) {
+    throw new JiraInstallationAlreadyLinkedError(params.site.cloudId);
+  }
+  const identity = await params.jira.getMyself({
+    accessToken: params.authorization.accessToken,
+    cloudId: params.site.cloudId,
   });
+  const installationInput: ConnectJiraInstallationInput = {
+    workspaceId: params.claims.workspaceId,
+    cloudId: params.site.cloudId,
+    siteUrl: params.site.url,
+    siteName: params.site.name,
+    authorizingAccountId: identity.accountId,
+    scopes: params.site.scopes,
+    tokenExpiresAt: params.authorization.expiresAt ?? null,
+    displayName: `Jira ${params.site.name}`,
+  };
+  const connection = await connectAndStoreJiraTokens(params, installationInput, existing);
+  await registerJiraConnectionWebhook(params, connection);
+  return connection;
+}
+
+async function connectAndStoreJiraTokens(
+  params: ResolveJiraSiteParams,
+  installationInput: ConnectJiraInstallationInput,
+  existing: IntegrationConnection<'jira'> | undefined,
+): Promise<IntegrationConnection<'jira'>> {
+  let connection = existing;
+  try {
+    if (!connection) connection = await params.connectJiraInstallation(installationInput);
+    await params.tokenStore.storeTokens({
+      connectionId: connection.id,
+      accessToken: params.authorization.accessToken,
+      refreshToken: params.authorization.refreshToken,
+      editedBy: params.claims.userId,
+    });
+    if (existing) connection = await params.connectJiraInstallation(installationInput);
+    return connection;
+  } catch (error) {
+    await compensateFailedJiraConnection(params, existing, connection);
+    throw error;
+  }
+}
+
+async function compensateFailedJiraConnection(
+  params: ResolveJiraSiteParams,
+  existing: IntegrationConnection<'jira'> | undefined,
+  connection: IntegrationConnection<'jira'> | undefined,
+): Promise<void> {
+  if (existing) {
+    const markedError = await bestEffortMarkConnectionError(params, existing.id);
+    if (!markedError) await bestEffortMarkConnectionError(params, existing.id);
+    return;
+  }
+  if (connection) await bestEffortDisconnect(params, connection.id);
+}
+
+async function registerJiraConnectionWebhook(
+  params: ResolveJiraSiteParams,
+  connection: IntegrationConnection<'jira'>,
+): Promise<void> {
+  let registrationFailureHandled = false;
+  try {
+    await params.registerJiraWebhook({
+      connectionId: connection.id,
+      cloudId: params.site.cloudId,
+      accessToken: params.authorization.accessToken,
+      withRegistrationLock: async (_lockKey, fn) => fn(),
+      onRegistrationSuccess: async ({tx}) => {
+        await params.markConnectionActive(connectionLifecycleInput(connection.id, tx));
+      },
+      onRegistrationFailure: async ({tx}) => {
+        registrationFailureHandled = await bestEffortMarkConnectionError(params, connection.id, tx);
+      },
+    });
+  } catch (error) {
+    if (!registrationFailureHandled) await bestEffortMarkConnectionError(params, connection.id);
+    throw error;
+  }
 }
 
 async function bestEffortDisconnect(

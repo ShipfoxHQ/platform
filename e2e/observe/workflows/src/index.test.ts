@@ -20,38 +20,42 @@ const RUN_TERMINAL_TIMEOUT_RE =
   /Timed out waiting for workflow run terminal status: runId=33333333/u;
 const RUN_TERMINAL_OBSERVED_RE = /status=running/u;
 
+function valueOr<T>(value: T | undefined, fallback: T): T {
+  return value ?? fallback;
+}
+
 function run(params: Partial<WorkflowRunListItemDto> = {}): WorkflowRunListItemDto {
   return {
-    id: params.id ?? runId,
-    project_id: params.project_id ?? projectId,
-    definition_id: params.definition_id ?? definitionId,
-    number: params.number ?? 1,
-    name: params.name ?? 'Build',
-    workflow_name: params.workflow_name ?? 'Build',
-    status: params.status ?? 'pending',
-    origin: params.origin ?? 'synced',
-    dev_source: params.dev_source ?? null,
-    current_attempt: params.current_attempt ?? 1,
-    latest_attempt: params.latest_attempt ?? 1,
-    trigger_provider: params.trigger_provider ?? 'gitea',
-    trigger_source: params.trigger_source ?? 'gitea_e2e',
-    trigger_event: params.trigger_event ?? 'push',
-    trigger_payload: params.trigger_payload ?? {
+    id: valueOr(params.id, runId),
+    project_id: valueOr(params.project_id, projectId),
+    definition_id: valueOr(params.definition_id, definitionId),
+    number: valueOr(params.number, 1),
+    name: valueOr(params.name, 'Build'),
+    workflow_name: valueOr(params.workflow_name, 'Build'),
+    status: valueOr(params.status, 'pending'),
+    origin: valueOr(params.origin, 'synced'),
+    dev_source: valueOr(params.dev_source, null),
+    current_attempt: valueOr(params.current_attempt, 1),
+    latest_attempt: valueOr(params.latest_attempt, 1),
+    trigger_provider: valueOr(params.trigger_provider, 'gitea'),
+    trigger_source: valueOr(params.trigger_source, 'gitea_e2e'),
+    trigger_event: valueOr(params.trigger_event, 'push'),
+    trigger_payload: valueOr(params.trigger_payload, {
       provider: 'gitea',
       source: 'gitea_e2e',
       event: 'push',
       deliveryId: 'delivery-1',
       data: {headCommitSha: 'abc123', ref: 'main'},
-    },
-    trigger_reference: params.trigger_reference ?? null,
-    inputs: params.inputs ?? null,
-    source_snapshot: params.source_snapshot ?? null,
-    created_at: params.created_at ?? '2026-07-02T08:00:00.000Z',
-    updated_at: params.updated_at ?? '2026-07-02T08:00:00.000Z',
-    started_at: params.started_at ?? null,
-    finished_at: params.finished_at ?? null,
-    jobs: params.jobs ?? [],
-    job_status_counts: params.job_status_counts ?? [],
+    }),
+    trigger_reference: valueOr(params.trigger_reference, null),
+    inputs: valueOr(params.inputs, null),
+    source_snapshot: valueOr(params.source_snapshot, null),
+    created_at: valueOr(params.created_at, '2026-07-02T08:00:00.000Z'),
+    updated_at: valueOr(params.updated_at, '2026-07-02T08:00:00.000Z'),
+    started_at: valueOr(params.started_at, null),
+    finished_at: valueOr(params.finished_at, null),
+    jobs: valueOr(params.jobs, []),
+    job_status_counts: valueOr(params.job_status_counts, []),
   };
 }
 

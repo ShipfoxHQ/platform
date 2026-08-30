@@ -69,8 +69,8 @@ export function DatePicker({
   ...props
 }: DatePickerProps) {
   const [open, setOpen] = useState(false);
-  const isDisabled = disabled || state === 'disabled';
-  const validDate = date && isValid(date) ? date : undefined;
+  const isDisabled = pickerIsDisabled(disabled, state);
+  const validDate = validPickerDate(date);
   const displayValue = validDate ? format(validDate, dateFormat) : '';
   const defaultMonth = validDate ?? new Date();
 
@@ -189,4 +189,13 @@ export function DatePicker({
       </PopoverContent>
     </Popover>
   );
+}
+
+function pickerIsDisabled(disabled: boolean | undefined, state: DatePickerProps['state']): boolean {
+  return Boolean(disabled || state === 'disabled');
+}
+
+function validPickerDate(date: Date | undefined): Date | undefined {
+  if (!date || !isValid(date)) return undefined;
+  return date;
 }

@@ -92,65 +92,68 @@ function resolveWith(params: {
   definitionId: string;
 }): {readonly value: unknown; readonly plan?: WorkflowJsonTemplateTree} {
   if (params.tree === undefined) return {value: params.value};
-  if (isFieldTemplate(params.tree)) {
-    const resolved = resolveStepFieldWithType({
-      field: 'tool.with',
-      template: {segments: params.tree},
-      context: params.context,
-      definitionId: params.definitionId,
-      errorField: 'tool.with',
-    });
-    return resolved.kind === 'frozen'
-      ? {value: resolved.value}
-      : {value: undefined, plan: params.tree};
-  }
-  if (Array.isArray(params.tree)) {
-    const values = Array.isArray(params.value) ? [...params.value] : [];
-    const plans: (WorkflowJsonTemplateTree | undefined)[] = [];
-    let hasPlan = false;
-    params.tree.forEach((child, index) => {
-      if (child === undefined) return;
-      const resolved = resolveWith({
-        value: values[index],
-        tree: child,
-        context: params.context,
-        definitionId: params.definitionId,
-      });
-      values[index] = resolved.value;
-      plans[index] = resolved.plan;
-      hasPlan ||= resolved.plan !== undefined;
-    });
-    return {value: values, ...(hasPlan ? {plan: plans} : {})};
-  }
+  if (isFieldTemplate(params.tree)) return resolveWithField(params);
+  if (Array.isArray(params.tree)) return resolveWithArray(params);
   if (typeof params.tree === 'object' && params.tree !== null) {
-    const source =
-      params.value !== null && typeof params.value === 'object' && !Array.isArray(params.value)
-        ? (params.value as Record<string, unknown>)
-        : {};
-    const values: Record<string, unknown> = {...source};
-    const plans: Record<string, WorkflowJsonTemplateTree | undefined> = {};
-    let hasPlan = false;
-    for (const [key, child] of Object.entries(params.tree)) {
-      if (child === undefined) continue;
-      const resolved = resolveWith({
-        value: source[key],
-        tree: child,
-        context: params.context,
-        definitionId: params.definitionId,
-      });
-      if (resolved.value !== undefined) values[key] = resolved.value;
-      if (resolved.plan !== undefined) {
-        // A nested object/array can contain both frozen values and a residual
-        // field. Drop only an unresolved leaf; retaining a partially resolved
-        // container preserves its static siblings for dispatch-time merging.
-        if (resolved.value === undefined) delete values[key];
-        plans[key] = resolved.plan;
-        hasPlan = true;
-      }
-    }
-    return {value: values, ...(hasPlan ? {plan: plans} : {})};
+    return resolveWithObject(params);
   }
   throw new Error('Invalid tool input template tree');
+}
+
+type ResolveWithParams = Parameters<typeof resolveWith>[0];
+type ResolveWithResult = ReturnType<typeof resolveWith>;
+
+function resolveWithField(params: ResolveWithParams): ResolveWithResult {
+  const resolved = resolveStepFieldWithType({
+    field: 'tool.with',
+    template: {segments: params.tree as readonly ResolvedFieldSegment[]},
+    context: params.context,
+    definitionId: params.definitionId,
+    errorField: 'tool.with',
+  });
+  if (resolved.kind === 'frozen') return {value: resolved.value};
+  return {value: undefined, plan: params.tree};
+}
+
+function resolveWithArray(params: ResolveWithParams): ResolveWithResult {
+  const values = Array.isArray(params.value) ? [...params.value] : [];
+  const plans: (WorkflowJsonTemplateTree | undefined)[] = [];
+  let hasPlan = false;
+  (params.tree as readonly (WorkflowJsonTemplateTree | undefined)[]).forEach((child, index) => {
+    if (child === undefined) return;
+    const resolved = resolveWith({...params, value: values[index], tree: child});
+    values[index] = resolved.value;
+    plans[index] = resolved.plan;
+    hasPlan ||= resolved.plan !== undefined;
+  });
+  return {value: values, ...(hasPlan ? {plan: plans} : {})};
+}
+
+function resolveWithObject(params: ResolveWithParams): ResolveWithResult {
+  const source = objectWithValue(params.value);
+  const values: Record<string, unknown> = {...source};
+  const plans: Record<string, WorkflowJsonTemplateTree | undefined> = {};
+  let hasPlan = false;
+  for (const [key, child] of Object.entries(
+    params.tree as Record<string, WorkflowJsonTemplateTree>,
+  )) {
+    if (child === undefined) continue;
+    const resolved = resolveWith({...params, value: source[key], tree: child});
+    if (resolved.value !== undefined) values[key] = resolved.value;
+    if (resolved.plan === undefined) continue;
+    // A nested object/array can contain both frozen values and a residual
+    // field. Drop only an unresolved leaf; retaining a partially resolved
+    // container preserves its static siblings for dispatch-time merging.
+    if (resolved.value === undefined) delete values[key];
+    plans[key] = resolved.plan;
+    hasPlan = true;
+  }
+  return {value: values, ...(hasPlan ? {plan: plans} : {})};
+}
+
+function objectWithValue(value: unknown): Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return {};
+  return value as Record<string, unknown>;
 }
 
 function isFieldTemplate(

@@ -124,7 +124,9 @@ export function extractToken(url: string): string {
 
 export function getSetCookie(res: {headers: OutgoingHttpHeaders}): string {
   const header = res.headers['set-cookie'];
-  const value = Array.isArray(header) ? header[0] : typeof header === 'string' ? header : undefined;
+  let value: string | undefined;
+  if (Array.isArray(header)) value = header[0];
+  else if (typeof header === 'string') value = header;
   expect(value).toBeDefined();
   return value ?? '';
 }

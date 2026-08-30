@@ -1,7 +1,7 @@
 import {readLogsResponseSchema} from '@shipfox/api-logs-dto';
 import {ApiError, checkedApiRequest} from '@shipfox/client-api';
 import {useQuery, useQueryClient} from '@tanstack/react-query';
-import {useCallback, useRef} from 'react';
+import {type MutableRefObject, useCallback, useRef} from 'react';
 import {
   mergeLogRead,
   STEP_LOG_LIVE_REFETCH_MS,
@@ -101,52 +101,17 @@ export function useStepAttemptLogsQuery(
   const query = useQuery({
     queryKey,
     enabled,
-    queryFn: async ({signal}) => {
-      const previous = queryClient.getQueryData<StepLogSnapshot>(queryKey);
-      const manualRefetch = manualRefetchRef.current;
-      manualRefetchRef.current = false;
-      let response: Awaited<ReturnType<typeof readStepAttemptLogsPage>>;
-      try {
-        response = await readStepAttemptLogsPage({
-          stepId: stepId ?? '',
-          attempt: attempt ?? 0,
-          cursor: previous?.nextCursor ?? 0,
-          signal,
-        });
-      } catch (error) {
-        if (
-          options.retryMissingStream &&
-          previous === undefined &&
-          isMissingStepLogStreamError(error) &&
-          !manualRefetch
-        ) {
-          const retryCount = options.missingStreamRetryCount;
-          if (retryCount === undefined) throw error;
-          if (missingStreamFailureCountRef.current >= retryCount) {
-            return emptyCompleteLogSnapshot();
-          }
-          missingStreamFailureCountRef.current += 1;
-        }
-        throw error;
-      }
-
-      missingStreamFailureCountRef.current = 0;
-
-      if (response.mode === 'presigned') {
-        const ndjson = await readPresignedLogObject(response.url, signal);
-        return mergeLogRead(previous, {
-          mode: 'presigned',
-          response,
-          records: parseLogNdjson(ndjson),
-        });
-      }
-
-      return mergeLogRead(previous, {
-        mode: 'inline',
-        response,
-        records: parseLogNdjson(response.ndjson),
-      });
-    },
+    queryFn: ({signal}) =>
+      loadStepLogsQuery({
+        signal,
+        stepId,
+        attempt,
+        queryKey,
+        queryClient,
+        options,
+        manualRefetchRef,
+        missingStreamFailureCountRef,
+      }),
     retry: (failureCount, error) => {
       if (initialErrorRetryCount <= 0) return false;
       if (queryClient.getQueryData<StepLogSnapshot>(queryKey) !== undefined) return false;
@@ -182,6 +147,67 @@ export function useStepAttemptLogsQuery(
   }, [query.data, query.isFetching, query.refetch]);
 
   return {...query, refetchLogs};
+}
+
+async function loadStepLogsQuery(params: {
+  signal: AbortSignal;
+  stepId: string | undefined;
+  attempt: number | undefined;
+  queryKey: readonly unknown[];
+  queryClient: ReturnType<typeof useQueryClient>;
+  options: UseStepAttemptLogsQueryOptions;
+  manualRefetchRef: MutableRefObject<boolean>;
+  missingStreamFailureCountRef: MutableRefObject<number>;
+}): Promise<StepLogSnapshot> {
+  const previous = params.queryClient.getQueryData<StepLogSnapshot>(params.queryKey);
+  const manualRefetch = params.manualRefetchRef.current;
+  params.manualRefetchRef.current = false;
+  let response: Awaited<ReturnType<typeof readStepAttemptLogsPage>>;
+  try {
+    response = await readStepAttemptLogsPage({
+      stepId: params.stepId ?? '',
+      attempt: params.attempt ?? 0,
+      cursor: previous?.nextCursor ?? 0,
+      signal: params.signal,
+    });
+  } catch (error) {
+    return handleMissingStreamLoadError(error, previous, manualRefetch, params);
+  }
+  params.missingStreamFailureCountRef.current = 0;
+  if (response.mode === 'presigned') {
+    const ndjson = await readPresignedLogObject(response.url, params.signal);
+    return mergeLogRead(previous, {
+      mode: 'presigned',
+      response,
+      records: parseLogNdjson(ndjson),
+    });
+  }
+  return mergeLogRead(previous, {
+    mode: 'inline',
+    response,
+    records: parseLogNdjson(response.ndjson),
+  });
+}
+
+function handleMissingStreamLoadError(
+  error: unknown,
+  previous: StepLogSnapshot | undefined,
+  manualRefetch: boolean,
+  params: Pick<Parameters<typeof loadStepLogsQuery>[0], 'options' | 'missingStreamFailureCountRef'>,
+): never | StepLogSnapshot {
+  const retryable =
+    params.options.retryMissingStream &&
+    previous === undefined &&
+    isMissingStepLogStreamError(error) &&
+    !manualRefetch;
+  if (!retryable) throw error;
+  const retryCount = params.options.missingStreamRetryCount;
+  if (retryCount === undefined) throw error;
+  if (params.missingStreamFailureCountRef.current >= retryCount) {
+    return emptyCompleteLogSnapshot();
+  }
+  params.missingStreamFailureCountRef.current += 1;
+  throw error;
 }
 
 function emptyCompleteLogSnapshot(): StepLogSnapshot {

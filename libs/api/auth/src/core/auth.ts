@@ -442,11 +442,9 @@ export type CreateSessionForUserError =
 export async function createSessionForUser(
   params: CreateSessionForUserParams,
 ): Promise<CreateSessionForUserResult> {
-  const user = params.userId
-    ? await findUserById({id: params.userId})
-    : params.email
-      ? await findUserByEmail({email: emailSchema.parse(params.email)})
-      : undefined;
+  let user: User | undefined;
+  if (params.userId) user = await findUserById({id: params.userId});
+  else if (params.email) user = await findUserByEmail({email: emailSchema.parse(params.email)});
 
   if (!user) {
     throw new UserNotFoundError(params.userId ?? params.email ?? 'unknown');

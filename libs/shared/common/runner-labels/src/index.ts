@@ -7,7 +7,9 @@ export type RunnerCatalog = Readonly<Record<string, readonly string[]>>;
 export function canonicalizeLabels(
   value: string | readonly string[] | undefined,
 ): readonly string[] {
-  const labels = value === undefined ? [] : typeof value === 'string' ? [value] : value;
+  let labels: readonly string[] = [];
+  if (typeof value === 'string') labels = [value];
+  else if (value !== undefined) labels = value;
   const normalized = labels.map((label) => label.trim().toLowerCase()).filter(Boolean);
 
   return [...new Set(normalized)].sort();

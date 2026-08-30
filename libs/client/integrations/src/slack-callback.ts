@@ -65,14 +65,24 @@ export type SlackCallbackFailure = {
   signIn: boolean;
 };
 export function classifySlackCallbackError(error: unknown): SlackCallbackFailure {
-  if (error instanceof ApiError) {
-    if (error.code === 'invalid-slack-install-state')
+  if (error instanceof ApiError) return classifySlackApiError(error);
+  return failure(
+    'Slack install could not be completed',
+    'Could not complete the Slack install. Start again from workspace settings.',
+    true,
+  );
+}
+
+function classifySlackApiError(error: ApiError): SlackCallbackFailure {
+  switch (error.code) {
+    case 'invalid-slack-install-state':
       return failure(
         'Slack install link expired',
         'Slack install link expired. Start again from workspace settings.',
         true,
       );
-    if (error.code === 'slack-install-state-actor-mismatch' || error.code === 'unauthorized')
+    case 'slack-install-state-actor-mismatch':
+    case 'unauthorized':
       return {
         ...failure(
           'Different Shipfox account',
@@ -81,59 +91,58 @@ export function classifySlackCallbackError(error: unknown): SlackCallbackFailure
         ),
         signIn: true,
       };
-    if (['not-found', 'forbidden', 'workspace-inactive'].includes(error.code))
+    case 'not-found':
+    case 'forbidden':
+    case 'workspace-inactive':
       return failure(
         'Workspace access changed',
         'You no longer have access to this workspace. Return to Shipfox to continue.',
         false,
       );
-    if (
-      [
-        'slack-installation-already-linked',
-        'slack-connection-already-linked',
-        'slug-conflict',
-      ].includes(error.code)
-    )
+    case 'slack-installation-already-linked':
+    case 'slack-connection-already-linked':
+    case 'slug-conflict':
       return failure(
         'Slack already linked',
         'This Slack workspace is already linked and cannot be installed again here.',
         false,
       );
-    if (
-      [
-        'slack-authorization-scope-mismatch',
-        'slack-oauth-callback-error',
-        'access-denied',
-      ].includes(error.code)
-    )
+    case 'slack-authorization-scope-mismatch':
+    case 'slack-oauth-callback-error':
+    case 'access-denied':
       return failure(
         'Slack permissions needed',
         'Slack did not authorize the permissions Shipfox needs. Review the consent and start again.',
         true,
       );
-    if (
-      error.code === 'slack-enterprise-install-unsupported' ||
-      error.code === 'slack-token-rotation-unsupported'
-    )
+    case 'slack-enterprise-install-unsupported':
+    case 'slack-token-rotation-unsupported':
       return failure(
         'Slack install unsupported',
         'This Slack installation is not supported. Return to Shipfox to continue.',
         false,
       );
-    if (error.status === 0 || error.code === 'network-error')
+    case 'network-error':
       return failure('Could not reach Shipfox', 'Check your connection and start again.', true);
-    if (
-      error.status >= 500 ||
-      error.status === 429 ||
-      ['rate-limited', 'timeout', 'provider-unavailable', 'malformed-provider-response'].includes(
-        error.code,
-      )
-    )
+    case 'rate-limited':
+    case 'timeout':
+    case 'provider-unavailable':
+    case 'malformed-provider-response':
       return failure(
         'Slack is temporarily unavailable',
         'Start a new install when Slack is available.',
         true,
       );
+  }
+  if (error.status === 0) {
+    return failure('Could not reach Shipfox', 'Check your connection and start again.', true);
+  }
+  if (error.status >= 500 || error.status === 429) {
+    return failure(
+      'Slack is temporarily unavailable',
+      'Start a new install when Slack is available.',
+      true,
+    );
   }
   return failure(
     'Slack install could not be completed',

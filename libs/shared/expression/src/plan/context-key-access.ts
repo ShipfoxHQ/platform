@@ -147,12 +147,7 @@ function collectContextAccesses(
       }
       return;
     case 'map':
-      for (const [key, value] of node.args) {
-        if (key.op !== 'id') {
-          collectContextAccesses(key, source, scopedIdentifiers, visitor);
-        }
-        collectContextAccesses(value, source, scopedIdentifiers, visitor);
-      }
+      collectMapContextAccesses(node.args, source, scopedIdentifiers, visitor);
       return;
     case '?:':
       collectContextAccesses(node.args[0], source, scopedIdentifiers, visitor);
@@ -166,6 +161,18 @@ function collectContextAccesses(
   }
 
   throw new Error(`Unsupported CEL AST operator: ${(node as {op: string}).op}`);
+}
+
+function collectMapContextAccesses(
+  entries: Array<[ASTNode, ASTNode]>,
+  source: string,
+  scopedIdentifiers: ReadonlySet<string>,
+  visitor: ContextAccessVisitor,
+): void {
+  for (const [key, value] of entries) {
+    if (key.op !== 'id') collectContextAccesses(key, source, scopedIdentifiers, visitor);
+    collectContextAccesses(value, source, scopedIdentifiers, visitor);
+  }
 }
 
 function collectBinaryContextAccesses(

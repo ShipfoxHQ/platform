@@ -147,22 +147,31 @@ function findAssetReferences(content: string, includeCssUrls: boolean): string[]
     if (match[1] !== undefined) references.add(match[1]);
   }
 
+  collectCssReferences(content, includeCssUrls, cssPattern, references);
+
+  return [...references];
+}
+
+function collectCssReferences(
+  content: string,
+  includeCssUrls: boolean,
+  cssPattern: RegExp,
+  references: Set<string>,
+): void {
   if (includeCssUrls) {
     for (const match of content.matchAll(cssPattern)) {
       if (match[1] !== undefined) references.add(match[1]);
     }
-  } else {
-    for (const styleBlock of content.matchAll(styleBlockPattern)) {
-      const styleContent = styleBlock[1];
-      if (styleContent === undefined) continue;
-
-      for (const match of styleContent.matchAll(cssPattern)) {
-        if (match[1] !== undefined) references.add(match[1]);
-      }
-    }
+    return;
   }
 
-  return [...references];
+  for (const styleBlock of content.matchAll(styleBlockPattern)) {
+    const styleContent = styleBlock[1];
+    if (styleContent === undefined) continue;
+    for (const match of styleContent.matchAll(cssPattern)) {
+      if (match[1] !== undefined) references.add(match[1]);
+    }
+  }
 }
 
 async function validateReferencedAssets(directory: string, staticRoot: string): Promise<void> {
@@ -380,26 +389,29 @@ export function assertPreviewMetadata(
   if (typeof candidate.buildTime !== 'string' || Number.isNaN(Date.parse(candidate.buildTime))) {
     throw new Error('preview-metadata.json has an invalid buildTime');
   }
-  if (candidate.pullRequest !== null && candidate.pullRequest !== undefined) {
-    if (typeof candidate.pullRequest !== 'object' || candidate.pullRequest === null) {
-      throw new Error('preview-metadata.json has an invalid pullRequest');
-    }
-
-    const pullRequest = candidate.pullRequest as Partial<
-      Exclude<PreviewMetadata['pullRequest'], null>
-    >;
-    if (!Number.isInteger(pullRequest.number) || (pullRequest.number ?? 0) <= 0) {
-      throw new Error('preview-metadata.json has an invalid pull request number');
-    }
-    if (pullRequest.headSha !== null && pullRequest.headSha !== candidate.commitSha) {
-      throw new Error(
-        `preview-metadata.json pull request headSha ${pullRequest.headSha} does not match commitSha ${candidate.commitSha}`,
-      );
-    }
-  }
+  assertPreviewPullRequest(candidate.pullRequest, candidate.commitSha);
   if (expectedCommitSha !== undefined && candidate.commitSha !== expectedCommitSha) {
     throw new Error(
       `preview-metadata.json commitSha ${candidate.commitSha} does not match expected ${expectedCommitSha}`,
+    );
+  }
+}
+
+function assertPreviewPullRequest(
+  value: PreviewMetadata['pullRequest'] | undefined,
+  commitSha: string,
+): void {
+  if (value === null || value === undefined) return;
+  if (typeof value !== 'object') {
+    throw new Error('preview-metadata.json has an invalid pullRequest');
+  }
+  const pullRequest = value as Partial<Exclude<PreviewMetadata['pullRequest'], null>>;
+  if (!Number.isInteger(pullRequest.number) || (pullRequest.number ?? 0) <= 0) {
+    throw new Error('preview-metadata.json has an invalid pull request number');
+  }
+  if (pullRequest.headSha !== null && pullRequest.headSha !== commitSha) {
+    throw new Error(
+      `preview-metadata.json pull request headSha ${pullRequest.headSha} does not match commitSha ${commitSha}`,
     );
   }
 }

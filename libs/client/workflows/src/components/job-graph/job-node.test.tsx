@@ -22,9 +22,12 @@ type NodeOverrides = Omit<Partial<WorkflowRunJobDetailDto>, 'job_executions'> & 
 
 function makeNode(overrides: NodeOverrides): JobGraphNode {
   const {queued_at, started_at, finished_at, job_executions, ...jobOverrides} = overrides;
-  const shouldCreateExecution =
-    job_executions === undefined &&
-    (queued_at !== undefined || started_at !== undefined || finished_at !== undefined);
+  const shouldCreateExecution = needsSyntheticExecution({
+    jobExecutions: job_executions,
+    queuedAt: queued_at,
+    startedAt: started_at,
+    finishedAt: finished_at,
+  });
   const jobOverrideWithExecutions: NodeOverrides = {...jobOverrides};
   if (shouldCreateExecution) {
     jobOverrideWithExecutions.job_executions = [
@@ -50,6 +53,21 @@ function makeNode(overrides: NodeOverrides): JobGraphNode {
     row: 0,
     currentDependencyCount: 0,
   });
+}
+
+function needsSyntheticExecution({
+  jobExecutions,
+  queuedAt,
+  startedAt,
+  finishedAt,
+}: {
+  jobExecutions: WorkflowRunJobDetailDto['job_executions'] | undefined;
+  queuedAt: string | null | undefined;
+  startedAt: string | null | undefined;
+  finishedAt: string | null | undefined;
+}): boolean {
+  if (jobExecutions !== undefined) return false;
+  return queuedAt !== undefined || startedAt !== undefined || finishedAt !== undefined;
 }
 
 function renderNode(

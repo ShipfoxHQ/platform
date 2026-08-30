@@ -53,12 +53,9 @@ export function WorkspaceLayoutErrorRoute({error, reset}: ErrorComponentProps) {
     void router.invalidate();
   };
   const setupError = error instanceof WorkspaceSetupLoadError;
-  const message =
-    error instanceof ApiError
-      ? error.message
-      : setupError && error.cause instanceof ApiError
-        ? error.cause.message
-        : 'Try again in a moment.';
+  let message = 'Try again in a moment.';
+  if (error instanceof ApiError) message = error.message;
+  else if (setupError && error.cause instanceof ApiError) message = error.cause.message;
   return (
     <main className="min-h-screen bg-background-subtle-base px-frame py-frame max-[520px]:px-row">
       <FocusedFrame className="flex flex-col gap-section">

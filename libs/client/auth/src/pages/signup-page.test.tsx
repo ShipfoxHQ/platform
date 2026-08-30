@@ -15,6 +15,96 @@ function emailChallenge() {
   };
 }
 
+type InvitationSignupState = {signupCompleted: boolean; refreshFailures: number};
+
+function invitationSignupFetch(
+  user: ReturnType<typeof pageUserFactory.build>,
+  workspaceId: string,
+  session: {token: string; user: ReturnType<typeof pageUserFactory.build>},
+  state: InvitationSignupState,
+) {
+  return vi.fn().mockImplementation((input: RequestInfo | URL) => {
+    const url = requestUrl(input);
+    if (url === 'https://api.example.test/auth/me') {
+      return jsonResponse({code: 'unauthorized', message: 'Unauthorized'}, {status: 401});
+    }
+    if (url.includes('/invitations/preview?')) return invitationPreviewResponse(user, workspaceId);
+    if (url === 'https://api.example.test/auth/signup') {
+      state.signupCompleted = true;
+      return invitationSignupResponse(user, workspaceId);
+    }
+    if (url === 'https://api.example.test/auth/refresh') {
+      return invitationRefreshResponse(session, state);
+    }
+    if (url === 'https://api.example.test/workspaces') {
+      return invitationWorkspaceResponse(user, workspaceId);
+    }
+    throw new Error(`Unexpected request: ${url}`);
+  });
+}
+
+function invitationPreviewResponse(
+  user: ReturnType<typeof pageUserFactory.build>,
+  workspaceId: string,
+) {
+  return jsonResponse({
+    status: 'pending',
+    workspace_id: workspaceId,
+    workspace_name: 'Invite Workspace',
+    email: user.email,
+    invited_by_display: 'owner@example.com',
+    expires_at: '2026-05-18T00:00:00.000Z',
+  });
+}
+
+function invitationSignupResponse(
+  user: ReturnType<typeof pageUserFactory.build>,
+  workspaceId: string,
+) {
+  return jsonResponse(
+    {
+      user,
+      membership: {
+        id: '22222222-2222-4222-8222-222222222222',
+        user_id: user.id,
+        workspace_id: workspaceId,
+      },
+    },
+    {status: 201},
+  );
+}
+
+function invitationRefreshResponse(
+  session: {token: string; user: ReturnType<typeof pageUserFactory.build>},
+  state: InvitationSignupState,
+) {
+  if (state.signupCompleted && state.refreshFailures < 2) {
+    state.refreshFailures += 1;
+    return jsonResponse({code: 'server-error', message: 'Refresh failed'}, {status: 500});
+  }
+  return jsonResponse(session);
+}
+
+function invitationWorkspaceResponse(
+  user: ReturnType<typeof pageUserFactory.build>,
+  workspaceId: string,
+) {
+  return jsonResponse({
+    memberships: [
+      {
+        id: '33333333-3333-4333-8333-333333333333',
+        user_id: user.id,
+        workspace_id: workspaceId,
+        created_at: '2026-05-01T00:00:00.000Z',
+        updated_at: '2026-05-01T00:00:00.000Z',
+        workspace_name: 'Invite Workspace',
+        workspace_slug: 'invite-workspace',
+        workspace_status: 'active',
+      },
+    ],
+  });
+}
+
 describe('SignupPage', () => {
   beforeEach(() => {
     vi.useRealTimers();
@@ -165,62 +255,8 @@ describe('SignupPage', () => {
     const user = pageUserFactory.build({email: 'invitee@example.com', name: 'Invitee'});
     const workspaceId = '11111111-1111-4111-8111-111111111111';
     const session = {token: 'access-token', user};
-    let signupCompleted = false;
-    let postSignupRefreshFailures = 0;
-    const fetchImpl = vi.fn().mockImplementation((input: RequestInfo | URL) => {
-      const url = requestUrl(input);
-      if (url === 'https://api.example.test/auth/me') {
-        return jsonResponse({code: 'unauthorized', message: 'Unauthorized'}, {status: 401});
-      }
-      if (url.includes('/invitations/preview?')) {
-        return jsonResponse({
-          status: 'pending',
-          workspace_id: workspaceId,
-          workspace_name: 'Invite Workspace',
-          email: user.email,
-          invited_by_display: 'owner@example.com',
-          expires_at: '2026-05-18T00:00:00.000Z',
-        });
-      }
-      if (url === 'https://api.example.test/auth/signup') {
-        signupCompleted = true;
-        return jsonResponse(
-          {
-            user,
-            membership: {
-              id: '22222222-2222-4222-8222-222222222222',
-              user_id: user.id,
-              workspace_id: workspaceId,
-            },
-          },
-          {status: 201},
-        );
-      }
-      if (url === 'https://api.example.test/auth/refresh') {
-        if (signupCompleted && postSignupRefreshFailures < 2) {
-          postSignupRefreshFailures += 1;
-          return jsonResponse({code: 'server-error', message: 'Refresh failed'}, {status: 500});
-        }
-        return jsonResponse(session);
-      }
-      if (url === 'https://api.example.test/workspaces') {
-        return jsonResponse({
-          memberships: [
-            {
-              id: '33333333-3333-4333-8333-333333333333',
-              user_id: user.id,
-              workspace_id: workspaceId,
-              created_at: '2026-05-01T00:00:00.000Z',
-              updated_at: '2026-05-01T00:00:00.000Z',
-              workspace_name: 'Invite Workspace',
-              workspace_slug: 'invite-workspace',
-              workspace_status: 'active',
-            },
-          ],
-        });
-      }
-      throw new Error(`Unexpected request: ${url}`);
-    });
+    const state: InvitationSignupState = {signupCompleted: false, refreshFailures: 0};
+    const fetchImpl = invitationSignupFetch(user, workspaceId, session, state);
     configureApiClient({fetchImpl});
 
     renderAuthPage(`/auth/signup?redirect=${encodeURIComponent(redirect)}`, <SignupPage />);

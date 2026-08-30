@@ -32,38 +32,52 @@ export function assertGuidanceManifest(value: unknown): asserts value is Guidanc
     throw new Error(`Unsupported guidance manifest schema: ${String(value.schemaVersion)}`);
   }
 
-  const packageValue = value.package;
+  assertManifestPackage(value.package);
+  assertManifestSource(value.source);
+  const paths = assertManifestFiles(value.files);
+  assertManifestEntrypoints(value.entrypoints, paths);
+}
+
+function assertManifestPackage(packageValue: unknown): void {
   if (!isRecord(packageValue) || packageValue.name !== guidancePackageName) {
     throw new Error(`Guidance manifest package name must be ${guidancePackageName}`);
   }
   if (!isNonEmptyString(packageValue.version)) {
     throw new Error('Guidance manifest package version must be a non-empty string');
   }
+}
 
-  const sourceValue = value.source;
+function assertManifestSource(sourceValue: unknown): void {
   if (!isRecord(sourceValue) || sourceValue.repository !== guidanceRepository) {
     throw new Error(`Guidance manifest source repository must be ${guidanceRepository}`);
   }
   if (!isCommit(sourceValue.commit)) {
     throw new Error('Guidance manifest source commit must be a full 40-character SHA-1');
   }
+}
 
-  if (!isRecord(value.entrypoints) || typeof value.entrypoints.documentationMap !== 'string') {
+function assertManifestEntrypoints(entrypoints: unknown, paths: ReadonlySet<string>): void {
+  if (!isRecord(entrypoints) || typeof entrypoints.documentationMap !== 'string') {
     throw new Error('Guidance manifest must define entrypoints.documentationMap');
   }
-  for (const [name, entrypoint] of Object.entries(value.entrypoints)) {
+  for (const [name, entrypoint] of Object.entries(entrypoints)) {
     if (!entrypointNamePattern.test(name)) {
       throw new Error(`Invalid guidance manifest entrypoint name: ${name}`);
     }
     assertManifestPath(entrypoint, `entrypoints.${name}`);
+    if (!paths.has(entrypoint)) {
+      throw new Error(`Guidance manifest entrypoint ${name} is not listed in files`);
+    }
   }
+}
 
-  if (!Array.isArray(value.files) || value.files.length === 0) {
+function assertManifestFiles(files: unknown): Set<string> {
+  if (!Array.isArray(files) || files.length === 0) {
     throw new Error('Guidance manifest must list at least one file');
   }
   let previousPath = '';
   const paths = new Set<string>();
-  for (const [index, file] of value.files.entries()) {
+  for (const [index, file] of files.entries()) {
     if (!isRecord(file)) throw new Error(`Manifest file ${index} must be an object`);
     if (!isNonEmptyString(file.path)) throw new Error(`Manifest file ${index} has no path`);
     assertManifestPath(file.path, `files.${index}.path`);
@@ -80,11 +94,7 @@ export function assertGuidanceManifest(value: unknown): asserts value is Guidanc
       throw new Error(`Missing kind for guidance manifest file: ${file.path}`);
     }
   }
-  for (const [name, entrypoint] of Object.entries(value.entrypoints)) {
-    if (typeof entrypoint !== 'string' || !paths.has(entrypoint)) {
-      throw new Error(`Guidance manifest entrypoint ${name} is not listed in files`);
-    }
-  }
+  return paths;
 }
 
 export function isGuidanceManifest(value: unknown): value is GuidanceManifest {

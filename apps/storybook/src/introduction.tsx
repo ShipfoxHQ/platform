@@ -38,6 +38,48 @@ export function parsePreviewIdentity(value: unknown): PreviewIdentity | null {
   };
 }
 
+function PreviewSource({pullRequest}: {pullRequest: PreviewIdentity['pullRequest']}) {
+  if (pullRequest === null) return 'main';
+  if (pullRequest.url === null) return `Pull request #${pullRequest.number}`;
+  return (
+    <a
+      className="underline underline-offset-4"
+      href={pullRequest.url}
+      rel="noreferrer"
+      target="_blank"
+    >
+      Pull request #{pullRequest.number}
+    </a>
+  );
+}
+
+function PreviewIdentityDetails({previewIdentity}: {previewIdentity: PreviewIdentityState}) {
+  if (previewIdentity.status === 'loading') {
+    return (
+      <Text size="sm" className="mt-8 text-foreground-neutral-subtle">
+        Loading build metadata…
+      </Text>
+    );
+  }
+  if (previewIdentity.status === 'unavailable') {
+    return (
+      <Text size="sm" className="mt-8 text-foreground-neutral-subtle">
+        Build metadata is unavailable on this surface.
+      </Text>
+    );
+  }
+  return (
+    <dl className="mt-12 grid gap-8 text-sm sm:grid-cols-[auto_1fr] sm:gap-x-16">
+      <dt className="text-foreground-neutral-subtle">Source</dt>
+      <dd>
+        <PreviewSource pullRequest={previewIdentity.identity.pullRequest} />
+      </dd>
+      <dt className="text-foreground-neutral-subtle">Commit</dt>
+      <dd className="break-all font-code">{previewIdentity.identity.commitSha}</dd>
+    </dl>
+  );
+}
+
 export function IntroductionPage() {
   const [previewIdentity, setPreviewIdentity] = useState<PreviewIdentityState>({
     status: 'loading',
@@ -86,37 +128,7 @@ export function IntroductionPage() {
           <Code variant="label" bold id="preview-identity">
             Preview identity
           </Code>
-          {previewIdentity.status === 'loading' ? (
-            <Text size="sm" className="mt-8 text-foreground-neutral-subtle">
-              Loading build metadata…
-            </Text>
-          ) : previewIdentity.status === 'unavailable' ? (
-            <Text size="sm" className="mt-8 text-foreground-neutral-subtle">
-              Build metadata is unavailable on this surface.
-            </Text>
-          ) : (
-            <dl className="mt-12 grid gap-8 text-sm sm:grid-cols-[auto_1fr] sm:gap-x-16">
-              <dt className="text-foreground-neutral-subtle">Source</dt>
-              <dd>
-                {previewIdentity.identity.pullRequest === null ? (
-                  'main'
-                ) : previewIdentity.identity.pullRequest.url === null ? (
-                  `Pull request #${previewIdentity.identity.pullRequest.number}`
-                ) : (
-                  <a
-                    className="underline underline-offset-4"
-                    href={previewIdentity.identity.pullRequest.url}
-                    rel="noreferrer"
-                    target="_blank"
-                  >
-                    Pull request #{previewIdentity.identity.pullRequest.number}
-                  </a>
-                )}
-              </dd>
-              <dt className="text-foreground-neutral-subtle">Commit</dt>
-              <dd className="break-all font-code">{previewIdentity.identity.commitSha}</dd>
-            </dl>
-          )}
+          <PreviewIdentityDetails previewIdentity={previewIdentity} />
         </section>
 
         <section aria-labelledby="storybook-packages">

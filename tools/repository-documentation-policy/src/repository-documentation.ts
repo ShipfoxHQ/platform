@@ -141,59 +141,17 @@ export async function checkRepositoryDocumentation(
   const violations: DocumentationViolation[] = [];
 
   for (const source of checkedFiles) {
-    const content = contents.get(source) ?? '';
-    const sourceEdges = new Set<string>();
-    edges.set(source, sourceEdges);
-
-    for (const link of extractMarkdownLinks(content)) {
-      const parsedTarget = parseTarget(link.target);
-      if (parsedTarget.kind === 'ignored') continue;
-
-      if (parsedTarget.kind === 'invalid') {
-        violations.push({
-          kind: 'broken-link',
-          source,
-          line: link.line,
-          target: link.target,
-          reason: parsedTarget.reason,
-        });
-        continue;
-      }
-
-      const targetFile = parsedTarget.path
-        ? await resolveDocumentationTarget(rootDirectory, source, parsedTarget.path)
-        : source;
-
-      if (!targetFile) {
-        violations.push({
-          kind: 'broken-link',
-          source,
-          line: link.line,
-          target: link.target,
-          reason: 'target does not exist',
-        });
-        continue;
-      }
-
-      if (parsedTarget.anchor && shouldCheckAnchor(targetFile, checkedFileSet)) {
-        const targetAnchors =
-          targetFile === source
-            ? anchorsByFile.get(source)
-            : (anchorsByFile.get(targetFile) ??
-              anchorsFor(await readFile(path.join(rootDirectory, targetFile), 'utf8')));
-        if (!targetAnchors?.has(parsedTarget.anchor)) {
-          violations.push({
-            kind: 'missing-anchor',
-            source,
-            line: link.line,
-            target: link.target,
-            reason: 'target heading does not exist',
-          });
-        }
-      }
-
-      if (checkedFileSet.has(targetFile)) sourceEdges.add(targetFile);
-    }
+    edges.set(
+      source,
+      await checkDocumentationFile({
+        anchorsByFile,
+        checkedFileSet,
+        content: contents.get(source) ?? '',
+        rootDirectory,
+        source,
+        violations,
+      }),
+    );
   }
 
   const reachable = reachableFiles(edges, checkedFiles.filter(isApprovedRoot));
@@ -209,6 +167,75 @@ export async function checkRepositoryDocumentation(
   }
 
   return {checkedFiles, violations};
+}
+
+interface DocumentationFileCheckOptions {
+  anchorsByFile: ReadonlyMap<string, Set<string>>;
+  checkedFileSet: Set<string>;
+  content: string;
+  rootDirectory: string;
+  source: string;
+  violations: DocumentationViolation[];
+}
+
+async function checkDocumentationFile(
+  options: DocumentationFileCheckOptions,
+): Promise<Set<string>> {
+  const {checkedFileSet, content, rootDirectory, source, violations} = options;
+  const sourceEdges = new Set<string>();
+  for (const link of extractMarkdownLinks(content)) {
+    const parsedTarget = parseTarget(link.target);
+    if (parsedTarget.kind === 'ignored') continue;
+    if (parsedTarget.kind === 'invalid') {
+      violations.push({
+        kind: 'broken-link',
+        source,
+        line: link.line,
+        target: link.target,
+        reason: parsedTarget.reason,
+      });
+      continue;
+    }
+    const targetFile = parsedTarget.path
+      ? await resolveDocumentationTarget(rootDirectory, source, parsedTarget.path)
+      : source;
+    if (!targetFile) {
+      violations.push({
+        kind: 'broken-link',
+        source,
+        line: link.line,
+        target: link.target,
+        reason: 'target does not exist',
+      });
+      continue;
+    }
+    await checkDocumentationAnchor(options, link, parsedTarget.anchor, targetFile);
+    if (checkedFileSet.has(targetFile)) sourceEdges.add(targetFile);
+  }
+  return sourceEdges;
+}
+
+async function checkDocumentationAnchor(
+  options: DocumentationFileCheckOptions,
+  link: MarkdownLink,
+  anchor: string | null,
+  targetFile: string,
+): Promise<void> {
+  const {anchorsByFile, checkedFileSet, rootDirectory, source, violations} = options;
+  if (!anchor || !shouldCheckAnchor(targetFile, checkedFileSet)) return;
+  let targetAnchors = anchorsByFile.get(targetFile);
+  if (targetFile === source) targetAnchors = anchorsByFile.get(source);
+  if (!targetAnchors) {
+    targetAnchors = anchorsFor(await readFile(path.join(rootDirectory, targetFile), 'utf8'));
+  }
+  if (targetAnchors.has(anchor)) return;
+  violations.push({
+    kind: 'missing-anchor',
+    source,
+    line: link.line,
+    target: link.target,
+    reason: 'target heading does not exist',
+  });
 }
 
 export async function collectDocumentationFiles(rootDirectory: string): Promise<string[]> {

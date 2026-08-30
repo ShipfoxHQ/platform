@@ -48,111 +48,144 @@ export async function createFakeOpenAiModelProviderServer(
   };
 }
 
-async function routeRequest(params: {
+interface RouteParams {
   adminToken: string;
   registry: FakeOpenAiScriptRegistry;
   request: IncomingMessage;
   response: ServerResponse;
-}): Promise<void> {
+}
+
+interface RequestRoute {
+  method: string;
+  pathname: string;
+  url: URL;
+}
+
+function authorizeAdminRoute(params: RouteParams): boolean {
+  if (isAuthorized(params.request, params.adminToken)) return true;
+  writeUnauthorized(params.response);
+  return false;
+}
+
+function handleHealthRoute(params: RouteParams, route: RequestRoute): boolean {
+  if (route.pathname !== '/healthz' || route.method !== 'GET') return false;
+  if (authorizeAdminRoute(params)) writeJson(params.response, 200, {ok: true});
+  return true;
+}
+
+async function handleScriptRegistration(
+  params: RouteParams,
+  route: RequestRoute,
+): Promise<boolean> {
+  if (route.pathname !== '/scripts' || route.method !== 'POST') return false;
+  if (!authorizeAdminRoute(params)) return true;
+
+  const script = await readJson<FakeOpenAiScript>(params.request);
+  validateScriptRegistration(script);
+  const result = params.registry.register(script);
+  writeJson(params.response, 201, {
+    script_id: result.scriptId,
+    model: result.model,
+    model_provider_base_url: `${origin(route.url)}/scripts/${result.scriptId}/v1`,
+    anthropic_model_provider_base_url: `${origin(route.url)}/scripts/${result.scriptId}`,
+  });
+  return true;
+}
+
+function handleScriptReset(params: RouteParams, route: RequestRoute): boolean {
+  const match = resetPathRe.exec(route.pathname);
+  if (!match || route.method !== 'POST') return false;
+  if (!authorizeAdminRoute(params)) return true;
+
+  params.registry.reset(decodeURIComponent(match[1] ?? ''));
+  params.response.statusCode = 204;
+  params.response.end();
+  return true;
+}
+
+function handleRecordedRequests(params: RouteParams, route: RequestRoute): boolean {
+  const match = requestsPathRe.exec(route.pathname);
+  if (!match || route.method !== 'GET') return false;
+  if (!authorizeAdminRoute(params)) return true;
+
+  const scriptId = decodeURIComponent(match[1] ?? '');
+  writeJson(params.response, 200, {
+    script_id: scriptId,
+    requests: params.registry.requests(scriptId),
+  });
+  return true;
+}
+
+async function handleChatCompletion(params: RouteParams, route: RequestRoute): Promise<boolean> {
+  const match = completionsPathRe.exec(route.pathname);
+  if (!match || route.method !== 'POST') return false;
+
+  const scriptId = decodeURIComponent(match[1] ?? '');
+  const body = await readJson(params.request);
+  const result = params.registry.advance(scriptId, {
+    body,
+    method: route.method,
+    path: route.pathname,
+  });
+  if (result.status === 200 && isStreamRequest(body) && isChatCompletion(result.body)) {
+    writeEventStream(params.response, buildChatCompletionChunks(result.body));
+  } else {
+    writeJson(params.response, result.status, result.body);
+  }
+  return true;
+}
+
+async function handleAnthropicMessage(params: RouteParams, route: RequestRoute): Promise<boolean> {
+  const match = messagesPathRe.exec(route.pathname);
+  if (!match || route.method !== 'POST') return false;
+
+  const scriptId = decodeURIComponent(match[1] ?? '');
+  const body = await readJson(params.request);
+  const result = params.registry.advanceAnthropic(scriptId, {
+    body,
+    method: route.method,
+    path: route.pathname,
+  });
+  if (result.status === 200 && isStreamRequest(body) && isAnthropicMessage(result.body)) {
+    writeNamedEventStream(params.response, buildAnthropicMessageStream(result.body));
+  } else {
+    writeJson(params.response, result.status, result.body);
+  }
+  return true;
+}
+
+function handleModelList(params: RouteParams, route: RequestRoute): boolean {
+  const match = modelsPathRe.exec(route.pathname);
+  if (!match || route.method !== 'GET') return false;
+  const script = params.registry.script(decodeURIComponent(match[1] ?? ''));
+  writeJson(params.response, 200, buildOpenAiModelList(script.model));
+  return true;
+}
+
+async function dispatchRequest(params: RouteParams, route: RequestRoute): Promise<void> {
+  if (handleHealthRoute(params, route)) return;
+  if (await handleScriptRegistration(params, route)) return;
+  if (handleScriptReset(params, route)) return;
+  if (handleRecordedRequests(params, route)) return;
+  if (await handleChatCompletion(params, route)) return;
+  if (await handleAnthropicMessage(params, route)) return;
+  if (handleModelList(params, route)) return;
+
+  writeJson(
+    params.response,
+    404,
+    buildOpenAiError('not_found', `Route not found: ${route.method} ${route.pathname}`),
+  );
+}
+
+async function routeRequest(params: RouteParams): Promise<void> {
   try {
     const url = requestUrl(params.request);
-    const pathname = url.pathname;
-    const method = params.request.method ?? 'GET';
-
-    if (pathname === '/healthz' && method === 'GET') {
-      if (!isAuthorized(params.request, params.adminToken)) {
-        writeUnauthorized(params.response);
-        return;
-      }
-
-      writeJson(params.response, 200, {ok: true});
-      return;
-    }
-
-    if (pathname === '/scripts' && method === 'POST') {
-      if (!isAuthorized(params.request, params.adminToken)) {
-        writeUnauthorized(params.response);
-        return;
-      }
-
-      const script = await readJson<FakeOpenAiScript>(params.request);
-      validateScriptRegistration(script);
-      const result = params.registry.register(script);
-      writeJson(params.response, 201, {
-        script_id: result.scriptId,
-        model: result.model,
-        model_provider_base_url: `${origin(url)}/scripts/${result.scriptId}/v1`,
-        anthropic_model_provider_base_url: `${origin(url)}/scripts/${result.scriptId}`,
-      });
-      return;
-    }
-
-    const resetMatch = resetPathRe.exec(pathname);
-    if (resetMatch && method === 'POST') {
-      if (!isAuthorized(params.request, params.adminToken)) {
-        writeUnauthorized(params.response);
-        return;
-      }
-
-      params.registry.reset(decodeURIComponent(resetMatch[1] ?? ''));
-      params.response.statusCode = 204;
-      params.response.end();
-      return;
-    }
-
-    const requestsMatch = requestsPathRe.exec(pathname);
-    if (requestsMatch && method === 'GET') {
-      if (!isAuthorized(params.request, params.adminToken)) {
-        writeUnauthorized(params.response);
-        return;
-      }
-
-      const scriptId = decodeURIComponent(requestsMatch[1] ?? '');
-      writeJson(params.response, 200, {
-        script_id: scriptId,
-        requests: params.registry.requests(scriptId),
-      });
-      return;
-    }
-
-    const completionsMatch = completionsPathRe.exec(pathname);
-    if (completionsMatch && method === 'POST') {
-      const scriptId = decodeURIComponent(completionsMatch[1] ?? '');
-      const body = await readJson(params.request);
-      const result = params.registry.advance(scriptId, {body, method, path: pathname});
-      if (result.status === 200 && isStreamRequest(body) && isChatCompletion(result.body)) {
-        writeEventStream(params.response, buildChatCompletionChunks(result.body));
-        return;
-      }
-      writeJson(params.response, result.status, result.body);
-      return;
-    }
-
-    const messagesMatch = messagesPathRe.exec(pathname);
-    if (messagesMatch && method === 'POST') {
-      const scriptId = decodeURIComponent(messagesMatch[1] ?? '');
-      const body = await readJson(params.request);
-      const result = params.registry.advanceAnthropic(scriptId, {body, method, path: pathname});
-      if (result.status === 200 && isStreamRequest(body) && isAnthropicMessage(result.body)) {
-        writeNamedEventStream(params.response, buildAnthropicMessageStream(result.body));
-        return;
-      }
-      writeJson(params.response, result.status, result.body);
-      return;
-    }
-
-    const modelsMatch = modelsPathRe.exec(pathname);
-    if (modelsMatch && method === 'GET') {
-      const script = params.registry.script(decodeURIComponent(modelsMatch[1] ?? ''));
-      writeJson(params.response, 200, buildOpenAiModelList(script.model));
-      return;
-    }
-
-    writeJson(
-      params.response,
-      404,
-      buildOpenAiError('not_found', `Route not found: ${method} ${pathname}`),
-    );
+    await dispatchRequest(params, {
+      method: params.request.method ?? 'GET',
+      pathname: url.pathname,
+      url,
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Fake model provider request failed.';
     writeJson(

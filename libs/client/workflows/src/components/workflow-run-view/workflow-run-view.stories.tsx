@@ -23,6 +23,17 @@ const BUILD_EXECUTION_ID = '77777777-7777-4777-8777-00000000000b';
 const BUILD_STEP_ID = '55555555-5555-4555-8555-00000000000b';
 const BUILD_ATTEMPT_ID = '66666666-6666-4666-8666-00000000000b';
 
+function responseForPath(path: string, annotations: readonly AnnotationDto[]) {
+  if (path === '/annotations') {
+    return {body: {annotations, has_more: false, next_cursor: null}, status: 200};
+  }
+  if (path === `/workflows/runs/${RUN_ID}/attempts`) {
+    return {body: RUN_ATTEMPTS_RESPONSE, status: 200};
+  }
+  if (path === `/workflows/runs/${RUN_ID}`) return {body: RUN_RESPONSE, status: 200};
+  return {body: {code: 'not-found'}, status: 404};
+}
+
 const RUN_RESPONSE: WorkflowRunDetailResponseDto = workflowRunDetailDto({
   id: RUN_ID,
   project_id: PROJECT_ID,
@@ -193,20 +204,12 @@ function RunWorkspaceStoryProviders({
     configureApiClient({
       baseUrl: 'https://api.example.test',
       fetchImpl: (input) => {
-        const url =
-          input instanceof Request ? input.url : input instanceof URL ? input.href : String(input);
+        let url: string;
+        if (input instanceof Request) url = input.url;
+        else if (input instanceof URL) url = input.href;
+        else url = String(input);
         const path = new URL(url, 'https://api.example.test').pathname;
-        const response =
-          path === '/annotations'
-            ? {
-                body: {annotations, has_more: false, next_cursor: null},
-                status: 200,
-              }
-            : path === `/workflows/runs/${RUN_ID}/attempts`
-              ? {body: RUN_ATTEMPTS_RESPONSE, status: 200}
-              : path === `/workflows/runs/${RUN_ID}`
-                ? {body: RUN_RESPONSE, status: 200}
-                : {body: {code: 'not-found'}, status: 404};
+        const response = responseForPath(path, annotations);
         return new Response(JSON.stringify(response.body), {
           status: response.status,
           headers: {'content-type': 'application/json'},

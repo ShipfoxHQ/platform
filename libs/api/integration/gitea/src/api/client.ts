@@ -421,12 +421,9 @@ async function giteaResponseErrorMessage(response: Response, fallback: string): 
   try {
     const parsed: unknown = JSON.parse(trimmedBody);
     if (isRecord(parsed)) {
-      const providerMessage =
-        typeof parsed.message === 'string'
-          ? parsed.message
-          : typeof parsed.error === 'string'
-            ? parsed.error
-            : undefined;
+      let providerMessage: string | undefined;
+      if (typeof parsed.message === 'string') providerMessage = parsed.message;
+      else if (typeof parsed.error === 'string') providerMessage = parsed.error;
       if (providerMessage?.trim()) return `${fallback}: ${truncate(providerMessage)}`;
     }
   } catch {

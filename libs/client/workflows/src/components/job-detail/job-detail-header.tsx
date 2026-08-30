@@ -115,8 +115,15 @@ function JobDurationMeta({execution, kind}: {execution: JobExecution; kind: 'que
 
   const to = kind === 'queue' ? execution.startedAt : execution.finishedAt;
   const live = time.state === 'live';
-  const label = kind === 'queue' ? 'queued' : live ? 'running' : 'ran';
-  const tooltipLabel = kind === 'queue' ? 'Queued' : live ? 'Running' : 'Ran';
+  let label = 'ran';
+  let tooltipLabel = 'Ran';
+  if (kind === 'queue') {
+    label = 'queued';
+    tooltipLabel = 'Queued';
+  } else if (live) {
+    label = 'running';
+    tooltipLabel = 'Running';
+  }
   const tooltip = `${tooltipLabel} ${formatTimestamp(from)}${to ? ` – ${formatTimestamp(to)}` : ' – now'}`;
 
   return (

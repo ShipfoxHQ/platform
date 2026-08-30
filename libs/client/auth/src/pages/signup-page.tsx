@@ -78,6 +78,42 @@ export function SignupPage() {
     return false;
   }
 
+  async function handleSignupResult(result: Awaited<ReturnType<typeof signup.mutateAsync>>) {
+    skipDraftPersistRef.current = true;
+    setAuthFormDraft(initialAuthFormDraft);
+
+    if (invitationToken && result.membership && invitationPending) {
+      const joinedWorkspace = await refreshInvitationWorkspace(result.membership.workspaceId);
+      if (!joinedWorkspace) {
+        setInvitationRefreshFailure({
+          workspaceId: result.membership.workspaceId,
+          workspaceName: invitationPending.workspaceName,
+          userId: result.user?.id,
+        });
+        return;
+      }
+      toast.success(`You joined ${invitationPending.workspaceName}.`);
+      if (result.user?.id) {
+        rememberLastWorkspaceId(result.user.id, result.membership.workspaceId);
+      }
+      await navigate({to: '/'});
+      return;
+    }
+
+    if (invitationToken && result.acceptError) {
+      toast.error(result.acceptError.message);
+      await navigate({to: '/invitations/accept', search: {token: invitationToken}});
+      return;
+    }
+
+    if (!result.emailChallenge) {
+      throw new Error('Signup did not return an email verification challenge');
+    }
+    setEmailChallenge({email: result.user.email, id: result.emailChallenge.id});
+    setResendError(undefined);
+    setNextResendAvailableAt(result.emailChallenge.nextResendAvailableAt);
+  }
+
   const form = useForm({
     defaultValues: {email: authFormDraft.email, password: authFormDraft.password, name: ''},
     onSubmit: async ({value}) => {
@@ -95,42 +131,7 @@ export function SignupPage() {
           name: parsed.name,
           ...(parsed.invitation_token ? {invitationToken: parsed.invitation_token} : {}),
         });
-        skipDraftPersistRef.current = true;
-        setAuthFormDraft(initialAuthFormDraft);
-
-        if (invitationToken && result.membership && invitationPending) {
-          const joinedWorkspace = await refreshInvitationWorkspace(result.membership.workspaceId);
-          if (!joinedWorkspace) {
-            setInvitationRefreshFailure({
-              workspaceId: result.membership.workspaceId,
-              workspaceName: invitationPending.workspaceName,
-              userId: result.user?.id,
-            });
-            return;
-          }
-          toast.success(`You joined ${invitationPending.workspaceName}.`);
-          if (result.user?.id) {
-            rememberLastWorkspaceId(result.user.id, result.membership.workspaceId);
-          }
-          await navigate({to: '/'});
-          return;
-        }
-
-        if (invitationToken && result.acceptError) {
-          toast.error(result.acceptError.message);
-          await navigate({
-            to: '/invitations/accept',
-            search: {token: invitationToken},
-          });
-          return;
-        }
-
-        if (!result.emailChallenge) {
-          throw new Error('Signup did not return an email verification challenge');
-        }
-        setEmailChallenge({email: result.user.email, id: result.emailChallenge.id});
-        setResendError(undefined);
-        setNextResendAvailableAt(result.emailChallenge.nextResendAvailableAt);
+        await handleSignupResult(result);
       } catch (error) {
         const mapped = signupErrorToFormError(error);
         if (mapped.kind === 'field') {

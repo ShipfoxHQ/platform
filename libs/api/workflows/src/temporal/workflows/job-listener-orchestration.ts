@@ -85,143 +85,190 @@ interface ListenerBufferPeek {
   newestAgeMs: number;
 }
 
+interface ListenerRuntimeState {
+  eventsAvailable: boolean;
+  latchedReason: ResolutionLatch;
+  nextSequence: number;
+  firingsInCurrentRun: number;
+}
+
 export async function jobListenerOrchestration(
   input: JobListenerOrchestrationInput,
 ): Promise<JobListenerOrchestrationResult> {
-  let eventsAvailable = false;
-  let latchedReason = input.continuation?.latchedReason;
+  const state: ListenerRuntimeState = {
+    eventsAvailable: false,
+    latchedReason: input.continuation?.latchedReason,
+    nextSequence: input.continuation?.nextSequence ?? 1,
+    firingsInCurrentRun: 0,
+  };
 
   setHandler(listenerEventsAvailableSignal, () => {
-    eventsAvailable = true;
+    state.eventsAvailable = true;
   });
   setHandler(listenerResolveSignal, () => {
-    latchedReason = 'until';
+    state.latchedReason = 'until';
   });
 
   const listenerDeadline = input.continuation?.listenerDeadline ?? initialListenerDeadline(input);
+  const terminal = await initializeListenerState(input, state);
+  if (terminal) return terminal;
 
-  let nextSequence: number;
-  if (input.continuation) {
-    nextSequence = input.continuation.nextSequence;
-  } else {
-    const activated = await activateJobListenerActivity({
-      jobId: input.jobId,
-      expectedVersion: input.jobVersion,
-    });
-    if (activated.status === 'terminal') {
-      return {
-        status: runtimeStatusForTerminalJobExecutionStatus(activated.jobStatus),
-        jobVersion: activated.jobVersion,
-      };
-    }
-    nextSequence = activated.executionCount + 1;
-  }
-
-  let firingsInCurrentRun = 0;
   const maxExecutions = input.maxExecutions ?? undefined;
   const batchConfig = listenerBatchConfig(input);
-  while (true) {
-    if (deadlineReached(listenerDeadline)) latchedReason ??= 'timeout';
-    await continueListenerAsNewIfNeeded({
+  while (await prepareListenerIteration(input, state, listenerDeadline, maxExecutions)) {
+    const batchReady = await waitForConfiguredBatch(input, state, listenerDeadline, batchConfig);
+    if (!batchReady) break;
+    const continueLoop = await drainAndProcessListenerEvents(
       input,
-      nextSequence,
-      latchedReason,
+      state,
       listenerDeadline,
-      firingsInCurrentRun,
-    });
-    if (latchedReason !== undefined) break;
-    if (maxExecutions !== undefined) {
-      if (nextSequence > maxExecutions) {
-        latchedReason = 'max_executions';
-        await continueListenerAsNewIfNeeded({
-          input,
-          nextSequence,
-          latchedReason,
-          listenerDeadline,
-          firingsInCurrentRun,
-        });
-        break;
-      }
-    }
-
-    if (batchConfig !== undefined) {
-      const decision = await awaitBatchFiringWindow({
-        jobId: input.jobId,
-        batchConfig,
-        listenerDeadline,
-        hasEventsHint: () => eventsAvailable,
-        clearEventsHint: () => {
-          eventsAvailable = false;
-        },
-        hasResolutionHint: () => latchedReason !== undefined,
-      });
-      if (decision === 'resolve') {
-        latchedReason ??= 'until';
-        break;
-      }
-      if (decision === 'deadline') {
-        latchedReason ??= 'timeout';
-        break;
-      }
-    }
-
-    eventsAvailable = false;
-    const drained = await drainListenerEventsActivity({
-      jobId: input.jobId,
-      expectedSequence: nextSequence,
-      ...(batchConfig?.maxSizeEvents === undefined ? {} : {maxSize: batchConfig.maxSizeEvents}),
-    });
-
-    if (drained.kind === 'resolve-requested') {
-      latchedReason = 'until';
-      break;
-    }
-
-    if (drained.kind === 'empty') {
-      const woke = await waitForListenerWakeup(
-        () => eventsAvailable || latchedReason !== undefined,
-        {deadline: listenerDeadline},
-      );
-      if (!woke && deadlineReached(listenerDeadline)) latchedReason = 'timeout';
-      continue;
-    }
-
-    if (drained.status === 'failed') {
-      await recordListenerFiringOutcomeActivity({outcome: 'failed'});
-      nextSequence = drained.sequence + 1;
-      firingsInCurrentRun += 1;
-      if (maxExecutions !== undefined && drained.sequence >= maxExecutions) {
-        latchedReason = 'max_executions';
-      }
-      continue;
-    }
-
-    await runListenerExecution({
-      input,
-      jobExecutionId: drained.jobExecutionId,
-      executionVersion: drained.executionVersion,
-      requiredLabels: drained.requiredLabels,
-      shouldCancelForResolution: () =>
-        input.onResolve === 'cancel' &&
-        (latchedReason !== undefined || deadlineReached(listenerDeadline)),
-      waitForResolution: () =>
-        waitForListenerWakeup(
-          () => latchedReason !== undefined || deadlineReached(listenerDeadline),
-          {deadline: listenerDeadline},
-        ),
-    });
-
-    if (deadlineReached(listenerDeadline)) latchedReason ??= 'timeout';
-    nextSequence = drained.sequence + 1;
-    firingsInCurrentRun += 1;
-    if (maxExecutions !== undefined && drained.sequence >= maxExecutions) {
-      latchedReason = 'max_executions';
-    }
+      maxExecutions,
+      batchConfig,
+    );
+    if (!continueLoop) break;
   }
 
-  const reason = latchedReason ?? 'timeout';
+  const reason = state.latchedReason ?? 'timeout';
   const resolved = await resolveJobListenerActivity({jobId: input.jobId, reason});
   return {status: resolved.status, jobVersion: resolved.jobVersion};
+}
+
+async function initializeListenerState(
+  input: JobListenerOrchestrationInput,
+  state: ListenerRuntimeState,
+): Promise<JobListenerOrchestrationResult | undefined> {
+  if (input.continuation) return undefined;
+  const activated = await activateJobListenerActivity({
+    jobId: input.jobId,
+    expectedVersion: input.jobVersion,
+  });
+  if (activated.status === 'terminal') {
+    return {
+      status: runtimeStatusForTerminalJobExecutionStatus(activated.jobStatus),
+      jobVersion: activated.jobVersion,
+    };
+  }
+  state.nextSequence = activated.executionCount + 1;
+  return undefined;
+}
+
+async function prepareListenerIteration(
+  input: JobListenerOrchestrationInput,
+  state: ListenerRuntimeState,
+  listenerDeadline: number | undefined,
+  maxExecutions: number | undefined,
+): Promise<boolean> {
+  if (deadlineReached(listenerDeadline)) state.latchedReason ??= 'timeout';
+  await continueListenerAsNewIfNeeded({
+    input,
+    nextSequence: state.nextSequence,
+    latchedReason: state.latchedReason,
+    listenerDeadline,
+    firingsInCurrentRun: state.firingsInCurrentRun,
+  });
+  if (state.latchedReason !== undefined) return false;
+  if (maxExecutions === undefined || state.nextSequence <= maxExecutions) return true;
+
+  state.latchedReason = 'max_executions';
+  await continueListenerAsNewIfNeeded({
+    input,
+    nextSequence: state.nextSequence,
+    latchedReason: state.latchedReason,
+    listenerDeadline,
+    firingsInCurrentRun: state.firingsInCurrentRun,
+  });
+  return false;
+}
+
+async function waitForConfiguredBatch(
+  input: JobListenerOrchestrationInput,
+  state: ListenerRuntimeState,
+  listenerDeadline: number | undefined,
+  batchConfig: ListenerBatchConfig | undefined,
+): Promise<boolean> {
+  if (batchConfig === undefined) return true;
+  const decision = await awaitBatchFiringWindow({
+    jobId: input.jobId,
+    batchConfig,
+    listenerDeadline,
+    hasEventsHint: () => state.eventsAvailable,
+    clearEventsHint: () => {
+      state.eventsAvailable = false;
+    },
+    hasResolutionHint: () => state.latchedReason !== undefined,
+  });
+  if (decision === 'fire') return true;
+  state.latchedReason ??= decision === 'resolve' ? 'until' : 'timeout';
+  return false;
+}
+
+async function drainAndProcessListenerEvents(
+  input: JobListenerOrchestrationInput,
+  state: ListenerRuntimeState,
+  listenerDeadline: number | undefined,
+  maxExecutions: number | undefined,
+  batchConfig: ListenerBatchConfig | undefined,
+): Promise<boolean> {
+  state.eventsAvailable = false;
+  const drained = await drainListenerEventsActivity({
+    jobId: input.jobId,
+    expectedSequence: state.nextSequence,
+    ...(batchConfig?.maxSizeEvents === undefined ? {} : {maxSize: batchConfig.maxSizeEvents}),
+  });
+  if (drained.kind === 'resolve-requested') {
+    state.latchedReason = 'until';
+    return false;
+  }
+  if (drained.kind === 'empty') {
+    await waitForMoreListenerEvents(state, listenerDeadline);
+    return true;
+  }
+  if (drained.status === 'failed') {
+    await recordListenerFiringOutcomeActivity({outcome: 'failed'});
+    recordListenerFiring(state, drained.sequence, maxExecutions);
+    return true;
+  }
+
+  await runListenerExecution({
+    input,
+    jobExecutionId: drained.jobExecutionId,
+    executionVersion: drained.executionVersion,
+    requiredLabels: drained.requiredLabels,
+    shouldCancelForResolution: () =>
+      input.onResolve === 'cancel' &&
+      (state.latchedReason !== undefined || deadlineReached(listenerDeadline)),
+    waitForResolution: () =>
+      waitForListenerWakeup(
+        () => state.latchedReason !== undefined || deadlineReached(listenerDeadline),
+        {deadline: listenerDeadline},
+      ),
+  });
+  if (deadlineReached(listenerDeadline)) state.latchedReason ??= 'timeout';
+  recordListenerFiring(state, drained.sequence, maxExecutions);
+  return true;
+}
+
+async function waitForMoreListenerEvents(
+  state: ListenerRuntimeState,
+  listenerDeadline: number | undefined,
+): Promise<void> {
+  const woke = await waitForListenerWakeup(
+    () => state.eventsAvailable || state.latchedReason !== undefined,
+    {deadline: listenerDeadline},
+  );
+  if (!woke && deadlineReached(listenerDeadline)) state.latchedReason = 'timeout';
+}
+
+function recordListenerFiring(
+  state: ListenerRuntimeState,
+  sequence: number,
+  maxExecutions: number | undefined,
+): void {
+  state.nextSequence = sequence + 1;
+  state.firingsInCurrentRun += 1;
+  if (maxExecutions !== undefined && sequence >= maxExecutions) {
+    state.latchedReason = 'max_executions';
+  }
 }
 
 function initialListenerDeadline(input: JobListenerOrchestrationInput): number | undefined {
@@ -295,24 +342,21 @@ async function awaitBatchFiringWindow(
     const peekDecision = bufferedResolveOrDeadlineDecision(params, peek);
     if (peekDecision !== undefined) return peekDecision;
 
-    if (peek.fireCount === 0) {
-      const waitDecision = await waitForAnyBatchWakeup(params);
-      if (waitDecision !== undefined) return waitDecision;
-      continue;
-    }
-
-    if (batchIsReadyToFire(params.batchConfig, peek)) return 'fire';
-
-    const sleepMs = nextBatchWindowMs(params.batchConfig, peek);
-    if (sleepMs === undefined) {
-      const waitDecision = await waitForAnyBatchWakeup(params);
-      if (waitDecision !== undefined) return waitDecision;
-      continue;
-    }
-
-    const waitDecision = await waitForBatchWindow(params, sleepMs);
-    if (waitDecision !== undefined) return waitDecision;
+    const windowDecision = await awaitPeekedBatchWindow(params, peek);
+    if (windowDecision !== 'retry') return windowDecision;
   }
+}
+
+async function awaitPeekedBatchWindow(
+  params: BatchFiringWindowParams,
+  peek: ListenerBufferPeek,
+): Promise<BatchFiringDecision | 'retry'> {
+  if (peek.fireCount === 0) return (await waitForAnyBatchWakeup(params)) ?? 'retry';
+  if (batchIsReadyToFire(params.batchConfig, peek)) return 'fire';
+
+  const sleepMs = nextBatchWindowMs(params.batchConfig, peek);
+  if (sleepMs === undefined) return (await waitForAnyBatchWakeup(params)) ?? 'retry';
+  return (await waitForBatchWindow(params, sleepMs)) ?? 'retry';
 }
 
 function resolutionOrDeadlineDecision(

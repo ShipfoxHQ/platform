@@ -311,52 +311,7 @@ export async function enrollRunnerControlSession(params: {
         promotionFailureReason: null,
       };
 
-    try {
-      const promotion = await tx.transaction(async (promotionTx) => {
-        const assignment = await assignRunnerInstancesTx(promotionTx, {
-          provisionerId: params.provisionerId,
-          reservationId: intendedReservationId,
-          runnerInstanceIds: [params.runnerInstanceId],
-          surface: 'enrollment',
-        });
-        const activationToken = await issueRunnerActivationTokenTx(promotionTx, {
-          runnerInstanceId: params.runnerInstanceId,
-          provisionerId: params.provisionerId,
-          ttlSeconds: config.RUNNER_ACTIVATION_TOKEN_TTL_SECONDS,
-          surface: 'enrollment',
-        });
-        return {activationToken, controlSessionToAssignment: assignment.controlSessionToAssignment};
-      });
-      return {
-        activationToken: promotion.activationToken,
-        controlSessionToAssignment: promotion.controlSessionToAssignment,
-        assignmentRejectedReason: null,
-        promotionFailureReason: null,
-      };
-    } catch (error) {
-      const assignmentRejectionReason = getRunnerAssignmentRejectionReason(error);
-      const expectedFailureReason = getRunnerReservationPromotionFailureReason(error);
-      const details = {
-        err: error,
-        runnerInstanceId: params.runnerInstanceId,
-        provisionerId: params.provisionerId,
-        reservationId: intendedReservationId,
-      };
-      if (expectedFailureReason) {
-        logger().debug(details, 'Runner reservation could not be promoted during enrollment');
-      } else {
-        logger().error(
-          details,
-          'Unexpected failure promoting runner reservation during enrollment',
-        );
-      }
-      return {
-        activationToken: null,
-        controlSessionToAssignment: [],
-        assignmentRejectedReason: assignmentRejectionReason,
-        promotionFailureReason: expectedFailureReason,
-      };
-    }
+    return promoteEnrollmentReservation(tx, params, intendedReservationId);
   });
   for (const observation of result.controlSessionToAssignment)
     recordProviderRunnerControlSessionToAssignment(observation);
@@ -371,6 +326,58 @@ export async function enrollRunnerControlSession(params: {
   if (result.promotionFailureReason)
     recordRunnerReservationPromotionFailure(result.promotionFailureReason);
   return result.activationToken;
+}
+
+async function promoteEnrollmentReservation(
+  tx: Tx,
+  params: {runnerInstanceId: string; provisionerId: string},
+  reservationId: string,
+) {
+  try {
+    const promotion = await tx.transaction(async (promotionTx) => {
+      const assignment = await assignRunnerInstancesTx(promotionTx, {
+        provisionerId: params.provisionerId,
+        reservationId,
+        runnerInstanceIds: [params.runnerInstanceId],
+        surface: 'enrollment',
+      });
+      const activationToken = await issueRunnerActivationTokenTx(promotionTx, {
+        runnerInstanceId: params.runnerInstanceId,
+        provisionerId: params.provisionerId,
+        ttlSeconds: config.RUNNER_ACTIVATION_TOKEN_TTL_SECONDS,
+        surface: 'enrollment',
+      });
+      return {activationToken, controlSessionToAssignment: assignment.controlSessionToAssignment};
+    });
+    return {
+      ...promotion,
+      assignmentRejectedReason: null,
+      promotionFailureReason: null,
+    };
+  } catch (error) {
+    return failedEnrollmentPromotion(error, params, reservationId);
+  }
+}
+
+function failedEnrollmentPromotion(
+  error: unknown,
+  params: {runnerInstanceId: string; provisionerId: string},
+  reservationId: string,
+) {
+  const assignmentRejectedReason = getRunnerAssignmentRejectionReason(error);
+  const promotionFailureReason = getRunnerReservationPromotionFailureReason(error);
+  const details = {...params, err: error, reservationId};
+  if (promotionFailureReason) {
+    logger().debug(details, 'Runner reservation could not be promoted during enrollment');
+  } else {
+    logger().error(details, 'Unexpected failure promoting runner reservation during enrollment');
+  }
+  return {
+    activationToken: null,
+    controlSessionToAssignment: [],
+    assignmentRejectedReason,
+    promotionFailureReason,
+  };
 }
 
 function getRunnerReservationPromotionFailureReason(

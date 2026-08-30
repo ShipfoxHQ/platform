@@ -62,56 +62,7 @@ export async function dispatchIntegrationEvent(
     event: params.event,
   });
 
-  let triggeredCount = 0;
-  let triggerEngagedCount = 0;
-  let sawTransientError = false;
-  let firstTransientError: unknown;
-
-  for (const subscription of subscriptions) {
-    const filterResult = evaluateTriggerFilter({
-      subscription,
-      source: params.source,
-      event: params.event,
-      payload: params.payload,
-    });
-    if (filterResult.kind === 'filtered') continue;
-    if (filterResult.kind === 'filter-error') {
-      triggerEngagedCount += 1;
-      await history.filterErrored(subscription, filterResult.reason);
-      continue;
-    }
-    triggerEngagedCount += 1;
-
-    const inputs = readConfigInputs(subscription);
-    try {
-      const run = await params.workflows.startRunFromTrigger({
-        workspaceId: subscription.workspaceId,
-        projectId: subscription.projectId,
-        definitionId: subscription.workflowDefinitionId,
-        triggerConnectionId: params.connectionId,
-        triggerPayload: {
-          provider: params.provider,
-          source: params.source,
-          event: params.event,
-          deliveryId: params.deliveryId,
-          data: params.payload,
-        },
-        ...(inputs === undefined ? {} : {inputs}),
-        idempotencyKey: `${subscription.id}:${params.eventRef}`,
-      });
-      await history.triggered(subscription, run);
-      triggeredCount += 1;
-      subscriptionTriggeredCount.add(1, {provider: params.provider});
-    } catch (error) {
-      await history.dispatchErrored(subscription, toReason(error));
-      // Track presence with a flag, not `firstTransientError === undefined`: a thrown
-      // value of `undefined` is still a transient failure and must drive the replay.
-      if (!isPermanentStartRunError(error) && !sawTransientError) {
-        sawTransientError = true;
-        firstTransientError = error;
-      }
-    }
-  }
+  const dispatch = await dispatchMatchingSubscriptions(params, subscriptions, history);
 
   const listenerResult = await routeEventToJobListeners({
     workflows: params.workflows,
@@ -127,20 +78,20 @@ export async function dispatchIntegrationEvent(
     receivedAt: params.receivedAt,
   });
 
-  if (listenerResult.transientErrored && !sawTransientError) {
-    sawTransientError = true;
-    firstTransientError = listenerResult.transientError;
+  if (listenerResult.transientErrored && !dispatch.sawTransientError) {
+    dispatch.sawTransientError = true;
+    dispatch.firstTransientError = listenerResult.transientError;
   }
 
-  const totalMatchedCount = triggerEngagedCount + listenerResult.engagedCount;
+  const totalMatchedCount = dispatch.triggerEngagedCount + listenerResult.engagedCount;
 
-  if (sawTransientError) {
+  if (dispatch.sawTransientError) {
     eventOutcomeCount.add(1, {provider: params.provider, outcome: 'failed'});
     await history.failed(totalMatchedCount);
-    throw firstTransientError;
+    throw dispatch.firstTransientError;
   }
 
-  if (triggeredCount > 0 || listenerResult.acceptedJobCount > 0) {
+  if (dispatch.triggeredCount > 0 || listenerResult.acceptedJobCount > 0) {
     eventOutcomeCount.add(1, {provider: params.provider, outcome: 'routed'});
     await history.routed(totalMatchedCount);
     return;
@@ -154,4 +105,76 @@ export async function dispatchIntegrationEvent(
 
   eventOutcomeCount.add(1, {provider: params.provider, outcome: 'errored'});
   await history.allErrored(totalMatchedCount);
+}
+
+interface SubscriptionDispatchState {
+  triggeredCount: number;
+  triggerEngagedCount: number;
+  sawTransientError: boolean;
+  firstTransientError: unknown;
+}
+
+async function dispatchMatchingSubscriptions(
+  params: DispatchIntegrationEventParams,
+  subscriptions: Awaited<ReturnType<typeof findMatchingSubscriptions>>,
+  history: Awaited<ReturnType<typeof beginTriggerHistory>>,
+): Promise<SubscriptionDispatchState> {
+  const state: SubscriptionDispatchState = {
+    triggeredCount: 0,
+    triggerEngagedCount: 0,
+    sawTransientError: false,
+    firstTransientError: undefined,
+  };
+  for (const subscription of subscriptions) {
+    const filterResult = evaluateTriggerFilter({
+      subscription,
+      source: params.source,
+      event: params.event,
+      payload: params.payload,
+    });
+    if (filterResult.kind === 'filtered') continue;
+    state.triggerEngagedCount += 1;
+    if (filterResult.kind === 'filter-error') {
+      await history.filterErrored(subscription, filterResult.reason);
+      continue;
+    }
+    await dispatchMatchingSubscription(params, subscription, history, state);
+  }
+  return state;
+}
+
+async function dispatchMatchingSubscription(
+  params: DispatchIntegrationEventParams,
+  subscription: Awaited<ReturnType<typeof findMatchingSubscriptions>>[number],
+  history: Awaited<ReturnType<typeof beginTriggerHistory>>,
+  state: SubscriptionDispatchState,
+): Promise<void> {
+  const inputs = readConfigInputs(subscription);
+  try {
+    const run = await params.workflows.startRunFromTrigger({
+      workspaceId: subscription.workspaceId,
+      projectId: subscription.projectId,
+      definitionId: subscription.workflowDefinitionId,
+      triggerConnectionId: params.connectionId,
+      triggerPayload: {
+        provider: params.provider,
+        source: params.source,
+        event: params.event,
+        deliveryId: params.deliveryId,
+        data: params.payload,
+      },
+      ...(inputs === undefined ? {} : {inputs}),
+      idempotencyKey: `${subscription.id}:${params.eventRef}`,
+    });
+    await history.triggered(subscription, run);
+    state.triggeredCount += 1;
+    subscriptionTriggeredCount.add(1, {provider: params.provider});
+  } catch (error) {
+    await history.dispatchErrored(subscription, toReason(error));
+    // A thrown undefined value is still a transient failure and must drive the replay.
+    if (!isPermanentStartRunError(error) && !state.sawTransientError) {
+      state.sawTransientError = true;
+      state.firstTransientError = error;
+    }
+  }
 }

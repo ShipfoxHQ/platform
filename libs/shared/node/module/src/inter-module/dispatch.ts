@@ -160,43 +160,61 @@ export function runInterModuleCall(callOptions: RunInterModuleCallOptions): Prom
             : createOpaqueError(callOptions);
         }
 
-        return startActiveInterModuleSpan(
-          tracer,
-          'inter_module.presentation',
-          SpanKind.INTERNAL,
-          async (presentationSpan) => {
-            const settlement = await invokeHandlerWithCancellation({
-              methodContract,
-              handler: callOptions.handler,
-              input: inputResolution.value,
-              signal: callOptions.options?.signal,
-            });
-
-            if (settlement.outcome === 'opaque') {
-              drainReport(reportInternalError, settlement.reportError, {
-                phase: settlement.phase,
-                module,
-                method,
-              });
-            }
-
-            const outcome = settlement.outcome === 'opaque' ? 'opaque-error' : settlement.outcome;
-            const knownErrorCode =
-              settlement.outcome === 'known-error' ? settlement.error.code : undefined;
-            endSpan(presentationSpan, outcome, knownErrorCode);
-            endSpan(clientSpan, outcome, knownErrorCode);
-
-            if (settlement.outcome === 'success') return settlement.value;
-            if (settlement.outcome === 'known-error') throw settlement.error;
-            if (settlement.outcome === 'cancelled') throw settlement.reason;
-            throw createOpaqueError(callOptions);
-          },
-        );
+        return runInterModulePresentation({
+          callOptions,
+          input: inputResolution.value,
+          clientSpan,
+          endSpan,
+        });
       },
     );
   } catch (error) {
     return Promise.reject(error);
   }
+}
+
+function runInterModulePresentation(params: {
+  callOptions: RunInterModuleCallOptions;
+  input: unknown;
+  clientSpan: Span;
+  endSpan(span: Span, outcome: InterModuleOutcome, knownErrorCode?: string): void;
+}): Promise<unknown> {
+  const {callOptions} = params;
+  return startActiveInterModuleSpan(
+    callOptions.tracer,
+    'inter_module.presentation',
+    SpanKind.INTERNAL,
+    async (presentationSpan) => {
+      const settlement = await invokeHandlerWithCancellation({
+        methodContract: callOptions.methodContract,
+        handler: callOptions.handler,
+        input: params.input,
+        signal: callOptions.options?.signal,
+      });
+      reportOpaqueSettlement(callOptions, settlement);
+      const outcome = settlement.outcome === 'opaque' ? 'opaque-error' : settlement.outcome;
+      const knownErrorCode =
+        settlement.outcome === 'known-error' ? settlement.error.code : undefined;
+      params.endSpan(presentationSpan, outcome, knownErrorCode);
+      params.endSpan(params.clientSpan, outcome, knownErrorCode);
+      if (settlement.outcome === 'success') return settlement.value;
+      if (settlement.outcome === 'known-error') throw settlement.error;
+      if (settlement.outcome === 'cancelled') throw settlement.reason;
+      throw createOpaqueError(callOptions);
+    },
+  );
+}
+
+function reportOpaqueSettlement(
+  callOptions: RunInterModuleCallOptions,
+  settlement: Awaited<ReturnType<typeof invokeHandlerWithCancellation>>,
+): void {
+  if (settlement.outcome !== 'opaque') return;
+  drainReport(callOptions.reportInternalError, settlement.reportError, {
+    phase: settlement.phase,
+    module: callOptions.module,
+    method: callOptions.method,
+  });
 }
 
 function createOpaqueError(callOptions: RunInterModuleCallOptions): InterModuleOpaqueError {

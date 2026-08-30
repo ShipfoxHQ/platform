@@ -96,24 +96,26 @@ function assertNotDenylisted(
   denylist: DenylistEntry[],
 ): void {
   for (const entry of denylist) {
-    if (entry.kind === 'host' && hostname === entry.host) {
-      throw new EgressDeniedError('host-denylist', hostname);
-    }
-    if (entry.kind === 'suffix' && hostname.endsWith(entry.suffix)) {
-      throw new EgressDeniedError('host-denylist', hostname);
-    }
+    assertHostnameNotDenylisted(hostname, entry);
+    for (const address of addresses) assertAddressNotDenylisted(address, entry);
+  }
+}
 
-    for (const address of addresses) {
-      if (
-        entry.kind === 'ip' &&
-        address.toNormalizedString() === entry.address.toNormalizedString()
-      ) {
-        throw new EgressDeniedError('host-denylist', address.toString());
-      }
-      if (entry.kind === 'cidr' && addressMatchesRange(address, entry.range)) {
-        throw new EgressDeniedError('host-denylist', address.toString());
-      }
-    }
+function assertHostnameNotDenylisted(hostname: string, entry: DenylistEntry): void {
+  if (entry.kind === 'host' && hostname === entry.host) {
+    throw new EgressDeniedError('host-denylist', hostname);
+  }
+  if (entry.kind === 'suffix' && hostname.endsWith(entry.suffix)) {
+    throw new EgressDeniedError('host-denylist', hostname);
+  }
+}
+
+function assertAddressNotDenylisted(address: ParsedAddress, entry: DenylistEntry): void {
+  if (entry.kind === 'ip' && address.toNormalizedString() === entry.address.toNormalizedString()) {
+    throw new EgressDeniedError('host-denylist', address.toString());
+  }
+  if (entry.kind === 'cidr' && addressMatchesRange(address, entry.range)) {
+    throw new EgressDeniedError('host-denylist', address.toString());
   }
 }
 

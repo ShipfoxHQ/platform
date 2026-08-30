@@ -44,9 +44,7 @@ export function ProjectsHubPage({search = ''}: {search?: string}) {
     (connectionsQuery.data ?? []).map((connection) => [connection.id, connection]),
   );
 
-  const isInitialLoading = query.isPending;
   const isSearching = Boolean(search) && query.isFetching && !query.isFetchingNextPage;
-  const hasNoData = !query.data;
 
   return (
     <div className="flex w-full flex-col gap-section">
@@ -88,65 +86,114 @@ export function ProjectsHubPage({search = ''}: {search?: string}) {
           </PanelHeader>
 
           <PanelBody>
-            {isInitialLoading || (search && hasNoData && query.isFetching) ? (
-              <ProjectsSkeleton />
-            ) : null}
-
-            {query.isError && hasNoData ? (
-              <QueryLoadError query={query} subject="projects" variant="panel" />
-            ) : null}
-
-            {!isInitialLoading && !query.isError && projects.length === 0 && !search ? (
-              <EmptyProjects workspaceSlug={workspace.slug} />
-            ) : null}
-
-            {!query.isFetching && !query.isError && projects.length === 0 && search ? (
-              <NoSearchResults
-                search={search}
-                onClear={() => navigate({search: {} as never, replace: true})}
-              />
-            ) : null}
-
-            {projects.length > 0 ? (
-              <>
-                <PanelGrid aria-label="Projects list">
-                  {projects.map((project) => (
-                    <ProjectCell
-                      project={project}
-                      connection={connectionsById.get(project.source.connectionId)}
-                      connectionsResolved={connectionsQuery.isSuccess}
-                      connectionsSettled={connectionsQuery.isSuccess || connectionsQuery.isError}
-                      key={project.id}
-                      workspaceSlug={workspace.slug}
-                    />
-                  ))}
-                </PanelGrid>
-                {query.error && query.data ? (
-                  <div className="border-t border-border-neutral-base p-panel-compact">
-                    <Callout role="alert" type="error">
-                      <Text size="sm">
-                        Could not load the next page. Existing projects are still shown.
-                      </Text>
-                    </Callout>
-                  </div>
-                ) : null}
-                {query.hasNextPage ? (
-                  <div className="flex justify-center border-t border-border-neutral-base p-panel-compact">
-                    <Button
-                      variant="secondary"
-                      isLoading={query.isFetchingNextPage}
-                      onClick={() => query.fetchNextPage()}
-                    >
-                      Load more
-                    </Button>
-                  </div>
-                ) : null}
-              </>
-            ) : null}
+            <ProjectsPanelContent
+              query={query}
+              projects={projects}
+              search={search}
+              workspaceSlug={workspace.slug}
+              connectionsById={connectionsById}
+              connectionsResolved={connectionsQuery.isSuccess}
+              connectionsSettled={connectionsQuery.isSuccess || connectionsQuery.isError}
+              onClear={() => navigate({search: {} as never, replace: true})}
+            />
           </PanelBody>
         </Panel>
       </section>
     </div>
+  );
+}
+
+function ProjectsPanelContent({
+  query,
+  projects,
+  search,
+  workspaceSlug,
+  connectionsById,
+  connectionsResolved,
+  connectionsSettled,
+  onClear,
+}: {
+  query: ReturnType<typeof useProjectsInfiniteQuery>;
+  projects: Project[];
+  search: string;
+  workspaceSlug: string;
+  connectionsById: ReadonlyMap<string, IntegrationConnection>;
+  connectionsResolved: boolean;
+  connectionsSettled: boolean;
+  onClear: () => void;
+}) {
+  const hasNoData = !query.data;
+  if (query.isPending || (Boolean(search) && hasNoData && query.isFetching)) {
+    return <ProjectsSkeleton />;
+  }
+  if (query.isError && hasNoData) {
+    return <QueryLoadError query={query} subject="projects" variant="panel" />;
+  }
+  if (projects.length === 0 && !search) return <EmptyProjects workspaceSlug={workspaceSlug} />;
+  if (!query.isFetching && projects.length === 0 && search) {
+    return <NoSearchResults search={search} onClear={onClear} />;
+  }
+  if (projects.length === 0) return null;
+  return (
+    <ProjectsList
+      query={query}
+      projects={projects}
+      workspaceSlug={workspaceSlug}
+      connectionsById={connectionsById}
+      connectionsResolved={connectionsResolved}
+      connectionsSettled={connectionsSettled}
+    />
+  );
+}
+
+function ProjectsList({
+  query,
+  projects,
+  workspaceSlug,
+  connectionsById,
+  connectionsResolved,
+  connectionsSettled,
+}: {
+  query: ReturnType<typeof useProjectsInfiniteQuery>;
+  projects: Project[];
+  workspaceSlug: string;
+  connectionsById: ReadonlyMap<string, IntegrationConnection>;
+  connectionsResolved: boolean;
+  connectionsSettled: boolean;
+}) {
+  return (
+    <>
+      <PanelGrid aria-label="Projects list">
+        {projects.map((project) => (
+          <ProjectCell
+            project={project}
+            connection={connectionsById.get(project.source.connectionId)}
+            connectionsResolved={connectionsResolved}
+            connectionsSettled={connectionsSettled}
+            key={project.id}
+            workspaceSlug={workspaceSlug}
+          />
+        ))}
+      </PanelGrid>
+      {query.error && query.data ? (
+        <div className="border-t border-border-neutral-base p-panel-compact">
+          <Callout role="alert" type="error">
+            <Text size="sm">Could not load the next page. Existing projects are still shown.</Text>
+          </Callout>
+        </div>
+      ) : null}
+      {query.hasNextPage ? (
+        <div className="flex justify-center border-t border-border-neutral-base p-panel-compact">
+          <Button
+            variant="secondary"
+            isLoading={query.isFetchingNextPage}
+            onClick={() => query.fetchNextPage()}
+          >
+            Load more
+          </Button>
+        </div>
+      ) : null}
+    </>
   );
 }
 

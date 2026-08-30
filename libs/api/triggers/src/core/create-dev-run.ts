@@ -94,9 +94,23 @@ export async function createDevRun(params: CreateDevRunParams): Promise<DevRunRe
     throw new DevRunTriggerFilteredError(built.reason);
   }
 
-  let run: {id: string; name: string};
+  const run = await startDevRunAndRecordFailure(params, resolved, built, historyBase);
+
+  const history = await beginTriggerHistory({...historyBase, eventRef: run.id});
+  await history.devTriggered(params.triggerKey, resolved.workflow.id, run);
+  devRunsCount.add(1, {trigger_kind: built.triggerKind, outcome: 'routed'});
+  await history.routed(1);
+  return {id: run.id, commit: resolved.commit};
+}
+
+async function startDevRunAndRecordFailure(
+  params: CreateDevRunParams,
+  resolved: Awaited<ReturnType<CreateDevRunParams['definitions']['resolveDefinitionAtRef']>>,
+  built: BuiltDevRunTrigger,
+  historyBase: Omit<Parameters<typeof beginTriggerHistory>[0], 'eventRef'>,
+): Promise<{id: string; name: string}> {
   try {
-    run = await params.workflows.startDevRun({
+    return await params.workflows.startDevRun({
       workspaceId: params.workspaceId,
       projectId: params.projectId,
       workflowId: resolved.workflow.id,
@@ -129,12 +143,6 @@ export async function createDevRun(params: CreateDevRunParams): Promise<DevRunRe
     }
     throw error;
   }
-
-  const history = await beginTriggerHistory({...historyBase, eventRef: run.id});
-  await history.devTriggered(params.triggerKey, resolved.workflow.id, run);
-  devRunsCount.add(1, {trigger_kind: built.triggerKind, outcome: 'routed'});
-  await history.routed(1);
-  return {id: run.id, commit: resolved.commit};
 }
 
 interface ReplaySource {

@@ -15,22 +15,29 @@ export function extractWorkflowStepSourceLocations(source: string): WorkflowStep
   const locations = new Map<string, Map<number, WorkflowSourceLocation>>();
 
   for (const jobPair of jobs.items) {
-    const jobName = scalarString(jobPair.key);
-    if (jobName === undefined || !isMap(jobPair.value)) continue;
-
-    const steps = getMapValue(jobPair.value, 'steps');
-    if (!isSeq(steps)) continue;
-
-    const stepLocations = new Map<number, WorkflowSourceLocation>();
-    for (const [index, step] of steps.items.entries()) {
-      const location = sourceLocationFor(step, lineCounter);
-      if (location) stepLocations.set(index, location);
-    }
-
-    if (stepLocations.size > 0) locations.set(jobName, stepLocations);
+    addJobStepLocations(jobPair.key, jobPair.value, lineCounter, locations);
   }
 
   return locations;
+}
+
+function addJobStepLocations(
+  key: unknown,
+  value: unknown,
+  lineCounter: LineCounter,
+  locations: Map<string, Map<number, WorkflowSourceLocation>>,
+): void {
+  const jobName = scalarString(key);
+  if (jobName === undefined || !isMap(value)) return;
+  const steps = getMapValue(value, 'steps');
+  if (!isSeq(steps)) return;
+
+  const stepLocations = new Map<number, WorkflowSourceLocation>();
+  for (const [index, step] of steps.items.entries()) {
+    const location = sourceLocationFor(step, lineCounter);
+    if (location) stepLocations.set(index, location);
+  }
+  if (stepLocations.size > 0) locations.set(jobName, stepLocations);
 }
 
 function getMapValue(map: YAMLMap, key: string): unknown {

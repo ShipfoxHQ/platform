@@ -28,37 +28,41 @@ export function readStepGate(config: Record<string, unknown>): StepGate | undefi
   if (!gate || typeof gate !== 'object') return undefined;
   const raw = gate as Record<string, unknown>;
 
-  const successRaw = raw.success as Record<string, unknown> | undefined;
-  const success =
-    successRaw && typeof successRaw.source === 'string'
-      ? // The model validated this expression before materialization; the stored
-        // JSON is structurally a WorkflowExpression.
-        (successRaw as unknown as WorkflowExpression)
-      : undefined;
-
-  const onFailureRaw = raw.on_failure as Record<string, unknown> | undefined;
-  const feedbackTemplateRaw = onFailureRaw?.feedback_template as
-    | Record<string, unknown>
-    | undefined;
-  const feedbackTemplate =
-    Array.isArray(feedbackTemplateRaw?.segments) &&
-    feedbackTemplateRaw.segments.every((segment) => typeof segment === 'object' && segment !== null)
-      ? (feedbackTemplateRaw as unknown as ResolvedField)
-      : undefined;
-  const onFailure =
-    onFailureRaw && typeof onFailureRaw.restart_from === 'string'
-      ? {
-          restartFrom: onFailureRaw.restart_from,
-          ...(typeof onFailureRaw.feedback === 'string' ? {feedback: onFailureRaw.feedback} : {}),
-          ...(feedbackTemplate === undefined ? {} : {feedbackTemplate}),
-        }
-      : undefined;
+  const success = readGateSuccess(raw.success);
+  const onFailure = readGateOnFailure(raw.on_failure);
 
   if (!success && !onFailure) return undefined;
   return {
     ...(success ? {success} : {}),
     ...(onFailure ? {onFailure} : {}),
   };
+}
+
+function readGateSuccess(value: unknown): WorkflowExpression | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  if (typeof (value as Record<string, unknown>).source !== 'string') return undefined;
+  return value as WorkflowExpression;
+}
+
+function readGateOnFailure(value: unknown): StepGate['onFailure'] {
+  if (!value || typeof value !== 'object') return undefined;
+  const raw = value as Record<string, unknown>;
+  if (typeof raw.restart_from !== 'string') return undefined;
+  const feedbackTemplate = readGateFeedbackTemplate(raw.feedback_template);
+  return {
+    restartFrom: raw.restart_from,
+    ...(typeof raw.feedback === 'string' ? {feedback: raw.feedback} : {}),
+    ...(feedbackTemplate === undefined ? {} : {feedbackTemplate}),
+  };
+}
+
+function readGateFeedbackTemplate(value: unknown): ResolvedField | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const segments = (value as Record<string, unknown>).segments;
+  if (!Array.isArray(segments)) return undefined;
+  if (!segments.every((segment) => typeof segment === 'object' && segment !== null))
+    return undefined;
+  return value as ResolvedField;
 }
 
 /**

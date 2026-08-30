@@ -63,23 +63,17 @@ const CALENDAR_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/u;
 export function validateWorkflowRunsSearch(input: Record<string, unknown>): WorkflowRunsSearch {
   const search = string(input.search);
   const status = repeatable(input.status).filter(isWorkflowRunListStatus);
-  const originValue = string(input.origin);
-  const origin =
-    originValue && ORIGIN_VALUES.has(originValue)
-      ? (originValue as WorkflowRunListOrigin)
-      : undefined;
+  const origin = enumSearchValue<WorkflowRunListOrigin>(input.origin, ORIGIN_VALUES);
   const branch = repeatable(input.branch);
   const actor = repeatable(input.actor);
   const event = repeatable(input.event);
   const after = calendarDate(input.after);
   const before = calendarDate(input.before);
-  const tabValue = string(input.tab);
-  const tab = tabValue && TAB_VALUES.has(tabValue) ? (tabValue as WorkflowRunTab) : undefined;
-  const severityValue = string(input.severity);
-  const severity =
-    severityValue && ANNOTATION_SEVERITY_VALUES.has(severityValue)
-      ? (severityValue as WorkflowRunAnnotationSeverity)
-      : undefined;
+  const tab = enumSearchValue<WorkflowRunTab>(input.tab, TAB_VALUES);
+  const severity = enumSearchValue<WorkflowRunAnnotationSeverity>(
+    input.severity,
+    ANNOTATION_SEVERITY_VALUES,
+  );
 
   return {
     ...(search ? {search} : {}),
@@ -94,6 +88,15 @@ export function validateWorkflowRunsSearch(input: Record<string, unknown>): Work
     ...(severity ? {severity} : {}),
     ...workflowSelectionFromSearch(input, true),
   };
+}
+
+function enumSearchValue<T extends string>(
+  input: unknown,
+  values: ReadonlySet<string>,
+): T | undefined {
+  const value = string(input);
+  if (!value || !values.has(value)) return undefined;
+  return value as T;
 }
 
 /** Reads the job-detail query string without allowing a job id to leak back into URL state. */

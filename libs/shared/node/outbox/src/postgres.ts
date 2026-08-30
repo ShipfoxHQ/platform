@@ -302,17 +302,9 @@ function serializeFailure(failure: unknown): unknown {
 }
 
 function toJsonSafe(value: unknown, ancestors: WeakSet<object>): unknown {
-  if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
-  if (typeof value === 'number') return Number.isFinite(value) ? value : String(value);
-  if (typeof value === 'bigint') return value.toString();
-  if (typeof value === 'undefined') return null;
-  if (typeof value === 'symbol' || typeof value === 'function') {
-    try {
-      return String(value);
-    } catch (_error) {
-      return '[Unserializable]';
-    }
-  }
+  const primitive = serializePrimitive(value);
+  if (primitive.handled) return primitive.value;
+  if (typeof value !== 'object' || value === null) return '[Unserializable]';
 
   try {
     if (value instanceof Date) {
@@ -321,17 +313,33 @@ function toJsonSafe(value: unknown, ancestors: WeakSet<object>): unknown {
     if (ancestors.has(value)) return '[Circular]';
     ancestors.add(value);
 
-    const serialized =
-      value instanceof Error
-        ? serializeError(value, ancestors)
-        : Array.isArray(value)
-          ? value.map((item) => toJsonSafe(item, ancestors))
-          : serializeObject(value, ancestors);
+    let serialized: unknown;
+    if (value instanceof Error) serialized = serializeError(value, ancestors);
+    else if (Array.isArray(value)) {
+      serialized = value.map((item) => toJsonSafe(item, ancestors));
+    } else serialized = serializeObject(value, ancestors);
     ancestors.delete(value);
     return serialized;
   } catch (_error) {
     ancestors.delete(value);
     return '[Unserializable]';
+  }
+}
+
+function serializePrimitive(value: unknown): {handled: true; value: unknown} | {handled: false} {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') {
+    return {handled: true, value};
+  }
+  if (typeof value === 'number') {
+    return {handled: true, value: Number.isFinite(value) ? value : String(value)};
+  }
+  if (typeof value === 'bigint') return {handled: true, value: value.toString()};
+  if (typeof value === 'undefined') return {handled: true, value: null};
+  if (typeof value !== 'symbol' && typeof value !== 'function') return {handled: false};
+  try {
+    return {handled: true, value: String(value)};
+  } catch (_error) {
+    return {handled: true, value: '[Unserializable]'};
   }
 }
 

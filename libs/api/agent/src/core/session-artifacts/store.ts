@@ -7,9 +7,14 @@ import {
   db,
   hasSessionReferencingObjectKey,
   sessions,
+  type Transaction,
 } from '#db/index.js';
 import {toAgentSession} from '#db/schema/sessions.js';
-import {sessionCommitsCount, sessionCommittedBytes} from '#metrics/instance.js';
+import {
+  type SessionCommitOutcome,
+  sessionCommitsCount,
+  sessionCommittedBytes,
+} from '#metrics/instance.js';
 import {AgentSessionUnavailableError} from '../errors.js';
 import {aadForSessionObject, openSessionBlob, sealSessionBlob} from './crypto.js';
 import type {SessionDekManager} from './dek-manager.js';
@@ -64,6 +69,20 @@ export interface ReadSessionHeadResult {
   /** The decrypted, still-gzipped harness-native session file. */
   blob: Buffer;
   manifest: SegmentManifest;
+}
+
+async function deletableSessionObjectKeys(
+  tx: Transaction,
+  sessionId: string,
+  headObjectKey: string | null,
+  keys: string[],
+): Promise<string[]> {
+  if (headObjectKey === null) return keys;
+  if (await hasSessionReferencingObjectKey(tx, sessionId, headObjectKey)) {
+    return keys.filter((key) => key !== headObjectKey);
+  }
+  if (!keys.includes(headObjectKey)) return [...keys, headObjectKey];
+  return keys;
 }
 
 export interface SessionArtifactStore {
@@ -200,14 +219,10 @@ export function createSessionArtifactStore(params: {
         );
       });
 
-      sessionCommitsCount.add(1, {
-        outcome:
-          result.outcome === 'committed'
-            ? 'committed'
-            : result.outcome === 'retry-acked'
-              ? 'retry_acked'
-              : 'conflict',
-      });
+      let metricOutcome: SessionCommitOutcome = 'conflict';
+      if (result.outcome === 'committed') metricOutcome = 'committed';
+      else if (result.outcome === 'retry-acked') metricOutcome = 'retry_acked';
+      sessionCommitsCount.add(1, {outcome: metricOutcome});
       if (result.outcome === 'committed' && committedSizeBytes !== undefined) {
         sessionCommittedBytes.record(committedSizeBytes);
       }
@@ -274,19 +289,9 @@ export function createSessionArtifactStore(params: {
         const prefix = sessionPrefix(session);
         const keys = await listSessionObjectKeys(prefix);
 
-        let deletable = keys;
-        if (row.headObjectKey !== null) {
-          if (await hasSessionReferencingObjectKey(tx, session.id, row.headObjectKey)) {
-            // A carried-over rerun row still references this head object; keep it
-            // until every referencing row is gone, mirroring the retention sweep's
-            // carried-over guard in deleteExpiredSession.
-            deletable = deletable.filter((key) => key !== row.headObjectKey);
-          } else if (!keys.includes(row.headObjectKey)) {
-            // Carried-over rows point at the source run attempt's prefix; the exact
-            // head key must be removed here because the source prefix is not ours.
-            deletable = [...deletable, row.headObjectKey];
-          }
-        }
+        // A referenced head belongs to a carried-over rerun and stays until the
+        // last row is gone. A head outside this session's prefix is added explicitly.
+        const deletable = await deletableSessionObjectKeys(tx, session.id, row.headObjectKey, keys);
 
         if (deletable.length > 0) await deleteSessionObjects(deletable);
       });

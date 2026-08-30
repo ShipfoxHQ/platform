@@ -154,46 +154,7 @@ async function nextStepForJobExecutionInTransaction(
   const running = steps.find((step) => step.status === 'running');
   const hasRunningStep = running !== undefined;
   if (hasRunningStep) {
-    const session =
-      running.type === 'agent' ? readAgentStepSessionIntent(running.config) : undefined;
-    if (session !== undefined) {
-      const jobExecution = await getJobExecutionById(jobExecutionId, tx);
-      if (!jobExecution) throw new JobNotFoundError(jobExecutionId);
-
-      const attempts = await getStepAttemptsByJobExecutionId(jobExecutionId, tx);
-      const currentAttempt = attempts.find(
-        (attempt) => attempt.stepId === running.id && attempt.attempt === running.currentAttempt,
-      );
-      const stepAttemptId =
-        currentAttempt?.status === 'running'
-          ? currentAttempt.id
-          : await insertRunningStepAttempt(
-              {
-                jobExecutionId,
-                stepId: running.id,
-                attempt: running.currentAttempt,
-                config: running.config,
-                evaluationTrace: running.evaluationTrace,
-              },
-              tx,
-            );
-      const workflowContext = await getWorkflowContextForJob(jobExecution.jobId, tx);
-
-      return {
-        kind: 'session-claim',
-        jobExecutionId,
-        jobId: jobExecution.jobId,
-        stepId: running.id,
-        attempt: running.currentAttempt,
-        stepAttemptId,
-        session,
-        config: running.config,
-        evaluationTrace: currentAttempt?.evaluationTrace ?? running.evaluationTrace,
-        workflowContext,
-        agent,
-      };
-    }
-    return {kind: 'step', step: running, dispatched: false};
+    return resolveRunningStep(jobExecutionId, running, tx, agent);
   }
 
   const firstPending = steps.find((step) => step.status === 'pending');
@@ -218,6 +179,52 @@ async function nextStepForJobExecutionInTransaction(
     tx,
     agent,
   });
+}
+
+async function resolveRunningStep(
+  jobExecutionId: string,
+  running: Step,
+  tx: Tx,
+  agent?: AgentInterModuleClient | undefined,
+): Promise<NextStepResolution> {
+  const session = running.type === 'agent' ? readAgentStepSessionIntent(running.config) : undefined;
+  if (session === undefined) return {kind: 'step', step: running, dispatched: false};
+
+  const jobExecution = await getJobExecutionById(jobExecutionId, tx);
+  if (!jobExecution) throw new JobNotFoundError(jobExecutionId);
+
+  const attempts = await getStepAttemptsByJobExecutionId(jobExecutionId, tx);
+  const currentAttempt = attempts.find(
+    (attempt) => attempt.stepId === running.id && attempt.attempt === running.currentAttempt,
+  );
+  const stepAttemptId =
+    currentAttempt?.status === 'running'
+      ? currentAttempt.id
+      : await insertRunningStepAttempt(
+          {
+            jobExecutionId,
+            stepId: running.id,
+            attempt: running.currentAttempt,
+            config: running.config,
+            evaluationTrace: running.evaluationTrace,
+          },
+          tx,
+        );
+  const workflowContext = await getWorkflowContextForJob(jobExecution.jobId, tx);
+
+  return {
+    kind: 'session-claim',
+    jobExecutionId,
+    jobId: jobExecution.jobId,
+    stepId: running.id,
+    attempt: running.currentAttempt,
+    stepAttemptId,
+    session,
+    config: running.config,
+    evaluationTrace: currentAttempt?.evaluationTrace ?? running.evaluationTrace,
+    workflowContext,
+    agent,
+  };
 }
 
 async function resolveNextPendingStep({
@@ -907,72 +914,105 @@ async function recordStepResultInTransaction(
     tx,
   );
 
-  let result: ReportedStepResult = {
+  const {result, gateEvaluationAllowed} = normalizeReportedStepResult(params, target.config);
+  const transition = await decideReportedStepTransition({
+    jobId: jobExecution.jobId,
+    stepId: params.stepId,
+    steps,
+    target,
+    reportedAttempt: reported,
+    result,
+    gateEvaluationAllowed,
+    tx,
+  });
+
+  return applyStepTransition(
+    transition.decision,
+    {
+      jobId: jobExecution.jobId,
+      jobExecutionId,
+      result,
+      logOutcome: params.logOutcome ?? 'drained',
+      gateResult: transition.gateResult,
+    },
+    tx,
+  );
+}
+
+function normalizeReportedStepResult(
+  params: RecordStepResultParams,
+  config: Record<string, unknown>,
+): {result: ReportedStepResult; gateEvaluationAllowed: boolean} {
+  const reported: ReportedStepResult = {
     status: params.status,
     error: params.error ?? null,
     output: params.output ?? null,
     response: params.response ?? null,
     exitCode: params.exitCode ?? null,
   };
-  const outputCoercion = coerceReportedStepOutput(target.config, result);
+  const outputCoercion = coerceReportedStepOutput(config, reported);
   if (outputCoercion.kind === 'coerced') {
-    result = {...result, output: outputCoercion.output};
+    return {result: {...reported, output: outputCoercion.output}, gateEvaluationAllowed: true};
   }
   if (outputCoercion.kind === 'failed') {
-    result = {
-      status: 'failed',
-      error: outputInvalidError(outputCoercion.error),
-      output: null,
-      response: result.response,
-      exitCode: result.exitCode,
+    return {
+      result: {
+        status: 'failed',
+        error: outputInvalidError(outputCoercion.error),
+        output: null,
+        response: reported.response,
+        exitCode: reported.exitCode,
+      },
+      gateEvaluationAllowed: false,
     };
   }
+  return {result: reported, gateEvaluationAllowed: true};
+}
 
+async function decideReportedStepTransition(params: {
+  readonly jobId: string;
+  readonly stepId: string;
+  readonly steps: Step[];
+  readonly target: Step;
+  readonly reportedAttempt: number;
+  readonly result: ReportedStepResult;
+  readonly gateEvaluationAllowed: boolean;
+  readonly tx: Tx;
+}): Promise<{decision: StepTransitionDecision; gateResult: Record<string, unknown> | null}> {
   // Evaluate the gate (if any) at the service boundary. This is the only place
   // the CEL engine runs. Pass the precomputed outcome into the pure decision.
-  const shouldEvaluateGate = outputCoercion.kind !== 'failed';
-  const gate = shouldEvaluateGate ? readStepGate(target.config) : undefined;
+  const gate = params.gateEvaluationAllowed ? readStepGate(params.target.config) : undefined;
   const vars =
     gate === undefined
       ? undefined
-      : ((await getWorkflowContextForJob(jobExecution.jobId, tx)).vars ?? undefined);
-  const gateOutcome = shouldEvaluateGate
-    ? evaluateGate(gate, result, vars)
+      : ((await getWorkflowContextForJob(params.jobId, params.tx)).vars ?? undefined);
+  const gateOutcome = params.gateEvaluationAllowed
+    ? evaluateGate(gate, params.result, vars)
     : {kind: 'no-gate' as const};
-  const hasRestartPolicy = gate?.onFailure?.restartFrom !== undefined;
   // The restart cap is bounded on the gating step's OWN attempts, not its
   // current_attempt (which a rewind inflates for downstream steps).
-  const gatingAttemptCount = hasRestartPolicy
-    ? await countStepAttempts(params.stepId, tx)
+  const gatingAttemptCount = gate?.onFailure?.restartFrom
+    ? await countStepAttempts(params.stepId, params.tx)
     : undefined;
   const decision = decideStepTransition({
-    steps,
-    target,
-    reportedAttempt: reported,
-    result,
+    steps: params.steps,
+    target: params.target,
+    reportedAttempt: params.reportedAttempt,
+    result: params.result,
     gateOutcome,
     ...(gate?.onFailure ? {gateOnFailure: gate.onFailure} : {}),
     ...(gatingAttemptCount !== undefined ? {gatingAttemptCount} : {}),
   });
-  const resolvedDecision = resolveRestartFeedback({
-    decision,
-    gate,
-    result,
-    definitionId: jobExecution.jobId,
-    vars,
-  });
-
-  return applyStepTransition(
-    resolvedDecision,
-    {
-      jobId: jobExecution.jobId,
-      jobExecutionId,
-      result,
-      logOutcome: params.logOutcome ?? 'drained',
-      gateResult: gateResultPayload(gateOutcome, result.exitCode),
-    },
-    tx,
-  );
+  return {
+    decision: resolveRestartFeedback({
+      decision,
+      gate,
+      result: params.result,
+      definitionId: params.jobId,
+      vars,
+    }),
+    gateResult: gateResultPayload(gateOutcome, params.result.exitCode),
+  };
 }
 
 type OutputCoercionResult =

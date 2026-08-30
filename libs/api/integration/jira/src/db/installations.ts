@@ -138,17 +138,24 @@ export async function upsertJiraInstallation(
       })
       .returning();
   } catch (error) {
-    if (isUniqueViolation(error, 'integrations_jira_installations_connection_unique')) {
-      throw new JiraConnectionAlreadyLinkedError(params.connectionId);
-    }
-    if (isUniqueViolation(error, 'integrations_jira_installations_cloud_id_unique')) {
-      throw new JiraInstallationAlreadyLinkedError(params.cloudId);
-    }
-    throw error;
+    throw mapJiraInstallationUpsertError(error, params);
   }
 
   if (!row) throw new JiraInstallationSiteMismatchError(params.connectionId, params.cloudId);
   return toJiraInstallation(row);
+}
+
+function mapJiraInstallationUpsertError(
+  error: unknown,
+  params: Pick<UpsertJiraInstallationParams, 'connectionId' | 'cloudId'>,
+): unknown {
+  if (isUniqueViolation(error, 'integrations_jira_installations_connection_unique')) {
+    return new JiraConnectionAlreadyLinkedError(params.connectionId);
+  }
+  if (isUniqueViolation(error, 'integrations_jira_installations_cloud_id_unique')) {
+    return new JiraInstallationAlreadyLinkedError(params.cloudId);
+  }
+  return error;
 }
 
 export async function getJiraInstallationByCloudId(

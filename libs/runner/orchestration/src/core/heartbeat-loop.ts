@@ -82,6 +82,17 @@ export function startHeartbeatLoop(
     pendingTimer = setTimeout(tick, options.intervalMs);
   };
 
+  const confirmLease = () => {
+    lastServerConfirmationAt = nowMs();
+    scheduleIsolationFence();
+  };
+
+  const abortJob = (reason: string) => {
+    stopped = true;
+    jobAbortController.abort(reason);
+    clearIsolationTimer();
+  };
+
   const tick = async () => {
     if (stopped) return;
 
@@ -100,49 +111,30 @@ export function startHeartbeatLoop(
 
     try {
       const capabilities = options.getToolCapabilities?.();
-      const {
-        cancel,
-        cancellation_reason: cancellationReason,
-        lease_token: renewedLeaseToken,
-      } = await heartbeat(jobId, sentLeaseToken, {
+      const response = await heartbeat(jobId, sentLeaseToken, {
         signal: httpAc.signal,
         ...(capabilities ? {capabilities} : {}),
       });
-      if (stopped) return;
-      if (generation === sentGeneration) {
-        lastServerConfirmationAt = nowMs();
-        scheduleIsolationFence();
-        if (renewedLeaseToken !== getLeaseToken()) {
-          options.onLeaseTokenRenewed?.(renewedLeaseToken);
-        }
-      }
-      if (cancel) {
-        logger().info({jobId}, 'Heartbeat returned cancel:true; aborting job');
-        stopped = true;
-        jobAbortController.abort(cancellationReason ?? 'cancelled');
-        clearIsolationTimer();
-        return;
-      }
-      scheduleNext();
+      handleHeartbeatResponse({
+        response,
+        isStopped: () => stopped,
+        generation,
+        sentGeneration,
+        getLeaseToken,
+        options,
+        jobId,
+        confirmLease,
+        abortJob,
+        scheduleNext,
+      });
     } catch (err) {
-      if (stopped) return;
-      // AbortError = max-stale guard fired; expected control flow, not a failure.
-      if (isAbortError(err)) {
-        scheduleNext();
-        return;
-      }
-      if (err instanceof HTTPError && err.response.status === 404) {
-        logger().info(
-          {jobId},
-          'Heartbeat returned 404; orchestration finalized this job, aborting runner-side',
-        );
-        stopped = true;
-        jobAbortController.abort('orphaned');
-        clearIsolationTimer();
-        return;
-      }
-      logger().warn({jobId, err: String(err)}, 'Heartbeat failed; scheduling next tick');
-      scheduleNext();
+      handleHeartbeatError({
+        err,
+        isStopped: () => stopped,
+        jobId,
+        abortJob,
+        scheduleNext,
+      });
     } finally {
       clearTimeout(staleTimer);
       if (currentHttpAc === httpAc) currentHttpAc = undefined;
@@ -166,6 +158,60 @@ export function startHeartbeatLoop(
       generation += 1;
     },
   };
+}
+
+function handleHeartbeatResponse(params: {
+  response: Awaited<ReturnType<typeof heartbeat>>;
+  isStopped: () => boolean;
+  generation: number;
+  sentGeneration: number;
+  getLeaseToken: () => string;
+  options: HeartbeatLoopOptions;
+  jobId: string;
+  confirmLease: () => void;
+  abortJob: (reason: string) => void;
+  scheduleNext: () => void;
+}): void {
+  if (params.isStopped()) return;
+  if (params.generation === params.sentGeneration) {
+    params.confirmLease();
+    if (params.response.lease_token !== params.getLeaseToken()) {
+      params.options.onLeaseTokenRenewed?.(params.response.lease_token);
+    }
+  }
+  if (params.response.cancel) {
+    logger().info({jobId: params.jobId}, 'Heartbeat returned cancel:true; aborting job');
+    params.abortJob(params.response.cancellation_reason ?? 'cancelled');
+    return;
+  }
+  params.scheduleNext();
+}
+
+function handleHeartbeatError(params: {
+  err: unknown;
+  isStopped: () => boolean;
+  jobId: string;
+  abortJob: (reason: string) => void;
+  scheduleNext: () => void;
+}): void {
+  if (params.isStopped()) return;
+  if (isAbortError(params.err)) {
+    params.scheduleNext();
+    return;
+  }
+  if (params.err instanceof HTTPError && params.err.response.status === 404) {
+    logger().info(
+      {jobId: params.jobId},
+      'Heartbeat returned 404; orchestration finalized this job, aborting runner-side',
+    );
+    params.abortJob('orphaned');
+    return;
+  }
+  logger().warn(
+    {jobId: params.jobId, err: String(params.err)},
+    'Heartbeat failed; scheduling next tick',
+  );
+  params.scheduleNext();
 }
 
 function isAbortError(err: unknown): boolean {

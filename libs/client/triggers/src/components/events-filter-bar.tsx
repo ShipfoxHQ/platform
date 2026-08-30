@@ -55,13 +55,7 @@ export function EventsFilterBar({
 }: EventsFilterBarProps) {
   const [open, setOpen] = useState(false);
 
-  const dateRange: DateRange | undefined =
-    filters.from || filters.to
-      ? {
-          start: filters.from ? new Date(filters.from) : undefined,
-          end: filters.to ? new Date(filters.to) : undefined,
-        }
-      : undefined;
+  const dateRange = filterDateRange(filters);
 
   const selectedOutcomes = new Set(filters.outcome ?? []);
   const resultValue = RESULT_FILTERS.filter(({selects}) =>
@@ -69,11 +63,7 @@ export function EventsFilterBar({
   ).map(({value}) => value);
 
   // Count active dimensions, not selected options, so the badge stays stable as chips grow.
-  const activeCount =
-    (dateRange ? 1 : 0) +
-    (filters.source?.length ? 1 : 0) +
-    (filters.event?.length ? 1 : 0) +
-    (resultValue.length > 0 ? 1 : 0);
+  const activeCount = activeFilterCount(filters, dateRange, resultValue);
 
   function handleResultValue(values: string[]) {
     const next = RESULT_FILTERS.filter(({value}) => values.includes(value)).flatMap(
@@ -177,6 +167,24 @@ export function EventsFilterBar({
       </Collapsible>
     </PanelHeader>
   );
+}
+
+function filterDateRange(filters: TriggerEventFilters): DateRange | undefined {
+  if (!filters.from && !filters.to) return undefined;
+  return {
+    start: filters.from ? new Date(filters.from) : undefined,
+    end: filters.to ? new Date(filters.to) : undefined,
+  };
+}
+
+function activeFilterCount(
+  filters: TriggerEventFilters,
+  dateRange: DateRange | undefined,
+  resultValue: readonly string[],
+): number {
+  return [dateRange, filters.source?.length, filters.event?.length, resultValue.length].filter(
+    Boolean,
+  ).length;
 }
 
 function FilterField({

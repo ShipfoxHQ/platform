@@ -288,11 +288,9 @@ const userLookupRoute = defineRoute({
     const {id, user_id: userId, email} = request.query;
     const lookupId = id ?? userId;
     const actorId = requireActorId(request);
-    const user = lookupId
-      ? await findAdministratorUserSummary({actorId, id: lookupId})
-      : email
-        ? await findAdministratorUserSummary({actorId, email})
-        : undefined;
+    let user: Awaited<ReturnType<typeof findAdministratorUserSummary>>;
+    if (lookupId) user = await findAdministratorUserSummary({actorId, id: lookupId});
+    else if (email) user = await findAdministratorUserSummary({actorId, email});
     if (!user) throw new UserNotFoundError(lookupId ?? email ?? 'unknown');
     return toAdministratorUserSummaryDto(user);
   },

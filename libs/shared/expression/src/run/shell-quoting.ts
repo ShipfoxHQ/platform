@@ -36,226 +36,273 @@ export const initialShellScanState: ShellScanState = {frames: []};
 
 const shellCommentStarterPrefixPattern = /\s|[;&|()<>]/;
 
+interface ShellLiteralScanContext {
+  readonly text: string;
+  readonly frames: ShellScanFrame[];
+  index: number;
+  pendingEscape: boolean;
+  previousCharacter: string | undefined;
+  previousCharacterEscaped: boolean;
+}
+
+type ShellFrameKind = ShellFrame | 'arith' | 'arith-square' | 'plain';
+
 export function scanShellLiteral(text: string, state: ShellScanState): ShellScanState {
-  const frames = state.frames.map(cloneShellScanFrame);
-  let pendingEscape = state.pendingEscape ?? false;
-  let previousCharacter = state.previousCharacter;
-  let previousCharacterEscaped = state.previousCharacterEscaped ?? false;
-  let index = 0;
+  const context: ShellLiteralScanContext = {
+    text,
+    frames: state.frames.map(cloneShellScanFrame),
+    index: 0,
+    pendingEscape: state.pendingEscape ?? false,
+    previousCharacter: state.previousCharacter,
+    previousCharacterEscaped: state.previousCharacterEscaped ?? false,
+  };
 
-  function advance(nextIndex: number, escaped: boolean): void {
-    if (nextIndex > index) {
-      previousCharacter = text[nextIndex - 1];
-      previousCharacterEscaped = escaped;
-    }
-    index = nextIndex;
-  }
-
-  function consumeShellEscape(): void {
-    const result = skipShellEscape(text, index);
-    pendingEscape = result.pendingEscape;
-    if (result.continuedLine) {
-      index = result.index;
-      return;
-    }
-
-    advance(result.index, result.consumedEscapedCharacter);
-  }
-
-  while (index < text.length) {
-    if (pendingEscape) {
-      pendingEscape = false;
-      advance(index + 1, true);
-      continue;
-    }
-
-    const frame = topFrame(frames);
-
-    if (frame === 'single') {
-      if (text[index] === "'") frames.pop();
-      advance(index + 1, false);
-      continue;
-    }
-
-    if (frame === 'dollar-single') {
-      if (text[index] === '\\') {
-        consumeShellEscape();
-        continue;
-      }
-
-      if (text[index] === "'") frames.pop();
-      advance(index + 1, false);
-      continue;
-    }
-
-    if (frame === 'backtick') {
-      if (text[index] === '\\') {
-        consumeShellEscape();
-        continue;
-      }
-
-      if (text[index] === '`') {
-        frames.pop();
-        advance(index + 1, false);
-        continue;
-      }
-
-      advance(scanShellControlStart(text, index, frames), false);
-      continue;
-    }
-
-    if (frame === 'double' || frame === 'dollar-double') {
-      if (text[index] === '\\') {
-        consumeShellEscape();
-        continue;
-      }
-
-      if (text[index] === '"') {
-        frames.pop();
-        advance(index + 1, false);
-        continue;
-      }
-
-      if (text[index] === '`') {
-        frames.push('backtick');
-        advance(index + 1, false);
-        continue;
-      }
-
-      advance(scanShellControlStart(text, index, frames), false);
-      continue;
-    }
-
-    if (frame === 'param-brace') {
-      if (text[index] === '\\') {
-        consumeShellEscape();
-        continue;
-      }
-
-      if (text[index] === '}') {
-        frames.pop();
-        advance(index + 1, false);
-        continue;
-      }
-
-      if (text[index] === '`') {
-        frames.push('backtick');
-        advance(index + 1, false);
-        continue;
-      }
-
-      advance(scanShellControlStart(text, index, frames), false);
-      continue;
-    }
-
-    if (frame === 'paren-sub') {
-      if (text[index] === '\\') {
-        consumeShellEscape();
-        continue;
-      }
-
-      if (text[index] === ')') {
-        frames.pop();
-        advance(index + 1, false);
-        continue;
-      }
-
-      advance(
-        scanShellPlainStart(text, index, frames, previousCharacter, previousCharacterEscaped),
-        false,
-      );
-      continue;
-    }
-
-    if (isArithFrame(frame)) {
-      const arithEnd = matchShellLogicalPrefix(text, index, '))');
-      if (frame.parenthesisDepth === 0 && arithEnd !== undefined) {
-        frames.pop();
-        advance(arithEnd, false);
-        continue;
-      }
-
-      if (text[index] === ')') {
-        replaceTopArithFrame(frames, Math.max(0, frame.parenthesisDepth - 1));
-        advance(index + 1, false);
-        continue;
-      }
-
-      if (text[index] === '(') {
-        replaceTopArithFrame(frames, frame.parenthesisDepth + 1);
-        advance(index + 1, false);
-        continue;
-      }
-
-      if (text[index] === '\\') {
-        consumeShellEscape();
-        continue;
-      }
-
-      advance(
-        scanShellPlainStart(text, index, frames, previousCharacter, previousCharacterEscaped),
-        false,
-      );
-      continue;
-    }
-
-    if (frame === 'heredoc') {
-      advance(index + 1, false);
-      continue;
-    }
-
-    if (frame === 'line-comment') {
-      if (text[index] === '\n') frames.pop();
-      advance(index + 1, false);
-      continue;
-    }
-
-    if (isArithSquareFrame(frame)) {
-      if (text[index] === '[') {
-        replaceTopArithSquareFrame(frames, frame.bracketDepth + 1);
-        advance(index + 1, false);
-        continue;
-      }
-
-      if (text[index] === ']') {
-        if (frame.bracketDepth === 0) {
-          frames.pop();
-        } else {
-          replaceTopArithSquareFrame(frames, frame.bracketDepth - 1);
-        }
-        advance(index + 1, false);
-        continue;
-      }
-
-      if (text[index] === '\\') {
-        consumeShellEscape();
-        continue;
-      }
-
-      advance(
-        scanShellPlainStart(text, index, frames, previousCharacter, previousCharacterEscaped),
-        false,
-      );
-      continue;
-    }
-
-    if (text[index] === '\\') {
-      consumeShellEscape();
-      continue;
-    }
-
-    advance(
-      scanShellPlainStart(text, index, frames, previousCharacter, previousCharacterEscaped),
-      false,
-    );
-  }
+  while (context.index < text.length) scanNextShellCharacter(context);
 
   return {
-    frames,
-    ...(pendingEscape ? {pendingEscape} : {}),
-    ...(previousCharacter === undefined ? {} : {previousCharacter}),
-    ...(previousCharacterEscaped ? {previousCharacterEscaped} : {}),
+    frames: context.frames,
+    ...(context.pendingEscape ? {pendingEscape: true} : {}),
+    ...(context.previousCharacter === undefined
+      ? {}
+      : {previousCharacter: context.previousCharacter}),
+    ...(context.previousCharacterEscaped ? {previousCharacterEscaped: true} : {}),
   };
+}
+
+function scanNextShellCharacter(context: ShellLiteralScanContext): void {
+  if (context.pendingEscape) {
+    context.pendingEscape = false;
+    advanceShellScan(context, context.index + 1, true);
+    return;
+  }
+
+  const frame = topFrame(context.frames);
+  switch (shellFrameKind(frame)) {
+    case 'single':
+      scanSingleFrame(context);
+      return;
+    case 'dollar-single':
+      scanDollarSingleFrame(context);
+      return;
+    case 'backtick':
+      scanBacktickFrame(context);
+      return;
+    case 'double':
+    case 'dollar-double':
+      scanDoubleFrame(context);
+      return;
+    case 'param-brace':
+      scanParameterBraceFrame(context);
+      return;
+    case 'paren-sub':
+      scanParenthesisSubstitutionFrame(context);
+      return;
+    case 'arith':
+      scanArithmeticFrame(context, frame);
+      return;
+    case 'arith-square':
+      scanArithmeticSquareFrame(context, frame);
+      return;
+    case 'heredoc':
+      advanceShellScan(context, context.index + 1, false);
+      return;
+    case 'line-comment':
+      scanLineCommentFrame(context);
+      return;
+    case 'plain':
+      scanPlainFrame(context);
+      return;
+  }
+}
+
+function shellFrameKind(frame: ShellScanFrame | undefined): ShellFrameKind {
+  if (isArithFrame(frame)) return 'arith';
+  if (isArithSquareFrame(frame)) return 'arith-square';
+  return frame ?? 'plain';
+}
+
+function advanceShellScan(
+  context: ShellLiteralScanContext,
+  nextIndex: number,
+  escaped: boolean,
+): void {
+  if (nextIndex > context.index) {
+    context.previousCharacter = context.text[nextIndex - 1];
+    context.previousCharacterEscaped = escaped;
+  }
+  context.index = nextIndex;
+}
+
+function consumeShellEscape(context: ShellLiteralScanContext): void {
+  const result = skipShellEscape(context.text, context.index);
+  context.pendingEscape = result.pendingEscape;
+  if (result.continuedLine) {
+    context.index = result.index;
+    return;
+  }
+  advanceShellScan(context, result.index, result.consumedEscapedCharacter);
+}
+
+function scanSingleFrame(context: ShellLiteralScanContext): void {
+  if (context.text[context.index] === "'") context.frames.pop();
+  advanceShellScan(context, context.index + 1, false);
+}
+
+function scanDollarSingleFrame(context: ShellLiteralScanContext): void {
+  if (context.text[context.index] === '\\') {
+    consumeShellEscape(context);
+    return;
+  }
+  scanSingleFrame(context);
+}
+
+function scanBacktickFrame(context: ShellLiteralScanContext): void {
+  if (context.text[context.index] === '\\') {
+    consumeShellEscape(context);
+    return;
+  }
+  if (context.text[context.index] === '`') {
+    context.frames.pop();
+    advanceShellScan(context, context.index + 1, false);
+    return;
+  }
+  scanControlStart(context);
+}
+
+function scanDoubleFrame(context: ShellLiteralScanContext): void {
+  if (context.text[context.index] === '\\') {
+    consumeShellEscape(context);
+    return;
+  }
+  if (context.text[context.index] === '"') {
+    context.frames.pop();
+    advanceShellScan(context, context.index + 1, false);
+    return;
+  }
+  if (context.text[context.index] === '`') {
+    context.frames.push('backtick');
+    advanceShellScan(context, context.index + 1, false);
+    return;
+  }
+  scanControlStart(context);
+}
+
+function scanParameterBraceFrame(context: ShellLiteralScanContext): void {
+  if (context.text[context.index] === '\\') {
+    consumeShellEscape(context);
+    return;
+  }
+  if (context.text[context.index] === '}') {
+    context.frames.pop();
+    advanceShellScan(context, context.index + 1, false);
+    return;
+  }
+  if (context.text[context.index] === '`') {
+    context.frames.push('backtick');
+    advanceShellScan(context, context.index + 1, false);
+    return;
+  }
+  scanControlStart(context);
+}
+
+function scanParenthesisSubstitutionFrame(context: ShellLiteralScanContext): void {
+  if (context.text[context.index] === '\\') {
+    consumeShellEscape(context);
+    return;
+  }
+  if (context.text[context.index] === ')') {
+    context.frames.pop();
+    advanceShellScan(context, context.index + 1, false);
+    return;
+  }
+  scanPlainStart(context);
+}
+
+function scanArithmeticFrame(
+  context: ShellLiteralScanContext,
+  frame: ArithFrame | ShellScanFrame | undefined,
+): void {
+  if (!isArithFrame(frame)) return;
+  const arithEnd = matchShellLogicalPrefix(context.text, context.index, '))');
+  if (frame.parenthesisDepth === 0 && arithEnd !== undefined) {
+    context.frames.pop();
+    advanceShellScan(context, arithEnd, false);
+    return;
+  }
+  if (context.text[context.index] === ')') {
+    replaceTopArithFrame(context.frames, Math.max(0, frame.parenthesisDepth - 1));
+    advanceShellScan(context, context.index + 1, false);
+    return;
+  }
+  if (context.text[context.index] === '(') {
+    replaceTopArithFrame(context.frames, frame.parenthesisDepth + 1);
+    advanceShellScan(context, context.index + 1, false);
+    return;
+  }
+  if (context.text[context.index] === '\\') {
+    consumeShellEscape(context);
+    return;
+  }
+  scanPlainStart(context);
+}
+
+function scanArithmeticSquareFrame(
+  context: ShellLiteralScanContext,
+  frame: ArithSquareFrame | ShellScanFrame | undefined,
+): void {
+  if (!isArithSquareFrame(frame)) return;
+  if (context.text[context.index] === '[') {
+    replaceTopArithSquareFrame(context.frames, frame.bracketDepth + 1);
+    advanceShellScan(context, context.index + 1, false);
+    return;
+  }
+  if (context.text[context.index] === ']') {
+    closeArithmeticSquareFrame(context, frame);
+    return;
+  }
+  if (context.text[context.index] === '\\') {
+    consumeShellEscape(context);
+    return;
+  }
+  scanPlainStart(context);
+}
+
+function closeArithmeticSquareFrame(
+  context: ShellLiteralScanContext,
+  frame: ArithSquareFrame,
+): void {
+  if (frame.bracketDepth === 0) context.frames.pop();
+  else replaceTopArithSquareFrame(context.frames, frame.bracketDepth - 1);
+  advanceShellScan(context, context.index + 1, false);
+}
+
+function scanLineCommentFrame(context: ShellLiteralScanContext): void {
+  if (context.text[context.index] === '\n') context.frames.pop();
+  advanceShellScan(context, context.index + 1, false);
+}
+
+function scanPlainFrame(context: ShellLiteralScanContext): void {
+  if (context.text[context.index] === '\\') {
+    consumeShellEscape(context);
+    return;
+  }
+  scanPlainStart(context);
+}
+
+function scanPlainStart(context: ShellLiteralScanContext): void {
+  const nextIndex = scanShellPlainStart(
+    context.text,
+    context.index,
+    context.frames,
+    context.previousCharacter,
+    context.previousCharacterEscaped,
+  );
+  advanceShellScan(context, nextIndex, false);
+}
+
+function scanControlStart(context: ShellLiteralScanContext): void {
+  const nextIndex = scanShellControlStart(context.text, context.index, context.frames);
+  advanceShellScan(context, nextIndex, false);
 }
 
 export function classifyShellSite(state: ShellScanState): ShellSiteContext {

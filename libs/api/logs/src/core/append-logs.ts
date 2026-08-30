@@ -13,7 +13,7 @@ import {DEFAULT_HARNESS, type Harness} from '@shipfox/workflow-document';
 import {config} from '#config.js';
 import {isJobCapped} from '#db/accounting.js';
 import {getStreamWriterOrigin} from '#db/chunks.js';
-import {db} from '#db/db.js';
+import {db, type Transaction} from '#db/db.js';
 import {
   casExtendCommittedLength,
   getOrCreateAttemptStreamWithStatus,
@@ -48,6 +48,14 @@ import type {AgentSessionRecord} from './session/session-record.js';
 export interface AppendLogsParams extends AppendIdentity {
   offset: number;
   body: Buffer;
+}
+
+interface AppendLogsMetrics {
+  readonly recordCounts: Partial<Record<LogRecordMetricKind, number>>;
+  streamClosedReason: 'declared' | undefined;
+  streamOpened: boolean;
+  ingestedBytes: number;
+  storedBytes: number;
 }
 
 export type {AppendLogsResult} from './append-chunk.js';
@@ -146,6 +154,15 @@ interface StoredBody {
   claudePendingToolRows: readonly SessionViewRow[] | undefined;
 }
 
+interface StoredBodyBuildState {
+  readonly storedRecords: LogRecord[];
+  readonly parseContext: SessionParseContext | undefined;
+  readonly latestClaudeInitIndicesBySessionId: ReadonlyMap<string, number> | undefined;
+  readonly harness: Harness;
+  readonly isStreamFinal: boolean;
+  pendingResult: SessionViewLifecycleRow | null;
+}
+
 function buildStoredBody(
   records: readonly RawLogRecord[],
   harness: Harness,
@@ -153,7 +170,6 @@ function buildStoredBody(
   initialClaudePendingResult?: SessionViewLifecycleRow | null,
   isStreamFinal = false,
 ): StoredBody {
-  const storedRecords: LogRecord[] = [];
   const parseContext: SessionParseContext | undefined =
     harness === 'claude'
       ? {
@@ -161,72 +177,117 @@ function buildStoredBody(
           isFinalResult: true,
         }
       : undefined;
-  const latestClaudeInitIndicesBySessionId =
-    harness === 'claude' ? latestClaudeInitIndices(records) : undefined;
-  let pendingResult = initialClaudePendingResult ?? null;
-
-  if (parseContext?.claude !== undefined && pendingResult !== null) {
-    const firstInit = firstClaudeInit(records);
-    if (isStreamFinal || firstInit.hasInit) {
-      storedRecords.push(
-        storedAgentSessionRow(
-          finalizePendingResult(
-            pendingResult,
-            firstInit.sessionId !== undefined &&
-              firstInit.sessionId === parseContext.claude.sessionId,
-            parseContext.claude.turn,
-          ),
-        ),
-      );
-      pendingResult = null;
-    }
-  }
+  const state: StoredBodyBuildState = {
+    storedRecords: [],
+    parseContext,
+    latestClaudeInitIndicesBySessionId:
+      harness === 'claude' ? latestClaudeInitIndices(records) : undefined,
+    harness,
+    isStreamFinal,
+    pendingResult: initialClaudePendingResult ?? null,
+  };
+  appendPendingClaudeResult(records, state);
 
   for (const [index, record] of records.entries()) {
-    if (record.type !== 'agent_session') {
-      storedRecords.push(record);
-      continue;
-    }
-
-    if (parseContext?.claude !== undefined && latestClaudeInitIndicesBySessionId !== undefined) {
-      parseContext.isFinalResult = !hasFutureClaudeInit(
-        latestClaudeInitIndicesBySessionId,
-        index,
-        parseContext.claude.sessionId,
-      );
-    }
-
-    for (const row of parseSessionRecord(agentSessionRecord(record), harness, parseContext)) {
-      if (parseContext?.claude !== undefined && !isStreamFinal && isClaudeFinalResultRow(row)) {
-        if (pendingResult !== null) {
-          storedRecords.push(storedAgentSessionRow(pendingResult));
-        }
-        pendingResult = row;
-        continue;
-      }
-      storedRecords.push(storedAgentSessionRow(row));
-    }
+    appendStoredRecord(record, index, state);
   }
 
-  if (isStreamFinal && parseContext?.claude !== undefined) {
-    for (const row of flushPendingToolRows(parseContext.claude)) {
-      storedRecords.push(storedAgentSessionRow(row));
-    }
-  }
+  appendPendingClaudeToolRows(state);
 
-  const body = Buffer.from(storedRecords.map((record) => `${JSON.stringify(record)}\n`).join(''));
-  const recordCounts: Partial<Record<LogRecord['type'], number>> = {};
-  for (const record of storedRecords) {
-    recordCounts[record.type] = (recordCounts[record.type] ?? 0) + 1;
-  }
+  const body = Buffer.from(
+    state.storedRecords.map((record) => `${JSON.stringify(record)}\n`).join(''),
+  );
 
   return {
     body,
-    recordCounts,
+    recordCounts: countStoredRecords(state.storedRecords),
     claudeParseContext: parseContext?.claude,
-    claudePendingResult: parseContext?.claude === undefined ? undefined : pendingResult,
+    claudePendingResult: parseContext?.claude === undefined ? undefined : state.pendingResult,
     claudePendingToolRows: parseContext?.claude?.pendingToolRows,
   };
+}
+
+function appendPendingClaudeResult(
+  records: readonly RawLogRecord[],
+  state: StoredBodyBuildState,
+): void {
+  const claude = state.parseContext?.claude;
+  if (claude === undefined || state.pendingResult === null) return;
+  const firstInit = firstClaudeInit(records);
+  if (!state.isStreamFinal && !firstInit.hasInit) return;
+  state.storedRecords.push(
+    storedAgentSessionRow(
+      finalizePendingResult(
+        state.pendingResult,
+        firstInit.sessionId !== undefined && firstInit.sessionId === claude.sessionId,
+        claude.turn,
+      ),
+    ),
+  );
+  state.pendingResult = null;
+}
+
+function appendStoredRecord(
+  record: RawLogRecord,
+  index: number,
+  state: StoredBodyBuildState,
+): void {
+  if (record.type !== 'agent_session') {
+    state.storedRecords.push(record);
+    return;
+  }
+  updateClaudeFinalResult(index, state);
+  for (const row of parseSessionRecord(
+    agentSessionRecord(record),
+    state.harness,
+    state.parseContext,
+  )) {
+    appendParsedSessionRow(row, state);
+  }
+}
+
+function updateClaudeFinalResult(index: number, state: StoredBodyBuildState): void {
+  const parseContext = state.parseContext;
+  if (parseContext?.claude === undefined || state.latestClaudeInitIndicesBySessionId === undefined)
+    return;
+  parseContext.isFinalResult = !hasFutureClaudeInit(
+    state.latestClaudeInitIndicesBySessionId,
+    index,
+    parseContext.claude.sessionId,
+  );
+}
+
+function appendParsedSessionRow(row: SessionViewRow, state: StoredBodyBuildState): void {
+  if (
+    state.parseContext?.claude !== undefined &&
+    !state.isStreamFinal &&
+    isClaudeFinalResultRow(row)
+  ) {
+    if (state.pendingResult !== null) {
+      state.storedRecords.push(storedAgentSessionRow(state.pendingResult));
+    }
+    state.pendingResult = row;
+    return;
+  }
+  state.storedRecords.push(storedAgentSessionRow(row));
+}
+
+function appendPendingClaudeToolRows(state: StoredBodyBuildState): void {
+  const claude = state.parseContext?.claude;
+  if (!state.isStreamFinal || claude === undefined) return;
+  for (const row of flushPendingToolRows(claude)) {
+    state.storedRecords.push(storedAgentSessionRow(row));
+  }
+}
+
+function countStoredRecords(
+  records: readonly LogRecord[],
+): Partial<Record<LogRecord['type'], number>> {
+  const recordCounts: Partial<Record<LogRecord['type'], number>> = {};
+  for (const record of records) {
+    recordCounts[record.type] = (recordCounts[record.type] ?? 0) + 1;
+  }
+  return recordCounts;
 }
 
 function storedAgentSessionRow(row: SessionViewRow): LogRecord {
@@ -321,11 +382,9 @@ export async function appendLogs(
     }
     throw error;
   }
-  const {declaredTotalBytes} = parsed;
   const sessionHarness = parsed.hasAgentSessionRecord
     ? await getSessionHarness(workflows, params.stepId)
     : DEFAULT_HARNESS;
-  const commitByteLen = params.body.length;
   const metrics = {
     recordCounts: {} as Partial<Record<LogRecordMetricKind, number>>,
     streamClosedReason: undefined as 'declared' | undefined,
@@ -338,112 +397,9 @@ export async function appendLogs(
     storedBytes: 0,
   };
 
-  const result = await db().transaction(async (tx) => {
-    if (commitByteLen === 0) return readHeartbeat(tx, params);
-
-    const {created, stream} = await getOrCreateAttemptStreamWithStatus(tx, {
-      jobId: params.jobId,
-      stepId: params.stepId,
-      attempt: params.attempt,
-      workspaceId: params.workspaceId,
-      projectId: params.projectId,
-      workflowRunAttemptId: params.workflowRunAttemptId,
-    });
-    metrics.streamOpened = created;
-
-    // Closed stream (the runner's end already landed, or the job-terminated sweep ran):
-    // accept-and-drop so a late chunk can never race compaction. committed_length is
-    // frozen at close, so this reports the final offset and the runner stops cleanly.
-    if (stream.state === 'closed') {
-      return {committedLength: stream.committedLength, capped: await isJobCapped(tx, params.jobId)};
-    }
-
-    if ((await getStreamWriterOrigin(tx, stream.id)) === 'server') {
-      throw new LogWriterConflictError('server');
-    }
-
-    const cas = await casExtendCommittedLength(tx, {
-      streamId: stream.id,
-      offset: params.offset,
-      byteLen: commitByteLen,
-    });
-    if (cas.outcome === 'gap') throw new OffsetGapError(cas.committedLength);
-    if (cas.outcome === 'retry') {
-      return {committedLength: cas.committedLength, capped: await isJobCapped(tx, params.jobId)};
-    }
-    // In-order CAS extension: the raw body is accepted. Retries and gaps returned above, and
-    // closed streams / empty heartbeats never reach the CAS, so each body is counted once.
-    metrics.ingestedBytes += commitByteLen;
-
-    const parseHarness =
-      sessionHarness === 'claude' ||
-      stream.claudePendingResult !== null ||
-      stream.claudePendingToolRows.length > 0
-        ? 'claude'
-        : sessionHarness;
-    const stored = buildStoredBody(
-      parsed.records,
-      parseHarness,
-      parseHarness === 'claude'
-        ? createClaudeParseContext(stream.claudePendingToolRows, {
-            hasInit: stream.claudeHasInit,
-            sessionId: stream.claudeSessionId,
-            turn: stream.claudeTurn,
-          })
-        : undefined,
-      parseHarness === 'claude' ? stream.claudePendingResult : undefined,
-      declaredTotalBytes !== undefined,
-    );
-
-    const {
-      recordCounts,
-      stored: chunkStored,
-      ...result
-    } = await storeChunk(tx, {
-      params,
-      streamId: stream.id,
-      streamOffset: params.offset,
-      body: stored.body,
-      committedLength: cas.committedLength,
-      declaredTotalBytes,
-      origin: 'runner',
-    });
-    if (chunkStored) {
-      // Normalized durable bytes; a cap-dropped straggler never reaches this branch.
-      metrics.storedBytes += stored.body.length;
-      addRecordCounts(metrics.recordCounts, stored.recordCounts);
-    }
-    // A Claude append may normalize to no rows while still advancing its parser state for the
-    // next append. Zero-byte normalization is not a stored chunk, but its state is durable unless
-    // the job is capped and the raw append was dropped.
-    if (
-      stored.claudeParseContext !== undefined &&
-      (chunkStored || (stored.body.length === 0 && !result.capped))
-    ) {
-      await setClaudeParseContext(tx, {
-        streamId: stream.id,
-        hasInit: stored.claudeParseContext.hasInit,
-        sessionId: stored.claudeParseContext.sessionId,
-        turn: stored.claudeParseContext.turn,
-        pendingResult: stored.claudePendingResult ?? null,
-        pendingToolRows: stored.claudePendingToolRows ?? [],
-      });
-    }
-    addRecordCounts(metrics.recordCounts, recordCounts);
-
-    // The runner's end record was committed in this append (offset-CAS guarantees
-    // everything before it is already committed), so the stream is whole. Declared-close
-    // it in-band so compaction starts at once instead of waiting for the timeout sweep.
-    // Only when the chunk was actually stored: an end body dropped because the job was
-    // already capped persists nothing, so the stream is not whole and stays open for the
-    // timeout sweep to close it as truncated.
-    if (declaredTotalBytes !== undefined && chunkStored) {
-      const closed = await closeStream(tx, {streamId: stream.id, reason: 'declared'});
-      if (closed) metrics.streamClosedReason = 'declared';
-    }
-
-    return result;
-  });
+  const result = await db().transaction((tx) =>
+    appendLogsTransaction(tx, params, parsed, sessionHarness, metrics),
+  );
 
   if (metrics.streamOpened) streamOpenedCount.add(1);
   if (metrics.ingestedBytes > 0) bytesIngestedCount.add(metrics.ingestedBytes);
@@ -456,6 +412,157 @@ export async function appendLogs(
   }
 
   return result;
+}
+
+type AppendStream = Awaited<ReturnType<typeof getOrCreateAttemptStreamWithStatus>>['stream'];
+
+async function appendLogsTransaction(
+  tx: Transaction,
+  params: AppendLogsParams,
+  parsed: ParsedBody,
+  sessionHarness: Harness,
+  metrics: AppendLogsMetrics,
+): Promise<AppendLogsResult> {
+  const commitByteLen = params.body.length;
+  if (commitByteLen === 0) return readHeartbeat(tx, params);
+  const {created, stream} = await getOrCreateAttemptStreamWithStatus(tx, params);
+  metrics.streamOpened = created;
+  // Closed streams accept-and-drop late chunks and keep their final cursor.
+  if (stream.state === 'closed') return closedAppendResult(tx, stream, params.jobId);
+  if ((await getStreamWriterOrigin(tx, stream.id)) === 'server') {
+    throw new LogWriterConflictError('server');
+  }
+
+  const cas = await casExtendCommittedLength(tx, {
+    streamId: stream.id,
+    offset: params.offset,
+    byteLen: commitByteLen,
+  });
+  if (cas.outcome === 'gap') throw new OffsetGapError(cas.committedLength);
+  if (cas.outcome === 'retry') {
+    return {committedLength: cas.committedLength, capped: await isJobCapped(tx, params.jobId)};
+  }
+  metrics.ingestedBytes += commitByteLen;
+  return storeRunnerAppend(
+    tx,
+    params,
+    parsed,
+    sessionHarness,
+    stream,
+    cas.committedLength,
+    metrics,
+  );
+}
+
+async function closedAppendResult(
+  tx: Transaction,
+  stream: AppendStream,
+  jobId: string,
+): Promise<AppendLogsResult> {
+  return {committedLength: stream.committedLength, capped: await isJobCapped(tx, jobId)};
+}
+
+async function storeRunnerAppend(
+  tx: Transaction,
+  params: AppendLogsParams,
+  parsed: ParsedBody,
+  sessionHarness: Harness,
+  stream: AppendStream,
+  committedLength: number,
+  metrics: AppendLogsMetrics,
+): Promise<AppendLogsResult> {
+  const parseHarness = runnerParseHarness(sessionHarness, stream);
+  const stored = runnerStoredBody(parsed, parseHarness, stream);
+  const {
+    recordCounts,
+    stored: chunkStored,
+    ...result
+  } = await storeChunk(tx, {
+    params,
+    streamId: stream.id,
+    streamOffset: params.offset,
+    body: stored.body,
+    committedLength,
+    declaredTotalBytes: parsed.declaredTotalBytes,
+    origin: 'runner',
+  });
+  recordStoredRunnerChunk(stored, chunkStored, recordCounts, metrics);
+  await persistClaudeParseContext(tx, stream.id, stored, chunkStored, result.capped);
+  await closeDeclaredRunnerStream(tx, stream.id, parsed.declaredTotalBytes, chunkStored, metrics);
+  return result;
+}
+
+function runnerParseHarness(sessionHarness: Harness, stream: AppendStream): Harness {
+  if (sessionHarness === 'claude') return 'claude';
+  if (stream.claudePendingResult !== null || stream.claudePendingToolRows.length > 0)
+    return 'claude';
+  return sessionHarness;
+}
+
+function runnerStoredBody(
+  parsed: ParsedBody,
+  parseHarness: Harness,
+  stream: AppendStream,
+): StoredBody {
+  const context =
+    parseHarness === 'claude'
+      ? createClaudeParseContext(stream.claudePendingToolRows, {
+          hasInit: stream.claudeHasInit,
+          sessionId: stream.claudeSessionId,
+          turn: stream.claudeTurn,
+        })
+      : undefined;
+  return buildStoredBody(
+    parsed.records,
+    parseHarness,
+    context,
+    parseHarness === 'claude' ? stream.claudePendingResult : undefined,
+    parsed.declaredTotalBytes !== undefined,
+  );
+}
+
+function recordStoredRunnerChunk(
+  stored: StoredBody,
+  chunkStored: boolean,
+  chunkRecordCounts: Partial<Record<LogRecordMetricKind, number>>,
+  metrics: AppendLogsMetrics,
+): void {
+  if (chunkStored) {
+    metrics.storedBytes += stored.body.length;
+    addRecordCounts(metrics.recordCounts, stored.recordCounts);
+  }
+  addRecordCounts(metrics.recordCounts, chunkRecordCounts);
+}
+
+async function persistClaudeParseContext(
+  tx: Transaction,
+  streamId: string,
+  stored: StoredBody,
+  chunkStored: boolean,
+  capped: boolean,
+): Promise<void> {
+  if (stored.claudeParseContext === undefined) return;
+  if (!chunkStored && (stored.body.length > 0 || capped)) return;
+  await setClaudeParseContext(tx, {
+    streamId,
+    hasInit: stored.claudeParseContext.hasInit,
+    sessionId: stored.claudeParseContext.sessionId,
+    turn: stored.claudeParseContext.turn,
+    pendingResult: stored.claudePendingResult ?? null,
+    pendingToolRows: stored.claudePendingToolRows ?? [],
+  });
+}
+
+async function closeDeclaredRunnerStream(
+  tx: Transaction,
+  streamId: string,
+  declaredTotalBytes: number | undefined,
+  chunkStored: boolean,
+  metrics: AppendLogsMetrics,
+): Promise<void> {
+  if (declaredTotalBytes === undefined || !chunkStored) return;
+  const closed = await closeStream(tx, {streamId, reason: 'declared'});
+  if (closed) metrics.streamClosedReason = 'declared';
 }
 
 function addRecordCounts(

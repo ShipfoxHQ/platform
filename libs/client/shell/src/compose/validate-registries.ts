@@ -76,63 +76,112 @@ export function validateNavigation(
   const entries = new Map<string, string>();
   for (const feature of features) {
     for (const entry of feature.navigation ?? []) {
-      validateRoleMetadata(entry, feature);
-      const existingFeatureId = entries.get(entry.id);
-      if (existingFeatureId) {
-        throw new NavCompositionError(
-          entry.id,
-          `Navigation entry "${entry.id}" is contributed by both features "${existingFeatureId}" and "${feature.id}".`,
-          [existingFeatureId, feature.id],
-        );
-      }
-      const target = normalizeRoutePath(entry.to);
-      const routeOwner = routes.get(target);
-      if (routeOwner === undefined && !routes.has(target)) {
-        throw new NavCompositionError(
-          entry.id,
-          `Navigation entry "${entry.id}" in feature "${feature.id}" targets missing route "${target}".`,
-          [feature.id],
-        );
-      }
-      if (entry.scope === 'layout') {
-        if (typeof entry.layout !== 'string' || entry.layout.trim() === '') {
-          throw new NavCompositionError(
-            entry.id,
-            `Navigation entry "${entry.id}" in feature "${feature.id}" has invalid layout metadata. Expected a non-empty layout id.`,
-            [feature.id],
-          );
-        }
-        const layout = layouts.get(entry.layout);
-        if (!layout) {
-          throw new NavCompositionError(
-            entry.id,
-            `Navigation entry "${entry.id}" in feature "${feature.id}" targets missing layout "${entry.layout}".`,
-            [feature.id],
-          );
-        }
-        const route = routeReferencesForPath(routeReferencesWithLayouts, target);
-        const isLayoutRoot = route?.path === layout.path;
-        const isLayoutDescendant = routeDescendsFromLayout(route, entry.layout, layouts);
-        if (!isLayoutRoot && !isLayoutDescendant) {
-          throw new NavCompositionError(
-            entry.id,
-            `Navigation entry "${entry.id}" in feature "${feature.id}" targets route "${target}" outside layout "${entry.layout}".`,
-            [feature.id],
-          );
-        }
-        entries.set(entry.id, feature.id);
-        continue;
-      }
-      if (routeOwner && routeOwner !== feature.id && !hasExplicitCoordinator(feature)) {
-        throw new NavCompositionError(
-          entry.id,
-          `Navigation entry "${entry.id}" in feature "${feature.id}" targets route "${target}" owned by feature "${routeOwner}". Declare coordinator: "${feature.id}" to own this cross-feature contribution.`,
-          [routeOwner, feature.id],
-        );
-      }
-      entries.set(entry.id, feature.id);
+      validateNavigationEntry({
+        entry,
+        feature,
+        entries,
+        routes,
+        layouts,
+        routeReferences: routeReferencesWithLayouts,
+      });
     }
   }
+}
+
+function validateNavigationEntry({
+  entry,
+  feature,
+  entries,
+  routes,
+  layouts,
+  routeReferences,
+}: {
+  entry: NavTabEntry;
+  feature: ClientFeature;
+  entries: Map<string, string>;
+  routes: ReadonlyMap<string, string | undefined>;
+  layouts: ReadonlyMap<string, LayoutReference>;
+  routeReferences: RouteReferences;
+}): void {
+  validateRoleMetadata(entry, feature);
+  validateUniqueNavigationEntry(entry, feature, entries);
+  const target = normalizeRoutePath(entry.to);
+  const routeOwner = routes.get(target);
+  if (routeOwner === undefined && !routes.has(target)) {
+    throw new NavCompositionError(
+      entry.id,
+      `Navigation entry "${entry.id}" in feature "${feature.id}" targets missing route "${target}".`,
+      [feature.id],
+    );
+  }
+  if (entry.scope === 'layout') {
+    validateLayoutNavigationEntry(entry, feature, target, routeReferences, layouts);
+  } else {
+    validateCrossFeatureNavigationEntry(entry, feature, target, routeOwner);
+  }
+  entries.set(entry.id, feature.id);
+}
+
+function validateUniqueNavigationEntry(
+  entry: NavTabEntry,
+  feature: ClientFeature,
+  entries: ReadonlyMap<string, string>,
+): void {
+  const existingFeatureId = entries.get(entry.id);
+  if (!existingFeatureId) return;
+  throw new NavCompositionError(
+    entry.id,
+    `Navigation entry "${entry.id}" is contributed by both features "${existingFeatureId}" and "${feature.id}".`,
+    [existingFeatureId, feature.id],
+  );
+}
+
+function validateLayoutNavigationEntry(
+  entry: Extract<NavTabEntry, {scope: 'layout'}>,
+  feature: ClientFeature,
+  target: string,
+  routeReferences: RouteReferences,
+  layouts: ReadonlyMap<string, LayoutReference>,
+): void {
+  if (typeof entry.layout !== 'string' || entry.layout.trim() === '') {
+    throw new NavCompositionError(
+      entry.id,
+      `Navigation entry "${entry.id}" in feature "${feature.id}" has invalid layout metadata. Expected a non-empty layout id.`,
+      [feature.id],
+    );
+  }
+  const layout = layouts.get(entry.layout);
+  if (!layout) {
+    throw new NavCompositionError(
+      entry.id,
+      `Navigation entry "${entry.id}" in feature "${feature.id}" targets missing layout "${entry.layout}".`,
+      [feature.id],
+    );
+  }
+  const route = routeReferencesForPath(routeReferences, target);
+  const isLayoutRoot = route?.path === layout.path;
+  const isLayoutDescendant = routeDescendsFromLayout(route, entry.layout, layouts);
+  if (!isLayoutRoot && !isLayoutDescendant) {
+    throw new NavCompositionError(
+      entry.id,
+      `Navigation entry "${entry.id}" in feature "${feature.id}" targets route "${target}" outside layout "${entry.layout}".`,
+      [feature.id],
+    );
+  }
+}
+
+function validateCrossFeatureNavigationEntry(
+  entry: NavTabEntry,
+  feature: ClientFeature,
+  target: string,
+  routeOwner: string | undefined,
+): void {
+  if (!routeOwner || routeOwner === feature.id || hasExplicitCoordinator(feature)) return;
+  throw new NavCompositionError(
+    entry.id,
+    `Navigation entry "${entry.id}" in feature "${feature.id}" targets route "${target}" owned by feature "${routeOwner}". Declare coordinator: "${feature.id}" to own this cross-feature contribution.`,
+    [routeOwner, feature.id],
+  );
 }
 
 function routeReferencesForPath(
@@ -169,35 +218,50 @@ export function validateSettingsSections(
   const sections = new Map<string, string>();
   for (const feature of features) {
     for (const section of feature.settingsSections ?? []) {
-      const existingFeatureId = sections.get(section.id);
-      if (existingFeatureId) {
-        throw new SettingsCompositionError(
-          section.id,
-          `Settings section "${section.id}" is contributed by both features "${existingFeatureId}" and "${feature.id}".`,
-          [existingFeatureId, feature.id],
-        );
-      }
-      const path =
-        section.scope === 'project'
-          ? `/w/$workspaceSlug/p/$projectSlug/settings/${section.pathSegment}`
-          : `/w/$workspaceSlug/settings/${section.pathSegment}`;
-      const normalizedPath = normalizeRoutePath(path);
-      const routeOwner = routes.get(normalizedPath);
-      if (routeOwner === undefined && !routes.has(normalizedPath)) {
-        throw new SettingsCompositionError(
-          section.id,
-          `Settings section "${section.id}" in feature "${feature.id}" requires route "${path}".`,
-          [feature.id],
-        );
-      }
-      if (routeOwner && routeOwner !== feature.id && !hasExplicitCoordinator(feature)) {
-        throw new SettingsCompositionError(
-          section.id,
-          `Settings section "${section.id}" in feature "${feature.id}" targets route "${path}" owned by feature "${routeOwner}". Declare coordinator: "${feature.id}" to own this cross-feature contribution.`,
-          [routeOwner, feature.id],
-        );
-      }
-      sections.set(section.id, feature.id);
+      validateSettingsSection(feature, section, routes, sections);
     }
   }
+}
+
+function validateSettingsSection(
+  feature: ClientFeature,
+  section: NonNullable<ClientFeature['settingsSections']>[number],
+  routes: ReadonlyMap<string, string | undefined>,
+  sections: Map<string, string>,
+): void {
+  const existingFeatureId = sections.get(section.id);
+  if (existingFeatureId) {
+    throw new SettingsCompositionError(
+      section.id,
+      `Settings section "${section.id}" is contributed by both features "${existingFeatureId}" and "${feature.id}".`,
+      [existingFeatureId, feature.id],
+    );
+  }
+  const path = settingsSectionPath(section);
+  const normalizedPath = normalizeRoutePath(path);
+  const routeOwner = routes.get(normalizedPath);
+  if (routeOwner === undefined && !routes.has(normalizedPath)) {
+    throw new SettingsCompositionError(
+      section.id,
+      `Settings section "${section.id}" in feature "${feature.id}" requires route "${path}".`,
+      [feature.id],
+    );
+  }
+  if (routeOwner && routeOwner !== feature.id && !hasExplicitCoordinator(feature)) {
+    throw new SettingsCompositionError(
+      section.id,
+      `Settings section "${section.id}" in feature "${feature.id}" targets route "${path}" owned by feature "${routeOwner}". Declare coordinator: "${feature.id}" to own this cross-feature contribution.`,
+      [routeOwner, feature.id],
+    );
+  }
+  sections.set(section.id, feature.id);
+}
+
+function settingsSectionPath(
+  section: NonNullable<ClientFeature['settingsSections']>[number],
+): string {
+  if (section.scope === 'project') {
+    return `/w/$workspaceSlug/p/$projectSlug/settings/${section.pathSegment}`;
+  }
+  return `/w/$workspaceSlug/settings/${section.pathSegment}`;
 }

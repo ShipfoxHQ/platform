@@ -393,34 +393,40 @@ function assertRequest(
   summary: ModelProviderRequestSummary,
   requestIndex: number,
 ): string[] {
-  return assertions.flatMap((assertion) => {
-    if (assertion.minRequestIndex !== undefined && requestIndex < assertion.minRequestIndex) {
-      return [];
-    }
+  return assertions.flatMap((assertion) => assertSingleRequest(assertion, summary, requestIndex));
+}
 
-    if (assertion.kind === 'model' && summary.model !== assertion.equals) {
-      return [`Expected model ${assertion.equals} but received ${summary.model ?? '<missing>'}`];
-    }
-
-    if (assertion.kind === 'tool_present' && !summary.tools.includes(assertion.name)) {
-      return [
-        `Expected tool ${assertion.name} to be present; received ${summary.tools.join(', ') || '<none>'}`,
-      ];
-    }
-
-    if (assertion.kind === 'tool_absent' && summary.tools.includes(assertion.name)) {
-      return [`Expected tool ${assertion.name} to be absent`];
-    }
-
-    if (
-      assertion.kind === 'message_content_includes' &&
-      !summary.messageContent.some((content) => content.includes(assertion.value))
-    ) {
-      return [`Expected message content to include ${assertion.value}`];
-    }
-
+function assertSingleRequest(
+  assertion: FakeOpenAiRequestAssertion,
+  summary: ModelProviderRequestSummary,
+  requestIndex: number,
+): string[] {
+  if (assertion.minRequestIndex !== undefined && requestIndex < assertion.minRequestIndex) {
     return [];
-  });
+  }
+
+  if (assertion.kind === 'model' && summary.model !== assertion.equals) {
+    return [`Expected model ${assertion.equals} but received ${summary.model ?? '<missing>'}`];
+  }
+
+  if (assertion.kind === 'tool_present' && !summary.tools.includes(assertion.name)) {
+    return [
+      `Expected tool ${assertion.name} to be present; received ${summary.tools.join(', ') || '<none>'}`,
+    ];
+  }
+
+  if (assertion.kind === 'tool_absent' && summary.tools.includes(assertion.name)) {
+    return [`Expected tool ${assertion.name} to be absent`];
+  }
+
+  if (
+    assertion.kind === 'message_content_includes' &&
+    !summary.messageContent.some((content) => content.includes(assertion.value))
+  ) {
+    return [`Expected message content to include ${assertion.value}`];
+  }
+
+  return [];
 }
 
 function recordedRequest(params: {

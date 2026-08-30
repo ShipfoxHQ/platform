@@ -204,20 +204,7 @@ export async function createInstallationProvisionerTokenWithAudit(
       requestFingerprint: params.requestFingerprint,
       command,
     });
-    if (existing) {
-      const rows = await tx
-        .select()
-        .from(provisionerTokens)
-        .where(eq(provisionerTokens.id, existing.result.provisionerTokenId))
-        .limit(1);
-      const row = rows[0];
-      if (!row) throw new Error('Idempotent provisioner token result is missing');
-      return {
-        token: toProvisionerToken(row),
-        correlationId: existing.result.correlationId,
-        replayed: true,
-      };
-    }
+    if (existing) return replayedProvisionerTokenRevocation(tx, existing.result);
 
     const expiresAt =
       params.ttlSeconds === undefined ? undefined : new Date(Date.now() + params.ttlSeconds * 1000);
@@ -316,19 +303,7 @@ export async function revokeInstallationProvisionerTokenWithAudit(
     const row = updatedRows[0];
     if (row) await cascadeProvisionerRevocation(tx, params.tokenId);
 
-    const existingRows = row
-      ? [row]
-      : await tx
-          .select()
-          .from(provisionerTokens)
-          .where(
-            and(
-              eq(provisionerTokens.id, params.tokenId),
-              eq(provisionerTokens.scope, 'installation'),
-            ),
-          )
-          .limit(1);
-    const tokenRow = existingRows[0];
+    const tokenRow = await revokedInstallationTokenRow(tx, params.tokenId, row);
     if (!tokenRow) return undefined;
 
     const changed = row !== undefined;
@@ -344,6 +319,33 @@ export async function revokeInstallationProvisionerTokenWithAudit(
       replayed: false,
     };
   });
+}
+
+async function replayedProvisionerTokenRevocation(
+  tx: Tx,
+  result: {provisionerTokenId: string; correlationId: string},
+) {
+  const [row] = await tx
+    .select()
+    .from(provisionerTokens)
+    .where(eq(provisionerTokens.id, result.provisionerTokenId))
+    .limit(1);
+  if (!row) throw new Error('Idempotent provisioner token result is missing');
+  return {token: toProvisionerToken(row), correlationId: result.correlationId, replayed: true};
+}
+
+async function revokedInstallationTokenRow(
+  tx: Tx,
+  tokenId: string,
+  updated: typeof provisionerTokens.$inferSelect | undefined,
+): Promise<typeof provisionerTokens.$inferSelect | undefined> {
+  if (updated) return updated;
+  const [existing] = await tx
+    .select()
+    .from(provisionerTokens)
+    .where(and(eq(provisionerTokens.id, tokenId), eq(provisionerTokens.scope, 'installation')))
+    .limit(1);
+  return existing;
 }
 
 export type InstallationProvisionerTokenStatus = 'active' | 'expired' | 'revoked';

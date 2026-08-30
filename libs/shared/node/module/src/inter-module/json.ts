@@ -41,17 +41,21 @@ function checkJsonSafe(value: unknown, activePath: Set<unknown>): boolean {
 
   if (activePath.has(value)) return false;
 
-  if (Array.isArray(value)) {
-    if (!isPlainDenseArray(value)) return false;
+  if (Array.isArray(value)) return checkJsonSafeArray(value, activePath);
+  return checkJsonSafeObject(value, activePath);
+}
 
-    activePath.add(value);
-    try {
-      return value.every((item) => checkJsonSafe(item, activePath));
-    } finally {
-      activePath.delete(value);
-    }
+function checkJsonSafeArray(value: unknown[], activePath: Set<unknown>): boolean {
+  if (!isPlainDenseArray(value)) return false;
+  activePath.add(value);
+  try {
+    return value.every((item) => checkJsonSafe(item, activePath));
+  } finally {
+    activePath.delete(value);
   }
+}
 
+function checkJsonSafeObject(value: object, activePath: Set<unknown>): boolean {
   const proto = Object.getPrototypeOf(value);
   if (proto !== Object.prototype && proto !== null) return false;
 

@@ -68,6 +68,8 @@ interface StartedModuleService {
   handle: ModuleServiceHandle;
 }
 
+type ModuleInitializationState = InitializedModules;
+
 /**
  * Initializes modules in array order. Modules are processed sequentially
  * so migration order is deterministic: list modules with shared dependencies first.
@@ -88,63 +90,54 @@ export async function initializeModules(
   validateModuleDatabaseNamespaces(options.modules);
 
   for (const mod of options.modules) {
-    logger().info({module: mod.name}, 'Initializing module');
-
-    if (mod.database) {
-      const databases = normalizeModuleDatabases(mod.database);
-      for (const database of databases) {
-        logger().info(
-          {module: mod.name, database: database.databaseNamespace},
-          'Running migrations',
-        );
-        await runMigrations(
-          database.db(),
-          database.migrationsPath,
-          migrationHistoryTableName(database.databaseNamespace),
-        );
-        logger().info(
-          {module: mod.name, database: database.databaseNamespace},
-          'Migrations complete',
-        );
-      }
-    }
-
-    if (mod.publishers) {
-      for (const pub of mod.publishers) {
-        registerPublisher(outboxRegistry, pub);
-      }
-    }
-
-    if (mod.subscribers) {
-      for (const sub of mod.subscribers) {
-        subscribe(outboxRegistry, sub.event, sub.handler);
-      }
-    }
-
-    if (mod.auth) {
-      auth.push(...mod.auth);
-    }
-
-    if (mod.routes) {
-      routes.push(...mod.routes);
-    }
-
-    if (mod.e2eRoutes) {
-      e2eRoutes.push(...mod.e2eRoutes);
-    }
-
-    if (mod.workers) {
-      workers.push(...mod.workers.map((worker) => ({...worker, moduleName: mod.name})));
-    }
-
-    if (mod.services) {
-      services.push(...mod.services);
-    }
-
-    logger().info({module: mod.name}, 'Module initialized');
+    await initializeModule(mod, {auth, routes, e2eRoutes, workers, services, outboxRegistry});
   }
 
   return {auth, routes, e2eRoutes, workers, services, outboxRegistry};
+}
+
+async function initializeModule(
+  mod: ShipfoxModule,
+  state: ModuleInitializationState,
+): Promise<void> {
+  logger().info({module: mod.name}, 'Initializing module');
+  await initializeModuleDatabases(mod);
+  registerModuleMessaging(mod, state.outboxRegistry);
+  collectModuleExports(mod, state);
+  logger().info({module: mod.name}, 'Module initialized');
+}
+
+async function initializeModuleDatabases(mod: ShipfoxModule): Promise<void> {
+  if (!mod.database) return;
+  for (const database of normalizeModuleDatabases(mod.database)) {
+    logger().info({module: mod.name, database: database.databaseNamespace}, 'Running migrations');
+    await runMigrations(
+      database.db(),
+      database.migrationsPath,
+      migrationHistoryTableName(database.databaseNamespace),
+    );
+    logger().info({module: mod.name, database: database.databaseNamespace}, 'Migrations complete');
+  }
+}
+
+function registerModuleMessaging(
+  mod: ShipfoxModule,
+  outboxRegistry: ModuleRuntimeContext['outboxRegistry'],
+): void {
+  for (const publisher of mod.publishers ?? []) registerPublisher(outboxRegistry, publisher);
+  for (const subscriber of mod.subscribers ?? []) {
+    subscribe(outboxRegistry, subscriber.event, subscriber.handler);
+  }
+}
+
+function collectModuleExports(mod: ShipfoxModule, state: ModuleInitializationState): void {
+  if (mod.auth) state.auth.push(...mod.auth);
+  if (mod.routes) state.routes.push(...mod.routes);
+  if (mod.e2eRoutes) state.e2eRoutes.push(...mod.e2eRoutes);
+  if (mod.workers) {
+    state.workers.push(...mod.workers.map((worker) => ({...worker, moduleName: mod.name})));
+  }
+  if (mod.services) state.services.push(...mod.services);
 }
 
 function normalizeModuleDatabases(database: ModuleDatabase | ModuleDatabase[]): ModuleDatabase[] {
@@ -378,69 +371,14 @@ export async function startModuleWorkers(
     connection = await createTemporalWorkerConnection();
 
     for (const workerDef of options.workers) {
-      try {
-        const worker = await createTemporalWorker({
-          connection,
-          taskQueue: workerDef.taskQueue,
-          workflowsPath: workerDef.workflowsPath,
-          activities: instrumentModuleActivities({
-            moduleName: workerDef.moduleName ?? 'unknown',
-            taskQueue: workerDef.taskQueue,
-            activities: workerDef.activities(options.context),
-          }),
-        });
-        const startedWorker: StartedModuleWorker = {worker, taskQueue: workerDef.taskQueue};
-        workers.push(startedWorker);
-
-        for (const workflow of workerDef.workflows) {
-          try {
-            await temporalClient().workflow.start(workflow.name, {
-              taskQueue: workerDef.taskQueue,
-              workflowId: workflow.id,
-              ...(workflow.args ? {args: workflow.args} : {}),
-              ...(workflow.cronSchedule ? {cronSchedule: workflow.cronSchedule} : {}),
-            });
-          } catch (error) {
-            if (error instanceof Error && error.name === 'WorkflowExecutionAlreadyStartedError') {
-              logger().info({workflowId: workflow.id}, 'Workflow already running, skipping start');
-            } else {
-              throw error;
-            }
-          }
-        }
-
-        const runPromise = worker.run();
-        startedWorker.runPromise = runPromise;
-        runPromise.catch((error) => {
-          if (stopping) return;
-          if (options.onWorkerFailure) {
-            void Promise.resolve(options.onWorkerFailure(error, workerDef)).catch(
-              (handlerError) => {
-                logger().error(
-                  {err: handlerError, workerErr: error, taskQueue: workerDef.taskQueue},
-                  'Module worker failure handler failed',
-                );
-                reportError(handlerError, {
-                  boundary: 'module.worker',
-                  operation: 'failure-callback',
-                  tags: {taskQueue: workerDef.taskQueue},
-                });
-              },
-            );
-            return;
-          }
-          logger().error(
-            {err: error, taskQueue: workerDef.taskQueue},
-            'Worker stopped unexpectedly',
-          );
-        });
-
-        logger().info({taskQueue: workerDef.taskQueue}, 'Module worker started');
-      } catch (error) {
-        throw new Error(`Failed to start module worker for task queue ${workerDef.taskQueue}`, {
-          cause: error,
-        });
-      }
+      await startModuleWorker({
+        connection,
+        workerDef,
+        context: options.context,
+        onWorkerFailure: options.onWorkerFailure,
+        isStopping: () => stopping,
+        onWorkerCreated: (startedWorker) => workers.push(startedWorker),
+      });
     }
   } catch (error) {
     stopping = true;
@@ -459,6 +397,91 @@ export async function startModuleWorkers(
       return stopPromise;
     },
   };
+}
+
+async function startModuleWorker(params: {
+  connection: NativeConnection;
+  workerDef: ModuleWorker;
+  context: ModuleRuntimeContext;
+  onWorkerFailure: StartModuleWorkersOptions['onWorkerFailure'];
+  isStopping(): boolean;
+  onWorkerCreated(startedWorker: StartedModuleWorker): void;
+}): Promise<void> {
+  try {
+    const worker = await createTemporalWorker({
+      connection: params.connection,
+      taskQueue: params.workerDef.taskQueue,
+      workflowsPath: params.workerDef.workflowsPath,
+      activities: instrumentModuleActivities({
+        moduleName: params.workerDef.moduleName ?? 'unknown',
+        taskQueue: params.workerDef.taskQueue,
+        activities: params.workerDef.activities(params.context),
+      }),
+    });
+    const startedWorker: StartedModuleWorker = {
+      worker,
+      taskQueue: params.workerDef.taskQueue,
+    };
+    params.onWorkerCreated(startedWorker);
+    await startModuleWorkerWorkflows(params.workerDef);
+    startedWorker.runPromise = worker.run();
+    monitorModuleWorker(startedWorker, params);
+    logger().info({taskQueue: params.workerDef.taskQueue}, 'Module worker started');
+  } catch (error) {
+    throw new Error(`Failed to start module worker for task queue ${params.workerDef.taskQueue}`, {
+      cause: error,
+    });
+  }
+}
+
+async function startModuleWorkerWorkflows(workerDef: ModuleWorker): Promise<void> {
+  for (const workflow of workerDef.workflows) {
+    try {
+      await temporalClient().workflow.start(workflow.name, {
+        taskQueue: workerDef.taskQueue,
+        workflowId: workflow.id,
+        ...(workflow.args ? {args: workflow.args} : {}),
+        ...(workflow.cronSchedule ? {cronSchedule: workflow.cronSchedule} : {}),
+      });
+    } catch (error) {
+      if (error instanceof Error && error.name === 'WorkflowExecutionAlreadyStartedError') {
+        logger().info({workflowId: workflow.id}, 'Workflow already running, skipping start');
+        continue;
+      }
+      throw error;
+    }
+  }
+}
+
+function monitorModuleWorker(
+  startedWorker: StartedModuleWorker,
+  params: {
+    workerDef: ModuleWorker;
+    onWorkerFailure: StartModuleWorkersOptions['onWorkerFailure'];
+    isStopping(): boolean;
+  },
+): void {
+  startedWorker.runPromise?.catch((error) => {
+    if (params.isStopping()) return;
+    if (!params.onWorkerFailure) {
+      logger().error(
+        {err: error, taskQueue: params.workerDef.taskQueue},
+        'Worker stopped unexpectedly',
+      );
+      return;
+    }
+    void Promise.resolve(params.onWorkerFailure(error, params.workerDef)).catch((handlerError) => {
+      logger().error(
+        {err: handlerError, workerErr: error, taskQueue: params.workerDef.taskQueue},
+        'Module worker failure handler failed',
+      );
+      reportError(handlerError, {
+        boundary: 'module.worker',
+        operation: 'failure-callback',
+        tags: {taskQueue: params.workerDef.taskQueue},
+      });
+    });
+  });
 }
 
 async function stopModuleWorkers(options: {

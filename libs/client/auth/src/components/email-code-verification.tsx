@@ -110,6 +110,10 @@ export function EmailCodeVerification({
     return error === undefined;
   }
 
+  let resendLabel = 'Resend verification email';
+  if (isResending) resendLabel = 'Sending email...';
+  else if (isResendCoolingDown) resendLabel = `Resend in ${resendRemainingSeconds}s`;
+
   return (
     <AuthShell
       title={title}
@@ -155,11 +159,7 @@ export function EmailCodeVerification({
             if (!isResendCoolingDown && !isResending) void onResend();
           }}
         >
-          {isResending
-            ? 'Sending email...'
-            : isResendCoolingDown
-              ? `Resend in ${resendRemainingSeconds}s`
-              : 'Resend verification email'}
+          {resendLabel}
         </Button>
       </form>
       <Button

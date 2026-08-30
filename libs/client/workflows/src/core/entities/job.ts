@@ -148,12 +148,9 @@ export function deriveJobDisplayStatus(
 ): JobDisplayStatus {
   if (isTerminalJobStatus(job.status)) return job.status;
   if (job.mode === 'listening' && job.listenerStatus === 'listening') return 'listening';
-  const execution =
-    job.executionStatus === undefined
-      ? defaultJobExecution(job)
-      : job.executionStatus === null
-        ? undefined
-        : {status: job.executionStatus, steps: []};
+  let execution: Pick<JobExecution, 'status' | 'steps'> | undefined;
+  if (job.executionStatus === undefined) execution = defaultJobExecution(job);
+  else if (job.executionStatus !== null) execution = {status: job.executionStatus, steps: []};
   // A running execution is the shared display rule for both list previews and detail jobs.
   // The list has no step tree, while the detail path can still use the execution's steps for
   // other non-running states.

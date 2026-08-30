@@ -372,26 +372,36 @@ async function cleanupCatalogResources({
   }
 
   if (targetCreated) {
-    // A failed shutdown can leave the shared client occupied; retry before opening the admin client.
-    try {
-      await closePool();
-    } catch (error) {
-      if (!cleanupError) cleanupError = error;
-    }
-    try {
-      const cleanupPool = createPostgresClient({database: adminDatabaseName});
-      await dropDatabase(cleanupPool, databaseName);
-    } catch (error) {
-      if (!cleanupError) cleanupError = error;
-    }
-    try {
-      await closePool();
-    } catch (error) {
-      if (!cleanupError) cleanupError = error;
-    }
+    cleanupError = await dropCreatedCatalogDatabase(adminDatabaseName, databaseName, cleanupError);
   }
 
   if (cleanupError) throw cleanupError;
+}
+
+async function dropCreatedCatalogDatabase(
+  adminDatabaseName: string,
+  databaseName: string,
+  initialError: unknown,
+): Promise<unknown> {
+  let cleanupError = initialError;
+  // A failed shutdown can leave the shared client occupied; retry before opening the admin client.
+  try {
+    await closePool();
+  } catch (error) {
+    cleanupError ??= error;
+  }
+  try {
+    const cleanupPool = createPostgresClient({database: adminDatabaseName});
+    await dropDatabase(cleanupPool, databaseName);
+  } catch (error) {
+    cleanupError ??= error;
+  }
+  try {
+    await closePool();
+  } catch (error) {
+    cleanupError ??= error;
+  }
+  return cleanupError;
 }
 
 async function verifyRegistry(registry: ApiDatabaseRegistry): Promise<void> {
@@ -421,52 +431,12 @@ export async function verifyFreshCatalog({
   let report: CatalogAuditReport | undefined;
   let verificationError: unknown;
   try {
-    adminPool = createPostgresClient({database: adminDatabaseName});
-    if (await databaseExists(adminPool, databaseName)) {
-      if (generated) throw new Error(`Generated catalog database already exists: ${databaseName}`);
-      await closePool();
-      targetPool = createPostgresClient({database: databaseName});
-      if (await databaseHasUserObjects(targetPool)) {
-        throw new Error(`Catalog target database is not empty: ${databaseName}`);
-      }
-      await closePool();
-      targetPool = undefined;
-    } else {
-      if (!generated) throw new Error(`Catalog target database does not exist: ${databaseName}`);
-      await createDatabase(adminPool, databaseName);
-      targetCreated = true;
-      await closePool();
-      adminPool = undefined;
-    }
-
-    const preparedUnits = await prepareMigrationUnits(registry, root);
-    const expectedObjects = expectedObjectsForUnits(preparedUnits);
-    const expectedHistories = expectedHistoriesForUnits(preparedUnits);
-    const reports = migrationUnitReports(preparedUnits);
-
+    const target = await prepareCatalogTarget(adminDatabaseName, databaseName, generated);
+    adminPool = target.adminPool;
+    targetPool = target.targetPool;
+    targetCreated = target.targetCreated;
     targetPool = createPostgresClient({database: databaseName});
-    const version = await serverVersion(targetPool);
-    if (Math.floor(version.versionNumber / 10_000) !== 18) {
-      throw new Error(`Catalog verification requires PostgreSQL 18, found ${version.version}`);
-    }
-    const database = drizzle(targetPool);
-    for (const prepared of preparedUnits) {
-      await runMigrations(
-        database,
-        path.join(root, prepared.unit.migrationsPath),
-        prepared.runtimeHistoryName,
-      );
-    }
-    const catalog = await readPostgresCatalog(targetPool);
-    report = auditPostgresCatalog({
-      catalog,
-      expectedObjects,
-      expectedHistories,
-      migrationUnits: reports,
-      registry,
-      databaseName,
-      serverVersion: version.version,
-    });
+    report = await auditFreshCatalog(targetPool, databaseName, registry, root);
   } catch (error) {
     verificationError = error;
   }
@@ -490,40 +460,119 @@ export async function verifyFreshCatalog({
   return report;
 }
 
+interface PreparedCatalogTarget {
+  adminPool: Pool | undefined;
+  targetCreated: boolean;
+  targetPool: Pool | undefined;
+}
+
+async function prepareCatalogTarget(
+  adminDatabaseName: string,
+  databaseName: string,
+  generated: boolean,
+): Promise<PreparedCatalogTarget> {
+  const adminPool = createPostgresClient({database: adminDatabaseName});
+  try {
+    if (!(await databaseExists(adminPool, databaseName))) {
+      if (!generated) throw new Error(`Catalog target database does not exist: ${databaseName}`);
+      await createDatabase(adminPool, databaseName);
+      await closePool();
+      return {adminPool: undefined, targetCreated: true, targetPool: undefined};
+    }
+    if (generated) throw new Error(`Generated catalog database already exists: ${databaseName}`);
+    await closePool();
+    const targetPool = createPostgresClient({database: databaseName});
+    if (await databaseHasUserObjects(targetPool)) {
+      throw new Error(`Catalog target database is not empty: ${databaseName}`);
+    }
+    await closePool();
+    return {adminPool: undefined, targetCreated: false, targetPool: undefined};
+  } catch (error) {
+    try {
+      await closePool();
+    } catch {
+      // Preserve the verification error, matching the outer cleanup contract.
+    }
+    throw error;
+  }
+}
+
+async function auditFreshCatalog(
+  targetPool: Pool,
+  databaseName: string,
+  registry: ApiDatabaseRegistry,
+  root: string,
+): Promise<CatalogAuditReport> {
+  const preparedUnits = await prepareMigrationUnits(registry, root);
+  const version = await serverVersion(targetPool);
+  if (Math.floor(version.versionNumber / 10_000) !== 18) {
+    throw new Error(`Catalog verification requires PostgreSQL 18, found ${version.version}`);
+  }
+  const database = drizzle(targetPool);
+  for (const prepared of preparedUnits) {
+    await runMigrations(
+      database,
+      path.join(root, prepared.unit.migrationsPath),
+      prepared.runtimeHistoryName,
+    );
+  }
+  const catalog = await readPostgresCatalog(targetPool);
+  return auditPostgresCatalog({
+    catalog,
+    expectedObjects: expectedObjectsForUnits(preparedUnits),
+    expectedHistories: expectedHistoriesForUnits(preparedUnits),
+    migrationUnits: migrationUnitReports(preparedUnits),
+    registry,
+    databaseName,
+    serverVersion: version.version,
+  });
+}
+
 export function parseCatalogCliArgs(
   argv: readonly string[] = process.argv.slice(2),
 ): CatalogCliOptions {
-  let databaseName: string | undefined;
-  let format: CatalogCliOptions['format'] = 'human';
-  let help = false;
+  const options: CatalogCliOptions = {format: 'human', help: false};
   for (let index = 0; index < argv.length; index += 1) {
-    const argument = argv[index];
-    if (argument === '--help' || argument === '-h') {
-      help = true;
-    } else if (argument === '--json' || argument === '--format=json') {
-      format = 'json';
-    } else if (argument === '--format') {
-      const value = argv[index + 1];
-      if (value !== 'human' && value !== 'json')
-        throw new Error(`Unsupported catalog format: ${value}`);
-      format = value;
-      index += 1;
-    } else if (argument === '--database') {
-      databaseName = argv[index + 1];
-      if (!databaseName) throw new Error('--database requires a value');
-      index += 1;
-    } else if (argument?.startsWith('--database=')) {
-      databaseName = argument.slice('--database='.length);
-      if (!databaseName) throw new Error('--database requires a value');
-    } else {
-      throw new Error(`Unknown catalog option: ${argument}`);
-    }
+    index += parseCatalogCliArgument(argv, index, options);
   }
-  return {
-    ...(databaseName ? {databaseName} : {}),
-    format,
-    help,
-  };
+  return options;
+}
+
+function parseCatalogCliArgument(
+  argv: readonly string[],
+  index: number,
+  options: CatalogCliOptions,
+): number {
+  const argument = argv[index];
+  if (argument === '--help' || argument === '-h') {
+    options.help = true;
+    return 0;
+  }
+  if (argument === '--json' || argument === '--format=json') {
+    options.format = 'json';
+    return 0;
+  }
+  if (argument === '--format') {
+    const value = argv[index + 1];
+    if (value !== 'human' && value !== 'json') {
+      throw new Error(`Unsupported catalog format: ${value}`);
+    }
+    options.format = value;
+    return 1;
+  }
+  if (argument === '--database') {
+    const value = argv[index + 1];
+    if (!value) throw new Error('--database requires a value');
+    options.databaseName = value;
+    return 1;
+  }
+  if (argument?.startsWith('--database=')) {
+    const value = argument.slice('--database='.length);
+    if (!value) throw new Error('--database requires a value');
+    options.databaseName = value;
+    return 0;
+  }
+  throw new Error(`Unknown catalog option: ${argument}`);
 }
 
 function catalogHelp(): string {

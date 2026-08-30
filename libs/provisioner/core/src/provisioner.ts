@@ -97,24 +97,7 @@ export async function startProvisioner<Spec>(
   shutdownController.start();
 
   const templates = await options.adapter.loadTemplates();
-  if (templates.length === 0) {
-    throw new Error('Provisioner started with no templates; configure at least one template.');
-  }
-  if (templates.length > MAX_TEMPLATES_PER_POLL) {
-    throw new Error(
-      `Provisioner has ${templates.length} templates; the demand poll accepts at most ${MAX_TEMPLATES_PER_POLL}. Reduce the configured templates.`,
-    );
-  }
-  if (
-    options.adapter.reservationTtlSeconds !== undefined &&
-    (!Number.isInteger(options.adapter.reservationTtlSeconds) ||
-      options.adapter.reservationTtlSeconds < 1)
-  ) {
-    throw new Error(
-      `Provisioner adapter reservationTtlSeconds is ${options.adapter.reservationTtlSeconds}; the demand poll accepts a whole number of seconds of at least 1. Set a positive integer.`,
-    );
-  }
-
+  validateProvisionerTemplates(options.adapter, templates);
   const providerConfiguration = (await options.adapter.onConfigure?.({templates})) ?? {};
   logger().info(
     {
@@ -130,34 +113,7 @@ export async function startProvisioner<Spec>(
     baseUrl: config.SHIPFOX_API_URL,
     token: config.SHIPFOX_PROVISIONER_TOKEN,
   });
-
-  let identity: Awaited<ReturnType<ProvisionerClient['getIdentity']>>;
-  try {
-    identity = await client.getIdentity();
-  } catch (error) {
-    if (error instanceof ProvisionerAuthenticationError) {
-      logger().error(
-        {
-          event: 'provisioner.authentication_failed',
-          operation: error.action,
-          status: error.status,
-          reason: 'token_rejected',
-        },
-        `Provisioner token rejected during ${error.action}`,
-      );
-    }
-    throw error;
-  }
-  logger().info(
-    {
-      event: 'provisioner.authenticated',
-      provisionerId: identity.id,
-      workspaceId: identity.scope === 'workspace' ? identity.workspace_id : undefined,
-      scope: identity.scope,
-      templateCount: templates.length,
-    },
-    'Provisioner authenticated',
-  );
+  const identity = await authenticateProvisioner(client, templates.length);
 
   const tracker = createInMemoryTracker();
   const health = createHealthState();
@@ -226,6 +182,59 @@ export async function startProvisioner<Spec>(
   logger().info({event: 'provisioner.stopped'}, 'Provisioner stopped');
 }
 
+function validateProvisionerTemplates<Spec>(
+  adapter: ProvisionerAdapter<Spec>,
+  templates: readonly ProvisionerTemplate<Spec>[],
+): void {
+  if (templates.length === 0) {
+    throw new Error('Provisioner started with no templates; configure at least one template.');
+  }
+  if (templates.length > MAX_TEMPLATES_PER_POLL) {
+    throw new Error(
+      `Provisioner has ${templates.length} templates; the demand poll accepts at most ${MAX_TEMPLATES_PER_POLL}. Reduce the configured templates.`,
+    );
+  }
+  if (
+    adapter.reservationTtlSeconds !== undefined &&
+    (!Number.isInteger(adapter.reservationTtlSeconds) || adapter.reservationTtlSeconds < 1)
+  ) {
+    throw new Error(
+      `Provisioner adapter reservationTtlSeconds is ${adapter.reservationTtlSeconds}; the demand poll accepts a whole number of seconds of at least 1. Set a positive integer.`,
+    );
+  }
+}
+
+async function authenticateProvisioner(client: ProvisionerClient, templateCount: number) {
+  let identity: Awaited<ReturnType<ProvisionerClient['getIdentity']>>;
+  try {
+    identity = await client.getIdentity();
+  } catch (error) {
+    if (error instanceof ProvisionerAuthenticationError) {
+      logger().error(
+        {
+          event: 'provisioner.authentication_failed',
+          operation: error.action,
+          status: error.status,
+          reason: 'token_rejected',
+        },
+        `Provisioner token rejected during ${error.action}`,
+      );
+    }
+    throw error;
+  }
+  logger().info(
+    {
+      event: 'provisioner.authenticated',
+      provisionerId: identity.id,
+      workspaceId: identity.scope === 'workspace' ? identity.workspace_id : undefined,
+      scope: identity.scope,
+      templateCount,
+    },
+    'Provisioner authenticated',
+  );
+  return identity;
+}
+
 export async function runProvisionerIteration<Spec>(
   deps: RunProvisionerIterationDeps<Spec>,
 ): Promise<RunProvisionerIterationResult> {
@@ -250,54 +259,8 @@ export async function runConvergeIteration<Spec>(
   let failed = false;
   const withProviderLock = deps.withProviderLock ?? inlineProviderPass;
   await withProviderLock(async () => {
-    if (deps.adapter.onTick) {
-      try {
-        await deps.adapter.onTick();
-        applyHealthEvent(health, {
-          type: 'facet_recovered',
-          facet: 'provider_observation',
-          at: new Date(),
-        });
-        applyHealthEvent(health, {type: 'ready_confirmed', at: new Date()});
-      } catch (error) {
-        if (deps.signal?.aborted) throw error;
-        failed = true;
-        applyHealthEvent(health, {
-          type: 'facet_failed',
-          facet: 'provider_observation',
-          cause: errorReason(error),
-          impact: 'capacity',
-          at: new Date(),
-        });
-      }
-    }
-
-    // Only take intents a pass can actually act on; taking them without a terminate
-    // port would drop them, since take() clears the queue.
-    if (!deps.adapter.terminate) return;
-    const terminationIntents = [...(deps.takeTerminationIntents?.() ?? [])];
-    if (terminationIntents.length === 0) return;
-    try {
-      await deps.adapter.terminate(terminationIntents);
-      applyHealthEvent(health, {
-        type: 'facet_recovered',
-        facet: 'provider_termination',
-        at: new Date(),
-      });
-    } catch (error) {
-      // Requeue before the abort rethrow: a terminate that fails during shutdown is
-      // exactly the case where the intents must survive into the next pass.
-      deps.requeueTerminationIntents?.(terminationIntents);
-      if (deps.signal?.aborted) throw error;
-      failed = true;
-      applyHealthEvent(health, {
-        type: 'facet_failed',
-        facet: 'provider_termination',
-        cause: errorReason(error),
-        impact: 'cleanup',
-        at: new Date(),
-      });
-    }
+    failed = (await runProviderObservation(deps, health)) || failed;
+    failed = (await runProviderTerminations(deps, health)) || failed;
   });
 
   const derived = healthDerived(health);
@@ -309,31 +272,106 @@ export async function runConvergeIteration<Spec>(
   };
 }
 
+async function runProviderObservation<Spec>(
+  deps: RunConvergeIterationDeps<Spec>,
+  health: ProvisionerHealthState,
+): Promise<boolean> {
+  if (!deps.adapter.onTick) return false;
+  try {
+    await deps.adapter.onTick();
+    applyHealthEvent(health, {
+      type: 'facet_recovered',
+      facet: 'provider_observation',
+      at: new Date(),
+    });
+    applyHealthEvent(health, {type: 'ready_confirmed', at: new Date()});
+    return false;
+  } catch (error) {
+    if (deps.signal?.aborted) throw error;
+    applyHealthEvent(health, {
+      type: 'facet_failed',
+      facet: 'provider_observation',
+      cause: errorReason(error),
+      impact: 'capacity',
+      at: new Date(),
+    });
+    return true;
+  }
+}
+
+async function runProviderTerminations<Spec>(
+  deps: RunConvergeIterationDeps<Spec>,
+  health: ProvisionerHealthState,
+): Promise<boolean> {
+  // Only take intents a pass can actually act on; taking them without a terminate
+  // port would drop them, since take() clears the queue.
+  if (!deps.adapter.terminate) return false;
+  const terminationIntents = [...(deps.takeTerminationIntents?.() ?? [])];
+  if (terminationIntents.length === 0) return false;
+  try {
+    await deps.adapter.terminate(terminationIntents);
+    applyHealthEvent(health, {
+      type: 'facet_recovered',
+      facet: 'provider_termination',
+      at: new Date(),
+    });
+    return false;
+  } catch (error) {
+    // Requeue before the abort rethrow: a terminate that fails during shutdown is
+    // exactly the case where the intents must survive into the next pass.
+    deps.requeueTerminationIntents?.(terminationIntents);
+    if (deps.signal?.aborted) throw error;
+    applyHealthEvent(health, {
+      type: 'facet_failed',
+      facet: 'provider_termination',
+      cause: errorReason(error),
+      impact: 'cleanup',
+      at: new Date(),
+    });
+    return true;
+  }
+}
+
 export async function runDemandIteration<Spec>(
   deps: RunProvisionerIterationDeps<Spec>,
 ): Promise<RunProvisionerIterationResult> {
   const health = deps.health ?? createHealthState();
   const launchBudget = () => deriveLaunchBudget(health);
+  const result = await runDemandTick(deps, health, launchBudget);
+  notifyDemandStats(deps.adapter, result.stats, health);
+  updateProviderTerminationHealth(deps, result, health);
+  updateRunnerCapacityHealth(result, health);
+  logDemandIteration(result);
+  if (result.launchedCount > 0) applyHealthEvent(health, {type: 'ready_confirmed', at: new Date()});
+  const derived = healthDerived(health);
+  return {
+    nextInterval: derived.shouldBackOff
+      ? nextBackoffInterval(deps.currentInterval)
+      : config.SHIPFOX_PROVISIONER_POLL_INTERVAL_MS,
+    degraded: derived.capacityDegraded,
+  };
+}
 
-  const reservationLimit = config.SHIPFOX_PROVISIONER_MAX_RESERVATIONS;
+type ProvisionerTickResult = Awaited<ReturnType<typeof runProvisionerTick>>;
 
-  let result: Awaited<ReturnType<typeof runProvisionerTick>>;
+async function runDemandTick<Spec>(
+  deps: RunProvisionerIterationDeps<Spec>,
+  health: ProvisionerHealthState,
+  launchBudget: () => number,
+): Promise<ProvisionerTickResult> {
+  const terminate = deps.deferTermination ?? deps.adapter.terminate;
   try {
-    result = await runProvisionerTick({
+    const result = await runProvisionerTick({
       client: deps.client,
       templates: deps.templates,
       tracker: deps.tracker,
       launch: deps.adapter.launch,
-      ...(deps.deferTermination
-        ? {terminate: deps.deferTermination}
-        : deps.adapter.terminate
-          ? {terminate: deps.adapter.terminate}
-          : {}),
+      ...(terminate ? {terminate} : {}),
       ...(deps.adapter.reservationTtlSeconds !== undefined
         ? {reservationTtlSeconds: deps.adapter.reservationTtlSeconds}
         : {}),
       buildRunnerEnv,
-      reservationLimit,
+      reservationLimit: config.SHIPFOX_PROVISIONER_MAX_RESERVATIONS,
       launchBudget,
       waitSeconds: config.SHIPFOX_PROVISIONER_POLL_WAIT_SECONDS,
       runnerInstanceBatchSize: config.SHIPFOX_PROVISIONER_RUNNER_INSTANCE_BATCH_SIZE,
@@ -343,6 +381,7 @@ export async function runDemandIteration<Spec>(
     });
     applyHealthEvent(health, {type: 'facet_recovered', facet: 'poll_demand', at: new Date()});
     applyHealthEvent(health, {type: 'facet_recovered', facet: 'authentication', at: new Date()});
+    return result;
   } catch (error) {
     if (deps.signal?.aborted) throw error;
     const facet: HealthFacet =
@@ -354,33 +393,43 @@ export async function runDemandIteration<Spec>(
       impact: 'control_plane',
       at: new Date(),
     });
-    // Do not let a provider retain a demand snapshot after a failed poll.
     notifyDemandStats(deps.adapter, [], health);
     throw error;
   }
-  notifyDemandStats(deps.adapter, result.stats, health);
+}
 
-  if (!deps.deferTermination) {
-    if (result.providerTermination.status === 'failed') {
-      applyHealthEvent(health, {
-        type: 'facet_failed',
-        facet: 'provider_termination',
-        cause: result.providerTermination.cause,
-        impact: 'cleanup',
-        at: new Date(),
-      });
-    } else if (
-      result.providerTermination.status === 'succeeded' ||
-      result.providerTermination.status === 'not_needed'
-    ) {
-      applyHealthEvent(health, {
-        type: 'facet_recovered',
-        facet: 'provider_termination',
-        at: new Date(),
-      });
-    }
+function updateProviderTerminationHealth<Spec>(
+  deps: RunProvisionerIterationDeps<Spec>,
+  result: ProvisionerTickResult,
+  health: ProvisionerHealthState,
+): void {
+  if (deps.deferTermination) return;
+  if (result.providerTermination.status === 'failed') {
+    applyHealthEvent(health, {
+      type: 'facet_failed',
+      facet: 'provider_termination',
+      cause: result.providerTermination.cause,
+      impact: 'cleanup',
+      at: new Date(),
+    });
+    return;
   }
+  if (
+    result.providerTermination.status === 'succeeded' ||
+    result.providerTermination.status === 'not_needed'
+  ) {
+    applyHealthEvent(health, {
+      type: 'facet_recovered',
+      facet: 'provider_termination',
+      at: new Date(),
+    });
+  }
+}
 
+function updateRunnerCapacityHealth(
+  result: ProvisionerTickResult,
+  health: ProvisionerHealthState,
+): void {
   const hasCapacityFailure =
     result.runnerInstanceCreationFailureCount > 0 ||
     result.providerLaunchFailureCount > 0 ||
@@ -400,7 +449,9 @@ export async function runDemandIteration<Spec>(
   } else if (result.launchedCount > 0) {
     applyHealthEvent(health, {type: 'facet_recovered', facet: 'runner_capacity', at: new Date()});
   }
+}
 
+function logDemandIteration(result: ProvisionerTickResult): void {
   if (result.reservationConsumedOrStaleCount > 0) {
     logger().info(
       {
@@ -410,38 +461,28 @@ export async function runDemandIteration<Spec>(
       'Runner reservation was consumed or stale; skipping unavailable launches',
     );
   }
-
-  if (result.launchedCount > 0) {
-    applyHealthEvent(health, {type: 'ready_confirmed', at: new Date()});
-  }
-
-  const derived = healthDerived(health);
-
-  if (result.reservationCount > 0 || result.launchedCount > 0 || result.launchAttemptedCount > 0) {
-    logger().info(
-      {
-        event: 'runner.launch_batch_completed',
-        reserved: result.reservedRunnerCount,
-        planned: result.plannedCount,
-        attempted: result.launchAttemptedCount,
-        started: result.launchedCount,
-        failed: result.launchAttemptedCount - result.launchedCount,
-        lifecycleIncomplete: result.launchLifecycleIncompleteCount,
-        ...(result.launchLifecycleIncompleteReason
-          ? {launchLifecycleIncompleteReason: result.launchLifecycleIncompleteReason}
-          : {}),
-        reservations: result.reservationCount,
-      },
-      'Runner launch batch completed',
-    );
-  }
-
-  return {
-    nextInterval: derived.shouldBackOff
-      ? nextBackoffInterval(deps.currentInterval)
-      : config.SHIPFOX_PROVISIONER_POLL_INTERVAL_MS,
-    degraded: derived.capacityDegraded,
-  };
+  if (
+    result.reservationCount === 0 &&
+    result.launchedCount === 0 &&
+    result.launchAttemptedCount === 0
+  )
+    return;
+  logger().info(
+    {
+      event: 'runner.launch_batch_completed',
+      reserved: result.reservedRunnerCount,
+      planned: result.plannedCount,
+      attempted: result.launchAttemptedCount,
+      started: result.launchedCount,
+      failed: result.launchAttemptedCount - result.launchedCount,
+      lifecycleIncomplete: result.launchLifecycleIncompleteCount,
+      ...(result.launchLifecycleIncompleteReason
+        ? {launchLifecycleIncompleteReason: result.launchLifecycleIncompleteReason}
+        : {}),
+      reservations: result.reservationCount,
+    },
+    'Runner launch batch completed',
+  );
 }
 
 /** Best-effort delivery for deferred terminations before the provider stops. */

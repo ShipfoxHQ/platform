@@ -105,8 +105,7 @@ export async function createRunnerSessionConsumingActivationToken(params: {
       )
       .limit(1)
       .for('update');
-    if (!activationToken)
-      throw new Error('Runner activation token is invalid, expired, or has already been used');
+    assertValidActivationToken(activationToken);
 
     const [provisioner] = await tx
       .select({scope: provisionerTokens.scope})
@@ -117,7 +116,7 @@ export async function createRunnerSessionConsumingActivationToken(params: {
       scope: provisioner?.scope ?? 'workspace',
       source: 'activation runner registration',
     });
-    if (labels.length === 0) throw new EmptyRunnerLabelsError();
+    assertNonEmptyRunnerLabels(labels);
     const [session] = await tx
       .insert(runnerSessions)
       .values({
@@ -172,6 +171,16 @@ export async function createRunnerSessionConsumingActivationToken(params: {
   if (assignmentToActivationObservation)
     recordProviderRunnerAssignmentToActivation(assignmentToActivationObservation);
   return session;
+}
+
+function assertValidActivationToken<T>(token: T | undefined): asserts token is T {
+  if (token === undefined) {
+    throw new Error('Runner activation token is invalid, expired, or has already been used');
+  }
+}
+
+function assertNonEmptyRunnerLabels(labels: readonly string[]): void {
+  if (labels.length === 0) throw new EmptyRunnerLabelsError();
 }
 
 export interface DeleteExpiredRunnerSessionsParams {

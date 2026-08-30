@@ -31,6 +31,10 @@ function getResolvedTheme(theme: Theme): 'light' | 'dark' {
   return 'light';
 }
 
+function themeColor(isDark: boolean, dark: string, light: string): string {
+  return isDark ? dark : light;
+}
+
 function getDocsTheme(theme: Theme): ThemeVars {
   const resolvedTheme = getResolvedTheme(theme);
   const baseTheme = storybookThemes[resolvedTheme];
@@ -39,27 +43,27 @@ function getDocsTheme(theme: Theme): ThemeVars {
   return {
     ...baseTheme,
     base: resolvedTheme,
-    appBg: isDark ? '#1a1a1b' : '#ffffff',
-    appContentBg: isDark ? '#030303' : '#fafafa',
-    appHoverBg: isDark ? '#27272a' : '#f4f4f5',
-    appPreviewBg: isDark ? '#1a1a1b' : '#ffffff',
-    appBorderColor: isDark ? '#27272a' : '#d4d4d8',
+    appBg: themeColor(isDark, '#1a1a1b', '#ffffff'),
+    appContentBg: themeColor(isDark, '#030303', '#fafafa'),
+    appHoverBg: themeColor(isDark, '#27272a', '#f4f4f5'),
+    appPreviewBg: themeColor(isDark, '#1a1a1b', '#ffffff'),
+    appBorderColor: themeColor(isDark, '#27272a', '#d4d4d8'),
     colorPrimary: '#ff4b00',
     colorSecondary: '#ff4b00',
-    textColor: isDark ? '#f4f4f5' : '#0f0f10',
-    textInverseColor: isDark ? '#0f0f10' : '#ffffff',
+    textColor: themeColor(isDark, '#f4f4f5', '#0f0f10'),
+    textInverseColor: themeColor(isDark, '#0f0f10', '#ffffff'),
     textMutedColor: '#71717a',
     barTextColor: '#71717a',
-    barHoverColor: isDark ? '#ff9e7a' : '#e63e00',
+    barHoverColor: themeColor(isDark, '#ff9e7a', '#e63e00'),
     barSelectedColor: '#ff4b00',
-    barBg: isDark ? '#1a1a1b' : '#ffffff',
-    buttonBg: isDark ? 'rgba(255, 255, 255, 0.04)' : '#ffffff',
-    buttonBorder: isDark ? 'rgba(255, 255, 255, 0.1)' : '#d4d4d8',
-    booleanBg: isDark ? 'rgba(255, 255, 255, 0.04)' : '#ffffff',
-    booleanSelectedBg: isDark ? '#4d1300' : '#fff4f0',
-    inputBg: isDark ? 'rgba(255, 255, 255, 0.04)' : '#ffffff',
-    inputBorder: isDark ? '#27272a' : '#d4d4d8',
-    inputTextColor: isDark ? '#f4f4f5' : '#0f0f10',
+    barBg: themeColor(isDark, '#1a1a1b', '#ffffff'),
+    buttonBg: themeColor(isDark, 'rgba(255, 255, 255, 0.04)', '#ffffff'),
+    buttonBorder: themeColor(isDark, 'rgba(255, 255, 255, 0.1)', '#d4d4d8'),
+    booleanBg: themeColor(isDark, 'rgba(255, 255, 255, 0.04)', '#ffffff'),
+    booleanSelectedBg: themeColor(isDark, '#4d1300', '#fff4f0'),
+    inputBg: themeColor(isDark, 'rgba(255, 255, 255, 0.04)', '#ffffff'),
+    inputBorder: themeColor(isDark, '#27272a', '#d4d4d8'),
+    inputTextColor: themeColor(isDark, '#f4f4f5', '#0f0f10'),
   };
 }
 

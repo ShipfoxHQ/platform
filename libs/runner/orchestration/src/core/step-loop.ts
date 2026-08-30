@@ -103,141 +103,177 @@ export async function runJobSteps(params: {
   jobContext: SetupJobContext;
   onLeaseTokenAdopted?: (leaseToken: string) => void;
 }): Promise<void> {
-  const {
-    jobId,
-    leaseClient,
-    secrets,
-    signal,
-    cwd,
-    gitConfigPath,
-    logsDir,
-    agentStateDir,
-    prepareAgentState: prepareAgentStateDirectory,
-    jobContext,
-  } = params;
+  const {signal} = params;
 
   // The setup step prepares the workspace; every run step assumes it ran. A run
   // step pulled before a successful setup is failed cleanly rather than spawned
   // against an unprepared cwd.
-  let workspacePrepared = false;
-  let logsPrepared = false;
-  let agentStatePrepared = false;
-  let ambientGitConfigPath: string | undefined;
-  let ambientGitConfigSecrets: string[] = [];
-  const checkoutDestinations: CheckoutDestinations = new Map();
-
-  // The most recent step's stream, kept until the next
-  // iteration settles it (or the finally does at job end). The step loop is sequential, so
-  // at most one tail drains.
-  let activeStream: LogStreamLifecycle | undefined;
+  const state: JobStepLoopState = {
+    workspacePrepared: false,
+    logsPrepared: false,
+    agentStatePrepared: false,
+    ambientGitConfigPath: undefined,
+    ambientGitConfigSecrets: [],
+    checkoutDestinations: new Map(),
+    activeStream: undefined,
+  };
 
   try {
     while (!signal.aborted) {
-      // Idempotent cleanup for abort/error paths; the normal report path settles and clears
-      // activeStream before the next iteration reaches this point.
-      await settleStream({stream: activeStream, signal});
-      activeStream = undefined;
-
-      const pulled = await pullNextStep({leaseClient, jobId, signal});
-      if (!pulled) return;
-      if (signal.aborted) return;
-
-      params.onLeaseTokenAdopted?.(pulled.leaseToken);
-      const {step, attempt} = pulled;
-      const stepLabel = step.name ?? `step #${step.position}`;
-      logger().info(
-        {jobId, stepId: step.id, stepName: step.name, position: step.position, attempt},
-        `Running ${stepLabel}`,
-      );
-
-      const prepareLogs =
-        step.type === 'setup' && !logsPrepared
-          ? async () => {
-              await createJobLogsDir(logsDir);
-              logsPrepared = true;
-            }
-          : undefined;
-      const prepareAgentState =
-        step.type === 'setup' && !agentStatePrepared && prepareAgentStateDirectory !== undefined
-          ? async () => {
-              await prepareAgentStateDirectory();
-              agentStatePrepared = true;
-            }
-          : undefined;
-      const execution = await executeStep({
-        step,
-        attempt,
-        cwd,
-        agentStateDir,
-        leaseClient,
-        leaseToken: params.leaseToken,
-        secrets,
-        ...(params.subscribeSecrets ? {subscribeSecrets: params.subscribeSecrets} : {}),
-        signal,
-        workspacePrepared,
-        checkoutDestinations,
-        ambientGitConfigPath,
-        ambientGitConfigSecrets,
-        jobId,
-        stepLabel,
-        logsDir,
-        jobContext,
-        gitConfigPath,
-        ...(prepareLogs ? {prepareLogs} : {}),
-        ...(prepareAgentState ? {prepareAgentState} : {}),
-      });
-      activeStream = execution.stream;
-      if (execution.preparedWorkspace) workspacePrepared = true;
-      if (execution.ambientGitConfigPath) ambientGitConfigPath = execution.ambientGitConfigPath;
-      if (execution.ambientGitConfigSecrets) {
-        params.registerSecrets?.(execution.ambientGitConfigSecrets);
-        ambientGitConfigSecrets = [
-          ...new Set([...ambientGitConfigSecrets, ...execution.ambientGitConfigSecrets]),
-        ];
-      }
-      if (execution.result.success && execution.result.checkout) {
-        rememberCheckoutDestination(checkoutDestinations, execution.result.checkout);
-      }
-
-      if (signal.aborted) return;
-
-      const logOutcome =
-        (await settleStream({stream: activeStream, signal})) ?? execution.logOutcome ?? 'drained';
-      activeStream = undefined;
-
-      await publishStepAnnotations({
-        leaseClient,
-        step,
-        attempt,
-        annotations: execution.result.annotations,
-        jobId,
-        signal,
-      });
-
-      const {cancel} = await reportStepResult({
-        leaseClient,
-        step,
-        attempt,
-        result: execution.result,
-        logOutcome,
-        jobId,
-        jobExecutionId: jobContext.jobExecutionId,
-        stepLabel,
-        signal,
-      });
-      if (cancel) {
-        logger().info(
-          {jobId, stepId: step.id},
-          'Job finished without full success; stopping step loop',
-        );
-        return;
-      }
+      const outcome = await runJobStepIteration(params, state);
+      if (outcome === 'stop') return;
     }
   } finally {
     // Drain the last stream (bounded) before runJob deletes the log spool; an abort
     // cuts the wait short. Whatever did not drain is timeout-closed server-side.
-    await settleStream({stream: activeStream, signal});
+    await settleStream({stream: state.activeStream, signal});
   }
+}
+
+interface JobStepLoopState {
+  workspacePrepared: boolean;
+  logsPrepared: boolean;
+  agentStatePrepared: boolean;
+  ambientGitConfigPath: string | undefined;
+  ambientGitConfigSecrets: string[];
+  checkoutDestinations: CheckoutDestinations;
+  activeStream: LogStreamLifecycle | undefined;
+}
+
+async function runJobStepIteration(
+  params: Parameters<typeof runJobSteps>[0],
+  state: JobStepLoopState,
+): Promise<'continue' | 'stop'> {
+  await settleStream({stream: state.activeStream, signal: params.signal});
+  state.activeStream = undefined;
+  const pulled = await pullNextStep({
+    leaseClient: params.leaseClient,
+    jobId: params.jobId,
+    signal: params.signal,
+  });
+  if (!pulled || params.signal.aborted) return 'stop';
+  params.onLeaseTokenAdopted?.(pulled.leaseToken);
+  const {step, attempt} = pulled;
+  const stepLabel = step.name ?? `step #${step.position}`;
+  logger().info(
+    {
+      jobId: params.jobId,
+      stepId: step.id,
+      stepName: step.name,
+      position: step.position,
+      attempt,
+    },
+    `Running ${stepLabel}`,
+  );
+  const preparation = stepPreparation(params, state, step);
+  const execution = await executeStep({
+    step,
+    attempt,
+    cwd: params.cwd,
+    agentStateDir: params.agentStateDir,
+    leaseClient: params.leaseClient,
+    leaseToken: params.leaseToken,
+    secrets: params.secrets,
+    ...(params.subscribeSecrets ? {subscribeSecrets: params.subscribeSecrets} : {}),
+    signal: params.signal,
+    workspacePrepared: state.workspacePrepared,
+    checkoutDestinations: state.checkoutDestinations,
+    ambientGitConfigPath: state.ambientGitConfigPath,
+    ambientGitConfigSecrets: state.ambientGitConfigSecrets,
+    jobId: params.jobId,
+    stepLabel,
+    logsDir: params.logsDir,
+    jobContext: params.jobContext,
+    gitConfigPath: params.gitConfigPath,
+    ...preparation,
+  });
+  applyStepExecutionState(params, state, execution);
+  if (params.signal.aborted) return 'stop';
+  return finishStepExecution(params, state, step, attempt, stepLabel, execution);
+}
+
+function stepPreparation(
+  params: Parameters<typeof runJobSteps>[0],
+  state: JobStepLoopState,
+  step: StepDto,
+): Pick<Parameters<typeof executeStep>[0], 'prepareLogs' | 'prepareAgentState'> {
+  const prepareLogs =
+    step.type === 'setup' && !state.logsPrepared
+      ? async () => {
+          await createJobLogsDir(params.logsDir);
+          state.logsPrepared = true;
+        }
+      : undefined;
+  const prepareAgentState =
+    step.type === 'setup' && !state.agentStatePrepared && params.prepareAgentState !== undefined
+      ? async () => {
+          await params.prepareAgentState?.();
+          state.agentStatePrepared = true;
+        }
+      : undefined;
+  return {
+    ...(prepareLogs ? {prepareLogs} : {}),
+    ...(prepareAgentState ? {prepareAgentState} : {}),
+  };
+}
+
+function applyStepExecutionState(
+  params: Parameters<typeof runJobSteps>[0],
+  state: JobStepLoopState,
+  execution: StepExecution,
+): void {
+  state.activeStream = execution.stream;
+  if (execution.preparedWorkspace) state.workspacePrepared = true;
+  if (execution.ambientGitConfigPath) state.ambientGitConfigPath = execution.ambientGitConfigPath;
+  if (execution.ambientGitConfigSecrets) {
+    params.registerSecrets?.(execution.ambientGitConfigSecrets);
+    state.ambientGitConfigSecrets = [
+      ...new Set([...state.ambientGitConfigSecrets, ...execution.ambientGitConfigSecrets]),
+    ];
+  }
+  if (execution.result.success && execution.result.checkout) {
+    rememberCheckoutDestination(state.checkoutDestinations, execution.result.checkout);
+  }
+}
+
+async function finishStepExecution(
+  params: Parameters<typeof runJobSteps>[0],
+  state: JobStepLoopState,
+  step: StepDto,
+  attempt: number,
+  stepLabel: string,
+  execution: StepExecution,
+): Promise<'continue' | 'stop'> {
+  const logOutcome =
+    (await settleStream({stream: state.activeStream, signal: params.signal})) ??
+    execution.logOutcome ??
+    'drained';
+  state.activeStream = undefined;
+  await publishStepAnnotations({
+    leaseClient: params.leaseClient,
+    step,
+    attempt,
+    annotations: execution.result.annotations,
+    jobId: params.jobId,
+    signal: params.signal,
+  });
+  const {cancel} = await reportStepResult({
+    leaseClient: params.leaseClient,
+    step,
+    attempt,
+    result: execution.result,
+    logOutcome,
+    jobId: params.jobId,
+    jobExecutionId: params.jobContext.jobExecutionId,
+    stepLabel,
+    signal: params.signal,
+  });
+  if (!cancel) return 'continue';
+  logger().info(
+    {jobId: params.jobId, stepId: step.id},
+    'Job finished without full success; stopping step loop',
+  );
+  return 'stop';
 }
 
 function rememberCheckoutDestination(
@@ -326,54 +362,26 @@ export async function executeStep(params: {
     step,
     attempt,
     cwd,
-    logsDir,
-    agentStateDir,
-    jobContext,
     leaseClient,
-    leaseToken,
     secrets,
     subscribeSecrets,
-    signal,
     workspacePrepared,
-    checkoutDestinations = new Map(),
-    ambientGitConfigPath,
-    ambientGitConfigSecrets = [],
-    gitConfigPath,
     jobId,
     stepLabel,
-    prepareLogs,
-    prepareAgentState,
   } = params;
 
   let stream: LogStreamLifecycle | undefined;
   let runStream: StepLogStream | undefined;
   const unsubscribeSecrets: Array<() => void> = [];
-  let subscribedSecrets = [...secrets];
-  let crashSecretVariants = buildSecretVariants(secrets);
-  const registerStreamSecrets = (
-    target:
-      | {
-          addSecrets?: (secrets: string[]) => void;
-          setSecrets?: (secrets: string[]) => void;
-          setRotatingSecrets?: (secrets: string[]) => void;
-        }
-      | undefined,
-  ) => {
-    if (!target?.setSecrets && !target?.setRotatingSecrets && !target?.addSecrets) return;
-    const unsubscribe = subscribeSecrets?.((registeredSecrets) => {
-      subscribedSecrets = [...new Set([...subscribedSecrets, ...registeredSecrets])];
-      if (target.setSecrets) {
-        target.setSecrets(registeredSecrets);
-        return;
-      }
-      if (target.setRotatingSecrets) {
-        target.setRotatingSecrets(registeredSecrets);
-        return;
-      }
-      target.addSecrets?.(registeredSecrets);
-    });
-    if (unsubscribe) unsubscribeSecrets.push(unsubscribe);
+  const secretState = {
+    subscribedSecrets: [...secrets],
+    crashSecretVariants: buildSecretVariants(secrets),
   };
+  const registerStreamSecrets = createStreamSecretRegistrar({
+    subscribeSecrets,
+    secretState,
+    unsubscribeSecrets,
+  });
   try {
     // Both step kinds capture to the same per-attempt stream contract (one stream per
     // job/step/attempt). The append port is bound to the lease client, step, and attempt.
@@ -387,69 +395,16 @@ export async function executeStep(params: {
       });
 
     if (step.type === 'setup') {
-      if (prepareLogs) {
-        try {
-          await prepareLogs();
-        } catch (error) {
-          const result = setupPreparationFailure(error, 'workspace_prep_failed');
-          logger().warn(
-            {err: error, jobId, stepId: step.id, attempt, reason: result.error?.reason},
-            'Setup step failed',
-          );
-          return {result, logOutcome: 'abandoned', preparedWorkspace: false};
-        }
-      }
-      if (prepareAgentState) {
-        try {
-          await prepareAgentState();
-        } catch (error) {
-          const result = setupPreparationFailure(error, 'agent_harness_unavailable');
-          logger().warn(
-            {err: error, jobId, stepId: step.id, attempt, reason: result.error?.reason},
-            'Setup step failed',
-          );
-          return {result, logOutcome: 'abandoned', preparedWorkspace: false};
-        }
-      }
-
-      let setupStream: StepLogStream | undefined;
-      try {
-        setupStream = createStepLogStream({
-          logsDir,
-          stepId: step.id,
-          attempt,
-          secrets,
-          append,
-        });
-      } catch (error) {
-        logger().error(
-          {err: error, jobId, stepId: step.id, attempt},
-          'Failed to open setup log capture; running setup without it',
-        );
-      }
-      stream = setupStream;
-      registerStreamSecrets(setupStream);
-
-      const setup = await executeSetupStep({
-        cwd,
-        gitConfigPath,
-        leaseClient,
-        signal,
-        step,
-        attempt,
-        ...(setupStream ? {log: setupStream} : {}),
-        jobContext,
+      const execution = await executeSetupStepBranch({
+        params: {...params, step},
+        append,
+        onStream: (createdStream) => {
+          stream = createdStream;
+        },
+        registerStreamSecrets,
       });
-      return {
-        result: setup.result,
-        stream,
-        logOutcome: setupStream ? undefined : 'abandoned',
-        preparedWorkspace: setup.result.success,
-        ...(setup.ambientGitConfigPath ? {ambientGitConfigPath: setup.ambientGitConfigPath} : {}),
-        ...(setup.ambientGitConfigSecrets
-          ? {ambientGitConfigSecrets: setup.ambientGitConfigSecrets}
-          : {}),
-      };
+      stream = execution.stream;
+      return execution;
     }
 
     if (!workspacePrepared) {
@@ -468,53 +423,81 @@ export async function executeStep(params: {
     }
 
     if (step.type === 'checkout') {
-      let checkoutStream: StepLogStream | undefined;
-      try {
-        checkoutStream = createStepLogStream({
-          logsDir,
-          stepId: step.id,
-          attempt,
-          secrets,
-          append,
-        });
-      } catch (error) {
-        logger().error(
-          {err: error, jobId, stepId: step.id, attempt},
-          'Failed to open checkout log capture; running checkout without it',
-        );
-      }
-      stream = checkoutStream;
-      registerStreamSecrets(checkoutStream);
-
-      const checkout = await executeCheckoutStep({
-        cwd,
-        gitConfigPath,
-        leaseClient,
-        signal,
-        step,
-        attempt,
-        destinations: checkoutDestinations,
-        ...(checkoutStream ? {log: checkoutStream} : {}),
+      const execution = await executeCheckoutStepBranch({
+        params: {...params, step},
+        append,
+        onStream: (createdStream) => {
+          stream = createdStream;
+        },
+        registerStreamSecrets,
       });
-      return {
-        result: checkout.result,
-        stream,
-        logOutcome: checkoutStream ? undefined : 'abandoned',
-        preparedWorkspace: false,
-        ...(checkout.ambientGitConfigPath
-          ? {ambientGitConfigPath: checkout.ambientGitConfigPath}
-          : {}),
-        ...(checkout.ambientGitConfigSecrets
-          ? {ambientGitConfigSecrets: checkout.ambientGitConfigSecrets}
-          : {}),
-      };
+      stream = execution.stream;
+      return execution;
     }
 
-    let stepCwd: string;
-    try {
-      stepCwd = await resolveWorkingDirectory(cwd, step.config.working_directory);
-    } catch (error) {
-      return {
+    const workingDirectory = await resolveStepWorkingDirectory(cwd, step.config.working_directory);
+    if (!workingDirectory.ok) return workingDirectory.execution;
+    const stepCwd = workingDirectory.path;
+
+    // Agent steps run the embedded pi harness and forward every session entry into the log
+    // pipeline as opaque `agent_session` records. Capture is best-effort: if the spool cannot
+    // be opened, run the agent without it rather than failing the step.
+    if (step.type === 'agent') {
+      const execution = await executeAgentStepBranch({
+        params: {...params, step},
+        stepCwd,
+        append,
+        onStream: (createdStream) => {
+          stream = createdStream;
+        },
+        registerStreamSecrets,
+        secretState,
+      });
+      stream = execution.stream;
+      return execution;
+    }
+
+    const execution = await executeRunStepBranch({
+      params: {...params, step},
+      stepCwd,
+      append,
+      onStream: (createdStream) => {
+        stream = createdStream;
+        runStream = createdStream;
+      },
+      registerStreamSecrets,
+      secretState,
+    });
+    stream = execution.stream;
+    runStream = execution.stream as StepLogStream | undefined;
+    return execution;
+  } catch (error) {
+    return crashedStepExecution({
+      error,
+      jobId,
+      step,
+      stepLabel,
+      stream,
+      runStream,
+      secretState,
+      secrets,
+    });
+  } finally {
+    for (const unsubscribe of unsubscribeSecrets) unsubscribe();
+    runStream?.writeGroupEnd();
+  }
+}
+
+async function resolveStepWorkingDirectory(
+  cwd: string,
+  configured: unknown,
+): Promise<{ok: true; path: string} | {ok: false; execution: StepExecution}> {
+  try {
+    return {ok: true, path: await resolveWorkingDirectory(cwd, configured)};
+  } catch (error) {
+    return {
+      ok: false,
+      execution: {
         result: {
           success: false,
           error: {message: error instanceof Error ? error.message : String(error)},
@@ -522,214 +505,436 @@ export async function executeStep(params: {
         },
         logOutcome: 'abandoned',
         preparedWorkspace: false,
-      };
-    }
-
-    // Agent steps run the embedded pi harness and forward every session entry into the log
-    // pipeline as opaque `agent_session` records. Capture is best-effort: if the spool cannot
-    // be opened, run the agent without it rather than failing the step.
-    if (step.type === 'agent') {
-      let runtimeConfig: Awaited<ReturnType<typeof requestAgentRuntimeConfig>>;
-      try {
-        runtimeConfig = await requestAgentRuntimeConfig(leaseClient, {
-          stepId: step.id,
-          attempt,
-          signal,
-        });
-      } catch (error) {
-        return {
-          result: agentRuntimeConfigFailure(error),
-          logOutcome: 'drained',
-          preparedWorkspace: false,
-        };
-      }
-
-      let sessionFile: string | undefined;
-      let sessionBaseSegment: number | undefined;
-      if (runtimeConfig.session !== undefined) {
-        const transcript = await requestSessionTranscript(leaseClient, {
-          stepId: step.id,
-          attempt,
-          signal,
-        });
-        sessionBaseSegment = transcript.segment;
-        if (transcript.blob !== null) {
-          sessionFile = `${agentStateDir}/agent-sessions/dispatch-session.jsonl`;
-          await mkdir(`${agentStateDir}/agent-sessions`, {recursive: true});
-          await writeFile(sessionFile, await gunzipAsync(transcript.blob));
-        }
-      }
-
-      let sessionStream: SessionLogStream | undefined;
-      const runtimeSecretValues = [
-        ...Object.values(runtimeConfig.credentials),
-        ...(runtimeConfig.claude !== undefined ? [runtimeConfig.claude.auth_token] : []),
-      ];
-      const agentSecrets = [...secrets, ...runtimeSecretValues];
-      crashSecretVariants = buildSecretVariants(agentSecrets);
-      try {
-        sessionStream = createSessionLogStream({
-          logsDir,
-          stepId: step.id,
-          attempt,
-          secrets: agentSecrets,
-          append,
-        });
-      } catch (error) {
-        logger().error(
-          {err: error, jobId, stepId: step.id, attempt},
-          'Failed to open agent session capture; running the step without it',
-        );
-      }
-      stream = sessionStream;
-      registerStreamSecrets(sessionStream);
-      const {executeAgentStep} = await loadRunnerAgentStep();
-      const result = await executeAgentStep(step, {
-        signal,
-        cwd: stepCwd,
-        agentStateDir,
-        ...(sessionFile === undefined ? {} : {sessionFile}),
-        ...(runtimeConfig.session === undefined ? {} : {sessionMode: runtimeConfig.session.mode}),
-        ...(ambientGitConfigPath ? {gitConfigGlobal: ambientGitConfigPath} : {}),
-        runtime: {
-          harness: runtimeConfig.harness,
-          provider: runtimeConfig.provider_id,
-          model: runtimeConfig.model,
-          thinking: runtimeConfig.thinking,
-          credentials: runtimeConfig.credentials,
-          ...(runtimeConfig.custom_provider
-            ? {custom_provider: runtimeConfig.custom_provider}
-            : {}),
-          ...(runtimeConfig.claude !== undefined ? {claude: runtimeConfig.claude} : {}),
-        },
-        leaseToken,
-        integrationToolsGatewayUrl: integrationToolsGatewayUrl(),
-        ...(sessionStream
-          ? {onSessionEntry: (line: string) => sessionStream?.writeEntry(line)}
-          : {}),
-      });
-      if (
-        runtimeConfig.session !== undefined &&
-        sessionBaseSegment !== undefined &&
-        result.success &&
-        result.sessionFile !== undefined
-      ) {
-        const transcriptBlob = await gzipAsync(await readFile(result.sessionFile));
-        const commit = await commitSessionTranscript(leaseClient, {
-          stepId: step.id,
-          attempt,
-          baseSegment: sessionBaseSegment,
-          blob: transcriptBlob,
-          harness: runtimeConfig.harness,
-          model: runtimeConfig.model,
-          provider: runtimeConfig.provider_id,
-          sdkVersion: 'pi-coding-agent',
-          ...(result.sessionId === undefined ? {} : {harnessSessionId: result.sessionId}),
-          signal,
-        });
-        if (commit.status === 'conflict') {
-          throw new Error(
-            `Session transcript commit conflict at head segment ${commit.headSegment}`,
-          );
-        }
-      }
-      return {
-        result: maskAgentResult(
-          result,
-          buildSecretVariants([...agentSecrets, ...subscribedSecrets, ...secrets]),
-        ),
-        stream,
-        logOutcome: sessionStream ? undefined : 'abandoned',
-        preparedWorkspace: false,
-      };
-    }
-
-    let runSecretMaterial: RunSecretMaterial | undefined;
-    try {
-      runSecretMaterial = await loadRunSecretMaterial({step, leaseClient, attempt, signal});
-    } catch (error) {
-      return {
-        result: stepSecretsFailure(error),
-        logOutcome: 'drained',
-        preparedWorkspace: false,
-      };
-    }
-
-    // Log capture is best-effort: if the spool cannot be opened (e.g. a broken logs dir),
-    // abandon capture and run the step without a stream rather than failing the step itself.
-    let stepStream: StepLogStream | undefined;
-    const runSecrets = [
-      ...secrets,
-      ...ambientGitConfigSecrets,
-      ...(runSecretMaterial?.secretValues ?? []),
-    ];
-    const runSecretVariants = buildSecretVariants(runSecrets);
-    crashSecretVariants = runSecretVariants;
-    try {
-      stepStream = createStepLogStream({
-        logsDir,
-        stepId: step.id,
-        attempt,
-        secrets: runSecrets,
-        append,
-      });
-    } catch (error) {
-      logger().error(
-        {err: error, jobId, stepId: step.id, attempt},
-        'Failed to open log capture; running the step without it',
-      );
-    }
-    stream = stepStream;
-    runStream = stepStream;
-    registerStreamSecrets(stepStream);
-
-    let result = await executeRunStep(step, {
-      signal,
-      cwd: stepCwd,
-      workspace: cwd,
-      ...(ambientGitConfigPath ? {gitConfigGlobal: ambientGitConfigPath} : {}),
-      ...(runSecretMaterial?.secretEnv ? {secretEnv: runSecretMaterial.secretEnv} : {}),
-      ...(runSecrets.length > 0 ? {secretValues: [...runSecrets]} : {}),
-      ...(subscribeSecrets ? {subscribeSecrets} : {}),
-      onCommandStart: (metadata) => writeCommandMetadata(stepStream, metadata),
-      onOutput: (chunk, source) => stepStream?.write(chunk, source),
-    });
-    result = maskRunStepOutputs(
-      result,
-      buildSecretVariants([...runSecrets, ...subscribedSecrets, ...secrets]),
-    );
-    writeRunFailureContext(stepStream, result);
-    return {
-      result,
-      stream,
-      logOutcome: stepStream ? undefined : 'abandoned',
-      preparedWorkspace: false,
+      },
     };
+  }
+}
+
+function crashedStepExecution(params: {
+  error: unknown;
+  jobId: string;
+  step: StepDto;
+  stepLabel: string;
+  stream: LogStreamLifecycle | undefined;
+  runStream: StepLogStream | undefined;
+  secretState: StepSecretState;
+  secrets: string[];
+}): StepExecution {
+  logger().error(
+    {err: params.error, jobId: params.jobId, stepId: params.step.id},
+    `Step ${params.stepLabel} crashed before producing a result`,
+  );
+  const result: StepResult = {
+    success: false,
+    error: {
+      message: redactSecrets(
+        params.error instanceof Error ? params.error.message : String(params.error),
+        buildSecretVariants([
+          ...params.secretState.crashSecretVariants,
+          ...params.secretState.subscribedSecrets,
+          ...params.secrets,
+        ]),
+      ),
+    },
+    exit_code: null,
+  };
+  writeRunFailureContext(params.runStream, result);
+  let logOutcome: LogOutcomeDto | undefined;
+  if (!params.stream) logOutcome = params.step.type === 'setup' ? 'drained' : 'abandoned';
+  return {result, stream: params.stream, logOutcome, preparedWorkspace: false};
+}
+
+type SecretAwareStream =
+  | {
+      addSecrets?: (secrets: string[]) => void;
+      setSecrets?: (secrets: string[]) => void;
+      setRotatingSecrets?: (secrets: string[]) => void;
+    }
+  | undefined;
+
+function createStreamSecretRegistrar(params: {
+  subscribeSecrets: Parameters<typeof executeStep>[0]['subscribeSecrets'];
+  secretState: StepSecretState;
+  unsubscribeSecrets: Array<() => void>;
+}): (target: SecretAwareStream) => void {
+  return (target) => {
+    if (!target?.setSecrets && !target?.setRotatingSecrets && !target?.addSecrets) return;
+    const unsubscribe = params.subscribeSecrets?.((registeredSecrets) => {
+      params.secretState.subscribedSecrets = [
+        ...new Set([...params.secretState.subscribedSecrets, ...registeredSecrets]),
+      ];
+      if (target.setSecrets) {
+        target.setSecrets(registeredSecrets);
+        return;
+      }
+      if (target.setRotatingSecrets) {
+        target.setRotatingSecrets(registeredSecrets);
+        return;
+      }
+      target.addSecrets?.(registeredSecrets);
+    });
+    if (unsubscribe) params.unsubscribeSecrets.push(unsubscribe);
+  };
+}
+
+async function executeSetupStepBranch(params: {
+  params: Parameters<typeof executeStep>[0];
+  append: LogAppendFn;
+  onStream: (stream: StepLogStream | undefined) => void;
+  registerStreamSecrets: (stream: StepLogStream | undefined) => void;
+}): Promise<StepExecution> {
+  const input = params.params;
+  const logFailure = await runSetupPreparations(input);
+  if (logFailure) return logFailure;
+  let setupStream: StepLogStream | undefined;
+  try {
+    setupStream = createStepLogStream({
+      logsDir: input.logsDir,
+      stepId: input.step.id,
+      attempt: input.attempt,
+      secrets: input.secrets,
+      append: params.append,
+    });
   } catch (error) {
     logger().error(
-      {err: error, jobId, stepId: step.id},
-      `Step ${stepLabel} crashed before producing a result`,
+      {err: error, jobId: input.jobId, stepId: input.step.id, attempt: input.attempt},
+      'Failed to open setup log capture; running setup without it',
     );
-    const result: StepResult = {
-      success: false,
-      error: {
-        message: redactSecrets(
-          error instanceof Error ? error.message : String(error),
-          buildSecretVariants([...crashSecretVariants, ...subscribedSecrets, ...secrets]),
-        ),
-      },
-      exit_code: null,
-    };
-    writeRunFailureContext(runStream, result);
+  }
+  params.onStream(setupStream);
+  params.registerStreamSecrets(setupStream);
+  const setup = await executeSetupStep({
+    cwd: input.cwd,
+    gitConfigPath: input.gitConfigPath,
+    leaseClient: input.leaseClient,
+    signal: input.signal,
+    step: input.step,
+    attempt: input.attempt,
+    ...(setupStream ? {log: setupStream} : {}),
+    jobContext: input.jobContext,
+  });
+  return {
+    result: setup.result,
+    stream: setupStream,
+    logOutcome: setupStream ? undefined : 'abandoned',
+    preparedWorkspace: setup.result.success,
+    ...(setup.ambientGitConfigPath ? {ambientGitConfigPath: setup.ambientGitConfigPath} : {}),
+    ...(setup.ambientGitConfigSecrets
+      ? {ambientGitConfigSecrets: setup.ambientGitConfigSecrets}
+      : {}),
+  };
+}
+
+async function executeCheckoutStepBranch(params: {
+  params: Parameters<typeof executeStep>[0];
+  append: LogAppendFn;
+  onStream: (stream: StepLogStream | undefined) => void;
+  registerStreamSecrets: (stream: StepLogStream | undefined) => void;
+}): Promise<StepExecution> {
+  const input = params.params;
+  let checkoutStream: StepLogStream | undefined;
+  try {
+    checkoutStream = createStepLogStream({
+      logsDir: input.logsDir,
+      stepId: input.step.id,
+      attempt: input.attempt,
+      secrets: input.secrets,
+      append: params.append,
+    });
+  } catch (error) {
+    logger().error(
+      {err: error, jobId: input.jobId, stepId: input.step.id, attempt: input.attempt},
+      'Failed to open checkout log capture; running checkout without it',
+    );
+  }
+  params.onStream(checkoutStream);
+  params.registerStreamSecrets(checkoutStream);
+  const checkout = await executeCheckoutStep({
+    cwd: input.cwd,
+    gitConfigPath: input.gitConfigPath,
+    leaseClient: input.leaseClient,
+    signal: input.signal,
+    step: input.step,
+    attempt: input.attempt,
+    destinations: input.checkoutDestinations ?? new Map(),
+    ...(checkoutStream ? {log: checkoutStream} : {}),
+  });
+  return {
+    result: checkout.result,
+    stream: checkoutStream,
+    logOutcome: checkoutStream ? undefined : 'abandoned',
+    preparedWorkspace: false,
+    ...(checkout.ambientGitConfigPath ? {ambientGitConfigPath: checkout.ambientGitConfigPath} : {}),
+    ...(checkout.ambientGitConfigSecrets
+      ? {ambientGitConfigSecrets: checkout.ambientGitConfigSecrets}
+      : {}),
+  };
+}
+
+interface StepSecretState {
+  subscribedSecrets: string[];
+  crashSecretVariants: string[];
+}
+
+async function executeAgentStepBranch(params: {
+  params: Parameters<typeof executeStep>[0];
+  stepCwd: string;
+  append: LogAppendFn;
+  onStream: (stream: SessionLogStream | undefined) => void;
+  registerStreamSecrets: (stream: SessionLogStream | undefined) => void;
+  secretState: StepSecretState;
+}): Promise<StepExecution> {
+  const input = params.params;
+  let runtimeConfig: Awaited<ReturnType<typeof requestAgentRuntimeConfig>>;
+  try {
+    runtimeConfig = await requestAgentRuntimeConfig(input.leaseClient, {
+      stepId: input.step.id,
+      attempt: input.attempt,
+      signal: input.signal,
+    });
+  } catch (error) {
     return {
-      result,
-      stream,
-      logOutcome: stream ? undefined : step.type === 'setup' ? 'drained' : 'abandoned',
+      result: agentRuntimeConfigFailure(error),
+      logOutcome: 'drained',
       preparedWorkspace: false,
     };
-  } finally {
-    for (const unsubscribe of unsubscribeSecrets) unsubscribe();
-    runStream?.writeGroupEnd();
+  }
+  const session = await prepareAgentSession(input, runtimeConfig);
+  const runtimeSecretValues = [
+    ...Object.values(runtimeConfig.credentials),
+    ...(runtimeConfig.claude !== undefined ? [runtimeConfig.claude.auth_token] : []),
+  ];
+  const agentSecrets = [...input.secrets, ...runtimeSecretValues];
+  params.secretState.crashSecretVariants = buildSecretVariants(agentSecrets);
+  const sessionStream = createAgentSessionLogStream(input, agentSecrets, params.append);
+  params.onStream(sessionStream);
+  params.registerStreamSecrets(sessionStream);
+  const {executeAgentStep} = await loadRunnerAgentStep();
+  const result = await executeAgentStep(input.step, {
+    signal: input.signal,
+    cwd: params.stepCwd,
+    agentStateDir: input.agentStateDir,
+    ...(session.file === undefined ? {} : {sessionFile: session.file}),
+    ...(runtimeConfig.session === undefined ? {} : {sessionMode: runtimeConfig.session.mode}),
+    ...(input.ambientGitConfigPath ? {gitConfigGlobal: input.ambientGitConfigPath} : {}),
+    runtime: {
+      harness: runtimeConfig.harness,
+      provider: runtimeConfig.provider_id,
+      model: runtimeConfig.model,
+      thinking: runtimeConfig.thinking,
+      credentials: runtimeConfig.credentials,
+      ...(runtimeConfig.custom_provider ? {custom_provider: runtimeConfig.custom_provider} : {}),
+      ...(runtimeConfig.claude !== undefined ? {claude: runtimeConfig.claude} : {}),
+    },
+    leaseToken: input.leaseToken,
+    integrationToolsGatewayUrl: integrationToolsGatewayUrl(),
+    ...(sessionStream ? {onSessionEntry: (line: string) => sessionStream.writeEntry(line)} : {}),
+  });
+  await commitAgentSession(input, runtimeConfig, session, result);
+  return {
+    result: maskAgentResult(
+      result,
+      buildSecretVariants([
+        ...agentSecrets,
+        ...params.secretState.subscribedSecrets,
+        ...input.secrets,
+      ]),
+    ),
+    stream: sessionStream,
+    logOutcome: sessionStream ? undefined : 'abandoned',
+    preparedWorkspace: false,
+  };
+}
+
+interface AgentSessionState {
+  file?: string;
+  baseSegment?: number;
+}
+
+async function prepareAgentSession(
+  input: Parameters<typeof executeStep>[0],
+  runtimeConfig: Awaited<ReturnType<typeof requestAgentRuntimeConfig>>,
+): Promise<AgentSessionState> {
+  if (runtimeConfig.session === undefined) return {};
+  const transcript = await requestSessionTranscript(input.leaseClient, {
+    stepId: input.step.id,
+    attempt: input.attempt,
+    signal: input.signal,
+  });
+  if (transcript.blob === null) return {baseSegment: transcript.segment};
+  const file = `${input.agentStateDir}/agent-sessions/dispatch-session.jsonl`;
+  await mkdir(`${input.agentStateDir}/agent-sessions`, {recursive: true});
+  await writeFile(file, await gunzipAsync(transcript.blob));
+  return {file, baseSegment: transcript.segment};
+}
+
+async function commitAgentSession(
+  input: Parameters<typeof executeStep>[0],
+  runtimeConfig: Awaited<ReturnType<typeof requestAgentRuntimeConfig>>,
+  session: AgentSessionState,
+  result: Awaited<ReturnType<RunnerAgentStepModule['executeAgentStep']>>,
+): Promise<void> {
+  if (
+    runtimeConfig.session === undefined ||
+    session.baseSegment === undefined ||
+    !result.success ||
+    result.sessionFile === undefined
+  ) {
+    return;
+  }
+  const transcriptBlob = await gzipAsync(await readFile(result.sessionFile));
+  const commit = await commitSessionTranscript(input.leaseClient, {
+    stepId: input.step.id,
+    attempt: input.attempt,
+    baseSegment: session.baseSegment,
+    blob: transcriptBlob,
+    harness: runtimeConfig.harness,
+    model: runtimeConfig.model,
+    provider: runtimeConfig.provider_id,
+    sdkVersion: 'pi-coding-agent',
+    ...(result.sessionId === undefined ? {} : {harnessSessionId: result.sessionId}),
+    signal: input.signal,
+  });
+  if (commit.status === 'conflict') {
+    throw new Error(`Session transcript commit conflict at head segment ${commit.headSegment}`);
+  }
+}
+
+function createAgentSessionLogStream(
+  input: Pick<Parameters<typeof executeStep>[0], 'logsDir' | 'step' | 'attempt' | 'jobId'>,
+  secrets: string[],
+  append: LogAppendFn,
+): SessionLogStream | undefined {
+  try {
+    return createSessionLogStream({
+      logsDir: input.logsDir,
+      stepId: input.step.id,
+      attempt: input.attempt,
+      secrets,
+      append,
+    });
+  } catch (error) {
+    logger().error(
+      {err: error, jobId: input.jobId, stepId: input.step.id, attempt: input.attempt},
+      'Failed to open agent session capture; running the step without it',
+    );
+    return undefined;
+  }
+}
+
+async function executeRunStepBranch(params: {
+  params: Parameters<typeof executeStep>[0];
+  stepCwd: string;
+  append: LogAppendFn;
+  onStream: (stream: StepLogStream | undefined) => void;
+  registerStreamSecrets: (stream: StepLogStream | undefined) => void;
+  secretState: StepSecretState;
+}): Promise<StepExecution> {
+  const input = params.params;
+  let secretMaterial: RunSecretMaterial | undefined;
+  try {
+    secretMaterial = await loadRunSecretMaterial({
+      step: input.step,
+      leaseClient: input.leaseClient,
+      attempt: input.attempt,
+      signal: input.signal,
+    });
+  } catch (error) {
+    return {
+      result: stepSecretsFailure(error),
+      logOutcome: 'drained',
+      preparedWorkspace: false,
+    };
+  }
+  const runSecrets = [
+    ...input.secrets,
+    ...(input.ambientGitConfigSecrets ?? []),
+    ...(secretMaterial?.secretValues ?? []),
+  ];
+  params.secretState.crashSecretVariants = buildSecretVariants(runSecrets);
+  const stepStream = createRunStepLogStream(input, runSecrets, params.append);
+  params.onStream(stepStream);
+  params.registerStreamSecrets(stepStream);
+  let result = await executeRunStep(input.step, {
+    signal: input.signal,
+    cwd: params.stepCwd,
+    workspace: input.cwd,
+    ...(input.ambientGitConfigPath ? {gitConfigGlobal: input.ambientGitConfigPath} : {}),
+    ...(secretMaterial?.secretEnv ? {secretEnv: secretMaterial.secretEnv} : {}),
+    ...(runSecrets.length > 0 ? {secretValues: [...runSecrets]} : {}),
+    ...(input.subscribeSecrets ? {subscribeSecrets: input.subscribeSecrets} : {}),
+    onCommandStart: (metadata) => writeCommandMetadata(stepStream, metadata),
+    onOutput: (chunk, source) => stepStream?.write(chunk, source),
+  });
+  result = maskRunStepOutputs(
+    result,
+    buildSecretVariants([...runSecrets, ...params.secretState.subscribedSecrets, ...input.secrets]),
+  );
+  writeRunFailureContext(stepStream, result);
+  return {
+    result,
+    stream: stepStream,
+    logOutcome: stepStream ? undefined : 'abandoned',
+    preparedWorkspace: false,
+  };
+}
+
+function createRunStepLogStream(
+  input: Pick<Parameters<typeof executeStep>[0], 'logsDir' | 'step' | 'attempt' | 'jobId'>,
+  secrets: string[],
+  append: LogAppendFn,
+): StepLogStream | undefined {
+  try {
+    return createStepLogStream({
+      logsDir: input.logsDir,
+      stepId: input.step.id,
+      attempt: input.attempt,
+      secrets,
+      append,
+    });
+  } catch (error) {
+    logger().error(
+      {err: error, jobId: input.jobId, stepId: input.step.id, attempt: input.attempt},
+      'Failed to open log capture; running the step without it',
+    );
+    return undefined;
+  }
+}
+
+async function runSetupPreparations(
+  params: Parameters<typeof executeStep>[0],
+): Promise<StepExecution | undefined> {
+  const logsFailure = await runSetupPreparation(
+    params,
+    params.prepareLogs,
+    'workspace_prep_failed',
+  );
+  if (logsFailure) return logsFailure;
+  return runSetupPreparation(params, params.prepareAgentState, 'agent_harness_unavailable');
+}
+
+async function runSetupPreparation(
+  params: Pick<Parameters<typeof executeStep>[0], 'jobId' | 'step' | 'attempt'>,
+  prepare: (() => Promise<void>) | undefined,
+  reason: 'workspace_prep_failed' | 'agent_harness_unavailable',
+): Promise<StepExecution | undefined> {
+  if (!prepare) return undefined;
+  try {
+    await prepare();
+    return undefined;
+  } catch (error) {
+    const result = setupPreparationFailure(error, reason);
+    logger().warn(
+      {
+        err: error,
+        jobId: params.jobId,
+        stepId: params.step.id,
+        attempt: params.attempt,
+        reason: result.error?.reason,
+      },
+      'Setup step failed',
+    );
+    return {result, logOutcome: 'abandoned', preparedWorkspace: false};
   }
 }
 

@@ -56,31 +56,12 @@ export async function resolveRuntimeCredentials(
 ): Promise<AgentRuntimeCredentialsResponseDto> {
   const runtimeConfig = options?.runtimeConfig ?? config;
   const configuredWorkspaceProviders = options?.workspaceProviders ?? workspaceProvidersPolicy;
-  const secrets = options?.secrets;
   const managedProvider = options?.managedProvider;
-  if (managedProvider?.id === params.provider) {
-    const managedRuntimeConfig = await managedProvider.resolveCredentials({
-      workspaceId: params.workspaceId,
-      runId: params.runId,
-      stepAttemptId: params.stepAttemptId,
-      model: params.model,
-    });
-    agentRuntimeConfigResolvedCount.add(1, {source: 'instance', outcome: 'resolved'});
-    return toResponse(params, managedRuntimeConfig.credentials, undefined, {
-      provider: managedProvider,
-      runtimeConfig: managedRuntimeConfig,
-    });
-  }
+  const managedResponse = await resolveManagedCredentials(params, managedProvider);
+  if (managedResponse !== undefined) return managedResponse;
 
   if (configuredWorkspaceProviders === 'disabled') {
-    agentRuntimeConfigResolvedCount.add(1, {
-      source: params.provider === runtimeConfig.AGENT_DEFAULT_PROVIDER ? 'instance' : 'workspace',
-      outcome: 'unavailable',
-    });
-    if (managedProvider !== undefined) {
-      throw new WorkspaceProvidersDisabledError(managedProvider.id);
-    }
-    throw new ModelProviderConfigNotFoundError(params.workspaceId, params.provider);
+    throwWorkspaceProviderUnavailable(params, runtimeConfig, managedProvider);
   }
 
   const providerConfig = await getModelProviderConfig({
@@ -88,44 +69,8 @@ export async function resolveRuntimeCredentials(
     providerId: params.provider,
   });
 
-  if (providerConfig) {
-    try {
-      const values = options?.getCredentialBag
-        ? await options.getCredentialBag({
-            workspaceId: params.workspaceId,
-            namespace: agentSystemNamespace(params.provider),
-          })
-        : (
-            await requireAgentSecretsClient(secrets).getSecretsByNamespace({
-              workspaceId: params.workspaceId,
-              namespace: agentSystemNamespace(params.provider),
-            })
-          ).values;
-      if (providerConfig.kind === 'custom') {
-        const credentials = storeValuesToCustomRuntimeCredentials(values);
-        agentRuntimeConfigResolvedCount.add(1, {source: 'workspace', outcome: 'resolved'});
-        return toResponse(params, credentials, providerConfig);
-      }
-
-      const providerId = params.provider as SupportedModelProviderId;
-      const credentials = storeValuesToRuntimeCredentials(providerId, values);
-      if (!modelProviderCredentialKeysMatch(providerId, credentials)) {
-        throw new ModelProviderConfigNotFoundError(params.workspaceId, params.provider);
-      }
-      agentRuntimeConfigResolvedCount.add(1, {source: 'workspace', outcome: 'resolved'});
-      return toResponse(params, credentials, providerConfig);
-    } catch (error) {
-      if (
-        isInterModuleKnownError(secretsInterModuleContract.methods.getSecretsByNamespace, error)
-      ) {
-        agentRuntimeConfigResolvedCount.add(1, {
-          source: 'workspace',
-          outcome: 'decryption_failed',
-        });
-      }
-      throw error;
-    }
-  }
+  const workspaceResponse = await resolveWorkspaceCredentials(params, providerConfig, options);
+  if (workspaceResponse !== undefined) return workspaceResponse;
 
   const instanceCredentials = instanceFallbackCredentials(params.provider, runtimeConfig);
   if (instanceCredentials) {
@@ -138,6 +83,90 @@ export async function resolveRuntimeCredentials(
     outcome: 'unavailable',
   });
   throw new ModelProviderConfigNotFoundError(params.workspaceId, params.provider);
+}
+
+async function resolveManagedCredentials(
+  params: ResolveRuntimeCredentialsParams,
+  managedProvider: ManagedModelProvider | undefined,
+): Promise<AgentRuntimeCredentialsResponseDto | undefined> {
+  if (managedProvider?.id !== params.provider) return undefined;
+  const managedRuntimeConfig = await managedProvider.resolveCredentials({
+    workspaceId: params.workspaceId,
+    runId: params.runId,
+    stepAttemptId: params.stepAttemptId,
+    model: params.model,
+  });
+  agentRuntimeConfigResolvedCount.add(1, {source: 'instance', outcome: 'resolved'});
+  return toResponse(params, managedRuntimeConfig.credentials, undefined, {
+    provider: managedProvider,
+    runtimeConfig: managedRuntimeConfig,
+  });
+}
+
+function throwWorkspaceProviderUnavailable(
+  params: ResolveRuntimeCredentialsParams,
+  runtimeConfig: RuntimeCredentialsConfig,
+  managedProvider: ManagedModelProvider | undefined,
+): never {
+  agentRuntimeConfigResolvedCount.add(1, {
+    source: params.provider === runtimeConfig.AGENT_DEFAULT_PROVIDER ? 'instance' : 'workspace',
+    outcome: 'unavailable',
+  });
+  if (managedProvider !== undefined) throw new WorkspaceProvidersDisabledError(managedProvider.id);
+  throw new ModelProviderConfigNotFoundError(params.workspaceId, params.provider);
+}
+
+async function readWorkspaceCredentialValues(
+  params: ResolveRuntimeCredentialsParams,
+  options: ResolveRuntimeCredentialsOptions | undefined,
+): Promise<Record<string, string>> {
+  if (options?.getCredentialBag) {
+    return await options.getCredentialBag({
+      workspaceId: params.workspaceId,
+      namespace: agentSystemNamespace(params.provider),
+    });
+  }
+  return (
+    await requireAgentSecretsClient(options?.secrets).getSecretsByNamespace({
+      workspaceId: params.workspaceId,
+      namespace: agentSystemNamespace(params.provider),
+    })
+  ).values;
+}
+
+function workspaceCredentialsResponse(
+  params: ResolveRuntimeCredentialsParams,
+  providerConfig: ModelProviderConfig,
+  values: Record<string, string>,
+): AgentRuntimeCredentialsResponseDto {
+  if (providerConfig.kind === 'custom') {
+    return toResponse(params, storeValuesToCustomRuntimeCredentials(values), providerConfig);
+  }
+  const providerId = params.provider as SupportedModelProviderId;
+  const credentials = storeValuesToRuntimeCredentials(providerId, values);
+  if (!modelProviderCredentialKeysMatch(providerId, credentials)) {
+    throw new ModelProviderConfigNotFoundError(params.workspaceId, params.provider);
+  }
+  return toResponse(params, credentials, providerConfig);
+}
+
+async function resolveWorkspaceCredentials(
+  params: ResolveRuntimeCredentialsParams,
+  providerConfig: ModelProviderConfig | undefined,
+  options: ResolveRuntimeCredentialsOptions | undefined,
+): Promise<AgentRuntimeCredentialsResponseDto | undefined> {
+  if (!providerConfig) return undefined;
+  try {
+    const values = await readWorkspaceCredentialValues(params, options);
+    const response = workspaceCredentialsResponse(params, providerConfig, values);
+    agentRuntimeConfigResolvedCount.add(1, {source: 'workspace', outcome: 'resolved'});
+    return response;
+  } catch (error) {
+    if (isInterModuleKnownError(secretsInterModuleContract.methods.getSecretsByNamespace, error)) {
+      agentRuntimeConfigResolvedCount.add(1, {source: 'workspace', outcome: 'decryption_failed'});
+    }
+    throw error;
+  }
 }
 
 export function getInstanceDefaultModelProviderApiKeyField(
@@ -187,47 +216,60 @@ function toResponse(
     credentials,
   };
 
-  if (providerConfig?.kind === 'custom') {
-    response.custom_provider = {
-      api: providerConfig.api ?? 'openai-responses',
-      base_url: providerConfig.baseUrl ?? '',
-      headers: providerConfig.headers ?? [],
-      secret_header_names: Object.keys(credentials)
-        .filter((key) => key.startsWith('header:'))
-        .map((key) => key.slice('header:'.length))
-        .sort(),
-      models: providerConfig.models ?? [],
-      requires_api_key: providerConfig.requiresApiKey,
-    };
-  }
-
-  if (managed !== undefined) {
-    const modelDescriptor = toCustomAgentModelDto(
-      managedModel ?? {id: params.model, label: params.model},
-    );
-    const clientApi =
-      params.harness === 'claude' ? 'anthropic-messages' : managed.runtimeConfig.api;
-
-    if (params.harness === 'pi') {
-      response.custom_provider = {
-        api: managed.runtimeConfig.api,
-        base_url: managedProviderAdapterBaseUrl(clientApi, managed.runtimeConfig.baseUrl),
-        headers: [],
-        secret_header_names: [],
-        models: [modelDescriptor],
-        requires_api_key: true,
-      };
-    } else {
-      const authToken = managed.runtimeConfig.credentials.api_key;
-      if (authToken === undefined) {
-        throw new ModelProviderConfigNotFoundError(params.workspaceId, params.provider);
-      }
-      response.claude = {
-        base_url: managedProviderAdapterBaseUrl(clientApi, managed.runtimeConfig.baseUrl),
-        auth_token: authToken,
-      };
-    }
-  }
-
+  appendCustomProviderResponse(response, providerConfig, credentials);
+  appendManagedProviderResponse(response, params, managed, managedModel);
   return response;
+}
+
+function appendCustomProviderResponse(
+  response: AgentRuntimeCredentialsResponseDto,
+  providerConfig: ModelProviderConfig | undefined,
+  credentials: Record<string, string>,
+): void {
+  if (providerConfig?.kind !== 'custom') return;
+  response.custom_provider = {
+    api: providerConfig.api ?? 'openai-responses',
+    base_url: providerConfig.baseUrl ?? '',
+    headers: providerConfig.headers ?? [],
+    secret_header_names: Object.keys(credentials)
+      .filter((key) => key.startsWith('header:'))
+      .map((key) => key.slice('header:'.length))
+      .sort(),
+    models: providerConfig.models ?? [],
+    requires_api_key: providerConfig.requiresApiKey,
+  };
+}
+
+function appendManagedProviderResponse(
+  response: AgentRuntimeCredentialsResponseDto,
+  params: ResolveRuntimeCredentialsParams,
+  managed:
+    | {provider: ManagedModelProvider; runtimeConfig: ManagedProviderRuntimeConfig}
+    | undefined,
+  managedModel: ManagedModelProvider['models'][number] | undefined,
+): void {
+  if (managed === undefined) return;
+  const modelDescriptor = toCustomAgentModelDto(
+    managedModel ?? {id: params.model, label: params.model},
+  );
+  const clientApi = params.harness === 'claude' ? 'anthropic-messages' : managed.runtimeConfig.api;
+  if (params.harness === 'pi') {
+    response.custom_provider = {
+      api: managed.runtimeConfig.api,
+      base_url: managedProviderAdapterBaseUrl(clientApi, managed.runtimeConfig.baseUrl),
+      headers: [],
+      secret_header_names: [],
+      models: [modelDescriptor],
+      requires_api_key: true,
+    };
+    return;
+  }
+  const authToken = managed.runtimeConfig.credentials.api_key;
+  if (authToken === undefined) {
+    throw new ModelProviderConfigNotFoundError(params.workspaceId, params.provider);
+  }
+  response.claude = {
+    base_url: managedProviderAdapterBaseUrl(clientApi, managed.runtimeConfig.baseUrl),
+    auth_token: authToken,
+  };
 }

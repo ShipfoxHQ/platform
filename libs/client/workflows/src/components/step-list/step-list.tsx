@@ -127,13 +127,11 @@ function StepListContent({
   className,
 }: Omit<StepListProps, 'job' | 'jobExecution'> & {model: StepListModel}) {
   const titleId = useId();
-  const [localSelectedAttemptIds, setLocalSelectedAttemptIds] = useState<string[]>(() =>
-    selectedAttemptId
-      ? [selectedAttemptId]
-      : defaultSelectedAttemptId
-        ? [defaultSelectedAttemptId]
-        : [],
-  );
+  const [localSelectedAttemptIds, setLocalSelectedAttemptIds] = useState<string[]>(() => {
+    if (selectedAttemptId) return [selectedAttemptId];
+    if (defaultSelectedAttemptId) return [defaultSelectedAttemptId];
+    return [];
+  });
   const [userSelectedAttempt, setUserSelectedAttempt] = useState(false);
   const lastNotifiedSelectedAttemptId = useRef<string | null>(null);
   const autoSelectedAttemptIdRef = useRef<string | undefined>(undefined);
@@ -149,15 +147,11 @@ function StepListContent({
     () => (autoSelectedAttemptId ? [autoSelectedAttemptId] : []),
     [autoSelectedAttemptId],
   );
-  const selectedAttemptIds = useMemo(
-    () =>
-      shouldUseControlledCollapsedState
-        ? []
-        : localSelectedAttemptIds.length > 0
-          ? localSelectedAttemptIds
-          : autoSelectedAttemptIds,
-    [autoSelectedAttemptIds, localSelectedAttemptIds, shouldUseControlledCollapsedState],
-  );
+  const selectedAttemptIds = useMemo(() => {
+    if (shouldUseControlledCollapsedState) return [];
+    if (localSelectedAttemptIds.length > 0) return localSelectedAttemptIds;
+    return autoSelectedAttemptIds;
+  }, [autoSelectedAttemptIds, localSelectedAttemptIds, shouldUseControlledCollapsedState]);
   const hasExpandedContent = renderExpandedStep !== undefined;
 
   useEffect(() => {
@@ -274,13 +268,11 @@ function StepListContent({
                     hasExpandedContent={hasExpandedContent}
                     isLast={index === model.entries.length - 1}
                     onSelect={() => {
-                      selectAttempt(
-                        hasExpandedContent
-                          ? toggleAttemptId(selectedAttemptIds, entry.id)
-                          : selected
-                            ? []
-                            : [entry.id],
-                      );
+                      if (hasExpandedContent) {
+                        selectAttempt(toggleAttemptId(selectedAttemptIds, entry.id));
+                      } else {
+                        selectAttempt(selected ? [] : [entry.id]);
+                      }
                     }}
                     onInspect={
                       onInspectorOpenChange && !entry.carriedOver

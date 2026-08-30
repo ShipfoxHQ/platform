@@ -5,6 +5,7 @@ import {buildShellCommand, log} from '@shipfox/tool-utils';
 import {setupContext} from './turbo.js';
 
 const DEFAULT_PLATFORMS = 'linux/amd64,linux/arm64';
+const WHITESPACE_PATTERN = /\s+/;
 
 // Matches the :tag / @digest suffix of an image reference's final path segment.
 const TAG_OR_DIGEST_SUFFIX = /[:@].*$/;
@@ -83,7 +84,7 @@ function movingTag(refName: string): string {
 // by name (not a prefix scan of the environment), so a stray credential variable is
 // never mistaken for a registry base and logged. None set is the PR validation path.
 function readRegistries(): string[] {
-  return (process.env.IMAGE_REGISTRIES ?? '').split(/\s+/).filter(Boolean);
+  return (process.env.IMAGE_REGISTRIES ?? '').split(WHITESPACE_PATTERN).filter(Boolean);
 }
 
 // Derive the per-commit tag set from the registry bases plus the GITHUB_SHA /
@@ -141,8 +142,12 @@ if (!hasFlag('--platform'))
 
 // A multi-platform build cannot `--load`, so default to pushing; local validation
 // loads its single-arch image, while CI validation avoids the tar export/import.
-if (!hasFlag('--push', '--load', '--output', '-o'))
-  args.push(ciValidateOnly ? '--output=type=cacheonly' : validateOnly ? '--load' : '--push');
+if (!hasFlag('--push', '--load', '--output', '-o')) {
+  let outputFlag = '--push';
+  if (ciValidateOnly) outputFlag = '--output=type=cacheonly';
+  else if (validateOnly) outputFlag = '--load';
+  args.push(outputFlag);
+}
 
 // Tags: an explicit --tag wins; otherwise derive the per-commit set from --image.
 // CI cache-only validation has no image output for BuildKit to tag.

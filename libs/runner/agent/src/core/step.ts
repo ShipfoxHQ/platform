@@ -197,39 +197,50 @@ async function runSelectedHarness(params: {
       }),
       signal,
     );
-    return {
-      success: true,
-      response: harnessResult.response ?? '',
-      ...(harnessResult.outputs === undefined ? {} : {outputs: harnessResult.outputs}),
-      ...(sessionMode === 'fork' || harnessResult.sessionFile === undefined
-        ? {}
-        : {sessionFile: harnessResult.sessionFile}),
-      ...(sessionMode === 'fork' || harnessResult.sessionId === undefined
-        ? {}
-        : {sessionId: harnessResult.sessionId}),
-      error: null,
-      exit_code: 0,
-    };
+    return successfulHarnessResult(harnessResult, sessionMode);
   } catch (error) {
-    if (error instanceof AgentHarnessUnavailableError) {
-      logHarnessUnavailable({error, harness, jobExecutionId, stepId, attempt});
-    }
-    if (error instanceof AgentPermissionModeError) {
-      logPermissionModeDowngraded({error, harness, jobExecutionId, stepId, attempt});
-    }
-    const reason: StepErrorReasonDto =
-      error instanceof AgentHarnessUnavailableError
-        ? 'agent_harness_unavailable'
-        : error instanceof AgentConfigError
-          ? 'agent_config_invalid'
-          : 'agent_invocation_failed';
-    return agentFailure(
-      error instanceof Error ? error.message : String(error),
-      reason,
-      error instanceof AgentConfigError ? error.agentConfigIssue : undefined,
-      error instanceof AgentInvocationError ? error.response : undefined,
-    );
+    return harnessFailureResult(error, {harness, jobExecutionId, stepId, attempt});
   }
+}
+
+function successfulHarnessResult(
+  harnessResult: Awaited<ReturnType<HarnessAdapter['run']>>,
+  sessionMode: 'resume' | 'fork' | undefined,
+): StepResult {
+  return {
+    success: true,
+    response: harnessResult.response ?? '',
+    ...(harnessResult.outputs === undefined ? {} : {outputs: harnessResult.outputs}),
+    ...(sessionMode === 'fork' || harnessResult.sessionFile === undefined
+      ? {}
+      : {sessionFile: harnessResult.sessionFile}),
+    ...(sessionMode === 'fork' || harnessResult.sessionId === undefined
+      ? {}
+      : {sessionId: harnessResult.sessionId}),
+    error: null,
+    exit_code: 0,
+  };
+}
+
+function harnessFailureResult(
+  error: unknown,
+  context: {harness: Harness; jobExecutionId: string; stepId: string; attempt: number},
+): StepResult {
+  if (error instanceof AgentHarnessUnavailableError) {
+    logHarnessUnavailable({error, ...context});
+  }
+  if (error instanceof AgentPermissionModeError) {
+    logPermissionModeDowngraded({error, ...context});
+  }
+  let reason: StepErrorReasonDto = 'agent_invocation_failed';
+  if (error instanceof AgentHarnessUnavailableError) reason = 'agent_harness_unavailable';
+  else if (error instanceof AgentConfigError) reason = 'agent_config_invalid';
+  return agentFailure(
+    error instanceof Error ? error.message : String(error),
+    reason,
+    error instanceof AgentConfigError ? error.agentConfigIssue : undefined,
+    error instanceof AgentInvocationError ? error.response : undefined,
+  );
 }
 
 function logPermissionModeDowngraded(params: {

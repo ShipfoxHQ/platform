@@ -272,152 +272,108 @@ function dollarQuoteDelimiterAt(source: string, offset: number): string | undefi
 
 function statementEnd(source: string, offset: number): number {
   let cursor = offset;
-  let inSingleQuote = false;
-  let inDoubleQuote = false;
   while (cursor < source.length) {
-    const character = source[cursor];
-    if (inSingleQuote) {
-      if (character === '\\') {
-        cursor += 2;
-        continue;
-      }
-      if (character === "'") {
-        if (source[cursor + 1] === "'") {
-          cursor += 2;
-          continue;
-        }
-        inSingleQuote = false;
-      }
-      cursor += 1;
-      continue;
-    }
-    if (inDoubleQuote) {
-      if (character === '"') {
-        if (source[cursor + 1] === '"') {
-          cursor += 2;
-          continue;
-        }
-        inDoubleQuote = false;
-      }
-      cursor += 1;
-      continue;
-    }
-    if (character === "'") {
-      inSingleQuote = true;
-      cursor += 1;
-      continue;
-    }
-    if (character === '"') {
-      inDoubleQuote = true;
-      cursor += 1;
-      continue;
-    }
-    if (character === '-' && source[cursor + 1] === '-') {
-      const lineEnd = source.indexOf('\n', cursor + 2);
-      cursor = lineEnd === -1 ? source.length : lineEnd + 1;
-      continue;
-    }
-    if (character === '/' && source[cursor + 1] === '*') {
-      const commentEnd = source.indexOf('*/', cursor + 2);
-      cursor = commentEnd === -1 ? source.length : commentEnd + 2;
-      continue;
-    }
-    if (
-      character === '$' &&
-      (cursor === 0 || !identifierPartExpression.test(source[cursor - 1] ?? ''))
-    ) {
-      const delimiter = dollarQuoteDelimiterAt(source, cursor);
-      if (delimiter) {
-        const quoteEnd = source.indexOf(delimiter, cursor + delimiter.length);
-        cursor = quoteEnd === -1 ? source.length : quoteEnd + delimiter.length;
-        continue;
-      }
-    }
-    if (character === ';') return cursor;
-    cursor += 1;
+    const scan = scanStatementCharacter(source, cursor);
+    if (scan.statementEnd !== undefined) return scan.statementEnd;
+    cursor = scan.nextCursor;
   }
   return source.length;
 }
 
+interface StatementScanResult {
+  nextCursor: number;
+  statementEnd?: number;
+}
+
+function scanStatementCharacter(source: string, cursor: number): StatementScanResult {
+  const character = source[cursor];
+  if (character === "'") return {nextCursor: quotedSqlEnd(source, cursor, "'", true)};
+  if (character === '"') return {nextCursor: quotedSqlEnd(source, cursor, '"', false)};
+  if (character === '-' && source[cursor + 1] === '-') {
+    const lineEnd = source.indexOf('\n', cursor + 2);
+    return {nextCursor: lineEnd === -1 ? source.length : lineEnd + 1};
+  }
+  if (character === '/' && source[cursor + 1] === '*') {
+    const commentEnd = source.indexOf('*/', cursor + 2);
+    return {nextCursor: commentEnd === -1 ? source.length : commentEnd + 2};
+  }
+  const delimiter = statementDollarQuoteDelimiter(source, cursor);
+  if (delimiter) {
+    const quoteEnd = source.indexOf(delimiter, cursor + delimiter.length);
+    return {nextCursor: quoteEnd === -1 ? source.length : quoteEnd + delimiter.length};
+  }
+  if (character === ';') return {nextCursor: cursor, statementEnd: cursor};
+  return {nextCursor: cursor + 1};
+}
+
+function statementDollarQuoteDelimiter(source: string, cursor: number): string | undefined {
+  if (source[cursor] !== '$') return undefined;
+  if (cursor > 0 && identifierPartExpression.test(source[cursor - 1] ?? '')) return undefined;
+  return dollarQuoteDelimiterAt(source, cursor);
+}
+
+function quotedSqlEnd(
+  source: string,
+  start: number,
+  quote: string,
+  allowsBackslash: boolean,
+): number {
+  let cursor = start + 1;
+  while (cursor < source.length) {
+    if (allowsBackslash && source[cursor] === '\\') {
+      cursor += 2;
+      continue;
+    }
+    if (source[cursor] !== quote) {
+      cursor += 1;
+      continue;
+    }
+    if (source[cursor + 1] === quote) {
+      cursor += 2;
+      continue;
+    }
+    return cursor + 1;
+  }
+  return source.length;
+}
+
+function blankCharacters(characters: string[], start: number, end: number): void {
+  for (let index = start; index < end; index += 1) {
+    if (characters[index] !== '\n' && characters[index] !== '\r') characters[index] = ' ';
+  }
+}
+
 function maskSqlForStatements(source: string): string {
   const characters = source.split('');
-  const blank = (start: number, end: number): void => {
-    for (let index = start; index < end; index += 1) {
-      if (characters[index] !== '\n' && characters[index] !== '\r') characters[index] = ' ';
-    }
-  };
-
   let cursor = 0;
   while (cursor < source.length) {
-    const character = source[cursor];
-    if (character === '-' && source[cursor + 1] === '-') {
-      const lineEnd = source.indexOf('\n', cursor + 2);
-      const end = lineEnd === -1 ? source.length : lineEnd;
-      blank(cursor, end);
-      cursor = end;
-      continue;
-    }
-    if (character === '/' && source[cursor + 1] === '*') {
-      const commentEnd = source.indexOf('*/', cursor + 2);
-      const end = commentEnd === -1 ? source.length : commentEnd + 2;
-      blank(cursor, end);
-      cursor = end;
-      continue;
-    }
-    if (character === "'") {
-      const start = cursor;
+    const end = maskedSqlRegionEnd(source, cursor);
+    if (end === undefined) {
       cursor += 1;
-      while (cursor < source.length) {
-        if (source[cursor] === '\\') {
-          cursor += 2;
-          continue;
-        }
-        if (source[cursor] === "'") {
-          if (source[cursor + 1] === "'") {
-            cursor += 2;
-            continue;
-          }
-          cursor += 1;
-          break;
-        }
-        cursor += 1;
-      }
-      blank(start, cursor);
       continue;
     }
-    if (character === '"') {
-      const start = cursor;
-      cursor += 1;
-      while (cursor < source.length) {
-        if (source[cursor] === '"') {
-          if (source[cursor + 1] === '"') {
-            cursor += 2;
-            continue;
-          }
-          cursor += 1;
-          break;
-        }
-        cursor += 1;
-      }
-      blank(start, cursor);
-      continue;
-    }
-    if (
-      character === '$' &&
-      (cursor === 0 || !identifierPartExpression.test(source[cursor - 1] ?? ''))
-    ) {
-      const delimiter = dollarQuoteDelimiterAt(source, cursor);
-      if (delimiter) {
-        const start = cursor;
-        const quoteEnd = source.indexOf(delimiter, cursor + delimiter.length);
-        cursor = quoteEnd === -1 ? source.length : quoteEnd + delimiter.length;
-        blank(start, cursor);
-        continue;
-      }
-    }
-    cursor += 1;
+    blankCharacters(characters, cursor, end);
+    cursor = end;
   }
   return characters.join('');
+}
+
+function maskedSqlRegionEnd(source: string, cursor: number): number | undefined {
+  const character = source[cursor];
+  if (character === '-' && source[cursor + 1] === '-') {
+    const lineEnd = source.indexOf('\n', cursor + 2);
+    return lineEnd === -1 ? source.length : lineEnd;
+  }
+  if (character === '/' && source[cursor + 1] === '*') {
+    const commentEnd = source.indexOf('*/', cursor + 2);
+    return commentEnd === -1 ? source.length : commentEnd + 2;
+  }
+  if (character === "'") return quotedSqlEnd(source, cursor, "'", true);
+  if (character === '"') return quotedSqlEnd(source, cursor, '"', false);
+  const delimiter = statementDollarQuoteDelimiter(source, cursor);
+  if (!delimiter) return undefined;
+  const quoteEnd = source.indexOf(delimiter, cursor + delimiter.length);
+  return quoteEnd === -1 ? source.length : quoteEnd + delimiter.length;
 }
 
 function lineNumber(source: string, offset: number): number {
@@ -499,43 +455,13 @@ function readFromRelationReferences(
   const keywordExpression = /\bFROM\b/gi;
   let match = keywordExpression.exec(searchableStatement);
   while (match) {
-    let cursor = start + (match.index ?? 0) + match[0].length;
-    let relation = readFromRelationIdentifier(source, searchableSource, cursor);
-    if (relation) {
-      references.push({
-        schemaName: relation.schemaName ?? 'public',
-        name: relation.name,
-      });
-      cursor = relation.end;
-    }
-
-    let parenthesisDepth = 0;
-    while (relation && cursor < end) {
-      const character = searchableSource[cursor];
-      if (character === '(') {
-        parenthesisDepth += 1;
-      } else if (character === ')') {
-        if (parenthesisDepth === 0) break;
-        parenthesisDepth -= 1;
-      } else if (parenthesisDepth === 0 && character === ',') {
-        const nextRelation = readFromRelationIdentifier(source, searchableSource, cursor + 1);
-        if (!nextRelation) break;
-        references.push({
-          schemaName: nextRelation.schemaName ?? 'public',
-          name: nextRelation.name,
-        });
-        relation = nextRelation;
-        cursor = relation.end;
-        continue;
-      } else if (
-        parenthesisDepth === 0 &&
-        fromClauseBoundaryExpression.test(searchableSource.slice(cursor))
-      ) {
-        break;
-      }
-      cursor += 1;
-    }
-
+    readFromClauseReferences(
+      source,
+      searchableSource,
+      start + (match.index ?? 0) + match[0].length,
+      end,
+      references,
+    );
     match = keywordExpression.exec(searchableStatement);
   }
 
@@ -546,6 +472,54 @@ function readFromRelationReferences(
           candidate.schemaName === reference.schemaName && candidate.name === reference.name,
       ) === index,
   );
+}
+
+function addRelationReference(
+  references: ExpectedRelationReference[],
+  relation: ParsedIdentifier,
+): void {
+  references.push({schemaName: relation.schemaName ?? 'public', name: relation.name});
+}
+
+function readFromClauseReferences(
+  source: string,
+  searchableSource: string,
+  start: number,
+  end: number,
+  references: ExpectedRelationReference[],
+): void {
+  let cursor = start;
+  let relation = readFromRelationIdentifier(source, searchableSource, cursor);
+  if (!relation) return;
+  addRelationReference(references, relation);
+  cursor = relation.end;
+  let separator = nextFromRelationSeparator(searchableSource, cursor, end);
+  while (separator !== undefined) {
+    relation = readFromRelationIdentifier(source, searchableSource, separator + 1);
+    if (!relation) return;
+    addRelationReference(references, relation);
+    cursor = relation.end;
+    separator = nextFromRelationSeparator(searchableSource, cursor, end);
+  }
+}
+
+function nextFromRelationSeparator(source: string, start: number, end: number): number | undefined {
+  let cursor = start;
+  let parenthesisDepth = 0;
+  while (cursor < end) {
+    const character = source[cursor];
+    if (character === '(') parenthesisDepth += 1;
+    if (character === ')') {
+      if (parenthesisDepth === 0) return undefined;
+      parenthesisDepth -= 1;
+    }
+    if (parenthesisDepth === 0 && character === ',') return cursor;
+    if (parenthesisDepth === 0 && fromClauseBoundaryExpression.test(source.slice(cursor))) {
+      return undefined;
+    }
+    cursor += 1;
+  }
+  return undefined;
 }
 
 function addParsedStatement(
@@ -580,6 +554,43 @@ function addParsedStatement(
 function parseMigrationStatements(source: string): ParsedMigrationStatement[] {
   const statements: ParsedMigrationStatement[] = [];
   const searchableSource = maskSqlForStatements(source);
+  collectCreateStatements(source, searchableSource, statements);
+  collectDropStatements(source, searchableSource, statements);
+  const parsedConstraintOffsets = collectAlterTableConstraints(
+    source,
+    searchableSource,
+    statements,
+  );
+  collectInlineConstraints(source, searchableSource, statements, parsedConstraintOffsets);
+  attachConstraintReferences(source, searchableSource, statements);
+  return statements;
+}
+
+function normalizedStatementKind(keyword: string): ParsedMigrationStatement['kind'] {
+  if (keyword === 'materialized view') return 'view';
+  if (keyword === 'foreign table') return 'table';
+  return keyword as ParsedMigrationStatement['kind'];
+}
+
+function attachStatementRelation(
+  source: string,
+  searchableSource: string,
+  statement: ParsedMigrationStatement,
+  end: number,
+): void {
+  const onOffset = firstKeywordOffset(searchableSource, 'ON', statement.name.end, end);
+  if (onOffset === -1) return;
+  const relation = readQualifiedIdentifier(source, onOffset + 2);
+  if (!relation) return;
+  statement.relationName = relation.name;
+  if (relation.schemaName) statement.relationSchemaName = relation.schemaName;
+}
+
+function collectCreateStatements(
+  source: string,
+  searchableSource: string,
+  statements: ParsedMigrationStatement[],
+): void {
   const createExpression =
     /\bCREATE\s+(?:(?:OR\s+REPLACE|UNIQUE|CONCURRENTLY)\s+)*(MATERIALIZED\s+VIEW|FOREIGN\s+TABLE|TABLE|TYPE|INDEX|SEQUENCE|VIEW|TRIGGER)\b/gi;
   let match = createExpression.exec(searchableSource);
@@ -588,9 +599,7 @@ function parseMigrationStatements(source: string): ParsedMigrationStatement[] {
     match = createExpression.exec(searchableSource);
     const keyword = createMatch[1]?.toLowerCase();
     if (!keyword) continue;
-    let kind = keyword as ParsedMigrationStatement['kind'];
-    if (keyword === 'materialized view') kind = 'view';
-    if (keyword === 'foreign table') kind = 'table';
+    const kind = normalizedStatementKind(keyword);
     const statement = addParsedStatement(statements, source, createMatch, kind);
     if (!statement) continue;
     const end = statementEnd(source, statement.name.end);
@@ -601,28 +610,25 @@ function parseMigrationStatements(source: string): ParsedMigrationStatement[] {
       ];
       if (references.length > 0) statement.referencedRelations = references;
     } else if (kind === 'index' || kind === 'trigger') {
-      const onOffset = firstKeywordOffset(searchableSource, 'ON', statement.name.end, end);
-      if (onOffset !== -1) {
-        const relation = readQualifiedIdentifier(source, onOffset + 2);
-        if (relation) {
-          statement.relationName = relation.name;
-          if (relation.schemaName) statement.relationSchemaName = relation.schemaName;
-        }
-      }
+      attachStatementRelation(source, searchableSource, statement, end);
     }
   }
+}
 
+function collectDropStatements(
+  source: string,
+  searchableSource: string,
+  statements: ParsedMigrationStatement[],
+): void {
   const dropExpression =
     /\bDROP\s+((?:MATERIALIZED\s+VIEW|FOREIGN\s+TABLE|TABLE|TYPE|INDEX|SEQUENCE|VIEW|TRIGGER))\b/gi;
-  match = dropExpression.exec(searchableSource);
+  let match = dropExpression.exec(searchableSource);
   while (match) {
     const dropMatch = match;
     match = dropExpression.exec(searchableSource);
     const keyword = dropMatch[1]?.toLowerCase();
     if (!keyword) continue;
-    let kind = keyword as ParsedMigrationStatement['kind'];
-    if (keyword === 'materialized view') kind = 'view';
-    if (keyword === 'foreign table') kind = 'table';
+    const kind = normalizedStatementKind(keyword);
     const statement = addParsedStatement(statements, source, dropMatch, kind, 'drop');
     if (!statement) continue;
     const end = statementEnd(source, statement.name.end);
@@ -630,61 +636,81 @@ function parseMigrationStatements(source: string): ParsedMigrationStatement[] {
       statement.cascade = cascadeExpression.test(searchableSource.slice(statement.name.end, end));
     }
     if (kind === 'trigger') {
-      const onOffset = firstKeywordOffset(searchableSource, 'ON', statement.name.end, end);
-      if (onOffset !== -1) {
-        const relation = readQualifiedIdentifier(source, onOffset + 2);
-        if (relation) {
-          statement.relationName = relation.name;
-          if (relation.schemaName) statement.relationSchemaName = relation.schemaName;
-        }
-      }
+      attachStatementRelation(source, searchableSource, statement, end);
     }
   }
+}
 
+function collectAlterTableConstraints(
+  source: string,
+  searchableSource: string,
+  statements: ParsedMigrationStatement[],
+): Set<number> {
   const alterExpression = /\bALTER\s+TABLE\b/gi;
   const parsedConstraintOffsets = new Set<number>();
-  match = alterExpression.exec(searchableSource);
+  let match = alterExpression.exec(searchableSource);
   while (match) {
     const alterMatch = match;
     match = alterExpression.exec(searchableSource);
-    const tableOffset = skipWhitespace(source, (alterMatch.index ?? 0) + alterMatch[0].length);
-    const afterIfExists = ifExistsExpression.exec(searchableSource.slice(tableOffset));
-    const table = readQualifiedIdentifier(
+    const constraintOffset = collectAlterTableConstraint(
       source,
-      afterIfExists ? tableOffset + afterIfExists[0].length : tableOffset,
+      searchableSource,
+      statements,
+      alterMatch,
     );
-    if (!table) continue;
-    const end = statementEnd(source, table.end);
-    const constraintOffset = firstKeywordOffset(searchableSource, 'CONSTRAINT', table.end, end);
-    if (constraintOffset === -1) continue;
-    const isDroppingConstraint = dropConstraintExpression.test(
-      searchableSource.slice(table.end, end),
-    );
-    const constraintNameOffset = skipWhitespace(source, constraintOffset + 'CONSTRAINT'.length);
-    const afterConstraintIfExists = isDroppingConstraint
-      ? ifExistsExpression.exec(searchableSource.slice(constraintNameOffset))
-      : undefined;
-    const constraint = readIdentifier(
-      source,
-      afterConstraintIfExists
-        ? constraintNameOffset + afterConstraintIfExists[0].length
-        : constraintNameOffset,
-    );
-    if (!constraint) continue;
-    const operation: ParsedMigrationStatement['operation'] = isDroppingConstraint
-      ? 'drop'
-      : 'create';
-    statements.push({
-      operation,
-      kind: 'constraint',
-      name: constraint,
-      relationName: table.name,
-      ...(table.schemaName ? {relationSchemaName: table.schemaName} : {}),
-      start: alterMatch.index ?? 0,
-    });
-    parsedConstraintOffsets.add(constraintOffset);
+    if (constraintOffset !== undefined) parsedConstraintOffsets.add(constraintOffset);
   }
+  return parsedConstraintOffsets;
+}
 
+function collectAlterTableConstraint(
+  source: string,
+  searchableSource: string,
+  statements: ParsedMigrationStatement[],
+  alterMatch: RegExpExecArray,
+): number | undefined {
+  const tableOffset = skipWhitespace(source, (alterMatch.index ?? 0) + alterMatch[0].length);
+  const afterIfExists = ifExistsExpression.exec(searchableSource.slice(tableOffset));
+  const table = readQualifiedIdentifier(
+    source,
+    afterIfExists ? tableOffset + afterIfExists[0].length : tableOffset,
+  );
+  if (!table) return undefined;
+  const end = statementEnd(source, table.end);
+  const constraintOffset = firstKeywordOffset(searchableSource, 'CONSTRAINT', table.end, end);
+  if (constraintOffset === -1) return undefined;
+  const isDroppingConstraint = dropConstraintExpression.test(
+    searchableSource.slice(table.end, end),
+  );
+  const constraintNameOffset = skipWhitespace(source, constraintOffset + 'CONSTRAINT'.length);
+  const afterConstraintIfExists = isDroppingConstraint
+    ? ifExistsExpression.exec(searchableSource.slice(constraintNameOffset))
+    : undefined;
+  const constraint = readIdentifier(
+    source,
+    afterConstraintIfExists
+      ? constraintNameOffset + afterConstraintIfExists[0].length
+      : constraintNameOffset,
+  );
+  if (!constraint) return undefined;
+  const operation: ParsedMigrationStatement['operation'] = isDroppingConstraint ? 'drop' : 'create';
+  statements.push({
+    operation,
+    kind: 'constraint',
+    name: constraint,
+    relationName: table.name,
+    ...(table.schemaName ? {relationSchemaName: table.schemaName} : {}),
+    start: alterMatch.index ?? 0,
+  });
+  return constraintOffset;
+}
+
+function collectInlineConstraints(
+  source: string,
+  searchableSource: string,
+  statements: ParsedMigrationStatement[],
+  parsedConstraintOffsets: ReadonlySet<number>,
+): void {
   const tableRanges: ParsedTableRange[] = statements
     .filter((statement) => statement.kind === 'table')
     .map((statement) => ({
@@ -694,7 +720,7 @@ function parseMigrationStatements(source: string): ParsedMigrationStatement[] {
       name: statement.name.name,
     }));
   const constraintExpression = /\bCONSTRAINT\b/gi;
-  match = constraintExpression.exec(searchableSource);
+  let match = constraintExpression.exec(searchableSource);
   while (match) {
     const constraintMatch = match;
     match = constraintExpression.exec(searchableSource);
@@ -715,7 +741,13 @@ function parseMigrationStatements(source: string): ParsedMigrationStatement[] {
       start: constraintMatch.index ?? 0,
     });
   }
+}
 
+function attachConstraintReferences(
+  source: string,
+  searchableSource: string,
+  statements: ParsedMigrationStatement[],
+): void {
   for (const statement of statements) {
     if (statement.kind !== 'constraint') continue;
     const statementEndOffset = statementEnd(source, statement.name.end);
@@ -735,8 +767,6 @@ function parseMigrationStatements(source: string): ParsedMigrationStatement[] {
     );
     if (references.length > 0) statement.referencedRelations = references;
   }
-
-  return statements;
 }
 
 export function parseMigrationSql({
@@ -779,37 +809,40 @@ function migrationChangesForSource({
   const searchableSource = maskSqlForStatements(source);
   const statements = parseMigrationStatements(source);
   if (sortBySourcePosition) statements.sort((left, right) => left.start - right.start);
-  return statements.flatMap((statement): ParsedMigrationChange[] => {
-    if (statement.kind === 'type') {
-      const end = statementEnd(source, statement.name.end);
-      const statementText = searchableSource.slice(statement.name.end, end);
-      if (statement.operation === 'create' && !enumExpression.test(statementText)) return [];
-    }
-    const kind = statement.kind === 'type' ? 'enum' : statement.kind;
-    return [
-      {
-        operation: statement.operation,
-        ...(statement.cascade ? {cascade: true} : {}),
-        object: {
-          kind,
-          schemaName: statement.name.schemaName ?? 'public',
-          name: statement.name.name,
-          ownerId: unit.ownerId,
-          migrationUnitId: unit.id,
-          namespace: unit.namespace,
-          ...(statement.relationName ? {relationName: statement.relationName} : {}),
-          ...(statement.relationSchemaName
-            ? {relationSchemaName: statement.relationSchemaName}
-            : {}),
-          ...(statement.referencedRelations
-            ? {referencedRelations: statement.referencedRelations}
-            : {}),
-          sourcePath,
-          line: lineNumber(source, statement.start),
-        },
-      },
-    ];
-  });
+  return statements.flatMap((statement) =>
+    migrationChangeForStatement(statement, source, searchableSource, sourcePath, unit),
+  );
+}
+
+function migrationChangeForStatement(
+  statement: ParsedMigrationStatement,
+  source: string,
+  searchableSource: string,
+  sourcePath: string,
+  unit: DatabaseMigrationUnit,
+): ParsedMigrationChange[] {
+  if (statement.kind === 'type') {
+    const end = statementEnd(source, statement.name.end);
+    const statementText = searchableSource.slice(statement.name.end, end);
+    if (statement.operation === 'create' && !enumExpression.test(statementText)) return [];
+  }
+  const kind = statement.kind === 'type' ? 'enum' : statement.kind;
+  const object: ExpectedCatalogObject = {
+    kind,
+    schemaName: statement.name.schemaName ?? 'public',
+    name: statement.name.name,
+    ownerId: unit.ownerId,
+    migrationUnitId: unit.id,
+    namespace: unit.namespace,
+    sourcePath,
+    line: lineNumber(source, statement.start),
+  };
+  if (statement.relationName) object.relationName = statement.relationName;
+  if (statement.relationSchemaName) object.relationSchemaName = statement.relationSchemaName;
+  if (statement.referencedRelations) object.referencedRelations = statement.referencedRelations;
+  const change: ParsedMigrationChange = {operation: statement.operation, object};
+  if (statement.cascade) change.cascade = true;
+  return [change];
 }
 
 export function expectedObjectsAfterMigrations(
@@ -826,39 +859,60 @@ export function expectedObjectsAfterMigrations(
 
     activeObjects.delete(key);
     if (object.kind !== 'table' && object.kind !== 'view') continue;
-
-    const pendingRelations: ExpectedRelationReference[] = [
-      {schemaName: object.schemaName, name: object.name},
-    ];
-    for (const droppedRelation of pendingRelations) {
-      for (const [candidateKey, candidate] of activeObjects) {
-        const relationMatches =
-          candidate.relationName === droppedRelation.name &&
-          (candidate.relationSchemaName ?? 'public') === droppedRelation.schemaName;
-        const referencedRelationMatches =
-          change.cascade === true &&
-          candidate.referencedRelations?.some(
-            (reference) =>
-              reference.name === droppedRelation.name &&
-              reference.schemaName === droppedRelation.schemaName,
-          );
-        if (!relationMatches && !referencedRelationMatches) continue;
-
-        activeObjects.delete(candidateKey);
-        if (
-          change.cascade === true &&
-          (candidate.kind === 'table' || candidate.kind === 'view') &&
-          !pendingRelations.some(
-            (relation) =>
-              relation.name === candidate.name && relation.schemaName === candidate.schemaName,
-          )
-        ) {
-          pendingRelations.push({schemaName: candidate.schemaName, name: candidate.name});
-        }
-      }
-    }
+    removeDependentObjects(activeObjects, object, change.cascade === true);
   }
   return dedupeExpectedObjects([...activeObjects.values()]);
+}
+
+function removeDependentObjects(
+  activeObjects: Map<string, ExpectedCatalogObject>,
+  droppedObject: ExpectedCatalogObject,
+  cascade: boolean,
+): void {
+  const pendingRelations: ExpectedRelationReference[] = [
+    {schemaName: droppedObject.schemaName, name: droppedObject.name},
+  ];
+  for (const droppedRelation of pendingRelations) {
+    for (const [candidateKey, candidate] of activeObjects) {
+      if (!dependsOnDroppedRelation(candidate, droppedRelation, cascade)) continue;
+      activeObjects.delete(candidateKey);
+      if (cascade) addPendingDroppedRelation(candidate, pendingRelations);
+    }
+  }
+}
+
+function dependsOnDroppedRelation(
+  candidate: ExpectedCatalogObject,
+  droppedRelation: ExpectedRelationReference,
+  cascade: boolean,
+): boolean {
+  const relationMatches =
+    candidate.relationName === droppedRelation.name &&
+    (candidate.relationSchemaName ?? 'public') === droppedRelation.schemaName;
+  const referencedRelationMatches =
+    cascade &&
+    candidate.referencedRelations?.some(
+      (reference) =>
+        reference.name === droppedRelation.name &&
+        reference.schemaName === droppedRelation.schemaName,
+    );
+  return relationMatches || referencedRelationMatches === true;
+}
+
+function addPendingDroppedRelation(
+  candidate: ExpectedCatalogObject,
+  pendingRelations: ExpectedRelationReference[],
+): void {
+  if (candidate.kind !== 'table' && candidate.kind !== 'view') return;
+  if (
+    pendingRelations.some(
+      (relation) =>
+        relation.name === candidate.name && relation.schemaName === candidate.schemaName,
+    )
+  ) {
+    return;
+  }
+  pendingRelations.push({schemaName: candidate.schemaName, name: candidate.name});
 }
 
 export function migrationHistoryName(namespace: string): string {
@@ -1010,13 +1064,335 @@ function classifyUnexpectedRelation(
 function sortFindings(left: CatalogFinding, right: CatalogFinding): number {
   const leftKey = [left.classification, left.schemaName, left.name, left.kind].join(':');
   const rightKey = [right.classification, right.schemaName, right.name, right.kind].join(':');
-  return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
+  return compareText(leftKey, rightKey);
 }
 
 function sortObjects(left: CatalogObjectReport, right: CatalogObjectReport): number {
   const leftKey = [left.schemaName, left.name, left.kind].join(':');
   const rightKey = [right.schemaName, right.name, right.kind].join(':');
-  return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
+  return compareText(leftKey, rightKey);
+}
+
+function compareText(left: string, right: string): number {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
+
+type ActualCatalogObject = CatalogRelation | CatalogEnum | CatalogConstraint | CatalogTrigger;
+
+function actualCatalogObjectsByKey(catalog: PostgresCatalog): Map<string, ActualCatalogObject> {
+  const actualByKey = new Map<string, ActualCatalogObject>();
+  for (const relation of catalog.relations) {
+    const kind = actualRelationKind(relation.relkind);
+    if (kind && relation.schemaName !== 'drizzle') {
+      actualByKey.set(objectKey(kind, relation.schemaName, relation.name), relation);
+    }
+  }
+  for (const enumObject of catalog.enums) {
+    actualByKey.set(objectKey('enum', enumObject.schemaName, enumObject.name), enumObject);
+  }
+  for (const constraint of catalog.constraints) {
+    actualByKey.set(objectKey('constraint', constraint.schemaName, constraint.name), constraint);
+  }
+  for (const trigger of catalog.triggers) {
+    actualByKey.set(objectKey('trigger', trigger.schemaName, trigger.name), trigger);
+  }
+  return actualByKey;
+}
+
+interface CatalogAuditAccumulator {
+  consumedActualKeys: Set<string>;
+  findings: CatalogFinding[];
+  objects: CatalogObjectReport[];
+}
+
+function auditExpectedCatalogObject(
+  object: ExpectedCatalogObject,
+  actualByKey: ReadonlyMap<string, ActualCatalogObject>,
+  tableOwners: ReadonlyMap<string, string>,
+  registry: ApiDatabaseRegistry,
+  audit: CatalogAuditAccumulator,
+): void {
+  const key = objectKey(object.kind, object.schemaName, postgresIdentifierName(object.name));
+  const actual = actualByKey.get(key);
+  if (!actual) {
+    const reportObject = reportFromExpected(object, 'missing');
+    audit.objects.push(reportObject);
+    addFinding(
+      audit.findings,
+      reportObject,
+      'missing',
+      `Missing ${object.kind} ${object.schemaName}.${object.name} declared by ${object.migrationUnitId}`,
+    );
+    return;
+  }
+  audit.consumedActualKeys.add(key);
+  let classification = expectedObjectStatus(object, registry);
+  const foreignKeyOwners =
+    object.kind === 'constraint' && 'type' in actual
+      ? crossOwnerForeignKey(actual, tableOwners, registry)
+      : undefined;
+  if (foreignKeyOwners) classification = 'cross-owner';
+  const reportObject = reportFromExpected(object, classification, actual.name);
+  audit.objects.push(reportObject);
+  if (classification === 'misnamed') {
+    reportObject.expectedName = `${object.namespace}_...`;
+    addFinding(
+      audit.findings,
+      reportObject,
+      'misnamed',
+      `${object.kind} ${object.schemaName}.${object.name} is owned by ${object.ownerId} but must use the ${object.namespace}_ namespace`,
+    );
+    return;
+  }
+  if (classification !== 'cross-owner') return;
+  const foreignOwner =
+    foreignKeyOwners?.referencedOwner ?? ownerForObjectName(object.name, registry)?.ownerId;
+  if (foreignOwner) reportObject.referencedOwnerId = foreignOwner;
+  const message = foreignKeyOwners
+    ? `Foreign key ${object.schemaName}.${actual.name} crosses from ${foreignKeyOwners.sourceOwner} to ${foreignKeyOwners.referencedOwner}`
+    : `${object.kind} ${object.schemaName}.${object.name} is declared by ${object.ownerId} but uses the ${foreignOwner ?? 'unknown'} namespace`;
+  addFinding(audit.findings, reportObject, 'cross-owner', message);
+}
+
+function auditMigrationHistories(
+  catalog: PostgresCatalog,
+  expectedHistories: readonly ExpectedMigrationHistory[],
+  audit: CatalogAuditAccumulator,
+): void {
+  const historyByName = new Map(
+    catalog.relations
+      .filter(
+        (relation) =>
+          relation.schemaName === 'drizzle' && actualRelationKind(relation.relkind) === 'table',
+      )
+      .map((relation) => [relation.name, relation]),
+  );
+  for (const history of expectedHistories) {
+    auditMigrationHistory(history, historyByName.get(history.runtimeName), audit);
+  }
+}
+
+function auditMigrationHistory(
+  history: ExpectedMigrationHistory,
+  actual: CatalogRelation | undefined,
+  audit: CatalogAuditAccumulator,
+): void {
+  let classification: CatalogObjectClassification = 'missing';
+  if (actual && history.runtimeName === history.name) classification = 'compliant';
+  else if (actual) classification = 'misnamed';
+  const reportObject: CatalogObjectReport = {
+    classification,
+    kind: 'migration-history',
+    schemaName: history.schemaName,
+    name: actual?.name ?? history.name,
+    ownerId: history.ownerId,
+    migrationUnitId: history.migrationUnitId,
+    namespace: history.namespace,
+    expectedName: history.name,
+    sourcePath: history.sourcePath,
+    line: history.line,
+  };
+  audit.objects.push(reportObject);
+  if (!actual) {
+    addFinding(
+      audit.findings,
+      reportObject,
+      'missing',
+      `Missing migration history drizzle.${history.name} for ${history.migrationUnitId}`,
+    );
+    return;
+  }
+  audit.consumedActualKeys.add(objectKey('migration-history', 'drizzle', actual.name));
+  if (history.runtimeName !== history.name) {
+    addFinding(
+      audit.findings,
+      reportObject,
+      'misnamed',
+      `Migration history for ${history.migrationUnitId} uses ${history.runtimeName} instead of ${history.name}`,
+    );
+  }
+}
+
+function auditUnexpectedRelations(
+  catalog: PostgresCatalog,
+  tableOwners: ReadonlyMap<string, string>,
+  registry: ApiDatabaseRegistry,
+  audit: CatalogAuditAccumulator,
+): void {
+  for (const relation of catalog.relations) {
+    if (relation.schemaName === 'drizzle') {
+      auditUnexpectedHistory(relation, audit);
+      continue;
+    }
+    const kind = actualRelationKind(relation.relkind);
+    if (!kind) continue;
+    const key = objectKey(kind, relation.schemaName, relation.name);
+    if (audit.consumedActualKeys.has(key)) continue;
+    const classification = classifyUnexpectedRelation(relation, catalog, tableOwners, registry);
+    const reportObject: CatalogObjectReport = {
+      classification,
+      kind,
+      schemaName: relation.schemaName,
+      name: relation.name,
+    };
+    audit.objects.push(reportObject);
+    if (classification !== 'compliant') {
+      addFinding(
+        audit.findings,
+        reportObject,
+        classification,
+        `Unknown ${kind} ${relation.schemaName}.${relation.name}`,
+      );
+    }
+  }
+}
+
+function auditUnexpectedHistory(relation: CatalogRelation, audit: CatalogAuditAccumulator): void {
+  if (actualRelationKind(relation.relkind) !== 'table') return;
+  const key = objectKey('migration-history', 'drizzle', relation.name);
+  if (audit.consumedActualKeys.has(key)) return;
+  const reportObject: CatalogObjectReport = {
+    classification: 'unknown',
+    kind: 'migration-history',
+    schemaName: 'drizzle',
+    name: relation.name,
+  };
+  audit.objects.push(reportObject);
+  addFinding(
+    audit.findings,
+    reportObject,
+    'unknown',
+    `Unknown migration history drizzle.${relation.name}`,
+  );
+}
+
+function auditUnexpectedEnums(catalog: PostgresCatalog, audit: CatalogAuditAccumulator): void {
+  for (const enumObject of catalog.enums) {
+    const key = objectKey('enum', enumObject.schemaName, enumObject.name);
+    if (audit.consumedActualKeys.has(key)) continue;
+    const reportObject: CatalogObjectReport = {
+      classification: 'unknown',
+      kind: 'enum',
+      schemaName: enumObject.schemaName,
+      name: enumObject.name,
+    };
+    audit.objects.push(reportObject);
+    addFinding(
+      audit.findings,
+      reportObject,
+      'unknown',
+      `Unknown enum ${enumObject.schemaName}.${enumObject.name}`,
+    );
+  }
+}
+
+function auditUnexpectedConstraints(
+  catalog: PostgresCatalog,
+  tableOwners: ReadonlyMap<string, string>,
+  registry: ApiDatabaseRegistry,
+  audit: CatalogAuditAccumulator,
+): void {
+  for (const constraint of catalog.constraints) {
+    if (constraint.schemaName === 'drizzle') continue;
+    const key = objectKey('constraint', constraint.schemaName, constraint.name);
+    if (audit.consumedActualKeys.has(key)) continue;
+    auditUnexpectedConstraint(constraint, tableOwners, registry, audit);
+  }
+}
+
+function auditUnexpectedConstraint(
+  constraint: CatalogConstraint,
+  tableOwners: ReadonlyMap<string, string>,
+  registry: ApiDatabaseRegistry,
+  audit: CatalogAuditAccumulator,
+): void {
+  const sourceOwner = ownerForRelation(
+    constraint.relationSchemaName,
+    constraint.relationName,
+    tableOwners,
+    registry,
+  );
+  const foreignKeyOwners = crossOwnerForeignKey(constraint, tableOwners, registry);
+  let classification: CatalogObjectClassification = 'unknown';
+  if (foreignKeyOwners) classification = 'cross-owner';
+  else if (sourceOwner) classification = 'compliant';
+  const reportObject: CatalogObjectReport = {
+    classification,
+    kind: 'constraint',
+    schemaName: constraint.schemaName,
+    name: constraint.name,
+    ...(sourceOwner ? {ownerId: sourceOwner} : {}),
+    ...(foreignKeyOwners ? {referencedOwnerId: foreignKeyOwners.referencedOwner} : {}),
+    relationName: constraint.relationName,
+    referencedRelationName: constraint.referencedRelationName,
+  };
+  audit.objects.push(reportObject);
+  if (foreignKeyOwners) {
+    addFinding(
+      audit.findings,
+      reportObject,
+      'cross-owner',
+      `Foreign key ${constraint.schemaName}.${constraint.name} crosses from ${foreignKeyOwners.sourceOwner} to ${foreignKeyOwners.referencedOwner}`,
+    );
+  } else if (!sourceOwner) {
+    addFinding(
+      audit.findings,
+      reportObject,
+      'unknown',
+      `Unknown constraint ${constraint.schemaName}.${constraint.name}`,
+    );
+  }
+}
+
+function auditUnexpectedTriggers(
+  catalog: PostgresCatalog,
+  tableOwners: ReadonlyMap<string, string>,
+  registry: ApiDatabaseRegistry,
+  audit: CatalogAuditAccumulator,
+): void {
+  for (const trigger of catalog.triggers) {
+    const key = objectKey('trigger', trigger.schemaName, trigger.name);
+    if (audit.consumedActualKeys.has(key)) continue;
+    const owner = ownerForRelation(trigger.schemaName, trigger.relationName, tableOwners, registry);
+    const reportObject: CatalogObjectReport = {
+      classification: owner ? 'compliant' : 'unknown',
+      kind: 'trigger',
+      schemaName: trigger.schemaName,
+      name: trigger.name,
+      ...(owner ? {ownerId: owner} : {}),
+      relationName: trigger.relationName,
+    };
+    audit.objects.push(reportObject);
+    if (!owner) {
+      addFinding(
+        audit.findings,
+        reportObject,
+        'unknown',
+        `Unknown trigger ${trigger.schemaName}.${trigger.name}`,
+      );
+    }
+  }
+}
+
+function auditUnexpectedNamespaces(catalog: PostgresCatalog, audit: CatalogAuditAccumulator): void {
+  for (const namespace of catalog.namespaces) {
+    if (namespace.name === 'public' || namespace.name === 'drizzle') continue;
+    const reportObject: CatalogObjectReport = {
+      classification: 'unknown',
+      kind: 'schema',
+      schemaName: namespace.name,
+      name: namespace.name,
+    };
+    audit.objects.push(reportObject);
+    addFinding(
+      audit.findings,
+      reportObject,
+      'unknown',
+      `Unknown PostgreSQL schema ${namespace.name}`,
+    );
+  }
 }
 
 export function auditPostgresCatalog({
@@ -1039,261 +1415,20 @@ export function auditPostgresCatalog({
   const findings: CatalogFinding[] = [];
   const objects: CatalogObjectReport[] = [];
   const consumedActualKeys = new Set<string>();
-  const actualByKey = new Map<
-    string,
-    CatalogRelation | CatalogEnum | CatalogConstraint | CatalogTrigger
-  >();
-
-  for (const relation of catalog.relations) {
-    const kind = actualRelationKind(relation.relkind);
-    if (kind && relation.schemaName !== 'drizzle') {
-      actualByKey.set(objectKey(kind, relation.schemaName, relation.name), relation);
-    }
-  }
-  for (const enumObject of catalog.enums) {
-    actualByKey.set(objectKey('enum', enumObject.schemaName, enumObject.name), enumObject);
-  }
-  for (const constraint of catalog.constraints) {
-    actualByKey.set(objectKey('constraint', constraint.schemaName, constraint.name), constraint);
-  }
-  for (const trigger of catalog.triggers) {
-    actualByKey.set(objectKey('trigger', trigger.schemaName, trigger.name), trigger);
-  }
+  const audit = {consumedActualKeys, findings, objects};
+  const actualByKey = actualCatalogObjectsByKey(catalog);
 
   const tableOwners = tableOwnerLookup(expectedObjects);
   for (const object of expectedObjects) {
-    const key = objectKey(object.kind, object.schemaName, postgresIdentifierName(object.name));
-    const actual = actualByKey.get(key);
-    if (!actual) {
-      const reportObject = reportFromExpected(object, 'missing');
-      objects.push(reportObject);
-      addFinding(
-        findings,
-        reportObject,
-        'missing',
-        `Missing ${object.kind} ${object.schemaName}.${object.name} declared by ${object.migrationUnitId}`,
-      );
-      continue;
-    }
-    consumedActualKeys.add(key);
-    let classification = expectedObjectStatus(object, registry);
-    const foreignKeyOwners =
-      object.kind === 'constraint' && 'type' in actual
-        ? crossOwnerForeignKey(actual, tableOwners, registry)
-        : undefined;
-    if (foreignKeyOwners) classification = 'cross-owner';
-    const reportObject = reportFromExpected(object, classification, actual.name);
-    objects.push(reportObject);
-    if (classification === 'misnamed') {
-      reportObject.expectedName = `${object.namespace}_...`;
-      addFinding(
-        findings,
-        reportObject,
-        'misnamed',
-        `${object.kind} ${object.schemaName}.${object.name} is owned by ${object.ownerId} but must use the ${object.namespace}_ namespace`,
-      );
-    } else if (classification === 'cross-owner') {
-      const foreignOwner =
-        foreignKeyOwners?.referencedOwner ?? ownerForObjectName(object.name, registry)?.ownerId;
-      if (foreignOwner) reportObject.referencedOwnerId = foreignOwner;
-      addFinding(
-        findings,
-        reportObject,
-        'cross-owner',
-        foreignKeyOwners
-          ? `Foreign key ${object.schemaName}.${actual.name} crosses from ${foreignKeyOwners.sourceOwner} to ${foreignKeyOwners.referencedOwner}`
-          : `${object.kind} ${object.schemaName}.${object.name} is declared by ${object.ownerId} but uses the ${foreignOwner ?? 'unknown'} namespace`,
-      );
-    }
+    auditExpectedCatalogObject(object, actualByKey, tableOwners, registry, audit);
   }
 
-  const historyByName = new Map(
-    catalog.relations
-      .filter(
-        (relation) =>
-          relation.schemaName === 'drizzle' && actualRelationKind(relation.relkind) === 'table',
-      )
-      .map((relation) => [relation.name, relation]),
-  );
-  for (const history of expectedHistories) {
-    const actual = historyByName.get(history.runtimeName);
-    const reportObject: CatalogObjectReport = {
-      classification:
-        actual && history.runtimeName === history.name
-          ? 'compliant'
-          : actual
-            ? 'misnamed'
-            : 'missing',
-      kind: 'migration-history',
-      schemaName: history.schemaName,
-      name: actual?.name ?? history.name,
-      ownerId: history.ownerId,
-      migrationUnitId: history.migrationUnitId,
-      namespace: history.namespace,
-      expectedName: history.name,
-      sourcePath: history.sourcePath,
-      line: history.line,
-    };
-    objects.push(reportObject);
-    if (actual) {
-      consumedActualKeys.add(objectKey('migration-history', 'drizzle', actual.name));
-      if (history.runtimeName !== history.name) {
-        addFinding(
-          findings,
-          reportObject,
-          'misnamed',
-          `Migration history for ${history.migrationUnitId} uses ${history.runtimeName} instead of ${history.name}`,
-        );
-      }
-    } else {
-      addFinding(
-        findings,
-        reportObject,
-        'missing',
-        `Missing migration history drizzle.${history.name} for ${history.migrationUnitId}`,
-      );
-    }
-  }
-
-  for (const relation of catalog.relations) {
-    if (relation.schemaName === 'drizzle') {
-      if (actualRelationKind(relation.relkind) === 'table') {
-        const key = objectKey('migration-history', 'drizzle', relation.name);
-        if (!consumedActualKeys.has(key)) {
-          const reportObject: CatalogObjectReport = {
-            classification: 'unknown',
-            kind: 'migration-history',
-            schemaName: 'drizzle',
-            name: relation.name,
-          };
-          objects.push(reportObject);
-          addFinding(
-            findings,
-            reportObject,
-            'unknown',
-            `Unknown migration history drizzle.${relation.name}`,
-          );
-        }
-      }
-      continue;
-    }
-    const kind = actualRelationKind(relation.relkind);
-    if (!kind) continue;
-    const key = objectKey(kind, relation.schemaName, relation.name);
-    if (consumedActualKeys.has(key)) continue;
-    const classification = classifyUnexpectedRelation(relation, catalog, tableOwners, registry);
-    const reportObject: CatalogObjectReport = {
-      classification,
-      kind,
-      schemaName: relation.schemaName,
-      name: relation.name,
-    };
-    objects.push(reportObject);
-    if (classification !== 'compliant') {
-      addFinding(
-        findings,
-        reportObject,
-        classification,
-        `Unknown ${kind} ${relation.schemaName}.${relation.name}`,
-      );
-    }
-  }
-
-  for (const enumObject of catalog.enums) {
-    const key = objectKey('enum', enumObject.schemaName, enumObject.name);
-    if (consumedActualKeys.has(key)) continue;
-    const reportObject: CatalogObjectReport = {
-      classification: 'unknown',
-      kind: 'enum',
-      schemaName: enumObject.schemaName,
-      name: enumObject.name,
-    };
-    objects.push(reportObject);
-    addFinding(
-      findings,
-      reportObject,
-      'unknown',
-      `Unknown enum ${enumObject.schemaName}.${enumObject.name}`,
-    );
-  }
-
-  for (const constraint of catalog.constraints) {
-    if (constraint.schemaName === 'drizzle') continue;
-    const key = objectKey('constraint', constraint.schemaName, constraint.name);
-    if (consumedActualKeys.has(key)) continue;
-    const sourceOwner = ownerForRelation(
-      constraint.relationSchemaName,
-      constraint.relationName,
-      tableOwners,
-      registry,
-    );
-    const foreignKeyOwners = crossOwnerForeignKey(constraint, tableOwners, registry);
-    const classification: CatalogObjectClassification = foreignKeyOwners
-      ? 'cross-owner'
-      : sourceOwner
-        ? 'compliant'
-        : 'unknown';
-    const reportObject: CatalogObjectReport = {
-      classification,
-      kind: 'constraint',
-      schemaName: constraint.schemaName,
-      name: constraint.name,
-      ...(sourceOwner ? {ownerId: sourceOwner} : {}),
-      ...(foreignKeyOwners ? {referencedOwnerId: foreignKeyOwners.referencedOwner} : {}),
-      relationName: constraint.relationName,
-      referencedRelationName: constraint.referencedRelationName,
-    };
-    objects.push(reportObject);
-    if (foreignKeyOwners) {
-      addFinding(
-        findings,
-        reportObject,
-        'cross-owner',
-        `Foreign key ${constraint.schemaName}.${constraint.name} crosses from ${foreignKeyOwners.sourceOwner} to ${foreignKeyOwners.referencedOwner}`,
-      );
-    } else if (!sourceOwner) {
-      addFinding(
-        findings,
-        reportObject,
-        'unknown',
-        `Unknown constraint ${constraint.schemaName}.${constraint.name}`,
-      );
-    }
-  }
-
-  for (const trigger of catalog.triggers) {
-    const key = objectKey('trigger', trigger.schemaName, trigger.name);
-    if (consumedActualKeys.has(key)) continue;
-    const owner = ownerForRelation(trigger.schemaName, trigger.relationName, tableOwners, registry);
-    const reportObject: CatalogObjectReport = {
-      classification: owner ? 'compliant' : 'unknown',
-      kind: 'trigger',
-      schemaName: trigger.schemaName,
-      name: trigger.name,
-      ...(owner ? {ownerId: owner} : {}),
-      relationName: trigger.relationName,
-    };
-    objects.push(reportObject);
-    if (!owner)
-      addFinding(
-        findings,
-        reportObject,
-        'unknown',
-        `Unknown trigger ${trigger.schemaName}.${trigger.name}`,
-      );
-  }
-
-  for (const namespace of catalog.namespaces) {
-    if (namespace.name === 'public' || namespace.name === 'drizzle') continue;
-    const reportObject: CatalogObjectReport = {
-      classification: 'unknown',
-      kind: 'schema',
-      schemaName: namespace.name,
-      name: namespace.name,
-    };
-    objects.push(reportObject);
-    addFinding(findings, reportObject, 'unknown', `Unknown PostgreSQL schema ${namespace.name}`);
-  }
+  auditMigrationHistories(catalog, expectedHistories, audit);
+  auditUnexpectedRelations(catalog, tableOwners, registry, audit);
+  auditUnexpectedEnums(catalog, audit);
+  auditUnexpectedConstraints(catalog, tableOwners, registry, audit);
+  auditUnexpectedTriggers(catalog, tableOwners, registry, audit);
+  auditUnexpectedNamespaces(catalog, audit);
 
   const counts: CatalogReportCounts = {
     compliant: objects.filter((object) => object.classification === 'compliant').length,
@@ -1398,6 +1533,6 @@ export function dedupeExpectedObjects(
   return [...seen.values(), ...ownershipConflicts].sort((left, right) => {
     const leftKey = objectKey(left.kind, left.schemaName, left.name);
     const rightKey = objectKey(right.kind, right.schemaName, right.name);
-    return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
+    return compareText(leftKey, rightKey);
   });
 }

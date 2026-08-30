@@ -27,20 +27,7 @@ export function slackRouteErrorHandler(error: unknown): never {
   if (
     isInterModuleKnownError(workspacesInterModuleContract.methods.requireActiveMembership, error)
   ) {
-    if (error.code === 'workspace-not-found')
-      throw new ClientError('Workspace not found', 'not-found', {
-        status: 404,
-        details: {workspace_id: error.details.workspaceId},
-      });
-    if (error.code === 'membership-required')
-      throw new ClientError('Workspace membership required', 'forbidden', {
-        status: 403,
-        details: {workspace_id: error.details.workspaceId},
-      });
-    throw new ClientError('Workspace is inactive', 'workspace-inactive', {
-      status: 403,
-      details: {workspace_id: error.details.workspaceId},
-    });
+    throwSlackWorkspaceMembershipError(error);
   }
   if (error instanceof SlackInstallStateError) {
     throw new ClientError(error.message, 'invalid-slack-install-state', {status: 400});
@@ -85,4 +72,26 @@ export function slackRouteErrorHandler(error: unknown): never {
     });
   }
   throw error;
+}
+
+function throwSlackWorkspaceMembershipError(error: {
+  code: 'workspace-not-found' | 'membership-required' | 'workspace-inactive';
+  details: {workspaceId: string};
+}): never {
+  if (error.code === 'workspace-not-found') {
+    throw new ClientError('Workspace not found', 'not-found', {
+      status: 404,
+      details: {workspace_id: error.details.workspaceId},
+    });
+  }
+  if (error.code === 'membership-required') {
+    throw new ClientError('Workspace membership required', 'forbidden', {
+      status: 403,
+      details: {workspace_id: error.details.workspaceId},
+    });
+  }
+  throw new ClientError('Workspace is inactive', 'workspace-inactive', {
+    status: 403,
+    details: {workspace_id: error.details.workspaceId},
+  });
 }

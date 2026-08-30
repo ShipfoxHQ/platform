@@ -48,12 +48,9 @@ export function createLocalKeyProvider(params: LocalKeyProviderParams): Envelope
       }
     },
     unwrapDek(keyId, wrappedDek, kekVersion) {
-      const key =
-        kekVersion === currentKeyVersion
-          ? currentKek
-          : kekVersion === previousKeyVersion
-            ? previousKek
-            : undefined;
+      let key: Buffer | undefined;
+      if (kekVersion === currentKeyVersion) key = currentKek;
+      else if (kekVersion === previousKeyVersion) key = previousKek;
       if (!key) throw new DataKeyUnwrapError();
 
       try {

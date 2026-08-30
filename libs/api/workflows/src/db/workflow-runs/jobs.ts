@@ -176,93 +176,7 @@ export async function evaluateJobActivations(
 ): Promise<JobActivationDecision[]> {
   if (params.jobs.length === 0) return [];
 
-  const result = await db().transaction(async (tx) => {
-    const expectedVersions = new Map(
-      params.jobs.map((job) => [job.jobId, job.expectedVersion] as const),
-    );
-    const jobIds = params.jobs.map((job) => job.jobId);
-    const targets = await tx
-      .select({job: jobs, attempt: workflowRunAttempts, run: workflowRuns})
-      .from(jobs)
-      .innerJoin(workflowRunAttempts, eq(jobs.workflowRunAttemptId, workflowRunAttempts.id))
-      .innerJoin(workflowRuns, eq(workflowRunAttempts.workflowRunId, workflowRuns.id))
-      .where(and(eq(jobs.workflowRunAttemptId, params.runAttemptId), inArray(jobs.id, jobIds)))
-      .for('update');
-
-    if (targets.length !== jobIds.length) {
-      const found = new Set(targets.map((target) => target.job.id));
-      const missing = jobIds.filter((jobId) => !found.has(jobId));
-      throw new Error(`Cannot evaluate missing activation jobs: ${missing.join(', ')}`);
-    }
-
-    const contextsByJobKey = await directDependencyContextsByJobKey(
-      tx,
-      params.runAttemptId,
-      targets.map((target) => toJob(target.job)),
-    );
-    const targetsByJobId = new Map(targets.map((target) => [target.job.id, target]));
-    const decisions: InternalJobActivationDecision[] = [];
-
-    for (const input of params.jobs) {
-      const target = targetsByJobId.get(input.jobId);
-      if (!target) throw new Error(`Cannot evaluate missing activation job: ${input.jobId}`);
-      const job = toJob(target.job);
-      const model =
-        target.attempt.model === null ? null : readPersistedWorkflowModel(target.attempt.model);
-      const modelJob = model?.jobs.find((item) => item.key === target.job.key);
-      const decision = decideJobActivation({
-        run: toWorkflowRun(target.run),
-        job,
-        condition: modelJob?.if,
-        vars: target.attempt.vars ?? undefined,
-        dependencies: job.dependencies.flatMap((key) => {
-          const dependency = contextsByJobKey.get(key);
-          return dependency === undefined ? [] : [dependency];
-        }),
-      });
-
-      if (decision.kind === 'terminal-job' || decision.kind === 'start-job') {
-        decisions.push(decision);
-        continue;
-      }
-
-      const expectedVersion = expectedVersions.get(job.id);
-      if (expectedVersion === undefined) {
-        throw new Error(`Missing expected version for activation job ${job.id}`);
-      }
-      const updated = await updateJobStatusAtVersion(tx, {
-        jobId: job.id,
-        status: decision.status,
-        expectedVersion,
-        statusReason: decision.statusReason,
-        evaluationTrace: decision.evaluationTrace,
-      });
-      if (updated) {
-        decisions.push({
-          kind: 'terminal-job',
-          jobId: job.id,
-          status: 'skipped',
-          jobVersion: updated.job.version,
-          changed: updated.changed,
-        });
-        continue;
-      }
-
-      const [existing] = await tx.select().from(jobs).where(eq(jobs.id, job.id)).limit(1);
-      if (existing && isJobTerminal(existing.status)) {
-        decisions.push({
-          kind: 'terminal-job',
-          jobId: job.id,
-          status: runtimeCompletionStatusForJob(existing.status),
-          jobVersion: existing.version,
-        });
-        continue;
-      }
-      throw new Error(`Optimistic lock failure evaluating activation for job ${job.id}`);
-    }
-
-    return decisions;
-  });
+  const result = await db().transaction((tx) => evaluateJobActivationsInTransaction(params, tx));
 
   for (const decision of result) {
     if (decision.kind === 'terminal-job' && decision.changed) {
@@ -271,6 +185,104 @@ export async function evaluateJobActivations(
   }
 
   return result.map(({changed: _changed, ...decision}) => decision);
+}
+
+async function evaluateJobActivationsInTransaction(
+  params: EvaluateJobActivationsParams,
+  tx: Tx,
+): Promise<InternalJobActivationDecision[]> {
+  const jobIds = params.jobs.map((job) => job.jobId);
+  const targets = await loadJobActivationTargets(params.runAttemptId, jobIds, tx);
+  assertAllActivationTargetsFound(targets, jobIds);
+
+  const contextsByJobKey = await directDependencyContextsByJobKey(
+    tx,
+    params.runAttemptId,
+    targets.map((target) => toJob(target.job)),
+  );
+  const targetsByJobId = new Map(targets.map((target) => [target.job.id, target]));
+  const decisions: InternalJobActivationDecision[] = [];
+
+  for (const input of params.jobs) {
+    const target = targetsByJobId.get(input.jobId);
+    if (!target) throw new Error(`Cannot evaluate missing activation job: ${input.jobId}`);
+    decisions.push(
+      await evaluateJobActivationTarget(target, input.expectedVersion, contextsByJobKey, tx),
+    );
+  }
+  return decisions;
+}
+
+async function loadJobActivationTargets(runAttemptId: string, jobIds: string[], tx: Tx) {
+  return await tx
+    .select({job: jobs, attempt: workflowRunAttempts, run: workflowRuns})
+    .from(jobs)
+    .innerJoin(workflowRunAttempts, eq(jobs.workflowRunAttemptId, workflowRunAttempts.id))
+    .innerJoin(workflowRuns, eq(workflowRunAttempts.workflowRunId, workflowRuns.id))
+    .where(and(eq(jobs.workflowRunAttemptId, runAttemptId), inArray(jobs.id, jobIds)))
+    .for('update');
+}
+
+function assertAllActivationTargetsFound(
+  targets: Awaited<ReturnType<typeof loadJobActivationTargets>>,
+  jobIds: string[],
+): void {
+  if (targets.length === jobIds.length) return;
+  const found = new Set(targets.map((target) => target.job.id));
+  const missing = jobIds.filter((jobId) => !found.has(jobId));
+  throw new Error(`Cannot evaluate missing activation jobs: ${missing.join(', ')}`);
+}
+
+async function evaluateJobActivationTarget(
+  target: Awaited<ReturnType<typeof loadJobActivationTargets>>[number],
+  expectedVersion: number,
+  contextsByJobKey: ReadonlyMap<string, JobContextInput>,
+  tx: Tx,
+): Promise<InternalJobActivationDecision> {
+  const job = toJob(target.job);
+  const model =
+    target.attempt.model === null ? null : readPersistedWorkflowModel(target.attempt.model);
+  const modelJob = model?.jobs.find((item) => item.key === target.job.key);
+  const decision = decideJobActivation({
+    run: toWorkflowRun(target.run),
+    job,
+    condition: modelJob?.if,
+    vars: target.attempt.vars ?? undefined,
+    dependencies: job.dependencies.flatMap((key) => {
+      const dependency = contextsByJobKey.get(key);
+      return dependency === undefined ? [] : [dependency];
+    }),
+  });
+
+  if (decision.kind === 'terminal-job' || decision.kind === 'start-job') return decision;
+
+  const updated = await updateJobStatusAtVersion(tx, {
+    jobId: job.id,
+    status: decision.status,
+    expectedVersion,
+    statusReason: decision.statusReason,
+    evaluationTrace: decision.evaluationTrace,
+  });
+  if (updated) {
+    return {
+      kind: 'terminal-job',
+      jobId: job.id,
+      status: 'skipped',
+      jobVersion: updated.job.version,
+      changed: updated.changed,
+    };
+  }
+
+  const [existing] = await tx.select().from(jobs).where(eq(jobs.id, job.id)).limit(1);
+  if (existing && isJobTerminal(existing.status)) {
+    return {
+      kind: 'terminal-job',
+      jobId: job.id,
+      status: runtimeCompletionStatusForJob(existing.status),
+      jobVersion: existing.version,
+    };
+  }
+  throw new Error(`Optimistic lock failure evaluating activation for job ${job.id}`);
 }
 
 async function directDependencyContextsByJobKey(

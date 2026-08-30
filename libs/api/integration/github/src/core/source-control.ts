@@ -38,6 +38,53 @@ const GITHUB_PROVIDER = 'github';
 const SEARCH_PAGE_SIZE = 100;
 const SEARCH_MAX_PAGES_PER_REQUEST = 5;
 
+function buildGithubTriggerReference(
+  repositoryId: string | null,
+  ref: string | null,
+  commit: string | null,
+  actor: ReturnType<typeof githubEventActor>,
+): TriggerReference | null {
+  if (!repositoryId || !ref || !commit) return null;
+  if (!isValidGitObjectId(commit) || !isValidTriggerRef(ref)) return null;
+  return {
+    externalRepositoryId: buildProviderRepositoryId(GITHUB_PROVIDER, repositoryId),
+    ref,
+    commit,
+    actor,
+  };
+}
+
+function githubPullRequestReference(
+  payload: Record<string, unknown>,
+  pullRequest: Record<string, unknown>,
+  actor: ReturnType<typeof githubEventActor>,
+): TriggerReference | null {
+  const head = asRecord(pullRequest.head);
+  const repository = asRecord(head?.repo);
+  const baseRepository = asRecord(asRecord(pullRequest.base)?.repo) ?? asRecord(payload.repository);
+  if (!repository || !baseRepository || !sameGithubRepository(repository, baseRepository))
+    return null;
+  const number = positiveInteger(pullRequest.number);
+  return buildGithubTriggerReference(
+    githubRepositoryId(repository),
+    number === null ? null : `refs/pull/${number}/head`,
+    nonEmptyString(head?.sha),
+    actor,
+  );
+}
+
+function githubPushReference(
+  payload: Record<string, unknown>,
+  actor: ReturnType<typeof githubEventActor>,
+): TriggerReference | null {
+  return buildGithubTriggerReference(
+    githubRepositoryId(asRecord(payload.repository)),
+    nonEmptyString(payload.ref),
+    nonEmptyString(payload.after),
+    actor,
+  );
+}
+
 export class GithubSourceControlProvider
   implements SourceControlProvider<GithubIntegrationConnection>
 {
@@ -154,41 +201,8 @@ export class GithubSourceControlProvider
 
     const actor = githubEventActor(payload);
     const pullRequest = asRecord(payload.pull_request);
-    if (pullRequest) {
-      const head = asRecord(pullRequest.head);
-      const repository = asRecord(head?.repo);
-      const base = asRecord(pullRequest.base);
-      const baseRepository = asRecord(base?.repo) ?? asRecord(payload.repository);
-      if (!repository || !baseRepository || !sameGithubRepository(repository, baseRepository)) {
-        return null;
-      }
-      const repositoryId = githubRepositoryId(repository);
-      const number = positiveInteger(pullRequest.number);
-      const commit = nonEmptyString(head?.sha);
-      const ref = number === null ? null : `refs/pull/${number}/head`;
-      if (!repositoryId || !ref || !commit) return null;
-      const hasValidReference = isValidGitObjectId(commit) && isValidTriggerRef(ref);
-      if (!hasValidReference) return null;
-      return {
-        externalRepositoryId: buildProviderRepositoryId(GITHUB_PROVIDER, repositoryId),
-        ref,
-        commit,
-        actor,
-      };
-    }
-
-    const repositoryId = githubRepositoryId(asRecord(payload.repository));
-    const ref = nonEmptyString(payload.ref);
-    const commit = nonEmptyString(payload.after);
-    if (!repositoryId || !ref || !commit) return null;
-    const hasValidReference = isValidGitObjectId(commit) && isValidTriggerRef(ref);
-    if (!hasValidReference) return null;
-    return {
-      externalRepositoryId: buildProviderRepositoryId(GITHUB_PROVIDER, repositoryId),
-      ref,
-      commit,
-      actor,
-    };
+    if (pullRequest) return githubPullRequestReference(payload, pullRequest, actor);
+    return githubPushReference(payload, actor);
   }
 
   async resolveRef(input: ResolveRefInput<GithubIntegrationConnection>): Promise<ResolvedRef> {

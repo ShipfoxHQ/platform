@@ -34,7 +34,7 @@ import {
 } from '@shipfox/react-ui/table';
 import {toast} from '@shipfox/react-ui/toast';
 import {Code, Header, Text} from '@shipfox/react-ui/typography';
-import {useState} from 'react';
+import {type ReactNode, useState} from 'react';
 import {useFireManualWorkflowMutation} from '#hooks/api/workflow-runs.js';
 
 export function ProjectWorkflowsPage({projectId}: {projectId: string}) {
@@ -67,6 +67,20 @@ function ProjectWorkflowsPageInner({projectId}: {projectId: string}) {
     }
   }
 
+  let projectErrorContent: ReactNode = null;
+  if (projectQuery.isError && projectQuery.data === undefined) {
+    projectErrorContent =
+      projectQuery.error instanceof ApiError && projectQuery.error.status === 404 ? (
+        <EmptyState
+          icon="errorWarningLine"
+          title="Project not found"
+          description="This project doesn't exist, or you don't have access to it."
+        />
+      ) : (
+        <QueryLoadError query={projectQuery} subject="project" />
+      );
+  }
+
   return (
     <div className="flex w-full flex-col gap-section">
       <Header variant="h1" className="sr-only">
@@ -80,17 +94,7 @@ function ProjectWorkflowsPageInner({projectId}: {projectId: string}) {
         </div>
       ) : null}
 
-      {projectQuery.isError && projectQuery.data === undefined ? (
-        projectQuery.error instanceof ApiError && projectQuery.error.status === 404 ? (
-          <EmptyState
-            icon="errorWarningLine"
-            title="Project not found"
-            description="This project doesn't exist, or you don't have access to it."
-          />
-        ) : (
-          <QueryLoadError query={projectQuery} subject="project" />
-        )
-      ) : null}
+      {projectErrorContent}
 
       {projectQuery.data ? (
         <>
@@ -352,16 +356,16 @@ function sourceIcon(source: 'manual' | 'vcs'): IconName {
 }
 
 function WorkflowEmptyState({sync}: {sync: DefinitionSyncSummary | null}) {
-  const message =
-    sync?.status === 'failed' && sync.lastErrorCode === 'no-workflow-files'
-      ? 'No workflow files found under .shipfox/workflows/.'
-      : sync?.status === 'failed'
-        ? (sync.lastErrorMessage ?? 'Workflow definitions could not be synced.')
-        : sync?.status === 'syncing'
-          ? 'Workflow definitions are being discovered.'
-          : sync?.status === 'succeeded'
-            ? 'No workflow definitions found.'
-            : 'Workflow sync has not reported yet.';
+  let message = 'Workflow sync has not reported yet.';
+  if (sync?.status === 'failed' && sync.lastErrorCode === 'no-workflow-files') {
+    message = 'No workflow files found under .shipfox/workflows/.';
+  } else if (sync?.status === 'failed') {
+    message = sync.lastErrorMessage ?? 'Workflow definitions could not be synced.';
+  } else if (sync?.status === 'syncing') {
+    message = 'Workflow definitions are being discovered.';
+  } else if (sync?.status === 'succeeded') {
+    message = 'No workflow definitions found.';
+  }
 
   return <EmptyState icon="flowChart" title="No workflows" description={message} variant="panel" />;
 }
@@ -389,12 +393,9 @@ function WorkflowSyncDiagnostics({sync}: {sync: DefinitionSyncSummary | null | u
   const hasErrors = sync.diagnostics.some((diagnostic) => diagnostic.severity === 'error');
   const hasWarnings = sync.diagnostics.some((diagnostic) => diagnostic.severity === 'warning');
   const groups = groupDiagnosticsByFilePath(sync.diagnostics);
-  const title =
-    hasErrors && hasWarnings
-      ? 'Workflow definition diagnostics'
-      : hasErrors
-        ? 'Workflow definition errors'
-        : 'Workflow definition warnings';
+  let title = 'Workflow definition warnings';
+  if (hasErrors && hasWarnings) title = 'Workflow definition diagnostics';
+  else if (hasErrors) title = 'Workflow definition errors';
 
   return (
     <Callout role="status" type={hasErrors ? 'error' : 'warning'}>

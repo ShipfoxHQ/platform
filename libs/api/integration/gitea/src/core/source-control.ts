@@ -40,6 +40,54 @@ const REFS_TAGS_PREFIX = 'refs/tags/';
 const SEARCH_PAGE_SIZE = 100;
 const SEARCH_MAX_PAGES_PER_REQUEST = 5;
 
+function buildGiteaTriggerReference(
+  repositoryId: string | null,
+  ref: string | null,
+  commit: string | null,
+  actor: ReturnType<typeof giteaEventActor>,
+): TriggerReference | null {
+  if (!repositoryId || !ref || !commit) return null;
+  if (!isValidGitObjectId(commit) || !isValidTriggerRef(ref)) return null;
+  return {
+    externalRepositoryId: buildProviderRepositoryId(giteaProviderKind, repositoryId),
+    ref,
+    commit,
+    actor,
+  };
+}
+
+function giteaPullRequestReference(
+  payload: Record<string, unknown>,
+  pullRequest: Record<string, unknown>,
+  actor: ReturnType<typeof giteaEventActor>,
+): TriggerReference | null {
+  const head = asRecord(pullRequest.head);
+  const repository = asRecord(head?.repo);
+  const baseRepository = asRecord(asRecord(pullRequest.base)?.repo) ?? asRecord(payload.repository);
+  if (!repository || !baseRepository || !sameGiteaRepository(repository, baseRepository))
+    return null;
+  const number = positiveInteger(pullRequest.number);
+  const ref = number === null ? null : `refs/pull/${number}/head`;
+  return buildGiteaTriggerReference(
+    giteaRepositoryId(repository),
+    ref,
+    nonEmptyString(head?.sha),
+    actor,
+  );
+}
+
+function giteaPushReference(
+  payload: Record<string, unknown>,
+  actor: ReturnType<typeof giteaEventActor>,
+): TriggerReference | null {
+  return buildGiteaTriggerReference(
+    giteaRepositoryId(asRecord(payload.repository)),
+    nonEmptyString(payload.ref),
+    nonEmptyString(payload.after),
+    actor,
+  );
+}
+
 export class GiteaSourceControlProvider
   implements SourceControlProvider<GiteaIntegrationConnection>
 {
@@ -151,41 +199,8 @@ export class GiteaSourceControlProvider
 
     const actor = giteaEventActor(payload);
     const pullRequest = asRecord(payload.pull_request);
-    if (pullRequest) {
-      const head = asRecord(pullRequest.head);
-      const repository = asRecord(head?.repo);
-      const base = asRecord(pullRequest.base);
-      const baseRepository = asRecord(base?.repo) ?? asRecord(payload.repository);
-      if (!repository || !baseRepository || !sameGiteaRepository(repository, baseRepository)) {
-        return null;
-      }
-      const repositoryId = giteaRepositoryId(repository);
-      const number = positiveInteger(pullRequest.number);
-      const commit = nonEmptyString(head?.sha);
-      const ref = number === null ? null : `refs/pull/${number}/head`;
-      if (!repositoryId || !ref || !commit) return null;
-      const hasValidReference = isValidGitObjectId(commit) && isValidTriggerRef(ref);
-      if (!hasValidReference) return null;
-      return {
-        externalRepositoryId: buildProviderRepositoryId(giteaProviderKind, repositoryId),
-        ref,
-        commit,
-        actor,
-      };
-    }
-
-    const repositoryId = giteaRepositoryId(asRecord(payload.repository));
-    const ref = nonEmptyString(payload.ref);
-    const commit = nonEmptyString(payload.after);
-    if (!repositoryId || !ref || !commit) return null;
-    const hasValidReference = isValidGitObjectId(commit) && isValidTriggerRef(ref);
-    if (!hasValidReference) return null;
-    return {
-      externalRepositoryId: buildProviderRepositoryId(giteaProviderKind, repositoryId),
-      ref,
-      commit,
-      actor,
-    };
+    if (pullRequest) return giteaPullRequestReference(payload, pullRequest, actor);
+    return giteaPushReference(payload, actor);
   }
 
   async resolveRef(input: ResolveRefInput<GiteaIntegrationConnection>): Promise<ResolvedRef> {
@@ -203,13 +218,9 @@ export class GiteaSourceControlProvider
     const providerRef = providerRefName(input.ref);
     const branchLookup = () => this.gitea.getBranch({owner, repo, branch: providerRef});
     const tagLookup = () => this.gitea.getTag({owner, repo, tag: providerRef});
-    const lookups: Array<() => Promise<{commitSha: string}>> = input.ref.startsWith(
-      REFS_TAGS_PREFIX,
-    )
-      ? [tagLookup]
-      : input.ref.startsWith(REFS_HEADS_PREFIX)
-        ? [branchLookup]
-        : [branchLookup, tagLookup];
+    let lookups: Array<() => Promise<{commitSha: string}>> = [branchLookup, tagLookup];
+    if (input.ref.startsWith(REFS_TAGS_PREFIX)) lookups = [tagLookup];
+    else if (input.ref.startsWith(REFS_HEADS_PREFIX)) lookups = [branchLookup];
     for (const lookup of lookups) {
       try {
         const resolved = await lookup();

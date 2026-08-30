@@ -243,36 +243,65 @@ function validatePublicationPlan(
 ): void {
   for (const entry of packages) {
     const {manifest} = entry;
-    if (manifest.private === true)
-      throw new Error(`Publication package is private: ${manifest.name}`);
-    if (typeof manifest.version !== 'string')
-      throw new Error(`Publication package has no version: ${manifest.name}`);
-    for (const field of runtimeDependencyFields) {
-      for (const [dependency, reference] of Object.entries(manifest[field] ?? {})) {
-        if (typeof reference !== 'string') {
-          throw new Error(
-            `Publication package ${manifest.name} has invalid ${field} reference for ${dependency}`,
-          );
-        }
-        const workspacePackage = workspacePackages.get(dependency);
-        if (workspacePackage) {
-          if (workspacePackage.private === true) {
-            throw new Error(
-              `Publication package ${manifest.name} has private runtime dependency ${dependency}`,
-            );
-          }
-          if (!packagesByName.has(dependency)) {
-            throw new Error(
-              `Publication package ${manifest.name} depends on ${dependency} outside the release plan`,
-            );
-          }
-        } else if (!reference.startsWith('catalog:') && !semverRange.test(reference)) {
-          throw new Error(
-            `Publication package ${manifest.name} has unsupported external range ${dependency}@${reference}`,
-          );
-        }
-      }
+    validatePublicationPackage(manifest, packagesByName, workspacePackages);
+  }
+}
+
+function validatePublicationPackage(
+  manifest: PackageManifest,
+  packagesByName: ReadonlyMap<string, PublicationPackage>,
+  workspacePackages: ReadonlyMap<string, PackageManifest>,
+): void {
+  if (manifest.private === true)
+    throw new Error(`Publication package is private: ${manifest.name}`);
+  if (typeof manifest.version !== 'string') {
+    throw new Error(`Publication package has no version: ${manifest.name}`);
+  }
+  for (const field of runtimeDependencyFields) {
+    for (const [dependency, reference] of Object.entries(manifest[field] ?? {})) {
+      validateRuntimeDependency(
+        manifest,
+        field,
+        dependency,
+        reference,
+        packagesByName,
+        workspacePackages,
+      );
     }
+  }
+}
+
+function validateRuntimeDependency(
+  manifest: PackageManifest,
+  field: (typeof runtimeDependencyFields)[number],
+  dependency: string,
+  reference: unknown,
+  packagesByName: ReadonlyMap<string, PublicationPackage>,
+  workspacePackages: ReadonlyMap<string, PackageManifest>,
+): void {
+  if (typeof reference !== 'string') {
+    throw new Error(
+      `Publication package ${manifest.name} has invalid ${field} reference for ${dependency}`,
+    );
+  }
+  const workspacePackage = workspacePackages.get(dependency);
+  if (!workspacePackage) {
+    if (!reference.startsWith('catalog:') && !semverRange.test(reference)) {
+      throw new Error(
+        `Publication package ${manifest.name} has unsupported external range ${dependency}@${reference}`,
+      );
+    }
+    return;
+  }
+  if (workspacePackage.private === true) {
+    throw new Error(
+      `Publication package ${manifest.name} has private runtime dependency ${dependency}`,
+    );
+  }
+  if (!packagesByName.has(dependency)) {
+    throw new Error(
+      `Publication package ${manifest.name} depends on ${dependency} outside the release plan`,
+    );
   }
 }
 

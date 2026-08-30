@@ -404,16 +404,23 @@ function recordContainerObservation(
     logMissingLabels(context, parsed.providerRunnerId, parsed.templateKey);
     return;
   }
+  logMissingLabelsRecovery(context, parsed.providerRunnerId);
+  if (recordStaleContainer(context, plan, container, parsed, staleRegistration, staleEpisodeKey))
+    return;
+  recordMappedContainer(context, plan, container, parsed, labels);
+}
+
+function logMissingLabelsRecovery(context: DockerLifecycleContext, providerRunnerId: string): void {
   const missingLabelsRecovery = closeEpisode(
     context.episodes,
-    episodeKey('missing-labels', parsed.providerRunnerId),
+    episodeKey('missing-labels', providerRunnerId),
     context.now(),
   );
   if (missingLabelsRecovery) {
     logger().info(
       {
         event: 'runner.report_resumed',
-        providerRunnerId: parsed.providerRunnerId,
+        providerRunnerId,
         durationMs: missingLabelsRecovery.durationMs,
         attempts: missingLabelsRecovery.attempts,
         suppressed: missingLabelsRecovery.suppressed,
@@ -421,35 +428,51 @@ function recordContainerObservation(
       'Runner report resumed after labels became available',
     );
   }
+}
 
-  if (staleRegistration) {
-    const update = recordEpisode(
-      context.episodes,
-      staleEpisodeKey,
-      `${container.id}:${parsed.templateKey ?? 'unknown'}`,
-      context.now(),
+function recordStaleContainer(
+  context: DockerLifecycleContext,
+  plan: ObservationPlan,
+  container: DockerContainerView,
+  parsed: ParsedContainerIdentity,
+  staleRegistration: boolean,
+  staleEpisodeKey: string,
+): boolean {
+  if (!staleRegistration) return false;
+  const update = recordEpisode(
+    context.episodes,
+    staleEpisodeKey,
+    `${container.id}:${parsed.templateKey ?? 'unknown'}`,
+    context.now(),
+  );
+  if (shouldLogEpisode(update)) {
+    logger().info(
+      {
+        event: 'runner.container_stale_reap_requested',
+        operation: 'kill_and_remove',
+        providerRunnerId: parsed.providerRunnerId,
+        containerId: container.id,
+        containerName: container.name,
+        templateKey: parsed.templateKey,
+        ageMs: Math.max(0, context.now().getTime() - container.createdAt.getTime()),
+        attempts: update.state.attempts,
+        suppressed: update.state.suppressed,
+        ...(update.transition === 'changed' ? {changed: true} : {}),
+      },
+      'Stale runner container reap requested before registration',
     );
-    if (shouldLogEpisode(update)) {
-      logger().info(
-        {
-          event: 'runner.container_stale_reap_requested',
-          operation: 'kill_and_remove',
-          providerRunnerId: parsed.providerRunnerId,
-          containerId: container.id,
-          containerName: container.name,
-          templateKey: parsed.templateKey,
-          ageMs: Math.max(0, context.now().getTime() - container.createdAt.getTime()),
-          attempts: update.state.attempts,
-          suppressed: update.state.suppressed,
-          ...(update.transition === 'changed' ? {changed: true} : {}),
-        },
-        'Stale runner container reap requested before registration',
-      );
-    }
-    plan.terminalActions.push(terminalActionFor(context, container, 'registration-deadline'));
-    return;
   }
+  plan.terminalActions.push(terminalActionFor(context, container, 'registration-deadline'));
+  return true;
+}
 
+function recordMappedContainer(
+  context: DockerLifecycleContext,
+  plan: ObservationPlan,
+  container: DockerContainerView,
+  parsed: ParsedContainerIdentity,
+  labels: readonly string[],
+): void {
   const mapped = mapContainerState(container);
   if (mapped.state === 'starting' || mapped.state === 'running') {
     const liveState: LiveContainerState = {
@@ -461,36 +484,7 @@ function recordContainerObservation(
   }
 
   if (mapped.state === 'failed') {
-    const previousContainerId = context.reportedFailedContainerIds.get(parsed.providerRunnerId);
-    if (previousContainerId && previousContainerId !== container.id) {
-      context.reportedFailedIds.delete(parsed.providerRunnerId);
-      context.reportedFailedContainerIds.delete(parsed.providerRunnerId);
-    }
-    rememberFirstObservedFailure(context, container);
-    const retained = shouldRetainFailedContainer(context);
-    const shouldReport = !context.reportedFailedIds.has(parsed.providerRunnerId);
-    if (shouldReport) {
-      context.reportedFailedIds.add(parsed.providerRunnerId);
-      context.reportedFailedContainerIds.set(parsed.providerRunnerId, container.id);
-      logFailedContainer(context, container, parsed, mapped.reason);
-    }
-
-    plan.terminalActions.push({
-      providerRunnerId: parsed.providerRunnerId,
-      ...(shouldReport
-        ? {
-            event: eventFor(
-              container,
-              mapped.state,
-              labels,
-              context.providerKind,
-              context.now(),
-              mapped.reason,
-            ),
-          }
-        : {}),
-      ...(retained ? {retained: true} : {remove: container.name}),
-    });
+    recordFailedContainer(context, plan, container, parsed, labels, mapped.reason);
     return;
   }
 
@@ -505,6 +499,35 @@ function recordContainerObservation(
       mapped.reason,
     ),
     remove: container.name,
+  });
+}
+
+function recordFailedContainer(
+  context: DockerLifecycleContext,
+  plan: ObservationPlan,
+  container: DockerContainerView,
+  parsed: ParsedContainerIdentity,
+  labels: readonly string[],
+  reason: string | undefined,
+): void {
+  const previousContainerId = context.reportedFailedContainerIds.get(parsed.providerRunnerId);
+  if (previousContainerId && previousContainerId !== container.id) {
+    context.reportedFailedIds.delete(parsed.providerRunnerId);
+    context.reportedFailedContainerIds.delete(parsed.providerRunnerId);
+  }
+  rememberFirstObservedFailure(context, container);
+  const shouldReport = !context.reportedFailedIds.has(parsed.providerRunnerId);
+  if (shouldReport) {
+    context.reportedFailedIds.add(parsed.providerRunnerId);
+    context.reportedFailedContainerIds.set(parsed.providerRunnerId, container.id);
+    logFailedContainer(context, container, parsed, reason);
+  }
+  plan.terminalActions.push({
+    providerRunnerId: parsed.providerRunnerId,
+    ...(shouldReport
+      ? {event: eventFor(container, 'failed', labels, context.providerKind, context.now(), reason)}
+      : {}),
+    ...(shouldRetainFailedContainer(context) ? {retained: true} : {remove: container.name}),
   });
 }
 
@@ -693,6 +716,14 @@ async function applyTerminalActions(
   context: DockerLifecycleContext,
   actions: readonly TerminalAction[],
 ): Promise<void> {
+  logRequestedTerminalActions(context, actions);
+  for (const action of actions) await applyTerminalAction(context, action);
+}
+
+function logRequestedTerminalActions(
+  context: DockerLifecycleContext,
+  actions: readonly TerminalAction[],
+): void {
   const requestedIds = actions
     .filter((action) => action.reason === 'backend-terminate')
     .filter((action) => {
@@ -716,54 +747,66 @@ async function applyTerminalActions(
       'Runner container termination batch requested',
     );
   }
-  for (const action of actions) {
-    const reportBeforeRemove = action.event?.state === 'failed' && action.remove;
-    let reportError: unknown;
-    if (reportBeforeRemove && action.event) {
-      try {
-        await reportEvents(context, [action.event]);
-      } catch (error) {
-        reportError = error;
-      }
+}
+
+async function applyTerminalAction(
+  context: DockerLifecycleContext,
+  action: TerminalAction,
+): Promise<void> {
+  const reportBeforeRemove = action.event?.state === 'failed' && action.remove;
+  let reportError: unknown;
+  if (reportBeforeRemove && action.event) {
+    try {
+      await reportEvents(context, [action.event]);
+    } catch (error) {
+      reportError = error;
     }
-    if (action.killAndRemove) await context.engine.killAndRemove(action.killAndRemove);
-    if (action.remove) await context.engine.remove(action.remove);
-    if (reportError) throw reportError;
-    if (!reportBeforeRemove && action.event) await reportEvents(context, [action.event]);
-    if (action.event?.state === 'stopped') {
-      logger().debug?.(
-        {event: 'runner.container_stopped', providerRunnerId: action.providerRunnerId},
-        'Runner container stopped successfully',
-      );
-    }
-    if (action.remove || action.killAndRemove) {
-      logger().debug?.(
-        {
-          event: 'runner.container_removed',
-          providerRunnerId: action.providerRunnerId,
-          operation: action.killAndRemove ? 'kill_and_remove' : 'remove',
-        },
-        'Runner container removed',
-      );
-    }
-    if (action.reason === 'registration-deadline') {
-      closeEpisode(context.episodes, episodeKey('stale-reap', action.providerRunnerId));
-    }
-    if (action.reason === 'backend-terminate') {
-      const requestedIds =
-        action.requestSource === 'poll'
-          ? context.pollTerminationRequestedIds
-          : context.backendTerminationRequestedIds;
-      requestedIds.delete(action.providerRunnerId);
-      syncTerminationEpisodes(context);
-    }
-    context.knownLiveIds.delete(action.providerRunnerId);
-    context.knownTemplateKeys.delete(action.providerRunnerId);
-    context.tracker.remove(action.providerRunnerId);
-    if (!action.retained) {
-      context.reportedFailedIds.delete(action.providerRunnerId);
-      context.reportedFailedContainerIds.delete(action.providerRunnerId);
-    }
+  }
+  if (action.killAndRemove) await context.engine.killAndRemove(action.killAndRemove);
+  if (action.remove) await context.engine.remove(action.remove);
+  if (reportError) throw reportError;
+  if (!reportBeforeRemove && action.event) await reportEvents(context, [action.event]);
+  logTerminalAction(action);
+  clearTerminalActionState(context, action);
+}
+
+function logTerminalAction(action: TerminalAction): void {
+  if (action.event?.state === 'stopped') {
+    logger().debug?.(
+      {event: 'runner.container_stopped', providerRunnerId: action.providerRunnerId},
+      'Runner container stopped successfully',
+    );
+  }
+  if (action.remove || action.killAndRemove) {
+    logger().debug?.(
+      {
+        event: 'runner.container_removed',
+        providerRunnerId: action.providerRunnerId,
+        operation: action.killAndRemove ? 'kill_and_remove' : 'remove',
+      },
+      'Runner container removed',
+    );
+  }
+}
+
+function clearTerminalActionState(context: DockerLifecycleContext, action: TerminalAction): void {
+  if (action.reason === 'registration-deadline') {
+    closeEpisode(context.episodes, episodeKey('stale-reap', action.providerRunnerId));
+  }
+  if (action.reason === 'backend-terminate') {
+    const requestedIds =
+      action.requestSource === 'poll'
+        ? context.pollTerminationRequestedIds
+        : context.backendTerminationRequestedIds;
+    requestedIds.delete(action.providerRunnerId);
+    syncTerminationEpisodes(context);
+  }
+  context.knownLiveIds.delete(action.providerRunnerId);
+  context.knownTemplateKeys.delete(action.providerRunnerId);
+  context.tracker.remove(action.providerRunnerId);
+  if (!action.retained) {
+    context.reportedFailedIds.delete(action.providerRunnerId);
+    context.reportedFailedContainerIds.delete(action.providerRunnerId);
   }
 }
 
@@ -1190,35 +1233,11 @@ function logFailedContainer(
 ): void {
   const finishedAtUnavailable =
     !container.finishedAt || Number.isNaN(container.finishedAt.getTime());
-  if (finishedAtUnavailable) {
-    logger().debug?.(
-      {
-        event: 'runner.container_failure_timestamp_fallback',
-        operation: 'failed_container_retention',
-        containerId: container.id,
-        containerName: container.name,
-        fallback: 'firstObservedAt',
-        reason: container.terminalInspectFailed
-          ? 'terminal-inspect-unavailable'
-          : 'finished-at-unavailable',
-      },
-      container.terminalInspectFailed
-        ? 'Failure timestamp unavailable; TTL cleanup is deferred but count-bounded cleanup still applies'
-        : 'Failure timestamp unavailable; first-observed failure time will drive TTL cleanup',
-    );
-  }
+  if (finishedAtUnavailable) logFailureTimestampFallback(container);
   const runtimeEndAt = failureAtForRetention(context, container, context.now());
-  const runtimeMs =
-    container.startedAt && !Number.isNaN(container.startedAt.getTime())
-      ? Math.max(0, runtimeEndAt.getTime() - container.startedAt.getTime())
-      : undefined;
-  const retentionDeadline =
-    shouldRetainFailedContainer(context) && !container.terminalInspectFailed
-      ? new Date(
-          failureAtForRetention(context, container, context.now()).getTime() +
-            context.failedContainerRetentionMs,
-        )
-      : undefined;
+  const runtimeMs = containerRuntimeMs(container, runtimeEndAt);
+  const retentionDeadline = failedContainerRetentionDeadline(context, container);
+  const retained = shouldRetainFailedContainer(context);
   const forensicFields = forensicLogFields(container, context);
   logger().error(
     {
@@ -1238,9 +1257,46 @@ function logFailedContainer(
       ...(retentionDeadline ? {retentionDeadline: retentionDeadline.toISOString()} : {}),
       ...forensicFields,
     },
-    shouldRetainFailedContainer(context)
+    retained
       ? 'Runner container failed and was retained for forensic inspection'
       : 'Runner container failed',
+  );
+}
+
+function logFailureTimestampFallback(container: DockerContainerView): void {
+  logger().debug?.(
+    {
+      event: 'runner.container_failure_timestamp_fallback',
+      operation: 'failed_container_retention',
+      containerId: container.id,
+      containerName: container.name,
+      fallback: 'firstObservedAt',
+      reason: container.terminalInspectFailed
+        ? 'terminal-inspect-unavailable'
+        : 'finished-at-unavailable',
+    },
+    container.terminalInspectFailed
+      ? 'Failure timestamp unavailable; TTL cleanup is deferred but count-bounded cleanup still applies'
+      : 'Failure timestamp unavailable; first-observed failure time will drive TTL cleanup',
+  );
+}
+
+function containerRuntimeMs(
+  container: DockerContainerView,
+  runtimeEndAt: Date,
+): number | undefined {
+  if (!container.startedAt || Number.isNaN(container.startedAt.getTime())) return undefined;
+  return Math.max(0, runtimeEndAt.getTime() - container.startedAt.getTime());
+}
+
+function failedContainerRetentionDeadline(
+  context: DockerLifecycleContext,
+  container: DockerContainerView,
+): Date | undefined {
+  if (!shouldRetainFailedContainer(context) || container.terminalInspectFailed) return undefined;
+  return new Date(
+    failureAtForRetention(context, container, context.now()).getTime() +
+      context.failedContainerRetentionMs,
   );
 }
 

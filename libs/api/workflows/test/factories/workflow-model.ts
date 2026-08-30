@@ -88,39 +88,7 @@ export function workflowModel(input: TestWorkflowModelInput = {}): WorkflowModel
       steps: [{run: 'echo hello'}],
     },
   };
-  const modelJobs = Object.entries(jobs).map(([key, job]) => {
-    const jobId = stableId(key);
-    return {
-      id: jobId,
-      key,
-      mode: job.listening === undefined ? ('one_shot' as const) : ('listening' as const),
-      runner: normalizeStringArray(job.runner ?? input.runner ?? DEFAULT_RUNNER_LABELS),
-      ...(job.runnerTemplates === undefined
-        ? {}
-        : {
-            runnerTemplates: job.runnerTemplates.map((template) =>
-              requiredFieldTemplate('job.runner', template),
-            ),
-          }),
-      checkout: job.checkout ?? DEFAULT_JOB_CHECKOUT,
-      ...(job.if === undefined ? {} : {if: workflowExpression(job.if)}),
-      ...(job.success === undefined ? {} : {success: job.success}),
-      ...(job.outputs === undefined ? {} : {outputs: outputTemplates(job.outputs)}),
-      ...(job.outputTypes === undefined ? {} : {outputTypes: job.outputTypes}),
-      ...(job.name === undefined ? {} : {name: job.name}),
-      ...(job.executionName === undefined
-        ? {}
-        : {
-            executionName: fieldTemplate('job.execution_name', job.executionName) ?? [
-              {kind: 'literal' as const, value: job.executionName},
-            ],
-          }),
-      ...(job.listening === undefined ? {} : {listening: job.listening}),
-      ...optionalScopedEnv(job.env),
-      dependencies: normalizeStringArray(job.needs).map(stableId),
-      steps: job.steps.map((step, stepIndex) => normalizeStep(step, jobId, stepIndex)),
-    };
-  });
+  const modelJobs = Object.entries(jobs).map(([key, job]) => normalizeJob(key, job, input.runner));
 
   return {
     kind: 'workflow',
@@ -138,6 +106,44 @@ export function workflowModel(input: TestWorkflowModelInput = {}): WorkflowModel
     dependencies: modelJobs.flatMap((job) =>
       job.dependencies.map((dependency) => ({from: dependency, to: job.id})),
     ),
+  };
+}
+
+function normalizeJob(
+  key: string,
+  job: TestWorkflowJob,
+  workflowRunner: TestWorkflowModelInput['runner'],
+): WorkflowModel['jobs'][number] {
+  const jobId = stableId(key);
+  return {
+    id: jobId,
+    key,
+    mode: job.listening === undefined ? 'one_shot' : 'listening',
+    runner: normalizeStringArray(job.runner ?? workflowRunner ?? DEFAULT_RUNNER_LABELS),
+    ...(job.runnerTemplates === undefined
+      ? {}
+      : {
+          runnerTemplates: job.runnerTemplates.map((template) =>
+            requiredFieldTemplate('job.runner', template),
+          ),
+        }),
+    checkout: job.checkout ?? DEFAULT_JOB_CHECKOUT,
+    ...(job.if === undefined ? {} : {if: workflowExpression(job.if)}),
+    ...(job.success === undefined ? {} : {success: job.success}),
+    ...(job.outputs === undefined ? {} : {outputs: outputTemplates(job.outputs)}),
+    ...(job.outputTypes === undefined ? {} : {outputTypes: job.outputTypes}),
+    ...(job.name === undefined ? {} : {name: job.name}),
+    ...(job.executionName === undefined
+      ? {}
+      : {
+          executionName: fieldTemplate('job.execution_name', job.executionName) ?? [
+            {kind: 'literal' as const, value: job.executionName},
+          ],
+        }),
+    ...(job.listening === undefined ? {} : {listening: job.listening}),
+    ...optionalScopedEnv(job.env),
+    dependencies: normalizeStringArray(job.needs).map(stableId),
+    steps: job.steps.map((step, stepIndex) => normalizeStep(step, jobId, stepIndex)),
   };
 }
 
@@ -159,48 +165,47 @@ function outputTemplates(outputs: Readonly<Record<string, string>>) {
 
 function normalizeStep(step: TestWorkflowStep, jobId: string, stepIndex: number): ModelStep {
   const base = stepBase(step, jobId, stepIndex);
-  if ('run' in step) {
-    return {
-      ...base,
-      kind: 'run',
-      command: {kind: 'shell', value: step.run},
-      ...optionalRunTemplates(step),
-      ...optionalStepEnv(step.env),
-    };
-  }
+  if ('run' in step) return normalizeRunStep(step, base);
+  if ('prompt' in step) return normalizeAgentStep(step, base);
+  if ('tool' in step) return normalizeToolStep(step, base);
+  return {...base, kind: 'checkout', checkout: step.checkout};
+}
 
-  if ('prompt' in step) {
-    return {
-      ...base,
-      kind: 'agent',
-      ...(step.harness === undefined ? {} : {harness: step.harness}),
-      ...(step.model === undefined ? {} : {model: step.model}),
-      ...(step.provider === undefined ? {} : {provider: step.provider}),
-      ...(step.thinking === undefined ? {} : {thinking: step.thinking}),
-      ...(step.tools === undefined ? {} : {tools: step.tools}),
-      ...(step.integrations === undefined ? {} : {integrations: step.integrations}),
-      ...(step.session === undefined ? {} : {session: testAgentStepSession(step.session)}),
-      prompt: step.prompt,
-      ...optionalAgentTemplates(step),
-    };
-  }
-
-  if ('tool' in step) {
-    return {
-      ...base,
-      kind: 'tool',
-      tool: splitToolId(step.tool),
-      ...(step.connection === undefined ? {} : {connection: step.connection}),
-      ...(step.with === undefined ? {} : {with: step.with}),
-      ...(step.outputs === undefined ? {} : {outputMappings: outputMappings(step.outputs)}),
-      ...optionalToolTemplates(step),
-    };
-  }
-
+function normalizeRunStep(step: TestRunStep, base: ReturnType<typeof stepBase>): ModelStep {
   return {
     ...base,
-    kind: 'checkout',
-    checkout: step.checkout,
+    kind: 'run',
+    command: {kind: 'shell', value: step.run},
+    ...optionalRunTemplates(step),
+    ...optionalStepEnv(step.env),
+  };
+}
+
+function normalizeAgentStep(step: TestAgentStep, base: ReturnType<typeof stepBase>): ModelStep {
+  return {
+    ...base,
+    kind: 'agent',
+    ...(step.harness === undefined ? {} : {harness: step.harness}),
+    ...(step.model === undefined ? {} : {model: step.model}),
+    ...(step.provider === undefined ? {} : {provider: step.provider}),
+    ...(step.thinking === undefined ? {} : {thinking: step.thinking}),
+    ...(step.tools === undefined ? {} : {tools: step.tools}),
+    ...(step.integrations === undefined ? {} : {integrations: step.integrations}),
+    ...(step.session === undefined ? {} : {session: testAgentStepSession(step.session)}),
+    prompt: step.prompt,
+    ...optionalAgentTemplates(step),
+  };
+}
+
+function normalizeToolStep(step: TestToolStep, base: ReturnType<typeof stepBase>): ModelStep {
+  return {
+    ...base,
+    kind: 'tool',
+    tool: splitToolId(step.tool),
+    ...(step.connection === undefined ? {} : {connection: step.connection}),
+    ...(step.with === undefined ? {} : {with: step.with}),
+    ...(step.outputs === undefined ? {} : {outputMappings: outputMappings(step.outputs)}),
+    ...optionalToolTemplates(step),
   };
 }
 

@@ -270,46 +270,19 @@ function mergeActiveRunners(
   providerRunners: RunnerInstance[],
   jobExecutions: ActiveRunningJobExecution[],
 ): ActiveRunner[] {
-  const jobExecutionsByRunnerSessionId = new Map<string, ActiveRunningJobExecution[]>();
-  const jobExecutionsByRunnerInstanceId = new Map<string, ActiveRunningJobExecution[]>();
-  for (const jobExecution of jobExecutions) {
-    const runnerJobExecutions =
-      jobExecutionsByRunnerSessionId.get(jobExecution.runnerSessionId) ?? [];
-    runnerJobExecutions.push(jobExecution);
-    jobExecutionsByRunnerSessionId.set(jobExecution.runnerSessionId, runnerJobExecutions);
-
-    if (jobExecution.provisionerId && jobExecution.providerRunnerId) {
-      const key = providerRunnerKey(jobExecution.provisionerId, jobExecution.providerRunnerId);
-      const providerRunnerJobExecutions = jobExecutionsByRunnerInstanceId.get(key) ?? [];
-      providerRunnerJobExecutions.push(jobExecution);
-      jobExecutionsByRunnerInstanceId.set(key, providerRunnerJobExecutions);
-    }
-  }
+  const {bySessionId, byInstanceId} = indexActiveJobExecutions(jobExecutions);
 
   const merged: ActiveRunner[] = [];
   const usedJobExecutionIds = new Set<string>();
 
   for (const providerRunner of providerRunners) {
-    const providerRunnerJobExecutions =
-      jobExecutionsByRunnerInstanceId.get(
-        providerRunnerKey(providerRunner.provisionerId, providerRunner.providerRunnerId),
-      ) ??
-      (providerRunner.runnerSessionId
-        ? jobExecutionsByRunnerSessionId.get(providerRunner.runnerSessionId)
-        : undefined);
-    if (!providerRunnerJobExecutions || providerRunnerJobExecutions.length === 0) {
-      merged.push(toActiveRunner(providerRunner, undefined));
-      continue;
-    }
-
-    let emitted = false;
-    for (const jobExecution of providerRunnerJobExecutions) {
-      if (usedJobExecutionIds.has(jobExecution.jobExecutionId)) continue;
-      usedJobExecutionIds.add(jobExecution.jobExecutionId);
-      merged.push(toActiveRunner(providerRunner, jobExecution));
-      emitted = true;
-    }
-    if (!emitted) merged.push(toActiveRunner(providerRunner, undefined));
+    appendActiveProviderRunner(
+      providerRunner,
+      bySessionId,
+      byInstanceId,
+      usedJobExecutionIds,
+      merged,
+    );
   }
 
   for (const jobExecution of jobExecutions) {
@@ -318,6 +291,66 @@ function mergeActiveRunners(
   }
 
   return merged.sort(compareActiveRunners);
+}
+
+function indexActiveJobExecutions(jobExecutions: readonly ActiveRunningJobExecution[]): {
+  bySessionId: Map<string, ActiveRunningJobExecution[]>;
+  byInstanceId: Map<string, ActiveRunningJobExecution[]>;
+} {
+  const bySessionId = new Map<string, ActiveRunningJobExecution[]>();
+  const byInstanceId = new Map<string, ActiveRunningJobExecution[]>();
+  for (const execution of jobExecutions) {
+    appendActiveExecution(bySessionId, execution.runnerSessionId, execution);
+    if (execution.provisionerId && execution.providerRunnerId) {
+      appendActiveExecution(
+        byInstanceId,
+        providerRunnerKey(execution.provisionerId, execution.providerRunnerId),
+        execution,
+      );
+    }
+  }
+  return {bySessionId, byInstanceId};
+}
+
+function appendActiveExecution(
+  map: Map<string, ActiveRunningJobExecution[]>,
+  key: string,
+  execution: ActiveRunningJobExecution,
+): void {
+  const executions = map.get(key) ?? [];
+  executions.push(execution);
+  map.set(key, executions);
+}
+
+function appendActiveProviderRunner(
+  runner: RunnerInstance,
+  bySessionId: ReadonlyMap<string, readonly ActiveRunningJobExecution[]>,
+  byInstanceId: ReadonlyMap<string, readonly ActiveRunningJobExecution[]>,
+  usedJobExecutionIds: Set<string>,
+  merged: ActiveRunner[],
+): void {
+  const executions = activeProviderRunnerExecutions(runner, bySessionId, byInstanceId);
+  let emitted = false;
+  for (const execution of executions) {
+    if (usedJobExecutionIds.has(execution.jobExecutionId)) continue;
+    usedJobExecutionIds.add(execution.jobExecutionId);
+    merged.push(toActiveRunner(runner, execution));
+    emitted = true;
+  }
+  if (!emitted) merged.push(toActiveRunner(runner, undefined));
+}
+
+function activeProviderRunnerExecutions(
+  runner: RunnerInstance,
+  bySessionId: ReadonlyMap<string, readonly ActiveRunningJobExecution[]>,
+  byInstanceId: ReadonlyMap<string, readonly ActiveRunningJobExecution[]>,
+): readonly ActiveRunningJobExecution[] {
+  const instanceExecutions = byInstanceId.get(
+    providerRunnerKey(runner.provisionerId, runner.providerRunnerId),
+  );
+  if (instanceExecutions !== undefined) return instanceExecutions;
+  if (!runner.runnerSessionId) return [];
+  return bySessionId.get(runner.runnerSessionId) ?? [];
 }
 
 function providerRunnerKey(provisionerId: string, providerRunnerId: string): string {

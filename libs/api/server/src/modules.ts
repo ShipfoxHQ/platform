@@ -37,7 +37,7 @@ import {
 } from '@shipfox/api-workspaces-dto/inter-module';
 import {reportError} from '@shipfox/node-error-monitoring';
 import {durationToSeconds} from '@shipfox/node-jwt';
-import type {ShipfoxModule} from '@shipfox/node-module';
+import type {ModuleDatabase, ShipfoxModule} from '@shipfox/node-module';
 import {
   createInMemoryInterModuleTransport,
   registerInterModulePresentations,
@@ -286,11 +286,9 @@ function createAgentSecretsClient(
 }
 
 function validateCustomAgentModule(module: ShipfoxModule): void {
-  const databases = module.database
-    ? Array.isArray(module.database)
-      ? module.database
-      : [module.database]
-    : [];
+  let databases: ModuleDatabase[] = [];
+  if (Array.isArray(module.database)) databases = module.database;
+  else if (module.database) databases = [module.database];
   if (
     !databases.some(({databaseNamespace}) => databaseNamespace === agentInterModuleContract.module)
   ) {

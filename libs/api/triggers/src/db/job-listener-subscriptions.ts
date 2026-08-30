@@ -41,43 +41,58 @@ export async function projectJobListenerSubscriptions(
       ['until', params.until ?? []],
     ] as const) {
       for (const [matcherOrdinal, matcher] of matchers.entries()) {
-        const config: Record<string, unknown> = {};
-        if (matcher.inputs !== undefined) config.inputs = matcher.inputs;
-        if (matcher.filter !== undefined) config.filter = matcher.filter;
-        if (matcher.filter_snapshot !== undefined) config.filter_snapshot = matcher.filter_snapshot;
-        if (matcher.filter_output_types !== undefined) {
-          config.filter_output_types = matcher.filter_output_types;
-        }
-
-        await tx
-          .insert(jobListenerSubscriptions)
-          .values({
-            workspaceId: params.workspaceId,
-            workflowRunId: params.workflowRunId,
-            jobId: params.jobId,
-            kind,
-            matcherOrdinal,
-            source: matcher.source,
-            event: normalizeSubscriptionEvent({source: matcher.source, event: matcher.event}),
-            config,
-          })
-          .onConflictDoUpdate({
-            target: [
-              jobListenerSubscriptions.jobId,
-              jobListenerSubscriptions.kind,
-              jobListenerSubscriptions.matcherOrdinal,
-            ],
-            set: {
-              workspaceId: params.workspaceId,
-              workflowRunId: params.workflowRunId,
-              source: matcher.source,
-              event: normalizeSubscriptionEvent({source: matcher.source, event: matcher.event}),
-              config,
-            },
-          });
+        await upsertJobListenerMatcher(tx, params, kind, matcherOrdinal, matcher);
       }
     }
   });
+}
+
+async function upsertJobListenerMatcher(
+  tx: Tx,
+  params: ProjectJobListenerSubscriptionsParams,
+  kind: JobListenerMatcherKind,
+  matcherOrdinal: number,
+  matcher: ListenerMatcher,
+): Promise<void> {
+  const config = listenerMatcherConfig(matcher);
+  const event = normalizeSubscriptionEvent({source: matcher.source, event: matcher.event});
+  await tx
+    .insert(jobListenerSubscriptions)
+    .values({
+      workspaceId: params.workspaceId,
+      workflowRunId: params.workflowRunId,
+      jobId: params.jobId,
+      kind,
+      matcherOrdinal,
+      source: matcher.source,
+      event,
+      config,
+    })
+    .onConflictDoUpdate({
+      target: [
+        jobListenerSubscriptions.jobId,
+        jobListenerSubscriptions.kind,
+        jobListenerSubscriptions.matcherOrdinal,
+      ],
+      set: {
+        workspaceId: params.workspaceId,
+        workflowRunId: params.workflowRunId,
+        source: matcher.source,
+        event,
+        config,
+      },
+    });
+}
+
+function listenerMatcherConfig(matcher: ListenerMatcher): Record<string, unknown> {
+  const config: Record<string, unknown> = {};
+  if (matcher.inputs !== undefined) config.inputs = matcher.inputs;
+  if (matcher.filter !== undefined) config.filter = matcher.filter;
+  if (matcher.filter_snapshot !== undefined) config.filter_snapshot = matcher.filter_snapshot;
+  if (matcher.filter_output_types !== undefined) {
+    config.filter_output_types = matcher.filter_output_types;
+  }
+  return config;
 }
 
 async function pruneStaleMatchers(

@@ -90,50 +90,79 @@ function findCyclicSourceNames(
   jobNames: readonly string[],
   adjacency: ReadonlyMap<string, readonly string[]>,
 ): readonly string[] {
-  const indexes = new Map<string, number>();
-  const lowLinks = new Map<string, number>();
-  const stack: string[] = [];
-  const onStack = new Set<string>();
-  const cyclicNames = new Set<string>();
-  let index = 0;
-
-  const visit = (node: string) => {
-    indexes.set(node, index);
-    lowLinks.set(node, index);
-    index += 1;
-    stack.push(node);
-    onStack.add(node);
-
-    for (const neighbor of adjacency.get(node) ?? []) {
-      if (!indexes.has(neighbor)) {
-        visit(neighbor);
-        lowLinks.set(
-          node,
-          Math.min(lowLinks.get(node) as number, lowLinks.get(neighbor) as number),
-        );
-      } else if (onStack.has(neighbor)) {
-        lowLinks.set(node, Math.min(lowLinks.get(node) as number, indexes.get(neighbor) as number));
-      }
-    }
-
-    if (lowLinks.get(node) !== indexes.get(node)) return;
-
-    const component: string[] = [];
-    while (stack.length > 0) {
-      const member = stack.pop() as string;
-      onStack.delete(member);
-      component.push(member);
-      if (member === node) break;
-    }
-
-    if (component.length > 1) {
-      for (const member of component) cyclicNames.add(member);
-    }
+  const state: CyclicSearchState = {
+    indexes: new Map(),
+    lowLinks: new Map(),
+    stack: [],
+    onStack: new Set(),
+    cyclicNames: new Set(),
+    index: 0,
   };
 
   for (const name of jobNames) {
-    if (!indexes.has(name)) visit(name);
+    if (!state.indexes.has(name)) visitDependencyNode(name, adjacency, state);
   }
 
-  return jobNames.filter((name) => cyclicNames.has(name));
+  return jobNames.filter((name) => state.cyclicNames.has(name));
+}
+
+interface CyclicSearchState {
+  indexes: Map<string, number>;
+  lowLinks: Map<string, number>;
+  stack: string[];
+  onStack: Set<string>;
+  cyclicNames: Set<string>;
+  index: number;
+}
+
+function visitDependencyNode(
+  node: string,
+  adjacency: ReadonlyMap<string, readonly string[]>,
+  state: CyclicSearchState,
+): void {
+  state.indexes.set(node, state.index);
+  state.lowLinks.set(node, state.index);
+  state.index += 1;
+  state.stack.push(node);
+  state.onStack.add(node);
+
+  for (const neighbor of adjacency.get(node) ?? []) {
+    visitDependencyNeighbor(node, neighbor, adjacency, state);
+  }
+  if (state.lowLinks.get(node) === state.indexes.get(node)) collectComponent(node, state);
+}
+
+function visitDependencyNeighbor(
+  node: string,
+  neighbor: string,
+  adjacency: ReadonlyMap<string, readonly string[]>,
+  state: CyclicSearchState,
+): void {
+  if (!state.indexes.has(neighbor)) {
+    visitDependencyNode(neighbor, adjacency, state);
+    state.lowLinks.set(
+      node,
+      Math.min(state.lowLinks.get(node) as number, state.lowLinks.get(neighbor) as number),
+    );
+    return;
+  }
+  if (state.onStack.has(neighbor)) {
+    state.lowLinks.set(
+      node,
+      Math.min(state.lowLinks.get(node) as number, state.indexes.get(neighbor) as number),
+    );
+  }
+}
+
+function collectComponent(node: string, state: CyclicSearchState): void {
+  const component: string[] = [];
+  while (state.stack.length > 0) {
+    const member = state.stack.pop() as string;
+    state.onStack.delete(member);
+    component.push(member);
+    if (member === node) break;
+  }
+  if (component.length > 1) {
+    for (const member of component) state.cyclicNames.add(member);
+  }
 }

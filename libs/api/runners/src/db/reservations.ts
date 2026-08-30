@@ -134,6 +134,16 @@ interface PollDemandAndReserveResult {
   newlyReservedUnits: NewReservationUnits[];
 }
 
+interface DemandReservationState {
+  readonly templates: NormalizedTemplate[];
+  readonly reservedByLabels: ReadonlyMap<string, number>;
+  readonly stats: DemandStat[];
+  readonly grants: ReservationGrant[];
+  readonly newlyReservedUnits: NewReservationUnits[];
+  readonly workspaceIdField: {workspaceId?: string};
+  remainingMaxReservations: number;
+}
+
 export async function pollDemandAndReserve(
   params: PollDemandAndReserveParams,
 ): Promise<{stats: DemandStat[]; reservations: ReservationGrant[]}> {
@@ -277,111 +287,144 @@ async function pollDemandAndReserveLockedTx(
       (reservation) => reservation.provisionerId === params.provisionerId,
     ),
   );
-  const stats: DemandStat[] = [];
-  const grants: ReservationGrant[] = [];
-  const newlyReservedUnits: NewReservationUnits[] = [];
-  let remainingMaxReservations = params.maxReservations;
-  const workspaceIdField =
-    params.capabilityWindowSeconds === undefined ? {} : {workspaceId: params.workspaceId};
+  const state: DemandReservationState = {
+    templates,
+    reservedByLabels,
+    stats: [],
+    grants: [],
+    newlyReservedUnits: [],
+    workspaceIdField:
+      params.capabilityWindowSeconds === undefined ? {} : {workspaceId: params.workspaceId},
+    remainingMaxReservations: params.maxReservations,
+  };
 
   for (const demand of sortDemandRows(demandRows)) {
-    const satisfyingTemplates = templates
-      .filter((template) => isSubset(demand.requiredLabels, template.labels))
-      .sort(
-        (a, b) => a.labels.length - b.labels.length || a.templateKey.localeCompare(b.templateKey),
-      );
-
-    if (satisfyingTemplates.length === 0) continue;
-
-    const reserved = reservedByLabels.get(labelKey(demand.requiredLabels)) ?? 0;
-    const unreserved = Math.max(0, demand.queued - reserved);
-    const capacity = satisfyingTemplates.reduce(
-      (total, template) => total + template.remainingSlots,
-      0,
-    );
-    const grant = Math.min(unreserved, capacity, remainingMaxReservations);
-    let reservedAfterGrant = reserved;
-
-    if (grant > 0 && params.maxReservations > 0) {
-      const idleRunners = await listIdleRunnerInstancesTx(tx, {
-        provisionerId: params.provisionerId,
-        requiredLabels: demand.requiredLabels,
-        count: grant,
-        workspaceId: params.workspaceId,
-        scope: params.scope,
-      });
-
-      remainingMaxReservations -= grant;
-
-      const boundCount = idleRunners.length;
-      if (boundCount > 0) {
-        const [boundReservation] = await tx
-          .insert(reservations)
-          .values({
-            workspaceId: params.workspaceId,
-            provisionerId: params.provisionerId,
-            requiredLabels: demand.requiredLabels,
-            count: boundCount,
-            kind: 'bound',
-            expiresAt: sql`now() + (${params.activationGraceSeconds ?? params.ttlSeconds} || ' seconds')::interval`,
-          })
-          .returning({id: reservations.id});
-
-        if (!boundReservation) throw new Error('Insert returned no rows');
-
-        await bindIdleRunnerInstancesTx(tx, {
-          provisionerId: params.provisionerId,
-          reservationId: boundReservation.id,
-          workspaceId: params.workspaceId,
-          requiredLabels: demand.requiredLabels,
-          scope: params.scope,
-          idleRunners,
-        });
-      }
-
-      const launchCount = grant - boundCount;
-      drawSlots(satisfyingTemplates, launchCount);
-      let launchReservation: {id: string; expiresAt: Date} | undefined;
-      if (launchCount > 0) {
-        const [inserted] = await tx
-          .insert(reservations)
-          .values({
-            workspaceId: params.workspaceId,
-            provisionerId: params.provisionerId,
-            requiredLabels: demand.requiredLabels,
-            count: launchCount,
-            kind: 'launch',
-            expiresAt: sql`now() + (${params.ttlSeconds} || ' seconds')::interval`,
-          })
-          .returning({id: reservations.id, expiresAt: reservations.expiresAt});
-
-        if (!inserted) throw new Error('Insert returned no rows');
-        launchReservation = inserted;
-      }
-
-      newlyReservedUnits.push({labels: demand.requiredLabels, count: grant});
-      reservedAfterGrant += grant;
-      if (launchReservation) {
-        grants.push({
-          reservationId: launchReservation.id,
-          ...workspaceIdField,
-          labels: demand.requiredLabels,
-          count: launchCount,
-          expiresAt: launchReservation.expiresAt,
-        });
-      }
-    }
-
-    stats.push({
-      ...workspaceIdField,
-      labels: demand.requiredLabels,
-      queued: demand.queued,
-      reserved: reservedAfterGrant,
-      oldestQueuedAt: demand.oldestQueuedAt,
-    });
+    await reserveDemandRowTx(tx, params, demand, state);
   }
 
-  return {stats, reservations: grants, newlyReservedUnits};
+  return {
+    stats: state.stats,
+    reservations: state.grants,
+    newlyReservedUnits: state.newlyReservedUnits,
+  };
+}
+
+async function reserveDemandRowTx(
+  tx: Tx,
+  params: PollDemandAndReserveLockedParams,
+  demand: DemandRow,
+  state: DemandReservationState,
+): Promise<void> {
+  const satisfyingTemplates = state.templates
+    .filter((template) => isSubset(demand.requiredLabels, template.labels))
+    .sort(
+      (a, b) => a.labels.length - b.labels.length || a.templateKey.localeCompare(b.templateKey),
+    );
+  if (satisfyingTemplates.length === 0) return;
+  const reserved = state.reservedByLabels.get(labelKey(demand.requiredLabels)) ?? 0;
+  const capacity = satisfyingTemplates.reduce(
+    (total, template) => total + template.remainingSlots,
+    0,
+  );
+  const grant = Math.min(
+    Math.max(0, demand.queued - reserved),
+    capacity,
+    state.remainingMaxReservations,
+  );
+  if (grant > 0 && params.maxReservations > 0) {
+    await grantDemandReservationTx(tx, params, demand, satisfyingTemplates, grant, state);
+  }
+  state.stats.push({
+    ...state.workspaceIdField,
+    labels: demand.requiredLabels,
+    queued: demand.queued,
+    reserved: reserved + grant,
+    oldestQueuedAt: demand.oldestQueuedAt,
+  });
+}
+
+async function grantDemandReservationTx(
+  tx: Tx,
+  params: PollDemandAndReserveLockedParams,
+  demand: DemandRow,
+  satisfyingTemplates: NormalizedTemplate[],
+  grant: number,
+  state: DemandReservationState,
+): Promise<void> {
+  const idleRunners = await listIdleRunnerInstancesTx(tx, {
+    provisionerId: params.provisionerId,
+    requiredLabels: demand.requiredLabels,
+    count: grant,
+    workspaceId: params.workspaceId,
+    scope: params.scope,
+  });
+  state.remainingMaxReservations -= grant;
+  if (idleRunners.length > 0) {
+    await bindDemandReservationTx(tx, params, demand, idleRunners);
+  }
+  const launchCount = grant - idleRunners.length;
+  drawSlots(satisfyingTemplates, launchCount);
+  const launchReservation = await insertLaunchReservationTx(tx, params, demand, launchCount);
+  state.newlyReservedUnits.push({labels: demand.requiredLabels, count: grant});
+  if (launchReservation) {
+    state.grants.push({
+      reservationId: launchReservation.id,
+      ...state.workspaceIdField,
+      labels: demand.requiredLabels,
+      count: launchCount,
+      expiresAt: launchReservation.expiresAt,
+    });
+  }
+}
+
+async function bindDemandReservationTx(
+  tx: Tx,
+  params: PollDemandAndReserveLockedParams,
+  demand: DemandRow,
+  idleRunners: IdleRunnerCandidate[],
+): Promise<void> {
+  const [reservation] = await tx
+    .insert(reservations)
+    .values({
+      workspaceId: params.workspaceId,
+      provisionerId: params.provisionerId,
+      requiredLabels: demand.requiredLabels,
+      count: idleRunners.length,
+      kind: 'bound',
+      expiresAt: sql`now() + (${params.activationGraceSeconds ?? params.ttlSeconds} || ' seconds')::interval`,
+    })
+    .returning({id: reservations.id});
+  if (!reservation) throw new Error('Insert returned no rows');
+  await bindIdleRunnerInstancesTx(tx, {
+    provisionerId: params.provisionerId,
+    reservationId: reservation.id,
+    workspaceId: params.workspaceId,
+    requiredLabels: demand.requiredLabels,
+    scope: params.scope,
+    idleRunners,
+  });
+}
+
+async function insertLaunchReservationTx(
+  tx: Tx,
+  params: PollDemandAndReserveLockedParams,
+  demand: DemandRow,
+  launchCount: number,
+): Promise<{id: string; expiresAt: Date} | undefined> {
+  if (launchCount === 0) return undefined;
+  const [inserted] = await tx
+    .insert(reservations)
+    .values({
+      workspaceId: params.workspaceId,
+      provisionerId: params.provisionerId,
+      requiredLabels: demand.requiredLabels,
+      count: launchCount,
+      kind: 'launch',
+      expiresAt: sql`now() + (${params.ttlSeconds} || ' seconds')::interval`,
+    })
+    .returning({id: reservations.id, expiresAt: reservations.expiresAt});
+  if (!inserted) throw new Error('Insert returned no rows');
+  return inserted;
 }
 
 async function listActiveProvisionerReservationRowsTx(
@@ -402,22 +445,7 @@ async function listActiveProvisionerReservationRowsTx(
   const candidateIds = candidateRows.map((row) => row.id);
   if (candidateIds.length === 0) return [];
 
-  if (lockForMutation) {
-    // Assignment and provider-report transactions use this key before changing runner
-    // links. Lock it before counting so an in-flight assignment cannot expose its unit twice.
-    const candidateIdsByProvisioner = new Map<string, string[]>();
-    for (const row of candidateRows) {
-      const reservationIds = candidateIdsByProvisioner.get(row.provisionerId) ?? [];
-      reservationIds.push(row.id);
-      candidateIdsByProvisioner.set(row.provisionerId, reservationIds);
-    }
-    for (const provisionerId of [...candidateIdsByProvisioner.keys()].sort()) {
-      await lockRunnerReservationAdvisoryKeysTx(tx, {
-        provisionerId,
-        reservationIds: candidateIdsByProvisioner.get(provisionerId) ?? [],
-      });
-    }
-  }
+  if (lockForMutation) await lockActiveReservationCandidates(tx, candidateRows);
 
   const activeRowsQuery = tx
     .select({
@@ -461,19 +489,7 @@ async function listActiveProvisionerReservationRowsTx(
         ),
       ),
     );
-  const unclaimedByReservation = new Map<string, Set<string>>();
-  for (const runner of linkedRunnerRows) {
-    const isTerminal = terminalStates.some((state) => state === runner.state);
-    const isUnclaimed =
-      runner.firstClaimedAt === null && runner.reservationReleasedAt === null && !isTerminal;
-    if (!isUnclaimed) continue;
-    if (runner.reservationId && activeIdSet.has(runner.reservationId)) {
-      addUsedRunner(unclaimedByReservation, runner.reservationId, runner.id);
-    }
-    if (runner.intendedReservationId && activeIdSet.has(runner.intendedReservationId)) {
-      addUsedRunner(unclaimedByReservation, runner.intendedReservationId, runner.id);
-    }
-  }
+  const unclaimedByReservation = indexUnclaimedRunnersByReservation(linkedRunnerRows, activeIdSet);
 
   return activeRows.map((reservation) => {
     const unclaimed = unclaimedByReservation.get(reservation.id)?.size ?? 0;
@@ -484,6 +500,63 @@ async function listActiveProvisionerReservationRowsTx(
       leaked: Math.max(0, reservation.count - unclaimed),
     };
   });
+}
+
+async function lockActiveReservationCandidates(
+  tx: Tx,
+  rows: readonly {id: string; provisionerId: string}[],
+): Promise<void> {
+  const idsByProvisioner = new Map<string, string[]>();
+  for (const row of rows) {
+    const ids = idsByProvisioner.get(row.provisionerId) ?? [];
+    ids.push(row.id);
+    idsByProvisioner.set(row.provisionerId, ids);
+  }
+  for (const provisionerId of [...idsByProvisioner.keys()].sort()) {
+    await lockRunnerReservationAdvisoryKeysTx(tx, {
+      provisionerId,
+      reservationIds: idsByProvisioner.get(provisionerId) ?? [],
+    });
+  }
+}
+
+function indexUnclaimedRunnersByReservation(
+  runners: readonly {
+    id: string;
+    firstClaimedAt: Date | null;
+    reservationId: string | null;
+    intendedReservationId: string | null;
+    reservationReleasedAt: Date | null;
+    state: (typeof providerRunners.$inferSelect)['state'];
+  }[],
+  activeIds: ReadonlySet<string>,
+): Map<string, Set<string>> {
+  const unclaimed = new Map<string, Set<string>>();
+  for (const runner of runners) {
+    if (!runnerIsUnclaimed(runner)) continue;
+    addActiveReservationRunner(unclaimed, activeIds, runner.reservationId, runner.id);
+    addActiveReservationRunner(unclaimed, activeIds, runner.intendedReservationId, runner.id);
+  }
+  return unclaimed;
+}
+
+function runnerIsUnclaimed(runner: {
+  firstClaimedAt: Date | null;
+  reservationReleasedAt: Date | null;
+  state: (typeof providerRunners.$inferSelect)['state'];
+}): boolean {
+  if (runner.firstClaimedAt !== null || runner.reservationReleasedAt !== null) return false;
+  return !terminalStates.some((state) => state === runner.state);
+}
+
+function addActiveReservationRunner(
+  target: Map<string, Set<string>>,
+  activeIds: ReadonlySet<string>,
+  reservationId: string | null,
+  runnerId: string,
+): void {
+  if (reservationId === null || !activeIds.has(reservationId)) return;
+  addUsedRunner(target, reservationId, runnerId);
 }
 
 export async function countLiveReservationLeakUnits(): Promise<number> {
@@ -611,42 +684,49 @@ async function selectIdleRunnerInstancesTx(
   // path locks runner rows by id, so the locking pass must use that same order. A skipped row
   // rolls back only this nested savepoint and retries the bounded candidate scan, allowing the
   // next-oldest eligible runner to refill the grant without retaining a partial lock set.
+  return lockIdleRunnerCandidatesWithRetry(tx, params);
+}
+
+async function lockIdleRunnerCandidatesWithRetry(
+  tx: Tx,
+  params: IdleRunnerSelectionParams & {count: number},
+): Promise<IdleRunnerCandidate[]> {
   const retrySelection = Symbol('retry bindable runner selection');
-  const idleRunners = await (async () => {
-    while (true) {
-      try {
-        return await tx.transaction(async (lockTx) => {
-          const candidateRunners = await lockTx
-            .select({id: providerRunners.id, launchKind: providerRunners.launchKind})
-            .from(providerRunners)
-            .where(isBindableRunner(lockTx, params))
-            .orderBy(asc(providerRunners.createdAt), asc(providerRunners.id))
-            .limit(params.count);
-
-          if (candidateRunners.length === 0) return candidateRunners;
-
-          // PostgreSQL can acquire row locks before sorting a multi-row FOR UPDATE result. Lock
-          // each selected candidate individually so both polling and cleanup use id order.
-          const lockedRunners: typeof candidateRunners = [];
-          for (const candidate of [...candidateRunners].sort(compareRunnerIds)) {
-            const [runner] = await lockTx
-              .select({id: providerRunners.id, launchKind: providerRunners.launchKind})
-              .from(providerRunners)
-              .where(and(eq(providerRunners.id, candidate.id), isBindableRunner(lockTx, params)))
-              .for('update');
-            if (runner) lockedRunners.push(runner);
-          }
-
-          if (lockedRunners.length !== candidateRunners.length) throw retrySelection;
-          return lockedRunners;
-        });
-      } catch (error) {
-        if (error !== retrySelection) throw error;
-      }
+  while (true) {
+    try {
+      return await tx.transaction((lockTx) =>
+        lockIdleRunnerCandidateBatch(lockTx, params, retrySelection),
+      );
+    } catch (error) {
+      if (error !== retrySelection) throw error;
     }
-  })();
+  }
+}
 
-  return idleRunners;
+async function lockIdleRunnerCandidateBatch(
+  tx: Tx,
+  params: IdleRunnerSelectionParams & {count: number},
+  retrySelection: symbol,
+): Promise<IdleRunnerCandidate[]> {
+  const candidateRunners = await tx
+    .select({id: providerRunners.id, launchKind: providerRunners.launchKind})
+    .from(providerRunners)
+    .where(isBindableRunner(tx, params))
+    .orderBy(asc(providerRunners.createdAt), asc(providerRunners.id))
+    .limit(params.count);
+  if (candidateRunners.length === 0) return candidateRunners;
+
+  const lockedRunners: typeof candidateRunners = [];
+  for (const candidate of [...candidateRunners].sort(compareRunnerIds)) {
+    const [runner] = await tx
+      .select({id: providerRunners.id, launchKind: providerRunners.launchKind})
+      .from(providerRunners)
+      .where(and(eq(providerRunners.id, candidate.id), isBindableRunner(tx, params)))
+      .for('update');
+    if (runner) lockedRunners.push(runner);
+  }
+  if (lockedRunners.length !== candidateRunners.length) throw retrySelection;
+  return lockedRunners;
 }
 
 async function bindIdleRunnerInstancesTx(
@@ -948,18 +1028,20 @@ export async function releaseReservationUnits(
   return releasedFromDeleted + releasedFromDecremented;
 }
 
+interface ReleaseTerminalRunnerReservationsParams {
+  workspaceId: string | null;
+  provisionerId: string;
+  providerRunnerIds?: string[];
+  runnerInstanceIds?: string[];
+  reportedAtByProviderRunnerId?: ReadonlyMap<string, Date>;
+  requireUnlinkedSession?: boolean;
+  /** Lock linked runners before rechecking terminal state for lease finalization. */
+  requireTerminalState?: boolean;
+}
+
 export async function releaseTerminalRunnerInstanceReservationsByIds(
   tx: Tx,
-  params: {
-    workspaceId: string | null;
-    provisionerId: string;
-    providerRunnerIds?: string[];
-    runnerInstanceIds?: string[];
-    reportedAtByProviderRunnerId?: ReadonlyMap<string, Date>;
-    requireUnlinkedSession?: boolean;
-    /** Lock linked runners before rechecking terminal state for lease finalization. */
-    requireTerminalState?: boolean;
-  },
+  params: ReleaseTerminalRunnerReservationsParams,
 ): Promise<number> {
   if (
     (params.providerRunnerIds?.length ?? 0) === 0 &&
@@ -967,46 +1049,12 @@ export async function releaseTerminalRunnerInstanceReservationsByIds(
   )
     return 0;
 
-  const reservationWorkspacePredicate =
-    params.workspaceId === null
-      ? sql``
-      : sql`and ${eq(reservations.workspaceId, params.workspaceId)}`;
-  // Cancellation keeps the lease row so the provisioner can observe its terminate intent.
-  // Once the runner is terminal, only an uncancelled lease should block reservation release.
-  const noUncancelledRunningJobPredicate = notExists(
-    tx
-      .select({id: runningJobExecutions.id})
-      .from(runningJobExecutions)
-      .where(
-        and(
-          eq(runningJobExecutions.provisionerId, params.provisionerId),
-          eq(runningJobExecutions.providerRunnerId, providerRunners.providerRunnerId),
-          isNull(runningJobExecutions.cancellationRequestedAt),
-          params.workspaceId === null
-            ? undefined
-            : eq(runningJobExecutions.workspaceId, params.workspaceId),
-        ),
-      ),
-  );
-  const reportFreshnessPredicate =
-    params.reportedAtByProviderRunnerId && params.reportedAtByProviderRunnerId.size > 0
-      ? or(
-          ...[...params.reportedAtByProviderRunnerId].map(([providerRunnerId, reportedAt]) =>
-            and(
-              eq(providerRunners.providerRunnerId, providerRunnerId),
-              lte(providerRunners.reportedAt, reportedAt),
-            ),
-          ),
-        )
-      : undefined;
-  const runnerIdentityPredicate = or(
-    params.providerRunnerIds && params.providerRunnerIds.length > 0
-      ? inArray(providerRunners.providerRunnerId, params.providerRunnerIds)
-      : undefined,
-    params.runnerInstanceIds && params.runnerInstanceIds.length > 0
-      ? inArray(providerRunners.id, params.runnerInstanceIds)
-      : undefined,
-  );
+  const {
+    reservationWorkspacePredicate,
+    noUncancelledRunningJobPredicate,
+    reportFreshnessPredicate,
+    runnerIdentityPredicate,
+  } = terminalReservationReleasePredicates(tx, params);
 
   // Assignment locks these keys before changing runner links. Acquire them before locking or
   // marking terminal runners so an assignment cannot consume a reservation concurrently with
@@ -1150,10 +1198,7 @@ export async function releaseTerminalRunnerInstanceReservationsByIds(
   // The lease-finalization path deliberately locks active rows too. If a terminal report is
   // concurrently projecting the runner state, PostgreSQL rechecks this row after the lock and
   // lets cleanup observe the committed terminal state without a cross-module advisory lock.
-  const terminalRows =
-    params.requireTerminalState === false
-      ? rows.filter((row) => terminalStates.some((terminalState) => terminalState === row.state))
-      : rows;
+  const terminalRows = terminalReservationReleaseRows(rows, params.requireTerminalState);
   if (terminalRows.length === 0) return 0;
 
   const updated = await tx
@@ -1179,42 +1224,120 @@ export async function releaseTerminalRunnerInstanceReservationsByIds(
     )
     .returning({id: providerRunners.id});
 
-  const releasesByReservationId = new Map<
-    string,
-    {workspaceId: string; reservationId: string; count: number}
-  >();
+  return releaseUpdatedRunnerReservationsTx(tx, params.provisionerId, terminalRows, updated);
+}
+
+function terminalReservationReleasePredicates(
+  tx: Tx,
+  params: ReleaseTerminalRunnerReservationsParams,
+) {
+  const reservationWorkspacePredicate =
+    params.workspaceId === null
+      ? sql``
+      : sql`and ${eq(reservations.workspaceId, params.workspaceId)}`;
+  const noUncancelledRunningJobPredicate = notExists(
+    tx
+      .select({id: runningJobExecutions.id})
+      .from(runningJobExecutions)
+      .where(
+        and(
+          eq(runningJobExecutions.provisionerId, params.provisionerId),
+          eq(runningJobExecutions.providerRunnerId, providerRunners.providerRunnerId),
+          isNull(runningJobExecutions.cancellationRequestedAt),
+          params.workspaceId === null
+            ? undefined
+            : eq(runningJobExecutions.workspaceId, params.workspaceId),
+        ),
+      ),
+  );
+  const reportFreshnessPredicate =
+    params.reportedAtByProviderRunnerId && params.reportedAtByProviderRunnerId.size > 0
+      ? or(
+          ...[...params.reportedAtByProviderRunnerId].map(([providerRunnerId, reportedAt]) =>
+            and(
+              eq(providerRunners.providerRunnerId, providerRunnerId),
+              lte(providerRunners.reportedAt, reportedAt),
+            ),
+          ),
+        )
+      : undefined;
+  const runnerIdentityPredicate = or(
+    params.providerRunnerIds && params.providerRunnerIds.length > 0
+      ? inArray(providerRunners.providerRunnerId, params.providerRunnerIds)
+      : undefined,
+    params.runnerInstanceIds && params.runnerInstanceIds.length > 0
+      ? inArray(providerRunners.id, params.runnerInstanceIds)
+      : undefined,
+  );
+  return {
+    reservationWorkspacePredicate,
+    noUncancelledRunningJobPredicate,
+    reportFreshnessPredicate,
+    runnerIdentityPredicate,
+  };
+}
+
+type TerminalReservationReleaseRow = {
+  id: string;
+  state: (typeof providerRunners.$inferSelect)['state'];
+  releaseReservationId: string | null;
+  releaseReservationWorkspaceId: string | null;
+};
+
+function terminalReservationReleaseRows(
+  rows: readonly TerminalReservationReleaseRow[],
+  requireTerminalState: boolean | undefined,
+): readonly TerminalReservationReleaseRow[] {
+  if (requireTerminalState !== false) return rows;
+  return rows.filter((row) => terminalStates.some((terminalState) => terminalState === row.state));
+}
+
+async function releaseUpdatedRunnerReservationsTx(
+  tx: Tx,
+  provisionerId: string,
+  terminalRows: readonly TerminalReservationReleaseRow[],
+  updated: readonly {id: string}[],
+): Promise<number> {
+  const releasesByReservation = groupRunnerReservationReleases(terminalRows, updated);
+  const releasesByWorkspace = groupReservationReleasesByWorkspace(releasesByReservation.values());
+  let released = 0;
+  for (const [workspaceId, releases] of releasesByWorkspace) {
+    released += await releaseReservationUnits(tx, {workspaceId, provisionerId, releases});
+  }
+  return released;
+}
+
+function groupRunnerReservationReleases(
+  rows: readonly TerminalReservationReleaseRow[],
+  updated: readonly {id: string}[],
+): Map<string, {workspaceId: string; reservationId: string; count: number}> {
+  const releases = new Map<string, {workspaceId: string; reservationId: string; count: number}>();
   const updatedIds = new Set(updated.map((row) => row.id));
-  for (const row of terminalRows) {
+  for (const row of rows) {
     if (!updatedIds.has(row.id)) continue;
     if (!row.releaseReservationId || !row.releaseReservationWorkspaceId) continue;
     const key = `${row.releaseReservationWorkspaceId}:${row.releaseReservationId}`;
-    const release = releasesByReservationId.get(key) ?? {
+    const release = releases.get(key) ?? {
       workspaceId: row.releaseReservationWorkspaceId,
       reservationId: row.releaseReservationId,
       count: 0,
     };
     release.count += 1;
-    releasesByReservationId.set(key, release);
+    releases.set(key, release);
   }
+  return releases;
+}
 
-  if (releasesByReservationId.size === 0) return 0;
-
-  const releasesByWorkspaceId = new Map<string, Array<{reservationId: string; count: number}>>();
-  for (const release of releasesByReservationId.values()) {
-    const releases = releasesByWorkspaceId.get(release.workspaceId) ?? [];
-    releases.push({reservationId: release.reservationId, count: release.count});
-    releasesByWorkspaceId.set(release.workspaceId, releases);
+function groupReservationReleasesByWorkspace(
+  releases: Iterable<{workspaceId: string; reservationId: string; count: number}>,
+): Map<string, Array<{reservationId: string; count: number}>> {
+  const grouped = new Map<string, Array<{reservationId: string; count: number}>>();
+  for (const release of releases) {
+    const workspaceReleases = grouped.get(release.workspaceId) ?? [];
+    workspaceReleases.push({reservationId: release.reservationId, count: release.count});
+    grouped.set(release.workspaceId, workspaceReleases);
   }
-
-  let released = 0;
-  for (const [workspaceId, releases] of releasesByWorkspaceId) {
-    released += await releaseReservationUnits(tx, {
-      workspaceId,
-      provisionerId: params.provisionerId,
-      releases,
-    });
-  }
-  return released;
+  return grouped;
 }
 
 function deductProvisionerReservations(
@@ -1232,7 +1355,9 @@ function deductProvisionerReservations(
 }
 
 function compareRunnerIds(left: {id: string}, right: {id: string}): number {
-  return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
+  if (left.id < right.id) return -1;
+  if (left.id > right.id) return 1;
+  return 0;
 }
 
 function sortDemandRows(rows: DemandRow[]): DemandRow[] {

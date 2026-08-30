@@ -84,22 +84,10 @@ export async function activateJobListener(
   params: ActivateJobListenerParams,
 ): Promise<ActivateJobListenerResult> {
   return await db().transaction(async (tx) => {
-    const [target] = await tx
-      .select({job: jobs, attempt: workflowRunAttempts, run: workflowRuns})
-      .from(jobs)
-      .innerJoin(workflowRunAttempts, eq(jobs.workflowRunAttemptId, workflowRunAttempts.id))
-      .innerJoin(workflowRuns, eq(workflowRunAttempts.workflowRunId, workflowRuns.id))
-      .where(eq(jobs.id, params.jobId))
-      .limit(1)
-      .for('update');
-    if (!target) throw new Error(`Job not found: ${params.jobId}`);
+    const target = await loadListenerActivationTarget(params.jobId, tx);
+    const executionCount = await countJobExecutions(params.jobId, tx);
 
-    const [{value: executionCount} = {value: 0}] = await tx
-      .select({value: count()})
-      .from(jobExecutions)
-      .where(eq(jobExecutions.jobId, params.jobId));
-
-    if (['succeeded', 'failed', 'cancelled', 'skipped'].includes(target.job.status)) {
+    if (isJobTerminal(target.job.status)) {
       return {
         status: 'terminal',
         jobStatus: target.job.status,
@@ -108,25 +96,7 @@ export async function activateJobListener(
       };
     }
 
-    let job = toJob(target.job);
-    if (target.job.status === 'pending') {
-      const updated = await updateJobStatusAtVersion(tx, {
-        jobId: params.jobId,
-        status: 'running',
-        expectedVersion: params.expectedVersion,
-      });
-      if (!updated) {
-        const [existing] = await tx.select().from(jobs).where(eq(jobs.id, params.jobId)).limit(1);
-        if (existing?.status !== 'running') {
-          throw new Error(
-            `Optimistic lock failure activating listener job ${params.jobId} version ${params.expectedVersion}`,
-          );
-        }
-        job = toJob(existing);
-      } else {
-        job = updated.job;
-      }
-    }
+    const job = await activatePendingListenerJob(target.job, params, tx);
 
     const listenerRows = await tx
       .update(jobs)
@@ -134,52 +104,98 @@ export async function activateJobListener(
       .where(and(eq(jobs.id, params.jobId), eq(jobs.listenerStatus, 'inactive')))
       .returning();
 
-    if (listenerRows[0]) {
-      const matchers = {
-        on: target.job.listeningOn ?? [],
-        until: target.job.listeningUntil ?? null,
-      };
-      const snapshotPlan = planListenerFilterSnapshots(matchers);
-      const dependencyJobs =
-        snapshotPlan.jobKeys.size === 0
-          ? []
-          : await getDirectDependencyJobContexts(params.jobId, tx);
-      const snapshotContext = assembleListenerSnapshotContext({
-        job: toJob(target.job),
-        run: toWorkflowRun(target.run),
-        triggerPayload: target.run.triggerPayload,
-        inputs: target.run.inputs,
-        vars: target.attempt.vars ?? undefined,
-        plan: snapshotPlan,
-        dependencyJobs,
-      });
-      const listenerOutputTypes = listenerFilterOutputTypesForJobs(dependencyJobs);
-
-      await writeWorkflowsOutboxEvent(tx, {
-        type: WORKFLOWS_JOB_ACTIVATED,
-        payload: {
-          jobId: params.jobId,
-          workflowRunId: target.run.id,
-          workspaceId: target.run.workspaceId,
-          mode: 'listening',
-          on: applyActivatedListenerFilterSnapshots(
-            snapshotPlan.on,
-            snapshotContext,
-            listenerOutputTypes,
-          ),
-          until:
-            matchers.until === null
-              ? null
-              : applyActivatedListenerFilterSnapshots(
-                  snapshotPlan.until,
-                  snapshotContext,
-                  listenerOutputTypes,
-                ),
-        },
-      });
-    }
+    if (listenerRows[0]) await writeListenerActivatedEvent(target, params.jobId, tx);
 
     return {status: 'running', jobStatus: job.status, jobVersion: job.version, executionCount};
+  });
+}
+
+async function loadListenerActivationTarget(jobId: string, tx: Tx) {
+  const [target] = await tx
+    .select({job: jobs, attempt: workflowRunAttempts, run: workflowRuns})
+    .from(jobs)
+    .innerJoin(workflowRunAttempts, eq(jobs.workflowRunAttemptId, workflowRunAttempts.id))
+    .innerJoin(workflowRuns, eq(workflowRunAttempts.workflowRunId, workflowRuns.id))
+    .where(eq(jobs.id, jobId))
+    .limit(1)
+    .for('update');
+  if (!target) throw new Error(`Job not found: ${jobId}`);
+  return target;
+}
+
+async function countJobExecutions(jobId: string, tx: Tx): Promise<number> {
+  const [{value} = {value: 0}] = await tx
+    .select({value: count()})
+    .from(jobExecutions)
+    .where(eq(jobExecutions.jobId, jobId));
+  return value;
+}
+
+async function activatePendingListenerJob(
+  row: typeof jobs.$inferSelect,
+  params: ActivateJobListenerParams,
+  tx: Tx,
+) {
+  if (row.status !== 'pending') return toJob(row);
+
+  const updated = await updateJobStatusAtVersion(tx, {
+    jobId: params.jobId,
+    status: 'running',
+    expectedVersion: params.expectedVersion,
+  });
+  if (updated) return updated.job;
+
+  const [existing] = await tx.select().from(jobs).where(eq(jobs.id, params.jobId)).limit(1);
+  if (existing?.status === 'running') return toJob(existing);
+  throw new Error(
+    `Optimistic lock failure activating listener job ${params.jobId} version ${params.expectedVersion}`,
+  );
+}
+
+async function writeListenerActivatedEvent(
+  target: Awaited<ReturnType<typeof loadListenerActivationTarget>>,
+  jobId: string,
+  tx: Tx,
+): Promise<void> {
+  const matchers = {
+    on: target.job.listeningOn ?? [],
+    until: target.job.listeningUntil ?? null,
+  };
+  const snapshotPlan = planListenerFilterSnapshots(matchers);
+  const dependencyJobs =
+    snapshotPlan.jobKeys.size === 0 ? [] : await getDirectDependencyJobContexts(jobId, tx);
+  const snapshotContext = assembleListenerSnapshotContext({
+    job: toJob(target.job),
+    run: toWorkflowRun(target.run),
+    triggerPayload: target.run.triggerPayload,
+    inputs: target.run.inputs,
+    vars: target.attempt.vars ?? undefined,
+    plan: snapshotPlan,
+    dependencyJobs,
+  });
+  const listenerOutputTypes = listenerFilterOutputTypesForJobs(dependencyJobs);
+
+  await writeWorkflowsOutboxEvent(tx, {
+    type: WORKFLOWS_JOB_ACTIVATED,
+    payload: {
+      jobId,
+      workflowRunId: target.run.id,
+      workspaceId: target.run.workspaceId,
+      mode: 'listening',
+      on: applyActivatedListenerFilterSnapshots(
+        snapshotPlan.on,
+        snapshotContext,
+        listenerOutputTypes,
+      ),
+      until:
+        matchers.until === null
+          ? null
+          : applyActivatedListenerFilterSnapshots(
+              snapshotPlan.until,
+              snapshotContext,
+              listenerOutputTypes,
+            ),
+    },
   });
 }
 

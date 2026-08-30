@@ -66,58 +66,17 @@ export function createJiraWebhookRenewalActivities(
         const heartbeatInterval = setInterval(heartbeat, JIRA_WEBHOOK_HEARTBEAT_INTERVAL_MS);
         try {
           heartbeat();
-          if (!isDueForRenewal(installation, renewalDeadline)) {
-            skipped += 1;
-            continue;
-          }
-
-          const connection = await options.resolveConnection(installation.connectionId);
-          if (connection?.lifecycleStatus !== 'active') {
-            skipped += 1;
-            continue;
-          }
-
-          if (!options.jira || !options.webhookUrlForConnection) {
-            throw new Error('Jira webhook renewal dependencies are not configured');
-          }
-
-          const accessToken = await options.tokenStore.getAccessToken({
-            connectionId: installation.connectionId,
+          const outcome = await renewJiraWebhook({
+            options,
+            installation,
+            renewalDeadline,
+            now,
+            updateInstallation,
+            registerWebhook,
           });
-          const webhookExpiresAt =
-            installation.webhookIds.length === 0
-              ? undefined
-              : await options.jira.refreshDynamicWebhooks({
-                  accessToken,
-                  cloudId: installation.cloudId,
-                  webhookIds: installation.webhookIds,
-                });
-
-          if (webhookExpiresAt === undefined) {
-            await registerWebhook({
-              jira: options.jira,
-              connectionId: installation.connectionId,
-              cloudId: installation.cloudId,
-              accessToken,
-              webhookUrl: options.webhookUrlForConnection(installation.connectionId),
-              now,
-              replaceExistingWebhooks: true,
-            });
-            reregistered += 1;
-          } else {
-            const updated = await updateInstallation({
-              connectionId: installation.connectionId,
-              webhookIds: installation.webhookIds,
-              webhookExpiresAt,
-              expectedWebhookIds: installation.webhookIds,
-              expectedWebhookExpiresAt: installation.webhookExpiresAt,
-            });
-            if (!updated) {
-              skipped += 1;
-              continue;
-            }
-            renewed += 1;
-          }
+          if (outcome === 'renewed') renewed += 1;
+          if (outcome === 'reregistered') reregistered += 1;
+          if (outcome === 'skipped') skipped += 1;
         } catch (error) {
           failed += 1;
           logger().warn(
@@ -133,6 +92,63 @@ export function createJiraWebhookRenewalActivities(
       return {renewed, reregistered, skipped, failed};
     },
   };
+}
+
+type JiraWebhookRenewalOutcome = 'renewed' | 'reregistered' | 'skipped';
+
+async function renewJiraWebhook(params: {
+  options: CreateJiraWebhookRenewalActivitiesOptions;
+  installation: JiraInstallation;
+  renewalDeadline: Date;
+  now: () => Date;
+  updateInstallation: typeof updateJiraInstallationWebhookIfUnchanged;
+  registerWebhook: typeof registerJiraWebhook;
+}): Promise<JiraWebhookRenewalOutcome> {
+  if (!isDueForRenewal(params.installation, params.renewalDeadline)) return 'skipped';
+  const connection = await params.options.resolveConnection(params.installation.connectionId);
+  if (connection?.lifecycleStatus !== 'active') return 'skipped';
+  const jira = params.options.jira;
+  const webhookUrlForConnection = params.options.webhookUrlForConnection;
+  if (!jira || !webhookUrlForConnection) {
+    throw new Error('Jira webhook renewal dependencies are not configured');
+  }
+  const accessToken = await params.options.tokenStore.getAccessToken({
+    connectionId: params.installation.connectionId,
+  });
+  const webhookExpiresAt = await refreshJiraWebhook(jira, params.installation, accessToken);
+  if (webhookExpiresAt === undefined) {
+    await params.registerWebhook({
+      jira,
+      connectionId: params.installation.connectionId,
+      cloudId: params.installation.cloudId,
+      accessToken,
+      webhookUrl: webhookUrlForConnection(params.installation.connectionId),
+      now: params.now,
+      replaceExistingWebhooks: true,
+    });
+    return 'reregistered';
+  }
+  const updated = await params.updateInstallation({
+    connectionId: params.installation.connectionId,
+    webhookIds: params.installation.webhookIds,
+    webhookExpiresAt,
+    expectedWebhookIds: params.installation.webhookIds,
+    expectedWebhookExpiresAt: params.installation.webhookExpiresAt,
+  });
+  return updated ? 'renewed' : 'skipped';
+}
+
+function refreshJiraWebhook(
+  jira: NonNullable<CreateJiraWebhookRenewalActivitiesOptions['jira']>,
+  installation: JiraInstallation,
+  accessToken: string,
+): Promise<Date | undefined> {
+  if (installation.webhookIds.length === 0) return Promise.resolve(undefined);
+  return jira.refreshDynamicWebhooks({
+    accessToken,
+    cloudId: installation.cloudId,
+    webhookIds: installation.webhookIds,
+  });
 }
 
 function isDueForRenewal(installation: JiraInstallation, renewalDeadline: Date): boolean {

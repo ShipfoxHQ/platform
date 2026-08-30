@@ -47,9 +47,7 @@ export async function rotateDataKeys(params: {
     throw new DataKeyVersionStrandedError(unknownVersions[0] as string);
   }
 
-  let rotated = 0;
-  let skippedCurrent = 0;
-  let skippedRace = 0;
+  const outcomes: Record<DataKeyRotationOutcome, number> = {rotated: 0, current: 0, race: 0};
   let afterKeyId: string | undefined;
 
   while (true) {
@@ -61,34 +59,39 @@ export async function rotateDataKeys(params: {
 
     for (const row of page) {
       afterKeyId = row.keyId;
-      if (row.kekVersion === params.keyProvider.currentKeyVersion) {
-        skippedCurrent += 1;
-        continue;
-      }
-
-      const plaintextDek = params.keyProvider.unwrapDek(row.keyId, row.wrappedDek, row.kekVersion);
-      try {
-        const wrapped = params.keyProvider.wrapDek(row.keyId, plaintextDek);
-        const updated = await params.repository.updateWrapCas({
-          keyId: row.keyId,
-          oldKekVersion: row.kekVersion,
-          wrappedDek: wrapped.wrappedDek,
-          kekVersion: wrapped.kekVersion,
-        });
-        if (updated) rotated += 1;
-        else skippedRace += 1;
-      } finally {
-        plaintextDek.fill(0);
-      }
+      const outcome = await rotateDataKey(params, row);
+      outcomes[outcome] += 1;
     }
   }
 
   return {
-    rotated,
-    skipped: skippedCurrent + skippedRace,
-    skippedCurrent,
-    skippedRace,
+    rotated: outcomes.rotated,
+    skipped: outcomes.current + outcomes.race,
+    skippedCurrent: outcomes.current,
+    skippedRace: outcomes.race,
   };
+}
+
+type DataKeyRotationOutcome = 'rotated' | 'current' | 'race';
+
+async function rotateDataKey(
+  params: Pick<Parameters<typeof rotateDataKeys>[0], 'keyProvider' | 'repository'>,
+  row: RotatableDataKeyRecord,
+): Promise<DataKeyRotationOutcome> {
+  if (row.kekVersion === params.keyProvider.currentKeyVersion) return 'current';
+  const plaintextDek = params.keyProvider.unwrapDek(row.keyId, row.wrappedDek, row.kekVersion);
+  try {
+    const wrapped = params.keyProvider.wrapDek(row.keyId, plaintextDek);
+    const updated = await params.repository.updateWrapCas({
+      keyId: row.keyId,
+      oldKekVersion: row.kekVersion,
+      wrappedDek: wrapped.wrappedDek,
+      kekVersion: wrapped.kekVersion,
+    });
+    return updated ? 'rotated' : 'race';
+  } finally {
+    plaintextDek.fill(0);
+  }
 }
 
 export interface RotateDataKeysWithTelemetryParams<TOutcome extends string> {

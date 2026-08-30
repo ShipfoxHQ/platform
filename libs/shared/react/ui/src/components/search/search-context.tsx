@@ -54,27 +54,11 @@ export function useKeyboardShortcut(shortcutKey: string | undefined, onTrigger: 
       const isCtrlKey = key.startsWith('ctrl+');
       const targetKey = key.replace(shortcutKeyRegex, '');
 
-      const shouldTrigger =
-        (isMetaKey && event.metaKey && event.key.toLowerCase() === targetKey) ||
-        (isCtrlKey && event.ctrlKey && event.key.toLowerCase() === targetKey) ||
-        (!isMetaKey &&
-          !isCtrlKey &&
-          event.key.toLowerCase() === targetKey &&
-          !event.metaKey &&
-          !event.ctrlKey);
+      const shouldTrigger = shortcutMatches(event, targetKey, isMetaKey, isCtrlKey);
 
       if (!shouldTrigger) return;
 
-      if (!isMetaKey && !isCtrlKey) {
-        const target = event.target as HTMLElement;
-        if (
-          target.tagName === 'INPUT' ||
-          target.tagName === 'TEXTAREA' ||
-          target.isContentEditable
-        ) {
-          return;
-        }
-      }
+      if (!isMetaKey && !isCtrlKey && isEditableTarget(event.target)) return;
 
       event.preventDefault();
       onTrigger();
@@ -83,4 +67,20 @@ export function useKeyboardShortcut(shortcutKey: string | undefined, onTrigger: 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [shortcutKey, onTrigger]);
+}
+
+function shortcutMatches(
+  event: KeyboardEvent,
+  targetKey: string,
+  isMetaKey: boolean,
+  isCtrlKey: boolean,
+): boolean {
+  if (isMetaKey) return event.metaKey && event.key.toLowerCase() === targetKey;
+  if (isCtrlKey) return event.ctrlKey && event.key.toLowerCase() === targetKey;
+  return event.key.toLowerCase() === targetKey && !event.metaKey && !event.ctrlKey;
+}
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
 }

@@ -24,110 +24,136 @@ export interface RegisterJiraWebhookParams {
   onRegistrationFailure?: (input: {tx?: unknown}) => Promise<void>;
 }
 
+type JiraInstallation = Awaited<ReturnType<typeof getJiraInstallationByConnectionId>>;
+
+interface JiraWebhookRegistrationState {
+  callbackFailed: boolean;
+  registeredWebhookId: number | undefined;
+  previous: JiraInstallation;
+  metadataPersisted: boolean;
+  cleanupSupersededWebhooks: (() => Promise<void>) | undefined;
+}
+
 /** Register Jira's curated webhook and replace local metadata as one serialized state transition. */
 export async function registerJiraWebhook(
   params: RegisterJiraWebhookParams,
 ): Promise<{webhookId: number; webhookExpiresAt: Date}> {
   const withRegistrationLock = params.withRegistrationLock ?? withJiraInstallationLock;
-  let callbackFailed = false;
-  let registeredWebhookId: number | undefined;
-  let previous: Awaited<ReturnType<typeof getJiraInstallationByConnectionId>>;
-  let metadataPersisted = false;
-  let cleanupSupersededWebhooks: (() => Promise<void>) | undefined;
+  const state: JiraWebhookRegistrationState = {
+    callbackFailed: false,
+    registeredWebhookId: undefined,
+    previous: undefined,
+    metadataPersisted: false,
+    cleanupSupersededWebhooks: undefined,
+  };
   let result: {webhookId: number; webhookExpiresAt: Date};
   try {
-    result = await withRegistrationLock(params.cloudId, async () => {
-      try {
-        const getInstallation = params.getInstallation ?? getJiraInstallationByConnectionId;
-        previous = await getInstallation(params.connectionId);
-        const registration = await params.jira.registerDynamicWebhook({
-          accessToken: params.accessToken,
-          cloudId: params.cloudId,
-          url: params.webhookUrl,
-        });
-        registeredWebhookId = registration.webhookId;
-        const now = params.now ?? (() => new Date());
-        const webhookExpiresAt = new Date(now().getTime() + JIRA_WEBHOOK_TTL_MS);
-
-        const updateInstallation = params.updateInstallation ?? updateJiraInstallationWebhook;
-        const updateInput = {
-          connectionId: params.connectionId,
-          webhookIds: params.replaceExistingWebhooks
-            ? [registration.webhookId]
-            : [...new Set([registration.webhookId, ...(previous?.webhookIds ?? [])])],
-          webhookExpiresAt,
-        };
-        const installation = await updateInstallation(updateInput);
-        if (!installation)
-          throw new Error('Jira webhook registration lost its installation record');
-        metadataPersisted = true;
-        await params.onRegistrationSuccess?.({});
-
-        cleanupSupersededWebhooks = () =>
-          finishSupersededWebhookCleanup(
-            params,
-            previous,
-            registration.webhookId,
-            webhookExpiresAt,
-          );
-        return {webhookId: registration.webhookId, webhookExpiresAt};
-      } catch (error) {
-        callbackFailed = true;
-        if (registeredWebhookId !== undefined) {
-          const deleted = await deleteNewWebhookAfterPersistenceFailure(
-            params,
-            registeredWebhookId,
-          );
-          if (metadataPersisted || !deleted) {
-            await restorePreviousWebhookMetadata(
-              params,
-              previous,
-              deleted ? undefined : registeredWebhookId,
-            );
-          }
-        } else if (metadataPersisted) {
-          await restorePreviousWebhookMetadata(params, previous);
-        }
-        await bestEffortRegistrationFailure(params);
-        throw error;
-      }
-    });
+    result = await withRegistrationLock(params.cloudId, () =>
+      registerJiraWebhookWithLock(params, state),
+    );
   } catch (error) {
-    if (!callbackFailed) {
-      if (registeredWebhookId !== undefined) {
-        const deleted = await deleteNewWebhookAfterPersistenceFailure(params, registeredWebhookId);
-        if (metadataPersisted || !deleted) {
-          await restorePreviousWebhookMetadata(
-            params,
-            previous,
-            deleted ? undefined : registeredWebhookId,
-          );
-        }
-      } else if (metadataPersisted) {
-        await restorePreviousWebhookMetadata(params, previous);
-      }
-      await bestEffortRegistrationFailure(params);
-    }
+    if (!state.callbackFailed) await compensateFailedRegistration(params, state);
     throw error;
   }
 
-  if (cleanupSupersededWebhooks) {
-    try {
-      await withRegistrationLock(params.cloudId, cleanupSupersededWebhooks);
-    } catch (error) {
-      logger().warn(
-        {err: error, connectionId: params.connectionId},
-        'Jira superseded webhook cleanup persistence failed',
-      );
-    }
-  }
+  await runSupersededWebhookCleanup(params, withRegistrationLock, state);
 
   return result;
 }
 
+async function registerJiraWebhookWithLock(
+  params: RegisterJiraWebhookParams,
+  state: JiraWebhookRegistrationState,
+): Promise<{webhookId: number; webhookExpiresAt: Date}> {
+  try {
+    const getInstallation = params.getInstallation ?? getJiraInstallationByConnectionId;
+    state.previous = await getInstallation(params.connectionId);
+    const registration = await params.jira.registerDynamicWebhook({
+      accessToken: params.accessToken,
+      cloudId: params.cloudId,
+      url: params.webhookUrl,
+    });
+    state.registeredWebhookId = registration.webhookId;
+    const now = params.now ?? (() => new Date());
+    const webhookExpiresAt = new Date(now().getTime() + JIRA_WEBHOOK_TTL_MS);
+    await persistJiraWebhookRegistration(params, state, registration.webhookId, webhookExpiresAt);
+    state.cleanupSupersededWebhooks = () =>
+      finishSupersededWebhookCleanup(
+        params,
+        state.previous,
+        registration.webhookId,
+        webhookExpiresAt,
+      );
+    return {webhookId: registration.webhookId, webhookExpiresAt};
+  } catch (error) {
+    state.callbackFailed = true;
+    await compensateFailedRegistration(params, state);
+    throw error;
+  }
+}
+
+async function persistJiraWebhookRegistration(
+  params: RegisterJiraWebhookParams,
+  state: JiraWebhookRegistrationState,
+  webhookId: number,
+  webhookExpiresAt: Date,
+): Promise<void> {
+  const updateInstallation = params.updateInstallation ?? updateJiraInstallationWebhook;
+  const previousWebhookIds = state.previous?.webhookIds ?? [];
+  const webhookIds = params.replaceExistingWebhooks
+    ? [webhookId]
+    : [...new Set([webhookId, ...previousWebhookIds])];
+  const installation = await updateInstallation({
+    connectionId: params.connectionId,
+    webhookIds,
+    webhookExpiresAt,
+  });
+  if (!installation) throw new Error('Jira webhook registration lost its installation record');
+  state.metadataPersisted = true;
+  await params.onRegistrationSuccess?.({});
+}
+
+async function compensateFailedRegistration(
+  params: RegisterJiraWebhookParams,
+  state: JiraWebhookRegistrationState,
+): Promise<void> {
+  if (state.registeredWebhookId !== undefined) {
+    const deleted = await deleteNewWebhookAfterPersistenceFailure(
+      params,
+      state.registeredWebhookId,
+    );
+    if (state.metadataPersisted || !deleted) {
+      await restorePreviousWebhookMetadata(
+        params,
+        state.previous,
+        deleted ? undefined : state.registeredWebhookId,
+      );
+    }
+  } else if (state.metadataPersisted) {
+    await restorePreviousWebhookMetadata(params, state.previous);
+  }
+  await bestEffortRegistrationFailure(params);
+}
+
+async function runSupersededWebhookCleanup(
+  params: RegisterJiraWebhookParams,
+  withRegistrationLock: JiraInstallationLock,
+  state: JiraWebhookRegistrationState,
+): Promise<void> {
+  if (!state.cleanupSupersededWebhooks) return;
+  try {
+    await withRegistrationLock(params.cloudId, state.cleanupSupersededWebhooks);
+  } catch (error) {
+    logger().warn(
+      {err: error, connectionId: params.connectionId},
+      'Jira superseded webhook cleanup persistence failed',
+    );
+  }
+}
+
 async function finishSupersededWebhookCleanup(
   params: RegisterJiraWebhookParams,
-  previous: Awaited<ReturnType<typeof getJiraInstallationByConnectionId>>,
+  previous: JiraInstallation,
   registeredWebhookId: number,
   webhookExpiresAt: Date,
 ): Promise<void> {
@@ -177,7 +203,7 @@ async function bestEffortRegistrationFailure(params: RegisterJiraWebhookParams):
 
 async function restorePreviousWebhookMetadata(
   params: RegisterJiraWebhookParams,
-  previous: Awaited<ReturnType<typeof getJiraInstallationByConnectionId>>,
+  previous: JiraInstallation,
   retainedWebhookId?: number,
 ): Promise<void> {
   try {

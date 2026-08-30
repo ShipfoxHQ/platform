@@ -23,7 +23,9 @@ export type WebhookRouteId = z.infer<typeof webhookRouteIdSchema>;
 const base64Pattern = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 
 function decodedBase64Length(value: string): number {
-  const paddingLength = value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0;
+  let paddingLength = 0;
+  if (value.endsWith('==')) paddingLength = 2;
+  else if (value.endsWith('=')) paddingLength = 1;
 
   return (value.length / 4) * 3 - paddingLength;
 }

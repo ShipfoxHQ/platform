@@ -147,7 +147,7 @@ function createStoryRouter() {
 function fetchForScenario(scenario: Scenario): typeof fetch {
   return (input, init) => {
     const url = requestUrl(input);
-    const method = input instanceof Request ? input.method : (init?.method ?? 'GET');
+    const method = requestMethod(input, init);
     if (url.pathname === `/workspaces/${WORKSPACE_ID}/agent/model-providers`) {
       return Promise.resolve(
         jsonResponse({
@@ -158,36 +158,53 @@ function fetchForScenario(scenario: Scenario): typeof fetch {
       );
     }
     if (url.pathname === '/integration-connections') {
-      if (scenario === 'connections-error') return Promise.resolve(errorResponse());
-      return Promise.resolve(jsonResponse({connections: connectionsForScenario(scenario)}));
+      return connectionScenarioResponse(scenario);
     }
     if (
       url.pathname.startsWith('/integration-connections/') &&
       url.pathname.endsWith('/repositories')
     ) {
-      if (scenario === 'repository-loading') return new Promise<Response>(() => undefined);
-      return Promise.resolve(
-        jsonResponse({repositories: repositoriesForScenario(scenario), next_cursor: null}),
-      );
+      return repositoryScenarioResponse(scenario);
     }
     if (url.pathname === '/projects' && method === 'POST') {
-      return Promise.resolve(
-        jsonResponse({
-          id: '99999999-9999-4999-8999-999999999999',
-          workspace_id: WORKSPACE_ID,
-          name: 'Platform',
-          slug: 'platform',
-          source: {
-            connection_id: GITHUB_CONNECTION_ID,
-            external_repository_id: 'platform',
-          },
-          created_at: '2026-01-01T00:00:00.000Z',
-          updated_at: '2026-01-01T00:00:00.000Z',
-        }),
-      );
+      return createdProjectResponse();
     }
     return Promise.resolve(jsonResponse({}, {status: 404}));
   };
+}
+
+function requestMethod(input: RequestInfo | URL, init: RequestInit | undefined): string {
+  if (input instanceof Request) return input.method;
+  return init?.method ?? 'GET';
+}
+
+function connectionScenarioResponse(scenario: Scenario) {
+  if (scenario === 'connections-error') return Promise.resolve(errorResponse());
+  return Promise.resolve(jsonResponse({connections: connectionsForScenario(scenario)}));
+}
+
+function repositoryScenarioResponse(scenario: Scenario) {
+  if (scenario === 'repository-loading') return new Promise<Response>(() => undefined);
+  return Promise.resolve(
+    jsonResponse({repositories: repositoriesForScenario(scenario), next_cursor: null}),
+  );
+}
+
+function createdProjectResponse() {
+  return Promise.resolve(
+    jsonResponse({
+      id: '99999999-9999-4999-8999-999999999999',
+      workspace_id: WORKSPACE_ID,
+      name: 'Platform',
+      slug: 'platform',
+      source: {
+        connection_id: GITHUB_CONNECTION_ID,
+        external_repository_id: 'platform',
+      },
+      created_at: '2026-01-01T00:00:00.000Z',
+      updated_at: '2026-01-01T00:00:00.000Z',
+    }),
+  );
 }
 
 function connectionsForScenario(scenario: Scenario): IntegrationConnectionDto[] {

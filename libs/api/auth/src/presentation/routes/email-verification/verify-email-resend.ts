@@ -4,6 +4,12 @@ import {ClientError, defineRoute} from '@shipfox/node-fastify';
 import {resendEmailVerification} from '#core/auth.js';
 import {createAuthRateLimitPreHandler} from '#presentation/routes/rate-limit.js';
 
+function emailChallengeStatus(code: EmailChallengeError['code']): 400 | 410 | 429 {
+  if (code === 'limited') return 429;
+  if (code === 'expired') return 410;
+  return 400;
+}
+
 export const verifyEmailResendRoute = defineRoute({
   method: 'POST',
   path: '/verify-email/resend',
@@ -18,7 +24,7 @@ export const verifyEmailResendRoute = defineRoute({
   errorHandler: (error) => {
     if (error instanceof EmailChallengeError) {
       throw new ClientError(error.message, `email-challenge-${error.code}`, {
-        status: error.code === 'limited' ? 429 : error.code === 'expired' ? 410 : 400,
+        status: emailChallengeStatus(error.code),
         ...(error.retryAt ? {details: {retry_at: error.retryAt.toISOString()}} : {}),
       });
     }

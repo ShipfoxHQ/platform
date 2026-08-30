@@ -432,38 +432,43 @@ export async function validatePackagedMarkdown(
 ): Promise<void> {
   const repositoryRoot = join(bundleRoot, 'repository');
   for (const link of extractArtifactMarkdownLinks(content)) {
-    if (link.target.startsWith('file:')) {
-      throw new Error(
-        `${relativeFile}:${link.line} contains an absolute local link: ${link.target}`,
-      );
-    }
-    if (isExternalTarget(link.target)) {
-      validateExternalMarkdownLink(link, sourceCommit, relativeFile);
-      continue;
-    }
+    await validatePackagedMarkdownLink(repositoryRoot, relativeFile, link, sourceCommit);
+  }
+}
 
-    const target = parseMarkdownTarget(link.target);
-    if (absolutePathPattern.test(target.path) || target.path.startsWith('/')) {
-      throw new Error(
-        `${relativeFile}:${link.line} contains an absolute local link: ${link.target}`,
-      );
-    }
-    const sourceAbsolute = join(repositoryRoot, relativeFile.slice('repository/'.length));
-    const targetAbsolute = target.path
-      ? resolve(dirname(sourceAbsolute), target.path)
-      : sourceAbsolute;
-    if (!isWithin(repositoryRoot, targetAbsolute)) {
-      throw new Error(`${relativeFile}:${link.line} escapes the guidance bundle: ${link.target}`);
-    }
-    const resolvedTarget = await resolveBundleMarkdownTarget(targetAbsolute);
-    if (!resolvedTarget) {
-      throw new Error(`${relativeFile}:${link.line} has a broken link: ${link.target}`);
-    }
-    if (!target.anchor || !resolvedTarget.endsWith(markdownExtension)) continue;
-    const anchors = anchorsFor(await readFile(resolvedTarget, 'utf8'));
-    if (!anchors.has(target.anchor)) {
-      throw new Error(`${relativeFile}:${link.line} has a missing anchor: ${link.target}`);
-    }
+async function validatePackagedMarkdownLink(
+  repositoryRoot: string,
+  relativeFile: string,
+  link: MarkdownLink,
+  sourceCommit: string,
+): Promise<void> {
+  if (link.target.startsWith('file:')) {
+    throw new Error(`${relativeFile}:${link.line} contains an absolute local link: ${link.target}`);
+  }
+  if (isExternalTarget(link.target)) {
+    validateExternalMarkdownLink(link, sourceCommit, relativeFile);
+    return;
+  }
+
+  const target = parseMarkdownTarget(link.target);
+  if (absolutePathPattern.test(target.path) || target.path.startsWith('/')) {
+    throw new Error(`${relativeFile}:${link.line} contains an absolute local link: ${link.target}`);
+  }
+  const sourceAbsolute = join(repositoryRoot, relativeFile.slice('repository/'.length));
+  const targetAbsolute = target.path
+    ? resolve(dirname(sourceAbsolute), target.path)
+    : sourceAbsolute;
+  if (!isWithin(repositoryRoot, targetAbsolute)) {
+    throw new Error(`${relativeFile}:${link.line} escapes the guidance bundle: ${link.target}`);
+  }
+  const resolvedTarget = await resolveBundleMarkdownTarget(targetAbsolute);
+  if (!resolvedTarget) {
+    throw new Error(`${relativeFile}:${link.line} has a broken link: ${link.target}`);
+  }
+  if (!target.anchor || !resolvedTarget.endsWith(markdownExtension)) return;
+  const anchors = anchorsFor(await readFile(resolvedTarget, 'utf8'));
+  if (!anchors.has(target.anchor)) {
+    throw new Error(`${relativeFile}:${link.line} has a missing anchor: ${link.target}`);
   }
 }
 
@@ -586,61 +591,98 @@ export function parseGuidanceManifest(value: unknown): GuidanceManifest {
   if (value.schemaVersion !== 1) {
     throw new Error(`Unsupported guidance manifest schema: ${String(value.schemaVersion)}`);
   }
-  const packageValue = value.package;
-  if (!isRecord(packageValue) || packageValue.name !== engineeringGuidancePackageName) {
+  const packageValue = parseManifestPackage(value.package);
+  const sourceValue = parseManifestSource(value.source);
+  const {files, paths} = parseManifestFiles(value.files);
+  const entrypoints = parseManifestEntrypoints(value.entrypoints, paths);
+
+  return {
+    entrypoints,
+    files,
+    package: {name: engineeringGuidancePackageName, version: packageValue.version},
+    schemaVersion: 1,
+    source: {commit: sourceValue.commit, repository: engineeringGuidanceRepository},
+  };
+}
+
+function parseManifestPackage(value: unknown): {version: string} {
+  if (!isRecord(value) || value.name !== engineeringGuidancePackageName) {
     throw new Error(`Guidance manifest package name must be ${engineeringGuidancePackageName}`);
   }
-  if (typeof packageValue.version !== 'string' || !packageValue.version) {
+  if (typeof value.version !== 'string' || !value.version) {
     throw new Error('Guidance manifest package version must be a non-empty string');
   }
-  const sourceValue = value.source;
-  if (!isRecord(sourceValue) || sourceValue.repository !== engineeringGuidanceRepository) {
+  return {version: value.version};
+}
+
+function parseManifestSource(value: unknown): {commit: string} {
+  if (!isRecord(value) || value.repository !== engineeringGuidanceRepository) {
     throw new Error(`Guidance manifest source repository must be ${engineeringGuidanceRepository}`);
   }
-  if (typeof sourceValue.commit !== 'string' || !fullCommitPattern.test(sourceValue.commit)) {
+  if (typeof value.commit !== 'string' || !fullCommitPattern.test(value.commit)) {
     throw new Error('Guidance manifest source commit must be a full 40-character SHA-1');
   }
-  if (!isRecord(value.entrypoints) || typeof value.entrypoints.documentationMap !== 'string') {
-    throw new Error('Guidance manifest must define entrypoints.documentationMap');
-  }
+  return {commit: value.commit};
+}
 
-  if (!Array.isArray(value.files) || value.files.length === 0) {
+function parseManifestFiles(value: unknown): {
+  files: GuidanceManifestFile[];
+  paths: Set<string>;
+} {
+  if (!Array.isArray(value) || value.length === 0) {
     throw new Error('Guidance manifest must list at least one file');
   }
   const paths = new Set<string>();
   let previousPath = '';
   const files: GuidanceManifestFile[] = [];
-  for (const [index, rawFile] of value.files.entries()) {
-    if (!isRecord(rawFile)) throw new Error(`Guidance manifest file ${index} must be an object`);
-    if (
-      typeof rawFile.path !== 'string' ||
-      typeof rawFile.sha256 !== 'string' ||
-      typeof rawFile.kind !== 'string'
-    ) {
-      throw new Error(`Guidance manifest file ${index} has an invalid shape`);
-    }
-    assertManifestPath(rawFile.path, `files.${index}.path`);
-    if (!rawFile.path.endsWith(markdownExtension)) {
-      throw new Error(`Guidance manifest file is not Markdown: ${rawFile.path}`);
-    }
-    if (rawFile.path <= previousPath) {
-      throw new Error('Guidance manifest files must be sorted by path');
-    }
-    if (paths.has(rawFile.path))
-      throw new Error(`Duplicate guidance manifest path: ${rawFile.path}`);
-    if (!sha256Pattern.test(rawFile.sha256)) {
-      throw new Error(`Invalid SHA-256 for guidance manifest file: ${rawFile.path}`);
-    }
-    if (!rawFile.kind) throw new Error(`Missing kind for guidance manifest file: ${rawFile.path}`);
-    if (isPrivateGuidancePath(rawFile.path)) {
-      throw new Error(`Guidance manifest contains a private or Cloud path: ${rawFile.path}`);
-    }
-    paths.add(rawFile.path);
-    previousPath = rawFile.path;
-    files.push({kind: rawFile.kind, path: rawFile.path, sha256: rawFile.sha256});
+  for (const [index, rawFile] of value.entries()) {
+    const file = parseManifestFile(rawFile, index, previousPath, paths);
+    paths.add(file.path);
+    previousPath = file.path;
+    files.push(file);
+  }
+  return {files, paths};
+}
+
+function parseManifestFile(
+  value: unknown,
+  index: number,
+  previousPath: string,
+  paths: ReadonlySet<string>,
+): GuidanceManifestFile {
+  if (!isRecord(value)) throw new Error(`Guidance manifest file ${index} must be an object`);
+  if (
+    typeof value.path !== 'string' ||
+    typeof value.sha256 !== 'string' ||
+    typeof value.kind !== 'string'
+  ) {
+    throw new Error(`Guidance manifest file ${index} has an invalid shape`);
+  }
+  assertManifestPath(value.path, `files.${index}.path`);
+  if (!value.path.endsWith(markdownExtension)) {
+    throw new Error(`Guidance manifest file is not Markdown: ${value.path}`);
+  }
+  if (value.path <= previousPath) throw new Error('Guidance manifest files must be sorted by path');
+  if (paths.has(value.path)) throw new Error(`Duplicate guidance manifest path: ${value.path}`);
+  if (!sha256Pattern.test(value.sha256)) {
+    throw new Error(`Invalid SHA-256 for guidance manifest file: ${value.path}`);
+  }
+  if (!value.kind) throw new Error(`Missing kind for guidance manifest file: ${value.path}`);
+  if (isPrivateGuidancePath(value.path)) {
+    throw new Error(`Guidance manifest contains a private or Cloud path: ${value.path}`);
+  }
+  return {kind: value.kind, path: value.path, sha256: value.sha256};
+}
+
+function parseManifestEntrypoints(
+  value: unknown,
+  paths: ReadonlySet<string>,
+): Record<string, string> {
+  if (!isRecord(value) || typeof value.documentationMap !== 'string') {
+    throw new Error('Guidance manifest must define entrypoints.documentationMap');
   }
   const entrypoints: Record<string, string> = {};
-  for (const [name, entrypoint] of Object.entries(value.entrypoints)) {
+  for (const [name, entrypoint] of Object.entries(value)) {
     if (typeof entrypoint !== 'string') {
       throw new Error(`Guidance manifest entrypoint ${name} must be a string`);
     }
@@ -650,14 +692,7 @@ export function parseGuidanceManifest(value: unknown): GuidanceManifest {
     }
     entrypoints[name] = entrypoint;
   }
-
-  return {
-    entrypoints,
-    files,
-    package: {name: engineeringGuidancePackageName, version: packageValue.version},
-    schemaVersion: 1,
-    source: {commit: sourceValue.commit, repository: engineeringGuidanceRepository},
-  };
+  return entrypoints;
 }
 
 function assertManifestPath(value: string, field: string): void {

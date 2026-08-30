@@ -1,6 +1,6 @@
 'use client';
 
-import {Icon} from '@shipfox/react-ui/icon';
+import {Icon, type IconName} from '@shipfox/react-ui/icon';
 import {
   LogContent,
   LogDisclosure,
@@ -67,198 +67,280 @@ function AgentSessionRowView({
 
   switch (row.kind) {
     case 'message':
-      return (
-        <LogRow
-          lineNumber={null}
-          timestamp={new Date(row.timestamp)}
-          indent={indent}
-          tone={row.terminalFailure ? 'error' : 'default'}
-          data-log-terminal-failure={row.terminalFailure ? 'true' : undefined}
-        >
-          <LogContent className="text-foreground-contrast-primary">
-            <span className="flex min-w-0 items-start gap-inline">
-              <MessageIcon role={row.role} terminalFailure={row.terminalFailure} />
-              <span className="flex min-w-0 flex-1 flex-col gap-tight">
-                <span className="flex min-w-0 items-center gap-inline">
-                  <MessageRoleLabel label={row.label} terminalFailure={row.terminalFailure} />
-                  <RowMetadata meta={row.meta} className="ml-auto flex-none" />
-                </span>
-                <span className="block min-w-0">
-                  <PreviewText text={row.text} />
-                </span>
-              </span>
-            </span>
-          </LogContent>
-        </LogRow>
-      );
+      return <SessionMessageRow row={row} indent={indent} />;
     case 'thinking':
+      return <SessionThinkingRow row={row} indent={indent} disclosure={disclosureProps} />;
+    case 'tool-call':
       return (
-        <LogDisclosure indent={indent} {...disclosureProps}>
-          <LogDisclosureTrigger
-            summary={wordSummary(row.text)}
-            timestamp={new Date(row.timestamp)}
-            className="text-foreground-contrast-secondary"
-          >
-            thinking
-          </LogDisclosureTrigger>
-          <LogDisclosureContent className="text-foreground-contrast-secondary">
-            <LogContent className="text-foreground-contrast-secondary">
-              <PreviewText text={row.text} />
-            </LogContent>
-          </LogDisclosureContent>
-        </LogDisclosure>
-      );
-    case 'tool-call': {
-      const awaitingResult = row.id != null && !resolvedToolCallIds.has(row.id);
-      return (
-        <LogDisclosure indent={indent} {...disclosureProps}>
-          <LogDisclosureTrigger
-            timestamp={new Date(row.timestamp)}
-            summary={compactPreview(row.summary ?? row.input)}
-            trailing={
-              awaitingResult ? (
-                <span className="inline-flex items-center gap-tight">
-                  <Icon
-                    name="loader4Line"
-                    className="size-12 motion-safe:animate-spin"
-                    aria-hidden="true"
-                  />
-                  awaiting result
-                </span>
-              ) : null
-            }
-          >
-            <span className="inline-flex min-w-0 items-center gap-inline">
-              <Icon name="terminalBoxLine" className="size-14 flex-none" aria-hidden="true" />
-              <span className="truncate">tool {row.name}</span>
-            </span>
-          </LogDisclosureTrigger>
-          <LogDisclosureContent>
-            {row.summary != null ? (
-              <>
-                <LogContent>
-                  <PreviewText text={row.summary} />
-                </LogContent>
-                <LogContent variant="code">
-                  <PreviewText text={row.input} />
-                </LogContent>
-              </>
-            ) : (
-              <LogContent variant="code">
-                <PreviewText text={row.input} />
-              </LogContent>
-            )}
-          </LogDisclosureContent>
-        </LogDisclosure>
-      );
-    }
-    case 'tool-result': {
-      const toolName =
-        row.toolName === 'tool'
-          ? ((row.toolCallId != null ? toolCallNames.get(row.toolCallId) : undefined) ??
-            '(unmatched)')
-          : row.toolName;
-      return (
-        <LogDisclosure indent={indent} {...disclosureProps}>
-          <LogDisclosureTrigger
-            timestamp={new Date(row.timestamp)}
-            summary={compactPreview(row.output)}
-            trailing={
-              <span
-                className={cn(
-                  'inline-flex items-center gap-tight',
-                  row.isError ? 'text-tag-error-icon' : 'text-foreground-contrast-secondary',
-                )}
-              >
-                <Icon
-                  name={row.isError ? 'closeCircleLine' : 'checkLine'}
-                  className="size-12"
-                  aria-hidden="true"
-                />
-                {row.isError ? 'error' : 'ok'}
-              </span>
-            }
-          >
-            <span className="inline-flex min-w-0 items-center gap-inline">
-              <Icon name="terminalWindowLine" className="size-14 flex-none" aria-hidden="true" />
-              <span className="truncate">result {toolName}</span>
-            </span>
-          </LogDisclosureTrigger>
-          <LogDisclosureContent>
-            <LogContent variant="code" className="text-foreground-contrast-primary">
-              <PreviewText text={row.output} />
-            </LogContent>
-          </LogDisclosureContent>
-        </LogDisclosure>
-      );
-    }
-    case 'lifecycle':
-      return (
-        <LogRow
-          lineNumber={null}
-          timestamp={new Date(row.timestamp)}
+        <SessionToolCallRow
+          row={row}
           indent={indent}
-          tone={row.tone}
-          data-log-terminal-failure={row.terminalFailure ? 'true' : undefined}
-        >
-          <LogContent className="text-foreground-contrast-secondary">
-            <span className="inline-flex w-full items-center gap-inline">
-              <Icon name="informationLine" className="size-14 flex-none" aria-hidden="true" />
-              <span className="min-w-0">
-                <span className="font-medium">{row.label}</span>
-                {row.detail != null ? (
-                  <>
-                    {' · '}
-                    <span className="text-foreground-contrast-secondary">{row.detail}</span>
-                  </>
-                ) : null}
-              </span>
-              <span
-                aria-hidden="true"
-                className="h-px flex-1 border-t border-dashed border-current opacity-30"
-              />
-              <RowMetadata meta={row.meta} />
-            </span>
-          </LogContent>
-        </LogRow>
+          disclosure={disclosureProps}
+          resolvedToolCallIds={resolvedToolCallIds}
+        />
       );
-    case 'raw':
+    case 'tool-result':
       return (
-        <LogDisclosure indent={indent} {...disclosureProps}>
-          <LogDisclosureTrigger
-            timestamp={new Date(row.timestamp)}
-            summary={compactPreview(row.raw)}
-            className="text-foreground-contrast-primary"
-          >
-            <span className="inline-flex min-w-0 items-center gap-inline">
-              <Icon
-                name="errorWarningLine"
-                className="size-14 flex-none text-tag-warning-icon"
-                aria-hidden="true"
-              />
-              <span className="truncate">{row.label}</span>
-            </span>
-          </LogDisclosureTrigger>
-          <LogDisclosureContent>
-            <LogContent variant="code">
-              <PreviewText text={row.raw} />
-            </LogContent>
-          </LogDisclosureContent>
-        </LogDisclosure>
+        <SessionToolResultRow
+          row={row}
+          indent={indent}
+          disclosure={disclosureProps}
+          toolCallNames={toolCallNames}
+        />
       );
+    case 'lifecycle':
+      return <SessionLifecycleRow row={row} indent={indent} />;
+    case 'raw':
+      return <SessionRawRow row={row} indent={indent} disclosure={disclosureProps} />;
     default:
       return assertNever(row);
   }
 }
 
+type DisclosureState = {open: boolean; onOpenChange: (open: boolean) => void};
+
+function SessionMessageRow({
+  row,
+  indent,
+}: {
+  row: Extract<SessionViewRow, {kind: 'message'}>;
+  indent: number;
+}) {
+  return (
+    <LogRow
+      lineNumber={null}
+      timestamp={new Date(row.timestamp)}
+      indent={indent}
+      tone={row.terminalFailure ? 'error' : 'default'}
+      data-log-terminal-failure={row.terminalFailure ? 'true' : undefined}
+    >
+      <LogContent className="text-foreground-contrast-primary">
+        <span className="flex min-w-0 items-start gap-inline">
+          <MessageIcon role={row.role} terminalFailure={row.terminalFailure} />
+          <span className="flex min-w-0 flex-1 flex-col gap-tight">
+            <span className="flex min-w-0 items-center gap-inline">
+              <MessageRoleLabel label={row.label} terminalFailure={row.terminalFailure} />
+              <RowMetadata meta={row.meta} className="ml-auto flex-none" />
+            </span>
+            <span className="block min-w-0">
+              <PreviewText text={row.text} />
+            </span>
+          </span>
+        </span>
+      </LogContent>
+    </LogRow>
+  );
+}
+
+function SessionThinkingRow({
+  row,
+  indent,
+  disclosure,
+}: {
+  row: Extract<SessionViewRow, {kind: 'thinking'}>;
+  indent: number;
+  disclosure: DisclosureState;
+}) {
+  return (
+    <LogDisclosure indent={indent} {...disclosure}>
+      <LogDisclosureTrigger
+        summary={wordSummary(row.text)}
+        timestamp={new Date(row.timestamp)}
+        className="text-foreground-contrast-secondary"
+      >
+        thinking
+      </LogDisclosureTrigger>
+      <LogDisclosureContent className="text-foreground-contrast-secondary">
+        <LogContent className="text-foreground-contrast-secondary">
+          <PreviewText text={row.text} />
+        </LogContent>
+      </LogDisclosureContent>
+    </LogDisclosure>
+  );
+}
+
+function SessionToolCallRow({
+  row,
+  indent,
+  disclosure,
+  resolvedToolCallIds,
+}: {
+  row: Extract<SessionViewRow, {kind: 'tool-call'}>;
+  indent: number;
+  disclosure: DisclosureState;
+  resolvedToolCallIds: ReadonlySet<string>;
+}) {
+  const awaitingResult = row.id != null && !resolvedToolCallIds.has(row.id);
+  return (
+    <LogDisclosure indent={indent} {...disclosure}>
+      <LogDisclosureTrigger
+        timestamp={new Date(row.timestamp)}
+        summary={compactPreview(row.summary ?? row.input)}
+        trailing={
+          awaitingResult ? (
+            <span className="inline-flex items-center gap-tight">
+              <Icon
+                name="loader4Line"
+                className="size-12 motion-safe:animate-spin"
+                aria-hidden="true"
+              />
+              awaiting result
+            </span>
+          ) : null
+        }
+      >
+        <span className="inline-flex min-w-0 items-center gap-inline">
+          <Icon name="terminalBoxLine" className="size-14 flex-none" aria-hidden="true" />
+          <span className="truncate">tool {row.name}</span>
+        </span>
+      </LogDisclosureTrigger>
+      <LogDisclosureContent>
+        {row.summary != null ? (
+          <>
+            <LogContent>
+              <PreviewText text={row.summary} />
+            </LogContent>
+            <LogContent variant="code">
+              <PreviewText text={row.input} />
+            </LogContent>
+          </>
+        ) : (
+          <LogContent variant="code">
+            <PreviewText text={row.input} />
+          </LogContent>
+        )}
+      </LogDisclosureContent>
+    </LogDisclosure>
+  );
+}
+
+function SessionToolResultRow({
+  row,
+  indent,
+  disclosure,
+  toolCallNames,
+}: {
+  row: Extract<SessionViewRow, {kind: 'tool-result'}>;
+  indent: number;
+  disclosure: DisclosureState;
+  toolCallNames: ReadonlyMap<string, string>;
+}) {
+  const toolName =
+    row.toolName === 'tool'
+      ? ((row.toolCallId != null ? toolCallNames.get(row.toolCallId) : undefined) ?? '(unmatched)')
+      : row.toolName;
+  return (
+    <LogDisclosure indent={indent} {...disclosure}>
+      <LogDisclosureTrigger
+        timestamp={new Date(row.timestamp)}
+        summary={compactPreview(row.output)}
+        trailing={
+          <span
+            className={cn(
+              'inline-flex items-center gap-tight',
+              row.isError ? 'text-tag-error-icon' : 'text-foreground-contrast-secondary',
+            )}
+          >
+            <Icon
+              name={row.isError ? 'closeCircleLine' : 'checkLine'}
+              className="size-12"
+              aria-hidden="true"
+            />
+            {row.isError ? 'error' : 'ok'}
+          </span>
+        }
+      >
+        <span className="inline-flex min-w-0 items-center gap-inline">
+          <Icon name="terminalWindowLine" className="size-14 flex-none" aria-hidden="true" />
+          <span className="truncate">result {toolName}</span>
+        </span>
+      </LogDisclosureTrigger>
+      <LogDisclosureContent>
+        <LogContent variant="code" className="text-foreground-contrast-primary">
+          <PreviewText text={row.output} />
+        </LogContent>
+      </LogDisclosureContent>
+    </LogDisclosure>
+  );
+}
+
+function SessionLifecycleRow({
+  row,
+  indent,
+}: {
+  row: Extract<SessionViewRow, {kind: 'lifecycle'}>;
+  indent: number;
+}) {
+  return (
+    <LogRow
+      lineNumber={null}
+      timestamp={new Date(row.timestamp)}
+      indent={indent}
+      tone={row.tone}
+      data-log-terminal-failure={row.terminalFailure ? 'true' : undefined}
+    >
+      <LogContent className="text-foreground-contrast-secondary">
+        <span className="inline-flex w-full items-center gap-inline">
+          <Icon name="informationLine" className="size-14 flex-none" aria-hidden="true" />
+          <span className="min-w-0">
+            <span className="font-medium">{row.label}</span>
+            {row.detail != null ? (
+              <>
+                {' · '}
+                <span className="text-foreground-contrast-secondary">{row.detail}</span>
+              </>
+            ) : null}
+          </span>
+          <span
+            aria-hidden="true"
+            className="h-px flex-1 border-t border-dashed border-current opacity-30"
+          />
+          <RowMetadata meta={row.meta} />
+        </span>
+      </LogContent>
+    </LogRow>
+  );
+}
+
+function SessionRawRow({
+  row,
+  indent,
+  disclosure,
+}: {
+  row: Extract<SessionViewRow, {kind: 'raw'}>;
+  indent: number;
+  disclosure: DisclosureState;
+}) {
+  return (
+    <LogDisclosure indent={indent} {...disclosure}>
+      <LogDisclosureTrigger
+        timestamp={new Date(row.timestamp)}
+        summary={compactPreview(row.raw)}
+        className="text-foreground-contrast-primary"
+      >
+        <span className="inline-flex min-w-0 items-center gap-inline">
+          <Icon
+            name="errorWarningLine"
+            className="size-14 flex-none text-tag-warning-icon"
+            aria-hidden="true"
+          />
+          <span className="truncate">{row.label}</span>
+        </span>
+      </LogDisclosureTrigger>
+      <LogDisclosureContent>
+        <LogContent variant="code">
+          <PreviewText text={row.raw} />
+        </LogContent>
+      </LogDisclosureContent>
+    </LogDisclosure>
+  );
+}
+
 function MessageIcon({role, terminalFailure}: {role: string; terminalFailure: boolean}) {
-  const name = terminalFailure
-    ? 'closeCircleLine'
-    : role === 'user'
-      ? 'userLine'
-      : role === 'assistant'
-        ? 'robot2Line'
-        : 'message2Line';
+  let name: IconName = 'message2Line';
+  if (terminalFailure) name = 'closeCircleLine';
+  else if (role === 'user') name = 'userLine';
+  else if (role === 'assistant') name = 'robot2Line';
 
   return (
     <Icon

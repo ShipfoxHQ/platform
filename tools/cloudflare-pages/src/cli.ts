@@ -722,24 +722,14 @@ async function runSummary(options: CliOptions): Promise<void> {
     process.env.ARTIFACT_RESULT === 'success' && process.env.ARTIFACT_UPLOAD_RESULT === 'success';
   const supersededBeforeUpload = process.env.PRE_DEPLOY_HEAD_RESULT === 'failure';
   const supersededDuringUpload = process.env.POST_DEPLOY_HEAD_RESULT === 'failure';
-  const syncMessage =
-    plan.shouldDeploy !== true
-      ? 'No deployment was selected by the affected-target plan; existing Pages URLs are not refreshed for this commit.'
-      : supersededBeforeUpload
-        ? 'A newer commit superseded this run before upload; no Pages deployment was published for this source commit.'
-        : supersededDuringUpload
-          ? 'A newer commit superseded this run during upload; the stale run did not register a GitHub deployment status.'
-          : artifactOnly
-            ? artifactReady
-              ? 'A verified artifact was archived and uploaded; Pages publication is handled by the separate deployment job.'
-              : `The verified artifact was not produced for this commit (archive: ${getMetric(process.env.ARTIFACT_RESULT)}, upload: ${getMetric(process.env.ARTIFACT_UPLOAD_RESULT)}).`
-            : verificationReport?.ok === true
-              ? 'Every selected app was checked and matched the exact source commit above.'
-              : verificationReport !== null
-                ? 'The deployment was attempted, but one or more Pages applications could not be verified against the exact source commit above.'
-                : process.env.DEPLOYMENT_RESULT === 'success'
-                  ? 'The artifact was uploaded, but Pages applications were not verified for this source commit.'
-                  : 'The deployment did not complete, so Pages applications are not available for this commit.';
+  const syncMessage = deploymentSyncMessage({
+    plan,
+    artifactOnly,
+    artifactReady,
+    supersededBeforeUpload,
+    supersededDuringUpload,
+    verificationReport,
+  });
   const lines = [
     `## ${title} metrics`,
     '',
@@ -797,6 +787,41 @@ async function runSummary(options: CliOptions): Promise<void> {
   }
 
   await writeFile(outputPath, `${lines.join('\n')}\n`, 'utf8');
+}
+
+function deploymentSyncMessage(params: {
+  plan: DeploymentPlan;
+  artifactOnly: boolean;
+  artifactReady: boolean;
+  supersededBeforeUpload: boolean;
+  supersededDuringUpload: boolean;
+  verificationReport: VerificationSummary | null;
+}): string {
+  if (params.plan.shouldDeploy !== true) {
+    return 'No deployment was selected by the affected-target plan; existing Pages URLs are not refreshed for this commit.';
+  }
+  if (params.supersededBeforeUpload) {
+    return 'A newer commit superseded this run before upload; no Pages deployment was published for this source commit.';
+  }
+  if (params.supersededDuringUpload) {
+    return 'A newer commit superseded this run during upload; the stale run did not register a GitHub deployment status.';
+  }
+  if (params.artifactOnly && params.artifactReady) {
+    return 'A verified artifact was archived and uploaded; Pages publication is handled by the separate deployment job.';
+  }
+  if (params.artifactOnly) {
+    return `The verified artifact was not produced for this commit (archive: ${getMetric(process.env.ARTIFACT_RESULT)}, upload: ${getMetric(process.env.ARTIFACT_UPLOAD_RESULT)}).`;
+  }
+  if (params.verificationReport?.ok === true) {
+    return 'Every selected app was checked and matched the exact source commit above.';
+  }
+  if (params.verificationReport !== null) {
+    return 'The deployment was attempted, but one or more Pages applications could not be verified against the exact source commit above.';
+  }
+  if (process.env.DEPLOYMENT_RESULT === 'success') {
+    return 'The artifact was uploaded, but Pages applications were not verified for this source commit.';
+  }
+  return 'The deployment did not complete, so Pages applications are not available for this commit.';
 }
 
 function printHelp(): void {

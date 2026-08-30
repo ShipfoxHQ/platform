@@ -20,7 +20,7 @@ import {Skeleton} from '@shipfox/react-ui/skeleton';
 import {TimeTickerProvider} from '@shipfox/react-ui/time-ticker';
 import {Text} from '@shipfox/react-ui/typography';
 import {Link} from '@tanstack/react-router';
-import {type RefObject, useCallback, useEffect, useRef, useState} from 'react';
+import {type ReactNode, type RefObject, useCallback, useEffect, useRef, useState} from 'react';
 import type {RunAnnotationSummary} from '#core/run-annotation.js';
 import {summarizeJobAnnotations} from '#core/run-annotation.js';
 import {isWorkflowRunTerminal, type Job, type JobExecution} from '#core/workflow-run.js';
@@ -100,11 +100,7 @@ export function JobDetailView({
     workflowRunId,
     runAttempt: query.data?.runAttempt.attempt,
   });
-  const jobAnnotationSummary = annotations.annotations
-    ? summarizeJobAnnotations(annotations.annotations, jobId, {
-        truncated: annotations.summary?.truncated ?? false,
-      })
-    : undefined;
+  const jobAnnotationSummary = summarizeLoadedJobAnnotations(annotations, jobId);
   const inspectorResetKey = `${jobId}:${search.jobExecutionId ?? ''}`;
   const [inspectorState, setInspectorState] = useState<InspectorState>(() => ({
     key: inspectorResetKey,
@@ -112,13 +108,8 @@ export function JobDetailView({
   }));
   const inspectorOpenAttemptId =
     inspectorState.key === inspectorResetKey ? inspectorState.attemptId : null;
-  const annotationJob = query.data?.jobs.find((candidate) => candidate.id === jobId);
-  const annotationExecutionId = annotationJob
-    ? resolveWorkflowJobSelection({job: annotationJob, selection: search}).jobExecution?.id
-    : search.jobExecutionId;
-  const annotationPolling = query.data
-    ? !isWorkflowRunTerminal(query.data.runAttempt.status)
-    : true;
+  const annotationExecutionId = resolveAnnotationExecutionId(query.data, jobId, search);
+  const annotationPolling = shouldPollJobAnnotations(query.data);
   const annotationSummaryQuery = useWorkflowRunAnnotationSummaryQuery(
     query.data?.id,
     query.data?.runAttempt.attempt,
@@ -141,18 +132,10 @@ export function JobDetailView({
     });
   }, []);
 
-  if (query.isPending) return <JobDetailSkeleton />;
+  const queryBoundary = jobDetailQueryBoundary(query);
+  if (queryBoundary !== undefined) return queryBoundary;
 
-  if (query.isError && query.data === undefined) {
-    if (query.error instanceof ApiError && query.error.status === 404) {
-      return <WorkflowRunNotFound />;
-    }
-    return <QueryLoadError query={query} subject="workflow run" icon="pulseLine" />;
-  }
-
-  if (query.data === undefined) return <JobDetailSkeleton />;
-
-  const run = query.data;
+  const run = query.data as NonNullable<typeof query.data>;
   const job = run.jobs.find((candidate) => candidate.id === jobId);
   if (!job) {
     return (
@@ -165,60 +148,25 @@ export function JobDetailView({
     );
   }
 
-  const resolvedSelection = resolveWorkflowJobSelection({job, selection: search});
-  const selectedJobExecution = resolvedSelection.jobExecution;
-  const hasExplicitStep = Boolean(search.stepId && resolvedSelection.step);
-  const stepListModel = buildStepListModel({job, jobExecution: selectedJobExecution});
-  const currentLandingSelection = workflowJobLandingSelection(selectedJobExecution);
-  if (selectedJobExecution) {
-    const frozenLanding = landingSelectionRef.current;
-    if (
-      !frozenLanding ||
-      frozenLanding.jobId !== job.id ||
-      frozenLanding.jobExecutionId !== selectedJobExecution.id
-    ) {
-      landingSelectionRef.current = {
-        jobId: job.id,
-        jobExecutionId: selectedJobExecution.id,
-        selection: currentLandingSelection,
-        hasSelection: currentLandingSelection !== undefined,
-      };
-    } else if (!frozenLanding.hasSelection && currentLandingSelection) {
-      landingSelectionRef.current = {
-        ...frozenLanding,
-        selection: currentLandingSelection,
-        hasSelection: true,
-      };
-    }
-  } else {
-    landingSelectionRef.current = undefined;
-  }
-  const landingSelection = landingSelectionRef.current?.selection;
-  const selectedAttemptId = hasExplicitStep ? resolvedSelection.selectedAttemptId : undefined;
-  const runningSelection = runningStepSelection(selectedJobExecution, stepListModel);
-  const selectedStepId = resolvedSelection.step?.id ?? landingSelection?.stepId;
-  const selectedAttemptForNotice = hasExplicitStep
-    ? resolvedSelection.selectedAttemptId
-    : landingSelection?.attemptId;
-  const expandedLogSelection = findExpandedLogSelection(
-    selectedJobExecution,
+  const detailState = resolveJobDetailState({
+    job,
+    search,
+    landingSelectionRef,
     expandedLogAttemptIds,
-    stepListModel,
-  );
-  const selectedLogStep = expandedLogSelection?.step;
-  const selectedLogAttempt = expandedLogSelection?.attempt;
-  const selectedLogStatus = selectedLogAttempt?.status ?? selectedLogStep?.status;
-  const logIsFetching = Boolean(
-    selectedLogAttempt && logFetchingByAttemptId[selectedLogAttempt.id],
-  );
-  const showRetargetNotice =
-    runningSelection !== undefined &&
-    (selectedStepId !== runningSelection.stepId ||
-      selectedAttemptForNotice !== runningSelection.attemptId);
-  const succeededSummary =
-    !hasExplicitStep && landingSelection === undefined && selectedJobExecution
-      ? jobSucceededSummary(job, selectedJobExecution)
-      : undefined;
+    logFetchingByAttemptId,
+  });
+  const {
+    selectedJobExecution,
+    landingSelection,
+    selectedAttemptId,
+    runningSelection,
+    expandedLogSelection,
+    selectedLogAttempt,
+    selectedLogStatus,
+    logIsFetching,
+    showRetargetNotice,
+    succeededSummary,
+  } = detailState;
 
   function selectExecution(jobExecutionId: string) {
     onSelectionChange({
@@ -408,6 +356,46 @@ export function JobDetailView({
       </div>
     </TimeTickerProvider>
   );
+}
+
+function summarizeLoadedJobAnnotations(
+  annotations: ReturnType<typeof useRunAnnotationsQuery>,
+  jobId: string,
+): RunAnnotationSummary | undefined {
+  if (!annotations.annotations) return undefined;
+  return summarizeJobAnnotations(annotations.annotations, jobId, {
+    truncated: annotations.summary?.truncated ?? false,
+  });
+}
+
+function resolveAnnotationExecutionId(
+  run: ReturnType<typeof useWorkflowRunAttemptQuery>['data'],
+  jobId: string,
+  search: WorkflowJobSearch,
+): string | undefined {
+  const job = run?.jobs.find((candidate) => candidate.id === jobId);
+  if (!job) return search.jobExecutionId;
+  return resolveWorkflowJobSelection({job, selection: search}).jobExecution?.id;
+}
+
+function shouldPollJobAnnotations(
+  run: ReturnType<typeof useWorkflowRunAttemptQuery>['data'],
+): boolean {
+  if (!run) return true;
+  return !isWorkflowRunTerminal(run.runAttempt.status);
+}
+
+function jobDetailQueryBoundary(
+  query: ReturnType<typeof useWorkflowRunAttemptQuery>,
+): ReactNode | undefined {
+  if (query.isPending || query.data === undefined) {
+    if (!query.isError) return <JobDetailSkeleton />;
+  }
+  if (!query.isError || query.data !== undefined) return undefined;
+  if (query.error instanceof ApiError && query.error.status === 404) {
+    return <WorkflowRunNotFound />;
+  }
+  return <QueryLoadError query={query} subject="workflow run" icon="pulseLine" />;
 }
 
 function ExpandedStep({
@@ -690,6 +678,117 @@ function annotationCountForStep(
 ): number | undefined {
   return summary?.stepCounts?.find((entry) => entry.stepId === stepId && entry.attempt === attempt)
     ?.total;
+}
+
+function resolveJobDetailState({
+  job,
+  search,
+  landingSelectionRef,
+  expandedLogAttemptIds,
+  logFetchingByAttemptId,
+}: {
+  job: Job;
+  search: WorkflowJobSearch;
+  landingSelectionRef: {current: FrozenLandingSelection | undefined};
+  expandedLogAttemptIds: readonly string[];
+  logFetchingByAttemptId: Readonly<Record<string, boolean>>;
+}) {
+  const resolvedSelection = resolveWorkflowJobSelection({job, selection: search});
+  const selectedJobExecution = resolvedSelection.jobExecution;
+  const hasExplicitStep = Boolean(search.stepId && resolvedSelection.step);
+  const stepListModel = buildStepListModel({job, jobExecution: selectedJobExecution});
+  updateFrozenLandingSelection(
+    landingSelectionRef,
+    job,
+    selectedJobExecution,
+    workflowJobLandingSelection(selectedJobExecution),
+  );
+  const landingSelection = landingSelectionRef.current?.selection;
+  const selectedAttemptId = hasExplicitStep ? resolvedSelection.selectedAttemptId : undefined;
+  const runningSelection = runningStepSelection(selectedJobExecution, stepListModel);
+  const selectedStepId = resolvedSelection.step?.id ?? landingSelection?.stepId;
+  const selectedAttemptForNotice = hasExplicitStep
+    ? resolvedSelection.selectedAttemptId
+    : landingSelection?.attemptId;
+  const expandedLogSelection = findExpandedLogSelection(
+    selectedJobExecution,
+    expandedLogAttemptIds,
+    stepListModel,
+  );
+  const selectedLogAttempt = expandedLogSelection?.attempt;
+  const selectedLogStatus = selectedLogAttempt?.status ?? expandedLogSelection?.step.status;
+  const logIsFetching = Boolean(
+    selectedLogAttempt && logFetchingByAttemptId[selectedLogAttempt.id],
+  );
+  const showRetargetNotice = shouldShowRetargetNotice(
+    runningSelection,
+    selectedStepId,
+    selectedAttemptForNotice,
+  );
+  const succeededSummary = successfulJobSummary(
+    job,
+    selectedJobExecution,
+    hasExplicitStep,
+    landingSelection,
+  );
+  return {
+    selectedJobExecution,
+    landingSelection,
+    selectedAttemptId,
+    runningSelection,
+    expandedLogSelection,
+    selectedLogAttempt,
+    selectedLogStatus,
+    logIsFetching,
+    showRetargetNotice,
+    succeededSummary,
+  };
+}
+
+function updateFrozenLandingSelection(
+  ref: {current: FrozenLandingSelection | undefined},
+  job: Job,
+  execution: JobExecution | undefined,
+  currentSelection: WorkflowJobLandingSelection | undefined,
+): void {
+  if (!execution) {
+    ref.current = undefined;
+    return;
+  }
+  const frozen = ref.current;
+  if (!frozen || frozen.jobId !== job.id || frozen.jobExecutionId !== execution.id) {
+    ref.current = {
+      jobId: job.id,
+      jobExecutionId: execution.id,
+      selection: currentSelection,
+      hasSelection: currentSelection !== undefined,
+    };
+    return;
+  }
+  if (!frozen.hasSelection && currentSelection) {
+    ref.current = {...frozen, selection: currentSelection, hasSelection: true};
+  }
+}
+
+function shouldShowRetargetNotice(
+  runningSelection: ReturnType<typeof runningStepSelection>,
+  selectedStepId: string | undefined,
+  selectedAttemptId: string | null | undefined,
+): boolean {
+  if (!runningSelection) return false;
+  return (
+    selectedStepId !== runningSelection.stepId || selectedAttemptId !== runningSelection.attemptId
+  );
+}
+
+function successfulJobSummary(
+  job: Job,
+  execution: JobExecution | undefined,
+  hasExplicitStep: boolean,
+  landingSelection: WorkflowJobLandingSelection | undefined,
+): string | undefined {
+  if (hasExplicitStep || landingSelection !== undefined || !execution) return undefined;
+  return jobSucceededSummary(job, execution);
 }
 
 function JobDetailSkeleton() {

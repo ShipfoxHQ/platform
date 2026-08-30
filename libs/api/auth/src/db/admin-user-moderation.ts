@@ -139,6 +139,58 @@ async function revokeActiveSessions(tx: Tx, userId: string): Promise<number> {
   return new Set(revoked.map(({sessionId}) => sessionId)).size;
 }
 
+async function suspendUser(tx: Tx, user: Awaited<ReturnType<typeof readTargetUserForUpdate>>) {
+  if (user.status !== 'active') return;
+  const activeOwners = await tx
+    .select({id: adminGrants.id})
+    .from(adminGrants)
+    .innerJoin(users, eq(adminGrants.userId, users.id))
+    .where(
+      and(
+        eq(adminGrants.role, 'admin-owner'),
+        isNull(adminGrants.revokedAt),
+        eq(users.status, 'active'),
+      ),
+    )
+    .limit(2);
+  const targetIsActiveOwner = await tx
+    .select({id: adminGrants.id})
+    .from(adminGrants)
+    .where(
+      and(
+        eq(adminGrants.userId, user.id),
+        eq(adminGrants.role, 'admin-owner'),
+        isNull(adminGrants.revokedAt),
+      ),
+    )
+    .limit(1);
+  if (targetIsActiveOwner.length > 0 && activeOwners.length <= 1) throw new LastAdminOwnerError();
+  await tx
+    .update(users)
+    .set({status: 'suspended', updatedAt: sql`now()`})
+    .where(eq(users.id, user.id));
+}
+
+async function applyModerationOperation(
+  tx: Tx,
+  user: Awaited<ReturnType<typeof readTargetUserForUpdate>>,
+  operation: 'suspend' | 'reactivate' | 'revoke-sessions',
+): Promise<number> {
+  if (operation === 'suspend') {
+    await suspendUser(tx, user);
+    return await revokeActiveSessions(tx, user.id);
+  }
+  if (operation === 'reactivate' && user.status === 'suspended') {
+    await tx
+      .update(users)
+      .set({status: 'active', updatedAt: sql`now()`})
+      .where(eq(users.id, user.id));
+    return 0;
+  }
+  if (operation === 'revoke-sessions') return await revokeActiveSessions(tx, user.id);
+  return 0;
+}
+
 async function executeUserModerationCommand(
   params: UserModerationCommandParams & {
     operation: 'suspend' | 'reactivate' | 'revoke-sessions';
@@ -157,51 +209,7 @@ async function executeUserModerationCommand(
     await lockUserSessionMutations(tx, params.userId);
     const user = await readTargetUserForUpdate(tx, params.userId);
     await requireActiveAdminOperator(tx, params.actorId);
-    let sessionsRevoked = 0;
-
-    if (params.operation === 'suspend') {
-      if (user.status === 'active') {
-        const activeOwners = await tx
-          .select({id: adminGrants.id})
-          .from(adminGrants)
-          .innerJoin(users, eq(adminGrants.userId, users.id))
-          .where(
-            and(
-              eq(adminGrants.role, 'admin-owner'),
-              isNull(adminGrants.revokedAt),
-              eq(users.status, 'active'),
-            ),
-          )
-          .limit(2);
-        const targetIsActiveOwner = await tx
-          .select({id: adminGrants.id})
-          .from(adminGrants)
-          .where(
-            and(
-              eq(adminGrants.userId, user.id),
-              eq(adminGrants.role, 'admin-owner'),
-              isNull(adminGrants.revokedAt),
-            ),
-          )
-          .limit(1);
-        if (targetIsActiveOwner.length > 0 && activeOwners.length <= 1) {
-          throw new LastAdminOwnerError();
-        }
-
-        await tx
-          .update(users)
-          .set({status: 'suspended', updatedAt: sql`now()`})
-          .where(eq(users.id, user.id));
-      }
-      sessionsRevoked = await revokeActiveSessions(tx, user.id);
-    } else if (params.operation === 'reactivate' && user.status === 'suspended') {
-      await tx
-        .update(users)
-        .set({status: 'active', updatedAt: sql`now()`})
-        .where(eq(users.id, user.id));
-    } else if (params.operation === 'revoke-sessions') {
-      sessionsRevoked = await revokeActiveSessions(tx, user.id);
-    }
+    const sessionsRevoked = await applyModerationOperation(tx, user, params.operation);
 
     const summary = await findUserSummary(tx, user.id);
     const result: StoredAdminUserModerationResult = {

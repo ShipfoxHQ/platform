@@ -579,46 +579,68 @@ function readPortLeaseRegistry(registryFile: string): PortLeaseRegistry {
   }
 
   try {
-    for (const [key, rangeState] of Object.entries(registry.ranges)) {
-      const range = normalizePortRange(rangeState);
-      if (key !== portRangeKey(range) || !isPortBlockStart(rangeState.nextBase, range)) {
-        fail(`Invalid Shipfox port lease registry: ${registryFile}`);
-      }
-    }
-    const leases: Record<string, PortLease> = {};
-    for (const [leaseKey, lease] of Object.entries(registry.leases)) {
-      if (!isRecord(lease)) fail(`Invalid Shipfox port lease registry: ${registryFile}`);
-      const range = normalizePortRange(lease.range);
-      if (
-        !isPortBlockStart(lease.base, range) ||
-        typeof lease.repositoryId !== 'string' ||
-        typeof lease.workspaceId !== 'string' ||
-        typeof lease.workspacePath !== 'string' ||
-        leaseKey !== portLeaseKey(lease.repositoryId, lease.workspaceId)
-      ) {
-        fail(`Invalid Shipfox port lease registry: ${registryFile}`);
-      }
-      leases[leaseKey] = {
-        allocatedAt: String(lease.allocatedAt),
-        base: lease.base,
-        range,
-        repositoryId: lease.repositoryId,
-        workspaceId: lease.workspaceId,
-        workspacePath: lease.workspacePath,
-      };
-    }
-    const ranges: PortLeaseRegistry['ranges'] = {};
-    for (const [key, rangeState] of Object.entries(registry.ranges)) {
-      const range = normalizePortRange(rangeState);
-      if (!isRecord(rangeState) || !isPortBlockStart(rangeState.nextBase, range)) {
-        fail(`Invalid Shipfox port lease registry: ${registryFile}`);
-      }
-      ranges[key] = {...range, nextBase: rangeState.nextBase};
-    }
-    return {version: 3, ranges, leases};
+    validateRegistryRanges(registry.ranges, registryFile);
+    return {
+      version: 3,
+      ranges: normalizeRegistryRanges(registry.ranges, registryFile),
+      leases: normalizeRegistryLeases(registry.leases, registryFile),
+    };
   } catch {
     fail(`Invalid Shipfox port lease registry: ${registryFile}`);
   }
+}
+
+function validateRegistryRanges(ranges: Record<string, unknown>, registryFile: string): void {
+  for (const [key, rangeState] of Object.entries(ranges)) {
+    const range = normalizePortRange(rangeState);
+    if (key !== portRangeKey(range) || !isPortBlockStart(rangeState.nextBase, range)) {
+      fail(`Invalid Shipfox port lease registry: ${registryFile}`);
+    }
+  }
+}
+
+function normalizeRegistryLeases(
+  rawLeases: Record<string, unknown>,
+  registryFile: string,
+): Record<string, PortLease> {
+  const leases: Record<string, PortLease> = {};
+  for (const [leaseKey, lease] of Object.entries(rawLeases)) {
+    if (!isRecord(lease)) fail(`Invalid Shipfox port lease registry: ${registryFile}`);
+    const range = normalizePortRange(lease.range);
+    if (
+      !isPortBlockStart(lease.base, range) ||
+      typeof lease.repositoryId !== 'string' ||
+      typeof lease.workspaceId !== 'string' ||
+      typeof lease.workspacePath !== 'string' ||
+      leaseKey !== portLeaseKey(lease.repositoryId, lease.workspaceId)
+    ) {
+      fail(`Invalid Shipfox port lease registry: ${registryFile}`);
+    }
+    leases[leaseKey] = {
+      allocatedAt: String(lease.allocatedAt),
+      base: lease.base,
+      range,
+      repositoryId: lease.repositoryId,
+      workspaceId: lease.workspaceId,
+      workspacePath: lease.workspacePath,
+    };
+  }
+  return leases;
+}
+
+function normalizeRegistryRanges(
+  rawRanges: Record<string, unknown>,
+  registryFile: string,
+): PortLeaseRegistry['ranges'] {
+  const ranges: PortLeaseRegistry['ranges'] = {};
+  for (const [key, rangeState] of Object.entries(rawRanges)) {
+    const range = normalizePortRange(rangeState);
+    if (!isRecord(rangeState) || !isPortBlockStart(rangeState.nextBase, range)) {
+      fail(`Invalid Shipfox port lease registry: ${registryFile}`);
+    }
+    ranges[key] = {...range, nextBase: rangeState.nextBase};
+  }
+  return ranges;
 }
 
 function migrateLegacyPortLeaseRegistry(

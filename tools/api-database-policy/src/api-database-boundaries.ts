@@ -319,16 +319,7 @@ function addSnapshotObjects(
   }
 
   for (const [qualifiedName, table] of Object.entries(snapshot.tables ?? {})) {
-    addObject(objects, table.name || lastIdentifier(qualifiedName), 'table', unit);
-    for (const index of Object.values(table.indexes ?? {})) {
-      if (index.name) addObject(objects, index.name, 'index', unit);
-    }
-    for (const constraint of Object.values(table.uniqueConstraints ?? {})) {
-      if (constraint.name) addObject(objects, constraint.name, 'constraint', unit);
-    }
-    for (const constraint of Object.values(table.checkConstraints ?? {})) {
-      if (constraint.name) addObject(objects, constraint.name, 'constraint', unit);
-    }
+    addSnapshotTableObjects(objects, qualifiedName, table, unit);
   }
   for (const [qualifiedName, enumValue] of Object.entries(snapshot.enums ?? {})) {
     addObject(objects, enumValue.name || lastIdentifier(qualifiedName), 'enum', unit);
@@ -338,6 +329,34 @@ function addSnapshotObjects(
   }
   for (const [qualifiedName, view] of Object.entries(snapshot.views ?? {})) {
     addObject(objects, view.name || lastIdentifier(qualifiedName), 'view', unit);
+  }
+}
+
+function addSnapshotTableObjects(
+  objects: Map<string, DatabaseObject>,
+  qualifiedName: string,
+  table: SnapshotTable,
+  unit: DatabaseMigrationUnit,
+): void {
+  addObject(objects, table.name || lastIdentifier(qualifiedName), 'table', unit);
+  addSnapshotNamedObjects(objects, Object.values(table.indexes ?? {}), 'index', unit);
+  addSnapshotNamedObjects(
+    objects,
+    Object.values(table.uniqueConstraints ?? {}),
+    'constraint',
+    unit,
+  );
+  addSnapshotNamedObjects(objects, Object.values(table.checkConstraints ?? {}), 'constraint', unit);
+}
+
+function addSnapshotNamedObjects(
+  objects: Map<string, DatabaseObject>,
+  values: readonly SnapshotNamedObject[],
+  kind: DatabaseObject['kind'],
+  unit: DatabaseMigrationUnit,
+): void {
+  for (const value of values) {
+    if (value.name) addObject(objects, value.name, kind, unit);
   }
 }
 
@@ -651,24 +670,38 @@ function parseSourceImports(source: string): {
   const directTableCreatorFunctions = new Set<string>();
   const localTableFunctions = new Set<string>();
   for (const match of source.matchAll(/import\s+\{([^}]+)\}\s+from\s+["']([^"']+)["']/gu)) {
-    const imports = match[1] ?? '';
-    const moduleName = match[2] ?? '';
-    for (const item of imports.split(',')) {
-      const [originalValue, localValue] = item.trim().split(importAliasExpression);
-      const original = originalValue?.trim();
-      const local = localValue?.trim() || original;
-      if (!original || !local) continue;
-      if (moduleName === 'drizzle-orm/pg-core' && original === 'pgTable') {
-        directTableFunctions.add(local);
-      } else if (moduleName === 'drizzle-orm/pg-core' && original === 'pgTableCreator') {
-        directTableCreatorFunctions.add(local);
-      } else if (moduleName.endsWith('/common.js') && original === 'pgTable') {
-        localTableFunctions.add(local);
-      }
-    }
+    addSourceImportBindings(
+      match[1] ?? '',
+      match[2] ?? '',
+      directTableFunctions,
+      directTableCreatorFunctions,
+      localTableFunctions,
+    );
   }
   if (registeredFactoryExpression.test(source)) localTableFunctions.add('pgTable');
   return {directTableFunctions, directTableCreatorFunctions, localTableFunctions};
+}
+
+function addSourceImportBindings(
+  imports: string,
+  moduleName: string,
+  directTableFunctions: Set<string>,
+  directTableCreatorFunctions: Set<string>,
+  localTableFunctions: Set<string>,
+): void {
+  for (const item of imports.split(',')) {
+    const [originalValue, localValue] = item.trim().split(importAliasExpression);
+    const original = originalValue?.trim();
+    const local = localValue?.trim() || original;
+    if (!original || !local) continue;
+    if (moduleName === 'drizzle-orm/pg-core' && original === 'pgTable') {
+      directTableFunctions.add(local);
+    } else if (moduleName === 'drizzle-orm/pg-core' && original === 'pgTableCreator') {
+      directTableCreatorFunctions.add(local);
+    } else if (moduleName.endsWith('/common.js') && original === 'pgTable') {
+      localTableFunctions.add(local);
+    }
+  }
 }
 
 function firstCallString(
@@ -718,54 +751,93 @@ function auditFactories(
     for (const match of file.source.matchAll(
       new RegExp(`\\b${escapeRegExp(functionName)}\\s*\\(`, 'gu'),
     )) {
-      const callIndex = match.index ?? 0;
-      const isRegisteredFactory =
-        file.path.endsWith('/schema/common.ts') && registeredFactoryExpression.test(file.source);
-      if (isRegisteredFactory) continue;
-      const body = file.source.slice(callIndex, callIndex + factoryBodyLookaheadLength);
-      const prefix = body.match(inlineFactoryPrefixExpression)?.[1] ?? '';
-      const namespace = prefix.replace(trailingUnderscoreExpression, '');
-      const foreignOwner = namespace ? context.namespaceOwners.get(namespace) : undefined;
-      const factoryBoundary = factoryRuleAndBoundary(fileContext, foreignOwner, namespace);
-      addFinding(
-        findings,
-        context,
-        file.path,
-        file.source,
-        callIndex,
-        functionName,
-        factoryBoundary.rule,
-        factoryBoundary.suggestedBoundary,
-        fileContext,
-      );
-      const bindingExpression = new RegExp(
-        `(?:const|let|var)\\s+([A-Za-z_$][\\w$]*)\\s*=\\s*${escapeRegExp(functionName)}\\s*\\(`,
-        'gu',
-      );
-      const tableBinding = [...file.source.matchAll(bindingExpression)].find(
-        (binding) => (binding.index ?? 0) <= callIndex,
-      )?.[1];
-      if (!tableBinding || !prefix) continue;
-      const tableExpression = new RegExp(`\\b${escapeRegExp(tableBinding)}\\s*\\(`, 'gu');
-      for (const tableMatch of file.source.matchAll(tableExpression)) {
-        const tableIndex = tableMatch.index ?? 0;
-        if (tableIndex <= callIndex) continue;
-        const firstArgument = firstCallString(file.source, tableIndex + tableMatch[0].length - 1);
-        if (!firstArgument) continue;
-        const object = `${prefix}${firstArgument.value}`;
-        addFinding(
-          findings,
-          context,
-          file.path,
-          file.source,
-          firstArgument.index,
-          object,
-          factoryBoundary.rule,
-          factoryBoundary.suggestedBoundary,
-          fileContext,
-        );
-      }
+      auditFactoryCall(findings, context, file, fileContext, functionName, match);
     }
+  }
+}
+
+function auditFactoryCall(
+  findings: DatabaseBoundaryFinding[],
+  context: AuditContext,
+  file: AuditFile,
+  fileContext: FileOwnerContext,
+  functionName: string,
+  match: RegExpMatchArray,
+): void {
+  const callIndex = match.index ?? 0;
+  const isRegisteredFactory =
+    file.path.endsWith('/schema/common.ts') && registeredFactoryExpression.test(file.source);
+  if (isRegisteredFactory) return;
+  const body = file.source.slice(callIndex, callIndex + factoryBodyLookaheadLength);
+  const prefix = body.match(inlineFactoryPrefixExpression)?.[1] ?? '';
+  const namespace = prefix.replace(trailingUnderscoreExpression, '');
+  const foreignOwner = namespace ? context.namespaceOwners.get(namespace) : undefined;
+  const factoryBoundary = factoryRuleAndBoundary(fileContext, foreignOwner, namespace);
+  addFinding(
+    findings,
+    context,
+    file.path,
+    file.source,
+    callIndex,
+    functionName,
+    factoryBoundary.rule,
+    factoryBoundary.suggestedBoundary,
+    fileContext,
+  );
+  const tableBinding = factoryTableBinding(file.source, functionName, callIndex);
+  if (tableBinding && prefix) {
+    auditFactoryTableCalls(
+      findings,
+      context,
+      file,
+      fileContext,
+      tableBinding,
+      callIndex,
+      prefix,
+      factoryBoundary,
+    );
+  }
+}
+
+function factoryTableBinding(
+  source: string,
+  functionName: string,
+  callIndex: number,
+): string | undefined {
+  const expression = new RegExp(
+    `(?:const|let|var)\\s+([A-Za-z_$][\\w$]*)\\s*=\\s*${escapeRegExp(functionName)}\\s*\\(`,
+    'gu',
+  );
+  return [...source.matchAll(expression)].find((binding) => (binding.index ?? 0) <= callIndex)?.[1];
+}
+
+function auditFactoryTableCalls(
+  findings: DatabaseBoundaryFinding[],
+  context: AuditContext,
+  file: AuditFile,
+  fileContext: FileOwnerContext,
+  tableBinding: string,
+  factoryCallIndex: number,
+  prefix: string,
+  factoryBoundary: ReturnType<typeof factoryRuleAndBoundary>,
+): void {
+  const tableExpression = new RegExp(`\\b${escapeRegExp(tableBinding)}\\s*\\(`, 'gu');
+  for (const tableMatch of file.source.matchAll(tableExpression)) {
+    const tableIndex = tableMatch.index ?? 0;
+    if (tableIndex <= factoryCallIndex) continue;
+    const firstArgument = firstCallString(file.source, tableIndex + tableMatch[0].length - 1);
+    if (!firstArgument) continue;
+    addFinding(
+      findings,
+      context,
+      file.path,
+      file.source,
+      firstArgument.index,
+      `${prefix}${firstArgument.value}`,
+      factoryBoundary.rule,
+      factoryBoundary.suggestedBoundary,
+      fileContext,
+    );
   }
 }
 
@@ -785,69 +857,90 @@ function auditSourceDeclarations(
   ]);
 
   for (const functionName of tableFunctions) {
-    for (const match of file.source.matchAll(
-      new RegExp(`\\b${escapeRegExp(functionName)}\\s*\\(`, 'gu'),
-    )) {
-      const callIndex = match.index ?? 0;
-      if (functionName === 'pgTableCreator') continue;
-      const firstArgument = firstCallString(file.source, callIndex + match[0].length - 1);
-      if (!firstArgument) continue;
-      const isDirect = imports.directTableFunctions.has(functionName);
-      const physicalName = isDirect
-        ? firstArgument.value
-        : factoryPhysicalName(factory, fileContext.namespace, firstArgument.value);
-      const target = objectByNamespace(context, physicalName);
-      if (
-        !isDirect &&
-        factory?.unprefixedNames.has(firstArgument.value) &&
-        (!target?.owner || target.owner === fileContext.owner)
-      ) {
-        continue;
-      }
-      if (!isDirect || (target?.owner && target.owner !== fileContext.owner)) {
-        validateObjectReference(
-          findings,
-          context,
-          file,
-          {kind: 'table', name: physicalName, index: firstArgument.index},
-          false,
-        );
-        continue;
-      }
-      addFinding(
-        findings,
-        context,
-        file.path,
-        file.source,
-        firstArgument.index,
-        physicalName,
-        'direct-table-declaration',
-        `Declare tables through the registered ${fileContext.namespace} schema factory.`,
-        fileContext,
-      );
-    }
-  }
-
-  for (const match of file.source.matchAll(/\bpgEnum\s*\(/gu)) {
-    const firstArgument = firstCallString(file.source, (match.index ?? 0) + match[0].length - 1);
-    if (!firstArgument) continue;
-    validateObjectReference(
+    auditTableFunctionCalls(
       findings,
       context,
       file,
-      {kind: 'enum', name: firstArgument.value, index: firstArgument.index},
-      false,
+      fileContext,
+      functionName,
+      imports.directTableFunctions.has(functionName),
+      factory,
     );
   }
 
-  for (const match of file.source.matchAll(/\b(?:uniqueIndex|index|check|primaryKey)\s*\(/gu)) {
+  auditNamedSourceCalls(findings, context, file, /\bpgEnum\s*\(/gu, 'enum');
+  auditNamedSourceCalls(
+    findings,
+    context,
+    file,
+    /\b(?:uniqueIndex|index|check|primaryKey)\s*\(/gu,
+    'constraint',
+  );
+}
+
+function auditTableFunctionCalls(
+  findings: DatabaseBoundaryFinding[],
+  context: AuditContext,
+  file: AuditFile,
+  fileContext: FileOwnerContext,
+  functionName: string,
+  isDirect: boolean,
+  factory: FactoryInfo | undefined,
+): void {
+  if (functionName === 'pgTableCreator') return;
+  const expression = new RegExp(`\\b${escapeRegExp(functionName)}\\s*\\(`, 'gu');
+  for (const match of file.source.matchAll(expression)) {
+    const callIndex = match.index ?? 0;
+    const firstArgument = firstCallString(file.source, callIndex + match[0].length - 1);
+    if (!firstArgument) continue;
+    const physicalName = isDirect
+      ? firstArgument.value
+      : factoryPhysicalName(factory, fileContext.namespace, firstArgument.value);
+    const target = objectByNamespace(context, physicalName);
+    const allowedUnprefixedName =
+      !isDirect &&
+      factory?.unprefixedNames.has(firstArgument.value) &&
+      (!target?.owner || target.owner === fileContext.owner);
+    if (allowedUnprefixedName) continue;
+    if (!isDirect || (target?.owner && target.owner !== fileContext.owner)) {
+      validateObjectReference(
+        findings,
+        context,
+        file,
+        {kind: 'table', name: physicalName, index: firstArgument.index},
+        false,
+      );
+      continue;
+    }
+    addFinding(
+      findings,
+      context,
+      file.path,
+      file.source,
+      firstArgument.index,
+      physicalName,
+      'direct-table-declaration',
+      `Declare tables through the registered ${fileContext.namespace} schema factory.`,
+      fileContext,
+    );
+  }
+}
+
+function auditNamedSourceCalls(
+  findings: DatabaseBoundaryFinding[],
+  context: AuditContext,
+  file: AuditFile,
+  expression: RegExp,
+  kind: DatabaseObjectKind,
+): void {
+  for (const match of file.source.matchAll(expression)) {
     const firstArgument = firstCallString(file.source, (match.index ?? 0) + match[0].length - 1);
     if (!firstArgument) continue;
     validateObjectReference(
       findings,
       context,
       file,
-      {kind: 'constraint', name: firstArgument.value, index: firstArgument.index},
+      {kind, name: firstArgument.value, index: firstArgument.index},
       false,
     );
   }
@@ -906,6 +999,24 @@ function auditRawSql(
 ): void {
   const fileContext = ownerContextForPath(context, file.path);
   if (!fileContext || fileContext.owner === 'neutral-infrastructure') return;
+  auditStaticRawSql(findings, context, file, fileContext);
+  auditDynamicSqlExpression(
+    findings,
+    context,
+    file,
+    fileContext,
+    dynamicSqlKeywordExpression,
+    false,
+  );
+  auditDynamicSqlExpression(findings, context, file, fileContext, dynamicRawSqlExpression, true);
+}
+
+function auditStaticRawSql(
+  findings: DatabaseBoundaryFinding[],
+  context: AuditContext,
+  file: AuditFile,
+  fileContext: FileOwnerContext,
+): void {
   for (const {name, expression} of context.sqlObjectReferences) {
     expression.lastIndex = 0;
     for (const match of file.source.matchAll(expression)) {
@@ -931,24 +1042,18 @@ function auditRawSql(
       }
     }
   }
+}
 
-  for (const match of file.source.matchAll(dynamicSqlKeywordExpression)) {
-    const interpolationStart = (match.index ?? 0) + match[0].lastIndexOf('${');
-    if (isRegisteredSqlInterpolation(file.source, interpolationStart)) continue;
-    addFinding(
-      findings,
-      context,
-      file.path,
-      file.source,
-      match.index ?? 0,
-      '<dynamic identifier>',
-      'dynamic-sql-identifier',
-      `Use a registered ${fileContext.namespace} table or an owner operation instead of a dynamic SQL identifier.`,
-      fileContext,
-    );
-  }
-  for (const match of file.source.matchAll(dynamicRawSqlExpression)) {
-    if (!dynamicSqlRawKeywordExpression.test(match[0])) continue;
+function auditDynamicSqlExpression(
+  findings: DatabaseBoundaryFinding[],
+  context: AuditContext,
+  file: AuditFile,
+  fileContext: FileOwnerContext,
+  expression: RegExp,
+  requireRawKeyword: boolean,
+): void {
+  for (const match of file.source.matchAll(expression)) {
+    if (requireRawKeyword && !dynamicSqlRawKeywordExpression.test(match[0])) continue;
     const interpolationStart = (match.index ?? 0) + match[0].lastIndexOf('${');
     if (isRegisteredSqlInterpolation(file.source, interpolationStart)) continue;
     addFinding(
@@ -1000,31 +1105,36 @@ function auditForeignDatabaseAccess(
   const fileContext = ownerContextForPath(context, file.path);
   if (!fileContext || fileContext.owner === 'neutral-infrastructure') return;
   for (const match of file.source.matchAll(packageImportExpression)) {
-    const importClause = match[1] ?? '';
-    const importedPackage = match[2] ?? '';
-    const targetOwner = ownerForImportedPackage(context, importedPackage);
-    if (!targetOwner || targetOwner === fileContext.owner) continue;
-    for (const binding of parseImportBindings(importClause)) {
-      const accessExpression = new RegExp(
-        `\\b${escapeRegExp(binding)}\\s*\\.\\s*database\\b`,
-        'gu',
+    auditForeignDatabaseImport(findings, context, file, fileContext, match);
+  }
+}
+
+function auditForeignDatabaseImport(
+  findings: DatabaseBoundaryFinding[],
+  context: AuditContext,
+  file: AuditFile,
+  fileContext: FileOwnerContext,
+  match: RegExpMatchArray,
+): void {
+  const targetOwner = ownerForImportedPackage(context, match[2] ?? '');
+  if (!targetOwner || targetOwner === fileContext.owner) return;
+  for (const binding of parseImportBindings(match[1] ?? '')) {
+    const accessExpression = new RegExp(`\\b${escapeRegExp(binding)}\\s*\\.\\s*database\\b`, 'gu');
+    for (const access of file.source.matchAll(accessExpression)) {
+      addFinding(
+        findings,
+        context,
+        file.path,
+        file.source,
+        access.index ?? 0,
+        `${binding}.database`,
+        'foreign-database-access',
+        namespaceSuggestion(
+          targetOwner,
+          [...(context.ownerNamespaces.get(targetOwner) ?? [])][0] ?? 'unknown',
+        ),
+        fileContext,
       );
-      for (const access of file.source.matchAll(accessExpression)) {
-        addFinding(
-          findings,
-          context,
-          file.path,
-          file.source,
-          access.index ?? 0,
-          `${binding}.database`,
-          'foreign-database-access',
-          namespaceSuggestion(
-            targetOwner,
-            [...(context.ownerNamespaces.get(targetOwner) ?? [])][0] ?? 'unknown',
-          ),
-          fileContext,
-        );
-      }
     }
   }
 }
@@ -1037,29 +1147,39 @@ function auditSourceForeignKeys(
   const fileContext = ownerContextForPath(context, file.path);
   if (!fileContext || fileContext.owner === 'neutral-infrastructure') return;
   for (const match of file.source.matchAll(packageImportExpression)) {
-    const targetOwner = ownerForImportedPackage(context, match[2] ?? '');
-    if (!targetOwner || targetOwner === fileContext.owner) continue;
-    for (const binding of parseImportBindings(match[1] ?? '')) {
-      const referenceExpression = new RegExp(
-        `\\.references\\s*\\(\\s*\\(\\s*\\)\\s*=>\\s*${escapeRegExp(binding)}(?:\\.[A-Za-z_$][\\w$]*)?`,
-        'gu',
+    auditForeignKeyImport(findings, context, file, fileContext, match);
+  }
+}
+
+function auditForeignKeyImport(
+  findings: DatabaseBoundaryFinding[],
+  context: AuditContext,
+  file: AuditFile,
+  fileContext: FileOwnerContext,
+  match: RegExpMatchArray,
+): void {
+  const targetOwner = ownerForImportedPackage(context, match[2] ?? '');
+  if (!targetOwner || targetOwner === fileContext.owner) return;
+  for (const binding of parseImportBindings(match[1] ?? '')) {
+    const referenceExpression = new RegExp(
+      `\\.references\\s*\\(\\s*\\(\\s*\\)\\s*=>\\s*${escapeRegExp(binding)}(?:\\.[A-Za-z_$][\\w$]*)?`,
+      'gu',
+    );
+    for (const reference of file.source.matchAll(referenceExpression)) {
+      addFinding(
+        findings,
+        context,
+        file.path,
+        file.source,
+        reference.index ?? 0,
+        `${binding}.references`,
+        'foreign-key',
+        namespaceSuggestion(
+          targetOwner,
+          [...(context.ownerNamespaces.get(targetOwner) ?? [])][0] ?? 'unknown',
+        ),
+        fileContext,
       );
-      for (const reference of file.source.matchAll(referenceExpression)) {
-        addFinding(
-          findings,
-          context,
-          file.path,
-          file.source,
-          reference.index ?? 0,
-          `${binding}.references`,
-          'foreign-key',
-          namespaceSuggestion(
-            targetOwner,
-            [...(context.ownerNamespaces.get(targetOwner) ?? [])][0] ?? 'unknown',
-          ),
-          fileContext,
-        );
-      }
     }
   }
 }
@@ -1071,60 +1191,77 @@ function auditMigrationHistory(
   const fileContext = ownerContextForPath(context, file.path);
   if (!fileContext) return;
   if (fileContext.owner !== 'neutral-infrastructure') {
-    for (const match of file.source.matchAll(migrationHistoryExpression)) {
-      const namespace = match[1] ?? '';
-      const owner = context.namespaceOwners.get(namespace);
-      if (owner && owner !== fileContext.owner) {
-        addFinding(
-          findings,
-          context,
-          file.path,
-          file.source,
-          match.index ?? 0,
-          `__drizzle_migrations_${namespace}`,
-          'foreign-migration',
-          namespaceSuggestion(owner, namespace),
-          fileContext,
-        );
-      }
-    }
+    auditForeignMigrationHistories(findings, context, file, fileContext);
   }
   if (file.path.endsWith('/libs/shared/node/module/src/initialize.ts')) {
-    const fallback = file.source.match(fallbackHistoryExpression);
-    if (fallback?.index !== undefined) {
-      addFinding(
-        findings,
-        context,
-        file.path,
-        file.source,
-        fallback.index,
-        'moduleMigrationTableName',
-        'migration-history-instability',
-        'Require the registered database namespace on every ModuleDatabase declaration.',
-        fileContext,
-        'neutral-infrastructure',
-        'neutral',
-      );
-    }
+    auditUnstableMigrationHistory(
+      findings,
+      context,
+      file,
+      fileContext,
+      fallbackHistoryExpression,
+      'moduleMigrationTableName',
+    );
   }
   if (file.path.endsWith('/libs/shared/node/module/src/types.ts')) {
-    const optionalField = file.source.match(optionalHistoryExpression);
-    if (optionalField?.index !== undefined) {
-      addFinding(
-        findings,
-        context,
-        file.path,
-        file.source,
-        optionalField.index,
-        'migrationsTableName',
-        'migration-history-instability',
-        'Require the registered database namespace on every ModuleDatabase declaration.',
-        fileContext,
-        'neutral-infrastructure',
-        'neutral',
-      );
-    }
+    auditUnstableMigrationHistory(
+      findings,
+      context,
+      file,
+      fileContext,
+      optionalHistoryExpression,
+      'migrationsTableName',
+    );
   }
+}
+
+function auditForeignMigrationHistories(
+  findings: DatabaseBoundaryFinding[],
+  context: AuditContext,
+  file: AuditFile,
+  fileContext: FileOwnerContext,
+): void {
+  for (const match of file.source.matchAll(migrationHistoryExpression)) {
+    const namespace = match[1] ?? '';
+    const owner = context.namespaceOwners.get(namespace);
+    if (!owner || owner === fileContext.owner) continue;
+    addFinding(
+      findings,
+      context,
+      file.path,
+      file.source,
+      match.index ?? 0,
+      `__drizzle_migrations_${namespace}`,
+      'foreign-migration',
+      namespaceSuggestion(owner, namespace),
+      fileContext,
+    );
+  }
+}
+
+function auditUnstableMigrationHistory(
+  findings: DatabaseBoundaryFinding[],
+  context: AuditContext,
+  file: AuditFile,
+  fileContext: FileOwnerContext,
+  expression: RegExp,
+  objectName: string,
+): void {
+  const match = file.source.match(expression);
+  if (match?.index === undefined) return;
+  addFinding(
+    findings,
+    context,
+    file.path,
+    file.source,
+    match.index,
+    objectName,
+    'migration-history-instability',
+    'Require the registered database namespace on every ModuleDatabase declaration.',
+    fileContext,
+    'neutral-infrastructure',
+    'neutral',
+  );
 }
 
 function auditMigrationFile(
@@ -1137,6 +1274,17 @@ function auditMigrationFile(
   const patterns = migrationObjectPatterns(
     '(?:CREATE\\s+TABLE|ALTER\\s+TABLE|DROP\\s+TABLE)\\s+(?:IF\\s+NOT\\s+EXISTS\\s+|IF\\s+EXISTS\\s+)?',
   );
+  auditMigrationObjects(findings, context, file, patterns);
+  auditMigrationForeignKeys(findings, context, file, fileContext);
+  auditDynamicMigrationIdentifiers(findings, context, file, fileContext);
+}
+
+function auditMigrationObjects(
+  findings: DatabaseBoundaryFinding[],
+  context: AuditContext,
+  file: AuditFile,
+  patterns: ReadonlyArray<readonly [DatabaseObjectKind, RegExp]>,
+): void {
   for (const [kind, expression] of patterns) {
     for (const match of file.source.matchAll(expression)) {
       const name = identifierFromMatch(match);
@@ -1150,6 +1298,14 @@ function auditMigrationFile(
         );
     }
   }
+}
+
+function auditMigrationForeignKeys(
+  findings: DatabaseBoundaryFinding[],
+  context: AuditContext,
+  file: AuditFile,
+  fileContext: FileOwnerContext,
+): void {
   for (const match of file.source.matchAll(
     new RegExp(`\\bREFERENCES\\s+(?:${identifierExpression}\\.)?${identifierExpression}`, 'giu'),
   )) {
@@ -1178,20 +1334,27 @@ function auditMigrationFile(
       );
     }
   }
-  if (interpolationPresenceExpression.test(file.source)) {
-    for (const match of file.source.matchAll(dynamicIdentifierExpression)) {
-      addFinding(
-        findings,
-        context,
-        file.path,
-        file.source,
-        match.index ?? 0,
-        '<dynamic identifier>',
-        'dynamic-sql-identifier',
-        `Keep ${fileContext.namespace} migration identifiers static and owner-local.`,
-        fileContext,
-      );
-    }
+}
+
+function auditDynamicMigrationIdentifiers(
+  findings: DatabaseBoundaryFinding[],
+  context: AuditContext,
+  file: AuditFile,
+  fileContext: FileOwnerContext,
+): void {
+  if (!interpolationPresenceExpression.test(file.source)) return;
+  for (const match of file.source.matchAll(dynamicIdentifierExpression)) {
+    addFinding(
+      findings,
+      context,
+      file.path,
+      file.source,
+      match.index ?? 0,
+      '<dynamic identifier>',
+      'dynamic-sql-identifier',
+      `Keep ${fileContext.namespace} migration identifiers static and owner-local.`,
+      fileContext,
+    );
   }
 }
 
@@ -1211,43 +1374,62 @@ function auditSnapshotFile(
   } catch {
     return;
   }
-  const references: ObjectReference[] = [];
-  for (const [qualifiedName, table] of Object.entries(snapshot.tables ?? {})) {
-    references.push({
-      kind: 'table',
-      name: table.name || lastIdentifier(qualifiedName),
-      index: file.source.indexOf(table.name || lastIdentifier(qualifiedName)),
-    });
-    for (const index of Object.values(table.indexes ?? {})) {
-      if (index.name)
-        references.push({kind: 'index', name: index.name, index: file.source.indexOf(index.name)});
-    }
-    for (const constraint of Object.values(table.uniqueConstraints ?? {})) {
-      if (constraint.name)
-        references.push({
-          kind: 'constraint',
-          name: constraint.name,
-          index: file.source.indexOf(constraint.name),
-        });
-    }
-    for (const constraint of Object.values(table.checkConstraints ?? {})) {
-      if (constraint.name)
-        references.push({
-          kind: 'constraint',
-          name: constraint.name,
-          index: file.source.indexOf(constraint.name),
-        });
-    }
-  }
-  for (const [qualifiedName, enumValue] of Object.entries(snapshot.enums ?? {})) {
-    references.push({
-      kind: 'enum',
-      name: enumValue.name || lastIdentifier(qualifiedName),
-      index: file.source.indexOf(enumValue.name || lastIdentifier(qualifiedName)),
-    });
-  }
+  const references = snapshotObjectReferences(snapshot, file.source);
   for (const reference of references) {
     if (reference.index >= 0) validateObjectReference(findings, context, file, reference, true);
+  }
+}
+
+function snapshotObjectReferences(
+  snapshot: {tables?: Record<string, SnapshotTable>; enums?: Record<string, SnapshotEnum>},
+  source: string,
+): ObjectReference[] {
+  const references: ObjectReference[] = [];
+  for (const [qualifiedName, table] of Object.entries(snapshot.tables ?? {})) {
+    addSnapshotTableReferences(references, qualifiedName, table, source);
+  }
+  for (const [qualifiedName, enumValue] of Object.entries(snapshot.enums ?? {})) {
+    const name = enumValue.name || lastIdentifier(qualifiedName);
+    references.push({
+      kind: 'enum',
+      name,
+      index: source.indexOf(name),
+    });
+  }
+  return references;
+}
+
+function addSnapshotTableReferences(
+  references: ObjectReference[],
+  qualifiedName: string,
+  table: SnapshotTable,
+  source: string,
+): void {
+  const tableName = table.name || lastIdentifier(qualifiedName);
+  references.push({kind: 'table', name: tableName, index: source.indexOf(tableName)});
+  addSnapshotNamedReferences(references, Object.values(table.indexes ?? {}), 'index', source);
+  addSnapshotNamedReferences(
+    references,
+    Object.values(table.uniqueConstraints ?? {}),
+    'constraint',
+    source,
+  );
+  addSnapshotNamedReferences(
+    references,
+    Object.values(table.checkConstraints ?? {}),
+    'constraint',
+    source,
+  );
+}
+
+function addSnapshotNamedReferences(
+  references: ObjectReference[],
+  values: readonly SnapshotNamedObject[],
+  kind: DatabaseObjectKind,
+  source: string,
+): void {
+  for (const value of values) {
+    if (value.name) references.push({kind, name: value.name, index: source.indexOf(value.name)});
   }
 }
 

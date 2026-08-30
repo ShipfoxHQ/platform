@@ -10,7 +10,13 @@ import {
   collectStepLogAttachmentRequests,
   fetchLogAttachment,
 } from './attachments.js';
-import {evaluateExpectations, evaluateLogs, logText, type Mismatch} from './expect.js';
+import {
+  evaluateExpectations,
+  evaluateLogs,
+  logText,
+  type Mismatch,
+  type StepLogRequirement,
+} from './expect.js';
 import {waitForDefinitionSyncTerminal, waitForNoWorkflowRuns} from './polling.js';
 import {evaluateRejection} from './reject.js';
 import {startSuiteLocalRunner, waitForRunTerminalOrFailedRunner} from './runner.js';
@@ -37,6 +43,305 @@ export interface RunScenarioParams {
   attach: (attachment: Attachment) => Promise<void>;
 }
 
+type RunDetail = Awaited<ReturnType<typeof waitForRunTerminalOrFailedRunner>>;
+
+async function evaluateScenarioResult(params: {
+  expectation: Extract<Scenario, {kind: 'expect'}>['expectation'];
+  logRequirements: StepLogRequirement[];
+  mismatches: Mismatch[];
+  runnerLogFile: string | undefined;
+  token: string;
+}): Promise<{allMismatches: Mismatch[]; fetchedLogs: Attachment[]}> {
+  const allMismatches = [...params.mismatches];
+  const fetchedLogs: Attachment[] = [];
+  for (const requirement of params.logRequirements) {
+    let logs: Awaited<ReturnType<typeof fetchStepLogs>>;
+    try {
+      logs = await fetchStepLogs({
+        stepId: requirement.stepId,
+        attempt: requirement.attempt,
+        token: params.token,
+      });
+    } catch (error) {
+      allMismatches.push({
+        path: `${requirement.path}.logs`,
+        expected: 'readable',
+        actual: error instanceof Error ? error.message : String(error),
+      });
+      continue;
+    }
+    fetchedLogs.push({
+      name: `logs-${requirement.path.replaceAll('/', '_')}.ndjson`,
+      contentType: 'application/x-ndjson',
+      body: logs.ndjson,
+    });
+    allMismatches.push(
+      ...evaluateLogs({
+        path: requirement.path,
+        text: logText(logs.records),
+        include: requirement.include,
+        exclude: requirement.exclude,
+      }),
+    );
+  }
+
+  if (params.expectation.runner_log) {
+    const runnerLog =
+      params.runnerLogFile === undefined
+        ? ''
+        : await readFile(params.runnerLogFile, 'utf8').catch(() => '');
+    allMismatches.push(
+      ...evaluateLogs({
+        path: 'runner_log',
+        text: runnerLog,
+        include: params.expectation.runner_log.include,
+        exclude: params.expectation.runner_log.exclude,
+      }),
+    );
+  }
+
+  return {allMismatches, fetchedLogs};
+}
+
+async function attachScenarioMismatches(params: {
+  attach: RunScenarioParams['attach'];
+  client: ReturnType<typeof createApiClient>;
+  fetchedLogs: Attachment[];
+  logRequirements: StepLogRequirement[];
+  mismatches: Mismatch[];
+  runDetail: RunDetail;
+  runnerLogFile: string | undefined;
+  scenario: Extract<Scenario, {kind: 'expect'}>;
+  suite: SuiteContext;
+  token: string;
+  webhookDiagnostics: WebhookDiagnosticsRequest | undefined;
+}): Promise<void> {
+  await params.attach({
+    name: 'run-detail.json',
+    contentType: 'application/json',
+    body: JSON.stringify(params.runDetail, null, 2),
+  });
+  await params.attach({
+    name: 'mismatches.json',
+    contentType: 'application/json',
+    body: JSON.stringify(params.mismatches, null, 2),
+  });
+  for (const log of params.fetchedLogs) await params.attach(log);
+  if (params.runnerLogFile !== undefined) {
+    await attachLocalRunnerLog(params.attach, params.runnerLogFile);
+  }
+  await attachFakeModelProviderRequestsBestEffort(params);
+  if (params.webhookDiagnostics !== undefined) {
+    await attachWebhookTriggerDiagnostics({
+      attach: params.attach,
+      client: params.client,
+      deliveryIds: params.webhookDiagnostics.deliveryIds,
+      source: params.webhookDiagnostics.source,
+      workspaceId: params.suite.workspaceId,
+    });
+  }
+
+  const fetchedLogKeys = new Set(
+    params.logRequirements.map((requirement) => `${requirement.stepId}:${requirement.attempt}`),
+  );
+  for (const request of collectStepLogAttachmentRequests(params.runDetail)) {
+    const key = `${request.stepId}:${request.attempt}`;
+    if (fetchedLogKeys.has(key)) continue;
+    await params.attach(await fetchLogAttachment(request, params.token));
+  }
+}
+
+async function attachFailureDiagnostics(params: {
+  attach: RunScenarioParams['attach'];
+  client: ReturnType<typeof createApiClient>;
+  runnerLogFile: string | undefined;
+  scenario: Scenario;
+  suite: SuiteContext;
+  webhookDiagnostics: WebhookDiagnosticsRequest | undefined;
+}): Promise<void> {
+  if (params.webhookDiagnostics !== undefined) {
+    await attachWebhookTriggerDiagnostics({
+      attach: params.attach,
+      client: params.client,
+      deliveryIds: params.webhookDiagnostics.deliveryIds,
+      source: params.webhookDiagnostics.source,
+      workspaceId: params.suite.workspaceId,
+    });
+  }
+  if (params.runnerLogFile !== undefined) {
+    await attachLocalRunnerLog(params.attach, params.runnerLogFile);
+  }
+  await attachFakeModelProviderRequestsBestEffort(params);
+}
+
+async function createScenarioWebhook(params: {
+  client: ReturnType<typeof createApiClient>;
+  scenario: Scenario;
+  suite: SuiteContext;
+  uniqueId: string;
+  webhookSlug: string;
+}): Promise<Awaited<ReturnType<typeof createWebhookConnection>> | undefined> {
+  if (params.scenario.kind !== 'expect' || params.scenario.expectation.trigger !== 'webhook') {
+    return undefined;
+  }
+  return await createWebhookConnection({
+    client: params.client,
+    scenario: params.scenario.name,
+    slug: params.webhookSlug,
+    uniqueId: params.uniqueId,
+    workspaceId: params.suite.workspaceId,
+  });
+}
+
+async function seedScenarioProject(params: {
+  repo: string;
+  runnerLabel: string;
+  scenario: Scenario;
+  suite: SuiteContext;
+  token: string;
+  webhookSlug: string;
+}) {
+  const seedParams = {
+    suite: params.suite,
+    token: params.token,
+    name: params.scenario.name,
+    repo: params.repo,
+    runnerLabel: params.runnerLabel,
+    workflowYaml: params.scenario.workflowYaml,
+    configPath: params.scenario.configPath,
+    webhookSlug: params.webhookSlug,
+    extraFiles: params.scenario.extraFiles,
+  };
+  if (params.scenario.kind === 'reject') {
+    const seeded = await seedWorkflowProject(seedParams);
+    return {definition: undefined, project: seeded.project};
+  }
+  const seeded = await seedAndWaitForDefinition(seedParams);
+  return {definition: seeded.definition, project: seeded.project};
+}
+
+async function seedScenarioValues(params: {
+  projectId: string;
+  scenario: Scenario;
+  workspaceId: string;
+}): Promise<void> {
+  for (const secret of params.scenario.seededSecrets) {
+    await createSecret({
+      workspaceId: params.workspaceId,
+      actorId: E2E_SECRET_ACTOR_ID,
+      key: secret.key,
+      value: secret.value,
+      ...(secret.scope === 'project' ? {projectId: params.projectId} : {}),
+    });
+  }
+
+  for (const variable of params.scenario.seededVariables) {
+    await createVariable({
+      workspaceId: params.workspaceId,
+      actorId: E2E_SECRET_ACTOR_ID,
+      key: variable.key,
+      value: variable.value,
+      ...(variable.scope === 'project' ? {projectId: params.projectId} : {}),
+    });
+  }
+}
+
+async function evaluateRejectedScenario(params: {
+  attach: RunScenarioParams['attach'];
+  projectId: string;
+  scenario: Extract<Scenario, {kind: 'reject'}>;
+  token: string;
+}): Promise<Mismatch[]> {
+  const definitions = await waitForDefinitionSyncTerminal({
+    projectId: params.projectId,
+    token: params.token,
+    timeoutMs: 60_000,
+  });
+  const runs = await waitForNoWorkflowRuns({
+    projectId: params.projectId,
+    token: params.token,
+    timeoutMs: REJECTION_NO_RUN_TIMEOUT_MS,
+  });
+  const mismatches = evaluateRejection(
+    {sync: definitions.sync, runs: runs.runs},
+    params.scenario.rejection,
+  );
+  if (mismatches.length === 0) return mismatches;
+
+  await params.attach({
+    name: 'definition-sync.json',
+    contentType: 'application/json',
+    body: JSON.stringify(definitions, null, 2),
+  });
+  await params.attach({
+    name: 'workflow-runs.json',
+    contentType: 'application/json',
+    body: JSON.stringify(runs, null, 2),
+  });
+  await params.attach({
+    name: 'mismatches.json',
+    contentType: 'application/json',
+    body: JSON.stringify(mismatches, null, 2),
+  });
+  return mismatches;
+}
+
+async function triggerScenario(params: {
+  attach: RunScenarioParams['attach'];
+  client: ReturnType<typeof createApiClient>;
+  definitionId: string;
+  projectId: string;
+  repo: string;
+  scenario: Extract<Scenario, {kind: 'expect'}>;
+  suite: SuiteContext;
+  token: string;
+  uniqueId: string;
+  webhookConnection: Awaited<ReturnType<typeof createWebhookConnection>> | undefined;
+}): Promise<{runId: string; webhookDiagnostics: WebhookDiagnosticsRequest | undefined}> {
+  if (params.scenario.expectation.trigger === 'manual') {
+    const runId = await fireManualAndAwaitRun({
+      client: params.client,
+      definitionId: params.definitionId,
+      inputs: params.scenario.expectation.inputs ?? {},
+      scenario: params.scenario.name,
+    });
+    return {runId, webhookDiagnostics: undefined};
+  }
+  if (params.scenario.expectation.trigger === 'webhook') {
+    if (!params.webhookConnection) {
+      throw new Error(`Webhook connection missing for ${params.scenario.name}`);
+    }
+    const result = await triggerWebhookAndAwaitRun({
+      attach: params.attach,
+      client: params.client,
+      connection: params.webhookConnection,
+      projectId: params.projectId,
+      scenario: params.scenario.name,
+      token: params.token,
+      webhook: params.scenario.expectation.webhook,
+      workspaceId: params.suite.workspaceId,
+    });
+    return {
+      runId: result.runId,
+      webhookDiagnostics: {
+        deliveryIds: result.deliveryIds,
+        source: params.webhookConnection.slug,
+      },
+    };
+  }
+
+  const runId = await triggerPushAndAwaitRun({
+    org: params.suite.org,
+    repo: params.repo,
+    scenario: params.scenario.name,
+    uniqueId: params.uniqueId,
+    message: params.scenario.expectation.push?.message,
+    projectId: params.projectId,
+    token: params.token,
+  });
+  return {runId, webhookDiagnostics: undefined};
+}
+
 /**
  * Drives one declarative scenario end to end: fresh repo and project, seed commit,
  * definition-resolved poll, trigger, terminal-run poll, then expect.yaml evaluation.
@@ -58,102 +363,30 @@ export async function runScenario(params: RunScenarioParams): Promise<Mismatch[]
   let webhookDiagnostics: WebhookDiagnosticsRequest | undefined;
 
   try {
-    const webhookConnection =
-      scenario.kind === 'expect' && scenario.expectation.trigger === 'webhook'
-        ? await createWebhookConnection({
-            client,
-            scenario: scenario.name,
-            slug: webhookSlug,
-            uniqueId,
-            workspaceId: suite.workspaceId,
-          })
-        : undefined;
-
-    let definition: Awaited<ReturnType<typeof seedAndWaitForDefinition>>['definition'] | undefined;
-    const seeded =
-      scenario.kind === 'reject'
-        ? await seedWorkflowProject({
-            suite,
-            token,
-            name: scenario.name,
-            repo,
-            runnerLabel,
-            workflowYaml: scenario.workflowYaml,
-            configPath: scenario.configPath,
-            webhookSlug,
-            extraFiles: scenario.extraFiles,
-          })
-        : await seedAndWaitForDefinition({
-            suite,
-            token,
-            name: scenario.name,
-            repo,
-            runnerLabel,
-            workflowYaml: scenario.workflowYaml,
-            configPath: scenario.configPath,
-            webhookSlug,
-            extraFiles: scenario.extraFiles,
-          }).then((ready) => {
-            definition = ready.definition;
-            return ready;
-          });
-    const {project} = seeded;
-
-    for (const secret of scenario.seededSecrets) {
-      await createSecret({
-        workspaceId: suite.workspaceId,
-        actorId: E2E_SECRET_ACTOR_ID,
-        key: secret.key,
-        value: secret.value,
-        ...(secret.scope === 'project' ? {projectId: project.id} : {}),
-      });
-    }
-
-    for (const variable of scenario.seededVariables) {
-      await createVariable({
-        workspaceId: suite.workspaceId,
-        actorId: E2E_SECRET_ACTOR_ID,
-        key: variable.key,
-        value: variable.value,
-        ...(variable.scope === 'project' ? {projectId: project.id} : {}),
-      });
-    }
+    const webhookConnection = await createScenarioWebhook({
+      client,
+      scenario,
+      suite,
+      uniqueId,
+      webhookSlug,
+    });
+    const {definition, project} = await seedScenarioProject({
+      repo,
+      runnerLabel,
+      scenario,
+      suite,
+      token,
+      webhookSlug,
+    });
+    await seedScenarioValues({projectId: project.id, scenario, workspaceId: suite.workspaceId});
 
     if (scenario.kind === 'reject') {
-      const definitions = await waitForDefinitionSyncTerminal({
+      return await evaluateRejectedScenario({
+        attach: params.attach,
         projectId: project.id,
+        scenario,
         token,
-        timeoutMs: 60_000,
       });
-      const runs = await waitForNoWorkflowRuns({
-        projectId: project.id,
-        token,
-        timeoutMs: REJECTION_NO_RUN_TIMEOUT_MS,
-      });
-      const mismatches = evaluateRejection(
-        {sync: definitions.sync, runs: runs.runs},
-        scenario.rejection,
-      );
-
-      if (mismatches.length > 0) {
-        await params.attach({
-          name: 'definition-sync.json',
-          contentType: 'application/json',
-          body: JSON.stringify(definitions, null, 2),
-        });
-        await params.attach({
-          name: 'workflow-runs.json',
-          contentType: 'application/json',
-          body: JSON.stringify(runs, null, 2),
-        });
-        await params.attach({
-          name: 'mismatches.json',
-          contentType: 'application/json',
-          body: JSON.stringify(mismatches, null, 2),
-        });
-      }
-
-      return mismatches;
     }
 
     if (definition === undefined) {
@@ -169,141 +402,62 @@ export async function runScenario(params: RunScenarioParams): Promise<Mismatch[]
     runner = localRunner.runner;
     runnerLogFile = localRunner.logFile;
 
-    let runId: string;
-    if (scenario.expectation.trigger === 'manual') {
-      runId = await fireManualAndAwaitRun({
-        client,
-        definitionId: definition.id,
-        inputs: scenario.expectation.inputs ?? {},
-        scenario: scenario.name,
-      });
-    } else if (scenario.expectation.trigger === 'webhook') {
-      if (!webhookConnection) throw new Error(`Webhook connection missing for ${scenario.name}`);
-      const result = await triggerWebhookAndAwaitRun({
-        attach: params.attach,
-        client,
-        connection: webhookConnection,
-        projectId: project.id,
-        scenario: scenario.name,
-        token,
-        webhook: scenario.expectation.webhook,
-        workspaceId: suite.workspaceId,
-      });
-      webhookDiagnostics = {deliveryIds: result.deliveryIds, source: webhookConnection.slug};
-      runId = result.runId;
-    } else {
-      runId = await triggerPushAndAwaitRun({
-        org: suite.org,
-        repo,
-        scenario: scenario.name,
-        uniqueId,
-        message: scenario.expectation.push?.message,
-        projectId: project.id,
-        token,
-      });
-    }
+    const triggered = await triggerScenario({
+      attach: params.attach,
+      client,
+      definitionId: definition.id,
+      projectId: project.id,
+      repo,
+      scenario,
+      suite,
+      token,
+      uniqueId,
+      webhookConnection,
+    });
+    webhookDiagnostics = triggered.webhookDiagnostics;
 
     const runDetail = await waitForRunTerminalOrFailedRunner({
-      runId,
+      runId: triggered.runId,
       token,
       timeoutMs: scenario.expectation.timeout_seconds * 1000,
       runner,
     });
 
     const {mismatches, logRequirements} = evaluateExpectations(runDetail, scenario.expectation);
-    const allMismatches = [...mismatches];
-    const fetchedLogs: Attachment[] = [];
-    for (const requirement of logRequirements) {
-      let logs: Awaited<ReturnType<typeof fetchStepLogs>>;
-      try {
-        logs = await fetchStepLogs({
-          stepId: requirement.stepId,
-          attempt: requirement.attempt,
-          token,
-        });
-      } catch (error) {
-        allMismatches.push({
-          path: `${requirement.path}.logs`,
-          expected: 'readable',
-          actual: error instanceof Error ? error.message : String(error),
-        });
-        continue;
-      }
-      fetchedLogs.push({
-        name: `logs-${requirement.path.replaceAll('/', '_')}.ndjson`,
-        contentType: 'application/x-ndjson',
-        body: logs.ndjson,
-      });
-      allMismatches.push(
-        ...evaluateLogs({
-          path: requirement.path,
-          text: logText(logs.records),
-          include: requirement.include,
-          exclude: requirement.exclude,
-        }),
-      );
-    }
-
-    if (scenario.expectation.runner_log) {
-      const runnerLog =
-        runnerLogFile === undefined ? '' : await readFile(runnerLogFile, 'utf8').catch(() => '');
-      allMismatches.push(
-        ...evaluateLogs({
-          path: 'runner_log',
-          text: runnerLog,
-          include: scenario.expectation.runner_log.include,
-          exclude: scenario.expectation.runner_log.exclude,
-        }),
-      );
-    }
+    const {allMismatches, fetchedLogs} = await evaluateScenarioResult({
+      expectation: scenario.expectation,
+      logRequirements,
+      mismatches,
+      runnerLogFile,
+      token,
+    });
 
     if (allMismatches.length > 0) {
-      await params.attach({
-        name: 'run-detail.json',
-        contentType: 'application/json',
-        body: JSON.stringify(runDetail, null, 2),
+      await attachScenarioMismatches({
+        attach: params.attach,
+        client,
+        fetchedLogs,
+        logRequirements,
+        mismatches: allMismatches,
+        runDetail,
+        runnerLogFile,
+        scenario,
+        suite,
+        token,
+        webhookDiagnostics,
       });
-      await params.attach({
-        name: 'mismatches.json',
-        contentType: 'application/json',
-        body: JSON.stringify(allMismatches, null, 2),
-      });
-      for (const log of fetchedLogs) await params.attach(log);
-      if (runnerLogFile !== undefined) await attachLocalRunnerLog(params.attach, runnerLogFile);
-      await attachFakeModelProviderRequestsBestEffort({attach: params.attach, scenario, suite});
-      if (webhookDiagnostics !== undefined) {
-        await attachWebhookTriggerDiagnostics({
-          attach: params.attach,
-          client,
-          deliveryIds: webhookDiagnostics.deliveryIds,
-          source: webhookDiagnostics.source,
-          workspaceId: suite.workspaceId,
-        });
-      }
-
-      const fetchedLogKeys = new Set(
-        logRequirements.map((requirement) => `${requirement.stepId}:${requirement.attempt}`),
-      );
-      for (const request of collectStepLogAttachmentRequests(runDetail)) {
-        const key = `${request.stepId}:${request.attempt}`;
-        if (fetchedLogKeys.has(key)) continue;
-        await params.attach(await fetchLogAttachment(request, token));
-      }
     }
 
     return allMismatches;
   } catch (error) {
-    if (webhookDiagnostics !== undefined) {
-      await attachWebhookTriggerDiagnostics({
-        attach: params.attach,
-        client,
-        deliveryIds: webhookDiagnostics.deliveryIds,
-        source: webhookDiagnostics.source,
-        workspaceId: suite.workspaceId,
-      });
-    }
-    if (runnerLogFile !== undefined) await attachLocalRunnerLog(params.attach, runnerLogFile);
-    await attachFakeModelProviderRequestsBestEffort({attach: params.attach, scenario, suite});
+    await attachFailureDiagnostics({
+      attach: params.attach,
+      client,
+      runnerLogFile,
+      scenario,
+      suite,
+      webhookDiagnostics,
+    });
     throw error;
   } finally {
     if (runner !== undefined) {

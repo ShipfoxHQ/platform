@@ -17,43 +17,76 @@ const REPOSITORY_NOT_FOUND_RE = /Repository not found/;
 const PROJECT_REQUEST_FAILED_RE = /Project request failed/;
 const GITEA_RADIO_LABEL_RE = /^Gitea Source$/;
 
+function firstProjectFetch(state: {createProjectBody: unknown}) {
+  return vi.fn(async (input: RequestInfo | URL) => {
+    const request = input as Request;
+    if (request.url.includes('/integration-connections?')) {
+      return jsonResponse({connections: [connectionDto()]});
+    }
+    if (request.url.includes(`/integration-connections/${CONNECTION_ID}/repositories`)) {
+      return jsonResponse({repositories: [repositoryDto()], next_cursor: null});
+    }
+    if (request.url.includes('/projects?')) return firstProjectListResponse(request.url);
+    if (request.url.endsWith('/projects') && request.method === 'POST') {
+      state.createProjectBody = await request.json();
+    }
+    return jsonResponse(projectDto({id: '44444444-4444-4444-8444-444444444444'}));
+  });
+}
+
+function firstProjectListResponse(requestUrl: string) {
+  const url = new URL(requestUrl);
+  if (url.searchParams.get('search') || url.searchParams.get('limit') === '1') {
+    return jsonResponse({projects: [], next_cursor: null});
+  }
+  return jsonResponse({
+    projects: [projectDto({id: '44444444-4444-4444-8444-444444444444'})],
+    next_cursor: null,
+  });
+}
+
+function doubleSubmitFetch(existenceReadGate: Promise<void>) {
+  return vi.fn(async (input: RequestInfo | URL) => {
+    const request = input as Request;
+    if (request.url.includes('/integration-connections?')) {
+      return jsonResponse({connections: [connectionDto()]});
+    }
+    if (request.url.includes(`/integration-connections/${CONNECTION_ID}/repositories`)) {
+      return jsonResponse({repositories: [repositoryDto()], next_cursor: null});
+    }
+    if (request.url.includes('/projects?')) {
+      return await doubleSubmitProjectListResponse(request.url, existenceReadGate);
+    }
+    if (request.url.endsWith('/projects') && request.method === 'POST') {
+      return jsonResponse(projectDto({id: '44444444-4444-4444-8444-444444444444'}));
+    }
+    return jsonResponse({});
+  });
+}
+
+async function doubleSubmitProjectListResponse(
+  requestUrl: string,
+  existenceReadGate: Promise<void>,
+) {
+  const url = new URL(requestUrl);
+  if (url.searchParams.get('limit') === '1') {
+    await existenceReadGate;
+    return jsonResponse({projects: [], next_cursor: null});
+  }
+  return jsonResponse({
+    projects: [projectDto({id: '44444444-4444-4444-8444-444444444444'})],
+    next_cursor: null,
+  });
+}
+
 describe('CreateProjectPage', () => {
   beforeEach(() => {
     window.sessionStorage.clear();
   });
 
   test('with a single connection: pre-selects, renders repos, and lands the first project on the workspace home', async () => {
-    let createProjectBody: unknown;
-    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
-      const request = input as Request;
-      if (request.url.includes('/integration-connections?')) {
-        return jsonResponse({connections: [connectionDto()]});
-      }
-      if (request.url.includes(`/integration-connections/${CONNECTION_ID}/repositories`)) {
-        return jsonResponse({repositories: [repositoryDto()], next_cursor: null});
-      }
-      if (request.url.includes('/projects?')) {
-        const url = new URL(request.url);
-        // The pre-create existence snapshot (limit=1) sees an empty workspace;
-        // the home list (limit=50) sees the created project, so the home does
-        // not fall back to the pre-create empty state.
-        if (url.searchParams.get('search')) {
-          return jsonResponse({projects: [], next_cursor: null});
-        }
-        if (url.searchParams.get('limit') === '1') {
-          return jsonResponse({projects: [], next_cursor: null});
-        }
-        return jsonResponse({
-          projects: [projectDto({id: '44444444-4444-4444-8444-444444444444'})],
-          next_cursor: null,
-        });
-      }
-      if (request.url.endsWith('/projects') && request.method === 'POST') {
-        createProjectBody = await request.json();
-        return jsonResponse(projectDto({id: '44444444-4444-4444-8444-444444444444'}));
-      }
-      return jsonResponse(projectDto({id: '44444444-4444-4444-8444-444444444444'}));
-    });
+    const state = {createProjectBody: undefined as unknown};
+    const fetchImpl = firstProjectFetch(state);
     configureApiClient({fetchImpl});
 
     renderProjectPage(`/w/${PROJECT_TEST_WSLUG}/projects/new`, <CreateProjectPage />);
@@ -99,7 +132,7 @@ describe('CreateProjectPage', () => {
     expect(await screen.findByText('Project Detail')).toBeInTheDocument();
     expect(screen.queryByText('Create your first project')).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', {name: 'Runs'})).not.toBeInTheDocument();
-    expect(createProjectBody).toEqual({
+    expect(state.createProjectBody).toEqual({
       workspace_id: PROJECT_TEST_WID,
       name: 'Launch Pad',
       slug: 'launchpad',
@@ -115,30 +148,7 @@ describe('CreateProjectPage', () => {
     const existenceReadGate = new Promise<void>((resolve) => {
       releaseExistenceRead = resolve;
     });
-    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
-      const request = input as Request;
-      if (request.url.includes('/integration-connections?')) {
-        return jsonResponse({connections: [connectionDto()]});
-      }
-      if (request.url.includes(`/integration-connections/${CONNECTION_ID}/repositories`)) {
-        return jsonResponse({repositories: [repositoryDto()], next_cursor: null});
-      }
-      if (request.url.includes('/projects?')) {
-        const url = new URL(request.url);
-        if (url.searchParams.get('limit') === '1') {
-          await existenceReadGate;
-          return jsonResponse({projects: [], next_cursor: null});
-        }
-        return jsonResponse({
-          projects: [projectDto({id: '44444444-4444-4444-8444-444444444444'})],
-          next_cursor: null,
-        });
-      }
-      if (request.url.endsWith('/projects') && request.method === 'POST') {
-        return jsonResponse(projectDto({id: '44444444-4444-4444-8444-444444444444'}));
-      }
-      return jsonResponse({});
-    });
+    const fetchImpl = doubleSubmitFetch(existenceReadGate);
     configureApiClient({fetchImpl});
 
     renderProjectPage(`/w/${PROJECT_TEST_WSLUG}/projects/new`, <CreateProjectPage />);

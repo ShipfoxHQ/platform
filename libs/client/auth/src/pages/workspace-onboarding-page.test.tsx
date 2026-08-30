@@ -5,6 +5,70 @@ import {pageUserFactory} from '#test/factories/user.js';
 import {renderAuthPage} from '#test/pages.js';
 import {jsonResponse, requestUrl} from '#test/utils.js';
 
+type WorkspaceCreationState = {didCreate: boolean; body: unknown};
+
+function workspaceCreationFetch(
+  user: ReturnType<typeof pageUserFactory.build>,
+  state: WorkspaceCreationState,
+) {
+  return vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+    const url = requestUrl(input);
+    const method = input instanceof Request ? input.method : 'GET';
+    if (url.endsWith('/auth/refresh')) return workspaceRefreshResponse(user, state.didCreate);
+    if (url.endsWith('/workspaces') && method === 'GET') {
+      return workspaceMembershipsResponse(user, state.didCreate);
+    }
+    if (url.endsWith('/workspaces') && method === 'POST') {
+      state.didCreate = true;
+      state.body = input instanceof Request ? await input.json() : undefined;
+      return createdWorkspaceResponse();
+    }
+    return jsonResponse({code: 'not-found', message: 'Not found'}, {status: 404});
+  });
+}
+
+function workspaceRefreshResponse(
+  user: ReturnType<typeof pageUserFactory.build>,
+  didCreate: boolean,
+) {
+  return jsonResponse({token: didCreate ? 'workspace-access-token' : 'access-token', user});
+}
+
+function workspaceMembershipsResponse(
+  user: ReturnType<typeof pageUserFactory.build>,
+  didCreate: boolean,
+) {
+  if (!didCreate) return jsonResponse({memberships: []});
+  return jsonResponse({
+    memberships: [
+      {
+        id: '22222222-2222-4222-8222-222222222222',
+        user_id: user.id,
+        workspace_id: '33333333-3333-4333-8333-333333333333',
+        workspace_name: 'Acme',
+        workspace_slug: 'acme',
+        created_at: '2026-04-27T00:00:00.000Z',
+        updated_at: '2026-04-27T00:00:00.000Z',
+      },
+    ],
+  });
+}
+
+function createdWorkspaceResponse() {
+  return jsonResponse(
+    {
+      id: '33333333-3333-4333-8333-333333333333',
+      name: 'Acme',
+      slug: 'acme',
+      status: 'active',
+      settings: {},
+      created_at: '2026-04-27T00:00:00.000Z',
+      updated_at: '2026-04-27T00:00:00.000Z',
+    },
+    {status: 201},
+  );
+}
+
 describe('WorkspaceOnboardingPage', () => {
   beforeEach(() => {
     window.localStorage.clear();
@@ -17,53 +81,8 @@ describe('WorkspaceOnboardingPage', () => {
 
   test('creates a workspace before showing the signed-in app', async () => {
     const user = pageUserFactory.build({email: 'workspace@example.com'});
-    let didCreateWorkspace = false;
-    let createWorkspaceBody: unknown;
-    const fetchImpl = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
-      const url = requestUrl(input);
-      const method = input instanceof Request ? input.method : 'GET';
-      if (url.endsWith('/auth/refresh')) {
-        return jsonResponse({
-          token: didCreateWorkspace ? 'workspace-access-token' : 'access-token',
-          user,
-        });
-      }
-      if (url.endsWith('/workspaces') && method === 'GET') {
-        return jsonResponse({
-          memberships: didCreateWorkspace
-            ? [
-                {
-                  id: '22222222-2222-4222-8222-222222222222',
-                  user_id: user.id,
-                  workspace_id: '33333333-3333-4333-8333-333333333333',
-                  workspace_name: 'Acme',
-                  workspace_slug: 'acme',
-                  created_at: '2026-04-27T00:00:00.000Z',
-                  updated_at: '2026-04-27T00:00:00.000Z',
-                },
-              ]
-            : [],
-        });
-      }
-      if (url.endsWith('/workspaces') && method === 'POST') {
-        didCreateWorkspace = true;
-        createWorkspaceBody = input instanceof Request ? await input.json() : undefined;
-        return jsonResponse(
-          {
-            id: '33333333-3333-4333-8333-333333333333',
-            name: 'Acme',
-            slug: 'acme',
-            status: 'active',
-            settings: {},
-            created_at: '2026-04-27T00:00:00.000Z',
-            updated_at: '2026-04-27T00:00:00.000Z',
-          },
-          {status: 201},
-        );
-      }
-
-      return jsonResponse({code: 'not-found', message: 'Not found'}, {status: 404});
-    });
+    const state: WorkspaceCreationState = {didCreate: false, body: undefined};
+    const fetchImpl = workspaceCreationFetch(user, state);
     configureApiClient({fetchImpl});
 
     const {container} = renderAuthPage(
@@ -85,8 +104,8 @@ describe('WorkspaceOnboardingPage', () => {
     });
     fireEvent.click(screen.getByRole('button', {name: 'Create workspace'}));
 
-    await waitFor(() => expect(didCreateWorkspace).toBe(true));
-    expect(createWorkspaceBody).toEqual({name: 'Acme', slug: 'acme'});
+    await waitFor(() => expect(state.didCreate).toBe(true));
+    expect(state.body).toEqual({name: 'Acme', slug: 'acme'});
   });
 
   test('prefills the slug from the name until the slug is edited', async () => {

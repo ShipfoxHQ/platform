@@ -34,15 +34,12 @@ describe('Jira proactive token refresh activity', () => {
       installation(failedConnectionId),
     ];
     const listInstallations = vi.fn().mockResolvedValue(installations);
-    const resolveConnection = vi
-      .fn()
-      .mockImplementation(async (connectionId: string) =>
-        connectionId === activeConnectionId
-          ? {lifecycleStatus: 'active'}
-          : connectionId === failedConnectionId
-            ? {lifecycleStatus: 'active'}
-            : {lifecycleStatus: 'error'},
-      );
+    const resolveConnection = vi.fn().mockImplementation((connectionId: string) => {
+      if (connectionId === activeConnectionId || connectionId === failedConnectionId) {
+        return Promise.resolve({lifecycleStatus: 'active'});
+      }
+      return Promise.resolve({lifecycleStatus: 'error'});
+    });
     const getAccessToken = vi.fn().mockImplementation(({connectionId}: {connectionId: string}) => {
       if (connectionId === failedConnectionId) throw new Error('refresh failed');
       return 'fresh-access-token';

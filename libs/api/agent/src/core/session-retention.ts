@@ -3,7 +3,7 @@ import {logger} from '@shipfox/node-opentelemetry';
 import {eq, sql} from 'drizzle-orm';
 import {config} from '#config.js';
 import type {AgentSession} from '#core/entities/agent-session.js';
-import {db} from '#db/db.js';
+import {db, type Transaction} from '#db/db.js';
 import {
   type ExpiredSessionsCursor,
   hasSessionReferencingObjectKey,
@@ -210,17 +210,7 @@ async function deleteExpiredSession(session: AgentSession): Promise<void> {
     });
     const keys = await listSessionObjectKeys(prefix);
 
-    const deletable = [...keys];
-    if (row.headObjectKey !== null) {
-      if (await hasSessionReferencingObjectKey(tx, session.id, row.headObjectKey)) {
-        const index = deletable.indexOf(row.headObjectKey);
-        if (index >= 0) deletable.splice(index, 1);
-      } else if (!keys.includes(row.headObjectKey)) {
-        // Carried-over rows point at the source run attempt's prefix; the exact
-        // head key must be removed here because the source prefix is not ours.
-        deletable.push(row.headObjectKey);
-      }
-    }
+    const deletable = await deletableExpiredSessionKeys(tx, session.id, row.headObjectKey, keys);
 
     if (deletable.length > 0) await deleteSessionObjects(deletable);
 
@@ -230,6 +220,36 @@ async function deleteExpiredSession(session: AgentSession): Promise<void> {
       .returning({id: sessions.id});
     if (rows.length === 0) throw new Error(`Session row disappeared mid-retention: ${session.id}`);
   });
+}
+
+async function deletableExpiredSessionKeys(
+  tx: Transaction,
+  sessionId: string,
+  headObjectKey: string | null,
+  keys: string[],
+): Promise<string[]> {
+  if (headObjectKey === null) return keys;
+  if (await hasSessionReferencingObjectKey(tx, sessionId, headObjectKey)) {
+    return keys.filter((key) => key !== headObjectKey);
+  }
+  // Carried-over rows can point outside their own prefix.
+  if (!keys.includes(headObjectKey)) return [...keys, headObjectKey];
+  return keys;
+}
+
+function classifySessionSegment(
+  key: string,
+  fresh: AgentSession,
+  superseded: string[],
+  orphans: string[],
+): void {
+  const parsed = parseSessionObjectKey(key, config.AGENT_SESSION_STORAGE_S3_PREFIX);
+  if (!parsed || parsed.segment === fresh.headSegment) return;
+  if (parsed.segment < fresh.headSegment) {
+    superseded.push(key);
+    return;
+  }
+  if (fresh.claimedByStepAttempt === null) orphans.push(key);
 }
 
 /**
@@ -268,14 +288,7 @@ function pruneSessionSegments(
     const superseded: string[] = [];
     const orphans: string[] = [];
     for (const key of keys) {
-      const parsed = parseSessionObjectKey(key, config.AGENT_SESSION_STORAGE_S3_PREFIX);
-      if (!parsed) continue;
-      if (parsed.segment === fresh.headSegment) continue;
-      if (parsed.segment < fresh.headSegment) {
-        superseded.push(key);
-      } else if (fresh.claimedByStepAttempt === null) {
-        orphans.push(key);
-      }
+      classifySessionSegment(key, fresh, superseded, orphans);
     }
 
     if (superseded.length > 0) await deleteSessionObjects(superseded);

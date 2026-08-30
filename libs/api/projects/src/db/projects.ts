@@ -99,31 +99,10 @@ export async function createProject(params: CreateProjectParams): Promise<Projec
           })
           .returning();
       } catch (error) {
-        if (isUniqueViolation(error, PROJECTS_WORKSPACE_SLUG_UNIQUE_CONSTRAINT)) {
-          throw new ProjectSlugConflictError(params.slug);
-        }
-        throw error;
+        throw mapProjectInsertError(error, params.slug);
       }
 
-      if (!projectRow) {
-        const [conflict] = await tx
-          .select()
-          .from(projects)
-          .where(
-            and(
-              eq(projects.sourceConnectionId, params.sourceConnectionId),
-              eq(projects.sourceExternalRepositoryId, params.sourceExternalRepositoryId),
-            ),
-          )
-          .limit(1);
-        if (conflict) {
-          throw new ProjectAlreadyExistsError(
-            conflict.id,
-            params.sourceConnectionId,
-            params.sourceExternalRepositoryId,
-          );
-        }
-      }
+      if (!projectRow) await assertSourceProjectDoesNotExist(tx, params);
     }
 
     if (!projectRow) {
@@ -134,6 +113,36 @@ export async function createProject(params: CreateProjectParams): Promise<Projec
   });
   recordProjectCreated();
   return project;
+}
+
+function mapProjectInsertError(error: unknown, slug: string): unknown {
+  if (isUniqueViolation(error, PROJECTS_WORKSPACE_SLUG_UNIQUE_CONSTRAINT)) {
+    return new ProjectSlugConflictError(slug);
+  }
+  return error;
+}
+
+async function assertSourceProjectDoesNotExist(
+  tx: ProjectTransaction,
+  params: Pick<CreateProjectParams, 'sourceConnectionId' | 'sourceExternalRepositoryId'>,
+): Promise<void> {
+  const [conflict] = await tx
+    .select()
+    .from(projects)
+    .where(
+      and(
+        eq(projects.sourceConnectionId, params.sourceConnectionId),
+        eq(projects.sourceExternalRepositoryId, params.sourceExternalRepositoryId),
+      ),
+    )
+    .limit(1);
+  if (conflict) {
+    throw new ProjectAlreadyExistsError(
+      conflict.id,
+      params.sourceConnectionId,
+      params.sourceExternalRepositoryId,
+    );
+  }
 }
 
 export async function updateProject(
@@ -316,20 +325,20 @@ export async function resolveCheckoutTarget(
   const separator = params.target.repository.indexOf('/');
   if (separator === 0 || separator === params.target.repository.length - 1) return undefined;
 
-  const repository =
-    separator === -1
-      ? {
-          connectionId: params.target.connection ?? params.defaults.connectionId,
-          owner: params.defaults.owner,
-          name: params.target.repository,
-        }
-      : params.target.repository.indexOf('/', separator + 1) === -1
-        ? {
-            connectionId: params.target.connection ?? params.defaults.connectionId,
-            owner: params.target.repository.slice(0, separator),
-            name: params.target.repository.slice(separator + 1),
-          }
-        : undefined;
+  let repository: {connectionId: string; owner: string; name: string} | undefined;
+  if (separator === -1) {
+    repository = {
+      connectionId: params.target.connection ?? params.defaults.connectionId,
+      owner: params.defaults.owner,
+      name: params.target.repository,
+    };
+  } else if (params.target.repository.indexOf('/', separator + 1) === -1) {
+    repository = {
+      connectionId: params.target.connection ?? params.defaults.connectionId,
+      owner: params.target.repository.slice(0, separator),
+      name: params.target.repository.slice(separator + 1),
+    };
+  }
   if (repository === undefined) return undefined;
 
   const matches = await db()

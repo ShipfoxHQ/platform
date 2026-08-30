@@ -167,97 +167,133 @@ export type ReconcileInvitationAcceptanceResult =
   | {status: 'already_accepted'; invitation: Invitation; membership: Membership}
   | {status: 'invalid' | 'expired' | 'revoked' | 'consumed_by_another_user' | 'email_mismatch'};
 
-export async function reconcileInvitationAcceptance(params: {
+type WorkspacesTx = Parameters<Parameters<ReturnType<typeof db>['transaction']>[0]>[0];
+type ReconcileInvitationAcceptanceParams = {
   invitationId: string;
   acceptedByUserId: string;
   email: string;
   acceptedByUserName?: string | null | undefined;
-}): Promise<ReconcileInvitationAcceptanceResult> {
-  const result = await db().transaction(async (tx) => {
-    const findMembership = async (userId: string, workspaceId: string) => {
-      const rows = await tx
-        .select()
-        .from(memberships)
-        .where(and(eq(memberships.userId, userId), eq(memberships.workspaceId, workspaceId)))
-        .limit(1);
-      const row = rows[0];
-      return row ? toMembership(row) : undefined;
-    };
-    const rows = await tx
-      .select()
-      .from(invitations)
-      .where(eq(invitations.id, params.invitationId))
-      .limit(1)
-      .for('update');
-    const row = rows[0];
-    if (!row) return {status: 'invalid'} as const;
+};
 
-    const invitation = toInvitation(row);
-    if (invitation.acceptedAt !== null) {
-      if (invitation.acceptedByUserId !== params.acceptedByUserId) {
-        return {status: 'consumed_by_another_user'} as const;
-      }
-      const membership = await findMembership(params.acceptedByUserId, invitation.workspaceId);
-      if (!membership) throw new Error('Accepted invitation has no membership');
-      return {status: 'already_accepted', invitation, membership} as const;
-    }
-    if (invitation.revokedAt !== null) return {status: 'revoked'} as const;
-    if (invitation.expiresAt.getTime() <= Date.now()) return {status: 'expired'} as const;
-    if (invitation.email !== params.email) return {status: 'email_mismatch'} as const;
-
-    const existingMembership = await findMembership(
-      params.acceptedByUserId,
-      invitation.workspaceId,
-    );
-    let membership = existingMembership;
-    if (!membership) {
-      const created = await tx
-        .insert(memberships)
-        .values(
-          membershipValues({
-            userId: params.acceptedByUserId,
-            userEmail: invitation.email,
-            userName: params.acceptedByUserName ?? null,
-            workspaceId: invitation.workspaceId,
-          }),
-        )
-        .returning();
-      const createdRow = created[0];
-      if (!createdRow) throw new Error('Insert returned no rows');
-      membership = toMembership(createdRow);
-      await writeOutboxEvent<WorkspacesEventMap>(tx, workspacesOutbox, {
-        type: WORKSPACES_MEMBER_JOINED,
-        payload: {
-          workspaceId: invitation.workspaceId,
-          userId: params.acceptedByUserId,
-          email: invitation.email,
-          viaInvitation: true,
-        },
-      });
-    }
-
-    const updated = await tx
-      .update(invitations)
-      .set({
-        acceptedAt: sql`now()`,
-        acceptedByUserId: params.acceptedByUserId,
-        updatedAt: sql`now()`,
-      })
-      .where(eq(invitations.id, params.invitationId))
-      .returning();
-    const updatedRow = updated[0];
-    if (!updatedRow) throw new Error('Update returned no rows');
-    return {
-      status: 'accepted',
-      invitation: toInvitation(updatedRow),
-      membership,
-      alreadyMember: existingMembership !== undefined,
-    } as const;
-  });
+export async function reconcileInvitationAcceptance(
+  params: ReconcileInvitationAcceptanceParams,
+): Promise<ReconcileInvitationAcceptanceResult> {
+  const result = await db().transaction((tx) => reconcileInvitationInTransaction(tx, params));
 
   if (result.status === 'accepted') {
     if (!result.alreadyMember) recordWorkspaceMembershipChanged('added');
     recordWorkspaceInvitationAccepted(result.alreadyMember ? 'already_member' : 'added');
   }
   return result;
+}
+
+async function reconcileInvitationInTransaction(
+  tx: WorkspacesTx,
+  params: ReconcileInvitationAcceptanceParams,
+): Promise<ReconcileInvitationAcceptanceResult> {
+  const rows = await tx
+    .select()
+    .from(invitations)
+    .where(eq(invitations.id, params.invitationId))
+    .limit(1)
+    .for('update');
+  const row = rows[0];
+  if (!row) return {status: 'invalid'} as const;
+
+  const invitation = toInvitation(row);
+  if (invitation.acceptedAt !== null) {
+    return reconcileAlreadyAcceptedInvitation(tx, params, invitation);
+  }
+  const invalidStatus = invitationAcceptanceInvalidStatus(invitation, params.email);
+  if (invalidStatus) return {status: invalidStatus};
+
+  const {membership, alreadyMember} = await ensureInvitationMembership(tx, params, invitation);
+
+  const updated = await tx
+    .update(invitations)
+    .set({
+      acceptedAt: sql`now()`,
+      acceptedByUserId: params.acceptedByUserId,
+      updatedAt: sql`now()`,
+    })
+    .where(eq(invitations.id, params.invitationId))
+    .returning();
+  const updatedRow = updated[0];
+  if (!updatedRow) throw new Error('Update returned no rows');
+  return {
+    status: 'accepted',
+    invitation: toInvitation(updatedRow),
+    membership,
+    alreadyMember,
+  } as const;
+}
+
+async function findMembership(
+  tx: WorkspacesTx,
+  userId: string,
+  workspaceId: string,
+): Promise<Membership | undefined> {
+  const rows = await tx
+    .select()
+    .from(memberships)
+    .where(and(eq(memberships.userId, userId), eq(memberships.workspaceId, workspaceId)))
+    .limit(1);
+  const row = rows[0];
+  return row ? toMembership(row) : undefined;
+}
+
+async function reconcileAlreadyAcceptedInvitation(
+  tx: WorkspacesTx,
+  params: ReconcileInvitationAcceptanceParams,
+  invitation: Invitation,
+): Promise<ReconcileInvitationAcceptanceResult> {
+  if (invitation.acceptedByUserId !== params.acceptedByUserId) {
+    return {status: 'consumed_by_another_user'};
+  }
+  const membership = await findMembership(tx, params.acceptedByUserId, invitation.workspaceId);
+  if (!membership) throw new Error('Accepted invitation has no membership');
+  return {status: 'already_accepted', invitation, membership};
+}
+
+function invitationAcceptanceInvalidStatus(
+  invitation: Invitation,
+  email: string,
+): 'expired' | 'revoked' | 'email_mismatch' | undefined {
+  if (invitation.revokedAt !== null) return 'revoked';
+  if (invitation.expiresAt.getTime() <= Date.now()) return 'expired';
+  if (invitation.email !== email) return 'email_mismatch';
+  return undefined;
+}
+
+async function ensureInvitationMembership(
+  tx: WorkspacesTx,
+  params: ReconcileInvitationAcceptanceParams,
+  invitation: Invitation,
+): Promise<{membership: Membership; alreadyMember: boolean}> {
+  const existing = await findMembership(tx, params.acceptedByUserId, invitation.workspaceId);
+  if (existing) return {membership: existing, alreadyMember: true};
+  const created = await tx
+    .insert(memberships)
+    .values(
+      membershipValues({
+        userId: params.acceptedByUserId,
+        userEmail: invitation.email,
+        userName: params.acceptedByUserName ?? null,
+        workspaceId: invitation.workspaceId,
+      }),
+    )
+    .returning();
+  const createdRow = created[0];
+  if (!createdRow) throw new Error('Insert returned no rows');
+  const membership = toMembership(createdRow);
+  await writeOutboxEvent<WorkspacesEventMap>(tx, workspacesOutbox, {
+    type: WORKSPACES_MEMBER_JOINED,
+    payload: {
+      workspaceId: invitation.workspaceId,
+      userId: params.acceptedByUserId,
+      email: invitation.email,
+      viaInvitation: true,
+    },
+  });
+  return {membership, alreadyMember: false};
 }

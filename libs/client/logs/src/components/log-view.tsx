@@ -70,11 +70,13 @@ export function LogView({
   const resolvedToolCalls = useMemo(() => collectResolvedToolCalls(tree.nodes), [tree.nodes]);
   const noOutputState = normalizedSearch ? null : getNoOutputState(tree, emptyState);
   const anchorRecordCount = records.length;
-  const searchStatus = normalizedSearch
-    ? visibleNodes.length === 0
-      ? `No log lines match “${deferredSearch.trim()}”.`
-      : `Log search updated for “${deferredSearch.trim()}”.`
-    : null;
+  let searchStatus: string | null = null;
+  if (normalizedSearch) {
+    searchStatus =
+      visibleNodes.length === 0
+        ? `No log lines match “${deferredSearch.trim()}”.`
+        : `Log search updated for “${deferredSearch.trim()}”.`;
+  }
 
   useEffect(() => {
     if (!anchorToFailure) return;
