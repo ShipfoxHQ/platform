@@ -22,7 +22,7 @@ export const GITHUB_CHECKOUT_TOKEN_REJECTION_GUARD_MS = 30 * 1000;
 export const GITHUB_CHECKOUT_TOKEN_RETENTION_MS = 24 * 60 * 60 * 1000;
 
 const DEFAULT_MAX_RAM_ENTRIES = 1_000;
-const DEFAULT_POLL_DELAYS_MS = [100, 200, 400, 500, 800];
+const DEFAULT_POLL_DELAYS_MS = [100, 200, 400, 800, 1_600, 3_200, 6_400, 12_800, 4_500];
 const DEFAULT_MINT_TIMEOUT_MS = 30_000;
 const STORAGE_KEY_PREFIX = `v${GITHUB_CHECKOUT_TOKEN_CACHE_VERSION}-`;
 const BASELINE_PERMISSION_KEYS = new Set(['metadata']);
@@ -70,6 +70,7 @@ export interface GithubCheckoutToken {
   token: string;
   expiresAt: Date;
   generation: string;
+  stale?: boolean | undefined;
 }
 
 export type GithubCheckoutTokenLockResult<T> = {acquired: true; value: T} | {acquired: false};
@@ -132,22 +133,26 @@ export function githubCheckoutTokenStorageKey(scope: GithubCheckoutTokenScope): 
 
 export function deleteGithubCheckoutTokenSecretGroup(params: {
   workspaceId: string;
+  providerInstance: string;
   installationId: number;
   deleteSecrets: (params: {workspaceId: string; namespace: string}) => Promise<number>;
 }): Promise<number> {
   return params.deleteSecrets({
     workspaceId: params.workspaceId,
-    namespace: githubCheckoutTokenNamespace(params.installationId),
+    namespace: githubCheckoutTokenNamespace(params.providerInstance, params.installationId),
   });
 }
 
-export function githubCheckoutTokenNamespace(installationId: number): string {
-  if (!Number.isSafeInteger(installationId) || installationId <= 0) {
+export function githubCheckoutTokenNamespace(
+  providerInstance: string,
+  installationId: number,
+): string {
+  if (!providerInstance || !Number.isSafeInteger(installationId) || installationId <= 0) {
     throw new Error(
-      `Invalid GitHub installation id for checkout-token namespace: ${installationId}`,
+      `Invalid GitHub provider instance or installation id for checkout-token namespace: ${providerInstance}/${installationId}`,
     );
   }
-  return `system/github/checkout-token/${installationId}`;
+  return `system/github/checkout-token/${providerInstance}/${installationId}`;
 }
 
 export function githubProviderInstanceFingerprint(apiOrigin: string, appId: string): string {
@@ -224,6 +229,8 @@ export function parseGithubCheckoutTokenEnvelope(
 export class GithubCheckoutTokenCache implements GithubCheckoutTokenCachePort {
   private readonly ram = new Map<string, RamEntry>();
   private readonly inFlight = new Map<string, Promise<GithubCheckoutToken>>();
+  private readonly inFlightScopes = new Map<string, GithubCheckoutTokenScope>();
+  private readonly deleting = new Map<string, Promise<number>>();
   private readonly now: () => Date;
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly pollDelaysMs: number[];
@@ -247,6 +254,15 @@ export class GithubCheckoutTokenCache implements GithubCheckoutTokenCachePort {
     rejectedGeneration?: string,
   ): Promise<GithubCheckoutToken> {
     const normalizedScope = normalizeScope(scope);
+    const namespace = githubCheckoutTokenNamespace(
+      normalizedScope.providerInstance,
+      normalizedScope.installationId,
+    );
+    const deletion = this.deleting.get(namespace);
+    if (deletion) {
+      await deletion;
+      return await this.getOrMint(scope, mint, rejectedGeneration);
+    }
     const digest = githubCheckoutTokenScopeDigest(normalizedScope);
     const ramEnvelope = this.readRam(digest, this.now());
     if (shouldRejectForGuard(ramEnvelope, rejectedGeneration, this.now())) {
@@ -274,6 +290,12 @@ export class GithubCheckoutTokenCache implements GithubCheckoutTokenCachePort {
       return tokenFromEnvelope(current);
     }
 
+    const deletionAfterRead = this.deleting.get(namespace);
+    if (deletionAfterRead) {
+      await deletionAfterRead;
+      return await this.getOrMint(scope, mint, rejectedGeneration);
+    }
+
     const pending = this.inFlight.get(digest);
     if (pending) {
       return await this.resolvePending(digest, pending, normalizedScope, mint, rejectedGeneration);
@@ -286,9 +308,13 @@ export class GithubCheckoutTokenCache implements GithubCheckoutTokenCachePort {
       rejectedGeneration,
       current,
     ).finally(() => {
-      if (this.inFlight.get(digest) === operation) this.inFlight.delete(digest);
+      if (this.inFlight.get(digest) === operation) {
+        this.inFlight.delete(digest);
+        this.inFlightScopes.delete(digest);
+      }
     });
     this.inFlight.set(digest, operation);
+    this.inFlightScopes.set(digest, normalizedScope);
     return operation;
   }
 
@@ -307,26 +333,51 @@ export class GithubCheckoutTokenCache implements GithubCheckoutTokenCachePort {
     return await this.getOrMint(scope, mint, rejectedGeneration);
   }
 
-  async deleteInstallation(workspaceId: string, installationId: number): Promise<number> {
-    const namespace = githubCheckoutTokenNamespace(installationId);
-    for (const [digest, entry] of this.ram) {
-      if (
-        entry.scope.workspaceId === workspaceId &&
-        entry.scope.installationId === installationId
-      ) {
-        this.ram.delete(digest);
+  async deleteInstallation(
+    workspaceId: string,
+    providerInstance: string,
+    installationId: number,
+  ): Promise<number> {
+    const namespace = githubCheckoutTokenNamespace(providerInstance, installationId);
+    const deletion = (async () => {
+      await Promise.all(
+        [...this.inFlight.entries()]
+          .filter(([digest]) => {
+            const scope = this.inFlightScopes.get(digest);
+            return (
+              scope?.workspaceId === workspaceId &&
+              scope.providerInstance === providerInstance &&
+              scope.installationId === installationId
+            );
+          })
+          .map(([, pending]) => pending.catch(() => undefined)),
+      );
+      for (const [digest, entry] of this.ram) {
+        if (
+          entry.scope.workspaceId === workspaceId &&
+          entry.scope.providerInstance === providerInstance &&
+          entry.scope.installationId === installationId
+        ) {
+          this.ram.delete(digest);
+        }
       }
+      const store = this.options.secretStore;
+      if (store?.deleteNamespace) {
+        return await store.deleteNamespace({workspaceId, namespace});
+      }
+      if (!store?.list || !store.delete) return 0;
+      const values = await store.list({workspaceId, namespace});
+      await Promise.all(
+        Object.keys(values).map((key) => store.delete?.({workspaceId, namespace, key})),
+      );
+      return Object.keys(values).length;
+    })();
+    this.deleting.set(namespace, deletion);
+    try {
+      return await deletion;
+    } finally {
+      if (this.deleting.get(namespace) === deletion) this.deleting.delete(namespace);
     }
-    const store = this.options.secretStore;
-    if (store?.deleteNamespace) {
-      return await store.deleteNamespace({workspaceId, namespace});
-    }
-    if (!store?.list || !store.delete) return 0;
-    const values = await store.list({workspaceId, namespace});
-    await Promise.all(
-      Object.keys(values).map((key) => store.delete?.({workspaceId, namespace, key})),
-    );
-    return Object.keys(values).length;
   }
 
   /** Deletes expired entries in one bounded namespace pass. */
@@ -337,9 +388,13 @@ export class GithubCheckoutTokenCache implements GithubCheckoutTokenCachePort {
       throw new Error(`Invalid cleanup limit: ${limit}`);
 
     const normalizedScope = normalizeScope(scope);
+    const namespace = githubCheckoutTokenNamespace(
+      normalizedScope.providerInstance,
+      normalizedScope.installationId,
+    );
     const values = await store.list({
       workspaceId: normalizedScope.workspaceId,
-      namespace: githubCheckoutTokenNamespace(normalizedScope.installationId),
+      namespace,
     });
     let deleted = 0;
     const now = this.now();
@@ -350,7 +405,7 @@ export class GithubCheckoutTokenCache implements GithubCheckoutTokenCachePort {
       if (!envelope || !isExpiredForCleanup(envelope, now)) continue;
       await store.delete({
         workspaceId: normalizedScope.workspaceId,
-        namespace: githubCheckoutTokenNamespace(normalizedScope.installationId),
+        namespace,
         key,
       });
       deleted += 1;
@@ -376,7 +431,7 @@ export class GithubCheckoutTokenCache implements GithubCheckoutTokenCachePort {
 
     if (initial && !rejectedGeneration && canServeStale(initial, this.now())) {
       recordGithubCheckoutTokenLookup('served-stale');
-      return tokenFromEnvelope(initial);
+      return tokenFromEnvelope(initial, true);
     }
     return await this.pollAfterContention(scope, digest, rejectedGeneration);
   }
@@ -417,7 +472,7 @@ export class GithubCheckoutTokenCache implements GithubCheckoutTokenCachePort {
         canServeStale(current, now)
       ) {
         recordGithubCheckoutTokenLookup('served-stale');
-        return tokenFromEnvelope(current);
+        return tokenFromEnvelope(current, true);
       }
       throw error;
     }
@@ -449,7 +504,9 @@ export class GithubCheckoutTokenCache implements GithubCheckoutTokenCachePort {
   ): Promise<GithubInstallationAccessToken> {
     const mintStartedAt = Date.now();
     try {
-      const minted = await withTimeout(mint(), this.mintTimeoutMs);
+      const minted = await withTimeout(mint(), this.mintTimeoutMs, (lateMint) =>
+        this.persistLateMint(scope, digest, current, lateMint, now),
+      );
       validateMintedToken(scope, minted, now);
       recordGithubCheckoutTokenMint({outcome: 'success', durationMs: Date.now() - mintStartedAt});
       return minted;
@@ -478,12 +535,56 @@ export class GithubCheckoutTokenCache implements GithubCheckoutTokenCachePort {
     }
   }
 
+  private async persistLateMint(
+    scope: GithubCheckoutTokenScope,
+    digest: string,
+    previous: GithubCheckoutTokenEnvelope | undefined,
+    minted: GithubInstallationAccessToken,
+    now: Date,
+  ): Promise<void> {
+    try {
+      validateMintedToken(scope, minted, now);
+      const current = this.options.secretStore
+        ? await this.readShared(scope)
+        : this.readRam(digest, this.now());
+      const sameGeneration =
+        previous?.generation === undefined
+          ? current?.generation === undefined && current?.token === undefined
+          : current?.generation === previous.generation && current.token === previous.token;
+      if (!sameGeneration) return;
+
+      const envelope: GithubCheckoutTokenEnvelope = {
+        version: GITHUB_CHECKOUT_TOKEN_CACHE_VERSION,
+        generation: newGeneration(previous?.generation),
+        token: minted.token,
+        expiresAt: minted.expiresAt,
+        repositoryId: scope.repositoryId,
+        permissions: {...scope.permissions},
+      };
+      await this.writeShared(scope, envelope);
+      this.writeRam(digest, scope, envelope);
+    } catch (error) {
+      logger().warn(
+        {scopeDigest: githubCheckoutTokenScopeDigest(scope), error},
+        'Late GitHub checkout token mint could not be cached',
+      );
+      reportError(error, {
+        boundary: 'integration.cache',
+        operation: 'write-late-checkout-envelope',
+      });
+    }
+  }
+
   private async pollAfterContention(
     scope: GithubCheckoutTokenScope,
     digest: string,
     rejectedGeneration: string | undefined,
   ): Promise<GithubCheckoutToken> {
-    for (const delayMs of this.pollDelaysMs) {
+    let elapsedMs = 0;
+    for (const configuredDelayMs of this.pollDelaysMs) {
+      if (elapsedMs >= this.mintTimeoutMs) break;
+      const delayMs = Math.min(configuredDelayMs, this.mintTimeoutMs - elapsedMs);
+      elapsedMs += delayMs;
       await this.sleep(delayMs);
       const envelope = this.options.secretStore
         ? await this.readShared(scope)
@@ -518,6 +619,8 @@ export class GithubCheckoutTokenCache implements GithubCheckoutTokenCachePort {
       return undefined;
     }
     entry.lastUsedAt = now.getTime();
+    this.ram.delete(digest);
+    this.ram.set(digest, entry);
     return entry.envelope;
   }
 
@@ -533,9 +636,9 @@ export class GithubCheckoutTokenCache implements GithubCheckoutTokenCachePort {
       lastUsedAt: this.now().getTime(),
     });
     while (this.ram.size > this.maxRamEntries) {
-      const oldest = [...this.ram.entries()].sort(([, a], [, b]) => a.lastUsedAt - b.lastUsedAt)[0];
-      if (!oldest) break;
-      this.ram.delete(oldest[0]);
+      const oldest = this.ram.keys().next().value;
+      if (oldest === undefined) break;
+      this.ram.delete(oldest);
     }
   }
 
@@ -547,7 +650,7 @@ export class GithubCheckoutTokenCache implements GithubCheckoutTokenCachePort {
     try {
       const raw = await store.read({
         workspaceId: scope.workspaceId,
-        namespace: githubCheckoutTokenNamespace(scope.installationId),
+        namespace: githubCheckoutTokenNamespace(scope.providerInstance, scope.installationId),
         key: githubCheckoutTokenStorageKey(scope),
       });
       if (raw === null) return undefined;
@@ -579,7 +682,7 @@ export class GithubCheckoutTokenCache implements GithubCheckoutTokenCachePort {
     try {
       await store.write({
         workspaceId: scope.workspaceId,
-        namespace: githubCheckoutTokenNamespace(scope.installationId),
+        namespace: githubCheckoutTokenNamespace(scope.providerInstance, scope.installationId),
         key: githubCheckoutTokenStorageKey(scope),
         value: encodeGithubCheckoutTokenEnvelope(envelope),
       });
@@ -660,7 +763,7 @@ function staleOrBackoffResult(
   if (!envelope || !activeBackoff(envelope, now)) return undefined;
   if (!rejectedGeneration && canServeStale(envelope, now)) {
     recordGithubCheckoutTokenLookup('served-stale');
-    return tokenFromEnvelope(envelope);
+    return tokenFromEnvelope(envelope, true);
   }
   recordGithubCheckoutTokenLookup('backoff');
   throw providerErrorFromBackoff(
@@ -736,14 +839,22 @@ function isExpiredForCleanup(envelope: GithubCheckoutTokenEnvelope, now: Date): 
   );
 }
 
-function tokenFromEnvelope(envelope: GithubCheckoutTokenEnvelope): GithubCheckoutToken {
+function tokenFromEnvelope(
+  envelope: GithubCheckoutTokenEnvelope,
+  stale = false,
+): GithubCheckoutToken {
   if (!envelope.token || !envelope.expiresAt || !envelope.generation) {
     throw new GithubIntegrationProviderError(
       'malformed-provider-response',
       'GitHub checkout token cache envelope is missing a token, expiry, or generation',
     );
   }
-  return {token: envelope.token, expiresAt: envelope.expiresAt, generation: envelope.generation};
+  return {
+    token: envelope.token,
+    expiresAt: envelope.expiresAt,
+    generation: envelope.generation,
+    ...(stale ? {stale: true} : {}),
+  };
 }
 
 function validateMintedToken(
@@ -771,7 +882,12 @@ function validateMintedToken(
       'GitHub checkout token response names a different repository',
     );
   }
-  if (!token.permissions) return;
+  if (!token.permissions) {
+    throw new GithubIntegrationProviderError(
+      'provider-rejected',
+      'GitHub checkout token response did not include permissions',
+    );
+  }
   for (const [permission, level] of Object.entries(scope.permissions)) {
     if (token.permissions[permission] !== level) {
       throw new GithubIntegrationProviderError(
@@ -872,16 +988,26 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  onLateResult?: (value: T) => Promise<void>,
+): Promise<T> {
+  let timedOut = false;
   let timer: NodeJS.Timeout | undefined;
+  promise.then(
+    (value) => {
+      if (timedOut && onLateResult) void onLateResult(value).catch(() => undefined);
+    },
+    () => undefined,
+  );
   const timeout = new Promise<T>((_, reject) => {
-    timer = setTimeout(
-      () =>
-        reject(
-          new GithubIntegrationProviderError('timeout', 'Timed out minting GitHub checkout token'),
-        ),
-      timeoutMs,
-    );
+    timer = setTimeout(() => {
+      timedOut = true;
+      reject(
+        new GithubIntegrationProviderError('timeout', 'Timed out minting GitHub checkout token'),
+      );
+    }, timeoutMs);
   });
   return Promise.race([promise, timeout]).finally(() => {
     if (timer) clearTimeout(timer);

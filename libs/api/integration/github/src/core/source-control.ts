@@ -309,17 +309,21 @@ export class GithubSourceControlProvider
             token,
             expiresAt,
             generation: newGeneration(input.rejectedGeneration),
+            stale: false,
           }));
-    const refreshAt = new Date(
-      cached.expiresAt.getTime() - GITHUB_CHECKOUT_TOKEN_REFRESH_MARGIN_MS,
-    );
+    const renewal = cached.stale
+      ? {mode: 'on-rejection' as const}
+      : {
+          mode: 'refresh-at' as const,
+          refreshAt: new Date(cached.expiresAt.getTime() - GITHUB_CHECKOUT_TOKEN_REFRESH_MARGIN_MS),
+        };
 
     return {
       username: 'x-access-token',
       token: cached.token,
       expiresAt: cached.expiresAt,
       generation: cached.generation,
-      renewal: {mode: 'refresh-at' as const, refreshAt},
+      renewal,
     };
   }
 

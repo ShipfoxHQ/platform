@@ -1,4 +1,5 @@
 import type {GithubApiClient} from '#api/client.js';
+import type {GithubCheckoutTokenCachePort} from '#api/github-checkout-token-cache.js';
 import {githubInstallationFactory} from '#test/index.js';
 import {GithubIntegrationProviderError} from './errors.js';
 import {GithubSourceControlProvider} from './source-control.js';
@@ -513,15 +514,15 @@ describe('GithubSourceControlProvider', () => {
   it('uses the injected exact-scope checkout cache without broad installation cache access', async () => {
     await createInstallation();
     const github = githubClient();
-    const checkoutTokenCache = {
-      getOrMint: vi.fn(() =>
-        Promise.resolve({
-          token: 'cached-checkout-token',
-          expiresAt: new Date('2026-06-10T12:00:00.000Z'),
-          generation: 'cached-generation',
-        }),
-      ),
-    };
+    const getOrMint = vi.fn<GithubCheckoutTokenCachePort['getOrMint']>(() =>
+      Promise.resolve({
+        token: 'cached-checkout-token',
+        expiresAt: new Date('2026-06-10T12:00:00.000Z'),
+        generation: 'cached-generation',
+        stale: true,
+      }),
+    );
+    const checkoutTokenCache = {getOrMint};
     const provider = new GithubSourceControlProvider(github, undefined, checkoutTokenCache);
 
     const result = await provider.createCheckoutCredentials({
@@ -533,7 +534,16 @@ describe('GithubSourceControlProvider', () => {
 
     expect(result.token).toBe('cached-checkout-token');
     expect(result.generation).toBe('cached-generation');
+    expect(result.renewal).toEqual({mode: 'on-rejection'});
     expect(github.createInstallationAccessToken).not.toHaveBeenCalled();
+    const mint = checkoutTokenCache.getOrMint.mock.calls[0]?.[1];
+    expect(mint).toEqual(expect.any(Function));
+    await mint?.();
+    expect(github.createInstallationAccessToken).toHaveBeenCalledWith({
+      installationId,
+      repositoryId: 42,
+      permissions: {contents: 'read'},
+    });
     expect(checkoutTokenCache.getOrMint).toHaveBeenCalledWith(
       expect.objectContaining({
         workspaceId: expect.any(String),

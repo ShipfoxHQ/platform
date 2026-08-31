@@ -21,10 +21,16 @@ const baseScope: GithubCheckoutTokenScope = {
   permissions: {contents: 'read'},
 };
 
-function token(value: string, generation?: string, expiresAt = '2026-06-10T12:00:00.000Z') {
+function token(
+  value: string,
+  generation?: string,
+  expiresAt = '2026-06-10T12:00:00.000Z',
+  permissions: Record<string, 'read' | 'write'> = {contents: 'read'},
+) {
   return {
     token: value,
     expiresAt: new Date(expiresAt),
+    permissions,
     ...(generation === undefined ? {} : {generation}),
   };
 }
@@ -57,6 +63,7 @@ function cache(
     store?: GithubCheckoutTokenSecretStore;
     withLock?: GithubCheckoutTokenCacheOptions['withLock'];
     maxRamEntries?: number;
+    mintTimeoutMs?: number;
     currentTime?: () => Date;
     sleep?: (ms: number) => Promise<void>;
   } = {},
@@ -68,6 +75,7 @@ function cache(
     sleep: options.sleep ?? (() => Promise.resolve()),
     pollDelaysMs: [1],
     maxRamEntries: options.maxRamEntries,
+    mintTimeoutMs: options.mintTimeoutMs,
   });
 }
 
@@ -158,8 +166,8 @@ describe('GithubCheckoutTokenCache', () => {
     await released;
 
     await expect(Promise.all([winner, contender])).resolves.toEqual([
-      {...token('token-a'), generation: expect.any(String)},
-      {...token('token-a'), generation: expect.any(String)},
+      {token: 'token-a', expiresAt: token('token-a').expiresAt, generation: expect.any(String)},
+      {token: 'token-a', expiresAt: token('token-a').expiresAt, generation: expect.any(String)},
     ]);
     expect(mint).toHaveBeenCalledTimes(1);
   });
@@ -180,7 +188,7 @@ describe('GithubCheckoutTokenCache', () => {
     const rejectedRefresh = shared.getOrMint(baseScope, refresh, existing.generation);
     rejectRefresh(new GithubIntegrationProviderError('provider-unavailable', 'down'));
 
-    await expect(ordinaryRefresh).resolves.toEqual(existing);
+    await expect(ordinaryRefresh).resolves.toEqual({...existing, stale: true});
     await expect(rejectedRefresh).rejects.toMatchObject({reason: 'provider-unavailable'});
     expect(refresh).toHaveBeenCalledTimes(1);
   });
@@ -190,7 +198,9 @@ describe('GithubCheckoutTokenCache', () => {
     const mint = vi
       .fn()
       .mockResolvedValueOnce(token('read-token'))
-      .mockResolvedValueOnce(token('write-token'));
+      .mockResolvedValueOnce(
+        token('write-token', undefined, '2026-06-10T12:00:00.000Z', {contents: 'write'}),
+      );
     const shared = cache({store});
 
     const read = await shared.getOrMint(baseScope, mint);
@@ -247,7 +257,8 @@ describe('GithubCheckoutTokenCache', () => {
 
   it('serves a still-valid stale token after a transient failure and backs off', async () => {
     let currentTime = now;
-    const shared = cache({currentTime: () => currentTime});
+    const store = createStore();
+    const shared = cache({store, currentTime: () => currentTime});
     const existing = await shared.getOrMint(baseScope, () => Promise.resolve(token('token-a')));
     currentTime = new Date('2026-06-10T11:55:00.000Z');
     const refresh = vi.fn(() =>
@@ -257,13 +268,32 @@ describe('GithubCheckoutTokenCache', () => {
     const result = await shared.getOrMint(baseScope, refresh);
 
     expect(result.token).toBe('token-a');
+    expect(result.stale).toBe(true);
     expect(refresh).toHaveBeenCalledTimes(1);
     expect(existing.generation).toBeDefined();
+    const backedOff = parseGithubCheckoutTokenEnvelope(
+      store.values.get(githubCheckoutTokenStorageKey(baseScope)) ?? '',
+    );
+    expect(backedOff?.backoffReason).toBe('provider-unavailable');
+    expect(backedOff?.backoffUntil).toBeDefined();
+
+    const ordinaryRetry = await shared.getOrMint(baseScope, refresh);
+    expect(ordinaryRetry.token).toBe('token-a');
+    expect(ordinaryRetry.stale).toBe(true);
+    expect(refresh).toHaveBeenCalledTimes(1);
 
     await expect(shared.getOrMint(baseScope, refresh, existing.generation)).rejects.toMatchObject({
       reason: 'provider-unavailable',
     });
     expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('times out a hanging mint', async () => {
+    const shared = cache({mintTimeoutMs: 1});
+
+    await expect(
+      shared.getOrMint(baseScope, () => new Promise(() => undefined)),
+    ).rejects.toMatchObject({reason: 'timeout'});
   });
 
   it('cleans expired shared entries in a bounded pass', async () => {
@@ -292,6 +322,74 @@ describe('GithubCheckoutTokenCache', () => {
     expect(store.values.has(expiredKey)).toBe(false);
     expect(store.values.has(newerVersionKey)).toBe(true);
     expect(store.values.has(unrelatedKey)).toBe(true);
+  });
+
+  it('deletes only one provider installation and purges its RAM entries', async () => {
+    const values = new Map<string, string>();
+    const deletedNamespaces = new Set<string>();
+    const deleteNamespace = vi.fn(({namespace}: {workspaceId: string; namespace: string}) => {
+      deletedNamespaces.add(namespace);
+      return Promise.resolve(1);
+    });
+    const store: GithubCheckoutTokenSecretStore = {
+      read: ({namespace, key}) =>
+        Promise.resolve(deletedNamespaces.has(namespace) ? null : (values.get(key) ?? null)),
+      write: ({key, value}) => {
+        values.set(key, value);
+        return Promise.resolve();
+      },
+      deleteNamespace,
+    };
+    const shared = cache({store});
+    const mint = vi
+      .fn()
+      .mockResolvedValueOnce(token('token-a'))
+      .mockResolvedValueOnce(token('other-token'))
+      .mockResolvedValueOnce(token('reminted-token'));
+    const otherScope = {...baseScope, installationId: 12};
+
+    await shared.getOrMint(baseScope, mint);
+    await shared.getOrMint(otherScope, mint);
+    const deleted = await shared.deleteInstallation('workspace-a', 'provider-a', 11);
+
+    expect(deleted).toBe(1);
+    expect(deleteNamespace).toHaveBeenCalledWith({
+      workspaceId: 'workspace-a',
+      namespace: 'system/github/checkout-token/provider-a/11',
+    });
+    await expect(shared.getOrMint(baseScope, mint)).resolves.toMatchObject({
+      token: 'reminted-token',
+    });
+    await expect(shared.getOrMint(otherScope, mint)).resolves.toMatchObject({
+      token: 'other-token',
+    });
+    expect(mint).toHaveBeenCalledTimes(3);
+  });
+
+  it('rejects malformed scopes before reading or minting', async () => {
+    const read = vi.fn(() => Promise.resolve(null));
+    const mint = vi.fn(() => Promise.resolve(token('token-a')));
+    const shared = cache({
+      store: {
+        read,
+        write: () => Promise.resolve(),
+      },
+    });
+    const malformedScopes: GithubCheckoutTokenScope[] = [
+      {...baseScope, workspaceId: ''},
+      {...baseScope, providerInstance: ''},
+      {...baseScope, installationId: 0},
+      {...baseScope, repositoryId: 0},
+      {...baseScope, permissions: {}},
+    ];
+
+    for (const scope of malformedScopes) {
+      await expect(shared.getOrMint(scope, mint)).rejects.toMatchObject({
+        reason: 'malformed-provider-response',
+      });
+    }
+    expect(read).not.toHaveBeenCalled();
+    expect(mint).not.toHaveBeenCalled();
   });
 
   it('bounds RAM entries and evicts expired entries', async () => {

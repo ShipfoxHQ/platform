@@ -38,22 +38,11 @@ const GITHUB_INSTALLATION_ID_PATTERN = /^[1-9]\d*$/u;
 
 export type {GithubApiClient} from '#api/client.js';
 export {
-  canonicalGithubCheckoutTokenScope,
-  deleteGithubCheckoutTokenSecretGroup,
-  encodeGithubCheckoutTokenEnvelope,
   type GithubCheckoutToken,
   GithubCheckoutTokenCache,
-  type GithubCheckoutTokenCacheOptions,
   type GithubCheckoutTokenCachePort,
-  type GithubCheckoutTokenEnvelope,
   type GithubCheckoutTokenPermissions,
   type GithubCheckoutTokenScope,
-  type GithubCheckoutTokenSecretStore,
-  githubCheckoutTokenNamespace,
-  githubCheckoutTokenScopeDigest,
-  githubCheckoutTokenStorageKey,
-  githubProviderInstanceFingerprint,
-  parseGithubCheckoutTokenEnvelope,
 } from '#api/github-checkout-token-cache.js';
 export {
   encodeInstallationTokenEnvelope,

@@ -362,6 +362,24 @@ describe('OctokitGithubApiClient.createInstallationAccessToken', () => {
     });
   });
 
+  it('maps repository ids and ignores malformed repository ids', async () => {
+    createInstallationAccessTokenMock.mockResolvedValue({
+      data: {
+        token: GITHUB_STATELESS_INSTALLATION_TOKEN,
+        expires_at: '2026-06-10T12:00:00.000Z',
+        repositories: [{id: 42}, {id: 4.5}, {id: '43'}],
+      },
+    });
+    const client = createGithubApiClient();
+
+    const result = await client.createInstallationAccessToken({
+      installationId: 1,
+      repositoryId: 42,
+    });
+
+    expect(result.repositoryIds).toEqual([42]);
+  });
+
   it('passes through a stateful repository-scoped write token', async () => {
     createInstallationAccessTokenMock.mockResolvedValue({
       data: {
