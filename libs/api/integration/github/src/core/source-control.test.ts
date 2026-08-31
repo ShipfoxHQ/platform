@@ -457,6 +457,11 @@ describe('GithubSourceControlProvider', () => {
         username: 'x-access-token',
         token: 'ghs_installationtoken',
         expiresAt: new Date('2026-06-10T12:00:00.000Z'),
+        generation: expect.any(String),
+        renewal: {
+          mode: 'refresh-at',
+          refreshAt: new Date('2026-06-10T11:55:00.000Z'),
+        },
       },
       gitAuthor: {
         name: 'shipfox-test[bot]',
@@ -473,6 +478,51 @@ describe('GithubSourceControlProvider', () => {
       username: 'shipfox-test[bot]',
       installationAccessToken: 'ghs_installationtoken',
     });
+  });
+
+  it('creates credential-only delivery without repository or bot metadata lookups', async () => {
+    await createInstallation();
+    const github = githubClient();
+    const provider = new GithubSourceControlProvider(github);
+
+    const result = await provider.createCheckoutCredentials({
+      connection: connection(),
+      externalRepositoryId: 'github:42',
+      permissions: {contents: 'write'},
+    });
+
+    expect(result).toMatchObject({
+      username: 'x-access-token',
+      token: 'ghs_installationtoken',
+      expiresAt: new Date('2026-06-10T12:00:00.000Z'),
+      generation: expect.any(String),
+      renewal: {
+        mode: 'refresh-at',
+        refreshAt: new Date('2026-06-10T11:55:00.000Z'),
+      },
+    });
+    expect(github.createInstallationAccessToken).toHaveBeenCalledWith({
+      installationId,
+      repositoryId: 42,
+      permissions: {contents: 'write'},
+    });
+    expect(github.getRepository).not.toHaveBeenCalled();
+    expect(github.getBotUser).not.toHaveBeenCalled();
+  });
+
+  it('does not return a rejected generation', async () => {
+    await createInstallation();
+    const github = githubClient();
+    const provider = new GithubSourceControlProvider(github);
+
+    const result = await provider.createCheckoutCredentials({
+      connection: connection(),
+      externalRepositoryId: 'github:42',
+      permissions: {contents: 'read'},
+      rejectedGeneration: 'rejected-generation',
+    });
+
+    expect(result.generation).not.toBe('rejected-generation');
   });
 
   it('propagates bot identity resolution failures for write checkouts', async () => {

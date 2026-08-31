@@ -1,9 +1,12 @@
 import {Buffer} from 'node:buffer';
+import {randomUUID} from 'node:crypto';
 import {giteaProviderKind} from '@shipfox/api-integration-gitea-dto';
 import {
   asRecord,
   buildProviderRepositoryId,
+  type CheckoutCredentials,
   type CheckoutSpec,
+  type CreateCheckoutCredentialsInput,
   type CreateCheckoutSpecInput,
   type FetchFileInput,
   type FilePage,
@@ -247,19 +250,36 @@ export class GiteaSourceControlProvider
     const repository = await this.gitea.getRepository({owner, repo});
     const ref = input.ref?.trim() || repository.defaultBranch;
 
+    const credentials = await this.createCheckoutCredentials({
+      connection: input.connection,
+      externalRepositoryId: input.externalRepositoryId,
+      permissions: input.permissions ?? {contents: 'read'},
+    });
+
     return {
       repositoryUrl: createCheckoutRepositoryUrl(repository.cloneUrl),
       ref,
-      // Gitea has no per-repo, auto-expiring token like a GitHub App installation
-      // token, so checkout reuses the long-lived service credential. `expiresAt`
-      // is the runner's lease/refresh window, not the token's real expiry: this
-      // credential does not actually expire and stays valid if it leaks.
-      credentials: {
-        username: config.GITEA_SERVICE_USERNAME,
-        token: config.GITEA_SERVICE_TOKEN,
-        expiresAt: new Date(Date.now() + config.GITEA_CHECKOUT_TTL_SECONDS * 1000),
-      },
+      credentials,
     };
+  }
+
+  async createCheckoutCredentials(
+    input: CreateCheckoutCredentialsInput<GiteaIntegrationConnection>,
+  ): Promise<CheckoutCredentials> {
+    parseGiteaRepositoryLocator(input.externalRepositoryId, input.connection.externalAccountId);
+    // Gitea has no per-repo, auto-expiring token like a GitHub App installation
+    // token, so checkout reuses the long-lived service credential. `expiresAt`
+    // remains a synthetic legacy field for old runners; renewal is rejection-only.
+    let generation = randomUUID();
+    while (generation === input.rejectedGeneration) generation = randomUUID();
+
+    return await Promise.resolve({
+      username: config.GITEA_SERVICE_USERNAME,
+      token: config.GITEA_SERVICE_TOKEN,
+      expiresAt: new Date(Date.now() + config.GITEA_CHECKOUT_TTL_SECONDS * 1000),
+      generation,
+      renewal: {mode: 'on-rejection' as const},
+    });
   }
 }
 
