@@ -29,6 +29,10 @@ const policies: Record<
   lookup: {
     ip: {limit: 60, windowSeconds: 5 * 60},
   },
+  directory: {
+    ip: {limit: 60, windowSeconds: 5 * 60},
+    actor: {limit: 60, windowSeconds: 5 * 60},
+  },
   impersonate: {
     // Bounds mint and probing attempts: the IP bucket bounds aggregate source
     // traffic, and the actor bucket is a per-actor cap that prevents an actor
