@@ -30,7 +30,7 @@ function input() {
 }
 
 describe('Annotations inter-module presentation', () => {
-  test('lists only annotations owned by the requested workspace and preserves the cursor', async () => {
+  test('lists only annotations owned by the requested workspace with pagination', async () => {
     const workspaceId = crypto.randomUUID();
     const workflowRunId = crypto.randomUUID();
     const visible = await annotationFactory.create({
