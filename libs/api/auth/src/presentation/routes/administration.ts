@@ -60,7 +60,6 @@ import {
   ImpersonationExpiredError,
   ImpersonationTargetNotActiveError,
   InvalidAdminBootstrapTokenError,
-  InvalidAdministratorUserDirectoryFilterError,
   InvalidCredentialsError,
   LastAdminOwnerError,
   UserNotFoundError,
@@ -156,12 +155,6 @@ function translateImpersonationEligibilityError(error: unknown): ClientError | u
 }
 
 function translateAdministrationError(error: unknown): never {
-  if (error instanceof InvalidAdministratorUserDirectoryFilterError) {
-    throw new ClientError(error.message, 'invalid-administrator-user-directory-filter', {
-      status: 400,
-      cause: error,
-    });
-  }
   const impersonationEligibilityError = translateImpersonationEligibilityError(error);
   if (impersonationEligibilityError) throw impersonationEligibilityError;
   if (error instanceof AdminRoleRequiredError) {
