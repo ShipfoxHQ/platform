@@ -682,6 +682,7 @@ describe('runJobSteps', () => {
       expect(ms).toBe(5000);
       expect(signal).toBe(ac.signal);
       ac.abort();
+      return Promise.resolve(undefined);
     });
 
     await expect(pullNextStep({leaseClient, jobId: JOB_ID, signal: ac.signal})).resolves.toBe(
