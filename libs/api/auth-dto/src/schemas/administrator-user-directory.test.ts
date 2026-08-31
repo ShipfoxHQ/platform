@@ -56,7 +56,7 @@ describe('administrator user directory query schema', () => {
   });
 
   it('rejects control and format characters in searches', () => {
-    for (const search of ['alex\nshipfox', 'alex\u0000shipfox', 'alex\u200Bshipfox']) {
+    for (const search of ['alex\nshipfox', 'alex\u0000shipfox', 'alex\u200Bshipfox', '\n', '\t']) {
       expect(parseQuery({search})).toMatchObject({success: false});
     }
   });
@@ -97,11 +97,11 @@ describe('administrator user directory query schema', () => {
     }
   });
 
-  it('bounds opaque encoded cursors', () => {
+  it('bounds opaque cursors', () => {
     expect(parseQuery({cursor: 'a'}).success).toBe(true);
+    expect(parseQuery({cursor: 'not a cursor'}).success).toBe(true);
     expect(parseQuery({cursor: 'a'.repeat(512)}).success).toBe(true);
     expect(parseQuery({cursor: 'a'.repeat(513)}).success).toBe(false);
-    expect(parseQuery({cursor: 'not a cursor'}).success).toBe(false);
   });
 
   it('coerces page sizes and enforces both bounds', () => {
@@ -110,6 +110,9 @@ describe('administrator user directory query schema', () => {
     expect(parseQuery({limit: '0'}).success).toBe(false);
     expect(parseQuery({limit: '101'}).success).toBe(false);
     expect(parseQuery({limit: '1.5'}).success).toBe(false);
+    expect(parseQuery({limit: true}).success).toBe(false);
+    expect(parseQuery({limit: 'abc'}).success).toBe(false);
+    expect(parseQuery({limit: '1e2'}).success).toBe(false);
   });
 
   it('rejects unknown query fields', () => {
