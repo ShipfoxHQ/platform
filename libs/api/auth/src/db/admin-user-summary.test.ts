@@ -181,5 +181,16 @@ describe('administrator user summaries db', () => {
       expect.arrayContaining([expect.objectContaining({id: actor.id})]),
     );
     expect(unverified.id).not.toBe(eligibleRows.rows[0]?.id);
+
+    const ineligibleRows = await listAdministratorUserSummaries(db(), {
+      actorId: actor.id,
+      search: marker,
+      eligible: false,
+      limit: 20,
+    });
+    expect(ineligibleRows.rows.map(({id}) => id)).toEqual(
+      expect.arrayContaining([actor.id, unverified.id, granted.id, suspended.id, deleted.id]),
+    );
+    expect(ineligibleRows.rows.map(({id}) => id)).not.toContain(eligible.id);
   });
 });

@@ -11,6 +11,7 @@ import {
   isNotNull,
   isNull,
   ne,
+  not,
   or,
   type SQL,
   type SQLWrapper,
@@ -55,6 +56,35 @@ function isUuid(value: string): boolean {
 
 function containsTerm(column: SQLWrapper, term: string): SQLWrapper {
   return sql`${column} ILIKE ${`%${escapeLikeTerm(term)}%`}`;
+}
+
+function addEligibilityCondition(
+  conditions: SQL[],
+  params: Pick<ListAdministratorUserSummariesParams, 'actorId' | 'eligible'>,
+  activeAdminRoleUserId: SQLWrapper,
+): void {
+  const eligibleCondition = and(
+    eq(users.status, 'active'),
+    isNotNull(users.emailVerifiedAt),
+    isNull(activeAdminRoleUserId),
+    ne(users.id, params.actorId),
+  );
+  if (eligibleCondition && params.eligible === true) conditions.push(eligibleCondition);
+  if (eligibleCondition && params.eligible === false) conditions.push(not(eligibleCondition));
+}
+
+function addSearchConditions(conditions: SQL[], search: string | undefined): void {
+  const normalizedSearch = search?.trim() ?? '';
+  if (!normalizedSearch) return;
+  if (isUuid(normalizedSearch)) {
+    conditions.push(eq(users.id, normalizedSearch));
+    return;
+  }
+
+  for (const term of normalizedSearch.split(SEARCH_TERM_SEPARATOR)) {
+    const termCondition = or(containsTerm(users.name, term), containsTerm(users.email, term));
+    if (termCondition) conditions.push(termCondition);
+  }
 }
 
 function adminRoleFromRank(rank: number | null, status: UserStatus): AdminRole | null {
@@ -133,26 +163,8 @@ export async function listAdministratorUserSummaries(
   if (cursorCondition) conditions.push(cursorCondition);
   if (params.status) conditions.push(eq(users.status, params.status));
 
-  if (params.eligible) {
-    conditions.push(
-      eq(users.status, 'active'),
-      isNotNull(users.emailVerifiedAt),
-      isNull(activeAdminRoles.userId),
-      ne(users.id, params.actorId),
-    );
-  }
-
-  const search = params.search?.trim() ?? '';
-  if (search) {
-    if (isUuid(search)) {
-      conditions.push(eq(users.id, search));
-    } else {
-      for (const term of search.split(SEARCH_TERM_SEPARATOR)) {
-        const termCondition = or(containsTerm(users.name, term), containsTerm(users.email, term));
-        if (termCondition) conditions.push(termCondition);
-      }
-    }
-  }
+  addEligibilityCondition(conditions, params, activeAdminRoles.userId);
+  addSearchConditions(conditions, params.search);
 
   const rows = await executor
     .select({
