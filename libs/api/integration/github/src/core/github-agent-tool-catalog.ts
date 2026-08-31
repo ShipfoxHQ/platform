@@ -158,7 +158,7 @@ const issueWriteMethods = [
 ] as const satisfies readonly GithubAgentToolCatalogMethod[];
 
 const indirectSearchTargetNote =
-  'The free-form query may match issues or pull requests in repositories other than the declared target.';
+  'The free-form query may match results in repositories other than the declared target.';
 
 const subIssueIndirectTargetNote =
   'The opaque child and ordering IDs may refer to another repository in the GitHub installation.';
