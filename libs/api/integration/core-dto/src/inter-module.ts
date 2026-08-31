@@ -103,6 +103,9 @@ const toolCallErrors = {
   'connection-provider-changed': z.object({connectionId: id}),
   'provider-unavailable': z.object({provider}),
   'capability-unavailable': z.object({provider, capability}),
+  'repository-not-granted': z.object({}),
+  'repository-ambiguous': z.object({}),
+  'repository-authorization-unavailable': z.object({}),
 };
 const providerError = z.object({
   reason: z.string(),
@@ -116,6 +119,12 @@ const sourceErrors = {
   'capability-unavailable': z.object({provider, capability}),
   'checkout-unsupported': z.object({provider}),
   'provider-failure': providerError,
+};
+const checkoutErrors = {
+  ...sourceErrors,
+  'repository-not-granted': z.object({}),
+  'repository-ambiguous': z.object({}),
+  'repository-authorization-unavailable': z.object({}),
 };
 
 const refErrors = {
@@ -178,7 +187,7 @@ export const integrationsInterModuleContract = defineInterModuleContract({
         credentials: checkoutCredentials.optional(),
         gitAuthor: z.object({name: z.string(), email: z.string()}).optional(),
       }),
-      errors: sourceErrors,
+      errors: checkoutErrors,
     },
     createCheckoutCredentials: {
       input: sourceInput.extend({
@@ -186,7 +195,7 @@ export const integrationsInterModuleContract = defineInterModuleContract({
         rejectedGeneration: z.string().optional(),
       }),
       output: checkoutCredentials,
-      errors: sourceErrors,
+      errors: checkoutErrors,
     },
     getAgentToolsContext: {
       input: z.object({workspaceId: id, defaultConnectionId: id}),

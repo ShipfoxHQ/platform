@@ -7,17 +7,23 @@ import {
   type WebhookRequestProcessor,
   type WebhookRouteId,
 } from '@shipfox/api-integration-spi';
+import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import type {WorkflowsModuleClient} from '@shipfox/api-workflows-dto/inter-module';
 import type {WorkspacesInterModuleClient} from '@shipfox/api-workspaces-dto/inter-module';
 import {reportError} from '@shipfox/node-error-monitoring';
 import type {ModuleService, ShipfoxModule} from '@shipfox/node-module';
 import {logger} from '@shipfox/node-opentelemetry';
+import {config} from '#config.js';
 import type {IntegrationProvider} from '#core/entities/provider.js';
 import {WebhookProcessorNotConfiguredError} from '#core/errors.js';
 import {
   createIntegrationProviderRegistry,
   type IntegrationProviderRegistry,
 } from '#core/providers/registry.js';
+import {
+  createRepositoryAuthorizer,
+  type RepositoryAuthorizer,
+} from '#core/repository-authorizer.js';
 import {
   createSourceControlIntegrationService,
   type IntegrationSourceControlService,
@@ -122,6 +128,30 @@ export type {
   TriggerReference,
 } from '#core/providers/source-control.js';
 export type {
+  AuthorizedRepository,
+  CreateRepositoryAuthorizerOptions,
+  RepositoryAuthorizationCapability,
+  RepositoryAuthorizationClientErrorCode,
+  RepositoryAuthorizationDenial,
+  RepositoryAuthorizationExternalIdTarget,
+  RepositoryAuthorizationMode,
+  RepositoryAuthorizationNameTarget,
+  RepositoryAuthorizationRequestContext,
+  RepositoryAuthorizationResult,
+  RepositoryAuthorizationTarget,
+  RepositoryAuthorizer,
+  ResolveRepositoryAuthorizationInput,
+  ResolveRepositoryAuthorizationParams,
+} from '#core/repository-authorizer.js';
+export {
+  createRepositoryAuthorizationRequestContext,
+  createRepositoryAuthorizer,
+  RepositoryAuthorizationTargetInvalidError,
+  repositoryAuthorizationClientErrorCode,
+  repositoryAuthorizationClientErrorCodes,
+  resolveRepositoryAuthorization,
+} from '#core/repository-authorizer.js';
+export type {
   CreateSourceCheckoutCredentialsInput,
   IntegrationSourceControlService,
 } from '#core/source-control-service.js';
@@ -185,6 +215,7 @@ export interface CreateIntegrationsModuleOptions {
    */
   parts?: IntegrationModuleParts[] | undefined;
   secrets?: IntegrationProviderSecrets | undefined;
+  projects?: ProjectsModuleClient | undefined;
   workspaces?: WorkspacesInterModuleClient | undefined;
   agentTools?:
     | {
@@ -207,8 +238,10 @@ export interface IntegrationsContext {
   registry: IntegrationProviderRegistry;
   capabilities: {
     sourceControl: IntegrationSourceControlService;
+    repositoryAuthorizer: RepositoryAuthorizer;
   };
   sourceControl: IntegrationSourceControlService;
+  repositoryAuthorizer: RepositoryAuthorizer;
   webhookProcessor: WebhookRequestProcessor;
   /**
    * Runs every enabled provider's one-shot boot-time tasks, after modules are initialized
@@ -258,6 +291,10 @@ export async function createIntegrationsContext(
   const sourceControl = createSourceControlIntegrationService({
     registry,
     getIntegrationConnectionById,
+  });
+  const repositoryAuthorizer = createRepositoryAuthorizer({
+    projects: options.projects,
+    enabled: config.INTEGRATIONS_ENABLE_REPOSITORY_AUTHORIZATION,
   });
   const webhookProcessor = createComposedWebhookProcessor(
     parts.flatMap((part) => part.webhookProcessors ?? []),
@@ -325,8 +362,9 @@ export async function createIntegrationsContext(
   return {
     module,
     registry,
-    capabilities: {sourceControl},
+    capabilities: {sourceControl, repositoryAuthorizer},
     sourceControl,
+    repositoryAuthorizer,
     webhookProcessor,
     runStartupTasks,
   };

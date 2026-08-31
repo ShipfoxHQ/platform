@@ -110,6 +110,16 @@ describe('integrationsInterModuleContract', () => {
   });
 
   test.each([
+    'repository-not-granted',
+    'repository-ambiguous',
+    'repository-authorization-unavailable',
+  ] as const)('defines the %s checkout failure', (code) => {
+    const schema = integrationsInterModuleContract.methods.createCheckoutSpec.errors[code];
+
+    expect(schema.parse({})).toEqual({});
+  });
+
+  test.each([
     ['ref-not-found', {ref: 'refs/heads/missing'}],
     ['ref-invalid', {ref: 'a'.repeat(40)}],
   ] as const)('defines the %s ref failure', (code, details) => {
@@ -260,5 +270,15 @@ describe('integrationsInterModuleContract', () => {
       ];
 
     expect(schema.parse(details)).toEqual(details);
+  });
+
+  test.each([
+    'repository-not-granted',
+    'repository-ambiguous',
+    'repository-authorization-unavailable',
+  ] as const)('defines the %s callTool failure', (code) => {
+    const schema = integrationsInterModuleContract.methods.callTool.errors[code];
+
+    expect(schema.parse({})).toEqual({});
   });
 });

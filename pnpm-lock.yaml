@@ -2753,6 +2753,9 @@ importers:
       '@shipfox/api-integration-webhook':
         specifier: workspace:*
         version: link:../webhook
+      '@shipfox/api-projects-dto':
+        specifier: workspace:*
+        version: link:../../projects-dto
       '@shipfox/api-workflows-dto':
         specifier: workspace:*
         version: link:../../workflows-dto

@@ -1,4 +1,5 @@
 import type {StoredWebhookRequest, WebhookRequestProcessor} from '@shipfox/api-integration-spi';
+import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import {createOutboxRegistry, type ModuleService, startModuleServices} from '@shipfox/node-module';
 import {createIntegrationsContext, WebhookProcessorNotConfiguredError} from './index.js';
 
@@ -105,5 +106,32 @@ describe('createIntegrationsContext', () => {
     });
 
     await expect(result).rejects.toThrow(sourceError);
+  });
+
+  it('keeps the repository authorization gate disabled by default', async () => {
+    const getProjectBySource = vi.fn();
+    const findProjectBySourceRepositoryName = vi.fn();
+    const projects = {
+      getProjectBySource,
+      findProjectBySourceRepositoryName,
+    } as unknown as ProjectsModuleClient;
+    const context = await createIntegrationsContext({
+      parts: [{provider: {provider: 'github', displayName: 'GitHub', adapters: {}}}],
+      projects,
+    });
+
+    expect(context.repositoryAuthorizer.enabled).toBe(false);
+    expect(context.capabilities.repositoryAuthorizer).toBe(context.repositoryAuthorizer);
+    await expect(
+      context.repositoryAuthorizer.resolveRepositoryAuthorization({
+        workspaceId: 'workspace-1',
+        connectionId: 'connection-1',
+        mode: 'all',
+        repository: {kind: 'external-id', externalRepositoryId: 'github:42'},
+        capability: 'checkout',
+      }),
+    ).resolves.toBeUndefined();
+    expect(getProjectBySource).not.toHaveBeenCalled();
+    expect(findProjectBySourceRepositoryName).not.toHaveBeenCalled();
   });
 });

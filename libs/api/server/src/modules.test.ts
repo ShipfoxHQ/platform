@@ -588,6 +588,10 @@ describe('defaultModules', () => {
         },
       },
       agentTools: {workflows: expect.objectContaining({getStepLogContext: expect.any(Function)})},
+      projects: expect.objectContaining({
+        getProjectBySource: expect.any(Function),
+        findProjectBySourceRepositoryName: expect.any(Function),
+      }),
       webhookDeliverySource: undefined,
     });
 
