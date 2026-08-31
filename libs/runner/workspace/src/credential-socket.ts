@@ -1,14 +1,24 @@
 import {chmod, lstat, mkdir, rm} from 'node:fs/promises';
 import {connect, createServer, type Server, type Socket} from 'node:net';
 import {dirname} from 'node:path';
-import type {CredentialBroker, CredentialLookup} from '#credential-broker.js';
+import {logger} from '@shipfox/node-opentelemetry';
+import {
+  type CredentialBroker,
+  type CredentialLookup,
+  DEFAULT_CREDENTIAL_RENEWAL_TIMEOUT_MS,
+  normalizeRepositoryUrl,
+} from '#credential-broker.js';
+import {recordCredentialSocketRequest} from '#credential-metrics.js';
 
 const PROTOCOL_VERSION = 1;
 const MAX_SOCKET_PATH_BYTES = 104;
 const MAX_CAPABILITY_BYTES = 512;
 const MAX_MESSAGE_BYTES = 16 * 1_024;
 const MAX_RESPONSE_BYTES = 64 * 1_024;
-const SOCKET_TIMEOUT_MS = 35_000;
+const SOCKET_TIMEOUT_HEADROOM_MS = 5_000;
+const SOCKET_TIMEOUT_MS = DEFAULT_CREDENTIAL_RENEWAL_TIMEOUT_MS + SOCKET_TIMEOUT_HEADROOM_MS;
+const MAX_REQUEST_ATTEMPTS = 3;
+const RETRY_BACKOFF_MS = 25;
 const SOCKET_MODE = 0o600;
 
 export type CredentialSocketOperation = 'get' | 'store' | 'erase';
@@ -37,7 +47,10 @@ export type CredentialSocketServer = {
 };
 
 export class CredentialSocketError extends Error {
-  constructor(message = 'Credential socket request failed') {
+  constructor(
+    message = 'Credential socket request failed',
+    public readonly code = 'EPROTO',
+  ) {
     super(message);
     this.name = 'CredentialSocketError';
   }
@@ -58,6 +71,8 @@ export function createCredentialSocketServer(
   let closed = false;
   let lifecycle: Promise<void> = Promise.resolve();
   const connections = new Set<Socket>();
+  const inFlight = new Set<Promise<void>>();
+  const socketTimeoutMs = options.broker.renewalTimeoutMs + SOCKET_TIMEOUT_HEADROOM_MS;
 
   const enqueueLifecycle = <T>(operation: () => Promise<T>): Promise<T> => {
     const next = lifecycle.then(operation);
@@ -70,8 +85,12 @@ export function createCredentialSocketServer(
 
   const handleConnection = (socket: Socket): void => {
     connections.add(socket);
-    socket.once('close', () => connections.delete(socket));
-    socket.setTimeout(SOCKET_TIMEOUT_MS, () => socket.destroy());
+    const abortController = new AbortController();
+    socket.once('close', () => {
+      connections.delete(socket);
+      abortController.abort();
+    });
+    socket.setTimeout(socketTimeoutMs, () => socket.destroy());
     let body = Buffer.alloc(0);
     let tooLarge = false;
 
@@ -86,7 +105,18 @@ export function createCredentialSocketServer(
     socket.once('error', () => undefined);
     socket.once('end', () => {
       if (tooLarge) return;
-      void respond(socket, body, options.broker, options.capability);
+      const response = respond(
+        socket,
+        body,
+        options.broker,
+        options.capability,
+        abortController.signal,
+      );
+      inFlight.add(response);
+      void response.then(
+        () => inFlight.delete(response),
+        () => inFlight.delete(response),
+      );
     });
   };
 
@@ -133,45 +163,57 @@ export function createCredentialSocketServer(
       for (const connection of connections) connection.destroy();
       await closeServer(currentServer);
     }
+    await Promise.allSettled(inFlight);
     await rm(options.socketPath, {force: true});
   }
 }
 
 /** Sends one bounded request to a job's credential socket. */
-export function requestCredentialSocket(
+export async function requestCredentialSocket(
   socketPath: string,
   request: Omit<CredentialSocketRequest, 'version'>,
 ): Promise<CredentialSocketResponse> {
-  return new Promise((resolve, reject) => {
-    let encoded: Buffer;
+  assertSocketPath(socketPath);
+  assertCredentialSocketCapability(request.capability);
+  const encoded = encodeMessage({version: PROTOCOL_VERSION, ...request});
+  let lastError: unknown;
+  for (let attempt = 0; attempt < MAX_REQUEST_ATTEMPTS; attempt += 1) {
     try {
-      assertSocketPath(socketPath);
-      assertCredentialSocketCapability(request.capability);
-      encoded = encodeMessage({version: PROTOCOL_VERSION, ...request});
+      return await requestCredentialSocketAttempt(socketPath, encoded);
     } catch (error) {
-      reject(error);
-      return;
+      lastError = error;
+      if (!isTransientSocketError(error) || attempt === MAX_REQUEST_ATTEMPTS - 1) throw error;
+      await retryDelay(attempt);
     }
+  }
+  throw lastError;
+}
+
+function requestCredentialSocketAttempt(
+  socketPath: string,
+  encoded: Buffer,
+): Promise<CredentialSocketResponse> {
+  return new Promise((resolve, reject) => {
     const socket = createConnection(socketPath);
-    socket.setTimeout(SOCKET_TIMEOUT_MS, () => {
-      socket.destroy();
-    });
+    socket.setTimeout(SOCKET_TIMEOUT_MS, () => socket.destroy());
     let body = Buffer.alloc(0);
     let settled = false;
+    let connected = false;
 
-    const fail = () => {
+    const fail = (error?: NodeJS.ErrnoException) => {
       if (settled) return;
       settled = true;
-      reject(new CredentialSocketError());
+      const code = error?.code ?? (connected ? 'ECONNRESET' : 'ECONNREFUSED');
+      reject(new CredentialSocketError(`Credential socket request failed (${code})`, code));
     };
     socket.once('error', fail);
-    socket.once('close', fail);
+    socket.once('close', () => fail());
     socket.on('data', (chunk: Buffer) => {
       if (settled) return;
       body = Buffer.concat([body, chunk]);
       if (body.length > MAX_RESPONSE_BYTES) {
         socket.destroy();
-        fail();
+        fail({code: 'EMSGSIZE'} as NodeJS.ErrnoException);
       }
     });
     socket.once('end', () => {
@@ -181,13 +223,24 @@ export function requestCredentialSocket(
         settled = true;
         resolve(response);
       } catch {
-        fail();
+        fail({code: 'EPROTO'} as NodeJS.ErrnoException);
       }
     });
     socket.once('connect', () => {
+      connected = true;
       socket.end(encoded);
     });
   });
+}
+
+function isTransientSocketError(error: unknown): boolean {
+  if (!(error instanceof CredentialSocketError)) return false;
+  return ['EAGAIN', 'ECONNREFUSED', 'ECONNRESET', 'ENOENT', 'ETIMEDOUT'].includes(error.code);
+}
+
+function retryDelay(attempt: number): Promise<void> {
+  const jitter = Math.floor(Math.random() * RETRY_BACKOFF_MS);
+  return new Promise((resolve) => setTimeout(resolve, RETRY_BACKOFF_MS * 2 ** attempt + jitter));
 }
 
 async function respond(
@@ -195,15 +248,25 @@ async function respond(
   body: Buffer,
   broker: CredentialBroker,
   capability: string,
+  signal: AbortSignal,
 ): Promise<void> {
   let response: CredentialSocketResponse;
+  let operation: 'get' | 'store' | 'erase' | 'unknown' = 'unknown';
   try {
     const request = decodeRequest(body);
-    response = await handleRequest(request, broker, capability);
-  } catch {
+    operation = request.operation;
+    response = await handleRequest(request, broker, capability, signal);
+    recordCredentialSocketRequest(operation, response.ok ? 'success' : 'rejected');
+  } catch (error) {
+    recordCredentialSocketRequest(operation, 'error');
+    logger().warn(
+      {operation, reason: error instanceof Error ? error.name : 'UnknownError'},
+      'Credential socket request rejected',
+    );
     response = {version: PROTOCOL_VERSION, ok: false};
   }
 
+  if (signal.aborted) return;
   try {
     socket.end(encodeMessage(response));
   } catch {
@@ -215,10 +278,13 @@ async function handleRequest(
   request: CredentialSocketRequest,
   broker: CredentialBroker,
   capability: string,
+  signal: AbortSignal,
 ): Promise<CredentialSocketResponse> {
   if (request.capability !== capability) return {version: PROTOCOL_VERSION, ok: false};
+  if (signal.aborted) return {version: PROTOCOL_VERSION, ok: false};
   if (request.operation === 'get') {
     const credential = await broker.lookup(request.repositoryUrl);
+    if (signal.aborted) return {version: PROTOCOL_VERSION, ok: false};
     return credential === undefined
       ? {version: PROTOCOL_VERSION, ok: true}
       : {version: PROTOCOL_VERSION, ok: true, credential};
@@ -228,6 +294,7 @@ async function handleRequest(
     return {version: PROTOCOL_VERSION, ok: true};
   }
   await broker.erase(request.repositoryUrl);
+  if (signal.aborted) return {version: PROTOCOL_VERSION, ok: false};
   return {version: PROTOCOL_VERSION, ok: true};
 }
 
@@ -244,6 +311,7 @@ function decodeRequest(body: Buffer): CredentialSocketRequest {
     throw new CredentialSocketError('Invalid credential socket request');
   }
   assertCredentialSocketCapability(value.capability);
+  normalizeRepositoryUrl(value.repositoryUrl);
   return {
     version: PROTOCOL_VERSION,
     operation: value.operation,

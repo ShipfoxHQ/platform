@@ -74,6 +74,19 @@ describe('credential socket transport', () => {
     expect(renew).toHaveBeenCalledTimes(1);
   });
 
+  it('rejects invalid client setup and server repository URLs', async () => {
+    await expect(
+      requestCredentialSocket('relative.sock', {operation: 'get', repositoryUrl, capability}),
+    ).rejects.toThrow('path');
+    await expect(
+      requestCredentialSocket(socketPath, {
+        operation: 'get',
+        repositoryUrl: 'http://example.test/acme/repository.git',
+        capability,
+      }),
+    ).resolves.toEqual({version: 1, ok: false});
+  });
+
   it('uses a private socket and does not serve a credential for an unregistered repository URL', async () => {
     expect((await stat(socketPath)).mode & 0o777).toBe(0o600);
     const unregistered = await requestCredentialSocket(socketPath, {

@@ -34,6 +34,7 @@ export {
   type CredentialRenewal,
   type CredentialRenewalRequest,
   createCredentialBroker,
+  DEFAULT_CREDENTIAL_RENEWAL_TIMEOUT_MS,
   normalizeRepositoryUrl,
   type RegisterCredentialOptions,
   type RejectionResult,

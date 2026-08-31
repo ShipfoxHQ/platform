@@ -1,3 +1,5 @@
+import {recordCredentialRenewal} from '#credential-metrics.js';
+
 export type BrokerCredential = {
   username: string;
   token: string;
@@ -43,6 +45,7 @@ export type RejectionResult = {rejectedGeneration?: string};
 
 const TRAILING_SLASHES = /\/+$/;
 const MAX_REPOSITORY_URL_LENGTH = 2_048;
+export const DEFAULT_CREDENTIAL_RENEWAL_TIMEOUT_MS = 30_000;
 
 export function createCredentialBroker(options: CredentialBrokerOptions): CredentialBroker {
   return new CredentialBroker(options);
@@ -71,18 +74,18 @@ export class CredentialBroker {
   private readonly flights = new Map<string, Flight>();
   private readonly now: () => number;
   private readonly backoffMs: number;
-  private readonly renewalTimeoutMs: number;
+  private readonly renewalTimeoutMsValue: number;
   private publication: Promise<void> = Promise.resolve();
   private stopped = false;
 
   constructor(private readonly options: CredentialBrokerOptions) {
     this.now = options.now ?? Date.now;
     this.backoffMs = options.backoffMs ?? 1000;
-    this.renewalTimeoutMs = options.renewalTimeoutMs ?? 30_000;
+    this.renewalTimeoutMsValue = options.renewalTimeoutMs ?? DEFAULT_CREDENTIAL_RENEWAL_TIMEOUT_MS;
     if (!Number.isFinite(this.backoffMs) || this.backoffMs < 0) {
       throw new RangeError('backoffMs must be a non-negative finite number');
     }
-    if (!Number.isFinite(this.renewalTimeoutMs) || this.renewalTimeoutMs < 0) {
+    if (!Number.isFinite(this.renewalTimeoutMsValue) || this.renewalTimeoutMsValue < 0) {
       throw new RangeError('renewalTimeoutMs must be a non-negative finite number');
     }
   }
@@ -150,6 +153,10 @@ export class CredentialBroker {
 
   store(_repositoryUrl: string, _credential?: CredentialLookup): void {
     // Git's store operation must not replace the server-authored credential.
+  }
+
+  get renewalTimeoutMs(): number {
+    return this.renewalTimeoutMsValue;
   }
 
   shutdown(): void {
@@ -237,7 +244,9 @@ export class CredentialBroker {
         return;
       await this.publish(credential).catch(() => undefined);
       if (!this.isCurrentRenewal(entry, rejectionRequested)) return;
+      recordCredentialRenewal('success');
     } catch (error) {
+      recordCredentialRenewal('failure');
       this.handleRenewalError(entry, error);
     }
   }
@@ -258,7 +267,7 @@ export class CredentialBroker {
       const timeout = new Promise<never>((_, reject) => {
         timer = setTimeout(
           () => reject(new TransientCredentialRenewalError('Credential renewal timed out')),
-          this.renewalTimeoutMs,
+          this.renewalTimeoutMsValue,
         );
       });
       return await Promise.race([renewal, timeout]);

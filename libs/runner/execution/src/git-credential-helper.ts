@@ -1,11 +1,21 @@
+import {instanceMetrics, logger} from '@shipfox/node-opentelemetry';
 import {normalizeRepositoryUrl} from '@shipfox/runner-workspace';
-import {requestCredentialSocket} from '@shipfox/runner-workspace/credential-socket';
+import {
+  type CredentialSocketOperation,
+  requestCredentialSocket,
+} from '@shipfox/runner-workspace/credential-socket';
 
 const MAX_INPUT_BYTES = 16 * 1_024;
 const MAX_CREDENTIAL_VALUE_LENGTH = 8 * 1_024;
 const GIT_FIELD_LINE_RE = /\r?\n/;
+const helperInvocationCount = instanceMetrics.getMeter('runner-execution').createCounter<{
+  operation: CredentialSocketOperation | 'unknown';
+  outcome: 'success' | 'failure';
+}>('runner_git_credential_helper_invocations', {
+  description: 'Git credential helper invocations by operation and bounded outcome',
+});
 
-export type GitCredentialHelperOperation = 'get' | 'store' | 'erase';
+export type GitCredentialHelperOperation = CredentialSocketOperation;
 
 /**
  * Runs the installed Git credential-helper entry point. Git's `store` and `erase` inputs are
@@ -39,11 +49,30 @@ export async function runGitCredentialHelper(params?: {
   );
 }
 
-export async function main(): Promise<void> {
+export async function main(params?: {
+  argv?: readonly string[];
+  input?: string | Buffer;
+  stderr?: NodeJS.WritableStream;
+  setExitCode?: (code: number) => void;
+}): Promise<void> {
+  const argv = params?.argv ?? process.argv.slice(2);
+  const operation = operationForMetrics(argv);
   try {
-    await runGitCredentialHelper();
-  } catch {
-    process.exitCode = 1;
+    await runGitCredentialHelper({
+      argv,
+      ...(params?.input === undefined ? {} : {input: params.input}),
+    });
+    recordHelperInvocation(operation, 'success');
+  } catch (error) {
+    (params?.setExitCode ?? ((code: number) => (process.exitCode = code)))(1);
+    recordHelperInvocation(operation, 'failure');
+    logger().error(
+      {operation, reason: error instanceof Error ? error.name : 'UnknownError'},
+      'Git credential helper failed',
+    );
+    (params?.stderr ?? process.stderr).write(
+      `git-credential-shipfox ${operation} failed: ${error instanceof Error ? error.name : 'UnknownError'}\n`,
+    );
   }
 }
 
@@ -71,6 +100,24 @@ function readOperation(argv: readonly string[]): GitCredentialHelperOperation {
   const operation = argv.at(-1);
   if (operation === 'get' || operation === 'store' || operation === 'erase') return operation;
   throw new Error('Unknown Git credential operation');
+}
+
+function operationForMetrics(argv: readonly string[]): CredentialSocketOperation | 'unknown' {
+  const operation = argv.at(-1);
+  return operation === 'get' || operation === 'store' || operation === 'erase'
+    ? operation
+    : 'unknown';
+}
+
+function recordHelperInvocation(
+  operation: CredentialSocketOperation | 'unknown',
+  outcome: 'success' | 'failure',
+): void {
+  try {
+    helperInvocationCount.add(1, {operation, outcome});
+  } catch {
+    // Metrics must not affect Git credential lookup.
+  }
 }
 
 function readBoundedStdin(): Promise<Buffer> {

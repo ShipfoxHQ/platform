@@ -19,6 +19,10 @@ const ambientGitConfigLocks = new Map<string, Promise<void>>();
 const GIT_USER_SECTION_RE = /^\[user\]\s*(?:[;#].*)?$/i;
 const GIT_CREDENTIAL_SECTION_RE = /^\[credential\]\s*(?:[;#].*)?$/i;
 const GIT_USE_HTTP_PATH_RE = /^usehttppath\s*=\s*(true|false)\s*(?:[;#].*)?$/i;
+const GIT_CREDENTIAL_KEYS_RE = /^(credential|http)\..*\.(helper|username|password|extraheader)$/i;
+const GIT_CONFIG_LINES_RE = /\r?\n/;
+const GIT_CREDENTIAL_KEY_RE =
+  /^(?:credential|http)\.(.*)\.(?:helper|username|password|extraheader)$/i;
 
 /** Thrown when `git` is not on the runner host's PATH; surfaced as `git_unavailable`. */
 export class GitUnavailableError extends Error {
@@ -245,35 +249,30 @@ export function writeAmbientGitCredential(params: {
         ]
       : [];
 
-    await mkdir(dirname(configPath), {recursive: true});
-    const temporaryConfigPath = `${configPath}.${randomUUID()}.tmp`;
-    try {
-      if (existing === undefined || existing.trim() === '') {
-        await writeNewAmbientGitConfig(
-          temporaryConfigPath,
-          includePath,
-          userLines,
-          repositoryLines,
-        );
-      } else {
-        await updateAmbientGitConfig({
-          temporaryConfigPath,
-          existing,
-          auth,
-          repositoryUrl,
-          gitAuthor,
-          userLines,
-          repositoryLines,
-        });
-      }
-
-      if (!auth) await validateAmbientGitConfig(temporaryConfigPath);
-      await chmod(temporaryConfigPath, 0o600);
-      await rename(temporaryConfigPath, configPath);
-    } finally {
-      await rm(temporaryConfigPath, {force: true});
-    }
-    await chmod(configPath, 0o600);
+    await writeAmbientGitConfigFile(
+      configPath,
+      async (temporaryConfigPath) => {
+        if (existing === undefined || existing.trim() === '') {
+          await writeNewAmbientGitConfig(
+            temporaryConfigPath,
+            includePath,
+            userLines,
+            repositoryLines,
+          );
+        } else {
+          await updateAmbientGitConfig({
+            temporaryConfigPath,
+            existing,
+            auth,
+            repositoryUrl,
+            gitAuthor,
+            userLines,
+            repositoryLines,
+          });
+        }
+      },
+      !auth,
+    );
   });
 }
 
@@ -295,10 +294,15 @@ export function writeGitCredentialHelperConfig(params: {
   gitAuthor?: {name: string; email: string} | undefined;
 }): Promise<void> {
   const {configPath, repositoryUrl, helper, gitAuthor} = params;
-  normalizeRepositoryUrl(repositoryUrl);
+  const normalizedRepositoryUrl = normalizeRepositoryUrl(repositoryUrl);
   validateGitCredentialHelper(helper);
   return withAmbientGitConfigLock(configPath, () =>
-    updateGitCredentialHelperConfig({configPath, repositoryUrl, helper, gitAuthor}),
+    updateGitCredentialHelperConfig({
+      configPath,
+      repositoryUrl: normalizedRepositoryUrl,
+      helper,
+      gitAuthor,
+    }),
   );
 }
 
@@ -344,42 +348,79 @@ async function updateGitCredentialHelperConfig(params: {
     `\thelper = ${gitConfigQuotedValue(`!${params.helper.command} --socket ${shellQuote(params.helper.socketPath)} --capability ${shellQuote(params.helper.capability)}`)}`,
   ];
 
-  await mkdir(dirname(params.configPath), {recursive: true});
-  const temporaryConfigPath = `${params.configPath}.${randomUUID()}.tmp`;
-  try {
+  await writeAmbientGitConfigFile(params.configPath, async (temporaryConfigPath) => {
     await writeFile(
       temporaryConfigPath,
       `${current}${current.endsWith('\n') || current === '' ? '' : '\n'}${additions}`,
       {flag: 'wx', mode: 0o600},
     );
-    await unsetGitCredentialHelper(temporaryConfigPath, params.repositoryUrl);
+    await unsetGitCredentialValues(temporaryConfigPath, params.repositoryUrl);
     const withoutOldHelper = await readFile(temporaryConfigPath, 'utf8');
     await writeFile(temporaryConfigPath, `${withoutOldHelper}${helperLines.join('\n')}\n`, {
       flag: 'w',
       mode: 0o600,
     });
-    await validateAmbientGitConfig(temporaryConfigPath);
-    await chmod(temporaryConfigPath, 0o600);
-    await rename(temporaryConfigPath, params.configPath);
-  } finally {
-    await rm(temporaryConfigPath, {force: true});
-  }
-  await chmod(params.configPath, 0o600);
+  });
 }
 
-async function unsetGitCredentialHelper(configPath: string, repositoryUrl: string): Promise<void> {
+async function unsetGitCredentialValues(configPath: string, repositoryUrl: string): Promise<void> {
+  const keys = await gitCredentialKeys(configPath);
+  for (const key of keys) {
+    const subsection = gitCredentialSubsection(key);
+    if (subsection === undefined) continue;
+    let normalizedSubsection: string;
+    try {
+      normalizedSubsection = normalizeRepositoryUrl(subsection);
+    } catch {
+      continue;
+    }
+    if (normalizedSubsection !== repositoryUrl) continue;
+    try {
+      await execFileAsync('git', ['config', '--file', configPath, '--unset-all', key]);
+    } catch (error) {
+      if (!isGitConfigKeyMissing(error)) throw error;
+    }
+  }
+}
+
+async function gitCredentialKeys(configPath: string): Promise<string[]> {
   try {
-    await execFileAsync('git', [
+    const {stdout} = await execFileAsync('git', [
       'config',
       '--file',
       configPath,
-      '--unset-all',
-      `credential.${gitConfigSubsection(repositoryUrl)}.helper`,
+      '--name-only',
+      '--get-regexp',
+      GIT_CREDENTIAL_KEYS_RE.source,
     ]);
+    return stdout.split(GIT_CONFIG_LINES_RE).filter(Boolean);
   } catch (error) {
-    if (isGitConfigKeyMissing(error)) return;
+    if (isGitConfigNoMatch(error)) return [];
     throw error;
   }
+}
+
+function gitCredentialSubsection(key: string): string | undefined {
+  const match = GIT_CREDENTIAL_KEY_RE.exec(key);
+  return match?.[1];
+}
+
+async function writeAmbientGitConfigFile(
+  configPath: string,
+  write: (temporaryConfigPath: string) => Promise<void>,
+  validate = true,
+): Promise<void> {
+  await mkdir(dirname(configPath), {recursive: true});
+  const temporaryConfigPath = `${configPath}.${randomUUID()}.tmp`;
+  try {
+    await write(temporaryConfigPath);
+    if (validate) await validateAmbientGitConfig(temporaryConfigPath);
+    await chmod(temporaryConfigPath, 0o600);
+    await rename(temporaryConfigPath, configPath);
+  } finally {
+    await rm(temporaryConfigPath, {force: true});
+  }
+  await chmod(configPath, 0o600);
 }
 
 async function writeNewAmbientGitConfig(
@@ -476,6 +517,13 @@ async function unsetAmbientGitCredential(configPath: string, repositoryUrl: stri
 
 function isGitConfigKeyMissing(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === 5;
+}
+
+function isGitConfigNoMatch(error: unknown): boolean {
+  return (
+    isGitConfigKeyMissing(error) ||
+    (typeof error === 'object' && error !== null && 'code' in error && error.code === 1)
+  );
 }
 
 // Every form the credential takes on the wire is secret. For basic auth the raw token is
