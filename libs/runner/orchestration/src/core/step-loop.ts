@@ -82,7 +82,8 @@ const loadRunnerAgentStep = createRunnerAgentStepLoader();
 // Reporting a step before pulling the next one is the safety invariant: a lost report is
 // retried in place (next/report are idempotent), so a step is never re-pulled or
 // re-executed. The per-attempt log stream is settled before that report so the server can
-// close the durable stream immediately from the reported log outcome.
+// close the durable stream immediately from the reported log outcome. A completed session
+// commit is the boundary after which an abort still reports the attempt.
 //
 // Each step gets a per-attempt log stream: capture -> spool -> upload. The prior
 // attempt's stream is drained and disposed before the report, and the `finally`
@@ -255,21 +256,26 @@ async function finishStepExecution(
     'drained';
   state.activeStream = undefined;
   if (params.signal.aborted) return 'stop';
-  const result = await settleAgentSessionCommit({
+  const settlement = await settleAgentSessionCommit({
     execution,
     leaseClient: params.leaseClient,
     step,
     attempt,
     signal: params.signal,
   });
-  if (params.signal.aborted) return 'stop';
+  // Once the transcript commit has completed, reporting is the durable boundary:
+  // an abort must not leave a committed attempt invisible to the API.
+  if (params.signal.aborted && !settlement.committed) return 'stop';
+  const reportSignal =
+    params.signal.aborted && settlement.committed ? new AbortController().signal : params.signal;
+  const {result} = settlement;
   await publishStepAnnotations({
     leaseClient: params.leaseClient,
     step,
     attempt,
     annotations: result.annotations,
     jobId: params.jobId,
-    signal: params.signal,
+    signal: reportSignal,
   });
   const {cancel} = await reportStepResult({
     leaseClient: params.leaseClient,
@@ -280,7 +286,7 @@ async function finishStepExecution(
     jobId: params.jobId,
     jobExecutionId: params.jobContext.jobExecutionId,
     stepLabel,
-    signal: params.signal,
+    signal: reportSignal,
   });
   if (!cancel) return 'continue';
   logger().info(
@@ -764,7 +770,9 @@ async function executeAgentStepBranch(params: {
   });
   return {
     sessionCommit:
-      session.mode === 'resume' && session.baseSegment !== undefined
+      runtimeConfig.harness === 'pi' &&
+      session.mode === 'resume' &&
+      session.baseSegment !== undefined
         ? {
             baseSegment: session.baseSegment,
             harness: runtimeConfig.harness,
@@ -798,6 +806,17 @@ interface AgentSessionState {
   preamble: boolean;
 }
 
+class AgentSessionHarnessMismatchError extends Error {
+  readonly reason = 'agent_session_harness_mismatch' as const;
+
+  constructor(transcriptHarness: string, runtimeHarness: string) {
+    super(
+      `Session transcript belongs to harness "${transcriptHarness}", but this step uses "${runtimeHarness}"`,
+    );
+    this.name = 'AgentSessionHarnessMismatchError';
+  }
+}
+
 interface AgentSessionCommitContext {
   readonly baseSegment: number;
   readonly harness: string;
@@ -810,7 +829,7 @@ async function prepareAgentSession(
   runtimeConfig: Awaited<ReturnType<typeof requestAgentRuntimeConfig>>,
 ): Promise<AgentSessionState> {
   const descriptor = input.step.session === undefined ? runtimeConfig.session : input.step.session;
-  if (descriptor === undefined || descriptor === null) {
+  if (descriptor === undefined || descriptor === null || runtimeConfig.harness !== 'pi') {
     return {preamble: false};
   }
   const transcript = await requestSessionTranscript(input.leaseClient, {
@@ -827,10 +846,8 @@ async function prepareAgentSession(
       preamble: false,
     };
   }
-  if (transcript.harness !== runtimeConfig.harness) {
-    throw new Error(
-      `Session transcript belongs to harness "${transcript.harness}", but this step uses "${runtimeConfig.harness}"`,
-    );
+  if (transcript.harness !== undefined && transcript.harness !== runtimeConfig.harness) {
+    throw new AgentSessionHarnessMismatchError(transcript.harness, runtimeConfig.harness);
   }
   const file = join(input.agentStateDir, 'sessions', `${descriptor.id}.jsonl`);
   await mkdir(join(input.agentStateDir, 'sessions'), {recursive: true});
@@ -864,21 +881,24 @@ async function settleAgentSessionCommit(params: {
   step: StepDto;
   attempt: number;
   signal: AbortSignal;
-}): Promise<StepResult> {
+}): Promise<{result: StepResult; committed: boolean}> {
   const {execution, leaseClient, step, attempt, signal} = params;
   const commit = execution.sessionCommit;
-  if (commit === undefined) return execution.result;
+  if (commit === undefined) return {result: execution.result, committed: false};
 
   if (execution.result.sessionFile === undefined) {
-    if (!execution.result.success) return execution.result;
-    return agentSessionUnavailableFailure(
-      new Error('Harness did not produce a session transcript'),
-    );
+    if (!execution.result.success) return {result: execution.result, committed: false};
+    return {
+      result: agentSessionUnavailableFailure(
+        new Error('Harness did not produce a session transcript'),
+      ),
+      committed: false,
+    };
   }
 
   try {
     const transcriptBlob = await gzipAsync(await readFile(execution.result.sessionFile));
-    if (signal.aborted) return execution.result;
+    if (signal.aborted) return {result: execution.result, committed: false};
     const outcome = await commitSessionTranscript(leaseClient, {
       stepId: step.id,
       attempt,
@@ -894,28 +914,44 @@ async function settleAgentSessionCommit(params: {
       signal,
     });
     if (outcome.status === 'conflict') {
-      throw new Error(`Session transcript commit conflict at head segment ${outcome.headSegment}`);
+      logger().error(
+        {
+          event: 'runner.agent_session_commit_conflict',
+          stepId: step.id,
+          attempt,
+          baseSegment: commit.baseSegment,
+          headSegment: outcome.headSegment,
+        },
+        'Agent session commit conflicted after the step completed',
+      );
+      return {result: execution.result, committed: false};
     }
-    return execution.result;
+    return {result: execution.result, committed: true};
   } catch (error) {
-    return {
-      ...execution.result,
-      success: false,
-      error: {
-        message: error instanceof Error ? error.message : String(error),
-        reason: 'agent_session_unavailable',
+    logger().error(
+      {
+        event: 'runner.agent_session_persistence_failed',
+        err: error,
+        stepId: step.id,
+        attempt,
+        baseSegment: commit.baseSegment,
       },
-      exit_code: null,
-    };
+      'Agent session persistence failed after the step completed',
+    );
+    return {result: execution.result, committed: false};
   }
 }
 
 function agentSessionUnavailableFailure(error: unknown): StepResult {
+  const reason =
+    error instanceof AgentSessionHarnessMismatchError
+      ? error.reason
+      : ('agent_session_unavailable' as const);
   return {
     success: false,
     error: {
       message: error instanceof Error ? error.message : String(error),
-      reason: 'agent_session_unavailable',
+      reason,
     },
     exit_code: null,
   };

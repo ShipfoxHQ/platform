@@ -1782,6 +1782,242 @@ describe('runJobSteps', () => {
     );
   });
 
+  it('does not prepend or commit a forked session', async () => {
+    const setup = buildSetupStep();
+    const agent = buildAgentStep({
+      session: {id: SESSION_ID, key: 'main', mode: 'fork', segment: 2},
+    });
+    const transcriptDir = mkdtempSync(join(tmpdir(), 'shipfox-runner-session-'));
+    requestSessionTranscriptMock.mockResolvedValueOnce({
+      blob: gzipSync(Buffer.from('session transcript')),
+      segment: 2,
+      harness: 'pi',
+    });
+    executeAgentStepMock.mockResolvedValueOnce({
+      success: true,
+      response: 'done',
+      sessionFile: join(transcriptDir, 'session.jsonl'),
+      sessionId: 'native-session-1',
+      error: null,
+      exit_code: 0,
+    });
+    requestNextStepMock
+      .mockResolvedValueOnce(stepResponse(setup, 1))
+      .mockResolvedValueOnce(stepResponse(agent, 1))
+      .mockResolvedValueOnce({kind: 'done', status: 'succeeded'});
+
+    try {
+      await runLoop({agentStateDir: transcriptDir, signal: new AbortController().signal});
+    } finally {
+      rmSync(transcriptDir, {recursive: true, force: true});
+    }
+
+    expect(executeAgentStepMock).toHaveBeenCalledWith(
+      agent,
+      expect.not.objectContaining({prompt: expect.stringContaining('Resuming session')}),
+    );
+    expect(executeAgentStepMock).toHaveBeenCalledWith(
+      agent,
+      expect.objectContaining({session: {mode: 'fork', file: expect.any(String)}}),
+    );
+    expect(commitSessionTranscriptMock).not.toHaveBeenCalled();
+  });
+
+  it('reports a transcript harness mismatch without invoking the agent', async () => {
+    const setup = buildSetupStep();
+    const agent = buildAgentStep({
+      session: {id: SESSION_ID, key: 'main', mode: 'resume', segment: 2},
+    });
+    requestSessionTranscriptMock.mockResolvedValueOnce({
+      blob: gzipSync(Buffer.from('session transcript')),
+      segment: 2,
+      harness: 'claude',
+    });
+    requestNextStepMock
+      .mockResolvedValueOnce(stepResponse(setup, 1))
+      .mockResolvedValueOnce(stepResponse(agent, 1))
+      .mockResolvedValueOnce({kind: 'done', status: 'succeeded'});
+
+    await runLoop({signal: new AbortController().signal});
+
+    expect(executeAgentStepMock).not.toHaveBeenCalled();
+    expect(commitSessionTranscriptMock).not.toHaveBeenCalled();
+    expect(reportStepMock).toHaveBeenLastCalledWith(
+      leaseClient,
+      expect.objectContaining({
+        stepId: agent.id,
+        status: 'failed',
+        error: {
+          message: 'Session transcript belongs to harness "claude", but this step uses "pi"',
+          reason: 'agent_session_harness_mismatch',
+        },
+      }),
+    );
+  });
+
+  it('commits a resumed session with no prior transcript at the returned segment', async () => {
+    const setup = buildSetupStep();
+    const agent = buildAgentStep({
+      session: {id: SESSION_ID, key: 'main', mode: 'resume', segment: 4},
+    });
+    const transcriptDir = mkdtempSync(join(tmpdir(), 'shipfox-runner-session-'));
+    const transcriptFile = join(transcriptDir, 'session.jsonl');
+    writeFileSync(transcriptFile, 'session transcript');
+    executeAgentStepMock.mockResolvedValueOnce({
+      success: true,
+      response: 'done',
+      sessionFile: transcriptFile,
+      sessionId: 'native-session-1',
+      error: null,
+      exit_code: 0,
+    });
+    requestSessionTranscriptMock.mockResolvedValueOnce({blob: null, segment: 4});
+    requestNextStepMock
+      .mockResolvedValueOnce(stepResponse(setup, 1))
+      .mockResolvedValueOnce(stepResponse(agent, 1))
+      .mockResolvedValueOnce({kind: 'done', status: 'succeeded'});
+
+    try {
+      await runLoop({agentStateDir: transcriptDir, signal: new AbortController().signal});
+    } finally {
+      rmSync(transcriptDir, {recursive: true, force: true});
+    }
+
+    expect(executeAgentStepMock).toHaveBeenCalledWith(
+      agent,
+      expect.objectContaining({session: {mode: 'resume'}}),
+    );
+    expect(executeAgentStepMock).toHaveBeenCalledWith(
+      agent,
+      expect.not.objectContaining({prompt: expect.stringContaining('Resuming session')}),
+    );
+    expect(commitSessionTranscriptMock).toHaveBeenCalledWith(
+      leaseClient,
+      expect.objectContaining({baseSegment: 4}),
+    );
+  });
+
+  it('does not commit or load a session for a Claude agent step', async () => {
+    const setup = buildSetupStep();
+    const agent = buildAgentStep({
+      session: {id: SESSION_ID, key: 'main', mode: 'resume', segment: 2},
+    });
+    requestAgentRuntimeConfigMock.mockResolvedValueOnce({
+      harness: 'claude',
+      provider_id: 'shipfox',
+      model: 'claude-opus-4-8',
+      thinking: 'high',
+      credentials: {api_key: 'managed-token'},
+      claude: {base_url: 'https://gateway.example.test/v1', auth_token: 'managed-token'},
+    });
+    executeAgentStepMock.mockResolvedValueOnce({
+      success: true,
+      response: 'done',
+      error: null,
+      exit_code: 0,
+    });
+    requestNextStepMock
+      .mockResolvedValueOnce(stepResponse(setup, 1))
+      .mockResolvedValueOnce(stepResponse(agent, 1))
+      .mockResolvedValueOnce({kind: 'done', status: 'succeeded'});
+
+    await runLoop({signal: new AbortController().signal});
+
+    expect(requestSessionTranscriptMock).not.toHaveBeenCalled();
+    expect(commitSessionTranscriptMock).not.toHaveBeenCalled();
+    expect(executeAgentStepMock).toHaveBeenCalledWith(
+      agent,
+      expect.not.objectContaining({session: expect.anything(), prompt: expect.anything()}),
+    );
+    expect(reportStepMock).toHaveBeenLastCalledWith(
+      leaseClient,
+      expect.objectContaining({stepId: agent.id, status: 'succeeded', error: null}),
+    );
+  });
+
+  it('reports a successful agent step when session persistence fails', async () => {
+    const setup = buildSetupStep();
+    const agent = buildAgentStep({
+      session: {id: SESSION_ID, key: 'main', mode: 'resume', segment: 2},
+    });
+    const transcriptDir = mkdtempSync(join(tmpdir(), 'shipfox-runner-session-'));
+    const transcriptFile = join(transcriptDir, 'session.jsonl');
+    writeFileSync(transcriptFile, 'session transcript');
+    executeAgentStepMock.mockResolvedValueOnce({
+      success: true,
+      response: 'done',
+      sessionFile: transcriptFile,
+      error: null,
+      exit_code: 0,
+    });
+    requestNextStepMock
+      .mockResolvedValueOnce(stepResponse(setup, 1))
+      .mockResolvedValueOnce(stepResponse(agent, 1))
+      .mockResolvedValueOnce({kind: 'done', status: 'succeeded'});
+    commitSessionTranscriptMock.mockRejectedValueOnce(new Error('session store unavailable'));
+
+    try {
+      await runLoop({agentStateDir: transcriptDir, signal: new AbortController().signal});
+    } finally {
+      rmSync(transcriptDir, {recursive: true, force: true});
+    }
+
+    expect(reportStepMock).toHaveBeenLastCalledWith(
+      leaseClient,
+      expect.objectContaining({stepId: agent.id, status: 'succeeded', error: null}),
+    );
+  });
+
+  it('reports a committed agent step even when abort lands during the commit', async () => {
+    const setup = buildSetupStep();
+    const agent = buildAgentStep({
+      session: {id: SESSION_ID, key: 'main', mode: 'resume', segment: 2},
+    });
+    const transcriptDir = mkdtempSync(join(tmpdir(), 'shipfox-runner-session-'));
+    const transcriptFile = join(transcriptDir, 'session.jsonl');
+    writeFileSync(transcriptFile, 'session transcript');
+    const abortController = new AbortController();
+    let commitStarted!: () => void;
+    let releaseCommit!: () => void;
+    const commitReady = new Promise<void>((resolve) => {
+      commitStarted = resolve;
+    });
+    const commitReleased = new Promise<void>((resolve) => {
+      releaseCommit = resolve;
+    });
+    commitSessionTranscriptMock.mockImplementationOnce(async () => {
+      commitStarted();
+      await commitReleased;
+      return {status: 'committed', segment: 3};
+    });
+    executeAgentStepMock.mockResolvedValueOnce({
+      success: true,
+      response: 'done',
+      sessionFile: transcriptFile,
+      error: null,
+      exit_code: 0,
+    });
+    requestNextStepMock
+      .mockResolvedValueOnce(stepResponse(setup, 1))
+      .mockResolvedValueOnce(stepResponse(agent, 1));
+
+    const run = runLoop({agentStateDir: transcriptDir, signal: abortController.signal});
+    try {
+      await commitReady;
+      abortController.abort();
+      releaseCommit();
+      await run;
+    } finally {
+      rmSync(transcriptDir, {recursive: true, force: true});
+    }
+
+    const reportCall = reportStepMock.mock.calls.at(-1);
+    expect(reportCall?.[1]).toEqual(
+      expect.objectContaining({stepId: agent.id, status: 'succeeded', error: null}),
+    );
+    expect((reportCall?.[1] as {signal: AbortSignal}).signal.aborted).toBe(false);
+  });
+
   it('dispatches an agent step in its configured working directory', async () => {
     const setup = buildSetupStep();
     const agent = buildAgentStep({

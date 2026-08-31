@@ -47,6 +47,7 @@ import {
   AgentHarnessUnavailableError,
   AgentInvocationError,
   AgentPermissionModeError,
+  AgentSessionUnavailableError,
 } from '#core/errors.js';
 import type {HarnessInvocation} from '#core/harness.js';
 import {executeAgentStep} from '#core/step.js';
@@ -526,6 +527,23 @@ describe('executeAgentStep', () => {
     ]);
   });
 
+  it('maps an unavailable session failure', async () => {
+    runAgentMock.mockRejectedValue(
+      new AgentSessionUnavailableError('Pi could not load the agent session: invalid session file'),
+    );
+
+    const result = await executeAgentStep(buildAgentStep(), {runtime: RUNTIME});
+
+    expect(result).toEqual({
+      success: false,
+      error: {
+        message: 'Pi could not load the agent session: invalid session file',
+        reason: 'agent_session_unavailable',
+      },
+      exit_code: null,
+    });
+  });
+
   it('preserves response from invocation failures that can report it', async () => {
     runAgentMock.mockRejectedValue(
       new AgentInvocationError('Agent step finished without required outputs: summary', 'partial'),
@@ -538,6 +556,31 @@ describe('executeAgentStep', () => {
       response: 'partial',
       error: {
         message: 'Agent step finished without required outputs: summary',
+        reason: 'agent_invocation_failed',
+      },
+      exit_code: null,
+    });
+  });
+
+  it('preserves session metadata on invocation failures', async () => {
+    runAgentMock.mockRejectedValue(
+      new AgentInvocationError(
+        'Agent provider failed after writing a transcript',
+        'partial',
+        '/runner-agent/job-1/session.jsonl',
+        'native-session-1',
+      ),
+    );
+
+    const result = await executeAgentStep(buildAgentStep(), {runtime: RUNTIME});
+
+    expect(result).toEqual({
+      success: false,
+      response: 'partial',
+      sessionFile: '/runner-agent/job-1/session.jsonl',
+      sessionId: 'native-session-1',
+      error: {
+        message: 'Agent provider failed after writing a transcript',
         reason: 'agent_invocation_failed',
       },
       exit_code: null,

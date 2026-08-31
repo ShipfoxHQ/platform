@@ -825,20 +825,6 @@ describe('session transcript transport', () => {
       {'x-session-segment': '3'},
       'Empty session transcript response',
     ],
-    [
-      'a load response without a harness',
-      200,
-      Buffer.from([31, 139, 8]),
-      {'x-session-segment': '3'},
-      'Missing session transcript harness',
-    ],
-    [
-      'a load response with a blank harness',
-      200,
-      Buffer.from([31, 139, 8]),
-      {'x-session-segment': '3', [SESSION_TRANSCRIPT_HARNESS_HEADER]: ''},
-      'Missing session transcript harness',
-    ],
   ] as const)('rejects %s', async (_name, status, body, headers, message) => {
     stubFetch(() => new Response(body, {status, headers}));
     const leaseClient = createLeaseClient('lease-session');
@@ -846,6 +832,19 @@ describe('session transcript transport', () => {
     await expect(
       requestSessionTranscript(leaseClient, {stepId: STEP_ID, attempt: 1}),
     ).rejects.toThrow(message);
+  });
+
+  it('loads a legacy transcript without a harness header', async () => {
+    const blob = new Uint8Array([31, 139, 8, 0]);
+    stubFetch(() => new Response(blob, {status: 200, headers: {'x-session-segment': '3'}}));
+    const leaseClient = createLeaseClient('lease-session');
+
+    await expect(
+      requestSessionTranscript(leaseClient, {stepId: STEP_ID, attempt: 1}),
+    ).resolves.toEqual({
+      blob: Buffer.from(blob),
+      segment: 3,
+    });
   });
 
   it.each([

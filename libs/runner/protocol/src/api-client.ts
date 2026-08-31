@@ -494,7 +494,7 @@ export async function requestSessionTranscript(
   params: {stepId: string; attempt: number; signal?: AbortSignal},
 ): Promise<
   | {blob: null; segment: number}
-  | {blob: Buffer; segment: number; harness: string; harnessSessionId?: string}
+  | {blob: Buffer; segment: number; harness?: string; harnessSessionId?: string}
 > {
   const query = sessionTranscriptQuerySchema.parse({attempt: params.attempt});
   let response: Response;
@@ -522,14 +522,11 @@ export async function requestSessionTranscript(
   const blob = Buffer.from(await response.arrayBuffer());
   if (blob.length === 0) throw new Error('Empty session transcript response');
   const harness = response.headers.get(SESSION_TRANSCRIPT_HARNESS_HEADER);
-  if (harness === null || harness.length === 0) {
-    throw new Error('Missing session transcript harness');
-  }
   const harnessSessionId = response.headers.get(SESSION_TRANSCRIPT_HARNESS_SESSION_ID_HEADER);
   return {
     blob,
     segment,
-    harness,
+    ...(harness === null || harness.length === 0 ? {} : {harness}),
     ...(harnessSessionId === null || harnessSessionId === '' ? {} : {harnessSessionId}),
   };
 }
