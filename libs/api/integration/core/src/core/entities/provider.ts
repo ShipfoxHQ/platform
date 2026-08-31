@@ -10,6 +10,7 @@ export type {
   AgentToolCallInput,
   AgentToolCatalogEntry,
   AgentToolJsonSchema,
+  AgentToolRepositoryAuthorizationState,
   AgentToolSensitivity,
   AgentToolSession,
   AgentToolsProvider,

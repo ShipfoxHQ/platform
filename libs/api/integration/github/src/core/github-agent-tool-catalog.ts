@@ -1,34 +1,25 @@
-type AgentToolSensitivity = 'read' | 'write';
-type AgentToolJsonSchema = Record<string, unknown>;
+import type {
+  AgentToolCatalogEntry,
+  AgentToolCatalogMethod,
+  AgentToolJsonSchema,
+  AgentToolRepositoryScopeClassifier,
+  AgentToolRepositoryTarget,
+  AgentToolSelectionCatalog,
+  AgentToolSelector,
+} from '@shipfox/api-integration-spi';
 
-interface AgentToolCatalogMethod<RequiredScope = unknown> {
-  id: string;
-  description: string;
-  sensitivity: AgentToolSensitivity;
-  sensitive: boolean;
-  requiredScope: RequiredScope;
+type GithubRepositoryScopeClassifier = AgentToolRepositoryScopeClassifier;
+
+interface GithubCatalogMethod<RequiredScope = unknown>
+  extends AgentToolCatalogMethod<RequiredScope> {
+  repositoryScope: GithubRepositoryScopeClassifier;
+  indirectTargetNote?: string | undefined;
 }
 
-interface AgentToolCatalogEntry<RequiredScope = unknown> {
-  id: string;
-  description: string;
-  sensitivity: AgentToolSensitivity;
-  sensitive: boolean;
-  requiredScope: RequiredScope;
-  inputSchema: AgentToolJsonSchema;
-  outputSchema?: AgentToolJsonSchema | undefined;
-  methods?: readonly AgentToolCatalogMethod<RequiredScope>[] | undefined;
-}
-
-interface AgentToolSelector {
-  readonly token: string;
-  readonly kind: 'family' | 'family_wildcard' | 'method' | 'standalone';
-  readonly sensitivity: AgentToolSensitivity;
-  readonly sensitive: boolean;
-}
-
-interface AgentToolSelectionCatalog {
-  readonly selectors: readonly AgentToolSelector[];
+interface GithubCatalogEntry<RequiredScope = unknown> extends AgentToolCatalogEntry<RequiredScope> {
+  repositoryScope: GithubRepositoryScopeClassifier;
+  indirectTargetNote?: string | undefined;
+  methods?: readonly GithubCatalogMethod<RequiredScope>[] | undefined;
 }
 
 export const DEFAULT_JOB_LOG_TAIL_LINES = 500;
@@ -45,10 +36,10 @@ export interface GithubAgentToolRequiredPermission {
 
 export type GithubAgentToolRequiredScope = readonly GithubAgentToolRequiredPermission[];
 
-export type GithubAgentToolCatalogMethod = AgentToolCatalogMethod<GithubAgentToolRequiredScope>;
+export type GithubAgentToolCatalogMethod = GithubCatalogMethod<GithubAgentToolRequiredScope>;
 
 export interface GithubAgentToolCatalogEntry
-  extends AgentToolCatalogEntry<GithubAgentToolRequiredScope> {
+  extends GithubCatalogEntry<GithubAgentToolRequiredScope> {
   category: GithubAgentToolCategory;
   methods?: readonly GithubAgentToolCatalogMethod[] | undefined;
 }
@@ -62,6 +53,8 @@ interface GithubAgentToolCatalogInput {
   sensitivity?: GithubAgentToolSensitivity | undefined;
   sensitive?: boolean | undefined;
   requiredScope?: GithubAgentToolRequiredScope | undefined;
+  repositoryScope?: GithubRepositoryScopeClassifier | undefined;
+  indirectTargetNote?: string | undefined;
   methods?: readonly GithubAgentToolCatalogMethod[] | undefined;
 }
 
@@ -83,6 +76,50 @@ const repositoryProperties = {
   owner: stringSchema('Repository owner'),
   repo: stringSchema('Repository name'),
 };
+
+const connectionRepositoryScope: GithubRepositoryScopeClassifier = () => ({kind: 'connection'});
+
+/** Classifies explicit repository coordinates without resolving them remotely. */
+export const githubRepositoryScope: GithubRepositoryScopeClassifier = (arguments_) => {
+  const repositories: AgentToolRepositoryTarget[] = [];
+  addRepositoryCoordinate(repositories, arguments_.owner, arguments_.repo);
+  addRepositoryCoordinate(repositories, arguments_.base_owner, arguments_.base_repo);
+  addRepositoryCoordinate(repositories, arguments_.head_owner, arguments_.head_repo);
+  addRepositoryCoordinate(repositories, arguments_.repository_owner, arguments_.repository_name);
+
+  if (typeof arguments_.repository === 'string') {
+    const slashIndex = arguments_.repository.indexOf('/');
+    if (
+      slashIndex > 0 &&
+      slashIndex === arguments_.repository.lastIndexOf('/') &&
+      slashIndex < arguments_.repository.length - 1
+    ) {
+      repositories.push({
+        owner: arguments_.repository.slice(0, slashIndex),
+        name: arguments_.repository.slice(slashIndex + 1),
+      });
+    }
+  }
+
+  return repositories.length === 0
+    ? {kind: 'connection'}
+    : {kind: 'declared-targets', repositories};
+};
+
+function addRepositoryCoordinate(
+  repositories: AgentToolRepositoryTarget[],
+  owner: unknown,
+  name: unknown,
+): void {
+  if (
+    typeof owner === 'string' &&
+    owner.length > 0 &&
+    typeof name === 'string' &&
+    name.length > 0
+  ) {
+    repositories.push({owner, name});
+  }
+}
 
 const pageProperties = {
   page: integerSchema('Page number for pagination', {minimum: 1}),
@@ -120,15 +157,39 @@ const issueWriteMethods = [
   method('update', 'Update an existing issue.', 'write', false, scopes.issuesWrite),
 ] as const satisfies readonly GithubAgentToolCatalogMethod[];
 
+const indirectSearchTargetNote =
+  'The free-form query may match results in repositories other than the declared target.';
+
+const subIssueIndirectTargetNote =
+  'The opaque child and ordering IDs may refer to another repository in the GitHub installation.';
+
 const subIssueWriteMethods = [
-  method('add', 'Add a sub-issue to a parent issue.', 'write', false, scopes.issuesWrite),
-  method('remove', 'Remove a sub-issue from a parent issue.', 'write', false, scopes.issuesWrite),
+  method(
+    'add',
+    'Add a sub-issue to a parent issue.',
+    'write',
+    false,
+    scopes.issuesWrite,
+    githubRepositoryScope,
+    subIssueIndirectTargetNote,
+  ),
+  method(
+    'remove',
+    'Remove a sub-issue from a parent issue.',
+    'write',
+    false,
+    scopes.issuesWrite,
+    githubRepositoryScope,
+    subIssueIndirectTargetNote,
+  ),
   method(
     'reprioritize',
     'Reprioritize a sub-issue under its parent issue.',
     'write',
     false,
     scopes.issuesWrite,
+    githubRepositoryScope,
+    subIssueIndirectTargetNote,
   ),
 ] as const satisfies readonly GithubAgentToolCatalogMethod[];
 
@@ -229,6 +290,9 @@ const pullRequestReviewWriteMethods = [
   ),
 ] as const satisfies readonly GithubAgentToolCatalogMethod[];
 
+const reviewThreadIndirectTargetNote =
+  'The review thread node may belong to any repository reachable by the GitHub installation.';
+
 const pullRequestReviewThreadWriteMethods = [
   method(
     'resolve',
@@ -236,6 +300,8 @@ const pullRequestReviewThreadWriteMethods = [
     'write',
     false,
     scopes.pullRequestsWrite,
+    connectionRepositoryScope,
+    reviewThreadIndirectTargetNote,
   ),
 ] as const satisfies readonly GithubAgentToolCatalogMethod[];
 
@@ -333,6 +399,8 @@ export const githubAgentToolCatalog = [
     outputSchema: objectSchema({issue_types: arraySchema(openObjectSchema('Issue type'))}, [
       'issue_types',
     ]),
+    repositoryScope: (arguments_) =>
+      arguments_.repo === undefined ? {kind: 'connection'} : githubRepositoryScope(arguments_),
   }),
   tool({
     id: 'list_issues',
@@ -361,6 +429,7 @@ export const githubAgentToolCatalog = [
     sensitivity: 'read',
     sensitive: false,
     requiredScope: scopes.issuesRead,
+    indirectTargetNote: indirectSearchTargetNote,
     inputSchema: objectSchema(
       {
         query: stringSchema('Search query using GitHub issues search syntax'),
@@ -464,6 +533,8 @@ export const githubAgentToolCatalog = [
       ['method', 'issue_number', 'sub_issue_id'],
     ),
     outputSchema: openObjectSchema('Sub-issue write result'),
+    indirectTargetNote:
+      'The opaque child and ordering IDs may refer to another repository in the GitHub installation.',
   }),
   tool({
     id: 'pull_request_read',
@@ -528,6 +599,7 @@ export const githubAgentToolCatalog = [
     sensitivity: 'read',
     sensitive: false,
     requiredScope: scopes.pullRequestsRead,
+    indirectTargetNote: indirectSearchTargetNote,
     inputSchema: objectSchema(
       {
         query: stringSchema('Search query using GitHub pull request search syntax'),
@@ -717,6 +789,8 @@ export const githubAgentToolCatalog = [
       ['pull_number'],
     ),
     outputSchema: openObjectSchema('Pull request branch update result'),
+    indirectTargetNote:
+      'GitHub can also update the pull request head branch, which may belong to another repository.',
   }),
   tool({
     id: 'pull_request_review_write',
@@ -741,7 +815,8 @@ export const githubAgentToolCatalog = [
   tool({
     id: 'pull_request_review_thread_write',
     category: 'pull_requests',
-    description: 'Resolve review threads on a pull request in a GitHub repository.',
+    description:
+      'Resolve a pull request review thread by opaque node ID. This operation is connection-scoped because the node ID does not declare a repository.',
     methods: pullRequestReviewThreadWriteMethods,
     inputSchema: repositoryInputSchema(
       {
@@ -754,6 +829,9 @@ export const githubAgentToolCatalog = [
       ['method', 'thread_id'],
     ),
     outputSchema: openObjectSchema('Pull request review thread write result'),
+    repositoryScope: connectionRepositoryScope,
+    indirectTargetNote:
+      'The review thread node may belong to any repository reachable by the GitHub installation.',
   }),
   tool({
     id: 'add_comment_to_pending_review',
@@ -959,6 +1037,10 @@ function tool(input: GithubAgentToolCatalogInput): GithubAgentToolCatalogEntry {
       requiredScope: input.requiredScope,
       inputSchema: input.inputSchema,
       outputSchema: input.outputSchema,
+      repositoryScope: input.repositoryScope ?? githubRepositoryScope,
+      ...(input.indirectTargetNote === undefined
+        ? {}
+        : {indirectTargetNote: input.indirectTargetNote}),
     };
   }
 
@@ -973,6 +1055,10 @@ function tool(input: GithubAgentToolCatalogInput): GithubAgentToolCatalogEntry {
     requiredScope: unionRequiredScopes(input.methods),
     inputSchema: input.inputSchema,
     outputSchema: input.outputSchema,
+    repositoryScope: input.repositoryScope ?? githubRepositoryScope,
+    ...(input.indirectTargetNote === undefined
+      ? {}
+      : {indirectTargetNote: input.indirectTargetNote}),
     methods: input.methods,
   };
 }
@@ -983,8 +1069,18 @@ function method(
   sensitivity: GithubAgentToolSensitivity,
   sensitive: boolean,
   requiredScope: GithubAgentToolRequiredScope,
+  repositoryScope: GithubRepositoryScopeClassifier = githubRepositoryScope,
+  indirectTargetNote?: string,
 ): GithubAgentToolCatalogMethod {
-  return {id, description, sensitivity, sensitive, requiredScope};
+  return {
+    id,
+    description,
+    sensitivity,
+    sensitive,
+    requiredScope,
+    repositoryScope,
+    ...(indirectTargetNote === undefined ? {} : {indirectTargetNote}),
+  };
 }
 
 function unionRequiredScopes(

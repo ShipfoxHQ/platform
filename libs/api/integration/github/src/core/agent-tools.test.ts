@@ -1,4 +1,7 @@
-import {MAX_REPOSITORY_FILE_BYTES} from '@shipfox/api-integration-spi';
+import {
+  assertAgentToolCatalogRepositoryScopes,
+  MAX_REPOSITORY_FILE_BYTES,
+} from '@shipfox/api-integration-spi';
 import {RequestError} from 'octokit';
 import type {GithubApiClient} from '#api/client.js';
 import {DEFAULT_JOB_LOG_TAIL_LINES} from '#core/actions-logs.js';
@@ -10,6 +13,7 @@ import {
   githubAgentToolCatalog,
   githubAgentToolSelectionCatalog,
   githubOperationRoute,
+  githubRepositoryScope,
   projectGithubOperationParameters,
 } from '#core/agent-tools.js';
 import {createGithubIntegrationProvider} from '#index.js';
@@ -602,6 +606,79 @@ describe('github agent tool catalog', () => {
     expect(rows).toEqual(expectedCatalogRows);
   });
 
+  it('classifies every catalog entry with a pure repository scope classifier', () => {
+    const issueRead = githubAgentToolCatalog.find((entry) => entry.id === 'issue_read');
+    const issueTypes = githubAgentToolCatalog.find((entry) => entry.id === 'list_issue_types');
+    const reviewThread = githubAgentToolCatalog.find(
+      (entry) => entry.id === 'pull_request_review_thread_write',
+    );
+    const subIssue = githubAgentToolCatalog.find((entry) => entry.id === 'sub_issue_write');
+    const updateBranch = githubAgentToolCatalog.find(
+      (entry) => entry.id === 'update_pull_request_branch',
+    );
+
+    expect(issueRead?.repositoryScope({owner: 'shipfox', repo: 'platform'})).toEqual({
+      kind: 'declared-targets',
+      repositories: [{owner: 'shipfox', name: 'platform'}],
+    });
+    expect(issueTypes?.repositoryScope({owner: 'shipfox'})).toEqual({kind: 'connection'});
+    expect(issueTypes?.repositoryScope({owner: 'shipfox', repo: 'platform'})).toEqual({
+      kind: 'declared-targets',
+      repositories: [{owner: 'shipfox', name: 'platform'}],
+    });
+    expect(
+      reviewThread?.repositoryScope({
+        owner: 'shipfox',
+        repo: 'platform',
+        thread_id: 'PRRT_kwDOExample',
+      }),
+    ).toEqual({kind: 'connection'});
+    expect(
+      subIssue?.repositoryScope({
+        owner: 'shipfox',
+        repo: 'platform',
+        issue_number: 1,
+        sub_issue_id: 2,
+      }),
+    ).toEqual({
+      kind: 'declared-targets',
+      repositories: [{owner: 'shipfox', name: 'platform'}],
+    });
+    expect(
+      updateBranch?.repositoryScope({
+        owner: 'shipfox',
+        repo: 'platform',
+        pull_number: 1,
+      }),
+    ).toEqual({
+      kind: 'declared-targets',
+      repositories: [{owner: 'shipfox', name: 'platform'}],
+    });
+  });
+
+  it('returns every explicit repository coordinate', () => {
+    expect(
+      githubRepositoryScope({
+        owner: 'shipfox',
+        repo: 'platform',
+        base_owner: 'acme',
+        base_repo: 'api',
+        repository: 'tools/cli',
+      }),
+    ).toEqual({
+      kind: 'declared-targets',
+      repositories: [
+        {owner: 'shipfox', name: 'platform'},
+        {owner: 'acme', name: 'api'},
+        {owner: 'tools', name: 'cli'},
+      ],
+    });
+  });
+
+  it('passes the repository classification exhaustiveness check', () => {
+    expect(() => assertAgentToolCatalogRepositoryScopes(githubAgentToolCatalog)).not.toThrow();
+  });
+
   it('covers every catalog operation with an exact route case', () => {
     const catalogOperationKeys = githubAgentToolCatalog.flatMap(
       (entry) =>
@@ -772,6 +849,7 @@ describe('github agent tool catalog', () => {
     const selectionCatalog = provider.adapters.agent_tools?.selectionCatalog();
 
     expect(provider.adapters.agent_tools).toBeDefined();
+    expect(provider.repositoryAuthorization).toBe('unclassified');
     expect(catalog).toBe(githubAgentToolCatalog);
     expect(selectionCatalog).toBe(githubAgentToolSelectionCatalog);
   });

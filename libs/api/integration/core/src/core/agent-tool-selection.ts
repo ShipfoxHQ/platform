@@ -1,8 +1,9 @@
-import type {
-  AgentToolCatalogEntry,
-  AgentToolSelectionCatalog,
-  IntegrationCapability,
-  IntegrationProviderKind,
+import {
+  type AgentToolCatalogEntry,
+  type AgentToolSelectionCatalog,
+  assertAgentToolCatalogRepositoryScopes,
+  type IntegrationCapability,
+  type IntegrationProviderKind,
 } from '@shipfox/api-integration-spi';
 import type {IntegrationProviderRegistry} from '#core/providers/registry.js';
 import {listIntegrationConnections} from '#db/connections.js';
@@ -51,7 +52,11 @@ export async function buildAgentToolCatalogs(
       if (adapter === undefined) {
         throw new Error(`Integration provider "${provider.provider}" has no agent tools adapter`);
       }
-      return [provider.provider, await adapter.catalog()] as const;
+      const catalog = await adapter.catalog();
+      if (provider.repositoryAuthorization === 'enforced') {
+        assertAgentToolCatalogRepositoryScopes(catalog);
+      }
+      return [provider.provider, catalog] as const;
     }),
   );
   return new Map(entries);
