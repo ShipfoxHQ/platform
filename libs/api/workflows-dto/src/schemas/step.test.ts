@@ -21,6 +21,7 @@ const baseAttempt = {
   response: null,
   error: null,
   restart_feedback: null,
+  invocations: [],
   started_at: '2026-01-01T00:00:00.000Z',
   finished_at: '2026-01-01T00:01:00.000Z',
 };
@@ -162,6 +163,19 @@ describe('stepErrorDtoSchema', () => {
 
     expect(result.success).toBe(false);
   });
+
+  it.each([
+    'tool_error',
+    'tool_config_invalid',
+    'invocation_interrupted',
+  ] as const)('accepts the server tool failure reason %s', (reason) => {
+    const result = stepErrorDtoSchema.parse({
+      message: 'Tool invocation failed.',
+      reason,
+    });
+
+    expect(result?.reason).toBe(reason);
+  });
 });
 
 describe('agentStepSessionDescriptorSchema', () => {
@@ -274,6 +288,28 @@ describe('stepAttemptDtoSchema', () => {
 
     expect(result.gate_result).toEqual({kind: 'none'});
     expect(result.restart_feedback).toBeNull();
+  });
+
+  it('accepts queued tool invocation metadata', () => {
+    const result = stepAttemptDtoSchema.parse({
+      ...baseAttempt,
+      gate_result: {kind: 'not_evaluated'},
+      invocations: [
+        {
+          call_index: 0,
+          started_at: '2026-01-01T00:00:00.000Z',
+          next_due_at: '2026-01-01T00:00:01.000Z',
+        },
+      ],
+    });
+
+    expect(result.invocations).toEqual([
+      {
+        call_index: 0,
+        started_at: '2026-01-01T00:00:00.000Z',
+        next_due_at: '2026-01-01T00:00:01.000Z',
+      },
+    ]);
   });
 
   it('accepts not-evaluated and evaluation-error gate results', () => {

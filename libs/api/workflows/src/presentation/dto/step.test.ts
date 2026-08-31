@@ -330,6 +330,7 @@ const baseAttempt: StepAttempt = {
   gateResult: {passed: 'yes'},
   restartFeedback: null,
   logOutcome: null,
+  invocations: [],
   startedAt: new Date('2026-01-01T00:00:00.000Z'),
   finishedAt: new Date('2026-01-01T00:01:00.000Z'),
   createdAt: new Date('2026-01-01T00:00:00.000Z'),
@@ -412,6 +413,27 @@ describe('toStepAttemptDto', () => {
 
     expect(result.gate_result).toEqual({kind: 'none'});
     expect(result.restart_feedback).toBeNull();
+  });
+
+  it('maps tool invocation history', () => {
+    const result = toStepAttemptDto({
+      ...baseAttempt,
+      invocations: [
+        {
+          call_index: 0,
+          started_at: '2026-01-01T00:00:00.000Z',
+          outcome: 'queued',
+        },
+      ],
+    });
+
+    expect(result.invocations).toEqual([
+      {
+        call_index: 0,
+        started_at: '2026-01-01T00:00:00.000Z',
+        outcome: 'queued',
+      },
+    ]);
   });
 
   it('maps running attempts without gate payloads to not evaluated', () => {

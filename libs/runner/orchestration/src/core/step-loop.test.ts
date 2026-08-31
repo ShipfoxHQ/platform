@@ -641,6 +641,22 @@ describe('runJobSteps', () => {
     expect(pulled).toEqual({step: setup, attempt: 4, leaseToken: 'lease-pulled'});
   });
 
+  it('polls again after a wait response', async () => {
+    const setup = buildSetupStep();
+    requestNextStepMock
+      .mockResolvedValueOnce({kind: 'wait', retry_after_ms: 1})
+      .mockResolvedValueOnce(stepResponse(setup, 4, 'lease-pulled'));
+    const ac = new AbortController();
+
+    await expect(pullNextStep({leaseClient, jobId: JOB_ID, signal: ac.signal})).resolves.toEqual({
+      step: setup,
+      attempt: 4,
+      leaseToken: 'lease-pulled',
+    });
+
+    expect(requestNextStepMock).toHaveBeenCalledTimes(2);
+  });
+
   it('adopts the pulled step lease token before opening the step log stream', async () => {
     const setup = buildSetupStep();
     requestNextStepMock

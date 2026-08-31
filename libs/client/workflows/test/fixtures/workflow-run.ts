@@ -388,6 +388,7 @@ export function workflowStepAttemptDto(overrides: Partial<StepAttemptDto> = {}):
     error: null,
     gate_result: null,
     restart_feedback: null,
+    invocations: [],
     started_at: '2026-06-21T12:00:00.000Z',
     finished_at: null,
     ...overrides,

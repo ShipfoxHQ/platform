@@ -39,6 +39,19 @@ export type StepAttemptLogOutcome = 'drained' | 'abandoned';
 // 'pending' or 'skipped'.
 export type StepAttemptStatus = Exclude<StepStatus, 'pending' | 'skipped'>;
 
+// A tool step may make several provider calls over its lifetime. These fields
+// are intentionally the persisted JSON vocabulary shared with the run-detail
+// DTO, so a queued call can be rendered before an executor has claimed it.
+export interface StepAttemptInvocation {
+  readonly call_index: number;
+  readonly started_at: string;
+  readonly finished_at?: string;
+  readonly outcome?: string;
+  readonly error_code?: string;
+  readonly duration_ms?: number;
+  readonly next_due_at?: string;
+}
+
 export interface StepSourceLocation {
   startLine: number;
   endLine: number;
@@ -139,6 +152,7 @@ export interface StepAttempt {
   gateResult: Record<string, unknown> | null;
   restartFeedback: string | null;
   logOutcome: StepAttemptLogOutcome | null;
+  invocations: readonly StepAttemptInvocation[];
   startedAt: Date;
   finishedAt: Date | null;
   createdAt: Date;

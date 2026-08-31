@@ -27,6 +27,14 @@ export const nextStepResponseSchema = z.discriminatedUnion('kind', [
       ),
   }),
   z.object({
+    kind: z.literal('wait'),
+    retry_after_ms: z
+      .number()
+      .int()
+      .positive()
+      .describe('Minimum delay before the runner polls for progress again.'),
+  }),
+  z.object({
     kind: z.literal('done'),
     status: z
       .enum(['succeeded', 'failed'])

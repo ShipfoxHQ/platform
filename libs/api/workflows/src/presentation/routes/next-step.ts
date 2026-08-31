@@ -20,7 +20,7 @@ export function createNextStepRoute(params: {
     method: 'POST',
     path: '/steps/next',
     description:
-      'Returns the next step for the runner to run on its job. The job is identified by the access token, so no job ID is needed. Calling this again before reporting the current step returns that same step, so retries are safe. When no runnable steps remain, the response reports that there are no more steps to run, along with the job status; the runner then stops. Finalization is driven server-side from recorded step results and dispatch-time skips, not by the runner calling a job-completion endpoint.',
+      'Returns the next step for the runner to run on its job. The job is identified by the access token, so no job ID is needed. Calling this again before reporting the current step returns that same step, so retries are safe. Server-executed tool steps return a wait response until their queued invocation settles. When no runnable steps remain, the response reports that there are no more steps to run, along with the job status; the runner then stops. Finalization is driven server-side from recorded step results and dispatch-time skips, not by the runner calling a job-completion endpoint.',
     schema: {
       response: {
         200: nextStepResponseSchema,
@@ -79,6 +79,9 @@ export function createNextStepRoute(params: {
           attempt: next.step.currentAttempt,
           lease_token: leaseToken,
         };
+      }
+      if (next.kind === 'wait') {
+        return {kind: 'wait' as const, retry_after_ms: next.retryAfterMs};
       }
       return {kind: 'done' as const, status: next.status};
     },

@@ -14,6 +14,7 @@ import type {
   StepErrorReasonDto,
 } from '@shipfox/api-workflows-dto';
 import {logger} from '@shipfox/node-opentelemetry';
+import {interruptibleSleep} from '@shipfox/node-resilient-loop';
 import {redactSecrets} from '@shipfox/redact';
 import {
   type CheckoutDestinations,
@@ -322,23 +323,32 @@ export async function pullNextStep(params: {
 }): Promise<PulledStep | undefined> {
   const {leaseClient, jobId, signal} = params;
 
-  let next: NextStepResponseDto;
-  try {
-    next = await requestNextStep(leaseClient, {signal});
-  } catch (error) {
-    if (error instanceof HTTPError && error.response.status === 404) {
-      logger().info({jobId}, 'No job for this lease (404); stopping step loop');
+  while (!signal.aborted) {
+    let next: NextStepResponseDto;
+    try {
+      next = await requestNextStep(leaseClient, {signal});
+    } catch (error) {
+      if (error instanceof HTTPError && error.response.status === 404) {
+        logger().info({jobId}, 'No job for this lease (404); stopping step loop');
+        return undefined;
+      }
+      throw error;
+    }
+
+    if (next.kind === 'done') {
+      logger().info({jobId, status: next.status}, 'No more steps; stopping step loop');
       return undefined;
     }
-    throw error;
+
+    if (next.kind === 'wait') {
+      await interruptibleSleep(next.retry_after_ms, signal);
+      continue;
+    }
+
+    return {step: next.step, attempt: next.attempt, leaseToken: next.lease_token};
   }
 
-  if (next.kind === 'done') {
-    logger().info({jobId, status: next.status}, 'No more steps; stopping step loop');
-    return undefined;
-  }
-
-  return {step: next.step, attempt: next.attempt, leaseToken: next.lease_token};
+  return undefined;
 }
 
 export interface StepExecution {

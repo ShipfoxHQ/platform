@@ -25,6 +25,7 @@ import {
   getJobsByWorkflowRunId,
   getStepAttempts,
   getStepsByJobId,
+  getToolInvocationsByJobExecutionId,
   getWorkflowContextForJob,
 } from '#db/workflow-runs.js';
 import {agentTestClient, resolveTestAgentDefaults} from '#test/fixtures/agent-inter-module.js';
@@ -43,6 +44,7 @@ import {
   classifyReportedStep,
   nextStepForJob,
   recordStepResult as recordJobExecutionStepResult,
+  TOOL_STEP_RETRY_AFTER_MS,
 } from './job-execution.js';
 
 async function recordStepResult(
@@ -191,6 +193,49 @@ describe('nextStepForJob', () => {
     expect(second.kind === 'step' ? second.dispatched : undefined).toBe(false);
     const running = (await getStepsByJobId(jobId)).filter((s) => s.status === 'running');
     expect(running).toHaveLength(1);
+  });
+
+  test('queues a tool invocation and returns wait without redelivery', async () => {
+    const {jobId, steps} = await arrangeJobWithSteps(1);
+    const step = steps[0];
+    if (!step) throw new Error('Expected a tool step');
+    await db()
+      .update(stepsTable)
+      .set({
+        type: 'tool',
+        config: {
+          tool: {
+            connection_id: 'connection-1',
+            id: 'issue_read',
+            input_schema: {type: 'object', additionalProperties: false},
+            with: {},
+          },
+        },
+        configPlan: null,
+      })
+      .where(eq(stepsTable.id, step.id));
+
+    const first = await nextStepForJob(jobId);
+    const second = await nextStepForJob(jobId);
+
+    expect(first).toEqual({kind: 'wait', retryAfterMs: TOOL_STEP_RETRY_AFTER_MS});
+    expect(second).toEqual({kind: 'wait', retryAfterMs: TOOL_STEP_RETRY_AFTER_MS});
+
+    const invocations = await getToolInvocationsByJobExecutionId(step.jobExecutionId);
+    expect(invocations).toHaveLength(1);
+    expect(invocations[0]).toMatchObject({
+      stepId: step.id,
+      jobExecutionId: step.jobExecutionId,
+      status: 'queued',
+      callIndex: 0,
+      dueAt: expect.any(Date),
+      claimedBy: null,
+      claimExpiresAt: null,
+      lastErrorCode: null,
+    });
+
+    const [attempt] = await getStepAttempts(jobId);
+    expect(attempt?.invocations).toEqual([{call_index: 0, started_at: expect.any(String)}]);
   });
 
   test('after a step succeeds, the next pull returns the next pending step', async () => {

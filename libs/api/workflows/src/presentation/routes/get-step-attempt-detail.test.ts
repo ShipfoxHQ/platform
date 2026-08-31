@@ -152,6 +152,7 @@ function stepAttemptEntity(): StepAttempt {
     gateResult: null,
     restartFeedback: null,
     logOutcome: 'drained',
+    invocations: [],
     startedAt: new Date('2026-08-05T12:00:00.000Z'),
     finishedAt: new Date('2026-08-05T12:01:00.000Z'),
     createdAt: new Date('2026-08-05T12:00:00.000Z'),

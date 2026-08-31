@@ -38,6 +38,9 @@ export const stepErrorReasonSchema = z.enum([
   'agent_session_held',
   'agent_session_harness_mismatch',
   'agent_session_unavailable',
+  'tool_error',
+  'tool_config_invalid',
+  'invocation_interrupted',
 ]);
 
 export type StepErrorReasonDto = z.infer<typeof stepErrorReasonSchema>;
@@ -198,6 +201,18 @@ export const stepGateResultDtoSchema = z
 
 export type StepGateResultDto = z.infer<typeof stepGateResultDtoSchema>;
 
+export const stepAttemptInvocationSchema = z.object({
+  call_index: z.number().int().nonnegative(),
+  started_at: z.string(),
+  finished_at: z.string().optional(),
+  outcome: z.string().optional(),
+  error_code: z.string().optional(),
+  duration_ms: z.number().int().nonnegative().optional(),
+  next_due_at: z.string().optional(),
+});
+
+export type StepAttemptInvocationDto = z.infer<typeof stepAttemptInvocationSchema>;
+
 // One execution attempt of a step (the durable history behind the current
 // projection). Surfaced in run details so a restarted step's attempts are visible.
 export const stepAttemptDtoSchema = z.object({
@@ -219,6 +234,7 @@ export const stepAttemptDtoSchema = z.object({
   // rows; nested keys are not snake_case-normalized.
   gate_result: stepGateResultDtoSchema,
   restart_feedback: z.string().nullable(),
+  invocations: z.array(stepAttemptInvocationSchema),
   started_at: z.string(),
   finished_at: z.string().nullable(),
 });
