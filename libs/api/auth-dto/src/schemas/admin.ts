@@ -13,6 +13,22 @@ export function isAdminRole(value: unknown): value is AdminRole {
 const timestampSchema = z.string().datetime();
 const identifierEmailSchema = z.string().email();
 const CONTROL_OR_FORMAT_CHARACTER_RE = /[\p{Cc}\p{Cf}]/u;
+const DIRECTORY_CURSOR_MAX_LENGTH = 512;
+const DIRECTORY_SEARCH_MAX_LENGTH = 128;
+const DIRECTORY_SEARCH_MAX_UTF16_LENGTH = DIRECTORY_SEARCH_MAX_LENGTH * 2;
+const DIRECTORY_PAGE_SIZE_MAX = 100;
+const DIRECTORY_LIMIT_PATTERN = /^\d+$/u;
+
+function hasAtMostCodePoints(value: string, maxLength: number): boolean {
+  let length = 0;
+  for (const _codePoint of value) {
+    length += 1;
+    if (length > maxLength) return false;
+  }
+
+  return true;
+}
+
 const reasonSchema = z
   .string()
   .min(1)
@@ -86,6 +102,82 @@ export const administratorUserSummarySchema = administratorUserIdentitySchema.ex
 });
 
 export type AdministratorUserSummaryDto = z.infer<typeof administratorUserSummarySchema>;
+
+const directoryCursorSchema = z
+  .string()
+  .min(1)
+  .max(DIRECTORY_CURSOR_MAX_LENGTH)
+  .refine((value) => !CONTROL_OR_FORMAT_CHARACTER_RE.test(value), {
+    message: 'must not contain control or format characters',
+  });
+
+const directorySearchSchema = z
+  .string()
+  .max(DIRECTORY_SEARCH_MAX_UTF16_LENGTH)
+  .optional()
+  .transform((value) => {
+    if (
+      typeof value === 'string' &&
+      !CONTROL_OR_FORMAT_CHARACTER_RE.test(value) &&
+      value.trim().length === 0
+    ) {
+      return undefined;
+    }
+
+    return value;
+  })
+  .pipe(
+    z
+      .string()
+      .refine((value) => !CONTROL_OR_FORMAT_CHARACTER_RE.test(value), {
+        message: 'must not contain control or format characters',
+      })
+      .transform((value) => value.trim())
+      .pipe(
+        z
+          .string()
+          .min(1)
+          .refine((value) => hasAtMostCodePoints(value, DIRECTORY_SEARCH_MAX_LENGTH), {
+            message: `String must contain at most ${DIRECTORY_SEARCH_MAX_LENGTH} character(s)`,
+          }),
+      )
+      .optional(),
+  );
+
+const checkedBooleanSchema = z.preprocess((value) => {
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  return value;
+}, z.boolean());
+
+const checkedDirectoryLimitSchema = z.preprocess((value) => {
+  if (typeof value === 'number' && Number.isInteger(value)) return value;
+  if (typeof value === 'string' && DIRECTORY_LIMIT_PATTERN.test(value)) return Number(value);
+  return value;
+}, z.number().int().min(1).max(DIRECTORY_PAGE_SIZE_MAX));
+
+export const administratorUserDirectoryQuerySchema = z
+  .object({
+    search: directorySearchSchema,
+    status: userStatusSchema.optional(),
+    impersonation_eligible: checkedBooleanSchema.optional(),
+    cursor: directoryCursorSchema.optional(),
+    limit: checkedDirectoryLimitSchema.default(50),
+  })
+  .strict();
+
+export type AdministratorUserDirectoryQueryDto = z.infer<
+  typeof administratorUserDirectoryQuerySchema
+>;
+
+export const administratorUserDirectoryResponseSchema = z.object({
+  users: z.array(administratorUserSummarySchema).max(DIRECTORY_PAGE_SIZE_MAX),
+  next_cursor: directoryCursorSchema.nullable(),
+});
+
+export type AdministratorUserDirectoryResponseDto = z.infer<
+  typeof administratorUserDirectoryResponseSchema
+>;
 
 const correlationIdSchema = z.string().min(1).max(255);
 
