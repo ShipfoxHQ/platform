@@ -218,11 +218,25 @@ export async function getProjectBySource(
   return toProject(row);
 }
 
+function whereSourceRepositoryMatches(params: {
+  workspaceId: string;
+  sourceConnectionId: string;
+  sourceRepositoryOwner: string;
+  sourceRepositoryName: string;
+}): SQL | undefined {
+  return and(
+    eq(projects.workspaceId, params.workspaceId),
+    eq(projects.sourceConnectionId, params.sourceConnectionId),
+    sql`lower(${projects.sourceRepositoryOwner}) = lower(${params.sourceRepositoryOwner})`,
+    sql`lower(${projects.sourceRepositoryName}) = lower(${params.sourceRepositoryName})`,
+  );
+}
+
 export interface FindProjectBySourceRepositoryNameParams {
   workspaceId: string;
-  connectionId: string;
-  owner: string;
-  name: string;
+  sourceConnectionId: string;
+  sourceRepositoryOwner: string;
+  sourceRepositoryName: string;
 }
 
 export async function findProjectBySourceRepositoryName(
@@ -231,14 +245,8 @@ export async function findProjectBySourceRepositoryName(
   const rows = await db()
     .select()
     .from(projects)
-    .where(
-      and(
-        eq(projects.workspaceId, params.workspaceId),
-        eq(projects.sourceConnectionId, params.connectionId),
-        sql`lower(${projects.sourceRepositoryOwner}) = lower(${params.owner})`,
-        sql`lower(${projects.sourceRepositoryName}) = lower(${params.name})`,
-      ),
-    );
+    .where(whereSourceRepositoryMatches(params))
+    .orderBy(projects.createdAt, projects.id);
 
   return rows.map(toProject);
 }
@@ -370,12 +378,12 @@ export async function resolveCheckoutTarget(
     .select(selection)
     .from(projects)
     .where(
-      and(
-        eq(projects.workspaceId, params.workspaceId),
-        eq(projects.sourceConnectionId, repository.connectionId),
-        sql`lower(${projects.sourceRepositoryOwner}) = lower(${repository.owner})`,
-        sql`lower(${projects.sourceRepositoryName}) = lower(${repository.name})`,
-      ),
+      whereSourceRepositoryMatches({
+        workspaceId: params.workspaceId,
+        sourceConnectionId: repository.connectionId,
+        sourceRepositoryOwner: repository.owner,
+        sourceRepositoryName: repository.name,
+      }),
     )
     .limit(2);
 

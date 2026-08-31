@@ -17,9 +17,9 @@ describe('findProjectBySourceRepositoryName', () => {
 
     const emptyMatches = await findProjectBySourceRepositoryName({
       workspaceId,
-      connectionId,
-      owner: 'acme',
-      name: 'api',
+      sourceConnectionId: connectionId,
+      sourceRepositoryOwner: 'acme',
+      sourceRepositoryName: 'api',
     });
 
     expect(emptyMatches).toEqual([]);
@@ -37,6 +37,20 @@ describe('findProjectBySourceRepositoryName', () => {
       })
       .returning({id: projects.id});
     if (!first) throw new Error('First project insert returned no row');
+
+    const [missingName] = await db()
+      .insert(projects)
+      .values({
+        workspaceId,
+        sourceConnectionId: connectionId,
+        sourceExternalRepositoryId: 'github:missing-name',
+        sourceRepositoryOwner: 'acme',
+        sourceRepositoryName: null,
+        name: 'Missing repository name',
+        slug: `missing-name-${crypto.randomUUID()}`,
+      })
+      .returning({id: projects.id});
+    if (!missingName) throw new Error('Missing-name project insert returned no row');
 
     await db()
       .insert(projects)
@@ -63,9 +77,9 @@ describe('findProjectBySourceRepositoryName', () => {
 
     const oneMatch = await findProjectBySourceRepositoryName({
       workspaceId,
-      connectionId,
-      owner: 'ACME',
-      name: 'aPI',
+      sourceConnectionId: connectionId,
+      sourceRepositoryOwner: 'ACME',
+      sourceRepositoryName: 'aPI',
     });
 
     expect(oneMatch).toHaveLength(1);
@@ -77,6 +91,7 @@ describe('findProjectBySourceRepositoryName', () => {
       sourceRepositoryOwner: 'AcMe',
       sourceRepositoryName: 'Api',
     });
+    expect(oneMatch.map(({id}) => id)).not.toContain(missingName.id);
 
     const [second] = await db()
       .insert(projects)
@@ -94,15 +109,13 @@ describe('findProjectBySourceRepositoryName', () => {
 
     const multipleMatches = await findProjectBySourceRepositoryName({
       workspaceId,
-      connectionId,
-      owner: 'AcMe',
-      name: 'API',
+      sourceConnectionId: connectionId,
+      sourceRepositoryOwner: 'AcMe',
+      sourceRepositoryName: 'API',
     });
 
     expect(multipleMatches).toHaveLength(2);
-    expect(multipleMatches.map(({id}) => id)).toEqual(
-      expect.arrayContaining([first.id, second.id]),
-    );
+    expect(multipleMatches.map(({id}) => id)).toEqual([first.id, second.id]);
   });
 });
 

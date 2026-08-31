@@ -52,9 +52,9 @@ export const projectsInterModuleContract = defineInterModuleContract({
     findProjectBySourceRepositoryName: {
       input: z.object({
         workspaceId: idSchema,
-        connectionId: idSchema,
-        owner: z.string().min(1),
-        name: z.string().min(1),
+        sourceConnectionId: idSchema,
+        sourceRepositoryOwner: z.string().min(1),
+        sourceRepositoryName: z.string().min(1),
       }),
       output: z.object({projects: z.array(projectSchema)}),
     },

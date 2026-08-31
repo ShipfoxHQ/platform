@@ -25,9 +25,9 @@ describe('projectsInterModuleContract', () => {
   test('accepts source repository name lookup inputs', () => {
     const input = {
       workspaceId: '00000000-0000-4000-8000-000000000001',
-      connectionId: '00000000-0000-4000-8000-000000000002',
-      owner: 'shipfox',
-      name: 'project',
+      sourceConnectionId: '00000000-0000-4000-8000-000000000002',
+      sourceRepositoryOwner: 'shipfox',
+      sourceRepositoryName: 'project',
     };
 
     expect(

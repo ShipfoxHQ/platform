@@ -153,9 +153,9 @@ describe('Projects checkout target inter-module presentation', () => {
     await expect(
       client.findProjectBySourceRepositoryName({
         workspaceId,
-        connectionId,
-        owner: 'acme',
-        name: 'api',
+        sourceConnectionId: connectionId,
+        sourceRepositoryOwner: 'acme',
+        sourceRepositoryName: 'api',
       }),
     ).resolves.toEqual({projects: []});
 
@@ -184,9 +184,9 @@ describe('Projects checkout target inter-module presentation', () => {
     await expect(
       client.findProjectBySourceRepositoryName({
         workspaceId,
-        connectionId,
-        owner: 'ACME',
-        name: 'aPI',
+        sourceConnectionId: connectionId,
+        sourceRepositoryOwner: 'ACME',
+        sourceRepositoryName: 'aPI',
       }),
     ).resolves.toMatchObject({
       projects: [
@@ -210,15 +210,13 @@ describe('Projects checkout target inter-module presentation', () => {
 
     const multipleMatches = await client.findProjectBySourceRepositoryName({
       workspaceId,
-      connectionId,
-      owner: 'AcMe',
-      name: 'API',
+      sourceConnectionId: connectionId,
+      sourceRepositoryOwner: 'AcMe',
+      sourceRepositoryName: 'API',
     });
 
     expect(multipleMatches.projects).toHaveLength(2);
-    expect(multipleMatches.projects.map(({id}) => id)).toEqual(
-      expect.arrayContaining([first.projectId, second.projectId]),
-    );
+    expect(multipleMatches.projects.map(({id}) => id)).toEqual([first.projectId, second.projectId]);
     expect(resolveSourceRepository).not.toHaveBeenCalled();
   });
 
