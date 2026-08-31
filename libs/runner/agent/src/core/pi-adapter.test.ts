@@ -7,6 +7,7 @@ const {
   createAgentSessionServicesMock,
   sessionManagerCreateMock,
   sessionManagerOpenMock,
+  sessionManagerForkFromMock,
   findMock,
   getAllMock,
   hasConfiguredAuthMock,
@@ -23,7 +24,11 @@ const {
   createAgentSessionMock: vi.fn(),
   createAgentSessionServicesMock: vi.fn(),
   sessionManagerCreateMock: vi.fn(() => ({})),
-  sessionManagerOpenMock: vi.fn(() => ({})),
+  sessionManagerOpenMock: vi.fn(() => ({
+    getHeader: () => ({type: 'session'}),
+    getEntries: () => [{type: 'message'}],
+  })),
+  sessionManagerForkFromMock: vi.fn(() => ({})),
   findMock: vi.fn(),
   getAllMock: vi.fn(),
   hasConfiguredAuthMock: vi.fn(),
@@ -62,7 +67,11 @@ vi.mock('@earendil-works/pi-coding-agent', () => ({
   ModelRuntime: {
     create: modelRuntimeCreateMock,
   },
-  SessionManager: {create: sessionManagerCreateMock, open: sessionManagerOpenMock},
+  SessionManager: {
+    create: sessionManagerCreateMock,
+    open: sessionManagerOpenMock,
+    forkFrom: sessionManagerForkFromMock,
+  },
 }));
 
 vi.mock('@shipfox/node-egress-guard', () => ({
@@ -90,11 +99,13 @@ vi.mock('#core/pi-extensions.js', async (importOriginal) => {
 import {
   appendFileSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
   rmSync,
   statSync,
+  writeFileSync,
 } from 'node:fs';
 import {tmpdir} from 'node:os';
 import {basename, isAbsolute, join} from 'node:path';
@@ -105,6 +116,7 @@ import {
   DEFAULT_CUSTOM_MODEL_MAX_OUTPUT_TOKENS,
   DEFAULT_CUSTOM_MODEL_REASONING,
 } from '@shipfox/api-agent-dto';
+import {logger} from '@shipfox/node-opentelemetry';
 import {
   AgentConfigError,
   AgentHarnessUnavailableError,
@@ -216,7 +228,12 @@ describe('piHarnessAdapter', () => {
     sessionManagerCreateMock.mockReset();
     sessionManagerCreateMock.mockReturnValue({});
     sessionManagerOpenMock.mockReset();
-    sessionManagerOpenMock.mockReturnValue({});
+    sessionManagerOpenMock.mockReturnValue({
+      getHeader: () => ({type: 'session'}),
+      getEntries: () => [{type: 'message'}],
+    });
+    sessionManagerForkFromMock.mockReset();
+    sessionManagerForkFromMock.mockReturnValue({});
     findMock.mockReset();
     getAllMock.mockReset();
     hasConfiguredAuthMock.mockReset();
@@ -263,6 +280,7 @@ describe('piHarnessAdapter', () => {
     else process.env.GIT_CONFIG_GLOBAL = priorGitConfigGlobal;
     if (sessionDir) rmSync(sessionDir, {recursive: true, force: true});
     sessionDir = undefined;
+    vi.restoreAllMocks();
   });
 
   it('resolves the configured model and forwards max thinking to Pi', async () => {
@@ -1274,6 +1292,237 @@ describe('piHarnessAdapter', () => {
       '/work',
     );
     expect(createAgentSessionMock).not.toHaveBeenCalled();
+  });
+
+  it('attaches session metadata when a resumed run fails after creating the session', async () => {
+    const sessionFile = join(tmpdir(), 'shipfox-resumed-session.jsonl');
+    createAgentSessionMock.mockResolvedValue({
+      session: {
+        prompt: promptMock,
+        abort: abortMock,
+        getLastAssistantText: getLastAssistantTextMock,
+        messages: [],
+        sessionFile,
+        sessionId: 'pi-session-1',
+      },
+    });
+    promptMock.mockRejectedValue(new Error('prompt failed'));
+
+    await expect(
+      piHarnessAdapter.run(
+        invocation({session: {mode: 'resume', file: '/runner-agent/job-1/session.jsonl'}}),
+      ),
+    ).rejects.toMatchObject({
+      name: 'AgentInvocationError',
+      message: 'prompt failed',
+      sessionFile,
+      sessionId: 'pi-session-1',
+    });
+  });
+
+  it('does not attach or retain a forked session when the run fails', async () => {
+    sessionDir = mkdtempSync(join(tmpdir(), 'shipfox-pi-session-'));
+    const agentStateDir = join(sessionDir, 'runner-agent');
+    const sessionFile = join(agentStateDir, 'agent-sessions', 'fork.jsonl');
+    mkdirSync(join(agentStateDir, 'agent-sessions'), {recursive: true});
+    writeFileSync(sessionFile, '{"type":"session"}\n');
+    createAgentSessionMock.mockResolvedValue({
+      session: {
+        prompt: promptMock,
+        abort: abortMock,
+        getLastAssistantText: getLastAssistantTextMock,
+        messages: [],
+        sessionFile,
+        sessionId: 'pi-session-1',
+      },
+    });
+    promptMock.mockRejectedValue(new Error('prompt failed'));
+
+    const error = await piHarnessAdapter
+      .run(
+        invocation({
+          cwd: sessionDir,
+          agentStateDir,
+          session: {mode: 'fork', file: join(sessionDir, 'source.jsonl')},
+        }),
+      )
+      .catch((caught) => caught);
+
+    expect(error).toMatchObject({name: 'AgentInvocationError', message: 'prompt failed'});
+    expect(error.sessionFile).toBeUndefined();
+    expect(error.sessionId).toBeUndefined();
+    expect(existsSync(sessionFile)).toBe(false);
+  });
+
+  it('maps a fork load failure to AgentSessionUnavailableError', async () => {
+    const errorLog = vi.spyOn(logger(), 'error').mockImplementation(() => undefined);
+    sessionManagerForkFromMock.mockImplementation(() => {
+      throw new Error('invalid session file');
+    });
+
+    await expect(
+      piHarnessAdapter.run(
+        invocation({session: {mode: 'fork', file: '/runner-agent/job-1/session.jsonl'}}),
+      ),
+    ).rejects.toEqual(
+      new AgentSessionUnavailableError('Pi could not load the agent session: invalid session file'),
+    );
+    expect(sessionManagerForkFromMock).toHaveBeenCalledWith(
+      '/runner-agent/job-1/session.jsonl',
+      '/work',
+      join('/runner-agent/job-1', 'agent-sessions'),
+    );
+    expect(errorLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'runner.agent_session_load_failed',
+        sessionMode: 'fork',
+        sessionFile: '/runner-agent/job-1/session.jsonl',
+        err: expect.any(Error),
+      }),
+      'Agent session load failed',
+    );
+    expect(createAgentSessionMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects a resumed session with no transcript entries', async () => {
+    sessionManagerOpenMock.mockReturnValue({
+      getHeader: () => ({type: 'session'}),
+      getEntries: () => [],
+    });
+
+    await expect(
+      piHarnessAdapter.run(
+        invocation({session: {mode: 'resume', file: '/runner-agent/job-1/session.jsonl'}}),
+      ),
+    ).rejects.toEqual(
+      new AgentSessionUnavailableError(
+        'Pi could not load the agent session: session has no transcript entries',
+      ),
+    );
+    expect(createAgentSessionMock).not.toHaveBeenCalled();
+  });
+
+  it('falls back to a fresh fork when the source has no transcript head', async () => {
+    sessionManagerForkFromMock.mockImplementation(() => {
+      throw new Error(
+        'Cannot fork: source session file is empty or invalid: /runner-agent/job-1/session.jsonl',
+      );
+    });
+
+    await piHarnessAdapter.run(
+      invocation({session: {mode: 'fork', file: '/runner-agent/job-1/session.jsonl'}}),
+    );
+
+    expect(sessionManagerCreateMock).toHaveBeenCalledWith(
+      '/work',
+      join('/runner-agent/job-1', 'agent-sessions'),
+    );
+  });
+
+  it('forks a loaded session into the local Pi session directory', async () => {
+    sessionDir = mkdtempSync(join(tmpdir(), 'shipfox-pi-session-'));
+    const agentStateDir = join(sessionDir, 'runner-agent');
+    const sourceFile = join(agentStateDir, 'sessions', 'source.jsonl');
+    const forkedSessionFile = join(agentStateDir, 'agent-sessions', 'fork.jsonl');
+    const forkedManager = {};
+    sessionManagerForkFromMock.mockReturnValue(forkedManager);
+    createAgentSessionMock.mockResolvedValue({
+      session: {
+        prompt: promptMock,
+        abort: abortMock,
+        getLastAssistantText: getLastAssistantTextMock,
+        messages: [],
+        sessionFile: forkedSessionFile,
+      },
+    });
+
+    const result = await piHarnessAdapter.run(
+      invocation({
+        cwd: sessionDir,
+        agentStateDir,
+        session: {mode: 'fork', file: sourceFile},
+      }),
+    );
+
+    expect(sessionManagerForkFromMock).toHaveBeenCalledWith(
+      sourceFile,
+      sessionDir,
+      join(agentStateDir, 'agent-sessions'),
+    );
+    expect(sessionManagerOpenMock).not.toHaveBeenCalled();
+    expect(createAgentSessionMock).toHaveBeenCalledWith(
+      expect.objectContaining({sessionManager: forkedManager}),
+    );
+    expect(result).toEqual({response: ''});
+  });
+
+  it('creates a fresh local session when a fork has no transcript head', async () => {
+    sessionDir = mkdtempSync(join(tmpdir(), 'shipfox-pi-session-'));
+    const agentStateDir = join(sessionDir, 'runner-agent');
+    const sessionFile = join(sessionDir, 'fresh.jsonl');
+    writeFileSync(sessionFile, '{"type":"session"}\n');
+    createAgentSessionMock.mockResolvedValue({
+      session: {
+        prompt: promptMock,
+        abort: abortMock,
+        getLastAssistantText: getLastAssistantTextMock,
+        messages: [],
+        sessionFile,
+      },
+    });
+    promptMock.mockImplementation(() => {
+      appendFileSync(sessionFile, '{"type":"message","id":"fresh"}\n');
+      return Promise.resolve();
+    });
+    const entries: string[] = [];
+
+    await piHarnessAdapter.run(
+      invocation({
+        cwd: sessionDir,
+        agentStateDir,
+        onSessionEntry: (line) => entries.push(line),
+        session: {mode: 'fork'},
+      }),
+    );
+
+    expect(sessionManagerCreateMock).toHaveBeenCalledWith(
+      sessionDir,
+      join(agentStateDir, 'agent-sessions'),
+    );
+    expect(sessionManagerForkFromMock).not.toHaveBeenCalled();
+    expect(entries).toEqual(['{"type":"session"}', '{"type":"message","id":"fresh"}']);
+  });
+
+  it('returns the synchronously appended resumed session file for committing', async () => {
+    sessionDir = mkdtempSync(join(tmpdir(), 'shipfox-pi-session-'));
+    const sourceFile = join(sessionDir, 'source.jsonl');
+    const committedFile = join(sessionDir, 'committed.jsonl');
+    appendFileSync(sourceFile, '{"type":"session"}\n');
+    createAgentSessionMock.mockResolvedValue({
+      session: {
+        prompt: promptMock,
+        abort: abortMock,
+        getLastAssistantText: getLastAssistantTextMock,
+        messages: [],
+        sessionFile: committedFile,
+        sessionId: 'pi-session-1',
+      },
+    });
+    promptMock.mockImplementation(() => {
+      appendFileSync(committedFile, '{"type":"message","id":"a"}\n');
+      return Promise.resolve();
+    });
+
+    const result = await piHarnessAdapter.run(
+      invocation({session: {mode: 'resume', file: sourceFile}}),
+    );
+
+    expect(result).toEqual({
+      response: '',
+      sessionFile: committedFile,
+      sessionId: 'pi-session-1',
+    });
+    expect(readFileSync(committedFile, 'utf8')).toBe('{"type":"message","id":"a"}\n');
   });
 
   it('forwards each persisted session entry to onSessionEntry in order', async () => {

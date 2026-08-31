@@ -12,6 +12,8 @@ export interface SessionForwarderOptions {
   filePath: string;
   onEntry: (line: string) => void;
   intervalMs?: number;
+  /** Start reading after existing content, for a fork whose history was pre-seeded. */
+  startAtEnd?: boolean;
 }
 
 export interface SessionForwarder {
@@ -35,6 +37,13 @@ export function startSessionForwarder(options: SessionForwarderOptions): Session
   const intervalMs = options.intervalMs ?? DEFAULT_POLL_INTERVAL_MS;
   let offset = 0;
   let pending = Buffer.alloc(0);
+  if (options.startAtEnd) {
+    try {
+      offset = statSync(options.filePath).size;
+    } catch {
+      // The file may not exist until pi persists the first new entry.
+    }
+  }
   let stopped = false;
 
   function drainNewBytes(): void {

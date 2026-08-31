@@ -198,7 +198,7 @@ async function runSelectedHarness(params: {
     );
     return successfulHarnessResult(harnessResult, session);
   } catch (error) {
-    return harnessFailureResult(error, {harness, jobExecutionId, stepId, attempt});
+    return harnessFailureResult(error, {harness, jobExecutionId, stepId, attempt}, session);
   }
 }
 
@@ -224,6 +224,7 @@ function successfulHarnessResult(
 function harnessFailureResult(
   error: unknown,
   context: {harness: Harness; jobExecutionId: string; stepId: string; attempt: number},
+  session: Parameters<HarnessAdapter['run']>[0]['session'],
 ): StepResult {
   if (error instanceof AgentHarnessUnavailableError) {
     logHarnessUnavailable({error, ...context});
@@ -241,7 +242,11 @@ function harnessFailureResult(
     error instanceof AgentConfigError ? error.agentConfigIssue : undefined,
     error instanceof AgentInvocationError ? error.response : undefined,
   );
-  if (error instanceof AgentInvocationError && error.sessionFile !== undefined) {
+  if (
+    error instanceof AgentInvocationError &&
+    session?.mode !== 'fork' &&
+    error.sessionFile !== undefined
+  ) {
     failure.sessionFile = error.sessionFile;
     if (error.sessionId !== undefined) failure.sessionId = error.sessionId;
   }
