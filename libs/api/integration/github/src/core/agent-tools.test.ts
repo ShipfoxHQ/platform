@@ -1954,7 +1954,12 @@ describe('github agent tool catalog', () => {
 
     const result = await session.call({
       toolId: 'update_pull_request_branch',
-      arguments: {owner: 'shipfox', repo: 'platform', pull_number: 1},
+      arguments: {
+        owner: 'shipfox',
+        repo: 'platform',
+        pull_number: 1,
+        expected_head_sha: 'head-sha',
+      },
     });
 
     expect(request).toHaveBeenCalledWith(
@@ -1963,6 +1968,7 @@ describe('github agent tool catalog', () => {
         owner: 'shipfox',
         repo: 'platform',
         pull_number: 1,
+        expected_head_sha: 'head-sha',
       },
     );
     expect(result).toEqual({
