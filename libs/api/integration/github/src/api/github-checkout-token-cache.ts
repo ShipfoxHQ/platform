@@ -231,6 +231,7 @@ export class GithubCheckoutTokenCache implements GithubCheckoutTokenCachePort {
   private readonly inFlight = new Map<string, Promise<GithubCheckoutToken>>();
   private readonly inFlightScopes = new Map<string, GithubCheckoutTokenScope>();
   private readonly lateMints = new Map<string, Set<Promise<void>>>();
+  private readonly lateWriteTails = new Map<string, Promise<void>>();
   private readonly deleting = new Map<string, Promise<number>>();
   // A completed deletion remains observable to late mints as an epoch tombstone.
   private readonly deletionEpochs = new Map<string, number>();
@@ -358,33 +359,36 @@ export class GithubCheckoutTokenCache implements GithubCheckoutTokenCachePort {
           })
           .map(([, pending]) => pending.catch(() => undefined)),
       );
-      // Late provider promises cannot be cancelled. The epoch tombstone above
-      // prevents a later completion from repopulating this installation.
-      for (const [digest, entry] of this.ram) {
-        if (
-          entry.scope.workspaceId === workspaceId &&
-          entry.scope.providerInstance === providerInstance &&
-          entry.scope.installationId === installationId
-        ) {
-          this.ram.delete(digest);
+      return await this.withLateWriteLock(stateKey, async () => {
+        // Late provider promises cannot be cancelled. The epoch tombstone above
+        // prevents a later completion from repopulating this installation.
+        for (const [digest, entry] of this.ram) {
+          if (
+            entry.scope.workspaceId === workspaceId &&
+            entry.scope.providerInstance === providerInstance &&
+            entry.scope.installationId === installationId
+          ) {
+            this.ram.delete(digest);
+          }
         }
-      }
-      const store = this.options.secretStore;
-      if (store?.deleteNamespace) {
-        return await store.deleteNamespace({workspaceId, namespace});
-      }
-      if (!store?.list || !store.delete) return 0;
-      const values = await store.list({workspaceId, namespace});
-      await Promise.all(
-        Object.keys(values).map((key) => store.delete?.({workspaceId, namespace, key})),
-      );
-      return Object.keys(values).length;
+        const store = this.options.secretStore;
+        if (store?.deleteNamespace) {
+          return await store.deleteNamespace({workspaceId, namespace});
+        }
+        if (!store?.list || !store.delete) return 0;
+        const values = await store.list({workspaceId, namespace});
+        await Promise.all(
+          Object.keys(values).map((key) => store.delete?.({workspaceId, namespace, key})),
+        );
+        return Object.keys(values).length;
+      });
     });
     this.deleting.set(stateKey, deletion);
     try {
       return await deletion;
     } finally {
       if (this.deleting.get(stateKey) === deletion) this.deleting.delete(stateKey);
+      this.cleanupDeletionEpoch(stateKey);
     }
   }
 
@@ -559,8 +563,21 @@ export class GithubCheckoutTokenCache implements GithubCheckoutTokenCachePort {
   ): Promise<void> {
     const namespace = githubCheckoutTokenNamespace(scope.providerInstance, scope.installationId);
     const stateKey = githubCheckoutTokenStateKey(scope.workspaceId, namespace);
-    if (this.deleting.has(stateKey)) return;
-    if ((this.deletionEpochs.get(stateKey) ?? 0) !== deletionEpoch) return;
+    await this.withLateWriteLock(stateKey, () =>
+      this.persistLateMintUnderLock(scope, digest, previous, minted, now, deletionEpoch, stateKey),
+    );
+  }
+
+  private async persistLateMintUnderLock(
+    scope: GithubCheckoutTokenScope,
+    digest: string,
+    previous: GithubCheckoutTokenEnvelope | undefined,
+    minted: GithubInstallationAccessToken,
+    now: Date,
+    deletionEpoch: number,
+    stateKey: string,
+  ): Promise<void> {
+    if (!this.isLateMintAllowed(stateKey, deletionEpoch)) return;
     try {
       validateMintedToken(scope, minted, now);
       const current = this.options.secretStore
@@ -570,12 +587,7 @@ export class GithubCheckoutTokenCache implements GithubCheckoutTokenCachePort {
         previous?.generation === undefined
           ? current?.generation === undefined && current?.token === undefined
           : current?.generation === previous.generation && current.token === previous.token;
-      if (
-        !sameGeneration ||
-        this.deleting.has(stateKey) ||
-        (this.deletionEpochs.get(stateKey) ?? 0) !== deletionEpoch
-      )
-        return;
+      if (!sameGeneration || !this.isLateMintAllowed(stateKey, deletionEpoch)) return;
 
       const envelope: GithubCheckoutTokenEnvelope = {
         version: GITHUB_CHECKOUT_TOKEN_CACHE_VERSION,
@@ -585,9 +597,9 @@ export class GithubCheckoutTokenCache implements GithubCheckoutTokenCachePort {
         repositoryId: scope.repositoryId,
         permissions: {...scope.permissions},
       };
-      if (this.deleting.has(stateKey) || (this.deletionEpochs.get(stateKey) ?? 0) !== deletionEpoch)
-        return;
+      if (!this.isLateMintAllowed(stateKey, deletionEpoch)) return;
       await this.writeShared(scope, envelope);
+      if (!this.isLateMintAllowed(stateKey, deletionEpoch)) return;
       this.writeRam(digest, scope, envelope);
     } catch (error) {
       logger().warn(
@@ -601,17 +613,49 @@ export class GithubCheckoutTokenCache implements GithubCheckoutTokenCachePort {
     }
   }
 
+  private isLateMintAllowed(stateKey: string, deletionEpoch: number): boolean {
+    return (
+      !this.deleting.has(stateKey) && (this.deletionEpochs.get(stateKey) ?? 0) === deletionEpoch
+    );
+  }
+
   private trackLateMint(scope: GithubCheckoutTokenScope, work: Promise<void>): void {
     const namespace = githubCheckoutTokenNamespace(scope.providerInstance, scope.installationId);
     const stateKey = githubCheckoutTokenStateKey(scope.workspaceId, namespace);
-    const boundedWork = boundLateWork(work, this.mintTimeoutMs);
     const pending = this.lateMints.get(stateKey) ?? new Set<Promise<void>>();
-    pending.add(boundedWork);
+    pending.add(work);
     this.lateMints.set(stateKey, pending);
     const remove = () => {
-      if (pending.delete(boundedWork) && pending.size === 0) this.lateMints.delete(stateKey);
+      if (pending.delete(work) && pending.size === 0) this.lateMints.delete(stateKey);
+      this.cleanupDeletionEpoch(stateKey);
     };
-    void boundedWork.then(remove, remove);
+    void work.then(remove, remove);
+  }
+
+  private async withLateWriteLock<T>(stateKey: string, fn: () => Promise<T>): Promise<T> {
+    const previous = this.lateWriteTails.get(stateKey) ?? Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.lateWriteTails.set(stateKey, current);
+    await previous;
+    try {
+      return await fn();
+    } finally {
+      release();
+      if (this.lateWriteTails.get(stateKey) === current) this.lateWriteTails.delete(stateKey);
+    }
+  }
+
+  private cleanupDeletionEpoch(stateKey: string): void {
+    if (
+      !this.deleting.has(stateKey) &&
+      !this.lateMints.has(stateKey) &&
+      !this.lateWriteTails.has(stateKey)
+    ) {
+      this.deletionEpochs.delete(stateKey);
+    }
   }
 
   private async pollAfterContention(
@@ -743,16 +787,6 @@ interface RamEntry {
 
 function githubCheckoutTokenStateKey(workspaceId: string, namespace: string): string {
   return `${workspaceId}\u0000${namespace}`;
-}
-
-function boundLateWork(work: Promise<void>, timeoutMs: number): Promise<void> {
-  let timer: NodeJS.Timeout | undefined;
-  const deadline = new Promise<void>((resolve) => {
-    timer = setTimeout(resolve, timeoutMs);
-  });
-  return Promise.race([work.catch(() => undefined), deadline]).finally(() => {
-    if (timer) clearTimeout(timer);
-  });
 }
 
 function normalizeScope(scope: GithubCheckoutTokenScope): GithubCheckoutTokenScope {

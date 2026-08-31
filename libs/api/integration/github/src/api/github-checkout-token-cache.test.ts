@@ -334,6 +334,63 @@ describe('GithubCheckoutTokenCache', () => {
     ).toBe('fresh-token');
   });
 
+  it('serializes deletion with a late write and releases its tombstone afterward', async () => {
+    const store = createStore();
+    let releaseLateWrite: () => void = () => undefined;
+    let startLateWrite: () => void = () => undefined;
+    const lateWriteStarted = new Promise<void>((resolve) => {
+      startLateWrite = resolve;
+    });
+    const write = store.write;
+    store.write = async (params) => {
+      const envelope = parseGithubCheckoutTokenEnvelope(params.value);
+      if (envelope?.token === 'late-token') {
+        startLateWrite();
+        await new Promise<void>((resolve) => {
+          releaseLateWrite = resolve;
+        });
+      }
+      await write(params);
+    };
+    let resolveMint: (value: {token: string; expiresAt: Date}) => void = () => undefined;
+    const lateMint = new Promise<{token: string; expiresAt: Date}>((resolve) => {
+      resolveMint = resolve;
+    });
+    const shared = cache({store, mintTimeoutMs: 1});
+
+    await expect(shared.getOrMint(baseScope, () => lateMint)).rejects.toMatchObject({
+      reason: 'timeout',
+    });
+    resolveMint(token('late-token'));
+    await lateWriteStarted;
+
+    let deleted = false;
+    const deletion = shared.deleteInstallation('workspace-a', 'provider-a', 11).then((result) => {
+      deleted = true;
+      return result;
+    });
+    await Promise.resolve();
+    expect(deleted).toBe(false);
+
+    releaseLateWrite();
+    await expect(deletion).resolves.toBe(1);
+    expect(store.values.size).toBe(0);
+    expect((shared as unknown as {deletionEpochs: Map<string, number>}).deletionEpochs.size).toBe(
+      0,
+    );
+  });
+
+  it('releases deletion tombstones without late mints', async () => {
+    const shared = cache();
+
+    await shared.deleteInstallation('workspace-a', 'provider-a', 11);
+    await shared.deleteInstallation('workspace-a', 'provider-a', 12);
+
+    expect((shared as unknown as {deletionEpochs: Map<string, number>}).deletionEpochs.size).toBe(
+      0,
+    );
+  });
+
   it('isolates late-mint tombstones by workspace', async () => {
     const shared = cache({mintTimeoutMs: 1});
     const workspaceBScope = {...baseScope, workspaceId: 'workspace-b'};
