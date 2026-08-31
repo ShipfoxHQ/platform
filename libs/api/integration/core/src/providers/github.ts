@@ -22,13 +22,12 @@ import type {
   IntegrationProviderModuleLoadOptions,
 } from '#providers/types.js';
 
-const GITHUB_INSTALLATION_TOKEN_ENVELOPE_KEY = 'ENVELOPE';
-
 async function loadGithubModuleParts(
   options: IntegrationProviderModuleLoadOptions = {},
 ): Promise<IntegrationModuleParts> {
   const {
     createGithubInstallationTokenProvider,
+    GITHUB_INSTALLATION_TOKEN_ENVELOPE_KEY,
     createGithubE2eRoutes,
     encodeInstallationTokenEnvelope,
     createGithubIntegrationProvider,

@@ -77,6 +77,8 @@ export interface ClassifiedMintError {
   retryAfterSeconds?: number | undefined;
 }
 
+export const GITHUB_INSTALLATION_TOKEN_ENVELOPE_KEY = 'ENVELOPE';
+
 export function githubInstallationTokenNamespace(installationId: number): string {
   return `system/github/installation-token/${installationId}`;
 }

@@ -1,47 +1,46 @@
-const mocks = vi.hoisted(() => ({
-  createGithubE2eRoutes: vi.fn(() => []),
-  createGithubInstallationTokenProvider: vi.fn(() => ({
-    getInstallationAccessToken: vi.fn(),
-  })),
-  createGithubIntegrationProvider: vi.fn(() => ({
-    adapters: {},
-    displayName: 'GitHub',
-    provider: 'github',
-    routes: [],
-    webhookProcessors: [],
-  })),
-  encodeInstallationTokenEnvelope: vi.fn(() => 'encoded-envelope'),
-  getGithubInstallationByInstallationId: vi.fn(),
-  githubInstallationTokenNamespace: (installationId: number) =>
-    `system/github/installation-token/${installationId}`,
-  upsertGithubInstallation: vi.fn(),
-  githubDb: vi.fn(),
-}));
+const captured = vi.hoisted(() => ({providerOptions: undefined as unknown}));
 
-vi.mock('@shipfox/api-integration-github', () => ({
-  createGithubE2eRoutes: mocks.createGithubE2eRoutes,
-  createGithubInstallationTokenProvider: mocks.createGithubInstallationTokenProvider,
-  createGithubIntegrationProvider: mocks.createGithubIntegrationProvider,
-  encodeInstallationTokenEnvelope: mocks.encodeInstallationTokenEnvelope,
-  getGithubInstallationByInstallationId: mocks.getGithubInstallationByInstallationId,
-  githubInstallationTokenNamespace: mocks.githubInstallationTokenNamespace,
-  migrationsPath: 'test-migrations',
-  db: mocks.githubDb,
-  upsertGithubInstallation: mocks.upsertGithubInstallation,
-}));
+vi.mock('@shipfox/api-integration-github', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@shipfox/api-integration-github')>();
+  const originalCreate = actual.createGithubInstallationTokenProvider;
 
+  return {
+    ...actual,
+    createGithubInstallationTokenProvider: vi.fn(
+      (options: Parameters<typeof originalCreate>[0]) => {
+        captured.providerOptions = options;
+        return originalCreate(options);
+      },
+    ),
+  };
+});
+
+import {
+  encodeInstallationTokenEnvelope,
+  GITHUB_INSTALLATION_TOKEN_ENVELOPE_KEY,
+  githubInstallationTokenNamespace,
+} from '@shipfox/api-integration-github';
 import {githubProviderModule} from '#providers/github.js';
 
-describe('githubProviderModule', () => {
-  beforeEach(() => {
-    mocks.createGithubInstallationTokenProvider.mockClear();
-    mocks.createGithubIntegrationProvider.mockClear();
-    mocks.encodeInstallationTokenEnvelope.mockClear();
-  });
+type SecretStore = {
+  read: (workspaceId: string, installationId: number) => Promise<string | null>;
+  write: (
+    workspaceId: string,
+    installationId: number,
+    envelope: {token?: string; expiresAt?: Date},
+  ) => Promise<void>;
+};
 
-  it('uses a Secrets-compatible key for the shared installation-token envelope', async () => {
-    const getSecret = vi.fn(() => Promise.resolve(null));
-    const setSecrets = vi.fn(() => Promise.resolve());
+describe('githubProviderModule', () => {
+  it('uses the GitHub package contract for the shared installation-token envelope', async () => {
+    const cachedEnvelope = '{"token":"ghs_cached"}';
+    const getSecret = vi.fn();
+    getSecret.mockResolvedValueOnce(cachedEnvelope).mockResolvedValueOnce(undefined);
+    const storedValues: Record<string, string> = {};
+    const setSecrets = vi.fn(({values}: {values: Record<string, string>}) => {
+      Object.assign(storedValues, values);
+      return Promise.resolve();
+    });
     const deleteSecrets = vi.fn(() => Promise.resolve(0));
 
     await githubProviderModule.load({
@@ -51,43 +50,46 @@ describe('githubProviderModule', () => {
       },
     });
 
-    const providerOptions = (
-      mocks.createGithubInstallationTokenProvider.mock.calls as unknown[][]
-    )[0]?.[0];
+    const providerOptions = captured.providerOptions;
     if (!providerOptions || typeof providerOptions !== 'object') {
       throw new Error('GitHub installation-token provider options were not captured');
     }
-    const secretStore = (
-      providerOptions as {
-        secretStore: {
-          read: (workspaceId: string, installationId: number) => Promise<string | null>;
-          write: (
-            workspaceId: string,
-            installationId: number,
-            envelope: {token?: string; expiresAt?: Date},
-          ) => Promise<void>;
-        };
-      }
-    ).secretStore;
+    const secretStore = (providerOptions as {secretStore?: SecretStore}).secretStore;
+    if (!secretStore) throw new Error('GitHub installation-token secret store was not configured');
+
     const workspaceId = 'workspace-1';
     const installationId = 123;
-    const namespace = 'system/github/installation-token/123';
-
-    await secretStore.read(workspaceId, installationId);
-    await secretStore.write(workspaceId, installationId, {
+    const namespace = githubInstallationTokenNamespace(installationId);
+    const readHit = await secretStore.read(workspaceId, installationId);
+    const readMiss = await secretStore.read(workspaceId, installationId);
+    const envelope = {
       token: 'ghs_cached',
       expiresAt: new Date('2026-06-10T12:00:00.000Z'),
-    });
+    };
+    await secretStore.write(workspaceId, installationId, envelope);
 
-    expect(getSecret).toHaveBeenCalledWith({
+    expect(readHit).toBe(cachedEnvelope);
+    expect(readMiss).toBeNull();
+    expect(GITHUB_INSTALLATION_TOKEN_ENVELOPE_KEY).toBe('ENVELOPE');
+    expect(getSecret).toHaveBeenNthCalledWith(1, {
       workspaceId,
       namespace,
-      key: 'ENVELOPE',
+      key: GITHUB_INSTALLATION_TOKEN_ENVELOPE_KEY,
+    });
+    expect(getSecret).toHaveBeenNthCalledWith(2, {
+      workspaceId,
+      namespace,
+      key: GITHUB_INSTALLATION_TOKEN_ENVELOPE_KEY,
+    });
+    expect(storedValues).toEqual({
+      [GITHUB_INSTALLATION_TOKEN_ENVELOPE_KEY]: encodeInstallationTokenEnvelope(envelope),
     });
     expect(setSecrets).toHaveBeenCalledWith({
       workspaceId,
       namespace,
-      values: {ENVELOPE: 'encoded-envelope'},
+      values: {
+        [GITHUB_INSTALLATION_TOKEN_ENVELOPE_KEY]: encodeInstallationTokenEnvelope(envelope),
+      },
     });
   });
 });

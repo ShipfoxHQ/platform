@@ -38,6 +38,7 @@ const GITHUB_INSTALLATION_ID_PATTERN = /^[1-9]\d*$/u;
 export type {GithubApiClient} from '#api/client.js';
 export {
   encodeInstallationTokenEnvelope,
+  GITHUB_INSTALLATION_TOKEN_ENVELOPE_KEY,
   githubInstallationTokenNamespace,
 } from '#api/installation-token-envelope.js';
 export {
