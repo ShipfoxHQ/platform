@@ -1968,6 +1968,46 @@ describe('runJobSteps', () => {
     );
   });
 
+  it('reports a session commit conflict as an unavailable session', async () => {
+    const setup = buildSetupStep();
+    const agent = buildAgentStep({
+      session: {id: SESSION_ID, key: 'main', mode: 'resume', segment: 2},
+    });
+    const transcriptDir = mkdtempSync(join(tmpdir(), 'shipfox-runner-session-'));
+    const transcriptFile = join(transcriptDir, 'session.jsonl');
+    writeFileSync(transcriptFile, 'session transcript');
+    executeAgentStepMock.mockResolvedValueOnce({
+      success: true,
+      response: 'done',
+      sessionFile: transcriptFile,
+      error: null,
+      exit_code: 0,
+    });
+    commitSessionTranscriptMock.mockResolvedValueOnce({status: 'conflict', headSegment: 3});
+    requestNextStepMock
+      .mockResolvedValueOnce(stepResponse(setup, 1))
+      .mockResolvedValueOnce(stepResponse(agent, 1))
+      .mockResolvedValueOnce({kind: 'done', status: 'succeeded'});
+
+    try {
+      await runLoop({agentStateDir: transcriptDir, signal: new AbortController().signal});
+    } finally {
+      rmSync(transcriptDir, {recursive: true, force: true});
+    }
+
+    expect(reportStepMock).toHaveBeenLastCalledWith(
+      leaseClient,
+      expect.objectContaining({
+        stepId: agent.id,
+        status: 'failed',
+        error: {
+          message: 'Agent session commit conflict at head segment 3',
+          reason: 'agent_session_unavailable',
+        },
+      }),
+    );
+  });
+
   it('reports a committed agent step even when abort lands during the commit', async () => {
     const setup = buildSetupStep();
     const agent = buildAgentStep({

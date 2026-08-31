@@ -266,8 +266,7 @@ async function finishStepExecution(
   // Once the transcript commit has completed, reporting is the durable boundary:
   // an abort must not leave a committed attempt invisible to the API.
   if (params.signal.aborted && !settlement.committed) return 'stop';
-  const reportSignal =
-    params.signal.aborted && settlement.committed ? new AbortController().signal : params.signal;
+  const reportSignal = settlement.committed ? new AbortController().signal : params.signal;
   const {result} = settlement;
   await publishStepAnnotations({
     leaseClient: params.leaseClient,
@@ -924,7 +923,12 @@ async function settleAgentSessionCommit(params: {
         },
         'Agent session commit conflicted after the step completed',
       );
-      return {result: execution.result, committed: false};
+      return {
+        result: agentSessionUnavailableFailure(
+          new Error(`Agent session commit conflict at head segment ${outcome.headSegment}`),
+        ),
+        committed: false,
+      };
     }
     return {result: execution.result, committed: true};
   } catch (error) {
