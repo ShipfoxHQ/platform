@@ -53,6 +53,10 @@ const PI_MCP_TOOL_NAME = 'mcp';
 type PiThinkingLevel = NonNullable<CreateAgentSessionOptions['thinkingLevel']>;
 type ModelRuntimeInstance = Awaited<ReturnType<typeof ModelRuntime.create>>;
 type PiSession = Awaited<ReturnType<typeof createAgentSessionFromServices>>['session'];
+type PiSessionManagerSetup = {
+  manager: SessionManager;
+  forkedFromExistingSession: boolean;
+};
 type CustomProviderConfig = Parameters<ModelRuntimeInstance['registerProvider']>[1];
 type CustomProviderModel = NonNullable<CustomProviderConfig['models']>[number];
 
@@ -91,6 +95,7 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
   const {modelRuntime, model} = await preparePiModelRuntime(invocation);
 
   let session: PiSession | undefined;
+  let forkedFromExistingSession = false;
   let mcpConfig: PiMcpConfig | undefined;
 
   try {
@@ -100,7 +105,7 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
       mcpConfig,
       modelRuntime,
     });
-    session = await createPiSession({
+    const created = await createPiSession({
       services: prepared.services,
       model,
       thinking,
@@ -111,6 +116,8 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
       agentStateDir,
       sessionInvocation: invocationSession,
     });
+    session = created.session;
+    forkedFromExistingSession = created.forkedFromExistingSession;
     return await runPiSession({
       session,
       signal,
@@ -121,6 +128,7 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
       prompt,
       collector,
       sessionInvocation: invocationSession,
+      forkedFromExistingSession,
     });
   } catch (error) {
     if (invocationSession?.mode === 'fork') {
@@ -142,8 +150,9 @@ async function createPiSession(params: {
   cwd: string;
   agentStateDir: string;
   sessionInvocation: HarnessInvocation['session'];
-}): Promise<PiSession> {
-  const sessionManager = createPiSessionManager(params);
+}): Promise<{session: PiSession; forkedFromExistingSession: boolean}> {
+  const sessionManagerSetup = createPiSessionManager(params);
+  const sessionManager = sessionManagerSetup.manager;
   try {
     const created = await createAgentSessionFromServices({
       services: params.services,
@@ -156,7 +165,10 @@ async function createPiSession(params: {
       ...(params.customTools.length === 0 ? {} : {customTools: params.customTools}),
       sessionManager,
     });
-    return created.session;
+    return {
+      session: created.session,
+      forkedFromExistingSession: sessionManagerSetup.forkedFromExistingSession,
+    };
   } catch (error) {
     if (params.sessionInvocation?.mode === 'fork') {
       await removeForkedSessionFile(sessionManager.getSessionFile());
@@ -175,6 +187,7 @@ async function runPiSession(params: {
   prompt: string;
   collector: OutputCollector;
   sessionInvocation: HarnessInvocation['session'];
+  forkedFromExistingSession: boolean;
 }): Promise<HarnessResult> {
   const abortSession = () => {
     Promise.resolve(params.session.abort()).catch(() => undefined);
@@ -205,7 +218,7 @@ async function runActivePiSession(
   const forwarder = startForwarding(
     params.session.sessionFile,
     params.onSessionEntry,
-    params.sessionInvocation?.mode === 'fork',
+    params.forkedFromExistingSession,
   );
   const stopForwarder = () => forwarder?.stop();
   params.signal.addEventListener('abort', stopForwarder, {once: true});
@@ -298,10 +311,13 @@ function createPiSessionManager(
     Parameters<typeof createPiSession>[0],
     'cwd' | 'agentStateDir' | 'sessionInvocation'
   >,
-): SessionManager {
+): PiSessionManagerSetup {
   const sessionDirectory = join(params.agentStateDir, 'agent-sessions');
   if (params.sessionInvocation?.file === undefined) {
-    return SessionManager.create(params.cwd, sessionDirectory);
+    return {
+      manager: SessionManager.create(params.cwd, sessionDirectory),
+      forkedFromExistingSession: false,
+    };
   }
   if (params.sessionInvocation.mode === 'fork') {
     return forkHarnessSession({
@@ -310,11 +326,14 @@ function createPiSessionManager(
       sessionDir: sessionDirectory,
     });
   }
-  return openHarnessSession({
-    cwd: params.cwd,
-    sessionFile: params.sessionInvocation.file,
-    sessionDir: sessionDirectory,
-  });
+  return {
+    manager: openHarnessSession({
+      cwd: params.cwd,
+      sessionFile: params.sessionInvocation.file,
+      sessionDir: sessionDirectory,
+    }),
+    forkedFromExistingSession: false,
+  };
 }
 
 function assertPiInvocation(
@@ -460,12 +479,18 @@ function forkHarnessSession(params: {
   cwd: string;
   sessionFile: string;
   sessionDir: string;
-}): SessionManager {
+}): PiSessionManagerSetup {
   try {
-    return SessionManager.forkFrom(params.sessionFile, params.cwd, params.sessionDir);
+    return {
+      manager: SessionManager.forkFrom(params.sessionFile, params.cwd, params.sessionDir),
+      forkedFromExistingSession: true,
+    };
   } catch (error) {
     if (isMissingForkTranscript(error)) {
-      return SessionManager.create(params.cwd, params.sessionDir);
+      return {
+        manager: SessionManager.create(params.cwd, params.sessionDir),
+        forkedFromExistingSession: false,
+      };
     }
     logSessionLoadFailure('fork', params.sessionFile, error);
     throw new AgentSessionUnavailableError(

@@ -280,6 +280,7 @@ describe('piHarnessAdapter', () => {
     else process.env.GIT_CONFIG_GLOBAL = priorGitConfigGlobal;
     if (sessionDir) rmSync(sessionDir, {recursive: true, force: true});
     sessionDir = undefined;
+    vi.restoreAllMocks();
   });
 
   it('resolves the configured model and forwards max thinking to Pi', async () => {
@@ -1458,11 +1459,28 @@ describe('piHarnessAdapter', () => {
   it('creates a fresh local session when a fork has no transcript head', async () => {
     sessionDir = mkdtempSync(join(tmpdir(), 'shipfox-pi-session-'));
     const agentStateDir = join(sessionDir, 'runner-agent');
+    const sessionFile = join(sessionDir, 'fresh.jsonl');
+    writeFileSync(sessionFile, '{"type":"session"}\n');
+    createAgentSessionMock.mockResolvedValue({
+      session: {
+        prompt: promptMock,
+        abort: abortMock,
+        getLastAssistantText: getLastAssistantTextMock,
+        messages: [],
+        sessionFile,
+      },
+    });
+    promptMock.mockImplementation(() => {
+      appendFileSync(sessionFile, '{"type":"message","id":"fresh"}\n');
+      return Promise.resolve();
+    });
+    const entries: string[] = [];
 
     await piHarnessAdapter.run(
       invocation({
         cwd: sessionDir,
         agentStateDir,
+        onSessionEntry: (line) => entries.push(line),
         session: {mode: 'fork'},
       }),
     );
@@ -1472,6 +1490,7 @@ describe('piHarnessAdapter', () => {
       join(agentStateDir, 'agent-sessions'),
     );
     expect(sessionManagerForkFromMock).not.toHaveBeenCalled();
+    expect(entries).toEqual(['{"type":"session"}', '{"type":"message","id":"fresh"}']);
   });
 
   it('returns the synchronously appended resumed session file for committing', async () => {
