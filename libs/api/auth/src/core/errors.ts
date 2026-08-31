@@ -95,6 +95,13 @@ export class AdminRoleRequiredError extends Error {
   }
 }
 
+export class InvalidAdministratorUserDirectoryFilterError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'InvalidAdministratorUserDirectoryFilterError';
+  }
+}
+
 export class LastAdminOwnerError extends Error {
   constructor() {
     super('Cannot remove the final active administrator owner');

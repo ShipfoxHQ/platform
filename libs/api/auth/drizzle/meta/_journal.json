@@ -22,6 +22,13 @@
       "when": 1785075183023,
       "tag": "0002_burly_whizzer",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1788171920746,
+      "tag": "0003_brainy_luckman",
+      "breakpoints": true
     }
   ]
 }

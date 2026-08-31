@@ -379,6 +379,7 @@ It also exports lower-level pieces for tests and advanced integration:
 - `createImpersonatedSessionToken({targetUserId, impersonatorId, workspaces})`: mints an access-token-only impersonated session (capped TTL, `impersonatorId` claim, no refresh material). The `impersonateUser` administration command owns the authorization ladder, idempotency, and audit flow.
 - `getAuthenticatedSessionContext(request)`: reads the user ID and required refresh-session ID from verified access-token claims. It does not check whether the refresh session is still active.
 - `findUserByEmail({email})`: read-only lookup of the current owner of a normalized email; see below.
+- `listAdministratorUsers({actorId, limit, cursor?, search?, status?, eligible?})`: lists administrator-safe user summaries after requiring an active observer role. Search accepts at most 10 whitespace-separated terms, each no longer than 100 characters.
 - Entity types: `User`, `UserStatus`, `RefreshToken`, `PasswordReset`, and `EmailOwner`.
 
 ### External identity callbacks
@@ -497,6 +498,8 @@ The module creates tables with the `auth_` prefix:
 - `auth_rate_limits`
 - `auth_admin_grants`
 - `auth_admin_command_results`
+
+The directory ordering index uses a transactional migration. PostgreSQL holds a `ShareLock` on `auth_users` for the full index build, so writes wait during that period. The build time depends on the table size; schedule the migration when writes can wait.
 
 Passwords use Argon2id. Password reset tokens and refresh tokens are opaque tokens stored as hashes. Email verification uses the shared email-challenges module.
 

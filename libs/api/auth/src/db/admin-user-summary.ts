@@ -1,6 +1,25 @@
-import {and, eq, isNull} from 'drizzle-orm';
+import type {AdminRole} from '@shipfox/api-auth-dto';
+import {
+  paginateTimestampIdRows,
+  type TimestampIdCursor,
+  timestampIdCursorWhere,
+} from '@shipfox/node-drizzle';
+import {
+  and,
+  desc,
+  eq,
+  isNotNull,
+  isNull,
+  ne,
+  not,
+  or,
+  type SQL,
+  type SQLWrapper,
+  sql,
+} from 'drizzle-orm';
 import {highestAdminRole} from '#core/admin-role-model.js';
 import type {AdministratorUserSummary} from '#core/entities/administrator-read-model.js';
+import type {UserStatus} from '#core/entities/user.js';
 import type {db} from './db.js';
 import {adminGrants} from './schema/admin-grants.js';
 import {users} from './schema/users.js';
@@ -9,6 +28,64 @@ type Tx = Parameters<Parameters<ReturnType<typeof db>['transaction']>[0]>[0];
 export type AdministratorUserSummaryExecutor = ReturnType<typeof db> | Tx;
 
 type AdministratorUserLookup = {id: string; email?: never} | {email: string; id?: never};
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const SEARCH_TERM_SEPARATOR = /\s+/;
+
+export interface ListAdministratorUserSummariesParams {
+  actorId: string;
+  limit: number;
+  cursor?: TimestampIdCursor | undefined;
+  search?: string | undefined;
+  status?: UserStatus | undefined;
+  eligible?: boolean | undefined;
+}
+
+export interface ListAdministratorUserSummariesResult {
+  rows: AdministratorUserSummary[];
+  nextCursor: TimestampIdCursor | null;
+}
+
+function escapeLikeTerm(term: string): string {
+  return term.replace(/[\\%_]/g, (character) => `\\${character}`);
+}
+
+function isUuid(value: string): boolean {
+  return UUID_PATTERN.test(value);
+}
+
+function containsTerm(column: SQLWrapper, term: string): SQLWrapper {
+  return sql`${column} ILIKE ${`%${escapeLikeTerm(term)}%`}`;
+}
+
+function addEligibilityCondition(
+  conditions: SQL[],
+  params: Pick<ListAdministratorUserSummariesParams, 'actorId' | 'eligible'>,
+  activeAdminRoleUserId: SQLWrapper,
+): void {
+  const eligibleCondition = and(
+    eq(users.status, 'active'),
+    isNotNull(users.emailVerifiedAt),
+    isNull(activeAdminRoleUserId),
+    ne(users.id, params.actorId),
+  );
+  if (eligibleCondition && params.eligible === true) conditions.push(eligibleCondition);
+  if (eligibleCondition && params.eligible === false) conditions.push(not(eligibleCondition));
+}
+
+function addSearchConditions(conditions: SQL[], search: string | undefined): void {
+  const normalizedSearch = search?.trim() ?? '';
+  if (!normalizedSearch) return;
+  if (isUuid(normalizedSearch)) {
+    conditions.push(eq(users.id, normalizedSearch));
+    return;
+  }
+
+  for (const term of normalizedSearch.split(SEARCH_TERM_SEPARATOR)) {
+    const termCondition = or(containsTerm(users.name, term), containsTerm(users.email, term));
+    if (termCondition) conditions.push(termCondition);
+  }
+}
 
 export async function findAdministratorUserSummary(
   executor: AdministratorUserSummaryExecutor,
@@ -48,4 +125,69 @@ export async function findAdministratorUserSummary(
     createdAt: first.createdAt,
     adminRole: highestAdminRole(rows.flatMap(({adminRole}) => (adminRole ? [adminRole] : []))),
   } satisfies AdministratorUserSummary;
+}
+
+/**
+ * Lists a live directory view using keyset pagination.
+ *
+ * Pages are not a consistent snapshot. Each page reads current account and grant state, so
+ * inserts and account or grant changes can make consecutive pages differ. Re-run the listing
+ * before acting on a row.
+ */
+export async function listAdministratorUserSummaries(
+  executor: AdministratorUserSummaryExecutor,
+  params: ListAdministratorUserSummariesParams,
+): Promise<ListAdministratorUserSummariesResult> {
+  // Aggregate grants in a subquery so pagination is over users, not grants.
+  const activeAdminRoles = executor
+    .select({
+      userId: adminGrants.userId,
+      roles: sql<AdminRole[]>`json_agg(${adminGrants.role})`.as('roles'),
+    })
+    .from(adminGrants)
+    .where(isNull(adminGrants.revokedAt))
+    .groupBy(adminGrants.userId)
+    .as('active_admin_roles');
+
+  const conditions: SQL[] = [];
+  const cursorCondition = timestampIdCursorWhere({
+    timestampColumn: users.createdAt,
+    idColumn: users.id,
+    cursor: params.cursor,
+  });
+  if (cursorCondition) conditions.push(cursorCondition);
+  if (params.status) conditions.push(eq(users.status, params.status));
+
+  addEligibilityCondition(conditions, params, activeAdminRoles.userId);
+  addSearchConditions(conditions, params.search);
+
+  const rows = await executor
+    .select({
+      id: users.id,
+      email: users.email,
+      name: users.name,
+      emailVerifiedAt: users.emailVerifiedAt,
+      status: users.status,
+      createdAt: users.createdAt,
+      adminRoles: activeAdminRoles.roles,
+    })
+    .from(users)
+    .leftJoin(activeAdminRoles, eq(activeAdminRoles.userId, users.id))
+    .where(and(...conditions))
+    .orderBy(desc(users.createdAt), desc(users.id))
+    .limit(params.limit + 1);
+
+  const mappedRows = rows.map(
+    ({adminRoles, ...row}): AdministratorUserSummary => ({
+      ...row,
+      adminRole: row.status === 'active' ? highestAdminRole(adminRoles ?? []) : null,
+    }),
+  );
+  const page = paginateTimestampIdRows({
+    rows: mappedRows,
+    limit: params.limit,
+    timestampKey: 'createdAt',
+  });
+
+  return {rows: page.pageRows, nextCursor: page.nextCursor};
 }

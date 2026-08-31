@@ -1,5 +1,6 @@
 import {uuidv7PrimaryKey} from '@shipfox/node-drizzle';
-import {pgEnum, text, timestamp, uniqueIndex} from 'drizzle-orm/pg-core';
+import {desc} from 'drizzle-orm';
+import {index, pgEnum, text, timestamp, uniqueIndex} from 'drizzle-orm/pg-core';
 import type {User, UserStatus} from '#core/entities/user.js';
 import {pgTable} from './common.js';
 
@@ -14,10 +15,15 @@ export const users = pgTable(
     name: text('name'),
     emailVerifiedAt: timestamp('email_verified_at', {withTimezone: true}),
     status: userStatusEnum('status').notNull().default('active'),
-    createdAt: timestamp('created_at', {withTimezone: true}).notNull().defaultNow(),
+    createdAt: timestamp('created_at', {withTimezone: true, precision: 3}).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', {withTimezone: true}).notNull().defaultNow(),
   },
-  (table) => [uniqueIndex('auth_users_email_unique').on(table.email)],
+  (table) => [
+    uniqueIndex('auth_users_email_unique').on(table.email),
+    index('auth_users_created_at_id_index').on(desc(table.createdAt), desc(table.id)),
+    index('auth_users_name_trgm_index').using('gin', table.name.op('gin_trgm_ops')),
+    index('auth_users_email_trgm_index').using('gin', table.email.op('gin_trgm_ops')),
+  ],
 );
 
 export type UserDb = typeof users.$inferSelect;
