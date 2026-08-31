@@ -113,9 +113,17 @@ describe('agent-access db', () => {
       .where(eq(agentClients.id, client.id));
 
     const first = await createAgentGrant(params);
+    const refreshToken = await createAgentRefreshToken({
+      grantId: first.id,
+      hashedToken: hashOpaqueToken(`refresh-${crypto.randomUUID()}`),
+      expiresAt: new Date(Date.now() + 60_000),
+    });
     const second = await createAgentGrant({...params, scopes: ['read', 'write']});
 
     expect(second).toMatchObject({id: first.id, scopes: ['read', 'write']});
+    expect(
+      await findActiveAgentRefreshTokenByHash({hashedToken: refreshToken.hashedToken}),
+    ).toBeUndefined();
     expect(await findAgentClientByClientId({clientId: client.clientId})).toMatchObject({
       id: client.id,
       unreferencedAt: null,

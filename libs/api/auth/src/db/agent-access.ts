@@ -194,14 +194,25 @@ export async function createAgentGrantTx(
       targetWhere: sql`${agentGrants.revokedAt} IS NULL AND ${agentGrants.terminalAt} IS NULL`,
       set: {
         scopes: params.scopes,
-        revokedAt: null,
-        terminalAt: null,
         updatedAt: sql`now()`,
       },
     })
     .returning();
   const row = rows[0];
   if (!row) throw new Error('Upsert returned no rows');
+
+  // Refresh tokens derive their scopes from the grant. Reauthorization must
+  // invalidate existing tokens before the grant's scopes can be widened.
+  await tx
+    .update(agentRefreshTokens)
+    .set({revokedAt: sql`now()`, updatedAt: sql`now()`})
+    .where(
+      and(
+        eq(agentRefreshTokens.grantId, row.id),
+        isNull(agentRefreshTokens.rotatedAt),
+        isNull(agentRefreshTokens.revokedAt),
+      ),
+    );
 
   await markAgentClientReferenced(tx, {clientUuid: params.clientId});
   return toAgentGrant(row);
