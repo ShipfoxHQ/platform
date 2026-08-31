@@ -1,7 +1,9 @@
 import {pgClient} from '@shipfox/node-postgres';
 import {and, desc, eq, inArray, or, sql} from 'drizzle-orm';
+import {reconcileRunnerInstances as reconcileRunnerInstancesCore} from '#core/runner-instances.js';
 import {authorizeRunnerTermination} from '#core/termination-authorization.js';
 import {db} from '#db/db.js';
+import {reconcileTerminalJobExecution} from '#db/job-executions.js';
 import {
   pollDemandAndReserve,
   releaseTerminalRunnerInstanceReservationsByIds,
@@ -2383,6 +2385,246 @@ describe('reconcileRunnerInstances', () => {
     expect(providerRunner?.state).toBe('running');
   });
 
+  it('authorizes an exhausted ephemeral session only after the exit grace', async () => {
+    const providerRunnerId = 'exhausted-runner';
+    await createRunnerInstance({providerRunnerId});
+    const session = await createEphemeralSession({providerRunnerId});
+
+    const beforeGrace = await reconcileRunnerInstancesCore({
+      workspaceId,
+      provisionerId,
+      observedRunnerInstanceIds: [providerRunnerId],
+    });
+    expect(beforeGrace.runners).toMatchObject([{providerRunnerId, desiredIntent: 'keep'}]);
+
+    const [beforeAuthorization] = await db()
+      .select({terminationAuthorizedAt: providerRunners.terminationAuthorizedAt})
+      .from(providerRunners)
+      .where(eq(providerRunners.providerRunnerId, providerRunnerId));
+    expect(beforeAuthorization?.terminationAuthorizedAt).toBeNull();
+
+    await db()
+      .update(runnerSessions)
+      .set({updatedAt: new Date(Date.now() - 120_000)})
+      .where(eq(runnerSessions.id, session.id));
+
+    const afterGrace = await reconcileRunnerInstancesCore({
+      workspaceId,
+      provisionerId,
+      observedRunnerInstanceIds: [providerRunnerId],
+    });
+
+    expect(afterGrace.runners).toMatchObject([
+      {providerRunnerId, desiredIntent: 'terminate', desiredIntentReason: 'session-exhausted'},
+    ]);
+    const [afterAuthorization] = await db()
+      .select({
+        terminationAuthorizedAt: providerRunners.terminationAuthorizedAt,
+        terminationReason: providerRunners.terminationReason,
+      })
+      .from(providerRunners)
+      .where(eq(providerRunners.providerRunnerId, providerRunnerId));
+    expect(afterAuthorization?.terminationAuthorizedAt).toBeInstanceOf(Date);
+    expect(afterAuthorization?.terminationReason).toBe('session-exhausted');
+  });
+
+  it('keeps an exhausted ephemeral session while a live job is bound to its runner', async () => {
+    const providerRunnerId = 'busy-exhausted-runner';
+    await createRunnerInstance({providerRunnerId});
+    const session = await createEphemeralSession({
+      providerRunnerId,
+      updatedAt: new Date(Date.now() - 120_000),
+    });
+    await db()
+      .insert(runningJobExecutions)
+      .values({
+        workspaceId,
+        workflowRunId: crypto.randomUUID(),
+        workflowRunAttemptId: crypto.randomUUID(),
+        jobId: crypto.randomUUID(),
+        jobExecutionId: crypto.randomUUID(),
+        projectId: crypto.randomUUID(),
+        runnerSessionId: session.id,
+        provisionerId,
+        providerRunnerId,
+        requiredLabels: ['linux'],
+        runnerLabels: ['linux'],
+        startedAt: new Date(Date.now() - 120_000),
+        lastHeartbeatAt: new Date(),
+      });
+
+    const result = await reconcileRunnerInstancesCore({
+      workspaceId,
+      provisionerId,
+      observedRunnerInstanceIds: [providerRunnerId],
+    });
+
+    expect(result.runners).toMatchObject([{providerRunnerId, desiredIntent: 'keep'}]);
+    const [runner] = await db()
+      .select({terminationAuthorizedAt: providerRunners.terminationAuthorizedAt})
+      .from(providerRunners)
+      .where(eq(providerRunners.providerRunnerId, providerRunnerId));
+    expect(runner?.terminationAuthorizedAt).toBeNull();
+  });
+
+  it('does not treat reusable managed sessions as exhausted one-job sessions', async () => {
+    const providerRunnerId = 'reusable-runner';
+    await createRunnerInstance({providerRunnerId});
+    await createEphemeralSession({
+      providerRunnerId,
+      maxClaims: 2,
+      claimsUsed: 2,
+      updatedAt: new Date(Date.now() - 120_000),
+    });
+
+    const result = await reconcileRunnerInstancesCore({
+      workspaceId,
+      provisionerId,
+      observedRunnerInstanceIds: [providerRunnerId],
+    });
+
+    expect(result.runners).toMatchObject([{providerRunnerId, desiredIntent: 'keep'}]);
+  });
+
+  it('recovers an exhausted activated one-job session through the same path', async () => {
+    const providerRunnerId = 'activated-exhausted-runner';
+    const runner = await createRunnerInstance({providerRunnerId});
+    await createEphemeralSession({
+      providerRunnerId,
+      kind: 'activation',
+      runnerInstanceId: runner.id,
+      updatedAt: new Date(Date.now() - 120_000),
+    });
+
+    const result = await reconcileRunnerInstancesCore({
+      workspaceId,
+      provisionerId,
+      observedRunnerInstanceIds: [providerRunnerId],
+    });
+
+    expect(result.runners).toMatchObject([
+      {providerRunnerId, desiredIntent: 'terminate', desiredIntentReason: 'session-exhausted'},
+    ]);
+  });
+
+  it('keeps a live job when terminal completion races session-exhausted reconciliation', async () => {
+    const providerRunnerId = 'completion-race-runner';
+    await createRunnerInstance({providerRunnerId});
+    const session = await createEphemeralSession({
+      providerRunnerId,
+      updatedAt: new Date(Date.now() - 120_000),
+    });
+    const jobExecutionId = crypto.randomUUID();
+    await db()
+      .insert(runningJobExecutions)
+      .values({
+        workspaceId,
+        workflowRunId: crypto.randomUUID(),
+        workflowRunAttemptId: crypto.randomUUID(),
+        jobId: crypto.randomUUID(),
+        jobExecutionId,
+        projectId: crypto.randomUUID(),
+        runnerSessionId: session.id,
+        provisionerId,
+        providerRunnerId,
+        requiredLabels: ['linux'],
+        runnerLabels: ['linux'],
+        startedAt: new Date(Date.now() - 120_000),
+        lastHeartbeatAt: new Date(),
+      });
+
+    const releaseWorkspaceLock = deferred<void>();
+    const workspaceLockReady = deferred<void>();
+    const lockHolder = db().transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${workspaceId}))`);
+      workspaceLockReady.resolve();
+      await releaseWorkspaceLock.promise;
+    });
+
+    await workspaceLockReady.promise;
+    // Queue reconciliation before completion. PostgreSQL hands these advisory-lock waiters off
+    // FIFO, so reconciliation observes the live lease before completion removes it.
+    const reconciliation = reconcileRunnerInstancesCore({
+      workspaceId,
+      provisionerId,
+      observedRunnerInstanceIds: [providerRunnerId],
+    });
+    await waitForLockWait({queryLike: '%pg_advisory_xact_lock%'});
+    const completion = reconcileTerminalJobExecution({jobExecutionId});
+    try {
+      await waitForLockWait({minWaiters: 2, queryLike: '%pg_advisory_xact_lock%'});
+    } finally {
+      releaseWorkspaceLock.resolve();
+    }
+
+    const [result] = await Promise.all([reconciliation, completion, lockHolder]);
+
+    expect(result.runners).toMatchObject([{providerRunnerId, desiredIntent: 'keep'}]);
+    const [runner] = await db()
+      .select({terminationAuthorizedAt: providerRunners.terminationAuthorizedAt})
+      .from(providerRunners)
+      .where(eq(providerRunners.providerRunnerId, providerRunnerId));
+    expect(runner?.terminationAuthorizedAt).toBeNull();
+  });
+
+  it('keeps a runner when terminal completion commits before session-exhausted reconciliation', async () => {
+    const providerRunnerId = 'completion-before-reconcile-runner';
+    await createRunnerInstance({providerRunnerId});
+    const session = await createEphemeralSession({
+      providerRunnerId,
+      updatedAt: new Date(Date.now() - 120_000),
+    });
+    const jobExecutionId = crypto.randomUUID();
+    await db()
+      .insert(runningJobExecutions)
+      .values({
+        workspaceId,
+        workflowRunId: crypto.randomUUID(),
+        workflowRunAttemptId: crypto.randomUUID(),
+        jobId: crypto.randomUUID(),
+        jobExecutionId,
+        projectId: crypto.randomUUID(),
+        runnerSessionId: session.id,
+        provisionerId,
+        providerRunnerId,
+        requiredLabels: ['linux'],
+        runnerLabels: ['linux'],
+        startedAt: new Date(Date.now() - 120_000),
+        lastHeartbeatAt: new Date(),
+      });
+
+    const releaseWorkspaceLock = deferred<void>();
+    const workspaceLockReady = deferred<void>();
+    const lockHolder = db().transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${workspaceId}))`);
+      workspaceLockReady.resolve();
+      await releaseWorkspaceLock.promise;
+    });
+
+    await workspaceLockReady.promise;
+    const completion = reconcileTerminalJobExecution({
+      jobExecutionId,
+      finishedAt: new Date(),
+    });
+    await waitForLockWait({queryLike: '%pg_advisory_xact_lock%'});
+    releaseWorkspaceLock.resolve();
+    await completion;
+    await lockHolder;
+
+    const result = await reconcileRunnerInstancesCore({
+      workspaceId,
+      provisionerId,
+      observedRunnerInstanceIds: [providerRunnerId],
+    });
+
+    expect(result.runners).toMatchObject([{providerRunnerId, desiredIntent: 'keep'}]);
+    const [runner] = await db()
+      .select({terminationAuthorizedAt: providerRunners.terminationAuthorizedAt})
+      .from(providerRunners)
+      .where(eq(providerRunners.providerRunnerId, providerRunnerId));
+    expect(runner?.terminationAuthorizedAt).toBeNull();
+  });
+
   it('respects a fresh report that commits after reconcile selects a stale absent row', async () => {
     const reservationId = await createReservation(1);
     await createRunnerInstance({
@@ -2772,6 +3014,34 @@ describe('reconcileRunnerInstances', () => {
       reportedAt: params.reportedAt ?? new Date(),
       state: 'running',
     });
+  }
+
+  async function createEphemeralSession(params: {
+    providerRunnerId: string;
+    kind?: 'ephemeral' | 'activation';
+    runnerInstanceId?: string;
+    maxClaims?: number;
+    claimsUsed?: number;
+    updatedAt?: Date;
+  }) {
+    const [session] = await db()
+      .insert(runnerSessions)
+      .values({
+        workspaceId,
+        scope: 'workspace',
+        registrationTokenId: crypto.randomUUID(),
+        registrationTokenKind: params.kind ?? 'ephemeral',
+        runnerInstanceId: params.runnerInstanceId,
+        provisionerId,
+        providerRunnerId: params.providerRunnerId,
+        labels: ['linux'],
+        maxClaims: params.maxClaims ?? 1,
+        claimsUsed: params.claimsUsed ?? 1,
+        updatedAt: params.updatedAt ?? new Date(),
+      })
+      .returning({id: runnerSessions.id});
+    if (!session) throw new Error('Expected runner session');
+    return session;
   }
 
   async function insertRunningJob(params: {

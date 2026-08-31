@@ -1214,6 +1214,30 @@ describe('reconcileTerminalJobExecution', () => {
     ).resolves.toBeUndefined();
   });
 
+  it('takes the execution lock before rechecking a missing job execution', async () => {
+    const jobExecutionId = crypto.randomUUID();
+    const releaseLock = deferred<void>();
+    const lockReady = deferred<void>();
+    const lockHolder = db().transaction(async (tx) => {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtext(${`runners_job_execution:${jobExecutionId}`}))`,
+      );
+      lockReady.resolve();
+      await releaseLock.promise;
+    });
+
+    await lockReady.promise;
+    const reconciliation = reconcileTerminalJobExecution({jobExecutionId});
+    try {
+      await waitForLockWait({queryLike: '%pg_advisory_xact_lock%'});
+    } finally {
+      releaseLock.resolve();
+    }
+
+    await expect(reconciliation).resolves.toBeUndefined();
+    await lockHolder;
+  });
+
   it('leaves a pending sibling for the same job untouched', async () => {
     const target = await pendingJobFactory.create({workspaceId});
     const sibling = await pendingJobFactory.create({workspaceId, jobId: target.jobId});

@@ -35,7 +35,7 @@ export async function authorizeRunnerTermination(
 ): Promise<TerminationAuthorizationResult> {
   return await persistRunnerTerminationAuthorization({
     ...params,
-    resolveTerminationReason: () => resolveTerminationReason(params),
+    resolveTerminationReason: () => resolveRunnerTerminationReason(params),
   });
 }
 
@@ -48,13 +48,13 @@ export async function authorizeRunnerTerminationTx(
     tx,
     {
       ...params,
-      resolveTerminationReason: () => resolveTerminationReason(params),
+      resolveTerminationReason: () => resolveRunnerTerminationReason(params),
     },
     onRevocation,
   );
 }
 
-function resolveTerminationReason(
+export function resolveRunnerTerminationReason(
   params: RunnerTerminationAuthorizationParams,
 ): RunnerTerminationReason | null {
   if (!terminationReasons.has(params.reason)) {

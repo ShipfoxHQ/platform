@@ -988,16 +988,51 @@ export async function recordHeartbeat(params: {
  * queue row, requests cancellation on its running lease, and converges any linked reservation.
  * The operation is idempotent and preserves the first cancellation-request timestamp.
  */
+type JobExecutionDatabase = ReturnType<typeof db> | Tx;
+
+async function findJobExecutionWorkspaceId(
+  query: JobExecutionDatabase,
+  jobExecutionId: string,
+): Promise<string | null> {
+  const [pending] = await query
+    .select({workspaceId: pendingJobExecutions.workspaceId})
+    .from(pendingJobExecutions)
+    .where(eq(pendingJobExecutions.jobExecutionId, jobExecutionId))
+    .limit(1);
+  if (pending) return pending.workspaceId;
+
+  const [running] = await query
+    .select({workspaceId: runningJobExecutions.workspaceId})
+    .from(runningJobExecutions)
+    .where(eq(runningJobExecutions.jobExecutionId, jobExecutionId))
+    .limit(1);
+  return running?.workspaceId ?? null;
+}
+
 export async function reconcileTerminalJobExecution(params: {
   jobExecutionId: string;
   cancellationReason?: RunnerJobStopReasonDto | null;
+  finishedAt?: Date;
 }): Promise<void> {
-  await db().transaction(async (tx) => {
-    await lockJobExecution(tx, params.jobExecutionId);
+  const initialWorkspaceId = await findJobExecutionWorkspaceId(db(), params.jobExecutionId);
+  const finishedAt = params.finishedAt ?? new Date();
 
-    // Delete pending before updating running to match claim/release lock order. Claim locks
-    // pending rows with SKIP LOCKED before inserting the running lease, so this ordering makes
-    // a concurrent terminal reconciliation either win before claim or cancel the new lease.
+  await db().transaction(async (tx) => {
+    // Preserve workspace-first ordering when the initial lookup found a row. When it did not,
+    // take the execution lock before rechecking so a concurrent queue fact cannot be missed.
+    if (initialWorkspaceId) {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${initialWorkspaceId}))`);
+    }
+    await lockJobExecution(tx, params.jobExecutionId);
+    const workspaceId = await findJobExecutionWorkspaceId(tx, params.jobExecutionId);
+    if (!workspaceId) return;
+    if (!initialWorkspaceId) {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${workspaceId}))`);
+    }
+
+    // Delete pending before updating running to match lock order with claim. Claim locks pending
+    // rows before inserting the running lease, so this ordering makes terminal reconciliation
+    // either win before claim or cancel the new lease.
     await tx
       .delete(pendingJobExecutions)
       .where(eq(pendingJobExecutions.jobExecutionId, params.jobExecutionId));
@@ -1015,7 +1050,18 @@ export async function reconcileTerminalJobExecution(params: {
       .returning({
         provisionerId: runningJobExecutions.provisionerId,
         providerRunnerId: runningJobExecutions.providerRunnerId,
+        runnerSessionId: runningJobExecutions.runnerSessionId,
       });
+
+    const runnerSessionIds = [...new Set(cancelledRunningRows.map((row) => row.runnerSessionId))];
+    if (runnerSessionIds.length > 0) {
+      await tx
+        .update(runnerSessions)
+        .set({
+          lastJobCompletedAt: sql`greatest(coalesce(${runnerSessions.lastJobCompletedAt}, ${finishedAt}), ${finishedAt})`,
+        })
+        .where(inArray(runnerSessions.id, runnerSessionIds));
+    }
 
     await releaseReservationsForTerminalRunningRows(tx, cancelledRunningRows);
   });

@@ -47,6 +47,7 @@ export async function writeJobExecutionTerminatedOutbox(
     jobId: string;
     jobExecutionId: string;
     status: JobExecutionStatus;
+    finishedAt?: Date | null | undefined;
     statusReason: JobStatusReason | null;
     statusReasonMessage?: string | null | undefined;
   },
@@ -68,6 +69,7 @@ export async function writeJobExecutionTerminatedOutbox(
       workflowRunId: identity.workflowRunId,
       workflowRunAttemptId: identity.workflowRunAttemptId,
       status: params.status,
+      finishedAt: (params.finishedAt ?? new Date()).toISOString(),
       statusReason: params.statusReason,
       cancellationReason:
         params.statusReason === 'run_cancelled' || params.statusReason === 'timed_out'

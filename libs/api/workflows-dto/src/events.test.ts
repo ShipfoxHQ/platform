@@ -71,6 +71,7 @@ const validJobExecutionTerminated = {
   workflowRunId: 'run-1',
   workflowRunAttemptId: 'attempt-1',
   status: 'cancelled',
+  finishedAt: '2026-08-11T08:01:00.000Z',
   statusReason: 'run_cancelled',
   statusReasonMessage: null,
 };

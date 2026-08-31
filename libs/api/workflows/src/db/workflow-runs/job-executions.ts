@@ -283,6 +283,7 @@ async function updateJobExecutionStatusAtVersion(
       jobId: row.jobId,
       jobExecutionId: row.id,
       status: row.status,
+      finishedAt: row.finishedAt,
       statusReason: row.statusReason,
       statusReasonMessage: row.statusReasonMessage,
     });

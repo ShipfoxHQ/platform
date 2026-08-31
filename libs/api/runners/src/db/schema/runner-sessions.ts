@@ -48,6 +48,7 @@ export const runnerSessions = pgTable(
     maxClaims: integer('max_claims'),
     claimsUsed: integer('claims_used').notNull().default(0),
     revokedAt: timestamp('revoked_at', {withTimezone: true}),
+    lastJobCompletedAt: timestamp('last_job_completed_at', {withTimezone: true}),
     createdAt: timestamp('created_at', {withTimezone: true}).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', {withTimezone: true}).notNull().defaultNow(),
   },

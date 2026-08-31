@@ -70,6 +70,7 @@ export async function persistMaterializedRunGraph(
         jobId: jobExecution.jobId,
         jobExecutionId: jobExecution.id,
         status: jobExecution.status,
+        finishedAt: jobExecution.finishedAt,
         statusReason: jobExecution.statusReason,
         statusReasonMessage: jobExecution.statusReasonMessage,
       });

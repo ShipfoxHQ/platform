@@ -502,6 +502,7 @@ export async function settleListenerJobExecution(params: {
       jobId: execution.jobId,
       jobExecutionId: execution.id,
       status: execution.status,
+      finishedAt: execution.finishedAt,
       statusReason: execution.statusReason,
       statusReasonMessage: execution.statusReasonMessage,
     });
@@ -644,6 +645,7 @@ async function persistMaterializedListenerExecution(
       jobId: execution.jobId,
       jobExecutionId: execution.id,
       status: execution.status,
+      finishedAt: execution.finishedAt,
       statusReason: execution.statusReason,
       statusReasonMessage: execution.statusReasonMessage,
     });

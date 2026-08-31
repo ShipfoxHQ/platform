@@ -27,7 +27,10 @@ import {
   recordRunnerReservationReleased,
 } from '#metrics/instance.js';
 import {config} from '../config.js';
-import {authorizeRunnerTermination} from './termination-authorization.js';
+import {
+  authorizeRunnerTermination,
+  resolveRunnerTerminationReason,
+} from './termination-authorization.js';
 
 export interface ReportRunnerInstancesParams {
   scope: 'installation' | 'workspace';
@@ -124,6 +127,9 @@ export async function reconcileRunnerInstances(
   const result = await reconcileRunnerInstancesDb({
     ...params,
     terminateGraceSeconds: config.RUNNER_RECONCILE_TERMINATE_GRACE_SECONDS,
+    postJobExitGraceSeconds: config.RUNNER_POST_JOB_EXIT_GRACE_SECONDS,
+    terminationReasonResolver: ({provisionerId, providerRunnerId, reason}) =>
+      resolveRunnerTerminationReason({provisionerId, providerRunnerId, reason}),
   });
 
   recordRunnerReservationReleased({count: result.reservationsReleased, surface: 'reconcile'});
