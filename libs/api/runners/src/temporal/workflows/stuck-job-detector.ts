@@ -9,6 +9,7 @@ const {
   deleteExpiredRunnerSessionsActivity,
   detectAndExpireStuckJobsActivity,
   reapStaleRunnerInstancesActivity,
+  recoverStaleIdleRunnerSessionsActivity,
 } = proxyActivities<ReturnType<typeof createRunnersMaintenanceActivities>>({
   startToCloseTimeout: '60s',
 });
@@ -55,6 +56,11 @@ export async function stuckJobDetector(): Promise<void> {
       expired,
       thresholdSeconds: STUCK_JOB_THRESHOLD_SECONDS,
     });
+  }
+
+  const {recovered} = await recoverStaleIdleRunnerSessionsActivity();
+  if (recovered > 0) {
+    log.info('Stuck-job detector recovered stale idle runner sessions', {recovered});
   }
 
   const {reaped, reservationsReleased} = await reapStaleRunnerInstancesActivity();

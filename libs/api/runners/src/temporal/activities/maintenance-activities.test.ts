@@ -4,6 +4,7 @@ vi.mock('#core/maintenance.js', () => ({
   deleteExpiredRunnerSessions: vi.fn(),
   detectAndExpireStuckJobs: vi.fn(),
   reapStaleRunnerInstances: vi.fn(),
+  recoverStaleIdleRunnerSessions: vi.fn(),
 }));
 
 let maintenance: typeof import('#core/maintenance.js');
@@ -55,6 +56,17 @@ describe('reapStaleRunnerInstancesActivity', () => {
       thresholdSeconds: 300,
       limit: 100,
     });
+  });
+});
+
+describe('recoverStaleIdleRunnerSessionsActivity', () => {
+  it('delegates to core maintenance', async () => {
+    vi.mocked(maintenance.recoverStaleIdleRunnerSessions).mockResolvedValueOnce({recovered: 3});
+
+    const result = await activities.recoverStaleIdleRunnerSessionsActivity({limit: 25});
+
+    expect(result).toEqual({recovered: 3});
+    expect(maintenance.recoverStaleIdleRunnerSessions).toHaveBeenCalledWith({limit: 25});
   });
 });
 
