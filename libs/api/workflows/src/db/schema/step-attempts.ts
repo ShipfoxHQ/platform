@@ -60,6 +60,11 @@ export const stepAttempts = pgTable(
       table.jobExecutionId,
       table.executionOrder,
     ),
+    unique('workflows_step_attempts_id_step_id_job_execution_id_uq').on(
+      table.id,
+      table.stepId,
+      table.jobExecutionId,
+    ),
     foreignKey({
       name: 'workflows_step_attempts_step_id_job_execution_id_workflows_steps_fk',
       columns: [table.stepId, table.jobExecutionId],

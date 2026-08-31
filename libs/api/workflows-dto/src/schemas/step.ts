@@ -234,7 +234,7 @@ export const stepAttemptDtoSchema = z.object({
   // rows; nested keys are not snake_case-normalized.
   gate_result: stepGateResultDtoSchema,
   restart_feedback: z.string().nullable(),
-  invocations: z.array(stepAttemptInvocationSchema),
+  invocations: z.array(stepAttemptInvocationSchema).default([]),
   started_at: z.string(),
   finished_at: z.string().nullable(),
 });

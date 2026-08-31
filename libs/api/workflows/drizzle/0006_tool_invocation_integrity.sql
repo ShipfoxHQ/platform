@@ -1,0 +1,3 @@
+ALTER TABLE "workflows_step_attempts" ADD CONSTRAINT "workflows_step_attempts_id_step_id_job_execution_id_uq" UNIQUE("id","step_id","job_execution_id");--> statement-breakpoint
+ALTER TABLE "workflows_tool_invocations" ADD CONSTRAINT "workflows_tool_invocations_step_attempt_id_step_id_job_execution_id_workflows_step_attempts_fk" FOREIGN KEY ("step_attempt_id","step_id","job_execution_id") REFERENCES "public"."workflows_step_attempts"("id","step_id","job_execution_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "workflows_tool_invocations_job_execution_id_idx" ON "workflows_tool_invocations" USING btree ("job_execution_id");

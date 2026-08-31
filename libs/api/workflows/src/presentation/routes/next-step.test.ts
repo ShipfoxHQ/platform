@@ -9,6 +9,7 @@ import {
   getFirstJobExecutionByJobId,
   getJobById,
   getStepsByJobId,
+  getToolInvocationsByJobExecutionId,
   getWorkflowRunByAttemptId,
 } from '#db/workflow-runs.js';
 import {insertRunningJobLease, mintActiveLeaseToken} from '#test/fixtures/active-lease-token.js';
@@ -197,6 +198,15 @@ describe('POST /runs/jobs/current/steps/next', () => {
     expect(first.json()).toEqual({kind: 'wait', retry_after_ms: 1000});
     expect(second.statusCode).toBe(200);
     expect(second.json()).toEqual({kind: 'wait', retry_after_ms: 1000});
+
+    const invocations = await getToolInvocationsByJobExecutionId(step.jobExecutionId);
+    expect(invocations).toHaveLength(1);
+    expect(invocations[0]).toMatchObject({
+      stepId: step.id,
+      jobExecutionId: step.jobExecutionId,
+      status: 'queued',
+      callIndex: 0,
+    });
   });
 
   test('writes the tool capability warning only on fresh dispatch', async () => {

@@ -45,6 +45,7 @@ export const toolInvocations = pgTable(
   },
   (table) => [
     unique('workflows_tool_invocations_step_attempt_id_uq').on(table.stepAttemptId),
+    index('workflows_tool_invocations_job_execution_id_idx').on(table.jobExecutionId),
     index('workflows_tool_invocations_due_at_unsettled_idx')
       .on(table.dueAt)
       .where(sql`${table.status} <> 'settled'`),
@@ -52,6 +53,11 @@ export const toolInvocations = pgTable(
       name: 'workflows_tool_invocations_step_id_job_execution_id_workflows_steps_fk',
       columns: [table.stepId, table.jobExecutionId],
       foreignColumns: [steps.id, steps.jobExecutionId],
+    }).onDelete('cascade'),
+    foreignKey({
+      name: 'workflows_tool_invocations_step_attempt_id_step_id_job_execution_id_workflows_step_attempts_fk',
+      columns: [table.stepAttemptId, table.stepId, table.jobExecutionId],
+      foreignColumns: [stepAttempts.id, stepAttempts.stepId, stepAttempts.jobExecutionId],
     }).onDelete('cascade'),
     check('workflows_tool_invocations_call_index_nonnegative_ck', sql`${table.callIndex} >= 0`),
   ],

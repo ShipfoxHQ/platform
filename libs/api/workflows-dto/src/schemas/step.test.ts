@@ -281,6 +281,14 @@ describe('stepStatusReasonSchema', () => {
 });
 
 describe('stepAttemptDtoSchema', () => {
+  it('defaults invocation metadata for legacy attempts', () => {
+    const {invocations: _invocations, ...legacyAttempt} = baseAttempt;
+
+    const result = stepAttemptDtoSchema.parse({...legacyAttempt, gate_result: {kind: 'none'}});
+
+    expect(result.invocations).toEqual([]);
+  });
+
   it('accepts an attempt with no gate or restart feedback', () => {
     const attempt = {...baseAttempt, gate_result: {kind: 'none'}};
 
