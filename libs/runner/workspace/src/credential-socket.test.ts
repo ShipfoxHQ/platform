@@ -157,7 +157,8 @@ describe('credential socket transport', () => {
     void closePromise.then(() => {
       closeSettled = true;
     });
-    await Promise.resolve();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setImmediate(resolve));
     expect(closeSettled).toBe(false);
 
     releaseRenewal();
