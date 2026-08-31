@@ -496,17 +496,24 @@ async function runBestEffortCheckoutRenewalSubjectMaintenance(
   context: {jobExecutionId?: string; stepId?: string; attempt?: number},
   operation: (tx: Tx) => Promise<void>,
 ): Promise<void> {
-  try {
-    // Use a savepoint so a missing or unhealthy derived-state table cannot abort
-    // the transaction that records the authoritative step transition.
-    await tx.transaction(operation);
-  } catch (error) {
-    logger().error(
-      {error, ...context},
-      'Checkout renewal subject maintenance failed; continuing step transition',
-    );
-    captureException(error);
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      // Use a savepoint so a missing or unhealthy derived-state table cannot abort
+      // the transaction that records the authoritative step transition. A second
+      // savepoint gives transient maintenance failures one chance to recover.
+      await tx.transaction(operation);
+      return;
+    } catch (error) {
+      lastError = error;
+    }
   }
+
+  logger().error(
+    {error: lastError, ...context},
+    'Checkout renewal subject maintenance failed; continuing step transition',
+  );
+  captureException(lastError);
 }
 
 // Finalize the running attempt to a terminal state. The `status='running'` guard
