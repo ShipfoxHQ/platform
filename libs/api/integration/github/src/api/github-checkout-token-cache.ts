@@ -230,6 +230,7 @@ export class GithubCheckoutTokenCache implements GithubCheckoutTokenCachePort {
   private readonly ram = new Map<string, RamEntry>();
   private readonly inFlight = new Map<string, Promise<GithubCheckoutToken>>();
   private readonly inFlightScopes = new Map<string, GithubCheckoutTokenScope>();
+  private readonly lateMints = new Map<string, Set<Promise<void>>>();
   private readonly deleting = new Map<string, Promise<number>>();
   private readonly now: () => Date;
   private readonly sleep: (ms: number) => Promise<void>;
@@ -339,7 +340,7 @@ export class GithubCheckoutTokenCache implements GithubCheckoutTokenCachePort {
     installationId: number,
   ): Promise<number> {
     const namespace = githubCheckoutTokenNamespace(providerInstance, installationId);
-    const deletion = (async () => {
+    const deletion = Promise.resolve().then(async () => {
       await Promise.all(
         [...this.inFlight.entries()]
           .filter(([digest]) => {
@@ -351,6 +352,9 @@ export class GithubCheckoutTokenCache implements GithubCheckoutTokenCachePort {
             );
           })
           .map(([, pending]) => pending.catch(() => undefined)),
+      );
+      await Promise.all(
+        [...(this.lateMints.get(namespace) ?? [])].map((pending) => pending.catch(() => undefined)),
       );
       for (const [digest, entry] of this.ram) {
         if (
@@ -371,7 +375,7 @@ export class GithubCheckoutTokenCache implements GithubCheckoutTokenCachePort {
         Object.keys(values).map((key) => store.delete?.({workspaceId, namespace, key})),
       );
       return Object.keys(values).length;
-    })();
+    });
     this.deleting.set(namespace, deletion);
     try {
       return await deletion;
@@ -504,8 +508,11 @@ export class GithubCheckoutTokenCache implements GithubCheckoutTokenCachePort {
   ): Promise<GithubInstallationAccessToken> {
     const mintStartedAt = Date.now();
     try {
-      const minted = await withTimeout(mint(), this.mintTimeoutMs, (lateMint) =>
-        this.persistLateMint(scope, digest, current, lateMint, now),
+      const minted = await withTimeout(
+        mint(),
+        this.mintTimeoutMs,
+        (lateMint) => this.persistLateMint(scope, digest, current, lateMint, now),
+        (lateWork) => this.trackLateMint(scope, lateWork),
       );
       validateMintedToken(scope, minted, now);
       recordGithubCheckoutTokenMint({outcome: 'success', durationMs: Date.now() - mintStartedAt});
@@ -542,6 +549,8 @@ export class GithubCheckoutTokenCache implements GithubCheckoutTokenCachePort {
     minted: GithubInstallationAccessToken,
     now: Date,
   ): Promise<void> {
+    const namespace = githubCheckoutTokenNamespace(scope.providerInstance, scope.installationId);
+    if (this.deleting.has(namespace)) return;
     try {
       validateMintedToken(scope, minted, now);
       const current = this.options.secretStore
@@ -551,7 +560,7 @@ export class GithubCheckoutTokenCache implements GithubCheckoutTokenCachePort {
         previous?.generation === undefined
           ? current?.generation === undefined && current?.token === undefined
           : current?.generation === previous.generation && current.token === previous.token;
-      if (!sameGeneration) return;
+      if (!sameGeneration || this.deleting.has(namespace)) return;
 
       const envelope: GithubCheckoutTokenEnvelope = {
         version: GITHUB_CHECKOUT_TOKEN_CACHE_VERSION,
@@ -561,6 +570,7 @@ export class GithubCheckoutTokenCache implements GithubCheckoutTokenCachePort {
         repositoryId: scope.repositoryId,
         permissions: {...scope.permissions},
       };
+      if (this.deleting.has(namespace)) return;
       await this.writeShared(scope, envelope);
       this.writeRam(digest, scope, envelope);
     } catch (error) {
@@ -573,6 +583,17 @@ export class GithubCheckoutTokenCache implements GithubCheckoutTokenCachePort {
         operation: 'write-late-checkout-envelope',
       });
     }
+  }
+
+  private trackLateMint(scope: GithubCheckoutTokenScope, work: Promise<void>): void {
+    const namespace = githubCheckoutTokenNamespace(scope.providerInstance, scope.installationId);
+    const pending = this.lateMints.get(namespace) ?? new Set<Promise<void>>();
+    pending.add(work);
+    this.lateMints.set(namespace, pending);
+    const remove = () => {
+      if (pending.delete(work) && pending.size === 0) this.lateMints.delete(namespace);
+    };
+    void work.then(remove, remove);
   }
 
   private async pollAfterContention(
@@ -882,12 +903,7 @@ function validateMintedToken(
       'GitHub checkout token response names a different repository',
     );
   }
-  if (!token.permissions) {
-    throw new GithubIntegrationProviderError(
-      'provider-rejected',
-      'GitHub checkout token response did not include permissions',
-    );
-  }
+  if (!token.permissions) return;
   for (const [permission, level] of Object.entries(scope.permissions)) {
     if (token.permissions[permission] !== level) {
       throw new GithubIntegrationProviderError(
@@ -992,18 +1008,21 @@ function withTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number,
   onLateResult?: (value: T) => Promise<void>,
+  onTimeout?: (lateWork: Promise<void>) => void,
 ): Promise<T> {
   let timedOut = false;
   let timer: NodeJS.Timeout | undefined;
-  promise.then(
-    (value) => {
-      if (timedOut && onLateResult) void onLateResult(value).catch(() => undefined);
+  const lateWork: Promise<void> = promise.then(
+    async (value) => {
+      if (timedOut && onLateResult) await onLateResult(value);
     },
     () => undefined,
   );
+  void lateWork.catch(() => undefined);
   const timeout = new Promise<T>((_, reject) => {
     timer = setTimeout(() => {
       timedOut = true;
+      onTimeout?.(lateWork);
       reject(
         new GithubIntegrationProviderError('timeout', 'Timed out minting GitHub checkout token'),
       );

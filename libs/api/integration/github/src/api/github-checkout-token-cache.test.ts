@@ -240,6 +240,16 @@ describe('GithubCheckoutTokenCache', () => {
     expect(mint).toHaveBeenCalledTimes(1);
   });
 
+  it('accepts a provider response without permissions', async () => {
+    const shared = cache();
+
+    await expect(
+      shared.getOrMint(baseScope, () =>
+        Promise.resolve({...token('token-a'), permissions: undefined}),
+      ),
+    ).resolves.toMatchObject({token: 'token-a'});
+  });
+
   it('rejects a provider response for another repository or permission scope', async () => {
     const shared = cache();
 
@@ -294,6 +304,24 @@ describe('GithubCheckoutTokenCache', () => {
     await expect(
       shared.getOrMint(baseScope, () => new Promise(() => undefined)),
     ).rejects.toMatchObject({reason: 'timeout'});
+  });
+
+  it('does not repopulate an installation after deleting a timed-out mint', async () => {
+    const store = createStore();
+    let resolveMint: (value: {token: string; expiresAt: Date}) => void = () => undefined;
+    const lateMint = new Promise<{token: string; expiresAt: Date}>((resolve) => {
+      resolveMint = resolve;
+    });
+    const shared = cache({store, mintTimeoutMs: 1});
+
+    await expect(shared.getOrMint(baseScope, () => lateMint)).rejects.toMatchObject({
+      reason: 'timeout',
+    });
+    const deletion = shared.deleteInstallation('workspace-a', 'provider-a', 11);
+    resolveMint(token('late-token'));
+
+    await expect(deletion).resolves.toBe(1);
+    expect(store.values.size).toBe(0);
   });
 
   it('cleans expired shared entries in a bounded pass', async () => {
