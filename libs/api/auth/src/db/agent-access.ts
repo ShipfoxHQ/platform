@@ -58,12 +58,12 @@ export async function findAgentClientByClientId(params: {
 
 export async function markAgentClientReferenced(
   tx: AgentAccessTx,
-  params: {clientId: string},
+  params: {clientUuid: string},
 ): Promise<void> {
   await tx
     .update(agentClients)
     .set({unreferencedAt: null, updatedAt: sql`now()`})
-    .where(eq(agentClients.id, params.clientId));
+    .where(eq(agentClients.id, params.clientUuid));
 }
 
 export interface CreateAgentAuthorizationRequestParams {
@@ -72,7 +72,7 @@ export interface CreateAgentAuthorizationRequestParams {
   resource: string;
   scopes: string[];
   codeChallenge: string;
-  state: string;
+  state: string | null;
   expiresAt: Date;
 }
 
@@ -157,11 +157,24 @@ export async function createAgentGrantTx(
   tx: AgentAccessTx,
   params: CreateAgentGrantParams,
 ): Promise<AgentGrant> {
-  const rows = await tx.insert(agentGrants).values(params).returning();
+  const rows = await tx
+    .insert(agentGrants)
+    .values(params)
+    .onConflictDoUpdate({
+      target: [agentGrants.userId, agentGrants.workspaceId, agentGrants.clientId],
+      targetWhere: sql`${agentGrants.revokedAt} IS NULL AND ${agentGrants.terminalAt} IS NULL`,
+      set: {
+        scopes: params.scopes,
+        revokedAt: null,
+        terminalAt: null,
+        updatedAt: sql`now()`,
+      },
+    })
+    .returning();
   const row = rows[0];
-  if (!row) throw new Error('Insert returned no rows');
+  if (!row) throw new Error('Upsert returned no rows');
 
-  await markAgentClientReferenced(tx, {clientId: params.clientId});
+  await markAgentClientReferenced(tx, {clientUuid: params.clientId});
   return toAgentGrant(row);
 }
 

@@ -19,7 +19,7 @@ CREATE TABLE "auth_agent_authorization_requests" (
 	"resource" text NOT NULL,
 	"scopes" text[] NOT NULL,
 	"code_challenge" text NOT NULL,
-	"state" text NOT NULL,
+	"state" text,
 	"expires_at" timestamp with time zone NOT NULL,
 	"consumed_at" timestamp with time zone,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
@@ -96,6 +96,7 @@ CREATE INDEX "auth_agent_grants_user_id_idx" ON "auth_agent_grants" USING btree 
 CREATE INDEX "auth_agent_grants_workspace_id_idx" ON "auth_agent_grants" USING btree ("workspace_id");--> statement-breakpoint
 CREATE INDEX "auth_agent_grants_client_id_idx" ON "auth_agent_grants" USING btree ("client_id");--> statement-breakpoint
 CREATE INDEX "auth_agent_grants_terminal_at_idx" ON "auth_agent_grants" USING btree ("terminal_at");--> statement-breakpoint
+CREATE UNIQUE INDEX "auth_agent_grants_active_user_workspace_client_unique" ON "auth_agent_grants" USING btree ("user_id", "workspace_id", "client_id") WHERE "auth_agent_grants"."revoked_at" IS NULL AND "auth_agent_grants"."terminal_at" IS NULL;--> statement-breakpoint
 CREATE UNIQUE INDEX "auth_agent_pats_hashed_token_unique" ON "auth_agent_pats" USING btree ("hashed_token");--> statement-breakpoint
 CREATE INDEX "auth_agent_pats_user_id_idx" ON "auth_agent_pats" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "auth_agent_pats_workspace_id_idx" ON "auth_agent_pats" USING btree ("workspace_id");--> statement-breakpoint

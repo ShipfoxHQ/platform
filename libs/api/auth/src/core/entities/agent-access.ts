@@ -19,7 +19,7 @@ export interface AgentAuthorizationRequest {
   resource: string;
   scopes: string[];
   codeChallenge: string;
-  state: string;
+  state: string | null;
   expiresAt: Date;
   consumedAt: Date | null;
   createdAt: Date;

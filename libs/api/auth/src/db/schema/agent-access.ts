@@ -46,7 +46,7 @@ export const agentAuthorizationRequests = pgTable(
     resource: text('resource').notNull(),
     scopes: text('scopes').array().notNull(),
     codeChallenge: text('code_challenge').notNull(),
-    state: text('state').notNull(),
+    state: text('state'),
     expiresAt: timestamp('expires_at', {withTimezone: true}).notNull(),
     consumedAt: timestamp('consumed_at', {withTimezone: true}),
     createdAt: timestamp('created_at', {withTimezone: true}).notNull().defaultNow(),
@@ -81,6 +81,9 @@ export const agentGrants = pgTable(
     index('auth_agent_grants_workspace_id_idx').on(table.workspaceId),
     index('auth_agent_grants_client_id_idx').on(table.clientId),
     index('auth_agent_grants_terminal_at_idx').on(table.terminalAt),
+    uniqueIndex('auth_agent_grants_active_user_workspace_client_unique')
+      .on(table.userId, table.workspaceId, table.clientId)
+      .where(sql`${table.revokedAt} IS NULL AND ${table.terminalAt} IS NULL`),
   ],
 );
 
