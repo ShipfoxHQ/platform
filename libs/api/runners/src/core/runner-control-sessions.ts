@@ -137,17 +137,6 @@ export async function createRunnerInstancesWithBootstrapTokens(params: {
   });
 }
 
-async function lockCandidateRunnerEnrollment(
-  tx: Tx,
-  params: {workspaceId: string | null; runnerInstanceId: string},
-): Promise<void> {
-  if (!params.workspaceId) return;
-  await lockRunnerEnrollmentTx(tx, {
-    workspaceId: params.workspaceId,
-    runnerInstanceId: params.runnerInstanceId,
-  });
-}
-
 function assertRunnerBootstrapExchangeAllowed(
   runner: {terminationAuthorizedAt: Date | null} | undefined,
 ): void {
@@ -184,7 +173,7 @@ export async function exchangeRunnerBootstrapToken(params: {
         ),
       )
       .limit(1);
-    await lockCandidateRunnerEnrollment(tx, {
+    await lockRunnerEnrollmentTx(tx, {
       workspaceId: candidate?.workspaceId ?? null,
       runnerInstanceId: bootstrap.runnerInstanceId,
     });
@@ -287,11 +276,10 @@ export async function enrollRunnerControlSession(params: {
         provisionerId: params.provisionerId,
         reservationIds: [candidate.intendedReservationId],
       });
-    if (candidate.workspaceId)
-      await lockRunnerEnrollmentTx(tx, {
-        workspaceId: candidate.workspaceId,
-        runnerInstanceId: params.runnerInstanceId,
-      });
+    await lockRunnerEnrollmentTx(tx, {
+      workspaceId: candidate.workspaceId,
+      runnerInstanceId: params.runnerInstanceId,
+    });
     const [current] = await tx
       .select({
         intendedReservationId: providerRunners.intendedReservationId,

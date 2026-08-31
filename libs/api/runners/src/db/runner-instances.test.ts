@@ -1,5 +1,5 @@
 import {pgClient} from '@shipfox/node-postgres';
-import {beforeEach} from '@shipfox/vitest/vi';
+import {beforeEach, vi} from '@shipfox/vitest/vi';
 import {and, desc, eq, inArray, or, sql} from 'drizzle-orm';
 import {reconcileRunnerInstances as reconcileRunnerInstancesCore} from '#core/runner-instances.js';
 import {
@@ -21,6 +21,7 @@ import {
   listProviderRunnerByStateMetrics,
   listProvisionerTerminateIntentRowsTx,
   listProvisionerTerminateIntents,
+  persistRunnerTerminationAuthorizationTx,
   type RecoverStaleIdleRunnerSessionsParams,
   reapStaleRunnerInstances,
   reconcileRunnerInstances,
@@ -33,6 +34,7 @@ import {runnerControlSessions} from '#db/schema/runner-control-sessions.js';
 import {providerRunners} from '#db/schema/runner-instances.js';
 import {runnerSessions} from '#db/schema/runner-sessions.js';
 import {runningJobExecutions} from '#db/schema/running-job-executions.js';
+import {runnerTerminationAuthorizationIssuedCount} from '#metrics/instance.js';
 import {
   pendingJobFactory,
   providerRunnerFactory,
@@ -171,6 +173,48 @@ describe('authorizeRunnerTermination', () => {
         .from(providerRunners)
         .where(eq(providerRunners.id, runner.id)),
     ).toEqual([{authorizedAt: null}]);
+  });
+
+  it('rejects activation-timeout authorization when a live tuple-matched session exists', async () => {
+    const workspaceId = crypto.randomUUID();
+    const provisionerId = crypto.randomUUID();
+    const providerRunnerId = 'activated-between-intent-and-authorization';
+    const runner = await providerRunnerFactory.create({
+      workspaceId,
+      provisionerId,
+      providerRunnerId,
+      launchKind: 'demand',
+    });
+    await db()
+      .insert(runnerSessions)
+      .values({
+        workspaceId,
+        scope: 'workspace',
+        registrationTokenId: crypto.randomUUID(),
+        registrationTokenKind: 'ephemeral',
+        provisionerId,
+        providerRunnerId,
+        labels: ['linux'],
+        maxClaims: 1,
+        claimsUsed: 0,
+      });
+
+    const result = await db().transaction((tx) =>
+      persistRunnerTerminationAuthorizationTx(tx, {
+        provisionerId,
+        providerRunnerId: runner.providerRunnerId,
+        reason: 'activation-timeout',
+        resolveTerminationReason: () => ({reason: 'activation-timeout'}),
+      }),
+    );
+
+    expect(result).toEqual({
+      desiredIntent: 'keep',
+      terminationAuthorizedAt: null,
+      terminationReason: null,
+      telemetry: {outcome: 'rejected', reason: 'activation-timeout'},
+      reservationReleased: false,
+    });
   });
 
   it('reuses an existing authorization and its first reason', async () => {
@@ -2070,7 +2114,20 @@ describe('listProvisionerTerminateIntents', () => {
     });
 
     const result = await db().transaction((tx) =>
-      listProvisionerTerminateIntentRowsTx(tx, {workspaceId, provisionerId, limit: 1000}),
+      listProvisionerTerminateIntentRowsTx(
+        tx,
+        {workspaceId, provisionerId, limit: 1000},
+        {
+          authorize: async ({providerRunnerId, reason}) =>
+            (
+              await authorizeRunnerTerminationTx(tx, {
+                provisionerId,
+                providerRunnerId,
+                reason,
+              })
+            ).desiredIntent === 'terminate',
+        },
+      ),
     );
     const [runner] = await providerRunnerRowsFor({workspaceId, provisionerId});
 
@@ -2155,11 +2212,29 @@ describe('listProvisionerTerminateIntents', () => {
       createdAt: new Date(Date.now() - 301_000),
     });
 
+    const authorize =
+      (tx: Parameters<typeof authorizeRunnerTerminationTx>[0]) =>
+      async ({providerRunnerId, reason}: {providerRunnerId: string; reason: string}) => {
+        const authorization = await authorizeRunnerTerminationTx(tx, {
+          provisionerId,
+          providerRunnerId,
+          reason,
+        });
+        return authorization.desiredIntent === 'terminate';
+      };
     const first = await db().transaction((tx) =>
-      listProvisionerTerminateIntentRowsTx(tx, {workspaceId, provisionerId, limit: 1000}),
+      listProvisionerTerminateIntentRowsTx(
+        tx,
+        {workspaceId, provisionerId, limit: 1000},
+        {authorize: authorize(tx)},
+      ),
     );
     const second = await db().transaction((tx) =>
-      listProvisionerTerminateIntentRowsTx(tx, {workspaceId, provisionerId, limit: 1000}),
+      listProvisionerTerminateIntentRowsTx(
+        tx,
+        {workspaceId, provisionerId, limit: 1000},
+        {authorize: authorize(tx)},
+      ),
     );
 
     expect(first).toEqual([
@@ -2975,8 +3050,36 @@ describe('reconcileRunnerInstances', () => {
     expect(afterAuthorization?.terminationReason).toBe('session-exhausted');
   });
 
+  it('keeps stale managed capacity with a live running job', async () => {
+    const providerRunnerId = 'stale-runner-with-live-job';
+    await createRunnerInstance({
+      providerRunnerId,
+      launchKind: 'demand',
+      createdAt: new Date(Date.now() - 301_000),
+    });
+    await insertRunningJobRow({
+      workspaceId,
+      provisionerId,
+      providerRunnerId,
+    });
+
+    const result = await reconcileRunnerInstancesCore({
+      workspaceId,
+      provisionerId,
+      observedRunnerInstanceIds: [providerRunnerId],
+    });
+
+    expect(result.runners).toMatchObject([{providerRunnerId, desiredIntent: 'keep'}]);
+    const [runner] = await db()
+      .select({terminationAuthorizedAt: providerRunners.terminationAuthorizedAt})
+      .from(providerRunners)
+      .where(eq(providerRunners.providerRunnerId, providerRunnerId));
+    expect(runner?.terminationAuthorizedAt).toBeNull();
+  });
+
   it('authorizes stale managed warm capacity through the activation-timeout reason', async () => {
     const providerRunnerId = 'stale-warm-runner';
+    const issuedSpy = vi.spyOn(runnerTerminationAuthorizationIssuedCount, 'add');
     await createRunnerInstance({
       providerRunnerId,
       launchKind: 'warm',
@@ -2997,6 +3100,14 @@ describe('reconcileRunnerInstances', () => {
         terminationReason: 'activation-timeout',
       },
     ]);
+    expect(
+      issuedSpy.mock.calls.filter(
+        ([value, attributes]) =>
+          value === 1 &&
+          (attributes as {reason?: string} | undefined)?.reason === 'activation-timeout',
+      ),
+    ).not.toHaveLength(0);
+    issuedSpy.mockRestore();
   });
 
   it('authorizes unassigned warm capacity during installation reconciliation', async () => {

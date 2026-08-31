@@ -88,6 +88,8 @@ export interface TerminationAuthorizationTelemetryRecord {
 export type TerminationAuthorizationTxResult = TerminationAuthorizationResult & {
   /** Emitted by the transaction owner only after the transaction commits. */
   telemetry: TerminationAuthorizationTelemetry | null;
+  /** True when this authorization released demand queue capacity. */
+  reservationReleased: boolean;
 };
 
 interface PersistRunnerTerminationAuthorizationParams {
@@ -95,6 +97,7 @@ interface PersistRunnerTerminationAuthorizationParams {
   providerRunnerId: string;
   reason: string;
   resolveTerminationReason: (reason: string) => TerminationReasonResolution;
+  lockAlreadyHeld?: boolean;
 }
 
 async function hasTupleMatchedRunnerSessionTx(
@@ -149,27 +152,28 @@ export async function persistRunnerTerminationAuthorizationTx(
     )
     .limit(1);
 
-  if (!candidate) {
+  if (!candidate)
     return {
       desiredIntent: 'keep',
       terminationAuthorizedAt: null,
       terminationReason: null,
       telemetry: {outcome: 'rejected', reason: 'unknown-runner'},
+      reservationReleased: false,
     };
-  }
 
-  if (candidate.workspaceId)
+  if (!params.lockAlreadyHeld)
     await lockRunnerEnrollmentTx(tx, {
       workspaceId: candidate.workspaceId,
       runnerInstanceId: candidate.id,
     });
-  else await lockRunnerActivationAdvisoryKeyTx(tx, candidate.id);
   const [runner] = await tx
     .select({
       id: providerRunners.id,
       workspaceId: providerRunners.workspaceId,
       provisionerId: providerRunners.provisionerId,
       providerRunnerId: providerRunners.providerRunnerId,
+      launchKind: providerRunners.launchKind,
+      reservationReleasedAt: providerRunners.reservationReleasedAt,
       terminationAuthorizedAt: providerRunners.terminationAuthorizedAt,
       terminationReason: providerRunners.terminationReason,
     })
@@ -181,57 +185,109 @@ export async function persistRunnerTerminationAuthorizationTx(
     .for('update');
   if (!runner) throw new Error('Termination authorization runner disappeared');
 
-  if (!runner.terminationAuthorizedAt || !runner.terminationReason) {
-    if (
-      params.reason === 'activation-timeout' &&
-      (await hasTupleMatchedRunnerSessionTx(tx, runner))
-    )
-      return {
-        desiredIntent: 'keep',
-        terminationAuthorizedAt: null,
-        terminationReason: null,
-        telemetry: {outcome: 'rejected', reason: 'activation-timeout'},
-      };
+  if (!runner.terminationAuthorizedAt || !runner.terminationReason)
+    return await issueRunnerTerminationAuthorizationTx(tx, runner, params, onRevocation);
 
-    const resolution = params.resolveTerminationReason(params.reason);
-    if (!resolution.reason)
-      return {
-        desiredIntent: 'keep',
-        terminationAuthorizedAt: null,
-        terminationReason: null,
-        telemetry: {outcome: 'rejected', reason: resolution.rejectionReason},
-      };
-    const authorizedAt = new Date();
-    const [authorized] = await tx
-      .update(providerRunners)
-      .set({
-        terminationAuthorizedAt: authorizedAt,
-        terminationReason: resolution.reason,
-        updatedAt: authorizedAt,
-      })
-      .where(eq(providerRunners.id, runner.id))
-      .returning({
-        terminationAuthorizedAt: providerRunners.terminationAuthorizedAt,
-        terminationReason: providerRunners.terminationReason,
-      });
-    if (!authorized?.terminationAuthorizedAt || !authorized.terminationReason)
-      throw new Error('Termination authorization was not persisted');
-    await revokeRunnerEnrollmentCredentialsTx(tx, candidate.id, onRevocation);
-    return {
-      desiredIntent: 'terminate',
-      terminationAuthorizedAt: authorized.terminationAuthorizedAt,
-      terminationReason: authorized.terminationReason,
-      telemetry: {outcome: 'issued', reason: authorized.terminationReason},
-    };
-  }
-
+  const reservationReleased = await releaseDemandReservationForActivationTimeoutTx(tx, runner);
   await revokeRunnerEnrollmentCredentialsTx(tx, candidate.id, onRevocation);
   return {
     desiredIntent: 'terminate',
     terminationAuthorizedAt: runner.terminationAuthorizedAt,
     terminationReason: runner.terminationReason,
     telemetry: null,
+    reservationReleased,
   };
+}
+
+type LockedTerminationRunner = {
+  id: string;
+  workspaceId: string | null;
+  provisionerId: string;
+  providerRunnerId: string | null;
+  launchKind: 'demand' | 'warm' | 'manual';
+  reservationReleasedAt: Date | null;
+  terminationAuthorizedAt: Date | null;
+  terminationReason: RunnerTerminationReason | null;
+};
+
+async function issueRunnerTerminationAuthorizationTx(
+  tx: Tx,
+  runner: LockedTerminationRunner,
+  params: PersistRunnerTerminationAuthorizationParams,
+  onRevocation?: (counts: RunnerEnrollmentRevocationCounts) => void,
+): Promise<TerminationAuthorizationTxResult> {
+  if (params.reason === 'activation-timeout' && (await hasTupleMatchedRunnerSessionTx(tx, runner)))
+    return {
+      desiredIntent: 'keep',
+      terminationAuthorizedAt: null,
+      terminationReason: null,
+      telemetry: {outcome: 'rejected', reason: 'activation-timeout'},
+      reservationReleased: false,
+    };
+
+  const resolution = params.resolveTerminationReason(params.reason);
+  if (!resolution.reason)
+    return {
+      desiredIntent: 'keep',
+      terminationAuthorizedAt: null,
+      terminationReason: null,
+      telemetry: {outcome: 'rejected', reason: resolution.rejectionReason},
+      reservationReleased: false,
+    };
+
+  const authorizedAt = new Date();
+  const reservationReleased = shouldReleaseDemandReservation(runner, resolution.reason);
+  const [authorized] = await tx
+    .update(providerRunners)
+    .set({
+      terminationAuthorizedAt: authorizedAt,
+      terminationReason: resolution.reason,
+      reservationReleasedAt: reservationReleased ? authorizedAt : runner.reservationReleasedAt,
+      updatedAt: authorizedAt,
+    })
+    .where(eq(providerRunners.id, runner.id))
+    .returning({
+      terminationAuthorizedAt: providerRunners.terminationAuthorizedAt,
+      terminationReason: providerRunners.terminationReason,
+    });
+  if (!authorized?.terminationAuthorizedAt || !authorized.terminationReason)
+    throw new Error('Termination authorization was not persisted');
+  await revokeRunnerEnrollmentCredentialsTx(tx, runner.id, onRevocation);
+  return {
+    desiredIntent: 'terminate',
+    terminationAuthorizedAt: authorized.terminationAuthorizedAt,
+    terminationReason: authorized.terminationReason,
+    telemetry: {outcome: 'issued', reason: authorized.terminationReason},
+    reservationReleased,
+  };
+}
+
+function shouldReleaseDemandReservation(
+  runner: Pick<LockedTerminationRunner, 'launchKind' | 'reservationReleasedAt'>,
+  reason: RunnerTerminationReason,
+): boolean {
+  return (
+    reason === 'activation-timeout' &&
+    runner.launchKind === 'demand' &&
+    runner.reservationReleasedAt === null
+  );
+}
+
+async function releaseDemandReservationForActivationTimeoutTx(
+  tx: Tx,
+  runner: LockedTerminationRunner,
+): Promise<boolean> {
+  if (
+    !runner.terminationReason ||
+    !shouldReleaseDemandReservation(runner, runner.terminationReason)
+  )
+    return false;
+  const released = await tx
+    .update(providerRunners)
+    .set({reservationReleasedAt: sql`now()`, updatedAt: sql`now()`})
+    .where(and(eq(providerRunners.id, runner.id), isNull(providerRunners.reservationReleasedAt)))
+    .returning({id: providerRunners.id});
+  return released.length > 0;
 }
 
 /**
@@ -860,6 +916,31 @@ export async function listProvisionerTerminationAuthorizations(params: {
   return await db().transaction((tx) => listProvisionerTerminationAuthorizationsTx(tx, params));
 }
 
+export async function listRunnerLaunchKindsTx(
+  tx: Tx,
+  params: {workspaceId: string; provisionerId: string; providerRunnerIds: string[]},
+): Promise<Map<string, 'demand' | 'warm' | 'manual'>> {
+  if (params.providerRunnerIds.length === 0) return new Map();
+  const rows = await tx
+    .select({
+      providerRunnerId: providerRunners.providerRunnerId,
+      launchKind: providerRunners.launchKind,
+    })
+    .from(providerRunners)
+    .where(
+      and(
+        eq(providerRunners.workspaceId, params.workspaceId),
+        eq(providerRunners.provisionerId, params.provisionerId),
+        inArray(providerRunners.providerRunnerId, params.providerRunnerIds),
+      ),
+    );
+  return new Map(
+    rows.flatMap((row) =>
+      row.providerRunnerId ? [[row.providerRunnerId, row.launchKind] as const] : [],
+    ),
+  );
+}
+
 export async function listProvisionerTerminationAuthorizationsTx(
   tx: Tx,
   params: {
@@ -936,9 +1017,7 @@ export async function listProvisionerTerminateIntentRowsTx(
       options.authorize,
     ));
   } else {
-    const rows = await provisionerTerminateIntentsQuery(tx, params)
-      .orderBy(asc(providerRunners.providerRunnerId))
-      .limit(params.limit + 1);
+    const rows = await provisionerTerminateIntentsQuery(tx, params).limit(params.limit + 1);
     truncated = rows.length > params.limit;
     returnedRows = truncated ? rows.slice(0, params.limit) : rows;
   }
@@ -953,23 +1032,6 @@ export async function listProvisionerTerminateIntentRowsTx(
       },
       'provisioner terminate intents truncated by poll-demand limit',
     );
-  }
-
-  const activationTimeoutRunnerIds = returnedRows.flatMap((row) =>
-    row.reason === 'activation-timeout' && row.providerRunnerId ? [row.providerRunnerId] : [],
-  );
-  if (activationTimeoutRunnerIds.length > 0) {
-    await tx
-      .update(providerRunners)
-      .set({reservationReleasedAt: sql`now()`, updatedAt: sql`now()`})
-      .where(
-        and(
-          eq(providerRunners.workspaceId, params.workspaceId),
-          eq(providerRunners.provisionerId, params.provisionerId),
-          inArray(providerRunners.providerRunnerId, activationTimeoutRunnerIds),
-          isNull(providerRunners.reservationReleasedAt),
-        ),
-      );
   }
 
   return returnedRows.flatMap((row) => toRunnerInstanceTerminateIntent(row));
@@ -991,9 +1053,7 @@ async function listAuthorizedProvisionerTerminateIntentRowsTx(
     const rows = await provisionerTerminateIntentsQuery(
       tx,
       providerRunnerIdAfter ? {...params, providerRunnerIdAfter} : params,
-    )
-      .orderBy(asc(providerRunners.providerRunnerId))
-      .limit(remaining + 1);
+    ).limit(remaining + 1);
     const candidateRows = rows.length > remaining ? rows.slice(0, remaining) : rows;
     const authorizedPageRows = await filterAuthorizedTerminateIntentRows(candidateRows, authorize);
     authorizedRows.push(...authorizedPageRows);
@@ -1085,7 +1145,8 @@ function provisionerTerminateIntentsQuery(
           : undefined,
         activationTimeout,
       ),
-    );
+    )
+    .orderBy(asc(providerRunners.providerRunnerId));
 }
 
 async function listTerminateIntentsHonoredByTerminatedReportsTx(
@@ -1460,12 +1521,10 @@ async function authorizeActivationTimeoutsTx(
   for (const candidate of candidates) {
     if (!candidate.providerRunnerId) continue;
 
-    if (params.workspaceId)
-      await lockRunnerEnrollmentTx(tx, {
-        workspaceId: params.workspaceId,
-        runnerInstanceId: candidate.id,
-      });
-    else await lockRunnerActivationAdvisoryKeyTx(tx, candidate.id);
+    await lockRunnerEnrollmentTx(tx, {
+      workspaceId: params.workspaceId,
+      runnerInstanceId: candidate.id,
+    });
     const [runner] = await tx
       .select({
         id: providerRunners.id,
@@ -1491,6 +1550,7 @@ async function authorizeActivationTimeoutsTx(
         provisionerId: params.provisionerId,
         providerRunnerId: runner.providerRunnerId,
         reason: 'activation-timeout',
+        lockAlreadyHeld: true,
         resolveTerminationReason: (reason) =>
           terminationReasonResolver({
             provisionerId: params.provisionerId,
@@ -1510,18 +1570,7 @@ async function authorizeActivationTimeoutsTx(
         revocationCounts,
       });
 
-    // Only demand launches consume queue capacity. Warm capacity has no demand
-    // reservation to return, and manual capacity is outside this cleanup policy.
-    if (authorization.desiredIntent === 'terminate' && runner.launchKind === 'demand') {
-      const released = await tx
-        .update(providerRunners)
-        .set({reservationReleasedAt: sql`now()`, updatedAt: sql`now()`})
-        .where(
-          and(eq(providerRunners.id, runner.id), isNull(providerRunners.reservationReleasedAt)),
-        )
-        .returning({id: providerRunners.id});
-      reservationsReleased += released.length;
-    }
+    if (authorization.reservationReleased) reservationsReleased += 1;
   }
 
   return reservationsReleased;

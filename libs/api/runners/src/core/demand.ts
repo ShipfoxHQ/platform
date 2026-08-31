@@ -14,6 +14,7 @@ import {
   listActiveRunnerInstanceCountsByTemplateTx,
   listProvisionerTerminateIntentRowsTx,
   listProvisionerTerminationAuthorizationsTx,
+  listRunnerLaunchKindsTx,
   type RunnerEnrollmentRevocationCounts,
   type RunnerInstanceTerminateIntent,
   type TerminationAuthorizationTelemetry,
@@ -60,6 +61,7 @@ interface PollDemandSnapshot {
   result: PollDemandResult;
   divergences: RunnerInstanceCountDivergence[];
   terminateIntents: RunnerInstanceTerminateIntent[];
+  terminateIntentLaunchKinds: Map<string, 'demand' | 'warm' | 'manual'>;
 }
 
 export async function pollDemand(params: PollDemandParams): Promise<PollDemandResult> {
@@ -77,6 +79,7 @@ export async function pollDemand(params: PollDemandParams): Promise<PollDemandRe
     result: {stats: [], reservations: [], terminateRunnerInstanceIds: []},
     divergences: [],
     terminateIntents: [],
+    terminateIntentLaunchKinds: new Map(),
   };
 
   while (true) {
@@ -173,26 +176,37 @@ export async function pollDemand(params: PollDemandParams): Promise<PollDemandRe
         ...(terminateIntents.length > 0 ? {terminationAuthorizations: terminateIntents} : {}),
       };
 
-      if (
-        !shouldReturn(
-          result,
-          params.maxReservations,
-          totalCapacity,
-          deadlinePassed,
-          deliveredIntents,
-        )
-      ) {
+      const shouldReturnNow = shouldReturn(
+        result,
+        params.maxReservations,
+        totalCapacity,
+        deadlinePassed,
+        deliveredIntents,
+      );
+      if (!shouldReturnNow) {
         return {
           result,
           terminateIntents,
           divergences: [],
           terminationAuthorizationTelemetry,
+          terminateIntentLaunchKinds: new Map(),
         };
       }
+
+      const terminateIntentLaunchKinds = deliveredIntents.some(
+        (intent) => intent.reason === 'activation-timeout',
+      )
+        ? await listRunnerLaunchKindsTx(tx, {
+            workspaceId: params.workspaceId,
+            provisionerId: params.provisionerId,
+            providerRunnerIds: deliveredIntents.map((intent) => intent.providerRunnerId),
+          })
+        : new Map<string, 'demand' | 'warm' | 'manual'>();
 
       return {
         result,
         terminateIntents: deliveredIntents,
+        terminateIntentLaunchKinds,
         divergences: calculateRunnerInstanceCountDivergences({
           advertisedTemplates: params.templates,
           backendCounts: await listActiveRunnerInstanceCountsByTemplateTx(tx, {
@@ -220,6 +234,7 @@ export async function pollDemand(params: PollDemandParams): Promise<PollDemandRe
       result: transactionResult.result,
       divergences: transactionResult.divergences,
       terminateIntents: transactionResult.terminateIntents,
+      terminateIntentLaunchKinds: transactionResult.terminateIntentLaunchKinds,
     };
     if (params.signal.aborted) {
       await releaseReservationGrants(snapshot.result.reservations);
@@ -353,7 +368,11 @@ function recordPollDemandMetrics(params: PollDemandParams, snapshot: PollDemandS
       reason: intent.reason,
     });
     // Retries redeliver an intent already counted on its first emission.
-    if (intent.reason === 'activation-timeout' && !intent.activationTimeoutRetry) {
+    if (
+      intent.reason === 'activation-timeout' &&
+      !intent.activationTimeoutRetry &&
+      snapshot.terminateIntentLaunchKinds.get(intent.providerRunnerId) === 'demand'
+    ) {
       recordProviderRunnerActivationOutcome({outcome: 'reaped'});
     }
   }

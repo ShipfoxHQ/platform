@@ -109,6 +109,7 @@ describe('enrollRunnerControlSession', () => {
       provisionerId,
       workspaceId: reservation.workspaceId,
       providerRunnerId: crypto.randomUUID(),
+      createControlSession: false,
     });
     await db()
       .update(providerRunners)
@@ -133,6 +134,11 @@ describe('enrollRunnerControlSession', () => {
       .from(providerRunners)
       .where(eq(providerRunners.id, runnerInstanceId));
     expect(runner?.state).toBe('starting');
+    const sessions = await db()
+      .select({id: runnerControlSessions.id})
+      .from(runnerControlSessions)
+      .where(eq(runnerControlSessions.runnerInstanceId, runnerInstanceId));
+    expect(sessions).toHaveLength(0);
   });
 
   it('counts expired reservation promotion failures', async () => {
@@ -599,6 +605,7 @@ async function createRunner(params: {
   capabilities?: RunnerToolCapabilitiesDto | null;
   assignedAt?: Date | null;
   providerRunnerId?: string;
+  createControlSession?: boolean;
 }): Promise<string> {
   const defaultAssignedAt = params.reservationId ? new Date() : null;
 
@@ -634,14 +641,15 @@ async function createRunner(params: {
   if (!runner) throw new Error('Expected runner instance');
   createdRunnerInstanceIds.add(runner.id);
 
-  await db()
-    .insert(runnerControlSessions)
-    .values({
-      runnerInstanceId: runner.id,
-      provisionerId: params.provisionerId,
-      hashedToken: crypto.randomUUID(),
-      prefix: 'test',
-      expiresAt: new Date(Date.now() + 60_000),
-    });
+  if (params.createControlSession !== false)
+    await db()
+      .insert(runnerControlSessions)
+      .values({
+        runnerInstanceId: runner.id,
+        provisionerId: params.provisionerId,
+        hashedToken: crypto.randomUUID(),
+        prefix: 'test',
+        expiresAt: new Date(Date.now() + 60_000),
+      });
   return runner.id;
 }
