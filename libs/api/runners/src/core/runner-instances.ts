@@ -392,7 +392,6 @@ function getDesiredIntentReason(
   cleanupGraceSeconds = config.RUNNER_JOB_CLEANUP_GRACE_SECONDS,
 ): RunnerTerminationReason | null {
   if (!row) return null;
-  if (row.terminationAuthorizedAt && row.terminationReason) return row.terminationReason;
   const jobStopReason = terminationReasonForJobStop(boundJobExecution);
   const localWorkStopped = isTerminalState(row.state);
   const cleanupGraceStartedAt = cleanupGraceStart(boundJobExecution);
@@ -401,6 +400,7 @@ function getDesiredIntentReason(
     now.getTime() >= cleanupGraceStartedAt.getTime() + cleanupGraceSeconds * 1000;
   if (jobStopReason && (localWorkStopped || cleanupGraceExpired)) return jobStopReason;
   if (localWorkStopped) return 'terminal-state';
+  if (row.terminationAuthorizedAt && row.terminationReason) return row.terminationReason;
   return null;
 }
 

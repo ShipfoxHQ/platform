@@ -110,6 +110,7 @@ async function hasTupleMatchedRunnerSessionTx(
         eq(runnerSessions.workspaceId, runner.workspaceId),
         eq(runnerSessions.provisionerId, runner.provisionerId),
         eq(runnerSessions.providerRunnerId, runner.providerRunnerId),
+        isNull(runnerSessions.revokedAt),
       ),
     )
     .limit(1);
@@ -685,7 +686,7 @@ export async function countStaleEnrolledRunnerInstances(params: {
     .from(providerRunners)
     .where(
       and(
-        eq(providerRunners.state, 'running'),
+    inArray(providerRunners.state, ['starting', 'running']),
         isNull(providerRunners.workspaceId),
         isNull(providerRunners.runnerSessionId),
         lt(providerRunners.reportedAt, staleRunnerInstanceCutoff(params.graceSeconds)),
@@ -1166,6 +1167,7 @@ function activationTimeoutCondition(
         eq(runnerSessions.workspaceId, providerRunners.workspaceId),
         eq(runnerSessions.provisionerId, providerRunners.provisionerId),
         eq(runnerSessions.providerRunnerId, providerRunners.providerRunnerId),
+        isNull(runnerSessions.revokedAt),
       ),
     );
   const liveReservationQuery = tx
@@ -1195,7 +1197,7 @@ function activationTimeoutCondition(
 
   return and(
     inArray(providerRunners.launchKind, ['demand', 'warm']),
-    eq(providerRunners.state, 'running'),
+    inArray(providerRunners.state, ['starting', 'running']),
     lt(
       providerRunners.createdAt,
       sql`now() - (${config.RUNNER_DEMAND_ACTIVATION_TIMEOUT_SECONDS} || ' seconds')::interval`,
@@ -1216,16 +1218,14 @@ export async function reconcileRunnerInstances(
       sql`select pg_advisory_xact_lock(hashtext(${params.workspaceId ?? params.provisionerId}))`,
     );
 
-    const {absentIds, reservationsReleased} = await reconcileAbsentRunnerInstancesTx(
-      tx,
-      params,
-      observedRunnerInstanceIds,
-    );
+    const {absentIds, reservationsReleased: absentReservationsReleased} =
+      await reconcileAbsentRunnerInstancesTx(tx, params, observedRunnerInstanceIds);
+    let reservationsReleased = absentReservationsReleased;
     const terminationAuthorizationTelemetry: TerminationAuthorizationTelemetryRecord[] = [];
     terminationAuthorizationTelemetry.push(
       ...(await authorizeProviderTerminationCandidatesTx(tx, params)),
     );
-    await authorizeActivationTimeoutsTx(
+    reservationsReleased += await authorizeActivationTimeoutsTx(
       tx,
       params,
       observedRunnerInstanceIds,
@@ -1432,9 +1432,11 @@ async function authorizeActivationTimeoutsTx(
   params: ReconcileRunnerInstancesParams,
   observedRunnerInstanceIds: string[],
   onTelemetry: (telemetry: TerminationAuthorizationTelemetryRecord) => void,
-): Promise<void> {
+): Promise<number> {
   const terminationReasonResolver = params.terminationReasonResolver;
-  if (!terminationReasonResolver || observedRunnerInstanceIds.length === 0) return;
+  if (!terminationReasonResolver || observedRunnerInstanceIds.length === 0) return 0;
+
+  let reservationsReleased = 0;
 
   const candidates = await tx
     .select({
@@ -1510,14 +1512,19 @@ async function authorizeActivationTimeoutsTx(
 
     // Only demand launches consume queue capacity. Warm capacity has no demand
     // reservation to return, and manual capacity is outside this cleanup policy.
-    if (authorization.desiredIntent === 'terminate' && runner.launchKind === 'demand')
-      await tx
+    if (authorization.desiredIntent === 'terminate' && runner.launchKind === 'demand') {
+      const released = await tx
         .update(providerRunners)
         .set({reservationReleasedAt: sql`now()`, updatedAt: sql`now()`})
         .where(
           and(eq(providerRunners.id, runner.id), isNull(providerRunners.reservationReleasedAt)),
-        );
+        )
+        .returning({id: providerRunners.id});
+      reservationsReleased += released.length;
+    }
   }
+
+  return reservationsReleased;
 }
 
 async function authorizeExhaustedEphemeralSessionsTx(
