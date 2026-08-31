@@ -6,6 +6,7 @@ import type {
   PersistedEvaluationTraceEntry,
   Step,
   StepAttempt,
+  StepAttemptInvocation,
   StepAttemptStatus,
   StepStatus,
   StepStatusReason,
@@ -440,6 +441,7 @@ export interface InsertRunningStepAttemptParams {
   attempt: number;
   config?: Record<string, unknown> | null;
   evaluationTrace?: readonly PersistedEvaluationTraceEntry[] | null;
+  invocations?: readonly StepAttemptInvocation[] | undefined;
 }
 
 export async function insertRunningStepAttempt(
@@ -463,6 +465,7 @@ export async function insertRunningStepAttempt(
       status: 'running',
       config: params.config ?? null,
       evaluationTrace: params.evaluationTrace ?? null,
+      invocations: params.invocations ?? [],
     })
     .onConflictDoNothing({target: [stepAttempts.stepId, stepAttempts.attempt]})
     .returning({id: stepAttempts.id});

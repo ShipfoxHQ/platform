@@ -64,6 +64,9 @@ const stepErrorReasonSchema = z.enum([
   'agent_session_held',
   'agent_session_harness_mismatch',
   'agent_session_unavailable',
+  'tool_error',
+  'tool_config_invalid',
+  'invocation_interrupted',
 ]);
 type AssertExact<Actual, Expected> = [Actual] extends [Expected]
   ? [Expected] extends [Actual]

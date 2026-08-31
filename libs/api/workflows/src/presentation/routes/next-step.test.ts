@@ -9,6 +9,7 @@ import {
   getFirstJobExecutionByJobId,
   getJobById,
   getStepsByJobId,
+  getToolInvocationsByJobExecutionId,
   getWorkflowRunByAttemptId,
 } from '#db/workflow-runs.js';
 import {insertRunningJobLease, mintActiveLeaseToken} from '#test/fixtures/active-lease-token.js';
@@ -166,6 +167,46 @@ describe('POST /runs/jobs/current/steps/next', () => {
     expect(second.json().step.id).toBe(first.json().step.id);
     const running = (await getStepsByJobId(jobId)).filter((s) => s.status === 'running');
     expect(running).toHaveLength(1);
+  });
+
+  test('returns the tool wait protocol and keeps one queued invocation', async () => {
+    const {jobId, steps} = await arrangeJobWithSteps(1);
+    const step = steps[0];
+    if (!step) throw new Error('Expected a tool step');
+    await db()
+      .update(stepsTable)
+      .set({
+        type: 'tool',
+        config: {
+          tool: {
+            connection_id: 'connection-1',
+            id: 'issue_read',
+            input_schema: {type: 'object', additionalProperties: false},
+            with: {},
+          },
+        },
+        configPlan: null,
+      })
+      .where(eq(stepsTable.id, step.id));
+    const token = await mintActiveLeaseToken({jobId});
+    const headers = {authorization: `Bearer ${token}`};
+
+    const first = await app.inject({method: 'POST', url: URL, headers});
+    const second = await app.inject({method: 'POST', url: URL, headers});
+
+    expect(first.statusCode).toBe(200);
+    expect(first.json()).toEqual({kind: 'wait', retry_after_ms: 1000});
+    expect(second.statusCode).toBe(200);
+    expect(second.json()).toEqual({kind: 'wait', retry_after_ms: 1000});
+
+    const invocations = await getToolInvocationsByJobExecutionId(step.jobExecutionId);
+    expect(invocations).toHaveLength(1);
+    expect(invocations[0]).toMatchObject({
+      stepId: step.id,
+      jobExecutionId: step.jobExecutionId,
+      status: 'queued',
+      callIndex: 0,
+    });
   });
 
   test('writes the tool capability warning only on fresh dispatch', async () => {

@@ -16,6 +16,7 @@ import {type Tx, withTransaction} from '#db/db.js';
 import {
   countStepAttempts,
   dispatchStepWithCompletedConfig,
+  enqueueToolInvocation,
   finishStepAttempt,
   getDirectDependencyJobContexts,
   getJobExecutionById,
@@ -36,7 +37,12 @@ import {
 import {createAgentDefaultsResolver} from './agent-defaults.js';
 import {defaultStepConditionTrace, explicitConditionTrace} from './condition-trace.js';
 import type {JobExecution} from './entities/job-execution.js';
-import type {PersistedEvaluationTraceEntry, Step, StepStatusReason} from './entities/step.js';
+import type {
+  PersistedEvaluationTraceEntry,
+  Step,
+  StepAttemptInvocation,
+  StepStatusReason,
+} from './entities/step.js';
 import {
   AgentConfigUnresolvableError,
   AgentStepSessionClaimError,
@@ -73,6 +79,8 @@ import type {RuntimeCompletionStatus} from './workflow-scheduling/runtime-dag.js
 
 type CompletionStatus = RuntimeCompletionStatus;
 
+export const TOOL_STEP_RETRY_AFTER_MS = 1000;
+
 type ReportedStepResult = {
   readonly status: 'succeeded' | 'failed';
   readonly error: Record<string, unknown> | null;
@@ -83,6 +91,7 @@ type ReportedStepResult = {
 
 export type NextStep =
   | {kind: 'step'; step: Step; dispatched: boolean}
+  | {kind: 'wait'; retryAfterMs: number}
   | {kind: 'done'; status: CompletionStatus};
 
 interface PendingSessionClaim {
@@ -188,6 +197,8 @@ async function resolveRunningStep(
   tx: Tx,
   agent?: AgentInterModuleClient | undefined,
 ): Promise<NextStepResolution> {
+  if (running.type === 'tool') return {kind: 'wait', retryAfterMs: TOOL_STEP_RETRY_AFTER_MS};
+
   const session = running.type === 'agent' ? readAgentStepSessionIntent(running.config) : undefined;
   if (session === undefined) return {kind: 'step', step: running, dispatched: false};
 
@@ -335,6 +346,7 @@ async function dispatchPendingStepWithConfigPlan({
       definitionId: jobExecution.jobId,
     });
     const session = completed.sessionIntent;
+    const dispatchAt = new Date();
 
     // Persist the attempt and resolved intent before calling the Agent module. The
     // claim is completed after this Workflows transaction commits, so a rollback
@@ -344,6 +356,7 @@ async function dispatchPendingStepWithConfigPlan({
         jobExecutionId,
         stepId: pending.id,
         attempt: pending.currentAttempt,
+        invocations: initialToolInvocation(pending.type, dispatchAt),
       },
       tx,
     );
@@ -374,6 +387,16 @@ async function dispatchPendingStepWithConfigPlan({
         workflowContext,
         agent,
       };
+    }
+    if (pending.type === 'tool') {
+      return enqueuePendingToolInvocation({
+        pending,
+        stepAttemptId,
+        jobExecutionId,
+        workspaceId: workflowContext.workspaceId,
+        dueAt: dispatchAt,
+        tx,
+      });
     }
     return {kind: 'step', step, dispatched: true};
   } catch (error) {
@@ -411,6 +434,38 @@ async function dispatchPendingStepWithConfigPlan({
       ? nextStepForJobExecutionInTransaction(jobExecutionId, tx, agent)
       : {kind: 'done', status};
   }
+}
+
+function initialToolInvocation(
+  stepType: Step['type'],
+  startedAt: Date,
+): readonly StepAttemptInvocation[] | undefined {
+  if (stepType !== 'tool') return undefined;
+  return [{call_index: 0, started_at: startedAt.toISOString()}];
+}
+
+async function enqueuePendingToolInvocation(params: {
+  pending: Step;
+  stepAttemptId: string | undefined;
+  jobExecutionId: string;
+  workspaceId: string;
+  dueAt: Date;
+  tx: Tx;
+}): Promise<NextStep> {
+  if (params.stepAttemptId === undefined) {
+    throw new Error(`Tool step attempt missing after dispatch: ${params.pending.id}`);
+  }
+  await enqueueToolInvocation(
+    {
+      stepId: params.pending.id,
+      stepAttemptId: params.stepAttemptId,
+      jobExecutionId: params.jobExecutionId,
+      workspaceId: params.workspaceId,
+      dueAt: params.dueAt,
+    },
+    params.tx,
+  );
+  return {kind: 'wait', retryAfterMs: TOOL_STEP_RETRY_AFTER_MS};
 }
 
 function configHarness(config: Record<string, unknown>): 'pi' | 'claude' | undefined {

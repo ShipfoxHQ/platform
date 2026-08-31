@@ -25,6 +25,7 @@ function makeAttempt(overrides: Partial<StepAttemptDto> = {}): StepAttemptDto {
     error: null,
     gate_result: {kind: 'none'},
     restart_feedback: null,
+    invocations: [],
     started_at: timestamp,
     finished_at: timestamp,
     ...overrides,

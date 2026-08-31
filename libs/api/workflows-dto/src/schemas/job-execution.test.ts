@@ -1,4 +1,21 @@
-import {reportStepBodySchema, STEP_RESPONSE_MAX_LENGTH} from './job-execution.js';
+import {
+  nextStepResponseSchema,
+  reportStepBodySchema,
+  STEP_RESPONSE_MAX_LENGTH,
+} from './job-execution.js';
+
+describe('nextStepResponseSchema', () => {
+  it('accepts a server-executed tool wait response', () => {
+    expect(nextStepResponseSchema.parse({kind: 'wait', retry_after_ms: 1000})).toEqual({
+      kind: 'wait',
+      retry_after_ms: 1000,
+    });
+  });
+
+  it('rejects a non-positive wait interval', () => {
+    expect(nextStepResponseSchema.safeParse({kind: 'wait', retry_after_ms: 0}).success).toBe(false);
+  });
+});
 
 describe('reportStepBodySchema', () => {
   it('accepts a capped agent response', () => {

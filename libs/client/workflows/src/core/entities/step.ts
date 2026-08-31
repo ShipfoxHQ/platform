@@ -17,7 +17,10 @@ export type StepErrorReason =
   | 'agent_session_key_invalid'
   | 'agent_session_held'
   | 'agent_session_harness_mismatch'
-  | 'agent_session_unavailable';
+  | 'agent_session_unavailable'
+  | 'tool_error'
+  | 'tool_config_invalid'
+  | 'invocation_interrupted';
 export type AgentConfigIssue =
   | 'step_config_invalid'
   | 'provider_not_configured'
@@ -43,6 +46,9 @@ export const STEP_ERROR_REASONS = new Set<StepErrorReason>([
   'agent_session_held',
   'agent_session_harness_mismatch',
   'agent_session_unavailable',
+  'tool_error',
+  'tool_config_invalid',
+  'invocation_interrupted',
 ]);
 export const AGENT_CONFIG_ISSUES = new Set<AgentConfigIssue>([
   'step_config_invalid',

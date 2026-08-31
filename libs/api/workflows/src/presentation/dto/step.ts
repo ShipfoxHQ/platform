@@ -184,6 +184,7 @@ export function toStepAttemptDto(attempt: StepAttempt): StepAttemptDto {
     error: attempt.error,
     gate_result: toStepGateResultDto(attempt.gateResult, attempt.status),
     restart_feedback: attempt.restartFeedback,
+    invocations: [...attempt.invocations],
     started_at: attempt.startedAt.toISOString(),
     finished_at: attempt.finishedAt ? attempt.finishedAt.toISOString() : null,
   };

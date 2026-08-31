@@ -1333,6 +1333,7 @@ function attempt(overrides: Partial<StepAttempt> = {}): StepAttempt {
     gateResult: null,
     restartFeedback: null,
     logOutcome: null,
+    invocations: [],
     startedAt: date,
     finishedAt: date,
     createdAt: date,

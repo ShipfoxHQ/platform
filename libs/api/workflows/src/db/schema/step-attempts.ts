@@ -13,6 +13,7 @@ import {
 import type {
   PersistedEvaluationTraceEntry,
   StepAttempt,
+  StepAttemptInvocation,
   StepAttemptLogOutcome,
   StepAttemptStatus,
 } from '#core/entities/step.js';
@@ -45,6 +46,10 @@ export const stepAttempts = pgTable(
     logOutcome: text('log_outcome').$type<StepAttemptLogOutcome>(),
     gateResult: jsonb('gate_result').$type<Record<string, unknown>>(),
     restartFeedback: text('restart_feedback'),
+    invocations: jsonb('invocations')
+      .notNull()
+      .default([])
+      .$type<readonly StepAttemptInvocation[]>(),
     startedAt: timestamp('started_at', {withTimezone: true}).notNull().defaultNow(),
     finishedAt: timestamp('finished_at', {withTimezone: true}),
     createdAt: timestamp('created_at', {withTimezone: true}).notNull().defaultNow(),
@@ -54,6 +59,11 @@ export const stepAttempts = pgTable(
     unique('workflows_step_attempts_job_execution_id_execution_order_uq').on(
       table.jobExecutionId,
       table.executionOrder,
+    ),
+    unique('workflows_step_attempts_id_step_id_job_execution_id_uq').on(
+      table.id,
+      table.stepId,
+      table.jobExecutionId,
     ),
     foreignKey({
       name: 'workflows_step_attempts_step_id_job_execution_id_workflows_steps_fk',
@@ -90,6 +100,7 @@ export function toStepAttempt(row: StepAttemptDb): StepAttempt {
     error: (row.error as Record<string, unknown>) ?? null,
     exitCode: row.exitCode ?? null,
     logOutcome: row.logOutcome ?? null,
+    invocations: row.invocations ?? [],
     gateResult: (row.gateResult as Record<string, unknown>) ?? null,
     restartFeedback: row.restartFeedback ?? null,
     startedAt: row.startedAt,
