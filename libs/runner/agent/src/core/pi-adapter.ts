@@ -159,7 +159,9 @@ async function createPiSession(params: {
       model: params.model,
       thinkingLevel: params.thinking as PiThinkingLevel,
       ...toolSelectionOption(params.tools, [
-        ...(params.mcpConfig === undefined ? [] : [PI_MCP_TOOL_NAME]),
+        ...(params.mcpConfig === undefined
+          ? []
+          : [PI_MCP_TOOL_NAME, ...params.mcpConfig.directToolNames]),
         ...params.customTools.map((tool) => tool.name),
       ]),
       ...(params.customTools.length === 0 ? {} : {customTools: params.customTools}),
@@ -398,14 +400,16 @@ async function preparePiSessionServices(params: {
     thinking,
     extensionPackageNames,
   });
-  const services = await createAgentSessionServices({
-    cwd,
-    modelRuntime: params.modelRuntime,
-    ...(mcpConfig === undefined
-      ? {}
-      : {extensionFlagValues: new Map([['mcp-config', mcpConfig.path]])}),
-    resourceLoaderOptions: {additionalExtensionPaths: extensionDirectories},
-  });
+  const services = await withPiMcpConfigArg(mcpConfig?.path, () =>
+    createAgentSessionServices({
+      cwd,
+      modelRuntime: params.modelRuntime,
+      ...(mcpConfig === undefined
+        ? {}
+        : {extensionFlagValues: new Map([['mcp-config', mcpConfig.path]])}),
+      resourceLoaderOptions: {additionalExtensionPaths: extensionDirectories},
+    }),
+  );
   const extensionResult = services.resourceLoader?.getExtensions?.();
   assertPiServiceDiagnostics(
     services.diagnostics,
@@ -430,6 +434,26 @@ async function preparePiSessionServices(params: {
     directories: extensionDirectories,
   });
   return {services};
+}
+
+// pi-mcp-adapter resolves its config during module evaluation, before Pi applies
+// extension flags. Keep the CLI-compatible flag visible only while extensions load.
+async function withPiMcpConfigArg<T>(
+  configPath: string | undefined,
+  operation: () => Promise<T>,
+): Promise<T> {
+  if (configPath === undefined) return operation();
+
+  const originalArgs = process.argv.slice();
+  const configFlagIndex = process.argv.indexOf('--mcp-config');
+  if (configFlagIndex === -1) process.argv.push('--mcp-config', configPath);
+  else process.argv[configFlagIndex + 1] = configPath;
+
+  try {
+    return await operation();
+  } finally {
+    process.argv.splice(0, process.argv.length, ...originalArgs);
+  }
 }
 
 function resolvePiExtensionDirectories(params: {
@@ -526,6 +550,7 @@ async function removeForkedSessionFile(sessionFile: string | undefined): Promise
 interface PiMcpConfig {
   readonly directory: string;
   readonly path: string;
+  readonly directToolNames: readonly string[];
 }
 
 function assertPiServiceDiagnostics(
@@ -574,25 +599,39 @@ async function createPiMcpConfig(
   const directory = await mkdtemp(join(agentStateDir, 'pi-mcp-'));
   const path = join(directory, 'mcp.json');
   try {
-    const serverEntries = await Promise.all(
-      mcpServers.map(async (server) => [
-        server.name,
-        {
-          url: (await server.activateHttp()).toString(),
-          auth: false,
-          lifecycle: 'eager',
-          exposeResources: false,
-        },
-      ]),
+    const preparedServers = await Promise.all(
+      mcpServers.map(async (server) => {
+        const [url, directToolNames] = await Promise.all([
+          server.activateHttp(),
+          listPiMcpToolNames(server),
+        ]);
+        return {
+          entry: [
+            server.name,
+            {
+              url: url.toString(),
+              auth: false,
+              lifecycle: 'eager',
+              directTools: true,
+              exposeResources: false,
+            },
+          ] as const,
+          directToolNames,
+        };
+      }),
     );
     await writeFile(
       path,
       JSON.stringify({
         settings: {toolPrefix: 'none'},
-        mcpServers: Object.fromEntries(serverEntries),
+        mcpServers: Object.fromEntries(preparedServers.map((server) => server.entry)),
       }),
     );
-    return {directory, path};
+    return {
+      directory,
+      path,
+      directToolNames: preparedServers.flatMap((server) => server.directToolNames),
+    };
   } catch (error) {
     try {
       await rm(directory, {recursive: true, force: true});
@@ -600,6 +639,21 @@ async function createPiMcpConfig(
       logger().warn({err: cleanupError}, 'Failed to remove incomplete Pi MCP configuration');
     }
     throw error;
+  }
+}
+
+async function listPiMcpToolNames(
+  server: NonNullable<HarnessInvocation['mcpServers']>[number],
+): Promise<readonly string[]> {
+  try {
+    const result = await server.listTools();
+    return result.tools.map((tool) => tool.name);
+  } catch (error) {
+    logger().warn(
+      {err: error, server: server.name},
+      'Failed to list Pi MCP direct tools; keeping the MCP proxy fallback',
+    );
+    return [];
   }
 }
 

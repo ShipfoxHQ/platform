@@ -207,7 +207,7 @@ function mcpBridge(overrides: Partial<IntegrationToolsBridge> = {}): Integration
   return {
     name: 'shipfox_integration_tools',
     server: {} as IntegrationToolsBridge['server'],
-    listTools: vi.fn(),
+    listTools: vi.fn().mockResolvedValue({tools: []}),
     callTool: vi.fn(),
     activateHttp: vi.fn().mockResolvedValue(new URL('http://127.0.0.1:43123/mcp')),
     close: vi.fn(),
@@ -334,23 +334,40 @@ describe('piHarnessAdapter', () => {
     expect(createAgentSessionMock).toHaveBeenCalled();
   });
 
-  it('configures eager loopback MCP proxy access in the runner job agent-state directory', async () => {
+  it('configures eager loopback MCP direct and proxy access in the runner job agent-state directory', async () => {
     sessionDir = mkdtempSync(join(tmpdir(), 'shipfox-pi-mcp-'));
     const agentStateDir = join(sessionDir, 'runner-agent');
-    const bridge = mcpBridge();
+    const bridge = mcpBridge({
+      listTools: vi.fn().mockResolvedValue({
+        tools: [
+          {
+            name: 'linear_main__get_issue',
+            description: 'Read a Linear issue.',
+            inputSchema: {type: 'object', properties: {id: {type: 'string'}}},
+          },
+        ],
+      }),
+    });
     let configPath = '';
     let config: unknown;
+    let argvDuringServiceCreation: readonly string[] | undefined;
+    const originalArgv = process.argv.slice();
     createAgentSessionServicesMock.mockImplementation((options) => {
       configPath = options.extensionFlagValues.get('mcp-config');
       config = JSON.parse(readFileSync(configPath, 'utf8'));
+      argvDuringServiceCreation = process.argv.slice();
       return piServices(sessionDir);
     });
 
     await piHarnessAdapter.run(invocation({cwd: sessionDir, agentStateDir, mcpServers: [bridge]}));
 
     expect(bridge.activateHttp).toHaveBeenCalledTimes(1);
+    expect(bridge.listTools).toHaveBeenCalledTimes(1);
     expect(bindExtensionsMock).toHaveBeenCalledWith(expect.objectContaining({mode: 'print'}));
     expect(configPath).toMatch(`${agentStateDir}/pi-mcp-`);
+    const mcpConfigArgIndex = argvDuringServiceCreation?.indexOf('--mcp-config') ?? -1;
+    expect(argvDuringServiceCreation?.[mcpConfigArgIndex + 1]).toBe(configPath);
+    expect(process.argv).toEqual(originalArgv);
     expect(sessionManagerCreateMock).toHaveBeenCalledWith(
       sessionDir,
       join(agentStateDir, 'agent-sessions'),
@@ -362,6 +379,7 @@ describe('piHarnessAdapter', () => {
           url: 'http://127.0.0.1:43123/mcp',
           auth: false,
           lifecycle: 'eager',
+          directTools: true,
           exposeResources: false,
         },
       },
@@ -601,6 +619,53 @@ describe('piHarnessAdapter', () => {
 
     expect(createAgentSessionMock).toHaveBeenCalledWith(
       expect.objectContaining({tools: ['read', 'web_search', 'mcp']}),
+    );
+  });
+
+  it('adds discovered integration tools to an explicit Pi tool list', async () => {
+    sessionDir = mkdtempSync(join(tmpdir(), 'shipfox-pi-mcp-'));
+    const bridge = mcpBridge({
+      listTools: vi.fn().mockResolvedValue({
+        tools: [
+          {name: 'linear_main__get_issue', inputSchema: {type: 'object'}},
+          {name: 'linear_main__save_comment', inputSchema: {type: 'object'}},
+        ],
+      }),
+    });
+
+    await piHarnessAdapter.run(
+      invocation({
+        cwd: sessionDir,
+        agentStateDir: join(sessionDir, 'runner-agent'),
+        mcpServers: [bridge],
+        tools: ['read'],
+      }),
+    );
+
+    expect(createAgentSessionMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tools: ['read', 'mcp', 'linear_main__get_issue', 'linear_main__save_comment'],
+      }),
+    );
+  });
+
+  it('keeps the MCP proxy available when direct tool metadata is unavailable', async () => {
+    sessionDir = mkdtempSync(join(tmpdir(), 'shipfox-pi-mcp-'));
+    const bridge = mcpBridge({
+      listTools: vi.fn().mockRejectedValue(new Error('gateway unavailable')),
+    });
+
+    await piHarnessAdapter.run(
+      invocation({
+        cwd: sessionDir,
+        agentStateDir: join(sessionDir, 'runner-agent'),
+        mcpServers: [bridge],
+        tools: ['read'],
+      }),
+    );
+
+    expect(createAgentSessionMock).toHaveBeenCalledWith(
+      expect.objectContaining({tools: ['read', 'mcp']}),
     );
   });
 
