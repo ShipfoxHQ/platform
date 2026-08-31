@@ -295,7 +295,7 @@ export interface ReconcileRunnerInstancesParams {
     provisionerId: string;
     providerRunnerId: string;
     reason: string;
-  }) => RunnerTerminationReason | null;
+  }) => TerminationReasonResolution;
 }
 
 export interface ReconcileRunnerInstancesDbResult {
@@ -1163,7 +1163,9 @@ async function listTerminateIntentsHonoredByTerminatedReportsTx(
         : undefined;
       const isNewTerminationReport =
         eventReportedAt !== undefined &&
-        eventReportedAt >= row.reportedAt &&
+        (row.state !== 'terminated'
+          ? eventReportedAt >= row.reportedAt
+          : eventReportedAt > row.reportedAt) &&
         row.terminationAuthorizedAt !== null &&
         (row.state !== 'terminated' || row.terminationAuthorizedAt > row.reportedAt);
       return row.providerRunnerId && row.reason && isNewTerminationReport
@@ -1259,9 +1261,10 @@ async function authorizeExhaustedEphemeralSessionsTx(
   params: ReconcileRunnerInstancesParams,
   observedRunnerInstanceIds: string[],
 ): Promise<void> {
+  const terminationReasonResolver = params.terminationReasonResolver;
   if (
     !params.workspaceId ||
-    !params.terminationReasonResolver ||
+    !terminationReasonResolver ||
     observedRunnerInstanceIds.length === 0
   )
     return;
@@ -1359,11 +1362,11 @@ async function authorizeExhaustedEphemeralSessionsTx(
       providerRunnerId,
       reason: 'session-exhausted',
       resolveTerminationReason: (reason) =>
-        params.terminationReasonResolver?.({
+        terminationReasonResolver({
           provisionerId: params.provisionerId,
           providerRunnerId,
           reason,
-        }) ?? null,
+        }),
     });
   }
 }

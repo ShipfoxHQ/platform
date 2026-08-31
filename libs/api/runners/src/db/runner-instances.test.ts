@@ -1375,6 +1375,61 @@ describe('reportRunnerInstances', () => {
     expect(duplicate.terminateIntentsHonored).toEqual([]);
   });
 
+  it('requires a newer terminal report after authorization follows a terminal report', async () => {
+    const reportedAt = new Date('2025-01-01T00:00:00.000Z');
+    const runner = await providerRunnerFactory.create({
+      workspaceId,
+      provisionerId,
+      providerRunnerId: 'same-timestamp-terminal-runner',
+      state: 'terminated',
+      reportedAt,
+    });
+    await db()
+      .update(providerRunners)
+      .set({
+        terminationAuthorizedAt: new Date('2025-01-01T00:01:00.000Z'),
+        terminationReason: 'terminal-state',
+      })
+      .where(eq(providerRunners.id, runner.id));
+
+    const equalTimestampRetry = await reportRunnerInstances({
+      scope: 'workspace',
+      workspaceId,
+      provisionerId,
+      events: [event({providerRunnerId: runner.providerRunnerId, state: 'terminated', reportedAt})],
+    });
+    const newerReport = await reportRunnerInstances({
+      scope: 'workspace',
+      workspaceId,
+      provisionerId,
+      events: [
+        event({
+          providerRunnerId: runner.providerRunnerId,
+          state: 'terminated',
+          reportedAt: new Date(reportedAt.getTime() + 1_000),
+        }),
+      ],
+    });
+    const duplicateNewerReport = await reportRunnerInstances({
+      scope: 'workspace',
+      workspaceId,
+      provisionerId,
+      events: [
+        event({
+          providerRunnerId: runner.providerRunnerId,
+          state: 'terminated',
+          reportedAt: new Date(reportedAt.getTime() + 1_000),
+        }),
+      ],
+    });
+
+    expect(equalTimestampRetry.terminateIntentsHonored).toEqual([]);
+    expect(newerReport.terminateIntentsHonored).toEqual([
+      {providerRunnerId: runner.providerRunnerId, reason: 'terminal-state', origin: 'durable'},
+    ]);
+    expect(duplicateNewerReport.terminateIntentsHonored).toEqual([]);
+  });
+
   it('honors durable authorization for an installation-scoped runner', async () => {
     const runner = await providerRunnerFactory.create({
       workspaceId: null,
