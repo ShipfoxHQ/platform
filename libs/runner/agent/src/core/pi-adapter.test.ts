@@ -508,6 +508,34 @@ describe('piHarnessAdapter', () => {
     );
   });
 
+  it('propagates aborts that occur during direct-tool metadata discovery', async () => {
+    sessionDir = mkdtempSync(join(tmpdir(), 'shipfox-pi-mcp-'));
+    const abortController = new AbortController();
+    const bridge = mcpBridge({
+      listTools: vi.fn(
+        ({signal}: {signal: AbortSignal}) =>
+          new Promise<never>((_, reject) => {
+            signal.addEventListener('abort', () => reject(signal.reason), {once: true});
+          }),
+      ),
+    });
+
+    const result = piHarnessAdapter.run(
+      invocation({
+        cwd: sessionDir,
+        agentStateDir: join(sessionDir, 'runner-agent'),
+        signal: abortController.signal,
+        mcpServers: [bridge],
+      }),
+    );
+    await vi.waitFor(() => expect(bridge.listTools).toHaveBeenCalledTimes(1));
+
+    abortController.abort();
+
+    await expect(result).rejects.toBe(abortController.signal.reason);
+    expect(createAgentSessionServicesMock).not.toHaveBeenCalled();
+  });
+
   it('aborts Pi while MCP extensions are binding', async () => {
     sessionDir = mkdtempSync(join(tmpdir(), 'shipfox-pi-mcp-'));
     const abortController = new AbortController();

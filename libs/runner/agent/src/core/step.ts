@@ -34,8 +34,10 @@ import {piHarnessAdapter} from '#core/pi-adapter.js';
 
 const MAX_HARNESS_DIAGNOSTICS = 5;
 const MAX_HARNESS_DIAGNOSTIC_MESSAGE_LENGTH = 500;
-const MCP_BRIDGE_PORT_START = 49_152;
-const MCP_BRIDGE_PORT_RANGE = 16_384;
+// Keep stable bridge ports below the OS ephemeral range and above this checkout's
+// 20000-24999 worktree-service reservation.
+const MCP_BRIDGE_PORT_START = 25_000;
+const MCP_BRIDGE_PORT_RANGE = 7_768;
 
 export async function executeAgentStep(
   step: StepDto,

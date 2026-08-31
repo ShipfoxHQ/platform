@@ -50,6 +50,7 @@ const KEYLESS_CUSTOM_PROVIDER_API_KEY = 'shipfox-keyless-custom-provider-placeho
 const SECRET_HEADER_CREDENTIAL_PREFIX = 'header:';
 const PI_MCP_TOOL_NAME = 'mcp';
 const PI_MCP_METADATA_TIMEOUT_MS = 10_000;
+const PI_MCP_CONFIG_ARG_WAIT_TIMEOUT_MS = 30_000;
 
 let piMcpConfigArgTail = Promise.resolve();
 
@@ -403,7 +404,7 @@ async function preparePiSessionServices(params: {
     thinking,
     extensionPackageNames,
   });
-  const services = await withPiMcpConfigArg(mcpConfig?.path, () =>
+  const services = await withPiMcpConfigArg(mcpConfig?.path, params.invocation.signal, () =>
     createAgentSessionServices({
       cwd,
       modelRuntime: params.modelRuntime,
@@ -444,29 +445,73 @@ async function preparePiSessionServices(params: {
 // process-global mutation and keep the CLI-compatible flag visible only while extensions load.
 async function withPiMcpConfigArg<T>(
   configPath: string | undefined,
+  signal: AbortSignal,
   operation: () => Promise<T>,
 ): Promise<T> {
   if (configPath === undefined) return operation();
 
   const previousOperation = piMcpConfigArgTail;
   let releaseOperation!: () => void;
-  piMcpConfigArgTail = new Promise<void>((resolve) => {
+  const operationSlot = new Promise<void>((resolve) => {
     releaseOperation = resolve;
   });
-  await previousOperation;
-
-  const originalArgs = process.argv.slice();
-  const configFlagIndex = process.argv.indexOf('--mcp-config');
-  if (configFlagIndex === -1) process.argv.push('--mcp-config', configPath);
-  else if (configFlagIndex + 1 < process.argv.length)
-    process.argv[configFlagIndex + 1] = configPath;
-  else process.argv.push(configPath);
+  // Keep the queue chained to the prior owner even when this waiter times out. This
+  // lets later waiters fail fast without bypassing an operation that still owns argv.
+  piMcpConfigArgTail = previousOperation.then(() => operationSlot);
 
   try {
-    return await operation();
+    await waitForPiMcpConfigArg(previousOperation, signal);
+    if (signal.aborted)
+      throw signal.reason ?? new Error('Agent step aborted while waiting for Pi MCP setup');
+
+    const originalArgs = process.argv.slice();
+    const configFlagIndex = process.argv.indexOf('--mcp-config');
+    if (configFlagIndex === -1) process.argv.push('--mcp-config', configPath);
+    else if (configFlagIndex + 1 < process.argv.length)
+      process.argv[configFlagIndex + 1] = configPath;
+    else process.argv.push(configPath);
+
+    try {
+      return await operation();
+    } finally {
+      process.argv.splice(0, process.argv.length, ...originalArgs);
+    }
   } finally {
-    process.argv.splice(0, process.argv.length, ...originalArgs);
+    // A timed-out waiter releases its own queue slot, but never the operation that
+    // still owns process.argv. The chained tail keeps later waiters behind that owner.
     releaseOperation();
+  }
+}
+
+async function waitForPiMcpConfigArg(
+  previousOperation: Promise<void>,
+  signal: AbortSignal,
+): Promise<void> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  let onAbort: (() => void) | undefined;
+  const aborted = new Promise<never>((_, reject) => {
+    onAbort = () =>
+      reject(signal.reason ?? new Error('Agent step aborted while waiting for Pi MCP setup'));
+    if (signal.aborted) onAbort();
+    else signal.addEventListener('abort', onAbort, {once: true});
+  });
+  const timedOut = new Promise<never>((_, reject) => {
+    timeout = setTimeout(
+      () =>
+        reject(
+          new AgentSessionUnavailableError(
+            'Pi MCP configuration setup is blocked by another session.',
+          ),
+        ),
+      PI_MCP_CONFIG_ARG_WAIT_TIMEOUT_MS,
+    );
+  });
+
+  try {
+    await Promise.race([previousOperation, aborted, timedOut]);
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+    if (onAbort !== undefined) signal.removeEventListener('abort', onAbort);
   }
 }
 
@@ -674,6 +719,7 @@ async function listPiMcpToolNames(
     });
     return result.tools.map((tool) => tool.name);
   } catch (error) {
+    if (signal.aborted) throw error;
     logger().warn(
       {err: error, server: server.name},
       'Failed to list Pi MCP direct tools; keeping the MCP proxy fallback',

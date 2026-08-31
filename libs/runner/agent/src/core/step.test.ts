@@ -11,7 +11,7 @@ const {
 
   return {
     bridgeCloseMock,
-    createIntegrationToolsBridgeMock: vi.fn((params: {name: string}) => ({
+    createIntegrationToolsBridgeMock: vi.fn((params: {name: string; preferredPort?: number}) => ({
       name: params.name,
       server: {},
       listTools: vi.fn(),
@@ -268,6 +268,29 @@ describe('executeAgentStep', () => {
       }),
     );
     expect(bridgeCloseMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('derives deterministic bridge ports in the non-ephemeral range', async () => {
+    runAgentMock.mockResolvedValue({});
+    const step = buildAgentStep({config: {prompt: 'p', mcpServers: [integrationToolsConfig()]}});
+    const options = {
+      runtime: RUNTIME,
+      leaseToken: 'lease-current',
+      integrationToolsGatewayUrl: new URL(
+        'https://api.example.test/runs/jobs/current/integration-tools/mcp',
+      ),
+    };
+
+    await executeAgentStep(step, options);
+    const firstPreferredPort = createIntegrationToolsBridgeMock.mock.calls[0]?.[0].preferredPort;
+
+    createIntegrationToolsBridgeMock.mockClear();
+    await executeAgentStep(step, options);
+    const secondPreferredPort = createIntegrationToolsBridgeMock.mock.calls[0]?.[0].preferredPort;
+
+    expect(firstPreferredPort).toBeGreaterThanOrEqual(25_000);
+    expect(firstPreferredPort).toBeLessThan(32_768);
+    expect(secondPreferredPort).toBe(firstPreferredPort);
   });
 
   it('closes integration tool bridges when the harness run fails', async () => {
