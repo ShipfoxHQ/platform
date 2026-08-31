@@ -148,7 +148,10 @@ const expectedCatalogRows = [
     category: 'pull_requests',
     sensitivity: 'write',
     sensitive: false,
-    requiredScope: [{permission: 'pull_requests', access: 'write'}],
+    requiredScope: [
+      {permission: 'pull_requests', access: 'write'},
+      {permission: 'contents', access: 'write'},
+    ],
   },
   {
     id: 'pull_request_review_write',
@@ -1871,6 +1874,100 @@ describe('github agent tool catalog', () => {
         },
       ],
       structuredContent: {code: 'access-denied'},
+    });
+  });
+
+  it.each([
+    {
+      missingPermission: 'contents',
+      permissions: {pull_requests: 'write' as const},
+    },
+    {
+      missingPermission: 'pull_requests',
+      permissions: {contents: 'write' as const},
+    },
+  ])('rejects update_pull_request_branch when $missingPermission write is missing', async ({
+    permissions,
+  }) => {
+    const provider = new GithubAgentToolsProvider({
+      getInstallationByConnectionId: vi.fn(() => Promise.resolve(installation())),
+      tokenProvider: {
+        getInstallationAccessToken: vi.fn(() =>
+          Promise.resolve({
+            token: 'installation-token',
+            expiresAt: new Date(),
+            permissions,
+          }),
+        ),
+      },
+    });
+    const tool = githubAgentToolCatalog.find((entry) => entry.id === 'update_pull_request_branch');
+    if (!tool) throw new Error('Missing update_pull_request_branch tool');
+    const session = await provider.openSession({
+      connection: connection(),
+      tools: [tool],
+      scope: undefined,
+    });
+
+    const result = await session.call({
+      toolId: 'update_pull_request_branch',
+      arguments: {owner: 'shipfox', repo: 'platform', pull_number: 1},
+    });
+
+    expect(result).toEqual({
+      isError: true,
+      content: [
+        {
+          type: 'text',
+          text: 'GitHub installation token is missing permission for this operation: update_pull_request_branch requires pull_requests: write, contents: write',
+        },
+      ],
+      structuredContent: {code: 'access-denied'},
+    });
+  });
+
+  it('authorizes update_pull_request_branch when the installation grants both permissions', async () => {
+    const request = vi.fn(() => Promise.resolve({data: {message: 'Branch updated'}}));
+    const provider = new GithubAgentToolsProvider({
+      getInstallationByConnectionId: vi.fn(() => Promise.resolve(installation())),
+      tokenProvider: {
+        getInstallationAccessToken: vi.fn(() =>
+          Promise.resolve({
+            token: 'installation-token',
+            expiresAt: new Date(),
+            permissions: {
+              contents: 'write' as const,
+              pull_requests: 'write' as const,
+            },
+          }),
+        ),
+      },
+      createClient: vi.fn(() => ({request})),
+    });
+    const tool = githubAgentToolCatalog.find((entry) => entry.id === 'update_pull_request_branch');
+    if (!tool) throw new Error('Missing update_pull_request_branch tool');
+    const session = await provider.openSession({
+      connection: connection(),
+      tools: [tool],
+      scope: undefined,
+    });
+
+    const result = await session.call({
+      toolId: 'update_pull_request_branch',
+      arguments: {owner: 'shipfox', repo: 'platform', pull_number: 1},
+    });
+
+    expect(request).toHaveBeenCalledWith(
+      'PUT /repos/{owner}/{repo}/pulls/{pull_number}/update-branch',
+      {
+        owner: 'shipfox',
+        repo: 'platform',
+        pull_number: 1,
+      },
+    );
+    expect(result).toEqual({
+      content: [{type: 'text', text: '{"message":"Branch updated"}'}],
+      structuredContent: {message: 'Branch updated'},
     });
   });
 

@@ -708,7 +708,7 @@ export const githubAgentToolCatalog = [
       'Update the branch of a pull request with the latest changes from the base branch.',
     sensitivity: 'write',
     sensitive: false,
-    requiredScope: scopes.pullRequestsWrite,
+    requiredScope: scopes.mergePullRequest,
     inputSchema: repositoryInputSchema(
       {
         pull_number: integerSchema('Pull request number'),
