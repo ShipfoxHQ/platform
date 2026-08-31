@@ -322,10 +322,13 @@ describe('createEc2Engine', () => {
     });
   });
 
-  it('returns the instance snapshot when a non-auth status read fails', async () => {
+  it.each([
+    'RequestLimitExceeded',
+    'InvalidInstanceID.NotFound',
+  ])('returns the instance snapshot when a non-auth status read fails with %s', async (code) => {
     const ec2 = fakeEc2({
       describeOutputs: [{Reservations: [{Instances: [instance()]}]}],
-      describeStatusError: awsError('RequestLimitExceeded'),
+      describeStatusError: awsError(code),
     });
     const engine = createEc2Engine({region: 'eu-west-3', client: ec2 as never});
 

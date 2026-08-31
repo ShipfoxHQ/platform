@@ -25,7 +25,8 @@ events with `ec2:DescribeInstanceStatus`. The provisioner role must grant that a
 runner region. An authorization failure fails the reconciliation closed; a transient status-read
 failure keeps the ordinary `DescribeInstances` snapshot and submits no health candidate.
 Candidates require an impairment that is at least one reconciliation interval old or two
-consecutive close observations. Regular observation, termination lookup, and service metrics
+consecutive close observations. Candidates are requests to the existing backend authorization
+gate, not direct termination calls. Regular observation, termination lookup, and service metrics
 omit status checks so they do not poll the status API unnecessarily.
 
 ## Template config
