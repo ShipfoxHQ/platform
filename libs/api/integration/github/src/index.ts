@@ -44,16 +44,11 @@ const GITHUB_INSTALLATION_ID_PATTERN = /^[1-9]\d*$/u;
 export type {GithubApiClient} from '#api/client.js';
 export {
   createGithubCheckoutTokenCache,
-  deleteGithubCheckoutTokenSecretGroup,
   type GithubCheckoutToken,
   GithubCheckoutTokenCache,
   type GithubCheckoutTokenCachePort,
   type GithubCheckoutTokenPermissions,
   type GithubCheckoutTokenScope,
-  type GithubCheckoutTokenSecretStore,
-  githubCheckoutTokenNamespace,
-  githubCheckoutTokenStorageKey,
-  githubProviderInstanceFingerprint,
 } from '#api/github-checkout-token-cache.js';
 export {
   encodeInstallationTokenEnvelope,
@@ -143,22 +138,27 @@ export function createGithubIntegrationProvider(options: CreateGithubIntegration
               }),
             );
           }
-          if (checkoutTokenCache?.deleteInstallation && checkoutTokenProviderInstance) {
+          if (checkoutTokenProviderInstance) {
             cleanup.push(
-              checkoutTokenCache.deleteInstallation(
-                params.workspaceId,
-                checkoutTokenProviderInstance,
-                params.installationId,
-              ),
-            );
-          } else if (deleteSecrets && checkoutTokenProviderInstance) {
-            cleanup.push(
-              deleteGithubCheckoutTokenSecretGroup({
-                workspaceId: params.workspaceId,
-                providerInstance: checkoutTokenProviderInstance,
-                installationId: params.installationId,
-                deleteSecrets,
-              }),
+              (async () => {
+                const deleted = checkoutTokenCache?.deleteInstallation
+                  ? await checkoutTokenCache.deleteInstallation(
+                      params.workspaceId,
+                      checkoutTokenProviderInstance,
+                      params.installationId,
+                    )
+                  : 0;
+                // A cache without a shared store can still evict its RAM copy but
+                // must fall through to the authoritative namespace deletion.
+                if (deleted === 0 && deleteSecrets) {
+                  await deleteGithubCheckoutTokenSecretGroup({
+                    workspaceId: params.workspaceId,
+                    providerInstance: checkoutTokenProviderInstance,
+                    installationId: params.installationId,
+                    deleteSecrets,
+                  });
+                }
+              })(),
             );
           }
           await Promise.all(cleanup);

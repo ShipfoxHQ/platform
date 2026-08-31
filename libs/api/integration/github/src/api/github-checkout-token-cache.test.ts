@@ -1,3 +1,4 @@
+import {SECRET_KEY_PATTERN} from '@shipfox/api-secrets-dto';
 import {GithubIntegrationProviderError} from '#core/errors.js';
 import type {
   GithubCheckoutTokenEnvelope,
@@ -12,7 +13,6 @@ import {
   parseGithubCheckoutTokenEnvelope,
 } from './github-checkout-token-cache.js';
 
-const secretKeyPattern = /^[A-Z_][A-Z0-9_]*$/u;
 const now = new Date('2026-06-10T11:00:00.000Z');
 const baseScope: GithubCheckoutTokenScope = {
   workspaceId: 'workspace-a',
@@ -67,10 +67,12 @@ function cache(
     mintTimeoutMs?: number;
     currentTime?: () => Date;
     sleep?: (ms: number) => Promise<void>;
+    providerInstance?: string;
   } = {},
 ) {
   return new GithubCheckoutTokenCache({
     secretStore: options.store,
+    providerInstance: options.providerInstance,
     withLock: options.withLock ?? (async (_digest, fn) => ({acquired: true, value: await fn()})),
     now: options.currentTime ?? (() => now),
     sleep: options.sleep ?? (() => Promise.resolve()),
@@ -117,7 +119,7 @@ describe('GitHub checkout token scope identity', () => {
   });
 
   it('uses a Secrets-compatible key for each exact scope', () => {
-    expect(githubCheckoutTokenStorageKey(baseScope)).toMatch(secretKeyPattern);
+    expect(githubCheckoutTokenStorageKey(baseScope)).toMatch(SECRET_KEY_PATTERN);
   });
 
   it('requires the versioned envelope and exact stored permissions', () => {
@@ -453,6 +455,26 @@ describe('GithubCheckoutTokenCache', () => {
     expect(store.values.has(expiredKey)).toBe(false);
     expect(store.values.has(newerVersionKey)).toBe(true);
     expect(store.values.has(unrelatedKey)).toBe(true);
+  });
+
+  it('cleans expired entries when the maintenance pass only knows an installation', async () => {
+    const store = createStore();
+    const expiredKey = githubCheckoutTokenStorageKey(baseScope);
+    store.values.set(
+      expiredKey,
+      encodeGithubCheckoutTokenEnvelope({
+        version: GITHUB_CHECKOUT_TOKEN_CACHE_VERSION,
+        generation: 'old',
+        token: 'old-token',
+        expiresAt: new Date('2026-06-09T10:00:00.000Z'),
+        repositoryId: 42,
+        permissions: {contents: 'read'},
+      }),
+    );
+    const shared = cache({store, providerInstance: 'provider-a'});
+
+    await expect(shared.cleanupExpiredInstallation('workspace-a', 11, 10)).resolves.toBe(1);
+    expect(store.values.has(expiredKey)).toBe(false);
   });
 
   it('deletes only one provider installation and purges its RAM entries', async () => {

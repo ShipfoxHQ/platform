@@ -20,6 +20,7 @@ describe('GitHub checkout token cache config', () => {
   });
 
   it('enables the exact-scope cache by default', async () => {
+    vi.stubEnv('GITHUB_CHECKOUT_TOKEN_CACHE_ENABLED', 'true');
     vi.resetModules();
 
     const {config} = await import('./config.js');

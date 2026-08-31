@@ -67,6 +67,7 @@
     "zod": "catalog:"
   },
   "devDependencies": {
+    "@shipfox/api-secrets-dto": "workspace:*",
     "@shipfox/biome": "workspace:*",
     "@shipfox/depcruise": "workspace:*",
     "@shipfox/swc": "workspace:*",

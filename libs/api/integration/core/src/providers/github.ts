@@ -5,6 +5,7 @@ import type {IntegrationCapability} from '#core/entities/provider.js';
 import {getIntegrationProviderCapabilities} from '#core/providers/registry.js';
 import {
   getIntegrationConnectionById,
+  listIntegrationConnectionsByProvider,
   resolveUniqueConnectionSlug,
   upsertIntegrationConnection,
 } from '#db/connections.js';
@@ -21,6 +22,7 @@ import type {
   IntegrationProviderModule,
   IntegrationProviderModuleLoadOptions,
 } from '#providers/types.js';
+import {createGithubCheckoutTokenCacheMaintenanceWorker} from '#temporal/worker.js';
 
 async function loadGithubModuleParts(
   options: IntegrationProviderModuleLoadOptions = {},
@@ -148,6 +150,9 @@ async function loadGithubModuleParts(
     );
   }
 
+  const checkoutTokenCache = createGithubCheckoutTokenCache({
+    secretStore: checkoutTokenSecretStore,
+  });
   const integrationProvider = createGithubIntegrationProvider({
     getExistingGithubConnection,
     connectGithubInstallation,
@@ -158,14 +163,20 @@ async function loadGithubModuleParts(
     getIntegrationConnectionById,
     coreDb: db,
     deleteSecrets: options.secrets?.deleteSecrets,
-    checkoutTokenCache: createGithubCheckoutTokenCache({
-      secretStore: checkoutTokenSecretStore,
-    }),
+    checkoutTokenCache,
     agentTools: {tokenProvider},
     ...(options.requireActiveWorkspaceMembership
       ? {requireActiveWorkspaceMembership: options.requireActiveWorkspaceMembership}
       : {}),
   });
+  const checkoutTokenCacheMaintenanceWorker =
+    checkoutTokenCache && checkoutTokenSecretStore?.list
+      ? createGithubCheckoutTokenCacheMaintenanceWorker({
+          cache: checkoutTokenCache,
+          listConnections: async () =>
+            await listIntegrationConnectionsByProvider({provider: 'github'}),
+        })
+      : undefined;
   providerCapabilities = getIntegrationProviderCapabilities(integrationProvider.adapters);
 
   return {
@@ -183,6 +194,9 @@ async function loadGithubModuleParts(
       migrationsPath: githubMigrationsPath,
       databaseNamespace: 'integrations_github',
     },
+    ...(checkoutTokenCacheMaintenanceWorker
+      ? {workers: [checkoutTokenCacheMaintenanceWorker]}
+      : {}),
   };
 }
 
