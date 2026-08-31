@@ -69,6 +69,11 @@ export const runnerSessions = pgTable(
     index('runners_runner_sessions_provider_runner_updated_idx')
       .on(table.workspaceId, table.provisionerId, table.providerRunnerId, table.updatedAt)
       .where(sql`"provisioner_id" IS NOT NULL`),
+    index('runners_runner_sessions_stale_idle_idx')
+      .on(table.updatedAt, table.id)
+      .where(
+        sql`${table.revokedAt} IS NULL AND ${table.claimsUsed} = 0 AND ${table.registrationTokenKind} IN ('ephemeral', 'activation')`,
+      ),
     uniqueIndex('runners_runner_sessions_active_activation_unique')
       .on(table.runnerInstanceId)
       .where(sql`${table.registrationTokenKind} = 'activation' AND ${table.revokedAt} IS NULL`),

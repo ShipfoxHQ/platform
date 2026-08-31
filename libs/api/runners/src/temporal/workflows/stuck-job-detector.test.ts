@@ -4,11 +4,14 @@ const mocks = vi.hoisted(() => ({
   deleteExpiredRunnerSessionsActivity: vi.fn(),
   detectAndExpireStuckJobsActivity: vi.fn(),
   reapStaleRunnerInstancesActivity: vi.fn(),
+  recoverStaleIdleRunnerSessionsActivity: vi.fn(),
+  patched: vi.fn(() => true),
   info: vi.fn(),
   warn: vi.fn(),
 }));
 
 vi.mock('@temporalio/workflow', () => ({
+  patched: mocks.patched,
   log: {
     info: mocks.info,
     warn: mocks.warn,
@@ -20,6 +23,7 @@ vi.mock('@temporalio/workflow', () => ({
     deleteExpiredRunnerSessionsActivity: mocks.deleteExpiredRunnerSessionsActivity,
     detectAndExpireStuckJobsActivity: mocks.detectAndExpireStuckJobsActivity,
     reapStaleRunnerInstancesActivity: mocks.reapStaleRunnerInstancesActivity,
+    recoverStaleIdleRunnerSessionsActivity: mocks.recoverStaleIdleRunnerSessionsActivity,
   })),
 }));
 
@@ -34,6 +38,37 @@ describe('stuckJobDetector', () => {
       reaped: 0,
       reservationsReleased: 0,
     });
+    mocks.recoverStaleIdleRunnerSessionsActivity.mockResolvedValue({recovered: 0});
+  });
+
+  it('recovers stale idle sessions before stale provisioner cleanup and logs recoveries', async () => {
+    const {stuckJobDetector} = await import('./stuck-job-detector.js');
+    mocks.recoverStaleIdleRunnerSessionsActivity.mockResolvedValueOnce({recovered: 2});
+
+    await stuckJobDetector();
+
+    expect(mocks.recoverStaleIdleRunnerSessionsActivity).toHaveBeenCalledWith();
+    expect(mocks.reapStaleRunnerInstancesActivity).toHaveBeenCalledWith();
+    const recoveryCall = mocks.recoverStaleIdleRunnerSessionsActivity.mock.invocationCallOrder[0];
+    const reapCall = mocks.reapStaleRunnerInstancesActivity.mock.invocationCallOrder[0];
+    expect(recoveryCall).toBeDefined();
+    expect(reapCall).toBeDefined();
+    if (recoveryCall === undefined || reapCall === undefined) throw new Error('Missing call order');
+    expect(recoveryCall).toBeLessThan(reapCall);
+    expect(mocks.info).toHaveBeenCalledWith(
+      'Stuck-job detector recovered stale idle runner sessions',
+      {recovered: 2},
+    );
+  });
+
+  it('skips recovery when the workflow patch is not enabled', async () => {
+    const {stuckJobDetector} = await import('./stuck-job-detector.js');
+    mocks.patched.mockReturnValueOnce(false);
+
+    await stuckJobDetector();
+
+    expect(mocks.recoverStaleIdleRunnerSessionsActivity).not.toHaveBeenCalled();
+    expect(mocks.reapStaleRunnerInstancesActivity).toHaveBeenCalledWith();
   });
 
   it('runs expired session GC before stuck job expiry and logs deletions', async () => {

@@ -4,6 +4,7 @@ import {
   deleteExpiredRunnerSessionsActivity,
   detectAndExpireStuckJobsActivity,
   reapStaleRunnerInstancesActivity,
+  recoverStaleIdleRunnerSessionsActivity,
 } from './maintenance-activities.js';
 
 export function createRunnersMaintenanceActivities() {
@@ -13,5 +14,6 @@ export function createRunnersMaintenanceActivities() {
     deleteExpiredRunnerSessionsActivity,
     detectAndExpireStuckJobsActivity,
     reapStaleRunnerInstancesActivity,
+    recoverStaleIdleRunnerSessionsActivity,
   };
 }

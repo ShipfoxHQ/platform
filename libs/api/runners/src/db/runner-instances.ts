@@ -24,7 +24,7 @@ import type {
 } from '#core/entities/runner-instance.js';
 import {sanitizeRunnerLabels} from '#core/runner-labels.js';
 import {
-  recordRunnerEnrollmentCredentialRevoked,
+  recordRunnerEnrollmentCredentialRevocations,
   recordRunnerReservationCapacityFailure,
 } from '#metrics/index.js';
 import type {RunnerTerminationAuthorizationRejectionReason} from '#metrics/instance.js';
@@ -99,28 +99,11 @@ export async function persistRunnerTerminationAuthorization(
       revocationCounts = counts;
     }),
   );
-  if (revocationCounts) {
-    recordRunnerEnrollmentCredentialRevoked({
-      credential: 'activation-token',
-      count: revocationCounts.revokedActivationTokenCount,
+  if (revocationCounts)
+    recordRunnerEnrollmentCredentialRevocations({
+      counts: [revocationCounts],
+      message: 'Revoked runner enrollment credentials after termination authorization',
     });
-    recordRunnerEnrollmentCredentialRevoked({
-      credential: 'control-session',
-      count: revocationCounts.closedControlSessionCount,
-    });
-    if (
-      revocationCounts.revokedActivationTokenCount > 0 ||
-      revocationCounts.closedControlSessionCount > 0
-    )
-      logger().info(
-        {
-          runnerInstanceId: revocationCounts.runnerInstanceId,
-          revokedActivationTokenCount: revocationCounts.revokedActivationTokenCount,
-          closedControlSessionCount: revocationCounts.closedControlSessionCount,
-        },
-        'Revoked runner enrollment credentials after termination authorization',
-      );
-  }
   return result;
 }
 
@@ -1476,6 +1459,252 @@ export async function reapStaleRunnerInstances(params: {
 
     return {reaped: updatedRows.length, reservationsReleased};
   });
+}
+
+export interface RecoverStaleIdleRunnerSessionsParams {
+  staleSessionThresholdSeconds: number;
+  provisionerActiveWindowSeconds: number;
+  limit: number;
+  onRevocation?: (counts: RunnerEnrollmentRevocationCounts) => void;
+  onRecovery?: () => void;
+  authorize: (params: {
+    tx: Tx;
+    provisionerId: string;
+    providerRunnerId: string;
+    onRevocation: (counts: RunnerEnrollmentRevocationCounts) => void;
+  }) => Promise<TerminationAuthorizationResult>;
+}
+
+export interface RecoverStaleIdleRunnerSessionsResult {
+  recovered: number;
+}
+
+type StaleIdleRunnerSessionCandidate = {
+  workspaceId: string;
+  runnerInstanceId: string;
+  runnerSessionId: string;
+  providerRunnerId: string | null;
+};
+
+/**
+ * Fences managed sessions that stopped reporting while their provisioner is still healthy.
+ *
+ * Manual sessions are not provider-managed. Warm runners are included because liveness is a
+ * positive recovery condition, unlike the one-claim session-exhausted policy, which must never
+ * retire a reusable runner merely because it is idle. Only unclaimed sessions enter this path;
+ * sessions with prior claims remain protected for stale-lease and session-exhaustion handling.
+ */
+export async function recoverStaleIdleRunnerSessions(
+  params: RecoverStaleIdleRunnerSessionsParams,
+): Promise<RecoverStaleIdleRunnerSessionsResult> {
+  const sessionCutoff = staleRunnerInstanceCutoff(params.staleSessionThresholdSeconds);
+  const provisionerCutoff = staleRunnerInstanceCutoff(params.provisionerActiveWindowSeconds);
+
+  const candidates: StaleIdleRunnerSessionCandidate[] = await db()
+    .select({
+      workspaceId: runnerSessions.workspaceId,
+      runnerInstanceId: providerRunners.id,
+      runnerSessionId: runnerSessions.id,
+      providerRunnerId: providerRunners.providerRunnerId,
+    })
+    .from(runnerSessions)
+    .innerJoin(
+      providerRunners,
+      and(
+        eq(providerRunners.workspaceId, runnerSessions.workspaceId),
+        eq(providerRunners.provisionerId, runnerSessions.provisionerId),
+        eq(providerRunners.providerRunnerId, runnerSessions.providerRunnerId),
+      ),
+    )
+    .innerJoin(
+      provisionerTokens,
+      and(
+        eq(provisionerTokens.id, providerRunners.provisionerId),
+        eq(provisionerTokens.workspaceId, runnerSessions.workspaceId),
+      ),
+    )
+    .where(
+      and(
+        inArray(runnerSessions.registrationTokenKind, ['ephemeral', 'activation']),
+        inArray(providerRunners.launchKind, ['demand', 'warm']),
+        inArray(providerRunners.state, activeStates),
+        isNull(runnerSessions.revokedAt),
+        eq(runnerSessions.claimsUsed, 0),
+        lt(runnerSessions.updatedAt, sessionCutoff),
+        isNull(provisionerTokens.revokedAt),
+        or(isNull(provisionerTokens.expiresAt), gt(provisionerTokens.expiresAt, sql`now()`)),
+        gt(provisionerTokens.lastSeenAt, provisionerCutoff),
+      ),
+    )
+    .orderBy(asc(runnerSessions.workspaceId), asc(runnerSessions.updatedAt), asc(runnerSessions.id))
+    .limit(params.limit);
+
+  let recovered = 0;
+  for (const candidate of candidates) {
+    const revocationCounts: RunnerEnrollmentRevocationCounts[] = [];
+    const recoveredCandidate = await db().transaction((tx) =>
+      recoverStaleIdleRunnerSessionTx(
+        tx,
+        candidate,
+        sessionCutoff,
+        provisionerCutoff,
+        params.authorize,
+        (counts) => revocationCounts.push(counts),
+      ),
+    );
+    if (recoveredCandidate) {
+      recovered += 1;
+      for (const counts of revocationCounts) params.onRevocation?.(counts);
+      params.onRecovery?.();
+    }
+  }
+
+  return {recovered};
+}
+
+async function recoverStaleIdleRunnerSessionTx(
+  tx: Tx,
+  candidate: StaleIdleRunnerSessionCandidate,
+  sessionCutoff: SQL,
+  provisionerCutoff: SQL,
+  authorize: RecoverStaleIdleRunnerSessionsParams['authorize'],
+  onRevocation: (counts: RunnerEnrollmentRevocationCounts) => void,
+): Promise<boolean> {
+  // Enrollment, reporting, and authorization all use workspace -> runner locks. Claiming locks
+  // the session before it can create a running job; taking the enrollment locks before that
+  // session lock keeps every lifecycle race in one order.
+  await lockRunnerEnrollmentTx(tx, {
+    workspaceId: candidate.workspaceId,
+    runnerInstanceId: candidate.runnerInstanceId,
+  });
+  const [session] = await tx
+    .select({
+      workspaceId: runnerSessions.workspaceId,
+      registrationTokenKind: runnerSessions.registrationTokenKind,
+      claimsUsed: runnerSessions.claimsUsed,
+      provisionerId: runnerSessions.provisionerId,
+      providerRunnerId: runnerSessions.providerRunnerId,
+      revokedAt: runnerSessions.revokedAt,
+    })
+    .from(runnerSessions)
+    .where(
+      and(
+        eq(runnerSessions.id, candidate.runnerSessionId),
+        eq(runnerSessions.claimsUsed, 0),
+        lt(runnerSessions.updatedAt, sessionCutoff),
+      ),
+    )
+    .limit(1)
+    .for('update');
+  if (!session || session.revokedAt) return false;
+
+  const [runner] = await tx
+    .select({
+      workspaceId: providerRunners.workspaceId,
+      provisionerId: providerRunners.provisionerId,
+      providerRunnerId: providerRunners.providerRunnerId,
+      launchKind: providerRunners.launchKind,
+      state: providerRunners.state,
+    })
+    .from(providerRunners)
+    .where(eq(providerRunners.id, candidate.runnerInstanceId))
+    .limit(1)
+    .for('update');
+  if (!runner || !isRecoverableStaleIdleRunner(session, runner, candidate)) return false;
+  if (!runner.providerRunnerId) return false;
+  if (!(await hasHealthyProvisionerTx(tx, runner, provisionerCutoff))) return false;
+  if (await hasBoundRunningJobTx(tx, runner)) return false;
+
+  const authorization = await authorize({
+    tx,
+    provisionerId: runner.provisionerId,
+    providerRunnerId: runner.providerRunnerId,
+    onRevocation,
+  });
+  if (authorization.desiredIntent !== 'terminate') return false;
+  if (await hasBoundRunningJobTx(tx, runner))
+    throw new Error('Running job appeared during stale idle runner session recovery');
+
+  const [revoked] = await tx
+    .update(runnerSessions)
+    .set({revokedAt: sql`now()`, updatedAt: sql`now()`})
+    .where(and(eq(runnerSessions.id, candidate.runnerSessionId), isNull(runnerSessions.revokedAt)))
+    .returning({id: runnerSessions.id});
+  if (!revoked) throw new Error('Stale idle runner session disappeared during recovery');
+  if (await hasBoundRunningJobTx(tx, runner))
+    throw new Error('Running job appeared during stale idle runner session recovery');
+  return true;
+}
+
+function isRecoverableStaleIdleRunner(
+  session: {
+    workspaceId: string;
+    registrationTokenKind: 'manual' | 'ephemeral' | 'activation';
+    claimsUsed: number;
+    provisionerId: string | null;
+    providerRunnerId: string | null;
+  },
+  runner: {
+    workspaceId: string | null;
+    provisionerId: string;
+    providerRunnerId: string | null;
+    launchKind: 'demand' | 'warm' | 'manual';
+    state: RunnerInstanceState;
+  },
+  candidate: StaleIdleRunnerSessionCandidate,
+): boolean {
+  return (
+    runner.workspaceId === session.workspaceId &&
+    runner.provisionerId === session.provisionerId &&
+    runner.providerRunnerId === session.providerRunnerId &&
+    runner.providerRunnerId === candidate.providerRunnerId &&
+    session.claimsUsed === 0 &&
+    (session.registrationTokenKind === 'ephemeral' ||
+      session.registrationTokenKind === 'activation') &&
+    (runner.launchKind === 'demand' || runner.launchKind === 'warm') &&
+    activeStates.includes(runner.state as (typeof activeStates)[number])
+  );
+}
+
+async function hasHealthyProvisionerTx(
+  tx: Tx,
+  runner: {workspaceId: string | null; provisionerId: string},
+  provisionerCutoff: SQL,
+): Promise<boolean> {
+  if (!runner.workspaceId) return false;
+  const [provisioner] = await tx
+    .select({id: provisionerTokens.id})
+    .from(provisionerTokens)
+    .where(
+      and(
+        eq(provisionerTokens.id, runner.provisionerId),
+        eq(provisionerTokens.workspaceId, runner.workspaceId),
+        isNull(provisionerTokens.revokedAt),
+        or(isNull(provisionerTokens.expiresAt), gt(provisionerTokens.expiresAt, sql`now()`)),
+        gt(provisionerTokens.lastSeenAt, provisionerCutoff),
+      ),
+    )
+    .limit(1);
+  return provisioner !== undefined;
+}
+
+async function hasBoundRunningJobTx(
+  tx: Tx,
+  runner: {workspaceId: string | null; provisionerId: string; providerRunnerId: string | null},
+): Promise<boolean> {
+  if (!runner.workspaceId || !runner.providerRunnerId) return true;
+  const [job] = await tx
+    .select({id: runningJobExecutions.id})
+    .from(runningJobExecutions)
+    .where(
+      and(
+        eq(runningJobExecutions.workspaceId, runner.workspaceId),
+        eq(runningJobExecutions.provisionerId, runner.provisionerId),
+        eq(runningJobExecutions.providerRunnerId, runner.providerRunnerId),
+      ),
+    )
+    .limit(1);
+  return job !== undefined;
 }
 
 async function releaseTerminalRunnerInstanceReservations(

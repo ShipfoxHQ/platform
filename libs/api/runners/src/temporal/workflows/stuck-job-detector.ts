@@ -1,4 +1,4 @@
-import {log, proxyActivities} from '@temporalio/workflow';
+import {log, patched, proxyActivities} from '@temporalio/workflow';
 import {STUCK_JOB_THRESHOLD_SECONDS} from '#core/maintenance-policy.js';
 
 import type {createRunnersMaintenanceActivities} from '../activities/index.js';
@@ -9,6 +9,7 @@ const {
   deleteExpiredRunnerSessionsActivity,
   detectAndExpireStuckJobsActivity,
   reapStaleRunnerInstancesActivity,
+  recoverStaleIdleRunnerSessionsActivity,
 } = proxyActivities<ReturnType<typeof createRunnersMaintenanceActivities>>({
   startToCloseTimeout: '60s',
 });
@@ -57,11 +58,22 @@ export async function stuckJobDetector(): Promise<void> {
     });
   }
 
+  await recoverStaleIdleRunnerSessionsIfPatched();
+
   const {reaped, reservationsReleased} = await reapStaleRunnerInstancesActivity();
   if (reaped > 0) {
     log.info('Stuck-job detector reaped stale provisioned runners', {
       reaped,
       reservationsReleased,
     });
+  }
+}
+
+async function recoverStaleIdleRunnerSessionsIfPatched(): Promise<void> {
+  if (!patched('recover-stale-idle-sessions')) return;
+
+  const {recovered} = await recoverStaleIdleRunnerSessionsActivity();
+  if (recovered > 0) {
+    log.info('Stuck-job detector recovered stale idle runner sessions', {recovered});
   }
 }

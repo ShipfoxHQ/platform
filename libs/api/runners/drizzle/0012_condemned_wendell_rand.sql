@@ -1,0 +1,1 @@
+CREATE INDEX "runners_runner_sessions_stale_idle_idx" ON "runners_runner_sessions" USING btree ("updated_at","id") WHERE "runners_runner_sessions"."revoked_at" IS NULL AND "runners_runner_sessions"."claims_used" = 0 AND "runners_runner_sessions"."registration_token_kind" IN ('ephemeral', 'activation');

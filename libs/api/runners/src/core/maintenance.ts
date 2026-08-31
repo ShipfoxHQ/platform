@@ -2,10 +2,19 @@ import {config} from '#config.js';
 import {deleteExpiredEphemeralRegistrationTokens as deleteExpiredEphemeralRegistrationTokensDb} from '#db/ephemeral-registration-tokens.js';
 import {expireStuckJobExecutions} from '#db/job-executions.js';
 import {deleteExpiredReservations} from '#db/reservations.js';
-import {reapStaleRunnerInstances as reapStaleRunnerInstancesDb} from '#db/runner-instances.js';
+import {
+  reapStaleRunnerInstances as reapStaleRunnerInstancesDb,
+  recoverStaleIdleRunnerSessions as recoverStaleIdleRunnerSessionsDb,
+} from '#db/runner-instances.js';
 import {deleteExpiredRunnerSessions as deleteExpiredRunnerSessionsDb} from '#db/runner-sessions.js';
-import {providerRunnerReapedCount, recordRunnerReservationReleased} from '#metrics/instance.js';
+import {
+  providerRunnerReapedCount,
+  providerRunnerStaleIdleSessionRecoveredCount,
+  recordRunnerEnrollmentCredentialRevocations,
+  recordRunnerReservationReleased,
+} from '#metrics/instance.js';
 import {STUCK_JOB_THRESHOLD_SECONDS} from './maintenance-policy.js';
+import {authorizeRunnerTerminationTx} from './termination-authorization.js';
 
 export interface DetectAndExpireStuckJobsParams {
   noFirstHeartbeatGraceSeconds?: number;
@@ -47,6 +56,33 @@ export async function reapStaleRunnerInstances(params?: {
   if (result.reaped > 0) providerRunnerReapedCount.add(result.reaped);
   recordRunnerReservationReleased({count: result.reservationsReleased, surface: 'reconcile'});
 
+  return result;
+}
+
+export async function recoverStaleIdleRunnerSessions(params?: {
+  limit?: number;
+}): Promise<{recovered: number}> {
+  const result = await recoverStaleIdleRunnerSessionsDb({
+    staleSessionThresholdSeconds: config.RUNNER_STALE_SESSION_THRESHOLD_SECONDS,
+    provisionerActiveWindowSeconds: config.PROVISIONER_ACTIVE_WINDOW_SECONDS,
+    limit: params?.limit ?? config.RUNNER_STALE_IDLE_SESSION_RECOVERY_LIMIT,
+    onRevocation: (counts) =>
+      recordRunnerEnrollmentCredentialRevocations({
+        counts: [counts],
+        message: 'Revoked runner enrollment credentials after stale idle session recovery',
+      }),
+    onRecovery: () => providerRunnerStaleIdleSessionRecoveredCount.add(1),
+    authorize: ({tx, provisionerId, providerRunnerId, onRevocation}) =>
+      authorizeRunnerTerminationTx(
+        tx,
+        {
+          provisionerId,
+          providerRunnerId,
+          reason: 'runner-unresponsive',
+        },
+        onRevocation,
+      ),
+  });
   return result;
 }
 

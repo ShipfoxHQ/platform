@@ -4,6 +4,7 @@ import {
   deleteExpiredRunnerSessions,
   detectAndExpireStuckJobs,
   reapStaleRunnerInstances,
+  recoverStaleIdleRunnerSessions,
 } from '#core/maintenance.js';
 
 export function detectAndExpireStuckJobsActivity(params: {
@@ -23,6 +24,12 @@ export function reapStaleRunnerInstancesActivity(params?: {
   limit: number;
 }): Promise<{reaped: number; reservationsReleased: number}> {
   return reapStaleRunnerInstances(params);
+}
+
+export function recoverStaleIdleRunnerSessionsActivity(params?: {
+  limit?: number;
+}): Promise<{recovered: number}> {
+  return recoverStaleIdleRunnerSessions(params);
 }
 
 export function deleteExpiredRunnerSessionsActivity(params?: {

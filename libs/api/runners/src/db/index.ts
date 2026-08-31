@@ -70,6 +70,8 @@ export type {
   ReapStaleRunnerInstancesResult,
   ReconcileRunnerInstancesDbResult,
   ReconcileRunnerInstancesParams,
+  RecoverStaleIdleRunnerSessionsParams,
+  RecoverStaleIdleRunnerSessionsResult,
   ReportRunnerInstancesParams,
   RunnerInstanceReportEvent,
   RunnerInstanceTerminateIntent,
@@ -90,6 +92,7 @@ export {
   listProvisionerTerminationAuthorizationsTx,
   reapStaleRunnerInstances,
   reconcileRunnerInstances,
+  recoverStaleIdleRunnerSessions,
   reportRunnerInstances,
 } from './runner-instances.js';
 export type {

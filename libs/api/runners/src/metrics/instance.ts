@@ -188,6 +188,12 @@ export const providerRunnerReapedCount = meter.createCounter<Record<string, neve
   },
 );
 
+export const providerRunnerStaleIdleSessionRecoveredCount = meter.createCounter<
+  Record<string, never>
+>('runners_provider_runner_stale_idle_session_recovered', {
+  description: 'Stale idle managed runner sessions recovered by backend maintenance',
+});
+
 export const providerRunnerCountDivergenceCount = meter.createCounter<{
   template_key?: string;
   state: 'starting' | 'running';
@@ -285,6 +291,35 @@ export function recordRunnerEnrollmentCredentialRevoked(params: {
   recordMetric(() =>
     runnerEnrollmentCredentialRevokedCount.add(params.count, {credential: params.credential}),
   );
+}
+
+export function recordRunnerEnrollmentCredentialRevocations(params: {
+  counts: readonly {
+    runnerInstanceId: string;
+    revokedActivationTokenCount: number;
+    closedControlSessionCount: number;
+  }[];
+  message: string;
+}): void {
+  for (const count of params.counts) {
+    recordRunnerEnrollmentCredentialRevoked({
+      credential: 'activation-token',
+      count: count.revokedActivationTokenCount,
+    });
+    recordRunnerEnrollmentCredentialRevoked({
+      credential: 'control-session',
+      count: count.closedControlSessionCount,
+    });
+    if (count.revokedActivationTokenCount > 0 || count.closedControlSessionCount > 0)
+      logger().info(
+        {
+          runnerInstanceId: count.runnerInstanceId,
+          revokedActivationTokenCount: count.revokedActivationTokenCount,
+          closedControlSessionCount: count.closedControlSessionCount,
+        },
+        params.message,
+      );
+  }
 }
 
 export type RunnerReservationReleaseSurface = 'first-claim' | 'terminal-report' | 'reconcile';

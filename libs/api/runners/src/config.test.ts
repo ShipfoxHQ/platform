@@ -1,6 +1,9 @@
 import {RUNNER_ASSIGNMENT_POLL_DEFAULT_WAIT_SECONDS} from '@shipfox/api-runners-dto';
 import {vi} from '@shipfox/vitest/vi';
 
+const staleSessionThresholdThrottleError =
+  /RUNNER_STALE_SESSION_THRESHOLD_SECONDS.*RUNNER_SESSION_LIVENESS_THROTTLE_SECONDS/;
+
 describe('RUNNER_RESERVED_LABELS', () => {
   afterEach(() => {
     vi.unstubAllEnvs();
@@ -219,6 +222,54 @@ describe('termination reason defaults', () => {
     const {config} = await import('#config.js');
 
     expect(config.RUNNER_TERMINATION_REASON_JOB_TIMEOUT_ENABLED).toBe(true);
+  });
+});
+
+describe('RUNNER_STALE_SESSION_THRESHOLD_SECONDS validation', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it.each([
+    '0',
+    '-5',
+    '1.5',
+  ])('fails startup when RUNNER_STALE_SESSION_THRESHOLD_SECONDS is %s', async (value) => {
+    vi.stubEnv('RUNNER_STALE_SESSION_THRESHOLD_SECONDS', value);
+    vi.resetModules();
+
+    await expect(import('#config.js')).rejects.toThrow('RUNNER_STALE_SESSION_THRESHOLD_SECONDS');
+  });
+
+  it('accepts a positive whole-second threshold', async () => {
+    vi.stubEnv('RUNNER_STALE_SESSION_THRESHOLD_SECONDS', '600');
+    vi.resetModules();
+
+    const {config} = await import('#config.js');
+
+    expect(config.RUNNER_STALE_SESSION_THRESHOLD_SECONDS).toBe(600);
+    expect(config.RUNNER_STALE_IDLE_SESSION_RECOVERY_LIMIT).toBe(100);
+  });
+
+  it.each([
+    ['RUNNER_STALE_IDLE_SESSION_RECOVERY_LIMIT', '0'],
+    ['RUNNER_STALE_IDLE_SESSION_RECOVERY_LIMIT', '-5'],
+    ['RUNNER_STALE_IDLE_SESSION_RECOVERY_LIMIT', '1.5'],
+  ])('fails startup when %s is %s', async (name, value) => {
+    vi.stubEnv(name, value);
+    vi.resetModules();
+
+    await expect(import('#config.js')).rejects.toThrow(name);
+  });
+
+  it('fails startup when the stale-session threshold does not exceed the liveness throttle', async () => {
+    vi.stubEnv('RUNNER_STALE_SESSION_THRESHOLD_SECONDS', '300');
+    vi.stubEnv('RUNNER_STALE_PROVISIONED_RUNNER_THRESHOLD_SECONDS', '700');
+    vi.stubEnv('RUNNER_SESSION_LIVENESS_THROTTLE_SECONDS', '600');
+    vi.resetModules();
+
+    await expect(import('#config.js')).rejects.toThrow(staleSessionThresholdThrottleError);
   });
 });
 
