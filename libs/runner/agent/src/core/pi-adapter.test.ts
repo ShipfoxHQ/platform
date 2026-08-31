@@ -7,6 +7,7 @@ const {
   createAgentSessionServicesMock,
   sessionManagerCreateMock,
   sessionManagerOpenMock,
+  sessionManagerForkFromMock,
   findMock,
   getAllMock,
   hasConfiguredAuthMock,
@@ -24,6 +25,7 @@ const {
   createAgentSessionServicesMock: vi.fn(),
   sessionManagerCreateMock: vi.fn(() => ({})),
   sessionManagerOpenMock: vi.fn(() => ({})),
+  sessionManagerForkFromMock: vi.fn(() => ({})),
   findMock: vi.fn(),
   getAllMock: vi.fn(),
   hasConfiguredAuthMock: vi.fn(),
@@ -62,7 +64,11 @@ vi.mock('@earendil-works/pi-coding-agent', () => ({
   ModelRuntime: {
     create: modelRuntimeCreateMock,
   },
-  SessionManager: {create: sessionManagerCreateMock, open: sessionManagerOpenMock},
+  SessionManager: {
+    create: sessionManagerCreateMock,
+    open: sessionManagerOpenMock,
+    forkFrom: sessionManagerForkFromMock,
+  },
 }));
 
 vi.mock('@shipfox/node-egress-guard', () => ({
@@ -217,6 +223,8 @@ describe('piHarnessAdapter', () => {
     sessionManagerCreateMock.mockReturnValue({});
     sessionManagerOpenMock.mockReset();
     sessionManagerOpenMock.mockReturnValue({});
+    sessionManagerForkFromMock.mockReset();
+    sessionManagerForkFromMock.mockReturnValue({});
     findMock.mockReset();
     getAllMock.mockReset();
     hasConfiguredAuthMock.mockReset();
@@ -1274,6 +1282,94 @@ describe('piHarnessAdapter', () => {
       '/work',
     );
     expect(createAgentSessionMock).not.toHaveBeenCalled();
+  });
+
+  it('forks a loaded session into the local Pi session directory', async () => {
+    sessionDir = mkdtempSync(join(tmpdir(), 'shipfox-pi-session-'));
+    const agentStateDir = join(sessionDir, 'runner-agent');
+    const sourceFile = join(agentStateDir, 'sessions', 'source.jsonl');
+    const forkedSessionFile = join(agentStateDir, 'agent-sessions', 'fork.jsonl');
+    const forkedManager = {};
+    sessionManagerForkFromMock.mockReturnValue(forkedManager);
+    createAgentSessionMock.mockResolvedValue({
+      session: {
+        prompt: promptMock,
+        abort: abortMock,
+        getLastAssistantText: getLastAssistantTextMock,
+        messages: [],
+        sessionFile: forkedSessionFile,
+      },
+    });
+
+    const result = await piHarnessAdapter.run(
+      invocation({
+        cwd: sessionDir,
+        agentStateDir,
+        session: {mode: 'fork', file: sourceFile},
+      }),
+    );
+
+    expect(sessionManagerForkFromMock).toHaveBeenCalledWith(
+      sourceFile,
+      sessionDir,
+      join(agentStateDir, 'agent-sessions'),
+    );
+    expect(sessionManagerOpenMock).not.toHaveBeenCalled();
+    expect(createAgentSessionMock).toHaveBeenCalledWith(
+      expect.objectContaining({sessionManager: forkedManager}),
+    );
+    expect(result).toEqual({response: ''});
+  });
+
+  it('creates a fresh local session when a fork has no transcript head', async () => {
+    sessionDir = mkdtempSync(join(tmpdir(), 'shipfox-pi-session-'));
+    const agentStateDir = join(sessionDir, 'runner-agent');
+
+    await piHarnessAdapter.run(
+      invocation({
+        cwd: sessionDir,
+        agentStateDir,
+        session: {mode: 'fork'},
+      }),
+    );
+
+    expect(sessionManagerCreateMock).toHaveBeenCalledWith(
+      sessionDir,
+      join(agentStateDir, 'agent-sessions'),
+    );
+    expect(sessionManagerForkFromMock).not.toHaveBeenCalled();
+  });
+
+  it('returns the synchronously appended resumed session file for committing', async () => {
+    sessionDir = mkdtempSync(join(tmpdir(), 'shipfox-pi-session-'));
+    const sourceFile = join(sessionDir, 'source.jsonl');
+    const committedFile = join(sessionDir, 'committed.jsonl');
+    appendFileSync(sourceFile, '{"type":"session"}\n');
+    createAgentSessionMock.mockResolvedValue({
+      session: {
+        prompt: promptMock,
+        abort: abortMock,
+        getLastAssistantText: getLastAssistantTextMock,
+        messages: [],
+        sessionFile: committedFile,
+        sessionId: 'pi-session-1',
+      },
+    });
+    promptMock.mockImplementation(() => {
+      appendFileSync(committedFile, '{"type":"message","id":"a"}\n');
+      return Promise.resolve();
+    });
+
+    const result = await piHarnessAdapter.run(
+      invocation({session: {mode: 'resume', file: sourceFile}}),
+    );
+
+    expect(result).toEqual({
+      response: '',
+      sessionFile: committedFile,
+      sessionId: 'pi-session-1',
+    });
+    expect(readFileSync(committedFile, 'utf8')).toBe('{"type":"message","id":"a"}\n');
   });
 
   it('forwards each persisted session entry to onSessionEntry in order', async () => {

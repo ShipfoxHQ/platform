@@ -211,6 +211,7 @@ async function runPiOutputTurns(
   params: Parameters<typeof runPiSession>[0],
 ): Promise<HarnessResult> {
   let response = '';
+  const sessionArtifact = resumablePiSessionArtifact(params.sessionInvocation, params.session);
   try {
     await runOutputTurnLoop({
       signal: params.signal,
@@ -237,35 +238,41 @@ async function runPiOutputTurns(
       throw new AgentInvocationError(
         error.message,
         response,
-        params.session.sessionFile,
-        params.session.sessionId,
+        sessionArtifact.sessionFile,
+        sessionArtifact.sessionId,
       );
     }
     if (error instanceof AgentInvocationError) {
       throw new AgentInvocationError(
         error.message,
         error.response,
-        params.session.sessionFile,
-        params.session.sessionId,
+        sessionArtifact.sessionFile,
+        sessionArtifact.sessionId,
       );
     }
     throw new AgentInvocationError(
       error instanceof Error ? error.message : String(error),
       response,
-      params.session.sessionFile,
-      params.session.sessionId,
+      sessionArtifact.sessionFile,
+      sessionArtifact.sessionId,
     );
   }
   const outputs = params.collector.snapshot();
   return {
     response,
     ...(Object.keys(outputs).length === 0 ? {} : {outputs}),
-    ...(params.sessionInvocation === undefined || params.sessionInvocation.mode === 'fork'
-      ? {}
-      : {sessionFile: params.session.sessionFile}),
-    ...(params.sessionInvocation === undefined || params.sessionInvocation.mode === 'fork'
-      ? {}
-      : {sessionId: params.session.sessionId}),
+    ...sessionArtifact,
+  };
+}
+
+function resumablePiSessionArtifact(
+  sessionInvocation: HarnessInvocation['session'],
+  session: PiSession,
+): {sessionFile?: string; sessionId?: string} {
+  if (sessionInvocation?.mode !== 'resume') return {};
+  return {
+    ...(session.sessionFile === undefined ? {} : {sessionFile: session.sessionFile}),
+    ...(session.sessionId === undefined ? {} : {sessionId: session.sessionId}),
   };
 }
 
@@ -279,11 +286,17 @@ function createPiSessionManager(
   if (params.sessionInvocation?.file === undefined) {
     return SessionManager.create(params.cwd, sessionDirectory);
   }
+  if (params.sessionInvocation.mode === 'fork') {
+    return forkHarnessSession({
+      cwd: params.cwd,
+      sessionFile: params.sessionInvocation.file,
+      sessionDir: sessionDirectory,
+    });
+  }
   return openHarnessSession({
     cwd: params.cwd,
     sessionFile: params.sessionInvocation.file,
     sessionDir: sessionDirectory,
-    mode: params.sessionInvocation.mode,
   });
 }
 
@@ -411,14 +424,23 @@ function openHarnessSession(params: {
   cwd: string;
   sessionFile: string;
   sessionDir: string;
-  mode: 'resume' | 'fork';
 }): SessionManager {
   try {
-    const manager = SessionManager.open(params.sessionFile, params.sessionDir, params.cwd);
-    if (params.mode === 'fork') {
-      manager.newSession({parentSession: params.sessionFile});
-    }
-    return manager;
+    return SessionManager.open(params.sessionFile, params.sessionDir, params.cwd);
+  } catch (error) {
+    throw new AgentSessionUnavailableError(
+      `Pi could not load the agent session: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+function forkHarnessSession(params: {
+  cwd: string;
+  sessionFile: string;
+  sessionDir: string;
+}): SessionManager {
+  try {
+    return SessionManager.forkFrom(params.sessionFile, params.cwd, params.sessionDir);
   } catch (error) {
     throw new AgentSessionUnavailableError(
       `Pi could not load the agent session: ${error instanceof Error ? error.message : String(error)}`,
