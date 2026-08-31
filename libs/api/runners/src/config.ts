@@ -123,6 +123,10 @@ export const config = createConfig({
     desc: 'Minimum time, in seconds, between runner session liveness writes from job request polls. Set this lower than RUNNER_STALE_PROVISIONED_RUNNER_THRESHOLD_SECONDS so active idle runners stay fresh.',
     default: 10,
   }),
+  RUNNER_POST_JOB_EXIT_GRACE_SECONDS: num({
+    desc: 'Grace window, in seconds, after a managed one-job session last reports activity before reconcile authorizes termination for an exhausted session.',
+    default: 30,
+  }),
   RUNNER_LOCAL_ISOLATION_TIMEOUT_SECONDS: num({
     desc: 'Server-selected local isolation timeout returned to runners advertising local_execution_fence_v1. This is a bounded protocol value, not provider termination authorization.',
     default: 300,

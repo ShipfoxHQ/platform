@@ -264,6 +264,12 @@ export interface ReconcileRunnerInstancesParams {
   provisionerId: string;
   observedRunnerInstanceIds: string[];
   terminateGraceSeconds: number;
+  postJobExitGraceSeconds?: number;
+  terminationReasonResolver?: (params: {
+    provisionerId: string;
+    providerRunnerId: string;
+    reason: string;
+  }) => RunnerTerminationReason | null;
 }
 
 export interface ReconcileRunnerInstancesDbResult {
@@ -1088,6 +1094,8 @@ export async function reconcileRunnerInstances(
       observedRunnerInstanceIds,
     );
 
+    await authorizeExhaustedEphemeralSessionsTx(tx, params, observedRunnerInstanceIds);
+
     const observedRows =
       observedRunnerInstanceIds.length === 0
         ? []
@@ -1123,6 +1131,126 @@ export async function reconcileRunnerInstances(
       reservationsReleased,
     };
   });
+}
+
+async function authorizeExhaustedEphemeralSessionsTx(
+  tx: Tx,
+  params: ReconcileRunnerInstancesParams,
+  observedRunnerInstanceIds: string[],
+): Promise<void> {
+  if (
+    !params.workspaceId ||
+    !params.terminationReasonResolver ||
+    observedRunnerInstanceIds.length === 0
+  )
+    return;
+
+  const candidates = await tx
+    .select({
+      runnerInstanceId: providerRunners.id,
+      runnerSessionId: runnerSessions.id,
+      providerRunnerId: providerRunners.providerRunnerId,
+    })
+    .from(providerRunners)
+    .innerJoin(
+      runnerSessions,
+      and(
+        eq(runnerSessions.workspaceId, providerRunners.workspaceId),
+        eq(runnerSessions.provisionerId, providerRunners.provisionerId),
+        sql`${runnerSessions.providerRunnerId} = ${providerRunners.providerRunnerId}`,
+      ),
+    )
+    .where(
+      and(
+        eq(providerRunners.workspaceId, params.workspaceId),
+        eq(providerRunners.provisionerId, params.provisionerId),
+        inArray(providerRunners.providerRunnerId, observedRunnerInstanceIds),
+        inArray(providerRunners.state, activeStates),
+        inArray(runnerSessions.registrationTokenKind, ['ephemeral', 'activation']),
+        eq(runnerSessions.maxClaims, 1),
+        sql`${runnerSessions.claimsUsed} >= ${runnerSessions.maxClaims}`,
+        lt(
+          runnerSessions.updatedAt,
+          sql`now() - (${params.postJobExitGraceSeconds ?? config.RUNNER_POST_JOB_EXIT_GRACE_SECONDS} || ' seconds')::interval`,
+        ),
+      ),
+    )
+    .orderBy(asc(providerRunners.id));
+
+  for (const candidate of candidates) {
+    const providerRunnerId = candidate.providerRunnerId;
+    if (!providerRunnerId) continue;
+
+    await lockRunnerActivationAdvisoryKeyTx(tx, candidate.runnerInstanceId);
+
+    const [session] = await tx
+      .select({id: runnerSessions.id})
+      .from(runnerSessions)
+      .where(
+        and(
+          eq(runnerSessions.id, candidate.runnerSessionId),
+          eq(runnerSessions.workspaceId, params.workspaceId),
+          eq(runnerSessions.provisionerId, params.provisionerId),
+          eq(runnerSessions.providerRunnerId, providerRunnerId),
+          inArray(runnerSessions.registrationTokenKind, ['ephemeral', 'activation']),
+          eq(runnerSessions.maxClaims, 1),
+          sql`${runnerSessions.claimsUsed} >= ${runnerSessions.maxClaims}`,
+          lt(
+            runnerSessions.updatedAt,
+            sql`now() - (${params.postJobExitGraceSeconds ?? config.RUNNER_POST_JOB_EXIT_GRACE_SECONDS} || ' seconds')::interval`,
+          ),
+        ),
+      )
+      .limit(1)
+      .for('update');
+    if (!session) continue;
+
+    const [runner] = await tx
+      .select({id: providerRunners.id})
+      .from(providerRunners)
+      .where(
+        and(
+          eq(providerRunners.id, candidate.runnerInstanceId),
+          eq(providerRunners.workspaceId, params.workspaceId),
+          eq(providerRunners.provisionerId, params.provisionerId),
+          eq(providerRunners.providerRunnerId, providerRunnerId),
+          inArray(providerRunners.state, activeStates),
+        ),
+      )
+      .limit(1)
+      .for('update');
+    if (!runner) continue;
+
+    const [liveJob] = await tx
+      .select({id: runningJobExecutions.id})
+      .from(runningJobExecutions)
+      .where(
+        and(
+          eq(runningJobExecutions.workspaceId, params.workspaceId),
+          eq(runningJobExecutions.runnerSessionId, session.id),
+        ),
+      )
+      .limit(1);
+    if (liveJob) continue;
+
+    await persistRunnerTerminationAuthorizationTx(tx, {
+      provisionerId: params.provisionerId,
+      providerRunnerId,
+      reason: 'session-exhausted',
+      resolveTerminationReason: (reason) =>
+        params.terminationReasonResolver?.({
+          provisionerId: params.provisionerId,
+          providerRunnerId,
+          reason,
+        }) ?? null,
+    });
+  }
+}
+
+async function lockRunnerActivationAdvisoryKeyTx(tx: Tx, runnerInstanceId: string): Promise<void> {
+  await tx.execute(
+    sql`select pg_advisory_xact_lock(hashtext(${`runners_activation:${runnerInstanceId}`}))`,
+  );
 }
 
 async function reconcileAbsentRunnerInstancesTx(

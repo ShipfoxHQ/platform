@@ -988,16 +988,38 @@ export async function recordHeartbeat(params: {
  * queue row, requests cancellation on its running lease, and converges any linked reservation.
  * The operation is idempotent and preserves the first cancellation-request timestamp.
  */
+async function findJobExecutionWorkspaceId(jobExecutionId: string): Promise<string | null> {
+  const [pending] = await db()
+    .select({workspaceId: pendingJobExecutions.workspaceId})
+    .from(pendingJobExecutions)
+    .where(eq(pendingJobExecutions.jobExecutionId, jobExecutionId))
+    .limit(1);
+  if (pending) return pending.workspaceId;
+
+  const [running] = await db()
+    .select({workspaceId: runningJobExecutions.workspaceId})
+    .from(runningJobExecutions)
+    .where(eq(runningJobExecutions.jobExecutionId, jobExecutionId))
+    .limit(1);
+  return running?.workspaceId ?? null;
+}
+
 export async function reconcileTerminalJobExecution(params: {
   jobExecutionId: string;
   cancellationReason?: RunnerJobStopReasonDto | null;
 }): Promise<void> {
+  const workspaceId = await findJobExecutionWorkspaceId(params.jobExecutionId);
+  if (!workspaceId) return;
+
   await db().transaction(async (tx) => {
+    // Reconciliation and session-exhausted cleanup both begin with the workspace lock. Keep
+    // completion in that order so either transaction observes the live lease or its removal.
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${workspaceId}))`);
     await lockJobExecution(tx, params.jobExecutionId);
 
-    // Delete pending before updating running to match claim/release lock order. Claim locks
-    // pending rows with SKIP LOCKED before inserting the running lease, so this ordering makes
-    // a concurrent terminal reconciliation either win before claim or cancel the new lease.
+    // Delete pending before updating running to match lock order with claim. Claim locks pending
+    // rows before inserting the running lease, so this ordering makes terminal reconciliation
+    // either win before claim or cancel the new lease.
     await tx
       .delete(pendingJobExecutions)
       .where(eq(pendingJobExecutions.jobExecutionId, params.jobExecutionId));
