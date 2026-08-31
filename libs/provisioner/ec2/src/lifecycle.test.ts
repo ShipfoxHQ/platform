@@ -1123,6 +1123,40 @@ describe('createEc2Lifecycle', () => {
     );
   });
 
+  it('does not force an authorized stopping instance with a live bound job', async () => {
+    const now = new Date(NOW);
+    const stoppingAt = new Date(now.getTime() - 300_001);
+    const client = fakeClient({
+      reconcileResponse: {
+        runners: [
+          reconciledRunner(
+            'runner-1',
+            'terminate',
+            null,
+            null,
+            true,
+            'stopping',
+            'job-cancelled',
+            stoppingAt.toISOString(),
+            {
+              job_id: '00000000-0000-4000-8000-000000000004',
+              workflow_run_attempt_id: '00000000-0000-4000-8000-000000000005',
+              last_heartbeat_at: now.toISOString(),
+              cancellation_requested_at: null,
+            },
+          ),
+        ],
+        terminated_absent_provider_runner_ids: [],
+      },
+    });
+    const engine = fakeEngine({instances: [instance({state: 'stopping'})]});
+    const lifecycle = makeLifecycle({engine, client, now: () => now, stoppingTimeoutMs: 300_000});
+
+    await lifecycle.reconcile();
+
+    expect(engine.terminationCalls).toEqual([]);
+  });
+
   it('does not force an authorized stopping instance before its deadline', async () => {
     const now = new Date(NOW);
     const instances = [instance({state: 'stopping'})];
@@ -1152,6 +1186,43 @@ describe('createEc2Lifecycle', () => {
     expect(client.reportBodies.flatMap((body) => body.events)).toEqual([
       expect.objectContaining({provider_runner_id: 'runner-1', state: 'stopping'}),
     ]);
+  });
+
+  it('does not force retry after a reasonless termination action', async () => {
+    const now = new Date(NOW);
+    const instances = [instance({state: 'running'})];
+    const stoppingAt = new Date(now.getTime() - 300_001);
+    const client = fakeClient({
+      reconcileResponses: [
+        {
+          runners: [reconciledRunner('runner-1', 'terminate')],
+          terminated_absent_provider_runner_ids: [],
+        },
+        {
+          runners: [
+            reconciledRunner(
+              'runner-1',
+              'terminate',
+              null,
+              null,
+              true,
+              'stopping',
+              'job-cancelled',
+              stoppingAt.toISOString(),
+            ),
+          ],
+          terminated_absent_provider_runner_ids: [],
+        },
+      ],
+    });
+    const engine = fakeEngine({instances});
+    const lifecycle = makeLifecycle({engine, client, now: () => now, stoppingTimeoutMs: 300_000});
+
+    await lifecycle.reconcile();
+    instances[0] = instance({state: 'stopping'});
+    await lifecycle.reconcile();
+
+    expect(engine.terminationCalls).toEqual([{instanceIds: ['i-123'], options: undefined}]);
   });
 
   it('forces an already-authorized stopping instance after restart when no local action exists', async () => {
@@ -1562,6 +1633,7 @@ function reconciledRunner(
   state: ReconcileRunnerInstancesResponseDto['runners'][number]['state'] = 'running',
   terminationReason?: ReconcileRunnerInstancesResponseDto['runners'][number]['termination_reason'],
   stoppingAt?: string,
+  boundJob?: ReconcileRunnerInstancesResponseDto['runners'][number]['bound_job'],
 ) {
   return {
     provider_runner_id: providerRunnerId,
@@ -1570,7 +1642,7 @@ function reconciledRunner(
     ...(stoppingAt ? {stopping_at: stoppingAt} : {}),
     reservation_id: reservationId,
     runner_session_id: null,
-    bound_job: null,
+    bound_job: boundJob ?? null,
     desired_intent: desiredIntent,
     ...(terminationReason ? {termination_reason: terminationReason} : {}),
   };

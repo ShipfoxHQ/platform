@@ -460,12 +460,7 @@ function shouldRetryTermination(
   if (instance.state !== 'stopping' || !intent?.retryAllowed || !intent.reason) return false;
   if (!intent.stoppingAt) return false;
   const action = context.terminationActionedInstanceIds.get(instance.instanceId);
-  if (
-    action &&
-    (action.force ||
-      (action.authorizationReason !== undefined && action.authorizationReason !== intent.reason))
-  )
-    return false;
+  if (action && (action.force || action.authorizationReason !== intent.reason)) return false;
   return context.now().getTime() - intent.stoppingAt.getTime() >= context.stoppingTimeoutMs;
 }
 
@@ -784,10 +779,7 @@ async function terminateInstances(
     const action = context.terminationActionedInstanceIds.get(instance.instanceId);
     if (!action) return true;
     if (!force || action.force) return false;
-    return (
-      action.authorizationReason === undefined ||
-      action.authorizationReason === authorizationReasons.get(instance.instanceId)
-    );
+    return action.authorizationReason === authorizationReasons.get(instance.instanceId);
   });
   for (const instance of instancesToTerminate) {
     const force = forceInstanceIds.has(instance.instanceId);
