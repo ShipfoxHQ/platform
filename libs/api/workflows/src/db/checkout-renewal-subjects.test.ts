@@ -1,4 +1,5 @@
 import {eq} from 'drizzle-orm';
+import {normalizeRepositoryUrl} from '#core/entities/checkout-renewal-subject.js';
 import {
   loadCheckoutRenewalSubject,
   promoteCheckoutRenewalSubject,
@@ -10,6 +11,7 @@ import {jobExecutions} from '#db/schema/job-executions.js';
 import {jobs} from '#db/schema/jobs.js';
 import {steps} from '#db/schema/steps.js';
 import {
+  bulkUpdateStepStatuses,
   finishStepAttempt,
   insertRunningStepAttempt,
   rewindStepsToPending,
@@ -22,7 +24,10 @@ import {
 } from '#db/workflow-runs.js';
 import {workflowModel} from '#test/factories/workflow-model.js';
 
-async function checkoutFixture(persistCredentials = true) {
+async function checkoutFixture(
+  persistCredentials = true,
+  permissions: {contents: 'read' | 'write'} | null = {contents: 'write'},
+) {
   const workspaceId = crypto.randomUUID();
   const projectId = crypto.randomUUID();
   const run = await createWorkflowRun({
@@ -67,6 +72,14 @@ async function checkoutFixture(persistCredentials = true) {
     .set({status: 'running'})
     .where(eq(jobExecutions.id, execution.id));
   await db().update(steps).set({status: 'running'}).where(eq(steps.id, step.id));
+  if (permissions === null) {
+    const checkoutConfig = {...(step.config.checkout as Record<string, unknown>)};
+    delete checkoutConfig.permissions;
+    await db()
+      .update(steps)
+      .set({config: {...step.config, checkout: checkoutConfig}})
+      .where(eq(steps.id, step.id));
+  }
 
   return {run, job, execution, step};
 }
@@ -85,6 +98,12 @@ function subject(fixture: Awaited<ReturnType<typeof checkoutFixture>>, attempt =
 }
 
 describe('checkout renewal subjects', () => {
+  test('normalizes SCP-like repository URLs', () => {
+    expect(normalizeRepositoryUrl('git@GitHub.com:acme/repo.git/?ref=main#checkout')).toBe(
+      'git@github.com:acme/repo.git',
+    );
+  });
+
   test('promotes one frozen subject after the matching attempt succeeds', async () => {
     const fixture = await checkoutFixture();
     const first = subject(fixture);
@@ -122,6 +141,30 @@ describe('checkout renewal subjects', () => {
       .from(checkoutRenewalSubjects)
       .where(eq(checkoutRenewalSubjects.stepId, fixture.step.id));
     expect(stored?.status).toBe('promoted');
+  });
+
+  test('uses read permissions when the checkout omits permissions', async () => {
+    const fixture = await checkoutFixture(true, null);
+    const pending = {...subject(fixture), permissions: {contents: 'read' as const}};
+
+    expect(await savePendingCheckoutRenewalSubject(pending)).toBe(true);
+    await withTransaction((tx) =>
+      insertRunningStepAttempt(
+        {jobExecutionId: fixture.execution.id, stepId: fixture.step.id, attempt: 1},
+        tx,
+      ),
+    );
+    await withTransaction((tx) =>
+      finishStepAttempt(
+        {stepId: fixture.step.id, attempt: 1, status: 'succeeded', logOutcome: 'drained'},
+        tx,
+      ),
+    );
+    await db().update(steps).set({status: 'succeeded'}).where(eq(steps.id, fixture.step.id));
+
+    await expect(loadCheckoutRenewalSubject(fixture.step.id)).resolves.toMatchObject({
+      permissions: {contents: 'read'},
+    });
   });
 
   test('selects the current attempt after a retry', async () => {
@@ -192,6 +235,21 @@ describe('checkout renewal subjects', () => {
     }
 
     expect(await loadCheckoutRenewalSubject(fixture.step.id)).toBeNull();
+  });
+
+  test('discards pending subjects during a bulk terminalization', async () => {
+    const fixture = await checkoutFixture();
+    expect(await savePendingCheckoutRenewalSubject(subject(fixture))).toBe(true);
+
+    await withTransaction((tx) =>
+      bulkUpdateStepStatuses({jobExecutionId: fixture.execution.id, status: 'cancelled'}, tx),
+    );
+
+    const stored = await db()
+      .select()
+      .from(checkoutRenewalSubjects)
+      .where(eq(checkoutRenewalSubjects.stepId, fixture.step.id));
+    expect(stored).toHaveLength(0);
   });
 
   test('fails closed for a stale promoted subject', async () => {

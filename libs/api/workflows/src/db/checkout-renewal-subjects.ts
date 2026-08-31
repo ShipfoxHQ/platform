@@ -209,11 +209,15 @@ function checkoutPolicy(config: unknown): {
   if (typeof checkout !== 'object' || checkout === null || Array.isArray(checkout)) return null;
   const policy = checkout as {persist_credentials?: unknown; permissions?: unknown};
   const permissions = policy.permissions;
-  if (typeof permissions !== 'object' || permissions === null || Array.isArray(permissions)) {
-    return null;
+  let contents: 'read' | 'write' = 'read';
+  if (permissions !== undefined) {
+    if (typeof permissions !== 'object' || permissions === null || Array.isArray(permissions)) {
+      return null;
+    }
+    const configuredContents = (permissions as {contents?: unknown}).contents;
+    if (configuredContents !== 'read' && configuredContents !== 'write') return null;
+    contents = configuredContents;
   }
-  const contents = (permissions as {contents?: unknown}).contents;
-  if (contents !== 'read' && contents !== 'write') return null;
   if (policy.persist_credentials !== undefined && typeof policy.persist_credentials !== 'boolean') {
     return null;
   }

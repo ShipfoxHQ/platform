@@ -14,6 +14,7 @@ import {
   promoteCheckoutRenewalSubject,
 } from '../checkout-renewal-subjects.js';
 import {db, type Tx} from '../db.js';
+import {checkoutRenewalSubjects} from '../schema/checkout-renewal-subjects.js';
 import {jobExecutions} from '../schema/job-executions.js';
 import {jobs} from '../schema/jobs.js';
 import {stepAttempts, toStepAttempt} from '../schema/step-attempts.js';
@@ -186,6 +187,21 @@ export async function bulkUpdateStepStatuses(
       updatedAt: new Date(),
     })
     .where(and(eq(steps.jobExecutionId, params.jobExecutionId), NON_TERMINAL_STEP_STATUS_FILTER));
+
+  await tx
+    .delete(checkoutRenewalSubjects)
+    .where(
+      and(
+        eq(checkoutRenewalSubjects.status, 'pending'),
+        inArray(
+          checkoutRenewalSubjects.stepId,
+          tx
+            .select({id: steps.id})
+            .from(steps)
+            .where(eq(steps.jobExecutionId, params.jobExecutionId)),
+        ),
+      ),
+    );
 
   // Finalize open attempt rows so a timed-out/cancelled sweep does not leave
   // phantom in-flight work for gate and restart logic.
@@ -501,10 +517,23 @@ export async function finishStepAttempt(params: FinishStepAttemptParams, tx: Tx)
   const row = rows[0];
   if (!row) return;
 
-  if (params.status === 'succeeded') {
-    await promoteCheckoutRenewalSubject({stepId: row.stepId, attempt: row.attempt}, tx);
-  } else {
-    await discardPendingCheckoutRenewalSubject({stepId: row.stepId, attempt: row.attempt}, tx);
+  const [pendingSubject] = await tx
+    .select({id: checkoutRenewalSubjects.id})
+    .from(checkoutRenewalSubjects)
+    .where(
+      and(
+        eq(checkoutRenewalSubjects.stepId, row.stepId),
+        eq(checkoutRenewalSubjects.attempt, row.attempt),
+        eq(checkoutRenewalSubjects.status, 'pending'),
+      ),
+    )
+    .limit(1);
+  if (pendingSubject) {
+    if (params.status === 'succeeded') {
+      await promoteCheckoutRenewalSubject({stepId: row.stepId, attempt: row.attempt}, tx);
+    } else {
+      await discardPendingCheckoutRenewalSubject({stepId: row.stepId, attempt: row.attempt}, tx);
+    }
   }
 
   await writeStepAttemptTerminatedOutbox(tx, {

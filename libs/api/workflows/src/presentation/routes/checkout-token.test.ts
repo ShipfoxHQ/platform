@@ -287,6 +287,11 @@ describe('POST /runs/jobs/current/steps/:stepId/checkout-token', () => {
       ref: 'trunk',
       fetch_depth: 1,
     });
+    const [storedSubject] = await db()
+      .select()
+      .from(checkoutRenewalSubjects)
+      .where(eq(checkoutRenewalSubjects.stepId, step.id));
+    expect(storedSubject).toBeUndefined();
   });
 
   test('mints an explicit checkout step from its target, ref, permissions, and fetch depth', async () => {

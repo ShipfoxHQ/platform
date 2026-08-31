@@ -1,5 +1,6 @@
 const TRAILING_SLASHES_RE = /\/+$/;
-const SCP_LIKE_RE = /^(?:[^@:/]+@)?[^:/]+:.+$/u;
+const QUERY_FRAGMENT_RE = /[?#].*$/u;
+const SCP_LIKE_RE = /^(?:(?<user>[^@:/]+)@)?(?<host>[^:/]+):(?<path>.+)$/u;
 
 export interface CheckoutRenewalSubject {
   repositoryUrl: string;
@@ -31,9 +32,21 @@ export function normalizeRepositoryUrl(repositoryUrl: string): string {
     if (error instanceof Error && error.message.includes('must not embed credentials')) {
       throw error;
     }
-    if (SCP_LIKE_RE.test(value)) {
-      return value.replace(TRAILING_SLASHES_RE, '');
-    }
+    return normalizeScpLikeRepositoryUrl(value);
+  }
+}
+
+function normalizeScpLikeRepositoryUrl(value: string): string {
+  const scpLike = value.match(SCP_LIKE_RE);
+  if (scpLike?.groups === undefined) {
     throw new Error('Checkout repository URL must be valid');
   }
+  const {host, path, user: scpUser} = scpLike.groups;
+  if (host === undefined || path === undefined) {
+    throw new Error('Checkout repository URL must be valid');
+  }
+  const normalizedPath = path.replace(QUERY_FRAGMENT_RE, '').replace(TRAILING_SLASHES_RE, '');
+  if (normalizedPath.length === 0) throw new Error('Checkout repository URL must be valid');
+  const user = scpUser === undefined ? '' : `${scpUser.toLowerCase()}@`;
+  return `${user}${host.toLowerCase()}:${normalizedPath}`;
 }
