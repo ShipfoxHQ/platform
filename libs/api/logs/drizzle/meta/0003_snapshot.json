@@ -118,7 +118,7 @@
         },
         "line_count": {
           "name": "line_count",
-          "type": "integer",
+          "type": "bigint",
           "primaryKey": false,
           "notNull": false
         },

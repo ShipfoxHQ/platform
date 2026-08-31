@@ -23,5 +23,6 @@ export type {
   PutObjectBytesParams,
   StoredObjectBytes,
   StoredObjectHead,
+  StoredObjectStream,
 } from './store.js';
 export {assertObjectStoragePrefix, createS3ObjectStore, S3ObjectStore} from './store.js';

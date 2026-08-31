@@ -1,22 +1,24 @@
 import {Buffer} from 'node:buffer';
-import type {
-  LogRecord,
-  SessionViewLifecycleRow,
-  SessionViewMessageRow,
-  SessionViewRow,
-  SessionViewRowMeta,
-  SessionViewThinkingRow,
-  SessionViewToolCallRow,
-  SessionViewToolResultRow,
+import {
+  type LogRecord,
+  MAX_STEP_LOG_TAIL_LINES,
+  parseLogRecordLine,
+  type SessionViewLifecycleRow,
+  type SessionViewMessageRow,
+  type SessionViewRow,
+  type SessionViewRowMeta,
+  type SessionViewThinkingRow,
+  type SessionViewToolCallRow,
+  type SessionViewToolResultRow,
 } from '@shipfox/api-logs-dto';
-import {parseLogRecordLine} from '@shipfox/api-logs-dto';
 
-export const DEFAULT_STEP_LOG_TAIL_LINES = 500;
-export const MAX_STEP_LOG_TAIL_LINES = 2_000;
+export {DEFAULT_STEP_LOG_TAIL_LINES, MAX_STEP_LOG_TAIL_LINES} from '@shipfox/api-logs-dto';
+
 export const MAX_STEP_LOG_TAIL_BYTES = 256 * 1024;
 export const MAX_STEP_LOG_LINE_BYTES = 8 * 1024;
 export const STEP_LOG_TRUNCATION_MARKER = '...[TRUNCATED]';
 
+const MAX_DATE_TIMESTAMP_MS = 8_640_000_000_000_000;
 const MAX_TAIL_RECORD_BYTES = 32 * 1024;
 const MAX_SESSION_META_ITEMS = 8;
 const MAX_SESSION_META_LABEL_BYTES = 256;
@@ -196,16 +198,16 @@ function recordChannel(record: LogRecord): string {
   return 'system';
 }
 
-function renderPreparedRecord(record: LogRecord): string {
-  return truncateUtf8(
-    `${new Date(record.ts).toISOString()} ${recordChannel(record)}: ${formatRecordText(record)}`,
-    MAX_STEP_LOG_LINE_BYTES,
-  );
+function formatTimestamp(timestamp: number): string {
+  if (!Number.isFinite(timestamp)) return 'unknown-time';
+  return new Date(Math.min(MAX_DATE_TIMESTAMP_MS, Math.max(0, timestamp))).toISOString();
 }
 
-/** Renders a stored record in the one plain-text format shared by hot and cold reads. */
-export function renderTailRecord(record: LogRecord): string {
-  return renderPreparedRecord(prepareTailRecord(record));
+function renderPreparedRecord(record: LogRecord): string {
+  return truncateUtf8(
+    `${formatTimestamp(record.ts)} ${recordChannel(record)}: ${formatRecordText(record)}`,
+    MAX_STEP_LOG_LINE_BYTES,
+  );
 }
 
 function invalidRecordLine(line: string): LogRecord {
@@ -251,6 +253,11 @@ class TailRing {
 
   addForward(line: TailLine): void {
     this.#totalLines++;
+    if (line.serialized.length > this.maxBytes) {
+      this.#lines = [];
+      this.#bytes = 0;
+      return;
+    }
     this.#lines.push(line);
     this.#bytes += line.serialized.length;
     while (this.#lines.length > this.maxLines || this.#bytes > this.maxBytes) {
@@ -262,6 +269,7 @@ class TailRing {
 
   addReverse(line: TailLine): boolean {
     if (this.#lines.length >= this.maxLines) return false;
+    if (line.serialized.length > this.maxBytes) return false;
     if (this.#lines.length > 0 && this.#bytes + line.serialized.length > this.maxBytes)
       return false;
     this.#totalLines++;

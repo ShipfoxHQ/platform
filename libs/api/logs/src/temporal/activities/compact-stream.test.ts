@@ -215,6 +215,7 @@ describe('compactStreamActivity', () => {
     compactedGzipStreamMock.mockReturnValueOnce({
       body: Readable.from([]).pipe(createGzip()),
       stats: {chunkCount: 0, lastSeq: 0, uncompressedBytes: 0},
+      tailArtifact: Promise.resolve({body: Buffer.alloc(0), lineCount: 0, tailLineCount: 0}),
     });
 
     await expect(runCompaction(stream.id, compactStreamActivityWithMocks)).rejects.toThrow(
@@ -225,6 +226,28 @@ describe('compactStreamActivity', () => {
     expect(after?.objectKey).toBeNull();
     expect(await listChunks(stream.id)).toHaveLength(2);
     expect(await listKeysUnderStream(identity)).toEqual([]);
+  });
+
+  it('keeps published objects when the publication acknowledgement is lost', async () => {
+    const identity = newIdentity();
+    const stream = await arrangeClosedStream(identity, {chunks: [ndjsonBody(outputLine('x\n'))]});
+    setObjectKeyAndDeleteChunksMock.mockImplementationOnce(async (_tx, params) => {
+      // Commit the publication independently, then emulate a client-side failure after the
+      // database acknowledgement is lost. The activity must not delete the durable copies.
+      await db().transaction((tx) => setObjectKeyAndDeleteChunks(tx, params));
+      throw new Error('publication acknowledgement lost');
+    });
+
+    await expect(runCompaction(stream.id, compactStreamActivityWithMocks)).rejects.toThrow(
+      'publication acknowledgement lost',
+    );
+
+    const after = await getAttemptStreamById(stream.id);
+    expect(after?.objectKey).not.toBeNull();
+    const key = after?.objectKey as string;
+    expect(await listKeysUnderStream(identity)).toEqual([key, compactedTailObjectKey(key)]);
+    await deleteObject(key);
+    await deleteObject(compactedTailObjectKey(key));
   });
 
   it('deletes its own upload and reports superseded when another attempt won the publish', async () => {

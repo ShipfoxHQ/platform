@@ -1,4 +1,4 @@
-import {Buffer} from 'node:buffer';
+import type {Buffer} from 'node:buffer';
 import {Readable} from 'node:stream';
 import {createGzip} from 'node:zlib';
 import {readChunksKeyset} from '#db/chunks.js';
@@ -25,8 +25,8 @@ export interface CompactionTailArtifact {
 export interface CompactedGzipStream {
   body: Readable;
   stats: CompactionStreamStats;
-  /** Available after `body` has been consumed. */
-  tailArtifact?: CompactionTailArtifact;
+  /** Resolves after `body` has been fully consumed and the bounded artifact is complete. */
+  tailArtifact: Promise<CompactionTailArtifact>;
 }
 
 export interface CompactedGzipStreamParams {
@@ -49,37 +49,48 @@ export interface CompactedGzipStreamParams {
 export function compactedGzipStream(params: CompactedGzipStreamParams): CompactedGzipStream {
   const stats: CompactionStreamStats = {chunkCount: 0, lastSeq: 0, uncompressedBytes: 0};
   const tail = new ForwardLogTail();
-  const tailArtifact: CompactionTailArtifact = {
-    body: Buffer.alloc(0),
-    lineCount: 0,
-    tailLineCount: 0,
-  };
+  let resolveTailArtifact!: (artifact: CompactionTailArtifact) => void;
+  let rejectTailArtifact!: (error: unknown) => void;
+  const tailArtifact = new Promise<CompactionTailArtifact>((resolve, reject) => {
+    resolveTailArtifact = resolve;
+    rejectTailArtifact = reject;
+  });
+  // The upload consumes the body before awaiting the artifact. Mark source failures handled on
+  // this side promise too, while preserving the rejection for callers that do await it.
+  void tailArtifact.catch(() => undefined);
 
   async function* chunks(): AsyncGenerator<Buffer> {
-    let afterSeq = 0;
-    while (true) {
-      const page = await readChunksKeyset({
-        streamId: params.streamId,
-        afterSeq,
-        limit: CHUNK_PAGE_SIZE,
-      });
-      if (page.length === 0) break;
-      params.onPage?.();
-      for (const row of page) {
-        stats.chunkCount += 1;
-        stats.lastSeq = row.seq;
-        stats.uncompressedBytes += row.data.length;
-        tail.addChunk(row.data);
-        yield row.data;
+    try {
+      let afterSeq = 0;
+      while (true) {
+        const page = await readChunksKeyset({
+          streamId: params.streamId,
+          afterSeq,
+          limit: CHUNK_PAGE_SIZE,
+        });
+        if (page.length === 0) break;
+        params.onPage?.();
+        for (const row of page) {
+          stats.chunkCount += 1;
+          stats.lastSeq = row.seq;
+          stats.uncompressedBytes += row.data.length;
+          tail.addChunk(row.data);
+          yield row.data;
+        }
+        afterSeq = page.at(-1)?.seq ?? afterSeq;
+        if (page.length < CHUNK_PAGE_SIZE) break;
       }
-      afterSeq = page.at(-1)?.seq ?? afterSeq;
-      if (page.length < CHUNK_PAGE_SIZE) break;
+      const result = tail.finish();
+      stats.lineCount = result.totalLines;
+      resolveTailArtifact({
+        body: result.ndjson,
+        lineCount: result.totalLines,
+        tailLineCount: result.retainedLines,
+      });
+    } catch (error) {
+      rejectTailArtifact(error);
+      throw error;
     }
-    const result = tail.finish();
-    stats.lineCount = result.totalLines;
-    tailArtifact.body = result.ndjson;
-    tailArtifact.lineCount = result.totalLines;
-    tailArtifact.tailLineCount = result.retainedLines;
   }
 
   const source = Readable.from(chunks());

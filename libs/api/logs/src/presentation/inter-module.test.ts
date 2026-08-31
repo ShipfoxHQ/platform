@@ -6,10 +6,12 @@ import {
   type InterModuleTransport,
 } from '@shipfox/node-module/inter-module';
 import {MockActivityEnvironment} from '@temporalio/testing';
+import {eq} from 'drizzle-orm';
 import {compactedTailObjectKey, deleteObject} from '#api/object-storage.js';
 import {appendLogs} from '#core/append-logs.js';
 import {insertChunk} from '#db/chunks.js';
 import {db} from '#db/db.js';
+import {attemptStreams} from '#db/schema/attempt-streams.js';
 import {getOrCreateAttemptStream} from '#db/streams.js';
 import {createLogsInterModulePresentation} from '#presentation/inter-module.js';
 import {
@@ -124,12 +126,13 @@ describe('logs inter-module presentation', () => {
       }
     });
 
-    const result = await logs.readStepLogTail({stepId: ctx.stepId, attempt: 1, tailLines: 3});
+    const result = await logs.readStepLogTail({stepId: ctx.stepId, attempt: 1, tailLines: 70});
 
-    expect(result?.content).toContain('line-67');
-    expect(result?.content).toContain('line-68');
-    expect(result?.content).toContain('line-69');
-    expect(result?.content).not.toContain('line-0');
+    expect(result?.content).toBe(
+      Array.from({length: 70}, (_, index) => `1970-01-01T00:00:00.001Z stdout: line-${index}`).join(
+        '\n',
+      ),
+    );
   });
 
   it('reads the same rendered tail from a compacted artifact and returns its line count', async () => {
@@ -165,6 +168,10 @@ describe('logs inter-module presentation', () => {
     const compacted = await runCompaction(stream.id);
     if (compacted.outcome !== 'compacted') throw new Error('expected compacted stream');
 
+    await db()
+      .update(attemptStreams)
+      .set({lineCount: null})
+      .where(eq(attemptStreams.id, stream.id));
     await deleteObject(compactedTailObjectKey(compacted.objectKey));
     const result = await logs.readStepLogTail({stepId: identity.stepId, attempt: 1, tailLines: 2});
 
@@ -172,6 +179,48 @@ describe('logs inter-module presentation', () => {
     expect(result?.content).toContain('three');
     expect(result?.totalLines).toBe(3);
     await deleteObject(compacted.objectKey);
+  });
+
+  it('omits totalLines for a legacy compacted row when its tail artifact exists', async () => {
+    const identity = {...newCtx(), attempt: 1};
+    const logs = buildSealedLogsClient();
+    const stream = await arrangeClosedStream(identity, {
+      chunks: [ndjsonBody(outputLine('one\n'), outputLine('two\n'), outputLine('three\n'))],
+    });
+    const compacted = await runCompaction(stream.id);
+    if (compacted.outcome !== 'compacted') throw new Error('expected compacted stream');
+
+    await db()
+      .update(attemptStreams)
+      .set({lineCount: null})
+      .where(eq(attemptStreams.id, stream.id));
+    const result = await logs.readStepLogTail({stepId: identity.stepId, attempt: 1, tailLines: 2});
+
+    expect(result?.content).toContain('two');
+    expect(result?.content).toContain('three');
+    expect(result?.totalLines).toBeUndefined();
+    await deleteObject(compacted.objectKey);
+    await deleteObject(compactedTailObjectKey(compacted.objectKey));
+  });
+
+  it('maps a compacted-log storage gap without exposing the object key', async () => {
+    const identity = {...newCtx(), attempt: 1};
+    const logs = buildSealedLogsClient();
+    const stream = await arrangeClosedStream(identity, {chunks: [ndjsonBody(outputLine('one\n'))]});
+    const compacted = await runCompaction(stream.id);
+    if (compacted.outcome !== 'compacted') throw new Error('expected compacted stream');
+
+    await deleteObject(compacted.objectKey);
+    await deleteObject(compactedTailObjectKey(compacted.objectKey));
+    const error = await logs
+      .readStepLogTail({stepId: identity.stepId, attempt: 1, tailLines: 1})
+      .catch((caught: unknown) => caught);
+
+    expect(isInterModuleKnownError(logsInterModuleContract.methods.readStepLogTail, error)).toBe(
+      true,
+    );
+    expect(error).toMatchObject({code: 'compacted-log-unavailable', details: {}});
+    expect(String(error)).not.toContain(compacted.objectKey);
   });
 
   it('uses the same UTF-8-safe line truncation for hot and cold session records', async () => {

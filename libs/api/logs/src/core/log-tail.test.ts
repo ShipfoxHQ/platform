@@ -25,6 +25,13 @@ describe('bounded step-log tail', () => {
     expect(truncated).not.toContain('\uFFFD');
   });
 
+  it('clamps timestamps outside the JavaScript Date range', () => {
+    const line = tailLineFromRecord(output('timestamped\n', Number.MAX_SAFE_INTEGER));
+
+    expect(line.rendered).toContain('+275760-09-13T00:00:00.000Z stdout: timestamped');
+    expect(line.rendered).not.toContain('Invalid Date');
+  });
+
   it('keeps the newest records when either tail budget is reached', () => {
     const first = tailLineFromRecord(output('first\n'));
     const second = tailLineFromRecord(output('second\n'));
@@ -51,6 +58,16 @@ describe('bounded step-log tail', () => {
     for (const chunk of [...chunks].reverse()) reverse.addChunk(chunk);
 
     expect(reverse.finish().content).toBe(forward.finish().content);
+  });
+
+  it('stops reverse walking when the byte budget is full', () => {
+    const first = tailLineFromRecord(output('first\n'));
+    const second = tailLineFromRecord(output('second\n'));
+    const tail = new ReverseLogTail(10, second.serialized.length);
+
+    expect(tail.addChunk(Buffer.concat([first.serialized, second.serialized]))).toBe(false);
+    expect(tail.finish().content).toContain('second');
+    expect(tail.finish().content).not.toContain('first');
   });
 
   it('truncates normalized session content consistently before rendering', () => {

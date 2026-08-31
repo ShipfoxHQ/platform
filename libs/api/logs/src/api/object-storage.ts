@@ -6,6 +6,7 @@ import {
   resolveObjectStorageS3Profile,
   type S3ObjectStore,
   type StoredObjectHead,
+  type StoredObjectStream,
 } from '@shipfox/node-object-storage';
 import {logger} from '@shipfox/node-opentelemetry';
 import {config} from '#config.js';
@@ -99,6 +100,10 @@ export async function deleteObjectsByPrefix(prefix: string): Promise<void> {
 
 export async function getObjectBytes(key: string): Promise<Buffer | null> {
   return (await objectStore().getBytes(key))?.body ?? null;
+}
+
+export function getObjectStream(key: string): Promise<StoredObjectStream | null> {
+  return objectStore().getStream(key);
 }
 
 export function headObject(key: string): Promise<StoredObjectHead | null> {

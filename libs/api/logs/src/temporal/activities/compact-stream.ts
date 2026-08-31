@@ -83,6 +83,24 @@ async function compactStream(
     cleanupComplete = true;
   };
 
+  const cleanupUnlessPublished = async (): Promise<void> => {
+    // A client-side error can arrive after the publication transaction committed. Never delete
+    // the only durable copies until a fresh primary read proves this attempt did not publish.
+    let current: AttemptStream | null;
+    try {
+      current = await getAttemptStreamById(stream.id);
+    } catch {
+      // Preserve the uploads when the read needed to disambiguate commit state fails. The retry
+      // can observe the row and clean up only if it is still unpublished.
+      return;
+    }
+    if (current?.objectKey === uploadKey) {
+      cleanupComplete = true;
+      return;
+    }
+    await cleanupUploads();
+  };
+
   const expected = await chunkStats(stream.id);
   try {
     const {stats, artifact} = await uploadCompactionObjects({
@@ -118,7 +136,7 @@ async function compactStream(
   } catch (error) {
     if (!published) {
       try {
-        await cleanupUploads();
+        await cleanupUnlessPublished();
       } catch {
         // The cleanup helper has already logged and reported each failed delete. Preserve the
         // original compaction error so Temporal retries the work and the row stays hot.
@@ -159,19 +177,17 @@ async function uploadCompactionObjects(params: {
   });
 
   assertCompactionStatsMatch(params.stream.id, stats, params.expected);
-  if (!tailArtifact) {
-    throw new Error(`Compaction did not produce a tail artifact for stream ${params.stream.id}`);
-  }
-  assertTailArtifactWithinBounds(params.stream.id, stats, tailArtifact);
+  const artifact = await tailArtifact;
+  assertTailArtifactWithinBounds(params.stream.id, stats, artifact);
 
   const tailMetadata = {
     stream_id: params.stream.id,
-    line_count: String(tailArtifact.lineCount),
-    tail_line_count: String(tailArtifact.tailLineCount),
-    uncompressed_bytes: String(tailArtifact.body.length),
+    line_count: String(artifact.lineCount),
+    tail_line_count: String(artifact.tailLineCount),
+    uncompressed_bytes: String(artifact.body.length),
   };
   const tailGzip = createGzip();
-  Readable.from([tailArtifact.body]).pipe(tailGzip);
+  Readable.from([artifact.body]).pipe(tailGzip);
   await putCompactedObject({
     key: params.tailKey,
     body: tailGzip,
@@ -182,7 +198,7 @@ async function uploadCompactionObjects(params: {
 
   await verifyCompactedObject(params.uploadKey, fullMetadata);
   await verifyCompactedObject(params.tailKey, tailMetadata);
-  return {stats, artifact: tailArtifact};
+  return {stats, artifact};
 }
 
 function assertCompactionStatsMatch(

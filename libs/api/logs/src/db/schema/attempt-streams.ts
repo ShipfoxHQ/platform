@@ -59,7 +59,7 @@ export const attemptStreams = pgTable(
     claudePendingResult: jsonb('claude_pending_result').$type<SessionViewLifecycleRow>(),
     claudePendingToolRows: jsonb('claude_pending_tool_rows').$type<SessionViewRow[]>(),
     truncated: boolean('truncated').notNull().default(false),
-    lineCount: integer('line_count'),
+    lineCount: bigint('line_count', {mode: 'number'}),
     objectKey: text('object_key'),
     createdAt: timestamp('created_at', {withTimezone: true}).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', {withTimezone: true}).notNull().defaultNow(),

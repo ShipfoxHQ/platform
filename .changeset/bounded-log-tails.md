@@ -1,6 +1,7 @@
 ---
 '@shipfox/api-logs': minor
 '@shipfox/api-logs-dto': minor
+'@shipfox/node-object-storage': minor
 ---
 
-Adds bounded hot and compacted step-log tail reads with an exact-attempt inter-module contract.
+Adds bounded step-log tail reads with consistent output before and after compaction.

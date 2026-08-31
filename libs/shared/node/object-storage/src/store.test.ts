@@ -1,4 +1,10 @@
-import {DeleteObjectsCommand, ListObjectsV2Command, S3Client} from '@aws-sdk/client-s3';
+import {Readable} from 'node:stream';
+import {
+  DeleteObjectsCommand,
+  GetObjectCommand,
+  ListObjectsV2Command,
+  S3Client,
+} from '@aws-sdk/client-s3';
 import type {ObjectStorageS3Profile} from './config.js';
 import {ObjectStorageDeleteError, ObjectStorageScopeError} from './errors.js';
 import {createS3ObjectStore} from './store.js';
@@ -61,6 +67,25 @@ describe('S3ObjectStore scope', () => {
     expect(keys).toEqual(['logs/a', 'logs/b']);
     expect(send).toHaveBeenCalledTimes(2);
     expect(send.mock.calls[1]?.[0]).toBeInstanceOf(ListObjectsV2Command);
+    store.close();
+  });
+
+  it('returns a large object body as a stream', async () => {
+    const body = Readable.from([Buffer.from('large object')]);
+    const send = vi.spyOn(S3Client.prototype, 'send').mockResolvedValueOnce({
+      Body: body,
+      ContentEncoding: 'gzip',
+      ContentType: 'application/octet-stream',
+      Metadata: {stream_id: 'stream-1'},
+    } as never);
+    const store = createS3ObjectStore({profile, prefix: 'logs'});
+
+    const result = await store.getStream('logs/object');
+
+    expect(result?.body).toBe(body);
+    expect(result?.metadata).toEqual({stream_id: 'stream-1'});
+    expect(result?.contentEncoding).toBe('gzip');
+    expect(send.mock.calls[0]?.[0]).toBeInstanceOf(GetObjectCommand);
     store.close();
   });
 

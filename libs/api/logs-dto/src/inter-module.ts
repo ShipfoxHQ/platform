@@ -1,11 +1,11 @@
 import {defineInterModuleContract, type InterModuleClient} from '@shipfox/inter-module';
 import {z} from 'zod';
 import {serverLogRecordSchema} from './schemas/index.js';
+import {DEFAULT_STEP_LOG_TAIL_LINES, MAX_STEP_LOG_TAIL_LINES} from './tail.js';
 
 const idSchema = z.string().uuid();
 
-export const DEFAULT_STEP_LOG_TAIL_LINES = 500;
-export const MAX_STEP_LOG_TAIL_LINES = 2_000;
+export {DEFAULT_STEP_LOG_TAIL_LINES, MAX_STEP_LOG_TAIL_LINES} from './tail.js';
 
 /**
  * Producer-owned Logs commands used by synchronous callers. The exact-attempt tail read and
@@ -37,6 +37,9 @@ export const logsInterModuleContract = defineInterModuleContract({
           totalLines: z.number().int().nonnegative().optional(),
         })
         .nullable(),
+      errors: {
+        'compacted-log-unavailable': z.object({}),
+      },
     },
     appendServerRecords: {
       input: z.object({

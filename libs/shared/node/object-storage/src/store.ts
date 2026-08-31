@@ -1,4 +1,4 @@
-import type {Readable} from 'node:stream';
+import {Readable} from 'node:stream';
 import {
   DeleteObjectCommand,
   DeleteObjectsCommand,
@@ -48,6 +48,13 @@ export interface PutMultipartObjectParams {
 
 export interface StoredObjectBytes {
   readonly body: Buffer;
+  readonly metadata: Record<string, string>;
+  readonly contentType?: string | undefined;
+  readonly contentEncoding?: string | undefined;
+}
+
+export interface StoredObjectStream {
+  readonly body: Readable;
   readonly metadata: Record<string, string>;
   readonly contentType?: string | undefined;
   readonly contentEncoding?: string | undefined;
@@ -148,6 +155,26 @@ export class S3ObjectStore {
         : Buffer.alloc(0);
       return {
         body,
+        metadata: response.Metadata ?? {},
+        contentType: response.ContentType,
+        contentEncoding: response.ContentEncoding,
+      };
+    } catch (error) {
+      if (isNotFoundError(error)) return null;
+      throw error;
+    }
+  }
+
+  async getStream(key: string): Promise<StoredObjectStream | null> {
+    this.#assertInScope(key);
+    try {
+      const response = await this.#clients.transfer.send(
+        new GetObjectCommand({Bucket: this.#bucket, Key: key}),
+      );
+      return {
+        // The Node S3 client returns a Node Readable. Keep the cast at this adapter boundary so
+        // callers can consume large objects incrementally without materializing the body.
+        body: response.Body ? (response.Body as unknown as Readable) : Readable.from([]),
         metadata: response.Metadata ?? {},
         contentType: response.ContentType,
         contentEncoding: response.ContentEncoding,
