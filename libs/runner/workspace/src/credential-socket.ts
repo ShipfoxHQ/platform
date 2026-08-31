@@ -5,7 +5,6 @@ import {logger} from '@shipfox/node-opentelemetry';
 import {
   type CredentialBroker,
   type CredentialLookup,
-  DEFAULT_CREDENTIAL_RENEWAL_TIMEOUT_MS,
   normalizeRepositoryUrl,
 } from '#credential-broker.js';
 import {recordCredentialSocketRequest} from '#credential-metrics.js';
@@ -16,7 +15,6 @@ const MAX_CAPABILITY_BYTES = 512;
 const MAX_MESSAGE_BYTES = 16 * 1_024;
 const MAX_RESPONSE_BYTES = 64 * 1_024;
 const SOCKET_TIMEOUT_HEADROOM_MS = 5_000;
-const SOCKET_TIMEOUT_MS = DEFAULT_CREDENTIAL_RENEWAL_TIMEOUT_MS + SOCKET_TIMEOUT_HEADROOM_MS;
 const MAX_REQUEST_ATTEMPTS = 3;
 const RETRY_BACKOFF_MS = 25;
 const SOCKET_MODE = 0o600;
@@ -188,7 +186,12 @@ export async function requestCredentialSocket(
       return await requestCredentialSocketAttempt(socketPath, encoded);
     } catch (error) {
       lastError = error;
-      if (!isTransientSocketError(error) || attempt === MAX_REQUEST_ATTEMPTS - 1) throw error;
+      if (
+        !isTransientSocketError(error) ||
+        request.operation === 'erase' ||
+        attempt === MAX_REQUEST_ATTEMPTS - 1
+      )
+        throw error;
       await retryDelay(attempt);
     }
   }
@@ -201,7 +204,6 @@ function requestCredentialSocketAttempt(
 ): Promise<CredentialSocketResponse> {
   return new Promise((resolve, reject) => {
     const socket = createConnection(socketPath);
-    socket.setTimeout(SOCKET_TIMEOUT_MS, () => socket.destroy());
     let body = Buffer.alloc(0);
     let settled = false;
     let connected = false;

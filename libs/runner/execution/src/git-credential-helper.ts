@@ -1,4 +1,4 @@
-import {instanceMetrics, logger} from '@shipfox/node-opentelemetry';
+import {instanceMetrics} from '@shipfox/node-opentelemetry';
 import {normalizeRepositoryUrl} from '@shipfox/runner-workspace';
 import {
   type CredentialSocketOperation,
@@ -66,10 +66,6 @@ export async function main(params?: {
   } catch (error) {
     (params?.setExitCode ?? ((code: number) => (process.exitCode = code)))(1);
     recordHelperInvocation(operation, 'failure');
-    logger().error(
-      {operation, reason: error instanceof Error ? error.name : 'UnknownError'},
-      'Git credential helper failed',
-    );
     (params?.stderr ?? process.stderr).write(
       `git-credential-shipfox ${operation} failed: ${error instanceof Error ? error.name : 'UnknownError'}\n`,
     );

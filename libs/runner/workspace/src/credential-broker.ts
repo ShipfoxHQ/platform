@@ -240,8 +240,10 @@ export class CredentialBroker {
       const input = await this.requestRenewal(entry, rejectedGeneration);
       if (this.stopped) return;
       const credential = normalizeCredential(input);
-      if (!this.applyRenewedCredential(entry, credential, rejectedGeneration, rejectionRequested))
+      if (!this.applyRenewedCredential(entry, credential, rejectedGeneration, rejectionRequested)) {
+        if (this.isCurrentRenewal(entry, rejectionRequested)) recordCredentialRenewal('failure');
         return;
+      }
       await this.publish(credential).catch(() => undefined);
       if (!this.isCurrentRenewal(entry, rejectionRequested)) return;
       recordCredentialRenewal('success');
