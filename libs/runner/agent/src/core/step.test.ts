@@ -587,6 +587,25 @@ describe('executeAgentStep', () => {
     });
   });
 
+  it('does not preserve session metadata on fork invocation failures', async () => {
+    runAgentMock.mockRejectedValue(
+      new AgentInvocationError(
+        'Agent provider failed after writing a transcript',
+        'partial',
+        '/runner-agent/job-1/fork.jsonl',
+        'native-session-1',
+      ),
+    );
+
+    const result = await executeAgentStep(buildAgentStep(), {
+      runtime: RUNTIME,
+      session: {mode: 'fork'},
+    });
+
+    expect(result.sessionFile).toBeUndefined();
+    expect(result.sessionId).toBeUndefined();
+  });
+
   it('lazily selects the Claude adapter without falling back to pi', async () => {
     runClaudeMock.mockResolvedValue({response: 'claude done'});
 

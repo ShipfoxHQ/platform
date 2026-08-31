@@ -43,6 +43,21 @@ describe('startSessionForwarder', () => {
     ]);
   });
 
+  it('skips pre-existing entries when starting at the end of a forked session', () => {
+    writeFileSync(file, '{"type":"session"}\n{"type":"message","id":"parent"}\n');
+    const lines: string[] = [];
+    const forwarder = startSessionForwarder({
+      filePath: file,
+      onEntry: (l) => lines.push(l),
+      startAtEnd: true,
+    });
+
+    appendFileSync(file, '{"type":"message","id":"child"}\n');
+    forwarder.stop();
+
+    expect(lines).toEqual(['{"type":"message","id":"child"}']);
+  });
+
   it('forwards entries incrementally and in order as they are appended', async () => {
     const lines: string[] = [];
     writeFileSync(file, '');

@@ -122,6 +122,11 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
       collector,
       sessionInvocation: invocationSession,
     });
+  } catch (error) {
+    if (invocationSession?.mode === 'fork') {
+      await removeForkedSessionFile(session?.sessionFile);
+    }
+    throw error;
   } finally {
     await closePiSession({session, mcpConfig});
   }
@@ -138,18 +143,26 @@ async function createPiSession(params: {
   agentStateDir: string;
   sessionInvocation: HarnessInvocation['session'];
 }): Promise<PiSession> {
-  const created = await createAgentSessionFromServices({
-    services: params.services,
-    model: params.model,
-    thinkingLevel: params.thinking as PiThinkingLevel,
-    ...toolSelectionOption(params.tools, [
-      ...(params.mcpConfig === undefined ? [] : [PI_MCP_TOOL_NAME]),
-      ...params.customTools.map((tool) => tool.name),
-    ]),
-    ...(params.customTools.length === 0 ? {} : {customTools: params.customTools}),
-    sessionManager: createPiSessionManager(params),
-  });
-  return created.session;
+  const sessionManager = createPiSessionManager(params);
+  try {
+    const created = await createAgentSessionFromServices({
+      services: params.services,
+      model: params.model,
+      thinkingLevel: params.thinking as PiThinkingLevel,
+      ...toolSelectionOption(params.tools, [
+        ...(params.mcpConfig === undefined ? [] : [PI_MCP_TOOL_NAME]),
+        ...params.customTools.map((tool) => tool.name),
+      ]),
+      ...(params.customTools.length === 0 ? {} : {customTools: params.customTools}),
+      sessionManager,
+    });
+    return created.session;
+  } catch (error) {
+    if (params.sessionInvocation?.mode === 'fork') {
+      await removeForkedSessionFile(sessionManager.getSessionFile());
+    }
+    throw error;
+  }
 }
 
 async function runPiSession(params: {
@@ -189,7 +202,11 @@ async function runActivePiSession(
   }
   if (params.signal.aborted) throw new Error('Agent step aborted during pi session creation');
 
-  const forwarder = startForwarding(params.session.sessionFile, params.onSessionEntry);
+  const forwarder = startForwarding(
+    params.session.sessionFile,
+    params.onSessionEntry,
+    params.sessionInvocation?.mode === 'fork',
+  );
   const stopForwarder = () => forwarder?.stop();
   params.signal.addEventListener('abort', stopForwarder, {once: true});
   const restoreGitConfigGlobal = createGitConfigGlobalRestorer(params.gitConfigGlobal);
@@ -426,8 +443,13 @@ function openHarnessSession(params: {
   sessionDir: string;
 }): SessionManager {
   try {
-    return SessionManager.open(params.sessionFile, params.sessionDir, params.cwd);
+    const manager = SessionManager.open(params.sessionFile, params.sessionDir, params.cwd);
+    if (manager.getHeader() === null || manager.getEntries().length === 0) {
+      throw new Error('session has no transcript entries');
+    }
+    return manager;
   } catch (error) {
+    logSessionLoadFailure('resume', params.sessionFile, error);
     throw new AgentSessionUnavailableError(
       `Pi could not load the agent session: ${error instanceof Error ? error.message : String(error)}`,
     );
@@ -442,9 +464,37 @@ function forkHarnessSession(params: {
   try {
     return SessionManager.forkFrom(params.sessionFile, params.cwd, params.sessionDir);
   } catch (error) {
+    if (isMissingForkTranscript(error)) {
+      return SessionManager.create(params.cwd, params.sessionDir);
+    }
+    logSessionLoadFailure('fork', params.sessionFile, error);
     throw new AgentSessionUnavailableError(
       `Pi could not load the agent session: ${error instanceof Error ? error.message : String(error)}`,
     );
+  }
+}
+
+function isMissingForkTranscript(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.message.includes('source session file is empty or invalid') ||
+      error.message.includes('source session has no header'))
+  );
+}
+
+function logSessionLoadFailure(mode: 'resume' | 'fork', sessionFile: string, error: unknown): void {
+  logger().error(
+    {event: 'runner.agent_session_load_failed', sessionMode: mode, sessionFile, err: error},
+    'Agent session load failed',
+  );
+}
+
+async function removeForkedSessionFile(sessionFile: string | undefined): Promise<void> {
+  if (sessionFile === undefined) return;
+  try {
+    await rm(sessionFile, {force: true});
+  } catch (error) {
+    logger().warn({err: error, sessionFile}, 'Failed to remove incomplete Pi fork session');
   }
 }
 
@@ -702,9 +752,14 @@ function createGitConfigGlobalRestorer(gitConfigGlobal: string | undefined): () 
 function startForwarding(
   sessionFile: string | undefined,
   onSessionEntry: ((line: string) => void) | undefined,
+  skipExistingEntries = false,
 ): SessionForwarder | undefined {
   if (onSessionEntry === undefined || sessionFile === undefined) return undefined;
-  return startSessionForwarder({filePath: sessionFile, onEntry: onSessionEntry});
+  return startSessionForwarder({
+    filePath: sessionFile,
+    onEntry: onSessionEntry,
+    startAtEnd: skipExistingEntries,
+  });
 }
 
 type ResolvedModel = NonNullable<ReturnType<ModelRuntimeInstance['getModel']>>;
