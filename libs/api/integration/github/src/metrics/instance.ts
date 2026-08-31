@@ -56,6 +56,38 @@ const installationTokenBackoffCount = meter.createCounter<{
   description: 'GitHub installation token mint backoff activations by reason and class',
 });
 
+export type GithubCheckoutTokenLookupOutcome =
+  | 'ram-hit'
+  | 'shared-hit'
+  | 'minted'
+  | 'served-stale'
+  | 'backoff'
+  | 'rejection-guard'
+  | 'failed';
+
+const githubCheckoutTokenLookupCount = meter.createCounter<{
+  outcome: GithubCheckoutTokenLookupOutcome;
+}>('github_checkout_token_cache_lookups', {
+  description: 'GitHub exact-scope checkout token cache lookups by serving outcome',
+});
+
+const githubCheckoutTokenMintDuration = meter.createHistogram<{
+  outcome: 'success' | 'failure';
+}>('github_checkout_token_mint_duration', {
+  description: 'GitHub exact-scope checkout token mint duration',
+  unit: 'ms',
+  advice: {explicitBucketBoundaries: [10, 50, 100, 250, 500, 1000, 2500, 5000, 10000]},
+});
+
+const githubCheckoutTokenLockWaitDuration = meter.createHistogram<Record<string, never>>(
+  'github_checkout_token_lock_wait_duration',
+  {
+    description: 'GitHub exact-scope checkout token advisory lock wait duration',
+    unit: 'ms',
+    advice: {explicitBucketBoundaries: [0, 1, 5, 10, 25, 50, 100, 250, 500, 1000, 5000]},
+  },
+);
+
 function recordMetric(record: () => void): void {
   try {
     record();
@@ -96,6 +128,23 @@ export function recordInstallationTokenBackoff(params: {
   class: MintErrorClass;
 }): void {
   recordMetric(() => installationTokenBackoffCount.add(1, params));
+}
+
+export function recordGithubCheckoutTokenLookup(outcome: GithubCheckoutTokenLookupOutcome): void {
+  recordMetric(() => githubCheckoutTokenLookupCount.add(1, {outcome}));
+}
+
+export function recordGithubCheckoutTokenMint(params: {
+  outcome: 'success' | 'failure';
+  durationMs: number;
+}): void {
+  recordMetric(() =>
+    githubCheckoutTokenMintDuration.record(params.durationMs, {outcome: params.outcome}),
+  );
+}
+
+export function recordGithubCheckoutTokenLockWait(durationMs: number): void {
+  recordMetric(() => githubCheckoutTokenLockWaitDuration.record(durationMs));
 }
 
 function installationTokenFormat(token: string): 'stateless' | 'stateful' | 'unknown' {

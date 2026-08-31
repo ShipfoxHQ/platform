@@ -9,6 +9,7 @@ import type {
 } from '@shipfox/api-integration-spi';
 import type {NodePgDatabase} from 'drizzle-orm/node-postgres';
 import {createGithubApiClient, type GithubApiClient} from '#api/client.js';
+import type {GithubCheckoutTokenCachePort} from '#api/github-checkout-token-cache.js';
 import type {GithubInstallationTokenProvider} from '#api/installation-token-provider.js';
 import {
   createGithubInstallationTokenProvider,
@@ -36,6 +37,13 @@ import {createGithubWebhookRoutes} from '#presentation/routes/webhooks.js';
 const GITHUB_INSTALLATION_ID_PATTERN = /^[1-9]\d*$/u;
 
 export type {GithubApiClient} from '#api/client.js';
+export {
+  type GithubCheckoutToken,
+  GithubCheckoutTokenCache,
+  type GithubCheckoutTokenCachePort,
+  type GithubCheckoutTokenPermissions,
+  type GithubCheckoutTokenScope,
+} from '#api/github-checkout-token-cache.js';
 export {
   encodeInstallationTokenEnvelope,
   githubInstallationTokenNamespace,
@@ -90,6 +98,8 @@ export interface CreateGithubIntegrationProviderOptions
     | ((params: {workspaceId: string; namespace: string}) => Promise<number>)
     | undefined;
   agentTools?: {tokenProvider: GithubInstallationTokenProvider} | undefined;
+  /** Optional exact-scope cache seam; omitted until checkout-cache activation. */
+  checkoutTokenCache?: GithubCheckoutTokenCachePort | undefined;
 }
 
 export function createGithubIntegrationProvider(options: CreateGithubIntegrationProviderOptions) {
@@ -132,7 +142,11 @@ export function createGithubIntegrationProvider(options: CreateGithubIntegration
     displayName: 'GitHub',
     eventCatalog: githubEventCatalog,
     adapters: {
-      source_control: new GithubSourceControlProvider(github),
+      source_control: new GithubSourceControlProvider(
+        github,
+        undefined,
+        options.checkoutTokenCache,
+      ),
       agent_tools: new GithubAgentToolsProvider({
         getInstallationByConnectionId: getInstallationByConnectionId,
         tokenProvider:

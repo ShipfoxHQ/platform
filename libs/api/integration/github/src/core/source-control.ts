@@ -31,6 +31,13 @@ import {
   type TriggerReference,
 } from '@shipfox/api-integration-spi';
 import type {GithubApiClient, GithubRepository} from '#api/client.js';
+import {
+  GITHUB_CHECKOUT_TOKEN_REFRESH_MARGIN_MS,
+  type GithubCheckoutTokenCachePort,
+  type GithubCheckoutTokenScope,
+  githubProviderInstanceFingerprint,
+} from '#api/github-checkout-token-cache.js';
+import {config, normalizedGithubApiBaseUrl} from '#config.js';
 import {getGithubInstallationByConnectionId} from '#db/installations.js';
 import {configuredGithubAppBotLogin} from './bot-identity.js';
 import {GithubIntegrationProviderError} from './errors.js';
@@ -94,6 +101,7 @@ export class GithubSourceControlProvider
   constructor(
     private readonly github: GithubApiClient,
     private readonly appBotLogin: () => string | undefined = configuredGithubAppBotLogin,
+    private readonly checkoutTokenCache?: GithubCheckoutTokenCachePort,
   ) {}
 
   async listRepositories(
@@ -270,21 +278,52 @@ export class GithubSourceControlProvider
   ): Promise<CheckoutCredentials> {
     const installationId = await this.installationId(input.connection.id);
     const {repositoryId} = parseGithubRepositoryLocator(input.externalRepositoryId);
-    const {token, expiresAt} = await this.github.createInstallationAccessToken({
+    const scope: GithubCheckoutTokenScope = {
+      workspaceId: input.connection.workspaceId,
+      providerInstance: githubProviderInstanceFingerprint(
+        normalizedGithubApiBaseUrl(),
+        config.GITHUB_APP_ID,
+      ),
       installationId,
       repositoryId,
-      permissions: input.permissions,
-    });
-    const refreshAt = new Date(expiresAt.getTime() - 5 * 60 * 1000);
-    let generation = randomUUID();
-    while (generation === input.rejectedGeneration) generation = randomUUID();
+      permissions: {...input.permissions},
+    };
+    const cached = this.checkoutTokenCache
+      ? await this.checkoutTokenCache.getOrMint(
+          scope,
+          () =>
+            this.github.createInstallationAccessToken({
+              installationId,
+              repositoryId,
+              permissions: input.permissions,
+            }),
+          input.rejectedGeneration,
+        )
+      : await this.github
+          .createInstallationAccessToken({
+            installationId,
+            repositoryId,
+            permissions: input.permissions,
+          })
+          .then(({token, expiresAt}) => ({
+            token,
+            expiresAt,
+            generation: newGeneration(input.rejectedGeneration),
+            stale: false,
+          }));
+    const renewal = cached.stale
+      ? {mode: 'on-rejection' as const}
+      : {
+          mode: 'refresh-at' as const,
+          refreshAt: new Date(cached.expiresAt.getTime() - GITHUB_CHECKOUT_TOKEN_REFRESH_MARGIN_MS),
+        };
 
     return {
       username: 'x-access-token',
-      token,
-      expiresAt,
-      generation,
-      renewal: {mode: 'refresh-at' as const, refreshAt},
+      token: cached.token,
+      expiresAt: cached.expiresAt,
+      generation: cached.generation,
+      renewal,
     };
   }
 
@@ -305,6 +344,12 @@ export class GithubSourceControlProvider
 
     return Number.parseInt(installation.installationId, 10);
   }
+}
+
+function newGeneration(rejectedGeneration: string | undefined): string {
+  let generation = randomUUID();
+  while (generation === rejectedGeneration) generation = randomUUID();
+  return generation;
 }
 
 function githubRepositoryId(repository: Record<string, unknown> | null): string | null {

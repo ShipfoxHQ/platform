@@ -124,6 +124,8 @@ export interface GithubInstallationAccessToken {
   token: string;
   expiresAt: Date;
   permissions?: Record<string, 'read' | 'write' | 'admin'> | undefined;
+  /** GitHub returns this list for repository-scoped installation tokens. */
+  repositoryIds?: number[] | undefined;
 }
 
 export function createGithubApiClient(): GithubApiClient & GithubBotUserClient {
@@ -477,10 +479,17 @@ class OctokitGithubApiClient implements GithubApiClient, GithubBotUserClient {
       );
     }
 
+    const repositoryIds = Array.isArray(response.data.repositories)
+      ? response.data.repositories
+          .map((repository) => repository.id)
+          .filter((id): id is number => typeof id === 'number' && Number.isSafeInteger(id))
+      : undefined;
+
     return {
       token: response.data.token,
       expiresAt,
       ...(response.data.permissions === undefined ? {} : {permissions: response.data.permissions}),
+      ...(repositoryIds === undefined ? {} : {repositoryIds}),
     };
   }
 
