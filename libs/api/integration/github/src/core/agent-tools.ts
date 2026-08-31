@@ -10,6 +10,7 @@ import type {
 import {MAX_REPOSITORY_FILE_BYTES} from '@shipfox/api-integration-spi';
 import {Octokit} from 'octokit';
 import {mapGithubError} from '#api/client.js';
+import {GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT} from '#api/installation-token-envelope.js';
 import {
   createGithubInstallationTokenProvider,
   type GithubInstallationTokenProvider,
@@ -200,7 +201,10 @@ export class GithubAgentToolsProvider
           return githubToolError('Unknown GitHub tool operation', 'invalid-request');
         const validationError = validateGithubToolArguments(tool, call.arguments);
         if (validationError) return githubToolError(validationError, 'invalid-request');
-        tokenPromise ??= this.tokenProvider.getInstallationAccessToken(installationId);
+        tokenPromise ??= this.tokenProvider.getInstallationAccessToken(
+          installationId,
+          GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT,
+        );
         const token = await tokenPromise;
         if (!hasGrantedPermissions(token.permissions ?? {}, tool, call)) {
           return githubToolError(githubPermissionDeniedMessage(tool, call), 'access-denied');

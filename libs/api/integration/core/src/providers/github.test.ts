@@ -17,16 +17,19 @@ vi.mock('@shipfox/api-integration-github', async (importOriginal) => {
 
 import {
   encodeInstallationTokenEnvelope,
+  GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT,
   GITHUB_INSTALLATION_TOKEN_ENVELOPE_KEY,
+  githubInstallationTokenKey,
   githubInstallationTokenNamespace,
 } from '@shipfox/api-integration-github';
 import {githubProviderModule} from '#providers/github.js';
 
 type SecretStore = {
-  read: (workspaceId: string, installationId: number) => Promise<string | null>;
+  read: (workspaceId: string, installationId: number, key: string) => Promise<string | null>;
   write: (
     workspaceId: string,
     installationId: number,
+    key: string,
     envelope: {token?: string; expiresAt?: Date},
   ) => Promise<void>;
 };
@@ -56,13 +59,14 @@ describe('githubProviderModule', () => {
     const workspaceId = 'workspace-1';
     const installationId = 123;
     const namespace = githubInstallationTokenNamespace(installationId);
-    const readHit = await secretStore.read(workspaceId, installationId);
-    const readMiss = await secretStore.read(workspaceId, installationId);
+    const profileKey = githubInstallationTokenKey(GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT);
+    const readHit = await secretStore.read(workspaceId, installationId, profileKey);
+    const readMiss = await secretStore.read(workspaceId, installationId, profileKey);
     const envelope = {
       token: 'ghs_cached',
       expiresAt: new Date('2026-06-10T12:00:00.000Z'),
     };
-    await secretStore.write(workspaceId, installationId, envelope);
+    await secretStore.write(workspaceId, installationId, profileKey, envelope);
 
     expect(readHit).toBe(cachedEnvelope);
     expect(readMiss).toBeNull();
@@ -70,18 +74,18 @@ describe('githubProviderModule', () => {
     expect(getSecret).toHaveBeenNthCalledWith(1, {
       workspaceId,
       namespace,
-      key: GITHUB_INSTALLATION_TOKEN_ENVELOPE_KEY,
+      key: profileKey,
     });
     expect(getSecret).toHaveBeenNthCalledWith(2, {
       workspaceId,
       namespace,
-      key: GITHUB_INSTALLATION_TOKEN_ENVELOPE_KEY,
+      key: profileKey,
     });
     expect(setSecrets).toHaveBeenCalledWith({
       workspaceId,
       namespace,
       values: {
-        [GITHUB_INSTALLATION_TOKEN_ENVELOPE_KEY]: encodeInstallationTokenEnvelope(envelope),
+        [profileKey]: encodeInstallationTokenEnvelope(envelope),
       },
     });
   });

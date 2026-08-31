@@ -8,6 +8,8 @@ import {recordInstallationTokenFormat, recordInstallationTokenLookup} from '#met
 import {type GithubInstallationAccessToken, mapGithubError} from './client.js';
 import {githubInstallationTokenFormatPlugin} from './github-octokit.js';
 import {
+  GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT,
+  githubInstallationTokenKey,
   githubInstallationTokenNamespace,
   TOKEN_REFRESH_MARGIN_MS,
 } from './installation-token-envelope.js';
@@ -19,7 +21,10 @@ import {
 } from './shared-installation-token-cache.js';
 
 export interface GithubInstallationTokenProvider {
-  getInstallationAccessToken(installationId: number): Promise<GithubInstallationAccessToken>;
+  getInstallationAccessToken(
+    installationId: number,
+    permissionFingerprint?: string,
+  ): Promise<GithubInstallationAccessToken>;
 }
 
 export interface GithubInstallationTokenProviderOptions {
@@ -49,9 +54,12 @@ class OctokitGithubInstallationTokenProvider implements GithubInstallationTokenP
     private readonly getInstallationByInstallationId?: typeof getGithubInstallationByInstallationId,
   ) {}
 
-  async getInstallationAccessToken(installationId: number): Promise<GithubInstallationAccessToken> {
+  async getInstallationAccessToken(
+    installationId: number,
+    permissionFingerprint = GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT,
+  ): Promise<GithubInstallationAccessToken> {
     await this.assertInstallationIsActive(installationId);
-    return await this.cache.getOrMint(installationId, () =>
+    return await this.cache.getOrMint(installationId, permissionFingerprint, () =>
       this.mintInstallationAccessToken(installationId),
     );
   }
@@ -133,8 +141,8 @@ class OctokitGithubInstallationTokenProvider implements GithubInstallationTokenP
 }
 
 class InMemoryInstallationTokenCache implements InstallationTokenCache {
-  private readonly tokens = new Map<number, GithubInstallationAccessToken>();
-  private readonly inFlightMints = new Map<number, Promise<GithubInstallationAccessToken>>();
+  private readonly tokens = new Map<string, GithubInstallationAccessToken>();
+  private readonly inFlightMints = new Map<string, Promise<GithubInstallationAccessToken>>();
 
   constructor(
     private readonly options: {
@@ -148,32 +156,38 @@ class InMemoryInstallationTokenCache implements InstallationTokenCache {
 
   getOrMint(
     installationId: number,
+    permissionFingerprint: string,
     mint: () => Promise<GithubInstallationAccessToken>,
   ): Promise<GithubInstallationAccessToken> {
-    const cached = this.tokens.get(installationId);
+    const cacheKey = installationTokenCacheKey(installationId, permissionFingerprint);
+    const cached = this.tokens.get(cacheKey);
     if (cached && !this.isInsideRefreshMargin(cached.expiresAt)) {
       recordInstallationTokenLookup('ram-hit');
       return Promise.resolve(cached);
     }
 
-    const inFlightMint = this.inFlightMints.get(installationId);
+    const inFlightMint = this.inFlightMints.get(cacheKey);
     if (inFlightMint) return inFlightMint;
 
     const freshToken = mint()
       .then((token) => {
-        this.tokens.set(installationId, token);
+        this.tokens.set(cacheKey, token);
         return token;
       })
       .finally(() => {
-        this.inFlightMints.delete(installationId);
+        this.inFlightMints.delete(cacheKey);
       });
-    this.inFlightMints.set(installationId, freshToken);
+    this.inFlightMints.set(cacheKey, freshToken);
     return freshToken;
   }
 
   private isInsideRefreshMargin(expiresAt: Date): boolean {
     return expiresAt.getTime() <= this.options.now().getTime() + this.options.refreshMarginMs;
   }
+}
+
+function installationTokenCacheKey(installationId: number, permissionFingerprint: string): string {
+  return `${installationId}\u0000${githubInstallationTokenKey(permissionFingerprint)}`;
 }
 
 class TieredInstallationTokenCache implements InstallationTokenCache {
@@ -184,9 +198,12 @@ class TieredInstallationTokenCache implements InstallationTokenCache {
 
   getOrMint(
     installationId: number,
+    permissionFingerprint: string,
     mint: () => Promise<GithubInstallationAccessToken>,
   ): Promise<GithubInstallationAccessToken> {
-    return this.ram.getOrMint(installationId, () => this.shared.getOrMint(installationId, mint));
+    return this.ram.getOrMint(installationId, permissionFingerprint, () =>
+      this.shared.getOrMint(installationId, permissionFingerprint, mint),
+    );
   }
 }
 

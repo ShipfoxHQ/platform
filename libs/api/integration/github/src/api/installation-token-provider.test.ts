@@ -5,7 +5,11 @@ import {
   GITHUB_STATELESS_INSTALLATION_TOKEN,
   githubInstallationFactory,
 } from '#test/index.js';
-import {encodeInstallationTokenEnvelope} from './installation-token-envelope.js';
+import {
+  encodeInstallationTokenEnvelope,
+  GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT,
+  githubInstallationTokenKey,
+} from './installation-token-envelope.js';
 import {createGithubInstallationTokenProvider} from './installation-token-provider.js';
 
 const GITHUB_INSTALLATION_TOKEN_PATTERN = /^ghs_[A-Za-z0-9._-]{36,}$/u;
@@ -125,6 +129,28 @@ describe('GithubInstallationTokenProvider', () => {
     expect(createInstallationAccessTokenMock).not.toHaveBeenCalled();
   });
 
+  it('does not share a cached token between permission profiles', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-10T11:00:00.000Z'));
+    createInstallationAccessTokenMock
+      .mockResolvedValueOnce({
+        data: {token: 'ghs_broad', expires_at: '2026-06-10T12:00:00.000Z'},
+      })
+      .mockResolvedValueOnce({
+        data: {token: 'ghs_narrow', expires_at: '2026-06-10T12:00:00.000Z'},
+      });
+    const provider = createGithubInstallationTokenProvider();
+
+    const broad = await provider.getInstallationAccessToken(1, 'broad');
+    const narrow = await provider.getInstallationAccessToken(1, 'narrow');
+    const broadAgain = await provider.getInstallationAccessToken(1, 'broad');
+
+    expect(broad.token).toBe('ghs_broad');
+    expect(narrow.token).toBe('ghs_narrow');
+    expect(broadAgain.token).toBe('ghs_broad');
+    expect(createInstallationAccessTokenMock).toHaveBeenCalledTimes(2);
+  });
+
   it('mints a fresh token inside the expiry refresh margin', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-06-10T12:00:00.000Z'));
@@ -182,7 +208,11 @@ describe('GithubInstallationTokenProvider', () => {
     await githubInstallationFactory.create({installationId: String(installationId), connectionId});
     const values = new Map<string, string>();
     let lockCalls = 0;
-    function withLock<T>(_installationId: number, fn: () => Promise<T>) {
+    function withLock<T>(
+      _installationId: number,
+      _permissionFingerprint: string,
+      fn: () => Promise<T>,
+    ) {
       lockCalls += 1;
       return fn().then((value) => ({acquired: true as const, value}));
     }
@@ -207,11 +237,11 @@ describe('GithubInstallationTokenProvider', () => {
     const provider = createGithubInstallationTokenProvider({
       getIntegrationConnectionById,
       secretStore: {
-        read: (readWorkspaceId, readInstallationId) =>
-          Promise.resolve(values.get(`${readWorkspaceId}:${readInstallationId}`) ?? null),
-        write: (writeWorkspaceId, writeInstallationId, envelope) => {
+        read: (readWorkspaceId, readInstallationId, key) =>
+          Promise.resolve(values.get(`${readWorkspaceId}:${readInstallationId}:${key}`) ?? null),
+        write: (writeWorkspaceId, writeInstallationId, key, envelope) => {
           values.set(
-            `${writeWorkspaceId}:${writeInstallationId}`,
+            `${writeWorkspaceId}:${writeInstallationId}:${key}`,
             encodeInstallationTokenEnvelope(envelope),
           );
           return Promise.resolve();
@@ -226,10 +256,12 @@ describe('GithubInstallationTokenProvider', () => {
 
     expect(first).toEqual(second);
     expect(first.token).toBe(GITHUB_STATELESS_INSTALLATION_TOKEN);
-    expect(values.get(`${workspaceId}:${installationId}`)).toContain(
-      GITHUB_STATELESS_INSTALLATION_TOKEN,
-    );
-    expect(lockCalls).toBe(1);
+    expect(
+      values.get(
+        `${workspaceId}:${installationId}:${githubInstallationTokenKey(GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT)}`,
+      ),
+    ).toContain(GITHUB_STATELESS_INSTALLATION_TOKEN);
+    expect(lockCalls).toBe(2);
     expect(createInstallationAccessTokenMock).toHaveBeenCalledTimes(1);
   });
 

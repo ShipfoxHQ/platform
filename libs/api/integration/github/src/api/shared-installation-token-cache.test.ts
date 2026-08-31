@@ -1,7 +1,10 @@
+import {createHash} from 'node:crypto';
 import {GithubIntegrationProviderError} from '#core/errors.js';
 import {
   backoffActive,
   encodeInstallationTokenEnvelope,
+  GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT,
+  githubInstallationTokenKey,
   needsRefresh,
   stillValid,
   TOKEN_REFRESH_MARGIN_MS,
@@ -33,18 +36,19 @@ function createStore(): InstallationTokenSecretStore & {
     values,
     failWrites: false,
     failReads: false,
-    read(readWorkspaceId: string, readInstallationId: number) {
+    read(readWorkspaceId: string, readInstallationId: number, key: string) {
       if (store.failReads) return Promise.reject(new Error('read failed'));
-      return Promise.resolve(values.get(`${readWorkspaceId}:${readInstallationId}`) ?? null);
+      return Promise.resolve(values.get(`${readWorkspaceId}:${readInstallationId}:${key}`) ?? null);
     },
     write(
       writeWorkspaceId: string,
       writeInstallationId: number,
-      envelope: Parameters<InstallationTokenSecretStore['write']>[2],
+      key: string,
+      envelope: Parameters<InstallationTokenSecretStore['write']>[3],
     ) {
       if (store.failWrites) return Promise.reject(new Error('write failed'));
       values.set(
-        `${writeWorkspaceId}:${writeInstallationId}`,
+        `${writeWorkspaceId}:${writeInstallationId}:${key}`,
         encodeInstallationTokenEnvelope(envelope),
       );
       return Promise.resolve();
@@ -60,6 +64,7 @@ function cache(
     withLock?:
       | (<T>(
           installationId: number,
+          permissionFingerprint: string,
           fn: () => Promise<T>,
         ) => Promise<InstallationTokenLockResult<T>>)
       | undefined;
@@ -70,7 +75,9 @@ function cache(
 ) {
   return new SharedInstallationTokenCache({
     secretStore: options.store ?? createStore(),
-    withLock: options.withLock ?? (async (_id, fn) => ({acquired: true, value: await fn()})),
+    withLock:
+      options.withLock ??
+      (async (_id, _permissionFingerprint, fn) => ({acquired: true, value: await fn()})),
     resolveWorkspaceId: options.resolveWorkspaceId ?? (() => Promise.resolve(workspaceId)),
     now: () => options.now ?? new Date('2026-06-10T11:00:00.000Z'),
     sleep: options.sleep ?? (() => Promise.resolve()),
@@ -82,10 +89,44 @@ function setEnvelope(
   store: {values: Map<string, string>},
   envelope: Parameters<typeof encodeInstallationTokenEnvelope>[0],
 ) {
-  store.values.set(`${workspaceId}:${installationId}`, encodeInstallationTokenEnvelope(envelope));
+  store.values.set(
+    `${workspaceId}:${installationId}:${githubInstallationTokenKey(GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT)}`,
+    encodeInstallationTokenEnvelope(envelope),
+  );
 }
 
 describe('SharedInstallationTokenCache', () => {
+  it('does not collide raw and hashed permission fingerprints', () => {
+    const rawFingerprint = 'profile-without-safe-key';
+    const hashedFingerprint = createHash('sha256')
+      .update(rawFingerprint, 'utf8')
+      .digest('hex')
+      .toUpperCase();
+
+    expect(githubInstallationTokenKey(rawFingerprint)).not.toBe(
+      githubInstallationTokenKey(hashedFingerprint),
+    );
+  });
+
+  it('reads the legacy compatibility envelope', async () => {
+    const store = createStore();
+    store.values.set(
+      `${workspaceId}:${installationId}:envelope`,
+      encodeInstallationTokenEnvelope({
+        backoffUntil: new Date('2026-06-10T11:05:00.000Z'),
+        backoffReason: 'rate-limited',
+        backoffError: {message: 'rate limited', status: 429},
+      }),
+    );
+    const mint = vi.fn(() => Promise.resolve(token('ghs_new')));
+    const shared = cache({store});
+
+    await expect(
+      shared.getOrMint(installationId, GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT, mint),
+    ).rejects.toMatchObject({reason: 'rate-limited', status: 429});
+    expect(mint).not.toHaveBeenCalled();
+  });
+
   beforeEach(() => {
     errorMonitoring.reportError.mockReset();
   });
@@ -95,11 +136,67 @@ describe('SharedInstallationTokenCache', () => {
     const mint = vi.fn(() => Promise.resolve(token('ghs_new')));
     const shared = cache({store});
 
-    const result = await shared.getOrMint(installationId, mint);
+    const result = await shared.getOrMint(
+      installationId,
+      GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT,
+      mint,
+    );
 
     expect(result).toEqual(token('ghs_new'));
     expect(mint).toHaveBeenCalledTimes(1);
-    expect(store.values.get(`${workspaceId}:${installationId}`)).toContain('ghs_new');
+    expect(
+      store.values.get(
+        `${workspaceId}:${installationId}:${githubInstallationTokenKey(GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT)}`,
+      ),
+    ).toContain('ghs_new');
+  });
+
+  it('isolates profile tokens while allowing different profiles to mint independently', async () => {
+    const store = createStore();
+    const shared = cache({store});
+    const broadMint = vi.fn(() => Promise.resolve(token('ghs_broad')));
+    const narrowMint = vi.fn(() => Promise.resolve(token('ghs_narrow')));
+
+    await expect(shared.getOrMint(installationId, 'broad', broadMint)).resolves.toEqual(
+      token('ghs_broad'),
+    );
+    await expect(shared.getOrMint(installationId, 'narrow', narrowMint)).resolves.toEqual(
+      token('ghs_narrow'),
+    );
+    await expect(shared.getOrMint(installationId, 'broad', broadMint)).resolves.toEqual(
+      token('ghs_broad'),
+    );
+    await expect(shared.getOrMint(installationId, 'narrow', narrowMint)).resolves.toEqual(
+      token('ghs_narrow'),
+    );
+
+    expect(broadMint).toHaveBeenCalledTimes(1);
+    expect(narrowMint).toHaveBeenCalledTimes(1);
+    expect(
+      store.values.has(`${workspaceId}:${installationId}:${githubInstallationTokenKey('broad')}`),
+    ).toBe(true);
+    expect(
+      store.values.has(`${workspaceId}:${installationId}:${githubInstallationTokenKey('narrow')}`),
+    ).toBe(true);
+  });
+
+  it('shares installation-wide backoff across profile keys', async () => {
+    const store = createStore();
+    const shared = cache({store});
+    const failedMint = vi
+      .fn()
+      .mockRejectedValue(new GithubIntegrationProviderError('rate-limited', 'rate limited', 42));
+    const siblingMint = vi.fn(() => Promise.resolve(token('ghs_sibling')));
+
+    await expect(shared.getOrMint(installationId, 'broad', failedMint)).rejects.toMatchObject({
+      reason: 'rate-limited',
+    });
+    await expect(shared.getOrMint(installationId, 'narrow', siblingMint)).rejects.toMatchObject({
+      reason: 'rate-limited',
+    });
+
+    expect(failedMint).toHaveBeenCalledTimes(1);
+    expect(siblingMint).not.toHaveBeenCalled();
   });
 
   it('shares one mint between two concurrent cache replicas', async () => {
@@ -113,7 +210,11 @@ describe('SharedInstallationTokenCache', () => {
     const mintStarted = new Promise<void>((resolve) => {
       resolveMintStarted = resolve;
     });
-    const withLock = async <T>(_id: number, fn: () => Promise<T>) => {
+    const withLock = async <T>(
+      _id: number,
+      _permissionFingerprint: string,
+      fn: () => Promise<T>,
+    ) => {
       if (lockHeld) return {acquired: false as const};
       lockHeld = true;
       try {
@@ -135,9 +236,17 @@ describe('SharedInstallationTokenCache', () => {
       pollDelaysMs: [1],
     });
 
-    const first = firstReplica.getOrMint(installationId, mint);
+    const first = firstReplica.getOrMint(
+      installationId,
+      GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT,
+      mint,
+    );
     await mintStarted;
-    const second = secondReplica.getOrMint(installationId, mint);
+    const second = secondReplica.getOrMint(
+      installationId,
+      GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT,
+      mint,
+    );
     const results = await Promise.all([first, second]);
 
     expect(results).toEqual([token('ghs_shared'), token('ghs_shared')]);
@@ -150,7 +259,11 @@ describe('SharedInstallationTokenCache', () => {
     const mint = vi.fn(() => Promise.resolve(token('ghs_new')));
     const shared = cache({store});
 
-    const result = await shared.getOrMint(installationId, mint);
+    const result = await shared.getOrMint(
+      installationId,
+      GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT,
+      mint,
+    );
 
     expect(result).toEqual(token('ghs_cached'));
     expect(mint).not.toHaveBeenCalled();
@@ -165,7 +278,11 @@ describe('SharedInstallationTokenCache', () => {
       withLock: () => Promise.resolve({acquired: false}),
     });
 
-    const result = await shared.getOrMint(installationId, mint);
+    const result = await shared.getOrMint(
+      installationId,
+      GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT,
+      mint,
+    );
 
     expect(result).toEqual(token('ghs_stale_but_valid', '2026-06-10T11:04:30.000Z'));
     expect(mint).not.toHaveBeenCalled();
@@ -186,7 +303,11 @@ describe('SharedInstallationTokenCache', () => {
       },
     });
 
-    const result = await shared.getOrMint(installationId, mint);
+    const result = await shared.getOrMint(
+      installationId,
+      GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT,
+      mint,
+    );
 
     expect(result).toEqual(token('ghs_committed'));
     expect(mint).not.toHaveBeenCalled();
@@ -201,10 +322,18 @@ describe('SharedInstallationTokenCache', () => {
     });
     const shared = cache({store});
 
-    const result = await shared.getOrMint(installationId, () => Promise.resolve(token('ghs_new')));
+    const result = await shared.getOrMint(
+      installationId,
+      GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT,
+      () => Promise.resolve(token('ghs_new')),
+    );
 
     expect(result).toEqual(token('ghs_new'));
-    expect(store.values.get(`${workspaceId}:${installationId}`)).not.toContain('backoff');
+    expect(
+      store.values.get(
+        `${workspaceId}:${installationId}:${githubInstallationTokenKey(GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT)}`,
+      ),
+    ).not.toContain('backoff');
   });
 
   it('records transient backoff and short-circuits the next call with the stored reason', async () => {
@@ -214,10 +343,14 @@ describe('SharedInstallationTokenCache', () => {
       .mockRejectedValue(new GithubIntegrationProviderError('rate-limited', 'rate limited', 42));
     const shared = cache({store});
 
-    await expect(shared.getOrMint(installationId, mint)).rejects.toMatchObject({
+    await expect(
+      shared.getOrMint(installationId, GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT, mint),
+    ).rejects.toMatchObject({
       reason: 'rate-limited',
     });
-    await expect(shared.getOrMint(installationId, mint)).rejects.toMatchObject({
+    await expect(
+      shared.getOrMint(installationId, GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT, mint),
+    ).rejects.toMatchObject({
       reason: 'rate-limited',
       retryAfterSeconds: 42,
     });
@@ -232,10 +365,14 @@ describe('SharedInstallationTokenCache', () => {
       .mockRejectedValue(new GithubIntegrationProviderError('access-denied', 'denied'));
     const shared = cache({store});
 
-    await expect(shared.getOrMint(installationId, mint)).rejects.toMatchObject({
+    await expect(
+      shared.getOrMint(installationId, GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT, mint),
+    ).rejects.toMatchObject({
       reason: 'access-denied',
     });
-    await expect(shared.getOrMint(installationId, mint)).rejects.toMatchObject({
+    await expect(
+      shared.getOrMint(installationId, GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT, mint),
+    ).rejects.toMatchObject({
       reason: 'access-denied',
     });
 
@@ -256,12 +393,16 @@ describe('SharedInstallationTokenCache', () => {
       );
     const shared = cache({store});
 
-    await expect(shared.getOrMint(installationId, mint)).rejects.toMatchObject({
+    await expect(
+      shared.getOrMint(installationId, GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT, mint),
+    ).rejects.toMatchObject({
       reason: 'provider-rejected',
       message: 'commit_id is missing',
       status: 422,
     });
-    await expect(shared.getOrMint(installationId, mint)).rejects.toMatchObject({
+    await expect(
+      shared.getOrMint(installationId, GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT, mint),
+    ).rejects.toMatchObject({
       reason: 'provider-rejected',
       message: 'commit_id is missing',
       status: 422,
@@ -275,8 +416,10 @@ describe('SharedInstallationTokenCache', () => {
     setEnvelope(store, token('ghs_existing', '2026-06-10T11:04:30.000Z'));
     const shared = cache({store});
 
-    const result = await shared.getOrMint(installationId, () =>
-      Promise.reject(new GithubIntegrationProviderError('provider-unavailable', 'down')),
+    const result = await shared.getOrMint(
+      installationId,
+      GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT,
+      () => Promise.reject(new GithubIntegrationProviderError('provider-unavailable', 'down')),
     );
 
     expect(result).toEqual(token('ghs_existing', '2026-06-10T11:04:30.000Z'));
@@ -288,7 +431,7 @@ describe('SharedInstallationTokenCache', () => {
     const shared = cache({store});
 
     await expect(
-      shared.getOrMint(installationId, () =>
+      shared.getOrMint(installationId, GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT, () =>
         Promise.reject(new GithubIntegrationProviderError('access-denied', 'denied')),
       ),
     ).rejects.toMatchObject({reason: 'access-denied'});
@@ -307,7 +450,9 @@ describe('SharedInstallationTokenCache', () => {
     });
 
     await expect(
-      shared.getOrMint(installationId, () => Promise.resolve(token('ghs_new'))),
+      shared.getOrMint(installationId, GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT, () =>
+        Promise.resolve(token('ghs_new')),
+      ),
     ).rejects.toMatchObject({reason: 'installation-not-found'});
   });
 
@@ -316,7 +461,11 @@ describe('SharedInstallationTokenCache', () => {
     store.failReads = true;
     const shared = cache({store});
 
-    const result = await shared.getOrMint(installationId, () => Promise.resolve(token('ghs_new')));
+    const result = await shared.getOrMint(
+      installationId,
+      GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT,
+      () => Promise.resolve(token('ghs_new')),
+    );
 
     expect(result).toEqual(token('ghs_new'));
   });
@@ -331,7 +480,9 @@ describe('SharedInstallationTokenCache', () => {
     });
 
     await expect(
-      shared.getOrMint(installationId, () => Promise.resolve(token('ghs_new'))),
+      shared.getOrMint(installationId, GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT, () =>
+        Promise.resolve(token('ghs_new')),
+      ),
     ).rejects.toMatchObject({reason: 'provider-unavailable'});
 
     expect(errorMonitoring.reportError).toHaveBeenCalledTimes(1);
@@ -342,20 +493,35 @@ describe('SharedInstallationTokenCache', () => {
     store.failWrites = true;
     const shared = cache({store});
 
-    const result = await shared.getOrMint(installationId, () => Promise.resolve(token('ghs_new')));
+    const result = await shared.getOrMint(
+      installationId,
+      GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT,
+      () => Promise.resolve(token('ghs_new')),
+    );
 
     expect(result).toEqual(token('ghs_new'));
   });
 
   it('treats an invalid envelope as a miss and overwrites it', async () => {
     const store = createStore();
-    store.values.set(`${workspaceId}:${installationId}`, '{bad json');
+    store.values.set(
+      `${workspaceId}:${installationId}:${githubInstallationTokenKey(GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT)}`,
+      '{bad json',
+    );
     const shared = cache({store});
 
-    const result = await shared.getOrMint(installationId, () => Promise.resolve(token('ghs_new')));
+    const result = await shared.getOrMint(
+      installationId,
+      GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT,
+      () => Promise.resolve(token('ghs_new')),
+    );
 
     expect(result).toEqual(token('ghs_new'));
-    expect(store.values.get(`${workspaceId}:${installationId}`)).toContain('ghs_new');
+    expect(
+      store.values.get(
+        `${workspaceId}:${installationId}:${githubInstallationTokenKey(GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT)}`,
+      ),
+    ).toContain('ghs_new');
   });
 
   it('surfaces an unresolvable installation as installation-not-found', async () => {
@@ -365,7 +531,9 @@ describe('SharedInstallationTokenCache', () => {
     });
 
     await expect(
-      shared.getOrMint(installationId, () => Promise.resolve(token('ghs_new'))),
+      shared.getOrMint(installationId, GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT, () =>
+        Promise.resolve(token('ghs_new')),
+      ),
     ).rejects.toMatchObject({reason: 'installation-not-found'});
   });
 });

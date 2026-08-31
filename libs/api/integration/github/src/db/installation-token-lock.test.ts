@@ -1,16 +1,22 @@
 import {withInstallationTokenLock} from './installation-token-lock.js';
 
 describe('withInstallationTokenLock', () => {
-  it('allows one holder per installation and fails contenders fast', async () => {
+  it('allows one holder per installation per permission profile and fails same-profile contenders fast', async () => {
     const first = holdInstallationTokenLock(9001, 'winner');
 
     await first.ready;
     const contender = await withInstallationTokenLock(9001, async () => 'contender');
+    const differentProfile = await withInstallationTokenLock(
+      9001,
+      'narrow',
+      async () => 'different-profile',
+    );
     const different = await withInstallationTokenLock(9002, async () => 'different');
     first.release();
     const winner = await first.result;
 
     expect(contender).toEqual({acquired: false});
+    expect(differentProfile).toEqual({acquired: true, value: 'different-profile'});
     expect(different).toEqual({acquired: true, value: 'different'});
     expect(winner).toEqual({acquired: true, value: 'winner'});
   });
