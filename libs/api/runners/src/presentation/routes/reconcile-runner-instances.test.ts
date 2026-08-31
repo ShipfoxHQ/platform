@@ -21,6 +21,7 @@ import {vi} from '@shipfox/vitest/vi';
 import {and, desc, eq} from 'drizzle-orm';
 import type {FastifyInstance, FastifyRequest} from 'fastify';
 import {db} from '#db/db.js';
+import {recordHeartbeat} from '#db/job-executions.js';
 import {reservations} from '#db/schema/reservations.js';
 import {providerRunners} from '#db/schema/runner-instances.js';
 import {runningJobExecutions} from '#db/schema/running-job-executions.js';
@@ -231,6 +232,69 @@ describe('POST /provisioners/runner-instances/reconcile', () => {
     expect(Object.hasOwn(res.json().runners[0], 'stopping_at')).toBe(false);
   });
 
+  it('authorizes an expired cancellation with its preserved reason', async () => {
+    await createRunnerInstance({providerRunnerId: 'cancelled-runner'});
+    await insertRunningJob({
+      jobId: crypto.randomUUID(),
+      workflowRunId: crypto.randomUUID(),
+      workflowRunAttemptId: crypto.randomUUID(),
+      providerRunnerId: 'cancelled-runner',
+      lastHeartbeatAt: new Date(),
+      cancellationRequestedAt: new Date('2025-01-01T00:01:00.000Z'),
+      cancellationReason: 'run_cancelled',
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/provisioners/runner-instances/reconcile',
+      headers: {authorization: `Bearer ${VALID_PROVISIONER_TOKEN}`},
+      payload: {observed_provider_runner_ids: ['cancelled-runner']},
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().runners[0]).toMatchObject({
+      desired_intent: 'terminate',
+      termination_reason: 'job-cancelled',
+    });
+    const [runner] = await db()
+      .select({terminationReason: providerRunners.terminationReason})
+      .from(providerRunners)
+      .where(
+        and(
+          eq(providerRunners.workspaceId, workspaceId),
+          eq(providerRunners.provisionerId, provisionerTokenId),
+          eq(providerRunners.providerRunnerId, 'cancelled-runner'),
+        ),
+      );
+    expect(runner?.terminationReason).toBe('job-cancelled');
+  });
+
+  it('authorizes an expired timeout with the distinct timeout reason', async () => {
+    await createRunnerInstance({providerRunnerId: 'timed-out-runner'});
+    await insertRunningJob({
+      jobId: crypto.randomUUID(),
+      workflowRunId: crypto.randomUUID(),
+      workflowRunAttemptId: crypto.randomUUID(),
+      providerRunnerId: 'timed-out-runner',
+      lastHeartbeatAt: new Date(),
+      cancellationRequestedAt: new Date('2025-01-01T00:01:00.000Z'),
+      cancellationReason: 'timed_out',
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/provisioners/runner-instances/reconcile',
+      headers: {authorization: `Bearer ${VALID_PROVISIONER_TOKEN}`},
+      payload: {observed_provider_runner_ids: ['timed-out-runner']},
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().runners[0]).toMatchObject({
+      desired_intent: 'terminate',
+      termination_reason: 'job-timeout',
+    });
+  });
+
   it('returns keep for orphan observed ids without leaking ownership details', async () => {
     const res = await app.inject({
       method: 'POST',
@@ -247,16 +311,25 @@ describe('POST /provisioners/runner-instances/reconcile', () => {
     });
   });
 
-  it('returns keep for an active runner with a cancelled bound job', async () => {
+  it('returns keep for an active runner with a cancelled bound job during cleanup grace', async () => {
     const intentSpy = vi.spyOn(providerRunnerTerminateIntentIssuedCount, 'add');
     await createRunnerInstance({providerRunnerId: 'provisioned-runner-1'});
-    await insertRunningJob({
+    const job = await insertRunningJob({
       jobId: crypto.randomUUID(),
       workflowRunId: crypto.randomUUID(),
       workflowRunAttemptId: crypto.randomUUID(),
       providerRunnerId: 'provisioned-runner-1',
       lastHeartbeatAt: new Date('2025-01-01T00:00:00.000Z'),
-      cancellationRequestedAt: new Date('2025-01-01T00:01:00.000Z'),
+      cancellationRequestedAt: new Date(Date.now() - 1_000),
+      cancellationReason: 'run_cancelled',
+    });
+    const heartbeat = await recordHeartbeat({
+      jobExecutionId: job.jobExecutionId,
+      runnerSessionId: job.runnerSessionId,
+    });
+    expect(heartbeat).toMatchObject({
+      cancellationRequested: true,
+      cancellationReason: 'run_cancelled',
     });
     const intentCallsBefore = intentSpy.mock.calls.length;
 
@@ -271,7 +344,7 @@ describe('POST /provisioners/runner-instances/reconcile', () => {
     expect(res.json().runners[0]).toMatchObject({
       desired_intent: 'keep',
       bound_job: {
-        cancellation_requested_at: '2025-01-01T00:01:00.000Z',
+        cancellation_requested_at: expect.any(String),
       },
     });
     expect(Object.hasOwn(res.json().runners[0], 'termination_reason')).toBe(false);
@@ -467,8 +540,10 @@ describe('POST /provisioners/runner-instances/reconcile', () => {
     providerRunnerId: string;
     lastHeartbeatAt: Date;
     cancellationRequestedAt?: Date | null;
-  }) {
+    cancellationReason?: 'run_cancelled' | 'timed_out' | null;
+  }): Promise<{jobExecutionId: string; runnerSessionId: string}> {
     const runnerSession = await runnerSessionFactory.create({workspaceId});
+    const jobExecutionId = crypto.randomUUID();
 
     await db()
       .insert(runningJobExecutions)
@@ -476,7 +551,7 @@ describe('POST /provisioners/runner-instances/reconcile', () => {
         workspaceId,
         workflowRunId: params.workflowRunId,
         jobId: params.jobId,
-        jobExecutionId: crypto.randomUUID(),
+        jobExecutionId,
         workflowRunAttemptId: params.workflowRunAttemptId,
         projectId: crypto.randomUUID(),
         runnerSessionId: runnerSession.id,
@@ -487,6 +562,8 @@ describe('POST /provisioners/runner-instances/reconcile', () => {
         startedAt: params.lastHeartbeatAt,
         lastHeartbeatAt: params.lastHeartbeatAt,
         cancellationRequestedAt: params.cancellationRequestedAt ?? null,
+        cancellationReason: params.cancellationReason ?? null,
       });
+    return {jobExecutionId, runnerSessionId: runnerSession.id};
   }
 });

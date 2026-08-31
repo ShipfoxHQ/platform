@@ -168,12 +168,11 @@ export async function reconcileRunnerInstances(
     observedRunnerInstanceIds: params.observedRunnerInstanceIds,
     observedRows: result.observedRows,
     boundJobExecutionsByRunnerInstanceId: result.boundJobExecutionsByRunnerInstanceId,
+    cleanupGraceSeconds: config.RUNNER_JOB_CLEANUP_GRACE_SECONDS,
   });
-  // Compatibility adapter for the old terminal-state decision. Cancellation
-  // and timeout are intentionally not authorized until graceful cleanup exists.
-  const terminalAuthorizations = await Promise.all(
+  const candidateAuthorizations = await Promise.all(
     reconciledRunners.flatMap((runner) =>
-      runner.desiredIntentReason === 'terminal-state'
+      runner.desiredIntentReason
         ? [
             authorizeRunnerTermination({
               provisionerId: params.provisionerId,
@@ -184,7 +183,7 @@ export async function reconcileRunnerInstances(
         : [],
     ),
   );
-  const terminalAuthorizationByRunnerId = new Map(terminalAuthorizations);
+  const authorizationByCandidateRunnerId = new Map(candidateAuthorizations);
   const authorizations = await listProvisionerTerminationAuthorizations({
     workspaceId: params.workspaceId,
     provisionerId: params.provisionerId,
@@ -195,18 +194,22 @@ export async function reconcileRunnerInstances(
     authorizations.map((authorization) => [authorization.providerRunnerId, authorization.reason]),
   );
   const runners = reconciledRunners.map((runner) => {
-    const authorization = terminalAuthorizationByRunnerId.get(runner.providerRunnerId);
+    const candidateAuthorization = authorizationByCandidateRunnerId.get(runner.providerRunnerId);
     const reason = authorizationByRunnerId.get(runner.providerRunnerId);
     const effectiveReason =
       reason ??
-      (authorization?.desiredIntent === 'terminate' ? authorization.terminationReason : null);
+      (candidateAuthorization?.desiredIntent === 'terminate'
+        ? candidateAuthorization.terminationReason
+        : null);
     return {
       ...runner,
       desiredIntent: (effectiveReason ? 'terminate' : 'keep') as ReconcileDesiredIntent,
       desiredIntentReason: effectiveReason,
       terminationReason:
         reason ??
-        (authorization?.desiredIntent === 'terminate' ? authorization.terminationReason : null),
+        (candidateAuthorization?.desiredIntent === 'terminate'
+          ? candidateAuthorization.terminationReason
+          : null),
     };
   });
   for (const runner of runners) {
@@ -228,7 +231,11 @@ export function reconcileRunnerInstancesFromDbResult(params: {
   observedRunnerInstanceIds: string[];
   observedRows: RunnerInstance[];
   boundJobExecutionsByRunnerInstanceId: Map<string, RunnerInstanceBoundJobExecution>;
+  cleanupGraceSeconds?: number;
+  now?: Date;
 }): ReconciledRunnerInstance[] {
+  const now = params.now ?? new Date();
+  const cleanupGraceSeconds = params.cleanupGraceSeconds ?? config.RUNNER_JOB_CLEANUP_GRACE_SECONDS;
   const rowsByRunnerInstanceId = new Map(
     params.observedRows.map((row) => [row.providerRunnerId, row]),
   );
@@ -237,7 +244,12 @@ export function reconcileRunnerInstancesFromDbResult(params: {
     const row = rowsByRunnerInstanceId.get(providerRunnerId);
     const boundJobExecution = params.boundJobExecutionsByRunnerInstanceId.get(providerRunnerId);
 
-    const desiredIntentReason = getDesiredIntentReason(row, boundJobExecution);
+    const desiredIntentReason = getDesiredIntentReason(
+      row,
+      boundJobExecution,
+      now,
+      cleanupGraceSeconds,
+    );
 
     return {
       providerRunnerId,
@@ -294,11 +306,28 @@ export function desiredIntent(
 function getDesiredIntentReason(
   row: RunnerInstance | undefined,
   boundJobExecution: RunnerInstanceBoundJobExecution | undefined,
+  now = new Date(),
+  cleanupGraceSeconds = config.RUNNER_JOB_CLEANUP_GRACE_SECONDS,
 ): RunnerTerminationReason | null {
   if (!row) return null;
-  if (isTerminalState(row.state)) return 'terminal-state';
-  if (boundJobExecution?.cancellationRequestedAt) return 'job-cancelled';
+
+  const jobStopReason = terminationReasonForJobStop(boundJobExecution);
+  const localWorkStopped = isTerminalState(row.state);
+  const cleanupGraceExpired =
+    boundJobExecution?.cancellationRequestedAt !== null &&
+    boundJobExecution?.cancellationRequestedAt !== undefined &&
+    now.getTime() >=
+      boundJobExecution.cancellationRequestedAt.getTime() + cleanupGraceSeconds * 1000;
+  if (jobStopReason && (localWorkStopped || cleanupGraceExpired)) return jobStopReason;
+  if (localWorkStopped) return 'terminal-state';
   return null;
+}
+
+function terminationReasonForJobStop(
+  jobExecution: RunnerInstanceBoundJobExecution | undefined,
+): Extract<RunnerTerminationReason, 'job-cancelled' | 'job-timeout'> | null {
+  if (!jobExecution?.cancellationRequestedAt) return null;
+  return jobExecution.cancellationReason === 'timed_out' ? 'job-timeout' : 'job-cancelled';
 }
 
 function mergeActiveRunners(

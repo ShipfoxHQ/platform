@@ -892,6 +892,7 @@ export async function listProvisionerTerminateIntentRowsTx(
     limit: number;
   },
   options?: {
+    includeCancelledJobs?: boolean;
     authorize?: (params: {
       providerRunnerId: string;
       reason: RunnerInstanceTerminateIntentReason;
@@ -905,6 +906,7 @@ export async function listProvisionerTerminateIntentRowsTx(
       tx,
       params,
       options.authorize,
+      options.includeCancelledJobs,
     ));
   } else {
     const rows = await provisionerTerminateIntentsQuery(tx, params)
@@ -953,6 +955,7 @@ async function listAuthorizedProvisionerTerminateIntentRowsTx(
     providerRunnerId: string;
     reason: RunnerInstanceTerminateIntentReason;
   }) => Promise<boolean>,
+  includeCancelledJobs?: boolean,
 ): Promise<{rows: ProvisionerTerminateIntentRow[]; truncated: boolean}> {
   const authorizedRows: ProvisionerTerminateIntentRow[] = [];
   let providerRunnerIdAfter: string | undefined;
@@ -962,6 +965,7 @@ async function listAuthorizedProvisionerTerminateIntentRowsTx(
     const rows = await provisionerTerminateIntentsQuery(
       tx,
       providerRunnerIdAfter ? {...params, providerRunnerIdAfter} : params,
+      includeCancelledJobs === undefined ? {} : {includeCancelledJobs},
     )
       .orderBy(asc(providerRunners.providerRunnerId))
       .limit(remaining + 1);
@@ -1027,46 +1031,53 @@ function provisionerTerminateIntentsQuery(
     providerRunnerIds?: string[];
     providerRunnerIdAfter?: string;
   },
+  options: {includeCancelledJobs?: boolean} = {},
 ) {
   const newerRunningJobExecutions = alias(runningJobExecutions, 'newer_running_jobs');
-  const latestCancelledJob = exists(
-    tx
-      .select({id: runningJobExecutions.id})
-      .from(runningJobExecutions)
-      .where(
-        and(
-          eq(runningJobExecutions.workspaceId, params.workspaceId),
-          eq(runningJobExecutions.provisionerId, params.provisionerId),
-          eq(runningJobExecutions.providerRunnerId, providerRunners.providerRunnerId),
-          isNotNull(runningJobExecutions.cancellationRequestedAt),
-          notExists(
-            tx
-              .select({id: newerRunningJobExecutions.id})
-              .from(newerRunningJobExecutions)
-              .where(
-                and(
-                  eq(newerRunningJobExecutions.workspaceId, runningJobExecutions.workspaceId),
-                  eq(newerRunningJobExecutions.provisionerId, runningJobExecutions.provisionerId),
-                  eq(
-                    newerRunningJobExecutions.providerRunnerId,
-                    runningJobExecutions.providerRunnerId,
-                  ),
-                  or(
-                    gt(newerRunningJobExecutions.startedAt, runningJobExecutions.startedAt),
-                    and(
-                      eq(newerRunningJobExecutions.startedAt, runningJobExecutions.startedAt),
-                      gt(
-                        newerRunningJobExecutions.jobExecutionId,
-                        runningJobExecutions.jobExecutionId,
+  const latestCancelledJob =
+    options.includeCancelledJobs === false
+      ? sql<boolean>`false`
+      : exists(
+          tx
+            .select({id: runningJobExecutions.id})
+            .from(runningJobExecutions)
+            .where(
+              and(
+                eq(runningJobExecutions.workspaceId, params.workspaceId),
+                eq(runningJobExecutions.provisionerId, params.provisionerId),
+                eq(runningJobExecutions.providerRunnerId, providerRunners.providerRunnerId),
+                isNotNull(runningJobExecutions.cancellationRequestedAt),
+                notExists(
+                  tx
+                    .select({id: newerRunningJobExecutions.id})
+                    .from(newerRunningJobExecutions)
+                    .where(
+                      and(
+                        eq(newerRunningJobExecutions.workspaceId, runningJobExecutions.workspaceId),
+                        eq(
+                          newerRunningJobExecutions.provisionerId,
+                          runningJobExecutions.provisionerId,
+                        ),
+                        eq(
+                          newerRunningJobExecutions.providerRunnerId,
+                          runningJobExecutions.providerRunnerId,
+                        ),
+                        or(
+                          gt(newerRunningJobExecutions.startedAt, runningJobExecutions.startedAt),
+                          and(
+                            eq(newerRunningJobExecutions.startedAt, runningJobExecutions.startedAt),
+                            gt(
+                              newerRunningJobExecutions.jobExecutionId,
+                              runningJobExecutions.jobExecutionId,
+                            ),
+                          ),
+                        ),
                       ),
                     ),
-                  ),
                 ),
               ),
-          ),
-        ),
-      ),
-  );
+            ),
+        );
   const activationTimeout = and(
     eq(providerRunners.launchKind, 'demand'),
     isNull(providerRunners.runnerSessionId),

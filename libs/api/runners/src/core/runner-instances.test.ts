@@ -37,7 +37,7 @@ describe('reconcileRunnerInstancesFromDbResult', () => {
     });
   });
 
-  it('terminates active provisioned runners with a cancelled latest bound job', () => {
+  it('keeps active provisioned runners while a bound job is cleaning up', () => {
     const result = reconcileRunnerInstancesFromDbResult({
       observedRunnerInstanceIds: ['provisioned-runner-1'],
       observedRows: [providerRunner({providerRunnerId: 'provisioned-runner-1'})],
@@ -47,12 +47,39 @@ describe('reconcileRunnerInstancesFromDbResult', () => {
           boundJobExecution({
             providerRunnerId: 'provisioned-runner-1',
             cancellationRequestedAt: new Date('2025-01-01T00:01:00.000Z'),
+            cancellationReason: 'run_cancelled',
           }),
         ],
       ]),
+      now: new Date('2025-01-01T00:02:00.000Z'),
+      cleanupGraceSeconds: 120,
     });
 
-    expect(result[0]?.desiredIntent).toBe('terminate');
+    expect(result[0]?.desiredIntent).toBe('keep');
+  });
+
+  it('terminates active provisioned runners when cleanup grace expires', () => {
+    const result = reconcileRunnerInstancesFromDbResult({
+      observedRunnerInstanceIds: ['provisioned-runner-1'],
+      observedRows: [providerRunner({providerRunnerId: 'provisioned-runner-1'})],
+      boundJobExecutionsByRunnerInstanceId: new Map([
+        [
+          'provisioned-runner-1',
+          boundJobExecution({
+            providerRunnerId: 'provisioned-runner-1',
+            cancellationRequestedAt: new Date('2025-01-01T00:01:00.000Z'),
+            cancellationReason: 'timed_out',
+          }),
+        ],
+      ]),
+      now: new Date('2025-01-01T00:03:00.000Z'),
+      cleanupGraceSeconds: 120,
+    });
+
+    expect(result[0]).toMatchObject({
+      desiredIntent: 'terminate',
+      desiredIntentReason: 'job-timeout',
+    });
   });
 
   it('returns the first observed stopping timestamp for an authorized runner', () => {
@@ -120,6 +147,7 @@ function providerRunner(params: {
 function boundJobExecution(params: {
   providerRunnerId: string;
   cancellationRequestedAt?: Date | null;
+  cancellationReason?: 'run_cancelled' | 'timed_out' | null;
 }) {
   return {
     workflowRunId: crypto.randomUUID(),
@@ -130,6 +158,6 @@ function boundJobExecution(params: {
     startedAt: new Date('2025-01-01T00:00:00.000Z'),
     lastHeartbeatAt: new Date('2025-01-01T00:00:00.000Z'),
     cancellationRequestedAt: params.cancellationRequestedAt ?? null,
-    cancellationReason: null,
+    cancellationReason: params.cancellationReason ?? null,
   };
 }

@@ -153,6 +153,33 @@ describe('RUNNER_NO_FIRST_HEARTBEAT_GRACE_SECONDS validation', () => {
   });
 });
 
+describe('RUNNER_JOB_CLEANUP_GRACE_SECONDS validation', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it.each([
+    '0',
+    '-5',
+    '1.5',
+    '300',
+  ])('fails startup when RUNNER_JOB_CLEANUP_GRACE_SECONDS is %s', async (value) => {
+    vi.stubEnv('RUNNER_JOB_CLEANUP_GRACE_SECONDS', value);
+    vi.resetModules();
+
+    await expect(import('#config.js')).rejects.toThrow('RUNNER_JOB_CLEANUP_GRACE_SECONDS');
+  });
+
+  it('defaults to a two-minute cleanup grace', async () => {
+    vi.resetModules();
+
+    const {config} = await import('#config.js');
+
+    expect(config.RUNNER_JOB_CLEANUP_GRACE_SECONDS).toBe(120);
+  });
+});
+
 describe('RUNNER_POST_JOB_EXIT_GRACE_SECONDS validation', () => {
   afterEach(() => {
     vi.unstubAllEnvs();
