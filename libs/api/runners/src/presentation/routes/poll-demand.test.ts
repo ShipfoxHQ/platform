@@ -264,7 +264,7 @@ describe('POST /provisioners/demand/poll', () => {
     ]);
   });
 
-  it('returns terminate intent ids for active provisioned runners with cancelled latest jobs', async () => {
+  it('does not return immediate termination intent ids for cancelled latest jobs', async () => {
     await providerRunnerFactory.create({
       workspaceId,
       provisionerId: provisionerTokenId,
@@ -298,7 +298,7 @@ describe('POST /provisioners/demand/poll', () => {
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({
       reservations: [],
-      terminate_provider_runner_ids: ['provisioned-runner-1'],
+      terminate_provider_runner_ids: [],
     });
     const [runner] = await db()
       .select({
@@ -313,8 +313,6 @@ describe('POST /provisioners/demand/poll', () => {
           eq(providerRunners.providerRunnerId, 'provisioned-runner-1'),
         ),
       );
-    // Cancellation remains on the legacy delivery path until graceful cleanup
-    // can safely persist its authorization.
     expect(runner?.terminationAuthorizedAt).toBeNull();
     expect(runner?.terminationReason).toBeNull();
   });
@@ -365,7 +363,7 @@ describe('POST /provisioners/demand/poll', () => {
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({
       reservations: [],
-      terminate_provider_runner_ids: ['provisioned-runner-1'],
+      terminate_provider_runner_ids: [],
     });
     const divergenceCalls = divergenceSpy.mock.calls
       .slice(divergenceCallsBefore)
@@ -384,7 +382,7 @@ describe('POST /provisioners/demand/poll', () => {
             JSON.stringify({surface: 'poll-demand', reason: 'job-cancelled'}),
       );
     expect(divergenceCalls).toHaveLength(1);
-    expect(intentCalls).toHaveLength(1);
+    expect(intentCalls).toHaveLength(0);
   });
 
   it('counts activation-timeout reaps once across terminate-intent retries', async () => {

@@ -111,6 +111,10 @@ export const config = createConfig({
     desc: 'Grace window, in seconds, before reconcile marks an absent provisioned runner as terminated. Set this higher than the provisioner report interval so a transient empty or partial observed set does not kill a live runner.',
     default: 120,
   }),
+  RUNNER_JOB_CLEANUP_GRACE_SECONDS: num({
+    desc: 'Bounded grace window, in seconds, for a runner to stop local work after cancellation or maximum-duration timeout before provider termination is authorized.',
+    default: 120,
+  }),
   RUNNER_STALE_PROVISIONED_RUNNER_THRESHOLD_SECONDS: num({
     desc: 'Time, in seconds, after which a provisioned runner with no recent report, no live provisioner, no live runner session, and no running job is marked failed by backend maintenance.',
     default: 300,
@@ -197,7 +201,7 @@ export const config = createConfig({
   }),
   RUNNER_TERMINATION_REASON_JOB_TIMEOUT_ENABLED: bool({
     desc: 'Allow job-timeout termination authorization.',
-    default: false,
+    default: true,
   }),
   RUNNER_TERMINATION_REASON_TERMINAL_STATE_ENABLED: bool({
     desc: 'Allow terminal-state termination authorization.',
@@ -366,6 +370,16 @@ if (
 ) {
   throw new Error(
     `RUNNER_RECONCILE_TERMINATE_GRACE_SECONDS (${config.RUNNER_RECONCILE_TERMINATE_GRACE_SECONDS}) must be a whole number of seconds >= 1.`,
+  );
+}
+
+if (
+  !Number.isInteger(config.RUNNER_JOB_CLEANUP_GRACE_SECONDS) ||
+  config.RUNNER_JOB_CLEANUP_GRACE_SECONDS < 1 ||
+  config.RUNNER_JOB_CLEANUP_GRACE_SECONDS >= STUCK_JOB_THRESHOLD_SECONDS
+) {
+  throw new Error(
+    `RUNNER_JOB_CLEANUP_GRACE_SECONDS (${config.RUNNER_JOB_CLEANUP_GRACE_SECONDS}) must be a whole number of seconds >= 1 and < ${STUCK_JOB_THRESHOLD_SECONDS}.`,
   );
 }
 

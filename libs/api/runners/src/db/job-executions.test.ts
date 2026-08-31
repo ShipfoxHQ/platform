@@ -482,6 +482,38 @@ describe('claimPendingJobExecution', () => {
     expect(runner?.firstClaimedAt).toBeInstanceOf(Date);
   });
 
+  it('clears stale termination authorization when a provisioned runner claims a new job', async () => {
+    const provisionerId = crypto.randomUUID();
+    const providerRunnerId = `provisioned-runner-${crypto.randomUUID()}`;
+    const authorizedAt = new Date('2026-01-01T00:00:00.000Z');
+    const runner = await providerRunnerFactory.create({
+      workspaceId,
+      provisionerId,
+      providerRunnerId,
+      runnerSessionId,
+      state: 'running',
+      labels: sessionLabels,
+      terminationAuthorizedAt: authorizedAt,
+      terminationReason: 'job-cancelled',
+    });
+    await db()
+      .update(runnerSessions)
+      .set({registrationTokenKind: 'ephemeral', maxClaims: 1, provisionerId, providerRunnerId})
+      .where(eq(runnerSessions.id, runnerSessionId));
+    await pendingJobFactory.create({workspaceId});
+
+    await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: 1});
+
+    const [afterClaim] = await db()
+      .select({
+        terminationAuthorizedAt: providerRunners.terminationAuthorizedAt,
+        terminationReason: providerRunners.terminationReason,
+      })
+      .from(providerRunners)
+      .where(eq(providerRunners.id, runner.id));
+    expect(afterClaim).toEqual({terminationAuthorizedAt: null, terminationReason: null});
+  });
+
   it('releases a provisioned runner reservation on its first claim only', async () => {
     const reservationReleaseMetric = vi.spyOn(runnerMetrics.reservationReleasedCount, 'add');
     try {

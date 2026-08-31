@@ -16,7 +16,6 @@ import {
   type SQL,
   sql,
 } from 'drizzle-orm';
-import {alias} from 'drizzle-orm/pg-core';
 import {config} from '#config.js';
 import type {
   RunnerInstance,
@@ -842,9 +841,8 @@ export async function listProvisionerTerminationAuthorizationsTx(
     .select({
       providerRunnerId: providerRunners.providerRunnerId,
       terminationReason: providerRunners.terminationReason,
-      // The legacy query owns the first-delivery/retry signal. A durable
-      // authorization has no reliable delivery marker, so it is a first
-      // delivery when it is not also returned by that compatibility query.
+      // A durable authorization has no separate delivery marker. The
+      // provisioner can repeat it until the runner reports termination.
       activationTimeoutRetry: sql<boolean>`false`,
     })
     .from(providerRunners)
@@ -854,9 +852,8 @@ export async function listProvisionerTerminationAuthorizationsTx(
           ? eq(providerRunners.workspaceId, params.workspaceId)
           : isNull(providerRunners.workspaceId),
         eq(providerRunners.provisionerId, params.provisionerId),
-        // Terminal runners are handled by reconcile's compatibility adapter;
-        // poll-demand only needs authorizations for runners still awaiting
-        // provisioner action.
+        // Only active runners await provider termination. Terminal runners
+        // are handled by the report path after the provider acknowledges them.
         inArray(providerRunners.state, activeStates),
         isNotNull(providerRunners.providerRunnerId),
         isNotNull(providerRunners.terminationAuthorizedAt),
@@ -1028,45 +1025,6 @@ function provisionerTerminateIntentsQuery(
     providerRunnerIdAfter?: string;
   },
 ) {
-  const newerRunningJobExecutions = alias(runningJobExecutions, 'newer_running_jobs');
-  const latestCancelledJob = exists(
-    tx
-      .select({id: runningJobExecutions.id})
-      .from(runningJobExecutions)
-      .where(
-        and(
-          eq(runningJobExecutions.workspaceId, params.workspaceId),
-          eq(runningJobExecutions.provisionerId, params.provisionerId),
-          eq(runningJobExecutions.providerRunnerId, providerRunners.providerRunnerId),
-          isNotNull(runningJobExecutions.cancellationRequestedAt),
-          notExists(
-            tx
-              .select({id: newerRunningJobExecutions.id})
-              .from(newerRunningJobExecutions)
-              .where(
-                and(
-                  eq(newerRunningJobExecutions.workspaceId, runningJobExecutions.workspaceId),
-                  eq(newerRunningJobExecutions.provisionerId, runningJobExecutions.provisionerId),
-                  eq(
-                    newerRunningJobExecutions.providerRunnerId,
-                    runningJobExecutions.providerRunnerId,
-                  ),
-                  or(
-                    gt(newerRunningJobExecutions.startedAt, runningJobExecutions.startedAt),
-                    and(
-                      eq(newerRunningJobExecutions.startedAt, runningJobExecutions.startedAt),
-                      gt(
-                        newerRunningJobExecutions.jobExecutionId,
-                        runningJobExecutions.jobExecutionId,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-          ),
-        ),
-      ),
-  );
   const activationTimeout = and(
     eq(providerRunners.launchKind, 'demand'),
     isNull(providerRunners.runnerSessionId),
@@ -1114,7 +1072,7 @@ function provisionerTerminateIntentsQuery(
         params.providerRunnerIdAfter
           ? gt(providerRunners.providerRunnerId, params.providerRunnerIdAfter)
           : undefined,
-        or(latestCancelledJob, activationTimeout),
+        activationTimeout,
       ),
     );
 }
@@ -1182,21 +1140,6 @@ async function listTerminateIntentsHonoredByTerminatedReportsTx(
         : [];
     }),
   );
-
-  // Keep recognizing direct legacy cancellation intents until graceful cleanup moves them onto
-  // the durable authorization path. A canonical authorization always wins for the same runner.
-  if (params.workspaceId) {
-    const legacyRows = await provisionerTerminateIntentsQuery(tx, {
-      workspaceId: params.workspaceId,
-      provisionerId: params.provisionerId,
-      providerRunnerIds: terminatedRunnerInstanceIds,
-    }).orderBy(asc(providerRunners.providerRunnerId));
-    for (const row of legacyRows) {
-      const intent = toRunnerInstanceTerminateIntent(row)[0];
-      if (intent && !honoredByRunnerId.has(intent.providerRunnerId))
-        honoredByRunnerId.set(intent.providerRunnerId, {...intent, origin: 'legacy'});
-    }
-  }
 
   return [...honoredByRunnerId.values()];
 }

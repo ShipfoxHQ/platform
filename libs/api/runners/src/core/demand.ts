@@ -98,9 +98,9 @@ export async function pollDemand(params: PollDemandParams): Promise<PollDemandRe
         activationGraceSeconds: config.RESERVATION_TTL_SECONDS,
         templates: params.templates,
       });
-      // Compatibility only: activation-timeout was historically derived by this
-      // channel. Cancellation remains owned by the existing direct path until
-      // graceful cleanup is implemented; it must never be authorized here.
+      // Activation-timeout is the only legacy intent still derived by this
+      // channel. Job cancellation is authorized by reconciliation after its
+      // cleanup grace and delivered from the durable authorization.
       const legacyTerminateIntents = await listProvisionerTerminateIntentRowsTx(
         tx,
         {

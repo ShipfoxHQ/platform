@@ -20,7 +20,9 @@ import {
 import {vi} from '@shipfox/vitest/vi';
 import {and, desc, eq} from 'drizzle-orm';
 import type {FastifyInstance, FastifyRequest} from 'fastify';
+import {config} from '#config.js';
 import {db} from '#db/db.js';
+import {recordHeartbeat} from '#db/job-executions.js';
 import {reservations} from '#db/schema/reservations.js';
 import {providerRunners} from '#db/schema/runner-instances.js';
 import {runningJobExecutions} from '#db/schema/running-job-executions.js';
@@ -231,6 +233,53 @@ describe('POST /provisioners/runner-instances/reconcile', () => {
     expect(Object.hasOwn(res.json().runners[0], 'stopping_at')).toBe(false);
   });
 
+  it.each([
+    {cancellationReason: 'run_cancelled', expectedReason: 'job-cancelled'},
+    {cancellationReason: 'timed_out', expectedReason: 'job-timeout'},
+  ] as const)('authorizes an expired $cancellationReason with its preserved reason', async ({
+    cancellationReason,
+    expectedReason,
+  }) => {
+    const providerRunnerId = `${cancellationReason}-runner`;
+    await createRunnerInstance({providerRunnerId});
+    await insertRunningJob({
+      jobId: crypto.randomUUID(),
+      workflowRunId: crypto.randomUUID(),
+      workflowRunAttemptId: crypto.randomUUID(),
+      providerRunnerId,
+      lastHeartbeatAt: new Date('2025-01-01T00:01:00.000Z'),
+      cancellationRequestedAt: new Date('2025-01-01T00:01:00.000Z'),
+      cancellationReason,
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/provisioners/runner-instances/reconcile',
+      headers: {authorization: `Bearer ${VALID_PROVISIONER_TOKEN}`},
+      payload: {observed_provider_runner_ids: [providerRunnerId]},
+    });
+
+    expect(res.statusCode).toBe(200);
+    if (cancellationReason === 'timed_out') {
+      expect(config.RUNNER_TERMINATION_REASON_JOB_TIMEOUT_ENABLED).toBe(true);
+    }
+    expect(res.json().runners[0]).toMatchObject({
+      desired_intent: 'terminate',
+      termination_reason: expectedReason,
+    });
+    const [runner] = await db()
+      .select({terminationReason: providerRunners.terminationReason})
+      .from(providerRunners)
+      .where(
+        and(
+          eq(providerRunners.workspaceId, workspaceId),
+          eq(providerRunners.provisionerId, provisionerTokenId),
+          eq(providerRunners.providerRunnerId, providerRunnerId),
+        ),
+      );
+    expect(runner?.terminationReason).toBe(expectedReason);
+  });
+
   it('returns keep for orphan observed ids without leaking ownership details', async () => {
     const res = await app.inject({
       method: 'POST',
@@ -247,16 +296,25 @@ describe('POST /provisioners/runner-instances/reconcile', () => {
     });
   });
 
-  it('returns keep for an active runner with a cancelled bound job', async () => {
+  it('returns keep for an active runner with a cancelled bound job during cleanup grace', async () => {
     const intentSpy = vi.spyOn(providerRunnerTerminateIntentIssuedCount, 'add');
     await createRunnerInstance({providerRunnerId: 'provisioned-runner-1'});
-    await insertRunningJob({
+    const job = await insertRunningJob({
       jobId: crypto.randomUUID(),
       workflowRunId: crypto.randomUUID(),
       workflowRunAttemptId: crypto.randomUUID(),
       providerRunnerId: 'provisioned-runner-1',
       lastHeartbeatAt: new Date('2025-01-01T00:00:00.000Z'),
-      cancellationRequestedAt: new Date('2025-01-01T00:01:00.000Z'),
+      cancellationRequestedAt: new Date(Date.now() - 1_000),
+      cancellationReason: 'run_cancelled',
+    });
+    const heartbeat = await recordHeartbeat({
+      jobExecutionId: job.jobExecutionId,
+      runnerSessionId: job.runnerSessionId,
+    });
+    expect(heartbeat).toMatchObject({
+      cancellationRequested: true,
+      cancellationReason: 'run_cancelled',
     });
     const intentCallsBefore = intentSpy.mock.calls.length;
 
@@ -271,7 +329,7 @@ describe('POST /provisioners/runner-instances/reconcile', () => {
     expect(res.json().runners[0]).toMatchObject({
       desired_intent: 'keep',
       bound_job: {
-        cancellation_requested_at: '2025-01-01T00:01:00.000Z',
+        cancellation_requested_at: expect.any(String),
       },
     });
     expect(Object.hasOwn(res.json().runners[0], 'termination_reason')).toBe(false);
@@ -467,8 +525,10 @@ describe('POST /provisioners/runner-instances/reconcile', () => {
     providerRunnerId: string;
     lastHeartbeatAt: Date;
     cancellationRequestedAt?: Date | null;
-  }) {
+    cancellationReason?: 'run_cancelled' | 'timed_out' | null;
+  }): Promise<{jobExecutionId: string; runnerSessionId: string}> {
     const runnerSession = await runnerSessionFactory.create({workspaceId});
+    const jobExecutionId = crypto.randomUUID();
 
     await db()
       .insert(runningJobExecutions)
@@ -476,7 +536,7 @@ describe('POST /provisioners/runner-instances/reconcile', () => {
         workspaceId,
         workflowRunId: params.workflowRunId,
         jobId: params.jobId,
-        jobExecutionId: crypto.randomUUID(),
+        jobExecutionId,
         workflowRunAttemptId: params.workflowRunAttemptId,
         projectId: crypto.randomUUID(),
         runnerSessionId: runnerSession.id,
@@ -487,6 +547,8 @@ describe('POST /provisioners/runner-instances/reconcile', () => {
         startedAt: params.lastHeartbeatAt,
         lastHeartbeatAt: params.lastHeartbeatAt,
         cancellationRequestedAt: params.cancellationRequestedAt ?? null,
+        cancellationReason: params.cancellationReason ?? null,
       });
+    return {jobExecutionId, runnerSessionId: runnerSession.id};
   }
 });

@@ -182,6 +182,8 @@ describe('POST /provisioners/runner-instances/report', () => {
       provisionerId: provisionerTokenId,
       providerRunnerId: 'provisioned-runner-1',
       state: 'running',
+      terminationAuthorizedAt: new Date('2025-01-01T00:02:00.000Z'),
+      terminationReason: 'job-cancelled',
     });
     await db()
       .insert(runningJobExecutions)
@@ -242,7 +244,9 @@ describe('POST /provisioners/runner-instances/report', () => {
         ([value, attributes]) =>
           value === 1 && JSON.stringify(attributes) === JSON.stringify({reason: 'job-cancelled'}),
       );
-    expect(honoredCalls).toHaveLength(1);
+    // The test environment shares a no-op instrument across counters; a durable honor records
+    // both the provider-intent and durable-authorization counters.
+    expect(honoredCalls).toHaveLength(2);
   });
 
   it('logs the durable authorization reason and preserved provider kind once', async () => {

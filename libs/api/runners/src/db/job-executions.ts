@@ -483,6 +483,8 @@ async function recordClaimedRunnerTx(
     .update(providerRunners)
     .set({
       firstClaimedAt: sql`coalesce(${providerRunners.firstClaimedAt}, ${claimedAt})`,
+      terminationAuthorizedAt: null,
+      terminationReason: null,
       updatedAt: sql`now()`,
     })
     .where(runnerInstanceCondition)
