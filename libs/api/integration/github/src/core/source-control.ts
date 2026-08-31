@@ -20,6 +20,7 @@ import {
   type ListRepositoriesInput,
   MAX_REPOSITORY_FILE_BYTES,
   nonEmptyString,
+  normalizeCheckoutTarget as normalizeTarget,
   parseProviderRepositoryId,
   positiveInteger,
   type RepositoryPage,
@@ -256,6 +257,9 @@ export class GithubSourceControlProvider
   ): Promise<CheckoutSpec> {
     const installationId = await this.installationId(input.connection.id);
     const target = normalizeCheckoutTarget(input);
+    // Specs need canonical repository metadata from the mint response. The
+    // exact-scope cache returns credentials only, so credential-only requests
+    // are the cache-backed path.
     const permissions = input.permissions ?? {contents: 'read'};
     const minted = await this.mintCheckoutToken({installationId, target, permissions});
     const repository = checkoutRepositoryFromMint(target, minted);
@@ -372,19 +376,11 @@ function normalizeCheckoutTarget(input: {
   target?: CheckoutTarget | undefined;
   externalRepositoryId?: string | undefined;
 }): CheckoutTarget {
-  if (input.target !== undefined && input.externalRepositoryId !== undefined) {
-    throw new GithubIntegrationProviderError(
-      'provider-rejected',
-      'Checkout input cannot include both a target and an external repository id',
-    );
-  }
-  if (input.target !== undefined) return input.target;
-  if (input.externalRepositoryId !== undefined) {
-    return {kind: 'external-id', externalRepositoryId: input.externalRepositoryId};
-  }
+  const target = normalizeTarget(input);
+  if (target !== undefined) return target;
   throw new GithubIntegrationProviderError(
     'repository-not-found',
-    'Checkout input must include a target or an external repository id',
+    'Checkout input must include exactly one target or external repository id',
   );
 }
 

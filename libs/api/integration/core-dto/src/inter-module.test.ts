@@ -120,6 +120,24 @@ describe('integrationsInterModuleContract', () => {
     ).toEqual({kind: 'name', owner: 'shipfox', name: 'platform'});
   });
 
+  test('trims name targets and rejects whitespace-only names', () => {
+    const input = {
+      workspaceId: '00000000-0000-4000-8000-000000000001',
+      connectionId: '00000000-0000-4000-8000-000000000002',
+      target: {kind: 'name' as const, owner: ' shipfox ', name: ' platform '},
+    };
+
+    expect(
+      integrationsInterModuleContract.methods.createCheckoutSpec.input.parse(input),
+    ).toMatchObject({target: {kind: 'name', owner: 'shipfox', name: 'platform'}});
+    expect(() =>
+      integrationsInterModuleContract.methods.createCheckoutSpec.input.parse({
+        ...input,
+        target: {kind: 'name', owner: ' ', name: 'platform'},
+      }),
+    ).toThrow();
+  });
+
   test.each([
     ['a missing target', {}],
     [

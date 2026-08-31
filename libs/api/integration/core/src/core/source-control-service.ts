@@ -1,3 +1,4 @@
+import {normalizeCheckoutTarget} from '@shipfox/api-integration-spi';
 import type {IntegrationConnection} from './entities/connection.js';
 import {
   IntegrationCheckoutUnsupportedError,
@@ -248,18 +249,10 @@ export function createSourceControlIntegrationService({
 }
 
 function checkoutTarget(input: CheckoutTargetInput): CheckoutTarget {
-  if (input.target !== undefined && input.externalRepositoryId !== undefined) {
-    throw new IntegrationProviderError(
-      'provider-rejected',
-      'Checkout input cannot include both a target and an external repository id',
-    );
-  }
-  if (input.target !== undefined) return input.target;
-  if (input.externalRepositoryId !== undefined) {
-    return {kind: 'external-id', externalRepositoryId: input.externalRepositoryId};
-  }
+  const target = normalizeCheckoutTarget(input);
+  if (target !== undefined) return target;
   throw new IntegrationProviderError(
-    'provider-rejected',
-    'Checkout input must include a target or an external repository id',
+    'repository-not-found',
+    'Checkout input must include exactly one target or external repository id',
   );
 }

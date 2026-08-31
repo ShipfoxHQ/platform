@@ -129,11 +129,21 @@ export type CheckoutTarget =
 
 /**
  * Checkout callers may use the legacy external repository id field while
- * integrations migrate to the explicit target contract.
+ * integrations migrate to the explicit target contract. Name targets must be
+ * authorized by the owning project/workflow boundary before reaching the SPI.
  */
 export interface CheckoutTargetInput {
   target?: CheckoutTarget | undefined;
   externalRepositoryId?: string | undefined;
+}
+
+/** Returns a canonical target only when exactly one checkout target form is supplied. */
+export function normalizeCheckoutTarget(input: CheckoutTargetInput): CheckoutTarget | undefined {
+  if (input.target !== undefined) {
+    return input.externalRepositoryId === undefined ? input.target : undefined;
+  }
+  if (input.externalRepositoryId === undefined) return undefined;
+  return {kind: 'external-id', externalRepositoryId: input.externalRepositoryId};
 }
 
 export type CreateCheckoutSpecInput<

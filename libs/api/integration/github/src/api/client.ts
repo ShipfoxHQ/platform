@@ -729,6 +729,9 @@ function toGithubRepository(repository: {
     !nonEmptyGithubField(repository.name) ||
     !nonEmptyGithubField(repository.full_name) ||
     typeof repository.private !== 'boolean' ||
+    (repository.visibility !== undefined &&
+      repository.visibility !== null &&
+      typeof repository.visibility !== 'string') ||
     !nonEmptyGithubField(repository.default_branch) ||
     !nonEmptyGithubField(repository.clone_url) ||
     !nonEmptyGithubField(repository.html_url)

@@ -5,6 +5,7 @@ import {
   isValidGitRefName,
   isValidResolvableRef,
   isValidTriggerRef,
+  normalizeCheckoutTarget,
   parseProviderRepositoryId,
 } from './contracts.js';
 
@@ -94,5 +95,30 @@ describe('provider repository identifiers', () => {
     const parse = () => parseProviderRepositoryId(value, 'github');
 
     expect(parse).toThrow(IntegrationProviderError);
+  });
+});
+
+describe('checkout targets', () => {
+  it('normalizes the legacy external id form', () => {
+    expect(normalizeCheckoutTarget({externalRepositoryId: 'github:42'})).toEqual({
+      kind: 'external-id',
+      externalRepositoryId: 'github:42',
+    });
+  });
+
+  it('preserves an explicit target', () => {
+    expect(
+      normalizeCheckoutTarget({target: {kind: 'name', owner: 'shipfox', name: 'platform'}}),
+    ).toEqual({kind: 'name', owner: 'shipfox', name: 'platform'});
+  });
+
+  it.each([
+    {},
+    {
+      target: {kind: 'name' as const, owner: 'shipfox', name: 'platform'},
+      externalRepositoryId: 'github:42',
+    },
+  ])('rejects an invalid target shape', (input) => {
+    expect(normalizeCheckoutTarget(input)).toBeUndefined();
   });
 });

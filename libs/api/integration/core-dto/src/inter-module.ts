@@ -24,9 +24,14 @@ const triggerReference = z.object({
   actor: z.string().nullable(),
 });
 const sourceInput = z.object({workspaceId: id, connectionId: id, externalRepositoryId: z.string()});
+// Checkout metadata must come from the provider response. Reject unknown fields
+// such as caller-supplied clone URLs instead of silently stripping them.
+const checkoutTargetValue = z.string().trim().min(1);
 const checkoutTarget = z.discriminatedUnion('kind', [
-  z.object({kind: z.literal('external-id'), externalRepositoryId: z.string().min(1)}).strict(),
-  z.object({kind: z.literal('name'), owner: z.string().min(1), name: z.string().min(1)}).strict(),
+  z.object({kind: z.literal('external-id'), externalRepositoryId: checkoutTargetValue}).strict(),
+  z
+    .object({kind: z.literal('name'), owner: checkoutTargetValue, name: checkoutTargetValue})
+    .strict(),
 ]);
 const checkoutInput = z
   .object({
@@ -278,6 +283,8 @@ function requireCheckoutTarget(
   },
   context: z.RefinementCtx,
 ): void {
+  // This stays at the JSON boundary so malformed checkout payloads are rejected
+  // before they reach the SPI normalizer used by in-memory callers.
   if (input.target === undefined && input.externalRepositoryId === undefined) {
     context.addIssue({
       code: z.ZodIssueCode.custom,

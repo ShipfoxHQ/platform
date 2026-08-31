@@ -256,7 +256,10 @@ describe('integration source-control service', () => {
       ref: 'feature/x',
     });
     expect(createCheckoutSpec).toHaveBeenCalledWith(
-      expect.objectContaining({permissions: {contents: 'write'}}),
+      expect.objectContaining({
+        target: {kind: 'external-id', externalRepositoryId: 'gitea:gitea-owner/platform'},
+        permissions: {contents: 'write'},
+      }),
     );
   });
 

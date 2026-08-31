@@ -405,6 +405,33 @@ describe('OctokitGithubApiClient.createInstallationAccessToken', () => {
     expect(result.repositoryIds).toEqual([42]);
   });
 
+  it('rejects malformed repository metadata in a token response', async () => {
+    createInstallationAccessTokenMock.mockResolvedValue({
+      data: {
+        token: GITHUB_STATELESS_INSTALLATION_TOKEN,
+        expires_at: '2026-06-10T12:00:00.000Z',
+        repositories: [
+          {
+            id: 42,
+            owner: {login: 'shipfox'},
+            name: 'platform',
+            full_name: 'shipfox/platform',
+            default_branch: 'main',
+            private: true,
+            visibility: 42,
+            clone_url: 'https://github.com/shipfox/platform.git',
+            html_url: 'https://github.com/shipfox/platform',
+          },
+        ],
+      },
+    });
+    const client = createGithubApiClient();
+
+    await expect(
+      client.createInstallationAccessToken({installationId: 1, repositoryId: 42}),
+    ).rejects.toMatchObject({reason: 'malformed-provider-response'});
+  });
+
   it('mints by repository name', async () => {
     createInstallationAccessTokenMock.mockResolvedValue({
       data: {

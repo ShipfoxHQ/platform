@@ -21,6 +21,7 @@ import {
   type ListRepositoriesInput,
   MAX_REPOSITORY_FILE_BYTES,
   nonEmptyString,
+  normalizeCheckoutTarget as normalizeTarget,
   parseProviderRepositoryId,
   positiveInteger,
   type RepositoryPage,
@@ -292,24 +293,22 @@ function normalizeCheckoutTarget(input: {
   target?: CheckoutTarget | undefined;
   externalRepositoryId?: string | undefined;
 }): CheckoutTarget {
-  if (input.target !== undefined && input.externalRepositoryId !== undefined) {
-    throw new GiteaIntegrationProviderError(
-      'provider-rejected',
-      'Checkout input cannot include both a target and an external repository id',
-    );
-  }
-  if (input.target !== undefined) return input.target;
-  if (input.externalRepositoryId !== undefined) {
-    return {kind: 'external-id', externalRepositoryId: input.externalRepositoryId};
-  }
+  const target = normalizeTarget(input);
+  if (target !== undefined) return target;
   throw new GiteaIntegrationProviderError(
     'repository-not-found',
-    'Checkout input must include a target or an external repository id',
+    'Checkout input must include exactly one target or external repository id',
   );
 }
 
 function checkoutRepositoryId(target: CheckoutTarget): string {
   if (target.kind === 'external-id') return target.externalRepositoryId;
+  if (target.name === '.' || target.name === '..') {
+    throw new GiteaIntegrationProviderError(
+      'repository-not-found',
+      'Gitea checkout target contains an invalid repository name',
+    );
+  }
   return buildProviderRepositoryId(giteaProviderKind, `${target.owner}/${target.name}`);
 }
 
