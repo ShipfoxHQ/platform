@@ -157,6 +157,9 @@ const issueWriteMethods = [
   method('update', 'Update an existing issue.', 'write', false, scopes.issuesWrite),
 ] as const satisfies readonly GithubAgentToolCatalogMethod[];
 
+const indirectSearchTargetNote =
+  'The free-form query may match issues or pull requests in repositories other than the declared target.';
+
 const subIssueIndirectTargetNote =
   'The opaque child and ordering IDs may refer to another repository in the GitHub installation.';
 
@@ -426,6 +429,7 @@ export const githubAgentToolCatalog = [
     sensitivity: 'read',
     sensitive: false,
     requiredScope: scopes.issuesRead,
+    indirectTargetNote: indirectSearchTargetNote,
     inputSchema: objectSchema(
       {
         query: stringSchema('Search query using GitHub issues search syntax'),
@@ -595,6 +599,7 @@ export const githubAgentToolCatalog = [
     sensitivity: 'read',
     sensitive: false,
     requiredScope: scopes.pullRequestsRead,
+    indirectTargetNote: indirectSearchTargetNote,
     inputSchema: objectSchema(
       {
         query: stringSchema('Search query using GitHub pull request search syntax'),
