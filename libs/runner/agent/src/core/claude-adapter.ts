@@ -323,8 +323,8 @@ async function runClaudeAgent(invocation: HarnessInvocation): Promise<HarnessRes
   try {
     configDir = await createClaudeConfigDir(agentStateDir);
 
-    sessionStore = await createClaudeSessionStore(sessionInvocation);
     assertClaudeNotAborted(signal);
+    sessionStore = await createClaudeSessionStore(sessionInvocation);
     const inputMessages = new ClaudeInputStream();
     messages = inputMessages;
     claudeQuery = query({
