@@ -384,3 +384,56 @@ jobs:
           echo "listener_done"
 `,
 };
+
+export function sessionContinuationWorkflow(params: {provider: string; model: string}): string {
+  return `
+name: Session continuation
+runner: __RUNNER_LABEL__
+triggers:
+  manual:
+    source: manual
+    event: fire
+jobs:
+  plan:
+    steps:
+      - key: draft
+        harness: pi
+        provider: ${params.provider}
+        model: ${params.model}
+        thinking: off
+        session: main
+        prompt: |
+          Prepare the plan and reply with exactly: PLAN_SESSION_SEGMENT
+  implement:
+    needs: plan
+    steps:
+      - key: apply
+        harness: pi
+        provider: ${params.provider}
+        model: ${params.model}
+        thinking: off
+        session: main
+        prompt: |
+          Implement the plan and reply with exactly: IMPLEMENT_SESSION_SEGMENT
+  listen:
+    needs: implement
+    listening:
+      on:
+        - source: __FIRE_WEBHOOK_SOURCE__
+          event: received
+      until:
+        - source: __RESOLVE_WEBHOOK_SOURCE__
+          event: received
+      batch:
+        max_size: 2
+    steps:
+      - key: continue
+        harness: pi
+        provider: ${params.provider}
+        model: ${params.model}
+        thinking: off
+        session: main
+        prompt: |
+          Process this event batch and reply with the next session marker.
+`;
+}
