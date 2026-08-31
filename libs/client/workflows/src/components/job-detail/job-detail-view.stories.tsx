@@ -716,6 +716,7 @@ function stepAttemptDetail({
   return {
     stepId,
     attempt,
+    session: null,
     authoredConfig,
     config,
     evaluationTrace: [

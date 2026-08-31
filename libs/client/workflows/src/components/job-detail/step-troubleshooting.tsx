@@ -1,3 +1,4 @@
+import {Badge} from '@shipfox/react-ui/badge';
 import {Button} from '@shipfox/react-ui/button';
 import {Callout, CalloutContent, CalloutDescription, CalloutTitle} from '@shipfox/react-ui/callout';
 import {
@@ -18,6 +19,7 @@ import type {
   JobStatusReason,
   Step,
   StepAttempt,
+  StepAttemptDetail,
   StepError,
 } from '#core/workflow-run.js';
 import {useStepAttemptDetailQuery} from '#hooks/api/step-attempt-detail.js';
@@ -295,6 +297,7 @@ function InspectorDetailContent({
   const detailCount = Number(hasInputs) + Number(hasOutputs) + Number(hasTrace);
   return (
     <div className="flex min-w-0 flex-col gap-group">
+      {detail.session ? <SessionChip session={detail.session} /> : null}
       {hasInputs ? (
         <InspectorSection title="Inputs">
           <ConfigCode authoredConfig={detail.authoredConfig} resolvedConfig={resolvedConfig} />
@@ -331,6 +334,24 @@ function InspectorOutputs({attempt}: {attempt: StepAttempt}) {
         </div>
       ) : null}
     </InspectorSection>
+  );
+}
+
+function SessionChip({session}: {session: NonNullable<StepAttemptDetail['session']>}) {
+  return (
+    <Badge
+      variant="feature"
+      size="2xs"
+      radius="rounded"
+      role="group"
+      aria-label={`Agent session ${session.key}, ${session.mode} mode, ${session.segment === 0 ? 'no prior session loaded' : `segment ${session.segment} loaded`}`}
+      className="w-fit max-w-full font-code"
+    >
+      <span className="block min-w-0 truncate">
+        Session {session.key} · {session.mode} ·{' '}
+        {session.segment === 0 ? 'no prior session loaded' : `segment ${session.segment} loaded`}
+      </span>
+    </Badge>
   );
 }
 

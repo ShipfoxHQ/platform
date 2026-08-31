@@ -1,7 +1,10 @@
 import type {SupportedModelProviderId} from '@shipfox/api-agent-dto';
 import {instanceMetrics} from '@shipfox/node-opentelemetry';
 import {config} from '#config.js';
-import {AgentSessionKekVersionStrandedError} from '#core/errors.js';
+import {
+  AgentSessionKekVersionStrandedError,
+  type AgentSessionUnavailableReason,
+} from '#core/errors.js';
 
 const meter = instanceMetrics.getMeter('agent');
 
@@ -31,6 +34,34 @@ export const sessionClaimReapFailedCount = meter.createCounter('agent_session_cl
 });
 
 export type SessionCommitOutcome = 'committed' | 'retry_acked' | 'conflict';
+
+export const sessionCreatedCount = meter.createCounter<{
+  source: 'claim' | 'carry_over';
+}>('agent_session_created', {description: 'Agent session registry rows created by source'});
+
+export const sessionResumedCount = meter.createCounter<{outcome: 'claimed'}>(
+  'agent_session_resumed',
+  {description: 'Agent session resume dispatches accepted'},
+);
+
+export const sessionForkedCount = meter.createCounter<{outcome: 'loaded' | 'fresh'}>(
+  'agent_session_forked',
+  {description: 'Agent session fork dispatches by whether a head was loaded'},
+);
+
+export type SessionClaimConflictOutcome = 'held' | 'lock_unavailable' | 'scope_mismatch';
+
+export const sessionClaimConflictCount = meter.createCounter<{
+  outcome: SessionClaimConflictOutcome;
+}>('agent_session_claim_conflict', {
+  description: 'Agent session claim conflicts by bounded outcome',
+});
+
+export const sessionLoadFailureCount = meter.createCounter<{
+  outcome: AgentSessionUnavailableReason | 'unavailable';
+}>('agent_session_load_failed', {
+  description: 'Agent session transcript load failures by bounded reason',
+});
 
 /** Session transcript commit attempts by head-flip outcome. Outcome labels only; session keys never become label values. */
 export const sessionCommitsCount = meter.createCounter<{outcome: SessionCommitOutcome}>(

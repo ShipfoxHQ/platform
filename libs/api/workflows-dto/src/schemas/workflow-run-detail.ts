@@ -49,6 +49,8 @@ export const stepAttemptDetailResponseSchema = z.object({
   attempt: stepAttemptDetailDtoSchema.shape.attempt,
   authored_config: z.record(z.string(), z.unknown()).nullable(),
   config: stepAttemptDetailDtoSchema.shape.config,
+  // Optional for mixed-version readers; the server derives this from the typed step projection.
+  session: stepDtoSchema.shape.session,
   evaluation_trace: stepAttemptDetailDtoSchema.shape.evaluation_trace,
 });
 

@@ -497,6 +497,7 @@ describe('toStepAttemptDetailResponseDto', () => {
       attempt: 1,
       authored_config: {run: 'echo $' + '{{ inputs.message }}'},
       config: {run: 'echo hello'},
+      session: null,
       evaluation_trace: [
         {
           expression: 'inputs.message',

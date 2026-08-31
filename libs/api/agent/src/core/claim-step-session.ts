@@ -1,6 +1,7 @@
 import type {Harness} from '@shipfox/api-agent-dto';
 import {AgentSessionHarnessMismatchError} from '#core/errors.js';
 import {assertValidSessionKey, claimSession, getSessionByRunAttemptAndKey} from '#db/index.js';
+import {sessionForkedCount, sessionResumedCount} from '#metrics/instance.js';
 
 /**
  * The resolved session identity handed to workflows dispatch, mirroring the
@@ -70,7 +71,10 @@ export async function claimStepSession(
       workflowRunAttemptId: params.workflowRunAttemptId,
       key: params.key,
     });
-    if (!existingSession) return {descriptor: null, harness: params.harness};
+    if (!existingSession) {
+      sessionForkedCount.add(1, {outcome: 'fresh'});
+      return {descriptor: null, harness: params.harness};
+    }
     if (existingSession.harness !== params.harness) {
       throw new AgentSessionHarnessMismatchError({
         sessionId: existingSession.id,
@@ -80,6 +84,7 @@ export async function claimStepSession(
         requestedHarness: params.harness,
       });
     }
+    sessionForkedCount.add(1, {outcome: 'loaded'});
     return {descriptor: toDescriptor(existingSession, 'fork'), harness: existingSession.harness};
   }
 
@@ -94,5 +99,12 @@ export async function claimStepSession(
     harnessExplicit: params.harnessExplicit,
     stepAttemptId: params.stepAttemptId,
   });
+  if (!session.created) {
+    try {
+      sessionResumedCount.add(1, {outcome: 'claimed'});
+    } catch {
+      // Metrics must not change session claim outcomes.
+    }
+  }
   return {descriptor: toDescriptor(session, 'resume'), harness: session.harness};
 }

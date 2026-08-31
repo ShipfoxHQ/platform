@@ -7,6 +7,7 @@ import {
   type SessionCommitOutcome,
   sessionCommitsCount,
   sessionCommittedBytes,
+  sessionLoadFailureCount,
 } from '#metrics/instance.js';
 import {AgentSessionUnavailableError} from '../errors.js';
 import {aadForSessionObject, openSessionBlob, sealSessionBlob} from './crypto.js';
@@ -99,6 +100,44 @@ export interface SessionArtifactStore {
 
 function sessionPrefix(session: AgentSession): string {
   return `${config.AGENT_SESSION_STORAGE_S3_PREFIX}/${session.workspaceId}/${session.workflowRunAttemptId}/${session.id}`;
+}
+
+async function readSessionHeadSegment(
+  session: AgentSession,
+  objectKey: string,
+  dekManager: SessionDekManager,
+): Promise<ReadSessionHeadResult> {
+  const object = await getSessionObject(objectKey);
+  if (object === null) {
+    throw new AgentSessionUnavailableError('object_missing');
+  }
+
+  const dek = await dekManager.getPlaintextDek(session.workspaceId);
+  // The AAD binds the session that WROTE the object. A carried-over row's
+  // head points into the source session's prefix, so the session id comes
+  // from the key, not the row.
+  const keySessionId = parseSessionObjectKey(
+    objectKey,
+    config.AGENT_SESSION_STORAGE_S3_PREFIX,
+  )?.sessionId;
+  const blob = openSessionBlob({
+    key: dek,
+    sealed: object.body,
+    aad: aadForSessionObject({
+      workspaceId: session.workspaceId,
+      sessionId: keySessionId ?? session.id,
+      segment: session.headSegment,
+    }),
+  });
+
+  let manifest: SegmentManifest;
+  try {
+    manifest = segmentManifestFromMetadata(object.metadata);
+  } catch {
+    throw new AgentSessionUnavailableError('invalid_manifest');
+  }
+
+  return {blob, manifest};
 }
 
 export function createSessionArtifactStore(params: {
@@ -199,12 +238,16 @@ export function createSessionArtifactStore(params: {
         );
       });
 
-      let metricOutcome: SessionCommitOutcome = 'conflict';
-      if (result.outcome === 'committed') metricOutcome = 'committed';
-      else if (result.outcome === 'retry-acked') metricOutcome = 'retry_acked';
-      sessionCommitsCount.add(1, {outcome: metricOutcome});
-      if (result.outcome === 'committed' && committedSizeBytes !== undefined) {
-        sessionCommittedBytes.record(committedSizeBytes);
+      try {
+        let metricOutcome: SessionCommitOutcome = 'conflict';
+        if (result.outcome === 'committed') metricOutcome = 'committed';
+        else if (result.outcome === 'retry-acked') metricOutcome = 'retry_acked';
+        sessionCommitsCount.add(1, {outcome: metricOutcome});
+        if (result.outcome === 'committed' && committedSizeBytes !== undefined) {
+          sessionCommittedBytes.record(committedSizeBytes);
+        }
+      } catch {
+        // Metrics must not change session commit outcomes.
       }
       return result;
     },
@@ -212,37 +255,18 @@ export function createSessionArtifactStore(params: {
     async readHeadSegment(session) {
       if (session.headObjectKey === null || session.headSegment === 0) return null;
 
-      const object = await getSessionObject(session.headObjectKey);
-      if (object === null) {
-        throw new AgentSessionUnavailableError('object_missing');
-      }
-
-      const dek = await params.dekManager.getPlaintextDek(session.workspaceId);
-      // The AAD binds the session that WROTE the object. A carried-over row's
-      // head points into the source session's prefix, so the session id comes
-      // from the key, not the row.
-      const keySessionId = parseSessionObjectKey(
-        session.headObjectKey,
-        config.AGENT_SESSION_STORAGE_S3_PREFIX,
-      )?.sessionId;
-      const blob = openSessionBlob({
-        key: dek,
-        sealed: object.body,
-        aad: aadForSessionObject({
-          workspaceId: session.workspaceId,
-          sessionId: keySessionId ?? session.id,
-          segment: session.headSegment,
-        }),
-      });
-
-      let manifest: SegmentManifest;
       try {
-        manifest = segmentManifestFromMetadata(object.metadata);
-      } catch {
-        throw new AgentSessionUnavailableError('invalid_manifest');
+        return await readSessionHeadSegment(session, session.headObjectKey, params.dekManager);
+      } catch (error) {
+        try {
+          sessionLoadFailureCount.add(1, {
+            outcome: error instanceof AgentSessionUnavailableError ? error.reason : 'unavailable',
+          });
+        } catch {
+          // Metrics must not change session load outcomes.
+        }
+        throw error;
       }
-
-      return {blob, manifest};
     },
 
     async deleteSessionObjects(session) {

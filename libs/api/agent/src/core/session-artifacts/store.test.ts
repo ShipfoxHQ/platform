@@ -17,6 +17,7 @@ import {
 } from '#core/session-artifacts/object-storage.js';
 import {createSessionArtifactStore} from '#core/session-artifacts/store.js';
 import {claimSession, createSession, db, sessionDataKeys, sessions} from '#db/index.js';
+import {sessionLoadFailureCount} from '#metrics/instance.js';
 
 describe('session artifact store', () => {
   const workspaceIds = new Set<string>();
@@ -322,6 +323,7 @@ describe('session artifact store', () => {
   it('fails loudly when the head object is missing', async () => {
     const ctx = newCtx();
     const session = await arrangeClaimedSession(ctx);
+    const loadFailureMetric = vi.spyOn(sessionLoadFailureCount, 'add');
     const broken = {
       ...session,
       headSegment: 1,
@@ -338,6 +340,8 @@ describe('session artifact store', () => {
       code: 'agent_session_unavailable',
       reason: 'object_missing',
     });
+    expect(loadFailureMetric).toHaveBeenCalledOnce();
+    expect(loadFailureMetric).toHaveBeenCalledWith(1, {outcome: 'object_missing'});
   });
 
   it('maps invalid head metadata to a stable unavailable reason', async () => {

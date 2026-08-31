@@ -21,6 +21,7 @@ import {
   type JobListening,
   type Step,
   StepAttempt,
+  type StepAttemptSession,
   type StepGateResult,
   type WorkflowExecutionEvent,
   type WorkflowRun,
@@ -273,9 +274,14 @@ export function toStepAttempt(dto: StepAttemptDto, jobExecutionId: string): Step
 }
 
 export function toStepAttemptDetail(dto: StepAttemptDetailResponseDto) {
+  const mappedSession: StepAttemptSession | null = dto.session
+    ? {key: dto.session.key, mode: dto.session.mode, segment: dto.session.segment}
+    : null;
+
   return {
     stepId: dto.step_id,
     attempt: dto.attempt,
+    session: mappedSession,
     authoredConfig: dto.authored_config,
     config: dto.config,
     evaluationTrace: toEvaluationTrace(dto.evaluation_trace),

@@ -10,6 +10,7 @@ import {
   AgentSessionKeyInvalidError,
   AgentSessionLockUnavailableError,
 } from '#core/errors.js';
+import {sessionClaimConflictCount, sessionCreatedCount} from '#metrics/instance.js';
 import {db, type Transaction} from './db.js';
 import {type AgentSessionDb, sessions, toAgentSession} from './schema/sessions.js';
 
@@ -64,6 +65,7 @@ export async function createSession(
 
   const row = rows[0];
   if (!row) throw new Error('Session insert returned no rows');
+  sessionCreatedCount.add(1, {source: 'carry_over'});
   return toAgentSession(row);
 }
 
@@ -123,6 +125,7 @@ function assertSessionScopeMatches(row: AgentSessionDb, params: ClaimSessionPara
       workflowRunAttemptId: params.workflowRunAttemptId,
       key: row.key,
       heldByStepAttempt: row.claimedByStepAttempt,
+      scopeMismatch: true,
     });
   }
 }
@@ -210,42 +213,69 @@ async function lockClaimableSession(
  * of racing on the insert. A transaction advisory lock identifies another
  * in-flight claim even when its row update is not visible to this transaction.
  */
-export async function claimSession(params: ClaimSessionParams): Promise<AgentSession> {
+export async function claimSession(
+  params: ClaimSessionParams,
+): Promise<AgentSession & {created: boolean}> {
   assertValidSessionKey(params.key);
   assertValidSessionHarness(params.harness);
-  return await db().transaction(async (tx) => {
-    const [existingRow] = await tx.select().from(sessions).where(claimSessionIdentity(params));
-    await acquireExistingSessionClaim(tx, existingRow, params);
+  let created = false;
+  try {
+    const result = await db().transaction(async (tx) => {
+      const [existingRow] = await tx.select().from(sessions).where(claimSessionIdentity(params));
+      await acquireExistingSessionClaim(tx, existingRow, params);
 
-    await tx
-      .insert(sessions)
-      .values({
-        workspaceId: params.workspaceId,
-        projectId: params.projectId,
-        workflowRunAttemptId: params.workflowRunAttemptId,
-        key: params.key,
-        harness: params.harness,
-      })
-      .onConflictDoNothing();
+      const inserted = await tx
+        .insert(sessions)
+        .values({
+          workspaceId: params.workspaceId,
+          projectId: params.projectId,
+          workflowRunAttemptId: params.workflowRunAttemptId,
+          key: params.key,
+          harness: params.harness,
+        })
+        .onConflictDoNothing()
+        .returning({id: sessions.id});
+      created = inserted.length > 0;
 
-    await assertClaimLockAvailable(tx, params);
-    const row = await lockClaimableSession(tx, params);
+      await assertClaimLockAvailable(tx, params);
+      const row = await lockClaimableSession(tx, params);
 
-    const updated = await tx
-      .update(sessions)
-      .set({
-        claimedByStepAttempt: params.stepAttemptId,
-        claimedAt: sql`now()`,
-        updatedAt: sql`now()`,
-        version: sql`${sessions.version} + 1`,
-      })
-      .where(eq(sessions.id, row.id))
-      .returning();
+      const updated = await tx
+        .update(sessions)
+        .set({
+          claimedByStepAttempt: params.stepAttemptId,
+          claimedAt: sql`now()`,
+          updatedAt: sql`now()`,
+          version: sql`${sessions.version} + 1`,
+        })
+        .where(eq(sessions.id, row.id))
+        .returning();
 
-    const updatedRow = updated[0];
-    if (!updatedRow) throw new Error('Session update returned no rows after claim');
-    return toAgentSession(updatedRow);
-  });
+      const updatedRow = updated[0];
+      if (!updatedRow) throw new Error('Session update returned no rows after claim');
+      return toAgentSession(updatedRow);
+    });
+
+    try {
+      if (created) sessionCreatedCount.add(1, {source: 'claim'});
+    } catch {
+      // Metrics must not change session claim outcomes.
+    }
+    return {...result, created};
+  } catch (error) {
+    try {
+      if (error instanceof AgentSessionHeldError) {
+        sessionClaimConflictCount.add(1, {
+          outcome: error.scopeMismatch ? 'scope_mismatch' : 'held',
+        });
+      } else if (error instanceof AgentSessionLockUnavailableError) {
+        sessionClaimConflictCount.add(1, {outcome: 'lock_unavailable'});
+      }
+    } catch {
+      // Metrics must not change session claim outcomes.
+    }
+    throw error;
+  }
 }
 
 /**
@@ -387,7 +417,8 @@ export async function carryOverSessions(params: {
   fromWorkflowRunAttemptId: string;
   toWorkflowRunAttemptId: string;
 }): Promise<AgentSession[]> {
-  return await db().transaction(async (tx) => {
+  let createdCount = 0;
+  const carried = await db().transaction(async (tx) => {
     const sourceRows = await tx
       .select()
       .from(sessions)
@@ -420,7 +451,9 @@ export async function carryOverSessions(params: {
         })
         .returning({id: sessions.id});
 
-      if (!inserted) {
+      if (inserted) {
+        createdCount += 1;
+      } else {
         const [existing] = await tx
           .select({id: sessions.id, carriedFromSessionId: sessions.carriedFromSessionId})
           .from(sessions)
@@ -443,12 +476,19 @@ export async function carryOverSessions(params: {
       }
     }
 
-    const carried = await tx
+    const rows = await tx
       .select()
       .from(sessions)
       .where(eq(sessions.workflowRunAttemptId, params.toWorkflowRunAttemptId));
-    return carried.map(toAgentSession);
+    return rows.map(toAgentSession);
   });
+
+  try {
+    if (createdCount > 0) sessionCreatedCount.add(createdCount, {source: 'carry_over'});
+  } catch {
+    // Metrics must not change session carry-over outcomes.
+  }
+  return carried;
 }
 
 export type HeadFlipOutcome = 'committed' | 'retry-acked' | 'conflict';
