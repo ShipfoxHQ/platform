@@ -127,6 +127,87 @@ describe('triggers inter-module presentation', () => {
     });
   });
 
+  it('lists the first page without optional inputs and returns a terminal cursor', async () => {
+    mocks.listTriggerEvents.mockResolvedValue({events: [], nextCursor: null});
+
+    const result = await presentation().handlers.listTriggerEvents(
+      {workspaceId: WORKSPACE_ID, limit: 10},
+      {signal: new AbortController().signal},
+    );
+
+    expect(mocks.listTriggerEvents).toHaveBeenCalledWith({
+      workspaceId: WORKSPACE_ID,
+      limit: 10,
+      cursor: undefined,
+      filters: undefined,
+    });
+    expect(triggersInterModuleContract.methods.listTriggerEvents.output.parse(result)).toEqual({
+      events: [],
+      nextCursor: null,
+    });
+  });
+
+  it('rejects inverted list windows and invalid decision subscription pairings', () => {
+    const listInput = triggersInterModuleContract.methods.listTriggerEvents.input.safeParse({
+      workspaceId: WORKSPACE_ID,
+      limit: 10,
+      filters: {
+        from: '2026-08-31T00:00:00.000Z',
+        to: '2026-08-01T00:00:00.000Z',
+      },
+    });
+    expect(listInput.success).toBe(false);
+
+    const item = event();
+    const baseDecision = {
+      id: '00000000-0000-4000-8000-000000000006',
+      receivedEventId: item.id,
+      subscriptionKind: 'trigger' as const,
+      subscriptionId: '00000000-0000-4000-8000-000000000007',
+      subscriptionName: 'Deploy',
+      workflowDefinitionId: null,
+      projectId: null,
+      workflowRunId: null,
+      jobId: null,
+      matcherKind: null,
+      matcherOrdinal: null,
+      decision: 'triggered' as const,
+      runId: null,
+      runName: null,
+      reason: null,
+      createdAt: '2026-08-05T12:00:03.000Z',
+    };
+    const detail = {
+      ...summary(item),
+      payload: item.payload,
+      receivedAt: item.receivedAt.toISOString(),
+      processedAt: item.processedAt?.toISOString() ?? null,
+      createdAt: item.createdAt.toISOString(),
+      decisions: [],
+      replays: [],
+    };
+    const method = triggersInterModuleContract.methods.getTriggerEvent;
+
+    expect(
+      method.output.safeParse({
+        ...detail,
+        decisions: [{...baseDecision, subscriptionKind: 'dev', subscriptionId: item.id}],
+      }).success,
+    ).toBe(false);
+    expect(
+      method.output.safeParse({
+        ...detail,
+        decisions: [{...baseDecision, subscriptionId: null}],
+      }).success,
+    ).toBe(false);
+    expect(
+      method.output.safeParse({
+        ...detail,
+        decisions: [{...baseDecision, subscriptionKind: 'dev', subscriptionId: null}],
+      }).success,
+    ).toBe(true);
+  });
+
   it('returns event details with decisions and replays', async () => {
     const item = event();
     const decision: TriggerDecision = {

@@ -115,6 +115,29 @@ describe('Projects checkout target inter-module presentation', () => {
     expect(projectIds).toEqual([first.projectId, second.projectId].sort());
   });
 
+  test('lists workspace projects with catalog fields through the catalog contract', async () => {
+    const client = createClient();
+    const workspaceId = crypto.randomUUID();
+    const project = await insertProject({
+      workspaceId,
+      connectionId: crypto.randomUUID(),
+      owner: 'acme',
+      name: 'api',
+    });
+
+    const result = await client.listProjectCatalogByWorkspace({workspaceId, limit: 10});
+
+    expect(result.nextCursor).toBeNull();
+    expect(result.projects).toEqual([
+      expect.objectContaining({
+        id: project.projectId,
+        slug: expect.any(String),
+        createdAt: expect.any(String),
+        updatedAt: expect.any(String),
+      }),
+    ]);
+  });
+
   test('resolves a project by its workspace-scoped source repository', async () => {
     const client = createClient();
     const workspaceId = crypto.randomUUID();

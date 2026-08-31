@@ -87,6 +87,26 @@ describe('projectsInterModuleContract', () => {
     };
 
     expect(
+      projectsInterModuleContract.methods.listProjectCatalogByWorkspace.output.parse({
+        projects: [project],
+        nextCursor: null,
+      }),
+    ).toEqual({projects: [project], nextCursor: null});
+  });
+
+  test('keeps the base workspace project listing shape compatible', () => {
+    const project = {
+      id: '00000000-0000-4000-8000-000000000001',
+      workspaceId: '00000000-0000-4000-8000-000000000002',
+      sourceConnectionId: '00000000-0000-4000-8000-000000000003',
+      sourceExternalRepositoryId: 'shipfox/project',
+      sourceRepositoryOwner: 'shipfox',
+      sourceRepositoryName: 'project',
+      sourceDefaultBranch: 'main',
+      name: 'Project',
+    };
+
+    expect(
       projectsInterModuleContract.methods.listProjectsByWorkspace.output.parse({
         projects: [project],
         nextCursor: null,

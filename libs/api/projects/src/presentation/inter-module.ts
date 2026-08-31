@@ -28,16 +28,17 @@ export function createProjectsInterModulePresentation(params: {
       projects: await findProjectBySourceRepositoryName(input),
     }),
     listProjectsByWorkspace: async ({workspaceId, limit, cursor}) => {
-      const result = await listProjects({
-        workspaceId,
-        limit,
-        ...(cursor ? {cursor: {createdAt: new Date(cursor.createdAt), id: cursor.id}} : {}),
-      });
+      const result = await listProjectPage({workspaceId, limit, cursor});
+      return {
+        projects: result.projects.map(toProjectInterModule),
+        nextCursor: toProjectCursor(result.nextCursor),
+      };
+    },
+    listProjectCatalogByWorkspace: async ({workspaceId, limit, cursor}) => {
+      const result = await listProjectPage({workspaceId, limit, cursor});
       return {
         projects: result.projects.map(toProjectCatalogInterModule),
-        nextCursor: result.nextCursor
-          ? {createdAt: result.nextCursor.createdAt.toISOString(), id: result.nextCursor.id}
-          : null,
+        nextCursor: toProjectCursor(result.nextCursor),
       };
     },
     requireProjectForWorkspace: async ({projectId, workspaceId}) => {
@@ -125,7 +126,34 @@ export function createProjectsInterModulePresentation(params: {
   });
 }
 
+async function listProjectPage(input: {
+  workspaceId: string;
+  limit: number;
+  cursor?: {createdAt: string; id: string} | undefined;
+}) {
+  return await listProjects({
+    workspaceId: input.workspaceId,
+    limit: input.limit,
+    ...(input.cursor
+      ? {cursor: {createdAt: new Date(input.cursor.createdAt), id: input.cursor.id}}
+      : {}),
+  });
+}
+
+function toProjectCursor(cursor: {createdAt: Date; id: string} | null) {
+  return cursor ? {createdAt: cursor.createdAt.toISOString(), id: cursor.id} : null;
+}
+
 function toProjectCatalogInterModule(project: Project) {
+  return {
+    ...toProjectInterModule(project),
+    slug: project.slug,
+    createdAt: project.createdAt.toISOString(),
+    updatedAt: project.updatedAt.toISOString(),
+  };
+}
+
+function toProjectInterModule(project: Project) {
   return {
     id: project.id,
     workspaceId: project.workspaceId,
@@ -135,9 +163,6 @@ function toProjectCatalogInterModule(project: Project) {
     sourceRepositoryName: project.sourceRepositoryName,
     sourceDefaultBranch: project.sourceDefaultBranch,
     name: project.name,
-    slug: project.slug,
-    createdAt: project.createdAt.toISOString(),
-    updatedAt: project.updatedAt.toISOString(),
   };
 }
 

@@ -7,4 +7,4 @@
 "@shipfox/api-triggers-dto": minor
 ---
 
-Exposes producer-owned catalog and trigger-event read contracts for agent access.
+Adds project catalog and workflow-definition reads, plus trigger-event summaries, details, and facets.

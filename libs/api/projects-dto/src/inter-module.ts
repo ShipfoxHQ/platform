@@ -71,6 +71,17 @@ export const projectsInterModuleContract = defineInterModuleContract({
         cursor: projectCursorSchema.optional(),
       }),
       output: z.object({
+        projects: z.array(projectSchema),
+        nextCursor: projectCursorSchema.nullable(),
+      }),
+    },
+    listProjectCatalogByWorkspace: {
+      input: z.object({
+        workspaceId: idSchema,
+        limit: z.number().int().min(1).max(100),
+        cursor: projectCursorSchema.optional(),
+      }),
+      output: z.object({
         projects: z.array(projectCatalogSchema),
         nextCursor: projectCursorSchema.nullable(),
       }),

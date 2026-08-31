@@ -13,12 +13,10 @@ import {
   type InterModulePresentation,
   isInterModuleKnownError,
 } from '@shipfox/inter-module';
-import type {DefinitionSyncState} from '#core/entities/sync-state.js';
-import type {WorkflowDefinition} from '#core/entities/workflow-definition.js';
 import {DefinitionAtRefError, listDefinitionsAtRef, resolveDefinitionAtRef} from '#core/index.js';
-import {UNRESOLVED_SYNC_REF} from '#core/sync-definitions.js';
-import {getDefinitionById, listDefinitions} from '#db/definitions.js';
-import {getLatestDefinitionSyncState} from '#db/sync-states.js';
+import {getDefinitionById} from '#db/definitions.js';
+import {toDefinitionReadModel, toDefinitionSyncSummary} from '#presentation/dto/index.js';
+import {listDefinitionsWithSync} from '#presentation/list-definitions.js';
 
 export interface CreateDefinitionsInterModulePresentationParams {
   projects: ProjectsModuleClient;
@@ -50,16 +48,17 @@ export function createDefinitionsInterModulePresentation(
         {workspaceId, projectId},
         params.projects,
       );
-      const result = await listDefinitions({projectId, limit, cursor});
-      const syncState = await getLatestDefinitionSyncState({
+      const result = await listDefinitionsWithSync({
         projectId,
+        limit,
+        cursor,
         sourceConnectionId: project.sourceConnectionId,
         sourceExternalRepositoryId: project.sourceExternalRepositoryId,
       });
 
       return {
-        definitions: result.definitions.map(toDefinitionListItem),
-        sync: toDefinitionSyncSummary(syncState),
+        definitions: result.definitions.map(toDefinitionReadModel),
+        sync: toDefinitionSyncSummary(result.syncState),
         nextCursor: result.nextCursor,
       };
     },
@@ -111,43 +110,6 @@ async function requireProjectForDefinitionList(
       }
     }
   }
-}
-
-function toDefinitionListItem(definition: WorkflowDefinition) {
-  const manualTrigger = definition.model.triggers.find((trigger) => trigger.source === 'manual');
-  return {
-    id: definition.id,
-    projectId: definition.projectId,
-    configPath: definition.configPath,
-    source: definition.source,
-    sha: definition.sha,
-    ref: definition.ref,
-    name: definition.name,
-    workflowDocument: definition.document,
-    workflowModel: definition.model,
-    manualTrigger: manualTrigger ? {name: manualTrigger.key} : null,
-    fetchedAt: definition.fetchedAt.toISOString(),
-    createdAt: definition.createdAt.toISOString(),
-    updatedAt: definition.updatedAt.toISOString(),
-  };
-}
-
-function toDefinitionSyncSummary(syncState: DefinitionSyncState | undefined) {
-  if (!syncState) return null;
-
-  return {
-    ref: syncState.ref === UNRESOLVED_SYNC_REF ? null : syncState.ref,
-    status: syncState.status,
-    lastSyncAt: (syncState.finishedAt ?? syncState.updatedAt).toISOString(),
-    startedAt: syncState.startedAt?.toISOString() ?? null,
-    finishedAt: syncState.finishedAt?.toISOString() ?? null,
-    lastErrorCode: syncState.lastErrorCode,
-    lastErrorMessage: syncState.lastErrorMessage,
-    diagnostics: syncState.diagnostics.map(({filePath, ...diagnostic}) => ({
-      ...diagnostic,
-      ...(filePath === undefined ? {} : {filePath}),
-    })),
-  };
 }
 
 function toDefinitionAtRefKnownError(method: InterModuleMethodContract, error: unknown): unknown {

@@ -169,6 +169,7 @@ describe('defaultModules', () => {
           getProjectBySource: () => ({project: null}),
           findProjectBySourceRepositoryName: () => ({projects: []}),
           listProjectsByWorkspace: () => ({projects: [], nextCursor: null}),
+          listProjectCatalogByWorkspace: () => ({projects: [], nextCursor: null}),
           getWorkspaceProjectCounts: () => ({counts: []}),
           requireProjectForWorkspace: () => ({
             project: {

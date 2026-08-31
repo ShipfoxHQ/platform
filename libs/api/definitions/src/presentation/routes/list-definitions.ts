@@ -5,9 +5,8 @@ import {
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import {decodeStringIdCursor, encodeStringIdCursor} from '@shipfox/node-drizzle';
 import {ClientError, defineRoute} from '@shipfox/node-fastify';
-import {listDefinitions} from '#db/definitions.js';
-import {getLatestDefinitionSyncState} from '#db/sync-states.js';
 import {toDefinitionDto, toDefinitionSyncSummaryDto} from '#presentation/dto/index.js';
+import {listDefinitionsWithSync} from '#presentation/list-definitions.js';
 import {requireProjectAccess} from './project-access.js';
 
 export function buildListDefinitionsRoute(projects: ProjectsModuleClient) {
@@ -29,16 +28,17 @@ export function buildListDefinitionsRoute(projects: ProjectsModuleClient) {
       }
 
       const project = await requireProjectAccess(request, projectId, projects);
-      const result = await listDefinitions({projectId, limit, cursor: decodedCursor});
-      const syncState = await getLatestDefinitionSyncState({
+      const result = await listDefinitionsWithSync({
         projectId,
+        limit,
+        cursor: decodedCursor,
         sourceConnectionId: project.sourceConnectionId,
         sourceExternalRepositoryId: project.sourceExternalRepositoryId,
       });
 
       return {
         definitions: result.definitions.map(toDefinitionDto),
-        sync: toDefinitionSyncSummaryDto(syncState),
+        sync: toDefinitionSyncSummaryDto(result.syncState),
         next_cursor: result.nextCursor ? encodeStringIdCursor(result.nextCursor) : null,
       };
     },

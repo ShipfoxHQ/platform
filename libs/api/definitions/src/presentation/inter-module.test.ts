@@ -2,6 +2,7 @@ import {definitionsInterModuleContract} from '@shipfox/api-definitions-dto/inter
 import {projectsInterModuleContract} from '@shipfox/api-projects-dto/inter-module';
 import {createInterModuleKnownError, isInterModuleKnownError} from '@shipfox/inter-module';
 import {DefinitionAtRefError} from '#core/errors.js';
+import {UNRESOLVED_SYNC_REF} from '#core/sync-definitions.js';
 import {createDefinitionsInterModulePresentation} from './inter-module.js';
 
 const mocks = vi.hoisted(() => ({
@@ -175,13 +176,127 @@ describe('definitions inter-module presentation', () => {
     });
   });
 
-  it('denies a project from another workspace before reading definitions', async () => {
+  it('maps pending sync states and definition trigger edge cases', async () => {
+    const workspaceId = '00000000-0000-4000-8000-000000000010';
+    const sourceConnectionId = '00000000-0000-4000-8000-000000000011';
+    const project = {
+      id: PROJECT_ID,
+      workspaceId,
+      sourceConnectionId,
+      sourceExternalRepositoryId: 'github:shipfox/project',
+    };
+    const firstDefinition = {
+      id: '00000000-0000-4000-8000-000000000012',
+      projectId: PROJECT_ID,
+      configPath: '.shipfox/workflows/cron.yml',
+      source: 'vcs' as const,
+      sha: 'a1b2c3',
+      ref: 'main',
+      name: 'Cron',
+      document: {name: 'Cron'},
+      model: {triggers: [{source: 'cron', key: 'nightly'}]},
+      fetchedAt: new Date('2026-08-05T12:00:00.000Z'),
+      createdAt: new Date('2026-08-05T12:01:00.000Z'),
+      updatedAt: new Date('2026-08-05T12:02:00.000Z'),
+    };
+    const secondDefinition = {
+      ...firstDefinition,
+      id: '00000000-0000-4000-8000-000000000013',
+      configPath: '.shipfox/workflows/manual.yml',
+      name: 'Manual',
+      model: {
+        triggers: [
+          {source: 'manual', key: 'first'},
+          {source: 'manual', key: 'second'},
+        ],
+      },
+    };
+    const updatedAt = new Date('2026-08-05T12:03:00.000Z');
+    const syncState = {
+      id: '00000000-0000-4000-8000-000000000014',
+      projectId: PROJECT_ID,
+      sourceConnectionId,
+      sourceExternalRepositoryId: project.sourceExternalRepositoryId,
+      ref: UNRESOLVED_SYNC_REF,
+      status: 'pending' as const,
+      lastErrorCode: null,
+      lastErrorMessage: null,
+      diagnostics: [
+        {code: 'pending', message: 'Waiting for sync', path: 'jobs', severity: 'warning' as const},
+      ],
+      startedAt: null,
+      finishedAt: null,
+      createdAt: updatedAt,
+      updatedAt,
+    };
+    mocks.requireProjectForWorkspace.mockResolvedValue({project});
+    mocks.listDefinitions.mockResolvedValue({
+      definitions: [firstDefinition, secondDefinition],
+      nextCursor: null,
+    });
+    mocks.getLatestDefinitionSyncState.mockResolvedValue(syncState);
+
+    const result = await presentation().handlers.listDefinitionsByProject(
+      {workspaceId, projectId: PROJECT_ID, limit: 10},
+      {signal: new AbortController().signal},
+    );
+    const parsed =
+      definitionsInterModuleContract.methods.listDefinitionsByProject.output.parse(result);
+
+    expect(parsed.definitions.map(({manualTrigger}) => manualTrigger)).toEqual([
+      null,
+      {name: 'first'},
+    ]);
+    expect(parsed.sync).toEqual({
+      ref: null,
+      status: 'pending',
+      lastSyncAt: updatedAt.toISOString(),
+      startedAt: null,
+      finishedAt: null,
+      lastErrorCode: null,
+      lastErrorMessage: null,
+      diagnostics: [
+        {code: 'pending', message: 'Waiting for sync', path: 'jobs', severity: 'warning'},
+      ],
+    });
+  });
+
+  it('returns a null sync summary when no sync state exists', async () => {
+    const workspaceId = '00000000-0000-0000-0000-000000000010';
+    const project = {
+      id: PROJECT_ID,
+      workspaceId,
+      sourceConnectionId: '00000000-0000-0000-0000-000000000011',
+      sourceExternalRepositoryId: 'github:shipfox/project',
+    };
+    mocks.requireProjectForWorkspace.mockResolvedValue({project});
+    mocks.listDefinitions.mockResolvedValue({definitions: [], nextCursor: null});
+    mocks.getLatestDefinitionSyncState.mockResolvedValue(undefined);
+
+    const result = await presentation().handlers.listDefinitionsByProject(
+      {workspaceId, projectId: PROJECT_ID, limit: 10},
+      {signal: new AbortController().signal},
+    );
+
+    expect(
+      definitionsInterModuleContract.methods.listDefinitionsByProject.output.parse(result),
+    ).toEqual({definitions: [], sync: null, nextCursor: null});
+  });
+
+  it.each([
+    ['project-not-found', {projectId: PROJECT_ID}, {projectId: PROJECT_ID}],
+    [
+      'project-workspace-mismatch',
+      {projectId: PROJECT_ID, workspaceId: '00000000-0000-4000-8000-000000000010'},
+      {projectId: PROJECT_ID, workspaceId: '00000000-0000-4000-8000-000000000010'},
+    ],
+  ] as const)('maps %s before reading definitions', async (code, errorDetails, expectedDetails) => {
     const workspaceId = '00000000-0000-4000-8000-000000000010';
     mocks.requireProjectForWorkspace.mockRejectedValue(
       createInterModuleKnownError(
         projectsInterModuleContract.methods.requireProjectForWorkspace,
-        'project-workspace-mismatch',
-        {projectId: PROJECT_ID, workspaceId},
+        code,
+        errorDetails,
       ),
     );
 
@@ -194,7 +309,28 @@ describe('definitions inter-module presentation', () => {
 
     const method = definitionsInterModuleContract.methods.listDefinitionsByProject;
     expect(isInterModuleKnownError(method, error)).toBe(true);
-    expect((error as {code: string}).code).toBe('project-workspace-mismatch');
+    expect((error as {code: string}).code).toBe(code);
+    expect((error as {details: unknown}).details).toEqual(expectedDetails);
+    expect(mocks.listDefinitions).not.toHaveBeenCalled();
+    expect(mocks.getLatestDefinitionSyncState).not.toHaveBeenCalled();
+  });
+
+  it('re-throws unknown project access failures without reading definitions', async () => {
+    const boom = new Error('unexpected project access failure');
+    mocks.requireProjectForWorkspace.mockRejectedValue(boom);
+
+    const error = await rejection(
+      presentation().handlers.listDefinitionsByProject(
+        {
+          workspaceId: '00000000-0000-4000-8000-000000000010',
+          projectId: PROJECT_ID,
+          limit: 10,
+        },
+        {signal: new AbortController().signal},
+      ),
+    );
+
+    expect(error).toBe(boom);
     expect(mocks.listDefinitions).not.toHaveBeenCalled();
     expect(mocks.getLatestDefinitionSyncState).not.toHaveBeenCalled();
   });
