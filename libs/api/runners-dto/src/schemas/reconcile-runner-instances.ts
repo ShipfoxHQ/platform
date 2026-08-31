@@ -59,6 +59,8 @@ export const reconciledRunnerInstanceSchema = z
     intended_reservation_id: z.string().uuid().nullable().optional(),
     reservation_id: z.string().uuid().nullable(),
     runner_session_id: z.string().uuid().nullable(),
+    // Optional so older API versions can still be consumed by provisioners.
+    stopping_at: z.string().datetime().optional(),
     bound_job: reconciledBoundJobSchema.nullable(),
     desired_intent: reconcileDesiredIntentSchema,
     // Keep unknown fields so provisioners can receive additive response fields.

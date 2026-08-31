@@ -1,4 +1,7 @@
-import type {ReportRunnerInstancesBodyDto} from '@shipfox/api-runners-dto';
+import type {
+  ReconcileRunnerInstancesResponseDto,
+  ReportRunnerInstancesBodyDto,
+} from '@shipfox/api-runners-dto';
 import type {
   ProviderRunnerLaunch,
   ProviderRunnerTracker,
@@ -1055,6 +1058,130 @@ describe('createEc2Lifecycle', () => {
     ]);
   });
 
+  it('retries one authorized stopping instance after its first observed deadline', async () => {
+    const now = new Date(NOW);
+    const instances = [instance({state: 'running'})];
+    const client = fakeClient({
+      reconcileResponses: [
+        {
+          runners: [
+            reconciledRunner('runner-1', 'terminate', null, null, true, 'running', 'job-cancelled'),
+          ],
+          terminated_absent_provider_runner_ids: [],
+        },
+        {
+          runners: [
+            reconciledRunner(
+              'runner-1',
+              'terminate',
+              null,
+              null,
+              true,
+              'stopping',
+              'job-cancelled',
+              now.toISOString(),
+            ),
+          ],
+          terminated_absent_provider_runner_ids: [],
+        },
+        {
+          runners: [
+            reconciledRunner(
+              'runner-1',
+              'terminate',
+              null,
+              null,
+              true,
+              'stopping',
+              'job-cancelled',
+              now.toISOString(),
+            ),
+          ],
+          terminated_absent_provider_runner_ids: [],
+        },
+      ],
+    });
+    const engine = fakeEngine({instances});
+    const lifecycle = makeLifecycle({engine, client, now: () => now, stoppingTimeoutMs: 300_000});
+
+    await lifecycle.reconcile();
+    instances[0] = instance({state: 'stopping'});
+    await lifecycle.reconcile();
+
+    expect(engine.terminated).toEqual(['i-123']);
+    now.setTime(now.getTime() + 300_001);
+    await lifecycle.reconcile();
+    await lifecycle.reconcile();
+
+    expect(engine.terminated).toEqual(['i-123', 'i-123']);
+    expect(engine.terminationCalls).toEqual([
+      {instanceIds: ['i-123'], options: undefined},
+      {instanceIds: ['i-123'], options: {force: true}},
+    ]);
+    expect(client.reportBodies.flatMap((body) => body.events)).toEqual(
+      expect.arrayContaining([expect.objectContaining({state: 'stopping'})]),
+    );
+  });
+
+  it('does not force an authorized stopping instance before its deadline', async () => {
+    const now = new Date(NOW);
+    const instances = [instance({state: 'stopping'})];
+    const client = fakeClient({
+      reconcileResponse: {
+        runners: [
+          reconciledRunner(
+            'runner-1',
+            'terminate',
+            null,
+            null,
+            true,
+            'stopping',
+            'job-cancelled',
+            now.toISOString(),
+          ),
+        ],
+        terminated_absent_provider_runner_ids: [],
+      },
+    });
+    const engine = fakeEngine({instances});
+    const lifecycle = makeLifecycle({engine, client, now: () => now, stoppingTimeoutMs: 300_000});
+
+    await lifecycle.reconcile();
+
+    expect(engine.terminated).toEqual([]);
+    expect(client.reportBodies.flatMap((body) => body.events)).toEqual([
+      expect.objectContaining({provider_runner_id: 'runner-1', state: 'stopping'}),
+    ]);
+  });
+
+  it('forces an already-authorized stopping instance after restart when no local action exists', async () => {
+    const now = new Date(NOW);
+    const stoppingAt = new Date(now.getTime() - 300_001);
+    const client = fakeClient({
+      reconcileResponse: {
+        runners: [
+          reconciledRunner(
+            'runner-1',
+            'terminate',
+            null,
+            null,
+            true,
+            'stopping',
+            'job-cancelled',
+            stoppingAt.toISOString(),
+          ),
+        ],
+        terminated_absent_provider_runner_ids: [],
+      },
+    });
+    const engine = fakeEngine({instances: [instance({state: 'stopping'})]});
+    const lifecycle = makeLifecycle({engine, client, now: () => now, stoppingTimeoutMs: 300_000});
+
+    await lifecycle.reconcile();
+
+    expect(engine.terminationCalls).toEqual([{instanceIds: ['i-123'], options: {force: true}}]);
+  });
+
   it('reports shutting-down instances without calling terminate again', async () => {
     const engine = fakeEngine({instances: [instance({state: 'shutting-down'})]});
     const client = fakeClient({
@@ -1248,6 +1375,7 @@ function makeLifecycle(
     client?: ReturnType<typeof fakeClient>;
     tracker?: ProviderRunnerTracker;
     registrationDeadlineMs?: number;
+    stoppingTimeoutMs?: number;
     now?: () => Date;
   } = {},
 ) {
@@ -1260,6 +1388,7 @@ function makeLifecycle(
     providerKind: 'ec2',
     registrationDeadlineMs: args.registrationDeadlineMs ?? 300_000,
     reconcileIntervalMs: RECONCILE_INTERVAL_MS,
+    stoppingTimeoutMs: args.stoppingTimeoutMs ?? 300_000,
     now: args.now ?? (() => NOW),
   });
 }
@@ -1320,13 +1449,25 @@ function fakeEngine(
     listError?: Error;
     terminateErrors?: Array<Error | undefined>;
   } = {},
-): Ec2Engine & {runArgs: Parameters<Ec2Engine['runInstance']>[0][]; terminated: string[]} {
+): Ec2Engine & {
+  runArgs: Parameters<Ec2Engine['runInstance']>[0][];
+  terminated: string[];
+  terminationCalls: Array<{
+    instanceIds: readonly string[];
+    options: Parameters<Ec2Engine['terminate']>[1];
+  }>;
+} {
   const runArgs: Parameters<Ec2Engine['runInstance']>[0][] = [];
   const terminated: string[] = [];
+  const terminationCalls: Array<{
+    instanceIds: readonly string[];
+    options: Parameters<Ec2Engine['terminate']>[1];
+  }> = [];
   const terminateErrors = [...(options.terminateErrors ?? [])];
   return {
     runArgs,
     terminated,
+    terminationCalls,
     runInstance: (args) => {
       runArgs.push(args);
       return options.runError
@@ -1337,7 +1478,8 @@ function fakeEngine(
       options.listError
         ? Promise.reject(options.listError)
         : Promise.resolve(options.instances ?? []),
-    terminate: (instanceIds) => {
+    terminate: (instanceIds, options) => {
+      terminationCalls.push({instanceIds: [...instanceIds], options});
       const error = terminateErrors.shift();
       if (error) return Promise.reject(error);
       terminated.push(...instanceIds);
@@ -1417,15 +1559,20 @@ function reconciledRunner(
   reservationId: string | null = '00000000-0000-4000-8000-000000000003',
   intendedReservationId: string | null = null,
   includeIntendedReservationId = true,
+  state: ReconcileRunnerInstancesResponseDto['runners'][number]['state'] = 'running',
+  terminationReason?: ReconcileRunnerInstancesResponseDto['runners'][number]['termination_reason'],
+  stoppingAt?: string,
 ) {
   return {
     provider_runner_id: providerRunnerId,
-    state: 'running' as const,
+    state,
     ...(includeIntendedReservationId ? {intended_reservation_id: intendedReservationId} : {}),
+    ...(stoppingAt ? {stopping_at: stoppingAt} : {}),
     reservation_id: reservationId,
     runner_session_id: null,
     bound_job: null,
     desired_intent: desiredIntent,
+    ...(terminationReason ? {termination_reason: terminationReason} : {}),
   };
 }
 

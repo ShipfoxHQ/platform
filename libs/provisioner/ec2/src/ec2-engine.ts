@@ -83,7 +83,7 @@ export interface RunInstanceArgs {
 export interface Ec2Engine {
   runInstance(args: RunInstanceArgs): Promise<Ec2InstanceView>;
   listManaged(provisionerId: string): Promise<Ec2InstanceView[]>;
-  terminate(instanceIds: readonly string[]): Promise<void>;
+  terminate(instanceIds: readonly string[], options?: {force?: boolean}): Promise<void>;
 }
 
 export interface CreateEc2EngineOptions {
@@ -211,12 +211,17 @@ export function createEc2Engine(options: CreateEc2EngineOptions): Ec2Engine {
       }
     },
 
-    async terminate(instanceIds) {
+    async terminate(instanceIds, options) {
       if (instanceIds.length === 0) return;
 
       for (const instanceId of instanceIds) {
         try {
-          await client.send(new TerminateInstancesCommand({InstanceIds: [instanceId]}));
+          await client.send(
+            new TerminateInstancesCommand({
+              InstanceIds: [instanceId],
+              ...(options?.force ? {Force: true} : {}),
+            }),
+          );
         } catch (error) {
           if (errorName(error) === 'InvalidInstanceID.NotFound') continue;
           throw mapEc2Error(error, 'Cannot terminate EC2 runner instance.');

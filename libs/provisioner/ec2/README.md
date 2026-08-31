@@ -135,6 +135,7 @@ The provider reads the shared provisioner variables plus these EC2-specific vari
 | `SHIPFOX_PROVISIONER_EC2_REGISTRATION_DEADLINE_MS` | no | `300000` | Maximum time a launched instance may wait for runner registration. The provider adds the launch headroom and uses the sum to derive the reservation lifetime it requests on each demand poll. |
 | `SHIPFOX_PROVISIONER_EC2_LAUNCH_HEADROOM_MS` | no | `30000` | Extra time for the API response and EC2 launch call before EC2 records the instance launch time. The provider adds this to the registration deadline before deriving the reservation lifetime. |
 | `SHIPFOX_PROVISIONER_EC2_RECONCILE_INTERVAL_MS` | no | `60000` | Interval for a full backend reconcile using EC2 instance tags. |
+| `SHIPFOX_PROVISIONER_EC2_STOPPING_TIMEOUT_MS` | no | `300000` | Time an authorized instance may remain in `stopping` before one forced termination retry. |
 
 The reservation clock starts when the API grants demand. The EC2 registration clock starts
 when EC2 records the instance launch time. The provider requests
@@ -178,6 +179,8 @@ hour after a listing gap.
 The provider reports non-terminal states on every observation.
 When the provider terminates an instance, it reports `terminated` with either
 `backend-terminate` or `registration-deadline`.
+An authorized instance that remains in `stopping` past its configured timeout receives one forced termination retry.
+The retry reuses the API's first-observed `stopping_at` timestamp and does not create authorization.
 Stopped instances remain eligible for termination. Shutting-down and terminated
 instances do not trigger another AWS termination call.
 The in-memory marker resets when the provider restarts.

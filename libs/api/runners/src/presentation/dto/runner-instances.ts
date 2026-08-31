@@ -24,6 +24,7 @@ export function toReconcileRunnerInstancesResponseDto(
     intended_reservation_id?: string | null;
     reservation_id: string | null;
     runner_session_id: string | null;
+    stopping_at?: string;
     bound_job: {
       job_id: string;
       workflow_run_attempt_id: string;
@@ -45,6 +46,7 @@ export function toReconcileRunnerInstancesResponseDto(
         : {}),
       reservation_id: runner.reservationId,
       runner_session_id: runner.runnerSessionId,
+      ...(runner.stoppingAt ? {stopping_at: runner.stoppingAt.toISOString()} : {}),
       bound_job: runner.boundJobExecution
         ? {
             job_id: runner.boundJobExecution.jobId,
