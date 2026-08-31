@@ -1,4 +1,5 @@
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
+import {RepositoryAuthorizerConfigurationError} from './errors.js';
 import {
   createRepositoryAuthorizationRequestContext,
   createRepositoryAuthorizer,
@@ -270,6 +271,15 @@ describe('repository authorization', () => {
     ).rejects.toBeInstanceOf(RepositoryAuthorizationTargetInvalidError);
   });
 
+  it('rejects an unsafe selected external-id target', async () => {
+    await expect(
+      resolveRepositoryAuthorization({
+        projects: createProjects(),
+        ...selectedInput({kind: 'external-id', externalRepositoryId: 'github:4 2'}),
+      }),
+    ).rejects.toBeInstanceOf(RepositoryAuthorizationTargetInvalidError);
+  });
+
   it('memoizes selected lookups within one request context only', async () => {
     const getProjectBySource = vi.fn().mockResolvedValue({
       project: {
@@ -294,6 +304,38 @@ describe('repository authorization', () => {
     expect(getProjectBySource).toHaveBeenCalledTimes(2);
   });
 
+  it('deduplicates concurrent lookups and does not memoize store failures', async () => {
+    const getProjectBySource = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('database unavailable'))
+      .mockResolvedValueOnce({
+        project: {
+          id: 'project-1',
+          sourceExternalRepositoryId: 'github:42',
+        },
+      });
+    const projects = createProjects({getProjectBySource});
+    const input = selectedInput({kind: 'external-id', externalRepositoryId: 'github:42'});
+    const request = createRepositoryAuthorizationRequestContext();
+
+    const [first, second] = await Promise.all([
+      resolveRepositoryAuthorization({projects, ...input, request}),
+      resolveRepositoryAuthorization({projects, ...input, request}),
+    ]);
+
+    expect(first).toEqual({authorized: false, reason: 'authorization_store_unavailable'});
+    expect(second).toEqual({authorized: false, reason: 'authorization_store_unavailable'});
+    expect(getProjectBySource).toHaveBeenCalledOnce();
+    expect(request.memo.size).toBe(0);
+
+    await expect(resolveRepositoryAuthorization({projects, ...input, request})).resolves.toEqual({
+      authorized: true,
+      repository: {externalRepositoryId: 'github:42'},
+      targetProjectId: 'project-1',
+    });
+    expect(getProjectBySource).toHaveBeenCalledTimes(2);
+  });
+
   it('does not allow a disabled gate to invoke the Projects client', async () => {
     const projects = createProjects({
       getProjectBySource: vi.fn().mockRejectedValue(new Error('must not be called')),
@@ -307,6 +349,26 @@ describe('repository authorization', () => {
       }),
     ).resolves.toBeUndefined();
     expect(projects.getProjectBySource).not.toHaveBeenCalled();
+  });
+
+  it('rejects an enabled gate without a Projects client', () => {
+    expect(() => createRepositoryAuthorizer({enabled: true})).toThrow(
+      RepositoryAuthorizerConfigurationError,
+    );
+  });
+
+  it('rethrows cancellation errors without converting them to a denial', async () => {
+    const cancellation = Object.assign(new Error('request aborted'), {name: 'AbortError'});
+    const projects = createProjects({
+      getProjectBySource: vi.fn().mockRejectedValue(cancellation),
+    });
+
+    await expect(
+      resolveRepositoryAuthorization({
+        projects,
+        ...selectedInput({kind: 'external-id', externalRepositoryId: 'github:42'}),
+      }),
+    ).rejects.toBe(cancellation);
   });
 
   it('runs the provider-free authorizer when the integration gate is enabled', async () => {

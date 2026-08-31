@@ -61,6 +61,13 @@ export class IntegrationProviderUnavailableError extends Error {
   }
 }
 
+export class RepositoryAuthorizerConfigurationError extends Error {
+  constructor() {
+    super('Repository authorization is enabled but the Projects client is not configured');
+    this.name = 'RepositoryAuthorizerConfigurationError';
+  }
+}
+
 export class WebhookProcessorNotConfiguredError extends Error {
   constructor(public readonly routeId: string) {
     super(`No webhook processor is configured for ${routeId}`);

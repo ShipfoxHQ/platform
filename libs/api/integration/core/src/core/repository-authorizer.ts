@@ -1,4 +1,8 @@
+import {repositoryAuthorizationErrorCodes} from '@shipfox/api-integration-core-dto/inter-module';
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
+import {reportError} from '@shipfox/node-error-monitoring';
+import {logger} from '@shipfox/node-opentelemetry';
+import {RepositoryAuthorizerConfigurationError} from './errors.js';
 
 const REPOSITORY_PART_UNSAFE_PATTERN = /[\s/:\\]/u;
 const EXTERNAL_REPOSITORY_VALUE_UNSAFE_PATTERN = /\s/u;
@@ -27,9 +31,9 @@ export type RepositoryAuthorizationDenial =
   | 'authorization_store_unavailable';
 
 export const repositoryAuthorizationClientErrorCodes = {
-  repository_not_granted: 'repository-not-granted',
-  repository_ambiguous: 'repository-ambiguous',
-  authorization_store_unavailable: 'repository-authorization-unavailable',
+  repository_not_granted: repositoryAuthorizationErrorCodes.notGranted,
+  repository_ambiguous: repositoryAuthorizationErrorCodes.ambiguous,
+  authorization_store_unavailable: repositoryAuthorizationErrorCodes.storeUnavailable,
 } as const satisfies Record<RepositoryAuthorizationDenial, string>;
 
 export type RepositoryAuthorizationClientErrorCode =
@@ -66,6 +70,7 @@ export function createRepositoryAuthorizationRequestContext(): RepositoryAuthori
 export interface ResolveRepositoryAuthorizationInput {
   workspaceId: string;
   connectionId: string;
+  /** The `all` mode may only originate from trusted server-side authorization state. */
   mode: RepositoryAuthorizationMode;
   repository: RepositoryAuthorizationTarget;
   capability: RepositoryAuthorizationCapability;
@@ -121,7 +126,15 @@ export async function resolveRepositoryAuthorization({
   const pending = resolve();
   request.memo.set(key, pending);
   try {
-    return await pending;
+    const result = await pending;
+    if (
+      !result.authorized &&
+      result.reason === 'authorization_store_unavailable' &&
+      request.memo.get(key) === pending
+    ) {
+      request.memo.delete(key);
+    }
+    return result;
   } catch (error) {
     if (request.memo.get(key) === pending) request.memo.delete(key);
     throw error;
@@ -136,12 +149,19 @@ export function createRepositoryAuthorizer({
   projects,
   enabled = false,
 }: CreateRepositoryAuthorizerOptions): RepositoryAuthorizer {
-  const isEnabled = enabled && projects !== undefined;
+  if (!enabled) {
+    return {
+      enabled: false,
+      resolveRepositoryAuthorization() {
+        return Promise.resolve(undefined);
+      },
+    };
+  }
+  if (!projects) throw new RepositoryAuthorizerConfigurationError();
 
   return {
-    enabled: isEnabled,
+    enabled: true,
     async resolveRepositoryAuthorization(input) {
-      if (!isEnabled || !projects) return undefined;
       return await resolveRepositoryAuthorization({projects, ...input});
     },
   };
@@ -156,38 +176,70 @@ async function resolveSelectedMode({
   ResolveRepositoryAuthorizationParams,
   'projects' | 'workspaceId' | 'connectionId' | 'repository'
 >): Promise<RepositoryAuthorizationResult> {
-  try {
-    if (repository.kind === 'external-id') {
-      const {project} = await projects.getProjectBySource({
+  if (repository.kind === 'external-id') {
+    let projectResult: Awaited<ReturnType<ProjectsModuleClient['getProjectBySource']>>;
+    try {
+      projectResult = await projects.getProjectBySource({
         workspaceId,
         sourceConnectionId: connectionId,
         sourceExternalRepositoryId: repository.externalRepositoryId,
       });
-
-      return project ? authorizeProject(project) : deny('repository_not_granted');
+    } catch (error) {
+      return storeUnavailable(error, repository.kind);
     }
 
-    const {projects: matchedProjects} = await projects.findProjectBySourceRepositoryName({
+    return projectResult.project
+      ? authorizeProject(projectResult.project)
+      : deny('repository_not_granted');
+  }
+
+  let projectResult: Awaited<ReturnType<ProjectsModuleClient['findProjectBySourceRepositoryName']>>;
+  try {
+    projectResult = await projects.findProjectBySourceRepositoryName({
       workspaceId,
       sourceConnectionId: connectionId,
       sourceRepositoryOwner: repository.owner,
       sourceRepositoryName: repository.name,
     });
-    const projectsByRepositoryId = new Map<string, (typeof matchedProjects)[number]>();
-    for (const project of matchedProjects) {
-      if (!projectsByRepositoryId.has(project.sourceExternalRepositoryId)) {
-        projectsByRepositoryId.set(project.sourceExternalRepositoryId, project);
-      }
-    }
-
-    if (projectsByRepositoryId.size === 0) return deny('repository_not_granted');
-    if (projectsByRepositoryId.size > 1) return deny('repository_ambiguous');
-
-    const project = projectsByRepositoryId.values().next().value;
-    return project ? authorizeProject(project) : deny('repository_not_granted');
-  } catch {
-    return deny('authorization_store_unavailable');
+  } catch (error) {
+    return storeUnavailable(error, repository.kind);
   }
+
+  const projectsByRepositoryId = new Map<string, (typeof projectResult.projects)[number]>();
+  for (const project of projectResult.projects) {
+    if (!projectsByRepositoryId.has(project.sourceExternalRepositoryId)) {
+      projectsByRepositoryId.set(project.sourceExternalRepositoryId, project);
+    }
+  }
+
+  if (projectsByRepositoryId.size === 0) return deny('repository_not_granted');
+  if (projectsByRepositoryId.size > 1) return deny('repository_ambiguous');
+
+  const project = projectsByRepositoryId.values().next().value;
+  return project ? authorizeProject(project) : deny('repository_not_granted');
+}
+
+function storeUnavailable(
+  error: unknown,
+  targetKind: RepositoryAuthorizationTarget['kind'],
+): RepositoryAuthorizationResult {
+  if (isCancellationError(error)) throw error;
+  logger().error({err: error, targetKind}, 'Repository authorization lookup failed');
+  reportError(error, {
+    boundary: 'integration.repository-authorization',
+    operation: 'resolve-selected',
+    tags: {target: targetKind},
+  });
+  return deny('authorization_store_unavailable');
+}
+
+function isCancellationError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.name === 'AbortError' ||
+      error.name === 'CanceledError' ||
+      error.name === 'CancelledError')
+  );
 }
 
 function authorizeAllMode(

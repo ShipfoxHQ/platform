@@ -1,6 +1,8 @@
 ---
 "@shipfox/api-integration-core": minor
 "@shipfox/api-integration-core-dto": minor
+"@shipfox/api-server": patch
+"@shipfox/api-workflows": patch
 ---
 
-Adds the provider-free repository authorization seam and its dark-launch contract error codes.
+Adds the repository authorization contract with exact-ID/name target resolution and its authorization error codes.

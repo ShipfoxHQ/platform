@@ -1,6 +1,17 @@
-import {integrationsInterModuleContract} from './inter-module.js';
+import {
+  integrationsInterModuleContract,
+  repositoryAuthorizationErrorCodes,
+} from './inter-module.js';
 
 describe('integrationsInterModuleContract', () => {
+  test('owns the repository authorization error codes', () => {
+    expect(repositoryAuthorizationErrorCodes).toEqual({
+      notGranted: 'repository-not-granted',
+      ambiguous: 'repository-ambiguous',
+      storeUnavailable: 'repository-authorization-unavailable',
+    });
+  });
+
   test('accepts a nullable normalized trigger reference', () => {
     const result = integrationsInterModuleContract.methods.resolveTriggerReference.output.parse({
       externalRepositoryId: 'github:42',

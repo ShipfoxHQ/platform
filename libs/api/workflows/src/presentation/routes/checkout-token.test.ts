@@ -453,6 +453,37 @@ describe('POST /runs/jobs/current/steps/:stepId/checkout-token', () => {
     expect(createCheckoutSpec).not.toHaveBeenCalled();
   });
 
+  test.each([
+    ['repository-not-granted', 404],
+    ['repository-ambiguous', 409],
+    ['repository-authorization-unavailable', 503],
+  ] as const)('maps the %s integration checkout failure', async (code, status) => {
+    const {project, job, step} = await createRunningCheckoutStep();
+    getProjectById.mockResolvedValue({project});
+    resolveCheckoutTarget.mockResolvedValue({
+      projectId: project.id,
+      connectionId: project.sourceConnectionId,
+      externalRepositoryId: project.sourceExternalRepositoryId,
+    });
+    createCheckoutSpec.mockRejectedValue(
+      createInterModuleKnownError(
+        integrationsInterModuleContract.methods.createCheckoutSpec,
+        code,
+        {},
+      ),
+    );
+    const token = await mintActiveLeaseToken({jobId: job.id});
+
+    const res = await app.inject({
+      method: 'POST',
+      url: checkoutUrl(step.id, step.currentAttempt),
+      headers: {authorization: `Bearer ${token}`},
+    });
+
+    expect(res.statusCode).toBe(status);
+    expect(res.json().code).toBe(code);
+  });
+
   test('maps provider rate limiting to 429 without leaking credentials', async () => {
     const {project, job, step} = await createRunningCheckoutStep();
     getProjectById.mockResolvedValue({project});

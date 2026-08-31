@@ -91,6 +91,7 @@ export {
   IntegrationConnectionWorkspaceMismatchError,
   IntegrationProviderError,
   IntegrationProviderUnavailableError,
+  RepositoryAuthorizerConfigurationError,
   WebhookProcessorNotConfiguredError,
 } from '#core/errors.js';
 export type {

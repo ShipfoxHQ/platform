@@ -109,29 +109,77 @@ describe('createIntegrationsContext', () => {
   });
 
   it('keeps the repository authorization gate disabled by default', async () => {
+    vi.stubEnv('INTEGRATIONS_ENABLE_REPOSITORY_AUTHORIZATION', 'false');
+    vi.resetModules();
+
     const getProjectBySource = vi.fn();
     const findProjectBySourceRepositoryName = vi.fn();
     const projects = {
       getProjectBySource,
       findProjectBySourceRepositoryName,
     } as unknown as ProjectsModuleClient;
-    const context = await createIntegrationsContext({
-      parts: [{provider: {provider: 'github', displayName: 'GitHub', adapters: {}}}],
-      projects,
-    });
 
-    expect(context.repositoryAuthorizer.enabled).toBe(false);
-    expect(context.capabilities.repositoryAuthorizer).toBe(context.repositoryAuthorizer);
-    await expect(
-      context.repositoryAuthorizer.resolveRepositoryAuthorization({
+    try {
+      const {createIntegrationsContext: createContext} = await import('./index.js');
+      const context = await createContext({
+        parts: [{provider: {provider: 'github', displayName: 'GitHub', adapters: {}}}],
+        projects,
+      });
+
+      expect(context.repositoryAuthorizer.enabled).toBe(false);
+      expect(context.capabilities.repositoryAuthorizer).toBe(context.repositoryAuthorizer);
+      await expect(
+        context.repositoryAuthorizer.resolveRepositoryAuthorization({
+          workspaceId: 'workspace-1',
+          connectionId: 'connection-1',
+          mode: 'all',
+          repository: {kind: 'external-id', externalRepositoryId: 'github:42'},
+          capability: 'checkout',
+        }),
+      ).resolves.toBeUndefined();
+      expect(getProjectBySource).not.toHaveBeenCalled();
+      expect(findProjectBySourceRepositoryName).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    }
+  });
+
+  it('enables repository authorization through the integration context flag', async () => {
+    vi.stubEnv('INTEGRATIONS_ENABLE_REPOSITORY_AUTHORIZATION', 'true');
+    vi.resetModules();
+
+    const getProjectBySource = vi.fn().mockResolvedValue({project: null});
+    const projects = {
+      getProjectBySource,
+      findProjectBySourceRepositoryName: vi.fn(),
+    } as unknown as ProjectsModuleClient;
+
+    try {
+      const {createIntegrationsContext: createContext} = await import('./index.js');
+      const context = await createContext({
+        parts: [{provider: {provider: 'github', displayName: 'GitHub', adapters: {}}}],
+        projects,
+      });
+
+      expect(context.repositoryAuthorizer.enabled).toBe(true);
+      await expect(
+        context.repositoryAuthorizer.resolveRepositoryAuthorization({
+          workspaceId: 'workspace-1',
+          connectionId: 'connection-1',
+          mode: 'selected',
+          repository: {kind: 'external-id', externalRepositoryId: 'github:42'},
+          capability: 'checkout',
+        }),
+      ).resolves.toEqual({authorized: false, reason: 'repository_not_granted'});
+      expect(getProjectBySource).toHaveBeenCalledWith({
         workspaceId: 'workspace-1',
-        connectionId: 'connection-1',
-        mode: 'all',
-        repository: {kind: 'external-id', externalRepositoryId: 'github:42'},
-        capability: 'checkout',
-      }),
-    ).resolves.toBeUndefined();
-    expect(getProjectBySource).not.toHaveBeenCalled();
-    expect(findProjectBySourceRepositoryName).not.toHaveBeenCalled();
+        sourceConnectionId: 'connection-1',
+        sourceExternalRepositoryId: 'github:42',
+      });
+    } finally {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    }
   });
 });
