@@ -29,13 +29,6 @@
       "when": 1788171920746,
       "tag": "0003_brainy_luckman",
       "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "7",
-      "when": 1788174629105,
-      "tag": "0004_curly_doctor_spectrum",
-      "breakpoints": true
     }
   ]
 }

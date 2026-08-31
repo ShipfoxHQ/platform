@@ -1,5 +1,5 @@
 {
-  "id": "3cc3e0b2-9d26-4ee3-985f-34d963ff9981",
+  "id": "391db994-0ade-4426-b398-e47d8b4101cf",
   "prevId": "49ca55f0-179d-429e-adaf-0d68a7927a7f",
   "version": "7",
   "dialect": "postgresql",
@@ -728,7 +728,7 @@
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp with time zone",
+          "type": "timestamp (3) with time zone",
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
@@ -776,6 +776,38 @@
           "isUnique": false,
           "concurrently": false,
           "method": "btree",
+          "with": {}
+        },
+        "auth_users_name_trgm_index": {
+          "name": "auth_users_name_trgm_index",
+          "columns": [
+            {
+              "expression": "name",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "gin_trgm_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "gin",
+          "with": {}
+        },
+        "auth_users_email_trgm_index": {
+          "name": "auth_users_email_trgm_index",
+          "columns": [
+            {
+              "expression": "email",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "gin_trgm_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "gin",
           "with": {}
         }
       },
