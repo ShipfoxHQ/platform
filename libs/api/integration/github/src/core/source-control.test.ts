@@ -510,6 +510,42 @@ describe('GithubSourceControlProvider', () => {
     expect(github.getBotUser).not.toHaveBeenCalled();
   });
 
+  it('uses the injected exact-scope checkout cache without broad installation cache access', async () => {
+    await createInstallation();
+    const github = githubClient();
+    const checkoutTokenCache = {
+      getOrMint: vi.fn(() =>
+        Promise.resolve({
+          token: 'cached-checkout-token',
+          expiresAt: new Date('2026-06-10T12:00:00.000Z'),
+          generation: 'cached-generation',
+        }),
+      ),
+    };
+    const provider = new GithubSourceControlProvider(github, undefined, checkoutTokenCache);
+
+    const result = await provider.createCheckoutCredentials({
+      connection: connection(),
+      externalRepositoryId: 'github:42',
+      permissions: {contents: 'read'},
+      rejectedGeneration: 'rejected-generation',
+    });
+
+    expect(result.token).toBe('cached-checkout-token');
+    expect(result.generation).toBe('cached-generation');
+    expect(github.createInstallationAccessToken).not.toHaveBeenCalled();
+    expect(checkoutTokenCache.getOrMint).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: expect.any(String),
+        installationId,
+        repositoryId: 42,
+        permissions: {contents: 'read'},
+      }),
+      expect.any(Function),
+      'rejected-generation',
+    );
+  });
+
   it('does not return a rejected generation', async () => {
     await createInstallation();
     const github = githubClient();
