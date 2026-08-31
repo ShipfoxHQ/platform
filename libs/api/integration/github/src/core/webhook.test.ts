@@ -309,7 +309,7 @@ describe('handleGithubEvent', () => {
     });
   });
 
-  it('records and drops pull request deliveries whose head repository is a fork', async () => {
+  it('drops a cross-repository pull request before generic event publication', async () => {
     const handlers = deps();
     const deliveryId = randomUUID();
     const payload = {
@@ -595,6 +595,45 @@ describe('handleGithubEvent', () => {
       },
     });
     expect(handlers.recordDeliveryOnly).not.toHaveBeenCalled();
+  });
+
+  it('publishes GitHub repository fork events as generic envelopes', async () => {
+    const installationId = 7783;
+    const connection = fakeConnection();
+    await seedInstallation(installationId, connection.id);
+    const handlers = deps({connection});
+    const deliveryId = randomUUID();
+    const payload = {
+      installation: {id: installationId},
+      repository: {id: 42, full_name: 'shipfox/platform'},
+      forkee: {id: 84, full_name: 'contributor/platform'},
+    };
+
+    const result = await handleGithubEvent({
+      tx: db(),
+      deliveryId,
+      event: 'fork',
+      payload,
+      ...handlers,
+    });
+
+    expect(result.outcome).toBe('published-envelope');
+    expect(handlers.recordDeliveryOnly).not.toHaveBeenCalled();
+    expect(handlers.publishSourcePush).not.toHaveBeenCalled();
+    expect(handlers.publishSourceRepositoryUpdated).not.toHaveBeenCalled();
+    expect(handlers.publishIntegrationEventReceived).toHaveBeenCalledTimes(1);
+    expect(
+      firstPublishIntegrationEventReceivedCall(handlers.publishIntegrationEventReceived),
+    ).toMatchObject({
+      event: {
+        source: connection.slug,
+        event: 'fork',
+        workspaceId: connection.workspaceId,
+        connectionId: connection.id,
+        deliveryId,
+        payload,
+      },
+    });
   });
 
   it('returns duplicate-envelope when a generic envelope delivery was already published', async () => {

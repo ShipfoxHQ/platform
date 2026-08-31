@@ -126,6 +126,38 @@ describe('dispatchIntegrationEvent', () => {
     expect(firedProjects).toEqual(expect.arrayContaining([subA.projectId, subB.projectId]));
   });
 
+  test('matches a connection-scoped trigger for a non-fork event outside the run project', async () => {
+    const workspaceId = crypto.randomUUID();
+    const connectionId = crypto.randomUUID();
+    const source = 'github_shipfox';
+    const subscription = await triggerSubscriptionFactory.create({
+      workspaceId,
+      source,
+      event: 'push',
+      config: {},
+    });
+    const payload = {
+      ref: 'refs/heads/main',
+      repository: {id: 987, full_name: 'contributor/other-project'},
+    };
+
+    await dispatch({workspaceId, connectionId, provider: 'github', source, event: 'push', payload});
+
+    expect(runWorkflow).toHaveBeenCalledTimes(1);
+    expect(runWorkflow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: subscription.projectId,
+        triggerConnectionId: connectionId,
+        triggerPayload: expect.objectContaining({
+          provider: 'github',
+          source,
+          event: 'push',
+          data: payload,
+        }),
+      }),
+    );
+  });
+
   test('passes the source, event, deliveryId and raw payload through as the trigger payload', async () => {
     const workspaceId = crypto.randomUUID();
     const connectionId = crypto.randomUUID();
