@@ -32,6 +32,7 @@ import {
 } from '@shipfox/api-integration-spi';
 import type {GithubApiClient, GithubRepository} from '#api/client.js';
 import {
+  GITHUB_CHECKOUT_TOKEN_REFRESH_MARGIN_MS,
   type GithubCheckoutTokenCachePort,
   type GithubCheckoutTokenScope,
   githubProviderInstanceFingerprint,
@@ -309,7 +310,9 @@ export class GithubSourceControlProvider
             expiresAt,
             generation: newGeneration(input.rejectedGeneration),
           }));
-    const refreshAt = new Date(cached.expiresAt.getTime() - 5 * 60 * 1000);
+    const refreshAt = new Date(
+      cached.expiresAt.getTime() - GITHUB_CHECKOUT_TOKEN_REFRESH_MARGIN_MS,
+    );
 
     return {
       username: 'x-access-token',

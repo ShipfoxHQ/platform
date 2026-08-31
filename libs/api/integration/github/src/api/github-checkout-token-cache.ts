@@ -275,7 +275,9 @@ export class GithubCheckoutTokenCache implements GithubCheckoutTokenCachePort {
     }
 
     const pending = this.inFlight.get(digest);
-    if (pending) return pending;
+    if (pending) {
+      return await this.resolvePending(digest, pending, normalizedScope, mint, rejectedGeneration);
+    }
 
     const operation = this.getOrMintOutsideFlight(
       normalizedScope,
@@ -288,6 +290,21 @@ export class GithubCheckoutTokenCache implements GithubCheckoutTokenCachePort {
     });
     this.inFlight.set(digest, operation);
     return operation;
+  }
+
+  private async resolvePending(
+    digest: string,
+    pending: Promise<GithubCheckoutToken>,
+    scope: GithubCheckoutTokenScope,
+    mint: () => Promise<GithubInstallationAccessToken>,
+    rejectedGeneration: string | undefined,
+  ): Promise<GithubCheckoutToken> {
+    const result = await pending;
+    if (rejectedGeneration === undefined || result.generation !== rejectedGeneration) {
+      return result;
+    }
+    if (this.inFlight.get(digest) === pending) this.inFlight.delete(digest);
+    return await this.getOrMint(scope, mint, rejectedGeneration);
   }
 
   async deleteInstallation(workspaceId: string, installationId: number): Promise<number> {
@@ -328,8 +345,9 @@ export class GithubCheckoutTokenCache implements GithubCheckoutTokenCachePort {
     const now = this.now();
     for (const [key, raw] of Object.entries(values)) {
       if (deleted >= limit) break;
+      if (!key.startsWith(STORAGE_KEY_PREFIX)) continue;
       const envelope = parseGithubCheckoutTokenEnvelope(raw);
-      if (envelope && !isExpiredForCleanup(envelope, now)) continue;
+      if (!envelope || !isExpiredForCleanup(envelope, now)) continue;
       await store.delete({
         workspaceId: normalizedScope.workspaceId,
         namespace: githubCheckoutTokenNamespace(normalizedScope.installationId),
@@ -354,10 +372,7 @@ export class GithubCheckoutTokenCache implements GithubCheckoutTokenCachePort {
     const result = await withLock(digest, () =>
       this.mintUnderLock(scope, digest, mint, rejectedGeneration),
     );
-    if (result.acquired) {
-      recordGithubCheckoutTokenLookup('minted');
-      return result.value;
-    }
+    if (result.acquired) return result.value;
 
     if (initial && !rejectedGeneration && canServeStale(initial, this.now())) {
       recordGithubCheckoutTokenLookup('served-stale');
@@ -378,6 +393,7 @@ export class GithubCheckoutTokenCache implements GithubCheckoutTokenCachePort {
     const now = this.now();
 
     if (current && canReturn(current, scope, now, rejectedGeneration)) {
+      recordGithubCheckoutTokenLookup(this.options.secretStore ? 'shared-hit' : 'ram-hit');
       this.writeRam(digest, scope, current);
       return tokenFromEnvelope(current);
     }
@@ -420,6 +436,7 @@ export class GithubCheckoutTokenCache implements GithubCheckoutTokenCachePort {
     };
     await this.writeShared(scope, envelope);
     this.writeRam(digest, scope, envelope);
+    recordGithubCheckoutTokenLookup('minted');
     return tokenFromEnvelope(envelope);
   }
 

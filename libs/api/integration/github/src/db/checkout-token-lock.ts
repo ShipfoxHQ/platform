@@ -25,10 +25,7 @@ export function withGithubCheckoutTokenLock<T>(
       return {acquired: false};
     }
 
-    try {
-      return {acquired: true, value: await fn()};
-    } finally {
-      recordGithubCheckoutTokenLockWait(Date.now() - startedAt);
-    }
+    recordGithubCheckoutTokenLockWait(Date.now() - startedAt);
+    return {acquired: true, value: await fn()};
   });
 }

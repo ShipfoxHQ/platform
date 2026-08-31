@@ -164,6 +164,27 @@ describe('GithubCheckoutTokenCache', () => {
     expect(mint).toHaveBeenCalledTimes(1);
   });
 
+  it('does not return a rejected generation from an in-flight ordinary refresh', async () => {
+    let currentTime = now;
+    const shared = cache({currentTime: () => currentTime});
+    const existing = await shared.getOrMint(baseScope, () => Promise.resolve(token('token-a')));
+    currentTime = new Date('2026-06-10T11:55:00.000Z');
+    let rejectRefresh: (reason?: unknown) => void = () => undefined;
+    const refreshResult = new Promise<never>((_, reject) => {
+      rejectRefresh = reject;
+    });
+    const refresh = vi.fn(() => refreshResult);
+
+    const ordinaryRefresh = shared.getOrMint(baseScope, refresh);
+    await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+    const rejectedRefresh = shared.getOrMint(baseScope, refresh, existing.generation);
+    rejectRefresh(new GithubIntegrationProviderError('provider-unavailable', 'down'));
+
+    await expect(ordinaryRefresh).resolves.toEqual(existing);
+    await expect(rejectedRefresh).rejects.toMatchObject({reason: 'provider-unavailable'});
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
   it('never shares read and write permission entries', async () => {
     const store = createStore();
     const mint = vi
@@ -238,12 +259,22 @@ describe('GithubCheckoutTokenCache', () => {
     expect(result.token).toBe('token-a');
     expect(refresh).toHaveBeenCalledTimes(1);
     expect(existing.generation).toBeDefined();
+
+    await expect(shared.getOrMint(baseScope, refresh, existing.generation)).rejects.toMatchObject({
+      reason: 'provider-unavailable',
+    });
+    expect(refresh).toHaveBeenCalledTimes(1);
   });
 
   it('cleans expired shared entries in a bounded pass', async () => {
     const store = createStore();
+    const expiredKey = githubCheckoutTokenStorageKey(baseScope);
+    const newerVersionKey = 'v2-newer';
+    const unrelatedKey = 'not-a-checkout-token';
+    store.values.set(newerVersionKey, '{"version":2}');
+    store.values.set(unrelatedKey, 'not an envelope');
     store.values.set(
-      'expired',
+      expiredKey,
       encodeGithubCheckoutTokenEnvelope({
         version: GITHUB_CHECKOUT_TOKEN_CACHE_VERSION,
         generation: 'old',
@@ -255,10 +286,12 @@ describe('GithubCheckoutTokenCache', () => {
     );
     const shared = cache({store});
 
-    const deleted = await shared.cleanupExpired(baseScope, 1);
+    const deleted = await shared.cleanupExpired(baseScope, 10);
 
     expect(deleted).toBe(1);
-    expect(store.values.has('expired')).toBe(false);
+    expect(store.values.has(expiredKey)).toBe(false);
+    expect(store.values.has(newerVersionKey)).toBe(true);
+    expect(store.values.has(unrelatedKey)).toBe(true);
   });
 
   it('bounds RAM entries and evicts expired entries', async () => {
@@ -277,7 +310,9 @@ describe('GithubCheckoutTokenCache', () => {
     expect(mint).toHaveBeenCalledTimes(3);
 
     currentTime = new Date('2026-06-10T12:01:00.000Z');
-    await shared.getOrMint({...baseScope, repositoryId: 44}, mint);
+    await shared.getOrMint(baseScope, mint);
+    expect(mint).toHaveBeenCalledTimes(4);
+    await shared.getOrMint(baseScope, mint);
     expect(mint).toHaveBeenCalledTimes(4);
   });
 });
