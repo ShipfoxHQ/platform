@@ -210,6 +210,8 @@ export interface ListAdministratorUsersParams {
 }
 
 export interface ListAdministratorUsersResult {
+  /** Retained for compatibility with the original database-shaped result. */
+  rows: AdministratorUserSummary[];
   users: AdministratorUserSummary[];
   nextCursor: TimestampIdCursor | null;
 }
@@ -259,6 +261,9 @@ export async function listAdministratorUsers(
     search: normalizedSearch,
   });
   return {
+    rows: result.rows,
+    // Keep the original `rows` result while exposing the domain-named field
+    // used by the directory route.
     users: result.rows,
     nextCursor: result.nextCursor,
   };

@@ -149,6 +149,7 @@ function directoryResultCountBucket(count: number): '0' | '1-10' | '11-50' | '51
 
 function logAdministratorUserDirectoryRead(params: {
   request: FastifyRequest;
+  actorId: string;
   outcome: 'succeeded' | 'failed';
   durationMs: number;
   resultCount: number;
@@ -162,6 +163,11 @@ function logAdministratorUserDirectoryRead(params: {
   try {
     params.request.log.info(
       {
+        actorId: params.actorId,
+        requiredRole: 'admin-observer',
+        targetType: 'user-directory',
+        requestId: params.request.id,
+        result: params.outcome,
         outcome: params.outcome,
         durationMs: params.durationMs,
         resultCountBucket: directoryResultCountBucket(params.resultCount),
@@ -352,9 +358,10 @@ const userDirectoryRoute = defineRoute({
     querystring: administratorUserDirectoryQuerySchema,
     response: {200: administratorUserDirectoryResponseSchema},
   },
-  preHandler: [requireAdministratorObserver, createAuthActorRateLimitPreHandler('directory')],
+  preHandler: createAuthActorRateLimitPreHandler('directory'),
   errorHandler: translateAdministrationError,
   handler: async (request) => {
+    const actorId = requireActorId(request);
     const startedAt = performance.now();
     const {
       search,
@@ -374,7 +381,7 @@ const userDirectoryRoute = defineRoute({
       }
 
       const result = await listAdministratorUsers({
-        actorId: requireActorId(request),
+        actorId,
         limit,
         ...(decodedCursor ? {cursor: decodedCursor} : {}),
         ...(search !== undefined ? {search} : {}),
@@ -392,6 +399,7 @@ const userDirectoryRoute = defineRoute({
     } finally {
       logAdministratorUserDirectoryRead({
         request,
+        actorId,
         outcome,
         durationMs: Math.round(performance.now() - startedAt),
         resultCount,

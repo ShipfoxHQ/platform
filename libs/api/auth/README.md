@@ -334,7 +334,7 @@ This app-layer limiter protects semantic auth work such as Argon2 verification a
 
 `GET /admin/auth/users` requires `admin-observer` and accepts exactly one checked query filter: `id`, `user_id`, or normalized `email`. The response is a bounded `AdministratorUserSummary` containing only the stable user identity, verified-email timestamp, display name, account status, creation timestamp, and current administrator role.
 
-`GET /admin/auth/users/directory` requires `admin-observer` and returns at most 100 safe user summaries per page. It accepts optional `search`, `status`, `impersonation_eligible`, `limit`, and opaque `cursor` filters. Empty pages return `200` with an empty `users` array and a null `next_cursor`. Directory reads do not create administration action events.
+`GET /admin/auth/users/directory` requires `admin-observer` and returns at most 100 safe user summaries per page. It accepts optional `search`, `status`, `impersonation_eligible`, `limit`, and opaque `cursor` filters. Empty pages return `200` with an empty `users` array and a null `next_cursor`. Directory reads do not create administration action events. Structured security logs include the actor ID, required role, target type, request ID, result, and bounded directory metadata.
 
 `GET /admin/auth/admin-grants` also requires `admin-observer`. It returns at most 100 newest-first `AdministratorGrantSummary` rows per page, with an opaque cursor and a safe embedded user identity. It does not return credentials, sessions, provider payloads, OAuth tokens, refresh tokens, or raw authentication metadata.
 
@@ -382,7 +382,7 @@ It also exports lower-level pieces for tests and advanced integration:
 - `createImpersonatedSessionToken({targetUserId, impersonatorId, workspaces})`: mints an access-token-only impersonated session (capped TTL, `impersonatorId` claim, no refresh material). The `impersonateUser` administration command owns the authorization ladder, idempotency, and audit flow.
 - `getAuthenticatedSessionContext(request)`: reads the user ID and required refresh-session ID from verified access-token claims. It does not check whether the refresh session is still active.
 - `findUserByEmail({email})`: read-only lookup of the current owner of a normalized email; see below.
-- `listAdministratorUsers({actorId, limit, cursor?, search?, status?, eligible?})`: returns `{users, nextCursor}` after requiring an active observer role. Search accepts at most 10 whitespace-separated terms. Each term can contain at most 100 characters.
+- `listAdministratorUsers({actorId, limit, cursor?, search?, status?, eligible?})`: returns `{users, rows, nextCursor}` after requiring an active observer role. `rows` remains as a compatibility alias. Search accepts at most 10 whitespace-separated terms. Each term can contain at most 100 characters.
 - Entity types: `User`, `UserStatus`, `RefreshToken`, `PasswordReset`, and `EmailOwner`.
 
 ### External identity callbacks

@@ -1,9 +1,9 @@
 import {impersonateResponseSchema} from '@shipfox/api-auth-dto';
 import {ADMINISTRATION_ACTION_PERFORMED} from '@shipfox/api-common-dto';
 import {userAccessTokenKey} from '@shipfox/node-auth-root-key';
+import type {AppConfig, FastifyInstance} from '@shipfox/node-fastify';
 import {hashOpaqueToken} from '@shipfox/node-tokens';
 import {asc, eq, sql} from 'drizzle-orm';
-import type {FastifyInstance} from 'fastify';
 import {signUserToken, verifyUserToken} from '#core/jwt.js';
 import {type AuthRateLimitAction, hashAuthRateLimitIdentifier} from '#core/rate-limit.js';
 import {db} from '#db/db.js';
@@ -78,14 +78,48 @@ async function seedExhaustedIpBucket(params: {
     });
 }
 
+type LoggerInstance = NonNullable<NonNullable<AppConfig['fastifyOptions']>['loggerInstance']>;
+
+interface CapturedLog {
+  level: string;
+  args: unknown[];
+}
+
+function createCapturingLogger(logs: CapturedLog[]): LoggerInstance {
+  const logger = {
+    child: () => logger,
+    level: 'info',
+    silent: (...args: unknown[]) => logs.push({level: 'silent', args}),
+    fatal: (...args: unknown[]) => logs.push({level: 'fatal', args}),
+    error: (...args: unknown[]) => logs.push({level: 'error', args}),
+    warn: (...args: unknown[]) => logs.push({level: 'warn', args}),
+    info: (...args: unknown[]) => logs.push({level: 'info', args}),
+    debug: (...args: unknown[]) => logs.push({level: 'debug', args}),
+    trace: (...args: unknown[]) => logs.push({level: 'trace', args}),
+  };
+  return logger as unknown as LoggerInstance;
+}
+
+function directoryLogContexts(logs: CapturedLog[]): unknown[] {
+  return logs
+    .filter(
+      ({level, args}) => level === 'info' && args[1] === 'Listed administrator user directory',
+    )
+    .map(({args}) => args[0]);
+}
+
 describe('Auth administration routes', () => {
   let app: FastifyInstance;
+  const directoryLogs: CapturedLog[] = [];
 
   beforeAll(async () => {
-    app = await createAuthTestApp();
+    app = await createAuthTestApp({
+      fastifyOptions: {loggerInstance: createCapturingLogger(directoryLogs)},
+    });
   });
 
   beforeEach(async () => {
+    directoryLogs.length = 0;
     resetCapturedMail();
     setImpersonationEnabled(true);
     setAuthJwtExpiresIn('15m');
@@ -526,6 +560,13 @@ describe('Auth administration routes', () => {
     const operator = await createVerifiedSession(`${marker}-operator`);
     const observer = await createVerifiedSession(`${marker}-observer`);
     const target = await createVerifiedSession(`${marker}-target`);
+    const eligibilityMarker = `admin-user-directory-eligibility-${crypto.randomUUID()}`;
+    const eligibleTarget = await createVerifiedSession(`${eligibilityMarker}-eligible`);
+    const ineligibleTarget = await createVerifiedSession(`${eligibilityMarker}-ineligible`);
+    await db()
+      .update(users)
+      .set({status: 'suspended'})
+      .where(eq(users.id, ineligibleTarget.userId));
 
     const bootstrap = await app.inject({
       method: 'POST',
@@ -567,6 +608,21 @@ describe('Auth administration routes', () => {
     expect(firstPage.statusCode).toBe(200);
     expect(firstPage.json().users).toHaveLength(2);
     expect(firstPage.json().next_cursor).toEqual(expect.any(String));
+    const firstPageLog = directoryLogContexts(directoryLogs).at(-1);
+    expect(firstPageLog).toMatchObject({
+      actorId: observer.userId,
+      requiredRole: 'admin-observer',
+      targetType: 'user-directory',
+      requestId: expect.any(String),
+      result: 'succeeded',
+      outcome: 'succeeded',
+      durationMs: expect.any(Number),
+      resultCountBucket: '1-10',
+      filterPresence: {search: true, status: false, impersonationEligible: false},
+      nextPagePresent: true,
+    });
+    expect(JSON.stringify(firstPageLog)).not.toContain(marker);
+    expect(JSON.stringify(firstPageLog)).not.toContain(firstPage.json().next_cursor);
 
     const secondPage = await app.inject({
       method: 'GET',
@@ -628,6 +684,20 @@ describe('Auth administration routes', () => {
     ]);
     expect(eligibleUsers.json().next_cursor).toBeNull();
 
+    const ineligibleUsers = await app.inject({
+      method: 'GET',
+      url: `/admin/auth/users/directory?search=${encodeURIComponent(eligibilityMarker)}&impersonation_eligible=false`,
+      headers: {authorization: `Bearer ${observer.token}`},
+    });
+    expect(ineligibleUsers.statusCode).toBe(200);
+    expect(ineligibleUsers.json().users).toEqual([
+      expect.objectContaining({id: ineligibleTarget.userId, status: 'suspended'}),
+    ]);
+    expect(ineligibleUsers.json().users).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({id: eligibleTarget.userId})]),
+    );
+    expect(ineligibleUsers.json().next_cursor).toBeNull();
+
     const emptyPage = await app.inject({
       method: 'GET',
       url: `/admin/auth/users/directory?search=${encodeURIComponent(`missing-${marker}`)}`,
@@ -645,6 +715,12 @@ describe('Auth administration routes', () => {
       expect(response.statusCode).toBe(200);
       expect(response.json().users).toHaveLength(4);
     }
+
+    const observerActionEvents = await db()
+      .select()
+      .from(authOutbox)
+      .where(sql`${authOutbox.payload}->>'actorId' = ${observer.userId}`);
+    expect(observerActionEvents).toHaveLength(0);
   });
 
   test('translates directory filter errors and rejects ordinary, suspended, and impersonated sessions', async () => {
@@ -773,6 +849,26 @@ describe('Auth administration routes', () => {
     });
     expect(actorBlocked.statusCode).toBe(429);
     expect(actorBlocked.json().code).toBe('rate-limited');
+  });
+
+  test('rate-limits directory requests before checking the observer role', async () => {
+    const ordinary = await createVerifiedSession('admin-directory-rate-limit-ordinary');
+
+    await seedExhaustedIpBucket({
+      action: 'directory',
+      identifier: '127.0.0.1',
+      limit: 60,
+      windowSeconds: 5 * 60,
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/admin/auth/users/directory',
+      headers: {authorization: `Bearer ${ordinary.token}`},
+    });
+
+    expect(response.statusCode).toBe(429);
+    expect(response.json().code).toBe('rate-limited');
   });
 
   test('bounds and deterministically paginates administrator grant summaries for observers', async () => {

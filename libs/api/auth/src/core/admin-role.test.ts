@@ -1,4 +1,6 @@
 import {createAdminGrant} from '#db/admin-grants.js';
+import {db} from '#db/db.js';
+import {users} from '#db/schema/users.js';
 import {userFactory} from '#test/index.js';
 import {hasMinimumAdminRole, highestAdminRole, requireAdminRole} from './admin-role.js';
 import {listAdministratorUsers} from './administration.js';
@@ -68,10 +70,27 @@ describe('admin role policy', () => {
   test('caps the directory page size in the core operation', async () => {
     const user = await userFactory.create({emailVerifiedAt: new Date()});
     await createAdminGrant({userId: user.id, role: 'admin-observer'});
+    const marker = `admin-directory-cap-${crypto.randomUUID()}`;
+    await db()
+      .insert(users)
+      .values(
+        Array.from({length: 101}, (_, index) => ({
+          email: `${marker}-${index}@example.com`,
+          name: `Directory User ${index}`,
+          hashedPassword: null,
+          emailVerifiedAt: new Date(),
+        })),
+      );
 
-    const result = await listAdministratorUsers({actorId: user.id, limit: 1_000});
+    const result = await listAdministratorUsers({
+      actorId: user.id,
+      limit: 1_000,
+      search: marker,
+    });
 
-    expect(result.users.length).toBeLessThanOrEqual(100);
+    expect(result.users).toHaveLength(100);
+    expect(result.rows).toEqual(result.users);
+    expect(result.nextCursor).not.toBeNull();
   });
 
   test('evaluates the current role from Auth storage for every required minimum', async () => {
