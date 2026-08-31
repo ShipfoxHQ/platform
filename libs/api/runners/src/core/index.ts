@@ -65,6 +65,7 @@ export {
   type ActiveRunner,
   attachRunnerInstanceProviderId,
   listActiveRunners,
+  type ProviderTerminationCandidate,
   type ReconcileDesiredIntent,
   type ReconciledBoundJobExecution,
   type ReconciledRunnerInstance,

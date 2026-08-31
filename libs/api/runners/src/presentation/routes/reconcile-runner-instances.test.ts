@@ -280,6 +280,82 @@ describe('POST /provisioners/runner-instances/reconcile', () => {
     expect(runner?.terminationReason).toBe(expectedReason);
   });
 
+  it('returns a durable authorization for an eligible provider termination candidate', async () => {
+    await createRunnerInstance({providerRunnerId: 'candidate-runner'});
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/provisioners/runner-instances/reconcile',
+      headers: {authorization: `Bearer ${VALID_PROVISIONER_TOKEN}`},
+      payload: {
+        observed_provider_runner_ids: [],
+        termination_candidates: [
+          {
+            provider_runner_id: 'candidate-runner',
+            reason: 'registration-deadline',
+            observed_at: new Date().toISOString(),
+          },
+        ],
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().runners[0]).toMatchObject({
+      provider_runner_id: 'candidate-runner',
+      desired_intent: 'terminate',
+      termination_reason: 'registration-deadline',
+    });
+    const [runner] = await db()
+      .select({
+        terminationAuthorizedAt: providerRunners.terminationAuthorizedAt,
+        terminationReason: providerRunners.terminationReason,
+      })
+      .from(providerRunners)
+      .where(
+        and(
+          eq(providerRunners.workspaceId, workspaceId),
+          eq(providerRunners.provisionerId, provisionerTokenId),
+          eq(providerRunners.providerRunnerId, 'candidate-runner'),
+        ),
+      );
+    expect(runner?.terminationAuthorizedAt).toBeInstanceOf(Date);
+    expect(runner?.terminationReason).toBe('registration-deadline');
+  });
+
+  it('keeps a provider termination candidate when a live job exists', async () => {
+    await createRunnerInstance({providerRunnerId: 'busy-candidate'});
+    await insertRunningJob({
+      jobId: crypto.randomUUID(),
+      workflowRunId: crypto.randomUUID(),
+      workflowRunAttemptId: crypto.randomUUID(),
+      providerRunnerId: 'busy-candidate',
+      lastHeartbeatAt: new Date(),
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/provisioners/runner-instances/reconcile',
+      headers: {authorization: `Bearer ${VALID_PROVISIONER_TOKEN}`},
+      payload: {
+        observed_provider_runner_ids: ['busy-candidate'],
+        termination_candidates: [
+          {
+            provider_runner_id: 'busy-candidate',
+            reason: 'registration-deadline',
+            observed_at: new Date().toISOString(),
+          },
+        ],
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().runners[0]).toMatchObject({
+      provider_runner_id: 'busy-candidate',
+      desired_intent: 'keep',
+    });
+    expect(res.json().runners[0]).not.toHaveProperty('termination_reason');
+  });
+
   it('returns keep for orphan observed ids without leaking ownership details', async () => {
     const res = await app.inject({
       method: 'POST',

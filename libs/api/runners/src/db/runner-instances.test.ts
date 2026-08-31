@@ -155,7 +155,7 @@ describe('authorizeRunnerTermination', () => {
     const disabled = await authorizeRunnerTermination({
       provisionerId: runner.provisionerId,
       providerRunnerId: runner.providerRunnerId,
-      reason: 'registration-deadline',
+      reason: 'provider-health-failed',
     });
     const unknown = await authorizeRunnerTermination({
       provisionerId: runner.provisionerId,

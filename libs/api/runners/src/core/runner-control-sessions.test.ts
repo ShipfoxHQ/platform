@@ -13,7 +13,10 @@ import {
   runnerActivationTokenNotIssuedCount,
   runnerReservationPromotionFailureCount,
 } from '#metrics/instance.js';
-import {enrollRunnerControlSession} from './runner-control-sessions.js';
+import {
+  enrollRunnerControlSession,
+  RunnerControlSessionInvalidError,
+} from './runner-control-sessions.js';
 
 const createdReservationIds = new Set<string>();
 const createdProvisionerTokenIds = new Set<string>();
@@ -48,6 +51,39 @@ afterEach(async () => {
 });
 
 describe('enrollRunnerControlSession', () => {
+  it('rejects enrollment after termination authorization wins the enrollment lock', async () => {
+    const provisionerId = crypto.randomUUID();
+    const reservation = await createReservation({provisionerId});
+    const runnerInstanceId = await createRunner({
+      provisionerId,
+      workspaceId: reservation.workspaceId,
+      providerRunnerId: crypto.randomUUID(),
+    });
+    await db()
+      .update(providerRunners)
+      .set({
+        terminationAuthorizedAt: new Date(),
+        terminationReason: 'registration-deadline',
+      })
+      .where(eq(providerRunners.id, runnerInstanceId));
+
+    await expect(
+      enrollRunnerControlSession({
+        runnerInstanceId,
+        provisionerId,
+        labels: ['linux'],
+        providerKind: 'docker',
+        protocolVersion: '1',
+      }),
+    ).rejects.toBeInstanceOf(RunnerControlSessionInvalidError);
+
+    const [runner] = await db()
+      .select({state: providerRunners.state})
+      .from(providerRunners)
+      .where(eq(providerRunners.id, runnerInstanceId));
+    expect(runner?.state).toBe('starting');
+  });
+
   it('counts expired reservation promotion failures', async () => {
     const provisionerId = crypto.randomUUID();
     const reservation = await createReservation({

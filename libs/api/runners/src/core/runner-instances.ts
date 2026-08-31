@@ -1,4 +1,7 @@
-import type {RunnerJobStopReasonDto} from '@shipfox/api-runners-dto';
+import type {
+  ProviderTerminationCandidateReasonDto,
+  RunnerJobStopReasonDto,
+} from '@shipfox/api-runners-dto';
 import {logger} from '@shipfox/node-opentelemetry';
 import type {
   RunnerInstance,
@@ -55,10 +58,17 @@ export interface ReportRunnerInstancesResult {
   reservationsReleased: number;
 }
 
+export interface ProviderTerminationCandidate {
+  providerRunnerId: string;
+  reason: ProviderTerminationCandidateReasonDto;
+  observedAt: Date;
+}
+
 export interface ReconcileRunnerInstancesParams {
   workspaceId: string | null;
   provisionerId: string;
   observedRunnerInstanceIds: string[];
+  terminationCandidates?: ProviderTerminationCandidate[];
 }
 
 export type ReconcileDesiredIntent = 'keep' | 'terminate';
@@ -158,8 +168,15 @@ export async function reportRunnerInstances(
 export async function reconcileRunnerInstances(
   params: ReconcileRunnerInstancesParams,
 ): Promise<ReconcileRunnerInstancesResult> {
+  const observedRunnerInstanceIds = [
+    ...new Set([
+      ...params.observedRunnerInstanceIds,
+      ...(params.terminationCandidates ?? []).map((candidate) => candidate.providerRunnerId),
+    ]),
+  ];
   const result = await reconcileRunnerInstancesDb({
     ...params,
+    observedRunnerInstanceIds,
     terminateGraceSeconds: config.RUNNER_RECONCILE_TERMINATE_GRACE_SECONDS,
     postJobExitGraceSeconds: config.RUNNER_POST_JOB_EXIT_GRACE_SECONDS,
     terminationReasonResolver: ({provisionerId, providerRunnerId, reason}) =>
@@ -172,7 +189,7 @@ export async function reconcileRunnerInstances(
 
   const now = new Date();
   const reconciledRunners = reconcileRunnerInstancesFromDbResult({
-    observedRunnerInstanceIds: params.observedRunnerInstanceIds,
+    observedRunnerInstanceIds,
     observedRows: result.observedRows,
     boundJobExecutionsByRunnerInstanceId: result.boundJobExecutionsByRunnerInstanceId,
     cleanupGraceSeconds: config.RUNNER_JOB_CLEANUP_GRACE_SECONDS,
@@ -213,8 +230,8 @@ export async function reconcileRunnerInstances(
   const authorizations = await listProvisionerTerminationAuthorizations({
     workspaceId: params.workspaceId,
     provisionerId: params.provisionerId,
-    providerRunnerIds: params.observedRunnerInstanceIds,
-    limit: params.observedRunnerInstanceIds.length,
+    providerRunnerIds: observedRunnerInstanceIds,
+    limit: observedRunnerInstanceIds.length,
   });
   const authorizationByRunnerId = new Map(
     authorizations.map((authorization) => [authorization.providerRunnerId, authorization.reason]),

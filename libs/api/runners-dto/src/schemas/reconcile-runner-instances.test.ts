@@ -6,6 +6,41 @@ import {
 } from './reconcile-runner-instances.js';
 
 describe('reconcileRunnerInstancesBodySchema', () => {
+  it('accepts provider termination candidates as observations, not permissions', () => {
+    const result = reconcileRunnerInstancesBodySchema.safeParse({
+      observed_provider_runner_ids: [],
+      termination_candidates: [
+        {
+          provider_runner_id: 'provider-runner-1',
+          reason: 'registration-deadline',
+          observed_at: '2026-08-31T12:00:00.000Z',
+        },
+      ],
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects duplicate provider termination candidates', () => {
+    const result = reconcileRunnerInstancesBodySchema.safeParse({
+      observed_provider_runner_ids: [],
+      termination_candidates: [
+        {
+          provider_runner_id: 'provider-runner-1',
+          reason: 'registration-deadline',
+          observed_at: '2026-08-31T12:00:00.000Z',
+        },
+        {
+          provider_runner_id: 'provider-runner-1',
+          reason: 'provider-health-failed',
+          observed_at: '2026-08-31T12:00:01.000Z',
+        },
+      ],
+    });
+
+    expect(result.success).toBe(false);
+  });
+
   it('accepts observed provisioned runner ids', () => {
     const result = reconcileRunnerInstancesBodySchema.safeParse({
       observed_provider_runner_ids: ['01JPROVISIONEDRUNNER000001'],

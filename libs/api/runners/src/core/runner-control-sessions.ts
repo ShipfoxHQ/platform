@@ -262,6 +262,7 @@ export async function enrollRunnerControlSession(params: {
       .select({
         intendedReservationId: providerRunners.intendedReservationId,
         provisionerScope: provisionerTokens.scope,
+        terminationAuthorizedAt: providerRunners.terminationAuthorizedAt,
       })
       .from(providerRunners)
       .innerJoin(provisionerTokens, eq(provisionerTokens.id, providerRunners.provisionerId))
@@ -273,7 +274,7 @@ export async function enrollRunnerControlSession(params: {
       )
       .limit(1)
       .for('update');
-    if (!current) throw new RunnerControlSessionInvalidError();
+    assertRunnerEnrollmentIsAllowed(current);
 
     // Provider reports may populate reservationId before the assignment commits. assignedAt is
     // written by the assignment transaction, so keep the guard on that write boundary.
@@ -349,6 +350,12 @@ export async function enrollRunnerControlSession(params: {
   if (result.promotionFailureReason)
     recordRunnerReservationPromotionFailure(result.promotionFailureReason);
   return result.activationToken;
+}
+
+function assertRunnerEnrollmentIsAllowed(
+  current: {terminationAuthorizedAt: Date | null} | undefined,
+): asserts current is {terminationAuthorizedAt: Date | null} {
+  if (!current || current.terminationAuthorizedAt) throw new RunnerControlSessionInvalidError();
 }
 
 async function promoteEnrollmentReservation(

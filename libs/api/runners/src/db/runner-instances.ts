@@ -267,10 +267,17 @@ export interface ReportRunnerInstancesParams {
   events: RunnerInstanceReportEvent[];
 }
 
+export interface ProviderTerminationCandidate {
+  providerRunnerId: string;
+  reason: Extract<RunnerTerminationReason, 'registration-deadline' | 'provider-health-failed'>;
+  observedAt: Date;
+}
+
 export interface ReconcileRunnerInstancesParams {
   workspaceId: string | null;
   provisionerId: string;
   observedRunnerInstanceIds: string[];
+  terminationCandidates?: ProviderTerminationCandidate[];
   terminateGraceSeconds: number;
   postJobExitGraceSeconds?: number;
   terminationReasonResolver?: (params: {
@@ -1143,6 +1150,7 @@ export async function reconcileRunnerInstances(
       observedRunnerInstanceIds,
     );
 
+    await authorizeProviderTerminationCandidatesTx(tx, params);
     await authorizeExhaustedEphemeralSessionsTx(tx, params, observedRunnerInstanceIds);
 
     const observedRows =
@@ -1180,6 +1188,92 @@ export async function reconcileRunnerInstances(
       reservationsReleased,
     };
   });
+}
+
+async function authorizeProviderTerminationCandidatesTx(
+  tx: Tx,
+  params: ReconcileRunnerInstancesParams,
+): Promise<void> {
+  if (!params.workspaceId || !params.terminationReasonResolver) return;
+
+  const candidates = [...(params.terminationCandidates ?? [])].sort((a, b) =>
+    a.providerRunnerId.localeCompare(b.providerRunnerId),
+  );
+  for (const candidate of candidates) {
+    const [identifiedRunner] = await tx
+      .select({id: providerRunners.id})
+      .from(providerRunners)
+      .where(
+        and(
+          eq(providerRunners.workspaceId, params.workspaceId),
+          eq(providerRunners.provisionerId, params.provisionerId),
+          eq(providerRunners.providerRunnerId, candidate.providerRunnerId),
+          inArray(providerRunners.state, ['starting', 'running']),
+        ),
+      )
+      .limit(1);
+    if (!identifiedRunner) continue;
+
+    await lockRunnerEnrollmentTx(tx, {
+      workspaceId: params.workspaceId,
+      runnerInstanceId: identifiedRunner.id,
+    });
+    const [runner] = await tx
+      .select({id: providerRunners.id, providerRunnerId: providerRunners.providerRunnerId})
+      .from(providerRunners)
+      .where(
+        and(
+          eq(providerRunners.id, identifiedRunner.id),
+          eq(providerRunners.workspaceId, params.workspaceId),
+          eq(providerRunners.provisionerId, params.provisionerId),
+          eq(providerRunners.providerRunnerId, candidate.providerRunnerId),
+          inArray(providerRunners.state, ['starting', 'running']),
+        ),
+      )
+      .limit(1)
+      .for('update');
+    const providerRunnerId = runner?.providerRunnerId;
+    if (!providerRunnerId) continue;
+
+    const [enrolledSession] = await tx
+      .select({id: runnerSessions.id})
+      .from(runnerSessions)
+      .where(
+        and(
+          eq(runnerSessions.workspaceId, params.workspaceId),
+          eq(runnerSessions.provisionerId, params.provisionerId),
+          eq(runnerSessions.providerRunnerId, providerRunnerId),
+          isNull(runnerSessions.revokedAt),
+        ),
+      )
+      .limit(1);
+    if (enrolledSession) continue;
+
+    const [liveJob] = await tx
+      .select({id: runningJobExecutions.id})
+      .from(runningJobExecutions)
+      .where(
+        and(
+          eq(runningJobExecutions.workspaceId, params.workspaceId),
+          eq(runningJobExecutions.provisionerId, params.provisionerId),
+          eq(runningJobExecutions.providerRunnerId, providerRunnerId),
+        ),
+      )
+      .limit(1);
+    if (liveJob) continue;
+
+    await persistRunnerTerminationAuthorizationTx(tx, {
+      provisionerId: params.provisionerId,
+      providerRunnerId,
+      reason: candidate.reason,
+      resolveTerminationReason: (reason) =>
+        params.terminationReasonResolver?.({
+          provisionerId: params.provisionerId,
+          providerRunnerId,
+          reason,
+        }) ?? {reason: null, rejectionReason: 'unknown-reason'},
+    });
+  }
 }
 
 async function authorizeExhaustedEphemeralSessionsTx(
