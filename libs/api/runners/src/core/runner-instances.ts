@@ -218,7 +218,6 @@ export async function reconcileRunnerInstances(
       telemetry,
       revocationCounts,
     );
-
   recordRunnerReservationReleased({count: result.reservationsReleased, surface: 'reconcile'});
   providerRunnerReconcileCallCount.add(1);
   if (result.absentIds.length > 0) providerRunnerAbsentTerminatedCount.add(result.absentIds.length);
@@ -393,7 +392,7 @@ function getDesiredIntentReason(
   cleanupGraceSeconds = config.RUNNER_JOB_CLEANUP_GRACE_SECONDS,
 ): RunnerTerminationReason | null {
   if (!row) return null;
-
+  if (row.terminationAuthorizedAt && row.terminationReason) return row.terminationReason;
   const jobStopReason = terminationReasonForJobStop(boundJobExecution);
   const localWorkStopped = isTerminalState(row.state);
   const cleanupGraceStartedAt = cleanupGraceStart(boundJobExecution);
