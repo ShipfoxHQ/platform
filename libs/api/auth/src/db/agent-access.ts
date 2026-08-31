@@ -1,4 +1,4 @@
-import {and, asc, eq, gt, inArray, isNull, lt, sql} from 'drizzle-orm';
+import {and, asc, eq, gt, inArray, isNull, lt, or, sql} from 'drizzle-orm';
 import type {
   AgentAuthorizationCode,
   AgentAuthorizationRequest,
@@ -551,9 +551,12 @@ export async function pruneAgentAccess(params: PruneAgentAccessParams = {}): Pro
       .select({id: agentAuthorizationRequests.id})
       .from(agentAuthorizationRequests)
       .where(
-        lt(
-          sql`coalesce(${agentAuthorizationRequests.consumedAt}, ${agentAuthorizationRequests.expiresAt})`,
-          cutoff,
+        or(
+          lt(agentAuthorizationRequests.consumedAt, cutoff),
+          and(
+            isNull(agentAuthorizationRequests.consumedAt),
+            lt(agentAuthorizationRequests.expiresAt, cutoff),
+          ),
         ),
       )
       .orderBy(asc(agentAuthorizationRequests.expiresAt), asc(agentAuthorizationRequests.id))
@@ -562,9 +565,12 @@ export async function pruneAgentAccess(params: PruneAgentAccessParams = {}): Pro
       .select({id: agentAuthorizationCodes.id})
       .from(agentAuthorizationCodes)
       .where(
-        lt(
-          sql`coalesce(${agentAuthorizationCodes.consumedAt}, ${agentAuthorizationCodes.expiresAt})`,
-          cutoff,
+        or(
+          lt(agentAuthorizationCodes.consumedAt, cutoff),
+          and(
+            isNull(agentAuthorizationCodes.consumedAt),
+            lt(agentAuthorizationCodes.expiresAt, cutoff),
+          ),
         ),
       )
       .orderBy(asc(agentAuthorizationCodes.expiresAt), asc(agentAuthorizationCodes.id))
@@ -573,9 +579,14 @@ export async function pruneAgentAccess(params: PruneAgentAccessParams = {}): Pro
       .select({id: agentRefreshTokens.id})
       .from(agentRefreshTokens)
       .where(
-        lt(
-          sql`coalesce(${agentRefreshTokens.rotatedAt}, ${agentRefreshTokens.revokedAt}, ${agentRefreshTokens.expiresAt})`,
-          cutoff,
+        or(
+          lt(agentRefreshTokens.rotatedAt, cutoff),
+          and(isNull(agentRefreshTokens.rotatedAt), lt(agentRefreshTokens.revokedAt, cutoff)),
+          and(
+            isNull(agentRefreshTokens.rotatedAt),
+            isNull(agentRefreshTokens.revokedAt),
+            lt(agentRefreshTokens.expiresAt, cutoff),
+          ),
         ),
       )
       .orderBy(asc(agentRefreshTokens.expiresAt), asc(agentRefreshTokens.id))
@@ -584,9 +595,12 @@ export async function pruneAgentAccess(params: PruneAgentAccessParams = {}): Pro
       .select({id: agentPersonalAccessTokens.id})
       .from(agentPersonalAccessTokens)
       .where(
-        lt(
-          sql`coalesce(${agentPersonalAccessTokens.revokedAt}, ${agentPersonalAccessTokens.expiresAt})`,
-          cutoff,
+        or(
+          lt(agentPersonalAccessTokens.revokedAt, cutoff),
+          and(
+            isNull(agentPersonalAccessTokens.revokedAt),
+            lt(agentPersonalAccessTokens.expiresAt, cutoff),
+          ),
         ),
       )
       .orderBy(asc(agentPersonalAccessTokens.expiresAt), asc(agentPersonalAccessTokens.id))
