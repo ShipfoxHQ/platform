@@ -7,13 +7,20 @@ import type {IntegrationToolsBridge} from '#core/integration-tools-bridge.js';
 
 // The invocation shape is still pi-oriented because v1 only has two harnesses.
 // Revisit this shared contract if a third harness needs materially different inputs.
+export interface HarnessSessionInvocation {
+  readonly mode: 'resume' | 'fork';
+  /** Local, runner-owned transcript downloaded before the harness starts. */
+  readonly file?: string | undefined;
+  /** Native session id associated with the downloaded transcript, when present. */
+  readonly harnessSessionId?: string | undefined;
+}
+
 export interface HarnessInvocation {
   readonly cwd: string;
   /** Runner-owned per-job directory for harness state, outside the checked-out workspace. */
   readonly agentStateDir?: string | undefined;
-  /** Existing harness session JSONL to resume or fork from. */
-  readonly sessionFile?: string | undefined;
-  readonly sessionMode?: 'resume' | 'fork' | undefined;
+  /** Downloaded native session state and its continuation mode. */
+  readonly session?: HarnessSessionInvocation | undefined;
   readonly model: string;
   readonly provider: string;
   readonly thinking: string;

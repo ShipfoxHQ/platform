@@ -21,6 +21,7 @@ import {
   AgentHarnessUnavailableError,
   AgentInvocationError,
   AgentPermissionModeError,
+  AgentSessionUnavailableError,
 } from '#core/errors.js';
 import type {HarnessAdapter} from '#core/harness.js';
 import {
@@ -39,8 +40,9 @@ export async function executeAgentStep(
     signal?: AbortSignal;
     cwd?: string;
     agentStateDir?: string | undefined;
-    sessionFile?: string | undefined;
-    sessionMode?: 'resume' | 'fork' | undefined;
+    session?: Parameters<HarnessAdapter['run']>[0]['session'];
+    /** Prompt after runner-owned resume context has been prepended. */
+    prompt?: string | undefined;
     runtime: {
       harness: Harness;
       provider: string;
@@ -60,7 +62,8 @@ export async function executeAgentStep(
     return agentFailure(`Unsupported step type: ${step.type}`);
   }
 
-  const {prompt} = step.config;
+  const configuredPrompt = step.config.prompt;
+  const prompt = options.prompt ?? configuredPrompt;
   if (typeof prompt !== 'string' || prompt === '') {
     return agentFailure(
       'Agent step config is missing prompt',
@@ -104,8 +107,7 @@ export async function executeAgentStep(
       attempt: step.current_attempt,
       cwd: options.cwd ?? process.cwd(),
       agentStateDir: options.agentStateDir,
-      sessionFile: options.sessionFile,
-      sessionMode: options.sessionMode,
+      session: options.session,
       harness: options.runtime.harness,
       model: options.runtime.model,
       outputs: outputDeclarationsFromConfig(step.config.outputs),
@@ -132,8 +134,7 @@ async function runSelectedHarness(params: {
   attempt: number;
   cwd: string;
   agentStateDir: string | undefined;
-  sessionFile: string | undefined;
-  sessionMode: 'resume' | 'fork' | undefined;
+  session: Parameters<HarnessAdapter['run']>[0]['session'];
   harness: Harness;
   model: string;
   outputs: OutputDeclarations | undefined;
@@ -155,8 +156,7 @@ async function runSelectedHarness(params: {
     attempt,
     cwd,
     agentStateDir,
-    sessionFile,
-    sessionMode,
+    session,
     harness,
     model,
     outputs,
@@ -179,8 +179,7 @@ async function runSelectedHarness(params: {
       adapter.run({
         cwd,
         ...(agentStateDir === undefined ? {} : {agentStateDir}),
-        ...(sessionFile === undefined ? {} : {sessionFile}),
-        ...(sessionMode === undefined ? {} : {sessionMode}),
+        ...(session === undefined ? {} : {session}),
         model,
         provider,
         thinking,
@@ -197,7 +196,7 @@ async function runSelectedHarness(params: {
       }),
       signal,
     );
-    return successfulHarnessResult(harnessResult, sessionMode);
+    return successfulHarnessResult(harnessResult, session);
   } catch (error) {
     return harnessFailureResult(error, {harness, jobExecutionId, stepId, attempt});
   }
@@ -205,16 +204,16 @@ async function runSelectedHarness(params: {
 
 function successfulHarnessResult(
   harnessResult: Awaited<ReturnType<HarnessAdapter['run']>>,
-  sessionMode: 'resume' | 'fork' | undefined,
+  session: Parameters<HarnessAdapter['run']>[0]['session'],
 ): StepResult {
   return {
     success: true,
     response: harnessResult.response ?? '',
     ...(harnessResult.outputs === undefined ? {} : {outputs: harnessResult.outputs}),
-    ...(sessionMode === 'fork' || harnessResult.sessionFile === undefined
+    ...(session?.mode === 'fork' || harnessResult.sessionFile === undefined
       ? {}
       : {sessionFile: harnessResult.sessionFile}),
-    ...(sessionMode === 'fork' || harnessResult.sessionId === undefined
+    ...(session?.mode === 'fork' || harnessResult.sessionId === undefined
       ? {}
       : {sessionId: harnessResult.sessionId}),
     error: null,
@@ -234,13 +233,19 @@ function harnessFailureResult(
   }
   let reason: StepErrorReasonDto = 'agent_invocation_failed';
   if (error instanceof AgentHarnessUnavailableError) reason = 'agent_harness_unavailable';
+  else if (error instanceof AgentSessionUnavailableError) reason = 'agent_session_unavailable';
   else if (error instanceof AgentConfigError) reason = 'agent_config_invalid';
-  return agentFailure(
+  const failure = agentFailure(
     error instanceof Error ? error.message : String(error),
     reason,
     error instanceof AgentConfigError ? error.agentConfigIssue : undefined,
     error instanceof AgentInvocationError ? error.response : undefined,
   );
+  if (error instanceof AgentInvocationError && error.sessionFile !== undefined) {
+    failure.sessionFile = error.sessionFile;
+    if (error.sessionId !== undefined) failure.sessionId = error.sessionId;
+  }
+  return failure;
 }
 
 function logPermissionModeDowngraded(params: {

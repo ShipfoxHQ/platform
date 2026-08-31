@@ -1,3 +1,7 @@
+import {mkdtempSync, rmSync, writeFileSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {gzipSync} from 'node:zlib';
 import type {AgentConfigIssueDto, NextStepResponseDto, StepDto} from '@shipfox/api-workflows-dto';
 import {logger} from '@shipfox/node-opentelemetry';
 import {HTTPError} from 'ky';
@@ -41,6 +45,8 @@ const {AgentRuntimeConfigRequestError, StepSecretsRequestError, resolveWorkingDi
 const requestNextStepMock = vi.fn();
 const requestAgentRuntimeConfigMock = vi.fn();
 const requestStepSecretsMock = vi.fn();
+const requestSessionTranscriptMock = vi.fn();
+const commitSessionTranscriptMock = vi.fn();
 const reportStepMock = vi.fn();
 const appendStepLogsMock = vi.fn();
 const writeStepAnnotationsMock = vi.fn();
@@ -60,6 +66,8 @@ vi.mock('@shipfox/runner-protocol', () => ({
   requestNextStep: (...args: unknown[]) => requestNextStepMock(...args),
   requestAgentRuntimeConfig: (...args: unknown[]) => requestAgentRuntimeConfigMock(...args),
   requestStepSecrets: (...args: unknown[]) => requestStepSecretsMock(...args),
+  requestSessionTranscript: (...args: unknown[]) => requestSessionTranscriptMock(...args),
+  commitSessionTranscript: (...args: unknown[]) => commitSessionTranscriptMock(...args),
   reportStep: (...args: unknown[]) => reportStepMock(...args),
   appendStepLogs: (...args: unknown[]) => appendStepLogsMock(...args),
   writeStepAnnotations: (...args: unknown[]) => writeStepAnnotationsMock(...args),
@@ -132,6 +140,7 @@ const integrationGatewayUrl = new URL(
   'https://api.example.test/runs/jobs/current/integration-tools/mcp',
 );
 const STREAM_LENGTH = 128;
+const SESSION_ID = '00000000-0000-0000-0000-0000000000e0';
 
 // Ordered log of stream lifecycle events across all created streams, so tests can
 // assert "prior attempt drained before the next opens".
@@ -208,6 +217,7 @@ function runLoop(params: {
   leaseToken?: () => string;
   secrets?: string[];
   cwd?: string;
+  agentStateDir?: string;
   subscribeSecrets?: (subscriber: (secrets: string[]) => void) => () => void;
   registerSecrets?: (secrets: string[]) => void;
   prepareAgentState?: () => Promise<void>;
@@ -224,7 +234,7 @@ function runLoop(params: {
     cwd: params.cwd ?? '/work',
     gitConfigPath: GIT_CONFIG_PATH,
     logsDir: LOGS_DIR,
-    agentStateDir: AGENT_STATE_DIR,
+    agentStateDir: params.agentStateDir ?? AGENT_STATE_DIR,
     jobContext: JOB_CONTEXT,
     ...(params.prepareAgentState ? {prepareAgentState: params.prepareAgentState} : {}),
     ...(params.onLeaseTokenAdopted ? {onLeaseTokenAdopted: params.onLeaseTokenAdopted} : {}),
@@ -236,6 +246,8 @@ describe('runJobSteps', () => {
     requestNextStepMock.mockReset();
     requestAgentRuntimeConfigMock.mockReset();
     requestStepSecretsMock.mockReset();
+    requestSessionTranscriptMock.mockReset();
+    commitSessionTranscriptMock.mockReset();
     reportStepMock.mockReset();
     appendStepLogsMock.mockReset();
     writeStepAnnotationsMock.mockReset();
@@ -260,6 +272,8 @@ describe('runJobSteps', () => {
       credentials: {api_key: 'sk-runtime-secret'},
     });
     requestStepSecretsMock.mockResolvedValue({secrets: []});
+    requestSessionTranscriptMock.mockResolvedValue({blob: null, segment: 0});
+    commitSessionTranscriptMock.mockResolvedValue({status: 'committed', segment: 1});
     integrationToolsGatewayUrlMock.mockReturnValue(integrationGatewayUrl);
     events = [];
     createdStreams = new Map();
@@ -1119,6 +1133,32 @@ describe('runJobSteps', () => {
     expect(events.indexOf(`dispose:${run1.id}`)).toBeLessThan(events.indexOf('pull:2'));
   });
 
+  it('does not commit a session for an aborted agent step', async () => {
+    const setup = buildSetupStep();
+    const agent = buildAgentStep({
+      session: {id: SESSION_ID, key: 'main', mode: 'resume', segment: 0},
+    });
+    requestNextStepMock
+      .mockResolvedValueOnce(stepResponse(setup, 1))
+      .mockResolvedValueOnce(stepResponse(agent, 1));
+    const ac = new AbortController();
+    executeAgentStepMock.mockImplementationOnce(() => {
+      ac.abort();
+      return Promise.resolve({
+        success: true,
+        response: 'done',
+        sessionFile: '/runner-agent/job-1/session.jsonl',
+        error: null,
+        exit_code: 0,
+      });
+    });
+
+    await runLoop({signal: ac.signal});
+
+    expect(commitSessionTranscriptMock).not.toHaveBeenCalled();
+    expect(reportStepMock.mock.calls.map((call) => call[1].stepId)).not.toContain(agent.id);
+  });
+
   it('drains and disposes the stream on abort, without reporting', async () => {
     const setup = buildSetupStep();
     const run = buildRunStep();
@@ -1586,6 +1626,160 @@ describe('runJobSteps', () => {
       logOutcome: 'drained',
       signal: ac.signal,
     });
+  });
+
+  it('downloads a resumed session before invocation and commits it after log settlement', async () => {
+    const setup = buildSetupStep();
+    const agent = buildAgentStep({
+      session: {id: SESSION_ID, key: 'main', mode: 'resume', segment: 0},
+    });
+    const transcriptDir = mkdtempSync(join(tmpdir(), 'shipfox-runner-session-'));
+    const transcriptFile = join(transcriptDir, 'sessions', `${SESSION_ID}.jsonl`);
+    executeSetupStepMock.mockResolvedValueOnce({
+      result: {
+        success: true,
+        checkout: {
+          repository: 'acme/repo',
+          ref: 'refs/heads/main',
+          commit: 'abc123',
+          path: '/work',
+        },
+        error: null,
+        exit_code: 0,
+      },
+    });
+    requestSessionTranscriptMock.mockResolvedValueOnce({
+      blob: gzipSync(Buffer.from('session transcript')),
+      segment: 0,
+      harness: 'pi',
+      harnessSessionId: 'prior-native-session',
+    });
+    executeAgentStepMock.mockResolvedValueOnce({
+      success: true,
+      response: 'done',
+      sessionFile: transcriptFile,
+      sessionId: 'native-session-1',
+      error: null,
+      exit_code: 0,
+    });
+    const report = vi.fn((_client, params: {stepId: string}) => {
+      if (params.stepId === agent.id) events.push(`report:${agent.id}`);
+      return Promise.resolve({ok: true, cancel: false});
+    });
+    reportStepMock.mockImplementation(report);
+    commitSessionTranscriptMock.mockImplementation(() => {
+      events.push(`commit:${agent.id}`);
+      return {status: 'committed', segment: 1};
+    });
+    requestNextStepMock
+      .mockResolvedValueOnce(stepResponse(setup, 1))
+      .mockResolvedValueOnce(stepResponse(agent, 1))
+      .mockResolvedValueOnce({kind: 'done', status: 'succeeded'});
+
+    try {
+      await runLoop({agentStateDir: transcriptDir, signal: new AbortController().signal});
+    } finally {
+      rmSync(transcriptDir, {recursive: true, force: true});
+    }
+
+    expect(requestSessionTranscriptMock).toHaveBeenCalledWith(leaseClient, {
+      stepId: agent.id,
+      attempt: 1,
+      signal: expect.any(AbortSignal),
+    });
+    expect(executeAgentStepMock).toHaveBeenCalledWith(
+      agent,
+      expect.objectContaining({
+        session: {
+          mode: 'resume',
+          file: transcriptFile,
+          harnessSessionId: 'prior-native-session',
+        },
+        prompt:
+          'Resuming session "main". This is a new execution in a fresh workspace checked out at refs/heads/main. Files and processes from earlier parts of this conversation no longer exist unless they were committed.\n\nFix it.',
+      }),
+    );
+    expect(commitSessionTranscriptMock).toHaveBeenCalledWith(
+      leaseClient,
+      expect.objectContaining({
+        stepId: agent.id,
+        attempt: 1,
+        baseSegment: 0,
+        harness: 'pi',
+        harnessSessionId: 'native-session-1',
+      }),
+    );
+    expect(events.indexOf(`drain:${agent.id}`)).toBeLessThan(events.indexOf(`commit:${agent.id}`));
+    expect(events.indexOf(`commit:${agent.id}`)).toBeLessThan(events.indexOf(`report:${agent.id}`));
+  });
+
+  it('commits a loadable failed harness result before reporting it', async () => {
+    const setup = buildSetupStep();
+    const agent = buildAgentStep({
+      session: {id: SESSION_ID, key: 'main', mode: 'resume', segment: 2},
+    });
+    const transcriptDir = mkdtempSync(join(tmpdir(), 'shipfox-runner-session-'));
+    const transcriptFile = join(transcriptDir, 'session.jsonl');
+    writeFileSync(transcriptFile, 'failed session transcript');
+    requestNextStepMock
+      .mockResolvedValueOnce(stepResponse(setup, 1))
+      .mockResolvedValueOnce(stepResponse(agent, 1));
+    executeSetupStepMock.mockResolvedValueOnce({
+      result: {success: true, error: null, exit_code: 0},
+    });
+    reportStepMock.mockResolvedValueOnce({ok: true, cancel: false});
+    executeAgentStepMock.mockResolvedValueOnce({
+      success: false,
+      error: {message: 'provider failed', reason: 'agent_invocation_failed' as const},
+      exit_code: null,
+      sessionFile: transcriptFile,
+    });
+    reportStepMock.mockResolvedValueOnce({ok: true, cancel: true});
+
+    try {
+      await runLoop({signal: new AbortController().signal});
+    } finally {
+      rmSync(transcriptDir, {recursive: true, force: true});
+    }
+
+    expect(commitSessionTranscriptMock).toHaveBeenCalledOnce();
+    expect(reportStepMock).toHaveBeenCalledWith(
+      leaseClient,
+      expect.objectContaining({
+        stepId: agent.id,
+        status: 'failed',
+        error: {message: 'provider failed', reason: 'agent_invocation_failed'},
+      }),
+    );
+  });
+
+  it('reports a session transcript load failure as agent_session_unavailable', async () => {
+    const setup = buildSetupStep();
+    const agent = buildAgentStep({
+      session: {id: SESSION_ID, key: 'main', mode: 'resume', segment: 2},
+    });
+    requestNextStepMock
+      .mockResolvedValueOnce(stepResponse(setup, 1))
+      .mockResolvedValueOnce(stepResponse(agent, 1));
+    executeSetupStepMock.mockResolvedValueOnce({
+      result: {success: true, error: null, exit_code: 0},
+    });
+    reportStepMock.mockResolvedValueOnce({ok: true, cancel: false});
+    requestSessionTranscriptMock.mockRejectedValueOnce(new Error('decryption failed'));
+    reportStepMock.mockResolvedValueOnce({ok: true, cancel: true});
+
+    await runLoop({signal: new AbortController().signal});
+
+    expect(executeAgentStepMock).not.toHaveBeenCalled();
+    expect(commitSessionTranscriptMock).not.toHaveBeenCalled();
+    expect(reportStepMock).toHaveBeenCalledWith(
+      leaseClient,
+      expect.objectContaining({
+        stepId: agent.id,
+        status: 'failed',
+        error: {message: 'decryption failed', reason: 'agent_session_unavailable'},
+      }),
+    );
   });
 
   it('dispatches an agent step in its configured working directory', async () => {
