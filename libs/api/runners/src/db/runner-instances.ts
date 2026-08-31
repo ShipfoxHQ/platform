@@ -1170,7 +1170,7 @@ async function authorizeExhaustedEphemeralSessionsTx(
         eq(runnerSessions.maxClaims, 1),
         sql`${runnerSessions.claimsUsed} >= ${runnerSessions.maxClaims}`,
         lt(
-          runnerSessions.updatedAt,
+          sql`coalesce(${runnerSessions.lastJobCompletedAt}, ${runnerSessions.updatedAt})`,
           sql`now() - (${params.postJobExitGraceSeconds ?? config.RUNNER_POST_JOB_EXIT_GRACE_SECONDS} || ' seconds')::interval`,
         ),
       ),
@@ -1196,7 +1196,7 @@ async function authorizeExhaustedEphemeralSessionsTx(
           eq(runnerSessions.maxClaims, 1),
           sql`${runnerSessions.claimsUsed} >= ${runnerSessions.maxClaims}`,
           lt(
-            runnerSessions.updatedAt,
+            sql`coalesce(${runnerSessions.lastJobCompletedAt}, ${runnerSessions.updatedAt})`,
             sql`now() - (${params.postJobExitGraceSeconds ?? config.RUNNER_POST_JOB_EXIT_GRACE_SECONDS} || ' seconds')::interval`,
           ),
         ),

@@ -370,6 +370,15 @@ if (
 }
 
 if (
+  !Number.isInteger(config.RUNNER_POST_JOB_EXIT_GRACE_SECONDS) ||
+  config.RUNNER_POST_JOB_EXIT_GRACE_SECONDS < 1
+) {
+  throw new Error(
+    `RUNNER_POST_JOB_EXIT_GRACE_SECONDS (${config.RUNNER_POST_JOB_EXIT_GRACE_SECONDS}) must be a whole number of seconds >= 1.`,
+  );
+}
+
+if (
   !Number.isInteger(config.RUNNER_STALE_PROVISIONED_RUNNER_THRESHOLD_SECONDS) ||
   config.RUNNER_STALE_PROVISIONED_RUNNER_THRESHOLD_SECONDS < 1
 ) {

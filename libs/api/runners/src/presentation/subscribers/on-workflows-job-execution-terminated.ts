@@ -22,5 +22,6 @@ export async function onWorkflowsJobExecutionTerminated(
   await reconcileTerminalJobExecution({
     jobExecutionId: payload.jobExecutionId,
     cancellationReason,
+    ...(payload.finishedAt ? {finishedAt: new Date(payload.finishedAt)} : {}),
   });
 }

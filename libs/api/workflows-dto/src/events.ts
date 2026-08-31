@@ -90,6 +90,8 @@ export const workflowsJobExecutionTerminatedSchema = z.object({
   workflowRunId: nonEmptyStringSchema,
   workflowRunAttemptId: nonEmptyStringSchema,
   status: workflowRunTerminalStatusSchema,
+  // Optional so consumers can continue to read terminal events emitted before this field existed.
+  finishedAt: z.string().datetime().optional(),
   statusReason: jobStatusReasonSchema.nullable(),
   // Optional so consumers can continue to read terminal events emitted before this field existed.
   cancellationReason: workflowStopReasonSchema.nullable().optional(),

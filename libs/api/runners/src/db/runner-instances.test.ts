@@ -2542,6 +2542,8 @@ describe('reconcileRunnerInstances', () => {
     });
 
     await workspaceLockReady.promise;
+    // Queue reconciliation before completion. PostgreSQL hands these advisory-lock waiters off
+    // FIFO, so reconciliation observes the live lease before completion removes it.
     const reconciliation = reconcileRunnerInstancesCore({
       workspaceId,
       provisionerId,
@@ -2556,6 +2558,64 @@ describe('reconcileRunnerInstances', () => {
     }
 
     const [result] = await Promise.all([reconciliation, completion, lockHolder]);
+
+    expect(result.runners).toMatchObject([{providerRunnerId, desiredIntent: 'keep'}]);
+    const [runner] = await db()
+      .select({terminationAuthorizedAt: providerRunners.terminationAuthorizedAt})
+      .from(providerRunners)
+      .where(eq(providerRunners.providerRunnerId, providerRunnerId));
+    expect(runner?.terminationAuthorizedAt).toBeNull();
+  });
+
+  it('keeps a runner when terminal completion commits before session-exhausted reconciliation', async () => {
+    const providerRunnerId = 'completion-before-reconcile-runner';
+    await createRunnerInstance({providerRunnerId});
+    const session = await createEphemeralSession({
+      providerRunnerId,
+      updatedAt: new Date(Date.now() - 120_000),
+    });
+    const jobExecutionId = crypto.randomUUID();
+    await db()
+      .insert(runningJobExecutions)
+      .values({
+        workspaceId,
+        workflowRunId: crypto.randomUUID(),
+        workflowRunAttemptId: crypto.randomUUID(),
+        jobId: crypto.randomUUID(),
+        jobExecutionId,
+        projectId: crypto.randomUUID(),
+        runnerSessionId: session.id,
+        provisionerId,
+        providerRunnerId,
+        requiredLabels: ['linux'],
+        runnerLabels: ['linux'],
+        startedAt: new Date(Date.now() - 120_000),
+        lastHeartbeatAt: new Date(),
+      });
+
+    const releaseWorkspaceLock = deferred<void>();
+    const workspaceLockReady = deferred<void>();
+    const lockHolder = db().transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${workspaceId}))`);
+      workspaceLockReady.resolve();
+      await releaseWorkspaceLock.promise;
+    });
+
+    await workspaceLockReady.promise;
+    const completion = reconcileTerminalJobExecution({
+      jobExecutionId,
+      finishedAt: new Date(),
+    });
+    await waitForLockWait({queryLike: '%pg_advisory_xact_lock%'});
+    releaseWorkspaceLock.resolve();
+    await completion;
+    await lockHolder;
+
+    const result = await reconcileRunnerInstancesCore({
+      workspaceId,
+      provisionerId,
+      observedRunnerInstanceIds: [providerRunnerId],
+    });
 
     expect(result.runners).toMatchObject([{providerRunnerId, desiredIntent: 'keep'}]);
     const [runner] = await db()

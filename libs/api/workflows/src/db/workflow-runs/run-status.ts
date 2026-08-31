@@ -119,6 +119,7 @@ async function terminateRunAttempt(
         id: jobExecutions.id,
         jobId: jobExecutions.jobId,
         status: jobExecutions.status,
+        finishedAt: jobExecutions.finishedAt,
         statusReason: jobExecutions.statusReason,
         statusReasonMessage: jobExecutions.statusReasonMessage,
       });
@@ -127,6 +128,7 @@ async function terminateRunAttempt(
         jobId: jobExecution.jobId,
         jobExecutionId: jobExecution.id,
         status: jobExecution.status,
+        finishedAt: jobExecution.finishedAt,
         statusReason: jobExecution.statusReason,
         statusReasonMessage: jobExecution.statusReasonMessage,
       });

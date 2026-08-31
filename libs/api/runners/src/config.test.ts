@@ -153,6 +153,32 @@ describe('RUNNER_NO_FIRST_HEARTBEAT_GRACE_SECONDS validation', () => {
   });
 });
 
+describe('RUNNER_POST_JOB_EXIT_GRACE_SECONDS validation', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it.each([
+    '0',
+    '-5',
+    '1.5',
+  ])('fails startup when RUNNER_POST_JOB_EXIT_GRACE_SECONDS is %s', async (value) => {
+    vi.stubEnv('RUNNER_POST_JOB_EXIT_GRACE_SECONDS', value);
+    vi.resetModules();
+
+    await expect(import('#config.js')).rejects.toThrow('RUNNER_POST_JOB_EXIT_GRACE_SECONDS');
+  });
+
+  it('accepts a positive whole-second grace', async () => {
+    vi.resetModules();
+
+    const {config} = await import('#config.js');
+
+    expect(config.RUNNER_POST_JOB_EXIT_GRACE_SECONDS).toBe(30);
+  });
+});
+
 describe('RUNNER_STALE_PROVISIONED_RUNNER_THRESHOLD_SECONDS validation', () => {
   afterEach(() => {
     vi.unstubAllEnvs();

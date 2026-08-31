@@ -1,0 +1,1 @@
+ALTER TABLE "runners_runner_sessions" ADD COLUMN "last_job_completed_at" timestamp with time zone;
