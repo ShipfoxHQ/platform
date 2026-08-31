@@ -118,6 +118,13 @@ export class ReservationAlreadyAssignedError extends Error {
   }
 }
 
+export class RunnerActivationTokenInvalidError extends Error {
+  constructor() {
+    super('Runner activation token is invalid, expired, or has already been used');
+    this.name = 'RunnerActivationTokenInvalidError';
+  }
+}
+
 export class RunnerSessionExhaustedError extends Error {
   constructor(public readonly runnerSessionId: string) {
     super(`Runner session claim limit exhausted: ${runnerSessionId}`);

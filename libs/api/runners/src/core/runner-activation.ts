@@ -3,9 +3,11 @@ import {extractDisplayPrefix, generateOpaqueToken, hashOpaqueToken} from '@shipf
 import {and, eq, isNull, sql} from 'drizzle-orm';
 import type {Tx} from '#db/db.js';
 import {db} from '#db/db.js';
+import {lockRunnerEnrollmentTx} from '#db/enrollment-locks.js';
 import {runnerActivationTokens} from '#db/schema/runner-activation-tokens.js';
 import type {RunnerInstanceDb} from '#db/schema/runner-instances.js';
 import {providerRunners} from '#db/schema/runner-instances.js';
+import {runnerSessions} from '#db/schema/runner-sessions.js';
 import {
   type RunnerActivationTokenNotIssuedReason,
   type RunnerActivationTokenNotIssuedSurface,
@@ -30,14 +32,33 @@ export async function issueRunnerActivationTokenTx(
     surface: RunnerActivationTokenNotIssuedSurface;
   },
 ): Promise<string | null> {
-  await tx.execute(
-    sql`select pg_advisory_xact_lock(hashtext(${`runners_activation:${params.runnerInstanceId}`}))`,
-  );
+  const [candidate] = await tx
+    .select({workspaceId: providerRunners.workspaceId})
+    .from(providerRunners)
+    .where(
+      and(
+        eq(providerRunners.id, params.runnerInstanceId),
+        eq(providerRunners.provisionerId, params.provisionerId),
+      ),
+    )
+    .limit(1);
+  if (!candidate) {
+    recordRunnerActivationTokenNotIssuedWithLog('runner-not-found', params);
+    return null;
+  }
+  if (candidate.workspaceId)
+    await lockRunnerEnrollmentTx(tx, {
+      workspaceId: candidate.workspaceId,
+      runnerInstanceId: params.runnerInstanceId,
+    });
   const [runner] = await tx
     .select({
       workspaceId: providerRunners.workspaceId,
-      runnerSessionId: providerRunners.runnerSessionId,
       state: providerRunners.state,
+      runnerSessionId: providerRunners.runnerSessionId,
+      terminationAuthorizedAt: providerRunners.terminationAuthorizedAt,
+      providerRunnerId: providerRunners.providerRunnerId,
+      provisionerId: providerRunners.provisionerId,
     })
     .from(providerRunners)
     .where(
@@ -48,7 +69,25 @@ export async function issueRunnerActivationTokenTx(
     )
     .limit(1)
     .for('update');
-  const notIssuedReason = getRunnerActivationTokenNotIssuedReason(runner);
+  let enrolledSession = false;
+  if (runner?.workspaceId && runner.providerRunnerId && runner.provisionerId) {
+    const [session] = await tx
+      .select({id: runnerSessions.id})
+      .from(runnerSessions)
+      .where(
+        and(
+          eq(runnerSessions.workspaceId, runner.workspaceId),
+          eq(runnerSessions.provisionerId, runner.provisionerId),
+          eq(runnerSessions.providerRunnerId, runner.providerRunnerId),
+          isNull(runnerSessions.revokedAt),
+        ),
+      )
+      .limit(1);
+    enrolledSession ||= Boolean(session);
+  }
+  const notIssuedReason = runner
+    ? getRunnerActivationTokenNotIssuedReason(runner, enrolledSession)
+    : 'runner-not-found';
   if (notIssuedReason) {
     recordRunnerActivationTokenNotIssuedWithLog(notIssuedReason, params);
     return null;
@@ -81,8 +120,9 @@ export async function getRunnerAssignment(params: {
   const [runner] = await db()
     .select({
       workspaceId: providerRunners.workspaceId,
-      runnerSessionId: providerRunners.runnerSessionId,
       state: providerRunners.state,
+      terminationAuthorizedAt: providerRunners.terminationAuthorizedAt,
+      providerRunnerId: providerRunners.providerRunnerId,
     })
     .from(providerRunners)
     .where(
@@ -92,17 +132,36 @@ export async function getRunnerAssignment(params: {
       ),
     )
     .limit(1);
-  return runner?.workspaceId && !runner.runnerSessionId && runner.state === 'running'
-    ? {workspaceId: runner.workspaceId, runnerSessionId: runner.runnerSessionId}
-    : null;
+  if (
+    !runner?.workspaceId ||
+    !runner.providerRunnerId ||
+    runner.terminationAuthorizedAt ||
+    runner.state !== 'running'
+  )
+    return null;
+  const [session] = await db()
+    .select({id: runnerSessions.id})
+    .from(runnerSessions)
+    .where(
+      and(
+        eq(runnerSessions.workspaceId, runner.workspaceId),
+        eq(runnerSessions.provisionerId, params.provisionerId),
+        eq(runnerSessions.providerRunnerId, runner.providerRunnerId),
+        isNull(runnerSessions.revokedAt),
+      ),
+    )
+    .limit(1);
+  return session ? null : {workspaceId: runner.workspaceId, runnerSessionId: null};
 }
 
 function getRunnerActivationTokenNotIssuedReason(
-  runner: Pick<RunnerInstanceDb, 'workspaceId' | 'runnerSessionId' | 'state'> | undefined,
+  runner: Pick<RunnerInstanceDb, 'workspaceId' | 'state' | 'terminationAuthorizedAt'> | undefined,
+  enrolledSession: boolean,
 ): RunnerActivationTokenNotIssuedReason | null {
   if (!runner) return 'runner-not-found';
   if (!runner.workspaceId) return 'missing-workspace';
-  if (runner.runnerSessionId) return 'existing-session';
+  if (runner.terminationAuthorizedAt) return 'termination-authorized';
+  if (enrolledSession) return 'existing-session';
   if (runner.state !== 'running') return 'not-running';
   return null;
 }

@@ -4,13 +4,15 @@ import type {
 } from '@shipfox/api-runners-dto';
 import {and, asc, eq, gt, inArray, isNull, lt, notExists, or, sql} from 'drizzle-orm';
 import type {RunnerSession} from '#core/entities/runner-session.js';
-import {EmptyRunnerLabelsError} from '#core/errors.js';
+import {EmptyRunnerLabelsError, RunnerActivationTokenInvalidError} from '#core/errors.js';
 import {sanitizeRunnerLabelsOrThrow} from '#core/runner-labels.js';
 import {
   type ProviderRunnerLifecycleObservation,
   recordProviderRunnerAssignmentToActivation,
 } from '#metrics/instance.js';
+import type {Tx} from './db.js';
 import {db} from './db.js';
+import {lockRunnerEnrollmentTx} from './enrollment-locks.js';
 import {provisionerTokens} from './schema/provisioner-tokens.js';
 import {runnerActivationTokens} from './schema/runner-activation-tokens.js';
 import {runnerControlSessions} from './schema/runner-control-sessions.js';
@@ -81,15 +83,20 @@ export async function createRunnerSessionConsumingActivationToken(params: {
         assignedAt: providerRunners.assignedAt,
         provider: providerRunners.providerKind,
         launchKind: providerRunners.launchKind,
-        runnerSessionId: providerRunners.runnerSessionId,
       })
       .from(runnerActivationTokens)
       .innerJoin(providerRunners, eq(providerRunners.id, runnerActivationTokens.runnerInstanceId))
       .where(eq(runnerActivationTokens.id, params.activationTokenId))
-      .limit(1)
-      .for('update', {of: providerRunners});
-    if (!runner?.workspaceId || !runner.providerRunnerId || runner.runnerSessionId)
-      throw new Error('Runner activation token is invalid, expired, or has already been used');
+      .limit(1);
+    if (!runner?.workspaceId || !runner.providerRunnerId)
+      throw new RunnerActivationTokenInvalidError();
+
+    await lockAndAssertRunnerEnrollmentAvailableTx(tx, {
+      workspaceId: runner.workspaceId,
+      runnerInstanceId: runner.runnerInstanceId,
+      provisionerId: runner.provisionerId,
+      providerRunnerId: runner.providerRunnerId,
+    });
 
     const [activationToken] = await tx
       .select({id: runnerActivationTokens.id})
@@ -144,12 +151,7 @@ export async function createRunnerSessionConsumingActivationToken(params: {
     await tx
       .update(providerRunners)
       .set({runnerSessionId: session.id, updatedAt: sql`now()`})
-      .where(
-        and(
-          eq(providerRunners.id, runner.runnerInstanceId),
-          isNull(providerRunners.runnerSessionId),
-        ),
-      );
+      .where(and(eq(providerRunners.id, runner.runnerInstanceId)));
     await tx
       .update(runnerControlSessions)
       .set({closedAt: sql`now()`, closeReason: 'activated'})
@@ -173,9 +175,44 @@ export async function createRunnerSessionConsumingActivationToken(params: {
   return session;
 }
 
+async function lockAndAssertRunnerEnrollmentAvailableTx(
+  tx: Tx,
+  runner: {
+    workspaceId: string;
+    runnerInstanceId: string;
+    provisionerId: string;
+    providerRunnerId: string;
+  },
+): Promise<void> {
+  await lockRunnerEnrollmentTx(tx, {
+    workspaceId: runner.workspaceId,
+    runnerInstanceId: runner.runnerInstanceId,
+  });
+  const [lockedRunner] = await tx
+    .select({terminationAuthorizedAt: providerRunners.terminationAuthorizedAt})
+    .from(providerRunners)
+    .where(eq(providerRunners.id, runner.runnerInstanceId))
+    .limit(1)
+    .for('update');
+  if (lockedRunner?.terminationAuthorizedAt) throw new RunnerActivationTokenInvalidError();
+  const [enrolledSession] = await tx
+    .select({id: runnerSessions.id})
+    .from(runnerSessions)
+    .where(
+      and(
+        eq(runnerSessions.workspaceId, runner.workspaceId),
+        eq(runnerSessions.provisionerId, runner.provisionerId),
+        eq(runnerSessions.providerRunnerId, runner.providerRunnerId),
+        isNull(runnerSessions.revokedAt),
+      ),
+    )
+    .limit(1);
+  if (enrolledSession) throw new RunnerActivationTokenInvalidError();
+}
+
 function assertValidActivationToken<T>(token: T | undefined): asserts token is T {
   if (token === undefined) {
-    throw new Error('Runner activation token is invalid, expired, or has already been used');
+    throw new RunnerActivationTokenInvalidError();
   }
 }
 

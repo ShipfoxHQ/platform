@@ -164,6 +164,7 @@ export type RunnerActivationTokenNotIssuedReason =
   | 'runner-not-found'
   | 'missing-workspace'
   | 'existing-session'
+  | 'termination-authorized'
   | 'not-running';
 
 export type RunnerActivationTokenNotIssuedSurface = 'enrollment' | 'poll';
@@ -227,6 +228,22 @@ export const providerRunnerActivationOutcomeCount = meter.createCounter<{
 }>('runners_provider_runner_activation_outcome', {
   description: 'Demand-backed runner activation outcomes by recovery action',
 });
+
+export const runnerEnrollmentCredentialRevokedCount = meter.createCounter<{
+  credential: 'activation-token' | 'control-session';
+}>('runners_enrollment_credential_revoked', {
+  description: 'Runner enrollment credentials revoked during termination authorization',
+});
+
+export function recordRunnerEnrollmentCredentialRevoked(params: {
+  credential: 'activation-token' | 'control-session';
+  count: number;
+}): void {
+  if (params.count <= 0) return;
+  recordMetric(() =>
+    runnerEnrollmentCredentialRevokedCount.add(params.count, {credential: params.credential}),
+  );
+}
 
 export type RunnerReservationReleaseSurface = 'first-claim' | 'terminal-report' | 'reconcile';
 

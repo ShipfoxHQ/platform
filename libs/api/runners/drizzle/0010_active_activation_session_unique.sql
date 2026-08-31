@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "runners_runner_sessions_active_activation_unique" ON "runners_runner_sessions" USING btree ("runner_instance_id") WHERE "runners_runner_sessions"."registration_token_kind" = 'activation' AND "runners_runner_sessions"."revoked_at" IS NULL;

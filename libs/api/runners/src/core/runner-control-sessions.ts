@@ -13,6 +13,8 @@ import {
 } from '#core/errors.js';
 import {sanitizeRunnerLabels} from '#core/runner-labels.js';
 import {db, type schema, type Tx} from '#db/db.js';
+import {lockRunnerEnrollmentTx} from '#db/enrollment-locks.js';
+import {lockRunnerReservationAdvisoryKeysTx} from '#db/reservation-locks.js';
 import {
   assignRunnerInstancesTx,
   validateRunnerReservationCapacityTx,
@@ -233,6 +235,29 @@ export async function enrollRunnerControlSession(params: {
   protocolVersion: string;
 }): Promise<string | null> {
   const result = await db().transaction(async (tx) => {
+    const [candidate] = await tx
+      .select({
+        workspaceId: providerRunners.workspaceId,
+        intendedReservationId: providerRunners.intendedReservationId,
+      })
+      .from(providerRunners)
+      .where(
+        and(
+          eq(providerRunners.id, params.runnerInstanceId),
+          eq(providerRunners.provisionerId, params.provisionerId),
+        ),
+      );
+    if (!candidate) throw new RunnerControlSessionInvalidError();
+    if (candidate.intendedReservationId)
+      await lockRunnerReservationAdvisoryKeysTx(tx, {
+        provisionerId: params.provisionerId,
+        reservationIds: [candidate.intendedReservationId],
+      });
+    if (candidate.workspaceId)
+      await lockRunnerEnrollmentTx(tx, {
+        workspaceId: candidate.workspaceId,
+        runnerInstanceId: params.runnerInstanceId,
+      });
     const [current] = await tx
       .select({
         intendedReservationId: providerRunners.intendedReservationId,
@@ -245,12 +270,10 @@ export async function enrollRunnerControlSession(params: {
           eq(providerRunners.id, params.runnerInstanceId),
           eq(providerRunners.provisionerId, params.provisionerId),
         ),
-      );
+      )
+      .limit(1)
+      .for('update');
     if (!current) throw new RunnerControlSessionInvalidError();
-    if (current.intendedReservationId)
-      await tx.execute(
-        sql`select pg_advisory_xact_lock(hashtext(${`runners_assignment:${params.provisionerId}:${current.intendedReservationId}`}))`,
-      );
 
     // Provider reports may populate reservationId before the assignment commits. assignedAt is
     // written by the assignment transaction, so keep the guard on that write boundary.

@@ -14,12 +14,14 @@ import {
   listActiveRunnerInstanceCountsByTemplateTx,
   listProvisionerTerminateIntentRowsTx,
   listProvisionerTerminationAuthorizationsTx,
+  type RunnerEnrollmentRevocationCounts,
   type RunnerInstanceTerminateIntent,
 } from '#db/runner-instances.js';
 import {
   providerRunnerCountDivergenceCount,
   providerRunnerTerminateIntentIssuedCount,
   recordProviderRunnerActivationOutcome,
+  recordRunnerEnrollmentCredentialRevoked,
 } from '#metrics/instance.js';
 import {authorizeRunnerTerminationTx} from './termination-authorization.js';
 
@@ -78,6 +80,7 @@ export async function pollDemand(params: PollDemandParams): Promise<PollDemandRe
 
     const previousSnapshot = lastSnapshot;
     const deadlinePassed = Date.now() >= deadlineMs;
+    const revocationCounts: RunnerEnrollmentRevocationCounts[] = [];
     const snapshot = await db().transaction(async (tx) => {
       const demand = await pollDemandAndReserveTx(tx, {
         workspaceId: params.workspaceId,
@@ -102,11 +105,15 @@ export async function pollDemand(params: PollDemandParams): Promise<PollDemandRe
             if (reason !== 'activation-timeout') return true;
             return (
               (
-                await authorizeRunnerTerminationTx(tx, {
-                  provisionerId: params.provisionerId,
-                  providerRunnerId,
-                  reason,
-                })
+                await authorizeRunnerTerminationTx(
+                  tx,
+                  {
+                    provisionerId: params.provisionerId,
+                    providerRunnerId,
+                    reason,
+                  },
+                  (counts) => revocationCounts.push(counts),
+                )
               ).desiredIntent === 'terminate'
             );
           },
@@ -180,6 +187,7 @@ export async function pollDemand(params: PollDemandParams): Promise<PollDemandRe
         }),
       };
     });
+    recordEnrollmentCredentialRevocations(revocationCounts);
     if (params.signal.aborted) {
       await releaseReservationGrants(snapshot.result.reservations);
       return previousSnapshot.result;
@@ -210,6 +218,30 @@ export async function pollDemand(params: PollDemandParams): Promise<PollDemandRe
       throw error;
     }
     interval = nextBackoffInterval(interval);
+  }
+}
+
+function recordEnrollmentCredentialRevocations(
+  counts: readonly RunnerEnrollmentRevocationCounts[],
+): void {
+  for (const count of counts) {
+    recordRunnerEnrollmentCredentialRevoked({
+      credential: 'activation-token',
+      count: count.revokedActivationTokenCount,
+    });
+    recordRunnerEnrollmentCredentialRevoked({
+      credential: 'control-session',
+      count: count.closedControlSessionCount,
+    });
+    if (count.revokedActivationTokenCount > 0 || count.closedControlSessionCount > 0)
+      logger().info(
+        {
+          runnerInstanceId: count.runnerInstanceId,
+          revokedActivationTokenCount: count.revokedActivationTokenCount,
+          closedControlSessionCount: count.closedControlSessionCount,
+        },
+        'Revoked runner enrollment credentials after termination authorization',
+      );
   }
 }
 

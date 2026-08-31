@@ -30,6 +30,7 @@ export {
   recordProviderRunnerControlSessionToAssignment,
   recordProviderRunnerCreatedToControlSession,
   recordRunnerActivationTokenNotIssued,
+  recordRunnerEnrollmentCredentialRevoked,
   recordRunnerReservationCapacityFailure,
   recordRunnerReservationPromotionFailure,
 } from './instance.js';

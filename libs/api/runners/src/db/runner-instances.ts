@@ -24,9 +24,13 @@ import type {
   RunnerTerminationReason,
 } from '#core/entities/runner-instance.js';
 import {sanitizeRunnerLabels} from '#core/runner-labels.js';
-import {recordRunnerReservationCapacityFailure} from '#metrics/index.js';
+import {
+  recordRunnerEnrollmentCredentialRevoked,
+  recordRunnerReservationCapacityFailure,
+} from '#metrics/index.js';
 import type {Tx} from './db.js';
 import {db} from './db.js';
+import {lockRunnerEnrollmentTx} from './enrollment-locks.js';
 import {
   listRunningJobExecutionsByRunnerInstanceTx,
   type RunnerInstanceBoundJobExecution,
@@ -37,6 +41,7 @@ import {validateRunnerReservationCapacityTx} from './runner-assignments.js';
 import {activeStates, terminalStates} from './runner-states.js';
 import {provisionerTokens} from './schema/provisioner-tokens.js';
 import {reservations} from './schema/reservations.js';
+import {runnerActivationTokens} from './schema/runner-activation-tokens.js';
 import {runnerControlSessions} from './schema/runner-control-sessions.js';
 import {providerRunners, toRunnerInstance} from './schema/runner-instances.js';
 import {runnerSessions} from './schema/runner-sessions.js';
@@ -66,22 +71,53 @@ interface PersistRunnerTerminationAuthorizationParams {
   resolveTerminationReason: (reason: string) => RunnerTerminationReason | null;
 }
 
+export interface RunnerEnrollmentRevocationCounts {
+  runnerInstanceId: string;
+  revokedActivationTokenCount: number;
+  closedControlSessionCount: number;
+}
+
 export async function persistRunnerTerminationAuthorization(
   params: PersistRunnerTerminationAuthorizationParams,
 ): Promise<TerminationAuthorizationResult> {
-  return await db().transaction((tx) => persistRunnerTerminationAuthorizationTx(tx, params));
+  let revocationCounts: RunnerEnrollmentRevocationCounts | undefined;
+  const result = await db().transaction((tx) =>
+    persistRunnerTerminationAuthorizationTx(tx, params, (counts) => {
+      revocationCounts = counts;
+    }),
+  );
+  if (revocationCounts) {
+    recordRunnerEnrollmentCredentialRevoked({
+      credential: 'activation-token',
+      count: revocationCounts.revokedActivationTokenCount,
+    });
+    recordRunnerEnrollmentCredentialRevoked({
+      credential: 'control-session',
+      count: revocationCounts.closedControlSessionCount,
+    });
+    if (
+      revocationCounts.revokedActivationTokenCount > 0 ||
+      revocationCounts.closedControlSessionCount > 0
+    )
+      logger().info(
+        {
+          runnerInstanceId: revocationCounts.runnerInstanceId,
+          revokedActivationTokenCount: revocationCounts.revokedActivationTokenCount,
+          closedControlSessionCount: revocationCounts.closedControlSessionCount,
+        },
+        'Revoked runner enrollment credentials after termination authorization',
+      );
+  }
+  return result;
 }
 
 export async function persistRunnerTerminationAuthorizationTx(
   tx: Tx,
   params: PersistRunnerTerminationAuthorizationParams,
+  onRevocation?: (counts: RunnerEnrollmentRevocationCounts) => void,
 ): Promise<TerminationAuthorizationResult> {
-  const [runner] = await tx
-    .select({
-      id: providerRunners.id,
-      terminationAuthorizedAt: providerRunners.terminationAuthorizedAt,
-      terminationReason: providerRunners.terminationReason,
-    })
+  const [candidate] = await tx
+    .select({id: providerRunners.id, workspaceId: providerRunners.workspaceId})
     .from(providerRunners)
     .where(
       and(
@@ -89,16 +125,33 @@ export async function persistRunnerTerminationAuthorizationTx(
         eq(providerRunners.providerRunnerId, params.providerRunnerId),
       ),
     )
-    .limit(1)
-    .for('update');
+    .limit(1);
 
-  if (!runner) {
+  if (!candidate?.workspaceId) {
     logger().warn(
       {provisionerId: params.provisionerId, providerRunnerId: params.providerRunnerId},
       'termination authorization rejected for unknown runner',
     );
     return {desiredIntent: 'keep', terminationAuthorizedAt: null, terminationReason: null};
   }
+
+  await lockRunnerEnrollmentTx(tx, {
+    workspaceId: candidate.workspaceId,
+    runnerInstanceId: candidate.id,
+  });
+  const [runner] = await tx
+    .select({
+      id: providerRunners.id,
+      terminationAuthorizedAt: providerRunners.terminationAuthorizedAt,
+      terminationReason: providerRunners.terminationReason,
+    })
+    .from(providerRunners)
+    // The runner lock serializes rebinding with this read. Use the current row
+    // after taking it so cleanup that clears workspaceId is still authorized.
+    .where(eq(providerRunners.id, candidate.id))
+    .limit(1)
+    .for('update');
+  if (!runner) throw new Error('Termination authorization runner disappeared');
 
   if (!runner.terminationAuthorizedAt || !runner.terminationReason) {
     const reason = params.resolveTerminationReason(params.reason);
@@ -119,6 +172,7 @@ export async function persistRunnerTerminationAuthorizationTx(
       });
     if (!authorized?.terminationAuthorizedAt || !authorized.terminationReason)
       throw new Error('Termination authorization was not persisted');
+    await revokeRunnerEnrollmentCredentialsTx(tx, candidate.id, onRevocation);
     return {
       desiredIntent: 'terminate',
       terminationAuthorizedAt: authorized.terminationAuthorizedAt,
@@ -126,11 +180,46 @@ export async function persistRunnerTerminationAuthorizationTx(
     };
   }
 
+  await revokeRunnerEnrollmentCredentialsTx(tx, candidate.id, onRevocation);
   return {
     desiredIntent: 'terminate',
     terminationAuthorizedAt: runner.terminationAuthorizedAt,
     terminationReason: runner.terminationReason,
   };
+}
+
+/**
+ * Revocation is an intentional, non-revertible data side effect of termination authorization.
+ */
+async function revokeRunnerEnrollmentCredentialsTx(
+  tx: Tx,
+  runnerInstanceId: string,
+  onRevocation?: (counts: RunnerEnrollmentRevocationCounts) => void,
+): Promise<void> {
+  const revokedTokens = await tx
+    .update(runnerActivationTokens)
+    .set({revokedAt: sql`now()`})
+    .where(
+      and(
+        eq(runnerActivationTokens.runnerInstanceId, runnerInstanceId),
+        isNull(runnerActivationTokens.consumedAt),
+        isNull(runnerActivationTokens.revokedAt),
+      ),
+    );
+  const closedControlSessions = await tx
+    .update(runnerControlSessions)
+    .set({closedAt: sql`now()`, closeReason: 'termination-authorized'})
+    .where(
+      and(
+        eq(runnerControlSessions.runnerInstanceId, runnerInstanceId),
+        isNull(runnerControlSessions.closedAt),
+      ),
+    );
+  onRevocation?.({
+    runnerInstanceId,
+    revokedActivationTokenCount: revokedTokens.rowCount ?? 0,
+    closedControlSessionCount: closedControlSessions.rowCount ?? 0,
+  });
 }
 
 export interface RunnerInstanceTerminateIntent {
