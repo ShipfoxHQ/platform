@@ -104,6 +104,8 @@ export type {
   CheckoutCredentials,
   CheckoutPermissions,
   CheckoutSpec,
+  CheckoutTarget,
+  CheckoutTargetInput,
   CreateCheckoutCredentialsInput,
   CreateCheckoutSpecInput,
   FetchFileInput,

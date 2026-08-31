@@ -362,12 +362,24 @@ describe('OctokitGithubApiClient.createInstallationAccessToken', () => {
     });
   });
 
-  it('maps repository ids and ignores malformed repository ids', async () => {
+  it('maps the repositories granted to the token', async () => {
     createInstallationAccessTokenMock.mockResolvedValue({
       data: {
         token: GITHUB_STATELESS_INSTALLATION_TOKEN,
         expires_at: '2026-06-10T12:00:00.000Z',
-        repositories: [{id: 42}, {id: 4.5}, {id: '43'}],
+        repositories: [
+          {
+            id: 42,
+            owner: {login: 'shipfox'},
+            name: 'platform',
+            full_name: 'shipfox/platform',
+            default_branch: 'main',
+            private: true,
+            visibility: 'private',
+            clone_url: 'https://github.com/shipfox/platform.git',
+            html_url: 'https://github.com/shipfox/platform',
+          },
+        ],
       },
     });
     const client = createGithubApiClient();
@@ -377,7 +389,42 @@ describe('OctokitGithubApiClient.createInstallationAccessToken', () => {
       repositoryId: 42,
     });
 
+    expect(result.repositories).toEqual([
+      {
+        id: 42,
+        ownerLogin: 'shipfox',
+        name: 'platform',
+        fullName: 'shipfox/platform',
+        defaultBranch: 'main',
+        private: true,
+        visibility: 'private',
+        cloneUrl: 'https://github.com/shipfox/platform.git',
+        htmlUrl: 'https://github.com/shipfox/platform',
+      },
+    ]);
     expect(result.repositoryIds).toEqual([42]);
+  });
+
+  it('mints by repository name', async () => {
+    createInstallationAccessTokenMock.mockResolvedValue({
+      data: {
+        token: GITHUB_STATELESS_INSTALLATION_TOKEN,
+        expires_at: '2026-06-10T12:00:00.000Z',
+      },
+    });
+    const client = createGithubApiClient();
+
+    await client.createInstallationAccessToken({
+      installationId: 1,
+      repositoryName: 'platform',
+      permissions: {contents: 'write'},
+    });
+
+    expect(createInstallationAccessTokenMock).toHaveBeenCalledWith({
+      installation_id: 1,
+      repositories: ['platform'],
+      permissions: {contents: 'write'},
+    });
   });
 
   it('passes through a stateful repository-scoped write token', async () => {

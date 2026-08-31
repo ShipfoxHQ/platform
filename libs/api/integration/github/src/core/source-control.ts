@@ -5,6 +5,7 @@ import {
   buildProviderRepositoryId,
   type CheckoutCredentials,
   type CheckoutSpec,
+  type CheckoutTarget,
   type CreateCheckoutCredentialsInput,
   type CreateCheckoutSpecInput,
   type FetchFileInput,
@@ -30,11 +31,14 @@ import {
   type SourceControlProvider,
   type TriggerReference,
 } from '@shipfox/api-integration-spi';
-import type {GithubApiClient, GithubRepository} from '#api/client.js';
+import type {
+  GithubApiClient,
+  GithubInstallationAccessToken,
+  GithubRepository,
+} from '#api/client.js';
 import {
   GITHUB_CHECKOUT_TOKEN_REFRESH_MARGIN_MS,
   type GithubCheckoutTokenCachePort,
-  type GithubCheckoutTokenScope,
   githubProviderInstanceFingerprint,
 } from '#api/github-checkout-token-cache.js';
 import {config, normalizedGithubApiBaseUrl} from '#config.js';
@@ -251,14 +255,12 @@ export class GithubSourceControlProvider
     input: CreateCheckoutSpecInput<GithubIntegrationConnection>,
   ): Promise<CheckoutSpec> {
     const installationId = await this.installationId(input.connection.id);
-    const {repositoryId} = parseGithubRepositoryLocator(input.externalRepositoryId);
-    const repository = await this.github.getRepository({installationId, repositoryId});
+    const target = normalizeCheckoutTarget(input);
+    const permissions = input.permissions ?? {contents: 'read'};
+    const minted = await this.mintCheckoutToken({installationId, target, permissions});
+    const repository = checkoutRepositoryFromMint(target, minted);
     const ref = input.ref?.trim() || repository.defaultBranch;
-    const credentials = await this.createCheckoutCredentials({
-      connection: input.connection,
-      externalRepositoryId: input.externalRepositoryId,
-      permissions: input.permissions ?? {contents: 'read'},
-    });
+    const credentials = checkoutCredentialsFromMint(minted);
     const botLogin = this.appBotLogin();
     const gitAuthor =
       botLogin && input.permissions?.contents === 'write'
@@ -277,37 +279,32 @@ export class GithubSourceControlProvider
     input: CreateCheckoutCredentialsInput<GithubIntegrationConnection>,
   ): Promise<CheckoutCredentials> {
     const installationId = await this.installationId(input.connection.id);
-    const {repositoryId} = parseGithubRepositoryLocator(input.externalRepositoryId);
-    const scope: GithubCheckoutTokenScope = {
-      workspaceId: input.connection.workspaceId,
-      providerInstance: githubProviderInstanceFingerprint(
-        normalizedGithubApiBaseUrl(),
-        config.GITHUB_APP_ID,
-      ),
-      installationId,
-      repositoryId,
-      permissions: {...input.permissions},
-    };
-    const cached = this.checkoutTokenCache
-      ? await this.checkoutTokenCache.getOrMint(
-          scope,
-          () =>
-            this.github.createInstallationAccessToken({
+    const target = normalizeCheckoutTarget(input);
+    const mint = () =>
+      this.mintCheckoutToken({
+        installationId,
+        target,
+        permissions: input.permissions,
+      });
+    const cached =
+      target.kind === 'external-id' && this.checkoutTokenCache
+        ? await this.checkoutTokenCache.getOrMint(
+            {
+              workspaceId: input.connection.workspaceId,
+              providerInstance: githubProviderInstanceFingerprint(
+                normalizedGithubApiBaseUrl(),
+                config.GITHUB_APP_ID,
+              ),
               installationId,
-              repositoryId,
-              permissions: input.permissions,
-            }),
-          input.rejectedGeneration,
-        )
-      : await this.github
-          .createInstallationAccessToken({
-            installationId,
-            repositoryId,
-            permissions: input.permissions,
-          })
-          .then(({token, expiresAt}) => ({
-            token,
-            expiresAt,
+              repositoryId: parseGithubRepositoryLocator(target.externalRepositoryId).repositoryId,
+              permissions: {...input.permissions},
+            },
+            mint,
+            input.rejectedGeneration,
+          )
+        : await mint().then((minted) => ({
+            token: minted.token,
+            expiresAt: minted.expiresAt,
             generation: newGeneration(input.rejectedGeneration),
             stale: false,
           }));
@@ -325,6 +322,25 @@ export class GithubSourceControlProvider
       generation: cached.generation,
       renewal,
     };
+  }
+
+  private async mintCheckoutToken(params: {
+    installationId: number;
+    target: CheckoutTarget;
+    permissions: {contents: 'read' | 'write'};
+  }): Promise<GithubInstallationAccessToken> {
+    const minted = await this.github.createInstallationAccessToken({
+      installationId: params.installationId,
+      ...(params.target.kind === 'external-id'
+        ? {
+            repositoryId: parseGithubRepositoryLocator(params.target.externalRepositoryId)
+              .repositoryId,
+          }
+        : {repositoryName: params.target.name}),
+      permissions: params.permissions,
+    });
+    checkoutRepositoryFromMint(params.target, minted);
+    return minted;
   }
 
   private async installationId(connectionId: string): Promise<number> {
@@ -350,6 +366,74 @@ function newGeneration(rejectedGeneration: string | undefined): string {
   let generation = randomUUID();
   while (generation === rejectedGeneration) generation = randomUUID();
   return generation;
+}
+
+function normalizeCheckoutTarget(input: {
+  target?: CheckoutTarget | undefined;
+  externalRepositoryId?: string | undefined;
+}): CheckoutTarget {
+  if (input.target !== undefined && input.externalRepositoryId !== undefined) {
+    throw new GithubIntegrationProviderError(
+      'provider-rejected',
+      'Checkout input cannot include both a target and an external repository id',
+    );
+  }
+  if (input.target !== undefined) return input.target;
+  if (input.externalRepositoryId !== undefined) {
+    return {kind: 'external-id', externalRepositoryId: input.externalRepositoryId};
+  }
+  throw new GithubIntegrationProviderError(
+    'repository-not-found',
+    'Checkout input must include a target or an external repository id',
+  );
+}
+
+function checkoutCredentialsFromMint(
+  minted: GithubInstallationAccessToken,
+): NonNullable<CheckoutSpec['credentials']> {
+  const generation = newGeneration(undefined);
+  return {
+    username: 'x-access-token',
+    token: minted.token,
+    expiresAt: minted.expiresAt,
+    generation,
+    renewal: {
+      mode: 'refresh-at',
+      refreshAt: new Date(minted.expiresAt.getTime() - GITHUB_CHECKOUT_TOKEN_REFRESH_MARGIN_MS),
+    },
+  };
+}
+
+function checkoutRepositoryFromMint(
+  target: CheckoutTarget,
+  minted: GithubInstallationAccessToken,
+): GithubRepository {
+  if (minted.repositories === undefined || minted.repositories.length !== 1) {
+    throw new GithubIntegrationProviderError(
+      'provider-rejected',
+      'GitHub checkout token response must contain exactly one repository',
+    );
+  }
+  const repository = minted.repositories[0];
+  if (repository === undefined) {
+    throw new GithubIntegrationProviderError(
+      'provider-rejected',
+      'GitHub checkout token response must contain exactly one repository',
+    );
+  }
+
+  const matches =
+    target.kind === 'external-id'
+      ? repository.id === parseGithubRepositoryLocator(target.externalRepositoryId).repositoryId
+      : repository.ownerLogin.toLowerCase() === target.owner.toLowerCase() &&
+        repository.name.toLowerCase() === target.name.toLowerCase();
+  if (!matches) {
+    throw new GithubIntegrationProviderError(
+      'provider-rejected',
+      'GitHub checkout token response does not match the requested repository',
+    );
+  }
+  return repository;
 }
 
 function githubRepositoryId(repository: Record<string, unknown> | null): string | null {

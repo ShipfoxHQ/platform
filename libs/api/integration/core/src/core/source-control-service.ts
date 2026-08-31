@@ -11,6 +11,8 @@ import type {
   CheckoutCredentials,
   CheckoutPermissions,
   CheckoutSpec,
+  CheckoutTarget,
+  CheckoutTargetInput,
   FilePage,
   FileSnapshot,
   RepositoryPage,
@@ -68,15 +70,21 @@ export interface FetchSourceFileInput extends ResolveSourceRepositoryInput {
   path: string;
 }
 
-export interface CreateSourceCheckoutSpecInput extends ResolveSourceRepositoryInput {
+export type CreateSourceCheckoutSpecInput = {
+  workspaceId: string;
+  connectionId: string;
+  projectId?: string | undefined;
   ref?: string | undefined;
   permissions?: CheckoutPermissions | undefined;
-}
+} & CheckoutTargetInput;
 
-export interface CreateSourceCheckoutCredentialsInput extends ResolveSourceRepositoryInput {
+export type CreateSourceCheckoutCredentialsInput = {
+  workspaceId: string;
+  connectionId: string;
+  projectId?: string | undefined;
   permissions: CheckoutPermissions;
   rejectedGeneration?: string | undefined;
-}
+} & CheckoutTargetInput;
 
 export interface ResolvedSourceRepository {
   connection: IntegrationConnection;
@@ -187,7 +195,8 @@ export function createSourceControlIntegrationService({
       });
     },
 
-    async createCheckoutSpec({workspaceId, connectionId, externalRepositoryId, ref, permissions}) {
+    async createCheckoutSpec(input) {
+      const {workspaceId, connectionId, projectId, ref, permissions} = input;
       const connection = await getConnection(connectionId);
       if (connection.workspaceId !== workspaceId) {
         throw new IntegrationConnectionWorkspaceMismatchError(connectionId);
@@ -199,19 +208,15 @@ export function createSourceControlIntegrationService({
 
       return await sourceControl.createCheckoutSpec({
         connection,
-        externalRepositoryId,
+        target: checkoutTarget(input),
+        ...(projectId === undefined ? {} : {projectId}),
         ref,
         permissions,
       });
     },
 
-    async createCheckoutCredentials({
-      workspaceId,
-      connectionId,
-      externalRepositoryId,
-      permissions,
-      rejectedGeneration,
-    }) {
+    async createCheckoutCredentials(input) {
+      const {workspaceId, connectionId, projectId, permissions, rejectedGeneration} = input;
       const connection = await getConnection(connectionId);
       if (connection.workspaceId !== workspaceId) {
         throw new IntegrationConnectionWorkspaceMismatchError(connectionId);
@@ -223,7 +228,8 @@ export function createSourceControlIntegrationService({
 
       const credentials = await sourceControl.createCheckoutCredentials({
         connection,
-        externalRepositoryId,
+        target: checkoutTarget(input),
+        ...(projectId === undefined ? {} : {projectId}),
         permissions,
         rejectedGeneration,
       });
@@ -239,4 +245,21 @@ export function createSourceControlIntegrationService({
       return credentials;
     },
   };
+}
+
+function checkoutTarget(input: CheckoutTargetInput): CheckoutTarget {
+  if (input.target !== undefined && input.externalRepositoryId !== undefined) {
+    throw new IntegrationProviderError(
+      'provider-rejected',
+      'Checkout input cannot include both a target and an external repository id',
+    );
+  }
+  if (input.target !== undefined) return input.target;
+  if (input.externalRepositoryId !== undefined) {
+    return {kind: 'external-id', externalRepositoryId: input.externalRepositoryId};
+  }
+  throw new IntegrationProviderError(
+    'provider-rejected',
+    'Checkout input must include a target or an external repository id',
+  );
 }

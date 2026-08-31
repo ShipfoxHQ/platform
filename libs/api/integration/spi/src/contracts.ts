@@ -123,20 +123,37 @@ export interface CheckoutSpec {
   gitAuthor?: CheckoutGitAuthor | undefined;
 }
 
-export interface CreateCheckoutSpecInput<
-  Connection extends IntegrationConnection = IntegrationConnection,
-> extends ResolveRepositoryInput<Connection> {
-  ref?: string | undefined;
-  permissions?: CheckoutPermissions | undefined;
+export type CheckoutTarget =
+  | {kind: 'external-id'; externalRepositoryId: string}
+  | {kind: 'name'; owner: string; name: string};
+
+/**
+ * Checkout callers may use the legacy external repository id field while
+ * integrations migrate to the explicit target contract.
+ */
+export interface CheckoutTargetInput {
+  target?: CheckoutTarget | undefined;
+  externalRepositoryId?: string | undefined;
 }
 
-/** Requests credentials without asking the provider to resolve repository metadata. */
-export interface CreateCheckoutCredentialsInput<
+export type CreateCheckoutSpecInput<
   Connection extends IntegrationConnection = IntegrationConnection,
-> extends ResolveRepositoryInput<Connection> {
+> = {
+  connection: Connection;
+  projectId?: string | undefined;
+  ref?: string | undefined;
+  permissions?: CheckoutPermissions | undefined;
+} & CheckoutTargetInput;
+
+/** Requests credentials without asking the provider to resolve repository metadata. */
+export type CreateCheckoutCredentialsInput<
+  Connection extends IntegrationConnection = IntegrationConnection,
+> = {
+  connection: Connection;
+  projectId?: string | undefined;
   permissions: CheckoutPermissions;
   rejectedGeneration?: string | undefined;
-}
+} & CheckoutTargetInput;
 
 export interface TriggerReference {
   externalRepositoryId: string;

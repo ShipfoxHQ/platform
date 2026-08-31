@@ -24,6 +24,19 @@ const triggerReference = z.object({
   actor: z.string().nullable(),
 });
 const sourceInput = z.object({workspaceId: id, connectionId: id, externalRepositoryId: z.string()});
+const checkoutTarget = z.discriminatedUnion('kind', [
+  z.object({kind: z.literal('external-id'), externalRepositoryId: z.string().min(1)}).strict(),
+  z.object({kind: z.literal('name'), owner: z.string().min(1), name: z.string().min(1)}).strict(),
+]);
+const checkoutInput = z
+  .object({
+    workspaceId: id,
+    connectionId: id,
+    projectId: id.optional(),
+    target: checkoutTarget.optional(),
+    externalRepositoryId: z.string().min(1).optional(),
+  })
+  .strict();
 const checkoutCredentialRenewal = z.discriminatedUnion('mode', [
   z.object({mode: z.literal('refresh-at'), refreshAt: z.string().datetime()}),
   z.object({mode: z.literal('on-rejection')}),
@@ -168,10 +181,12 @@ export const integrationsInterModuleContract = defineInterModuleContract({
       errors: sourceErrors,
     },
     createCheckoutSpec: {
-      input: sourceInput.extend({
-        ref: z.string().optional(),
-        permissions: z.object({contents: z.enum(['read', 'write'])}).optional(),
-      }),
+      input: checkoutInput
+        .extend({
+          ref: z.string().optional(),
+          permissions: z.object({contents: z.enum(['read', 'write'])}).optional(),
+        })
+        .superRefine(requireCheckoutTarget),
       output: z.object({
         repositoryUrl: z.string(),
         ref: z.string(),
@@ -181,10 +196,12 @@ export const integrationsInterModuleContract = defineInterModuleContract({
       errors: sourceErrors,
     },
     createCheckoutCredentials: {
-      input: sourceInput.extend({
-        permissions: z.object({contents: z.enum(['read', 'write'])}),
-        rejectedGeneration: z.string().optional(),
-      }),
+      input: checkoutInput
+        .extend({
+          permissions: z.object({contents: z.enum(['read', 'write'])}),
+          rejectedGeneration: z.string().optional(),
+        })
+        .superRefine(requireCheckoutTarget),
       output: checkoutCredentials,
       errors: sourceErrors,
     },
@@ -253,5 +270,28 @@ export const integrationsInterModuleContract = defineInterModuleContract({
     },
   },
 });
+
+function requireCheckoutTarget(
+  input: {
+    target?: z.infer<typeof checkoutTarget> | undefined;
+    externalRepositoryId?: string | undefined;
+  },
+  context: z.RefinementCtx,
+): void {
+  if (input.target === undefined && input.externalRepositoryId === undefined) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['target'],
+      message: 'Checkout input requires a target or an external repository id',
+    });
+  }
+  if (input.target !== undefined && input.externalRepositoryId !== undefined) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['target'],
+      message: 'Checkout input cannot include both a target and an external repository id',
+    });
+  }
+}
 
 export type IntegrationsModuleClient = InterModuleClient<typeof integrationsInterModuleContract>;

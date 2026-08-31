@@ -6,6 +6,7 @@ import {
   buildProviderRepositoryId,
   type CheckoutCredentials,
   type CheckoutSpec,
+  type CheckoutTarget,
   type CreateCheckoutCredentialsInput,
   type CreateCheckoutSpecInput,
   type FetchFileInput,
@@ -243,8 +244,9 @@ export class GiteaSourceControlProvider
   async createCheckoutSpec(
     input: CreateCheckoutSpecInput<GiteaIntegrationConnection>,
   ): Promise<CheckoutSpec> {
+    const target = normalizeCheckoutTarget(input);
     const {owner, repo} = parseGiteaRepositoryLocator(
-      input.externalRepositoryId,
+      checkoutRepositoryId(target),
       input.connection.externalAccountId,
     );
     const repository = await this.gitea.getRepository({owner, repo});
@@ -252,7 +254,7 @@ export class GiteaSourceControlProvider
 
     const credentials = await this.createCheckoutCredentials({
       connection: input.connection,
-      externalRepositoryId: input.externalRepositoryId,
+      target,
       permissions: input.permissions ?? {contents: 'read'},
     });
 
@@ -266,7 +268,10 @@ export class GiteaSourceControlProvider
   async createCheckoutCredentials(
     input: CreateCheckoutCredentialsInput<GiteaIntegrationConnection>,
   ): Promise<CheckoutCredentials> {
-    parseGiteaRepositoryLocator(input.externalRepositoryId, input.connection.externalAccountId);
+    parseGiteaRepositoryLocator(
+      checkoutRepositoryId(normalizeCheckoutTarget(input)),
+      input.connection.externalAccountId,
+    );
     // Gitea has no per-repo, auto-expiring token like a GitHub App installation
     // token, so checkout reuses the long-lived service credential. `expiresAt`
     // remains a synthetic legacy field for old runners; renewal is rejection-only.
@@ -281,6 +286,31 @@ export class GiteaSourceControlProvider
       renewal: {mode: 'on-rejection' as const},
     });
   }
+}
+
+function normalizeCheckoutTarget(input: {
+  target?: CheckoutTarget | undefined;
+  externalRepositoryId?: string | undefined;
+}): CheckoutTarget {
+  if (input.target !== undefined && input.externalRepositoryId !== undefined) {
+    throw new GiteaIntegrationProviderError(
+      'provider-rejected',
+      'Checkout input cannot include both a target and an external repository id',
+    );
+  }
+  if (input.target !== undefined) return input.target;
+  if (input.externalRepositoryId !== undefined) {
+    return {kind: 'external-id', externalRepositoryId: input.externalRepositoryId};
+  }
+  throw new GiteaIntegrationProviderError(
+    'repository-not-found',
+    'Checkout input must include a target or an external repository id',
+  );
+}
+
+function checkoutRepositoryId(target: CheckoutTarget): string {
+  if (target.kind === 'external-id') return target.externalRepositoryId;
+  return buildProviderRepositoryId(giteaProviderKind, `${target.owner}/${target.name}`);
 }
 
 function giteaRepositoryId(repository: Record<string, unknown> | null): string | null {

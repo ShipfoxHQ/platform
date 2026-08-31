@@ -260,6 +260,33 @@ describe('integration source-control service', () => {
     );
   });
 
+  it('forwards a name target and optional project association to the provider', async () => {
+    const createCheckoutSpec = vi.fn(
+      async (input: Parameters<NonNullable<SourceControlProvider['createCheckoutSpec']>>[0]) => {
+        await Promise.resolve();
+        return {repositoryUrl: repository.cloneUrl, ref: input.ref ?? repository.defaultBranch};
+      },
+    );
+    const service = createService({createCheckoutSpec});
+    const projectId = crypto.randomUUID();
+
+    await service.createCheckoutSpec({
+      workspaceId,
+      connectionId: connection.id,
+      projectId,
+      target: {kind: 'name', owner: 'acme', name: 'platform'},
+      ref: 'feature/x',
+    });
+
+    expect(createCheckoutSpec).toHaveBeenCalledWith({
+      connection,
+      projectId,
+      target: {kind: 'name', owner: 'acme', name: 'platform'},
+      ref: 'feature/x',
+      permissions: undefined,
+    });
+  });
+
   it('rejects a checkout spec for a connection in another workspace', async () => {
     const service = createService();
 
