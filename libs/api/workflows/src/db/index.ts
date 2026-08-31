@@ -68,6 +68,8 @@ export {
   getJobsByWorkflowRunId,
   getLatestAttempt,
   getLatestJobExecutionByJobId,
+  getLatestRunAttempt,
+  getLatestStepAttempt,
   getStepAttemptDetail,
   getStepAttempts,
   getStepAttemptsByJobIds,

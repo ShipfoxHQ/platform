@@ -14,6 +14,7 @@ import {
   getFirstJobExecutionByJobId,
   getJobExecutionFailureOrigin,
   getJobsByWorkflowRunId,
+  getLatestStepAttempt,
   getStepAttemptDetail,
   getStepAttempts,
   getStepsByJobId,
@@ -86,6 +87,21 @@ describe('workflow run queries', () => {
       if (!attempt) throw new Error('Expected a dispatched step attempt');
 
       const detail = await getStepAttemptDetail({stepId: attempt.stepId, attempt: attempt.attempt});
+      const scopedDetail = await getStepAttemptDetail({
+        stepId: attempt.stepId,
+        attempt: attempt.attempt,
+        workspaceId,
+      });
+      const latestAttempt = await getLatestStepAttempt({stepId: attempt.stepId, workspaceId});
+      const foreignWorkspaceAttempt = await getLatestStepAttempt({
+        stepId: attempt.stepId,
+        workspaceId: crypto.randomUUID(),
+      });
+      const foreignScopedDetail = await getStepAttemptDetail({
+        stepId: attempt.stepId,
+        attempt: attempt.attempt,
+        workspaceId: crypto.randomUUID(),
+      });
 
       expect(detail).toMatchObject({
         workflowRunId: run.id,
@@ -93,6 +109,10 @@ describe('workflow run queries', () => {
         step: {id: attempt.stepId},
         attempt: {id: attempt.id, attempt: attempt.attempt},
       });
+      expect(scopedDetail).toMatchObject({workflowRunId: run.id});
+      expect(latestAttempt).toBe(attempt.attempt);
+      expect(foreignWorkspaceAttempt).toBeUndefined();
+      expect(foreignScopedDetail).toBeUndefined();
     });
   });
 

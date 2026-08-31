@@ -31,6 +31,7 @@ const annotationsTestClient: AnnotationsInterModuleClient = {
     }
     return Promise.resolve({});
   },
+  listAnnotationsForRunAttempt: vi.fn(),
 };
 
 function lease(params: Partial<JobLeaseTokenClaims> = {}): JobLeaseTokenClaims {

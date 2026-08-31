@@ -1,6 +1,11 @@
 import {defineInterModuleContract, type InterModuleClient} from '@shipfox/inter-module';
 import {z} from 'zod';
-import {annotationStyleSchema} from './schemas/annotation.js';
+import {
+  annotationDtoSchema,
+  annotationStyleSchema,
+  READ_ANNOTATIONS_MAX_LIMIT,
+  WORKFLOW_RUN_ATTEMPT_MAX,
+} from './schemas/annotation.js';
 
 const idSchema = z.string().uuid();
 
@@ -14,6 +19,10 @@ const annotationTargetSchema = z.object({
   jobExecutionId: idSchema,
   originStepId: idSchema,
   originStepAttempt: z.number().int().min(1),
+});
+const annotationCursorSchema = z.object({
+  value: z.number().int().min(1),
+  id: idSchema,
 });
 
 export const annotationsInterModuleContract = defineInterModuleContract({
@@ -34,6 +43,21 @@ export const annotationsInterModuleContract = defineInterModuleContract({
         'annotation-count-limit-exceeded': z.object({maxAnnotations: z.number().int().positive()}),
         'annotation-total-bytes-limit-exceeded': z.object({maxBytes: z.number().int().positive()}),
       },
+    },
+    listAnnotationsForRunAttempt: {
+      input: z.object({
+        workspaceId: idSchema,
+        workflowRunId: idSchema,
+        workflowRunAttempt: z.number().int().min(1).max(WORKFLOW_RUN_ATTEMPT_MAX),
+        jobExecutionId: idSchema.optional(),
+        cursor: annotationCursorSchema.optional(),
+        limit: z.number().int().min(1).max(READ_ANNOTATIONS_MAX_LIMIT).optional(),
+      }),
+      output: z.object({
+        annotations: z.array(annotationDtoSchema),
+        hasMore: z.boolean(),
+        nextCursor: annotationCursorSchema.nullable(),
+      }),
     },
   },
 });

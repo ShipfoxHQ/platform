@@ -37,6 +37,7 @@ export interface WorkflowRunFilters {
 
 export interface ListWorkflowRunsParams {
   projectId: string;
+  workspaceId?: string | undefined;
   limit: number;
   cursor?: WorkflowRunCursor | undefined;
   filters?: WorkflowRunFilters | undefined;
@@ -76,8 +77,17 @@ export interface WorkflowJobExecutionDepthParams {
   workspaceId?: string;
 }
 
-export async function getWorkflowRunById(id: string): Promise<WorkflowRun | undefined> {
-  const rows = await db().select().from(workflowRuns).where(eq(workflowRuns.id, id)).limit(1);
+export async function getWorkflowRunById(
+  id: string,
+  workspaceId?: string | undefined,
+): Promise<WorkflowRun | undefined> {
+  const conditions = [eq(workflowRuns.id, id)];
+  if (workspaceId) conditions.push(eq(workflowRuns.workspaceId, workspaceId));
+  const rows = await db()
+    .select()
+    .from(workflowRuns)
+    .where(and(...conditions))
+    .limit(1);
   const row = rows[0];
   if (!row) return undefined;
   return toWorkflowRun(row);
@@ -143,14 +153,26 @@ export async function getLatestAttempt(params: {
   return Number(row?.value ?? 1);
 }
 
+export async function getLatestRunAttempt(params: {
+  workflowRunId: string;
+  workspaceId: string;
+}): Promise<number | undefined> {
+  const run = await getWorkflowRunById(params.workflowRunId, params.workspaceId);
+  if (!run) return undefined;
+
+  return getLatestAttempt({workflowRunId: run.id, projectId: run.projectId});
+}
+
 export function buildWorkflowRunListConditions(params: {
   projectId: string;
+  workspaceId?: string | undefined;
   filters?: WorkflowRunFilters | undefined;
   cursor?: WorkflowRunCursor | undefined;
   omit?: 'status' | 'definitionId' | 'triggerSource' | 'origin' | undefined;
 }): SQL[] {
   const filters = params.filters;
   const conditions: SQL[] = [eq(workflowRuns.projectId, params.projectId)];
+  if (params.workspaceId) conditions.push(eq(workflowRuns.workspaceId, params.workspaceId));
   const cursorCondition = timestampIdCursorWhere({
     timestampColumn: workflowRuns.createdAt,
     idColumn: workflowRuns.id,
@@ -196,7 +218,11 @@ export async function listWorkflowRuns(
       .from(workflowRuns)
       .where(
         and(
-          ...buildWorkflowRunListConditions({projectId: params.projectId, filters: params.filters}),
+          ...buildWorkflowRunListConditions({
+            projectId: params.projectId,
+            workspaceId: params.workspaceId,
+            filters: params.filters,
+          }),
         ),
       );
     totalCount = value;
@@ -523,7 +549,10 @@ export async function getWorkflowJobExecutionDepth(
 export async function getWorkflowRunDetail(
   workflowRunId: string,
   attempt?: number | undefined,
+  workspaceId?: string | undefined,
 ): Promise<WorkflowRunDetail | undefined> {
+  const targetConditions = [eq(workflowRuns.id, workflowRunId)];
+  if (workspaceId) targetConditions.push(eq(workflowRuns.workspaceId, workspaceId));
   const [target] = await db()
     .select({run: workflowRuns, attempt: workflowRunAttempts})
     .from(workflowRuns)
@@ -534,7 +563,7 @@ export async function getWorkflowRunDetail(
         eq(workflowRunAttempts.attempt, attempt ?? workflowRuns.currentAttempt),
       ),
     )
-    .where(eq(workflowRuns.id, workflowRunId))
+    .where(and(...targetConditions))
     .limit(1);
   if (!target) return undefined;
 
@@ -557,7 +586,7 @@ export async function getWorkflowRunDetail(
     .leftJoin(jobExecutions, eq(jobExecutions.jobId, jobs.id))
     .leftJoin(steps, eq(steps.jobExecutionId, jobExecutions.id))
     .leftJoin(stepAttempts, eq(stepAttempts.stepId, steps.id))
-    .where(eq(workflowRuns.id, workflowRunId))
+    .where(and(...targetConditions))
     .orderBy(
       asc(jobs.position),
       asc(jobs.id),

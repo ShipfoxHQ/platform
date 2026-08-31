@@ -9,10 +9,13 @@ import {
   getFirstJobExecutionByJobId,
   getJobsByWorkflowRunId,
   getLatestAttempt,
+  getLatestRunAttempt,
   getWorkflowJobExecutionDepth,
   getWorkflowRunById,
+  getWorkflowRunDetail,
   listRunAttempts,
   listWorkflowRunJobSummaries,
+  listWorkflowRuns,
   listWorkflowRunsByProject,
   recordJobExecutionStartedAt,
   updateJobExecutionStatus,
@@ -58,6 +61,26 @@ describe('workflow run queries', () => {
 
       expect(found).toBeUndefined();
     });
+
+    test('returns undefined when the workspace does not own the run', async () => {
+      const created = await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId,
+        model: buildModel(),
+        triggerPayload: {
+          source: 'manual',
+          event: 'fire',
+          subscriptionId: crypto.randomUUID(),
+          userId: crypto.randomUUID(),
+        },
+      });
+
+      await expect(getWorkflowRunById(created.id, crypto.randomUUID())).resolves.toBeUndefined();
+      await expect(
+        getWorkflowRunDetail(created.id, 1, crypto.randomUUID()),
+      ).resolves.toBeUndefined();
+    });
   });
 
   describe('run attempt lineage queries', () => {
@@ -97,6 +120,14 @@ describe('workflow run queries', () => {
 
       const attempts = await listRunAttempts({workflowRunId: source.id, projectId});
       const latestAttempt = await getLatestAttempt({workflowRunId: source.id, projectId});
+      const workspaceLatestAttempt = await getLatestRunAttempt({
+        workflowRunId: source.id,
+        workspaceId,
+      });
+      const foreignWorkspaceAttempt = await getLatestRunAttempt({
+        workflowRunId: source.id,
+        workspaceId: crypto.randomUUID(),
+      });
 
       expect(third.currentAttempt).toBe(3);
       expect(attempts.map((attempt) => attempt.workflowRunId)).toEqual([
@@ -108,6 +139,11 @@ describe('workflow run queries', () => {
       expect(attempts.map((attempt) => attempt.status)).toEqual(['failed', 'failed', 'pending']);
       expect(attempts.map((attempt) => attempt.rerunMode)).toEqual([null, 'all', 'all']);
       expect(latestAttempt).toBe(3);
+      expect(workspaceLatestAttempt).toBe(3);
+      expect(foreignWorkspaceAttempt).toBeUndefined();
+      await expect(
+        getLatestRunAttempt({workflowRunId: crypto.randomUUID(), workspaceId}),
+      ).resolves.toBeUndefined();
     });
 
     test('returns a single no-lineage run and filters out another project', async () => {
@@ -521,6 +557,30 @@ describe('workflow run queries', () => {
       const runs = await listWorkflowRunsByProject(crypto.randomUUID());
 
       expect(runs).toEqual([]);
+    });
+
+    test('scopes a project listing to the requested workspace', async () => {
+      await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId,
+        model: buildModel(),
+        triggerPayload: {
+          source: 'manual',
+          event: 'fire',
+          subscriptionId: crypto.randomUUID(),
+          userId: crypto.randomUUID(),
+        },
+      });
+
+      const result = await listWorkflowRuns({
+        workspaceId: crypto.randomUUID(),
+        projectId,
+        limit: 50,
+        includeTotal: true,
+      });
+
+      expect(result).toEqual({runs: [], nextCursor: null, filteredTotalCount: 0});
     });
   });
 

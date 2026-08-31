@@ -21,10 +21,15 @@ import {
 const mocks = vi.hoisted(() => ({
   deliverEventToListener: vi.fn(),
   getJobScope: vi.fn(),
+  getLatestRunAttempt: vi.fn(),
+  getLatestStepAttempt: vi.fn(),
   getStepAttemptDetail: vi.fn(),
   getStepById: vi.fn(),
   getStepByIdForJobExecution: vi.fn(),
+  getWorkflowRunDetail: vi.fn(),
   listStepAttemptIdsByJobId: vi.fn(),
+  listWorkflowRunJobSummaries: vi.fn(),
+  listWorkflowRuns: vi.fn(),
 }));
 
 vi.mock('#db/index.js', () => mocks);
@@ -49,12 +54,91 @@ const input = {
 describe('Workflows inter-module presentation', () => {
   beforeEach(() => {
     mocks.getJobScope.mockReset();
+    mocks.getLatestRunAttempt.mockReset();
+    mocks.getLatestStepAttempt.mockReset();
     mocks.listStepAttemptIdsByJobId.mockReset();
     mocks.getStepAttemptDetail.mockReset();
     mocks.getStepById.mockReset();
     mocks.getStepByIdForJobExecution.mockReset();
+    mocks.getWorkflowRunDetail.mockReset();
+    mocks.listWorkflowRunJobSummaries.mockReset();
+    mocks.listWorkflowRuns.mockReset();
     mocks.deliverEventToListener.mockReset();
     mocks.deliverEventToListener.mockResolvedValue({buffered: true, skipped: false});
+  });
+
+  it('resolves latest run and step attempts within the requested workspace', async () => {
+    mocks.getLatestRunAttempt.mockResolvedValue(3);
+    mocks.getLatestStepAttempt.mockResolvedValue(2);
+    const presentation = createWorkflowsInterModulePresentation({
+      agent: {} as never,
+      definitions: {} as never,
+      integrations: {} as never,
+      projects: {} as never,
+      runners: {} as never,
+      secrets: {} as never,
+      workspaces: {getWorkspaceOperatingState: vi.fn()} as never,
+    });
+    const workspaceId = '00000000-0000-4000-8000-000000000001';
+    const workflowRunId = '00000000-0000-4000-8000-000000000002';
+    const stepId = '00000000-0000-4000-8000-000000000003';
+
+    await expect(
+      presentation.handlers.getLatestRunAttempt(
+        {workspaceId, workflowRunId},
+        {
+          signal: new AbortController().signal,
+        },
+      ),
+    ).resolves.toEqual({attempt: 3});
+    await expect(
+      presentation.handlers.getLatestStepAttempt(
+        {workspaceId, stepId},
+        {
+          signal: new AbortController().signal,
+        },
+      ),
+    ).resolves.toEqual({attempt: 2});
+
+    expect(mocks.getLatestRunAttempt).toHaveBeenCalledWith({workspaceId, workflowRunId});
+    expect(mocks.getLatestStepAttempt).toHaveBeenCalledWith({workspaceId, stepId});
+  });
+
+  it('returns nullable exact reads for missing or cross-workspace resources', async () => {
+    mocks.getWorkflowRunDetail.mockResolvedValue(undefined);
+    mocks.getStepAttemptDetail.mockResolvedValue(undefined);
+    const presentation = createWorkflowsInterModulePresentation({
+      agent: {} as never,
+      definitions: {} as never,
+      integrations: {} as never,
+      projects: {} as never,
+      runners: {} as never,
+      secrets: {} as never,
+      workspaces: {getWorkspaceOperatingState: vi.fn()} as never,
+    });
+    const workspaceId = '00000000-0000-4000-8000-000000000001';
+    const workflowRunId = '00000000-0000-4000-8000-000000000002';
+    const stepId = '00000000-0000-4000-8000-000000000003';
+
+    await expect(
+      presentation.handlers.getWorkflowRunDetail(
+        {workspaceId, workflowRunId, attempt: 2},
+        {signal: new AbortController().signal},
+      ),
+    ).resolves.toEqual({run: null});
+    await expect(
+      presentation.handlers.getStepAttemptDetail(
+        {workspaceId, stepId, attempt: 2},
+        {signal: new AbortController().signal},
+      ),
+    ).resolves.toEqual({detail: null});
+
+    expect(mocks.getWorkflowRunDetail).toHaveBeenCalledWith(workflowRunId, 2, workspaceId);
+    expect(mocks.getStepAttemptDetail).toHaveBeenCalledWith({
+      stepId,
+      attempt: 2,
+      workspaceId,
+    });
   });
 
   it('returns the step attempt ids of a job for the session release sweep', async () => {
