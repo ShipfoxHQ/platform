@@ -148,7 +148,7 @@ export class CredentialBroker {
     return this.reject(repositoryUrl);
   }
 
-  store(_repositoryUrl: string, _credential: CredentialLookup): void {
+  store(_repositoryUrl: string, _credential?: CredentialLookup): void {
     // Git's store operation must not replace the server-authored credential.
   }
 

@@ -17,6 +17,7 @@ const {
   CheckoutError,
   redactSecrets,
   writeAmbientGitCredential,
+  writeGitCredentialHelperConfig,
 } = await import('#checkout.js');
 
 type SpawnResult =
@@ -595,6 +596,28 @@ describe('writeAmbientGitCredential', () => {
     const expected = Buffer.from('x-token:tok-123').toString('base64');
     expect(content).toContain(`[include]\n\tpath = "${baseConfig}"`);
     expect(content).toContain(`extraHeader = "Authorization: Basic ${expected}"`);
+  });
+
+  it('writes an exact, token-free credential helper configuration', async () => {
+    const configPath = join(root, 'git-cred.config');
+
+    await writeGitCredentialHelperConfig({
+      configPath,
+      repositoryUrl: 'https://github.com/acme/repo.git',
+      helper: {
+        command: 'node /opt/runner/dist/git-credential-helper.js',
+        socketPath: join(root, 'credential.sock'),
+      },
+    });
+
+    const content = await readFile(configPath, 'utf8');
+    expect(content).toContain('[credential]\n\tuseHttpPath = true');
+    expect(content).toContain('[credential "https://github.com/acme/repo.git"]');
+    expect(content).toContain(
+      '\thelper = "!node /opt/runner/dist/git-credential-helper.js --socket',
+    );
+    expect(content).not.toContain('password');
+    expect(content).not.toContain('token');
   });
 
   it('writes the configured Git author identity without credentials', async () => {

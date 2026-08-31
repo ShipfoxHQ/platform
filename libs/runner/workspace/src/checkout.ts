@@ -5,6 +5,7 @@ import {homedir} from 'node:os';
 import {dirname, join, resolve} from 'node:path';
 import {promisify} from 'node:util';
 import type {CheckoutTokenAuthDto} from '@shipfox/api-workflows-dto';
+import {normalizeRepositoryUrl} from '#credential-broker.js';
 
 const execFileAsync = promisify(execFile);
 const URL_CREDENTIAL_RE = /(https?:\/\/)[^/@\s]+@/gi;
@@ -202,15 +203,28 @@ export async function checkoutRepository(params: {
 
 /**
  * Adds a checkout's token-free author and, when supplied, its persisted repository credential.
- * An omitted auth leaves existing repository credentials unchanged.
+ * An omitted auth leaves existing repository credentials unchanged. Use `credentialHelper` for
+ * the token-free broker-backed configuration.
  */
 export function writeAmbientGitCredential(params: {
   configPath: string;
   repositoryUrl: string;
   auth?: CheckoutTokenAuthDto | undefined;
   gitAuthor?: {name: string; email: string} | undefined;
+  credentialHelper?: GitCredentialHelperConfig | undefined;
 }): Promise<void> {
-  const {configPath, repositoryUrl, auth, gitAuthor} = params;
+  const {configPath, repositoryUrl, auth, gitAuthor, credentialHelper} = params;
+  if (credentialHelper !== undefined) {
+    if (auth !== undefined) {
+      throw new TypeError('Git helper configuration cannot include a persisted credential');
+    }
+    return writeGitCredentialHelperConfig({
+      configPath,
+      repositoryUrl,
+      helper: credentialHelper,
+      ...(gitAuthor === undefined ? {} : {gitAuthor}),
+    });
+  }
 
   return withAmbientGitConfigLock(configPath, async () => {
     const includePath = await ambientIncludePath();
@@ -259,6 +273,105 @@ export function writeAmbientGitCredential(params: {
     }
     await chmod(configPath, 0o600);
   });
+}
+
+export type GitCredentialHelperConfig = {
+  command: string;
+  socketPath: string;
+};
+
+/**
+ * Adds a repository-exact Git credential helper without writing a credential value to disk.
+ * `credential.useHttpPath` prevents Git from broadening the helper to another repository on
+ * the same host. The helper receives the operation over its configured private socket.
+ */
+export function writeGitCredentialHelperConfig(params: {
+  configPath: string;
+  repositoryUrl: string;
+  helper: GitCredentialHelperConfig;
+  gitAuthor?: {name: string; email: string} | undefined;
+}): Promise<void> {
+  const {configPath, repositoryUrl, helper, gitAuthor} = params;
+  normalizeRepositoryUrl(repositoryUrl);
+  validateGitCredentialHelper(helper);
+  return withAmbientGitConfigLock(configPath, () =>
+    updateGitCredentialHelperConfig({configPath, repositoryUrl, helper, gitAuthor}),
+  );
+}
+
+function validateGitCredentialHelper(helper: GitCredentialHelperConfig): void {
+  assertSingleLineGitConfigValue(helper.command);
+  assertSingleLineGitConfigValue(helper.socketPath);
+  if (helper.command.length === 0 || helper.socketPath.length === 0) {
+    throw new TypeError('Git credential helper command and socket path are required');
+  }
+}
+
+async function updateGitCredentialHelperConfig(params: {
+  configPath: string;
+  repositoryUrl: string;
+  helper: GitCredentialHelperConfig;
+  gitAuthor: {name: string; email: string} | undefined;
+}): Promise<void> {
+  const includePath = await ambientIncludePath();
+  const existing = await readAmbientGitConfig(params.configPath);
+  const current = existing ?? '';
+  const userLines = params.gitAuthor
+    ? [
+        GIT_USER_SECTION_HEADER,
+        `\tname = ${gitConfigQuotedValue(params.gitAuthor.name)}`,
+        `\temail = ${gitConfigQuotedValue(params.gitAuthor.email)}`,
+      ]
+    : [];
+  const additions = [
+    ...(includePath && current === ''
+      ? ['[include]', `\tpath = ${gitConfigQuotedValue(includePath)}`]
+      : []),
+    ...(params.gitAuthor && !hasGitAuthorSection(current) ? userLines : []),
+    '',
+  ].join('\n');
+  const helperLines = [
+    ...(hasGitCredentialHttpPath(current) ? [] : ['[credential]', '\tuseHttpPath = true']),
+    `[credential "${gitConfigSubsection(params.repositoryUrl)}"]`,
+    `\thelper = ${gitConfigQuotedValue(`!${params.helper.command} --socket ${shellQuote(params.helper.socketPath)}`)}`,
+  ];
+
+  await mkdir(dirname(params.configPath), {recursive: true});
+  const temporaryConfigPath = `${params.configPath}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(
+      temporaryConfigPath,
+      `${current}${current.endsWith('\n') || current === '' ? '' : '\n'}${additions}`,
+      {flag: 'wx', mode: 0o600},
+    );
+    await unsetGitCredentialHelper(temporaryConfigPath, params.repositoryUrl);
+    const withoutOldHelper = await readFile(temporaryConfigPath, 'utf8');
+    await writeFile(temporaryConfigPath, `${withoutOldHelper}${helperLines.join('\n')}\n`, {
+      flag: 'w',
+      mode: 0o600,
+    });
+    await validateAmbientGitConfig(temporaryConfigPath);
+    await chmod(temporaryConfigPath, 0o600);
+    await rename(temporaryConfigPath, params.configPath);
+  } finally {
+    await rm(temporaryConfigPath, {force: true});
+  }
+  await chmod(params.configPath, 0o600);
+}
+
+async function unsetGitCredentialHelper(configPath: string, repositoryUrl: string): Promise<void> {
+  try {
+    await execFileAsync('git', [
+      'config',
+      '--file',
+      configPath,
+      '--unset-all',
+      `credential.${gitConfigSubsection(repositoryUrl)}.helper`,
+    ]);
+  } catch (error) {
+    if (isGitConfigKeyMissing(error)) return;
+    throw error;
+  }
 }
 
 async function writeNewAmbientGitConfig(
@@ -560,6 +673,10 @@ async function readAmbientGitConfig(configPath: string): Promise<string | undefi
     if (isFileNotFoundError(error)) return undefined;
     throw error;
   }
+}
+
+function hasGitCredentialHttpPath(config: string): boolean {
+  return config.split('\n').some((line) => line.trim().toLowerCase() === 'usehttppath = true');
 }
 
 function hasGitAuthorSection(config: string): boolean {

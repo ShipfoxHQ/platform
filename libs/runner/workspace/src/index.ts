@@ -7,9 +7,11 @@ export {
   type CheckoutOutputSink,
   type CheckoutPhase,
   checkoutRepository,
+  type GitCredentialHelperConfig,
   GitUnavailableError,
   redactSecrets,
   writeAmbientGitCredential,
+  writeGitCredentialHelperConfig,
 } from '#checkout.js';
 export {
   assertCheckoutPath,
@@ -37,6 +39,16 @@ export {
   type RejectionResult,
   TransientCredentialRenewalError,
 } from '#credential-broker.js';
+export {
+  CredentialSocketError,
+  type CredentialSocketOperation,
+  type CredentialSocketRequest,
+  type CredentialSocketResponse,
+  type CredentialSocketServer,
+  type CredentialSocketServerOptions,
+  createCredentialSocketServer,
+  requestCredentialSocket,
+} from '#credential-socket.js';
 export {
   resolveWorkingDirectory,
   WorkingDirectoryEscapeError,
