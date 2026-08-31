@@ -45,6 +45,9 @@ export {
   type GithubInstallationTokenProvider,
 } from '#api/installation-token-provider.js';
 export {
+  type AgentToolRepositoryScope,
+  type AgentToolRepositoryScopeClassifier,
+  type AgentToolRepositoryTarget,
   type GithubAgentToolCatalogEntry,
   type GithubAgentToolCategory,
   type GithubAgentToolId,
@@ -55,6 +58,7 @@ export {
   GithubAgentToolsProvider,
   githubAgentToolCatalog,
   githubAgentToolSelectionCatalog,
+  githubRepositoryScope,
 } from '#core/agent-tools.js';
 export {GithubIntegrationProviderError} from '#core/errors.js';
 export type {ConnectGithubInstallationInput} from '#core/install.js';
@@ -130,6 +134,8 @@ export function createGithubIntegrationProvider(options: CreateGithubIntegration
   return {
     provider: 'github' as const,
     displayName: 'GitHub',
+    // Classification is dark until the final repository-authorization cutover.
+    repositoryAuthorization: 'unclassified' as const,
     eventCatalog: githubEventCatalog,
     adapters: {
       source_control: new GithubSourceControlProvider(github),

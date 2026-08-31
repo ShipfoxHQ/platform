@@ -216,6 +216,7 @@ export const integrationsInterModuleContract = defineInterModuleContract({
                 requiredScope: z.unknown(),
                 inputSchema: z.record(z.string(), z.unknown()),
                 outputSchema: z.record(z.string(), z.unknown()).optional(),
+                indirectTargetNote: z.string().min(1).optional(),
                 methods: z
                   .array(
                     z.object({
@@ -224,6 +225,7 @@ export const integrationsInterModuleContract = defineInterModuleContract({
                       sensitivity: z.enum(['read', 'write']),
                       sensitive: z.boolean(),
                       requiredScope: z.unknown(),
+                      indirectTargetNote: z.string().min(1).optional(),
                     }),
                   )
                   .optional(),

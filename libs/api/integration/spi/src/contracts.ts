@@ -168,12 +168,30 @@ export interface SourceControlProvider<
 export type AgentToolSensitivity = 'read' | 'write';
 export type AgentToolJsonSchema = Record<string, unknown>;
 
+export type AgentToolRepositoryAuthorizationState = 'enforced' | 'unclassified';
+
+export interface AgentToolRepositoryTarget {
+  owner: string;
+  name: string;
+}
+
+export type AgentToolRepositoryScope =
+  | {kind: 'declared-targets'; repositories: readonly AgentToolRepositoryTarget[]}
+  | {kind: 'connection'};
+
+/** A pure classifier over already validated tool arguments. */
+export type AgentToolRepositoryScopeClassifier = (
+  arguments_: Readonly<Record<string, unknown>>,
+) => AgentToolRepositoryScope;
+
 export interface AgentToolCatalogMethod<RequiredScope = unknown> {
   id: string;
   description: string;
   sensitivity: AgentToolSensitivity;
   sensitive: boolean;
   requiredScope: RequiredScope;
+  repositoryScope?: AgentToolRepositoryScopeClassifier | undefined;
+  indirectTargetNote?: string | undefined;
 }
 
 export interface AgentToolCatalogEntry<RequiredScope = unknown> {
@@ -184,7 +202,30 @@ export interface AgentToolCatalogEntry<RequiredScope = unknown> {
   requiredScope: RequiredScope;
   inputSchema: AgentToolJsonSchema;
   outputSchema?: AgentToolJsonSchema | undefined;
+  repositoryScope?: AgentToolRepositoryScopeClassifier | undefined;
+  indirectTargetNote?: string | undefined;
   methods?: readonly AgentToolCatalogMethod<RequiredScope>[] | undefined;
+}
+
+/**
+ * Verifies the catalog contract needed before a provider can be marked enforced.
+ * This deliberately checks presence only; classifier behavior remains provider-owned.
+ */
+export function assertAgentToolCatalogRepositoryScopes(
+  catalog: readonly AgentToolCatalogEntry[],
+): void {
+  for (const entry of catalog) {
+    if (entry.repositoryScope === undefined) {
+      throw new Error(`Agent tool ${entry.id} is missing a repository scope classifier`);
+    }
+    for (const method of entry.methods ?? []) {
+      if (method.repositoryScope === undefined) {
+        throw new Error(
+          `Agent tool ${entry.id}.${method.id} is missing a repository scope classifier`,
+        );
+      }
+    }
+  }
 }
 
 export type AgentToolSelectorKind = 'family' | 'family_wildcard' | 'method' | 'standalone';
@@ -256,6 +297,8 @@ export interface IntegrationProvider<
 > {
   provider: ProviderKind;
   displayName: string;
+  /** Whether this provider has completed repository-scope classification. */
+  repositoryAuthorization?: AgentToolRepositoryAuthorizationState | undefined;
   /**
    * The event names this provider documents for its handler.
    * Provider-minted names are never treated as a closed set by validation; the

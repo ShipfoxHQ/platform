@@ -27,6 +27,11 @@ import {
 } from './github-agent-tool-catalog.js';
 
 export type {
+  AgentToolRepositoryScope,
+  AgentToolRepositoryScopeClassifier,
+  AgentToolRepositoryTarget,
+} from '@shipfox/api-integration-spi';
+export type {
   GithubAgentToolCatalogEntry,
   GithubAgentToolCategory,
   GithubAgentToolId,
@@ -41,6 +46,7 @@ export {
   DEFAULT_JOB_LOG_TAIL_LINES,
   githubAgentToolCatalog,
   githubAgentToolSelectionCatalog,
+  githubRepositoryScope,
 } from './github-agent-tool-catalog.js';
 
 type GithubIntegrationConnection = IntegrationConnection<'github'>;

@@ -182,9 +182,17 @@ export function createIntegrationsInterModulePresentation(params: {
           })),
           catalogs: [...catalogs].map(([provider, tools]) => ({
             provider,
-            tools: tools.map(({methods, ...tool}) => ({
+            tools: tools.map(({methods, repositoryScope: _repositoryScope, ...tool}) => ({
               ...tool,
-              ...(methods === undefined ? {} : {methods: methods.map((method) => ({...method}))}),
+              ...(methods === undefined
+                ? {}
+                : {
+                    methods: methods.map(
+                      ({repositoryScope: _methodRepositoryScope, ...method}) => ({
+                        ...method,
+                      }),
+                    ),
+                  }),
             })),
           })),
           workspaceConnections: [...snapshot].map(([slug, value]) => ({

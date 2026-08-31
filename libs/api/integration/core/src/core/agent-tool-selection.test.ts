@@ -1,5 +1,6 @@
 import {integrationConnectionFactory} from '#test/factories/connection.js';
 import {
+  buildAgentToolCatalogs,
   buildAgentToolSelectionCatalogs,
   createWorkspaceConnectionSnapshotLoader,
 } from './agent-tool-selection.js';
@@ -42,6 +43,38 @@ describe('buildAgentToolSelectionCatalogs', () => {
     const result = await buildAgentToolSelectionCatalogs(registry);
 
     expect(result.get('github')).toBe(selectionCatalog);
+  });
+});
+
+describe('buildAgentToolCatalogs', () => {
+  it('requires scope classifiers before an agent-tools provider is enforced', async () => {
+    const registry = createIntegrationProviderRegistry([
+      {
+        provider: 'github',
+        displayName: 'GitHub',
+        repositoryAuthorization: 'enforced',
+        adapters: {
+          agent_tools: {
+            catalog: () => [
+              {
+                id: 'issue_read',
+                description: 'Read an issue',
+                sensitivity: 'read',
+                sensitive: false,
+                requiredScope: [],
+                inputSchema: {type: 'object'},
+              },
+            ],
+            selectionCatalog: () => ({selectors: []}),
+            openSession: async () => ({call: async () => ({})}),
+          },
+        },
+      },
+    ]);
+
+    await expect(buildAgentToolCatalogs(registry)).rejects.toThrow(
+      'Agent tool issue_read is missing a repository scope classifier',
+    );
   });
 });
 
