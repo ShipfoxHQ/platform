@@ -188,6 +188,12 @@ export const providerRunnerReapedCount = meter.createCounter<Record<string, neve
   },
 );
 
+export const providerRunnerStaleIdleSessionRecoveredCount = meter.createCounter<
+  Record<string, never>
+>('runners_provider_runner_stale_idle_session_recovered', {
+  description: 'Stale idle managed runner sessions recovered by backend maintenance',
+});
+
 export const providerRunnerCountDivergenceCount = meter.createCounter<{
   template_key?: string;
   state: 'starting' | 'running';

@@ -119,6 +119,10 @@ export const config = createConfig({
     desc: 'Time, in seconds, after which an idle managed runner session with no running job is treated as unresponsive. Must exceed RUNNER_SESSION_LIVENESS_THROTTLE_SECONDS.',
     default: 300,
   }),
+  RUNNER_STALE_IDLE_SESSION_RECOVERY_LIMIT: num({
+    desc: 'Maximum number of stale idle managed runner sessions recovered in one maintenance pass. Higher values clear backlogs faster but hold database locks longer.',
+    default: 100,
+  }),
   RUNNER_STALE_PROVISIONED_RUNNER_THRESHOLD_SECONDS: num({
     desc: 'Time, in seconds, after which a provisioned runner with no recent report, no live provisioner, no live runner session, and no running job is marked failed by backend maintenance.',
     default: 300,
@@ -411,6 +415,15 @@ if (
 ) {
   throw new Error(
     `RUNNER_STALE_PROVISIONED_RUNNER_REAPER_LIMIT (${config.RUNNER_STALE_PROVISIONED_RUNNER_REAPER_LIMIT}) must be a whole number >= 1.`,
+  );
+}
+
+if (
+  !Number.isInteger(config.RUNNER_STALE_IDLE_SESSION_RECOVERY_LIMIT) ||
+  config.RUNNER_STALE_IDLE_SESSION_RECOVERY_LIMIT < 1
+) {
+  throw new Error(
+    `RUNNER_STALE_IDLE_SESSION_RECOVERY_LIMIT (${config.RUNNER_STALE_IDLE_SESSION_RECOVERY_LIMIT}) must be a whole number >= 1.`,
   );
 }
 

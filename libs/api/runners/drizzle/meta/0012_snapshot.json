@@ -1,6 +1,6 @@
 {
-  "id": "eacd6a28-d14c-4567-8362-8f4b38e47441",
-  "prevId": "67ade47c-f20a-402c-b38b-eed8a35e3587",
+  "id": "e33083f0-0f7d-400e-91ef-d3bad47cc869",
+  "prevId": "eacd6a28-d14c-4567-8362-8f4b38e47441",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1814,6 +1814,28 @@
           ],
           "isUnique": false,
           "where": "\"provisioner_id\" IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "runners_runner_sessions_stale_idle_idx": {
+          "name": "runners_runner_sessions_stale_idle_idx",
+          "columns": [
+            {
+              "expression": "updated_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"runners_runner_sessions\".\"revoked_at\" IS NULL AND \"runners_runner_sessions\".\"claims_used\" = 0 AND \"runners_runner_sessions\".\"registration_token_kind\" IN ('ephemeral', 'activation')",
           "concurrently": false,
           "method": "btree",
           "with": {}

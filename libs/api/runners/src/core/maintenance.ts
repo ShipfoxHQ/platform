@@ -1,13 +1,20 @@
+import {logger} from '@shipfox/node-opentelemetry';
 import {config} from '#config.js';
 import {deleteExpiredEphemeralRegistrationTokens as deleteExpiredEphemeralRegistrationTokensDb} from '#db/ephemeral-registration-tokens.js';
 import {expireStuckJobExecutions} from '#db/job-executions.js';
 import {deleteExpiredReservations} from '#db/reservations.js';
 import {
+  type RunnerEnrollmentRevocationCounts,
   reapStaleRunnerInstances as reapStaleRunnerInstancesDb,
   recoverStaleIdleRunnerSessions as recoverStaleIdleRunnerSessionsDb,
 } from '#db/runner-instances.js';
 import {deleteExpiredRunnerSessions as deleteExpiredRunnerSessionsDb} from '#db/runner-sessions.js';
-import {providerRunnerReapedCount, recordRunnerReservationReleased} from '#metrics/instance.js';
+import {
+  providerRunnerReapedCount,
+  providerRunnerStaleIdleSessionRecoveredCount,
+  recordRunnerEnrollmentCredentialRevoked,
+  recordRunnerReservationReleased,
+} from '#metrics/instance.js';
 import {STUCK_JOB_THRESHOLD_SECONDS} from './maintenance-policy.js';
 import {authorizeRunnerTerminationTx} from './termination-authorization.js';
 
@@ -57,19 +64,54 @@ export async function reapStaleRunnerInstances(params?: {
 export async function recoverStaleIdleRunnerSessions(params?: {
   limit?: number;
 }): Promise<{recovered: number}> {
+  const revocationCounts: RunnerEnrollmentRevocationCounts[] = [];
   const result = await recoverStaleIdleRunnerSessionsDb({
     staleSessionThresholdSeconds: config.RUNNER_STALE_SESSION_THRESHOLD_SECONDS,
     provisionerActiveWindowSeconds: config.PROVISIONER_ACTIVE_WINDOW_SECONDS,
-    limit: params?.limit ?? config.RUNNER_STALE_PROVISIONED_RUNNER_REAPER_LIMIT,
-    authorizationEnabled: config.RUNNER_TERMINATION_REASON_RUNNER_UNRESPONSIVE_ENABLED,
-    authorize: ({tx, provisionerId, providerRunnerId}) =>
-      authorizeRunnerTerminationTx(tx, {
-        provisionerId,
-        providerRunnerId,
-        reason: 'runner-unresponsive',
-      }),
+    limit: params?.limit ?? config.RUNNER_STALE_IDLE_SESSION_RECOVERY_LIMIT,
+    onRevocation: (counts) => revocationCounts.push(counts),
+    authorize: ({tx, provisionerId, providerRunnerId, onRevocation}) =>
+      authorizeRunnerTerminationTx(
+        tx,
+        {
+          provisionerId,
+          providerRunnerId,
+          reason: 'runner-unresponsive',
+        },
+        onRevocation,
+      ),
   });
+  recordEnrollmentCredentialRevocations(revocationCounts);
+  if (result.recovered > 0) providerRunnerStaleIdleSessionRecoveredCount.add(result.recovered);
   return result;
+}
+
+function recordEnrollmentCredentialRevocations(
+  counts: readonly {
+    runnerInstanceId: string;
+    revokedActivationTokenCount: number;
+    closedControlSessionCount: number;
+  }[],
+): void {
+  for (const count of counts) {
+    recordRunnerEnrollmentCredentialRevoked({
+      credential: 'activation-token',
+      count: count.revokedActivationTokenCount,
+    });
+    recordRunnerEnrollmentCredentialRevoked({
+      credential: 'control-session',
+      count: count.closedControlSessionCount,
+    });
+    if (count.revokedActivationTokenCount > 0 || count.closedControlSessionCount > 0)
+      logger().info(
+        {
+          runnerInstanceId: count.runnerInstanceId,
+          revokedActivationTokenCount: count.revokedActivationTokenCount,
+          closedControlSessionCount: count.closedControlSessionCount,
+        },
+        'Revoked runner enrollment credentials after stale idle session recovery',
+      );
+  }
 }
 
 export async function deleteExpiredRunnerSessions(params?: {

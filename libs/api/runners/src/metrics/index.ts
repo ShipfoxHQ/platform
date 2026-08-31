@@ -22,6 +22,7 @@ export {
   providerRunnerCountDivergenceCount,
   providerRunnerCreatedToControlSessionDuration,
   providerRunnerReconcileCallCount,
+  providerRunnerStaleIdleSessionRecoveredCount,
   providerRunnerTerminateIntentHonoredCount,
   providerRunnerTerminateIntentIssuedCount,
   recordJobExecutionQueueTime,

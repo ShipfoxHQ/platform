@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@temporalio/workflow', () => ({
+  patched: vi.fn(() => true),
   log: {
     info: mocks.info,
     warn: mocks.warn,
@@ -47,6 +48,12 @@ describe('stuckJobDetector', () => {
 
     expect(mocks.recoverStaleIdleRunnerSessionsActivity).toHaveBeenCalledWith();
     expect(mocks.reapStaleRunnerInstancesActivity).toHaveBeenCalledWith();
+    const recoveryCall = mocks.recoverStaleIdleRunnerSessionsActivity.mock.invocationCallOrder[0];
+    const reapCall = mocks.reapStaleRunnerInstancesActivity.mock.invocationCallOrder[0];
+    expect(recoveryCall).toBeDefined();
+    expect(reapCall).toBeDefined();
+    if (recoveryCall === undefined || reapCall === undefined) throw new Error('Missing call order');
+    expect(recoveryCall).toBeLessThan(reapCall);
     expect(mocks.info).toHaveBeenCalledWith(
       'Stuck-job detector recovered stale idle runner sessions',
       {recovered: 2},

@@ -20,6 +20,7 @@ import {
   listProviderRunnerByStateMetrics,
   listProvisionerTerminateIntentRowsTx,
   listProvisionerTerminateIntents,
+  type RecoverStaleIdleRunnerSessionsParams,
   reapStaleRunnerInstances,
   reconcileRunnerInstances,
   recoverStaleIdleRunnerSessions,
@@ -67,6 +68,49 @@ function reservationRowsFor(params: {workspaceId: string; provisionerId: string}
         eq(reservations.provisionerId, params.provisionerId),
       ),
     );
+}
+
+async function createStaleIdleRunnerSession(params: {
+  workspaceId?: string;
+  claimsUsed?: number;
+  launchKind?: 'demand' | 'warm';
+  updatedAt?: Date;
+}) {
+  const workspaceId = params.workspaceId ?? crypto.randomUUID();
+  const provisioner = await provisionerTokenFactory.create({workspaceId});
+  await db()
+    .update(provisionerTokens)
+    .set({lastSeenAt: new Date(), updatedAt: new Date()})
+    .where(eq(provisionerTokens.id, provisioner.id));
+  const providerRunner = await providerRunnerFactory.create({
+    workspaceId,
+    provisionerId: provisioner.id,
+    launchKind: params.launchKind ?? 'demand',
+    state: 'running',
+    providerRunnerId: `stale-idle-${crypto.randomUUID()}`,
+  });
+  const [session] = await db()
+    .insert(runnerSessions)
+    .values({
+      workspaceId,
+      scope: 'workspace',
+      registrationTokenId: crypto.randomUUID(),
+      registrationTokenKind: 'activation',
+      runnerInstanceId: providerRunner.id,
+      provisionerId: provisioner.id,
+      providerRunnerId: providerRunner.providerRunnerId,
+      labels: ['linux'],
+      maxClaims: 1,
+      claimsUsed: params.claimsUsed ?? 0,
+      updatedAt: params.updatedAt ?? new Date(Date.now() - 120_000),
+    })
+    .returning({id: runnerSessions.id});
+  if (!session) throw new Error('Expected runner session');
+  await db()
+    .update(providerRunners)
+    .set({runnerSessionId: session.id})
+    .where(eq(providerRunners.id, providerRunner.id));
+  return {workspaceId, provisioner, providerRunner, session};
 }
 
 async function insertRunningJobRow(params: {
@@ -196,7 +240,6 @@ describe('recoverStaleIdleRunnerSessions', () => {
       staleSessionThresholdSeconds: 60,
       provisionerActiveWindowSeconds: 120,
       limit: 100,
-      authorizationEnabled: true,
       authorize: ({tx, provisionerId, providerRunnerId}) =>
         authorizeRunnerTerminationTx(tx, {
           provisionerId,
@@ -292,7 +335,6 @@ describe('recoverStaleIdleRunnerSessions', () => {
       staleSessionThresholdSeconds: 60,
       provisionerActiveWindowSeconds: 120,
       limit: 100,
-      authorizationEnabled: true,
       authorize: ({tx, provisionerId, providerRunnerId}) =>
         authorizeRunnerTerminationTx(tx, {
           provisionerId,
@@ -306,6 +348,108 @@ describe('recoverStaleIdleRunnerSessions', () => {
       .from(runnerSessions)
       .where(eq(runnerSessions.id, session.id));
     expect(unchangedSession?.revokedAt).toBeNull();
+  });
+
+  it('does not revoke a stale session when termination authorization is denied', async () => {
+    const {providerRunner, session} = await createStaleIdleRunnerSession({});
+
+    const result = await recoverStaleIdleRunnerSessions({
+      staleSessionThresholdSeconds: 60,
+      provisionerActiveWindowSeconds: 120,
+      limit: 100,
+      authorize: async () => ({
+        desiredIntent: 'keep',
+        terminationAuthorizedAt: null,
+        terminationReason: null,
+      }),
+    });
+
+    const [unchangedSession] = await db()
+      .select({revokedAt: runnerSessions.revokedAt})
+      .from(runnerSessions)
+      .where(eq(runnerSessions.id, session.id));
+    const [unchangedRunner] = await db()
+      .select({terminationAuthorizedAt: providerRunners.terminationAuthorizedAt})
+      .from(providerRunners)
+      .where(eq(providerRunners.id, providerRunner.id));
+    expect(result.recovered).toBe(0);
+    expect(unchangedSession?.revokedAt).toBeNull();
+    expect(unchangedRunner?.terminationAuthorizedAt).toBeNull();
+    await db()
+      .update(runnerSessions)
+      .set({updatedAt: new Date()})
+      .where(eq(runnerSessions.id, session.id));
+  });
+
+  it('keeps an old session with prior claims protected', async () => {
+    const {session} = await createStaleIdleRunnerSession({claimsUsed: 1});
+
+    const result = await recoverStaleIdleRunnerSessions({
+      staleSessionThresholdSeconds: 60,
+      provisionerActiveWindowSeconds: 120,
+      limit: 100,
+      authorize: async () => ({
+        desiredIntent: 'terminate',
+        terminationAuthorizedAt: new Date(),
+        terminationReason: 'runner-unresponsive',
+      }),
+    });
+
+    const [unchangedSession] = await db()
+      .select({revokedAt: runnerSessions.revokedAt})
+      .from(runnerSessions)
+      .where(eq(runnerSessions.id, session.id));
+    expect(result.recovered).toBe(0);
+    expect(unchangedSession?.revokedAt).toBeNull();
+  });
+
+  it('recovers only one candidate per batch and makes progress on the next run', async () => {
+    const workspaceId = crypto.randomUUID();
+    const first = await createStaleIdleRunnerSession({
+      workspaceId,
+      updatedAt: new Date('2000-01-01T00:00:00.000Z'),
+    });
+    const second = await createStaleIdleRunnerSession({
+      workspaceId,
+      updatedAt: new Date('2000-01-02T00:00:00.000Z'),
+    });
+    const authorize: RecoverStaleIdleRunnerSessionsParams['authorize'] = async ({
+      tx,
+      provisionerId,
+      providerRunnerId,
+      onRevocation,
+    }) =>
+      authorizeRunnerTerminationTx(
+        tx,
+        {
+          provisionerId,
+          providerRunnerId,
+          reason: 'runner-unresponsive',
+        },
+        onRevocation,
+      );
+
+    const firstResult = await recoverStaleIdleRunnerSessions({
+      staleSessionThresholdSeconds: 60,
+      provisionerActiveWindowSeconds: 120,
+      limit: 1,
+      authorize,
+    });
+    const secondResult = await recoverStaleIdleRunnerSessions({
+      staleSessionThresholdSeconds: 60,
+      provisionerActiveWindowSeconds: 120,
+      limit: 1,
+      authorize,
+    });
+
+    const sessions = await db()
+      .select({id: runnerSessions.id, revokedAt: runnerSessions.revokedAt})
+      .from(runnerSessions)
+      .where(inArray(runnerSessions.id, [first.session.id, second.session.id]));
+    expect(firstResult).toEqual({recovered: 1});
+    expect(secondResult).toEqual({recovered: 1});
+    expect(sessions).toHaveLength(2);
+    expect(sessions.every((session) => session.revokedAt instanceof Date)).toBe(true);
   });
 });
 

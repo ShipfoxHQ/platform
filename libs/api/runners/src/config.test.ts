@@ -1,6 +1,9 @@
 import {RUNNER_ASSIGNMENT_POLL_DEFAULT_WAIT_SECONDS} from '@shipfox/api-runners-dto';
 import {vi} from '@shipfox/vitest/vi';
 
+const staleSessionThresholdThrottleError =
+  /RUNNER_STALE_SESSION_THRESHOLD_SECONDS.*RUNNER_SESSION_LIVENESS_THROTTLE_SECONDS/;
+
 describe('RUNNER_RESERVED_LABELS', () => {
   afterEach(() => {
     vi.unstubAllEnvs();
@@ -246,17 +249,27 @@ describe('RUNNER_STALE_SESSION_THRESHOLD_SECONDS validation', () => {
     const {config} = await import('#config.js');
 
     expect(config.RUNNER_STALE_SESSION_THRESHOLD_SECONDS).toBe(600);
+    expect(config.RUNNER_STALE_IDLE_SESSION_RECOVERY_LIMIT).toBe(100);
   });
 
   it.each([
-    ['10', '10'],
-    ['9', '10'],
-  ])('fails startup when RUNNER_STALE_SESSION_THRESHOLD_SECONDS=%s and RUNNER_SESSION_LIVENESS_THROTTLE_SECONDS=%s', async (thresholdSeconds, throttleSeconds) => {
-    vi.stubEnv('RUNNER_STALE_SESSION_THRESHOLD_SECONDS', thresholdSeconds);
-    vi.stubEnv('RUNNER_SESSION_LIVENESS_THROTTLE_SECONDS', throttleSeconds);
+    ['RUNNER_STALE_IDLE_SESSION_RECOVERY_LIMIT', '0'],
+    ['RUNNER_STALE_IDLE_SESSION_RECOVERY_LIMIT', '-5'],
+    ['RUNNER_STALE_IDLE_SESSION_RECOVERY_LIMIT', '1.5'],
+  ])('fails startup when %s is %s', async (name, value) => {
+    vi.stubEnv(name, value);
     vi.resetModules();
 
-    await expect(import('#config.js')).rejects.toThrow('RUNNER_STALE_SESSION_THRESHOLD_SECONDS');
+    await expect(import('#config.js')).rejects.toThrow(name);
+  });
+
+  it('fails startup when the stale-session threshold does not exceed the liveness throttle', async () => {
+    vi.stubEnv('RUNNER_STALE_SESSION_THRESHOLD_SECONDS', '300');
+    vi.stubEnv('RUNNER_STALE_PROVISIONED_RUNNER_THRESHOLD_SECONDS', '700');
+    vi.stubEnv('RUNNER_SESSION_LIVENESS_THROTTLE_SECONDS', '600');
+    vi.resetModules();
+
+    await expect(import('#config.js')).rejects.toThrow(staleSessionThresholdThrottleError);
   });
 });
 

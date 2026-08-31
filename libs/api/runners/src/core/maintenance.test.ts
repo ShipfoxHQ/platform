@@ -2,6 +2,7 @@ import {vi} from '@shipfox/vitest/vi';
 import {eq} from 'drizzle-orm';
 import {db} from '#db/db.js';
 import {ephemeralRegistrationTokens} from '#db/schema/ephemeral-registration-tokens.js';
+import {provisionerTokens} from '#db/schema/provisioner-tokens.js';
 import {reservations} from '#db/schema/reservations.js';
 import {providerRunners} from '#db/schema/runner-instances.js';
 import {runnerSessions} from '#db/schema/runner-sessions.js';
@@ -86,6 +87,73 @@ describe('reapStaleRunnerInstances', () => {
     expect(result).toEqual({reaped: 1, reservationsReleased: 1});
     expect(reapedSpy).toHaveBeenCalledWith(1);
     expect(releasedSpy).toHaveBeenCalledWith(1, {surface: 'reconcile'});
+  });
+});
+
+describe('recoverStaleIdleRunnerSessions', () => {
+  it('does not revoke sessions when runner-unresponsive authorization is disabled', async () => {
+    const workspaceId = crypto.randomUUID();
+    const provisioner = await provisionerTokenFactory.create({workspaceId});
+    await db()
+      .update(provisionerTokens)
+      .set({lastSeenAt: new Date(), updatedAt: new Date()})
+      .where(eq(provisionerTokens.id, provisioner.id));
+    const providerRunner = await providerRunnerFactory.create({
+      workspaceId,
+      provisionerId: provisioner.id,
+      launchKind: 'demand',
+      state: 'running',
+      providerRunnerId: `flag-off-${crypto.randomUUID()}`,
+    });
+    const staleAt = new Date(Date.now() - 120_000);
+    const [session] = await db()
+      .insert(runnerSessions)
+      .values({
+        workspaceId,
+        scope: 'workspace',
+        registrationTokenId: crypto.randomUUID(),
+        registrationTokenKind: 'activation',
+        runnerInstanceId: providerRunner.id,
+        provisionerId: provisioner.id,
+        providerRunnerId: providerRunner.providerRunnerId,
+        labels: ['linux'],
+        maxClaims: 1,
+        claimsUsed: 0,
+        createdAt: staleAt,
+        updatedAt: staleAt,
+      })
+      .returning({id: runnerSessions.id});
+    if (!session) throw new Error('Expected runner session');
+    await db()
+      .update(providerRunners)
+      .set({runnerSessionId: session.id})
+      .where(eq(providerRunners.id, providerRunner.id));
+
+    vi.stubEnv('RUNNER_TERMINATION_REASON_RUNNER_UNRESPONSIVE_ENABLED', 'false');
+    vi.resetModules();
+    const postgres = await import('@shipfox/node-postgres');
+    postgres.createPostgresClient();
+    try {
+      const {recoverStaleIdleRunnerSessions} = await import('./maintenance.js');
+      const result = await recoverStaleIdleRunnerSessions({limit: 100});
+
+      const [unchangedSession] = await db()
+        .select({revokedAt: runnerSessions.revokedAt})
+        .from(runnerSessions)
+        .where(eq(runnerSessions.id, session.id));
+      const [unchangedRunner] = await db()
+        .select({terminationAuthorizedAt: providerRunners.terminationAuthorizedAt})
+        .from(providerRunners)
+        .where(eq(providerRunners.id, providerRunner.id));
+      expect(result).toEqual({recovered: 0});
+      expect(unchangedSession?.revokedAt).toBeNull();
+      expect(unchangedRunner?.terminationAuthorizedAt).toBeNull();
+    } finally {
+      await postgres.closePostgresClient();
+      vi.unstubAllEnvs();
+      process.env.RUNNER_TERMINATION_REASON_RUNNER_UNRESPONSIVE_ENABLED = 'true';
+      vi.resetModules();
+    }
   });
 });
 
