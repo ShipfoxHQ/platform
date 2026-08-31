@@ -22,8 +22,9 @@ activation token.
 
 Backend reconciliation reads EC2 system, instance, and attached-EBS status checks and scheduled
 events with `ec2:DescribeInstanceStatus`. The provisioner role must grant that action in the
-runner region. An authorization failure fails the reconciliation closed; a transient status-read
-failure keeps the ordinary `DescribeInstances` snapshot and submits no health candidate.
+runner region. An authorization or other permanent status-read failure fails the reconciliation
+closed; a transient or stale-instance status-read failure keeps the ordinary `DescribeInstances`
+snapshot and submits no health candidate.
 Candidates require an impairment that is at least one reconciliation interval old or two
 consecutive close observations. Candidates are requests to the existing backend authorization
 gate, not direct termination calls. Regular observation, termination lookup, and service metrics

@@ -859,6 +859,31 @@ describe('createEc2Lifecycle', () => {
     expect(observability.recordEc2HealthImpaired).toHaveBeenCalledTimes(1);
   });
 
+  it('preserves impairment persistence across an unavailable status observation', async () => {
+    const instances = [instance({state: 'running', systemStatus: {status: 'impaired'}})];
+    const engine = fakeEngine({instances});
+    const client = fakeClient();
+    const lifecycle = makeLifecycle({engine, client});
+
+    await lifecycle.reconcile();
+    instances[0] = instance({state: 'running'});
+    await lifecycle.reconcile();
+    instances[0] = instance({state: 'running', systemStatus: {status: 'impaired'}});
+    await lifecycle.reconcile();
+
+    expect(client.reconcileBodies).toEqual([
+      {observed_provider_runner_ids: ['runner-1']},
+      {observed_provider_runner_ids: ['runner-1']},
+      {
+        observed_provider_runner_ids: ['runner-1'],
+        termination_candidates: [
+          {provider_runner_id: 'runner-1', reason: 'provider-health-failed'},
+        ],
+      },
+    ]);
+    expect(observability.recordEc2HealthImpaired).toHaveBeenCalledTimes(2);
+  });
+
   it('polls EC2 status checks only during backend reconciliation', async () => {
     const engine = fakeEngine({instances: [instance({state: 'running'})]});
     const lifecycle = makeLifecycle({engine});

@@ -297,16 +297,17 @@ async function readManagedInstanceStatuses(
   instances: readonly Ec2InstanceView[],
 ): Promise<ReadonlyMap<string, Ec2InstanceStatusFields>> {
   try {
-    // The reconciliation path requires ec2:DescribeInstanceStatus. Auth failures are propagated
-    // so health enforcement fails closed; transient status-read failures do not make the core
-    // lose an otherwise valid instance snapshot.
+    // The reconciliation path requires ec2:DescribeInstanceStatus. Auth and other permanent
+    // status-read failures are propagated so health enforcement fails closed. Retryable failures
+    // keep the ordinary instance snapshot, as does the stale-instance race that EC2 reports as
+    // InvalidInstanceID.NotFound.
     return await describeInstanceStatuses(
       client,
       instances.map((instance) => instance.instanceId),
     );
   } catch (error) {
     const mappedError = mapEc2Error(error, 'Cannot read managed EC2 instance statuses.');
-    if (mappedError.reason === 'auth') throw mappedError;
+    if (!mappedError.retryable && !isStaleInstanceStatusError(error)) throw mappedError;
     logger().warn(
       {
         event: 'provisioner.ec2.status_checks_unavailable',
@@ -317,6 +318,10 @@ async function readManagedInstanceStatuses(
     );
     return new Map();
   }
+}
+
+function isStaleInstanceStatusError(error: unknown): boolean {
+  return errorName(error) === 'InvalidInstanceID.NotFound';
 }
 
 const MAX_STATUS_INSTANCE_IDS = 100;
@@ -488,6 +493,9 @@ function mapEc2Error(error: unknown, message: string): Ec2EngineError {
       'AccessDeniedException',
       'AuthFailure',
       'UnauthorizedOperation',
+      'InvalidClientTokenId',
+      'SignatureDoesNotMatch',
+      'UnrecognizedClientException',
       'Blocked',
       'OptInRequired',
     ].includes(name)

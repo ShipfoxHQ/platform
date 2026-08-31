@@ -189,6 +189,9 @@ describe('createEc2Engine', () => {
     ['AuthFailure', 'auth', false],
     ['AccessDenied', 'auth', false],
     ['AccessDeniedException', 'auth', false],
+    ['InvalidClientTokenId', 'auth', false],
+    ['SignatureDoesNotMatch', 'auth', false],
+    ['UnrecognizedClientException', 'auth', false],
     ['InvalidParameterValue', 'config-invalid', false],
     ['ECONNREFUSED', 'unreachable', true],
     ['UnexpectedFailure', 'unknown', false],
@@ -325,7 +328,7 @@ describe('createEc2Engine', () => {
   it.each([
     'RequestLimitExceeded',
     'InvalidInstanceID.NotFound',
-  ])('returns the instance snapshot when a non-auth status read fails with %s', async (code) => {
+  ])('returns the instance snapshot when a retryable or stale status read fails with %s', async (code) => {
     const ec2 = fakeEc2({
       describeOutputs: [{Reservations: [{Instances: [instance()]}]}],
       describeStatusError: awsError(code),
@@ -339,9 +342,29 @@ describe('createEc2Engine', () => {
   });
 
   it.each([
+    ['InvalidParameterValue', 'config-invalid'],
+    ['UnsupportedOperation', 'config-invalid'],
+    ['UnexpectedFailure', 'unknown'],
+  ])('propagates permanent status-read failure %s as %s', async (code, reason) => {
+    const ec2 = fakeEc2({
+      describeOutputs: [{Reservations: [{Instances: [instance()]}]}],
+      describeStatusError: awsError(code),
+    });
+    const engine = createEc2Engine({region: 'eu-west-3', client: ec2 as never});
+
+    await expect(engine.listManaged('provisioner-1', {includeStatus: true})).rejects.toMatchObject({
+      reason,
+      retryable: false,
+    });
+  });
+
+  it.each([
     'UnauthorizedOperation',
     'AccessDenied',
     'AccessDeniedException',
+    'InvalidClientTokenId',
+    'SignatureDoesNotMatch',
+    'UnrecognizedClientException',
   ])('fails closed when EC2 status checks return %s', async (code) => {
     const ec2 = fakeEc2({
       describeOutputs: [{Reservations: [{Instances: [instance()]}]}],
@@ -390,6 +413,7 @@ describe('createEc2Engine', () => {
     });
     expect(result[0]).toMatchObject({systemStatus: {status: 'ok'}});
     expect(result[99]).toMatchObject({systemStatus: {status: 'impaired'}});
+    expect(result[100]).toMatchObject({systemStatus: {status: 'ok'}});
   });
 
   it.each([

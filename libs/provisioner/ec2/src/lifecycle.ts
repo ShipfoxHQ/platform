@@ -437,13 +437,19 @@ function updateHealthImpairmentObservation(
   instance: Ec2InstanceView,
   impaired: readonly Ec2HealthObservation[],
 ): number {
-  if (impaired.length === 0 || instance.state !== 'running') {
+  if (instance.state !== 'running') {
+    context.healthImpairmentObservations.delete(instance.instanceId);
+    return 0;
+  }
+
+  const previous = context.healthImpairmentObservations.get(instance.instanceId);
+  if (!hasEc2StatusData(instance)) return previous?.consecutiveObservations ?? 0;
+  if (impaired.length === 0) {
     context.healthImpairmentObservations.delete(instance.instanceId);
     return 0;
   }
 
   const observedAt = context.now().getTime();
-  const previous = context.healthImpairmentObservations.get(instance.instanceId);
   const observationWindowMs = Math.max(context.reconcileIntervalMs * 2, 1);
   const isConsecutive =
     previous !== undefined &&
@@ -457,6 +463,15 @@ function updateHealthImpairmentObservation(
     consecutiveObservations,
   });
   return consecutiveObservations;
+}
+
+function hasEc2StatusData(instance: Ec2InstanceView): boolean {
+  return (
+    instance.systemStatus !== undefined ||
+    instance.instanceStatus !== undefined ||
+    instance.attachedEbsStatus !== undefined ||
+    instance.scheduledEvents !== undefined
+  );
 }
 
 function hasPersistentImpairment(
