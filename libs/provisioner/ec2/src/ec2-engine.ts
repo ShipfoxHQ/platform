@@ -11,6 +11,7 @@ import {
   type RunInstancesCommandInput,
   TerminateInstancesCommand,
 } from '@aws-sdk/client-ec2';
+import {logger} from '@shipfox/node-opentelemetry';
 import {SHIPFOX_TAGS} from '#instance-identity.js';
 import {type Ec2Architecture, recordEc2LaunchDuration} from '#metrics/instance.js';
 import {type Ec2Market, UNKNOWN_TEMPLATE_KEY} from '#templates.js';
@@ -119,8 +120,13 @@ export interface RunInstanceArgs {
 
 export interface Ec2Engine {
   runInstance(args: RunInstanceArgs): Promise<Ec2InstanceView>;
-  listManaged(provisionerId: string): Promise<Ec2InstanceView[]>;
+  listManaged(provisionerId: string, options?: Ec2ListManagedOptions): Promise<Ec2InstanceView[]>;
   terminate(instanceIds: readonly string[], options?: {force?: boolean}): Promise<void>;
+}
+
+export interface Ec2ListManagedOptions {
+  /** Reconciliation requires the additional EC2 status-check permission. */
+  readonly includeStatus?: boolean;
 }
 
 export interface CreateEc2EngineOptions {
@@ -223,28 +229,15 @@ export function createEc2Engine(options: CreateEc2EngineOptions): Ec2Engine {
       }
     },
 
-    async listManaged(provisionerId) {
+    async listManaged(provisionerId, options) {
       try {
-        const instances: Ec2InstanceView[] = [];
-        let nextToken: string | undefined;
+        const instances = await describeManagedInstances(client, provisionerId);
 
-        do {
-          const output = await client.send(
-            new DescribeInstancesCommand({
-              NextToken: nextToken,
-              Filters: [{Name: `tag:${SHIPFOX_TAGS.provisionerId}`, Values: [provisionerId]}],
-            }),
-          );
-          for (const reservation of output.Reservations ?? []) {
-            for (const instance of reservation.Instances ?? [])
-              instances.push(toInstanceView(instance));
-          }
-          nextToken = output.NextToken;
-        } while (nextToken);
-
-        const statusByInstanceId = await describeInstanceStatuses(
+        if (!options?.includeStatus) return instances;
+        const statusByInstanceId = await readManagedInstanceStatuses(
           client,
-          instances.map((instance) => instance.instanceId),
+          provisionerId,
+          instances,
         );
         return instances.map((instance) => {
           const status = statusByInstanceId.get(instance.instanceId);
@@ -273,6 +266,57 @@ export function createEc2Engine(options: CreateEc2EngineOptions): Ec2Engine {
       }
     },
   };
+}
+
+async function describeManagedInstances(
+  client: EC2Client,
+  provisionerId: string,
+): Promise<Ec2InstanceView[]> {
+  const instances: Ec2InstanceView[] = [];
+  let nextToken: string | undefined;
+
+  do {
+    const output = await client.send(
+      new DescribeInstancesCommand({
+        NextToken: nextToken,
+        Filters: [{Name: `tag:${SHIPFOX_TAGS.provisionerId}`, Values: [provisionerId]}],
+      }),
+    );
+    for (const reservation of output.Reservations ?? []) {
+      for (const instance of reservation.Instances ?? []) instances.push(toInstanceView(instance));
+    }
+    nextToken = output.NextToken;
+  } while (nextToken);
+
+  return instances;
+}
+
+async function readManagedInstanceStatuses(
+  client: EC2Client,
+  provisionerId: string,
+  instances: readonly Ec2InstanceView[],
+): Promise<ReadonlyMap<string, Ec2InstanceStatusFields>> {
+  try {
+    // The reconciliation path requires ec2:DescribeInstanceStatus. Auth failures are propagated
+    // so health enforcement fails closed; transient status-read failures do not make the core
+    // lose an otherwise valid instance snapshot.
+    return await describeInstanceStatuses(
+      client,
+      instances.map((instance) => instance.instanceId),
+    );
+  } catch (error) {
+    const mappedError = mapEc2Error(error, 'Cannot read managed EC2 instance statuses.');
+    if (mappedError.reason === 'auth') throw mappedError;
+    logger().warn(
+      {
+        event: 'provisioner.ec2.status_checks_unavailable',
+        provisioner_id: provisionerId,
+        reason: mappedError.reason,
+      },
+      'EC2 status checks unavailable; continuing with the instance snapshot',
+    );
+    return new Map();
+  }
 }
 
 const MAX_STATUS_INSTANCE_IDS = 100;

@@ -18,6 +18,16 @@ lifetime. The image's EC2 bootstrap service formats and mounts the non-root EBS 
 the runner starts. It never renders a workspace ID, workspace registration token, or
 activation token.
 
+## Health checks
+
+Backend reconciliation reads EC2 system, instance, and attached-EBS status checks and scheduled
+events with `ec2:DescribeInstanceStatus`. The provisioner role must grant that action in the
+runner region. An authorization failure fails the reconciliation closed; a transient status-read
+failure keeps the ordinary `DescribeInstances` snapshot and submits no health candidate.
+Candidates require an impairment that is at least one reconciliation interval old or two
+consecutive close observations. Regular observation, termination lookup, and service metrics
+omit status checks so they do not poll the status API unnecessarily.
+
 ## Template config
 
 The template file can contain shared `vars`, a `defaults` fragment, hand-written

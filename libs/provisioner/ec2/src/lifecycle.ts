@@ -68,6 +68,11 @@ type LocallyLaunchedRunner = {
   launchedAt: Date;
 };
 
+type HealthImpairmentObservation = {
+  lastObservedAt: number;
+  consecutiveObservations: number;
+};
+
 type AssignmentCandidate = {
   reservationId: string;
   runnerInstanceId: string;
@@ -142,6 +147,8 @@ interface Ec2LifecycleContext {
   readonly pendingReports: RunnerInstanceReportEventDto[];
   readonly suppressedReservationRunnerIds: Map<string, Set<string>>;
   readonly canonicalReservationIdsByRunner: Map<string, string | null>;
+  readonly healthImpairmentObservations: Map<string, HealthImpairmentObservation>;
+  healthCandidateCursor: number;
   lastReconciledAt?: Date;
 }
 
@@ -172,6 +179,8 @@ export function createEc2Lifecycle(options: Ec2LifecycleOptions): Ec2Lifecycle {
     pendingReports: [],
     suppressedReservationRunnerIds: new Map(),
     canonicalReservationIdsByRunner: new Map(),
+    healthImpairmentObservations: new Map(),
+    healthCandidateCursor: 0,
   };
 
   return {
@@ -241,14 +250,13 @@ async function launchRunner(
 
 async function observe(context: Ec2LifecycleContext): Promise<void> {
   const instances = await context.engine.listManaged(context.identity.id);
-  observeEc2Health(context, instances, false);
   await applyObservedInstances(context, instances, new Map());
   await reportEvents(context, []);
 }
 
 async function reconcile(context: Ec2LifecycleContext): Promise<void> {
-  const instances = await context.engine.listManaged(context.identity.id);
-  const healthCandidates = observeEc2Health(context, instances, true);
+  const instances = await context.engine.listManaged(context.identity.id, {includeStatus: true});
+  const healthCandidates = observeEc2Health(context, instances);
   await reapRegistrationDeadlineInstances(context, instances);
   const observedProviderRunnerIds = observedRunnerIds(instances);
   if (observedProviderRunnerIds.length > MAX_RECONCILE_OBSERVED_RUNNERS) {
@@ -273,12 +281,13 @@ async function reconcile(context: Ec2LifecycleContext): Promise<void> {
     logger().info(
       {
         event: 'provisioner.ec2.provider_health_candidates_submitted',
-        count: healthCandidates.length,
+        requested_count: healthCandidates.length,
+        termination_authorization: 'backend-gated',
         provider_runner_ids: healthCandidates
           .slice(0, MAX_HEALTH_CANDIDATE_IDS_IN_LOG)
           .map((candidate) => candidate.provider_runner_id),
       },
-      'Submitted EC2 provider health termination candidates',
+      'Sent EC2 provider health termination candidates for backend authorization',
     );
   }
   syncCanonicalReservationIds(context, response.runners);
@@ -308,54 +317,46 @@ async function reconcile(context: Ec2LifecycleContext): Promise<void> {
 function observeEc2Health(
   context: Ec2LifecycleContext,
   instances: readonly Ec2InstanceView[],
-  collectCandidates: boolean,
 ): ProviderTerminationCandidateDto[] {
   const candidates = new Map<string, ProviderTerminationCandidateDto>();
+  const observedInstanceIds = new Set(instances.map((instance) => instance.instanceId));
+  for (const instanceId of context.healthImpairmentObservations.keys()) {
+    if (!observedInstanceIds.has(instanceId))
+      context.healthImpairmentObservations.delete(instanceId);
+  }
 
   for (const instance of instances) {
-    const candidate = observeEc2InstanceHealth(context, instance, collectCandidates);
+    const candidate = observeEc2InstanceHealth(context, instance);
     if (candidate) candidates.set(candidate.provider_runner_id, candidate);
   }
 
   const orderedCandidates = [...candidates.values()].sort((left, right) =>
     left.provider_runner_id.localeCompare(right.provider_runner_id),
   );
-  if (orderedCandidates.length > MAX_TERMINATION_CANDIDATES) {
-    logger().warn(
-      {
-        event: 'provisioner.ec2.provider_health_candidate_limit',
-        candidate_count: orderedCandidates.length,
-        submitted_count: MAX_TERMINATION_CANDIDATES,
-      },
-      'Capped EC2 provider health termination candidates at the API limit',
-    );
-  }
-  return orderedCandidates.slice(0, MAX_TERMINATION_CANDIDATES);
+  return selectHealthCandidateWindow(context, orderedCandidates);
 }
 
 function observeEc2InstanceHealth(
   context: Ec2LifecycleContext,
   instance: Ec2InstanceView,
-  collectCandidate: boolean,
 ): ProviderTerminationCandidateDto | undefined {
   const observations = healthObservations(instance);
-  if (!hasHealthSignal(instance, observations)) return undefined;
-
   const impaired = observations.filter((observation) => observation.status === 'impaired');
   for (const observation of impaired) recordEc2HealthImpaired(observation.checkType);
 
   const identity = parseInstanceIdentity(instance);
-  const candidateDecision = healthCandidateDecision(instance, identity.providerRunnerId, impaired);
-  logEc2HealthObservation(
+  const consecutiveObservations = updateHealthImpairmentObservation(context, instance, impaired);
+  if (!hasHealthSignal(instance, observations)) return undefined;
+
+  const candidateDecision = healthCandidateDecision(
     context,
     instance,
-    identity,
-    observations,
-    candidateDecision,
-    collectCandidate,
+    identity.providerRunnerId,
+    impaired,
+    consecutiveObservations,
   );
-  if (!collectCandidate || candidateDecision !== 'eligible' || !identity.providerRunnerId)
-    return undefined;
+  logEc2HealthObservation(context, instance, identity, observations, candidateDecision);
+  if (candidateDecision !== 'eligible' || !identity.providerRunnerId) return undefined;
   return {
     provider_runner_id: identity.providerRunnerId,
     reason: 'provider-health-failed',
@@ -376,13 +377,22 @@ function hasHealthSignal(
 }
 
 function healthCandidateDecision(
+  context: Ec2LifecycleContext,
   instance: Ec2InstanceView,
   providerRunnerId: string | undefined,
   impaired: readonly Ec2HealthObservation[],
-): 'observe-only' | 'not-running' | 'missing-provider-runner-id' | 'eligible' {
+  consecutiveObservations: number,
+):
+  | 'observe-only'
+  | 'awaiting-persistence'
+  | 'not-running'
+  | 'missing-provider-runner-id'
+  | 'eligible' {
   if (impaired.length === 0) return 'observe-only';
   if (instance.state !== 'running') return 'not-running';
   if (!providerRunnerId) return 'missing-provider-runner-id';
+  if (!hasPersistentImpairment(context, impaired, consecutiveObservations))
+    return 'awaiting-persistence';
   return 'eligible';
 }
 
@@ -392,7 +402,6 @@ function logEc2HealthObservation(
   identity: ReturnType<typeof parseInstanceIdentity>,
   observations: readonly Ec2HealthObservation[],
   candidateDecision: ReturnType<typeof healthCandidateDecision>,
-  candidateCollectionEnabled: boolean,
 ): void {
   const fields = {
     event: 'provisioner.ec2.provider_health_observed',
@@ -412,11 +421,91 @@ function logEc2HealthObservation(
       .slice(0, MAX_SCHEDULED_EVENT_CODES_IN_LOG)
       .map((event) => event.code),
     health_candidate_decision: candidateDecision,
-    health_candidate_collection: candidateCollectionEnabled ? 'reconcile' : 'observe-only',
+    health_candidate_collection: 'reconcile',
   };
-  if (candidateDecision !== 'observe-only')
+  if (
+    candidateDecision === 'eligible' ||
+    candidateDecision === 'not-running' ||
+    candidateDecision === 'missing-provider-runner-id'
+  )
     logger().warn(fields, 'Observed impaired EC2 runner health');
   else logger().debug(fields, 'Observed transient EC2 runner health status');
+}
+
+function updateHealthImpairmentObservation(
+  context: Ec2LifecycleContext,
+  instance: Ec2InstanceView,
+  impaired: readonly Ec2HealthObservation[],
+): number {
+  if (impaired.length === 0 || instance.state !== 'running') {
+    context.healthImpairmentObservations.delete(instance.instanceId);
+    return 0;
+  }
+
+  const observedAt = context.now().getTime();
+  const previous = context.healthImpairmentObservations.get(instance.instanceId);
+  const observationWindowMs = Math.max(context.reconcileIntervalMs * 2, 1);
+  const isConsecutive =
+    previous !== undefined &&
+    observedAt >= previous.lastObservedAt &&
+    observedAt - previous.lastObservedAt <= observationWindowMs;
+  const consecutiveObservations = isConsecutive
+    ? Math.min(previous.consecutiveObservations + 1, 2)
+    : 1;
+  context.healthImpairmentObservations.set(instance.instanceId, {
+    lastObservedAt: observedAt,
+    consecutiveObservations,
+  });
+  return consecutiveObservations;
+}
+
+function hasPersistentImpairment(
+  context: Ec2LifecycleContext,
+  impaired: readonly Ec2HealthObservation[],
+  consecutiveObservations: number,
+): boolean {
+  if (consecutiveObservations >= 2) return true;
+
+  const now = context.now().getTime();
+  const graceMs = Math.max(context.reconcileIntervalMs, 0);
+  return impaired.some((observation) => {
+    const impairedSince = observation.impairedSince?.getTime();
+    return (
+      impairedSince !== undefined &&
+      Number.isFinite(impairedSince) &&
+      now >= impairedSince + graceMs
+    );
+  });
+}
+
+function selectHealthCandidateWindow(
+  context: Ec2LifecycleContext,
+  orderedCandidates: readonly ProviderTerminationCandidateDto[],
+): ProviderTerminationCandidateDto[] {
+  if (orderedCandidates.length <= MAX_TERMINATION_CANDIDATES) {
+    context.healthCandidateCursor = 0;
+    return [...orderedCandidates];
+  }
+
+  const start = context.healthCandidateCursor % orderedCandidates.length;
+  const rotatedCandidates = [
+    ...orderedCandidates.slice(start),
+    ...orderedCandidates.slice(0, start),
+  ];
+  const selectedCandidates = rotatedCandidates.slice(0, MAX_TERMINATION_CANDIDATES);
+  context.healthCandidateCursor = (start + selectedCandidates.length) % orderedCandidates.length;
+  logger().warn(
+    {
+      event: 'provisioner.ec2.provider_health_candidate_limit',
+      candidate_count: orderedCandidates.length,
+      submitted_count: selectedCandidates.length,
+      dropped_count: orderedCandidates.length - selectedCandidates.length,
+      start_index: start,
+      next_start_index: context.healthCandidateCursor,
+    },
+    'Capped EC2 provider health termination candidates at the API limit',
+  );
+  return selectedCandidates;
 }
 
 function healthObservations(instance: Ec2InstanceView): Ec2HealthObservation[] {

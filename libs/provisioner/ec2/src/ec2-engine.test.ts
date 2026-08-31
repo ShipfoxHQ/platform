@@ -187,6 +187,8 @@ describe('createEc2Engine', () => {
     ['RequestLimitExceeded', 'throttled', true],
     ['InvalidAMIID.NotFound', 'image-not-found', false],
     ['AuthFailure', 'auth', false],
+    ['AccessDenied', 'auth', false],
+    ['AccessDeniedException', 'auth', false],
     ['InvalidParameterValue', 'config-invalid', false],
     ['ECONNREFUSED', 'unreachable', true],
     ['UnexpectedFailure', 'unknown', false],
@@ -231,6 +233,7 @@ describe('createEc2Engine', () => {
       NextToken: undefined,
     });
     expect(commandInput<DescribeInstancesCommand>(ec2.commands[1]).NextToken).toBe('next-page');
+    expect(ec2.commands).toHaveLength(2);
     expect(result[0]).toMatchObject({
       instanceId: 'i-123',
       state: 'terminated',
@@ -275,7 +278,7 @@ describe('createEc2Engine', () => {
     });
     const engine = createEc2Engine({region: 'eu-west-3', client: ec2 as never});
 
-    const result = await engine.listManaged('provisioner-1');
+    const result = await engine.listManaged('provisioner-1', {includeStatus: true});
 
     expect(commandInput<DescribeInstanceStatusCommand>(ec2.commands[1])).toEqual({
       InstanceIds: ['i-123'],
@@ -309,7 +312,7 @@ describe('createEc2Engine', () => {
     });
     const engine = createEc2Engine({region: 'eu-west-3', client: ec2 as never});
 
-    const result = await engine.listManaged('provisioner-1');
+    const result = await engine.listManaged('provisioner-1', {includeStatus: true});
 
     expect(result[0]).toMatchObject({
       systemStatus: {status: 'unknown'},
@@ -319,17 +322,71 @@ describe('createEc2Engine', () => {
     });
   });
 
-  it('fails closed when EC2 status checks are unauthorized', async () => {
+  it('returns the instance snapshot when a non-auth status read fails', async () => {
     const ec2 = fakeEc2({
       describeOutputs: [{Reservations: [{Instances: [instance()]}]}],
-      describeStatusError: awsError('UnauthorizedOperation'),
+      describeStatusError: awsError('RequestLimitExceeded'),
     });
     const engine = createEc2Engine({region: 'eu-west-3', client: ec2 as never});
 
-    await expect(engine.listManaged('provisioner-1')).rejects.toMatchObject({
+    const result = await engine.listManaged('provisioner-1', {includeStatus: true});
+
+    expect(result[0]).toMatchObject({instanceId: 'i-123', state: 'running'});
+    expect(result[0]).not.toHaveProperty('systemStatus');
+  });
+
+  it.each([
+    'UnauthorizedOperation',
+    'AccessDenied',
+    'AccessDeniedException',
+  ])('fails closed when EC2 status checks return %s', async (code) => {
+    const ec2 = fakeEc2({
+      describeOutputs: [{Reservations: [{Instances: [instance()]}]}],
+      describeStatusError: awsError(code),
+    });
+    const engine = createEc2Engine({region: 'eu-west-3', client: ec2 as never});
+
+    await expect(engine.listManaged('provisioner-1', {includeStatus: true})).rejects.toMatchObject({
       reason: 'auth',
       retryable: false,
     });
+  });
+
+  it('batches and paginates EC2 status checks', async () => {
+    const instances = Array.from({length: 101}, (_, index) => instance({InstanceId: `i-${index}`}));
+    const ec2 = fakeEc2({
+      describeOutputs: [{Reservations: [{Instances: instances}]}],
+      describeStatusOutputs: [
+        {
+          InstanceStatuses: [{InstanceId: 'i-0', SystemStatus: {Status: 'ok'}}],
+          NextToken: 'status-next-page',
+        },
+        {InstanceStatuses: [{InstanceId: 'i-99', SystemStatus: {Status: 'impaired'}}]},
+        {InstanceStatuses: [{InstanceId: 'i-100', SystemStatus: {Status: 'ok'}}]},
+      ],
+    });
+    const engine = createEc2Engine({region: 'eu-west-3', client: ec2 as never});
+
+    const result = await engine.listManaged('provisioner-1', {includeStatus: true});
+
+    expect(ec2.commands).toHaveLength(4);
+    expect(commandInput<DescribeInstanceStatusCommand>(ec2.commands[1])).toMatchObject({
+      InstanceIds: Array.from({length: 100}, (_, index) => `i-${index}`),
+      IncludeAllInstances: true,
+      NextToken: undefined,
+    });
+    expect(commandInput<DescribeInstanceStatusCommand>(ec2.commands[2])).toMatchObject({
+      InstanceIds: Array.from({length: 100}, (_, index) => `i-${index}`),
+      IncludeAllInstances: true,
+      NextToken: 'status-next-page',
+    });
+    expect(commandInput<DescribeInstanceStatusCommand>(ec2.commands[3])).toMatchObject({
+      InstanceIds: ['i-100'],
+      IncludeAllInstances: true,
+      NextToken: undefined,
+    });
+    expect(result[0]).toMatchObject({systemStatus: {status: 'ok'}});
+    expect(result[99]).toMatchObject({systemStatus: {status: 'impaired'}});
   });
 
   it.each([
