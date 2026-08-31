@@ -138,10 +138,6 @@ export async function listAdministratorUserSummaries(
   executor: AdministratorUserSummaryExecutor,
   params: ListAdministratorUserSummariesParams,
 ): Promise<ListAdministratorUserSummariesResult> {
-  if (params.eligible === true && params.status && params.status !== 'active') {
-    throw new TypeError('eligible users must have active status');
-  }
-
   // Aggregate grants in a subquery so pagination is over users, not grants.
   const activeAdminRoles = executor
     .select({

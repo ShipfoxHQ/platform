@@ -114,17 +114,6 @@ describe('administrator user summaries db', () => {
     expect(literalBackslash.rows.map(({id}) => id)).toEqual([user.id]);
   });
 
-  test('rejects an active eligibility filter combined with a non-active status', async () => {
-    await expect(
-      listAdministratorUserSummaries(db(), {
-        actorId: crypto.randomUUID(),
-        limit: 10,
-        eligible: true,
-        status: 'suspended',
-      }),
-    ).rejects.toThrow('eligible users must have active status');
-  });
-
   test('ignores revoked grants when filtering eligibility and projecting roles', async () => {
     const marker = `directory-revoked-${crypto.randomUUID()}`;
     const actor = await userFactory.create({email: `${marker}-actor@example.com`});

@@ -75,6 +75,7 @@ export {
   ImpersonationExpiredError,
   ImpersonationTargetNotActiveError,
   InvalidAdminBootstrapTokenError,
+  InvalidAdministratorUserDirectoryFilterError,
   InvalidCredentialsError,
   LastAdminOwnerError,
   SignupNotAllowedError,

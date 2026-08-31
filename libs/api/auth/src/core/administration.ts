@@ -48,6 +48,7 @@ import {
   ImpersonationExpiredError,
   ImpersonationTargetNotActiveError,
   InvalidAdminBootstrapTokenError,
+  InvalidAdministratorUserDirectoryFilterError,
   InvalidCredentialsError,
   LastAdminOwnerError,
   UserNotFoundError,
@@ -213,21 +214,30 @@ function validateAdministratorUserDirectorySearch(search: string | undefined): v
 
   const terms = normalizedSearch.split(ADMINISTRATOR_DIRECTORY_SEARCH_TERM_SEPARATOR);
   if (terms.length > ADMINISTRATOR_DIRECTORY_MAX_SEARCH_TERMS) {
-    throw new TypeError(
+    throw new InvalidAdministratorUserDirectoryFilterError(
       `Administrator user directory search accepts at most ${ADMINISTRATOR_DIRECTORY_MAX_SEARCH_TERMS} terms`,
     );
   }
 
   if (terms.some((term) => term.length > ADMINISTRATOR_DIRECTORY_MAX_SEARCH_TERM_LENGTH)) {
-    throw new TypeError(
+    throw new InvalidAdministratorUserDirectoryFilterError(
       `Administrator user directory search terms must be at most ${ADMINISTRATOR_DIRECTORY_MAX_SEARCH_TERM_LENGTH} characters`,
+    );
+  }
+}
+
+function validateAdministratorUserDirectoryFilters(params: ListAdministratorUsersParams): void {
+  validateAdministratorUserDirectorySearch(params.search);
+  if (params.eligible === true && params.status && params.status !== 'active') {
+    throw new InvalidAdministratorUserDirectoryFilterError(
+      'eligible users must have active status',
     );
   }
 }
 
 export async function listAdministratorUsers(params: ListAdministratorUsersParams) {
   await requireAdminRole({userId: params.actorId, minimumRole: ADMIN_OBSERVER_ROLE});
-  validateAdministratorUserDirectorySearch(params.search);
+  validateAdministratorUserDirectoryFilters(params);
   return await listAdministratorUsersInDb(params);
 }
 

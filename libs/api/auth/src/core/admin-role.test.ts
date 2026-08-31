@@ -3,6 +3,7 @@ import {userFactory} from '#test/index.js';
 import {hasMinimumAdminRole, highestAdminRole, requireAdminRole} from './admin-role.js';
 import {listAdministratorUsers} from './administration.js';
 import type {AdminRoleRequiredError} from './errors.js';
+import {InvalidAdministratorUserDirectoryFilterError} from './errors.js';
 
 describe('admin role policy', () => {
   test.each([
@@ -48,6 +49,20 @@ describe('admin role policy', () => {
     await expect(
       listAdministratorUsers({actorId: user.id, limit: 10, search: 'x'.repeat(101)}),
     ).rejects.toThrow('at most 100 characters');
+  });
+
+  test('rejects an active eligibility filter combined with a non-active status', async () => {
+    const user = await userFactory.create({emailVerifiedAt: new Date()});
+    await createAdminGrant({userId: user.id, role: 'admin-observer'});
+
+    await expect(
+      listAdministratorUsers({
+        actorId: user.id,
+        limit: 10,
+        eligible: true,
+        status: 'suspended',
+      }),
+    ).rejects.toBeInstanceOf(InvalidAdministratorUserDirectoryFilterError);
   });
 
   test('evaluates the current role from Auth storage for every required minimum', async () => {

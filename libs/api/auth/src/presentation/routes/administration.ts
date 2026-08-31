@@ -60,6 +60,7 @@ import {
   ImpersonationExpiredError,
   ImpersonationTargetNotActiveError,
   InvalidAdminBootstrapTokenError,
+  InvalidAdministratorUserDirectoryFilterError,
   InvalidCredentialsError,
   LastAdminOwnerError,
   UserNotFoundError,
@@ -136,7 +137,33 @@ function toAdministratorUserMutationDto(result: {
   };
 }
 
+function translateImpersonationEligibilityError(error: unknown): ClientError | undefined {
+  // The mint primitive re-checks login eligibility on the row it reads, and a
+  // concurrent suspension or unverification between the in-transaction ladder
+  // read and that read surfaces these errors. Map them to the same documented
+  // client error instead of a generic 500.
+  if (error instanceof EmailNotVerifiedError || error instanceof InvalidCredentialsError) {
+    return new ClientError('User cannot be impersonated', 'impersonation-target-not-active', {
+      status: 403,
+    });
+  }
+  if (error instanceof ImpersonationExpiredError) {
+    return new ClientError('Impersonation session has expired', 'impersonation-expired', {
+      status: 410,
+    });
+  }
+  return undefined;
+}
+
 function translateAdministrationError(error: unknown): never {
+  if (error instanceof InvalidAdministratorUserDirectoryFilterError) {
+    throw new ClientError(error.message, 'invalid-administrator-user-directory-filter', {
+      status: 400,
+      cause: error,
+    });
+  }
+  const impersonationEligibilityError = translateImpersonationEligibilityError(error);
+  if (impersonationEligibilityError) throw impersonationEligibilityError;
   if (error instanceof AdminRoleRequiredError) {
     throw new ClientError('Administrator role required', 'forbidden', {
       status: 403,
@@ -194,20 +221,6 @@ function translateAdministrationError(error: unknown): never {
   if (error instanceof ImpersonationTargetNotActiveError) {
     throw new ClientError('User cannot be impersonated', 'impersonation-target-not-active', {
       status: 403,
-    });
-  }
-  // The mint primitive re-checks login eligibility (active, verified) on the
-  // row it reads, and a concurrent suspension or unverification between the
-  // in-transaction ladder read and that read surfaces these errors. Map them
-  // to the same documented client error instead of a generic 500.
-  if (error instanceof EmailNotVerifiedError || error instanceof InvalidCredentialsError) {
-    throw new ClientError('User cannot be impersonated', 'impersonation-target-not-active', {
-      status: 403,
-    });
-  }
-  if (error instanceof ImpersonationExpiredError) {
-    throw new ClientError('Impersonation session has expired', 'impersonation-expired', {
-      status: 410,
     });
   }
   throw error;
