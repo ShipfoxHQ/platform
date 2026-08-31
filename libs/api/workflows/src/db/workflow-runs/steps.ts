@@ -9,6 +9,10 @@ import type {
   StepStatusReason,
 } from '#core/entities/step.js';
 import {deriveCompletion, isTerminal} from '#core/step-transition/decide-step-transition.js';
+import {
+  discardPendingCheckoutRenewalSubject,
+  promoteCheckoutRenewalSubject,
+} from '../checkout-renewal-subjects.js';
 import {db, type Tx} from '../db.js';
 import {jobExecutions} from '../schema/job-executions.js';
 import {jobs} from '../schema/jobs.js';
@@ -496,6 +500,12 @@ export async function finishStepAttempt(params: FinishStepAttemptParams, tx: Tx)
 
   const row = rows[0];
   if (!row) return;
+
+  if (params.status === 'succeeded') {
+    await promoteCheckoutRenewalSubject({stepId: row.stepId, attempt: row.attempt}, tx);
+  } else {
+    await discardPendingCheckoutRenewalSubject({stepId: row.stepId, attempt: row.attempt}, tx);
+  }
 
   await writeStepAttemptTerminatedOutbox(tx, {
     stepAttemptId: row.id,

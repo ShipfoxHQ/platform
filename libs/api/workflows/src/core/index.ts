@@ -1,3 +1,4 @@
+export type {CheckoutRenewalSubject} from './entities/checkout-renewal-subject.js';
 export type {Job, JobStatus} from './entities/job.js';
 export type {
   JobListenerEvent,

@@ -16,6 +16,7 @@ import {isInterModuleKnownError} from '@shipfox/inter-module';
 import {ClientError, defineRoute} from '@shipfox/node-fastify';
 import {createStepCheckoutSpec} from '#core/checkout.js';
 import {CheckoutConfigInvalidError, CheckoutIntentUnresolvedError} from '#core/errors.js';
+import {savePendingCheckoutRenewalSubject} from '#db/checkout-renewal-subjects.js';
 import {toCheckoutTokenDto} from '#presentation/dto/checkout-token.js';
 import {loadRunningLeasedStep} from './leased-step.js';
 
@@ -38,12 +39,13 @@ export function createCheckoutTokenRoute(clients: {
     handler: async (request, reply) => {
       const {stepId} = request.params;
       const {attempt} = request.query;
-      const {step, workspaceId, projectId, triggerReference, run} = await loadRunningLeasedStep({
-        runners: clients.runners,
-        request,
-        stepId,
-        attempt,
-      });
+      const {leasedJob, step, workspaceId, projectId, triggerReference, run} =
+        await loadRunningLeasedStep({
+          runners: clients.runners,
+          request,
+          stepId,
+          attempt,
+        });
 
       if (step.type !== 'setup' && step.type !== 'checkout') {
         throw new ClientError('Step is not a checkout step', 'step-not-checkout', {status: 409});
@@ -58,11 +60,21 @@ export function createCheckoutTokenRoute(clients: {
         integrations: clients.integrations,
         projects: clients.projects,
       });
-      reply.header('cache-control', 'no-store');
-      return toCheckoutTokenDto(checkout.spec, {
+      const response = toCheckoutTokenDto(checkout.spec, {
         fetchDepth: checkout.fetchDepth,
         persist: checkout.persistCredentials,
       });
+      if (checkout.renewalSubject !== undefined) {
+        await savePendingCheckoutRenewalSubject({
+          ...checkout.renewalSubject,
+          stepId,
+          attempt,
+          jobExecutionId: step.jobExecutionId,
+          workflowRunAttemptId: leasedJob.workflowRunAttemptId,
+        });
+      }
+      reply.header('cache-control', 'no-store');
+      return response;
     },
   });
 }

@@ -1,6 +1,13 @@
 import {dirname, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
+export {
+  discardPendingCheckoutRenewalSubject,
+  loadCheckoutRenewalSubject,
+  promoteCheckoutRenewalSubject,
+  type SavePendingCheckoutRenewalSubjectParams,
+  savePendingCheckoutRenewalSubject,
+} from './checkout-renewal-subjects.js';
 export {closeDb, db, schema} from './db.js';
 export {
   type DeliverEventToListenerParams,

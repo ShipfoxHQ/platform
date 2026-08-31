@@ -42,6 +42,7 @@ import {createWorkflowsInterModulePresentation} from '#presentation/inter-module
 import {createOrchestrationActivities, WORKFLOWS_TASK_QUEUE} from '#temporal/index.js';
 
 export type {
+  CheckoutRenewalSubject,
   Job,
   JobListenerEvent,
   JobListenerEventDisposition,
@@ -67,6 +68,7 @@ export {
   deliverEventToListener,
   getStepById,
   getStepByIdForJobExecution,
+  loadCheckoutRenewalSubject,
   migrationsPath,
   workflowsOutbox,
 } from '#db/index.js';

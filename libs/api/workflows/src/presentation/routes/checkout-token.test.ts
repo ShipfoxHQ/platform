@@ -14,6 +14,7 @@ import {eq} from 'drizzle-orm';
 import type {StepStatus} from '#core/entities/step.js';
 import type {WorkflowRunTriggerReference} from '#core/entities/workflow-run.js';
 import {db} from '#db/db.js';
+import {checkoutRenewalSubjects} from '#db/schema/checkout-renewal-subjects.js';
 import {jobs as jobsTable} from '#db/schema/jobs.js';
 import {steps as stepsTable} from '#db/schema/steps.js';
 import {workflowRuns} from '#db/schema/workflow-runs.js';
@@ -131,6 +132,21 @@ describe('POST /runs/jobs/current/steps/:stepId/checkout-token', () => {
         persist: true,
       },
     });
+    const [storedSubject] = await db()
+      .select()
+      .from(checkoutRenewalSubjects)
+      .where(eq(checkoutRenewalSubjects.stepId, step.id));
+    expect(storedSubject).toMatchObject({
+      stepId: step.id,
+      attempt: step.currentAttempt,
+      workflowRunAttemptId: job.workflowRunAttemptId,
+      repositoryUrl: 'https://github.com/acme/repo.git',
+      connectionId: project.sourceConnectionId,
+      externalRepositoryId: project.sourceExternalRepositoryId,
+      permissionsContents: 'read',
+      status: 'pending',
+    });
+    expect(storedSubject).not.toHaveProperty('token');
     expect(resolveCheckoutTarget).toHaveBeenCalledWith({
       workspaceId: project.workspaceId,
       defaults: {connectionId: project.sourceConnectionId, owner: 'acme'},
