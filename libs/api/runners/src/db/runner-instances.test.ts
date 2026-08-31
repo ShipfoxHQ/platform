@@ -1,4 +1,5 @@
 import {pgClient} from '@shipfox/node-postgres';
+import {beforeEach} from '@shipfox/vitest/vi';
 import {and, desc, eq, inArray, or, sql} from 'drizzle-orm';
 import {reconcileRunnerInstances as reconcileRunnerInstancesCore} from '#core/runner-instances.js';
 import {
@@ -195,6 +196,13 @@ describe('authorizeRunnerTermination', () => {
 });
 
 describe('recoverStaleIdleRunnerSessions', () => {
+  beforeEach(async () => {
+    await db().delete(runningJobExecutions);
+    await db().delete(runnerSessions);
+    await db().delete(providerRunners);
+    await db().delete(provisionerTokens);
+  });
+
   it.each([
     'demand',
     'warm',
@@ -256,7 +264,7 @@ describe('recoverStaleIdleRunnerSessions', () => {
       .select({terminationReason: providerRunners.terminationReason})
       .from(providerRunners)
       .where(eq(providerRunners.id, providerRunner.id));
-    expect(result.recovered).toBeGreaterThanOrEqual(1);
+    expect(result).toEqual({recovered: 1});
     expect(updatedSession?.revokedAt).toBeInstanceOf(Date);
     expect(updatedRunner?.terminationReason).toBe('runner-unresponsive');
   });
