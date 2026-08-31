@@ -572,13 +572,23 @@ export async function pruneAgentAccess(params: PruneAgentAccessParams = {}): Pro
     const refreshTokenIds = tx
       .select({id: agentRefreshTokens.id})
       .from(agentRefreshTokens)
-      .where(lt(agentRefreshTokens.expiresAt, cutoff))
+      .where(
+        lt(
+          sql`coalesce(${agentRefreshTokens.rotatedAt}, ${agentRefreshTokens.revokedAt}, ${agentRefreshTokens.expiresAt})`,
+          cutoff,
+        ),
+      )
       .orderBy(asc(agentRefreshTokens.expiresAt), asc(agentRefreshTokens.id))
       .limit(limit);
     const patIds = tx
       .select({id: agentPersonalAccessTokens.id})
       .from(agentPersonalAccessTokens)
-      .where(lt(agentPersonalAccessTokens.expiresAt, cutoff))
+      .where(
+        lt(
+          sql`coalesce(${agentPersonalAccessTokens.revokedAt}, ${agentPersonalAccessTokens.expiresAt})`,
+          cutoff,
+        ),
+      )
       .orderBy(asc(agentPersonalAccessTokens.expiresAt), asc(agentPersonalAccessTokens.id))
       .limit(limit);
 

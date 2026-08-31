@@ -14,6 +14,8 @@ import {
   findActiveAgentPersonalAccessTokenByHash,
   findActiveAgentRefreshTokenByHash,
   findAgentClientByClientId,
+  findAgentPersonalAccessTokenByHash,
+  findAgentRefreshTokenByHash,
   findPendingAgentAuthorizationRequest,
   lockAgentGrant,
   markAgentPersonalAccessTokenUsed,
@@ -192,6 +194,15 @@ describe('agent-access db', () => {
     await revokeAgentPersonalAccessToken({id: pat.id});
     expect(
       await findActiveAgentPersonalAccessTokenByHash({hashedToken: pat.hashedToken}),
+    ).toBeUndefined();
+
+    await pruneAgentAccess({retentionDays: 0, now: new Date(Date.now() + 1_000)});
+
+    expect(
+      await findAgentRefreshTokenByHash({hashedToken: refreshToken.hashedToken}),
+    ).toBeUndefined();
+    expect(
+      await findAgentPersonalAccessTokenByHash({hashedToken: pat.hashedToken}),
     ).toBeUndefined();
   });
 
