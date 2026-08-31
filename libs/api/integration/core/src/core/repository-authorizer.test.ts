@@ -388,8 +388,10 @@ describe('repository authorization', () => {
   });
 
   it('rate-limits store failure reports while allowing retries', async () => {
-    vi.useFakeTimers();
+    vi.useFakeTimers({now: new Date('2026-08-31T00:00:00.000Z')});
+    vi.resetModules();
     try {
+      const {resolveRepositoryAuthorization: resolve} = await import('./repository-authorizer.js');
       vi.advanceTimersByTime(60_001);
       const getProjectBySource = vi
         .fn()
@@ -399,12 +401,12 @@ describe('repository authorization', () => {
       const projects = createProjects({getProjectBySource});
       const input = selectedInput({kind: 'external-id', externalRepositoryId: 'github:42'});
 
-      await resolveRepositoryAuthorization({projects, ...input});
-      await resolveRepositoryAuthorization({projects, ...input});
+      await resolve({projects, ...input});
+      await resolve({projects, ...input});
       expect(mocks.reportError).toHaveBeenCalledOnce();
 
       vi.advanceTimersByTime(60_000);
-      await resolveRepositoryAuthorization({projects, ...input});
+      await resolve({projects, ...input});
       expect(mocks.reportError).toHaveBeenCalledTimes(2);
     } finally {
       vi.useRealTimers();
