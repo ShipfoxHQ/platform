@@ -152,13 +152,17 @@ export async function getLatestStepAttempt(params: {
   workspaceId: string;
 }): Promise<number | undefined> {
   const rows = await db()
-    .select({attempt: steps.currentAttempt})
-    .from(steps)
+    .select({attempt: stepAttempts.attempt})
+    .from(stepAttempts)
+    .innerJoin(steps, eq(stepAttempts.stepId, steps.id))
     .innerJoin(jobExecutions, eq(steps.jobExecutionId, jobExecutions.id))
     .innerJoin(jobs, eq(jobExecutions.jobId, jobs.id))
     .innerJoin(workflowRunAttempts, eq(jobs.workflowRunAttemptId, workflowRunAttempts.id))
     .innerJoin(workflowRuns, eq(workflowRunAttempts.workflowRunId, workflowRuns.id))
-    .where(and(eq(steps.id, params.stepId), eq(workflowRuns.workspaceId, params.workspaceId)))
+    .where(
+      and(eq(stepAttempts.stepId, params.stepId), eq(workflowRuns.workspaceId, params.workspaceId)),
+    )
+    .orderBy(desc(stepAttempts.attempt))
     .limit(1);
 
   return rows[0]?.attempt;

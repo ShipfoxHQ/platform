@@ -7,6 +7,7 @@ import {workflowModelSnapshotSchema} from '@shipfox/api-definitions-dto';
 import {defineInterModuleContract, type InterModuleClient} from '@shipfox/inter-module';
 import {z} from 'zod';
 import {
+  validateDateWindow,
   workflowRunListItemSchema,
   workflowRunOriginSchema,
   workflowRunStatusSchema,
@@ -89,28 +90,12 @@ const workflowRunFiltersSchema = z
     createdFrom: z.string().datetime().optional(),
     createdTo: z.string().datetime().optional(),
   })
-  .superRefine((value, ctx) => {
-    if (!value.createdFrom || !value.createdTo) return;
-
-    const from = new Date(value.createdFrom);
-    const to = new Date(value.createdTo);
-    if (from > to) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'createdFrom must be before or equal to createdTo',
-        path: ['createdFrom'],
-      });
-      return;
-    }
-
-    if (to.getTime() - from.getTime() > 365 * 24 * 60 * 60 * 1000) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'created date window must be 365 days or less',
-        path: ['createdTo'],
-      });
-    }
-  });
+  .superRefine((value, ctx) =>
+    validateDateWindow({from: value.createdFrom, to: value.createdTo}, ctx, {
+      from: 'createdFrom',
+      to: 'createdTo',
+    }),
+  );
 
 /**
  * Producer-owned Workflows commands used by synchronous callers. Commands carry

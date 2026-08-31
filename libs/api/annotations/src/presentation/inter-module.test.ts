@@ -46,10 +46,16 @@ describe('Annotations inter-module presentation', () => {
       sequence: 2,
     });
     await annotationFactory.create({
+      workspaceId,
+      workflowRunId,
+      context: 'after',
+      sequence: 3,
+    });
+    await annotationFactory.create({
       workspaceId: crypto.randomUUID(),
       workflowRunId,
       context: 'hidden',
-      sequence: 3,
+      sequence: 4,
     });
     const presentation = createAnnotationsInterModulePresentation();
 
@@ -58,14 +64,24 @@ describe('Annotations inter-module presentation', () => {
         workspaceId,
         workflowRunId,
         workflowRunAttempt: 1,
-        cursor: {value: visible.sequence, id: visible.id},
-        limit: 1,
+        limit: 2,
       },
       {signal: new AbortController().signal},
     );
 
     expect(result).toEqual({
       annotations: [
+        {
+          id: visible.id,
+          job_id: visible.jobId,
+          job_execution_id: visible.jobExecutionId,
+          origin_step_id: visible.originStepId,
+          origin_step_attempt: visible.originStepAttempt,
+          context: 'visible',
+          style: visible.style,
+          sequence: 1,
+          body: visible.body,
+        },
         {
           id: next.id,
           job_id: next.jobId,
@@ -78,8 +94,8 @@ describe('Annotations inter-module presentation', () => {
           body: next.body,
         },
       ],
-      hasMore: false,
-      nextCursor: null,
+      hasMore: true,
+      nextCursor: {value: next.sequence, id: next.id},
     });
   });
 

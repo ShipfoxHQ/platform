@@ -558,8 +558,10 @@ describe('workflow run queries', () => {
 
       expect(runs).toEqual([]);
     });
+  });
 
-    test('scopes a project listing to the requested workspace', async () => {
+  describe('listWorkflowRuns', () => {
+    test('scopes a listing to the requested workspace', async () => {
       await createWorkflowRun({
         workspaceId,
         projectId,

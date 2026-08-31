@@ -59,18 +59,19 @@ const runListQueryBaseSchema = z.object({
   created_to: isoDateTimeSchema.optional(),
 });
 
-function validateDateWindow(
-  value: {created_from?: string | undefined; created_to?: string | undefined},
+export function validateDateWindow(
+  value: {from?: string | undefined; to?: string | undefined},
   ctx: z.RefinementCtx,
+  fields: {from: string; to: string},
 ) {
-  if (!value.created_from || !value.created_to) return;
-  const from = new Date(value.created_from);
-  const to = new Date(value.created_to);
+  if (!value.from || !value.to) return;
+  const from = new Date(value.from);
+  const to = new Date(value.to);
   if (from > to) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: 'created_from must be before or equal to created_to',
-      path: ['created_from'],
+      message: `${fields.from} must be before or equal to ${fields.to}`,
+      path: [fields.from],
     });
     return;
   }
@@ -80,18 +81,29 @@ function validateDateWindow(
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: 'created date window must be 365 days or less',
-      path: ['created_to'],
+      path: [fields.to],
     });
   }
 }
 
-export const workflowRunListQuerySchema = runListQueryBaseSchema.superRefine(validateDateWindow);
+const validateWorkflowRunListDateWindow = (
+  value: {created_from?: string | undefined; created_to?: string | undefined},
+  ctx: z.RefinementCtx,
+) =>
+  validateDateWindow({from: value.created_from, to: value.created_to}, ctx, {
+    from: 'created_from',
+    to: 'created_to',
+  });
+
+export const workflowRunListQuerySchema = runListQueryBaseSchema.superRefine(
+  validateWorkflowRunListDateWindow,
+);
 
 export type WorkflowRunListQueryDto = z.infer<typeof workflowRunListQuerySchema>;
 
 export const workflowRunAggregatesQuerySchema = runListQueryBaseSchema
   .omit({limit: true, cursor: true})
-  .superRefine(validateDateWindow);
+  .superRefine(validateWorkflowRunListDateWindow);
 
 export type WorkflowRunAggregatesQueryDto = z.infer<typeof workflowRunAggregatesQuerySchema>;
 
