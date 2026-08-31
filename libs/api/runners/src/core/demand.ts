@@ -16,6 +16,7 @@ import {
   listProvisionerTerminationAuthorizationsTx,
   type RunnerEnrollmentRevocationCounts,
   type RunnerInstanceTerminateIntent,
+  type TerminationAuthorizationTelemetry,
 } from '#db/runner-instances.js';
 import {
   providerRunnerCountDivergenceCount,
@@ -23,7 +24,10 @@ import {
   recordProviderRunnerActivationOutcome,
   recordRunnerEnrollmentCredentialRevoked,
 } from '#metrics/instance.js';
-import {authorizeRunnerTerminationTx} from './termination-authorization.js';
+import {
+  authorizeRunnerTerminationTx,
+  recordRunnerTerminationAuthorizationTelemetry,
+} from './termination-authorization.js';
 
 export interface PollDemandParams {
   workspaceId: string;
@@ -81,7 +85,11 @@ export async function pollDemand(params: PollDemandParams): Promise<PollDemandRe
     const previousSnapshot = lastSnapshot;
     const deadlinePassed = Date.now() >= deadlineMs;
     const revocationCounts: RunnerEnrollmentRevocationCounts[] = [];
-    const snapshot = await db().transaction(async (tx) => {
+    const transactionResult = await db().transaction(async (tx) => {
+      const terminationAuthorizationTelemetry: Array<{
+        providerRunnerId: string;
+        telemetry: TerminationAuthorizationTelemetry;
+      }> = [];
       const demand = await pollDemandAndReserveTx(tx, {
         workspaceId: params.workspaceId,
         provisionerId: params.provisionerId,
@@ -103,19 +111,21 @@ export async function pollDemand(params: PollDemandParams): Promise<PollDemandRe
         {
           authorize: async ({providerRunnerId, reason}) => {
             if (reason !== 'activation-timeout') return true;
-            return (
-              (
-                await authorizeRunnerTerminationTx(
-                  tx,
-                  {
-                    provisionerId: params.provisionerId,
-                    providerRunnerId,
-                    reason,
-                  },
-                  (counts) => revocationCounts.push(counts),
-                )
-              ).desiredIntent === 'terminate'
+            const authorization = await authorizeRunnerTerminationTx(
+              tx,
+              {
+                provisionerId: params.provisionerId,
+                providerRunnerId,
+                reason,
+              },
+              (counts) => revocationCounts.push(counts),
             );
+            if (authorization.telemetry)
+              terminationAuthorizationTelemetry.push({
+                providerRunnerId,
+                telemetry: authorization.telemetry,
+              });
+            return authorization.desiredIntent === 'terminate';
           },
         },
       );
@@ -172,7 +182,12 @@ export async function pollDemand(params: PollDemandParams): Promise<PollDemandRe
           deliveredIntents,
         )
       ) {
-        return {result, terminateIntents, divergences: []};
+        return {
+          result,
+          terminateIntents,
+          divergences: [],
+          terminationAuthorizationTelemetry,
+        };
       }
 
       return {
@@ -185,9 +200,24 @@ export async function pollDemand(params: PollDemandParams): Promise<PollDemandRe
             provisionerId: params.provisionerId,
           }),
         }),
+        terminationAuthorizationTelemetry,
       };
     });
     recordEnrollmentCredentialRevocations(revocationCounts);
+    for (const {providerRunnerId, telemetry} of transactionResult.terminationAuthorizationTelemetry)
+      recordRunnerTerminationAuthorizationTelemetry(
+        {
+          provisionerId: params.provisionerId,
+          providerRunnerId,
+          reason: telemetry.reason,
+        },
+        telemetry,
+      );
+    const snapshot: PollDemandSnapshot = {
+      result: transactionResult.result,
+      divergences: transactionResult.divergences,
+      terminateIntents: transactionResult.terminateIntents,
+    };
     if (params.signal.aborted) {
       await releaseReservationGrants(snapshot.result.reservations);
       return previousSnapshot.result;

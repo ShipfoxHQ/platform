@@ -37,6 +37,50 @@ beforeAll(async () => {
 });
 
 describe('runner lifecycle metrics', () => {
+  it('defines termination telemetry with bounded labels', () => {
+    const calls = metricMocks.createCounter.mock.calls as unknown as Array<
+      [string, {description?: string}]
+    >;
+
+    expect(calls.map(([name]) => name)).toEqual(
+      expect.arrayContaining([
+        'runners_termination_authorization_honored',
+        'runners_termination_authorization_issued',
+        'runners_provider_runner_terminate_intent_honored',
+        'runners_termination_authorization_rejected',
+      ]),
+    );
+  });
+
+  it('records termination authorization outcomes without identifier labels', () => {
+    metrics.runnerTerminationAuthorizationHonoredCount.add(1, {reason: 'terminal-state'});
+    metrics.recordRunnerTerminationAuthorizationIssued('terminal-state');
+    metrics.recordRunnerTerminationAuthorizationRejected('unknown-runner');
+    metrics.recordRunnerTerminationAuthorizationRejected('unknown-reason');
+
+    expect(
+      metricMocks.counters.get('runners_termination_authorization_honored')?.add,
+    ).toHaveBeenCalledWith(1, {reason: 'terminal-state'});
+    expect(
+      metricMocks.counters.get('runners_termination_authorization_issued')?.add,
+    ).toHaveBeenCalledWith(1, {reason: 'terminal-state'});
+    expect(
+      metricMocks.counters.get('runners_termination_authorization_rejected')?.add,
+    ).toHaveBeenCalledWith(1, {reason: 'unknown-runner'});
+    expect(
+      metricMocks.counters.get('runners_termination_authorization_rejected')?.add,
+    ).toHaveBeenCalledWith(1, {reason: 'unknown-reason'});
+  });
+
+  it('records correlated stale job lease deferral', () => {
+    metrics.recordDeferredJobLeaseExpiry();
+
+    expect(metricMocks.counters.get('runners_job_lease_expiry_deferred')?.add).toHaveBeenCalledWith(
+      1,
+      {cause: 'correlated-stale'},
+    );
+  });
+
   it('defines provider-runner histograms with millisecond units and buckets', () => {
     const calls = metricMocks.createHistogram.mock.calls as unknown as Array<
       [string, {unit?: string; advice?: {explicitBucketBoundaries?: number[]}}]

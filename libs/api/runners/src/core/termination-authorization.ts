@@ -7,7 +7,14 @@ import {
   persistRunnerTerminationAuthorizationTx,
   type RunnerEnrollmentRevocationCounts,
   type TerminationAuthorizationResult,
+  type TerminationAuthorizationTelemetry,
+  type TerminationAuthorizationTxResult,
+  type TerminationReasonResolution,
 } from '#db/runner-instances.js';
+import {
+  recordRunnerTerminationAuthorizationIssued,
+  recordRunnerTerminationAuthorizationRejected,
+} from '#metrics/index.js';
 
 export interface RunnerTerminationAuthorizationParams {
   provisionerId: string;
@@ -33,17 +40,19 @@ const terminationReasons = new Set<string>(Object.keys(terminationReasonGate));
 export async function authorizeRunnerTermination(
   params: RunnerTerminationAuthorizationParams,
 ): Promise<TerminationAuthorizationResult> {
-  return await persistRunnerTerminationAuthorization({
+  const result = await persistRunnerTerminationAuthorization({
     ...params,
     resolveTerminationReason: () => resolveRunnerTerminationReason(params),
   });
+  recordRunnerTerminationAuthorizationTelemetry(params, result.telemetry);
+  return withoutTelemetry(result);
 }
 
 export async function authorizeRunnerTerminationTx(
   tx: Tx,
   params: RunnerTerminationAuthorizationParams,
   onRevocation?: (counts: RunnerEnrollmentRevocationCounts) => void,
-): Promise<TerminationAuthorizationResult> {
+): Promise<TerminationAuthorizationTxResult> {
   return await persistRunnerTerminationAuthorizationTx(
     tx,
     {
@@ -54,29 +63,76 @@ export async function authorizeRunnerTerminationTx(
   );
 }
 
+export function recordRunnerTerminationAuthorizationTelemetry(
+  params: RunnerTerminationAuthorizationParams,
+  telemetry: TerminationAuthorizationTelemetry | null,
+): void {
+  if (!telemetry) return;
+
+  const fields = {
+    component: 'api-runners',
+    provisionerId: params.provisionerId,
+    providerRunnerId: params.providerRunnerId,
+    reason: telemetry.reason,
+  };
+  if (telemetry.outcome === 'issued') {
+    recordRunnerTerminationAuthorizationIssued(telemetry.reason);
+    safelyLog(
+      'info',
+      {...fields, event: 'runner.termination_authorization_issued'},
+      'Runner termination authorization issued',
+    );
+  } else {
+    recordRunnerTerminationAuthorizationRejected(telemetry.reason);
+    safelyLog(
+      'warn',
+      {...fields, event: 'runner.termination_authorization_rejected'},
+      'termination authorization rejected',
+    );
+  }
+}
+
+function safelyLog(
+  level: 'info' | 'warn',
+  fields: {
+    event: string;
+    provisionerId: string;
+    providerRunnerId: string;
+    reason: string;
+  },
+  message: string,
+): void {
+  try {
+    logger()[level](fields, message);
+  } catch {
+    // Telemetry failures must not change authorization behavior.
+  }
+}
+
+function withoutTelemetry(
+  result: TerminationAuthorizationTxResult,
+): TerminationAuthorizationResult {
+  if (result.desiredIntent === 'keep')
+    return {
+      desiredIntent: 'keep',
+      terminationAuthorizedAt: null,
+      terminationReason: null,
+    };
+  return {
+    desiredIntent: 'terminate',
+    terminationAuthorizedAt: result.terminationAuthorizedAt,
+    terminationReason: result.terminationReason,
+  };
+}
+
 export function resolveRunnerTerminationReason(
   params: RunnerTerminationAuthorizationParams,
-): RunnerTerminationReason | null {
-  if (!terminationReasons.has(params.reason)) {
-    logger().warn(
-      {
-        provisionerId: params.provisionerId,
-        providerRunnerId: params.providerRunnerId,
-        reason: params.reason,
-      },
-      'termination authorization rejected for unknown reason',
-    );
-    return null;
-  }
+): TerminationReasonResolution {
+  if (!terminationReasons.has(params.reason))
+    return {reason: null, rejectionReason: 'unknown-reason'};
 
   const reason = params.reason as RunnerTerminationReason;
-  if (!config[terminationReasonGate[reason]]) {
-    logger().warn(
-      {provisionerId: params.provisionerId, providerRunnerId: params.providerRunnerId, reason},
-      'termination authorization rejected by disabled reason gate',
-    );
-    return null;
-  }
+  if (!config[terminationReasonGate[reason]]) return {reason: null, rejectionReason: reason};
 
-  return reason;
+  return {reason};
 }

@@ -66,6 +66,7 @@ export {
 export {assignRunnerInstances} from './runner-assignments.js';
 export type {
   ActiveRunnerInstanceTemplateCount,
+  ProviderRunnerStateMetric,
   ReapStaleRunnerInstancesResult,
   ReconcileRunnerInstancesDbResult,
   ReconcileRunnerInstancesParams,
@@ -82,6 +83,7 @@ export {
   isTerminalState,
   listActiveRunnerInstanceCountsByTemplateTx,
   listActiveRunnerInstances,
+  listProviderRunnerByStateMetrics,
   listProvisionerTerminateIntentRowsTx,
   listProvisionerTerminateIntents,
   listProvisionerTerminationAuthorizations,

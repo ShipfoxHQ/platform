@@ -223,6 +223,30 @@ export const providerRunnerTerminateIntentHonoredCount = meter.createCounter<{
   description: 'Provisioned runner terminate intents honored by first transition to terminated',
 });
 
+export const runnerTerminationAuthorizationHonoredCount = meter.createCounter<{
+  reason: RunnerTerminationReason;
+}>('runners_termination_authorization_honored', {
+  description: 'Durable runner termination authorizations honored by bounded reason',
+});
+
+/** The reason labels are the finite termination-reason enum; identifiers stay in logs. */
+export const runnerTerminationAuthorizationIssuedCount = meter.createCounter<{
+  reason: RunnerTerminationReason;
+}>('runners_termination_authorization_issued', {
+  description: 'New durable runner termination authorizations issued by bounded reason',
+});
+
+export type RunnerTerminationAuthorizationRejectionReason =
+  | RunnerTerminationReason
+  | 'unknown-reason'
+  | 'unknown-runner';
+
+export const runnerTerminationAuthorizationRejectedCount = meter.createCounter<{
+  reason: RunnerTerminationAuthorizationRejectionReason;
+}>('runners_termination_authorization_rejected', {
+  description: 'Runner termination authorization requests rejected by bounded reason',
+});
+
 export const providerRunnerActivationOutcomeCount = meter.createCounter<{
   outcome: 'reaped' | 'rebound';
 }>('runners_provider_runner_activation_outcome', {
@@ -267,6 +291,16 @@ export function recordStaleJobCandidateRatio(value: number): void {
 
 export function recordDeferredJobLeaseExpiry(): void {
   recordMetric(() => jobLeaseExpiryDeferredCount.add(1, {cause: 'correlated-stale'}));
+}
+
+export function recordRunnerTerminationAuthorizationIssued(reason: RunnerTerminationReason): void {
+  recordMetric(() => runnerTerminationAuthorizationIssuedCount.add(1, {reason}));
+}
+
+export function recordRunnerTerminationAuthorizationRejected(
+  reason: RunnerTerminationAuthorizationRejectionReason,
+): void {
+  recordMetric(() => runnerTerminationAuthorizationRejectedCount.add(1, {reason}));
 }
 
 export function recordShadowedJobLeaseExpiry(): void {
