@@ -1,11 +1,12 @@
 import type {RunnerToolCapabilitiesDto} from '@shipfox/api-runners-dto';
+import {hashOpaqueToken} from '@shipfox/node-tokens';
 import {afterEach, vi} from '@shipfox/vitest/vi';
 import {eq, inArray} from 'drizzle-orm';
 import {db} from '#db/db.js';
 import {provisionerTokens} from '#db/schema/provisioner-tokens.js';
 import {reservations} from '#db/schema/reservations.js';
 import {runnerActivationTokens} from '#db/schema/runner-activation-tokens.js';
-import {runnerControlSessions} from '#db/schema/runner-control-sessions.js';
+import {runnerBootstrapTokens, runnerControlSessions} from '#db/schema/runner-control-sessions.js';
 import {providerRunners} from '#db/schema/runner-instances.js';
 import {runnerSessions} from '#db/schema/runner-sessions.js';
 import {
@@ -15,6 +16,8 @@ import {
 } from '#metrics/instance.js';
 import {
   enrollRunnerControlSession,
+  exchangeRunnerBootstrapToken,
+  RunnerBootstrapTokenInvalidError,
   RunnerControlSessionInvalidError,
 } from './runner-control-sessions.js';
 
@@ -27,6 +30,9 @@ afterEach(async () => {
   const reservationIds = [...createdReservationIds];
 
   if (runnerInstanceIds.length > 0) {
+    await db()
+      .delete(runnerBootstrapTokens)
+      .where(inArray(runnerBootstrapTokens.runnerInstanceId, runnerInstanceIds));
     await db()
       .delete(runnerActivationTokens)
       .where(inArray(runnerActivationTokens.runnerInstanceId, runnerInstanceIds));
@@ -48,6 +54,51 @@ afterEach(async () => {
   createdRunnerInstanceIds.clear();
   createdReservationIds.clear();
   createdProvisionerTokenIds.clear();
+});
+
+describe('exchangeRunnerBootstrapToken', () => {
+  it('rejects exchange after termination authorization wins the enrollment lock', async () => {
+    const provisionerId = crypto.randomUUID();
+    const runnerInstanceId = await createRunner({
+      provisionerId,
+      workspaceId: crypto.randomUUID(),
+    });
+    const rawToken = crypto.randomUUID();
+    await db()
+      .delete(runnerControlSessions)
+      .where(eq(runnerControlSessions.runnerInstanceId, runnerInstanceId));
+    await db()
+      .insert(runnerBootstrapTokens)
+      .values({
+        runnerInstanceId,
+        provisionerId,
+        hashedToken: hashOpaqueToken(rawToken),
+        prefix: 'test',
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+    await db()
+      .update(providerRunners)
+      .set({
+        terminationAuthorizedAt: new Date(),
+        terminationReason: 'registration-deadline',
+      })
+      .where(eq(providerRunners.id, runnerInstanceId));
+
+    await expect(exchangeRunnerBootstrapToken({rawToken, ttlSeconds: 60})).rejects.toBeInstanceOf(
+      RunnerBootstrapTokenInvalidError,
+    );
+
+    const [bootstrap] = await db()
+      .select({consumedAt: runnerBootstrapTokens.consumedAt})
+      .from(runnerBootstrapTokens)
+      .where(eq(runnerBootstrapTokens.runnerInstanceId, runnerInstanceId));
+    const sessions = await db()
+      .select({id: runnerControlSessions.id})
+      .from(runnerControlSessions)
+      .where(eq(runnerControlSessions.runnerInstanceId, runnerInstanceId));
+    expect(bootstrap?.consumedAt).toBeNull();
+    expect(sessions).toHaveLength(0);
+  });
 });
 
 describe('enrollRunnerControlSession', () => {

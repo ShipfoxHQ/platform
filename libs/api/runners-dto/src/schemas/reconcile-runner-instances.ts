@@ -18,7 +18,6 @@ export const providerTerminationCandidateSchema = z
   .object({
     provider_runner_id: z.string().min(1).max(MAX_OBSERVED_PROVIDER_RUNNER_ID_LENGTH),
     reason: providerTerminationCandidateReasonSchema,
-    observed_at: z.string().datetime(),
   })
   .strict();
 

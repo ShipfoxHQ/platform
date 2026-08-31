@@ -13,7 +13,6 @@ describe('reconcileRunnerInstancesBodySchema', () => {
         {
           provider_runner_id: 'provider-runner-1',
           reason: 'registration-deadline',
-          observed_at: '2026-08-31T12:00:00.000Z',
         },
       ],
     });
@@ -28,12 +27,10 @@ describe('reconcileRunnerInstancesBodySchema', () => {
         {
           provider_runner_id: 'provider-runner-1',
           reason: 'registration-deadline',
-          observed_at: '2026-08-31T12:00:00.000Z',
         },
         {
           provider_runner_id: 'provider-runner-1',
           reason: 'provider-health-failed',
-          observed_at: '2026-08-31T12:00:01.000Z',
         },
       ],
     });

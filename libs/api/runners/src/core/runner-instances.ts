@@ -62,7 +62,6 @@ export interface ReportRunnerInstancesResult {
 export interface ProviderTerminationCandidate {
   providerRunnerId: string;
   reason: ProviderTerminationCandidateReasonDto;
-  observedAt: Date;
 }
 
 export interface ReconcileRunnerInstancesParams {
@@ -169,14 +168,34 @@ export async function reportRunnerInstances(
 export async function reconcileRunnerInstances(
   params: ReconcileRunnerInstancesParams,
 ): Promise<ReconcileRunnerInstancesResult> {
+  const terminationCandidates = (params.terminationCandidates ?? []).filter((candidate) => {
+    const resolution = params.workspaceId
+      ? resolveRunnerTerminationReason({
+          provisionerId: params.provisionerId,
+          providerRunnerId: candidate.providerRunnerId,
+          reason: candidate.reason,
+        })
+      : {reason: null, rejectionReason: 'unknown-runner' as const};
+    if (!resolution.reason)
+      recordRunnerTerminationAuthorizationTelemetry(
+        {
+          provisionerId: params.provisionerId,
+          providerRunnerId: candidate.providerRunnerId,
+          reason: candidate.reason,
+        },
+        {outcome: 'rejected', reason: resolution.rejectionReason},
+      );
+    return Boolean(resolution.reason);
+  });
   const observedRunnerInstanceIds = [
     ...new Set([
       ...params.observedRunnerInstanceIds,
-      ...(params.terminationCandidates ?? []).map((candidate) => candidate.providerRunnerId),
+      ...terminationCandidates.map((candidate) => candidate.providerRunnerId),
     ]),
   ];
   const result = await reconcileRunnerInstancesDb({
     ...params,
+    terminationCandidates,
     observedRunnerInstanceIds,
     terminateGraceSeconds: config.RUNNER_RECONCILE_TERMINATE_GRACE_SECONDS,
     postJobExitGraceSeconds: config.RUNNER_POST_JOB_EXIT_GRACE_SECONDS,
@@ -184,14 +203,20 @@ export async function reconcileRunnerInstances(
       resolveRunnerTerminationReason({provisionerId, providerRunnerId, reason}),
   });
 
-  for (const {providerRunnerId, telemetry} of result.terminationAuthorizationTelemetry)
+  for (const {
+    providerRunnerId,
+    reason,
+    telemetry,
+    revocationCounts,
+  } of result.terminationAuthorizationTelemetry)
     recordRunnerTerminationAuthorizationTelemetry(
       {
         provisionerId: params.provisionerId,
         providerRunnerId,
-        reason: telemetry.reason,
+        reason,
       },
       telemetry,
+      revocationCounts,
     );
 
   recordRunnerReservationReleased({count: result.reservationsReleased, surface: 'reconcile'});

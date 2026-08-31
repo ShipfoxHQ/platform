@@ -155,7 +155,7 @@ describe('authorizeRunnerTermination', () => {
     const disabled = await authorizeRunnerTermination({
       provisionerId: runner.provisionerId,
       providerRunnerId: runner.providerRunnerId,
-      reason: 'provider-health-failed',
+      reason: 'runner-unresponsive',
     });
     const unknown = await authorizeRunnerTermination({
       provisionerId: runner.provisionerId,
@@ -1659,6 +1659,7 @@ describe('reportRunnerInstances', () => {
       provisionerId,
       providerRunnerId: 'authorized-runner',
       state: 'terminated',
+      reportedAt: new Date('2025-01-01T00:00:00.000Z'),
     });
     await db()
       .update(providerRunners)

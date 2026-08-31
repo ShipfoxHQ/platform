@@ -163,6 +163,7 @@ export async function exchangeRunnerBootstrapToken(params: {
         createdAt: providerRunners.createdAt,
         provider: providerRunners.providerKind,
         launchKind: providerRunners.launchKind,
+        terminationAuthorizedAt: providerRunners.terminationAuthorizedAt,
       })
       .from(providerRunners)
       .where(
@@ -171,7 +172,9 @@ export async function exchangeRunnerBootstrapToken(params: {
           eq(providerRunners.provisionerId, bootstrap.provisionerId),
         ),
       )
-      .limit(1);
+      .limit(1)
+      .for('update');
+    if (runner?.terminationAuthorizedAt) throw new RunnerBootstrapTokenInvalidError();
     const [session] = await tx
       .insert(runnerControlSessions)
       .values({

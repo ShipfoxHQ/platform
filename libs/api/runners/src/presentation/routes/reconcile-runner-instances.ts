@@ -30,7 +30,6 @@ export const reconcileRunnerInstancesRoute = defineRoute({
             terminationCandidates: request.body.termination_candidates.map((candidate) => ({
               providerRunnerId: candidate.provider_runner_id,
               reason: candidate.reason,
-              observedAt: new Date(candidate.observed_at),
             })),
           }
         : {}),
