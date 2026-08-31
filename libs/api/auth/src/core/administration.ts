@@ -18,7 +18,10 @@ import {
   suspendUserWithAudit,
   type UserModerationResult,
 } from '#db/admin-user-moderation.js';
-import {findAdministratorUser as findAdministratorUserInDb} from '#db/admin-users.js';
+import {
+  findAdministratorUser as findAdministratorUserInDb,
+  listAdministratorUsers as listAdministratorUsersInDb,
+} from '#db/admin-users.js';
 import {
   type ImpersonationResult,
   impersonateUserWithAudit,
@@ -53,6 +56,9 @@ import {
 const ADMIN_OWNER_ROLE: AdminRole = 'admin-owner';
 const ADMIN_OBSERVER_ROLE: AdminRole = 'admin-observer';
 const ADMIN_OPERATOR_ROLE: AdminRole = 'admin-operator';
+const ADMINISTRATOR_DIRECTORY_MAX_SEARCH_TERMS = 10;
+const ADMINISTRATOR_DIRECTORY_MAX_SEARCH_TERM_LENGTH = 100;
+const ADMINISTRATOR_DIRECTORY_SEARCH_TERM_SEPARATOR = /\s+/;
 const BOOTSTRAP_COMMAND = 'auth.admin_grant.bootstrap';
 const GRANT_COMMAND = 'auth.admin_grant.grant';
 const REVOKE_COMMAND = 'auth.admin_grant.revoke';
@@ -190,6 +196,39 @@ export async function findAdministratorUserSummary(
   if (!user) return undefined;
 
   return user;
+}
+
+export interface ListAdministratorUsersParams {
+  actorId: string;
+  limit: number;
+  cursor?: TimestampIdCursor | undefined;
+  search?: string | undefined;
+  status?: AdministratorUserSummary['status'] | undefined;
+  eligible?: boolean | undefined;
+}
+
+function validateAdministratorUserDirectorySearch(search: string | undefined): void {
+  const normalizedSearch = search?.trim();
+  if (!normalizedSearch) return;
+
+  const terms = normalizedSearch.split(ADMINISTRATOR_DIRECTORY_SEARCH_TERM_SEPARATOR);
+  if (terms.length > ADMINISTRATOR_DIRECTORY_MAX_SEARCH_TERMS) {
+    throw new TypeError(
+      `Administrator user directory search accepts at most ${ADMINISTRATOR_DIRECTORY_MAX_SEARCH_TERMS} terms`,
+    );
+  }
+
+  if (terms.some((term) => term.length > ADMINISTRATOR_DIRECTORY_MAX_SEARCH_TERM_LENGTH)) {
+    throw new TypeError(
+      `Administrator user directory search terms must be at most ${ADMINISTRATOR_DIRECTORY_MAX_SEARCH_TERM_LENGTH} characters`,
+    );
+  }
+}
+
+export async function listAdministratorUsers(params: ListAdministratorUsersParams) {
+  await requireAdminRole({userId: params.actorId, minimumRole: ADMIN_OBSERVER_ROLE});
+  validateAdministratorUserDirectorySearch(params.search);
+  return await listAdministratorUsersInDb(params);
 }
 
 export async function listAdministratorGrantSummaries(params: {

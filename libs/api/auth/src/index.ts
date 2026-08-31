@@ -37,10 +37,12 @@ export {
   requireAdminRole,
   revokeAdminGrant,
 } from '#core/admin-role.js';
+export type {ListAdministratorUsersParams} from '#core/administration.js';
 export {
   bootstrapFirstAdminOwner,
   grantAdministratorRole,
   impersonateUser,
+  listAdministratorUsers,
   reactivateAdministratorUser,
   revokeAdministratorGrant,
   revokeAdministratorUserSessions,

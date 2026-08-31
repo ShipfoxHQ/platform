@@ -87,14 +87,6 @@ function addSearchConditions(conditions: SQL[], search: string | undefined): voi
   }
 }
 
-function adminRoleFromRank(rank: number | null, status: UserStatus): AdminRole | null {
-  if (status !== 'active' || rank === null) return null;
-  if (rank === 3) return 'admin-owner';
-  if (rank === 2) return 'admin-operator';
-  if (rank === 1) return 'admin-observer';
-  return null;
-}
-
 export async function findAdministratorUserSummary(
   executor: AdministratorUserSummaryExecutor,
   params: AdministratorUserLookup,
@@ -135,19 +127,26 @@ export async function findAdministratorUserSummary(
   } satisfies AdministratorUserSummary;
 }
 
+/**
+ * Lists a live directory view using keyset pagination.
+ *
+ * Pages are not a consistent snapshot. Each page reads current account and grant state, so
+ * inserts and account or grant changes can make consecutive pages differ. Re-run the listing
+ * before acting on a row.
+ */
 export async function listAdministratorUserSummaries(
   executor: AdministratorUserSummaryExecutor,
   params: ListAdministratorUserSummariesParams,
 ): Promise<ListAdministratorUserSummariesResult> {
+  if (params.eligible === true && params.status && params.status !== 'active') {
+    throw new TypeError('eligible users must have active status');
+  }
+
   // Aggregate grants in a subquery so pagination is over users, not grants.
   const activeAdminRoles = executor
     .select({
       userId: adminGrants.userId,
-      roleRank: sql<number>`max(case ${adminGrants.role}
-        when 'admin-observer' then 1
-        when 'admin-operator' then 2
-        when 'admin-owner' then 3
-      end)`.as('role_rank'),
+      roles: sql<AdminRole[]>`json_agg(${adminGrants.role})`.as('roles'),
     })
     .from(adminGrants)
     .where(isNull(adminGrants.revokedAt))
@@ -174,7 +173,7 @@ export async function listAdministratorUserSummaries(
       emailVerifiedAt: users.emailVerifiedAt,
       status: users.status,
       createdAt: users.createdAt,
-      adminRoleRank: activeAdminRoles.roleRank,
+      adminRoles: activeAdminRoles.roles,
     })
     .from(users)
     .leftJoin(activeAdminRoles, eq(activeAdminRoles.userId, users.id))
@@ -183,9 +182,9 @@ export async function listAdministratorUserSummaries(
     .limit(params.limit + 1);
 
   const mappedRows = rows.map(
-    ({adminRoleRank, ...row}): AdministratorUserSummary => ({
+    ({adminRoles, ...row}): AdministratorUserSummary => ({
       ...row,
-      adminRole: adminRoleFromRank(adminRoleRank, row.status),
+      adminRole: row.status === 'active' ? highestAdminRole(adminRoles ?? []) : null,
     }),
   );
   const page = paginateTimestampIdRows({

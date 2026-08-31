@@ -1,6 +1,6 @@
 import {eq} from 'drizzle-orm';
 import {userFactory} from '#test/index.js';
-import {createAdminGrant} from './admin-grants.js';
+import {createAdminGrant, revokeAdminGrant} from './admin-grants.js';
 import {listAdministratorUserSummaries} from './admin-user-summary.js';
 import {db} from './db.js';
 import {users} from './schema/users.js';
@@ -81,7 +81,7 @@ describe('administrator user summaries db', () => {
       name: 'Ada Lovelace',
     });
     await userFactory.create({
-      email: `literal%_${crypto.randomUUID()}@example.com`,
+      email: `control-${crypto.randomUUID()}@example.com`,
       name: 'Ada Byron',
     });
 
@@ -104,7 +104,7 @@ describe('administrator user summaries db', () => {
       search: '%_',
       limit: 10,
     });
-    expect(literal.rows.map(({id}) => id)).toContain(user.id);
+    expect(literal.rows.map(({id}) => id)).toEqual([user.id]);
 
     const literalBackslash = await listAdministratorUserSummaries(db(), {
       actorId: actor.id,
@@ -112,6 +112,49 @@ describe('administrator user summaries db', () => {
       limit: 10,
     });
     expect(literalBackslash.rows.map(({id}) => id)).toEqual([user.id]);
+  });
+
+  test('rejects an active eligibility filter combined with a non-active status', async () => {
+    await expect(
+      listAdministratorUserSummaries(db(), {
+        actorId: crypto.randomUUID(),
+        limit: 10,
+        eligible: true,
+        status: 'suspended',
+      }),
+    ).rejects.toThrow('eligible users must have active status');
+  });
+
+  test('ignores revoked grants when filtering eligibility and projecting roles', async () => {
+    const marker = `directory-revoked-${crypto.randomUUID()}`;
+    const actor = await userFactory.create({email: `${marker}-actor@example.com`});
+    const revoked = await userFactory.create({
+      email: `${marker}-revoked@example.com`,
+      emailVerifiedAt: new Date(),
+    });
+    const grant = await createAdminGrant({userId: revoked.id, role: 'admin-observer'});
+    await revokeAdminGrant({grantId: grant.id});
+
+    const eligibleRows = await listAdministratorUserSummaries(db(), {
+      actorId: actor.id,
+      search: marker,
+      eligible: true,
+      limit: 10,
+    });
+    const allRows = await listAdministratorUserSummaries(db(), {
+      actorId: actor.id,
+      search: marker,
+      limit: 10,
+    });
+
+    expect(eligibleRows.rows.map(({id}) => id)).toEqual([revoked.id]);
+    expect(allRows.rows).toHaveLength(2);
+    expect(allRows.rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({id: revoked.id, adminRole: null}),
+        expect.objectContaining({id: actor.id, adminRole: null}),
+      ]),
+    );
   });
 
   test.each(['active', 'suspended', 'deleted'] as const)('filters by %s status', async (status) => {
