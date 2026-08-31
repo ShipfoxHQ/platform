@@ -126,7 +126,7 @@ describe('dispatchIntegrationEvent', () => {
     expect(firedProjects).toEqual(expect.arrayContaining([subA.projectId, subB.projectId]));
   });
 
-  test('matches a connection-scoped trigger for a non-fork event outside the run project', async () => {
+  test('fires a workspace subscription for a push event whose payload references a repository outside the run project', async () => {
     const workspaceId = crypto.randomUUID();
     const connectionId = crypto.randomUUID();
     const source = 'github_shipfox';

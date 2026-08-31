@@ -630,6 +630,8 @@ describe('handleGithubEvent', () => {
         event: 'fork',
         workspaceId: connection.workspaceId,
         connectionId: connection.id,
+        connectionName: connection.displayName,
+        provider: 'github',
         deliveryId,
         payload,
       },
