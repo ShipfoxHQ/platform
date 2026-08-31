@@ -6,6 +6,16 @@ import {
 import {workflowModelSnapshotSchema} from '@shipfox/api-definitions-dto';
 import {defineInterModuleContract, type InterModuleClient} from '@shipfox/inter-module';
 import {z} from 'zod';
+import {
+  validateDateWindow,
+  workflowRunListItemSchema,
+  workflowRunOriginSchema,
+  workflowRunStatusSchema,
+} from './schemas/workflow-run.js';
+import {
+  stepAttemptDetailResponseSchema,
+  workflowRunDetailResponseSchema,
+} from './schemas/workflow-run-detail.js';
 
 const idSchema = z.string().uuid();
 const workflowRunTriggerReferenceSchema = z.object({
@@ -65,6 +75,27 @@ const interpolationFieldSchema = z.enum([
   'checkout.ref',
   'checkout.path',
 ]);
+
+const attemptSchema = z.number().int().min(1).max(2_147_483_647);
+const workflowRunCursorSchema = z.object({
+  createdAt: z.string().datetime(),
+  id: idSchema,
+});
+const workflowRunFiltersSchema = z
+  .object({
+    status: workflowRunStatusSchema.optional(),
+    definitionId: idSchema.optional(),
+    triggerSource: z.string().optional(),
+    origin: workflowRunOriginSchema.optional(),
+    createdFrom: z.string().datetime().optional(),
+    createdTo: z.string().datetime().optional(),
+  })
+  .superRefine((value, ctx) =>
+    validateDateWindow({from: value.createdFrom, to: value.createdTo}, ctx, {
+      from: 'createdFrom',
+      to: 'createdTo',
+    }),
+  );
 
 /**
  * Producer-owned Workflows commands used by synchronous callers. Commands carry
@@ -236,6 +267,44 @@ export const workflowsInterModuleContract = defineInterModuleContract({
         'leased-step-not-agent': z.object({}),
         'step-session-config-invalid': z.object({}),
       },
+    },
+    listWorkflowRuns: {
+      input: z.object({
+        workspaceId: idSchema,
+        projectId: idSchema,
+        limit: z.number().int().min(1).max(100),
+        cursor: workflowRunCursorSchema.optional(),
+        filters: workflowRunFiltersSchema.optional(),
+      }),
+      output: z.object({
+        runs: z.array(workflowRunListItemSchema),
+        nextCursor: workflowRunCursorSchema.nullable(),
+        filteredTotalCount: z.number().int().nonnegative().nullable(),
+      }),
+    },
+    getWorkflowRunDetail: {
+      input: z.object({
+        workspaceId: idSchema,
+        workflowRunId: idSchema,
+        attempt: attemptSchema,
+      }),
+      output: z.object({run: workflowRunDetailResponseSchema.nullable()}),
+    },
+    getStepAttemptDetail: {
+      input: z.object({
+        workspaceId: idSchema,
+        stepId: idSchema,
+        attempt: attemptSchema,
+      }),
+      output: z.object({detail: stepAttemptDetailResponseSchema.nullable()}),
+    },
+    getLatestRunAttempt: {
+      input: z.object({workspaceId: idSchema, workflowRunId: idSchema}),
+      output: z.object({attempt: attemptSchema.nullable()}),
+    },
+    getLatestStepAttempt: {
+      input: z.object({workspaceId: idSchema, stepId: idSchema}),
+      output: z.object({attempt: attemptSchema.nullable()}),
     },
   },
 });

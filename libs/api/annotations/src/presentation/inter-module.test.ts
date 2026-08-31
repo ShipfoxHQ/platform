@@ -8,6 +8,7 @@ import {
 } from '#core/errors.js';
 import {db} from '#db/db.js';
 import {annotations} from '#db/schema/annotations.js';
+import {annotationFactory} from '#test/index.js';
 import {
   createAnnotationsInterModulePresentation,
   toReplaceOrRemoveAnnotationKnownError,
@@ -29,6 +30,75 @@ function input() {
 }
 
 describe('Annotations inter-module presentation', () => {
+  test('lists only annotations owned by the requested workspace with pagination', async () => {
+    const workspaceId = crypto.randomUUID();
+    const workflowRunId = crypto.randomUUID();
+    const visible = await annotationFactory.create({
+      workspaceId,
+      workflowRunId,
+      context: 'visible',
+      sequence: 1,
+    });
+    const next = await annotationFactory.create({
+      workspaceId,
+      workflowRunId,
+      context: 'next',
+      sequence: 2,
+    });
+    await annotationFactory.create({
+      workspaceId,
+      workflowRunId,
+      context: 'after',
+      sequence: 3,
+    });
+    await annotationFactory.create({
+      workspaceId: crypto.randomUUID(),
+      workflowRunId,
+      context: 'hidden',
+      sequence: 4,
+    });
+    const presentation = createAnnotationsInterModulePresentation();
+
+    const result = await presentation.handlers.listAnnotationsForRunAttempt(
+      {
+        workspaceId,
+        workflowRunId,
+        workflowRunAttempt: 1,
+        limit: 2,
+      },
+      {signal: new AbortController().signal},
+    );
+
+    expect(result).toEqual({
+      annotations: [
+        {
+          id: visible.id,
+          job_id: visible.jobId,
+          job_execution_id: visible.jobExecutionId,
+          origin_step_id: visible.originStepId,
+          origin_step_attempt: visible.originStepAttempt,
+          context: 'visible',
+          style: visible.style,
+          sequence: 1,
+          body: visible.body,
+        },
+        {
+          id: next.id,
+          job_id: next.jobId,
+          job_execution_id: next.jobExecutionId,
+          origin_step_id: next.originStepId,
+          origin_step_attempt: next.originStepAttempt,
+          context: 'next',
+          style: next.style,
+          sequence: 2,
+          body: next.body,
+        },
+      ],
+      hasMore: true,
+      nextCursor: {value: next.sequence, id: next.id},
+    });
+  });
+
   test('replaces and removes a warning annotation through PostgreSQL', async () => {
     const presentation = createAnnotationsInterModulePresentation();
     const target = input();

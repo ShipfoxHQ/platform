@@ -49,7 +49,10 @@ vi.mock('@shipfox/annotations', () => ({
     interModulePresentations: [
       {
         contract: annotationsInterModuleContract,
-        handlers: {replaceOrRemoveAnnotation: vi.fn()},
+        handlers: {
+          listAnnotationsForRunAttempt: vi.fn(),
+          replaceOrRemoveAnnotation: vi.fn(),
+        },
       },
     ],
   },
@@ -250,6 +253,11 @@ describe('defaultModules', () => {
           contract: workflowsInterModuleContract,
           handlers: {
             deliverEventToJobListener: vi.fn(),
+            listWorkflowRuns: vi.fn(),
+            getWorkflowRunDetail: vi.fn(),
+            getStepAttemptDetail: vi.fn(),
+            getLatestRunAttempt: vi.fn(),
+            getLatestStepAttempt: vi.fn(),
             getLeasedAgentSessionContext: vi.fn(),
             getLeasedAgentToolContext: vi.fn(),
             getStepLogContext: vi.fn(),

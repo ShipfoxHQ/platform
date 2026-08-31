@@ -1,6 +1,86 @@
 import {workflowsInterModuleContract} from './inter-module.js';
 
 describe('workflowsInterModuleContract', () => {
+  test('accepts workspace-scoped execution reads with decoded cursors and filters', () => {
+    const workflowRunId = '00000000-0000-4000-8000-000000000001';
+    const stepId = '00000000-0000-4000-8000-000000000002';
+    const workspaceId = '00000000-0000-4000-8000-000000000003';
+    const cursor = {
+      createdAt: '2026-08-31T12:00:00.000Z',
+      id: '00000000-0000-4000-8000-000000000004',
+    };
+
+    const runs = workflowsInterModuleContract.methods.listWorkflowRuns.input.parse({
+      workspaceId,
+      projectId: '00000000-0000-4000-8000-000000000005',
+      limit: 50,
+      cursor,
+      filters: {
+        status: 'failed',
+        definitionId: '00000000-0000-4000-8000-000000000006',
+        origin: 'dev',
+        createdFrom: '2026-08-01T00:00:00.000Z',
+        createdTo: '2026-08-31T00:00:00.000Z',
+      },
+    });
+    const detail = workflowsInterModuleContract.methods.getWorkflowRunDetail.input.parse({
+      workspaceId,
+      workflowRunId,
+      attempt: 2,
+    });
+    const step = workflowsInterModuleContract.methods.getStepAttemptDetail.input.parse({
+      workspaceId,
+      stepId,
+      attempt: 1,
+    });
+
+    expect(runs.cursor).toEqual(cursor);
+    expect(runs.filters?.status).toBe('failed');
+    expect(detail.attempt).toBe(2);
+    expect(step.stepId).toBe(stepId);
+  });
+
+  test('keeps missing execution reads nullable and bounds latest-attempt inputs', () => {
+    const workspaceId = '00000000-0000-4000-8000-000000000001';
+    const nullRun = workflowsInterModuleContract.methods.getWorkflowRunDetail.output.parse({
+      run: null,
+    });
+    const nullStep = workflowsInterModuleContract.methods.getStepAttemptDetail.output.parse({
+      detail: null,
+    });
+    const latestRun = workflowsInterModuleContract.methods.getLatestRunAttempt.output.parse({
+      attempt: null,
+    });
+    const latestStep = workflowsInterModuleContract.methods.getLatestStepAttempt.output.parse({
+      attempt: 3,
+    });
+
+    expect(nullRun).toEqual({run: null});
+    expect(nullStep).toEqual({detail: null});
+    expect(latestRun).toEqual({attempt: null});
+    expect(latestStep).toEqual({attempt: 3});
+    expect(
+      workflowsInterModuleContract.methods.getLatestRunAttempt.input.safeParse({
+        workspaceId,
+        workflowRunId: 'not-a-uuid',
+      }).success,
+    ).toBe(false);
+  });
+
+  test('preserves the run-list date-window validation', () => {
+    expect(
+      workflowsInterModuleContract.methods.listWorkflowRuns.input.safeParse({
+        workspaceId: '00000000-0000-4000-8000-000000000001',
+        projectId: '00000000-0000-4000-8000-000000000002',
+        limit: 50,
+        filters: {
+          createdFrom: '2025-01-01T00:00:00.000Z',
+          createdTo: '2026-08-31T00:00:00.000Z',
+        },
+      }).success,
+    ).toBe(false);
+  });
+
   test('accepts trigger commands and listener deliveries', () => {
     const start = workflowsInterModuleContract.methods.startRunFromTrigger.input.parse({
       workspaceId: '00000000-0000-4000-8000-000000000001',

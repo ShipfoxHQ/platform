@@ -14,6 +14,7 @@ import {
   getFirstJobExecutionByJobId,
   getJobExecutionFailureOrigin,
   getJobsByWorkflowRunId,
+  getLatestStepAttempt,
   getStepAttemptDetail,
   getStepAttempts,
   getStepsByJobId,
@@ -85,7 +86,27 @@ describe('workflow run queries', () => {
       const [attempt] = await getStepAttempts(job.id);
       if (!attempt) throw new Error('Expected a dispatched step attempt');
 
+      await db()
+        .update(stepsTable)
+        .set({currentAttempt: attempt.attempt + 1})
+        .where(eq(stepsTable.id, attempt.stepId));
+
       const detail = await getStepAttemptDetail({stepId: attempt.stepId, attempt: attempt.attempt});
+      const scopedDetail = await getStepAttemptDetail({
+        stepId: attempt.stepId,
+        attempt: attempt.attempt,
+        workspaceId,
+      });
+      const latestAttempt = await getLatestStepAttempt({stepId: attempt.stepId, workspaceId});
+      const foreignWorkspaceAttempt = await getLatestStepAttempt({
+        stepId: attempt.stepId,
+        workspaceId: crypto.randomUUID(),
+      });
+      const foreignScopedDetail = await getStepAttemptDetail({
+        stepId: attempt.stepId,
+        attempt: attempt.attempt,
+        workspaceId: crypto.randomUUID(),
+      });
 
       expect(detail).toMatchObject({
         workflowRunId: run.id,
@@ -93,6 +114,35 @@ describe('workflow run queries', () => {
         step: {id: attempt.stepId},
         attempt: {id: attempt.id, attempt: attempt.attempt},
       });
+      expect(scopedDetail).toMatchObject({workflowRunId: run.id});
+      expect(latestAttempt).toBe(attempt.attempt);
+      expect(foreignWorkspaceAttempt).toBeUndefined();
+      expect(foreignScopedDetail).toBeUndefined();
+    });
+  });
+
+  describe('getLatestStepAttempt', () => {
+    test('returns no attempt when the step has not been dispatched', async () => {
+      const run = await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId,
+        model: buildModel({jobs: {build: {steps: [{run: 'echo hello'}]}}}),
+        triggerPayload: {
+          source: 'manual',
+          event: 'fire',
+          subscriptionId: crypto.randomUUID(),
+          userId: crypto.randomUUID(),
+        },
+      });
+      const [job] = await getJobsByWorkflowRunId(run.id);
+      if (!job) throw new Error('Expected a workflow job');
+      await stripSetupStep(job.id);
+
+      const [step] = await getStepsByJobId(job.id);
+      if (!step) throw new Error('Expected a workflow step');
+
+      await expect(getLatestStepAttempt({stepId: step.id, workspaceId})).resolves.toBeUndefined();
     });
   });
 

@@ -10,6 +10,8 @@ import {
   AnnotationTotalBytesLimitExceededError,
 } from '#core/errors.js';
 import {writeAnnotations} from '#core/write-annotations.js';
+import {listAnnotationsForRunAttempt} from '#db/index.js';
+import {toAnnotationDto} from './dto/annotation.js';
 
 export function createAnnotationsInterModulePresentation(): InterModulePresentation<
   typeof annotationsInterModuleContract
@@ -30,6 +32,24 @@ export function createAnnotationsInterModulePresentation(): InterModulePresentat
       } catch (error) {
         throw toReplaceOrRemoveAnnotationKnownError(error);
       }
+    },
+    listAnnotationsForRunAttempt: async (input) => {
+      const result = await listAnnotationsForRunAttempt({
+        workflowRunId: input.workflowRunId,
+        workflowRunAttempt: input.workflowRunAttempt,
+        workspaceIds: [input.workspaceId],
+        jobExecutionId: input.jobExecutionId,
+        after: input.cursor ? {sequence: input.cursor.value, id: input.cursor.id} : undefined,
+        limit: input.limit,
+      });
+
+      return {
+        annotations: result.annotations.map(toAnnotationDto),
+        hasMore: result.hasMore,
+        nextCursor: result.nextCursor
+          ? {value: result.nextCursor.sequence, id: result.nextCursor.id}
+          : null,
+      };
     },
   });
 }

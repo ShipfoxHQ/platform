@@ -53,6 +53,7 @@ function setRunnerToolCapabilities(
 const annotationWrites = vi.fn<AnnotationsInterModuleClient['replaceOrRemoveAnnotation']>();
 const annotationsTestClient: AnnotationsInterModuleClient = {
   replaceOrRemoveAnnotation: annotationWrites.mockResolvedValue({}),
+  listAnnotationsForRunAttempt: vi.fn(),
 };
 
 describe('POST /runs/jobs/current/steps/next', () => {

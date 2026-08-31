@@ -38,12 +38,22 @@ import {resolveWorkflowRunTriggerReference} from '#core/resolve-trigger-referenc
 import {assertWorkspaceAdmitsNewJobs} from '#core/workspace-admission.js';
 import {
   getJobScope,
+  getLatestRunAttempt,
+  getLatestStepAttempt,
   getStepAttemptDetail,
   getStepById,
   getStepByIdForJobExecution,
+  getWorkflowRunDetail,
   listStepAttemptIdsByJobId,
+  listWorkflowRunJobSummaries,
+  listWorkflowRuns,
 } from '#db/index.js';
 import {deliverEventToListener} from '#db/job-listener-events.js';
+import {
+  toRunDetailDto,
+  toRunListItemDto,
+  toStepAttemptDetailResponseDto,
+} from '#presentation/dto/index.js';
 
 type WorkspaceAdmissionKnownError = InterModuleKnownErrorFor<
   typeof workflowsInterModuleContract.methods.deliverEventToJobListener
@@ -223,6 +233,70 @@ export function createWorkflowsInterModulePresentation(params: {
     listJobStepAttempts: async ({jobId}) => {
       return {stepAttemptIds: await listStepAttemptIdsByJobId(jobId)};
     },
+    listWorkflowRuns: async (input) => {
+      const result = await listWorkflowRuns({
+        workspaceId: input.workspaceId,
+        projectId: input.projectId,
+        limit: input.limit,
+        cursor: input.cursor
+          ? {createdAt: new Date(input.cursor.createdAt), id: input.cursor.id}
+          : undefined,
+        filters: input.filters
+          ? {
+              status: input.filters.status,
+              definitionId: input.filters.definitionId,
+              triggerSource: input.filters.triggerSource,
+              origin: input.filters.origin,
+              createdFrom: input.filters.createdFrom
+                ? new Date(input.filters.createdFrom)
+                : undefined,
+              createdTo: input.filters.createdTo ? new Date(input.filters.createdTo) : undefined,
+            }
+          : undefined,
+        includeTotal: input.cursor === undefined,
+      });
+      const jobsByRun = await listWorkflowRunJobSummaries(
+        result.runs.map((run) => ({id: run.id, currentAttempt: run.currentAttempt})),
+      );
+
+      return {
+        runs: result.runs.map((run) => toRunListItemDto(run, jobsByRun.get(run.id))),
+        nextCursor: result.nextCursor
+          ? {createdAt: result.nextCursor.createdAt.toISOString(), id: result.nextCursor.id}
+          : null,
+        filteredTotalCount: result.filteredTotalCount,
+      };
+    },
+    getWorkflowRunDetail: async (input) => {
+      const detail = await getWorkflowRunDetail(
+        input.workflowRunId,
+        input.attempt,
+        input.workspaceId,
+      );
+      return {run: detail ? toRunDetailDto(detail) : null};
+    },
+    getStepAttemptDetail: async (input) => {
+      const detail = await getStepAttemptDetail({
+        stepId: input.stepId,
+        attempt: input.attempt,
+        workspaceId: input.workspaceId,
+      });
+      return {
+        detail: detail ? toStepAttemptDetailResponseDto(detail.step, detail.attempt) : null,
+      };
+    },
+    getLatestRunAttempt: async (input) => ({
+      attempt:
+        (await getLatestRunAttempt({
+          workflowRunId: input.workflowRunId,
+          workspaceId: input.workspaceId,
+        })) ?? null,
+    }),
+    getLatestStepAttempt: async (input) => ({
+      attempt:
+        (await getLatestStepAttempt({stepId: input.stepId, workspaceId: input.workspaceId})) ??
+        null,
+    }),
     getLeasedAgentToolContext: async (input) => {
       const method = workflowsInterModuleContract.methods.getLeasedAgentToolContext;
       const {step, scope} = await resolveLeasedAgentStep({method, input});

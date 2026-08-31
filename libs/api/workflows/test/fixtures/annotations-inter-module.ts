@@ -2,4 +2,9 @@ import type {AnnotationsInterModuleClient} from '@shipfox/annotations-dto/inter-
 
 export const annotationsTestClient: AnnotationsInterModuleClient = {
   replaceOrRemoveAnnotation: async () => ({}),
+  listAnnotationsForRunAttempt: async () => ({
+    annotations: [],
+    hasMore: false,
+    nextCursor: null,
+  }),
 };

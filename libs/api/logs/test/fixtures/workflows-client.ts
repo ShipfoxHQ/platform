@@ -16,6 +16,11 @@ export function createTestWorkflowsClient(): WorkflowsModuleClient {
       listJobStepAttempts: vi.fn(),
       getLeasedAgentToolContext: vi.fn(),
       getLeasedAgentSessionContext: vi.fn(),
+      listWorkflowRuns: vi.fn(),
+      getWorkflowRunDetail: vi.fn(),
+      getStepAttemptDetail: vi.fn(),
+      getLatestRunAttempt: vi.fn(),
+      getLatestStepAttempt: vi.fn(),
     }),
   }).workflows;
 }

@@ -121,7 +121,13 @@ export async function getJobExecutionFailureOrigin(
 export async function getStepAttemptDetail(params: {
   stepId: string;
   attempt: number;
+  workspaceId?: string | undefined;
 }): Promise<StepAttemptDetail | undefined> {
+  const conditions = [
+    eq(stepAttempts.stepId, params.stepId),
+    eq(stepAttempts.attempt, params.attempt),
+  ];
+  if (params.workspaceId) conditions.push(eq(workflowRuns.workspaceId, params.workspaceId));
   const rows = await db()
     .select({
       workflowRunId: workflowRuns.id,
@@ -135,7 +141,7 @@ export async function getStepAttemptDetail(params: {
     .innerJoin(jobs, eq(jobExecutions.jobId, jobs.id))
     .innerJoin(workflowRunAttempts, eq(jobs.workflowRunAttemptId, workflowRunAttempts.id))
     .innerJoin(workflowRuns, eq(workflowRunAttempts.workflowRunId, workflowRuns.id))
-    .where(and(eq(stepAttempts.stepId, params.stepId), eq(stepAttempts.attempt, params.attempt)))
+    .where(and(...conditions))
     .limit(1);
 
   const row = rows[0];
@@ -147,6 +153,27 @@ export async function getStepAttemptDetail(params: {
     step: toStep(row.step),
     attempt: toStepAttempt(row.stepAttempt),
   };
+}
+
+export async function getLatestStepAttempt(params: {
+  stepId: string;
+  workspaceId: string;
+}): Promise<number | undefined> {
+  const rows = await db()
+    .select({attempt: stepAttempts.attempt})
+    .from(stepAttempts)
+    .innerJoin(steps, eq(stepAttempts.stepId, steps.id))
+    .innerJoin(jobExecutions, eq(steps.jobExecutionId, jobExecutions.id))
+    .innerJoin(jobs, eq(jobExecutions.jobId, jobs.id))
+    .innerJoin(workflowRunAttempts, eq(jobs.workflowRunAttemptId, workflowRunAttempts.id))
+    .innerJoin(workflowRuns, eq(workflowRunAttempts.workflowRunId, workflowRuns.id))
+    .where(
+      and(eq(stepAttempts.stepId, params.stepId), eq(workflowRuns.workspaceId, params.workspaceId)),
+    )
+    .orderBy(desc(stepAttempts.attempt))
+    .limit(1);
+
+  return rows[0]?.attempt;
 }
 
 export async function getStepsByJobId(jobId: string): Promise<Step[]> {
