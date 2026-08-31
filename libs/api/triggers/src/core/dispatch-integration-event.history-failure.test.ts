@@ -41,6 +41,11 @@ const workflows = {
     stepAttemptId: crypto.randomUUID(),
     session: null,
   }),
+  listWorkflowRuns: async () => ({runs: [], nextCursor: null, filteredTotalCount: null}),
+  getWorkflowRunDetail: async () => ({run: null}),
+  getStepAttemptDetail: async () => ({detail: null}),
+  getLatestRunAttempt: async () => ({attempt: null}),
+  getLatestStepAttempt: async () => ({attempt: null}),
 };
 
 describe('dispatchIntegrationEvent resilience to history-write failure', () => {

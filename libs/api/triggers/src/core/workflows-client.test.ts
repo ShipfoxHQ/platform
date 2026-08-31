@@ -106,6 +106,11 @@ function localWorkflowsClient(): WorkflowsModuleClient {
         stepAttemptId: '00000000-0000-4000-8000-000000000012',
         session: null,
       }),
+      listWorkflowRuns: vi.fn(),
+      getWorkflowRunDetail: vi.fn(),
+      getStepAttemptDetail: vi.fn(),
+      getLatestRunAttempt: vi.fn(),
+      getLatestStepAttempt: vi.fn(),
     }),
   }).workflows;
 }

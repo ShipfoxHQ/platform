@@ -53,13 +53,16 @@ describe('Annotations inter-module presentation', () => {
     });
     const presentation = createAnnotationsInterModulePresentation();
 
-    const result = await presentation.handlers.listAnnotationsForRunAttempt({
-      workspaceId,
-      workflowRunId,
-      workflowRunAttempt: 1,
-      cursor: {value: visible.sequence, id: visible.id},
-      limit: 1,
-    });
+    const result = await presentation.handlers.listAnnotationsForRunAttempt(
+      {
+        workspaceId,
+        workflowRunId,
+        workflowRunAttempt: 1,
+        cursor: {value: visible.sequence, id: visible.id},
+        limit: 1,
+      },
+      {signal: new AbortController().signal},
+    );
 
     expect(result).toEqual({
       annotations: [
