@@ -42,6 +42,22 @@ const {AgentRuntimeConfigRequestError, StepSecretsRequestError, resolveWorkingDi
     ),
   }));
 
+const {interruptibleSleepMock} = vi.hoisted(() => ({
+  interruptibleSleepMock: vi.fn(async (_ms: number, _signal: AbortSignal) => undefined),
+}));
+
+vi.mock('#config.js', () => ({
+  config: {
+    SHIPFOX_POLL_INTERVAL_MS: 1000,
+    SHIPFOX_POLL_MAX_INTERVAL_MS: 5000,
+  },
+}));
+
+vi.mock('@shipfox/node-resilient-loop', async (importActual) => ({
+  ...(await importActual<typeof import('@shipfox/node-resilient-loop')>()),
+  interruptibleSleep: interruptibleSleepMock,
+}));
+
 const requestNextStepMock = vi.fn();
 const requestAgentRuntimeConfigMock = vi.fn();
 const requestStepSecretsMock = vi.fn();
@@ -244,6 +260,8 @@ function runLoop(params: {
 describe('runJobSteps', () => {
   beforeEach(() => {
     requestNextStepMock.mockReset();
+    interruptibleSleepMock.mockReset();
+    interruptibleSleepMock.mockResolvedValue(undefined);
     requestAgentRuntimeConfigMock.mockReset();
     requestStepSecretsMock.mockReset();
     requestSessionTranscriptMock.mockReset();
@@ -655,6 +673,23 @@ describe('runJobSteps', () => {
     });
 
     expect(requestNextStepMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('passes the wait delay and signal, then stops when aborted during the wait', async () => {
+    const ac = new AbortController();
+    requestNextStepMock.mockResolvedValueOnce({kind: 'wait', retry_after_ms: 5000});
+    interruptibleSleepMock.mockImplementationOnce((ms: number, signal: AbortSignal) => {
+      expect(ms).toBe(5000);
+      expect(signal).toBe(ac.signal);
+      ac.abort();
+    });
+
+    await expect(pullNextStep({leaseClient, jobId: JOB_ID, signal: ac.signal})).resolves.toBe(
+      undefined,
+    );
+
+    expect(requestNextStepMock).toHaveBeenCalledTimes(1);
+    expect(interruptibleSleepMock).toHaveBeenCalledWith(5000, ac.signal);
   });
 
   it('adopts the pulled step lease token before opening the step log stream', async () => {
@@ -1349,13 +1384,20 @@ describe('runJobSteps', () => {
     expect(reportStepMock).not.toHaveBeenCalled();
   });
 
-  it('rethrows non-404 errors from next (loop bails, no re-pull)', async () => {
-    requestNextStepMock.mockRejectedValueOnce(buildHTTPError(500));
+  it('retries transient errors from next with bounded backoff', async () => {
+    requestNextStepMock
+      .mockRejectedValueOnce(buildHTTPError(500))
+      .mockResolvedValueOnce({kind: 'done', status: 'succeeded'});
     const ac = new AbortController();
 
-    await expect(runLoop({signal: ac.signal})).rejects.toThrow();
+    await expect(runLoop({signal: ac.signal})).resolves.toBeUndefined();
 
-    expect(requestNextStepMock).toHaveBeenCalledTimes(1);
+    expect(requestNextStepMock).toHaveBeenCalledTimes(2);
+    expect(interruptibleSleepMock).toHaveBeenCalledTimes(1);
+    const [retryAfterMs, signal] = interruptibleSleepMock.mock.calls[0] as [number, AbortSignal];
+    expect(retryAfterMs).toBeGreaterThanOrEqual(0);
+    expect(retryAfterMs).toBeLessThanOrEqual(1500);
+    expect(signal).toBe(ac.signal);
   });
 
   it('reports a failed run step with its exit_code after setup, then stops on cancel:true', async () => {

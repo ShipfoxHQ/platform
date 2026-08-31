@@ -14,7 +14,7 @@ import type {
   StepErrorReasonDto,
 } from '@shipfox/api-workflows-dto';
 import {logger} from '@shipfox/node-opentelemetry';
-import {interruptibleSleep} from '@shipfox/node-resilient-loop';
+import {interruptibleSleep, nextBackoffInterval, withJitter} from '@shipfox/node-resilient-loop';
 import {redactSecrets} from '@shipfox/redact';
 import {
   type CheckoutDestinations,
@@ -53,6 +53,7 @@ import {
 } from '@shipfox/runner-protocol';
 import {createJobLogsDir, resolveWorkingDirectory} from '@shipfox/runner-workspace';
 import type {KyInstance} from 'ky';
+import {config} from '#config.js';
 
 const gzipAsync = promisify(gzip);
 const gunzipAsync = promisify(gunzip);
@@ -314,26 +315,38 @@ export interface PulledStep {
 }
 
 // Pulls the next step, translating the loop's two quiet stop conditions into `undefined`:
-// a 404 (the lease no longer maps to a job) and a `done` response. Any other error
-// propagates so the loop bails without re-pulling.
+// a 404 (the lease no longer maps to a job) and a `done` response. Other request errors
+// are retried with bounded backoff so a transient API failure cannot abandon a waiting job.
 export async function pullNextStep(params: {
   leaseClient: KyInstance;
   jobId: string;
   signal: AbortSignal;
 }): Promise<PulledStep | undefined> {
   const {leaseClient, jobId, signal} = params;
+  let errorBackoffMs = config.SHIPFOX_POLL_INTERVAL_MS;
 
   while (!signal.aborted) {
     let next: NextStepResponseDto;
     try {
       next = await requestNextStep(leaseClient, {signal});
     } catch (error) {
+      if (signal.aborted) return undefined;
       if (error instanceof HTTPError && error.response.status === 404) {
         logger().info({jobId}, 'No job for this lease (404); stopping step loop');
         return undefined;
       }
-      throw error;
+      errorBackoffMs = nextBackoffInterval(errorBackoffMs, {
+        maxMs: config.SHIPFOX_POLL_MAX_INTERVAL_MS,
+      });
+      const retryAfterMs = withJitter(errorBackoffMs);
+      logger().warn(
+        {err: error, jobId, retryAfterMs},
+        'Next-step poll failed; retrying with backoff',
+      );
+      await interruptibleSleep(retryAfterMs, signal);
+      continue;
     }
+    errorBackoffMs = config.SHIPFOX_POLL_INTERVAL_MS;
 
     if (next.kind === 'done') {
       logger().info({jobId, status: next.status}, 'No more steps; stopping step loop');

@@ -22,6 +22,7 @@ import {stepAttempts as stepAttemptsTable} from '#db/schema/step-attempts.js';
 import {steps as stepsTable} from '#db/schema/steps.js';
 import {
   createWorkflowRun,
+  enqueueToolInvocation,
   getJobsByWorkflowRunId,
   getStepAttempts,
   getStepsByJobId,
@@ -215,27 +216,55 @@ describe('nextStepForJob', () => {
       })
       .where(eq(stepsTable.id, step.id));
 
+    const dispatchStartedAt = Date.now();
     const first = await nextStepForJob(jobId);
     const second = await nextStepForJob(jobId);
+    const dispatchFinishedAt = Date.now();
 
     expect(first).toEqual({kind: 'wait', retryAfterMs: TOOL_STEP_RETRY_AFTER_MS});
     expect(second).toEqual({kind: 'wait', retryAfterMs: TOOL_STEP_RETRY_AFTER_MS});
 
     const invocations = await getToolInvocationsByJobExecutionId(step.jobExecutionId);
     expect(invocations).toHaveLength(1);
-    expect(invocations[0]).toMatchObject({
+    const invocation = invocations[0];
+    if (!invocation) throw new Error('Expected a queued tool invocation');
+    expect(invocation).toMatchObject({
       stepId: step.id,
       jobExecutionId: step.jobExecutionId,
       status: 'queued',
       callIndex: 0,
-      dueAt: expect.any(Date),
       claimedBy: null,
       claimExpiresAt: null,
       lastErrorCode: null,
     });
+    expect(invocation.dueAt.getTime()).toBeGreaterThanOrEqual(dispatchStartedAt - 1000);
+    expect(invocation.dueAt.getTime()).toBeLessThanOrEqual(dispatchFinishedAt + 1000);
+
+    const duplicateParams = {
+      stepId: invocation.stepId,
+      stepAttemptId: invocation.stepAttemptId,
+      jobExecutionId: invocation.jobExecutionId,
+      workspaceId: invocation.workspaceId,
+      dueAt: invocation.dueAt,
+      callIndex: invocation.callIndex,
+    };
+    await withTransaction(async (tx) => {
+      await enqueueToolInvocation(duplicateParams, tx);
+      await enqueueToolInvocation(duplicateParams, tx);
+    });
+
+    const afterDuplicates = await getToolInvocationsByJobExecutionId(step.jobExecutionId);
+    expect(afterDuplicates).toHaveLength(1);
+    expect(afterDuplicates[0]).toMatchObject({
+      id: invocation.id,
+      callIndex: invocation.callIndex,
+      dueAt: invocation.dueAt,
+    });
 
     const [attempt] = await getStepAttempts(jobId);
-    expect(attempt?.invocations).toEqual([{call_index: 0, started_at: expect.any(String)}]);
+    expect(attempt?.invocations).toEqual([
+      {call_index: invocation.callIndex, started_at: invocation.dueAt.toISOString()},
+    ]);
   });
 
   test('after a step succeeds, the next pull returns the next pending step', async () => {
