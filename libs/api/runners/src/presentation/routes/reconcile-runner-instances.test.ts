@@ -487,6 +487,38 @@ describe('POST /provisioners/runner-instances/reconcile', () => {
     expect(persistedRunner?.terminationReason).toBeNull();
   });
 
+  it('authorizes a candidate when its control session has expired', async () => {
+    const runner = await createRunnerInstance({providerRunnerId: 'expired-candidate'});
+    await db()
+      .insert(runnerControlSessions)
+      .values({
+        runnerInstanceId: runner.id,
+        provisionerId: provisionerTokenId,
+        hashedToken: crypto.randomUUID(),
+        prefix: 'test',
+        expiresAt: new Date(Date.now() - 60_000),
+      });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/provisioners/runner-instances/reconcile',
+      headers: {authorization: `Bearer ${VALID_PROVISIONER_TOKEN}`},
+      payload: {
+        observed_provider_runner_ids: [],
+        termination_candidates: [
+          {provider_runner_id: 'expired-candidate', reason: 'registration-deadline'},
+        ],
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().runners[0]).toMatchObject({
+      provider_runner_id: 'expired-candidate',
+      desired_intent: 'terminate',
+      termination_reason: 'registration-deadline',
+    });
+  });
+
   it('uses the terminal-state reason for a stopped candidate', async () => {
     await createRunnerInstance({providerRunnerId: 'stopped-candidate', state: 'stopped'});
 

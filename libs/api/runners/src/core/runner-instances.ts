@@ -190,7 +190,7 @@ export async function reconcileRunnerInstances(
   const observedRunnerInstanceIds = [
     ...new Set([
       ...params.observedRunnerInstanceIds,
-      ...terminationCandidates.map((candidate) => candidate.providerRunnerId),
+      ...(params.terminationCandidates ?? []).map((candidate) => candidate.providerRunnerId),
     ]),
   ];
   const result = await reconcileRunnerInstancesDb({

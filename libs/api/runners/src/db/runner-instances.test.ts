@@ -155,7 +155,7 @@ describe('authorizeRunnerTermination', () => {
     const disabled = await authorizeRunnerTermination({
       provisionerId: runner.provisionerId,
       providerRunnerId: runner.providerRunnerId,
-      reason: 'runner-unresponsive',
+      reason: 'lease-expired',
     });
     const unknown = await authorizeRunnerTermination({
       provisionerId: runner.provisionerId,
@@ -494,6 +494,33 @@ describe('reportRunnerInstances', () => {
     expect(reconcile.absentIds).toEqual([]);
     expect(reconcile.observedRows).toMatchObject([{workspaceId: null}]);
     expect(row).toMatchObject({workspaceId: null, provisionerId, reportedAt});
+  });
+
+  it('returns installation candidates rejected by scope as keep observations', async () => {
+    const reportedAt = new Date();
+    await reportRunnerInstances({
+      scope: 'installation',
+      workspaceId: null,
+      provisionerId,
+      events: [event({providerRunnerId: 'installation-candidate', reportedAt})],
+    });
+
+    const result = await reconcileRunnerInstancesCore({
+      workspaceId: null,
+      provisionerId,
+      observedRunnerInstanceIds: [],
+      terminationCandidates: [
+        {providerRunnerId: 'installation-candidate', reason: 'registration-deadline'},
+      ],
+    });
+
+    expect(result.runners).toMatchObject([
+      {
+        providerRunnerId: 'installation-candidate',
+        desiredIntent: 'keep',
+        desiredIntentReason: null,
+      },
+    ]);
   });
 
   it('dedupes duplicate provisioned runner ids in one batch', async () => {

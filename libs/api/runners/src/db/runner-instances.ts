@@ -1324,6 +1324,7 @@ async function hasOpenRunnerControlSessionTx(
         eq(runnerControlSessions.runnerInstanceId, runnerInstanceId),
         eq(runnerControlSessions.provisionerId, params.provisionerId),
         isNull(runnerControlSessions.closedAt),
+        gt(runnerControlSessions.expiresAt, sql`now()`),
       ),
     )
     .limit(1);
