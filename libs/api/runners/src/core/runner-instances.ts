@@ -35,6 +35,7 @@ import {
 import {config} from '../config.js';
 import {
   authorizeRunnerTermination,
+  recordRunnerTerminationAuthorizationTelemetry,
   resolveRunnerTerminationReason,
 } from './termination-authorization.js';
 
@@ -182,6 +183,16 @@ export async function reconcileRunnerInstances(
     terminationReasonResolver: ({provisionerId, providerRunnerId, reason}) =>
       resolveRunnerTerminationReason({provisionerId, providerRunnerId, reason}),
   });
+
+  for (const {providerRunnerId, telemetry} of result.terminationAuthorizationTelemetry)
+    recordRunnerTerminationAuthorizationTelemetry(
+      {
+        provisionerId: params.provisionerId,
+        providerRunnerId,
+        reason: telemetry.reason,
+      },
+      telemetry,
+    );
 
   recordRunnerReservationReleased({count: result.reservationsReleased, surface: 'reconcile'});
   providerRunnerReconcileCallCount.add(1);

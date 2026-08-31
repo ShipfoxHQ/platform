@@ -79,6 +79,8 @@ export type {
   RunnerInstanceTerminateIntentReason,
   RunnerTerminationReason,
   TerminationAuthorizationResult,
+  TerminationAuthorizationTelemetry,
+  TerminationAuthorizationTelemetryRecord,
 } from './runner-instances.js';
 export {
   attachRunnerInstanceProviderId,

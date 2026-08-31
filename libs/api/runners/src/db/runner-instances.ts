@@ -72,6 +72,11 @@ export type TerminationAuthorizationTelemetry =
   | {outcome: 'issued'; reason: RunnerTerminationReason}
   | {outcome: 'rejected'; reason: RunnerTerminationAuthorizationRejectionReason};
 
+export interface TerminationAuthorizationTelemetryRecord {
+  providerRunnerId: string;
+  telemetry: TerminationAuthorizationTelemetry;
+}
+
 export type TerminationAuthorizationTxResult = TerminationAuthorizationResult & {
   /** Emitted by the transaction owner only after the transaction commits. */
   telemetry: TerminationAuthorizationTelemetry | null;
@@ -292,6 +297,7 @@ export interface ReconcileRunnerInstancesDbResult {
   boundJobExecutionsByRunnerInstanceId: Map<string, RunnerInstanceBoundJobExecution>;
   absentIds: string[];
   reservationsReleased: number;
+  terminationAuthorizationTelemetry: TerminationAuthorizationTelemetryRecord[];
 }
 
 export interface ReapStaleRunnerInstancesResult {
@@ -1150,7 +1156,10 @@ export async function reconcileRunnerInstances(
       observedRunnerInstanceIds,
     );
 
-    await authorizeProviderTerminationCandidatesTx(tx, params);
+    const terminationAuthorizationTelemetry = await authorizeProviderTerminationCandidatesTx(
+      tx,
+      params,
+    );
     await authorizeExhaustedEphemeralSessionsTx(tx, params, observedRunnerInstanceIds);
 
     const observedRows =
@@ -1186,6 +1195,7 @@ export async function reconcileRunnerInstances(
       ),
       absentIds,
       reservationsReleased,
+      terminationAuthorizationTelemetry,
     };
   });
 }
@@ -1193,9 +1203,10 @@ export async function reconcileRunnerInstances(
 async function authorizeProviderTerminationCandidatesTx(
   tx: Tx,
   params: ReconcileRunnerInstancesParams,
-): Promise<void> {
-  if (!params.workspaceId || !params.terminationReasonResolver) return;
+): Promise<TerminationAuthorizationTelemetryRecord[]> {
+  if (!params.workspaceId || !params.terminationReasonResolver) return [];
 
+  const telemetry: TerminationAuthorizationTelemetryRecord[] = [];
   const candidates = [...(params.terminationCandidates ?? [])].sort((a, b) =>
     a.providerRunnerId.localeCompare(b.providerRunnerId),
   );
@@ -1262,7 +1273,7 @@ async function authorizeProviderTerminationCandidatesTx(
       .limit(1);
     if (liveJob) continue;
 
-    await persistRunnerTerminationAuthorizationTx(tx, {
+    const authorization = await persistRunnerTerminationAuthorizationTx(tx, {
       provisionerId: params.provisionerId,
       providerRunnerId,
       reason: candidate.reason,
@@ -1273,7 +1284,10 @@ async function authorizeProviderTerminationCandidatesTx(
           reason,
         }) ?? {reason: null, rejectionReason: 'unknown-reason'},
     });
+    if (authorization.telemetry)
+      telemetry.push({providerRunnerId, telemetry: authorization.telemetry});
   }
+  return telemetry;
 }
 
 async function authorizeExhaustedEphemeralSessionsTx(
