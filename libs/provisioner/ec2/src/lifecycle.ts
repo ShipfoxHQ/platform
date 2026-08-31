@@ -1,5 +1,7 @@
 import {
   MAX_RECONCILE_OBSERVED_RUNNERS,
+  MAX_TERMINATION_CANDIDATES,
+  type ProviderTerminationCandidateDto,
   RESERVATION_EXPIRED_ERROR_CODE,
   type ReconcileRunnerInstancesResponseDto,
   RUNNER_INSTANCE_NOT_ASSIGNABLE_ERROR_CODE,
@@ -16,11 +18,18 @@ import type {
   ProvisionerTemplate,
 } from '@shipfox/provisioner-core';
 import {ProvisionerAuthenticationError} from '@shipfox/provisioner-core';
-import {type Ec2Engine, Ec2EngineError, type Ec2InstanceView} from '#ec2-engine.js';
+import {
+  type Ec2Engine,
+  Ec2EngineError,
+  type Ec2InstanceView,
+  type Ec2StatusCheckStatus,
+} from '#ec2-engine.js';
 import {buildInstanceTags, parseInstanceIdentity} from '#instance-identity.js';
 import {
+  type Ec2HealthCheckType,
   type Ec2TerminationReason,
   recordEc2ForcedTerminationRetry,
+  recordEc2HealthImpaired,
   recordEc2Launch,
   recordEc2PendingDuration,
   recordEc2ReconcileAbsent,
@@ -37,6 +46,14 @@ const MAX_REASON_LENGTH = 500;
 const TERMINAL_REPORT_ABSENCE_GRACE_MS = 60 * 60 * 1000;
 const SPOT_INTERRUPTION_REASON =
   /spot|instance-terminated-by-price|instance-terminated-no-capacity/i;
+const MAX_SCHEDULED_EVENT_CODES_IN_LOG = 20;
+const MAX_HEALTH_CANDIDATE_IDS_IN_LOG = 20;
+
+type Ec2HealthObservation = {
+  checkType: Ec2HealthCheckType;
+  status: Ec2StatusCheckStatus;
+  impairedSince?: Date;
+};
 
 type TrackerSeed = {
   providerRunnerId: string;
@@ -224,12 +241,14 @@ async function launchRunner(
 
 async function observe(context: Ec2LifecycleContext): Promise<void> {
   const instances = await context.engine.listManaged(context.identity.id);
+  observeEc2Health(context, instances, false);
   await applyObservedInstances(context, instances, new Map());
   await reportEvents(context, []);
 }
 
 async function reconcile(context: Ec2LifecycleContext): Promise<void> {
   const instances = await context.engine.listManaged(context.identity.id);
+  const healthCandidates = observeEc2Health(context, instances, true);
   await reapRegistrationDeadlineInstances(context, instances);
   const observedProviderRunnerIds = observedRunnerIds(instances);
   if (observedProviderRunnerIds.length > MAX_RECONCILE_OBSERVED_RUNNERS) {
@@ -248,7 +267,20 @@ async function reconcile(context: Ec2LifecycleContext): Promise<void> {
 
   const response = await context.client.reconcileRunnerInstances({
     observed_provider_runner_ids: observedProviderRunnerIds,
+    ...(healthCandidates.length > 0 ? {termination_candidates: healthCandidates} : {}),
   });
+  if (healthCandidates.length > 0) {
+    logger().info(
+      {
+        event: 'provisioner.ec2.provider_health_candidates_submitted',
+        count: healthCandidates.length,
+        provider_runner_ids: healthCandidates
+          .slice(0, MAX_HEALTH_CANDIDATE_IDS_IN_LOG)
+          .map((candidate) => candidate.provider_runner_id),
+      },
+      'Submitted EC2 provider health termination candidates',
+    );
+  }
   syncCanonicalReservationIds(context, response.runners);
   const terminateIntents = new Map<string, TerminationIntent>();
   for (const runner of response.runners) {
@@ -271,6 +303,146 @@ async function reconcile(context: Ec2LifecycleContext): Promise<void> {
   await applyObservedInstances(context, instances, terminateIntents);
   await reportEvents(context, []);
   context.lastReconciledAt = new Date(context.now());
+}
+
+function observeEc2Health(
+  context: Ec2LifecycleContext,
+  instances: readonly Ec2InstanceView[],
+  collectCandidates: boolean,
+): ProviderTerminationCandidateDto[] {
+  const candidates = new Map<string, ProviderTerminationCandidateDto>();
+
+  for (const instance of instances) {
+    const candidate = observeEc2InstanceHealth(context, instance, collectCandidates);
+    if (candidate) candidates.set(candidate.provider_runner_id, candidate);
+  }
+
+  const orderedCandidates = [...candidates.values()].sort((left, right) =>
+    left.provider_runner_id.localeCompare(right.provider_runner_id),
+  );
+  if (orderedCandidates.length > MAX_TERMINATION_CANDIDATES) {
+    logger().warn(
+      {
+        event: 'provisioner.ec2.provider_health_candidate_limit',
+        candidate_count: orderedCandidates.length,
+        submitted_count: MAX_TERMINATION_CANDIDATES,
+      },
+      'Capped EC2 provider health termination candidates at the API limit',
+    );
+  }
+  return orderedCandidates.slice(0, MAX_TERMINATION_CANDIDATES);
+}
+
+function observeEc2InstanceHealth(
+  context: Ec2LifecycleContext,
+  instance: Ec2InstanceView,
+  collectCandidate: boolean,
+): ProviderTerminationCandidateDto | undefined {
+  const observations = healthObservations(instance);
+  if (!hasHealthSignal(instance, observations)) return undefined;
+
+  const impaired = observations.filter((observation) => observation.status === 'impaired');
+  for (const observation of impaired) recordEc2HealthImpaired(observation.checkType);
+
+  const identity = parseInstanceIdentity(instance);
+  const candidateDecision = healthCandidateDecision(instance, identity.providerRunnerId, impaired);
+  logEc2HealthObservation(
+    context,
+    instance,
+    identity,
+    observations,
+    candidateDecision,
+    collectCandidate,
+  );
+  if (!collectCandidate || candidateDecision !== 'eligible' || !identity.providerRunnerId)
+    return undefined;
+  return {
+    provider_runner_id: identity.providerRunnerId,
+    reason: 'provider-health-failed',
+  };
+}
+
+function hasHealthSignal(
+  instance: Ec2InstanceView,
+  observations: readonly Ec2HealthObservation[],
+): boolean {
+  if ((instance.scheduledEvents?.length ?? 0) > 0) return true;
+  return observations.some(
+    (observation) =>
+      observation.status === 'impaired' ||
+      observation.status === 'initializing' ||
+      observation.status === 'insufficient-data',
+  );
+}
+
+function healthCandidateDecision(
+  instance: Ec2InstanceView,
+  providerRunnerId: string | undefined,
+  impaired: readonly Ec2HealthObservation[],
+): 'observe-only' | 'not-running' | 'missing-provider-runner-id' | 'eligible' {
+  if (impaired.length === 0) return 'observe-only';
+  if (instance.state !== 'running') return 'not-running';
+  if (!providerRunnerId) return 'missing-provider-runner-id';
+  return 'eligible';
+}
+
+function logEc2HealthObservation(
+  context: Ec2LifecycleContext,
+  instance: Ec2InstanceView,
+  identity: ReturnType<typeof parseInstanceIdentity>,
+  observations: readonly Ec2HealthObservation[],
+  candidateDecision: ReturnType<typeof healthCandidateDecision>,
+  candidateCollectionEnabled: boolean,
+): void {
+  const fields = {
+    event: 'provisioner.ec2.provider_health_observed',
+    ...(identity.providerRunnerId ? {provisioned_runner_id: identity.providerRunnerId} : {}),
+    ...(identity.runnerInstanceId ? {runner_instance_id: identity.runnerInstanceId} : {}),
+    aws_instance_id: instance.instanceId,
+    template_key: resolveTemplateKey(context, [identity.templateKey]),
+    ec2_state: instance.state,
+    health_checks: observations.map((observation) => ({
+      check_type: observation.checkType,
+      status: observation.status,
+      ...(observation.impairedSince
+        ? {impaired_since: observation.impairedSince.toISOString()}
+        : {}),
+    })),
+    scheduled_event_codes: (instance.scheduledEvents ?? [])
+      .slice(0, MAX_SCHEDULED_EVENT_CODES_IN_LOG)
+      .map((event) => event.code),
+    health_candidate_decision: candidateDecision,
+    health_candidate_collection: candidateCollectionEnabled ? 'reconcile' : 'observe-only',
+  };
+  if (candidateDecision !== 'observe-only')
+    logger().warn(fields, 'Observed impaired EC2 runner health');
+  else logger().debug(fields, 'Observed transient EC2 runner health status');
+}
+
+function healthObservations(instance: Ec2InstanceView): Ec2HealthObservation[] {
+  return [
+    {
+      checkType: 'system',
+      status: instance.systemStatus?.status ?? 'unknown',
+      ...(instance.systemStatus?.impairedSince
+        ? {impairedSince: instance.systemStatus.impairedSince}
+        : {}),
+    },
+    {
+      checkType: 'instance',
+      status: instance.instanceStatus?.status ?? 'unknown',
+      ...(instance.instanceStatus?.impairedSince
+        ? {impairedSince: instance.instanceStatus.impairedSince}
+        : {}),
+    },
+    {
+      checkType: 'attached-ebs',
+      status: instance.attachedEbsStatus?.status ?? 'unknown',
+      ...(instance.attachedEbsStatus?.impairedSince
+        ? {impairedSince: instance.attachedEbsStatus.impairedSince}
+        : {}),
+    },
+  ];
 }
 
 async function reapRegistrationDeadlineInstances(
@@ -1113,6 +1285,40 @@ function terminationLogFields(
     ...(instance.availabilityZone !== undefined
       ? {availability_zone: instance.availabilityZone}
       : {}),
+    ...healthTerminationLogFields(instance),
+  };
+}
+
+function healthTerminationLogFields(instance: Ec2InstanceView): Record<string, string | string[]> {
+  return {
+    ...healthStatusLogFields('system', instance.systemStatus),
+    ...healthStatusLogFields('instance', instance.instanceStatus),
+    ...healthStatusLogFields('attached_ebs', instance.attachedEbsStatus),
+    ...scheduledEventLogFields(instance.scheduledEvents),
+  };
+}
+
+function healthStatusLogFields(
+  name: 'system' | 'instance' | 'attached_ebs',
+  status: Ec2InstanceView['systemStatus'] | undefined,
+): Record<string, string> {
+  if (!status) return {};
+  return {
+    [`${name}_status`]: status.status,
+    ...(status.impairedSince
+      ? {[`${name}_status_impaired_since`]: status.impairedSince.toISOString()}
+      : {}),
+  };
+}
+
+function scheduledEventLogFields(
+  events: Ec2InstanceView['scheduledEvents'],
+): Record<string, string[]> {
+  if (!events || events.length === 0) return {};
+  return {
+    scheduled_event_codes: events
+      .slice(0, MAX_SCHEDULED_EVENT_CODES_IN_LOG)
+      .map((event) => event.code),
   };
 }
 

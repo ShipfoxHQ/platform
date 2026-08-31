@@ -1,7 +1,12 @@
 import {
+  DescribeInstanceStatusCommand,
   DescribeInstancesCommand,
+  type EbsStatusSummary,
   EC2Client,
   type Instance,
+  type InstanceStatus,
+  type InstanceStatusEvent,
+  type InstanceStatusSummary,
   RunInstancesCommand,
   type RunInstancesCommandInput,
   TerminateInstancesCommand,
@@ -50,6 +55,34 @@ export type Ec2InstanceState =
   | 'terminated'
   | 'unknown';
 
+export type Ec2StatusCheckStatus =
+  | 'ok'
+  | 'impaired'
+  | 'initializing'
+  | 'insufficient-data'
+  | 'not-applicable'
+  | 'unknown';
+
+export interface Ec2StatusCheck {
+  readonly status: Ec2StatusCheckStatus;
+  readonly impairedSince?: Date;
+}
+
+export type Ec2ScheduledEventCode =
+  | 'instance-reboot'
+  | 'system-reboot'
+  | 'system-maintenance'
+  | 'instance-retirement'
+  | 'instance-stop'
+  | 'unknown';
+
+export interface Ec2ScheduledEvent {
+  readonly code: Ec2ScheduledEventCode;
+  readonly notBefore?: Date;
+  readonly notAfter?: Date;
+  readonly notBeforeDeadline?: Date;
+}
+
 export interface Ec2InstanceView {
   readonly instanceId: string;
   readonly ami?: string;
@@ -61,6 +94,10 @@ export interface Ec2InstanceView {
   readonly stateReasonCode?: string;
   readonly stateReasonMessage?: string;
   readonly launchTime?: Date;
+  readonly systemStatus?: Ec2StatusCheck;
+  readonly instanceStatus?: Ec2StatusCheck;
+  readonly attachedEbsStatus?: Ec2StatusCheck;
+  readonly scheduledEvents?: readonly Ec2ScheduledEvent[];
 }
 
 export interface RunInstanceArgs {
@@ -205,7 +242,14 @@ export function createEc2Engine(options: CreateEc2EngineOptions): Ec2Engine {
           nextToken = output.NextToken;
         } while (nextToken);
 
-        return instances;
+        const statusByInstanceId = await describeInstanceStatuses(
+          client,
+          instances.map((instance) => instance.instanceId),
+        );
+        return instances.map((instance) => {
+          const status = statusByInstanceId.get(instance.instanceId);
+          return status ? {...instance, ...status} : instance;
+        });
       } catch (error) {
         throw mapEc2Error(error, 'Cannot list managed EC2 instances.');
       }
@@ -229,6 +273,104 @@ export function createEc2Engine(options: CreateEc2EngineOptions): Ec2Engine {
       }
     },
   };
+}
+
+const MAX_STATUS_INSTANCE_IDS = 100;
+
+type Ec2InstanceStatusFields = Pick<
+  Ec2InstanceView,
+  'systemStatus' | 'instanceStatus' | 'attachedEbsStatus' | 'scheduledEvents'
+>;
+
+async function describeInstanceStatuses(
+  client: EC2Client,
+  instanceIds: readonly string[],
+): Promise<ReadonlyMap<string, Ec2InstanceStatusFields>> {
+  if (instanceIds.length === 0) return new Map();
+
+  const statuses = new Map<string, Ec2InstanceStatusFields>();
+  for (let start = 0; start < instanceIds.length; start += MAX_STATUS_INSTANCE_IDS) {
+    const batch = instanceIds.slice(start, start + MAX_STATUS_INSTANCE_IDS);
+    let nextToken: string | undefined;
+    do {
+      const output = await client.send(
+        new DescribeInstanceStatusCommand({
+          InstanceIds: [...batch],
+          IncludeAllInstances: true,
+          NextToken: nextToken,
+        }),
+      );
+      for (const status of output.InstanceStatuses ?? []) {
+        const fields = toInstanceStatusFields(status);
+        if (status.InstanceId && fields) statuses.set(status.InstanceId, fields);
+      }
+      nextToken = output.NextToken;
+    } while (nextToken);
+  }
+  return statuses;
+}
+
+function toInstanceStatusFields(status: InstanceStatus): Ec2InstanceStatusFields {
+  const systemStatus = toStatusCheck(status.SystemStatus);
+  const instanceStatus = toStatusCheck(status.InstanceStatus);
+  const attachedEbsStatus = toStatusCheck(status.AttachedEbsStatus);
+
+  return {
+    ...(systemStatus ? {systemStatus} : {}),
+    ...(instanceStatus ? {instanceStatus} : {}),
+    ...(attachedEbsStatus ? {attachedEbsStatus} : {}),
+    scheduledEvents: (status.Events ?? []).map(toScheduledEvent),
+  };
+}
+
+function toStatusCheck(
+  summary: InstanceStatusSummary | EbsStatusSummary | undefined,
+): Ec2StatusCheck | undefined {
+  if (!summary) return undefined;
+  const reachabilityDetail = summary.Details?.find((detail) => detail.Name === 'reachability');
+  const impairedSince =
+    reachabilityDetail && 'ImpairedSince' in reachabilityDetail
+      ? reachabilityDetail.ImpairedSince
+      : undefined;
+  return {
+    status: normalizeStatusCheckStatus(summary.Status),
+    ...(impairedSince ? {impairedSince} : {}),
+  };
+}
+
+function toScheduledEvent(event: InstanceStatusEvent): Ec2ScheduledEvent {
+  return {
+    code: normalizeScheduledEventCode(event.Code),
+    ...(event.NotBefore ? {notBefore: event.NotBefore} : {}),
+    ...(event.NotAfter ? {notAfter: event.NotAfter} : {}),
+    ...(event.NotBeforeDeadline ? {notBeforeDeadline: event.NotBeforeDeadline} : {}),
+  };
+}
+
+function normalizeStatusCheckStatus(status: string | undefined): Ec2StatusCheckStatus {
+  switch (status) {
+    case 'ok':
+    case 'impaired':
+    case 'initializing':
+    case 'insufficient-data':
+    case 'not-applicable':
+      return status;
+    default:
+      return 'unknown';
+  }
+}
+
+function normalizeScheduledEventCode(code: string | undefined): Ec2ScheduledEventCode {
+  switch (code) {
+    case 'instance-reboot':
+    case 'system-reboot':
+    case 'system-maintenance':
+    case 'instance-retirement':
+    case 'instance-stop':
+      return code;
+    default:
+      return 'unknown';
+  }
 }
 
 function toInstanceView(instance: Instance): Ec2InstanceView {
@@ -296,7 +438,16 @@ function mapEc2Error(error: unknown, message: string): Ec2EngineError {
   ) {
     reason = 'throttled';
   } else if (name.startsWith('InvalidAMIID.')) reason = 'image-not-found';
-  else if (['AuthFailure', 'UnauthorizedOperation', 'Blocked', 'OptInRequired'].includes(name)) {
+  else if (
+    [
+      'AccessDenied',
+      'AccessDeniedException',
+      'AuthFailure',
+      'UnauthorizedOperation',
+      'Blocked',
+      'OptInRequired',
+    ].includes(name)
+  ) {
     reason = 'auth';
   } else if (
     name.startsWith('Invalid') ||

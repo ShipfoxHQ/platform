@@ -3,6 +3,7 @@ import {instanceMetrics} from '@shipfox/node-opentelemetry';
 const meter = instanceMetrics.getMeter('provisioner-ec2');
 
 export type Ec2Architecture = 'i386' | 'x86_64' | 'arm64' | 'unknown';
+export type Ec2HealthCheckType = 'system' | 'instance' | 'attached-ebs';
 
 export interface Ec2DurationLabels {
   templateKey: string;
@@ -59,6 +60,11 @@ const stoppingTimestampMissingCount = meter.createCounter<{template_key: string}
 const reconcileAbsentCount = meter.createCounter<Record<string, never>>(
   'ec2_provisioner_reconcile_absent',
   {description: 'EC2 runner instances the backend or AWS reported absent during reconciliation'},
+);
+
+const healthImpairedCount = meter.createCounter<{check_type: Ec2HealthCheckType}>(
+  'ec2_provisioner_health_impaired',
+  {description: 'EC2 runner health observations with an impaired system, instance, or EBS check'},
 );
 
 const launchDuration = meter.createHistogram<{
@@ -118,6 +124,10 @@ export function recordEc2StoppingTimestampMissing(templateKey: string): void {
 
 export function recordEc2ReconcileAbsent(count: number): void {
   reconcileAbsentCount.add(count);
+}
+
+export function recordEc2HealthImpaired(checkType: Ec2HealthCheckType): void {
+  healthImpairedCount.add(1, {check_type: checkType});
 }
 
 export function recordEc2LaunchDuration(params: Ec2DurationObservation): void {

@@ -1,4 +1,5 @@
 import {
+  DescribeInstanceStatusCommand,
   DescribeInstancesCommand,
   RunInstancesCommand,
   TerminateInstancesCommand,
@@ -241,6 +242,96 @@ describe('createEc2Engine', () => {
     expect(result[1]?.instanceId).toBe('i-456');
   });
 
+  it('maps EC2 status checks and scheduled events for managed instances', async () => {
+    const impairedSince = new Date('2026-07-18T12:02:00.000Z');
+    const notBefore = new Date('2026-07-18T13:00:00.000Z');
+    const notAfter = new Date('2026-07-18T14:00:00.000Z');
+    const notBeforeDeadline = new Date('2026-07-18T13:30:00.000Z');
+    const ec2 = fakeEc2({
+      describeOutputs: [{Reservations: [{Instances: [instance()]}]}],
+      describeStatusOutputs: [
+        {
+          InstanceStatuses: [
+            {
+              InstanceId: 'i-123',
+              SystemStatus: {
+                Status: 'impaired',
+                Details: [{Name: 'reachability', Status: 'failed', ImpairedSince: impairedSince}],
+              },
+              InstanceStatus: {Status: 'initializing'},
+              AttachedEbsStatus: {Status: 'insufficient-data'},
+              Events: [
+                {
+                  Code: 'system-reboot',
+                  NotBefore: notBefore,
+                  NotAfter: notAfter,
+                  NotBeforeDeadline: notBeforeDeadline,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    const engine = createEc2Engine({region: 'eu-west-3', client: ec2 as never});
+
+    const result = await engine.listManaged('provisioner-1');
+
+    expect(commandInput<DescribeInstanceStatusCommand>(ec2.commands[1])).toEqual({
+      InstanceIds: ['i-123'],
+      IncludeAllInstances: true,
+      NextToken: undefined,
+    });
+    expect(result[0]).toMatchObject({
+      systemStatus: {status: 'impaired', impairedSince},
+      instanceStatus: {status: 'initializing'},
+      attachedEbsStatus: {status: 'insufficient-data'},
+      scheduledEvents: [{code: 'system-reboot', notBefore, notAfter, notBeforeDeadline}],
+    });
+  });
+
+  it('maps unknown status values and scheduled event codes to bounded values', async () => {
+    const ec2 = fakeEc2({
+      describeOutputs: [{Reservations: [{Instances: [instance()]}]}],
+      describeStatusOutputs: [
+        {
+          InstanceStatuses: [
+            {
+              InstanceId: 'i-123',
+              SystemStatus: {Status: 'unexpected'},
+              InstanceStatus: {},
+              AttachedEbsStatus: {Status: 'unexpected'},
+              Events: [{Code: 'unexpected'}],
+            },
+          ],
+        },
+      ],
+    });
+    const engine = createEc2Engine({region: 'eu-west-3', client: ec2 as never});
+
+    const result = await engine.listManaged('provisioner-1');
+
+    expect(result[0]).toMatchObject({
+      systemStatus: {status: 'unknown'},
+      instanceStatus: {status: 'unknown'},
+      attachedEbsStatus: {status: 'unknown'},
+      scheduledEvents: [{code: 'unknown'}],
+    });
+  });
+
+  it('fails closed when EC2 status checks are unauthorized', async () => {
+    const ec2 = fakeEc2({
+      describeOutputs: [{Reservations: [{Instances: [instance()]}]}],
+      describeStatusError: awsError('UnauthorizedOperation'),
+    });
+    const engine = createEc2Engine({region: 'eu-west-3', client: ec2 as never});
+
+    await expect(engine.listManaged('provisioner-1')).rejects.toMatchObject({
+      reason: 'auth',
+      retryable: false,
+    });
+  });
+
   it.each([
     ['pending', 'pending'],
     ['running', 'running'],
@@ -328,28 +419,45 @@ function fakeEc2(
     runOutput?: unknown;
     runError?: Error;
     describeOutputs?: unknown[];
+    describeStatusOutputs?: unknown[];
+    describeStatusError?: Error;
     terminateError?: Error;
     terminateErrorById?: Map<string, Error>;
   } = {},
 ) {
   const commands: unknown[] = [];
   const describeOutputs = [...(options.describeOutputs ?? [])];
+  const describeStatusOutputs = [...(options.describeStatusOutputs ?? [])];
 
   return {
     commands,
     send(command: unknown) {
       commands.push(command);
       if (command instanceof RunInstancesCommand) {
-        if (options.runError) return Promise.reject(options.runError);
-        return Promise.resolve(options.runOutput ?? {Instances: [instance()]});
+        return runInstanceResponse(options);
       }
       if (command instanceof DescribeInstancesCommand)
         return Promise.resolve(describeOutputs.shift() ?? {});
+      if (command instanceof DescribeInstanceStatusCommand)
+        return describeStatusResponse(options, describeStatusOutputs);
       if (command instanceof TerminateInstancesCommand)
         return terminateInstanceResponse(command, options);
       return Promise.reject(new Error('Unexpected EC2 command'));
     },
   };
+}
+
+function runInstanceResponse(options: {runOutput?: unknown; runError?: Error}): Promise<unknown> {
+  if (options.runError) return Promise.reject(options.runError);
+  return Promise.resolve(options.runOutput ?? {Instances: [instance()]});
+}
+
+function describeStatusResponse(
+  options: {describeStatusError?: Error},
+  outputs: unknown[],
+): Promise<unknown> {
+  if (options.describeStatusError) return Promise.reject(options.describeStatusError);
+  return Promise.resolve(outputs.shift() ?? {});
 }
 
 function terminateInstanceResponse(
