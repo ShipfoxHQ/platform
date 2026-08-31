@@ -241,14 +241,6 @@ export const runnerTerminationAuthorizationRejectedCount = meter.createCounter<{
   description: 'Runner termination authorization requests rejected by bounded reason',
 });
 
-export type RunnerTerminationDecisionDeferredCause = 'correlated-stale';
-
-export const runnerTerminationDecisionDeferredCount = meter.createCounter<{
-  cause: RunnerTerminationDecisionDeferredCause;
-}>('runners_termination_decision_deferred', {
-  description: 'Runner lifecycle termination decisions deferred by bounded cause',
-});
-
 export const providerRunnerActivationOutcomeCount = meter.createCounter<{
   outcome: 'reaped' | 'rebound';
 }>('runners_provider_runner_activation_outcome', {
@@ -292,10 +284,7 @@ export function recordStaleJobCandidateRatio(value: number): void {
 }
 
 export function recordDeferredJobLeaseExpiry(): void {
-  recordMetric(() => {
-    jobLeaseExpiryDeferredCount.add(1, {cause: 'correlated-stale'});
-    runnerTerminationDecisionDeferredCount.add(1, {cause: 'correlated-stale'});
-  });
+  recordMetric(() => jobLeaseExpiryDeferredCount.add(1, {cause: 'correlated-stale'}));
 }
 
 export function recordRunnerTerminationAuthorizationIssued(reason: RunnerTerminationReason): void {

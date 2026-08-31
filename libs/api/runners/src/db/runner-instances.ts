@@ -715,17 +715,11 @@ export async function listProviderRunnerByStateMetrics(): Promise<ProviderRunner
     )
     .groupBy(providerRunners.state);
 
-  return rows.flatMap((row) =>
-    activeStates.includes(row.state as (typeof activeStates)[number])
-      ? [
-          {
-            state: row.state as (typeof activeStates)[number],
-            count: row.count,
-            oldestAgeMilliseconds: Math.max(0, row.oldestAgeMilliseconds),
-          },
-        ]
-      : [],
-  );
+  return rows.map((row) => ({
+    state: row.state as (typeof activeStates)[number],
+    count: row.count,
+    oldestAgeMilliseconds: Math.max(0, row.oldestAgeMilliseconds),
+  }));
 }
 
 export async function listProviderRunnerByPhaseMetrics(): Promise<ProviderRunnerPhaseMetric[]> {
@@ -1144,7 +1138,14 @@ async function listTerminateIntentsHonoredByTerminatedReportsTx(
           : isNull(providerRunners.workspaceId),
         eq(providerRunners.provisionerId, params.provisionerId),
         inArray(providerRunners.providerRunnerId, terminatedRunnerInstanceIds),
-        inArray(providerRunners.state, activeStates),
+        or(
+          inArray(providerRunners.state, activeStates),
+          and(
+            // A terminal row can be authorized after its last report; the timestamp prevents repeats.
+            inArray(providerRunners.state, terminalStates),
+            gt(providerRunners.terminationAuthorizedAt, providerRunners.reportedAt),
+          ),
+        ),
         isNotNull(providerRunners.terminationAuthorizedAt),
         isNotNull(providerRunners.terminationReason),
       ),

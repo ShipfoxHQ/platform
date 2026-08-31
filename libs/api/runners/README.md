@@ -57,7 +57,7 @@ report occurs. Service gauges read current runner database state.
 | `runners_termination_authorization_issued` | `reason` | A new durable termination authorization was persisted. |
 | `runners_provider_runner_terminate_intent_honored` | `reason` | A terminated report matched a durable authorization. |
 | `runners_termination_authorization_rejected` | `reason` | An authorization request was rejected by the gate. |
-| `runners_termination_decision_deferred` | `cause` | A correlated stale-lease decision was deferred. |
+| `runners_job_lease_expiry_deferred` | `cause` | A stale job lease expiry batch was deferred by the circuit breaker. |
 | `runners_provider_runner_by_state` | `state` | Active provider-runner count. |
 | `runners_provider_runner_by_state_oldest_age` | `state` | Age in milliseconds of the oldest active provider runner in that state. |
 

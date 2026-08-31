@@ -1340,12 +1340,12 @@ describe('reportRunnerInstances', () => {
     expect(providerRunnerRows[0]?.reservationReleasedAt).toBeInstanceOf(Date);
   });
 
-  it('returns the durable authorization reason when a provisioner reports termination', async () => {
+  it('returns the durable authorization reason for a terminal runner report once', async () => {
     const runner = await providerRunnerFactory.create({
       workspaceId,
       provisionerId,
       providerRunnerId: 'authorized-runner',
-      state: 'running',
+      state: 'terminated',
     });
     await db()
       .update(providerRunners)
@@ -1358,10 +1358,17 @@ describe('reportRunnerInstances', () => {
       provisionerId,
       events: [event({providerRunnerId: 'authorized-runner', state: 'terminated'})],
     });
+    const duplicate = await reportRunnerInstances({
+      scope: 'workspace',
+      workspaceId,
+      provisionerId,
+      events: [event({providerRunnerId: 'authorized-runner', state: 'terminated'})],
+    });
 
     expect(result.terminateIntentsHonored).toEqual([
       {providerRunnerId: 'authorized-runner', reason: 'terminal-state'},
     ]);
+    expect(duplicate.terminateIntentsHonored).toEqual([]);
   });
 
   it('returns honored terminate intents only for the first active-to-terminated transition', async () => {

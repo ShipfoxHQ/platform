@@ -47,7 +47,6 @@ describe('runner lifecycle metrics', () => {
         'runners_termination_authorization_issued',
         'runners_provider_runner_terminate_intent_honored',
         'runners_termination_authorization_rejected',
-        'runners_termination_decision_deferred',
       ]),
     );
   });
@@ -68,12 +67,13 @@ describe('runner lifecycle metrics', () => {
     ).toHaveBeenCalledWith(1, {reason: 'unknown-reason'});
   });
 
-  it('records correlated lifecycle deferral with a bounded cause', () => {
+  it('records correlated stale job lease deferral', () => {
     metrics.recordDeferredJobLeaseExpiry();
 
-    expect(
-      metricMocks.counters.get('runners_termination_decision_deferred')?.add,
-    ).toHaveBeenCalledWith(1, {cause: 'correlated-stale'});
+    expect(metricMocks.counters.get('runners_job_lease_expiry_deferred')?.add).toHaveBeenCalledWith(
+      1,
+      {cause: 'correlated-stale'},
+    );
   });
 
   it('defines provider-runner histograms with millisecond units and buckets', () => {

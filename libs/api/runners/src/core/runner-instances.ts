@@ -114,9 +114,11 @@ export async function reportRunnerInstances(
   for (const event of params.events) {
     providerRunnerReportCount.add(1, {state: event.state});
   }
-  const providerKindByRunnerId = new Map(
-    params.events.map((event) => [event.providerRunnerId, event.providerKind]),
-  );
+  const providerKindByRunnerId = params.events.reduce((kinds, event) => {
+    if (!kinds.has(event.providerRunnerId) || event.providerKind !== null)
+      kinds.set(event.providerRunnerId, event.providerKind);
+    return kinds;
+  }, new Map<string, string | null>());
   const honoredIntents = new Map(
     result.terminateIntentsHonored.map((intent) => [intent.providerRunnerId, intent]),
   );
