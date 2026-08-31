@@ -664,6 +664,23 @@ describe('writeAmbientGitCredential', () => {
     expect(content).not.toContain('token');
   });
 
+  it.each([
+    ['control characters', 'job\ncapability'],
+    ['oversized values', 'x'.repeat(513)],
+  ])('rejects helper capabilities with %s', (_description, capability) => {
+    expect(() =>
+      writeGitCredentialHelperConfig({
+        configPath: join(root, 'git-cred.config'),
+        repositoryUrl: 'https://github.com/acme/repo.git',
+        helper: {
+          command: 'git-credential-shipfox',
+          socketPath: join(root, 'credential.sock'),
+          capability,
+        },
+      }),
+    ).toThrow();
+  });
+
   it('updates an existing helper without retaining credentials or duplicating identity', async () => {
     const configPath = join(root, 'git-cred.config');
     await writeFile(

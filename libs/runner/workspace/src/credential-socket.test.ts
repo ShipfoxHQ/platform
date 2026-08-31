@@ -1,4 +1,5 @@
 import {mkdtemp, rm, stat} from 'node:fs/promises';
+import {connect} from 'node:net';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {CredentialBroker, type CredentialRenewal} from '#credential-broker.js';
@@ -6,6 +7,25 @@ import {createCredentialSocketServer, requestCredentialSocket} from '#credential
 
 const repositoryUrl = 'https://example.test/acme/repository.git';
 const capability = 'job-capability';
+
+function requestRawCredentialSocket(socketPath: string, body: string): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const socket = connect(socketPath);
+    let response = '';
+    socket.on('data', (chunk: Buffer) => {
+      response += chunk.toString('utf8');
+    });
+    socket.once('error', reject);
+    socket.once('end', () => {
+      try {
+        resolve(JSON.parse(response));
+      } catch (error) {
+        reject(error);
+      }
+    });
+    socket.once('connect', () => socket.end(body));
+  });
+}
 
 describe('credential socket transport', () => {
   let root: string;
@@ -74,17 +94,67 @@ describe('credential socket transport', () => {
     expect(renew).toHaveBeenCalledTimes(1);
   });
 
-  it('rejects invalid client setup and server repository URLs', async () => {
+  it('rejects invalid client setup and unsafe server repository URLs', async () => {
     await expect(
       requestCredentialSocket('relative.sock', {operation: 'get', repositoryUrl, capability}),
     ).rejects.toThrow('path');
-    await expect(
-      requestCredentialSocket(socketPath, {
-        operation: 'get',
-        repositoryUrl: 'http://example.test/acme/repository.git',
-        capability,
-      }),
-    ).resolves.toEqual({version: 1, ok: false});
+
+    for (const unsafeRepositoryUrl of [
+      'http://example.test/acme/repository.git',
+      'https://user:password@example.test/acme/repository.git',
+      'https://example.test/acme/repository.git?token=secret',
+      'https://example.test/acme/repository.git#fragment',
+    ]) {
+      await expect(
+        requestCredentialSocket(socketPath, {
+          operation: 'get',
+          repositoryUrl: unsafeRepositoryUrl,
+          capability,
+        }),
+      ).resolves.toEqual({version: 1, ok: false});
+    }
+
+    await expect(requestRawCredentialSocket(socketPath, 'not-json\n')).resolves.toEqual({
+      version: 1,
+      ok: false,
+    });
+  });
+
+  it('cancels in-flight broker work when the server closes', async () => {
+    let startRenewal!: () => void;
+    let releaseRenewal!: () => void;
+    const renewalStarted = new Promise<void>((resolve) => (startRenewal = resolve));
+    const pendingRenewal = new Promise<{
+      username: string;
+      token: string;
+      generation: string;
+      expiresAt: number;
+      renewal: {mode: 'on-rejection'};
+    }>((resolve) => {
+      releaseRenewal = () =>
+        resolve({
+          username: 'runner',
+          token: 'token-after-close',
+          generation: 'generation-after-close',
+          expiresAt: 20_000,
+          renewal: {mode: 'on-rejection'},
+        });
+    });
+    renew.mockImplementation(() => {
+      startRenewal();
+      return pendingRenewal;
+    });
+    const client = connect(socketPath);
+    client.once('connect', () =>
+      client.end(
+        `${JSON.stringify({version: 1, operation: 'erase', repositoryUrl, capability})}\n`,
+      ),
+    );
+
+    await renewalStarted;
+    await expect(server.close()).resolves.toBeUndefined();
+    client.destroy();
+    releaseRenewal();
   });
 
   it('uses a private socket and does not serve a credential for an unregistered repository URL', async () => {

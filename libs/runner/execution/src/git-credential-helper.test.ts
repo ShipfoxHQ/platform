@@ -117,6 +117,12 @@ describe('Git credential helper', () => {
     ).rejects.toThrow('socket');
     await expect(
       runGitCredentialHelper({
+        argv: ['/helper', '--socket', '/tmp/job.sock', 'get'],
+        input: 'protocol=https\nhost=example.test\npath=acme/repository.git\n\n',
+      }),
+    ).rejects.toThrow('capability');
+    await expect(
+      runGitCredentialHelper({
         argv: ['/helper', '--socket', '/tmp/job.sock', '--capability', capability, 'unknown'],
         input: 'protocol=https\nhost=example.test\npath=acme/repository.git\n\n',
       }),
@@ -126,6 +132,7 @@ describe('Git credential helper', () => {
   it('reports a failed invocation without exposing input or credential values', async () => {
     const output = outputBuffer();
     let exitCode: number | undefined;
+    requestCredentialSocketMock.mockRejectedValueOnce(new Error('socket unavailable'));
     await main({
       argv: ['/helper', '--socket', '/tmp/job.sock', '--capability', capability, 'get'],
       input: 'protocol=https\nhost=example.test\npath=acme/repository.git\n\n',

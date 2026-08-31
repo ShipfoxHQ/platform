@@ -11,7 +11,7 @@ import {
 import {recordCredentialSocketRequest} from '#credential-metrics.js';
 
 const PROTOCOL_VERSION = 1;
-const MAX_SOCKET_PATH_BYTES = 104;
+const MAX_SOCKET_PATH_BYTES = 103;
 const MAX_CAPABILITY_BYTES = 512;
 const MAX_MESSAGE_BYTES = 16 * 1_024;
 const MAX_RESPONSE_BYTES = 64 * 1_024;
@@ -132,20 +132,21 @@ export function createCredentialSocketServer(
 
   async function startServer(): Promise<void> {
     if (started) return;
-    if (closed) throw new CredentialSocketError('Credential socket is closed');
+    assertServerOpen();
     await prepareSocketPath(options.socketPath);
-    if (closed) throw new CredentialSocketError('Credential socket is closed');
+    assertServerOpen();
 
     const nextServer = createServer({allowHalfOpen: true}, handleConnection);
     let listening = false;
     try {
       await listen(nextServer, options.socketPath);
       listening = true;
-      if (closed) throw new CredentialSocketError('Credential socket is closed');
+      assertServerOpen();
       await chmod(options.socketPath, SOCKET_MODE);
       server = nextServer;
       started = true;
     } catch {
+      for (const connection of connections) connection.destroy();
       if (listening) await closeServer(nextServer);
       else nextServer.close();
       await rm(options.socketPath, {force: true});
@@ -153,9 +154,14 @@ export function createCredentialSocketServer(
     }
   }
 
+  function assertServerOpen(): void {
+    if (closed) throw new CredentialSocketError('Credential socket is closed');
+  }
+
   async function closeServerForJob(): Promise<void> {
     if (closed) return;
     closed = true;
+    options.broker.shutdown();
     const currentServer = server;
     server = undefined;
     started = false;
@@ -283,8 +289,7 @@ async function handleRequest(
   if (request.capability !== capability) return {version: PROTOCOL_VERSION, ok: false};
   if (signal.aborted) return {version: PROTOCOL_VERSION, ok: false};
   if (request.operation === 'get') {
-    const credential = await broker.lookup(request.repositoryUrl);
-    if (signal.aborted) return {version: PROTOCOL_VERSION, ok: false};
+    const credential = await abortOnSignal(broker.lookup(request.repositoryUrl), signal);
     return credential === undefined
       ? {version: PROTOCOL_VERSION, ok: true}
       : {version: PROTOCOL_VERSION, ok: true, credential};
@@ -293,9 +298,34 @@ async function handleRequest(
     broker.store(request.repositoryUrl);
     return {version: PROTOCOL_VERSION, ok: true};
   }
-  await broker.erase(request.repositoryUrl);
-  if (signal.aborted) return {version: PROTOCOL_VERSION, ok: false};
+  await abortOnSignal(broker.erase(request.repositoryUrl), signal);
   return {version: PROTOCOL_VERSION, ok: true};
+}
+
+function abortOnSignal<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) {
+    return Promise.reject(
+      new CredentialSocketError('Credential socket request was canceled', 'ECANCELED'),
+    );
+  }
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = (): void => {
+      cleanup();
+      reject(new CredentialSocketError('Credential socket request was canceled', 'ECANCELED'));
+    };
+    const cleanup = (): void => signal.removeEventListener('abort', onAbort);
+    signal.addEventListener('abort', onAbort, {once: true});
+    operation.then(
+      (value) => {
+        cleanup();
+        resolve(value);
+      },
+      (error: unknown) => {
+        cleanup();
+        reject(error);
+      },
+    );
+  });
 }
 
 function decodeRequest(body: Buffer): CredentialSocketRequest {
@@ -385,7 +415,7 @@ function assertSocketPath(socketPath: string): void {
   }
 }
 
-function assertCredentialSocketCapability(capability: string): void {
+export function assertCredentialSocketCapability(capability: string): void {
   if (
     typeof capability !== 'string' ||
     capability.length === 0 ||

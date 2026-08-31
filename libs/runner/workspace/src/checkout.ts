@@ -6,6 +6,7 @@ import {dirname, join, resolve} from 'node:path';
 import {promisify} from 'node:util';
 import type {CheckoutTokenAuthDto} from '@shipfox/api-workflows-dto';
 import {normalizeRepositoryUrl} from '#credential-broker.js';
+import {assertCredentialSocketCapability} from '#credential-socket.js';
 
 const execFileAsync = promisify(execFile);
 const URL_CREDENTIAL_RE = /(https?:\/\/)[^/@\s]+@/gi;
@@ -309,12 +310,8 @@ export function writeGitCredentialHelperConfig(params: {
 function validateGitCredentialHelper(helper: GitCredentialHelperConfig): void {
   assertSingleLineGitConfigValue(helper.command);
   assertSingleLineGitConfigValue(helper.socketPath);
-  assertSingleLineGitConfigValue(helper.capability);
-  if (
-    helper.command.length === 0 ||
-    helper.socketPath.length === 0 ||
-    helper.capability.length === 0
-  ) {
+  assertCredentialSocketCapability(helper.capability);
+  if (helper.command.length === 0 || helper.socketPath.length === 0) {
     throw new TypeError('Git credential helper command, socket path, and capability are required');
   }
 }
