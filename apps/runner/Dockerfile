@@ -112,6 +112,10 @@ ENV HOME=/home/shipfox
 
 COPY --from=build /prod ./
 
+# The runner package is the deployed root rather than an installed dependency, so its package bin
+# is not linked onto PATH by pnpm. Keep Git's name-based helper resolution usable in production.
+RUN ln -s /app/dist/git-credential-helper.js /usr/local/bin/git-credential-shipfox
+
 # Verify the production dependency closure contains every Pi extension entry before the image
 # can be published. This runs against the deployed flat layout, not the pnpm development tree.
 RUN node ./dist/verify-installation.js

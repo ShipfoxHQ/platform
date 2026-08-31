@@ -850,6 +850,9 @@ importers:
       '@shipfox/runner-agent':
         specifier: workspace:*
         version: link:../../libs/runner/agent
+      '@shipfox/runner-execution':
+        specifier: workspace:*
+        version: link:../../libs/runner/execution
       '@shipfox/runner-orchestration':
         specifier: workspace:*
         version: link:../../libs/runner/orchestration

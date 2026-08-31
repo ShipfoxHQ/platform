@@ -25,6 +25,16 @@
         "types": "./dist/index.d.ts",
         "default": "./dist/index.js"
       }
+    },
+    "./credential-socket": {
+      "workspace-source": {
+        "types": "./src/credential-socket.ts",
+        "default": "./src/credential-socket.ts"
+      },
+      "default": {
+        "types": "./dist/credential-socket.d.ts",
+        "default": "./dist/credential-socket.js"
+      }
     }
   },
   "scripts": {

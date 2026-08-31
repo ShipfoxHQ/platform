@@ -26,6 +26,16 @@
         "default": "./dist/index.js"
       }
     },
+    "./git-credential-helper": {
+      "workspace-source": {
+        "types": "./src/git-credential-helper.ts",
+        "default": "./src/git-credential-helper.ts"
+      },
+      "default": {
+        "types": "./dist/git-credential-helper.d.ts",
+        "default": "./dist/git-credential-helper.js"
+      }
+    },
     "./step-output": {
       "workspace-source": {
         "types": "./src/core/step-output.ts",

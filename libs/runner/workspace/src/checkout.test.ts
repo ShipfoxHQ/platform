@@ -1,4 +1,5 @@
 import {EventEmitter} from 'node:events';
+import {readFileSync, writeFileSync} from 'node:fs';
 import {mkdtemp, readFile, rm, stat, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -17,6 +18,7 @@ const {
   CheckoutError,
   redactSecrets,
   writeAmbientGitCredential,
+  writeGitCredentialHelperConfig,
 } = await import('#checkout.js');
 
 type SpawnResult =
@@ -396,6 +398,47 @@ describe('checkoutRepository failure classification', () => {
   });
 });
 
+function mockExistingGitCredentialConfig(): void {
+  execFileMock.mockImplementation((...args: unknown[]) => {
+    const callback = args.at(-1) as (error: null, result: {stdout: string; stderr: string}) => void;
+    const command = args[1] as string[];
+    const temporaryPath = command[2];
+    if (typeof temporaryPath !== 'string') throw new Error('Unexpected Git config command');
+    if (command.includes('--unset-all')) removeGitConfigValue(temporaryPath, command[4]);
+    callback(null, {stdout: gitConfigKeysOutput(command), stderr: ''});
+  });
+}
+
+function removeGitConfigValue(temporaryPath: string, key: string | undefined): void {
+  if (typeof key !== 'string') throw new Error('Unexpected Git config key');
+  const property = key.split('.').at(-1);
+  const section = key.startsWith('http.')
+    ? '[http "https://github.com/acme/repo.git"]'
+    : '[credential "https://github.com/acme/repo.git"]';
+  let inTargetSection = false;
+  const current = readFileSync(temporaryPath, 'utf8');
+  const withoutValue = current
+    .split('\n')
+    .filter((line) => {
+      if (line.startsWith('[')) inTargetSection = line === section;
+      return !(
+        inTargetSection && line.trimStart().toLowerCase().startsWith(`${property?.toLowerCase()} =`)
+      );
+    })
+    .join('\n');
+  writeFileSync(temporaryPath, withoutValue);
+}
+
+function gitConfigKeysOutput(command: string[]): string {
+  if (!command.includes('--get-regexp')) return '';
+  return [
+    'credential.https://github.com/acme/repo.git.helper',
+    'credential.https://github.com/acme/repo.git.username',
+    'credential.https://github.com/acme/repo.git.password',
+    'http.https://github.com/acme/repo.git.extraheader',
+  ].join('\n');
+}
+
 describe('writeAmbientGitCredential', () => {
   let root: string;
   let priorGitConfigGlobal: string | undefined;
@@ -595,6 +638,172 @@ describe('writeAmbientGitCredential', () => {
     const expected = Buffer.from('x-token:tok-123').toString('base64');
     expect(content).toContain(`[include]\n\tpath = "${baseConfig}"`);
     expect(content).toContain(`extraHeader = "Authorization: Basic ${expected}"`);
+  });
+
+  it('writes an exact, token-free credential helper configuration', async () => {
+    const configPath = join(root, 'git-cred.config');
+
+    await writeGitCredentialHelperConfig({
+      configPath,
+      repositoryUrl: 'https://github.com/acme/repo.git',
+      helper: {
+        command: 'node /opt/runner/dist/git-credential-helper.js',
+        socketPath: join(root, 'credential.sock'),
+        capability: 'job-capability',
+      },
+    });
+
+    const content = await readFile(configPath, 'utf8');
+    expect(content).toContain('[credential]\n\tuseHttpPath = true');
+    expect(content).toContain('[credential "https://github.com/acme/repo/"]');
+    expect(content).toContain(
+      '\thelper = "!node /opt/runner/dist/git-credential-helper.js --socket',
+    );
+    expect(content).toContain('--capability job-capability');
+    expect(content).not.toContain('password');
+    expect(content).not.toContain('token');
+  });
+
+  it.each([
+    ['control characters', 'job\ncapability'],
+    ['oversized values', 'x'.repeat(513)],
+  ])('rejects helper capabilities with %s', (_description, capability) => {
+    expect(() =>
+      writeGitCredentialHelperConfig({
+        configPath: join(root, 'git-cred.config'),
+        repositoryUrl: 'https://github.com/acme/repo.git',
+        helper: {
+          command: 'git-credential-shipfox',
+          socketPath: join(root, 'credential.sock'),
+          capability,
+        },
+      }),
+    ).toThrow();
+  });
+
+  it('updates an existing helper without retaining credentials or duplicating identity', async () => {
+    const configPath = join(root, 'git-cred.config');
+    await writeFile(
+      configPath,
+      '[credential]\n\tuseHttpPath = true\n[credential "https://github.com/acme/repo.git"]\n\thelper = old-helper\n\tusername = old-user\n\tpassword = old-password\n[http "https://github.com/acme/repo.git"]\n\textraHeader = old-header\n[user]\n\tname = Existing Author\n\temail = existing@example.com\n',
+    );
+    mockExistingGitCredentialConfig();
+
+    await writeGitCredentialHelperConfig({
+      configPath,
+      repositoryUrl: 'https://GITHUB.com:443/acme/repo.git',
+      helper: {
+        command: 'git-credential-shipfox',
+        socketPath: join(root, 'credential.sock'),
+        capability: 'job-capability',
+      },
+      gitAuthor: {name: 'Existing Author', email: 'existing@example.com'},
+    });
+
+    const content = await readFile(configPath, 'utf8');
+    expect(content.match(/^[ \t]*helper = /gm)).toHaveLength(1);
+    expect(content).not.toContain('old-helper');
+    expect(content).not.toContain('old-password');
+    expect(content).not.toContain('old-header');
+    expect(content.match(/^\[user\]/gm)).toHaveLength(1);
+    expect(content.match(/^\[credential\]$/gm)).toHaveLength(1);
+  });
+
+  it('adds the helper alongside a Git author and rejects persisted auth', async () => {
+    const configPath = join(root, 'git-cred.config');
+
+    await writeAmbientGitCredential({
+      configPath,
+      repositoryUrl: 'https://github.com/acme/repo.git',
+      credentialHelper: {
+        command: 'git-credential-shipfox',
+        socketPath: join(root, 'credential.sock'),
+        capability: 'job-capability',
+      },
+      gitAuthor: {name: 'Helper Author', email: 'helper@example.com'},
+    });
+    const content = await readFile(configPath, 'utf8');
+    expect(content).toContain('[user]\n\tname = "Helper Author"');
+
+    expect(() =>
+      writeAmbientGitCredential({
+        configPath,
+        repositoryUrl: 'https://github.com/acme/repo.git',
+        auth: {
+          kind: 'bearer',
+          token: 'persisted-token',
+          expires_at: '2026-01-01T00:00:00Z',
+          carry: 'header',
+          host: 'github.com',
+          persist: true,
+        },
+        credentialHelper: {
+          command: 'git-credential-shipfox',
+          socketPath: join(root, 'credential.sock'),
+          capability: 'job-capability',
+        },
+      }),
+    ).toThrow(TypeError);
+  });
+
+  it('forces useHttpPath true after an existing false value', async () => {
+    const configPath = join(root, 'git-cred.config');
+    await writeFile(configPath, '[credential]\n\tuseHttpPath = true\n\tuseHttpPath = false\n');
+
+    await writeGitCredentialHelperConfig({
+      configPath,
+      repositoryUrl: 'https://github.com/acme/repo.git',
+      helper: {
+        command: 'git-credential-shipfox',
+        socketPath: join(root, 'credential.sock'),
+        capability: 'job-capability',
+      },
+    });
+
+    const content = await readFile(configPath, 'utf8');
+    expect(content).toContain('\tuseHttpPath = false\n[credential]\n\tuseHttpPath = true');
+  });
+
+  it('scopes useHttpPath detection to the global credential section', async () => {
+    const configPath = join(root, 'git-cred.config');
+    await writeFile(
+      configPath,
+      '[credential "https://github.com/acme/other/"]\n\tuseHttpPath = true\n',
+    );
+
+    await writeGitCredentialHelperConfig({
+      configPath,
+      repositoryUrl: 'https://github.com/acme/repo.git',
+      helper: {
+        command: 'git-credential-shipfox',
+        socketPath: join(root, 'credential.sock'),
+        capability: 'job-capability',
+      },
+    });
+
+    const content = await readFile(configPath, 'utf8');
+    expect(content).toContain('[credential]\n\tuseHttpPath = true');
+  });
+
+  it('includes the prior global config when the helper config is whitespace-only', async () => {
+    const baseConfig = join(root, 'base.gitconfig');
+    const configPath = join(root, 'git-cred.config');
+    await writeFile(baseConfig, '[user]\n\tname = Runner\n');
+    await writeFile(configPath, ' \n\t');
+    process.env.GIT_CONFIG_GLOBAL = baseConfig;
+
+    await writeGitCredentialHelperConfig({
+      configPath,
+      repositoryUrl: 'https://github.com/acme/repo.git',
+      helper: {
+        command: 'git-credential-shipfox',
+        socketPath: join(root, 'credential.sock'),
+        capability: 'job-capability',
+      },
+    });
+
+    const content = await readFile(configPath, 'utf8');
+    expect(content).toContain(`[include]\n\tpath = "${baseConfig}"`);
   });
 
   it('writes the configured Git author identity without credentials', async () => {

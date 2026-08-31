@@ -8,8 +8,11 @@
   "license": "MIT",
   "private": true,
   "type": "module",
+  "bin": {
+    "git-credential-shipfox": "dist/git-credential-helper.js"
+  },
   "scripts": {
-    "build": "shipfox-swc",
+    "build": "shipfox-swc && chmod +x dist/git-credential-helper.js",
     "dev": "tsx watch --conditions=workspace-source --env-file-if-exists=.env --env-file-if-exists=.env.local src/index.ts",
     "image": "shipfox-docker --setup-context --image runner",
     "check": "shipfox-biome-check",
@@ -20,6 +23,7 @@
   "dependencies": {
     "@shipfox/node-opentelemetry": "workspace:*",
     "@shipfox/runner-agent": "workspace:*",
+    "@shipfox/runner-execution": "workspace:*",
     "@shipfox/runner-orchestration": "workspace:*"
   },
   "devDependencies": {
