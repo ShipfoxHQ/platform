@@ -1,4 +1,5 @@
 import {and, eq} from 'drizzle-orm';
+import {getCheckoutPolicy} from '#core/checkout.js';
 import type {CheckoutRenewalSubject} from '#core/entities/checkout-renewal-subject.js';
 import {normalizeRepositoryUrl} from '#core/entities/checkout-renewal-subject.js';
 import {db, type Tx, withTransaction} from './db.js';
@@ -43,16 +44,17 @@ export async function savePendingCheckoutRenewalSubject(
     .innerJoin(jobs, eq(jobs.id, jobExecutions.jobId))
     .where(eq(steps.id, params.stepId))
     .limit(1)
-    .for('update');
+    .for('update', {of: [steps]});
 
+  const policy = context === undefined ? null : getCheckoutPolicy(context.config);
   const isCurrentPersistedCheckout =
     context !== undefined &&
     context.jobExecutionId === params.jobExecutionId &&
     context.workflowRunAttemptId === params.workflowRunAttemptId &&
     context.currentAttempt === params.attempt &&
     context.status === 'running' &&
-    checkoutPolicy(context.config)?.persistCredentials === true &&
-    checkoutPolicy(context.config)?.permissionsContents === params.permissions.contents;
+    policy?.persistCredentials === true &&
+    policy?.permissionsContents === params.permissions.contents;
   if (!isCurrentPersistedCheckout) return false;
 
   const inserted = await transaction
@@ -85,13 +87,11 @@ export async function promoteCheckoutRenewalSubject(
     })
     .from(stepAttempts)
     .innerJoin(steps, eq(steps.id, stepAttempts.stepId))
-    .innerJoin(jobExecutions, eq(jobExecutions.id, steps.jobExecutionId))
-    .innerJoin(jobs, eq(jobs.id, jobExecutions.jobId))
     .where(and(eq(stepAttempts.stepId, params.stepId), eq(stepAttempts.attempt, params.attempt)))
     .limit(1);
   if (
     context?.attemptStatus !== 'succeeded' ||
-    checkoutPolicy(context.config)?.persistCredentials !== true
+    getCheckoutPolicy(context.config)?.persistCredentials !== true
   ) {
     return false;
   }
@@ -176,12 +176,13 @@ export async function loadCheckoutRenewalSubject(
     )
     .limit(1);
 
+  const policy = row === undefined ? null : getCheckoutPolicy(row.config);
   if (
     row === undefined ||
     row.stepStatus !== 'succeeded' ||
     row.stepAttemptStatus !== 'succeeded' ||
-    checkoutPolicy(row.config)?.persistCredentials !== true ||
-    checkoutPolicy(row.config)?.permissionsContents !== row.subject.permissionsContents ||
+    policy?.persistCredentials !== true ||
+    policy?.permissionsContents !== row.subject.permissionsContents ||
     row.stepCurrentAttempt !== row.subject.attempt ||
     row.subject.repositoryUrl !== normalizeRepositoryUrlSafely(row.subject.repositoryUrl) ||
     row.subject.repositoryUrl.length === 0 ||
@@ -197,33 +198,6 @@ export async function loadCheckoutRenewalSubject(
     permissions: {contents: row.subject.permissionsContents},
     stepId: row.subject.stepId,
     attempt: row.subject.attempt,
-  };
-}
-
-function checkoutPolicy(config: unknown): {
-  persistCredentials: boolean;
-  permissionsContents: 'read' | 'write';
-} | null {
-  if (typeof config !== 'object' || config === null || Array.isArray(config)) return null;
-  const checkout = (config as {checkout?: unknown}).checkout;
-  if (typeof checkout !== 'object' || checkout === null || Array.isArray(checkout)) return null;
-  const policy = checkout as {persist_credentials?: unknown; permissions?: unknown};
-  const permissions = policy.permissions;
-  let contents: 'read' | 'write' = 'read';
-  if (permissions !== undefined) {
-    if (typeof permissions !== 'object' || permissions === null || Array.isArray(permissions)) {
-      return null;
-    }
-    const configuredContents = (permissions as {contents?: unknown}).contents;
-    if (configuredContents !== 'read' && configuredContents !== 'write') return null;
-    contents = configuredContents;
-  }
-  if (policy.persist_credentials !== undefined && typeof policy.persist_credentials !== 'boolean') {
-    return null;
-  }
-  return {
-    persistCredentials: policy.persist_credentials ?? true,
-    permissionsContents: contents,
   };
 }
 

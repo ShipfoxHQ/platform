@@ -41,6 +41,23 @@ const checkoutConfigSchema = z
 
 type CheckoutConfig = z.infer<typeof checkoutConfigSchema>;
 
+export interface CheckoutPolicy {
+  persistCredentials: boolean;
+  permissionsContents: 'read' | 'write';
+}
+
+export function getCheckoutPolicy(stepConfig: unknown): CheckoutPolicy | null {
+  if (typeof stepConfig !== 'object' || stepConfig === null || Array.isArray(stepConfig))
+    return null;
+  const checkout = (stepConfig as {checkout?: unknown}).checkout;
+  const result = checkoutConfigSchema.safeParse(checkout);
+  if (!result.success) return null;
+  return {
+    persistCredentials: result.data.persist_credentials ?? true,
+    permissionsContents: result.data.permissions?.contents ?? 'read',
+  };
+}
+
 export async function createStepCheckoutSpec({
   step,
   workspaceId,
