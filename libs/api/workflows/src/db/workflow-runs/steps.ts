@@ -1,4 +1,6 @@
 import type {LogOutcomeDto} from '@shipfox/api-workflows-dto';
+import {captureException} from '@shipfox/node-error-monitoring';
+import {logger} from '@shipfox/node-opentelemetry';
 import {and, asc, count, desc, eq, gte, inArray, sql} from 'drizzle-orm';
 import type {
   PersistedEvaluationTraceEntry,
@@ -188,20 +190,26 @@ export async function bulkUpdateStepStatuses(
     })
     .where(and(eq(steps.jobExecutionId, params.jobExecutionId), NON_TERMINAL_STEP_STATUS_FILTER));
 
-  await tx
-    .delete(checkoutRenewalSubjects)
-    .where(
-      and(
-        eq(checkoutRenewalSubjects.status, 'pending'),
-        inArray(
-          checkoutRenewalSubjects.stepId,
-          tx
-            .select({id: steps.id})
-            .from(steps)
-            .where(eq(steps.jobExecutionId, params.jobExecutionId)),
-        ),
-      ),
-    );
+  await runBestEffortCheckoutRenewalSubjectMaintenance(
+    tx,
+    {jobExecutionId: params.jobExecutionId},
+    async (renewalTx) => {
+      await renewalTx
+        .delete(checkoutRenewalSubjects)
+        .where(
+          and(
+            eq(checkoutRenewalSubjects.status, 'pending'),
+            inArray(
+              checkoutRenewalSubjects.stepId,
+              renewalTx
+                .select({id: steps.id})
+                .from(steps)
+                .where(eq(steps.jobExecutionId, params.jobExecutionId)),
+            ),
+          ),
+        );
+    },
+  );
 
   // Finalize open attempt rows so a timed-out/cancelled sweep does not leave
   // phantom in-flight work for gate and restart logic.
@@ -483,6 +491,24 @@ export interface FinishStepAttemptParams {
   restartFeedback?: string | null;
 }
 
+async function runBestEffortCheckoutRenewalSubjectMaintenance(
+  tx: Tx,
+  context: {jobExecutionId?: string; stepId?: string; attempt?: number},
+  operation: (tx: Tx) => Promise<void>,
+): Promise<void> {
+  try {
+    // Use a savepoint so a missing or unhealthy derived-state table cannot abort
+    // the transaction that records the authoritative step transition.
+    await tx.transaction(operation);
+  } catch (error) {
+    logger().error(
+      {error, ...context},
+      'Checkout renewal subject maintenance failed; continuing step transition',
+    );
+    captureException(error);
+  }
+}
+
 // Finalize the running attempt to a terminal state. The `status='running'` guard
 // makes this idempotent: a duplicate report finds the attempt already terminal
 // and updates nothing (never-downgrade for the audit row).
@@ -517,24 +543,33 @@ export async function finishStepAttempt(params: FinishStepAttemptParams, tx: Tx)
   const row = rows[0];
   if (!row) return;
 
-  const [pendingSubject] = await tx
-    .select({id: checkoutRenewalSubjects.id})
-    .from(checkoutRenewalSubjects)
-    .where(
-      and(
-        eq(checkoutRenewalSubjects.stepId, row.stepId),
-        eq(checkoutRenewalSubjects.attempt, row.attempt),
-        eq(checkoutRenewalSubjects.status, 'pending'),
-      ),
-    )
-    .limit(1);
-  if (pendingSubject) {
-    if (params.status === 'succeeded') {
-      await promoteCheckoutRenewalSubject({stepId: row.stepId, attempt: row.attempt}, tx);
-    } else {
-      await discardPendingCheckoutRenewalSubject({stepId: row.stepId, attempt: row.attempt}, tx);
-    }
-  }
+  await runBestEffortCheckoutRenewalSubjectMaintenance(
+    tx,
+    {stepId: row.stepId, attempt: row.attempt},
+    async (renewalTx) => {
+      const [pendingSubject] = await renewalTx
+        .select({id: checkoutRenewalSubjects.id})
+        .from(checkoutRenewalSubjects)
+        .where(
+          and(
+            eq(checkoutRenewalSubjects.stepId, row.stepId),
+            eq(checkoutRenewalSubjects.attempt, row.attempt),
+            eq(checkoutRenewalSubjects.status, 'pending'),
+          ),
+        )
+        .limit(1);
+      if (!pendingSubject) return;
+
+      if (params.status === 'succeeded') {
+        await promoteCheckoutRenewalSubject({stepId: row.stepId, attempt: row.attempt}, renewalTx);
+      } else {
+        await discardPendingCheckoutRenewalSubject(
+          {stepId: row.stepId, attempt: row.attempt},
+          renewalTx,
+        );
+      }
+    },
+  );
 
   await writeStepAttemptTerminatedOutbox(tx, {
     stepAttemptId: row.id,
