@@ -108,6 +108,11 @@ export {
 export {
   MAX_OBSERVED_PROVIDER_RUNNER_ID_LENGTH,
   MAX_RECONCILE_OBSERVED_RUNNERS,
+  MAX_TERMINATION_CANDIDATES,
+  type ProviderTerminationCandidateDto,
+  type ProviderTerminationCandidateReasonDto,
+  providerTerminationCandidateReasonSchema,
+  providerTerminationCandidateSchema,
   RECONCILE_RUNNER_INSTANCES_INTENDED_RESERVATION_HEADER,
   RECONCILE_RUNNER_INSTANCES_INTENDED_RESERVATION_HEADER_VALUE,
   type ReconcileDesiredIntentDto,

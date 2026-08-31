@@ -3,15 +3,33 @@ import {providerRunnerStateSchema} from './report-runner-instances.js';
 
 export const MAX_RECONCILE_OBSERVED_RUNNERS = 5000;
 export const MAX_OBSERVED_PROVIDER_RUNNER_ID_LENGTH = 255;
+export const MAX_TERMINATION_CANDIDATES = 100;
 export const RECONCILE_RUNNER_INSTANCES_INTENDED_RESERVATION_HEADER =
   'x-shipfox-reconcile-intended-reservation';
 export const RECONCILE_RUNNER_INSTANCES_INTENDED_RESERVATION_HEADER_VALUE = '1';
+
+export const providerTerminationCandidateReasonSchema = z.enum([
+  'registration-deadline',
+  'provider-health-failed',
+]);
+
+/** A provider observation that the backend must recheck before issuing authorization. */
+export const providerTerminationCandidateSchema = z
+  .object({
+    provider_runner_id: z.string().min(1).max(MAX_OBSERVED_PROVIDER_RUNNER_ID_LENGTH),
+    reason: providerTerminationCandidateReasonSchema,
+  })
+  .strict();
 
 export const reconcileRunnerInstancesBodySchema = z
   .object({
     observed_provider_runner_ids: z
       .array(z.string().min(1).max(MAX_OBSERVED_PROVIDER_RUNNER_ID_LENGTH))
       .max(MAX_RECONCILE_OBSERVED_RUNNERS),
+    termination_candidates: z
+      .array(providerTerminationCandidateSchema)
+      .max(MAX_TERMINATION_CANDIDATES)
+      .optional(),
   })
   .strict()
   .refine(
@@ -20,6 +38,15 @@ export const reconcileRunnerInstancesBodySchema = z
     {
       message: 'observed_provider_runner_ids values must be unique',
       path: ['observed_provider_runner_ids'],
+    },
+  )
+  .refine(
+    (body) =>
+      new Set(body.termination_candidates?.map((candidate) => candidate.provider_runner_id))
+        .size === (body.termination_candidates?.length ?? 0),
+    {
+      message: 'termination_candidates provider_runner_id values must be unique',
+      path: ['termination_candidates'],
     },
   );
 
@@ -75,6 +102,10 @@ export const reconcileRunnerInstancesResponseSchema = z
   })
   .strict();
 
+export type ProviderTerminationCandidateDto = z.infer<typeof providerTerminationCandidateSchema>;
+export type ProviderTerminationCandidateReasonDto = z.infer<
+  typeof providerTerminationCandidateReasonSchema
+>;
 export type ReconcileRunnerInstancesBodyDto = z.infer<typeof reconcileRunnerInstancesBodySchema>;
 export type ReconcileDesiredIntentDto = z.infer<typeof reconcileDesiredIntentSchema>;
 export type ReconciledBoundJobDto = z.infer<typeof reconciledBoundJobSchema>;

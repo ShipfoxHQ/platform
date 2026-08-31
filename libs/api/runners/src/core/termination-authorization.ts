@@ -12,6 +12,7 @@ import {
   type TerminationReasonResolution,
 } from '#db/runner-instances.js';
 import {
+  recordRunnerEnrollmentCredentialRevoked,
   recordRunnerTerminationAuthorizationIssued,
   recordRunnerTerminationAuthorizationRejected,
 } from '#metrics/index.js';
@@ -66,7 +67,32 @@ export async function authorizeRunnerTerminationTx(
 export function recordRunnerTerminationAuthorizationTelemetry(
   params: RunnerTerminationAuthorizationParams,
   telemetry: TerminationAuthorizationTelemetry | null,
+  revocationCounts?: RunnerEnrollmentRevocationCounts | null,
 ): void {
+  if (revocationCounts) {
+    recordRunnerEnrollmentCredentialRevoked({
+      credential: 'activation-token',
+      count: revocationCounts.revokedActivationTokenCount,
+    });
+    recordRunnerEnrollmentCredentialRevoked({
+      credential: 'control-session',
+      count: revocationCounts.closedControlSessionCount,
+    });
+    if (
+      revocationCounts.revokedActivationTokenCount > 0 ||
+      revocationCounts.closedControlSessionCount > 0
+    )
+      safelyLog(
+        'info',
+        {
+          event: 'runner.enrollment_credentials_revoked',
+          provisionerId: params.provisionerId,
+          providerRunnerId: params.providerRunnerId,
+          reason: params.reason,
+        },
+        'Revoked runner enrollment credentials after termination authorization',
+      );
+  }
   if (!telemetry) return;
 
   const fields = {

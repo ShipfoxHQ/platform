@@ -1,4 +1,7 @@
-import type {RunnerJobStopReasonDto} from '@shipfox/api-runners-dto';
+import type {
+  ProviderTerminationCandidateReasonDto,
+  RunnerJobStopReasonDto,
+} from '@shipfox/api-runners-dto';
 import {logger} from '@shipfox/node-opentelemetry';
 import type {
   RunnerInstance,
@@ -32,6 +35,7 @@ import {
 import {config} from '../config.js';
 import {
   authorizeRunnerTermination,
+  recordRunnerTerminationAuthorizationTelemetry,
   resolveRunnerTerminationReason,
 } from './termination-authorization.js';
 
@@ -55,10 +59,16 @@ export interface ReportRunnerInstancesResult {
   reservationsReleased: number;
 }
 
+export interface ProviderTerminationCandidate {
+  providerRunnerId: string;
+  reason: ProviderTerminationCandidateReasonDto;
+}
+
 export interface ReconcileRunnerInstancesParams {
   workspaceId: string | null;
   provisionerId: string;
   observedRunnerInstanceIds: string[];
+  terminationCandidates?: ProviderTerminationCandidate[];
 }
 
 export type ReconcileDesiredIntent = 'keep' | 'terminate';
@@ -158,13 +168,56 @@ export async function reportRunnerInstances(
 export async function reconcileRunnerInstances(
   params: ReconcileRunnerInstancesParams,
 ): Promise<ReconcileRunnerInstancesResult> {
+  const terminationCandidates = (params.terminationCandidates ?? []).filter((candidate) => {
+    const resolution = params.workspaceId
+      ? resolveRunnerTerminationReason({
+          provisionerId: params.provisionerId,
+          providerRunnerId: candidate.providerRunnerId,
+          reason: candidate.reason,
+        })
+      : {reason: null, rejectionReason: 'unknown-runner' as const};
+    if (!resolution.reason)
+      recordRunnerTerminationAuthorizationTelemetry(
+        {
+          provisionerId: params.provisionerId,
+          providerRunnerId: candidate.providerRunnerId,
+          reason: candidate.reason,
+        },
+        {outcome: 'rejected', reason: resolution.rejectionReason},
+      );
+    return Boolean(resolution.reason);
+  });
+  const observedRunnerInstanceIds = [
+    ...new Set([
+      ...params.observedRunnerInstanceIds,
+      ...(params.terminationCandidates ?? []).map((candidate) => candidate.providerRunnerId),
+    ]),
+  ];
   const result = await reconcileRunnerInstancesDb({
     ...params,
+    terminationCandidates,
+    observedRunnerInstanceIds,
     terminateGraceSeconds: config.RUNNER_RECONCILE_TERMINATE_GRACE_SECONDS,
     postJobExitGraceSeconds: config.RUNNER_POST_JOB_EXIT_GRACE_SECONDS,
     terminationReasonResolver: ({provisionerId, providerRunnerId, reason}) =>
       resolveRunnerTerminationReason({provisionerId, providerRunnerId, reason}),
   });
+
+  for (const {
+    providerRunnerId,
+    reason,
+    telemetry,
+    revocationCounts,
+  } of result.terminationAuthorizationTelemetry)
+    recordRunnerTerminationAuthorizationTelemetry(
+      {
+        provisionerId: params.provisionerId,
+        providerRunnerId,
+        reason,
+      },
+      telemetry,
+      revocationCounts,
+    );
 
   recordRunnerReservationReleased({count: result.reservationsReleased, surface: 'reconcile'});
   providerRunnerReconcileCallCount.add(1);
@@ -172,7 +225,7 @@ export async function reconcileRunnerInstances(
 
   const now = new Date();
   const reconciledRunners = reconcileRunnerInstancesFromDbResult({
-    observedRunnerInstanceIds: params.observedRunnerInstanceIds,
+    observedRunnerInstanceIds,
     observedRows: result.observedRows,
     boundJobExecutionsByRunnerInstanceId: result.boundJobExecutionsByRunnerInstanceId,
     cleanupGraceSeconds: config.RUNNER_JOB_CLEANUP_GRACE_SECONDS,
@@ -213,8 +266,8 @@ export async function reconcileRunnerInstances(
   const authorizations = await listProvisionerTerminationAuthorizations({
     workspaceId: params.workspaceId,
     provisionerId: params.provisionerId,
-    providerRunnerIds: params.observedRunnerInstanceIds,
-    limit: params.observedRunnerInstanceIds.length,
+    providerRunnerIds: observedRunnerInstanceIds,
+    limit: observedRunnerInstanceIds.length,
   });
   const authorizationByRunnerId = new Map(
     authorizations.map((authorization) => [authorization.providerRunnerId, authorization.reason]),

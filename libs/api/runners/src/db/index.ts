@@ -67,6 +67,7 @@ export {assignRunnerInstances} from './runner-assignments.js';
 export type {
   ActiveRunnerInstanceTemplateCount,
   ProviderRunnerStateMetric,
+  ProviderTerminationCandidate,
   ReapStaleRunnerInstancesResult,
   ReconcileRunnerInstancesDbResult,
   ReconcileRunnerInstancesParams,
@@ -78,6 +79,8 @@ export type {
   RunnerInstanceTerminateIntentReason,
   RunnerTerminationReason,
   TerminationAuthorizationResult,
+  TerminationAuthorizationTelemetry,
+  TerminationAuthorizationTelemetryRecord,
 } from './runner-instances.js';
 export {
   attachRunnerInstanceProviderId,

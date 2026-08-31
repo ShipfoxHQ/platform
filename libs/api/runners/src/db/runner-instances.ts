@@ -72,6 +72,19 @@ export type TerminationAuthorizationTelemetry =
   | {outcome: 'issued'; reason: RunnerTerminationReason}
   | {outcome: 'rejected'; reason: RunnerTerminationAuthorizationRejectionReason};
 
+export interface RunnerEnrollmentRevocationCounts {
+  runnerInstanceId: string;
+  revokedActivationTokenCount: number;
+  closedControlSessionCount: number;
+}
+
+export interface TerminationAuthorizationTelemetryRecord {
+  providerRunnerId: string;
+  reason: string;
+  telemetry: TerminationAuthorizationTelemetry | null;
+  revocationCounts: RunnerEnrollmentRevocationCounts | null;
+}
+
 export type TerminationAuthorizationTxResult = TerminationAuthorizationResult & {
   /** Emitted by the transaction owner only after the transaction commits. */
   telemetry: TerminationAuthorizationTelemetry | null;
@@ -82,12 +95,6 @@ interface PersistRunnerTerminationAuthorizationParams {
   providerRunnerId: string;
   reason: string;
   resolveTerminationReason: (reason: string) => TerminationReasonResolution;
-}
-
-export interface RunnerEnrollmentRevocationCounts {
-  runnerInstanceId: string;
-  revokedActivationTokenCount: number;
-  closedControlSessionCount: number;
 }
 
 export async function persistRunnerTerminationAuthorization(
@@ -267,10 +274,16 @@ export interface ReportRunnerInstancesParams {
   events: RunnerInstanceReportEvent[];
 }
 
+export interface ProviderTerminationCandidate {
+  providerRunnerId: string;
+  reason: Extract<RunnerTerminationReason, 'registration-deadline' | 'provider-health-failed'>;
+}
+
 export interface ReconcileRunnerInstancesParams {
   workspaceId: string | null;
   provisionerId: string;
   observedRunnerInstanceIds: string[];
+  terminationCandidates?: ProviderTerminationCandidate[];
   terminateGraceSeconds: number;
   postJobExitGraceSeconds?: number;
   terminationReasonResolver?: (params: {
@@ -285,6 +298,7 @@ export interface ReconcileRunnerInstancesDbResult {
   boundJobExecutionsByRunnerInstanceId: Map<string, RunnerInstanceBoundJobExecution>;
   absentIds: string[];
   reservationsReleased: number;
+  terminationAuthorizationTelemetry: TerminationAuthorizationTelemetryRecord[];
 }
 
 export interface ReapStaleRunnerInstancesResult {
@@ -1143,6 +1157,10 @@ export async function reconcileRunnerInstances(
       observedRunnerInstanceIds,
     );
 
+    const terminationAuthorizationTelemetry = await authorizeProviderTerminationCandidatesTx(
+      tx,
+      params,
+    );
     await authorizeExhaustedEphemeralSessionsTx(tx, params, observedRunnerInstanceIds);
 
     const observedRows =
@@ -1178,8 +1196,160 @@ export async function reconcileRunnerInstances(
       ),
       absentIds,
       reservationsReleased,
+      terminationAuthorizationTelemetry,
     };
   });
+}
+
+async function authorizeProviderTerminationCandidatesTx(
+  tx: Tx,
+  params: ReconcileRunnerInstancesParams,
+): Promise<TerminationAuthorizationTelemetryRecord[]> {
+  if (!params.workspaceId || !params.terminationReasonResolver) return [];
+
+  const telemetry: TerminationAuthorizationTelemetryRecord[] = [];
+  const candidates = [...(params.terminationCandidates ?? [])].sort((a, b) =>
+    a.providerRunnerId.localeCompare(b.providerRunnerId),
+  );
+  for (const candidate of candidates) {
+    const runner = await identifyProviderTerminationCandidateTx(tx, params, candidate);
+    if (!runner || (await hasRunnerEnrollmentSessionTx(tx, params, runner))) continue;
+    if (await hasOpenRunnerControlSessionTx(tx, params, runner.id)) continue;
+    if (await hasLiveRunnerJobTx(tx, params, runner.providerRunnerId)) continue;
+
+    let revocationCounts: RunnerEnrollmentRevocationCounts | null = null;
+    const authorization = await persistRunnerTerminationAuthorizationTx(
+      tx,
+      {
+        provisionerId: params.provisionerId,
+        providerRunnerId: runner.providerRunnerId,
+        reason: candidate.reason,
+        resolveTerminationReason: (reason) =>
+          params.terminationReasonResolver?.({
+            provisionerId: params.provisionerId,
+            providerRunnerId: runner.providerRunnerId,
+            reason,
+          }) ?? {reason: null, rejectionReason: 'unknown-reason'},
+      },
+      (counts) => {
+        revocationCounts = counts;
+      },
+    );
+    if (authorization.telemetry || revocationCounts)
+      telemetry.push({
+        providerRunnerId: runner.providerRunnerId,
+        reason: candidate.reason,
+        telemetry: authorization.telemetry,
+        revocationCounts,
+      });
+  }
+  return telemetry;
+}
+
+async function identifyProviderTerminationCandidateTx(
+  tx: Tx,
+  params: ReconcileRunnerInstancesParams,
+  candidate: ProviderTerminationCandidate,
+): Promise<{id: string; providerRunnerId: string} | null> {
+  const workspaceId = params.workspaceId;
+  if (!workspaceId) return null;
+  const [identifiedRunner] = await tx
+    .select({id: providerRunners.id})
+    .from(providerRunners)
+    .where(
+      and(
+        eq(providerRunners.workspaceId, workspaceId),
+        eq(providerRunners.provisionerId, params.provisionerId),
+        eq(providerRunners.providerRunnerId, candidate.providerRunnerId),
+        inArray(providerRunners.state, ['starting', 'running']),
+      ),
+    )
+    .limit(1);
+  if (!identifiedRunner) return null;
+
+  await lockRunnerEnrollmentTx(tx, {
+    workspaceId,
+    runnerInstanceId: identifiedRunner.id,
+  });
+  const [runner] = await tx
+    .select({id: providerRunners.id, providerRunnerId: providerRunners.providerRunnerId})
+    .from(providerRunners)
+    .where(
+      and(
+        eq(providerRunners.id, identifiedRunner.id),
+        eq(providerRunners.workspaceId, workspaceId),
+        eq(providerRunners.provisionerId, params.provisionerId),
+        eq(providerRunners.providerRunnerId, candidate.providerRunnerId),
+        inArray(providerRunners.state, ['starting', 'running']),
+      ),
+    )
+    .limit(1)
+    .for('update');
+  if (!runner?.providerRunnerId) return null;
+  return {id: runner.id, providerRunnerId: runner.providerRunnerId};
+}
+
+async function hasRunnerEnrollmentSessionTx(
+  tx: Tx,
+  params: ReconcileRunnerInstancesParams,
+  runner: {providerRunnerId: string},
+): Promise<boolean> {
+  const workspaceId = params.workspaceId;
+  if (!workspaceId) return false;
+  const [session] = await tx
+    .select({id: runnerSessions.id})
+    .from(runnerSessions)
+    .where(
+      and(
+        eq(runnerSessions.workspaceId, workspaceId),
+        eq(runnerSessions.provisionerId, params.provisionerId),
+        eq(runnerSessions.providerRunnerId, runner.providerRunnerId),
+        isNull(runnerSessions.revokedAt),
+      ),
+    )
+    .limit(1);
+  return Boolean(session);
+}
+
+async function hasOpenRunnerControlSessionTx(
+  tx: Tx,
+  params: ReconcileRunnerInstancesParams,
+  runnerInstanceId: string,
+): Promise<boolean> {
+  const [session] = await tx
+    .select({id: runnerControlSessions.id})
+    .from(runnerControlSessions)
+    .where(
+      and(
+        eq(runnerControlSessions.runnerInstanceId, runnerInstanceId),
+        eq(runnerControlSessions.provisionerId, params.provisionerId),
+        isNull(runnerControlSessions.closedAt),
+        gt(runnerControlSessions.expiresAt, sql`now()`),
+      ),
+    )
+    .limit(1);
+  return Boolean(session);
+}
+
+async function hasLiveRunnerJobTx(
+  tx: Tx,
+  params: ReconcileRunnerInstancesParams,
+  providerRunnerId: string,
+): Promise<boolean> {
+  const workspaceId = params.workspaceId;
+  if (!workspaceId) return false;
+  const [job] = await tx
+    .select({id: runningJobExecutions.id})
+    .from(runningJobExecutions)
+    .where(
+      and(
+        eq(runningJobExecutions.workspaceId, workspaceId),
+        eq(runningJobExecutions.provisionerId, params.provisionerId),
+        eq(runningJobExecutions.providerRunnerId, providerRunnerId),
+      ),
+    )
+    .limit(1);
+  return Boolean(job);
 }
 
 async function authorizeExhaustedEphemeralSessionsTx(
