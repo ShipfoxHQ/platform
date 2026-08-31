@@ -50,4 +50,4 @@
 "@shipfox/worktree-services": patch
 ---
 
-Simplifies internal control flow with no change to public APIs or behavior.
+Simplifies internal control flow and preserves cached empty project states after failed refreshes.

@@ -123,19 +123,20 @@ function ProjectsPanelContent({
   onClear: () => void;
 }) {
   const hasNoData = !query.data;
+  const hasNoProjects = projects.length === 0;
   if (query.isPending || (Boolean(search) && hasNoData && query.isFetching)) {
     return <ProjectsSkeleton />;
   }
   if (query.isError && hasNoData) {
     return <QueryLoadError query={query} subject="projects" variant="panel" />;
   }
-  if (projects.length === 0 && !search && !query.isError) {
+  if (hasNoProjects && !search) {
     return <EmptyProjects workspaceSlug={workspaceSlug} />;
   }
-  if (!query.isFetching && projects.length === 0 && search && !query.isError) {
+  if (!query.isFetching && hasNoProjects && search) {
     return <NoSearchResults search={search} onClear={onClear} />;
   }
-  if (projects.length === 0) return null;
+  if (hasNoProjects) return null;
   return (
     <ProjectsList
       query={query}

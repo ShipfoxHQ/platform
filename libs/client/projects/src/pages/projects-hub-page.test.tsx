@@ -203,7 +203,7 @@ describe('ProjectsHubPage', () => {
   test.each([
     ['', 'Create your first project'],
     ['missing', 'No projects match “missing”'],
-  ])('does not hide a cached-empty refresh failure for search %j', async (search, emptyState) => {
+  ])('keeps the cached empty state after a refresh failure for search %j', async (search, emptyState) => {
     let projectRequests = 0;
     configureApiClient({
       fetchImpl: createHubFetch({
@@ -227,7 +227,7 @@ describe('ProjectsHubPage', () => {
         queryClient.getQueryState(projectsQueryKeys.list(PROJECT_TEST_WID, search))?.status,
       ).toBe('error'),
     );
-    expect(screen.queryByText(emptyState)).not.toBeInTheDocument();
+    expect(screen.getByText(emptyState)).toBeInTheDocument();
   });
 
   test('shows no status pill or repository id for a connected source', async () => {
