@@ -47,6 +47,11 @@ export function compactedObjectKey(identity: LogObjectKeyParams, uploadToken: st
   return `${logObjectKey(config.LOG_STORAGE_S3_PREFIX, identity)}/${uploadToken}`;
 }
 
+/** The bounded cold tail is a sibling object of the full compacted stream. */
+export function compactedTailObjectKey(fullObjectKey: string): string {
+  return `${fullObjectKey}.tail`;
+}
+
 const UPLOAD_PART_SIZE = 5 * 1024 * 1024;
 const UPLOAD_CONCURRENCY = 2;
 

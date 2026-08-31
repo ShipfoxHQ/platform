@@ -1,6 +1,35 @@
 import {logsInterModuleContract} from './inter-module.js';
 
 describe('logsInterModuleContract', () => {
+  test('accepts exact-attempt tail reads and defaults the line window', () => {
+    const input = logsInterModuleContract.methods.readStepLogTail.input.parse({
+      stepId: '00000000-0000-4000-8000-000000000005',
+      attempt: 2,
+    });
+
+    expect(input).toEqual({
+      stepId: '00000000-0000-4000-8000-000000000005',
+      attempt: 2,
+      tailLines: 500,
+    });
+    expect(
+      logsInterModuleContract.methods.readStepLogTail.output.parse({
+        content: '2026-01-01T00:00:00.000Z stdout: hello',
+        totalLines: 12,
+      }),
+    ).toMatchObject({totalLines: 12});
+    expect(logsInterModuleContract.methods.readStepLogTail.output.parse(null)).toBeNull();
+  });
+
+  test('keeps the tail request bounded and exact-attempt', () => {
+    const schema = logsInterModuleContract.methods.readStepLogTail;
+    const stepId = '00000000-0000-4000-8000-000000000005';
+
+    expect(schema.input.safeParse({stepId, attempt: 1, tailLines: 0}).success).toBe(false);
+    expect(schema.input.safeParse({stepId, attempt: 1, tailLines: 2_001}).success).toBe(false);
+    expect(schema.input.safeParse({stepId, attempt: 1, tailLines: 1.5}).success).toBe(false);
+  });
+
   test('accepts server-origin append commands', () => {
     const input = logsInterModuleContract.methods.appendServerRecords.input.parse({
       jobId: '00000000-0000-4000-8000-000000000001',

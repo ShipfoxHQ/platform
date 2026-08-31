@@ -4,6 +4,7 @@ import {createGzip, gunzipSync} from 'node:zlib';
 import {MockActivityEnvironment} from '@temporalio/testing';
 import {eq} from 'drizzle-orm';
 import {
+  compactedTailObjectKey,
   deleteObject,
   listObjectKeys,
   getObjectBytes as readObjectBytes,
@@ -91,8 +92,10 @@ describe('compactStreamActivity', () => {
     expect(key.startsWith(`${logObjectKey(config.LOG_STORAGE_S3_PREFIX, identity)}/`)).toBe(true);
     const after = await getAttemptStreamById(stream.id);
     expect(after?.objectKey).toBe(key);
+    expect(after?.lineCount).toBe(3);
     expect(await listChunks(stream.id)).toHaveLength(0);
-    expect(await listKeysUnderStream(identity)).toEqual([key]);
+    const tailKey = compactedTailObjectKey(key);
+    expect(await listKeysUnderStream(identity)).toEqual([key, tailKey]);
 
     const head = await headObject(key);
     expect(head?.contentEncoding).toBe('gzip');
@@ -101,8 +104,15 @@ describe('compactStreamActivity', () => {
     expect(head?.metadata.chunk_count).toBe('3');
 
     expect(gunzipSync(await getObjectBytes(key))).toEqual(Buffer.concat(chunks));
+    expect(gunzipSync(await getObjectBytes(tailKey))).toEqual(Buffer.concat(chunks));
+    const tailHead = await headObject(tailKey);
+    expect(tailHead?.contentEncoding).toBe('gzip');
+    expect(tailHead?.contentType).toBe('application/x-ndjson');
+    expect(tailHead?.metadata.line_count).toBe('3');
+    expect(tailHead?.metadata.tail_line_count).toBe('3');
 
     await deleteObject(key);
+    await deleteObject(tailKey);
   });
 
   it('preserves seq order across many keyset pages (more chunks than one page)', async () => {
@@ -117,10 +127,35 @@ describe('compactStreamActivity', () => {
     const key = compactedKey(result);
     expect(result.outcome === 'compacted' && result.chunkCount).toBe(150);
     expect(gunzipSync(await getObjectBytes(key))).toEqual(Buffer.concat(chunks));
+    expect(gunzipSync(await getObjectBytes(compactedTailObjectKey(key)))).toEqual(
+      Buffer.concat(chunks),
+    );
     expect((await headObject(key))?.metadata.chunk_count).toBe('150');
+    expect((await headObject(compactedTailObjectKey(key)))?.metadata.tail_line_count).toBe('150');
     expect(await listChunks(stream.id)).toHaveLength(0);
 
     await deleteObject(key);
+    await deleteObject(compactedTailObjectKey(key));
+  });
+
+  it('keeps the cold tail bounded while retaining the newest records', async () => {
+    const lines = Array.from({length: 2_100}, (_, i) => outputLine(`line-${i}\n`));
+    const identity = newIdentity();
+    const stream = await arrangeClosedStream(identity, {chunks: [ndjsonBody(...lines)]});
+
+    const result = await runCompaction(stream.id);
+
+    const key = compactedKey(result);
+    const tailBytes = gunzipSync(await getObjectBytes(compactedTailObjectKey(key)));
+    const tailLines = tailBytes.toString('utf8').trimEnd().split('\n');
+    expect(tailLines).toHaveLength(2_000);
+    expect(tailLines[0]).toContain('line-100');
+    expect(tailLines.at(-1)).toContain('line-2099');
+    expect(tailBytes.length).toBeLessThanOrEqual(256 * 1024);
+    expect((await getAttemptStreamById(stream.id))?.lineCount).toBe(2_100);
+
+    await deleteObject(key);
+    await deleteObject(compactedTailObjectKey(key));
   });
 
   it('is a no-op on re-run once the object key is set (idempotent / crash-safe)', async () => {
@@ -133,6 +168,7 @@ describe('compactStreamActivity', () => {
 
     expect(result.outcome).toBe('already-compacted');
     await deleteObject(key);
+    await deleteObject(compactedTailObjectKey(key));
   });
 
   it('produces a valid empty object for a stream with no chunks', async () => {
@@ -143,8 +179,11 @@ describe('compactStreamActivity', () => {
     const key = compactedKey(result);
     expect(gunzipSync(await getObjectBytes(key))).toHaveLength(0);
     expect((await headObject(key))?.metadata.chunk_count).toBe('0');
+    expect(gunzipSync(await getObjectBytes(compactedTailObjectKey(key)))).toHaveLength(0);
+    expect((await headObject(compactedTailObjectKey(key)))?.metadata.line_count).toBe('0');
 
     await deleteObject(key);
+    await deleteObject(compactedTailObjectKey(key));
   });
 
   it('compacts a tombstone-only (timeout-closed) stream', async () => {
@@ -158,6 +197,7 @@ describe('compactStreamActivity', () => {
     );
 
     await deleteObject(key);
+    await deleteObject(compactedTailObjectKey(key));
   });
 
   it('returns gone when the stream row no longer exists', async () => {

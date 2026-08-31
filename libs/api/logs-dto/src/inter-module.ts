@@ -4,19 +4,40 @@ import {serverLogRecordSchema} from './schemas/index.js';
 
 const idSchema = z.string().uuid();
 
+export const DEFAULT_STEP_LOG_TAIL_LINES = 500;
+export const MAX_STEP_LOG_TAIL_LINES = 2_000;
+
 /**
- * Producer-owned Logs commands used by synchronous callers. The only method
- * today is the server-origin append for server-executed steps (the tool step
- * executor): it writes already-normalized stored records through the same
- * offset-CAS and budget pipeline as the lease-bound runner route, but with
- * chunk `origin` `server` and a tail-derived CAS offset (the caller owns no
- * spool cursor). This is a trusted internal boundary, not an authorization
- * boundary: the caller must derive the identity fields from its execution
- * context rather than pass through arbitrary external input.
+ * Producer-owned Logs commands used by synchronous callers. The exact-attempt tail read and
+ * server-origin append for server-executed steps (the tool step executor) run inside this
+ * boundary. The append writes already-normalized stored records through the same offset-CAS and
+ * budget pipeline as the lease-bound runner route, but with chunk `origin` `server` and a
+ * tail-derived CAS offset (the caller owns no spool cursor). This is a trusted internal
+ * boundary, not an authorization boundary: callers must derive identity fields from their
+ * execution context rather than pass through arbitrary external input.
  */
 export const logsInterModuleContract = defineInterModuleContract({
   module: 'logs',
   methods: {
+    /** Reads one exact step attempt as bounded rendered text. */
+    readStepLogTail: {
+      input: z.object({
+        stepId: idSchema,
+        attempt: z.number().int().min(1).max(2_147_483_647),
+        tailLines: z
+          .number()
+          .int()
+          .min(1)
+          .max(MAX_STEP_LOG_TAIL_LINES)
+          .default(DEFAULT_STEP_LOG_TAIL_LINES),
+      }),
+      output: z
+        .object({
+          content: z.string(),
+          totalLines: z.number().int().nonnegative().optional(),
+        })
+        .nullable(),
+    },
     appendServerRecords: {
       input: z.object({
         jobId: idSchema,

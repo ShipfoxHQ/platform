@@ -12,17 +12,18 @@ import {
   MalformedLogChunkError,
   OffsetGapError,
 } from '#core/errors.js';
+import {readStepLogTail} from '#core/read-step-log-tail.js';
 
 /**
- * Producer presentation for the Logs inter-module contract: server-origin log
- * appends for server-executed steps. No consumer exists yet — the tool step
- * executor (ENG-1680) calls `appendServerRecords` through the generated
- * `LogsModuleClient`.
+ * Producer presentation for exact-attempt log reads and server-origin log appends. The tool step
+ * executor (ENG-1680) calls the append method through the generated `LogsModuleClient`; the
+ * agent-access gateway consumes the bounded read method.
  */
 export function createLogsInterModulePresentation(): InterModulePresentation<
   typeof logsInterModuleContract
 > {
   return defineInterModulePresentation(logsInterModuleContract, {
+    readStepLogTail: async (input) => readStepLogTail(input),
     appendServerRecords: async (input) => {
       try {
         return await appendServerRecords(input);

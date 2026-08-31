@@ -28,6 +28,8 @@ import {pgTable} from './common.js';
  * `truncated` is an out-of-band terminal flag set when the timeout sweep
  * force-closes a stream the runner never ended; the `AttemptStream` entity is the
  * canonical reference for what it means.
+ * `line_count` is populated when compaction publishes the cold objects, so hot reads can omit
+ * the count while cold reads can report it without scanning the full stream.
  *
  * Per-row `committed_length` and `declared_total_bytes` are bounded by the
  * per-job budget, so `mode: 'number'` is safe on the hot path. Any cross-row
@@ -57,6 +59,7 @@ export const attemptStreams = pgTable(
     claudePendingResult: jsonb('claude_pending_result').$type<SessionViewLifecycleRow>(),
     claudePendingToolRows: jsonb('claude_pending_tool_rows').$type<SessionViewRow[]>(),
     truncated: boolean('truncated').notNull().default(false),
+    lineCount: integer('line_count'),
     objectKey: text('object_key'),
     createdAt: timestamp('created_at', {withTimezone: true}).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', {withTimezone: true}).notNull().defaultNow(),
@@ -110,6 +113,7 @@ export function toAttemptStream(row: AttemptStreamDb): AttemptStream {
     claudePendingResult: row.claudePendingResult ?? null,
     claudePendingToolRows: row.claudePendingToolRows ?? [],
     truncated: row.truncated,
+    lineCount: row.lineCount ?? null,
     objectKey: row.objectKey,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,

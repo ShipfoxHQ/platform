@@ -1,5 +1,5 @@
 import {Buffer} from 'node:buffer';
-import {and, asc, eq, gt, lte, or, sql} from 'drizzle-orm';
+import {and, asc, desc, eq, gt, lt, lte, or, sql} from 'drizzle-orm';
 import {db, type Transaction} from './db.js';
 import {type ChunkOrigin, logChunks} from './schema/chunks.js';
 
@@ -68,6 +68,29 @@ export async function readChunksKeyset(params: {
     .from(logChunks)
     .where(and(eq(logChunks.streamId, params.streamId), gt(logChunks.seq, params.afterSeq)))
     .orderBy(asc(logChunks.seq))
+    .limit(params.limit);
+  return rows;
+}
+
+/**
+ * One reverse keyset page for a hot tail read. The page is ordered newest first, and the
+ * caller passes the last (oldest) sequence from the previous page as `beforeSeq`.
+ */
+export async function readChunksReverse(params: {
+  streamId: string;
+  beforeSeq?: number;
+  limit: number;
+}): Promise<ChunkPageRow[]> {
+  const rows = await db()
+    .select({seq: logChunks.seq, data: logChunks.data})
+    .from(logChunks)
+    .where(
+      and(
+        eq(logChunks.streamId, params.streamId),
+        params.beforeSeq === undefined ? undefined : lt(logChunks.seq, params.beforeSeq),
+      ),
+    )
+    .orderBy(desc(logChunks.seq))
     .limit(params.limit);
   return rows;
 }

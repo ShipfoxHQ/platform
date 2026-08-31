@@ -255,21 +255,25 @@ export async function getAttemptStreamByIdInTransaction(
 }
 
 /**
- * Final compaction step: records the object key and deletes the now-cold chunk rows in one
- * transaction. The guard is `state='closed' AND object_key IS NULL`, so the publish is a
+ * Final compaction step: records the object key and line count and deletes the now-cold chunk rows
+ * in one transaction. The guard is `state='closed' AND object_key IS NULL`, so the publish is a
  * single winner even when two compaction attempts (e.g. a heartbeat-timed-out run and its
  * retry) race: each uploads to its own key, and only the first to land here writes a key and
  * drops the chunks. A 0-row result means the row was either hard-deleted by retention or
  * already published by another attempt; the caller re-reads to tell those apart and deletes
- * its own now-orphaned upload either way. Returns whether this attempt won the publish.
+ * its own now-orphaned uploads either way. Returns whether this attempt won the publish.
  */
 export async function setObjectKeyAndDeleteChunks(
   tx: Transaction,
-  params: {streamId: string; objectKey: string},
+  params: {streamId: string; objectKey: string; lineCount?: number},
 ): Promise<{updated: boolean}> {
   const updated = await tx
     .update(attemptStreams)
-    .set({objectKey: params.objectKey, updatedAt: sql`now()`})
+    .set({
+      objectKey: params.objectKey,
+      ...(params.lineCount === undefined ? {} : {lineCount: params.lineCount}),
+      updatedAt: sql`now()`,
+    })
     .where(
       and(
         eq(attemptStreams.id, params.streamId),
