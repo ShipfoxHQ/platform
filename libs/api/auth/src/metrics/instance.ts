@@ -9,6 +9,7 @@ export type AuthRateLimitAction =
   | 'bootstrap'
   | 'bootstrap-state'
   | 'lookup'
+  | 'directory'
   | 'impersonate';
 export type AuthRateLimitScope = 'ip' | 'email' | 'actor';
 export type AuthRateLimitOutcome = 'allowed' | 'blocked' | 'unavailable';

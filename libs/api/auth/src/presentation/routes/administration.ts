@@ -6,6 +6,8 @@ import {
 } from '@shipfox/api-auth-context';
 import {
   adminBootstrapStateSchema,
+  administratorUserDirectoryQuerySchema,
+  administratorUserDirectoryResponseSchema,
   administratorUserLookupQuerySchema,
   administratorUserMutationResponseSchema,
   administratorUserSummarySchema,
@@ -37,6 +39,7 @@ import {
   grantAdministratorRole,
   impersonateUser,
   listAdministratorGrantSummaries,
+  listAdministratorUsers,
   reactivateAdministratorUser,
   revokeAdministratorGrant,
   revokeAdministratorUserSessions,
@@ -60,6 +63,7 @@ import {
   ImpersonationExpiredError,
   ImpersonationTargetNotActiveError,
   InvalidAdminBootstrapTokenError,
+  InvalidAdministratorUserDirectoryFilterError,
   InvalidCredentialsError,
   LastAdminOwnerError,
   UserNotFoundError,
@@ -136,6 +140,41 @@ function toAdministratorUserMutationDto(result: {
   };
 }
 
+function directoryResultCountBucket(count: number): '0' | '1-10' | '11-50' | '51-100' {
+  if (count === 0) return '0';
+  if (count <= 10) return '1-10';
+  if (count <= 50) return '11-50';
+  return '51-100';
+}
+
+function logAdministratorUserDirectoryRead(params: {
+  request: FastifyRequest;
+  outcome: 'succeeded' | 'failed';
+  durationMs: number;
+  resultCount: number;
+  filterPresence: {
+    search: boolean;
+    status: boolean;
+    impersonationEligible: boolean;
+  };
+  nextPagePresent: boolean;
+}): void {
+  try {
+    params.request.log.info(
+      {
+        outcome: params.outcome,
+        durationMs: params.durationMs,
+        resultCountBucket: directoryResultCountBucket(params.resultCount),
+        filterPresence: params.filterPresence,
+        nextPagePresent: params.nextPagePresent,
+      },
+      'Listed administrator user directory',
+    );
+  } catch {
+    // Logging must not change the directory read outcome.
+  }
+}
+
 function translateImpersonationEligibilityError(error: unknown): ClientError | undefined {
   // The mint primitive re-checks login eligibility on the row it reads, and a
   // concurrent suspension or unverification between the in-transaction ladder
@@ -162,6 +201,9 @@ function translateAdministrationError(error: unknown): never {
       status: 403,
       details: {required_role: error.minimumRole},
     });
+  }
+  if (error instanceof InvalidAdministratorUserDirectoryFilterError) {
+    throw new ClientError(error.message, 'validation-error', {status: 400});
   }
   if (error instanceof InvalidAdminBootstrapTokenError) {
     throw new ClientError('Bootstrap token is invalid', 'bootstrap-token-invalid', {
@@ -299,6 +341,68 @@ const userLookupRoute = defineRoute({
     else if (email) user = await findAdministratorUserSummary({actorId, email});
     if (!user) throw new UserNotFoundError(lookupId ?? email ?? 'unknown');
     return toAdministratorUserSummaryDto(user);
+  },
+});
+
+const userDirectoryRoute = defineRoute({
+  method: 'GET',
+  path: '/directory',
+  description: 'List bounded administrator-safe user summaries for directory browsing.',
+  schema: {
+    querystring: administratorUserDirectoryQuerySchema,
+    response: {200: administratorUserDirectoryResponseSchema},
+  },
+  preHandler: [requireAdministratorObserver, createAuthActorRateLimitPreHandler('directory')],
+  errorHandler: translateAdministrationError,
+  handler: async (request) => {
+    const startedAt = performance.now();
+    const {
+      search,
+      status,
+      impersonation_eligible: impersonationEligible,
+      limit,
+      cursor,
+    } = request.query;
+    let resultCount = 0;
+    let nextPagePresent = false;
+    let outcome: 'succeeded' | 'failed' = 'failed';
+
+    try {
+      const decodedCursor = decodeTimestampIdCursor(cursor);
+      if (cursor && !decodedCursor) {
+        throw new ClientError('Invalid cursor', 'invalid-cursor', {status: 400});
+      }
+
+      const result = await listAdministratorUsers({
+        actorId: requireActorId(request),
+        limit,
+        ...(decodedCursor ? {cursor: decodedCursor} : {}),
+        ...(search !== undefined ? {search} : {}),
+        ...(status !== undefined ? {status} : {}),
+        ...(impersonationEligible !== undefined ? {eligible: impersonationEligible} : {}),
+      });
+      resultCount = result.users.length;
+      nextPagePresent = result.nextCursor !== null;
+      outcome = 'succeeded';
+
+      return {
+        users: result.users.map(toAdministratorUserSummaryDto),
+        next_cursor: result.nextCursor ? encodeTimestampIdCursor(result.nextCursor) : null,
+      };
+    } finally {
+      logAdministratorUserDirectoryRead({
+        request,
+        outcome,
+        durationMs: Math.round(performance.now() - startedAt),
+        resultCount,
+        filterPresence: {
+          search: search !== undefined,
+          status: status !== undefined,
+          impersonationEligible: impersonationEligible !== undefined,
+        },
+        nextPagePresent,
+      });
+    }
   },
 });
 
@@ -489,7 +593,13 @@ export function createAdministrationUserRoutes(
     adoptAdministrationActorGuard({
       prefix: '/admin/auth/users',
       auth: AUTH_USER,
-      routes: [userLookupRoute, suspendUserRoute, reactivateUserRoute, revokeUserSessionsRoute],
+      routes: [
+        userDirectoryRoute,
+        userLookupRoute,
+        suspendUserRoute,
+        reactivateUserRoute,
+        revokeUserSessionsRoute,
+      ],
     }),
     // The impersonate route mounts outside the adopted guard on purpose: its
     // limiter must run before the impersonated-session rejection (see

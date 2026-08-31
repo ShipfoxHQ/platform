@@ -57,9 +57,10 @@ import {
 const ADMIN_OWNER_ROLE: AdminRole = 'admin-owner';
 const ADMIN_OBSERVER_ROLE: AdminRole = 'admin-observer';
 const ADMIN_OPERATOR_ROLE: AdminRole = 'admin-operator';
+const ADMINISTRATOR_DIRECTORY_MAX_PAGE_SIZE = 100;
 const ADMINISTRATOR_DIRECTORY_MAX_SEARCH_TERMS = 10;
 const ADMINISTRATOR_DIRECTORY_MAX_SEARCH_TERM_LENGTH = 100;
-const ADMINISTRATOR_DIRECTORY_SEARCH_TERM_SEPARATOR = /\s+/;
+const ADMINISTRATOR_DIRECTORY_SEARCH_TERM_SEPARATOR = /\s+/g;
 const BOOTSTRAP_COMMAND = 'auth.admin_grant.bootstrap';
 const GRANT_COMMAND = 'auth.admin_grant.grant';
 const REVOKE_COMMAND = 'auth.admin_grant.revoke';
@@ -208,11 +209,18 @@ export interface ListAdministratorUsersParams {
   eligible?: boolean | undefined;
 }
 
-function validateAdministratorUserDirectorySearch(search: string | undefined): void {
-  const normalizedSearch = search?.trim();
+export interface ListAdministratorUsersResult {
+  users: AdministratorUserSummary[];
+  nextCursor: TimestampIdCursor | null;
+}
+
+function normalizeAdministratorUserDirectorySearch(search: string | undefined): string | undefined {
+  const normalizedSearch = search
+    ?.trim()
+    .replace(ADMINISTRATOR_DIRECTORY_SEARCH_TERM_SEPARATOR, ' ');
   if (!normalizedSearch) return;
 
-  const terms = normalizedSearch.split(ADMINISTRATOR_DIRECTORY_SEARCH_TERM_SEPARATOR);
+  const terms = normalizedSearch.split(' ');
   if (terms.length > ADMINISTRATOR_DIRECTORY_MAX_SEARCH_TERMS) {
     throw new InvalidAdministratorUserDirectoryFilterError(
       `Administrator user directory search accepts at most ${ADMINISTRATOR_DIRECTORY_MAX_SEARCH_TERMS} terms`,
@@ -224,21 +232,36 @@ function validateAdministratorUserDirectorySearch(search: string | undefined): v
       `Administrator user directory search terms must be at most ${ADMINISTRATOR_DIRECTORY_MAX_SEARCH_TERM_LENGTH} characters`,
     );
   }
+
+  return normalizedSearch;
 }
 
-function validateAdministratorUserDirectoryFilters(params: ListAdministratorUsersParams): void {
-  validateAdministratorUserDirectorySearch(params.search);
+function validateAdministratorUserDirectoryFilters(
+  params: ListAdministratorUsersParams,
+): string | undefined {
+  const normalizedSearch = normalizeAdministratorUserDirectorySearch(params.search);
   if (params.eligible === true && params.status && params.status !== 'active') {
     throw new InvalidAdministratorUserDirectoryFilterError(
       'eligible users must have active status',
     );
   }
+  return normalizedSearch;
 }
 
-export async function listAdministratorUsers(params: ListAdministratorUsersParams) {
+export async function listAdministratorUsers(
+  params: ListAdministratorUsersParams,
+): Promise<ListAdministratorUsersResult> {
   await requireAdminRole({userId: params.actorId, minimumRole: ADMIN_OBSERVER_ROLE});
-  validateAdministratorUserDirectoryFilters(params);
-  return await listAdministratorUsersInDb(params);
+  const normalizedSearch = validateAdministratorUserDirectoryFilters(params);
+  const result = await listAdministratorUsersInDb({
+    ...params,
+    limit: Math.min(params.limit, ADMINISTRATOR_DIRECTORY_MAX_PAGE_SIZE),
+    search: normalizedSearch,
+  });
+  return {
+    users: result.rows,
+    nextCursor: result.nextCursor,
+  };
 }
 
 export async function listAdministratorGrantSummaries(params: {

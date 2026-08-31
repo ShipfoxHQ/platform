@@ -65,6 +65,15 @@ describe('admin role policy', () => {
     ).rejects.toBeInstanceOf(InvalidAdministratorUserDirectoryFilterError);
   });
 
+  test('caps the directory page size in the core operation', async () => {
+    const user = await userFactory.create({emailVerifiedAt: new Date()});
+    await createAdminGrant({userId: user.id, role: 'admin-observer'});
+
+    const result = await listAdministratorUsers({actorId: user.id, limit: 1_000});
+
+    expect(result.users.length).toBeLessThanOrEqual(100);
+  });
+
   test('evaluates the current role from Auth storage for every required minimum', async () => {
     const user = await userFactory.create({emailVerifiedAt: new Date()});
     await createAdminGrant({userId: user.id, role: 'admin-operator'});

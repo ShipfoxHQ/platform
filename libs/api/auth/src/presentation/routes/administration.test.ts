@@ -273,6 +273,12 @@ describe('Auth administration routes', () => {
     });
 
     expect(response.statusCode).toBe(404);
+
+    const directoryResponse = await app.inject({
+      method: 'GET',
+      url: '/admin/v1/auth/users/directory',
+    });
+    expect(directoryResponse.statusCode).toBe(404);
   });
 
   test('rejects an invalid bootstrap token without writing a grant or event', async () => {
@@ -512,6 +518,261 @@ describe('Auth administration routes', () => {
     expect(byEmail.statusCode).toBe(200);
     expect(byEmail.json().id).toBe(observer.userId);
     expect(byEmail.json().email).toBe(observer.email);
+  });
+
+  test('lists safe user summaries for owners, operators, and observers with cursor pagination', async () => {
+    const marker = `admin-user-directory-${crypto.randomUUID()}`;
+    const owner = await createVerifiedSession(`${marker}-owner`);
+    const operator = await createVerifiedSession(`${marker}-operator`);
+    const observer = await createVerifiedSession(`${marker}-observer`);
+    const target = await createVerifiedSession(`${marker}-target`);
+
+    const bootstrap = await app.inject({
+      method: 'POST',
+      url: '/admin/auth/admin-grants/bootstrap',
+      headers: authHeaders(owner.token, 'directory-bootstrap'),
+      payload: {bootstrap_token: BOOTSTRAP_TOKEN},
+    });
+    expect(bootstrap.statusCode).toBe(201);
+
+    const observerGrant = await app.inject({
+      method: 'POST',
+      url: '/admin/auth/admin-grants',
+      headers: authHeaders(owner.token, 'directory-observer-grant'),
+      payload: {
+        user_id: observer.userId,
+        role: 'admin-observer',
+        reason: 'Directory read access',
+      },
+    });
+    expect(observerGrant.statusCode).toBe(201);
+
+    const operatorGrant = await app.inject({
+      method: 'POST',
+      url: '/admin/auth/admin-grants',
+      headers: authHeaders(owner.token, 'directory-operator-grant'),
+      payload: {
+        user_id: operator.userId,
+        role: 'admin-operator',
+        reason: 'Directory read access',
+      },
+    });
+    expect(operatorGrant.statusCode).toBe(201);
+
+    const firstPage = await app.inject({
+      method: 'GET',
+      url: `/admin/auth/users/directory?search=${encodeURIComponent(` ${marker}   `)}&limit=2`,
+      headers: {authorization: `Bearer ${observer.token}`},
+    });
+    expect(firstPage.statusCode).toBe(200);
+    expect(firstPage.json().users).toHaveLength(2);
+    expect(firstPage.json().next_cursor).toEqual(expect.any(String));
+
+    const secondPage = await app.inject({
+      method: 'GET',
+      url: `/admin/auth/users/directory?search=${encodeURIComponent(marker)}&limit=2&cursor=${encodeURIComponent(firstPage.json().next_cursor)}`,
+      headers: {authorization: `Bearer ${observer.token}`},
+    });
+    expect(secondPage.statusCode).toBe(200);
+    expect(secondPage.json().users).toHaveLength(2);
+    expect(secondPage.json().next_cursor).toBeNull();
+
+    const listedUsers = [...firstPage.json().users, ...secondPage.json().users];
+    expect(new Set(listedUsers.map((user: {id: string}) => user.id)).size).toBe(4);
+    expect(listedUsers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: owner.userId,
+          email: owner.email,
+          name: `${marker}-owner`,
+          status: 'active',
+          admin_role: 'admin-owner',
+        }),
+        expect.objectContaining({
+          id: operator.userId,
+          email: operator.email,
+          name: `${marker}-operator`,
+          status: 'active',
+          admin_role: 'admin-operator',
+        }),
+        expect.objectContaining({
+          id: observer.userId,
+          email: observer.email,
+          name: `${marker}-observer`,
+          status: 'active',
+          admin_role: 'admin-observer',
+        }),
+        expect.objectContaining({
+          id: target.userId,
+          email: target.email,
+          name: `${marker}-target`,
+          status: 'active',
+          admin_role: null,
+        }),
+      ]),
+    );
+    for (const user of listedUsers) {
+      expect(user).not.toHaveProperty('hashed_password');
+      expect(user).not.toHaveProperty('sessions');
+      expect(user).not.toHaveProperty('provider_payload');
+    }
+
+    const eligibleUsers = await app.inject({
+      method: 'GET',
+      url: `/admin/auth/users/directory?search=${encodeURIComponent(marker)}&status=active&impersonation_eligible=true`,
+      headers: {authorization: `Bearer ${observer.token}`},
+    });
+    expect(eligibleUsers.statusCode).toBe(200);
+    expect(eligibleUsers.json().users).toEqual([
+      expect.objectContaining({id: target.userId, admin_role: null}),
+    ]);
+    expect(eligibleUsers.json().next_cursor).toBeNull();
+
+    const emptyPage = await app.inject({
+      method: 'GET',
+      url: `/admin/auth/users/directory?search=${encodeURIComponent(`missing-${marker}`)}`,
+      headers: {authorization: `Bearer ${observer.token}`},
+    });
+    expect(emptyPage.statusCode).toBe(200);
+    expect(emptyPage.json()).toEqual({users: [], next_cursor: null});
+
+    for (const actor of [owner, operator]) {
+      const response = await app.inject({
+        method: 'GET',
+        url: `/admin/auth/users/directory?search=${encodeURIComponent(marker)}&limit=100`,
+        headers: {authorization: `Bearer ${actor.token}`},
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json().users).toHaveLength(4);
+    }
+  });
+
+  test('translates directory filter errors and rejects ordinary, suspended, and impersonated sessions', async () => {
+    const marker = `admin-user-directory-authz-${crypto.randomUUID()}`;
+    const owner = await createVerifiedSession(`${marker}-owner`);
+    const observer = await createVerifiedSession(`${marker}-observer`);
+    const ordinary = await createVerifiedSession(`${marker}-ordinary`);
+    const suspended = await createVerifiedSession(`${marker}-suspended`);
+
+    const bootstrap = await app.inject({
+      method: 'POST',
+      url: '/admin/auth/admin-grants/bootstrap',
+      headers: authHeaders(owner.token, 'directory-authz-bootstrap'),
+      payload: {bootstrap_token: BOOTSTRAP_TOKEN},
+    });
+    expect(bootstrap.statusCode).toBe(201);
+
+    for (const [userId, role, idempotencyKey] of [
+      [observer.userId, 'admin-observer', 'directory-authz-observer-grant'],
+      [suspended.userId, 'admin-observer', 'directory-authz-suspended-grant'],
+    ] as const) {
+      const grant = await app.inject({
+        method: 'POST',
+        url: '/admin/auth/admin-grants',
+        headers: authHeaders(owner.token, idempotencyKey),
+        payload: {user_id: userId, role, reason: 'Directory read access'},
+      });
+      expect(grant.statusCode).toBe(201);
+    }
+    await db().update(users).set({status: 'suspended'}).where(eq(users.id, suspended.userId));
+
+    const ordinaryResponse = await app.inject({
+      method: 'GET',
+      url: '/admin/auth/users/directory',
+      headers: {authorization: `Bearer ${ordinary.token}`},
+    });
+    expect(ordinaryResponse.statusCode).toBe(403);
+    expect(ordinaryResponse.json()).toEqual({
+      code: 'forbidden',
+      details: {required_role: 'admin-observer'},
+    });
+
+    const suspendedResponse = await app.inject({
+      method: 'GET',
+      url: '/admin/auth/users/directory',
+      headers: {authorization: `Bearer ${suspended.token}`},
+    });
+    expect(suspendedResponse.statusCode).toBe(403);
+    expect(suspendedResponse.json().code).toBe('forbidden');
+
+    const impersonatedResponse = await app.inject({
+      method: 'GET',
+      url: '/admin/auth/users/directory',
+      headers: {authorization: `Bearer ${await impersonatedToken(owner.userId, owner.email)}`},
+    });
+    expect(impersonatedResponse.statusCode).toBe(403);
+    expect(impersonatedResponse.json()).toEqual({code: 'admin-role-required'});
+
+    const invalidFilter = await app.inject({
+      method: 'GET',
+      url: '/admin/auth/users/directory?status=suspended&impersonation_eligible=true',
+      headers: {authorization: `Bearer ${observer.token}`},
+    });
+    expect(invalidFilter.statusCode).toBe(400);
+    expect(invalidFilter.json().code).toBe('validation-error');
+
+    const invalidCursor = await app.inject({
+      method: 'GET',
+      url: '/admin/auth/users/directory?cursor=not-a-real-cursor',
+      headers: {authorization: `Bearer ${observer.token}`},
+    });
+    expect(invalidCursor.statusCode).toBe(400);
+    expect(invalidCursor.json().code).toBe('invalid-cursor');
+  });
+
+  test('uses independent source-IP and actor buckets for directory reads', async () => {
+    const owner = await createVerifiedSession('admin-directory-rate-limit-owner');
+    const observer = await createVerifiedSession('admin-directory-rate-limit-observer');
+
+    const bootstrap = await app.inject({
+      method: 'POST',
+      url: '/admin/auth/admin-grants/bootstrap',
+      headers: authHeaders(owner.token, 'directory-rate-limit-bootstrap'),
+      payload: {bootstrap_token: BOOTSTRAP_TOKEN},
+    });
+    expect(bootstrap.statusCode).toBe(201);
+
+    const grant = await app.inject({
+      method: 'POST',
+      url: '/admin/auth/admin-grants',
+      headers: authHeaders(owner.token, 'directory-rate-limit-grant'),
+      payload: {
+        user_id: observer.userId,
+        role: 'admin-observer',
+        reason: 'Directory read access',
+      },
+    });
+    expect(grant.statusCode).toBe(201);
+
+    await seedExhaustedIpBucket({
+      action: 'directory',
+      identifier: '127.0.0.1',
+      limit: 60,
+      windowSeconds: 5 * 60,
+    });
+    const ipBlocked = await app.inject({
+      method: 'GET',
+      url: '/admin/auth/users/directory',
+      headers: {authorization: `Bearer ${observer.token}`},
+    });
+    expect(ipBlocked.statusCode).toBe(429);
+    expect(ipBlocked.json().code).toBe('rate-limited');
+
+    await seedExhaustedIpBucket({
+      action: 'directory',
+      scope: 'actor',
+      identifier: observer.userId,
+      limit: 60,
+      windowSeconds: 5 * 60,
+    });
+    const actorBlocked = await app.inject({
+      method: 'GET',
+      url: '/admin/auth/users/directory',
+      remoteAddress: '10.0.0.2',
+      headers: {authorization: `Bearer ${observer.token}`},
+    });
+    expect(actorBlocked.statusCode).toBe(429);
+    expect(actorBlocked.json().code).toBe('rate-limited');
   });
 
   test('bounds and deterministically paginates administrator grant summaries for observers', async () => {
