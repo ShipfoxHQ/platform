@@ -909,7 +909,13 @@ export async function listProvisionerTerminateIntentRowsTx(
       options.includeCancelledJobs,
     ));
   } else {
-    const rows = await provisionerTerminateIntentsQuery(tx, params)
+    const rows = await provisionerTerminateIntentsQuery(
+      tx,
+      params,
+      options?.includeCancelledJobs === undefined
+        ? {}
+        : {includeCancelledJobs: options.includeCancelledJobs},
+    )
       .orderBy(asc(providerRunners.providerRunnerId))
       .limit(params.limit + 1);
     truncated = rows.length > params.limit;

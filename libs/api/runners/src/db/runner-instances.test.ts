@@ -1723,6 +1723,26 @@ describe('listProvisionerTerminateIntents', () => {
     expect(result).toEqual([{providerRunnerId: 'provisioned-runner-1', reason: 'job-cancelled'}]);
   });
 
+  it('excludes cancelled jobs when requested without authorization filtering', async () => {
+    await createRunnerInstance({providerRunnerId: 'provisioned-runner-1'});
+    await insertRunningJobRow({
+      workspaceId,
+      provisionerId,
+      providerRunnerId: 'provisioned-runner-1',
+      cancellationRequestedAt: new Date('2025-01-01T00:01:00.000Z'),
+    });
+
+    const result = await db().transaction((tx) =>
+      listProvisionerTerminateIntentRowsTx(
+        tx,
+        {workspaceId, provisionerId, limit: 1000},
+        {includeCancelledJobs: false},
+      ),
+    );
+
+    expect(result).toEqual([]);
+  });
+
   it('returns an activation-timeout intent for a stale demand-backed runner', async () => {
     await createRunnerInstance({
       providerRunnerId: 'stale-demand-runner',
