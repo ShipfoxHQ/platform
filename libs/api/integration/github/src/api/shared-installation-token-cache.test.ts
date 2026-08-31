@@ -1,3 +1,4 @@
+import {createHash} from 'node:crypto';
 import {GithubIntegrationProviderError} from '#core/errors.js';
 import {
   backoffActive,
@@ -95,6 +96,37 @@ function setEnvelope(
 }
 
 describe('SharedInstallationTokenCache', () => {
+  it('does not collide raw and hashed permission fingerprints', () => {
+    const rawFingerprint = 'profile-without-safe-key';
+    const hashedFingerprint = createHash('sha256')
+      .update(rawFingerprint, 'utf8')
+      .digest('hex')
+      .toUpperCase();
+
+    expect(githubInstallationTokenKey(rawFingerprint)).not.toBe(
+      githubInstallationTokenKey(hashedFingerprint),
+    );
+  });
+
+  it('reads the legacy compatibility envelope', async () => {
+    const store = createStore();
+    store.values.set(
+      `${workspaceId}:${installationId}:envelope`,
+      encodeInstallationTokenEnvelope({
+        backoffUntil: new Date('2026-06-10T11:05:00.000Z'),
+        backoffReason: 'rate-limited',
+        backoffError: {message: 'rate limited', status: 429},
+      }),
+    );
+    const mint = vi.fn(() => Promise.resolve(token('ghs_new')));
+    const shared = cache({store});
+
+    await expect(
+      shared.getOrMint(installationId, GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT, mint),
+    ).rejects.toMatchObject({reason: 'rate-limited', status: 429});
+    expect(mint).not.toHaveBeenCalled();
+  });
+
   beforeEach(() => {
     errorMonitoring.reportError.mockReset();
   });

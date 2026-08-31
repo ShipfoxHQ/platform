@@ -54,5 +54,7 @@ function installationTokenLockKey(installationId: number, permissionFingerprint:
     throw new Error('GitHub installation token permission fingerprint cannot be empty');
   }
 
-  return `github-installation-token:${installationId}:${permissionFingerprint}`;
+  return permissionFingerprint === GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT
+    ? String(-BigInt(installationId) - 1n)
+    : `github-installation-token:${installationId}:${permissionFingerprint}`;
 }

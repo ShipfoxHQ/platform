@@ -46,8 +46,8 @@ export {
 } from '#api/github-checkout-token-cache.js';
 export {
   encodeInstallationTokenEnvelope,
-  GITHUB_INSTALLATION_TOKEN_ENVELOPE_KEY,
   GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT,
+  GITHUB_INSTALLATION_TOKEN_ENVELOPE_KEY,
   githubInstallationTokenKey,
   githubInstallationTokenNamespace,
 } from '#api/installation-token-envelope.js';

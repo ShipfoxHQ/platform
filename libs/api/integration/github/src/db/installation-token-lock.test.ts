@@ -1,7 +1,7 @@
 import {withInstallationTokenLock} from './installation-token-lock.js';
 
 describe('withInstallationTokenLock', () => {
-  it('allows one holder per installation and fails contenders fast', async () => {
+  it('allows one holder per installation per permission profile and fails same-profile contenders fast', async () => {
     const first = holdInstallationTokenLock(9001, 'winner');
 
     await first.ready;

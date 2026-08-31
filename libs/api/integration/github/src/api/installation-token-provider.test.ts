@@ -261,7 +261,7 @@ describe('GithubInstallationTokenProvider', () => {
         `${workspaceId}:${installationId}:${githubInstallationTokenKey(GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT)}`,
       ),
     ).toContain(GITHUB_STATELESS_INSTALLATION_TOKEN);
-    expect(lockCalls).toBe(1);
+    expect(lockCalls).toBe(2);
     expect(createInstallationAccessTokenMock).toHaveBeenCalledTimes(1);
   });
 
