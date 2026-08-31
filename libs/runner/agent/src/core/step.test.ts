@@ -254,11 +254,14 @@ describe('executeAgentStep', () => {
     );
 
     expect(createIntegrationToolsGatewayFetchMock).toHaveBeenCalledWith(leaseToken, gatewayUrl);
-    expect(createIntegrationToolsBridgeMock).toHaveBeenCalledWith({
-      name: AGENT_INTEGRATION_MCP_SERVER_NAME,
-      url: gatewayUrl,
-      fetch: gatewayFetch,
-    });
+    expect(createIntegrationToolsBridgeMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: AGENT_INTEGRATION_MCP_SERVER_NAME,
+        url: gatewayUrl,
+        fetch: gatewayFetch,
+        preferredPort: expect.any(Number),
+      }),
+    );
     expect(runAgentMock).toHaveBeenCalledWith(
       expect.objectContaining({
         mcpServers: [expect.objectContaining({name: AGENT_INTEGRATION_MCP_SERVER_NAME})],

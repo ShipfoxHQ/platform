@@ -49,6 +49,9 @@ import {toolSelectionOption} from '#core/tool-selection.js';
 const KEYLESS_CUSTOM_PROVIDER_API_KEY = 'shipfox-keyless-custom-provider-placeholder';
 const SECRET_HEADER_CREDENTIAL_PREFIX = 'header:';
 const PI_MCP_TOOL_NAME = 'mcp';
+const PI_MCP_METADATA_TIMEOUT_MS = 10_000;
+
+let piMcpConfigArgTail = Promise.resolve();
 
 type PiThinkingLevel = NonNullable<CreateAgentSessionOptions['thinkingLevel']>;
 type ModelRuntimeInstance = Awaited<ReturnType<typeof ModelRuntime.create>>;
@@ -99,7 +102,7 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
   let mcpConfig: PiMcpConfig | undefined;
 
   try {
-    mcpConfig = await createPiMcpConfig(agentStateDir, invocation.mcpServers);
+    mcpConfig = await createPiMcpConfig(agentStateDir, invocation.mcpServers, signal);
     const prepared = await preparePiSessionServices({
       invocation,
       mcpConfig,
@@ -437,22 +440,33 @@ async function preparePiSessionServices(params: {
 }
 
 // pi-mcp-adapter resolves its config during module evaluation, before Pi applies
-// extension flags. Keep the CLI-compatible flag visible only while extensions load.
+// extension flags. Session setup can overlap after an aborted run, so serialize this
+// process-global mutation and keep the CLI-compatible flag visible only while extensions load.
 async function withPiMcpConfigArg<T>(
   configPath: string | undefined,
   operation: () => Promise<T>,
 ): Promise<T> {
   if (configPath === undefined) return operation();
 
+  const previousOperation = piMcpConfigArgTail;
+  let releaseOperation!: () => void;
+  piMcpConfigArgTail = new Promise<void>((resolve) => {
+    releaseOperation = resolve;
+  });
+  await previousOperation;
+
   const originalArgs = process.argv.slice();
   const configFlagIndex = process.argv.indexOf('--mcp-config');
   if (configFlagIndex === -1) process.argv.push('--mcp-config', configPath);
-  else process.argv[configFlagIndex + 1] = configPath;
+  else if (configFlagIndex + 1 < process.argv.length)
+    process.argv[configFlagIndex + 1] = configPath;
+  else process.argv.push(configPath);
 
   try {
     return await operation();
   } finally {
     process.argv.splice(0, process.argv.length, ...originalArgs);
+    releaseOperation();
   }
 }
 
@@ -592,6 +606,7 @@ function createInMemoryCredentialStore(credentials: Record<string, Credential>):
 async function createPiMcpConfig(
   agentStateDir: string,
   mcpServers: HarnessInvocation['mcpServers'],
+  signal: AbortSignal,
 ): Promise<PiMcpConfig | undefined> {
   if (mcpServers === undefined || mcpServers.length === 0) return undefined;
 
@@ -603,7 +618,7 @@ async function createPiMcpConfig(
       mcpServers.map(async (server) => {
         const [url, directToolNames] = await Promise.all([
           server.activateHttp(),
-          listPiMcpToolNames(server),
+          listPiMcpToolNames(server, signal),
         ]);
         return {
           entry: [
@@ -644,9 +659,19 @@ async function createPiMcpConfig(
 
 async function listPiMcpToolNames(
   server: NonNullable<HarnessInvocation['mcpServers']>[number],
+  signal: AbortSignal,
 ): Promise<readonly string[]> {
+  const controller = new AbortController();
+  const onAbort = () => controller.abort(signal.reason);
+  const timeout = setTimeout(() => controller.abort(), PI_MCP_METADATA_TIMEOUT_MS);
+  if (signal.aborted) onAbort();
+  else signal.addEventListener('abort', onAbort, {once: true});
+
   try {
-    const result = await server.listTools();
+    const result = await server.listTools({
+      signal: controller.signal,
+      timeout: PI_MCP_METADATA_TIMEOUT_MS,
+    });
     return result.tools.map((tool) => tool.name);
   } catch (error) {
     logger().warn(
@@ -654,6 +679,9 @@ async function listPiMcpToolNames(
       'Failed to list Pi MCP direct tools; keeping the MCP proxy fallback',
     );
     return [];
+  } finally {
+    clearTimeout(timeout);
+    signal.removeEventListener('abort', onAbort);
   }
 }
 
