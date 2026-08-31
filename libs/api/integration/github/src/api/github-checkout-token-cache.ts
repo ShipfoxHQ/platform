@@ -622,14 +622,15 @@ export class GithubCheckoutTokenCache implements GithubCheckoutTokenCachePort {
   private trackLateMint(scope: GithubCheckoutTokenScope, work: Promise<void>): void {
     const namespace = githubCheckoutTokenNamespace(scope.providerInstance, scope.installationId);
     const stateKey = githubCheckoutTokenStateKey(scope.workspaceId, namespace);
+    const boundedWork = boundLateWork(work, this.mintTimeoutMs);
     const pending = this.lateMints.get(stateKey) ?? new Set<Promise<void>>();
-    pending.add(work);
+    pending.add(boundedWork);
     this.lateMints.set(stateKey, pending);
     const remove = () => {
-      if (pending.delete(work) && pending.size === 0) this.lateMints.delete(stateKey);
+      if (pending.delete(boundedWork) && pending.size === 0) this.lateMints.delete(stateKey);
       this.cleanupDeletionEpoch(stateKey);
     };
-    void work.then(remove, remove);
+    void boundedWork.then(remove, remove);
   }
 
   private async withLateWriteLock<T>(stateKey: string, fn: () => Promise<T>): Promise<T> {
@@ -1068,6 +1069,22 @@ function parseEnvelopeDates(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function boundLateWork(work: Promise<void>, timeoutMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, timeoutMs);
+    void work.then(
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+    );
+  });
 }
 
 function withTimeout<T>(
