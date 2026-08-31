@@ -18,8 +18,8 @@ export type StepStatusReasonDto = z.infer<typeof stepStatusReasonSchema>;
 // For agent steps the cause is split into configuration, invocation, harness-startup, and
 // dispatch-time session-claim failures. `agent_config_invalid` is a user-fixable configuration
 // error and carries an `agent_config_issue`; the other reasons carry no issue code because
-// they describe the provider call, harness startup, or session claim. (Aborts are never
-// reported: the step loop stops before reporting.)
+// they describe the provider call, harness startup, or session claim. Aborts stop the loop
+// unless a session commit has completed, in which case the committed attempt is reported.
 export const stepErrorReasonSchema = z.enum([
   'checkout_failed',
   'checkout_auth_failed',

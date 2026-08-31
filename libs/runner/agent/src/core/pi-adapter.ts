@@ -29,6 +29,7 @@ import {
   AgentConfigError,
   AgentHarnessUnavailableError,
   AgentInvocationError,
+  AgentSessionUnavailableError,
 } from '#core/errors.js';
 import type {HarnessAdapter, HarnessInvocation, HarnessResult} from '#core/harness.js';
 import {
@@ -70,8 +71,7 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
   const {
     cwd,
     agentStateDir,
-    sessionFile,
-    sessionMode,
+    session: invocationSession,
     thinking,
     prompt,
     tools,
@@ -109,8 +109,7 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
       mcpConfig,
       cwd,
       agentStateDir,
-      sessionFile,
-      sessionMode,
+      sessionInvocation: invocationSession,
     });
     return await runPiSession({
       session,
@@ -121,7 +120,7 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
       hasDeclaredOutputs,
       prompt,
       collector,
-      sessionMode,
+      sessionInvocation: invocationSession,
     });
   } finally {
     await closePiSession({session, mcpConfig});
@@ -137,8 +136,7 @@ async function createPiSession(params: {
   mcpConfig: PiMcpConfig | undefined;
   cwd: string;
   agentStateDir: string;
-  sessionFile: string | undefined;
-  sessionMode: HarnessInvocation['sessionMode'];
+  sessionInvocation: HarnessInvocation['session'];
 }): Promise<PiSession> {
   const created = await createAgentSessionFromServices({
     services: params.services,
@@ -163,7 +161,7 @@ async function runPiSession(params: {
   hasDeclaredOutputs: boolean;
   prompt: string;
   collector: OutputCollector;
-  sessionMode: HarnessInvocation['sessionMode'];
+  sessionInvocation: HarnessInvocation['session'];
 }): Promise<HarnessResult> {
   const abortSession = () => {
     Promise.resolve(params.session.abort()).catch(() => undefined);
@@ -234,35 +232,58 @@ async function runPiOutputTurns(
       guidanceForMissing: (missing) => params.collector.guidanceTextFor(missing),
     });
   } catch (error) {
+    const response = params.session.getLastAssistantText() ?? '';
     if (error instanceof RequiredOutputsMissingError) {
-      throw new AgentInvocationError(error.message, params.session.getLastAssistantText() ?? '');
+      throw new AgentInvocationError(
+        error.message,
+        response,
+        params.session.sessionFile,
+        params.session.sessionId,
+      );
     }
-    throw error;
+    if (error instanceof AgentInvocationError) {
+      throw new AgentInvocationError(
+        error.message,
+        error.response,
+        params.session.sessionFile,
+        params.session.sessionId,
+      );
+    }
+    throw new AgentInvocationError(
+      error instanceof Error ? error.message : String(error),
+      response,
+      params.session.sessionFile,
+      params.session.sessionId,
+    );
   }
   const outputs = params.collector.snapshot();
   return {
     response,
     ...(Object.keys(outputs).length === 0 ? {} : {outputs}),
-    ...(params.sessionMode === 'fork' ? {} : {sessionFile: params.session.sessionFile}),
-    ...(params.sessionMode === 'fork' ? {} : {sessionId: params.session.sessionId}),
+    ...(params.sessionInvocation === undefined || params.sessionInvocation.mode === 'fork'
+      ? {}
+      : {sessionFile: params.session.sessionFile}),
+    ...(params.sessionInvocation === undefined || params.sessionInvocation.mode === 'fork'
+      ? {}
+      : {sessionId: params.session.sessionId}),
   };
 }
 
 function createPiSessionManager(
   params: Pick<
     Parameters<typeof createPiSession>[0],
-    'cwd' | 'agentStateDir' | 'sessionFile' | 'sessionMode'
+    'cwd' | 'agentStateDir' | 'sessionInvocation'
   >,
 ): SessionManager {
   const sessionDirectory = join(params.agentStateDir, 'agent-sessions');
-  if (params.sessionFile === undefined) {
+  if (params.sessionInvocation?.file === undefined) {
     return SessionManager.create(params.cwd, sessionDirectory);
   }
   return openHarnessSession({
     cwd: params.cwd,
-    sessionFile: params.sessionFile,
+    sessionFile: params.sessionInvocation.file,
     sessionDir: sessionDirectory,
-    mode: params.sessionMode ?? 'resume',
+    mode: params.sessionInvocation.mode,
   });
 }
 
@@ -392,11 +413,17 @@ function openHarnessSession(params: {
   sessionDir: string;
   mode: 'resume' | 'fork';
 }): SessionManager {
-  const manager = SessionManager.open(params.sessionFile, params.sessionDir, params.cwd);
-  if (params.mode === 'fork') {
-    manager.newSession({parentSession: params.sessionFile});
+  try {
+    const manager = SessionManager.open(params.sessionFile, params.sessionDir, params.cwd);
+    if (params.mode === 'fork') {
+      manager.newSession({parentSession: params.sessionFile});
+    }
+    return manager;
+  } catch (error) {
+    throw new AgentSessionUnavailableError(
+      `Pi could not load the agent session: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
-  return manager;
 }
 
 interface PiMcpConfig {

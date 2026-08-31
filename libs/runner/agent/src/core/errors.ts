@@ -61,9 +61,19 @@ export class AgentInvocationError extends Error {
   constructor(
     message: string,
     public readonly response: string | undefined,
+    public readonly sessionFile?: string | undefined,
+    public readonly sessionId?: string | undefined,
   ) {
     super(message);
     this.name = 'AgentInvocationError';
+  }
+}
+
+/** A native transcript was present but the harness could not load it. */
+export class AgentSessionUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'AgentSessionUnavailableError';
   }
 }
 

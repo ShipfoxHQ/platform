@@ -6,6 +6,7 @@ const {
   createAgentSessionMock,
   createAgentSessionServicesMock,
   sessionManagerCreateMock,
+  sessionManagerOpenMock,
   findMock,
   getAllMock,
   hasConfiguredAuthMock,
@@ -22,6 +23,7 @@ const {
   createAgentSessionMock: vi.fn(),
   createAgentSessionServicesMock: vi.fn(),
   sessionManagerCreateMock: vi.fn(() => ({})),
+  sessionManagerOpenMock: vi.fn(() => ({})),
   findMock: vi.fn(),
   getAllMock: vi.fn(),
   hasConfiguredAuthMock: vi.fn(),
@@ -60,7 +62,7 @@ vi.mock('@earendil-works/pi-coding-agent', () => ({
   ModelRuntime: {
     create: modelRuntimeCreateMock,
   },
-  SessionManager: {create: sessionManagerCreateMock},
+  SessionManager: {create: sessionManagerCreateMock, open: sessionManagerOpenMock},
 }));
 
 vi.mock('@shipfox/node-egress-guard', () => ({
@@ -103,7 +105,11 @@ import {
   DEFAULT_CUSTOM_MODEL_MAX_OUTPUT_TOKENS,
   DEFAULT_CUSTOM_MODEL_REASONING,
 } from '@shipfox/api-agent-dto';
-import {AgentConfigError, AgentHarnessUnavailableError} from '#core/errors.js';
+import {
+  AgentConfigError,
+  AgentHarnessUnavailableError,
+  AgentSessionUnavailableError,
+} from '#core/errors.js';
 import type {HarnessInvocation} from '#core/harness.js';
 import type {IntegrationToolsBridge} from '#core/integration-tools-bridge.js';
 import {piHarnessAdapter} from '#core/pi-adapter.js';
@@ -209,6 +215,8 @@ describe('piHarnessAdapter', () => {
     createAgentSessionServicesMock.mockReset();
     sessionManagerCreateMock.mockReset();
     sessionManagerCreateMock.mockReturnValue({});
+    sessionManagerOpenMock.mockReset();
+    sessionManagerOpenMock.mockReturnValue({});
     findMock.mockReset();
     getAllMock.mockReset();
     hasConfiguredAuthMock.mockReset();
@@ -1245,6 +1253,26 @@ describe('piHarnessAdapter', () => {
       ),
     );
     expect(findMock).not.toHaveBeenCalled();
+    expect(createAgentSessionMock).not.toHaveBeenCalled();
+  });
+
+  it('maps a non-loadable resumed session to AgentSessionUnavailableError', async () => {
+    sessionManagerOpenMock.mockImplementation(() => {
+      throw new Error('invalid session file');
+    });
+
+    await expect(
+      piHarnessAdapter.run(
+        invocation({session: {mode: 'resume', file: '/runner-agent/job-1/session.jsonl'}}),
+      ),
+    ).rejects.toEqual(
+      new AgentSessionUnavailableError('Pi could not load the agent session: invalid session file'),
+    );
+    expect(sessionManagerOpenMock).toHaveBeenCalledWith(
+      '/runner-agent/job-1/session.jsonl',
+      join('/runner-agent/job-1', 'agent-sessions'),
+      '/work',
+    );
     expect(createAgentSessionMock).not.toHaveBeenCalled();
   });
 
