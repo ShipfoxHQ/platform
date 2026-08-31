@@ -2,6 +2,14 @@ import {drizzle, type NodePgDatabase} from '@shipfox/node-drizzle';
 import {pgClient} from '@shipfox/node-postgres';
 import {adminCommandResults} from './schema/admin-command-results.js';
 import {adminGrants} from './schema/admin-grants.js';
+import {
+  agentAuthorizationCodes,
+  agentAuthorizationRequests,
+  agentClients,
+  agentGrants,
+  agentPersonalAccessTokens,
+  agentRefreshTokens,
+} from './schema/agent-access.js';
 import {authOutbox} from './schema/outbox.js';
 import {passwordResets} from './schema/password-resets.js';
 import {authRateLimits} from './schema/rate-limits.js';
@@ -10,6 +18,12 @@ import {users} from './schema/users.js';
 
 export const schema = {
   adminGrants,
+  agentClients,
+  agentAuthorizationRequests,
+  agentGrants,
+  agentAuthorizationCodes,
+  agentRefreshTokens,
+  agentPersonalAccessTokens,
   adminCommandResults,
   users,
   passwordResets,

@@ -498,6 +498,15 @@ The module creates tables with the `auth_` prefix:
 - `auth_rate_limits`
 - `auth_admin_grants`
 - `auth_admin_command_results`
+- `auth_agent_clients`
+- `auth_agent_authorization_requests`
+- `auth_agent_grants`
+- `auth_agent_authorization_codes`
+- `auth_agent_refresh_tokens`
+- `auth_agent_pats`
+
+Agent-access credentials are stored as hashes. Client identities retain only
+validated redirect metadata, display names, and lifecycle timestamps.
 
 The directory ordering index uses a transactional migration. PostgreSQL holds a `ShareLock` on `auth_users` for the full index build, so writes wait during that period. The build time depends on the table size; schedule the migration when writes can wait.
 

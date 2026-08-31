@@ -21,6 +21,7 @@ Supported token types:
 | `refreshToken` | `r` |
 | `manualRegistrationToken` | `mrt` |
 | `provisionerToken` | `pt` |
+| `personalAccessToken` | `pat` |
 
 ## Usage
 

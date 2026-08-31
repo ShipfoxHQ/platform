@@ -16,7 +16,7 @@ export async function setup() {
   await initializeEmailChallengesForTests();
   await resetEmailChallengesForTests();
   await db().execute(
-    sql`TRUNCATE auth_admin_command_results, auth_admin_grants, auth_outbox, auth_password_resets, auth_rate_limits, auth_refresh_tokens, auth_users CASCADE`,
+    sql`TRUNCATE auth_agent_pats, auth_agent_refresh_tokens, auth_agent_authorization_codes, auth_agent_grants, auth_agent_authorization_requests, auth_agent_clients, auth_admin_command_results, auth_admin_grants, auth_outbox, auth_password_resets, auth_rate_limits, auth_refresh_tokens, auth_users CASCADE`,
   );
 
   closeDb();
