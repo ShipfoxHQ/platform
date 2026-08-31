@@ -22,6 +22,8 @@ import type {
   IntegrationProviderModuleLoadOptions,
 } from '#providers/types.js';
 
+const GITHUB_INSTALLATION_TOKEN_ENVELOPE_KEY = 'ENVELOPE';
+
 async function loadGithubModuleParts(
   options: IntegrationProviderModuleLoadOptions = {},
 ): Promise<IntegrationModuleParts> {
@@ -45,13 +47,15 @@ async function loadGithubModuleParts(
             (await options.secrets?.github?.getSecret({
               workspaceId,
               namespace: githubInstallationTokenNamespace(installationId),
-              key: 'envelope',
+              key: GITHUB_INSTALLATION_TOKEN_ENVELOPE_KEY,
             })) ?? null,
           write: async (workspaceId, installationId, envelope) => {
             await options.secrets?.github?.setSecrets({
               workspaceId,
               namespace: githubInstallationTokenNamespace(installationId),
-              values: {envelope: encodeInstallationTokenEnvelope(envelope)},
+              values: {
+                [GITHUB_INSTALLATION_TOKEN_ENVELOPE_KEY]: encodeInstallationTokenEnvelope(envelope),
+              },
             });
           },
         }
