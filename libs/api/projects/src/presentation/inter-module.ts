@@ -6,6 +6,7 @@ import {
   type InterModulePresentation,
 } from '@shipfox/inter-module';
 import {
+  findProjectBySourceRepositoryName,
   getProjectById,
   getProjectBySource,
   getWorkspaceProjectCounts,
@@ -21,6 +22,9 @@ export function createProjectsInterModulePresentation(params: {
     getProjectById: async ({projectId}) => ({project: (await getProjectById(projectId)) ?? null}),
     getProjectBySource: async (input) => ({
       project: (await getProjectBySource(input)) ?? null,
+    }),
+    findProjectBySourceRepositoryName: async (input) => ({
+      projects: await findProjectBySourceRepositoryName(input),
     }),
     listProjectsByWorkspace: async ({workspaceId, limit, cursor}) => {
       const result = await listProjects({

@@ -218,6 +218,31 @@ export async function getProjectBySource(
   return toProject(row);
 }
 
+export interface FindProjectBySourceRepositoryNameParams {
+  workspaceId: string;
+  connectionId: string;
+  owner: string;
+  name: string;
+}
+
+export async function findProjectBySourceRepositoryName(
+  params: FindProjectBySourceRepositoryNameParams,
+): Promise<Project[]> {
+  const rows = await db()
+    .select()
+    .from(projects)
+    .where(
+      and(
+        eq(projects.workspaceId, params.workspaceId),
+        eq(projects.sourceConnectionId, params.connectionId),
+        sql`lower(${projects.sourceRepositoryOwner}) = lower(${params.owner})`,
+        sql`lower(${projects.sourceRepositoryName}) = lower(${params.name})`,
+      ),
+    );
+
+  return rows.map(toProject);
+}
+
 export interface UpdateProjectSourceRepositoryParams extends GetProjectBySourceParams {
   tx?: Executor;
   sourceRepositoryOwner: string;

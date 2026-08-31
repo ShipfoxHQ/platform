@@ -10,6 +10,7 @@ describe('projectsInterModuleContract', () => {
         sourceConnectionId: '00000000-0000-4000-8000-000000000003',
         sourceExternalRepositoryId: 'shipfox/project',
         sourceRepositoryOwner: 'shipfox',
+        sourceRepositoryName: 'project',
         sourceDefaultBranch: 'main',
         name: 'Project',
       },
@@ -17,7 +18,21 @@ describe('projectsInterModuleContract', () => {
 
     expect(result.project?.id).toBe(projectId);
     expect(result.project?.sourceRepositoryOwner).toBe('shipfox');
+    expect(result.project?.sourceRepositoryName).toBe('project');
     expect(result.project?.sourceDefaultBranch).toBe('main');
+  });
+
+  test('accepts source repository name lookup inputs', () => {
+    const input = {
+      workspaceId: '00000000-0000-4000-8000-000000000001',
+      connectionId: '00000000-0000-4000-8000-000000000002',
+      owner: 'shipfox',
+      name: 'project',
+    };
+
+    expect(
+      projectsInterModuleContract.methods.findProjectBySourceRepositoryName.input.parse(input),
+    ).toEqual(input);
   });
 
   test('accepts checkout targets addressed by project or repository', () => {

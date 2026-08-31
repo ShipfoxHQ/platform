@@ -9,6 +9,7 @@ export {
 export type {
   AdminProjectSummary,
   CreateProjectParams,
+  FindProjectBySourceRepositoryNameParams,
   GetProjectBySourceParams,
   ListAdminProjectsParams,
   ListAdminProjectsResult,
@@ -21,6 +22,7 @@ export type {
 } from './projects.js';
 export {
   createProject,
+  findProjectBySourceRepositoryName,
   getProjectById,
   getProjectBySource,
   getProjectCount,

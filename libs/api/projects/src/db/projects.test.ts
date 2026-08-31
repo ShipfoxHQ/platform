@@ -2,12 +2,109 @@ import {eq} from 'drizzle-orm';
 import {projectFactory} from '#test/index.js';
 import {db} from './db.js';
 import {
+  findProjectBySourceRepositoryName,
   getProjectById,
   getProjectCount,
   getWorkspaceProjectCounts,
   updateProject,
 } from './projects.js';
 import {projects} from './schema/projects.js';
+
+describe('findProjectBySourceRepositoryName', () => {
+  it('returns all case-insensitive matches scoped by workspace and connection', async () => {
+    const workspaceId = crypto.randomUUID();
+    const connectionId = crypto.randomUUID();
+
+    const emptyMatches = await findProjectBySourceRepositoryName({
+      workspaceId,
+      connectionId,
+      owner: 'acme',
+      name: 'api',
+    });
+
+    expect(emptyMatches).toEqual([]);
+
+    const [first] = await db()
+      .insert(projects)
+      .values({
+        workspaceId,
+        sourceConnectionId: connectionId,
+        sourceExternalRepositoryId: 'github:one',
+        sourceRepositoryOwner: 'AcMe',
+        sourceRepositoryName: 'Api',
+        name: 'First project',
+        slug: `first-${crypto.randomUUID()}`,
+      })
+      .returning({id: projects.id});
+    if (!first) throw new Error('First project insert returned no row');
+
+    await db()
+      .insert(projects)
+      .values({
+        workspaceId: crypto.randomUUID(),
+        sourceConnectionId: connectionId,
+        sourceExternalRepositoryId: 'github:other-workspace',
+        sourceRepositoryOwner: 'acme',
+        sourceRepositoryName: 'api',
+        name: 'Other workspace project',
+        slug: `other-workspace-${crypto.randomUUID()}`,
+      });
+    await db()
+      .insert(projects)
+      .values({
+        workspaceId,
+        sourceConnectionId: crypto.randomUUID(),
+        sourceExternalRepositoryId: 'github:other-connection',
+        sourceRepositoryOwner: 'acme',
+        sourceRepositoryName: 'api',
+        name: 'Other connection project',
+        slug: `other-connection-${crypto.randomUUID()}`,
+      });
+
+    const oneMatch = await findProjectBySourceRepositoryName({
+      workspaceId,
+      connectionId,
+      owner: 'ACME',
+      name: 'aPI',
+    });
+
+    expect(oneMatch).toHaveLength(1);
+    expect(oneMatch[0]).toMatchObject({
+      id: first.id,
+      workspaceId,
+      sourceConnectionId: connectionId,
+      sourceExternalRepositoryId: 'github:one',
+      sourceRepositoryOwner: 'AcMe',
+      sourceRepositoryName: 'Api',
+    });
+
+    const [second] = await db()
+      .insert(projects)
+      .values({
+        workspaceId,
+        sourceConnectionId: connectionId,
+        sourceExternalRepositoryId: 'github:two',
+        sourceRepositoryOwner: 'acme',
+        sourceRepositoryName: 'api',
+        name: 'Second project',
+        slug: `second-${crypto.randomUUID()}`,
+      })
+      .returning({id: projects.id});
+    if (!second) throw new Error('Second project insert returned no row');
+
+    const multipleMatches = await findProjectBySourceRepositoryName({
+      workspaceId,
+      connectionId,
+      owner: 'AcMe',
+      name: 'API',
+    });
+
+    expect(multipleMatches).toHaveLength(2);
+    expect(multipleMatches.map(({id}) => id)).toEqual(
+      expect.arrayContaining([first.id, second.id]),
+    );
+  });
+});
 
 describe('getProjectCount', () => {
   it('reports the current project count', async () => {
