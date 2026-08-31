@@ -72,8 +72,10 @@ export interface ClaimSessionParams {
   projectId: string;
   workflowRunAttemptId: string;
   key: string;
-  /** Harness resolved for this attempt; it must match an existing pinned session. */
+  /** Harness resolved for this attempt; omitted harnesses inherit an existing pin. */
   harness: Harness;
+  /** Whether the caller authored the harness. Defaults to true for internal callers. */
+  harnessExplicit?: boolean;
   stepAttemptId: string;
 }
 
@@ -86,7 +88,7 @@ function assertSessionClaimable(row: AgentSessionDb, params: ClaimSessionParams)
   // re-verify the denormalized workspace/project match before classifying or
   // updating it.
   assertSessionScopeMatches(row, params);
-  if (row.harness !== params.harness) {
+  if ((params.harnessExplicit ?? true) && row.harness !== params.harness) {
     throw new AgentSessionHarnessMismatchError({
       sessionId: row.id,
       workflowRunAttemptId: params.workflowRunAttemptId,
@@ -211,7 +213,6 @@ async function lockClaimableSession(
 export async function claimSession(params: ClaimSessionParams): Promise<AgentSession> {
   assertValidSessionKey(params.key);
   assertValidSessionHarness(params.harness);
-
   return await db().transaction(async (tx) => {
     const [existingRow] = await tx.select().from(sessions).where(claimSessionIdentity(params));
     await acquireExistingSessionClaim(tx, existingRow, params);
@@ -397,6 +398,7 @@ export async function carryOverSessions(params: {
       assertValidSessionKey(source.key);
       assertValidSessionHarness(source.harness);
 
+      const expectedCarriedFromSessionId = source.carriedFromSessionId ?? source.id;
       const [inserted] = await tx
         .insert(sessions)
         .values({
@@ -411,7 +413,7 @@ export async function carryOverSessions(params: {
           headSizeBytes: source.headSizeBytes,
           headCommittedByAttempt: source.headCommittedByAttempt,
           headRepoRef: source.headRepoRef,
-          carriedFromSessionId: source.id,
+          carriedFromSessionId: expectedCarriedFromSessionId,
         })
         .onConflictDoNothing({
           target: [sessions.workflowRunAttemptId, sessions.key],
@@ -430,7 +432,7 @@ export async function carryOverSessions(params: {
           )
           .for('update');
         if (!existing) throw new Error('Session missing after carry-over conflict');
-        if (existing.carriedFromSessionId !== source.id) {
+        if (existing.carriedFromSessionId !== expectedCarriedFromSessionId) {
           throw new AgentSessionCarryOverConflictError({
             targetWorkflowRunAttemptId: params.toWorkflowRunAttemptId,
             key: source.key,

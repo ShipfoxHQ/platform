@@ -21,6 +21,7 @@ interface ClaimInput {
   workflowRunAttemptId: string;
   key: string;
   harness: 'pi' | 'claude';
+  harnessExplicit: boolean;
   stepAttemptId: string;
   mode: 'resume' | 'fork';
 }
@@ -32,6 +33,7 @@ function newClaimInput(overrides: Partial<ClaimInput> = {}): ClaimInput {
     workflowRunAttemptId: crypto.randomUUID(),
     key: 'main',
     harness: 'pi',
+    harnessExplicit: true,
     stepAttemptId: crypto.randomUUID(),
     mode: 'resume',
     ...overrides,
@@ -101,6 +103,21 @@ describe('agent inter-module claimSession', () => {
     expect(result.code).toBe('session-held');
   });
 
+  it('inherits the pinned harness when a resume omits harness', async () => {
+    const input = newClaimInput({harness: 'pi'});
+    const presentation = createPresentation();
+    await claim(presentation, input);
+
+    const result = await claim(presentation, {
+      ...input,
+      harness: 'claude',
+      harnessExplicit: false,
+      stepAttemptId: input.stepAttemptId,
+    });
+
+    expect(result.harness).toBe('pi');
+  });
+
   it('fails a resume with session-harness-mismatch when the resolved harness differs from the pinned one', async () => {
     const input = newClaimInput({harness: 'pi'});
     const presentation = createPresentation();
@@ -164,6 +181,28 @@ describe('agent inter-module claimSession', () => {
 
   it('fails a fork with session-harness-mismatch when the pinned harness differs from the resolved one', async () => {
     const input = newClaimInput({mode: 'fork', harness: 'pi'});
+    const presentation = createPresentation();
+    await claim(presentation, {
+      ...input,
+      mode: 'resume' as const,
+      stepAttemptId: crypto.randomUUID(),
+    });
+
+    const result = await claim(presentation, {...input, harness: 'claude'}).catch(
+      (error: unknown) => error,
+    );
+
+    expect(isInterModuleKnownError(agentInterModuleContract.methods.claimSession, result)).toBe(
+      true,
+    );
+    if (!isInterModuleKnownError(agentInterModuleContract.methods.claimSession, result)) {
+      throw new Error('Expected a claim known error');
+    }
+    expect(result.code).toBe('session-harness-mismatch');
+  });
+
+  it('keeps fork harness validation when harness is omitted', async () => {
+    const input = newClaimInput({mode: 'fork', harness: 'pi', harnessExplicit: false});
     const presentation = createPresentation();
     await claim(presentation, {
       ...input,

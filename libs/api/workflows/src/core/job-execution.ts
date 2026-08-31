@@ -93,6 +93,7 @@ interface PendingSessionClaim {
   readonly attempt: number;
   readonly stepAttemptId: string | undefined;
   readonly session: AgentStepSessionIntentDto;
+  readonly harnessExplicit: boolean;
   readonly config: Record<string, unknown>;
   readonly evaluationTrace: readonly PersistedEvaluationTraceEntry[] | null;
   readonly workflowContext: Awaited<ReturnType<typeof getWorkflowContextForJob>>;
@@ -220,6 +221,7 @@ async function resolveRunningStep(
     attempt: running.currentAttempt,
     stepAttemptId,
     session,
+    harnessExplicit: configHarness(running.authoredConfig ?? {}) !== undefined,
     config: running.config,
     evaluationTrace: currentAttempt?.evaluationTrace ?? running.evaluationTrace,
     workflowContext,
@@ -366,6 +368,7 @@ async function dispatchPendingStepWithConfigPlan({
         attempt: pending.currentAttempt,
         stepAttemptId,
         session,
+        harnessExplicit: configHarness(pending.authoredConfig ?? {}) !== undefined,
         config: step.config,
         evaluationTrace: completed.trace,
         workflowContext,
@@ -424,6 +427,7 @@ async function claimStepSessionForDispatch(params: {
   readonly config: Record<string, unknown>;
   readonly stepAttemptId: string | undefined;
   readonly session: AgentStepSessionIntentDto;
+  readonly harnessExplicit: boolean;
   readonly workflowContext: Awaited<ReturnType<typeof getWorkflowContextForJob>>;
   readonly agent?: AgentInterModuleClient | undefined;
 }): Promise<ClaimedStepSession> {
@@ -448,7 +452,10 @@ async function claimStepSessionForDispatch(params: {
     );
   }
 
-  let result: {readonly descriptor: AgentStepSessionDescriptorDto | null};
+  let result: {
+    readonly descriptor: AgentStepSessionDescriptorDto | null;
+    readonly harness: 'pi' | 'claude';
+  };
   try {
     result = await claimSessionWithRetry({
       agent: params.agent,
@@ -457,6 +464,7 @@ async function claimStepSessionForDispatch(params: {
       workflowRunAttemptId: params.workflowContext.workflowRunAttemptId,
       key: params.session.key,
       harness,
+      harnessExplicit: params.harnessExplicit,
       stepAttemptId: params.stepAttemptId,
       mode: params.session.mode,
     });
@@ -476,7 +484,13 @@ async function claimStepSessionForDispatch(params: {
     const {session: _session, ...configWithoutSession} = params.config;
     return {config: configWithoutSession, sessionId: undefined};
   }
-  return {config: {...params.config, session: result.descriptor}, sessionId: result.descriptor.id};
+  // The Agent module returns the authoritative pinned harness. In particular,
+  // this replaces a workspace-defaulted harness for a resumed session, so a
+  // workspace default change cannot make the next segment use another SDK.
+  return {
+    config: {...params.config, harness: result.harness, session: result.descriptor},
+    sessionId: result.descriptor.id,
+  };
 }
 
 async function completePendingSessionClaim(
@@ -490,6 +504,7 @@ async function completePendingSessionClaim(
       config: pending.config,
       stepAttemptId: pending.stepAttemptId,
       session: pending.session,
+      harnessExplicit: pending.harnessExplicit,
       workflowContext: pending.workflowContext,
       agent: pending.agent,
     });

@@ -79,7 +79,12 @@ export function createAgentInterModulePresentation(params: {
     },
     claimSession: async (input) => {
       try {
-        return await claimStepSession(input);
+        return await claimStepSession({
+          ...input,
+          // Older callers resolve a harness and must keep the mismatch guard.
+          // Only the new explicit false value requests session-pin inheritance.
+          harnessExplicit: input.harnessExplicit ?? true,
+        });
       } catch (error) {
         throw toClaimSessionKnownError(error);
       }

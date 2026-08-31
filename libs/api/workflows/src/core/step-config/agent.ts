@@ -295,6 +295,7 @@ function resolveAgentFields(params: ResolveAgentStepConfigParams): AgentFieldRes
           mode: params.step.session.mode,
         };
   const hasTemplates =
+    params.step.harness !== undefined ||
     params.step.templates?.prompt !== undefined ||
     params.step.templates?.model !== undefined ||
     params.step.templates?.provider !== undefined ||

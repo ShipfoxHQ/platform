@@ -27,7 +27,6 @@ const projects = {
 } as unknown as ProjectsModuleClient;
 const getWorkspaceOperatingState = vi.fn();
 const workspaces = {getWorkspaceOperatingState} as unknown as WorkspacesInterModuleClient;
-
 describe('POST /api/workflows/runs/:id/rerun', () => {
   let app: FastifyInstance;
   let workspaceId: string;

@@ -630,6 +630,7 @@ describe('nextStepForJob session claims', () => {
       workflowRunAttemptId: context.workflowRunAttemptId,
       key: 'main',
       harness: 'pi',
+      harnessExplicit: false,
       stepAttemptId: expect.any(String),
       mode: 'resume',
     });
@@ -638,10 +639,36 @@ describe('nextStepForJob session claims', () => {
     expect(attempt).toMatchObject({
       status: 'running',
       config: expect.objectContaining({
+        harness: 'pi',
         session: {id: sessionId, key: 'main', mode: 'resume', segment: 0},
       }),
     });
     expect(claimSession.mock.calls[0]?.[0]?.stepAttemptId).toBe(attempt?.id);
+  });
+
+  test('uses the session pinned harness returned by claim', async () => {
+    const {jobId, steps} = await arrangeJobWithAgentStep({
+      prompt: 'Resume the work.',
+      session: 'main',
+    });
+    const step = steps[0];
+    if (!step) throw new Error('Expected arranged step');
+    const sessionId = crypto.randomUUID();
+    const claimSession = vi.mocked(agentTestClient.claimSession);
+    claimSession.mockReset();
+    claimSession.mockResolvedValue({
+      descriptor: {id: sessionId, key: 'main', mode: 'resume', segment: 3},
+      harness: 'claude',
+    });
+
+    const next = await nextStepForJob(jobId, agentTestClient);
+
+    expect(next).toEqual(expect.objectContaining({kind: 'step'}));
+    if (next.kind !== 'step') throw new Error('Expected a dispatched step');
+    expect(next.step.config).toMatchObject({
+      harness: 'claude',
+      session: {id: sessionId, mode: 'resume', segment: 3},
+    });
   });
 
   test('does not apply a delayed claim result to a restarted attempt', async () => {

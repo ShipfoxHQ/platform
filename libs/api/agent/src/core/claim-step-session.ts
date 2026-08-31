@@ -19,8 +19,9 @@ export interface ClaimStepSessionParams {
   projectId: string;
   workflowRunAttemptId: string;
   key: string;
-  /** Harness resolved for this attempt; a resume claim must match the session's pinned harness. */
+  /** Harness resolved for this attempt; an explicit value must match the pinned harness. */
   harness: Harness;
+  harnessExplicit: boolean;
   stepAttemptId: string;
   /** `resume` claims exclusively and may write back; `fork` only reads the current head. */
   mode: 'resume' | 'fork';
@@ -63,23 +64,23 @@ export async function claimStepSession(
   assertValidSessionKey(params.key);
 
   if (params.mode === 'fork') {
-    const session = await getSessionByRunAttemptAndKey({
+    const existingSession = await getSessionByRunAttemptAndKey({
       workspaceId: params.workspaceId,
       projectId: params.projectId,
       workflowRunAttemptId: params.workflowRunAttemptId,
       key: params.key,
     });
-    if (!session) return {descriptor: null, harness: params.harness};
-    if (session.harness !== params.harness) {
+    if (!existingSession) return {descriptor: null, harness: params.harness};
+    if (existingSession.harness !== params.harness) {
       throw new AgentSessionHarnessMismatchError({
-        sessionId: session.id,
+        sessionId: existingSession.id,
         workflowRunAttemptId: params.workflowRunAttemptId,
-        key: session.key,
-        pinnedHarness: session.harness,
+        key: existingSession.key,
+        pinnedHarness: existingSession.harness,
         requestedHarness: params.harness,
       });
     }
-    return {descriptor: toDescriptor(session, 'fork'), harness: session.harness};
+    return {descriptor: toDescriptor(existingSession, 'fork'), harness: existingSession.harness};
   }
 
   const session = await claimSession({
@@ -87,7 +88,10 @@ export async function claimStepSession(
     projectId: params.projectId,
     workflowRunAttemptId: params.workflowRunAttemptId,
     key: params.key,
+    // claimSession resolves an omitted harness inside the claim transaction,
+    // so a concurrent first claim cannot race this selection.
     harness: params.harness,
+    harnessExplicit: params.harnessExplicit,
     stepAttemptId: params.stepAttemptId,
   });
   return {descriptor: toDescriptor(session, 'resume'), harness: session.harness};
