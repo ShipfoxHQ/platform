@@ -1,9 +1,11 @@
-import {and, eq, gt, isNull, sql} from 'drizzle-orm';
+import {and, asc, eq, gt, inArray, isNull, lt, sql} from 'drizzle-orm';
 import type {
   AgentAuthorizationCode,
   AgentAuthorizationRequest,
   AgentClient,
   AgentGrant,
+  AgentPersonalAccessToken,
+  AgentRefreshToken,
 } from '#core/entities/agent-access.js';
 import {db} from './db.js';
 import {
@@ -11,10 +13,14 @@ import {
   agentAuthorizationRequests,
   agentClients,
   agentGrants,
+  agentPersonalAccessTokens,
+  agentRefreshTokens,
   toAgentAuthorizationCode,
   toAgentAuthorizationRequest,
   toAgentClient,
   toAgentGrant,
+  toAgentPersonalAccessToken,
+  toAgentRefreshToken,
 } from './schema/agent-access.js';
 
 export type AgentAccessTx = Parameters<Parameters<ReturnType<typeof db>['transaction']>[0]>[0];
@@ -36,9 +42,20 @@ export async function createAgentClientTx(
   tx: AgentAccessTx,
   params: CreateAgentClientParams,
 ): Promise<AgentClient> {
-  const rows = await tx.insert(agentClients).values(params).returning();
+  const rows = await tx
+    .insert(agentClients)
+    .values(params)
+    .onConflictDoUpdate({
+      target: agentClients.clientId,
+      set: {
+        lastSeenAt: sql`now()`,
+        unreferencedAt: null,
+        updatedAt: sql`now()`,
+      },
+    })
+    .returning();
   const row = rows[0];
-  if (!row) throw new Error('Insert returned no rows');
+  if (!row) throw new Error('Upsert returned no rows');
   return toAgentClient(row);
 }
 
@@ -62,11 +79,22 @@ export async function markAgentClientReferenced(
 ): Promise<void> {
   await tx
     .update(agentClients)
-    .set({unreferencedAt: null, updatedAt: sql`now()`})
+    .set({unreferencedAt: null, lastSeenAt: sql`now()`, updatedAt: sql`now()`})
+    .where(eq(agentClients.id, params.clientUuid));
+}
+
+export async function markAgentClientUnreferenced(
+  tx: AgentAccessTx,
+  params: {clientUuid: string},
+): Promise<void> {
+  await tx
+    .update(agentClients)
+    .set({unreferencedAt: sql`now()`, updatedAt: sql`now()`})
     .where(eq(agentClients.id, params.clientUuid));
 }
 
 export interface CreateAgentAuthorizationRequestParams {
+  /** Internal `auth_agent_clients.id`, not the public OAuth `client_id`. */
   clientId: string;
   redirectUri: string;
   resource: string;
@@ -145,6 +173,7 @@ export async function consumeAgentAuthorizationRequestTx(
 export interface CreateAgentGrantParams {
   userId: string;
   workspaceId: string;
+  /** Internal `auth_agent_clients.id`, not the public OAuth `client_id`. */
   clientId: string;
   scopes: string[];
 }
@@ -195,7 +224,8 @@ export async function findAgentGrant(params: {
 /**
  * Locks one grant row until the surrounding transaction ends. Code exchange
  * and lifecycle transitions must use this same primitive before inspecting or
- * changing grant state.
+ * changing grant state. Callers must keep the transaction database-only while
+ * this lock is held; external I/O must happen after commit.
  */
 export async function lockAgentGrant(
   tx: AgentAccessTx,
@@ -294,4 +324,271 @@ export async function consumeAgentAuthorizationCodeTx(
     .returning();
   const row = rows[0];
   return row ? toAgentAuthorizationCode(row) : undefined;
+}
+
+export interface CreateAgentRefreshTokenParams {
+  grantId: string;
+  hashedToken: string;
+  expiresAt: Date;
+}
+
+export async function createAgentRefreshToken(
+  params: CreateAgentRefreshTokenParams,
+): Promise<AgentRefreshToken> {
+  return await db().transaction((tx) => createAgentRefreshTokenTx(tx, params));
+}
+
+export async function createAgentRefreshTokenTx(
+  tx: AgentAccessTx,
+  params: CreateAgentRefreshTokenParams,
+): Promise<AgentRefreshToken> {
+  const rows = await tx.insert(agentRefreshTokens).values(params).returning();
+  const row = rows[0];
+  if (!row) throw new Error('Insert returned no rows');
+  return toAgentRefreshToken(row);
+}
+
+export async function findAgentRefreshTokenByHash(params: {
+  hashedToken: string;
+  executor?: AgentAccessExecutor;
+}): Promise<AgentRefreshToken | undefined> {
+  const executor = params.executor ?? db();
+  const rows = await executor
+    .select()
+    .from(agentRefreshTokens)
+    .where(eq(agentRefreshTokens.hashedToken, params.hashedToken))
+    .limit(1);
+  const row = rows[0];
+  return row ? toAgentRefreshToken(row) : undefined;
+}
+
+export async function findActiveAgentRefreshTokenByHash(params: {
+  hashedToken: string;
+  executor?: AgentAccessExecutor;
+}): Promise<AgentRefreshToken | undefined> {
+  const executor = params.executor ?? db();
+  const rows = await executor
+    .select()
+    .from(agentRefreshTokens)
+    .where(
+      and(
+        eq(agentRefreshTokens.hashedToken, params.hashedToken),
+        isNull(agentRefreshTokens.rotatedAt),
+        isNull(agentRefreshTokens.revokedAt),
+        gt(agentRefreshTokens.expiresAt, sql`now()`),
+      ),
+    )
+    .limit(1);
+  const row = rows[0];
+  return row ? toAgentRefreshToken(row) : undefined;
+}
+
+/** Rotates a refresh token atomically; a concurrent rotation cannot win twice. */
+export async function rotateAgentRefreshToken(params: {
+  hashedToken: string;
+  replacementHashedToken: string;
+  replacementExpiresAt: Date;
+}): Promise<AgentRefreshToken | undefined> {
+  return await db().transaction((tx) => rotateAgentRefreshTokenTx(tx, params));
+}
+
+export async function rotateAgentRefreshTokenTx(
+  tx: AgentAccessTx,
+  params: {
+    hashedToken: string;
+    replacementHashedToken: string;
+    replacementExpiresAt: Date;
+  },
+): Promise<AgentRefreshToken | undefined> {
+  const rows = await tx
+    .update(agentRefreshTokens)
+    .set({rotatedAt: sql`now()`, lastUsedAt: sql`now()`, updatedAt: sql`now()`})
+    .where(
+      and(
+        eq(agentRefreshTokens.hashedToken, params.hashedToken),
+        isNull(agentRefreshTokens.rotatedAt),
+        isNull(agentRefreshTokens.revokedAt),
+        gt(agentRefreshTokens.expiresAt, sql`now()`),
+      ),
+    )
+    .returning();
+  const row = rows[0];
+  if (!row) return undefined;
+
+  return await createAgentRefreshTokenTx(tx, {
+    grantId: row.grantId,
+    hashedToken: params.replacementHashedToken,
+    expiresAt: params.replacementExpiresAt,
+  });
+}
+
+export async function revokeAgentRefreshToken(params: {
+  id: string;
+}): Promise<AgentRefreshToken | undefined> {
+  return await db().transaction(async (tx) => {
+    const rows = await tx
+      .update(agentRefreshTokens)
+      .set({revokedAt: sql`now()`, updatedAt: sql`now()`})
+      .where(and(eq(agentRefreshTokens.id, params.id), isNull(agentRefreshTokens.revokedAt)))
+      .returning();
+    const row = rows[0];
+    return row ? toAgentRefreshToken(row) : undefined;
+  });
+}
+
+export interface CreateAgentPersonalAccessTokenParams {
+  userId: string;
+  workspaceId: string;
+  hashedToken: string;
+  prefix: string;
+  name: string;
+  scopes: string[];
+  expiresAt: Date;
+}
+
+export async function createAgentPersonalAccessToken(
+  params: CreateAgentPersonalAccessTokenParams,
+): Promise<AgentPersonalAccessToken> {
+  return await db().transaction((tx) => createAgentPersonalAccessTokenTx(tx, params));
+}
+
+export async function createAgentPersonalAccessTokenTx(
+  tx: AgentAccessTx,
+  params: CreateAgentPersonalAccessTokenParams,
+): Promise<AgentPersonalAccessToken> {
+  const rows = await tx.insert(agentPersonalAccessTokens).values(params).returning();
+  const row = rows[0];
+  if (!row) throw new Error('Insert returned no rows');
+  return toAgentPersonalAccessToken(row);
+}
+
+export async function findAgentPersonalAccessTokenByHash(params: {
+  hashedToken: string;
+  executor?: AgentAccessExecutor;
+}): Promise<AgentPersonalAccessToken | undefined> {
+  const executor = params.executor ?? db();
+  const rows = await executor
+    .select()
+    .from(agentPersonalAccessTokens)
+    .where(eq(agentPersonalAccessTokens.hashedToken, params.hashedToken))
+    .limit(1);
+  const row = rows[0];
+  return row ? toAgentPersonalAccessToken(row) : undefined;
+}
+
+export async function findActiveAgentPersonalAccessTokenByHash(params: {
+  hashedToken: string;
+  executor?: AgentAccessExecutor;
+}): Promise<AgentPersonalAccessToken | undefined> {
+  const executor = params.executor ?? db();
+  const rows = await executor
+    .select()
+    .from(agentPersonalAccessTokens)
+    .where(
+      and(
+        eq(agentPersonalAccessTokens.hashedToken, params.hashedToken),
+        isNull(agentPersonalAccessTokens.revokedAt),
+        gt(agentPersonalAccessTokens.expiresAt, sql`now()`),
+      ),
+    )
+    .limit(1);
+  const row = rows[0];
+  return row ? toAgentPersonalAccessToken(row) : undefined;
+}
+
+export async function markAgentPersonalAccessTokenUsed(params: {
+  id: string;
+}): Promise<AgentPersonalAccessToken | undefined> {
+  const rows = await db()
+    .update(agentPersonalAccessTokens)
+    .set({lastUsedAt: sql`now()`, updatedAt: sql`now()`})
+    .where(eq(agentPersonalAccessTokens.id, params.id))
+    .returning();
+  const row = rows[0];
+  return row ? toAgentPersonalAccessToken(row) : undefined;
+}
+
+export async function revokeAgentPersonalAccessToken(params: {
+  id: string;
+}): Promise<AgentPersonalAccessToken | undefined> {
+  const rows = await db()
+    .update(agentPersonalAccessTokens)
+    .set({revokedAt: sql`now()`, updatedAt: sql`now()`})
+    .where(
+      and(eq(agentPersonalAccessTokens.id, params.id), isNull(agentPersonalAccessTokens.revokedAt)),
+    )
+    .returning();
+  const row = rows[0];
+  return row ? toAgentPersonalAccessToken(row) : undefined;
+}
+
+export interface PruneAgentAccessParams {
+  retentionDays?: number;
+  limit?: number;
+  now?: Date;
+}
+
+/** Deletes terminal credentials and ephemeral authorization rows in bounded batches. */
+export async function pruneAgentAccess(params: PruneAgentAccessParams = {}): Promise<number> {
+  const now = params.now ?? new Date();
+  const retentionDays = params.retentionDays ?? 7;
+  const limit = params.limit ?? 1000;
+  const cutoff = new Date(now.getTime() - retentionDays * 24 * 60 * 60 * 1000);
+
+  return await db().transaction(async (tx) => {
+    const requestIds = tx
+      .select({id: agentAuthorizationRequests.id})
+      .from(agentAuthorizationRequests)
+      .where(
+        lt(
+          sql`coalesce(${agentAuthorizationRequests.consumedAt}, ${agentAuthorizationRequests.expiresAt})`,
+          cutoff,
+        ),
+      )
+      .orderBy(asc(agentAuthorizationRequests.expiresAt), asc(agentAuthorizationRequests.id))
+      .limit(limit);
+    const codeIds = tx
+      .select({id: agentAuthorizationCodes.id})
+      .from(agentAuthorizationCodes)
+      .where(
+        lt(
+          sql`coalesce(${agentAuthorizationCodes.consumedAt}, ${agentAuthorizationCodes.expiresAt})`,
+          cutoff,
+        ),
+      )
+      .orderBy(asc(agentAuthorizationCodes.expiresAt), asc(agentAuthorizationCodes.id))
+      .limit(limit);
+    const refreshTokenIds = tx
+      .select({id: agentRefreshTokens.id})
+      .from(agentRefreshTokens)
+      .where(lt(agentRefreshTokens.expiresAt, cutoff))
+      .orderBy(asc(agentRefreshTokens.expiresAt), asc(agentRefreshTokens.id))
+      .limit(limit);
+    const patIds = tx
+      .select({id: agentPersonalAccessTokens.id})
+      .from(agentPersonalAccessTokens)
+      .where(lt(agentPersonalAccessTokens.expiresAt, cutoff))
+      .orderBy(asc(agentPersonalAccessTokens.expiresAt), asc(agentPersonalAccessTokens.id))
+      .limit(limit);
+
+    const [requests, codes, refreshTokens, pats] = await Promise.all([
+      tx
+        .delete(agentAuthorizationRequests)
+        .where(inArray(agentAuthorizationRequests.id, requestIds))
+        .returning({id: agentAuthorizationRequests.id}),
+      tx
+        .delete(agentAuthorizationCodes)
+        .where(inArray(agentAuthorizationCodes.id, codeIds))
+        .returning({id: agentAuthorizationCodes.id}),
+      tx
+        .delete(agentRefreshTokens)
+        .where(inArray(agentRefreshTokens.id, refreshTokenIds))
+        .returning({id: agentRefreshTokens.id}),
+      tx
+        .delete(agentPersonalAccessTokens)
+        .where(inArray(agentPersonalAccessTokens.id, patIds))
+        .returning({id: agentPersonalAccessTokens.id}),
+    ]);
+    return requests.length + codes.length + refreshTokens.length + pats.length;
+  });
 }
