@@ -137,13 +137,26 @@ export interface CheckoutTargetInput {
   externalRepositoryId?: string | undefined;
 }
 
-/** Returns a canonical target only when exactly one checkout target form is supplied. */
-export function normalizeCheckoutTarget(input: CheckoutTargetInput): CheckoutTarget | undefined {
-  if (input.target !== undefined) {
-    return input.externalRepositoryId === undefined ? input.target : undefined;
+export type CheckoutTargetNormalizationResult =
+  | {status: 'valid'; target: CheckoutTarget}
+  | {status: 'missing'}
+  | {status: 'ambiguous'};
+
+/** Classifies checkout input so callers can preserve missing versus ambiguous errors. */
+export function normalizeCheckoutTarget(
+  input: CheckoutTargetInput,
+): CheckoutTargetNormalizationResult {
+  if (input.target !== undefined && input.externalRepositoryId !== undefined) {
+    return {status: 'ambiguous'};
   }
-  if (input.externalRepositoryId === undefined) return undefined;
-  return {kind: 'external-id', externalRepositoryId: input.externalRepositoryId};
+  if (input.target !== undefined) return {status: 'valid', target: input.target};
+  if (input.externalRepositoryId !== undefined) {
+    return {
+      status: 'valid',
+      target: {kind: 'external-id', externalRepositoryId: input.externalRepositoryId},
+    };
+  }
+  return {status: 'missing'};
 }
 
 export type CreateCheckoutSpecInput<

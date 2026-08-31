@@ -293,8 +293,14 @@ function normalizeCheckoutTarget(input: {
   target?: CheckoutTarget | undefined;
   externalRepositoryId?: string | undefined;
 }): CheckoutTarget {
-  const target = normalizeTarget(input);
-  if (target !== undefined) return target;
+  const result = normalizeTarget(input);
+  if (result.status === 'valid') return result.target;
+  if (result.status === 'ambiguous') {
+    throw new GiteaIntegrationProviderError(
+      'provider-rejected',
+      'Checkout input cannot include both a target and an external repository id',
+    );
+  }
   throw new GiteaIntegrationProviderError(
     'repository-not-found',
     'Checkout input must include exactly one target or external repository id',
@@ -303,12 +309,6 @@ function normalizeCheckoutTarget(input: {
 
 function checkoutRepositoryId(target: CheckoutTarget): string {
   if (target.kind === 'external-id') return target.externalRepositoryId;
-  if (target.name === '.' || target.name === '..') {
-    throw new GiteaIntegrationProviderError(
-      'repository-not-found',
-      'Gitea checkout target contains an invalid repository name',
-    );
-  }
   return buildProviderRepositoryId(giteaProviderKind, `${target.owner}/${target.name}`);
 }
 
@@ -390,7 +390,7 @@ function parseGiteaRepositoryLocator(
   const separatorIndex = value.indexOf('/');
   const owner = separatorIndex > 0 ? value.slice(0, separatorIndex) : '';
   const repo = separatorIndex > 0 ? value.slice(separatorIndex + 1) : '';
-  if (!owner || !repo || repo.includes('/')) {
+  if (!owner || !repo || repo.includes('/') || repo === '.' || repo === '..') {
     throw new GiteaIntegrationProviderError(
       'repository-not-found',
       `Gitea repository id ${externalRepositoryId} must follow the form ${giteaProviderKind}:<owner>/<repo>`,

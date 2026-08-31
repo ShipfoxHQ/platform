@@ -290,6 +290,28 @@ describe('integration source-control service', () => {
     });
   });
 
+  it('preserves distinct errors for missing and ambiguous checkout targets', async () => {
+    const service = createService();
+
+    await expect(
+      service.createCheckoutSpec({workspaceId, connectionId: connection.id}),
+    ).rejects.toMatchObject({
+      reason: 'repository-not-found',
+      message: 'Checkout input must include exactly one target or external repository id',
+    });
+    await expect(
+      service.createCheckoutSpec({
+        workspaceId,
+        connectionId: connection.id,
+        target: {kind: 'name', owner: 'acme', name: 'platform'},
+        externalRepositoryId: repository.externalRepositoryId,
+      }),
+    ).rejects.toMatchObject({
+      reason: 'provider-rejected',
+      message: 'Checkout input cannot include both a target and an external repository id',
+    });
+  });
+
   it('rejects a checkout spec for a connection in another workspace', async () => {
     const service = createService();
 

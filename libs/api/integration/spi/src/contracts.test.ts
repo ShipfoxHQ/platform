@@ -101,24 +101,30 @@ describe('provider repository identifiers', () => {
 describe('checkout targets', () => {
   it('normalizes the legacy external id form', () => {
     expect(normalizeCheckoutTarget({externalRepositoryId: 'github:42'})).toEqual({
-      kind: 'external-id',
-      externalRepositoryId: 'github:42',
+      status: 'valid',
+      target: {
+        kind: 'external-id',
+        externalRepositoryId: 'github:42',
+      },
     });
   });
 
   it('preserves an explicit target', () => {
     expect(
       normalizeCheckoutTarget({target: {kind: 'name', owner: 'shipfox', name: 'platform'}}),
-    ).toEqual({kind: 'name', owner: 'shipfox', name: 'platform'});
+    ).toEqual({
+      status: 'valid',
+      target: {kind: 'name', owner: 'shipfox', name: 'platform'},
+    });
   });
 
-  it.each([
-    {},
-    {
-      target: {kind: 'name' as const, owner: 'shipfox', name: 'platform'},
-      externalRepositoryId: 'github:42',
-    },
-  ])('rejects an invalid target shape', (input) => {
-    expect(normalizeCheckoutTarget(input)).toBeUndefined();
+  it('classifies missing and ambiguous target shapes separately', () => {
+    expect(normalizeCheckoutTarget({})).toEqual({status: 'missing'});
+    expect(
+      normalizeCheckoutTarget({
+        target: {kind: 'name', owner: 'shipfox', name: 'platform'},
+        externalRepositoryId: 'github:42',
+      }),
+    ).toEqual({status: 'ambiguous'});
   });
 });

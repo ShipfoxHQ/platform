@@ -535,6 +535,8 @@ describe('GiteaSourceControlProvider', () => {
     'gitea:shipfox/',
     'gitea:/platform',
     'gitea:shipfox/platform/extra',
+    'gitea:shipfox/.',
+    'gitea:shipfox/..',
     'github:shipfox/platform',
     '',
   ])('rejects the malformed external repository id %s before any api call', async (id) => {
@@ -647,6 +649,22 @@ describe('GiteaSourceControlProvider', () => {
       provider.createCheckoutSpec({
         connection: connection(),
         target: {kind: 'name', owner: 'shipfox', name},
+      }),
+    ).rejects.toMatchObject({reason: 'repository-not-found'});
+    expect(gitea.getRepository).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    '.',
+    '..',
+  ])('rejects dot-segment repository name %s in a legacy external id before any api call', async (name) => {
+    const gitea = giteaClient();
+    const provider = new GiteaSourceControlProvider(gitea);
+
+    await expect(
+      provider.createCheckoutSpec({
+        connection: connection(),
+        externalRepositoryId: `gitea:shipfox/${name}`,
       }),
     ).rejects.toMatchObject({reason: 'repository-not-found'});
     expect(gitea.getRepository).not.toHaveBeenCalled();

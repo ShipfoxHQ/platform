@@ -249,8 +249,14 @@ export function createSourceControlIntegrationService({
 }
 
 function checkoutTarget(input: CheckoutTargetInput): CheckoutTarget {
-  const target = normalizeCheckoutTarget(input);
-  if (target !== undefined) return target;
+  const result = normalizeCheckoutTarget(input);
+  if (result.status === 'valid') return result.target;
+  if (result.status === 'ambiguous') {
+    throw new IntegrationProviderError(
+      'provider-rejected',
+      'Checkout input cannot include both a target and an external repository id',
+    );
+  }
   throw new IntegrationProviderError(
     'repository-not-found',
     'Checkout input must include exactly one target or external repository id',

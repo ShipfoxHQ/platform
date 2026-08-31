@@ -376,8 +376,14 @@ function normalizeCheckoutTarget(input: {
   target?: CheckoutTarget | undefined;
   externalRepositoryId?: string | undefined;
 }): CheckoutTarget {
-  const target = normalizeTarget(input);
-  if (target !== undefined) return target;
+  const result = normalizeTarget(input);
+  if (result.status === 'valid') return result.target;
+  if (result.status === 'ambiguous') {
+    throw new GithubIntegrationProviderError(
+      'provider-rejected',
+      'Checkout input cannot include both a target and an external repository id',
+    );
+  }
   throw new GithubIntegrationProviderError(
     'repository-not-found',
     'Checkout input must include exactly one target or external repository id',
