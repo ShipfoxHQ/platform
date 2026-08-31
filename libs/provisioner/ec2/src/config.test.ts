@@ -28,12 +28,29 @@ describe('EC2 reservation timing configuration', () => {
     expect(config.SHIPFOX_PROVISIONER_EC2_LAUNCH_HEADROOM_MS).toBe(30_000);
   });
 
+  it('uses a five-minute stopping timeout by default', async () => {
+    vi.resetModules();
+
+    const {config} = await import('#config.js');
+
+    expect(config.SHIPFOX_PROVISIONER_EC2_STOPPING_TIMEOUT_MS).toBe(300_000);
+  });
+
   it.each(['0', '-1', '1.5'])('rejects an invalid launch headroom: %s', async (value) => {
     vi.stubEnv('SHIPFOX_PROVISIONER_EC2_LAUNCH_HEADROOM_MS', value);
     vi.resetModules();
 
     await expect(import('#config.js')).rejects.toThrow(
       'SHIPFOX_PROVISIONER_EC2_LAUNCH_HEADROOM_MS',
+    );
+  });
+
+  it.each(['0', '-1', '1.5'])('rejects an invalid stopping timeout: %s', async (value) => {
+    vi.stubEnv('SHIPFOX_PROVISIONER_EC2_STOPPING_TIMEOUT_MS', value);
+    vi.resetModules();
+
+    await expect(import('#config.js')).rejects.toThrow(
+      'SHIPFOX_PROVISIONER_EC2_STOPPING_TIMEOUT_MS',
     );
   });
 });

@@ -78,6 +78,7 @@ export interface ReconciledRunnerInstance {
   intendedReservationId: string | null;
   reservationId: string | null;
   runnerSessionId: string | null;
+  stoppingAt: Date | null;
   boundJobExecution: ReconciledBoundJobExecution | null;
   desiredIntent: ReconcileDesiredIntent;
   desiredIntentReason: ReconcileDesiredIntentReason | null;
@@ -244,6 +245,7 @@ export function reconcileRunnerInstancesFromDbResult(params: {
       intendedReservationId: row?.intendedReservationId ?? null,
       reservationId: row?.reservationId ?? null,
       runnerSessionId: row?.runnerSessionId ?? null,
+      stoppingAt: row?.stoppingAt ?? null,
       boundJobExecution: boundJobExecution
         ? toReconciledBoundJobExecution(boundJobExecution)
         : null,

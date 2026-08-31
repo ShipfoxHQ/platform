@@ -55,6 +55,17 @@ describe('reconcileRunnerInstancesFromDbResult', () => {
     expect(result[0]?.desiredIntent).toBe('terminate');
   });
 
+  it('returns the first observed stopping timestamp for an authorized runner', () => {
+    const stoppingAt = new Date('2026-01-01T00:00:00.000Z');
+    const result = reconcileRunnerInstancesFromDbResult({
+      observedRunnerInstanceIds: ['provisioned-runner-1'],
+      observedRows: [providerRunner({providerRunnerId: 'provisioned-runner-1', stoppingAt})],
+      boundJobExecutionsByRunnerInstanceId: new Map(),
+    });
+
+    expect(result[0]?.stoppingAt).toEqual(stoppingAt);
+  });
+
   it('returns the intended reservation when a runner is not assigned yet', () => {
     const intendedReservationId = crypto.randomUUID();
     const result = reconcileRunnerInstancesFromDbResult({
@@ -76,6 +87,7 @@ function providerRunner(params: {
   providerRunnerId: string;
   state?: 'starting' | 'running' | 'stopping' | 'stopped' | 'failed' | 'terminated';
   intendedReservationId?: string | null;
+  stoppingAt?: Date | null;
 }) {
   return {
     id: crypto.randomUUID(),
@@ -93,7 +105,7 @@ function providerRunner(params: {
     providerKind: 'docker',
     reportedAt: new Date(),
     startedAt: null,
-    stoppingAt: null,
+    stoppingAt: params.stoppingAt ?? null,
     stoppedAt: null,
     failedAt: null,
     terminatedAt: null,

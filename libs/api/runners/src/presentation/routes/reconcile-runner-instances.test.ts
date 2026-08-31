@@ -190,6 +190,47 @@ describe('POST /provisioners/runner-instances/reconcile', () => {
     expect(runner?.terminationReason).toBe('terminal-state');
   });
 
+  it('returns an existing authorization and its first stopping timestamp', async () => {
+    const stoppingAt = new Date('2025-01-01T00:00:00.000Z');
+    await createRunnerInstance({
+      providerRunnerId: 'provisioned-runner-1',
+      state: 'stopping',
+      stoppingAt,
+      terminationAuthorizedAt: new Date('2025-01-01T00:01:00.000Z'),
+      terminationReason: 'job-cancelled',
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/provisioners/runner-instances/reconcile',
+      headers: {authorization: `Bearer ${VALID_PROVISIONER_TOKEN}`},
+      payload: {observed_provider_runner_ids: ['provisioned-runner-1']},
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().runners[0]).toMatchObject({
+      provider_runner_id: 'provisioned-runner-1',
+      state: 'stopping',
+      stopping_at: stoppingAt.toISOString(),
+      desired_intent: 'terminate',
+      termination_reason: 'job-cancelled',
+    });
+  });
+
+  it('omits stopping_at when a runner has no stopping timestamp', async () => {
+    await createRunnerInstance({providerRunnerId: 'provisioned-runner-1'});
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/provisioners/runner-instances/reconcile',
+      headers: {authorization: `Bearer ${VALID_PROVISIONER_TOKEN}`},
+      payload: {observed_provider_runner_ids: ['provisioned-runner-1']},
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(Object.hasOwn(res.json().runners[0], 'stopping_at')).toBe(false);
+  });
+
   it('returns keep for orphan observed ids without leaking ownership details', async () => {
     const res = await app.inject({
       method: 'POST',
@@ -390,6 +431,20 @@ describe('POST /provisioners/runner-instances/reconcile', () => {
     intendedReservationId?: string | null;
     reservationId?: string | null;
     reportedAt?: Date;
+    stoppingAt?: Date | null;
+    terminationAuthorizedAt?: Date | null;
+    terminationReason?:
+      | 'registration-deadline'
+      | 'activation-timeout'
+      | 'runner-unresponsive'
+      | 'lease-expired'
+      | 'session-exhausted'
+      | 'stopping-timeout'
+      | 'provider-health-failed'
+      | 'job-cancelled'
+      | 'job-timeout'
+      | 'terminal-state'
+      | null;
   }) {
     return await providerRunnerFactory.create({
       workspaceId,
@@ -399,6 +454,9 @@ describe('POST /provisioners/runner-instances/reconcile', () => {
       reservationId: params.reservationId ?? null,
       state: params.state ?? 'running',
       reportedAt: params.reportedAt ?? new Date(),
+      stoppingAt: params.stoppingAt ?? null,
+      terminationAuthorizedAt: params.terminationAuthorizedAt ?? null,
+      terminationReason: params.terminationReason ?? null,
     });
   }
 

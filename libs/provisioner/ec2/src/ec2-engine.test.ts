@@ -281,6 +281,17 @@ describe('createEc2Engine', () => {
     ]);
   });
 
+  it('force-terminates a stuck instance when requested', async () => {
+    const ec2 = fakeEc2();
+    const engine = createEc2Engine({region: 'eu-west-3', client: ec2 as never});
+
+    await engine.terminate(['i-stuck'], {force: true});
+
+    expect(ec2.commands.map(commandInput<TerminateInstancesCommand>)).toEqual([
+      {InstanceIds: ['i-stuck'], Force: true},
+    ]);
+  });
+
   it('does not call EC2 to terminate an empty set', async () => {
     const ec2 = fakeEc2();
     const engine = createEc2Engine({region: 'eu-west-3', client: ec2 as never});

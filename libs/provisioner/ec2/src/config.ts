@@ -26,6 +26,10 @@ export const config = createConfig({
     desc: 'How often the provisioner runs a full reconcile against the backend, re-deriving truth from EC2 instance tags, in milliseconds.',
     default: 60_000,
   }),
+  SHIPFOX_PROVISIONER_EC2_STOPPING_TIMEOUT_MS: num({
+    desc: 'How long an authorized EC2 runner may remain in stopping after its first observed stopping_at timestamp before the provisioner retries termination with force.',
+    default: 300_000,
+  }),
 });
 
 requirePositiveInteger(
@@ -39,4 +43,8 @@ requirePositiveInteger(
 requirePositiveInteger(
   'SHIPFOX_PROVISIONER_EC2_RECONCILE_INTERVAL_MS',
   config.SHIPFOX_PROVISIONER_EC2_RECONCILE_INTERVAL_MS,
+);
+requirePositiveInteger(
+  'SHIPFOX_PROVISIONER_EC2_STOPPING_TIMEOUT_MS',
+  config.SHIPFOX_PROVISIONER_EC2_STOPPING_TIMEOUT_MS,
 );

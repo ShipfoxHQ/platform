@@ -19,6 +19,7 @@ export interface CreateEc2ProvisionerAdapterOptions {
   readonly registrationDeadlineMs: number;
   readonly launchHeadroomMs: number;
   readonly reconcileIntervalMs: number;
+  readonly stoppingTimeoutMs: number;
 }
 
 /**
@@ -70,6 +71,7 @@ export function startEc2Provisioner(): Promise<void> {
       registrationDeadlineMs: config.SHIPFOX_PROVISIONER_EC2_REGISTRATION_DEADLINE_MS,
       launchHeadroomMs: config.SHIPFOX_PROVISIONER_EC2_LAUNCH_HEADROOM_MS,
       reconcileIntervalMs: config.SHIPFOX_PROVISIONER_EC2_RECONCILE_INTERVAL_MS,
+      stoppingTimeoutMs: config.SHIPFOX_PROVISIONER_EC2_STOPPING_TIMEOUT_MS,
     }),
   });
 }
@@ -93,6 +95,7 @@ function createLifecycle(
     templates: options.templates,
     registrationDeadlineMs: options.registrationDeadlineMs,
     reconcileIntervalMs: options.reconcileIntervalMs,
+    stoppingTimeoutMs: options.stoppingTimeoutMs,
     providerKind: 'ec2',
     renderUserData,
   });

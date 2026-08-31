@@ -59,6 +59,7 @@ describe('createEc2ProvisionerAdapter', () => {
       registrationDeadlineMs,
       launchHeadroomMs: 30_000,
       reconcileIntervalMs: 60_000,
+      stoppingTimeoutMs: 300_000,
     });
 
     expect(adapter.reservationTtlSeconds).toBe(reservationTtlSeconds);
@@ -71,6 +72,7 @@ describe('createEc2ProvisionerAdapter', () => {
       registrationDeadlineMs: 300_000,
       launchHeadroomMs: 30_000,
       reconcileIntervalMs: 60_000,
+      stoppingTimeoutMs: 300_000,
     });
 
     await adapter.onStart?.({

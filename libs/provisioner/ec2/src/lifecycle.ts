@@ -4,6 +4,7 @@ import {
   type ReconcileRunnerInstancesResponseDto,
   RUNNER_INSTANCE_NOT_ASSIGNABLE_ERROR_CODE,
   type RunnerInstanceReportEventDto,
+  type TerminationReasonDto,
 } from '@shipfox/api-runners-dto';
 import {logger} from '@shipfox/node-opentelemetry';
 import type {
@@ -19,9 +20,12 @@ import {type Ec2Engine, Ec2EngineError, type Ec2InstanceView} from '#ec2-engine.
 import {buildInstanceTags, parseInstanceIdentity} from '#instance-identity.js';
 import {
   type Ec2TerminationReason,
+  recordEc2ForcedTerminationRetry,
   recordEc2Launch,
   recordEc2PendingDuration,
   recordEc2ReconcileAbsent,
+  recordEc2StoppingRetryExhausted,
+  recordEc2StoppingTimestampMissing,
   recordEc2Termination,
 } from '#metrics/instance.js';
 import {type Ec2TemplateSpec, UNKNOWN_TEMPLATE_KEY} from '#templates.js';
@@ -56,6 +60,21 @@ type AssignmentCandidate = {
 
 type TerminalReportInstanceIds = ReadonlyMap<RunnerInstanceReportEventDto, string>;
 
+type TerminationIntent = {
+  reason?: TerminationReasonDto;
+  stoppingAt?: Date;
+  retryAllowed: boolean;
+};
+
+type TerminationAction = {
+  actionedAt: number;
+  force: boolean;
+  authorizationReason?: TerminationReasonDto;
+  stoppingAt?: Date;
+  stoppingTimestampMissingReported?: boolean;
+  stoppingRetryExhaustedReported?: boolean;
+};
+
 export interface Ec2Lifecycle {
   launch(launch: ProviderRunnerLaunch<Ec2TemplateSpec>): Promise<void>;
   observe(): Promise<void>;
@@ -74,6 +93,7 @@ export interface Ec2LifecycleOptions {
   readonly providerKind: string;
   readonly registrationDeadlineMs: number;
   readonly reconcileIntervalMs: number;
+  readonly stoppingTimeoutMs: number;
   readonly now?: () => Date;
   readonly renderUserData?: (launch: ProviderRunnerLaunch<Ec2TemplateSpec>) => string;
 }
@@ -87,6 +107,7 @@ interface Ec2LifecycleContext {
   readonly providerKind: string;
   readonly registrationDeadlineMs: number;
   readonly reconcileIntervalMs: number;
+  readonly stoppingTimeoutMs: number;
   readonly now: () => Date;
   readonly renderUserData?: (launch: ProviderRunnerLaunch<Ec2TemplateSpec>) => string;
   // Newly launched runners that have not appeared in an EC2 listing yet. These entries
@@ -96,8 +117,9 @@ interface Ec2LifecycleContext {
   readonly pendingLaunches: Map<string, LocallyLaunchedRunner>;
   readonly terminalReportedInstanceIds: Map<string, number>;
   // Keep successful actions across short listing gaps so eventual-consistency reads do not
-  // repeat AWS calls or metrics.
-  readonly terminationActionedInstanceIds: Map<string, number>;
+  // repeat AWS calls or metrics. A stopping-timeout authorization gets one bounded forced
+  // retry after its first observed stopping deadline.
+  readonly terminationActionedInstanceIds: Map<string, TerminationAction>;
   readonly pendingTerminalReportedInstanceIds: Set<string>;
   readonly terminalReportInstanceIdsByEvent: WeakMap<RunnerInstanceReportEventDto, string>;
   readonly pendingReports: RunnerInstanceReportEventDto[];
@@ -121,6 +143,7 @@ export function createEc2Lifecycle(options: Ec2LifecycleOptions): Ec2Lifecycle {
     providerKind: options.providerKind,
     registrationDeadlineMs: options.registrationDeadlineMs,
     reconcileIntervalMs: options.reconcileIntervalMs,
+    stoppingTimeoutMs: options.stoppingTimeoutMs,
     now: options.now ?? (() => new Date()),
     ...(options.renderUserData ? {renderUserData: options.renderUserData} : {}),
     locallyLaunched: new Map(),
@@ -201,7 +224,7 @@ async function launchRunner(
 
 async function observe(context: Ec2LifecycleContext): Promise<void> {
   const instances = await context.engine.listManaged(context.identity.id);
-  await applyObservedInstances(context, instances, new Set());
+  await applyObservedInstances(context, instances, new Map());
   await reportEvents(context, []);
 }
 
@@ -218,7 +241,7 @@ async function reconcile(context: Ec2LifecycleContext): Promise<void> {
       'Skipping backend reconcile because observed EC2 runner count exceeds the API limit',
     );
     context.canonicalReservationIdsByRunner.clear();
-    await applyObservedInstances(context, instances, new Set());
+    await applyObservedInstances(context, instances, new Map());
     await reportEvents(context, []);
     return;
   }
@@ -227,11 +250,16 @@ async function reconcile(context: Ec2LifecycleContext): Promise<void> {
     observed_provider_runner_ids: observedProviderRunnerIds,
   });
   syncCanonicalReservationIds(context, response.runners);
-  const terminateIntentIds = new Set(
-    response.runners
-      .filter((runner) => runner.desired_intent === 'terminate')
-      .map((runner) => runner.provider_runner_id),
-  );
+  const terminateIntents = new Map<string, TerminationIntent>();
+  for (const runner of response.runners) {
+    if (runner.desired_intent !== 'terminate') continue;
+    terminateIntents.set(runner.provider_runner_id, {
+      ...(runner.termination_reason ? {reason: runner.termination_reason} : {}),
+      ...(runner.stopping_at ? {stoppingAt: new Date(runner.stopping_at)} : {}),
+      retryAllowed:
+        runner.bound_job === null || runner.bound_job.cancellation_requested_at !== null,
+    });
+  }
   if (response.terminated_absent_provider_runner_ids.length > 0) {
     recordEc2ReconcileAbsent(response.terminated_absent_provider_runner_ids.length);
     logger().info(
@@ -240,7 +268,7 @@ async function reconcile(context: Ec2LifecycleContext): Promise<void> {
     );
   }
 
-  await applyObservedInstances(context, instances, terminateIntentIds);
+  await applyObservedInstances(context, instances, terminateIntents);
   await reportEvents(context, []);
   context.lastReconciledAt = new Date(context.now());
 }
@@ -280,12 +308,12 @@ async function terminate(
 async function applyObservedInstances(
   context: Ec2LifecycleContext,
   instances: readonly Ec2InstanceView[],
-  terminateIntentIds: ReadonlySet<string>,
+  terminateIntents: ReadonlyMap<string, TerminationIntent>,
 ): Promise<void> {
   const plan = createEc2ObservationPlan();
   const observedAt = context.now().getTime();
   for (const instance of instances)
-    recordObservedInstance(context, plan, instance, terminateIntentIds, observedAt);
+    recordObservedInstance(context, plan, instance, terminateIntents, observedAt);
   pruneTerminalReportedInstances(context, plan.observedInstanceIds, context.now().getTime());
   pruneTerminationActionedInstances(context, plan.observedInstanceIds, context.now().getTime());
   synthesizeAbsentLaunchedRunners(context, plan.observedIds, plan.trackerRunners, plan.events);
@@ -295,7 +323,15 @@ async function applyObservedInstances(
     plan.assignmentCandidates,
     plan.observedRunnerInstanceIds,
   );
-  await terminateInstances(context, plan.terminateIntentInstances, 'backend-terminate');
+  await terminateInstances(
+    context,
+    plan.terminateIntentInstances,
+    'backend-terminate',
+    plan.forcedTerminateIntentIds,
+    plan.terminationAuthorizationReasons,
+    plan.terminationDeadlines,
+    plan.missingStoppingTimestampIntentIds,
+  );
   await terminateInstances(context, plan.reapInstances, 'registration-deadline');
   if (plan.events.length > 0)
     await reportEvents(context, plan.events, plan.terminalReportInstanceIds);
@@ -311,6 +347,10 @@ interface Ec2ObservationPlan {
   observedRunnerInstanceIds: Set<string>;
   reapInstances: Ec2InstanceView[];
   terminateIntentInstances: Ec2InstanceView[];
+  forcedTerminateIntentIds: Set<string>;
+  terminationAuthorizationReasons: Map<string, TerminationReasonDto | undefined>;
+  terminationDeadlines: Map<string, Date>;
+  missingStoppingTimestampIntentIds: Set<string>;
 }
 
 function createEc2ObservationPlan(): Ec2ObservationPlan {
@@ -324,6 +364,10 @@ function createEc2ObservationPlan(): Ec2ObservationPlan {
     observedRunnerInstanceIds: new Set(),
     reapInstances: [],
     terminateIntentInstances: [],
+    forcedTerminateIntentIds: new Set(),
+    terminationAuthorizationReasons: new Map(),
+    terminationDeadlines: new Map(),
+    missingStoppingTimestampIntentIds: new Set(),
   };
 }
 
@@ -331,7 +375,7 @@ function recordObservedInstance(
   context: Ec2LifecycleContext,
   plan: Ec2ObservationPlan,
   instance: Ec2InstanceView,
-  terminateIntentIds: ReadonlySet<string>,
+  terminateIntents: ReadonlyMap<string, TerminationIntent>,
   observedAt: number,
 ): void {
   const identity = parseInstanceIdentity(instance);
@@ -341,12 +385,18 @@ function recordObservedInstance(
   const pendingLaunch = context.pendingLaunches.get(identity.providerRunnerId);
   context.locallyLaunched.delete(identity.providerRunnerId);
   recordPendingLaunchObservation(context, instance, identity, pendingLaunch);
+  recordExhaustedStoppingRetry(
+    context,
+    instance,
+    identity,
+    terminateIntents.get(identity.providerRunnerId),
+  );
   const termination = recordTerminationCandidate(
     context,
     plan,
     instance,
     identity.providerRunnerId,
-    terminateIntentIds,
+    terminateIntents,
   );
   if (termination.skipObservation) return;
 
@@ -382,8 +432,12 @@ function recordObservedIdentity(
   if (context.terminalReportedInstanceIds.has(instance.instanceId)) {
     context.terminalReportedInstanceIds.set(instance.instanceId, observedAt);
   }
-  if (context.terminationActionedInstanceIds.has(instance.instanceId)) {
-    context.terminationActionedInstanceIds.set(instance.instanceId, observedAt);
+  const terminationAction = context.terminationActionedInstanceIds.get(instance.instanceId);
+  if (terminationAction) {
+    context.terminationActionedInstanceIds.set(instance.instanceId, {
+      ...terminationAction,
+      actionedAt: observedAt,
+    });
   }
   if (runnerInstanceId) plan.observedRunnerInstanceIds.add(runnerInstanceId);
 }
@@ -416,20 +470,165 @@ function recordPendingLaunchObservation(
   });
 }
 
+function shouldRetryTermination(
+  context: Ec2LifecycleContext,
+  instance: Ec2InstanceView,
+  intent: TerminationIntent | undefined,
+): boolean {
+  if (instance.state !== 'stopping' || !intent?.retryAllowed || !intent.reason) return false;
+  if (!intent.stoppingAt) return false;
+  const action = context.terminationActionedInstanceIds.get(instance.instanceId);
+  // A prior graceful action without a reason cannot prove that this retry belongs
+  // to the same authorization. A changed reason with an existing authorization
+  // remains eligible because the API can reclassify the intent while stopping.
+  if (action && (action.force || action.authorizationReason === undefined)) return false;
+  return context.now().getTime() - intent.stoppingAt.getTime() >= context.stoppingTimeoutMs;
+}
+
+function recordExhaustedStoppingRetry(
+  context: Ec2LifecycleContext,
+  instance: Ec2InstanceView,
+  identity: ReturnType<typeof parseInstanceIdentity>,
+  intent: TerminationIntent | undefined,
+): void {
+  if (instance.state !== 'stopping') return;
+  const action = context.terminationActionedInstanceIds.get(instance.instanceId);
+  if (!action?.force || action.stoppingRetryExhaustedReported) return;
+
+  const templateKey = resolveTemplateKey(context, [identity.templateKey]);
+  const template = context.templatesByKey.get(templateKey);
+  const stoppingAt = action.stoppingAt ?? intent?.stoppingAt;
+  recordEc2StoppingRetryExhausted(templateKey);
+  logger().warn(
+    terminationLogFields(
+      instance,
+      identity,
+      templateKey,
+      template,
+      'backend-terminate',
+      undefined,
+      {
+        force: true,
+        ...(stoppingAt
+          ? {
+              stoppingAt,
+              stoppingTimeoutDeadline: new Date(stoppingAt.getTime() + context.stoppingTimeoutMs),
+            }
+          : {}),
+      },
+    ),
+    'EC2 runner instance remains in stopping after forced termination retry',
+  );
+  context.terminationActionedInstanceIds.set(instance.instanceId, {
+    ...action,
+    stoppingRetryExhaustedReported: true,
+  });
+}
+
+function hasMissingStoppingTimestampBeenReported(
+  context: Ec2LifecycleContext,
+  instance: Ec2InstanceView,
+): boolean {
+  return (
+    context.terminationActionedInstanceIds.get(instance.instanceId)
+      ?.stoppingTimestampMissingReported ?? false
+  );
+}
+
+function reportMissingStoppingTimestamp(
+  context: Ec2LifecycleContext,
+  instance: Ec2InstanceView,
+): void {
+  if (hasMissingStoppingTimestampBeenReported(context, instance)) return;
+  const identity = parseInstanceIdentity(instance);
+  const templateKey = resolveTemplateKey(context, [identity.templateKey]);
+  const template = context.templatesByKey.get(templateKey);
+  recordEc2StoppingTimestampMissing(templateKey);
+  logger().warn(
+    terminationLogFields(
+      instance,
+      identity,
+      templateKey,
+      template,
+      'backend-terminate',
+      undefined,
+      {
+        force: false,
+        stoppingAt: null,
+        stoppingTimeoutDeadline: null,
+      },
+    ),
+    'EC2 runner instance is stopping without a backend stopping timestamp; using graceful termination',
+  );
+  const action = context.terminationActionedInstanceIds.get(instance.instanceId);
+  if (action)
+    context.terminationActionedInstanceIds.set(instance.instanceId, {
+      ...action,
+      stoppingTimestampMissingReported: true,
+    });
+}
+
 function recordTerminationCandidate(
   context: Ec2LifecycleContext,
   plan: Ec2ObservationPlan,
   instance: Ec2InstanceView,
   providerRunnerId: string,
-  terminateIntentIds: ReadonlySet<string>,
+  terminateIntents: ReadonlyMap<string, TerminationIntent>,
 ): {requested: boolean; skipObservation: boolean} {
-  const hasTerminateIntent = terminateIntentIds.has(providerRunnerId);
+  const terminationIntent = terminateIntents.get(providerRunnerId);
   const pastRegistrationDeadline = isPastRegistrationDeadline(instance, context);
-  const requested = hasTerminateIntent || pastRegistrationDeadline;
+  const retry = shouldRetryTermination(context, instance, terminationIntent);
+  const stoppingTimestampMissing = isStoppingTimestampMissing(instance, terminationIntent);
+  const terminationRequested = shouldRequestTermination(
+    instance,
+    terminationIntent,
+    retry,
+    stoppingTimestampMissing,
+  );
+  const requested = pastRegistrationDeadline || terminationRequested;
   if (!canTerminateInstance(instance)) return {requested, skipObservation: false};
-  if (hasTerminateIntent) plan.terminateIntentInstances.push(instance);
-  else if (pastRegistrationDeadline) plan.reapInstances.push(instance);
+  if (!terminationIntent) {
+    if (pastRegistrationDeadline) plan.reapInstances.push(instance);
+    return {requested, skipObservation: requested};
+  }
+  if (stoppingTimestampMissing) reportMissingStoppingTimestamp(context, instance);
+  if (terminationRequested) {
+    plan.terminateIntentInstances.push(instance);
+    if (retry) plan.forcedTerminateIntentIds.add(instance.instanceId);
+    plan.terminationAuthorizationReasons.set(instance.instanceId, terminationIntent.reason);
+    if (retry && terminationIntent.stoppingAt)
+      plan.terminationDeadlines.set(
+        instance.instanceId,
+        new Date(terminationIntent.stoppingAt.getTime() + context.stoppingTimeoutMs),
+      );
+    if (stoppingTimestampMissing) plan.missingStoppingTimestampIntentIds.add(instance.instanceId);
+  } else if (pastRegistrationDeadline) {
+    plan.reapInstances.push(instance);
+  }
   return {requested, skipObservation: requested};
+}
+
+function isStoppingTimestampMissing(
+  instance: Ec2InstanceView,
+  intent: TerminationIntent | undefined,
+): boolean {
+  return (
+    instance.state === 'stopping' &&
+    intent !== undefined &&
+    intent.retryAllowed &&
+    intent.stoppingAt === undefined
+  );
+}
+
+function shouldRequestTermination(
+  instance: Ec2InstanceView,
+  intent: TerminationIntent | undefined,
+  retry: boolean,
+  stoppingTimestampMissing: boolean,
+): boolean {
+  if (!intent) return false;
+  if (instance.state !== 'stopping') return true;
+  return retry || stoppingTimestampMissing;
 }
 
 function recordObservedInstanceEvent(
@@ -661,7 +860,7 @@ function pruneTerminationActionedInstances(
   for (const [instanceId, actionedAt] of context.terminationActionedInstanceIds) {
     if (
       !observedInstanceIds.has(instanceId) &&
-      nowMs - actionedAt >= TERMINAL_REPORT_ABSENCE_GRACE_MS
+      nowMs - actionedAt.actionedAt >= TERMINAL_REPORT_ABSENCE_GRACE_MS
     ) {
       context.terminationActionedInstanceIds.delete(instanceId);
     }
@@ -712,35 +911,112 @@ async function terminateInstances(
   context: Ec2LifecycleContext,
   instances: readonly Ec2InstanceView[],
   reason: Ec2TerminationReason,
+  forceInstanceIds: ReadonlySet<string> = new Set(),
+  authorizationReasons: ReadonlyMap<string, TerminationReasonDto | undefined> = new Map(),
+  stoppingDeadlines: ReadonlyMap<string, Date> = new Map(),
+  missingStoppingTimestampIntentIds: ReadonlySet<string> = new Set(),
 ): Promise<void> {
   if (instances.length === 0) return;
 
   const terminableInstances = instances.filter(canTerminateInstance);
-  const instancesToTerminate = terminableInstances.filter(
-    (instance) => !context.terminationActionedInstanceIds.has(instance.instanceId),
+  const instancesToTerminate = terminableInstances.filter((instance) =>
+    shouldIssueTermination(context, instance, forceInstanceIds, authorizationReasons),
   );
-  for (const instance of instancesToTerminate) {
-    const identity = parseInstanceIdentity(instance);
-    const locallyLaunched = identity.providerRunnerId
-      ? (context.pendingLaunches.get(identity.providerRunnerId) ??
-        context.locallyLaunched.get(identity.providerRunnerId))
-      : undefined;
-    const templateKey = resolveTemplateKey(context, [
-      identity.templateKey,
-      locallyLaunched?.templateKey,
-    ]);
-    const template = context.templatesByKey.get(templateKey);
-    await context.engine.terminate([instance.instanceId]);
-    const actionedAt = context.now().getTime();
-    context.terminationActionedInstanceIds.set(instance.instanceId, actionedAt);
-    recordEc2Termination(reason, templateKey);
-    logger().info(
-      terminationLogFields(instance, identity, templateKey, template, reason, locallyLaunched?.ami),
-      'Terminated EC2 runner instance',
+  for (const instance of instancesToTerminate)
+    await terminateInstance(
+      context,
+      instance,
+      reason,
+      forceInstanceIds,
+      authorizationReasons,
+      stoppingDeadlines,
+      missingStoppingTimestampIntentIds,
     );
-  }
+
   const terminalReportInstanceIds = new Map<RunnerInstanceReportEventDto, string>();
-  const events = terminableInstances.flatMap((instance) => {
+  const events = terminationEvents(context, terminableInstances, reason, terminalReportInstanceIds);
+  if (events.length > 0) await reportEvents(context, events, terminalReportInstanceIds);
+  clearTerminatedInstances(context, instances);
+}
+
+function shouldIssueTermination(
+  context: Ec2LifecycleContext,
+  instance: Ec2InstanceView,
+  forceInstanceIds: ReadonlySet<string>,
+  authorizationReasons: ReadonlyMap<string, TerminationReasonDto | undefined>,
+): boolean {
+  const force = forceInstanceIds.has(instance.instanceId);
+  const action = context.terminationActionedInstanceIds.get(instance.instanceId);
+  if (!action) return true;
+  if (!force || action.force) return false;
+  return action.authorizationReason !== undefined && authorizationReasons.has(instance.instanceId);
+}
+
+async function terminateInstance(
+  context: Ec2LifecycleContext,
+  instance: Ec2InstanceView,
+  reason: Ec2TerminationReason,
+  forceInstanceIds: ReadonlySet<string>,
+  authorizationReasons: ReadonlyMap<string, TerminationReasonDto | undefined>,
+  stoppingDeadlines: ReadonlyMap<string, Date>,
+  missingStoppingTimestampIntentIds: ReadonlySet<string>,
+): Promise<void> {
+  const force = forceInstanceIds.has(instance.instanceId);
+  const identity = parseInstanceIdentity(instance);
+  const locallyLaunched = identity.providerRunnerId
+    ? (context.pendingLaunches.get(identity.providerRunnerId) ??
+      context.locallyLaunched.get(identity.providerRunnerId))
+    : undefined;
+  const templateKey = resolveTemplateKey(context, [
+    identity.templateKey,
+    locallyLaunched?.templateKey,
+  ]);
+  const template = context.templatesByKey.get(templateKey);
+  if (force) recordEc2ForcedTerminationRetry(templateKey);
+  await context.engine.terminate([instance.instanceId], force ? {force: true} : undefined);
+  const stoppingDeadline = stoppingDeadlines.get(instance.instanceId);
+  const stoppingAt = stoppingDeadline
+    ? new Date(stoppingDeadline.getTime() - context.stoppingTimeoutMs)
+    : undefined;
+  const authorizationReason = authorizationReasons.get(instance.instanceId);
+  context.terminationActionedInstanceIds.set(instance.instanceId, {
+    actionedAt: context.now().getTime(),
+    force,
+    ...(authorizationReason ? {authorizationReason} : {}),
+    ...(stoppingAt ? {stoppingAt} : {}),
+    ...(missingStoppingTimestampIntentIds.has(instance.instanceId)
+      ? {stoppingTimestampMissingReported: true}
+      : {}),
+  });
+  recordEc2Termination(reason, templateKey);
+  const terminationLogOptions = force
+    ? {
+        force: true,
+        stoppingAt: stoppingAt ?? null,
+        stoppingTimeoutDeadline: stoppingDeadline ?? null,
+      }
+    : undefined;
+  logger().info(
+    terminationLogFields(
+      instance,
+      identity,
+      templateKey,
+      template,
+      reason,
+      locallyLaunched?.ami,
+      terminationLogOptions,
+    ),
+    'Terminated EC2 runner instance',
+  );
+}
+
+function terminationEvents(
+  context: Ec2LifecycleContext,
+  instances: readonly Ec2InstanceView[],
+  reason: Ec2TerminationReason,
+  terminalReportInstanceIds: Map<RunnerInstanceReportEventDto, string>,
+): RunnerInstanceReportEventDto[] {
+  return instances.flatMap((instance) => {
     const identity = parseInstanceIdentity(instance);
     const template = identity.templateKey
       ? context.templatesByKey.get(identity.templateKey)
@@ -752,9 +1028,12 @@ async function terminateInstances(
     terminalReportInstanceIds.set(event, instance.instanceId);
     return [event];
   });
-  if (events.length > 0) {
-    await reportEvents(context, events, terminalReportInstanceIds);
-  }
+}
+
+function clearTerminatedInstances(
+  context: Ec2LifecycleContext,
+  instances: readonly Ec2InstanceView[],
+): void {
   for (const instance of instances) {
     const identity = parseInstanceIdentity(instance);
     context.locallyLaunched.delete(identity.providerRunnerId);
@@ -800,6 +1079,11 @@ function terminationLogFields(
   template: ProvisionerTemplate<Ec2TemplateSpec> | undefined,
   reason: string,
   fallbackAmi?: string,
+  options?: {
+    force: boolean;
+    stoppingAt?: Date | null;
+    stoppingTimeoutDeadline?: Date | null;
+  },
 ) {
   return {
     ...(identity.providerRunnerId ? {provisioned_runner_id: identity.providerRunnerId} : {}),
@@ -810,6 +1094,13 @@ function terminationLogFields(
     ami: instance.ami ?? fallbackAmi ?? template?.spec.ami ?? 'unknown',
     launch_time: instance.launchTime?.toISOString() ?? null,
     reason,
+    ...(options
+      ? {
+          force: options.force,
+          stopping_at: options.stoppingAt?.toISOString() ?? null,
+          stopping_timeout_deadline: options.stoppingTimeoutDeadline?.toISOString() ?? null,
+        }
+      : {}),
     ...(instance.stateTransitionReason !== undefined
       ? {state_transition_reason: instance.stateTransitionReason}
       : {}),
