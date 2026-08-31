@@ -769,9 +769,7 @@ async function executeAgentStepBranch(params: {
   });
   return {
     sessionCommit:
-      runtimeConfig.harness === 'pi' &&
-      session.mode === 'resume' &&
-      session.baseSegment !== undefined
+      session.mode === 'resume' && session.baseSegment !== undefined
         ? {
             baseSegment: session.baseSegment,
             harness: runtimeConfig.harness,
@@ -828,7 +826,7 @@ async function prepareAgentSession(
   runtimeConfig: Awaited<ReturnType<typeof requestAgentRuntimeConfig>>,
 ): Promise<AgentSessionState> {
   const descriptor = input.step.session === undefined ? runtimeConfig.session : input.step.session;
-  if (descriptor === undefined || descriptor === null || runtimeConfig.harness !== 'pi') {
+  if (descriptor === undefined || descriptor === null) {
     return {preamble: false};
   }
   const transcript = await requestSessionTranscript(input.leaseClient, {
@@ -874,6 +872,10 @@ function resumePreamble(session: AgentSessionState, checkoutRef: string | undefi
   return `Resuming session "${session.key ?? ''}".${workspace} Files and processes from earlier parts of this conversation no longer exist unless they were committed.`;
 }
 
+function sessionCommitSdkVersion(harness: string): string {
+  return harness === 'claude' ? 'claude-agent-sdk' : 'pi-coding-agent';
+}
+
 async function settleAgentSessionCommit(params: {
   execution: StepExecution;
   leaseClient: KyInstance;
@@ -906,7 +908,7 @@ async function settleAgentSessionCommit(params: {
       harness: commit.harness,
       model: commit.model,
       provider: commit.provider,
-      sdkVersion: 'pi-coding-agent',
+      sdkVersion: sessionCommitSdkVersion(commit.harness),
       ...(execution.result.sessionId === undefined
         ? {}
         : {harnessSessionId: execution.result.sessionId}),
