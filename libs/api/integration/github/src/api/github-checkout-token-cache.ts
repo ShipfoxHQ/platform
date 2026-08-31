@@ -3,6 +3,7 @@ import {setTimeout as sleepTimeout} from 'node:timers/promises';
 import type {IntegrationProviderErrorReason} from '@shipfox/api-integration-spi';
 import {reportError} from '@shipfox/node-error-monitoring';
 import {logger} from '@shipfox/node-opentelemetry';
+import {config} from '#config.js';
 import {GithubIntegrationProviderError} from '#core/errors.js';
 import {withGithubCheckoutTokenLock} from '#db/checkout-token-lock.js';
 import {recordGithubCheckoutTokenLookup, recordGithubCheckoutTokenMint} from '#metrics/instance.js';
@@ -24,7 +25,7 @@ export const GITHUB_CHECKOUT_TOKEN_RETENTION_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_MAX_RAM_ENTRIES = 1_000;
 const DEFAULT_POLL_DELAYS_MS = [100, 200, 400, 800, 1_600, 3_200, 6_400, 12_800, 4_500];
 const DEFAULT_MINT_TIMEOUT_MS = 30_000;
-const STORAGE_KEY_PREFIX = `v${GITHUB_CHECKOUT_TOKEN_CACHE_VERSION}-`;
+const STORAGE_KEY_PREFIX = `CHECKOUT_TOKEN_V${GITHUB_CHECKOUT_TOKEN_CACHE_VERSION}_`;
 const BASELINE_PERMISSION_KEYS = new Set(['metadata']);
 const PROVIDER_ERROR_REASONS = new Set<IntegrationProviderErrorReason>([
   'repository-not-found',
@@ -99,6 +100,11 @@ export interface GithubCheckoutTokenCachePort {
     mint: () => Promise<GithubInstallationAccessToken>,
     rejectedGeneration?: string,
   ): Promise<GithubCheckoutToken>;
+  deleteInstallation?(
+    workspaceId: string,
+    providerInstance: string,
+    installationId: number,
+  ): Promise<number>;
 }
 
 export interface GithubCheckoutTokenCacheOptions {
@@ -112,6 +118,16 @@ export interface GithubCheckoutTokenCacheOptions {
   pollDelaysMs?: number[] | undefined;
   mintTimeoutMs?: number | undefined;
   maxRamEntries?: number | undefined;
+}
+
+export function createGithubCheckoutTokenCache(
+  options: {secretStore?: GithubCheckoutTokenSecretStore | undefined} = {},
+): GithubCheckoutTokenCache | undefined {
+  if (!config.GITHUB_CHECKOUT_TOKEN_CACHE_ENABLED) return undefined;
+  return new GithubCheckoutTokenCache({
+    ...(options.secretStore === undefined ? {} : {secretStore: options.secretStore}),
+    withLock: withGithubCheckoutTokenLock,
+  });
 }
 
 export function canonicalGithubCheckoutTokenScope(scope: GithubCheckoutTokenScope): string {
@@ -133,7 +149,7 @@ export function githubCheckoutTokenScopeDigest(scope: GithubCheckoutTokenScope):
 }
 
 export function githubCheckoutTokenStorageKey(scope: GithubCheckoutTokenScope): string {
-  return `${STORAGE_KEY_PREFIX}${githubCheckoutTokenScopeDigest(scope)}`;
+  return `${STORAGE_KEY_PREFIX}${githubCheckoutTokenScopeDigest(scope).toUpperCase()}`;
 }
 
 export function deleteGithubCheckoutTokenSecretGroup(params: {

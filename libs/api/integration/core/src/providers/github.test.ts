@@ -1,11 +1,21 @@
-const captured = vi.hoisted(() => ({providerOptions: undefined as unknown}));
+const captured = vi.hoisted(() => ({
+  integrationProviderOptions: undefined as unknown,
+  providerOptions: undefined as unknown,
+}));
 
 vi.mock('@shipfox/api-integration-github', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@shipfox/api-integration-github')>();
   const originalCreate = actual.createGithubInstallationTokenProvider;
+  const originalCreateIntegrationProvider = actual.createGithubIntegrationProvider;
 
   return {
     ...actual,
+    createGithubIntegrationProvider: vi.fn(
+      (options: Parameters<typeof originalCreateIntegrationProvider>[0]) => {
+        captured.integrationProviderOptions = options;
+        return originalCreateIntegrationProvider(options);
+      },
+    ),
     createGithubInstallationTokenProvider: vi.fn(
       (options: Parameters<typeof originalCreate>[0]) => {
         captured.providerOptions = options;
@@ -87,6 +97,45 @@ describe('githubProviderModule', () => {
       values: {
         [profileKey]: encodeInstallationTokenEnvelope(envelope),
       },
+    });
+  });
+
+  it('wires the exact-scope cache to the scoped GitHub Secrets adapter', async () => {
+    const getSecret = vi.fn(() => Promise.resolve(null));
+    const getSecretsByNamespace = vi.fn(() => Promise.resolve({}));
+    const setSecrets = vi.fn(() => Promise.resolve());
+    const deleteSecrets = vi.fn(() => Promise.resolve(1));
+
+    await githubProviderModule.load({
+      secrets: {
+        github: {getSecret, getSecretsByNamespace, setSecrets, deleteSecrets},
+        deleteSecrets,
+      },
+    });
+
+    const providerOptions = captured.integrationProviderOptions;
+    if (!providerOptions || typeof providerOptions !== 'object') {
+      throw new Error('GitHub integration provider options were not captured');
+    }
+    const checkoutTokenCache = (
+      providerOptions as {
+        checkoutTokenCache?: {
+          deleteInstallation?: (
+            workspaceId: string,
+            providerInstance: string,
+            installationId: number,
+          ) => Promise<number>;
+        };
+      }
+    ).checkoutTokenCache;
+    expect(checkoutTokenCache).toBeDefined();
+
+    const providerInstance = 'provider-instance';
+    await checkoutTokenCache?.deleteInstallation?.('workspace-1', providerInstance, 123);
+
+    expect(deleteSecrets).toHaveBeenCalledWith({
+      workspaceId: 'workspace-1',
+      namespace: `system/github/checkout-token/${providerInstance}/123`,
     });
   });
 });

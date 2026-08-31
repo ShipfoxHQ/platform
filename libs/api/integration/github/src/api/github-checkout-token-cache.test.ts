@@ -12,6 +12,7 @@ import {
   parseGithubCheckoutTokenEnvelope,
 } from './github-checkout-token-cache.js';
 
+const secretKeyPattern = /^[A-Z_][A-Z0-9_]*$/u;
 const now = new Date('2026-06-10T11:00:00.000Z');
 const baseScope: GithubCheckoutTokenScope = {
   workspaceId: 'workspace-a',
@@ -113,6 +114,10 @@ describe('GitHub checkout token scope identity', () => {
         runnerId: 'runner',
       } as GithubCheckoutTokenScope),
     );
+  });
+
+  it('uses a Secrets-compatible key for each exact scope', () => {
+    expect(githubCheckoutTokenStorageKey(baseScope)).toMatch(secretKeyPattern);
   });
 
   it('requires the versioned envelope and exact stored permissions', () => {

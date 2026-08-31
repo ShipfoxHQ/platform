@@ -1,4 +1,4 @@
-import {createConfig, str, url} from '@shipfox/config';
+import {bool, createConfig, str, url} from '@shipfox/config';
 
 const trailingSlashesPattern = /\/+$/u;
 
@@ -28,6 +28,10 @@ export const config = createConfig({
   GITHUB_API_BASE_URL: url({
     desc: 'Base URL used for GitHub REST API requests. Set this only for GitHub Enterprise Server or a compatible test server.',
     default: 'https://api.github.com',
+  }),
+  GITHUB_CHECKOUT_TOKEN_CACHE_ENABLED: bool({
+    desc: 'Enables the exact-scope encrypted cache for GitHub checkout credentials. Set this to false to bypass RAM and shared checkout caches and mint directly. Defaults to true.',
+    default: true,
   }),
   GITHUB_INSTALLATION_TOKEN_FORMAT_OVERRIDE: str({
     desc: 'Temporary GitHub installation token format override. Set this to enabled to request stateless tokens, disabled to request stateful tokens, or leave it unset to follow the GitHub rollout.',

@@ -27,6 +27,7 @@ async function loadGithubModuleParts(
 ): Promise<IntegrationModuleParts> {
   const {
     createGithubInstallationTokenProvider,
+    createGithubCheckoutTokenCache,
     createGithubE2eRoutes,
     encodeInstallationTokenEnvelope,
     createGithubIntegrationProvider,
@@ -36,19 +37,54 @@ async function loadGithubModuleParts(
     migrationsPath: githubMigrationsPath,
     upsertGithubInstallation,
   } = await import('@shipfox/api-integration-github');
+  const githubSecrets = options.secrets?.github;
+  const listGithubSecretsByNamespace = githubSecrets?.getSecretsByNamespace;
+  const checkoutTokenSecretStore = githubSecrets
+    ? {
+        read: async (params: {workspaceId: string; namespace: string; key: string}) =>
+          await githubSecrets.getSecret(params),
+        write: async (params: {
+          workspaceId: string;
+          namespace: string;
+          key: string;
+          value: string;
+        }) => {
+          await githubSecrets.setSecrets({
+            workspaceId: params.workspaceId,
+            namespace: params.namespace,
+            values: {[params.key]: params.value},
+          });
+        },
+        delete: async (params: {workspaceId: string; namespace: string; key: string}) => {
+          await githubSecrets.deleteSecrets({
+            workspaceId: params.workspaceId,
+            namespace: params.namespace,
+            keys: [params.key],
+          });
+        },
+        deleteNamespace: async (params: {workspaceId: string; namespace: string}) =>
+          await githubSecrets.deleteSecrets(params),
+        ...(listGithubSecretsByNamespace
+          ? {
+              list: async (params: {workspaceId: string; namespace: string}) =>
+                await listGithubSecretsByNamespace(params),
+            }
+          : {}),
+      }
+    : undefined;
 
   const tokenProvider = createGithubInstallationTokenProvider({
     getIntegrationConnectionById,
-    secretStore: options.secrets?.github
+    secretStore: githubSecrets
       ? {
           read: async (workspaceId, installationId, key) =>
-            (await options.secrets?.github?.getSecret({
+            (await githubSecrets.getSecret({
               workspaceId,
               namespace: githubInstallationTokenNamespace(installationId),
               key,
             })) ?? null,
           write: async (workspaceId, installationId, key, envelope) => {
-            await options.secrets?.github?.setSecrets({
+            await githubSecrets.setSecrets({
               workspaceId,
               namespace: githubInstallationTokenNamespace(installationId),
               values: {[key]: encodeInstallationTokenEnvelope(envelope)},
@@ -122,6 +158,9 @@ async function loadGithubModuleParts(
     getIntegrationConnectionById,
     coreDb: db,
     deleteSecrets: options.secrets?.deleteSecrets,
+    checkoutTokenCache: createGithubCheckoutTokenCache({
+      secretStore: checkoutTokenSecretStore,
+    }),
     agentTools: {tokenProvider},
     ...(options.requireActiveWorkspaceMembership
       ? {requireActiveWorkspaceMembership: options.requireActiveWorkspaceMembership}

@@ -59,11 +59,19 @@ export interface IntegrationProviderSecrets {
 
 export interface IntegrationProviderScopedSecrets {
   getSecret(params: {workspaceId: string; namespace: string; key: string}): Promise<string | null>;
+  getSecretsByNamespace?(params: {
+    workspaceId: string;
+    namespace: string;
+  }): Promise<Record<string, string>>;
   setSecrets(params: {
     workspaceId: string;
     namespace: string;
     values: Record<string, string>;
     editedBy?: string | null | undefined;
   }): Promise<void>;
-  deleteSecrets(params: {workspaceId: string; namespace: string}): Promise<number>;
+  deleteSecrets(params: {
+    workspaceId: string;
+    namespace: string;
+    keys?: string[] | undefined;
+  }): Promise<number>;
 }
