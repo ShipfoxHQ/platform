@@ -1262,11 +1262,7 @@ async function authorizeExhaustedEphemeralSessionsTx(
   observedRunnerInstanceIds: string[],
 ): Promise<void> {
   const terminationReasonResolver = params.terminationReasonResolver;
-  if (
-    !params.workspaceId ||
-    !terminationReasonResolver ||
-    observedRunnerInstanceIds.length === 0
-  )
+  if (!params.workspaceId || !terminationReasonResolver || observedRunnerInstanceIds.length === 0)
     return;
 
   const candidates = await tx
