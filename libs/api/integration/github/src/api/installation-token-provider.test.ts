@@ -9,6 +9,7 @@ import {
   encodeInstallationTokenEnvelope,
   GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT,
   githubInstallationTokenKey,
+  githubInstallationTokenPermissionFingerprint,
 } from './installation-token-envelope.js';
 import {createGithubInstallationTokenProvider} from './installation-token-provider.js';
 
@@ -78,6 +79,34 @@ describe('GithubInstallationTokenProvider', () => {
     expect(createInstallationAccessTokenMock).toHaveBeenCalledWith({
       installation_id: 1,
     });
+  });
+
+  it('mints an installation token with the requested permission profile', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-10T11:00:00.000Z'));
+    createInstallationAccessTokenMock.mockResolvedValue({
+      data: {
+        token: GITHUB_STATELESS_INSTALLATION_TOKEN,
+        expires_at: '2026-06-10T12:00:00.000Z',
+      },
+    });
+    const provider = createGithubInstallationTokenProvider();
+    const permissions = {pull_requests: 'read' as const, contents: 'write' as const};
+
+    await provider.getInstallationAccessToken(1, undefined, permissions);
+    await provider.getInstallationAccessToken(1, undefined, {
+      contents: 'write',
+      pull_requests: 'read',
+    });
+
+    expect(createInstallationAccessTokenMock).toHaveBeenCalledTimes(1);
+    expect(createInstallationAccessTokenMock).toHaveBeenCalledWith({
+      installation_id: 1,
+      permissions,
+    });
+    expect(githubInstallationTokenPermissionFingerprint(permissions)).toBe(
+      '{"contents":"write","pull_requests":"read"}',
+    );
   });
 
   it('passes through a stateful broad installation token', async () => {

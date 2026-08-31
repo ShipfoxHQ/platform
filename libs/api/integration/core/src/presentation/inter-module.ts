@@ -248,9 +248,15 @@ export function createIntegrationsInterModulePresentation(params: {
         }
 
         // The executed method is the one the provider resolves from the
-        // arguments (`input.arguments.method`), validated against the catalog
-        // allowlist - the same rule the MCP gateway applies.
-        const methodValidation = validateExecutedMethod(catalogEntry, input.arguments);
+        // arguments (`input.arguments.method`), validated against the frozen
+        // method allowlist and then the live catalog - the same rule the MCP
+        // gateway applies.
+        const allowedMethods = frozenToolMethodAllowlist(input.tool);
+        const methodValidation = validateExecutedMethod(
+          catalogEntry,
+          input.arguments,
+          allowedMethods,
+        );
         if (methodValidation.kind === 'error') {
           recordToolCall(recorder, {
             arguments: input.arguments,
@@ -261,7 +267,7 @@ export function createIntegrationsInterModulePresentation(params: {
           return {outcome: 'error', code: 'invalid-request', message: methodValidation.message};
         }
 
-        const tool = toolFromCatalogEntry(catalogEntry);
+        const tool = toolFromCatalogEntry(catalogEntry, allowedMethods);
         const integration: MaterializedAgentIntegrationConfigDto = {
           connectionId: input.connectionId,
           connectionSlug: connection.slug,
@@ -335,6 +341,7 @@ async function resolveToolCatalogEntry(
 
 function toolFromCatalogEntry(
   entry: AgentToolCatalogEntry,
+  allowedMethods?: readonly string[] | undefined,
 ): MaterializedAgentIntegrationToolConfigDto {
   return {
     id: entry.id,
@@ -346,26 +353,51 @@ function toolFromCatalogEntry(
     ...(entry.methods === undefined
       ? {}
       : {
-          methods: entry.methods.map((candidate) => ({
-            id: candidate.id,
-            token: `${entry.id}.${candidate.id}`,
-            description: candidate.description,
-            sensitivity: candidate.sensitivity,
-            sensitive: candidate.sensitive,
-            requiredScope: candidate.requiredScope as unknown[],
-          })),
+          methods: entry.methods
+            .filter(
+              (candidate) => allowedMethods === undefined || allowedMethods.includes(candidate.id),
+            )
+            .map((candidate) => ({
+              id: candidate.id,
+              token: `${entry.id}.${candidate.id}`,
+              description: candidate.description,
+              sensitivity: candidate.sensitivity,
+              sensitive: candidate.sensitive,
+              requiredScope: candidate.requiredScope as unknown[],
+            })),
         }),
   };
+}
+
+function frozenToolMethodAllowlist(
+  tool: Pick<
+    z.output<typeof integrationsInterModuleContract.methods.callTool.input.shape.tool>,
+    'method' | 'methods'
+  >,
+): readonly string[] | undefined {
+  const methods = tool.methods?.map((candidate) => candidate.id);
+  if (tool.method === undefined) return methods;
+  if (methods === undefined) return [tool.method];
+  return methods.includes(tool.method) ? [tool.method] : [];
 }
 
 function validateExecutedMethod(
   entry: AgentToolCatalogEntry,
   args: Record<string, unknown>,
+  allowedMethods?: readonly string[] | undefined,
 ): {kind: 'ok'; method?: string | undefined} | {kind: 'error'; message: string} {
-  if (!entry.methods) return {kind: 'ok'};
+  if (!entry.methods) {
+    if (allowedMethods === undefined) return {kind: 'ok'};
+    const method = args.method;
+    const label = typeof method === 'string' ? method : (allowedMethods[0] ?? 'unknown');
+    return {kind: 'error', message: `Unauthorized integration tool method: ${label}`};
+  }
   const method = args.method;
   if (typeof method !== 'string') {
     return {kind: 'error', message: 'Method-family tools require a string method argument'};
+  }
+  if (allowedMethods !== undefined && !allowedMethods.includes(method)) {
+    return {kind: 'error', message: `Unauthorized integration tool method: ${method}`};
   }
   if (!entry.methods.some((candidate) => candidate.id === method)) {
     return {kind: 'error', message: `Unauthorized integration tool method: ${method}`};

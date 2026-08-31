@@ -10,7 +10,10 @@ import type {
 import {MAX_REPOSITORY_FILE_BYTES} from '@shipfox/api-integration-spi';
 import {Octokit} from 'octokit';
 import {mapGithubError} from '#api/client.js';
-import {GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT} from '#api/installation-token-envelope.js';
+import {
+  type GithubInstallationTokenPermissions,
+  githubInstallationTokenPermissionFingerprint,
+} from '#api/installation-token-envelope.js';
 import {
   createGithubInstallationTokenProvider,
   type GithubInstallationTokenProvider,
@@ -194,13 +197,22 @@ export class GithubAgentToolsProvider
         'GitHub installation has an invalid installation ID',
       );
     }
+    const liveCatalog = this.catalog();
+    const authorizedTools = input.tools.flatMap((tool) => {
+      const authorizedTool = intersectGithubToolWithLiveCatalog(tool, liveCatalog);
+      return authorizedTool === undefined ? [] : [authorizedTool];
+    });
+    const permissionProfile = githubToolPermissionProfile(
+      githubToolAllowlist(input.scope, input.tools),
+      liveCatalog,
+    );
     let tokenPromise:
       | ReturnType<GithubInstallationTokenProvider['getInstallationAccessToken']>
       | undefined;
 
     return {
       call: async (call) => {
-        const tool = input.tools.find((candidate) => candidate.id === call.toolId);
+        const tool = authorizedTools.find((candidate) => candidate.id === call.toolId);
         if (!tool) return githubToolError(`Unknown GitHub tool: ${call.toolId}`, 'invalid-request');
         const operation = resolveGithubOperation(tool, call);
         if (operation === undefined)
@@ -209,7 +221,8 @@ export class GithubAgentToolsProvider
         if (validationError) return githubToolError(validationError, 'invalid-request');
         tokenPromise ??= this.tokenProvider.getInstallationAccessToken(
           installationId,
-          GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT,
+          permissionProfile.fingerprint,
+          permissionProfile.permissions,
         );
         const token = await tokenPromise;
         if (!hasGrantedPermissions(token.permissions ?? {}, tool, call)) {
@@ -258,6 +271,98 @@ export interface GithubAgentToolsProviderOptions {
     | undefined;
   tokenProvider?: GithubInstallationTokenProvider | undefined;
   createClient?: GithubToolClientFactory | undefined;
+}
+
+interface GithubToolAllowlistEntry {
+  id: string;
+  methods?: readonly {id: string}[] | undefined;
+}
+
+interface GithubToolPermissionProfile {
+  fingerprint: string;
+  permissions: GithubInstallationTokenPermissions;
+}
+
+function githubToolAllowlist(
+  scope: unknown,
+  fallback: readonly AgentToolCatalogEntry<GithubAgentToolRequiredScope>[],
+): readonly GithubToolAllowlistEntry[] {
+  const scopedTools = isRecord(scope) && Array.isArray(scope.tools) ? scope.tools : fallback;
+  return scopedTools.flatMap((tool) => {
+    const allowlistEntry = toGithubToolAllowlistEntry(tool);
+    return allowlistEntry === undefined ? [] : [allowlistEntry];
+  });
+}
+
+function toGithubToolAllowlistEntry(value: unknown): GithubToolAllowlistEntry | undefined {
+  if (!isRecord(value) || typeof value.id !== 'string') return undefined;
+  if (value.methods === undefined) return {id: value.id};
+  if (!Array.isArray(value.methods)) return {id: value.id, methods: []};
+
+  return {
+    id: value.id,
+    methods: value.methods.flatMap((method) => {
+      if (!isRecord(method) || typeof method.id !== 'string') return [];
+      return [{id: method.id}];
+    }),
+  };
+}
+
+function intersectGithubToolWithLiveCatalog(
+  tool: AgentToolCatalogEntry<GithubAgentToolRequiredScope>,
+  liveCatalog: readonly GithubAgentToolCatalogEntry[],
+): AgentToolCatalogEntry<GithubAgentToolRequiredScope> | undefined {
+  const liveTool = liveCatalog.find((candidate) => candidate.id === tool.id);
+  if (liveTool === undefined) return undefined;
+  if (tool.methods === undefined) return liveTool;
+  if (liveTool.methods === undefined) return undefined;
+
+  const allowedMethods = new Set(tool.methods.map((method) => method.id));
+  const methods = liveTool.methods.filter((method) => allowedMethods.has(method.id));
+  return methods.length === 0 ? undefined : {...liveTool, methods};
+}
+
+function githubToolPermissionProfile(
+  allowlist: readonly GithubToolAllowlistEntry[],
+  liveCatalog: readonly GithubAgentToolCatalogEntry[],
+): GithubToolPermissionProfile {
+  const permissionsByName = new Map<string, 'read' | 'write'>();
+
+  for (const selectedTool of allowlist) {
+    const liveTool = liveCatalog.find((candidate) => candidate.id === selectedTool.id);
+    if (liveTool === undefined) continue;
+
+    if (selectedTool.methods === undefined) {
+      addGithubRequiredScope(permissionsByName, liveTool.requiredScope);
+      continue;
+    }
+    if (liveTool.methods === undefined) continue;
+
+    const selectedMethods = new Set(selectedTool.methods.map((method) => method.id));
+    for (const liveMethod of liveTool.methods) {
+      if (selectedMethods.has(liveMethod.id)) {
+        addGithubRequiredScope(permissionsByName, liveMethod.requiredScope);
+      }
+    }
+  }
+
+  const permissions = Object.fromEntries(
+    [...permissionsByName.entries()].sort(([first], [second]) => first.localeCompare(second)),
+  ) as GithubInstallationTokenPermissions;
+  return {
+    permissions,
+    fingerprint: githubInstallationTokenPermissionFingerprint(permissions),
+  };
+}
+
+function addGithubRequiredScope(
+  permissions: Map<string, 'read' | 'write'>,
+  requiredScope: GithubAgentToolRequiredScope,
+): void {
+  for (const {permission, access} of requiredScope) {
+    if (permissions.get(permission) === 'write') continue;
+    permissions.set(permission, access);
+  }
 }
 
 export interface GithubToolResponse {

@@ -83,6 +83,8 @@ export interface ClassifiedMintError {
 
 export const GITHUB_INSTALLATION_TOKEN_ENVELOPE_KEY = 'ENVELOPE';
 
+export type GithubInstallationTokenPermissions = Record<string, 'read' | 'write'>;
+
 export function githubInstallationTokenNamespace(installationId: number): string {
   return `system/github/installation-token/${installationId}`;
 }
@@ -93,6 +95,16 @@ export function githubInstallationTokenKey(permissionFingerprint: string): strin
   }
 
   return `TOKEN_${createHash('sha256').update(permissionFingerprint, 'utf8').digest('hex').toUpperCase()}`;
+}
+
+export function githubInstallationTokenPermissionFingerprint(
+  permissions: Readonly<GithubInstallationTokenPermissions>,
+): string {
+  return JSON.stringify(
+    Object.fromEntries(
+      Object.entries(permissions).sort(([first], [second]) => first.localeCompare(second)),
+    ),
+  );
 }
 
 export function encodeInstallationTokenEnvelope(envelope: InstallationTokenEnvelope): string {

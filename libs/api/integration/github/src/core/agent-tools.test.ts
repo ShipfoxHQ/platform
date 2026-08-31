@@ -910,6 +910,72 @@ describe('github agent tool catalog', () => {
     });
   });
 
+  it('derives the token profile from live catalog ids and method allowlists', async () => {
+    const request = vi.fn(() => Promise.resolve({data: {number: 1}}));
+    const getInstallationAccessToken = vi.fn(() =>
+      Promise.resolve({
+        token: 'installation-token',
+        expiresAt: new Date(),
+        permissions: {
+          contents: 'write' as const,
+          issues: 'read' as const,
+        },
+      }),
+    );
+    const provider = new GithubAgentToolsProvider({
+      getInstallationByConnectionId: vi.fn(() => Promise.resolve(installation())),
+      tokenProvider: {getInstallationAccessToken},
+      createClient: vi.fn(() => ({request})),
+    });
+    const issueTool = githubAgentToolCatalog.find((entry) => entry.id === 'issue_read');
+    if (!issueTool) throw new Error('Missing issue_read tool');
+
+    const session = await provider.openSession({
+      connection: connection(),
+      tools: [
+        {
+          ...issueTool,
+          requiredScope: [{permission: 'actions', access: 'write'}],
+          methods: issueTool.methods?.map((method) => ({
+            ...method,
+            requiredScope: [{permission: 'actions', access: 'write'}],
+          })),
+        },
+      ],
+      scope: {
+        repositories: ['shipfox/platform'],
+        tools: [
+          {
+            id: 'issue_read',
+            methods: [{id: 'get'}, {id: 'removed_method'}],
+            requiredScope: [{permission: 'actions', access: 'write'}],
+          },
+          {
+            id: 'create_commit',
+            requiredScope: [{permission: 'actions', access: 'write'}],
+          },
+          {
+            id: 'removed_tool',
+            requiredScope: [{permission: 'actions', access: 'write'}],
+          },
+        ],
+      },
+    });
+
+    await expect(
+      session.call({
+        toolId: 'issue_read',
+        arguments: {method: 'get', owner: 'shipfox', repo: 'platform', issue_number: 1},
+      }),
+    ).resolves.toMatchObject({structuredContent: {number: 1}});
+
+    expect(getInstallationAccessToken).toHaveBeenCalledWith(
+      1,
+      '{"contents":"write","issues":"read"}',
+      {contents: 'write', issues: 'read'},
+    );
+  });
+
   it('returns artifact download metadata without buffering archive bytes', async () => {
     const request = vi.fn(() =>
       Promise.resolve({
@@ -2006,20 +2072,19 @@ describe('github agent tool catalog', () => {
 
   it('authorizes update_pull_request_branch when the installation grants both permissions', async () => {
     const request = vi.fn(() => Promise.resolve({data: {message: 'Branch updated'}}));
+    const getInstallationAccessToken = vi.fn(() =>
+      Promise.resolve({
+        token: 'installation-token',
+        expiresAt: new Date(),
+        permissions: {
+          contents: 'write' as const,
+          pull_requests: 'write' as const,
+        },
+      }),
+    );
     const provider = new GithubAgentToolsProvider({
       getInstallationByConnectionId: vi.fn(() => Promise.resolve(installation())),
-      tokenProvider: {
-        getInstallationAccessToken: vi.fn(() =>
-          Promise.resolve({
-            token: 'installation-token',
-            expiresAt: new Date(),
-            permissions: {
-              contents: 'write' as const,
-              pull_requests: 'write' as const,
-            },
-          }),
-        ),
-      },
+      tokenProvider: {getInstallationAccessToken},
       createClient: vi.fn(() => ({request})),
     });
     const tool = githubAgentToolCatalog.find((entry) => entry.id === 'update_pull_request_branch');
@@ -2053,6 +2118,11 @@ describe('github agent tool catalog', () => {
       content: [{type: 'text', text: '{"message":"Branch updated"}'}],
       structuredContent: {message: 'Branch updated'},
     });
+    expect(getInstallationAccessToken).toHaveBeenCalledWith(
+      1,
+      '{"contents":"write","pull_requests":"write"}',
+      {contents: 'write', pull_requests: 'write'},
+    );
   });
 
   it('creates a branch from a commit oid through the provider session', async () => {

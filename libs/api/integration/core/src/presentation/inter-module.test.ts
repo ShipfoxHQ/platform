@@ -452,19 +452,19 @@ describe('integrations inter-module callTool', () => {
     expect(result.outcome).toBe('success');
   });
 
-  it('rejects an executed method outside the catalog allowlist as an invalid-request outcome', async () => {
+  it('rejects an executed method outside the frozen catalog allowlist as an invalid-request outcome', async () => {
     const onCall = vi.fn();
     const client = createToolCallClient({onCall});
 
     const result = await client.callTool({
       ...toolCallInput,
-      arguments: {...toolCallInput.arguments, method: 'get_labels'},
+      arguments: {...toolCallInput.arguments, method: 'get_comments'},
     });
 
     expect(result).toEqual({
       outcome: 'error',
       code: 'invalid-request',
-      message: 'Unauthorized integration tool method: get_labels',
+      message: 'Unauthorized integration tool method: get_comments',
     });
     expect(onCall).not.toHaveBeenCalled();
   });
