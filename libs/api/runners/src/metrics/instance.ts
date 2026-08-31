@@ -220,7 +220,13 @@ export const providerRunnerTerminateIntentIssuedCount = meter.createCounter<{
 export const providerRunnerTerminateIntentHonoredCount = meter.createCounter<{
   reason: RunnerTerminationReason;
 }>('runners_provider_runner_terminate_intent_honored', {
-  description: 'Provisioned runner termination authorizations honored by bounded reason',
+  description: 'Provisioned runner terminate intents honored by first transition to terminated',
+});
+
+export const runnerTerminationAuthorizationHonoredCount = meter.createCounter<{
+  reason: RunnerTerminationReason;
+}>('runners_termination_authorization_honored', {
+  description: 'Durable runner termination authorizations honored by bounded reason',
 });
 
 /** The reason labels are the finite termination-reason enum; identifiers stay in logs. */

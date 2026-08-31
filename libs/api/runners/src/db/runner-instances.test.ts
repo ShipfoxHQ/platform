@@ -1285,7 +1285,11 @@ describe('reportRunnerInstances', () => {
       accepted: 1,
       reservationsReleased: 1,
       terminateIntentsHonored: [
-        {providerRunnerId: 'cancelled-terminal-runner', reason: 'job-cancelled'},
+        {
+          providerRunnerId: 'cancelled-terminal-runner',
+          reason: 'job-cancelled',
+          origin: 'legacy',
+        },
       ],
     });
     expect(providerRunner).toMatchObject({
@@ -1366,9 +1370,121 @@ describe('reportRunnerInstances', () => {
     });
 
     expect(result.terminateIntentsHonored).toEqual([
-      {providerRunnerId: 'authorized-runner', reason: 'terminal-state'},
+      {providerRunnerId: 'authorized-runner', reason: 'terminal-state', origin: 'durable'},
     ]);
     expect(duplicate.terminateIntentsHonored).toEqual([]);
+  });
+
+  it('honors durable authorization for an installation-scoped runner', async () => {
+    const runner = await providerRunnerFactory.create({
+      workspaceId: null,
+      provisionerId,
+      providerRunnerId: 'installation-authorized-runner',
+      state: 'terminated',
+    });
+    await db()
+      .update(providerRunners)
+      .set({terminationAuthorizedAt: new Date(), terminationReason: 'terminal-state'})
+      .where(eq(providerRunners.id, runner.id));
+
+    const result = await reportRunnerInstances({
+      scope: 'installation',
+      workspaceId: null,
+      provisionerId,
+      events: [event({providerRunnerId: 'installation-authorized-runner', state: 'terminated'})],
+    });
+
+    expect(result.terminateIntentsHonored).toEqual([
+      {
+        providerRunnerId: 'installation-authorized-runner',
+        reason: 'terminal-state',
+        origin: 'durable',
+      },
+    ]);
+  });
+
+  it('prefers a durable authorization over a legacy cancellation intent', async () => {
+    const runner = await providerRunnerFactory.create({
+      workspaceId,
+      provisionerId,
+      providerRunnerId: 'durable-and-legacy-runner',
+      state: 'running',
+    });
+    await insertRunningJobRow({
+      workspaceId,
+      provisionerId,
+      providerRunnerId: runner.providerRunnerId,
+      cancellationRequestedAt: new Date('2025-01-01T00:01:00.000Z'),
+    });
+    await db()
+      .update(providerRunners)
+      .set({terminationAuthorizedAt: new Date(), terminationReason: 'terminal-state'})
+      .where(eq(providerRunners.id, runner.id));
+
+    const result = await reportRunnerInstances({
+      scope: 'workspace',
+      workspaceId,
+      provisionerId,
+      events: [event({providerRunnerId: runner.providerRunnerId, state: 'terminated'})],
+    });
+
+    expect(result.terminateIntentsHonored).toEqual([
+      {
+        providerRunnerId: runner.providerRunnerId,
+        reason: 'terminal-state',
+        origin: 'durable',
+      },
+    ]);
+  });
+
+  it('honors a durable authorization after an intermediate terminal report', async () => {
+    const authorizedAt = new Date(Date.now() - 2_000);
+    const stoppedAt = new Date(authorizedAt.getTime() + 500);
+    const terminatedAt = new Date(stoppedAt.getTime() + 500);
+    const runner = await providerRunnerFactory.create({
+      workspaceId,
+      provisionerId,
+      providerRunnerId: 'stopped-before-terminated-runner',
+      state: 'running',
+      reportedAt: new Date(authorizedAt.getTime() - 500),
+    });
+    await db()
+      .update(providerRunners)
+      .set({terminationAuthorizedAt: authorizedAt, terminationReason: 'terminal-state'})
+      .where(eq(providerRunners.id, runner.id));
+
+    await reportRunnerInstances({
+      scope: 'workspace',
+      workspaceId,
+      provisionerId,
+      events: [
+        event({
+          providerRunnerId: runner.providerRunnerId,
+          state: 'stopped',
+          reportedAt: stoppedAt,
+        }),
+      ],
+    });
+    const result = await reportRunnerInstances({
+      scope: 'workspace',
+      workspaceId,
+      provisionerId,
+      events: [
+        event({
+          providerRunnerId: runner.providerRunnerId,
+          state: 'terminated',
+          reportedAt: terminatedAt,
+        }),
+      ],
+    });
+
+    expect(result.terminateIntentsHonored).toEqual([
+      {
+        providerRunnerId: runner.providerRunnerId,
+        reason: 'terminal-state',
+        origin: 'durable',
+      },
+    ]);
   });
 
   it('returns honored terminate intents only for the first active-to-terminated transition', async () => {
@@ -1399,7 +1515,7 @@ describe('reportRunnerInstances', () => {
     });
 
     expect(first.terminateIntentsHonored).toEqual([
-      {providerRunnerId: 'provisioned-runner-1', reason: 'job-cancelled'},
+      {providerRunnerId: 'provisioned-runner-1', reason: 'job-cancelled', origin: 'legacy'},
     ]);
     expect(second.terminateIntentsHonored).toEqual([]);
   });

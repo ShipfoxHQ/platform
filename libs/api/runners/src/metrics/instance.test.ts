@@ -44,6 +44,7 @@ describe('runner lifecycle metrics', () => {
 
     expect(calls.map(([name]) => name)).toEqual(
       expect.arrayContaining([
+        'runners_termination_authorization_honored',
         'runners_termination_authorization_issued',
         'runners_provider_runner_terminate_intent_honored',
         'runners_termination_authorization_rejected',
@@ -52,10 +53,14 @@ describe('runner lifecycle metrics', () => {
   });
 
   it('records termination authorization outcomes without identifier labels', () => {
+    metrics.runnerTerminationAuthorizationHonoredCount.add(1, {reason: 'terminal-state'});
     metrics.recordRunnerTerminationAuthorizationIssued('terminal-state');
     metrics.recordRunnerTerminationAuthorizationRejected('unknown-runner');
     metrics.recordRunnerTerminationAuthorizationRejected('unknown-reason');
 
+    expect(
+      metricMocks.counters.get('runners_termination_authorization_honored')?.add,
+    ).toHaveBeenCalledWith(1, {reason: 'terminal-state'});
     expect(
       metricMocks.counters.get('runners_termination_authorization_issued')?.add,
     ).toHaveBeenCalledWith(1, {reason: 'terminal-state'});

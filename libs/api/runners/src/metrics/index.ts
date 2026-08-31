@@ -36,6 +36,7 @@ export {
   recordRunnerReservationPromotionFailure,
   recordRunnerTerminationAuthorizationIssued,
   recordRunnerTerminationAuthorizationRejected,
+  runnerTerminationAuthorizationHonoredCount,
   runnerTerminationAuthorizationIssuedCount,
   runnerTerminationAuthorizationRejectedCount,
 } from './instance.js';

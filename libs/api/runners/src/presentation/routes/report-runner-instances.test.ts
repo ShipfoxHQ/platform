@@ -13,6 +13,7 @@ import {
   createApp,
   extractBearerToken,
 } from '@shipfox/node-fastify';
+import {logger} from '@shipfox/node-opentelemetry';
 import {vi} from '@shipfox/vitest/vi';
 import {and, eq} from 'drizzle-orm';
 import type {FastifyInstance, FastifyRequest} from 'fastify';
@@ -242,6 +243,56 @@ describe('POST /provisioners/runner-instances/report', () => {
           value === 1 && JSON.stringify(attributes) === JSON.stringify({reason: 'job-cancelled'}),
       );
     expect(honoredCalls).toHaveLength(1);
+  });
+
+  it('logs the durable authorization reason and preserved provider kind once', async () => {
+    const infoSpy = vi.spyOn(logger(), 'info');
+    const runner = await providerRunnerFactory.create({
+      workspaceId,
+      provisionerId: provisionerTokenId,
+      providerRunnerId: 'authorized-runner-with-provider-kind',
+      state: 'running',
+    });
+    await db()
+      .update(providerRunners)
+      .set({terminationAuthorizedAt: new Date(), terminationReason: 'terminal-state'})
+      .where(eq(providerRunners.id, runner.id));
+
+    const firstReportedAt = new Date();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/provisioners/runner-instances/report',
+      headers: {authorization: `Bearer ${VALID_PROVISIONER_TOKEN}`},
+      payload: {
+        events: [
+          {
+            provider_runner_id: runner.providerRunnerId,
+            labels: ['linux'],
+            state: 'terminated',
+            reported_at: firstReportedAt.toISOString(),
+            provider_kind: 'docker',
+          },
+          {
+            provider_runner_id: runner.providerRunnerId,
+            labels: ['linux'],
+            state: 'terminated',
+            reported_at: new Date(firstReportedAt.getTime() + 1_000).toISOString(),
+          },
+        ],
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(infoSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'runner.termination_authorization_honored',
+        providerRunnerId: runner.providerRunnerId,
+        providerKind: 'docker',
+        reason: 'terminal-state',
+      }),
+      'Runner termination authorization honored',
+    );
+    infoSpy.mockRestore();
   });
 
   it('records the terminal-report reservation release surface for a released unit', async () => {

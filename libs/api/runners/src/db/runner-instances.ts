@@ -27,9 +27,8 @@ import {sanitizeRunnerLabels} from '#core/runner-labels.js';
 import {
   recordRunnerEnrollmentCredentialRevoked,
   recordRunnerReservationCapacityFailure,
-  recordRunnerTerminationAuthorizationIssued,
-  recordRunnerTerminationAuthorizationRejected,
 } from '#metrics/index.js';
+import type {RunnerTerminationAuthorizationRejectionReason} from '#metrics/instance.js';
 import type {Tx} from './db.js';
 import {db} from './db.js';
 import {lockRunnerEnrollmentTx} from './enrollment-locks.js';
@@ -66,11 +65,24 @@ export type TerminationAuthorizationResult =
       terminationReason: RunnerTerminationReason;
     };
 
+export type TerminationReasonResolution =
+  | {reason: RunnerTerminationReason; rejectionReason?: never}
+  | {reason: null; rejectionReason: RunnerTerminationAuthorizationRejectionReason};
+
+export type TerminationAuthorizationTelemetry =
+  | {outcome: 'issued'; reason: RunnerTerminationReason}
+  | {outcome: 'rejected'; reason: RunnerTerminationAuthorizationRejectionReason};
+
+export type TerminationAuthorizationTxResult = TerminationAuthorizationResult & {
+  /** Emitted by the transaction owner only after the transaction commits. */
+  telemetry: TerminationAuthorizationTelemetry | null;
+};
+
 interface PersistRunnerTerminationAuthorizationParams {
   provisionerId: string;
   providerRunnerId: string;
   reason: string;
-  resolveTerminationReason: (reason: string) => RunnerTerminationReason | null;
+  resolveTerminationReason: (reason: string) => TerminationReasonResolution;
 }
 
 export interface RunnerEnrollmentRevocationCounts {
@@ -81,7 +93,7 @@ export interface RunnerEnrollmentRevocationCounts {
 
 export async function persistRunnerTerminationAuthorization(
   params: PersistRunnerTerminationAuthorizationParams,
-): Promise<TerminationAuthorizationResult> {
+): Promise<TerminationAuthorizationTxResult> {
   let revocationCounts: RunnerEnrollmentRevocationCounts | undefined;
   const result = await db().transaction((tx) =>
     persistRunnerTerminationAuthorizationTx(tx, params, (counts) => {
@@ -117,7 +129,7 @@ export async function persistRunnerTerminationAuthorizationTx(
   tx: Tx,
   params: PersistRunnerTerminationAuthorizationParams,
   onRevocation?: (counts: RunnerEnrollmentRevocationCounts) => void,
-): Promise<TerminationAuthorizationResult> {
+): Promise<TerminationAuthorizationTxResult> {
   const [candidate] = await tx
     .select({id: providerRunners.id, workspaceId: providerRunners.workspaceId})
     .from(providerRunners)
@@ -130,18 +142,12 @@ export async function persistRunnerTerminationAuthorizationTx(
     .limit(1);
 
   if (!candidate?.workspaceId) {
-    recordRunnerTerminationAuthorizationRejected('unknown-runner');
-    logger().warn(
-      {
-        event: 'runner.termination_authorization_rejected',
-        component: 'api-runners',
-        provisionerId: params.provisionerId,
-        providerRunnerId: params.providerRunnerId,
-        reason: 'unknown-runner',
-      },
-      'termination authorization rejected for unknown runner',
-    );
-    return {desiredIntent: 'keep', terminationAuthorizedAt: null, terminationReason: null};
+    return {
+      desiredIntent: 'keep',
+      terminationAuthorizedAt: null,
+      terminationReason: null,
+      telemetry: {outcome: 'rejected', reason: 'unknown-runner'},
+    };
   }
 
   await lockRunnerEnrollmentTx(tx, {
@@ -163,15 +169,20 @@ export async function persistRunnerTerminationAuthorizationTx(
   if (!runner) throw new Error('Termination authorization runner disappeared');
 
   if (!runner.terminationAuthorizedAt || !runner.terminationReason) {
-    const reason = params.resolveTerminationReason(params.reason);
-    if (!reason)
-      return {desiredIntent: 'keep', terminationAuthorizedAt: null, terminationReason: null};
+    const resolution = params.resolveTerminationReason(params.reason);
+    if (!resolution.reason)
+      return {
+        desiredIntent: 'keep',
+        terminationAuthorizedAt: null,
+        terminationReason: null,
+        telemetry: {outcome: 'rejected', reason: resolution.rejectionReason},
+      };
     const authorizedAt = new Date();
     const [authorized] = await tx
       .update(providerRunners)
       .set({
         terminationAuthorizedAt: authorizedAt,
-        terminationReason: reason,
+        terminationReason: resolution.reason,
         updatedAt: authorizedAt,
       })
       .where(eq(providerRunners.id, runner.id))
@@ -182,21 +193,11 @@ export async function persistRunnerTerminationAuthorizationTx(
     if (!authorized?.terminationAuthorizedAt || !authorized.terminationReason)
       throw new Error('Termination authorization was not persisted');
     await revokeRunnerEnrollmentCredentialsTx(tx, candidate.id, onRevocation);
-    recordRunnerTerminationAuthorizationIssued(authorized.terminationReason);
-    logger().info(
-      {
-        event: 'runner.termination_authorization_issued',
-        component: 'api-runners',
-        provisionerId: params.provisionerId,
-        providerRunnerId: params.providerRunnerId,
-        reason: authorized.terminationReason,
-      },
-      'Runner termination authorization issued',
-    );
     return {
       desiredIntent: 'terminate',
       terminationAuthorizedAt: authorized.terminationAuthorizedAt,
       terminationReason: authorized.terminationReason,
+      telemetry: {outcome: 'issued', reason: authorized.terminationReason},
     };
   }
 
@@ -205,6 +206,7 @@ export async function persistRunnerTerminationAuthorizationTx(
     desiredIntent: 'terminate',
     terminationAuthorizedAt: runner.terminationAuthorizedAt,
     terminationReason: runner.terminationReason,
+    telemetry: null,
   };
 }
 
@@ -247,6 +249,10 @@ export interface RunnerInstanceTerminateIntent {
   reason: RunnerInstanceTerminateIntentReason;
   activationTimeoutRetry?: boolean;
 }
+
+type HonoredRunnerInstanceTerminateIntent = RunnerInstanceTerminateIntent & {
+  origin: 'durable' | 'legacy';
+};
 
 type ProvisionerTerminateIntentRow = {
   providerRunnerId: string | null;
@@ -342,7 +348,7 @@ type RunnerInstanceMilestoneColumn =
 export async function reportRunnerInstances(params: ReportRunnerInstancesParams): Promise<{
   accepted: number;
   reservationsReleased: number;
-  terminateIntentsHonored: RunnerInstanceTerminateIntent[];
+  terminateIntentsHonored: HonoredRunnerInstanceTerminateIntent[];
 }> {
   if (params.events.length === 0)
     return {accepted: 0, reservationsReleased: 0, terminateIntentsHonored: []};
@@ -1117,7 +1123,7 @@ async function listTerminateIntentsHonoredByTerminatedReportsTx(
   tx: Tx,
   params: ReportRunnerInstancesParams,
   events: RunnerInstanceReportEvent[],
-): Promise<RunnerInstanceTerminateIntent[]> {
+): Promise<HonoredRunnerInstanceTerminateIntent[]> {
   const terminatedRunnerInstanceIds = [
     ...new Set(
       events.filter((event) => event.state === 'terminated').map((event) => event.providerRunnerId),
@@ -1129,6 +1135,9 @@ async function listTerminateIntentsHonoredByTerminatedReportsTx(
     .select({
       providerRunnerId: providerRunners.providerRunnerId,
       reason: providerRunners.terminationReason,
+      state: providerRunners.state,
+      reportedAt: providerRunners.reportedAt,
+      terminationAuthorizedAt: providerRunners.terminationAuthorizedAt,
     })
     .from(providerRunners)
     .where(
@@ -1138,24 +1147,38 @@ async function listTerminateIntentsHonoredByTerminatedReportsTx(
           : isNull(providerRunners.workspaceId),
         eq(providerRunners.provisionerId, params.provisionerId),
         inArray(providerRunners.providerRunnerId, terminatedRunnerInstanceIds),
-        or(
-          inArray(providerRunners.state, activeStates),
-          and(
-            // A terminal row can be authorized after its last report; the timestamp prevents repeats.
-            inArray(providerRunners.state, terminalStates),
-            gt(providerRunners.terminationAuthorizedAt, providerRunners.reportedAt),
-          ),
-        ),
         isNotNull(providerRunners.terminationAuthorizedAt),
         isNotNull(providerRunners.terminationReason),
       ),
     );
-  const honoredByRunnerId = new Map(
-    authorizedRows.flatMap((row) =>
-      row.providerRunnerId && row.reason
-        ? [[row.providerRunnerId, {providerRunnerId: row.providerRunnerId, reason: row.reason}]]
-        : [],
-    ),
+  const terminalEventReportedAtByRunnerId = new Map(
+    events
+      .filter((event) => event.state === 'terminated')
+      .map((event) => [event.providerRunnerId, event.reportedAt]),
+  );
+  const honoredByRunnerId = new Map<string, HonoredRunnerInstanceTerminateIntent>(
+    authorizedRows.flatMap((row) => {
+      const eventReportedAt = row.providerRunnerId
+        ? terminalEventReportedAtByRunnerId.get(row.providerRunnerId)
+        : undefined;
+      const isNewTerminationReport =
+        eventReportedAt !== undefined &&
+        eventReportedAt >= row.reportedAt &&
+        row.terminationAuthorizedAt !== null &&
+        (row.state !== 'terminated' || row.terminationAuthorizedAt > row.reportedAt);
+      return row.providerRunnerId && row.reason && isNewTerminationReport
+        ? [
+            [
+              row.providerRunnerId,
+              {
+                providerRunnerId: row.providerRunnerId,
+                reason: row.reason,
+                origin: 'durable' as const,
+              },
+            ],
+          ]
+        : [];
+    }),
   );
 
   // Keep recognizing direct legacy cancellation intents until graceful cleanup moves them onto
@@ -1169,7 +1192,7 @@ async function listTerminateIntentsHonoredByTerminatedReportsTx(
     for (const row of legacyRows) {
       const intent = toRunnerInstanceTerminateIntent(row)[0];
       if (intent && !honoredByRunnerId.has(intent.providerRunnerId))
-        honoredByRunnerId.set(intent.providerRunnerId, intent);
+        honoredByRunnerId.set(intent.providerRunnerId, {...intent, origin: 'legacy'});
     }
   }
 

@@ -26,6 +26,7 @@ import {
   providerRunnerTerminateIntentHonoredCount,
   providerRunnerTerminateIntentIssuedCount,
   recordRunnerReservationReleased,
+  runnerTerminationAuthorizationHonoredCount,
 } from '#metrics/instance.js';
 import {config} from '../config.js';
 import {
@@ -124,21 +125,27 @@ export async function reportRunnerInstances(
   );
   for (const intent of honoredIntents.values()) {
     providerRunnerTerminateIntentHonoredCount.add(1, {reason: intent.reason});
-    logger().info(
-      {
-        event: 'runner.termination_authorization_honored',
-        component: 'provisioner',
-        provisionerId: params.provisionerId,
-        providerRunnerId: intent.providerRunnerId,
-        providerKind: providerKindByRunnerId.get(intent.providerRunnerId),
-        reason: intent.reason,
-      },
-      'Runner termination authorization honored',
-    );
+    if (intent.origin === 'durable') {
+      runnerTerminationAuthorizationHonoredCount.add(1, {reason: intent.reason});
+      logger().info(
+        {
+          event: 'runner.termination_authorization_honored',
+          component: 'provisioner',
+          provisionerId: params.provisionerId,
+          providerRunnerId: intent.providerRunnerId,
+          providerKind: providerKindByRunnerId.get(intent.providerRunnerId),
+          reason: intent.reason,
+        },
+        'Runner termination authorization honored',
+      );
+    }
   }
   recordRunnerReservationReleased({count: result.reservationsReleased, surface: 'terminal-report'});
 
-  return result;
+  return {
+    accepted: result.accepted,
+    reservationsReleased: result.reservationsReleased,
+  };
 }
 
 export async function reconcileRunnerInstances(
