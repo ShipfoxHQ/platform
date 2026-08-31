@@ -607,6 +607,7 @@ describe('writeAmbientGitCredential', () => {
       helper: {
         command: 'node /opt/runner/dist/git-credential-helper.js',
         socketPath: join(root, 'credential.sock'),
+        capability: 'job-capability',
       },
     });
 
@@ -616,8 +617,48 @@ describe('writeAmbientGitCredential', () => {
     expect(content).toContain(
       '\thelper = "!node /opt/runner/dist/git-credential-helper.js --socket',
     );
+    expect(content).toContain('--capability job-capability');
     expect(content).not.toContain('password');
     expect(content).not.toContain('token');
+  });
+
+  it('forces useHttpPath true after an existing false value', async () => {
+    const configPath = join(root, 'git-cred.config');
+    await writeFile(configPath, '[credential]\n\tuseHttpPath = true\n\tuseHttpPath = false\n');
+
+    await writeGitCredentialHelperConfig({
+      configPath,
+      repositoryUrl: 'https://github.com/acme/repo.git',
+      helper: {
+        command: 'git-credential-shipfox',
+        socketPath: join(root, 'credential.sock'),
+        capability: 'job-capability',
+      },
+    });
+
+    const content = await readFile(configPath, 'utf8');
+    expect(content).toContain('\tuseHttpPath = false\n[credential]\n\tuseHttpPath = true');
+  });
+
+  it('includes the prior global config when the helper config is whitespace-only', async () => {
+    const baseConfig = join(root, 'base.gitconfig');
+    const configPath = join(root, 'git-cred.config');
+    await writeFile(baseConfig, '[user]\n\tname = Runner\n');
+    await writeFile(configPath, ' \n\t');
+    process.env.GIT_CONFIG_GLOBAL = baseConfig;
+
+    await writeGitCredentialHelperConfig({
+      configPath,
+      repositoryUrl: 'https://github.com/acme/repo.git',
+      helper: {
+        command: 'git-credential-shipfox',
+        socketPath: join(root, 'credential.sock'),
+        capability: 'job-capability',
+      },
+    });
+
+    const content = await readFile(configPath, 'utf8');
+    expect(content).toContain(`[include]\n\tpath = "${baseConfig}"`);
   });
 
   it('writes the configured Git author identity without credentials', async () => {

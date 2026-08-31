@@ -1,3 +1,4 @@
+import {normalizeRepositoryUrl} from '@shipfox/runner-workspace';
 import {requestCredentialSocket} from '@shipfox/runner-workspace/credential-socket';
 
 const MAX_INPUT_BYTES = 16 * 1_024;
@@ -17,11 +18,16 @@ export async function runGitCredentialHelper(params?: {
 }): Promise<void> {
   const argv = params?.argv ?? process.argv.slice(2);
   const socketPath = readSocketPath(argv);
+  const capability = readCapability(argv);
   const operation = readOperation(argv);
   const input = params?.input ?? (await readBoundedStdin());
   const fields = parseGitCredentialInput(input);
   const repositoryUrl = repositoryUrlOf(fields);
-  const response = await requestCredentialSocket(socketPath, {operation, repositoryUrl});
+  const response = await requestCredentialSocket(socketPath, {
+    operation,
+    repositoryUrl,
+    capability,
+  });
   if (!response.ok) throw new Error('Credential helper request was rejected');
   if (operation !== 'get' || response.credential === undefined) return;
 
@@ -50,6 +56,15 @@ function readSocketPath(argv: readonly string[]): string {
     throw new Error('Credential helper socket is not configured');
   }
   return socketPath;
+}
+
+function readCapability(argv: readonly string[]): string {
+  const index = argv.indexOf('--capability');
+  const capability = index < 0 ? undefined : argv[index + 1];
+  if (capability === undefined || capability.length === 0) {
+    throw new Error('Credential helper capability is not configured');
+  }
+  return capability;
 }
 
 function readOperation(argv: readonly string[]): GitCredentialHelperOperation {
@@ -112,28 +127,17 @@ function repositoryUrlOf(fields: GitCredentialFields): string {
 }
 
 function validateRepositoryUrl(value: string): string {
-  let url: URL;
   try {
-    url = new URL(value);
+    return normalizeRepositoryUrl(value);
   } catch {
     throw new Error('Git credential input has an invalid repository URL');
   }
-  if (
-    (url.protocol !== 'https:' && url.protocol !== 'http:') ||
-    url.username ||
-    url.password ||
-    url.search ||
-    url.hash
-  ) {
-    throw new Error('Git credential input has an unsafe repository URL');
-  }
-  return url.toString();
 }
 
 function assertCredentialValue(value: string): void {
   if (
     value.length === 0 ||
-    value.length > MAX_CREDENTIAL_VALUE_LENGTH ||
+    Buffer.byteLength(value, 'utf8') > MAX_CREDENTIAL_VALUE_LENGTH ||
     [...value].some((character) => {
       const code = character.charCodeAt(0);
       return code <= 0x1f || code === 0x7f;

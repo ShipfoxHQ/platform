@@ -17,6 +17,8 @@ const MIN_GIT_VERSION = {major: 2, minor: 31, patch: 0};
 const GIT_CONFIG_INDEXED_ENV_RE = /^GIT_CONFIG_(?:COUNT|KEY_\d+|VALUE_\d+)$/;
 const ambientGitConfigLocks = new Map<string, Promise<void>>();
 const GIT_USER_SECTION_RE = /^\[user\]\s*(?:[;#].*)?$/i;
+const GIT_CREDENTIAL_SECTION_RE = /^\[credential\]\s*(?:[;#].*)?$/i;
+const GIT_USE_HTTP_PATH_RE = /^usehttppath\s*=\s*(true|false)\s*(?:[;#].*)?$/i;
 
 /** Thrown when `git` is not on the runner host's PATH; surfaced as `git_unavailable`. */
 export class GitUnavailableError extends Error {
@@ -278,6 +280,7 @@ export function writeAmbientGitCredential(params: {
 export type GitCredentialHelperConfig = {
   command: string;
   socketPath: string;
+  capability: string;
 };
 
 /**
@@ -302,8 +305,13 @@ export function writeGitCredentialHelperConfig(params: {
 function validateGitCredentialHelper(helper: GitCredentialHelperConfig): void {
   assertSingleLineGitConfigValue(helper.command);
   assertSingleLineGitConfigValue(helper.socketPath);
-  if (helper.command.length === 0 || helper.socketPath.length === 0) {
-    throw new TypeError('Git credential helper command and socket path are required');
+  assertSingleLineGitConfigValue(helper.capability);
+  if (
+    helper.command.length === 0 ||
+    helper.socketPath.length === 0 ||
+    helper.capability.length === 0
+  ) {
+    throw new TypeError('Git credential helper command, socket path, and capability are required');
   }
 }
 
@@ -315,7 +323,7 @@ async function updateGitCredentialHelperConfig(params: {
 }): Promise<void> {
   const includePath = await ambientIncludePath();
   const existing = await readAmbientGitConfig(params.configPath);
-  const current = existing ?? '';
+  const current = existing?.trim() === '' ? '' : (existing ?? '');
   const userLines = params.gitAuthor
     ? [
         GIT_USER_SECTION_HEADER,
@@ -324,7 +332,7 @@ async function updateGitCredentialHelperConfig(params: {
       ]
     : [];
   const additions = [
-    ...(includePath && current === ''
+    ...(includePath && current.trim() === ''
       ? ['[include]', `\tpath = ${gitConfigQuotedValue(includePath)}`]
       : []),
     ...(params.gitAuthor && !hasGitAuthorSection(current) ? userLines : []),
@@ -333,7 +341,7 @@ async function updateGitCredentialHelperConfig(params: {
   const helperLines = [
     ...(hasGitCredentialHttpPath(current) ? [] : ['[credential]', '\tuseHttpPath = true']),
     `[credential "${gitConfigSubsection(params.repositoryUrl)}"]`,
-    `\thelper = ${gitConfigQuotedValue(`!${params.helper.command} --socket ${shellQuote(params.helper.socketPath)}`)}`,
+    `\thelper = ${gitConfigQuotedValue(`!${params.helper.command} --socket ${shellQuote(params.helper.socketPath)} --capability ${shellQuote(params.helper.capability)}`)}`,
   ];
 
   await mkdir(dirname(params.configPath), {recursive: true});
@@ -676,7 +684,19 @@ async function readAmbientGitConfig(configPath: string): Promise<string | undefi
 }
 
 function hasGitCredentialHttpPath(config: string): boolean {
-  return config.split('\n').some((line) => line.trim().toLowerCase() === 'usehttppath = true');
+  let inCredentialSection = false;
+  let effectiveValue: boolean | undefined;
+  for (const line of config.split('\n')) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('[')) {
+      inCredentialSection = GIT_CREDENTIAL_SECTION_RE.test(trimmed);
+      continue;
+    }
+    if (!inCredentialSection) continue;
+    const match = GIT_USE_HTTP_PATH_RE.exec(trimmed);
+    if (match) effectiveValue = match[1]?.toLowerCase() === 'true';
+  }
+  return effectiveValue === true;
 }
 
 function hasGitAuthorSection(config: string): boolean {

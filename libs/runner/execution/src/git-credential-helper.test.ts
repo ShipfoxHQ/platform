@@ -1,6 +1,7 @@
 import {Writable} from 'node:stream';
 
 const requestCredentialSocketMock = vi.fn();
+const capability = 'job-capability';
 
 vi.mock('@shipfox/runner-workspace/credential-socket', () => ({
   requestCredentialSocket: (...args: unknown[]) => requestCredentialSocketMock(...args),
@@ -31,14 +32,15 @@ describe('Git credential helper', () => {
     const output = outputBuffer();
 
     await runGitCredentialHelper({
-      argv: ['/helper', '--socket', '/tmp/job.sock', 'get'],
+      argv: ['/helper', '--socket', '/tmp/job.sock', '--capability', capability, 'get'],
       input: 'protocol=https\nhost=example.test\npath=acme/repository.git\nusername=old\n\n',
       output: output.stream,
     });
 
     expect(requestCredentialSocketMock).toHaveBeenCalledWith('/tmp/job.sock', {
       operation: 'get',
-      repositoryUrl: 'https://example.test/acme/repository.git',
+      repositoryUrl: 'https://example.test/acme/repository/',
+      capability,
     });
     expect(output.value()).toBe('username=runner\npassword=token-a\n\n');
   });
@@ -50,13 +52,14 @@ describe('Git credential helper', () => {
     requestCredentialSocketMock.mockResolvedValue({version: 1, ok: true});
 
     await runGitCredentialHelper({
-      argv: ['/helper', '--socket', '/tmp/job.sock', operation],
+      argv: ['/helper', '--socket', '/tmp/job.sock', '--capability', capability, operation],
       input: `protocol=https\nhost=example.test\npath=acme/repository.git\nusername=runner\npassword=token-a\n\n`,
     });
 
     expect(requestCredentialSocketMock).toHaveBeenCalledWith('/tmp/job.sock', {
       operation,
-      repositoryUrl: 'https://example.test/acme/repository.git',
+      repositoryUrl: 'https://example.test/acme/repository/',
+      capability,
     });
     expect(JSON.stringify(requestCredentialSocketMock.mock.calls)).not.toContain('token-a');
   });
@@ -64,7 +67,7 @@ describe('Git credential helper', () => {
   it('fails closed for malformed input and unsafe credential output', async () => {
     await expect(
       runGitCredentialHelper({
-        argv: ['/helper', '--socket', '/tmp/job.sock', 'get'],
+        argv: ['/helper', '--socket', '/tmp/job.sock', '--capability', capability, 'get'],
         input: 'protocol=https\nhost=example.test\npath=acme/repository.git?token=secret\n\n',
       }),
     ).rejects.toThrow();
@@ -77,7 +80,29 @@ describe('Git credential helper', () => {
     });
     await expect(
       runGitCredentialHelper({
-        argv: ['/helper', '--socket', '/tmp/job.sock', 'get'],
+        argv: ['/helper', '--socket', '/tmp/job.sock', '--capability', capability, 'get'],
+        input: 'protocol=https\nhost=example.test\npath=acme/repository.git\n\n',
+      }),
+    ).rejects.toThrow();
+
+    await expect(
+      runGitCredentialHelper({
+        argv: ['/helper', '--socket', '/tmp/job.sock', '--capability', capability, 'get'],
+        input: 'protocol=http\nhost=example.test\npath=acme/repository.git\n\n',
+      }),
+    ).rejects.toThrow();
+  });
+
+  it('rejects UTF-8 credentials that exceed the byte limit', async () => {
+    requestCredentialSocketMock.mockResolvedValue({
+      version: 1,
+      ok: true,
+      credential: {username: 'runner', token: '😀'.repeat(2_049)},
+    });
+
+    await expect(
+      runGitCredentialHelper({
+        argv: ['/helper', '--socket', '/tmp/job.sock', '--capability', capability, 'get'],
         input: 'protocol=https\nhost=example.test\npath=acme/repository.git\n\n',
       }),
     ).rejects.toThrow();

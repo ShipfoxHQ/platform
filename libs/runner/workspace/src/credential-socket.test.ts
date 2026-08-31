@@ -5,6 +5,7 @@ import {CredentialBroker, type CredentialRenewal} from '#credential-broker.js';
 import {createCredentialSocketServer, requestCredentialSocket} from '#credential-socket.js';
 
 const repositoryUrl = 'https://example.test/acme/repository.git';
+const capability = 'job-capability';
 
 describe('credential socket transport', () => {
   let root: string;
@@ -38,7 +39,7 @@ describe('credential socket transport', () => {
         renewal: {mode: 'on-rejection'},
       },
     });
-    server = createCredentialSocketServer({socketPath, broker});
+    server = createCredentialSocketServer({socketPath, capability, broker});
     await server.start();
   });
 
@@ -50,7 +51,7 @@ describe('credential socket transport', () => {
 
   it('serves get, treats store as a no-op, and renews after erase', async () => {
     await expect(
-      requestCredentialSocket(socketPath, {operation: 'get', repositoryUrl}),
+      requestCredentialSocket(socketPath, {operation: 'get', repositoryUrl, capability}),
     ).resolves.toEqual({
       version: 1,
       ok: true,
@@ -58,27 +59,37 @@ describe('credential socket transport', () => {
     });
 
     await expect(
-      requestCredentialSocket(socketPath, {operation: 'store', repositoryUrl}),
+      requestCredentialSocket(socketPath, {operation: 'store', repositoryUrl, capability}),
     ).resolves.toEqual({version: 1, ok: true});
     await expect(
-      requestCredentialSocket(socketPath, {operation: 'get', repositoryUrl}),
+      requestCredentialSocket(socketPath, {operation: 'get', repositoryUrl, capability}),
     ).resolves.toMatchObject({credential: {token: 'token-a'}});
 
     await expect(
-      requestCredentialSocket(socketPath, {operation: 'erase', repositoryUrl}),
+      requestCredentialSocket(socketPath, {operation: 'erase', repositoryUrl, capability}),
     ).resolves.toEqual({version: 1, ok: true});
     await expect(
-      requestCredentialSocket(socketPath, {operation: 'get', repositoryUrl}),
+      requestCredentialSocket(socketPath, {operation: 'get', repositoryUrl, capability}),
     ).resolves.toMatchObject({credential: {token: 'token-b'}});
     expect(renew).toHaveBeenCalledTimes(1);
   });
 
-  it('uses a private socket and rejects malformed messages without broker access', async () => {
+  it('uses a private socket and does not serve a credential for an unregistered repository URL', async () => {
     expect((await stat(socketPath)).mode & 0o777).toBe(0o600);
-    const malformed = await requestCredentialSocket(socketPath, {
+    const unregistered = await requestCredentialSocket(socketPath, {
       operation: 'get',
-      repositoryUrl: `${repositoryUrl}?not-allowed=true`,
+      repositoryUrl: 'https://example.test/acme/other-repository.git',
+      capability,
     });
-    expect(malformed).toEqual({version: 1, ok: true});
+    expect(unregistered).toEqual({version: 1, ok: true});
+
+    await expect(
+      requestCredentialSocket(socketPath, {
+        operation: 'get',
+        repositoryUrl,
+        capability: 'wrong-capability',
+      }),
+    ).resolves.toEqual({version: 1, ok: false});
+    expect(renew).not.toHaveBeenCalled();
   });
 });

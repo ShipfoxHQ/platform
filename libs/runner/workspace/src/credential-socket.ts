@@ -4,7 +4,8 @@ import {dirname} from 'node:path';
 import type {CredentialBroker, CredentialLookup} from '#credential-broker.js';
 
 const PROTOCOL_VERSION = 1;
-const MAX_SOCKET_PATH_LENGTH = 4_096;
+const MAX_SOCKET_PATH_BYTES = 104;
+const MAX_CAPABILITY_BYTES = 512;
 const MAX_MESSAGE_BYTES = 16 * 1_024;
 const MAX_RESPONSE_BYTES = 64 * 1_024;
 const SOCKET_TIMEOUT_MS = 35_000;
@@ -16,6 +17,7 @@ export type CredentialSocketRequest = {
   version: typeof PROTOCOL_VERSION;
   operation: CredentialSocketOperation;
   repositoryUrl: string;
+  capability: string;
 };
 
 export type CredentialSocketResponse =
@@ -24,6 +26,7 @@ export type CredentialSocketResponse =
 
 export type CredentialSocketServerOptions = {
   socketPath: string;
+  capability: string;
   broker: CredentialBroker;
 };
 
@@ -42,16 +45,28 @@ export class CredentialSocketError extends Error {
 
 /**
  * Creates the private, one-job transport for the credential broker. Messages contain only
- * repository identity and the operation; Git-supplied credentials are never sent to the broker.
+ * repository identity, operation, and the job capability; Git-supplied credentials are never
+ * sent to the broker.
  */
 export function createCredentialSocketServer(
   options: CredentialSocketServerOptions,
 ): CredentialSocketServer {
   assertSocketPath(options.socketPath);
+  assertCredentialSocketCapability(options.capability);
   let server: Server | undefined;
   let started = false;
   let closed = false;
+  let lifecycle: Promise<void> = Promise.resolve();
   const connections = new Set<Socket>();
+
+  const enqueueLifecycle = <T>(operation: () => Promise<T>): Promise<T> => {
+    const next = lifecycle.then(operation);
+    lifecycle = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    return next;
+  };
 
   const handleConnection = (socket: Socket): void => {
     connections.add(socket);
@@ -71,44 +86,55 @@ export function createCredentialSocketServer(
     socket.once('error', () => undefined);
     socket.once('end', () => {
       if (tooLarge) return;
-      void respond(socket, body, options.broker);
+      void respond(socket, body, options.broker, options.capability);
     });
   };
 
   return {
     socketPath: options.socketPath,
-    async start() {
-      if (started) return;
-      if (closed) throw new CredentialSocketError('Credential socket is closed');
-      await prepareSocketPath(options.socketPath);
-      server = createServer({allowHalfOpen: true}, handleConnection);
-      try {
-        await listen(server, options.socketPath);
-        await chmod(options.socketPath, SOCKET_MODE);
-        started = true;
-      } catch {
-        server.close();
-        server = undefined;
-        await rm(options.socketPath, {force: true});
-        throw new CredentialSocketError('Credential socket could not start');
-      }
+    start() {
+      return enqueueLifecycle(startServer);
     },
-    async close() {
-      if (closed) return;
-      closed = true;
-      const currentServer = server;
-      server = undefined;
-      if (currentServer === undefined) {
-        await rm(options.socketPath, {force: true});
-        return;
-      }
-      for (const connection of connections) connection.destroy();
-      await new Promise<void>((resolve) => {
-        currentServer.close(() => resolve());
-      });
-      await rm(options.socketPath, {force: true});
+    close() {
+      return enqueueLifecycle(closeServerForJob);
     },
   };
+
+  async function startServer(): Promise<void> {
+    if (started) return;
+    if (closed) throw new CredentialSocketError('Credential socket is closed');
+    await prepareSocketPath(options.socketPath);
+    if (closed) throw new CredentialSocketError('Credential socket is closed');
+
+    const nextServer = createServer({allowHalfOpen: true}, handleConnection);
+    let listening = false;
+    try {
+      await listen(nextServer, options.socketPath);
+      listening = true;
+      if (closed) throw new CredentialSocketError('Credential socket is closed');
+      await chmod(options.socketPath, SOCKET_MODE);
+      server = nextServer;
+      started = true;
+    } catch {
+      if (listening) await closeServer(nextServer);
+      else nextServer.close();
+      await rm(options.socketPath, {force: true});
+      throw new CredentialSocketError('Credential socket could not start');
+    }
+  }
+
+  async function closeServerForJob(): Promise<void> {
+    if (closed) return;
+    closed = true;
+    const currentServer = server;
+    server = undefined;
+    started = false;
+    if (currentServer !== undefined) {
+      for (const connection of connections) connection.destroy();
+      await closeServer(currentServer);
+    }
+    await rm(options.socketPath, {force: true});
+  }
 }
 
 /** Sends one bounded request to a job's credential socket. */
@@ -116,9 +142,16 @@ export function requestCredentialSocket(
   socketPath: string,
   request: Omit<CredentialSocketRequest, 'version'>,
 ): Promise<CredentialSocketResponse> {
-  assertSocketPath(socketPath);
-  const encoded = encodeMessage({version: PROTOCOL_VERSION, ...request});
   return new Promise((resolve, reject) => {
+    let encoded: Buffer;
+    try {
+      assertSocketPath(socketPath);
+      assertCredentialSocketCapability(request.capability);
+      encoded = encodeMessage({version: PROTOCOL_VERSION, ...request});
+    } catch (error) {
+      reject(error);
+      return;
+    }
     const socket = createConnection(socketPath);
     socket.setTimeout(SOCKET_TIMEOUT_MS, () => {
       socket.destroy();
@@ -157,11 +190,16 @@ export function requestCredentialSocket(
   });
 }
 
-async function respond(socket: Socket, body: Buffer, broker: CredentialBroker): Promise<void> {
+async function respond(
+  socket: Socket,
+  body: Buffer,
+  broker: CredentialBroker,
+  capability: string,
+): Promise<void> {
   let response: CredentialSocketResponse;
   try {
     const request = decodeRequest(body);
-    response = await handleRequest(request, broker);
+    response = await handleRequest(request, broker, capability);
   } catch {
     response = {version: PROTOCOL_VERSION, ok: false};
   }
@@ -176,7 +214,9 @@ async function respond(socket: Socket, body: Buffer, broker: CredentialBroker): 
 async function handleRequest(
   request: CredentialSocketRequest,
   broker: CredentialBroker,
+  capability: string,
 ): Promise<CredentialSocketResponse> {
+  if (request.capability !== capability) return {version: PROTOCOL_VERSION, ok: false};
   if (request.operation === 'get') {
     const credential = await broker.lookup(request.repositoryUrl);
     return credential === undefined
@@ -198,14 +238,17 @@ function decodeRequest(body: Buffer): CredentialSocketRequest {
     value.version !== PROTOCOL_VERSION ||
     (value.operation !== 'get' && value.operation !== 'store' && value.operation !== 'erase') ||
     typeof value.repositoryUrl !== 'string' ||
-    value.repositoryUrl.length === 0
+    value.repositoryUrl.length === 0 ||
+    typeof value.capability !== 'string'
   ) {
     throw new CredentialSocketError('Invalid credential socket request');
   }
+  assertCredentialSocketCapability(value.capability);
   return {
     version: PROTOCOL_VERSION,
     operation: value.operation,
     repositoryUrl: value.repositoryUrl,
+    capability: value.capability,
   };
 }
 
@@ -266,12 +309,33 @@ function assertSocketPath(socketPath: string): void {
   if (
     typeof socketPath !== 'string' ||
     socketPath.length === 0 ||
-    socketPath.length > MAX_SOCKET_PATH_LENGTH ||
+    Buffer.byteLength(socketPath, 'utf8') > MAX_SOCKET_PATH_BYTES ||
     !socketPath.startsWith('/') ||
     [...socketPath].some((character) => character.charCodeAt(0) <= 0x1f || character === '\u007f')
   ) {
     throw new CredentialSocketError('Invalid credential socket path');
   }
+}
+
+function assertCredentialSocketCapability(capability: string): void {
+  if (
+    typeof capability !== 'string' ||
+    capability.length === 0 ||
+    Buffer.byteLength(capability, 'utf8') > MAX_CAPABILITY_BYTES ||
+    [...capability].some((character) => {
+      const code = character.charCodeAt(0);
+      return code <= 0x1f || code === 0x7f;
+    })
+  ) {
+    throw new CredentialSocketError('Invalid credential socket capability');
+  }
+}
+
+function closeServer(server: Server): Promise<void> {
+  if (!server.listening) return Promise.resolve();
+  return new Promise((resolve) => {
+    server.close(() => resolve());
+  });
 }
 
 function listen(server: Server, socketPath: string): Promise<void> {
