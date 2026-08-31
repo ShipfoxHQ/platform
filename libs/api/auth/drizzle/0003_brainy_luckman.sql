@@ -1,0 +1,1 @@
+CREATE INDEX "auth_users_created_at_id_index" ON "auth_users" USING btree ("created_at" desc,"id" desc);

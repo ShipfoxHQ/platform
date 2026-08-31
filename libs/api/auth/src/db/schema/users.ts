@@ -1,5 +1,6 @@
 import {uuidv7PrimaryKey} from '@shipfox/node-drizzle';
-import {pgEnum, text, timestamp, uniqueIndex} from 'drizzle-orm/pg-core';
+import {desc} from 'drizzle-orm';
+import {index, pgEnum, text, timestamp, uniqueIndex} from 'drizzle-orm/pg-core';
 import type {User, UserStatus} from '#core/entities/user.js';
 import {pgTable} from './common.js';
 
@@ -17,7 +18,10 @@ export const users = pgTable(
     createdAt: timestamp('created_at', {withTimezone: true}).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', {withTimezone: true}).notNull().defaultNow(),
   },
-  (table) => [uniqueIndex('auth_users_email_unique').on(table.email)],
+  (table) => [
+    uniqueIndex('auth_users_email_unique').on(table.email),
+    index('auth_users_created_at_id_index').on(desc(table.createdAt), desc(table.id)),
+  ],
 );
 
 export type UserDb = typeof users.$inferSelect;
