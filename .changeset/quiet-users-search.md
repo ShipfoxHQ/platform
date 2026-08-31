@@ -2,4 +2,4 @@
 '@shipfox/api-auth-dto': minor
 ---
 
-Add administrator user directory schemas with bounded query parsing.
+Add administrator user directory query and response schemas.

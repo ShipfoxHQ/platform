@@ -103,7 +103,13 @@ export const administratorUserSummarySchema = administratorUserIdentitySchema.ex
 
 export type AdministratorUserSummaryDto = z.infer<typeof administratorUserSummarySchema>;
 
-const directoryCursorSchema = z.string().min(1).max(DIRECTORY_CURSOR_MAX_LENGTH);
+const directoryCursorSchema = z
+  .string()
+  .min(1)
+  .max(DIRECTORY_CURSOR_MAX_LENGTH)
+  .refine((value) => !CONTROL_OR_FORMAT_CHARACTER_RE.test(value), {
+    message: 'must not contain control or format characters',
+  });
 
 const directorySearchSchema = z
   .string()

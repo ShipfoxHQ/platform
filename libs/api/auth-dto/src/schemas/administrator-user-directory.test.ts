@@ -97,11 +97,15 @@ describe('administrator user directory query schema', () => {
     }
   });
 
-  it('bounds opaque cursors', () => {
+  it('bounds opaque cursors and rejects control or format characters', () => {
     expect(parseQuery({cursor: 'a'}).success).toBe(true);
     expect(parseQuery({cursor: 'not a cursor'}).success).toBe(true);
     expect(parseQuery({cursor: 'a'.repeat(512)}).success).toBe(true);
     expect(parseQuery({cursor: 'a'.repeat(513)}).success).toBe(false);
+
+    for (const cursor of ['cursor\nvalue', 'cursor\u0000value', 'cursor\u200Bvalue']) {
+      expect(parseQuery({cursor}).success).toBe(false);
+    }
   });
 
   it('coerces page sizes and enforces both bounds', () => {
