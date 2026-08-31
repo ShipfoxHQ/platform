@@ -1401,6 +1401,28 @@ describe('runJobSteps', () => {
     expect(signal).toBe(ac.signal);
   });
 
+  it('rethrows permanent next-step HTTP errors without retrying forever', async () => {
+    const error = buildHTTPError(400);
+    requestNextStepMock.mockRejectedValueOnce(error);
+    const ac = new AbortController();
+
+    await expect(runLoop({signal: ac.signal})).rejects.toBe(error);
+
+    expect(requestNextStepMock).toHaveBeenCalledTimes(1);
+    expect(interruptibleSleepMock).not.toHaveBeenCalled();
+  });
+
+  it('rethrows malformed next-step responses without retrying forever', async () => {
+    const error = new Error('invalid next-step response');
+    requestNextStepMock.mockRejectedValueOnce(error);
+    const ac = new AbortController();
+
+    await expect(runLoop({signal: ac.signal})).rejects.toBe(error);
+
+    expect(requestNextStepMock).toHaveBeenCalledTimes(1);
+    expect(interruptibleSleepMock).not.toHaveBeenCalled();
+  });
+
   it('reports a failed run step with its exit_code after setup, then stops on cancel:true', async () => {
     const setup = buildSetupStep();
     const run = buildRunStep();

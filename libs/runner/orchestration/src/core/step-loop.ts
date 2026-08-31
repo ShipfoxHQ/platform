@@ -52,13 +52,14 @@ import {
   writeStepAnnotations,
 } from '@shipfox/runner-protocol';
 import {createJobLogsDir, resolveWorkingDirectory} from '@shipfox/runner-workspace';
-import type {KyInstance} from 'ky';
+import {isTimeoutError, type KyInstance} from 'ky';
 import {config} from '#config.js';
 
 const gzipAsync = promisify(gzip);
 const gunzipAsync = promisify(gunzip);
 
 const WHITESPACE_REGEX = /\s+/;
+const TRANSIENT_NEXT_STEP_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
 export type RunnerAgentStepModule = typeof import('@shipfox/runner-agent/step');
 
 export function createRunnerAgentStepLoader(
@@ -315,38 +316,19 @@ export interface PulledStep {
 }
 
 // Pulls the next step, translating the loop's two quiet stop conditions into `undefined`:
-// a 404 (the lease no longer maps to a job) and a `done` response. Other request errors
-// are retried with bounded backoff so a transient API failure cannot abandon a waiting job.
+// a 404 (the lease no longer maps to a job) and a `done` response. Transient request errors
+// are retried with bounded backoff so a control-plane blip cannot abandon a waiting job;
+// permanent HTTP and response-validation errors still surface to the runner.
 export async function pullNextStep(params: {
   leaseClient: KyInstance;
   jobId: string;
   signal: AbortSignal;
 }): Promise<PulledStep | undefined> {
   const {leaseClient, jobId, signal} = params;
-  let errorBackoffMs = config.SHIPFOX_POLL_INTERVAL_MS;
 
   while (!signal.aborted) {
-    let next: NextStepResponseDto;
-    try {
-      next = await requestNextStep(leaseClient, {signal});
-    } catch (error) {
-      if (signal.aborted) return undefined;
-      if (error instanceof HTTPError && error.response.status === 404) {
-        logger().info({jobId}, 'No job for this lease (404); stopping step loop');
-        return undefined;
-      }
-      errorBackoffMs = nextBackoffInterval(errorBackoffMs, {
-        maxMs: config.SHIPFOX_POLL_MAX_INTERVAL_MS,
-      });
-      const retryAfterMs = withJitter(errorBackoffMs);
-      logger().warn(
-        {err: error, jobId, retryAfterMs},
-        'Next-step poll failed; retrying with backoff',
-      );
-      await interruptibleSleep(retryAfterMs, signal);
-      continue;
-    }
-    errorBackoffMs = config.SHIPFOX_POLL_INTERVAL_MS;
+    const next = await requestNextStepWithRetry({leaseClient, jobId, signal});
+    if (next === undefined) return undefined;
 
     if (next.kind === 'done') {
       logger().info({jobId, status: next.status}, 'No more steps; stopping step loop');
@@ -362,6 +344,46 @@ export async function pullNextStep(params: {
   }
 
   return undefined;
+}
+
+async function requestNextStepWithRetry(params: {
+  leaseClient: KyInstance;
+  jobId: string;
+  signal: AbortSignal;
+}): Promise<NextStepResponseDto | undefined> {
+  const {leaseClient, jobId, signal} = params;
+  let errorBackoffMs = config.SHIPFOX_POLL_INTERVAL_MS;
+
+  while (!signal.aborted) {
+    try {
+      return await requestNextStep(leaseClient, {signal});
+    } catch (error) {
+      if (signal.aborted) return undefined;
+      if (error instanceof HTTPError && error.response.status === 404) {
+        logger().info({jobId}, 'No job for this lease (404); stopping step loop');
+        return undefined;
+      }
+      if (!isTransientNextStepError(error)) throw error;
+      errorBackoffMs = nextBackoffInterval(errorBackoffMs, {
+        maxMs: config.SHIPFOX_POLL_MAX_INTERVAL_MS,
+      });
+      const retryAfterMs = withJitter(errorBackoffMs);
+      logger().warn(
+        {err: error, jobId, retryAfterMs},
+        'Next-step poll failed; retrying with backoff',
+      );
+      await interruptibleSleep(retryAfterMs, signal);
+    }
+  }
+
+  return undefined;
+}
+
+function isTransientNextStepError(error: unknown): boolean {
+  if (error instanceof HTTPError) {
+    return TRANSIENT_NEXT_STEP_STATUS_CODES.has(error.response.status);
+  }
+  return isTimeoutError(error) || error instanceof TypeError;
 }
 
 export interface StepExecution {
