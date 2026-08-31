@@ -80,7 +80,7 @@ export const config = createConfig({
     default: 60,
   }),
   RUNNER_DEMAND_ACTIVATION_TIMEOUT_SECONDS: num({
-    desc: 'Minimum time, in seconds, before a demand-backed runner without a runner session can be reclaimed when neither its current nor intended reservation is live. Set this above the provider registration deadline when startup reservations remain live during boot.',
+    desc: 'Minimum time, in seconds, before a managed demand or warm runner without a runner session can be reclaimed when neither its current nor intended reservation is live. Manual runners are excluded. Set this above the provider registration deadline when startup reservations remain live during boot.',
     default: 300,
   }),
   RUNNER_TOOL_CAPABILITIES_STALE_AFTER_SECONDS: num({

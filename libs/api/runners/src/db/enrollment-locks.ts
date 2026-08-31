@@ -2,18 +2,18 @@ import {sql} from 'drizzle-orm';
 import type {Tx} from './db.js';
 
 /**
- * The enrollment/termination lock order for runners with a workspace. Callers
- * handling an unassigned runner may skip the workspace lock because there is
- * no workspace-scoped enrollment to serialize; termination authorization and
- * token consumption always have a workspace before taking this lock.
+ * Serialize enrollment and termination authorization for a runner. Workspace
+ * runners take the workspace lock before the runner lock; unassigned runners
+ * use the runner lock as their activation-scoped fallback.
  */
 export async function lockRunnerEnrollmentTx(
   tx: Tx,
-  params: {workspaceId: string; runnerInstanceId: string},
+  params: {workspaceId: string | null; runnerInstanceId: string},
 ): Promise<void> {
-  await tx.execute(
-    sql`select pg_advisory_xact_lock(hashtext(${`runners_workspace:${params.workspaceId}`}))`,
-  );
+  if (params.workspaceId)
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtext(${`runners_workspace:${params.workspaceId}`}))`,
+    );
   await tx.execute(
     sql`select pg_advisory_xact_lock(hashtext(${`runners_activation:${params.runnerInstanceId}`}))`,
   );

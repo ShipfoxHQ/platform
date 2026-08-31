@@ -137,6 +137,12 @@ export async function createRunnerInstancesWithBootstrapTokens(params: {
   });
 }
 
+function assertRunnerBootstrapExchangeAllowed(
+  runner: {terminationAuthorizedAt: Date | null} | undefined,
+): void {
+  if (runner?.terminationAuthorizedAt) throw new RunnerBootstrapTokenInvalidError();
+}
+
 export async function exchangeRunnerBootstrapToken(params: {
   rawToken: string;
   ttlSeconds: number;
@@ -157,6 +163,20 @@ export async function exchangeRunnerBootstrapToken(params: {
       )
       .returning();
     if (!bootstrap) throw new RunnerBootstrapTokenInvalidError();
+    const [candidate] = await tx
+      .select({workspaceId: providerRunners.workspaceId})
+      .from(providerRunners)
+      .where(
+        and(
+          eq(providerRunners.id, bootstrap.runnerInstanceId),
+          eq(providerRunners.provisionerId, bootstrap.provisionerId),
+        ),
+      )
+      .limit(1);
+    await lockRunnerEnrollmentTx(tx, {
+      workspaceId: candidate?.workspaceId ?? null,
+      runnerInstanceId: bootstrap.runnerInstanceId,
+    });
     const [runner] = await tx
       .select({
         runnerInstanceId: providerRunners.id,
@@ -174,7 +194,7 @@ export async function exchangeRunnerBootstrapToken(params: {
       )
       .limit(1)
       .for('update');
-    if (runner?.terminationAuthorizedAt) throw new RunnerBootstrapTokenInvalidError();
+    assertRunnerBootstrapExchangeAllowed(runner);
     const [session] = await tx
       .insert(runnerControlSessions)
       .values({
@@ -256,11 +276,10 @@ export async function enrollRunnerControlSession(params: {
         provisionerId: params.provisionerId,
         reservationIds: [candidate.intendedReservationId],
       });
-    if (candidate.workspaceId)
-      await lockRunnerEnrollmentTx(tx, {
-        workspaceId: candidate.workspaceId,
-        runnerInstanceId: params.runnerInstanceId,
-      });
+    await lockRunnerEnrollmentTx(tx, {
+      workspaceId: candidate.workspaceId,
+      runnerInstanceId: params.runnerInstanceId,
+    });
     const [current] = await tx
       .select({
         intendedReservationId: providerRunners.intendedReservationId,

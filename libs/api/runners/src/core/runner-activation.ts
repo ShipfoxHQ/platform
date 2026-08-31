@@ -46,11 +46,10 @@ export async function issueRunnerActivationTokenTx(
     recordRunnerActivationTokenNotIssuedWithLog('runner-not-found', params);
     return null;
   }
-  if (candidate.workspaceId)
-    await lockRunnerEnrollmentTx(tx, {
-      workspaceId: candidate.workspaceId,
-      runnerInstanceId: params.runnerInstanceId,
-    });
+  await lockRunnerEnrollmentTx(tx, {
+    workspaceId: candidate.workspaceId,
+    runnerInstanceId: params.runnerInstanceId,
+  });
   const [runner] = await tx
     .select({
       workspaceId: providerRunners.workspaceId,

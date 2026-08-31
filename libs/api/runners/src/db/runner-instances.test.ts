@@ -1,5 +1,5 @@
 import {pgClient} from '@shipfox/node-postgres';
-import {beforeEach} from '@shipfox/vitest/vi';
+import {beforeEach, vi} from '@shipfox/vitest/vi';
 import {and, desc, eq, inArray, or, sql} from 'drizzle-orm';
 import {reconcileRunnerInstances as reconcileRunnerInstancesCore} from '#core/runner-instances.js';
 import {
@@ -21,6 +21,7 @@ import {
   listProviderRunnerByStateMetrics,
   listProvisionerTerminateIntentRowsTx,
   listProvisionerTerminateIntents,
+  persistRunnerTerminationAuthorizationTx,
   type RecoverStaleIdleRunnerSessionsParams,
   reapStaleRunnerInstances,
   reconcileRunnerInstances,
@@ -33,6 +34,7 @@ import {runnerControlSessions} from '#db/schema/runner-control-sessions.js';
 import {providerRunners} from '#db/schema/runner-instances.js';
 import {runnerSessions} from '#db/schema/runner-sessions.js';
 import {runningJobExecutions} from '#db/schema/running-job-executions.js';
+import {runnerTerminationAuthorizationIssuedCount} from '#metrics/instance.js';
 import {
   pendingJobFactory,
   providerRunnerFactory,
@@ -171,6 +173,48 @@ describe('authorizeRunnerTermination', () => {
         .from(providerRunners)
         .where(eq(providerRunners.id, runner.id)),
     ).toEqual([{authorizedAt: null}]);
+  });
+
+  it('rejects activation-timeout authorization when a live tuple-matched session exists', async () => {
+    const workspaceId = crypto.randomUUID();
+    const provisionerId = crypto.randomUUID();
+    const providerRunnerId = 'activated-between-intent-and-authorization';
+    const runner = await providerRunnerFactory.create({
+      workspaceId,
+      provisionerId,
+      providerRunnerId,
+      launchKind: 'demand',
+    });
+    await db()
+      .insert(runnerSessions)
+      .values({
+        workspaceId,
+        scope: 'workspace',
+        registrationTokenId: crypto.randomUUID(),
+        registrationTokenKind: 'ephemeral',
+        provisionerId,
+        providerRunnerId,
+        labels: ['linux'],
+        maxClaims: 1,
+        claimsUsed: 0,
+      });
+
+    const result = await db().transaction((tx) =>
+      persistRunnerTerminationAuthorizationTx(tx, {
+        provisionerId,
+        providerRunnerId: runner.providerRunnerId,
+        reason: 'activation-timeout',
+        resolveTerminationReason: () => ({reason: 'activation-timeout'}),
+      }),
+    );
+
+    expect(result).toEqual({
+      desiredIntent: 'keep',
+      terminationAuthorizedAt: null,
+      terminationReason: null,
+      telemetry: {outcome: 'rejected', reason: 'activation-timeout'},
+      reservationReleased: false,
+    });
   });
 
   it('reuses an existing authorization and its first reason', async () => {
@@ -2070,7 +2114,20 @@ describe('listProvisionerTerminateIntents', () => {
     });
 
     const result = await db().transaction((tx) =>
-      listProvisionerTerminateIntentRowsTx(tx, {workspaceId, provisionerId, limit: 1000}),
+      listProvisionerTerminateIntentRowsTx(
+        tx,
+        {workspaceId, provisionerId, limit: 1000},
+        {
+          authorize: async ({providerRunnerId, reason}) =>
+            (
+              await authorizeRunnerTerminationTx(tx, {
+                provisionerId,
+                providerRunnerId,
+                reason,
+              })
+            ).desiredIntent === 'terminate',
+        },
+      ),
     );
     const [runner] = await providerRunnerRowsFor({workspaceId, provisionerId});
 
@@ -2080,7 +2137,7 @@ describe('listProvisionerTerminateIntents', () => {
     expect(runner?.reservationReleasedAt).toBeInstanceOf(Date);
   });
 
-  it('does not reclaim warm, manual, active, or already-activated runners', async () => {
+  it('reclaims stale warm capacity but not manual, active, or already-activated runners', async () => {
     const [liveReservation] = await db()
       .insert(reservations)
       .values({
@@ -2127,13 +2184,25 @@ describe('listProvisionerTerminateIntents', () => {
     await createRunnerInstance({
       providerRunnerId: 'activated-demand-runner',
       launchKind: 'demand',
-      runnerSessionId: crypto.randomUUID(),
       createdAt: staleCreatedAt,
     });
+    await db()
+      .insert(runnerSessions)
+      .values({
+        workspaceId,
+        scope: 'workspace',
+        registrationTokenId: crypto.randomUUID(),
+        registrationTokenKind: 'ephemeral',
+        provisionerId,
+        providerRunnerId: 'activated-demand-runner',
+        labels: ['linux'],
+        maxClaims: 1,
+        claimsUsed: 0,
+      });
 
     const result = await listProvisionerTerminateIntents({workspaceId, provisionerId, limit: 1000});
 
-    expect(result).toEqual([]);
+    expect(result).toEqual(['stale-warm-runner']);
   });
 
   it('marks activation-timeout retries after releasing the runner reservation', async () => {
@@ -2143,11 +2212,29 @@ describe('listProvisionerTerminateIntents', () => {
       createdAt: new Date(Date.now() - 301_000),
     });
 
+    const authorize =
+      (tx: Parameters<typeof authorizeRunnerTerminationTx>[0]) =>
+      async ({providerRunnerId, reason}: {providerRunnerId: string; reason: string}) => {
+        const authorization = await authorizeRunnerTerminationTx(tx, {
+          provisionerId,
+          providerRunnerId,
+          reason,
+        });
+        return authorization.desiredIntent === 'terminate';
+      };
     const first = await db().transaction((tx) =>
-      listProvisionerTerminateIntentRowsTx(tx, {workspaceId, provisionerId, limit: 1000}),
+      listProvisionerTerminateIntentRowsTx(
+        tx,
+        {workspaceId, provisionerId, limit: 1000},
+        {authorize: authorize(tx)},
+      ),
     );
     const second = await db().transaction((tx) =>
-      listProvisionerTerminateIntentRowsTx(tx, {workspaceId, provisionerId, limit: 1000}),
+      listProvisionerTerminateIntentRowsTx(
+        tx,
+        {workspaceId, provisionerId, limit: 1000},
+        {authorize: authorize(tx)},
+      ),
     );
 
     expect(first).toEqual([
@@ -2160,6 +2247,52 @@ describe('listProvisionerTerminateIntents', () => {
         activationTimeoutRetry: true,
       },
     ]);
+  });
+
+  it('marks activation-timeout retries for warm runners without releasing demand capacity', async () => {
+    await createRunnerInstance({
+      providerRunnerId: 'retryable-warm-runner',
+      launchKind: 'warm',
+      createdAt: new Date(Date.now() - 301_000),
+    });
+
+    const authorize =
+      (tx: Parameters<typeof authorizeRunnerTerminationTx>[0]) =>
+      async ({providerRunnerId, reason}: {providerRunnerId: string; reason: string}) => {
+        const authorization = await authorizeRunnerTerminationTx(tx, {
+          provisionerId,
+          providerRunnerId,
+          reason,
+        });
+        return authorization.desiredIntent === 'terminate';
+      };
+    const first = await db().transaction((tx) =>
+      listProvisionerTerminateIntentRowsTx(
+        tx,
+        {workspaceId, provisionerId, limit: 1000},
+        {authorize: authorize(tx)},
+      ),
+    );
+    const second = await db().transaction((tx) =>
+      listProvisionerTerminateIntentRowsTx(
+        tx,
+        {workspaceId, provisionerId, limit: 1000},
+        {authorize: authorize(tx)},
+      ),
+    );
+    const [runner] = await providerRunnerRowsFor({workspaceId, provisionerId});
+
+    expect(first).toEqual([
+      {providerRunnerId: 'retryable-warm-runner', reason: 'activation-timeout'},
+    ]);
+    expect(second).toEqual([
+      {
+        providerRunnerId: 'retryable-warm-runner',
+        reason: 'activation-timeout',
+        activationTimeoutRetry: true,
+      },
+    ]);
+    expect(runner?.reservationReleasedAt).toBeNull();
   });
 
   it('excludes active provisioned runners whose latest bound job is healthy', async () => {
@@ -2963,6 +3096,175 @@ describe('reconcileRunnerInstances', () => {
     expect(afterAuthorization?.terminationReason).toBe('session-exhausted');
   });
 
+  it('keeps stale managed capacity with a live running job', async () => {
+    const providerRunnerId = 'stale-runner-with-live-job';
+    await createRunnerInstance({
+      providerRunnerId,
+      launchKind: 'demand',
+      createdAt: new Date(Date.now() - 301_000),
+    });
+    await insertRunningJobRow({
+      workspaceId,
+      provisionerId,
+      providerRunnerId,
+    });
+
+    const result = await reconcileRunnerInstancesCore({
+      workspaceId,
+      provisionerId,
+      observedRunnerInstanceIds: [providerRunnerId],
+    });
+
+    expect(result.runners).toMatchObject([{providerRunnerId, desiredIntent: 'keep'}]);
+    const [runner] = await db()
+      .select({terminationAuthorizedAt: providerRunners.terminationAuthorizedAt})
+      .from(providerRunners)
+      .where(eq(providerRunners.providerRunnerId, providerRunnerId));
+    expect(runner?.terminationAuthorizedAt).toBeNull();
+  });
+
+  it('authorizes stale managed warm capacity through the activation-timeout reason', async () => {
+    const providerRunnerId = 'stale-warm-runner';
+    const issuedSpy = vi.spyOn(runnerTerminationAuthorizationIssuedCount, 'add');
+    await createRunnerInstance({
+      providerRunnerId,
+      launchKind: 'warm',
+      createdAt: new Date(Date.now() - 301_000),
+    });
+
+    const result = await reconcileRunnerInstancesCore({
+      workspaceId,
+      provisionerId,
+      observedRunnerInstanceIds: [providerRunnerId],
+    });
+
+    expect(result.runners).toMatchObject([
+      {
+        providerRunnerId,
+        desiredIntent: 'terminate',
+        desiredIntentReason: 'activation-timeout',
+        terminationReason: 'activation-timeout',
+      },
+    ]);
+    expect(
+      issuedSpy.mock.calls.filter(
+        ([value, attributes]) =>
+          value === 1 &&
+          (attributes as {reason?: string} | undefined)?.reason === 'activation-timeout',
+      ),
+    ).not.toHaveLength(0);
+    issuedSpy.mockRestore();
+  });
+
+  it('authorizes unassigned warm capacity during installation reconciliation', async () => {
+    const installationProvisionerId = crypto.randomUUID();
+    const providerRunnerId = 'unassigned-stale-warm-runner';
+    await providerRunnerFactory.create({
+      workspaceId: null,
+      provisionerId: installationProvisionerId,
+      providerRunnerId,
+      launchKind: 'warm',
+      createdAt: new Date(Date.now() - 301_000),
+    });
+
+    const result = await reconcileRunnerInstancesCore({
+      workspaceId: null,
+      provisionerId: installationProvisionerId,
+      observedRunnerInstanceIds: [providerRunnerId],
+    });
+
+    expect(result.runners).toMatchObject([
+      {
+        providerRunnerId,
+        desiredIntent: 'terminate',
+        desiredIntentReason: 'activation-timeout',
+      },
+    ]);
+  });
+
+  it('uses the session tuple when the provider runner reverse pointer is null', async () => {
+    const providerRunnerId = 'tuple-matched-runner';
+    await createRunnerInstance({
+      providerRunnerId,
+      launchKind: 'demand',
+      createdAt: new Date(Date.now() - 301_000),
+      runnerSessionId: null,
+    });
+    await createEphemeralSession({providerRunnerId, claimsUsed: 0});
+
+    const result = await reconcileRunnerInstancesCore({
+      workspaceId,
+      provisionerId,
+      observedRunnerInstanceIds: [providerRunnerId],
+    });
+
+    expect(result.runners).toMatchObject([{providerRunnerId, desiredIntent: 'keep'}]);
+    const [runner] = await db()
+      .select({terminationAuthorizedAt: providerRunners.terminationAuthorizedAt})
+      .from(providerRunners)
+      .where(eq(providerRunners.providerRunnerId, providerRunnerId));
+    expect(runner?.terminationAuthorizedAt).toBeNull();
+  });
+
+  it('retries the persisted activation authorization without changing its reason', async () => {
+    const providerRunnerId = 'retryable-activation-runner';
+    const reservationId = await createReservation(1, {
+      expiresAt: new Date(Date.now() - 1_000),
+    });
+    await createRunnerInstance({
+      providerRunnerId,
+      launchKind: 'demand',
+      reservationId,
+      createdAt: new Date(Date.now() - 301_000),
+    });
+
+    const first = await reconcileRunnerInstancesCore({
+      workspaceId,
+      provisionerId,
+      observedRunnerInstanceIds: [providerRunnerId],
+    });
+    const [firstAuthorization] = await db()
+      .select({
+        terminationAuthorizedAt: providerRunners.terminationAuthorizedAt,
+        terminationReason: providerRunners.terminationReason,
+        reservationReleasedAt: providerRunners.reservationReleasedAt,
+      })
+      .from(providerRunners)
+      .where(eq(providerRunners.providerRunnerId, providerRunnerId));
+    const second = await reconcileRunnerInstancesCore({
+      workspaceId,
+      provisionerId,
+      observedRunnerInstanceIds: [providerRunnerId],
+    });
+
+    expect(first.runners).toMatchObject([
+      {providerRunnerId, desiredIntent: 'terminate', desiredIntentReason: 'activation-timeout'},
+    ]);
+    expect(second.runners).toMatchObject([
+      {providerRunnerId, desiredIntent: 'terminate', desiredIntentReason: 'activation-timeout'},
+    ]);
+    expect(firstAuthorization?.terminationReason).toBe('activation-timeout');
+    expect(firstAuthorization?.terminationAuthorizedAt).toBeInstanceOf(Date);
+    expect(firstAuthorization?.reservationReleasedAt).toBeInstanceOf(Date);
+  });
+
+  it('keeps manual capacity outside activation-timeout cleanup', async () => {
+    const providerRunnerId = 'stale-manual-runner';
+    await createRunnerInstance({
+      providerRunnerId,
+      launchKind: 'manual',
+      createdAt: new Date(Date.now() - 301_000),
+    });
+
+    const result = await reconcileRunnerInstancesCore({
+      workspaceId,
+      provisionerId,
+      observedRunnerInstanceIds: [providerRunnerId],
+    });
+
+    expect(result.runners).toMatchObject([{providerRunnerId, desiredIntent: 'keep'}]);
+  });
+
   it('keeps an exhausted ephemeral session while a live job is bound to its runner', async () => {
     const providerRunnerId = 'busy-exhausted-runner';
     await createRunnerInstance({providerRunnerId});
@@ -3536,16 +3838,20 @@ describe('reconcileRunnerInstances', () => {
 
   async function createRunnerInstance(params: {
     providerRunnerId: string;
+    launchKind?: 'demand' | 'warm' | 'manual';
     reservationId?: string | null;
     runnerSessionId?: string | null;
+    createdAt?: Date;
     reportedAt?: Date;
   }) {
     return await providerRunnerFactory.create({
       workspaceId,
       provisionerId,
       providerRunnerId: params.providerRunnerId,
+      launchKind: params.launchKind ?? 'manual',
       reservationId: params.reservationId ?? null,
       runnerSessionId: params.runnerSessionId ?? null,
+      createdAt: params.createdAt ?? new Date(),
       reportedAt: params.reportedAt ?? new Date(),
       state: 'running',
     });
