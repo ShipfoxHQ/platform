@@ -247,7 +247,7 @@ describe('POST /provisioners/runner-instances/reconcile', () => {
       workflowRunId: crypto.randomUUID(),
       workflowRunAttemptId: crypto.randomUUID(),
       providerRunnerId,
-      lastHeartbeatAt: new Date(),
+      lastHeartbeatAt: new Date('2025-01-01T00:01:00.000Z'),
       cancellationRequestedAt: new Date('2025-01-01T00:01:00.000Z'),
       cancellationReason,
     });

@@ -121,7 +121,21 @@ describe('runner lifecycle metrics', () => {
         unit: 'ms',
         buckets: [10, 25, 50, 100, 250, 500, 1_000, 5_000, 10_000],
       },
+      {
+        name: 'runners_provider_runner_cleanup_grace_age',
+        unit: 'ms',
+        buckets: [1_000, 5_000, 10_000, 30_000, 60_000, 120_000],
+      },
     ]);
+  });
+
+  it('records cleanup grace age with its bounded reason label', () => {
+    const record = metricMocks.histograms.get('runners_provider_runner_cleanup_grace_age')?.record;
+    expect(record).toBeDefined();
+
+    metrics.recordRunnerJobCleanupGraceAge({ageMilliseconds: 1_234, reason: 'job-timeout'});
+
+    expect(record).toHaveBeenCalledWith(1_234, {reason: 'job-timeout'});
   });
 
   it('records lifecycle durations without converting milliseconds', () => {

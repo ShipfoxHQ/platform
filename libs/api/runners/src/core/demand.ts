@@ -109,7 +109,6 @@ export async function pollDemand(params: PollDemandParams): Promise<PollDemandRe
           limit: params.terminateIntentLimit,
         },
         {
-          includeCancelledJobs: false,
           authorize: async ({providerRunnerId, reason}) => {
             if (reason !== 'activation-timeout') return true;
             const authorization = await authorizeRunnerTerminationTx(

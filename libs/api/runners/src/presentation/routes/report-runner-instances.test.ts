@@ -182,6 +182,8 @@ describe('POST /provisioners/runner-instances/report', () => {
       provisionerId: provisionerTokenId,
       providerRunnerId: 'provisioned-runner-1',
       state: 'running',
+      terminationAuthorizedAt: new Date('2025-01-01T00:02:00.000Z'),
+      terminationReason: 'job-cancelled',
     });
     await db()
       .insert(runningJobExecutions)

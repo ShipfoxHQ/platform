@@ -1548,6 +1548,8 @@ describe('reportRunnerInstances', () => {
       provisionerId,
       providerRunnerId: 'provisioned-runner-1',
       state: 'running',
+      terminationAuthorizedAt: new Date('2025-01-01T00:02:00.000Z'),
+      terminationReason: 'job-cancelled',
     });
     await insertRunningJobRow({
       workspaceId,
@@ -1693,7 +1695,7 @@ describe('listProvisionerTerminateIntents', () => {
     provisionerId = crypto.randomUUID();
   });
 
-  it('includes active provisioned runners whose latest bound job is cancelled', async () => {
+  it('does not include active provisioned runners whose latest bound job is cancelled', async () => {
     await createRunnerInstance({providerRunnerId: 'provisioned-runner-1'});
     await insertRunningJobRow({
       workspaceId,
@@ -1704,10 +1706,10 @@ describe('listProvisionerTerminateIntents', () => {
 
     const result = await listProvisionerTerminateIntents({workspaceId, provisionerId, limit: 1000});
 
-    expect(result).toEqual(['provisioned-runner-1']);
+    expect(result).toEqual([]);
   });
 
-  it('returns structured rows with bounded reasons from the shared query', async () => {
+  it('does not return cancelled jobs from the shared query', async () => {
     await createRunnerInstance({providerRunnerId: 'provisioned-runner-1'});
     await insertRunningJobRow({
       workspaceId,
@@ -1718,26 +1720,6 @@ describe('listProvisionerTerminateIntents', () => {
 
     const result = await db().transaction((tx) =>
       listProvisionerTerminateIntentRowsTx(tx, {workspaceId, provisionerId, limit: 1000}),
-    );
-
-    expect(result).toEqual([{providerRunnerId: 'provisioned-runner-1', reason: 'job-cancelled'}]);
-  });
-
-  it('excludes cancelled jobs when requested without authorization filtering', async () => {
-    await createRunnerInstance({providerRunnerId: 'provisioned-runner-1'});
-    await insertRunningJobRow({
-      workspaceId,
-      provisionerId,
-      providerRunnerId: 'provisioned-runner-1',
-      cancellationRequestedAt: new Date('2025-01-01T00:01:00.000Z'),
-    });
-
-    const result = await db().transaction((tx) =>
-      listProvisionerTerminateIntentRowsTx(
-        tx,
-        {workspaceId, provisionerId, limit: 1000},
-        {includeCancelledJobs: false},
-      ),
     );
 
     expect(result).toEqual([]);
@@ -1912,7 +1894,7 @@ describe('listProvisionerTerminateIntents', () => {
     expect(result).toEqual([]);
   });
 
-  it('returns one id for duplicate cancelled bound jobs on the same provisioned runner', async () => {
+  it('does not return an id for duplicate cancelled bound jobs on the same provisioned runner', async () => {
     await createRunnerInstance({providerRunnerId: 'provisioned-runner-1'});
     await insertRunningJobRow({
       workspaceId,
@@ -1931,10 +1913,10 @@ describe('listProvisionerTerminateIntents', () => {
 
     const result = await listProvisionerTerminateIntents({workspaceId, provisionerId, limit: 1000});
 
-    expect(result).toEqual(['provisioned-runner-1']);
+    expect(result).toEqual([]);
   });
 
-  it('returns a deterministic subset when the limit truncates results', async () => {
+  it('does not return cancelled jobs when the limit truncates results', async () => {
     for (const providerRunnerId of [
       'provisioned-runner-c',
       'provisioned-runner-a',
@@ -1951,10 +1933,10 @@ describe('listProvisionerTerminateIntents', () => {
 
     const result = await listProvisionerTerminateIntents({workspaceId, provisionerId, limit: 2});
 
-    expect(result).toEqual(['provisioned-runner-a', 'provisioned-runner-b']);
+    expect(result).toEqual([]);
   });
 
-  it('fills the limit with later authorized intents when earlier candidates are rejected', async () => {
+  it('does not authorize cancelled jobs from the legacy query', async () => {
     for (const providerRunnerId of [
       'provisioned-runner-a',
       'provisioned-runner-b',
@@ -1983,15 +1965,8 @@ describe('listProvisionerTerminateIntents', () => {
       ),
     );
 
-    expect(result).toEqual([
-      {providerRunnerId: 'provisioned-runner-b', reason: 'job-cancelled'},
-      {providerRunnerId: 'provisioned-runner-c', reason: 'job-cancelled'},
-    ]);
-    expect(authorizedProviderRunnerIds).toEqual([
-      'provisioned-runner-a',
-      'provisioned-runner-b',
-      'provisioned-runner-c',
-    ]);
+    expect(result).toEqual([]);
+    expect(authorizedProviderRunnerIds).toEqual([]);
   });
 
   async function createRunnerInstance(params: {

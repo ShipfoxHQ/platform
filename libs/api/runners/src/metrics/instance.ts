@@ -217,6 +217,24 @@ export const providerRunnerTerminateIntentIssuedCount = meter.createCounter<{
   description: 'Provisioned runner terminate intents returned to provisioners',
 });
 
+export const providerRunnerCleanupGraceAge = meter.createHistogram<{
+  reason: 'job-cancelled' | 'job-timeout';
+}>('runners_provider_runner_cleanup_grace_age', {
+  description: 'Age of cancelled jobs observed before their cleanup grace expires',
+  unit: 'ms',
+  advice: {explicitBucketBoundaries: [1_000, 5_000, 10_000, 30_000, 60_000, 120_000]},
+});
+
+export function recordRunnerJobCleanupGraceAge(params: {
+  ageMilliseconds: number;
+  reason: 'job-cancelled' | 'job-timeout';
+}): void {
+  if (params.ageMilliseconds < 0) return;
+  recordMetric(() =>
+    providerRunnerCleanupGraceAge.record(params.ageMilliseconds, {reason: params.reason}),
+  );
+}
+
 export const providerRunnerTerminateIntentHonoredCount = meter.createCounter<{
   reason: RunnerTerminationReason;
 }>('runners_provider_runner_terminate_intent_honored', {

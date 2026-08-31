@@ -842,9 +842,8 @@ export async function listProvisionerTerminationAuthorizationsTx(
     .select({
       providerRunnerId: providerRunners.providerRunnerId,
       terminationReason: providerRunners.terminationReason,
-      // The legacy query owns the first-delivery/retry signal. A durable
-      // authorization has no reliable delivery marker, so it is a first
-      // delivery when it is not also returned by that compatibility query.
+      // A durable authorization has no separate delivery marker. The
+      // provisioner can repeat it until the runner reports termination.
       activationTimeoutRetry: sql<boolean>`false`,
     })
     .from(providerRunners)
@@ -854,9 +853,8 @@ export async function listProvisionerTerminationAuthorizationsTx(
           ? eq(providerRunners.workspaceId, params.workspaceId)
           : isNull(providerRunners.workspaceId),
         eq(providerRunners.provisionerId, params.provisionerId),
-        // Terminal runners are handled by reconcile's compatibility adapter;
-        // poll-demand only needs authorizations for runners still awaiting
-        // provisioner action.
+        // Only active runners await provider termination. Terminal runners
+        // are handled by the report path after the provider acknowledges them.
         inArray(providerRunners.state, activeStates),
         isNotNull(providerRunners.providerRunnerId),
         isNotNull(providerRunners.terminationAuthorizedAt),
@@ -892,7 +890,6 @@ export async function listProvisionerTerminateIntentRowsTx(
     limit: number;
   },
   options?: {
-    includeCancelledJobs?: boolean;
     authorize?: (params: {
       providerRunnerId: string;
       reason: RunnerInstanceTerminateIntentReason;
@@ -906,16 +903,9 @@ export async function listProvisionerTerminateIntentRowsTx(
       tx,
       params,
       options.authorize,
-      options.includeCancelledJobs,
     ));
   } else {
-    const rows = await provisionerTerminateIntentsQuery(
-      tx,
-      params,
-      options?.includeCancelledJobs === undefined
-        ? {}
-        : {includeCancelledJobs: options.includeCancelledJobs},
-    )
+    const rows = await provisionerTerminateIntentsQuery(tx, params)
       .orderBy(asc(providerRunners.providerRunnerId))
       .limit(params.limit + 1);
     truncated = rows.length > params.limit;
@@ -961,7 +951,6 @@ async function listAuthorizedProvisionerTerminateIntentRowsTx(
     providerRunnerId: string;
     reason: RunnerInstanceTerminateIntentReason;
   }) => Promise<boolean>,
-  includeCancelledJobs?: boolean,
 ): Promise<{rows: ProvisionerTerminateIntentRow[]; truncated: boolean}> {
   const authorizedRows: ProvisionerTerminateIntentRow[] = [];
   let providerRunnerIdAfter: string | undefined;
@@ -971,7 +960,6 @@ async function listAuthorizedProvisionerTerminateIntentRowsTx(
     const rows = await provisionerTerminateIntentsQuery(
       tx,
       providerRunnerIdAfter ? {...params, providerRunnerIdAfter} : params,
-      includeCancelledJobs === undefined ? {} : {includeCancelledJobs},
     )
       .orderBy(asc(providerRunners.providerRunnerId))
       .limit(remaining + 1);
@@ -1041,9 +1029,8 @@ function provisionerTerminateIntentsQuery(
 ) {
   const newerRunningJobExecutions = alias(runningJobExecutions, 'newer_running_jobs');
   const latestCancelledJob =
-    options.includeCancelledJobs === false
-      ? sql<boolean>`false`
-      : exists(
+    options.includeCancelledJobs === true
+      ? exists(
           tx
             .select({id: runningJobExecutions.id})
             .from(runningJobExecutions)
@@ -1083,7 +1070,8 @@ function provisionerTerminateIntentsQuery(
                 ),
               ),
             ),
-        );
+        )
+      : sql<boolean>`false`;
   const activationTimeout = and(
     eq(providerRunners.launchKind, 'demand'),
     isNull(providerRunners.runnerSessionId),
@@ -1207,7 +1195,7 @@ async function listTerminateIntentsHonoredByTerminatedReportsTx(
       workspaceId: params.workspaceId,
       provisionerId: params.provisionerId,
       providerRunnerIds: terminatedRunnerInstanceIds,
-    }).orderBy(asc(providerRunners.providerRunnerId));
+    }, {includeCancelledJobs: true}).orderBy(asc(providerRunners.providerRunnerId));
     for (const row of legacyRows) {
       const intent = toRunnerInstanceTerminateIntent(row)[0];
       if (intent && !honoredByRunnerId.has(intent.providerRunnerId))
