@@ -1897,11 +1897,14 @@ describe('runJobSteps', () => {
     );
   });
 
-  it('does not commit or load a session for a Claude agent step', async () => {
+  it('loads and commits a session for a Claude agent step', async () => {
     const setup = buildSetupStep();
     const agent = buildAgentStep({
       session: {id: SESSION_ID, key: 'main', mode: 'resume', segment: 2},
     });
+    const transcriptDir = mkdtempSync(join(tmpdir(), 'shipfox-runner-session-'));
+    const transcriptFile = join(transcriptDir, 'session.jsonl');
+    writeFileSync(transcriptFile, 'claude session transcript');
     requestAgentRuntimeConfigMock.mockResolvedValueOnce({
       harness: 'claude',
       provider_id: 'shipfox',
@@ -1910,9 +1913,12 @@ describe('runJobSteps', () => {
       credentials: {api_key: 'managed-token'},
       claude: {base_url: 'https://gateway.example.test/v1', auth_token: 'managed-token'},
     });
+    requestSessionTranscriptMock.mockResolvedValueOnce({blob: null, segment: 2});
     executeAgentStepMock.mockResolvedValueOnce({
       success: true,
       response: 'done',
+      sessionFile: transcriptFile,
+      sessionId: 'claude-session-1',
       error: null,
       exit_code: 0,
     });
@@ -1921,13 +1927,25 @@ describe('runJobSteps', () => {
       .mockResolvedValueOnce(stepResponse(agent, 1))
       .mockResolvedValueOnce({kind: 'done', status: 'succeeded'});
 
-    await runLoop({signal: new AbortController().signal});
+    try {
+      await runLoop({signal: new AbortController().signal});
+    } finally {
+      rmSync(transcriptDir, {recursive: true, force: true});
+    }
 
-    expect(requestSessionTranscriptMock).not.toHaveBeenCalled();
-    expect(commitSessionTranscriptMock).not.toHaveBeenCalled();
+    expect(requestSessionTranscriptMock).toHaveBeenCalledOnce();
+    expect(commitSessionTranscriptMock).toHaveBeenCalledWith(
+      leaseClient,
+      expect.objectContaining({
+        baseSegment: 2,
+        harness: 'claude',
+        sdkVersion: 'claude-agent-sdk',
+        harnessSessionId: 'claude-session-1',
+      }),
+    );
     expect(executeAgentStepMock).toHaveBeenCalledWith(
       agent,
-      expect.not.objectContaining({session: expect.anything(), prompt: expect.anything()}),
+      expect.objectContaining({session: {mode: 'resume'}}),
     );
     expect(reportStepMock).toHaveBeenLastCalledWith(
       leaseClient,

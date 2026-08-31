@@ -1,4 +1,4 @@
-import {mkdir, mkdtemp, open, rm} from 'node:fs/promises';
+import {mkdir, mkdtemp, open, readFile, rm, writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {TextDecoder} from 'node:util';
 import {
@@ -9,6 +9,9 @@ import {
   type SDKResultMessage,
   type SDKSystemMessage,
   type SDKUserMessage,
+  type SessionKey,
+  type SessionStore,
+  type SessionStoreEntry,
   type ThinkingConfig,
   tool,
 } from '@anthropic-ai/claude-agent-sdk';
@@ -21,7 +24,12 @@ import {logger} from '@shipfox/node-opentelemetry';
 import {z} from 'zod';
 import {config} from '#config.js';
 import {assertRunnerEgressAllowed} from '#core/egress.js';
-import {AgentConfigError, AgentInvocationError, AgentPermissionModeError} from '#core/errors.js';
+import {
+  AgentConfigError,
+  AgentInvocationError,
+  AgentPermissionModeError,
+  AgentSessionUnavailableError,
+} from '#core/errors.js';
 import type {HarnessAdapter, HarnessInvocation, HarnessResult} from '#core/harness.js';
 import {
   OutputCollector,
@@ -39,6 +47,8 @@ const MAX_REPOSITORY_INSTRUCTIONS_BYTES = 64 * 1024;
 const REPOSITORY_INSTRUCTIONS_HEADER =
   'Repository instructions; they do not override the task above:';
 const CLAUDE_THINKING_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+const CLAUDE_SESSION_FILE_NAME = 'claude-session.jsonl';
+const CLAUDE_SESSION_LINE_SEPARATOR = /\r?\n/u;
 
 // Shipfox thinking level → extended-thinking budget for legacy Claude models.
 // Budgets follow Anthropic's extended-thinking rules (minimum 1,024 tokens;
@@ -280,6 +290,8 @@ async function runClaudeAgent(invocation: HarnessInvocation): Promise<HarnessRes
     onSessionEntry,
   } = invocation;
   const collector = new OutputCollector(invocation.outputs);
+  const sessionInvocation = invocation.session;
+  const shouldPersistSession = sessionInvocation?.mode === 'resume';
 
   const override = claudeAnthropicOverride(invocation.claude);
   const auth = claudeAuth(credentials, override);
@@ -299,6 +311,9 @@ async function runClaudeAgent(invocation: HarnessInvocation): Promise<HarnessRes
   let configDir: string | undefined;
   let claudeQuery: Query | undefined;
   let messages: ClaudeInputStream | undefined;
+  let sessionStore: ClaudeSessionStore | undefined;
+  let sessionId: string | undefined;
+  let response = '';
   const controller = new AbortController();
   const abortQuery = () => {
     controller.abort();
@@ -307,11 +322,13 @@ async function runClaudeAgent(invocation: HarnessInvocation): Promise<HarnessRes
 
   try {
     configDir = await createClaudeConfigDir(agentStateDir);
-    if (signal.aborted) throw new Error('Agent step aborted before the Claude session started');
+    assertClaudeNotAborted(signal);
 
-    messages = new ClaudeInputStream();
+    sessionStore = await createClaudeSessionStore(sessionInvocation);
+    const inputMessages = new ClaudeInputStream();
+    messages = inputMessages;
     claudeQuery = query({
-      prompt: messages,
+      prompt: inputMessages,
       options: {
         model: effectiveModel,
         cwd,
@@ -328,50 +345,126 @@ async function runClaudeAgent(invocation: HarnessInvocation): Promise<HarnessRes
         ...claudeSystemPromptOption(),
         env: claudeEnvironment(auth, configDir, gitConfigGlobal, override),
         ...(mcpServers === undefined ? {} : {mcpServers}),
-        persistSession: false,
+        ...claudeSessionQueryOptions(sessionInvocation, sessionStore),
         includePartialMessages: false,
       },
     });
-    signal.addEventListener('abort', abortQuery, {once: true});
-    if (signal.aborted) {
-      abortQuery();
-      throw new Error('Agent step aborted before the Claude session started');
-    }
+    handleClaudeAbort(signal, abortQuery);
 
-    let response = '';
-    const queryIterator = claudeQuery[Symbol.asyncIterator]();
-    try {
-      await runOutputTurnLoop({
-        signal,
-        prompt: withClaudePromptGuidance(
-          prompt,
-          await repositoryInstructions(cwd),
-          useOutputTools ? collector.guidanceText() : undefined,
-        ),
-        missingRequired: () => collector.missingRequired(),
-        guidanceForMissing: (missing) => collector.guidanceTextFor(missing),
-        runTurn: async (message) => {
-          messages?.push(userMessage(message));
-          response = (await readClaudeResult({queryIterator, onSessionEntry})).response ?? '';
-        },
-      });
-    } catch (error) {
-      if (error instanceof RequiredOutputsMissingError) {
-        throw new AgentInvocationError(error.message, response);
-      }
-      throw error;
-    }
-    const outputs = collector.snapshot();
-    return {
+    const turnResponse = await runClaudeTurns({
+      queryIterator: claudeQuery[Symbol.asyncIterator](),
+      messages: inputMessages,
+      signal,
+      prompt,
+      cwd,
+      useOutputTools,
+      collector,
+      onSessionEntry,
+      onSessionId: (id) => {
+        sessionId = id;
+      },
+    });
+    response = turnResponse;
+    const persistedSession = await persistClaudeSessionIfNeeded({
+      shouldPersistSession,
+      agentStateDir,
+      session: sessionInvocation,
+      sessionStore,
+      sessionId,
+    });
+    return claudeHarnessResult(response, collector.snapshot(), persistedSession);
+  } catch (error) {
+    return await rethrowClaudeSessionError({
+      error,
+      shouldPersistSession,
+      agentStateDir,
+      session: sessionInvocation,
+      sessionStore,
+      sessionId,
       response,
-      ...(Object.keys(outputs).length === 0 ? {} : {outputs}),
-    };
+    });
   } finally {
     messages?.close();
     signal.removeEventListener('abort', abortQuery);
     claudeQuery?.close();
     if (configDir !== undefined) await cleanupClaudeConfigDir(configDir);
   }
+}
+
+function assertClaudeNotAborted(signal: AbortSignal): void {
+  if (signal.aborted) throw new Error('Agent step aborted before the Claude session started');
+}
+
+function handleClaudeAbort(signal: AbortSignal, abortQuery: () => void): void {
+  signal.addEventListener('abort', abortQuery, {once: true});
+  if (signal.aborted) {
+    abortQuery();
+    throw new Error('Agent step aborted before the Claude session started');
+  }
+}
+
+function claudeHarnessResult(
+  response: string,
+  outputs: Record<string, string>,
+  persistedSession: {sessionFile: string; sessionId: string} | undefined,
+): HarnessResult {
+  return {
+    response,
+    ...(Object.keys(outputs).length === 0 ? {} : {outputs}),
+    ...(persistedSession === undefined ? {} : persistedSession),
+  };
+}
+
+function persistClaudeSessionIfNeeded(params: {
+  shouldPersistSession: boolean;
+  agentStateDir: string;
+  session: HarnessInvocation['session'];
+  sessionStore: ClaudeSessionStore | undefined;
+  sessionId: string | undefined;
+}): Promise<{sessionFile: string; sessionId: string} | undefined> {
+  if (!params.shouldPersistSession) return Promise.resolve(undefined);
+  return persistClaudeSession(params);
+}
+
+async function rethrowClaudeSessionError(params: {
+  error: unknown;
+  shouldPersistSession: boolean;
+  agentStateDir: string;
+  session: HarnessInvocation['session'];
+  sessionStore: ClaudeSessionStore | undefined;
+  sessionId: string | undefined;
+  response: string;
+}): Promise<never> {
+  const {error} = params;
+  if (
+    !params.shouldPersistSession ||
+    params.sessionStore === undefined ||
+    params.sessionId === undefined ||
+    error instanceof AgentSessionUnavailableError ||
+    error instanceof AgentPermissionModeError
+  ) {
+    throw error;
+  }
+  const persistedSession = await persistClaudeSession({
+    agentStateDir: params.agentStateDir,
+    session: params.session,
+    sessionStore: params.sessionStore,
+    sessionId: params.sessionId,
+  });
+  if (error instanceof AgentInvocationError) {
+    throw new AgentInvocationError(
+      error.message,
+      error.response ?? params.response,
+      persistedSession.sessionFile,
+      params.sessionId,
+    );
+  }
+  throw new AgentInvocationError(
+    error instanceof Error ? error.message : String(error),
+    params.response,
+    persistedSession.sessionFile,
+    params.sessionId,
+  );
 }
 
 function assertClaudeInvocation(
@@ -480,21 +573,226 @@ function setOutputTool(collector: OutputCollector) {
   );
 }
 
+function claudeSessionQueryOptions(
+  session: HarnessInvocation['session'],
+  sessionStore: ClaudeSessionStore | undefined,
+) {
+  const resumedSessionId = session?.file === undefined ? undefined : sessionResumeId(session);
+  return {
+    persistSession: sessionStore !== undefined,
+    ...(sessionStore === undefined ? {} : {sessionStore, sessionStoreFlush: 'batched' as const}),
+    ...(resumedSessionId === undefined
+      ? {}
+      : {
+          resume: resumedSessionId,
+          ...(session?.mode === 'fork' ? {forkSession: true} : {}),
+        }),
+  };
+}
+
+async function runClaudeTurns(params: {
+  queryIterator: AsyncIterator<unknown>;
+  messages: ClaudeInputStream;
+  signal: AbortSignal;
+  prompt: string;
+  cwd: string;
+  useOutputTools: boolean;
+  collector: OutputCollector;
+  onSessionEntry: ((line: string) => void) | undefined;
+  onSessionId: (sessionId: string) => void;
+}): Promise<string> {
+  let response = '';
+  try {
+    await runOutputTurnLoop({
+      signal: params.signal,
+      prompt: withClaudePromptGuidance(
+        params.prompt,
+        await repositoryInstructions(params.cwd),
+        params.useOutputTools ? params.collector.guidanceText() : undefined,
+      ),
+      missingRequired: () => params.collector.missingRequired(),
+      guidanceForMissing: (missing) => params.collector.guidanceTextFor(missing),
+      runTurn: async (message) => {
+        params.messages.push(userMessage(message));
+        response =
+          (
+            await readClaudeResult({
+              queryIterator: params.queryIterator,
+              onSessionEntry: params.onSessionEntry,
+              onSessionId: params.onSessionId,
+            })
+          ).response ?? '';
+      },
+    });
+  } catch (error) {
+    if (error instanceof RequiredOutputsMissingError) {
+      throw new AgentInvocationError(error.message, response);
+    }
+    throw error;
+  }
+  return response;
+}
+
 async function readClaudeResult(params: {
   queryIterator: AsyncIterator<unknown>;
   onSessionEntry: ((line: string) => void) | undefined;
+  onSessionId: (sessionId: string) => void;
 }): Promise<HarnessResult> {
   while (true) {
     const next = await params.queryIterator.next();
     if (next.done === true) break;
     const message = next.value;
     forwardSessionEntry(params.onSessionEntry, message);
-    if (isInitMessage(message)) assertPermissionMode(message);
+    if (isInitMessage(message)) {
+      params.onSessionId(message.session_id);
+      assertPermissionMode(message);
+    }
     if (!isResultMessage(message)) continue;
     return claudeResult(message);
   }
 
   throw new Error('Claude agent did not emit a result message.');
+}
+
+class ClaudeSessionStore implements SessionStore {
+  readonly #entries = new Map<string, SessionStoreEntry[]>();
+  readonly #serializedPrefixes = new Map<string, string>();
+  readonly #appendedEntries = new Map<string, SessionStoreEntry[]>();
+
+  constructor(
+    sessionId: string | undefined,
+    entries: readonly SessionStoreEntry[],
+    serializedPrefix = '',
+  ) {
+    if (sessionId === undefined) return;
+    const key = sessionStoreKey({sessionId});
+    this.#entries.set(key, [...entries]);
+    this.#serializedPrefixes.set(key, serializedPrefix);
+  }
+
+  append(key: SessionKey, entries: SessionStoreEntry[]): Promise<void> {
+    const keyString = sessionStoreKey(key);
+    const stored = this.#entries.get(keyString) ?? [];
+    const uuids = new Set(
+      stored.flatMap((entry) => (entry.uuid === undefined ? [] : [entry.uuid])),
+    );
+    const appended = this.#appendedEntries.get(keyString) ?? [];
+    for (const entry of entries) {
+      if (entry.uuid !== undefined && uuids.has(entry.uuid)) continue;
+      stored.push(entry);
+      appended.push(entry);
+      if (entry.uuid !== undefined) uuids.add(entry.uuid);
+    }
+    this.#entries.set(keyString, stored);
+    this.#appendedEntries.set(keyString, appended);
+    return Promise.resolve();
+  }
+
+  load(key: SessionKey): Promise<SessionStoreEntry[] | null> {
+    const entries = this.#entries.get(sessionStoreKey(key));
+    return Promise.resolve(entries === undefined ? null : [...entries]);
+  }
+
+  serializedFor(sessionId: string): string {
+    const key = sessionStoreKey({sessionId});
+    const prefix = this.#serializedPrefixes.get(key) ?? '';
+    const appended = this.#appendedEntries.get(key) ?? [];
+    if (appended.length === 0) return prefix;
+    const separator = prefix === '' || prefix.endsWith('\n') ? '' : '\n';
+    return `${prefix}${separator}${appended.map((entry) => JSON.stringify(entry)).join('\n')}\n`;
+  }
+}
+
+function sessionStoreKey(key: Pick<SessionKey, 'sessionId' | 'subpath'>): string {
+  return `${key.sessionId}\u0000${key.subpath ?? ''}`;
+}
+
+async function createClaudeSessionStore(
+  session: HarnessInvocation['session'],
+): Promise<ClaudeSessionStore | undefined> {
+  if (session === undefined || (session.mode === 'fork' && session.file === undefined)) {
+    return undefined;
+  }
+  const sessionFile = session.file;
+  if (sessionFile === undefined) return new ClaudeSessionStore(undefined, []);
+
+  const sessionId = sessionResumeId(session);
+  try {
+    const contents = await readFile(sessionFile, 'utf8');
+    const entries = contents
+      .split(CLAUDE_SESSION_LINE_SEPARATOR)
+      .filter((line) => line.trim() !== '')
+      .map((line) => parseClaudeSessionEntry(line, sessionFile));
+    return new ClaudeSessionStore(sessionId, entries, contents);
+  } catch (error) {
+    if (error instanceof AgentSessionUnavailableError) throw error;
+    throw new AgentSessionUnavailableError(
+      `Claude could not load the agent session: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+function parseClaudeSessionEntry(line: string, file: string): SessionStoreEntry {
+  try {
+    const entry: unknown = JSON.parse(line);
+    if (
+      typeof entry !== 'object' ||
+      entry === null ||
+      !('type' in entry) ||
+      typeof entry.type !== 'string'
+    ) {
+      throw new Error('session entry is missing its type');
+    }
+    return entry as SessionStoreEntry;
+  } catch (error) {
+    throw new AgentSessionUnavailableError(
+      `Claude could not load the agent session: invalid transcript entry in ${file}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+function sessionResumeId(session: NonNullable<HarnessInvocation['session']>): string {
+  if (session.harnessSessionId === undefined || session.harnessSessionId === '') {
+    throw new AgentSessionUnavailableError(
+      'Claude could not load the agent session: the transcript has no native session id',
+    );
+  }
+  return session.harnessSessionId;
+}
+
+async function persistClaudeSession(params: {
+  agentStateDir: string;
+  session: HarnessInvocation['session'];
+  sessionStore: ClaudeSessionStore | undefined;
+  sessionId: string | undefined;
+}): Promise<{sessionFile: string; sessionId: string}> {
+  if (params.sessionStore === undefined || params.sessionId === undefined) {
+    throw new AgentSessionUnavailableError(
+      'Claude did not emit a native session id or session store transcript',
+    );
+  }
+  let entries: SessionStoreEntry[] | null;
+  try {
+    entries = await params.sessionStore.load({projectKey: '', sessionId: params.sessionId});
+  } catch (error) {
+    throw new AgentSessionUnavailableError(
+      `Claude could not read the agent session store: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  if (entries === null || entries.length === 0) {
+    throw new AgentSessionUnavailableError('Claude did not produce a session transcript');
+  }
+  const sessionFile =
+    params.session?.file ?? join(params.agentStateDir, 'sessions', CLAUDE_SESSION_FILE_NAME);
+  try {
+    await mkdir(join(params.agentStateDir, 'sessions'), {recursive: true});
+    await writeFile(sessionFile, params.sessionStore.serializedFor(params.sessionId));
+  } catch (error) {
+    throw new AgentSessionUnavailableError(
+      `Claude could not persist the agent session: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  return {sessionFile, sessionId: params.sessionId};
 }
 
 function isInitMessage(message: unknown): message is SDKSystemMessage {

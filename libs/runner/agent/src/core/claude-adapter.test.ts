@@ -49,7 +49,7 @@ vi.mock('@shipfox/node-egress-guard', () => ({
       .filter(Boolean),
 }));
 
-import {mkdtempSync, rmSync, symlinkSync, writeFileSync} from 'node:fs';
+import {existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {
@@ -126,6 +126,13 @@ function mcpBridge(): IntegrationToolsBridge {
   };
 }
 
+type TestSessionStore = {
+  append: (
+    key: {projectKey: string; sessionId: string},
+    entries: Array<{type: string; [key: string]: unknown}>,
+  ) => Promise<void>;
+};
+
 function lastQueryOptions(): {
   env: NodeJS.ProcessEnv;
   abortController: AbortController;
@@ -136,6 +143,11 @@ function lastQueryOptions(): {
   strictMcpConfig?: boolean;
   thinking?: unknown;
   effort?: unknown;
+  persistSession?: boolean;
+  sessionStore?: TestSessionStore;
+  sessionStoreFlush?: string;
+  resume?: string;
+  forkSession?: boolean;
 } {
   const call = queryMock.mock.calls[0] as
     | [
@@ -1041,6 +1053,110 @@ describe('claudeHarnessAdapter', () => {
         shipfox_outputs: expect.objectContaining({name: 'shipfox_outputs'}),
       }),
     );
+  });
+
+  it('hydrates and persists a resumed Claude session through the SDK session store', async () => {
+    const transcriptFile = join(testCwd, 'downloaded-session.jsonl');
+    writeFileSync(transcriptFile, '{"type":"user","uuid":"prior"}\n');
+    queryMock.mockImplementation((params: {options: {sessionStore?: TestSessionStore}}) => {
+      void params.options.sessionStore?.append(
+        {projectKey: 'project', sessionId: 'prior-session-id'},
+        [{type: 'assistant', uuid: 'next', message: {content: []}}],
+      );
+      return makeQuery([{...initMessage, session_id: 'prior-session-id'}, successMessage]);
+    });
+
+    const result = await claudeHarnessAdapter.run(
+      invocation({
+        session: {
+          mode: 'resume',
+          file: transcriptFile,
+          harnessSessionId: 'prior-session-id',
+        },
+      }),
+    );
+
+    expect(result).toMatchObject({
+      response: 'done',
+      sessionFile: transcriptFile,
+      sessionId: 'prior-session-id',
+    });
+    expect(readFileSync(transcriptFile, 'utf8')).toBe(
+      '{"type":"user","uuid":"prior"}\n{"type":"assistant","uuid":"next","message":{"content":[]}}\n',
+    );
+    expect(lastQueryOptions()).toMatchObject({
+      persistSession: true,
+      sessionStoreFlush: 'batched',
+      settingSources: [],
+      resume: 'prior-session-id',
+    });
+    expect(lastQueryOptions()).not.toHaveProperty('forkSession');
+    expect(lastQueryOptions().sessionStore).toBeDefined();
+    expect(lastQueryOptions().env.CLAUDE_CONFIG_DIR).toBeDefined();
+    expect(existsSync(lastQueryOptions().env.CLAUDE_CONFIG_DIR as string)).toBe(false);
+  });
+
+  it('creates and persists a fresh Claude resume session', async () => {
+    queryMock.mockImplementation((params: {options: {sessionStore?: TestSessionStore}}) => {
+      void params.options.sessionStore?.append({projectKey: 'project', sessionId: 'session-1'}, [
+        {type: 'user', uuid: 'first', message: {content: 'Fix it.'}},
+      ]);
+      return makeQuery([initMessage, successMessage]);
+    });
+
+    const result = await claudeHarnessAdapter.run(invocation({session: {mode: 'resume'}}));
+
+    expect(result).toMatchObject({
+      response: 'done',
+      sessionFile: join(testCwd, 'runner-agent', 'sessions', 'claude-session.jsonl'),
+      sessionId: 'session-1',
+    });
+    expect(readFileSync(result.sessionFile as string, 'utf8')).toBe(
+      '{"type":"user","uuid":"first","message":{"content":"Fix it."}}\n',
+    );
+    expect(lastQueryOptions()).toMatchObject({
+      persistSession: true,
+      settingSources: [],
+    });
+    expect(lastQueryOptions()).not.toHaveProperty('resume');
+  });
+
+  it('resumes a Claude fork without committing it', async () => {
+    const transcriptFile = join(testCwd, 'downloaded-session.jsonl');
+    writeFileSync(transcriptFile, '{"type":"user","uuid":"prior"}\n');
+    queryMock.mockReturnValue(makeQuery([initMessage, successMessage]));
+
+    const result = await claudeHarnessAdapter.run(
+      invocation({
+        session: {
+          mode: 'fork',
+          file: transcriptFile,
+          harnessSessionId: 'prior-session-id',
+        },
+      }),
+    );
+
+    expect(result).toEqual({response: 'done'});
+    expect(lastQueryOptions()).toMatchObject({
+      persistSession: true,
+      resume: 'prior-session-id',
+      forkSession: true,
+    });
+    expect(readFileSync(transcriptFile, 'utf8')).toBe('{"type":"user","uuid":"prior"}\n');
+  });
+
+  it('rejects a resumed Claude transcript without its native session id', async () => {
+    const transcriptFile = join(testCwd, 'downloaded-session.jsonl');
+    writeFileSync(transcriptFile, '{"type":"user","uuid":"prior"}\n');
+
+    const result = claudeHarnessAdapter.run(
+      invocation({session: {mode: 'resume', file: transcriptFile}}),
+    );
+
+    await expect(result).rejects.toThrow(
+      'Claude could not load the agent session: the transcript has no native session id',
+    );
+    expect(queryMock).not.toHaveBeenCalled();
   });
 
   it('does not spawn Claude when already aborted', async () => {
