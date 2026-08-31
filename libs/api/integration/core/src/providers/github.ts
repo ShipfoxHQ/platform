@@ -27,7 +27,6 @@ async function loadGithubModuleParts(
 ): Promise<IntegrationModuleParts> {
   const {
     createGithubInstallationTokenProvider,
-    GITHUB_INSTALLATION_TOKEN_ENVELOPE_KEY,
     createGithubE2eRoutes,
     encodeInstallationTokenEnvelope,
     createGithubIntegrationProvider,
@@ -42,19 +41,17 @@ async function loadGithubModuleParts(
     getIntegrationConnectionById,
     secretStore: options.secrets?.github
       ? {
-          read: async (workspaceId, installationId) =>
+          read: async (workspaceId, installationId, key) =>
             (await options.secrets?.github?.getSecret({
               workspaceId,
               namespace: githubInstallationTokenNamespace(installationId),
-              key: GITHUB_INSTALLATION_TOKEN_ENVELOPE_KEY,
+              key,
             })) ?? null,
-          write: async (workspaceId, installationId, envelope) => {
+          write: async (workspaceId, installationId, key, envelope) => {
             await options.secrets?.github?.setSecrets({
               workspaceId,
               namespace: githubInstallationTokenNamespace(installationId),
-              values: {
-                [GITHUB_INSTALLATION_TOKEN_ENVELOPE_KEY]: encodeInstallationTokenEnvelope(envelope),
-              },
+              values: {[key]: encodeInstallationTokenEnvelope(envelope)},
             });
           },
         }

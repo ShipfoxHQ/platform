@@ -47,6 +47,8 @@ export {
 export {
   encodeInstallationTokenEnvelope,
   GITHUB_INSTALLATION_TOKEN_ENVELOPE_KEY,
+  GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT,
+  githubInstallationTokenKey,
   githubInstallationTokenNamespace,
 } from '#api/installation-token-envelope.js';
 export {

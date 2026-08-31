@@ -1,3 +1,4 @@
+import {createHash} from 'node:crypto';
 import {
   IntegrationProviderError,
   type IntegrationProviderErrorReason,
@@ -10,6 +11,10 @@ export const TOKEN_VALIDITY_BUFFER_MS = 60 * 1000;
 export const TRANSIENT_BACKOFF_MIN_MS = 30 * 1000;
 export const TRANSIENT_BACKOFF_MAX_MS = 5 * 60 * 1000;
 export const TERMINAL_BACKOFF_MS = 15 * 60 * 1000;
+export const GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT = 'compatibility';
+export const GITHUB_INSTALLATION_TOKEN_BACKOFF_KEY = 'BACKOFF';
+
+const secretKeySafePermissionFingerprint = /^[A-Z][A-Z0-9_]{0,121}$/u;
 
 const providerErrorReasons = [
   'repository-not-found',
@@ -81,6 +86,23 @@ export const GITHUB_INSTALLATION_TOKEN_ENVELOPE_KEY = 'ENVELOPE';
 
 export function githubInstallationTokenNamespace(installationId: number): string {
   return `system/github/installation-token/${installationId}`;
+}
+
+export function githubInstallationTokenKey(permissionFingerprint: string): string {
+  if (permissionFingerprint.length === 0) {
+    throw new Error('GitHub installation token permission fingerprint cannot be empty');
+  }
+
+  // Secret keys use an uppercase identifier alphabet. Preserve canonical key-safe
+  // fingerprints and hash other inputs to stay within the secret-key length limit.
+  if (secretKeySafePermissionFingerprint.test(permissionFingerprint)) {
+    return `TOKEN_${permissionFingerprint}`;
+  }
+  const digest = createHash('sha256')
+    .update(permissionFingerprint, 'utf8')
+    .digest('hex')
+    .toUpperCase();
+  return `TOKEN_${digest}`;
 }
 
 export function encodeInstallationTokenEnvelope(envelope: InstallationTokenEnvelope): string {

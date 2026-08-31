@@ -6,11 +6,17 @@ describe('withInstallationTokenLock', () => {
 
     await first.ready;
     const contender = await withInstallationTokenLock(9001, async () => 'contender');
+    const differentProfile = await withInstallationTokenLock(
+      9001,
+      'narrow',
+      async () => 'different-profile',
+    );
     const different = await withInstallationTokenLock(9002, async () => 'different');
     first.release();
     const winner = await first.result;
 
     expect(contender).toEqual({acquired: false});
+    expect(differentProfile).toEqual({acquired: true, value: 'different-profile'});
     expect(different).toEqual({acquired: true, value: 'different'});
     expect(winner).toEqual({acquired: true, value: 'winner'});
   });
