@@ -181,6 +181,8 @@ When the provider terminates an instance, it reports `terminated` with either
 `backend-terminate` or `registration-deadline`.
 An authorized instance that remains in `stopping` past its configured timeout receives one forced termination retry.
 The retry reuses the API's first-observed `stopping_at` timestamp and does not create authorization.
+A live bound job fences the retry; a bound job with cancellation requested does not, because the API has already authorized cleanup.
+If `stopping_at` is absent, the provider logs the compatibility degradation and uses one graceful termination instead of a timeout retry.
 Stopped instances remain eligible for termination. Shutting-down and terminated
 instances do not trigger another AWS termination call.
 The in-memory marker resets when the provider restarts.

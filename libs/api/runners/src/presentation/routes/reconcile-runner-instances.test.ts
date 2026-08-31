@@ -217,6 +217,20 @@ describe('POST /provisioners/runner-instances/reconcile', () => {
     });
   });
 
+  it('omits stopping_at when a runner has no stopping timestamp', async () => {
+    await createRunnerInstance({providerRunnerId: 'provisioned-runner-1'});
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/provisioners/runner-instances/reconcile',
+      headers: {authorization: `Bearer ${VALID_PROVISIONER_TOKEN}`},
+      payload: {observed_provider_runner_ids: ['provisioned-runner-1']},
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(Object.hasOwn(res.json().runners[0], 'stopping_at')).toBe(false);
+  });
+
   it('returns keep for orphan observed ids without leaking ownership details', async () => {
     const res = await app.inject({
       method: 'POST',

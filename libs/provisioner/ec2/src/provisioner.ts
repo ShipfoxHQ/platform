@@ -19,7 +19,7 @@ export interface CreateEc2ProvisionerAdapterOptions {
   readonly registrationDeadlineMs: number;
   readonly launchHeadroomMs: number;
   readonly reconcileIntervalMs: number;
-  readonly stoppingTimeoutMs?: number;
+  readonly stoppingTimeoutMs: number;
 }
 
 /**
@@ -95,9 +95,7 @@ function createLifecycle(
     templates: options.templates,
     registrationDeadlineMs: options.registrationDeadlineMs,
     reconcileIntervalMs: options.reconcileIntervalMs,
-    ...(options.stoppingTimeoutMs === undefined
-      ? {}
-      : {stoppingTimeoutMs: options.stoppingTimeoutMs}),
+    stoppingTimeoutMs: options.stoppingTimeoutMs,
     providerKind: 'ec2',
     renderUserData,
   });

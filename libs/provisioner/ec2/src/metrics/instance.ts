@@ -41,6 +41,21 @@ const terminateCount = meter.createCounter<{
   description: 'EC2 runner instance terminations by template and reason',
 });
 
+const forcedTerminationRetryCount = meter.createCounter<{template_key: string}>(
+  'ec2_provisioner_terminate_forced_retry',
+  {description: 'EC2 runner termination retries forced after an instance remained in stopping'},
+);
+
+const stoppingRetryExhaustedCount = meter.createCounter<{template_key: string}>(
+  'ec2_provisioner_stopping_retry_exhausted',
+  {description: 'EC2 runner instances still stopping after their forced termination retry'},
+);
+
+const stoppingTimestampMissingCount = meter.createCounter<{template_key: string}>(
+  'ec2_provisioner_stopping_timestamp_missing',
+  {description: 'EC2 runner stopping observations missing the backend stopping timestamp'},
+);
+
 const reconcileAbsentCount = meter.createCounter<Record<string, never>>(
   'ec2_provisioner_reconcile_absent',
   {description: 'EC2 runner instances the backend or AWS reported absent during reconciliation'},
@@ -87,6 +102,18 @@ export function recordEc2Launch(
 
 export function recordEc2Termination(reason: Ec2TerminationReason, templateKey: string): void {
   terminateCount.add(1, {template_key: templateKey, reason});
+}
+
+export function recordEc2ForcedTerminationRetry(templateKey: string): void {
+  forcedTerminationRetryCount.add(1, {template_key: templateKey});
+}
+
+export function recordEc2StoppingRetryExhausted(templateKey: string): void {
+  stoppingRetryExhaustedCount.add(1, {template_key: templateKey});
+}
+
+export function recordEc2StoppingTimestampMissing(templateKey: string): void {
+  stoppingTimestampMissingCount.add(1, {template_key: templateKey});
 }
 
 export function recordEc2ReconcileAbsent(count: number): void {

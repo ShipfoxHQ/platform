@@ -72,6 +72,30 @@ describe('EC2 provisioner metrics', () => {
     });
   });
 
+  it('records forced termination retries by template', () => {
+    metrics.recordEc2ForcedTerminationRetry('spot-small');
+
+    expect(counterAdd('ec2_provisioner_terminate_forced_retry')).toHaveBeenCalledWith(1, {
+      template_key: 'spot-small',
+    });
+  });
+
+  it('records exhausted stopping retries by template', () => {
+    metrics.recordEc2StoppingRetryExhausted('spot-small');
+
+    expect(counterAdd('ec2_provisioner_stopping_retry_exhausted')).toHaveBeenCalledWith(1, {
+      template_key: 'spot-small',
+    });
+  });
+
+  it('records missing stopping timestamps by template', () => {
+    metrics.recordEc2StoppingTimestampMissing('spot-small');
+
+    expect(counterAdd('ec2_provisioner_stopping_timestamp_missing')).toHaveBeenCalledWith(1, {
+      template_key: 'spot-small',
+    });
+  });
+
   it('records the reconcile absence count without labels', () => {
     metrics.recordEc2ReconcileAbsent(2);
 
