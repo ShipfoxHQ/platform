@@ -237,6 +237,7 @@ describe('defaultModules', () => {
           contract: definitionsInterModuleContract,
           handlers: {
             getDefinitionForWorkflowRun: vi.fn(),
+            listDefinitionsByProject: vi.fn(),
             listDefinitionsAtRef: vi.fn(),
             resolveDefinitionAtRef: vi.fn(),
           },
