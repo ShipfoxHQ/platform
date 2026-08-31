@@ -75,7 +75,7 @@ export interface ReconciledBoundJobExecution {
 
 type JobStopExecution = Pick<
   ReconciledBoundJobExecution,
-  'lastHeartbeatAt' | 'cancellationRequestedAt' | 'cancellationReason'
+  'cancellationRequestedAt' | 'cancellationReason'
 >;
 
 export interface ReconciledRunnerInstance {
@@ -353,11 +353,7 @@ function getDesiredIntentReason(
 }
 
 function cleanupGraceStart(jobExecution: JobStopExecution | undefined): Date | null {
-  const cancellationRequestedAt = jobExecution?.cancellationRequestedAt;
-  if (!cancellationRequestedAt) return null;
-  return jobExecution.lastHeartbeatAt > cancellationRequestedAt
-    ? jobExecution.lastHeartbeatAt
-    : cancellationRequestedAt;
+  return jobExecution?.cancellationRequestedAt ?? null;
 }
 
 function terminationReasonForJobStop(

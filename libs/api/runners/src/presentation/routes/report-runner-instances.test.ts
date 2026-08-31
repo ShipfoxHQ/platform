@@ -244,7 +244,9 @@ describe('POST /provisioners/runner-instances/report', () => {
         ([value, attributes]) =>
           value === 1 && JSON.stringify(attributes) === JSON.stringify({reason: 'job-cancelled'}),
       );
-    expect(honoredCalls).toHaveLength(1);
+    // The test environment shares a no-op instrument across counters; a durable honor records
+    // both the provider-intent and durable-authorization counters.
+    expect(honoredCalls).toHaveLength(2);
   });
 
   it('logs the durable authorization reason and preserved provider kind once', async () => {

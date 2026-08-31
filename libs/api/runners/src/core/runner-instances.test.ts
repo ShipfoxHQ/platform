@@ -58,7 +58,7 @@ describe('reconcileRunnerInstancesFromDbResult', () => {
     expect(result[0]?.desiredIntent).toBe('keep');
   });
 
-  it('renews cleanup grace after a post-cancellation heartbeat', () => {
+  it('does not renew cleanup grace after a post-cancellation heartbeat', () => {
     const result = reconcileRunnerInstancesFromDbResult({
       observedRunnerInstanceIds: ['provisioned-runner-1'],
       observedRows: [providerRunner({providerRunnerId: 'provisioned-runner-1'})],
@@ -77,7 +77,10 @@ describe('reconcileRunnerInstancesFromDbResult', () => {
       cleanupGraceSeconds: 120,
     });
 
-    expect(result[0]?.desiredIntent).toBe('keep');
+    expect(result[0]).toMatchObject({
+      desiredIntent: 'terminate',
+      desiredIntentReason: 'job-cancelled',
+    });
   });
 
   it('terminates terminal provisioned runners with a cancelled job before cleanup grace expires', () => {

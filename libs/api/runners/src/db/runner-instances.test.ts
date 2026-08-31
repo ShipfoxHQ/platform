@@ -1284,13 +1284,7 @@ describe('reportRunnerInstances', () => {
     expect(result).toEqual({
       accepted: 1,
       reservationsReleased: 1,
-      terminateIntentsHonored: [
-        {
-          providerRunnerId: 'cancelled-terminal-runner',
-          reason: 'job-cancelled',
-          origin: 'legacy',
-        },
-      ],
+      terminateIntentsHonored: [],
     });
     expect(providerRunner).toMatchObject({
       state: 'terminated',
@@ -1572,7 +1566,7 @@ describe('reportRunnerInstances', () => {
     });
 
     expect(first.terminateIntentsHonored).toEqual([
-      {providerRunnerId: 'provisioned-runner-1', reason: 'job-cancelled', origin: 'legacy'},
+      {providerRunnerId: 'provisioned-runner-1', reason: 'job-cancelled', origin: 'durable'},
     ]);
     expect(second.terminateIntentsHonored).toEqual([]);
   });

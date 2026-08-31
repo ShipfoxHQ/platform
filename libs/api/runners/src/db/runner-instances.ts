@@ -16,7 +16,6 @@ import {
   type SQL,
   sql,
 } from 'drizzle-orm';
-import {alias} from 'drizzle-orm/pg-core';
 import {config} from '#config.js';
 import type {
   RunnerInstance,
@@ -1025,53 +1024,7 @@ function provisionerTerminateIntentsQuery(
     providerRunnerIds?: string[];
     providerRunnerIdAfter?: string;
   },
-  options: {includeCancelledJobs?: boolean} = {},
 ) {
-  const newerRunningJobExecutions = alias(runningJobExecutions, 'newer_running_jobs');
-  const latestCancelledJob =
-    options.includeCancelledJobs === true
-      ? exists(
-          tx
-            .select({id: runningJobExecutions.id})
-            .from(runningJobExecutions)
-            .where(
-              and(
-                eq(runningJobExecutions.workspaceId, params.workspaceId),
-                eq(runningJobExecutions.provisionerId, params.provisionerId),
-                eq(runningJobExecutions.providerRunnerId, providerRunners.providerRunnerId),
-                isNotNull(runningJobExecutions.cancellationRequestedAt),
-                notExists(
-                  tx
-                    .select({id: newerRunningJobExecutions.id})
-                    .from(newerRunningJobExecutions)
-                    .where(
-                      and(
-                        eq(newerRunningJobExecutions.workspaceId, runningJobExecutions.workspaceId),
-                        eq(
-                          newerRunningJobExecutions.provisionerId,
-                          runningJobExecutions.provisionerId,
-                        ),
-                        eq(
-                          newerRunningJobExecutions.providerRunnerId,
-                          runningJobExecutions.providerRunnerId,
-                        ),
-                        or(
-                          gt(newerRunningJobExecutions.startedAt, runningJobExecutions.startedAt),
-                          and(
-                            eq(newerRunningJobExecutions.startedAt, runningJobExecutions.startedAt),
-                            gt(
-                              newerRunningJobExecutions.jobExecutionId,
-                              runningJobExecutions.jobExecutionId,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                ),
-              ),
-            ),
-        )
-      : sql<boolean>`false`;
   const activationTimeout = and(
     eq(providerRunners.launchKind, 'demand'),
     isNull(providerRunners.runnerSessionId),
@@ -1119,7 +1072,7 @@ function provisionerTerminateIntentsQuery(
         params.providerRunnerIdAfter
           ? gt(providerRunners.providerRunnerId, params.providerRunnerIdAfter)
           : undefined,
-        or(latestCancelledJob, activationTimeout),
+        activationTimeout,
       ),
     );
 }
@@ -1187,21 +1140,6 @@ async function listTerminateIntentsHonoredByTerminatedReportsTx(
         : [];
     }),
   );
-
-  // Keep recognizing direct legacy cancellation intents until graceful cleanup moves them onto
-  // the durable authorization path. A canonical authorization always wins for the same runner.
-  if (params.workspaceId) {
-    const legacyRows = await provisionerTerminateIntentsQuery(tx, {
-      workspaceId: params.workspaceId,
-      provisionerId: params.provisionerId,
-      providerRunnerIds: terminatedRunnerInstanceIds,
-    }, {includeCancelledJobs: true}).orderBy(asc(providerRunners.providerRunnerId));
-    for (const row of legacyRows) {
-      const intent = toRunnerInstanceTerminateIntent(row)[0];
-      if (intent && !honoredByRunnerId.has(intent.providerRunnerId))
-        honoredByRunnerId.set(intent.providerRunnerId, {...intent, origin: 'legacy'});
-    }
-  }
 
   return [...honoredByRunnerId.values()];
 }

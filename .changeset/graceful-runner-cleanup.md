@@ -2,4 +2,4 @@
 '@shipfox/api-runners': minor
 ---
 
-Move cancelled and timed-out runner termination to durable reconcile authorization after local cleanup; apply termination-reason gates and keep cleanup grace below STUCK_JOB_THRESHOLD_SECONDS.
+Cancelled and timed-out runner jobs now acknowledge and finish downloading or uploading before termination, and keep their stop reason (user cancellation vs. maximum-duration timeout) intact.
