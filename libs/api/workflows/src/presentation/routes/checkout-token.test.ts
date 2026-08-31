@@ -14,6 +14,7 @@ import {eq} from 'drizzle-orm';
 import type {StepStatus} from '#core/entities/step.js';
 import type {WorkflowRunTriggerReference} from '#core/entities/workflow-run.js';
 import {db} from '#db/db.js';
+import {checkoutRenewalSubjects} from '#db/schema/checkout-renewal-subjects.js';
 import {jobs as jobsTable} from '#db/schema/jobs.js';
 import {steps as stepsTable} from '#db/schema/steps.js';
 import {workflowRuns} from '#db/schema/workflow-runs.js';
@@ -24,6 +25,22 @@ import {insertRunningJobLease, mintActiveLeaseToken} from '#test/fixtures/active
 import {fakeLeaseTokenAuthMethod, mintLeaseToken} from '#test/fixtures/lease-token.js';
 import {runnersTestClient} from '#test/fixtures/runners-inter-module.js';
 import {createLeaseTokenRouteGroup} from './index.js';
+
+const {captureExceptionMock, savePendingCheckoutRenewalSubjectMock} = vi.hoisted(() => ({
+  captureExceptionMock: vi.fn(),
+  savePendingCheckoutRenewalSubjectMock: vi.fn(),
+}));
+
+vi.mock('@shipfox/node-error-monitoring', () => ({captureException: captureExceptionMock}));
+vi.mock('#db/checkout-renewal-subjects.js', async () => {
+  const actual = await vi.importActual<typeof import('#db/checkout-renewal-subjects.js')>(
+    '#db/checkout-renewal-subjects.js',
+  );
+  savePendingCheckoutRenewalSubjectMock.mockImplementation(
+    actual.savePendingCheckoutRenewalSubject,
+  );
+  return {...actual, savePendingCheckoutRenewalSubject: savePendingCheckoutRenewalSubjectMock};
+});
 
 const getProjectById = vi.fn();
 const resolveCheckoutTarget = vi.fn();
@@ -72,6 +89,8 @@ describe('POST /runs/jobs/current/steps/:stepId/checkout-token', () => {
     createCheckoutSpec.mockReset();
     getProjectById.mockReset();
     resolveCheckoutTarget.mockReset();
+    savePendingCheckoutRenewalSubjectMock.mockClear();
+    captureExceptionMock.mockReset();
     clearLogLines();
   });
 
@@ -131,6 +150,21 @@ describe('POST /runs/jobs/current/steps/:stepId/checkout-token', () => {
         persist: true,
       },
     });
+    const [storedSubject] = await db()
+      .select()
+      .from(checkoutRenewalSubjects)
+      .where(eq(checkoutRenewalSubjects.stepId, step.id));
+    expect(storedSubject).toMatchObject({
+      stepId: step.id,
+      attempt: step.currentAttempt,
+      workflowRunAttemptId: job.workflowRunAttemptId,
+      repositoryUrl: 'https://github.com/acme/repo',
+      connectionId: project.sourceConnectionId,
+      externalRepositoryId: project.sourceExternalRepositoryId,
+      permissionsContents: 'read',
+      status: 'pending',
+    });
+    expect(storedSubject).not.toHaveProperty('token');
     expect(resolveCheckoutTarget).toHaveBeenCalledWith({
       workspaceId: project.workspaceId,
       defaults: {connectionId: project.sourceConnectionId, owner: 'acme'},
@@ -142,6 +176,53 @@ describe('POST /runs/jobs/current/steps/:stepId/checkout-token', () => {
       externalRepositoryId: project.sourceExternalRepositoryId,
       permissions: {contents: 'read'},
     });
+  });
+
+  test('does not persist credentials when the renewal subject cannot be frozen', async () => {
+    const {project, job, step} = await createRunningCheckoutStep();
+    getProjectById.mockResolvedValue({project});
+    resolveCheckoutTarget.mockResolvedValue({
+      projectId: project.id,
+      connectionId: project.sourceConnectionId,
+      externalRepositoryId: project.sourceExternalRepositoryId,
+    });
+    createCheckoutSpec.mockResolvedValue(githubSpec('ghs-untracked-token'));
+    savePendingCheckoutRenewalSubjectMock.mockResolvedValueOnce(false);
+    const token = await mintActiveLeaseToken({jobId: job.id});
+
+    const res = await app.inject({
+      method: 'POST',
+      url: checkoutUrl(step.id, step.currentAttempt),
+      headers: {authorization: `Bearer ${token}`},
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().auth.persist).toBe(false);
+    expect(logLines.join('\n')).toContain('checkout-renewal-subject-not-saved');
+  });
+
+  test('does not persist credentials when saving the renewal subject fails', async () => {
+    const {project, job, step} = await createRunningCheckoutStep();
+    getProjectById.mockResolvedValue({project});
+    resolveCheckoutTarget.mockResolvedValue({
+      projectId: project.id,
+      connectionId: project.sourceConnectionId,
+      externalRepositoryId: project.sourceExternalRepositoryId,
+    });
+    createCheckoutSpec.mockResolvedValue(githubSpec('ghs-save-failure-token'));
+    savePendingCheckoutRenewalSubjectMock.mockRejectedValueOnce(new Error('database unavailable'));
+    const token = await mintActiveLeaseToken({jobId: job.id});
+
+    const res = await app.inject({
+      method: 'POST',
+      url: checkoutUrl(step.id, step.currentAttempt),
+      headers: {authorization: `Bearer ${token}`},
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().auth.persist).toBe(false);
+    expect(captureExceptionMock).toHaveBeenCalledTimes(1);
+    expect(logLines.join('\n')).toContain('checkout-renewal-subject-save-failed');
   });
 
   test('defaults the checkout ref to the run trigger commit for the same project', async () => {
@@ -271,6 +352,11 @@ describe('POST /runs/jobs/current/steps/:stepId/checkout-token', () => {
       ref: 'trunk',
       fetch_depth: 1,
     });
+    const [storedSubject] = await db()
+      .select()
+      .from(checkoutRenewalSubjects)
+      .where(eq(checkoutRenewalSubjects.stepId, step.id));
+    expect(storedSubject).toBeUndefined();
   });
 
   test('mints an explicit checkout step from its target, ref, permissions, and fetch depth', async () => {

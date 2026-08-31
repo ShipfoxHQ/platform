@@ -13,9 +13,16 @@ import {
   checkoutTokenResponseSchema,
 } from '@shipfox/api-workflows-dto';
 import {isInterModuleKnownError} from '@shipfox/inter-module';
+import {captureException} from '@shipfox/node-error-monitoring';
 import {ClientError, defineRoute} from '@shipfox/node-fastify';
 import {createStepCheckoutSpec} from '#core/checkout.js';
-import {CheckoutConfigInvalidError, CheckoutIntentUnresolvedError} from '#core/errors.js';
+import type {CheckoutRenewalSubject} from '#core/entities/checkout-renewal-subject.js';
+import {
+  CheckoutConfigInvalidError,
+  CheckoutIntentUnresolvedError,
+  CheckoutRepositoryUrlInvalidError,
+} from '#core/errors.js';
+import {savePendingCheckoutRenewalSubject} from '#db/checkout-renewal-subjects.js';
 import {toCheckoutTokenDto} from '#presentation/dto/checkout-token.js';
 import {loadRunningLeasedStep} from './leased-step.js';
 
@@ -38,12 +45,13 @@ export function createCheckoutTokenRoute(clients: {
     handler: async (request, reply) => {
       const {stepId} = request.params;
       const {attempt} = request.query;
-      const {step, workspaceId, projectId, triggerReference, run} = await loadRunningLeasedStep({
-        runners: clients.runners,
-        request,
-        stepId,
-        attempt,
-      });
+      const {leasedJob, step, workspaceId, projectId, triggerReference, run} =
+        await loadRunningLeasedStep({
+          runners: clients.runners,
+          request,
+          stepId,
+          attempt,
+        });
 
       if (step.type !== 'setup' && step.type !== 'checkout') {
         throw new ClientError('Step is not a checkout step', 'step-not-checkout', {status: 409});
@@ -58,18 +66,70 @@ export function createCheckoutTokenRoute(clients: {
         integrations: clients.integrations,
         projects: clients.projects,
       });
-      reply.header('cache-control', 'no-store');
-      return toCheckoutTokenDto(checkout.spec, {
+      const response = toCheckoutTokenDto(checkout.spec, {
         fetchDepth: checkout.fetchDepth,
         persist: checkout.persistCredentials,
       });
+      if (checkout.renewalSubject !== undefined) {
+        const subjectSaved = await persistCheckoutRenewalSubject({
+          renewalSubject: checkout.renewalSubject,
+          stepId,
+          attempt,
+          jobExecutionId: step.jobExecutionId,
+          workflowRunAttemptId: leasedJob.workflowRunAttemptId,
+          warn: (context, message) => request.log.warn(context, message),
+          error: (context, message) => request.log.error(context, message),
+        });
+        if (!subjectSaved && response.auth !== undefined) response.auth.persist = false;
+      }
+      reply.header('cache-control', 'no-store');
+      return response;
     },
   });
+}
+
+async function persistCheckoutRenewalSubject(params: {
+  renewalSubject: Omit<CheckoutRenewalSubject, 'stepId' | 'attempt'>;
+  stepId: string;
+  attempt: number;
+  jobExecutionId: string;
+  workflowRunAttemptId: string;
+  warn: (context: {outcome: string}, message: string) => void;
+  error: (context: {outcome: string}, message: string) => void;
+}): Promise<boolean> {
+  try {
+    const subjectSaved = await savePendingCheckoutRenewalSubject({
+      ...params.renewalSubject,
+      stepId: params.stepId,
+      attempt: params.attempt,
+      jobExecutionId: params.jobExecutionId,
+      workflowRunAttemptId: params.workflowRunAttemptId,
+    });
+    if (subjectSaved) return true;
+    params.warn(
+      {outcome: 'checkout-renewal-subject-not-saved'},
+      'Checkout credentials will not be persisted',
+    );
+    return false;
+  } catch (error) {
+    params.error(
+      {outcome: 'checkout-renewal-subject-save-failed'},
+      'Checkout renewal subject could not be saved',
+    );
+    captureException(error);
+    return false;
+  }
 }
 
 function handleCheckoutTokenError(error: unknown): never {
   if (error instanceof CheckoutIntentUnresolvedError) {
     throw new ClientError(error.message, 'checkout-unavailable', {status: 404});
+  }
+  if (error instanceof CheckoutRepositoryUrlInvalidError) {
+    throw new ClientError('Checkout repository URL is invalid', 'checkout-repository-url-invalid', {
+      status: 422,
+      cause: error,
+    });
   }
   if (error instanceof CheckoutConfigInvalidError) {
     throw new ClientError('Checkout configuration is invalid', 'checkout-config-invalid', {

@@ -2,6 +2,10 @@ import type {IntegrationsModuleClient} from '@shipfox/api-integration-core-dto/i
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import {checkoutTargetValidationIssues} from '@shipfox/workflow-document';
 import {z} from 'zod';
+import {
+  type CheckoutRenewalSubject,
+  normalizeRepositoryUrl,
+} from '#core/entities/checkout-renewal-subject.js';
 import type {Step} from '#core/entities/step.js';
 import type {
   WorkflowRunOriginState,
@@ -37,6 +41,23 @@ const checkoutConfigSchema = z
 
 type CheckoutConfig = z.infer<typeof checkoutConfigSchema>;
 
+export interface CheckoutPolicy {
+  persistCredentials: boolean;
+  permissionsContents: 'read' | 'write';
+}
+
+export function getCheckoutPolicy(stepConfig: unknown): CheckoutPolicy | null {
+  if (typeof stepConfig !== 'object' || stepConfig === null || Array.isArray(stepConfig))
+    return null;
+  const checkout = (stepConfig as {checkout?: unknown}).checkout;
+  const result = checkoutConfigSchema.safeParse(checkout);
+  if (!result.success) return null;
+  return {
+    persistCredentials: result.data.persist_credentials ?? true,
+    permissionsContents: result.data.permissions?.contents ?? 'read',
+  };
+}
+
 export async function createStepCheckoutSpec({
   step,
   workspaceId,
@@ -69,6 +90,7 @@ export async function createStepCheckoutSpec({
   };
   fetchDepth: number;
   persistCredentials: boolean;
+  renewalSubject?: Omit<CheckoutRenewalSubject, 'stepId' | 'attempt'>;
 }> {
   const checkout = parseCheckoutConfig(step);
   const {project: defaultProject} = await projects.getProjectById({projectId});
@@ -92,15 +114,20 @@ export async function createStepCheckoutSpec({
     target,
   });
   const ref = resolveCheckoutRef({checkout, triggerReference, run, resolvedTarget, projectId});
+  const permissions = checkout.permissions ?? {contents: 'read'};
   const response = await integrations.createCheckoutSpec({
     workspaceId,
     connectionId: resolvedTarget.connectionId,
     externalRepositoryId: resolvedTarget.externalRepositoryId,
     ...(ref === undefined ? {} : {ref}),
-    permissions: checkout.permissions ?? {contents: 'read'},
+    permissions,
   });
 
-  return checkoutResult(checkout, response);
+  return checkoutResult(checkout, response, {
+    connectionId: resolvedTarget.connectionId,
+    externalRepositoryId: resolvedTarget.externalRepositoryId,
+    permissions,
+  });
 }
 
 function resolveCheckoutRef(params: {
@@ -131,8 +158,13 @@ function resolveCheckoutRef(params: {
 
 type CheckoutSpecResponse = Awaited<ReturnType<IntegrationsModuleClient['createCheckoutSpec']>>;
 
-function checkoutResult(checkout: CheckoutConfig, response: CheckoutSpecResponse) {
+function checkoutResult(
+  checkout: CheckoutConfig,
+  response: CheckoutSpecResponse,
+  target: Pick<CheckoutRenewalSubject, 'connectionId' | 'externalRepositoryId' | 'permissions'>,
+) {
   const credentials = checkoutCredentials(response.credentials);
+  const persistCredentials = checkout.persist_credentials ?? true;
   return {
     spec: {
       repositoryUrl: response.repositoryUrl,
@@ -141,7 +173,17 @@ function checkoutResult(checkout: CheckoutConfig, response: CheckoutSpecResponse
       ...(response.gitAuthor === undefined ? {} : {gitAuthor: response.gitAuthor}),
     },
     fetchDepth: checkout.fetch_depth ?? 1,
-    persistCredentials: checkout.persist_credentials ?? true,
+    persistCredentials,
+    ...(credentials === undefined || !persistCredentials
+      ? {}
+      : {
+          renewalSubject: {
+            repositoryUrl: normalizeRepositoryUrl(response.repositoryUrl),
+            connectionId: target.connectionId,
+            externalRepositoryId: target.externalRepositoryId,
+            permissions: target.permissions,
+          },
+        }),
   };
 }
 

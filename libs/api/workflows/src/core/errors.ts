@@ -299,6 +299,17 @@ export class CheckoutConfigInvalidError extends Error {
   }
 }
 
+export class CheckoutRepositoryUrlInvalidError extends Error {
+  constructor(readonly reason: 'credentials' | 'invalid') {
+    super(
+      reason === 'credentials'
+        ? 'Checkout repository URL must not embed credentials'
+        : 'Checkout repository URL must be valid',
+    );
+    this.name = 'CheckoutRepositoryUrlInvalidError';
+  }
+}
+
 export class StepNotFoundError extends Error {
   constructor(stepId: string, jobId: string) {
     super(`Step ${stepId} not found in job ${jobId}`);

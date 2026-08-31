@@ -1,5 +1,6 @@
 import {drizzle, type NodePgDatabase} from '@shipfox/node-drizzle';
 import {pgClient} from '@shipfox/node-postgres';
+import {checkoutRenewalSubjects} from './schema/checkout-renewal-subjects.js';
 import {jobExecutions} from './schema/job-executions.js';
 import {jobListenerEvents} from './schema/job-listener-events.js';
 import {jobs} from './schema/jobs.js';
@@ -11,6 +12,7 @@ import {workflowRunCounters} from './schema/workflow-run-counters.js';
 import {workflowRuns} from './schema/workflow-runs.js';
 
 export const schema = {
+  checkoutRenewalSubjects,
   workflowRuns,
   workflowRunAttempts,
   workflowRunCounters,
