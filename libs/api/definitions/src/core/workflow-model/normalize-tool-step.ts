@@ -43,6 +43,51 @@ export interface NormalizedToolStep {
   readonly overlay: WorkflowStepTypeOverlay;
 }
 
+type NormalizeToolStepParams = Parameters<typeof normalizeToolStep>[0];
+type ParsedToolId = {readonly id: string; readonly method?: string};
+
+function validateToolConnection(params: NormalizeToolStepParams): boolean {
+  const interpolated =
+    params.step.connection !== undefined && isInterpolated(params.step.connection);
+  if (!interpolated) return false;
+  params.issues.push(
+    issue({
+      code: 'tool-id-invalid',
+      message: `Connection slug "${params.step.connection}" must be literal. Interpolation is rejected.`,
+      path: toolConnectionPath(params),
+      details: {connection: params.step.connection},
+    }),
+  );
+  return true;
+}
+
+function resolveToolCatalogEntry(
+  params: NormalizeToolStepParams,
+  tool: ParsedToolId | undefined,
+  connectionIsInterpolated: boolean,
+): ToolCatalogEntry | undefined {
+  if (tool === undefined || connectionIsInterpolated) return undefined;
+  return validateConnectionAndTool({...params, tool});
+}
+
+function validateResolvedTool(
+  params: NormalizeToolStepParams,
+  tool: ParsedToolId | undefined,
+  catalogEntry: ToolCatalogEntry | undefined,
+): void {
+  if (catalogEntry !== undefined && tool !== undefined) {
+    validateToolInputs({
+      ...params,
+      tool,
+      withValue: params.step.with,
+      schema: catalogEntry.inputSchema,
+    });
+  }
+  if (tool?.method !== undefined && params.step.with !== undefined) {
+    rejectWithMethod({...params, tool, withValue: params.step.with});
+  }
+}
+
 export function normalizeToolStep(params: {
   step: WorkflowDocumentStep;
   stepBase: WorkflowModelStepBaseFields;
@@ -66,25 +111,8 @@ export function normalizeToolStep(params: {
     stepIndex: params.stepIndex,
     issues: params.issues,
   });
-  const connectionIsInterpolated =
-    params.step.connection !== undefined && isInterpolated(params.step.connection);
-  if (connectionIsInterpolated) {
-    params.issues.push(
-      issue({
-        code: 'tool-id-invalid',
-        message: `Connection slug "${params.step.connection}" must be literal. Interpolation is rejected.`,
-        path: toolConnectionPath(params),
-        details: {connection: params.step.connection},
-      }),
-    );
-  }
-  const catalogEntry =
-    tool === undefined || connectionIsInterpolated
-      ? undefined
-      : validateConnectionAndTool({
-          ...params,
-          tool,
-        });
+  const connectionIsInterpolated = validateToolConnection(params);
+  const catalogEntry = resolveToolCatalogEntry(params, tool, connectionIsInterpolated);
   const outputSchema = catalogEntry?.outputSchema;
 
   const withTemplates = normalizeWithTemplates({
@@ -97,50 +125,64 @@ export function normalizeToolStep(params: {
     resultTypeOverlay:
       outputSchema === undefined ? undefined : {result: jsonSchemaToExpressionType(outputSchema)},
   });
-  if (catalogEntry !== undefined && tool !== undefined) {
-    validateToolInputs({
-      ...params,
-      tool,
-      withValue: params.step.with,
-      schema: catalogEntry.inputSchema,
-    });
-  }
-  if (tool !== undefined && tool.method !== undefined && params.step.with !== undefined) {
-    rejectWithMethod({...params, tool, withValue: params.step.with});
-  }
+  validateResolvedTool(params, tool, catalogEntry);
 
-  const step: WorkflowModelToolStep = {
-    ...params.stepBase,
+  const step = createNormalizedToolModelStep({
+    params,
+    tool,
+    withTemplates,
+    outputMappings,
+  });
+
+  return {
+    step,
+    overlay: createToolStepOverlay(params, step, outputMappings, outputSchema),
+  };
+}
+
+function createNormalizedToolModelStep(params: {
+  params: NormalizeToolStepParams;
+  tool: ParsedToolId | undefined;
+  withTemplates: WorkflowJsonTemplateTree | undefined;
+  outputMappings: Record<string, WorkflowExpression> | undefined;
+}): WorkflowModelToolStep {
+  const {params: input, tool, withTemplates, outputMappings} = params;
+  return {
+    ...input.stepBase,
     kind: 'tool',
     // An invalid id (interpolated or mis-shaped) is frozen unsplit; the emitted
     // `tool-id-invalid` issue fails normalization, so the model is never used.
-    tool: tool ?? {id: params.step.tool ?? ''},
-    ...(params.step.connection === undefined ? {} : {connection: params.step.connection}),
-    ...(params.step.with === undefined ? {} : {with: params.step.with}),
+    tool: tool ?? {id: input.step.tool ?? ''},
+    ...(input.step.connection === undefined ? {} : {connection: input.step.connection}),
+    ...(input.step.with === undefined ? {} : {with: input.step.with}),
     ...(outputMappings === undefined
       ? {}
       : {outputs: outputMappingsToDeclarations(outputMappings)}),
     ...(outputMappings === undefined ? {} : {outputMappings}),
-    ...(withTemplates === undefined && params.name === undefined
+    ...(withTemplates === undefined && input.name === undefined
       ? {}
       : {
           templates: {
             ...(withTemplates === undefined ? {} : {with: withTemplates}),
-            ...(params.name === undefined ? {} : {name: params.name}),
+            ...(input.name === undefined ? {} : {name: input.name}),
           },
         }),
   };
+}
 
+function createToolStepOverlay(
+  params: NormalizeToolStepParams,
+  step: WorkflowModelToolStep,
+  outputMappings: Record<string, WorkflowExpression> | undefined,
+  outputSchema: Readonly<Record<string, unknown>> | undefined,
+): WorkflowStepTypeOverlay {
   return {
-    step,
-    overlay: {
-      key: params.stepBase.key ?? step.id,
-      kind: 'tool',
-      ...(outputMappings === undefined
-        ? {}
-        : {outputs: outputMappingsToDeclarations(outputMappings)}),
-      ...(outputSchema === undefined ? {} : {outputSchema}),
-    },
+    key: params.stepBase.key ?? step.id,
+    kind: 'tool',
+    ...(outputMappings === undefined
+      ? {}
+      : {outputs: outputMappingsToDeclarations(outputMappings)}),
+    ...(outputSchema === undefined ? {} : {outputSchema}),
   };
 }
 
@@ -557,24 +599,40 @@ function validateInputRecord(params: {
   const serverInjectedMethod =
     params.tool.method === undefined || params.path.length !== 1 ? undefined : 'method';
 
-  if (params.schema.additionalProperties === false) {
-    for (const key of Object.keys(params.record)) {
-      if (key === serverInjectedMethod) continue;
-      if (Object.hasOwn(properties, key)) continue;
-      params.issues.push(
-        issue({
-          code: 'tool-input-unknown-key',
-          message: `Unknown tool input "${key}" for tool "${toolDisplayName}".`,
-          path: ['jobs', params.sourceName, 'steps', params.stepIndex, ...params.path, key],
-          details: {tool: toolDisplayName, key},
-        }),
-      );
-    }
-  }
+  validateUnknownInputKeys(params, properties, serverInjectedMethod, toolDisplayName);
+  validateRequiredInputKeys(params, serverInjectedMethod, toolDisplayName);
+  validateNestedInputValues(params, properties);
+}
 
+type ValidateInputRecordParams = Parameters<typeof validateInputRecord>[0];
+
+function validateUnknownInputKeys(
+  params: ValidateInputRecordParams,
+  properties: Readonly<Record<string, unknown>>,
+  serverInjectedMethod: string | undefined,
+  toolDisplayName: string,
+): void {
+  if (params.schema.additionalProperties !== false) return;
+  for (const key of Object.keys(params.record)) {
+    if (key === serverInjectedMethod || Object.hasOwn(properties, key)) continue;
+    params.issues.push(
+      issue({
+        code: 'tool-input-unknown-key',
+        message: `Unknown tool input "${key}" for tool "${toolDisplayName}".`,
+        path: ['jobs', params.sourceName, 'steps', params.stepIndex, ...params.path, key],
+        details: {tool: toolDisplayName, key},
+      }),
+    );
+  }
+}
+
+function validateRequiredInputKeys(
+  params: ValidateInputRecordParams,
+  serverInjectedMethod: string | undefined,
+  toolDisplayName: string,
+): void {
   for (const key of requiredKeys(params.schema)) {
-    if (key === serverInjectedMethod) continue;
-    if (Object.hasOwn(params.record, key)) continue;
+    if (key === serverInjectedMethod || Object.hasOwn(params.record, key)) continue;
     params.issues.push(
       issue({
         code: 'tool-input-invalid',
@@ -584,7 +642,12 @@ function validateInputRecord(params: {
       }),
     );
   }
+}
 
+function validateNestedInputValues(
+  params: ValidateInputRecordParams,
+  properties: Readonly<Record<string, unknown>>,
+): void {
   for (const [key, value] of Object.entries(params.record)) {
     const propertySchema = properties[key];
     if (propertySchema === undefined || !isPlainRecord(propertySchema)) continue;
@@ -688,7 +751,9 @@ function schemaAllowsType(schema: Readonly<Record<string, unknown>>, type: strin
 
 function expectedTypeLabel(schema: Readonly<Record<string, unknown>>): string {
   const type = schema.type;
-  const types = type === undefined ? [] : Array.isArray(type) ? type : [type];
+  let types: unknown[] = [];
+  if (Array.isArray(type)) types = type;
+  else if (type !== undefined) types = [type];
   return types.length === 0 ? 'a supported type' : types.join(' or ');
 }
 

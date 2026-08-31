@@ -176,6 +176,25 @@ export function composeRoutes(
 ): ComposedRoute[] {
   const layouts = providedLayouts ? [...providedLayouts] : composeLayouts(features);
   const layoutById = validateLayoutParents(layouts);
+  const layoutPaths = indexLayoutPaths(layouts);
+  const routes = new Map<string, ComposedRoute>();
+  for (const feature of features) {
+    for (const contribution of feature.routes ?? []) {
+      addRouteContribution(feature, contribution, layoutPaths, routes);
+    }
+  }
+
+  for (const layout of layouts) {
+    validateNestedRoute(layout.path, layout.parent, layoutById, layout.featureId);
+  }
+  for (const route of routes.values()) {
+    validateRoutePathInvariants(route.path);
+    validateNestedRoute(route.path, route.parent, layoutById, route.featureId);
+  }
+  return [...routes.values()];
+}
+
+function indexLayoutPaths(layouts: readonly ComposedLayout[]): Map<string, ComposedLayout> {
   const layoutPaths = new Map<string, ComposedLayout>();
   for (const layout of layouts) {
     validateRoutePathInvariants(layout.path);
@@ -189,75 +208,79 @@ export function composeRoutes(
     }
     layoutPaths.set(layout.path, layout);
   }
+  return layoutPaths;
+}
 
-  const routes = new Map<string, ComposedRoute>();
-  for (const feature of features) {
-    for (const contribution of feature.routes ?? []) {
-      const normalizedContribution = {
-        ...contribution,
-        path: normalizeRoutePath(contribution.path),
-      };
-      const layoutAtPath = layoutPaths.get(normalizedContribution.path);
-      if (layoutAtPath) {
-        const message = normalizedContribution.override
-          ? `Route override for "${normalizedContribution.path}" from feature "${feature.id}" cannot replace layout "${layoutAtPath.id}" contributed by feature "${layoutAtPath.featureId}".`
-          : `Route "${normalizedContribution.path}" from feature "${feature.id}" conflicts with layout "${layoutAtPath.id}" contributed by feature "${layoutAtPath.featureId}". Routes cannot replace layouts.`;
-        throw new RouteCompositionError(normalizedContribution.path, message, [
-          layoutAtPath.featureId,
-          feature.id,
-        ]);
-      }
-      const existing = routes.get(normalizedContribution.path);
-      if (!existing) {
-        if (normalizedContribution.override) {
-          throw new RouteCompositionError(
-            normalizedContribution.path,
-            `Route override for "${normalizedContribution.path}" from feature "${feature.id}" has no route to replace.`,
-            [feature.id],
-          );
-        }
-        routes.set(normalizedContribution.path, {
-          ...normalizedContribution,
-          featureId: feature.id,
-          ownerFeatureId: feature.id,
-        });
-        continue;
-      }
-      if (!normalizedContribution.override) {
-        throw new RouteCompositionError(
-          normalizedContribution.path,
-          `Route "${normalizedContribution.path}" is contributed by both features "${existing.featureId}" and "${feature.id}". Set override: true to replace it explicitly.`,
-          [existing.featureId, feature.id],
-        );
-      }
-      if (existing.override) {
-        throw new RouteCompositionError(
-          normalizedContribution.path,
-          `Route "${normalizedContribution.path}" has competing overrides from features "${existing.featureId}" and "${feature.id}".`,
-          [existing.featureId, feature.id],
-        );
-      }
-      if (existing.parent !== normalizedContribution.parent) {
-        throw new RouteCompositionError(
-          normalizedContribution.path,
-          `Route override for "${normalizedContribution.path}" from feature "${feature.id}" cannot change anchor from "${existing.parent}" in feature "${existing.featureId}" to "${normalizedContribution.parent}".`,
-          [existing.featureId, feature.id],
-        );
-      }
-      routes.set(normalizedContribution.path, {
-        ...normalizedContribution,
-        featureId: feature.id,
-        ownerFeatureId: existing.ownerFeatureId,
-      });
+function addRouteContribution(
+  feature: ClientFeature,
+  contribution: NonNullable<ClientFeature['routes']>[number],
+  layoutPaths: ReadonlyMap<string, ComposedLayout>,
+  routes: Map<string, ComposedRoute>,
+): void {
+  const normalizedContribution = {...contribution, path: normalizeRoutePath(contribution.path)};
+  const layoutAtPath = layoutPaths.get(normalizedContribution.path);
+  if (layoutAtPath) {
+    throwRouteLayoutConflict(feature.id, normalizedContribution, layoutAtPath);
+  }
+  const existing = routes.get(normalizedContribution.path);
+  if (!existing) {
+    if (normalizedContribution.override) {
+      throw new RouteCompositionError(
+        normalizedContribution.path,
+        `Route override for "${normalizedContribution.path}" from feature "${feature.id}" has no route to replace.`,
+        [feature.id],
+      );
     }
+    routes.set(normalizedContribution.path, {
+      ...normalizedContribution,
+      featureId: feature.id,
+      ownerFeatureId: feature.id,
+    });
+    return;
   }
+  validateRouteOverride(feature.id, normalizedContribution, existing);
+  routes.set(normalizedContribution.path, {
+    ...normalizedContribution,
+    featureId: feature.id,
+    ownerFeatureId: existing.ownerFeatureId,
+  });
+}
 
-  for (const layout of layouts) {
-    validateNestedRoute(layout.path, layout.parent, layoutById, layout.featureId);
+function throwRouteLayoutConflict(
+  featureId: string,
+  contribution: NonNullable<ClientFeature['routes']>[number],
+  layout: ComposedLayout,
+): never {
+  const message = contribution.override
+    ? `Route override for "${contribution.path}" from feature "${featureId}" cannot replace layout "${layout.id}" contributed by feature "${layout.featureId}".`
+    : `Route "${contribution.path}" from feature "${featureId}" conflicts with layout "${layout.id}" contributed by feature "${layout.featureId}". Routes cannot replace layouts.`;
+  throw new RouteCompositionError(contribution.path, message, [layout.featureId, featureId]);
+}
+
+function validateRouteOverride(
+  featureId: string,
+  contribution: NonNullable<ClientFeature['routes']>[number],
+  existing: ComposedRoute,
+): void {
+  if (!contribution.override) {
+    throw new RouteCompositionError(
+      contribution.path,
+      `Route "${contribution.path}" is contributed by both features "${existing.featureId}" and "${featureId}". Set override: true to replace it explicitly.`,
+      [existing.featureId, featureId],
+    );
   }
-  for (const route of routes.values()) {
-    validateRoutePathInvariants(route.path);
-    validateNestedRoute(route.path, route.parent, layoutById, route.featureId);
+  if (existing.override) {
+    throw new RouteCompositionError(
+      contribution.path,
+      `Route "${contribution.path}" has competing overrides from features "${existing.featureId}" and "${featureId}".`,
+      [existing.featureId, featureId],
+    );
   }
-  return [...routes.values()];
+  if (existing.parent !== contribution.parent) {
+    throw new RouteCompositionError(
+      contribution.path,
+      `Route override for "${contribution.path}" from feature "${featureId}" cannot change anchor from "${existing.parent}" in feature "${existing.featureId}" to "${contribution.parent}".`,
+      [existing.featureId, featureId],
+    );
+  }
 }

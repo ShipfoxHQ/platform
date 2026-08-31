@@ -104,54 +104,85 @@ function setupFetch(options: SetupFetchOptions = {}) {
   return vi.fn((input: RequestInfo | URL) => {
     const url = input instanceof Request ? input.url : String(input);
     if (url.endsWith('/workspaces')) {
-      return Promise.resolve(
-        jsonResponse({
-          memberships: [
-            {
-              id: MEMBERSHIP_ID,
-              user_id: USER_ID,
-              workspace_id: WORKSPACE_ID,
-              workspace_name: 'Workspace',
-              workspace_slug: 'workspace',
-              workspace_status: workspaceStatus,
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            },
-          ],
-        }),
-      );
+      return workspaceResponse(workspaceStatus);
     }
     if (url.includes('/projects?')) {
-      if (projectsPending) return new Promise<Response>(() => undefined);
-      if (projectsFail) return Promise.resolve(jsonResponse({code: 'server-error'}, {status: 500}));
-      return Promise.resolve(jsonResponse({projects, next_cursor: null}));
+      return projectsResponse({projects, projectsFail, projectsPending});
     }
     if (url.includes('/integration-connections?')) {
-      if (connectionsFail)
-        return Promise.resolve(jsonResponse({code: 'server-error'}, {status: 500}));
-      return Promise.resolve(jsonResponse({connections}));
+      return connectionsResponse(connections, connectionsFail);
     }
     if (url.endsWith('/agent/model-providers')) {
-      if (providerConfigsFail)
-        return Promise.resolve(jsonResponse({code: 'server-error'}, {status: 500}));
-      return Promise.resolve(
-        jsonResponse({
-          configs: providerConfigs,
-          default_provider_id: defaultProviderId,
-          default_harness_id: null,
-        }),
-      );
+      return modelProvidersResponse(providerConfigs, defaultProviderId, providerConfigsFail);
     }
     if (url.endsWith('/agent/model-provider-catalog')) {
-      return Promise.resolve(
-        jsonResponse({
-          providers: [],
-          ...(workspaceProviders === undefined ? {} : {workspace_providers: workspaceProviders}),
-        }),
-      );
+      return modelProviderCatalogResponse(workspaceProviders);
     }
     return Promise.resolve(jsonResponse({}, {status: 404}));
   });
+}
+
+function workspaceResponse(workspaceStatus: NonNullable<SetupFetchOptions['workspaceStatus']>) {
+  return Promise.resolve(
+    jsonResponse({
+      memberships: [
+        {
+          id: MEMBERSHIP_ID,
+          user_id: USER_ID,
+          workspace_id: WORKSPACE_ID,
+          workspace_name: 'Workspace',
+          workspace_slug: 'workspace',
+          workspace_status: workspaceStatus,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+      ],
+    }),
+  );
+}
+
+function projectsResponse({
+  projects,
+  projectsFail,
+  projectsPending,
+}: {
+  projects: unknown[];
+  projectsFail: boolean;
+  projectsPending: boolean;
+}) {
+  if (projectsPending) return new Promise<Response>(() => undefined);
+  if (projectsFail) return Promise.resolve(jsonResponse({code: 'server-error'}, {status: 500}));
+  return Promise.resolve(jsonResponse({projects, next_cursor: null}));
+}
+
+function connectionsResponse(connections: unknown[], connectionsFail: boolean) {
+  if (connectionsFail) return Promise.resolve(jsonResponse({code: 'server-error'}, {status: 500}));
+  return Promise.resolve(jsonResponse({connections}));
+}
+
+function modelProvidersResponse(
+  providerConfigs: unknown[],
+  defaultProviderId: string | null,
+  providerConfigsFail: boolean,
+) {
+  if (providerConfigsFail)
+    return Promise.resolve(jsonResponse({code: 'server-error'}, {status: 500}));
+  return Promise.resolve(
+    jsonResponse({
+      configs: providerConfigs,
+      default_provider_id: defaultProviderId,
+      default_harness_id: null,
+    }),
+  );
+}
+
+function modelProviderCatalogResponse(workspaceProviders: SetupFetchOptions['workspaceProviders']) {
+  return Promise.resolve(
+    jsonResponse({
+      providers: [],
+      ...(workspaceProviders === undefined ? {} : {workspace_providers: workspaceProviders}),
+    }),
+  );
 }
 
 function renderSetupRoute(

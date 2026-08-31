@@ -3,7 +3,16 @@ import {Button} from '@shipfox/react-ui/button';
 import {Icon, type IconName} from '@shipfox/react-ui/icon';
 import {Markdown} from '@shipfox/react-ui/markdown';
 import {cn} from '@shipfox/react-ui/utils';
-import {type ReactNode, useEffect, useId, useRef, useState} from 'react';
+import {
+  type Dispatch,
+  type ReactNode,
+  type RefObject,
+  type SetStateAction,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from 'react';
 
 /**
  * Rendered height of a body before it clamps, in pixels. The server permits 1 MiB per body and
@@ -188,58 +197,100 @@ function AnnotationCard({
       />
 
       <div className="flex min-w-0 flex-1 flex-col gap-inline">
-        {hasHeader ? (
-          <div className="flex min-w-0 items-start justify-between gap-cluster">
-            <div className="flex min-w-0 flex-col gap-tight">
-              {title ? (
-                <TitleTag className="min-w-0 break-words text-sm font-medium leading-20 text-foreground-neutral-base">
-                  {title}
-                </TitleTag>
-              ) : null}
-              {provenance}
-            </div>
-            {action ? <div className="shrink-0">{action}</div> : null}
-          </div>
-        ) : null}
-
-        {hasBody ? (
-          <div className="flex min-w-0 flex-col gap-tight">
-            <div
-              id={bodyId}
-              className={cn(
-                'relative min-w-0',
-                collapsed && 'overflow-hidden',
-                collapsed && disclosable && BODY_CLAMP_FADE,
-              )}
-              style={collapsed ? {maxHeight: maxBodyHeight} : undefined}
-              // Tabbing to a link inside a clipped body cannot scroll it into view, so reveal the
-              // body rather than move focus somewhere invisible.
-              onFocusCapture={collapsed && disclosable ? () => setExpanded(true) : undefined}
-            >
-              <div ref={contentRef}>
-                <Markdown className={cn(BODY_MEASURE, '[&>*:last-child]:mb-0')}>
-                  {rendered}
-                </Markdown>
-              </div>
-            </div>
-            {disclosable ? (
-              // The fade above it carries the "there is more" signal, so the control itself
-              // stays quiet rather than competing with the body it reveals.
-              <Button
-                type="button"
-                size="xs"
-                variant="transparent"
-                aria-expanded={expanded}
-                aria-controls={bodyId}
-                onClick={() => setExpanded((current) => !current)}
-                className="-mx-inline self-start [@media(pointer:coarse)]:min-h-44"
-              >
-                {expanded ? 'Show less' : 'Show more'}
-              </Button>
-            ) : null}
-          </div>
-        ) : null}
+        <AnnotationHeader
+          visible={hasHeader}
+          title={title}
+          TitleTag={TitleTag}
+          provenance={provenance}
+          action={action}
+        />
+        <AnnotationBody
+          visible={hasBody}
+          bodyId={bodyId}
+          contentRef={contentRef}
+          collapsed={collapsed}
+          disclosable={disclosable}
+          maxBodyHeight={maxBodyHeight}
+          rendered={rendered}
+          expanded={expanded}
+          setExpanded={setExpanded}
+        />
       </div>
+    </div>
+  );
+}
+
+function AnnotationHeader({
+  visible,
+  title,
+  TitleTag,
+  provenance,
+  action,
+}: Pick<AnnotationCardProps, 'title' | 'provenance' | 'action'> & {
+  visible: boolean;
+  TitleTag: NonNullable<AnnotationCardProps['titleAs']>;
+}) {
+  if (!visible) return null;
+  return (
+    <div className="flex min-w-0 items-start justify-between gap-cluster">
+      <div className="flex min-w-0 flex-col gap-tight">
+        {title ? (
+          <TitleTag className="min-w-0 break-words text-sm font-medium leading-20 text-foreground-neutral-base">
+            {title}
+          </TitleTag>
+        ) : null}
+        {provenance}
+      </div>
+      {action ? <div className="shrink-0">{action}</div> : null}
+    </div>
+  );
+}
+
+function AnnotationBody(props: {
+  visible: boolean;
+  bodyId: string;
+  contentRef: RefObject<HTMLDivElement | null>;
+  collapsed: boolean;
+  disclosable: boolean;
+  maxBodyHeight: number;
+  rendered: string;
+  expanded: boolean;
+  setExpanded: Dispatch<SetStateAction<boolean>>;
+}) {
+  if (!props.visible) return null;
+  return (
+    <div className="flex min-w-0 flex-col gap-tight">
+      <div
+        id={props.bodyId}
+        className={cn(
+          'relative min-w-0',
+          props.collapsed && 'overflow-hidden',
+          props.collapsed && props.disclosable && BODY_CLAMP_FADE,
+        )}
+        style={props.collapsed ? {maxHeight: props.maxBodyHeight} : undefined}
+        onFocusCapture={
+          props.collapsed && props.disclosable ? () => props.setExpanded(true) : undefined
+        }
+      >
+        <div ref={props.contentRef}>
+          <Markdown className={cn(BODY_MEASURE, '[&>*:last-child]:mb-0')}>
+            {props.rendered}
+          </Markdown>
+        </div>
+      </div>
+      {props.disclosable ? (
+        <Button
+          type="button"
+          size="xs"
+          variant="transparent"
+          aria-expanded={props.expanded}
+          aria-controls={props.bodyId}
+          onClick={() => props.setExpanded((current) => !current)}
+          className="-mx-inline self-start [@media(pointer:coarse)]:min-h-44"
+        >
+          {props.expanded ? 'Show less' : 'Show more'}
+        </Button>
+      ) : null}
     </div>
   );
 }

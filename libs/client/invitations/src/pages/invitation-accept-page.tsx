@@ -138,26 +138,8 @@ export function InvitationAcceptPage() {
     );
   }
 
-  if (preview.isLoading) {
-    return (
-      <AuthShell title="Loading invitation" description="One moment please.">
-        <CenteredLoader />
-      </AuthShell>
-    );
-  }
-
-  if (preview.isError) {
-    return (
-      <AuthShell title="Couldn't load invitation" description="Try again in a moment.">
-        <Callout role="alert" type="error">
-          We couldn't reach the server. Check your connection and retry.
-        </Callout>
-        <Button className="w-full" onClick={() => preview.refetch()}>
-          Try again
-        </Button>
-      </AuthShell>
-    );
-  }
+  const previewState = renderPreviewState(preview);
+  if (previewState !== undefined) return previewState;
 
   const data = preview.data;
   if (!data) {
@@ -321,6 +303,28 @@ export function InvitationAcceptPage() {
           Adding you to {data.workspaceName}…
         </Text>
       </div>
+    </AuthShell>
+  );
+}
+
+function renderPreviewState(preview: ReturnType<typeof usePreviewInvitation>) {
+  if (preview.isLoading) {
+    return (
+      <AuthShell title="Loading invitation" description="One moment please.">
+        <CenteredLoader />
+      </AuthShell>
+    );
+  }
+
+  if (!preview.isError) return undefined;
+  return (
+    <AuthShell title="Couldn't load invitation" description="Try again in a moment.">
+      <Callout role="alert" type="error">
+        We couldn't reach the server. Check your connection and retry.
+      </Callout>
+      <Button className="w-full" onClick={() => preview.refetch()}>
+        Try again
+      </Button>
     </AuthShell>
   );
 }

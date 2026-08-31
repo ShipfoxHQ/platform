@@ -17,6 +17,11 @@ const manualTriggerSource = 'manual';
 const cronTriggerSource = 'cron';
 type WorkflowDocumentTrigger = NonNullable<WorkflowDocument['triggers']>[string];
 
+interface NormalizeTriggersState {
+  manualTriggerSeen: boolean;
+  usedTriggerIds: Map<string, string>;
+}
+
 export function normalizeTriggers(
   document: WorkflowDocument,
   issues: WorkflowModelValidationIssue[],
@@ -26,83 +31,125 @@ export function normalizeTriggers(
   const manualTriggerKeys = Object.entries(triggers)
     .filter(([, trigger]) => trigger.source === manualTriggerSource)
     .map(([sourceKey]) => sourceKey);
-  const usedTriggerIds = new Map<string, string>();
-  let manualTriggerSeen = false;
-
-  return Object.entries(triggers).flatMap(([sourceKey, trigger]) => {
-    const id = stableId(sourceKey);
-    const existingSourceKey = usedTriggerIds.get(id);
-    if (existingSourceKey !== undefined) {
-      issues.push(
-        issue({
-          code: 'duplicate-trigger-id',
-          message: `Trigger keys "${existingSourceKey}" and "${sourceKey}" resolve to the same stable id "${id}".`,
-          path: ['triggers', sourceKey],
-          details: {id, sourceKeys: [existingSourceKey, sourceKey]},
-          scope: 'trigger',
-        }),
-      );
-      return [];
-    }
-    usedTriggerIds.set(id, sourceKey);
-
-    const triggerIssues: WorkflowModelValidationIssue[] = [];
-    validateTriggerFilter({sourceKey, trigger, issues: triggerIssues});
-    const normalizedTrigger = normalizeTriggerEntry(trigger, {
-      path: ['triggers', sourceKey],
-      issues: triggerIssues,
+  const state: NormalizeTriggersState = {manualTriggerSeen: false, usedTriggerIds: new Map()};
+  return Object.entries(triggers).flatMap(([sourceKey, trigger]) =>
+    normalizeTopLevelTrigger({
+      sourceKey,
+      trigger,
+      issues,
+      manualTriggerKeys,
       integrationValidationContext,
-    });
-    if (trigger.source === manualTriggerSource && manualTriggerSeen) {
-      triggerIssues.push(
-        issue({
-          code: 'multiple-manual-triggers',
-          message: `A workflow may declare at most one manual trigger; found ${manualTriggerKeys.length}: ${manualTriggerKeys.join(', ')}. This trigger is inert because it is not the first manual trigger in document order.`,
-          path: ['triggers', sourceKey],
-          details: {manualTriggerKeys},
-          scope: 'trigger',
-        }),
-      );
-    }
-    issues.push(...triggerIssues);
-    const triggerIsInert = triggerIssues.some(
-      (candidate) => candidate.scope === 'trigger' && candidate.severity === 'error',
+      state,
+    }),
+  );
+}
+
+function normalizeTopLevelTrigger(params: {
+  sourceKey: string;
+  trigger: WorkflowDocumentTrigger;
+  issues: WorkflowModelValidationIssue[];
+  manualTriggerKeys: string[];
+  integrationValidationContext: IntegrationValidationContext | undefined;
+  state: NormalizeTriggersState;
+}): WorkflowModelTrigger[] {
+  const id = stableId(params.sourceKey);
+  const existingSourceKey = params.state.usedTriggerIds.get(id);
+  if (existingSourceKey !== undefined) {
+    params.issues.push(
+      issue({
+        code: 'duplicate-trigger-id',
+        message: `Trigger keys "${existingSourceKey}" and "${params.sourceKey}" resolve to the same stable id "${id}".`,
+        path: ['triggers', params.sourceKey],
+        details: {id, sourceKeys: [existingSourceKey, params.sourceKey]},
+        scope: 'trigger',
+      }),
     );
-    if (trigger.source !== cronTriggerSource) {
-      if (trigger.source === manualTriggerSource) manualTriggerSeen = true;
-      if (triggerIsInert) return [];
-      return [
-        {
-          id,
-          key: sourceKey,
-          ...normalizedTrigger,
-          ...(trigger.config === undefined ? {} : {config: trigger.config}),
-        },
-      ];
-    }
-
-    const cronConfig = triggerSourceConfigSchemas.cron.parse(trigger.config ?? {});
-    const normalizedCronConfig = {
-      ...cronConfig,
-      timezone: cronConfig.timezone ?? cronTriggerDefaultTimezone,
-    };
-
-    const cronIssues: WorkflowModelValidationIssue[] = [];
-    validateCronTrigger({config: cronConfig, sourceKey, issues: cronIssues});
-    issues.push(...cronIssues);
-
-    const cronIsInert = cronIssues.some((candidate) => candidate.scope === 'trigger');
-    if (triggerIsInert || cronIsInert) return [];
-
-    return [
-      {
-        id,
-        key: sourceKey,
-        ...normalizedTrigger,
-        config: normalizedCronConfig,
-      },
-    ];
+    return [];
+  }
+  params.state.usedTriggerIds.set(id, params.sourceKey);
+  const triggerIssues = validateTopLevelTrigger(params);
+  const normalizedTrigger = normalizeTriggerEntry(params.trigger, {
+    path: ['triggers', params.sourceKey],
+    issues: triggerIssues,
+    integrationValidationContext: params.integrationValidationContext,
   });
+  validateAdditionalManualTrigger(params, triggerIssues);
+  params.issues.push(...triggerIssues);
+  const triggerIsInert = triggerIssues.some(
+    (candidate) => candidate.scope === 'trigger' && candidate.severity === 'error',
+  );
+  if (params.trigger.source === cronTriggerSource) {
+    return normalizeCronTrigger(
+      params.sourceKey,
+      id,
+      params.trigger,
+      normalizedTrigger,
+      triggerIsInert,
+      params.issues,
+    );
+  }
+  if (params.trigger.source === manualTriggerSource) params.state.manualTriggerSeen = true;
+  if (triggerIsInert) return [];
+  return [
+    {
+      id,
+      key: params.sourceKey,
+      ...normalizedTrigger,
+      ...(params.trigger.config === undefined ? {} : {config: params.trigger.config}),
+    },
+  ];
+}
+
+function validateTopLevelTrigger(
+  params: Parameters<typeof normalizeTopLevelTrigger>[0],
+): WorkflowModelValidationIssue[] {
+  const triggerIssues: WorkflowModelValidationIssue[] = [];
+  validateTriggerFilter({
+    sourceKey: params.sourceKey,
+    trigger: params.trigger,
+    issues: triggerIssues,
+  });
+  return triggerIssues;
+}
+
+function validateAdditionalManualTrigger(
+  params: Parameters<typeof normalizeTopLevelTrigger>[0],
+  triggerIssues: WorkflowModelValidationIssue[],
+): void {
+  if (params.trigger.source === manualTriggerSource && params.state.manualTriggerSeen) {
+    triggerIssues.push(
+      issue({
+        code: 'multiple-manual-triggers',
+        message: `A workflow may declare at most one manual trigger; found ${params.manualTriggerKeys.length}: ${params.manualTriggerKeys.join(', ')}. This trigger is inert because it is not the first manual trigger in document order.`,
+        path: ['triggers', params.sourceKey],
+        details: {manualTriggerKeys: params.manualTriggerKeys},
+        scope: 'trigger',
+      }),
+    );
+  }
+}
+
+function normalizeCronTrigger(
+  sourceKey: string,
+  id: string,
+  trigger: WorkflowDocumentTrigger,
+  normalizedTrigger: WorkflowModelListeningTrigger,
+  triggerIsInert: boolean,
+  issues: WorkflowModelValidationIssue[],
+): WorkflowModelTrigger[] {
+  const cronConfig = triggerSourceConfigSchemas.cron.parse(trigger.config ?? {});
+  const cronIssues: WorkflowModelValidationIssue[] = [];
+  validateCronTrigger({config: cronConfig, sourceKey, issues: cronIssues});
+  issues.push(...cronIssues);
+  if (triggerIsInert || cronIssues.some((candidate) => candidate.scope === 'trigger')) return [];
+  return [
+    {
+      id,
+      key: sourceKey,
+      ...normalizedTrigger,
+      config: {...cronConfig, timezone: cronConfig.timezone ?? cronTriggerDefaultTimezone},
+    },
+  ];
 }
 
 function validateTriggerFilter(params: {
@@ -198,50 +245,88 @@ export function validateTriggerSourceEvent(params: {
   const integrationValidationContext = params.integrationValidationContext;
 
   if (source === manualTriggerSource || source === cronTriggerSource) {
-    if (event === '') {
-      issues.push(
-        issue({
-          code: 'invalid-trigger-event',
-          message: `A ${source} trigger event cannot be blank.`,
-          path: eventPath,
-          details: {event, source},
-          scope: 'trigger',
-        }),
-      );
-      return;
-    }
-
-    const expectedEvent = source === manualTriggerSource ? 'fire' : 'tick';
-    if (event !== undefined && event !== expectedEvent) {
-      issues.push(
-        issue({
-          code: 'invalid-trigger-event',
-          message: `A ${source} trigger must use event "${expectedEvent}"; found "${event}".`,
-          path: eventPath,
-          details: {event, source},
-          scope: 'trigger',
-        }),
-      );
-    }
+    validateBuiltinTriggerEvent(source, event, eventPath, issues);
     return;
   }
 
   // Integration-source checks are intentionally skipped when the caller has
   // no workspace context. Keep that contract even for blank event values.
   if (integrationValidationContext === undefined) return;
+  validateIntegrationTriggerEvent(
+    source,
+    event,
+    path,
+    eventPath,
+    integrationValidationContext,
+    issues,
+  );
+}
+
+function pushInvalidTriggerEvent(
+  source: string,
+  event: string | undefined,
+  path: readonly WorkflowModelValidationIssuePathSegment[],
+  message: string,
+  issues: WorkflowModelValidationIssue[],
+  provider?: string,
+): void {
+  issues.push(
+    issue({
+      code: 'invalid-trigger-event',
+      message,
+      path,
+      details: provider === undefined ? {event, source} : {event, source, provider},
+      scope: 'trigger',
+    }),
+  );
+}
+
+function validateBuiltinTriggerEvent(
+  source: string,
+  event: string | undefined,
+  eventPath: readonly WorkflowModelValidationIssuePathSegment[],
+  issues: WorkflowModelValidationIssue[],
+): void {
   if (event === '') {
-    issues.push(
-      issue({
-        code: 'invalid-trigger-event',
-        message: `A ${source} trigger event cannot be blank.`,
-        path: eventPath,
-        details: {event, source},
-        scope: 'trigger',
-      }),
+    pushInvalidTriggerEvent(
+      source,
+      event,
+      eventPath,
+      `A ${source} trigger event cannot be blank.`,
+      issues,
     );
     return;
   }
+  const expectedEvent = source === manualTriggerSource ? 'fire' : 'tick';
+  if (event !== undefined && event !== expectedEvent) {
+    pushInvalidTriggerEvent(
+      source,
+      event,
+      eventPath,
+      `A ${source} trigger must use event "${expectedEvent}"; found "${event}".`,
+      issues,
+    );
+  }
+}
 
+function validateIntegrationTriggerEvent(
+  source: string,
+  event: string | undefined,
+  path: readonly WorkflowModelValidationIssuePathSegment[],
+  eventPath: readonly WorkflowModelValidationIssuePathSegment[],
+  integrationValidationContext: IntegrationValidationContext,
+  issues: WorkflowModelValidationIssue[],
+): void {
+  if (event === '') {
+    pushInvalidTriggerEvent(
+      source,
+      event,
+      eventPath,
+      `A ${source} trigger event cannot be blank.`,
+      issues,
+    );
+    return;
+  }
   const connection = integrationValidationContext.workspaceConnectionSnapshot.get(source);
   if (connection === undefined) {
     // The connection may be created later; INTEGRATION_CONNECTION_AVAILABLE
@@ -266,25 +351,7 @@ export function validateTriggerSourceEvent(params: {
   const {provider} = connection;
   const catalog = integrationValidationContext.eventCatalogs.get(provider);
   if (integrationValidationContext.fixedEventProviders.has(provider)) {
-    // Shipfox-minted event name (custom webhook `received` today): any other
-    // explicit value is provably never delivered, so the trigger is inert.
-    if (catalog === undefined || !catalog.has(event)) {
-      const singleEvent = catalog?.size === 1 ? [...catalog][0] : undefined;
-      issues.push(
-        issue({
-          code: 'invalid-trigger-event',
-          message:
-            catalog === undefined
-              ? `Provider "${provider}" has no fixed event catalog; event "${event}" cannot be validated.`
-              : singleEvent === undefined
-                ? `Event "${event}" is never delivered by provider "${provider}".`
-                : `A ${provider} trigger must use event "${singleEvent}"; found "${event}".`,
-          path: eventPath,
-          details: {event, source, provider},
-          scope: 'trigger',
-        }),
-      );
-    }
+    validateFixedProviderEvent(source, event, provider, catalog, eventPath, issues);
     return;
   }
 
@@ -303,6 +370,25 @@ export function validateTriggerSourceEvent(params: {
       }),
     );
   }
+}
+
+function validateFixedProviderEvent(
+  source: string,
+  event: string,
+  provider: string,
+  catalog: ReadonlySet<string> | undefined,
+  eventPath: readonly WorkflowModelValidationIssuePathSegment[],
+  issues: WorkflowModelValidationIssue[],
+): void {
+  if (catalog?.has(event)) return;
+  const singleEvent = catalog?.size === 1 ? [...catalog][0] : undefined;
+  let message = `Event "${event}" is never delivered by provider "${provider}".`;
+  if (catalog === undefined) {
+    message = `Provider "${provider}" has no fixed event catalog; event "${event}" cannot be validated.`;
+  } else if (singleEvent !== undefined) {
+    message = `A ${provider} trigger must use event "${singleEvent}"; found "${event}".`;
+  }
+  pushInvalidTriggerEvent(source, event, eventPath, message, issues, provider);
 }
 
 function builtinEventForSource(source: string, event: string | undefined): string | undefined {

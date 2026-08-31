@@ -298,35 +298,7 @@ export function createRedactor(options: StructuredRedactionOptions = {}): Redact
   const redactText = (text: string): string => redactSensitiveTextWithWireForms(text, wireForms);
 
   function visit(value: unknown, ancestors: WeakSet<object>): unknown {
-    if (typeof value === 'string') return redactText(value);
-    if (value === null || typeof value !== 'object') return value;
-    if (value instanceof URL) return redactSensitiveUrl(redactText(value.toString()));
-    if (value instanceof Date) {
-      return Number.isNaN(value.getTime()) ? value.toString() : value.toISOString();
-    }
-    if (ancestors.has(value)) return CIRCULAR_PLACEHOLDER;
-
-    ancestors.add(value);
-    try {
-      if (value instanceof Error) {
-        return {
-          cause: value.cause === undefined ? undefined : visit(value.cause, ancestors),
-          message: redactText(value.message),
-          name: redactText(value.name),
-          stack: value.stack ? redactText(value.stack) : undefined,
-        };
-      }
-      if (Array.isArray(value)) return value.map((item) => visit(item, ancestors));
-
-      return Object.fromEntries(
-        Object.entries(value).map(([key, item]) => [
-          redactText(key),
-          SENSITIVE_KEY.test(key) ? REDACTION_PLACEHOLDER : visit(item, ancestors),
-        ]),
-      );
-    } finally {
-      ancestors.delete(value);
-    }
+    return visitRedactedValue(value, ancestors, redactText, visit);
   }
 
   function redact(value: string | Date | URL): string;
@@ -336,4 +308,70 @@ export function createRedactor(options: StructuredRedactionOptions = {}): Redact
   }
 
   return {redact};
+}
+
+function visitRedactedValue(
+  value: unknown,
+  ancestors: WeakSet<object>,
+  redactText: (text: string) => string,
+  visit: (value: unknown, ancestors: WeakSet<object>) => unknown,
+): unknown {
+  if (typeof value === 'string') return redactText(value);
+  if (value === null || typeof value !== 'object') return value;
+  const special = redactSpecialObject(value, redactText);
+  if (special.handled) return special.value;
+  if (ancestors.has(value)) return CIRCULAR_PLACEHOLDER;
+
+  ancestors.add(value);
+  try {
+    if (value instanceof Error) return redactError(value, ancestors, redactText, visit);
+    if (Array.isArray(value)) return value.map((item) => visit(item, ancestors));
+    return redactObject(value, ancestors, redactText, visit);
+  } finally {
+    ancestors.delete(value);
+  }
+}
+
+function redactSpecialObject(
+  value: object,
+  redactText: (text: string) => string,
+): {handled: true; value: string} | {handled: false} {
+  if (value instanceof URL) {
+    return {handled: true, value: redactSensitiveUrl(redactText(value.toString()))};
+  }
+  if (value instanceof Date) {
+    return {
+      handled: true,
+      value: Number.isNaN(value.getTime()) ? value.toString() : value.toISOString(),
+    };
+  }
+  return {handled: false};
+}
+
+function redactError(
+  value: Error,
+  ancestors: WeakSet<object>,
+  redactText: (text: string) => string,
+  visit: (value: unknown, ancestors: WeakSet<object>) => unknown,
+): Record<string, unknown> {
+  return {
+    cause: value.cause === undefined ? undefined : visit(value.cause, ancestors),
+    message: redactText(value.message),
+    name: redactText(value.name),
+    stack: value.stack ? redactText(value.stack) : undefined,
+  };
+}
+
+function redactObject(
+  value: object,
+  ancestors: WeakSet<object>,
+  redactText: (text: string) => string,
+  visit: (value: unknown, ancestors: WeakSet<object>) => unknown,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [
+      redactText(key),
+      SENSITIVE_KEY.test(key) ? REDACTION_PLACEHOLDER : visit(item, ancestors),
+    ]),
+  );
 }

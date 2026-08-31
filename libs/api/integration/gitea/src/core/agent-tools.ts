@@ -126,26 +126,44 @@ export function validateGiteaToolArguments(
   for (const [name, value] of Object.entries(args)) {
     const schema = properties[name];
     if (!isRecord(schema)) return `Unknown parameter: ${name}`;
-
-    if (schema.type === 'string') {
-      if (typeof value !== 'string') return `Parameter ${name} must be a string`;
-      if (value.trim().length === 0) return `Parameter ${name} must not be empty`;
-      if (typeof schema.maxLength === 'number' && [...value].length > schema.maxLength) {
-        return `Parameter ${name} must be at most ${schema.maxLength} characters`;
-      }
-      if (name === 'repo' && !isSafeRepositoryName(value)) {
-        return `Parameter ${name} must be a repository name`;
-      }
-    }
-
-    if (schema.type === 'integer') {
-      if (typeof value !== 'number' || !Number.isSafeInteger(value)) {
-        return `Parameter ${name} must be an integer`;
-      }
-      if (value < 1) return `Parameter ${name} must be a positive integer`;
-    }
+    const invalid = validateGiteaArgument(name, value, schema);
+    if (invalid !== undefined) return invalid;
   }
 
+  return undefined;
+}
+
+function validateGiteaArgument(
+  name: string,
+  value: unknown,
+  schema: Record<string, unknown>,
+): string | undefined {
+  if (schema.type === 'string') return validateGiteaStringArgument(name, value, schema);
+  if (schema.type === 'integer') return validateGiteaIntegerArgument(name, value);
+  return undefined;
+}
+
+function validateGiteaStringArgument(
+  name: string,
+  value: unknown,
+  schema: Record<string, unknown>,
+): string | undefined {
+  if (typeof value !== 'string') return `Parameter ${name} must be a string`;
+  if (value.trim().length === 0) return `Parameter ${name} must not be empty`;
+  if (typeof schema.maxLength === 'number' && [...value].length > schema.maxLength) {
+    return `Parameter ${name} must be at most ${schema.maxLength} characters`;
+  }
+  if (name === 'repo' && !isSafeRepositoryName(value)) {
+    return `Parameter ${name} must be a repository name`;
+  }
+  return undefined;
+}
+
+function validateGiteaIntegerArgument(name: string, value: unknown): string | undefined {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value)) {
+    return `Parameter ${name} must be an integer`;
+  }
+  if (value < 1) return `Parameter ${name} must be a positive integer`;
   return undefined;
 }
 

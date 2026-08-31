@@ -66,10 +66,7 @@ export function WorkflowRunSummary({
   const status = getWorkflowStatusVisual(run.runAttempt.status);
   const action = workflowRunActionForRun(run);
   const hasAction = canRenderWorkflowRunAction(action, onCancel, onRerun);
-  const attemptSwitcher =
-    latestAttempt && latestAttempt > 1 && workspaceSlug && projectSlug
-      ? {workspaceSlug, projectSlug, latestAttempt}
-      : null;
+  const attemptSwitcher = workflowAttemptSwitcher(latestAttempt, workspaceSlug, projectSlug);
   const displayDuration = run.runAttempt.displayDuration;
   const hasStarted = run.hasStartedJobExecution;
   const {ref: headingTextRef, isTruncated: isHeadingTruncated} =
@@ -83,11 +80,15 @@ export function WorkflowRunSummary({
   const isDevRun = run.origin === 'dev';
   // The provenance segment only earns a leading separator when something already sits on the
   // line; a run with nothing else (no number, no trigger label) must not start with a dot.
-  const metadataHasLeading =
-    run.number !== null || attemptSwitcher !== null || Boolean(run.triggerDisplayLabel);
-  const hasProvenance = isDevRun
-    ? Boolean(devSourceLabel || initiator || replayOfEvent)
-    : Boolean(branch || commit);
+  const metadataHasLeading = metadataHasLeadingContent(run, attemptSwitcher);
+  const hasProvenance = runHasProvenance({
+    isDevRun,
+    devSourceLabel,
+    initiator,
+    replayOfEvent,
+    branch,
+    commit,
+  });
 
   return (
     <TimeTickerProvider intervalMs={1000} reducedMotionIntervalMs={10_000}>
@@ -228,6 +229,41 @@ export function WorkflowRunSummary({
       </section>
     </TimeTickerProvider>
   );
+}
+
+function workflowAttemptSwitcher(
+  latestAttempt: number | undefined,
+  workspaceSlug: string | undefined,
+  projectSlug: string | undefined,
+) {
+  if (!latestAttempt || latestAttempt <= 1 || !workspaceSlug || !projectSlug) return null;
+  return {workspaceSlug, projectSlug, latestAttempt};
+}
+
+function metadataHasLeadingContent(
+  run: WorkflowRunDetail,
+  attemptSwitcher: ReturnType<typeof workflowAttemptSwitcher>,
+): boolean {
+  return run.number !== null || attemptSwitcher !== null || Boolean(run.triggerDisplayLabel);
+}
+
+function runHasProvenance({
+  isDevRun,
+  devSourceLabel,
+  initiator,
+  replayOfEvent,
+  branch,
+  commit,
+}: {
+  isDevRun: boolean;
+  devSourceLabel: string | null | undefined;
+  initiator: string | null | undefined;
+  replayOfEvent: string | null | undefined;
+  branch: string | null | undefined;
+  commit: string | null | undefined;
+}): boolean {
+  if (isDevRun) return Boolean(devSourceLabel || initiator || replayOfEvent);
+  return Boolean(branch || commit);
 }
 
 function WorkflowRunActionSlot({

@@ -285,64 +285,71 @@ function validateCatalogSeedEntry(
   entry: z.infer<typeof modelProviderCatalogSeedBaseSchema>,
   ctx: z.RefinementCtx,
 ): void {
-  if (entry.support_status === 'supported') {
-    if (!supportedModelProviderIds.has(entry.id)) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['id'],
-        message: 'Supported catalog entries must use a supported model provider id.',
-      });
-    }
-    if (entry.default_model === null) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['default_model'],
-        message: 'Supported model providers must define a default_model.',
-      });
-    }
-    if (entry.credential_fields.length === 0) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['credential_fields'],
-        message: 'Supported model providers must define credential_fields.',
-      });
-    }
-    if (entry.unsupported_reason !== null) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['unsupported_reason'],
-        message: 'Supported model providers must not define unsupported_reason.',
-      });
-    }
-  } else {
-    if (!unsupportedModelProviderIds.has(entry.id)) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['id'],
-        message: 'Unsupported catalog entries must use an unsupported model provider id.',
-      });
-    }
-    if (entry.default_model !== null) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['default_model'],
-        message: 'Unsupported model providers must not define a default_model.',
-      });
-    }
-    if (entry.credential_fields.length > 0) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['credential_fields'],
-        message: 'Unsupported model providers must not define credential_fields.',
-      });
-    }
-    if (entry.unsupported_reason === null) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['unsupported_reason'],
-        message: 'Unsupported model providers must define unsupported_reason.',
-      });
-    }
+  if (entry.support_status === 'supported') validateSupportedEntry(entry, ctx);
+  else validateUnsupportedEntry(entry, ctx);
+}
+
+function addCatalogIssue(ctx: z.RefinementCtx, path: string, message: string): void {
+  ctx.addIssue({code: 'custom', path: [path], message});
+}
+
+function validateSupportedEntry(
+  entry: z.infer<typeof modelProviderCatalogSeedBaseSchema>,
+  ctx: z.RefinementCtx,
+): void {
+  if (!supportedModelProviderIds.has(entry.id)) {
+    addCatalogIssue(ctx, 'id', 'Supported catalog entries must use a supported model provider id.');
+  }
+  if (entry.default_model === null) {
+    addCatalogIssue(ctx, 'default_model', 'Supported model providers must define a default_model.');
+  }
+  if (entry.credential_fields.length === 0) {
+    addCatalogIssue(
+      ctx,
+      'credential_fields',
+      'Supported model providers must define credential_fields.',
+    );
+  }
+  if (entry.unsupported_reason !== null) {
+    addCatalogIssue(
+      ctx,
+      'unsupported_reason',
+      'Supported model providers must not define unsupported_reason.',
+    );
+  }
+}
+
+function validateUnsupportedEntry(
+  entry: z.infer<typeof modelProviderCatalogSeedBaseSchema>,
+  ctx: z.RefinementCtx,
+): void {
+  if (!unsupportedModelProviderIds.has(entry.id)) {
+    addCatalogIssue(
+      ctx,
+      'id',
+      'Unsupported catalog entries must use an unsupported model provider id.',
+    );
+  }
+  if (entry.default_model !== null) {
+    addCatalogIssue(
+      ctx,
+      'default_model',
+      'Unsupported model providers must not define a default_model.',
+    );
+  }
+  if (entry.credential_fields.length > 0) {
+    addCatalogIssue(
+      ctx,
+      'credential_fields',
+      'Unsupported model providers must not define credential_fields.',
+    );
+  }
+  if (entry.unsupported_reason === null) {
+    addCatalogIssue(
+      ctx,
+      'unsupported_reason',
+      'Unsupported model providers must define unsupported_reason.',
+    );
   }
 }
 

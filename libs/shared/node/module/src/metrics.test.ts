@@ -8,13 +8,12 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@shipfox/node-opentelemetry', () => ({
   instanceMetrics: {
     getMeter: () => ({
-      createCounter: (name: string) => ({
-        add: name.endsWith('_execution')
-          ? mocks.executionAdd
-          : name.endsWith('_failure')
-            ? mocks.failureAdd
-            : mocks.retryAdd,
-      }),
+      createCounter: (name: string) => {
+        let add = mocks.retryAdd;
+        if (name.endsWith('_execution')) add = mocks.executionAdd;
+        else if (name.endsWith('_failure')) add = mocks.failureAdd;
+        return {add};
+      },
       createHistogram: () => ({record: mocks.durationRecord}),
     }),
   },

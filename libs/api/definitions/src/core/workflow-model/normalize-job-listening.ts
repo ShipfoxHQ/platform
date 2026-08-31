@@ -8,6 +8,49 @@ import {parseDurationMs} from './parse-duration-ms.js';
 import {validatePredicateExpression} from './validate-predicate-expression.js';
 import {issue} from './validation-issue.js';
 
+type ListeningConfig = NonNullable<WorkflowDocumentJob['listening']>;
+type ListeningMatcher = WorkflowModelJobListening['on'][number];
+
+function normalizeListeningMatchers(
+  triggers: ListeningConfig['on'] | ListeningConfig['until'] | undefined,
+  field: 'listener.on' | 'listener.until',
+  path: readonly (string | number)[],
+  params: Parameters<typeof normalizeJobListening>[0],
+): ListeningMatcher[] | undefined {
+  if (triggers === undefined) return undefined;
+  return triggers
+    .map((trigger, index) =>
+      normalizeListeningTrigger({
+        trigger,
+        field,
+        path: [...path, index],
+        issues: params.issues,
+        allowedJobReferences: params.allowedJobReferences,
+        integrationValidationContext: params.integrationValidationContext,
+      }),
+    )
+    .filter((matcher): matcher is ListeningMatcher => matcher !== undefined);
+}
+
+function normalizeListeningBatch(
+  listening: ListeningConfig,
+  debounceMs: number | undefined,
+  maxWaitMs: number | undefined,
+): WorkflowModelJobListening['batch'] | undefined {
+  if (
+    debounceMs === undefined &&
+    listening.batch?.max_size === undefined &&
+    maxWaitMs === undefined
+  ) {
+    return undefined;
+  }
+  return {
+    ...(debounceMs === undefined ? {} : {debounceMs}),
+    ...(listening.batch?.max_size === undefined ? {} : {maxSize: listening.batch.max_size}),
+    ...(maxWaitMs === undefined ? {} : {maxWaitMs}),
+  };
+}
+
 export function normalizeJobListening(params: {
   job: WorkflowDocumentJob;
   sourceName: string;
@@ -41,18 +84,9 @@ export function normalizeJobListening(params: {
     issues: params.issues,
   });
 
-  const on = listening.on
-    .map((trigger, index) =>
-      normalizeListeningTrigger({
-        trigger,
-        field: 'listener.on',
-        path: [...path, 'listening', 'on', index],
-        issues: params.issues,
-        allowedJobReferences: params.allowedJobReferences,
-        integrationValidationContext: params.integrationValidationContext,
-      }),
-    )
-    .filter((matcher): matcher is WorkflowModelJobListening['on'][number] => matcher !== undefined);
+  const on =
+    normalizeListeningMatchers(listening.on, 'listener.on', [...path, 'listening', 'on'], params) ??
+    [];
 
   if (on.length === 0) {
     params.issues.push(
@@ -64,23 +98,12 @@ export function normalizeJobListening(params: {
     );
   }
 
-  const until =
-    listening.until === undefined
-      ? undefined
-      : listening.until
-          .map((trigger, index) =>
-            normalizeListeningTrigger({
-              trigger,
-              field: 'listener.until',
-              path: [...path, 'listening', 'until', index],
-              issues: params.issues,
-              allowedJobReferences: params.allowedJobReferences,
-              integrationValidationContext: params.integrationValidationContext,
-            }),
-          )
-          .filter(
-            (matcher): matcher is WorkflowModelJobListening['on'][number] => matcher !== undefined,
-          );
+  const until = normalizeListeningMatchers(
+    listening.until,
+    'listener.until',
+    [...path, 'listening', 'until'],
+    params,
+  );
 
   // Inert `until` matchers do not resolve the listening job; the check runs on
   // the matchers that stay active.
@@ -98,14 +121,7 @@ export function normalizeJobListening(params: {
     );
   }
 
-  const batch =
-    debounceMs === undefined && listening.batch?.max_size === undefined && maxWaitMs === undefined
-      ? undefined
-      : {
-          ...(debounceMs === undefined ? {} : {debounceMs}),
-          ...(listening.batch?.max_size === undefined ? {} : {maxSize: listening.batch.max_size}),
-          ...(maxWaitMs === undefined ? {} : {maxWaitMs}),
-        };
+  const batch = normalizeListeningBatch(listening, debounceMs, maxWaitMs);
 
   return {
     on,

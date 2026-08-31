@@ -205,45 +205,17 @@ export async function verifyPagesDeployment({
     redirect: 'follow',
   });
   const metadataResponse = await checkJson(resolvedBaseUrl, metadataPath, fetchOptions);
-  const metadata: VerificationCheck = {
-    ok: metadataResponse.ok,
-    status: metadataResponse.status,
-  };
-  if (metadataResponse.ok) {
-    try {
-      assertMetadata(metadataResponse.value, resolvedExpectedCommitSha, expectedPullRequest);
-    } catch (error) {
-      metadata.ok = false;
-      metadata.error = errorMessage(error);
-    }
-  } else {
-    if (metadataResponse.error !== undefined) metadata.error = metadataResponse.error;
-  }
+  const metadata = verifyMetadataResponse(
+    metadataResponse,
+    resolvedExpectedCommitSha,
+    expectedPullRequest,
+  );
 
   const verifiedEndpoints: CloudflarePagesEndpointResult[] = [];
   for (const configuredEndpoint of endpoints) {
-    const endpoint =
-      typeof configuredEndpoint === 'string'
-        ? {id: configuredEndpoint, path: configuredEndpoint, requireNonEmpty: false}
-        : configuredEndpoint;
-    const response = await checkJson(resolvedBaseUrl, endpoint.path, fetchOptions);
-    const result: CloudflarePagesEndpointResult = {
-      id: endpoint.id ?? endpoint.path,
-      path: endpoint.path,
-      ok: response.ok,
-      status: response.status,
-    };
-    if (!response.ok) {
-      if (response.error !== undefined) result.error = response.error;
-    } else {
-      try {
-        assertEndpointResponse(response.value, endpoint);
-      } catch (error) {
-        result.ok = false;
-        result.error = errorMessage(error);
-      }
-    }
-    verifiedEndpoints.push(result);
+    verifiedEndpoints.push(
+      await verifyConfiguredEndpoint(resolvedBaseUrl, configuredEndpoint, fetchOptions),
+    );
   }
 
   const errors: string[] = [];
@@ -265,6 +237,54 @@ export async function verifyPagesDeployment({
     endpoints: verifiedEndpoints,
     errors,
   };
+}
+
+function verifyMetadataResponse(
+  response: Awaited<ReturnType<typeof checkJson>>,
+  expectedCommitSha: string,
+  expectedPullRequest: string | undefined,
+): VerificationCheck {
+  const metadata: VerificationCheck = {ok: response.ok, status: response.status};
+  if (!response.ok) {
+    if (response.error !== undefined) metadata.error = response.error;
+    return metadata;
+  }
+  try {
+    assertMetadata(response.value, expectedCommitSha, expectedPullRequest);
+  } catch (error) {
+    metadata.ok = false;
+    metadata.error = errorMessage(error);
+  }
+  return metadata;
+}
+
+async function verifyConfiguredEndpoint(
+  baseUrl: string,
+  configuredEndpoint: CloudflarePagesEndpoint,
+  fetchOptions: Parameters<typeof checkJson>[2],
+): Promise<CloudflarePagesEndpointResult> {
+  const endpoint =
+    typeof configuredEndpoint === 'string'
+      ? {id: configuredEndpoint, path: configuredEndpoint, requireNonEmpty: false}
+      : configuredEndpoint;
+  const response = await checkJson(baseUrl, endpoint.path, fetchOptions);
+  const result: CloudflarePagesEndpointResult = {
+    id: endpoint.id ?? endpoint.path,
+    path: endpoint.path,
+    ok: response.ok,
+    status: response.status,
+  };
+  if (!response.ok) {
+    if (response.error !== undefined) result.error = response.error;
+    return result;
+  }
+  try {
+    assertEndpointResponse(response.value, endpoint);
+  } catch (error) {
+    result.ok = false;
+    result.error = errorMessage(error);
+  }
+  return result;
 }
 
 /**
@@ -294,55 +314,17 @@ export async function verifyCloudflarePagesApps({
   const reports: CloudflarePagesAppVerification[] = [];
 
   for (const app of selectedApps) {
-    const deployment = deploymentByApp.get(app.id);
-    if (deployment === undefined) {
-      reports.push({
-        appId: app.id,
-        ok: false,
-        url: null,
-        commitSha: expectedCommitSha ?? null,
-        pullRequest: expectedPullRequest ?? null,
-        endpoints: [],
-        errors: ['application was not deployed'],
-      });
-      continue;
-    }
-    if (!deployment.ok || deployment.url === undefined) {
-      reports.push({
-        appId: app.id,
-        ok: false,
-        url: null,
-        commitSha: expectedCommitSha ?? deployment.commitSha,
-        pullRequest: expectedPullRequest ?? null,
-        endpoints: [],
-        errors: [deployment.error ?? 'application deployment did not complete'],
-      });
-      continue;
-    }
-
-    try {
-      const report = await verifyPagesDeployment({
-        baseUrl: deployment.url,
+    reports.push(
+      await verifyCloudflarePagesApp({
+        app,
+        deployment: deploymentByApp.get(app.id),
         expectedCommitSha,
         expectedPullRequest,
-        metadataPath: app.verify?.metadataPath ?? '/preview-metadata.json',
-        endpoints: app.verify?.endpoints ?? [],
         attempts,
         retryDelayMs,
         fetchImpl,
-      });
-      reports.push({appId: app.id, ...report});
-    } catch (error) {
-      reports.push({
-        appId: app.id,
-        ok: false,
-        url: deployment.url,
-        commitSha: expectedCommitSha ?? deployment.commitSha,
-        pullRequest: expectedPullRequest ?? null,
-        endpoints: [],
-        errors: [errorMessage(error)],
-      });
-    }
+      }),
+    );
   }
 
   return {
@@ -356,5 +338,60 @@ export async function verifyCloudflarePagesApps({
         report.ok ? [] : report.errors.map((error) => `${report.appId}: ${error}`),
       ),
     ],
+  };
+}
+
+async function verifyCloudflarePagesApp(params: {
+  app: CloudflarePagesApp;
+  deployment: CloudflarePagesDeployment | undefined;
+  expectedCommitSha: string | undefined;
+  expectedPullRequest: string | undefined;
+  attempts: number;
+  retryDelayMs: number;
+  fetchImpl: typeof globalThis.fetch;
+}): Promise<CloudflarePagesAppVerification> {
+  const {app, deployment} = params;
+  if (deployment === undefined) {
+    return failedAppVerification(app.id, null, params, 'application was not deployed');
+  }
+  if (!deployment.ok || deployment.url === undefined) {
+    return failedAppVerification(
+      app.id,
+      null,
+      {...params, expectedCommitSha: params.expectedCommitSha ?? deployment.commitSha},
+      deployment.error ?? 'application deployment did not complete',
+    );
+  }
+  try {
+    const report = await verifyPagesDeployment({
+      baseUrl: deployment.url,
+      expectedCommitSha: params.expectedCommitSha,
+      expectedPullRequest: params.expectedPullRequest,
+      metadataPath: app.verify?.metadataPath ?? '/preview-metadata.json',
+      endpoints: app.verify?.endpoints ?? [],
+      attempts: params.attempts,
+      retryDelayMs: params.retryDelayMs,
+      fetchImpl: params.fetchImpl,
+    });
+    return {appId: app.id, ...report};
+  } catch (error) {
+    return failedAppVerification(app.id, deployment.url, params, errorMessage(error));
+  }
+}
+
+function failedAppVerification(
+  appId: string,
+  url: string | null,
+  params: {expectedCommitSha: string | undefined; expectedPullRequest: string | undefined},
+  error: string,
+): CloudflarePagesAppVerification {
+  return {
+    appId,
+    ok: false,
+    url,
+    commitSha: params.expectedCommitSha ?? null,
+    pullRequest: params.expectedPullRequest ?? null,
+    endpoints: [],
+    errors: [error],
   };
 }

@@ -44,6 +44,19 @@ type SystemEventMapping = {
   meta?: (message: Record<string, unknown>) => readonly SessionViewRowMeta[];
 };
 
+function hookResponseLabel(outcome: string | undefined): string {
+  if (outcome === 'error') return 'Hook failed';
+  if (outcome === 'cancelled') return 'Hook cancelled';
+  if (outcome === 'success') return 'Hook completed';
+  return 'Hook response';
+}
+
+function hookResponseTone(outcome: string | undefined): SessionViewLifecycleRow['tone'] {
+  if (outcome === 'error') return 'error';
+  if (outcome === 'cancelled') return 'warning';
+  return 'default';
+}
+
 export const SYSTEM_EVENT_MAPPINGS: Record<string, SystemEventMapping> = {
   permission_denied: {
     label: 'Permission denied',
@@ -94,17 +107,11 @@ export const SYSTEM_EVENT_MAPPINGS: Record<string, SystemEventMapping> = {
   hook_response: {
     label: (message) => {
       const outcome = stringField(message, 'outcome');
-      return outcome === 'error'
-        ? 'Hook failed'
-        : outcome === 'cancelled'
-          ? 'Hook cancelled'
-          : outcome === 'success'
-            ? 'Hook completed'
-            : 'Hook response';
+      return hookResponseLabel(outcome);
     },
     tone: (message) => {
       const outcome = stringField(message, 'outcome');
-      return outcome === 'error' ? 'error' : outcome === 'cancelled' ? 'warning' : 'default';
+      return hookResponseTone(outcome);
     },
     detail: (message) =>
       stringField(message, 'output') ??
@@ -173,35 +180,9 @@ export function systemRow(
     ),
   ].filter(isMeta);
 
-  if (!isInit) {
-    const mapping = subtype === undefined ? undefined : SYSTEM_EVENT_MAPPINGS[subtype];
-    const label =
-      mapping === undefined
-        ? `Session event (${subtype ?? 'unknown'})`
-        : typeof mapping.label === 'function'
-          ? mapping.label(message)
-          : mapping.label;
-    const tone =
-      mapping === undefined
-        ? 'default'
-        : typeof mapping.tone === 'function'
-          ? mapping.tone(message)
-          : mapping.tone;
-    const detail = mapping?.detail?.(message) ?? null;
-    const meta = [...baseMeta, ...(mapping?.meta?.(message) ?? [])];
+  if (!isInit) return systemEventRow(timestamp, message, subtype, baseMeta);
 
-    return lifecycleRow(timestamp, label, detail, tone, false, meta);
-  }
-
-  const isNewSession =
-    !context.hasInit || sessionId === undefined || sessionId !== context.sessionId;
-  if (isNewSession) {
-    context.pendingToolRows.length = 0;
-    context.toolCallRows.clear();
-  }
-  context.hasInit = true;
-  context.sessionId = sessionId ?? null;
-  context.turn = isNewSession ? 1 : context.turn + 1;
+  const isNewSession = initializeClaudeSession(context, sessionId);
 
   const label = isNewSession ? 'Session started' : `Turn ${context.turn} started`;
   const meta = [
@@ -213,6 +194,41 @@ export function systemRow(
   return lifecycleRow(timestamp, label, null, 'default', false, meta);
 }
 
+function systemEventRow(
+  timestamp: number,
+  message: Record<string, unknown>,
+  subtype: string | undefined,
+  baseMeta: readonly SessionViewRowMeta[],
+): SessionViewLifecycleRow {
+  const mapping = subtype === undefined ? undefined : SYSTEM_EVENT_MAPPINGS[subtype];
+  let label = `Session event (${subtype ?? 'unknown'})`;
+  let tone: SessionViewLifecycleRow['tone'] = 'default';
+  if (mapping !== undefined) {
+    label = typeof mapping.label === 'function' ? mapping.label(message) : mapping.label;
+    tone = typeof mapping.tone === 'function' ? mapping.tone(message) : mapping.tone;
+  }
+  return lifecycleRow(timestamp, label, mapping?.detail?.(message) ?? null, tone, false, [
+    ...baseMeta,
+    ...(mapping?.meta?.(message) ?? []),
+  ]);
+}
+
+function initializeClaudeSession(
+  context: ClaudeParseContext,
+  sessionId: string | undefined,
+): boolean {
+  const isNewSession =
+    !context.hasInit || sessionId === undefined || sessionId !== context.sessionId;
+  if (isNewSession) {
+    context.pendingToolRows.length = 0;
+    context.toolCallRows.clear();
+  }
+  context.hasInit = true;
+  context.sessionId = sessionId ?? null;
+  context.turn = isNewSession ? 1 : context.turn + 1;
+  return isNewSession;
+}
+
 export function authStatusRow(
   timestamp: number,
   message: Record<string, unknown>,
@@ -221,13 +237,13 @@ export function authStatusRow(
   const output = stringList(field(message, 'output')).join('\n');
   const isAuthenticating = booleanField(message, 'isAuthenticating');
 
+  let label = 'Authentication complete';
+  if (error) label = 'Authentication failed';
+  else if (isAuthenticating) label = 'Authenticating';
+
   return lifecycleRow(
     timestamp,
-    error
-      ? 'Authentication failed'
-      : isAuthenticating
-        ? 'Authenticating'
-        : 'Authentication complete',
+    label,
     (error ?? output) || null,
     error ? 'error' : 'default',
     false,
@@ -276,12 +292,8 @@ export function toolUseSummary(
 
   const precedingToolUseIds = stringList(field(message, 'preceding_tool_use_ids'));
   const toolUseId = stringField(message, 'tool_use_id');
-  const candidateIds =
-    precedingToolUseIds.length > 0
-      ? precedingToolUseIds
-      : toolUseId === undefined
-        ? []
-        : [toolUseId];
+  let candidateIds = precedingToolUseIds;
+  if (candidateIds.length === 0 && toolUseId !== undefined) candidateIds = [toolUseId];
 
   for (const id of [...candidateIds].reverse()) {
     const row = context.toolCallRows.get(id);
@@ -323,65 +335,91 @@ export function assistantRows(
   context: ClaudeParseContext,
 ): readonly SessionViewRow[] {
   const sdkMessage = asLooseObject(message.message) ?? message;
-  const rows: SessionViewRow[] = [];
-  const textParts: string[] = [];
-  const thinkingParts: string[] = [];
-  let queueRows = context.toolCallRows.size > 0;
-
-  const pushRow = (row: SessionViewRow) => {
-    if (queueRows) {
-      context.pendingToolRows.push(row);
-    } else {
-      rows.push(row);
-    }
-  };
-
-  const pushText = () => {
-    if (textParts.length === 0) return;
-    pushRow(messageRow(timestamp, 'assistant', 'assistant', textParts.join('\n\n'), false));
-    textParts.length = 0;
-  };
-  const pushThinking = () => {
-    if (thinkingParts.length === 0) return;
-    pushRow(thinkingRow(timestamp, thinkingParts.join('\n\n')));
-    thinkingParts.length = 0;
+  const state: ClaudeAssistantRowState = {
+    context,
+    rows: [],
+    textParts: [],
+    thinkingParts: [],
+    queueRows: context.toolCallRows.size > 0,
   };
 
   for (const block of contentBlocks(sdkMessage)) {
-    const type = stringField(block, 'type');
-    if (type === 'tool_use' || type === 'tool-use' || type === 'toolCall') {
-      pushText();
-      pushThinking();
-      const row = toolCallRow(timestamp, block);
-      if (row.id === null) {
-        pushRow(row);
-      } else {
-        queueRows = true;
-        context.pendingToolRows.push(row);
-        context.toolCallRows.set(row.id, row);
-      }
-      continue;
-    }
-
-    if (type === 'thinking' || type === 'reasoning') {
-      pushText();
-      const text = blockText(block);
-      if (text) thinkingParts.push(text);
-      continue;
-    }
-
-    pushThinking();
-    const text = blockText(block);
-    if (text) textParts.push(text);
+    appendClaudeAssistantBlock(timestamp, block, state);
   }
 
-  pushText();
-  pushThinking();
+  flushClaudeAssistantText(timestamp, state);
+  flushClaudeAssistantThinking(timestamp, state);
 
-  if (rows.length > 0 || queueRows) return rows;
+  if (state.rows.length > 0 || state.queueRows) return state.rows;
 
   const text = stringField(sdkMessage, 'content') ?? stringField(message, 'result');
   return [messageRow(timestamp, 'assistant', 'assistant', text ?? toJson(message), false)];
+}
+
+interface ClaudeAssistantRowState {
+  readonly context: ClaudeParseContext;
+  readonly rows: SessionViewRow[];
+  readonly textParts: string[];
+  readonly thinkingParts: string[];
+  queueRows: boolean;
+}
+
+function pushClaudeAssistantRow(row: SessionViewRow, state: ClaudeAssistantRowState): void {
+  if (state.queueRows) state.context.pendingToolRows.push(row);
+  else state.rows.push(row);
+}
+
+function flushClaudeAssistantText(timestamp: number, state: ClaudeAssistantRowState): void {
+  if (state.textParts.length === 0) return;
+  pushClaudeAssistantRow(
+    messageRow(timestamp, 'assistant', 'assistant', state.textParts.join('\n\n'), false),
+    state,
+  );
+  state.textParts.length = 0;
+}
+
+function flushClaudeAssistantThinking(timestamp: number, state: ClaudeAssistantRowState): void {
+  if (state.thinkingParts.length === 0) return;
+  pushClaudeAssistantRow(thinkingRow(timestamp, state.thinkingParts.join('\n\n')), state);
+  state.thinkingParts.length = 0;
+}
+
+function appendClaudeAssistantBlock(
+  timestamp: number,
+  block: Record<string, unknown>,
+  state: ClaudeAssistantRowState,
+): void {
+  const type = stringField(block, 'type');
+  if (type === 'tool_use' || type === 'tool-use' || type === 'toolCall') {
+    appendClaudeToolCall(timestamp, block, state);
+    return;
+  }
+  if (type === 'thinking' || type === 'reasoning') {
+    flushClaudeAssistantText(timestamp, state);
+    const text = blockText(block);
+    if (text) state.thinkingParts.push(text);
+    return;
+  }
+  flushClaudeAssistantThinking(timestamp, state);
+  const text = blockText(block);
+  if (text) state.textParts.push(text);
+}
+
+function appendClaudeToolCall(
+  timestamp: number,
+  block: Record<string, unknown>,
+  state: ClaudeAssistantRowState,
+): void {
+  flushClaudeAssistantText(timestamp, state);
+  flushClaudeAssistantThinking(timestamp, state);
+  const row = toolCallRow(timestamp, block);
+  if (row.id === null) {
+    pushClaudeAssistantRow(row, state);
+    return;
+  }
+  state.queueRows = true;
+  state.context.pendingToolRows.push(row);
+  state.context.toolCallRows.set(row.id, row);
 }
 
 export function userRows(
@@ -402,19 +440,9 @@ export function userRows(
   };
 
   for (const block of contentBlocks(sdkMessage)) {
-    const type = stringField(block, 'type');
-    if (type === 'tool_result' || type === 'tool-result') {
-      pushText();
-      const row = toolResultRow(timestamp, block);
-      if (row.toolCallId !== null && context.toolCallRows.has(row.toolCallId)) {
-        matchedToolResult = true;
-      }
-      rows.push(row);
-      continue;
-    }
-
-    const text = blockText(block);
-    if (text) textParts.push(text);
+    matchedToolResult =
+      appendClaudeUserBlock(timestamp, block, context, rows, textParts, pushText) ||
+      matchedToolResult;
   }
 
   pushText();
@@ -424,14 +452,40 @@ export function userRows(
     rows.push(messageRow(timestamp, role, role, content ?? toJson(message), false));
   }
 
-  if (hadPendingToolCall) {
-    if (matchedToolResult) {
-      context.pendingToolRows.push(...rows);
-      return [];
-    }
-    return [...flushPendingToolRows(context), ...rows];
-  }
+  if (hadPendingToolCall) return resolvePendingClaudeUserRows(context, rows, matchedToolResult);
   return rows;
+}
+
+function appendClaudeUserBlock(
+  timestamp: number,
+  block: Record<string, unknown>,
+  context: ClaudeParseContext,
+  rows: SessionViewRow[],
+  textParts: string[],
+  pushText: () => void,
+): boolean {
+  const type = stringField(block, 'type');
+  if (type !== 'tool_result' && type !== 'tool-result') {
+    const text = blockText(block);
+    if (text) textParts.push(text);
+    return false;
+  }
+  pushText();
+  const row = toolResultRow(timestamp, block);
+  rows.push(row);
+  return row.toolCallId !== null && context.toolCallRows.has(row.toolCallId);
+}
+
+function resolvePendingClaudeUserRows(
+  context: ClaudeParseContext,
+  rows: readonly SessionViewRow[],
+  matchedToolResult: boolean,
+): readonly SessionViewRow[] {
+  if (matchedToolResult) {
+    context.pendingToolRows.push(...rows);
+    return [];
+  }
+  return [...flushPendingToolRows(context), ...rows];
 }
 
 export function resultRow(
@@ -456,13 +510,13 @@ export function resultRow(
     costMeta(message),
   ].filter(isMeta);
 
+  let label = `Turn ${turn} completed`;
+  if (terminalFailure) label = 'Session failed';
+  else if (isFinalResult || turn === 0) label = 'Session completed';
+
   return lifecycleRow(
     timestamp,
-    terminalFailure
-      ? 'Session failed'
-      : isFinalResult || turn === 0
-        ? 'Session completed'
-        : `Turn ${turn} completed`,
+    label,
     detail,
     terminalFailure ? 'error' : 'default',
     terminalFailure,
@@ -521,7 +575,9 @@ function blockText(block: Record<string, unknown>): string {
     return content
       .map((item) => {
         const object = asLooseObject(item);
-        return object ? blockText(object) : typeof item === 'string' ? item : '';
+        if (object) return blockText(object);
+        if (typeof item === 'string') return item;
+        return '';
       })
       .filter(Boolean)
       .join('\n\n');

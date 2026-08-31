@@ -18,14 +18,10 @@ export function ChecklistRow({
 }) {
   const pointer = !item.tracked;
   const showDetails = pointer || item.status === 'open';
-  const statusLabel =
-    item.status === 'done'
-      ? 'done'
-      : pointer
-        ? 'next step'
-        : item.attention
-          ? 'needs attention'
-          : 'to do';
+  let statusLabel = 'to do';
+  if (item.status === 'done') statusLabel = 'done';
+  else if (pointer) statusLabel = 'next step';
+  else if (item.attention) statusLabel = 'needs attention';
 
   return (
     <li className="flex min-w-0 items-start gap-group border-b border-border-neutral-base px-row py-row last:border-b-0">

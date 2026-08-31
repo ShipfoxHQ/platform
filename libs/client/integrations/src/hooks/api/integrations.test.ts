@@ -38,8 +38,9 @@ describe('listSourceConnections', () => {
   test('requests the source_control capability and drops non-active connections', async () => {
     let requestedUrl = '';
     const fetchImpl = vi.fn((input: RequestInfo | URL) => {
-      requestedUrl =
-        typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      if (typeof input === 'string') requestedUrl = input;
+      else if (input instanceof URL) requestedUrl = input.href;
+      else requestedUrl = input.url;
       return Promise.resolve(
         jsonResponse({
           connections: [

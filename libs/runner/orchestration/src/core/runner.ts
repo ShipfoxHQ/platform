@@ -117,89 +117,136 @@ export async function startRunner(
     'Runner started',
   );
 
-  let currentInterval = config.SHIPFOX_POLL_INTERVAL_MS;
-  let runnerSession: RunnerSession | undefined;
+  const state: RunnerPollState = {
+    currentInterval: config.SHIPFOX_POLL_INTERVAL_MS,
+    runnerSession: undefined,
+    pollDeadline: undefined,
+  };
   if (startupMode === 'managed') {
-    runnerSession = await initializeManagedRunnerSession(runnerBootPhaseTimeline);
-    if (!runnerSession) return;
+    state.runnerSession = await initializeManagedRunnerSession(runnerBootPhaseTimeline);
+    if (!state.runnerSession) return;
   } else {
     await interruptableSleep(withJitter(config.SHIPFOX_POLL_INTERVAL_MS));
   }
-  let pollDeadline = nextPollDeadline();
+  state.pollDeadline = nextPollDeadline();
 
   while (running) {
-    try {
-      if (!runnerSession) {
-        runnerSession = await registerRunnerSession({
-          capabilities: runnerToolCapabilities(),
-          lifecycleCapabilities: RUNNER_LIFECYCLE_CAPABILITIES,
-        });
-        logger().info({runnerSessionId: runnerSession.session_id}, 'Runner session registered');
-      }
-
-      const job = await requestJob(runnerSession.session_token, shutdownController.signal);
-
-      if (!job) {
-        if (hasPollDeadlinePassed(pollDeadline)) {
-          logger().info('No jobs available before the poll deadline; runner exiting');
-          return;
-        }
-        currentInterval = nextBackoffInterval(currentInterval);
-        logger().debug({interval: currentInterval}, 'No jobs available, backing off');
-        await interruptableSleep(withJitter(currentInterval));
-        continue;
-      }
-
-      if (!running) return;
-
-      runnerBootPhaseTimeline.mark('first_claim_uptime_seconds');
-      logger().info(
-        {
-          ...runnerBootPhaseTimeline.snapshot(),
-          workflowRunId: job.workflow_run_id,
-          workflowRunAttemptId: job.workflow_run_attempt_id,
-          jobId: job.job_id,
-          jobExecutionId: job.job_execution_id,
-        },
-        'Job claimed',
-      );
-
-      await runJob(job, workspaceRoot);
-      currentInterval = config.SHIPFOX_POLL_INTERVAL_MS;
-      pollDeadline = nextPollDeadline();
-    } catch (pollError) {
-      if (!running) return;
-
-      if (isUnauthorized(pollError)) {
-        if (startupMode === 'managed') {
-          logger().info('Activated runner session rejected; runner exiting');
-          return;
-        }
-        runnerSession = undefined;
-        logger().info('Runner session rejected; registering a new session');
-        if (hasPollDeadlinePassed(pollDeadline)) {
-          logger().error({err: pollError}, 'Runner session rejected past the poll deadline');
-          throw pollError;
-        }
-        currentInterval = nextBackoffInterval(currentInterval);
-        await interruptableSleep(withJitter(currentInterval));
-        continue;
-      }
-      if (pollError instanceof RunnerSessionExhaustedError) {
-        logger().info('Runner session exhausted; runner exiting');
-        return;
-      }
-      if (hasPollDeadlinePassed(pollDeadline)) {
-        logger().error({err: pollError}, 'Poll cycle failed past the poll deadline');
-        throw pollError;
-      }
-      logger().error({err: pollError}, 'Poll cycle failed');
-      currentInterval = nextBackoffInterval(currentInterval);
-      await interruptableSleep(withJitter(currentInterval));
-    }
+    const outcome = await runRunnerPollCycle({
+      state,
+      startupMode,
+      runnerBootPhaseTimeline,
+      workspaceRoot,
+    });
+    if (outcome === 'exit') return;
   }
 
   logger().info('Runner stopped');
+}
+
+interface RunnerPollState {
+  currentInterval: number;
+  runnerSession: RunnerSession | undefined;
+  pollDeadline: number | undefined;
+}
+
+async function runRunnerPollCycle(params: {
+  state: RunnerPollState;
+  startupMode: ReturnType<typeof runnerStartupMode>;
+  runnerBootPhaseTimeline: RunnerBootPhaseTimeline;
+  workspaceRoot: string;
+}): Promise<'continue' | 'exit'> {
+  try {
+    const session = await ensureRunnerSession(params.state);
+    const job = await requestJob(session.session_token, shutdownController.signal);
+    if (!job) return await handleNoRunnerJob(params.state);
+    if (!running) return 'exit';
+    logClaimedRunnerJob(params.runnerBootPhaseTimeline, job);
+    await runJob(job, params.workspaceRoot);
+    params.state.currentInterval = config.SHIPFOX_POLL_INTERVAL_MS;
+    params.state.pollDeadline = nextPollDeadline();
+    return 'continue';
+  } catch (error) {
+    return handleRunnerPollError(error, params.state, params.startupMode);
+  }
+}
+
+async function ensureRunnerSession(state: RunnerPollState): Promise<RunnerSession> {
+  if (state.runnerSession) return state.runnerSession;
+  state.runnerSession = await registerRunnerSession({
+    capabilities: runnerToolCapabilities(),
+    lifecycleCapabilities: RUNNER_LIFECYCLE_CAPABILITIES,
+  });
+  logger().info({runnerSessionId: state.runnerSession.session_id}, 'Runner session registered');
+  return state.runnerSession;
+}
+
+async function handleNoRunnerJob(state: RunnerPollState): Promise<'continue' | 'exit'> {
+  if (hasPollDeadlinePassed(state.pollDeadline)) {
+    logger().info('No jobs available before the poll deadline; runner exiting');
+    return 'exit';
+  }
+  state.currentInterval = nextBackoffInterval(state.currentInterval);
+  logger().debug({interval: state.currentInterval}, 'No jobs available, backing off');
+  await interruptableSleep(withJitter(state.currentInterval));
+  return 'continue';
+}
+
+function logClaimedRunnerJob(
+  runnerBootPhaseTimeline: RunnerBootPhaseTimeline,
+  job: NonNullable<Awaited<ReturnType<typeof requestJob>>>,
+): void {
+  runnerBootPhaseTimeline.mark('first_claim_uptime_seconds');
+  logger().info(
+    {
+      ...runnerBootPhaseTimeline.snapshot(),
+      workflowRunId: job.workflow_run_id,
+      workflowRunAttemptId: job.workflow_run_attempt_id,
+      jobId: job.job_id,
+      jobExecutionId: job.job_execution_id,
+    },
+    'Job claimed',
+  );
+}
+
+async function handleRunnerPollError(
+  error: unknown,
+  state: RunnerPollState,
+  startupMode: ReturnType<typeof runnerStartupMode>,
+): Promise<'continue' | 'exit'> {
+  if (!running) return 'exit';
+  if (isUnauthorized(error)) return handleUnauthorizedRunnerSession(error, state, startupMode);
+  if (error instanceof RunnerSessionExhaustedError) {
+    logger().info('Runner session exhausted; runner exiting');
+    return 'exit';
+  }
+  if (hasPollDeadlinePassed(state.pollDeadline)) {
+    logger().error({err: error}, 'Poll cycle failed past the poll deadline');
+    throw error;
+  }
+  logger().error({err: error}, 'Poll cycle failed');
+  state.currentInterval = nextBackoffInterval(state.currentInterval);
+  await interruptableSleep(withJitter(state.currentInterval));
+  return 'continue';
+}
+
+async function handleUnauthorizedRunnerSession(
+  error: unknown,
+  state: RunnerPollState,
+  startupMode: ReturnType<typeof runnerStartupMode>,
+): Promise<'continue' | 'exit'> {
+  if (startupMode === 'managed') {
+    logger().info('Activated runner session rejected; runner exiting');
+    return 'exit';
+  }
+  state.runnerSession = undefined;
+  logger().info('Runner session rejected; registering a new session');
+  if (hasPollDeadlinePassed(state.pollDeadline)) {
+    logger().error({err: error}, 'Runner session rejected past the poll deadline');
+    throw error;
+  }
+  state.currentInterval = nextBackoffInterval(state.currentInterval);
+  await interruptableSleep(withJitter(state.currentInterval));
+  return 'continue';
 }
 
 function warnAboutUnavailablePiExtensions(): void {
@@ -419,45 +466,67 @@ async function waitForRunnerActivation(controlSessionToken: string): Promise<str
   const controller = new AbortController();
   const abortOnShutdown = () => controller.abort();
   shutdownController.signal.addEventListener('abort', abortOnShutdown, {once: true});
-  let heartbeatError: unknown;
+  const heartbeatState: {error: unknown} = {error: undefined};
   let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
   const heartbeat = async () => {
     try {
       await heartbeatRunnerControlSession(controlSessionToken, controller.signal);
     } catch (error) {
-      heartbeatError = error;
+      heartbeatState.error = error;
       controller.abort();
     }
   };
   try {
     await heartbeat();
     if (!running) return undefined;
-    if (heartbeatError) return handleControlSessionError(heartbeatError);
+    if (heartbeatState.error) return handleControlSessionError(heartbeatState.error);
     heartbeatTimer = setInterval(() => void heartbeat(), config.SHIPFOX_HEARTBEAT_INTERVAL_MS);
-    while (running && !controller.signal.aborted) {
-      try {
-        const activationToken = await pollRunnerAssignment(controlSessionToken, controller.signal);
-        if (activationToken) return activationToken;
-        await interruptibleSleep(config.SHIPFOX_POLL_INTERVAL_MS, controller.signal);
-        if (heartbeatError) return handleControlSessionError(heartbeatError);
-      } catch (error) {
-        if (!running) return undefined;
-        if (controller.signal.aborted && heartbeatError)
-          return handleControlSessionError(heartbeatError);
-        if (isTerminalControlSessionError(error)) return handleControlSessionError(error);
-        if (isTimeoutError(error)) {
-          logger().debug('Managed runner assignment poll timed out; retrying');
-          continue;
-        }
-        throw error;
-      }
-    }
-    return undefined;
+    return await pollForRunnerActivation(controlSessionToken, controller, heartbeatState);
   } finally {
     if (heartbeatTimer) clearInterval(heartbeatTimer);
     shutdownController.signal.removeEventListener('abort', abortOnShutdown);
     controller.abort();
   }
+}
+
+async function pollForRunnerActivation(
+  controlSessionToken: string,
+  controller: AbortController,
+  heartbeatState: {error: unknown},
+): Promise<string | undefined> {
+  while (running && !controller.signal.aborted) {
+    try {
+      const activationToken = await pollRunnerAssignment(controlSessionToken, controller.signal);
+      if (activationToken) return activationToken;
+      await interruptibleSleep(config.SHIPFOX_POLL_INTERVAL_MS, controller.signal);
+      if (heartbeatState.error) return handleControlSessionError(heartbeatState.error);
+    } catch (error) {
+      const outcome = handleRunnerActivationPollError(error, controller, heartbeatState);
+      if (outcome === 'stop') return undefined;
+    }
+  }
+  return undefined;
+}
+
+function handleRunnerActivationPollError(
+  error: unknown,
+  controller: AbortController,
+  heartbeatState: {error: unknown},
+): 'retry' | 'stop' {
+  if (!running) return 'stop';
+  if (controller.signal.aborted && heartbeatState.error) {
+    handleControlSessionError(heartbeatState.error);
+    return 'stop';
+  }
+  if (isTerminalControlSessionError(error)) {
+    handleControlSessionError(error);
+    return 'stop';
+  }
+  if (isTimeoutError(error)) {
+    logger().debug('Managed runner assignment poll timed out; retrying');
+    return 'retry';
+  }
+  throw error;
 }
 
 function handleControlSessionError(error: unknown): undefined {

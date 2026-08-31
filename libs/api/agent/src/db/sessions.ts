@@ -145,6 +145,57 @@ function throwSessionHeld(row: AgentSessionDb, params: ClaimSessionParams): neve
   });
 }
 
+function claimSessionIdentity(params: ClaimSessionParams) {
+  return and(
+    eq(sessions.workflowRunAttemptId, params.workflowRunAttemptId),
+    eq(sessions.key, params.key),
+  );
+}
+
+async function acquireExistingSessionClaim(
+  tx: Transaction,
+  row: AgentSessionDb | undefined,
+  params: ClaimSessionParams,
+): Promise<void> {
+  if (!row) return;
+  assertSessionScopeMatches(row, params);
+  if (!(await tryAcquireSessionClaimLock(tx, params))) throwSessionHeld(row, params);
+}
+
+async function assertClaimLockAvailable(
+  tx: Transaction,
+  params: ClaimSessionParams,
+): Promise<void> {
+  if (await tryAcquireSessionClaimLock(tx, params)) return;
+  const [visibleRow] = await tx.select().from(sessions).where(claimSessionIdentity(params));
+  if (!visibleRow) throw new Error('Session missing after claim lock contention');
+  throwSessionHeld(visibleRow, params);
+}
+
+async function lockClaimableSession(
+  tx: Transaction,
+  params: ClaimSessionParams,
+): Promise<AgentSessionDb> {
+  const [row] = await tx
+    .select()
+    .from(sessions)
+    .where(claimSessionIdentity(params))
+    .for('update', {skipLocked: true});
+  if (row) {
+    assertSessionClaimable(row, params);
+    return row;
+  }
+
+  const [visibleRow] = await tx.select().from(sessions).where(claimSessionIdentity(params));
+  if (!visibleRow) throw new Error('Session missing after claim create');
+  assertSessionClaimable(visibleRow, params);
+  throw new AgentSessionLockUnavailableError({
+    sessionId: visibleRow.id,
+    workflowRunAttemptId: params.workflowRunAttemptId,
+    key: visibleRow.key,
+  });
+}
+
 /**
  * Claims a session exclusively for a step attempt, in one short transaction
  * with a non-blocking `FOR UPDATE SKIP LOCKED` row lock. First use creates the session (empty head,
@@ -162,17 +213,8 @@ export async function claimSession(params: ClaimSessionParams): Promise<AgentSes
   assertValidSessionHarness(params.harness);
 
   return await db().transaction(async (tx) => {
-    const sessionIdentity = and(
-      eq(sessions.workflowRunAttemptId, params.workflowRunAttemptId),
-      eq(sessions.key, params.key),
-    );
-    const [existingRow] = await tx.select().from(sessions).where(sessionIdentity);
-    if (existingRow) {
-      assertSessionScopeMatches(existingRow, params);
-      if (!(await tryAcquireSessionClaimLock(tx, params))) {
-        throwSessionHeld(existingRow, params);
-      }
-    }
+    const [existingRow] = await tx.select().from(sessions).where(claimSessionIdentity(params));
+    await acquireExistingSessionClaim(tx, existingRow, params);
 
     await tx
       .insert(sessions)
@@ -185,32 +227,8 @@ export async function claimSession(params: ClaimSessionParams): Promise<AgentSes
       })
       .onConflictDoNothing();
 
-    if (!(await tryAcquireSessionClaimLock(tx, params))) {
-      const [visibleRow] = await tx.select().from(sessions).where(sessionIdentity);
-      if (!visibleRow) throw new Error('Session missing after claim lock contention');
-
-      throwSessionHeld(visibleRow, params);
-    }
-
-    const [row] = await tx
-      .select()
-      .from(sessions)
-      .where(sessionIdentity)
-      .for('update', {skipLocked: true});
-    if (!row) {
-      const [visibleRow] = await tx.select().from(sessions).where(sessionIdentity);
-      if (!visibleRow) throw new Error('Session missing after claim create');
-
-      assertSessionClaimable(visibleRow, params);
-
-      throw new AgentSessionLockUnavailableError({
-        sessionId: visibleRow.id,
-        workflowRunAttemptId: params.workflowRunAttemptId,
-        key: visibleRow.key,
-      });
-    }
-
-    assertSessionClaimable(row, params);
+    await assertClaimLockAvailable(tx, params);
+    const row = await lockClaimableSession(tx, params);
 
     const updated = await tx
       .update(sessions)

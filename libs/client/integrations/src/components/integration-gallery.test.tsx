@@ -105,84 +105,147 @@ function fetchForGallery(options: FetchOptions = {}) {
   } = options;
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = input instanceof Request ? input : undefined;
-    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    const url = galleryRequestUrl(input);
     const method = init?.method ?? request?.method ?? 'GET';
-    if (url.includes('/integrations/webhook/connections/')) {
-      const connectionId = url.split('/integrations/webhook/connections/')[1]?.split('?')[0];
-      if (!connectionId) return Promise.resolve(jsonResponse({}, {status: 404}));
-      if (method === 'PATCH') {
-        const rawBody =
-          init?.body !== undefined ? String(init.body) : (await request?.clone().text()) || '{}';
-        const body = JSON.parse(rawBody) as {lifecycle_status?: string};
-        onUpdateConnection?.(connectionId, body);
-        const connection = webhookConnections.find(
-          (candidate) =>
-            typeof candidate === 'object' &&
-            candidate !== null &&
-            'id' in candidate &&
-            candidate.id === connectionId,
-        ) as Record<string, unknown> | undefined;
-        return Promise.resolve(
-          jsonResponse({...connection, lifecycle_status: body.lifecycle_status}),
-        );
-      }
-      if (method === 'DELETE') {
-        return Promise.resolve(jsonResponse(undefined, {status: 204}));
-      }
-    }
     if (url.includes('/integrations/webhook/connections')) {
-      if (webhookConnectionsFail)
-        return Promise.resolve(jsonResponse({code: 'server-error'}, {status: 500}));
-      if (method === 'POST') {
-        const rawBody =
-          init?.body !== undefined ? String(init.body) : (await request?.clone().text()) || '{}';
-        const body = JSON.parse(rawBody) as {name?: string; slug?: string; workspace_id?: string};
-        return Promise.resolve(
-          jsonResponse({
-            ...webhookConnectionDto,
-            workspace_id: body.workspace_id ?? webhookConnectionDto.workspace_id,
-            name: body.name ?? webhookConnectionDto.name,
-            slug: body.slug ?? webhookConnectionDto.slug,
-          }),
-        );
-      }
-      return Promise.resolve(jsonResponse({connections: webhookConnections}));
+      return await webhookRouteResponse({
+        url,
+        method,
+        init,
+        request,
+        connections: webhookConnections,
+        onUpdateConnection,
+        failed: webhookConnectionsFail,
+      });
     }
     if (url.includes('/integration-providers')) {
-      if (providersFail)
-        return Promise.resolve(jsonResponse({code: 'server-error'}, {status: 500}));
-      return Promise.resolve(jsonResponse({providers}));
-    }
-    if (url.includes('/integration-connections/')) {
-      const connectionId = url.split('/integration-connections/')[1]?.split('?')[0];
-      if (!connectionId) return Promise.resolve(jsonResponse({}, {status: 404}));
-      if (method === 'PATCH') {
-        const rawBody =
-          init?.body !== undefined ? String(init.body) : (await request?.clone().text()) || '{}';
-        const body = JSON.parse(rawBody) as {lifecycle_status?: string};
-        onUpdateConnection?.(connectionId, body);
-        const connection = connections.find(
-          (candidate) =>
-            typeof candidate === 'object' &&
-            candidate !== null &&
-            'id' in candidate &&
-            candidate.id === connectionId,
-        ) as Record<string, unknown> | undefined;
-        return Promise.resolve(
-          jsonResponse({...connection, lifecycle_status: body.lifecycle_status}),
-        );
-      }
-      if (method === 'DELETE') {
-        return Promise.resolve(jsonResponse(undefined, {status: 204}));
-      }
+      return collectionResponse('providers', providers, providersFail);
     }
     if (url.includes('/integration-connections')) {
-      if (connectionsFail)
-        return Promise.resolve(jsonResponse({code: 'server-error'}, {status: 500}));
-      return Promise.resolve(jsonResponse({connections}));
+      return await integrationConnectionRouteResponse({
+        url,
+        method,
+        init,
+        request,
+        connections,
+        onUpdateConnection,
+        failed: connectionsFail,
+      });
     }
     return Promise.resolve(jsonResponse({}, {status: 404}));
   });
+}
+
+async function webhookRouteResponse(
+  params: Omit<Parameters<typeof connectionMutationResponse>[0], 'route'> & {failed: boolean},
+) {
+  if (params.url.includes('/integrations/webhook/connections/')) {
+    const response = await connectionMutationResponse({
+      ...params,
+      route: '/integrations/webhook/connections/',
+    });
+    if (response) return response;
+  }
+  return await webhookCollectionResponse(params);
+}
+
+async function integrationConnectionRouteResponse(
+  params: Omit<Parameters<typeof connectionMutationResponse>[0], 'route'> & {failed: boolean},
+) {
+  if (params.url.includes('/integration-connections/')) {
+    const response = await connectionMutationResponse({
+      ...params,
+      route: '/integration-connections/',
+    });
+    if (response) return response;
+  }
+  return collectionResponse('connections', params.connections, params.failed);
+}
+
+function galleryRequestUrl(input: RequestInfo | URL): string {
+  if (typeof input === 'string') return input;
+  if (input instanceof URL) return input.href;
+  return input.url;
+}
+
+async function connectionMutationResponse({
+  url,
+  route,
+  method,
+  init,
+  request,
+  connections,
+  onUpdateConnection,
+}: {
+  url: string;
+  route: string;
+  method: string;
+  init: RequestInit | undefined;
+  request: Request | undefined;
+  connections: unknown[];
+  onUpdateConnection: FetchOptions['onUpdateConnection'];
+}): Promise<Response | undefined> {
+  const connectionId = url.split(route)[1]?.split('?')[0];
+  if (!connectionId) return jsonResponse({}, {status: 404});
+  if (method === 'DELETE') return jsonResponse(undefined, {status: 204});
+  if (method !== 'PATCH') return undefined;
+
+  const body = await requestLifecycleBody(init, request);
+  onUpdateConnection?.(connectionId, body);
+  const connection = connections.find((candidate) => connectionIdFor(candidate) === connectionId);
+  return jsonResponse({...asRecord(connection), lifecycle_status: body.lifecycle_status});
+}
+
+async function webhookCollectionResponse({
+  method,
+  init,
+  request,
+  connections,
+  failed,
+}: {
+  method: string;
+  init: RequestInit | undefined;
+  request: Request | undefined;
+  connections: unknown[];
+  failed: boolean;
+}): Promise<Response> {
+  if (failed) return jsonResponse({code: 'server-error'}, {status: 500});
+  if (method !== 'POST') return jsonResponse({connections});
+  const body = await requestJsonBody(init, request);
+  return jsonResponse({
+    ...webhookConnectionDto,
+    workspace_id: body.workspace_id ?? webhookConnectionDto.workspace_id,
+    name: body.name ?? webhookConnectionDto.name,
+    slug: body.slug ?? webhookConnectionDto.slug,
+  });
+}
+
+function collectionResponse(key: string, values: unknown[], failed: boolean): Response {
+  if (failed) return jsonResponse({code: 'server-error'}, {status: 500});
+  return jsonResponse({[key]: values});
+}
+
+async function requestLifecycleBody(init: RequestInit | undefined, request: Request | undefined) {
+  return (await requestJsonBody(init, request)) as {lifecycle_status?: string};
+}
+
+async function requestJsonBody(
+  init: RequestInit | undefined,
+  request: Request | undefined,
+): Promise<Record<string, string | undefined>> {
+  const rawBody =
+    init?.body !== undefined ? String(init.body) : (await request?.clone().text()) || '{}';
+  return JSON.parse(rawBody) as Record<string, string | undefined>;
+}
+
+function connectionIdFor(candidate: unknown): unknown {
+  if (typeof candidate !== 'object' || candidate === null || !('id' in candidate)) return undefined;
+  return candidate.id;
+}
+
+function asRecord(candidate: unknown): Record<string, unknown> {
+  if (typeof candidate !== 'object' || candidate === null) return {};
+  return candidate as Record<string, unknown>;
 }
 
 function renderGallery(

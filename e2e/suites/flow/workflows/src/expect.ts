@@ -239,6 +239,178 @@ function intOrNullField(value: Record<string, unknown>, field: string): number |
   return typeof fieldValue === 'number' && Number.isInteger(fieldValue) ? fieldValue : undefined;
 }
 
+function formatOptionalInteger(value: number | null | undefined): string {
+  if (value === undefined) return 'missing';
+  if (value === null) return 'null';
+  return String(value);
+}
+
+type JobExpectation = NonNullable<Expectation['jobs']>[string];
+type StepExpectation = NonNullable<JobExpectation['steps']>[string];
+
+function evaluateStepError(
+  step: WorkflowRunStepDetailDto,
+  expectation: NonNullable<StepExpectation['error']>,
+  path: string,
+  mismatches: Mismatch[],
+): void {
+  if (step.error === null) {
+    mismatches.push({path, expected: 'present', actual: 'null'});
+    return;
+  }
+
+  if (expectation.reason !== undefined && step.error.reason !== expectation.reason) {
+    mismatches.push({
+      path: `${path}.reason`,
+      expected: expectation.reason,
+      actual: step.error.reason ?? 'null',
+    });
+  }
+
+  if (expectation.field !== undefined) {
+    const field = stringField(step.error, 'field');
+    if (field !== expectation.field) {
+      mismatches.push({
+        path: `${path}.field`,
+        expected: expectation.field,
+        actual: field ?? 'null',
+      });
+    }
+  }
+
+  if (expectation.source !== undefined) {
+    const source = stringField(step.error, 'source');
+    if (source === null || !source.includes(expectation.source)) {
+      mismatches.push({
+        path: `${path}.source`,
+        expected: `include ${expectation.source}`,
+        actual: source ?? 'null',
+      });
+    }
+  }
+}
+
+function evaluateGateResult(
+  step: WorkflowRunStepDetailDto,
+  expectation: NonNullable<StepExpectation['gate_result']>,
+  path: string,
+  mismatches: Mismatch[],
+): void {
+  const gateResult = latestGateResult(step);
+  if (gateResult === null) {
+    mismatches.push({path, expected: 'present', actual: 'null'});
+    return;
+  }
+
+  if (expectation.kind !== undefined && gateResult.kind !== expectation.kind) {
+    mismatches.push({path: `${path}.kind`, expected: expectation.kind, actual: gateResult.kind});
+  }
+
+  if (expectation.reason !== undefined) {
+    const reason = stringField(gateResult, 'reason');
+    if (reason !== expectation.reason) {
+      mismatches.push({
+        path: `${path}.reason`,
+        expected: expectation.reason,
+        actual: reason ?? 'null',
+      });
+    }
+  }
+
+  if (expectation.exit_code !== undefined) {
+    const exitCode = intOrNullField(gateResult, 'exit_code');
+    if (exitCode !== expectation.exit_code) {
+      mismatches.push({
+        path: `${path}.exit_code`,
+        expected: formatOptionalInteger(expectation.exit_code),
+        actual: formatOptionalInteger(exitCode),
+      });
+    }
+  }
+}
+
+function evaluateStepExpectation(
+  job: WorkflowRunJobDetailDto,
+  stepKey: string,
+  expectation: StepExpectation,
+  path: string,
+  result: ExpectationResult,
+): void {
+  const step = findStep(job, stepKey);
+  if (!step) {
+    result.mismatches.push({path, expected: 'present', actual: 'missing'});
+    return;
+  }
+
+  if (expectation.status && step.status !== expectation.status) {
+    result.mismatches.push({
+      path: `${path}.status`,
+      expected: expectation.status,
+      actual: step.status,
+    });
+  }
+
+  if (expectation.exit_code !== undefined) {
+    const exitCode = latestExitCode(step);
+    if (exitCode !== expectation.exit_code) {
+      result.mismatches.push({
+        path: `${path}.exit_code`,
+        expected: String(expectation.exit_code),
+        actual: exitCode === null ? 'null' : String(exitCode),
+      });
+    }
+  }
+
+  if (expectation.error) {
+    evaluateStepError(step, expectation.error, `${path}.error`, result.mismatches);
+  }
+  if (expectation.gate_result) {
+    evaluateGateResult(step, expectation.gate_result, `${path}.gate_result`, result.mismatches);
+  }
+  if (expectation.logs) {
+    result.logRequirements.push({
+      path,
+      stepId: step.id,
+      attempt: step.current_attempt,
+      include: expectation.logs.include,
+      exclude: expectation.logs.exclude,
+    });
+  }
+}
+
+function evaluateJobExpectation(
+  runDetail: WorkflowRunDetailResponseDto,
+  jobKey: string,
+  expectation: JobExpectation,
+  result: ExpectationResult,
+): void {
+  const path = `jobs.${jobKey}`;
+  const job = findJob(runDetail, jobKey);
+  if (!job) {
+    result.mismatches.push({path, expected: 'present', actual: 'missing'});
+    return;
+  }
+
+  if (expectation.status && job.status !== expectation.status) {
+    result.mismatches.push({
+      path: `${path}.status`,
+      expected: expectation.status,
+      actual: job.status,
+    });
+  }
+  if (expectation.status_reason !== undefined && job.status_reason !== expectation.status_reason) {
+    result.mismatches.push({
+      path: `${path}.status_reason`,
+      expected: expectation.status_reason,
+      actual: job.status_reason ?? 'null',
+    });
+  }
+
+  for (const [stepKey, stepExpectation] of Object.entries(expectation.steps ?? {})) {
+    evaluateStepExpectation(job, stepKey, stepExpectation, `${path}.steps.${stepKey}`, result);
+  }
+}
+
 /**
  * Compares a run detail against an expectation, returning every structural mismatch
  * (run/job/step status and step exit code) plus the log requirements the harness still
@@ -248,11 +420,10 @@ export function evaluateExpectations(
   runDetail: WorkflowRunDetailResponseDto,
   expectation: Expectation,
 ): ExpectationResult {
-  const mismatches: Mismatch[] = [];
-  const logRequirements: StepLogRequirement[] = [];
+  const result: ExpectationResult = {mismatches: [], logRequirements: []};
 
   if (runDetail.status !== expectation.run.status) {
-    mismatches.push({
+    result.mismatches.push({
       path: 'run.status',
       expected: expectation.run.status,
       actual: runDetail.status,
@@ -260,168 +431,10 @@ export function evaluateExpectations(
   }
 
   for (const [jobKey, jobExpectation] of Object.entries(expectation.jobs ?? {})) {
-    const job = findJob(runDetail, jobKey);
-    if (!job) {
-      mismatches.push({path: `jobs.${jobKey}`, expected: 'present', actual: 'missing'});
-      continue;
-    }
-
-    if (jobExpectation.status && job.status !== jobExpectation.status) {
-      mismatches.push({
-        path: `jobs.${jobKey}.status`,
-        expected: jobExpectation.status,
-        actual: job.status,
-      });
-    }
-
-    if (
-      jobExpectation.status_reason !== undefined &&
-      job.status_reason !== jobExpectation.status_reason
-    ) {
-      mismatches.push({
-        path: `jobs.${jobKey}.status_reason`,
-        expected: jobExpectation.status_reason,
-        actual: job.status_reason ?? 'null',
-      });
-    }
-
-    const steps = jobExpectation.steps;
-    if (!steps) continue;
-    for (const [stepKey, stepExpectation] of Object.entries(steps)) {
-      const stepPath = `jobs.${jobKey}.steps.${stepKey}`;
-      const step = findStep(job, stepKey);
-      if (!step) {
-        mismatches.push({path: stepPath, expected: 'present', actual: 'missing'});
-        continue;
-      }
-
-      if (stepExpectation.status && step.status !== stepExpectation.status) {
-        mismatches.push({
-          path: `${stepPath}.status`,
-          expected: stepExpectation.status,
-          actual: step.status,
-        });
-      }
-
-      if (stepExpectation.exit_code !== undefined) {
-        const exitCode = latestExitCode(step);
-        if (exitCode !== stepExpectation.exit_code) {
-          mismatches.push({
-            path: `${stepPath}.exit_code`,
-            expected: String(stepExpectation.exit_code),
-            actual: exitCode === null ? 'null' : String(exitCode),
-          });
-        }
-      }
-
-      if (stepExpectation.error) {
-        if (step.error === null) {
-          mismatches.push({
-            path: `${stepPath}.error`,
-            expected: 'present',
-            actual: 'null',
-          });
-        } else {
-          if (
-            stepExpectation.error.reason !== undefined &&
-            step.error.reason !== stepExpectation.error.reason
-          ) {
-            mismatches.push({
-              path: `${stepPath}.error.reason`,
-              expected: stepExpectation.error.reason,
-              actual: step.error.reason ?? 'null',
-            });
-          }
-
-          if (stepExpectation.error.field !== undefined) {
-            const field = stringField(step.error, 'field');
-            if (field !== stepExpectation.error.field) {
-              mismatches.push({
-                path: `${stepPath}.error.field`,
-                expected: stepExpectation.error.field,
-                actual: field ?? 'null',
-              });
-            }
-          }
-
-          if (stepExpectation.error.source !== undefined) {
-            const source = stringField(step.error, 'source');
-            if (source === null || !source.includes(stepExpectation.error.source)) {
-              mismatches.push({
-                path: `${stepPath}.error.source`,
-                expected: `include ${stepExpectation.error.source}`,
-                actual: source ?? 'null',
-              });
-            }
-          }
-        }
-      }
-
-      if (stepExpectation.gate_result) {
-        const gateResult = latestGateResult(step);
-        if (gateResult === null) {
-          mismatches.push({
-            path: `${stepPath}.gate_result`,
-            expected: 'present',
-            actual: 'null',
-          });
-        } else {
-          if (
-            stepExpectation.gate_result.kind !== undefined &&
-            gateResult.kind !== stepExpectation.gate_result.kind
-          ) {
-            mismatches.push({
-              path: `${stepPath}.gate_result.kind`,
-              expected: stepExpectation.gate_result.kind,
-              actual: gateResult.kind,
-            });
-          }
-
-          if (stepExpectation.gate_result.reason !== undefined) {
-            const reason = stringField(gateResult, 'reason');
-            if (reason !== stepExpectation.gate_result.reason) {
-              mismatches.push({
-                path: `${stepPath}.gate_result.reason`,
-                expected: stepExpectation.gate_result.reason,
-                actual: reason ?? 'null',
-              });
-            }
-          }
-
-          if (stepExpectation.gate_result.exit_code !== undefined) {
-            const exitCode = intOrNullField(gateResult, 'exit_code');
-            if (exitCode !== stepExpectation.gate_result.exit_code) {
-              mismatches.push({
-                path: `${stepPath}.gate_result.exit_code`,
-                expected:
-                  stepExpectation.gate_result.exit_code === null
-                    ? 'null'
-                    : String(stepExpectation.gate_result.exit_code),
-                actual:
-                  exitCode === undefined
-                    ? 'missing'
-                    : exitCode === null
-                      ? 'null'
-                      : String(exitCode),
-              });
-            }
-          }
-        }
-      }
-
-      if (stepExpectation.logs) {
-        logRequirements.push({
-          path: stepPath,
-          stepId: step.id,
-          attempt: step.current_attempt,
-          include: stepExpectation.logs.include,
-          exclude: stepExpectation.logs.exclude,
-        });
-      }
-    }
+    evaluateJobExpectation(runDetail, jobKey, jobExpectation, result);
   }
 
-  return {mismatches, logRequirements};
+  return result;
 }
 
 // A pattern wrapped in slashes (/foo/) is a regular expression; anything else is a

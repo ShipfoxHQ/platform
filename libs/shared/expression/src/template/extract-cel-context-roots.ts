@@ -67,10 +67,7 @@ function collectContextRoots(
       }
       return;
     case 'map':
-      for (const [key, value] of node.args) {
-        if (key.op !== 'id') collectContextRoots(key, contextRoots, scopedIdentifiers);
-        collectContextRoots(value, contextRoots, scopedIdentifiers);
-      }
+      collectMapContextRoots(node.args, contextRoots, scopedIdentifiers);
       return;
     case '?:':
       collectContextRoots(node.args[0], contextRoots, scopedIdentifiers);
@@ -84,6 +81,17 @@ function collectContextRoots(
   }
 
   throw new Error(`Unsupported CEL AST operator: ${(node as {op: string}).op}`);
+}
+
+function collectMapContextRoots(
+  entries: Array<[ASTNode, ASTNode]>,
+  contextRoots: Set<string>,
+  scopedIdentifiers: ReadonlySet<string>,
+): void {
+  for (const [key, value] of entries) {
+    if (key.op !== 'id') collectContextRoots(key, contextRoots, scopedIdentifiers);
+    collectContextRoots(value, contextRoots, scopedIdentifiers);
+  }
 }
 
 function collectBinaryContextRoots(

@@ -248,28 +248,43 @@ async function selectSourceFiles(
   while (pending.length > 0) {
     const sourceFile = pending.pop();
     if (!sourceFile) continue;
-    const content = await readSourceText(sourceRoot, sourceFile);
-    for (const link of extractParsedMarkdownLinks(content)) {
-      if (isExternalTarget(link.target)) continue;
-      const target = await resolveLocalTarget(sourceRoot, sourceFile, link.target);
-      if (!target || target.isDirectory) continue;
-      if (!availableFiles.has(target.relativePath)) {
-        if (isExcludedGuidancePath(target.relativePath)) continue;
-        throw new Error(
-          `${sourceFile}:${link.line} links to an untracked or unavailable file: ${link.target}`,
-        );
-      }
-      if (
-        isReachableGuidancePath(target.relativePath, isGuidanceRootEntrypoint) &&
-        !selected.has(target.relativePath)
-      ) {
-        selected.add(target.relativePath);
-        pending.push(target.relativePath);
-      }
-    }
+    await selectLinkedSourceFiles(
+      sourceRoot,
+      sourceFile,
+      availableFiles,
+      selected,
+      pending,
+      isGuidanceRootEntrypoint,
+    );
   }
 
   return [...selected].sort(comparePaths);
+}
+
+async function selectLinkedSourceFiles(
+  sourceRoot: string,
+  sourceFile: string,
+  availableFiles: Set<string>,
+  selected: Set<string>,
+  pending: string[],
+  isGuidanceRootEntrypoint: (relativePath: string) => boolean,
+): Promise<void> {
+  const content = await readSourceText(sourceRoot, sourceFile);
+  for (const link of extractParsedMarkdownLinks(content)) {
+    if (isExternalTarget(link.target)) continue;
+    const target = await resolveLocalTarget(sourceRoot, sourceFile, link.target);
+    if (!target || target.isDirectory) continue;
+    if (!availableFiles.has(target.relativePath)) {
+      if (isExcludedGuidancePath(target.relativePath)) continue;
+      throw new Error(
+        `${sourceFile}:${link.line} links to an untracked or unavailable file: ${link.target}`,
+      );
+    }
+    if (!isReachableGuidancePath(target.relativePath, isGuidanceRootEntrypoint)) continue;
+    if (selected.has(target.relativePath)) continue;
+    selected.add(target.relativePath);
+    pending.push(target.relativePath);
+  }
 }
 
 async function rewriteMarkdown(
@@ -285,53 +300,15 @@ async function rewriteMarkdown(
   const bundledSet = new Set(bundledFiles);
   for (const link of extractParsedMarkdownLinks(content)) {
     if (isExternalTarget(link.target)) continue;
-
-    const parsedTarget = parseTarget(link.target);
-    const target = await resolveLocalTarget(sourceRoot, sourceFile, link.target);
-    if (!target)
-      throw new Error(`${sourceFile}:${link.line} has an invalid local link: ${link.target}`);
-    if (
-      !availableFiles.has(target.relativePath) &&
-      !hasAvailableDescendant(target, availableFiles)
-    ) {
-      if (!isExcludedGuidancePath(target.relativePath)) {
-        throw new Error(`${sourceFile}:${link.line} links to an unavailable file: ${link.target}`);
-      }
-    }
-
-    if (parsedTarget.anchor) {
-      const targetContents = await readTargetText(sourceRoot, target, sourceContents);
-      if (targetContents && isMarkdownPath(target.relativePath)) {
-        const anchors = anchorsFor(targetContents);
-        if (!anchors.has(parsedTarget.anchor)) {
-          throw new Error(
-            `${sourceFile}:${link.line} links to missing anchor ${link.target} in ${target.relativePath}`,
-          );
-        }
-      }
-    }
-
-    let replacement: string | undefined;
-    if (bundledSet.has(target.relativePath)) {
-      const sourceOutputPath = `repository/${sourceFile}`;
-      const targetOutputPath = `repository/${target.relativePath}`;
-      const relativeTarget = posix.relative(posix.dirname(sourceOutputPath), targetOutputPath);
-      replacement = `${relativeTarget || posix.basename(targetOutputPath)}${parsedTarget.query}${parsedTarget.fragment}`;
-    } else if (
-      availableFiles.has(target.relativePath) ||
-      hasAvailableDescendant(target, availableFiles)
-    ) {
-      replacement = `${githubPermalink(target, sourceCommit)}${parsedTarget.query}${parsedTarget.fragment}`;
-    } else {
-      throw new Error(
-        `${sourceFile}:${link.line} links to a disallowed local file: ${link.target}`,
-      );
-    }
-
-    const replacementText =
-      link.usesAngleBrackets || whitespacePattern.test(replacement)
-        ? `<${replacement}>`
-        : replacement;
+    const replacementText = await rewriteMarkdownLink({
+      availableFiles,
+      bundledSet,
+      link,
+      sourceCommit,
+      sourceContents,
+      sourceFile,
+      sourceRoot,
+    });
     if (replacementText !== content.slice(link.destinationStart, link.destinationEnd)) {
       replacements.push({
         start: link.destinationStart,
@@ -349,6 +326,87 @@ async function rewriteMarkdown(
   return normalizeLineEndings(rewritten);
 }
 
+interface RewriteMarkdownLinkOptions {
+  availableFiles: Set<string>;
+  bundledSet: Set<string>;
+  link: ParsedMarkdownLink;
+  sourceCommit: string;
+  sourceContents: Map<string, string>;
+  sourceFile: string;
+  sourceRoot: string;
+}
+
+async function rewriteMarkdownLink(options: RewriteMarkdownLinkOptions): Promise<string> {
+  const {availableFiles, bundledSet, link, sourceCommit, sourceContents, sourceFile, sourceRoot} =
+    options;
+  const parsedTarget = parseTarget(link.target);
+  const target = await resolveLocalTarget(sourceRoot, sourceFile, link.target);
+  if (!target)
+    throw new Error(`${sourceFile}:${link.line} has an invalid local link: ${link.target}`);
+  const isAvailable =
+    availableFiles.has(target.relativePath) || hasAvailableDescendant(target, availableFiles);
+  if (!isAvailable && !isExcludedGuidancePath(target.relativePath)) {
+    throw new Error(`${sourceFile}:${link.line} links to an unavailable file: ${link.target}`);
+  }
+  await validateSourceLinkAnchor(
+    sourceRoot,
+    sourceFile,
+    sourceContents,
+    link,
+    target,
+    parsedTarget,
+  );
+
+  const replacement = bundledSet.has(target.relativePath)
+    ? bundledLinkTarget(sourceFile, target.relativePath, parsedTarget)
+    : externalLinkTarget(sourceFile, sourceCommit, link, target, parsedTarget, isAvailable);
+  return link.usesAngleBrackets || whitespacePattern.test(replacement)
+    ? `<${replacement}>`
+    : replacement;
+}
+
+async function validateSourceLinkAnchor(
+  sourceRoot: string,
+  sourceFile: string,
+  sourceContents: Map<string, string>,
+  link: ParsedMarkdownLink,
+  target: LocalTarget,
+  parsedTarget: ParsedTarget,
+): Promise<void> {
+  if (!parsedTarget.anchor) return;
+  const targetContents = await readTargetText(sourceRoot, target, sourceContents);
+  if (!targetContents || !isMarkdownPath(target.relativePath)) return;
+  if (anchorsFor(targetContents).has(parsedTarget.anchor)) return;
+  throw new Error(
+    `${sourceFile}:${link.line} links to missing anchor ${link.target} in ${target.relativePath}`,
+  );
+}
+
+function bundledLinkTarget(
+  sourceFile: string,
+  targetFile: string,
+  parsedTarget: ParsedTarget,
+): string {
+  const sourceOutputPath = `repository/${sourceFile}`;
+  const targetOutputPath = `repository/${targetFile}`;
+  const relativeTarget = posix.relative(posix.dirname(sourceOutputPath), targetOutputPath);
+  return `${relativeTarget || posix.basename(targetOutputPath)}${parsedTarget.query}${parsedTarget.fragment}`;
+}
+
+function externalLinkTarget(
+  sourceFile: string,
+  sourceCommit: string,
+  link: ParsedMarkdownLink,
+  target: LocalTarget,
+  parsedTarget: ParsedTarget,
+  isAvailable: boolean,
+): string {
+  if (!isAvailable) {
+    throw new Error(`${sourceFile}:${link.line} links to a disallowed local file: ${link.target}`);
+  }
+  return `${githubPermalink(target, sourceCommit)}${parsedTarget.query}${parsedTarget.fragment}`;
+}
+
 async function validatePackagedMarkdown(
   bundleRoot: string,
   relativeFile: string,
@@ -357,29 +415,32 @@ async function validatePackagedMarkdown(
   const repositoryRoot = join(bundleRoot, 'repository');
   for (const link of extractParsedMarkdownLinks(content)) {
     if (isExternalTarget(link.target)) continue;
-    const target = parseTarget(link.target);
-    if (target.path.startsWith('/')) {
-      throw new Error(
-        `${relativeFile}:${link.line} contains an absolute local link: ${link.target}`,
-      );
-    }
-    const sourceAbsolute = join(repositoryRoot, relativeFile.slice('repository/'.length));
-    const targetAbsolute = target.path
-      ? resolve(dirname(sourceAbsolute), target.path)
-      : sourceAbsolute;
-    if (!isWithin(repositoryRoot, targetAbsolute)) {
-      throw new Error(`${relativeFile}:${link.line} escapes the guidance bundle: ${link.target}`);
-    }
-    const resolved = await resolveBundleTarget(targetAbsolute);
-    if (!resolved)
-      throw new Error(`${relativeFile}:${link.line} has a broken link: ${link.target}`);
-    if (target.anchor) {
-      if (!(await isFile(resolved)) || !isMarkdownPath(resolved)) continue;
-      const targetContent = await readFile(resolved, 'utf8');
-      if (!anchorsFor(targetContent).has(target.anchor)) {
-        throw new Error(`${relativeFile}:${link.line} has a missing anchor: ${link.target}`);
-      }
-    }
+    await validatePackagedMarkdownLink(repositoryRoot, relativeFile, link);
+  }
+}
+
+async function validatePackagedMarkdownLink(
+  repositoryRoot: string,
+  relativeFile: string,
+  link: ParsedMarkdownLink,
+): Promise<void> {
+  const target = parseTarget(link.target);
+  if (target.path.startsWith('/')) {
+    throw new Error(`${relativeFile}:${link.line} contains an absolute local link: ${link.target}`);
+  }
+  const sourceAbsolute = join(repositoryRoot, relativeFile.slice('repository/'.length));
+  const targetAbsolute = target.path
+    ? resolve(dirname(sourceAbsolute), target.path)
+    : sourceAbsolute;
+  if (!isWithin(repositoryRoot, targetAbsolute)) {
+    throw new Error(`${relativeFile}:${link.line} escapes the guidance bundle: ${link.target}`);
+  }
+  const resolved = await resolveBundleTarget(targetAbsolute);
+  if (!resolved) throw new Error(`${relativeFile}:${link.line} has a broken link: ${link.target}`);
+  if (!target.anchor || !(await isFile(resolved)) || !isMarkdownPath(resolved)) return;
+  const targetContent = await readFile(resolved, 'utf8');
+  if (!anchorsFor(targetContent).has(target.anchor)) {
+    throw new Error(`${relativeFile}:${link.line} has a missing anchor: ${link.target}`);
   }
 }
 
@@ -629,7 +690,9 @@ function sha256(content: string): string {
 }
 
 function comparePaths(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
 }
 
 function slugifyHeading(heading: string): string {
@@ -765,27 +828,32 @@ function collectReferenceLinks(content: string, links: ParsedMarkdownLink[]): vo
       continue;
     }
     if (!inFence) {
-      const match = line.match(referenceLinkPattern);
-      const rawTarget = match?.[1];
-      if (rawTarget) {
-        const definitionEnd = line.indexOf(']:');
-        let rawStartInLine = definitionEnd + 2;
-        while (line[rawStartInLine] === ' ' || line[rawStartInLine] === '\t') {
-          rawStartInLine += 1;
-        }
-        const usesAngleBrackets = rawTarget.startsWith('<') && rawTarget.endsWith('>');
-        const rawStart = offset + rawStartInLine;
-        links.push({
-          line: lineNumberAt(normalizedContent, rawStart),
-          target: usesAngleBrackets ? rawTarget.slice(1, -1) : rawTarget,
-          destinationStart: rawStart + (usesAngleBrackets ? 1 : 0),
-          destinationEnd: rawStart + rawTarget.length - (usesAngleBrackets ? 1 : 0),
-          usesAngleBrackets,
-        });
-      }
+      collectReferenceLinkLine(normalizedContent, line, offset, links);
     }
     offset += line.length + 1;
   }
+}
+
+function collectReferenceLinkLine(
+  content: string,
+  line: string,
+  offset: number,
+  links: ParsedMarkdownLink[],
+): void {
+  const rawTarget = line.match(referenceLinkPattern)?.[1];
+  if (!rawTarget) return;
+  const definitionEnd = line.indexOf(']:');
+  let rawStartInLine = definitionEnd + 2;
+  while (line[rawStartInLine] === ' ' || line[rawStartInLine] === '\t') rawStartInLine += 1;
+  const usesAngleBrackets = rawTarget.startsWith('<') && rawTarget.endsWith('>');
+  const rawStart = offset + rawStartInLine;
+  links.push({
+    line: lineNumberAt(content, rawStart),
+    target: usesAngleBrackets ? rawTarget.slice(1, -1) : rawTarget,
+    destinationStart: rawStart + (usesAngleBrackets ? 1 : 0),
+    destinationEnd: rawStart + rawTarget.length - (usesAngleBrackets ? 1 : 0),
+    usesAngleBrackets,
+  });
 }
 
 function lineNumberAt(content: string, index: number): number {

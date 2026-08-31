@@ -169,24 +169,34 @@ function expandAssistantMessage(
 
   pushTextParts();
   pushThinkingParts();
-  if (terminalFailure && !rows.some((row) => row.kind === 'message' && row.terminalFailure)) {
-    rows.push(
-      messageRow(
-        timestamp,
-        'assistant',
-        'assistant',
-        terminalStopDetail(message) || toJson(message),
-        true,
-        meta,
-      ),
-    );
-  }
+  appendTerminalFailureRow(timestamp, message, terminalFailure, meta, rows);
   if (rows.length === 0)
     rows.push(
       messageRow(timestamp, 'assistant', 'assistant', toJson(message), terminalFailure, meta),
     );
 
   return rows;
+}
+
+function appendTerminalFailureRow(
+  timestamp: number,
+  message: AgentMessage,
+  terminalFailure: boolean,
+  meta: Parameters<typeof messageRow>[5],
+  rows: SessionViewRow[],
+): void {
+  if (!terminalFailure) return;
+  if (rows.some((row) => row.kind === 'message' && row.terminalFailure)) return;
+  rows.push(
+    messageRow(
+      timestamp,
+      'assistant',
+      'assistant',
+      terminalStopDetail(message) || toJson(message),
+      true,
+      meta,
+    ),
+  );
 }
 
 function toolCallRow(timestamp: number, block: ContentBlock): SessionViewToolCallRow {

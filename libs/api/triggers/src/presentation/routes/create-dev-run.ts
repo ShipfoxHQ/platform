@@ -55,96 +55,8 @@ export function createDevRunRoute(
       },
     },
     errorHandler: (error) => {
-      if (error instanceof DevRunTriggerNotFoundError) {
-        throw new ClientError(error.message, 'trigger-not-found', {status: 422});
-      }
-      if (error instanceof DevRunInputsNotAllowedError) {
-        throw new ClientError(error.message, 'inputs-not-allowed', {status: 422});
-      }
-      if (error instanceof DevRunReplayEventRequiredError) {
-        throw new ClientError(error.message, 'replay-event-required', {status: 422});
-      }
-      if (error instanceof DevRunReplayEventNotAllowedError) {
-        throw new ClientError(error.message, 'replay-event-not-allowed', {status: 422});
-      }
-      if (error instanceof DevRunReplayEventNotFoundError) {
-        throw new ClientError(error.message, 'replay-event-not-found', {
-          status: 404,
-          cause: error,
-        });
-      }
-      if (error instanceof DevRunReplayEventMismatchError) {
-        throw new ClientError(error.message, 'replay-event-mismatch', {
-          status: 409,
-          cause: error,
-        });
-      }
-      if (error instanceof DevRunReplayEventUnavailableError) {
-        throw new ClientError(error.message, 'replay-event-unavailable', {
-          status: 410,
-          cause: error,
-        });
-      }
-      if (error instanceof DevRunTriggerFilteredError) {
-        // The reason travels in `details` so the client can show why; the
-        // events page journal shows the same reason on the `filter-error`
-        // decision.
-        throw new ClientError('The trigger filter refused the replayed event', 'trigger-filtered', {
-          status: 409,
-          details: {reason: error.reason},
-          cause: error,
-        });
-      }
-      if (
-        isInterModuleKnownError(
-          definitionsInterModuleContract.methods.resolveDefinitionAtRef,
-          error,
-        )
-      ) {
-        switch (error.code) {
-          case 'project-not-found':
-            throw new ClientError('Project not found', 'project-not-found', {
-              status: 404,
-              cause: error,
-            });
-          case 'ref-not-found':
-            throw new ClientError('Git ref not found', 'ref-not-found', {
-              status: 404,
-              cause: error,
-            });
-          case 'file-not-found':
-            throw new ClientError('Workflow file not found at the ref', 'file-not-found', {
-              status: 404,
-              cause: error,
-            });
-          case 'ref-invalid':
-            throw new ClientError('Git ref is not a resolvable branch or tag name', 'ref-invalid', {
-              status: 400,
-              cause: error,
-            });
-          case 'ref-moved':
-            throw new ClientError('The ref no longer points at the pinned commit', 'ref-moved', {
-              status: 409,
-              cause: error,
-            });
-          case 'invalid-definition':
-            throw new ClientError('Invalid workflow definition', 'invalid-workflow-definition', {
-              status: 422,
-              details: {errors: error.details.errors},
-              cause: error,
-            });
-          case 'content-too-large':
-            throw new ClientError('Workflow file is too large', 'content-too-large', {
-              status: 422,
-              cause: error,
-            });
-          case 'source-unavailable':
-            throw new ClientError('The source repository is unavailable', 'source-unavailable', {
-              status: 502,
-              cause: error,
-            });
-        }
-      }
+      handleDevRunDomainError(error);
+      handleDefinitionResolutionError(error);
       const clientError = mapStartRunError(error, workflowsInterModuleContract.methods.startDevRun);
       if (clientError) throw clientError;
       throw error;
@@ -172,4 +84,79 @@ export function createDevRunRoute(
       return {workflow_run_id: run.id, commit: run.commit};
     },
   });
+}
+
+function handleDevRunDomainError(error: unknown): void {
+  if (error instanceof DevRunTriggerNotFoundError) {
+    throw new ClientError(error.message, 'trigger-not-found', {status: 422});
+  }
+  if (error instanceof DevRunInputsNotAllowedError) {
+    throw new ClientError(error.message, 'inputs-not-allowed', {status: 422});
+  }
+  if (error instanceof DevRunReplayEventRequiredError) {
+    throw new ClientError(error.message, 'replay-event-required', {status: 422});
+  }
+  if (error instanceof DevRunReplayEventNotAllowedError) {
+    throw new ClientError(error.message, 'replay-event-not-allowed', {status: 422});
+  }
+  if (error instanceof DevRunReplayEventNotFoundError) {
+    throw new ClientError(error.message, 'replay-event-not-found', {status: 404, cause: error});
+  }
+  if (error instanceof DevRunReplayEventMismatchError) {
+    throw new ClientError(error.message, 'replay-event-mismatch', {status: 409, cause: error});
+  }
+  if (error instanceof DevRunReplayEventUnavailableError) {
+    throw new ClientError(error.message, 'replay-event-unavailable', {status: 410, cause: error});
+  }
+  if (error instanceof DevRunTriggerFilteredError) {
+    throw new ClientError('The trigger filter refused the replayed event', 'trigger-filtered', {
+      status: 409,
+      details: {reason: error.reason},
+      cause: error,
+    });
+  }
+}
+
+function handleDefinitionResolutionError(error: unknown): void {
+  if (
+    !isInterModuleKnownError(definitionsInterModuleContract.methods.resolveDefinitionAtRef, error)
+  )
+    return;
+  switch (error.code) {
+    case 'project-not-found':
+      throw new ClientError('Project not found', 'project-not-found', {status: 404, cause: error});
+    case 'ref-not-found':
+      throw new ClientError('Git ref not found', 'ref-not-found', {status: 404, cause: error});
+    case 'file-not-found':
+      throw new ClientError('Workflow file not found at the ref', 'file-not-found', {
+        status: 404,
+        cause: error,
+      });
+    case 'ref-invalid':
+      throw new ClientError('Git ref is not a resolvable branch or tag name', 'ref-invalid', {
+        status: 400,
+        cause: error,
+      });
+    case 'ref-moved':
+      throw new ClientError('The ref no longer points at the pinned commit', 'ref-moved', {
+        status: 409,
+        cause: error,
+      });
+    case 'invalid-definition':
+      throw new ClientError('Invalid workflow definition', 'invalid-workflow-definition', {
+        status: 422,
+        details: {errors: error.details.errors},
+        cause: error,
+      });
+    case 'content-too-large':
+      throw new ClientError('Workflow file is too large', 'content-too-large', {
+        status: 422,
+        cause: error,
+      });
+    case 'source-unavailable':
+      throw new ClientError('The source repository is unavailable', 'source-unavailable', {
+        status: 502,
+        cause: error,
+      });
+  }
 }

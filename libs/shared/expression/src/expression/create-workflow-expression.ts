@@ -40,36 +40,7 @@ export function createWorkflowExpression(
   const ast = parseWorkflowExpression(source);
 
   if (params.check.mode === 'typed') {
-    const environment = createTypeCheckingEnvironment();
-    for (const [name, type] of Object.entries(params.check.typeEnvironment ?? {})) {
-      const celType = toCelType(type, environment, name);
-      if (typeof celType === 'string') {
-        environment.registerVariable(name, celType);
-      } else {
-        environment.registerVariable({name, schema: celType.schema});
-      }
-    }
-
-    const typeCheckResult = environment.check(source);
-    if (!typeCheckResult.valid) {
-      throw new InvalidWorkflowExpressionError({
-        source,
-        reason: typeCheckResult.error?.message ?? 'Expression source did not type-check.',
-      });
-    }
-    if (
-      params.check.expectedResultType !== undefined &&
-      typeCheckResult.type !== scalarTypeToCelType[params.check.expectedResultType] &&
-      !(typeCheckResult.type === 'dyn' && containsFromJsonCall(ast))
-    ) {
-      throw new InvalidWorkflowExpressionError({
-        source,
-        reason: `Expression source must return ${scalarTypeToCelType[params.check.expectedResultType]}; got ${typeCheckResult.type ?? 'unknown'}.`,
-      });
-    }
-    resultType =
-      resolveKnownPathType(source, params.check.typeEnvironment) ??
-      fromCelType(typeCheckResult.type, ast);
+    resultType = checkTypedWorkflowExpression(source, ast, params.check);
   }
 
   return {
@@ -78,6 +49,49 @@ export function createWorkflowExpression(
     check: params.check.mode,
     ...(resultType === undefined ? {} : {resultType}),
   };
+}
+
+function checkTypedWorkflowExpression(
+  source: string,
+  ast: ASTNode,
+  check: Extract<CreateWorkflowExpressionParams['check'], {mode: 'typed'}>,
+): ExpressionType | undefined {
+  const environment = createTypeCheckingEnvironment();
+  registerTypeEnvironment(environment, check.typeEnvironment);
+  const result = environment.check(source);
+  if (!result.valid) {
+    throw new InvalidWorkflowExpressionError({
+      source,
+      reason: result.error?.message ?? 'Expression source did not type-check.',
+    });
+  }
+  assertExpectedResultType(source, ast, result.type, check.expectedResultType);
+  return resolveKnownPathType(source, check.typeEnvironment) ?? fromCelType(result.type, ast);
+}
+
+function registerTypeEnvironment(
+  environment: Environment,
+  typeEnvironment: ExpressionTypeEnvironment | undefined,
+): void {
+  for (const [name, type] of Object.entries(typeEnvironment ?? {})) {
+    const celType = toCelType(type, environment, name);
+    if (typeof celType === 'string') environment.registerVariable(name, celType);
+    else environment.registerVariable({name, schema: celType.schema});
+  }
+}
+
+function assertExpectedResultType(
+  source: string,
+  ast: ASTNode,
+  actualType: string | undefined,
+  expectedType: ExpressionScalarType | undefined,
+): void {
+  if (expectedType === undefined || actualType === scalarTypeToCelType[expectedType]) return;
+  if (actualType === 'dyn' && containsFromJsonCall(ast)) return;
+  throw new InvalidWorkflowExpressionError({
+    source,
+    reason: `Expression source must return ${scalarTypeToCelType[expectedType]}; got ${actualType ?? 'unknown'}.`,
+  });
 }
 
 function resolveKnownPathType(

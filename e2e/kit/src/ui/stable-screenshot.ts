@@ -104,20 +104,25 @@ async function applyPageWideReplacements(
         value,
       );
 
-    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-    let node = walker.nextNode();
-    while (node) {
-      const textNode = node as Text;
-      const nextValue = replaceValue(textNode.data);
-      if (nextValue !== textNode.data) {
-        restoreEntries.push({kind: 'text', target: textNode, value: textNode.data});
-        textNode.data = nextValue;
+    function replaceTextNodes(): void {
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      let node = walker.nextNode();
+      while (node) {
+        const textNode = node as Text;
+        const nextValue = replaceValue(textNode.data);
+        if (nextValue !== textNode.data) {
+          restoreEntries.push({kind: 'text', target: textNode, value: textNode.data});
+          textNode.data = nextValue;
+        }
+        node = walker.nextNode();
       }
-      node = walker.nextNode();
     }
 
-    for (const element of document.querySelectorAll('input, textarea')) {
-      if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
+    function replaceInputValues(): void {
+      for (const element of document.querySelectorAll('input, textarea')) {
+        if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement)) {
+          continue;
+        }
         const nextValue = replaceValue(element.value);
         if (nextValue !== element.value) {
           restoreEntries.push({kind: 'value', target: element, value: element.value});
@@ -126,7 +131,13 @@ async function applyPageWideReplacements(
       }
     }
 
-    for (const element of document.querySelectorAll('[aria-label], [placeholder], [title]')) {
+    function replaceAttributes(): void {
+      for (const element of document.querySelectorAll('[aria-label], [placeholder], [title]')) {
+        replaceElementAttributes(element);
+      }
+    }
+
+    function replaceElementAttributes(element: Element): void {
       for (const attribute of ['aria-label', 'placeholder', 'title']) {
         const value = element.getAttribute(attribute);
         if (value == null) continue;
@@ -138,6 +149,9 @@ async function applyPageWideReplacements(
       }
     }
 
+    replaceTextNodes();
+    replaceInputValues();
+    replaceAttributes();
     visualWindow.__shipfoxVisualRestore = restoreEntries;
   }, options);
 }
@@ -154,14 +168,20 @@ async function restorePageWideReplacements(page: Page): Promise<void> {
     };
     const restoreEntries = visualWindow.__shipfoxVisualRestore ?? [];
 
-    for (const entry of restoreEntries.reverse()) {
+    function restoreEntry(entry: RestoreEntry): void {
       if (entry.kind === 'text') {
         entry.target.data = entry.value;
-      } else if (entry.kind === 'value') {
-        entry.target.value = entry.value;
-      } else {
-        entry.target.setAttribute(entry.attribute, entry.value);
+        return;
       }
+      if (entry.kind === 'value') {
+        entry.target.value = entry.value;
+        return;
+      }
+      entry.target.setAttribute(entry.attribute, entry.value);
+    }
+
+    for (const entry of restoreEntries.reverse()) {
+      restoreEntry(entry);
     }
 
     const toaster = document.querySelector('[data-sonner-toaster]');
@@ -205,27 +225,48 @@ async function applyReplacements(
               valueReplacement: string | undefined;
             },
           ): Omit<ElementSnapshot, 'handle'> => {
-            const previous: Omit<ElementSnapshot, 'handle'> = {
-              attributes: Object.fromEntries(
-                Object.keys(options.attributes).map((name) => [name, element.getAttribute(name)]),
-              ),
-            };
-            if (options.textReplacement !== undefined) previous.text = element.textContent;
-            if (options.valueReplacement !== undefined && 'value' in element) {
-              const currentValue = element.value;
-              if (currentValue !== undefined) previous.value = currentValue;
+            function snapshotText(snapshot: Omit<ElementSnapshot, 'handle'>): void {
+              if (options.textReplacement !== undefined) snapshot.text = element.textContent;
             }
 
-            if (options.textReplacement !== undefined)
-              element.textContent = options.textReplacement;
-            if (options.valueReplacement !== undefined && 'value' in element) {
+            function snapshotValue(snapshot: Omit<ElementSnapshot, 'handle'>): void {
+              if (options.valueReplacement === undefined || !('value' in element)) return;
+              const currentValue = element.value;
+              if (currentValue !== undefined) snapshot.value = currentValue;
+            }
+
+            function snapshotElement(): Omit<ElementSnapshot, 'handle'> {
+              const snapshot: Omit<ElementSnapshot, 'handle'> = {
+                attributes: Object.fromEntries(
+                  Object.keys(options.attributes).map((name) => [name, element.getAttribute(name)]),
+                ),
+              };
+              snapshotText(snapshot);
+              snapshotValue(snapshot);
+              return snapshot;
+            }
+
+            function replaceText(): void {
+              if (options.textReplacement !== undefined) {
+                element.textContent = options.textReplacement;
+              }
+            }
+
+            function replaceValue(): void {
+              if (options.valueReplacement === undefined || !('value' in element)) return;
               element.value = options.valueReplacement;
             }
 
-            for (const [name, value] of Object.entries(options.attributes)) {
-              element.setAttribute(name, value);
+            function replaceAttributes(): void {
+              for (const [name, value] of Object.entries(options.attributes)) {
+                element.setAttribute(name, value);
+              }
             }
 
+            const previous = snapshotElement();
+            replaceText();
+            replaceValue();
+            replaceAttributes();
             return previous;
           },
           {
@@ -256,13 +297,16 @@ async function restoreSnapshots(snapshots: LocatorSnapshot[]): Promise<void> {
         if (elementSnapshot.value !== undefined) previous.value = elementSnapshot.value;
         await elementSnapshot.handle.evaluate(
           (element: MutableElement, previous: Omit<ElementSnapshot, 'handle'>) => {
+            function restoreAttributes(): void {
+              for (const [name, value] of Object.entries(previous.attributes)) {
+                if (value === null) element.removeAttribute(name);
+                else element.setAttribute(name, value);
+              }
+            }
+
             if (previous.text !== undefined) element.textContent = previous.text;
             if (previous.value !== undefined && 'value' in element) element.value = previous.value;
-
-            for (const [name, value] of Object.entries(previous.attributes)) {
-              if (value === null) element.removeAttribute(name);
-              else element.setAttribute(name, value);
-            }
+            restoreAttributes();
           },
           previous,
         );

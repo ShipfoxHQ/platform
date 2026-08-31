@@ -175,19 +175,26 @@ function resolveSourceTarget(
   }
 
   for (const mappedTarget of mappedTargets ?? []) {
-    if (!mappedTarget.startsWith('./')) continue;
-
-    const absoluteTarget = resolvePath(packageInfo.directory, mappedTarget);
-    if (!isLexicallyWithinDirectory(packageInfo.directory, absoluteTarget)) continue;
-    if (isDistTarget(packageInfo.directory, absoluteTarget)) continue;
-
-    for (const candidate of sourceCandidates(absoluteTarget)) {
-      if (!isFile(candidate)) continue;
-      if (!isWithinDirectory(packageInfo.directory, candidate)) continue;
-      return absoluteTarget;
-    }
+    const target = resolveMappedSourceTarget(packageInfo.directory, mappedTarget);
+    if (target) return target;
   }
 
+  return undefined;
+}
+
+function resolveMappedSourceTarget(
+  packageDirectory: string,
+  mappedTarget: string,
+): string | undefined {
+  if (!mappedTarget.startsWith('./')) return undefined;
+  const absoluteTarget = resolvePath(packageDirectory, mappedTarget);
+  if (!isLexicallyWithinDirectory(packageDirectory, absoluteTarget)) return undefined;
+  if (isDistTarget(packageDirectory, absoluteTarget)) return undefined;
+  for (const candidate of sourceCandidates(absoluteTarget)) {
+    if (!isFile(candidate)) continue;
+    if (!isWithinDirectory(packageDirectory, candidate)) continue;
+    return absoluteTarget;
+  }
   return undefined;
 }
 
@@ -211,13 +218,10 @@ export function workspaceSourceResolver(): Plugin {
         : (this.environment.config.resolve?.conditions ?? []);
       if (!conditions.includes(workspaceSourceCondition)) return;
 
-      const effectiveConditions = conditions.map((condition) =>
-        condition === 'development|production'
-          ? this.environment.config.isProduction
-            ? 'production'
-            : 'development'
-          : condition,
-      );
+      const effectiveConditions = conditions.map((condition) => {
+        if (condition !== 'development|production') return condition;
+        return this.environment.config.isProduction ? 'production' : 'development';
+      });
       effectiveConditions.push(options.kind === 'require-call' ? 'require' : 'import');
 
       const packageInfo = findOwningPackage(importer, packageCache, ownershipCache);

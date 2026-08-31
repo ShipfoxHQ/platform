@@ -32,41 +32,13 @@ export function createProjectRoute(integrations: IntegrationsModuleClient) {
       },
     },
     errorHandler: (error) => {
+      handleResolveSourceRepositoryError(error);
       const known = isInterModuleKnownError(
         integrationsInterModuleContract.methods.resolveSourceRepository,
         error,
       )
         ? error
         : undefined;
-      if (known?.code === 'connection-not-found') {
-        throw new ClientError('Source connection not found', 'source-connection-not-found', {
-          status: 404,
-        });
-      }
-      if (known?.code === 'connection-workspace-mismatch') {
-        throw new ClientError('Source connection does not belong to this workspace', 'forbidden', {
-          status: 403,
-        });
-      }
-      if (known?.code === 'connection-inactive') {
-        throw new ClientError('Source connection is not active', 'source-connection-inactive', {
-          status: 422,
-        });
-      }
-      if (known?.code === 'provider-unavailable') {
-        throw new ClientError(
-          'Integration provider is unavailable',
-          'integration-provider-unavailable',
-          {status: 422},
-        );
-      }
-      if (known?.code === 'capability-unavailable') {
-        throw new ClientError(
-          'Integration capability is unavailable',
-          'integration-capability-unavailable',
-          {status: 422},
-        );
-      }
       if (error instanceof ProjectAlreadyExistsError) {
         throw new ClientError(error.message, 'project-already-exists', {
           details: {
@@ -107,4 +79,40 @@ export function createProjectRoute(integrations: IntegrationsModuleClient) {
       return toProjectDto(project);
     },
   });
+}
+
+function handleResolveSourceRepositoryError(error: unknown): void {
+  if (
+    !isInterModuleKnownError(integrationsInterModuleContract.methods.resolveSourceRepository, error)
+  )
+    return;
+  if (error.code === 'connection-not-found') {
+    throw new ClientError('Source connection not found', 'source-connection-not-found', {
+      status: 404,
+    });
+  }
+  if (error.code === 'connection-workspace-mismatch') {
+    throw new ClientError('Source connection does not belong to this workspace', 'forbidden', {
+      status: 403,
+    });
+  }
+  if (error.code === 'connection-inactive') {
+    throw new ClientError('Source connection is not active', 'source-connection-inactive', {
+      status: 422,
+    });
+  }
+  if (error.code === 'provider-unavailable') {
+    throw new ClientError(
+      'Integration provider is unavailable',
+      'integration-provider-unavailable',
+      {status: 422},
+    );
+  }
+  if (error.code === 'capability-unavailable') {
+    throw new ClientError(
+      'Integration capability is unavailable',
+      'integration-capability-unavailable',
+      {status: 422},
+    );
+  }
 }

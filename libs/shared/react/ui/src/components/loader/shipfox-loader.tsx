@@ -16,6 +16,7 @@ import {
   type BackgroundMode,
   type ColorMode,
   defaultConfig,
+  type FoxPixel,
   foxPixels,
   getColor,
   getPathGenerator,
@@ -53,6 +54,123 @@ function brightenColor(color: string, intensity: number) {
   const brightBlue = Math.min(255, blue + (255 - blue) * intensity);
 
   return [brightRed, brightGreen, brightBlue] as const;
+}
+
+function ghostOpacityFor(
+  config: ShipfoxConfig,
+  sizeMultiplier: number,
+  background: BackgroundMode,
+): number {
+  const opacity = Math.max(
+    0.01,
+    config.ghostOpacity * (1 - (sizeMultiplier - 1) * config.sizeScale),
+  );
+  return background === 'light' ? opacity / LIGHT_BACKGROUND_OPACITY_REDUCTION : opacity;
+}
+
+function nextHoverIntensity(
+  current: number,
+  target: number,
+  ghostOpacity: number,
+  deltaTime: number,
+): number {
+  if (target > current) {
+    return current + (target - current) * (1 - (1 - HOVER_RISE_SPEED) ** (deltaTime / 16));
+  }
+  return Math.max(ghostOpacity, current * Math.exp(-deltaTime / HOVER_DECAY_MS));
+}
+
+type PixelFillOptions = {
+  pixel: FoxPixel;
+  isLit: boolean;
+  hoverIntensity: number;
+  cursorIntensity: number;
+  snakeHead: {x: number; y: number} | null;
+  currentColor: string;
+  background: BackgroundMode;
+  ghostOpacity: number;
+  sizeMultiplier: number;
+  config: ShipfoxConfig;
+};
+
+function pixelFillColor(options: PixelFillOptions): string {
+  if (options.isLit) return litPixelFillColor(options);
+  if (options.background === 'light') {
+    const opacity = options.cursorIntensity > 0 ? 1 : options.ghostOpacity;
+    return `rgba(${options.currentColor},${opacity})`;
+  }
+  const [red = 0, green = 0, blue = 0] = options.currentColor.split(',').map(Number);
+  return `rgba(${red},${green},${blue},${Math.min(1, options.hoverIntensity)})`;
+}
+
+function litPixelFillColor(options: PixelFillOptions): string {
+  const {pixel, snakeHead, background, config, sizeMultiplier, currentColor} = options;
+  if (!snakeHead || background === 'light') return `rgba(${currentColor},1)`;
+
+  const [x, y] = pixel;
+  const distance = Math.max(Math.abs(x - snakeHead.x), Math.abs(y - snakeHead.y));
+  const scaledRadius = Math.max(
+    1,
+    Math.round(config.lightRadius * (1 - (sizeMultiplier - 1) * config.sizeScale)),
+  );
+  if (distance === 0 || distance > scaledRadius) return `rgba(${currentColor},1)`;
+
+  const falloff = (1 - distance / scaledRadius) ** config.lightCurve;
+  const brightness = Math.max(
+    0.05,
+    config.lightBrightness * (1 - (sizeMultiplier - 1) * config.sizeScale),
+  );
+  const [red, green, blue] = brightenColor(currentColor, falloff * brightness);
+  return `rgb(${red},${green},${blue})`;
+}
+
+function drawTrail(
+  context: CanvasRenderingContext2D,
+  trail: Array<{x: number; y: number}>,
+  currentColor: string,
+  cellSize: number,
+): void {
+  for (const [index, trailPixel] of trail.entries()) {
+    const glowIntensity = TRAIL_GLOW_VALUES[index];
+    if (glowIntensity === undefined) continue;
+    const [red, green, blue] = brightenColor(currentColor, glowIntensity * 0.5);
+    context.fillStyle = `rgba(${red},${green},${blue},${glowIntensity})`;
+    context.fillRect(trailPixel.x * cellSize, trailPixel.y * cellSize, cellSize, cellSize);
+  }
+}
+
+function animationMoveDelay(
+  animation: AnimationType,
+  path: FoxPixel[],
+  currentIndex: number,
+  litRatio: number,
+  speed: number,
+): number {
+  const baseDelay = BASE_MOVE_DELAY / speed;
+  if (animation === 'random') return baseDelay * (0.7 + litRatio * 1.1);
+  if (animation !== 'vertical') return baseDelay;
+  const [currentX] = path[currentIndex] ?? [0, 0];
+  return currentX >= 4 && currentX <= 7 ? baseDelay * VERTICAL_CENTER_SLOWDOWN : baseDelay;
+}
+
+function advanceAnimation(
+  path: FoxPixel[],
+  currentIndex: number,
+  litPixels: Set<string>,
+  trail: Array<{x: number; y: number}>,
+): number | undefined {
+  const currentPixel = path[currentIndex];
+  if (!currentPixel) return undefined;
+
+  const [x, y] = currentPixel;
+  trail.unshift({x, y});
+  if (trail.length > TRAIL_GLOW_VALUES.length) trail.pop();
+
+  const pixelKey = `${x},${y}`;
+  if (litPixels.has(pixelKey)) litPixels.delete(pixelKey);
+  else litPixels.add(pixelKey);
+
+  return (currentIndex + 1) % path.length;
 }
 
 export function ShipfoxLoader({
@@ -132,15 +250,7 @@ export function ShipfoxLoader({
       context.clearRect(0, 0, canvas.width, canvas.height);
       const canvasRect = canvas.getBoundingClientRect();
       const sizeMultiplier = canvas.width / BASE_CANVAS_SIZE;
-      let ghostOpacity = Math.max(
-        0.01,
-        finalConfig.ghostOpacity * (1 - (sizeMultiplier - 1) * finalConfig.sizeScale),
-      );
-
-      if (background === 'light') {
-        ghostOpacity /= LIGHT_BACKGROUND_OPACITY_REDUCTION;
-      }
-
+      const ghostOpacity = ghostOpacityFor(finalConfig, sizeMultiplier, background);
       const snakeHead = trailRef.current[0] ?? null;
       const currentColor = getColor(color, background);
 
@@ -154,77 +264,29 @@ export function ShipfoxLoader({
         const pixelKey = `${x},${y}`;
         const targetIntensity = cursorIntensityFor(x, y, canvasRect);
         const currentHoverIntensity = hoverIntensitiesRef.current[index] ?? 0;
-
-        if (targetIntensity > currentHoverIntensity) {
-          hoverIntensitiesRef.current[index] =
-            currentHoverIntensity +
-            (targetIntensity - currentHoverIntensity) *
-              (1 - (1 - HOVER_RISE_SPEED) ** (deltaTime / 16));
-        } else {
-          hoverIntensitiesRef.current[index] = Math.max(
-            ghostOpacity,
-            currentHoverIntensity * Math.exp(-deltaTime / HOVER_DECAY_MS),
-          );
-        }
-
-        let fillColor: string;
-        if (litPixelsRef.current.has(pixelKey)) {
-          fillColor = `rgba(${currentColor},1)`;
-
-          if (snakeHead && background !== 'light') {
-            const distanceX = Math.abs(x - snakeHead.x);
-            const distanceY = Math.abs(y - snakeHead.y);
-            const distance = Math.max(distanceX, distanceY);
-            const scaledRadius = Math.max(
-              1,
-              Math.round(
-                finalConfig.lightRadius * (1 - (sizeMultiplier - 1) * finalConfig.sizeScale),
-              ),
-            );
-
-            if (distance > 0 && distance <= scaledRadius) {
-              const falloff = (1 - distance / scaledRadius) ** finalConfig.lightCurve;
-              const brightness = Math.max(
-                0.05,
-                finalConfig.lightBrightness * (1 - (sizeMultiplier - 1) * finalConfig.sizeScale),
-              );
-              const [brightRed, brightGreen, brightBlue] = brightenColor(
-                currentColor,
-                falloff * brightness,
-              );
-              fillColor = `rgb(${brightRed},${brightGreen},${brightBlue})`;
-            }
-          }
-        } else if (background === 'light') {
-          const hoverTarget = cursorIntensityFor(x, y, canvasRect);
-          fillColor =
-            hoverTarget > 0 ? `rgba(${currentColor},1)` : `rgba(${currentColor},${ghostOpacity})`;
-        } else {
-          const [red = 0, green = 0, blue = 0] = currentColor.split(',').map(Number);
-          const intensity = Math.min(1, hoverIntensitiesRef.current[index] ?? 0);
-          fillColor = `rgba(${red},${green},${blue},${intensity})`;
-        }
-
-        context.fillStyle = fillColor;
+        const hoverIntensity = nextHoverIntensity(
+          currentHoverIntensity,
+          targetIntensity,
+          ghostOpacity,
+          deltaTime,
+        );
+        hoverIntensitiesRef.current[index] = hoverIntensity;
+        context.fillStyle = pixelFillColor({
+          pixel,
+          isLit: litPixelsRef.current.has(pixelKey),
+          hoverIntensity,
+          cursorIntensity: targetIntensity,
+          snakeHead,
+          currentColor,
+          background,
+          ghostOpacity,
+          sizeMultiplier,
+          config: finalConfig,
+        });
         context.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
       }
 
-      if (background !== 'light') {
-        for (let index = 0; index < trailRef.current.length; index += 1) {
-          const trailPixel = trailRef.current[index];
-          const glowIntensity = TRAIL_GLOW_VALUES[index];
-          if (!trailPixel || glowIntensity === undefined) {
-            continue;
-          }
-
-          const [brightRed, brightGreen, brightBlue] = brightenColor(
-            currentColor,
-            glowIntensity * 0.5,
-          );
-          context.fillStyle = `rgba(${brightRed},${brightGreen},${brightBlue},${glowIntensity})`;
-          context.fillRect(trailPixel.x * cellSize, trailPixel.y * cellSize, cellSize, cellSize);
-        }
-      }
+      if (background !== 'light') drawTrail(context, trailRef.current, currentColor, cellSize);
     },
     [background, cellSize, color, cursorIntensityFor, finalConfig],
   );
@@ -239,18 +301,13 @@ export function ShipfoxLoader({
 
       const path = getPathGenerator(animation)();
       const litRatio = litPixelsRef.current.size / foxPixels.length;
-      let moveDelay = BASE_MOVE_DELAY / speed;
-
-      if (animation === 'random') {
-        moveDelay = (BASE_MOVE_DELAY / speed) * (0.7 + litRatio * 1.1);
-      } else if (animation === 'vertical') {
-        const currentPixel = path[currentIndexRef.current];
-        const [currentX] = currentPixel ?? [0, 0];
-        moveDelay =
-          currentX >= 4 && currentX <= 7
-            ? (BASE_MOVE_DELAY / speed) * VERTICAL_CENTER_SLOWDOWN
-            : BASE_MOVE_DELAY / speed;
-      }
+      const moveDelay = animationMoveDelay(
+        animation,
+        path,
+        currentIndexRef.current,
+        litRatio,
+        speed,
+      );
 
       const currentTime = performance.now();
       if (!lastMoveTimeRef.current) {
@@ -258,27 +315,16 @@ export function ShipfoxLoader({
       }
 
       if (currentTime - lastMoveTimeRef.current > moveDelay) {
-        const currentPixel = path[currentIndexRef.current];
-        if (currentPixel) {
-          const [x, y] = currentPixel;
-          trailRef.current.unshift({x, y});
-          if (trailRef.current.length > 4) {
-            trailRef.current.pop();
-          }
-
-          const pixelKey = `${x},${y}`;
-          if (litPixelsRef.current.has(pixelKey)) {
-            litPixelsRef.current.delete(pixelKey);
-          } else {
-            litPixelsRef.current.add(pixelKey);
-          }
-
-          currentIndexRef.current = (currentIndexRef.current + 1) % path.length;
+        const nextIndex = advanceAnimation(
+          path,
+          currentIndexRef.current,
+          litPixelsRef.current,
+          trailRef.current,
+        );
+        if (nextIndex !== undefined) {
+          currentIndexRef.current = nextIndex;
           lastMoveTimeRef.current = currentTime;
-
-          if (currentIndexRef.current === 0) {
-            onAnimationComplete?.();
-          }
+          if (nextIndex === 0) onAnimationComplete?.();
         }
       }
 

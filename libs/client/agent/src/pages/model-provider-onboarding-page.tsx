@@ -6,14 +6,19 @@ import {Modal, ModalContent, ModalHeader, ModalTitle} from '@shipfox/react-ui/mo
 import {Panel, PanelBody, PanelCell, PanelCellAction, PanelGrid} from '@shipfox/react-ui/panel';
 import {toast} from '@shipfox/react-ui/toast';
 import {Header, Text} from '@shipfox/react-ui/typography';
-import {useEffect, useMemo, useReducer, useRef} from 'react';
+import {type Dispatch, useEffect, useMemo, useReducer, useRef} from 'react';
 import {AvailableProvidersGrid} from '#components/available-providers-grid.js';
 import {modelProviderConfigErrorToFormError} from '#components/form-errors.js';
 import {ModelProviderGridSkeleton} from '#components/model-provider-grid-skeleton.js';
 import {ModelProviderTestAndSaveForm} from '#components/test-and-save-form.js';
 import {DEFAULT_HARNESS, harnessSupportsProvider, listHarnesses} from '#core/harness-policy.js';
 import type {HarnessDescriptor, HarnessId, SupportedProvider} from '#core/models.js';
-import {initialOnboardingState, onboardingReducer} from '#core/onboarding-reducer.js';
+import {
+  initialOnboardingState,
+  type OnboardingAction,
+  type OnboardingState,
+  onboardingReducer,
+} from '#core/onboarding-reducer.js';
 import {isManagedOnlyCatalog, isSupportedProvider} from '#core/provider-policy.js';
 import {
   useModelProviderCatalogQuery,
@@ -35,8 +40,6 @@ export function ModelProviderOnboardingPage({
   const [onboarding, dispatch] = useReducer(onboardingReducer, initialOnboardingState);
   const supportedProviders = catalogQuery.data?.providers.filter(isSupportedProvider) ?? [];
   const catalogLoaded = catalogQuery.data !== undefined;
-  const catalogLoading = catalogQuery.isPending;
-  const catalogLoadError = catalogQuery.isError && catalogQuery.data === undefined;
   const managedOnly = isManagedOnlyCatalog(catalogQuery.data);
   const managedOnlyForwarded = useRef(false);
   const filteredProviders = useMemo(() => {
@@ -112,7 +115,6 @@ export function ModelProviderOnboardingPage({
     onboarding.step === 'choose-harness'
       ? 'model-provider-harness-step'
       : 'model-provider-provider-step';
-
   return (
     <div className="flex w-full flex-col gap-section">
       <header className="flex flex-col gap-cluster">
@@ -134,101 +136,144 @@ export function ModelProviderOnboardingPage({
       </header>
 
       <section aria-labelledby={headingId} className="flex flex-col gap-group">
-        {catalogLoading ? <ModelProviderGridSkeleton label="Loading model providers" /> : null}
-        {catalogLoadError ? (
-          <QueryLoadError query={catalogQuery} subject="model provider catalog" />
-        ) : null}
-        {!catalogLoading && !catalogLoadError ? (
-          onboarding.step === 'choose-harness' ? (
-            <HarnessPicker
-              onSelect={(harnessId) => dispatch({type: 'harness-selected', harnessId})}
-            />
-          ) : (
-            <>
-              <div>
-                <Button
-                  type="button"
-                  variant="transparent"
-                  onClick={() => dispatch({type: 'back'})}
-                >
-                  Back
-                </Button>
-              </div>
-              <ModelProviderPicker
-                key={onboarding.harnessId}
-                supportedProviders={filteredProviders}
-                onSelect={(entry) => {
-                  dispatch({type: 'provider-selected', provider: entry});
-                }}
-              />
-            </>
-          )
-        ) : null}
+        <OnboardingCatalog
+          query={catalogQuery}
+          onboarding={onboarding}
+          filteredProviders={filteredProviders}
+          dispatch={dispatch}
+        />
       </section>
 
-      <Modal
-        open={
-          onboarding.step === 'configure-provider' || onboarding.step === 'saving-default-harness'
-        }
-        onOpenChange={(open) => {
-          if (!open && onboarding.step === 'configure-provider') dispatch({type: 'back'});
-        }}
-      >
-        <ModalContent aria-describedby={undefined}>
-          <ModalTitle className="sr-only">
-            {onboarding.step === 'configure-provider' ||
-            onboarding.step === 'saving-default-harness'
-              ? `Configure ${onboarding.provider.label}`
-              : ''}
-          </ModalTitle>
-          <ModalHeader>
-            <Text
-              size="lg"
-              aria-hidden="true"
-              className="overflow-ellipsis overflow-hidden whitespace-nowrap"
-            >
-              {onboarding.step === 'configure-provider' ||
-              onboarding.step === 'saving-default-harness'
-                ? `Configure ${onboarding.provider.label}`
-                : ''}
-            </Text>
-          </ModalHeader>
-          {onboarding.step === 'configure-provider' ||
-          onboarding.step === 'saving-default-harness' ? (
-            <div className="flex min-h-0 flex-1 flex-col gap-inline">
-              {onboarding.step === 'saving-default-harness' ? (
-                <div role="status" className="px-row">
-                  <Text size="sm" className="text-foreground-neutral-muted">
-                    Saving harness default...
-                  </Text>
-                </div>
-              ) : null}
-              {onboarding.step === 'saving-default-harness' && onboarding.error ? (
-                <div className="px-row">
-                  <Callout role="alert" type="error">
-                    <div className="flex flex-col gap-inline">
-                      <Text size="sm" bold>
-                        Could not save default harness
-                      </Text>
-                      <Text size="sm">{onboarding.error}</Text>
-                    </div>
-                  </Callout>
-                </div>
-              ) : null}
-              <div className="flex min-h-0 flex-1 flex-col">
-                <ModelProviderTestAndSaveForm
-                  workspaceId={workspaceId}
-                  entry={onboarding.provider}
-                  setAsDefaultOnSave
-                  onSaved={() => {
-                    void handleProviderSaved();
-                  }}
-                />
-              </div>
+      <ProviderConfigurationModal
+        workspaceId={workspaceId}
+        onboarding={onboarding}
+        dispatch={dispatch}
+        onSaved={handleProviderSaved}
+      />
+    </div>
+  );
+}
+
+function OnboardingCatalog({
+  query,
+  onboarding,
+  filteredProviders,
+  dispatch,
+}: {
+  query: ReturnType<typeof useModelProviderCatalogQuery>;
+  onboarding: OnboardingState;
+  filteredProviders: SupportedProvider[];
+  dispatch: Dispatch<OnboardingAction>;
+}) {
+  if (query.isPending) return <ModelProviderGridSkeleton label="Loading model providers" />;
+  if (query.isError && query.data === undefined) {
+    return <QueryLoadError query={query} subject="model provider catalog" />;
+  }
+  if (onboarding.step === 'choose-harness') {
+    return (
+      <HarnessPicker onSelect={(harnessId) => dispatch({type: 'harness-selected', harnessId})} />
+    );
+  }
+  return (
+    <>
+      <div>
+        <Button type="button" variant="transparent" onClick={() => dispatch({type: 'back'})}>
+          Back
+        </Button>
+      </div>
+      <ModelProviderPicker
+        key={onboarding.harnessId}
+        supportedProviders={filteredProviders}
+        onSelect={(provider) => dispatch({type: 'provider-selected', provider})}
+      />
+    </>
+  );
+}
+
+function ProviderConfigurationModal({
+  workspaceId,
+  onboarding,
+  dispatch,
+  onSaved,
+}: {
+  workspaceId: string;
+  onboarding: OnboardingState;
+  dispatch: Dispatch<OnboardingAction>;
+  onSaved: () => Promise<void>;
+}) {
+  const configuration =
+    onboarding.step === 'configure-provider' || onboarding.step === 'saving-default-harness'
+      ? onboarding
+      : null;
+  const title = configuration ? `Configure ${configuration.provider.label}` : '';
+  return (
+    <Modal
+      open={configuration !== null}
+      onOpenChange={(open) => {
+        if (!open && onboarding.step === 'configure-provider') dispatch({type: 'back'});
+      }}
+    >
+      <ModalContent aria-describedby={undefined}>
+        <ModalTitle className="sr-only">{title}</ModalTitle>
+        <ModalHeader>
+          <Text
+            size="lg"
+            aria-hidden="true"
+            className="overflow-ellipsis overflow-hidden whitespace-nowrap"
+          >
+            {title}
+          </Text>
+        </ModalHeader>
+        {configuration ? (
+          <ProviderConfigurationContent
+            workspaceId={workspaceId}
+            onboarding={configuration}
+            onSaved={onSaved}
+          />
+        ) : null}
+      </ModalContent>
+    </Modal>
+  );
+}
+
+function ProviderConfigurationContent({
+  workspaceId,
+  onboarding,
+  onSaved,
+}: {
+  workspaceId: string;
+  onboarding: Extract<OnboardingState, {step: 'configure-provider' | 'saving-default-harness'}>;
+  onSaved: () => Promise<void>;
+}) {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-inline">
+      {onboarding.step === 'saving-default-harness' ? (
+        <div role="status" className="px-row">
+          <Text size="sm" className="text-foreground-neutral-muted">
+            Saving harness default...
+          </Text>
+        </div>
+      ) : null}
+      {onboarding.step === 'saving-default-harness' && onboarding.error ? (
+        <div className="px-row">
+          <Callout role="alert" type="error">
+            <div className="flex flex-col gap-inline">
+              <Text size="sm" bold>
+                Could not save default harness
+              </Text>
+              <Text size="sm">{onboarding.error}</Text>
             </div>
-          ) : null}
-        </ModalContent>
-      </Modal>
+          </Callout>
+        </div>
+      ) : null}
+      <div className="flex min-h-0 flex-1 flex-col">
+        <ModelProviderTestAndSaveForm
+          workspaceId={workspaceId}
+          entry={onboarding.provider}
+          setAsDefaultOnSave
+          onSaved={() => void onSaved()}
+        />
+      </div>
     </div>
   );
 }

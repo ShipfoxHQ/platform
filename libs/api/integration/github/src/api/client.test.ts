@@ -240,6 +240,14 @@ describe('mapGithubError', () => {
     });
   });
 
+  it('rethrows request errors without an HTTP error status', async () => {
+    const error = new RequestErrorMock('Unexpected redirect response', 399);
+
+    const result = mapGithubError(() => Promise.reject(error));
+
+    await expect(result).rejects.toBe(error);
+  });
+
   it('preserves the status when mapping provider unavailability', async () => {
     const error = new RequestErrorMock('GitHub is unavailable', 503);
 

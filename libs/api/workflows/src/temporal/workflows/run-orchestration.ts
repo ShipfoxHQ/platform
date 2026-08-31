@@ -16,6 +16,7 @@ import {
   shouldContinueStartedRun,
 } from '#core/workflow-scheduling/run-progress.js';
 import type {RuntimeCompletionStatus} from '#core/workflow-scheduling/runtime-dag.js';
+import type {RuntimeSchedulingCommand} from '#core/workflow-scheduling/runtime-scheduling-command.js';
 import {scheduleRuntimeDag} from '#core/workflow-scheduling/schedule-runtime-dag.js';
 
 import type {createOrchestrationActivities} from '../activities/index.js';
@@ -67,9 +68,7 @@ export async function runOrchestration(input: RunOrchestrationInput): Promise<vo
   const inFlight = new Map<string, Promise<{job: DagJob; result: LaunchResult}>>();
 
   while (true) {
-    if (cancelRequested) {
-      return;
-    }
+    if (cancelRequested) return;
     if (deadlineReached(runDeadline)) {
       await failRunAsTimedOutActivity({runAttemptId: input.runAttemptId});
       return;
@@ -80,48 +79,12 @@ export async function runOrchestration(input: RunOrchestrationInput): Promise<vo
       completed: progress.completed,
       running: new Set(inFlight.keys()),
     });
-    const completeRun = commands.find((command) => command.kind === 'complete-run');
-    const startJobs = new Map<string, DagJob>();
-
-    for (const command of commands) {
-      if (command.kind !== 'skip-job') continue;
-      await skipJob(command.job, progress, command.statusReason);
-    }
-
-    for (const command of commands) {
-      if (command.kind !== 'evaluate-job-activation') continue;
-      const activationJobsById = new Map(command.jobs.map((job) => [job.id, job]));
-      const decisions = await evaluateJobActivationsActivity({
-        runAttemptId: input.runAttemptId,
-        jobs: command.jobs.map((job) => ({
-          jobId: job.id,
-          expectedVersion: runtimeJobVersion(job, progress),
-        })),
-      });
-      for (const decision of decisions) {
-        const job = activationJobsById.get(decision.jobId);
-        if (!job) continue;
-        if (decision.kind === 'start-job') {
-          startJobs.set(job.key, job);
-          continue;
-        }
-        recordRuntimeJobResult(job, progress, {
-          status: decision.status,
-          jobVersion: decision.jobVersion,
-        });
-      }
-    }
-
-    for (const command of commands) {
-      if (command.kind !== 'start-job') continue;
-      startJobs.set(command.job.key, command.job);
-    }
-
-    for (const job of startJobs.values()) {
-      if (!inFlight.has(job.key)) {
-        inFlight.set(job.key, launchJob(job, dag, progress));
-      }
-    }
+    const {completeRun, startJobs} = await processRunCommands(
+      commands,
+      input.runAttemptId,
+      progress,
+    );
+    launchScheduledJobs(startJobs, inFlight, dag, progress);
 
     if (completeRun) {
       await setRunAttemptStatus({
@@ -144,6 +107,87 @@ export async function runOrchestration(input: RunOrchestrationInput): Promise<vo
     }
     inFlight.delete(settled.job.key);
     recordRuntimeJobResult(settled.job, progress, settled.result);
+  }
+}
+
+type RuntimeRunCommand = RuntimeSchedulingCommand<DagJob>;
+
+async function processRunCommands(
+  commands: readonly RuntimeRunCommand[],
+  runAttemptId: string,
+  progress: RuntimeRunProgress,
+) {
+  const startJobs = new Map<string, DagJob>();
+  await applySkippedJobCommands(commands, progress);
+  await applyActivationCommands(commands, runAttemptId, progress, startJobs);
+  for (const command of commands) {
+    if (command.kind === 'start-job') startJobs.set(command.job.key, command.job);
+  }
+  return {
+    completeRun: commands.find((command) => command.kind === 'complete-run'),
+    startJobs,
+  };
+}
+
+async function applySkippedJobCommands(
+  commands: readonly RuntimeRunCommand[],
+  progress: RuntimeRunProgress,
+): Promise<void> {
+  for (const command of commands) {
+    if (command.kind === 'skip-job') {
+      await skipJob(command.job, progress, command.statusReason);
+    }
+  }
+}
+
+async function applyActivationCommands(
+  commands: readonly RuntimeRunCommand[],
+  runAttemptId: string,
+  progress: RuntimeRunProgress,
+  startJobs: Map<string, DagJob>,
+): Promise<void> {
+  for (const command of commands) {
+    if (command.kind !== 'evaluate-job-activation') continue;
+    await applyActivationCommand(command, runAttemptId, progress, startJobs);
+  }
+}
+
+async function applyActivationCommand(
+  command: Extract<RuntimeRunCommand, {kind: 'evaluate-job-activation'}>,
+  runAttemptId: string,
+  progress: RuntimeRunProgress,
+  startJobs: Map<string, DagJob>,
+): Promise<void> {
+  const activationJobsById = new Map(command.jobs.map((job) => [job.id, job]));
+  const decisions = await evaluateJobActivationsActivity({
+    runAttemptId,
+    jobs: command.jobs.map((job) => ({
+      jobId: job.id,
+      expectedVersion: runtimeJobVersion(job, progress),
+    })),
+  });
+  for (const decision of decisions) {
+    const job = activationJobsById.get(decision.jobId);
+    if (!job) continue;
+    if (decision.kind === 'start-job') {
+      startJobs.set(job.key, job);
+      continue;
+    }
+    recordRuntimeJobResult(job, progress, {
+      status: decision.status,
+      jobVersion: decision.jobVersion,
+    });
+  }
+}
+
+function launchScheduledJobs(
+  startJobs: ReadonlyMap<string, DagJob>,
+  inFlight: Map<string, Promise<{job: DagJob; result: LaunchResult}>>,
+  dag: RunDag,
+  progress: RuntimeRunProgress,
+): void {
+  for (const job of startJobs.values()) {
+    if (!inFlight.has(job.key)) inFlight.set(job.key, launchJob(job, dag, progress));
   }
 }
 
@@ -172,52 +216,67 @@ function launchJob(
   run: RunDag,
   progress: RuntimeRunProgress,
 ): Promise<{job: DagJob; result: LaunchResult}> {
-  if (job.mode === 'listening') {
-    return executeChild(jobListenerOrchestration, {
-      workflowId: `job-listener:${job.id}`,
-      args: [
-        {
-          jobId: job.id,
-          runAttemptId: run.runAttemptId,
-          jobVersion: runtimeJobVersion(job, progress),
-          ...(job.executionTimeoutMs === undefined
-            ? {}
-            : {executionTimeoutMs: job.executionTimeoutMs}),
-          ...(job.listeningTimeoutMs === undefined
-            ? {}
-            : {listeningTimeoutMs: job.listeningTimeoutMs}),
-          ...(job.maxExecutions === undefined ? {} : {maxExecutions: job.maxExecutions}),
-          ...(job.onResolve === undefined ? {} : {onResolve: job.onResolve}),
-          ...(job.batchDebounceMs === undefined ? {} : {batchDebounceMs: job.batchDebounceMs}),
-          ...(job.batchMaxSize === undefined ? {} : {batchMaxSize: job.batchMaxSize}),
-          ...(job.batchMaxWaitMs === undefined ? {} : {batchMaxWaitMs: job.batchMaxWaitMs}),
-          requiredLabels: job.runner,
-        },
-      ],
-      parentClosePolicy: ParentClosePolicy.TERMINATE,
-    })
-      .then((result) => ({job, result}))
-      .catch(async (error) => {
-        log.warn('listener child failed; marking runtime job failed', {
-          jobId: job.id,
-          error: String(error),
-        });
-        const failed = await setJobStatus({
-          jobId: job.id,
-          status: 'failed',
-          version: runtimeJobVersion(job, progress),
-          statusReason: 'unknown',
-        });
-        return {
-          job,
-          result: {status: 'failed' as const, jobVersion: failed.newVersion},
-        };
-      });
-  }
+  if (job.mode === 'listening') return launchListenerJob(job, run, progress);
+  return launchOneShotJob(job, run, progress);
+}
 
-  if (job.jobExecutionId === undefined) {
+function launchListenerJob(
+  job: DagJob,
+  run: RunDag,
+  progress: RuntimeRunProgress,
+): Promise<{job: DagJob; result: LaunchResult}> {
+  return executeChild(jobListenerOrchestration, {
+    workflowId: `job-listener:${job.id}`,
+    args: [
+      {
+        jobId: job.id,
+        runAttemptId: run.runAttemptId,
+        jobVersion: runtimeJobVersion(job, progress),
+        ...(job.executionTimeoutMs === undefined
+          ? {}
+          : {executionTimeoutMs: job.executionTimeoutMs}),
+        ...(job.listeningTimeoutMs === undefined
+          ? {}
+          : {listeningTimeoutMs: job.listeningTimeoutMs}),
+        ...(job.maxExecutions === undefined ? {} : {maxExecutions: job.maxExecutions}),
+        ...(job.onResolve === undefined ? {} : {onResolve: job.onResolve}),
+        ...(job.batchDebounceMs === undefined ? {} : {batchDebounceMs: job.batchDebounceMs}),
+        ...(job.batchMaxSize === undefined ? {} : {batchMaxSize: job.batchMaxSize}),
+        ...(job.batchMaxWaitMs === undefined ? {} : {batchMaxWaitMs: job.batchMaxWaitMs}),
+        requiredLabels: job.runner,
+      },
+    ],
+    parentClosePolicy: ParentClosePolicy.TERMINATE,
+  })
+    .then((result) => ({job, result}))
+    .catch((error) => failListenerJob(job, progress, error));
+}
+
+async function failListenerJob(
+  job: DagJob,
+  progress: RuntimeRunProgress,
+  error: unknown,
+): Promise<{job: DagJob; result: LaunchResult}> {
+  log.warn('listener child failed; marking runtime job failed', {
+    jobId: job.id,
+    error: String(error),
+  });
+  const failed = await setJobStatus({
+    jobId: job.id,
+    status: 'failed',
+    version: runtimeJobVersion(job, progress),
+    statusReason: 'unknown',
+  });
+  return {job, result: {status: 'failed', jobVersion: failed.newVersion}};
+}
+
+function launchOneShotJob(
+  job: DagJob,
+  run: RunDag,
+  progress: RuntimeRunProgress,
+): Promise<{job: DagJob; result: LaunchResult}> {
+  if (job.jobExecutionId === undefined)
     throw new Error(`Cannot start job without an execution: ${job.id}`);
-  }
   return executeChild(jobExecutionOrchestration, {
     workflowId: `job:${job.id}`,
     args: [

@@ -83,48 +83,38 @@ function releaseFromPullRequest(pullRequest, revision) {
   };
 }
 
-async function authorize() {
-  const eventName = argument('event-name');
-  const repository = argument('repository');
-  const expectedAppId = argument('release-app-id');
-  const revision = argument('revision');
-  let release = {
-    authorId: argument('author-id') ?? '',
-    baseRevision: argument('base') ?? '',
-    headRef: argument('head-ref') ?? '',
-    headRepository: argument('head-repository') ?? '',
-    revision: revision ?? '',
-  };
-
-  if (eventName === 'pull_request' && argument('merged') !== 'true') {
-    await writeOutput({authorized: 'false'});
-    return;
-  }
-  if (eventName === 'workflow_dispatch' && revision) {
-    const result = await run('gh', ['api', `repos/${repository}/commits/${revision}/pulls`]);
-    const pullRequest =
-      result.code === 0
-        ? JSON.parse(result.stdout).find(
-            (candidate) => candidate.merged_at !== null && candidate.merge_commit_sha === revision,
-          )
-        : undefined;
-    if (pullRequest) release = releaseFromPullRequest(pullRequest, revision);
-  }
-
-  const reason =
+function authorizationReason(release, repository, expectedAppId) {
+  if (
     !release.revision ||
     !release.baseRevision ||
     !release.headRepository ||
     !release.headRef ||
     !release.authorId
-      ? 'missing-release-metadata'
-      : release.headRepository !== repository
-        ? 'head-repository-mismatch'
-        : release.headRef !== 'changeset-release/main'
-          ? 'release-branch-mismatch'
-          : release.authorId !== expectedAppId
-            ? 'release-app-mismatch'
-            : 'authorized';
+  ) {
+    return 'missing-release-metadata';
+  }
+  return releaseMetadataReason(release, repository, expectedAppId) ?? 'authorized';
+}
+
+function releaseMetadataReason(release, repository, expectedAppId) {
+  if (release.headRepository !== repository) return 'head-repository-mismatch';
+  if (release.headRef !== 'changeset-release/main') return 'release-branch-mismatch';
+  if (release.authorId !== expectedAppId) return 'release-app-mismatch';
+  return undefined;
+}
+
+async function resolveWorkflowDispatchRelease(eventName, repository, revision, fallback) {
+  if (eventName !== 'workflow_dispatch' || !revision) return fallback;
+
+  const result = await run('gh', ['api', `repos/${repository}/commits/${revision}/pulls`]);
+  if (result.code !== 0) return fallback;
+  const pullRequest = JSON.parse(result.stdout).find(
+    (candidate) => candidate.merged_at !== null && candidate.merge_commit_sha === revision,
+  );
+  return pullRequest ? releaseFromPullRequest(pullRequest, revision) : fallback;
+}
+
+async function writeAuthorizationResult(release, reason) {
   const authorized = reason === 'authorized';
   await writeOutput({
     authorized: String(authorized),
@@ -138,6 +128,34 @@ async function authorize() {
     `## Package publication authorization\n\n- Result: **${authorized ? 'authorized' : 'not authorized'}**\n- Reason: \`${reason}\``,
   );
   process.stdout.write(`${JSON.stringify({authorized, reason})}\n`);
+}
+
+async function authorize() {
+  const eventName = argument('event-name');
+  const repository = argument('repository');
+  const expectedAppId = argument('release-app-id');
+  const revision = argument('revision');
+  const suppliedRelease = {
+    authorId: argument('author-id') ?? '',
+    baseRevision: argument('base') ?? '',
+    headRef: argument('head-ref') ?? '',
+    headRepository: argument('head-repository') ?? '',
+    revision: revision ?? '',
+  };
+
+  if (eventName === 'pull_request' && argument('merged') !== 'true') {
+    await writeOutput({authorized: 'false'});
+    return;
+  }
+  const release = await resolveWorkflowDispatchRelease(
+    eventName,
+    repository,
+    revision,
+    suppliedRelease,
+  );
+
+  const reason = authorizationReason(release, repository, expectedAppId);
+  await writeAuthorizationResult(release, reason);
 }
 
 function classificationResult(values, reason, message) {
@@ -177,75 +195,58 @@ async function writeMainClassification(result) {
   process.stdout.write(`${JSON.stringify(result)}\n`);
 }
 
-async function classifyMain() {
-  const revision = argument('revision');
-  const repository = argument('repository');
-  const expectedAppId = argument('release-app-id');
-  const invalidMetadata = !revision || !repository || !expectedAppId;
-
-  if (invalidMetadata) {
-    await writeMainClassification(
-      classificationResult(
-        {},
-        'missing-main-classification-metadata',
-        'The main commit classifier did not receive the required metadata.',
-      ),
-    );
-    return;
-  }
-
+async function resolvePreviousRevision(revision) {
   const parentResult = await run('git', ['rev-parse', `${revision}^1`]);
   if (parentResult.code !== 0) {
-    await writeMainClassification(
-      classificationResult(
+    return {
+      error: classificationResult(
         {},
         'parent-revision-unavailable',
         'The parent revision could not be resolved; normal main CI remains required.',
       ),
-    );
-    return;
+    };
   }
   const previousRevision = parentResult.stdout.trim();
   if (!REVISION_PATTERN.test(previousRevision)) {
-    await writeMainClassification(
-      classificationResult(
+    return {
+      error: classificationResult(
         {},
         'parent-revision-invalid',
         'The resolved parent is not a full Git revision; normal main CI remains required.',
       ),
-    );
-    return;
+    };
   }
+  return {previousRevision};
+}
 
-  const pullRequestsResult = await run('gh', [
+async function resolveReleasePullRequest(repository, revision) {
+  const result = await run('gh', [
     'api',
     `repos/${repository}/commits/${revision}/pulls`,
     '--header',
     'Accept: application/vnd.github+json',
   ]);
-  if (pullRequestsResult.code !== 0) {
-    await writeMainClassification(
-      classificationResult(
+  if (result.code !== 0) {
+    return {
+      error: classificationResult(
         {},
         'merged-release-pr-unavailable',
         'The merged pull request could not be resolved; normal main CI remains required.',
       ),
-    );
-    return;
+    };
   }
 
   let pullRequests;
   try {
-    pullRequests = JSON.parse(pullRequestsResult.stdout);
+    pullRequests = JSON.parse(result.stdout);
   } catch {
-    await writeMainClassification(
-      classificationResult(
+    return {
+      error: classificationResult(
         {},
         'merged-release-pr-invalid',
         'GitHub returned invalid pull request metadata; normal main CI remains required.',
       ),
-    );
-    return;
+    };
   }
 
   const releasePullRequest = Array.isArray(pullRequests)
@@ -256,43 +257,27 @@ async function classifyMain() {
           pullRequest.base?.ref === 'main',
       )
     : undefined;
-  const releasePrUrl = releasePullRequest?.html_url ?? '';
-  const releasePrNumber = releasePullRequest?.number ? String(releasePullRequest.number) : '';
-
   if (!releasePullRequest) {
-    await writeMainClassification(
-      classificationResult(
-        {releasePrUrl, releasePrNumber},
+    return {
+      error: classificationResult(
+        {},
         'merged-release-pr-not-found',
         'The commit is not the merged result of a pull request targeting main.',
       ),
-    );
-    return;
+    };
   }
+  return {releasePullRequest};
+}
 
-  const headRepository = releasePullRequest.head?.repo?.full_name ?? '';
-  const headRef = releasePullRequest.head?.ref ?? '';
-  const authorId = String(releasePullRequest.user?.id ?? '');
-  const metadataResult =
-    headRepository !== repository
-      ? 'head-repository-mismatch'
-      : headRef !== 'changeset-release/main'
-        ? 'release-branch-mismatch'
-        : authorId !== expectedAppId
-          ? 'release-app-mismatch'
-          : undefined;
-
-  if (metadataResult) {
-    await writeMainClassification(
-      classificationResult(
-        {releasePrUrl, releasePrNumber},
-        metadataResult,
-        'The merged pull request metadata is not an approved generated release.',
-      ),
-    );
-    return;
-  }
-
+async function verifyGeneratedRelease({
+  authorId,
+  expectedAppId,
+  headRef,
+  headRepository,
+  previousRevision,
+  repository,
+  revision,
+}) {
   const verifierResult = await run('pnpm', [
     '--silent',
     '--filter=@shipfox/package-release',
@@ -325,9 +310,72 @@ async function classifyMain() {
   } catch {
     verifier = undefined;
   }
+  return {verifier, verified: verifierResult.code === 0};
+}
 
-  const versionOnlyMain =
-    verifierResult.code === 0 && verifier?.classification === 'generated-release';
+async function classifyMain() {
+  const revision = argument('revision');
+  const repository = argument('repository');
+  const expectedAppId = argument('release-app-id');
+  const invalidMetadata = !revision || !repository || !expectedAppId;
+
+  if (invalidMetadata) {
+    await writeMainClassification(
+      classificationResult(
+        {},
+        'missing-main-classification-metadata',
+        'The main commit classifier did not receive the required metadata.',
+      ),
+    );
+    return;
+  }
+
+  const previousRevisionResult = await resolvePreviousRevision(revision);
+  if (previousRevisionResult.error) {
+    await writeMainClassification(previousRevisionResult.error);
+    return;
+  }
+  const previousRevision = previousRevisionResult.previousRevision;
+
+  const releasePullRequestResult = await resolveReleasePullRequest(repository, revision);
+  if (releasePullRequestResult.error) {
+    await writeMainClassification(releasePullRequestResult.error);
+    return;
+  }
+  const releasePullRequest = releasePullRequestResult.releasePullRequest;
+  const releasePrUrl = releasePullRequest?.html_url ?? '';
+  const releasePrNumber = releasePullRequest?.number ? String(releasePullRequest.number) : '';
+
+  const headRepository = releasePullRequest.head?.repo?.full_name ?? '';
+  const headRef = releasePullRequest.head?.ref ?? '';
+  const authorId = String(releasePullRequest.user?.id ?? '');
+  const metadataResult = releaseMetadataReason(
+    {authorId, headRef, headRepository},
+    repository,
+    expectedAppId,
+  );
+
+  if (metadataResult) {
+    await writeMainClassification(
+      classificationResult(
+        {releasePrUrl, releasePrNumber},
+        metadataResult,
+        'The merged pull request metadata is not an approved generated release.',
+      ),
+    );
+    return;
+  }
+
+  const {verifier, verified} = await verifyGeneratedRelease({
+    authorId,
+    expectedAppId,
+    headRef,
+    headRepository,
+    previousRevision,
+    repository,
+    revision,
+  });
+  const versionOnlyMain = verified && verifier?.classification === 'generated-release';
   await writeMainClassification(
     classificationResult(
       versionOnlyMain
@@ -404,8 +452,9 @@ async function summarizeUpdate() {
   const after = JSON.parse(await readFile(argument('after'), 'utf8'));
   const beforeHead = before[0]?.headRefOid;
   const afterHead = after[0]?.headRefOid;
-  const result =
-    !beforeHead && afterHead ? 'created' : beforeHead !== afterHead ? 'updated' : 'unchanged';
+  let result = 'unchanged';
+  if (!beforeHead && afterHead) result = 'created';
+  else if (beforeHead !== afterHead) result = 'updated';
   const number = after[0]?.number;
   await writeSummary(
     [

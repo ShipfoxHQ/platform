@@ -68,6 +68,65 @@ export interface NormalizeContext {
   readonly integrationValidationContext?: IntegrationValidationContext | undefined;
 }
 
+interface NormalizeJobsState {
+  pending: Set<string>;
+  modelsBySourceName: Map<string, WorkflowModelJob>;
+  jobOutputTypesBySourceName: Map<string, Readonly<Record<string, ExpressionType>>>;
+  issuesBySourceName: Map<string, WorkflowModelValidationIssue[]>;
+}
+
+interface NormalizeJobsSharedParams {
+  document: WorkflowDocument;
+  jobIdBySourceName: ReadonlyMap<string, string>;
+  stepSourceLocations: WorkflowStepSourceLocationMap | undefined;
+  context: NormalizeContext;
+}
+
+function normalizeAndStoreJob(
+  sourceName: string,
+  job: WorkflowDocumentJob,
+  shared: NormalizeJobsSharedParams,
+  state: NormalizeJobsState,
+): void {
+  const model = normalizeJob({
+    ...shared,
+    sourceName,
+    job,
+    issues: issuesForSourceName(state.issuesBySourceName, sourceName),
+    jobOutputTypesBySourceName: state.jobOutputTypesBySourceName,
+  });
+  if (model !== undefined) state.modelsBySourceName.set(sourceName, model);
+}
+
+function normalizeReadyJobs(
+  entries: ReadonlyArray<readonly [string, WorkflowDocumentJob]>,
+  shared: NormalizeJobsSharedParams,
+  state: NormalizeJobsState,
+): boolean {
+  let progressed = false;
+  for (const [sourceName, job] of entries) {
+    if (!state.pending.has(sourceName)) continue;
+    const dependencies = normalizeNeeds(job.needs).filter((dependency) =>
+      shared.jobIdBySourceName.has(dependency),
+    );
+    if (dependencies.some((dependency) => state.pending.has(dependency))) continue;
+    normalizeAndStoreJob(sourceName, job, shared, state);
+    state.pending.delete(sourceName);
+    progressed = true;
+  }
+  return progressed;
+}
+
+function normalizeRemainingJobs(
+  shared: NormalizeJobsSharedParams,
+  state: NormalizeJobsState,
+): void {
+  for (const sourceName of state.pending) {
+    const job = shared.document.jobs[sourceName];
+    if (job !== undefined) normalizeAndStoreJob(sourceName, job, shared, state);
+  }
+}
+
 export function normalizeJobs(
   document: WorkflowDocument,
   jobIdBySourceName: ReadonlyMap<string, string>,
@@ -76,65 +135,28 @@ export function normalizeJobs(
   context: NormalizeContext,
 ): readonly WorkflowModelJob[] {
   const entries = Object.entries(document.jobs);
-  const pending = new Set(entries.map(([sourceName]) => sourceName));
-  const modelsBySourceName = new Map<string, WorkflowModelJob>();
-  const jobOutputTypesBySourceName = new Map<string, Readonly<Record<string, ExpressionType>>>();
-  const issuesBySourceName = new Map<string, WorkflowModelValidationIssue[]>();
+  const state: NormalizeJobsState = {
+    pending: new Set(entries.map(([sourceName]) => sourceName)),
+    modelsBySourceName: new Map(),
+    jobOutputTypesBySourceName: new Map(),
+    issuesBySourceName: new Map(),
+  };
+  const shared = {document, jobIdBySourceName, stepSourceLocations, context};
 
-  while (pending.size > 0) {
-    let progressed = false;
-
-    for (const [sourceName, job] of entries) {
-      if (!pending.has(sourceName)) continue;
-
-      const dependencySourceNames = normalizeNeeds(job.needs).filter((dependency) =>
-        jobIdBySourceName.has(dependency),
-      );
-      if (dependencySourceNames.some((dependency) => pending.has(dependency))) continue;
-
-      const model = normalizeJob({
-        document,
-        sourceName,
-        job,
-        jobIdBySourceName,
-        issues: issuesForSourceName(issuesBySourceName, sourceName),
-        stepSourceLocations,
-        context,
-        jobOutputTypesBySourceName,
-      });
-      if (model !== undefined) modelsBySourceName.set(sourceName, model);
-      pending.delete(sourceName);
-      progressed = true;
-    }
-
-    if (progressed) continue;
-
-    for (const sourceName of pending) {
-      const job = document.jobs[sourceName];
-      if (job === undefined) continue;
-      const model = normalizeJob({
-        document,
-        sourceName,
-        job,
-        jobIdBySourceName,
-        issues: issuesForSourceName(issuesBySourceName, sourceName),
-        stepSourceLocations,
-        context,
-        jobOutputTypesBySourceName,
-      });
-      if (model !== undefined) modelsBySourceName.set(sourceName, model);
-    }
+  while (state.pending.size > 0) {
+    if (normalizeReadyJobs(entries, shared, state)) continue;
+    normalizeRemainingJobs(shared, state);
     break;
   }
 
   for (const [sourceName] of entries) {
-    issues.push(...(issuesBySourceName.get(sourceName) ?? []));
+    issues.push(...(state.issuesBySourceName.get(sourceName) ?? []));
   }
 
   validateAgentSessionSharing(document, issues, context.agentValidationCatalog.default_harness_id);
 
   return entries.flatMap(([sourceName]) => {
-    const model = modelsBySourceName.get(sourceName);
+    const model = state.modelsBySourceName.get(sourceName);
     return model === undefined ? [] : [model];
   });
 }
@@ -271,6 +293,35 @@ function normalizeJob(params: {
     allowedJobReferences,
     integrationValidationContext: params.context.integrationValidationContext,
   });
+  const {name, executionName} = normalizeJobNames(
+    params,
+    allowedJobReferences,
+    upstreamJobsTypeOverlay,
+  );
+
+  return buildNormalizedJob({
+    id,
+    checkout,
+    condition,
+    dependencies,
+    executionName,
+    executionTimeoutMs,
+    jobEnv,
+    key: params.sourceName,
+    listening,
+    name,
+    outputs,
+    runner,
+    success,
+    steps,
+  });
+}
+
+function normalizeJobNames(
+  params: Parameters<typeof normalizeJob>[0],
+  allowedJobReferences: ReadonlySet<string>,
+  typeOverlay: ExpressionTypeEnvironment | undefined,
+): {name: string | undefined; executionName: WorkflowFieldTemplate | undefined} {
   if (params.job.name !== undefined) {
     validateLiteralName({
       field: 'job.name',
@@ -282,37 +333,55 @@ function normalizeJob(params: {
     });
   }
   const name = params.job.name === undefined ? undefined : unescapeLiteralName(params.job.name);
-  const executionName =
-    params.job.execution_name === undefined
-      ? undefined
-      : (parseInterpolationField({
-          field: 'job.execution_name',
-          source: params.job.execution_name,
-          path: ['jobs', params.sourceName, 'execution_name'],
-          issues: params.issues,
-          fillSite: 'execution-creation',
-          allowedJobReferences,
-          typeOverlay: upstreamJobsTypeOverlay,
-        }) ?? [{kind: 'literal' as const, value: params.job.execution_name}]);
+  if (params.job.execution_name === undefined) return {name, executionName: undefined};
+  const executionName = parseInterpolationField({
+    field: 'job.execution_name',
+    source: params.job.execution_name,
+    path: ['jobs', params.sourceName, 'execution_name'],
+    issues: params.issues,
+    fillSite: 'execution-creation',
+    allowedJobReferences,
+    typeOverlay,
+  }) ?? [{kind: 'literal' as const, value: params.job.execution_name}];
+  return {name, executionName};
+}
 
+function buildNormalizedJob(params: {
+  id: string;
+  key: string;
+  runner: ReturnType<typeof normalizeRunner>;
+  checkout: ReturnType<typeof normalizeJobCheckout>;
+  condition: ReturnType<typeof normalizeIfCondition>;
+  success: ReturnType<typeof normalizeJobSuccess>;
+  outputs: ReturnType<typeof normalizeJobOutputs>;
+  executionTimeoutMs: number | undefined;
+  listening: ReturnType<typeof normalizeJobListening>;
+  name: string | undefined;
+  executionName: WorkflowFieldTemplate | undefined;
+  jobEnv: ReturnType<typeof normalizeEnv>;
+  dependencies: readonly string[];
+  steps: readonly WorkflowModelStep[];
+}): WorkflowModelJob {
   return {
-    id,
-    key: params.sourceName,
-    mode: listening === undefined ? 'one_shot' : 'listening',
-    runner: runner.labels,
-    ...(runner.templates.length === 0 ? {} : {runnerTemplates: runner.templates}),
-    checkout,
-    ...(condition === undefined ? {} : {if: condition}),
-    ...(success === undefined ? {} : {success}),
-    ...(outputs === undefined ? {} : {outputs: outputs.templates}),
-    ...(outputs?.types === undefined ? {} : {outputTypes: outputs.types}),
-    ...(executionTimeoutMs === undefined ? {} : {executionTimeoutMs}),
-    ...(listening === undefined ? {} : {listening}),
-    ...(name === undefined ? {} : {name}),
-    ...(executionName === undefined ? {} : {executionName}),
-    ...jobEnv,
-    dependencies,
-    steps,
+    id: params.id,
+    key: params.key,
+    mode: params.listening === undefined ? 'one_shot' : 'listening',
+    runner: params.runner.labels,
+    ...(params.runner.templates.length === 0 ? {} : {runnerTemplates: params.runner.templates}),
+    checkout: params.checkout,
+    ...(params.condition === undefined ? {} : {if: params.condition}),
+    ...(params.success === undefined ? {} : {success: params.success}),
+    ...(params.outputs === undefined ? {} : {outputs: params.outputs.templates}),
+    ...(params.outputs?.types === undefined ? {} : {outputTypes: params.outputs.types}),
+    ...(params.executionTimeoutMs === undefined
+      ? {}
+      : {executionTimeoutMs: params.executionTimeoutMs}),
+    ...(params.listening === undefined ? {} : {listening: params.listening}),
+    ...(params.name === undefined ? {} : {name: params.name}),
+    ...(params.executionName === undefined ? {} : {executionName: params.executionName}),
+    ...params.jobEnv,
+    dependencies: params.dependencies,
+    steps: params.steps,
   };
 }
 
@@ -486,6 +555,141 @@ function normalizeJobSteps(params: {
   });
 }
 
+type NormalizeStepParams = Parameters<typeof normalizeStep>[0];
+
+function registerStepId(params: NormalizeStepParams, stepId: string): void {
+  const existingIndex = params.usedStepIds.get(stepId);
+  if (existingIndex === undefined) {
+    params.usedStepIds.set(stepId, params.index);
+    return;
+  }
+  params.issues.push(
+    issue({
+      code: 'duplicate-step-id',
+      message: `Steps ${existingIndex} and ${params.index} in job "${params.sourceName}" resolve to the same stable id "${stepId}".`,
+      path: ['jobs', params.sourceName, 'steps', params.index],
+      details: {id: stepId, indexes: [existingIndex, params.index]},
+    }),
+  );
+}
+
+function previousStepTypeContext(params: NormalizeStepParams): {
+  shouldBuild: boolean;
+  overlays: readonly WorkflowStepTypeOverlay[];
+  environment: ExpressionTypeEnvironment | undefined;
+} {
+  const shouldBuild =
+    params.typeOverlay !== undefined ||
+    params.upstreamJobs.length > 0 ||
+    params.toolOverlayByKey.size > 0;
+  const overlays = previousStepOverlays(params.allSteps, params.index, params.toolOverlayByKey);
+  const environment = shouldBuild
+    ? buildTypedRootsEnvironment({
+        steps: overlays,
+        ...(params.upstreamJobs.length === 0 ? {} : {jobs: params.upstreamJobs}),
+      })
+    : undefined;
+  return {shouldBuild, overlays, environment};
+}
+
+function currentStepTypeContext(
+  params: NormalizeStepParams,
+  previous: ReturnType<typeof previousStepTypeContext>,
+  currentStep: WorkflowStepTypeOverlay | undefined,
+): {
+  typeOverlay: ExpressionTypeEnvironment | undefined;
+  conditionTypeOverlay: ExpressionTypeEnvironment;
+} {
+  const currentStepRoot = currentStep === undefined ? {} : {currentStep};
+  const typeOverlay = previous.shouldBuild
+    ? buildTypedRootsEnvironment({
+        steps: previous.overlays,
+        ...currentStepRoot,
+        ...(params.upstreamJobs.length === 0 ? {} : {jobs: params.upstreamJobs}),
+      })
+    : undefined;
+  const conditionTypeOverlay = buildTypedRootsEnvironment({
+    steps: previous.overlays,
+    ...currentStepRoot,
+    jobs: params.directNeedJobs,
+    needs: params.directNeedJobs,
+  });
+  return {typeOverlay, conditionTypeOverlay};
+}
+
+function normalizeStepWorkingDirectory(
+  params: NormalizeStepParams,
+  typeOverlay: ExpressionTypeEnvironment | undefined,
+): WorkflowFieldTemplate | undefined {
+  if (params.step.working_directory === undefined) return undefined;
+  return parseInterpolationField({
+    field: 'step.working_directory',
+    source: params.step.working_directory,
+    path: ['jobs', params.sourceName, 'steps', params.index, 'working_directory'],
+    issues: params.issues,
+    fillSite: params.fillSite,
+    allowedJobReferences: params.allowedJobReferences,
+    typeOverlay,
+  });
+}
+
+function normalizeConcreteStep(params: {
+  normalization: NormalizeStepParams;
+  stepId: string;
+  stepKey: string | undefined;
+  stepBase: WorkflowModelStepBaseFields;
+  outputs: ReturnType<typeof normalizeStepOutputs>;
+  condition: ReturnType<typeof normalizeIfCondition>;
+  gate: ReturnType<typeof normalizeStepGate>;
+  toolStepResult: ReturnType<typeof normalizeToolStep> | undefined;
+  name: WorkflowFieldTemplate | undefined;
+  workingDirectory: WorkflowFieldTemplate | undefined;
+  typeOverlay: ExpressionTypeEnvironment | undefined;
+}): WorkflowModelStep {
+  const source = params.normalization;
+  if (params.toolStepResult !== undefined) {
+    if (params.stepKey !== undefined) {
+      source.toolOverlayByKey.set(params.stepKey, params.toolStepResult.overlay);
+    }
+    return {
+      ...params.toolStepResult.step,
+      ...(params.condition === undefined ? {} : {if: params.condition}),
+      ...(params.gate === undefined ? {} : {gate: params.gate}),
+    };
+  }
+  const stepBaseWithOutputs = {
+    ...params.stepBase,
+    ...(params.outputs === undefined ? {} : {outputs: params.outputs}),
+    ...(params.condition === undefined ? {} : {if: params.condition}),
+    ...(params.gate === undefined ? {} : {gate: params.gate}),
+  };
+  const shared = {
+    step: source.step,
+    stepBase: stepBaseWithOutputs,
+    sourceName: source.sourceName,
+    stepIndex: source.index,
+    name: params.name,
+    workingDirectory: params.workingDirectory,
+    issues: source.issues,
+    fillSite: source.fillSite,
+    allowedJobReferences: source.allowedJobReferences,
+    typeOverlay: params.typeOverlay,
+  };
+  if (source.step.run !== undefined) {
+    return normalizeRunStep({
+      ...shared,
+      workflowEnvKeys: source.workflowEnvKeys,
+      jobEnvKeys: source.jobEnvKeys,
+    });
+  }
+  if (source.step.prompt !== undefined)
+    return normalizeAgentStep({...shared, context: source.context});
+  if (source.step.checkout !== undefined) return normalizeCheckoutStep(shared);
+  throw new Error(
+    `Workflow step "${params.stepId}" is neither a run, agent, tool, nor checkout step`,
+  );
+}
+
 function normalizeStep(params: {
   step: WorkflowDocumentStep;
   index: number;
@@ -510,39 +714,12 @@ function normalizeStep(params: {
     stepKey === undefined
       ? `${params.jobId}-step-${params.index + 1}`
       : `${params.jobId}-${stableId(stepKey)}`;
-  const existingIndex = params.usedStepIds.get(stepId);
-
-  if (existingIndex !== undefined) {
-    params.issues.push(
-      issue({
-        code: 'duplicate-step-id',
-        message: `Steps ${existingIndex} and ${params.index} in job "${params.sourceName}" resolve to the same stable id "${stepId}".`,
-        path: ['jobs', params.sourceName, 'steps', params.index],
-        details: {id: stepId, indexes: [existingIndex, params.index]},
-      }),
-    );
-  } else {
-    params.usedStepIds.set(stepId, params.index);
-  }
-
-  const shouldBuildTypeOverlay =
-    params.typeOverlay !== undefined ||
-    params.upstreamJobs.length > 0 ||
-    params.toolOverlayByKey.size > 0;
+  registerStepId(params, stepId);
   // Compute the previous-steps overlay list once and reuse it in every typed
   // environment for this step; the environments differ only in the extra
   // roots (current step, upstream jobs, direct needs).
-  const previousStepsTypeOverlays = previousStepOverlays(
-    params.allSteps,
-    params.index,
-    params.toolOverlayByKey,
-  );
-  const previousStepsOverlay = !shouldBuildTypeOverlay
-    ? undefined
-    : buildTypedRootsEnvironment({
-        steps: previousStepsTypeOverlays,
-        ...(params.upstreamJobs.length === 0 ? {} : {jobs: params.upstreamJobs}),
-      });
+  const previousContext = previousStepTypeContext(params);
+  const previousStepsOverlay = previousContext.environment;
   const sourceLocation = params.stepSourceLocations?.get(params.sourceName)?.get(params.index);
   const stepBase = {
     id: stepId,
@@ -579,28 +756,20 @@ function normalizeStep(params: {
           issues: params.issues,
         })
       : undefined;
-  const currentStepOverlay =
-    stepKey === undefined
-      ? undefined
-      : toolStepResult !== undefined
-        ? toolStepResult.overlay
-        : ({
-            key: stepKey,
-            ...(outputs === undefined ? {} : {outputs}),
-          } satisfies WorkflowStepTypeOverlay);
-  const typeOverlay = !shouldBuildTypeOverlay
-    ? undefined
-    : buildTypedRootsEnvironment({
-        steps: previousStepsTypeOverlays,
-        ...(currentStepOverlay === undefined ? {} : {currentStep: currentStepOverlay}),
-        ...(params.upstreamJobs.length === 0 ? {} : {jobs: params.upstreamJobs}),
-      });
-  const conditionTypeOverlay = buildTypedRootsEnvironment({
-    steps: previousStepsTypeOverlays,
-    ...(currentStepOverlay === undefined ? {} : {currentStep: currentStepOverlay}),
-    jobs: params.directNeedJobs,
-    needs: params.directNeedJobs,
-  });
+  let currentStepOverlay: WorkflowStepTypeOverlay | undefined;
+  if (stepKey !== undefined) {
+    currentStepOverlay =
+      toolStepResult?.overlay ??
+      ({
+        key: stepKey,
+        ...(outputs === undefined ? {} : {outputs}),
+      } satisfies WorkflowStepTypeOverlay);
+  }
+  const {typeOverlay, conditionTypeOverlay} = currentStepTypeContext(
+    params,
+    previousContext,
+    currentStepOverlay,
+  );
 
   const condition = normalizeIfCondition({
     field: 'step.if',
@@ -631,83 +800,19 @@ function normalizeStep(params: {
     toolStepResult === undefined
       ? normalizeStepName({...params, typeOverlay})
       : (toolStepResult.step.templates?.name ?? undefined);
-  const workingDirectory =
-    params.step.working_directory === undefined
-      ? undefined
-      : parseInterpolationField({
-          field: 'step.working_directory',
-          source: params.step.working_directory,
-          path: ['jobs', params.sourceName, 'steps', params.index, 'working_directory'],
-          issues: params.issues,
-          fillSite: params.fillSite,
-          allowedJobReferences: params.allowedJobReferences,
-          typeOverlay,
-        });
-  const stepBaseWithOutputs = {
-    ...stepBase,
-    ...(outputs === undefined ? {} : {outputs}),
-    ...(condition === undefined ? {} : {if: condition}),
-    ...(gate === undefined ? {} : {gate}),
-  };
-
-  if (toolStepResult !== undefined) {
-    if (stepKey !== undefined) params.toolOverlayByKey.set(stepKey, toolStepResult.overlay);
-    return {
-      ...toolStepResult.step,
-      ...(condition === undefined ? {} : {if: condition}),
-      ...(gate === undefined ? {} : {gate}),
-    };
-  }
-
-  if (params.step.run !== undefined) {
-    return normalizeRunStep({
-      step: params.step,
-      stepBase: stepBaseWithOutputs,
-      sourceName: params.sourceName,
-      stepIndex: params.index,
-      workflowEnvKeys: params.workflowEnvKeys,
-      jobEnvKeys: params.jobEnvKeys,
-      name,
-      workingDirectory,
-      issues: params.issues,
-      fillSite: params.fillSite,
-      allowedJobReferences: params.allowedJobReferences,
-      typeOverlay,
-    });
-  }
-
-  if (params.step.prompt !== undefined) {
-    return normalizeAgentStep({
-      step: params.step,
-      stepBase: stepBaseWithOutputs,
-      sourceName: params.sourceName,
-      stepIndex: params.index,
-      name,
-      workingDirectory,
-      issues: params.issues,
-      fillSite: params.fillSite,
-      allowedJobReferences: params.allowedJobReferences,
-      typeOverlay,
-      context: params.context,
-    });
-  }
-
-  if (params.step.checkout !== undefined) {
-    return normalizeCheckoutStep({
-      step: params.step,
-      stepBase: stepBaseWithOutputs,
-      name,
-      sourceName: params.sourceName,
-      stepIndex: params.index,
-      issues: params.issues,
-      fillSite: params.fillSite,
-      allowedJobReferences: params.allowedJobReferences,
-      typeOverlay,
-    });
-  }
-
-  // Keep the model-step union honest if callers bypass the document parser.
-  throw new Error(`Workflow step "${stepId}" is neither a run, agent, tool, nor checkout step`);
+  return normalizeConcreteStep({
+    normalization: params,
+    stepId,
+    stepKey,
+    stepBase,
+    outputs,
+    condition,
+    gate,
+    toolStepResult,
+    name,
+    workingDirectory: normalizeStepWorkingDirectory(params, typeOverlay),
+    typeOverlay,
+  });
 }
 
 function normalizeStepName(params: {
@@ -1126,6 +1231,175 @@ const RUN_GLOBAL_SESSION_KEY_CONTEXT_ROOTS = new Set<string>([
   'secrets',
 ]);
 
+function collectSessionSharingSteps(
+  document: WorkflowDocument,
+  defaultHarnessId: string,
+): SessionSharingStep[] {
+  const steps: SessionSharingStep[] = [];
+  for (const [jobName, job] of Object.entries(document.jobs)) {
+    job.steps.forEach((step, stepIndex) => {
+      if (step.session === undefined) return;
+      steps.push({
+        jobName,
+        stepIndex,
+        stepKey: step.key,
+        keySource: typeof step.session === 'string' ? step.session : step.session.key,
+        mode: typeof step.session === 'string' ? 'resume' : (step.session.mode ?? 'resume'),
+        harness: step.harness ?? defaultHarnessId,
+      });
+    });
+  }
+  return steps;
+}
+
+function sessionFieldIssueStepKeys(issues: readonly WorkflowModelValidationIssue[]): Set<string> {
+  const keys = new Set<string>();
+  for (const entry of issues) {
+    const path = entry.path;
+    if (path.length >= 5 && path[0] === 'jobs' && path[2] === 'steps' && path[4] === 'session') {
+      keys.add(`${path[1]}\u0000${path[3]}`);
+    }
+  }
+  return keys;
+}
+
+function isRunGlobalSessionKey(keySource: string, cache: Map<string, boolean>): boolean {
+  const cached = cache.get(keySource);
+  if (cached !== undefined) return cached;
+  const runGlobalOnly = referencesRunGlobalOnlySessionKey(keySource);
+  cache.set(keySource, runGlobalOnly);
+  return runGlobalOnly;
+}
+
+function groupSessionSharingSteps(
+  steps: readonly SessionSharingStep[],
+  invalidSteps: ReadonlySet<string>,
+): Map<string, SessionSharingStep[]> {
+  const groups = new Map<string, SessionSharingStep[]>();
+  const runGlobalOnlyByKeySource = new Map<string, boolean>();
+  for (const step of steps) {
+    if (invalidSteps.has(sessionStepPathKey(step))) continue;
+    if (!isRunGlobalSessionKey(step.keySource, runGlobalOnlyByKeySource)) continue;
+    const group = groups.get(step.keySource) ?? [];
+    if (group.length === 0) groups.set(step.keySource, group);
+    group.push(step);
+  }
+  return groups;
+}
+
+interface SessionSharingValidationState {
+  ancestorsByJobName: Map<string, ReadonlySet<string>>;
+  parallelResumeReportedKeys: Set<string>;
+  harnessMismatchReportedKeys: Set<string>;
+  evaluatedPairs: number;
+}
+
+function reportParallelResumeConflict(
+  document: WorkflowDocument,
+  keySource: string,
+  prior: SessionSharingStep,
+  later: SessionSharingStep,
+  issues: WorkflowModelValidationIssue[],
+  state: SessionSharingValidationState,
+): void {
+  if (prior.jobName === later.jobName || prior.mode !== 'resume' || later.mode !== 'resume') return;
+  if (state.parallelResumeReportedKeys.has(keySource)) return;
+  const priorAncestors = transitiveNeedsAncestors(
+    document,
+    prior.jobName,
+    state.ancestorsByJobName,
+  );
+  const laterAncestors = transitiveNeedsAncestors(
+    document,
+    later.jobName,
+    state.ancestorsByJobName,
+  );
+  if (priorAncestors.has(later.jobName) || laterAncestors.has(prior.jobName)) return;
+  state.parallelResumeReportedKeys.add(keySource);
+  issues.push(
+    issue({
+      code: 'agent-session-parallel-resume',
+      message: `Agent steps ${sessionSharingStepLabel(prior)} (job "${prior.jobName}") and ${sessionSharingStepLabel(later)} (job "${later.jobName}") both resume session key "${keySource}", but their jobs have no transitive "needs" ancestry, so they can run in parallel and would conflict on the session. Add a "needs" edge between the jobs, fork the session on one step, or use distinct session keys.`,
+      path: ['jobs', later.jobName, 'steps', later.stepIndex, 'session'],
+      details: {
+        key: keySource,
+        jobs: [prior.jobName, later.jobName],
+        stepIndexes: [prior.stepIndex, later.stepIndex],
+      },
+    }),
+  );
+}
+
+function reportHarnessMismatch(
+  keySource: string,
+  prior: SessionSharingStep,
+  later: SessionSharingStep,
+  issues: WorkflowModelValidationIssue[],
+  state: SessionSharingValidationState,
+): void {
+  if (prior.harness === later.harness || state.harnessMismatchReportedKeys.has(keySource)) return;
+  state.harnessMismatchReportedKeys.add(keySource);
+  issues.push(
+    issue({
+      code: 'agent-session-harness-mismatch',
+      message: `Agent steps ${sessionSharingStepLabel(prior)} (job "${prior.jobName}") and ${sessionSharingStepLabel(later)} (job "${later.jobName}") share session key "${keySource}" but resolve to different harnesses: "${prior.harness}" and "${later.harness}". A session is pinned to the harness that created it. Ensure every step that shares the session key resolves to the same harness.`,
+      path: ['jobs', later.jobName, 'steps', later.stepIndex, 'session'],
+      details: {
+        key: keySource,
+        jobs: [prior.jobName, later.jobName],
+        stepIndexes: [prior.stepIndex, later.stepIndex],
+        harnesses: [prior.harness, later.harness],
+      },
+    }),
+  );
+}
+
+function evaluatePriorSessionPairs(
+  document: WorkflowDocument,
+  keySource: string,
+  group: readonly SessionSharingStep[],
+  index: number,
+  issues: WorkflowModelValidationIssue[],
+  state: SessionSharingValidationState,
+): boolean {
+  const later = group[index];
+  if (later === undefined) return true;
+  for (let priorIndex = 0; priorIndex < index; priorIndex += 1) {
+    if (state.evaluatedPairs >= MAX_SESSION_SHARING_PAIR_EVALUATIONS) return false;
+    state.evaluatedPairs += 1;
+    const prior = group[priorIndex];
+    if (prior === undefined) continue;
+    reportParallelResumeConflict(document, keySource, prior, later, issues, state);
+    reportHarnessMismatch(keySource, prior, later, issues, state);
+  }
+  return true;
+}
+
+function validateSessionSharingGroups(
+  document: WorkflowDocument,
+  groups: ReadonlyMap<string, readonly SessionSharingStep[]>,
+  issues: WorkflowModelValidationIssue[],
+): void {
+  const state: SessionSharingValidationState = {
+    ancestorsByJobName: new Map(),
+    parallelResumeReportedKeys: new Set(),
+    harnessMismatchReportedKeys: new Set(),
+    evaluatedPairs: 0,
+  };
+  for (const [keySource, sharingSteps] of groups) {
+    const group = selectSessionSharingWindow(sharingSteps);
+    for (let index = 1; index < group.length; index += 1) {
+      if (
+        state.parallelResumeReportedKeys.has(keySource) &&
+        state.harnessMismatchReportedKeys.has(keySource)
+      ) {
+        break;
+      }
+      if (!evaluatePriorSessionPairs(document, keySource, group, index, issues, state)) return;
+    }
+  }
+}
+
 // Cross-job authoring checks for shared agent sessions: two resume-mode steps
 // with statically identical session key templates from jobs without a
 // transitive needs ancestry would claim the same session in parallel, and
@@ -1150,44 +1424,13 @@ function validateAgentSessionSharing(
   issues: WorkflowModelValidationIssue[],
   defaultHarnessId: string,
 ): void {
-  const steps: SessionSharingStep[] = [];
-  for (const [jobName, job] of Object.entries(document.jobs)) {
-    job.steps.forEach((step, stepIndex) => {
-      if (step.session === undefined) return;
-      steps.push({
-        jobName,
-        stepIndex,
-        stepKey: step.key,
-        keySource: typeof step.session === 'string' ? step.session : step.session.key,
-        mode: typeof step.session === 'string' ? 'resume' : (step.session.mode ?? 'resume'),
-        harness: step.harness ?? defaultHarnessId,
-      });
-    });
-  }
+  const steps = collectSessionSharingSteps(document, defaultHarnessId);
 
   // Steps whose session field already produced an issue in the per-step pass
   // can never name a session; stacking sharing issues on them would double-
   // report a broken key. This mirrors the per-step suppression of
   // invalid-agent-session-key when any other session issue was raised.
-  const sessionFieldIssueSteps = new Set<string>();
-  for (const entry of issues) {
-    const path = entry.path;
-    if (path.length >= 5 && path[0] === 'jobs' && path[2] === 'steps' && path[4] === 'session') {
-      sessionFieldIssueSteps.add(`${path[1]}\u0000${path[3]}`);
-    }
-  }
-
-  // referencesRunGlobalOnlySessionKey is a pure function of the template text;
-  // memoize it per keySource so a key shared by many steps is parsed once
-  // instead of once per pair.
-  const runGlobalOnlyByKeySource = new Map<string, boolean>();
-  const isRunGlobalOnlyKeySource = (keySource: string): boolean => {
-    const cached = runGlobalOnlyByKeySource.get(keySource);
-    if (cached !== undefined) return cached;
-    const runGlobalOnly = referencesRunGlobalOnlySessionKey(keySource);
-    runGlobalOnlyByKeySource.set(keySource, runGlobalOnly);
-    return runGlobalOnly;
-  };
+  const sessionFieldIssueSteps = sessionFieldIssueStepKeys(issues);
 
   // Group eligible steps by keySource so pairs are only ever evaluated inside
   // one key group: the pair budget then counts relevant work only and cannot
@@ -1199,96 +1442,8 @@ function validateAgentSessionSharing(
   // job -- or a fork step hiding its job's resume step -- cannot hide another
   // job's sharing step behind the window. Keys that reference per-job context
   // resolve per job and stay out.
-  const stepsByKeySource = new Map<string, SessionSharingStep[]>();
-  for (const step of steps) {
-    if (sessionFieldIssueSteps.has(sessionStepPathKey(step))) continue;
-    if (!isRunGlobalOnlyKeySource(step.keySource)) continue;
-    let group = stepsByKeySource.get(step.keySource);
-    if (group === undefined) {
-      group = [];
-      stepsByKeySource.set(step.keySource, group);
-    }
-    group.push(step);
-  }
-
-  const ancestorsByJobName = new Map<string, ReadonlySet<string>>();
-  const parallelResumeReportedKeys = new Set<string>();
-  const harnessMismatchReportedKeys = new Set<string>();
-  let evaluatedPairs = 0;
-
-  for (const [keySource, sharingSteps] of stepsByKeySource) {
-    const group = selectSessionSharingWindow(sharingSteps);
-    for (let index = 1; index < group.length; index += 1) {
-      // At most one issue per key per code; nothing left to report for keys
-      // that already produced both.
-      if (parallelResumeReportedKeys.has(keySource) && harnessMismatchReportedKeys.has(keySource)) {
-        break;
-      }
-      const later = group[index];
-      if (later === undefined) continue;
-
-      for (let priorIndex = 0; priorIndex < index; priorIndex += 1) {
-        if (evaluatedPairs >= MAX_SESSION_SHARING_PAIR_EVALUATIONS) return;
-        evaluatedPairs += 1;
-
-        const prior = group[priorIndex];
-        if (prior === undefined) continue;
-
-        // Serial steps within one job never claim concurrently, so the parallel
-        // resume check only spans jobs. Harness agreement is checked for every
-        // sharing pair, including same-job pairs, because a session is pinned
-        // to the harness that created it.
-        if (prior.jobName !== later.jobName && prior.mode === 'resume' && later.mode === 'resume') {
-          const priorAncestors = transitiveNeedsAncestors(
-            document,
-            prior.jobName,
-            ancestorsByJobName,
-          );
-          const laterAncestors = transitiveNeedsAncestors(
-            document,
-            later.jobName,
-            ancestorsByJobName,
-          );
-          if (
-            !priorAncestors.has(later.jobName) &&
-            !laterAncestors.has(prior.jobName) &&
-            !parallelResumeReportedKeys.has(keySource)
-          ) {
-            parallelResumeReportedKeys.add(keySource);
-            issues.push(
-              issue({
-                code: 'agent-session-parallel-resume',
-                message: `Agent steps ${sessionSharingStepLabel(prior)} (job "${prior.jobName}") and ${sessionSharingStepLabel(later)} (job "${later.jobName}") both resume session key "${keySource}", but their jobs have no transitive "needs" ancestry, so they can run in parallel and would conflict on the session. Add a "needs" edge between the jobs, fork the session on one step, or use distinct session keys.`,
-                path: ['jobs', later.jobName, 'steps', later.stepIndex, 'session'],
-                details: {
-                  key: keySource,
-                  jobs: [prior.jobName, later.jobName],
-                  stepIndexes: [prior.stepIndex, later.stepIndex],
-                },
-              }),
-            );
-          }
-        }
-
-        if (prior.harness !== later.harness && !harnessMismatchReportedKeys.has(keySource)) {
-          harnessMismatchReportedKeys.add(keySource);
-          issues.push(
-            issue({
-              code: 'agent-session-harness-mismatch',
-              message: `Agent steps ${sessionSharingStepLabel(prior)} (job "${prior.jobName}") and ${sessionSharingStepLabel(later)} (job "${later.jobName}") share session key "${keySource}" but resolve to different harnesses: "${prior.harness}" and "${later.harness}". A session is pinned to the harness that created it. Ensure every step that shares the session key resolves to the same harness.`,
-              path: ['jobs', later.jobName, 'steps', later.stepIndex, 'session'],
-              details: {
-                key: keySource,
-                jobs: [prior.jobName, later.jobName],
-                stepIndexes: [prior.stepIndex, later.stepIndex],
-                harnesses: [prior.harness, later.harness],
-              },
-            }),
-          );
-        }
-      }
-    }
-  }
+  const stepsByKeySource = groupSessionSharingSteps(steps, sessionFieldIssueSteps);
+  validateSessionSharingGroups(document, stepsByKeySource, issues);
 }
 
 function sessionStepPathKey(step: SessionSharingStep): string {
@@ -1405,52 +1560,66 @@ function validateAgentStep(params: {
       ? undefined
       : params.agentValidationCatalog.providers.find((entry) => entry.id === providerId);
 
-  if (params.validateLiteralProvider && providerId !== undefined) {
-    if (provider === undefined) {
-      if (harness === undefined || harness === 'pi') return;
-      params.issues.push(
-        issue({
-          code: 'invalid-provider',
-          message: `Provider "${providerId}" is not supported.`,
-          path: ['jobs', params.sourceName, 'steps', params.stepIndex, 'provider'],
-          details: {provider: providerId},
-        }),
-      );
-      return;
-    }
+  if (!validateAgentProvider(params, providerId, harness, provider)) return;
+  validateAgentModel(params, providerId, harness, provider);
+}
 
-    if (provider.support_status !== 'supported') {
-      params.issues.push(
-        issue({
-          code: 'invalid-provider',
-          message: `Provider "${providerId}" is not supported.`,
-          path: ['jobs', params.sourceName, 'steps', params.stepIndex, 'provider'],
-          details: {provider: providerId},
-        }),
-      );
-      return;
-    }
+type ValidateAgentStepParams = Parameters<typeof validateAgentStep>[0];
+type AgentCatalogProvider = AgentValidationCatalogV2['providers'][number];
 
-    const descriptor = params.agentValidationCatalog.harnesses.find(
-      (entry) => entry.id === harness,
+function validateAgentProvider(
+  params: ValidateAgentStepParams,
+  providerId: string | undefined,
+  harness: string | undefined,
+  provider: AgentCatalogProvider | undefined,
+): boolean {
+  if (!params.validateLiteralProvider || providerId === undefined) return true;
+  if (provider === undefined) {
+    if (harness === undefined || harness === 'pi') return false;
+    params.issues.push(
+      issue({
+        code: 'invalid-provider',
+        message: `Provider "${providerId}" is not supported.`,
+        path: ['jobs', params.sourceName, 'steps', params.stepIndex, 'provider'],
+        details: {provider: providerId},
+      }),
     );
-    if (!descriptor?.supported_provider_ids.includes(providerId)) {
-      params.issues.push(
-        issue({
-          code: 'harness-provider-incompatible',
-          message: `Harness "${harness}" does not support provider: ${providerId}. Supported providers: ${descriptor?.supported_provider_ids.join(', ') ?? ''}.`,
-          path: ['jobs', params.sourceName, 'steps', params.stepIndex, 'provider'],
-          details: {
-            harness,
-            provider: providerId,
-            supportedProviders: descriptor?.supported_provider_ids ?? [],
-          },
-        }),
-      );
-      return;
-    }
+    return false;
   }
+  if (provider.support_status !== 'supported') {
+    params.issues.push(
+      issue({
+        code: 'invalid-provider',
+        message: `Provider "${providerId}" is not supported.`,
+        path: ['jobs', params.sourceName, 'steps', params.stepIndex, 'provider'],
+        details: {provider: providerId},
+      }),
+    );
+    return false;
+  }
+  const descriptor = params.agentValidationCatalog.harnesses.find((entry) => entry.id === harness);
+  if (descriptor?.supported_provider_ids.includes(providerId)) return true;
+  params.issues.push(
+    issue({
+      code: 'harness-provider-incompatible',
+      message: `Harness "${harness}" does not support provider: ${providerId}. Supported providers: ${descriptor?.supported_provider_ids.join(', ') ?? ''}.`,
+      path: ['jobs', params.sourceName, 'steps', params.stepIndex, 'provider'],
+      details: {
+        harness,
+        provider: providerId,
+        supportedProviders: descriptor?.supported_provider_ids ?? [],
+      },
+    }),
+  );
+  return false;
+}
 
+function validateAgentModel(
+  params: ValidateAgentStepParams,
+  providerId: string | undefined,
+  harness: string | undefined,
+  provider: AgentCatalogProvider | undefined,
+): void {
   if (!params.validateLiteralModel || providerId === undefined) return;
   if (provider === undefined || provider.support_status !== 'supported') return;
 

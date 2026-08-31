@@ -96,14 +96,10 @@ function resolveBrowserStorageKey<T>(
   if (definition.principalScope === 'global') return definition.key;
 
   const resolvedScope = typeof scope === 'function' ? scope() : scope;
-  const scopeId =
-    definition.principalScope === 'principal'
-      ? resolvedScope && 'principalId' in resolvedScope
-        ? resolvedScope.principalId
-        : undefined
-      : resolvedScope && 'workspaceId' in resolvedScope
-        ? resolvedScope.workspaceId
-        : undefined;
+  let scopeId: string | undefined;
+  if (definition.principalScope === 'principal') {
+    if (resolvedScope && 'principalId' in resolvedScope) scopeId = resolvedScope.principalId;
+  } else if (resolvedScope && 'workspaceId' in resolvedScope) scopeId = resolvedScope.workspaceId;
 
   if (!isValidBrowserStorageScopeId(scopeId)) return undefined;
   return `${definition.key}.${definition.principalScope}.${encodeURIComponent(scopeId)}`;

@@ -75,16 +75,7 @@ export async function assignRunnerInstancesTx(
 
   // The assignment outlives its short reservation row. A retry after maintenance
   // cleanup is complete when every owned runner already carries the committed assignment.
-  if (
-    runnerInstanceIds.length > 0 &&
-    runnerRows.length === runnerInstanceIds.length &&
-    runnerRows.every(
-      (runner) =>
-        runner.reservationId === params.reservationId &&
-        runner.assignedAt !== null &&
-        runner.workspaceId !== null,
-    )
-  ) {
+  if (assignmentAlreadyCommitted(runnerInstanceIds, runnerRows, params.reservationId)) {
     await tx
       .update(providerRunners)
       .set({intendedReservationId: null, updatedAt: sql`now()`})
@@ -112,10 +103,8 @@ export async function assignRunnerInstancesTx(
     )
     .limit(1)
     .for('update');
-  if (!reservation) throw new ReservationNotFoundError(params.reservationId);
-  if (reservation.expiresAt <= new Date()) throw new ReservationExpiredError(params.reservationId);
-  if (runnerRows.length !== runnerInstanceIds.length)
-    throw new RunnerInstanceNotAssignableError(runnerInstanceIds[0] ?? '', 'runner-not-found');
+  assertAssignmentReservation(reservation, params.reservationId);
+  assertAllAssignmentRunnersFound(runnerRows.length, runnerInstanceIds);
 
   const activeControlSessions = await tx
     .select({
@@ -144,9 +133,7 @@ export async function assignRunnerInstancesTx(
     controlSessionCreatedAt: controlSessionCreatedAtByRunner.get(runner.id) ?? null,
   }));
 
-  const alreadyAssigned = runners.filter((runner) => runner.reservationId !== null);
-  if (alreadyAssigned.some((runner) => runner.reservationId !== reservation.id))
-    throw new RunnerInstanceAlreadyAssignedError(alreadyAssigned[0]?.id ?? '');
+  assertNoConflictingRunnerAssignment(runners, reservation.id);
   const newRunners = runners.filter(
     (runner) =>
       runner.reservationId === null ||
@@ -175,18 +162,8 @@ export async function assignRunnerInstancesTx(
         ),
       ),
     );
-  if ((assignedCount[0]?.count ?? 0) + newRunners.length > reservation.count)
-    throw new RunnerInstanceNotAssignableError(newRunners[0]?.id ?? '', 'capacity-exhausted');
-  for (const runner of newRunners) {
-    if (runner.state !== 'running')
-      throw new RunnerInstanceNotAssignableError(runner.id, 'runner-not-running');
-    if (!runner.providerRunnerId)
-      throw new RunnerInstanceNotAssignableError(runner.id, 'provider-identity-missing');
-    if (!runner.controlSessionId)
-      throw new RunnerInstanceNotAssignableError(runner.id, 'control-session-not-active');
-    if (!reservation.requiredLabels.every((label) => runner.labels.includes(label)))
-      throw new RunnerInstanceNotAssignableError(runner.id, 'labels-mismatch');
-  }
+  assertRunnerAssignmentCapacity(assignedCount[0]?.count ?? 0, newRunners, reservation.count);
+  assertRunnersAssignable(newRunners, reservation.requiredLabels);
   if (newRunners.length > 0) {
     const assignedRows = await tx
       .update(providerRunners)
@@ -229,6 +206,86 @@ export async function assignRunnerInstancesTx(
   };
 }
 
+type AssignmentRunnerRow = Pick<
+  typeof providerRunners.$inferSelect,
+  'id' | 'reservationId' | 'assignedAt' | 'workspaceId' | 'state' | 'providerRunnerId' | 'labels'
+> & {controlSessionId?: string | null};
+
+function assignmentAlreadyCommitted(
+  runnerInstanceIds: readonly string[],
+  runnerRows: readonly AssignmentRunnerRow[],
+  reservationId: string,
+): boolean {
+  if (runnerInstanceIds.length === 0 || runnerRows.length !== runnerInstanceIds.length)
+    return false;
+  return runnerRows.every(
+    (runner) =>
+      runner.reservationId === reservationId &&
+      runner.assignedAt !== null &&
+      runner.workspaceId !== null,
+  );
+}
+
+function assertAssignmentReservation<T extends {expiresAt: Date}>(
+  reservation: T | undefined,
+  reservationId: string,
+): asserts reservation is T {
+  if (!reservation) throw new ReservationNotFoundError(reservationId);
+  if (reservation.expiresAt <= new Date()) throw new ReservationExpiredError(reservationId);
+}
+
+function assertAllAssignmentRunnersFound(
+  foundCount: number,
+  runnerInstanceIds: readonly string[],
+): void {
+  if (foundCount !== runnerInstanceIds.length) {
+    throw new RunnerInstanceNotAssignableError(runnerInstanceIds[0] ?? '', 'runner-not-found');
+  }
+}
+
+function assertNoConflictingRunnerAssignment(
+  runners: readonly AssignmentRunnerRow[],
+  reservationId: string,
+): void {
+  const assigned = runners.filter((runner) => runner.reservationId !== null);
+  const hasConflict = assigned.some((runner) => runner.reservationId !== reservationId);
+  if (hasConflict) throw new RunnerInstanceAlreadyAssignedError(assigned[0]?.id ?? '');
+}
+
+function assertRunnerAssignmentCapacity(
+  assignedCount: number,
+  newRunners: readonly AssignmentRunnerRow[],
+  reservationCount: number,
+): void {
+  if (assignedCount + newRunners.length <= reservationCount) return;
+  throw new RunnerInstanceNotAssignableError(newRunners[0]?.id ?? '', 'capacity-exhausted');
+}
+
+function assertRunnersAssignable(
+  runners: readonly AssignmentRunnerRow[],
+  requiredLabels: readonly string[],
+): void {
+  for (const runner of runners) assertRunnerAssignable(runner, requiredLabels);
+}
+
+function assertRunnerAssignable(
+  runner: AssignmentRunnerRow,
+  requiredLabels: readonly string[],
+): void {
+  if (runner.state !== 'running') {
+    throw new RunnerInstanceNotAssignableError(runner.id, 'runner-not-running');
+  }
+  if (!runner.providerRunnerId) {
+    throw new RunnerInstanceNotAssignableError(runner.id, 'provider-identity-missing');
+  }
+  if (!runner.controlSessionId) {
+    throw new RunnerInstanceNotAssignableError(runner.id, 'control-session-not-active');
+  }
+  if (!requiredLabels.every((label) => runner.labels.includes(label))) {
+    throw new RunnerInstanceNotAssignableError(runner.id, 'labels-mismatch');
+  }
+}
+
 export type RunnerReservationCapacityFailureReason =
   | 'reservation-not-found'
   | 'reservation-kind-mismatch'
@@ -251,14 +308,7 @@ export async function validateRunnerReservationCapacityTx(
   },
   options: {advisoryLocksHeld?: boolean} = {},
 ): Promise<RunnerReservationCapacityValidation> {
-  const requestedByReservation = new Map<string, number>();
-  for (const request of params.requests) {
-    if (request.count <= 0) continue;
-    requestedByReservation.set(
-      request.reservationId,
-      (requestedByReservation.get(request.reservationId) ?? 0) + request.count,
-    );
-  }
+  const requestedByReservation = requestedReservationCounts(params.requests);
   const reservationIds = [...requestedByReservation.keys()].sort();
   if (reservationIds.length === 0)
     return {acceptedByReservation: new Map(), unavailableByReservation: new Map()};
@@ -302,8 +352,6 @@ export async function validateRunnerReservationCapacityTx(
   const nonLaunchReservationIds = new Set(
     nonLaunchReservationRows.map((reservation) => reservation.id),
   );
-  const requestedReservationIds = new Set(reservationIds);
-  const usedRunnerIdsByReservation = new Map<string, Set<string>>();
   const usedRunnerRows = await tx
     .select({
       id: providerRunners.id,
@@ -327,56 +375,118 @@ export async function validateRunnerReservationCapacityTx(
         ),
       ),
     );
-  for (const runner of usedRunnerRows) {
-    if (runner.reservationId && requestedReservationIds.has(runner.reservationId)) {
-      const usedRunnerIds =
-        usedRunnerIdsByReservation.get(runner.reservationId) ?? new Set<string>();
-      usedRunnerIds.add(runner.id);
-      usedRunnerIdsByReservation.set(runner.reservationId, usedRunnerIds);
-    }
-    if (runner.intendedReservationId && requestedReservationIds.has(runner.intendedReservationId)) {
-      const usedRunnerIds =
-        usedRunnerIdsByReservation.get(runner.intendedReservationId) ?? new Set<string>();
-      usedRunnerIds.add(runner.id);
-      usedRunnerIdsByReservation.set(runner.intendedReservationId, usedRunnerIds);
-    }
-  }
+  const usedRunnerIdsByReservation = indexUsedRunnerReservations(
+    usedRunnerRows,
+    new Set(reservationIds),
+  );
+  return evaluateRunnerReservationCapacity(
+    reservationIds,
+    requestedByReservation,
+    reservationsById,
+    nonLaunchReservationIds,
+    usedRunnerIdsByReservation,
+  );
+}
 
-  const acceptedByReservation = new Map<string, number>();
-  const unavailableByReservation = new Map<
-    string,
-    {reason: RunnerReservationCapacityFailureReason; count: number}
-  >();
+function requestedReservationCounts(
+  requests: readonly {reservationId: string; count: number}[],
+): Map<string, number> {
+  const requested = new Map<string, number>();
+  for (const request of requests) {
+    if (request.count <= 0) continue;
+    requested.set(
+      request.reservationId,
+      (requested.get(request.reservationId) ?? 0) + request.count,
+    );
+  }
+  return requested;
+}
+
+function indexUsedRunnerReservations(
+  runners: readonly {
+    id: string;
+    reservationId: string | null;
+    intendedReservationId: string | null;
+  }[],
+  requestedReservationIds: ReadonlySet<string>,
+): Map<string, Set<string>> {
+  const used = new Map<string, Set<string>>();
+  for (const runner of runners) {
+    addUsedRunnerReservation(used, requestedReservationIds, runner.reservationId, runner.id);
+    addUsedRunnerReservation(
+      used,
+      requestedReservationIds,
+      runner.intendedReservationId,
+      runner.id,
+    );
+  }
+  return used;
+}
+
+function addUsedRunnerReservation(
+  used: Map<string, Set<string>>,
+  requestedReservationIds: ReadonlySet<string>,
+  reservationId: string | null,
+  runnerId: string,
+): void {
+  if (reservationId === null || !requestedReservationIds.has(reservationId)) return;
+  const runnerIds = used.get(reservationId) ?? new Set<string>();
+  runnerIds.add(runnerId);
+  used.set(reservationId, runnerIds);
+}
+
+function evaluateRunnerReservationCapacity(
+  reservationIds: readonly string[],
+  requestedByReservation: ReadonlyMap<string, number>,
+  reservationsById: ReadonlyMap<string, {count: number; isExpired: boolean}>,
+  nonLaunchReservationIds: ReadonlySet<string>,
+  usedRunnerIdsByReservation: ReadonlyMap<string, ReadonlySet<string>>,
+): RunnerReservationCapacityValidation {
+  const result: RunnerReservationCapacityValidation = {
+    acceptedByReservation: new Map(),
+    unavailableByReservation: new Map(),
+  };
   for (const reservationId of reservationIds) {
-    const requested = requestedByReservation.get(reservationId) ?? 0;
-    const reservation = reservationsById.get(reservationId);
-    if (!reservation) {
-      unavailableByReservation.set(reservationId, {
-        reason: nonLaunchReservationIds.has(reservationId)
-          ? 'reservation-kind-mismatch'
-          : 'reservation-not-found',
-        count: requested,
-      });
-      continue;
-    }
-    if (reservation.isExpired) {
-      unavailableByReservation.set(reservationId, {
-        reason: 'reservation-expired',
-        count: requested,
-      });
-      continue;
-    }
-
-    const used = usedRunnerIdsByReservation.get(reservationId)?.size ?? 0;
-    const accepted = Math.min(requested, Math.max(0, reservation.count - used));
-    acceptedByReservation.set(reservationId, accepted);
-    if (accepted < requested) {
-      unavailableByReservation.set(reservationId, {
-        reason: 'capacity-exhausted',
-        count: requested - accepted,
-      });
-    }
+    evaluateReservationCapacity(
+      reservationId,
+      requestedByReservation.get(reservationId) ?? 0,
+      reservationsById.get(reservationId),
+      nonLaunchReservationIds,
+      usedRunnerIdsByReservation.get(reservationId)?.size ?? 0,
+      result,
+    );
   }
+  return result;
+}
 
-  return {acceptedByReservation, unavailableByReservation};
+function evaluateReservationCapacity(
+  reservationId: string,
+  requested: number,
+  reservation: {count: number; isExpired: boolean} | undefined,
+  nonLaunchReservationIds: ReadonlySet<string>,
+  used: number,
+  result: RunnerReservationCapacityValidation,
+): void {
+  if (!reservation) {
+    const reason = nonLaunchReservationIds.has(reservationId)
+      ? 'reservation-kind-mismatch'
+      : 'reservation-not-found';
+    result.unavailableByReservation.set(reservationId, {reason, count: requested});
+    return;
+  }
+  if (reservation.isExpired) {
+    result.unavailableByReservation.set(reservationId, {
+      reason: 'reservation-expired',
+      count: requested,
+    });
+    return;
+  }
+  const accepted = Math.min(requested, Math.max(0, reservation.count - used));
+  result.acceptedByReservation.set(reservationId, accepted);
+  if (accepted < requested) {
+    result.unavailableByReservation.set(reservationId, {
+      reason: 'capacity-exhausted',
+      count: requested - accepted,
+    });
+  }
 }

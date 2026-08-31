@@ -28,12 +28,9 @@ export function EmptyState({
   className,
   ...props
 }: EmptyStateProps) {
-  const containerClasses =
-    variant === 'compact'
-      ? 'flex flex-col items-center justify-center gap-10'
-      : variant === 'panel'
-        ? 'w-full flex-1 flex-col gap-12'
-        : 'flex flex-col items-center justify-center gap-12 py-48';
+  let containerClasses = 'flex flex-col items-center justify-center gap-12 py-48';
+  if (variant === 'compact') containerClasses = 'flex flex-col items-center justify-center gap-10';
+  else if (variant === 'panel') containerClasses = 'w-full flex-1 flex-col gap-12';
 
   const iconContainerClasses =
     variant === 'compact'

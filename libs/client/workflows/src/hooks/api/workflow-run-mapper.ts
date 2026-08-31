@@ -324,25 +324,24 @@ function toStepGateResult(dto: StepGateResultDto): StepGateResult {
 }
 
 function toEvaluationTrace(trace: EvaluationTraceDto | null): EvaluationTraceEntry[] | null {
-  return (
-    trace?.map((entry) =>
-      'dropped' in entry
-        ? entry
-        : {
-            expression: entry.expression,
-            roots: entry.roots,
-            fillTarget: entry.fill_target,
-            evaluatedAt: entry.evaluated_at,
-            field: entry.field,
-            ...(entry.value === undefined ? {} : {value: entry.value}),
-            ...(entry.truncated === undefined ? {} : {truncated: entry.truncated}),
-            ...(entry.expr_truncated === undefined ? {} : {exprTruncated: entry.expr_truncated}),
-            ...(entry.reference === undefined ? {} : {reference: entry.reference}),
-            ...(entry.degraded === undefined ? {} : {degraded: entry.degraded}),
-            ...(entry.env_key === undefined ? {} : {envKey: entry.env_key}),
-          },
-    ) ?? null
-  );
+  return trace?.map(toEvaluationTraceEntry) ?? null;
+}
+
+function toEvaluationTraceEntry(entry: EvaluationTraceDto[number]): EvaluationTraceEntry {
+  if ('dropped' in entry) return entry;
+  return {
+    expression: entry.expression,
+    roots: entry.roots,
+    fillTarget: entry.fill_target,
+    evaluatedAt: entry.evaluated_at,
+    field: entry.field,
+    ...(entry.value === undefined ? {} : {value: entry.value}),
+    ...(entry.truncated === undefined ? {} : {truncated: entry.truncated}),
+    ...(entry.expr_truncated === undefined ? {} : {exprTruncated: entry.expr_truncated}),
+    ...(entry.reference === undefined ? {} : {reference: entry.reference}),
+    ...(entry.degraded === undefined ? {} : {degraded: entry.degraded}),
+    ...(entry.env_key === undefined ? {} : {envKey: entry.env_key}),
+  };
 }
 
 function toAgentStepConfig(dto: WorkflowRunStepDetailDto): Step['agentConfig'] {

@@ -23,63 +23,75 @@ export function evaluateArchitecturePolicy(
   const diagnostics: PolicyDiagnostic[] = [];
   const exceptions = Array.isArray(configuration?.exceptions) ? configuration.exceptions : [];
   const configurationErrors = validateRepositoryConfiguration(configuration);
-  for (const error of configurationErrors) {
-    const ruleId = configurationRuleId(error);
-    diagnostics.push(
-      diagnostic({
-        ruleId,
-        message: error,
-        expectedBoundary:
-          'A complete versioned repository configuration with explicit relationships',
-        guidanceLocation: configurationGuidanceLocation(ruleId),
-        facts: {configurationError: error},
-      }),
-    );
-  }
+  diagnostics.push(...configurationErrorDiagnostics(configurationErrors));
   const factErrors = validateArchitectureFacts(facts);
-  for (const error of factErrors) {
-    diagnostics.push(
-      diagnostic({
-        ruleId: RULE_IDS.factReference,
-        message: error,
-        expectedBoundary: 'A versioned JSON-compatible architecture fact document',
-        guidanceLocation: guidanceLocations.facts,
-        facts: {factError: error},
-      }),
-    );
-  }
+  diagnostics.push(...factErrorDiagnostics(factErrors));
 
   const packageFacts = Array.isArray(facts?.packages) ? facts.packages : [];
   const packageMap = new Map(packageFacts.map((packageFact) => [packageFact.name, packageFact]));
   const validConfiguration = configurationErrors.length === 0;
   const validFacts = factErrors.length === 0;
 
-  if (
-    validConfiguration &&
-    validFacts &&
-    configuration !== null &&
-    configuration !== undefined &&
-    facts !== null &&
-    facts !== undefined
-  ) {
-    for (const packageFact of facts.packages)
-      evaluatePackageMetadata(packageFact, configuration, diagnostics);
-    evaluateLocalClassifications(facts.packages, configuration, diagnostics);
-
-    for (const edge of facts.importEdges)
-      evaluateImportEdge(edge, packageMap, configuration, diagnostics);
-    for (const edge of facts.manifestEdges)
-      evaluateManifestEdge(edge, packageMap, configuration, diagnostics);
-    for (const exportFact of facts.publicExports)
-      evaluateExport(exportFact, packageMap, diagnostics);
-    evaluateExportIntent(facts.publicExports, packageMap, configuration, diagnostics);
-    for (const compositionFact of facts.compositionFacts)
-      evaluateComposition(compositionFact, packageMap, configuration, diagnostics);
-
-    evaluateExceptions(exceptions, options, diagnostics);
+  if (validConfiguration && validFacts && configuration && facts) {
+    evaluateValidArchitecturePolicy(
+      facts,
+      configuration,
+      packageMap,
+      exceptions,
+      options,
+      diagnostics,
+    );
   }
 
   return applyExactExceptions(diagnostics, exceptions, options);
+}
+
+function configurationErrorDiagnostics(errors: readonly string[]): PolicyDiagnostic[] {
+  return errors.map((error) => {
+    const ruleId = configurationRuleId(error);
+    return diagnostic({
+      ruleId,
+      message: error,
+      expectedBoundary: 'A complete versioned repository configuration with explicit relationships',
+      guidanceLocation: configurationGuidanceLocation(ruleId),
+      facts: {configurationError: error},
+    });
+  });
+}
+
+function factErrorDiagnostics(errors: readonly string[]): PolicyDiagnostic[] {
+  return errors.map((error) =>
+    diagnostic({
+      ruleId: RULE_IDS.factReference,
+      message: error,
+      expectedBoundary: 'A versioned JSON-compatible architecture fact document',
+      guidanceLocation: guidanceLocations.facts,
+      facts: {factError: error},
+    }),
+  );
+}
+
+function evaluateValidArchitecturePolicy(
+  facts: ArchitectureFacts,
+  configuration: RepositoryConfiguration,
+  packageMap: ReadonlyMap<string, PackageFact>,
+  exceptions: readonly ExactException[],
+  options: PolicyEvaluationOptions,
+  diagnostics: PolicyDiagnostic[],
+): void {
+  for (const packageFact of facts.packages)
+    evaluatePackageMetadata(packageFact, configuration, diagnostics);
+  evaluateLocalClassifications(facts.packages, configuration, diagnostics);
+  for (const edge of facts.importEdges)
+    evaluateImportEdge(edge, packageMap, configuration, diagnostics);
+  for (const edge of facts.manifestEdges)
+    evaluateManifestEdge(edge, packageMap, configuration, diagnostics);
+  for (const exportFact of facts.publicExports) evaluateExport(exportFact, packageMap, diagnostics);
+  evaluateExportIntent(facts.publicExports, packageMap, configuration, diagnostics);
+  for (const compositionFact of facts.compositionFacts) {
+    evaluateComposition(compositionFact, packageMap, configuration, diagnostics);
+  }
+  evaluateExceptions(exceptions, options, diagnostics);
 }
 
 export const evaluatePolicy = evaluateArchitecturePolicy;
@@ -453,7 +465,7 @@ function evaluateComposition(
 }
 
 function evaluateExceptions(
-  exceptions: ExactException[],
+  exceptions: readonly ExactException[],
   options: PolicyEvaluationOptions,
   diagnostics: PolicyDiagnostic[],
 ): void {
@@ -477,7 +489,7 @@ function evaluateExceptions(
 
 function applyExactExceptions(
   diagnostics: PolicyDiagnostic[],
-  exceptions: ExactException[],
+  exceptions: readonly ExactException[],
   options: PolicyEvaluationOptions,
 ): PolicyDiagnostic[] {
   const now = resolveNow(options.now);

@@ -92,92 +92,18 @@ export function reduceHealth(state: HealthState, event: HealthEvent): HealthRedu
   let hasEverBeenReady = state.hasEverBeenReady;
   const logs: HealthLog[] = [];
 
-  if (event.type === 'facet_failed') {
-    active.set(event.facet, {
-      cause: event.cause,
-      impact: event.impact,
-      ...(event.failureCount !== undefined ? {failureCount: event.failureCount} : {}),
-    });
-    const fingerprint = activeFingerprint(active);
-    if (!incident) {
-      incident = {
-        fingerprint,
-        startedAt: event.at,
-        attempts: 1,
-        suppressed: 0,
-      };
-      logs.push({
-        level: 'error',
-        event: 'provisioner.degraded',
-        facet: event.facet,
-        cause: event.cause,
-        impact: event.impact,
-        attempts: incident.attempts,
-        suppressed: incident.suppressed,
-      });
-    } else {
-      const changed = incident.fingerprint !== fingerprint;
-      incident = {
-        ...incident,
-        fingerprint,
-        attempts: incident.attempts + 1,
-        suppressed: incident.suppressed + (changed ? 0 : 1),
-      };
-      if (changed) {
-        logs.push({
-          level: 'error',
-          event: 'provisioner.degraded',
-          facet: event.facet,
-          cause: event.cause,
-          changed: true,
-          impact: event.impact,
-          attempts: incident.attempts,
-          suppressed: incident.suppressed,
-        });
-      } else if (incident.suppressed > 0 && incident.suppressed % REMINDER_EVERY_SUPPRESSED === 0) {
-        logs.push({
-          level: 'warn',
-          event: 'provisioner.degraded_reminder',
-          facet: event.facet,
-          cause: event.cause,
-          impact: event.impact,
-          attempts: incident.attempts,
-          suppressed: incident.suppressed,
-        });
+  switch (event.type) {
+    case 'facet_failed':
+      incident = reduceFacetFailure(active, incident, event, logs);
+      break;
+    case 'facet_recovered':
+      incident = reduceFacetRecovery(active, incident, event, logs);
+      break;
+    case 'ready_confirmed':
+      if (!hasEverBeenReady && readinessAvailable(active)) {
+        hasEverBeenReady = true;
+        logs.push({level: 'info', event: 'provisioner.ready'});
       }
-    }
-  } else if (event.type === 'facet_recovered') {
-    if (active.has(event.facet)) {
-      active.delete(event.facet);
-      if (active.size === 0 && incident) {
-        logs.push({
-          level: 'info',
-          event: 'provisioner.recovered',
-          attempts: incident.attempts,
-          suppressed: incident.suppressed,
-          outageDurationMs: Math.max(0, event.at.getTime() - incident.startedAt.getTime()),
-        });
-        incident = undefined;
-      } else if (incident) {
-        const fingerprint = activeFingerprint(active);
-        const changed = incident.fingerprint !== fingerprint;
-        incident = {...incident, fingerprint};
-        if (changed) {
-          logs.push({
-            level: 'info',
-            event: 'provisioner.partially_recovered',
-            recoveredFacet: event.facet,
-            remainingFacetCount: active.size,
-            impact: currentImpact(active),
-            attempts: incident.attempts,
-            suppressed: incident.suppressed,
-          });
-        }
-      }
-    }
-  } else if (event.type === 'ready_confirmed' && !hasEverBeenReady && readinessAvailable(active)) {
-    hasEverBeenReady = true;
-    logs.push({level: 'info', event: 'provisioner.ready'});
   }
 
   const nextState: HealthState = {
@@ -186,6 +112,107 @@ export function reduceHealth(state: HealthState, event: HealthEvent): HealthRedu
     hasEverBeenReady,
   };
   return {state: nextState, derived: deriveHealth(nextState), logs};
+}
+
+function reduceFacetFailure(
+  active: Map<HealthFacet, HealthFailure>,
+  incident: HealthIncident | undefined,
+  event: Extract<HealthEvent, {type: 'facet_failed'}>,
+  logs: HealthLog[],
+): HealthIncident {
+  active.set(event.facet, {
+    cause: event.cause,
+    impact: event.impact,
+    ...(event.failureCount !== undefined ? {failureCount: event.failureCount} : {}),
+  });
+  const fingerprint = activeFingerprint(active);
+  if (!incident) {
+    const started = {
+      fingerprint,
+      startedAt: event.at,
+      attempts: 1,
+      suppressed: 0,
+    } satisfies HealthIncident;
+    logs.push({
+      level: 'error',
+      event: 'provisioner.degraded',
+      facet: event.facet,
+      cause: event.cause,
+      impact: event.impact,
+      attempts: started.attempts,
+      suppressed: started.suppressed,
+    });
+    return started;
+  }
+
+  const changed = incident.fingerprint !== fingerprint;
+  const updated = {
+    ...incident,
+    fingerprint,
+    attempts: incident.attempts + 1,
+    suppressed: incident.suppressed + (changed ? 0 : 1),
+  };
+  if (changed) {
+    logs.push({
+      level: 'error',
+      event: 'provisioner.degraded',
+      facet: event.facet,
+      cause: event.cause,
+      changed: true,
+      impact: event.impact,
+      attempts: updated.attempts,
+      suppressed: updated.suppressed,
+    });
+  } else if (updated.suppressed > 0 && updated.suppressed % REMINDER_EVERY_SUPPRESSED === 0) {
+    logs.push({
+      level: 'warn',
+      event: 'provisioner.degraded_reminder',
+      facet: event.facet,
+      cause: event.cause,
+      impact: event.impact,
+      attempts: updated.attempts,
+      suppressed: updated.suppressed,
+    });
+  }
+  return updated;
+}
+
+function reduceFacetRecovery(
+  active: Map<HealthFacet, HealthFailure>,
+  incident: HealthIncident | undefined,
+  event: Extract<HealthEvent, {type: 'facet_recovered'}>,
+  logs: HealthLog[],
+): HealthIncident | undefined {
+  if (!active.has(event.facet)) return incident;
+  active.delete(event.facet);
+  if (active.size === 0 && incident) {
+    logs.push({
+      level: 'info',
+      event: 'provisioner.recovered',
+      attempts: incident.attempts,
+      suppressed: incident.suppressed,
+      outageDurationMs: Math.max(0, event.at.getTime() - incident.startedAt.getTime()),
+    });
+    return undefined;
+  }
+  if (incident) {
+    const fingerprint = activeFingerprint(active);
+    const changed = incident.fingerprint !== fingerprint;
+    const updated = {...incident, fingerprint};
+    if (changed) {
+      logs.push({
+        level: 'info',
+        event: 'provisioner.partially_recovered',
+        recoveredFacet: event.facet,
+        remainingFacetCount: active.size,
+        impact: currentImpact(active),
+        attempts: updated.attempts,
+        suppressed: updated.suppressed,
+      });
+    }
+    return updated;
+  }
+  return incident;
 }
 
 export function deriveHealth(state: HealthState): HealthDerivedState {

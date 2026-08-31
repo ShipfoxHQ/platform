@@ -190,65 +190,99 @@ function fetchForScenario(scenario: Scenario): typeof fetch {
     const url = requestUrl(input);
     const method = init?.method ?? 'GET';
     if (scenario === 'loading') return new Promise<Response>(() => undefined);
-    if (url.pathname === '/integration-providers') {
-      if (scenario === 'providers-error') return Promise.resolve(errorResponse());
-      return Promise.resolve(
-        jsonResponse({providers: scenario === 'no-providers' ? [] : PROVIDERS}),
-      );
-    }
-    if (url.pathname.startsWith('/integration-connections/') && method === 'PATCH') {
-      return Promise.resolve(
-        jsonResponse({
-          ...connection(),
-          id: url.pathname.split('/').at(-1),
-          lifecycle_status: 'disabled',
-        }),
-      );
-    }
-    if (url.pathname.startsWith('/integration-connections/') && method === 'DELETE') {
-      return Promise.resolve(jsonResponse(undefined, {status: 204}));
-    }
-    if (url.pathname.startsWith('/integrations/webhook/connections/') && method === 'PATCH') {
-      return Promise.resolve(
-        jsonResponse({
-          id: url.pathname.split('/').at(-1),
+    return scenarioResponse(url, method, scenario);
+  };
+}
+
+function scenarioResponse(url: URL, method: string, scenario: Scenario): Promise<Response> {
+  if (url.pathname === '/integration-providers') {
+    return providersScenarioResponse(scenario);
+  }
+  const integrationMutation = integrationConnectionMutationResponse(url, method);
+  if (integrationMutation) return integrationMutation;
+  const webhookMutation = webhookConnectionMutationResponse(url, method);
+  if (webhookMutation) return webhookMutation;
+  if (url.pathname === '/integration-connections') {
+    return connectionsScenarioResponse(scenario);
+  }
+  if (url.pathname === '/integrations/webhook/connections') {
+    return webhookConnectionsResponse();
+  }
+  return Promise.resolve(jsonResponse({}, {status: 404}));
+}
+
+function integrationConnectionMutationResponse(
+  url: URL,
+  method: string,
+): Promise<Response> | undefined {
+  if (!url.pathname.startsWith('/integration-connections/')) return undefined;
+  if (method === 'PATCH') return integrationConnectionPatchResponse(url);
+  if (method === 'DELETE') return Promise.resolve(jsonResponse(undefined, {status: 204}));
+  return undefined;
+}
+
+function webhookConnectionMutationResponse(
+  url: URL,
+  method: string,
+): Promise<Response> | undefined {
+  if (!url.pathname.startsWith('/integrations/webhook/connections/')) return undefined;
+  if (method === 'PATCH') return webhookConnectionPatchResponse(url);
+  if (method === 'DELETE') return Promise.resolve(jsonResponse(undefined, {status: 204}));
+  return undefined;
+}
+
+function providersScenarioResponse(scenario: Scenario) {
+  if (scenario === 'providers-error') return Promise.resolve(errorResponse());
+  return Promise.resolve(jsonResponse({providers: scenario === 'no-providers' ? [] : PROVIDERS}));
+}
+
+function integrationConnectionPatchResponse(url: URL) {
+  return Promise.resolve(
+    jsonResponse({
+      ...connection(),
+      id: url.pathname.split('/').at(-1),
+      lifecycle_status: 'disabled',
+    }),
+  );
+}
+
+function webhookConnectionPatchResponse(url: URL) {
+  return Promise.resolve(
+    jsonResponse({
+      id: url.pathname.split('/').at(-1),
+      workspace_id: WORKSPACE_ID,
+      name: 'Stripe production',
+      slug: 'stripe-prod',
+      lifecycle_status: 'disabled',
+      inbound_url: 'https://api.example.test/webhook/77777777-7777-4777-8777-777777777777',
+      created_at: '2026-04-12T00:00:00.000Z',
+      updated_at: '2026-04-12T00:00:00.000Z',
+    }),
+  );
+}
+
+function connectionsScenarioResponse(scenario: Scenario) {
+  if (scenario === 'connections-error') return Promise.resolve(errorResponse());
+  return Promise.resolve(jsonResponse({connections: connectionsForScenario(scenario)}));
+}
+
+function webhookConnectionsResponse() {
+  return Promise.resolve(
+    jsonResponse({
+      connections: [
+        {
+          id: '77777777-7777-4777-8777-777777777777',
           workspace_id: WORKSPACE_ID,
           name: 'Stripe production',
           slug: 'stripe-prod',
-          lifecycle_status: 'disabled',
+          lifecycle_status: 'active',
           inbound_url: 'https://api.example.test/webhook/77777777-7777-4777-8777-777777777777',
           created_at: '2026-04-12T00:00:00.000Z',
           updated_at: '2026-04-12T00:00:00.000Z',
-        }),
-      );
-    }
-    if (url.pathname.startsWith('/integrations/webhook/connections/') && method === 'DELETE') {
-      return Promise.resolve(jsonResponse(undefined, {status: 204}));
-    }
-    if (url.pathname === '/integration-connections') {
-      if (scenario === 'connections-error') return Promise.resolve(errorResponse());
-      return Promise.resolve(jsonResponse({connections: connectionsForScenario(scenario)}));
-    }
-    if (url.pathname === '/integrations/webhook/connections') {
-      return Promise.resolve(
-        jsonResponse({
-          connections: [
-            {
-              id: '77777777-7777-4777-8777-777777777777',
-              workspace_id: WORKSPACE_ID,
-              name: 'Stripe production',
-              slug: 'stripe-prod',
-              lifecycle_status: 'active',
-              inbound_url: 'https://api.example.test/webhook/77777777-7777-4777-8777-777777777777',
-              created_at: '2026-04-12T00:00:00.000Z',
-              updated_at: '2026-04-12T00:00:00.000Z',
-            },
-          ],
-        }),
-      );
-    }
-    return Promise.resolve(jsonResponse({}, {status: 404}));
-  };
+        },
+      ],
+    }),
+  );
 }
 
 function connectionsForScenario(scenario: Scenario): IntegrationConnectionDto[] {

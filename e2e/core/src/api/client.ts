@@ -85,6 +85,36 @@ function appendHeaders(headers: Headers, source: RequestInit['headers'] | undefi
   });
 }
 
+function buildRequestInit(
+  method: ApiMethod,
+  params: ApiClientRequestOptions,
+  token: string,
+): RequestInit {
+  const headers = new Headers();
+  headers.set('authorization', `Bearer ${token}`);
+  appendHeaders(headers, params.headers);
+
+  let body = params.body;
+  if (params.json !== undefined) {
+    headers.set('content-type', 'application/json');
+    body = JSON.stringify(params.json);
+  }
+
+  const requestInit: RequestInit = {headers, method: method.toUpperCase()};
+  if (body !== undefined) requestInit.body = body;
+  if (params.signal) requestInit.signal = params.signal;
+  return requestInit;
+}
+
+function requestFailure(error: unknown, requestLabel: string): E2eApiError {
+  const suffix = error instanceof Error ? `: ${error.message}` : '';
+  return new E2eApiError({
+    message: `E2E API request failed for ${requestLabel}${suffix}`,
+    status: 0,
+    details: error,
+  });
+}
+
 export function createApiClient(options: ApiClientOptions) {
   const fetchImpl = options.fetch ?? fetch;
   const apiUrl = options.apiUrl ?? config.API_URL;
@@ -95,36 +125,14 @@ export function createApiClient(options: ApiClientOptions) {
     params: ApiClientRequestOptions = {},
   ): Promise<Response> {
     const requestLabel = `${method.toUpperCase()} ${path}`;
-    const headers = new Headers();
-    headers.set('authorization', `Bearer ${options.token}`);
-    appendHeaders(headers, params.headers);
-
-    let body = params.body;
-    if (params.json !== undefined) {
-      headers.set('content-type', 'application/json');
-      body = JSON.stringify(params.json);
-    }
-
-    const requestInit: RequestInit = {
-      headers,
-      method: method.toUpperCase(),
-    };
-    if (body !== undefined) requestInit.body = body;
-    if (params.signal) requestInit.signal = params.signal;
+    const requestInit = buildRequestInit(method, params, options.token);
 
     let response: Response;
     try {
       response = await fetchImpl(e2eUrl(path, apiUrl), requestInit);
     } catch (error) {
       if (isAbortError(error)) throw error;
-      throw new E2eApiError({
-        message:
-          error instanceof Error
-            ? `E2E API request failed for ${requestLabel}: ${error.message}`
-            : `E2E API request failed for ${requestLabel}`,
-        status: 0,
-        details: error,
-      });
+      throw requestFailure(error, requestLabel);
     }
 
     if (!response.ok) {

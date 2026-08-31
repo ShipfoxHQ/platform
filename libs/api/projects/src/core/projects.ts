@@ -21,6 +21,8 @@ import {
 } from './errors.js';
 
 const PROJECTS_WORKSPACE_SLUG_UNIQUE_CONSTRAINT = 'projects_workspace_slug_unique';
+type ProjectsDb = ReturnType<typeof db>;
+type ProjectsTx = Parameters<Parameters<ProjectsDb['transaction']>[0]>[0];
 
 export interface CreateProjectFromSourceParams {
   actorId: string;
@@ -62,31 +64,15 @@ export async function createProjectFromSource(
           })
           .returning();
       } catch (error) {
-        if (isUniqueViolation(error, PROJECTS_WORKSPACE_SLUG_UNIQUE_CONSTRAINT)) {
-          throw new ProjectSlugConflictError(params.slug);
-        }
-        throw error;
+        throw mapProjectInsertError(error, params.slug);
       }
 
-      if (!projectRow) {
-        const [existing] = await tx
-          .select()
-          .from(projects)
-          .where(
-            and(
-              eq(projects.sourceConnectionId, source.connection.id),
-              eq(projects.sourceExternalRepositoryId, source.repository.externalRepositoryId),
-            ),
-          )
-          .limit(1);
-        if (existing) {
-          throw new ProjectAlreadyExistsError(
-            existing.id,
-            source.connection.id,
-            source.repository.externalRepositoryId,
-          );
-        }
-      }
+      if (!projectRow)
+        await assertSourceProjectDoesNotExist(
+          tx,
+          source.connection.id,
+          source.repository.externalRepositoryId,
+        );
     }
 
     if (!projectRow) {
@@ -122,6 +108,37 @@ export async function createProjectFromSource(
   });
   recordProjectCreated();
   return project;
+}
+
+function mapProjectInsertError(error: unknown, slug: string): unknown {
+  if (isUniqueViolation(error, PROJECTS_WORKSPACE_SLUG_UNIQUE_CONSTRAINT)) {
+    return new ProjectSlugConflictError(slug);
+  }
+  return error;
+}
+
+async function assertSourceProjectDoesNotExist(
+  tx: ProjectsTx,
+  sourceConnectionId: string,
+  sourceExternalRepositoryId: string,
+): Promise<void> {
+  const [existing] = await tx
+    .select()
+    .from(projects)
+    .where(
+      and(
+        eq(projects.sourceConnectionId, sourceConnectionId),
+        eq(projects.sourceExternalRepositoryId, sourceExternalRepositoryId),
+      ),
+    )
+    .limit(1);
+  if (existing) {
+    throw new ProjectAlreadyExistsError(
+      existing.id,
+      sourceConnectionId,
+      sourceExternalRepositoryId,
+    );
+  }
 }
 
 export interface UpdateProjectDetailsParams {

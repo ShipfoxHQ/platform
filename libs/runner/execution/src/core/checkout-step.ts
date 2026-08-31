@@ -53,20 +53,8 @@ export async function executeCheckoutStep(params: {
 }): Promise<CheckoutStepExecution> {
   const {cwd, gitConfigPath, leaseClient, signal, step, attempt, destinations, log} = params;
   const config = readCheckoutConfig(step.config.checkout);
-
-  if (config.path !== undefined) {
-    try {
-      assertCheckoutPath(config.path);
-    } catch (error) {
-      return pathFailure(error, log);
-    }
-  }
-
-  try {
-    await assertGitAvailable();
-  } catch (error) {
-    return gitUnavailableFailure(error, log);
-  }
+  const preflightFailure = await checkoutPreflight(config.path, log);
+  if (preflightFailure) return preflightFailure;
 
   log?.writeGroupStart('Checkout');
   try {
@@ -87,34 +75,14 @@ export async function executeCheckoutStep(params: {
       repository: requested.value.repository_url,
       ref: requested.value.ref,
     };
-    const previous = destinations.get(destination);
-
-    if (previous !== undefined) {
-      if (sameTarget(previous, target) && !config.force) {
-        log?.writeGroup({
-          name: 'Checkout skipped',
-          lines: [
-            `Path: ${destination}`,
-            `Already checked out ${safeRepositoryUrl(target.repository)} at ${target.ref}.`,
-          ],
-        });
-        return {result: {success: true, error: null, exit_code: 0, checkout: previous.result}};
-      }
-      if (!config.force) throw new CheckoutDestinationOccupiedError(destination);
-      releaseDestinationSubtree(destinations, destination);
-      await replaceCheckoutDestination(destination);
-    } else {
-      const state = await inspectCheckoutDestination(destination);
-      if (state === 'occupied' && !config.force) {
-        throw new CheckoutDestinationOccupiedError(destination);
-      }
-      if (state === 'occupied' && config.force) {
-        releaseDestinationSubtree(destinations, destination);
-        await replaceCheckoutDestination(destination);
-      } else {
-        await createCheckoutDestination(destination);
-      }
-    }
+    const skipped = await prepareCheckoutDestination({
+      destination,
+      destinations,
+      target,
+      force: config.force,
+      log,
+    });
+    if (skipped) return skipped;
 
     const checkout = await checkoutRepositoryAt({
       destination,
@@ -156,6 +124,67 @@ export async function executeCheckoutStep(params: {
   } finally {
     log?.writeGroupEnd();
   }
+}
+
+async function checkoutPreflight(
+  path: unknown,
+  log: CheckoutLogSink | undefined,
+): Promise<CheckoutStepExecution | undefined> {
+  if (path !== undefined) {
+    try {
+      assertCheckoutPath(path);
+    } catch (error) {
+      return pathFailure(error, log);
+    }
+  }
+  try {
+    await assertGitAvailable();
+    return undefined;
+  } catch (error) {
+    return gitUnavailableFailure(error, log);
+  }
+}
+
+async function prepareCheckoutDestination(params: {
+  destination: string;
+  destinations: CheckoutDestinations;
+  target: Pick<CheckoutDestination, 'repository' | 'ref'>;
+  force: boolean;
+  log: CheckoutLogSink | undefined;
+}): Promise<CheckoutStepExecution | undefined> {
+  const previous = params.destinations.get(params.destination);
+  if (previous !== undefined) return prepareTrackedCheckoutDestination(params, previous);
+  const state = await inspectCheckoutDestination(params.destination);
+  if (state === 'occupied' && !params.force) {
+    throw new CheckoutDestinationOccupiedError(params.destination);
+  }
+  if (state === 'occupied') {
+    releaseDestinationSubtree(params.destinations, params.destination);
+    await replaceCheckoutDestination(params.destination);
+  } else {
+    await createCheckoutDestination(params.destination);
+  }
+  return undefined;
+}
+
+async function prepareTrackedCheckoutDestination(
+  params: Parameters<typeof prepareCheckoutDestination>[0],
+  previous: CheckoutDestination,
+): Promise<CheckoutStepExecution | undefined> {
+  if (sameTarget(previous, params.target) && !params.force) {
+    params.log?.writeGroup({
+      name: 'Checkout skipped',
+      lines: [
+        `Path: ${params.destination}`,
+        `Already checked out ${safeRepositoryUrl(params.target.repository)} at ${params.target.ref}.`,
+      ],
+    });
+    return {result: {success: true, error: null, exit_code: 0, checkout: previous.result}};
+  }
+  if (!params.force) throw new CheckoutDestinationOccupiedError(params.destination);
+  releaseDestinationSubtree(params.destinations, params.destination);
+  await replaceCheckoutDestination(params.destination);
+  return undefined;
 }
 
 function readCheckoutConfig(value: unknown): {path?: unknown; force: boolean} {

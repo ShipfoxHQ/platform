@@ -89,78 +89,88 @@ export function RunAnnotationList({
   const hiddenCount = entries.length - visible.length;
   const totalCount = entries.length + derivedAnnotations.length;
   const hasContent = totalCount > 0;
+  let content: ReactNode;
+  if (!hasContent) {
+    content = filtered ? (
+      <RunAnnotationsFilteredEmpty
+        jobName={filteredJobName}
+        severity={filteredSeverity}
+        incomplete={query.hasNextPage}
+        onClearFilters={onClearFilters}
+      />
+    ) : (
+      <RunAnnotationsEmpty />
+    );
+  } else {
+    content = (
+      <PanelBody asChild>
+        <ol>
+          {/* A job that failed before it ever created an execution is the most upstream thing
+              in the run, and it has no step to link to. It leads rather than trailing behind a
+              render window that could bury it. */}
+          {derivedAnnotations.map((annotation) => (
+            <RunDerivedAnnotationItem
+              key={annotation.id}
+              style={annotation.style}
+              jobName={annotation.jobName}
+              body={annotation.body}
+            />
+          ))}
+          {visible.map((entry) => (
+            <RunAnnotationItem
+              key={entry.annotation.id}
+              entry={entry}
+              workspaceSlug={workspaceSlug}
+              projectSlug={projectSlug}
+              workflowRunId={workflowRunId}
+              runAttempt={runAttempt}
+            />
+          ))}
+        </ol>
+      </PanelBody>
+    );
+  }
+
+  let footer: ReactNode = null;
+  if (hiddenCount > 0) {
+    footer = (
+      <RunAnnotationListFooter>
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
+          className="[@media(pointer:coarse)]:min-h-44"
+          onClick={() => setVisibleCount((current) => current + RENDER_WINDOW)}
+        >
+          Show {Math.min(hiddenCount, RENDER_WINDOW)} more of {totalCount}
+        </Button>
+      </RunAnnotationListFooter>
+    );
+  } else if (query.hasNextPage) {
+    footer = (
+      <RunAnnotationListFooter>
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
+          className="[@media(pointer:coarse)]:min-h-44"
+          isLoading={query.isFetchingNextPage}
+          onClick={() => {
+            void query.fetchNextPage();
+          }}
+        >
+          Load more annotations
+        </Button>
+      </RunAnnotationListFooter>
+    );
+  }
 
   return (
     <>
       {query.isError ? <RunAnnotationStaleError query={query} /> : null}
 
-      {!hasContent ? (
-        filtered ? (
-          <RunAnnotationsFilteredEmpty
-            jobName={filteredJobName}
-            severity={filteredSeverity}
-            incomplete={query.hasNextPage}
-            onClearFilters={onClearFilters}
-          />
-        ) : (
-          <RunAnnotationsEmpty />
-        )
-      ) : (
-        <PanelBody asChild>
-          <ol>
-            {/* A job that failed before it ever created an execution is the most upstream thing
-                in the run, and it has no step to link to. It leads rather than trailing behind a
-                render window that could bury it. */}
-            {derivedAnnotations.map((annotation) => (
-              <RunDerivedAnnotationItem
-                key={annotation.id}
-                style={annotation.style}
-                jobName={annotation.jobName}
-                body={annotation.body}
-              />
-            ))}
-            {visible.map((entry) => (
-              <RunAnnotationItem
-                key={entry.annotation.id}
-                entry={entry}
-                workspaceSlug={workspaceSlug}
-                projectSlug={projectSlug}
-                workflowRunId={workflowRunId}
-                runAttempt={runAttempt}
-              />
-            ))}
-          </ol>
-        </PanelBody>
-      )}
-
-      {hiddenCount > 0 ? (
-        <RunAnnotationListFooter>
-          <Button
-            type="button"
-            size="sm"
-            variant="secondary"
-            className="[@media(pointer:coarse)]:min-h-44"
-            onClick={() => setVisibleCount((current) => current + RENDER_WINDOW)}
-          >
-            Show {Math.min(hiddenCount, RENDER_WINDOW)} more of {totalCount}
-          </Button>
-        </RunAnnotationListFooter>
-      ) : query.hasNextPage ? (
-        <RunAnnotationListFooter>
-          <Button
-            type="button"
-            size="sm"
-            variant="secondary"
-            className="[@media(pointer:coarse)]:min-h-44"
-            isLoading={query.isFetchingNextPage}
-            onClick={() => {
-              void query.fetchNextPage();
-            }}
-          >
-            Load more annotations
-          </Button>
-        </RunAnnotationListFooter>
-      ) : null}
+      {content}
+      {footer}
     </>
   );
 }

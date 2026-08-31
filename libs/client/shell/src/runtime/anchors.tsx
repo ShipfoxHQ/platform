@@ -69,11 +69,11 @@ export function buildAnchorSkeleton({
         unavailable?: boolean;
       };
       const workspace = useMaybeActiveWorkspace();
-      return setupState.hideProjectNavigation === undefined ? (
-        <WorkspaceSetupPending />
-      ) : setupState.unavailable ? (
-        <WorkspaceUnavailablePage workspaceName={workspace?.name} />
-      ) : (
+      if (setupState.hideProjectNavigation === undefined) return <WorkspaceSetupPending />;
+      if (setupState.unavailable) {
+        return <WorkspaceUnavailablePage workspaceName={workspace?.name} />;
+      }
+      return (
         <MainLayout
           navigation={navigation}
           hideProjectNavigation={setupState.hideProjectNavigation}

@@ -126,18 +126,25 @@ async function resolveExistingPrefix(candidate: string): Promise<string> {
 
       // A dangling symlink is not a missing checkout destination. Treating it as one
       // would allow mkdir/rm to follow an unexpected link during a later operation.
-      try {
-        const entry = await lstat(current);
-        if (entry.isSymbolicLink()) throw new CheckoutPathInvalidError(candidate);
-      } catch (lstatError) {
-        if (!isFileSystemError(lstatError, 'ENOENT')) throw lstatError;
-      }
+      await assertMissingPathIsNotDanglingSymlink(current, candidate);
 
       const parent = dirname(current);
       if (parent === current) throw new CheckoutPathInvalidError(candidate);
       missingSegments.push(basename(current));
       current = parent;
     }
+  }
+}
+
+async function assertMissingPathIsNotDanglingSymlink(
+  current: string,
+  candidate: string,
+): Promise<void> {
+  try {
+    const entry = await lstat(current);
+    if (entry.isSymbolicLink()) throw new CheckoutPathInvalidError(candidate);
+  } catch (error) {
+    if (!isFileSystemError(error, 'ENOENT')) throw error;
   }
 }
 

@@ -3,7 +3,7 @@ import {type LogRecord, type ServerLogRecord, serverLogRecordSchema} from '@ship
 import {config} from '#config.js';
 import {isJobCapped} from '#db/accounting.js';
 import {getStreamWriterOrigin} from '#db/chunks.js';
-import {db} from '#db/db.js';
+import {db, type Transaction} from '#db/db.js';
 import {casExtendCommittedLength, getOrCreateAttemptStreamWithStatus} from '#db/streams.js';
 import {
   bytesIngestedCount,
@@ -16,10 +16,11 @@ import {
 import {
   type AppendIdentity,
   type AppendLogsResult,
+  closeDeclaredStream,
   readHeartbeat,
+  recordStoredChunk,
   storeChunk,
 } from './append-chunk.js';
-import {closeStream} from './close-stream.js';
 import {
   LogAppendBodyTooLargeError,
   LogWriterConflictError,
@@ -36,6 +37,14 @@ export interface AppendServerRecordsParams extends AppendIdentity {
    * newline-terminated NDJSON line.
    */
   records: ServerLogRecord[];
+}
+
+interface AppendServerMetrics {
+  readonly recordCounts: Partial<Record<LogRecordMetricKind, number>>;
+  streamClosedReason: 'declared' | undefined;
+  streamOpened: boolean;
+  ingestedBytes: number;
+  storedBytes: number;
 }
 
 interface ServerBody {
@@ -106,80 +115,9 @@ export async function appendServerRecords(
     storedBytes: 0,
   };
 
-  const result = await db().transaction(async (tx) => {
-    if (body.length === 0) return readHeartbeat(tx, params);
-
-    // Tail append: the stream upsert locks the row for the transaction, so this fresh tail
-    // cannot race another append. A retry outcome would violate that invariant and is treated
-    // as an internal consistency failure instead of looping over dead code.
-    const {created, stream} = await getOrCreateAttemptStreamWithStatus(tx, {
-      jobId: params.jobId,
-      stepId: params.stepId,
-      attempt: params.attempt,
-      workspaceId: params.workspaceId,
-      projectId: params.projectId,
-      workflowRunAttemptId: params.workflowRunAttemptId,
-    });
-    metrics.streamOpened = created;
-
-    // Closed stream (an end already landed, or the job-terminated sweep ran):
-    // accept-and-drop so a late batch can never race compaction. committed_length is
-    // frozen at close, so this reports the final offset and the caller stops cleanly.
-    if (stream.state === 'closed') {
-      return {
-        committedLength: stream.committedLength,
-        capped: await isJobCapped(tx, params.jobId),
-      };
-    }
-
-    if ((await getStreamWriterOrigin(tx, stream.id)) === 'runner') {
-      throw new LogWriterConflictError('runner');
-    }
-
-    const cas = await casExtendCommittedLength(tx, {
-      streamId: stream.id,
-      offset: stream.committedLength,
-      byteLen: body.length,
-    });
-    if (cas.outcome === 'gap') throw new OffsetGapError(cas.committedLength);
-    if (cas.outcome === 'retry') {
-      throw new Error('Server append CAS did not extend the locked stream tail');
-    }
-    // In-order CAS extension: the batch is accepted at the tail and counted once.
-    metrics.ingestedBytes += body.length;
-
-    const {
-      recordCounts: chunkRecordCounts,
-      stored: chunkStored,
-      ...chunkResult
-    } = await storeChunk(tx, {
-      params,
-      streamId: stream.id,
-      streamOffset: stream.committedLength,
-      body,
-      committedLength: cas.committedLength,
-      declaredTotalBytes,
-      origin: 'server',
-    });
-    if (chunkStored) {
-      // Normalized durable bytes; a cap-dropped straggler never reaches this branch.
-      metrics.storedBytes += body.length;
-      addRecordCounts(metrics.recordCounts, chunkRecordCounts);
-      addRecordCounts(metrics.recordCounts, recordCounts);
-    }
-
-    // An `end` record committed in this batch (the offset-CAS guarantees everything
-    // before it is already committed), so the stream is whole. Declared-close it
-    // in-band exactly like the runner path, and only when the chunk was actually
-    // stored: an end body dropped because the job was already capped persists
-    // nothing, so the stream is not whole and stays open for the timeout sweep.
-    if (declaredTotalBytes !== undefined && chunkStored) {
-      const closed = await closeStream(tx, {streamId: stream.id, reason: 'declared'});
-      if (closed) metrics.streamClosedReason = 'declared';
-    }
-
-    return chunkResult;
-  });
+  const result = await db().transaction((tx) =>
+    appendServerRecordsTransaction(tx, params, body, declaredTotalBytes, recordCounts, metrics),
+  );
 
   if (metrics.streamOpened) streamOpenedCount.add(1);
   if (metrics.ingestedBytes > 0) bytesIngestedCount.add(metrics.ingestedBytes);
@@ -194,11 +132,73 @@ export async function appendServerRecords(
   return result;
 }
 
-function addRecordCounts(
-  target: Partial<Record<LogRecordMetricKind, number>>,
-  source: Partial<Record<LogRecordMetricKind, number>>,
-): void {
-  for (const [kind, count] of Object.entries(source)) {
-    target[kind as LogRecordMetricKind] = (target[kind as LogRecordMetricKind] ?? 0) + (count ?? 0);
+async function appendServerRecordsTransaction(
+  tx: Transaction,
+  params: AppendServerRecordsParams,
+  body: Buffer,
+  declaredTotalBytes: number | undefined,
+  recordCounts: Partial<Record<LogRecord['type'], number>>,
+  metrics: AppendServerMetrics,
+): Promise<AppendLogsResult> {
+  if (body.length === 0) return readHeartbeat(tx, params);
+  const {created, stream} = await getOrCreateAttemptStreamWithStatus(tx, params);
+  metrics.streamOpened = created;
+  if (stream.state === 'closed') {
+    return {committedLength: stream.committedLength, capped: await isJobCapped(tx, params.jobId)};
   }
+  if ((await getStreamWriterOrigin(tx, stream.id)) === 'runner') {
+    throw new LogWriterConflictError('runner');
+  }
+  const cas = await casExtendCommittedLength(tx, {
+    streamId: stream.id,
+    offset: stream.committedLength,
+    byteLen: body.length,
+  });
+  if (cas.outcome === 'gap') throw new OffsetGapError(cas.committedLength);
+  if (cas.outcome === 'retry') {
+    throw new Error('Server append CAS did not extend the locked stream tail');
+  }
+  metrics.ingestedBytes += body.length;
+  return storeServerAppend(
+    tx,
+    params,
+    stream.id,
+    stream.committedLength,
+    cas.committedLength,
+    body,
+    declaredTotalBytes,
+    recordCounts,
+    metrics,
+  );
+}
+
+async function storeServerAppend(
+  tx: Transaction,
+  params: AppendServerRecordsParams,
+  streamId: string,
+  streamOffset: number,
+  committedLength: number,
+  body: Buffer,
+  declaredTotalBytes: number | undefined,
+  recordCounts: Partial<Record<LogRecord['type'], number>>,
+  metrics: AppendServerMetrics,
+): Promise<AppendLogsResult> {
+  const {
+    recordCounts: chunkRecordCounts,
+    stored: chunkStored,
+    ...result
+  } = await storeChunk(tx, {
+    params,
+    streamId,
+    streamOffset,
+    body,
+    committedLength,
+    declaredTotalBytes,
+    origin: 'server',
+  });
+  if (chunkStored) {
+    recordStoredChunk(metrics, body.length, chunkRecordCounts, recordCounts);
+  }
+  await closeDeclaredStream(tx, streamId, declaredTotalBytes, chunkStored, metrics);
+  return result;
 }

@@ -79,6 +79,11 @@ export function ProjectSwitcher({
     handleCreate();
   };
 
+  let emptyMessage = 'No projects found.';
+  if (query.isError) emptyMessage = "Couldn't load projects.";
+  else if (query.isLoading) emptyMessage = 'Loading projects...';
+  else if (projects.length === 0) emptyMessage = 'No projects yet.';
+
   return (
     <Command onKeyDown={handleCommandKeyDown}>
       <CommandInput
@@ -87,15 +92,7 @@ export function ProjectSwitcher({
         onValueChange={setSearchValue}
       />
       <CommandList>
-        {query.isError ? (
-          <CommandEmpty>Couldn&apos;t load projects.</CommandEmpty>
-        ) : query.isLoading ? (
-          <CommandEmpty>Loading projects...</CommandEmpty>
-        ) : projects.length === 0 ? (
-          <CommandEmpty>No projects yet.</CommandEmpty>
-        ) : (
-          <CommandEmpty>No projects found.</CommandEmpty>
-        )}
+        <CommandEmpty>{emptyMessage}</CommandEmpty>
         <CommandGroup>
           <CommandItem value="__all" keywords={['all projects']} onSelect={handleSelectAll}>
             <Icon

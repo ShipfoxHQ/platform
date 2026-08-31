@@ -107,6 +107,80 @@ function pullRequestRepositories(
   return {head, base};
 }
 
+type GithubConnection = NonNullable<Awaited<ReturnType<GetIntegrationConnectionByIdFn>>>;
+
+async function dispatchGithubEvent(
+  params: HandleGithubEventParams,
+  connection: GithubConnection,
+  installationId: number,
+  action: string | undefined,
+): Promise<HandleGithubEventResult> {
+  if (params.event === 'push') {
+    const validated = githubPushPayloadSchema.safeParse(params.payload);
+    if (!validated.success) {
+      logger().warn(
+        {deliveryId: params.deliveryId, issues: validated.error.issues},
+        'github webhook push payload failed schema validation; publishing generic envelope only',
+      );
+      return publishGithubEnvelopeOnly({
+        tx: params.tx,
+        deliveryId: params.deliveryId,
+        payload: params.payload,
+        publishIntegrationEventReceived: params.publishIntegrationEventReceived,
+        connection,
+        event: 'push',
+      });
+    }
+    return publishGithubPush({
+      ...params,
+      eventPayload: validated.data,
+      rawPayload: params.payload,
+      connection,
+    });
+  }
+
+  const eventName = action ? `${params.event}.${action}` : params.event;
+  const repositories = normalizeRepositoryUpdates(params.event, action, params.payload);
+  if (repositories) {
+    const result = await params.publishSourceRepositoryUpdated({
+      tx: params.tx,
+      provider: GITHUB_SOURCE,
+      source: connection.slug,
+      workspaceId: connection.workspaceId,
+      connectionId: connection.id,
+      connectionName: connection.displayName,
+      deliveryId: params.deliveryId,
+      receivedAt: new Date().toISOString(),
+      rawPayload: params.payload,
+      event: eventName,
+      repositories,
+    });
+    return withInstallationTokenCleanup(
+      {outcome: result.published ? 'published' : 'duplicate'},
+      params.event,
+      action,
+      connection.workspaceId,
+      installationId,
+    );
+  }
+
+  const result = await publishGithubEnvelopeOnly({
+    tx: params.tx,
+    deliveryId: params.deliveryId,
+    payload: params.payload,
+    publishIntegrationEventReceived: params.publishIntegrationEventReceived,
+    connection,
+    event: eventName,
+  });
+  return withInstallationTokenCleanup(
+    result,
+    params.event,
+    action,
+    connection.workspaceId,
+    installationId,
+  );
+}
+
 export async function handleGithubEvent(
   params: HandleGithubEventParams,
 ): Promise<HandleGithubEventResult> {
@@ -214,71 +288,7 @@ export async function handleGithubEvent(
     );
   }
 
-  if (params.event === 'push') {
-    const validated = githubPushPayloadSchema.safeParse(params.payload);
-    if (!validated.success) {
-      logger().warn(
-        {deliveryId: params.deliveryId, issues: validated.error.issues},
-        'github webhook push payload failed schema validation; publishing generic envelope only',
-      );
-      return publishGithubEnvelopeOnly({
-        tx: params.tx,
-        deliveryId: params.deliveryId,
-        payload: params.payload,
-        publishIntegrationEventReceived: params.publishIntegrationEventReceived,
-        connection,
-        event: 'push',
-      });
-    }
-
-    return publishGithubPush({
-      ...params,
-      eventPayload: validated.data,
-      rawPayload: params.payload,
-      connection,
-    });
-  }
-
-  const eventName = action ? `${params.event}.${action}` : params.event;
-  const repositories = normalizeRepositoryUpdates(params.event, action, params.payload);
-  if (repositories) {
-    const result = await params.publishSourceRepositoryUpdated({
-      tx: params.tx,
-      provider: GITHUB_SOURCE,
-      source: connection.slug,
-      workspaceId: connection.workspaceId,
-      connectionId: connection.id,
-      connectionName: connection.displayName,
-      deliveryId: params.deliveryId,
-      receivedAt: new Date().toISOString(),
-      rawPayload: params.payload,
-      event: eventName,
-      repositories,
-    });
-    return withInstallationTokenCleanup(
-      {outcome: result.published ? 'published' : 'duplicate'},
-      params.event,
-      action,
-      connection.workspaceId,
-      installationId,
-    );
-  }
-
-  const result = await publishGithubEnvelopeOnly({
-    tx: params.tx,
-    deliveryId: params.deliveryId,
-    payload: params.payload,
-    publishIntegrationEventReceived: params.publishIntegrationEventReceived,
-    connection,
-    event: eventName,
-  });
-  return withInstallationTokenCleanup(
-    result,
-    params.event,
-    action,
-    connection.workspaceId,
-    installationId,
-  );
+  return dispatchGithubEvent(params, connection, installationId, action);
 }
 
 function normalizeRepositoryUpdates(

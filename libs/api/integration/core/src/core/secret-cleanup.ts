@@ -135,32 +135,7 @@ async function scheduleRetry(
   // Keep escalating past the threshold. A stuck row means secrets may still exist, and
   // one missed alert would hide that forever. The bounded per-cleanup cache suppresses
   // duplicate reports in this worker while allowing a fresh process to re-alert.
-  if (cleanup.attemptCount >= STUCK_CLEANUP_ATTEMPT_COUNT) {
-    const stuckErrorMessage = 'Integration connection secret cleanup exceeded its retry threshold';
-    logger().error(
-      {
-        provider: cleanup.provider,
-        connectionId: cleanup.connectionId,
-        attempt: cleanup.attemptCount,
-      },
-      stuckErrorMessage,
-    );
-    if (!reportedStuckCleanupIds.has(cleanup.id)) {
-      const eventId = reportError(new Error(stuckErrorMessage), {
-        boundary: 'integration.secret-cleanup',
-        operation: 'stuck-cleanup',
-        tags: {provider: cleanup.provider},
-        extra: {cleanupId: cleanup.id},
-      });
-      if (eventId) {
-        reportedStuckCleanupIds.add(cleanup.id);
-        if (reportedStuckCleanupIds.size > STUCK_CLEANUP_ALERT_CACHE_LIMIT) {
-          const oldestCleanupId = reportedStuckCleanupIds.values().next().value;
-          if (oldestCleanupId !== undefined) reportedStuckCleanupIds.delete(oldestCleanupId);
-        }
-      }
-    }
-  }
+  if (cleanup.attemptCount >= STUCK_CLEANUP_ATTEMPT_COUNT) reportStuckCleanup(cleanup);
 
   try {
     const rescheduled = await retryIntegrationSecretCleanup({
@@ -186,6 +161,26 @@ async function scheduleRetry(
     });
     return false;
   }
+}
+
+function reportStuckCleanup(cleanup: IntegrationSecretCleanup): void {
+  const message = 'Integration connection secret cleanup exceeded its retry threshold';
+  logger().error(
+    {provider: cleanup.provider, connectionId: cleanup.connectionId, attempt: cleanup.attemptCount},
+    message,
+  );
+  if (reportedStuckCleanupIds.has(cleanup.id)) return;
+  const eventId = reportError(new Error(message), {
+    boundary: 'integration.secret-cleanup',
+    operation: 'stuck-cleanup',
+    tags: {provider: cleanup.provider},
+    extra: {cleanupId: cleanup.id},
+  });
+  if (!eventId) return;
+  reportedStuckCleanupIds.add(cleanup.id);
+  if (reportedStuckCleanupIds.size <= STUCK_CLEANUP_ALERT_CACHE_LIMIT) return;
+  const oldestCleanupId = reportedStuckCleanupIds.values().next().value;
+  if (oldestCleanupId !== undefined) reportedStuckCleanupIds.delete(oldestCleanupId);
 }
 
 function retryDelayMs(attemptCount: number): number {

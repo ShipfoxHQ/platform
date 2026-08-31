@@ -120,47 +120,14 @@ function renderAuthHarness(
   const queryClient = new QueryClient({defaultOptions: {queries: {retry: false}}});
   const store = createStore();
   const apiRef: {current: AdoptedSessionApi | null} = {current: null};
-  let refreshCalls = 0;
-  let workspacesCalls = 0;
-  let releaseSecondRefresh: (() => void) | undefined;
-  let releaseHeldWorkspaces: (() => void) | undefined;
+  const fetchState: AuthHarnessFetchState = {refreshCalls: 0, workspacesCalls: 0};
   const fetchImpl = vi.fn((input: RequestInfo | URL) => {
     const url = input instanceof Request ? input.url : String(input);
-    if (url.endsWith('/auth/refresh')) {
-      refreshCalls += 1;
-      if (
-        options.failRefreshFromCall !== undefined &&
-        refreshCalls >= options.failRefreshFromCall
-      ) {
-        return Promise.reject(new TypeError('Failed to fetch'));
-      }
-      // Only the mount refresh carries the caller-provided token; later
-      // refreshes restore the plain cookie session token.
-      if (options.holdSecondRefresh && refreshCalls === 2) {
-        return new Promise<Response>((resolve) => {
-          releaseSecondRefresh = () => resolve(jsonResponse(ADMIN_SESSION_DTO));
-        });
-      }
-      return jsonResponsePromise({
-        ...ADMIN_SESSION_DTO,
-        token: refreshCalls === 1 ? adminToken : ADMIN_SESSION_DTO.token,
-      });
-    }
+    if (url.endsWith('/auth/refresh')) return authHarnessRefresh(adminToken, options, fetchState);
     if (options.unauthorizedPaths?.some((path) => url.endsWith(path))) {
       return jsonResponsePromise({message: 'Unauthorized', code: 'unauthorized'}, {status: 401});
     }
-    if (url.endsWith('/workspaces')) {
-      workspacesCalls += 1;
-      if (
-        options.holdWorkspacesFromCall !== undefined &&
-        workspacesCalls >= options.holdWorkspacesFromCall
-      ) {
-        return new Promise<Response>((resolve) => {
-          releaseHeldWorkspaces = () => resolve(jsonResponse({memberships: []}));
-        });
-      }
-      return jsonResponsePromise({memberships: []});
-    }
+    if (url.endsWith('/workspaces')) return authHarnessWorkspaces(options, fetchState);
     return jsonResponsePromise({message: 'Not found', code: 'not-found'}, {status: 404});
   });
   resetApiClient();
@@ -180,9 +147,62 @@ function renderAuthHarness(
     fetchImpl,
     queryClient,
     store,
-    releaseSecondRefresh: () => releaseSecondRefresh?.(),
-    releaseHeldWorkspaces: () => releaseHeldWorkspaces?.(),
+    releaseSecondRefresh: () => fetchState.releaseSecondRefresh?.(),
+    releaseHeldWorkspaces: () => fetchState.releaseHeldWorkspaces?.(),
   };
+}
+
+type AuthHarnessOptions = {
+  holdSecondRefresh?: boolean;
+  failRefreshFromCall?: number;
+  unauthorizedPaths?: string[];
+  holdWorkspacesFromCall?: number;
+};
+
+type AuthHarnessFetchState = {
+  refreshCalls: number;
+  workspacesCalls: number;
+  releaseSecondRefresh?: () => void;
+  releaseHeldWorkspaces?: () => void;
+};
+
+function authHarnessRefresh(
+  adminToken: string,
+  options: AuthHarnessOptions,
+  state: AuthHarnessFetchState,
+): Promise<Response> {
+  state.refreshCalls += 1;
+  if (
+    options.failRefreshFromCall !== undefined &&
+    state.refreshCalls >= options.failRefreshFromCall
+  ) {
+    return Promise.reject(new TypeError('Failed to fetch'));
+  }
+  if (options.holdSecondRefresh && state.refreshCalls === 2) {
+    return new Promise<Response>((resolve) => {
+      state.releaseSecondRefresh = () => resolve(jsonResponse(ADMIN_SESSION_DTO));
+    });
+  }
+  return jsonResponsePromise({
+    ...ADMIN_SESSION_DTO,
+    token: state.refreshCalls === 1 ? adminToken : ADMIN_SESSION_DTO.token,
+  });
+}
+
+function authHarnessWorkspaces(
+  options: AuthHarnessOptions,
+  state: AuthHarnessFetchState,
+): Promise<Response> {
+  state.workspacesCalls += 1;
+  if (
+    options.holdWorkspacesFromCall !== undefined &&
+    state.workspacesCalls >= options.holdWorkspacesFromCall
+  ) {
+    return new Promise<Response>((resolve) => {
+      state.releaseHeldWorkspaces = () => resolve(jsonResponse({memberships: []}));
+    });
+  }
+  return jsonResponsePromise({memberships: []});
 }
 
 function harnessApi(apiRef: {current: AdoptedSessionApi | null}): AdoptedSessionApi {
@@ -555,6 +575,27 @@ describe('adopted-session runtime seam', () => {
 
     expect(store.get(authStateAtom).token).toBe('later-token');
     await waitFor(() => expect(apiRef.current?.adoptedSession?.expiresAt).toBe(laterExpiresAt));
+  });
+
+  test('adopts a valid renewal when the current expiry is malformed', async () => {
+    const {apiRef, store} = renderAuthHarness();
+    await waitForCookieSession(store, ADMIN_SESSION_DTO.token);
+    const renewal: AdoptedSessionRenewal = {
+      session: {...ADOPTED_SESSION, accessToken: 'repaired-token'},
+      expiresAt: EXPIRES_AT,
+      serverTime: SERVER_TIME,
+    };
+    const renew = vi.fn(() => Promise.resolve(renewal));
+    const api = harnessApi(apiRef);
+
+    await api.adoptSession(ADOPTED_SESSION, {
+      expiresAt: 'malformed-expiry',
+      serverTime: SERVER_TIME,
+      renew,
+    });
+
+    await waitFor(() => expect(store.get(authStateAtom).token).toBe('repaired-token'));
+    expect(apiRef.current?.adoptedSession?.expiresAt).toBe(EXPIRES_AT);
   });
 
   test('renewals that lose a race to a longer reserved window do not count as stalls', async () => {

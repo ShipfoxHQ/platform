@@ -34,91 +34,7 @@ export function createCheckoutTokenRoute(clients: {
       querystring: checkoutTokenQuerySchema,
       response: {200: checkoutTokenResponseSchema},
     },
-    errorHandler: (error) => {
-      const known = isInterModuleKnownError(
-        integrationsInterModuleContract.methods.createCheckoutSpec,
-        error,
-      )
-        ? error
-        : undefined;
-      const targetError = isInterModuleKnownError(
-        projectsInterModuleContract.methods.resolveCheckoutTarget,
-        error,
-      )
-        ? error
-        : undefined;
-      if (error instanceof CheckoutIntentUnresolvedError)
-        throw new ClientError(error.message, 'checkout-unavailable', {status: 404});
-      if (error instanceof CheckoutConfigInvalidError)
-        throw new ClientError('Checkout configuration is invalid', 'checkout-config-invalid', {
-          status: 409,
-        });
-      if (targetError?.code === 'checkout-repository-not-authorized')
-        throw new ClientError(
-          'Checkout repository is not authorized for this workspace',
-          'checkout-repository-not-authorized',
-          {status: 404},
-        );
-      if (known?.code === 'connection-not-found')
-        throw new ClientError(
-          'Integration connection not found',
-          'integration-connection-not-found',
-          {
-            status: 404,
-          },
-        );
-      if (known?.code === 'connection-inactive')
-        throw new ClientError(
-          'Integration connection is not active',
-          'integration-connection-inactive',
-          {
-            status: 422,
-          },
-        );
-      if (known?.code === 'connection-workspace-mismatch')
-        throw new ClientError(
-          'Integration connection does not belong to this workspace',
-          'forbidden',
-          {status: 403},
-        );
-      if (known?.code === 'provider-unavailable')
-        throw new ClientError(
-          'Integration provider is unavailable',
-          'integration-provider-unavailable',
-          {
-            status: 422,
-          },
-        );
-      if (known?.code === 'capability-unavailable')
-        throw new ClientError(
-          'Integration capability is unavailable',
-          'integration-capability-unavailable',
-          {
-            status: 422,
-          },
-        );
-      if (known?.code === 'checkout-unsupported')
-        throw new ClientError(
-          'Integration checkout is unsupported',
-          'integration-checkout-unsupported',
-          {
-            status: 422,
-          },
-        );
-      if (known?.code === 'provider-failure') {
-        const status =
-          known.details.reason === 'rate-limited'
-            ? 429
-            : known.details.reason === 'timeout' || known.details.reason === 'provider-unavailable'
-              ? 503
-              : 422;
-        throw new ClientError('Integration provider request failed', known.details.reason, {
-          details: {retry_after_seconds: known.details.retryAfterSeconds},
-          status,
-        });
-      }
-      throw error;
-    },
+    errorHandler: handleCheckoutTokenError,
     handler: async (request, reply) => {
       const {stepId} = request.params;
       const {attempt} = request.query;
@@ -149,4 +65,91 @@ export function createCheckoutTokenRoute(clients: {
       });
     },
   });
+}
+
+function handleCheckoutTokenError(error: unknown): never {
+  if (error instanceof CheckoutIntentUnresolvedError) {
+    throw new ClientError(error.message, 'checkout-unavailable', {status: 404});
+  }
+  if (error instanceof CheckoutConfigInvalidError) {
+    throw new ClientError('Checkout configuration is invalid', 'checkout-config-invalid', {
+      status: 409,
+    });
+  }
+  if (
+    isInterModuleKnownError(projectsInterModuleContract.methods.resolveCheckoutTarget, error) &&
+    error.code === 'checkout-repository-not-authorized'
+  ) {
+    throw new ClientError(
+      'Checkout repository is not authorized for this workspace',
+      'checkout-repository-not-authorized',
+      {status: 404},
+    );
+  }
+  if (isInterModuleKnownError(integrationsInterModuleContract.methods.createCheckoutSpec, error)) {
+    throwIntegrationCheckoutError(error);
+  }
+  throw error;
+}
+
+function throwIntegrationCheckoutError(
+  error: Parameters<typeof handleCheckoutTokenError>[0] & {code: string},
+): never {
+  switch (error.code) {
+    case 'connection-not-found':
+      throw new ClientError(
+        'Integration connection not found',
+        'integration-connection-not-found',
+        {status: 404},
+      );
+    case 'connection-inactive':
+      throw new ClientError(
+        'Integration connection is not active',
+        'integration-connection-inactive',
+        {status: 422},
+      );
+    case 'connection-workspace-mismatch':
+      throw new ClientError(
+        'Integration connection does not belong to this workspace',
+        'forbidden',
+        {status: 403},
+      );
+    case 'provider-unavailable':
+      throw new ClientError(
+        'Integration provider is unavailable',
+        'integration-provider-unavailable',
+        {status: 422},
+      );
+    case 'capability-unavailable':
+      throw new ClientError(
+        'Integration capability is unavailable',
+        'integration-capability-unavailable',
+        {status: 422},
+      );
+    case 'checkout-unsupported':
+      throw new ClientError(
+        'Integration checkout is unsupported',
+        'integration-checkout-unsupported',
+        {status: 422},
+      );
+    case 'provider-failure': {
+      const details = (
+        error as unknown as {
+          details: {reason: string; retryAfterSeconds?: number};
+        }
+      ).details;
+      throw new ClientError('Integration provider request failed', details.reason, {
+        details: {retry_after_seconds: details.retryAfterSeconds},
+        status: providerFailureStatus(details.reason),
+      });
+    }
+    default:
+      throw error;
+  }
+}
+
+function providerFailureStatus(reason: string): 422 | 429 | 503 {
+  if (reason === 'rate-limited') return 429;
+  if (reason === 'timeout' || reason === 'provider-unavailable') return 503;
+  return 422;
 }

@@ -282,138 +282,219 @@ async function applyObservedInstances(
   instances: readonly Ec2InstanceView[],
   terminateIntentIds: ReadonlySet<string>,
 ): Promise<void> {
-  const trackerRunners: TrackerSeed[] = [];
-  const events: RunnerInstanceReportEventDto[] = [];
-  const terminalReportInstanceIds = new Map<RunnerInstanceReportEventDto, string>();
-  const assignmentCandidates: AssignmentCandidate[] = [];
-  const observedIds = new Set<string>();
-  const observedInstanceIds = new Set<string>();
-  const observedRunnerInstanceIds = new Set<string>();
-  const reapInstances: Ec2InstanceView[] = [];
-  const terminateIntentInstances: Ec2InstanceView[] = [];
+  const plan = createEc2ObservationPlan();
   const observedAt = context.now().getTime();
+  for (const instance of instances)
+    recordObservedInstance(context, plan, instance, terminateIntentIds, observedAt);
+  pruneTerminalReportedInstances(context, plan.observedInstanceIds, context.now().getTime());
+  pruneTerminationActionedInstances(context, plan.observedInstanceIds, context.now().getTime());
+  synthesizeAbsentLaunchedRunners(context, plan.observedIds, plan.trackerRunners, plan.events);
+  context.tracker.replaceAll(plan.trackerRunners);
+  await assignEnrolledReservations(
+    context,
+    plan.assignmentCandidates,
+    plan.observedRunnerInstanceIds,
+  );
+  await terminateInstances(context, plan.terminateIntentInstances, 'backend-terminate');
+  await terminateInstances(context, plan.reapInstances, 'registration-deadline');
+  if (plan.events.length > 0)
+    await reportEvents(context, plan.events, plan.terminalReportInstanceIds);
+}
 
-  for (const instance of instances) {
-    const identity = parseInstanceIdentity(instance);
-    observedInstanceIds.add(instance.instanceId);
-    if (context.terminalReportedInstanceIds.has(instance.instanceId)) {
-      context.terminalReportedInstanceIds.set(instance.instanceId, observedAt);
-    }
-    if (context.terminationActionedInstanceIds.has(instance.instanceId)) {
-      context.terminationActionedInstanceIds.set(instance.instanceId, observedAt);
-    }
-    if (identity.runnerInstanceId) observedRunnerInstanceIds.add(identity.runnerInstanceId);
-    if (!identity.providerRunnerId) continue;
-    observedIds.add(identity.providerRunnerId);
-    const pendingLaunch = context.pendingLaunches.get(identity.providerRunnerId);
-    // An observed instance is no longer eligible for absent-launch synthesis. Keep the
-    // separate pending metric candidate through listing gaps after this point.
-    context.locallyLaunched.delete(identity.providerRunnerId);
-    if (instance.state === 'running' && pendingLaunch) {
-      const templateKey = resolveTemplateKey(context, [
-        identity.templateKey,
-        pendingLaunch.templateKey,
-      ]);
-      const template = context.templatesByKey.get(templateKey);
-      context.pendingLaunches.delete(identity.providerRunnerId);
-      if (template) {
-        recordEc2PendingDuration({
-          durationMs: context.now().getTime() - pendingLaunch.launchedAt.getTime(),
-          templateKey,
-          market: template.spec.market,
-          architecture: instance.architecture ?? 'unknown',
-          availabilityZone: instance.availabilityZone ?? 'unknown',
-        });
-      }
-    } else if (pendingLaunch && isTerminalPendingState(instance.state)) {
-      context.pendingLaunches.delete(identity.providerRunnerId);
-    }
+interface Ec2ObservationPlan {
+  trackerRunners: TrackerSeed[];
+  events: RunnerInstanceReportEventDto[];
+  terminalReportInstanceIds: Map<RunnerInstanceReportEventDto, string>;
+  assignmentCandidates: AssignmentCandidate[];
+  observedIds: Set<string>;
+  observedInstanceIds: Set<string>;
+  observedRunnerInstanceIds: Set<string>;
+  reapInstances: Ec2InstanceView[];
+  terminateIntentInstances: Ec2InstanceView[];
+}
 
-    const hasTerminateIntent = terminateIntentIds.has(identity.providerRunnerId);
-    const pastRegistrationDeadline = isPastRegistrationDeadline(instance, context);
-    const terminationRequested = hasTerminateIntent || pastRegistrationDeadline;
-    const canTerminate = canTerminateInstance(instance);
-    const shouldTerminate = terminationRequested && canTerminate;
-    if (hasTerminateIntent && canTerminate) {
-      terminateIntentInstances.push(instance);
-    } else if (pastRegistrationDeadline && canTerminate) {
-      reapInstances.push(instance);
-    }
+function createEc2ObservationPlan(): Ec2ObservationPlan {
+  return {
+    trackerRunners: [],
+    events: [],
+    terminalReportInstanceIds: new Map(),
+    assignmentCandidates: [],
+    observedIds: new Set(),
+    observedInstanceIds: new Set(),
+    observedRunnerInstanceIds: new Set(),
+    reapInstances: [],
+    terminateIntentInstances: [],
+  };
+}
 
-    if (shouldTerminate) {
-      // terminateInstances reports the provider-initiated reason: backend-terminate or registration-deadline.
-      continue;
-    }
+function recordObservedInstance(
+  context: Ec2LifecycleContext,
+  plan: Ec2ObservationPlan,
+  instance: Ec2InstanceView,
+  terminateIntentIds: ReadonlySet<string>,
+  observedAt: number,
+): void {
+  const identity = parseInstanceIdentity(instance);
+  recordObservedIdentity(context, plan, instance, identity.runnerInstanceId, observedAt);
+  if (!identity.providerRunnerId) return;
+  plan.observedIds.add(identity.providerRunnerId);
+  const pendingLaunch = context.pendingLaunches.get(identity.providerRunnerId);
+  context.locallyLaunched.delete(identity.providerRunnerId);
+  recordPendingLaunchObservation(context, instance, identity, pendingLaunch);
+  const termination = recordTerminationCandidate(
+    context,
+    plan,
+    instance,
+    identity.providerRunnerId,
+    terminateIntentIds,
+  );
+  if (termination.skipObservation) return;
 
-    const template = identity.templateKey
-      ? context.templatesByKey.get(identity.templateKey)
-      : undefined;
-    const labels = identity.labels.length > 0 ? identity.labels : (template?.labels ?? []);
-    if (labels.length === 0) continue;
-
-    const mapped = mapInstanceState(instance);
-    const liveState =
-      mapped.state === 'starting' || mapped.state === 'running' ? mapped.state : undefined;
-    const terminalObservation = mapped.state === 'failed' || mapped.state === 'terminated';
-    const alreadyReportedTerminal =
-      terminalObservation && hasTerminalReport(context, instance.instanceId);
-    if (!alreadyReportedTerminal) {
-      if (terminalObservation) {
-        const terminationReason =
-          mapped.reason === 'spot-interruption' ? 'spot-interruption' : 'observed-terminated';
-        const templateKey = resolveTemplateKey(context, [
-          identity.templateKey,
-          pendingLaunch?.templateKey,
-        ]);
-        const template = context.templatesByKey.get(templateKey);
-        recordEc2Termination(terminationReason, templateKey);
-        logger().info(
-          terminationLogFields(instance, identity, templateKey, template, terminationReason),
-          'Observed EC2 runner instance termination',
-        );
-      }
-      const event = eventForInstance(context, instance, mapped.state, labels, mapped.reason);
-      events.push(event);
-      if (terminalObservation) terminalReportInstanceIds.set(event, instance.instanceId);
-    }
-    if (!terminationRequested && liveState && identity.runnerInstanceId) {
-      const hasCanonicalAssignment = context.canonicalReservationIdsByRunner.has(
-        identity.providerRunnerId,
-      );
-      const canonicalReservationId = context.canonicalReservationIdsByRunner.get(
-        identity.providerRunnerId,
-      );
-      const reservationId = hasCanonicalAssignment
-        ? canonicalReservationId
-        : identity.reservationId;
-      if (reservationId) {
-        assignmentCandidates.push({
-          runnerInstanceId: identity.runnerInstanceId,
-          reservationId,
-          ...(identity.reservationId ? {observedReservationId: identity.reservationId} : {}),
-          ...(canonicalReservationId ? {canonicalReservationId} : {}),
-        });
-      }
-    }
-    if (!terminationRequested && liveState && identity.templateKey) {
-      trackerRunners.push({
-        providerRunnerId: identity.providerRunnerId,
-        templateKey: identity.templateKey,
-        state: liveState,
-      });
-    }
+  const template = identity.templateKey
+    ? context.templatesByKey.get(identity.templateKey)
+    : undefined;
+  const labels = identity.labels.length > 0 ? identity.labels : (template?.labels ?? []);
+  if (labels.length === 0) return;
+  const mapped = mapInstanceState(instance);
+  recordObservedInstanceEvent(context, plan, instance, identity, pendingLaunch, labels, mapped);
+  recordObservedAssignment(context, plan, identity, mapped.state, termination.requested);
+  if (
+    !termination.requested &&
+    (mapped.state === 'starting' || mapped.state === 'running') &&
+    identity.templateKey
+  ) {
+    plan.trackerRunners.push({
+      providerRunnerId: identity.providerRunnerId,
+      templateKey: identity.templateKey,
+      state: mapped.state,
+    });
   }
+}
 
-  pruneTerminalReportedInstances(context, observedInstanceIds, context.now().getTime());
-  pruneTerminationActionedInstances(context, observedInstanceIds, context.now().getTime());
-  synthesizeAbsentLaunchedRunners(context, observedIds, trackerRunners, events);
-  context.tracker.replaceAll(trackerRunners);
-  await assignEnrolledReservations(context, assignmentCandidates, observedRunnerInstanceIds);
-  await terminateInstances(context, terminateIntentInstances, 'backend-terminate');
-  await terminateInstances(context, reapInstances, 'registration-deadline');
-  if (events.length > 0) {
-    await reportEvents(context, events, terminalReportInstanceIds);
+function recordObservedIdentity(
+  context: Ec2LifecycleContext,
+  plan: Ec2ObservationPlan,
+  instance: Ec2InstanceView,
+  runnerInstanceId: string | undefined,
+  observedAt: number,
+): void {
+  plan.observedInstanceIds.add(instance.instanceId);
+  if (context.terminalReportedInstanceIds.has(instance.instanceId)) {
+    context.terminalReportedInstanceIds.set(instance.instanceId, observedAt);
   }
+  if (context.terminationActionedInstanceIds.has(instance.instanceId)) {
+    context.terminationActionedInstanceIds.set(instance.instanceId, observedAt);
+  }
+  if (runnerInstanceId) plan.observedRunnerInstanceIds.add(runnerInstanceId);
+}
+
+function recordPendingLaunchObservation(
+  context: Ec2LifecycleContext,
+  instance: Ec2InstanceView,
+  identity: ReturnType<typeof parseInstanceIdentity>,
+  pendingLaunch: LocallyLaunchedRunner | undefined,
+): void {
+  if (!pendingLaunch) return;
+  if (instance.state !== 'running') {
+    if (isTerminalPendingState(instance.state))
+      context.pendingLaunches.delete(identity.providerRunnerId);
+    return;
+  }
+  const templateKey = resolveTemplateKey(context, [
+    identity.templateKey,
+    pendingLaunch.templateKey,
+  ]);
+  const template = context.templatesByKey.get(templateKey);
+  context.pendingLaunches.delete(identity.providerRunnerId);
+  if (!template) return;
+  recordEc2PendingDuration({
+    durationMs: context.now().getTime() - pendingLaunch.launchedAt.getTime(),
+    templateKey,
+    market: template.spec.market,
+    architecture: instance.architecture ?? 'unknown',
+    availabilityZone: instance.availabilityZone ?? 'unknown',
+  });
+}
+
+function recordTerminationCandidate(
+  context: Ec2LifecycleContext,
+  plan: Ec2ObservationPlan,
+  instance: Ec2InstanceView,
+  providerRunnerId: string,
+  terminateIntentIds: ReadonlySet<string>,
+): {requested: boolean; skipObservation: boolean} {
+  const hasTerminateIntent = terminateIntentIds.has(providerRunnerId);
+  const pastRegistrationDeadline = isPastRegistrationDeadline(instance, context);
+  const requested = hasTerminateIntent || pastRegistrationDeadline;
+  if (!canTerminateInstance(instance)) return {requested, skipObservation: false};
+  if (hasTerminateIntent) plan.terminateIntentInstances.push(instance);
+  else if (pastRegistrationDeadline) plan.reapInstances.push(instance);
+  return {requested, skipObservation: requested};
+}
+
+function recordObservedInstanceEvent(
+  context: Ec2LifecycleContext,
+  plan: Ec2ObservationPlan,
+  instance: Ec2InstanceView,
+  identity: ReturnType<typeof parseInstanceIdentity>,
+  pendingLaunch: LocallyLaunchedRunner | undefined,
+  labels: readonly string[],
+  mapped: ReturnType<typeof mapInstanceState>,
+): void {
+  const terminal = mapped.state === 'failed' || mapped.state === 'terminated';
+  if (terminal && hasTerminalReport(context, instance.instanceId)) return;
+  if (terminal) logObservedTermination(context, instance, identity, pendingLaunch, mapped.reason);
+  const event = eventForInstance(context, instance, mapped.state, labels, mapped.reason);
+  plan.events.push(event);
+  if (terminal) plan.terminalReportInstanceIds.set(event, instance.instanceId);
+}
+
+function logObservedTermination(
+  context: Ec2LifecycleContext,
+  instance: Ec2InstanceView,
+  identity: ReturnType<typeof parseInstanceIdentity>,
+  pendingLaunch: LocallyLaunchedRunner | undefined,
+  reason: string | undefined,
+): void {
+  const terminationReason =
+    reason === 'spot-interruption' ? 'spot-interruption' : 'observed-terminated';
+  const templateKey = resolveTemplateKey(context, [
+    identity.templateKey,
+    pendingLaunch?.templateKey,
+  ]);
+  const template = context.templatesByKey.get(templateKey);
+  recordEc2Termination(terminationReason, templateKey);
+  logger().info(
+    terminationLogFields(instance, identity, templateKey, template, terminationReason),
+    'Observed EC2 runner instance termination',
+  );
+}
+
+function recordObservedAssignment(
+  context: Ec2LifecycleContext,
+  plan: Ec2ObservationPlan,
+  identity: ReturnType<typeof parseInstanceIdentity>,
+  state: ReturnType<typeof mapInstanceState>['state'],
+  terminationRequested: boolean,
+): void {
+  if (
+    terminationRequested ||
+    (state !== 'starting' && state !== 'running') ||
+    !identity.runnerInstanceId
+  )
+    return;
+  const hasCanonical = context.canonicalReservationIdsByRunner.has(identity.providerRunnerId);
+  const canonicalReservationId = context.canonicalReservationIdsByRunner.get(
+    identity.providerRunnerId,
+  );
+  const reservationId = hasCanonical ? canonicalReservationId : identity.reservationId;
+  if (!reservationId) return;
+  plan.assignmentCandidates.push({
+    runnerInstanceId: identity.runnerInstanceId,
+    reservationId,
+    ...(identity.reservationId ? {observedReservationId: identity.reservationId} : {}),
+    ...(canonicalReservationId ? {canonicalReservationId} : {}),
+  });
 }
 
 async function assignEnrolledReservations(
@@ -432,43 +513,54 @@ async function assignEnrolledReservations(
     assignments.set(reservationId, assignmentCandidates);
   }
   for (const [reservationId, assignmentCandidates] of assignments) {
-    const runnerInstanceIds = assignmentCandidates.map((candidate) => candidate.runnerInstanceId);
-    try {
-      await context.client.assignRunnerInstances(reservationId, runnerInstanceIds);
-    } catch (error) {
-      const status = responseStatus(error);
-      const code = status === 409 ? responseCode(error) : undefined;
-      const disposition = assignmentFailureDisposition({status, code});
-      if (disposition.permanent) {
-        const suppressedRunnerInstanceIds =
-          context.suppressedReservationRunnerIds.get(reservationId) ?? new Set<string>();
-        for (const runnerInstanceId of runnerInstanceIds) {
-          suppressedRunnerInstanceIds.add(runnerInstanceId);
-        }
-        context.suppressedReservationRunnerIds.set(reservationId, suppressedRunnerInstanceIds);
-      }
-      const observedReservationIds = uniqueReservationIds({
+    await assignReservationGroup(context, reservationId, assignmentCandidates);
+  }
+}
+
+async function assignReservationGroup(
+  context: Ec2LifecycleContext,
+  reservationId: string,
+  assignmentCandidates: readonly AssignmentCandidate[],
+): Promise<void> {
+  const runnerInstanceIds = assignmentCandidates.map((candidate) => candidate.runnerInstanceId);
+  try {
+    await context.client.assignRunnerInstances(reservationId, runnerInstanceIds);
+  } catch (error) {
+    const status = responseStatus(error);
+    const code = status === 409 ? responseCode(error) : undefined;
+    const disposition = assignmentFailureDisposition({status, code});
+    if (disposition.permanent) {
+      suppressReservationRunners(context, reservationId, runnerInstanceIds);
+    }
+    const details = {
+      reservationId,
+      runnerInstanceIds,
+      observedReservationIds: uniqueReservationIds({
         candidates: assignmentCandidates,
         select: (candidate) => candidate.observedReservationId,
-      });
-      const canonicalReservationIds = uniqueReservationIds({
+      }),
+      canonicalReservationIds: uniqueReservationIds({
         candidates: assignmentCandidates,
         select: (candidate) => candidate.canonicalReservationId,
-      });
-      const details = {
-        reservationId,
-        runnerInstanceIds,
-        observedReservationIds,
-        canonicalReservationIds,
-        err: error,
-        status,
-        ...(code ? {code} : {}),
-        retryable: !disposition.permanent,
-      };
-      if (disposition.level === 'debug') logger().debug(details, disposition.message);
-      else logger().warn(details, disposition.message);
-    }
+      }),
+      err: error,
+      status,
+      ...(code ? {code} : {}),
+      retryable: !disposition.permanent,
+    };
+    if (disposition.level === 'debug') logger().debug(details, disposition.message);
+    else logger().warn(details, disposition.message);
   }
+}
+
+function suppressReservationRunners(
+  context: Ec2LifecycleContext,
+  reservationId: string,
+  runnerInstanceIds: readonly string[],
+): void {
+  const suppressed = context.suppressedReservationRunnerIds.get(reservationId) ?? new Set<string>();
+  for (const runnerInstanceId of runnerInstanceIds) suppressed.add(runnerInstanceId);
+  context.suppressedReservationRunnerIds.set(reservationId, suppressed);
 }
 
 function uniqueReservationIds(params: {

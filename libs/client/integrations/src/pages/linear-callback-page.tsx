@@ -5,7 +5,7 @@ import {FullPageLoader} from '@shipfox/react-ui/loader';
 import {toast} from '@shipfox/react-ui/toast';
 import {useQueryClient} from '@tanstack/react-query';
 import {useNavigate} from '@tanstack/react-router';
-import {useEffect, useMemo, useState} from 'react';
+import {type Dispatch, type SetStateAction, useEffect, useMemo, useState} from 'react';
 import {useCompleteIntegrationCallback} from '#application/complete-integration-callback.js';
 import {CallbackStatusShell} from '#components/callback-status-shell.js';
 import type {IntegrationConnection} from '#core/models.js';
@@ -29,6 +29,7 @@ const completedCallbacks = new Set<string>();
 // Keeps the success toast firing once per distinct callback even though the
 // effect re-runs against the cached request as the mutation identity churns.
 const toastedCallbacks = new Set<string>();
+type CompletedLinearWorkspace = {slug?: string | undefined};
 
 export function LinearCallbackPage() {
   const navigate = useNavigate();
@@ -40,9 +41,7 @@ export function LinearCallbackPage() {
   const params = useRouteSearch(parseLinearCallbackQuery);
   const workspaceId = useMemo(() => readLinearInstallWorkspace(sessionStorageOrUndefined()), []);
   const [failure, setFailure] = useState<LinearCallbackFailure | undefined>();
-  const [completedWorkspace, setCompletedWorkspace] = useState<{
-    slug?: string | undefined;
-  }>();
+  const [completedWorkspace, setCompletedWorkspace] = useState<CompletedLinearWorkspace>();
   useEffect(() => {
     if (!params || isLoading) return;
 
@@ -59,52 +58,16 @@ export function LinearCallbackPage() {
     );
 
     request.then(
-      async (connection) => {
-        if (disposed) return;
-        if (completedCallbacks.has(key)) {
-          const workspaceSlug = await resolveWorkspaceSlug({
-            workspaceId: connection.workspaceId,
-            fallbackWorkspaces: workspaces,
-            queryClient,
-          });
-          if (!disposed) setCompletedWorkspace(workspaceSlug ? {slug: workspaceSlug} : {});
-          return;
-        }
-        rememberCallbackKey(completedCallbacks, key);
-        try {
-          clearLinearInstallWorkspace(sessionStorageOrUndefined());
-        } catch {
-          // The successful API response remains the source of truth for navigation.
-        }
-        if (disposed) return;
-        if (!toastedCallbacks.has(key)) {
-          rememberCallbackKey(toastedCallbacks, key);
-          toast.success('Linear installed.');
-        }
-        let workspaceSlug: string | undefined;
-        try {
-          if (disposed) return;
-          workspaceSlug = await resolveWorkspaceSlug({
-            workspaceId: connection.workspaceId,
-            fallbackWorkspaces: workspaces,
-            queryClient,
-          });
-          if (disposed) return;
-          if (!workspaceSlug) {
-            setCompletedWorkspace({});
-            return;
-          }
-          setCompletedWorkspace({slug: workspaceSlug});
-          await navigate({
-            to: '/w/$workspaceSlug/settings/integrations',
-            params: {workspaceSlug},
-            replace: true,
-          });
-        } catch {
-          // Keep the completed callback page visible if client navigation is interrupted.
-          if (!disposed) setCompletedWorkspace({slug: workspaceSlug});
-        }
-      },
+      async (connection) =>
+        await handleLinearCallbackSuccess({
+          connection,
+          key,
+          isDisposed: () => disposed,
+          workspaces,
+          queryClient,
+          navigate,
+          setCompletedWorkspace,
+        }),
       (error: unknown) => {
         if (disposed) return;
         setFailure(classifyLinearCallbackError(error));
@@ -162,6 +125,100 @@ export function LinearCallbackPage() {
       workspaceSlug={workspaces.find(({id}) => id === workspaceId)?.slug}
     />
   );
+}
+
+async function handleLinearCallbackSuccess({
+  connection,
+  key,
+  isDisposed,
+  workspaces,
+  queryClient,
+  navigate,
+  setCompletedWorkspace,
+}: {
+  connection: IntegrationConnection;
+  key: string;
+  isDisposed: () => boolean;
+  workspaces: ReturnType<typeof useAuthState>['workspaces'];
+  queryClient: ReturnType<typeof useQueryClient>;
+  navigate: ReturnType<typeof useNavigate>;
+  setCompletedWorkspace: Dispatch<SetStateAction<CompletedLinearWorkspace | undefined>>;
+}) {
+  if (isDisposed()) return;
+  if (completedCallbacks.has(key)) {
+    await showResolvedLinearWorkspace({
+      connection,
+      isDisposed,
+      workspaces,
+      queryClient,
+      setCompletedWorkspace,
+    });
+    return;
+  }
+  rememberCallbackKey(completedCallbacks, key);
+  try {
+    clearLinearInstallWorkspace(sessionStorageOrUndefined());
+  } catch {
+    // The successful API response remains the source of truth for navigation.
+  }
+  if (isDisposed()) return;
+  if (!toastedCallbacks.has(key)) {
+    rememberCallbackKey(toastedCallbacks, key);
+    toast.success('Linear installed.');
+  }
+  await navigateToLinearWorkspace({
+    connection,
+    isDisposed,
+    workspaces,
+    queryClient,
+    navigate,
+    setCompletedWorkspace,
+  });
+}
+
+type LinearWorkspaceResolution = {
+  connection: IntegrationConnection;
+  isDisposed: () => boolean;
+  workspaces: ReturnType<typeof useAuthState>['workspaces'];
+  queryClient: ReturnType<typeof useQueryClient>;
+  setCompletedWorkspace: Dispatch<SetStateAction<CompletedLinearWorkspace | undefined>>;
+};
+
+async function showResolvedLinearWorkspace(params: LinearWorkspaceResolution) {
+  const workspaceSlug = await resolveWorkspaceSlug({
+    workspaceId: params.connection.workspaceId,
+    fallbackWorkspaces: params.workspaces,
+    queryClient: params.queryClient,
+  });
+  if (!params.isDisposed()) {
+    params.setCompletedWorkspace(workspaceSlug ? {slug: workspaceSlug} : {});
+  }
+}
+
+async function navigateToLinearWorkspace(
+  params: LinearWorkspaceResolution & {navigate: ReturnType<typeof useNavigate>},
+) {
+  let workspaceSlug: string | undefined;
+  try {
+    workspaceSlug = await resolveWorkspaceSlug({
+      workspaceId: params.connection.workspaceId,
+      fallbackWorkspaces: params.workspaces,
+      queryClient: params.queryClient,
+    });
+    if (params.isDisposed()) return;
+    if (!workspaceSlug) {
+      params.setCompletedWorkspace({});
+      return;
+    }
+    params.setCompletedWorkspace({slug: workspaceSlug});
+    await params.navigate({
+      to: '/w/$workspaceSlug/settings/integrations',
+      params: {workspaceSlug},
+      replace: true,
+    });
+  } catch {
+    if (!params.isDisposed()) params.setCompletedWorkspace({slug: workspaceSlug});
+  }
 }
 
 function LinearCallbackFailurePage({

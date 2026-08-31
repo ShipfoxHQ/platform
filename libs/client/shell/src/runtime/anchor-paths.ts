@@ -25,50 +25,85 @@ export function validateRoutePathInvariants(path: string): void {
   const segments = path.split('/').filter(Boolean);
   const seenSlugParams = new Set<string>();
 
-  if (segments[0] === 'workspaces' && segments[1]?.startsWith('$')) {
-    throw new Error(
-      `Route "${path}" must use the slug-based workspace prefix "w" instead of the legacy "/workspaces" path.`,
-    );
-  }
+  validateLegacyWorkspacePrefix(path, segments);
 
   for (const [index, segment] of segments.entries()) {
-    const nextSegment = segments[index + 1];
-    if (segment.length === 1 && Object.hasOwn(entityPrefixRegistry, segment)) {
-      if (!nextSegment?.startsWith('$')) {
-        throw new Error(
-          `Route "${path}" uses prefix "${segment}" without a dynamic parameter immediately after it.`,
-        );
-      }
-    }
-
-    if (!segment.startsWith('$')) continue;
-    const param = segment.slice(1) as keyof typeof slugParamPrefixes;
-    const prefix = Object.hasOwn(slugParamPrefixes, param) ? slugParamPrefixes[param] : undefined;
-    if (prefix !== undefined) {
-      if (seenSlugParams.has(param)) {
-        throw new Error(`Route "${path}" repeats slug parameter "${param}".`);
-      }
-      seenSlugParams.add(param);
-      if (segments[index - 1] !== prefix) {
-        throw new Error(
-          `Route "${path}" places slug parameter "${param}" outside prefix "${prefix}".`,
-        );
-      }
-    }
-    if (prefix === undefined) {
-      const previousSegment = segments[index - 1];
-      if (
-        !previousSegment ||
-        previousSegment.startsWith('$') ||
-        Object.hasOwn(entityPrefixRegistry, previousSegment)
-      ) {
-        throw new Error(
-          `Route "${path}" must place UUID parameter "${param}" after a page segment.`,
-        );
-      }
-    }
+    validateRouteSegment(path, segments, index, segment, seenSlugParams);
   }
 
+  validateEntityPrefixOrder(path, segments);
+}
+
+function validateLegacyWorkspacePrefix(path: string, segments: string[]): void {
+  if (segments[0] !== 'workspaces' || !segments[1]?.startsWith('$')) return;
+  throw new Error(
+    `Route "${path}" must use the slug-based workspace prefix "w" instead of the legacy "/workspaces" path.`,
+  );
+}
+
+function validateRouteSegment(
+  path: string,
+  segments: string[],
+  index: number,
+  segment: string,
+  seenSlugParams: Set<string>,
+): void {
+  validateEntityPrefix(path, segment, segments[index + 1]);
+  if (!segment.startsWith('$')) return;
+
+  const param = segment.slice(1) as keyof typeof slugParamPrefixes;
+  const prefix = Object.hasOwn(slugParamPrefixes, param) ? slugParamPrefixes[param] : undefined;
+  if (prefix !== undefined) {
+    validateSlugParameter(path, param, prefix, segments[index - 1], seenSlugParams);
+    return;
+  }
+  validateUuidParameter(path, param, segments[index - 1]);
+}
+
+function validateEntityPrefix(
+  path: string,
+  segment: string,
+  nextSegment: string | undefined,
+): void {
+  if (segment.length !== 1 || !Object.hasOwn(entityPrefixRegistry, segment)) return;
+  if (nextSegment?.startsWith('$')) return;
+  throw new Error(
+    `Route "${path}" uses prefix "${segment}" without a dynamic parameter immediately after it.`,
+  );
+}
+
+function validateSlugParameter(
+  path: string,
+  param: keyof typeof slugParamPrefixes,
+  prefix: string,
+  previousSegment: string | undefined,
+  seenSlugParams: Set<string>,
+): void {
+  if (seenSlugParams.has(param)) {
+    throw new Error(`Route "${path}" repeats slug parameter "${param}".`);
+  }
+  seenSlugParams.add(param);
+  if (previousSegment !== prefix) {
+    throw new Error(`Route "${path}" places slug parameter "${param}" outside prefix "${prefix}".`);
+  }
+}
+
+function validateUuidParameter(
+  path: string,
+  param: string,
+  previousSegment: string | undefined,
+): void {
+  if (
+    previousSegment &&
+    !previousSegment.startsWith('$') &&
+    !Object.hasOwn(entityPrefixRegistry, previousSegment)
+  ) {
+    return;
+  }
+  throw new Error(`Route "${path}" must place UUID parameter "${param}" after a page segment.`);
+}
+
+function validateEntityPrefixOrder(path: string, segments: string[]): void {
   const workspacePrefixIndex = segments.indexOf('w');
   const projectPrefixIndex = segments.indexOf('p');
   if (

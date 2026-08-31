@@ -77,15 +77,13 @@ export function DateRangePicker({
 }: DateRangePickerProps) {
   const [open, setOpen] = useState(false);
 
-  const isDisabled = disabled || state === 'disabled';
-  const startDate = dateRange?.start && isValid(dateRange.start) ? dateRange.start : undefined;
-  const endDate = dateRange?.end && isValid(dateRange.end) ? dateRange.end : undefined;
-  const hasSelection = Boolean(startDate || endDate);
+  const isDisabled = Boolean(disabled || state === 'disabled');
+  const {startDate, endDate} = validDateRange(dateRange);
+  const hasSelection = rangeHasSelection(startDate, endDate);
 
   const displayValue = formatDateRange(startDate, endDate, dateFormat);
 
-  const dayPickerRange: DayPickerDateRange | undefined =
-    startDate || endDate ? {from: startDate, to: endDate} : undefined;
+  const dayPickerRange = toDayPickerRange(startDate, endDate);
 
   const defaultMonth = startDate ?? endDate ?? new Date();
 
@@ -210,6 +208,30 @@ export function DateRangePicker({
       </PopoverContent>
     </Popover>
   );
+}
+
+function validDateRange(dateRange: DateRange | undefined) {
+  return {
+    startDate: validRangeDate(dateRange?.start),
+    endDate: validRangeDate(dateRange?.end),
+  };
+}
+
+function validRangeDate(date: Date | undefined): Date | undefined {
+  if (!date || !isValid(date)) return undefined;
+  return date;
+}
+
+function rangeHasSelection(startDate: Date | undefined, endDate: Date | undefined): boolean {
+  return Boolean(startDate || endDate);
+}
+
+function toDayPickerRange(
+  startDate: Date | undefined,
+  endDate: Date | undefined,
+): DayPickerDateRange | undefined {
+  if (!startDate && !endDate) return undefined;
+  return {from: startDate, to: endDate};
 }
 
 function formatDateRange(

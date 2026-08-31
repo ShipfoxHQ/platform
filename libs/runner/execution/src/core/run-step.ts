@@ -181,45 +181,14 @@ function spawnAndCapture(
     // detached:true makes the shell a process-group leader so killGroup() can
     // SIGKILL its grandchildren too (Linux does not propagate signals down the
     // parent chain). We don't unref(): output capture still needs `close`.
-    let child: ReturnType<typeof spawn>;
-    try {
-      child = spawn(shell.executable, shell.args, {
-        stdio: ['ignore', 'pipe', 'pipe'],
-        detached: true,
-        cwd: options.cwd,
-        env: {
-          ...process.env,
-          ...stepEnv,
-          ...((options.workspace ?? options.cwd)
-            ? {SHIPFOX_WORKSPACE: options.workspace ?? options.cwd}
-            : {}),
-          ...(options.gitConfigGlobal ? {GIT_CONFIG_GLOBAL: options.gitConfigGlobal} : {}),
-          SHIPFOX_OUTPUT: outputPath,
-          ...(annotationSpool?.env ?? {}),
-        },
-      });
-    } catch (err) {
+    const spawned = spawnRunStepProcess(shell, stepEnv, outputPath, annotationSpool, options);
+    if (!spawned.ok) {
       unsubscribeSecrets?.();
-      logger().error({err}, 'Failed to spawn shell process');
-      resolve({
-        success: false,
-        error: {
-          message: `Failed to spawn process: ${err instanceof Error ? err.message : String(err)}`,
-        },
-        exit_code: null,
-      });
+      logger().error({err: spawned.error}, 'Failed to spawn shell process');
+      resolve(spawned.result);
       return;
     }
-
-    if (!child.stdout || !child.stderr) {
-      unsubscribeSecrets?.();
-      resolve({
-        success: false,
-        error: {message: 'Failed to spawn process without output pipes'},
-        exit_code: null,
-      });
-      return;
-    }
+    const child = spawned.child;
 
     // stdout and stderr are two separate pipes, so the sink sees them merged by
     // arrival order, not kernel/wall-clock order; origin is preserved per chunk.
@@ -239,83 +208,17 @@ function spawnAndCapture(
       flushTeeOutput(process.stderr, stderrTeeRedactor);
     });
 
-    let childExited = false;
-    let abortKillSignal: NodeJS.Signals | undefined;
-
-    const killGroup = (): NodeJS.Signals | undefined => {
-      if (child.pid !== undefined) {
-        try {
-          // Negative pid signals the entire process group.
-          const signal: NodeJS.Signals = 'SIGKILL';
-          process.kill(-child.pid, signal);
-          return signal;
-        } catch {
-          // Process already exited.
-        }
-      }
-      return undefined;
-    };
-
-    let onAbort: (() => void) | undefined;
-    if (options.signal) {
-      if (options.signal.aborted) {
-        abortKillSignal = killGroup();
-      } else {
-        onAbort = () => {
-          if (!childExited) {
-            abortKillSignal = killGroup();
-          }
-        };
-        options.signal.addEventListener('abort', onAbort, {once: true});
-      }
-    }
-
-    const cleanupAbortListener = () => {
-      if (onAbort && options.signal) {
-        options.signal.removeEventListener('abort', onAbort);
-        onAbort = undefined;
-      }
-    };
-
-    child.on('exit', () => {
-      childExited = true;
-    });
+    const abort = observeProcessAbort(child, options.signal);
+    child.on('exit', abort.markExited);
 
     child.on('close', (code, signal) => {
-      cleanupAbortListener();
+      abort.cleanup();
       unsubscribeSecrets?.();
-      if (abortKillSignal && isSignalKillResult(code, abortKillSignal)) {
-        const resultSignal = signal ?? abortKillSignal;
-        resolve({
-          success: false,
-          error: {
-            message: `Killed by signal ${resultSignal}`,
-            exit_code: null,
-            signal: resultSignal,
-          },
-          exit_code: null,
-        });
-        return;
-      }
-      if (code === 0) {
-        resolve({success: true, error: null, exit_code: 0});
-        return;
-      }
-      // code === null when the child was terminated by a signal (e.g. SIGKILL
-      // from killGroup() on abort). Otherwise code is the non-zero exit code.
-      const error: StepErrorDto =
-        code === null
-          ? {
-              message: `Killed by signal ${signal ?? 'unknown'}`,
-              exit_code: null,
-              ...(signal ? {signal} : {}),
-            }
-          : {message: `Command exited with code ${code}`, exit_code: code};
-      resolve({success: false, error, exit_code: code});
+      resolve(runStepCloseResult(code, signal, abort.killSignal()));
     });
 
     child.on('error', (err) => {
-      cleanupAbortListener();
+      abort.cleanup();
       unsubscribeSecrets?.();
       logger().error({err}, 'Failed to spawn shell process');
       resolve({
@@ -325,6 +228,136 @@ function spawnAndCapture(
       });
     });
   });
+}
+
+type SpawnedRunStepChild = ReturnType<typeof spawn> & {
+  stdout: NonNullable<ReturnType<typeof spawn>['stdout']>;
+  stderr: NonNullable<ReturnType<typeof spawn>['stderr']>;
+};
+
+type SpawnRunStepResult =
+  | {
+      ok: true;
+      child: SpawnedRunStepChild;
+    }
+  | {ok: false; error: unknown; result: StepResult};
+
+function spawnRunStepProcess(
+  shell: CommandShellMetadata,
+  stepEnv: Readonly<Record<string, string>>,
+  outputPath: string,
+  annotationSpool: AnnotationSpool | undefined,
+  options: RunStepOptions,
+): SpawnRunStepResult {
+  try {
+    const child = spawn(shell.executable, shell.args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      detached: true,
+      cwd: options.cwd,
+      env: {
+        ...process.env,
+        ...stepEnv,
+        ...((options.workspace ?? options.cwd)
+          ? {SHIPFOX_WORKSPACE: options.workspace ?? options.cwd}
+          : {}),
+        ...(options.gitConfigGlobal ? {GIT_CONFIG_GLOBAL: options.gitConfigGlobal} : {}),
+        SHIPFOX_OUTPUT: outputPath,
+        ...(annotationSpool?.env ?? {}),
+      },
+    });
+    if (!child.stdout || !child.stderr) {
+      return {
+        ok: false,
+        error: new Error('Failed to spawn process without output pipes'),
+        result: {
+          success: false,
+          error: {message: 'Failed to spawn process without output pipes'},
+          exit_code: null,
+        },
+      };
+    }
+    return {ok: true, child: child as SpawnedRunStepChild};
+  } catch (error) {
+    return {
+      ok: false,
+      error,
+      result: {
+        success: false,
+        error: {
+          message: `Failed to spawn process: ${error instanceof Error ? error.message : String(error)}`,
+        },
+        exit_code: null,
+      },
+    };
+  }
+}
+
+function runStepCloseResult(
+  code: number | null,
+  signal: NodeJS.Signals | null,
+  abortKillSignal: NodeJS.Signals | undefined,
+): StepResult {
+  if (abortKillSignal && isSignalKillResult(code, abortKillSignal)) {
+    const resultSignal = signal ?? abortKillSignal;
+    return {
+      success: false,
+      error: {
+        message: `Killed by signal ${resultSignal}`,
+        exit_code: null,
+        signal: resultSignal,
+      },
+      exit_code: null,
+    };
+  }
+  if (code === 0) return {success: true, error: null, exit_code: 0};
+  // code === null when the child was terminated by a signal. Otherwise it is non-zero.
+  const error: StepErrorDto =
+    code === null
+      ? {
+          message: `Killed by signal ${signal ?? 'unknown'}`,
+          exit_code: null,
+          ...(signal ? {signal} : {}),
+        }
+      : {message: `Command exited with code ${code}`, exit_code: code};
+  return {success: false, error, exit_code: code};
+}
+
+function observeProcessAbort(
+  child: ReturnType<typeof spawn>,
+  signal: AbortSignal | undefined,
+): {markExited(): void; cleanup(): void; killSignal(): NodeJS.Signals | undefined} {
+  let childExited = false;
+  let abortKillSignal: NodeJS.Signals | undefined;
+  const killGroup = (): NodeJS.Signals | undefined => {
+    if (child.pid === undefined) return undefined;
+    try {
+      // Negative pid signals the entire process group.
+      const killSignal: NodeJS.Signals = 'SIGKILL';
+      process.kill(-child.pid, killSignal);
+      return killSignal;
+    } catch {
+      return undefined;
+    }
+  };
+  let onAbort: (() => void) | undefined;
+  if (signal?.aborted) abortKillSignal = killGroup();
+  if (signal && !signal.aborted) {
+    onAbort = () => {
+      if (!childExited) abortKillSignal = killGroup();
+    };
+    signal.addEventListener('abort', onAbort, {once: true});
+  }
+  return {
+    markExited: () => {
+      childExited = true;
+    },
+    cleanup: () => {
+      if (!onAbort || !signal) return;
+      signal.removeEventListener('abort', onAbort);
+      onAbort = undefined;
+    },
+    killSignal: () => abortKillSignal,
+  };
 }
 
 async function finalizeStepOutput(result: StepResult, outputPath: string): Promise<StepResult> {

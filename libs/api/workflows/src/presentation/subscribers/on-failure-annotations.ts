@@ -36,22 +36,7 @@ export function onStepAttemptTerminatedFailureAnnotation(
     }
 
     try {
-      const initialDetail = await getStepAttemptDetail({
-        stepId: payload.stepId,
-        attempt: payload.attempt,
-      });
-      if (!initialDetail) return;
-
-      // The detail query joins the requested attempt to the step's current projection. A
-      // delayed event can therefore return an old attempt alongside a newer step status. Read
-      // the canonical current attempt before deciding whether to replace or remove the card.
-      const detail =
-        initialDetail.attempt.attempt === initialDetail.step.currentAttempt
-          ? initialDetail
-          : await getStepAttemptDetail({
-              stepId: initialDetail.step.id,
-              attempt: initialDetail.step.currentAttempt,
-            });
+      const detail = await getCurrentStepAttemptDetail(payload);
       if (!detail || detail.attempt.attempt !== detail.step.currentAttempt) return;
 
       const runAttempt = await getWorkflowRunAttemptById(payload.workflowRunAttemptId);
@@ -71,11 +56,7 @@ export function onStepAttemptTerminatedFailureAnnotation(
           originStepAttempt: detail.attempt.attempt,
         },
         context: failureContext('step', detail.step.id),
-        failed:
-          detail.step.status === 'failed' ||
-          (detail.attempt.status === 'failed' &&
-            detail.step.status !== 'succeeded' &&
-            detail.step.status !== 'cancelled'),
+        failed: currentStepAttemptFailed(detail),
         body: stepFailureBody(
           detail.step.name,
           detail.attempt.error ?? detail.step.error,
@@ -89,6 +70,31 @@ export function onStepAttemptTerminatedFailureAnnotation(
       });
     }
   };
+}
+
+async function getCurrentStepAttemptDetail(payload: WorkflowsStepAttemptTerminatedEventDto) {
+  const initialDetail = await getStepAttemptDetail({
+    stepId: payload.stepId,
+    attempt: payload.attempt,
+  });
+  if (!initialDetail) return undefined;
+
+  // The detail query joins the requested attempt to the step's current projection. A
+  // delayed event can therefore return an old attempt alongside a newer step status. Read
+  // the canonical current attempt before deciding whether to replace or remove the card.
+  if (initialDetail.attempt.attempt === initialDetail.step.currentAttempt) return initialDetail;
+  return getStepAttemptDetail({
+    stepId: initialDetail.step.id,
+    attempt: initialDetail.step.currentAttempt,
+  });
+}
+
+function currentStepAttemptFailed(
+  detail: NonNullable<Awaited<ReturnType<typeof getStepAttemptDetail>>>,
+): boolean {
+  if (detail.step.status === 'failed') return true;
+  if (detail.attempt.status !== 'failed') return false;
+  return detail.step.status !== 'succeeded' && detail.step.status !== 'cancelled';
 }
 
 export function onJobTerminatedFailureAnnotation(annotations: AnnotationsInterModuleClient) {

@@ -21,12 +21,12 @@ const checkoutConfigSchema = z
   })
   .superRefine((checkout, context) => {
     for (const validationIssue of checkoutTargetValidationIssues(checkout)) {
-      const message =
-        validationIssue.kind === 'project-with-connection'
-          ? 'Checkout project cannot be combined with a connection.'
-          : validationIssue.kind === 'project-with-repository'
-            ? 'Checkout project cannot be combined with a repository.'
-            : 'Checkout connection requires a repository.';
+      let message = 'Checkout connection requires a repository.';
+      if (validationIssue.kind === 'project-with-connection') {
+        message = 'Checkout project cannot be combined with a connection.';
+      } else if (validationIssue.kind === 'project-with-repository') {
+        message = 'Checkout project cannot be combined with a repository.';
+      }
       context.addIssue({
         code: 'custom',
         path: [validationIssue.path],
@@ -91,18 +91,7 @@ export async function createStepCheckoutSpec({
     },
     target,
   });
-  // Explicit step refs win, followed by same-project event commits (including
-  // replays), then the pinned dev commit for the run's own project. Other targets
-  // intentionally use the provider default branch.
-  const triggerCommitRef =
-    triggerReference?.project?.id === resolvedTarget.projectId
-      ? (triggerReference.commit ?? undefined)
-      : undefined;
-  const devCommitRef =
-    run.origin === 'dev' && resolvedTarget.projectId === projectId
-      ? run.devSource.commit
-      : undefined;
-  const ref = checkout.ref ?? triggerCommitRef ?? devCommitRef;
+  const ref = resolveCheckoutRef({checkout, triggerReference, run, resolvedTarget, projectId});
   const response = await integrations.createCheckoutSpec({
     workspaceId,
     connectionId: resolvedTarget.connectionId,
@@ -111,38 +100,71 @@ export async function createStepCheckoutSpec({
     permissions: checkout.permissions ?? {contents: 'read'},
   });
 
+  return checkoutResult(checkout, response);
+}
+
+function resolveCheckoutRef(params: {
+  checkout: CheckoutConfig;
+  triggerReference: WorkflowRunTriggerReference | null | undefined;
+  run: WorkflowRunOriginState;
+  resolvedTarget: {projectId?: string | undefined};
+  projectId: string;
+}): string | undefined {
+  // Explicit step refs win, followed by same-project event commits (including
+  // replays), then the pinned dev commit for the run's own project. Other targets
+  // intentionally use the provider default branch.
+  let triggerCommitRef: string | undefined;
+  const {triggerReference} = params;
+  if (
+    triggerReference !== null &&
+    triggerReference !== undefined &&
+    triggerReference.project?.id === params.resolvedTarget.projectId
+  ) {
+    triggerCommitRef = triggerReference.commit ?? undefined;
+  }
+  let devCommitRef: string | undefined;
+  if (params.run.origin === 'dev' && params.resolvedTarget.projectId === params.projectId) {
+    devCommitRef = params.run.devSource.commit;
+  }
+  return params.checkout.ref ?? triggerCommitRef ?? devCommitRef;
+}
+
+type CheckoutSpecResponse = Awaited<ReturnType<IntegrationsModuleClient['createCheckoutSpec']>>;
+
+function checkoutResult(checkout: CheckoutConfig, response: CheckoutSpecResponse) {
+  const credentials = checkoutCredentials(response.credentials);
   return {
     spec: {
       repositoryUrl: response.repositoryUrl,
       ref: response.ref,
-      ...(response.credentials
-        ? {
-            credentials: {
-              username: response.credentials.username,
-              token: response.credentials.token,
-              expiresAt: new Date(response.credentials.expiresAt),
-              ...(response.credentials.generation === undefined
-                ? {}
-                : {generation: response.credentials.generation}),
-              ...(response.credentials.renewal === undefined
-                ? {}
-                : {
-                    renewal:
-                      response.credentials.renewal.mode === 'refresh-at'
-                        ? {
-                            mode: 'refresh-at' as const,
-                            refreshAt: new Date(response.credentials.renewal.refreshAt),
-                          }
-                        : {mode: 'on-rejection' as const},
-                  }),
-            },
-          }
-        : {}),
+      ...(credentials === undefined ? {} : {credentials}),
       ...(response.gitAuthor === undefined ? {} : {gitAuthor: response.gitAuthor}),
     },
     fetchDepth: checkout.fetch_depth ?? 1,
     persistCredentials: checkout.persist_credentials ?? true,
   };
+}
+
+function checkoutCredentials(credentials: CheckoutSpecResponse['credentials']) {
+  if (credentials === undefined) return undefined;
+  const renewal = checkoutCredentialRenewal(credentials.renewal);
+  return {
+    username: credentials.username,
+    token: credentials.token,
+    expiresAt: new Date(credentials.expiresAt),
+    ...(credentials.generation === undefined ? {} : {generation: credentials.generation}),
+    ...(renewal === undefined ? {} : {renewal}),
+  };
+}
+
+function checkoutCredentialRenewal(
+  renewal: NonNullable<CheckoutSpecResponse['credentials']>['renewal'],
+) {
+  if (renewal === undefined) return undefined;
+  if (renewal.mode === 'refresh-at') {
+    return {mode: 'refresh-at' as const, refreshAt: new Date(renewal.refreshAt)};
+  }
+  return {mode: 'on-rejection' as const};
 }
 
 function parseCheckoutConfig(step: Step): CheckoutConfig {

@@ -15,7 +15,13 @@ import {
 import {type ReactNode, useState} from 'react';
 import {userEvent, within} from 'storybook/test';
 import type {RunAnnotationSummary} from '#core/run-annotation.js';
-import type {Job, JobExecution, StepAttemptDetail, WorkflowRunDetail} from '#core/workflow-run.js';
+import type {
+  Job,
+  JobExecution,
+  Step,
+  StepAttemptDetail,
+  WorkflowRunDetail,
+} from '#core/workflow-run.js';
 import {workflowRunAnnotationsQueryKeys} from '#hooks/api/annotations.js';
 import {stepAttemptDetailQueryKeys} from '#hooks/api/step-attempt-detail.js';
 import type {useWorkflowRunAttemptQuery} from '#hooks/api/workflow-runs.js';
@@ -265,56 +271,76 @@ function StoryQueryProvider({
   stepDetails?: readonly StepAttemptDetail[];
   children: ReactNode;
 }) {
-  const [queryClient] = useState(() => {
-    const client = new QueryClient({
-      defaultOptions: {queries: {staleTime: Number.POSITIVE_INFINITY}},
-    });
-    if (run) {
-      for (const job of run.jobs) {
-        for (const execution of job.jobExecutions) {
-          for (const step of execution.steps) {
-            for (const attempt of step.attempts) {
-              client.setQueryData<StepLogSnapshot>(
-                stepLogsQueryKeys.detail(step.id, attempt.attempt),
-                storyLogSnapshot(),
-              );
-            }
-          }
-        }
-      }
-      client.setQueryData(workflowRunsQueryKeys.detail(run.id), run);
-      for (const detail of stepDetails) {
-        client.setQueryData(
-          stepAttemptDetailQueryKeys.detail(detail.stepId, detail.attempt),
-          detail,
-        );
-      }
-      const summary: RunAnnotationSummary = {
-        total: 0,
-        error: 0,
-        warning: 0,
-        info: 0,
-        success: 0,
-        truncated: false,
-        stepCounts: [],
-      };
-      for (const job of run.jobs) {
-        for (const execution of job.jobExecutions) {
-          client.setQueryData(
-            workflowRunAnnotationsQueryKeys.summary(run.id, run.runAttempt.attempt, execution.id),
-            summary,
-          );
-        }
-      }
-      client.setQueryData(
-        workflowRunAnnotationsQueryKeys.summary(run.id, run.runAttempt.attempt),
-        summary,
-      );
-    }
-    return client;
-  });
+  const [queryClient] = useState(() => createStoryQueryClient(run, stepDetails));
 
   return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+}
+
+function createStoryQueryClient(
+  run: WorkflowRunDetail | undefined,
+  stepDetails: readonly StepAttemptDetail[],
+) {
+  const client = new QueryClient({
+    defaultOptions: {queries: {staleTime: Number.POSITIVE_INFINITY}},
+  });
+  if (!run) return client;
+  seedStoryLogs(client, run);
+  client.setQueryData(workflowRunsQueryKeys.detail(run.id), run);
+  for (const detail of stepDetails) {
+    client.setQueryData(stepAttemptDetailQueryKeys.detail(detail.stepId, detail.attempt), detail);
+  }
+  seedStoryAnnotationSummaries(client, run);
+  return client;
+}
+
+function seedStoryLogs(client: QueryClient, run: WorkflowRunDetail): void {
+  for (const job of run.jobs) seedJobLogs(client, job);
+}
+
+function seedJobLogs(client: QueryClient, job: Job): void {
+  for (const execution of job.jobExecutions) seedExecutionLogs(client, execution);
+}
+
+function seedExecutionLogs(client: QueryClient, execution: JobExecution): void {
+  for (const step of execution.steps) {
+    for (const attempt of step.attempts) {
+      client.setQueryData<StepLogSnapshot>(
+        stepLogsQueryKeys.detail(step.id, attempt.attempt),
+        storyLogSnapshot(),
+      );
+    }
+  }
+}
+
+function seedStoryAnnotationSummaries(client: QueryClient, run: WorkflowRunDetail): void {
+  const summary: RunAnnotationSummary = {
+    total: 0,
+    error: 0,
+    warning: 0,
+    info: 0,
+    success: 0,
+    truncated: false,
+    stepCounts: [],
+  };
+  for (const job of run.jobs) seedJobAnnotationSummaries(client, run, job, summary);
+  client.setQueryData(
+    workflowRunAnnotationsQueryKeys.summary(run.id, run.runAttempt.attempt),
+    summary,
+  );
+}
+
+function seedJobAnnotationSummaries(
+  client: QueryClient,
+  run: WorkflowRunDetail,
+  job: Job,
+  summary: RunAnnotationSummary,
+): void {
+  for (const execution of job.jobExecutions) {
+    client.setQueryData(
+      workflowRunAnnotationsQueryKeys.summary(run.id, run.runAttempt.attempt, execution.id),
+      summary,
+    );
+  }
 }
 
 function storyLogSnapshot(): StepLogSnapshot {
@@ -858,58 +884,63 @@ function storyRun({
         timed_out_at: execution.timedOutAt,
         created_at: execution.createdAt,
         updated_at: execution.updatedAt,
-        steps: execution.steps.map((step) => ({
-          id: step.id,
-          job_execution_id: step.jobExecutionId,
-          key: step.key,
-          name: step.name,
-          source_location: null,
-          status: step.status,
-          type: step.type,
-          config: step.config,
-          evaluation_trace: step.evaluationTrace,
-          error: step.error
-            ? {
-                message: step.error.message,
-                ...(step.error.exitCode !== null ? {exit_code: step.error.exitCode} : {}),
-                ...(step.error.signal ? {signal: step.error.signal} : {}),
-                ...(step.error.reason ? {reason: step.error.reason} : {}),
-                ...(step.error.agentConfigIssue
-                  ? {agent_config_issue: step.error.agentConfigIssue}
-                  : {}),
-                ...(step.error.category ? {category: step.error.category} : {}),
-              }
-            : null,
-          position: step.position,
-          current_attempt: step.currentAttempt,
-          exit_code: null,
-          outputs: null,
-          response: null,
-          gate_result: null,
-          created_at: step.createdAt,
-          updated_at: step.updatedAt,
-          attempts: step.attempts.map((attempt) => ({
-            id: attempt.id,
-            step_id: attempt.stepId,
-            attempt: attempt.attempt,
-            execution_order: attempt.executionOrder,
-            status: attempt.status,
-            exit_code: attempt.exitCode,
-            output: attempt.output,
-            outputs: attempt.outputs,
-            response: attempt.response,
-            error: attempt.error,
-            gate_result: null,
-            restart_feedback: attempt.restartFeedback,
-            started_at: attempt.startedAt,
-            finished_at: attempt.finishedAt,
-          })),
-        })),
+        steps: execution.steps.map(storyStepDto),
       })),
       outputs: job.outputs ?? job.jobExecutions[0]?.outputs ?? null,
       resolution_reason: job.resolutionReason,
     })),
   });
+}
+
+function storyStepDto(step: Step) {
+  return {
+    id: step.id,
+    job_execution_id: step.jobExecutionId,
+    key: step.key,
+    name: step.name,
+    source_location: null,
+    status: step.status,
+    type: step.type,
+    config: step.config,
+    evaluation_trace: step.evaluationTrace,
+    error: storyStepErrorDto(step),
+    position: step.position,
+    current_attempt: step.currentAttempt,
+    exit_code: null,
+    outputs: null,
+    response: null,
+    gate_result: null,
+    created_at: step.createdAt,
+    updated_at: step.updatedAt,
+    attempts: step.attempts.map((attempt) => ({
+      id: attempt.id,
+      step_id: attempt.stepId,
+      attempt: attempt.attempt,
+      execution_order: attempt.executionOrder,
+      status: attempt.status,
+      exit_code: attempt.exitCode,
+      output: attempt.output,
+      outputs: attempt.outputs,
+      response: attempt.response,
+      error: attempt.error,
+      gate_result: null,
+      restart_feedback: attempt.restartFeedback,
+      started_at: attempt.startedAt,
+      finished_at: attempt.finishedAt,
+    })),
+  };
+}
+
+function storyStepErrorDto(step: Step) {
+  if (!step.error) return null;
+  return {
+    message: step.error.message,
+    ...(step.error.exitCode !== null ? {exit_code: step.error.exitCode} : {}),
+    ...(step.error.signal ? {signal: step.error.signal} : {}),
+    ...(step.error.reason ? {reason: step.error.reason} : {}),
+    ...(step.error.agentConfigIssue ? {agent_config_issue: step.error.agentConfigIssue} : {}),
+    ...(step.error.category ? {category: step.error.category} : {}),
+  };
 }
 
 function makeJob({

@@ -249,41 +249,47 @@ function fetchForScenario(scenario: Scenario): typeof fetch {
     const url = requestUrl(input);
     if (scenario === 'loading') return new Promise<Response>(() => undefined);
     if (url.pathname.endsWith('/runners/manual-registration-tokens')) {
-      if (scenario === 'errors') return Promise.resolve(errorResponse());
-      return Promise.resolve(
-        jsonResponse({
-          manual_registration_tokens: scenario === 'empty' ? [] : [manualToken()],
-        }),
-      );
+      return manualRegistrationTokensResponse(scenario);
     }
     if (url.pathname.endsWith('/provisioners/tokens')) {
-      if (scenario === 'errors') return Promise.resolve(errorResponse());
-      return Promise.resolve(
-        jsonResponse({
-          tokens: scenario === 'empty' ? [] : provisionerTokens(),
-        }),
-      );
+      return provisionerTokensResponse(scenario);
     }
     if (url.pathname.endsWith('/provisioners/active')) {
-      return Promise.resolve(
-        jsonResponse({
-          provisioners:
-            scenario === 'empty'
-              ? []
-              : [
-                  {
-                    id: '33333333-3333-4333-8333-333333333333',
-                    name: 'Docker autoscaler',
-                    prefix: 'sf_pt_docker',
-                    last_seen_at: NOW,
-                  },
-                ],
-          installation_runners: 'none',
-        }),
-      );
+      return activeProvisionersResponse(scenario);
     }
     return Promise.resolve(jsonResponse({}, {status: 404}));
   };
+}
+
+function manualRegistrationTokensResponse(scenario: Scenario) {
+  if (scenario === 'errors') return Promise.resolve(errorResponse());
+  return Promise.resolve(
+    jsonResponse({
+      manual_registration_tokens: scenario === 'empty' ? [] : [manualToken()],
+    }),
+  );
+}
+
+function provisionerTokensResponse(scenario: Scenario) {
+  if (scenario === 'errors') return Promise.resolve(errorResponse());
+  return Promise.resolve(jsonResponse({tokens: scenario === 'empty' ? [] : provisionerTokens()}));
+}
+
+function activeProvisionersResponse(scenario: Scenario) {
+  const provisioners = [
+    {
+      id: '33333333-3333-4333-8333-333333333333',
+      name: 'Docker autoscaler',
+      prefix: 'sf_pt_docker',
+      last_seen_at: NOW,
+    },
+  ];
+  return Promise.resolve(
+    jsonResponse({
+      provisioners: scenario === 'empty' ? [] : provisioners,
+      installation_runners: 'none',
+    }),
+  );
 }
 
 function provisionerTokens(): ProvisionerTokenDto[] {

@@ -134,7 +134,7 @@ export function decideStepTransition(input: DecideStepTransitionInput): StepTran
 
   // 1. Did the step pass? The gate (when present and checkable) is authoritative
   //    over the raw command status.
-  if (gate.kind === 'no-gate' ? result.status === 'succeeded' : gate.kind === 'passed') {
+  if (stepReportPassed(gate, result)) {
     return succeed(target, reportedAttempt, steps);
   }
 
@@ -142,59 +142,73 @@ export function decideStepTransition(input: DecideStepTransitionInput): StepTran
   //    `uncheckable` (no exit code / eval error) is a plain command failure that
   //    never restarts.
   const uncheckable = gate.kind === 'uncheckable';
-  const failureError: Record<string, unknown> | null =
-    gate.kind === 'failed'
-      ? {kind: 'gate_failed', message: 'gate condition not met', source: gate.source}
-      : gate.kind === 'uncheckable'
-        ? (result.error ?? {kind: 'gate_uncheckable', message: gate.reason})
-        : (result.error ?? null);
+  const failureError = stepFailureError(gate, result);
 
   // 3. Restart when a policy is configured and the failure is checkable.
   if (gateOnFailure?.restartFrom && !uncheckable) {
-    // Exclude the synthetic setup step: a user step legitimately named "Set up job"
-    // would otherwise resolve to position 0 and rewind setup (deleting the workspace
-    // mid-job). Duplicate user-step names are already impossible (normalize rejects
-    // them with duplicate-step-id), so this is the only collision to guard.
-    const restartStep = steps.find(
-      (step) =>
-        step.type !== 'setup' &&
-        step.position < target.position &&
-        step.key === gateOnFailure.restartFrom,
-    );
-    if (!restartStep) {
-      // The model validates restart_from to an earlier named step, but fail closed
-      // if it can't be resolved at runtime rather than silently restarting wrong.
-      return fail(target, reportedAttempt, {
-        kind: 'restart_unresolved',
-        message: `could not resolve restart_from "${gateOnFailure.restartFrom}"`,
-        restart_from: gateOnFailure.restartFrom,
-      });
-    }
-    const gatingAttemptCount = input.gatingAttemptCount ?? reportedAttempt;
-    if (gatingAttemptCount >= maxAttempts) {
-      return {
-        kind: 'fail-job-restart-exhausted',
-        failedStepId: target.id,
-        attempt: reportedAttempt,
-        maxAttempts,
-        failureError: {
-          kind: 'restart_exhausted',
-          maxAttempts,
-          restart_from: gateOnFailure.restartFrom,
-        },
-      };
-    }
-    return {
-      kind: 'restart-job-from-step',
-      failedStepId: target.id,
-      restartFromStepId: restartStep.id,
-      restartFromPosition: restartStep.position,
-      attempt: reportedAttempt,
-      feedback: input.restartFeedback ?? gateOnFailure.feedback ?? 'gate condition not met',
-      failureError,
-    };
+    return restartStepTransition(input, gateOnFailure, failureError, maxAttempts);
   }
 
   // 4. No restart → plain fail-and-cancel.
   return fail(target, reportedAttempt, failureError);
+}
+
+function stepReportPassed(gate: GateOutcome, result: StepReport): boolean {
+  if (gate.kind === 'no-gate') return result.status === 'succeeded';
+  return gate.kind === 'passed';
+}
+
+function stepFailureError(gate: GateOutcome, result: StepReport): Record<string, unknown> | null {
+  if (gate.kind === 'failed') {
+    return {kind: 'gate_failed', message: 'gate condition not met', source: gate.source};
+  }
+  if (gate.kind === 'uncheckable') {
+    return result.error ?? {kind: 'gate_uncheckable', message: gate.reason};
+  }
+  return result.error ?? null;
+}
+
+function restartStepTransition(
+  input: DecideStepTransitionInput,
+  gateOnFailure: NonNullable<DecideStepTransitionInput['gateOnFailure']>,
+  failureError: Record<string, unknown> | null,
+  maxAttempts: number,
+): StepTransitionDecision {
+  const {steps, target, reportedAttempt} = input;
+  const restartStep = steps.find(
+    (step) =>
+      step.type !== 'setup' &&
+      step.position < target.position &&
+      step.key === gateOnFailure.restartFrom,
+  );
+  if (!restartStep) {
+    return fail(target, reportedAttempt, {
+      kind: 'restart_unresolved',
+      message: `could not resolve restart_from "${gateOnFailure.restartFrom}"`,
+      restart_from: gateOnFailure.restartFrom,
+    });
+  }
+  const gatingAttemptCount = input.gatingAttemptCount ?? reportedAttempt;
+  if (gatingAttemptCount >= maxAttempts) {
+    return {
+      kind: 'fail-job-restart-exhausted',
+      failedStepId: target.id,
+      attempt: reportedAttempt,
+      maxAttempts,
+      failureError: {
+        kind: 'restart_exhausted',
+        maxAttempts,
+        restart_from: gateOnFailure.restartFrom,
+      },
+    };
+  }
+  return {
+    kind: 'restart-job-from-step',
+    failedStepId: target.id,
+    restartFromStepId: restartStep.id,
+    restartFromPosition: restartStep.position,
+    attempt: reportedAttempt,
+    feedback: input.restartFeedback ?? gateOnFailure.feedback ?? 'gate condition not met',
+    failureError,
+  };
 }

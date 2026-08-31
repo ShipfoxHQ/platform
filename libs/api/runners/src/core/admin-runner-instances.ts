@@ -70,24 +70,21 @@ function toRunnerAdministratorInstance(
   const isActivated = row.runnerSessionId !== null;
   const hasClaim = row.firstClaimedAt !== null;
   const isTerminal = isTerminalState(row.state);
+  let lifecycleState: RunnerAdministratorInstance['lifecycleState'] = 'claimed';
+  if (!isAssigned) lifecycleState = 'unassigned';
+  else if (isTerminal) lifecycleState = 'completed';
+  else if (!isActivated) lifecycleState = 'assigned';
+  else if (!hasClaim) lifecycleState = 'activated';
+
+  let enrollmentState: RunnerAdministratorInstance['enrollmentState'] = 'pending';
+  if (isActivated) enrollmentState = 'activated';
+  else if (row.hasActiveControlSession) enrollmentState = 'enrolled';
 
   return {
     id: row.id,
-    lifecycleState: !isAssigned
-      ? 'unassigned'
-      : isTerminal
-        ? 'completed'
-        : !isActivated
-          ? 'assigned'
-          : !hasClaim
-            ? 'activated'
-            : 'claimed',
+    lifecycleState,
     computeState: row.state,
-    enrollmentState: isActivated
-      ? 'activated'
-      : row.hasActiveControlSession
-        ? 'enrolled'
-        : 'pending',
+    enrollmentState,
     assignmentPresence: isAssigned ? 'assigned' : 'unassigned',
     assignedWorkspace: row.workspaceId ? {id: row.workspaceId} : null,
     labels: row.labels,

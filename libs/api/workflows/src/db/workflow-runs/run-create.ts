@@ -98,163 +98,12 @@ export async function createWorkflowRun(params: CreateWorkflowRunParams): Promis
     model: params.model,
     context: agentToolContext,
   });
-  const result = await db().transaction(async (tx) => {
-    // Serialize idempotent trigger resolution separately from per-definition number
-    // allocation so a replay never consumes a number, including when two deliveries
-    // race before either run is visible.
-    if (params.triggerIdempotencyKey) {
-      await tx.execute(
-        sql`select pg_advisory_xact_lock(hashtext(${params.triggerIdempotencyKey}))`,
-      );
-      const existing = await tx
-        .select()
-        .from(workflowRuns)
-        .where(eq(workflowRuns.triggerIdempotencyKey, params.triggerIdempotencyKey))
-        .limit(1);
-      const existingRow = existing[0];
-      if (existingRow) return {run: toWorkflowRun(existingRow), created: false};
-    }
-
-    // Keep allocation on the existing transaction so a trigger burst cannot pin
-    // every pool connection and then wait for a second connection per run.
-    const number = await allocateWorkflowRunNumber(tx, params.definitionId);
-
-    const insertResult = await tx
-      .insert(workflowRuns)
-      .values({
-        workspaceId: params.workspaceId,
-        projectId: params.projectId,
-        definitionId: params.definitionId,
-        number,
-        name: null,
-        workflowName: staticName,
-        status: 'pending',
-        currentAttempt: 1,
-        triggerProvider: params.triggerPayload.provider ?? null,
-        triggerSource: params.triggerPayload.source,
-        triggerEvent: params.triggerPayload.event,
-        triggerPayload: params.triggerPayload,
-        triggerReference,
-        inputs: params.inputs ?? null,
-        sourceSnapshot: params.sourceSnapshot ?? null,
-        triggerIdempotencyKey: params.triggerIdempotencyKey ?? null,
-        origin: params.origin ?? 'synced',
-        devSource:
-          params.devSource === undefined || params.devSource === null
-            ? null
-            : toWorkflowRunDevSourceDb(params.devSource),
-      })
-      .onConflictDoNothing({target: workflowRuns.triggerIdempotencyKey})
-      .returning();
-
-    const runRow = insertResult[0];
-    if (!runRow) {
-      // Conflict path: skip jobs/steps/outbox so the first insert keeps ownership of side effects.
-      if (!params.triggerIdempotencyKey) {
-        throw new Error('Insert returned no rows');
-      }
-      const existing = await tx
-        .select()
-        .from(workflowRuns)
-        .where(eq(workflowRuns.triggerIdempotencyKey, params.triggerIdempotencyKey))
-        .limit(1);
-      const existingRow = existing[0];
-      if (!existingRow) {
-        throw new Error(
-          `Idempotency conflict but existing run missing for key ${params.triggerIdempotencyKey}`,
-        );
-      }
-      return {run: toWorkflowRun(existingRow), created: false};
-    }
-
-    // Resolving run-creation templates and predicates here gives them a stable variable snapshot
-    // and interpolation access to the inserted run id. Run-name resolution is display-only and
-    // persists only a resolved override. If resolution fails, the transaction rolls back the run,
-    // jobs, steps, and outbox event together. Listening steps are resolved later when a job
-    // execution is created.
-    const provisionalRun = toWorkflowRun(runRow);
-    const oneShotJobs = params.model.jobs.filter((job) => job.mode !== 'listening');
-    const vars = await loadReferencedVariables({
-      model: params.model,
-      jobs: oneShotJobs,
-      workspaceId: params.workspaceId,
-      projectId: params.projectId,
-      definitionId: params.definitionId,
-      secrets: params.secrets,
-    });
-    const runNameResolution = resolveWorkflowRunName({
-      runName: params.model.runName,
-      context: assembleCreationContext({
-        run: provisionalRun,
-        triggerPayload: params.triggerPayload,
-        inputs: params.inputs ?? null,
-        vars,
-      }).values,
-    });
-    const [resolvedRunRow] = await tx
-      .update(workflowRuns)
-      .set({name: runNameResolution.value, updatedAt: new Date()})
-      .where(eq(workflowRuns.id, provisionalRun.id))
-      .returning();
-    if (!resolvedRunRow)
-      throw new Error(`Workflow run missing after name resolution: ${runRow.id}`);
-    const run = toWorkflowRun(resolvedRunRow);
-    const [attemptRow] = await tx
-      .insert(workflowRunAttempts)
-      .values({
-        workflowRunId: runRow.id,
-        attempt: 1,
-        status: 'pending',
-        model: createWorkflowModelSnapshot(params.model),
-        vars,
-        agentToolMaterialization,
-      })
-      .returning();
-    if (!attemptRow) throw new Error('Insert returned no rows');
-
-    const materializedJobs = await materializeWorkflowRunJobs({
-      run,
-      model: params.model,
-      triggerPayload: params.triggerPayload,
-      inputs: params.inputs ?? null,
-      vars,
-      resolveAgentDefaults: params.resolveAgentDefaults,
-      definitionId: params.definitionId,
-      agentToolContext,
-      agentToolSnapshot: agentToolMaterialization,
-    });
-
-    const graphJobs = materializeRunGraphJobs({
-      params,
-      run,
-      vars,
-      materializedJobs,
-    });
-    await persistMaterializedRunGraph(tx, {
-      run,
-      workflowRunAttempt: attemptRow,
-      materializedJobs: graphJobs,
-    });
-
-    logTemplateDiagnostics({
-      workflowRunId: runRow.id,
-      diagnostics: materializedJobs.flatMap((job) =>
-        job.steps.flatMap((step) =>
-          (step.diagnostics ?? []).map((diagnostic) => ({
-            jobKey: job.key,
-            stepName: step.name,
-            ...diagnostic,
-          })),
-        ),
-      ),
-    });
-
-    return {
-      run,
-      created: true,
-      nameDegradation: runNameResolution.degradation,
-    };
-  });
+  const result = await db().transaction((tx) =>
+    createWorkflowRunInTransaction(
+      {params, staticName, triggerReference, agentToolContext, agentToolMaterialization},
+      tx,
+    ),
+  );
 
   if (result.created && result.nameDegradation !== undefined) {
     recordWorkflowDisplayNameResolutionDegraded('workflow.run_name', result.nameDegradation.cause);
@@ -277,6 +126,190 @@ export async function createWorkflowRun(params: CreateWorkflowRunParams): Promis
   }
 
   return result.run;
+}
+
+interface CreateWorkflowRunTransactionContext {
+  readonly params: CreateWorkflowRunParams;
+  readonly staticName: string;
+  readonly triggerReference: Awaited<ReturnType<typeof resolveWorkflowRunTriggerReference>>;
+  readonly agentToolContext: Awaited<ReturnType<typeof loadAgentToolMaterializationContext>>;
+  readonly agentToolMaterialization: ReturnType<typeof createAgentToolMaterializationSnapshot>;
+}
+
+async function createWorkflowRunInTransaction(
+  context: CreateWorkflowRunTransactionContext,
+  tx: Tx,
+) {
+  const existing = await findIdempotentWorkflowRun(context.params.triggerIdempotencyKey, tx);
+  if (existing) return {run: existing, created: false as const};
+
+  const insertion = await insertWorkflowRun(context, tx);
+  if (insertion.kind === 'existing') return {run: insertion.run, created: false as const};
+  return materializeCreatedWorkflowRun(context, insertion.row, tx);
+}
+
+async function findIdempotentWorkflowRun(
+  idempotencyKey: string | undefined,
+  tx: Tx,
+): Promise<WorkflowRun | undefined> {
+  if (!idempotencyKey) return undefined;
+
+  // Serialize idempotent trigger resolution separately from per-definition number
+  // allocation so a replay never consumes a number, including when two deliveries
+  // race before either run is visible.
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${idempotencyKey}))`);
+  const [existing] = await tx
+    .select()
+    .from(workflowRuns)
+    .where(eq(workflowRuns.triggerIdempotencyKey, idempotencyKey))
+    .limit(1);
+  return existing === undefined ? undefined : toWorkflowRun(existing);
+}
+
+async function insertWorkflowRun(
+  context: CreateWorkflowRunTransactionContext,
+  tx: Tx,
+): Promise<
+  {kind: 'created'; row: typeof workflowRuns.$inferSelect} | {kind: 'existing'; run: WorkflowRun}
+> {
+  const {params} = context;
+  // Keep allocation on the existing transaction so a trigger burst cannot pin
+  // every pool connection and then wait for a second connection per run.
+  const number = await allocateWorkflowRunNumber(tx, params.definitionId);
+  const [runRow] = await tx
+    .insert(workflowRuns)
+    .values({
+      workspaceId: params.workspaceId,
+      projectId: params.projectId,
+      definitionId: params.definitionId,
+      number,
+      name: null,
+      workflowName: context.staticName,
+      status: 'pending',
+      currentAttempt: 1,
+      triggerProvider: params.triggerPayload.provider ?? null,
+      triggerSource: params.triggerPayload.source,
+      triggerEvent: params.triggerPayload.event,
+      triggerPayload: params.triggerPayload,
+      triggerReference: context.triggerReference,
+      inputs: params.inputs ?? null,
+      sourceSnapshot: params.sourceSnapshot ?? null,
+      triggerIdempotencyKey: params.triggerIdempotencyKey ?? null,
+      origin: params.origin ?? 'synced',
+      devSource:
+        params.devSource === undefined || params.devSource === null
+          ? null
+          : toWorkflowRunDevSourceDb(params.devSource),
+    })
+    .onConflictDoNothing({target: workflowRuns.triggerIdempotencyKey})
+    .returning();
+  if (runRow) return {kind: 'created', row: runRow};
+  return loadConflictingWorkflowRun(params.triggerIdempotencyKey, tx);
+}
+
+async function loadConflictingWorkflowRun(
+  idempotencyKey: string | undefined,
+  tx: Tx,
+): Promise<{kind: 'existing'; run: WorkflowRun}> {
+  if (!idempotencyKey) throw new Error('Insert returned no rows');
+  const [existing] = await tx
+    .select()
+    .from(workflowRuns)
+    .where(eq(workflowRuns.triggerIdempotencyKey, idempotencyKey))
+    .limit(1);
+  if (!existing) {
+    throw new Error(`Idempotency conflict but existing run missing for key ${idempotencyKey}`);
+  }
+  return {kind: 'existing', run: toWorkflowRun(existing)};
+}
+
+async function materializeCreatedWorkflowRun(
+  context: CreateWorkflowRunTransactionContext,
+  runRow: typeof workflowRuns.$inferSelect,
+  tx: Tx,
+) {
+  const {params} = context;
+  // Resolving run-creation templates and predicates here gives them a stable variable snapshot
+  // and interpolation access to the inserted run id. Run-name resolution is display-only and
+  // persists only a resolved override. If resolution fails, the transaction rolls back the run,
+  // jobs, steps, and outbox event together. Listening steps are resolved later when a job
+  // execution is created.
+  const provisionalRun = toWorkflowRun(runRow);
+  const oneShotJobs = params.model.jobs.filter((job) => job.mode !== 'listening');
+  const vars = await loadReferencedVariables({
+    model: params.model,
+    jobs: oneShotJobs,
+    workspaceId: params.workspaceId,
+    projectId: params.projectId,
+    definitionId: params.definitionId,
+    secrets: params.secrets,
+  });
+  const runNameResolution = resolveWorkflowRunName({
+    runName: params.model.runName,
+    context: assembleCreationContext({
+      run: provisionalRun,
+      triggerPayload: params.triggerPayload,
+      inputs: params.inputs ?? null,
+      vars,
+    }).values,
+  });
+  const [resolvedRunRow] = await tx
+    .update(workflowRuns)
+    .set({name: runNameResolution.value, updatedAt: new Date()})
+    .where(eq(workflowRuns.id, provisionalRun.id))
+    .returning();
+  if (!resolvedRunRow) throw new Error(`Workflow run missing after name resolution: ${runRow.id}`);
+  const run = toWorkflowRun(resolvedRunRow);
+  const [attemptRow] = await tx
+    .insert(workflowRunAttempts)
+    .values({
+      workflowRunId: runRow.id,
+      attempt: 1,
+      status: 'pending',
+      model: createWorkflowModelSnapshot(params.model),
+      vars,
+      agentToolMaterialization: context.agentToolMaterialization,
+    })
+    .returning();
+  if (!attemptRow) throw new Error('Insert returned no rows');
+
+  const materializedJobs = await materializeWorkflowRunJobs({
+    run,
+    model: params.model,
+    triggerPayload: params.triggerPayload,
+    inputs: params.inputs ?? null,
+    vars,
+    resolveAgentDefaults: params.resolveAgentDefaults,
+    definitionId: params.definitionId,
+    agentToolContext: context.agentToolContext,
+    agentToolSnapshot: context.agentToolMaterialization,
+  });
+  await persistMaterializedRunGraph(tx, {
+    run,
+    workflowRunAttempt: attemptRow,
+    materializedJobs: materializeRunGraphJobs({params, run, vars, materializedJobs}),
+  });
+  logMaterializedJobDiagnostics(runRow.id, materializedJobs);
+
+  return {run, created: true as const, nameDegradation: runNameResolution.degradation};
+}
+
+function logMaterializedJobDiagnostics(
+  workflowRunId: string,
+  materializedJobs: readonly MaterializedWorkflowJob[],
+): void {
+  logTemplateDiagnostics({
+    workflowRunId,
+    diagnostics: materializedJobs.flatMap((job) =>
+      job.steps.flatMap((step) =>
+        (step.diagnostics ?? []).map((diagnostic) => ({
+          jobKey: job.key,
+          stepName: step.name,
+          ...diagnostic,
+        })),
+      ),
+    ),
+  });
 }
 
 async function allocateWorkflowRunNumber(tx: Tx, definitionId: string): Promise<number> {
@@ -425,7 +458,17 @@ function referencedVariables(
   jobs: readonly WorkflowModelJob[],
 ): readonly ReferencedVariable[] {
   const references: ReferencedVariable[] = [];
+  collectWorkflowPredicateVariableReferences(model, references);
+  collectFieldVariableReferences(model.runName, references, {field: 'workflow.run_name'});
+  if (jobs.length > 0) collectTemplateVariableReferences(model.templates?.env, references);
+  for (const job of jobs) collectJobVariableReferences(job, references);
+  return references;
+}
 
+function collectWorkflowPredicateVariableReferences(
+  model: WorkflowModel,
+  references: ReferencedVariable[],
+): void {
   for (const job of model.jobs) {
     collectPredicateVariableReferences(job.if, references);
     collectPredicateVariableReferences(job.success, references);
@@ -439,59 +482,65 @@ function referencedVariables(
       collectPredicateVariableReferences(step.gate?.success, references);
     }
   }
+}
 
-  collectFieldVariableReferences(model.runName, references, {field: 'workflow.run_name'});
-
-  if (jobs.length > 0) {
-    collectTemplateVariableReferences(model.templates?.env, references);
+function collectJobVariableReferences(
+  job: WorkflowModelJob,
+  references: ReferencedVariable[],
+): void {
+  collectFieldVariableReferences(job.executionName, references, {field: 'job.execution_name'});
+  for (const template of job.runnerTemplates ?? []) {
+    collectFieldVariableReferences(template, references, {field: 'job.runner'});
   }
+  collectTemplateVariableReferences(job.outputs, references, {field: 'job.outputs'});
+  collectTemplateVariableReferences(job.templates?.env, references);
+  for (const step of job.steps) collectStepVariableReferences(step, references);
+}
 
-  for (const job of jobs) {
-    collectFieldVariableReferences(job.executionName, references, {field: 'job.execution_name'});
-    for (const template of job.runnerTemplates ?? []) {
-      collectFieldVariableReferences(template, references, {field: 'job.runner'});
-    }
-    collectTemplateVariableReferences(job.outputs, references, {field: 'job.outputs'});
-    collectTemplateVariableReferences(job.templates?.env, references);
-
-    for (const step of job.steps) {
-      collectFieldVariableReferences(step.templates?.name, references, {field: 'step.name'});
-      collectFieldVariableReferences(
-        step.kind === 'tool' ? undefined : step.templates?.workingDirectory,
-        references,
-        {
-          field: 'step.working_directory',
-        },
-      );
-      if (step.kind === 'run') {
-        collectFieldVariableReferences(step.templates?.command, references, {field: 'run'});
-        collectTemplateVariableReferences(step.templates?.env, references);
-      } else if (step.kind === 'agent') {
-        collectFieldVariableReferences(step.templates?.prompt, references, {field: 'agent.prompt'});
-        collectFieldVariableReferences(step.templates?.model, references, {field: 'agent.model'});
-        collectFieldVariableReferences(step.templates?.provider, references, {
-          field: 'agent.provider',
-        });
-        collectFieldVariableReferences(step.session?.key, references, {field: 'agent.session'});
-      } else if (step.kind === 'tool') {
-        collectTemplateTreeVariableReferences(step.templates?.with, references, {
-          field: 'tool.with',
-        });
-        for (const [key, expression] of Object.entries(step.outputMappings ?? {})) {
-          collectExpressionVariableReferences(expression, references, {
-            field: 'tool.outputs',
-            envKey: key,
-          });
-        }
-      } else if (step.kind === 'checkout') {
-        for (const [key, field] of WORKFLOW_MODEL_CHECKOUT_TARGET_FIELDS) {
-          collectFieldVariableReferences(step.checkout.templates?.[key], references, {field});
-        }
+function collectStepVariableReferences(
+  step: WorkflowModelJob['steps'][number],
+  references: ReferencedVariable[],
+): void {
+  collectFieldVariableReferences(step.templates?.name, references, {field: 'step.name'});
+  collectFieldVariableReferences(
+    step.kind === 'tool' ? undefined : step.templates?.workingDirectory,
+    references,
+    {field: 'step.working_directory'},
+  );
+  switch (step.kind) {
+    case 'run':
+      collectFieldVariableReferences(step.templates?.command, references, {field: 'run'});
+      collectTemplateVariableReferences(step.templates?.env, references);
+      return;
+    case 'agent':
+      collectFieldVariableReferences(step.templates?.prompt, references, {field: 'agent.prompt'});
+      collectFieldVariableReferences(step.templates?.model, references, {field: 'agent.model'});
+      collectFieldVariableReferences(step.templates?.provider, references, {
+        field: 'agent.provider',
+      });
+      collectFieldVariableReferences(step.session?.key, references, {field: 'agent.session'});
+      return;
+    case 'tool':
+      collectToolStepVariableReferences(step, references);
+      return;
+    case 'checkout':
+      for (const [key, field] of WORKFLOW_MODEL_CHECKOUT_TARGET_FIELDS) {
+        collectFieldVariableReferences(step.checkout.templates?.[key], references, {field});
       }
-    }
   }
+}
 
-  return references;
+function collectToolStepVariableReferences(
+  step: Extract<WorkflowModelJob['steps'][number], {kind: 'tool'}>,
+  references: ReferencedVariable[],
+): void {
+  collectTemplateTreeVariableReferences(step.templates?.with, references, {field: 'tool.with'});
+  for (const [key, expression] of Object.entries(step.outputMappings ?? {})) {
+    collectExpressionVariableReferences(expression, references, {
+      field: 'tool.outputs',
+      envKey: key,
+    });
+  }
 }
 
 function collectPredicateVariableReferences(

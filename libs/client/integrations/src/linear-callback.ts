@@ -71,38 +71,41 @@ export type LinearCallbackFailure = {
 };
 
 export function classifyLinearCallbackError(error: unknown): LinearCallbackFailure {
-  if (error instanceof ApiError) {
-    if (error.code === 'invalid-linear-install-state') {
+  if (error instanceof ApiError) return classifyLinearApiError(error);
+  return {
+    message: 'Could not complete the Linear install. Start again from workspace settings.',
+    startOver: true,
+    signIn: false,
+  };
+}
+
+function classifyLinearApiError(error: ApiError): LinearCallbackFailure {
+  switch (error.code) {
+    case 'invalid-linear-install-state':
       return {
         title: 'Linear install link expired',
         message: 'Linear install link expired. Start again from workspace settings.',
         startOver: true,
         signIn: false,
       };
-    }
-    if (error.code === 'linear-install-state-actor-mismatch' || error.code === 'unauthorized') {
+    case 'linear-install-state-actor-mismatch':
+    case 'unauthorized':
       return {
         title: 'Different Shipfox account',
         message: 'Different Shipfox account. Sign in with the account that started this install.',
         startOver: true,
         signIn: true,
       };
-    }
-    if (
-      error.code === 'linear-installation-already-linked' ||
-      error.code === 'linear-connection-already-linked'
-    ) {
+    case 'linear-installation-already-linked':
+    case 'linear-connection-already-linked':
       return {
         title: 'Linear already linked',
         message: 'This Linear organization is already linked to another workspace.',
         startOver: false,
         signIn: false,
       };
-    }
-    if (
-      error.code === 'linear-authorization-scope-mismatch' ||
-      error.code === 'linear-oauth-callback-error'
-    ) {
+    case 'linear-authorization-scope-mismatch':
+    case 'linear-oauth-callback-error':
       return {
         title: 'Linear permissions needed',
         message:
@@ -110,27 +113,34 @@ export function classifyLinearCallbackError(error: unknown): LinearCallbackFailu
         startOver: true,
         signIn: false,
       };
-    }
-    if (error.status === 0 || error.code === 'network-error') {
+    case 'network-error':
       return {
         message: 'Could not reach Shipfox. Check your connection and start again.',
         startOver: true,
         signIn: false,
       };
-    }
-    if (
-      error.status >= 500 ||
-      error.status === 429 ||
-      error.code === 'provider-unavailable' ||
-      error.code === 'timeout' ||
-      error.code === 'rate-limited'
-    ) {
+    case 'provider-unavailable':
+    case 'timeout':
+    case 'rate-limited':
       return {
         message: 'Linear is temporarily unavailable. Start a new install when it is available.',
         startOver: true,
         signIn: false,
       };
-    }
+  }
+  if (error.status === 0) {
+    return {
+      message: 'Could not reach Shipfox. Check your connection and start again.',
+      startOver: true,
+      signIn: false,
+    };
+  }
+  if (error.status >= 500 || error.status === 429) {
+    return {
+      message: 'Linear is temporarily unavailable. Start a new install when it is available.',
+      startOver: true,
+      signIn: false,
+    };
   }
   return {
     message: 'Could not complete the Linear install. Start again from workspace settings.',

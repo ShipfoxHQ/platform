@@ -134,120 +134,154 @@ type WorkflowDocumentToolWithValidationTask =
   | {kind: 'end'; value: object; byteLength: number}
   | {kind: 'bytes'; byteLength: number};
 
+interface WorkflowDocumentToolWithValidationState {
+  readonly activeObjects: Set<object>;
+  readonly tasks: WorkflowDocumentToolWithValidationTask[];
+  serializedBytes: number;
+}
+
 function validateWorkflowDocumentToolWith(
   withValue: Readonly<Record<string, unknown>>,
   ctx: z.RefinementCtx,
 ) {
-  const activeObjects = new Set<object>();
-  const tasks: WorkflowDocumentToolWithValidationTask[] = [
-    {kind: 'value', value: withValue, depth: 1, path: []},
-  ];
-  let serializedBytes = 0;
-
-  const addSerializedBytes = (byteLength: number): boolean => {
-    serializedBytes += byteLength;
-    if (serializedBytes <= WORKFLOW_DOCUMENT_TOOL_WITH_MAX_SERIALIZED_BYTES) return true;
-
-    ctx.addIssue({
-      code: 'custom',
-      message: `Tool \`with\` cannot serialize to more than ${WORKFLOW_DOCUMENT_TOOL_WITH_MAX_SERIALIZED_BYTES} bytes.`,
-    });
-    return false;
+  const state: WorkflowDocumentToolWithValidationState = {
+    activeObjects: new Set<object>(),
+    tasks: [{kind: 'value', value: withValue, depth: 1, path: []}],
+    serializedBytes: 0,
   };
 
-  while (tasks.length > 0) {
-    const task = tasks.pop();
+  while (state.tasks.length > 0) {
+    const task = state.tasks.pop();
     if (task === undefined) continue;
-
-    if (task.kind === 'bytes') {
-      if (!addSerializedBytes(task.byteLength)) return;
-      continue;
-    }
-
-    if (task.kind === 'end') {
-      activeObjects.delete(task.value);
-      if (!addSerializedBytes(task.byteLength)) return;
-      continue;
-    }
-
-    const {value, depth, path} = task;
-    if (value === null) {
-      if (!addSerializedBytes(4)) return;
-      continue;
-    }
-    if (typeof value === 'string' || typeof value === 'boolean') {
-      if (!addSerializedBytes(jsonPrimitiveByteLength(value))) return;
-      continue;
-    }
-    if (typeof value === 'number') {
-      if (!Number.isFinite(value)) {
-        ctx.addIssue({
-          code: 'custom',
-          path,
-          message: 'Tool `with` values must be JSON-compatible.',
-        });
-        return;
-      }
-      if (!addSerializedBytes(jsonPrimitiveByteLength(value))) return;
-      continue;
-    }
-    if (typeof value !== 'object' || value === null) {
-      ctx.addIssue({
-        code: 'custom',
-        path,
-        message: 'Tool `with` values must be JSON-compatible.',
-      });
-      return;
-    }
-
-    if (depth > WORKFLOW_DOCUMENT_TOOL_WITH_MAX_DEPTH) {
-      ctx.addIssue({
-        code: 'custom',
-        message: `Tool \`with\` cannot be nested deeper than ${WORKFLOW_DOCUMENT_TOOL_WITH_MAX_DEPTH} levels.`,
-      });
-      return;
-    }
-    if (activeObjects.has(value)) {
-      ctx.addIssue({
-        code: 'custom',
-        path,
-        message: 'Tool `with` values must be a JSON tree.',
-      });
-      return;
-    }
-
-    activeObjects.add(value);
-    if (Array.isArray(value)) {
-      if (!addSerializedBytes(1)) return;
-      tasks.push({kind: 'end', value, byteLength: 1});
-      for (let index = value.length - 1; index >= 0; index -= 1) {
-        tasks.push({kind: 'value', value: value[index], depth: depth + 1, path: [...path, index]});
-        if (index > 0) tasks.push({kind: 'bytes', byteLength: 1});
-      }
-      continue;
-    }
-
-    if (!isJsonRecord(value)) {
-      ctx.addIssue({
-        code: 'custom',
-        path,
-        message: 'Tool `with` values must be a JSON tree.',
-      });
-      return;
-    }
-
-    if (!addSerializedBytes(1)) return;
-    tasks.push({kind: 'end', value, byteLength: 1});
-    const entries = Object.entries(value);
-    for (let index = entries.length - 1; index >= 0; index -= 1) {
-      const entry = entries[index];
-      if (entry === undefined) continue;
-      const [key, child] = entry;
-      tasks.push({kind: 'value', value: child, depth: depth + 1, path: [...path, key]});
-      tasks.push({kind: 'bytes', byteLength: jsonPrimitiveByteLength(key) + 1});
-      if (index > 0) tasks.push({kind: 'bytes', byteLength: 1});
-    }
+    if (!validateWorkflowDocumentToolWithTask(task, state, ctx)) return;
   }
+}
+
+function validateWorkflowDocumentToolWithTask(
+  task: WorkflowDocumentToolWithValidationTask,
+  state: WorkflowDocumentToolWithValidationState,
+  ctx: z.RefinementCtx,
+): boolean {
+  if (task.kind === 'bytes') return addWorkflowDocumentToolWithBytes(task.byteLength, state, ctx);
+  if (task.kind === 'end') {
+    state.activeObjects.delete(task.value);
+    return addWorkflowDocumentToolWithBytes(task.byteLength, state, ctx);
+  }
+  return validateWorkflowDocumentToolWithValue(task, state, ctx);
+}
+
+function addWorkflowDocumentToolWithBytes(
+  byteLength: number,
+  state: WorkflowDocumentToolWithValidationState,
+  ctx: z.RefinementCtx,
+): boolean {
+  state.serializedBytes += byteLength;
+  if (state.serializedBytes <= WORKFLOW_DOCUMENT_TOOL_WITH_MAX_SERIALIZED_BYTES) return true;
+  ctx.addIssue({
+    code: 'custom',
+    message: `Tool \`with\` cannot serialize to more than ${WORKFLOW_DOCUMENT_TOOL_WITH_MAX_SERIALIZED_BYTES} bytes.`,
+  });
+  return false;
+}
+
+function validateWorkflowDocumentToolWithValue(
+  task: Extract<WorkflowDocumentToolWithValidationTask, {kind: 'value'}>,
+  state: WorkflowDocumentToolWithValidationState,
+  ctx: z.RefinementCtx,
+): boolean {
+  const {value, depth, path} = task;
+  if (value === null) return addWorkflowDocumentToolWithBytes(4, state, ctx);
+  if (typeof value === 'string' || typeof value === 'boolean') {
+    return addWorkflowDocumentToolWithBytes(jsonPrimitiveByteLength(value), state, ctx);
+  }
+  if (typeof value === 'number')
+    return validateWorkflowDocumentToolWithNumber(value, path, state, ctx);
+  if (typeof value !== 'object') return rejectWorkflowDocumentToolWithValue(path, ctx);
+  if (depth > WORKFLOW_DOCUMENT_TOOL_WITH_MAX_DEPTH) {
+    ctx.addIssue({
+      code: 'custom',
+      message: `Tool \`with\` cannot be nested deeper than ${WORKFLOW_DOCUMENT_TOOL_WITH_MAX_DEPTH} levels.`,
+    });
+    return false;
+  }
+  if (state.activeObjects.has(value)) {
+    ctx.addIssue({code: 'custom', path, message: 'Tool `with` values must be a JSON tree.'});
+    return false;
+  }
+
+  state.activeObjects.add(value);
+  if (Array.isArray(value))
+    return queueWorkflowDocumentToolWithArray(value, depth, path, state, ctx);
+  if (!isJsonRecord(value)) return rejectWorkflowDocumentToolWithTree(path, ctx);
+  return queueWorkflowDocumentToolWithRecord(value, depth, path, state, ctx);
+}
+
+function validateWorkflowDocumentToolWithNumber(
+  value: number,
+  path: (string | number)[],
+  state: WorkflowDocumentToolWithValidationState,
+  ctx: z.RefinementCtx,
+): boolean {
+  if (!Number.isFinite(value)) return rejectWorkflowDocumentToolWithValue(path, ctx);
+  return addWorkflowDocumentToolWithBytes(jsonPrimitiveByteLength(value), state, ctx);
+}
+
+function rejectWorkflowDocumentToolWithValue(
+  path: (string | number)[],
+  ctx: z.RefinementCtx,
+): false {
+  ctx.addIssue({code: 'custom', path, message: 'Tool `with` values must be JSON-compatible.'});
+  return false;
+}
+
+function rejectWorkflowDocumentToolWithTree(
+  path: (string | number)[],
+  ctx: z.RefinementCtx,
+): false {
+  ctx.addIssue({code: 'custom', path, message: 'Tool `with` values must be a JSON tree.'});
+  return false;
+}
+
+function queueWorkflowDocumentToolWithArray(
+  value: unknown[],
+  depth: number,
+  path: (string | number)[],
+  state: WorkflowDocumentToolWithValidationState,
+  ctx: z.RefinementCtx,
+): boolean {
+  if (!addWorkflowDocumentToolWithBytes(1, state, ctx)) return false;
+  state.tasks.push({kind: 'end', value, byteLength: 1});
+  for (let index = value.length - 1; index >= 0; index -= 1) {
+    state.tasks.push({
+      kind: 'value',
+      value: value[index],
+      depth: depth + 1,
+      path: [...path, index],
+    });
+    if (index > 0) state.tasks.push({kind: 'bytes', byteLength: 1});
+  }
+  return true;
+}
+
+function queueWorkflowDocumentToolWithRecord(
+  value: Record<string, unknown>,
+  depth: number,
+  path: (string | number)[],
+  state: WorkflowDocumentToolWithValidationState,
+  ctx: z.RefinementCtx,
+): boolean {
+  if (!addWorkflowDocumentToolWithBytes(1, state, ctx)) return false;
+  state.tasks.push({kind: 'end', value, byteLength: 1});
+  const entries = Object.entries(value);
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index];
+    if (entry === undefined) continue;
+    const [key, child] = entry;
+    state.tasks.push({kind: 'value', value: child, depth: depth + 1, path: [...path, key]});
+    state.tasks.push({kind: 'bytes', byteLength: jsonPrimitiveByteLength(key) + 1});
+    if (index > 0) state.tasks.push({kind: 'bytes', byteLength: 1});
+  }
+  return true;
 }
 
 function jsonPrimitiveByteLength(value: string | number | boolean): number {
@@ -597,12 +631,12 @@ export const workflowDocumentCheckoutSchema = z
   })
   .superRefine((checkout, ctx) => {
     for (const validationIssue of checkoutTargetValidationIssues(checkout)) {
-      const message =
-        validationIssue.kind === 'project-with-connection'
-          ? '"connection" cannot be combined with "project".'
-          : validationIssue.kind === 'project-with-repository'
-            ? '"repository" cannot be combined with "project".'
-            : '"connection" requires "repository".';
+      let message = '"connection" requires "repository".';
+      if (validationIssue.kind === 'project-with-connection') {
+        message = '"connection" cannot be combined with "project".';
+      } else if (validationIssue.kind === 'project-with-repository') {
+        message = '"repository" cannot be combined with "project".';
+      }
       ctx.addIssue({
         code: 'custom',
         path: [validationIssue.path],
@@ -729,25 +763,35 @@ function findWorkflowSessionKeyTemplateClose(source: string, openerIndex: number
       continue;
     }
 
-    if (source.startsWith('//', index)) {
-      const newline = source.indexOf('\n', index + 2);
-      index = newline === -1 ? source.length : newline;
+    const commentEnd = workflowSessionKeyCommentEnd(source, index);
+    if (commentEnd !== undefined) {
+      index = commentEnd;
       continue;
     }
 
     if (depth === 0 && source.startsWith('}}', index)) return index;
 
-    const char = source[index];
-    if (char === '(' || char === '[' || char === '{') {
-      depth += 1;
-    } else if ((char === ')' || char === ']' || char === '}') && depth > 0) {
-      depth -= 1;
-    }
+    depth = workflowSessionKeyDepthAfterCharacter(source[index], depth);
 
     index += 1;
   }
 
   return -1;
+}
+
+function workflowSessionKeyCommentEnd(source: string, index: number): number | undefined {
+  if (!source.startsWith('//', index)) return undefined;
+  const newline = source.indexOf('\n', index + 2);
+  return newline === -1 ? source.length : newline;
+}
+
+function workflowSessionKeyDepthAfterCharacter(
+  character: string | undefined,
+  depth: number,
+): number {
+  if (character === '(' || character === '[' || character === '{') return depth + 1;
+  if ((character === ')' || character === ']' || character === '}') && depth > 0) return depth - 1;
+  return depth;
 }
 
 function scanWorkflowSessionKeyStringLiteral(source: string, index: number): number | null {
@@ -903,117 +947,133 @@ type WorkflowDocumentStepSchemaOutput = Omit<
 > & {
   outputs?: WorkflowDocumentStepOutputs;
 };
+type WorkflowDocumentStepInput = z.infer<typeof workflowDocumentStepBaseSchema>;
 
 export const workflowDocumentStepSchema = workflowDocumentStepBaseSchema
-  .superRefine((step, ctx) => {
-    if (step.agent !== undefined) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['agent'],
-        message: 'The "agent" keyword is reserved for a future step kind and is not supported yet.',
-      });
-      return;
-    }
-
-    const reservedToolField =
-      step.tool !== undefined ? 'tool' : step.connection !== undefined ? 'connection' : undefined;
-    const reservedToolValue =
-      reservedToolField === 'tool'
-        ? step.tool
-        : reservedToolField === 'connection'
-          ? step.connection
-          : undefined;
-    if (reservedToolValue !== undefined && !WORKFLOW_LITERAL_NAME_PATTERN.test(reservedToolValue)) {
-      // The field-level literal-name check already rejected the interpolated
-      // value; skip the reserved-field issue so one defect does not report
-      // twice at the same path.
-      return;
-    }
-    if (reservedToolField !== undefined || step.with !== undefined) {
-      ctx.addIssue({
-        code: 'custom',
-        path: [reservedToolField ?? 'with'],
-        message: 'Tool steps are not available yet.',
-      });
-      return;
-    }
-
-    if (step.outputs !== undefined && stepOutputsAreMappingForm(step.outputs)) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['outputs'],
-        message: 'The `outputs` mapping form is reserved for tool steps.',
-      });
-    }
-
-    if (step.checkout !== undefined) {
-      if (step.run !== undefined) {
-        ctx.addIssue({
-          code: 'custom',
-          path: ['run'],
-          message: '"run" is not valid on a checkout step.',
-        });
-      }
-      for (const key of workflowDocumentAgentStepFields) {
-        if (step[key] !== undefined) {
-          ctx.addIssue({
-            code: 'custom',
-            path: [key],
-            message: `"${key}" is not valid on a checkout step.`,
-          });
-        }
-      }
-      if (step.env !== undefined) {
-        ctx.addIssue({
-          code: 'custom',
-          path: ['env'],
-          message: '"env" is not valid on a checkout step.',
-        });
-      }
-      return;
-    }
-
-    if (step.run !== undefined) {
-      for (const key of workflowDocumentAgentStepFields) {
-        if (step[key] !== undefined) {
-          ctx.addIssue({
-            code: 'custom',
-            path: [key],
-            message: `"${key}" is not valid on a run step.`,
-          });
-        }
-      }
-      return;
-    }
-
-    const isAgent = workflowDocumentAgentStepFields.some((field) => step[field] !== undefined);
-
-    if (!isAgent) {
-      ctx.addIssue({
-        code: 'custom',
-        message: 'A step must define either "run", an agent "prompt", or "checkout".',
-      });
-      return;
-    }
-
-    if (step.env !== undefined) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['env'],
-        message: '"env" is supported only on run steps.',
-      });
-    }
-    if (step.prompt === undefined) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['prompt'],
-        message: 'An agent step requires "prompt".',
-      });
-    }
-  })
+  .superRefine(validateWorkflowDocumentStep)
   .transform<WorkflowDocumentStepSchemaOutput>(({outputs, ...step}) =>
     outputs === undefined ? step : {...step, outputs: outputs as WorkflowDocumentStepOutputs},
   );
+
+function validateWorkflowDocumentStep(step: WorkflowDocumentStepInput, ctx: z.RefinementCtx): void {
+  if (validateReservedWorkflowDocumentStepFields(step, ctx)) return;
+  validateWorkflowDocumentStepOutputs(step, ctx);
+  if (step.checkout !== undefined) {
+    validateWorkflowDocumentCheckoutStep(step, ctx);
+    return;
+  }
+  if (step.run !== undefined) {
+    addWorkflowDocumentInvalidAgentFields(step, ctx, 'run');
+    return;
+  }
+  validateWorkflowDocumentAgentStep(step, ctx);
+}
+
+function validateReservedWorkflowDocumentStepFields(
+  step: WorkflowDocumentStepInput,
+  ctx: z.RefinementCtx,
+): boolean {
+  if (step.agent !== undefined) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['agent'],
+      message: 'The "agent" keyword is reserved for a future step kind and is not supported yet.',
+    });
+    return true;
+  }
+  const reservedTool = reservedWorkflowDocumentToolField(step);
+  if (
+    reservedTool?.value !== undefined &&
+    !WORKFLOW_LITERAL_NAME_PATTERN.test(reservedTool.value)
+  ) {
+    // The field-level literal-name check already rejected the interpolated
+    // value; skip the reserved-field issue so one defect does not report twice.
+    return true;
+  }
+  if (reservedTool === undefined && step.with === undefined) return false;
+  ctx.addIssue({
+    code: 'custom',
+    path: [reservedTool?.field ?? 'with'],
+    message: 'Tool steps are not available yet.',
+  });
+  return true;
+}
+
+function reservedWorkflowDocumentToolField(
+  step: WorkflowDocumentStepInput,
+): {readonly field: 'tool' | 'connection'; readonly value: string} | undefined {
+  if (step.tool !== undefined) return {field: 'tool', value: step.tool};
+  if (step.connection !== undefined) return {field: 'connection', value: step.connection};
+  return undefined;
+}
+
+function validateWorkflowDocumentStepOutputs(
+  step: WorkflowDocumentStepInput,
+  ctx: z.RefinementCtx,
+): void {
+  if (step.outputs === undefined || !stepOutputsAreMappingForm(step.outputs)) return;
+  ctx.addIssue({
+    code: 'custom',
+    path: ['outputs'],
+    message: 'The `outputs` mapping form is reserved for tool steps.',
+  });
+}
+
+function validateWorkflowDocumentCheckoutStep(
+  step: WorkflowDocumentStepInput,
+  ctx: z.RefinementCtx,
+): void {
+  if (step.run !== undefined) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['run'],
+      message: '"run" is not valid on a checkout step.',
+    });
+  }
+  addWorkflowDocumentInvalidAgentFields(step, ctx, 'checkout');
+  if (step.env !== undefined) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['env'],
+      message: '"env" is not valid on a checkout step.',
+    });
+  }
+}
+
+function addWorkflowDocumentInvalidAgentFields(
+  step: WorkflowDocumentStepInput,
+  ctx: z.RefinementCtx,
+  stepKind: 'checkout' | 'run',
+): void {
+  for (const key of workflowDocumentAgentStepFields) {
+    if (step[key] === undefined) continue;
+    ctx.addIssue({
+      code: 'custom',
+      path: [key],
+      message: `"${key}" is not valid on a ${stepKind} step.`,
+    });
+  }
+}
+
+function validateWorkflowDocumentAgentStep(
+  step: WorkflowDocumentStepInput,
+  ctx: z.RefinementCtx,
+): void {
+  const isAgent = workflowDocumentAgentStepFields.some((field) => step[field] !== undefined);
+  if (!isAgent) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'A step must define either "run", an agent "prompt", or "checkout".',
+    });
+    return;
+  }
+  if (step.env !== undefined) {
+    ctx.addIssue({code: 'custom', path: ['env'], message: '"env" is supported only on run steps.'});
+  }
+  if (step.prompt === undefined) {
+    ctx.addIssue({code: 'custom', path: ['prompt'], message: 'An agent step requires "prompt".'});
+  }
+}
 
 const workflowDocumentJobOutputsSchema = nonEmptyRecordSchema(z.string().min(1)).superRefine(
   (outputs, ctx) => {

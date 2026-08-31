@@ -241,32 +241,46 @@ async function mapLinearError<T>(
     return await request();
   } catch (error) {
     if (error instanceof LinearIntegrationProviderError) throw error;
-    if (error instanceof HTTPError) {
-      const {status, statusText, headers} = error.response;
-      logger().warn({operation, status, statusText}, 'Linear API request rejected');
-      if (status === 429) {
-        throw new LinearIntegrationProviderError(
-          'rate-limited',
-          'Linear request was rate limited',
-          retryAfterSeconds(headers),
-        );
-      }
-      if (status >= 500) {
-        throw new LinearIntegrationProviderError('provider-unavailable', 'Linear request failed');
-      }
-      const reason = options.classifyHttp4xx?.(status) ?? 'access-denied';
-      throw new LinearIntegrationProviderError(reason, 'Linear request was rejected');
-    }
-    if (error instanceof TimeoutError) {
-      logger().warn({operation}, 'Linear API request timed out');
-      throw new LinearIntegrationProviderError('timeout', 'Linear request timed out');
-    }
-    logger().warn(
-      {operation, errName: error instanceof Error ? error.name : typeof error},
-      'Linear API request failed',
-    );
-    throw new LinearIntegrationProviderError('provider-unavailable', 'Linear request failed');
+    throw mapUnknownLinearError(operation, error, options);
   }
+}
+
+function mapUnknownLinearError(
+  operation: string,
+  error: unknown,
+  options: MapLinearErrorOptions,
+): LinearIntegrationProviderError {
+  if (error instanceof HTTPError) return mapLinearHttpError(operation, error, options);
+  if (error instanceof TimeoutError) {
+    logger().warn({operation}, 'Linear API request timed out');
+    return new LinearIntegrationProviderError('timeout', 'Linear request timed out');
+  }
+  logger().warn(
+    {operation, errName: error instanceof Error ? error.name : typeof error},
+    'Linear API request failed',
+  );
+  return new LinearIntegrationProviderError('provider-unavailable', 'Linear request failed');
+}
+
+function mapLinearHttpError(
+  operation: string,
+  error: HTTPError,
+  options: MapLinearErrorOptions,
+): LinearIntegrationProviderError {
+  const {status, statusText, headers} = error.response;
+  logger().warn({operation, status, statusText}, 'Linear API request rejected');
+  if (status === 429) {
+    return new LinearIntegrationProviderError(
+      'rate-limited',
+      'Linear request was rate limited',
+      retryAfterSeconds(headers),
+    );
+  }
+  if (status >= 500) {
+    return new LinearIntegrationProviderError('provider-unavailable', 'Linear request failed');
+  }
+  const reason = options.classifyHttp4xx?.(status) ?? 'access-denied';
+  return new LinearIntegrationProviderError(reason, 'Linear request was rejected');
 }
 
 function classifyGraphqlHttp4xx(status: number): 'access-denied' | 'malformed-provider-response' {

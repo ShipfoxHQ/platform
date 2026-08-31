@@ -53,108 +53,16 @@ function ConfettiBurst({
 
   useEffect(() => {
     if (!active || typeof window === 'undefined') return;
-    let completed = false;
-    const finish = () => {
-      if (completed) return;
-      completed = true;
-      onComplete?.();
-    };
-
+    const finish = createSingleCompletion(onComplete);
     const prefersReducedMotion =
       window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false;
     if (typeof navigator !== 'undefined' && JSDOM_USER_AGENT_RE.test(navigator.userAgent)) {
       finish();
       return;
     }
-
-    const canvas = canvasRef.current;
-    if (!canvas) {
-      finish();
-      return;
-    }
-    const bounds = canvas.getBoundingClientRect();
-    if (bounds.width === 0 && bounds.height === 0) {
-      finish();
-      return;
-    }
-    const context = canvas.getContext('2d');
-    if (!context) {
-      finish();
-      return;
-    }
-
-    const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
-    const width = Math.max(bounds.width, 1);
-    const height = Math.max(bounds.height, 1);
-    canvas.width = Math.floor(width * pixelRatio);
-    canvas.height = Math.floor(height * pixelRatio);
-    context.scale(pixelRatio, pixelRatio);
-
-    const styles = getComputedStyle(canvas);
-    const colors = [
-      styles.getPropertyValue('--color-background-accent-blue-base').trim(),
-      styles.getPropertyValue('--color-background-accent-purple-base').trim(),
-      styles.getPropertyValue('--color-background-accent-success-base').trim(),
-      styles.getPropertyValue('--color-background-accent-warning-base').trim(),
-    ].filter(Boolean);
-    if (colors.length === 0) {
-      finish();
-      return;
-    }
-    const particles = createConfettiParticles(
-      width,
-      height,
-      colors,
-      prefersReducedMotion ? CONFETTI_RANDOM_SEED : undefined,
-    );
-    let frame = 0;
-    const startedAt = performance.now();
-
-    const draw = (now: number, advance = true) => {
-      const elapsed = now - startedAt;
-      context.clearRect(0, 0, width, height);
-      context.globalAlpha = Math.max(0, 1 - elapsed / CONFETTI_DURATION_MS);
-      for (const particle of particles) {
-        if (advance) {
-          particle.vy += 0.025;
-          particle.vx *= 0.985;
-          particle.x += particle.vx;
-          particle.y += particle.vy;
-          particle.rotation += 0.1;
-        }
-        context.save();
-        context.translate(particle.x, particle.y);
-        context.rotate(particle.rotation);
-        context.fillStyle = particle.color;
-        context.fillRect(
-          -particle.size / 2,
-          -particle.size / 2,
-          particle.size,
-          particle.size * 0.6,
-        );
-        context.restore();
-      }
-      context.globalAlpha = 1;
-      if (!advance) return;
-      if (elapsed < CONFETTI_DURATION_MS) {
-        frame = requestAnimationFrame(draw);
-      } else {
-        finish();
-      }
-    };
-
-    if (prefersReducedMotion) {
-      draw(startedAt, false);
-      finish();
-      // Keep the static frame after hosts consume the burst immediately.
-      return;
-    }
-
-    frame = requestAnimationFrame(draw);
-    return () => {
-      cancelAnimationFrame(frame);
-      context.clearRect(0, 0, width, height);
-    };
+    const animation = createConfettiAnimation(canvasRef.current, prefersReducedMotion, finish);
+    if (!animation) return;
+    return animation.start();
   }, [active, onComplete]);
 
   return (
@@ -162,4 +70,118 @@ function ConfettiBurst({
       <canvas ref={canvasRef} className="size-full" />
     </div>
   );
+}
+
+function createSingleCompletion(onComplete: (() => void) | undefined) {
+  let completed = false;
+  return () => {
+    if (completed) return;
+    completed = true;
+    onComplete?.();
+  };
+}
+
+function createConfettiAnimation(
+  canvas: HTMLCanvasElement | null,
+  prefersReducedMotion: boolean,
+  finish: () => void,
+) {
+  if (!canvas) {
+    finish();
+    return undefined;
+  }
+  const bounds = canvas.getBoundingClientRect();
+  if (bounds.width === 0 && bounds.height === 0) {
+    finish();
+    return undefined;
+  }
+  const context = canvas.getContext('2d');
+  if (!context) {
+    finish();
+    return undefined;
+  }
+
+  const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+  const width = Math.max(bounds.width, 1);
+  const height = Math.max(bounds.height, 1);
+  canvas.width = Math.floor(width * pixelRatio);
+  canvas.height = Math.floor(height * pixelRatio);
+  context.scale(pixelRatio, pixelRatio);
+
+  const colors = confettiColors(canvas);
+  if (colors.length === 0) {
+    finish();
+    return undefined;
+  }
+  const particles = createConfettiParticles(
+    width,
+    height,
+    colors,
+    prefersReducedMotion ? CONFETTI_RANDOM_SEED : undefined,
+  );
+  const startedAt = performance.now();
+  let frame = 0;
+
+  const draw = (now: number, advance = true) => {
+    const elapsed = now - startedAt;
+    context.clearRect(0, 0, width, height);
+    context.globalAlpha = Math.max(0, 1 - elapsed / CONFETTI_DURATION_MS);
+    for (const particle of particles) {
+      advanceConfettiParticle(particle, advance);
+      drawConfettiParticle(context, particle);
+    }
+    context.globalAlpha = 1;
+    if (!advance) return;
+    if (elapsed < CONFETTI_DURATION_MS) frame = requestAnimationFrame(draw);
+    else finish();
+  };
+
+  return {
+    start() {
+      if (prefersReducedMotion) {
+        draw(startedAt, false);
+        finish();
+        return undefined;
+      }
+      frame = requestAnimationFrame(draw);
+      return () => {
+        cancelAnimationFrame(frame);
+        context.clearRect(0, 0, width, height);
+      };
+    },
+  };
+}
+
+function confettiColors(canvas: HTMLCanvasElement): string[] {
+  const styles = getComputedStyle(canvas);
+  return [
+    styles.getPropertyValue('--color-background-accent-blue-base').trim(),
+    styles.getPropertyValue('--color-background-accent-purple-base').trim(),
+    styles.getPropertyValue('--color-background-accent-success-base').trim(),
+    styles.getPropertyValue('--color-background-accent-warning-base').trim(),
+  ].filter(Boolean);
+}
+
+function advanceConfettiParticle(
+  particle: ReturnType<typeof createConfettiParticles>[number],
+  advance: boolean,
+) {
+  if (!advance) return;
+  particle.vy += 0.025;
+  particle.vx *= 0.985;
+  particle.x += particle.vx;
+  particle.y += particle.vy;
+  particle.rotation += 0.1;
+}
+
+function drawConfettiParticle(
+  context: CanvasRenderingContext2D,
+  particle: ReturnType<typeof createConfettiParticles>[number],
+) {
+  context.save();
+  context.translate(particle.x, particle.y);
+  context.rotate(particle.rotation);
+  context.fillStyle = particle.color;
+  context.fillRect(-particle.size / 2, -particle.size / 2, particle.size, particle.size * 0.6);
+  context.restore();
 }

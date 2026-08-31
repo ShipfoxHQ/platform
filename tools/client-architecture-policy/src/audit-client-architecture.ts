@@ -318,26 +318,49 @@ function featureContributionOccurrences(file: string, source: string): number {
   const coordinatorId = source.match(coordinatorPattern)?.[1];
   const hasExplicitCoordinator = featureId !== undefined && coordinatorId === featureId;
   let occurrences = featureId === `shipfox.${manifest[1]}` ? 0 : 1;
-
-  for (const implementationPackage of capturedMatches(source, routeImplementationPattern)) {
-    if (implementationPackage !== packageName && !hasExplicitCoordinator) occurrences += 1;
-  }
-
+  occurrences += foreignRouteImplementationCount(source, packageName, hasExplicitCoordinator);
   const routes = new Set(capturedMatches(source, routePathPattern).map(normalizeManifestPath));
-  for (const target of capturedMatches(source, navigationTargetPattern)) {
-    if (!routes.has(normalizeManifestPath(target)) && !hasExplicitCoordinator) occurrences += 1;
-  }
+  occurrences += missingNavigationTargetCount(source, routes, hasExplicitCoordinator);
+  occurrences += missingSettingsRouteCount(source, routes, hasExplicitCoordinator);
+  return occurrences;
+}
+
+function foreignRouteImplementationCount(
+  source: string,
+  packageName: string,
+  hasExplicitCoordinator: boolean,
+): number {
+  if (hasExplicitCoordinator) return 0;
+  return capturedMatches(source, routeImplementationPattern).filter((name) => name !== packageName)
+    .length;
+}
+
+function missingNavigationTargetCount(
+  source: string,
+  routes: ReadonlySet<string>,
+  hasExplicitCoordinator: boolean,
+): number {
+  if (hasExplicitCoordinator) return 0;
+  return capturedMatches(source, navigationTargetPattern).filter(
+    (target) => !routes.has(normalizeManifestPath(target)),
+  ).length;
+}
+
+function missingSettingsRouteCount(
+  source: string,
+  routes: ReadonlySet<string>,
+  hasExplicitCoordinator: boolean,
+): number {
+  if (hasExplicitCoordinator) return 0;
+  let occurrences = 0;
   for (const {segment, scope} of capturedSettingsSections(source)) {
     const workspaceTarget = normalizeManifestPath(`/w/$workspaceSlug/settings/${segment}`);
     const projectTarget = normalizeManifestPath(
       `/w/$workspaceSlug/p/$projectSlug/settings/${segment}`,
     );
     const target = scope === 'project' ? projectTarget : workspaceTarget;
-    if (!routes.has(target) && !hasExplicitCoordinator) {
-      occurrences += 1;
-    }
+    if (!routes.has(target)) occurrences += 1;
   }
-
   return occurrences;
 }
 
@@ -373,95 +396,124 @@ function findRegexLiteralEnd(source: string, start: number): number {
       continue;
     }
     if (character === '/' && !inCharacterClass) {
-      let end = index + 1;
-      while (regexFlagPattern.test(source[end] ?? '')) end += 1;
-      return end;
+      return findRegexFlagsEnd(source, index + 1);
     }
   }
   return source.length;
 }
 
+function findRegexFlagsEnd(source: string, start: number): number {
+  let end = start;
+  while (regexFlagPattern.test(source[end] ?? '')) end += 1;
+  return end;
+}
+
 function findMatchingCallEnd(source: string, openParen: number): number {
-  let depth = 0;
-  let quote: '"' | "'" | '`' | null = null;
-  let escaped = false;
-  let canEndExpression = false;
+  const state: CallScannerState = {depth: 0, quote: null, escaped: false, canEndExpression: false};
 
   for (let index = openParen; index < source.length; index += 1) {
-    const character = source[index];
-    const nextCharacter = source[index + 1];
-    if (quote) {
-      if (escaped) {
-        escaped = false;
-      } else if (character === '\\') {
-        escaped = true;
-      } else if (character === quote) {
-        quote = null;
-        canEndExpression = true;
-      }
+    const special = scanCallSpecial(source, index, state);
+    if (special.end !== undefined) return special.end;
+    if (special.handled) {
+      index = special.nextIndex;
       continue;
     }
-    if (whitespacePattern.test(character ?? '')) continue;
-    if (character === '/' && nextCharacter === '/') {
-      const newline = source.indexOf('\n', index + 2);
-      if (newline === -1) return source.length;
-      index = newline;
-      continue;
-    }
-    if (character === '/' && nextCharacter === '*') {
-      const commentEnd = source.indexOf('*/', index + 2);
-      if (commentEnd === -1) return source.length;
-      index = commentEnd + 1;
-      continue;
-    }
-    if (character === '"' || character === "'" || character === '`') {
-      quote = character;
-      escaped = false;
-      canEndExpression = false;
-      continue;
-    }
-    if (character === '/' && !canEndExpression) {
-      index = findRegexLiteralEnd(source, index) - 1;
-      canEndExpression = true;
-      continue;
-    }
-    if (isIdentifierStart(character)) {
-      let end = index + 1;
-      while (isIdentifierPart(source[end])) end += 1;
-      canEndExpression = !regexLiteralPrefixKeywords.has(source.slice(index, end));
-      index = end - 1;
-      continue;
-    }
-    if (digitPattern.test(character ?? '')) {
-      canEndExpression = true;
-      continue;
-    }
-    if (character === '(') {
-      depth += 1;
-      canEndExpression = false;
-      continue;
-    }
-    if (character === ')' && --depth === 0) return index;
-    if (character === ')') {
-      canEndExpression = true;
-      continue;
-    }
-    if (character === ']' || character === '}') {
-      canEndExpression = true;
-      continue;
-    }
-    if (character === '+' || character === '-') {
-      if (nextCharacter === character) {
-        index += 1;
-        canEndExpression = true;
-      } else {
-        canEndExpression = false;
-      }
-      continue;
-    }
-    canEndExpression = false;
+    const token = scanCallToken(source, index, state);
+    if (token.end !== undefined) return token.end;
+    index = token.nextIndex;
   }
   return source.length;
+}
+
+interface CallScannerState {
+  depth: number;
+  quote: '"' | "'" | '`' | null;
+  escaped: boolean;
+  canEndExpression: boolean;
+}
+
+interface CallScanResult {
+  handled: boolean;
+  nextIndex: number;
+  end?: number;
+}
+
+function scanCallSpecial(source: string, index: number, state: CallScannerState): CallScanResult {
+  const character = source[index];
+  const nextCharacter = source[index + 1];
+  if (state.quote) return scanQuotedCallCharacter(character, index, state);
+  if (whitespacePattern.test(character ?? '')) return {handled: true, nextIndex: index};
+  const comment = scanCallComment(source, index, character, nextCharacter);
+  if (comment) return comment;
+  if (character === '"' || character === "'" || character === '`') {
+    state.quote = character;
+    state.escaped = false;
+    state.canEndExpression = false;
+    return {handled: true, nextIndex: index};
+  }
+  if (character === '/' && !state.canEndExpression) {
+    state.canEndExpression = true;
+    return {handled: true, nextIndex: findRegexLiteralEnd(source, index) - 1};
+  }
+  return {handled: false, nextIndex: index};
+}
+
+function scanQuotedCallCharacter(
+  character: string | undefined,
+  index: number,
+  state: CallScannerState,
+): CallScanResult {
+  if (state.escaped) state.escaped = false;
+  else if (character === '\\') state.escaped = true;
+  else if (character === state.quote) {
+    state.quote = null;
+    state.canEndExpression = true;
+  }
+  return {handled: true, nextIndex: index};
+}
+
+function scanCallComment(
+  source: string,
+  index: number,
+  character: string | undefined,
+  nextCharacter: string | undefined,
+): CallScanResult | undefined {
+  if (character === '/' && nextCharacter === '/') {
+    const newline = source.indexOf('\n', index + 2);
+    return newline === -1
+      ? {handled: true, nextIndex: index, end: source.length}
+      : {handled: true, nextIndex: newline};
+  }
+  if (character !== '/' || nextCharacter !== '*') return undefined;
+  const commentEnd = source.indexOf('*/', index + 2);
+  return commentEnd === -1
+    ? {handled: true, nextIndex: index, end: source.length}
+    : {handled: true, nextIndex: commentEnd + 1};
+}
+
+function scanCallToken(source: string, index: number, state: CallScannerState): CallScanResult {
+  const character = source[index];
+  const nextCharacter = source[index + 1];
+  if (isIdentifierStart(character)) {
+    let end = index + 1;
+    while (isIdentifierPart(source[end])) end += 1;
+    state.canEndExpression = !regexLiteralPrefixKeywords.has(source.slice(index, end));
+    return {handled: true, nextIndex: end - 1};
+  }
+  if (digitPattern.test(character ?? '')) state.canEndExpression = true;
+  else if (character === '(') {
+    state.depth += 1;
+    state.canEndExpression = false;
+  } else if (character === ')') {
+    state.depth -= 1;
+    if (state.depth === 0) return {handled: true, nextIndex: index, end: index};
+    state.canEndExpression = true;
+  } else if (character === ']' || character === '}') state.canEndExpression = true;
+  else if ((character === '+' || character === '-') && nextCharacter === character) {
+    state.canEndExpression = true;
+    return {handled: true, nextIndex: index + 1};
+  } else state.canEndExpression = false;
+  return {handled: true, nextIndex: index};
 }
 
 function queryHookCalls(source: string): Array<{hasPolicy: boolean}> {
@@ -549,20 +601,37 @@ export function validateExceptionRegistry(
   const testFileSet = new Set(testFiles ?? []);
   const seen = new Set<string>();
   for (const exception of allExceptions(registry)) {
-    const key = `${exception.file}:${exception.test}`;
-    if (seen.has(key)) throw new Error(`Duplicate client architecture exception: ${key}`);
-    seen.add(key);
-    if (!exception.file.trim()) throw new Error('Client architecture exception has no file');
-    if (!exception.owner.trim())
-      throw new Error(`Client architecture exception has no owner: ${exception.file}`);
-    if (!exception.reason.trim())
-      throw new Error(`Client architecture exception has no reason: ${exception.file}`);
-    if (!exception.test.trim())
-      throw new Error(`Client architecture exception has no focused test: ${exception.file}`);
-    if (!fileSet.has(exception.file))
-      throw new Error(`Client architecture exception file is not audited: ${exception.file}`);
-    if (testFiles !== undefined && !testFileSet.has(exception.test))
-      throw new Error(`Client architecture exception test does not exist: ${exception.test}`);
+    validateClientArchitectureException(
+      exception,
+      seen,
+      fileSet,
+      testFileSet,
+      testFiles !== undefined,
+    );
+  }
+}
+
+function validateClientArchitectureException(
+  exception: ClientArchitectureException,
+  seen: Set<string>,
+  fileSet: ReadonlySet<string>,
+  testFileSet: ReadonlySet<string>,
+  validateTestFile: boolean,
+): void {
+  const key = `${exception.file}:${exception.test}`;
+  if (seen.has(key)) throw new Error(`Duplicate client architecture exception: ${key}`);
+  seen.add(key);
+  if (!exception.file.trim()) throw new Error('Client architecture exception has no file');
+  if (!exception.owner.trim())
+    throw new Error(`Client architecture exception has no owner: ${exception.file}`);
+  if (!exception.reason.trim())
+    throw new Error(`Client architecture exception has no reason: ${exception.file}`);
+  if (!exception.test.trim())
+    throw new Error(`Client architecture exception has no focused test: ${exception.file}`);
+  if (!fileSet.has(exception.file))
+    throw new Error(`Client architecture exception file is not audited: ${exception.file}`);
+  if (validateTestFile && !testFileSet.has(exception.test)) {
+    throw new Error(`Client architecture exception test does not exist: ${exception.test}`);
   }
 }
 

@@ -37,12 +37,12 @@ export function WorkflowRunListContent({
   isFetchNextPageError,
   onLoadMore,
 }: WorkflowRunListContentProps) {
-  const {isPending, isError} = query;
+  const {isPending} = query;
   // A refetch that fails after a prior success keeps the rows on screen behind a slim
   // banner. QueryLoadError owns the inverse case (errored before anything loaded) and
   // self-gates to nothing here once data exists. A failed fetch never renders as an empty
   // list: "nothing here" and "we could not find out" are different answers.
-  const refreshFailed = isError && query.data !== undefined;
+  const refreshFailed = hasStaleQueryError(query);
   // Keyed off "we have an answer" rather than "no error", so a stale refresh still reports
   // whether the filters match anything instead of leaving the list blank under the banner.
   const hasLoaded = !isPending && query.data !== undefined;
@@ -83,4 +83,8 @@ export function WorkflowRunListContent({
       ) : null}
     </>
   );
+}
+
+function hasStaleQueryError(query: WorkflowRunListQuery): boolean {
+  return query.isError && query.data !== undefined;
 }

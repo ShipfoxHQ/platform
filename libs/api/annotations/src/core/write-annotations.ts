@@ -1,6 +1,10 @@
 import type {LeasedWriteAnnotationOperationDto} from '@shipfox/annotations-dto';
 import {config} from '#config.js';
-import {type StoredAnnotation, withAnnotationLock} from '#db/annotations.js';
+import {
+  type AnnotationWriteRepository,
+  type StoredAnnotation,
+  withAnnotationLock,
+} from '#db/annotations.js';
 import {
   AnnotationBodyTooLargeError,
   AnnotationCountLimitExceededError,
@@ -28,88 +32,97 @@ export interface WriteAnnotationsResult {
   };
 }
 
-export function writeAnnotations(params: WriteAnnotationsParams): Promise<WriteAnnotationsResult> {
-  return withAnnotationLock(params.jobExecutionId, async (repo) => {
-    const current = await repo.loadCurrentAnnotations(params.jobExecutionId);
-    let nextSequence =
-      Math.max(0, ...Array.from(current.values()).map((annotation) => annotation.sequence)) + 1;
-    const results: WriteAnnotationsResult['annotations'] = [];
+interface AnnotationWriteState {
+  current: Map<string, StoredAnnotation>;
+  nextSequence: number;
+  results: WriteAnnotationsResult['annotations'];
+}
 
-    for (const operation of params.operations) {
-      if (operation.op === 'remove') {
-        await repo.removeAnnotation(params.jobExecutionId, operation.context);
-        current.delete(operation.context);
-        results.push({context: operation.context, id: null});
-        continue;
-      }
+async function applyAnnotationOperation(
+  repo: AnnotationWriteRepository,
+  params: WriteAnnotationsParams,
+  operation: LeasedWriteAnnotationOperationDto,
+  state: AnnotationWriteState,
+): Promise<void> {
+  if (operation.op === 'remove') {
+    await repo.removeAnnotation(params.jobExecutionId, operation.context);
+    state.current.delete(operation.context);
+    state.results.push({context: operation.context, id: null});
+    return;
+  }
 
-      const existing = current.get(operation.context);
-      const body =
-        operation.op === 'append' ? `${existing?.body ?? ''}${operation.body}` : operation.body;
-      const bodyBytes = Buffer.byteLength(body);
-      ensureBodyBudget(bodyBytes);
+  const existing = state.current.get(operation.context);
+  const body =
+    operation.op === 'append' ? `${existing?.body ?? ''}${operation.body}` : operation.body;
+  const bodyBytes = Buffer.byteLength(body);
+  ensureBodyBudget(bodyBytes);
+  const unchanged =
+    operation.op === 'replace' &&
+    existing !== undefined &&
+    existing.body === body &&
+    existing.style === operation.style;
+  if (unchanged) {
+    state.results.push({context: operation.context, id: existing.id});
+    return;
+  }
 
-      const isUnchangedReplace =
-        operation.op === 'replace' &&
-        existing !== undefined &&
-        existing.body === body &&
-        existing.style === operation.style;
-      if (isUnchangedReplace) {
-        results.push({context: operation.context, id: existing.id});
-        continue;
-      }
+  const draft = new Map(state.current);
+  draft.set(operation.context, {
+    id: existing?.id ?? '',
+    context: operation.context,
+    style: operation.style,
+    body,
+    bodyBytes,
+    sequence: existing?.sequence ?? state.nextSequence,
+  });
+  ensureExecutionBudgets(draft);
 
-      const draft = new Map(current);
-      draft.set(operation.context, {
-        id: existing?.id ?? '',
+  const row = existing
+    ? await repo.updateAnnotation({
+        id: existing.id,
+        originStepId: params.originStepId,
+        originStepAttempt: params.originStepAttempt,
+        style: operation.style,
+        body,
+        bodyBytes,
+      })
+    : await repo.createAnnotation({
+        workspaceId: params.workspaceId,
+        projectId: params.projectId,
+        workflowRunId: params.workflowRunId,
+        workflowRunAttempt: params.workflowRunAttempt,
+        workflowRunAttemptId: params.workflowRunAttemptId,
+        jobId: params.jobId,
+        jobExecutionId: params.jobExecutionId,
+        originStepId: params.originStepId,
+        originStepAttempt: params.originStepAttempt,
         context: operation.context,
         style: operation.style,
         body,
         bodyBytes,
-        sequence: existing?.sequence ?? nextSequence,
+        sequence: state.nextSequence,
       });
-      ensureExecutionBudgets(draft);
+  state.current.set(operation.context, row);
+  if (!existing) state.nextSequence += 1;
+  state.results.push({context: operation.context, id: row.id});
+}
 
-      const row = existing
-        ? await repo.updateAnnotation({
-            id: existing.id,
-            originStepId: params.originStepId,
-            originStepAttempt: params.originStepAttempt,
-            style: operation.style,
-            body,
-            bodyBytes,
-          })
-        : await repo.createAnnotation({
-            workspaceId: params.workspaceId,
-            projectId: params.projectId,
-            workflowRunId: params.workflowRunId,
-            workflowRunAttempt: params.workflowRunAttempt,
-            workflowRunAttemptId: params.workflowRunAttemptId,
-            jobId: params.jobId,
-            jobExecutionId: params.jobExecutionId,
-            originStepId: params.originStepId,
-            originStepAttempt: params.originStepAttempt,
-            context: operation.context,
-            style: operation.style,
-            body,
-            bodyBytes,
-            sequence: nextSequence,
-          });
+export function writeAnnotations(params: WriteAnnotationsParams): Promise<WriteAnnotationsResult> {
+  return withAnnotationLock(params.jobExecutionId, async (repo) => {
+    const current = await repo.loadCurrentAnnotations(params.jobExecutionId);
+    const state: AnnotationWriteState = {
+      current,
+      nextSequence:
+        Math.max(0, ...Array.from(current.values()).map((annotation) => annotation.sequence)) + 1,
+      results: [],
+    };
 
-      current.set(operation.context, {
-        id: row.id,
-        context: row.context,
-        style: row.style,
-        body: row.body,
-        bodyBytes: row.bodyBytes,
-        sequence: row.sequence,
-      });
-      if (!existing) nextSequence += 1;
-      results.push({context: operation.context, id: row.id});
+    for (const operation of params.operations) {
+      await applyAnnotationOperation(repo, params, operation, state);
     }
 
     return {
-      annotations: results,
+      annotations: state.results,
       accounting: currentAccounting(current),
     };
   });

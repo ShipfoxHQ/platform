@@ -139,67 +139,9 @@ export function createDockerEngine(options: CreateDockerEngineOptions = {}): Doc
       } catch (error) {
         throw addLoggingDriverContext(error, selectedLoggingDriver());
       }
-      let container: Docker.Container | undefined;
-
-      try {
-        container = await docker.createContainer({
-          Image: args.image,
-          name: args.name,
-          Labels: {...args.labels},
-          Env: Object.entries(args.env).map(([key, value]) => `${key}=${value}`),
-          HostConfig: {
-            NanoCpus: args.nanoCpus,
-            Memory: args.memoryBytes,
-            RestartPolicy: {Name: 'no'},
-            ...(options.network ? {NetworkMode: options.network} : {}),
-            ...(options.extraHosts ? {ExtraHosts: [...options.extraHosts]} : {}),
-            ...(options.loggingDriver
-              ? {
-                  LogConfig: {
-                    Type: options.loggingDriver,
-                    Config: {...(options.loggingOptions ?? {})},
-                  },
-                }
-              : {}),
-          },
-        });
-      } catch (error) {
-        const selectedDriver = options.loggingDriver ?? effectiveLoggingDriver;
-        throw addLoggingDriverContext(
-          mapError(
-            error,
-            isConflict(error) ? 'name-conflict' : 'create-failed',
-            selectedDriver
-              ? `Cannot create runner container with logging driver ${selectedDriver}.`
-              : 'Cannot create runner container with the Docker daemon logging driver.',
-          ),
-          selectedDriver,
-        );
-      }
-
-      try {
-        await args.beforeStart?.();
-      } catch (error) {
-        await removeContainer(container).catch(() => undefined);
-        throw error;
-      }
-
-      try {
-        await container.start();
-      } catch (error) {
-        await removeContainer(container).catch(() => undefined);
-        const selectedDriver = selectedLoggingDriver();
-        throw addLoggingDriverContext(
-          mapError(
-            error,
-            'start-failed',
-            selectedDriver
-              ? `Cannot start runner container with logging driver ${selectedDriver}.`
-              : 'Cannot start runner container with the Docker daemon logging driver.',
-          ),
-          selectedDriver,
-        );
-      }
+      const container = await createRunnerContainer(args);
+      await runBeforeContainerStart(container, args.beforeStart);
+      await startRunnerContainer(container);
     },
 
     async listManaged(provisionerId) {
@@ -209,52 +151,7 @@ export function createDockerEngine(options: CreateDockerEngineOptions = {}): Doc
           filters: {label: [`${SHIPFOX_LABELS.provisionerId}=${provisionerId}`]},
         });
 
-        return Promise.all(
-          containers.map(async (container) => {
-            const state = normalizeState(container.State);
-            const inspectTerminalState = state === 'exited' || state === 'dead';
-            let inspected: Docker.ContainerInspectInfo | undefined;
-            let terminalInspectFailed = false;
-            if (inspectTerminalState) {
-              try {
-                inspected = await inspectContainer(container.Id);
-                terminalInspectFailed = !inspected;
-              } catch {
-                // Keep one transient or racing inspect from failing the entire observation pass.
-                inspected = undefined;
-                terminalInspectFailed = true;
-              }
-            }
-            const startedAt = parseDockerDate(inspected?.State?.StartedAt);
-            const finishedAt = parseDockerDate(inspected?.State?.FinishedAt);
-            const loggingDriver =
-              inspected?.HostConfig?.LogConfig?.Type ??
-              options.loggingDriver ??
-              effectiveLoggingDriver;
-            const createdAt = new Date(container.Created * 1000);
-            const exitCode =
-              inspected?.State?.ExitCode ??
-              parseDockerExitCode((container as {Status?: string}).Status);
-            return {
-              id: container.Id,
-              name: container.Names?.[0]?.replace(LEADING_SLASH, '') ?? container.Id,
-              labels: container.Labels ?? {},
-              state,
-              ...(exitCode !== undefined ? {exitCode} : {}),
-              ...(inspected?.State?.OOMKilled !== undefined
-                ? {oomKilled: inspected.State.OOMKilled}
-                : {}),
-              ...(container.Image || inspected?.Config?.Image
-                ? {image: inspected?.Config?.Image ?? container.Image}
-                : {}),
-              ...(loggingDriver ? {loggingDriver} : {}),
-              createdAt: Number.isNaN(createdAt.getTime()) ? new Date() : createdAt,
-              ...(startedAt ? {startedAt} : {}),
-              ...(finishedAt ? {finishedAt} : {}),
-              ...(terminalInspectFailed ? {terminalInspectFailed: true} : {}),
-            };
-          }),
-        );
+        return Promise.all(containers.map(toManagedContainerView));
       } catch (error) {
         throw mapError(error, 'unknown', 'Cannot list managed Docker containers.');
       }
@@ -300,6 +197,141 @@ export function createDockerEngine(options: CreateDockerEngineOptions = {}): Doc
       throw error;
     }
   }
+
+  async function createRunnerContainer(
+    args: Parameters<DockerEngine['createAndStart']>[0],
+  ): Promise<Docker.Container> {
+    try {
+      return await docker.createContainer({
+        Image: args.image,
+        name: args.name,
+        Labels: {...args.labels},
+        Env: Object.entries(args.env).map(([key, value]) => `${key}=${value}`),
+        HostConfig: {
+          NanoCpus: args.nanoCpus,
+          Memory: args.memoryBytes,
+          RestartPolicy: {Name: 'no'},
+          ...(options.network ? {NetworkMode: options.network} : {}),
+          ...(options.extraHosts ? {ExtraHosts: [...options.extraHosts]} : {}),
+          ...(options.loggingDriver
+            ? {
+                LogConfig: {
+                  Type: options.loggingDriver,
+                  Config: {...(options.loggingOptions ?? {})},
+                },
+              }
+            : {}),
+        },
+      });
+    } catch (error) {
+      const driver = selectedLoggingDriver();
+      throw addLoggingDriverContext(
+        mapError(
+          error,
+          isConflict(error) ? 'name-conflict' : 'create-failed',
+          driver
+            ? `Cannot create runner container with logging driver ${driver}.`
+            : 'Cannot create runner container with the Docker daemon logging driver.',
+        ),
+        driver,
+      );
+    }
+  }
+
+  async function runBeforeContainerStart(
+    container: Docker.Container,
+    beforeStart: (() => Promise<void>) | undefined,
+  ): Promise<void> {
+    try {
+      await beforeStart?.();
+    } catch (error) {
+      await removeContainer(container).catch(() => undefined);
+      throw error;
+    }
+  }
+
+  async function startRunnerContainer(container: Docker.Container): Promise<void> {
+    try {
+      await container.start();
+    } catch (error) {
+      await removeContainer(container).catch(() => undefined);
+      const driver = selectedLoggingDriver();
+      throw addLoggingDriverContext(
+        mapError(
+          error,
+          'start-failed',
+          driver
+            ? `Cannot start runner container with logging driver ${driver}.`
+            : 'Cannot start runner container with the Docker daemon logging driver.',
+        ),
+        driver,
+      );
+    }
+  }
+
+  async function toManagedContainerView(
+    container: Docker.ContainerInfo,
+  ): Promise<DockerContainerView> {
+    const state = normalizeState(container.State);
+    const {inspected, terminalInspectFailed} = await inspectTerminalContainer(container.Id, state);
+    const startedAt = parseDockerDate(inspected?.State?.StartedAt);
+    const finishedAt = parseDockerDate(inspected?.State?.FinishedAt);
+    const loggingDriver = inspected?.HostConfig?.LogConfig?.Type ?? selectedLoggingDriver();
+    const createdAt = new Date(container.Created * 1000);
+    const exitCode =
+      inspected?.State?.ExitCode ?? parseDockerExitCode((container as {Status?: string}).Status);
+    return {
+      id: container.Id,
+      name: container.Names?.[0]?.replace(LEADING_SLASH, '') ?? container.Id,
+      labels: container.Labels ?? {},
+      state,
+      createdAt: Number.isNaN(createdAt.getTime()) ? new Date() : createdAt,
+      ...optionalContainerViewFields({
+        container,
+        inspected,
+        exitCode,
+        loggingDriver,
+        startedAt,
+        finishedAt,
+        terminalInspectFailed,
+      }),
+    };
+  }
+
+  async function inspectTerminalContainer(id: string, state: DockerContainerState) {
+    if (state !== 'exited' && state !== 'dead') {
+      return {inspected: undefined, terminalInspectFailed: false};
+    }
+    try {
+      const inspected = await inspectContainer(id);
+      return {inspected, terminalInspectFailed: !inspected};
+    } catch {
+      return {inspected: undefined, terminalInspectFailed: true};
+    }
+  }
+}
+
+function optionalContainerViewFields(params: {
+  container: Docker.ContainerInfo;
+  inspected: Docker.ContainerInspectInfo | undefined;
+  exitCode: number | undefined;
+  loggingDriver: string | undefined;
+  startedAt: Date | undefined;
+  finishedAt: Date | undefined;
+  terminalInspectFailed: boolean;
+}): Partial<DockerContainerView> {
+  const fields: {-readonly [Key in keyof DockerContainerView]?: DockerContainerView[Key]} = {};
+  if (params.exitCode !== undefined) fields.exitCode = params.exitCode;
+  if (params.inspected?.State?.OOMKilled !== undefined) {
+    fields.oomKilled = params.inspected.State.OOMKilled;
+  }
+  const image = params.inspected?.Config?.Image ?? params.container.Image;
+  if (image) fields.image = image;
+  if (params.loggingDriver) fields.loggingDriver = params.loggingDriver;
+  if (params.startedAt) fields.startedAt = params.startedAt;
+  if (params.finishedAt) fields.finishedAt = params.finishedAt;
+  if (params.terminalInspectFailed) fields.terminalInspectFailed = true;
+  return fields;
 }
 
 async function followProgress(docker: Docker, stream: NodeJS.ReadableStream): Promise<void> {

@@ -206,16 +206,7 @@ function validateExpressionSegment(params: {
     return undefined;
   }
 
-  const invalidJobReferenceIssue =
-    params.allowedJobReferences === undefined
-      ? undefined
-      : validateDirectJobReferences({
-          source: params.source,
-          expression: params.segment.expression,
-          field: params.field,
-          path: params.path,
-          allowedJobReferences: params.allowedJobReferences,
-        });
+  const invalidJobReferenceIssue = validateAllowedJobReferences(params);
   if (invalidJobReferenceIssue !== undefined) {
     params.issues.push(invalidJobReferenceIssue);
     return undefined;
@@ -241,16 +232,10 @@ function validateExpressionSegment(params: {
     return undefined;
   }
 
-  const fillSite = params.fillSite;
-  if (fillSite !== undefined) {
-    const serverRoots = knownRoots.filter((root) => resolveContextRootHost(root) === 'server');
-    const unavailableRoots = unavailableRootsAt(serverRoots, fillSite);
-    if (unavailableRoots.length > 0) {
-      params.issues.push(
-        unavailableContextIssue({...params, contextRoots, unavailableRoots, fillSite}),
-      );
-      return undefined;
-    }
+  const unavailableIssue = unavailableContextAtFillSite(params, contextRoots, knownRoots);
+  if (unavailableIssue !== undefined) {
+    params.issues.push(unavailableIssue);
+    return undefined;
   }
 
   if (
@@ -293,6 +278,36 @@ function validateExpressionSegment(params: {
     );
     return undefined;
   }
+}
+
+function validateAllowedJobReferences(
+  params: Parameters<typeof validateExpressionSegment>[0],
+): WorkflowModelValidationIssue | undefined {
+  if (params.allowedJobReferences === undefined) return undefined;
+  return validateDirectJobReferences({
+    source: params.source,
+    expression: params.segment.expression,
+    field: params.field,
+    path: params.path,
+    allowedJobReferences: params.allowedJobReferences,
+  });
+}
+
+function unavailableContextAtFillSite(
+  params: Parameters<typeof validateExpressionSegment>[0],
+  contextRoots: readonly string[],
+  knownRoots: readonly (WorkflowContextName | WorkflowContextReservedRoot)[],
+): WorkflowModelValidationIssue | undefined {
+  if (params.fillSite === undefined) return undefined;
+  const serverRoots = knownRoots.filter((root) => resolveContextRootHost(root) === 'server');
+  const unavailableRoots = unavailableRootsAt(serverRoots, params.fillSite);
+  if (unavailableRoots.length === 0) return undefined;
+  return unavailableContextIssue({
+    ...params,
+    contextRoots,
+    unavailableRoots,
+    fillSite: params.fillSite,
+  });
 }
 
 function runnerContextInFieldIssue(params: {

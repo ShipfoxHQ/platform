@@ -142,13 +142,7 @@ export function createSlackIntegrationProvider(
         }),
       }
     : {};
-  if (
-    options.routes &&
-    !hasSlackInstallationRoutesOptions(options.routes) &&
-    !hasSlackWebhookRoutesOptions(options.routes)
-  ) {
-    throw new Error('Slack webhook routes require every core persistence dependency');
-  }
+  assertValidSlackRouteOptions(options.routes);
   const routes: RouteGroup[] = [];
   const webhookProcessor =
     options.routes && hasSlackWebhookRoutesOptions(options.routes)
@@ -194,6 +188,12 @@ export function createSlackIntegrationProvider(
       ? [{routeIds: ['slack.event', 'slack.command'] as const, processor: webhookProcessor}]
       : undefined,
   };
+}
+
+function assertValidSlackRouteOptions(routes: SlackRouteOptions | undefined): void {
+  if (!routes) return;
+  if (hasSlackInstallationRoutesOptions(routes) || hasSlackWebhookRoutesOptions(routes)) return;
+  throw new Error('Slack webhook routes require every core persistence dependency');
 }
 
 function hasSlackInstallationRoutesOptions(

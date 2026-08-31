@@ -147,57 +147,135 @@ function validateBuildConfig(configPath: string, app: Record<string, unknown>): 
   if (build.task !== undefined && (typeof build.task !== 'string' || build.task.length === 0)) {
     throw new Error(`${configPath} app ${app.id} build.task must be a non-empty string`);
   }
+  validateBuildEnvironmentMap(configPath, app.id, buildEnv);
+  validateBuildFromEnvironmentMap(configPath, app.id, buildFromEnv);
+  validateBuildEnvironmentOverlap(configPath, app.id, buildEnv, buildFromEnv);
+}
 
-  if (buildEnv !== undefined) {
-    if (
-      typeof buildEnv !== 'object' ||
-      buildEnv === null ||
-      Array.isArray(buildEnv) ||
-      Object.entries(buildEnv).some(
-        ([environment, values]) =>
-          environment.length === 0 ||
-          typeof values !== 'object' ||
-          values === null ||
-          Array.isArray(values) ||
-          Object.entries(values).some(
-            ([name, value]) =>
-              !environmentVariableNamePattern.test(name) || typeof value !== 'string',
-          ),
-      )
-    ) {
-      throw new Error(`${configPath} app ${app.id} build.env must map environments to env values`);
-    }
-  }
+function validateBuildEnvironmentMap(configPath: string, appId: unknown, value: unknown): void {
+  if (value === undefined) return;
+  const invalid =
+    typeof value !== 'object' ||
+    value === null ||
+    Array.isArray(value) ||
+    Object.entries(value).some(
+      ([environment, values]) =>
+        environment.length === 0 ||
+        typeof values !== 'object' ||
+        values === null ||
+        Array.isArray(values) ||
+        Object.entries(values).some(
+          ([name, item]) => !environmentVariableNamePattern.test(name) || typeof item !== 'string',
+        ),
+    );
+  if (invalid)
+    throw new Error(`${configPath} app ${appId} build.env must map environments to env values`);
+}
 
-  if (buildFromEnv !== undefined) {
-    if (
-      typeof buildFromEnv !== 'object' ||
-      buildFromEnv === null ||
-      Array.isArray(buildFromEnv) ||
-      Object.entries(buildFromEnv).some(
-        ([name, source]) =>
-          !environmentVariableNamePattern.test(name) ||
-          typeof source !== 'string' ||
-          !environmentVariableNamePattern.test(source),
-      )
-    ) {
-      throw new Error(
-        `${configPath} app ${app.id} build.fromEnv must map env names to CI env names`,
-      );
-    }
-  }
+function validateBuildFromEnvironmentMap(configPath: string, appId: unknown, value: unknown): void {
+  if (value === undefined) return;
+  const invalid =
+    typeof value !== 'object' ||
+    value === null ||
+    Array.isArray(value) ||
+    Object.entries(value).some(
+      ([name, source]) =>
+        !environmentVariableNamePattern.test(name) ||
+        typeof source !== 'string' ||
+        !environmentVariableNamePattern.test(source),
+    );
+  if (invalid)
+    throw new Error(`${configPath} app ${appId} build.fromEnv must map env names to CI env names`);
+}
 
-  for (const [environment, values] of Object.entries(
-    (buildEnv as Record<string, Record<string, string>> | undefined) ?? {},
-  )) {
-    for (const name of Object.keys((buildFromEnv as Record<string, string> | undefined) ?? {})) {
-      if (Object.hasOwn(values as object, name)) {
+function validateBuildEnvironmentOverlap(
+  configPath: string,
+  appId: unknown,
+  buildEnv: unknown,
+  buildFromEnv: unknown,
+): void {
+  const environments = (buildEnv as Record<string, Record<string, string>> | undefined) ?? {};
+  const names = Object.keys((buildFromEnv as Record<string, string> | undefined) ?? {});
+  for (const [environment, values] of Object.entries(environments)) {
+    for (const name of names) {
+      if (Object.hasOwn(values, name)) {
         throw new Error(
-          `${configPath} app ${app.id} build variable ${name} is defined in both ${environment} env and fromEnv`,
+          `${configPath} app ${appId} build variable ${name} is defined in both ${environment} env and fromEnv`,
         );
       }
     }
   }
+}
+
+function validateCloudflarePagesApp(configPath: string, value: unknown, ids: Set<unknown>): void {
+  if (typeof value !== 'object' || value === null) {
+    throw new Error(`${configPath} apps must contain objects`);
+  }
+  const app = value as Record<string, unknown>;
+  for (const field of ['id', 'target', 'directory']) {
+    if (typeof app[field] !== 'string' || app[field].length === 0) {
+      throw new Error(`${configPath} app ${field} is required`);
+    }
+  }
+  if (
+    app.affectedTargets !== undefined &&
+    (!Array.isArray(app.affectedTargets) ||
+      app.affectedTargets.some((target) => typeof target !== 'string' || target.length === 0))
+  ) {
+    throw new Error(`${configPath} app ${app.id} affectedTargets must be strings`);
+  }
+  if (ids.has(app.id)) throw new Error(`${configPath} contains duplicate app id ${app.id}`);
+  ids.add(app.id);
+  validateCloudflareProjects(configPath, app);
+  validateBuildConfig(configPath, app);
+  validateCloudflareVerification(configPath, app);
+}
+
+function validateCloudflareProjects(configPath: string, app: Record<string, unknown>): void {
+  if (typeof app.project !== 'string' || app.project.length === 0) {
+    throw new Error(`${configPath} app ${app.id} must define a Cloudflare Pages project`);
+  }
+  if (app.projects === undefined) return;
+  const invalid =
+    typeof app.projects !== 'object' ||
+    app.projects === null ||
+    Array.isArray(app.projects) ||
+    Object.entries(app.projects).some(
+      ([environment, project]) =>
+        environment.length === 0 || typeof project !== 'string' || project.length === 0,
+    );
+  if (invalid)
+    throw new Error(`${configPath} app ${app.id} projects must map environments to project names`);
+}
+
+function validateCloudflareVerification(configPath: string, app: Record<string, unknown>): void {
+  if (app.verify === undefined) return;
+  if (typeof app.verify !== 'object' || app.verify === null) {
+    throw new Error(`${configPath} app ${app.id} verify must be an object`);
+  }
+  const verify = app.verify as Record<string, unknown>;
+  if (
+    verify.metadataPath !== undefined &&
+    (typeof verify.metadataPath !== 'string' || verify.metadataPath.length === 0)
+  ) {
+    throw new Error(`${configPath} app ${app.id} metadataPath must be a string`);
+  }
+  if (
+    verify.endpoints !== undefined &&
+    (!Array.isArray(verify.endpoints) || verify.endpoints.some(invalidVerificationEndpoint))
+  ) {
+    throw new Error(`${configPath} app ${app.id} endpoints must define paths`);
+  }
+}
+
+function invalidVerificationEndpoint(endpoint: unknown): boolean {
+  if (typeof endpoint === 'string') return endpoint.length === 0;
+  if (typeof endpoint !== 'object' || endpoint === null) return true;
+  const value = endpoint as {id?: unknown; path?: unknown; requireNonEmpty?: unknown};
+  if (typeof value.path !== 'string' || value.path.length === 0) return true;
+  if (value.id !== undefined && (typeof value.id !== 'string' || value.id.length === 0))
+    return true;
+  return value.requireNonEmpty !== undefined && typeof value.requireNonEmpty !== 'boolean';
 }
 
 /**
@@ -217,121 +295,16 @@ export async function readCloudflarePagesConfig(
 
   const ids = new Set();
   for (const app of config.apps) {
-    if (typeof app !== 'object' || app === null) {
-      throw new Error(`${configPath} apps must contain objects`);
-    }
-    for (const field of ['id', 'target', 'directory']) {
-      if (typeof app[field] !== 'string' || app[field].length === 0) {
-        throw new Error(`${configPath} app ${field} is required`);
-      }
-    }
-    if (
-      app.affectedTargets !== undefined &&
-      (!Array.isArray(app.affectedTargets) ||
-        app.affectedTargets.some(
-          (target: unknown) => typeof target !== 'string' || target.length === 0,
-        ))
-    ) {
-      throw new Error(`${configPath} app ${app.id} affectedTargets must be strings`);
-    }
-    if (ids.has(app.id)) throw new Error(`${configPath} contains duplicate app id ${app.id}`);
-    ids.add(app.id);
-
-    if (typeof app.project !== 'string' || app.project.length === 0) {
-      throw new Error(`${configPath} app ${app.id} must define a Cloudflare Pages project`);
-    }
-    if (
-      app.projects !== undefined &&
-      (typeof app.projects !== 'object' ||
-        app.projects === null ||
-        Array.isArray(app.projects) ||
-        Object.entries(app.projects).some(
-          ([environment, project]) =>
-            environment.length === 0 || typeof project !== 'string' || project.length === 0,
-        ))
-    ) {
-      throw new Error(
-        `${configPath} app ${app.id} projects must map environments to project names`,
-      );
-    }
-
-    validateBuildConfig(configPath, app);
-
-    if (app.verify !== undefined) {
-      if (typeof app.verify !== 'object' || app.verify === null) {
-        throw new Error(`${configPath} app ${app.id} verify must be an object`);
-      }
-      if (
-        app.verify.metadataPath !== undefined &&
-        (typeof app.verify.metadataPath !== 'string' || app.verify.metadataPath.length === 0)
-      ) {
-        throw new Error(`${configPath} app ${app.id} metadataPath must be a string`);
-      }
-      if (
-        app.verify.endpoints !== undefined &&
-        (!Array.isArray(app.verify.endpoints) ||
-          app.verify.endpoints.some((endpoint: unknown) => {
-            if (typeof endpoint === 'string') return endpoint.length === 0;
-            if (typeof endpoint !== 'object' || endpoint === null) return true;
-            const endpointObject = endpoint as {
-              id?: unknown;
-              path?: unknown;
-              requireNonEmpty?: unknown;
-            };
-            return (
-              typeof endpointObject.path !== 'string' ||
-              endpointObject.path.length === 0 ||
-              (endpointObject.id !== undefined &&
-                (typeof endpointObject.id !== 'string' || endpointObject.id.length === 0)) ||
-              (endpointObject.requireNonEmpty !== undefined &&
-                typeof endpointObject.requireNonEmpty !== 'boolean')
-            );
-          }))
-      ) {
-        throw new Error(`${configPath} app ${app.id} endpoints must define paths`);
-      }
-    }
+    validateCloudflarePagesApp(configPath, app, ids);
   }
 
-  const environments = config.environments ?? defaultCloudflarePagesEnvironments;
-  if (
-    typeof environments !== 'object' ||
-    environments === null ||
-    Array.isArray(environments) ||
-    Object.entries(environments).some(([environment, settings]) => {
-      if (
-        environment.length === 0 ||
-        typeof settings !== 'object' ||
-        settings === null ||
-        Array.isArray(settings)
-      ) {
-        return true;
-      }
-      const branch = (settings as {branch?: unknown}).branch;
-      return (
-        branch !== undefined &&
-        branch !== null &&
-        (typeof branch !== 'string' || branch.length === 0)
-      );
-    })
-  ) {
-    throw new Error(`${configPath} environments must define valid branch settings`);
-  }
-
-  const forcePaths = config.forcePaths ?? [];
-  if (!Array.isArray(forcePaths) || forcePaths.some((forcePath) => typeof forcePath !== 'string')) {
-    throw new Error(`${configPath} must contain a string forcePaths array`);
-  }
-
-  const artifact = config.artifact;
-  if (artifact !== undefined && !isArtifactConfig(artifact)) {
-    throw new Error(`${configPath} artifact must define a valid metadataPath`);
-  }
-
-  const validation = config.validation;
-  if (validation !== undefined && !isValidationConfig(validation)) {
-    throw new Error(`${configPath} validation must define commands and string args`);
-  }
+  const environments = validateCloudflareEnvironments(
+    configPath,
+    config.environments ?? defaultCloudflarePagesEnvironments,
+  );
+  const forcePaths = validateForcePaths(configPath, config.forcePaths ?? []);
+  const artifact = validateArtifactConfig(configPath, config.artifact);
+  const validation = validateValidationConfig(configPath, config.validation);
 
   return {
     apps: config.apps as CloudflarePagesApp[],
@@ -345,6 +318,56 @@ export async function readCloudflarePagesConfig(
         }),
     ...(validation === undefined ? {} : {validation}),
   };
+}
+
+function validateCloudflareEnvironments(
+  configPath: string,
+  environments: unknown,
+): Record<string, CloudflarePagesEnvironment> {
+  const invalid =
+    typeof environments !== 'object' ||
+    environments === null ||
+    Array.isArray(environments) ||
+    Object.entries(environments).some(([name, settings]) =>
+      invalidEnvironmentSetting(name, settings),
+    );
+  if (invalid) throw new Error(`${configPath} environments must define valid branch settings`);
+  return environments as Record<string, CloudflarePagesEnvironment>;
+}
+
+function invalidEnvironmentSetting(environment: string, settings: unknown): boolean {
+  if (
+    environment.length === 0 ||
+    typeof settings !== 'object' ||
+    settings === null ||
+    Array.isArray(settings)
+  )
+    return true;
+  const branch = (settings as {branch?: unknown}).branch;
+  return (
+    branch !== undefined && branch !== null && (typeof branch !== 'string' || branch.length === 0)
+  );
+}
+
+function validateForcePaths(configPath: string, value: unknown): string[] {
+  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) {
+    throw new Error(`${configPath} must contain a string forcePaths array`);
+  }
+  return value as string[];
+}
+
+function validateArtifactConfig(configPath: string, value: unknown) {
+  if (value !== undefined && !isArtifactConfig(value)) {
+    throw new Error(`${configPath} artifact must define a valid metadataPath`);
+  }
+  return value;
+}
+
+function validateValidationConfig(configPath: string, value: unknown) {
+  if (value !== undefined && !isValidationConfig(value)) {
+    throw new Error(`${configPath} validation must define commands and string args`);
+  }
+  return value;
 }
 
 /**
@@ -390,23 +413,20 @@ export function createCloudflarePagesPlan({
   const isExplicitDeployment = eventName === 'deployment';
   const shouldDeploy =
     isMainPush || isExplicitDeployment || forcedByFile || affectedTargets.length > 0;
-  const selectedApps = shouldDeploy
-    ? isMainPush || isExplicitDeployment || forcedByFile
-      ? apps
-      : affectedApps
-    : [];
+  let selectedApps: CloudflarePagesApp[] = [];
+  if (shouldDeploy) {
+    selectedApps = isMainPush || isExplicitDeployment || forcedByFile ? apps : affectedApps;
+  }
+
+  let reason = 'no Pages target is affected';
+  if (isMainPush) reason = 'main push';
+  else if (isExplicitDeployment) reason = 'explicit deployment';
+  else if (forcedByFile) reason = 'Pages workflow or application configuration changed';
+  else if (affectedTargets.length > 0) reason = 'Turbo affected Pages target detected';
 
   return {
     shouldDeploy,
-    reason: isMainPush
-      ? 'main push'
-      : isExplicitDeployment
-        ? 'explicit deployment'
-        : forcedByFile
-          ? 'Pages workflow or application configuration changed'
-          : affectedTargets.length > 0
-            ? 'Turbo affected Pages target detected'
-            : 'no Pages target is affected',
+    reason,
     affectedPackages,
     affectedTargets,
     affectedApps: affectedApps.map((app) => app.id),

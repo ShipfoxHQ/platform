@@ -16,28 +16,7 @@ export function toJobDto(job: Job): JobDto {
     success: job.success ?? null,
     runner: job.runner,
     evaluation_trace: toEvaluationTraceDto(job.evaluationTrace),
-    listening:
-      job.listeningOn === null
-        ? null
-        : {
-            on: job.listeningOn,
-            until: job.listeningUntil,
-            timeout_ms: job.listeningTimeoutMs,
-            max_executions: job.maxExecutions,
-            batch:
-              job.batchDebounceMs === null &&
-              job.batchMaxSize === null &&
-              job.batchMaxWaitMs === null
-                ? null
-                : {
-                    ...(job.batchDebounceMs === null ? {} : {debounce_ms: job.batchDebounceMs}),
-                    ...(job.batchMaxSize === null ? {} : {max_size: job.batchMaxSize}),
-                    ...(job.batchMaxWaitMs === null ? {} : {max_wait_ms: job.batchMaxWaitMs}),
-                  },
-            on_resolve: job.onResolve ?? 'finish',
-            execution_timeout_ms: job.executionTimeoutMs ?? null,
-            name: job.name,
-          },
+    listening: toJobListeningDto(job),
     listener_status: job.listenerStatus,
     resolution_reason: job.resolutionReason,
     outputs: job.outputs,
@@ -45,6 +24,31 @@ export function toJobDto(job: Job): JobDto {
     position: job.position,
     created_at: job.createdAt.toISOString(),
     updated_at: job.updatedAt.toISOString(),
+  };
+}
+
+function toJobListeningDto(job: Job): JobDto['listening'] {
+  if (job.listeningOn === null) return null;
+  return {
+    on: job.listeningOn,
+    until: job.listeningUntil,
+    timeout_ms: job.listeningTimeoutMs,
+    max_executions: job.maxExecutions,
+    batch: toJobListeningBatchDto(job),
+    on_resolve: job.onResolve ?? 'finish',
+    execution_timeout_ms: job.executionTimeoutMs ?? null,
+    name: job.name,
+  };
+}
+
+function toJobListeningBatchDto(job: Job): NonNullable<JobDto['listening']>['batch'] {
+  if (job.batchDebounceMs === null && job.batchMaxSize === null && job.batchMaxWaitMs === null) {
+    return null;
+  }
+  return {
+    ...(job.batchDebounceMs === null ? {} : {debounce_ms: job.batchDebounceMs}),
+    ...(job.batchMaxSize === null ? {} : {max_size: job.batchMaxSize}),
+    ...(job.batchMaxWaitMs === null ? {} : {max_wait_ms: job.batchMaxWaitMs}),
   };
 }
 

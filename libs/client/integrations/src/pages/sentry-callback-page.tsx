@@ -9,7 +9,15 @@ import {toast} from '@shipfox/react-ui/toast';
 import {Header, Text} from '@shipfox/react-ui/typography';
 import {useQueryClient} from '@tanstack/react-query';
 import {Link, useNavigate} from '@tanstack/react-router';
-import {useEffect, useMemo, useRef, useState} from 'react';
+import {
+  type Dispatch,
+  type MutableRefObject,
+  type SetStateAction,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {useCompleteIntegrationCallback} from '#application/complete-integration-callback.js';
 import type {IntegrationConnection} from '#core/models.js';
 import {connectSentry} from '#hooks/api/integrations.js';
@@ -123,50 +131,23 @@ export function SentryCallbackPage() {
     );
 
     request
-      .then(async () => {
-        clearSentryInstallWorkspace(sessionStorageOrUndefined());
-        if (disposedRef.current) return;
-        toast.success('Sentry installed.');
-        const workspaceSlug = await resolveWorkspaceSlug({
-          workspaceId,
-          fallbackWorkspaces: workspaces,
-          queryClient,
-        });
-        if (disposedRef.current) return;
-        await navigate(
-          workspaceSlug
-            ? {
-                to: '/w/$workspaceSlug/settings/integrations',
-                params: {workspaceSlug},
-                replace: true,
-              }
-            : {to: '/', replace: true},
-        );
-      })
-      .catch((error: unknown) => {
-        if (disposedRef.current) return;
-        const classified = classifySentryConnectError(error);
-        if (classified.kind === 'terminal') {
-          // Only a fresh install (new grant code) can recover; the stored
-          // handoff has served its purpose either way.
-          clearSentryInstallWorkspace(sessionStorageOrUndefined());
-        }
-        setConnectingId(undefined);
-        setFailure({workspaceId, failure: classified});
-      });
+      .then(
+        async () =>
+          await handleSentryConnectSuccess({
+            workspaceId,
+            workspaces,
+            queryClient,
+            navigate,
+            disposedRef,
+          }),
+      )
+      .catch((error: unknown) =>
+        handleSentryConnectFailure({error, workspaceId, disposedRef, setConnectingId, setFailure}),
+      );
   };
 
-  const orderedWorkspaces = preselectedId
-    ? [
-        ...workspaces.filter((workspace) => workspace.id === preselectedId),
-        ...workspaces.filter((workspace) => workspace.id !== preselectedId),
-      ]
-    : workspaces;
-
-  const failureWorkspaceId = failure?.workspaceId ?? preselectedId ?? workspaces[0]?.id;
-  const failureWorkspace = failureWorkspaceId
-    ? workspaces.find(({id}) => id === failureWorkspaceId)
-    : undefined;
+  const orderedWorkspaces = prioritizeWorkspace(workspaces, preselectedId);
+  const failureWorkspace = resolveFailureWorkspace(workspaces, failure?.workspaceId, preselectedId);
 
   return (
     <CallbackColumn>
@@ -242,6 +223,85 @@ export function SentryCallbackPage() {
       ) : null}
     </CallbackColumn>
   );
+}
+
+function prioritizeWorkspace(
+  workspaces: ReturnType<typeof useAuthState>['workspaces'],
+  preselectedId: string | undefined,
+) {
+  if (!preselectedId) return workspaces;
+  return [
+    ...workspaces.filter((workspace) => workspace.id === preselectedId),
+    ...workspaces.filter((workspace) => workspace.id !== preselectedId),
+  ];
+}
+
+function resolveFailureWorkspace(
+  workspaces: ReturnType<typeof useAuthState>['workspaces'],
+  failedWorkspaceId: string | undefined,
+  preselectedId: string | undefined,
+) {
+  const workspaceId = failedWorkspaceId ?? preselectedId ?? workspaces[0]?.id;
+  if (!workspaceId) return undefined;
+  return workspaces.find(({id}) => id === workspaceId);
+}
+
+async function handleSentryConnectSuccess({
+  workspaceId,
+  workspaces,
+  queryClient,
+  navigate,
+  disposedRef,
+}: {
+  workspaceId: string;
+  workspaces: ReturnType<typeof useAuthState>['workspaces'];
+  queryClient: ReturnType<typeof useQueryClient>;
+  navigate: ReturnType<typeof useNavigate>;
+  disposedRef: MutableRefObject<boolean>;
+}) {
+  clearSentryInstallWorkspace(sessionStorageOrUndefined());
+  if (disposedRef.current) return;
+  toast.success('Sentry installed.');
+  const workspaceSlug = await resolveWorkspaceSlug({
+    workspaceId,
+    fallbackWorkspaces: workspaces,
+    queryClient,
+  });
+  if (disposedRef.current) return;
+  if (workspaceSlug) {
+    await navigate({
+      to: '/w/$workspaceSlug/settings/integrations',
+      params: {workspaceSlug},
+      replace: true,
+    });
+    return;
+  }
+  await navigate({to: '/', replace: true});
+}
+
+function handleSentryConnectFailure({
+  error,
+  workspaceId,
+  disposedRef,
+  setConnectingId,
+  setFailure,
+}: {
+  error: unknown;
+  workspaceId: string;
+  disposedRef: MutableRefObject<boolean>;
+  setConnectingId: Dispatch<SetStateAction<string | undefined>>;
+  setFailure: Dispatch<
+    SetStateAction<{workspaceId: string; failure: SentryConnectFailure} | undefined>
+  >;
+}) {
+  if (disposedRef.current) return;
+  const classified = classifySentryConnectError(error);
+  if (classified.kind === 'terminal') {
+    // Only a fresh install (new grant code) can recover; the stored handoff has served its purpose.
+    clearSentryInstallWorkspace(sessionStorageOrUndefined());
+  }
+  setConnectingId(undefined);
+  setFailure({workspaceId, failure: classified});
 }
 
 function CallbackColumn({children}: {children: React.ReactNode}) {

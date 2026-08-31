@@ -88,6 +88,16 @@ interface ShellRedirection {
 }
 
 type ShellToken = ShellWord | ShellControl | ShellRedirection;
+type ReportReference = (
+  reference: ShellVariableReference,
+  construct: ShellReevaluatingConstruct,
+) => void;
+type ReportReferences = (
+  words: readonly ShellWord[],
+  construct: ShellReevaluatingConstruct,
+  kinds?: readonly ShellVariableReference['kind'][],
+  includeSingleQuotedLiterals?: boolean,
+) => void;
 
 /**
  * Finds workflow-controlled values that are passed to shell constructs which
@@ -134,62 +144,7 @@ export function classifyShellCodePosition(params: {
   };
 
   const analyzeCommand = (words: readonly ShellWord[]) => {
-    const commandWords = words.filter((word) => !word.isRedirectionTarget);
-    const firstWord = commandWords[0];
-    if (firstWord !== undefined && shellWordIsStatic(firstWord) && firstWord.value === 'for') {
-      return;
-    }
-    const headIndex = commandHeadIndex(commandWords);
-    const head = commandWords[headIndex];
-    if (head === undefined || !shellWordIsStatic(head)) return;
-
-    const commandName = shellCommandName(head.value);
-    if (commandName === undefined) return;
-
-    const argumentWords = commandWords.slice(headIndex + 1);
-
-    if (commandName === 'eval') {
-      reportReferences(argumentWords, 'eval', ['direct'], true);
-      return;
-    }
-
-    if (commandName === 'sh' || commandName === 'bash') {
-      const program = shellProgramAfterC(argumentWords);
-      if (program !== undefined) {
-        reportReferences([program], commandName === 'sh' ? 'sh-c' : 'bash-c');
-      }
-      return;
-    }
-
-    if (commandName === 'source' || commandName === '.') {
-      reportReferences(argumentWords.slice(0, 1), 'source');
-      return;
-    }
-
-    if (commandName === 'let') {
-      reportReferences(argumentWords, 'let');
-      reportBareArithmeticReferences(argumentWords, 'let', report, workflowDataNames, false);
-      return;
-    }
-
-    if (commandName === 'declare' && argumentWords.some((word) => word.value === '-i')) {
-      reportReferences(argumentWords, 'declare-i');
-      reportBareArithmeticReferences(argumentWords, 'declare-i', report, workflowDataNames, true);
-      return;
-    }
-
-    if (commandName === 'awk' || commandName === 'jq' || commandName === 'sed') {
-      const program = interpreterProgramWord(commandName, argumentWords);
-      if (program !== undefined) reportReferences([program], commandName);
-      return;
-    }
-
-    if (commandName === 'xargs') {
-      const nestedShell = xargsShellProgram(argumentWords);
-      if (nestedShell !== undefined) {
-        reportReferences([nestedShell.program], 'xargs-sh-c');
-      }
-    }
+    analyzeShellCommand(words, reportReferences, report, workflowDataNames);
   };
 
   for (const token of tokens) {
@@ -212,6 +167,107 @@ export function classifyShellCodePosition(params: {
   analyzeCommand(command);
 
   return {matches};
+}
+
+function analyzeShellCommand(
+  words: readonly ShellWord[],
+  reportReferences: ReportReferences,
+  report: ReportReference,
+  workflowDataNames: ReadonlySet<string>,
+): void {
+  const commandWords = words.filter((word) => !word.isRedirectionTarget);
+  const firstWord = commandWords[0];
+  if (firstWord !== undefined && shellWordIsStatic(firstWord) && firstWord.value === 'for') return;
+
+  const headIndex = commandHeadIndex(commandWords);
+  const head = commandWords[headIndex];
+  if (head === undefined || !shellWordIsStatic(head)) return;
+  const commandName = shellCommandName(head.value);
+  if (commandName === undefined) return;
+  const arguments_ = commandWords.slice(headIndex + 1);
+
+  switch (commandName) {
+    case 'eval':
+      reportReferences(arguments_, 'eval', ['direct'], true);
+      return;
+    case 'sh':
+    case 'bash':
+      reportShellProgram(commandName, arguments_, reportReferences);
+      return;
+    case 'source':
+    case '.':
+      reportReferences(arguments_.slice(0, 1), 'source');
+      return;
+    case 'let':
+      reportArithmeticCommand('let', arguments_, reportReferences, report, workflowDataNames);
+      return;
+    case 'declare':
+      reportDeclareArithmetic(arguments_, reportReferences, report, workflowDataNames);
+      return;
+    case 'awk':
+    case 'jq':
+    case 'sed':
+      reportInterpreterProgram(commandName, arguments_, reportReferences);
+      return;
+    case 'xargs':
+      reportXargsShellProgram(arguments_, reportReferences);
+      return;
+  }
+}
+
+function reportShellProgram(
+  command: 'sh' | 'bash',
+  words: readonly ShellWord[],
+  reportReferences: ReportReferences,
+): void {
+  const program = shellProgramAfterC(words);
+  if (program === undefined) return;
+  const construct = command === 'sh' ? 'sh-c' : 'bash-c';
+  reportReferences([program], construct);
+}
+
+function reportArithmeticCommand(
+  construct: 'let' | 'declare-i',
+  words: readonly ShellWord[],
+  reportReferences: ReportReferences,
+  report: ReportReference,
+  workflowDataNames: ReadonlySet<string>,
+): void {
+  reportReferences(words, construct);
+  reportBareArithmeticReferences(
+    words,
+    construct,
+    report,
+    workflowDataNames,
+    construct === 'declare-i',
+  );
+}
+
+function reportDeclareArithmetic(
+  words: readonly ShellWord[],
+  reportReferences: ReportReferences,
+  report: ReportReference,
+  workflowDataNames: ReadonlySet<string>,
+): void {
+  if (!words.some((word) => word.value === '-i')) return;
+  reportArithmeticCommand('declare-i', words, reportReferences, report, workflowDataNames);
+}
+
+function reportInterpreterProgram(
+  command: 'awk' | 'jq' | 'sed',
+  words: readonly ShellWord[],
+  reportReferences: ReportReferences,
+): void {
+  const program = interpreterProgramWord(command, words);
+  if (program !== undefined) reportReferences([program], command);
+}
+
+function reportXargsShellProgram(
+  words: readonly ShellWord[],
+  reportReferences: ReportReferences,
+): void {
+  const nestedShell = xargsShellProgram(words);
+  if (nestedShell !== undefined) reportReferences([nestedShell.program], 'xargs-sh-c');
 }
 
 function tokenizeShell(source: string): readonly ShellToken[] {
@@ -298,7 +354,18 @@ function tokenizeShell(source: string): readonly ShellToken[] {
     isSingleQuotedLiteral = false,
   ): boolean {
     if (source[index] !== '$') return false;
+    if (advanceCompoundExpansion()) return true;
+    if (advanceBracedExpansion(kind, isSingleQuotedLiteral)) return true;
+    if (advanceDollarQuote()) return true;
 
+    const name = readShellIdentifier(source, index + 1);
+    if (name === undefined) return false;
+    addReference(name.value, kind, isSingleQuotedLiteral);
+    advance(source.slice(index, name.index));
+    return true;
+  }
+
+  function advanceCompoundExpansion(): boolean {
     if (source.startsWith('$((', index)) {
       markDynamic();
       arithmeticContext = true;
@@ -318,7 +385,13 @@ function tokenizeShell(source: string): readonly ShellToken[] {
       advance('$(');
       return true;
     }
+    return false;
+  }
 
+  function advanceBracedExpansion(
+    kind: ShellVariableReference['kind'],
+    isSingleQuotedLiteral: boolean,
+  ): boolean {
     if (source.startsWith('${', index)) {
       markDynamic();
       const firstName = readParameterName(source, index + 2);
@@ -328,19 +401,155 @@ function tokenizeShell(source: string): readonly ShellToken[] {
       advance('${');
       return true;
     }
+    return false;
+  }
 
+  function advanceDollarQuote(): boolean {
     if (source.startsWith("$'", index) || source.startsWith('$"', index)) {
       markDynamic();
       advance(source.slice(index, index + 2));
       return true;
     }
+    return false;
+  }
 
-    const name = readShellIdentifier(source, index + 1);
+  function scanLineComment(character: string): void {
+    if (character !== '\n') {
+      advance(character);
+      return;
+    }
+    advance('\n');
+    flushWord();
+    tokens.push({kind: 'control'});
+    wordCanStartComment = true;
+    redirectionTarget = false;
+  }
+
+  function scanUnsafeArithmetic(character: string): boolean {
+    if (character === '[') arithmeticBracketDepth += 1;
+    if (character === ']' && arithmeticBracketDepth > 0) arithmeticBracketDepth -= 1;
+    if (
+      arithmeticBracketDepth === 0 &&
+      (character === "'" || character === '"' || character === '`')
+    ) {
+      markArithmeticShellSyntax();
+    }
+    if (advanceExpansion('arithmetic')) return true;
+
+    const name = readShellIdentifier(source, index);
     if (name === undefined) return false;
-
-    addReference(name.value, kind, isSingleQuotedLiteral);
+    const nextIndex = skipWhitespace(source, name.index);
+    if (!isArithmeticAssignment(source, nextIndex)) addReference(name.value, 'arithmetic');
     advance(source.slice(index, name.index));
     return true;
+  }
+
+  function scanUnsafeParameter(character: string): boolean {
+    if (character === '[') parameterBracketDepth += 1;
+    if (character === ']' && parameterBracketDepth > 0) parameterBracketDepth -= 1;
+    const referenceKind = arithmeticContext || parameterBracketDepth > 0 ? 'arithmetic' : 'direct';
+    return advanceExpansion(referenceKind);
+  }
+
+  function scanUnsafeSite(
+    character: string,
+    site: Extract<ShellSiteContext, {kind: 'unsafe'}>,
+  ): void {
+    if (site.region === 'line-comment') {
+      scanLineComment(character);
+      return;
+    }
+    if (site.region === 'heredoc') {
+      advance(character);
+      return;
+    }
+    if (site.region === 'arith' && scanUnsafeArithmetic(character)) return;
+    if (site.region === 'param-brace' && scanUnsafeParameter(character)) return;
+    if (site.region !== 'arith' && site.region !== 'param-brace') markDynamic();
+    advance(scannerChunkAt(source, index, site));
+  }
+
+  function scanUnquotedWhitespace(character: string): void {
+    flushWord();
+    if (character === '\n') tokens.push({kind: 'control'});
+    wordCanStartComment = true;
+    if (character === '\n') redirectionTarget = false;
+    advance(character);
+  }
+
+  function scanRedirection(): void {
+    flushWord();
+    tokens.push({kind: 'redirection'});
+    redirectionTarget = true;
+    wordCanStartComment = true;
+    const length = shellRedirectionLength(source, index);
+    advance(source.slice(index, index + length));
+  }
+
+  function scanControl(): void {
+    flushWord();
+    tokens.push({kind: 'control'});
+    wordCanStartComment = true;
+    redirectionTarget = false;
+    advance(source.slice(index, index + shellControlLength(source, index)));
+  }
+
+  function scanSafeSyntax(
+    character: string,
+    site: Exclude<ShellSiteContext, {kind: 'unsafe'}>,
+  ): boolean {
+    if (character === '\\') {
+      advanceEscape();
+      return true;
+    }
+    if (character === '#' && wordCanStartComment) {
+      advance('#');
+      return true;
+    }
+    if (character === '$' && advanceExpansion('direct', site.kind === 'single')) return true;
+    if (character === '`') {
+      markDynamic();
+      advance('`');
+      return true;
+    }
+    if (character === "'" || character === '"') {
+      ensureWord();
+      advance(character);
+      return true;
+    }
+    return false;
+  }
+
+  function scanUnquotedSyntax(character: string): boolean {
+    if (isShellWhitespace(character)) {
+      scanUnquotedWhitespace(character);
+      return true;
+    }
+    if (startsShellRedirection(source, index)) {
+      scanRedirection();
+      return true;
+    }
+    if (startsShellArithmetic(source, index)) {
+      markDynamic();
+      arithmeticContext = true;
+      advance('((');
+      return true;
+    }
+    if (startsShellControl(source, index)) {
+      scanControl();
+      return true;
+    }
+    return false;
+  }
+
+  function scanSafeSite(
+    character: string,
+    site: Exclude<ShellSiteContext, {kind: 'unsafe'}>,
+  ): void {
+    if (scanSafeSyntax(character, site)) return;
+    if (site.kind === 'unquoted' && scanUnquotedSyntax(character)) return;
+    ensureWord().value.push(character);
+    advance(character);
   }
 
   while (index < source.length) {
@@ -349,120 +558,10 @@ function tokenizeShell(source: string): readonly ShellToken[] {
 
     const site = classifyShellSite(scanState);
     if (site.kind === 'unsafe') {
-      if (site.region === 'line-comment') {
-        if (character === '\n') {
-          advance('\n');
-          flushWord();
-          tokens.push({kind: 'control'});
-          wordCanStartComment = true;
-          redirectionTarget = false;
-        } else {
-          advance(character);
-        }
-        continue;
-      }
-
-      if (site.region === 'heredoc') {
-        advance(character);
-        continue;
-      }
-
-      if (site.region === 'arith') {
-        if (character === '[') arithmeticBracketDepth += 1;
-        if (character === ']' && arithmeticBracketDepth > 0) arithmeticBracketDepth -= 1;
-        if (
-          arithmeticBracketDepth === 0 &&
-          (character === "'" || character === '"' || character === '`')
-        ) {
-          markArithmeticShellSyntax();
-        }
-
-        if (advanceExpansion('arithmetic')) continue;
-
-        const name = readShellIdentifier(source, index);
-        if (name !== undefined) {
-          const nextIndex = skipWhitespace(source, name.index);
-          if (!isArithmeticAssignment(source, nextIndex)) addReference(name.value, 'arithmetic');
-          advance(source.slice(index, name.index));
-          continue;
-        }
-      } else if (site.region === 'param-brace') {
-        if (character === '[') parameterBracketDepth += 1;
-        if (character === ']' && parameterBracketDepth > 0) parameterBracketDepth -= 1;
-
-        const referenceKind =
-          arithmeticContext || parameterBracketDepth > 0 ? 'arithmetic' : 'direct';
-        if (advanceExpansion(referenceKind)) continue;
-      } else {
-        markDynamic();
-      }
-
-      const chunk = scannerChunkAt(source, index, site);
-      advance(chunk);
+      scanUnsafeSite(character, site);
       continue;
     }
-
-    if (character === '\\') {
-      advanceEscape();
-      continue;
-    }
-
-    if (character === '#' && wordCanStartComment) {
-      advance('#');
-      continue;
-    }
-
-    if (character === '$' && advanceExpansion('direct', site.kind === 'single')) continue;
-
-    if (character === '`') {
-      markDynamic();
-      advance('`');
-      continue;
-    }
-
-    if (site.kind === 'unquoted' && isShellWhitespace(character)) {
-      flushWord();
-      if (character === '\n') tokens.push({kind: 'control'});
-      wordCanStartComment = true;
-      if (character === '\n') redirectionTarget = false;
-      advance(character);
-      continue;
-    }
-
-    if (character === "'" || character === '"') {
-      ensureWord();
-      advance(character);
-      continue;
-    }
-
-    if (site.kind === 'unquoted' && startsShellRedirection(source, index)) {
-      flushWord();
-      tokens.push({kind: 'redirection'});
-      redirectionTarget = true;
-      wordCanStartComment = true;
-      const length = shellRedirectionLength(source, index);
-      advance(source.slice(index, index + length));
-      continue;
-    }
-
-    if (site.kind === 'unquoted' && startsShellArithmetic(source, index)) {
-      markDynamic();
-      arithmeticContext = true;
-      advance('((');
-      continue;
-    }
-
-    if (site.kind === 'unquoted' && startsShellControl(source, index)) {
-      flushWord();
-      tokens.push({kind: 'control'});
-      wordCanStartComment = true;
-      redirectionTarget = false;
-      advance(source.slice(index, index + shellControlLength(source, index)));
-      continue;
-    }
-
-    ensureWord().value.push(character);
-    advance(character);
+    scanSafeSite(character, site);
   }
 
   flushWord();
@@ -474,13 +573,8 @@ function scannerChunkAt(
   index: number,
   site: Extract<ShellSiteContext, {kind: 'unsafe'}>,
 ): string {
-  if (site.region === 'arith' && source[index] === ')') {
-    let closingRunLength = 0;
-    while (source[index + closingRunLength] === ')') closingRunLength += 1;
-    if (closingRunLength > 2) return ')'.repeat(closingRunLength - 2);
-    if (closingRunLength === 2) return '))';
-    return ')';
-  }
+  if (site.region === 'arith' && source[index] === ')')
+    return arithmeticClosingChunk(source, index);
   if (source.startsWith('$((', index)) return '$((';
   if (source.startsWith('((', index)) return '((';
   if (source.startsWith('$[', index)) return '$[';
@@ -490,6 +584,14 @@ function scannerChunkAt(
   if (source.startsWith('<<', index)) return '<<';
   if (source[index] === '\\' && index + 1 < source.length) return source.slice(index, index + 2);
   return source[index] ?? '';
+}
+
+function arithmeticClosingChunk(source: string, index: number): string {
+  let closingRunLength = 0;
+  while (source[index + closingRunLength] === ')') closingRunLength += 1;
+  if (closingRunLength > 2) return ')'.repeat(closingRunLength - 2);
+  if (closingRunLength === 2) return '))';
+  return ')';
 }
 
 function commandHeadIndex(words: readonly ShellWord[]): number {
@@ -600,53 +702,52 @@ function interpreterProgramWord(
 
     if (value === '--') return words[index + 1];
     if (!value.startsWith('-') || value === '-') return word;
-
-    if (command === 'jq' && jqOptionConsumesArguments(value)) {
-      index += 3;
-      continue;
-    }
-
-    if (command === 'awk' && awkOptionConsumesArgument(value)) {
-      index += 2;
-      continue;
-    }
-
-    if (command === 'awk' && (value === '-e' || value === '--source')) {
-      return words[index + 1];
-    }
-
-    if (command === 'sed' && (value === '-e' || value === '--expression')) {
-      return words[index + 1];
-    }
-
-    if (command === 'sed' && sedOptionConsumesArgument(value)) {
-      index += 2;
-      continue;
-    }
-
-    if (command === 'sed' && value.startsWith('--expression=')) return word;
-    if (command === 'sed' && value.startsWith('--file=')) {
-      index += 1;
-      continue;
-    }
-
-    if (command === 'jq' && jqFlag(value)) {
-      index += 1;
-      continue;
-    }
-
-    if (command === 'awk' && awkFlag(value)) {
-      index += 1;
-      continue;
-    }
-
-    if (command === 'sed' && sedFlag(value)) {
-      index += 1;
-      continue;
-    }
-
-    return undefined;
+    const action = interpreterOptionAction(command, value);
+    if (action === undefined) return undefined;
+    if (action.kind === 'program-current') return word;
+    if (action.kind === 'program-next') return words[index + 1];
+    index += action.count;
   }
+  return undefined;
+}
+
+type InterpreterOptionAction =
+  | {readonly kind: 'program-current'}
+  | {readonly kind: 'program-next'}
+  | {readonly kind: 'skip'; readonly count: number};
+
+function interpreterOptionAction(
+  command: 'awk' | 'jq' | 'sed',
+  value: string,
+): InterpreterOptionAction | undefined {
+  switch (command) {
+    case 'jq':
+      return jqOptionAction(value);
+    case 'awk':
+      return awkOptionAction(value);
+    case 'sed':
+      return sedOptionAction(value);
+  }
+}
+
+function jqOptionAction(value: string): InterpreterOptionAction | undefined {
+  if (jqOptionConsumesArguments(value)) return {kind: 'skip', count: 3};
+  if (jqFlag(value)) return {kind: 'skip', count: 1};
+  return undefined;
+}
+
+function awkOptionAction(value: string): InterpreterOptionAction | undefined {
+  if (awkOptionConsumesArgument(value)) return {kind: 'skip', count: 2};
+  if (value === '-e' || value === '--source') return {kind: 'program-next'};
+  if (awkFlag(value)) return {kind: 'skip', count: 1};
+  return undefined;
+}
+
+function sedOptionAction(value: string): InterpreterOptionAction | undefined {
+  if (value === '-e' || value === '--expression') return {kind: 'program-next'};
+  if (sedOptionConsumesArgument(value)) return {kind: 'skip', count: 2};
+  if (value.startsWith('--expression=')) return {kind: 'program-current'};
+  if (value.startsWith('--file=') || sedFlag(value)) return {kind: 'skip', count: 1};
   return undefined;
 }
 
@@ -715,27 +816,30 @@ function sedFlag(value: string): boolean {
 }
 
 function xargsShellProgram(words: readonly ShellWord[]): {readonly program: ShellWord} | undefined {
-  let index = 0;
-  while (index < words.length) {
-    const word = words[index];
-    if (word === undefined) return undefined;
-    const value = word.value;
-    if (value === '--') {
-      index += 1;
-      break;
-    }
-    if (!value.startsWith('-') || value === '-') break;
-    if (xargsOptionConsumesArgument(value)) index += 2;
-    else index += 1;
-  }
-
+  const index = xargsCommandIndex(words);
   const shell = words[index];
-  if (shell === undefined || !shellWordIsStatic(shell)) return undefined;
-  const shellName = shellCommandName(shell.value);
-  if (shellName !== 'sh' && shellName !== 'bash') return undefined;
+  if (!isSupportedXargsShell(shell)) return undefined;
 
   const program = shellProgramAfterC(words.slice(index + 1));
   return program === undefined ? undefined : {program};
+}
+
+function xargsCommandIndex(words: readonly ShellWord[]): number {
+  let index = 0;
+  while (index < words.length) {
+    const value = words[index]?.value;
+    if (value === undefined) return index;
+    if (value === '--') return index + 1;
+    if (!value.startsWith('-') || value === '-') return index;
+    index += xargsOptionConsumesArgument(value) ? 2 : 1;
+  }
+  return index;
+}
+
+function isSupportedXargsShell(shell: ShellWord | undefined): shell is ShellWord {
+  if (shell === undefined || !shellWordIsStatic(shell)) return false;
+  const shellName = shellCommandName(shell.value);
+  return shellName === 'sh' || shellName === 'bash';
 }
 
 function xargsOptionConsumesArgument(value: string): boolean {

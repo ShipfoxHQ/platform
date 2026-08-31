@@ -445,6 +445,16 @@ function mapError(
   input: {connectionId?: string; defaultConnectionId?: string; ref?: string | undefined},
   error: unknown,
 ): unknown {
+  const connectionError = mapConnectionError(method, input, error);
+  if (connectionError !== undefined) return connectionError;
+  return mapProviderError(method, input, error);
+}
+
+function mapConnectionError(
+  method: InterModuleMethodContract,
+  input: {connectionId?: string; defaultConnectionId?: string},
+  error: unknown,
+): unknown | undefined {
   if (error instanceof IntegrationConnectionNotFoundError)
     return createInterModuleKnownError(method, 'connection-not-found', {
       connectionId: input.connectionId ?? input.defaultConnectionId,
@@ -470,6 +480,14 @@ function mapError(
     });
   if (error instanceof IntegrationCheckoutUnsupportedError)
     return createInterModuleKnownError(method, 'checkout-unsupported', {provider: error.provider});
+  return undefined;
+}
+
+function mapProviderError(
+  method: InterModuleMethodContract,
+  input: {ref?: string | undefined},
+  error: unknown,
+): unknown {
   if (error instanceof IntegrationProviderError) {
     // Only methods that resolve refs declare these codes; other methods keep
     // seeing the failure as a generic provider failure.

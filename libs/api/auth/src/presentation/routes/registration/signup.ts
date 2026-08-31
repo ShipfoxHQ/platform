@@ -15,6 +15,57 @@ import {SIGNUP_DENIAL_MESSAGE_MAX_LENGTH, type SignupPolicy} from '#core/ports.j
 import {setRefreshTokenCookie} from '#presentation/auth/refresh-cookie.js';
 import {toUserDto} from '#presentation/dto/user.js';
 
+function handleEmailChallengeError(error: unknown): void {
+  if (!(error instanceof EmailChallengeError)) return;
+  throw new ClientError(error.message, `email-challenge-${error.code}`, {
+    status: error.code === 'limited' ? 429 : 400,
+    ...(error.retryAt ? {details: {retry_at: error.retryAt.toISOString()}} : {}),
+  });
+}
+
+function handleSignupPolicyError(error: unknown): void {
+  if (error instanceof EmailTakenError) {
+    throw new ClientError('Email already registered', 'email-taken', {status: 409});
+  }
+  if (error instanceof SignupNotAllowedError) {
+    const message = error.message.slice(0, SIGNUP_DENIAL_MESSAGE_MAX_LENGTH);
+    throw new ClientError(message, 'signup-not-allowed', {
+      status: 403,
+      details: {message, ...(error.format ? {format: error.format} : {})},
+    });
+  }
+}
+
+function handleInvitationError(error: unknown): void {
+  if (error instanceof TokenInvalidError) {
+    throw new ClientError('Invitation token is invalid', 'invitation-token-invalid', {status: 410});
+  }
+  if (error instanceof TokenAlreadyUsedError) {
+    throw new ClientError('Invitation has already been accepted', 'invitation-token-used', {
+      status: 410,
+    });
+  }
+  if (error instanceof TokenExpiredError) {
+    throw new ClientError('Invitation has expired', 'invitation-token-expired', {status: 410});
+  }
+  if (error instanceof InvitationEmailMismatchError) {
+    throw new ClientError(
+      'Signup email does not match the invitation',
+      'invitation-email-mismatch',
+      {
+        status: 403,
+      },
+    );
+  }
+}
+
+function handleSignupError(error: unknown): never {
+  handleEmailChallengeError(error);
+  handleSignupPolicyError(error);
+  handleInvitationError(error);
+  throw error;
+}
+
 export function createSignupRoute(
   workspaces: WorkspacesInterModuleClient,
   signupPolicy?: SignupPolicy,
@@ -30,47 +81,7 @@ export function createSignupRoute(
         201: signupResponseSchema,
       },
     },
-    errorHandler: (error) => {
-      if (error instanceof EmailChallengeError) {
-        throw new ClientError(error.message, `email-challenge-${error.code}`, {
-          status: error.code === 'limited' ? 429 : 400,
-          ...(error.retryAt ? {details: {retry_at: error.retryAt.toISOString()}} : {}),
-        });
-      }
-      if (error instanceof EmailTakenError) {
-        throw new ClientError('Email already registered', 'email-taken', {status: 409});
-      }
-      if (error instanceof SignupNotAllowedError) {
-        const message = error.message.slice(0, SIGNUP_DENIAL_MESSAGE_MAX_LENGTH);
-        throw new ClientError(message, 'signup-not-allowed', {
-          status: 403,
-          details: {message, ...(error.format ? {format: error.format} : {})},
-        });
-      }
-      if (error instanceof TokenInvalidError) {
-        throw new ClientError('Invitation token is invalid', 'invitation-token-invalid', {
-          status: 410,
-        });
-      }
-      if (error instanceof TokenAlreadyUsedError) {
-        throw new ClientError('Invitation has already been accepted', 'invitation-token-used', {
-          status: 410,
-        });
-      }
-      if (error instanceof TokenExpiredError) {
-        throw new ClientError('Invitation has expired', 'invitation-token-expired', {
-          status: 410,
-        });
-      }
-      if (error instanceof InvitationEmailMismatchError) {
-        throw new ClientError(
-          'Signup email does not match the invitation',
-          'invitation-email-mismatch',
-          {status: 403},
-        );
-      }
-      throw error;
-    },
+    errorHandler: handleSignupError,
     handler: async (request, reply) => {
       const {email, password, name, invitation_token} = request.body;
 

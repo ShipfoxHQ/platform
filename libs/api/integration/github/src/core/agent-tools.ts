@@ -208,51 +208,38 @@ export class GithubAgentToolsProvider
         const client = (this.options.createClient ?? createOctokitClient)(token.token);
         const method =
           typeof call.arguments.method === 'string' ? call.arguments.method : undefined;
-
-        if (operation.kind === 'graphql') {
-          const data = await mapGithubError(() =>
-            executeGithubGraphqlOperation(
-              client,
-              tool.id as GithubAgentToolId,
-              method,
-              operation.parameters,
-            ),
-          );
-          if (data === undefined && tool.id === 'add_comment_to_pending_review') {
-            return githubToolError(NO_PENDING_REVIEW_MESSAGE, 'provider-rejected');
-          }
-          return githubToolResult(tool.id as GithubAgentToolId, data);
-        }
-
-        const operationParameters = await mapGithubError(() =>
-          resolveGithubOperationParameters(
-            client,
-            operation.parameters,
-            tool.id as GithubAgentToolId,
-            method,
-          ),
-        );
-        if (operationParameters === undefined) {
-          return githubToolError(NO_PENDING_REVIEW_MESSAGE, 'provider-rejected');
-        }
-        const response = await mapGithubError(() =>
-          executeGithubRestOperation(
-            client,
-            operation.route,
-            operationParameters,
-            tool.id as GithubAgentToolId,
-          ),
-        );
-        return githubToolResult(
-          tool.id as GithubAgentToolId,
-          response.data,
-          response,
-          operationParameters,
-          operation.route,
-        );
+        return await executeGithubToolOperation(client, tool, operation, method);
       },
     };
   }
+}
+
+async function executeGithubToolOperation(
+  client: GithubToolClient,
+  tool: AgentToolCatalogEntry<GithubAgentToolRequiredScope>,
+  operation: GithubToolOperation,
+  method: string | undefined,
+): Promise<GithubToolCallResult> {
+  const toolId = tool.id as GithubAgentToolId;
+  if (operation.kind === 'graphql') {
+    const data = await mapGithubError(() =>
+      executeGithubGraphqlOperation(client, toolId, method, operation.parameters),
+    );
+    if (data === undefined && tool.id === 'add_comment_to_pending_review') {
+      return githubToolError(NO_PENDING_REVIEW_MESSAGE, 'provider-rejected');
+    }
+    return githubToolResult(toolId, data);
+  }
+  const parameters = await mapGithubError(() =>
+    resolveGithubOperationParameters(client, operation.parameters, toolId, method),
+  );
+  if (parameters === undefined) {
+    return githubToolError(NO_PENDING_REVIEW_MESSAGE, 'provider-rejected');
+  }
+  const response = await mapGithubError(() =>
+    executeGithubRestOperation(client, operation.route, parameters, toolId),
+  );
+  return githubToolResult(toolId, response.data, response, parameters, operation.route);
 }
 
 export interface GithubAgentToolsProviderOptions {
@@ -1050,26 +1037,35 @@ function latestPendingReviewOnPage(
   for (let index = data.length - 1; index >= 0; index -= 1) {
     const review = data[index];
     if (!isRecord(review) || review.state !== 'PENDING') continue;
-    const userLogin = isRecord(review.user) ? review.user.login : undefined;
-    if (typeof userLogin !== 'string' || userLogin.trim().length === 0) {
+    const candidate = pendingReviewCandidate(review, appLogin);
+    if (candidate === 'malformed') {
       malformed = true;
       continue;
     }
-    if (userLogin.trim().toLowerCase() !== appLogin) continue;
-    const id =
-      typeof review.id === 'number' && Number.isSafeInteger(review.id) && review.id > 0
-        ? review.id
-        : undefined;
-    const nodeId =
-      typeof review.node_id === 'string' && review.node_id.trim().length > 0
-        ? review.node_id.trim()
-        : undefined;
-    const reference = {id, nodeId};
-    if (reference[requiredIdentifier] !== undefined) return {malformed, review: reference};
+    if (candidate === undefined) continue;
+    if (candidate[requiredIdentifier] !== undefined) return {malformed, review: candidate};
     malformed = true;
   }
 
   return {malformed};
+}
+
+function pendingReviewCandidate(
+  review: Record<string, unknown>,
+  appLogin: string,
+): PendingReviewReference | 'malformed' | undefined {
+  const userLogin = isRecord(review.user) ? review.user.login : undefined;
+  if (typeof userLogin !== 'string' || userLogin.trim().length === 0) return 'malformed';
+  if (userLogin.trim().toLowerCase() !== appLogin) return undefined;
+  const id =
+    typeof review.id === 'number' && Number.isSafeInteger(review.id) && review.id > 0
+      ? review.id
+      : undefined;
+  const nodeId =
+    typeof review.node_id === 'string' && review.node_id.trim().length > 0
+      ? review.node_id.trim()
+      : undefined;
+  return {id, nodeId};
 }
 
 function githubToolResult(
@@ -1225,19 +1221,29 @@ function validateGithubToolArguments(
   }
   const propertySchemas = properties as Record<string, unknown>;
   for (const [name, value] of Object.entries(arguments_)) {
-    const schema = propertySchemas[name];
-    if (typeof schema !== 'object' || schema === null || Array.isArray(schema)) continue;
-    const type = (schema as {type?: unknown}).type;
-    if (type === 'integer' && (!Number.isInteger(value) || typeof value !== 'number')) {
-      return `Parameter ${name} must be an integer`;
-    }
-    if (type === 'array' && !Array.isArray(value)) return `Parameter ${name} must be an array`;
+    const invalid = validateGithubArgument(name, value, propertySchemas[name]);
+    if (invalid !== undefined) return invalid;
   }
   if (tool.id === 'create_commit') return validateCreateCommitArguments(arguments_);
   return undefined;
 }
 
+function validateGithubArgument(name: string, value: unknown, schema: unknown): string | undefined {
+  if (!isRecord(schema)) return undefined;
+  if (schema.type === 'integer' && (!Number.isInteger(value) || typeof value !== 'number')) {
+    return `Parameter ${name} must be an integer`;
+  }
+  if (schema.type === 'array' && !Array.isArray(value)) return `Parameter ${name} must be an array`;
+  return undefined;
+}
+
 function validateCreateCommitArguments(arguments_: Record<string, unknown>): string | undefined {
+  const metadataError = validateCreateCommitMetadata(arguments_);
+  if (metadataError !== undefined) return metadataError;
+  return validateCreateCommitChanges(arguments_.additions, arguments_.deletions);
+}
+
+function validateCreateCommitMetadata(arguments_: Record<string, unknown>): string | undefined {
   const repository = arguments_.repository;
   if (typeof repository !== 'string' || !CREATE_COMMIT_REPOSITORY_PATTERN.test(repository)) {
     return 'Parameter repository must be a repository in owner/name format';
@@ -1259,11 +1265,13 @@ function validateCreateCommitArguments(arguments_: Record<string, unknown>): str
   ) {
     return 'Parameter message must be an object with a headline string and optional body string';
   }
-  const additions = arguments_.additions;
+  return undefined;
+}
+
+function validateCreateCommitChanges(additions: unknown, deletions: unknown): string | undefined {
   if (additions !== undefined && !isFileAdditionList(additions)) {
     return 'Parameter additions must be an array of {path, contents, encoding?} objects';
   }
-  const deletions = arguments_.deletions;
   if (deletions !== undefined && !isFileDeletionList(deletions)) {
     return 'Parameter deletions must be an array of {path} objects';
   }
@@ -1285,20 +1293,20 @@ function validateCreateCommitArguments(arguments_: Record<string, unknown>): str
 
 function isFileAdditionList(value: unknown): value is readonly Record<string, unknown>[] {
   if (!Array.isArray(value)) return false;
-  return value.every((item) => {
-    if (!isRecord(item)) return false;
-    if (typeof item.path !== 'string' || !isSafeRepositoryPath(item.path)) return false;
-    if (typeof item.contents !== 'string') return false;
-    if (item.encoding !== undefined) {
-      if (typeof item.encoding !== 'string' || !CREATE_COMMIT_ENCODINGS.has(item.encoding)) {
-        return false;
-      }
-      return item.encoding === 'base64'
-        ? isWellFormedBase64(item.contents)
-        : !CREATE_COMMIT_UNPAIRED_SURROGATE_PATTERN.test(item.contents);
-    }
+  return value.every(isFileAddition);
+}
+
+function isFileAddition(item: unknown): item is Record<string, unknown> {
+  if (!isRecord(item)) return false;
+  if (typeof item.path !== 'string' || !isSafeRepositoryPath(item.path)) return false;
+  if (typeof item.contents !== 'string') return false;
+  if (item.encoding === undefined) {
     return !CREATE_COMMIT_UNPAIRED_SURROGATE_PATTERN.test(item.contents);
-  });
+  }
+  if (typeof item.encoding !== 'string' || !CREATE_COMMIT_ENCODINGS.has(item.encoding))
+    return false;
+  if (item.encoding === 'base64') return isWellFormedBase64(item.contents);
+  return !CREATE_COMMIT_UNPAIRED_SURROGATE_PATTERN.test(item.contents);
 }
 
 function isFileDeletionList(value: unknown): value is readonly Record<string, unknown>[] {

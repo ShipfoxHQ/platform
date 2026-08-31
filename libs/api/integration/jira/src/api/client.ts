@@ -425,42 +425,51 @@ export async function mapJiraError<T>(operation: string, request: () => Promise<
     return await request();
   } catch (error) {
     if (error instanceof JiraIntegrationProviderError) throw error;
-    if (error instanceof HTTPError) {
-      const {status, statusText, headers} = error.response;
-      logger().warn({operation, status, statusText}, 'Jira API request rejected');
-      if (status === 429) {
-        throw new JiraIntegrationProviderError(
-          'rate-limited',
-          'Jira request was rate limited',
-          retryAfterSeconds(headers),
-        );
-      }
-      if (status >= 500)
-        throw new JiraIntegrationProviderError('provider-unavailable', 'Jira request failed');
-      if (status === 401 || status === 403) {
-        throw new JiraIntegrationProviderError('access-denied', 'Jira request was rejected');
-      }
-      if (status === 400 && operation === 'refresh-access-token') {
-        const errorCode = readJiraOAuthErrorCode(error.data);
-        if (errorCode && JIRA_REFRESH_TOKEN_TERMINAL_ERROR_CODES.has(errorCode)) {
-          throw new JiraIntegrationProviderError(
-            'access-denied',
-            'Jira refresh token was rejected; reconnect is required',
-          );
-        }
-      }
-      throw malformed('Jira request was rejected');
-    }
-    if (error instanceof TimeoutError) {
-      logger().warn({operation}, 'Jira API request timed out');
-      throw new JiraIntegrationProviderError('timeout', 'Jira request timed out');
-    }
-    logger().warn(
-      {operation, errName: error instanceof Error ? error.name : typeof error},
-      'Jira API request failed',
-    );
-    throw new JiraIntegrationProviderError('provider-unavailable', 'Jira request failed');
+    throw mapUnknownJiraError(operation, error);
   }
+}
+
+function mapUnknownJiraError(operation: string, error: unknown): JiraIntegrationProviderError {
+  if (error instanceof HTTPError) return mapJiraHttpError(operation, error);
+  if (error instanceof TimeoutError) {
+    logger().warn({operation}, 'Jira API request timed out');
+    return new JiraIntegrationProviderError('timeout', 'Jira request timed out');
+  }
+  logger().warn(
+    {operation, errName: error instanceof Error ? error.name : typeof error},
+    'Jira API request failed',
+  );
+  return new JiraIntegrationProviderError('provider-unavailable', 'Jira request failed');
+}
+
+function mapJiraHttpError(operation: string, error: HTTPError): JiraIntegrationProviderError {
+  const {status, statusText, headers} = error.response;
+  logger().warn({operation, status, statusText}, 'Jira API request rejected');
+  if (status === 429) {
+    return new JiraIntegrationProviderError(
+      'rate-limited',
+      'Jira request was rate limited',
+      retryAfterSeconds(headers),
+    );
+  }
+  if (status >= 500)
+    return new JiraIntegrationProviderError('provider-unavailable', 'Jira request failed');
+  if (status === 401 || status === 403) {
+    return new JiraIntegrationProviderError('access-denied', 'Jira request was rejected');
+  }
+  if (isTerminalRefreshRejection(operation, status, error.data)) {
+    return new JiraIntegrationProviderError(
+      'access-denied',
+      'Jira refresh token was rejected; reconnect is required',
+    );
+  }
+  return malformed('Jira request was rejected');
+}
+
+function isTerminalRefreshRejection(operation: string, status: number, data: unknown): boolean {
+  if (status !== 400 || operation !== 'refresh-access-token') return false;
+  const errorCode = readJiraOAuthErrorCode(data);
+  return errorCode !== undefined && JIRA_REFRESH_TOKEN_TERMINAL_ERROR_CODES.has(errorCode);
 }
 
 function malformed(message: string): JiraIntegrationProviderError {

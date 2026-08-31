@@ -52,7 +52,7 @@ export function StepAttemptLogPanel({
 }: StepAttemptLogPanelProps) {
   const shouldFollowTailRef = useRef(true);
   const missingStreamRetryCount = attemptStatus === 'running' ? undefined : initialErrorRetryCount;
-  const retryMissingStream = attemptStatus === 'running' || isTerminalAttemptStatus(attemptStatus);
+  const retryMissingStream = shouldRetryMissingStream(attemptStatus);
   const query = useStepAttemptLogsQuery(stepId, attempt, {
     retryMissingStream,
     missingStreamRetryCount,
@@ -167,11 +167,15 @@ export function StepAttemptLogPanel({
         showLineNumbers={showLineNumbers}
         emptyState={query.data?.complete ? 'complete' : 'pending'}
         anchorToFailure={anchorToFailure}
-        ariaLive={search.trim() ? 'off' : attemptStatus === 'running' ? 'polite' : 'off'}
+        ariaLive={!search.trim() && attemptStatus === 'running' ? 'polite' : 'off'}
         className={surfaceClassName}
       />
     </div>
   );
+}
+
+function shouldRetryMissingStream(attemptStatus: string): boolean {
+  return attemptStatus === 'running' || isTerminalAttemptStatus(attemptStatus);
 }
 
 function StepLogsLoadingSurface({

@@ -1,5 +1,24 @@
 import type {CatalogCapability, CatalogProvider} from '@/lib/integration-catalog';
 
+function validateProvider(
+  provider: CatalogProvider,
+  expectedCapabilities: readonly CatalogCapability[],
+): void {
+  const prefix = `Integration catalog provider "${provider.slug}"`;
+  for (const capability of expectedCapabilities) {
+    if (!provider.capabilities.includes(capability)) {
+      throw new Error(`${prefix} has a ${capability} DTO catalog but omits that capability.`);
+    }
+  }
+  if (provider.capabilities.includes('events') && provider.eventCount === 0) {
+    throw new Error(`${prefix} declares events but its event count is 0.`);
+  }
+  if (provider.capabilities.includes('agent_tools') && provider.toolCount === 0) {
+    throw new Error(`${prefix} declares agent tools but its tool count is 0.`);
+  }
+  if (!provider.setupHref) throw new Error(`${prefix} has no setup page.`);
+}
+
 export function validateIntegrationCatalog(
   providers: readonly CatalogProvider[],
   expectedCapabilitiesBySlug: Record<string, readonly CatalogCapability[]> = {},
@@ -11,18 +30,7 @@ export function validateIntegrationCatalog(
   }
 
   for (const provider of providers) {
-    const prefix = `Integration catalog provider "${provider.slug}"`;
     const expectedCapabilities = expectedCapabilitiesBySlug[provider.slug] ?? [];
-
-    for (const capability of expectedCapabilities) {
-      if (!provider.capabilities.includes(capability))
-        throw new Error(`${prefix} has a ${capability} DTO catalog but omits that capability.`);
-    }
-
-    if (provider.capabilities.includes('events') && provider.eventCount === 0)
-      throw new Error(`${prefix} declares events but its event count is 0.`);
-    if (provider.capabilities.includes('agent_tools') && provider.toolCount === 0)
-      throw new Error(`${prefix} declares agent tools but its tool count is 0.`);
-    if (!provider.setupHref) throw new Error(`${prefix} has no setup page.`);
+    validateProvider(provider, expectedCapabilities);
   }
 }

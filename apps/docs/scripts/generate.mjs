@@ -214,6 +214,47 @@ function renderEventCatalog(catalog) {
 
 const UNCATEGORIZED_TOOL_CATEGORY = 'tools';
 
+function renderToolMethod(tool, method) {
+  return [
+    '',
+    `##### \`${tool.id}.${method.id}\``,
+    '',
+    method.description,
+    '',
+    `**Sensitivity:** ${method.sensitivity}.`,
+    '',
+    `**Sensitive:** ${method.sensitive ? 'Yes.' : 'No.'}`,
+    '',
+    `**Required permissions:** ${formatScope(method.requiredScope)}`,
+    '',
+    methodRequirements(tool.inputSchema, method.id),
+  ];
+}
+
+function renderTool(tool, selectionCatalog) {
+  const lines = [
+    `#### \`${tool.id}\``,
+    '',
+    tool.description,
+    '',
+    `**Sensitivity:** ${tool.sensitivity}.`,
+    '',
+    `**Sensitive:** ${tool.sensitive ? 'Yes.' : 'No.'}`,
+    '',
+    `**Required permissions:** ${formatScope(tool.requiredScope)}`,
+    '',
+    `**Selector tokens:** ${formatSelectors(tool.id, selectionCatalog)}`,
+    '',
+    '##### Input',
+    '',
+    ...renderFields(tool.inputSchema),
+  ];
+  for (const method of tool.methods ?? []) lines.push(...renderToolMethod(tool, method));
+  if (tool.outputSchema) lines.push('', '##### Output', '', ...renderFields(tool.outputSchema));
+  lines.push('');
+  return lines;
+}
+
 function renderToolCatalog(catalog, selectionCatalog) {
   const lines = [];
   const categoryOf = (tool) => tool.category ?? UNCATEGORIZED_TOOL_CATEGORY;
@@ -221,41 +262,7 @@ function renderToolCatalog(catalog, selectionCatalog) {
   for (const category of categories) {
     lines.push(`### ${category.replaceAll('_', ' ')}`, '');
     for (const tool of catalog.filter((candidate) => categoryOf(candidate) === category)) {
-      lines.push(
-        `#### \`${tool.id}\``,
-        '',
-        tool.description,
-        '',
-        `**Sensitivity:** ${tool.sensitivity}.`,
-        '',
-        `**Sensitive:** ${tool.sensitive ? 'Yes.' : 'No.'}`,
-        '',
-        `**Required permissions:** ${formatScope(tool.requiredScope)}`,
-        '',
-        `**Selector tokens:** ${formatSelectors(tool.id, selectionCatalog)}`,
-        '',
-        '##### Input',
-        '',
-        ...renderFields(tool.inputSchema),
-      );
-      for (const method of tool.methods ?? []) {
-        lines.push(
-          '',
-          `##### \`${tool.id}.${method.id}\``,
-          '',
-          method.description,
-          '',
-          `**Sensitivity:** ${method.sensitivity}.`,
-          '',
-          `**Sensitive:** ${method.sensitive ? 'Yes.' : 'No.'}`,
-          '',
-          `**Required permissions:** ${formatScope(method.requiredScope)}`,
-          '',
-          methodRequirements(tool.inputSchema, method.id),
-        );
-      }
-      if (tool.outputSchema) lines.push('', '##### Output', '', ...renderFields(tool.outputSchema));
-      lines.push('');
+      lines.push(...renderTool(tool, selectionCatalog));
     }
   }
   return lines.join('\n').trimEnd();
@@ -283,11 +290,9 @@ function renderFields(schema) {
   );
   const rows = Object.entries(properties).map(([name, value]) => {
     const property = unwrapNullableProperty(object(value));
-    const requirement = required.has(name)
-      ? 'Required'
-      : conditional.has(name)
-        ? 'Conditional'
-        : 'Optional';
+    let requirement = 'Optional';
+    if (required.has(name)) requirement = 'Required';
+    else if (conditional.has(name)) requirement = 'Conditional';
     const propertyType = Array.isArray(property.type)
       ? property.type.join(' | ')
       : (property.type ?? 'value');

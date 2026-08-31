@@ -555,6 +555,37 @@
           }
         }
       }
+    },
+    {
+      "includes": [
+        "apps/**",
+        "e2e/**",
+        "infra/**",
+        "libs/**",
+        "tools/**",
+        ".github/scripts/**",
+        "!**/dist/**",
+        "!**/generated/**",
+        "!**/__generated__/**",
+        "!**/*.gen.ts",
+        "!**/*.gen.tsx"
+      ],
+      "linter": {
+        "rules": {
+          "complexity": {
+            "noExcessiveCognitiveComplexity": {
+              "level": "error",
+              "options": {
+                "maxAllowedComplexity": 15
+              }
+            }
+          },
+          "style": {
+            "noNestedTernary": "error",
+            "noUselessElse": "error"
+          }
+        }
+      }
     }
   ]
 }

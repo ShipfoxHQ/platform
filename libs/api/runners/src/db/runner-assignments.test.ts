@@ -209,6 +209,31 @@ describe('assignRunnerInstances', () => {
     await expect(assignment).rejects.toThrow(RunnerInstanceAlreadyAssignedError);
   });
 
+  it('reports the first assigned runner when a later runner conflicts', async () => {
+    const reservation = await createReservation();
+    const otherReservation = await createReservation();
+    const firstRunner = await createEnrolledRunner();
+    const conflictingRunner = await createEnrolledRunner();
+    await assignRunnerInstances({
+      provisionerId,
+      reservationId: reservation.id,
+      runnerInstanceIds: [firstRunner.id],
+    });
+    await assignRunnerInstances({
+      provisionerId,
+      reservationId: otherReservation.id,
+      runnerInstanceIds: [conflictingRunner.id],
+    });
+
+    const assignment = assignRunnerInstances({
+      provisionerId,
+      reservationId: reservation.id,
+      runnerInstanceIds: [firstRunner.id, conflictingRunner.id],
+    });
+
+    await expect(assignment).rejects.toMatchObject({runnerInstanceId: firstRunner.id});
+  });
+
   it('rejects assignments that exceed reservation capacity', async () => {
     const reservation = await createReservation();
     const firstRunner = await createEnrolledRunner();

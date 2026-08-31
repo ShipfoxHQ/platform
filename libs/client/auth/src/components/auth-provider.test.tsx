@@ -28,6 +28,21 @@ function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
   });
 }
 
+function principalRefreshResponse(requestCount: number): Promise<Response> {
+  if (requestCount === 1) {
+    return Promise.resolve(jsonResponse({token: 'access-token', user}));
+  }
+  return Promise.resolve(jsonResponse({token: 'other-token-2', user: otherUser}));
+}
+
+function principalWorkspaceResponse(
+  requestCount: number,
+  initialWorkspaceRefresh: Promise<Response>,
+): Promise<Response> {
+  if (requestCount === 1) return initialWorkspaceRefresh;
+  return Promise.resolve(jsonResponse({memberships: []}));
+}
+
 function StatusProbe() {
   const auth = useAuthState();
   const logout = useLogoutAuth();
@@ -259,17 +274,13 @@ describe('AuthProvider', () => {
       const url = (input as Request).url;
       if (url.endsWith('/auth/refresh')) {
         refreshRequestCount += 1;
-        return refreshRequestCount === 1
-          ? Promise.resolve(jsonResponse({token: 'access-token', user}))
-          : Promise.resolve(jsonResponse({token: 'other-token-2', user: otherUser}));
+        return principalRefreshResponse(refreshRequestCount);
       }
       if (url.endsWith('/auth/login'))
         return Promise.resolve(jsonResponse({token: 'other-token', user: otherUser}));
       if (url.endsWith('/workspaces')) {
         workspaceRequestCount += 1;
-        return workspaceRequestCount === 1
-          ? initialWorkspaceRefresh
-          : Promise.resolve(jsonResponse({memberships: []}));
+        return principalWorkspaceResponse(workspaceRequestCount, initialWorkspaceRefresh);
       }
       return Promise.resolve(jsonResponse({token: 'access-token', user}));
     });

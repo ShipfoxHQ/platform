@@ -86,115 +86,128 @@ export function assertNever(value: never): never {
 }
 
 export function buildLogTree(records: readonly LogRecord[]): LogTree {
-  const nodes: LogNode[] = [];
-  const stack: GroupLogNode[] = [];
-  let seq = 0;
-  let lineNumber = 0;
-  let lineCount = 0;
-  let terminated = false;
-  let originTs: number | null = null;
-
-  const childrenOf = (): LogNode[] => stack[stack.length - 1]?.children ?? nodes;
-
-  // Bubble a failure signal (a runner_lost only) to every currently-open ancestor group
-  // in one pass, so `hasError` is read in O(1) at render time instead of re-walking subtrees.
-  const markOpenGroupsError = (): void => {
-    for (const frame of stack) frame.hasError = true;
+  const state: LogTreeBuildState = {
+    nodes: [],
+    stack: [],
+    seq: 0,
+    lineNumber: 0,
+    lineCount: 0,
+    terminated: false,
+    originTs: null,
   };
 
   for (const record of records) {
-    if (originTs === null) originTs = record.ts;
-    switch (record.type) {
-      case 'output': {
-        lineNumber += 1;
-        lineCount += 1;
-        for (const frame of stack) frame.lineCount += 1;
-        childrenOf().push({kind: 'output', seq: seq++, lineNumber, record});
-        break;
-      }
-      case 'group_start': {
-        // Reconcile the open stack to the declared parent before nesting. `parent_group_id`
-        // is the runner's stack top at emit time (null at the root), so any reader frame
-        // below that parent (or every open frame, when the parent is root) is a group whose
-        // own `group_end` was dropped under backlog pressure. Orphan-close those frames so a
-        // dropped end never mis-parents the groups that follow. A parent whose own start was
-        // dropped is not on the stack: it falls through to best-effort root placement.
-        const parentId = record.parentGroupId;
-        let parentIndex = -1;
-        if (parentId !== null) {
-          for (let i = stack.length - 1; i >= 0; i -= 1) {
-            if (stack[i]?.record.groupId === parentId) {
-              parentIndex = i;
-              break;
-            }
-          }
-        }
-        for (let i = stack.length - 1; i > parentIndex; i -= 1) {
-          const frame = stack[i];
-          if (frame) frame.closed = true;
-        }
-        stack.length = parentIndex + 1;
-
-        const group: GroupLogNode = {
-          kind: 'group',
-          seq: seq++,
-          record,
-          closed: false,
-          endTs: null,
-          hasError: false,
-          lineCount: 0,
-          children: [],
-        };
-        childrenOf().push(group);
-        stack.push(group);
-        break;
-      }
-      case 'group_end': {
-        // Close the matching open group_id; any inner frames orphaned by a dropped
-        // group_end close with it. An end with no matching open start is ignored.
-        let matchIndex = -1;
-        for (let i = stack.length - 1; i >= 0; i -= 1) {
-          if (stack[i]?.record.groupId === record.groupId) {
-            matchIndex = i;
-            break;
-          }
-        }
-        if (matchIndex !== -1) {
-          for (let i = stack.length - 1; i >= matchIndex; i -= 1) {
-            const frame = stack[i];
-            if (frame) frame.closed = true;
-          }
-          const matched = stack[matchIndex];
-          if (matched) matched.endTs = record.ts;
-          stack.length = matchIndex;
-        }
-        break;
-      }
-      case 'end':
-      case 'gap':
-      case 'capped': {
-        if (record.type === 'end') terminated = true;
-        childrenOf().push({kind: 'marker', seq: seq++, record});
-        break;
-      }
-      case 'runner_lost': {
-        terminated = true;
-        childrenOf().push({kind: 'marker', seq: seq++, record});
-        markOpenGroupsError();
-        break;
-      }
-      case 'agent_session':
-        childrenOf().push({kind: 'session', seq: seq++, record});
-        break;
-      default:
-        assertNever(record);
-    }
+    if (state.originTs === null) state.originTs = record.ts;
+    appendLogRecord(state, record);
   }
 
   return {
-    nodes,
-    terminated,
-    originTs,
-    lineCount,
+    nodes: state.nodes,
+    terminated: state.terminated,
+    originTs: state.originTs,
+    lineCount: state.lineCount,
   };
+}
+
+interface LogTreeBuildState {
+  nodes: LogNode[];
+  stack: GroupLogNode[];
+  seq: number;
+  lineNumber: number;
+  lineCount: number;
+  terminated: boolean;
+  originTs: number | null;
+}
+
+function childrenOf(state: LogTreeBuildState): LogNode[] {
+  return state.stack[state.stack.length - 1]?.children ?? state.nodes;
+}
+
+function appendLogRecord(state: LogTreeBuildState, record: LogRecord): void {
+  switch (record.type) {
+    case 'output':
+      appendOutputRecord(state, record);
+      return;
+    case 'group_start':
+      appendGroupStartRecord(state, record);
+      return;
+    case 'group_end':
+      appendGroupEndRecord(state, record);
+      return;
+    case 'end':
+    case 'gap':
+    case 'capped':
+      if (record.type === 'end') state.terminated = true;
+      childrenOf(state).push({kind: 'marker', seq: state.seq++, record});
+      return;
+    case 'runner_lost':
+      state.terminated = true;
+      childrenOf(state).push({kind: 'marker', seq: state.seq++, record});
+      for (const frame of state.stack) frame.hasError = true;
+      return;
+    case 'agent_session':
+      childrenOf(state).push({kind: 'session', seq: state.seq++, record});
+      return;
+    default:
+      assertNever(record);
+  }
+}
+
+function appendOutputRecord(
+  state: LogTreeBuildState,
+  record: Extract<LogRecord, {type: 'output'}>,
+): void {
+  state.lineNumber += 1;
+  state.lineCount += 1;
+  for (const frame of state.stack) frame.lineCount += 1;
+  childrenOf(state).push({kind: 'output', seq: state.seq++, lineNumber: state.lineNumber, record});
+}
+
+function appendGroupStartRecord(
+  state: LogTreeBuildState,
+  record: Extract<LogRecord, {type: 'group_start'}>,
+): void {
+  let parentIndex = -1;
+  if (record.parentGroupId !== null) {
+    parentIndex = findOpenGroupIndex(state.stack, record.parentGroupId);
+  }
+  for (let index = state.stack.length - 1; index > parentIndex; index -= 1) {
+    const frame = state.stack[index];
+    if (frame) frame.closed = true;
+  }
+  state.stack.length = parentIndex + 1;
+  const group: GroupLogNode = {
+    kind: 'group',
+    seq: state.seq++,
+    record,
+    closed: false,
+    endTs: null,
+    hasError: false,
+    lineCount: 0,
+    children: [],
+  };
+  childrenOf(state).push(group);
+  state.stack.push(group);
+}
+
+function appendGroupEndRecord(
+  state: LogTreeBuildState,
+  record: Extract<LogRecord, {type: 'group_end'}>,
+): void {
+  const matchIndex = findOpenGroupIndex(state.stack, record.groupId);
+  if (matchIndex === -1) return;
+  for (let index = state.stack.length - 1; index >= matchIndex; index -= 1) {
+    const frame = state.stack[index];
+    if (frame) frame.closed = true;
+  }
+  const matched = state.stack[matchIndex];
+  if (matched) matched.endTs = record.ts;
+  state.stack.length = matchIndex;
+}
+
+function findOpenGroupIndex(stack: readonly GroupLogNode[], groupId: string): number {
+  for (let index = stack.length - 1; index >= 0; index -= 1) {
+    if (stack[index]?.record.groupId === groupId) return index;
+  }
+  return -1;
 }

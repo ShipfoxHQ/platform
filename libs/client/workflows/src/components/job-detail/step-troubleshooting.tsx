@@ -183,16 +183,7 @@ function StepInspector({
   annotationCount: number | undefined;
 }) {
   const detail = query.data;
-  const trace = detail?.evaluationTrace ?? null;
-  const resolvedConfig = detail?.config ?? null;
-  const hasInputs =
-    detail !== undefined &&
-    (countConfigValues(detail.authoredConfig) > 0 || countConfigValues(resolvedConfig) > 0);
-  const hasOutputs =
-    attempt.outputs !== null || attempt.output !== null || attempt.response !== null;
-  const hasTrace = trace !== null && trace.length > 0;
   const hasAnnotations = annotationCount !== undefined && annotationCount > 0;
-  const detailCount = Number(hasInputs) + Number(hasOutputs) + Number(hasTrace);
 
   return (
     <div className="flex min-w-0 flex-col gap-section">
@@ -207,65 +198,13 @@ function StepInspector({
           runAttempt={runAttempt}
         />
       ) : null}
-      {query.isPending ? <InspectorLoading /> : null}
-      {query.isError ? (
-        <Callout
-          role="alert"
-          type="warning"
-          variant="secondary"
-          className="rounded-8 border border-tag-warning-border p-panel-compact shadow-none"
-        >
-          <CalloutContent>
-            <CalloutTitle>Details unavailable</CalloutTitle>
-            <CalloutDescription className="flex items-center justify-between gap-inline">
-              <span>We could not load the resolved configuration for this attempt.</span>
-              <Button
-                type="button"
-                size="2xs"
-                variant="secondary"
-                onClick={() => void query.refetch()}
-              >
-                Retry
-              </Button>
-            </CalloutDescription>
-          </CalloutContent>
-        </Callout>
-      ) : null}
-      {detail ? (
-        <div className="flex min-w-0 flex-col gap-group">
-          {hasInputs ? (
-            <InspectorSection title="Inputs">
-              <ConfigCode authoredConfig={detail.authoredConfig} resolvedConfig={resolvedConfig} />
-            </InspectorSection>
-          ) : null}
-          {hasOutputs ? (
-            <InspectorSection title="Outputs">
-              {attempt.outputs !== null || attempt.output !== null ? (
-                <JsonCode
-                  value={attempt.outputs ?? attempt.output ?? {}}
-                  emptyMessage="No outputs declared; the `outputs:` mapping is empty."
-                />
-              ) : null}
-              {attempt.response !== null ? (
-                <div className="flex min-w-0 flex-col gap-tight">
-                  <Text size="xs" className="text-foreground-neutral-muted">
-                    Response
-                  </Text>
-                  <pre className="max-h-160 min-w-0 overflow-auto rounded-6 border border-border-neutral-base bg-background-neutral-subtle p-tight font-code text-xs leading-18 text-foreground-neutral-muted scrollbar">
-                    {attempt.response}
-                  </pre>
-                </div>
-              ) : null}
-            </InspectorSection>
-          ) : null}
-          {hasTrace ? (
-            <InspectorSection title="Evaluation">
-              <EvaluationTrace trace={trace ?? []} />
-            </InspectorSection>
-          ) : null}
-          {detailCount === 0 && !showFailure && !hasAnnotations ? <EmptyInspector /> : null}
-        </div>
-      ) : null}
+      <InspectorQueryContent
+        query={query}
+        detail={detail}
+        attempt={attempt}
+        showFailure={showFailure}
+        hasAnnotations={hasAnnotations}
+      />
       {hasAnnotations ? (
         <Link
           to="/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId"
@@ -280,6 +219,118 @@ function StepInspector({
         <EmptyInspector />
       ) : null}
     </div>
+  );
+}
+
+function InspectorQueryContent({
+  query,
+  detail,
+  attempt,
+  showFailure,
+  hasAnnotations,
+}: {
+  query: ReturnType<typeof useStepAttemptDetailQuery>;
+  detail: ReturnType<typeof useStepAttemptDetailQuery>['data'];
+  attempt: StepAttempt;
+  showFailure: boolean;
+  hasAnnotations: boolean;
+}) {
+  if (query.isPending) return <InspectorLoading />;
+  if (query.isError) {
+    return (
+      <Callout
+        role="alert"
+        type="warning"
+        variant="secondary"
+        className="rounded-8 border border-tag-warning-border p-panel-compact shadow-none"
+      >
+        <CalloutContent>
+          <CalloutTitle>Details unavailable</CalloutTitle>
+          <CalloutDescription className="flex items-center justify-between gap-inline">
+            <span>We could not load the resolved configuration for this attempt.</span>
+            <Button
+              type="button"
+              size="2xs"
+              variant="secondary"
+              onClick={() => void query.refetch()}
+            >
+              Retry
+            </Button>
+          </CalloutDescription>
+        </CalloutContent>
+      </Callout>
+    );
+  }
+  if (!detail) {
+    return showFailure || hasAnnotations ? null : <EmptyInspector />;
+  }
+  return (
+    <InspectorDetailContent
+      detail={detail}
+      attempt={attempt}
+      showFailure={showFailure}
+      hasAnnotations={hasAnnotations}
+    />
+  );
+}
+
+function InspectorDetailContent({
+  detail,
+  attempt,
+  showFailure,
+  hasAnnotations,
+}: {
+  detail: NonNullable<ReturnType<typeof useStepAttemptDetailQuery>['data']>;
+  attempt: StepAttempt;
+  showFailure: boolean;
+  hasAnnotations: boolean;
+}) {
+  const trace = detail.evaluationTrace ?? null;
+  const resolvedConfig = detail.config ?? null;
+  const hasInputs =
+    countConfigValues(detail.authoredConfig) > 0 || countConfigValues(resolvedConfig) > 0;
+  const hasOutputs =
+    attempt.outputs !== null || attempt.output !== null || attempt.response !== null;
+  const hasTrace = trace !== null && trace.length > 0;
+  const detailCount = Number(hasInputs) + Number(hasOutputs) + Number(hasTrace);
+  return (
+    <div className="flex min-w-0 flex-col gap-group">
+      {hasInputs ? (
+        <InspectorSection title="Inputs">
+          <ConfigCode authoredConfig={detail.authoredConfig} resolvedConfig={resolvedConfig} />
+        </InspectorSection>
+      ) : null}
+      {hasOutputs ? <InspectorOutputs attempt={attempt} /> : null}
+      {hasTrace ? (
+        <InspectorSection title="Evaluation">
+          <EvaluationTrace trace={trace ?? []} />
+        </InspectorSection>
+      ) : null}
+      {detailCount === 0 && !showFailure && !hasAnnotations ? <EmptyInspector /> : null}
+    </div>
+  );
+}
+
+function InspectorOutputs({attempt}: {attempt: StepAttempt}) {
+  return (
+    <InspectorSection title="Outputs">
+      {attempt.outputs !== null || attempt.output !== null ? (
+        <JsonCode
+          value={attempt.outputs ?? attempt.output ?? {}}
+          emptyMessage="No outputs declared; the `outputs:` mapping is empty."
+        />
+      ) : null}
+      {attempt.response !== null ? (
+        <div className="flex min-w-0 flex-col gap-tight">
+          <Text size="xs" className="text-foreground-neutral-muted">
+            Response
+          </Text>
+          <pre className="max-h-160 min-w-0 overflow-auto rounded-6 border border-border-neutral-base bg-background-neutral-subtle p-tight font-code text-xs leading-18 text-foreground-neutral-muted scrollbar">
+            {attempt.response}
+          </pre>
+        </div>
+      ) : null}
+    </InspectorSection>
   );
 }
 
@@ -331,56 +382,57 @@ export function EvaluationTrace({trace}: {trace: readonly EvaluationTraceEntry[]
 
   return (
     <dl className="flex min-w-0 flex-col divide-y divide-border-neutral-base rounded-6 border border-border-neutral-base">
-      {trace.map((entry) => {
-        if ('dropped' in entry) {
-          const keyBase = `limit-${entry.dropped}`;
-          const occurrence = keyCounts.get(keyBase) ?? 0;
-          keyCounts.set(keyBase, occurrence + 1);
-          return (
-            <div
-              key={`${keyBase}-${occurrence}`}
-              className="px-row py-row text-xs text-foreground-neutral-muted"
-            >
-              {entry.dropped} more evaluation{entry.dropped === 1 ? '' : 's'} not recorded
-            </div>
-          );
-        }
-
-        const empty = entry.value === undefined || entry.value === '';
-        const keyBase = `evaluation-${entry.field}-${entry.expression}-${entry.evaluatedAt}-${entry.fillTarget}`;
-        const occurrence = keyCounts.get(keyBase) ?? 0;
-        keyCounts.set(keyBase, occurrence + 1);
-        return (
-          <div
-            key={`${keyBase}-${occurrence}`}
-            className={cn(
-              'grid min-w-0 grid-cols-1 gap-inline px-row py-row min-[768px]:grid-cols-[160px_minmax(0,1fr)]',
-              entry.degraded && 'border-l border-tag-error-icon',
-            )}
-          >
-            <dt
-              className="flex min-w-0 flex-col gap-tight font-code text-xs text-foreground-neutral-muted"
-              title={entry.field}
-            >
-              <span className="block truncate">{entry.field}</span>
-              <span className="block break-all text-foreground-neutral-subtle">
-                {entry.expression}
-              </span>
-            </dt>
-            <dd className="flex min-w-0 flex-col gap-tight text-xs text-foreground-neutral-base">
-              {entry.degraded ? <span className="sr-only">Degraded evaluation</span> : null}
-              <div className="break-words font-code">
-                {empty ? <span className="text-tag-error-text">(empty)</span> : entry.value}
-              </div>
-              <div className="flex min-w-0 flex-wrap gap-x-inline gap-y-tight text-foreground-neutral-muted">
-                {entry.degraded ? <span className="text-tag-error-text">degraded</span> : null}
-                {entry.truncated || entry.exprTruncated ? <span>truncated</span> : null}
-              </div>
-            </dd>
-          </div>
-        );
-      })}
+      {trace.map((entry) => (
+        <EvaluationTraceRow entry={entry} key={evaluationTraceKey(entry, keyCounts)} />
+      ))}
     </dl>
+  );
+}
+
+function evaluationTraceKey(entry: EvaluationTraceEntry, keyCounts: Map<string, number>): string {
+  const keyBase =
+    'dropped' in entry
+      ? `limit-${entry.dropped}`
+      : `evaluation-${entry.field}-${entry.expression}-${entry.evaluatedAt}-${entry.fillTarget}`;
+  const occurrence = keyCounts.get(keyBase) ?? 0;
+  keyCounts.set(keyBase, occurrence + 1);
+  return `${keyBase}-${occurrence}`;
+}
+
+function EvaluationTraceRow({entry}: {entry: EvaluationTraceEntry}) {
+  if ('dropped' in entry) {
+    return (
+      <div className="px-row py-row text-xs text-foreground-neutral-muted">
+        {entry.dropped} more evaluation{entry.dropped === 1 ? '' : 's'} not recorded
+      </div>
+    );
+  }
+  const empty = entry.value === undefined || entry.value === '';
+  return (
+    <div
+      className={cn(
+        'grid min-w-0 grid-cols-1 gap-inline px-row py-row min-[768px]:grid-cols-[160px_minmax(0,1fr)]',
+        entry.degraded && 'border-l border-tag-error-icon',
+      )}
+    >
+      <dt
+        className="flex min-w-0 flex-col gap-tight font-code text-xs text-foreground-neutral-muted"
+        title={entry.field}
+      >
+        <span className="block truncate">{entry.field}</span>
+        <span className="block break-all text-foreground-neutral-subtle">{entry.expression}</span>
+      </dt>
+      <dd className="flex min-w-0 flex-col gap-tight text-xs text-foreground-neutral-base">
+        {entry.degraded ? <span className="sr-only">Degraded evaluation</span> : null}
+        <div className="break-words font-code">
+          {empty ? <span className="text-tag-error-text">(empty)</span> : entry.value}
+        </div>
+        <div className="flex min-w-0 flex-wrap gap-x-inline gap-y-tight text-foreground-neutral-muted">
+          {entry.degraded ? <span className="text-tag-error-text">degraded</span> : null}
+          {entry.truncated || entry.exprTruncated ? <span>truncated</span> : null}
+        </div>
+      </dd>
+    </div>
   );
 }
 

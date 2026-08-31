@@ -23,6 +23,27 @@ export {DEFAULT_JOB_CHECKOUT};
 
 const DEFAULT_CHECKOUT_FETCH_DEPTH = 1;
 
+function normalizeCheckoutTemplates(params: Parameters<typeof normalizeCheckout>[0]) {
+  const templates: Partial<Record<WorkflowModelCheckoutTargetKey, WorkflowFieldTemplate>> = {};
+  for (const [key, field] of WORKFLOW_MODEL_CHECKOUT_TARGET_FIELDS) {
+    const source = params.checkout[key];
+    if (source === undefined) continue;
+    const template = parseInterpolationField({
+      field,
+      source,
+      path: [...params.path, key],
+      issues: params.issues,
+      fillSite: params.fillSite,
+      ...(params.allowedJobReferences === undefined
+        ? {}
+        : {allowedJobReferences: params.allowedJobReferences}),
+      ...(params.typeOverlay === undefined ? {} : {typeOverlay: params.typeOverlay}),
+    });
+    if (template !== undefined) templates[key] = template;
+  }
+  return Object.keys(templates).length === 0 ? undefined : templates;
+}
+
 export function normalizeJobCheckout(params: {
   checkout: WorkflowDocumentJob['checkout'];
 }): WorkflowModelJobCheckout | false {
@@ -48,43 +69,22 @@ export function normalizeCheckout(params: {
   typeOverlay?: ExpressionTypeEnvironment | undefined;
 }): WorkflowModelCheckout {
   validateCheckoutTargetShape(params);
-
-  const templates: Partial<Record<WorkflowModelCheckoutTargetKey, WorkflowFieldTemplate>> = {};
-  for (const [key, field] of WORKFLOW_MODEL_CHECKOUT_TARGET_FIELDS) {
-    const source = params.checkout[key];
-    if (source === undefined) continue;
-
-    const template = parseInterpolationField({
-      field,
-      source,
-      path: [...params.path, key],
-      issues: params.issues,
-      fillSite: params.fillSite,
-      ...(params.allowedJobReferences === undefined
-        ? {}
-        : {allowedJobReferences: params.allowedJobReferences}),
-      ...(params.typeOverlay === undefined ? {} : {typeOverlay: params.typeOverlay}),
-    });
-    if (template === undefined) continue;
-
-    templates[key] = template;
-  }
-
-  const normalized = {
-    ...(params.checkout.project === undefined ? {} : {project: params.checkout.project}),
-    ...(params.checkout.connection === undefined ? {} : {connection: params.checkout.connection}),
-    ...(params.checkout.repository === undefined ? {} : {repository: params.checkout.repository}),
-    ...(params.checkout.ref === undefined ? {} : {ref: params.checkout.ref}),
+  const normalized: {-readonly [Key in keyof WorkflowModelCheckout]: WorkflowModelCheckout[Key]} = {
     fetchDepth: params.checkout['fetch-depth'] ?? DEFAULT_CHECKOUT_FETCH_DEPTH,
-    ...(params.checkout.path === undefined ? {} : {path: params.checkout.path}),
     permissions: {
       contents: params.checkout.permissions?.contents ?? DEFAULT_JOB_CHECKOUT.permissions.contents,
     },
     persistCredentials:
       params.checkout['persist-credentials'] ?? DEFAULT_JOB_CHECKOUT.persistCredentials,
-    ...(params.checkout.force === undefined ? {} : {force: params.checkout.force}),
-    ...(Object.keys(templates).length === 0 ? {} : {templates}),
-  } satisfies WorkflowModelCheckout;
+  };
+  if (params.checkout.project !== undefined) normalized.project = params.checkout.project;
+  if (params.checkout.connection !== undefined) normalized.connection = params.checkout.connection;
+  if (params.checkout.repository !== undefined) normalized.repository = params.checkout.repository;
+  if (params.checkout.ref !== undefined) normalized.ref = params.checkout.ref;
+  if (params.checkout.path !== undefined) normalized.path = params.checkout.path;
+  if (params.checkout.force !== undefined) normalized.force = params.checkout.force;
+  const templates = normalizeCheckoutTemplates(params);
+  if (templates !== undefined) normalized.templates = templates;
 
   return normalized;
 }
@@ -95,12 +95,12 @@ function validateCheckoutTargetShape(params: {
   path: readonly WorkflowModelValidationIssuePathSegment[];
 }): void {
   for (const validationIssue of checkoutTargetValidationIssues(params.checkout)) {
-    const message =
-      validationIssue.kind === 'project-with-connection'
-        ? 'Checkout target "connection" cannot be combined with "project".'
-        : validationIssue.kind === 'project-with-repository'
-          ? 'Checkout target "repository" cannot be combined with "project".'
-          : 'Checkout target "connection" requires "repository".';
+    let message = 'Checkout target "connection" requires "repository".';
+    if (validationIssue.kind === 'project-with-connection') {
+      message = 'Checkout target "connection" cannot be combined with "project".';
+    } else if (validationIssue.kind === 'project-with-repository') {
+      message = 'Checkout target "repository" cannot be combined with "project".';
+    }
     params.issues.push(
       issue({
         code: 'checkout-target-invalid',

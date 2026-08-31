@@ -87,24 +87,7 @@ function collectCatalogProviderIssues(
   }
 
   const overview = directory.overview;
-  if (!overview?.catalog) {
-    issues.push(
-      `${prefix}: add a catalog frontmatter block to integrations/${provider.slug}/index.mdx.`,
-    );
-  } else {
-    const catalog = overview.catalog;
-    const actualCapabilities = strings(catalog.capabilities);
-    for (const capability of provider.capabilities) {
-      if (!actualCapabilities.includes(capability))
-        issues.push(`${prefix}: add the "${capability}" capability to catalog frontmatter.`);
-    }
-    for (const capability of actualCapabilities) {
-      if (!provider.capabilities.includes(capability as CatalogCapability))
-        issues.push(
-          `${prefix}: remove the stale "${capability}" capability from catalog frontmatter.`,
-        );
-    }
-  }
+  collectCatalogFrontmatterIssues(overview, provider, prefix, issues);
 
   collectReferencePageIssues(directory, provider, generated, 'events', issues);
   collectReferencePageIssues(directory, provider, generated, 'tools', issues);
@@ -129,6 +112,34 @@ function collectCatalogProviderIssues(
       issues.push(
         `${prefix}: derive event and tool counts from generated reference instead of hardcoding them in ${page}.mdx.`,
       );
+  }
+}
+
+function collectCatalogFrontmatterIssues(
+  overview: IntegrationDocsDirectory['overview'],
+  provider: Extract<RegisteredIntegrationProvider, {kind: 'catalog'}>,
+  prefix: string,
+  issues: string[],
+): void {
+  if (!overview?.catalog) {
+    issues.push(
+      `${prefix}: add a catalog frontmatter block to integrations/${provider.slug}/index.mdx.`,
+    );
+    return;
+  }
+
+  const actualCapabilities = strings(overview.catalog.capabilities);
+  for (const capability of provider.capabilities) {
+    if (!actualCapabilities.includes(capability)) {
+      issues.push(`${prefix}: add the "${capability}" capability to catalog frontmatter.`);
+    }
+  }
+  for (const capability of actualCapabilities) {
+    if (!provider.capabilities.includes(capability as CatalogCapability)) {
+      issues.push(
+        `${prefix}: remove the stale "${capability}" capability from catalog frontmatter.`,
+      );
+    }
   }
 }
 

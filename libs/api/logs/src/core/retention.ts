@@ -98,92 +98,134 @@ export async function runRetentionSweep(
     });
     if (batch.length === 0) break;
 
-    let timedOutMidBatch = false;
-    for (const stream of batch) {
-      // Per-stream checks keep long batches within the heartbeat and wall-clock budgets.
-      params.onProgress?.();
-      if (now() >= deadline) {
-        result.timedOut = true;
-        timedOutMidBatch = true;
-        break;
-      }
-
-      try {
-        await deleteExpiredStreamObjects(stream);
-      } catch (error) {
-        result.failed += 1;
-        skip.add(stream.id);
-        logger().error(
-          {err: error, streamId: stream.id},
-          'Failed to delete expired log stream objects',
-        );
-        reportError(error, {boundary: 'logs.maintenance', extra: {streamId: stream.id}});
-        continue;
-      }
-
-      let outcome: {deleted: boolean; prunedAccounting: boolean};
-      try {
-        outcome = await deleteExpiredStreamRow({stream, retentionDays: params.retentionDays});
-      } catch (error) {
-        result.failed += 1;
-        skip.add(stream.id);
-        logger().error(
-          {err: error, streamId: stream.id},
-          'Failed to delete expired log stream row',
-        );
-        reportError(error, {boundary: 'logs.maintenance', extra: {streamId: stream.id}});
-        continue;
-      }
-
-      if (!outcome.deleted) {
-        let current: AttemptStream | null;
-        try {
-          current = await getAttemptStreamById(stream.id);
-        } catch (error) {
-          result.failed += 1;
-          skip.add(stream.id);
-          logger().error(
-            {err: error, streamId: stream.id},
-            'Failed to reload raced expired log stream',
-          );
-          reportError(error, {boundary: 'logs.maintenance', extra: {streamId: stream.id}});
-          continue;
-        }
-        if (current) {
-          try {
-            await deleteExpiredStreamObjects(current);
-            outcome = await deleteExpiredStreamRow({
-              stream: current,
-              retentionDays: params.retentionDays,
-            });
-          } catch (error) {
-            result.failed += 1;
-            skip.add(stream.id);
-            logger().error(
-              {err: error, streamId: stream.id},
-              'Failed to delete raced expired log stream',
-            );
-            reportError(error, {boundary: 'logs.maintenance', extra: {streamId: stream.id}});
-            continue;
-          }
-        }
-        if (!current || !outcome.deleted) {
-          // `object_key` changed again or the row disappeared; the next sweep will re-read it.
-          result.raced += 1;
-          skip.add(stream.id);
-          continue;
-        }
-      }
-
-      result.deleted += 1;
-      if (outcome.prunedAccounting) result.accountingPruned += 1;
-    }
-
-    if (timedOutMidBatch) break;
+    if (await processRetentionBatch(batch, params, result, skip, now, deadline)) break;
 
     result.iterations += 1;
     if (batch.length < params.batchLimit) break;
   }
 
   return result;
+}
+
+async function processRetentionBatch(
+  batch: readonly AttemptStream[],
+  params: RunRetentionSweepParams,
+  result: RetentionSweepResult,
+  skip: Set<string>,
+  now: () => number,
+  deadline: number,
+): Promise<boolean> {
+  for (const stream of batch) {
+    params.onProgress?.();
+    if (now() >= deadline) {
+      result.timedOut = true;
+      return true;
+    }
+    await processExpiredStream(stream, params.retentionDays, result, skip);
+  }
+  return false;
+}
+
+type RetentionAttempt<T> = {readonly ok: true; readonly value: T} | {readonly ok: false};
+
+async function attemptRetentionOperation<T>(
+  streamId: string,
+  result: RetentionSweepResult,
+  skip: Set<string>,
+  message: string,
+  operation: () => Promise<T>,
+): Promise<RetentionAttempt<T>> {
+  try {
+    return {ok: true, value: await operation()};
+  } catch (error) {
+    result.failed += 1;
+    skip.add(streamId);
+    logger().error({err: error, streamId}, message);
+    reportError(error, {boundary: 'logs.maintenance', extra: {streamId}});
+    return {ok: false};
+  }
+}
+
+async function processExpiredStream(
+  stream: AttemptStream,
+  retentionDays: number,
+  result: RetentionSweepResult,
+  skip: Set<string>,
+): Promise<void> {
+  const objectDelete = await attemptRetentionOperation(
+    stream.id,
+    result,
+    skip,
+    'Failed to delete expired log stream objects',
+    () => deleteExpiredStreamObjects(stream),
+  );
+  if (!objectDelete.ok) return;
+
+  const rowDelete = await attemptRetentionOperation(
+    stream.id,
+    result,
+    skip,
+    'Failed to delete expired log stream row',
+    () => deleteExpiredStreamRow({stream, retentionDays}),
+  );
+  if (!rowDelete.ok) return;
+  if (rowDelete.value.deleted) {
+    recordRetentionDeletion(rowDelete.value, result);
+    return;
+  }
+  await retryRacedExpiredStream(stream.id, retentionDays, result, skip);
+}
+
+async function retryRacedExpiredStream(
+  streamId: string,
+  retentionDays: number,
+  result: RetentionSweepResult,
+  skip: Set<string>,
+): Promise<void> {
+  const reload = await attemptRetentionOperation(
+    streamId,
+    result,
+    skip,
+    'Failed to reload raced expired log stream',
+    () => getAttemptStreamById(streamId),
+  );
+  if (!reload.ok) return;
+  if (reload.value === null) {
+    recordRetentionRace(streamId, result, skip);
+    return;
+  }
+  const current = reload.value;
+  const retry = await attemptRetentionOperation(
+    streamId,
+    result,
+    skip,
+    'Failed to delete raced expired log stream',
+    async () => {
+      await deleteExpiredStreamObjects(current);
+      return deleteExpiredStreamRow({stream: current, retentionDays});
+    },
+  );
+  if (!retry.ok) return;
+  if (!retry.value.deleted) {
+    recordRetentionRace(streamId, result, skip);
+    return;
+  }
+  recordRetentionDeletion(retry.value, result);
+}
+
+function recordRetentionRace(
+  streamId: string,
+  result: RetentionSweepResult,
+  skip: Set<string>,
+): void {
+  result.raced += 1;
+  skip.add(streamId);
+}
+
+function recordRetentionDeletion(
+  outcome: {deleted: boolean; prunedAccounting: boolean},
+  result: RetentionSweepResult,
+): void {
+  result.deleted += 1;
+  if (outcome.prunedAccounting) result.accountingPruned += 1;
 }

@@ -16,6 +16,7 @@ import {
 import {JiraIntegrationProviderError} from './errors.js';
 
 type JiraIntegrationConnection = IntegrationConnection<'jira'>;
+type JiraToolCall = Parameters<AgentToolSession<JiraToolCallResult>['call']>[0];
 
 export type JiraToolCallResult = {
   isError?: boolean | undefined;
@@ -60,53 +61,84 @@ export class JiraAgentToolsProvider
     const cloudId = input.connection.externalAccountId;
 
     return {
-      call: async (call) => {
-        const tool = input.tools.find((candidate) => candidate.id === call.toolId);
-        if (!tool) return jiraToolError(`Unknown Jira tool: ${call.toolId}`);
-
-        const operation = JIRA_TOOL_OPERATIONS[call.toolId as keyof typeof JIRA_TOOL_OPERATIONS];
-        if (!operation) return jiraToolError(`Unknown Jira tool: ${call.toolId}`);
-
-        const missingParameter = missingRequiredParameter(tool, call.arguments);
-        if (missingParameter) {
-          return jiraToolError(`Missing required parameter: ${missingParameter}`);
-        }
-
-        let response: JiraAgentToolResponse;
-        try {
-          response = await this.options.jira.request({
-            accessToken,
-            cloudId,
-            method: operation.method,
-            path: operation.path(call.arguments),
-            ...(operation.query === undefined ? {} : {query: operation.query(call.arguments)}),
-            ...(operation.body === undefined ? {} : {body: operation.body(call.arguments)}),
-            operation: call.toolId,
-          });
-        } catch (error) {
-          if (error instanceof JiraIntegrationProviderError) {
-            return jiraToolError(error.message, {
-              code: error.reason,
-              retryAfterSeconds: error.retryAfterSeconds,
-            });
-          }
-          throw error;
-        }
-
-        if (response.status === 400 || response.status === 404) {
-          return jiraRequestError(
-            response.body,
-            response.status === 404 ? 'Jira resource was not found' : 'Jira request was rejected',
-          );
-        }
-        if (response.status < 200 || response.status >= 300) {
-          return jiraToolError(`Jira request returned HTTP ${response.status}`);
-        }
-        return jiraToolResult(response.body, response.status);
-      },
+      call: (call) =>
+        executeJiraToolCall({
+          call,
+          tools: input.tools,
+          accessToken,
+          cloudId,
+          jira: this.options.jira,
+        }),
       close: () => Promise.resolve(),
     };
   }
+}
+
+async function executeJiraToolCall(params: {
+  call: JiraToolCall;
+  tools: readonly AgentToolCatalogEntry<JiraAgentToolRequiredScope>[];
+  accessToken: string;
+  cloudId: string;
+  jira: Pick<JiraAgentToolsClient, 'request'>;
+}): Promise<JiraToolCallResult> {
+  const tool = params.tools.find((candidate) => candidate.id === params.call.toolId);
+  if (!tool) return jiraToolError(`Unknown Jira tool: ${params.call.toolId}`);
+  const operation = JIRA_TOOL_OPERATIONS[params.call.toolId as keyof typeof JIRA_TOOL_OPERATIONS];
+  if (!operation) return jiraToolError(`Unknown Jira tool: ${params.call.toolId}`);
+  const missingParameter = missingRequiredParameter(tool, params.call.arguments);
+  if (missingParameter) return jiraToolError(`Missing required parameter: ${missingParameter}`);
+
+  const response = await requestJiraTool({
+    ...params,
+    operation,
+  });
+  if (response instanceof JiraIntegrationProviderError) {
+    return jiraToolError(response.message, {
+      code: response.reason,
+      retryAfterSeconds: response.retryAfterSeconds,
+    });
+  }
+  return mapJiraToolResponse(response);
+}
+
+async function requestJiraTool(params: {
+  call: JiraToolCall;
+  accessToken: string;
+  cloudId: string;
+  jira: Pick<JiraAgentToolsClient, 'request'>;
+  operation: (typeof JIRA_TOOL_OPERATIONS)[keyof typeof JIRA_TOOL_OPERATIONS];
+}): Promise<JiraAgentToolResponse | JiraIntegrationProviderError> {
+  try {
+    return await params.jira.request({
+      accessToken: params.accessToken,
+      cloudId: params.cloudId,
+      method: params.operation.method,
+      path: params.operation.path(params.call.arguments),
+      ...(params.operation.query === undefined
+        ? {}
+        : {query: params.operation.query(params.call.arguments)}),
+      ...(params.operation.body === undefined
+        ? {}
+        : {body: params.operation.body(params.call.arguments)}),
+      operation: params.call.toolId,
+    });
+  } catch (error) {
+    if (error instanceof JiraIntegrationProviderError) return error;
+    throw error;
+  }
+}
+
+function mapJiraToolResponse(response: JiraAgentToolResponse): JiraToolCallResult {
+  if (response.status === 400 || response.status === 404) {
+    return jiraRequestError(
+      response.body,
+      response.status === 404 ? 'Jira resource was not found' : 'Jira request was rejected',
+    );
+  }
+  if (response.status < 200 || response.status >= 300) {
+    return jiraToolError(`Jira request returned HTTP ${response.status}`);
+  }
+  return jiraToolResult(response.body, response.status);
 }
 
 function missingRequiredParameter(
@@ -121,7 +153,9 @@ function missingRequiredParameter(
 }
 
 function jiraToolResult(body: unknown, status: number): JiraToolCallResult {
-  const structuredContent = body === undefined ? {status} : isRecord(body) ? body : {result: body};
+  let structuredContent: Record<string, unknown> = {status};
+  if (isRecord(body)) structuredContent = body;
+  else if (body !== undefined) structuredContent = {result: body};
   return {
     content: [{type: 'text', text: JSON.stringify(structuredContent)}],
     structuredContent,

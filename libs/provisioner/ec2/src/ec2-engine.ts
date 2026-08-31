@@ -280,27 +280,26 @@ function mapEc2Error(error: unknown, message: string): Ec2EngineError {
   if (error instanceof Ec2EngineError) return error;
 
   const name = errorName(error);
-  const reason =
-    name === 'InsufficientInstanceCapacity'
-      ? 'insufficient-capacity'
-      : name === 'SpotMaxPriceTooLow'
-        ? 'spot-price-too-low'
-        : name === 'RequestLimitExceeded' ||
-            name.startsWith('Throttling') ||
-            name === 'EC2ThrottledException' ||
-            name === 'SlowDown'
-          ? 'throttled'
-          : name.startsWith('InvalidAMIID.')
-            ? 'image-not-found'
-            : ['AuthFailure', 'UnauthorizedOperation', 'Blocked', 'OptInRequired'].includes(name)
-              ? 'auth'
-              : name.startsWith('Invalid') ||
-                  name.startsWith('Missing') ||
-                  name.startsWith('Unsupported')
-                ? 'config-invalid'
-                : isUnreachable(error, name)
-                  ? 'unreachable'
-                  : 'unknown';
+  let reason: Ec2EngineErrorReason = 'unknown';
+  if (name === 'InsufficientInstanceCapacity') reason = 'insufficient-capacity';
+  else if (name === 'SpotMaxPriceTooLow') reason = 'spot-price-too-low';
+  else if (
+    name === 'RequestLimitExceeded' ||
+    name.startsWith('Throttling') ||
+    name === 'EC2ThrottledException' ||
+    name === 'SlowDown'
+  ) {
+    reason = 'throttled';
+  } else if (name.startsWith('InvalidAMIID.')) reason = 'image-not-found';
+  else if (['AuthFailure', 'UnauthorizedOperation', 'Blocked', 'OptInRequired'].includes(name)) {
+    reason = 'auth';
+  } else if (
+    name.startsWith('Invalid') ||
+    name.startsWith('Missing') ||
+    name.startsWith('Unsupported')
+  ) {
+    reason = 'config-invalid';
+  } else if (isUnreachable(error, name)) reason = 'unreachable';
 
   return new Ec2EngineError(reason, message, {cause: error});
 }

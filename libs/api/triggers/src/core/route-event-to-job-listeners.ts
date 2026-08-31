@@ -55,23 +55,10 @@ export async function routeEventToJobListeners(
     source: params.source,
     event: params.event,
   });
-
-  let filterErrorCount = 0;
-  const effectiveMatchByJobId = new Map<string, JobListenerSubscription>();
-  for (const subscription of subscriptions) {
-    const filterResult = evaluateListenerFilter({subscription, payload: params.payload});
-    if (filterResult.kind === 'filtered') continue;
-    if (filterResult.kind === 'filter-error') {
-      filterErrorCount += 1;
-      await params.history.listenerFilterErrored(subscription, filterResult.reason);
-      continue;
-    }
-
-    const previous = effectiveMatchByJobId.get(subscription.jobId);
-    if (!previous || shouldReplaceEffectiveMatcher(previous, subscription)) {
-      effectiveMatchByJobId.set(subscription.jobId, subscription);
-    }
-  }
+  const {filterErrorCount, effectiveMatchByJobId} = await collectEffectiveListenerMatches(
+    params,
+    subscriptions,
+  );
 
   const fireDeliveryNeeded = [...effectiveMatchByJobId.values()].some(
     (subscription) => listenerDisposition(subscription) === 'fire',
@@ -90,51 +77,110 @@ export async function routeEventToJobListeners(
       })
     : null;
 
-  let acceptedJobCount = 0;
-  let deliveredCount = 0;
-  let sawTransientError = false;
-  let dispatchErrorCount = 0;
-  let firstTransientError: unknown;
-
-  for (const subscription of effectiveMatchByJobId.values()) {
-    const disposition = listenerDisposition(subscription);
-    try {
-      const result = await params.workflows.deliverEventToJobListener({
-        jobId: subscription.jobId,
-        disposition,
-        eventRef: params.eventRef,
-        deliveryId: params.deliveryId,
-        source: params.source,
-        event: params.event,
-        provider: params.provider,
-        triggerConnectionId: params.connectionId,
-        triggerReference,
-        payload: params.payload,
-        receivedAt: params.receivedAt.toISOString(),
-      });
-      if (!result.skipped) {
-        acceptedJobCount += 1;
-        await params.history.listenerTriggered(subscription);
-      }
-      if (result.buffered) deliveredCount += 1;
-    } catch (error) {
-      dispatchErrorCount += 1;
-      await params.history.listenerDispatchErrored(subscription, toReason(error));
-      if (!isPermanentDeliverEventToJobListenerError(error) && !sawTransientError) {
-        sawTransientError = true;
-        firstTransientError = error;
-      }
-    }
-  }
+  const delivery = await deliverEventToMatchedListeners(
+    params,
+    effectiveMatchByJobId.values(),
+    triggerReference,
+  );
 
   return {
-    engagedCount: filterErrorCount + acceptedJobCount + dispatchErrorCount,
+    engagedCount: filterErrorCount + delivery.acceptedJobCount + delivery.dispatchErrorCount,
     matchedJobCount: effectiveMatchByJobId.size,
-    acceptedJobCount,
-    deliveredCount,
-    transientErrored: sawTransientError,
-    transientError: sawTransientError ? firstTransientError : undefined,
+    acceptedJobCount: delivery.acceptedJobCount,
+    deliveredCount: delivery.deliveredCount,
+    transientErrored: delivery.sawTransientError,
+    transientError: delivery.sawTransientError ? delivery.firstTransientError : undefined,
   };
+}
+
+async function collectEffectiveListenerMatches(
+  params: Pick<RouteEventToJobListenersParams, 'history' | 'payload'>,
+  subscriptions: readonly JobListenerSubscription[],
+): Promise<{
+  filterErrorCount: number;
+  effectiveMatchByJobId: Map<string, JobListenerSubscription>;
+}> {
+  let filterErrorCount = 0;
+  const effectiveMatchByJobId = new Map<string, JobListenerSubscription>();
+  for (const subscription of subscriptions) {
+    const filterResult = evaluateListenerFilter({subscription, payload: params.payload});
+    if (filterResult.kind === 'filtered') continue;
+    if (filterResult.kind === 'filter-error') {
+      filterErrorCount += 1;
+      await params.history.listenerFilterErrored(subscription, filterResult.reason);
+      continue;
+    }
+    const previous = effectiveMatchByJobId.get(subscription.jobId);
+    if (!previous || shouldReplaceEffectiveMatcher(previous, subscription)) {
+      effectiveMatchByJobId.set(subscription.jobId, subscription);
+    }
+  }
+  return {filterErrorCount, effectiveMatchByJobId};
+}
+
+interface ListenerDeliveryState {
+  acceptedJobCount: number;
+  deliveredCount: number;
+  dispatchErrorCount: number;
+  sawTransientError: boolean;
+  firstTransientError: unknown;
+}
+
+async function deliverEventToMatchedListeners(
+  params: RouteEventToJobListenersParams,
+  subscriptions: Iterable<JobListenerSubscription>,
+  triggerReference: Awaited<
+    ReturnType<WorkflowsModuleClient['resolveWorkflowRunTriggerReference']>
+  > | null,
+): Promise<ListenerDeliveryState> {
+  const state: ListenerDeliveryState = {
+    acceptedJobCount: 0,
+    deliveredCount: 0,
+    dispatchErrorCount: 0,
+    sawTransientError: false,
+    firstTransientError: undefined,
+  };
+  for (const subscription of subscriptions) {
+    await deliverEventToMatchedListener(params, subscription, triggerReference, state);
+  }
+  return state;
+}
+
+async function deliverEventToMatchedListener(
+  params: RouteEventToJobListenersParams,
+  subscription: JobListenerSubscription,
+  triggerReference: Awaited<
+    ReturnType<WorkflowsModuleClient['resolveWorkflowRunTriggerReference']>
+  > | null,
+  state: ListenerDeliveryState,
+): Promise<void> {
+  try {
+    const result = await params.workflows.deliverEventToJobListener({
+      jobId: subscription.jobId,
+      disposition: listenerDisposition(subscription),
+      eventRef: params.eventRef,
+      deliveryId: params.deliveryId,
+      source: params.source,
+      event: params.event,
+      provider: params.provider,
+      triggerConnectionId: params.connectionId,
+      triggerReference,
+      payload: params.payload,
+      receivedAt: params.receivedAt.toISOString(),
+    });
+    if (!result.skipped) {
+      state.acceptedJobCount += 1;
+      await params.history.listenerTriggered(subscription);
+    }
+    if (result.buffered) state.deliveredCount += 1;
+  } catch (error) {
+    state.dispatchErrorCount += 1;
+    await params.history.listenerDispatchErrored(subscription, toReason(error));
+    if (!isPermanentDeliverEventToJobListenerError(error) && !state.sawTransientError) {
+      state.sawTransientError = true;
+      state.firstTransientError = error;
+    }
+  }
 }
 
 interface EvaluateListenerFilterParams {

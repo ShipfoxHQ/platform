@@ -53,5 +53,7 @@ function compareTemplatePreference<Spec>(
 ): number {
   if (a.cost !== b.cost) return a.cost - b.cost;
   if (a.labels.length !== b.labels.length) return a.labels.length - b.labels.length;
-  return a.key < b.key ? -1 : a.key > b.key ? 1 : 0;
+  if (a.key < b.key) return -1;
+  if (a.key > b.key) return 1;
+  return 0;
 }

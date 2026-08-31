@@ -10,7 +10,9 @@ const dismissedStorageKey = {
   principalScope: 'workspace',
   serialize: (dismissed: boolean) => JSON.stringify(dismissed),
   parse: (raw) => {
-    return raw === 'true' ? true : raw === 'false' ? false : undefined;
+    if (raw === 'true') return true;
+    if (raw === 'false') return false;
+    return undefined;
   },
 } satisfies BrowserStorageKey<boolean>;
 

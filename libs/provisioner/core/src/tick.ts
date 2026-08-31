@@ -21,6 +21,10 @@ type WarmLaunchGroup<Spec> = {
   readonly count: number;
 };
 type LaunchGroup<Spec> = PlannedLaunchGroup<Spec> | WarmLaunchGroup<Spec>;
+type PlannedRunner<Spec> = {
+  readonly providerRunnerId: string;
+  readonly template: ProvisionerTemplate<Spec>;
+};
 
 export type RunnerEnvFactory<Spec> = (args: {
   template: ProvisionerTemplate<Spec>;
@@ -126,37 +130,69 @@ async function completeProvisionerTick<Spec>(
   deps: ProvisionerTickDeps<Spec>,
   response: Awaited<ReturnType<ProvisionerClient['pollDemand']>>,
 ): Promise<ProvisionerTickResult> {
-  let providerTermination: ProvisionerTerminationOutcome;
-  if (deps.signal?.aborted) {
-    providerTermination = {status: 'cancelled'};
-  } else if (deps.terminate) {
-    try {
-      await deps.terminate(response.terminate_provider_runner_ids);
-      providerTermination = {status: 'succeeded'};
-    } catch (error) {
-      if (deps.signal?.aborted) {
-        providerTermination = {status: 'cancelled'};
-      } else if (error instanceof ProvisionerAuthenticationError) {
-        throw error;
-      } else {
-        providerTermination = {
-          status: 'failed',
-          cause: errorReason(error),
-        };
-      }
-    }
-  } else if (response.terminate_provider_runner_ids.length > 0) {
-    providerTermination = {status: 'not_attempted'};
-  } else {
-    providerTermination = {status: 'not_needed'};
-  }
+  const providerTermination = await resolveProviderTermination(deps, response);
+  const allGroups = planTickLaunchGroups(deps, response);
+  const plannedCount = allGroups.reduce((sum, group) => sum + group.count, 0);
+  const reservedRunnerCount =
+    response.newly_reserved_count ??
+    response.reservations.reduce((sum, reservation) => sum + reservation.count, 0);
+  const launchStats = await launchTickGroups(
+    limitLaunchGroups(allGroups, resolveLaunchBudget(deps.launchBudget)),
+    deps,
+  );
 
+  return {
+    stats: response.stats,
+    reservationCount: response.reservations.length,
+    reservedRunnerCount,
+    providerTermination,
+    plannedCount,
+    launchAttemptedCount: launchStats.attempted,
+    launchedCount: launchStats.launched,
+    runnerInstanceCreationFailureCount: launchStats.runnerInstanceCreationFailureCount,
+    ...(launchStats.runnerInstanceCreationFailureReason
+      ? {runnerInstanceCreationFailureReason: launchStats.runnerInstanceCreationFailureReason}
+      : {}),
+    reservationConsumedOrStaleCount: launchStats.reservationConsumedOrStaleCount,
+    providerLaunchFailureCount: launchStats.providerLaunchFailureCount,
+    ...(launchStats.providerLaunchFailureReason
+      ? {providerLaunchFailureReason: launchStats.providerLaunchFailureReason}
+      : {}),
+    launchLifecycleIncompleteCount: launchStats.launchLifecycleIncompleteCount,
+    ...(launchStats.launchLifecycleIncompleteReason
+      ? {launchLifecycleIncompleteReason: launchStats.launchLifecycleIncompleteReason}
+      : {}),
+  };
+}
+
+async function resolveProviderTermination<Spec>(
+  deps: ProvisionerTickDeps<Spec>,
+  response: Awaited<ReturnType<ProvisionerClient['pollDemand']>>,
+): Promise<ProvisionerTerminationOutcome> {
+  if (deps.signal?.aborted) return {status: 'cancelled'};
+  if (!deps.terminate) {
+    return response.terminate_provider_runner_ids.length > 0
+      ? {status: 'not_attempted'}
+      : {status: 'not_needed'};
+  }
+  try {
+    await deps.terminate(response.terminate_provider_runner_ids);
+    return {status: 'succeeded'};
+  } catch (error) {
+    if (deps.signal?.aborted) return {status: 'cancelled'};
+    if (error instanceof ProvisionerAuthenticationError) throw error;
+    return {status: 'failed', cause: errorReason(error)};
+  }
+}
+
+function planTickLaunchGroups<Spec>(
+  deps: ProvisionerTickDeps<Spec>,
+  response: Awaited<ReturnType<ProvisionerClient['pollDemand']>>,
+): LaunchGroup<Spec>[] {
+  const countsByTemplate = deps.tracker.countsByTemplate();
   const availableByKey = new Map(
     deps.templates.map((template) => {
-      const counts = deps.tracker.countsByTemplate().get(template.key) ?? {
-        starting: 0,
-        running: 0,
-      };
+      const counts = countsByTemplate.get(template.key) ?? {starting: 0, running: 0};
       return [template.key, templateAvailableSlots(template, counts)];
     }),
   );
@@ -169,21 +205,6 @@ async function completeProvisionerTick<Spec>(
     templates: deps.templates,
     availableByKey,
   });
-
-  let plannedCount = planned.reduce((sum, group) => sum + group.count, 0);
-  const reservedRunnerCount =
-    response.newly_reserved_count ??
-    response.reservations.reduce((sum, reservation) => sum + reservation.count, 0);
-
-  let launchAttemptedCount = 0;
-  let launchedCount = 0;
-  let runnerInstanceCreationFailureCount = 0;
-  let runnerInstanceCreationFailureReason: string | undefined;
-  let reservationConsumedOrStaleCount = 0;
-  let providerLaunchFailureCount = 0;
-  let providerLaunchFailureReason: string | undefined;
-  let launchLifecycleIncompleteCount = 0;
-  let launchLifecycleIncompleteReason: string | undefined;
   const plannedByTemplate = new Map<string, number>();
   for (const group of planned) {
     plannedByTemplate.set(
@@ -192,7 +213,7 @@ async function completeProvisionerTick<Spec>(
     );
   }
   const hotGroups = deps.templates.flatMap((template) => {
-    const counts = deps.tracker.countsByTemplate().get(template.key) ?? {starting: 0, running: 0};
+    const counts = countsByTemplate.get(template.key) ?? {starting: 0, running: 0};
     const count = Math.max(
       0,
       (template.targetConcurrency ?? 0) -
@@ -202,9 +223,37 @@ async function completeProvisionerTick<Spec>(
     );
     return count > 0 ? [{reservationId: undefined, template, count}] : [];
   });
-  const allGroups: LaunchGroup<Spec>[] = [...planned, ...hotGroups];
-  plannedCount = allGroups.reduce((sum, group) => sum + group.count, 0);
-  const budgetedGroups = limitLaunchGroups(allGroups, resolveLaunchBudget(deps.launchBudget));
+  return [...planned, ...hotGroups];
+}
+
+interface LaunchStats {
+  attempted: number;
+  launched: number;
+  runnerInstanceCreationFailureCount: number;
+  runnerInstanceCreationFailureReason?: string | undefined;
+  reservationConsumedOrStaleCount: number;
+  providerLaunchFailureCount: number;
+  providerLaunchFailureReason?: string | undefined;
+  launchLifecycleIncompleteCount: number;
+  launchLifecycleIncompleteReason?: string | undefined;
+}
+
+function emptyLaunchStats(): LaunchStats {
+  return {
+    attempted: 0,
+    launched: 0,
+    runnerInstanceCreationFailureCount: 0,
+    reservationConsumedOrStaleCount: 0,
+    providerLaunchFailureCount: 0,
+    launchLifecycleIncompleteCount: 0,
+  };
+}
+
+async function launchTickGroups<Spec>(
+  budgetedGroups: readonly LaunchGroup<Spec>[],
+  deps: ProvisionerTickDeps<Spec>,
+): Promise<LaunchStats> {
+  const totals = emptyLaunchStats();
   const reservationGroups = budgetedGroups.filter(
     (group): group is PlannedLaunchGroup<Spec> => group.reservationId !== undefined,
   );
@@ -213,47 +262,25 @@ async function completeProvisionerTick<Spec>(
   );
   for (const [reservationId, groups] of groupByReservation(reservationGroups)) {
     if (deps.signal?.aborted) break;
-    const result = await launchReservation(reservationId, groups, deps);
-    launchAttemptedCount += result.attempted;
-    launchedCount += result.launched;
-    runnerInstanceCreationFailureCount += result.runnerInstanceCreationFailureCount;
-    runnerInstanceCreationFailureReason ??= result.runnerInstanceCreationFailureReason;
-    reservationConsumedOrStaleCount += result.reservationConsumedOrStaleCount;
-    providerLaunchFailureCount += result.providerLaunchFailureCount;
-    providerLaunchFailureReason ??= result.providerLaunchFailureReason;
-    launchLifecycleIncompleteCount += result.launchLifecycleIncompleteCount;
-    launchLifecycleIncompleteReason ??= result.launchLifecycleIncompleteReason;
+    mergeLaunchStats(totals, await launchReservation(reservationId, groups, deps));
   }
 
   if (!deps.signal?.aborted && warmGroups.length > 0) {
-    const result = await launchReservation(undefined, warmGroups, deps);
-    launchAttemptedCount += result.attempted;
-    launchedCount += result.launched;
-    runnerInstanceCreationFailureCount += result.runnerInstanceCreationFailureCount;
-    runnerInstanceCreationFailureReason ??= result.runnerInstanceCreationFailureReason;
-    reservationConsumedOrStaleCount += result.reservationConsumedOrStaleCount;
-    providerLaunchFailureCount += result.providerLaunchFailureCount;
-    providerLaunchFailureReason ??= result.providerLaunchFailureReason;
-    launchLifecycleIncompleteCount += result.launchLifecycleIncompleteCount;
-    launchLifecycleIncompleteReason ??= result.launchLifecycleIncompleteReason;
+    mergeLaunchStats(totals, await launchReservation(undefined, warmGroups, deps));
   }
+  return totals;
+}
 
-  return {
-    stats: response.stats,
-    reservationCount: response.reservations.length,
-    reservedRunnerCount,
-    providerTermination,
-    plannedCount,
-    launchAttemptedCount,
-    launchedCount,
-    runnerInstanceCreationFailureCount,
-    ...(runnerInstanceCreationFailureReason ? {runnerInstanceCreationFailureReason} : {}),
-    reservationConsumedOrStaleCount,
-    providerLaunchFailureCount,
-    ...(providerLaunchFailureReason ? {providerLaunchFailureReason} : {}),
-    launchLifecycleIncompleteCount,
-    ...(launchLifecycleIncompleteReason ? {launchLifecycleIncompleteReason} : {}),
-  };
+function mergeLaunchStats(target: LaunchStats, source: LaunchStats): void {
+  target.attempted += source.attempted;
+  target.launched += source.launched;
+  target.runnerInstanceCreationFailureCount += source.runnerInstanceCreationFailureCount;
+  target.runnerInstanceCreationFailureReason ??= source.runnerInstanceCreationFailureReason;
+  target.reservationConsumedOrStaleCount += source.reservationConsumedOrStaleCount;
+  target.providerLaunchFailureCount += source.providerLaunchFailureCount;
+  target.providerLaunchFailureReason ??= source.providerLaunchFailureReason;
+  target.launchLifecycleIncompleteCount += source.launchLifecycleIncompleteCount;
+  target.launchLifecycleIncompleteReason ??= source.launchLifecycleIncompleteReason;
 }
 
 async function launchReservation<Spec>(
@@ -263,17 +290,7 @@ async function launchReservation<Spec>(
     | {reservationId: undefined; template: ProvisionerTemplate<Spec>; count: number}
   )[],
   deps: ProvisionerTickDeps<Spec>,
-): Promise<{
-  attempted: number;
-  launched: number;
-  runnerInstanceCreationFailureCount: number;
-  runnerInstanceCreationFailureReason?: string;
-  reservationConsumedOrStaleCount: number;
-  providerLaunchFailureCount: number;
-  providerLaunchFailureReason?: string;
-  launchLifecycleIncompleteCount: number;
-  launchLifecycleIncompleteReason?: string;
-}> {
+): Promise<LaunchStats> {
   // A fresh, never-reused provider identity per runner names the compute resource;
   // names the resource, and keys idempotent reporting and reconciliation. UUIDv7 keeps
   // generated ids time-ordered without adding a dependency.
@@ -283,128 +300,140 @@ async function launchReservation<Spec>(
       template: group.template,
     })),
   );
-  const templateById = new Map<string, ProvisionerTemplate<Spec>>(
-    plannedRunners.map((runner) => [runner.providerRunnerId, runner.template]),
-  );
-
-  let attempted = 0;
-  let launched = 0;
-  let runnerInstanceCreationFailureCount = 0;
-  let runnerInstanceCreationFailureReason: string | undefined;
-  let reservationConsumedOrStaleCount = 0;
-  let providerLaunchFailureCount = 0;
-  let providerLaunchFailureReason: string | undefined;
-  let launchLifecycleIncompleteCount = 0;
-  let launchLifecycleIncompleteReason: string | undefined;
+  const stats = emptyLaunchStats();
   const batches = chunk(plannedRunners, deps.runnerInstanceBatchSize);
   let batchStartIndex = 0;
   for (const batch of batches) {
     if (deps.signal?.aborted) break;
-    let created: CreateRunnerInstancesResponseDto;
-    try {
-      created = await deps.client.createRunnerInstances(
-        {
-          runner_instances: batch.map((runner) => ({
-            template_key: runner.template.key,
-            ...(reservationId ? {reservation_id: reservationId} : {}),
-          })),
-        },
-        deps.signal ? {signal: deps.signal} : {},
-      );
-    } catch (error) {
-      if (error instanceof ProvisionerAuthenticationError) throw error;
-      if (deps.signal?.aborted) throw error;
-      // Leave these slots free: the reservation TTL releases the demand and another
-      // tick (or another provisioner) can pick it up.
-      attempted += batch.length;
-      runnerInstanceCreationFailureCount += batch.length;
-      runnerInstanceCreationFailureReason ??= instanceCreationFailureReason(error);
+    const creation = await createRunnerBatch(reservationId, batch, deps);
+    if (creation.kind === 'failed') {
+      stats.attempted += batch.length;
+      stats.runnerInstanceCreationFailureCount += batch.length;
+      stats.runnerInstanceCreationFailureReason ??= creation.reason;
       batchStartIndex += batch.length;
       continue;
     }
 
-    const missingCount = Math.max(0, batch.length - created.runner_instances.length);
-    // Reservation shortfalls are expected control-plane races. The reservation id
-    // fallback keeps a new provisioner compatible with an older API that returns an
-    // empty runner list without reservation_unavailable when capacity is consumed.
-    const reservationShortfall =
-      missingCount > 0 && (reservationId !== undefined || created.reservation_unavailable === true);
-    if (missingCount > 0 && !reservationShortfall) {
-      attempted += missingCount;
-      runnerInstanceCreationFailureCount += missingCount;
-      runnerInstanceCreationFailureReason ??= `Runner instance creation returned ${created.runner_instances.length} of ${batch.length} requested instances.`;
-    }
-
-    for (const [responseIndex, createdRunner] of created.runner_instances.entries()) {
-      if (deps.signal?.aborted) break;
-      // New API responses carry the request index. Older responses are accepted
-      // prefixes, so the response position remains a safe compatibility fallback.
-      const requestedIndex = createdRunner.request_index ?? responseIndex;
-      const plannedRunner = batch[requestedIndex];
-      if (!plannedRunner) continue;
-      const template = templateById.get(plannedRunner.providerRunnerId);
-      if (!template) continue;
-
-      deps.tracker.recordStarting({
-        providerRunnerId: plannedRunner.providerRunnerId,
-        templateKey: template.key,
-      });
-      attempted += 1;
-      try {
-        const outcome = (await deps.launch({
-          runnerInstanceId: createdRunner.runner_instance_id,
-          providerRunnerId: plannedRunner.providerRunnerId,
-          ...(reservationId ? {reservationId} : {}),
-          template,
-          bootstrapToken: createdRunner.bootstrap_token,
-          runnerEnv: deps.buildRunnerEnv({
-            template,
-            bootstrapToken: createdRunner.bootstrap_token,
-          }),
-        })) ?? {containerStarted: true, identityAttached: true, reported: true};
-        if (!outcome.containerStarted) {
-          providerLaunchFailureCount += 1;
-          deps.tracker.remove(plannedRunner.providerRunnerId);
-          providerLaunchFailureReason ??= launchLifecycleFailureReason(outcome);
-          continue;
-        }
-        launched += 1;
-        if (!outcome.identityAttached || !outcome.reported) {
-          launchLifecycleIncompleteCount += 1;
-          launchLifecycleIncompleteReason ??= launchLifecycleFailureReason(outcome);
-        }
-      } catch (error) {
-        providerLaunchFailureCount += 1;
-        // The launch call rejected, so no resource was created: free the slot now instead
-        // of leaving a phantom `starting` runner. A persistent failure (bad image, daemon
-        // down) would otherwise drain capacity to zero and wedge the loop until restart.
-        deps.tracker.remove(plannedRunner.providerRunnerId);
-        if (error instanceof ProvisionerAuthenticationError) throw error;
-        providerLaunchFailureReason ??= launchFailureReason(error);
-      }
-    }
+    const reservationShortfall = recordRunnerCreationShortfall(
+      stats,
+      reservationId,
+      batch.length,
+      creation.response,
+    );
+    await launchCreatedRunnerBatch(reservationId, batch, creation.response, deps, stats);
 
     if (reservationShortfall) {
-      reservationConsumedOrStaleCount +=
+      stats.reservationConsumedOrStaleCount +=
         plannedRunners.length -
         batchStartIndex -
-        Math.min(created.runner_instances.length, batch.length);
+        Math.min(creation.response.runner_instances.length, batch.length);
       break;
     }
     batchStartIndex += batch.length;
   }
 
-  return {
-    attempted,
-    launched,
-    runnerInstanceCreationFailureCount,
-    ...(runnerInstanceCreationFailureReason ? {runnerInstanceCreationFailureReason} : {}),
-    reservationConsumedOrStaleCount,
-    providerLaunchFailureCount,
-    ...(providerLaunchFailureReason ? {providerLaunchFailureReason} : {}),
-    launchLifecycleIncompleteCount,
-    ...(launchLifecycleIncompleteReason ? {launchLifecycleIncompleteReason} : {}),
-  };
+  return stats;
+}
+
+async function createRunnerBatch<Spec>(
+  reservationId: string | undefined,
+  batch: readonly PlannedRunner<Spec>[],
+  deps: ProvisionerTickDeps<Spec>,
+): Promise<
+  {kind: 'created'; response: CreateRunnerInstancesResponseDto} | {kind: 'failed'; reason: string}
+> {
+  try {
+    const response = await deps.client.createRunnerInstances(
+      {
+        runner_instances: batch.map((runner) => ({
+          template_key: runner.template.key,
+          ...(reservationId ? {reservation_id: reservationId} : {}),
+        })),
+      },
+      deps.signal ? {signal: deps.signal} : {},
+    );
+    return {kind: 'created', response};
+  } catch (error) {
+    if (error instanceof ProvisionerAuthenticationError || deps.signal?.aborted) throw error;
+    return {kind: 'failed', reason: instanceCreationFailureReason(error)};
+  }
+}
+
+function recordRunnerCreationShortfall(
+  stats: LaunchStats,
+  reservationId: string | undefined,
+  requestedCount: number,
+  response: CreateRunnerInstancesResponseDto,
+): boolean {
+  const missingCount = Math.max(0, requestedCount - response.runner_instances.length);
+  // Reservation shortfalls are expected control-plane races. The reservation id
+  // fallback keeps a new provisioner compatible with an older API.
+  const reservationShortfall =
+    missingCount > 0 && (reservationId !== undefined || response.reservation_unavailable === true);
+  if (missingCount > 0 && !reservationShortfall) {
+    stats.attempted += missingCount;
+    stats.runnerInstanceCreationFailureCount += missingCount;
+    stats.runnerInstanceCreationFailureReason ??= `Runner instance creation returned ${response.runner_instances.length} of ${requestedCount} requested instances.`;
+  }
+  return reservationShortfall;
+}
+
+async function launchCreatedRunnerBatch<Spec>(
+  reservationId: string | undefined,
+  batch: readonly PlannedRunner<Spec>[],
+  response: CreateRunnerInstancesResponseDto,
+  deps: ProvisionerTickDeps<Spec>,
+  stats: LaunchStats,
+): Promise<void> {
+  for (const [responseIndex, createdRunner] of response.runner_instances.entries()) {
+    if (deps.signal?.aborted) break;
+    // New API responses carry the request index. Older responses are accepted
+    // prefixes, so the response position remains a safe compatibility fallback.
+    const plannedRunner = batch[createdRunner.request_index ?? responseIndex];
+    if (!plannedRunner) continue;
+    await launchCreatedRunner(reservationId, plannedRunner, createdRunner, deps, stats);
+  }
+}
+
+async function launchCreatedRunner<Spec>(
+  reservationId: string | undefined,
+  plannedRunner: PlannedRunner<Spec>,
+  createdRunner: CreateRunnerInstancesResponseDto['runner_instances'][number],
+  deps: ProvisionerTickDeps<Spec>,
+  stats: LaunchStats,
+): Promise<void> {
+  const {template} = plannedRunner;
+  deps.tracker.recordStarting({
+    providerRunnerId: plannedRunner.providerRunnerId,
+    templateKey: template.key,
+  });
+  stats.attempted += 1;
+  try {
+    const outcome = (await deps.launch({
+      runnerInstanceId: createdRunner.runner_instance_id,
+      providerRunnerId: plannedRunner.providerRunnerId,
+      ...(reservationId ? {reservationId} : {}),
+      template,
+      bootstrapToken: createdRunner.bootstrap_token,
+      runnerEnv: deps.buildRunnerEnv({template, bootstrapToken: createdRunner.bootstrap_token}),
+    })) ?? {containerStarted: true, identityAttached: true, reported: true};
+    if (!outcome.containerStarted) {
+      stats.providerLaunchFailureCount += 1;
+      deps.tracker.remove(plannedRunner.providerRunnerId);
+      stats.providerLaunchFailureReason ??= launchLifecycleFailureReason(outcome);
+      return;
+    }
+    stats.launched += 1;
+    if (!outcome.identityAttached || !outcome.reported) {
+      stats.launchLifecycleIncompleteCount += 1;
+      stats.launchLifecycleIncompleteReason ??= launchLifecycleFailureReason(outcome);
+    }
+  } catch (error) {
+    stats.providerLaunchFailureCount += 1;
+    deps.tracker.remove(plannedRunner.providerRunnerId);
+    if (error instanceof ProvisionerAuthenticationError) throw error;
+    stats.providerLaunchFailureReason ??= launchFailureReason(error);
+  }
 }
 
 function instanceCreationFailureReason(error: unknown): string {

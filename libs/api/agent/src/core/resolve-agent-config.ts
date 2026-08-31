@@ -95,37 +95,11 @@ function resolveProvider(
 ): ModelProviderRef {
   const descriptor = getHarnessDescriptor(harness);
   if (ctx.workspaceProviders === 'disabled') {
-    const managedProvider = ctx.managedProvider;
-    if (managedProvider === undefined) {
-      throw new Error(
-        'workspace provider configuration is disabled but no managed provider is registered',
-      );
-    }
-    if (step.provider !== undefined && step.provider !== managedProvider.id) {
-      throw new WorkspaceProvidersDisabledError(managedProvider.id);
-    }
-
-    const providerConfig = getProviderConfig(managedProvider.id, ctx);
-    if (!isHarnessCompatible(harness, managedProvider.id, providerConfig)) {
-      throw new UnsupportedHarnessProviderError(
-        harness,
-        managedProvider.id,
-        supportedProviderIds(harness, descriptor, ctx),
-      );
-    }
-    return managedProvider.id;
+    return resolveManagedProvider(step, ctx, harness, descriptor);
   }
 
   if (step.provider !== undefined) {
-    const provider = resolveSupportedProvider(step.provider, ctx);
-    if (!isHarnessCompatible(harness, provider, getProviderConfig(provider, ctx))) {
-      throw new UnsupportedHarnessProviderError(
-        harness,
-        step.provider,
-        supportedProviderIds(harness, descriptor, ctx),
-      );
-    }
-    return provider;
+    return resolveExplicitProvider(step.provider, ctx, harness, descriptor);
   }
 
   const candidates = [
@@ -144,6 +118,50 @@ function resolveProvider(
   }
 
   return descriptor.defaultProviderId;
+}
+
+function resolveManagedProvider(
+  step: ContextualAgentConfig,
+  ctx: AgentConfigResolutionContext,
+  harness: Harness,
+  descriptor: ReturnType<typeof getHarnessDescriptor>,
+): ModelProviderRef {
+  const managedProvider = ctx.managedProvider;
+  if (managedProvider === undefined) {
+    throw new Error(
+      'workspace provider configuration is disabled but no managed provider is registered',
+    );
+  }
+  if (step.provider !== undefined && step.provider !== managedProvider.id) {
+    throw new WorkspaceProvidersDisabledError(managedProvider.id);
+  }
+  if (
+    !isHarnessCompatible(harness, managedProvider.id, getProviderConfig(managedProvider.id, ctx))
+  ) {
+    throw new UnsupportedHarnessProviderError(
+      harness,
+      managedProvider.id,
+      supportedProviderIds(harness, descriptor, ctx),
+    );
+  }
+  return managedProvider.id;
+}
+
+function resolveExplicitProvider(
+  providerId: string,
+  ctx: AgentConfigResolutionContext,
+  harness: Harness,
+  descriptor: ReturnType<typeof getHarnessDescriptor>,
+): ModelProviderRef {
+  const provider = resolveSupportedProvider(providerId, ctx);
+  if (!isHarnessCompatible(harness, provider, getProviderConfig(provider, ctx))) {
+    throw new UnsupportedHarnessProviderError(
+      harness,
+      providerId,
+      supportedProviderIds(harness, descriptor, ctx),
+    );
+  }
+  return provider;
 }
 
 function resolveSupportedProvider(

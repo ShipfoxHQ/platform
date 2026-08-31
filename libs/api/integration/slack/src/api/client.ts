@@ -176,47 +176,53 @@ async function mapSlackWebApiError<T>(method: string, request: () => Promise<T>)
     return await request();
   } catch (error) {
     if (error instanceof SlackIntegrationProviderError) throw error;
-    if (error instanceof HTTPError) {
-      const {status, statusText, headers} = error.response;
-      logger().warn(
-        {operation: 'call-method', method, status, statusText},
-        'Slack API request rejected',
-      );
-      if (status === 429) {
-        throw new SlackIntegrationProviderError(
-          'rate-limited',
-          'Slack request was rate limited',
-          retryAfterSeconds(headers),
-        );
-      }
-      if (status === 413) {
-        throw new SlackIntegrationProviderError(
-          'content-too-large',
-          'Slack request content was too large',
-        );
-      }
-      if (status >= 500) {
-        throw new SlackIntegrationProviderError('provider-unavailable', 'Slack request failed');
-      }
-      throw new SlackIntegrationProviderError(
-        'malformed-provider-response',
-        'Slack request was rejected',
-      );
-    }
-    if (error instanceof TimeoutError) {
-      logger().warn({operation: 'call-method', method}, 'Slack API request timed out');
-      throw new SlackIntegrationProviderError('timeout', 'Slack request timed out');
-    }
-    logger().warn(
-      {
-        operation: 'call-method',
-        method,
-        errName: error instanceof Error ? error.name : typeof error,
-      },
-      'Slack API request failed',
-    );
-    throw new SlackIntegrationProviderError('provider-unavailable', 'Slack request failed');
+    throw mapUnknownSlackWebApiError(method, error);
   }
+}
+
+function mapUnknownSlackWebApiError(method: string, error: unknown): SlackIntegrationProviderError {
+  if (error instanceof HTTPError) return mapSlackWebApiHttpError(method, error);
+  if (error instanceof TimeoutError) {
+    logger().warn({operation: 'call-method', method}, 'Slack API request timed out');
+    return new SlackIntegrationProviderError('timeout', 'Slack request timed out');
+  }
+  logger().warn(
+    {
+      operation: 'call-method',
+      method,
+      errName: error instanceof Error ? error.name : typeof error,
+    },
+    'Slack API request failed',
+  );
+  return new SlackIntegrationProviderError('provider-unavailable', 'Slack request failed');
+}
+
+function mapSlackWebApiHttpError(method: string, error: HTTPError): SlackIntegrationProviderError {
+  const {status, statusText, headers} = error.response;
+  logger().warn(
+    {operation: 'call-method', method, status, statusText},
+    'Slack API request rejected',
+  );
+  if (status === 429) {
+    return new SlackIntegrationProviderError(
+      'rate-limited',
+      'Slack request was rate limited',
+      retryAfterSeconds(headers),
+    );
+  }
+  if (status === 413) {
+    return new SlackIntegrationProviderError(
+      'content-too-large',
+      'Slack request content was too large',
+    );
+  }
+  if (status >= 500) {
+    return new SlackIntegrationProviderError('provider-unavailable', 'Slack request failed');
+  }
+  return new SlackIntegrationProviderError(
+    'malformed-provider-response',
+    'Slack request was rejected',
+  );
 }
 
 function slackMethodArguments(input: Record<string, unknown>): URLSearchParams {

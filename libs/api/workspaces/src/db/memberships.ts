@@ -91,6 +91,9 @@ export interface MembershipWithUser extends Membership {
   userName: string | null;
 }
 
+type WorkspaceDatabase = ReturnType<typeof db>;
+type WorkspaceTransaction = Parameters<Parameters<WorkspaceDatabase['transaction']>[0]>[0];
+
 export async function listMembershipsByWorkspace(params: {
   workspaceId: string;
 }): Promise<MembershipWithUser[]> {
@@ -102,11 +105,12 @@ export async function listMembershipsByWorkspace(params: {
   return rows.map(toMembership);
 }
 
-export async function findMembership(params: {
-  userId: string;
-  workspaceId: string;
-}): Promise<Membership | undefined> {
-  const rows = await db()
+export async function findMembership(
+  params: {userId: string; workspaceId: string},
+  options: {tx?: WorkspaceDatabase | WorkspaceTransaction | undefined} = {},
+): Promise<Membership | undefined> {
+  const executor = options.tx ?? db();
+  const rows = await executor
     .select()
     .from(memberships)
     .where(

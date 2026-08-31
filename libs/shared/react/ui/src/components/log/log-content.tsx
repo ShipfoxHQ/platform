@@ -49,12 +49,12 @@ export function LogContent({
   const rowContext = useLogRowContext();
   const resolvedWrap = wrap ?? rowContext?.wrap ?? rowsContext.wrap;
 
-  const codeStyling =
-    variant === 'code'
-      ? resolvedWrap
-        ? 'whitespace-pre-wrap break-words pl-[2ch] [text-indent:-2ch]'
-        : 'w-full overflow-x-auto scrollbar whitespace-pre [mask-image:linear-gradient(to_right,#000_calc(100%_-_1.5rem),transparent)]'
-      : '';
+  let codeStyling = '';
+  if (variant === 'code') {
+    codeStyling = resolvedWrap
+      ? 'whitespace-pre-wrap break-words pl-[2ch] [text-indent:-2ch]'
+      : 'w-full overflow-x-auto scrollbar whitespace-pre [mask-image:linear-gradient(to_right,#000_calc(100%_-_1.5rem),transparent)]';
+  }
 
   const body =
     ansi && typeof children === 'string'

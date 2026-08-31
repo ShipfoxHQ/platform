@@ -75,6 +75,10 @@ export function IconButton({
   const Comp = asChild ? Slot : 'button';
   const spinnerSize = spinnerSizeMap[size ?? 'md'];
 
+  let content = children;
+  if (isLoading) content = <Icon name="spinner" className={spinnerSize} />;
+  else if (icon) content = <Icon name={icon} />;
+
   return (
     <Comp
       data-slot="icon-button"
@@ -85,13 +89,7 @@ export function IconButton({
       {...(asChild ? {'aria-disabled': disabled || isLoading} : {})}
       {...props}
     >
-      {isLoading ? (
-        <Icon name="spinner" className={spinnerSize} />
-      ) : icon ? (
-        <Icon name={icon} />
-      ) : (
-        children
-      )}
+      {content}
     </Comp>
   );
 }

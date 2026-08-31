@@ -82,11 +82,10 @@ export function createProjectsInterModulePresentation(params: {
           );
         }
 
-        const separator = input.target.repository.indexOf('/');
-        const requestedOwner =
-          separator === -1 ? input.defaults.owner : input.target.repository.slice(0, separator);
-        const requestedName =
-          separator === -1 ? input.target.repository : input.target.repository.slice(separator + 1);
+        const {owner: requestedOwner, name: requestedName} = requestedRepository(
+          input.target.repository,
+          input.defaults.owner,
+        );
         const repositoryMatches =
           source.repository.owner.toLowerCase() === requestedOwner.toLowerCase() &&
           source.repository.name.toLowerCase() === requestedName.toLowerCase();
@@ -119,4 +118,13 @@ export function createProjectsInterModulePresentation(params: {
       return target;
     },
   });
+}
+
+function requestedRepository(
+  repository: string,
+  defaultOwner: string,
+): {owner: string; name: string} {
+  const separator = repository.indexOf('/');
+  if (separator === -1) return {owner: defaultOwner, name: repository};
+  return {owner: repository.slice(0, separator), name: repository.slice(separator + 1)};
 }

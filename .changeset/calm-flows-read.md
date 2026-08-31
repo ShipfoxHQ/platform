@@ -1,0 +1,53 @@
+---
+"@shipfox/annotations": patch
+"@shipfox/api-agent": patch
+"@shipfox/api-agent-dto": patch
+"@shipfox/api-auth": patch
+"@shipfox/api-auth-context": patch
+"@shipfox/api-definitions": patch
+"@shipfox/api-email-challenges": patch
+"@shipfox/api-integration-core": patch
+"@shipfox/api-integration-core-dto": patch
+"@shipfox/api-integration-gitea": patch
+"@shipfox/api-integration-github": patch
+"@shipfox/api-integration-jira": patch
+"@shipfox/api-integration-linear": patch
+"@shipfox/api-integration-sentry": patch
+"@shipfox/api-integration-slack": patch
+"@shipfox/api-logs": patch
+"@shipfox/api-projects": patch
+"@shipfox/api-runners": patch
+"@shipfox/api-server": patch
+"@shipfox/api-triggers": patch
+"@shipfox/api-workflows": patch
+"@shipfox/api-workspaces": patch
+"@shipfox/architecture-policy": patch
+"@shipfox/client-agent": patch
+"@shipfox/client-auth": patch
+"@shipfox/client-integrations": patch
+"@shipfox/client-invitations": patch
+"@shipfox/client-logs": patch
+"@shipfox/client-onboarding": patch
+"@shipfox/client-projects": patch
+"@shipfox/client-runners": patch
+"@shipfox/client-shell": patch
+"@shipfox/client-triggers": patch
+"@shipfox/client-ui": patch
+"@shipfox/client-workflows": patch
+"@shipfox/cloudflare-pages": patch
+"@shipfox/docker": patch
+"@shipfox/engineering-guidance": patch
+"@shipfox/expression": patch
+"@shipfox/node-egress-guard": patch
+"@shipfox/node-envelope-encryption": patch
+"@shipfox/node-module": patch
+"@shipfox/node-outbox": patch
+"@shipfox/react-ui": patch
+"@shipfox/redact": patch
+"@shipfox/runner-labels": patch
+"@shipfox/vite": patch
+"@shipfox/workflow-document": patch
+"@shipfox/worktree-services": patch
+---
+
+Preserves existing package behavior while simplifying internal control flow.

@@ -364,21 +364,8 @@ function assertManagedProvider(provider: ManagedModelProvider): void {
 
   const modelIds = new Set<string>();
   for (const model of provider.models) {
-    if (model.id.length === 0 || model.label.length === 0) {
-      throw new Error(`Managed model provider models must have IDs and labels: ${provider.id}.`);
-    }
-    if (modelIds.has(model.id)) {
-      throw new Error(`Managed model provider models must have unique IDs: ${provider.id}.`);
-    }
+    assertManagedModel(provider, model, modelIds);
     modelIds.add(model.id);
-    if (!managedModelApiSchema.safeParse(model.api).success) {
-      throw new Error(`Managed model provider model API is invalid: ${provider.id}/${model.id}.`);
-    }
-    if (!managedModelMetadataSchema.safeParse(model).success) {
-      throw new Error(
-        `Managed model provider model metadata is invalid: ${provider.id}/${model.id}.`,
-      );
-    }
   }
 
   if (!modelIds.has(provider.defaultModel)) {
@@ -392,5 +379,26 @@ function assertManagedProvider(provider: ManagedModelProvider): void {
   }
   if (typeof provider.resolveCredentials !== 'function') {
     throw new Error(`Managed model provider must resolve credentials: ${provider.id}.`);
+  }
+}
+
+function assertManagedModel(
+  provider: ManagedModelProvider,
+  model: ManagedModelProvider['models'][number],
+  modelIds: ReadonlySet<string>,
+): void {
+  if (model.id.length === 0 || model.label.length === 0) {
+    throw new Error(`Managed model provider models must have IDs and labels: ${provider.id}.`);
+  }
+  if (modelIds.has(model.id)) {
+    throw new Error(`Managed model provider models must have unique IDs: ${provider.id}.`);
+  }
+  if (!managedModelApiSchema.safeParse(model.api).success) {
+    throw new Error(`Managed model provider model API is invalid: ${provider.id}/${model.id}.`);
+  }
+  if (!managedModelMetadataSchema.safeParse(model).success) {
+    throw new Error(
+      `Managed model provider model metadata is invalid: ${provider.id}/${model.id}.`,
+    );
   }
 }

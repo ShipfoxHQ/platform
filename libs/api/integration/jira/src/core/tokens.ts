@@ -114,28 +114,34 @@ export function createJiraTokenStore(params: CreateJiraTokenStoreParams): JiraTo
     if (!token) throw new JiraAccessTokenMissingError(connectionId);
     return token;
   }
+  async function storeTokensForGeneration(
+    input: StoreJiraTokensParams,
+    credentialGeneration: number,
+  ): Promise<void> {
+    if (currentCredentialGeneration(input.connectionId) !== credentialGeneration) return;
+    const workspaceId = await resolveWorkspaceId(input.connectionId);
+    if (currentCredentialGeneration(input.connectionId) !== credentialGeneration) return;
+    const values: Record<string, string> = {[ACCESS_TOKEN_KEY]: input.accessToken};
+    if (input.refreshToken) values[REFRESH_TOKEN_KEY] = input.refreshToken;
+    await params.secrets.setSecrets({
+      workspaceId,
+      namespace: jiraSecretsNamespace(input.connectionId),
+      values,
+      editedBy: input.editedBy,
+    });
+    if (currentCredentialGeneration(input.connectionId) === credentialGeneration) {
+      refreshStateUnknownConnections.delete(input.connectionId);
+    }
+  }
 
   return {
     async storeTokens(input) {
       const credentialGeneration = advanceCredentialGeneration(input.connectionId);
       tokenRefreshes.delete(input.connectionId);
       await withJiraRefreshLockAndWait(input.connectionId, () =>
-        withCredentialWrite(input.connectionId, async () => {
-          if (currentCredentialGeneration(input.connectionId) !== credentialGeneration) return;
-          const workspaceId = await resolveWorkspaceId(input.connectionId);
-          if (currentCredentialGeneration(input.connectionId) !== credentialGeneration) return;
-          const values: Record<string, string> = {[ACCESS_TOKEN_KEY]: input.accessToken};
-          if (input.refreshToken) values[REFRESH_TOKEN_KEY] = input.refreshToken;
-          await params.secrets.setSecrets({
-            workspaceId,
-            namespace: jiraSecretsNamespace(input.connectionId),
-            values,
-            editedBy: input.editedBy,
-          });
-          if (currentCredentialGeneration(input.connectionId) === credentialGeneration) {
-            refreshStateUnknownConnections.delete(input.connectionId);
-          }
-        }),
+        withCredentialWrite(input.connectionId, () =>
+          storeTokensForGeneration(input, credentialGeneration),
+        ),
       );
     },
     async getAccessToken(input) {
@@ -197,7 +203,7 @@ function shouldRefresh(expiresAt: Date | null): boolean {
   return expiresAt !== null && expiresAt.getTime() <= Date.now() + TOKEN_REFRESH_MARGIN_MS;
 }
 
-async function refreshAccessTokenWithLock(params: {
+type RefreshAccessTokenParams = {
   connectionId: string;
   workspaceId: string;
   originalAccessToken: string;
@@ -214,7 +220,9 @@ async function refreshAccessTokenWithLock(params: {
   withCredentialWrite<T>(connectionId: string, operation: () => Promise<T>): Promise<T>;
   waitForCredentialWrites(connectionId: string): Promise<void>;
   isCurrentCredentialGeneration(): boolean;
-}): Promise<string> {
+};
+
+async function refreshAccessTokenWithLock(params: RefreshAccessTokenParams): Promise<string> {
   const lock = await withJiraRefreshLock(params.connectionId, () =>
     refreshAccessTokenForConnection(params),
   );
@@ -230,26 +238,22 @@ async function refreshAccessTokenWithLock(params: {
   );
 }
 
-async function refreshAccessTokenForConnection(params: {
-  connectionId: string;
-  workspaceId: string;
-  originalAccessToken: string;
-  forceRefresh: boolean;
-  client: JiraApiClient;
-  secrets: JiraSecretsStore;
-  readAccessToken(workspaceId: string, connectionId: string): Promise<string>;
-  readSecretToken(
-    workspaceId: string,
-    connectionId: string,
-    key: typeof ACCESS_TOKEN_KEY | typeof REFRESH_TOKEN_KEY,
-  ): Promise<string | null>;
-  markConnectionError?: ((params: {connectionId: string}) => Promise<void>) | undefined;
-  withCredentialWrite<T>(connectionId: string, operation: () => Promise<T>): Promise<T>;
-  waitForCredentialWrites(connectionId: string): Promise<void>;
-  isCurrentCredentialGeneration(): boolean;
-}): Promise<string> {
+async function refreshAccessTokenForConnection(params: RefreshAccessTokenParams): Promise<string> {
+  const refreshState = await resolveRefreshState(params);
+  if ('accessToken' in refreshState) return refreshState.accessToken;
+  try {
+    return await refreshAndPersistAccessToken(params, refreshState.refreshToken);
+  } catch (error) {
+    await handleRefreshFailure(params, error);
+    throw error;
+  }
+}
+
+async function resolveRefreshState(
+  params: RefreshAccessTokenParams,
+): Promise<{accessToken: string} | {refreshToken: string}> {
   if (!params.isCurrentCredentialGeneration()) {
-    return params.readAccessToken(params.workspaceId, params.connectionId);
+    return {accessToken: await params.readAccessToken(params.workspaceId, params.connectionId)};
   }
   const current = await params.readAccessToken(params.workspaceId, params.connectionId);
   const installation = await getJiraInstallationByConnectionId(params.connectionId);
@@ -257,7 +261,7 @@ async function refreshAccessTokenForConnection(params: {
     current !== params.originalAccessToken ||
     (!params.forceRefresh && !shouldRefresh(installation?.tokenExpiresAt ?? null))
   )
-    return current;
+    return {accessToken: current};
   const refreshToken = await params.readSecretToken(
     params.workspaceId,
     params.connectionId,
@@ -266,46 +270,54 @@ async function refreshAccessTokenForConnection(params: {
   if (!refreshToken) {
     if (params.forceRefresh || shouldRefresh(installation?.tokenExpiresAt ?? null))
       throw new JiraTokenUnrefreshableError(params.connectionId);
-    return current;
+    return {accessToken: current};
   }
-  try {
-    const refreshed = await params.client.refreshAccessToken({refreshToken});
-    const refreshedRefreshToken = refreshed.refreshToken;
-    if (!refreshedRefreshToken) throw new JiraTokenUnrefreshableError(params.connectionId);
-    const persisted = await params.withCredentialWrite(params.connectionId, async () => {
-      if (!params.isCurrentCredentialGeneration()) return false;
-      await params.secrets.setSecrets({
-        workspaceId: params.workspaceId,
-        namespace: jiraSecretsNamespace(params.connectionId),
-        values: {
-          [ACCESS_TOKEN_KEY]: refreshed.accessToken,
-          [REFRESH_TOKEN_KEY]: refreshedRefreshToken,
-        },
-      });
-      if (!params.isCurrentCredentialGeneration()) return false;
-      await updateJiraInstallationTokenExpiry({
-        connectionId: params.connectionId,
-        tokenExpiresAt: refreshed.expiresAt ?? null,
-        scopes: refreshed.scopes.length > 0 ? refreshed.scopes : undefined,
-      });
-      return true;
+  return {refreshToken};
+}
+
+async function refreshAndPersistAccessToken(
+  params: RefreshAccessTokenParams,
+  refreshToken: string,
+): Promise<string> {
+  const refreshed = await params.client.refreshAccessToken({refreshToken});
+  const refreshedRefreshToken = refreshed.refreshToken;
+  if (!refreshedRefreshToken) throw new JiraTokenUnrefreshableError(params.connectionId);
+  const persisted = await params.withCredentialWrite(params.connectionId, async () => {
+    if (!params.isCurrentCredentialGeneration()) return false;
+    await params.secrets.setSecrets({
+      workspaceId: params.workspaceId,
+      namespace: jiraSecretsNamespace(params.connectionId),
+      values: {
+        [ACCESS_TOKEN_KEY]: refreshed.accessToken,
+        [REFRESH_TOKEN_KEY]: refreshedRefreshToken,
+      },
     });
-    if (!persisted || !params.isCurrentCredentialGeneration()) {
-      await params.waitForCredentialWrites(params.connectionId);
-      return params.readAccessToken(params.workspaceId, params.connectionId);
-    }
-    return refreshed.accessToken;
-  } catch (error) {
-    if (isTerminalRefreshFailure(error)) {
-      await markConnectionError({
-        callback: params.markConnectionError,
-        connectionId: params.connectionId,
-        isCurrentCredentialGeneration: params.isCurrentCredentialGeneration,
-        withCredentialWrite: params.withCredentialWrite,
-      });
-    }
-    throw error;
+    if (!params.isCurrentCredentialGeneration()) return false;
+    await updateJiraInstallationTokenExpiry({
+      connectionId: params.connectionId,
+      tokenExpiresAt: refreshed.expiresAt ?? null,
+      scopes: refreshed.scopes.length > 0 ? refreshed.scopes : undefined,
+    });
+    return true;
+  });
+  if (!persisted || !params.isCurrentCredentialGeneration()) {
+    await params.waitForCredentialWrites(params.connectionId);
+    return params.readAccessToken(params.workspaceId, params.connectionId);
   }
+  return refreshed.accessToken;
+}
+
+async function handleRefreshFailure(
+  params: RefreshAccessTokenParams,
+  error: unknown,
+): Promise<void> {
+  if (!isTerminalRefreshFailure(error)) return;
+  await markConnectionError({
+    callback: params.markConnectionError,
+    connectionId: params.connectionId,
+    isCurrentCredentialGeneration: params.isCurrentCredentialGeneration,
+    withCredentialWrite: params.withCredentialWrite,
+  });
 }
 
 function isTerminalRefreshFailure(error: unknown): boolean {

@@ -98,15 +98,11 @@ export function ComboboxRoot(props: ComboboxRootProps) {
   const controlledMultiValue = multiple
     ? (props as MultiControlledComboboxRootProps | MultiUncontrolledComboboxRootProps).value
     : undefined;
-  const selectedValues = React.useMemo<string[]>(
-    () =>
-      multiple
-        ? (controlledMultiValue ?? internalMultiValue)
-        : selectedValue
-          ? [selectedValue]
-          : [],
-    [multiple, controlledMultiValue, internalMultiValue, selectedValue],
-  );
+  const selectedValues = React.useMemo<string[]>(() => {
+    if (multiple) return controlledMultiValue ?? internalMultiValue;
+    if (selectedValue) return [selectedValue];
+    return [];
+  }, [multiple, controlledMultiValue, internalMultiValue, selectedValue]);
 
   const visibleOptions = React.useMemo(
     () => filterComboboxOptions(options, searchValue),
@@ -198,64 +194,79 @@ export function ComboboxRoot(props: ComboboxRootProps) {
     updateMultiValue(clearMultiComboboxValues());
   }, [disabled, multiple, updateMultiValue]);
 
+  const handleArrowKey = React.useCallback(
+    (event: React.KeyboardEvent<HTMLInputElement>, direction: 1 | -1) => {
+      event.preventDefault();
+      if (!open) {
+        handleOpenChange(true);
+        return;
+      }
+      const values = visibleOptions.map((option) => option.value);
+      setActiveValue(getNextActiveComboboxValue(values, activeValue, direction));
+    },
+    [activeValue, handleOpenChange, open, visibleOptions],
+  );
+
+  const handleBoundaryKey = React.useCallback(
+    (event: React.KeyboardEvent<HTMLInputElement>, boundary: 'start' | 'end') => {
+      // Leave Home/End to the text caret while there is a query to navigate.
+      if (!open || searchValue !== '') return;
+      event.preventDefault();
+      const values = visibleOptions.map((option) => option.value);
+      setActiveValue(boundary === 'start' ? (values[0] ?? null) : (values.at(-1) ?? null));
+    },
+    [open, searchValue, visibleOptions],
+  );
+
+  const handleEnterKey = React.useCallback(
+    (event: React.KeyboardEvent<HTMLInputElement>) => {
+      // Swallow Enter while open so it selects (when an option is active) and
+      // never submits an enclosing form, even with an empty result list.
+      if (!open) return;
+      event.preventDefault();
+      if (activeValue !== null) selectValue(activeValue);
+    },
+    [activeValue, open, selectValue],
+  );
+
+  const handleEscapeKey = React.useCallback(
+    (event: React.KeyboardEvent<HTMLInputElement>) => {
+      if (!open) return;
+      event.preventDefault();
+      handleOpenChange(false);
+    },
+    [handleOpenChange, open],
+  );
+
   const onListKeyDown = React.useCallback(
     (event: React.KeyboardEvent<HTMLInputElement>) => {
       if (disabled) {
         return;
       }
 
-      const values = visibleOptions.map((option) => option.value);
-
       switch (event.key) {
         case 'ArrowDown':
-          event.preventDefault();
-          if (!open) {
-            handleOpenChange(true);
-            return;
-          }
-          setActiveValue(getNextActiveComboboxValue(values, activeValue, 1));
+          handleArrowKey(event, 1);
           return;
         case 'ArrowUp':
-          event.preventDefault();
-          if (!open) {
-            handleOpenChange(true);
-            return;
-          }
-          setActiveValue(getNextActiveComboboxValue(values, activeValue, -1));
+          handleArrowKey(event, -1);
           return;
         case 'Home':
-          // Leave Home/End to the text caret while there is a query to navigate.
-          if (open && searchValue === '') {
-            event.preventDefault();
-            setActiveValue(values[0] ?? null);
-          }
+          handleBoundaryKey(event, 'start');
           return;
         case 'End':
-          if (open && searchValue === '') {
-            event.preventDefault();
-            setActiveValue(values.at(-1) ?? null);
-          }
+          handleBoundaryKey(event, 'end');
           return;
         case 'Enter':
-          // Swallow Enter while open so it selects (when an option is active) and
-          // never submits an enclosing form, even with an empty result list.
-          if (open) {
-            event.preventDefault();
-            if (activeValue !== null) {
-              selectValue(activeValue);
-            }
-          }
+          handleEnterKey(event);
           return;
         case 'Escape':
-          if (open) {
-            event.preventDefault();
-            handleOpenChange(false);
-          }
+          handleEscapeKey(event);
           return;
         default:
       }
     },
-    [disabled, open, searchValue, activeValue, visibleOptions, selectValue, handleOpenChange],
+    [disabled, handleArrowKey, handleBoundaryKey, handleEnterKey, handleEscapeKey],
   );
 
   // Keep the active option valid. Preserve the user's highlight as long as it still
@@ -264,13 +275,13 @@ export function ComboboxRoot(props: ComboboxRootProps) {
   // The functional updater intentionally avoids depending on `activeValue` so a stable
   // result bails out instead of looping.
   React.useEffect(() => {
-    setActiveValue((current) =>
-      open
-        ? current !== null && visibleOptions.some((option) => option.value === current)
-          ? current
-          : (visibleOptions[0]?.value ?? null)
-        : null,
-    );
+    setActiveValue((current) => {
+      if (!open) return null;
+      if (current !== null && visibleOptions.some((option) => option.value === current)) {
+        return current;
+      }
+      return visibleOptions[0]?.value ?? null;
+    });
   }, [open, visibleOptions]);
 
   // Focus stays on the input, so the browser will not scroll the active option into

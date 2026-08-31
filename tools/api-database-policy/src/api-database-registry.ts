@@ -159,113 +159,24 @@ export function validateApiDatabaseRegistry(
   const errors: string[] = [];
   const ownerById = new Map<string, DatabaseOwner>();
   const ownerClassificationById = new Map<string, ClassifiedPath>();
-
-  addUniqueIdentifierError(
-    errors,
-    'database owner ID',
-    registry.owners.map((owner) => owner.id),
-  );
-  addUniqueIdentifierError(
-    errors,
-    'migration unit ID',
-    registry.migrationUnits.map((unit) => unit.id),
-  );
-  addUniqueIdentifierError(
-    errors,
-    'database namespace',
-    registry.migrationUnits.map((unit) => unit.namespace),
-  );
-  addUniqueIdentifierError(
-    errors,
-    'migration unit package path',
-    registry.migrationUnits.map((unit) => unit.packagePath),
-  );
-  addUniqueIdentifierError(
-    errors,
-    'migration unit Drizzle config path',
-    registry.migrationUnits.map((unit) => unit.drizzleConfigPath),
-  );
-  addUniqueIdentifierError(
-    errors,
-    'migration unit migrations path',
-    registry.migrationUnits.map((unit) => unit.migrationsPath),
-  );
-  addUniqueIdentifierError(
-    errors,
-    'database delegate ID',
-    registry.delegates.map((delegate) => delegate.id),
-  );
+  validateUniqueRegistryIdentifiers(registry, errors);
 
   for (const owner of registry.owners) {
     ownerById.set(owner.id, owner);
-    addMissingPathError(errors, options.existingPaths, owner.packagePath);
-
-    const classification = packages.get(owner.packagePath);
-    if (!classification) {
-      errors.push(`Database owner package is not classified: ${owner.packagePath}`);
-      continue;
-    }
-    if (
-      classification.classification !== 'implementations' &&
-      classification.classification !== 'shared-infrastructure'
-    ) {
-      errors.push(
-        `Database owner package has an incompatible classification: ${owner.packagePath}`,
-      );
-      continue;
-    }
-    if (
-      classification.classification === 'implementations' &&
-      classification.context !== owner.id
-    ) {
-      errors.push(
-        `Database owner ID does not match API context: ${owner.id} (${classification.context})`,
-      );
-    }
-    if (
-      classification.classification === 'shared-infrastructure' &&
-      path.posix.basename(owner.packagePath) !== owner.id
-    ) {
-      errors.push(`Database owner ID does not match package path: ${owner.id}`);
-    }
-    ownerClassificationById.set(owner.id, classification);
+    validateRegistryOwner(owner, packages, options.existingPaths, errors, ownerClassificationById);
   }
 
   const namespacesByOwner = new Map<string, number>();
   for (const unit of registry.migrationUnits) {
-    const owner = ownerById.get(unit.ownerId);
-    if (!owner) {
-      errors.push(`Unknown database owner: ${unit.ownerId}`);
-    }
-
-    if (!namespaceExpression.test(unit.namespace)) {
-      errors.push(`Invalid database namespace: ${unit.namespace}`);
-    }
-
-    const ownerNamespaceCount = namespacesByOwner.get(unit.ownerId) ?? 0;
-    namespacesByOwner.set(unit.ownerId, ownerNamespaceCount + 1);
-
-    for (const registeredPath of [unit.packagePath, unit.drizzleConfigPath, unit.migrationsPath]) {
-      addMissingPathError(errors, options.existingPaths, registeredPath);
-    }
-    if (!isNestedPath(unit.packagePath, unit.drizzleConfigPath)) {
-      errors.push(`Drizzle config path is outside migration unit package: ${unit.id}`);
-    }
-    if (!isNestedPath(unit.packagePath, unit.migrationsPath)) {
-      errors.push(`Migrations path is outside migration unit package: ${unit.id}`);
-    }
-
-    const unitClassification = packages.get(unit.packagePath);
-    const ownerClassification = ownerClassificationById.get(unit.ownerId);
-    if (!unitClassification) {
-      errors.push(`Database migration unit package is not classified: ${unit.packagePath}`);
-    } else if (
-      ownerClassification &&
-      (unitClassification.classification !== ownerClassification.classification ||
-        unitClassification.context !== ownerClassification.context)
-    ) {
-      errors.push(`Database migration unit classification mismatch: ${unit.id}`);
-    }
+    validateMigrationUnit(
+      unit,
+      packages,
+      options.existingPaths,
+      ownerById,
+      ownerClassificationById,
+      namespacesByOwner,
+      errors,
+    );
   }
 
   for (const owner of registry.owners) {
@@ -275,37 +186,146 @@ export function validateApiDatabaseRegistry(
   }
 
   for (const delegate of registry.delegates) {
-    addMissingPathError(errors, options.existingPaths, delegate.packagePath);
-    const classification = packages.get(delegate.packagePath);
-    if (!classification) {
-      errors.push(`Database delegate package is not classified: ${delegate.packagePath}`);
-    } else if (classification.classification !== 'shared-infrastructure') {
-      errors.push(`Database delegate is not neutral infrastructure: ${delegate.id}`);
-    }
-    if (!delegate.capability) {
-      errors.push(`Database delegate has no capability: ${delegate.id}`);
-    }
+    validateRegistryDelegate(delegate, packages, options.existingPaths, errors);
   }
 
   validateExpectedDelegates(errors, registry.delegates);
 
-  if (options.discoveredDrizzleConfigPaths) {
-    const registeredDrizzleConfigPaths = new Set(
-      registry.migrationUnits.map((unit) => unit.drizzleConfigPath),
-    );
-    for (const discoveredPath of options.discoveredDrizzleConfigPaths) {
-      if (!registeredDrizzleConfigPaths.has(discoveredPath)) {
-        errors.push(`Unregistered Drizzle config: ${discoveredPath}`);
-      }
-    }
-    for (const registeredPath of registeredDrizzleConfigPaths) {
-      if (!options.discoveredDrizzleConfigPaths.has(registeredPath)) {
-        errors.push(`Registered Drizzle config not discovered: ${registeredPath}`);
-      }
-    }
-  }
+  validateDiscoveredDrizzleConfigs(registry, options.discoveredDrizzleConfigPaths, errors);
 
   return errors.sort(compareText);
+}
+
+function validateUniqueRegistryIdentifiers(registry: ApiDatabaseRegistry, errors: string[]): void {
+  const identifiers: Array<[string, readonly string[]]> = [
+    ['database owner ID', registry.owners.map((owner) => owner.id)],
+    ['migration unit ID', registry.migrationUnits.map((unit) => unit.id)],
+    ['database namespace', registry.migrationUnits.map((unit) => unit.namespace)],
+    ['migration unit package path', registry.migrationUnits.map((unit) => unit.packagePath)],
+    [
+      'migration unit Drizzle config path',
+      registry.migrationUnits.map((unit) => unit.drizzleConfigPath),
+    ],
+    ['migration unit migrations path', registry.migrationUnits.map((unit) => unit.migrationsPath)],
+    ['database delegate ID', registry.delegates.map((delegate) => delegate.id)],
+  ];
+  for (const [kind, values] of identifiers) addUniqueIdentifierError(errors, kind, values);
+}
+
+function validateRegistryOwner(
+  owner: DatabaseOwner,
+  packages: ReadonlyMap<string, ClassifiedPath>,
+  existingPaths: ReadonlySet<string> | undefined,
+  errors: string[],
+  classifications: Map<string, ClassifiedPath>,
+): void {
+  addMissingPathError(errors, existingPaths, owner.packagePath);
+  const classification = packages.get(owner.packagePath);
+  if (!classification) {
+    errors.push(`Database owner package is not classified: ${owner.packagePath}`);
+    return;
+  }
+  if (
+    classification.classification !== 'implementations' &&
+    classification.classification !== 'shared-infrastructure'
+  ) {
+    errors.push(`Database owner package has an incompatible classification: ${owner.packagePath}`);
+    return;
+  }
+  if (classification.classification === 'implementations' && classification.context !== owner.id) {
+    errors.push(
+      `Database owner ID does not match API context: ${owner.id} (${classification.context})`,
+    );
+  }
+  if (
+    classification.classification === 'shared-infrastructure' &&
+    path.posix.basename(owner.packagePath) !== owner.id
+  ) {
+    errors.push(`Database owner ID does not match package path: ${owner.id}`);
+  }
+  classifications.set(owner.id, classification);
+}
+
+function validateMigrationUnit(
+  unit: ApiDatabaseRegistry['migrationUnits'][number],
+  packages: ReadonlyMap<string, ClassifiedPath>,
+  existingPaths: ReadonlySet<string> | undefined,
+  owners: ReadonlyMap<string, DatabaseOwner>,
+  ownerClassifications: ReadonlyMap<string, ClassifiedPath>,
+  namespacesByOwner: Map<string, number>,
+  errors: string[],
+): void {
+  if (!owners.has(unit.ownerId)) errors.push(`Unknown database owner: ${unit.ownerId}`);
+  if (!namespaceExpression.test(unit.namespace)) {
+    errors.push(`Invalid database namespace: ${unit.namespace}`);
+  }
+  namespacesByOwner.set(unit.ownerId, (namespacesByOwner.get(unit.ownerId) ?? 0) + 1);
+  for (const registeredPath of [unit.packagePath, unit.drizzleConfigPath, unit.migrationsPath]) {
+    addMissingPathError(errors, existingPaths, registeredPath);
+  }
+  if (!isNestedPath(unit.packagePath, unit.drizzleConfigPath)) {
+    errors.push(`Drizzle config path is outside migration unit package: ${unit.id}`);
+  }
+  if (!isNestedPath(unit.packagePath, unit.migrationsPath)) {
+    errors.push(`Migrations path is outside migration unit package: ${unit.id}`);
+  }
+  validateMigrationUnitClassification(unit, packages, ownerClassifications, errors);
+}
+
+function validateMigrationUnitClassification(
+  unit: ApiDatabaseRegistry['migrationUnits'][number],
+  packages: ReadonlyMap<string, ClassifiedPath>,
+  ownerClassifications: ReadonlyMap<string, ClassifiedPath>,
+  errors: string[],
+): void {
+  const unitClassification = packages.get(unit.packagePath);
+  const ownerClassification = ownerClassifications.get(unit.ownerId);
+  if (!unitClassification) {
+    errors.push(`Database migration unit package is not classified: ${unit.packagePath}`);
+    return;
+  }
+  if (
+    ownerClassification &&
+    (unitClassification.classification !== ownerClassification.classification ||
+      unitClassification.context !== ownerClassification.context)
+  ) {
+    errors.push(`Database migration unit classification mismatch: ${unit.id}`);
+  }
+}
+
+function validateRegistryDelegate(
+  delegate: DatabaseDelegate,
+  packages: ReadonlyMap<string, ClassifiedPath>,
+  existingPaths: ReadonlySet<string> | undefined,
+  errors: string[],
+): void {
+  addMissingPathError(errors, existingPaths, delegate.packagePath);
+  const classification = packages.get(delegate.packagePath);
+  if (!classification) {
+    errors.push(`Database delegate package is not classified: ${delegate.packagePath}`);
+  } else if (classification.classification !== 'shared-infrastructure') {
+    errors.push(`Database delegate is not neutral infrastructure: ${delegate.id}`);
+  }
+  if (!delegate.capability) errors.push(`Database delegate has no capability: ${delegate.id}`);
+}
+
+function validateDiscoveredDrizzleConfigs(
+  registry: ApiDatabaseRegistry,
+  discoveredPaths: ReadonlySet<string> | undefined,
+  errors: string[],
+): void {
+  if (!discoveredPaths) return;
+  const registeredPaths = new Set(registry.migrationUnits.map((unit) => unit.drizzleConfigPath));
+  for (const discoveredPath of discoveredPaths) {
+    if (!registeredPaths.has(discoveredPath)) {
+      errors.push(`Unregistered Drizzle config: ${discoveredPath}`);
+    }
+  }
+  for (const registeredPath of registeredPaths) {
+    if (!discoveredPaths.has(registeredPath)) {
+      errors.push(`Registered Drizzle config not discovered: ${registeredPath}`);
+    }
+  }
 }
 
 async function findDrizzleConfigPaths(

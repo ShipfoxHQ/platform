@@ -304,31 +304,39 @@ export function assembleListenerSnapshotContext(params: {
   readonly dependencyJobs: readonly JobContextInput[];
 }): WorkflowExpressionEvaluationContext {
   const context: Record<string, unknown> = {};
-  if (
-    params.plan.roots.has('workflow') ||
-    params.plan.roots.has('run') ||
-    params.plan.roots.has('trigger')
-  ) {
-    const runContext = assembleWorkflowRunContext(
-      {
-        run: params.run,
-        triggerPayload: params.triggerPayload,
-        inputs: params.inputs,
-        vars: params.vars,
-      },
-      {skipCelNativeRehydration: true},
-    );
-    if (params.plan.roots.has('workflow')) context.workflow = runContext.workflow;
-    if (params.plan.roots.has('run')) context.run = runContext.run;
-    if (params.plan.roots.has('trigger')) context.trigger = runContext.trigger;
-  }
+  addListenerRunContext(context, params);
+  addListenerDirectContext(context, params);
 
-  if (params.plan.roots.has('inputs')) {
-    context.inputs = params.inputs ?? null;
+  return context;
+}
+
+function addListenerRunContext(
+  context: Record<string, unknown>,
+  params: Parameters<typeof assembleListenerSnapshotContext>[0],
+): void {
+  const runRoots = ['workflow', 'run', 'trigger'] as const;
+  if (!runRoots.some((root) => params.plan.roots.has(root))) return;
+
+  const runContext = assembleWorkflowRunContext(
+    {
+      run: params.run,
+      triggerPayload: params.triggerPayload,
+      inputs: params.inputs,
+      vars: params.vars,
+    },
+    {skipCelNativeRehydration: true},
+  );
+  for (const root of runRoots) {
+    if (params.plan.roots.has(root)) context[root] = runContext[root];
   }
-  if (params.plan.roots.has('vars')) {
-    context.vars = params.vars ?? {};
-  }
+}
+
+function addListenerDirectContext(
+  context: Record<string, unknown>,
+  params: Parameters<typeof assembleListenerSnapshotContext>[0],
+): void {
+  if (params.plan.roots.has('inputs')) context.inputs = params.inputs ?? null;
+  if (params.plan.roots.has('vars')) context.vars = params.vars ?? {};
   if (params.plan.roots.has('job')) {
     context.job = {
       key: params.job.key,
@@ -338,8 +346,6 @@ export function assembleListenerSnapshotContext(params: {
   if (params.plan.roots.has('jobs')) {
     context.jobs = requestedJobsContext(params.dependencyJobs, params.plan.jobKeys);
   }
-
-  return context;
 }
 
 function requestedJobsContext(

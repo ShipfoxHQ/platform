@@ -272,34 +272,16 @@ export function toSelectedAttemptError(
 ): StepError | null {
   if (error === null) return null;
 
-  const rawReason = error.reason;
-  const parsedReason =
-    typeof rawReason === 'string' &&
-    STEP_ERROR_REASONS.has(rawReason as StepError['reason'] & string)
-      ? (rawReason as NonNullable<StepError['reason']>)
-      : undefined;
+  const parsedReason = parsedStepErrorReason(error.reason);
   const rawAgentConfigIssue = error.agentConfigIssue ?? error.agent_config_issue;
-  const agentConfigIssue =
-    typeof rawAgentConfigIssue === 'string' &&
-    AGENT_CONFIG_ISSUES.has(rawAgentConfigIssue as NonNullable<StepError['agentConfigIssue']>)
-      ? (rawAgentConfigIssue as NonNullable<StepError['agentConfigIssue']>)
-      : undefined;
+  const agentConfigIssue = parsedAgentConfigIssue(rawAgentConfigIssue);
   const exitCode = error.exitCode ?? error.exit_code;
-  const resolvedReason = parsedReason
-    ? parsedReason
-    : agentConfigIssue
-      ? 'agent_config_invalid'
-      : undefined;
+  const resolvedReason = parsedReason ?? (agentConfigIssue ? 'agent_config_invalid' : undefined);
 
   if (resolvedReason === undefined) return null;
 
   const code = typeof error.code === 'string' ? error.code : undefined;
-  const managedProviderId =
-    typeof error.managedProviderId === 'string'
-      ? error.managedProviderId
-      : typeof error.managed_provider_id === 'string'
-        ? error.managed_provider_id
-        : undefined;
+  const managedProviderId = selectedManagedProviderId(error);
 
   return {
     message: typeof error.message === 'string' ? error.message : '',
@@ -311,6 +293,27 @@ export function toSelectedAttemptError(
     agentConfigIssue,
     category: deriveStepErrorCategory(step.type, resolvedReason),
   };
+}
+
+function parsedStepErrorReason(value: unknown): NonNullable<StepError['reason']> | undefined {
+  if (typeof value !== 'string') return undefined;
+  if (!STEP_ERROR_REASONS.has(value as StepError['reason'] & string)) return undefined;
+  return value as NonNullable<StepError['reason']>;
+}
+
+function parsedAgentConfigIssue(
+  value: unknown,
+): NonNullable<StepError['agentConfigIssue']> | undefined {
+  if (typeof value !== 'string') return undefined;
+  if (!AGENT_CONFIG_ISSUES.has(value as NonNullable<StepError['agentConfigIssue']>))
+    return undefined;
+  return value as NonNullable<StepError['agentConfigIssue']>;
+}
+
+function selectedManagedProviderId(error: Record<string, unknown>): string | undefined {
+  if (typeof error.managedProviderId === 'string') return error.managedProviderId;
+  if (typeof error.managed_provider_id === 'string') return error.managed_provider_id;
+  return undefined;
 }
 
 export function isAgentConfigFailure(step: Step, error: StepError | null): boolean {

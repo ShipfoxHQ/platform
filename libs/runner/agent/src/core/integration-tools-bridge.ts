@@ -174,11 +174,9 @@ async function handleHttpRequest(
   try {
     const body = request.method === 'POST' ? await readJsonBody(request) : undefined;
     const sessionId = request.headers['mcp-session-id'];
-    const session = isInitializeRequest(body)
-      ? await createHttpSession()
-      : typeof sessionId === 'string'
-        ? sessions.get(sessionId)
-        : undefined;
+    let session: HttpSession | undefined;
+    if (isInitializeRequest(body)) session = await createHttpSession();
+    else if (typeof sessionId === 'string') session = sessions.get(sessionId);
     if (session === undefined) {
       sendMcpError(response, 404, -32600, 'Unknown MCP session.');
       return;

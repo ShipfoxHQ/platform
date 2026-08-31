@@ -44,6 +44,7 @@ export function useShikiHighlight({
 }: UseShikiHighlightOptions): {highlightedCode: string; isLoading: boolean} {
   const [highlightedCode, setHighlightedCode] = useState<string>('');
   const [isLoading, setIsLoading] = useState(syntaxHighlighting);
+  const {light: lightTheme, dark: darkTheme} = themes;
 
   useEffect(() => {
     if (!syntaxHighlighting) {
@@ -54,38 +55,23 @@ export function useShikiHighlight({
     setIsLoading(true);
     let cancelled = false;
 
-    const loadHighlightedCode = async () => {
-      try {
-        const {codeToHtml} = await import('shiki');
-
-        const html = await codeToHtml(code, {
-          lang,
-          themes: {
-            light: themes.light,
-            dark: themes.dark,
-          },
-          defaultColor: resolvedTheme === 'dark' ? 'dark' : 'light',
-          ...(lang === 'diff' ? {transformers: [diffLineTransformer()]} : {}),
-        });
-
-        if (!cancelled) {
-          setHighlightedCode(html);
-          setIsLoading(false);
-        }
-      } catch {
-        if (!cancelled) {
-          setHighlightedCode('');
-          setIsLoading(false);
-        }
-      }
-    };
-
-    loadHighlightedCode();
+    void loadHighlightedCode(
+      {code, lang, themes: {light: lightTheme, dark: darkTheme}, resolvedTheme},
+      () => cancelled,
+      (html) => {
+        setHighlightedCode(html);
+        setIsLoading(false);
+      },
+      () => {
+        setHighlightedCode('');
+        setIsLoading(false);
+      },
+    );
 
     return () => {
       cancelled = true;
     };
-  }, [code, lang, themes.light, themes.dark, resolvedTheme, syntaxHighlighting]);
+  }, [code, lang, lightTheme, darkTheme, resolvedTheme, syntaxHighlighting]);
 
   return {highlightedCode, isLoading};
 }
@@ -110,6 +96,7 @@ export function useShikiHighlightMultiple({
 } {
   const [highlightedCodes, setHighlightedCodes] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(syntaxHighlighting);
+  const {light: lightTheme, dark: darkTheme} = themes;
 
   useEffect(() => {
     if (!syntaxHighlighting) {
@@ -120,46 +107,66 @@ export function useShikiHighlightMultiple({
     setIsLoading(true);
     let cancelled = false;
 
-    const loadHighlightedCode = async () => {
-      try {
-        const {codeToHtml} = await import('shiki');
-        const newHighlightedCodes: Record<string, string> = {};
-
-        for (const [command, val] of Object.entries(codes)) {
-          if (cancelled) {
-            return;
-          }
-
-          const highlighted = await codeToHtml(val, {
-            lang,
-            themes: {
-              light: themes.light,
-              dark: themes.dark,
-            },
-            defaultColor: resolvedTheme === 'dark' ? 'dark' : 'light',
-          });
-
-          newHighlightedCodes[command] = highlighted;
-        }
-
-        if (!cancelled) {
-          setHighlightedCodes(newHighlightedCodes);
-          setIsLoading(false);
-        }
-      } catch {
-        if (!cancelled) {
-          setHighlightedCodes({});
-          setIsLoading(false);
-        }
-      }
-    };
-
-    loadHighlightedCode();
+    void loadHighlightedCodes(
+      {codes, lang, themes: {light: lightTheme, dark: darkTheme}, resolvedTheme},
+      () => cancelled,
+      (result) => {
+        setHighlightedCodes(result);
+        setIsLoading(false);
+      },
+      () => {
+        setHighlightedCodes({});
+        setIsLoading(false);
+      },
+    );
 
     return () => {
       cancelled = true;
     };
-  }, [resolvedTheme, lang, themes.light, themes.dark, codes, syntaxHighlighting]);
+  }, [resolvedTheme, lang, lightTheme, darkTheme, codes, syntaxHighlighting]);
 
   return {highlightedCodes, isLoading};
+}
+
+async function loadHighlightedCode(
+  options: Pick<UseShikiHighlightOptions, 'code' | 'lang' | 'themes' | 'resolvedTheme'>,
+  cancelled: () => boolean,
+  onLoaded: (html: string) => void,
+  onError: () => void,
+): Promise<void> {
+  try {
+    const {codeToHtml} = await import('shiki');
+    const html = await codeToHtml(options.code, {
+      lang: options.lang,
+      themes: options.themes,
+      defaultColor: options.resolvedTheme === 'dark' ? 'dark' : 'light',
+      ...(options.lang === 'diff' ? {transformers: [diffLineTransformer()]} : {}),
+    });
+    if (!cancelled()) onLoaded(html);
+  } catch {
+    if (!cancelled()) onError();
+  }
+}
+
+async function loadHighlightedCodes(
+  options: Pick<UseShikiHighlightMultipleOptions, 'codes' | 'lang' | 'themes' | 'resolvedTheme'>,
+  cancelled: () => boolean,
+  onLoaded: (html: Record<string, string>) => void,
+  onError: () => void,
+): Promise<void> {
+  try {
+    const {codeToHtml} = await import('shiki');
+    const highlightedCodes: Record<string, string> = {};
+    for (const [command, value] of Object.entries(options.codes)) {
+      if (cancelled()) return;
+      highlightedCodes[command] = await codeToHtml(value, {
+        lang: options.lang,
+        themes: options.themes,
+        defaultColor: options.resolvedTheme === 'dark' ? 'dark' : 'light',
+      });
+    }
+    if (!cancelled()) onLoaded(highlightedCodes);
+  } catch {
+    if (!cancelled()) onError();
+  }
 }

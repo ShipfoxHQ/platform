@@ -120,73 +120,30 @@ export async function handleSentryInstallationCreated(
   params: HandleSentryInstallationCreatedParams,
 ): Promise<void> {
   const existing = await params.getSentryInstallation({installationUuid: params.installationUuid});
-  if (existing && (existing.status === 'installed' || existing.status === 'deleted')) {
-    logger().debug(
-      {deliveryId: params.deliveryId, installationUuid: params.installationUuid},
-      'sentry webhook: installation.created for an existing row, reconciling',
-    );
-    await params.recordDelivery(params.deliveryId);
-    return;
-  }
+  if (await reconcileExistingSentryInstallation(params, existing)) return;
+  if (await dropSentryInstallationWithoutClaimInput(params)) return;
+  const code = params.code as string;
+  const orgSlug = params.orgSlug as string;
 
-  if (!params.code || !params.orgSlug) {
-    logger().warn(
-      {deliveryId: params.deliveryId, installationUuid: params.installationUuid},
-      'sentry webhook: installation.created without claim input, dropping',
-    );
-    await params.recordDelivery(params.deliveryId);
-    return;
-  }
-
-  const codeHash = hashAuthorizationCode(params.code);
+  const codeHash = hashAuthorizationCode(code);
   let claimed =
     existing ??
     (await claimSentryInstallationVerification({
       installationUuid: params.installationUuid,
-      orgSlug: params.orgSlug,
+      orgSlug,
       codeHash,
     }));
   if (claimed.status === 'installed' || claimed.status === 'deleted') {
     await params.recordDelivery(params.deliveryId);
     return;
   }
-  if (claimed.codeHash !== codeHash) {
-    logger().warn(
-      {deliveryId: params.deliveryId, installationUuid: params.installationUuid},
-      'sentry webhook: installation.created does not match the pending claim, dropping',
-    );
-    await params.recordDelivery(params.deliveryId);
-    return;
-  }
+  if (await dropMismatchedSentryClaim(params, claimed, codeHash)) return;
 
-  let authorization: Awaited<ReturnType<SentryApiClient['exchangeAuthorizationCode']>> | undefined;
+  let authorization: SentryAuthorization | undefined;
   if (claimed.status === 'pending') {
-    try {
-      authorization = await params.sentry.exchangeAuthorizationCode({
-        installationUuid: params.installationUuid,
-        code: params.code,
-      });
-    } catch (error) {
-      if (!(error instanceof SentryIntegrationProviderError) || error.reason !== 'access-denied') {
-        throw error;
-      }
-
-      const current = await params.getSentryInstallation({
-        installationUuid: params.installationUuid,
-      });
-      const concurrentAttemptSucceeded =
-        current?.codeHash === codeHash &&
-        (current.status === 'exchange-succeeded' || current.status === 'installed');
-      if (!current || !concurrentAttemptSucceeded) throw error;
-      claimed = current;
-    }
-
-    if (authorization) {
-      await markSentryInstallationExchangeSucceeded({
-        installationUuid: params.installationUuid,
-        codeHash,
-      });
-    }
+    const exchange = await exchangeSentryAuthorization(params, claimed, code, codeHash);
+    claimed = exchange.claimed;
+    authorization = exchange.authorization;
   }
 
   const completed = await params.persistUnclaimedAndRecordDelivery({
@@ -202,6 +159,89 @@ export async function handleSentryInstallationCreated(
       token: authorization.token,
     });
   }
+}
+
+type SentryAuthorization = Awaited<ReturnType<SentryApiClient['exchangeAuthorizationCode']>>;
+
+async function reconcileExistingSentryInstallation(
+  params: HandleSentryInstallationCreatedParams,
+  existing: SentryInstallation | undefined,
+): Promise<boolean> {
+  if (!existing || (existing.status !== 'installed' && existing.status !== 'deleted')) return false;
+  logger().debug(
+    {deliveryId: params.deliveryId, installationUuid: params.installationUuid},
+    'sentry webhook: installation.created for an existing row, reconciling',
+  );
+  await params.recordDelivery(params.deliveryId);
+  return true;
+}
+
+async function dropSentryInstallationWithoutClaimInput(
+  params: HandleSentryInstallationCreatedParams,
+): Promise<boolean> {
+  if (params.code && params.orgSlug) return false;
+  logger().warn(
+    {deliveryId: params.deliveryId, installationUuid: params.installationUuid},
+    'sentry webhook: installation.created without claim input, dropping',
+  );
+  await params.recordDelivery(params.deliveryId);
+  return true;
+}
+
+async function dropMismatchedSentryClaim(
+  params: HandleSentryInstallationCreatedParams,
+  claimed: SentryInstallation,
+  codeHash: string,
+): Promise<boolean> {
+  if (claimed.codeHash === codeHash) return false;
+  logger().warn(
+    {deliveryId: params.deliveryId, installationUuid: params.installationUuid},
+    'sentry webhook: installation.created does not match the pending claim, dropping',
+  );
+  await params.recordDelivery(params.deliveryId);
+  return true;
+}
+
+async function exchangeSentryAuthorization(
+  params: HandleSentryInstallationCreatedParams,
+  claimed: SentryInstallation,
+  code: string,
+  codeHash: string,
+): Promise<{claimed: SentryInstallation; authorization: SentryAuthorization | undefined}> {
+  let authorization: SentryAuthorization | undefined;
+  try {
+    authorization = await params.sentry.exchangeAuthorizationCode({
+      installationUuid: params.installationUuid,
+      code,
+    });
+  } catch (error) {
+    claimed = await recoverConcurrentSentryExchange(params, error, codeHash);
+  }
+  if (authorization) {
+    await markSentryInstallationExchangeSucceeded({
+      installationUuid: params.installationUuid,
+      codeHash,
+    });
+  }
+  return {claimed, authorization};
+}
+
+async function recoverConcurrentSentryExchange(
+  params: HandleSentryInstallationCreatedParams,
+  error: unknown,
+  codeHash: string,
+): Promise<SentryInstallation> {
+  if (!(error instanceof SentryIntegrationProviderError) || error.reason !== 'access-denied') {
+    throw error;
+  }
+  const current = await params.getSentryInstallation({
+    installationUuid: params.installationUuid,
+  });
+  const concurrentAttemptSucceeded =
+    current?.codeHash === codeHash &&
+    (current.status === 'exchange-succeeded' || current.status === 'installed');
+  if (!current || !concurrentAttemptSucceeded) throw error;
+  return current;
 }
 
 export interface HandleSentryInstallationDeletedParams {

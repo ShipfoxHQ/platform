@@ -197,6 +197,14 @@ function joinRoutePath(parent: string, child: string): string {
   return `${parent.replace(TRAILING_SLASHES, '')}/${child.replace(LEADING_SLASHES, '')}`;
 }
 
+function routePreHandlers(
+  preHandler: RoutePreHandler | RoutePreHandler[] | undefined,
+): RoutePreHandler[] {
+  if (preHandler === undefined) return [];
+  if (Array.isArray(preHandler)) return preHandler;
+  return [preHandler];
+}
+
 function adoptAdministrationGuardIn(route: RouteExport, parentPrefix: string): RouteExport {
   if (isRouteGroup(route)) {
     return {
@@ -215,11 +223,7 @@ function adoptAdministrationGuardIn(route: RouteExport, parentPrefix: string): R
       requireAdministrationActor(request);
       return undefined;
     },
-    ...(route.preHandler === undefined
-      ? []
-      : Array.isArray(route.preHandler)
-        ? route.preHandler
-        : [route.preHandler]),
+    ...routePreHandlers(route.preHandler),
   ];
   return {...route, preHandler};
 }

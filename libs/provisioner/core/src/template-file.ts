@@ -110,48 +110,55 @@ export function parseTemplateFile(raw: unknown): ProvisionerTemplateFile {
  * evaluated and validated before the first cartesian product is materialized.
  */
 export function enumerateVariants(file: ProvisionerTemplateFile): Variant[] {
+  const preparedBlocks = prepareMatrixBlocks(file);
+  assertTemplateCountWithinLimit(preparedBlocks, file.templates);
+
+  const variants: Variant[] = [];
+  for (const block of preparedBlocks) appendPreparedBlockVariants(block, variants);
+
+  return variants;
+}
+
+function prepareMatrixBlocks(file: ProvisionerTemplateFile): PreparedBlock[] {
   const preparedBlocks: PreparedBlock[] = [];
   const errors: string[] = [];
-
   for (const [blockName, block] of Object.entries(file.matrix ?? {})) {
     const prepared = evaluateBlockAxes(blockName, block, file.vars ?? {}, errors);
     if (prepared !== undefined) preparedBlocks.push(prepared);
   }
-
   if (errors.length > 0) {
     throw new ProvisionerTemplateFileError(`Invalid template matrix: ${errors.join('; ')}`);
   }
+  return preparedBlocks;
+}
 
+function assertTemplateCountWithinLimit(
+  preparedBlocks: readonly PreparedBlock[],
+  templates: ProvisionerTemplateFile['templates'],
+): void {
   const contributions = preparedBlocks.map(({name, cartesianCount, include}) => ({
     name,
     count: cartesianCount + BigInt(include.length),
   }));
   const matrixCount = contributions.reduce((total, contribution) => total + contribution.count, 0n);
-  const handWrittenCount = BigInt(Object.keys(file.templates).length);
-  const totalCount = matrixCount + handWrittenCount;
+  const handWrittenCount = BigInt(Object.keys(templates).length);
+  if (matrixCount + handWrittenCount <= BigInt(MAX_TEMPLATES)) return;
 
-  if (totalCount > BigInt(MAX_TEMPLATES)) {
-    const contributionText = contributions.map(({name, count}) => `${name}: ${count}`).join(', ');
-    const matrixText = contributionText.length > 0 ? ` (${contributionText})` : '';
-    throw new ProvisionerTemplateFileError(
-      `matrix expands to ${matrixCount} templates${matrixText} plus ${handWrittenCount} hand-written; the maximum is ${MAX_TEMPLATES}`,
-    );
-  }
+  const contributionText = contributions.map(({name, count}) => `${name}: ${count}`).join(', ');
+  const matrixText = contributionText.length > 0 ? ` (${contributionText})` : '';
+  throw new ProvisionerTemplateFileError(
+    `matrix expands to ${matrixCount} templates${matrixText} plus ${handWrittenCount} hand-written; the maximum is ${MAX_TEMPLATES}`,
+  );
+}
 
-  const variants: Variant[] = [];
-  for (const block of preparedBlocks) {
-    const cartesian = materializeCartesianProduct(block.axisNames, block.axisValues);
-    for (const bindings of cartesian) {
-      if (!block.exclude.some((entry) => matchesPartial(bindings, entry))) {
-        variants.push({block: block.name, bindings});
-      }
-    }
-    for (const bindings of block.include) {
+function appendPreparedBlockVariants(block: PreparedBlock, variants: Variant[]): void {
+  const cartesian = materializeCartesianProduct(block.axisNames, block.axisValues);
+  for (const bindings of cartesian) {
+    if (!block.exclude.some((entry) => matchesPartial(bindings, entry))) {
       variants.push({block: block.name, bindings});
     }
   }
-
-  return variants;
+  for (const bindings of block.include) variants.push({block: block.name, bindings});
 }
 
 export const parseProvisionerTemplateFile = parseTemplateFile;
@@ -172,33 +179,8 @@ export function renderTemplateVariants(file: ProvisionerTemplateFile): RenderedT
   const renderedGenerated: RenderedVariant[] = [];
 
   for (const variant of variants) {
-    const block = file.matrix?.[variant.block];
-    if (block === undefined) {
-      failures.record(variant.block, variant.bindings, 'block', 'Matrix block is missing.');
-      continue;
-    }
-
-    const evaluation = evaluateVariant(variant, block, file.vars ?? {}, failures);
-    if (evaluation === undefined) continue;
-
-    const mergedTemplate = mergeTemplateObjects(file.defaults, block.template);
-    const rendered = renderTemplateObject(
-      mergedTemplate,
-      evaluation.context,
-      evaluation.environment,
-      variant.block,
-      evaluation.displayBindings,
-      failures,
-    );
-    if (rendered.failed) continue;
-
-    renderedGenerated.push({
-      block: variant.block,
-      bindings: variant.bindings,
-      displayBindings: evaluation.displayBindings,
-      key: evaluation.key,
-      template: rendered.value,
-    });
+    const rendered = renderGeneratedVariant(file, variant, failures);
+    if (rendered !== undefined) renderedGenerated.push(rendered);
   }
 
   if (failures.hasFailures()) throw failures.toError();
@@ -241,6 +223,36 @@ export function renderTemplateVariants(file: ProvisionerTemplateFile): RenderedT
   }
 
   return templates;
+}
+
+function renderGeneratedVariant(
+  file: ProvisionerTemplateFile,
+  variant: Variant,
+  failures: RenderFailureCollector,
+): RenderedVariant | undefined {
+  const block = file.matrix?.[variant.block];
+  if (block === undefined) {
+    failures.record(variant.block, variant.bindings, 'block', 'Matrix block is missing.');
+    return undefined;
+  }
+  const evaluation = evaluateVariant(variant, block, file.vars ?? {}, failures);
+  if (evaluation === undefined) return undefined;
+  const rendered = renderTemplateObject(
+    mergeTemplateObjects(file.defaults, block.template),
+    evaluation.context,
+    evaluation.environment,
+    variant.block,
+    evaluation.displayBindings,
+    failures,
+  );
+  if (rendered.failed) return undefined;
+  return {
+    block: variant.block,
+    bindings: variant.bindings,
+    displayBindings: evaluation.displayBindings,
+    key: evaluation.key,
+    template: rendered.value,
+  };
 }
 
 export const renderVariants = renderTemplateVariants;
@@ -795,34 +807,33 @@ function parseVariantList(
     return [];
   }
 
-  return value.flatMap((entry, index) => {
-    const entryPath = `${path}.${index}`;
-    if (!isRecord(entry)) {
-      errors.push(`${entryPath} must be a map`);
-      return [];
-    }
+  return value.flatMap((entry, index) =>
+    parseVariantEntry(entry, `${path}.${index}`, errors, axes, requireComplete),
+  );
+}
 
-    const axisNames = Object.keys(axes);
-    const missing = axisNames.filter((axisName) => !Object.hasOwn(entry, axisName));
-    const extra = Object.keys(entry).filter((axisName) => !Object.hasOwn(axes, axisName));
-    if (requireComplete && missing.length > 0) {
-      errors.push(`${entryPath} must bind every declared axis; missing ${missing.join(', ')}`);
-    }
-    if (extra.length > 0) {
-      errors.push(`${entryPath} has unknown axes: ${extra.join(', ')}`);
-    }
-    if (requireComplete && (missing.length > 0 || extra.length > 0)) return [];
-    if (!requireComplete && extra.length > 0) return [];
-
-    return [
-      Object.fromEntries(
-        (requireComplete ? axisNames : Object.keys(entry)).map((axisName) => [
-          axisName,
-          entry[axisName],
-        ]),
-      ),
-    ];
-  });
+function parseVariantEntry(
+  entry: unknown,
+  entryPath: string,
+  errors: string[],
+  axes: Readonly<Record<string, MatrixAxis>>,
+  requireComplete: boolean,
+): VariantBindings[] {
+  if (!isRecord(entry)) {
+    errors.push(`${entryPath} must be a map`);
+    return [];
+  }
+  const axisNames = Object.keys(axes);
+  const missing = axisNames.filter((axisName) => !Object.hasOwn(entry, axisName));
+  const extra = Object.keys(entry).filter((axisName) => !Object.hasOwn(axes, axisName));
+  if (requireComplete && missing.length > 0) {
+    errors.push(`${entryPath} must bind every declared axis; missing ${missing.join(', ')}`);
+  }
+  if (extra.length > 0) errors.push(`${entryPath} has unknown axes: ${extra.join(', ')}`);
+  if (requireComplete && (missing.length > 0 || extra.length > 0)) return [];
+  if (!requireComplete && extra.length > 0) return [];
+  const keys = requireComplete ? axisNames : Object.keys(entry);
+  return [Object.fromEntries(keys.map((axisName) => [axisName, entry[axisName]]))];
 }
 
 function parseExpressionMap(

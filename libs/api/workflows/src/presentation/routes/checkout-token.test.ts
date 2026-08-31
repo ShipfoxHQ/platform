@@ -596,8 +596,9 @@ async function createRunningCheckoutStep(
   await db().update(jobsTable).set({status: 'running'}).where(eq(jobsTable.id, job.id));
 
   const stepRows = await getStepsByJobId(job.id);
-  const targetType =
-    options.kind === 'checkout' ? 'checkout' : options.kind === 'run' ? 'run' : 'setup';
+  let targetType: 'checkout' | 'run' | 'setup' = 'setup';
+  if (options.kind === 'checkout') targetType = 'checkout';
+  else if (options.kind === 'run') targetType = 'run';
   const step = stepRows.find((candidate) => candidate.type === targetType);
   if (!step) throw new Error(`Expected ${targetType} step`);
   const status = options.status ?? 'running';

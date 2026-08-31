@@ -87,19 +87,15 @@ export function Identifier({
     }
   }
 
-  const ariaLabel =
-    copyState === 'copied'
-      ? `Copied ${label} ${value}`
-      : copyState === 'failed'
-        ? `Could not copy ${label} ${value}`
-        : `Copy ${label} ${value}`;
-
-  const feedback =
-    copyState === 'copied'
-      ? {kind: copyState, label: 'Copied'}
-      : copyState === 'failed'
-        ? {kind: copyState, label: 'Could not copy'}
-        : null;
+  let ariaLabel = `Copy ${label} ${value}`;
+  let feedback: {kind: 'copied' | 'failed'; label: string} | null = null;
+  if (copyState === 'copied') {
+    ariaLabel = `Copied ${label} ${value}`;
+    feedback = {kind: copyState, label: 'Copied'};
+  } else if (copyState === 'failed') {
+    ariaLabel = `Could not copy ${label} ${value}`;
+    feedback = {kind: copyState, label: 'Could not copy'};
+  }
 
   return (
     <>

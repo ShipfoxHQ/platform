@@ -334,16 +334,24 @@ function fakeEc2(
       }
       if (command instanceof DescribeInstancesCommand)
         return Promise.resolve(describeOutputs.shift() ?? {});
-      if (command instanceof TerminateInstancesCommand) {
-        const instanceId = command.input.InstanceIds?.[0];
-        const terminateError =
-          options.terminateErrorById?.get(instanceId ?? '') ?? options.terminateError;
-        if (terminateError) return Promise.reject(terminateError);
-        return Promise.resolve({});
-      }
+      if (command instanceof TerminateInstancesCommand)
+        return terminateInstanceResponse(command, options);
       return Promise.reject(new Error('Unexpected EC2 command'));
     },
   };
+}
+
+function terminateInstanceResponse(
+  command: TerminateInstancesCommand,
+  options: {
+    terminateError?: Error;
+    terminateErrorById?: Map<string, Error>;
+  },
+): Promise<unknown> {
+  const instanceId = command.input.InstanceIds?.[0];
+  const terminateError =
+    options.terminateErrorById?.get(instanceId ?? '') ?? options.terminateError;
+  return terminateError ? Promise.reject(terminateError) : Promise.resolve({});
 }
 
 function commandInput<T extends {input: unknown}>(command: unknown): T['input'] {

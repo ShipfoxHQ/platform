@@ -42,45 +42,7 @@ export async function projectDefinitionTriggers(
       );
 
     for (const [name, trigger] of entries) {
-      const config: Record<string, unknown> = {};
-      if (trigger.with !== undefined) config.with = trigger.with;
-      if (trigger.filter !== undefined) config.filter = trigger.filter;
-
-      const [upserted] = await tx
-        .insert(triggerSubscriptions)
-        .values({
-          workspaceId: params.workspaceId,
-          projectId: params.projectId,
-          workflowDefinitionId: params.workflowDefinitionId,
-          name,
-          source: trigger.source,
-          event: normalizeSubscriptionEvent({source: trigger.source, event: trigger.event}),
-          config,
-        })
-        .onConflictDoUpdate({
-          target: [triggerSubscriptions.workflowDefinitionId, triggerSubscriptions.name],
-          set: {
-            workspaceId: params.workspaceId,
-            projectId: params.projectId,
-            source: trigger.source,
-            event: normalizeSubscriptionEvent({source: trigger.source, event: trigger.event}),
-            config,
-            updatedAt: new Date(),
-          },
-        })
-        .returning({id: triggerSubscriptions.id});
-      if (!upserted) throw new Error('Trigger subscription upsert returned no rows');
-
-      if (trigger.source === 'cron') {
-        await syncCronSchedule({
-          tx,
-          subscriptionId: upserted.id,
-          workspaceId: params.workspaceId,
-          triggerConfig: trigger.config,
-        });
-      } else {
-        await deleteCronScheduleForSubscription({tx, subscriptionId: upserted.id});
-      }
+      await upsertDefinitionTrigger(tx, params, name, trigger);
     }
   };
 
@@ -89,6 +51,52 @@ export async function projectDefinitionTriggers(
     return;
   }
   await db().transaction(work);
+}
+
+async function upsertDefinitionTrigger(
+  tx: Tx,
+  params: ProjectDefinitionTriggersParams,
+  name: string,
+  trigger: ProjectDefinitionTrigger,
+): Promise<void> {
+  const config: Record<string, unknown> = {};
+  if (trigger.with !== undefined) config.with = trigger.with;
+  if (trigger.filter !== undefined) config.filter = trigger.filter;
+  const event = normalizeSubscriptionEvent({source: trigger.source, event: trigger.event});
+  const [upserted] = await tx
+    .insert(triggerSubscriptions)
+    .values({
+      workspaceId: params.workspaceId,
+      projectId: params.projectId,
+      workflowDefinitionId: params.workflowDefinitionId,
+      name,
+      source: trigger.source,
+      event,
+      config,
+    })
+    .onConflictDoUpdate({
+      target: [triggerSubscriptions.workflowDefinitionId, triggerSubscriptions.name],
+      set: {
+        workspaceId: params.workspaceId,
+        projectId: params.projectId,
+        source: trigger.source,
+        event,
+        config,
+        updatedAt: new Date(),
+      },
+    })
+    .returning({id: triggerSubscriptions.id});
+  if (!upserted) throw new Error('Trigger subscription upsert returned no rows');
+  if (trigger.source === 'cron') {
+    await syncCronSchedule({
+      tx,
+      subscriptionId: upserted.id,
+      workspaceId: params.workspaceId,
+      triggerConfig: trigger.config,
+    });
+    return;
+  }
+  await deleteCronScheduleForSubscription({tx, subscriptionId: upserted.id});
 }
 
 export interface DeleteSubscriptionsForDefinitionParams {

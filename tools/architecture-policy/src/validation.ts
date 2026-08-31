@@ -106,35 +106,7 @@ export function validateArchitectureFacts(value: unknown): string[] {
   if (!Array.isArray(packages)) {
     errors.push('Architecture facts packages must be an array');
   } else {
-    const names = new Set<string>();
-    for (const [index, packageFact] of packages.entries()) {
-      if (!isRecord(packageFact)) {
-        errors.push(`Package fact ${index} must be an object`);
-        continue;
-      }
-      validateSchemaVersion(packageFact, `Package fact ${index}`, errors);
-      requireNonEmptyString(packageFact.name, `Package fact ${index} name`, errors);
-      requireNullableString(packageFact.version, `Package fact ${index} version`, errors);
-      requireNonEmptyString(packageFact.path, `Package fact ${index} path`, errors);
-      requireEnum(packageFact.origin, packageOrigins, `Package fact ${index} origin`, errors);
-      if (typeof packageFact.policyParticipant !== 'boolean')
-        errors.push(`Package fact ${index} policyParticipant must be a boolean`);
-      requireNullableString(packageFact.realm, `Package fact ${index} realm`, errors);
-      requireNullableString(
-        packageFact.architectureClass,
-        `Package fact ${index} architectureClass`,
-        errors,
-      );
-      requireNullableString(
-        packageFact.boundedContext,
-        `Package fact ${index} boundedContext`,
-        errors,
-      );
-      if (typeof packageFact.name === 'string') {
-        if (names.has(packageFact.name)) errors.push(`Duplicate package fact: ${packageFact.name}`);
-        names.add(packageFact.name);
-      }
-    }
+    validatePackageFacts(packages, errors);
   }
 
   validateArray(value.importEdges, 'import edge', errors, (edge, index) => {
@@ -181,6 +153,38 @@ export function validateArchitectureFacts(value: unknown): string[] {
   return [...new Set(errors)].sort();
 }
 
+function validatePackageFacts(packages: readonly unknown[], errors: string[]): void {
+  const names = new Set<string>();
+  for (const [index, packageFact] of packages.entries()) {
+    if (!isRecord(packageFact)) {
+      errors.push(`Package fact ${index} must be an object`);
+      continue;
+    }
+    validateSchemaVersion(packageFact, `Package fact ${index}`, errors);
+    requireNonEmptyString(packageFact.name, `Package fact ${index} name`, errors);
+    requireNullableString(packageFact.version, `Package fact ${index} version`, errors);
+    requireNonEmptyString(packageFact.path, `Package fact ${index} path`, errors);
+    requireEnum(packageFact.origin, packageOrigins, `Package fact ${index} origin`, errors);
+    if (typeof packageFact.policyParticipant !== 'boolean') {
+      errors.push(`Package fact ${index} policyParticipant must be a boolean`);
+    }
+    requireNullableString(packageFact.realm, `Package fact ${index} realm`, errors);
+    requireNullableString(
+      packageFact.architectureClass,
+      `Package fact ${index} architectureClass`,
+      errors,
+    );
+    requireNullableString(
+      packageFact.boundedContext,
+      `Package fact ${index} boundedContext`,
+      errors,
+    );
+    if (typeof packageFact.name !== 'string') continue;
+    if (names.has(packageFact.name)) errors.push(`Duplicate package fact: ${packageFact.name}`);
+    names.add(packageFact.name);
+  }
+}
+
 export function isArchitectureFacts(value: unknown): value is ArchitectureFacts {
   return validateArchitectureFacts(value).length === 0;
 }
@@ -193,6 +197,15 @@ export function assertArchitectureFacts(value: unknown): asserts value is Archit
 export function validateRepositoryConfiguration(value: unknown): string[] {
   const errors: string[] = [];
   if (!isRecord(value)) return ['Repository configuration must be an object'];
+  validateRepositoryConfigurationShape(value, errors);
+  validateRepositoryConfigurationContents(value, errors);
+  return [...new Set(errors)].sort();
+}
+
+function validateRepositoryConfigurationShape(
+  value: Record<string, unknown>,
+  errors: string[],
+): void {
   if (value.schemaVersion !== architecturePolicySchemaVersion)
     errors.push(
       `Unsupported repository configuration schema version: ${String(value.schemaVersion)}`,
@@ -210,141 +223,176 @@ export function validateRepositoryConfiguration(value: unknown): string[] {
     errors.push('Repository configuration exportIntent must be an object');
   if (!isRecord(value.extensions))
     errors.push('Repository configuration extensions must be an object');
-  if (isRecord(value.extensions)) {
-    for (const [name, extension] of Object.entries(value.extensions)) {
-      if (!isJsonValue(extension))
-        errors.push(`Repository extension is not JSON-compatible: ${name}`);
-    }
-  }
+  if (isRecord(value.extensions)) validateExtensions(value.extensions, errors);
   if (!Array.isArray(value.exceptions))
     errors.push('Repository configuration exceptions must be an array');
+}
 
-  if (Array.isArray(value.localPackages)) {
-    const paths = new Set<string>();
-    for (const [index, entry] of value.localPackages.entries()) {
-      if (!isRecord(entry)) {
-        errors.push(`Local package classification ${index} must be an object`);
-        continue;
-      }
-      requireNonEmptyString(entry.path, `Local package classification ${index} path`, errors);
-      requireNonEmptyString(
-        entry.packageName,
-        `Local package classification ${index} packageName`,
-        errors,
-      );
-      requireNonEmptyString(entry.realm, `Local package classification ${index} realm`, errors);
-      requireNonEmptyString(
-        entry.architectureClass,
-        `Local package classification ${index} architectureClass`,
-        errors,
-      );
-      requireNullableString(
-        entry.boundedContext,
-        `Local package classification ${index} boundedContext`,
-        errors,
-      );
-      if (typeof entry.path === 'string') {
-        if (paths.has(entry.path))
-          errors.push(`Duplicate local package classification: ${entry.path}`);
-        paths.add(entry.path);
-      }
-    }
-  }
-
-  if (Array.isArray(value.compositionRoots)) {
-    for (const [index, root] of value.compositionRoots.entries())
-      requireNonEmptyString(root, `Composition root ${index}`, errors);
-  }
+function validateRepositoryConfigurationContents(
+  value: Record<string, unknown>,
+  errors: string[],
+): void {
+  if (Array.isArray(value.localPackages)) validateLocalPackages(value.localPackages, errors);
+  if (Array.isArray(value.compositionRoots))
+    validateCompositionRoots(value.compositionRoots, errors);
 
   const realmNames = isRecord(value.realms) ? Object.keys(value.realms) : [];
-  if (isRecord(value.realms)) {
-    for (const [realm, realmConfig] of Object.entries(value.realms)) {
-      if (!isRecord(realmConfig) || !Array.isArray(realmConfig.mayDependOn)) {
-        errors.push(`Realm ${realm} must define mayDependOn as an array`);
-        continue;
-      }
-      for (const [index, dependency] of realmConfig.mayDependOn.entries()) {
-        requireNonEmptyString(dependency, `Realm ${realm} mayDependOn[${index}]`, errors);
-        if (typeof dependency === 'string' && !realmNames.includes(dependency))
-          errors.push(`Realm ${realm} references undeclared realm: ${dependency}`);
-      }
-    }
-  }
+  if (isRecord(value.realms)) validateRealms(value.realms, realmNames, errors);
 
   const classNames = isRecord(value.architectureClasses)
     ? Object.keys(value.architectureClasses)
     : [];
-  if (isRecord(value.architectureClasses)) {
-    for (const [architectureClass, classConfig] of Object.entries(value.architectureClasses)) {
-      if (!isRecord(classConfig) || typeof classConfig.requiresBoundedContext !== 'boolean')
-        errors.push(`Architecture class ${architectureClass} must define requiresBoundedContext`);
+  if (isRecord(value.architectureClasses))
+    validateArchitectureClasses(value.architectureClasses, errors);
+  if (isRecord(value.classRelationships))
+    validateClassRelationships(value.classRelationships, classNames, errors);
+  if (isRecord(value.exportIntent)) validateExportIntent(value.exportIntent, errors);
+  if (Array.isArray(value.exceptions)) validateExceptions(value.exceptions, errors);
+}
+
+function validateExtensions(extensions: Record<string, unknown>, errors: string[]): void {
+  for (const [name, extension] of Object.entries(extensions)) {
+    if (!isJsonValue(extension))
+      errors.push(`Repository extension is not JSON-compatible: ${name}`);
+  }
+}
+
+function validateLocalPackages(entries: readonly unknown[], errors: string[]): void {
+  const paths = new Set<string>();
+  for (const [index, entry] of entries.entries()) {
+    if (!isRecord(entry)) {
+      errors.push(`Local package classification ${index} must be an object`);
+      continue;
+    }
+    requireNonEmptyString(entry.path, `Local package classification ${index} path`, errors);
+    requireNonEmptyString(
+      entry.packageName,
+      `Local package classification ${index} packageName`,
+      errors,
+    );
+    requireNonEmptyString(entry.realm, `Local package classification ${index} realm`, errors);
+    requireNonEmptyString(
+      entry.architectureClass,
+      `Local package classification ${index} architectureClass`,
+      errors,
+    );
+    requireNullableString(
+      entry.boundedContext,
+      `Local package classification ${index} boundedContext`,
+      errors,
+    );
+    if (typeof entry.path !== 'string') continue;
+    if (paths.has(entry.path)) errors.push(`Duplicate local package classification: ${entry.path}`);
+    paths.add(entry.path);
+  }
+}
+
+function validateCompositionRoots(roots: readonly unknown[], errors: string[]): void {
+  for (const [index, root] of roots.entries())
+    requireNonEmptyString(root, `Composition root ${index}`, errors);
+}
+
+function validateRealms(
+  realms: Record<string, unknown>,
+  realmNames: readonly string[],
+  errors: string[],
+): void {
+  for (const [realm, realmConfig] of Object.entries(realms)) {
+    if (!isRecord(realmConfig) || !Array.isArray(realmConfig.mayDependOn)) {
+      errors.push(`Realm ${realm} must define mayDependOn as an array`);
+      continue;
+    }
+    for (const [index, dependency] of realmConfig.mayDependOn.entries()) {
+      requireNonEmptyString(dependency, `Realm ${realm} mayDependOn[${index}]`, errors);
+      if (typeof dependency === 'string' && !realmNames.includes(dependency)) {
+        errors.push(`Realm ${realm} references undeclared realm: ${dependency}`);
+      }
     }
   }
+}
 
-  if (isRecord(value.classRelationships)) {
-    for (const architectureClass of classNames) {
-      const row = value.classRelationships[architectureClass];
-      if (!isRecord(row)) {
-        errors.push(`Missing class relationship row: ${architectureClass}`);
-        continue;
-      }
-      for (const targetClass of classNames) {
-        const relationship = row[targetClass];
-        if (!isRecord(relationship)) {
-          errors.push(
-            `Missing class relationship decision: ${architectureClass} -> ${targetClass}`,
-          );
-          continue;
-        }
-        requireEnum(
-          relationship.decision,
-          boundaryDecisions,
-          `Class relationship ${architectureClass} -> ${targetClass} decision`,
-          errors,
-        );
-        if (relationship.ruleId !== undefined) {
-          requireNonEmptyString(
-            relationship.ruleId,
-            `Class relationship ${architectureClass} -> ${targetClass} ruleId`,
-            errors,
-          );
-          if (typeof relationship.ruleId === 'string' && !ruleIds.has(relationship.ruleId))
-            errors.push(`Unknown class relationship rule ID: ${relationship.ruleId}`);
-        }
-        if (relationship.decision !== 'allow' && typeof relationship.ruleId !== 'string') {
-          errors.push(`Class relationship ${architectureClass} -> ${targetClass} needs a ruleId`);
-        }
-      }
-      for (const targetClass of Object.keys(row)) {
-        if (!classNames.includes(targetClass))
-          errors.push(
-            `Class relationship references undeclared class: ${architectureClass} -> ${targetClass}`,
-          );
-      }
-    }
-    for (const architectureClass of Object.keys(value.classRelationships)) {
-      if (!classNames.includes(architectureClass))
-        errors.push(`Class relationship has undeclared row: ${architectureClass}`);
+function validateArchitectureClasses(classes: Record<string, unknown>, errors: string[]): void {
+  for (const [architectureClass, classConfig] of Object.entries(classes)) {
+    if (!isRecord(classConfig) || typeof classConfig.requiresBoundedContext !== 'boolean') {
+      errors.push(`Architecture class ${architectureClass} must define requiresBoundedContext`);
     }
   }
+}
 
-  if (isRecord(value.exportIntent)) {
-    for (const [packageName, subpaths] of Object.entries(value.exportIntent)) {
-      if (!Array.isArray(subpaths)) {
-        errors.push(`Export intent for ${packageName} must be an array`);
-        continue;
-      }
-      for (const [index, subpath] of subpaths.entries())
-        requireNonEmptyString(subpath, `Export intent ${packageName}[${index}]`, errors);
+function validateClassRelationships(
+  relationships: Record<string, unknown>,
+  classNames: readonly string[],
+  errors: string[],
+): void {
+  for (const architectureClass of classNames) {
+    const row = relationships[architectureClass];
+    if (!isRecord(row)) {
+      errors.push(`Missing class relationship row: ${architectureClass}`);
+      continue;
+    }
+    validateClassRelationshipRow(architectureClass, row, classNames, errors);
+  }
+  for (const architectureClass of Object.keys(relationships)) {
+    if (!classNames.includes(architectureClass))
+      errors.push(`Class relationship has undeclared row: ${architectureClass}`);
+  }
+}
+
+function validateClassRelationshipRow(
+  architectureClass: string,
+  row: Record<string, unknown>,
+  classNames: readonly string[],
+  errors: string[],
+): void {
+  for (const targetClass of classNames) {
+    const relationship = row[targetClass];
+    if (!isRecord(relationship)) {
+      errors.push(`Missing class relationship decision: ${architectureClass} -> ${targetClass}`);
+      continue;
+    }
+    validateClassRelationship(architectureClass, targetClass, relationship, errors);
+  }
+  for (const targetClass of Object.keys(row)) {
+    if (!classNames.includes(targetClass))
+      errors.push(
+        `Class relationship references undeclared class: ${architectureClass} -> ${targetClass}`,
+      );
+  }
+}
+
+function validateClassRelationship(
+  architectureClass: string,
+  targetClass: string,
+  relationship: Record<string, unknown>,
+  errors: string[],
+): void {
+  const label = `Class relationship ${architectureClass} -> ${targetClass}`;
+  requireEnum(relationship.decision, boundaryDecisions, `${label} decision`, errors);
+  if (relationship.ruleId !== undefined) {
+    requireNonEmptyString(relationship.ruleId, `${label} ruleId`, errors);
+    if (typeof relationship.ruleId === 'string' && !ruleIds.has(relationship.ruleId)) {
+      errors.push(`Unknown class relationship rule ID: ${relationship.ruleId}`);
     }
   }
-
-  if (Array.isArray(value.exceptions)) {
-    for (const [index, exception] of value.exceptions.entries())
-      validateException(exception, `Exception ${index}`, errors);
+  if (relationship.decision !== 'allow' && typeof relationship.ruleId !== 'string') {
+    errors.push(`${label} needs a ruleId`);
   }
+}
 
-  return [...new Set(errors)].sort();
+function validateExportIntent(intent: Record<string, unknown>, errors: string[]): void {
+  for (const [packageName, subpaths] of Object.entries(intent)) {
+    if (!Array.isArray(subpaths)) {
+      errors.push(`Export intent for ${packageName} must be an array`);
+      continue;
+    }
+    for (const [index, subpath] of subpaths.entries())
+      requireNonEmptyString(subpath, `Export intent ${packageName}[${index}]`, errors);
+  }
+}
+
+function validateExceptions(exceptions: readonly unknown[], errors: string[]): void {
+  for (const [index, exception] of exceptions.entries())
+    validateException(exception, `Exception ${index}`, errors);
 }
 
 export function isRepositoryConfiguration(value: unknown): value is RepositoryConfiguration {

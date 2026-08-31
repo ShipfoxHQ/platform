@@ -233,26 +233,22 @@ export function writeAmbientGitCredential(params: {
     const temporaryConfigPath = `${configPath}.${randomUUID()}.tmp`;
     try {
       if (existing === undefined || existing.trim() === '') {
-        const lines = [
-          ...(includePath ? ['[include]', `\tpath = ${gitConfigQuotedValue(includePath)}`] : []),
-          ...userLines,
-          ...repositoryLines,
-          '',
-        ];
-        await writeFile(temporaryConfigPath, lines.join('\n'), {flag: 'wx', mode: 0o600});
+        await writeNewAmbientGitConfig(
+          temporaryConfigPath,
+          includePath,
+          userLines,
+          repositoryLines,
+        );
       } else {
-        await writeFile(temporaryConfigPath, existing, {flag: 'wx', mode: 0o600});
-        if (auth) await unsetAmbientGitCredential(temporaryConfigPath, repositoryUrl);
-
-        const current = await readFile(temporaryConfigPath, 'utf8');
-        // [user] applies to the whole ambient config. Keep the first author for v1; per-repository
-        // identities need includeIf gitdir: and are intentionally deferred.
-        const additions = [
-          ...(gitAuthor && !hasGitAuthorSection(current) ? userLines : []),
-          ...repositoryLines,
-          '',
-        ].join('\n');
-        await appendFile(temporaryConfigPath, `${current.endsWith('\n') ? '' : '\n'}${additions}`);
+        await updateAmbientGitConfig({
+          temporaryConfigPath,
+          existing,
+          auth,
+          repositoryUrl,
+          gitAuthor,
+          userLines,
+          repositoryLines,
+        });
       }
 
       if (!auth) await validateAmbientGitConfig(temporaryConfigPath);
@@ -263,6 +259,43 @@ export function writeAmbientGitCredential(params: {
     }
     await chmod(configPath, 0o600);
   });
+}
+
+async function writeNewAmbientGitConfig(
+  temporaryConfigPath: string,
+  includePath: string | undefined,
+  userLines: readonly string[],
+  repositoryLines: readonly string[],
+): Promise<void> {
+  const lines = [
+    ...(includePath ? ['[include]', `\tpath = ${gitConfigQuotedValue(includePath)}`] : []),
+    ...userLines,
+    ...repositoryLines,
+    '',
+  ];
+  await writeFile(temporaryConfigPath, lines.join('\n'), {flag: 'wx', mode: 0o600});
+}
+
+async function updateAmbientGitConfig(params: {
+  temporaryConfigPath: string;
+  existing: string;
+  auth: CheckoutTokenAuthDto | undefined;
+  repositoryUrl: string;
+  gitAuthor: {name: string; email: string} | undefined;
+  userLines: readonly string[];
+  repositoryLines: readonly string[];
+}): Promise<void> {
+  await writeFile(params.temporaryConfigPath, params.existing, {flag: 'wx', mode: 0o600});
+  if (params.auth)
+    await unsetAmbientGitCredential(params.temporaryConfigPath, params.repositoryUrl);
+  const current = await readFile(params.temporaryConfigPath, 'utf8');
+  // [user] applies to the whole ambient config. Keep the first author for v1.
+  const additions = [
+    ...(params.gitAuthor && !hasGitAuthorSection(current) ? params.userLines : []),
+    ...params.repositoryLines,
+    '',
+  ].join('\n');
+  await appendFile(params.temporaryConfigPath, `${current.endsWith('\n') ? '' : '\n'}${additions}`);
 }
 
 /** Returns every persisted credential form that can appear in the ambient Git config. */

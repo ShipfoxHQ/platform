@@ -39,7 +39,7 @@ export function useSetupChecklistQueryState(
   workspaceId: string,
   subscribed: boolean,
 ): ChecklistQueryState {
-  const queryEnabled = subscribed && Boolean(workspaceId);
+  const queryEnabled = shouldEnableChecklistQueries(subscribed, workspaceId);
   const queryPolicy = {
     enabled: queryEnabled,
     subscribed: queryEnabled,
@@ -85,20 +85,18 @@ export function useSetupChecklistQueryState(
   const baseSettled = isSettled(providersQuery) && isSettled(connectionsQuery);
   const runnerSettled = isSettled(activeProvisionersQuery) && isSettled(runnersStatusQuery);
   const runnerReady = activeProvisionersQuery.isSuccess && runnersStatusQuery.isSuccess;
-  const catalogInstallationProvided =
-    catalogQuery.data !== undefined &&
-    (catalogQuery.data.managedProviderId !== null ||
-      catalogQuery.data.instanceDefaultProviderId !== null);
+  const catalogInstallationProvided = hasInstallationProvider(catalogQuery.data);
   const modelReady = catalogQuery.isSuccess && configsQuery.isSuccess;
   const membersReady = membersQuery.isSuccess && invitationsQuery.isSuccess;
   const modelSettled = isSettled(catalogQuery) && isSettled(configsQuery);
   const membersSettled = isSettled(membersQuery) && isSettled(invitationsQuery);
-  const completionReady =
-    providersQuery.isSuccess &&
-    connectionsQuery.isSuccess &&
-    runnerSettled &&
-    modelSettled &&
-    membersSettled;
+  const completionReady = allChecklistQueriesReady({
+    providersReady: providersQuery.isSuccess,
+    connectionsReady: connectionsQuery.isSuccess,
+    runnerSettled,
+    modelSettled,
+    membersSettled,
+  });
 
   const rawChecklist = deriveSetupChecklist({
     readiness: deriveIntegrationReadiness({
@@ -108,7 +106,10 @@ export function useSetupChecklistQueryState(
     installationRunners: runnersStatusQuery.data ?? 'managed',
     workspaceRunnerCapacity: (activeProvisionersQuery.data?.length ?? 0) > 0,
     modelProvider: {
-      installationProvided: catalogQuery.isSuccess ? catalogInstallationProvided : true,
+      installationProvided: installationProviderReadiness(
+        catalogQuery.isSuccess,
+        catalogInstallationProvided,
+      ),
       configured: (configsQuery.data?.configs.length ?? 0) > 0,
     },
     membership: {
@@ -117,11 +118,13 @@ export function useSetupChecklistQueryState(
     },
   });
 
-  const hiddenRows = new Set<SetupChecklistItemId>();
-  if (!providersQuery.isSuccess || !connectionsQuery.isSuccess) hiddenRows.add('tools');
-  if (!runnerReady) hiddenRows.add('runner');
-  if (!modelReady) hiddenRows.add('model-provider');
-  if (!membersReady) hiddenRows.add('teammates');
+  const hiddenRows = hiddenChecklistRows({
+    providersReady: providersQuery.isSuccess,
+    connectionsReady: connectionsQuery.isSuccess,
+    runnerReady,
+    modelReady,
+    membersReady,
+  });
 
   const items = rawChecklist.items.filter((item) => !hiddenRows.has(item.id));
   const trackedItems = items.filter((item) => item.tracked);
@@ -139,6 +142,56 @@ export function useSetupChecklistQueryState(
   };
 }
 
+function hiddenChecklistRows(readiness: {
+  providersReady: boolean;
+  connectionsReady: boolean;
+  runnerReady: boolean;
+  modelReady: boolean;
+  membersReady: boolean;
+}): Set<SetupChecklistItemId> {
+  const hiddenRows = new Set<SetupChecklistItemId>();
+  if (!readiness.providersReady || !readiness.connectionsReady) hiddenRows.add('tools');
+  if (!readiness.runnerReady) hiddenRows.add('runner');
+  if (!readiness.modelReady) hiddenRows.add('model-provider');
+  if (!readiness.membersReady) hiddenRows.add('teammates');
+  return hiddenRows;
+}
+
+function hasInstallationProvider(
+  catalog: {managedProviderId: string | null; instanceDefaultProviderId: string | null} | undefined,
+): boolean {
+  if (catalog === undefined) return false;
+  return catalog.managedProviderId !== null || catalog.instanceDefaultProviderId !== null;
+}
+
+function allChecklistQueriesReady(readiness: {
+  providersReady: boolean;
+  connectionsReady: boolean;
+  runnerSettled: boolean;
+  modelSettled: boolean;
+  membersSettled: boolean;
+}): boolean {
+  return (
+    readiness.providersReady &&
+    readiness.connectionsReady &&
+    readiness.runnerSettled &&
+    readiness.modelSettled &&
+    readiness.membersSettled
+  );
+}
+
+function installationProviderReadiness(
+  catalogReady: boolean,
+  installationProvided: boolean,
+): boolean {
+  if (!catalogReady) return true;
+  return installationProvided;
+}
+
 function isSettled(query: {isError: boolean; isSuccess: boolean}) {
   return query.isSuccess || query.isError;
+}
+
+function shouldEnableChecklistQueries(subscribed: boolean, workspaceId: string): boolean {
+  return subscribed && Boolean(workspaceId);
 }

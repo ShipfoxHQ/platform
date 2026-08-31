@@ -3,6 +3,7 @@ import {createRequire} from 'node:module';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {
+  type ArchitectureClass,
   type ArchitectureClassConfiguration,
   type ArchitectureFacts,
   architecturePolicySchemaVersion,
@@ -89,7 +90,9 @@ export interface PlatformArchitecturePolicyOptions {
 }
 
 function compareText(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
 }
 
 function toRepositoryPath(filePath: string): string {
@@ -185,6 +188,13 @@ function packageFactForPath(
   const isPolicyParticipant =
     packagePath.startsWith('libs/api/') || packagePath.startsWith('libs/shared/');
   const hasManifestName = typeof manifest.name === 'string' && manifest.name.length > 0;
+  let architectureClass: ArchitectureClass | null = null;
+  if (isPolicyParticipant) {
+    architectureClass =
+      hasManifestName && classification?.architectureClass
+        ? classification.architectureClass
+        : 'unclassified';
+  }
   return {
     schemaVersion: architecturePolicySchemaVersion,
     name: manifest.name ?? `workspace:${packagePath}`,
@@ -193,11 +203,7 @@ function packageFactForPath(
     origin: 'local',
     policyParticipant: isPolicyParticipant,
     realm: isPolicyParticipant ? platformRealm : null,
-    architectureClass: isPolicyParticipant
-      ? hasManifestName && classification?.architectureClass
-        ? classification.architectureClass
-        : 'unclassified'
-      : null,
+    architectureClass,
     boundedContext: isPolicyParticipant ? (classification?.boundedContext ?? null) : null,
   };
 }
@@ -265,25 +271,26 @@ function exportSubpaths(exportsValue: unknown): Array<[string, unknown]> {
 
 function resolveExportTarget(value: unknown): string | null {
   if (typeof value === 'string') return value;
-  if (Array.isArray(value)) {
-    for (const candidate of value) {
-      const resolved = resolveExportTarget(candidate);
-      if (resolved) return resolved;
-    }
-    return null;
-  }
+  if (Array.isArray(value)) return resolveFirstExportTarget(value);
   if (typeof value !== 'object' || value === null) return null;
-  const records = value as Record<string, unknown>;
+  return resolveExportTargetRecord(value as Record<string, unknown>);
+}
+
+function resolveFirstExportTarget(values: readonly unknown[]): string | null {
+  for (const candidate of values) {
+    const resolved = resolveExportTarget(candidate);
+    if (resolved) return resolved;
+  }
+  return null;
+}
+
+function resolveExportTargetRecord(records: Record<string, unknown>): string | null {
   for (const condition of ['workspace-source', 'types', 'import', 'require', 'default']) {
     if (!(condition in records)) continue;
     const resolved = resolveExportTarget(records[condition]);
     if (resolved) return resolved;
   }
-  for (const candidate of Object.values(records)) {
-    const resolved = resolveExportTarget(candidate);
-    if (resolved) return resolved;
-  }
-  return null;
+  return resolveFirstExportTarget(Object.values(records));
 }
 
 function sourceTargetCandidates(target: string): string[] {

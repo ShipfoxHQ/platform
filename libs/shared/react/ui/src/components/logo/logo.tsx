@@ -18,7 +18,9 @@ export type LogoProps = Omit<ComponentProps<'img'>, 'src' | 'alt'> & {
 
 export function Logo({variant = 'wordmark', className, alt, ...props}: LogoProps) {
   const resolved = useResolvedTheme();
-  const src = variant === 'mark' ? markOrange : resolved === 'dark' ? wordmarkDark : wordmarkLight;
+  let src = wordmarkLight;
+  if (variant === 'mark') src = markOrange;
+  else if (resolved === 'dark') src = wordmarkDark;
   const sizeClass = variant === 'mark' ? 'h-20 w-auto' : 'h-24 w-auto';
 
   return (

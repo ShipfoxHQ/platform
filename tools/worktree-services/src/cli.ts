@@ -82,16 +82,11 @@ function parseArgs(args: readonly string[]): ParsedArgs {
       apply = true;
       continue;
     }
-    if (argument === '--config' || argument === '--root' || argument === '--workspace') {
-      const value = rest[index + 1];
-      if (!value) usage();
-      index += 1;
-      if (argument === '--config') configPath = value;
-      if (argument === '--root') rootPath = value;
-      if (argument === '--workspace') workspacePath = value;
-      continue;
-    }
-    usage();
+    const value = parsePathArgument(argument, rest[index + 1]);
+    index += 1;
+    if (argument === '--config') configPath = value;
+    if (argument === '--root') rootPath = value;
+    if (argument === '--workspace') workspacePath = value;
   }
   return {
     apply,
@@ -101,6 +96,12 @@ function parseArgs(args: readonly string[]): ParsedArgs {
     rootPath,
     workspacePath,
   };
+}
+
+function parsePathArgument(argument: string | undefined, value: string | undefined): string {
+  if (argument !== '--config' && argument !== '--root' && argument !== '--workspace') usage();
+  if (!value) usage();
+  return value;
 }
 
 function resolveConfigPath(

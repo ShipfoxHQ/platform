@@ -266,59 +266,25 @@ interface ClaudeAuth {
 }
 
 async function runClaudeAgent(invocation: HarnessInvocation): Promise<HarnessResult> {
+  assertClaudeInvocation(invocation);
   const {
     cwd,
     agentStateDir,
     model,
-    provider,
     thinking,
     prompt,
     tools,
     credentials,
-    customProvider,
     gitConfigGlobal,
     signal,
     onSessionEntry,
   } = invocation;
   const collector = new OutputCollector(invocation.outputs);
 
-  if (signal.aborted) throw new Error('Agent step aborted before the Claude session started');
-  if (agentStateDir === undefined) throw new Error('Agent state directory is required');
-  // The server-issued per-step claude block is the discriminator for a managed
-  // provider serving the anthropic-messages dialect; its provider ID (e.g.
-  // "shipfox") is preserved for policy and usage attribution. The adapter is an
-  // unvalidated surface for direct harness callers, so the block shape is
-  // checked here rather than only at the runner DTO boundary.
-  const claudeBlock = invocation.claude;
-  if (claudeBlock !== undefined && !claudeRuntimeConfigSchema.safeParse(claudeBlock).success) {
-    throw new AgentConfigError(
-      'Harness "claude" received a malformed per-step claude runtime block.',
-      'step_config_invalid',
-    );
-  }
-  const providerUnsupported = provider !== 'anthropic' && claudeBlock === undefined;
-  if (providerUnsupported) {
-    const unsupportedReason = isReservedModelProviderId(provider)
-      ? `Harness "claude" only supports provider "anthropic"; received "${provider}".`
-      : `Harness "claude" requires the server-issued per-step claude runtime block for provider "${provider}"; the block was not present in this invocation.`;
-    throw new AgentConfigError(unsupportedReason, 'provider_unsupported');
-  }
-  if (customProvider !== undefined) {
-    throw new AgentConfigError(
-      'Harness "claude" does not support custom model providers.',
-      'provider_unsupported',
-    );
-  }
-
   const override = claudeAnthropicOverride(invocation.claude);
   const auth = claudeAuth(credentials, override);
   const targetUrl = override?.baseUrl ?? ANTHROPIC_API_URL;
-  const targetLabel =
-    invocation.claude !== undefined
-      ? 'Claude Anthropic per-step endpoint'
-      : override === undefined
-        ? 'Claude Anthropic API endpoint'
-        : 'Claude Anthropic base URL override';
+  const targetLabel = claudeTargetLabel(invocation, override);
   const hasDeclaredOutputs =
     invocation.outputs !== undefined && Object.keys(invocation.outputs).length > 0;
   const useOutputTools = hasDeclaredOutputs;
@@ -406,6 +372,43 @@ async function runClaudeAgent(invocation: HarnessInvocation): Promise<HarnessRes
     claudeQuery?.close();
     if (configDir !== undefined) await cleanupClaudeConfigDir(configDir);
   }
+}
+
+function assertClaudeInvocation(
+  invocation: HarnessInvocation,
+): asserts invocation is HarnessInvocation & {agentStateDir: string} {
+  if (invocation.signal.aborted) {
+    throw new Error('Agent step aborted before the Claude session started');
+  }
+  if (invocation.agentStateDir === undefined) throw new Error('Agent state directory is required');
+  const claudeBlock = invocation.claude;
+  if (claudeBlock !== undefined && !claudeRuntimeConfigSchema.safeParse(claudeBlock).success) {
+    throw new AgentConfigError(
+      'Harness "claude" received a malformed per-step claude runtime block.',
+      'step_config_invalid',
+    );
+  }
+  if (invocation.provider !== 'anthropic' && claudeBlock === undefined) {
+    const reason = isReservedModelProviderId(invocation.provider)
+      ? `Harness "claude" only supports provider "anthropic"; received "${invocation.provider}".`
+      : `Harness "claude" requires the server-issued per-step claude runtime block for provider "${invocation.provider}"; the block was not present in this invocation.`;
+    throw new AgentConfigError(reason, 'provider_unsupported');
+  }
+  if (invocation.customProvider !== undefined) {
+    throw new AgentConfigError(
+      'Harness "claude" does not support custom model providers.',
+      'provider_unsupported',
+    );
+  }
+}
+
+function claudeTargetLabel(
+  invocation: HarnessInvocation,
+  override: ClaudeAnthropicOverride | undefined,
+): string {
+  if (invocation.claude !== undefined) return 'Claude Anthropic per-step endpoint';
+  if (override === undefined) return 'Claude Anthropic API endpoint';
+  return 'Claude Anthropic base URL override';
 }
 
 function claudeMcpServers(

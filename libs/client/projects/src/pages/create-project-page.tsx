@@ -55,7 +55,7 @@ export function CreateProjectPage() {
   const connections = connectionsQuery.data ?? [];
 
   const [selectedConnectionId, setSelectedConnectionId] = useState<string | undefined>();
-  const singleConnectionId = connections.length === 1 ? connections[0]?.id : undefined;
+  const singleConnectionId = onlyConnectionId(connections);
   const effectiveSelectedConnectionId = selectedConnectionId ?? singleConnectionId;
   useEffect(() => {
     if (singleConnectionId && selectedConnectionId !== singleConnectionId) {
@@ -73,7 +73,7 @@ export function CreateProjectPage() {
 
   const repositoriesQuery = useRepositoriesInfiniteQuery(
     effectiveSelectedConnectionId,
-    trimmedFilter ? {search: trimmedFilter} : undefined,
+    repositorySearch(trimmedFilter),
   );
   const repositories = repositoriesQuery.data?.pages.flatMap((page) => page.repositories) ?? [];
 
@@ -89,7 +89,7 @@ export function CreateProjectPage() {
 
   const [nameTouched, setNameTouched] = useState(false);
   const defaultProjectName = projectNameFromRepository(
-    selectedRepository?.name ?? selectedRepositoryId ?? '',
+    selectedRepositoryName(selectedRepository, selectedRepositoryId),
   );
   const defaultProjectSlug = slugifyName(defaultProjectName, {fallback: 'project'});
 
@@ -183,67 +183,68 @@ export function CreateProjectPage() {
       };
       const project = await createProject.mutateAsync(command);
       toast.success('Project created.');
-      if (wasFirstProject) {
-        // The setup checklist panel is the first thing on the home, so the
-        // first project lands where the Get-started guide lives. Seed the
-        // workspace list so the home does not re-render the pre-create empty
-        // state, then fetch the authoritative list: the seeded entry has no
-        // queryFn of its own (no observer mounted it), so refetching it would
-        // fail and a project created concurrently (another tab, import, or
-        // API) would stay hidden for the stale window. Fetching with
-        // staleTime: 0 forces a fresh read that replaces the seed; a failed
-        // fetch is swallowed so the seeded project remains the fallback and
-        // the home never shows a stale empty state.
-        const listQueryKey = projectsInfiniteQueryOptions(workspace.id).queryKey;
-        queryClient.setQueryData<InfiniteData<ProjectList, string | undefined>>(listQueryKey, {
-          pages: [{projects: [project], nextCursor: null}],
-          pageParams: [undefined],
-        });
-        await queryClient
-          .fetchInfiniteQuery({
-            ...projectsInfiniteQueryOptions(workspace.id),
-            staleTime: 0,
-            retry: false,
-          })
-          .catch(() => undefined);
-        await navigate({
-          to: '/w/$workspaceSlug',
-          params: {workspaceSlug: workspace.slug},
-        });
-        return;
-      }
-      await navigate({
-        to: '/w/$workspaceSlug/p/$projectSlug',
-        params: {workspaceSlug: workspace.slug, projectSlug: project.slug},
-      });
+      await navigateAfterProjectCreation(project, wasFirstProject, workspace.id, workspace.slug);
     } catch (error) {
-      const copy = projectErrorCopy(error);
-      if (copy.existingProjectId) {
-        toast.info('Project already exists.');
-        try {
-          const project = await getProject(copy.existingProjectId);
-          await navigate({
-            to: '/w/$workspaceSlug/p/$projectSlug',
-            params: {workspaceSlug: workspace.slug, projectSlug: project.slug},
-          });
-        } catch (recoveryError) {
-          const recoveryCopy = projectErrorCopy(recoveryError);
-          setFormError(`${recoveryCopy.title}: ${recoveryCopy.message}`);
-          requestAnimationFrame(() => errorRef.current?.focus());
-        }
-        return;
-      }
-      if (copy.slugConflict) {
-        setSlugConflict(true);
-        requestAnimationFrame(() => document.getElementById('project-slug')?.focus());
-        return;
-      }
-      setFormError(`${copy.title}: ${copy.message}`);
-      requestAnimationFrame(() => errorRef.current?.focus());
+      await handleProjectCreationError(error, workspace.slug);
     } finally {
       submittingRef.current = false;
       setSubmitting(false);
     }
+  }
+
+  async function navigateAfterProjectCreation(
+    project: Awaited<ReturnType<typeof createProject.mutateAsync>>,
+    wasFirstProject: boolean,
+    workspaceId: string,
+    workspaceSlug: string,
+  ) {
+    if (!wasFirstProject) {
+      await navigate({
+        to: '/w/$workspaceSlug/p/$projectSlug',
+        params: {workspaceSlug, projectSlug: project.slug},
+      });
+      return;
+    }
+    // Seed the first project so the workspace home never flashes its old empty state, then refresh.
+    const listQueryKey = projectsInfiniteQueryOptions(workspaceId).queryKey;
+    queryClient.setQueryData<InfiniteData<ProjectList, string | undefined>>(listQueryKey, {
+      pages: [{projects: [project], nextCursor: null}],
+      pageParams: [undefined],
+    });
+    await queryClient
+      .fetchInfiniteQuery({
+        ...projectsInfiniteQueryOptions(workspaceId),
+        staleTime: 0,
+        retry: false,
+      })
+      .catch(() => undefined);
+    await navigate({to: '/w/$workspaceSlug', params: {workspaceSlug}});
+  }
+
+  async function handleProjectCreationError(error: unknown, workspaceSlug: string) {
+    const copy = projectErrorCopy(error);
+    if (copy.existingProjectId) {
+      toast.info('Project already exists.');
+      try {
+        const project = await getProject(copy.existingProjectId);
+        await navigate({
+          to: '/w/$workspaceSlug/p/$projectSlug',
+          params: {workspaceSlug, projectSlug: project.slug},
+        });
+      } catch (recoveryError) {
+        const recoveryCopy = projectErrorCopy(recoveryError);
+        setFormError(`${recoveryCopy.title}: ${recoveryCopy.message}`);
+        requestAnimationFrame(() => errorRef.current?.focus());
+      }
+      return;
+    }
+    if (copy.slugConflict) {
+      setSlugConflict(true);
+      requestAnimationFrame(() => document.getElementById('project-slug')?.focus());
+      return;
+    }
+    setFormError(`${copy.title}: ${copy.message}`);
+    requestAnimationFrame(() => errorRef.current?.focus());
   }
 
   const showRepoPicker = Boolean(selectedConnection);
@@ -461,6 +462,23 @@ export function CreateProjectPage() {
       </form>
     </div>
   );
+}
+
+function onlyConnectionId(connections: readonly IntegrationConnection[]): string | undefined {
+  if (connections.length !== 1) return undefined;
+  return connections[0]?.id;
+}
+
+function repositorySearch(search: string): {search: string} | undefined {
+  if (!search) return undefined;
+  return {search};
+}
+
+function selectedRepositoryName(
+  repository: {name: string} | undefined,
+  repositoryId: string | undefined,
+): string {
+  return repository?.name ?? repositoryId ?? '';
 }
 
 function ProjectSummary({
