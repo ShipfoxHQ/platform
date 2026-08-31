@@ -47,8 +47,8 @@
     {
       "idx": 6,
       "version": "7",
-      "when": 1788205312759,
-      "tag": "0006_tool_invocation_integrity",
+      "when": 1788209432911,
+      "tag": "0006_tool_invocation_queue",
       "breakpoints": true
     }
   ]

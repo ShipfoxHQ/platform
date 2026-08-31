@@ -1,9 +1,158 @@
 {
-  "id": "50395e85-ca04-46da-a426-71a74e498949",
-  "prevId": "1771436d-36b3-4888-9013-b1b15fa3a303",
+  "id": "57f7115a-e3b9-4e73-870f-2ede341f6a44",
+  "prevId": "2f709c6f-daed-4a26-a930-0613c3313a8e",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
+    "public.workflows_checkout_renewal_subjects": {
+      "name": "workflows_checkout_renewal_subjects",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "uuidv7()"
+        },
+        "step_id": {
+          "name": "step_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "workflow_run_attempt_id": {
+          "name": "workflow_run_attempt_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "attempt": {
+          "name": "attempt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "workflows_checkout_renewal_subject_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "repository_url": {
+          "name": "repository_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "connection_id": {
+          "name": "connection_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "external_repository_id": {
+          "name": "external_repository_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "permissions_contents": {
+          "name": "permissions_contents",
+          "type": "workflows_checkout_contents",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "promoted_at": {
+          "name": "promoted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "workflows_crs_step_id_attempt_uq": {
+          "name": "workflows_crs_step_id_attempt_uq",
+          "columns": [
+            {
+              "expression": "step_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "attempt",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "workflows_crs_workflow_run_attempt_id_idx": {
+          "name": "workflows_crs_workflow_run_attempt_id_idx",
+          "columns": [
+            {
+              "expression": "workflow_run_attempt_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "workflows_checkout_renewal_subjects_step_id_workflows_steps_id_fk": {
+          "name": "workflows_checkout_renewal_subjects_step_id_workflows_steps_id_fk",
+          "tableFrom": "workflows_checkout_renewal_subjects",
+          "tableTo": "workflows_steps",
+          "columnsFrom": ["step_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "workflows_checkout_renewal_subjects_workflow_run_attempt_id_workflows_workflow_run_attempts_id_fk": {
+          "name": "workflows_checkout_renewal_subjects_workflow_run_attempt_id_workflows_workflow_run_attempts_id_fk",
+          "tableFrom": "workflows_checkout_renewal_subjects",
+          "tableTo": "workflows_workflow_run_attempts",
+          "columnsFrom": ["workflow_run_attempt_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "workflows_crs_attempt_positive_ck": {
+          "name": "workflows_crs_attempt_positive_ck",
+          "value": "\"workflows_checkout_renewal_subjects\".\"attempt\" > 0"
+        },
+        "workflows_crs_promoted_at_ck": {
+          "name": "workflows_crs_promoted_at_ck",
+          "value": "(\"workflows_checkout_renewal_subjects\".\"status\" = 'pending' and \"workflows_checkout_renewal_subjects\".\"promoted_at\" is null) or (\"workflows_checkout_renewal_subjects\".\"status\" = 'promoted' and \"workflows_checkout_renewal_subjects\".\"promoted_at\" is not null)"
+        }
+      },
+      "isRLSEnabled": false
+    },
     "public.workflows_job_executions": {
       "name": "workflows_job_executions",
       "schema": "",
@@ -1864,6 +2013,11 @@
     }
   },
   "enums": {
+    "public.workflows_checkout_renewal_subject_status": {
+      "name": "workflows_checkout_renewal_subject_status",
+      "schema": "public",
+      "values": ["pending", "promoted"]
+    },
     "public.workflows_job_execution_status": {
       "name": "workflows_job_execution_status",
       "schema": "public",
