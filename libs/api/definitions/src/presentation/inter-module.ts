@@ -2,15 +2,23 @@ import type {AgentInterModuleClient} from '@shipfox/api-agent-dto/inter-module';
 import {createWorkflowModelSnapshot} from '@shipfox/api-definitions-dto';
 import {definitionsInterModuleContract} from '@shipfox/api-definitions-dto/inter-module';
 import type {IntegrationsModuleClient} from '@shipfox/api-integration-core-dto/inter-module';
-import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
+import {
+  type ProjectsModuleClient,
+  projectsInterModuleContract,
+} from '@shipfox/api-projects-dto/inter-module';
 import {
   createInterModuleKnownError,
   defineInterModulePresentation,
   type InterModuleMethodContract,
   type InterModulePresentation,
+  isInterModuleKnownError,
 } from '@shipfox/inter-module';
+import type {DefinitionSyncState} from '#core/entities/sync-state.js';
+import type {WorkflowDefinition} from '#core/entities/workflow-definition.js';
 import {DefinitionAtRefError, listDefinitionsAtRef, resolveDefinitionAtRef} from '#core/index.js';
-import {getDefinitionById} from '#db/definitions.js';
+import {UNRESOLVED_SYNC_REF} from '#core/sync-definitions.js';
+import {getDefinitionById, listDefinitions} from '#db/definitions.js';
+import {getLatestDefinitionSyncState} from '#db/sync-states.js';
 
 export interface CreateDefinitionsInterModulePresentationParams {
   projects: ProjectsModuleClient;
@@ -37,6 +45,24 @@ export function createDefinitionsInterModulePresentation(
         },
       };
     },
+    listDefinitionsByProject: async ({workspaceId, projectId, limit, cursor}) => {
+      const project = await requireProjectForDefinitionList(
+        {workspaceId, projectId},
+        params.projects,
+      );
+      const result = await listDefinitions({projectId, limit, cursor});
+      const syncState = await getLatestDefinitionSyncState({
+        projectId,
+        sourceConnectionId: project.sourceConnectionId,
+        sourceExternalRepositoryId: project.sourceExternalRepositoryId,
+      });
+
+      return {
+        definitions: result.definitions.map(toDefinitionListItem),
+        sync: toDefinitionSyncSummary(syncState),
+        nextCursor: result.nextCursor,
+      };
+    },
     resolveDefinitionAtRef: async (input, context) => {
       try {
         return await resolveDefinitionAtRef({...input, ...params, signal: context.signal});
@@ -58,6 +84,70 @@ export function createDefinitionsInterModulePresentation(
       }
     },
   });
+}
+
+async function requireProjectForDefinitionList(
+  input: {workspaceId: string; projectId: string},
+  projects: ProjectsModuleClient,
+) {
+  try {
+    return (await projects.requireProjectForWorkspace(input)).project;
+  } catch (error) {
+    const projectMethod = projectsInterModuleContract.methods.requireProjectForWorkspace;
+    if (!isInterModuleKnownError(projectMethod, error)) throw error;
+
+    const method = definitionsInterModuleContract.methods.listDefinitionsByProject;
+    const {code} = error;
+    switch (code) {
+      case 'project-not-found':
+        throw createInterModuleKnownError(method, 'project-not-found', {
+          projectId: input.projectId,
+        });
+      case 'project-workspace-mismatch':
+        throw createInterModuleKnownError(method, 'project-workspace-mismatch', input);
+      default: {
+        const exhaustive: never = code;
+        throw new Error(`Unhandled project access error: ${exhaustive}`);
+      }
+    }
+  }
+}
+
+function toDefinitionListItem(definition: WorkflowDefinition) {
+  const manualTrigger = definition.model.triggers.find((trigger) => trigger.source === 'manual');
+  return {
+    id: definition.id,
+    projectId: definition.projectId,
+    configPath: definition.configPath,
+    source: definition.source,
+    sha: definition.sha,
+    ref: definition.ref,
+    name: definition.name,
+    workflowDocument: definition.document,
+    workflowModel: definition.model,
+    manualTrigger: manualTrigger ? {name: manualTrigger.key} : null,
+    fetchedAt: definition.fetchedAt.toISOString(),
+    createdAt: definition.createdAt.toISOString(),
+    updatedAt: definition.updatedAt.toISOString(),
+  };
+}
+
+function toDefinitionSyncSummary(syncState: DefinitionSyncState | undefined) {
+  if (!syncState) return null;
+
+  return {
+    ref: syncState.ref === UNRESOLVED_SYNC_REF ? null : syncState.ref,
+    status: syncState.status,
+    lastSyncAt: (syncState.finishedAt ?? syncState.updatedAt).toISOString(),
+    startedAt: syncState.startedAt?.toISOString() ?? null,
+    finishedAt: syncState.finishedAt?.toISOString() ?? null,
+    lastErrorCode: syncState.lastErrorCode,
+    lastErrorMessage: syncState.lastErrorMessage,
+    diagnostics: syncState.diagnostics.map(({filePath, ...diagnostic}) => ({
+      ...diagnostic,
+      ...(filePath === undefined ? {} : {filePath}),
+    })),
+  };
 }
 
 function toDefinitionAtRefKnownError(method: InterModuleMethodContract, error: unknown): unknown {

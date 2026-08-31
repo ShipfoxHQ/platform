@@ -5,6 +5,7 @@ import {
   defineInterModulePresentation,
   type InterModulePresentation,
 } from '@shipfox/inter-module';
+import type {Project} from '#core/entities/project.js';
 import {
   findProjectBySourceRepositoryName,
   getProjectById,
@@ -33,7 +34,7 @@ export function createProjectsInterModulePresentation(params: {
         ...(cursor ? {cursor: {createdAt: new Date(cursor.createdAt), id: cursor.id}} : {}),
       });
       return {
-        projects: result.projects,
+        projects: result.projects.map(toProjectCatalogInterModule),
         nextCursor: result.nextCursor
           ? {createdAt: result.nextCursor.createdAt.toISOString(), id: result.nextCursor.id}
           : null,
@@ -122,6 +123,22 @@ export function createProjectsInterModulePresentation(params: {
       return target;
     },
   });
+}
+
+function toProjectCatalogInterModule(project: Project) {
+  return {
+    id: project.id,
+    workspaceId: project.workspaceId,
+    sourceConnectionId: project.sourceConnectionId,
+    sourceExternalRepositoryId: project.sourceExternalRepositoryId,
+    sourceRepositoryOwner: project.sourceRepositoryOwner,
+    sourceRepositoryName: project.sourceRepositoryName,
+    sourceDefaultBranch: project.sourceDefaultBranch,
+    name: project.name,
+    slug: project.slug,
+    createdAt: project.createdAt.toISOString(),
+    updatedAt: project.updatedAt.toISOString(),
+  };
 }
 
 function requestedRepository(

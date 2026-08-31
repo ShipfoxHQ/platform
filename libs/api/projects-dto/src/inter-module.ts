@@ -1,3 +1,4 @@
+import {slugSchema} from '@shipfox/api-common-dto';
 import {defineInterModuleContract, type InterModuleClient} from '@shipfox/inter-module';
 import {z} from 'zod';
 
@@ -11,6 +12,11 @@ const projectSchema = z.object({
   sourceRepositoryName: z.string().min(1).nullable().optional(),
   sourceDefaultBranch: z.string().min(1).nullable().optional(),
   name: z.string(),
+});
+const projectCatalogSchema = projectSchema.extend({
+  slug: slugSchema,
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
 });
 const workspaceProjectCountSchema = z.object({
   workspaceId: idSchema,
@@ -65,7 +71,7 @@ export const projectsInterModuleContract = defineInterModuleContract({
         cursor: projectCursorSchema.optional(),
       }),
       output: z.object({
-        projects: z.array(projectSchema),
+        projects: z.array(projectCatalogSchema),
         nextCursor: projectCursorSchema.nullable(),
       }),
     },

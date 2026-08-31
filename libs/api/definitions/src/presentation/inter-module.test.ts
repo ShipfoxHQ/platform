@@ -1,16 +1,25 @@
 import {definitionsInterModuleContract} from '@shipfox/api-definitions-dto/inter-module';
-import {isInterModuleKnownError} from '@shipfox/inter-module';
+import {projectsInterModuleContract} from '@shipfox/api-projects-dto/inter-module';
+import {createInterModuleKnownError, isInterModuleKnownError} from '@shipfox/inter-module';
 import {DefinitionAtRefError} from '#core/errors.js';
 import {createDefinitionsInterModulePresentation} from './inter-module.js';
 
 const mocks = vi.hoisted(() => ({
   getDefinitionById: vi.fn(),
+  getLatestDefinitionSyncState: vi.fn(),
+  listDefinitions: vi.fn(),
   listDefinitionsAtRef: vi.fn(),
+  requireProjectForWorkspace: vi.fn(),
   resolveDefinitionAtRef: vi.fn(),
 }));
 
 vi.mock('#db/definitions.js', () => ({
   getDefinitionById: mocks.getDefinitionById,
+  listDefinitions: mocks.listDefinitions,
+}));
+
+vi.mock('#db/sync-states.js', () => ({
+  getLatestDefinitionSyncState: mocks.getLatestDefinitionSyncState,
 }));
 
 vi.mock('#core/index.js', async (importOriginal) => {
@@ -29,7 +38,7 @@ const COMMIT = 'a1b2c3d4e5f6a7b8c9d0a1b2c3d4e5f6a7b8c9d0';
 
 function presentation() {
   return createDefinitionsInterModulePresentation({
-    projects: {} as never,
+    projects: {requireProjectForWorkspace: mocks.requireProjectForWorkspace} as never,
     agent: {} as never,
     integrations: {} as never,
   });
@@ -44,6 +53,150 @@ describe('definitions inter-module presentation', () => {
     mocks.resolveDefinitionAtRef.mockReset();
     mocks.listDefinitionsAtRef.mockReset();
     mocks.getDefinitionById.mockReset();
+    mocks.getLatestDefinitionSyncState.mockReset();
+    mocks.listDefinitions.mockReset();
+    mocks.requireProjectForWorkspace.mockReset();
+  });
+
+  it('lists project definitions with the route shape and sync summary', async () => {
+    const workspaceId = '00000000-0000-4000-8000-000000000010';
+    const sourceConnectionId = '00000000-0000-4000-8000-000000000011';
+    const project = {
+      id: PROJECT_ID,
+      workspaceId,
+      sourceConnectionId,
+      sourceExternalRepositoryId: 'github:shipfox/project',
+    };
+    const definition = {
+      id: '00000000-0000-4000-8000-000000000012',
+      workflowId: '00000000-0000-4000-8000-000000000013',
+      projectId: PROJECT_ID,
+      configPath: '.shipfox/workflows/ci.yml',
+      source: 'vcs' as const,
+      sha: 'a1b2c3',
+      ref: 'main',
+      name: 'CI',
+      definition: {name: 'CI'},
+      document: {name: 'CI'},
+      model: {triggers: [{source: 'manual', key: 'run_now'}]},
+      sourceSnapshot: null,
+      contentHash: null,
+      fetchedAt: new Date('2026-08-05T12:00:00.000Z'),
+      createdAt: new Date('2026-08-05T12:01:00.000Z'),
+      updatedAt: new Date('2026-08-05T12:02:00.000Z'),
+      deletedAt: null,
+    };
+    const syncState = {
+      id: '00000000-0000-4000-8000-000000000014',
+      projectId: PROJECT_ID,
+      sourceConnectionId,
+      sourceExternalRepositoryId: project.sourceExternalRepositoryId,
+      ref: 'main',
+      status: 'succeeded' as const,
+      lastErrorCode: null,
+      lastErrorMessage: null,
+      diagnostics: [
+        {
+          code: 'warning-code',
+          message: 'Warning',
+          path: 'jobs.build',
+          filePath: '.shipfox/workflows/ci.yml',
+          severity: 'warning' as const,
+        },
+      ],
+      startedAt: new Date('2026-08-05T11:59:00.000Z'),
+      finishedAt: new Date('2026-08-05T12:03:00.000Z'),
+      createdAt: new Date('2026-08-05T11:59:00.000Z'),
+      updatedAt: new Date('2026-08-05T12:03:00.000Z'),
+    };
+    const cursor = {value: 'AB', id: '00000000-0000-4000-8000-000000000015'};
+    mocks.requireProjectForWorkspace.mockResolvedValue({project});
+    mocks.listDefinitions.mockResolvedValue({definitions: [definition], nextCursor: cursor});
+    mocks.getLatestDefinitionSyncState.mockResolvedValue(syncState);
+
+    const result = await presentation().handlers.listDefinitionsByProject(
+      {workspaceId, projectId: PROJECT_ID, limit: 1, cursor},
+      {signal: new AbortController().signal},
+    );
+
+    expect(mocks.requireProjectForWorkspace).toHaveBeenCalledWith({
+      workspaceId,
+      projectId: PROJECT_ID,
+    });
+    expect(mocks.listDefinitions).toHaveBeenCalledWith({
+      projectId: PROJECT_ID,
+      limit: 1,
+      cursor,
+    });
+    expect(mocks.getLatestDefinitionSyncState).toHaveBeenCalledWith({
+      projectId: PROJECT_ID,
+      sourceConnectionId,
+      sourceExternalRepositoryId: project.sourceExternalRepositoryId,
+    });
+    expect(
+      definitionsInterModuleContract.methods.listDefinitionsByProject.output.parse(result),
+    ).toEqual({
+      definitions: [
+        {
+          id: definition.id,
+          projectId: definition.projectId,
+          configPath: definition.configPath,
+          source: definition.source,
+          sha: definition.sha,
+          ref: definition.ref,
+          name: definition.name,
+          workflowDocument: definition.document,
+          workflowModel: definition.model,
+          manualTrigger: {name: 'run_now'},
+          fetchedAt: definition.fetchedAt.toISOString(),
+          createdAt: definition.createdAt.toISOString(),
+          updatedAt: definition.updatedAt.toISOString(),
+        },
+      ],
+      sync: {
+        ref: 'main',
+        status: 'succeeded',
+        lastSyncAt: syncState.finishedAt.toISOString(),
+        startedAt: syncState.startedAt.toISOString(),
+        finishedAt: syncState.finishedAt.toISOString(),
+        lastErrorCode: null,
+        lastErrorMessage: null,
+        diagnostics: [
+          {
+            code: 'warning-code',
+            message: 'Warning',
+            path: 'jobs.build',
+            filePath: '.shipfox/workflows/ci.yml',
+            severity: 'warning',
+          },
+        ],
+      },
+      nextCursor: cursor,
+    });
+  });
+
+  it('denies a project from another workspace before reading definitions', async () => {
+    const workspaceId = '00000000-0000-4000-8000-000000000010';
+    mocks.requireProjectForWorkspace.mockRejectedValue(
+      createInterModuleKnownError(
+        projectsInterModuleContract.methods.requireProjectForWorkspace,
+        'project-workspace-mismatch',
+        {projectId: PROJECT_ID, workspaceId},
+      ),
+    );
+
+    const error = await rejection(
+      presentation().handlers.listDefinitionsByProject(
+        {workspaceId, projectId: PROJECT_ID, limit: 50},
+        {signal: new AbortController().signal},
+      ),
+    );
+
+    const method = definitionsInterModuleContract.methods.listDefinitionsByProject;
+    expect(isInterModuleKnownError(method, error)).toBe(true);
+    expect((error as {code: string}).code).toBe('project-workspace-mismatch');
+    expect(mocks.listDefinitions).not.toHaveBeenCalled();
+    expect(mocks.getLatestDefinitionSyncState).not.toHaveBeenCalled();
   });
 
   it('resolves a definition at a ref through the core method', async () => {

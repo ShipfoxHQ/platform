@@ -22,6 +22,7 @@ import {db, migrationsPath, triggersOutbox} from '#db/index.js';
 import {registerTriggersServiceMetrics} from '#metrics/index.js';
 import {triggersE2eRoutes} from '#presentation/e2e-routes.js';
 import {createTriggerRoutes} from '#presentation/index.js';
+import {createTriggersInterModulePresentation} from '#presentation/inter-module.js';
 import {
   createOnIntegrationEventReceived,
   onDefinitionDeleted,
@@ -96,6 +97,7 @@ export function createTriggersModule({
     routes: createTriggerRoutes(workflows, definitions, projects),
     e2eRoutes: [triggersE2eRoutes],
     metrics: registerTriggersServiceMetrics,
+    interModulePresentations: [createTriggersInterModulePresentation()],
     publishers: [{name: 'triggers', table: triggersOutbox, db}],
     subscribers: [
       subscriber(DEFINITION_RESOLVED, onDefinitionResolved),
