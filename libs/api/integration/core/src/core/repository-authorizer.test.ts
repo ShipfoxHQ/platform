@@ -9,6 +9,16 @@ import {
   resolveRepositoryAuthorization,
 } from './repository-authorizer.js';
 
+const mocks = vi.hoisted(() => ({
+  loggerError: vi.fn(),
+  reportError: vi.fn(() => 'event-id'),
+}));
+
+vi.mock('@shipfox/node-error-monitoring', () => ({reportError: mocks.reportError}));
+vi.mock('@shipfox/node-opentelemetry', () => ({
+  logger: () => ({error: mocks.loggerError}),
+}));
+
 const workspaceId = 'workspace-1';
 const connectionId = 'connection-1';
 
@@ -40,6 +50,12 @@ function selectedInput(
 }
 
 describe('repository authorization', () => {
+  beforeEach(() => {
+    mocks.loggerError.mockReset();
+    mocks.reportError.mockReset();
+    mocks.reportError.mockReturnValue('event-id');
+  });
+
   it('authorizes an exact external-id project match and returns stored metadata', async () => {
     const projects = createProjects({
       getProjectBySource: vi.fn().mockResolvedValue({
@@ -369,6 +385,30 @@ describe('repository authorization', () => {
         ...selectedInput({kind: 'external-id', externalRepositoryId: 'github:42'}),
       }),
     ).rejects.toBe(cancellation);
+  });
+
+  it('rate-limits store failure reports while allowing retries', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.advanceTimersByTime(60_001);
+      const getProjectBySource = vi
+        .fn()
+        .mockRejectedValueOnce(new Error('database unavailable'))
+        .mockRejectedValueOnce(new Error('database unavailable'))
+        .mockRejectedValueOnce(new Error('database unavailable'));
+      const projects = createProjects({getProjectBySource});
+      const input = selectedInput({kind: 'external-id', externalRepositoryId: 'github:42'});
+
+      await resolveRepositoryAuthorization({projects, ...input});
+      await resolveRepositoryAuthorization({projects, ...input});
+      expect(mocks.reportError).toHaveBeenCalledOnce();
+
+      vi.advanceTimersByTime(60_000);
+      await resolveRepositoryAuthorization({projects, ...input});
+      expect(mocks.reportError).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('runs the provider-free authorizer when the integration gate is enabled', async () => {

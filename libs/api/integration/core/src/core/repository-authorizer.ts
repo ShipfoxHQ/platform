@@ -6,6 +6,9 @@ import {RepositoryAuthorizerConfigurationError} from './errors.js';
 
 const REPOSITORY_PART_UNSAFE_PATTERN = /[\s/:\\]/u;
 const EXTERNAL_REPOSITORY_VALUE_UNSAFE_PATTERN = /\s/u;
+// Keep every outage retryable while bounding the Sentry volume process-wide.
+const REPOSITORY_AUTHORIZATION_REPORT_INTERVAL_MS = 60_000;
+let lastRepositoryAuthorizationReportAt = Number.NEGATIVE_INFINITY;
 
 export type RepositoryAuthorizationMode = 'selected' | 'all';
 export type RepositoryAuthorizationCapability = 'checkout' | 'tools';
@@ -225,11 +228,15 @@ function storeUnavailable(
 ): RepositoryAuthorizationResult {
   if (isCancellationError(error)) throw error;
   logger().error({err: error, targetKind}, 'Repository authorization lookup failed');
-  reportError(error, {
-    boundary: 'integration.repository-authorization',
-    operation: 'resolve-selected',
-    tags: {target: targetKind},
-  });
+  const now = Date.now();
+  if (now - lastRepositoryAuthorizationReportAt >= REPOSITORY_AUTHORIZATION_REPORT_INTERVAL_MS) {
+    const eventId = reportError(error, {
+      boundary: 'integration.repository-authorization',
+      operation: 'resolve-selected',
+      tags: {target: targetKind},
+    });
+    if (eventId) lastRepositoryAuthorizationReportAt = now;
+  }
   return deny('authorization_store_unavailable');
 }
 
