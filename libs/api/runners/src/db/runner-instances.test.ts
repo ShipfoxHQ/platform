@@ -2249,6 +2249,52 @@ describe('listProvisionerTerminateIntents', () => {
     ]);
   });
 
+  it('marks activation-timeout retries for warm runners without releasing demand capacity', async () => {
+    await createRunnerInstance({
+      providerRunnerId: 'retryable-warm-runner',
+      launchKind: 'warm',
+      createdAt: new Date(Date.now() - 301_000),
+    });
+
+    const authorize =
+      (tx: Parameters<typeof authorizeRunnerTerminationTx>[0]) =>
+      async ({providerRunnerId, reason}: {providerRunnerId: string; reason: string}) => {
+        const authorization = await authorizeRunnerTerminationTx(tx, {
+          provisionerId,
+          providerRunnerId,
+          reason,
+        });
+        return authorization.desiredIntent === 'terminate';
+      };
+    const first = await db().transaction((tx) =>
+      listProvisionerTerminateIntentRowsTx(
+        tx,
+        {workspaceId, provisionerId, limit: 1000},
+        {authorize: authorize(tx)},
+      ),
+    );
+    const second = await db().transaction((tx) =>
+      listProvisionerTerminateIntentRowsTx(
+        tx,
+        {workspaceId, provisionerId, limit: 1000},
+        {authorize: authorize(tx)},
+      ),
+    );
+    const [runner] = await providerRunnerRowsFor({workspaceId, provisionerId});
+
+    expect(first).toEqual([
+      {providerRunnerId: 'retryable-warm-runner', reason: 'activation-timeout'},
+    ]);
+    expect(second).toEqual([
+      {
+        providerRunnerId: 'retryable-warm-runner',
+        reason: 'activation-timeout',
+        activationTimeoutRetry: true,
+      },
+    ]);
+    expect(runner?.reservationReleasedAt).toBeNull();
+  });
+
   it('excludes active provisioned runners whose latest bound job is healthy', async () => {
     await createRunnerInstance({providerRunnerId: 'provisioned-runner-1'});
     await insertRunningJobRow({

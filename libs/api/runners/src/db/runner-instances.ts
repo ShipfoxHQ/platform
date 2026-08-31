@@ -742,7 +742,7 @@ export async function countStaleEnrolledRunnerInstances(params: {
     .from(providerRunners)
     .where(
       and(
-    inArray(providerRunners.state, ['starting', 'running']),
+        inArray(providerRunners.state, ['starting', 'running']),
         isNull(providerRunners.workspaceId),
         isNull(providerRunners.runnerSessionId),
         lt(providerRunners.reportedAt, staleRunnerInstanceCutoff(params.graceSeconds)),
@@ -954,8 +954,9 @@ export async function listProvisionerTerminationAuthorizationsTx(
     .select({
       providerRunnerId: providerRunners.providerRunnerId,
       terminationReason: providerRunners.terminationReason,
-      // A durable authorization has no separate delivery marker. The
-      // provisioner can repeat it until the runner reports termination.
+      // The compatibility query owns the first-delivery/retry signal. Keep
+      // this false so an authorization created in the same transaction stays
+      // a first delivery; later polls merge the compatibility marker.
       activationTimeoutRetry: sql<boolean>`false`,
     })
     .from(providerRunners)
@@ -1124,7 +1125,14 @@ function provisionerTerminateIntentsQuery(
   return tx
     .select({
       providerRunnerId: providerRunners.providerRunnerId,
-      activationTimeoutRetry: sql<boolean>`${providerRunners.reservationReleasedAt} is not null`,
+      activationTimeoutRetry: sql<boolean>`
+        ${providerRunners.reservationReleasedAt} is not null
+        or (
+          ${providerRunners.launchKind} = 'warm'
+          and ${providerRunners.terminationAuthorizedAt} is not null
+          and ${providerRunners.terminationReason} = 'activation-timeout'
+        )
+      `,
       reason: sql<RunnerInstanceTerminateIntentReason>`case
         when ${activationTimeout} then 'activation-timeout'
         else 'job-cancelled'
@@ -1542,19 +1550,20 @@ async function authorizeActivationTimeoutsTx(
       .limit(1)
       .for('update');
     if (!runner?.providerRunnerId) continue;
+    const providerRunnerId = runner.providerRunnerId;
 
     let revocationCounts: RunnerEnrollmentRevocationCounts | null = null;
     const authorization = await persistRunnerTerminationAuthorizationTx(
       tx,
       {
         provisionerId: params.provisionerId,
-        providerRunnerId: runner.providerRunnerId,
+        providerRunnerId,
         reason: 'activation-timeout',
         lockAlreadyHeld: true,
         resolveTerminationReason: (reason) =>
           terminationReasonResolver({
             provisionerId: params.provisionerId,
-            providerRunnerId: runner.providerRunnerId,
+            providerRunnerId,
             reason,
           }),
       },
@@ -1564,7 +1573,7 @@ async function authorizeActivationTimeoutsTx(
     );
     if (authorization.telemetry || revocationCounts)
       onTelemetry({
-        providerRunnerId: runner.providerRunnerId,
+        providerRunnerId,
         reason: 'activation-timeout',
         telemetry: authorization.telemetry,
         revocationCounts,
@@ -1692,14 +1701,31 @@ async function authorizeExhaustedEphemeralSessionsTx(
         revocationCounts = counts;
       },
     );
-    if (authorization.telemetry || revocationCounts)
-      telemetry.push({
-        providerRunnerId,
-        reason: 'session-exhausted',
-        telemetry: authorization.telemetry,
-        revocationCounts,
-      });
+    appendTerminationAuthorizationTelemetry(telemetry, {
+      providerRunnerId,
+      reason: 'session-exhausted',
+      authorization,
+      revocationCounts,
+    });
   }
+}
+
+function appendTerminationAuthorizationTelemetry(
+  telemetry: TerminationAuthorizationTelemetryRecord[],
+  params: {
+    providerRunnerId: string;
+    reason: string;
+    authorization: TerminationAuthorizationTxResult;
+    revocationCounts: RunnerEnrollmentRevocationCounts | null;
+  },
+): void {
+  if (!params.authorization.telemetry && !params.revocationCounts) return;
+  telemetry.push({
+    providerRunnerId: params.providerRunnerId,
+    reason: params.reason,
+    telemetry: params.authorization.telemetry,
+    revocationCounts: params.revocationCounts,
+  });
 }
 
 async function lockRunnerActivationAdvisoryKeyTx(tx: Tx, runnerInstanceId: string): Promise<void> {
