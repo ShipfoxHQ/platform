@@ -4,6 +4,7 @@ const TRAILING_SLASHES_RE = /\/+$/;
 const TERMINAL_GIT_SUFFIX_RE = /\.git$/u;
 const QUERY_FRAGMENT_RE = /[?#].*$/u;
 const SCP_LIKE_RE = /^(?:(?<user>[^@:/]+)@)?(?<host>[^:/]+):(?<path>.+)$/u;
+const SCP_CREDENTIALS_RE = /^[^@/:]+:[^@]*@[^/:]+(?::.*)?$/u;
 const DEFAULT_PORTS = new Map([
   ['http:', '80'],
   ['https:', '443'],
@@ -70,12 +71,15 @@ function hasScpEmbeddedCredentials(value: string): boolean {
   const firstAt = value.indexOf('@');
   const firstColon = value.indexOf(':');
   const firstSlash = value.indexOf('/');
-  return firstColon !== -1 && firstAt > firstColon && (firstSlash === -1 || firstAt < firstSlash);
+  return (
+    SCP_CREDENTIALS_RE.test(value) ||
+    (firstColon !== -1 && firstAt > firstColon && (firstSlash === -1 || firstAt < firstSlash))
+  );
 }
 
 function normalizeRepositoryPath(pathname: string): string {
   const withoutTrailingSlash = pathname.replace(TRAILING_SLASHES_RE, '') || '/';
   if (withoutTrailingSlash === '/') return withoutTrailingSlash;
   const withoutGitSuffix = withoutTrailingSlash.replace(TERMINAL_GIT_SUFFIX_RE, '');
-  return withoutGitSuffix || '/';
+  return withoutGitSuffix.replace(TRAILING_SLASHES_RE, '') || '/';
 }

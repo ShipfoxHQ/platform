@@ -110,10 +110,16 @@ describe('checkout renewal subjects', () => {
       'https://github.com/acme/repo',
     );
     expect(normalizeRepositoryUrl('git@GITHUB.COM:acme/repo')).toBe('git@github.com:acme/repo');
+    expect(normalizeRepositoryUrl('https://github.com/owner/.git')).toBe(
+      'https://github.com/owner',
+    );
     expect(() => normalizeRepositoryUrl('https://user:secret@github.com/acme/repo')).toThrow(
       CheckoutRepositoryUrlInvalidError,
     );
     expect(() => normalizeRepositoryUrl('user:secret@github.com:acme/repo')).toThrow(
+      CheckoutRepositoryUrlInvalidError,
+    );
+    expect(() => normalizeRepositoryUrl('user:secret/withslash@github.com:acme/repo')).toThrow(
       CheckoutRepositoryUrlInvalidError,
     );
     expect(() => normalizeRepositoryUrl('not-a-repository-url')).toThrow(
@@ -128,6 +134,7 @@ describe('checkout renewal subjects', () => {
     const second = {...first, repositoryUrl: 'https://github.com/changed/repo.git'};
 
     expect(await savePendingCheckoutRenewalSubject(first)).toBe(true);
+    expect(await savePendingCheckoutRenewalSubject({...first})).toBe(true);
     expect(await savePendingCheckoutRenewalSubject(second)).toBe(false);
     expect(await loadCheckoutRenewalSubject(fixture.step.id)).toBeNull();
 

@@ -72,7 +72,33 @@ export async function savePendingCheckoutRenewalSubject(
       target: [checkoutRenewalSubjects.stepId, checkoutRenewalSubjects.attempt],
     })
     .returning({id: checkoutRenewalSubjects.id});
-  return inserted.length > 0;
+  if (inserted.length > 0) return true;
+
+  const [existing] = await transaction
+    .select({
+      workflowRunAttemptId: checkoutRenewalSubjects.workflowRunAttemptId,
+      repositoryUrl: checkoutRenewalSubjects.repositoryUrl,
+      connectionId: checkoutRenewalSubjects.connectionId,
+      externalRepositoryId: checkoutRenewalSubjects.externalRepositoryId,
+      permissionsContents: checkoutRenewalSubjects.permissionsContents,
+      status: checkoutRenewalSubjects.status,
+    })
+    .from(checkoutRenewalSubjects)
+    .where(
+      and(
+        eq(checkoutRenewalSubjects.stepId, params.stepId),
+        eq(checkoutRenewalSubjects.attempt, params.attempt),
+      ),
+    )
+    .limit(1);
+  return (
+    existing?.status === 'pending' &&
+    existing.workflowRunAttemptId === params.workflowRunAttemptId &&
+    existing.repositoryUrl === repositoryUrl &&
+    existing.connectionId === params.connectionId &&
+    existing.externalRepositoryId === params.externalRepositoryId &&
+    existing.permissionsContents === params.permissions.contents
+  );
 }
 
 /** Promotes a subject only when its exact step attempt completed successfully. */
