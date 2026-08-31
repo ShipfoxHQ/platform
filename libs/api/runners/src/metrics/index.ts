@@ -33,6 +33,7 @@ export {
   recordProviderRunnerControlSessionToAssignment,
   recordProviderRunnerCreatedToControlSession,
   recordRunnerActivationTokenNotIssued,
+  recordRunnerEnrollmentCredentialRevocations,
   recordRunnerEnrollmentCredentialRevoked,
   recordRunnerJobCleanupGraceAge,
   recordRunnerReservationCapacityFailure,

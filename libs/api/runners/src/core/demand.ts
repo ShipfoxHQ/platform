@@ -22,7 +22,7 @@ import {
   providerRunnerCountDivergenceCount,
   providerRunnerTerminateIntentIssuedCount,
   recordProviderRunnerActivationOutcome,
-  recordRunnerEnrollmentCredentialRevoked,
+  recordRunnerEnrollmentCredentialRevocations,
 } from '#metrics/instance.js';
 import {
   authorizeRunnerTerminationTx,
@@ -203,7 +203,10 @@ export async function pollDemand(params: PollDemandParams): Promise<PollDemandRe
         terminationAuthorizationTelemetry,
       };
     });
-    recordEnrollmentCredentialRevocations(revocationCounts);
+    recordRunnerEnrollmentCredentialRevocations({
+      counts: revocationCounts,
+      message: 'Revoked runner enrollment credentials after termination authorization',
+    });
     for (const {providerRunnerId, telemetry} of transactionResult.terminationAuthorizationTelemetry)
       recordRunnerTerminationAuthorizationTelemetry(
         {
@@ -248,30 +251,6 @@ export async function pollDemand(params: PollDemandParams): Promise<PollDemandRe
       throw error;
     }
     interval = nextBackoffInterval(interval);
-  }
-}
-
-function recordEnrollmentCredentialRevocations(
-  counts: readonly RunnerEnrollmentRevocationCounts[],
-): void {
-  for (const count of counts) {
-    recordRunnerEnrollmentCredentialRevoked({
-      credential: 'activation-token',
-      count: count.revokedActivationTokenCount,
-    });
-    recordRunnerEnrollmentCredentialRevoked({
-      credential: 'control-session',
-      count: count.closedControlSessionCount,
-    });
-    if (count.revokedActivationTokenCount > 0 || count.closedControlSessionCount > 0)
-      logger().info(
-        {
-          runnerInstanceId: count.runnerInstanceId,
-          revokedActivationTokenCount: count.revokedActivationTokenCount,
-          closedControlSessionCount: count.closedControlSessionCount,
-        },
-        'Revoked runner enrollment credentials after termination authorization',
-      );
   }
 }
 

@@ -232,6 +232,7 @@ describe('pollDemand', () => {
       providerRunnerActivationOutcomeCount: {add: vi.fn()},
       providerRunnerCountDivergenceCount: {add: vi.fn()},
       providerRunnerTerminateIntentIssuedCount: {add: vi.fn()},
+      recordRunnerEnrollmentCredentialRevocations: vi.fn(),
     }));
     const random = vi.spyOn(Math, 'random').mockReturnValue(0);
 
@@ -403,6 +404,7 @@ describe('pollDemand', () => {
     vi.doMock('#metrics/instance.js', () => ({
       providerRunnerCountDivergenceCount: {add: divergenceAdd},
       providerRunnerTerminateIntentIssuedCount: {add: vi.fn()},
+      recordRunnerEnrollmentCredentialRevocations: vi.fn(),
     }));
 
     try {

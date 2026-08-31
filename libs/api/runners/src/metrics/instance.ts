@@ -293,6 +293,35 @@ export function recordRunnerEnrollmentCredentialRevoked(params: {
   );
 }
 
+export function recordRunnerEnrollmentCredentialRevocations(params: {
+  counts: readonly {
+    runnerInstanceId: string;
+    revokedActivationTokenCount: number;
+    closedControlSessionCount: number;
+  }[];
+  message: string;
+}): void {
+  for (const count of params.counts) {
+    recordRunnerEnrollmentCredentialRevoked({
+      credential: 'activation-token',
+      count: count.revokedActivationTokenCount,
+    });
+    recordRunnerEnrollmentCredentialRevoked({
+      credential: 'control-session',
+      count: count.closedControlSessionCount,
+    });
+    if (count.revokedActivationTokenCount > 0 || count.closedControlSessionCount > 0)
+      logger().info(
+        {
+          runnerInstanceId: count.runnerInstanceId,
+          revokedActivationTokenCount: count.revokedActivationTokenCount,
+          closedControlSessionCount: count.closedControlSessionCount,
+        },
+        params.message,
+      );
+  }
+}
+
 export type RunnerReservationReleaseSurface = 'first-claim' | 'terminal-report' | 'reconcile';
 
 export const reservationReleasedCount = meter.createCounter<{

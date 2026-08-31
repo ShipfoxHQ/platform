@@ -24,7 +24,7 @@ import type {
 } from '#core/entities/runner-instance.js';
 import {sanitizeRunnerLabels} from '#core/runner-labels.js';
 import {
-  recordRunnerEnrollmentCredentialRevoked,
+  recordRunnerEnrollmentCredentialRevocations,
   recordRunnerReservationCapacityFailure,
 } from '#metrics/index.js';
 import type {RunnerTerminationAuthorizationRejectionReason} from '#metrics/instance.js';
@@ -99,28 +99,11 @@ export async function persistRunnerTerminationAuthorization(
       revocationCounts = counts;
     }),
   );
-  if (revocationCounts) {
-    recordRunnerEnrollmentCredentialRevoked({
-      credential: 'activation-token',
-      count: revocationCounts.revokedActivationTokenCount,
+  if (revocationCounts)
+    recordRunnerEnrollmentCredentialRevocations({
+      counts: [revocationCounts],
+      message: 'Revoked runner enrollment credentials after termination authorization',
     });
-    recordRunnerEnrollmentCredentialRevoked({
-      credential: 'control-session',
-      count: revocationCounts.closedControlSessionCount,
-    });
-    if (
-      revocationCounts.revokedActivationTokenCount > 0 ||
-      revocationCounts.closedControlSessionCount > 0
-    )
-      logger().info(
-        {
-          runnerInstanceId: revocationCounts.runnerInstanceId,
-          revokedActivationTokenCount: revocationCounts.revokedActivationTokenCount,
-          closedControlSessionCount: revocationCounts.closedControlSessionCount,
-        },
-        'Revoked runner enrollment credentials after termination authorization',
-      );
-  }
   return result;
 }
 
@@ -1483,6 +1466,7 @@ export interface RecoverStaleIdleRunnerSessionsParams {
   provisionerActiveWindowSeconds: number;
   limit: number;
   onRevocation?: (counts: RunnerEnrollmentRevocationCounts) => void;
+  onRecovery?: () => void;
   authorize: (params: {
     tx: Tx;
     provisionerId: string;
@@ -1571,6 +1555,7 @@ export async function recoverStaleIdleRunnerSessions(
     if (recoveredCandidate) {
       recovered += 1;
       for (const counts of revocationCounts) params.onRevocation?.(counts);
+      params.onRecovery?.();
     }
   }
 

@@ -5,12 +5,13 @@ const mocks = vi.hoisted(() => ({
   detectAndExpireStuckJobsActivity: vi.fn(),
   reapStaleRunnerInstancesActivity: vi.fn(),
   recoverStaleIdleRunnerSessionsActivity: vi.fn(),
+  patched: vi.fn(() => true),
   info: vi.fn(),
   warn: vi.fn(),
 }));
 
 vi.mock('@temporalio/workflow', () => ({
-  patched: vi.fn(() => true),
+  patched: mocks.patched,
   log: {
     info: mocks.info,
     warn: mocks.warn,
@@ -58,6 +59,16 @@ describe('stuckJobDetector', () => {
       'Stuck-job detector recovered stale idle runner sessions',
       {recovered: 2},
     );
+  });
+
+  it('skips recovery when the workflow patch is not enabled', async () => {
+    const {stuckJobDetector} = await import('./stuck-job-detector.js');
+    mocks.patched.mockReturnValueOnce(false);
+
+    await stuckJobDetector();
+
+    expect(mocks.recoverStaleIdleRunnerSessionsActivity).not.toHaveBeenCalled();
+    expect(mocks.reapStaleRunnerInstancesActivity).toHaveBeenCalledWith();
   });
 
   it('runs expired session GC before stuck job expiry and logs deletions', async () => {
