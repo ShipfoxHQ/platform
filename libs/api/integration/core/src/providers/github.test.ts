@@ -36,11 +36,7 @@ describe('githubProviderModule', () => {
     const cachedEnvelope = '{"token":"ghs_cached"}';
     const getSecret = vi.fn();
     getSecret.mockResolvedValueOnce(cachedEnvelope).mockResolvedValueOnce(undefined);
-    const storedValues: Record<string, string> = {};
-    const setSecrets = vi.fn(({values}: {values: Record<string, string>}) => {
-      Object.assign(storedValues, values);
-      return Promise.resolve();
-    });
+    const setSecrets = vi.fn(() => Promise.resolve());
     const deleteSecrets = vi.fn(() => Promise.resolve(0));
 
     await githubProviderModule.load({
@@ -80,9 +76,6 @@ describe('githubProviderModule', () => {
       workspaceId,
       namespace,
       key: GITHUB_INSTALLATION_TOKEN_ENVELOPE_KEY,
-    });
-    expect(storedValues).toEqual({
-      [GITHUB_INSTALLATION_TOKEN_ENVELOPE_KEY]: encodeInstallationTokenEnvelope(envelope),
     });
     expect(setSecrets).toHaveBeenCalledWith({
       workspaceId,
