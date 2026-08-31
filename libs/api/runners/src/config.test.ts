@@ -247,6 +247,17 @@ describe('RUNNER_STALE_SESSION_THRESHOLD_SECONDS validation', () => {
 
     expect(config.RUNNER_STALE_SESSION_THRESHOLD_SECONDS).toBe(600);
   });
+
+  it.each([
+    ['10', '10'],
+    ['9', '10'],
+  ])('fails startup when RUNNER_STALE_SESSION_THRESHOLD_SECONDS=%s and RUNNER_SESSION_LIVENESS_THROTTLE_SECONDS=%s', async (thresholdSeconds, throttleSeconds) => {
+    vi.stubEnv('RUNNER_STALE_SESSION_THRESHOLD_SECONDS', thresholdSeconds);
+    vi.stubEnv('RUNNER_SESSION_LIVENESS_THROTTLE_SECONDS', throttleSeconds);
+    vi.resetModules();
+
+    await expect(import('#config.js')).rejects.toThrow('RUNNER_STALE_SESSION_THRESHOLD_SECONDS');
+  });
 });
 
 describe('RUNNER_STALE_PROVISIONED_RUNNER_THRESHOLD_SECONDS validation', () => {
