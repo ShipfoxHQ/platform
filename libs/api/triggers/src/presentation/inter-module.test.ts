@@ -208,6 +208,25 @@ describe('triggers inter-module presentation', () => {
     ).toBe(true);
   });
 
+  it('maps a missing event to not-found without loading related records', async () => {
+    const eventId = '00000000-0000-4000-8000-000000000020';
+    mocks.getTriggerEventById.mockResolvedValue(undefined);
+
+    const error = await rejection(
+      presentation().handlers.getTriggerEvent(
+        {workspaceId: WORKSPACE_ID, eventId},
+        {signal: new AbortController().signal},
+      ),
+    );
+
+    const method = triggersInterModuleContract.methods.getTriggerEvent;
+    expect(isInterModuleKnownError(method, error)).toBe(true);
+    expect((error as {code: string}).code).toBe('trigger-event-not-found');
+    expect((error as {details: unknown}).details).toEqual({eventId});
+    expect(mocks.listDecisionsByReceivedEventId).not.toHaveBeenCalled();
+    expect(mocks.listReplaysOfTriggerEvent).not.toHaveBeenCalled();
+  });
+
   it('returns event details with decisions and replays', async () => {
     const item = event();
     const decision: TriggerDecision = {
@@ -266,6 +285,23 @@ describe('triggers inter-module presentation', () => {
     });
   });
 
+  it('returns empty decisions and replays for an event without related records', async () => {
+    const item = event({origin: 'cron', source: 'cron', event: 'scheduled'});
+    mocks.getTriggerEventById.mockResolvedValue(item);
+    mocks.listDecisionsByReceivedEventId.mockResolvedValue([]);
+    mocks.listReplaysOfTriggerEvent.mockResolvedValue([]);
+
+    const result = await presentation().handlers.getTriggerEvent(
+      {workspaceId: WORKSPACE_ID, eventId: item.id},
+      {signal: new AbortController().signal},
+    );
+
+    expect(triggersInterModuleContract.methods.getTriggerEvent.output.parse(result)).toMatchObject({
+      decisions: [],
+      replays: [],
+    });
+  });
+
   it('uses one not-found error for an event outside the requested workspace', async () => {
     const item = event({workspaceId: '00000000-0000-4000-8000-000000000020'});
     mocks.getTriggerEventById.mockResolvedValue(item);
@@ -299,6 +335,20 @@ describe('triggers inter-module presentation', () => {
     );
 
     expect(mocks.listTriggerEventFacets).toHaveBeenCalledWith({workspaceId: WORKSPACE_ID});
+    expect(triggersInterModuleContract.methods.getTriggerEventFacets.output.parse(result)).toEqual(
+      facets,
+    );
+  });
+
+  it('returns empty facet counts for a workspace without events', async () => {
+    const facets = {sources: [], events: [], origins: []};
+    mocks.listTriggerEventFacets.mockResolvedValue(facets);
+
+    const result = await presentation().handlers.getTriggerEventFacets(
+      {workspaceId: WORKSPACE_ID},
+      {signal: new AbortController().signal},
+    );
+
     expect(triggersInterModuleContract.methods.getTriggerEventFacets.output.parse(result)).toEqual(
       facets,
     );
