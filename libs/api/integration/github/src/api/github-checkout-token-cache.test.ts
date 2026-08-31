@@ -306,7 +306,7 @@ describe('GithubCheckoutTokenCache', () => {
     ).rejects.toMatchObject({reason: 'timeout'});
   });
 
-  it('does not repopulate an installation after deleting a timed-out mint', async () => {
+  it('does not wait for or repopulate an installation after deleting a timed-out mint', async () => {
     const store = createStore();
     let resolveMint: (value: {token: string; expiresAt: Date}) => void = () => undefined;
     const lateMint = new Promise<{token: string; expiresAt: Date}>((resolve) => {
@@ -318,10 +318,51 @@ describe('GithubCheckoutTokenCache', () => {
       reason: 'timeout',
     });
     const deletion = shared.deleteInstallation('workspace-a', 'provider-a', 11);
-    resolveMint(token('late-token'));
 
     await expect(deletion).resolves.toBe(1);
     expect(store.values.size).toBe(0);
+    await expect(
+      shared.getOrMint(baseScope, () => Promise.resolve(token('fresh-token'))),
+    ).resolves.toMatchObject({token: 'fresh-token'});
+
+    resolveMint(token('late-token'));
+    await Promise.resolve();
+    expect(
+      parseGithubCheckoutTokenEnvelope(
+        store.values.get(githubCheckoutTokenStorageKey(baseScope)) ?? '',
+      )?.token,
+    ).toBe('fresh-token');
+  });
+
+  it('isolates late-mint tombstones by workspace', async () => {
+    const shared = cache({mintTimeoutMs: 1});
+    const workspaceBScope = {...baseScope, workspaceId: 'workspace-b'};
+    let resolveA: (value: {token: string; expiresAt: Date}) => void = () => undefined;
+    let resolveB: (value: {token: string; expiresAt: Date}) => void = () => undefined;
+    const lateA = new Promise<{token: string; expiresAt: Date}>((resolve) => {
+      resolveA = resolve;
+    });
+    const lateB = new Promise<{token: string; expiresAt: Date}>((resolve) => {
+      resolveB = resolve;
+    });
+
+    await expect(shared.getOrMint(baseScope, () => lateA)).rejects.toMatchObject({
+      reason: 'timeout',
+    });
+    await expect(shared.getOrMint(workspaceBScope, () => lateB)).rejects.toMatchObject({
+      reason: 'timeout',
+    });
+    await expect(shared.deleteInstallation('workspace-a', 'provider-a', 11)).resolves.toBe(0);
+
+    resolveA(token('workspace-a-late'));
+    resolveB(token('workspace-b-late'));
+    await Promise.resolve();
+
+    await vi.waitFor(async () => {
+      await expect(
+        shared.getOrMint(workspaceBScope, () => Promise.reject(new Error('must not mint'))),
+      ).resolves.toMatchObject({token: 'workspace-b-late'});
+    });
   });
 
   it('cleans expired shared entries in a bounded pass', async () => {
