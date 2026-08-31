@@ -1,3 +1,4 @@
+import {createHash} from 'node:crypto';
 import {
   type AgentIntegrationMcpServerConfigDto,
   agentIntegrationMcpServerSchema,
@@ -33,6 +34,10 @@ import {piHarnessAdapter} from '#core/pi-adapter.js';
 
 const MAX_HARNESS_DIAGNOSTICS = 5;
 const MAX_HARNESS_DIAGNOSTIC_MESSAGE_LENGTH = 500;
+// Keep stable bridge ports below the OS ephemeral range and above this checkout's
+// 20000-24999 worktree-service reservation.
+const MCP_BRIDGE_PORT_START = 25_000;
+const MCP_BRIDGE_PORT_RANGE = 7_768;
 
 export async function executeAgentStep(
   step: StepDto,
@@ -91,6 +96,7 @@ export async function executeAgentStep(
   const integrationToolsBridges = integrationToolsBridgesFromConfig(mcpServers, {
     leaseToken: options.leaseToken,
     integrationToolsGatewayUrl: options.integrationToolsGatewayUrl,
+    stablePortSeed: step.job_execution_id,
   });
   if (integrationToolsBridges === 'invalid') {
     return agentFailure(
@@ -411,6 +417,7 @@ function integrationToolsBridgesFromConfig(
   options: {
     leaseToken?: LeaseTokenSource | undefined;
     integrationToolsGatewayUrl?: URL | undefined;
+    stablePortSeed: string;
   },
 ): readonly IntegrationToolsBridge[] | undefined | 'invalid' {
   const {leaseToken, integrationToolsGatewayUrl} = options;
@@ -424,8 +431,16 @@ function integrationToolsBridgesFromConfig(
       name: mcpServer.name,
       url: integrationToolsGatewayUrl,
       fetch: createIntegrationToolsGatewayFetch(leaseToken, integrationToolsGatewayUrl),
+      preferredPort: stableIntegrationToolsBridgePort(options.stablePortSeed, mcpServer.name),
     }),
   );
+}
+
+function stableIntegrationToolsBridgePort(seed: string, serverName: string): number {
+  // pi-mcp-adapter includes the server URL in its metadata-cache hash. Keep the
+  // loopback port stable within a job so cached direct tools remain valid across steps.
+  const digest = createHash('sha256').update(`${seed}:${serverName}`).digest();
+  return MCP_BRIDGE_PORT_START + (digest.readUInt16BE(0) % MCP_BRIDGE_PORT_RANGE);
 }
 
 async function closeIntegrationToolsBridges(

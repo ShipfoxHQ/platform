@@ -49,6 +49,10 @@ import {toolSelectionOption} from '#core/tool-selection.js';
 const KEYLESS_CUSTOM_PROVIDER_API_KEY = 'shipfox-keyless-custom-provider-placeholder';
 const SECRET_HEADER_CREDENTIAL_PREFIX = 'header:';
 const PI_MCP_TOOL_NAME = 'mcp';
+const PI_MCP_METADATA_TIMEOUT_MS = 10_000;
+const PI_MCP_CONFIG_ARG_WAIT_TIMEOUT_MS = 30_000;
+
+let piMcpConfigArgTail = Promise.resolve();
 
 type PiThinkingLevel = NonNullable<CreateAgentSessionOptions['thinkingLevel']>;
 type ModelRuntimeInstance = Awaited<ReturnType<typeof ModelRuntime.create>>;
@@ -99,7 +103,7 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
   let mcpConfig: PiMcpConfig | undefined;
 
   try {
-    mcpConfig = await createPiMcpConfig(agentStateDir, invocation.mcpServers);
+    mcpConfig = await createPiMcpConfig(agentStateDir, invocation.mcpServers, signal);
     const prepared = await preparePiSessionServices({
       invocation,
       mcpConfig,
@@ -159,7 +163,9 @@ async function createPiSession(params: {
       model: params.model,
       thinkingLevel: params.thinking as PiThinkingLevel,
       ...toolSelectionOption(params.tools, [
-        ...(params.mcpConfig === undefined ? [] : [PI_MCP_TOOL_NAME]),
+        ...(params.mcpConfig === undefined
+          ? []
+          : [PI_MCP_TOOL_NAME, ...params.mcpConfig.directToolNames]),
         ...params.customTools.map((tool) => tool.name),
       ]),
       ...(params.customTools.length === 0 ? {} : {customTools: params.customTools}),
@@ -398,14 +404,16 @@ async function preparePiSessionServices(params: {
     thinking,
     extensionPackageNames,
   });
-  const services = await createAgentSessionServices({
-    cwd,
-    modelRuntime: params.modelRuntime,
-    ...(mcpConfig === undefined
-      ? {}
-      : {extensionFlagValues: new Map([['mcp-config', mcpConfig.path]])}),
-    resourceLoaderOptions: {additionalExtensionPaths: extensionDirectories},
-  });
+  const services = await withPiMcpConfigArg(mcpConfig?.path, params.invocation.signal, () =>
+    createAgentSessionServices({
+      cwd,
+      modelRuntime: params.modelRuntime,
+      ...(mcpConfig === undefined
+        ? {}
+        : {extensionFlagValues: new Map([['mcp-config', mcpConfig.path]])}),
+      resourceLoaderOptions: {additionalExtensionPaths: extensionDirectories},
+    }),
+  );
   const extensionResult = services.resourceLoader?.getExtensions?.();
   assertPiServiceDiagnostics(
     services.diagnostics,
@@ -430,6 +438,81 @@ async function preparePiSessionServices(params: {
     directories: extensionDirectories,
   });
   return {services};
+}
+
+// pi-mcp-adapter resolves its config during module evaluation, before Pi applies
+// extension flags. Session setup can overlap after an aborted run, so serialize this
+// process-global mutation and keep the CLI-compatible flag visible only while extensions load.
+async function withPiMcpConfigArg<T>(
+  configPath: string | undefined,
+  signal: AbortSignal,
+  operation: () => Promise<T>,
+): Promise<T> {
+  if (configPath === undefined) return operation();
+
+  const previousOperation = piMcpConfigArgTail;
+  let releaseOperation!: () => void;
+  const operationSlot = new Promise<void>((resolve) => {
+    releaseOperation = resolve;
+  });
+  // Keep the queue chained to the prior owner even when this waiter times out. This
+  // lets later waiters fail fast without bypassing an operation that still owns argv.
+  piMcpConfigArgTail = previousOperation.then(() => operationSlot);
+
+  try {
+    await waitForPiMcpConfigArg(previousOperation, signal);
+    if (signal.aborted)
+      throw signal.reason ?? new Error('Agent step aborted while waiting for Pi MCP setup');
+
+    const originalArgs = process.argv.slice();
+    const configFlagIndex = process.argv.indexOf('--mcp-config');
+    if (configFlagIndex === -1) process.argv.push('--mcp-config', configPath);
+    else if (configFlagIndex + 1 < process.argv.length)
+      process.argv[configFlagIndex + 1] = configPath;
+    else process.argv.push(configPath);
+
+    try {
+      return await operation();
+    } finally {
+      process.argv.splice(0, process.argv.length, ...originalArgs);
+    }
+  } finally {
+    // A timed-out waiter releases its own queue slot, but never the operation that
+    // still owns process.argv. The chained tail keeps later waiters behind that owner.
+    releaseOperation();
+  }
+}
+
+async function waitForPiMcpConfigArg(
+  previousOperation: Promise<void>,
+  signal: AbortSignal,
+): Promise<void> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  let onAbort: (() => void) | undefined;
+  const aborted = new Promise<never>((_, reject) => {
+    onAbort = () =>
+      reject(signal.reason ?? new Error('Agent step aborted while waiting for Pi MCP setup'));
+    if (signal.aborted) onAbort();
+    else signal.addEventListener('abort', onAbort, {once: true});
+  });
+  const timedOut = new Promise<never>((_, reject) => {
+    timeout = setTimeout(
+      () =>
+        reject(
+          new AgentSessionUnavailableError(
+            'Pi MCP configuration setup is blocked by another session.',
+          ),
+        ),
+      PI_MCP_CONFIG_ARG_WAIT_TIMEOUT_MS,
+    );
+  });
+
+  try {
+    await Promise.race([previousOperation, aborted, timedOut]);
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+    if (onAbort !== undefined) signal.removeEventListener('abort', onAbort);
+  }
 }
 
 function resolvePiExtensionDirectories(params: {
@@ -526,6 +609,7 @@ async function removeForkedSessionFile(sessionFile: string | undefined): Promise
 interface PiMcpConfig {
   readonly directory: string;
   readonly path: string;
+  readonly directToolNames: readonly string[];
 }
 
 function assertPiServiceDiagnostics(
@@ -567,6 +651,7 @@ function createInMemoryCredentialStore(credentials: Record<string, Credential>):
 async function createPiMcpConfig(
   agentStateDir: string,
   mcpServers: HarnessInvocation['mcpServers'],
+  signal: AbortSignal,
 ): Promise<PiMcpConfig | undefined> {
   if (mcpServers === undefined || mcpServers.length === 0) return undefined;
 
@@ -574,25 +659,39 @@ async function createPiMcpConfig(
   const directory = await mkdtemp(join(agentStateDir, 'pi-mcp-'));
   const path = join(directory, 'mcp.json');
   try {
-    const serverEntries = await Promise.all(
-      mcpServers.map(async (server) => [
-        server.name,
-        {
-          url: (await server.activateHttp()).toString(),
-          auth: false,
-          lifecycle: 'eager',
-          exposeResources: false,
-        },
-      ]),
+    const preparedServers = await Promise.all(
+      mcpServers.map(async (server) => {
+        const [url, directToolNames] = await Promise.all([
+          server.activateHttp(),
+          listPiMcpToolNames(server, signal),
+        ]);
+        return {
+          entry: [
+            server.name,
+            {
+              url: url.toString(),
+              auth: false,
+              lifecycle: 'eager',
+              directTools: true,
+              exposeResources: false,
+            },
+          ] as const,
+          directToolNames,
+        };
+      }),
     );
     await writeFile(
       path,
       JSON.stringify({
         settings: {toolPrefix: 'none'},
-        mcpServers: Object.fromEntries(serverEntries),
+        mcpServers: Object.fromEntries(preparedServers.map((server) => server.entry)),
       }),
     );
-    return {directory, path};
+    return {
+      directory,
+      path,
+      directToolNames: preparedServers.flatMap((server) => server.directToolNames),
+    };
   } catch (error) {
     try {
       await rm(directory, {recursive: true, force: true});
@@ -600,6 +699,35 @@ async function createPiMcpConfig(
       logger().warn({err: cleanupError}, 'Failed to remove incomplete Pi MCP configuration');
     }
     throw error;
+  }
+}
+
+async function listPiMcpToolNames(
+  server: NonNullable<HarnessInvocation['mcpServers']>[number],
+  signal: AbortSignal,
+): Promise<readonly string[]> {
+  const controller = new AbortController();
+  const onAbort = () => controller.abort(signal.reason);
+  const timeout = setTimeout(() => controller.abort(), PI_MCP_METADATA_TIMEOUT_MS);
+  if (signal.aborted) onAbort();
+  else signal.addEventListener('abort', onAbort, {once: true});
+
+  try {
+    const result = await server.listTools({
+      signal: controller.signal,
+      timeout: PI_MCP_METADATA_TIMEOUT_MS,
+    });
+    return result.tools.map((tool) => tool.name);
+  } catch (error) {
+    if (signal.aborted) throw error;
+    logger().warn(
+      {err: error, server: server.name},
+      'Failed to list Pi MCP direct tools; keeping the MCP proxy fallback',
+    );
+    return [];
+  } finally {
+    clearTimeout(timeout);
+    signal.removeEventListener('abort', onAbort);
   }
 }
 

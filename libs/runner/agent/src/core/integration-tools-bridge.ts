@@ -1,4 +1,3 @@
-import {once} from 'node:events';
 import {
   createServer,
   type Server as HttpServer,
@@ -23,10 +22,15 @@ import {logger} from '@shipfox/node-opentelemetry';
 const MAX_MCP_REQUEST_BYTES = 1_048_576;
 const MCP_REQUEST_TIMEOUT_MS = 30_000;
 
+export interface IntegrationToolsBridgeRequestOptions {
+  readonly signal?: AbortSignal;
+  readonly timeout?: number;
+}
+
 export interface IntegrationToolsBridge {
   readonly name: string;
   readonly server: McpServer;
-  listTools(): Promise<ListToolsResult>;
+  listTools(options?: IntegrationToolsBridgeRequestOptions): Promise<ListToolsResult>;
   callTool(name: string, args?: Record<string, unknown>): Promise<CallToolResult>;
   activateHttp(): Promise<URL>;
   close(): Promise<void>;
@@ -36,34 +40,82 @@ export function createIntegrationToolsBridge(params: {
   url: URL;
   fetch: typeof fetch;
   name: string;
+  preferredPort?: number;
 }): IntegrationToolsBridge {
-  const client = new Client({name: params.name, version: '0.0.0'});
-  const transport = new StreamableHTTPClientTransport(params.url, {fetch: params.fetch});
+  const createClient = () => new Client({name: params.name, version: '0.0.0'});
+  const createTransport = () =>
+    new StreamableHTTPClientTransport(params.url, {fetch: params.fetch});
+  let client = createClient();
+  let transport = createTransport();
   const server = new McpServer({name: params.name, version: '0.0.0'}, {capabilities: {tools: {}}});
   let connectPromise: Promise<void> | undefined;
+  let resetPromise: Promise<void> | undefined;
   let activationPromise: Promise<URL> | undefined;
   let closePromise: Promise<void> | undefined;
+  let closed = false;
   let httpServer: HttpServer | undefined;
   const httpSessions = new Map<string, HttpSession>();
 
-  const ensureConnected = () => {
-    connectPromise ??= client.connect(transport as unknown as Transport);
-    return connectPromise;
+  const resetConnection = (failedClient: Client): Promise<void> => {
+    if (closed || client !== failedClient) return Promise.resolve();
+    resetPromise ??= (async () => {
+      connectPromise = undefined;
+      await failedClient.close().catch(() => undefined);
+      if (!closed && client === failedClient) {
+        client = createClient();
+        transport = createTransport();
+      }
+    })().finally(() => {
+      resetPromise = undefined;
+    });
+    return resetPromise;
+  };
+
+  const ensureConnected = async (options?: IntegrationToolsBridgeRequestOptions) => {
+    if (closed) throw new Error('Integration tools bridge is closed.');
+    await resetPromise;
+    if (closed) throw new Error('Integration tools bridge is closed.');
+    if (connectPromise !== undefined) return connectPromise;
+
+    const connectingClient = client;
+    const connectingTransport = transport;
+    let pendingConnection: Promise<void>;
+    pendingConnection = connectingClient
+      .connect(connectingTransport as unknown as Transport, options)
+      .catch(async (error: unknown) => {
+        if (connectPromise === pendingConnection) connectPromise = undefined;
+        await resetConnection(connectingClient);
+        throw error;
+      });
+    connectPromise = pendingConnection;
+    return pendingConnection;
   };
 
   const bridge: IntegrationToolsBridge = {
     name: params.name,
     server,
-    async listTools() {
-      await ensureConnected();
-      return client.listTools();
+    async listTools(options) {
+      await ensureConnected(options);
+      const requestClient = client;
+      try {
+        return await requestClient.listTools(undefined, options);
+      } catch (error) {
+        await resetConnection(requestClient);
+        throw error;
+      }
     },
     async callTool(name, args) {
       await ensureConnected();
-      return client.callTool(
-        {name, ...(args === undefined ? {} : {arguments: args})},
-        CallToolResultSchema,
-      ) as Promise<CallToolResult>;
+      const requestClient = client;
+      try {
+        return (await requestClient.callTool(
+          {name, ...(args === undefined ? {} : {arguments: args})},
+          CallToolResultSchema,
+        )) as CallToolResult;
+      } catch (error) {
+        await resetConnection(requestClient);
+        throw error;
+      }
     },
     activateHttp() {
       if (closePromise !== undefined) {
@@ -72,13 +124,14 @@ export function createIntegrationToolsBridge(params: {
       activationPromise ??= activateBridgeHttp({
         server,
         setHttpServer: (value) => (httpServer = value),
+        ...(params.preferredPort === undefined ? {} : {preferredPort: params.preferredPort}),
         createHttpSession: async () => {
           const id = crypto.randomUUID();
           const sessionServer = new Server(
             {name: params.name, version: '0.0.0'},
             {capabilities: {tools: {}}},
           );
-          installForwardingHandlers(sessionServer, ensureConnected, client);
+          installForwardingHandlers(sessionServer, ensureConnected, () => client, resetConnection);
           const sessionTransport = new StreamableHTTPServerTransport({
             sessionIdGenerator: () => id,
           });
@@ -90,9 +143,10 @@ export function createIntegrationToolsBridge(params: {
       return activationPromise;
     },
     close() {
+      closed = true;
       closePromise ??= closeBridge({
         activationPromise,
-        client,
+        getClient: () => client,
         server,
         getHttpServer: () => httpServer,
         httpSessions,
@@ -101,7 +155,7 @@ export function createIntegrationToolsBridge(params: {
     },
   };
 
-  installForwardingHandlers(server.server, ensureConnected, client);
+  installForwardingHandlers(server.server, ensureConnected, () => client, resetConnection);
 
   return bridge;
 }
@@ -109,6 +163,7 @@ export function createIntegrationToolsBridge(params: {
 async function activateBridgeHttp(params: {
   server: McpServer;
   setHttpServer: (server: HttpServer) => void;
+  preferredPort?: number;
   createHttpSession: () => Promise<HttpSession>;
   httpSessions: Map<string, HttpSession>;
 }): Promise<URL> {
@@ -120,8 +175,16 @@ async function activateBridgeHttp(params: {
   params.setHttpServer(httpServer);
 
   try {
-    httpServer.listen(0, '127.0.0.1');
-    await once(httpServer, 'listening');
+    try {
+      await listenHttpServer(httpServer, params.preferredPort ?? 0);
+    } catch (error) {
+      if (params.preferredPort === undefined || !isAddressInUseError(error)) throw error;
+      logger().warn(
+        {err: error, port: params.preferredPort},
+        'Stable MCP bridge port is unavailable; using an ephemeral port',
+      );
+      await listenHttpServer(httpServer, 0);
+    }
     const address = httpServer.address();
     if (typeof address !== 'object' || address === null) {
       throw new Error('Integration tools bridge did not bind a TCP address.');
@@ -139,6 +202,36 @@ async function activateBridgeHttp(params: {
     }
     throw error;
   }
+}
+
+async function listenHttpServer(server: HttpServer, port: number): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const cleanup = () => {
+      server.removeListener('listening', onListening);
+      server.removeListener('error', onError);
+    };
+    const onListening = () => {
+      cleanup();
+      resolve();
+    };
+    const onError = (error: Error) => {
+      cleanup();
+      reject(error);
+    };
+
+    server.once('listening', onListening);
+    server.once('error', onError);
+    try {
+      server.listen(port, '127.0.0.1');
+    } catch (error) {
+      cleanup();
+      reject(error);
+    }
+  });
+}
+
+function isAddressInUseError(error: unknown): boolean {
+  return error instanceof Error && 'code' in error && error.code === 'EADDRINUSE';
 }
 
 interface HttpSession {
@@ -200,15 +293,28 @@ async function handleHttpRequest(
 function installForwardingHandlers(
   server: Server,
   ensureConnected: () => Promise<void>,
-  client: Client,
+  getClient: () => Client,
+  resetConnection: (failedClient: Client) => Promise<void>,
 ): void {
   server.setRequestHandler(ListToolsRequestSchema, async (request) => {
     await ensureConnected();
-    return client.listTools(request.params);
+    const requestClient = getClient();
+    try {
+      return await requestClient.listTools(request.params);
+    } catch (error) {
+      await resetConnection(requestClient);
+      throw error;
+    }
   });
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     await ensureConnected();
-    return client.callTool(request.params, CallToolResultSchema);
+    const requestClient = getClient();
+    try {
+      return await requestClient.callTool(request.params, CallToolResultSchema);
+    } catch (error) {
+      await resetConnection(requestClient);
+      throw error;
+    }
   });
 }
 
@@ -250,7 +356,7 @@ function sendMcpError(
 
 async function closeBridge(params: {
   activationPromise: Promise<URL> | undefined;
-  client: Client;
+  getClient: () => Client;
   server: McpServer;
   getHttpServer: () => HttpServer | undefined;
   httpSessions: Map<string, HttpSession>;
@@ -263,7 +369,7 @@ async function closeBridge(params: {
 
   const httpServer = params.getHttpServer();
   await releaseResources({
-    client: params.client,
+    client: params.getClient(),
     server: params.server,
     httpSessions: params.httpSessions,
     ...(httpServer === undefined ? {} : {httpServer}),

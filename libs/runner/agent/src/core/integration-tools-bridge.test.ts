@@ -62,6 +62,57 @@ describe('createIntegrationToolsBridge', () => {
     ]);
   });
 
+  it('recovers after a transient connection failure', async () => {
+    gateway = await startFakeGateway(() => 'lease');
+    let failNextRequest = true;
+    const bridge = createIntegrationToolsBridge({
+      name: 'shipfox_integration_tools',
+      url: gateway.url,
+      fetch: (input, init) => {
+        if (failNextRequest) {
+          failNextRequest = false;
+          return Promise.resolve(new Response('temporarily unavailable', {status: 503}));
+        }
+        return leaseFetch(() => 'lease')(input, init);
+      },
+    });
+
+    await expect(bridge.listTools({timeout: 100})).rejects.toThrow();
+    const tools = await bridge.listTools();
+    await bridge.close();
+
+    expect(tools.tools.map((tool) => tool.name)).toEqual(['github_main__issue_read']);
+  });
+
+  it('recreates the client after a connected request failure', async () => {
+    gateway = await startFakeGateway(() => 'lease');
+    let failNextListRequest = true;
+    const fallbackFetch = leaseFetch(() => 'lease');
+    const bridge = createIntegrationToolsBridge({
+      name: 'shipfox_integration_tools',
+      url: gateway.url,
+      fetch: (input, init) => {
+        const body =
+          typeof init?.body === 'string' ? (JSON.parse(init.body) as {method?: string}) : undefined;
+        if (failNextListRequest && body?.method === 'tools/list') {
+          failNextListRequest = false;
+          return Promise.resolve(new Response('temporarily unavailable', {status: 503}));
+        }
+        return fallbackFetch(input, init);
+      },
+    });
+
+    await expect(bridge.listTools()).rejects.toThrow();
+    const result = await bridge.callTool('github_main__issue_read', {issue_number: 1});
+    await bridge.close();
+
+    expect(result.structuredContent).toEqual({
+      name: 'github_main__issue_read',
+      method: undefined,
+      issue_number: 1,
+    });
+  });
+
   it('relays list and call through the in-process MCP server', async () => {
     let leaseToken = 'lease-initial';
     gateway = await startFakeGateway(() => leaseToken);
@@ -142,6 +193,28 @@ describe('createIntegrationToolsBridge', () => {
     expect(gateway.authorizations.at(-1)).toBe('Bearer lease-next');
     expect(invalidPath.status).toBe(404);
     expect(invalidOrigin.status).toBe(403);
+  });
+
+  it('reuses a preferred loopback port after a bridge is recreated', async () => {
+    gateway = await startFakeGateway(() => 'lease');
+    const first = createIntegrationToolsBridge({
+      name: 'shipfox_integration_tools',
+      url: gateway.url,
+      fetch: leaseFetch(() => 'lease'),
+    });
+    const firstEndpoint = await first.activateHttp();
+    await first.close();
+
+    const second = createIntegrationToolsBridge({
+      name: 'shipfox_integration_tools',
+      url: gateway.url,
+      fetch: leaseFetch(() => 'lease'),
+      preferredPort: Number(firstEndpoint.port),
+    });
+    const secondEndpoint = await second.activateHttp();
+    await second.close();
+
+    expect(secondEndpoint.port).toBe(firstEndpoint.port);
   });
 
   it('allows repeated close before activation', async () => {
