@@ -2,6 +2,7 @@ import {logger} from '@shipfox/node-opentelemetry';
 
 const GITHUB_INSTALLATION_ID_PATTERN = /^[1-9]\d*$/u;
 const DEFAULT_BATCH_SIZE = 100;
+const HEARTBEAT_INTERVAL_MS = 15_000;
 
 export interface GithubCheckoutTokenCleanupConnection {
   workspaceId: string;
@@ -48,7 +49,7 @@ export function createGithubCheckoutTokenCacheMaintenanceActivities(
       let skipped = 0;
 
       for (const connection of connections) {
-        if (remaining === 0 || scanned + skipped >= batchSize) break;
+        if (remaining === 0) break;
         if (!GITHUB_INSTALLATION_ID_PATTERN.test(connection.externalAccountId)) {
           skipped += 1;
           continue;
@@ -59,22 +60,26 @@ export function createGithubCheckoutTokenCacheMaintenanceActivities(
           continue;
         }
 
-        options.heartbeat?.();
-        scanned += 1;
+        const heartbeatInterval = setInterval(() => options.heartbeat?.(), HEARTBEAT_INTERVAL_MS);
         try {
+          options.heartbeat?.();
+          scanned += 1;
           const removed = await options.cache.cleanupExpiredInstallation(
             connection.workspaceId,
             installationId,
             remaining,
           );
           deleted += removed;
-          remaining -= removed;
+          remaining = Math.max(0, remaining - removed);
         } catch (error) {
           failed += 1;
           logger().warn(
             {installationId, err: error},
             'GitHub checkout-token cache cleanup failed for installation',
           );
+        } finally {
+          clearInterval(heartbeatInterval);
+          options.heartbeat?.();
         }
       }
 

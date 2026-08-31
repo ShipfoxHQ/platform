@@ -44,4 +44,59 @@ describe('createGithubCheckoutTokenCacheMaintenanceActivities', () => {
     });
     expect(cleanupExpiredInstallation).not.toHaveBeenCalled();
   });
+
+  it('continues past more than one batch of clean or malformed connections', async () => {
+    const cleanupExpiredInstallation = vi.fn(() => Promise.resolve(0));
+    const connections = [
+      ...Array.from({length: 100}, (_, index) => ({
+        workspaceId: `malformed-${index}`,
+        externalAccountId: 'not-an-installation',
+      })),
+      ...Array.from({length: 101}, (_, index) => ({
+        workspaceId: `workspace-${index}`,
+        externalAccountId: String(index + 1),
+      })),
+    ];
+    const activities = createGithubCheckoutTokenCacheMaintenanceActivities({
+      cache: {cleanupExpiredInstallation},
+      listConnections: async () => connections,
+      batchSize: 100,
+    });
+
+    await expect(activities.cleanupGithubCheckoutTokenCacheActivity()).resolves.toEqual({
+      deleted: 0,
+      failed: 0,
+      scanned: 101,
+      skipped: 100,
+    });
+    expect(cleanupExpiredInstallation).toHaveBeenCalledTimes(101);
+  });
+
+  it('heartbeats while an installation cleanup is in flight', async () => {
+    vi.useFakeTimers();
+    try {
+      let resolveCleanup!: (value: number) => void;
+      const cleanupExpiredInstallation = vi.fn(
+        () => new Promise<number>((resolve) => (resolveCleanup = resolve)),
+      );
+      const heartbeat = vi.fn();
+      const activities = createGithubCheckoutTokenCacheMaintenanceActivities({
+        cache: {cleanupExpiredInstallation},
+        listConnections: async () => [{workspaceId: 'workspace-a', externalAccountId: '11'}],
+        heartbeat,
+      });
+
+      const result = activities.cleanupGithubCheckoutTokenCacheActivity();
+      await vi.waitFor(() => expect(cleanupExpiredInstallation).toHaveBeenCalledOnce());
+      const heartbeatCountBeforeCleanup = heartbeat.mock.calls.length;
+
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      expect(heartbeat.mock.calls.length).toBeGreaterThan(heartbeatCountBeforeCleanup);
+      resolveCleanup(0);
+      await expect(result).resolves.toEqual({deleted: 0, failed: 0, scanned: 1, skipped: 0});
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
