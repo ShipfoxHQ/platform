@@ -104,37 +104,17 @@ export class CredentialBroker {
     void this.publish(credential).catch(() => undefined);
   }
 
-  async lookup(repositoryUrl: string): Promise<CredentialLookup | undefined> {
-    if (this.stopped) return undefined;
+  lookup(repositoryUrl: string): Promise<CredentialLookup | undefined> {
+    if (this.stopped) return Promise.resolve(undefined);
     const url = tryNormalizeRepositoryUrl(repositoryUrl);
-    if (url === undefined) return undefined;
+    if (url === undefined) return Promise.resolve(undefined);
     const entry = this.entries.get(url);
-    if (!entry) return undefined;
-    if (entry.rejected) {
-      if (entry.credential.renewal?.mode !== 'refresh-at') return undefined;
-      await this.renewEntry(entry, entry.rejectedGeneration, true);
-      if (this.stopped) return undefined;
-      const renewed = this.entries.get(url);
-      if (!renewed || renewed.rejected || !isUsable(renewed.credential, this.now()))
-        return undefined;
-      return toLookup(renewed.credential);
-    }
+    if (!entry) return Promise.resolve(undefined);
+    if (entry.rejected) return this.lookupRejectedEntry(entry, url);
+    if (shouldRefresh(entry.credential, this.now())) return this.lookupRefreshEntry(entry, url);
+    if (!isLookupUsable(entry.credential, this.now())) return Promise.resolve(undefined);
 
-    if (shouldRefresh(entry.credential, this.now())) {
-      await this.renewEntry(entry);
-      if (this.stopped) return undefined;
-      const renewed = this.entries.get(url);
-      if (!renewed || renewed.rejected || !isUsable(renewed.credential, this.now()))
-        return undefined;
-      return toLookup(renewed.credential);
-    }
-    if (
-      entry.credential.renewal?.mode !== 'on-rejection' &&
-      !isUsable(entry.credential, this.now())
-    )
-      return undefined;
-
-    return toLookup(entry.credential);
+    return Promise.resolve(toLookup(entry.credential));
   }
 
   async reject(repositoryUrl: string): Promise<RejectionResult> {
@@ -195,6 +175,30 @@ export class CredentialBroker {
     }
   }
 
+  private async lookupRejectedEntry(
+    entry: Entry,
+    url: string,
+  ): Promise<CredentialLookup | undefined> {
+    if (entry.credential.renewal?.mode !== 'refresh-at') return undefined;
+    await this.renewEntry(entry, entry.rejectedGeneration, true);
+    return this.lookupRenewedEntry(url);
+  }
+
+  private async lookupRefreshEntry(
+    entry: Entry,
+    url: string,
+  ): Promise<CredentialLookup | undefined> {
+    await this.renewEntry(entry);
+    return this.lookupRenewedEntry(url);
+  }
+
+  private lookupRenewedEntry(url: string): CredentialLookup | undefined {
+    if (this.stopped) return undefined;
+    const entry = this.entries.get(url);
+    if (!entry || entry.rejected || !isUsable(entry.credential, this.now())) return undefined;
+    return toLookup(entry.credential);
+  }
+
   private renewEntry(
     entry: Entry,
     rejectedGeneration?: string,
@@ -225,6 +229,23 @@ export class CredentialBroker {
     rejectedGeneration: string | undefined,
     rejectionRequested: boolean,
   ): Promise<void> {
+    try {
+      const input = await this.requestRenewal(entry, rejectedGeneration);
+      if (this.stopped) return;
+      const credential = normalizeCredential(input);
+      if (!this.applyRenewedCredential(entry, credential, rejectedGeneration, rejectionRequested))
+        return;
+      await this.publish(credential).catch(() => undefined);
+      if (!this.isCurrentRenewal(entry, rejectionRequested)) return;
+    } catch (error) {
+      this.handleRenewalError(entry, error);
+    }
+  }
+
+  private async requestRenewal(
+    entry: Entry,
+    rejectedGeneration: string | undefined,
+  ): Promise<BrokerCredentialInput> {
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const renewal = Promise.resolve().then(() =>
@@ -240,35 +261,43 @@ export class CredentialBroker {
           this.renewalTimeoutMs,
         );
       });
-      const input = await Promise.race([renewal, timeout]);
-      if (this.stopped) return;
-      const credential = normalizeCredential(input);
-      const hasFreshGeneration =
-        !rejectionRequested ||
-        (credential.generation !== undefined && credential.generation !== rejectedGeneration);
-      if (!hasFreshGeneration) {
-        entry.rejected = true;
-        entry.backoffUntil = undefined;
-        return;
-      }
-      if (this.entries.get(entry.url) !== entry || (!rejectionRequested && entry.rejected)) return;
-      entry.credential = credential;
-      entry.rejected = false;
-      entry.rejectedGeneration = undefined;
-      entry.backoffUntil = undefined;
-      await this.publish(credential).catch(() => undefined);
-      if (this.entries.get(entry.url) !== entry || (!rejectionRequested && entry.rejected)) return;
-    } catch (error) {
-      if (error instanceof TransientCredentialRenewalError) {
-        entry.backoffUntil = this.now() + this.backoffMs;
-        if (!isUsable(entry.credential, this.now())) entry.rejected = true;
-        return;
-      }
-      entry.rejected = true;
-      entry.backoffUntil = undefined;
+      return await Promise.race([renewal, timeout]);
     } finally {
       if (timer !== undefined) clearTimeout(timer);
     }
+  }
+
+  private applyRenewedCredential(
+    entry: Entry,
+    credential: BrokerCredential,
+    rejectedGeneration: string | undefined,
+    rejectionRequested: boolean,
+  ): boolean {
+    if (!hasFreshGeneration(credential, rejectedGeneration, rejectionRequested)) {
+      entry.rejected = true;
+      entry.backoffUntil = undefined;
+      return false;
+    }
+    if (!this.isCurrentRenewal(entry, rejectionRequested)) return false;
+    entry.credential = credential;
+    entry.rejected = false;
+    entry.rejectedGeneration = undefined;
+    entry.backoffUntil = undefined;
+    return true;
+  }
+
+  private isCurrentRenewal(entry: Entry, rejectionRequested: boolean): boolean {
+    return this.entries.get(entry.url) === entry && (rejectionRequested || !entry.rejected);
+  }
+
+  private handleRenewalError(entry: Entry, error: unknown): void {
+    if (error instanceof TransientCredentialRenewalError) {
+      entry.backoffUntil = this.now() + this.backoffMs;
+      if (!isUsable(entry.credential, this.now())) entry.rejected = true;
+      return;
+    }
+    entry.rejected = true;
+    entry.backoffUntil = undefined;
   }
 
   private publish(credential: BrokerCredential): Promise<void> {
@@ -389,6 +418,19 @@ function tryNormalizeRepositoryUrl(value: string): string | undefined {
 
 function isUsable(credential: BrokerCredential, now: number): boolean {
   return credential.expiresAt > now;
+}
+
+function isLookupUsable(credential: BrokerCredential, now: number): boolean {
+  return credential.renewal?.mode === 'on-rejection' || isUsable(credential, now);
+}
+
+function hasFreshGeneration(
+  credential: BrokerCredential,
+  rejectedGeneration: string | undefined,
+  rejectionRequested: boolean,
+): boolean {
+  if (!rejectionRequested) return true;
+  return credential.generation !== undefined && credential.generation !== rejectedGeneration;
 }
 
 function toLookup(credential: BrokerCredential): CredentialLookup {
