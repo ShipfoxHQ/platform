@@ -46,6 +46,7 @@ export {
 } from '#api/github-checkout-token-cache.js';
 export {
   encodeInstallationTokenEnvelope,
+  GITHUB_INSTALLATION_TOKEN_ENVELOPE_KEY,
   githubInstallationTokenNamespace,
 } from '#api/installation-token-envelope.js';
 export {
