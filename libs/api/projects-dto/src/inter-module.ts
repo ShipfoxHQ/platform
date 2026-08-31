@@ -8,6 +8,7 @@ const projectSchema = z.object({
   sourceConnectionId: idSchema,
   sourceExternalRepositoryId: z.string(),
   sourceRepositoryOwner: z.string().min(1).nullable().optional(),
+  sourceRepositoryName: z.string().min(1).nullable().optional(),
   sourceDefaultBranch: z.string().min(1).nullable().optional(),
   name: z.string(),
 });
@@ -47,6 +48,15 @@ export const projectsInterModuleContract = defineInterModuleContract({
         sourceExternalRepositoryId: z.string(),
       }),
       output: z.object({project: projectSchema.nullable()}),
+    },
+    findProjectBySourceRepositoryName: {
+      input: z.object({
+        workspaceId: idSchema,
+        sourceConnectionId: idSchema,
+        sourceRepositoryOwner: z.string().min(1),
+        sourceRepositoryName: z.string().min(1),
+      }),
+      output: z.object({projects: z.array(projectSchema)}),
     },
     listProjectsByWorkspace: {
       input: z.object({

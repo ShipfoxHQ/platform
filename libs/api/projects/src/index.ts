@@ -32,10 +32,14 @@ export {
   ProjectSlugConflictError,
   updateProjectDetails,
 } from '#core/index.js';
-export type {GetProjectBySourceParams} from '#db/index.js';
+export type {
+  FindProjectBySourceRepositoryNameParams,
+  GetProjectBySourceParams,
+} from '#db/index.js';
 export {
   createProject,
   db,
+  findProjectBySourceRepositoryName,
   getProjectById,
   getProjectBySource,
   getWorkspaceProjectCounts,

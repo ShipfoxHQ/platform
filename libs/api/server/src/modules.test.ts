@@ -167,6 +167,7 @@ describe('defaultModules', () => {
         defineInterModulePresentation(projectsInterModuleContract, {
           getProjectById: () => ({project: null}),
           getProjectBySource: () => ({project: null}),
+          findProjectBySourceRepositoryName: () => ({projects: []}),
           listProjectsByWorkspace: () => ({projects: [], nextCursor: null}),
           getWorkspaceProjectCounts: () => ({counts: []}),
           requireProjectForWorkspace: () => ({

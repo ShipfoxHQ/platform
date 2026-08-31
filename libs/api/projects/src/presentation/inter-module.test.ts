@@ -144,6 +144,82 @@ describe('Projects checkout target inter-module presentation', () => {
     ).resolves.toEqual({project: null});
   });
 
+  test('finds zero, one, and multiple source repository name matches', async () => {
+    const resolveSourceRepository = vi.fn();
+    const client = createClient({resolveSourceRepository});
+    const workspaceId = crypto.randomUUID();
+    const connectionId = crypto.randomUUID();
+
+    await expect(
+      client.findProjectBySourceRepositoryName({
+        workspaceId,
+        sourceConnectionId: connectionId,
+        sourceRepositoryOwner: 'acme',
+        sourceRepositoryName: 'api',
+      }),
+    ).resolves.toEqual({projects: []});
+
+    const first = await insertProject({
+      workspaceId,
+      connectionId,
+      owner: 'AcMe',
+      name: 'Api',
+      externalRepositoryId: 'github:one',
+    });
+    await insertProject({
+      workspaceId: crypto.randomUUID(),
+      connectionId,
+      owner: 'acme',
+      name: 'api',
+      externalRepositoryId: 'github:other-workspace',
+    });
+    await insertProject({
+      workspaceId,
+      connectionId: crypto.randomUUID(),
+      owner: 'acme',
+      name: 'api',
+      externalRepositoryId: 'github:other-connection',
+    });
+
+    await expect(
+      client.findProjectBySourceRepositoryName({
+        workspaceId,
+        sourceConnectionId: connectionId,
+        sourceRepositoryOwner: 'ACME',
+        sourceRepositoryName: 'aPI',
+      }),
+    ).resolves.toMatchObject({
+      projects: [
+        {
+          id: first.projectId,
+          sourceConnectionId: connectionId,
+          sourceExternalRepositoryId: 'github:one',
+          sourceRepositoryOwner: 'AcMe',
+          sourceRepositoryName: 'Api',
+        },
+      ],
+    });
+
+    const second = await insertProject({
+      workspaceId,
+      connectionId,
+      owner: 'acme',
+      name: 'api',
+      externalRepositoryId: 'github:two',
+    });
+
+    const multipleMatches = await client.findProjectBySourceRepositoryName({
+      workspaceId,
+      sourceConnectionId: connectionId,
+      sourceRepositoryOwner: 'AcMe',
+      sourceRepositoryName: 'API',
+    });
+
+    expect(multipleMatches.projects).toHaveLength(2);
+    expect(multipleMatches.projects.map(({id}) => id)).toEqual([first.projectId, second.projectId]);
+    expect(resolveSourceRepository).not.toHaveBeenCalled();
+  });
+
   test('resolves a project target in its workspace', async () => {
     const client = createClient();
     const workspaceId = crypto.randomUUID();
