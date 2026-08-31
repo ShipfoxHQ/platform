@@ -8,6 +8,7 @@ import {
   type RunnerEnrollmentRevocationCounts,
   type TerminationAuthorizationResult,
 } from '#db/runner-instances.js';
+import {recordRunnerTerminationAuthorizationRejected} from '#metrics/index.js';
 
 export interface RunnerTerminationAuthorizationParams {
   provisionerId: string;
@@ -58,11 +59,14 @@ export function resolveRunnerTerminationReason(
   params: RunnerTerminationAuthorizationParams,
 ): RunnerTerminationReason | null {
   if (!terminationReasons.has(params.reason)) {
+    recordRunnerTerminationAuthorizationRejected('unknown-reason');
     logger().warn(
       {
+        event: 'runner.termination_authorization_rejected',
+        component: 'api-runners',
         provisionerId: params.provisionerId,
         providerRunnerId: params.providerRunnerId,
-        reason: params.reason,
+        reason: 'unknown-reason',
       },
       'termination authorization rejected for unknown reason',
     );
@@ -71,8 +75,15 @@ export function resolveRunnerTerminationReason(
 
   const reason = params.reason as RunnerTerminationReason;
   if (!config[terminationReasonGate[reason]]) {
+    recordRunnerTerminationAuthorizationRejected(reason);
     logger().warn(
-      {provisionerId: params.provisionerId, providerRunnerId: params.providerRunnerId, reason},
+      {
+        event: 'runner.termination_authorization_rejected',
+        component: 'api-runners',
+        provisionerId: params.provisionerId,
+        providerRunnerId: params.providerRunnerId,
+        reason,
+      },
       'termination authorization rejected by disabled reason gate',
     );
     return null;

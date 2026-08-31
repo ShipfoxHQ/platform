@@ -1,17 +1,23 @@
-import {getServiceMetricsProvider} from '@shipfox/node-opentelemetry';
+import {getServiceMetricsProvider, type ObservableGauge} from '@shipfox/node-opentelemetry';
 import {config} from '#config.js';
 import {getJobExecutionQueueDepth} from '#db/job-executions.js';
 import {countLiveReservationLeakUnits} from '#db/reservations.js';
 import {
   countStaleEnrolledRunnerInstances,
   listProviderRunnerByPhaseMetrics,
+  listProviderRunnerByStateMetrics,
   type ProviderRunnerPhaseMetric,
+  type ProviderRunnerStateMetric,
 } from '#db/runner-instances.js';
 
 type ProviderRunnerPhaseLabels = {
   phase: ProviderRunnerPhaseMetric['phase'];
   provider: string;
   launch_kind: ProviderRunnerPhaseMetric['launchKind'];
+};
+
+type ProviderRunnerStateLabels = {
+  state: ProviderRunnerStateMetric['state'];
 };
 
 export function registerRunnersServiceMetrics(): void {
@@ -47,6 +53,19 @@ export function registerRunnersServiceMetrics(): void {
   const reservationLeakUnits = meter.createObservableGauge('runners_reservation_leaked_units', {
     description: 'Live reservation units without an unclaimed runner behind them',
   });
+  const providerRunnersByState = meter.createObservableGauge<ProviderRunnerStateLabels>(
+    'runners_provider_runner_by_state',
+    {
+      description: 'Active provider runners by bounded lifecycle state',
+    },
+  );
+  const providerRunnersByStateOldestAge = meter.createObservableGauge<ProviderRunnerStateLabels>(
+    'runners_provider_runner_by_state_oldest_age',
+    {
+      description: 'Oldest active provider runner age by bounded lifecycle state',
+      unit: 'ms',
+    },
+  );
 
   meter.addBatchObservableCallback(
     async (observer) => {
@@ -55,6 +74,7 @@ export function registerRunnersServiceMetrics(): void {
         staleEnrolledRunnerCountResult,
         providerRunnersByPhaseResult,
         reservationLeakUnitsResult,
+        providerRunnersByStateResult,
       ] = await Promise.allSettled([
         getJobExecutionQueueDepth(),
         countStaleEnrolledRunnerInstances({
@@ -62,6 +82,7 @@ export function registerRunnersServiceMetrics(): void {
         }),
         listProviderRunnerByPhaseMetrics(),
         countLiveReservationLeakUnits(),
+        listProviderRunnerByStateMetrics(),
       ]);
 
       if (depthResult.status === 'fulfilled') {
@@ -89,6 +110,12 @@ export function registerRunnersServiceMetrics(): void {
       if (reservationLeakUnitsResult.status === 'fulfilled') {
         observer.observe(reservationLeakUnits, reservationLeakUnitsResult.value);
       }
+      observeProviderRunnerStateMetrics(
+        observer,
+        providerRunnersByState,
+        providerRunnersByStateOldestAge,
+        providerRunnersByStateResult,
+      );
     },
     [
       pendingJobExecutions,
@@ -97,6 +124,28 @@ export function registerRunnersServiceMetrics(): void {
       providerRunnersByPhase,
       providerRunnersByPhaseOldestAge,
       reservationLeakUnits,
+      providerRunnersByState,
+      providerRunnersByStateOldestAge,
     ],
   );
+}
+
+function observeProviderRunnerStateMetrics(
+  observer: {
+    observe: (
+      metric: ObservableGauge<ProviderRunnerStateLabels>,
+      value: number,
+      attributes?: ProviderRunnerStateLabels,
+    ) => void;
+  },
+  countGauge: ObservableGauge<ProviderRunnerStateLabels>,
+  ageGauge: ObservableGauge<ProviderRunnerStateLabels>,
+  result: PromiseSettledResult<ProviderRunnerStateMetric[]>,
+): void {
+  if (result.status !== 'fulfilled') return;
+  for (const metric of result.value) {
+    const attributes: ProviderRunnerStateLabels = {state: metric.state};
+    observer.observe(countGauge, metric.count, attributes);
+    observer.observe(ageGauge, metric.oldestAgeMilliseconds, attributes);
+  }
 }

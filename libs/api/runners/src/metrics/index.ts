@@ -5,6 +5,8 @@ export type {
   RunnerLaunchKind,
   RunnerReservationCapacityFailureReason,
   RunnerReservationPromotionFailureReason,
+  RunnerTerminationAuthorizationRejectionReason,
+  RunnerTerminationDecisionDeferredCause,
 } from './instance.js';
 export {
   jobExecutionClaimedCount,
@@ -33,5 +35,10 @@ export {
   recordRunnerEnrollmentCredentialRevoked,
   recordRunnerReservationCapacityFailure,
   recordRunnerReservationPromotionFailure,
+  recordRunnerTerminationAuthorizationIssued,
+  recordRunnerTerminationAuthorizationRejected,
+  runnerTerminationAuthorizationIssuedCount,
+  runnerTerminationAuthorizationRejectedCount,
+  runnerTerminationDecisionDeferredCount,
 } from './instance.js';
 export {registerRunnersServiceMetrics} from './service.js';

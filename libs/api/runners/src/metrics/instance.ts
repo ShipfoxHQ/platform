@@ -220,7 +220,33 @@ export const providerRunnerTerminateIntentIssuedCount = meter.createCounter<{
 export const providerRunnerTerminateIntentHonoredCount = meter.createCounter<{
   reason: RunnerTerminationReason;
 }>('runners_provider_runner_terminate_intent_honored', {
-  description: 'Provisioned runner terminate intents honored by first transition to terminated',
+  description: 'Provisioned runner termination authorizations honored by bounded reason',
+});
+
+/** The reason labels are the finite termination-reason enum; identifiers stay in logs. */
+export const runnerTerminationAuthorizationIssuedCount = meter.createCounter<{
+  reason: RunnerTerminationReason;
+}>('runners_termination_authorization_issued', {
+  description: 'New durable runner termination authorizations issued by bounded reason',
+});
+
+export type RunnerTerminationAuthorizationRejectionReason =
+  | RunnerTerminationReason
+  | 'unknown-reason'
+  | 'unknown-runner';
+
+export const runnerTerminationAuthorizationRejectedCount = meter.createCounter<{
+  reason: RunnerTerminationAuthorizationRejectionReason;
+}>('runners_termination_authorization_rejected', {
+  description: 'Runner termination authorization requests rejected by bounded reason',
+});
+
+export type RunnerTerminationDecisionDeferredCause = 'correlated-stale';
+
+export const runnerTerminationDecisionDeferredCount = meter.createCounter<{
+  cause: RunnerTerminationDecisionDeferredCause;
+}>('runners_termination_decision_deferred', {
+  description: 'Runner lifecycle termination decisions deferred by bounded cause',
 });
 
 export const providerRunnerActivationOutcomeCount = meter.createCounter<{
@@ -266,7 +292,20 @@ export function recordStaleJobCandidateRatio(value: number): void {
 }
 
 export function recordDeferredJobLeaseExpiry(): void {
-  recordMetric(() => jobLeaseExpiryDeferredCount.add(1, {cause: 'correlated-stale'}));
+  recordMetric(() => {
+    jobLeaseExpiryDeferredCount.add(1, {cause: 'correlated-stale'});
+    runnerTerminationDecisionDeferredCount.add(1, {cause: 'correlated-stale'});
+  });
+}
+
+export function recordRunnerTerminationAuthorizationIssued(reason: RunnerTerminationReason): void {
+  recordMetric(() => runnerTerminationAuthorizationIssuedCount.add(1, {reason}));
+}
+
+export function recordRunnerTerminationAuthorizationRejected(
+  reason: RunnerTerminationAuthorizationRejectionReason,
+): void {
+  recordMetric(() => runnerTerminationAuthorizationRejectedCount.add(1, {reason}));
 }
 
 export function recordShadowedJobLeaseExpiry(): void {

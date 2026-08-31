@@ -14,6 +14,7 @@ import {
   listActiveRunnerInstanceCountsByTemplateTx,
   listActiveRunnerInstances,
   listProviderRunnerByPhaseMetrics,
+  listProviderRunnerByStateMetrics,
   listProvisionerTerminateIntentRowsTx,
   listProvisionerTerminateIntents,
   reapStaleRunnerInstances,
@@ -1337,6 +1338,30 @@ describe('reportRunnerInstances', () => {
     expect(providerRunnerRows[0]?.state).toBe('failed');
     expect(providerRunnerRows[0]?.runnerSessionId).toBe(runnerSessionId);
     expect(providerRunnerRows[0]?.reservationReleasedAt).toBeInstanceOf(Date);
+  });
+
+  it('returns the durable authorization reason when a provisioner reports termination', async () => {
+    const runner = await providerRunnerFactory.create({
+      workspaceId,
+      provisionerId,
+      providerRunnerId: 'authorized-runner',
+      state: 'running',
+    });
+    await db()
+      .update(providerRunners)
+      .set({terminationAuthorizedAt: new Date(), terminationReason: 'terminal-state'})
+      .where(eq(providerRunners.id, runner.id));
+
+    const result = await reportRunnerInstances({
+      scope: 'workspace',
+      workspaceId,
+      provisionerId,
+      events: [event({providerRunnerId: 'authorized-runner', state: 'terminated'})],
+    });
+
+    expect(result.terminateIntentsHonored).toEqual([
+      {providerRunnerId: 'authorized-runner', reason: 'terminal-state'},
+    ]);
   });
 
   it('returns honored terminate intents only for the first active-to-terminated transition', async () => {
@@ -3279,6 +3304,52 @@ describe('listProviderRunnerByPhaseMetrics', () => {
       ]),
     );
     expect(ownMetrics).toHaveLength(6);
+  });
+});
+
+describe('listProviderRunnerByStateMetrics', () => {
+  it('reports active runner counts and oldest provider age with bounded states', async () => {
+    const provisionerId = crypto.randomUUID();
+    const old = new Date(Date.now() - 120_000);
+
+    await db()
+      .insert(providerRunners)
+      .values([
+        {
+          provisionerId,
+          providerRunnerId: crypto.randomUUID(),
+          state: 'running',
+          labels: ['linux'],
+          reportedAt: new Date(),
+          createdAt: old,
+        },
+        {
+          provisionerId,
+          providerRunnerId: crypto.randomUUID(),
+          state: 'stopping',
+          labels: ['linux'],
+          reportedAt: new Date(),
+          createdAt: old,
+        },
+        {
+          provisionerId,
+          providerRunnerId: crypto.randomUUID(),
+          state: 'terminated',
+          labels: ['linux'],
+          reportedAt: new Date(),
+          createdAt: old,
+        },
+      ]);
+
+    const metrics = await listProviderRunnerByStateMetrics();
+
+    expect(metrics.find((metric) => metric.state === 'running')).toEqual(
+      expect.objectContaining({count: expect.any(Number)}),
+    );
+    expect(
+      metrics.find((metric) => metric.state === 'running')?.oldestAgeMilliseconds,
+    ).toBeGreaterThan(100_000);
+    expect(metrics.map((metric) => metric.state)).not.toContain('terminated');
   });
 });
 
