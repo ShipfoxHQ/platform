@@ -32,8 +32,6 @@ vi.mock('@shipfox/api-integration-github', () => ({
 
 import {githubProviderModule} from '#providers/github.js';
 
-const SECRET_KEY_PATTERN = /^[A-Z_][A-Z0-9_]*$/u;
-
 describe('githubProviderModule', () => {
   beforeEach(() => {
     mocks.createGithubInstallationTokenProvider.mockClear();
@@ -91,6 +89,5 @@ describe('githubProviderModule', () => {
       namespace,
       values: {ENVELOPE: 'encoded-envelope'},
     });
-    expect('ENVELOPE').toMatch(SECRET_KEY_PATTERN);
   });
 });
