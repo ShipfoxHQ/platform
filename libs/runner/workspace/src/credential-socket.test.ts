@@ -120,7 +120,7 @@ describe('credential socket transport', () => {
     });
   });
 
-  it('cancels in-flight broker work when the server closes', async () => {
+  it('waits for in-flight broker work when the server closes', async () => {
     let startRenewal!: () => void;
     let releaseRenewal!: () => void;
     const renewalStarted = new Promise<void>((resolve) => (startRenewal = resolve));
@@ -152,9 +152,17 @@ describe('credential socket transport', () => {
     );
 
     await renewalStarted;
-    await expect(server.close()).resolves.toBeUndefined();
-    client.destroy();
+    const closePromise = server.close();
+    let closeSettled = false;
+    void closePromise.then(() => {
+      closeSettled = true;
+    });
+    await Promise.resolve();
+    expect(closeSettled).toBe(false);
+
     releaseRenewal();
+    await expect(closePromise).resolves.toBeUndefined();
+    client.destroy();
   });
 
   it('uses a private socket and does not serve a credential for an unregistered repository URL', async () => {

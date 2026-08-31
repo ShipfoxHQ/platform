@@ -264,8 +264,10 @@ async function respond(
     const request = decodeRequest(body);
     operation = request.operation;
     response = await handleRequest(request, broker, capability, signal);
+    if (signal.aborted) return;
     recordCredentialSocketRequest(operation, response.ok ? 'success' : 'rejected');
   } catch (error) {
+    if (signal.aborted) return;
     recordCredentialSocketRequest(operation, 'error');
     logger().warn(
       {operation, reason: error instanceof Error ? error.name : 'UnknownError'},
@@ -291,7 +293,7 @@ async function handleRequest(
   if (request.capability !== capability) return {version: PROTOCOL_VERSION, ok: false};
   if (signal.aborted) return {version: PROTOCOL_VERSION, ok: false};
   if (request.operation === 'get') {
-    const credential = await abortOnSignal(broker.lookup(request.repositoryUrl), signal);
+    const credential = await awaitUnlessCanceled(broker.lookup(request.repositoryUrl), signal);
     return credential === undefined
       ? {version: PROTOCOL_VERSION, ok: true}
       : {version: PROTOCOL_VERSION, ok: true, credential};
@@ -300,34 +302,16 @@ async function handleRequest(
     broker.store(request.repositoryUrl);
     return {version: PROTOCOL_VERSION, ok: true};
   }
-  await abortOnSignal(broker.erase(request.repositoryUrl), signal);
+  await awaitUnlessCanceled(broker.erase(request.repositoryUrl), signal);
   return {version: PROTOCOL_VERSION, ok: true};
 }
 
-function abortOnSignal<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+async function awaitUnlessCanceled<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+  const value = await operation;
   if (signal.aborted) {
-    return Promise.reject(
-      new CredentialSocketError('Credential socket request was canceled', 'ECANCELED'),
-    );
+    throw new CredentialSocketError('Credential socket request was canceled', 'ECANCELED');
   }
-  return new Promise<T>((resolve, reject) => {
-    const onAbort = (): void => {
-      cleanup();
-      reject(new CredentialSocketError('Credential socket request was canceled', 'ECANCELED'));
-    };
-    const cleanup = (): void => signal.removeEventListener('abort', onAbort);
-    signal.addEventListener('abort', onAbort, {once: true});
-    operation.then(
-      (value) => {
-        cleanup();
-        resolve(value);
-      },
-      (error: unknown) => {
-        cleanup();
-        reject(error);
-      },
-    );
-  });
+  return value;
 }
 
 function decodeRequest(body: Buffer): CredentialSocketRequest {
