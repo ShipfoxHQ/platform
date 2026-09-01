@@ -244,6 +244,39 @@ describe('createIntegrationToolsBridge', () => {
     }
   });
 
+  it('does not cancel a shared activation while another caller is waiting', async () => {
+    const bridge = createIntegrationToolsBridge({
+      name: 'shipfox_integration_tools',
+      url: new URL('http://127.0.0.1:43124/mcp'),
+      fetch: fetch,
+    });
+    const listen = vi.spyOn(NodeHttpServer.prototype, 'listen').mockImplementation(function (
+      this: NodeHttpServer,
+    ) {
+      return this;
+    });
+    const close = vi.spyOn(NodeHttpServer.prototype, 'close');
+    const first = new AbortController();
+    const second = new AbortController();
+
+    try {
+      const firstActivation = bridge.activateHttp({signal: first.signal, timeout: 10_000});
+      const secondActivation = bridge.activateHttp({signal: second.signal, timeout: 10_000});
+      first.abort(new Error('first activation cancelled'));
+
+      await expect(firstActivation).rejects.toThrow('first activation cancelled');
+      expect(close).not.toHaveBeenCalled();
+
+      second.abort(new Error('second activation cancelled'));
+      await expect(secondActivation).rejects.toThrow('second activation cancelled');
+      expect(close).toHaveBeenCalledTimes(1);
+      await expect(bridge.close()).resolves.toBeUndefined();
+    } finally {
+      listen.mockRestore();
+      close.mockRestore();
+    }
+  });
+
   it('reuses a preferred loopback port after a bridge is recreated', async () => {
     gateway = await startFakeGateway(() => 'lease');
     const first = createIntegrationToolsBridge({

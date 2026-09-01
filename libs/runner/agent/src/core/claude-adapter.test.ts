@@ -1252,6 +1252,56 @@ describe('claudeHarnessAdapter', () => {
     );
   });
 
+  it('classifies a requested tool as a runner omission when no bridge is available', async () => {
+    const integrationTool = 'linear_shipfox__get_team';
+    const infoLog = vi.spyOn(logger(), 'info').mockImplementation(() => undefined);
+    queryMock.mockReturnValue(makeQuery([initWithTools([]), successMessage]));
+
+    await expect(
+      claudeHarnessAdapter.run(
+        invocation({
+          mcpServers: [],
+          requestedIntegrationTools: [{connectionSlug: 'linear_shipfox', toolId: 'get_team'}],
+        }),
+      ),
+    ).resolves.toEqual({response: 'done'});
+
+    expect(lastQueryOptions().tools).toBeUndefined();
+    expect(infoLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'runner.agent_claude_tool_outcome',
+        failurePhase: 'requested_tool_omitted',
+        omissions: [{toolName: integrationTool, reason: 'runner_capability'}],
+      }),
+      'Claude integration tool outcome',
+    );
+  });
+
+  it('classifies a requested tool missing from a resolved catalog separately', async () => {
+    const integrationTool = 'linear_shipfox__get_team';
+    const infoLog = vi.spyOn(logger(), 'info').mockImplementation(() => undefined);
+    const bridge = mcpBridge([]);
+    queryMock.mockReturnValue(makeQuery([initWithTools([]), successMessage]));
+
+    await expect(
+      claudeHarnessAdapter.run(
+        invocation({
+          mcpServers: [bridge],
+          requestedIntegrationTools: [{connectionSlug: 'linear_shipfox', toolId: 'get_team'}],
+        }),
+      ),
+    ).resolves.toEqual({response: 'done'});
+
+    expect(infoLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'runner.agent_claude_tool_outcome',
+        failurePhase: 'requested_tool_omitted',
+        omissions: [{toolName: integrationTool, reason: 'catalog_resolution'}],
+      }),
+      'Claude integration tool outcome',
+    );
+  });
+
   it('does not retain a catalog omission after Claude advertises and calls the tool', async () => {
     const availableTool = 'linear_shipfox__get_team';
     const missingFromCatalog = 'slack_shipfox__read_channel';
@@ -1305,12 +1355,14 @@ describe('claudeHarnessAdapter', () => {
       const sdkTool = `mcp__shipfox_integration_tools__${integrationTool}`;
       const infoLog = vi.spyOn(logger(), 'info').mockImplementation(() => undefined);
       const warnLog = vi.spyOn(logger(), 'warn').mockImplementation(() => undefined);
+      let listSignal: AbortSignal | undefined;
       let releaseListStarted: () => void = () => undefined;
       const listStarted = new Promise<void>((resolve) => {
         releaseListStarted = resolve;
       });
       const bridge = mcpBridge([], {
-        listTools: vi.fn().mockImplementation(() => {
+        listTools: vi.fn().mockImplementation((options: {signal?: AbortSignal}) => {
+          listSignal = options.signal;
           releaseListStarted();
           return new Promise(() => undefined);
         }),
@@ -1328,6 +1380,10 @@ describe('claudeHarnessAdapter', () => {
 
       await vi.advanceTimersByTimeAsync(10_000);
       await expectation;
+      expect(listSignal?.aborted).toBe(true);
+      expect(listSignal?.reason).toEqual(
+        expect.objectContaining({message: 'Claude integration tool catalog resolution timed out.'}),
+      );
 
       expect(warnLog).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -1400,12 +1456,14 @@ describe('claudeHarnessAdapter', () => {
 
   it('aborts a pending catalog lookup before starting Claude', async () => {
     const ac = new AbortController();
+    let listSignal: AbortSignal | undefined;
     let releaseListStarted: () => void = () => undefined;
     const listStarted = new Promise<void>((resolve) => {
       releaseListStarted = resolve;
     });
     const bridge = mcpBridge([], {
-      listTools: vi.fn().mockImplementation(() => {
+      listTools: vi.fn().mockImplementation((options: {signal?: AbortSignal}) => {
+        listSignal = options.signal;
         releaseListStarted();
         return new Promise(() => undefined);
       }),
@@ -1422,6 +1480,8 @@ describe('claudeHarnessAdapter', () => {
     ac.abort();
 
     await expect(result).rejects.toThrow(ABORT_ERROR_PATTERN);
+    expect(listSignal?.aborted).toBe(true);
+    expect(listSignal?.reason).toBe(ac.signal.reason);
     expect(queryMock).not.toHaveBeenCalled();
   });
 

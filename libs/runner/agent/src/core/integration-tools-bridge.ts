@@ -58,6 +58,8 @@ export function createIntegrationToolsBridge(params: {
   let resetPromise: Promise<void> | undefined;
   let activationPromise: Promise<URL> | undefined;
   let cancelActivation: ((reason: unknown) => void) | undefined;
+  let activationSettled = false;
+  let activationWaiters = 0;
   let closePromise: Promise<void> | undefined;
   let closed = false;
   let httpServer: HttpServer | undefined;
@@ -158,9 +160,28 @@ export function createIntegrationToolsBridge(params: {
             return {id, server: sessionServer, transport: sessionTransport};
           },
           httpSessions,
-        });
+        }).then(
+          (value) => {
+            activationSettled = true;
+            return value;
+          },
+          (error: unknown) => {
+            activationSettled = true;
+            throw error;
+          },
+        );
       }
-      return boundedActivation(activationPromise, options, cancelActivation);
+      activationWaiters += 1;
+      let waiterReleased = false;
+      const releaseWaiter = (reason?: unknown) => {
+        if (waiterReleased) return;
+        waiterReleased = true;
+        activationWaiters -= 1;
+        if (reason !== undefined && activationWaiters === 0 && !activationSettled) {
+          cancelActivation?.(reason);
+        }
+      };
+      return boundedActivation(activationPromise, options, releaseWaiter);
     },
     close() {
       closed = true;
@@ -478,9 +499,20 @@ function closeHttpServer(server: HttpServer): Promise<void> {
 function boundedActivation<T>(
   activation: Promise<T>,
   options: IntegrationToolsBridgeActivationOptions | undefined,
-  cancel?: (reason: unknown) => void,
+  onWaiterDone?: (reason?: unknown) => void,
 ): Promise<T> {
-  if (options?.signal === undefined && options?.timeout === undefined) return activation;
+  if (options?.signal === undefined && options?.timeout === undefined) {
+    return activation.then(
+      (value) => {
+        onWaiterDone?.();
+        return value;
+      },
+      (error: unknown) => {
+        onWaiterDone?.();
+        throw error;
+      },
+    );
+  }
 
   return new Promise<T>((resolve, reject) => {
     let settled = false;
@@ -489,23 +521,22 @@ function boundedActivation<T>(
         ? undefined
         : setTimeout(() => {
             const error = new Error('Integration tools bridge activation timed out.');
-            cancel?.(error);
-            settle(() => reject(error));
+            settle(() => reject(error), error);
           }, options.timeout);
     const cleanup = () => {
       if (timeout !== undefined) clearTimeout(timeout);
       options.signal?.removeEventListener('abort', onAbort);
     };
-    const settle = (handler: () => void) => {
+    const settle = (handler: () => void, reason?: unknown) => {
       if (settled) return;
       settled = true;
       cleanup();
+      onWaiterDone?.(reason);
       handler();
     };
     const onAbort = () => {
       const reason = options.signal?.reason ?? new Error('Integration tools bridge aborted.');
-      cancel?.(reason);
-      settle(() => reject(reason));
+      settle(() => reject(reason), reason);
     };
 
     activation.then(
