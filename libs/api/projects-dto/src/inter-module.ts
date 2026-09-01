@@ -74,6 +74,11 @@ export const projectsInterModuleContract = defineInterModuleContract({
       }),
       output: z.object({projects: z.array(projectSchema)}),
     },
+    /**
+     * Results use an exclusive keyset cursor over lower(owner), lower(name),
+     * and externalRepositoryId. Consumers composing this page with another
+     * source must preserve that same folded owner/name ordering.
+     */
     listProjectsBySourceConnection: {
       input: z.object({
         workspaceId: idSchema,

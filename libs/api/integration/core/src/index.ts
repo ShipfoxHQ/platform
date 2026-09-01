@@ -366,6 +366,7 @@ export async function createIntegrationsContext(
       ...parts.flatMap((part) => (part.database ? [part.database] : [])),
     ],
     routes: createIntegrationRoutes(registry, sourceControl, {
+      projects: options.projects,
       repositoryAuthorization: repositoryAuthorizer,
       agentTools: options.agentTools
         ? {

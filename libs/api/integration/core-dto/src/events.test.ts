@@ -15,7 +15,10 @@ import {
   integrationSourceRepositoryUpdatedSchema,
   integrationsEventSchemas,
 } from './events.js';
-import {createIntegrationConnectionRepositoryGrantBodySchema} from './schemas/integrations.js';
+import {
+  createIntegrationConnectionRepositoryGrantBodySchema,
+  integrationConnectionRepositoryAccessRepositorySchema,
+} from './schemas/integrations.js';
 
 const validConnectionAvailable = {
   provider: 'linear',
@@ -145,6 +148,27 @@ describe('integrationConnectionAvailableSchema', () => {
     const {slug: _slug, ...withoutSlug} = validConnectionAvailable;
 
     expect(() => integrationConnectionAvailableSchema.parse(withoutSlug)).toThrow();
+  });
+});
+
+describe('integrationConnectionRepositoryAccessRepositorySchema', () => {
+  const repository = {
+    external_repository_id: 'gitea:acme/platform',
+    owner: 'acme',
+    name: 'platform',
+    origins: [
+      {
+        type: 'project' as const,
+        project_id: '00000000-0000-4000-8000-000000000001',
+        project_name: 'Platform',
+      },
+    ],
+  };
+
+  it('accepts a project origin name', () => {
+    expect(integrationConnectionRepositoryAccessRepositorySchema.parse(repository)).toEqual(
+      repository,
+    );
   });
 });
 

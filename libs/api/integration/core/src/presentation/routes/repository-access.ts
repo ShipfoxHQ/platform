@@ -5,28 +5,108 @@ import {
 } from '@shipfox/api-auth-context';
 import {
   createIntegrationConnectionRepositoryGrantBodySchema,
+  integrationConnectionRepositoryAccessResponseSchema,
   integrationConnectionRepositoryGrantDtoSchema,
+  listIntegrationConnectionRepositoryAccessQuerySchema,
   parseProviderRepositoryId,
   updateIntegrationConnectionRepositoryAccessBodySchema,
   updateIntegrationConnectionRepositoryAccessResponseSchema,
 } from '@shipfox/api-integration-spi';
+import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import {ClientError, defineRoute, type RouteExport} from '@shipfox/node-fastify';
 import type {FastifyRequest} from 'fastify';
 import {z} from 'zod';
 import type {IntegrationConnection} from '#core/entities/connection.js';
 import type {IntegrationProviderRegistry} from '#core/providers/registry.js';
+import {
+  type ListSelectedRepositoryAccessResult,
+  listSelectedRepositoryAccess,
+  type RepositoryAccessCursor,
+  RepositoryAccessProjectsPaginationError,
+} from '#core/repository-access-read.js';
 import {getIntegrationConnectionById} from '#db/connections.js';
 import {
   deleteIntegrationConnectionRepositoryGrantByIdWithAudit,
   updateIntegrationConnectionRepositoryAccessModeWithAudit,
   upsertIntegrationConnectionRepositoryGrantWithAudit,
 } from '#db/repository-access.js';
-import {toRepositoryGrantDto} from '#presentation/dto/integrations.js';
+import {listIntegrationConnectionRepositoryGrants} from '#db/repository-grants.js';
+import {
+  toRepositoryAccessRepositoryDto,
+  toRepositoryGrantDto,
+} from '#presentation/dto/integrations.js';
 import {integrationRouteErrorHandler} from './errors.js';
 
 const connectionParamsSchema = z.object({
   connectionId: z.string().uuid(),
 });
+
+export interface CreateRepositoryAccessReadRouteParams {
+  registry: IntegrationProviderRegistry;
+  projects?: ProjectsModuleClient | undefined;
+}
+
+export function createRepositoryAccessReadRoute(
+  params: CreateRepositoryAccessReadRouteParams,
+): RouteExport {
+  return defineRoute({
+    method: 'GET',
+    path: '/integration-connections/:connectionId/repository-access',
+    auth: AUTH_USER,
+    description: 'Read the composed repository access for an integration connection.',
+    schema: {
+      params: connectionParamsSchema,
+      querystring: listIntegrationConnectionRepositoryAccessQuerySchema,
+      response: {200: integrationConnectionRepositoryAccessResponseSchema},
+    },
+    errorHandler: integrationRouteErrorHandler,
+    handler: async (request) => {
+      const connection = await loadConnection(request.params.connectionId);
+      requireRepositoryAccessAdmin(request, connection);
+      const provider = params.registry.get(connection.provider);
+      requireRepositoryAccessSupport(provider.repositoryAuthorization);
+
+      const cursor = decodeRepositoryAccessCursor(request.query.cursor);
+      if (request.query.cursor && !cursor) {
+        throw new ClientError('Invalid cursor', 'invalid-cursor', {status: 400});
+      }
+
+      if (connection.repositoryAccessMode === 'all') {
+        return {mode: connection.repositoryAccessMode, repositories: [], next_cursor: null};
+      }
+
+      if (!params.projects) {
+        throw new ClientError('Projects module is unavailable', 'projects-module-unavailable', {
+          status: 503,
+        });
+      }
+
+      let result: ListSelectedRepositoryAccessResult;
+      try {
+        result = await listSelectedRepositoryAccess({
+          connection,
+          projects: params.projects,
+          listGrants: listIntegrationConnectionRepositoryGrants,
+          limit: request.query.limit,
+          cursor,
+        });
+      } catch (error) {
+        if (error instanceof RepositoryAccessProjectsPaginationError) {
+          throw new ClientError(error.message, 'integration-projects-pagination-failed', {
+            status: 502,
+            cause: error,
+          });
+        }
+        throw error;
+      }
+      return {
+        mode: connection.repositoryAccessMode,
+        repositories: result.repositories.map(toRepositoryAccessRepositoryDto),
+        next_cursor: result.nextCursor ? encodeRepositoryAccessCursor(result.nextCursor) : null,
+      };
+    },
+  });
+}
 
 export interface CreateRepositoryAccessMutationRoutesParams {
   registry: IntegrationProviderRegistry;
@@ -165,6 +245,39 @@ function requireRepositoryAccessSupport(repositoryAuthorization: string | undefi
     'integration-repository-access-unsupported',
     {status: 422},
   );
+}
+
+function encodeRepositoryAccessCursor(cursor: RepositoryAccessCursor): string {
+  return Buffer.from(JSON.stringify(cursor), 'utf8').toString('base64url');
+}
+
+function decodeRepositoryAccessCursor(
+  cursor: string | undefined,
+): RepositoryAccessCursor | undefined {
+  if (!cursor) return undefined;
+
+  try {
+    const parsed: unknown = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined;
+    const candidate = parsed as Partial<RepositoryAccessCursor>;
+    if (
+      typeof candidate.owner !== 'string' ||
+      candidate.owner.length === 0 ||
+      typeof candidate.name !== 'string' ||
+      candidate.name.length === 0 ||
+      typeof candidate.externalRepositoryId !== 'string' ||
+      candidate.externalRepositoryId.length === 0
+    ) {
+      return undefined;
+    }
+    return {
+      owner: candidate.owner,
+      name: candidate.name,
+      externalRepositoryId: candidate.externalRepositoryId,
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 function validateExternalRepositoryId(
