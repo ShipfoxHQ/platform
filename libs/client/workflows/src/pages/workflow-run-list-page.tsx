@@ -1,6 +1,7 @@
 import {useNavigate} from '@tanstack/react-router';
 import {useCallback} from 'react';
 import {WorkflowRunList} from '#components/workflow-run-list/workflow-run-list.js';
+import {useWorkflowFilterOptions} from '#hooks/api/workflow-filter-options.js';
 import {
   applyWorkflowRunFilterPatch,
   clearWorkflowRunFilters,
@@ -25,6 +26,7 @@ export function WorkflowRunsPage({
   search = EMPTY_SEARCH,
 }: WorkflowRunsPageProps) {
   const navigate = useNavigate();
+  const workflowFilterOptions = useWorkflowFilterOptions(projectId);
 
   // Filter changes replace history instead of pushing it, so Back leaves the list rather than
   // walking every keystroke of a search box.
@@ -54,6 +56,7 @@ export function WorkflowRunsPage({
         projectId={projectId}
         workspaceSlug={workspaceSlug}
         projectSlug={projectSlug}
+        {...workflowFilterOptions}
         search={search}
         onFiltersChange={onFiltersChange}
         onClearFilters={onClearFilters}

@@ -9,13 +9,22 @@ import type {WorkflowRunListStatus, WorkflowRunsSearch} from '#routes/inputs.js'
 
 export type WorkflowRunFilterCriteria = Pick<
   WorkflowRunsSearch,
-  'search' | 'status' | 'origin' | 'branch' | 'actor' | 'event' | 'after' | 'before'
+  'search' | 'workflow' | 'status' | 'origin' | 'branch' | 'actor' | 'event' | 'after' | 'before'
 >;
 
 /** The dimensions whose options are read off the loaded runs rather than a fixed enum. */
 export type WorkflowRunFacetName = 'branch' | 'actor' | 'event';
 
-export type WorkflowRunFacets = Record<WorkflowRunFacetName, string[]>;
+export interface WorkflowRunWorkflowFacet {
+  value: string;
+  label: string;
+}
+
+export type WorkflowRunFacets = Record<WorkflowRunFacetName, string[]> & {
+  workflow: WorkflowRunWorkflowFacet[];
+};
+
+const UNKNOWN_WORKFLOW_LABEL = 'Unknown workflow';
 
 export function runMatchesSearch(run: WorkflowRunListItem, query: string): boolean {
   const needle = query.trim().toLowerCase();
@@ -66,8 +75,9 @@ export function runMatchesFilters(
   criteria: WorkflowRunFilterCriteria,
 ): boolean {
   if (!runMatchesStatusFilter(run.status, criteria.status)) return false;
-  // The origin facet is also sent to the API, so this predicate only ever sees matching runs
-  // on the live page; it keeps the standalone view honest (stories, isolated tests).
+  // Workflow and origin are also sent to the API. These predicates keep the standalone view
+  // honest and prevent placeholder data from briefly showing stale rows between queries.
+  if (criteria.workflow && run.definitionId !== criteria.workflow) return false;
   if (criteria.origin && run.origin !== criteria.origin) return false;
   if (!matchesFacet(criteria.branch, workflowRunBranchLabel(run))) return false;
   if (!matchesFacet(criteria.actor, workflowRunActor(run))) return false;
@@ -85,8 +95,10 @@ export function runMatchesFilters(
 export function workflowRunFacets(
   runs: readonly WorkflowRunListItem[],
   criteria: WorkflowRunFilterCriteria = {},
+  workflows: readonly WorkflowRunWorkflowFacet[] = [],
 ): WorkflowRunFacets {
   return {
+    workflow: workflowFacetValues(runs, workflows, criteria.workflow),
     branch: facetValues(runs.map(workflowRunBranchLabel), criteria.branch),
     actor: facetValues(runs.map(workflowRunActor), criteria.actor),
     event: facetValues(
@@ -94,6 +106,23 @@ export function workflowRunFacets(
       criteria.event,
     ),
   };
+}
+
+function workflowFacetValues(
+  runs: readonly WorkflowRunListItem[],
+  workflows: readonly WorkflowRunWorkflowFacet[],
+  selected: string | undefined,
+): WorkflowRunWorkflowFacet[] {
+  const options = new Map(workflows.map((workflow) => [workflow.value, workflow]));
+  for (const run of runs) {
+    if (run.definitionId && !options.has(run.definitionId)) {
+      options.set(run.definitionId, {value: run.definitionId, label: run.workflowName});
+    }
+  }
+  if (selected && !options.has(selected)) {
+    options.set(selected, {value: selected, label: UNKNOWN_WORKFLOW_LABEL});
+  }
+  return [...options.values()].sort((left, right) => left.label.localeCompare(right.label));
 }
 
 /**

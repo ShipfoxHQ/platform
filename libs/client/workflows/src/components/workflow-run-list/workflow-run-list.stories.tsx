@@ -24,6 +24,7 @@ function makeQuery(overrides: Partial<WorkflowRunListQuery> = {}): WorkflowRunLi
 
 const JOB_STRIP_NAME = /jobs:/u;
 const STATUS_FILTER = /^Status\b.*filter$/u;
+const WORKFLOW_FILTER = /^Workflow\b.*filter$/u;
 
 let commitSequence = 0;
 
@@ -45,6 +46,7 @@ function makeRun(
   }: {ref?: string; actor?: string; jobs?: JobStatusDto[]} = {},
 ): WorkflowRunListItem {
   return sequencedWorkflowRunListItem(status, name, minutesAgo, {
+    definition_id: `def-${name}`,
     workflow_name: name,
     trigger_reference: {repository: 'acme/checkout-api', ref, commit: nextCommit(), actor},
     ...workflowRunJobsFixture(jobs),
@@ -70,6 +72,7 @@ function makeDevRun(
   },
 ): WorkflowRunListItem {
   return sequencedWorkflowRunListItem(status, name, minutesAgo, {
+    definition_id: `def-${name}`,
     workflow_name: name,
     origin: 'dev',
     trigger_reference: triggerReference,
@@ -271,6 +274,30 @@ export const TestMultiSelectFilter: Story = {
     );
     await expect(canvas.getByText('integration-tests')).toBeInTheDocument();
     await expect(canvas.queryByText('build-image')).not.toBeInTheDocument();
+  },
+};
+
+export const TestWorkflowFilter: Story = {
+  play: async ({canvasElement}) => {
+    const canvas = within(canvasElement);
+    let sheet: HTMLElement | null = null;
+    let workflowTrigger = canvas.queryByRole('button', {name: WORKFLOW_FILTER});
+    if (!workflowTrigger) {
+      await userEvent.click(canvas.getByRole('button', {name: 'Filters'}));
+      sheet = await within(document.body).findByRole('dialog');
+      workflowTrigger = within(sheet).getByRole('button', {name: WORKFLOW_FILTER});
+    }
+
+    await userEvent.click(workflowTrigger);
+    const listbox = await within(document.body).findByRole('listbox');
+    await userEvent.click(within(listbox).getByRole('option', {name: 'integration-tests'}));
+
+    await expect(workflowTrigger).toHaveTextContent('Workflow: integration-tests');
+    if (sheet) {
+      await userEvent.click(within(sheet).getByRole('button', {name: 'Show runs'}));
+    }
+    await expect(canvas.getByText('integration-tests')).toBeInTheDocument();
+    await expect(canvas.queryByText('deploy-web')).not.toBeInTheDocument();
   },
 };
 

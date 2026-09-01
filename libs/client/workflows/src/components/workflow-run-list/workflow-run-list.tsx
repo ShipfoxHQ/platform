@@ -17,6 +17,10 @@ export function WorkflowRunList({
   workspaceSlug,
   projectSlug,
   className,
+  workflowOptions,
+  workflowOptionsStatus,
+  onOpenWorkflowOptions,
+  onRetryWorkflowOptions,
   search,
   onFiltersChange,
   onClearFilters,
@@ -30,10 +34,12 @@ export function WorkflowRunList({
   const handleFiltersChange = onFiltersChange ?? handleLocalFiltersChange;
   const handleClearFilters = onFiltersChange ? onClearFilters : handleLocalClearFilters;
 
-  // The origin facet is the one filter the API honors (it is a column with an index, and the
-  // aggregates follow it); the rest stay client-side over the loaded pages. Passing it here
-  // keeps the facet working across full history instead of only the fetched window.
-  const query = useWorkflowRunsInfiniteQuery(projectId, {origin: effectiveSearch?.origin});
+  // Origin and workflow are server-backed so those filters cover the full run history. The
+  // remaining dimensions stay client-side over the pages the user has loaded.
+  const query = useWorkflowRunsInfiniteQuery(projectId, {
+    origin: effectiveSearch?.origin,
+    definitionId: effectiveSearch?.workflow,
+  });
   const handleLoadMore = useCallback(() => {
     void query.fetchNextPage();
   }, [query.fetchNextPage]);
@@ -49,6 +55,10 @@ export function WorkflowRunList({
       workspaceSlug={workspaceSlug}
       projectSlug={projectSlug}
       className={className}
+      {...(workflowOptions ? {workflowOptions} : {})}
+      {...(workflowOptionsStatus ? {workflowOptionsStatus} : {})}
+      {...(onOpenWorkflowOptions ? {onOpenWorkflowOptions} : {})}
+      {...(onRetryWorkflowOptions ? {onRetryWorkflowOptions} : {})}
       {...(effectiveSearch ? {search: effectiveSearch} : {})}
       onFiltersChange={handleFiltersChange}
       {...(handleClearFilters ? {onClearFilters: handleClearFilters} : {})}
