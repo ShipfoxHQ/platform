@@ -54,6 +54,14 @@ function batchLimit(limit: number | undefined): number {
   return value;
 }
 
+function statementTimeoutMs(timeoutMs: number | undefined): number | undefined {
+  if (timeoutMs === undefined) return undefined;
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 1) {
+    throw new Error('Agent-access statement timeout must be a positive integer');
+  }
+  return timeoutMs;
+}
+
 async function requireActiveAgentGrant(tx: AgentAccessTx, grantId: string): Promise<AgentGrant> {
   const grant = await lockAgentGrant(tx, {grantId});
   if (!grant) throw new Error(`Agent grant ${grantId} was not found`);
@@ -113,7 +121,8 @@ export function isWithinAgentRefreshRotationGrace(params: {
   const graceSeconds = validateRotationGraceSeconds(
     params.graceSeconds ?? config.AUTH_REFRESH_ROTATION_GRACE_SECONDS,
   );
-  return now.getTime() - params.rotatedAt.getTime() <= graceSeconds * MILLISECONDS_PER_SECOND;
+  const elapsedMs = now.getTime() - params.rotatedAt.getTime();
+  return elapsedMs >= 0 && elapsedMs <= graceSeconds * MILLISECONDS_PER_SECOND;
 }
 
 export interface CreateAgentClientParams {
@@ -1012,6 +1021,8 @@ export interface PruneAgentAccessParams {
   retentionDays?: number;
   limit?: number;
   now?: Date;
+  /** Bounds each PostgreSQL statement, including row-lock waits, when provided. */
+  statementTimeoutMs?: number;
 }
 
 export interface PruneAgentAccessResult {
@@ -1149,10 +1160,24 @@ async function pruneTerminalAgentGrants(
   tx: AgentAccessTx,
   params: {cutoff: Date; now: Date; limit: number},
 ): Promise<number> {
+  const remainingCodes = tx
+    .select({id: agentAuthorizationCodes.id})
+    .from(agentAuthorizationCodes)
+    .where(eq(agentAuthorizationCodes.grantId, agentGrants.id));
+  const remainingRefreshTokens = tx
+    .select({id: agentRefreshTokens.id})
+    .from(agentRefreshTokens)
+    .where(eq(agentRefreshTokens.grantId, agentGrants.id));
   const candidates = await tx
     .select({id: agentGrants.id, clientId: agentGrants.clientId})
     .from(agentGrants)
-    .where(lte(agentGrants.terminalAt, params.cutoff))
+    .where(
+      and(
+        lte(agentGrants.terminalAt, params.cutoff),
+        notExists(remainingCodes),
+        notExists(remainingRefreshTokens),
+      ),
+    )
     .orderBy(asc(agentGrants.terminalAt), asc(agentGrants.id))
     .limit(params.limit)
     .for('update');
@@ -1318,6 +1343,7 @@ export async function pruneAgentAccessBatch(
 ): Promise<PruneAgentAccessResult> {
   const now = params.now ?? new Date();
   const limit = batchLimit(params.limit);
+  const timeoutMs = statementTimeoutMs(params.statementTimeoutMs);
   const retentionDays = params.retentionDays;
   const authorizationCutoff = retentionCutoff(
     now,
@@ -1339,6 +1365,13 @@ export async function pruneAgentAccessBatch(
   };
 
   return await db().transaction(async (tx) => {
+    if (timeoutMs !== undefined) {
+      const timeout = `${timeoutMs}ms`;
+      await tx.execute(
+        sql`select set_config('statement_timeout', ${timeout}, true), set_config('lock_timeout', ${timeout}, true)`,
+      );
+    }
+
     // This runs first so grants whose last child expired can be terminalized in
     // the same maintenance tick. It takes the same grant row lock as code
     // exchange and refresh rotation.

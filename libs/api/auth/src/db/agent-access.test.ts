@@ -21,9 +21,11 @@ import {
   findAgentPersonalAccessTokenByHash,
   findAgentRefreshTokenByHash,
   findPendingAgentAuthorizationRequest,
+  isWithinAgentRefreshRotationGrace,
   lockAgentGrant,
   markAgentPersonalAccessTokenUsed,
   pruneAgentAccess,
+  pruneAgentAccessBatch,
   resolveAgentRefreshTokenReplay,
   revokeAgentGrant,
   revokeAgentPersonalAccessToken,
@@ -66,6 +68,18 @@ function deferred<T>() {
 }
 
 describe('agent-access db', () => {
+  test('does not accept a future rotation timestamp as a grace replay', () => {
+    const now = new Date('2026-09-01T00:00:00.000Z');
+
+    expect(
+      isWithinAgentRefreshRotationGrace({
+        rotatedAt: new Date(now.getTime() + 1_000),
+        now,
+        graceSeconds: 30,
+      }),
+    ).toBe(false);
+  });
+
   test('consumes a pending authorization request exactly once under concurrency', async () => {
     const client = await createAgentClient({
       clientId: `https://client.example/${crypto.randomUUID()}`,
@@ -765,6 +779,52 @@ describe('agent-access db', () => {
     expect(await findAgentGrant({id: grant.id})).toBeUndefined();
   });
 
+  test('does not let retained children starve newer terminal grants', async () => {
+    const now = new Date('2026-09-01T00:00:00.000Z');
+    const user = await userFactory.create();
+    const blockedClient = await createAgentClient({
+      clientId: `https://client.example/${crypto.randomUUID()}`,
+      name: 'Blocked terminal client',
+      redirectUris: ['https://client.example/callback'],
+      kind: 'registered',
+    });
+    const deletableClient = await createAgentClient({
+      clientId: `https://client.example/${crypto.randomUUID()}`,
+      name: 'Deletable terminal client',
+      redirectUris: ['https://client.example/callback'],
+      kind: 'registered',
+    });
+    const blockedGrant = await createAgentGrant({
+      userId: user.id,
+      workspaceId: crypto.randomUUID(),
+      clientId: blockedClient.id,
+      scopes: ['read'],
+    });
+    const deletableGrant = await createAgentGrant({
+      userId: user.id,
+      workspaceId: crypto.randomUUID(),
+      clientId: deletableClient.id,
+      scopes: ['read'],
+    });
+    const retainedChild = await createAgentRefreshToken({
+      grantId: blockedGrant.id,
+      hashedToken: hashOpaqueToken(`starving-child-${crypto.randomUUID()}`),
+      expiresAt: new Date(now.getTime() + 60_000),
+    });
+    const terminalAt = new Date(now.getTime() - 91 * 24 * 60 * 60 * 1000);
+    await db().update(agentGrants).set({terminalAt}).where(eq(agentGrants.id, blockedGrant.id));
+    await db().update(agentGrants).set({terminalAt}).where(eq(agentGrants.id, deletableGrant.id));
+    await db()
+      .update(agentRefreshTokens)
+      .set({revokedAt: new Date(now.getTime() - 24 * 60 * 60 * 1000)})
+      .where(eq(agentRefreshTokens.id, retainedChild.id));
+
+    await pruneAgentAccess({now, limit: 1});
+
+    expect(await findAgentGrant({id: blockedGrant.id})).toMatchObject({id: blockedGrant.id});
+    expect(await findAgentGrant({id: deletableGrant.id})).toBeUndefined();
+  });
+
   test('consumes an authorization code exactly once and preserves its bindings', async () => {
     const user = await userFactory.create();
     const client = await createAgentClient({
@@ -876,6 +936,57 @@ describe('agent-access db', () => {
       } finally {
         releaseHolder();
         await Promise.all([holder, waiter.catch(() => undefined)]);
+      }
+    },
+    GRANT_LOCK_TEST_TIMEOUT_MS,
+  );
+
+  test(
+    'bounds retention waits on a locked terminal grant',
+    async () => {
+      const user = await userFactory.create();
+      const client = await createAgentClient({
+        clientId: `https://client.example/${crypto.randomUUID()}`,
+        name: 'Retention lock client',
+        redirectUris: ['https://client.example/callback'],
+        kind: 'registered',
+      });
+      const grant = await createAgentGrant({
+        userId: user.id,
+        workspaceId: crypto.randomUUID(),
+        clientId: client.id,
+        scopes: ['read'],
+      });
+      await db()
+        .update(agentGrants)
+        .set({terminalAt: new Date('2000-01-01T00:00:00.000Z')})
+        .where(eq(agentGrants.id, grant.id));
+
+      const holderReady = deferred<void>();
+      const releaseHolder = deferred<void>();
+      const holder = db().transaction(async (tx) => {
+        await tx
+          .update(agentGrants)
+          .set({updatedAt: sql`now()`})
+          .where(eq(agentGrants.id, grant.id));
+        holderReady.resolve();
+        await releaseHolder.promise;
+      });
+
+      try {
+        await holderReady.promise;
+        await expect(
+          pruneAgentAccessBatch({
+            now: new Date('2026-09-01T00:00:00.000Z'),
+            limit: 1,
+            statementTimeoutMs: 500,
+          }),
+        ).rejects.toMatchObject({
+          cause: {code: expect.stringMatching('^(55P03|57014)$')},
+        });
+      } finally {
+        releaseHolder.resolve();
+        await holder;
       }
     },
     GRANT_LOCK_TEST_TIMEOUT_MS,
