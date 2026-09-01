@@ -145,10 +145,12 @@ On EC2, launch a runner with the legacy lifetime key and verify that a job runni
 
 During an AMI migration, also stop the provisioner while a test runner is
 wedged. Restore the provisioner and verify that backend stale handling produces
-a termination intent, then verify that EC2 terminates the tagged instance on
-the next full reconcile. The default reconcile cadence is 60 seconds after the
-intent is available, plus backend stale thresholds and API or EC2 request
-latency. Record the end-to-end time before retiring the old AMI.
+a termination intent, then verify that EC2 terminates the tagged instance after
+reconciliation. A restored provisioner reconciles immediately. In steady state,
+the next full reconcile runs within the default 60-second
+`SHIPFOX_PROVISIONER_EC2_RECONCILE_INTERVAL_MS` cadence after the intent is
+available. Add backend stale thresholds and API or EC2 request latency to the
+total. Record the end-to-end time before retiring the old AMI.
 
 ## Candidate builds
 

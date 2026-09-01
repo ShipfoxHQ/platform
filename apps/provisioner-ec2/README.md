@@ -39,10 +39,12 @@ and termination failures.
 
 Before retiring old AMIs, run a recovery drill with a test runner and a stopped
 provisioner. Restore the provisioner and verify that backend stale handling
-produces a termination intent, then verify EC2 termination on the next full
-reconcile. The default full-reconcile cadence is 60 seconds after the backend
-intent is available, plus backend stale thresholds and API or EC2 request
-latency. Record the observed end-to-end time in the deployment notes.
+produces a termination intent, then verify EC2 termination after reconciliation.
+A restored provisioner reconciles immediately. In steady state, the next full
+reconcile runs within the default 60-second
+`SHIPFOX_PROVISIONER_EC2_RECONCILE_INTERVAL_MS` cadence after the intent is
+available. Add backend stale thresholds and API or EC2 request latency to the
+total. Record the observed end-to-end time in the deployment notes.
 
 ## Template families
 
