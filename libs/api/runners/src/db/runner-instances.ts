@@ -34,6 +34,7 @@ import {lockRunnerEnrollmentTx} from './enrollment-locks.js';
 import {
   listRunningJobExecutionsByRunnerInstanceTx,
   type RunnerInstanceBoundJobExecution,
+  removeJobStopHandoffsForTerminalProviderRunnersTx,
 } from './job-executions.js';
 import {lockRunnerReservationAdvisoryKeysTx} from './reservation-locks.js';
 import {releaseTerminalRunnerInstanceReservationsByIds} from './reservations.js';
@@ -454,13 +455,18 @@ export async function reportRunnerInstances(params: ReportRunnerInstancesParams)
 
     const events = aggregatedEvents;
     const reservationSafeEvents = await guardReportedReservationIdsTx(tx, params, events);
-    const existingReportedAtByProviderRunnerId = hasTerminalEvent
-      ? await listExistingProviderRunnerReportedAtTx(tx, params, reservationSafeEvents)
-      : new Map<string, Date>();
+    const existingProjectionByProviderRunnerId = hasTerminalEvent
+      ? await listExistingProviderRunnerProjectionTx(tx, params, reservationSafeEvents)
+      : new Map<string, {state: RunnerInstanceState; reportedAt: Date}>();
+    const acceptedTerminalEvents = reservationSafeEvents.filter((event) => {
+      if (!isTerminalState(event.state)) return false;
+      const existing = existingProjectionByProviderRunnerId.get(event.providerRunnerId);
+      return existing === undefined || compareRunnerInstanceReportEvents(event, existing) >= 0;
+    });
     const freshTerminalEvents = reservationSafeEvents.filter((event) => {
       if (!isTerminalState(event.state)) return false;
-      const existingReportedAt = existingReportedAtByProviderRunnerId.get(event.providerRunnerId);
-      return existingReportedAt === undefined || event.reportedAt >= existingReportedAt;
+      const existing = existingProjectionByProviderRunnerId.get(event.providerRunnerId);
+      return existing === undefined || event.reportedAt >= existing.reportedAt;
     });
     const terminateIntentsHonored = await listTerminateIntentsHonoredByTerminatedReportsTx(
       tx,
@@ -533,6 +539,13 @@ export async function reportRunnerInstances(params: ReportRunnerInstancesParams)
         `,
       });
 
+    if (acceptedTerminalEvents.length > 0) {
+      await removeJobStopHandoffsForTerminalProviderRunnersTx(tx, {
+        provisionerId: params.provisionerId,
+        providerRunnerIds: acceptedTerminalEvents.map((event) => event.providerRunnerId),
+      });
+    }
+
     const reservationsReleased =
       freshTerminalEvents.length > 0
         ? await releaseTerminalRunnerInstanceReservations(tx, params, freshTerminalEvents)
@@ -546,17 +559,18 @@ export async function reportRunnerInstances(params: ReportRunnerInstancesParams)
   });
 }
 
-async function listExistingProviderRunnerReportedAtTx(
+async function listExistingProviderRunnerProjectionTx(
   tx: Tx,
   params: ReportRunnerInstancesParams,
   events: RunnerInstanceReportRow[],
-): Promise<Map<string, Date>> {
+): Promise<Map<string, {state: RunnerInstanceState; reportedAt: Date}>> {
   const providerRunnerIds = [...new Set(events.map((event) => event.providerRunnerId))];
   if (providerRunnerIds.length === 0) return new Map();
 
   const rows = await tx
     .select({
       providerRunnerId: providerRunners.providerRunnerId,
+      state: providerRunners.state,
       reportedAt: providerRunners.reportedAt,
     })
     .from(providerRunners)
@@ -568,7 +582,9 @@ async function listExistingProviderRunnerReportedAtTx(
     );
   return new Map(
     rows.flatMap((row) =>
-      row.providerRunnerId ? [[row.providerRunnerId, row.reportedAt] as const] : [],
+      row.providerRunnerId
+        ? [[row.providerRunnerId, {state: row.state, reportedAt: row.reportedAt}] as const]
+        : [],
     ),
   );
 }
@@ -2334,8 +2350,8 @@ function earliestDate(a: Date | null, b: Date | null): Date | null {
 }
 
 function compareRunnerInstanceReportEvents(
-  a: RunnerInstanceReportEvent,
-  b: RunnerInstanceReportEvent,
+  a: Pick<RunnerInstanceReportEvent, 'state' | 'reportedAt'>,
+  b: Pick<RunnerInstanceReportEvent, 'state' | 'reportedAt'>,
 ): number {
   const timeDelta = a.reportedAt.getTime() - b.reportedAt.getTime();
   const rankDelta = getRunnerInstanceStateRank(a.state) - getRunnerInstanceStateRank(b.state);

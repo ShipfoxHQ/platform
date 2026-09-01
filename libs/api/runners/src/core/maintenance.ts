@@ -1,6 +1,10 @@
 import {config} from '#config.js';
 import {deleteExpiredEphemeralRegistrationTokens as deleteExpiredEphemeralRegistrationTokensDb} from '#db/ephemeral-registration-tokens.js';
-import {expireStuckJobExecutions} from '#db/job-executions.js';
+import {
+  expireStuckJobExecutions,
+  removeExpiredManagedJobStopHandoffs,
+  removeExpiredUnlinkedJobStopHandoffs,
+} from '#db/job-executions.js';
 import {deleteExpiredReservations} from '#db/reservations.js';
 import {
   reapStaleRunnerInstances as reapStaleRunnerInstancesDb,
@@ -11,6 +15,7 @@ import {
   providerRunnerReapedCount,
   providerRunnerStaleIdleSessionRecoveredCount,
   recordRunnerEnrollmentCredentialRevocations,
+  recordRunnerJobStopHandoffCleaned,
   recordRunnerReservationReleased,
 } from '#metrics/instance.js';
 import {STUCK_JOB_THRESHOLD_SECONDS} from './maintenance-policy.js';
@@ -24,6 +29,16 @@ export interface DetectAndExpireStuckJobsParams {
 export async function detectAndExpireStuckJobs(
   params: DetectAndExpireStuckJobsParams = {},
 ): Promise<{expired: number}> {
+  const managedStopHandoffs = await removeExpiredManagedJobStopHandoffs({
+    graceSeconds: config.RUNNER_JOB_CLEANUP_GRACE_SECONDS,
+  });
+  const unlinkedStopHandoffs = await removeExpiredUnlinkedJobStopHandoffs({
+    graceSeconds: config.RUNNER_JOB_CLEANUP_GRACE_SECONDS,
+  });
+  recordRunnerJobStopHandoffCleaned({
+    count: managedStopHandoffs.removed + unlinkedStopHandoffs,
+    surface: 'maintenance',
+  });
   const reaped = await expireStuckJobExecutions({
     noFirstHeartbeatGraceSeconds:
       params.noFirstHeartbeatGraceSeconds ?? config.RUNNER_NO_FIRST_HEARTBEAT_GRACE_SECONDS,

@@ -14,17 +14,24 @@ export {deleteExpiredEphemeralRegistrationTokens} from './ephemeral-registration
 export type {
   ClaimedJobExecution,
   EnqueueJobExecutionParams,
+  JobExecutionCleanupStats,
+  JobStopHandoffCleanupResult,
   RunnerInstanceBoundJobExecution,
 } from './job-executions.js';
 export {
   claimPendingJobExecution,
   enqueueJobExecution,
   expireStuckJobExecutions,
+  getJobExecutionCleanupStats,
   getWorkspaceJobCounts,
   isJobLeaseActive,
   listActiveRunningJobExecutions,
   listRunningJobExecutionsByRunnerInstanceTx,
   recordHeartbeat,
+  removeExpiredJobStopHandoffs,
+  removeExpiredManagedJobStopHandoffs,
+  removeExpiredUnlinkedJobStopHandoffs,
+  removeJobStopHandoffsForTerminalProviderRunnersTx,
 } from './job-executions.js';
 export type {CreateManualRegistrationTokenParams} from './manual-registration-tokens.js';
 export {

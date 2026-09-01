@@ -1,6 +1,6 @@
 import {RUNNER_JOB_CLAIMED, RUNNER_JOB_LEASE_EXPIRED} from '@shipfox/api-runners-dto';
 import {pgClient} from '@shipfox/node-postgres';
-import {eq, sql} from 'drizzle-orm';
+import {eq, inArray, sql} from 'drizzle-orm';
 import {EmptyRequiredLabelsError, RunnerSessionExhaustedError} from '#core/errors.js';
 import {claimJobExecution} from '#core/job-executions.js';
 import {detectAndExpireStuckJobs} from '#core/maintenance.js';
@@ -17,6 +17,7 @@ import {
   claimPendingJobExecution as claimPendingJobExecutionDb,
   enqueueJobExecution,
   expireStuckJobExecutions,
+  getJobExecutionCleanupStats,
   getJobExecutionQueueDepth,
   isJobLeaseActive,
   reconcileTerminalJobExecution,
@@ -886,7 +887,7 @@ describe('claimPendingJobExecution', () => {
     expect(running[0]?.jobId).toBe(created.jobId);
   });
 
-  it('leaves a non-matching orphan unclaimed until terminal reconciliation sweeps it', async () => {
+  it('sweeps a non-matching orphan when terminal reconciliation removes the execution', async () => {
     const created = await pendingJobFactory.create({workspaceId});
     const first = await claimPendingJobExecution({workspaceId, runnerSessionId});
     if (!first) throw new Error('Expected pending job to be claimed');
@@ -906,15 +907,17 @@ describe('claimPendingJobExecution', () => {
       runnerSessionId,
       sessionLabels: ['macos'],
     });
-    await reconcileTerminalJobExecution({jobExecutionId: created.jobExecutionId});
+    await reconcileTerminalJobExecution({
+      jobExecutionId: created.jobExecutionId,
+      cancellationReason: null,
+    });
 
     expect(second).toBeNull();
-    const [running] = await db()
+    const running = await db()
       .select()
       .from(runningJobExecutions)
       .where(eq(runningJobExecutions.workspaceId, workspaceId));
-    expect(running?.jobExecutionId).toBe(created.jobExecutionId);
-    expect(running?.cancellationRequestedAt).not.toBeNull();
+    expect(running).toHaveLength(0);
     expect(
       await db()
         .select()
@@ -1074,11 +1077,14 @@ describe('recordHeartbeat', () => {
     );
   });
 
-  it('returns cancel:true after reconcileTerminalJobExecution', async () => {
+  it('returns cancel:true after a stop handoff is recorded by reconciliation', async () => {
     await pendingJobFactory.create({workspaceId});
     const claimed = await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: null});
 
-    await reconcileTerminalJobExecution({jobExecutionId: claimed?.jobExecutionId as string});
+    await reconcileTerminalJobExecution({
+      jobExecutionId: claimed?.jobExecutionId as string,
+      cancellationReason: 'run_cancelled',
+    });
 
     const result = await recordHeartbeat({
       jobExecutionId: claimed?.jobExecutionId as string,
@@ -1093,6 +1099,47 @@ describe('recordHeartbeat', () => {
         runnerSessionId,
       },
     });
+    expect(
+      await db()
+        .select()
+        .from(runningJobExecutions)
+        .where(eq(runningJobExecutions.jobExecutionId, claimed?.jobExecutionId as string)),
+    ).toHaveLength(0);
+  });
+
+  it('keeps a managed stop handoff until provider termination or cleanup grace', async () => {
+    const provisionerId = crypto.randomUUID();
+    const providerRunnerId = crypto.randomUUID();
+    await providerRunnerFactory.create({
+      workspaceId,
+      provisionerId,
+      providerRunnerId,
+      state: 'running',
+    });
+    await pendingJobFactory.create({workspaceId});
+    const claimed = await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: null});
+    expect(claimed?.jobExecutionId).toBeDefined();
+    await db()
+      .update(runningJobExecutions)
+      .set({provisionerId, providerRunnerId})
+      .where(eq(runningJobExecutions.jobExecutionId, claimed?.jobExecutionId as string));
+
+    await reconcileTerminalJobExecution({
+      jobExecutionId: claimed?.jobExecutionId as string,
+      cancellationReason: 'run_cancelled',
+    });
+
+    const result = await recordHeartbeat({
+      jobExecutionId: claimed?.jobExecutionId as string,
+      runnerSessionId,
+    });
+
+    expect(result).toMatchObject({cancellationRequested: true});
+    const [handoff] = await db()
+      .select()
+      .from(runningJobExecutions)
+      .where(eq(runningJobExecutions.jobExecutionId, claimed?.jobExecutionId as string));
+    expect(handoff?.cancellationReason).toBe('run_cancelled');
   });
 
   it('throws RunningJobExecutionNotFoundError when jobId is unknown', async () => {
@@ -1156,7 +1203,7 @@ describe('reconcileTerminalJobExecution', () => {
     expect(rows[0]?.cancellationReason).toBe('timed_out');
   });
 
-  it('does not double-release a reservation when a claimed runner becomes terminal', async () => {
+  it('deletes a normal terminal lease without double-releasing a terminal runner reservation', async () => {
     const provisionerId = crypto.randomUUID();
     const providerRunnerId = crypto.randomUUID();
     const [reservation] = await db()
@@ -1211,6 +1258,12 @@ describe('reconcileTerminalJobExecution', () => {
       .from(reservations)
       .where(eq(reservations.id, reservation.id));
     expect(afterTerminal?.count).toBe(1);
+    expect(
+      await db()
+        .select()
+        .from(runningJobExecutions)
+        .where(eq(runningJobExecutions.jobExecutionId, pending.jobExecutionId)),
+    ).toHaveLength(0);
     const [runner] = await db()
       .select({reservationReleasedAt: providerRunners.reservationReleasedAt})
       .from(providerRunners)
@@ -1223,7 +1276,10 @@ describe('reconcileTerminalJobExecution', () => {
     const claimed = await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: null});
     expect(claimed?.jobExecutionId).toBe(pending.jobExecutionId);
 
-    await reconcileTerminalJobExecution({jobExecutionId: pending.jobExecutionId});
+    await reconcileTerminalJobExecution({
+      jobExecutionId: pending.jobExecutionId,
+      cancellationReason: 'timed_out',
+    });
     const after1 = await db()
       .select()
       .from(runningJobExecutions)
@@ -1231,13 +1287,48 @@ describe('reconcileTerminalJobExecution', () => {
     const firstTs = after1[0]?.cancellationRequestedAt;
 
     await new Promise((r) => setTimeout(r, 10));
-    await reconcileTerminalJobExecution({jobExecutionId: pending.jobExecutionId});
+    await reconcileTerminalJobExecution({
+      jobExecutionId: pending.jobExecutionId,
+      cancellationReason: 'timed_out',
+    });
 
     const after2 = await db()
       .select()
       .from(runningJobExecutions)
       .where(eq(runningJobExecutions.jobExecutionId, pending.jobExecutionId));
     expect(after2[0]?.cancellationRequestedAt?.getTime()).toBe(firstTs?.getTime());
+  });
+
+  it('preserves an existing stop handoff when a duplicate terminal event has no stop reason', async () => {
+    const pending = await pendingJobFactory.create({workspaceId});
+    const claimed = await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: null});
+    expect(claimed?.jobExecutionId).toBe(pending.jobExecutionId);
+
+    await reconcileTerminalJobExecution({
+      jobExecutionId: pending.jobExecutionId,
+      cancellationReason: 'timed_out',
+    });
+    const [beforeDuplicate] = await db()
+      .select({cancellationRequestedAt: runningJobExecutions.cancellationRequestedAt})
+      .from(runningJobExecutions)
+      .where(eq(runningJobExecutions.jobExecutionId, pending.jobExecutionId));
+
+    await reconcileTerminalJobExecution({
+      jobExecutionId: pending.jobExecutionId,
+      cancellationReason: null,
+    });
+
+    const [afterDuplicate] = await db()
+      .select({
+        cancellationRequestedAt: runningJobExecutions.cancellationRequestedAt,
+        cancellationReason: runningJobExecutions.cancellationReason,
+      })
+      .from(runningJobExecutions)
+      .where(eq(runningJobExecutions.jobExecutionId, pending.jobExecutionId));
+    expect(afterDuplicate?.cancellationRequestedAt?.getTime()).toBe(
+      beforeDuplicate?.cancellationRequestedAt?.getTime(),
+    );
+    expect(afterDuplicate?.cancellationReason).toBe('timed_out');
   });
 
   it('is a no-op when the job execution is missing', async () => {
@@ -1318,7 +1409,7 @@ describe('reconcileTerminalJobExecution', () => {
     const byJobExecutionId = new Map(
       rows.map((row) => [row.jobExecutionId, row.cancellationRequestedAt]),
     );
-    expect(byJobExecutionId.get(target.jobExecutionId)).not.toBeNull();
+    expect(byJobExecutionId.has(target.jobExecutionId)).toBe(false);
     expect(byJobExecutionId.get(sibling.jobExecutionId)).toBeNull();
   });
 
@@ -1367,8 +1458,7 @@ describe('reconcileTerminalJobExecution', () => {
       .select({cancellationRequestedAt: runningJobExecutions.cancellationRequestedAt})
       .from(runningJobExecutions)
       .where(eq(runningJobExecutions.jobExecutionId, pending.jobExecutionId));
-    expect(runningRows).toHaveLength(1);
-    expect(runningRows[0]?.cancellationRequestedAt).not.toBeNull();
+    expect(runningRows).toHaveLength(0);
   });
 });
 
@@ -1527,6 +1617,151 @@ describe('detectAndExpireStuckJobs', () => {
     expect(recovered).toHaveLength(3);
     expect(await runningJobsForTest()).toHaveLength(0);
     expect(await outboxForJobs(staleJobs.map(({jobId}) => jobId))).toHaveLength(3);
+  });
+
+  it('counts only uncancelled leases for the correlated stale breaker', async () => {
+    const staleJobs = [await makeStaleJob(600), await makeStaleJob(600), await makeStaleJob(600)];
+    const stopHandoffs = [
+      await makeStaleJob(600),
+      await makeStaleJob(600),
+      await makeStaleJob(600),
+    ];
+    await db()
+      .update(runningJobExecutions)
+      .set({
+        cancellationRequestedAt: new Date(),
+        cancellationReason: 'run_cancelled',
+      })
+      .where(
+        inArray(
+          runningJobExecutions.jobExecutionId,
+          stopHandoffs.map(({jobExecutionId}) => jobExecutionId),
+        ),
+      );
+
+    const deferred = await expireStuckJobExecutions({
+      thresholdSeconds: 180,
+      noFirstHeartbeatGraceSeconds: 60,
+      correlatedStaleMinCount: 3,
+      correlatedStaleRatio: Number.MIN_VALUE,
+      correlatedStaleMode: 'defer',
+    });
+
+    expect(deferred).toHaveLength(0);
+    expect(await outboxForJobs(staleJobs.map(({jobId}) => jobId))).toHaveLength(0);
+    expect(await outboxForJobs(stopHandoffs.map(({jobId}) => jobId))).toHaveLength(0);
+
+    const recovered = await expireStuckJobExecutions({
+      thresholdSeconds: 180,
+      noFirstHeartbeatGraceSeconds: 60,
+      correlatedStaleMinCount: 3,
+      correlatedStaleRatio: Number.MIN_VALUE,
+      correlatedStaleOverride: true,
+    });
+
+    expect(recovered.map(({jobExecutionId}) => jobExecutionId)).toEqual(
+      expect.arrayContaining(staleJobs.map(({jobExecutionId}) => jobExecutionId)),
+    );
+    expect(await outboxForJobs(staleJobs.map(({jobId}) => jobId))).toHaveLength(3);
+    expect(
+      await db()
+        .select()
+        .from(runningJobExecutions)
+        .where(
+          inArray(
+            runningJobExecutions.jobExecutionId,
+            stopHandoffs.map(({jobExecutionId}) => jobExecutionId),
+          ),
+        ),
+    ).toHaveLength(3);
+  });
+
+  it('cleans an expired manual stop handoff without emitting lease expiry', async () => {
+    const pending = await pendingJobFactory.create({workspaceId});
+    const claimed = await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: null});
+    expect(claimed?.jobExecutionId).toBe(pending.jobExecutionId);
+
+    await reconcileTerminalJobExecution({
+      jobExecutionId: pending.jobExecutionId,
+      cancellationReason: 'run_cancelled',
+    });
+    await db()
+      .update(runningJobExecutions)
+      .set({cancellationRequestedAt: new Date(Date.now() - 300_000)})
+      .where(eq(runningJobExecutions.jobExecutionId, pending.jobExecutionId));
+
+    await detectAndExpireStuckJobs({thresholdSeconds: 180});
+
+    expect(
+      await db()
+        .select()
+        .from(runningJobExecutions)
+        .where(eq(runningJobExecutions.jobExecutionId, pending.jobExecutionId)),
+    ).toHaveLength(0);
+    expect(await outboxEventsForJob(RUNNER_JOB_LEASE_EXPIRED, pending.jobId)).toHaveLength(0);
+  });
+
+  it('keeps a fresh manual stop handoff inside the cleanup grace', async () => {
+    const pending = await pendingJobFactory.create({workspaceId});
+    const claimed = await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: null});
+    expect(claimed?.jobExecutionId).toBe(pending.jobExecutionId);
+
+    await reconcileTerminalJobExecution({
+      jobExecutionId: pending.jobExecutionId,
+      cancellationReason: 'run_cancelled',
+    });
+    await db()
+      .update(runningJobExecutions)
+      .set({cancellationRequestedAt: new Date()})
+      .where(eq(runningJobExecutions.jobExecutionId, pending.jobExecutionId));
+
+    await detectAndExpireStuckJobs({thresholdSeconds: 180});
+
+    const [handoff] = await db()
+      .select()
+      .from(runningJobExecutions)
+      .where(eq(runningJobExecutions.jobExecutionId, pending.jobExecutionId));
+    expect(handoff?.cancellationReason).toBe('run_cancelled');
+    expect(await outboxEventsForJob(RUNNER_JOB_LEASE_EXPIRED, pending.jobId)).toHaveLength(0);
+  });
+
+  it('cleans an expired managed stop handoff without a provider report', async () => {
+    const pending = await pendingJobFactory.create({workspaceId});
+    const claimed = await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: null});
+    expect(claimed?.jobExecutionId).toBe(pending.jobExecutionId);
+    const provisionerId = crypto.randomUUID();
+    const providerRunnerId = crypto.randomUUID();
+    await providerRunnerFactory.create({
+      workspaceId,
+      provisionerId,
+      providerRunnerId,
+      state: 'terminated',
+      terminatedAt: new Date(),
+    });
+
+    await reconcileTerminalJobExecution({
+      jobExecutionId: pending.jobExecutionId,
+      cancellationReason: 'run_cancelled',
+    });
+    await db()
+      .update(runningJobExecutions)
+      .set({
+        provisionerId,
+        providerRunnerId,
+        cancellationRequestedAt: new Date(Date.now() - 300_000),
+      })
+      .where(eq(runningJobExecutions.jobExecutionId, pending.jobExecutionId));
+
+    const result = await detectAndExpireStuckJobs({thresholdSeconds: 180});
+
+    expect(result.expired).toBe(0);
+    expect(
+      await db()
+        .select()
+        .from(runningJobExecutions)
+        .where(eq(runningJobExecutions.jobExecutionId, pending.jobExecutionId)),
+    ).toHaveLength(0);
+    expect(await outboxEventsForJob(RUNNER_JOB_LEASE_EXPIRED, pending.jobId)).toHaveLength(0);
   });
 
   it('reaps a correlated stale batch in shadow mode', async () => {
@@ -1948,5 +2183,48 @@ describe('getJobExecutionQueueDepth', () => {
       pendingJobExecutions: baseline.pendingJobExecutions + 1,
       runningJobExecutions: baseline.runningJobExecutions + 1,
     });
+  });
+});
+
+describe('getJobExecutionCleanupStats', () => {
+  let workspaceId: string;
+  let runnerSessionId: string;
+
+  beforeEach(async () => {
+    workspaceId = crypto.randomUUID();
+    const runnerSession = await runnerSessionFactory.create({workspaceId});
+    runnerSessionId = runnerSession.id;
+  });
+
+  it('reports stop-handoff count and oldest age', async () => {
+    const baseline = await getJobExecutionCleanupStats();
+    const first = await pendingJobFactory.create({workspaceId});
+    const second = await pendingJobFactory.create({workspaceId});
+    const firstClaim = await claimPendingJobExecution({
+      workspaceId,
+      runnerSessionId,
+      maxClaims: null,
+    });
+    const secondClaim = await claimPendingJobExecution({
+      workspaceId,
+      runnerSessionId,
+      maxClaims: null,
+    });
+    expect(firstClaim?.jobExecutionId).toBe(first.jobExecutionId);
+    expect(secondClaim?.jobExecutionId).toBe(second.jobExecutionId);
+
+    await db()
+      .update(runningJobExecutions)
+      .set({cancellationRequestedAt: new Date(Date.now() - 60_000)})
+      .where(eq(runningJobExecutions.jobExecutionId, first.jobExecutionId));
+    await db()
+      .update(runningJobExecutions)
+      .set({cancellationRequestedAt: new Date(Date.now() - 10_000)})
+      .where(eq(runningJobExecutions.jobExecutionId, second.jobExecutionId));
+
+    const stats = await getJobExecutionCleanupStats();
+
+    expect(stats.stopHandoffCount).toBe(baseline.stopHandoffCount + 2);
+    expect(stats.stopHandoffOldestAgeMilliseconds).toBeGreaterThanOrEqual(59_000);
   });
 });

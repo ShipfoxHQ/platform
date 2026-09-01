@@ -58,7 +58,11 @@ report occurs. Service gauges read current runner database state.
 | `runners_provider_runner_terminate_intent_honored` | `reason` | A provisioner terminate intent, including legacy intents, was honored by a terminated report. |
 | `runners_termination_authorization_honored` | `reason` | A durable termination authorization was matched by a terminated report. |
 | `runners_termination_authorization_rejected` | `reason` | An authorization request was rejected by the gate. |
-| `runners_job_lease_expiry_deferred` | `cause` | A stale job lease expiry batch was deferred by the circuit breaker. |
+| `runners_job_stale_candidate_ratio` | none | The stale proportion among runner-owned, non-terminal leases in one database snapshot. |
+| `runners_job_lease_expiry_deferred` | `cause` | A stale job lease expiry batch was deferred by the circuit breaker; one sample is emitted per deferred maintenance cycle. |
+| `runners_job_stop_handoff_count` | none | Terminal cancellation or timeout stop-handoffs still awaiting runner acknowledgement, provider termination, or bounded grace cleanup. |
+| `runners_job_stop_handoff_oldest_age` | none | Age in milliseconds of the oldest terminal stop-handoff awaiting cleanup. |
+| `runners_job_stop_handoff_cleaned` | `surface` | Terminal stop-handoffs removed by reconciliation or maintenance. |
 | `runners_provider_runner_by_state` | `state` | Active provider-runner count. |
 | `runners_provider_runner_by_state_oldest_age` | `state` | Age in milliseconds of the oldest active provider runner in that state. |
 
@@ -66,7 +70,20 @@ Lifecycle telemetry label cardinality is bounded. `reason` is one of the ten
 values in the `RunnerTerminationReason` union, plus `unknown-reason` or
 `unknown-runner` for rejected requests. `cause` is currently `correlated-stale`.
 `state` is one of `starting`, `running`, or `stopping`. Terminal historical rows
-are not included in active capacity gauges.
+are not included in active capacity gauges. A running-job row with no
+`cancellation_requested_at` is a runner-owned lease and is the only population
+used by correlated stale-lease protection. A row with a stop request is a
+bounded terminal handoff. Normal terminal reconciliation removes successful and
+step-failed leases immediately. Cancellation and timeout handoffs are removed by
+manual heartbeat acknowledgement, provider-terminal reports, or periodic
+cleanup after the cleanup grace. Managed runner handoffs remain until provider
+termination or grace cleanup. Stop handoffs are excluded from the stale-breaker
+numerator and denominator.
+
+Deploy maintenance instances together with this change. Older instances may
+remove terminal stop handoffs through the previous stale-lease sweep. Dashboards
+using `runners_job_stale_candidate_ratio` must account for its new non-terminal
+lease population. The `surface` label is `maintenance` or `reconcile`.
 
 Existing phase gauges use finite phase and launch-kind unions. Provider kind is
 a deployment-owned bounded value: `ec2`, `docker`, or `unknown`. Runner,

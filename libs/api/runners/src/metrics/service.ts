@@ -1,6 +1,6 @@
 import {getServiceMetricsProvider, type ObservableGauge} from '@shipfox/node-opentelemetry';
 import {config} from '#config.js';
-import {getJobExecutionQueueDepth} from '#db/job-executions.js';
+import {getJobExecutionCleanupStats, getJobExecutionQueueDepth} from '#db/job-executions.js';
 import {countLiveReservationLeakUnits} from '#db/reservations.js';
 import {
   countStaleEnrolledRunnerInstances,
@@ -28,6 +28,13 @@ export function registerRunnersServiceMetrics(): void {
   });
   const runningJobExecutions = meter.createObservableGauge('runners_running_job_executions', {
     description: 'Job executions currently claimed by a runner and in progress',
+  });
+  const stopHandoffCount = meter.createObservableGauge('runners_job_stop_handoff_count', {
+    description: 'Terminal cancellation or timeout stop handoffs awaiting bounded cleanup',
+  });
+  const stopHandoffOldestAge = meter.createObservableGauge('runners_job_stop_handoff_oldest_age', {
+    description: 'Age in milliseconds of the oldest terminal stop handoff awaiting cleanup',
+    unit: 'ms',
   });
   const enrolledRunnersWithoutRecentReport = meter.createObservableGauge(
     'runners_enrolled_without_recent_report',
@@ -71,12 +78,14 @@ export function registerRunnersServiceMetrics(): void {
     async (observer) => {
       const [
         depthResult,
+        cleanupStatsResult,
         staleEnrolledRunnerCountResult,
         providerRunnersByPhaseResult,
         reservationLeakUnitsResult,
         providerRunnersByStateResult,
       ] = await Promise.allSettled([
         getJobExecutionQueueDepth(),
+        getJobExecutionCleanupStats(),
         countStaleEnrolledRunnerInstances({
           graceSeconds: config.RUNNER_STALE_PROVISIONED_RUNNER_THRESHOLD_SECONDS,
         }),
@@ -88,6 +97,13 @@ export function registerRunnersServiceMetrics(): void {
       if (depthResult.status === 'fulfilled') {
         observer.observe(pendingJobExecutions, depthResult.value.pendingJobExecutions);
         observer.observe(runningJobExecutions, depthResult.value.runningJobExecutions);
+      }
+      if (cleanupStatsResult.status === 'fulfilled') {
+        observer.observe(stopHandoffCount, cleanupStatsResult.value.stopHandoffCount);
+        observer.observe(
+          stopHandoffOldestAge,
+          cleanupStatsResult.value.stopHandoffOldestAgeMilliseconds,
+        );
       }
       if (staleEnrolledRunnerCountResult.status === 'fulfilled') {
         observer.observe(enrolledRunnersWithoutRecentReport, staleEnrolledRunnerCountResult.value);
@@ -120,6 +136,8 @@ export function registerRunnersServiceMetrics(): void {
     [
       pendingJobExecutions,
       runningJobExecutions,
+      stopHandoffCount,
+      stopHandoffOldestAge,
       enrolledRunnersWithoutRecentReport,
       providerRunnersByPhase,
       providerRunnersByPhaseOldestAge,

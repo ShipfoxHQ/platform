@@ -14,11 +14,14 @@ export async function onWorkflowsJobExecutionTerminated(
     },
     'Reconciling runner state for terminal job execution',
   );
-  const cancellationReason =
-    payload.cancellationReason ??
-    (payload.statusReason === 'run_cancelled' || payload.statusReason === 'timed_out'
-      ? payload.statusReason
-      : null);
+  let cancellationReason = payload.cancellationReason ?? null;
+  if (cancellationReason === null) {
+    if (payload.statusReason === 'run_cancelled' || payload.statusReason === 'timed_out') {
+      cancellationReason = payload.statusReason;
+    } else if (payload.status === 'cancelled' && payload.statusReason === null) {
+      cancellationReason = 'run_cancelled';
+    }
+  }
   await reconcileTerminalJobExecution({
     jobExecutionId: payload.jobExecutionId,
     cancellationReason,
