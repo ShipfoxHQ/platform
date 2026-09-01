@@ -316,9 +316,11 @@ export async function listStaleUncompactedStreams(params: {
 }
 
 /**
- * Closed streams whose winner is old enough for orphan reconciliation. The winner remains
- * untouched; the compaction reconcile activity removes any temporary sibling objects under the
- * stream prefix after this query returns.
+ * Closed streams whose winner is old enough for orphan reconciliation and whose last successful
+ * reconciliation is outside the stale window. The winner remains untouched; the compaction
+ * reconcile activity removes any temporary sibling objects under the stream prefix after this
+ * query returns. `updated_at` is the durable cooldown marker, since closed streams no longer
+ * receive append updates.
  */
 export async function listStaleCompactedStreams(params: {
   olderThanSeconds: number;
@@ -332,12 +334,30 @@ export async function listStaleCompactedStreams(params: {
         eq(attemptStreams.state, 'closed'),
         isNotNull(attemptStreams.objectKey),
         lt(attemptStreams.closedAt, sql`now() - make_interval(secs => ${params.olderThanSeconds})`),
+        lt(
+          attemptStreams.updatedAt,
+          sql`now() - make_interval(secs => ${params.olderThanSeconds})`,
+        ),
       ),
     )
     .orderBy(asc(attemptStreams.closedAt))
     .limit(params.limit);
 
   return rows.map(toAttemptStream);
+}
+
+/** Advances the durable cooldown after a compacted stream's sibling objects were reconciled. */
+export async function markCompactedStreamReconciled(streamId: string): Promise<void> {
+  await db()
+    .update(attemptStreams)
+    .set({updatedAt: sql`now()`})
+    .where(
+      and(
+        eq(attemptStreams.id, streamId),
+        eq(attemptStreams.state, 'closed'),
+        isNotNull(attemptStreams.objectKey),
+      ),
+    );
 }
 
 /**

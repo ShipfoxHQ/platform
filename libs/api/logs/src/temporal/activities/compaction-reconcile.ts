@@ -5,7 +5,11 @@ import {compactedTailObjectKey, deleteObject, listObjectKeys} from '#api/object-
 import {config} from '#config.js';
 import type {AttemptStream} from '#core/entities/attempt-stream.js';
 import {logObjectKey} from '#core/entities/log-object.js';
-import {listStaleCompactedStreams, listStaleUncompactedStreams} from '#db/streams.js';
+import {
+  listStaleCompactedStreams,
+  listStaleUncompactedStreams,
+  markCompactedStreamReconciled,
+} from '#db/streams.js';
 import {LOGS_COMPACTION_TASK_QUEUE} from '#temporal/constants.js';
 
 // Bounded per tick; remaining stale streams are picked up on the next cron run.
@@ -64,6 +68,7 @@ export async function compactionReconcileActivity(): Promise<{
   for (const stream of compacted) {
     try {
       await reconcileCompactedStreamObjects(stream);
+      await markCompactedStreamReconciled(stream.id);
       reconciled += 1;
     } catch (error) {
       failed += 1;
@@ -81,7 +86,7 @@ export async function compactionReconcileActivity(): Promise<{
 /**
  * Keeps the published full object and its bounded tail, deleting only sibling attempts. This runs
  * after the winner is durable, so a concurrent loser can finish without ever overwriting the
- * winner; if it finishes after this listing, the next reconcile tick removes it.
+ * winner; if it finishes after this listing, a later reconcile pass removes it.
  */
 async function reconcileCompactedStreamObjects(stream: AttemptStream): Promise<void> {
   if (!stream.objectKey) return;

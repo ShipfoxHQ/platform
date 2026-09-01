@@ -10,6 +10,7 @@ import {config} from '#config.js';
 import {logObjectKey} from '#core/entities/log-object.js';
 import {db} from '#db/db.js';
 import {attemptStreams} from '#db/schema/attempt-streams.js';
+import {listStaleCompactedStreams} from '#db/streams.js';
 import {LOGS_COMPACTION_TASK_QUEUE} from '#temporal/constants.js';
 import {arrangeClosedStream, type ClosedStreamIdentity} from '#test/fixtures/closed-stream.js';
 import {ndjsonBody, outputLine} from '#test/fixtures/ndjson.js';
@@ -43,7 +44,10 @@ function attemptPrefix(identity: ClosedStreamIdentity): string {
 async function backdateClosedAt(streamId: string): Promise<void> {
   await db()
     .update(attemptStreams)
-    .set({closedAt: sql`now() - interval '1 hour'`})
+    .set({
+      closedAt: sql`now() - interval '1 hour'`,
+      updatedAt: sql`now() - interval '1 hour'`,
+    })
     .where(eq(attemptStreams.id, streamId));
 }
 
@@ -133,6 +137,14 @@ describe('compactionReconcileActivity', () => {
 
     expect(result.reconciled).toBeGreaterThanOrEqual(1);
     expect(await listObjectKeys(prefix)).toEqual([winner, winnerTail]);
+    expect(
+      (
+        await listStaleCompactedStreams({
+          olderThanSeconds: config.LOG_COMPACTION_RECONCILE_STALE_SECONDS,
+          limit: 100,
+        })
+      ).some(({id}) => id === stream.id),
+    ).toBe(false);
     await deleteObject(winner);
     await deleteObject(winnerTail);
   });
