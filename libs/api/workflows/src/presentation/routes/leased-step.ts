@@ -22,6 +22,20 @@ export interface LoadedRunningLeasedStep {
   checkoutRenewalSubject?: CheckoutRenewalSubject;
 }
 
+export async function assertLeasedJobActive(
+  runners: RunnersInterModuleClient,
+  leasedJob: Pick<LeasedJobContext, 'jobId' | 'jobExecutionId' | 'runnerSessionId'>,
+): Promise<void> {
+  const {active: leaseIsActive} = await runners.getLeaseState({
+    jobId: leasedJob.jobId,
+    jobExecutionId: leasedJob.jobExecutionId,
+    runnerSessionId: leasedJob.runnerSessionId,
+  });
+  if (!leaseIsActive) {
+    throw new ClientError('Job lease is no longer active', 'lease-not-active', {status: 404});
+  }
+}
+
 export async function loadRunningLeasedStep(params: {
   runners: RunnersInterModuleClient;
   request: object;
@@ -31,14 +45,7 @@ export async function loadRunningLeasedStep(params: {
 }): Promise<LoadedRunningLeasedStep> {
   const leasedJob = requireLeasedJobContext(params.request);
 
-  const {active: leaseIsActive} = await params.runners.getLeaseState({
-    jobId: leasedJob.jobId,
-    jobExecutionId: leasedJob.jobExecutionId,
-    runnerSessionId: leasedJob.runnerSessionId,
-  });
-  if (!leaseIsActive) {
-    throw new ClientError('Job lease is no longer active', 'lease-not-active', {status: 404});
-  }
+  await assertLeasedJobActive(params.runners, leasedJob);
 
   const step = await getStepByIdForJobExecution({
     stepId: params.stepId,

@@ -1,7 +1,7 @@
 import type {IntegrationsModuleClient} from '@shipfox/api-integration-core-dto/inter-module';
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import {projectFactory} from '#test/factories/project.js';
-import {createStepCheckoutSpec} from './checkout.js';
+import {createStepCheckoutSpec, renewStepCheckoutCredentials} from './checkout.js';
 import type {Step} from './entities/step.js';
 import type {WorkflowRunDevSource, WorkflowRunTriggerReference} from './entities/workflow-run.js';
 import {CheckoutConfigInvalidError, CheckoutIntentUnresolvedError} from './errors.js';
@@ -30,10 +30,15 @@ const projects = {
 
 const resolveConnection = vi.fn();
 const createCheckoutSpec = vi.fn();
+const createCheckoutCredentials = vi.fn();
 const integrations = {
   resolveConnection,
   createCheckoutSpec,
-} as Pick<IntegrationsModuleClient, 'createCheckoutSpec' | 'resolveConnection'>;
+  createCheckoutCredentials,
+} as Pick<
+  IntegrationsModuleClient,
+  'createCheckoutSpec' | 'createCheckoutCredentials' | 'resolveConnection'
+>;
 
 describe('createStepCheckoutSpec', () => {
   beforeEach(() => {
@@ -41,6 +46,39 @@ describe('createStepCheckoutSpec', () => {
     resolveCheckoutTarget.mockReset();
     resolveConnection.mockReset();
     createCheckoutSpec.mockReset();
+    createCheckoutCredentials.mockReset();
+  });
+
+  it('renews credentials from a frozen target and rejected generation', async () => {
+    const workspaceId = crypto.randomUUID();
+    const subject = {
+      connectionId: crypto.randomUUID(),
+      externalRepositoryId: 'github:repo-1',
+      permissions: {contents: 'write' as const},
+    };
+    createCheckoutCredentials.mockResolvedValue({
+      username: 'x-access-token',
+      token: 'ghs-renewed-token',
+      expiresAt: '2099-06-10T12:00:00.000Z',
+      generation: 'generation-2',
+      renewal: {mode: 'on-rejection'},
+    });
+
+    const credentials = await renewStepCheckoutCredentials({
+      integrations,
+      workspaceId,
+      subject,
+      rejectedGeneration: 'generation-1',
+    });
+
+    expect(credentials).toMatchObject({generation: 'generation-2'});
+    expect(createCheckoutCredentials).toHaveBeenCalledWith({
+      workspaceId,
+      connectionId: subject.connectionId,
+      externalRepositoryId: subject.externalRepositoryId,
+      permissions: subject.permissions,
+      rejectedGeneration: 'generation-1',
+    });
   });
 
   it('resolves the default project target and setup-step defaults', async () => {

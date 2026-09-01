@@ -17,7 +17,7 @@ import {
 import {isInterModuleKnownError} from '@shipfox/inter-module';
 import {captureException} from '@shipfox/node-error-monitoring';
 import {ClientError, defineRoute} from '@shipfox/node-fastify';
-import {createStepCheckoutSpec} from '#core/checkout.js';
+import {createStepCheckoutSpec, renewStepCheckoutCredentials} from '#core/checkout.js';
 import type {CheckoutRenewalSubject} from '#core/entities/checkout-renewal-subject.js';
 import {
   CheckoutConfigInvalidError,
@@ -27,7 +27,11 @@ import {
 import {savePendingCheckoutRenewalSubject} from '#db/checkout-renewal-subjects.js';
 import {recordWorkflowCheckoutTokenRequest} from '#metrics/instance.js';
 import {toCheckoutTokenDto, toCheckoutTokenRenewalDto} from '#presentation/dto/checkout-token.js';
-import {type LoadedRunningLeasedStep, loadRunningLeasedStep} from './leased-step.js';
+import {
+  assertLeasedJobActive,
+  type LoadedRunningLeasedStep,
+  loadRunningLeasedStep,
+} from './leased-step.js';
 
 export function createCheckoutTokenRoute(clients: {
   runners: RunnersInterModuleClient;
@@ -47,8 +51,8 @@ export function createCheckoutTokenRoute(clients: {
     },
     errorHandler: handleCheckoutTokenError,
     handler: async (request, reply) => {
-      let mode: 'initial' | 'renewal' =
-        request.body?.rejected_generation === undefined ? 'initial' : 'renewal';
+      const hasRejectedGeneration = request.body?.rejected_generation !== undefined;
+      let mode: 'initial' | 'renewal' = 'initial';
       try {
         const {stepId} = request.params;
         const {attempt} = request.query;
@@ -60,10 +64,17 @@ export function createCheckoutTokenRoute(clients: {
           allowSuccessfulPersistedCheckout: true,
         });
 
-        if (loaded.checkoutRenewalSubject !== undefined) mode = 'renewal';
+        mode = loaded.checkoutRenewalSubject === undefined ? 'initial' : 'renewal';
 
         if (loaded.step.type !== 'setup' && loaded.step.type !== 'checkout') {
           throw new ClientError('Step is not a checkout step', 'step-not-checkout', {status: 409});
+        }
+        if (hasRejectedGeneration && loaded.checkoutRenewalSubject === undefined) {
+          throw new ClientError(
+            'Checkout credentials cannot be renewed until the checkout step succeeds',
+            'checkout-renewal-unavailable',
+            {status: 409},
+          );
         }
 
         const response = await createCheckoutTokenResponse({
@@ -75,6 +86,7 @@ export function createCheckoutTokenRoute(clients: {
           warn: (context, message) => request.log.warn(context, message),
           error: (context, message) => request.log.error(context, message),
         });
+        await assertLeasedJobActive(clients.runners, loaded.leasedJob);
         recordWorkflowCheckoutTokenRequest(mode, 'success');
         reply.header('cache-control', 'no-store');
         return response;
@@ -96,11 +108,10 @@ async function createCheckoutTokenResponse(params: {
   error: (context: {outcome: string}, message: string) => void;
 }): Promise<ReturnType<typeof toCheckoutTokenDto>> {
   if (params.loaded.checkoutRenewalSubject !== undefined) {
-    const credentials = await params.clients.integrations.createCheckoutCredentials({
+    const credentials = await renewStepCheckoutCredentials({
+      integrations: params.clients.integrations,
       workspaceId: params.loaded.workspaceId,
-      connectionId: params.loaded.checkoutRenewalSubject.connectionId,
-      externalRepositoryId: params.loaded.checkoutRenewalSubject.externalRepositoryId,
-      permissions: params.loaded.checkoutRenewalSubject.permissions,
+      subject: params.loaded.checkoutRenewalSubject,
       ...(params.rejectedGeneration === undefined
         ? {}
         : {rejectedGeneration: params.rejectedGeneration}),

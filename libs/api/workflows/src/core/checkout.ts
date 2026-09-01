@@ -130,6 +130,26 @@ export async function createStepCheckoutSpec({
   });
 }
 
+export function renewStepCheckoutCredentials({
+  integrations,
+  workspaceId,
+  subject,
+  rejectedGeneration,
+}: {
+  integrations: Pick<IntegrationsModuleClient, 'createCheckoutCredentials'>;
+  workspaceId: string;
+  subject: Pick<CheckoutRenewalSubject, 'connectionId' | 'externalRepositoryId' | 'permissions'>;
+  rejectedGeneration?: string | undefined;
+}) {
+  return integrations.createCheckoutCredentials({
+    workspaceId,
+    connectionId: subject.connectionId,
+    externalRepositoryId: subject.externalRepositoryId,
+    permissions: subject.permissions,
+    ...(rejectedGeneration === undefined ? {} : {rejectedGeneration}),
+  });
+}
+
 function resolveCheckoutRef(params: {
   checkout: CheckoutConfig;
   triggerReference: WorkflowRunTriggerReference | null | undefined;

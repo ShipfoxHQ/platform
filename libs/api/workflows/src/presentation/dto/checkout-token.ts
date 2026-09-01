@@ -83,7 +83,9 @@ type CheckoutCredentialResponse = Awaited<
 /**
  * Keeps the legacy checkout response envelope for a renewal. Renewal callers
  * consume the auth fields, while older protocol clients still require ref and
- * fetch_depth to be present when they parse the shared response shape.
+ * fetch_depth to be present when they parse the shared response shape. Those
+ * three envelope fields are compatibility placeholders for renewals; callers
+ * must consume auth and must not use them to start another checkout.
  */
 export function toCheckoutTokenRenewalDto(
   repositoryUrl: string,

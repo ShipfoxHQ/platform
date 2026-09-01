@@ -183,6 +183,52 @@ describe('POST /runs/jobs/current/steps/:stepId/checkout-token', () => {
     });
   });
 
+  test('rejects a renewal generation while the checkout step is still running', async () => {
+    const {job, step} = await createRunningCheckoutStep();
+    const token = await mintActiveLeaseToken({jobId: job.id});
+
+    const res = await app.inject({
+      method: 'POST',
+      url: checkoutUrl(step.id, step.currentAttempt),
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+      },
+      payload: {rejected_generation: 'generation-1'},
+    });
+
+    expect(res.statusCode).toBe(409);
+    expect(res.json().code).toBe('checkout-renewal-unavailable');
+    expect(createCheckoutSpec).not.toHaveBeenCalled();
+    expect(createCheckoutCredentials).not.toHaveBeenCalled();
+  });
+
+  test('does not deliver credentials when the lease expires during minting', async () => {
+    const {project, job, step} = await createRunningCheckoutStep({
+      checkout: {persistCredentials: false},
+    });
+    getProjectById.mockResolvedValue({project});
+    resolveCheckoutTarget.mockResolvedValue({
+      projectId: project.id,
+      connectionId: project.sourceConnectionId,
+      externalRepositoryId: project.sourceExternalRepositoryId,
+    });
+    createCheckoutSpec.mockResolvedValue(githubSpec('ghs-expired-lease-token'));
+    const token = await mintActiveLeaseToken({jobId: job.id});
+    vi.spyOn(runnersTestClient, 'getLeaseState')
+      .mockResolvedValueOnce({active: true})
+      .mockResolvedValueOnce({active: false});
+
+    const res = await app.inject({
+      method: 'POST',
+      url: checkoutUrl(step.id, step.currentAttempt),
+      headers: {authorization: `Bearer ${token}`},
+    });
+
+    expect(res.statusCode).toBe(404);
+    expect(res.json().code).toBe('lease-not-active');
+  });
+
   test('renews a successful persisted checkout from its frozen subject', async () => {
     const {project, job, step} = await createRunningCheckoutStep();
     getProjectById.mockResolvedValue({project});
@@ -285,23 +331,7 @@ describe('POST /runs/jobs/current/steps/:stepId/checkout-token', () => {
   });
 
   test('maps credential-only provider failures through the checkout error boundary', async () => {
-    const {project, job, step} = await createRunningCheckoutStep();
-    getProjectById.mockResolvedValue({project});
-    resolveCheckoutTarget.mockResolvedValue({
-      projectId: project.id,
-      connectionId: project.sourceConnectionId,
-      externalRepositoryId: project.sourceExternalRepositoryId,
-    });
-    createCheckoutSpec.mockResolvedValue(githubSpec('ghs-initial-token'));
-    const token = await mintActiveLeaseToken({jobId: job.id});
-
-    const initial = await app.inject({
-      method: 'POST',
-      url: checkoutUrl(step.id, step.currentAttempt),
-      headers: {authorization: `Bearer ${token}`},
-    });
-    expect(initial.statusCode).toBe(200);
-    await promoteCheckoutAttempt(step);
+    const {step, token} = await createPromotedCheckout(app);
 
     createCheckoutCredentials.mockRejectedValue(
       createInterModuleKnownError(
@@ -326,6 +356,54 @@ describe('POST /runs/jobs/current/steps/:stepId/checkout-token', () => {
       code: 'rate-limited',
       details: {retry_after_seconds: 60},
     });
+  });
+
+  test('maps an inactive connection from credential renewal', async () => {
+    const {project, step, token} = await createPromotedCheckout(app);
+    createCheckoutCredentials.mockRejectedValue(
+      createInterModuleKnownError(
+        integrationsInterModuleContract.methods.createCheckoutCredentials,
+        'connection-inactive',
+        {connectionId: project.sourceConnectionId},
+      ),
+    );
+
+    const renewal = await app.inject({
+      method: 'POST',
+      url: checkoutUrl(step.id, step.currentAttempt),
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+      },
+      payload: {rejected_generation: 'generation-1'},
+    });
+
+    expect(renewal.statusCode).toBe(422);
+    expect(renewal.json().code).toBe('integration-connection-inactive');
+  });
+
+  test('maps an echoed rejected generation from credential renewal', async () => {
+    const {step, token} = await createPromotedCheckout(app);
+    createCheckoutCredentials.mockRejectedValue(
+      createInterModuleKnownError(
+        integrationsInterModuleContract.methods.createCheckoutCredentials,
+        'provider-failure',
+        {reason: 'provider-rejected'},
+      ),
+    );
+
+    const renewal = await app.inject({
+      method: 'POST',
+      url: checkoutUrl(step.id, step.currentAttempt),
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+      },
+      payload: {rejected_generation: 'generation-1'},
+    });
+
+    expect(renewal.statusCode).toBe(422);
+    expect(renewal.json().code).toBe('provider-rejected');
   });
 
   test('does not persist credentials when the renewal subject cannot be frozen', async () => {
@@ -900,4 +978,26 @@ async function promoteCheckoutAttempt(step: {
     promoteCheckoutRenewalSubject({stepId: step.id, attempt: step.currentAttempt}, tx),
   );
   await db().update(stepsTable).set({status: 'succeeded'}).where(eq(stepsTable.id, step.id));
+}
+
+async function createPromotedCheckout(app: FastifyInstance) {
+  const {project, job, step} = await createRunningCheckoutStep();
+  getProjectById.mockResolvedValue({project});
+  resolveCheckoutTarget.mockResolvedValue({
+    projectId: project.id,
+    connectionId: project.sourceConnectionId,
+    externalRepositoryId: project.sourceExternalRepositoryId,
+  });
+  createCheckoutSpec.mockResolvedValue(githubSpec('ghs-initial-token'));
+  const token = await mintActiveLeaseToken({jobId: job.id});
+
+  const initial = await app.inject({
+    method: 'POST',
+    url: checkoutUrl(step.id, step.currentAttempt),
+    headers: {authorization: `Bearer ${token}`},
+  });
+  if (initial.statusCode !== 200) throw new Error('Expected initial checkout credentials');
+  await promoteCheckoutAttempt(step);
+
+  return {project, step, token};
 }

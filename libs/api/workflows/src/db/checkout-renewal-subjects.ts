@@ -158,6 +158,8 @@ export async function discardPendingCheckoutRenewalSubject(
 export async function loadCheckoutRenewalSubject(
   stepId: string,
 ): Promise<CheckoutRenewalSubject | null> {
+  await retryPendingCheckoutRenewalSubjectPromotion(stepId);
+
   const [row] = await db()
     .select({
       subject: checkoutRenewalSubjects,
@@ -225,6 +227,36 @@ export async function loadCheckoutRenewalSubject(
     stepId: row.subject.stepId,
     attempt: row.subject.attempt,
   };
+}
+
+async function retryPendingCheckoutRenewalSubjectPromotion(stepId: string): Promise<void> {
+  await withTransaction(async (tx) => {
+    const [pendingSubject] = await tx
+      .select({attempt: checkoutRenewalSubjects.attempt})
+      .from(checkoutRenewalSubjects)
+      .innerJoin(steps, eq(steps.id, checkoutRenewalSubjects.stepId))
+      .innerJoin(
+        stepAttempts,
+        and(
+          eq(stepAttempts.stepId, checkoutRenewalSubjects.stepId),
+          eq(stepAttempts.attempt, checkoutRenewalSubjects.attempt),
+        ),
+      )
+      .where(
+        and(
+          eq(checkoutRenewalSubjects.stepId, stepId),
+          eq(checkoutRenewalSubjects.status, 'pending'),
+          eq(checkoutRenewalSubjects.attempt, steps.currentAttempt),
+          eq(steps.status, 'succeeded'),
+          eq(stepAttempts.status, 'succeeded'),
+        ),
+      )
+      .limit(1);
+
+    if (pendingSubject !== undefined) {
+      await promoteCheckoutRenewalSubject({stepId, attempt: pendingSubject.attempt}, tx);
+    }
+  });
 }
 
 function normalizeRepositoryUrlSafely(repositoryUrl: string): string | null {
