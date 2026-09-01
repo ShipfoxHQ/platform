@@ -35,6 +35,78 @@ describe('projectsInterModuleContract', () => {
     ).toEqual(input);
   });
 
+  test('accepts paginated source connection project repositories', () => {
+    const workspaceId = '00000000-0000-4000-8000-000000000001';
+    const sourceConnectionId = '00000000-0000-4000-8000-000000000002';
+    const cursor = {
+      owner: 'acme',
+      name: 'api',
+      externalRepositoryId: 'github:1',
+    };
+    const input = {
+      workspaceId,
+      sourceConnectionId,
+      limit: 10,
+      cursor,
+    };
+
+    expect(
+      projectsInterModuleContract.methods.listProjectsBySourceConnection.input.parse(input),
+    ).toEqual(input);
+  });
+
+  test('accepts a first source connection project repository page without a cursor', () => {
+    const input = {
+      workspaceId: '00000000-0000-4000-8000-000000000001',
+      sourceConnectionId: '00000000-0000-4000-8000-000000000002',
+      limit: 10,
+    };
+
+    expect(
+      projectsInterModuleContract.methods.listProjectsBySourceConnection.input.parse(input),
+    ).toEqual(input);
+  });
+
+  test('rejects source connection project repository limits outside the contract bounds', () => {
+    const input = {
+      workspaceId: '00000000-0000-4000-8000-000000000001',
+      sourceConnectionId: '00000000-0000-4000-8000-000000000002',
+    };
+    const schema = projectsInterModuleContract.methods.listProjectsBySourceConnection.input;
+
+    expect(() => schema.parse({...input, limit: 0})).toThrow();
+    expect(() => schema.parse({...input, limit: 101})).toThrow();
+  });
+
+  test('accepts source connection project repository results', () => {
+    const project = {
+      externalRepositoryId: 'github:1',
+      owner: 'acme',
+      name: 'api',
+      projectId: '00000000-0000-4000-8000-000000000001',
+      projectName: 'API',
+    };
+
+    const nextCursor = {
+      owner: 'acme',
+      name: 'api',
+      externalRepositoryId: 'github:1',
+    };
+
+    expect(
+      projectsInterModuleContract.methods.listProjectsBySourceConnection.output.parse({
+        projects: [project],
+        nextCursor,
+      }),
+    ).toEqual({projects: [project], nextCursor});
+    expect(
+      projectsInterModuleContract.methods.listProjectsBySourceConnection.output.parse({
+        projects: [project],
+        nextCursor: null,
+      }),
+    ).toEqual({projects: [project], nextCursor: null});
+  });
+
   test('accepts checkout targets addressed by project', () => {
     const workspaceId = '00000000-0000-4000-8000-000000000001';
     const projectId = '00000000-0000-4000-8000-000000000003';

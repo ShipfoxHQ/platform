@@ -11,6 +11,9 @@ import {
   getProjectBySource,
   getWorkspaceProjectCounts,
   listProjects,
+  listProjectsBySourceConnection,
+  type ProjectRepositoryListCursor,
+  type ProjectRepositoryListItem,
   resolveCheckoutTarget,
 } from '#db/projects.js';
 
@@ -25,6 +28,27 @@ export function createProjectsInterModulePresentation(): InterModulePresentation
     findProjectBySourceRepositoryName: async (input) => ({
       projects: await findProjectBySourceRepositoryName(input),
     }),
+    listProjectsBySourceConnection: async (input) => {
+      const result = await listProjectsBySourceConnection({
+        workspaceId: input.workspaceId,
+        sourceConnectionId: input.sourceConnectionId,
+        limit: input.limit,
+        ...(input.cursor
+          ? {
+              cursor: {
+                sourceRepositoryOwner: input.cursor.owner,
+                sourceRepositoryName: input.cursor.name,
+                sourceExternalRepositoryId: input.cursor.externalRepositoryId,
+              },
+            }
+          : {}),
+      });
+
+      return {
+        projects: result.projects.map(toProjectRepositoryInterModule),
+        nextCursor: toProjectRepositoryCursor(result.nextCursor),
+      };
+    },
     listProjectsByWorkspace: async ({workspaceId, limit, cursor}) => {
       const result = await listProjectPage({workspaceId, limit, cursor});
       return {
@@ -91,6 +115,26 @@ async function listProjectPage(input: {
 
 function toProjectCursor(cursor: {createdAt: Date; id: string} | null) {
   return cursor ? {createdAt: cursor.createdAt.toISOString(), id: cursor.id} : null;
+}
+
+function toProjectRepositoryInterModule(repository: ProjectRepositoryListItem) {
+  return {
+    externalRepositoryId: repository.sourceExternalRepositoryId,
+    owner: repository.sourceRepositoryOwner,
+    name: repository.sourceRepositoryName,
+    projectId: repository.projectId,
+    projectName: repository.projectName,
+  };
+}
+
+function toProjectRepositoryCursor(cursor: ProjectRepositoryListCursor | null) {
+  return cursor
+    ? {
+        owner: cursor.sourceRepositoryOwner,
+        name: cursor.sourceRepositoryName,
+        externalRepositoryId: cursor.sourceExternalRepositoryId,
+      }
+    : null;
 }
 
 function toProjectCatalogInterModule(project: Project) {
