@@ -1,5 +1,11 @@
 # @shipfox/workflow-document
 
+## 3.4.0
+
+### Minor Changes
+
+- 46ae6a8: Enables authoring integration tool steps with literal tool references, JSON inputs, and result output mappings.
+
 ## 3.3.2
 
 ### Patch Changes

@@ -1,5 +1,14 @@
 # @shipfox/api-secrets
 
+## 20.0.0
+
+### Patch Changes
+
+- Updated dependencies [ec39327]
+- Updated dependencies [533b968]
+  - @shipfox/api-projects-dto@20.0.0
+  - @shipfox/api-auth-context@20.0.0
+
 ## 19.0.0
 
 ### Patch Changes

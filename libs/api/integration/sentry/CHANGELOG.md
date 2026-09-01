@@ -1,5 +1,16 @@
 # @shipfox/api-integration-sentry
 
+## 20.0.0
+
+### Patch Changes
+
+- Updated dependencies [ec39327]
+- Updated dependencies [09b8e1e]
+- Updated dependencies [351f02c]
+  - @shipfox/api-integration-spi@3.0.0
+  - @shipfox/api-auth-context@20.0.0
+  - @shipfox/api-integration-sentry-dto@20.0.0
+
 ## 19.0.0
 
 ### Patch Changes

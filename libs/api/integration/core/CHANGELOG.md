@@ -1,5 +1,49 @@
 # @shipfox/api-integration-core
 
+## 20.0.0
+
+### Major Changes
+
+- db83e6c: Enforces the declared repository scope for integration tool calls so denied or partially unauthorized multi-target calls never open a provider session.
+- 09b8e1e: Persist per-connection repository access modes and manual repository grants.
+
+  The IntegrationConnection contract now requires `repositoryAccessMode`. Consumers
+  implementing or constructing connection values must add the field when upgrading
+  the core, Gitea, or SPI packages.
+
+### Minor Changes
+
+- ec39327: Projects checkout resolution now requires a project ID and no longer accepts repository names. Checkout requests authorize the repository target before issuing credentials. Repository declarations remain valid without a project association.
+- 4e64ffd: Enforces persisted repository access modes and manual grants during checkout and tool authorization, with a bounded positive-decision cache.
+
+### Patch Changes
+
+- 351f02c: Build GitHub issue and pull request search queries from server-owned repository scope, driven by a new repository-scope classifier on agent tool catalog entries.
+- 2a441cd: Narrows GitHub agent-tool installation tokens to the permissions required by the live catalog.
+- Updated dependencies [db83e6c]
+- Updated dependencies [ec39327]
+- Updated dependencies [09b8e1e]
+- Updated dependencies [533b968]
+- Updated dependencies [351f02c]
+- Updated dependencies [fdfa0b2]
+- Updated dependencies [2a441cd]
+- Updated dependencies [af4a765]
+- Updated dependencies [70f2eed]
+- Updated dependencies [4e64ffd]
+  - @shipfox/api-integration-core-dto@20.0.0
+  - @shipfox/api-integration-gitea@20.0.0
+  - @shipfox/api-integration-github@20.0.0
+  - @shipfox/api-integration-spi@3.0.0
+  - @shipfox/api-projects-dto@20.0.0
+  - @shipfox/api-workflows-dto@20.0.0
+  - @shipfox/api-auth-context@20.0.0
+  - @shipfox/api-agent-dto@20.0.0
+  - @shipfox/api-integration-jira@20.0.0
+  - @shipfox/api-integration-linear@20.0.0
+  - @shipfox/api-integration-sentry@20.0.0
+  - @shipfox/api-integration-slack@20.0.0
+  - @shipfox/api-integration-webhook@20.0.0
+
 ## 19.0.0
 
 ### Minor Changes

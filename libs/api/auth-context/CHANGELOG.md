@@ -1,5 +1,12 @@
 # @shipfox/api-auth-context
 
+## 20.0.0
+
+### Patch Changes
+
+- Updated dependencies [9113421]
+  - @shipfox/api-auth-dto@20.0.0
+
 ## 19.0.0
 
 ### Patch Changes

@@ -1,5 +1,11 @@
 # @shipfox/api-logs-dto
 
+## 20.0.0
+
+### Minor Changes
+
+- ca7eb23: Adds bounded step-log tail reads with consistent output before and after compaction.
+
 ## 17.0.0
 
 ### Major Changes

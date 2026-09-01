@@ -1,5 +1,48 @@
 # @shipfox/api-workflows
 
+## 20.0.0
+
+### Major Changes
+
+- b5c8329: Execute queued workflow tool steps on the server instead of the client.
+
+  The API Workflows module now requires the Logs inter-module client and starts a
+  server-side tool-step executor by default. Set
+  `WORKFLOWS_TOOL_STEP_EXECUTOR_ENABLED=false` before restarting an API process
+  to disable new tool-step calls. Older API builds do not run this executor, so
+  drain or settle pending tool invocations before rolling back this release.
+
+### Patch Changes
+
+- ec39327: Projects checkout resolution now requires a project ID and no longer accepts repository names. Checkout requests authorize the repository target before issuing credentials. Repository declarations remain valid without a project association.
+- 2881385: Preserve successful provider outcomes when tool output mapping fails.
+- fdfa0b2: Add the `WORKFLOW_RUN_DETAIL_REQUEST_KIND_HEADER` request-kind header and `WorkflowRunDetailRequestKind` type for workflow-run detail reads; client-workflows detail requests now send the request kind, which the API records as initial versus polling.
+- af4a765: Add the workflow-run lineage head endpoint and opt-in cursor pagination for attempt history while preserving the legacy no-query response.
+- 70f2eed: Adds checkout credential renewal to the setup checkout-token response via `refresh-at`/`on-rejection` renewal modes and accepts an optional `rejected_generation` when renewing.
+- f2bf4bf: Adds bounded metrics for server-executed workflow tool invocations.
+- Updated dependencies [ca7eb23]
+- Updated dependencies [9113421]
+- Updated dependencies [794f834]
+- Updated dependencies [46ae6a8]
+- Updated dependencies [db83e6c]
+- Updated dependencies [ec39327]
+- Updated dependencies [533b968]
+- Updated dependencies [351f02c]
+- Updated dependencies [fdfa0b2]
+- Updated dependencies [af4a765]
+- Updated dependencies [70f2eed]
+  - @shipfox/api-logs-dto@20.0.0
+  - @shipfox/api-auth-dto@20.0.0
+  - @shipfox/api-runners-dto@20.0.0
+  - @shipfox/workflow-document@3.4.0
+  - @shipfox/api-integration-core-dto@20.0.0
+  - @shipfox/api-projects-dto@20.0.0
+  - @shipfox/api-workflows-dto@20.0.0
+  - @shipfox/api-auth-context@20.0.0
+  - @shipfox/api-agent-dto@20.0.0
+  - @shipfox/api-definitions-dto@20.0.0
+  - @shipfox/expression@2.4.3
+
 ## 19.0.0
 
 ### Minor Changes

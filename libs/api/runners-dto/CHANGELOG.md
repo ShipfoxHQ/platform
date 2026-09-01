@@ -1,5 +1,11 @@
 # @shipfox/api-runners-dto
 
+## 20.0.0
+
+### Minor Changes
+
+- 794f834: Authorizes registration-deadline EC2 runner instances for termination through the backend.
+
 ## 19.0.0
 
 ### Minor Changes

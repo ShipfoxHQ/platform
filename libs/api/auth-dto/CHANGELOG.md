@@ -1,5 +1,11 @@
 # @shipfox/api-auth-dto
 
+## 20.0.0
+
+### Minor Changes
+
+- 9113421: Add MCP OAuth discovery, public-client registration, and Client ID Metadata Document resolution for the read-only profile.
+
 ## 19.0.0
 
 ### Minor Changes

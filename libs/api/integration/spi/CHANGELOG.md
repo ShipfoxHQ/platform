@@ -1,5 +1,27 @@
 # @shipfox/api-integration-spi
 
+## 3.0.0
+
+### Major Changes
+
+- 09b8e1e: Persist per-connection repository access modes and manual repository grants.
+
+  The IntegrationConnection contract now requires `repositoryAccessMode`. Consumers
+  implementing or constructing connection values must add the field when upgrading
+  the core, Gitea, or SPI packages.
+
+### Minor Changes
+
+- ec39327: Projects checkout resolution now requires a project ID and no longer accepts repository names. Checkout requests authorize the repository target before issuing credentials. Repository declarations remain valid without a project association.
+- 351f02c: Build GitHub issue and pull request search queries from server-owned repository scope, driven by a new repository-scope classifier on agent tool catalog entries.
+
+### Patch Changes
+
+- Updated dependencies [db83e6c]
+- Updated dependencies [ec39327]
+- Updated dependencies [351f02c]
+  - @shipfox/api-integration-core-dto@20.0.0
+
 ## 2.2.0
 
 ### Minor Changes

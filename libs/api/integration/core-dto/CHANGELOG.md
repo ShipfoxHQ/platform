@@ -1,5 +1,19 @@
 # @shipfox/api-integration-core-dto
 
+## 20.0.0
+
+### Major Changes
+
+- db83e6c: Enforces the declared repository scope for integration tool calls so denied or partially unauthorized multi-target calls never open a provider session.
+
+### Minor Changes
+
+- ec39327: Projects checkout resolution now requires a project ID and no longer accepts repository names. Checkout requests authorize the repository target before issuing credentials. Repository declarations remain valid without a project association.
+
+### Patch Changes
+
+- 351f02c: Build GitHub issue and pull request search queries from server-owned repository scope, driven by a new repository-scope classifier on agent tool catalog entries.
+
 ## 19.0.0
 
 ### Major Changes
