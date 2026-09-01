@@ -92,6 +92,7 @@ async function createTestApp(options: CreateTestAppOptions = {}): Promise<Fastif
           lifecycleStatus: 'active' as const,
           createdAt: new Date(),
           updatedAt: new Date(),
+          repositoryAccessMode: 'selected' as const,
         }),
       ),
     // Webhook receiver dependencies: install/connect tests don't exercise them.
@@ -214,6 +215,7 @@ describe('Sentry integration routes', () => {
         lifecycleStatus: 'active',
         createdAt: new Date(),
         updatedAt: new Date(),
+        repositoryAccessMode: 'selected',
       },
     });
 

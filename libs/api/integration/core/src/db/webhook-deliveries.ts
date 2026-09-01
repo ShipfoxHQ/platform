@@ -10,6 +10,10 @@ import {
 import {writeOutboxEvent, writeOutboxEvents} from '@shipfox/node-outbox';
 import {lt} from 'drizzle-orm';
 import {db} from './db.js';
+import {
+  deleteIntegrationConnectionRepositoryGrant,
+  updateIntegrationConnectionRepositoryGrantMetadata,
+} from './repository-grants.js';
 import {integrationsOutbox} from './schema/outbox.js';
 import {integrationsWebhookDeliveries} from './schema/webhook-deliveries.js';
 
@@ -188,16 +192,17 @@ export interface PublishSourceRepositoryUpdatedParams {
   rawPayload: unknown;
   event: string;
   repositories: SourceRepositoryIdentity[];
+  removedRepositories?: SourceRepositoryIdentity[] | undefined;
 }
 
 // Emits the generic provider envelope for triggers and one typed repository event per
 // normalized repository for domain modules. One delivery-dedup gates all rows, so a
 // redelivered webhook writes nothing. Requires a transaction: the dedup insert and all
 // outbox rows must commit or roll back together.
-export function publishSourceRepositoryUpdated(
+export async function publishSourceRepositoryUpdated(
   params: PublishSourceRepositoryUpdatedParams,
 ): Promise<{published: boolean}> {
-  return publishSourceEvents({
+  const result = await publishSourceEvents({
     tx: params.tx,
     provider: params.provider,
     source: params.source,
@@ -222,6 +227,61 @@ export function publishSourceRepositoryUpdated(
       }),
     ),
   });
+  if (!result.published) return result;
+
+  await maintainRepositoryGrantMetadata(params);
+  return result;
+}
+
+async function maintainRepositoryGrantMetadata(
+  params: PublishSourceRepositoryUpdatedParams,
+): Promise<void> {
+  const removedRepositoryIds = new Set(
+    params.removedRepositories?.map((repository) => repository.externalRepositoryId),
+  );
+  const repositoryDeleted = params.event === 'repository.deleted';
+
+  for (const repository of params.repositories) {
+    const grantParams = {
+      connectionId: params.connectionId,
+      externalRepositoryId: repository.externalRepositoryId,
+    };
+    if (repositoryDeleted || removedRepositoryIds.has(repository.externalRepositoryId)) {
+      await deleteIntegrationConnectionRepositoryGrant(
+        {
+          ...grantParams,
+        },
+        {tx: params.tx},
+      );
+      continue;
+    }
+
+    await updateIntegrationConnectionRepositoryGrantMetadata(
+      {
+        ...grantParams,
+        repositoryOwner: repository.owner,
+        repositoryName: repository.name,
+      },
+      {tx: params.tx},
+    );
+  }
+
+  for (const repository of params.removedRepositories ?? []) {
+    if (
+      params.repositories.some(
+        (candidate) => candidate.externalRepositoryId === repository.externalRepositoryId,
+      )
+    ) {
+      continue;
+    }
+    await deleteIntegrationConnectionRepositoryGrant(
+      {
+        connectionId: params.connectionId,
+        externalRepositoryId: repository.externalRepositoryId,
+      },
+      {tx: params.tx},
+    );
+  }
 }
 
 export interface PublishSourceCommitPushedParams {

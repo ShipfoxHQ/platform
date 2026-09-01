@@ -10,10 +10,12 @@ import {and, eq} from 'drizzle-orm';
 import type {
   IntegrationConnection,
   IntegrationConnectionLifecycleStatus,
+  IntegrationConnectionRepositoryAccessMode,
 } from '#core/entities/connection.js';
 import type {IntegrationCapability, IntegrationProviderKind} from '#core/entities/provider.js';
 import {IntegrationConnectionAlreadyExistsError} from '#core/errors.js';
 import {db} from './db.js';
+import {deleteIntegrationConnectionRepositoryGrants} from './repository-grants.js';
 import {integrationConnections, toIntegrationConnection} from './schema/connections.js';
 import {integrationsOutbox} from './schema/outbox.js';
 
@@ -317,6 +319,32 @@ export async function updateIntegrationConnectionLifecycleStatus(
 export type UpdateIntegrationConnectionLifecycleStatusFn =
   typeof updateIntegrationConnectionLifecycleStatus;
 
+export interface UpdateIntegrationConnectionRepositoryAccessModeParams {
+  id: string;
+  repositoryAccessMode: IntegrationConnectionRepositoryAccessMode;
+}
+
+export async function updateIntegrationConnectionRepositoryAccessMode(
+  params: UpdateIntegrationConnectionRepositoryAccessModeParams,
+  options: {tx?: IntegrationDb | IntegrationTx | undefined} = {},
+): Promise<IntegrationConnection | undefined> {
+  if (options.tx === undefined) {
+    return await db().transaction((tx) =>
+      updateIntegrationConnectionRepositoryAccessMode(params, {tx}),
+    );
+  }
+
+  const [row] = await options.tx
+    .update(integrationConnections)
+    .set({repositoryAccessMode: params.repositoryAccessMode, updatedAt: new Date()})
+    .where(eq(integrationConnections.id, params.id))
+    .returning();
+  return row ? toIntegrationConnection(row) : undefined;
+}
+
+export type UpdateIntegrationConnectionRepositoryAccessModeFn =
+  typeof updateIntegrationConnectionRepositoryAccessMode;
+
 async function writeConnectionAvailableEvent(
   executor: IntegrationDb | IntegrationTx,
   connection: IntegrationConnection,
@@ -338,7 +366,12 @@ export async function deleteIntegrationConnection(
   params: {id: string},
   options: {tx?: IntegrationDb | IntegrationTx | undefined} = {},
 ): Promise<boolean> {
-  const executor = options.tx ?? db();
+  if (options.tx === undefined) {
+    return await db().transaction((tx) => deleteIntegrationConnection(params, {tx}));
+  }
+
+  const executor = options.tx;
+  await deleteIntegrationConnectionRepositoryGrants({connectionId: params.id}, {tx: executor});
   const result = await executor
     .delete(integrationConnections)
     .where(eq(integrationConnections.id, params.id));

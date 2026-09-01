@@ -76,6 +76,7 @@ function createClient(
             slug: 'gitea_owner',
             displayName: 'Gitea',
             lifecycleStatus: 'active' as const,
+            repositoryAccessMode: 'selected' as const,
             createdAt: new Date(),
             updatedAt: new Date(),
           }

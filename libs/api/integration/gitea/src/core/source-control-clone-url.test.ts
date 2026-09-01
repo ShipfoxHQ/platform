@@ -35,6 +35,7 @@ function connection(): IntegrationConnection<'gitea'> {
     slug: 'gitea_shipfox',
     displayName: 'Gitea shipfox',
     lifecycleStatus: 'active',
+    repositoryAccessMode: 'selected',
     createdAt: new Date(),
     updatedAt: new Date(),
   };

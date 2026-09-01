@@ -2,6 +2,7 @@ import {
   type GithubPushPayloadDto,
   githubInstallationRepositoriesPayloadSchema,
   githubPushPayloadSchema,
+  githubRepositoryDeletedPayloadSchema,
   githubRepositoryRenamedPayloadSchema,
   githubWebhookActionSchema,
   githubWebhookInstallationSchema,
@@ -142,6 +143,7 @@ async function dispatchGithubEvent(
   const eventName = action ? `${params.event}.${action}` : params.event;
   const repositories = normalizeRepositoryUpdates(params.event, action, params.payload);
   if (repositories) {
+    const removedRepositories = normalizeRepositoryRemovals(params.event, action, params.payload);
     const result = await params.publishSourceRepositoryUpdated({
       tx: params.tx,
       provider: GITHUB_SOURCE,
@@ -154,6 +156,7 @@ async function dispatchGithubEvent(
       rawPayload: params.payload,
       event: eventName,
       repositories,
+      ...(removedRepositories ? {removedRepositories} : {}),
     });
     return withInstallationTokenCleanup(
       {outcome: result.published ? 'published' : 'duplicate'},
@@ -302,6 +305,12 @@ function normalizeRepositoryUpdates(
     return [toSourceRepositoryIdentity(parsed.data.repository)];
   }
 
+  if (event === 'repository' && action === 'deleted') {
+    const parsed = githubRepositoryDeletedPayloadSchema.safeParse(payload);
+    if (!parsed.success) return undefined;
+    return [toSourceRepositoryIdentity(parsed.data.repository)];
+  }
+
   if (event !== 'installation_repositories' || (action !== 'added' && action !== 'removed')) {
     return undefined;
   }
@@ -318,6 +327,27 @@ function normalizeRepositoryUpdates(
     repositories.set(repository.id, normalized);
   }
   return repositories.size > 0 ? [...repositories.values()] : undefined;
+}
+
+function normalizeRepositoryRemovals(
+  event: string,
+  action: string | undefined,
+  payload: unknown,
+): SourceRepositoryIdentity[] | undefined {
+  if (event === 'repository' && action === 'deleted') {
+    const parsed = githubRepositoryDeletedPayloadSchema.safeParse(payload);
+    if (!parsed.success) return undefined;
+    return [toSourceRepositoryIdentity(parsed.data.repository)];
+  }
+
+  if (event !== 'installation_repositories' || (action !== 'added' && action !== 'removed')) {
+    return undefined;
+  }
+
+  const parsed = githubInstallationRepositoriesPayloadSchema.safeParse(payload);
+  if (!parsed.success || parsed.data.repositories_removed.length === 0) return undefined;
+
+  return parsed.data.repositories_removed.map(toSourceRepositoryIdentity);
 }
 
 function toSourceRepositoryIdentity(repository: {

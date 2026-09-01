@@ -74,6 +74,7 @@ async function createTestApp(options: CreateTestAppOptions = {}): Promise<Fastif
           slug: 'gitea_shipfox',
           displayName: input.displayName,
           lifecycleStatus: 'active',
+          repositoryAccessMode: 'selected',
           createdAt: new Date(),
           updatedAt: new Date(),
         };
@@ -166,6 +167,7 @@ describe('Gitea connection routes', () => {
         slug: 'gitea_shipfox',
         displayName: 'Gitea shipfox',
         lifecycleStatus: 'active',
+        repositoryAccessMode: 'selected',
         createdAt: new Date(),
         updatedAt: new Date(),
       },

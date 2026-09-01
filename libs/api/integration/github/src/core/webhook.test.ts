@@ -24,6 +24,7 @@ function fakeConnection(overrides: Partial<IntegrationConnection> = {}): Integra
     createdAt: new Date(),
     updatedAt: new Date(),
     ...overrides,
+    repositoryAccessMode: overrides.repositoryAccessMode ?? 'selected',
   };
 }
 
@@ -436,6 +437,55 @@ describe('handleGithubEvent', () => {
             owner: 'acme',
             name: 'platform-renamed',
             defaultBranch: 'trunk',
+          },
+        ],
+      }),
+    );
+  });
+
+  it('publishes a typed repository update and removal for a repository deletion', async () => {
+    const installationId = 7783;
+    const connection = fakeConnection();
+    await seedInstallation(installationId, connection.id);
+    const handlers = deps({connection});
+    const deliveryId = randomUUID();
+    const payload = {
+      action: 'deleted',
+      installation: {id: installationId},
+      repository: {
+        id: 42,
+        name: 'platform',
+        owner: {login: 'acme'},
+        default_branch: 'main',
+      },
+    };
+
+    const result = await handleGithubEvent({
+      tx: db(),
+      deliveryId,
+      event: 'repository',
+      payload,
+      ...handlers,
+    });
+
+    expect(result.outcome).toBe('published');
+    expect(handlers.publishSourceRepositoryUpdated).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'repository.deleted',
+        repositories: [
+          {
+            externalRepositoryId: 'github:42',
+            owner: 'acme',
+            name: 'platform',
+            defaultBranch: 'main',
+          },
+        ],
+        removedRepositories: [
+          {
+            externalRepositoryId: 'github:42',
+            owner: 'acme',
+            name: 'platform',
+            defaultBranch: 'main',
           },
         ],
       }),

@@ -101,6 +101,7 @@ describe('processIntegrationSecretCleanups', () => {
       slug: completedConnection.slug,
       displayName: completedConnection.displayName,
       lifecycleStatus: completedConnection.lifecycleStatus,
+      repositoryAccessMode: 'selected',
       createdAt: completedConnection.createdAt,
       updatedAt: completedConnection.updatedAt,
     });

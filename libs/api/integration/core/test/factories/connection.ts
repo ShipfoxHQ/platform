@@ -14,6 +14,7 @@ export const integrationConnectionFactory = Factory.define<IntegrationConnection
       slug: `gitea_${sequence}`,
       displayName: `Gitea Connection ${sequence}`,
       lifecycleStatus: 'active',
+      repositoryAccessMode: 'selected',
       createdAt: new Date(),
       updatedAt: new Date(),
     };

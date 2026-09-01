@@ -75,6 +75,7 @@ export {
 export type {
   IntegrationConnection,
   IntegrationConnectionLifecycleStatus,
+  IntegrationConnectionRepositoryAccessMode,
 } from '#core/entities/connection.js';
 export type {
   IntegrationCapability,
@@ -83,6 +84,7 @@ export type {
   IntegrationProviderKind,
   RegisteredIntegrationProvider,
 } from '#core/entities/provider.js';
+export type {IntegrationConnectionRepositoryGrant} from '#core/entities/repository-grant.js';
 export type {IntegrationProviderErrorReason} from '#core/errors.js';
 export {
   ConnectionSlugConflictError,
@@ -199,8 +201,31 @@ export {
 export type {
   GetIntegrationConnectionByIdFn,
   GetIntegrationConnectionBySlugFn,
+  UpdateIntegrationConnectionRepositoryAccessModeFn,
+  UpdateIntegrationConnectionRepositoryAccessModeParams,
 } from '#db/connections.js';
-export {getIntegrationConnectionById, getIntegrationConnectionBySlug} from '#db/connections.js';
+export {
+  getIntegrationConnectionById,
+  getIntegrationConnectionBySlug,
+  updateIntegrationConnectionRepositoryAccessMode,
+} from '#db/connections.js';
+export type {
+  DeleteIntegrationConnectionRepositoryGrantParams,
+  GetIntegrationConnectionRepositoryGrantParams,
+  ListIntegrationConnectionRepositoryGrantsByNameParams,
+  ListIntegrationConnectionRepositoryGrantsParams,
+  UpdateIntegrationConnectionRepositoryGrantMetadataParams,
+  UpsertIntegrationConnectionRepositoryGrantParams,
+} from '#db/repository-grants.js';
+export {
+  deleteIntegrationConnectionRepositoryGrant,
+  deleteIntegrationConnectionRepositoryGrants,
+  getIntegrationConnectionRepositoryGrant,
+  listIntegrationConnectionRepositoryGrants,
+  listIntegrationConnectionRepositoryGrantsByName,
+  updateIntegrationConnectionRepositoryGrantMetadata,
+  upsertIntegrationConnectionRepositoryGrant,
+} from '#db/repository-grants.js';
 export type {
   ClaimWebhookDeliveryFn,
   PublishIntegrationEventReceivedFn,
