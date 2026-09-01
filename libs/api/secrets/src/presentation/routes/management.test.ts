@@ -28,6 +28,7 @@ const projects = createFakeInterModuleClients({
     getProjectBySource: () => ({project: null}),
     findProjectBySourceRepositoryName: () => ({projects: []}),
     listProjectsByWorkspace: () => ({projects: [], nextCursor: null}),
+    listProjectCatalogByWorkspace: () => ({projects: [], nextCursor: null}),
     getWorkspaceProjectCounts: () => ({counts: []}),
     requireProjectForWorkspace: async (input) => await requireProjectForWorkspace(input),
     resolveCheckoutTarget: () => ({

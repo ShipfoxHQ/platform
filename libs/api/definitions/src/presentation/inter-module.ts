@@ -2,15 +2,21 @@ import type {AgentInterModuleClient} from '@shipfox/api-agent-dto/inter-module';
 import {createWorkflowModelSnapshot} from '@shipfox/api-definitions-dto';
 import {definitionsInterModuleContract} from '@shipfox/api-definitions-dto/inter-module';
 import type {IntegrationsModuleClient} from '@shipfox/api-integration-core-dto/inter-module';
-import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
+import {
+  type ProjectsModuleClient,
+  projectsInterModuleContract,
+} from '@shipfox/api-projects-dto/inter-module';
 import {
   createInterModuleKnownError,
   defineInterModulePresentation,
   type InterModuleMethodContract,
   type InterModulePresentation,
+  isInterModuleKnownError,
 } from '@shipfox/inter-module';
 import {DefinitionAtRefError, listDefinitionsAtRef, resolveDefinitionAtRef} from '#core/index.js';
 import {getDefinitionById} from '#db/definitions.js';
+import {toDefinitionReadModel, toDefinitionSyncSummary} from '#presentation/dto/index.js';
+import {listDefinitionsWithSync} from '#presentation/list-definitions.js';
 
 export interface CreateDefinitionsInterModulePresentationParams {
   projects: ProjectsModuleClient;
@@ -37,6 +43,25 @@ export function createDefinitionsInterModulePresentation(
         },
       };
     },
+    listDefinitionsByProject: async ({workspaceId, projectId, limit, cursor}) => {
+      const project = await requireProjectForDefinitionList(
+        {workspaceId, projectId},
+        params.projects,
+      );
+      const result = await listDefinitionsWithSync({
+        projectId,
+        limit,
+        cursor,
+        sourceConnectionId: project.sourceConnectionId,
+        sourceExternalRepositoryId: project.sourceExternalRepositoryId,
+      });
+
+      return {
+        definitions: result.definitions.map(toDefinitionReadModel),
+        sync: toDefinitionSyncSummary(result.syncState),
+        nextCursor: result.nextCursor,
+      };
+    },
     resolveDefinitionAtRef: async (input, context) => {
       try {
         return await resolveDefinitionAtRef({...input, ...params, signal: context.signal});
@@ -58,6 +83,33 @@ export function createDefinitionsInterModulePresentation(
       }
     },
   });
+}
+
+async function requireProjectForDefinitionList(
+  input: {workspaceId: string; projectId: string},
+  projects: ProjectsModuleClient,
+) {
+  try {
+    return (await projects.requireProjectForWorkspace(input)).project;
+  } catch (error) {
+    const projectMethod = projectsInterModuleContract.methods.requireProjectForWorkspace;
+    if (!isInterModuleKnownError(projectMethod, error)) throw error;
+
+    const method = definitionsInterModuleContract.methods.listDefinitionsByProject;
+    const {code} = error;
+    switch (code) {
+      case 'project-not-found':
+        throw createInterModuleKnownError(method, 'project-not-found', {
+          projectId: input.projectId,
+        });
+      case 'project-workspace-mismatch':
+        throw createInterModuleKnownError(method, 'project-workspace-mismatch', input);
+      default: {
+        const exhaustive: never = code;
+        throw new Error(`Unhandled project access error: ${exhaustive}`);
+      }
+    }
+  }
 }
 
 function toDefinitionAtRefKnownError(method: InterModuleMethodContract, error: unknown): unknown {

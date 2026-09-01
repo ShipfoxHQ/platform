@@ -4367,6 +4367,9 @@ importers:
 
   libs/api/triggers-dto:
     dependencies:
+      '@shipfox/inter-module':
+        specifier: workspace:*
+        version: link:../../shared/common/inter-module
       zod:
         specifier: 'catalog:'
         version: 4.4.3

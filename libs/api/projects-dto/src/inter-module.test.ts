@@ -71,6 +71,49 @@ describe('projectsInterModuleContract', () => {
     ).toEqual({workspaceId, limit: 100, cursor});
   });
 
+  test('accepts the catalog fields on workspace project listings', () => {
+    const project = {
+      id: '00000000-0000-4000-8000-000000000001',
+      workspaceId: '00000000-0000-4000-8000-000000000002',
+      sourceConnectionId: '00000000-0000-4000-8000-000000000003',
+      sourceExternalRepositoryId: 'shipfox/project',
+      sourceRepositoryOwner: 'shipfox',
+      sourceRepositoryName: 'project',
+      sourceDefaultBranch: 'main',
+      name: 'Project',
+      slug: 'project',
+      createdAt: '2026-08-05T12:00:00.000Z',
+      updatedAt: '2026-08-05T12:01:00.000Z',
+    };
+
+    expect(
+      projectsInterModuleContract.methods.listProjectCatalogByWorkspace.output.parse({
+        projects: [project],
+        nextCursor: null,
+      }),
+    ).toEqual({projects: [project], nextCursor: null});
+  });
+
+  test('keeps the base workspace project listing shape compatible', () => {
+    const project = {
+      id: '00000000-0000-4000-8000-000000000001',
+      workspaceId: '00000000-0000-4000-8000-000000000002',
+      sourceConnectionId: '00000000-0000-4000-8000-000000000003',
+      sourceExternalRepositoryId: 'shipfox/project',
+      sourceRepositoryOwner: 'shipfox',
+      sourceRepositoryName: 'project',
+      sourceDefaultBranch: 'main',
+      name: 'Project',
+    };
+
+    expect(
+      projectsInterModuleContract.methods.listProjectsByWorkspace.output.parse({
+        projects: [project],
+        nextCursor: null,
+      }),
+    ).toEqual({projects: [project], nextCursor: null});
+  });
+
   test('defines the checkout authorization failure', () => {
     const details = {};
 

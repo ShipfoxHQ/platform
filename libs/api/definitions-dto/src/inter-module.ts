@@ -7,6 +7,55 @@ import {workflowModelSnapshotSchema} from './workflow-model.js';
 const idSchema = z.string().uuid();
 const refSchema = z.string().min(1);
 const configPathSchema = z.string().min(1);
+const definitionListCursorSchema = z.object({value: z.string(), id: idSchema});
+const definitionSyncDiagnosticSchema = z.object({
+  code: z.string(),
+  message: z.string(),
+  path: z.string().optional(),
+  filePath: z.string().optional(),
+  severity: z.enum(['error', 'warning']),
+});
+const definitionSyncSummarySchema = z.object({
+  ref: z.string().nullable(),
+  status: z.enum(['pending', 'syncing', 'succeeded', 'failed']),
+  lastSyncAt: z.string().datetime(),
+  startedAt: z.string().datetime().nullable(),
+  finishedAt: z.string().datetime().nullable(),
+  lastErrorCode: z
+    .enum([
+      'no-workflow-files',
+      'invalid-definition',
+      'provider-repository-not-found',
+      'provider-file-not-found',
+      'provider-access-denied',
+      'provider-rate-limited',
+      'provider-timeout',
+      'provider-unavailable',
+      'provider-malformed-response',
+      'content-too-large',
+      'too-many-files',
+      'connection-unavailable',
+      'unknown',
+    ])
+    .nullable(),
+  lastErrorMessage: z.string().nullable(),
+  diagnostics: z.array(definitionSyncDiagnosticSchema),
+});
+const definitionListItemSchema = z.object({
+  id: idSchema,
+  projectId: idSchema,
+  configPath: z.string().nullable(),
+  source: z.enum(['manual', 'vcs']),
+  sha: z.string().nullable(),
+  ref: z.string().nullable(),
+  name: z.string(),
+  workflowDocument: z.unknown(),
+  workflowModel: z.unknown(),
+  manualTrigger: z.object({name: z.string()}).nullable(),
+  fetchedAt: z.string().datetime(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
 const definitionSnapshotSchema = z.object({
   id: idSchema,
   workflowId: idSchema,
@@ -56,6 +105,23 @@ export const definitionsInterModuleContract = defineInterModuleContract({
       input: z.object({definitionId: idSchema}),
       output: z.object({definition: definitionSnapshotSchema.nullable()}),
     },
+    listDefinitionsByProject: {
+      input: z.object({
+        workspaceId: idSchema,
+        projectId: idSchema,
+        limit: z.number().int().min(1).max(100),
+        cursor: definitionListCursorSchema.optional(),
+      }),
+      output: z.object({
+        definitions: z.array(definitionListItemSchema),
+        sync: definitionSyncSummarySchema.nullable(),
+        nextCursor: definitionListCursorSchema.nullable(),
+      }),
+      errors: {
+        'project-not-found': z.object({projectId: idSchema}),
+        'project-workspace-mismatch': z.object({projectId: idSchema, workspaceId: idSchema}),
+      },
+    },
     resolveDefinitionAtRef: {
       input: z.object({
         projectId: idSchema,
@@ -79,3 +145,5 @@ export const definitionsInterModuleContract = defineInterModuleContract({
 
 export type DefinitionsInterModuleClient = InterModuleClient<typeof definitionsInterModuleContract>;
 export type DefinitionWorkflowSnapshot = z.infer<typeof definitionSnapshotSchema>;
+export type DefinitionListItem = z.infer<typeof definitionListItemSchema>;
+export type DefinitionSyncSummary = z.infer<typeof definitionSyncSummarySchema>;

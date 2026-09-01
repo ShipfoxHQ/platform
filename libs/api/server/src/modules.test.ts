@@ -172,6 +172,7 @@ describe('defaultModules', () => {
           getProjectBySource: () => ({project: null}),
           findProjectBySourceRepositoryName: () => ({projects: []}),
           listProjectsByWorkspace: () => ({projects: [], nextCursor: null}),
+          listProjectCatalogByWorkspace: () => ({projects: [], nextCursor: null}),
           getWorkspaceProjectCounts: () => ({counts: []}),
           requireProjectForWorkspace: () => ({
             project: {
@@ -240,6 +241,7 @@ describe('defaultModules', () => {
           contract: definitionsInterModuleContract,
           handlers: {
             getDefinitionForWorkflowRun: vi.fn(),
+            listDefinitionsByProject: vi.fn(),
             listDefinitionsAtRef: vi.fn(),
             resolveDefinitionAtRef: vi.fn(),
           },
