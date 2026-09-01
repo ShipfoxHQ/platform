@@ -3,4 +3,4 @@
 "@shipfox/api-workflows-dto": minor
 ---
 
-Add a bounded workflow run selection resolver for canonical ancestry lookup from incomplete nested-resource URLs.
+Allow workflow run detail URLs to resolve a single run selection from a deeply nested attempt, job, execution, or step ID without requiring the intermediate ancestry in the URL.
