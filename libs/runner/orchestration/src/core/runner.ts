@@ -50,8 +50,10 @@ import {runJobSteps} from '#core/step-loop.js';
 
 let running = true;
 let warnedAboutUnavailablePiExtensions = false;
+let shutdownIntentEmitted = false;
 const bootTimeline = createBootTimelineCollector();
 type RunnerBootPhaseTimeline = ReturnType<typeof createRunnerBootPhaseTimeline>;
+type RunnerShutdownReason = 'success' | 'controlled-exit' | 'fatal-failure';
 const RUNNER_LIFECYCLE_CAPABILITIES: ['local_execution_fence_v1'] = ['local_execution_fence_v1'];
 let bootPhaseTimeline: RunnerBootPhaseTimeline | undefined;
 // Module-level so the long-lived SIGINT handler can reach the in-flight job's
@@ -73,6 +75,30 @@ function emitBootTimelineToConsole(fields: Record<string, number | string>): voi
   }
 }
 
+function emitRunnerShutdownIntent(reason: RunnerShutdownReason): void {
+  if (shutdownIntentEmitted) return;
+  shutdownIntentEmitted = true;
+
+  const fields = {
+    event: 'runner.shutdown_intent',
+    console_marker: 'runner_shutdown_intent',
+    reason,
+  } as const;
+  logger().info(fields, 'runner.shutdown_intent');
+
+  const consoleFd = config.SHIPFOX_BOOT_CONSOLE_FD;
+  if (consoleFd === undefined) return;
+
+  try {
+    writeSync(
+      consoleFd,
+      `${JSON.stringify({level: 30, time: Date.now(), ...fields, msg: 'runner.shutdown_intent'})}\n`,
+    );
+  } catch {
+    // The structured event above remains the fallback when the console descriptor is unavailable.
+  }
+}
+
 const shutdownController = createGracefulShutdownController({
   onFirstSignal: (signal) => {
     running = false;
@@ -81,6 +107,7 @@ const shutdownController = createGracefulShutdownController({
   onSecondSignal: (signal) => {
     logger().info({signal}, 'Second signal received, aborting current job');
     currentJobAbortController?.abort('shutdown');
+    emitRunnerShutdownIntent('controlled-exit');
     process.exit(1);
   },
 });
@@ -89,58 +116,72 @@ export async function startRunner(
   options: {processEntryUptimeSeconds?: number} = {},
 ): Promise<void> {
   running = true;
-  shutdownController.reset();
-  shutdownController.start();
-  const runnerBootPhaseTimeline = getRunnerBootPhaseTimeline(options.processEntryUptimeSeconds);
+  shutdownIntentEmitted = false;
+  let shutdownReason: RunnerShutdownReason = 'success';
 
-  // Fail fast at startup: a dangerous root should crash the process at deploy,
-  // not silently fail every job.
-  const workspaceRoot = resolveWorkspaceRootFromEnv();
-  void cleanupOrphanedJobLogs(workspaceRoot).catch((error) => {
-    logger().warn({err: error, workspaceRoot}, 'Failed to sweep orphaned job logs');
-  });
-  void cleanupOrphanedJobAgentState(workspaceRoot).catch((error) => {
-    logger().warn({err: error, workspaceRoot}, 'Failed to sweep orphaned job agent state');
-  });
-  requireRunnerLabels();
-  warnAboutUnavailablePiExtensions();
-  const startupMode = runnerStartupMode();
+  try {
+    shutdownController.reset();
+    shutdownController.start();
+    const runnerBootPhaseTimeline = getRunnerBootPhaseTimeline(options.processEntryUptimeSeconds);
 
-  runnerBootPhaseTimeline.mark('runner_started_uptime_seconds');
-  logger().info(
-    {
-      ...runnerBootPhaseTimeline.snapshot(),
-      pollInterval: config.SHIPFOX_POLL_INTERVAL_MS,
-      pollMaxDuration: config.SHIPFOX_POLL_MAX_DURATION_MS,
-      workspaceRoot,
-    },
-    'Runner started',
-  );
-
-  const state: RunnerPollState = {
-    currentInterval: config.SHIPFOX_POLL_INTERVAL_MS,
-    runnerSession: undefined,
-    pollDeadline: undefined,
-  };
-  if (startupMode === 'managed') {
-    state.runnerSession = await initializeManagedRunnerSession(runnerBootPhaseTimeline);
-    if (!state.runnerSession) return;
-  } else {
-    await interruptableSleep(withJitter(config.SHIPFOX_POLL_INTERVAL_MS));
-  }
-  state.pollDeadline = nextPollDeadline();
-
-  while (running) {
-    const outcome = await runRunnerPollCycle({
-      state,
-      startupMode,
-      runnerBootPhaseTimeline,
-      workspaceRoot,
+    // Fail fast at startup: a dangerous root should crash the process at deploy,
+    // not silently fail every job.
+    const workspaceRoot = resolveWorkspaceRootFromEnv();
+    void cleanupOrphanedJobLogs(workspaceRoot).catch((error) => {
+      logger().warn({err: error, workspaceRoot}, 'Failed to sweep orphaned job logs');
     });
-    if (outcome === 'exit') return;
-  }
+    void cleanupOrphanedJobAgentState(workspaceRoot).catch((error) => {
+      logger().warn({err: error, workspaceRoot}, 'Failed to sweep orphaned job agent state');
+    });
+    requireRunnerLabels();
+    warnAboutUnavailablePiExtensions();
+    const startupMode = runnerStartupMode();
 
-  logger().info('Runner stopped');
+    runnerBootPhaseTimeline.mark('runner_started_uptime_seconds');
+    logger().info(
+      {
+        ...runnerBootPhaseTimeline.snapshot(),
+        pollInterval: config.SHIPFOX_POLL_INTERVAL_MS,
+        pollMaxDuration: config.SHIPFOX_POLL_MAX_DURATION_MS,
+        workspaceRoot,
+      },
+      'Runner started',
+    );
+
+    const state: RunnerPollState = {
+      currentInterval: config.SHIPFOX_POLL_INTERVAL_MS,
+      runnerSession: undefined,
+      pollDeadline: undefined,
+    };
+    if (startupMode === 'managed') {
+      state.runnerSession = await initializeManagedRunnerSession(runnerBootPhaseTimeline);
+      if (!state.runnerSession) {
+        shutdownReason = running ? 'fatal-failure' : 'controlled-exit';
+        return;
+      }
+    } else {
+      await interruptableSleep(withJitter(config.SHIPFOX_POLL_INTERVAL_MS));
+    }
+    state.pollDeadline = nextPollDeadline();
+
+    while (running) {
+      const outcome = await runRunnerPollCycle({
+        state,
+        startupMode,
+        runnerBootPhaseTimeline,
+        workspaceRoot,
+      });
+      if (outcome === 'exit') return;
+    }
+
+    logger().info('Runner stopped');
+  } catch (error) {
+    shutdownReason = 'fatal-failure';
+    throw error;
+  } finally {
+    if (shutdownReason === 'success' && !running) shutdownReason = 'controlled-exit';
+    emitRunnerShutdownIntent(shutdownReason);
+  }
 }
 
 interface RunnerPollState {

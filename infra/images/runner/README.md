@@ -128,20 +128,29 @@ The provider-rendered environment contains:
 - `SHIPFOX_RUNNER_PROTOCOL_VERSION`: managed-runner protocol version. The current image supports `1`.
 - `SHIPFOX_RUNNER_LABELS`: comma-separated runner labels.
 - `SHIPFOX_POLL_MAX_DURATION_MS`: runner polling deadline. `0` means forever.
-- `SHIPFOX_RUNNER_MAX_LIFETIME_SECONDS`: hard instance lifetime. Use a value comfortably above one job's maximum duration.
+- `SHIPFOX_RUNNER_MAX_LIFETIME_SECONDS`: legacy compatibility key. The image requires and accepts it so older provisioners and rollback images can share the same user data, but this image does not schedule an age-based poweroff from it.
 - `AGENT_CUSTOM_PROVIDER_ALLOW_PRIVATE_NETWORKS=false`: required for cloud runners.
 
 The image derives its tool capabilities from its baked runner runtime and sends them during
 enrollment. Providers do not inject capabilities, workspace IDs, workspace registration tokens,
 or activation tokens into user data.
 
-`shipfox-runner.service` powers off immediately when the runner exits. Its SIGTERM drain budget is 90 seconds, after which systemd can force-kill the process and the backend re-reserves the job. Once the environment file is published, `shipfox-max-lifetime.service` schedules a forced poweroff and falls back to a baked 3600-second limit when the configured value is missing or malformed. The configured lifetime therefore includes boot and enrollment skew and must remain comfortably above one job's maximum duration. AWS builds also enable a Spot IMDSv2 watcher that stops the runner, allows it to drain briefly, then powers off.
+`shipfox-runner.service` powers off immediately when the runner exits. Its SIGTERM drain budget is 90 seconds, after which systemd can force-kill the process and the backend re-reserves the job. The image accepts `SHIPFOX_RUNNER_MAX_LIFETIME_SECONDS` for compatibility but does not arm an age-based timer or fallback poweroff from that key. Before an orchestration-owned exit, the runner writes one bounded `runner.shutdown_intent` event to the structured logger and the direct EC2 console descriptor, identifying a success, controlled exit, or fatal failure. AWS builds also enable a Spot IMDSv2 watcher that stops the runner, allows it to drain briefly, then powers off.
 
-With `InstanceInitiatedShutdownBehavior=terminate` and Spot `InstanceInterruptionBehavior=terminate`, provider-side settings convert these poweroffs into EC2 termination. The in-guest watchdog is the fast path. The durable backstop remains tagged-instance reconciliation, the backend staleness reaper, and terminate-on-shutdown because privileged job steps or a wedged kernel can defeat an in-guest timer.
+With `InstanceInitiatedShutdownBehavior=terminate` and Spot `InstanceInterruptionBehavior=terminate`, provider-side settings convert these poweroffs into EC2 termination. The systemd lifecycle action is the fast path. The durable backstop remains tagged-instance reconciliation, the backend staleness reaper, and terminate-on-shutdown because privileged job steps or a wedged kernel can prevent normal process exit.
 
 ## Recovery drill
 
-On EC2, launch a runner with a short max lifetime, stop the provisioner, and verify the instance terminates before that bound. For Spot, request an interruption notice in a test environment and verify the runner stops claiming work, drains, and powers off before reclaim. These drills feed the deployment runbook for the EC2 provisioner.
+On EC2, launch a runner with the legacy lifetime key and verify that a job running longer than the former 3600-second fallback remains alive and heartbeating. For Spot, request an interruption notice in a test environment and verify the runner stops claiming work, drains, and powers off before reclaim. These drills feed the deployment runbook for the EC2 provisioner.
+
+During an AMI migration, also stop the provisioner while a test runner is
+wedged. Restore the provisioner and verify that backend stale handling produces
+a termination intent, then verify that EC2 terminates the tagged instance after
+reconciliation. A restored provisioner reconciles immediately. In steady state,
+the next full reconcile runs within the default 60-second
+`SHIPFOX_PROVISIONER_EC2_RECONCILE_INTERVAL_MS` cadence after the intent is
+available. Add backend stale thresholds and API or EC2 request latency to the
+total. Record the end-to-end time before retiring the old AMI.
 
 ## Candidate builds
 

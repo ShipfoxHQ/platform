@@ -6,7 +6,7 @@ export const config = createConfig({
     default: '',
   }),
   SHIPFOX_BOOT_CONSOLE_FD: num({
-    desc: 'Internal file descriptor used by the runner image to write the sanitized boot timeline to the EC2 console. Leave it unset outside the image service wrapper.',
+    desc: 'Internal file descriptor used by the runner image to write sanitized boot timeline and shutdown intent markers to the EC2 console. Leave it unset outside the image service wrapper.',
     default: undefined,
   }),
   SHIPFOX_POLL_INTERVAL_MS: num({

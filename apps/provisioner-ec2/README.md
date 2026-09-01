@@ -15,10 +15,11 @@ Copy [`templates.example.yaml`](templates.example.yaml). Set
 `SHIPFOX_PROVISIONER_TEMPLATES_FILE` to that copy. Set `target_concurrency` above
 zero to keep ready runners without demand.
 
-The AMI must include the Shipfox runner and its shutdown watchdog. `shipfox-bootstrap.service`
+The AMI must include the Shipfox runner lifecycle units. `shipfox-bootstrap.service`
 reads IMDSv2 user data and writes `/etc/shipfox/runner.env`. It formats and mounts the separate
 workspace volume at `/var/lib/shipfox/workspaces` before the runner starts. The AMI reads that
-file and shuts down when its watchdog exits.
+file and shuts down when its runner service exits. Compatibility images accept the legacy
+`SHIPFOX_RUNNER_MAX_LIFETIME_SECONDS` key without scheduling an age-based shutdown.
 
 ### AMI migration
 
@@ -29,6 +30,21 @@ deploying the provider change. The old AMI expects cloud-init YAML; the new imag
 raw environment file. A rollback requires a provider and AMI from the same contract. During
 the transition, keep `root_volume_gb` at or above the old AMI's root snapshot size until every
 template uses a rebuilt AMI.
+
+The compatibility image has no control-plane-independent lifetime cutoff. A
+wedged instance can keep running while both the runner and provisioner are
+unavailable. Treat this as an accepted migration risk until the old images leave
+the rollback window. Keep the provisioner supervised and monitor reconciliation
+and termination failures.
+
+Before retiring old AMIs, run a recovery drill with a test runner and a stopped
+provisioner. Restore the provisioner and verify that backend stale handling
+produces a termination intent, then verify EC2 termination after reconciliation.
+A restored provisioner reconciles immediately. In steady state, the next full
+reconcile runs within the default 60-second
+`SHIPFOX_PROVISIONER_EC2_RECONCILE_INTERVAL_MS` cadence after the intent is
+available. Add backend stale thresholds and API or EC2 request latency to the
+total. Record the observed end-to-end time in the deployment notes.
 
 ## Template families
 
@@ -75,7 +91,7 @@ remain continuous.
 | `SHIPFOX_PROVISIONER_MAX_RESERVATIONS` | no | `250` | Largest demand reservation request. |
 | `SHIPFOX_PROVISIONER_RUNNER_INSTANCE_BATCH_SIZE` | no | `250` | Runner instances created per control-plane request. |
 | `SHIPFOX_RUNNER_POLL_MAX_DURATION_MS` | no | `300000` | Idle polling lifetime injected into each runner. |
-| `SHIPFOX_RUNNER_MAX_LIFETIME_SECONDS` | no | `3600` | Hard lifetime injected into each runner watchdog. |
+| `SHIPFOX_RUNNER_MAX_LIFETIME_SECONDS` | no | `3600` | Legacy lifetime key retained in user data while old images remain in the rollback window; timer-free images accept it without scheduling age-based shutdown. |
 
 ## Development
 
