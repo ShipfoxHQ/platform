@@ -34,6 +34,20 @@ export {
   updateJobStatus,
   updateJobStatusAtVersion,
 } from './workflow-runs/jobs.js';
+export type {
+  MeasurementValueCount,
+  WorkflowRunDetailCardinality,
+  WorkflowRunDetailMeasurementReport,
+  WorkflowRunReadPlanEvidence,
+  WorkflowRunStorageAudit,
+  WorkflowRunStorageAuditOptions,
+} from './workflow-runs/measurements.js';
+export {
+  auditWorkflowRunStorage,
+  captureWorkflowRunReadPlanEvidence,
+  measureWorkflowRunDetail,
+  measureWorkflowRunDetailCardinality,
+} from './workflow-runs/measurements.js';
 export {
   writeJobExecutionQueuedOutbox,
   writeJobExecutionTerminatedOutbox,
@@ -48,6 +62,8 @@ export type {
   WorkflowJobExecutionDepthParams,
   WorkflowRunAggregates,
   WorkflowRunCursor,
+  WorkflowRunDetailReadMeasurement,
+  WorkflowRunDetailReadOptions,
   WorkflowRunFilters,
   WorkflowRunJobRawStatusCount,
   WorkflowRunJobStatusCount,

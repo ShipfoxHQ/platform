@@ -1,5 +1,6 @@
 import {
   type RerunWorkflowRunBodyDto,
+  WORKFLOW_RUN_DETAIL_REQUEST_KIND_HEADER,
   type WorkflowRunRerunModeDto,
   workflowRunAttemptsResponseSchema,
   workflowRunDetailResponseSchema,
@@ -12,6 +13,7 @@ import {
   type InfiniteData,
   infiniteQueryOptions,
   keepPreviousData,
+  type QueryClient,
   queryOptions,
   type UseInfiniteQueryOptions,
   type UseQueryOptions,
@@ -160,6 +162,7 @@ export async function fireManualWorkflow({
 
 const ACTIVE_POLL_MS = 4_000;
 const IDLE_POLL_MS = 30_000;
+const workflowRunDetailRequests = new WeakSet<object>();
 
 export type RunListInfinite = InfiniteData<WorkflowRunListPage, string | undefined>;
 
@@ -286,10 +289,12 @@ export function workflowRunsInfiniteQueryOptions(
 async function getWorkflowRun({
   workflowRunId,
   runAttempt,
+  requestKind,
   signal,
 }: {
   workflowRunId: string;
   runAttempt?: number | undefined;
+  requestKind: 'initial' | 'polling';
   signal?: AbortSignal;
 }): Promise<WorkflowRunDetail> {
   const params = new URLSearchParams();
@@ -300,6 +305,7 @@ async function getWorkflowRun({
       workflowRunDetailResponseSchema,
       `/workflows/runs/${workflowRunId}${query}`,
       {
+        headers: {[WORKFLOW_RUN_DETAIL_REQUEST_KIND_HEADER]: requestKind},
         signal,
       },
     ),
@@ -549,6 +555,17 @@ function lookupDefinitionName(
   return undefined;
 }
 
+function workflowRunDetailRequestKind(
+  client: QueryClient,
+  queryKey: WorkflowRunDetailQueryKey,
+): 'initial' | 'polling' {
+  const query = client.getQueryCache().find({queryKey});
+  if (!query) return 'initial';
+  if (workflowRunDetailRequests.has(query)) return 'polling';
+  workflowRunDetailRequests.add(query);
+  return 'initial';
+}
+
 export function useWorkflowRunQuery(workflowRunId: string | undefined) {
   return useWorkflowRunAttemptQuery({workflowRunId, runAttempt: undefined});
 }
@@ -581,7 +598,13 @@ export function workflowRunQueryOptions({
       ? workflowRunsQueryKeys.detail(workflowRunId, runAttempt)
       : ([...workflowRunsQueryKeys.all, 'detail'] as const),
     enabled: Boolean(workflowRunId) && enabled,
-    queryFn: ({signal}) => getWorkflowRun({workflowRunId: workflowRunId ?? '', runAttempt, signal}),
+    queryFn: ({signal, client, queryKey}) =>
+      getWorkflowRun({
+        workflowRunId: workflowRunId ?? '',
+        runAttempt,
+        requestKind: workflowRunDetailRequestKind(client, queryKey),
+        signal,
+      }),
     staleTime: 2_000,
     refetchOnWindowFocus: true,
     refetchInterval: (query) => {

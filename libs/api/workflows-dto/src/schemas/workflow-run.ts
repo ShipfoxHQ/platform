@@ -2,6 +2,14 @@ import {z} from 'zod';
 import {jobStatusSchema} from './job.js';
 import {jobModeSchema, listenerStatusSchema} from './job-listening.js';
 
+// This header is an internal rollout signal. It lets the API distinguish the
+// first detail read from a React Query refetch without changing the response
+// contract. Older clients omit it and are recorded as `unknown`.
+export const WORKFLOW_RUN_DETAIL_REQUEST_KIND_HEADER =
+  'x-shipfox-workflow-run-detail-request-kind' as const;
+export const WORKFLOW_RUN_DETAIL_REQUEST_KINDS = ['initial', 'polling'] as const;
+export type WorkflowRunDetailRequestKind = (typeof WORKFLOW_RUN_DETAIL_REQUEST_KINDS)[number];
+
 export const workflowRunStatusSchema = z.enum([
   'pending',
   'running',

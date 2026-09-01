@@ -77,6 +77,15 @@ export interface WorkflowJobExecutionDepthParams {
   workspaceId?: string;
 }
 
+export interface WorkflowRunDetailReadMeasurement {
+  databaseDurationMilliseconds: number;
+  returnedRows: number;
+}
+
+export interface WorkflowRunDetailReadOptions {
+  onRead?: ((measurement: WorkflowRunDetailReadMeasurement) => void) | undefined;
+}
+
 export async function getWorkflowRunById(
   id: string,
   workspaceId?: string | undefined,
@@ -550,55 +559,73 @@ export async function getWorkflowRunDetail(
   workflowRunId: string,
   attempt?: number | undefined,
   workspaceId?: string | undefined,
+  options: WorkflowRunDetailReadOptions = {},
 ): Promise<WorkflowRunDetail | undefined> {
-  const targetConditions = [eq(workflowRuns.id, workflowRunId)];
-  if (workspaceId) targetConditions.push(eq(workflowRuns.workspaceId, workspaceId));
-  const [target] = await db()
-    .select({run: workflowRuns, attempt: workflowRunAttempts})
-    .from(workflowRuns)
-    .innerJoin(
-      workflowRunAttempts,
-      and(
-        eq(workflowRunAttempts.workflowRunId, workflowRuns.id),
-        eq(workflowRunAttempts.attempt, attempt ?? workflowRuns.currentAttempt),
-      ),
-    )
-    .where(and(...targetConditions))
-    .limit(1);
-  if (!target) return undefined;
+  const startedAt = performance.now();
+  let returnedRows = 0;
+  let databaseDurationMilliseconds: number | undefined;
 
-  const latestAttempt = await getLatestAttempt({
-    workflowRunId: target.run.id,
-    projectId: target.run.projectId,
-  });
+  try {
+    const targetConditions = [eq(workflowRuns.id, workflowRunId)];
+    if (workspaceId) targetConditions.push(eq(workflowRuns.workspaceId, workspaceId));
+    const [target] = await db()
+      .select({run: workflowRuns, attempt: workflowRunAttempts})
+      .from(workflowRuns)
+      .innerJoin(
+        workflowRunAttempts,
+        and(
+          eq(workflowRunAttempts.workflowRunId, workflowRuns.id),
+          eq(workflowRunAttempts.attempt, attempt ?? workflowRuns.currentAttempt),
+        ),
+      )
+      .where(and(...targetConditions))
+      .limit(1);
+    if (!target) return undefined;
 
-  const rows = await db()
-    .select({
-      run: workflowRuns,
-      job: jobs,
-      jobExecution: jobExecutions,
-      step: steps,
-      stepAttempt: stepAttempts,
-    })
-    .from(workflowRuns)
-    .innerJoin(workflowRunAttempts, eq(workflowRunAttempts.id, target.attempt.id))
-    .leftJoin(jobs, eq(jobs.workflowRunAttemptId, workflowRunAttempts.id))
-    .leftJoin(jobExecutions, eq(jobExecutions.jobId, jobs.id))
-    .leftJoin(steps, eq(steps.jobExecutionId, jobExecutions.id))
-    .leftJoin(stepAttempts, eq(stepAttempts.stepId, steps.id))
-    .where(and(...targetConditions))
-    .orderBy(
-      asc(jobs.position),
-      asc(jobs.id),
-      asc(jobExecutions.sequence),
-      asc(jobExecutions.id),
-      asc(steps.position),
-      asc(steps.id),
-      asc(stepAttempts.executionOrder),
-      asc(stepAttempts.id),
-    );
+    const latestAttempt = await getLatestAttempt({
+      workflowRunId: target.run.id,
+      projectId: target.run.projectId,
+    });
 
-  return hydrateWorkflowRunDetail(rows, target.attempt, latestAttempt);
+    const rows = await db()
+      .select({
+        run: workflowRuns,
+        job: jobs,
+        jobExecution: jobExecutions,
+        step: steps,
+        stepAttempt: stepAttempts,
+      })
+      .from(workflowRuns)
+      .innerJoin(workflowRunAttempts, eq(workflowRunAttempts.id, target.attempt.id))
+      .leftJoin(jobs, eq(jobs.workflowRunAttemptId, workflowRunAttempts.id))
+      .leftJoin(jobExecutions, eq(jobExecutions.jobId, jobs.id))
+      .leftJoin(steps, eq(steps.jobExecutionId, jobExecutions.id))
+      .leftJoin(stepAttempts, eq(stepAttempts.stepId, steps.id))
+      .where(and(...targetConditions))
+      .orderBy(
+        asc(jobs.position),
+        asc(jobs.id),
+        asc(jobExecutions.sequence),
+        asc(jobExecutions.id),
+        asc(steps.position),
+        asc(steps.id),
+        asc(stepAttempts.executionOrder),
+        asc(stepAttempts.id),
+      );
+    returnedRows = rows.length;
+    databaseDurationMilliseconds = performance.now() - startedAt;
+
+    return hydrateWorkflowRunDetail(rows, target.attempt, latestAttempt);
+  } finally {
+    try {
+      options.onRead?.({
+        databaseDurationMilliseconds: databaseDurationMilliseconds ?? performance.now() - startedAt,
+        returnedRows,
+      });
+    } catch {
+      // Measurement observers must not change the legacy read outcome.
+    }
+  }
 }
 
 export async function getJobExecutionDetail(

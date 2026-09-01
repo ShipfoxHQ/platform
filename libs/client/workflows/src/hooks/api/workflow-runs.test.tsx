@@ -1,4 +1,7 @@
-import type {StepAttemptDetailResponseDto} from '@shipfox/api-workflows-dto';
+import {
+  type StepAttemptDetailResponseDto,
+  WORKFLOW_RUN_DETAIL_REQUEST_KIND_HEADER,
+} from '@shipfox/api-workflows-dto';
 import {configureApiClient} from '@shipfox/client-api';
 import {type InfiniteData, QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {act, cleanup, renderHook, waitFor} from '@testing-library/react';
@@ -159,6 +162,9 @@ describe('workflow run API hooks', () => {
     const {result, queryClient} = renderWithQueryClient(() => useWorkflowRunQuery(RUN_ID));
 
     await waitFor(() => expect(result.current.data?.triggerSource).toBe('manual'));
+    expect(firstRequest(fetchImpl).headers.get(WORKFLOW_RUN_DETAIL_REQUEST_KIND_HEADER)).toBe(
+      'initial',
+    );
     expect(result.current.data).toMatchObject({
       id: RUN_ID,
       triggerSource: 'manual',
@@ -176,6 +182,51 @@ describe('workflow run API hooks', () => {
       jobs: [{name: 'build', runAttemptId: RUN_ID}],
     });
     expect(cached).toHaveProperty('triggerSource', 'manual');
+  });
+
+  test('marks a cached detail refetch as polling', async () => {
+    const body = workflowRunDetailDto({
+      id: RUN_ID,
+      trigger_source: 'manual',
+      trigger_event: 'fire',
+      jobs: [workflowJobDto({run_attempt_id: RUN_ID, name: 'build'})],
+    });
+    const fetchImpl = vi.fn(async () => jsonResponse(body));
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
+
+    const {result} = renderWithQueryClient(() => useWorkflowRunQuery(RUN_ID));
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    await act(async () => {
+      await result.current.refetch();
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    const first = firstRequest(fetchImpl);
+    const secondInput = (fetchImpl.mock.calls as unknown[][])[1]?.[0];
+    if (!(secondInput instanceof Request)) throw new Error('Expected fetch to receive a Request');
+    expect(first.headers.get(WORKFLOW_RUN_DETAIL_REQUEST_KIND_HEADER)).toBe('initial');
+    expect(secondInput.headers.get(WORKFLOW_RUN_DETAIL_REQUEST_KIND_HEADER)).toBe('polling');
+  });
+
+  test('marks retries after an initial detail failure as polling', async () => {
+    const fetchImpl = vi.fn().mockRejectedValue(new Error('network unavailable'));
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
+    const queryClient = new QueryClient({
+      defaultOptions: {queries: {retry: 1, retryDelay: 0}},
+    });
+    const wrapper = ({children}: {children: ReactNode}) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+
+    const {result} = renderHook(() => useWorkflowRunQuery(RUN_ID), {wrapper});
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    const first = firstRequest(fetchImpl);
+    const secondInput = (fetchImpl.mock.calls as unknown[][])[1]?.[0];
+    if (!(secondInput instanceof Request)) throw new Error('Expected fetch to receive a Request');
+    expect(first.headers.get(WORKFLOW_RUN_DETAIL_REQUEST_KIND_HEADER)).toBe('initial');
+    expect(secondInput.headers.get(WORKFLOW_RUN_DETAIL_REQUEST_KIND_HEADER)).toBe('polling');
   });
 
   test('maps lazy step attempt details to authored and resolved troubleshooting data', () => {

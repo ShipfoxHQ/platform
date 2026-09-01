@@ -1,18 +1,34 @@
 const metricMocks = vi.hoisted(() => {
+  const metrics = new Map<
+    string,
+    {add: ReturnType<typeof vi.fn>; record: ReturnType<typeof vi.fn>}
+  >();
   const counters = new Map<string, {add: ReturnType<typeof vi.fn>}>();
   const histograms = new Map<string, {record: ReturnType<typeof vi.fn>}>();
+  const createMetric = vi.fn((name: string) => {
+    const metric = {add: vi.fn(), record: vi.fn()};
+    metrics.set(name, metric);
+    return metric;
+  });
   const createCounter = vi.fn((name: string) => {
-    const counter = {add: vi.fn()};
-    counters.set(name, counter);
-    return counter;
+    const metric = createMetric(name);
+    counters.set(name, {add: metric.add});
+    return metric;
   });
   const createHistogram = vi.fn((name: string) => {
-    const histogram = {record: vi.fn()};
-    histograms.set(name, histogram);
-    return histogram;
+    const metric = createMetric(name);
+    histograms.set(name, {record: metric.record});
+    return metric;
   });
 
-  return {counters, createCounter, createHistogram, histograms};
+  return {
+    counters,
+    createCounter,
+    createHistogram,
+    createMetric,
+    histograms,
+    metrics,
+  };
 });
 
 vi.mock('@shipfox/node-opentelemetry', () => ({
@@ -30,6 +46,7 @@ beforeEach(async () => {
   vi.resetModules();
   metricMocks.counters.clear();
   metricMocks.histograms.clear();
+  metricMocks.metrics.clear();
   metrics = await import('./instance.js');
 });
 
@@ -43,6 +60,12 @@ function histogramRecord(name: string): ReturnType<typeof vi.fn> {
   const histogram = metricMocks.histograms.get(name);
   if (!histogram) throw new Error(`Missing histogram: ${name}`);
   return histogram.record;
+}
+
+function metric(name: string): {add: ReturnType<typeof vi.fn>; record: ReturnType<typeof vi.fn>} {
+  const result = metricMocks.metrics.get(name);
+  if (!result) throw new Error(`Missing metric: ${name}`);
+  return result;
 }
 
 describe('workflow tool invocation metrics', () => {
@@ -99,5 +122,72 @@ describe('workflow tool invocation metrics', () => {
       action: 'failed',
     });
     expect(counterAdd('workflows_tool_invocation_reclaims')).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('workflow-run detail measurement metrics', () => {
+  test('records bounded labels and read measurements', () => {
+    metrics.recordWorkflowRunDetailRead({
+      durationMilliseconds: 42,
+      databaseDurationMilliseconds: 17,
+      responseBytes: 12_345,
+      returnedRows: 24,
+      requestKind: 'polling',
+      outcome: 'success',
+    });
+
+    const labels = {request_kind: 'polling', outcome: 'success'};
+    expect(metric('workflows_run_detail_reads').add).toHaveBeenCalledWith(1, labels);
+    expect(metric('workflows_run_detail_duration').record).toHaveBeenCalledWith(42, labels);
+    expect(metric('workflows_run_detail_database_duration').record).toHaveBeenCalledWith(
+      17,
+      labels,
+    );
+    expect(metric('workflows_run_detail_response_size').record).toHaveBeenCalledWith(
+      12_345,
+      labels,
+    );
+    expect(metric('workflows_run_detail_returned_rows').record).toHaveBeenCalledWith(24, labels);
+  });
+
+  test('classifies omitted and unsupported request kinds as unknown', () => {
+    expect(metrics.classifyWorkflowRunDetailRequestKind(undefined)).toBe('unknown');
+    expect(metrics.classifyWorkflowRunDetailRequestKind(['polling'])).toBe('unknown');
+    expect(metrics.classifyWorkflowRunDetailRequestKind('unsupported')).toBe('unknown');
+    expect(metrics.classifyWorkflowRunDetailRequestKind('initial')).toBe('initial');
+  });
+
+  test('does not let metric failures affect callers', () => {
+    metric('workflows_run_detail_reads').add.mockImplementationOnce(() => {
+      throw new Error('metrics unavailable');
+    });
+
+    expect(() =>
+      metrics.recordWorkflowRunDetailRead({
+        durationMilliseconds: 1,
+        databaseDurationMilliseconds: 1,
+        responseBytes: 1,
+        returnedRows: 1,
+        requestKind: 'unknown',
+        outcome: 'error',
+      }),
+    ).not.toThrow();
+  });
+
+  test('drops observations with negative measurements', () => {
+    metrics.recordWorkflowRunDetailRead({
+      durationMilliseconds: -1,
+      databaseDurationMilliseconds: 1,
+      responseBytes: 1,
+      returnedRows: 1,
+      requestKind: 'initial',
+      outcome: 'success',
+    });
+
+    expect(metric('workflows_run_detail_reads').add).not.toHaveBeenCalled();
+    expect(metric('workflows_run_detail_duration').record).not.toHaveBeenCalled();
+    expect(metric('workflows_run_detail_database_duration').record).not.toHaveBeenCalled();
+    expect(metric('workflows_run_detail_response_size').record).not.toHaveBeenCalled();
+    expect(metric('workflows_run_detail_returned_rows').record).not.toHaveBeenCalled();
   });
 });
