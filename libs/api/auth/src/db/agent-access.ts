@@ -1,4 +1,5 @@
-import {and, asc, eq, gt, inArray, isNull, lte, notExists, or, sql} from 'drizzle-orm';
+import {and, asc, eq, gt, inArray, isNotNull, isNull, lte, notExists, or, sql} from 'drizzle-orm';
+import {config} from '#config.js';
 import type {
   AgentAuthorizationCode,
   AgentAuthorizationRequest,
@@ -36,6 +37,7 @@ export type AgentAccessTx = Parameters<Parameters<ReturnType<typeof db>['transac
 type AgentAccessExecutor = ReturnType<typeof db> | AgentAccessTx;
 
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
+const MILLISECONDS_PER_SECOND = 1000;
 
 function retentionCutoff(now: Date, days: number): Date {
   if (!Number.isFinite(days) || days < 0) {
@@ -68,6 +70,50 @@ async function isActiveUser(tx: AgentAccessTx, userId: string): Promise<boolean>
     .where(and(eq(users.id, userId), eq(users.status, 'active')))
     .limit(1);
   return rows.length > 0;
+}
+
+async function lockAgentClient(
+  tx: AgentAccessTx,
+  clientId: string,
+): Promise<AgentClient | undefined> {
+  const rows = await tx
+    .select()
+    .from(agentClients)
+    .where(eq(agentClients.id, clientId))
+    .for('update')
+    .limit(1);
+  const row = rows[0];
+  return row ? toAgentClient(row) : undefined;
+}
+
+function validateRotationGraceSeconds(graceSeconds: number): number {
+  if (!Number.isFinite(graceSeconds) || graceSeconds < 0) {
+    throw new Error('Agent refresh rotation grace must be a non-negative finite number of seconds');
+  }
+  return graceSeconds;
+}
+
+/** Returns the default sliding lifetime for a newly issued agent refresh token. */
+export function agentRefreshTokenExpiresAt(now: Date = new Date()): Date {
+  return new Date(now.getTime() + config.AUTH_REFRESH_TOKEN_EXPIRES_IN_DAYS * MILLISECONDS_PER_DAY);
+}
+
+/**
+ * A rotated token remains usable for an access-token-only grace response. The
+ * row must still exist; pruning deliberately turns later replays into plain
+ * unknown-token responses.
+ */
+export function isWithinAgentRefreshRotationGrace(params: {
+  rotatedAt: Date | null;
+  now?: Date;
+  graceSeconds?: number | undefined;
+}): boolean {
+  if (!params.rotatedAt) return false;
+  const now = params.now ?? new Date();
+  const graceSeconds = validateRotationGraceSeconds(
+    params.graceSeconds ?? config.AUTH_REFRESH_ROTATION_GRACE_SECONDS,
+  );
+  return now.getTime() - params.rotatedAt.getTime() <= graceSeconds * MILLISECONDS_PER_SECOND;
 }
 
 export interface CreateAgentClientParams {
@@ -167,6 +213,9 @@ export async function createAgentAuthorizationRequestTx(
   tx: AgentAccessTx,
   params: CreateAgentAuthorizationRequestParams,
 ): Promise<AgentAuthorizationRequest> {
+  if (!(await lockAgentClient(tx, params.clientId))) {
+    throw new Error(`Agent client ${params.clientId} was not found`);
+  }
   const rows = await tx.insert(agentAuthorizationRequests).values(params).returning();
   const row = rows[0];
   if (!row) throw new Error('Insert returned no rows');
@@ -235,10 +284,19 @@ export async function createAgentGrant(params: CreateAgentGrantParams): Promise<
   return await db().transaction((tx) => createAgentGrantTx(tx, params));
 }
 
+/**
+ * Creates or reauthorizes a grant while holding its client row lock. A newly
+ * created grant has no live child until its first authorization code or refresh
+ * token is issued, so approval callers must compose that first child creation
+ * with this Tx helper in one database transaction.
+ */
 export async function createAgentGrantTx(
   tx: AgentAccessTx,
   params: CreateAgentGrantParams,
 ): Promise<AgentGrant> {
+  if (!(await lockAgentClient(tx, params.clientId))) {
+    throw new Error(`Agent client ${params.clientId} was not found`);
+  }
   const rows = await tx
     .insert(agentGrants)
     .values(params)
@@ -410,7 +468,8 @@ export async function consumeAgentAuthorizationCodeTx(
 export interface CreateAgentRefreshTokenParams {
   grantId: string;
   hashedToken: string;
-  expiresAt: Date;
+  /** Defaults to the configured 14-day lifetime. */
+  expiresAt?: Date;
 }
 
 export async function createAgentRefreshToken(
@@ -424,7 +483,10 @@ export async function createAgentRefreshTokenTx(
   params: CreateAgentRefreshTokenParams,
 ): Promise<AgentRefreshToken> {
   await requireActiveAgentGrant(tx, params.grantId);
-  const rows = await tx.insert(agentRefreshTokens).values(params).returning();
+  const rows = await tx
+    .insert(agentRefreshTokens)
+    .values({...params, expiresAt: params.expiresAt ?? agentRefreshTokenExpiresAt()})
+    .returning();
   const row = rows[0];
   if (!row) throw new Error('Insert returned no rows');
   return toAgentRefreshToken(row);
@@ -492,11 +554,111 @@ export async function findActiveAgentRefreshTokenByGrantId(params: {
   return row ? toAgentRefreshToken(row) : undefined;
 }
 
+export type AgentRefreshTokenReplayResult =
+  | {
+      kind: 'grace';
+      grant: AgentGrant;
+      predecessor: AgentRefreshToken;
+      successor: AgentRefreshToken;
+    }
+  | {
+      kind: 'reused';
+      grant: AgentGrant;
+      predecessor: AgentRefreshToken;
+    };
+
+/**
+ * Resolves a replay of a retained, rotated token. A grace hit returns the one
+ * live successor so the caller can mint an access token without issuing a new
+ * refresh cookie. A replay after grace revokes the complete grant family.
+ * Missing or pruned rows return undefined and therefore remain plain 401s.
+ */
+export async function resolveAgentRefreshTokenReplay(params: {
+  hashedToken: string;
+  now?: Date;
+  graceSeconds?: number;
+}): Promise<AgentRefreshTokenReplayResult | undefined> {
+  return await db().transaction((tx) => resolveAgentRefreshTokenReplayTx(tx, params));
+}
+
+export async function resolveAgentRefreshTokenReplayTx(
+  tx: AgentAccessTx,
+  params: {
+    hashedToken: string;
+    now?: Date;
+    graceSeconds?: number;
+  },
+): Promise<AgentRefreshTokenReplayResult | undefined> {
+  const rows = await tx
+    .select()
+    .from(agentRefreshTokens)
+    .where(
+      and(
+        eq(agentRefreshTokens.hashedToken, params.hashedToken),
+        isNull(agentRefreshTokens.revokedAt),
+      ),
+    )
+    .limit(1);
+  const existing = rows[0];
+  if (!existing) return undefined;
+
+  const grant = await lockAgentGrant(tx, {grantId: existing.grantId});
+  if (!grant || grant.revokedAt || grant.terminalAt) return undefined;
+  if (!(await isActiveUser(tx, grant.userId))) return undefined;
+
+  const currentRows = await tx
+    .select()
+    .from(agentRefreshTokens)
+    .where(and(eq(agentRefreshTokens.id, existing.id), isNull(agentRefreshTokens.revokedAt)))
+    .limit(1);
+  const current = currentRows[0];
+  if (!current?.rotatedAt) return undefined;
+
+  const now = params.now ?? new Date();
+  if (
+    isWithinAgentRefreshRotationGrace({
+      rotatedAt: current.rotatedAt,
+      now,
+      graceSeconds: params.graceSeconds,
+    })
+  ) {
+    const successorRows = await tx
+      .select()
+      .from(agentRefreshTokens)
+      .where(
+        and(
+          eq(agentRefreshTokens.grantId, current.grantId),
+          isNull(agentRefreshTokens.rotatedAt),
+          isNull(agentRefreshTokens.revokedAt),
+          gt(agentRefreshTokens.expiresAt, now),
+        ),
+      )
+      .limit(1);
+    const successor = successorRows[0];
+    if (!successor) return undefined;
+    return {
+      kind: 'grace',
+      grant,
+      predecessor: toAgentRefreshToken(current),
+      successor: toAgentRefreshToken(successor),
+    };
+  }
+
+  const revokedGrant = await revokeAgentGrantTx(tx, {grantId: current.grantId});
+  if (!revokedGrant) return undefined;
+  return {
+    kind: 'reused',
+    grant: revokedGrant,
+    predecessor: toAgentRefreshToken(current),
+  };
+}
+
 /** Rotates a refresh token atomically; a concurrent rotation cannot win twice. */
 export async function rotateAgentRefreshToken(params: {
   hashedToken: string;
   replacementHashedToken: string;
-  replacementExpiresAt: Date;
+  /** Defaults to the configured 14-day sliding lifetime. */
+  replacementExpiresAt?: Date;
 }): Promise<AgentRefreshToken | undefined> {
   return await db().transaction((tx) => rotateAgentRefreshTokenTx(tx, params));
 }
@@ -506,9 +668,10 @@ export async function rotateAgentRefreshTokenTx(
   params: {
     hashedToken: string;
     replacementHashedToken: string;
-    replacementExpiresAt: Date;
+    replacementExpiresAt?: Date;
   },
 ): Promise<AgentRefreshToken | undefined> {
+  const replacementExpiresAt = params.replacementExpiresAt ?? agentRefreshTokenExpiresAt();
   const existingRows = await tx
     .select()
     .from(agentRefreshTokens)
@@ -552,7 +715,7 @@ export async function rotateAgentRefreshTokenTx(
     .values({
       grantId: row.grantId,
       hashedToken: params.replacementHashedToken,
-      expiresAt: params.replacementExpiresAt,
+      expiresAt: replacementExpiresAt,
     })
     .returning();
   const successor = successorRows[0];
@@ -639,10 +802,39 @@ export async function transitionAgentGrantsToTerminalTx(
 ): Promise<number> {
   const limit = batchLimit(params.limit);
   const now = params.now ?? new Date();
+  const liveRefreshTokens = tx
+    .select({id: agentRefreshTokens.id})
+    .from(agentRefreshTokens)
+    .where(
+      and(
+        eq(agentRefreshTokens.grantId, agentGrants.id),
+        isNull(agentRefreshTokens.rotatedAt),
+        isNull(agentRefreshTokens.revokedAt),
+        gt(agentRefreshTokens.expiresAt, now),
+      ),
+    );
+  const liveAuthorizationCodes = tx
+    .select({id: agentAuthorizationCodes.id})
+    .from(agentAuthorizationCodes)
+    .where(
+      and(
+        eq(agentAuthorizationCodes.grantId, agentGrants.id),
+        isNull(agentAuthorizationCodes.consumedAt),
+        gt(agentAuthorizationCodes.expiresAt, now),
+      ),
+    );
   const candidates = await tx
     .select({id: agentGrants.id})
     .from(agentGrants)
-    .where(isNull(agentGrants.terminalAt))
+    .where(
+      and(
+        isNull(agentGrants.terminalAt),
+        or(
+          isNotNull(agentGrants.revokedAt),
+          and(notExists(liveRefreshTokens), notExists(liveAuthorizationCodes)),
+        ),
+      ),
+    )
     .orderBy(asc(agentGrants.createdAt), asc(agentGrants.id))
     .limit(limit);
 
@@ -781,7 +973,24 @@ export async function markAgentPersonalAccessTokenUsed(params: {
     )
     .returning();
   const row = rows[0];
-  return row ? toAgentPersonalAccessToken(row) : undefined;
+  if (row) return toAgentPersonalAccessToken(row);
+
+  // A valid token can intentionally skip the write inside the throttle
+  // window. Return its current row so callers can distinguish that from an
+  // invalid, expired, or revoked token.
+  const existingRows = await db()
+    .select()
+    .from(agentPersonalAccessTokens)
+    .where(
+      and(
+        eq(agentPersonalAccessTokens.id, params.id),
+        isNull(agentPersonalAccessTokens.revokedAt),
+        gt(agentPersonalAccessTokens.expiresAt, sql`now()`),
+      ),
+    )
+    .limit(1);
+  const existing = existingRows[0];
+  return existing ? toAgentPersonalAccessToken(existing) : undefined;
 }
 
 export async function revokeAgentPersonalAccessToken(params: {
@@ -803,6 +1012,11 @@ export interface PruneAgentAccessParams {
   retentionDays?: number;
   limit?: number;
   now?: Date;
+}
+
+export interface PruneAgentAccessResult {
+  deleted: number;
+  transitioned: number;
 }
 
 interface AgentAccessRetentionCutoffs {
@@ -945,54 +1159,41 @@ async function pruneTerminalAgentGrants(
   if (candidates.length === 0) return 0;
 
   const grantIds = candidates.map(({id}) => id);
-  const deletedCodes = await tx
-    .delete(agentAuthorizationCodes)
-    .where(inArray(agentAuthorizationCodes.grantId, grantIds))
-    .returning({id: agentAuthorizationCodes.id});
-  const deletedRefreshTokens = await tx
-    .delete(agentRefreshTokens)
-    .where(inArray(agentRefreshTokens.grantId, grantIds))
-    .returning({id: agentRefreshTokens.id});
+  // Child retention runs before this function. Do not delete a child merely
+  // because its grant reached the 90-day horizon: a child can have been
+  // revoked after the grant became terminal and still needs its own 30-day
+  // replay/forensics window. Such a grant waits for the next sweep.
+  const remainingCodeGrants = await tx
+    .select({grantId: agentAuthorizationCodes.grantId})
+    .from(agentAuthorizationCodes)
+    .where(inArray(agentAuthorizationCodes.grantId, grantIds));
+  const remainingRefreshTokenGrants = await tx
+    .select({grantId: agentRefreshTokens.grantId})
+    .from(agentRefreshTokens)
+    .where(inArray(agentRefreshTokens.grantId, grantIds));
+  const grantsWithChildren = new Set([
+    ...remainingCodeGrants.map(({grantId}) => grantId),
+    ...remainingRefreshTokenGrants.map(({grantId}) => grantId),
+  ]);
+  const deletableGrantIds = grantIds.filter((grantId) => !grantsWithChildren.has(grantId));
+  if (deletableGrantIds.length === 0) return 0;
+
   const deletedGrants = await tx
     .delete(agentGrants)
-    .where(inArray(agentGrants.id, grantIds))
+    .where(inArray(agentGrants.id, deletableGrantIds))
     .returning({id: agentGrants.id, clientId: agentGrants.clientId});
 
   const clientIds = new Set(deletedGrants.map(({clientId}) => clientId));
-  for (const clientId of clientIds) {
-    const remainingGrants = await tx
-      .select({id: agentGrants.id})
-      .from(agentGrants)
-      .where(eq(agentGrants.clientId, clientId))
-      .limit(1);
-    if (remainingGrants.length > 0) continue;
-
+  if (clientIds.size > 0) {
     await tx
       .update(agentClients)
       .set({
         unreferencedAt: sql`coalesce(${agentClients.unreferencedAt}, ${params.now})`,
         updatedAt: params.now,
       })
-      .where(eq(agentClients.id, clientId));
-  }
-
-  return deletedCodes.length + deletedRefreshTokens.length + deletedGrants.length;
-}
-
-async function pruneUnreferencedAgentClients(
-  tx: AgentAccessTx,
-  cutoff: Date,
-  limit: number,
-): Promise<number> {
-  const candidates = await tx
-    .select({id: agentClients.id})
-    .from(agentClients)
-    .where(
-      or(
-        lte(agentClients.unreferencedAt, cutoff),
+      .where(
         and(
-          isNull(agentClients.unreferencedAt),
-          lte(agentClients.createdAt, cutoff),
+          inArray(agentClients.id, [...clientIds]),
           notExists(
             tx
               .select({id: agentGrants.id})
@@ -1000,36 +1201,106 @@ async function pruneUnreferencedAgentClients(
               .where(eq(agentGrants.clientId, agentClients.id)),
           ),
         ),
+      );
+  }
+
+  return deletedGrants.length;
+}
+
+async function pruneUnreferencedAgentClients(
+  tx: AgentAccessTx,
+  params: {cutoff: Date; now: Date; limit: number},
+): Promise<number> {
+  const liveAuthorizationRequests = tx
+    .select({id: agentAuthorizationRequests.id})
+    .from(agentAuthorizationRequests)
+    .where(
+      and(
+        eq(agentAuthorizationRequests.clientId, agentClients.id),
+        isNull(agentAuthorizationRequests.consumedAt),
+        gt(agentAuthorizationRequests.expiresAt, params.now),
+      ),
+    );
+  const candidates = await tx
+    .select({id: agentClients.id})
+    .from(agentClients)
+    .where(
+      and(
+        or(
+          lte(agentClients.unreferencedAt, params.cutoff),
+          and(
+            isNull(agentClients.unreferencedAt),
+            lte(agentClients.createdAt, params.cutoff),
+            notExists(
+              tx
+                .select({id: agentGrants.id})
+                .from(agentGrants)
+                .where(eq(agentGrants.clientId, agentClients.id)),
+            ),
+          ),
+        ),
+        notExists(liveAuthorizationRequests),
       ),
     )
     .orderBy(asc(agentClients.unreferencedAt), asc(agentClients.createdAt), asc(agentClients.id))
-    .limit(limit)
+    .limit(params.limit)
     .for('update');
 
-  let deleted = 0;
-  for (const {id} of candidates) {
-    const remainingGrants = await tx
-      .select({id: agentGrants.id})
-      .from(agentGrants)
-      .where(eq(agentGrants.clientId, id))
-      .limit(1);
-    if (remainingGrants.length > 0) continue;
+  if (candidates.length === 0) return 0;
 
-    const rows = await tx
-      .delete(agentClients)
-      .where(
-        and(
-          eq(agentClients.id, id),
-          or(
-            lte(agentClients.unreferencedAt, cutoff),
-            and(isNull(agentClients.unreferencedAt), lte(agentClients.createdAt, cutoff)),
-          ),
+  const candidateIds = candidates.map(({id}) => id);
+  const grantsForCandidates = await tx
+    .select({clientId: agentGrants.clientId})
+    .from(agentGrants)
+    .where(inArray(agentGrants.clientId, candidateIds));
+  const liveRequestsForCandidates = await tx
+    .select({clientId: agentAuthorizationRequests.clientId})
+    .from(agentAuthorizationRequests)
+    .where(
+      and(
+        inArray(agentAuthorizationRequests.clientId, candidateIds),
+        isNull(agentAuthorizationRequests.consumedAt),
+        gt(agentAuthorizationRequests.expiresAt, params.now),
+      ),
+    );
+  const protectedClientIds = new Set([
+    ...grantsForCandidates.map(({clientId}) => clientId),
+    ...liveRequestsForCandidates.map(({clientId}) => clientId),
+  ]);
+  const deletableClientIds = candidateIds.filter((id) => !protectedClientIds.has(id));
+  if (deletableClientIds.length === 0) return 0;
+
+  const rows = await tx
+    .delete(agentClients)
+    .where(
+      and(
+        inArray(agentClients.id, deletableClientIds),
+        or(
+          lte(agentClients.unreferencedAt, params.cutoff),
+          and(isNull(agentClients.unreferencedAt), lte(agentClients.createdAt, params.cutoff)),
         ),
-      )
-      .returning({id: agentClients.id});
-    deleted += rows.length;
-  }
-  return deleted;
+        notExists(
+          tx
+            .select({id: agentGrants.id})
+            .from(agentGrants)
+            .where(eq(agentGrants.clientId, agentClients.id)),
+        ),
+        notExists(
+          tx
+            .select({id: agentAuthorizationRequests.id})
+            .from(agentAuthorizationRequests)
+            .where(
+              and(
+                eq(agentAuthorizationRequests.clientId, agentClients.id),
+                isNull(agentAuthorizationRequests.consumedAt),
+                gt(agentAuthorizationRequests.expiresAt, params.now),
+              ),
+            ),
+        ),
+      ),
+    )
+    .returning({id: agentClients.id});
+  return rows.length;
 }
 
 /**
@@ -1038,6 +1309,13 @@ async function pruneUnreferencedAgentClients(
  * the per-row windows from the agent-access retention policy.
  */
 export async function pruneAgentAccess(params: PruneAgentAccessParams = {}): Promise<number> {
+  return (await pruneAgentAccessBatch(params)).deleted;
+}
+
+/** Runs one bounded retention transaction and reports terminal transitions separately. */
+export async function pruneAgentAccessBatch(
+  params: PruneAgentAccessParams = {},
+): Promise<PruneAgentAccessResult> {
   const now = params.now ?? new Date();
   const limit = batchLimit(params.limit);
   const retentionDays = params.retentionDays;
@@ -1064,8 +1342,8 @@ export async function pruneAgentAccess(params: PruneAgentAccessParams = {}): Pro
     // This runs first so grants whose last child expired can be terminalized in
     // the same maintenance tick. It takes the same grant row lock as code
     // exchange and refresh rotation.
-    await transitionAgentGrantsToTerminalTx(tx, {limit, now});
-    return (
+    const transitioned = await transitionAgentGrantsToTerminalTx(tx, {limit, now});
+    const deleted =
       (await deleteExpiredAgentAuthorizationRequests(tx, cutoffs.authorization, limit)) +
       (await deleteExpiredAgentAuthorizationCodes(tx, cutoffs.authorization, limit)) +
       (await deleteRetainedAgentRefreshTokens(tx, cutoffs.refreshToken, limit)) +
@@ -1075,7 +1353,11 @@ export async function pruneAgentAccess(params: PruneAgentAccessParams = {}): Pro
         now,
         limit,
       })) +
-      (await pruneUnreferencedAgentClients(tx, cutoffs.client, limit))
-    );
+      (await pruneUnreferencedAgentClients(tx, {
+        cutoff: cutoffs.client,
+        now,
+        limit,
+      }));
+    return {deleted, transitioned};
   });
 }

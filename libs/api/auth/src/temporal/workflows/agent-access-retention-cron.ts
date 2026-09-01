@@ -11,6 +11,13 @@ const {agentAccessRetentionActivity} = proxyActivities<
 });
 
 export async function agentAccessRetentionCron(): Promise<void> {
-  const {deleted} = await agentAccessRetentionActivity();
-  if (deleted > 0) log.info('Agent-access retention sweep complete', {deleted});
+  const result = await agentAccessRetentionActivity();
+  if (result.deleted > 0 || result.transitioned > 0 || result.timedOut) {
+    log.info('Agent-access retention sweep complete', {
+      deleted: result.deleted,
+      transitioned: result.transitioned,
+      iterations: result.iterations,
+      timedOut: result.timedOut,
+    });
+  }
 }

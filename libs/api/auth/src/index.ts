@@ -155,7 +155,7 @@ export function createAuthModule({
           {
             name: 'agentAccessRetentionCron',
             id: 'auth-agent-access-retention',
-            cronSchedule: '0 * * * *',
+            cronSchedule: '10 * * * *',
           },
         ],
       },

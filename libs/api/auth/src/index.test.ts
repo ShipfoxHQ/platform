@@ -1,11 +1,20 @@
+import {dirname, resolve} from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {
   AUTH_PASSWORD_RESET_SEND_REQUESTED,
   AUTH_USER_SIGNED_UP,
   authEventSchemas,
 } from '@shipfox/api-auth-dto';
 import {ADMINISTRATION_ACTION_PERFORMED} from '@shipfox/api-common-dto';
+import {createAuthMaintenanceActivities} from '#temporal/activities/index.js';
 import {createAuthModule} from './index.js';
 import {passwordLoginMethods} from './login-methods.js';
+
+const expectedWorkflowsPath = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  '..',
+  'dist/temporal/workflows/index.js',
+);
 
 type SignupPolicyLike = {
   isSignupAllowed(params: {
@@ -112,17 +121,20 @@ describe('authModule', () => {
   });
 
   test('registers the agent-access retention worker', () => {
-    expect(authModule.workers).toEqual([
+    const worker = authModule.workers?.[0];
+    expect(worker).toEqual(
       expect.objectContaining({
         taskQueue: 'auth-agent-access-maintenance',
+        workflowsPath: expectedWorkflowsPath,
         workflows: [
           {
             name: 'agentAccessRetentionCron',
             id: 'auth-agent-access-retention',
-            cronSchedule: '0 * * * *',
+            cronSchedule: '10 * * * *',
           },
         ],
       }),
-    ]);
+    );
+    expect(worker?.activities).toBe(createAuthMaintenanceActivities);
   });
 });
