@@ -1,8 +1,9 @@
 import type {AgentValidationCatalogV2} from '@shipfox/api-agent-dto/inter-module';
 import type {WorkflowDocument} from '@shipfox/workflow-document';
+import {parseWorkflowDocument} from '@shipfox/workflow-document';
 import {agentValidationCatalog} from '#test/agent-validation-catalog.js';
 import type {IntegrationValidationContext} from '../entities/integration-context.js';
-import type {WorkflowModel} from '../entities/workflow-model.js';
+import type {WorkflowModel, WorkflowModelToolStep} from '../entities/workflow-model.js';
 import {
   InvalidWorkflowModelError,
   type WorkflowModelValidationIssue,
@@ -356,6 +357,40 @@ describe('normalizeWorkflowDocument', () => {
       {kind: 'literal', value: 'Deploy '},
       {kind: 'deferred', roots: ['event'], fillTarget: 'execution-creation'},
     ]);
+  });
+
+  it('parses and normalizes a tool step with inputs and output mappings', () => {
+    const document = parseWorkflowDocument({
+      name: 'Read an issue',
+      jobs: {
+        inspect: {
+          steps: [
+            {
+              key: 'issue',
+              tool: 'issue_read.get',
+              connection: 'github-main',
+              with: {owner: 'acme', repo: 'platform', number: 7},
+              outputs: {title: interpolation('result.title')},
+            },
+          ],
+        },
+      },
+    });
+
+    const model = normalizeWorkflowDocument(document, {integrationValidationContext});
+    const step = model.jobs[0]?.steps[0] as WorkflowModelToolStep;
+
+    expect(step).toMatchObject({
+      kind: 'tool',
+      key: 'issue',
+      tool: {id: 'issue_read', method: 'get'},
+      connection: 'github-main',
+      with: {owner: 'acme', repo: 'platform', number: 7},
+      outputs: {title: {type: 'json'}},
+      outputMappings: {
+        title: {language: 'cel', source: 'result.title'},
+      },
+    });
   });
 
   it('preserves literal workflow run and job execution names', () => {

@@ -9,6 +9,7 @@ export function normalizeStepOutputs(params: {
   stepIndex: number;
   issues: WorkflowModelValidationIssue[];
 }): OutputDeclarations | undefined {
+  if (params.step.tool !== undefined) return undefined;
   const outputs = params.step.outputs;
   if (outputs === undefined) return undefined;
 

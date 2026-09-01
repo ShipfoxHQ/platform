@@ -5,6 +5,7 @@ import {
   workflowDocumentAgentStepFields,
   workflowDocumentSchema,
   workflowDocumentStepOutputDeclarationSchema,
+  workflowDocumentToolStepOutputsSchema,
 } from './workflow-document.js';
 
 type JsonSchema = Record<string, unknown>;
@@ -29,12 +30,9 @@ export function buildWorkflowJsonSchema({
   const thinkingEnumBranch = thinkingBranches.find((branch) => Array.isArray(branch.enum)) ?? {};
   const thinkingTemplateBranches = thinkingBranches.filter((branch) => !Array.isArray(branch.enum));
 
-  // The reserved step fields (`agent` and the tool step fields) stay out of
-  // the editor schema until they are authorable.
+  // `agent` remains reserved. Tool-step fields are now part of the authoring
+  // schema and are constrained below by the projected discriminator.
   delete stepProperties.agent;
-  delete stepProperties.tool;
-  delete stepProperties.connection;
-  delete stepProperties.with;
   projectWorkflowValidation(schema, stepSchema);
   const thinkingConditionals = (['pi', 'claude'] as const).map((harness) => {
     const conditional: JsonSchema = {
@@ -90,12 +88,24 @@ function projectWorkflowValidation(schema: JsonSchema, stepSchema: JsonSchema) {
             anyOf: [
               ...workflowDocumentAgentStepFields.map((field) => ({required: [field]})),
               {required: ['checkout']},
+              {required: ['tool']},
+              {required: ['connection']},
+              {required: ['with']},
             ],
           },
         },
         {
           required: ['prompt'],
-          not: {anyOf: [{required: ['run']}, {required: ['checkout']}, {required: ['env']}]},
+          not: {
+            anyOf: [
+              {required: ['run']},
+              {required: ['checkout']},
+              {required: ['env']},
+              {required: ['tool']},
+              {required: ['connection']},
+              {required: ['with']},
+            ],
+          },
         },
         {
           required: ['checkout'],
@@ -104,6 +114,22 @@ function projectWorkflowValidation(schema: JsonSchema, stepSchema: JsonSchema) {
               {required: ['run']},
               ...workflowDocumentAgentStepFields.map((field) => ({required: [field]})),
               {required: ['env']},
+              {required: ['working_directory']},
+              {required: ['tool']},
+              {required: ['connection']},
+              {required: ['with']},
+            ],
+          },
+        },
+        {
+          required: ['tool'],
+          not: {
+            anyOf: [
+              {required: ['run']},
+              ...workflowDocumentAgentStepFields.map((field) => ({required: [field]})),
+              {required: ['checkout']},
+              {required: ['env']},
+              {required: ['working_directory']},
             ],
           },
         },
@@ -123,16 +149,57 @@ function projectWorkflowValidation(schema: JsonSchema, stepSchema: JsonSchema) {
   const gate = object(propertiesOf(stepSchema).gate);
   addAtLeastOneConstraint(gate, ['success', 'on_failure']);
 
-  // The step `outputs` field also accepts the reserved tool-step mapping form;
-  // the editor schema keeps describing the declaration form until tool steps
-  // are enabled.
+  // The raw document schema accepts both output forms so the conditional
+  // branches below can select the form that belongs to the step kind.
   const outputs = object(propertiesOf(stepSchema).outputs);
-  outputs.additionalProperties = z.toJSONSchema(workflowDocumentStepOutputDeclarationSchema, {
+  const declarationOutputValue = z.toJSONSchema(workflowDocumentStepOutputDeclarationSchema, {
     io: 'input',
     unrepresentable: 'any',
-  });
-  const additionalProperties = outputs.additionalProperties as JsonSchema;
-  delete additionalProperties.$schema;
+  }) as JsonSchema;
+  delete declarationOutputValue.$schema;
+
+  const toolOutputs = z.toJSONSchema(workflowDocumentToolStepOutputsSchema, {
+    io: 'input',
+    unrepresentable: 'any',
+  }) as JsonSchema;
+  const toolOutputValue = object(toolOutputs.additionalProperties);
+  delete toolOutputValue.$schema;
+  // Zod refinements are not representable in its JSON Schema projection. Keep
+  // the mapping marker in the editor schema; exact expression validation stays
+  // in the model layer.
+  toolOutputValue.pattern = '\\$\\{\\{';
+  outputs.additionalProperties = {
+    anyOf: [declarationOutputValue, toolOutputValue],
+  };
+
+  const toolOutputsCondition: JsonSchema = {if: {required: ['tool']}};
+  // biome-ignore lint/suspicious/noThenProperty: JSON Schema uses "then" for a conditional branch.
+  toolOutputsCondition.then = {
+    properties: {
+      outputs: {
+        ...outputs,
+        ...(typeof toolOutputs.description === 'string'
+          ? {description: toolOutputs.description}
+          : {}),
+        additionalProperties: toolOutputValue,
+      },
+    },
+  };
+  const declarationOutputsCondition: JsonSchema = {if: {not: {required: ['tool']}}};
+  // biome-ignore lint/suspicious/noThenProperty: JSON Schema uses "then" for a conditional branch.
+  declarationOutputsCondition.then = {
+    properties: {
+      outputs: {
+        ...outputs,
+        additionalProperties: declarationOutputValue,
+      },
+    },
+  };
+  stepSchema.allOf = [
+    ...objects(stepSchema.allOf),
+    toolOutputsCondition,
+    declarationOutputsCondition,
+  ];
 }
 
 function addLiteralNamePattern(schema: JsonSchema | undefined) {

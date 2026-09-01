@@ -441,6 +441,18 @@ function renderWorkflowSchemaReference() {
         outputs: recordType('Output'),
       },
     }),
+    component('ToolStepFields', object(steps.properties), {
+      fields: ['key', 'if', 'name', 'tool', 'connection', 'with', 'gate', 'outputs'],
+      required: ['tool'],
+      nested: {
+        gate: '#gate-fields',
+      },
+      types: {
+        with: codeType('Record<string, value>'),
+        gate: namedType('Gate'),
+        outputs: recordType('string'),
+      },
+    }),
     component('CheckoutStepFields', object(steps.properties), {
       fields: ['key', 'if', 'name', 'checkout', 'gate', 'outputs'],
       required: ['checkout'],
@@ -490,6 +502,7 @@ function renderWorkflowSchemaReference() {
     }),
     component('GateFailureFields', object(gateFailure.properties), {required: ['restart_from']}),
     component('StepOutputs', outputFields()),
+    component('ToolStepOutputs', toolOutputFields()),
     component('ListeningFields', object(listening.properties), {
       required: ['on'],
       nested: {
@@ -605,6 +618,16 @@ function outputFields() {
       type: 'string | number | boolean | json | {type: string | number | boolean} | {type: json; schema?: value}',
       description:
         'Output declaration. Use a type directly (for example, `sha: string`) or an object with required `type`. Only `json` declarations can include `schema`.',
+    },
+  };
+}
+
+function toolOutputFields() {
+  return {
+    OUTPUT_NAME: {
+      type: 'string',
+      description:
+        'Output mapping. Use exactly one $' + '{{ }} expression over `result` or `vars`.',
     },
   };
 }

@@ -9,10 +9,9 @@ Input shape for Shipfox workflow authoring.
 - `InvalidWorkflowDocumentError` reports invalid input with the original Zod error as `cause`.
 - `WorkflowDocumentRunStepGate` describes the step `gate` block with `success`
   and `on_failure`.
-- A job step is either a **run step** (`run: <shell command>`) or an inline
-  **agent step** (`prompt`, with optional `model`, `harness`, `thinking`, and
-  `provider`).
-  A step carries one or the other, never both.
+- A job step is a **run step** (`run: <shell command>`), an inline **agent
+  step** (`prompt`), a **checkout step** (`checkout`), or a **tool step**
+  (`tool`). A step carries one kind, never multiple kinds.
 
 Use this package where Shipfox accepts a workflow object from a file, tool, or
 API call. It checks the shape only. It does not add defaults, pick runners,
@@ -119,6 +118,28 @@ parseWorkflowDocument({
 });
 ```
 
+A tool step invokes an integration tool by literal id. Use `family.method` for
+a method in a tool family. Tool input strings can use workflow expressions, and
+tool output values map names to one expression over `result` or `vars`:
+
+```ts
+parseWorkflowDocument({
+  name: 'issue summary',
+  jobs: {
+    inspect: {
+      steps: [
+        {
+          tool: 'issue_read.get',
+          connection: 'github-main',
+          with: {owner: 'acme', repo: 'platform', number: 42},
+          outputs: {title: '${{ result.title }}'},
+        },
+      ],
+    },
+  },
+});
+```
+
 Jobs may also declare checkout intent. `permissions.contents` accepts `read` or
 `write`; `persist-credentials` accepts a boolean. Both fields are optional in
 the document shape. Later layers resolve omitted values to read-only checkout
@@ -153,20 +174,20 @@ parseWorkflowDocument({
   target checks belong to definitions-owned model code.
 - A step is discriminated by which keys it carries: `run` marks a run step;
   `prompt`, `model`, `harness`, `thinking`, `provider`, `tools`, or
-  `integrations` mark an agent step, and an agent step must include `prompt`.
-  Declaring run and agent fields together, or neither kind, is rejected.
-  `model`, `harness`, `thinking`, `provider`, `tools`, and `integrations` are
-  valid only on an agent step; using them on a run step is rejected. `thinking`
-  is validated against a fixed set (`off`, `minimal`, `low`, `medium`, `high`,
-  `xhigh`, `max`). Provider, model, tool, integration connection, and integration
-  catalog checks belong to the model layer, not this parser. The `agent` key is
-  reserved for a future step kind and is rejected today. The `tool`,
-  `connection`, and `with` fields and the expression `outputs` mapping form are
-  reserved for the upcoming tool step kind; any step carrying one of these
-  fields is rejected with "Tool steps are not available yet." Their shape still parses:
-  `with` is a JSON tree of tool inputs limited to 32768 serialized bytes and 16
-  nesting levels, and its `method` key is rejected. `tool` and `connection` must
-  be literal names; interpolated values such as `${{ ... }}` are rejected at parse.
+  `integrations` mark an agent step; `checkout` marks a checkout step; and
+  `tool` marks a tool step. An agent step must include `prompt`. Declaring
+  fields from multiple kinds, or neither kind, is rejected. `model`, `harness`,
+  `thinking`, `provider`, `tools`, and `integrations` are valid only on an agent
+  step. `thinking` is validated against a fixed set (`off`, `minimal`, `low`,
+  `medium`, `high`, `xhigh`, `max`). Provider, model, tool, integration
+  connection, and integration catalog checks belong to the model layer, not
+  this parser. The `agent` key is reserved for a future step kind and is
+  rejected today. Tool steps accept literal `tool` and `connection` names,
+  JSON-tree `with` inputs, and output mappings. `connection` defaults to the
+  project source when omitted. Tool input maps are limited to 32768 serialized
+  bytes and 16 nesting levels, and their `method` key is rejected. Tool output
+  mappings must use one `${{ ... }}` expression over `result` or `vars`; exact
+  expression and catalog checks belong to the model layer.
 - `env` can be declared on the workflow, a job, or a run step. Values may be
   strings, numbers, or booleans; the model layer stringifies numbers and
   booleans before a run is saved. Values are literal. Expression interpolation

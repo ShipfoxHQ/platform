@@ -223,6 +223,66 @@ describe('workflowDocumentSchema', () => {
     });
   });
 
+  it('accepts tool output mappings without transforming their expressions', () => {
+    const result = workflowDocumentSchema.parse({
+      name: 'tool outputs',
+      jobs: {
+        notify: {
+          steps: [
+            {
+              tool: 'send_message',
+              outputs: {message_id: interpolation('result.id')},
+            },
+          ],
+        },
+      },
+    });
+
+    expect(result.jobs.notify?.steps[0]?.outputs).toEqual({
+      message_id: interpolation('result.id'),
+    });
+  });
+
+  it('rejects declaration outputs on tool steps with the expected form', () => {
+    const result = workflowDocumentSchema.safeParse({
+      name: 'tool outputs',
+      jobs: {notify: {steps: [{tool: 'send_message', outputs: {message_id: 'string'}}]}},
+    });
+
+    const issue = result.success
+      ? undefined
+      : result.error.issues.find(
+          (candidate) => candidate.path.join('.') === 'jobs.notify.steps.0.outputs',
+        );
+    expect(issue?.message).toBe('The `outputs` mapping form is required on a tool step.');
+  });
+
+  it('rejects mixed output forms on tool steps with the expected form', () => {
+    const result = workflowDocumentSchema.safeParse({
+      name: 'tool outputs',
+      jobs: {
+        notify: {
+          steps: [
+            {
+              tool: 'send_message',
+              outputs: {
+                message_id: interpolation('result.id'),
+                timestamp: 'string',
+              },
+            },
+          ],
+        },
+      },
+    });
+
+    const issue = result.success
+      ? undefined
+      : result.error.issues.find(
+          (candidate) => candidate.path.join('.') === 'jobs.notify.steps.0.outputs',
+        );
+    expect(issue?.message).toBe('The `outputs` mapping form is required on a tool step.');
+  });
+
   it('accepts boolean JSON Schemas in step output declarations', () => {
     const result = workflowDocumentSchema.safeParse({
       name: 'typed outputs',
@@ -1197,6 +1257,15 @@ describe('workflowDocumentSchema', () => {
       {model: 'claude-opus-4-8', prompt: 'Fix it.', gate: {success: 'step.exit_code == 0'}},
     ],
     ['custom-model-provider model string', {model: 'openrouter/anthropic/claude', prompt: 'Hi.'}],
+    ['tool step', {tool: 'send_message'}],
+    [
+      'tool step with connection and inputs',
+      {tool: 'send_message', connection: 'slack_acme', with: {channel_id: 'C0ABC12345'}},
+    ],
+    [
+      'tool step with output mappings',
+      {tool: 'get_issue', outputs: {id: interpolation('result.id')}},
+    ],
   ])('accepts %s', (_label, step) => {
     const result = workflowDocumentSchema.safeParse({
       name: 'agent build',
@@ -1212,14 +1281,12 @@ describe('workflowDocumentSchema', () => {
     ['model on a run step', {run: 'npm test', model: 'claude-opus-4-8'}],
     ['neither run nor agent', {name: 'noop'}],
     ['reserved agent keyword', {agent: 'producer', model: 'claude-opus-4-8', prompt: 'Fix.'}],
-    ['reserved tool step', {tool: 'send_message'}],
-    ['reserved tool step with connection', {tool: 'send_message', connection: 'slack_acme'}],
-    ['reserved tool step with with', {tool: 'send_message', with: {channel_id: 'C0ABC12345'}}],
-    [
-      'reserved tool step with outputs mapping',
-      {tool: 'get_issue', outputs: {id: interpolation('result.id')}},
-    ],
     ['tool step on a run step', {run: 'npm test', tool: 'send_message'}],
+    ['tool step on an agent step', {tool: 'send_message', prompt: 'Notify the team.'}],
+    ['tool step with checkout', {tool: 'send_message', checkout: {}}],
+    ['tool step with env', {tool: 'send_message', env: {CI: true}}],
+    ['tool step with working directory', {tool: 'send_message', working_directory: 'api'}],
+    ['tool step with declaration outputs', {tool: 'send_message', outputs: {id: 'string'}}],
     ['thinking on a run step', {run: 'npm test', thinking: 'high'}],
     ['session on a run step', {run: 'npm test', session: 'main'}],
     ['session on a checkout step', {checkout: {}, session: {key: 'main', mode: 'fork'}}],
@@ -1281,7 +1348,7 @@ describe('workflowDocumentSchema', () => {
     expect(messages.some((message) => message.includes('reserved'))).toBe(true);
   });
 
-  it('reports a clear message for reserved tool step fields', () => {
+  it('accepts tool step fields and preserves the mapping output form', () => {
     const result = workflowDocumentSchema.safeParse({
       name: 'tool build',
       jobs: {
@@ -1298,8 +1365,15 @@ describe('workflowDocumentSchema', () => {
       },
     });
 
-    const messages = result.success ? [] : result.error.issues.map((issue) => issue.message);
-    expect(messages.some((message) => message.includes('not available yet'))).toBe(true);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.jobs.fix?.steps[0]).toMatchObject({
+        tool: 'send_message',
+        connection: 'slack_acme',
+        with: {channel_id: 'C0ABC12345'},
+        outputs: {ts: interpolation('result.ts')},
+      });
+    }
   });
 
   it.each([
@@ -1320,19 +1394,13 @@ describe('workflowDocumentSchema', () => {
     });
   });
 
-  it('accepts a literal dotted tool id and connection with a single reserved-field issue', () => {
+  it('accepts a literal dotted tool id and connection', () => {
     const result = workflowDocumentSchema.safeParse({
       name: 'tool build',
       jobs: {fix: {steps: [{tool: 'issue_read.get', connection: 'github-main'}]}},
     });
 
-    const issues = result.success ? [] : result.error.issues;
-    expect(result.success).toBe(false);
-    expect(issues).toHaveLength(1);
-    expect(issues[0]).toMatchObject({
-      path: ['jobs', 'fix', 'steps', 0, 'tool'],
-      message: 'Tool steps are not available yet.',
-    });
+    expect(result.success).toBe(true);
   });
 
   it.each([
@@ -1343,9 +1411,9 @@ describe('workflowDocumentSchema', () => {
       {checkout: {repository: 'shipfox/platform'}, connection: 'slack_acme'},
       'connection',
     ],
-  ] as const)('rejects reserved %s without a tool field', (_label, step, field) => {
+  ] as const)('rejects tool-only field %s without a tool field', (_label, step, field) => {
     const result = workflowDocumentSchema.safeParse({
-      name: 'reserved tool field',
+      name: 'tool-only field',
       jobs: {build: {steps: [step]}},
     });
 
@@ -1354,10 +1422,13 @@ describe('workflowDocumentSchema', () => {
       : result.error.issues.find(
           (candidate) => candidate.path.join('.') === `jobs.build.steps.0.${field}`,
         );
-    expect(issue?.message).toBe('Tool steps are not available yet.');
+    let stepKind = 'run';
+    if (_label.startsWith('agent')) stepKind = 'agent';
+    if (_label.startsWith('checkout')) stepKind = 'checkout';
+    expect(issue?.message).toBe(`"${field}" is not valid on a ${stepKind} step.`);
   });
 
-  it('rejects a method key in a reserved tool step `with` map', () => {
+  it('rejects a method key in a tool step `with` map', () => {
     const result = workflowDocumentSchema.safeParse({
       name: 'tool build',
       jobs: {fix: {steps: [{tool: 'issue_write.update', with: {method: 'update'}}]}},
@@ -1373,7 +1444,7 @@ describe('workflowDocumentSchema', () => {
     );
   });
 
-  it('rejects reserved tool step `with` maps that exceed the byte cap', () => {
+  it('rejects tool step `with` maps that exceed the byte cap', () => {
     const result = workflowDocumentSchema.safeParse({
       name: 'tool build',
       jobs: {
@@ -1398,7 +1469,7 @@ describe('workflowDocumentSchema', () => {
     );
   });
 
-  it('rejects reserved tool step `with` maps nested deeper than the depth cap', () => {
+  it('rejects tool step `with` maps nested deeper than the depth cap', () => {
     let withValue: unknown = {leaf: 'value'};
     for (let index = 0; index < WORKFLOW_DOCUMENT_TOOL_WITH_MAX_DEPTH; index += 1) {
       withValue = {nested: withValue};
@@ -1485,7 +1556,7 @@ describe('workflowDocumentSchema', () => {
       : result.error.issues.find(
           (candidate) => candidate.path.join('.') === 'jobs.build.steps.0.outputs',
         );
-    expect(issue?.message).toBe('The `outputs` mapping form is reserved for tool steps.');
+    expect(issue?.message).toBe('The `outputs` declaration form is required on a run step.');
   });
 
   it('rejects mixed declaration and expression-mapped outputs on non-tool steps', () => {
@@ -1511,7 +1582,7 @@ describe('workflowDocumentSchema', () => {
       : result.error.issues.find(
           (candidate) => candidate.path.join('.') === 'jobs.build.steps.0.outputs',
         );
-    expect(issue?.message).toBe('The `outputs` mapping form is reserved for tool steps.');
+    expect(issue?.message).toBe('The `outputs` declaration form is required on a run step.');
   });
 
   it('reports a non-expression output string at its value path', () => {
@@ -1531,7 +1602,7 @@ describe('workflowDocumentSchema', () => {
       );
       expect(result.error.issues).not.toContainEqual(
         expect.objectContaining({
-          message: 'The `outputs` mapping form is reserved for tool steps.',
+          message: 'The `outputs` declaration form is required on a run step.',
         }),
       );
     }
@@ -1547,9 +1618,15 @@ describe('workflowDocumentSchema', () => {
       },
     });
     const step: WorkflowDocumentStep = workflowDocumentStepSchema.parse({run: 'npm run build'});
+    const toolStep: WorkflowDocumentStep = workflowDocumentStepSchema.parse({
+      tool: 'send_message',
+      outputs: {message_id: interpolation('result.id')},
+    });
 
     expect(document.jobs.build?.steps[0]?.outputs).toEqual({status: {type: 'string'}});
     expect(step.run).toBe('npm run build');
+    expect(toolStep.tool).toBe('send_message');
+    expect(toolStep.outputs).toEqual({message_id: interpolation('result.id')});
   });
 
   it('reports a missing-prompt message on the prompt path', () => {

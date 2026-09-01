@@ -420,7 +420,8 @@ function previousStepOverlays(
     if (step.key === undefined) return [];
     const toolOverlay = toolOverlayByKey.get(step.key);
     if (toolOverlay !== undefined) return [toolOverlay];
-    return [{key: step.key, ...(step.outputs === undefined ? {} : {outputs: step.outputs})}];
+    const outputs = step.tool === undefined ? step.outputs : undefined;
+    return [{key: step.key, ...(outputs === undefined ? {} : {outputs})}];
   });
 }
 

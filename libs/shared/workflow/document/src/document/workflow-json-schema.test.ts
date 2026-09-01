@@ -8,7 +8,7 @@ import {buildWorkflowJsonSchema} from './workflow-json-schema.js';
 type JsonSchema = Record<string, unknown>;
 
 describe('buildWorkflowJsonSchema', () => {
-  it('publishes input declarations without the reserved keys', () => {
+  it('publishes input declarations and authorable tool fields', () => {
     const schema = buildWorkflowJsonSchema();
     const step = stepSchemaFor(schema);
     const output = object(object(object(step.properties).outputs).additionalProperties);
@@ -20,17 +20,56 @@ describe('buildWorkflowJsonSchema', () => {
     });
     const stepProperties = object(step.properties);
     expect(stepProperties).not.toHaveProperty('agent');
-    expect(stepProperties).not.toHaveProperty('tool');
-    expect(stepProperties).not.toHaveProperty('connection');
-    expect(stepProperties).not.toHaveProperty('with');
+    expect(stepProperties).toEqual(
+      expect.objectContaining({
+        tool: expect.any(Object),
+        connection: expect.any(Object),
+        with: expect.any(Object),
+      }),
+    );
     expect(output.anyOf).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({enum: ['string', 'number', 'boolean', 'json']}),
+        expect.objectContaining({
+          anyOf: expect.arrayContaining([
+            expect.objectContaining({enum: ['string', 'number', 'boolean', 'json']}),
+          ]),
+        }),
+        expect.objectContaining({type: 'string', minLength: 1}),
       ]),
     );
-    expect(objects(output.anyOf)).not.toContainEqual(
-      expect.objectContaining({type: 'string', minLength: 1}),
+  });
+
+  it('switches step output values to mappings when a tool is present', () => {
+    const schema = buildWorkflowJsonSchema();
+    const step = stepSchemaFor(schema);
+    const condition = objects(step.allOf).find(
+      (candidate) => JSON.stringify(candidate.if) === JSON.stringify({required: ['tool']}),
     );
+    const defaultOutput = object(object(object(step.properties).outputs).additionalProperties);
+    const toolOutput = object(
+      object(object(condition?.then).properties).outputs,
+    ).additionalProperties;
+
+    expect(condition).toBeDefined();
+    expect(defaultOutput.anyOf).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          anyOf: expect.arrayContaining([
+            expect.objectContaining({enum: ['string', 'number', 'boolean', 'json']}),
+          ]),
+        }),
+      ]),
+    );
+    expect(object(toolOutput)).toMatchObject({
+      type: 'string',
+      minLength: 1,
+      pattern: '\\$\\{\\{',
+    });
+
+    const declarationCondition = objects(step.allOf).find(
+      (candidate) => JSON.stringify(candidate.if) === JSON.stringify({not: {required: ['tool']}}),
+    );
+    expect(declarationCondition).toBeDefined();
   });
 
   it('describes static and dynamic workflow and job name fields', () => {
@@ -94,7 +133,12 @@ describe('buildWorkflowJsonSchema', () => {
     expect(triggers.minProperties).toBe(1);
     expect(jobOutputs.minProperties).toBe(1);
     expect(discriminator).toMatchObject({
-      oneOf: [{required: ['run']}, {required: ['prompt']}, {required: ['checkout']}],
+      oneOf: [
+        {required: ['run']},
+        {required: ['prompt']},
+        {required: ['checkout']},
+        {required: ['tool']},
+      ],
     });
     expect(requiredAlternatives(gate)).toEqual(['success', 'on_failure']);
     expect(requiredAlternatives(batch)).toEqual(['debounce', 'max_size', 'max_wait']);

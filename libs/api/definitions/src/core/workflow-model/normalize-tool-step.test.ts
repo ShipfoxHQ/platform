@@ -35,10 +35,8 @@ function toolStep(step: WorkflowDocumentStep): WorkflowDocumentStep {
   return step;
 }
 
-function mappingOutputs(
-  outputs: Record<string, string>,
-): NonNullable<WorkflowDocumentStep['outputs']> {
-  return outputs as unknown as NonNullable<WorkflowDocumentStep['outputs']>;
+function mappingOutputs(outputs: Record<string, string>): Record<string, string> {
+  return outputs;
 }
 
 function toolDocument(step: WorkflowDocumentStep): WorkflowDocument {
@@ -392,7 +390,7 @@ describe('normalizeToolStep', () => {
           with: {id: 'ENG-1'},
           // The declaration form is not valid on a tool step: every value must
           // be a single interpolation expression string.
-          outputs: {ts: {type: 'string'}},
+          outputs: {ts: {type: 'string'}} as unknown as Record<string, string>,
         }),
       ),
       {integrationValidationContext},

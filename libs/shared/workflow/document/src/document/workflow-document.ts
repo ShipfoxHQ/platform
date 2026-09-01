@@ -126,7 +126,7 @@ export const workflowDocumentToolStepWithSchema = z
       WORKFLOW_DOCUMENT_TOOL_WITH_MAX_SERIALIZED_BYTES +
       ' serialized bytes and ' +
       WORKFLOW_DOCUMENT_TOOL_WITH_MAX_DEPTH +
-      ' nesting levels. Tool steps are not available yet.',
+      ' nesting levels for a tool step.',
   });
 
 type WorkflowDocumentToolWithValidationTask =
@@ -384,7 +384,17 @@ export const workflowDocumentStepOutputDeclarationSchema = z
 function stepOutputsAreMappingForm(outputs: Readonly<Record<string, unknown>>): boolean {
   const interpolationOpen = '$' + '{{';
   const values = Object.values(outputs);
-  return values.some((value) => typeof value === 'string' && value.includes(interpolationOpen));
+  return (
+    values.length > 0 &&
+    values.every((value) => typeof value === 'string' && value.includes(interpolationOpen))
+  );
+}
+
+function stepOutputsContainMappingForm(outputs: Readonly<Record<string, unknown>>): boolean {
+  const interpolationOpen = '$' + '{{';
+  return Object.values(outputs).some(
+    (value) => typeof value === 'string' && value.includes(interpolationOpen),
+  );
 }
 
 function stepOutputsRecordChecks(outputs: Readonly<Record<string, unknown>>, ctx: z.RefinementCtx) {
@@ -414,22 +424,20 @@ export const workflowDocumentStepOutputsSchema = z
   });
 
 // The tool-step `outputs` form maps output keys to a single `${{ }}` expression
-// over `result`. The expression layer validates the interpolation; the mapping
-// form is rejected with the reserved tool step fields until tool steps exist.
+// over `result`. The expression layer validates the interpolation and its exact
+// shape at normalization time.
 export const workflowDocumentToolStepOutputsSchema = z
   .record(z.string(), workflowDocumentToolStepOutputMappingValueSchema)
   .superRefine((outputs, ctx) => stepOutputsRecordChecks(outputs, ctx))
   .meta({
     description:
-      'Tool-step output mappings over `result`. Each value is exactly one $' +
-      '{{ }} expression. Tool steps are not available yet.',
+      'Tool-step output mappings over `result`. Each value is exactly one $' + '{{ }} expression.',
   });
 
 // `outputs` carries the declaration form on run, agent, and checkout steps and
-// the expression mapping form on tool steps. One value union accepts both so a
-// reserved tool step parses and is rejected by the step `superRefine`; zod
-// reports the declaration branch's own issues for malformed declarations, and
-// the step `superRefine` rejects the mapping form on every other step kind.
+// the expression mapping form on tool steps. One value union accepts both so
+// the step `superRefine` can report the form expected by the selected kind;
+// zod reports the declaration branch's own issues for malformed declarations.
 const workflowDocumentStepOutputValueSchema = z.union([
   workflowDocumentStepOutputDeclarationSchema,
   workflowDocumentToolStepOutputMappingValueSchema,
@@ -855,16 +863,13 @@ export const workflowDocumentAgentStepFields = [
   'session',
 ] as const;
 
-// A step is a run step (`run`), an inline agent step (`prompt`), or a checkout
-// step (`checkout`), never two kinds at once. They share one strict object so
-// an unknown key is still rejected; the `superRefine` discriminates by which
-// payload keys are present and emits one targeted issue per failure mode (a
-// plain union would surface every branch's errors at once). The `agent`
-// keyword is declared only so the reserved-keyword case produces a clear
-// message instead of a generic "unrecognized key". The `tool`, `connection`,
-// `with`, and tool-step `outputs` mapping form are declared the same way: they
-// parse so their shape is checked, then any step carrying a reserved tool field
-// is rejected until the tool step kind exists.
+// A step is a run step (`run`), an inline agent step (`prompt`), a checkout step
+// (`checkout`), or a tool step (`tool`), never two kinds at once. They share one
+// strict object so an unknown key is still rejected; the `superRefine`
+// discriminates by which payload keys are present and emits one targeted issue
+// per offending field (a plain union would surface every branch's errors at
+// once). The `agent` keyword is declared only so the reserved-keyword case
+// produces a clear message instead of a generic "unrecognized key".
 const workflowDocumentStepBaseSchema = z.strictObject({
   key: z
     .string()
@@ -918,14 +923,12 @@ const workflowDocumentStepBaseSchema = z.strictObject({
     description: 'Reserved keyword. It is rejected; use `prompt` to define an agent step.',
   }),
   tool: literalNameSchema('Tool id must be literal. Interpolation is rejected.').optional().meta({
-    description:
-      'Literal integration tool id for a tool step. It is rejected; tool steps are not available yet.',
+    description: 'Literal integration tool id for a tool step.',
   }),
   connection: literalNameSchema('Connection slug must be literal. Interpolation is rejected.')
     .optional()
     .meta({
-      description:
-        'Literal integration connection slug for a tool step. It is rejected; tool steps are not available yet.',
+      description: 'Literal integration connection slug for a tool step.',
     }),
   with: workflowDocumentToolStepWithSchema.optional(),
   gate: workflowDocumentStepGateSchema.optional().meta({
@@ -937,116 +940,164 @@ const workflowDocumentStepBaseSchema = z.strictObject({
   outputs: workflowDocumentStepOutputsFieldSchema.optional().meta({
     description:
       'Named output declarations produced by this step, or on a tool step a mapping of output keys to exactly one $' +
-      '{{ }} expression over `result`. Tool steps are not available yet.',
+      '{{ }} expression over `result`.',
   }),
 });
 
-type WorkflowDocumentStepSchemaOutput = Omit<
+type WorkflowDocumentStepSchemaFields = Omit<
   z.infer<typeof workflowDocumentStepBaseSchema>,
-  'outputs'
-> & {
-  outputs?: WorkflowDocumentStepOutputs;
-};
+  'outputs' | 'tool'
+>;
+type WorkflowDocumentStepSchemaOutput =
+  | (WorkflowDocumentStepSchemaFields & {
+      tool: string;
+      outputs?: WorkflowDocumentToolStepOutputs;
+    })
+  | (WorkflowDocumentStepSchemaFields & {
+      tool?: undefined;
+      outputs?: WorkflowDocumentStepOutputs;
+    });
 type WorkflowDocumentStepInput = z.infer<typeof workflowDocumentStepBaseSchema>;
 
 export const workflowDocumentStepSchema = workflowDocumentStepBaseSchema
   .superRefine(validateWorkflowDocumentStep)
-  .transform<WorkflowDocumentStepSchemaOutput>(({outputs, ...step}) =>
-    outputs === undefined ? step : {...step, outputs: outputs as WorkflowDocumentStepOutputs},
+  .transform<WorkflowDocumentStepSchemaOutput>(
+    ({outputs, ...step}) =>
+      ({
+        ...step,
+        ...(outputs === undefined
+          ? {}
+          : {
+              outputs:
+                step.tool === undefined
+                  ? (outputs as WorkflowDocumentStepOutputs)
+                  : (outputs as WorkflowDocumentToolStepOutputs),
+            }),
+      }) as WorkflowDocumentStepSchemaOutput,
   );
 
 function validateWorkflowDocumentStep(step: WorkflowDocumentStepInput, ctx: z.RefinementCtx): void {
-  if (validateReservedWorkflowDocumentStepFields(step, ctx)) return;
-  validateWorkflowDocumentStepOutputs(step, ctx);
-  if (step.checkout !== undefined) {
-    validateWorkflowDocumentCheckoutStep(step, ctx);
-    return;
-  }
-  if (step.run !== undefined) {
-    addWorkflowDocumentInvalidAgentFields(step, ctx, 'run');
-    return;
-  }
-  validateWorkflowDocumentAgentStep(step, ctx);
-}
-
-function validateReservedWorkflowDocumentStepFields(
-  step: WorkflowDocumentStepInput,
-  ctx: z.RefinementCtx,
-): boolean {
   if (step.agent !== undefined) {
     ctx.addIssue({
       code: 'custom',
       path: ['agent'],
       message: 'The "agent" keyword is reserved for a future step kind and is not supported yet.',
     });
-    return true;
+    return;
   }
-  const reservedTool = reservedWorkflowDocumentToolField(step);
-  if (
-    reservedTool?.value !== undefined &&
-    !WORKFLOW_LITERAL_NAME_PATTERN.test(reservedTool.value)
-  ) {
-    // The field-level literal-name check already rejected the interpolated
-    // value; skip the reserved-field issue so one defect does not report twice.
-    return true;
+  if (step.checkout !== undefined) {
+    validateWorkflowDocumentStepOutputs(step, ctx, 'checkout');
+    validateWorkflowDocumentCheckoutStep(step, ctx);
+    return;
   }
-  if (reservedTool === undefined && step.with === undefined) return false;
-  ctx.addIssue({
-    code: 'custom',
-    path: [reservedTool?.field ?? 'with'],
-    message: 'Tool steps are not available yet.',
-  });
-  return true;
-}
-
-function reservedWorkflowDocumentToolField(
-  step: WorkflowDocumentStepInput,
-): {readonly field: 'tool' | 'connection'; readonly value: string} | undefined {
-  if (step.tool !== undefined) return {field: 'tool', value: step.tool};
-  if (step.connection !== undefined) return {field: 'connection', value: step.connection};
-  return undefined;
+  if (step.tool !== undefined) {
+    validateWorkflowDocumentStepOutputs(step, ctx, 'tool');
+    validateWorkflowDocumentToolStep(step, ctx);
+    return;
+  }
+  if (step.run !== undefined) {
+    validateWorkflowDocumentStepOutputs(step, ctx, 'run');
+    validateWorkflowDocumentRunStep(step, ctx);
+    return;
+  }
+  validateWorkflowDocumentStepOutputs(step, ctx, 'agent');
+  validateWorkflowDocumentAgentStep(step, ctx);
 }
 
 function validateWorkflowDocumentStepOutputs(
   step: WorkflowDocumentStepInput,
   ctx: z.RefinementCtx,
+  stepKind: 'agent' | 'checkout' | 'run' | 'tool',
 ): void {
-  if (step.outputs === undefined || !stepOutputsAreMappingForm(step.outputs)) return;
+  if (step.outputs === undefined) return;
+  if (Object.keys(step.outputs).length === 0) return;
+  const isMapping = stepOutputsAreMappingForm(step.outputs);
+  if (stepKind === 'tool') {
+    if (isMapping) return;
+    ctx.addIssue({
+      code: 'custom',
+      path: ['outputs'],
+      message: 'The `outputs` mapping form is required on a tool step.',
+    });
+    return;
+  }
+  if (!stepOutputsContainMappingForm(step.outputs)) return;
   ctx.addIssue({
     code: 'custom',
     path: ['outputs'],
-    message: 'The `outputs` mapping form is reserved for tool steps.',
+    message: `The \`outputs\` declaration form is required on a ${stepKind} step.`,
   });
+}
+
+function validateWorkflowDocumentRunStep(
+  step: WorkflowDocumentStepInput,
+  ctx: z.RefinementCtx,
+): void {
+  addWorkflowDocumentInvalidAgentFields(step, ctx, 'run');
+  addWorkflowDocumentInvalidToolFields(step, ctx, 'run');
+}
+
+function validateWorkflowDocumentToolStep(
+  step: WorkflowDocumentStepInput,
+  ctx: z.RefinementCtx,
+): void {
+  addWorkflowDocumentInvalidStepFields(step, ctx, 'tool', [
+    'run',
+    ...workflowDocumentAgentStepFields,
+    'checkout',
+    'env',
+    'working_directory',
+  ]);
 }
 
 function validateWorkflowDocumentCheckoutStep(
   step: WorkflowDocumentStepInput,
   ctx: z.RefinementCtx,
 ): void {
-  if (step.run !== undefined) {
-    ctx.addIssue({
-      code: 'custom',
-      path: ['run'],
-      message: '"run" is not valid on a checkout step.',
-    });
-  }
-  addWorkflowDocumentInvalidAgentFields(step, ctx, 'checkout');
-  if (step.env !== undefined) {
-    ctx.addIssue({
-      code: 'custom',
-      path: ['env'],
-      message: '"env" is not valid on a checkout step.',
-    });
-  }
+  addWorkflowDocumentInvalidStepFields(step, ctx, 'checkout', [
+    'run',
+    ...workflowDocumentAgentStepFields,
+    'tool',
+    'connection',
+    'with',
+    'env',
+    'working_directory',
+  ]);
 }
 
 function addWorkflowDocumentInvalidAgentFields(
   step: WorkflowDocumentStepInput,
   ctx: z.RefinementCtx,
-  stepKind: 'checkout' | 'run',
+  stepKind: 'checkout' | 'run' | 'tool',
 ): void {
-  for (const key of workflowDocumentAgentStepFields) {
+  addWorkflowDocumentInvalidStepFields(step, ctx, stepKind, workflowDocumentAgentStepFields);
+}
+
+function addWorkflowDocumentInvalidToolFields(
+  step: WorkflowDocumentStepInput,
+  ctx: z.RefinementCtx,
+  stepKind: 'agent' | 'checkout' | 'run',
+): void {
+  addWorkflowDocumentInvalidStepFields(step, ctx, stepKind, ['tool', 'connection', 'with']);
+}
+
+function addWorkflowDocumentInvalidStepFields(
+  step: WorkflowDocumentStepInput,
+  ctx: z.RefinementCtx,
+  stepKind: 'agent' | 'checkout' | 'run' | 'tool',
+  fields: readonly (keyof WorkflowDocumentStepInput)[],
+): void {
+  for (const key of fields) {
     if (step[key] === undefined) continue;
+    if (
+      (key === 'tool' || key === 'connection') &&
+      typeof step[key] === 'string' &&
+      !WORKFLOW_LITERAL_NAME_PATTERN.test(step[key])
+    ) {
+      // The field-level literal-name check already rejected the interpolated
+      // value; skip the exclusivity issue so one defect does not report twice.
+      continue;
+    }
     ctx.addIssue({
       code: 'custom',
       path: [key],
@@ -1061,6 +1112,8 @@ function validateWorkflowDocumentAgentStep(
 ): void {
   const isAgent = workflowDocumentAgentStepFields.some((field) => step[field] !== undefined);
   if (!isAgent) {
+    addWorkflowDocumentInvalidToolFields(step, ctx, 'agent');
+    if (hasToolOnlyField(step)) return;
     ctx.addIssue({
       code: 'custom',
       message: 'A step must define either "run", an agent "prompt", or "checkout".',
@@ -1070,9 +1123,14 @@ function validateWorkflowDocumentAgentStep(
   if (step.env !== undefined) {
     ctx.addIssue({code: 'custom', path: ['env'], message: '"env" is supported only on run steps.'});
   }
+  addWorkflowDocumentInvalidToolFields(step, ctx, 'agent');
   if (step.prompt === undefined) {
     ctx.addIssue({code: 'custom', path: ['prompt'], message: 'An agent step requires "prompt".'});
   }
+}
+
+function hasToolOnlyField(step: WorkflowDocumentStepInput): boolean {
+  return step.tool !== undefined || step.connection !== undefined || step.with !== undefined;
 }
 
 const workflowDocumentJobOutputsSchema = nonEmptyRecordSchema(z.string().min(1)).superRefine(
@@ -1128,7 +1186,7 @@ export const workflowDocumentJobSchema = z.strictObject({
       'Environment variables for run steps in this job. They do not apply to agent steps. See [secrets and variables](/reference/secrets-variables).',
   }),
   steps: z.array(workflowDocumentStepSchema).min(1).meta({
-    description: 'Ordered run or agent steps. Each job needs at least one step.',
+    description: 'Ordered run, agent, checkout, or tool steps. Each job needs at least one step.',
   }),
 });
 
