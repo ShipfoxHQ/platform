@@ -9,6 +9,10 @@ const SETUP_STATUS_NAME_RE = /^(?:\d+ of \d+ done|You're set up)$/u;
 const SETUP_DIALOG_NAME_RE = /Get started/u;
 const SETTINGS_ROOT_URL_RE = /\/settings(?:\/members)?\/?$/u;
 const SHOW_ALL_STEPS_NAME_RE = /^Show all \d+ steps$/u;
+// Bounds one in-app route change. A client-side click is fast when it lands, so
+// this only has to be long enough to absorb CI scheduling noise before the
+// caller recovers with a document load.
+const IN_APP_NAVIGATION_TIMEOUT_MS = 5_000;
 
 function lastWorkspaceStorageKey(principalId: string): string {
   return `${LAST_WORKSPACE_KEY}.principal.${encodeURIComponent(principalId)}`;
@@ -52,23 +56,16 @@ export class WorkspaceHomeScreen {
 
   async goto(workspaceSlug: string): Promise<void> {
     const workspacePath = `/w/${workspaceSlug}`;
-    if (new URL(this.page.url()).pathname === workspacePath) return;
-    if (this.page.url() === 'about:blank') {
-      await this.page.goto(workspacePath);
-      return;
+    const workspaceUrlRe = new RegExp(`/w/${workspaceSlug}/?$`, 'u');
+    if (!this.isBlank() && new URL(this.page.url()).pathname === workspacePath) return;
+    const followed = await this.followMountedLink(workspaceUrlRe, [
+      `a[role="tab"][href="${workspacePath}"]`,
+      `a[aria-current="page"][href="${workspacePath}"]`,
+    ]);
+    if (!followed) {
+      await this.page.goto(workspacePath, {waitUntil: 'commit'});
+      await this.page.waitForURL(workspaceUrlRe);
     }
-    const projectsTab = this.page.locator(`a[role="tab"][href="${workspacePath}"]`);
-    if ((await projectsTab.count()) === 1) {
-      await projectsTab.click({noWaitAfter: true});
-    } else {
-      const workspaceCrumb = this.page.locator(`a[aria-current="page"][href="${workspacePath}"]`);
-      if ((await workspaceCrumb.count()) === 1) {
-        await workspaceCrumb.click({noWaitAfter: true});
-      } else {
-        await this.page.goto(workspacePath, {waitUntil: 'commit'});
-      }
-    }
-    await this.page.waitForURL(new RegExp(`/w/${workspaceSlug}/?$`, 'u'));
     await this.page
       .locator(`a[role="tab"][href="${workspacePath}"][aria-selected="true"]`)
       .waitFor({state: 'visible'});
@@ -94,13 +91,60 @@ export class WorkspaceHomeScreen {
   }
 
   private async gotoSettingsSection(section: 'General' | 'Integrations'): Promise<void> {
-    await this.settingsTab().click({noWaitAfter: true});
-    await this.page.waitForURL(SETTINGS_ROOT_URL_RE);
-    await this.page
-      .getByRole('navigation', {name: 'Workspace settings'})
-      .getByRole('link', {name: section, exact: true})
-      .click({noWaitAfter: true});
-    await this.page.waitForURL(new RegExp(`/settings/${section.toLowerCase()}/?$`, 'u'));
+    const sectionPath = `/settings/${section.toLowerCase()}`;
+    const sectionUrlRe = new RegExp(`${sectionPath}/?$`, 'u');
+    if (await this.followSettingsNavigation(section, sectionUrlRe)) return;
+    const [, workspaceSegment, workspaceSlug] = new URL(this.page.url()).pathname.split('/');
+    if (workspaceSegment !== 'w' || !workspaceSlug) {
+      throw new Error(`Cannot reach ${sectionPath} from ${this.page.url()}`);
+    }
+    await this.page.goto(`/w/${workspaceSlug}${sectionPath}`, {waitUntil: 'commit'});
+    await this.page.waitForURL(sectionUrlRe);
+  }
+
+  private async followSettingsNavigation(
+    section: 'General' | 'Integrations',
+    sectionUrlRe: RegExp,
+  ): Promise<boolean> {
+    try {
+      await this.settingsTab().click({noWaitAfter: true, timeout: IN_APP_NAVIGATION_TIMEOUT_MS});
+      await this.page.waitForURL(SETTINGS_ROOT_URL_RE, {timeout: IN_APP_NAVIGATION_TIMEOUT_MS});
+      await this.page
+        .getByRole('navigation', {name: 'Workspace settings'})
+        .getByRole('link', {name: section, exact: true})
+        .click({noWaitAfter: true, timeout: IN_APP_NAVIGATION_TIMEOUT_MS});
+      await this.page.waitForURL(sectionUrlRe, {timeout: IN_APP_NAVIGATION_TIMEOUT_MS});
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Clicks the first mounted link whose selector matches exactly once, so an
+   * in-app route change replaces a dev-server document load. Reports whether
+   * the route settled: a client-side click that loses to a re-render or to a
+   * competing navigation raises nothing, it just leaves a URL that never
+   * changes, which would otherwise hold `waitForURL` until the test times out.
+   */
+  private async followMountedLink(targetUrlRe: RegExp, selectors: string[]): Promise<boolean> {
+    if (this.isBlank()) return false;
+    for (const selector of selectors) {
+      const link = this.page.locator(selector);
+      if ((await link.count()) !== 1) continue;
+      try {
+        await link.click({noWaitAfter: true, timeout: IN_APP_NAVIGATION_TIMEOUT_MS});
+        await this.page.waitForURL(targetUrlRe, {timeout: IN_APP_NAVIGATION_TIMEOUT_MS});
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  private isBlank(): boolean {
+    return this.page.url() === 'about:blank';
   }
 
   settingsTab(): Locator {

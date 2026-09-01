@@ -2,14 +2,22 @@ import {randomUUID} from 'node:crypto';
 import {createLinearConnection} from '@shipfox/e2e-setup-integrations';
 import {
   CLOUD_CHECKLIST_COUNT_RE,
+  createChecklistWorkspace,
   INITIAL_CHECKLIST_COUNT_RE,
+  LINEAR_AUTHORIZE_ORIGIN,
+  LINEAR_AUTHORIZE_URL_RE,
   LINEAR_CHECKLIST_COUNT_RE,
-  stubChecklistDependencies,
+  stubLinearAuthorizePage,
+  stubLinearCallback,
 } from './setup-checklist-fixtures.js';
 import {expect, test} from './test.js';
 
+function integrationsSettingsUrlRe(workspaceSlug: string): RegExp {
+  return new RegExp(`/w/${workspaceSlug}/settings/integrations/?$`, 'u');
+}
+
 test.describe('workspace setup checklist', () => {
-  test('tracks a Linear installation, dismissal, and settings re-entry', async ({
+  test('tracks a Linear installation through the checklist', async ({
     auth,
     integrationsCatalogue,
     page,
@@ -18,34 +26,15 @@ test.describe('workspace setup checklist', () => {
     workspaceSetupChecklist,
     workspaces,
   }) => {
-    const user = await auth.createUser();
-    const workspace = await workspaces.create({
-      userId: user.user.id,
+    const workspace = await createChecklistWorkspace({
+      auth,
+      page,
+      projects,
+      workspaces,
       name: 'Setup Guide Workspace',
     });
-    await projects.createProject({workspaceId: workspace.id});
-    await auth.loginAs(page, user);
-    await stubChecklistDependencies(page, workspace.id);
-
-    await page.route('**/integrations/linear/callback/api**', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          id: '00000000-0000-4000-8000-0000000000ad',
-          workspace_id: workspace.id,
-          provider: 'linear',
-          external_account_id: 'linear-e2e-org',
-          slug: 'linear_e2e',
-          display_name: 'Linear E2E',
-          lifecycle_status: 'active',
-          capabilities: ['agent_tools'],
-          external_url: 'https://linear.app/e2e',
-          created_at: '2026-01-15T12:00:00.000Z',
-          updated_at: '2026-01-15T12:00:00.000Z',
-        }),
-      });
-    });
+    await stubLinearAuthorizePage(page);
+    await stubLinearCallback(page, workspace.id);
 
     await workspaceHome.goto(workspace.slug);
     await expect(workspaceSetupChecklist.panel()).toBeVisible();
@@ -53,30 +42,24 @@ test.describe('workspace setup checklist', () => {
       'aria-label',
       INITIAL_CHECKLIST_COUNT_RE,
     );
-    const linearOrganizationId = `linear-e2e-org-${randomUUID()}`;
-    await test.step('install Linear and verify checklist progress', async () => {
+
+    await test.step('leave for Linear from the checklist action', async () => {
       await workspaceSetupChecklist.connectLink().click();
-      await expect(page).toHaveURL(
-        new RegExp(`/w/${workspace.slug}/settings/integrations/?$`, 'u'),
-      );
-      let resolveLinearNavigation!: (url: string) => void;
-      const linearNavigation = new Promise<string>((resolve) => {
-        resolveLinearNavigation = resolve;
-      });
-      await page.route('https://linear.app/**', async (route) => {
-        resolveLinearNavigation(route.request().url());
-        await route.fulfill({
-          status: 200,
-          contentType: 'text/html',
-          body: '<!doctype html><title>Linear OAuth</title>',
-        });
-      });
+      await expect(page).toHaveURL(integrationsSettingsUrlRe(workspace.slug));
       await integrationsCatalogue.installLink('Linear').click();
-      const navigatedUrl = await linearNavigation;
-      const linearInstallUrl = new URL(navigatedUrl);
-      expect(linearInstallUrl.origin + linearInstallUrl.pathname).toBe(
-        'https://linear.app/oauth/authorize',
+      // The install page leaves the app through window.location.assign, so wait
+      // for the stubbed authorize document to commit. Reading the URL from the
+      // route handler instead leaves that navigation in flight, and it then
+      // lands on top of the callback navigation the next step starts.
+      await page.waitForURL(LINEAR_AUTHORIZE_URL_RE);
+      const authorizeUrl = new URL(page.url());
+      expect(authorizeUrl.origin + authorizeUrl.pathname).toBe(
+        `${LINEAR_AUTHORIZE_ORIGIN}/oauth/authorize`,
       );
+    });
+
+    await test.step('return through the Linear callback', async () => {
+      const linearOrganizationId = `linear-e2e-org-${randomUUID()}`;
       await createLinearConnection({
         workspaceId: workspace.id,
         organizationId: linearOrganizationId,
@@ -90,41 +73,76 @@ test.describe('workspace setup checklist', () => {
         waitUntil: 'commit',
       });
       expect((await linearCallbackResponse).ok()).toBe(true);
-      await expect(page).toHaveURL(
-        new RegExp(`/w/${workspace.slug}/settings/integrations/?$`, 'u'),
-      );
-      await workspaceHome.goto(workspace.slug);
-      await expect(workspaceSetupChecklist.indicator()).toHaveAttribute(
-        'aria-label',
-        LINEAR_CHECKLIST_COUNT_RE,
-      );
-      await expect(workspaceSetupChecklist.status()).toHaveAttribute('aria-live', 'polite');
-      await expect(workspaceSetupChecklist.status()).toHaveText(LINEAR_CHECKLIST_COUNT_RE);
-      await expect(workspaceSetupChecklist.text('Set up runner capacity')).toBeVisible();
+      await expect(page).toHaveURL(integrationsSettingsUrlRe(workspace.slug));
     });
 
-    await test.step('dismiss and re-enter the setup guide', async () => {
-      await workspaceSetupChecklist.indicator().click();
-      await expect(workspaceSetupChecklist.text('Set up runner capacity')).toBeVisible();
-      await workspaceSetupChecklist.hideButton().click();
-      await expect(workspaceSetupChecklist.panel()).toHaveCount(0);
-      await expect(workspaceSetupChecklist.indicator()).toHaveCount(0);
-      await workspaceHome.gotoSettingsGeneral();
-      await expect(workspaceHome.showSetupGuideButton()).toBeVisible();
-      await workspaceHome.showSetupGuideButton().click();
-      await expect(workspaceHome.showSetupGuideButton()).toHaveCount(0);
-      await workspaceHome.goto(workspace.slug);
-      await expect(workspaceSetupChecklist.panel()).toBeVisible();
+    await workspaceHome.goto(workspace.slug);
+    await expect(workspaceSetupChecklist.indicator()).toHaveAttribute(
+      'aria-label',
+      LINEAR_CHECKLIST_COUNT_RE,
+    );
+    await expect(workspaceSetupChecklist.status()).toHaveAttribute('aria-live', 'polite');
+    await expect(workspaceSetupChecklist.status()).toHaveText(LINEAR_CHECKLIST_COUNT_RE);
+    await expect(workspaceSetupChecklist.text('Set up runner capacity')).toBeVisible();
+  });
+
+  test('restores the setup guide after a dismissal', async ({
+    auth,
+    page,
+    projects,
+    workspaceHome,
+    workspaceSetupChecklist,
+    workspaces,
+  }) => {
+    const workspace = await createChecklistWorkspace({
+      auth,
+      page,
+      projects,
+      workspaces,
+      name: 'Dismissed Guide Workspace',
     });
 
-    await test.step('open and close the setup guide with the keyboard', async () => {
-      await workspaceSetupChecklist.indicator().focus();
-      await page.keyboard.press('Enter');
-      await expect(workspaceSetupChecklist.dialog()).toBeVisible();
-      await page.keyboard.press('Escape');
-      await expect(workspaceSetupChecklist.dialog()).toHaveCount(0);
-      await expect(workspaceSetupChecklist.indicator()).toBeFocused();
+    await workspaceHome.goto(workspace.slug);
+    await expect(workspaceSetupChecklist.panel()).toBeVisible();
+
+    await workspaceSetupChecklist.hideButton().click();
+    await expect(workspaceSetupChecklist.panel()).toHaveCount(0);
+    await expect(workspaceSetupChecklist.indicator()).toHaveCount(0);
+
+    await workspaceHome.gotoSettingsGeneral();
+    await expect(workspaceHome.showSetupGuideButton()).toBeVisible();
+    await workspaceHome.showSetupGuideButton().click();
+    await expect(workspaceHome.showSetupGuideButton()).toHaveCount(0);
+
+    await workspaceHome.goto(workspace.slug);
+    await expect(workspaceSetupChecklist.panel()).toBeVisible();
+  });
+
+  test('opens and closes the setup guide with the keyboard', async ({
+    auth,
+    page,
+    projects,
+    workspaceHome,
+    workspaceSetupChecklist,
+    workspaces,
+  }) => {
+    const workspace = await createChecklistWorkspace({
+      auth,
+      page,
+      projects,
+      workspaces,
+      name: 'Keyboard Guide Workspace',
     });
+
+    await workspaceHome.goto(workspace.slug);
+    await expect(workspaceSetupChecklist.indicator()).toBeVisible();
+
+    await workspaceSetupChecklist.indicator().focus();
+    await page.keyboard.press('Enter');
+    await expect(workspaceSetupChecklist.dialog()).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(workspaceSetupChecklist.dialog()).toHaveCount(0);
+    await expect(workspaceSetupChecklist.indicator()).toBeFocused();
   });
 
   test('completes the checklist when the installation provides runners and inference', async ({
@@ -136,14 +154,14 @@ test.describe('workspace setup checklist', () => {
     workspaceSetupChecklist,
     workspaces,
   }) => {
-    const user = await auth.createUser();
-    const workspace = await workspaces.create({
-      userId: user.user.id,
+    const workspace = await createChecklistWorkspace({
+      auth,
+      page,
+      projects,
+      workspaces,
       name: 'Cloud Setup Guide Workspace',
+      installationRunners: 'managed',
     });
-    await projects.createProject({workspaceId: workspace.id});
-    await auth.loginAs(page, user);
-    await stubChecklistDependencies(page, workspace.id, 'managed');
 
     await workspaceHome.goto(workspace.slug);
     await expect(workspaceSetupChecklist.countLabel(CLOUD_CHECKLIST_COUNT_RE)).toBeVisible();
@@ -159,9 +177,7 @@ test.describe('workspace setup checklist', () => {
     });
     await test.step('refresh the mounted checklist from the integration settings', async () => {
       await workspaceHome.gotoSettingsIntegrations();
-      await expect(page).toHaveURL(
-        new RegExp(`/w/${workspace.slug}/settings/integrations/?$`, 'u'),
-      );
+      await expect(page).toHaveURL(integrationsSettingsUrlRe(workspace.slug));
       await expect(integrationsCatalogue.installedProviderName('Linear Cloud E2E')).toBeVisible();
       await expect(workspaceSetupChecklist.status()).toHaveText("You're set up");
     });
