@@ -17,30 +17,32 @@ import {
 
 let authenticatedMemberships: UserContextMembership[] = [];
 
-const fakeUserAuth: AuthMethod = {
-  name: AUTH_USER,
-  authenticate: (request: FastifyRequest) => {
-    if (
-      request.headers.authorization !== 'Bearer user' &&
-      request.headers.authorization !== 'Bearer impersonated'
-    ) {
-      throw new ClientError('Invalid user token', 'unauthorized', {status: 401});
-    }
+function createFakeUserAuth(memberships: ReadonlyArray<UserContextMembership>): AuthMethod {
+  return {
+    name: AUTH_USER,
+    authenticate: (request: FastifyRequest) => {
+      if (
+        request.headers.authorization !== 'Bearer user' &&
+        request.headers.authorization !== 'Bearer impersonated'
+      ) {
+        throw new ClientError('Invalid user token', 'unauthorized', {status: 401});
+      }
 
-    setUserContext(
-      request,
-      buildUserContext({
-        userId: 'user-1',
-        email: 'user@example.com',
-        memberships: authenticatedMemberships,
-        ...(request.headers.authorization === 'Bearer impersonated'
-          ? {impersonatorId: 'impersonator-1'}
-          : {}),
-      }),
-    );
-    return Promise.resolve();
-  },
-};
+      setUserContext(
+        request,
+        buildUserContext({
+          userId: 'user-1',
+          email: 'user@example.com',
+          memberships,
+          ...(request.headers.authorization === 'Bearer impersonated'
+            ? {impersonatorId: 'impersonator-1'}
+            : {}),
+        }),
+      );
+      return Promise.resolve();
+    },
+  };
+}
 
 export function sourceProvider(overrides: Partial<IntegrationProvider> = {}): IntegrationProvider {
   return {
@@ -90,7 +92,7 @@ export function sourceProvider(overrides: Partial<IntegrationProvider> = {}): In
 }
 
 export interface CreateTestAppOptions {
-  memberships?: UserContextMembership[] | undefined;
+  memberships?: ReadonlyArray<UserContextMembership> | undefined;
   repositoryAuthorizer?: RepositoryAuthorizer | undefined;
 }
 
@@ -98,13 +100,13 @@ export async function createTestApp(
   providers: IntegrationProvider[],
   options: CreateTestAppOptions = {},
 ): Promise<FastifyInstance> {
-  if (options.memberships !== undefined) authenticatedMemberships = options.memberships;
+  const memberships = options.memberships ?? authenticatedMemberships;
   const integrationsModule = await createIntegrationsModule({
     providers,
     repositoryAuthorizer: options.repositoryAuthorizer,
   });
   const app = await createApp({
-    auth: [fakeUserAuth],
+    auth: [createFakeUserAuth(memberships)],
     routes: integrationsModule.routes ?? [],
     swagger: false,
   });
