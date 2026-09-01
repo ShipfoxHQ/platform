@@ -190,7 +190,6 @@ export type {
 export {
   callIntegrationTool,
   loadAuthorizedToolConnection,
-  resolveIntegrationToolAuthorization,
 } from '#core/tool-call-service.js';
 export type {
   GetIntegrationConnectionByIdFn,

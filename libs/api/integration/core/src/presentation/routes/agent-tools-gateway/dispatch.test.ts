@@ -3,6 +3,7 @@ import type {logger as loggerFactoryType} from '@shipfox/node-opentelemetry';
 import {IntegrationProviderError} from '#core/errors.js';
 import {
   catalogTool,
+  catalogWithRepositoryScope,
   connection,
   leaseContext,
   materializedIntegration,
@@ -131,12 +132,10 @@ describe('createIntegrationToolDispatcher', () => {
 
   it('returns a repository denial without opening the provider session', async () => {
     const onOpenSession = vi.fn();
-    const entry = catalogTool({
-      repositoryScope: () => ({
-        kind: 'declared-targets',
-        repositories: [{owner: 'shipfox', name: 'platform'}],
-      }),
-    });
+    const entry = catalogWithRepositoryScope(() => ({
+      kind: 'declared-targets',
+      repositories: [{owner: 'shipfox', name: 'platform'}],
+    }));
     const resolveRepositoryAuthorization = vi.fn(async () => ({
       authorized: false as const,
       reason: 'repository_not_granted' as const,

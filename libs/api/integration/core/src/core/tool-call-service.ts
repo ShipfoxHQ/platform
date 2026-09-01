@@ -31,6 +31,8 @@ import {
   createRepositoryAuthorizationRequestContext,
   type RepositoryAuthorizationDenial,
   type RepositoryAuthorizationMode,
+  type RepositoryAuthorizationResult,
+  RepositoryAuthorizationTargetInvalidError,
   type RepositoryAuthorizer,
   repositoryAuthorizationClientErrorCode,
 } from './repository-authorizer.js';
@@ -175,8 +177,13 @@ export async function callIntegrationTool(
   let authorization: IntegrationToolCallAuthorization | undefined;
 
   try {
+    if (input.signal?.aborted) {
+      return {outcome: 'error', error: abortOutcome(input.signal)};
+    }
     if (input.repositoryAuthorizer !== undefined) {
-      const catalogEntry = await liveCatalogEntry(input);
+      const catalogEntry = input.repositoryAuthorizer.enabled
+        ? await liveCatalogEntry(input)
+        : input.catalogEntry;
       authorization = await resolveIntegrationToolAuthorization(input, catalogEntry);
       if (authorization.decision === 'denied' && authorization.denialReason !== 'none') {
         return withAuthorization(
@@ -205,7 +212,7 @@ export async function callIntegrationTool(
  * before a provider session is opened. This is deliberately shared by the MCP
  * and deterministic callers through `callIntegrationTool`.
  */
-export async function resolveIntegrationToolAuthorization(
+async function resolveIntegrationToolAuthorization(
   input: IntegrationToolCallInput,
   catalogEntry: AgentToolCatalogEntry | undefined,
 ): Promise<IntegrationToolCallAuthorization> {
@@ -216,6 +223,7 @@ export async function resolveIntegrationToolAuthorization(
     input.method,
     input.arguments,
     provider.repositoryAuthorization,
+    input.repositoryAuthorizer?.enabled === true,
   );
   const authorization = createBaseAuthorization(
     input,
@@ -272,18 +280,25 @@ async function authorizeDeclaredTargets(
   const authorizer = input.repositoryAuthorizer;
   if (authorizer === undefined) return authorization;
 
+  if (scope.repositories.length === 0) {
+    return {
+      ...authorization,
+      decision: 'denied',
+      denialReason: 'repository_not_granted',
+    };
+  }
+
   const request = createRepositoryAuthorizationRequestContext();
   const targetProjectIds: string[] = [];
   let denialReason: RepositoryAuthorizationDenial | undefined;
   for (const repository of scope.repositories) {
-    const result = await authorizer.resolveRepositoryAuthorization({
-      workspaceId: input.connection.workspaceId,
-      connectionId: input.connection.id,
+    const result = await resolveDeclaredTargetAuthorization(
+      input,
+      authorizer,
       mode,
-      repository: {kind: 'name', owner: repository.owner, name: repository.name},
-      capability: 'tools',
+      repository,
       request,
-    });
+    );
     if (result === undefined) {
       denialReason ??= 'authorization_store_unavailable';
       continue;
@@ -305,6 +320,37 @@ async function authorizeDeclaredTargets(
     : {...authorization, decision: 'denied', denialReason, targetProjectIds};
 }
 
+async function resolveDeclaredTargetAuthorization(
+  input: IntegrationToolCallInput,
+  authorizer: RepositoryAuthorizer,
+  mode: RepositoryAuthorizationMode,
+  repository: {owner: string; name: string},
+  request: ReturnType<typeof createRepositoryAuthorizationRequestContext>,
+): Promise<RepositoryAuthorizationResult | undefined> {
+  if (input.signal?.aborted) throw abortReason(input.signal);
+  try {
+    return await raceWithSignal(
+      Promise.resolve().then(() => {
+        if (input.signal?.aborted) throw abortReason(input.signal);
+        return authorizer.resolveRepositoryAuthorization({
+          workspaceId: input.connection.workspaceId,
+          connectionId: input.connection.id,
+          mode,
+          repository: {kind: 'name', owner: repository.owner, name: repository.name},
+          capability: 'tools',
+          request,
+        });
+      }),
+      input.signal,
+    );
+  } catch (error) {
+    if (error instanceof RepositoryAuthorizationTargetInvalidError) {
+      return {authorized: false, reason: 'repository_not_granted'};
+    }
+    throw error;
+  }
+}
+
 type ClassifiedToolCallScope = AgentToolRepositoryScope & {
   indirectTargetNote?: string | undefined;
 };
@@ -312,10 +358,13 @@ type ClassifiedToolCallScope = AgentToolRepositoryScope & {
 async function liveCatalogEntry(
   input: IntegrationToolCallInput,
 ): Promise<AgentToolCatalogEntry | undefined> {
-  if (input.catalogEntry?.id === input.tool.id) return input.catalogEntry;
-  const catalog = await input.registry
-    .getAdapter(input.integration.provider, 'agent_tools')
-    .catalog();
+  const catalog = await raceWithSignal(
+    Promise.resolve().then(() => {
+      if (input.signal?.aborted) throw abortReason(input.signal);
+      return input.registry.getAdapter(input.integration.provider, 'agent_tools').catalog();
+    }),
+    input.signal,
+  );
   return catalog.find((entry) => entry.id === input.tool.id);
 }
 
@@ -324,11 +373,18 @@ function classifyToolCall(
   method: string | undefined,
   arguments_: Record<string, unknown>,
   providerAuthorization: 'enforced' | 'unclassified' | undefined,
+  enforceRepositoryAuthorization: boolean,
 ): ClassifiedToolCallScope {
   const catalogMethod = entry?.methods?.find((candidate) => candidate.id === method);
-  const classifier = catalogMethod?.repositoryScope ?? entry?.repositoryScope;
+  const classifier =
+    entry?.methods === undefined
+      ? entry?.repositoryScope
+      : (catalogMethod?.repositoryScope ??
+        (enforceRepositoryAuthorization && providerAuthorization === 'enforced'
+          ? undefined
+          : entry?.repositoryScope));
   if (classifier === undefined) {
-    if (providerAuthorization === 'enforced') {
+    if (enforceRepositoryAuthorization && providerAuthorization === 'enforced') {
       throw new IntegrationProviderError(
         'provider-rejected',
         'Enforced integration tool is missing a repository scope classifier',

@@ -336,6 +336,15 @@ describe('integrationsInterModuleContract', () => {
     ).toThrow();
   });
 
+  test.each([undefined, ''])('rejects a tool step caller with projectId %j', (projectId) => {
+    expect(() =>
+      integrationsInterModuleContract.methods.callTool.input.parse({
+        ...toolCallInput,
+        caller: {...toolCallInput.caller, projectId},
+      }),
+    ).toThrow();
+  });
+
   test.each([
     ['connection-not-found', {connectionId: '00000000-0000-4000-8000-000000000001'}],
     ['connection-inactive', {connectionId: '00000000-0000-4000-8000-000000000001'}],

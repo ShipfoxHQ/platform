@@ -1,6 +1,6 @@
 ---
-"@shipfox/api-integration-core": minor
-"@shipfox/api-integration-core-dto": minor
+"@shipfox/api-integration-core": major
+"@shipfox/api-integration-core-dto": major
 ---
 
-Enforces declared repository scope for integration tool calls and records equivalent authorization decisions across MCP and deterministic dispatch.
+Enforces the declared repository scope for integration tool calls so denied or partially unauthorized multi-target calls never open a provider session.

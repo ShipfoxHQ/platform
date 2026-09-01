@@ -188,6 +188,38 @@ describe('integration tool call audit', () => {
     );
   });
 
+  it('records non-denied authorization decisions and skips records without authorization fields', () => {
+    const recordMetric = vi.fn();
+    const recordAuthorizationMetric = vi.fn();
+    const logInfo = vi.fn();
+    const recorder = createIntegrationToolCallRecorder(agentCaller, {
+      recordMetric,
+      recordAuthorizationMetric,
+      logInfo,
+    });
+
+    recorder({
+      authorizedTool: auditTarget(),
+      arguments: {},
+      method: 'get',
+      outcome: 'success',
+      errorCode: 'none',
+      classification: 'connection',
+      repositoryAccess: 'selected',
+      decision: 'not-applicable',
+    });
+    recorder({arguments: {}, method: 'get', outcome: 'success', errorCode: 'none'});
+
+    expect(recordAuthorizationMetric).toHaveBeenCalledOnce();
+    expect(recordAuthorizationMetric).toHaveBeenCalledWith({
+      provider: 'github',
+      mode: 'selected',
+      classification: 'connection',
+      decision: 'not-applicable',
+      denial_reason: 'none',
+    });
+  });
+
   it('falls back to unknown labels and omits the lease context for a leaseless agent caller', () => {
     const recordMetric = vi.fn();
     const logInfo = vi.fn();

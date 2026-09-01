@@ -15,6 +15,7 @@ import type {
 import {
   type AgentToolsProviderOptions,
   catalogTool,
+  catalogWithRepositoryScope,
   connection,
   registryWithAgentTools,
 } from '#test/agent-tools-gateway-helpers.js';
@@ -453,12 +454,10 @@ describe('integrations inter-module callTool', () => {
 
   it('denies a repository before deterministic dispatch and audits the run project', async () => {
     const onOpenSession = vi.fn();
-    const entry = catalogTool({
-      repositoryScope: () => ({
-        kind: 'declared-targets',
-        repositories: [{owner: 'shipfox', name: 'platform'}],
-      }),
-    });
+    const entry = catalogWithRepositoryScope(() => ({
+      kind: 'declared-targets',
+      repositories: [{owner: 'shipfox', name: 'platform'}],
+    }));
     const resolveRepositoryAuthorization = vi.fn(async () => ({
       authorized: false as const,
       reason: 'repository_not_granted' as const,

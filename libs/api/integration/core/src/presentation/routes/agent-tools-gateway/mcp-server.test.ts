@@ -4,6 +4,7 @@ import {CallToolResultSchema} from '@modelcontextprotocol/sdk/types.js';
 import {INVALID_METHOD_LABEL, NO_METHOD_LABEL} from '#core/tool-call-audit.js';
 import {
   catalogTool,
+  catalogWithRepositoryScope,
   connection,
   leaseContext,
   materializedIntegration,
@@ -63,12 +64,10 @@ describe('buildAgentToolsMcpServer', () => {
   });
 
   it('records the shared repository denial returned by the MCP dispatcher', async () => {
-    const entry = catalogTool({
-      repositoryScope: () => ({
-        kind: 'declared-targets',
-        repositories: [{owner: 'shipfox', name: 'platform'}],
-      }),
-    });
+    const entry = catalogWithRepositoryScope(() => ({
+      kind: 'declared-targets',
+      repositories: [{owner: 'shipfox', name: 'platform'}],
+    }));
     const onOpenSession = vi.fn();
     const resolveRepositoryAuthorization = vi.fn(async () => ({
       authorized: false as const,

@@ -8,6 +8,7 @@ import type {IntegrationConnection} from '#core/entities/connection.js';
 import type {
   AgentToolCatalogEntry,
   AgentToolRepositoryAuthorizationState,
+  AgentToolRepositoryScopeClassifier,
   AgentToolsProvider,
 } from '#core/providers/agent-tools.js';
 import {createIntegrationProviderRegistry} from '#core/providers/registry.js';
@@ -147,6 +148,16 @@ export function catalogTool(overrides: Partial<AgentToolCatalogEntry> = {}): Age
       },
     ],
     ...overrides,
+  };
+}
+
+export function catalogWithRepositoryScope(
+  repositoryScope: AgentToolRepositoryScopeClassifier,
+): AgentToolCatalogEntry {
+  const entry = catalogTool({repositoryScope});
+  return {
+    ...entry,
+    methods: entry.methods?.map((method) => ({...method, repositoryScope})),
   };
 }
 
