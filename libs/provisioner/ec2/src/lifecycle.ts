@@ -48,6 +48,7 @@ const SPOT_INTERRUPTION_REASON =
   /spot|instance-terminated-by-price|instance-terminated-no-capacity/i;
 const MAX_SCHEDULED_EVENT_CODES_IN_LOG = 20;
 const MAX_TERMINATION_CANDIDATE_IDS_IN_LOG = 20;
+const REGISTRATION_DEADLINE_AUTHORIZATION_WARNING_ATTEMPTS = 5;
 
 type Ec2HealthObservation = {
   checkType: Ec2HealthCheckType;
@@ -71,6 +72,16 @@ type LocallyLaunchedRunner = {
 type HealthImpairmentObservation = {
   lastObservedAt: number;
   consecutiveObservations: number;
+};
+
+type RegistrationDeadlineAuthorizationAttempt = {
+  firstAttemptAt: number;
+  attemptCount: number;
+};
+
+type TerminationCandidateReasonCounts = {
+  'registration-deadline': number;
+  'provider-health-failed': number;
 };
 
 type AssignmentCandidate = {
@@ -148,6 +159,10 @@ interface Ec2LifecycleContext {
   readonly suppressedReservationRunnerIds: Map<string, Set<string>>;
   readonly canonicalReservationIdsByRunner: Map<string, string | null>;
   readonly healthImpairmentObservations: Map<string, HealthImpairmentObservation>;
+  readonly registrationDeadlineAuthorizationAttempts: Map<
+    string,
+    RegistrationDeadlineAuthorizationAttempt
+  >;
   terminationCandidateCursor: number;
   lastReconciledAt?: Date;
 }
@@ -180,6 +195,7 @@ export function createEc2Lifecycle(options: Ec2LifecycleOptions): Ec2Lifecycle {
     suppressedReservationRunnerIds: new Map(),
     canonicalReservationIdsByRunner: new Map(),
     healthImpairmentObservations: new Map(),
+    registrationDeadlineAuthorizationAttempts: new Map(),
     terminationCandidateCursor: 0,
   };
 
@@ -258,32 +274,38 @@ async function reconcile(context: Ec2LifecycleContext): Promise<void> {
   const instances = await context.engine.listManaged(context.identity.id, {includeStatus: true});
   const registrationDeadlineCandidates = observeRegistrationDeadlineCandidates(context, instances);
   const healthCandidates = observeEc2Health(context, instances);
-  const observedProviderRunnerIds = observedRunnerIds(instances);
-  if (observedProviderRunnerIds.length > MAX_RECONCILE_OBSERVED_RUNNERS) {
-    logger().error(
-      {
-        observedCount: observedProviderRunnerIds.length,
-        maxObserved: MAX_RECONCILE_OBSERVED_RUNNERS,
-      },
-      'Skipping backend reconcile because observed EC2 runner count exceeds the API limit',
-    );
-    context.canonicalReservationIdsByRunner.clear();
-    await applyObservedInstances(context, instances, new Map());
-    await reportEvents(context, []);
-    return;
-  }
-
-  const terminationCandidates = selectTerminationCandidateWindow(context, [
+  const allTerminationCandidates = deduplicateTerminationCandidates([
     ...registrationDeadlineCandidates,
     ...healthCandidates,
   ]);
-  const response = await context.client.reconcileRunnerInstances({
-    observed_provider_runner_ids: observedProviderRunnerIds,
-    ...(terminationCandidates.length > 0 ? {termination_candidates: terminationCandidates} : {}),
-  });
+  pruneRegistrationDeadlineAuthorizationAttempts(context, registrationDeadlineCandidates);
+  const observedProviderRunnerIds = observedRunnerIds(instances);
+  const observedRunnerLimitExceeded =
+    observedProviderRunnerIds.length > MAX_RECONCILE_OBSERVED_RUNNERS;
+  const terminationCandidates = selectTerminationCandidateWindow(context, allTerminationCandidates);
+  if (
+    await handleObservedRunnerLimit(
+      context,
+      instances,
+      observedProviderRunnerIds,
+      allTerminationCandidates,
+      terminationCandidates,
+      observedRunnerLimitExceeded,
+    )
+  )
+    return;
+
   const submittedHealthCandidates = terminationCandidates.filter(
     (candidate) => candidate.reason === 'provider-health-failed',
   );
+  const submittedRegistrationDeadlineCandidates = terminationCandidates.filter(
+    (candidate) => candidate.reason === 'registration-deadline',
+  );
+  recordRegistrationDeadlineAuthorizationAttempts(context, submittedRegistrationDeadlineCandidates);
+  const response = await context.client.reconcileRunnerInstances({
+    observed_provider_runner_ids: observedRunnerLimitExceeded ? [] : observedProviderRunnerIds,
+    ...(terminationCandidates.length > 0 ? {termination_candidates: terminationCandidates} : {}),
+  });
   if (submittedHealthCandidates.length > 0) {
     logger().info(
       {
@@ -297,9 +319,6 @@ async function reconcile(context: Ec2LifecycleContext): Promise<void> {
       'Sent EC2 provider health termination candidates for backend authorization',
     );
   }
-  const submittedRegistrationDeadlineCandidates = terminationCandidates.filter(
-    (candidate) => candidate.reason === 'registration-deadline',
-  );
   if (submittedRegistrationDeadlineCandidates.length > 0) {
     logger().info(
       {
@@ -324,6 +343,11 @@ async function reconcile(context: Ec2LifecycleContext): Promise<void> {
         runner.bound_job === null || runner.bound_job.cancellation_requested_at !== null,
     });
   }
+  clearAuthorizedRegistrationDeadlineAttempts(
+    context,
+    submittedRegistrationDeadlineCandidates,
+    response.runners,
+  );
   if (response.terminated_absent_provider_runner_ids.length > 0) {
     recordEc2ReconcileAbsent(response.terminated_absent_provider_runner_ids.length);
     logger().info(
@@ -334,7 +358,38 @@ async function reconcile(context: Ec2LifecycleContext): Promise<void> {
 
   await applyObservedInstances(context, instances, terminateIntents);
   await reportEvents(context, []);
-  context.lastReconciledAt = new Date(context.now());
+  if (!observedRunnerLimitExceeded) context.lastReconciledAt = new Date(context.now());
+}
+
+async function handleObservedRunnerLimit(
+  context: Ec2LifecycleContext,
+  instances: readonly Ec2InstanceView[],
+  observedProviderRunnerIds: readonly string[],
+  allTerminationCandidates: readonly ProviderTerminationCandidateDto[],
+  terminationCandidates: readonly ProviderTerminationCandidateDto[],
+  observedRunnerLimitExceeded: boolean,
+): Promise<boolean> {
+  if (!observedRunnerLimitExceeded) return false;
+
+  logger().error(
+    {
+      event: 'provisioner.ec2.reconcile_observed_runner_limit',
+      observedCount: observedProviderRunnerIds.length,
+      maxObserved: MAX_RECONCILE_OBSERVED_RUNNERS,
+      termination_candidate_count: allTerminationCandidates.length,
+      termination_candidate_counts: terminationCandidateReasonCounts(allTerminationCandidates),
+      termination_candidates_submitted: terminationCandidates.length,
+      candidate_only_reconcile: terminationCandidates.length > 0,
+    },
+    terminationCandidates.length > 0
+      ? 'EC2 observed runner count exceeds the API limit; reconciling termination candidates separately'
+      : 'Skipping backend reconcile because observed EC2 runner count exceeds the API limit',
+  );
+  context.canonicalReservationIdsByRunner.clear();
+  if (terminationCandidates.length > 0) return false;
+  await applyObservedInstances(context, instances, new Map());
+  await reportEvents(context, []);
+  return true;
 }
 
 function observeEc2Health(
@@ -522,8 +577,20 @@ function observeRegistrationDeadlineCandidates(
   const candidates = new Map<string, ProviderTerminationCandidateDto>();
   for (const instance of instances) {
     if (!isPastRegistrationDeadline(instance, context) || !canTerminateInstance(instance)) continue;
-    const providerRunnerId = parseInstanceIdentity(instance).providerRunnerId;
-    if (!providerRunnerId) continue;
+    const identity = parseInstanceIdentity(instance);
+    const providerRunnerId = identity.providerRunnerId;
+    if (!providerRunnerId) {
+      logger().warn(
+        {
+          event: 'provisioner.ec2.registration_deadline_candidate_unidentifiable',
+          ...(identity.runnerInstanceId ? {runner_instance_id: identity.runnerInstanceId} : {}),
+          aws_instance_id: instance.instanceId,
+          termination_authorization: 'backend-gated',
+        },
+        'Cannot submit an EC2 registration deadline candidate without provider runner identity',
+      );
+      continue;
+    }
     candidates.set(providerRunnerId, {
       provider_runner_id: providerRunnerId,
       reason: 'registration-deadline',
@@ -557,6 +624,8 @@ function selectTerminationCandidateWindow(
   const allHealthCandidates = deduplicatedCandidates.every(
     (candidate) => candidate.reason === 'provider-health-failed',
   );
+  const submittedCandidateCounts = terminationCandidateReasonCounts(selectedCandidates);
+  const candidateCounts = terminationCandidateReasonCounts(deduplicatedCandidates);
   logger().warn(
     {
       event: allHealthCandidates
@@ -565,6 +634,16 @@ function selectTerminationCandidateWindow(
       candidate_count: deduplicatedCandidates.length,
       submitted_count: selectedCandidates.length,
       dropped_count: deduplicatedCandidates.length - selectedCandidates.length,
+      candidate_counts: candidateCounts,
+      submitted_candidate_counts: submittedCandidateCounts,
+      dropped_candidate_counts: {
+        'registration-deadline':
+          candidateCounts['registration-deadline'] -
+          submittedCandidateCounts['registration-deadline'],
+        'provider-health-failed':
+          candidateCounts['provider-health-failed'] -
+          submittedCandidateCounts['provider-health-failed'],
+      },
       start_index: start,
       next_start_index: context.terminationCandidateCursor,
     },
@@ -578,9 +657,75 @@ function selectTerminationCandidateWindow(
 function deduplicateTerminationCandidates(
   candidates: readonly ProviderTerminationCandidateDto[],
 ): ProviderTerminationCandidateDto[] {
-  return [
-    ...new Map(candidates.map((candidate) => [candidate.provider_runner_id, candidate])).values(),
-  ];
+  const candidatesByRunnerId = new Map<string, ProviderTerminationCandidateDto>();
+  for (const candidate of candidates) {
+    const existing = candidatesByRunnerId.get(candidate.provider_runner_id);
+    if (!existing || candidate.reason === 'registration-deadline')
+      candidatesByRunnerId.set(candidate.provider_runner_id, candidate);
+  }
+  return [...candidatesByRunnerId.values()];
+}
+
+function terminationCandidateReasonCounts(
+  candidates: readonly ProviderTerminationCandidateDto[],
+): TerminationCandidateReasonCounts {
+  const counts: TerminationCandidateReasonCounts = {
+    'registration-deadline': 0,
+    'provider-health-failed': 0,
+  };
+  for (const candidate of candidates) counts[candidate.reason] += 1;
+  return counts;
+}
+
+function pruneRegistrationDeadlineAuthorizationAttempts(
+  context: Ec2LifecycleContext,
+  candidates: readonly ProviderTerminationCandidateDto[],
+): void {
+  const candidateIds = new Set(candidates.map((candidate) => candidate.provider_runner_id));
+  for (const providerRunnerId of context.registrationDeadlineAuthorizationAttempts.keys()) {
+    if (!candidateIds.has(providerRunnerId))
+      context.registrationDeadlineAuthorizationAttempts.delete(providerRunnerId);
+  }
+}
+
+function recordRegistrationDeadlineAuthorizationAttempts(
+  context: Ec2LifecycleContext,
+  candidates: readonly ProviderTerminationCandidateDto[],
+): void {
+  const attemptedAt = context.now().getTime();
+  for (const candidate of candidates) {
+    const previous = context.registrationDeadlineAuthorizationAttempts.get(
+      candidate.provider_runner_id,
+    );
+    const attempt = previous
+      ? {firstAttemptAt: previous.firstAttemptAt, attemptCount: previous.attemptCount + 1}
+      : {firstAttemptAt: attemptedAt, attemptCount: 1};
+    context.registrationDeadlineAuthorizationAttempts.set(candidate.provider_runner_id, attempt);
+    if (attempt.attemptCount % REGISTRATION_DEADLINE_AUTHORIZATION_WARNING_ATTEMPTS !== 0) continue;
+    logger().warn(
+      {
+        event: 'provisioner.ec2.registration_deadline_authorization_waiting',
+        provider_runner_id: candidate.provider_runner_id,
+        attempt_count: attempt.attemptCount,
+        first_attempt_at: new Date(attempt.firstAttemptAt).toISOString(),
+        age_ms: Math.max(0, attemptedAt - attempt.firstAttemptAt),
+        termination_authorization: 'backend-gated',
+      },
+      'EC2 registration deadline candidate is still waiting for backend authorization',
+    );
+  }
+}
+
+function clearAuthorizedRegistrationDeadlineAttempts(
+  context: Ec2LifecycleContext,
+  candidates: readonly ProviderTerminationCandidateDto[],
+  runners: readonly ReconcileRunnerInstancesResponseDto['runners'][number][],
+): void {
+  const submittedIds = new Set(candidates.map((candidate) => candidate.provider_runner_id));
+  for (const runner of runners) {
+    if (runner.desired_intent === 'terminate' && submittedIds.has(runner.provider_runner_id))
+      context.registrationDeadlineAuthorizationAttempts.delete(runner.provider_runner_id);
+  }
 }
 
 function healthObservations(instance: Ec2InstanceView): Ec2HealthObservation[] {

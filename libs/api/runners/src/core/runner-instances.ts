@@ -169,13 +169,11 @@ export async function reconcileRunnerInstances(
   params: ReconcileRunnerInstancesParams,
 ): Promise<ReconcileRunnerInstancesResult> {
   const terminationCandidates = (params.terminationCandidates ?? []).filter((candidate) => {
-    const resolution = params.workspaceId
-      ? resolveRunnerTerminationReason({
-          provisionerId: params.provisionerId,
-          providerRunnerId: candidate.providerRunnerId,
-          reason: candidate.reason,
-        })
-      : {reason: null, rejectionReason: 'unknown-runner' as const};
+    const resolution = resolveRunnerTerminationReason({
+      provisionerId: params.provisionerId,
+      providerRunnerId: candidate.providerRunnerId,
+      reason: candidate.reason,
+    });
     if (!resolution.reason)
       recordRunnerTerminationAuthorizationTelemetry(
         {

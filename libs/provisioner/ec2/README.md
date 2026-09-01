@@ -32,6 +32,9 @@ omit status checks so they do not poll the status API unnecessarily.
 A pending instance past its registration deadline is submitted to the same authorization gate
 during reconciliation. The provider keeps it out of usable capacity and does not terminate it
 until the backend authorizes the request.
+Enable `RUNNER_TERMINATION_REASON_REGISTRATION_DEADLINE_ENABLED` in the runners API before
+deploying this behavior. The API flag defaults to false; while it is disabled, the provider
+keeps overdue candidates out of capacity and retries authorization without terminating them.
 
 ## Template config
 

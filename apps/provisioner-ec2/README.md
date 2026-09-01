@@ -21,6 +21,11 @@ reads IMDSv2 user data and writes `/etc/shipfox/runner.env`. It formats and moun
 workspace volume at `/var/lib/shipfox/workspaces` before the runner starts. The AMI reads that
 file and shuts down when its watchdog exits.
 
+Before deploying registration-deadline cleanup, enable
+`RUNNER_TERMINATION_REASON_REGISTRATION_DEADLINE_ENABLED` in the runners API. The flag defaults
+to false; an EC2 provider safely keeps overdue instances out of capacity and retries the backend
+authorization while it remains disabled.
+
 ### AMI migration
 
 The split-volume launch contract requires AMIs to be rebuilt before using the 30 GB boot
