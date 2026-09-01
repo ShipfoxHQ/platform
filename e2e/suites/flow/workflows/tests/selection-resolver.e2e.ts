@@ -64,7 +64,12 @@ test('resolves an older step identity through the public selection API', async (
     await client.requestJson('post', `/workflows/runs/${encodeURIComponent(runId)}/rerun`, {
       json: {mode: 'all'},
     });
-    await waitForRunTerminal({runId, token, timeoutMs: 180_000});
+    const rerun = await waitForRunTerminal({runId, token, timeoutMs: 180_000});
+    expect(rerun).toMatchObject({
+      current_attempt: 2,
+      latest_attempt: 2,
+      run_attempt: {attempt: 2},
+    });
 
     const selectionQuery = new URLSearchParams({step_id: oldStepId});
     const selection = workflowRunSelectionResponseSchema.parse(
