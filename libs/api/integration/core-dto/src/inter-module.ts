@@ -116,6 +116,7 @@ const toolCallOutcome = z.discriminatedUnion('outcome', [
   }),
 ]);
 export const repositoryAuthorizationErrorCodes = {
+  required: 'repository-required',
   notGranted: 'repository-not-granted',
   ambiguous: 'repository-ambiguous',
   storeUnavailable: 'repository-authorization-unavailable',
@@ -127,6 +128,7 @@ const repositoryAuthorizationDetails = z.object({
   target: checkoutTarget.optional(),
 });
 const repositoryAuthorizationErrors = {
+  [repositoryAuthorizationErrorCodes.required]: repositoryAuthorizationDetails,
   [repositoryAuthorizationErrorCodes.notGranted]: repositoryAuthorizationDetails,
   [repositoryAuthorizationErrorCodes.ambiguous]: repositoryAuthorizationDetails,
   [repositoryAuthorizationErrorCodes.storeUnavailable]: repositoryAuthorizationDetails,

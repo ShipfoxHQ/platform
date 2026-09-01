@@ -29,11 +29,13 @@ export type RepositoryAuthorizationTarget =
   | RepositoryAuthorizationNameTarget;
 
 export type RepositoryAuthorizationDenial =
+  | 'repository_required'
   | 'repository_not_granted'
   | 'repository_ambiguous'
   | 'authorization_store_unavailable';
 
 export const repositoryAuthorizationClientErrorCodes = {
+  repository_required: repositoryAuthorizationErrorCodes.required,
   repository_not_granted: repositoryAuthorizationErrorCodes.notGranted,
   repository_ambiguous: repositoryAuthorizationErrorCodes.ambiguous,
   authorization_store_unavailable: repositoryAuthorizationErrorCodes.storeUnavailable,

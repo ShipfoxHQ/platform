@@ -83,6 +83,9 @@ const repositoryProperties = {
   repo: stringSchema('Repository name'),
 };
 
+const indirectSearchTargetNote =
+  'The free-form query may match results in repositories other than the declared target.';
+
 const connectionRepositoryScope: GithubRepositoryScopeClassifier = () => ({kind: 'connection'});
 
 const searchRepositoryScope: GithubRepositoryScopeClassifier = (arguments_) => {
@@ -96,7 +99,11 @@ const searchRepositoryScope: GithubRepositoryScopeClassifier = (arguments_) => {
   ) {
     return {kind: 'declared-targets', repositories: [{owner, name: repo}]};
   }
-  return {kind: 'connection', requiresExplicitRepository: true};
+  return {
+    kind: 'connection',
+    requiresExplicitRepository: true,
+    indirectTargetNote: indirectSearchTargetNote,
+  };
 };
 
 /** Classifies explicit repository coordinates without resolving them remotely. */
@@ -442,16 +449,22 @@ export const githubAgentToolCatalog = [
     id: 'search_issues',
     category: 'issues',
     description:
-      'Search for issues in GitHub repositories using issues search syntax already scoped to is:issue',
+      'Search for issues in GitHub repositories using issues search syntax already scoped to is:issue. Provide owner and repo together for a repository-scoped search; omit both for a connection-scoped search. Do not include unquoted repo:, org:, or user: qualifiers; quoted occurrences are treated as literal text.',
     sensitivity: 'read',
     sensitive: false,
     requiredScope: scopes.issuesRead,
     repositoryScope: searchRepositoryScope,
     inputSchema: objectSchema(
       {
-        query: stringSchema('Search query using GitHub issues search syntax'),
-        owner: stringSchema('Optional repository owner'),
-        repo: stringSchema('Optional repository name'),
+        query: stringSchema(
+          'Search query using GitHub issues search syntax. Do not include unquoted repo:, org:, or user: qualifiers; quoted occurrences are treated as literal text.',
+        ),
+        owner: stringSchema(
+          'Optional repository owner. Provide together with repo, or omit both for a connection-scoped search.',
+        ),
+        repo: stringSchema(
+          'Optional repository name. Provide together with owner, or omit both for a connection-scoped search.',
+        ),
         sort: enumSchema(
           [
             'comments',
@@ -618,16 +631,22 @@ export const githubAgentToolCatalog = [
     id: 'search_pull_requests',
     category: 'pull_requests',
     description:
-      'Search for pull requests in GitHub repositories using issues search syntax already scoped to is:pr',
+      'Search for pull requests in GitHub repositories using issues search syntax already scoped to is:pr. Provide owner and repo together for a repository-scoped search; omit both for a connection-scoped search. Do not include unquoted repo:, org:, or user: qualifiers; quoted occurrences are treated as literal text.',
     sensitivity: 'read',
     sensitive: false,
     requiredScope: scopes.pullRequestsRead,
     repositoryScope: searchRepositoryScope,
     inputSchema: objectSchema(
       {
-        query: stringSchema('Search query using GitHub pull request search syntax'),
-        owner: stringSchema('Optional repository owner'),
-        repo: stringSchema('Optional repository name'),
+        query: stringSchema(
+          'Search query using GitHub pull request search syntax. Do not include unquoted repo:, org:, or user: qualifiers; quoted occurrences are treated as literal text.',
+        ),
+        owner: stringSchema(
+          'Optional repository owner. Provide together with repo, or omit both for a connection-scoped search.',
+        ),
+        repo: stringSchema(
+          'Optional repository name. Provide together with owner, or omit both for a connection-scoped search.',
+        ),
         sort: enumSchema(
           [
             'comments',

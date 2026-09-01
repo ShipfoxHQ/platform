@@ -45,7 +45,10 @@ const terminalMintErrorReasons = new Set<IntegrationProviderErrorReason>([
 // observes; keep them out of the envelope schema and acknowledge them here.
 type MissingProviderErrorReason = Exclude<
   IntegrationProviderErrorReason,
-  (typeof providerErrorReasons)[number] | 'ref-not-found' | 'ref-invalid'
+  | (typeof providerErrorReasons)[number]
+  | 'ref-not-found'
+  | 'ref-invalid'
+  | 'search-qualifier-conflict'
 >;
 const providerErrorReasonSchemaCoversUnion: Record<MissingProviderErrorReason, never> = {};
 void providerErrorReasonSchemaCoversUnion;

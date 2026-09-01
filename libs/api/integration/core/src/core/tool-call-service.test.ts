@@ -474,20 +474,90 @@ describe('callIntegrationTool', () => {
     expect(result).toMatchObject({
       outcome: 'error',
       error: {
-        code: 'repository-not-granted',
-        message: 'Repository is not authorized for this integration connection',
+        code: 'repository-required',
+        message: 'Selected repository access requires owner and repo parameters',
       },
       authorization: {
         repositories: [],
         classification: 'connection',
         repositoryAccess: 'selected',
         decision: 'denied',
-        denialReason: 'repository_not_granted',
+        denialReason: 'repository_required',
         targetProjectIds: [],
       },
     });
     expect(resolveRepositoryAuthorization).not.toHaveBeenCalled();
     expect(onOpenSession).not.toHaveBeenCalled();
+  });
+
+  it('keeps explicit-repository calls available for an unclassified provider', async () => {
+    const onOpenSession = vi.fn();
+    const entry = catalogTool({
+      methods: undefined,
+      repositoryScope: () => ({kind: 'connection', requiresExplicitRepository: true}),
+    });
+    const resolveRepositoryAuthorization = vi.fn();
+    const repositoryAuthorizer: RepositoryAuthorizer = {
+      enabled: true,
+      resolveRepositoryAuthorization,
+    };
+    const registry = registryWithAgentTools([entry], {
+      repositoryAuthorization: 'unclassified',
+      onOpenSession,
+    });
+
+    const result = await callIntegrationTool(
+      createInput({onOpenSession}, {registry, catalogEntry: entry, repositoryAuthorizer}),
+    );
+
+    expect(result).toMatchObject({
+      outcome: 'success',
+      authorization: {
+        repositories: [],
+        classification: 'unclassified',
+        repositoryAccess: 'selected',
+        decision: 'not-applicable',
+        denialReason: 'none',
+        targetProjectIds: [],
+      },
+    });
+    expect(resolveRepositoryAuthorization).not.toHaveBeenCalled();
+    expect(onOpenSession).toHaveBeenCalledOnce();
+  });
+
+  it('keeps explicit-repository calls available when the authorizer is disabled', async () => {
+    const onOpenSession = vi.fn();
+    const entry = catalogTool({
+      methods: undefined,
+      repositoryScope: () => ({kind: 'connection', requiresExplicitRepository: true}),
+    });
+    const resolveRepositoryAuthorization = vi.fn();
+    const repositoryAuthorizer: RepositoryAuthorizer = {
+      enabled: false,
+      resolveRepositoryAuthorization,
+    };
+    const registry = registryWithAgentTools([entry], {
+      repositoryAuthorization: 'enforced',
+      onOpenSession,
+    });
+
+    const result = await callIntegrationTool(
+      createInput({onOpenSession}, {registry, catalogEntry: entry, repositoryAuthorizer}),
+    );
+
+    expect(result).toMatchObject({
+      outcome: 'success',
+      authorization: {
+        repositories: [],
+        classification: 'connection',
+        repositoryAccess: 'selected',
+        decision: 'not-enforced',
+        denialReason: 'none',
+        targetProjectIds: [],
+      },
+    });
+    expect(resolveRepositoryAuthorization).not.toHaveBeenCalled();
+    expect(onOpenSession).toHaveBeenCalledOnce();
   });
 
   it('keeps provider-unclassified calls available while recording declared targets', async () => {

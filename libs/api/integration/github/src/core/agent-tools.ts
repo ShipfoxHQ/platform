@@ -5,6 +5,7 @@ import type {
   AgentToolSession,
   AgentToolsProvider,
   IntegrationConnection,
+  IntegrationProviderErrorReason,
   OpenAgentToolsSessionInput,
 } from '@shipfox/api-integration-spi';
 import {MAX_REPOSITORY_FILE_BYTES} from '@shipfox/api-integration-spi';
@@ -58,12 +59,7 @@ type GithubToolCallResult = {
   structuredContent?: Record<string, unknown> | undefined;
 };
 
-type GithubToolErrorCode =
-  | 'invalid-request'
-  | 'search-qualifier-conflict'
-  | 'access-denied'
-  | 'provider-rejected'
-  | 'malformed-provider-response';
+type GithubToolErrorCode = 'invalid-request' | IntegrationProviderErrorReason;
 
 const GITHUB_GRAPHQL_ROUTE = 'POST /graphql';
 const GITHUB_ARTIFACT_ARCHIVE_FORMAT = 'zip';
@@ -810,7 +806,9 @@ function projectGithubSearchOperationParameters(
   return {
     ...parameters,
     q:
-      typeof query === 'string' && query.length > 0 ? `${query} ${scopeQualifier}` : scopeQualifier,
+      typeof query === 'string' && query.trim().length > 0
+        ? [query, scopeQualifier].join(' ')
+        : scopeQualifier,
   };
 }
 
@@ -1392,8 +1390,8 @@ interface GithubToolValidationError {
 function validateGithubSearchArguments(
   arguments_: Record<string, unknown>,
 ): GithubToolValidationError | undefined {
-  if (typeof arguments_.query !== 'string') {
-    return {message: 'Parameter query must be a string', code: 'invalid-request'};
+  if (typeof arguments_.query !== 'string' || arguments_.query.trim().length === 0) {
+    return {message: 'Parameter query must be a non-empty string', code: 'invalid-request'};
   }
 
   const hasOwner = arguments_.owner !== undefined;
@@ -1416,7 +1414,17 @@ function validateGithubSearchArguments(
       code: 'invalid-request',
     };
   }
-  if (GITHUB_SEARCH_SCOPE_QUALIFIER_PATTERN.test(arguments_.query)) {
+  if (
+    hasOwner &&
+    (GITHUB_REPOSITORY_PART_UNSAFE_PATTERN.test(arguments_.owner as string) ||
+      GITHUB_REPOSITORY_PART_UNSAFE_PATTERN.test(arguments_.repo as string))
+  ) {
+    return {
+      message: 'Parameters owner and repo must be valid repository name parts',
+      code: 'invalid-request',
+    };
+  }
+  if (hasUnquotedGithubSearchScopeQualifier(arguments_.query)) {
     return {
       message: 'Search query cannot contain repo:, org:, or user: qualifiers',
       code: 'search-qualifier-conflict',
@@ -1434,7 +1442,34 @@ function validateGithubArgument(name: string, value: unknown, schema: unknown): 
   return undefined;
 }
 
-const GITHUB_SEARCH_SCOPE_QUALIFIER_PATTERN = /\b(?:repo|org|user):/iu;
+const GITHUB_REPOSITORY_PART_UNSAFE_PATTERN = /[\s/:\\]/u;
+const GITHUB_SEARCH_SCOPE_QUALIFIER_PATTERN = /(?:^|\s)-?(?:repo|org|user):/iu;
+
+function hasUnquotedGithubSearchScopeQualifier(query: string): boolean {
+  let quoted = false;
+  let escaped = false;
+  let unquotedQuery = '';
+
+  for (const character of query) {
+    if (escaped) {
+      if (!quoted) unquotedQuery += character;
+      escaped = false;
+      continue;
+    }
+    if (character === '\\') {
+      if (!quoted) unquotedQuery += character;
+      escaped = true;
+      continue;
+    }
+    if (character === '"') {
+      quoted = !quoted;
+      continue;
+    }
+    if (!quoted) unquotedQuery += character;
+  }
+
+  return GITHUB_SEARCH_SCOPE_QUALIFIER_PATTERN.test(unquotedQuery);
+}
 
 function validateCreateCommitArguments(arguments_: Record<string, unknown>): string | undefined {
   const metadataError = validateCreateCommitMetadata(arguments_);

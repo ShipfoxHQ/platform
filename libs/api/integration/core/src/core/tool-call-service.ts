@@ -232,17 +232,11 @@ async function resolveIntegrationToolAuthorization(
     scope,
   );
 
-  if (
-    input.repositoryAuthorizer?.enabled === true &&
-    provider.repositoryAuthorization === 'enforced' &&
-    mode === 'selected' &&
-    scope.kind === 'connection' &&
-    scope.requiresExplicitRepository === true
-  ) {
+  if (requiresExplicitRepositoryDenial(input, provider.repositoryAuthorization, mode, scope)) {
     return {
       ...authorization,
       decision: 'denied',
-      denialReason: 'repository_not_granted',
+      denialReason: 'repository_required',
     };
   }
 
@@ -250,6 +244,21 @@ async function resolveIntegrationToolAuthorization(
     return authorization;
   }
   return await authorizeDeclaredTargets(input, mode, scope, authorization);
+}
+
+function requiresExplicitRepositoryDenial(
+  input: IntegrationToolCallInput,
+  providerAuthorization: 'enforced' | 'unclassified' | undefined,
+  mode: RepositoryAuthorizationMode,
+  scope: ClassifiedToolCallScope,
+): boolean {
+  return (
+    input.repositoryAuthorizer?.enabled === true &&
+    providerAuthorization === 'enforced' &&
+    mode === 'selected' &&
+    scope.kind === 'connection' &&
+    scope.requiresExplicitRepository === true
+  );
 }
 
 function createBaseAuthorization(
@@ -423,6 +432,8 @@ function runProjectId(caller: IntegrationToolCallCaller): string | undefined {
 
 function repositoryAuthorizationErrorMessage(reason: RepositoryAuthorizationDenial): string {
   switch (reason) {
+    case 'repository_required':
+      return 'Selected repository access requires owner and repo parameters';
     case 'repository_not_granted':
       return 'Repository is not authorized for this integration connection';
     case 'repository_ambiguous':

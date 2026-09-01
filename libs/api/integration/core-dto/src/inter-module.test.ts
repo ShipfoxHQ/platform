@@ -6,6 +6,7 @@ import {
 describe('integrationsInterModuleContract', () => {
   test('owns the repository authorization error codes', () => {
     expect(repositoryAuthorizationErrorCodes).toEqual({
+      required: 'repository-required',
       notGranted: 'repository-not-granted',
       ambiguous: 'repository-ambiguous',
       storeUnavailable: 'repository-authorization-unavailable',
@@ -190,6 +191,7 @@ describe('integrationsInterModuleContract', () => {
   });
 
   test.each([
+    'repository-required',
     'repository-not-granted',
     'repository-ambiguous',
     'repository-authorization-unavailable',
@@ -374,6 +376,7 @@ describe('integrationsInterModuleContract', () => {
   });
 
   test.each([
+    'repository-required',
     'repository-not-granted',
     'repository-ambiguous',
     'repository-authorization-unavailable',

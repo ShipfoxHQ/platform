@@ -23,17 +23,18 @@ export type IntegrationToolRepositoryDecision =
   | 'not-enforced';
 export type IntegrationToolRepositoryDenialReason =
   | 'none'
+  | 'repository_required'
   | 'repository_not_granted'
   | 'repository_ambiguous'
   | 'authorization_store_unavailable';
 
 export type IntegrationAgentToolCallErrorCode =
   | 'invalid-request'
-  | 'search-qualifier-conflict'
   | 'unknown'
   | 'provider-timeout'
   | 'cancelled'
   | 'credentials-unavailable'
+  | 'repository-required'
   | 'repository-not-granted'
   | 'repository-ambiguous'
   | 'repository-authorization-unavailable'
@@ -61,6 +62,7 @@ const integrationAgentToolCallErrorCodes = new Set<string>([
   'malformed-provider-response',
   'content-too-large',
   'too-many-files',
+  'repository-required',
   'repository-not-granted',
   'repository-ambiguous',
   'repository-authorization-unavailable',

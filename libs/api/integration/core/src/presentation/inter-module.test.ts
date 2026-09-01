@@ -165,6 +165,7 @@ describe('integrations inter-module presentation', () => {
   });
 
   it.each([
+    ['repository_required', 'repository-required'],
     ['repository_not_granted', 'repository-not-granted'],
     ['repository_ambiguous', 'repository-ambiguous'],
     ['authorization_store_unavailable', 'repository-authorization-unavailable'],
