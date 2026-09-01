@@ -123,7 +123,10 @@ function newOpaqueValue(): string {
 function consentBaseUrl(options: OAuthFlowOptions): URL {
   const baseUrl = options.clientBaseUrl ?? config.CLIENT_BASE_URL;
   try {
-    return new URL(baseUrl);
+    const url = new URL(baseUrl);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:')
+      throw new Error('Unsupported URL scheme');
+    return url;
   } catch {
     throw new OAuthProtocolError('invalid_request', 'The OAuth consent URL is not configured', {
       status: 500,
@@ -444,15 +447,16 @@ export async function exchangeOAuthRefreshToken(params: {
   // rotation remains safe if the grant or client changes while this check runs.
   const now = nowFor(params.options);
   const rawReplacement = newOpaqueValue();
-  const outcome = await exchangeAgentRefreshToken({
+  const exchangeParams = {
     hashedToken,
     clientId: params.request.client_id,
     resource: params.request.resource,
     expectedResource: expectedResource(params.options),
     replacementHashedToken: hashOpaqueToken(rawReplacement),
     replacementExpiresAt: agentRefreshTokenExpiresAt(now),
-    now,
-  });
+    ...(params.options.now ? {now} : {}),
+  };
+  const outcome = await exchangeAgentRefreshToken(exchangeParams);
   if (outcome.kind === 'reused') {
     recordTokenRefreshed('reused');
     throw invalidGrant();

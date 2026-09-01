@@ -401,6 +401,53 @@ describe('agent-access db', () => {
     ).toBeUndefined();
   });
 
+  test('revokes a grant when a predecessor expires during the rotation grace window', async () => {
+    const user = await userFactory.create();
+    const client = await createAgentClient({
+      clientId: `https://client.example/${crypto.randomUUID()}`,
+      name: 'Expired predecessor client',
+      redirectUris: ['https://client.example/callback'],
+      kind: 'registered',
+    });
+    const grant = await createAgentGrant({
+      userId: user.id,
+      workspaceId: crypto.randomUUID(),
+      clientId: client.id,
+      scopes: ['read'],
+    });
+    const predecessor = await createAgentRefreshToken({
+      grantId: grant.id,
+      hashedToken: hashOpaqueToken(`expired-predecessor-${crypto.randomUUID()}`),
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    const successor = await rotateAgentRefreshToken({
+      hashedToken: predecessor.hashedToken,
+      replacementHashedToken: hashOpaqueToken(`expired-successor-${crypto.randomUUID()}`),
+    });
+    if (!successor) throw new Error('Expected refresh rotation to create a successor');
+
+    const rotated = await findAgentRefreshTokenByHash({hashedToken: predecessor.hashedToken});
+    if (!rotated?.rotatedAt) throw new Error('Expected the predecessor to be marked rotated');
+    const replayNow = new Date(rotated.rotatedAt.getTime() + 1_000);
+    await db()
+      .update(agentRefreshTokens)
+      .set({expiresAt: new Date(replayNow.getTime() - 1)})
+      .where(eq(agentRefreshTokens.id, predecessor.id));
+
+    const replay = await resolveAgentRefreshTokenReplay({
+      hashedToken: predecessor.hashedToken,
+      now: replayNow,
+    });
+    expect(replay).toMatchObject({
+      kind: 'reused',
+      grant: {
+        id: grant.id,
+        revokedAt: expect.any(Date),
+        terminalAt: expect.any(Date),
+      },
+    });
+  });
+
   test('rejects code exchange and refresh rotation for suspended users', async () => {
     const user = await userFactory.create();
     const client = await createAgentClient({

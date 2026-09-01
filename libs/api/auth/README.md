@@ -351,6 +351,10 @@ All routes are mounted under `/admin/auth/users` and require an authenticated be
 
 `POST /:userId/impersonate` requires an `Idempotency-Key` and a bounded reason, and is rate limited under the `impersonate` bucket by source IP and by actor. It returns `{token, expires_at, server_time, impersonator_id, user}` and sets no cookie. The target must be active with a verified email and hold no active administrator grant; the actor must not be the target. The mint, a same-key in-window replay, and a renewal each re-run the full authorization and eligibility ladder and publish their own `administration.action.performed` event. A replay re-signs for the same target with the original `expires_at` and never extends the window; after the window passes, the key is consumed for good: every further replay returns `410 impersonation-expired`, and a fresh `Idempotency-Key` is required for a new mint. The stored command result holds only SHA-256 fingerprints of the issued tokens. Failures are audited from their own committed transaction when the actor holds an identifiable administrator role (the strict event schema carries the actor role); role-less denials (a revoked grant, a suspended actor, or a non-admin probing the route) fail closed without an event, and client-contract errors (`404 not-found` for an unknown target, `409 idempotency-key-reused`) are reported to the caller and never enter the failure stream.
 
+Each command requires an `Idempotency-Key`. Suspension requires a bounded reason; reactivation and session revocation accept an optional bounded reason. Repeating a successful command returns its committed result. Reusing a key for a different command or request returns `409 idempotency-key-reused`.
+
+Suspension preserves the user record and rejects the final active administrator owner. State, the command result, and one redacted `administration.action.performed` outbox event commit atomically. The event stores only the idempotency-key fingerprint, never the raw key or session material.
+
 ### Agent access OAuth
 
 `createOAuthAuthorizationRoutes` is an explicit opt-in factory for the OAuth authorization,
@@ -365,10 +369,6 @@ Authorization-code replay returns `invalid_grant` and
 does not revoke a grant that was already issued, because a lost token response is indistinguishable
 from a replay. Refresh-token reuse outside the grace window revokes the grant family, and a lost
 rotation response therefore requires a new consent flow.
-
-Each command requires an `Idempotency-Key`. Suspension requires a bounded reason; reactivation and session revocation accept an optional bounded reason. Repeating a successful command returns its committed result. Reusing a key for a different command or request returns `409 idempotency-key-reused`.
-
-Suspension preserves the user record and rejects the final active administrator owner. State, the command result, and one redacted `administration.action.performed` outbox event commit atomically. The event stores only the idempotency-key fingerprint, never the raw key or session material.
 
 ## API
 

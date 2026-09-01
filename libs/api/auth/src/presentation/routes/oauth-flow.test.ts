@@ -523,10 +523,13 @@ describe('dormant OAuth authorization and token routes', () => {
     });
   });
 
-  it('rejects an invalid consent base URL before persisting an authorization request', async () => {
+  it.each([
+    'not-a-url',
+    'mailto:consent',
+  ])('rejects an invalid consent base URL before persisting an authorization request (%s)', async (clientBaseUrl) => {
     const workspaces = workspaceClient(crypto.randomUUID());
     const client = await createTestClient();
-    app = await createTestApp(workspaces, {clientBaseUrl: 'not-a-url'});
+    app = await createTestApp(workspaces, {clientBaseUrl});
     const {challenge} = pkce();
 
     const authorization = await app.inject({

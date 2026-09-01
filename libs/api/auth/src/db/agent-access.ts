@@ -129,8 +129,18 @@ async function isActiveUser(tx: AgentAccessTx, userId: string): Promise<boolean>
     .select({id: users.id})
     .from(users)
     .where(and(eq(users.id, userId), eq(users.status, 'active')))
+    .for('update')
     .limit(1);
   return rows.length > 0;
+}
+
+async function databaseClock(tx: AgentAccessTx): Promise<Date> {
+  const result = await tx.execute<{now: Date | string}>(sql`select clock_timestamp() as now`);
+  const raw = result.rows[0]?.now;
+  if (raw === undefined) throw new Error('Database clock returned no timestamp');
+  const now = raw instanceof Date ? raw : new Date(raw);
+  if (Number.isNaN(now.getTime())) throw new Error('Database clock returned an invalid timestamp');
+  return now;
 }
 
 /** Checks the authority-creating user state inside the caller's transaction. */
@@ -864,8 +874,9 @@ export async function resolveAgentRefreshTokenReplayTx(
   const current = currentRows[0];
   if (!current?.rotatedAt) return undefined;
 
-  const now = params.now ?? new Date();
+  const now = params.now ?? (await databaseClock(tx));
   if (
+    current.expiresAt.getTime() > now.getTime() &&
     isWithinAgentRefreshRotationGrace({
       rotatedAt: current.rotatedAt,
       now,
@@ -981,11 +992,11 @@ export type AgentRefreshExchangeOutcome =
 
 async function refreshReplayOutcome(
   tx: AgentAccessTx,
-  params: {hashedToken: string; now: Date},
+  params: {hashedToken: string; now?: Date},
 ): Promise<AgentRefreshExchangeOutcome> {
   const replay = await resolveAgentRefreshTokenReplayTx(tx, {
     hashedToken: params.hashedToken,
-    now: params.now,
+    ...(params.now === undefined ? {} : {now: params.now}),
   });
   if (!replay) return {kind: 'rejected'};
   if (replay.kind === 'reused') return {kind: 'reused', grant: replay.grant};
@@ -999,7 +1010,7 @@ async function rotateRefreshInTransaction(
     replacementHashedToken: string;
     grant: AgentGrant;
     replacementExpiresAt: Date;
-    now: Date;
+    now?: Date;
   },
 ): Promise<AgentRefreshExchangeOutcome> {
   const successor = await rotateAgentRefreshTokenTx(tx, {
@@ -1013,7 +1024,7 @@ async function rotateRefreshInTransaction(
 
   return await refreshReplayOutcome(tx, {
     hashedToken: params.hashedToken,
-    now: params.now,
+    ...(params.now === undefined ? {} : {now: params.now}),
   });
 }
 
@@ -1024,7 +1035,7 @@ export async function exchangeAgentRefreshToken(params: {
   expectedResource: string;
   replacementHashedToken: string;
   replacementExpiresAt: Date;
-  now: Date;
+  now?: Date;
 }): Promise<AgentRefreshExchangeOutcome> {
   return await db().transaction(async (tx) => {
     const existing = await findAgentRefreshTokenByHash({
@@ -1049,7 +1060,7 @@ export async function exchangeAgentRefreshToken(params: {
     if (existing.rotatedAt) {
       return await refreshReplayOutcome(tx, {
         hashedToken: params.hashedToken,
-        now: params.now,
+        ...(params.now === undefined ? {} : {now: params.now}),
       });
     }
 
