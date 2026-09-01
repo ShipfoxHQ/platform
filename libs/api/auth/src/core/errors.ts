@@ -85,6 +85,49 @@ export class AuthDependencyUnavailableError extends Error {
   }
 }
 
+export type AgentAccessWorkspaceErrorCode =
+  | 'membership-required'
+  | 'workspace-inactive'
+  | 'workspace-suspended';
+
+export class AgentAccessWorkspaceError extends Error {
+  readonly code: AgentAccessWorkspaceErrorCode;
+
+  constructor(code: AgentAccessWorkspaceErrorCode) {
+    super(`Agent access workspace check failed: ${code}`);
+    this.name = 'AgentAccessWorkspaceError';
+    this.code = code;
+  }
+}
+
+export class AgentAccessUserInactiveError extends Error {
+  constructor() {
+    super('The user is not active');
+    this.name = 'AgentAccessUserInactiveError';
+  }
+}
+
+export class AgentGrantNotFoundError extends Error {
+  constructor() {
+    super('Agent grant not found');
+    this.name = 'AgentGrantNotFoundError';
+  }
+}
+
+export class AgentPersonalAccessTokenNotFoundError extends Error {
+  constructor() {
+    super('Personal access token not found');
+    this.name = 'AgentPersonalAccessTokenNotFoundError';
+  }
+}
+
+export class InvalidAgentAccessScopeError extends Error {
+  constructor() {
+    super('Agent access contains an unsupported scope');
+    this.name = 'InvalidAgentAccessScopeError';
+  }
+}
+
 export class AdminRoleRequiredError extends Error {
   readonly minimumRole: import('@shipfox/api-auth-dto').AdminRole;
 

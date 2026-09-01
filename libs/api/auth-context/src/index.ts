@@ -13,6 +13,7 @@ export const AUTH_RUNNER_SESSION = 'runner-session';
 export const AUTH_RUNNER_CONTROL_SESSION = 'runner-control-session';
 export const AUTH_LEASED_JOB = 'leased-job';
 export const AUTH_PROVISIONER_TOKEN = 'provisioner-token';
+export const AUTH_AGENT_ACCESS = 'agent-access';
 
 export type WorkspaceStatus = 'active' | 'suspended' | 'deleted';
 
@@ -30,6 +31,20 @@ export interface UserContext {
   impersonatorId?: string | undefined;
   canAccess(workspaceId: string): boolean;
   hasRole(workspaceId: string, role: WorkspaceRole): boolean;
+}
+
+export type AgentAccessScope = 'read';
+
+export type AgentAccessCredential =
+  | {kind: 'oauth_grant'; grantId: string; clientId: string}
+  | {kind: 'pat'; patId: string};
+
+/** The shared identity and authority resolved from an agent credential. */
+export interface AgentAccessContext {
+  userId: string;
+  workspaceId: string;
+  scopes: ReadonlyArray<AgentAccessScope>;
+  credential: AgentAccessCredential;
 }
 
 export interface BuildUserContextParams {
@@ -78,6 +93,7 @@ const RUNNER_SESSION_CONTEXT_KEY = Symbol.for('@shipfox/api-auth-context/runner-
 const RUNNER_CONTROL_SESSION_CONTEXT_KEY = Symbol.for(
   '@shipfox/api-auth-context/runner-control-session',
 );
+const AGENT_ACCESS_CONTEXT_KEY = Symbol.for('@shipfox/api-auth-context/agent-access');
 
 export function setUserContext(request: RequestWithContext, context: UserContext): void {
   (request as Record<symbol, unknown>)[USER_CONTEXT_KEY] = context;
@@ -93,6 +109,29 @@ export function requireUserContext(request: RequestWithContext): UserContext {
   const context = getUserContext(request);
   if (!context) {
     throw new Error('User context is not available on this request');
+  }
+  return context;
+}
+
+export function setAgentAccessContext(
+  request: RequestWithContext,
+  context: AgentAccessContext,
+): void {
+  (request as Record<symbol, unknown>)[AGENT_ACCESS_CONTEXT_KEY] = context;
+}
+
+export function getAgentAccessContext(request: RequestWithContext): AgentAccessContext | null {
+  return (
+    ((request as Record<symbol, unknown>)[AGENT_ACCESS_CONTEXT_KEY] as
+      | AgentAccessContext
+      | undefined) ?? null
+  );
+}
+
+export function requireAgentAccessContext(request: RequestWithContext): AgentAccessContext {
+  const context = getAgentAccessContext(request);
+  if (!context) {
+    throw new Error('Agent access context is not available on this request');
   }
   return context;
 }

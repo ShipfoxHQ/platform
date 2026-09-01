@@ -137,4 +137,11 @@ describe('authModule', () => {
     );
     expect(worker?.activities).toBe(createAuthMaintenanceActivities);
   });
+
+  test('keeps agent access routes and authentication opt-in', () => {
+    expect(authModule.auth?.map(({name}) => name)).not.toContain('agent-access');
+    expect(authModule.routes).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({prefix: '/agent-access'})]),
+    );
+  });
 });
