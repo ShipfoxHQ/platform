@@ -62,6 +62,7 @@ export {
   type AgentGrantSummaryDto,
   type AgentPersonalAccessTokenSummaryDto,
   agentAccessCredentialParamsSchema,
+  agentAccessNameSchema,
   agentGrantSummarySchema,
   agentPersonalAccessTokenSummarySchema,
   type CreateAgentPersonalAccessTokenBodyDto,

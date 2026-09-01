@@ -1,7 +1,8 @@
 import {z} from 'zod';
+import {agentAccessNameSchema} from './agent-access.js';
 
 const oauthUrlSchema = z.string().url().max(2048);
-const oauthClientNameSchema = z.string().min(1).max(256);
+const oauthClientNameSchema = agentAccessNameSchema;
 const oauthRedirectUriSchema = z.string().min(1).max(2048);
 const oauthScopeSchema = z.string().min(1).max(256);
 const oauthGrantTypeSchema = z.enum(['authorization_code', 'refresh_token']);

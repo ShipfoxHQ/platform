@@ -78,6 +78,36 @@ describe('agent access auth method', () => {
     }
   });
 
+  test('accepts an OAuth access token with a maximum-length client ID', async () => {
+    const workspaceId = crypto.randomUUID();
+    const workspaces = workspaceClient(workspaceId);
+    const clientIdPrefix = 'https://client.example/';
+    const clientId = clientIdPrefix + 'x'.repeat(2048 - clientIdPrefix.length);
+    const token = await issueAgentAccessToken({
+      sub: crypto.randomUUID(),
+      workspaceId,
+      grantId: crypto.randomUUID(),
+      clientId,
+      scopes: ['read'],
+    });
+    expect(Buffer.byteLength(token, 'utf8')).toBeGreaterThan(1024);
+    const app = await openApp(workspaces);
+
+    try {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/protected',
+        headers: {authorization: `Bearer ${token}`},
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({credential: {kind: 'oauth_grant', clientId}});
+      expect(workspaces.listMembershipsForTokenClaims).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
+
   test('checks a PAT against its user and live workspace membership and records use', async () => {
     const user = await userFactory.create();
     const workspaceId = crypto.randomUUID();
@@ -172,6 +202,39 @@ describe('agent access auth method', () => {
         headers: {authorization: `Bearer ${rawToken}`},
       });
       expect(revoked.statusCode).toBe(401);
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('returns 503 when workspace membership resolution is unavailable', async () => {
+    const user = await userFactory.create();
+    const workspaceId = crypto.randomUUID();
+    const workspaces = workspaceClient(workspaceId);
+    workspaces.listMembershipsForTokenClaims = vi.fn(() => {
+      throw new Error('workspaces unavailable');
+    }) as unknown as WorkspacesInterModuleClient['listMembershipsForTokenClaims'];
+    const rawToken = generateOpaqueToken('personalAccessToken');
+    await createAgentPersonalAccessTokenInDb({
+      userId: user.id,
+      workspaceId,
+      hashedToken: hashOpaqueToken(rawToken),
+      prefix: rawToken.slice(0, 12),
+      name: 'Dependency test PAT',
+      scopes: ['read'],
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    const app = await openApp(workspaces);
+
+    try {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/protected',
+        headers: {authorization: `Bearer ${rawToken}`},
+      });
+
+      expect(response.statusCode).toBe(503);
+      expect(response.json()).toEqual({code: 'auth-dependency-unavailable'});
     } finally {
       await app.close();
     }

@@ -121,6 +121,13 @@ export class AgentPersonalAccessTokenNotFoundError extends Error {
   }
 }
 
+export class InvalidAgentAccessScopeError extends Error {
+  constructor() {
+    super('Agent access contains an unsupported scope');
+    this.name = 'InvalidAgentAccessScopeError';
+  }
+}
+
 export class AdminRoleRequiredError extends Error {
   readonly minimumRole: import('@shipfox/api-auth-dto').AdminRole;
 

@@ -275,6 +275,43 @@ describe('agent-access db', () => {
     ).toBeUndefined();
   });
 
+  test(
+    'uses the current database clock after waiting for a PAT row lock',
+    async () => {
+      const user = await userFactory.create();
+      const pat = await createAgentPersonalAccessToken({
+        userId: user.id,
+        workspaceId: crypto.randomUUID(),
+        hashedToken: hashOpaqueToken(`clock-pat-${crypto.randomUUID()}`),
+        prefix: 'sf_pat_clock',
+        name: 'Clock PAT',
+        scopes: ['read'],
+        expiresAt: new Date(Date.now() + 200),
+      });
+      const holderReady = deferred<void>();
+      const holder = db().transaction(async (tx) => {
+        await tx
+          .update(agentPersonalAccessTokens)
+          .set({updatedAt: sql`now()`})
+          .where(eq(agentPersonalAccessTokens.id, pat.id));
+        holderReady.resolve();
+        await tx.execute(sql`select pg_sleep(0.75)`);
+      });
+      holder.catch(holderReady.reject);
+
+      try {
+        await holderReady.promise;
+        const used = markAgentPersonalAccessTokenUsed({id: pat.id});
+        const [, result] = await Promise.all([holder, used]);
+
+        expect(result).toBeUndefined();
+      } finally {
+        await holder.catch(() => undefined);
+      }
+    },
+    GRANT_LOCK_TEST_TIMEOUT_MS,
+  );
+
   test('serializes concurrent refresh rotation and revokes the complete grant family', async () => {
     const user = await userFactory.create();
     const client = await createAgentClient({

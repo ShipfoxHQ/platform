@@ -105,7 +105,7 @@ async function assertActiveAgentMembership(params: {
       if (error.code === 'workspace-inactive' || error.code === 'workspace-not-found') {
         throw new AgentAccessWorkspaceError('workspace-inactive');
       }
-      throw new AgentAccessWorkspaceError('workspace-suspended');
+      throw new AuthDependencyUnavailableError('workspaces', error);
     }
     if (error instanceof AuthDependencyUnavailableError) throw error;
     throw new AuthDependencyUnavailableError('workspaces', error);

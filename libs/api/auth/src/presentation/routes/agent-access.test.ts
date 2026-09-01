@@ -1,4 +1,8 @@
-import type {WorkspacesInterModuleClient} from '@shipfox/api-workspaces-dto/inter-module';
+import {
+  type WorkspacesInterModuleClient,
+  workspacesInterModuleContract,
+} from '@shipfox/api-workspaces-dto/inter-module';
+import {createInterModuleKnownError} from '@shipfox/inter-module';
 import {userAccessTokenKey} from '@shipfox/node-auth-root-key';
 import {createApp, type FastifyInstance} from '@shipfox/node-fastify';
 import {generateOpaqueToken, hashOpaqueToken, tokenTypeParts} from '@shipfox/node-tokens';
@@ -132,6 +136,14 @@ describe('agent access management routes', () => {
       expect(
         await findActiveAgentRefreshTokenByHash({hashedToken: refreshToken.hashedToken}),
       ).toBeUndefined();
+
+      const relisted = await app.inject({
+        method: 'GET',
+        url: '/agent-access/grants',
+        headers: {authorization: `Bearer ${token}`},
+      });
+      expect(relisted.statusCode).toBe(200);
+      expect(relisted.json()).toEqual({grants: []});
     } finally {
       await app.close();
     }
@@ -163,7 +175,10 @@ describe('agent access management routes', () => {
       expect(body.name).toBe('CI access');
       expect(body.workspace_id).toBe(workspaceId);
       expect(body.last_used_at).toBeNull();
-      expect(body.expires_at).toBeDefined();
+      const dayInMilliseconds = 24 * 60 * 60 * 1000;
+      const firstExpiryDelta = Date.parse(body.expires_at) - Date.parse(body.created_at);
+      expect(firstExpiryDelta).toBeGreaterThan(30 * dayInMilliseconds - 60_000);
+      expect(firstExpiryDelta).toBeLessThan(30 * dayInMilliseconds + 60_000);
 
       const listed = await app.inject({
         method: 'GET',
@@ -183,6 +198,19 @@ describe('agent access management routes', () => {
         ],
       });
       expect(JSON.stringify(listed.json())).not.toContain(body.raw_token);
+
+      const defaultExpiry = await app.inject({
+        method: 'POST',
+        url: '/agent-access/pats',
+        headers: {authorization: `Bearer ${token}`},
+        payload: {workspace_id: workspaceId, name: 'Default expiry access'},
+      });
+      expect(defaultExpiry.statusCode).toBe(201);
+      const defaultExpiryBody = defaultExpiry.json();
+      const defaultExpiryDelta =
+        Date.parse(defaultExpiryBody.expires_at) - Date.parse(defaultExpiryBody.created_at);
+      expect(defaultExpiryDelta).toBeGreaterThan(90 * dayInMilliseconds - 60_000);
+      expect(defaultExpiryDelta).toBeLessThan(90 * dayInMilliseconds + 60_000);
 
       const invalidExpiry = await app.inject({
         method: 'POST',
@@ -222,6 +250,21 @@ describe('agent access management routes', () => {
       expect(firstDelete.statusCode).toBe(204);
       expect(secondDelete.statusCode).toBe(204);
 
+      const defaultDelete = await app.inject({
+        method: 'DELETE',
+        url: `/agent-access/pats/${defaultExpiryBody.id}`,
+        headers: {authorization: `Bearer ${token}`},
+      });
+      expect(defaultDelete.statusCode).toBe(204);
+
+      const relisted = await app.inject({
+        method: 'GET',
+        url: '/agent-access/pats',
+        headers: {authorization: `Bearer ${token}`},
+      });
+      expect(relisted.statusCode).toBe(200);
+      expect(relisted.json()).toEqual({pats: []});
+
       await db().update(users).set({status: 'suspended'}).where(eq(users.id, owner.id));
       const suspendedMint = await app.inject({
         method: 'POST',
@@ -230,6 +273,107 @@ describe('agent access management routes', () => {
         payload: {workspace_id: workspaceId, name: 'Suspended', expires_in_days: 90},
       });
       expect(suspendedMint.statusCode).toBe(403);
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('translates workspace membership failures and dependency outages', async () => {
+    const owner = await userFactory.create();
+    const workspaceId = crypto.randomUUID();
+    const token = await sessionToken(owner);
+    const method = workspacesInterModuleContract.methods.requireActiveMembership;
+    const knownFailures = [
+      ['membership-required', 'forbidden'],
+      ['workspace-not-found', 'workspace-inactive'],
+      ['workspace-inactive', 'workspace-inactive'],
+    ] as const;
+
+    for (const [failureCode, responseCode] of knownFailures) {
+      const workspaces = workspacesFor(workspaceId);
+      workspaces.requireActiveMembership = vi.fn(() => {
+        throw createInterModuleKnownError(method, failureCode, {workspaceId});
+      }) as unknown as WorkspacesInterModuleClient['requireActiveMembership'];
+      const app = await openApp(workspaces);
+
+      try {
+        const response = await app.inject({
+          method: 'POST',
+          url: '/agent-access/pats',
+          headers: {authorization: `Bearer ${token}`},
+          payload: {workspace_id: workspaceId, name: `Failure ${failureCode}`},
+        });
+
+        expect(response.statusCode).toBe(403);
+        expect(response.json()).toEqual({code: responseCode});
+      } finally {
+        await app.close();
+      }
+    }
+
+    const suspendedWorkspaces = workspacesFor(workspaceId, 'suspended');
+    const suspendedApp = await openApp(suspendedWorkspaces);
+    try {
+      const response = await suspendedApp.inject({
+        method: 'POST',
+        url: '/agent-access/pats',
+        headers: {authorization: `Bearer ${token}`},
+        payload: {workspace_id: workspaceId, name: 'Suspended workspace'},
+      });
+
+      expect(response.statusCode).toBe(409);
+      expect(response.json()).toEqual({code: 'workspace-suspended'});
+    } finally {
+      await suspendedApp.close();
+    }
+
+    const unavailableWorkspaces = workspacesFor(workspaceId);
+    unavailableWorkspaces.requireActiveMembership = vi.fn(() => {
+      throw new Error('workspaces unavailable');
+    }) as unknown as WorkspacesInterModuleClient['requireActiveMembership'];
+    const unavailableApp = await openApp(unavailableWorkspaces);
+    try {
+      const response = await unavailableApp.inject({
+        method: 'POST',
+        url: '/agent-access/pats',
+        headers: {authorization: `Bearer ${token}`},
+        payload: {workspace_id: workspaceId, name: 'Unavailable workspace'},
+      });
+
+      expect(response.statusCode).toBe(503);
+      expect(response.json()).toEqual({code: 'auth-dependency-unavailable'});
+    } finally {
+      await unavailableApp.close();
+    }
+  });
+
+  test('returns a controlled server error for invalid persisted grant scopes', async () => {
+    const owner = await userFactory.create();
+    const client = await createAgentClient({
+      clientId: `https://client.example/${crypto.randomUUID()}`,
+      name: 'Invalid scope client',
+      redirectUris: ['https://client.example/callback'],
+      kind: 'registered',
+    });
+    await createAgentGrant({
+      userId: owner.id,
+      workspaceId: crypto.randomUUID(),
+      clientId: client.id,
+      scopes: ['write'],
+    });
+    const workspaces = workspacesFor(crypto.randomUUID());
+    const app = await openApp(workspaces);
+    const token = await sessionToken(owner);
+
+    try {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/agent-access/grants',
+        headers: {authorization: `Bearer ${token}`},
+      });
+
+      expect(response.statusCode).toBe(500);
+      expect(response.json()).toEqual({code: 'server-error'});
     } finally {
       await app.close();
     }

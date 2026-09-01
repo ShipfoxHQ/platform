@@ -28,6 +28,7 @@ import {
   AgentGrantNotFoundError,
   AgentPersonalAccessTokenNotFoundError,
   AuthDependencyUnavailableError,
+  InvalidAgentAccessScopeError,
 } from '#core/errors.js';
 
 export interface CreateAgentAccessManagementRoutesOptions {
@@ -43,8 +44,8 @@ function requireActorId(request: FastifyRequest): string {
 }
 
 function toReadScopes(scopes: string[]): 'read'[] {
-  if (scopes.some((scope) => scope !== 'read')) {
-    throw new Error('Agent access contains an unsupported scope');
+  if (scopes.length === 0 || scopes.some((scope) => scope !== 'read')) {
+    throw new InvalidAgentAccessScopeError();
   }
   return scopes as 'read'[];
 }
@@ -90,6 +91,12 @@ function translateAgentAccessError(error: unknown): never {
   }
   if (error instanceof AgentPersonalAccessTokenNotFoundError) {
     throw new ClientError('Personal access token not found', 'not-found', {status: 404});
+  }
+  if (error instanceof InvalidAgentAccessScopeError) {
+    throw new ClientError('Agent access data is invalid', 'server-error', {
+      status: 500,
+      cause: error,
+    });
   }
   if (error instanceof AgentAccessUserInactiveError) {
     throw new ClientError('User is not active', 'forbidden', {status: 403});

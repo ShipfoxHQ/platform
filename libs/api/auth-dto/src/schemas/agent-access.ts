@@ -5,7 +5,8 @@ const scopeSchema = z.literal('read');
 const textEncoder = new TextEncoder();
 const CONTROL_OR_FORMAT_CHARACTER_RE = /[\p{Cc}\p{Cf}]/u;
 
-const agentPersonalAccessTokenNameSchema = z
+/** Names displayed in the agent-access UI reject invisible control characters. */
+export const agentAccessNameSchema = z
   .string()
   .min(1)
   .max(256)
@@ -16,11 +17,13 @@ const agentPersonalAccessTokenNameSchema = z
     message: 'must not contain control or format characters',
   });
 
+const agentPersonalAccessTokenNameSchema = agentAccessNameSchema;
+
 /** The dashboard-safe representation of an OAuth agent grant. */
 export const agentGrantSummarySchema = z
   .object({
     id: z.string().uuid(),
-    client_name: z.string().min(1).max(256),
+    client_name: agentAccessNameSchema,
     workspace_id: z.string().uuid(),
     scopes: z.array(scopeSchema).min(1),
     created_at: timestampSchema,

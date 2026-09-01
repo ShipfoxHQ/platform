@@ -18,7 +18,9 @@ import {
 } from '#db/agent-access.js';
 import {createBearerTokenAuthMethod} from './bearer-token-auth.js';
 
-const MAX_PRESENTED_TOKEN_BYTES = 1024;
+// The OAuth claims contract permits a 2 KiB client ID. Keep enough room for
+// its base64url-encoded JWT payload, header, and signature.
+const MAX_PRESENTED_TOKEN_BYTES = 8 * 1024;
 
 type VerifiedAgentAccessCredential =
   | {kind: 'oauth'; claims: AgentAccessTokenClaims}

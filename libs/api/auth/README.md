@@ -167,10 +167,10 @@ be removed or forged by a client.
   at most 15 minutes after issuance; and every `/admin` route rejects a request
   whose context carries `impersonatorId` with `admin-role-required`, before
   roles are consulted. The durable-artefact deny-list (runner registration
-  tokens, provisioner tokens, and workspace invitations) rejects impersonated
-  sessions with `impersonation-not-permitted`; the list is enumerated and
-  documented in ADR 0014, and adding a credential-issuing or grant-creating
-  route means adding it there.
+  tokens, provisioner tokens, workspace invitations, and agent personal access
+  token minting) rejects impersonated sessions with `impersonation-not-permitted`; the
+  list is enumerated and documented in ADR 0014, and adding a
+  credential-issuing or grant-creating route means adding it there.
 - **No token at rest:** the idempotent command result stores only the target
   user ID, the expiry, and a list of SHA-256 fingerprints of the tokens issued
   under the key. The raw token is never logged or persisted, and a token
@@ -399,6 +399,8 @@ factories use `AUTH_USER` and remain unregistered by `createAuthModule().routes`
 
 Management identifiers are caller-owned. Another user's identifier and an unknown identifier
 both return `404`.
+Impersonated sessions may list and revoke the target user's credentials; only PAT creation is
+blocked because it would create a durable credential outside the impersonation window.
 Authorization-code replay returns `invalid_grant` and
 does not revoke a grant that was already issued, because a lost token response is indistinguishable
 from a replay. Refresh-token reuse outside the grace window revokes the grant family, and a lost

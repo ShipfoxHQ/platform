@@ -132,6 +132,7 @@ export {
   ImpersonationTargetNotActiveError,
   InvalidAdminBootstrapTokenError,
   InvalidAdministratorUserDirectoryFilterError,
+  InvalidAgentAccessScopeError,
   InvalidCredentialsError,
   InvalidOAuthClientMetadataError,
   InvalidOAuthConfigurationError,
