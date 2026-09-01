@@ -2,7 +2,7 @@ import {instanceMetrics} from '@shipfox/node-opentelemetry';
 import type {ImageOmissionReason} from '#core/pi-tool-svg-normalizer.js';
 
 export type PiSvgNormalizationOutcome = 'converted' | 'omitted';
-export type PiSvgNormalizationSource = 'tool_result';
+export type PiSvgNormalizationSource = 'tool_result' | 'legacy_context';
 export type PiSvgNormalizationReason = 'none' | ImageOmissionReason;
 
 const meter = instanceMetrics.getMeter('runner-agent');
