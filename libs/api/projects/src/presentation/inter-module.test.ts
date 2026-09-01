@@ -98,6 +98,72 @@ describe('Projects checkout target inter-module presentation', () => {
     expect(projectIds).toEqual([first.projectId, second.projectId].sort());
   });
 
+  test('lists project repositories by source connection through the producer contract', async () => {
+    const client = createClient();
+    const workspaceId = crypto.randomUUID();
+    const connectionId = crypto.randomUUID();
+    const first = await insertProject({
+      workspaceId,
+      connectionId,
+      owner: 'AcMe',
+      name: 'Api',
+      externalRepositoryId: 'github:1',
+    });
+    const second = await insertProject({
+      workspaceId,
+      connectionId,
+      owner: 'acme',
+      name: 'api',
+      externalRepositoryId: 'github:2',
+    });
+    await insertProject({
+      workspaceId,
+      connectionId: crypto.randomUUID(),
+      owner: 'acme',
+      name: 'excluded',
+      externalRepositoryId: 'github:3',
+    });
+
+    const firstPage = await client.listProjectsBySourceConnection({
+      workspaceId,
+      sourceConnectionId: connectionId,
+      limit: 1,
+    });
+
+    expect(firstPage.projects).toEqual([
+      {
+        externalRepositoryId: 'github:1',
+        owner: 'AcMe',
+        name: 'Api',
+        projectId: first.projectId,
+        projectName: 'Api',
+      },
+    ]);
+    expect(firstPage.nextCursor).toEqual({
+      owner: 'AcMe',
+      name: 'Api',
+      externalRepositoryId: 'github:1',
+    });
+
+    const secondPage = await client.listProjectsBySourceConnection({
+      workspaceId,
+      sourceConnectionId: connectionId,
+      limit: 1,
+      cursor: firstPage.nextCursor ?? undefined,
+    });
+
+    expect(secondPage.projects).toEqual([
+      {
+        externalRepositoryId: 'github:2',
+        owner: 'acme',
+        name: 'api',
+        projectId: second.projectId,
+        projectName: 'api',
+      },
+    ]);
+    expect(secondPage.nextCursor).toBeNull();
+  });
+
   test('lists workspace projects with catalog fields through the catalog contract', async () => {
     const client = createClient();
     const workspaceId = crypto.randomUUID();

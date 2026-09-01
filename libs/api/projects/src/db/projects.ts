@@ -265,47 +265,47 @@ export async function findProjectBySourceRepositoryName(
   return rows.map(toProject);
 }
 
-export interface ProjectSourceRepository {
-  externalRepositoryId: string;
-  owner: string;
-  name: string;
+export interface ProjectRepositoryListItem {
+  sourceExternalRepositoryId: string;
+  sourceRepositoryOwner: string;
+  sourceRepositoryName: string;
   projectId: string;
   projectName: string;
 }
 
-export interface ProjectSourceRepositoryCursor {
-  owner: string;
-  name: string;
-  externalRepositoryId: string;
+export interface ProjectRepositoryListCursor {
+  sourceRepositoryOwner: string;
+  sourceRepositoryName: string;
+  sourceExternalRepositoryId: string;
 }
 
 export interface ListProjectsBySourceConnectionParams {
   workspaceId: string;
   sourceConnectionId: string;
   limit: number;
-  cursor?: ProjectSourceRepositoryCursor | undefined;
+  cursor?: ProjectRepositoryListCursor | undefined;
 }
 
 export interface ListProjectsBySourceConnectionResult {
-  projects: ProjectSourceRepository[];
-  nextCursor: ProjectSourceRepositoryCursor | null;
+  projects: ProjectRepositoryListItem[];
+  nextCursor: ProjectRepositoryListCursor | null;
 }
 
 function projectSourceRepositoryCursorWhere(
-  cursor: ProjectSourceRepositoryCursor | undefined,
+  cursor: ProjectRepositoryListCursor | undefined,
 ): SQL | undefined {
   if (!cursor) return undefined;
 
   return or(
-    sql`lower(${projects.sourceRepositoryOwner}) > lower(${cursor.owner})`,
+    sql`lower(${projects.sourceRepositoryOwner}) > lower(${cursor.sourceRepositoryOwner})`,
     and(
-      sql`lower(${projects.sourceRepositoryOwner}) = lower(${cursor.owner})`,
-      sql`lower(${projects.sourceRepositoryName}) > lower(${cursor.name})`,
+      sql`lower(${projects.sourceRepositoryOwner}) = lower(${cursor.sourceRepositoryOwner})`,
+      sql`lower(${projects.sourceRepositoryName}) > lower(${cursor.sourceRepositoryName})`,
     ),
     and(
-      sql`lower(${projects.sourceRepositoryOwner}) = lower(${cursor.owner})`,
-      sql`lower(${projects.sourceRepositoryName}) = lower(${cursor.name})`,
-      gt(projects.sourceExternalRepositoryId, cursor.externalRepositoryId),
+      sql`lower(${projects.sourceRepositoryOwner}) = lower(${cursor.sourceRepositoryOwner})`,
+      sql`lower(${projects.sourceRepositoryName}) = lower(${cursor.sourceRepositoryName})`,
+      gt(projects.sourceExternalRepositoryId, cursor.sourceExternalRepositoryId),
     ),
   );
 }
@@ -316,17 +316,17 @@ export async function listProjectsBySourceConnection(
   const conditions = [
     eq(projects.workspaceId, params.workspaceId),
     eq(projects.sourceConnectionId, params.sourceConnectionId),
-    isNotNull(projects.sourceRepositoryOwner),
-    isNotNull(projects.sourceRepositoryName),
+    and(isNotNull(projects.sourceRepositoryOwner), sql`${projects.sourceRepositoryOwner} <> ''`),
+    and(isNotNull(projects.sourceRepositoryName), sql`${projects.sourceRepositoryName} <> ''`),
   ];
   const cursorCondition = projectSourceRepositoryCursorWhere(params.cursor);
   if (cursorCondition) conditions.push(cursorCondition);
 
   const rows = await db()
     .select({
-      externalRepositoryId: projects.sourceExternalRepositoryId,
-      owner: projects.sourceRepositoryOwner,
-      name: projects.sourceRepositoryName,
+      sourceExternalRepositoryId: projects.sourceExternalRepositoryId,
+      sourceRepositoryOwner: projects.sourceRepositoryOwner,
+      sourceRepositoryName: projects.sourceRepositoryName,
       projectId: projects.id,
       projectName: projects.name,
     })
@@ -341,7 +341,7 @@ export async function listProjectsBySourceConnection(
 
   const hasMore = rows.length > params.limit;
   const pageRows = hasMore ? rows.slice(0, params.limit) : rows;
-  const projectRepositories = pageRows.map(toProjectSourceRepository);
+  const projectRepositories = pageRows.map(toProjectRepositoryListItem);
   const last = projectRepositories.at(-1);
 
   return {
@@ -349,29 +349,29 @@ export async function listProjectsBySourceConnection(
     nextCursor:
       hasMore && last
         ? {
-            owner: last.owner,
-            name: last.name,
-            externalRepositoryId: last.externalRepositoryId,
+            sourceRepositoryOwner: last.sourceRepositoryOwner,
+            sourceRepositoryName: last.sourceRepositoryName,
+            sourceExternalRepositoryId: last.sourceExternalRepositoryId,
           }
         : null,
   };
 }
 
-function toProjectSourceRepository(row: {
-  externalRepositoryId: string;
-  owner: string | null;
-  name: string | null;
+function toProjectRepositoryListItem(row: {
+  sourceExternalRepositoryId: string;
+  sourceRepositoryOwner: string | null;
+  sourceRepositoryName: string | null;
   projectId: string;
   projectName: string;
-}): ProjectSourceRepository {
-  if (row.owner === null || row.name === null) {
+}): ProjectRepositoryListItem {
+  if (row.sourceRepositoryOwner === null || row.sourceRepositoryName === null) {
     throw new Error('Project source repository metadata is missing');
   }
 
   return {
-    externalRepositoryId: row.externalRepositoryId,
-    owner: row.owner,
-    name: row.name,
+    sourceExternalRepositoryId: row.sourceExternalRepositoryId,
+    sourceRepositoryOwner: row.sourceRepositoryOwner,
+    sourceRepositoryName: row.sourceRepositoryName,
     projectId: row.projectId,
     projectName: row.projectName,
   };
