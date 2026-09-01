@@ -3,12 +3,18 @@ import type {LeasedJobContext} from '@shipfox/api-auth-context';
 import {reportError} from '@shipfox/node-error-monitoring';
 import {logger} from '@shipfox/node-opentelemetry';
 import type {IntegrationProviderRegistry} from '#core/providers/registry.js';
+import type {RepositoryAuthorizer} from '#core/repository-authorizer.js';
 import {callIntegrationTool, type IntegrationToolCallError} from '#core/tool-call-service.js';
-import type {IntegrationToolDispatcher, IntegrationToolDispatchInput} from './mcp-server.js';
+import type {
+  IntegrationToolDispatcher,
+  IntegrationToolDispatchInput,
+  IntegrationToolDispatchResult,
+} from './mcp-server.js';
 
 export interface CreateIntegrationToolDispatcherParams {
   registry: IntegrationProviderRegistry;
   lease: LeasedJobContext;
+  repositoryAuthorizer?: RepositoryAuthorizer | undefined;
 }
 
 export interface IntegrationToolDispatcherDependencies {
@@ -25,6 +31,7 @@ export function createIntegrationToolDispatcher(
       ...input,
       registry: params.registry,
       caller: {caller: 'agent', lease: params.lease},
+      repositoryAuthorizer: params.repositoryAuthorizer,
       logger: dependencies.logger ?? logger,
       reportError: dependencies.reportError ?? reportError,
     });
@@ -34,10 +41,11 @@ async function dispatchIntegrationToolCall(
   input: IntegrationToolDispatchInput & {
     registry: IntegrationProviderRegistry;
     caller: {caller: 'agent'; lease: LeasedJobContext};
+    repositoryAuthorizer?: RepositoryAuthorizer | undefined;
     logger: typeof logger;
     reportError: typeof reportError;
   },
-): Promise<CallToolResult> {
+): Promise<CallToolResult | IntegrationToolDispatchResult> {
   const outcome = await callIntegrationTool({
     registry: input.registry,
     connection: input.authorizedTool.connection,
@@ -49,11 +57,16 @@ async function dispatchIntegrationToolCall(
     arguments: input.arguments,
     method: input.method,
     caller: input.caller,
+    catalogEntry: input.authorizedTool.catalogEntry,
+    repositoryAuthorizer: input.repositoryAuthorizer,
     logger: input.logger,
     reportError: input.reportError,
   });
 
-  return outcome.outcome === 'success' ? outcome.result : toolError(outcome.error);
+  const result = outcome.outcome === 'success' ? outcome.result : toolError(outcome.error);
+  return outcome.authorization === undefined
+    ? result
+    : {result, authorization: outcome.authorization};
 }
 
 function toolError(error: IntegrationToolCallError): CallToolResult {

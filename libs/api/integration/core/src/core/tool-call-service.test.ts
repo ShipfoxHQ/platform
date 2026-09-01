@@ -3,6 +3,7 @@ import type {logger as loggerFactoryType} from '@shipfox/node-opentelemetry';
 import {
   type AgentToolsProviderOptions,
   catalogTool,
+  catalogWithRepositoryScope,
   connection,
   leaseContext,
   materializedIntegration,
@@ -10,7 +11,14 @@ import {
   registryWithAgentTools,
 } from '#test/agent-tools-gateway-helpers.js';
 import {IntegrationProviderError} from './errors.js';
+import type {AgentToolRepositoryScopeClassifier} from './providers/agent-tools.js';
 import {createIntegrationProviderRegistry} from './providers/registry.js';
+import {
+  type RepositoryAuthorizationResult,
+  RepositoryAuthorizationTargetInvalidError,
+  type RepositoryAuthorizer,
+  type ResolveRepositoryAuthorizationInput,
+} from './repository-authorizer.js';
 import {
   callIntegrationTool,
   type IntegrationToolCallInput,
@@ -68,6 +76,482 @@ describe('callIntegrationTool', () => {
       ],
     });
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('denies a declared repository before opening a provider session', async () => {
+    const onOpenSession = vi.fn();
+    const entry = catalogWithRepositoryScope(declaredRepositoryScope);
+    const resolveRepositoryAuthorization = vi.fn(
+      async (): Promise<RepositoryAuthorizationResult> => ({
+        authorized: false,
+        reason: 'repository_not_granted',
+      }),
+    );
+    const repositoryAuthorizer: RepositoryAuthorizer = {
+      enabled: true,
+      resolveRepositoryAuthorization,
+    };
+    const registry = registryWithAgentTools([entry], {
+      repositoryAuthorization: 'enforced',
+      onOpenSession,
+    });
+
+    const result = await callIntegrationTool(
+      createInput({onOpenSession}, {registry, catalogEntry: entry, repositoryAuthorizer}),
+    );
+
+    expect(result).toMatchObject({
+      outcome: 'error',
+      error: {
+        code: 'repository-not-granted',
+        message: 'Repository is not authorized for this integration connection',
+      },
+      authorization: {
+        repositories: [{owner: 'shipfox', name: 'platform'}],
+        classification: 'declared-targets',
+        repositoryAccess: 'selected',
+        decision: 'denied',
+        denialReason: 'repository_not_granted',
+        targetProjectIds: [],
+      },
+    });
+    expect(resolveRepositoryAuthorization).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: 'workspace-1',
+        connectionId: 'connection-1',
+        mode: 'selected',
+        repository: {kind: 'name', owner: 'shipfox', name: 'platform'},
+        capability: 'tools',
+        request: expect.any(Object),
+      }),
+    );
+    expect(onOpenSession).not.toHaveBeenCalled();
+  });
+
+  it('re-reads the current catalog before classifying an authorized call', async () => {
+    const staleEntry = catalogTool({
+      methods: undefined,
+      repositoryScope: () => ({kind: 'connection'}),
+    });
+    const liveEntry = catalogTool({
+      methods: undefined,
+      repositoryScope: declaredRepositoryScope,
+    });
+    const onOpenSession = vi.fn();
+    const resolveRepositoryAuthorization = vi.fn(
+      async (): Promise<RepositoryAuthorizationResult> => ({
+        authorized: false,
+        reason: 'repository_not_granted',
+      }),
+    );
+    const registry = registryWithAgentTools([liveEntry], {
+      repositoryAuthorization: 'enforced',
+      onOpenSession,
+    });
+    const catalog = vi.spyOn(registry.getAdapter('github', 'agent_tools'), 'catalog');
+
+    const result = await callIntegrationTool(
+      createInput(
+        {onOpenSession},
+        {
+          registry,
+          catalogEntry: staleEntry,
+          repositoryAuthorizer: {enabled: true, resolveRepositoryAuthorization},
+        },
+      ),
+    );
+
+    expect(result).toMatchObject({
+      outcome: 'error',
+      error: {code: 'repository-not-granted'},
+      authorization: {
+        classification: 'declared-targets',
+        decision: 'denied',
+        denialReason: 'repository_not_granted',
+      },
+    });
+    expect(catalog).toHaveBeenCalledOnce();
+    expect(resolveRepositoryAuthorization).toHaveBeenCalledOnce();
+    expect(onOpenSession).not.toHaveBeenCalled();
+  });
+
+  it('does not inherit an entry classifier for a method without its own classifier', async () => {
+    const onOpenSession = vi.fn();
+    const entry = catalogTool({repositoryScope: declaredRepositoryScope});
+    const resolveRepositoryAuthorization = vi.fn();
+    const registry = registryWithAgentTools([entry], {
+      repositoryAuthorization: 'enforced',
+      onOpenSession,
+    });
+
+    const result = await callIntegrationTool(
+      createInput(
+        {onOpenSession},
+        {
+          registry,
+          catalogEntry: entry,
+          repositoryAuthorizer: {enabled: true, resolveRepositoryAuthorization},
+        },
+      ),
+    );
+
+    expect(result).toMatchObject({
+      outcome: 'error',
+      error: {
+        code: 'provider-rejected',
+        message: 'Enforced integration tool is missing a repository scope classifier',
+      },
+    });
+    expect(resolveRepositoryAuthorization).not.toHaveBeenCalled();
+    expect(onOpenSession).not.toHaveBeenCalled();
+  });
+
+  it('authorizes every declared target and denies the whole multi-target call', async () => {
+    const onOpenSession = vi.fn();
+    const entry = catalogWithRepositoryScope(() => ({
+      kind: 'declared-targets',
+      repositories: [
+        {owner: 'shipfox', name: 'platform'},
+        {owner: 'shipfox', name: 'private'},
+      ],
+    }));
+    const resolveRepositoryAuthorization = vi.fn(
+      async ({
+        repository,
+      }: ResolveRepositoryAuthorizationInput): Promise<RepositoryAuthorizationResult> =>
+        repository.kind === 'name' && repository.name === 'private'
+          ? {authorized: false, reason: 'repository_not_granted'}
+          : {
+              authorized: true,
+              repository: {owner: 'shipfox', name: 'platform'},
+              targetProjectId: 'project-platform',
+            },
+    );
+    const repositoryAuthorizer: RepositoryAuthorizer = {
+      enabled: true,
+      resolveRepositoryAuthorization,
+    };
+    const registry = registryWithAgentTools([entry], {
+      repositoryAuthorization: 'enforced',
+      onOpenSession,
+    });
+
+    const result = await callIntegrationTool(
+      createInput({onOpenSession}, {registry, catalogEntry: entry, repositoryAuthorizer}),
+    );
+
+    expect(result).toMatchObject({
+      outcome: 'error',
+      error: {code: 'repository-not-granted'},
+      authorization: {
+        decision: 'denied',
+        denialReason: 'repository_not_granted',
+        targetProjectIds: ['project-platform'],
+      },
+    });
+    expect(resolveRepositoryAuthorization).toHaveBeenCalledTimes(2);
+    expect(resolveRepositoryAuthorization.mock.calls.map(([input]) => input.repository)).toEqual([
+      {kind: 'name', owner: 'shipfox', name: 'platform'},
+      {kind: 'name', owner: 'shipfox', name: 'private'},
+    ]);
+    expect(onOpenSession).not.toHaveBeenCalled();
+  });
+
+  it('maps an invalid declared target to a bounded repository denial', async () => {
+    const onOpenSession = vi.fn();
+    const entry = catalogTool({
+      methods: undefined,
+      repositoryScope: () => ({
+        kind: 'declared-targets',
+        repositories: [{owner: 'octo/hello', name: 'platform'}],
+      }),
+    });
+    const resolveRepositoryAuthorization = vi.fn(() =>
+      Promise.reject(new RepositoryAuthorizationTargetInvalidError()),
+    );
+    const registry = registryWithAgentTools([entry], {
+      repositoryAuthorization: 'enforced',
+      onOpenSession,
+    });
+
+    const result = await callIntegrationTool(
+      createInput(
+        {onOpenSession},
+        {
+          registry,
+          catalogEntry: entry,
+          repositoryAuthorizer: {enabled: true, resolveRepositoryAuthorization},
+        },
+      ),
+    );
+
+    expect(result).toMatchObject({
+      outcome: 'error',
+      error: {
+        code: 'repository-not-granted',
+        message: 'Repository is not authorized for this integration connection',
+      },
+      authorization: {
+        decision: 'denied',
+        denialReason: 'repository_not_granted',
+        repositories: [{owner: 'octo/hello', name: 'platform'}],
+      },
+    });
+    expect(resolveRepositoryAuthorization).toHaveBeenCalledOnce();
+    expect(onOpenSession).not.toHaveBeenCalled();
+  });
+
+  it('denies an enforced empty declared-targets scope without opening a session', async () => {
+    const onOpenSession = vi.fn();
+    const entry = catalogTool({
+      methods: undefined,
+      repositoryScope: () => ({kind: 'declared-targets', repositories: []}),
+    });
+    const resolveRepositoryAuthorization = vi.fn();
+    const registry = registryWithAgentTools([entry], {
+      repositoryAuthorization: 'enforced',
+      onOpenSession,
+    });
+
+    const result = await callIntegrationTool(
+      createInput(
+        {onOpenSession},
+        {
+          registry,
+          catalogEntry: entry,
+          repositoryAuthorizer: {enabled: true, resolveRepositoryAuthorization},
+        },
+      ),
+    );
+
+    expect(result).toMatchObject({
+      outcome: 'error',
+      error: {code: 'repository-not-granted'},
+      authorization: {
+        decision: 'denied',
+        denialReason: 'repository_not_granted',
+        repositories: [],
+      },
+    });
+    expect(resolveRepositoryAuthorization).not.toHaveBeenCalled();
+    expect(onOpenSession).not.toHaveBeenCalled();
+  });
+
+  it('maps an unavailable authorization store to a bounded denial', async () => {
+    const onOpenSession = vi.fn();
+    const entry = catalogWithRepositoryScope(declaredRepositoryScope);
+    const resolveRepositoryAuthorization = vi.fn(async (): Promise<undefined> => undefined);
+    const registry = registryWithAgentTools([entry], {
+      repositoryAuthorization: 'enforced',
+      onOpenSession,
+    });
+
+    const result = await callIntegrationTool(
+      createInput(
+        {onOpenSession},
+        {
+          registry,
+          catalogEntry: entry,
+          repositoryAuthorizer: {enabled: true, resolveRepositoryAuthorization},
+        },
+      ),
+    );
+
+    expect(result).toMatchObject({
+      outcome: 'error',
+      error: {
+        code: 'repository-authorization-unavailable',
+        message: 'Repository authorization is temporarily unavailable',
+      },
+      authorization: {
+        decision: 'denied',
+        denialReason: 'authorization_store_unavailable',
+      },
+    });
+    expect(onOpenSession).not.toHaveBeenCalled();
+  });
+
+  it('maps an ambiguous authorization result to a bounded denial', async () => {
+    const onOpenSession = vi.fn();
+    const entry = catalogWithRepositoryScope(declaredRepositoryScope);
+    const resolveRepositoryAuthorization = vi.fn(
+      async (): Promise<RepositoryAuthorizationResult> => ({
+        authorized: false,
+        reason: 'repository_ambiguous',
+      }),
+    );
+    const registry = registryWithAgentTools([entry], {
+      repositoryAuthorization: 'enforced',
+      onOpenSession,
+    });
+
+    const result = await callIntegrationTool(
+      createInput(
+        {onOpenSession},
+        {
+          registry,
+          catalogEntry: entry,
+          repositoryAuthorizer: {enabled: true, resolveRepositoryAuthorization},
+        },
+      ),
+    );
+
+    expect(result).toMatchObject({
+      outcome: 'error',
+      error: {
+        code: 'repository-ambiguous',
+        message: 'Repository authorization is ambiguous for this integration connection',
+      },
+      authorization: {
+        decision: 'denied',
+        denialReason: 'repository_ambiguous',
+      },
+    });
+    expect(onOpenSession).not.toHaveBeenCalled();
+  });
+
+  it('keeps connection-scoped calls available and records their classification', async () => {
+    const onOpenSession = vi.fn();
+    const baseEntry = catalogTool();
+    const entry = catalogTool({
+      repositoryScope: declaredRepositoryScope,
+      methods: baseEntry.methods?.map((method) => ({
+        ...method,
+        repositoryScope: () => ({kind: 'connection'}),
+      })),
+      indirectTargetNote: 'Provider resolves the destination from the connection.',
+    });
+    const resolveRepositoryAuthorization = vi.fn();
+    const repositoryAuthorizer: RepositoryAuthorizer = {
+      enabled: true,
+      resolveRepositoryAuthorization,
+    };
+    const registry = registryWithAgentTools([entry], {
+      repositoryAuthorization: 'enforced',
+      onOpenSession,
+    });
+
+    const result = await callIntegrationTool(
+      createInput({onOpenSession}, {registry, catalogEntry: entry, repositoryAuthorizer}),
+    );
+
+    expect(result).toMatchObject({
+      outcome: 'success',
+      authorization: {
+        repositories: [],
+        classification: 'connection',
+        repositoryAccess: 'selected',
+        decision: 'not-applicable',
+        denialReason: 'none',
+        targetProjectIds: [],
+        indirectTargetNote: 'Provider resolves the destination from the connection.',
+      },
+    });
+    expect(resolveRepositoryAuthorization).not.toHaveBeenCalled();
+    expect(onOpenSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps provider-unclassified calls available while recording declared targets', async () => {
+    const onOpenSession = vi.fn();
+    const entry = catalogWithRepositoryScope(declaredRepositoryScope);
+    const resolveRepositoryAuthorization = vi.fn();
+    const repositoryAuthorizer: RepositoryAuthorizer = {
+      enabled: true,
+      resolveRepositoryAuthorization,
+    };
+    const registry = registryWithAgentTools([entry], {
+      repositoryAuthorization: 'unclassified',
+      onOpenSession,
+    });
+
+    const result = await callIntegrationTool(
+      createInput({onOpenSession}, {registry, catalogEntry: entry, repositoryAuthorizer}),
+    );
+
+    expect(result).toMatchObject({
+      outcome: 'success',
+      authorization: {
+        repositories: [{owner: 'shipfox', name: 'platform'}],
+        classification: 'unclassified',
+        repositoryAccess: 'selected',
+        decision: 'not-applicable',
+        denialReason: 'none',
+      },
+    });
+    expect(resolveRepositoryAuthorization).not.toHaveBeenCalled();
+    expect(onOpenSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not refetch the catalog when repository authorization is disabled', async () => {
+    const onOpenSession = vi.fn();
+    const registry = registryWithAgentTools([catalogTool()], {
+      repositoryAuthorization: 'enforced',
+      onOpenSession,
+    });
+    const catalog = vi.spyOn(registry.getAdapter('github', 'agent_tools'), 'catalog');
+    const resolveRepositoryAuthorization = vi.fn();
+
+    const result = await callIntegrationTool(
+      createInput(
+        {onOpenSession},
+        {
+          registry,
+          repositoryAuthorizer: {enabled: false, resolveRepositoryAuthorization},
+        },
+      ),
+    );
+
+    expect(result).toMatchObject({
+      outcome: 'success',
+      authorization: {
+        classification: 'connection',
+        decision: 'not-enforced',
+        denialReason: 'none',
+      },
+    });
+    expect(catalog).not.toHaveBeenCalled();
+    expect(resolveRepositoryAuthorization).not.toHaveBeenCalled();
+    expect(onOpenSession).toHaveBeenCalledOnce();
+  });
+
+  it('passes the explicit all repository mode to each authorization target', async () => {
+    const entry = catalogWithRepositoryScope(declaredRepositoryScope);
+    const resolveRepositoryAuthorization = vi.fn(
+      async (): Promise<RepositoryAuthorizationResult> => ({
+        authorized: true,
+        repository: {owner: 'shipfox', name: 'platform'},
+        targetProjectId: 'project-platform',
+      }),
+    );
+    const repositoryAuthorizer: RepositoryAuthorizer = {
+      enabled: true,
+      resolveRepositoryAuthorization,
+    };
+    const registry = registryWithAgentTools([entry], {repositoryAuthorization: 'enforced'});
+
+    const result = await callIntegrationTool(
+      createInput(
+        {},
+        {
+          registry,
+          catalogEntry: entry,
+          repositoryAccessMode: 'all',
+          repositoryAuthorizer,
+        },
+      ),
+    );
+
+    expect(result).toMatchObject({
+      outcome: 'success',
+      authorization: {
+        repositoryAccess: 'all',
+        decision: 'allowed',
+        targetProjectIds: ['project-platform'],
+      },
+    });
+    expect(resolveRepositoryAuthorization).toHaveBeenCalledWith(
+      expect.objectContaining({mode: 'all'}),
+    );
   });
 
   it.each([
@@ -204,6 +688,7 @@ describe('callIntegrationTool', () => {
         caller: {
           caller: 'tool_step',
           workspaceId: 'workspace-1',
+          projectId: 'project-1',
           runId: 'run-1',
           jobExecutionId: 'execution-1',
           stepId: 'step-1',
@@ -219,6 +704,7 @@ describe('callIntegrationTool', () => {
     expect(serviceMocks.loggerError.mock.calls[0]?.[0]).toEqual({
       caller: 'tool_step',
       workspaceId: 'workspace-1',
+      projectId: 'project-1',
       runId: 'run-1',
       jobExecutionId: 'execution-1',
       stepId: 'step-1',
@@ -297,6 +783,79 @@ describe('callIntegrationTool', () => {
     });
     expect(onOpenSession).not.toHaveBeenCalled();
     expect(serviceMocks.loggerError).not.toHaveBeenCalled();
+  });
+
+  it('does not load the catalog or authorization store after an early abort', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const entry = catalogWithRepositoryScope(declaredRepositoryScope);
+    const onOpenSession = vi.fn();
+    const registry = registryWithAgentTools([entry], {
+      repositoryAuthorization: 'enforced',
+      onOpenSession,
+    });
+    const catalog = vi.spyOn(registry.getAdapter('github', 'agent_tools'), 'catalog');
+    const resolveRepositoryAuthorization = vi.fn();
+
+    const result = await callIntegrationTool(
+      createInput(
+        {onOpenSession},
+        {
+          registry,
+          catalogEntry: entry,
+          repositoryAuthorizer: {enabled: true, resolveRepositoryAuthorization},
+          signal: controller.signal,
+        },
+      ),
+    );
+
+    expect(result).toEqual({
+      outcome: 'error',
+      error: {code: 'cancelled', message: 'Integration tool call cancelled'},
+    });
+    expect(catalog).not.toHaveBeenCalled();
+    expect(resolveRepositoryAuthorization).not.toHaveBeenCalled();
+    expect(onOpenSession).not.toHaveBeenCalled();
+  });
+
+  it('stops waiting for authorization when the call signal aborts', async () => {
+    const controller = new AbortController();
+    const entry = catalogWithRepositoryScope(declaredRepositoryScope);
+    const onOpenSession = vi.fn();
+    let releaseAuthorization: ((result: RepositoryAuthorizationResult) => void) | undefined;
+    const authorization = new Promise<RepositoryAuthorizationResult>((resolve) => {
+      releaseAuthorization = resolve;
+    });
+    const resolveRepositoryAuthorization = vi.fn(() => authorization);
+    const registry = registryWithAgentTools([entry], {
+      repositoryAuthorization: 'enforced',
+      onOpenSession,
+    });
+
+    const call = callIntegrationTool(
+      createInput(
+        {onOpenSession},
+        {
+          registry,
+          catalogEntry: entry,
+          repositoryAuthorizer: {enabled: true, resolveRepositoryAuthorization},
+          signal: controller.signal,
+        },
+      ),
+    );
+    await vi.waitFor(() => expect(resolveRepositoryAuthorization).toHaveBeenCalledOnce());
+
+    controller.abort();
+
+    await expect(call).resolves.toEqual({
+      outcome: 'error',
+      error: {code: 'cancelled', message: 'Integration tool call cancelled'},
+    });
+    expect(onOpenSession).not.toHaveBeenCalled();
+    releaseAuthorization?.({
+      authorized: true,
+      repository: {owner: 'shipfox', name: 'platform'},
+    });
   });
 
   it('closes a session that resolves after an abort during session opening', async () => {
@@ -484,6 +1043,16 @@ function createInput(
     ...overrides,
   };
 }
+
+const declaredRepositoryScope: AgentToolRepositoryScopeClassifier = (arguments_) => ({
+  kind: 'declared-targets',
+  repositories: [
+    {
+      owner: String(arguments_.owner),
+      name: String(arguments_.repo),
+    },
+  ],
+});
 
 describe('loadAuthorizedToolConnection', () => {
   const params = {

@@ -5,7 +5,12 @@ import type {
 } from '@shipfox/api-agent-dto';
 import type {LeasedJobContext} from '@shipfox/api-auth-context';
 import type {IntegrationConnection} from '#core/entities/connection.js';
-import type {AgentToolCatalogEntry, AgentToolsProvider} from '#core/providers/agent-tools.js';
+import type {
+  AgentToolCatalogEntry,
+  AgentToolRepositoryAuthorizationState,
+  AgentToolRepositoryScopeClassifier,
+  AgentToolsProvider,
+} from '#core/providers/agent-tools.js';
 import {createIntegrationProviderRegistry} from '#core/providers/registry.js';
 
 export function leaseContext(overrides: Partial<LeasedJobContext> = {}): LeasedJobContext {
@@ -146,7 +151,18 @@ export function catalogTool(overrides: Partial<AgentToolCatalogEntry> = {}): Age
   };
 }
 
+export function catalogWithRepositoryScope(
+  repositoryScope: AgentToolRepositoryScopeClassifier,
+): AgentToolCatalogEntry {
+  const entry = catalogTool({repositoryScope});
+  return {
+    ...entry,
+    methods: entry.methods?.map((method) => ({...method, repositoryScope})),
+  };
+}
+
 export interface AgentToolsProviderOptions {
+  repositoryAuthorization?: AgentToolRepositoryAuthorizationState | undefined;
   result?: CallToolResult | undefined;
   openSessionError?: unknown;
   callError?: unknown;
@@ -204,6 +220,9 @@ export function registryWithAgentTools(
     {
       provider: 'github',
       displayName: 'GitHub',
+      ...(options.repositoryAuthorization === undefined
+        ? {}
+        : {repositoryAuthorization: options.repositoryAuthorization}),
       adapters: {
         agent_tools: agentToolsProvider(catalog, options),
       },

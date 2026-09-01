@@ -168,6 +168,7 @@ export type {
   IntegrationToolArgumentSummary,
   IntegrationToolCallAuditRecord,
   IntegrationToolCallAuditTarget,
+  IntegrationToolCallAuthorization,
   IntegrationToolCallCaller,
   IntegrationToolCallRecorder,
 } from '#core/tool-call-audit.js';
@@ -175,6 +176,7 @@ export {
   callerLogContext,
   createIntegrationToolCallRecorder,
   INVALID_METHOD_LABEL,
+  integrationToolCallAuthorizationAuditFields,
   NO_METHOD_LABEL,
   summarizeIntegrationToolArguments,
   UNKNOWN_TOOL_LABEL,
@@ -322,7 +324,7 @@ export async function createIntegrationsContext(
   const module: ShipfoxModule = {
     name: 'integrations',
     interModulePresentations: [
-      createIntegrationsInterModulePresentation({registry, sourceControl}),
+      createIntegrationsInterModulePresentation({registry, sourceControl, repositoryAuthorizer}),
     ],
     startupTasks: runStartupTasks,
     database: [
@@ -334,6 +336,7 @@ export async function createIntegrationsContext(
         ? {
             workflows: options.agentTools.workflows,
             getIntegrationConnectionById,
+            repositoryAuthorizer,
           }
         : undefined,
     }),

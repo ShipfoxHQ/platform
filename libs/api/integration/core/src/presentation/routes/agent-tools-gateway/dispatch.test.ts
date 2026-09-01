@@ -3,6 +3,7 @@ import type {logger as loggerFactoryType} from '@shipfox/node-opentelemetry';
 import {IntegrationProviderError} from '#core/errors.js';
 import {
   catalogTool,
+  catalogWithRepositoryScope,
   connection,
   leaseContext,
   materializedIntegration,
@@ -127,6 +128,58 @@ describe('createIntegrationToolDispatcher', () => {
     expect(dispatchMocks.reportError).toHaveBeenCalledWith(internalError, {
       boundary: 'integration.agent-tool',
     });
+  });
+
+  it('returns a repository denial without opening the provider session', async () => {
+    const onOpenSession = vi.fn();
+    const entry = catalogWithRepositoryScope(() => ({
+      kind: 'declared-targets',
+      repositories: [{owner: 'shipfox', name: 'platform'}],
+    }));
+    const resolveRepositoryAuthorization = vi.fn(async () => ({
+      authorized: false as const,
+      reason: 'repository_not_granted' as const,
+    }));
+    const dispatch = createIntegrationToolDispatcher(
+      {
+        registry: registryWithAgentTools([entry], {
+          repositoryAuthorization: 'enforced',
+          onOpenSession,
+        }),
+        lease: leaseContext({
+          workspaceId: 'workspace-1',
+          projectId: 'project-run',
+        }),
+        repositoryAuthorizer: {
+          enabled: true,
+          resolveRepositoryAuthorization,
+        },
+      },
+      {logger: loggerFactory, reportError},
+    );
+
+    const result = await dispatch({
+      authorizedTool: {...authorizedTool(), catalogEntry: entry},
+      arguments: {method: 'get', owner: 'shipfox', repo: 'platform', issue_number: 1},
+      method: 'get',
+    });
+
+    expect(result).toMatchObject({
+      result: {
+        isError: true,
+        structuredContent: {code: 'repository-not-granted'},
+      },
+      authorization: {
+        repositories: [{owner: 'shipfox', name: 'platform'}],
+        classification: 'declared-targets',
+        repositoryAccess: 'selected',
+        decision: 'denied',
+        denialReason: 'repository_not_granted',
+        runProjectId: 'project-run',
+      },
+    });
+    expect(resolveRepositoryAuthorization).toHaveBeenCalledTimes(1);
+    expect(onOpenSession).not.toHaveBeenCalled();
   });
 });
 

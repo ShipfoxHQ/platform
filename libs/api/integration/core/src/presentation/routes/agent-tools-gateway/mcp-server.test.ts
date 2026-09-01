@@ -4,10 +4,14 @@ import {CallToolResultSchema} from '@modelcontextprotocol/sdk/types.js';
 import {INVALID_METHOD_LABEL, NO_METHOD_LABEL} from '#core/tool-call-audit.js';
 import {
   catalogTool,
+  catalogWithRepositoryScope,
   connection,
+  leaseContext,
   materializedIntegration,
   materializedTool,
+  registryWithAgentTools,
 } from '#test/agent-tools-gateway-helpers.js';
+import {createIntegrationToolDispatcher} from './dispatch.js';
 import {buildAgentToolsMcpServer, type IntegrationToolDispatchInput} from './mcp-server.js';
 import type {AuthorizedIntegrationToolMap} from './resolve-authorized-tools.js';
 
@@ -55,6 +59,68 @@ describe('buildAgentToolsMcpServer', () => {
         method: 'get',
         outcome: 'success',
         errorCode: 'none',
+      },
+    ]);
+  });
+
+  it('records the shared repository denial returned by the MCP dispatcher', async () => {
+    const entry = catalogWithRepositoryScope(() => ({
+      kind: 'declared-targets',
+      repositories: [{owner: 'shipfox', name: 'platform'}],
+    }));
+    const onOpenSession = vi.fn();
+    const resolveRepositoryAuthorization = vi.fn(async () => ({
+      authorized: false as const,
+      reason: 'repository_not_granted' as const,
+    }));
+    const authorizedTools = defaultAuthorizedTools();
+    const authorizedTool = authorizedTools.get('github_main__issue_read');
+    if (!authorizedTool) throw new Error('Expected default authorized tool');
+    authorizedTools.set('github_main__issue_read', {...authorizedTool, catalogEntry: entry});
+    const dispatch = createIntegrationToolDispatcher({
+      registry: registryWithAgentTools([entry], {
+        repositoryAuthorization: 'enforced',
+        onOpenSession,
+      }),
+      lease: leaseContext({
+        workspaceId: 'workspace-1',
+        projectId: 'project-run',
+      }),
+      repositoryAuthorizer: {
+        enabled: true,
+        resolveRepositoryAuthorization,
+      },
+    });
+    const records: Parameters<
+      NonNullable<Parameters<typeof buildAgentToolsMcpServer>[0]['recordCall']>
+    >[0][] = [];
+    const {client, close} = await connectClient(dispatch, authorizedTools, (record) =>
+      records.push(record),
+    );
+
+    const result = await client.callTool(
+      {
+        name: 'github_main__issue_read',
+        arguments: {method: 'get', owner: 'shipfox', repo: 'platform', issue_number: 1},
+      },
+      CallToolResultSchema,
+    );
+    await close();
+
+    expect(result.isError).toBe(true);
+    expect(onOpenSession).not.toHaveBeenCalled();
+    expect(resolveRepositoryAuthorization).toHaveBeenCalledTimes(1);
+    expect(records).toMatchObject([
+      {
+        method: 'get',
+        outcome: 'tool-error',
+        errorCode: 'repository-not-granted',
+        repositories: [{owner: 'shipfox', name: 'platform'}],
+        classification: 'declared-targets',
+        repositoryAccess: 'selected',
+        decision: 'denied',
+        denialReason: 'repository_not_granted',
+        runProjectId: 'project-run',
       },
     ]);
   });

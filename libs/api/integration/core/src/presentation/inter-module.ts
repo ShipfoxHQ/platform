@@ -31,6 +31,7 @@ import {buildFixedEventProviders, buildProviderEventCatalogs} from '#core/event-
 import type {AgentToolCatalogEntry} from '#core/providers/agent-tools.js';
 import type {IntegrationProviderRegistry} from '#core/providers/registry.js';
 import type {CheckoutSpec} from '#core/providers/source-control.js';
+import type {RepositoryAuthorizer} from '#core/repository-authorizer.js';
 import type {IntegrationSourceControlService} from '#core/source-control-service.js';
 import {
   createIntegrationToolCallRecorder,
@@ -39,6 +40,7 @@ import {
   type IntegrationToolCallAuditTarget,
   type IntegrationToolCallCaller,
   type IntegrationToolCallRecorder,
+  integrationToolCallAuthorizationAuditFields,
   NO_METHOD_LABEL,
 } from '#core/tool-call-audit.js';
 import {
@@ -111,6 +113,7 @@ export function createIntegrationsInterModulePresentation(params: {
   createIntegrationToolCallRecorder?: (
     caller: IntegrationToolCallCaller,
   ) => IntegrationToolCallRecorder;
+  repositoryAuthorizer?: RepositoryAuthorizer | undefined;
 }): InterModulePresentation<typeof integrationsInterModuleContract> {
   const contract = integrationsInterModuleContract;
   const getConnectionById = params.getIntegrationConnectionById ?? getIntegrationConnectionById;
@@ -294,6 +297,8 @@ export function createIntegrationsInterModulePresentation(params: {
           arguments: input.arguments,
           method: executedMethod,
           caller,
+          catalogEntry,
+          repositoryAuthorizer: params.repositoryAuthorizer,
           signal: context.signal,
         });
 
@@ -323,6 +328,7 @@ function toToolCallCaller(caller: CallToolCaller, workspaceId: string): Integrat
     : {
         caller: 'tool_step',
         workspaceId,
+        projectId: caller.projectId,
         runId: caller.runId,
         jobExecutionId: caller.jobExecutionId,
         stepId: caller.stepId,
@@ -432,6 +438,7 @@ function recordCallOutcome(
     method,
     outcome: outcome.outcome === 'success' ? 'success' : 'tool-error',
     errorCode: outcome.outcome === 'success' ? 'none' : outcome.error.code,
+    ...integrationToolCallAuthorizationAuditFields(outcome.authorization),
     ...(outcome.outcome === 'success' || outcome.error.status === undefined
       ? {}
       : {providerStatus: outcome.error.status}),

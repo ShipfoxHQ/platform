@@ -267,6 +267,7 @@ describe('integrationsInterModuleContract', () => {
     arguments: {owner: 'shipfox', repo: 'platform', issue_number: 1},
     caller: {
       kind: 'tool_step',
+      projectId: 'project-1',
       runId: 'run-1',
       jobExecutionId: 'execution-1',
       stepId: 'step-1',
@@ -331,6 +332,15 @@ describe('integrationsInterModuleContract', () => {
       integrationsInterModuleContract.methods.callTool.input.parse({
         ...toolCallInput,
         caller: {kind: 'tool_step'},
+      }),
+    ).toThrow();
+  });
+
+  test.each([undefined, ''])('rejects a tool step caller with projectId %j', (projectId) => {
+    expect(() =>
+      integrationsInterModuleContract.methods.callTool.input.parse({
+        ...toolCallInput,
+        caller: {...toolCallInput.caller, projectId},
       }),
     ).toThrow();
   });

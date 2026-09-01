@@ -26,6 +26,7 @@ const agentCaller: IntegrationToolCallCaller = {
 const toolStepCaller: IntegrationToolCallCaller = {
   caller: 'tool_step',
   workspaceId: 'workspace-1',
+  projectId: 'project-1',
   runId: 'run-1',
   jobExecutionId: 'execution-1',
   stepId: 'step-1',
@@ -137,6 +138,86 @@ describe('integration tool call audit', () => {
     );
     expect(JSON.stringify(logInfo.mock.calls)).not.toContain('private-repository');
     expect(JSON.stringify(logInfo.mock.calls)).not.toContain('must-not-appear');
+  });
+
+  it('records repository authorization fields and bounded authorization labels', () => {
+    const recordMetric = vi.fn();
+    const recordAuthorizationMetric = vi.fn();
+    const logInfo = vi.fn();
+    const recorder = createIntegrationToolCallRecorder(agentCaller, {
+      recordMetric,
+      recordAuthorizationMetric,
+      logInfo,
+    });
+
+    recorder({
+      authorizedTool: auditTarget(),
+      arguments: {owner: 'shipfox', repo: 'platform'},
+      method: 'get',
+      outcome: 'tool-error',
+      errorCode: 'repository-not-granted',
+      repositories: [{owner: 'shipfox', name: 'platform'}],
+      classification: 'declared-targets',
+      repositoryAccess: 'selected',
+      decision: 'denied',
+      denialReason: 'repository_not_granted',
+      targetProjectIds: ['project-platform'],
+      runProjectId: 'project-run',
+      indirectTargetNote: 'The provider resolved a parent resource.',
+    });
+
+    expect(recordAuthorizationMetric).toHaveBeenCalledWith({
+      provider: 'github',
+      mode: 'selected',
+      classification: 'declared-targets',
+      decision: 'denied',
+      denial_reason: 'repository_not_granted',
+    });
+    expect(logInfo).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repositories: [{owner: 'shipfox', name: 'platform'}],
+        classification: 'declared-targets',
+        repositoryAccess: 'selected',
+        decision: 'denied',
+        denialReason: 'repository_not_granted',
+        targetProjectIds: ['project-platform'],
+        runProjectId: 'project-run',
+        indirectTargetNote: 'The provider resolved a parent resource.',
+      }),
+      'integration tool call audited',
+    );
+  });
+
+  it('records non-denied authorization decisions and skips records without authorization fields', () => {
+    const recordMetric = vi.fn();
+    const recordAuthorizationMetric = vi.fn();
+    const logInfo = vi.fn();
+    const recorder = createIntegrationToolCallRecorder(agentCaller, {
+      recordMetric,
+      recordAuthorizationMetric,
+      logInfo,
+    });
+
+    recorder({
+      authorizedTool: auditTarget(),
+      arguments: {},
+      method: 'get',
+      outcome: 'success',
+      errorCode: 'none',
+      classification: 'connection',
+      repositoryAccess: 'selected',
+      decision: 'not-applicable',
+    });
+    recorder({arguments: {}, method: 'get', outcome: 'success', errorCode: 'none'});
+
+    expect(recordAuthorizationMetric).toHaveBeenCalledOnce();
+    expect(recordAuthorizationMetric).toHaveBeenCalledWith({
+      provider: 'github',
+      mode: 'selected',
+      classification: 'connection',
+      decision: 'not-applicable',
+      denial_reason: 'none',
+    });
   });
 
   it('falls back to unknown labels and omits the lease context for a leaseless agent caller', () => {

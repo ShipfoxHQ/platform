@@ -11,12 +11,31 @@ export type IntegrationAgentToolCallOutcome =
 
 export type IntegrationToolCallCallerLabel = 'agent' | 'tool_step';
 
+export type IntegrationToolRepositoryAccessMode = 'selected' | 'all';
+export type IntegrationToolRepositoryClassification =
+  | 'declared-targets'
+  | 'connection'
+  | 'unclassified';
+export type IntegrationToolRepositoryDecision =
+  | 'allowed'
+  | 'denied'
+  | 'not-applicable'
+  | 'not-enforced';
+export type IntegrationToolRepositoryDenialReason =
+  | 'none'
+  | 'repository_not_granted'
+  | 'repository_ambiguous'
+  | 'authorization_store_unavailable';
+
 export type IntegrationAgentToolCallErrorCode =
   | 'invalid-request'
   | 'unknown'
   | 'provider-timeout'
   | 'cancelled'
   | 'credentials-unavailable'
+  | 'repository-not-granted'
+  | 'repository-ambiguous'
+  | 'repository-authorization-unavailable'
   | IntegrationProviderErrorReason;
 
 export type IntegrationAgentToolCallErrorLabel = IntegrationAgentToolCallErrorCode | 'none';
@@ -40,6 +59,9 @@ const integrationAgentToolCallErrorCodes = new Set<string>([
   'malformed-provider-response',
   'content-too-large',
   'too-many-files',
+  'repository-not-granted',
+  'repository-ambiguous',
+  'repository-authorization-unavailable',
 ]);
 
 const agentToolCallCount = meter.createCounter<{
@@ -71,6 +93,27 @@ export function recordIntegrationAgentToolCall(params: {
   error_code: IntegrationAgentToolCallErrorLabel;
 }): void {
   recordMetric(() => agentToolCallCount.add(1, params));
+}
+
+const agentToolRepositoryAuthorizationCount = meter.createCounter<{
+  provider: string;
+  mode: IntegrationToolRepositoryAccessMode;
+  classification: IntegrationToolRepositoryClassification;
+  decision: IntegrationToolRepositoryDecision;
+  denial_reason: IntegrationToolRepositoryDenialReason;
+}>('integrations_agent_tool_repository_authorization', {
+  description:
+    'Integration agent tool repository authorization decisions by provider, mode, classification, decision, and bounded denial reason',
+});
+
+export function recordIntegrationAgentToolRepositoryAuthorization(params: {
+  provider: string;
+  mode: IntegrationToolRepositoryAccessMode;
+  classification: IntegrationToolRepositoryClassification;
+  decision: IntegrationToolRepositoryDecision;
+  denial_reason: IntegrationToolRepositoryDenialReason;
+}): void {
+  recordMetric(() => agentToolRepositoryAuthorizationCount.add(1, params));
 }
 
 export function normalizeIntegrationAgentToolCallErrorCode(
