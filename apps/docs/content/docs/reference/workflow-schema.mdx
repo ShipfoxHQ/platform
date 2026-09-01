@@ -19,6 +19,8 @@ import {
   ListeningFields,
   RunStepFields,
   StepOutputs,
+  ToolStepFields,
+  ToolStepOutputs,
   TopLevelFields,
   TriggerFields,
 } from '../../generated/reference/workflow-schema.mdx';
@@ -171,8 +173,8 @@ These permissions apply to both job-level checkout and explicit checkout steps.
 
 ## Step fields
 
-Each step is either a run step, an agent step, or a checkout step. The schema
-rejects unknown fields and invalid field combinations.
+Each step is either a run step, an agent step, a checkout step, or a tool step.
+The schema rejects unknown fields and invalid field combinations.
 
 ### Run step fields
 
@@ -191,6 +193,28 @@ shell reads it as text and not as part of the command.
   `deploy "$TARGET"` rather than `eval "deploy $TARGET"`. A workflow sync warns
   when it finds one of these positions.
 </Callout>
+
+### Tool step fields
+
+<ToolStepFields />
+
+The `tool` value is a literal integration tool id. A tool id can name a
+standalone tool or one method in a tool family with `family.method`. The
+optional `connection` value is the slug of an integration connection. Omit it
+to use the project's source connection.
+
+The `with` block contains JSON-compatible tool inputs. String values can use
+workflow expressions. Tool outputs use a mapping from output names to one
+expression over `result` or `vars`.
+
+Tool-step authoring requires a validation API deployment that supports these
+fields. Deploy the editor schema and validation API together; rolling back the
+validation API after tool-step definitions are saved makes those definitions
+fail validation until tool-step support is restored.
+
+### Tool step outputs
+
+<ToolStepOutputs />
 
 ### Checkout step fields
 
@@ -218,8 +242,12 @@ A gate must define `success`, `on_failure`, or both.
 
 <StepOutputs />
 
-Each output declaration can be its type directly (for example, `sha: string`) or
-an object with required `type`. Only `json` declarations can include `schema`.
+Run, agent, and checkout steps use output declarations. A declaration can be its
+type directly (for example, `sha: string`) or an object with required `type`.
+Only `json` declarations can include `schema`.
+
+Tool steps use output mappings instead. Each mapping value must be exactly one
+`${{ }}` expression over the tool `result` or workflow `vars`.
 
 ## Listening fields
 

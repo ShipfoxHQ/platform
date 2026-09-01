@@ -1,4 +1,7 @@
 import {
+  WORKFLOW_DOCUMENT_STEP_OUTPUT_KEY_PATTERN,
+  WORKFLOW_DOCUMENT_STEP_OUTPUTS_MAX_ENTRIES,
+  WORKFLOW_INTERPOLATION_MARKER_PATTERN,
   WORKFLOW_LITERAL_NAME_PATTERN,
   WORKFLOW_SESSION_KEY_MAX_LENGTH,
   WORKFLOW_SESSION_KEY_PATTERN_SOURCE,
@@ -8,7 +11,7 @@ import {buildWorkflowJsonSchema} from './workflow-json-schema.js';
 type JsonSchema = Record<string, unknown>;
 
 describe('buildWorkflowJsonSchema', () => {
-  it('publishes input declarations without the reserved keys', () => {
+  it('publishes input declarations and authorable tool fields', () => {
     const schema = buildWorkflowJsonSchema();
     const step = stepSchemaFor(schema);
     const output = object(object(object(step.properties).outputs).additionalProperties);
@@ -20,16 +23,72 @@ describe('buildWorkflowJsonSchema', () => {
     });
     const stepProperties = object(step.properties);
     expect(stepProperties).not.toHaveProperty('agent');
-    expect(stepProperties).not.toHaveProperty('tool');
-    expect(stepProperties).not.toHaveProperty('connection');
-    expect(stepProperties).not.toHaveProperty('with');
+    expect(stepProperties).toEqual(
+      expect.objectContaining({
+        tool: expect.any(Object),
+        connection: expect.any(Object),
+        with: expect.any(Object),
+      }),
+    );
     expect(output.anyOf).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({enum: ['string', 'number', 'boolean', 'json']}),
+        expect.objectContaining({
+          anyOf: expect.arrayContaining([
+            expect.objectContaining({enum: ['string', 'number', 'boolean', 'json']}),
+          ]),
+        }),
+        expect.objectContaining({type: 'string', minLength: 1}),
       ]),
     );
-    expect(objects(output.anyOf)).not.toContainEqual(
-      expect.objectContaining({type: 'string', minLength: 1}),
+  });
+
+  it('switches step output values to mappings when a tool is present', () => {
+    const schema = buildWorkflowJsonSchema();
+    const step = stepSchemaFor(schema);
+    const condition = objects(step.allOf).find(
+      (candidate) => JSON.stringify(candidate.if) === JSON.stringify({required: ['tool']}),
+    );
+    const defaultOutput = object(object(object(step.properties).outputs).additionalProperties);
+    const toolOutput = object(
+      object(object(condition?.then).properties).outputs,
+    ).additionalProperties;
+
+    expect(condition).toBeDefined();
+    expect(defaultOutput.anyOf).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          anyOf: expect.arrayContaining([
+            expect.objectContaining({enum: ['string', 'number', 'boolean', 'json']}),
+          ]),
+        }),
+      ]),
+    );
+    expect(object(toolOutput)).toMatchObject({
+      type: 'string',
+      minLength: 1,
+      pattern: WORKFLOW_INTERPOLATION_MARKER_PATTERN.source,
+    });
+    expect(object(object(condition?.then).properties).outputs).toMatchObject({
+      maxProperties: WORKFLOW_DOCUMENT_STEP_OUTPUTS_MAX_ENTRIES,
+      propertyNames: {pattern: WORKFLOW_DOCUMENT_STEP_OUTPUT_KEY_PATTERN.source},
+    });
+
+    const declarationCondition = objects(step.allOf).find(
+      (candidate) => JSON.stringify(candidate.if) === JSON.stringify({not: {required: ['tool']}}),
+    );
+    expect(declarationCondition).toBeDefined();
+    const declarationOutput = object(
+      object(object(declarationCondition?.then).properties).outputs,
+    ).additionalProperties;
+    expect(declarationOutput).toEqual(
+      expect.objectContaining({
+        anyOf: expect.arrayContaining([
+          expect.objectContaining({enum: ['string', 'number', 'boolean', 'json']}),
+        ]),
+      }),
+    );
+    expect(objects(object(declarationOutput).anyOf)).not.toContainEqual(
+      expect.objectContaining({pattern: WORKFLOW_INTERPOLATION_MARKER_PATTERN.source}),
     );
   });
 
@@ -94,7 +153,12 @@ describe('buildWorkflowJsonSchema', () => {
     expect(triggers.minProperties).toBe(1);
     expect(jobOutputs.minProperties).toBe(1);
     expect(discriminator).toMatchObject({
-      oneOf: [{required: ['run']}, {required: ['prompt']}, {required: ['checkout']}],
+      oneOf: [
+        {required: ['run']},
+        {required: ['prompt']},
+        {required: ['checkout']},
+        {required: ['tool']},
+      ],
     });
     expect(requiredAlternatives(gate)).toEqual(['success', 'on_failure']);
     expect(requiredAlternatives(batch)).toEqual(['debounce', 'max_size', 'max_wait']);
@@ -135,6 +199,9 @@ describe('buildWorkflowJsonSchema', () => {
     );
     expect(object(checkoutBranch?.not).anyOf).toEqual(
       expect.arrayContaining([expect.objectContaining({required: ['session']})]),
+    );
+    expect(object(checkoutBranch?.not).anyOf).not.toContainEqual(
+      expect.objectContaining({required: ['working_directory']}),
     );
   });
 

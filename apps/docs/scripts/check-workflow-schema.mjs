@@ -15,6 +15,8 @@ const requiredAnchors = new Set([
   'listening-fields',
   'gate-fields',
   'run-step-fields',
+  'tool-step-fields',
+  'tool-step-outputs',
   'environment-variables',
   'checkout-fields',
 ]);
