@@ -33,10 +33,14 @@ const checkoutTargetSchema = z.union([
     repository: z.string().min(1),
   }),
 ]);
+const resolvedCheckoutTargetValue = z.discriminatedUnion('kind', [
+  z.strictObject({kind: z.literal('external-id'), externalRepositoryId: z.string()}),
+  z.strictObject({kind: z.literal('name'), owner: z.string().min(1), name: z.string().min(1)}),
+]);
 const resolvedCheckoutTargetSchema = z.object({
-  projectId: idSchema,
+  projectId: idSchema.optional(),
   connectionId: idSchema,
-  externalRepositoryId: z.string(),
+  target: resolvedCheckoutTargetValue,
 });
 
 /** Producer-owned project lookup and workspace ownership operations. */

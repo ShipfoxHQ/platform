@@ -1,4 +1,3 @@
-import type {IntegrationsModuleClient} from '@shipfox/api-integration-core-dto/inter-module';
 import {projectsInterModuleContract} from '@shipfox/api-projects-dto/inter-module';
 import {isInterModuleKnownError} from '@shipfox/inter-module';
 import {createInMemoryInterModuleTransport} from '@shipfox/node-module/inter-module';
@@ -6,26 +5,10 @@ import {db} from '#db/index.js';
 import {projects} from '#db/schema/projects.js';
 import {createProjectsInterModulePresentation} from './inter-module.js';
 
-function createClient(
-  integrations: Pick<IntegrationsModuleClient, 'resolveSourceRepository'> = {
-    resolveSourceRepository: vi.fn(async ({connectionId, externalRepositoryId}) => ({
-      connection: {id: connectionId, provider: 'github', slug: 'github'},
-      repository: {
-        externalRepositoryId,
-        owner: 'acme',
-        name: 'api',
-        fullName: 'acme/api',
-        defaultBranch: 'main',
-        visibility: 'private' as const,
-        cloneUrl: 'https://github.com/acme/api.git',
-        htmlUrl: 'https://github.com/acme/api',
-      },
-    })),
-  },
-) {
+function createClient() {
   const transport = createInMemoryInterModuleTransport();
   const client = transport.createClient(projectsInterModuleContract);
-  transport.register(createProjectsInterModulePresentation({integrations}));
+  transport.register(createProjectsInterModulePresentation());
   transport.seal();
   return client;
 }
@@ -168,8 +151,7 @@ describe('Projects checkout target inter-module presentation', () => {
   });
 
   test('finds zero, one, and multiple source repository name matches', async () => {
-    const resolveSourceRepository = vi.fn();
-    const client = createClient({resolveSourceRepository});
+    const client = createClient();
     const workspaceId = crypto.randomUUID();
     const connectionId = crypto.randomUUID();
 
@@ -240,7 +222,6 @@ describe('Projects checkout target inter-module presentation', () => {
 
     expect(multipleMatches.projects).toHaveLength(2);
     expect(multipleMatches.projects.map(({id}) => id)).toEqual([first.projectId, second.projectId]);
-    expect(resolveSourceRepository).not.toHaveBeenCalled();
   });
 
   test('resolves a project target in its workspace', async () => {
@@ -259,14 +240,21 @@ describe('Projects checkout target inter-module presentation', () => {
         defaults: {connectionId: crypto.randomUUID(), owner: 'other'},
         target: {project: project.projectId},
       }),
-    ).resolves.toEqual(project);
+    ).resolves.toEqual({
+      projectId: project.projectId,
+      connectionId: project.connectionId,
+      target: {
+        kind: 'external-id',
+        externalRepositoryId: project.externalRepositoryId,
+      },
+    });
   });
 
   test('resolves a bare repository name against the default owner', async () => {
     const client = createClient();
     const workspaceId = crypto.randomUUID();
     const connectionId = crypto.randomUUID();
-    const project = await insertProject({
+    await insertProject({
       workspaceId,
       connectionId,
       owner: 'AcMe',
@@ -279,14 +267,17 @@ describe('Projects checkout target inter-module presentation', () => {
         defaults: {connectionId, owner: 'acme'},
         target: {repository: 'api'},
       }),
-    ).resolves.toEqual(project);
+    ).resolves.toEqual({
+      connectionId,
+      target: {kind: 'name', owner: 'acme', name: 'api'},
+    });
   });
 
   test('resolves an owner/name repository case-insensitively', async () => {
     const client = createClient();
     const workspaceId = crypto.randomUUID();
     const connectionId = crypto.randomUUID();
-    const project = await insertProject({
+    await insertProject({
       workspaceId,
       connectionId,
       owner: 'AcMe',
@@ -299,7 +290,10 @@ describe('Projects checkout target inter-module presentation', () => {
         defaults: {connectionId, owner: 'other'},
         target: {repository: 'aCmE/aPI'},
       }),
-    ).resolves.toEqual(project);
+    ).resolves.toEqual({
+      connectionId,
+      target: {kind: 'name', owner: 'aCmE', name: 'aPI'},
+    });
   });
 
   test('uses an explicit connection to select between identical repositories', async () => {
@@ -313,7 +307,7 @@ describe('Projects checkout target inter-module presentation', () => {
       owner: 'acme',
       name: 'api',
     });
-    const explicitProject = await insertProject({
+    await insertProject({
       workspaceId,
       connectionId: explicitConnectionId,
       owner: 'acme',
@@ -326,70 +320,32 @@ describe('Projects checkout target inter-module presentation', () => {
         defaults: {connectionId: defaultConnectionId, owner: 'acme'},
         target: {connection: explicitConnectionId, repository: 'acme/api'},
       }),
-    ).resolves.toEqual(explicitProject);
+    ).resolves.toEqual({
+      connectionId: explicitConnectionId,
+      target: {kind: 'name', owner: 'acme', name: 'api'},
+    });
   });
 
-  test('rejects an ambiguous owner/name match instead of picking arbitrarily', async () => {
+  test('preserves an owner/name target without deciding authorization', async () => {
     const client = createClient();
     const workspaceId = crypto.randomUUID();
     const connectionId = crypto.randomUUID();
     await insertProject({workspaceId, connectionId, owner: 'acme', name: 'api'});
     await insertProject({workspaceId, connectionId, owner: 'acme', name: 'api'});
 
-    await expectUnauthorized(client, {
-      workspaceId,
-      defaults: {connectionId, owner: 'acme'},
-      target: {repository: 'acme/api'},
-    });
-  });
-
-  test('refreshes provider metadata before resolving a repository name', async () => {
-    const workspaceId = crypto.randomUUID();
-    const connectionId = crypto.randomUUID();
-    const externalRepositoryId = `github:${crypto.randomUUID()}`;
-    const resolveSourceRepository = vi.fn(async () => ({
-      connection: {id: connectionId, provider: 'github', slug: 'github'},
-      repository: {
-        externalRepositoryId,
-        owner: 'acme',
-        name: 'new-name',
-        fullName: 'acme/new-name',
-        defaultBranch: 'main',
-        visibility: 'private' as const,
-        cloneUrl: 'https://github.com/acme/new-name.git',
-        htmlUrl: 'https://github.com/acme/new-name',
-      },
-    }));
-    const client = createClient({resolveSourceRepository});
-    const project = await insertProject({
-      workspaceId,
-      connectionId,
-      owner: 'acme',
-      name: 'old-name',
-      externalRepositoryId,
-    });
-
-    await expectUnauthorized(client, {
-      workspaceId,
-      defaults: {connectionId, owner: 'acme'},
-      target: {repository: 'acme/old-name'},
-    });
-
     await expect(
       client.resolveCheckoutTarget({
         workspaceId,
         defaults: {connectionId, owner: 'acme'},
-        target: {repository: 'acme/new-name'},
+        target: {repository: 'acme/api'},
       }),
-    ).resolves.toEqual(project);
-    expect(resolveSourceRepository).toHaveBeenCalledWith({
-      workspaceId,
+    ).resolves.toEqual({
       connectionId,
-      externalRepositoryId: project.externalRepositoryId,
+      target: {kind: 'name', owner: 'acme', name: 'api'},
     });
   });
 
-  test('does not let a bare name escape the default owner', async () => {
+  test('does not decide authorization for a bare repository name', async () => {
     const client = createClient();
     const workspaceId = crypto.randomUUID();
     const connectionId = crypto.randomUUID();
@@ -400,10 +356,15 @@ describe('Projects checkout target inter-module presentation', () => {
       name: 'api',
     });
 
-    await expectUnauthorized(client, {
-      workspaceId,
-      defaults: {connectionId, owner: 'acme'},
-      target: {repository: 'api'},
+    await expect(
+      client.resolveCheckoutTarget({
+        workspaceId,
+        defaults: {connectionId, owner: 'acme'},
+        target: {repository: 'api'},
+      }),
+    ).resolves.toEqual({
+      connectionId,
+      target: {kind: 'name', owner: 'acme', name: 'api'},
     });
   });
 
@@ -424,7 +385,6 @@ describe('Projects checkout target inter-module presentation', () => {
   });
 
   test.each([
-    ['an unknown target', {repository: 'acme/missing'}],
     ['a leading slash', {repository: '/api'}],
     ['a trailing slash', {repository: 'acme/'}],
     ['more than one slash', {repository: 'acme/api/extra'}],

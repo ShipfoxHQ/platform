@@ -91,6 +91,7 @@ export {
   IntegrationConnectionWorkspaceMismatchError,
   IntegrationProviderError,
   IntegrationProviderUnavailableError,
+  IntegrationRepositoryAuthorizationError,
   RepositoryAuthorizerConfigurationError,
   WebhookProcessorNotConfiguredError,
 } from '#core/errors.js';
@@ -297,13 +298,14 @@ export async function createIntegrationsContext(
         }));
 
   const registry = createIntegrationProviderRegistry(parts.map((part) => part.provider));
-  const sourceControl = createSourceControlIntegrationService({
-    registry,
-    getIntegrationConnectionById,
-  });
   const repositoryAuthorizer = createRepositoryAuthorizer({
     projects: options.projects,
     enabled: config.INTEGRATIONS_ENABLE_REPOSITORY_AUTHORIZATION,
+  });
+  const sourceControl = createSourceControlIntegrationService({
+    registry,
+    getIntegrationConnectionById,
+    repositoryAuthorizer,
   });
   const webhookProcessor = createComposedWebhookProcessor(
     parts.flatMap((part) => part.webhookProcessors ?? []),

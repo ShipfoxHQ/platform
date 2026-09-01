@@ -34,6 +34,7 @@ function createClient(
     token: 'token',
     expiresAt: new Date('2026-01-01T00:00:00.000Z'),
   }),
+  repositoryAuthorizer?: RepositoryAuthorizer,
 ) {
   const transport = createInMemoryInterModuleTransport();
   const client = transport.createClient(integrationsInterModuleContract);
@@ -72,6 +73,7 @@ function createClient(
           }
         : undefined;
     },
+    repositoryAuthorizer,
   });
 
   transport.register(
@@ -152,6 +154,46 @@ describe('integrations inter-module presentation', () => {
     } else {
       throw error;
     }
+  });
+
+  it('maps checkout authorization denials to the transport error contract', async () => {
+    const resolveRepositoryAuthorization = vi.fn().mockResolvedValue({
+      authorized: false,
+      reason: 'repository_not_granted',
+    } as const);
+    const client = createClient(
+      async () => ({ref: 'main', commit: 'a'.repeat(40)}),
+      undefined,
+      undefined,
+      {enabled: true, resolveRepositoryAuthorization},
+    );
+
+    const error = await client
+      .createCheckoutCredentials({...input, permissions: {contents: 'read'}})
+      .catch((caught: unknown) => caught);
+
+    expect(
+      isInterModuleKnownError(
+        integrationsInterModuleContract.methods.createCheckoutCredentials,
+        error,
+      ),
+    ).toBe(true);
+    if (
+      isInterModuleKnownError(
+        integrationsInterModuleContract.methods.createCheckoutCredentials,
+        error,
+      )
+    ) {
+      expect(error.code).toBe('repository-not-granted');
+      expect(error.details).toEqual({});
+    }
+    expect(resolveRepositoryAuthorization).toHaveBeenCalledWith({
+      workspaceId,
+      connectionId,
+      mode: 'selected',
+      repository: {kind: 'external-id', externalRepositoryId: input.externalRepositoryId},
+      capability: 'checkout',
+    });
   });
 
   it('round-trips on-rejection renewal without a refresh timestamp', async () => {

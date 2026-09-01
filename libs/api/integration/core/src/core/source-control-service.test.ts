@@ -1,6 +1,13 @@
-import {IntegrationCheckoutUnsupportedError, IntegrationProviderError} from './errors.js';
+import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
+import {
+  IntegrationCheckoutUnsupportedError,
+  IntegrationProviderError,
+  IntegrationRepositoryAuthorizationError,
+} from './errors.js';
 import {createIntegrationProviderRegistry} from './providers/registry.js';
 import type {RepositorySnapshot, SourceControlProvider} from './providers/source-control.js';
+import type {RepositoryAuthorizer} from './repository-authorizer.js';
+import {createRepositoryAuthorizer} from './repository-authorizer.js';
 import {createSourceControlIntegrationService} from './source-control-service.js';
 
 const repository: RepositorySnapshot = {
@@ -30,7 +37,11 @@ describe('integration source-control service', () => {
 
   function createService(
     overrides: Partial<SourceControlProvider> = {},
-    options: {omitCheckoutSpec?: boolean} = {},
+    options: {
+      omitCheckoutSpec?: boolean;
+      repositoryAuthorizer?: RepositoryAuthorizer;
+      getRepositoryAuthorizationMode?: () => 'selected' | 'all';
+    } = {},
   ) {
     const sourceControl: SourceControlProvider = {
       listRepositories: async () => {
@@ -80,6 +91,8 @@ describe('integration source-control service', () => {
         await Promise.resolve();
         return connectionId === connection.id ? connection : undefined;
       },
+      repositoryAuthorizer: options.repositoryAuthorizer,
+      getRepositoryAuthorizationMode: options.getRepositoryAuthorizationMode,
     });
   }
 
@@ -288,6 +301,198 @@ describe('integration source-control service', () => {
       ref: 'feature/x',
       permissions: undefined,
     });
+  });
+
+  it('authorizes a checkout spec before calling the provider', async () => {
+    const createCheckoutSpec = vi.fn(async () => ({
+      repositoryUrl: repository.cloneUrl,
+      ref: repository.defaultBranch,
+    }));
+    const resolveRepositoryAuthorization = vi.fn().mockResolvedValue({
+      authorized: false,
+      reason: 'repository_not_granted',
+    } as const);
+    const service = createService(
+      {createCheckoutSpec},
+      {
+        repositoryAuthorizer: {
+          enabled: true,
+          resolveRepositoryAuthorization,
+        },
+      },
+    );
+
+    await expect(
+      service.createCheckoutSpec({
+        workspaceId,
+        connectionId: connection.id,
+        target: {kind: 'external-id', externalRepositoryId: repository.externalRepositoryId},
+      }),
+    ).rejects.toBeInstanceOf(IntegrationRepositoryAuthorizationError);
+
+    expect(resolveRepositoryAuthorization).toHaveBeenCalledWith({
+      workspaceId,
+      connectionId: connection.id,
+      mode: 'selected',
+      repository: {kind: 'external-id', externalRepositoryId: repository.externalRepositoryId},
+      capability: 'checkout',
+    });
+    expect(createCheckoutSpec).not.toHaveBeenCalled();
+  });
+
+  it('authorizes checkout credentials before calling the provider', async () => {
+    const createCheckoutCredentials = vi.fn(async () => ({
+      username: 'x-access-token',
+      token: 'secret',
+      expiresAt: new Date('2027-01-01T00:00:00.000Z'),
+    }));
+    const resolveRepositoryAuthorization = vi.fn().mockResolvedValue({
+      authorized: false,
+      reason: 'repository_ambiguous',
+    } as const);
+    const service = createService(
+      {createCheckoutCredentials},
+      {
+        repositoryAuthorizer: {
+          enabled: true,
+          resolveRepositoryAuthorization,
+        },
+      },
+    );
+
+    await expect(
+      service.createCheckoutCredentials({
+        workspaceId,
+        connectionId: connection.id,
+        target: {kind: 'name', owner: 'acme', name: 'platform'},
+        permissions: {contents: 'read'},
+      }),
+    ).rejects.toBeInstanceOf(IntegrationRepositoryAuthorizationError);
+
+    expect(resolveRepositoryAuthorization).toHaveBeenCalledWith({
+      workspaceId,
+      connectionId: connection.id,
+      mode: 'selected',
+      repository: {kind: 'name', owner: 'acme', name: 'platform'},
+      capability: 'checkout',
+    });
+    expect(createCheckoutCredentials).not.toHaveBeenCalled();
+  });
+
+  it('forwards the canonical authorized target returned by the authorizer', async () => {
+    const createCheckoutSpec = vi.fn(
+      async (input: Parameters<NonNullable<SourceControlProvider['createCheckoutSpec']>>[0]) => ({
+        repositoryUrl: repository.cloneUrl,
+        ref: input.ref ?? repository.defaultBranch,
+      }),
+    );
+    const resolveRepositoryAuthorization = vi.fn().mockResolvedValue({
+      authorized: true,
+      repository: {externalRepositoryId: repository.externalRepositoryId},
+      targetProjectId: crypto.randomUUID(),
+    } as const);
+    const service = createService(
+      {createCheckoutSpec},
+      {
+        repositoryAuthorizer: {
+          enabled: true,
+          resolveRepositoryAuthorization,
+        },
+      },
+    );
+
+    await service.createCheckoutSpec({
+      workspaceId,
+      connectionId: connection.id,
+      target: {kind: 'name', owner: repository.owner, name: repository.name},
+    });
+
+    expect(createCheckoutSpec).toHaveBeenCalledWith({
+      connection,
+      target: {kind: 'external-id', externalRepositoryId: repository.externalRepositoryId},
+      ref: undefined,
+      permissions: undefined,
+    });
+  });
+
+  it('does not query Projects for an all-mode name target', async () => {
+    const getProjectBySource = vi.fn();
+    const findProjectBySourceRepositoryName = vi.fn();
+    const authorizer = createRepositoryAuthorizer({
+      enabled: true,
+      projects: {
+        getProjectBySource,
+        findProjectBySourceRepositoryName,
+      } as unknown as ProjectsModuleClient,
+    });
+    const createCheckoutSpec = vi.fn(
+      async (input: Parameters<NonNullable<SourceControlProvider['createCheckoutSpec']>>[0]) => ({
+        repositoryUrl: repository.cloneUrl,
+        ref: input.ref ?? repository.defaultBranch,
+      }),
+    );
+    const service = createService(
+      {createCheckoutSpec},
+      {
+        repositoryAuthorizer: authorizer,
+        getRepositoryAuthorizationMode: () => 'all',
+      },
+    );
+
+    await service.createCheckoutSpec({
+      workspaceId,
+      connectionId: connection.id,
+      target: {kind: 'name', owner: 'acme', name: 'unassociated'},
+    });
+
+    expect(createCheckoutSpec).toHaveBeenCalledWith({
+      connection,
+      target: {kind: 'name', owner: 'acme', name: 'unassociated'},
+      ref: undefined,
+      permissions: undefined,
+    });
+    expect(getProjectBySource).not.toHaveBeenCalled();
+    expect(findProjectBySourceRepositoryName).not.toHaveBeenCalled();
+  });
+
+  it('does not query Projects for an all-mode name credential target', async () => {
+    const getProjectBySource = vi.fn();
+    const findProjectBySourceRepositoryName = vi.fn();
+    const authorizer = createRepositoryAuthorizer({
+      enabled: true,
+      projects: {
+        getProjectBySource,
+        findProjectBySourceRepositoryName,
+      } as unknown as ProjectsModuleClient,
+    });
+    const createCheckoutCredentials = vi.fn(async () => ({
+      username: 'x-access-token',
+      token: 'secret',
+      expiresAt: new Date('2027-01-01T00:00:00.000Z'),
+    }));
+    const service = createService(
+      {createCheckoutCredentials},
+      {
+        repositoryAuthorizer: authorizer,
+        getRepositoryAuthorizationMode: () => 'all',
+      },
+    );
+
+    await service.createCheckoutCredentials({
+      workspaceId,
+      connectionId: connection.id,
+      target: {kind: 'name', owner: 'acme', name: 'unassociated'},
+      permissions: {contents: 'read'},
+    });
+
+    expect(createCheckoutCredentials).toHaveBeenCalledWith({
+      connection,
+      target: {kind: 'name', owner: 'acme', name: 'unassociated'},
+      permissions: {contents: 'read'},
+      rejectedGeneration: undefined,
+    });
+    expect(getProjectBySource).not.toHaveBeenCalled();
+    expect(findProjectBySourceRepositoryName).not.toHaveBeenCalled();
   });
 
   it('preserves distinct errors for missing and ambiguous checkout targets', async () => {

@@ -26,6 +26,7 @@ import {
   IntegrationConnectionWorkspaceMismatchError,
   IntegrationProviderError,
   IntegrationProviderUnavailableError,
+  IntegrationRepositoryAuthorizationError,
 } from '#core/errors.js';
 import {buildFixedEventProviders, buildProviderEventCatalogs} from '#core/event-catalogs.js';
 import type {AgentToolCatalogEntry} from '#core/providers/agent-tools.js';
@@ -495,7 +496,35 @@ function mapError(
 ): unknown {
   const connectionError = mapConnectionError(method, input, error);
   if (connectionError !== undefined) return connectionError;
+  const repositoryAuthorizationError = mapRepositoryAuthorizationError(method, error);
+  if (repositoryAuthorizationError !== undefined) return repositoryAuthorizationError;
   return mapProviderError(method, input, error);
+}
+
+function mapRepositoryAuthorizationError(
+  method: InterModuleMethodContract,
+  error: unknown,
+): unknown | undefined {
+  if (!(error instanceof IntegrationRepositoryAuthorizationError)) return undefined;
+
+  switch (error.reason) {
+    case 'repository_not_granted':
+      if ('repository-not-granted' in method.errors) {
+        return createInterModuleKnownError(method, 'repository-not-granted', {});
+      }
+      break;
+    case 'repository_ambiguous':
+      if ('repository-ambiguous' in method.errors) {
+        return createInterModuleKnownError(method, 'repository-ambiguous', {});
+      }
+      break;
+    case 'authorization_store_unavailable':
+      if ('repository-authorization-unavailable' in method.errors) {
+        return createInterModuleKnownError(method, 'repository-authorization-unavailable', {});
+      }
+      break;
+  }
+  return undefined;
 }
 
 function mapConnectionError(

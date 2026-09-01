@@ -128,7 +128,7 @@ describe('POST /runs/jobs/current/steps/:stepId/checkout-token', () => {
     resolveCheckoutTarget.mockResolvedValue({
       projectId: project.id,
       connectionId: project.sourceConnectionId,
-      externalRepositoryId: project.sourceExternalRepositoryId,
+      target: {kind: 'external-id', externalRepositoryId: project.sourceExternalRepositoryId},
     });
     createCheckoutSpec.mockResolvedValue(githubSpec('ghs-secret-token'));
     const token = await mintActiveLeaseToken({jobId: job.id});
@@ -178,7 +178,8 @@ describe('POST /runs/jobs/current/steps/:stepId/checkout-token', () => {
     expect(createCheckoutSpec).toHaveBeenCalledWith({
       workspaceId: project.workspaceId,
       connectionId: project.sourceConnectionId,
-      externalRepositoryId: project.sourceExternalRepositoryId,
+      projectId: project.id,
+      target: {kind: 'external-id', externalRepositoryId: project.sourceExternalRepositoryId},
       permissions: {contents: 'read'},
     });
   });
@@ -447,7 +448,7 @@ describe('POST /runs/jobs/current/steps/:stepId/checkout-token', () => {
     resolveCheckoutTarget.mockResolvedValue({
       projectId: project.id,
       connectionId: project.sourceConnectionId,
-      externalRepositoryId: project.sourceExternalRepositoryId,
+      target: {kind: 'external-id', externalRepositoryId: project.sourceExternalRepositoryId},
     });
     createCheckoutSpec.mockResolvedValue(githubSpec('ghs-untracked-token'));
     savePendingCheckoutRenewalSubjectMock.mockResolvedValueOnce(false);
@@ -470,7 +471,7 @@ describe('POST /runs/jobs/current/steps/:stepId/checkout-token', () => {
     resolveCheckoutTarget.mockResolvedValue({
       projectId: project.id,
       connectionId: project.sourceConnectionId,
-      externalRepositoryId: project.sourceExternalRepositoryId,
+      target: {kind: 'external-id', externalRepositoryId: project.sourceExternalRepositoryId},
     });
     createCheckoutSpec.mockResolvedValue(githubSpec('ghs-save-failure-token'));
     savePendingCheckoutRenewalSubjectMock.mockRejectedValueOnce(new Error('database unavailable'));
@@ -502,7 +503,7 @@ describe('POST /runs/jobs/current/steps/:stepId/checkout-token', () => {
     resolveCheckoutTarget.mockResolvedValue({
       projectId: project.id,
       connectionId: project.sourceConnectionId,
-      externalRepositoryId: project.sourceExternalRepositoryId,
+      target: {kind: 'external-id', externalRepositoryId: project.sourceExternalRepositoryId},
     });
     createCheckoutSpec.mockResolvedValue(githubSpec('ghs-trigger-token'));
     const token = await mintActiveLeaseToken({jobId: job.id});
@@ -517,7 +518,8 @@ describe('POST /runs/jobs/current/steps/:stepId/checkout-token', () => {
     expect(createCheckoutSpec).toHaveBeenCalledWith({
       workspaceId: project.workspaceId,
       connectionId: project.sourceConnectionId,
-      externalRepositoryId: project.sourceExternalRepositoryId,
+      projectId: project.id,
+      target: {kind: 'external-id', externalRepositoryId: project.sourceExternalRepositoryId},
       ref: triggerReference.commit,
       permissions: {contents: 'read'},
     });
@@ -530,7 +532,7 @@ describe('POST /runs/jobs/current/steps/:stepId/checkout-token', () => {
     resolveCheckoutTarget.mockResolvedValue({
       projectId: project.id,
       connectionId: project.sourceConnectionId,
-      externalRepositoryId: project.sourceExternalRepositoryId,
+      target: {kind: 'external-id', externalRepositoryId: project.sourceExternalRepositoryId},
     });
     createCheckoutSpec.mockResolvedValue({...githubSpec('ghs-dev-token'), ref: devCommit});
     const token = await mintActiveLeaseToken({jobId: job.id});
@@ -546,7 +548,8 @@ describe('POST /runs/jobs/current/steps/:stepId/checkout-token', () => {
     expect(createCheckoutSpec).toHaveBeenCalledWith({
       workspaceId: project.workspaceId,
       connectionId: project.sourceConnectionId,
-      externalRepositoryId: project.sourceExternalRepositoryId,
+      projectId: project.id,
+      target: {kind: 'external-id', externalRepositoryId: project.sourceExternalRepositoryId},
       ref: devCommit,
       permissions: {contents: 'read'},
     });
@@ -595,7 +598,7 @@ describe('POST /runs/jobs/current/steps/:stepId/checkout-token', () => {
     resolveCheckoutTarget.mockResolvedValue({
       projectId: project.id,
       connectionId: project.sourceConnectionId,
-      externalRepositoryId: project.sourceExternalRepositoryId,
+      target: {kind: 'external-id', externalRepositoryId: project.sourceExternalRepositoryId},
     });
     createCheckoutSpec.mockResolvedValue({
       repositoryUrl: 'https://example.com/acme/repo.git',
@@ -638,7 +641,7 @@ describe('POST /runs/jobs/current/steps/:stepId/checkout-token', () => {
     resolveCheckoutTarget.mockResolvedValue({
       projectId: targetProjectId,
       connectionId: crypto.randomUUID(),
-      externalRepositoryId: 'github:412',
+      target: {kind: 'external-id', externalRepositoryId: 'github:412'},
     });
     createCheckoutSpec.mockResolvedValue({
       ...githubSpec('ghs-target-token'),
@@ -661,7 +664,8 @@ describe('POST /runs/jobs/current/steps/:stepId/checkout-token', () => {
     expect(createCheckoutSpec).toHaveBeenCalledWith({
       workspaceId: project.workspaceId,
       connectionId: expect.any(String),
-      externalRepositoryId: 'github:412',
+      projectId: targetProjectId,
+      target: {kind: 'external-id', externalRepositoryId: 'github:412'},
       ref: 'refs/pull/412/head',
       permissions: {contents: 'write'},
     });
@@ -673,7 +677,7 @@ describe('POST /runs/jobs/current/steps/:stepId/checkout-token', () => {
     resolveCheckoutTarget.mockResolvedValue({
       projectId: project.id,
       connectionId: project.sourceConnectionId,
-      externalRepositoryId: project.sourceExternalRepositoryId,
+      target: {kind: 'external-id', externalRepositoryId: project.sourceExternalRepositoryId},
     });
     createCheckoutSpec.mockResolvedValue(githubSpec('token'));
     const token = await mintActiveLeaseToken({
@@ -812,7 +816,7 @@ describe('POST /runs/jobs/current/steps/:stepId/checkout-token', () => {
     resolveCheckoutTarget.mockResolvedValue({
       projectId: project.id,
       connectionId: project.sourceConnectionId,
-      externalRepositoryId: project.sourceExternalRepositoryId,
+      target: {kind: 'external-id', externalRepositoryId: project.sourceExternalRepositoryId},
     });
     createCheckoutSpec.mockRejectedValue(
       createInterModuleKnownError(
@@ -839,7 +843,7 @@ describe('POST /runs/jobs/current/steps/:stepId/checkout-token', () => {
     resolveCheckoutTarget.mockResolvedValue({
       projectId: project.id,
       connectionId: project.sourceConnectionId,
-      externalRepositoryId: project.sourceExternalRepositoryId,
+      target: {kind: 'external-id', externalRepositoryId: project.sourceExternalRepositoryId},
     });
     createCheckoutSpec.mockRejectedValue(
       createInterModuleKnownError(
@@ -867,7 +871,7 @@ describe('POST /runs/jobs/current/steps/:stepId/checkout-token', () => {
     resolveCheckoutTarget.mockResolvedValue({
       projectId: project.id,
       connectionId: project.sourceConnectionId,
-      externalRepositoryId: project.sourceExternalRepositoryId,
+      target: {kind: 'external-id', externalRepositoryId: project.sourceExternalRepositoryId},
     });
     const secret = 'ghs-super-secret-token-value';
     createCheckoutSpec.mockResolvedValue(githubSpec(secret));

@@ -304,35 +304,11 @@ export interface ResolveCheckoutTargetParams {
 }
 
 export interface ResolvedCheckoutTarget {
-  projectId: string;
+  projectId?: string | undefined;
   connectionId: string;
-  externalRepositoryId: string;
-}
-
-export interface UpdateProjectSourceMetadataParams {
-  workspaceId: string;
-  projectId: string;
-  sourceConnectionId: string;
-  sourceExternalRepositoryId: string;
-  sourceRepositoryOwner: string;
-  sourceRepositoryName: string;
-  sourceDefaultBranch: string;
-}
-
-export async function updateProjectSourceMetadata(
-  params: UpdateProjectSourceMetadataParams,
-): Promise<void> {
-  await db()
-    .update(projects)
-    .set({
-      sourceConnectionId: params.sourceConnectionId,
-      sourceExternalRepositoryId: params.sourceExternalRepositoryId,
-      sourceRepositoryOwner: params.sourceRepositoryOwner,
-      sourceRepositoryName: params.sourceRepositoryName,
-      sourceDefaultBranch: params.sourceDefaultBranch,
-      updatedAt: new Date(),
-    })
-    .where(and(eq(projects.workspaceId, params.workspaceId), eq(projects.id, params.projectId)));
+  target:
+    | {kind: 'external-id'; externalRepositoryId: string}
+    | {kind: 'name'; owner: string; name: string};
 }
 
 export async function resolveCheckoutTarget(
@@ -352,7 +328,13 @@ export async function resolveCheckoutTarget(
         and(eq(projects.workspaceId, params.workspaceId), eq(projects.id, params.target.project)),
       )
       .limit(1);
-    return project;
+    return project === undefined
+      ? undefined
+      : {
+          projectId: project.projectId,
+          connectionId: project.connectionId,
+          target: {kind: 'external-id', externalRepositoryId: project.externalRepositoryId},
+        };
   }
 
   const separator = params.target.repository.indexOf('/');
@@ -373,23 +355,10 @@ export async function resolveCheckoutTarget(
     };
   }
   if (repository === undefined) return undefined;
-
-  const matches = await db()
-    .select(selection)
-    .from(projects)
-    .where(
-      whereSourceRepositoryMatches({
-        workspaceId: params.workspaceId,
-        sourceConnectionId: repository.connectionId,
-        sourceRepositoryOwner: repository.owner,
-        sourceRepositoryName: repository.name,
-      }),
-    )
-    .limit(2);
-
-  // Owner/name isn't a unique key: renamed or reconnected repositories can leave
-  // more than one project row matching. Fail closed instead of picking arbitrarily.
-  return matches.length === 1 ? matches[0] : undefined;
+  return {
+    connectionId: repository.connectionId,
+    target: {kind: 'name', owner: repository.owner, name: repository.name},
+  };
 }
 
 export async function listProjects(params: ListProjectsParams): Promise<ListProjectsResult> {
