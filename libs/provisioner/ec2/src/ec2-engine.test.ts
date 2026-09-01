@@ -7,9 +7,15 @@ import {
 import {createEc2Engine, type RunInstanceArgs} from '#ec2-engine.js';
 import {SHIPFOX_TAGS} from '#instance-identity.js';
 
-const observability = vi.hoisted(() => ({recordEc2LaunchDuration: vi.fn()}));
+const observability = vi.hoisted(() => ({
+  recordEc2HealthObservation: vi.fn(),
+  recordEc2HealthObserverCycle: vi.fn(),
+  recordEc2LaunchDuration: vi.fn(),
+}));
 
 vi.mock('#metrics/instance.js', () => ({
+  recordEc2HealthObservation: observability.recordEc2HealthObservation,
+  recordEc2HealthObserverCycle: observability.recordEc2HealthObserverCycle,
   recordEc2LaunchDuration: observability.recordEc2LaunchDuration,
 }));
 
@@ -246,6 +252,8 @@ describe('createEc2Engine', () => {
       ami: 'ami-actual',
     });
     expect(result[1]?.instanceId).toBe('i-456');
+    expect(observability.recordEc2HealthObserverCycle).not.toHaveBeenCalled();
+    expect(observability.recordEc2HealthObservation).not.toHaveBeenCalled();
   });
 
   it('maps EC2 status checks and scheduled events for managed instances', async () => {
@@ -294,6 +302,87 @@ describe('createEc2Engine', () => {
       attachedEbsStatus: {status: 'insufficient-data'},
       scheduledEvents: [{code: 'system-reboot', notBefore, notAfter, notBeforeDeadline}],
     });
+    expect(observability.recordEc2HealthObserverCycle).toHaveBeenCalledWith('complete');
+    expect(observability.recordEc2HealthObservation).toHaveBeenCalledWith('system', 'impaired');
+    expect(observability.recordEc2HealthObservation).toHaveBeenCalledWith(
+      'instance',
+      'initializing',
+    );
+    expect(observability.recordEc2HealthObservation).toHaveBeenCalledWith(
+      'attached-ebs',
+      'insufficient-data',
+    );
+  });
+
+  it('records a complete cycle and healthy classifications for a healthy fleet', async () => {
+    const ec2 = fakeEc2({
+      describeOutputs: [{Reservations: [{Instances: [instance()]}]}],
+      describeStatusOutputs: [
+        {
+          InstanceStatuses: [
+            {
+              InstanceId: 'i-123',
+              SystemStatus: {Status: 'ok'},
+              InstanceStatus: {Status: 'ok'},
+              AttachedEbsStatus: {Status: 'ok'},
+            },
+          ],
+        },
+      ],
+    });
+    const engine = createEc2Engine({region: 'eu-west-3', client: ec2 as never});
+
+    await engine.listManaged('provisioner-1', {includeStatus: true});
+
+    expect(observability.recordEc2HealthObserverCycle).toHaveBeenCalledWith('complete');
+    expect(observability.recordEc2HealthObservation).toHaveBeenCalledTimes(3);
+    expect(observability.recordEc2HealthObservation).toHaveBeenCalledWith('system', 'ok');
+    expect(observability.recordEc2HealthObservation).toHaveBeenCalledWith('instance', 'ok');
+    expect(observability.recordEc2HealthObservation).toHaveBeenCalledWith('attached-ebs', 'ok');
+  });
+
+  it('records not-applicable classifications when EC2 omits a status summary', async () => {
+    const ec2 = fakeEc2({
+      describeOutputs: [{Reservations: [{Instances: [instance()]}]}],
+      describeStatusOutputs: [{InstanceStatuses: [{InstanceId: 'i-123'}]}],
+    });
+    const engine = createEc2Engine({region: 'eu-west-3', client: ec2 as never});
+
+    await engine.listManaged('provisioner-1', {includeStatus: true});
+
+    expect(observability.recordEc2HealthObserverCycle).toHaveBeenCalledWith('complete');
+    expect(observability.recordEc2HealthObservation).toHaveBeenCalledTimes(3);
+    expect(observability.recordEc2HealthObservation).toHaveBeenCalledWith(
+      'system',
+      'not-applicable',
+    );
+    expect(observability.recordEc2HealthObservation).toHaveBeenCalledWith(
+      'instance',
+      'not-applicable',
+    );
+    expect(observability.recordEc2HealthObservation).toHaveBeenCalledWith(
+      'attached-ebs',
+      'not-applicable',
+    );
+  });
+
+  it('records unknown classifications when an instance is absent from the status response', async () => {
+    const ec2 = fakeEc2({
+      describeOutputs: [{Reservations: [{Instances: [instance()]}]}],
+      describeStatusOutputs: [{InstanceStatuses: []}],
+    });
+    const engine = createEc2Engine({region: 'eu-west-3', client: ec2 as never});
+
+    await engine.listManaged('provisioner-1', {includeStatus: true});
+
+    expect(observability.recordEc2HealthObserverCycle).toHaveBeenCalledWith('complete');
+    expect(observability.recordEc2HealthObservation).toHaveBeenCalledTimes(3);
+    expect(observability.recordEc2HealthObservation).toHaveBeenCalledWith('system', 'unknown');
+    expect(observability.recordEc2HealthObservation).toHaveBeenCalledWith('instance', 'unknown');
+    expect(observability.recordEc2HealthObservation).toHaveBeenCalledWith(
+      'attached-ebs',
+      'unknown',
+    );
   });
 
   it('maps unknown status values and scheduled event codes to bounded values', async () => {
@@ -323,6 +412,14 @@ describe('createEc2Engine', () => {
       attachedEbsStatus: {status: 'unknown'},
       scheduledEvents: [{code: 'unknown'}],
     });
+    expect(observability.recordEc2HealthObserverCycle).toHaveBeenCalledWith('complete');
+    expect(observability.recordEc2HealthObservation).toHaveBeenCalledTimes(3);
+    expect(observability.recordEc2HealthObservation).toHaveBeenCalledWith('system', 'unknown');
+    expect(observability.recordEc2HealthObservation).toHaveBeenCalledWith('instance', 'unknown');
+    expect(observability.recordEc2HealthObservation).toHaveBeenCalledWith(
+      'attached-ebs',
+      'unknown',
+    );
   });
 
   it.each([
@@ -339,6 +436,8 @@ describe('createEc2Engine', () => {
 
     expect(result[0]).toMatchObject({instanceId: 'i-123', state: 'running'});
     expect(result[0]).not.toHaveProperty('systemStatus');
+    expect(observability.recordEc2HealthObserverCycle).toHaveBeenCalledWith('unavailable');
+    expect(observability.recordEc2HealthObservation).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -356,6 +455,8 @@ describe('createEc2Engine', () => {
       reason,
       retryable: false,
     });
+    expect(observability.recordEc2HealthObserverCycle).toHaveBeenCalledWith('unavailable');
+    expect(observability.recordEc2HealthObservation).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -416,6 +517,24 @@ describe('createEc2Engine', () => {
     expect(result[100]).toMatchObject({systemStatus: {status: 'ok'}});
   });
 
+  it('records an unavailable cycle when a later status batch fails', async () => {
+    const instances = Array.from({length: 101}, (_, index) => instance({InstanceId: `i-${index}`}));
+    const ec2 = fakeEc2({
+      describeOutputs: [{Reservations: [{Instances: instances}]}],
+      describeStatusErrors: [undefined, awsError('RequestLimitExceeded')],
+      describeStatusOutputs: [
+        {InstanceStatuses: [{InstanceId: 'i-0', SystemStatus: {Status: 'ok'}}]},
+      ],
+    });
+    const engine = createEc2Engine({region: 'eu-west-3', client: ec2 as never});
+
+    const result = await engine.listManaged('provisioner-1', {includeStatus: true});
+
+    expect(result[0]).not.toHaveProperty('systemStatus');
+    expect(observability.recordEc2HealthObserverCycle).toHaveBeenCalledWith('unavailable');
+    expect(observability.recordEc2HealthObservation).not.toHaveBeenCalled();
+  });
+
   it('retains statuses for other instances when a batch contains a stale instance', async () => {
     const ec2 = fakeEc2({
       describeOutputs: [
@@ -451,6 +570,8 @@ describe('createEc2Engine', () => {
     expect(result.find((instance) => instance.instanceId === 'i-stale')).not.toHaveProperty(
       'systemStatus',
     );
+    expect(observability.recordEc2HealthObserverCycle).toHaveBeenCalledWith('unavailable');
+    expect(observability.recordEc2HealthObservation).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -479,6 +600,18 @@ describe('createEc2Engine', () => {
     const result = await engine.listManaged('provisioner-1');
 
     expect(result).toEqual([]);
+  });
+
+  it('records an empty health observer cycle when no managed instances exist', async () => {
+    const ec2 = fakeEc2({describeOutputs: [{}]});
+    const engine = createEc2Engine({region: 'eu-west-3', client: ec2 as never});
+
+    const result = await engine.listManaged('provisioner-1', {includeStatus: true});
+
+    expect(result).toEqual([]);
+    expect(observability.recordEc2HealthObserverCycle).toHaveBeenCalledWith('empty');
+    expect(observability.recordEc2HealthObservation).not.toHaveBeenCalled();
+    expect(ec2.commands).toHaveLength(1);
   });
 
   it('terminates the requested instances', async () => {

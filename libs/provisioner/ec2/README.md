@@ -33,6 +33,27 @@ A pending instance past its registration deadline is submitted to the same autho
 during reconciliation. The provider keeps it out of usable capacity and does not terminate it
 until the backend authorizes the request.
 
+## Health metrics
+
+Backend reconciliation records one health observer cycle and three check classifications per
+managed instance when `DescribeInstanceStatus` succeeds.
+
+| Metric | Labels | Meaning |
+| --- | --- | --- |
+| `ec2_provisioner_health_observer_cycle` | `outcome`: `complete`, `empty`, `unavailable` | A status-enabled observer cycle. `complete` proves status reads completed. `empty` proves the managed-fleet listing ran and found no instances. `unavailable` proves the status read was attempted but unavailable. |
+| `ec2_provisioner_health_observation` | `check_type`: `system`, `instance`, `attached-ebs`; `status`: `ok`, `initializing`, `impaired`, `insufficient-data`, `not-applicable`, `unknown` | One bounded system, instance, or attached-EBS classification for each managed instance in a completed cycle. |
+| `ec2_provisioner_health_impaired` | `check_type`: `system`, `instance`, `attached-ebs` | Existing impairment signal. It increments for each impaired check observed during reconciliation. |
+
+These metrics contain no workspace, provisioner, runner, instance, job, or volume identifiers.
+Missing AWS check summaries map to `not-applicable`. Instances missing from a successful status
+response and unsupported AWS values map to `unknown`. Every attempted status read emits an
+`unavailable` cycle outcome on failure. Retryable or stale failures also emit the existing
+structured warning, keep the ordinary instance snapshot, and emit no status classifications.
+Permanent status-read errors emit `unavailable` and then propagate so reconciliation fails closed.
+This outcome also covers a partial multi-batch status read. The absence of a cycle series means
+that no status-enabled reconciliation has been observed. The runner-control heartbeat is not
+evidence that this observer ran.
+
 ## Template config
 
 The template file can contain shared `vars`, a `defaults` fragment, hand-written

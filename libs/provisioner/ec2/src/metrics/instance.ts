@@ -5,6 +5,14 @@ const meter = instanceMetrics.getMeter('provisioner-ec2');
 
 export type Ec2Architecture = 'i386' | 'x86_64' | 'arm64' | 'unknown';
 export type Ec2HealthCheckType = 'system' | 'instance' | 'attached-ebs';
+export type Ec2HealthObservationStatus =
+  | 'ok'
+  | 'impaired'
+  | 'initializing'
+  | 'insufficient-data'
+  | 'not-applicable'
+  | 'unknown';
+export type Ec2HealthObserverCycleOutcome = 'complete' | 'empty' | 'unavailable';
 
 export interface Ec2DurationLabels {
   templateKey: string;
@@ -63,6 +71,19 @@ const healthImpairedCount = meter.createCounter<{check_type: Ec2HealthCheckType}
   'ec2_provisioner_health_impaired',
   {description: 'EC2 runner health observations with an impaired system, instance, or EBS check'},
 );
+
+const healthObservationCount = meter.createCounter<{
+  check_type: Ec2HealthCheckType;
+  status: Ec2HealthObservationStatus;
+}>('ec2_provisioner_health_observation', {
+  description: 'EC2 runner health observations by bounded check type and status',
+});
+
+const healthObserverCycleCount = meter.createCounter<{
+  outcome: Ec2HealthObserverCycleOutcome;
+}>('ec2_provisioner_health_observer_cycle', {
+  description: 'EC2 health observer cycles by bounded outcome',
+});
 
 const launchDuration = meter.createHistogram<{
   template_key: string;
@@ -126,6 +147,17 @@ export function recordEc2ReconcileAbsent(count: number): void {
 
 export function recordEc2HealthImpaired(checkType: Ec2HealthCheckType): void {
   healthImpairedCount.add(1, {check_type: checkType});
+}
+
+export function recordEc2HealthObservation(
+  checkType: Ec2HealthCheckType,
+  status: Ec2HealthObservationStatus,
+): void {
+  healthObservationCount.add(1, {check_type: checkType, status});
+}
+
+export function recordEc2HealthObserverCycle(outcome: Ec2HealthObserverCycleOutcome): void {
+  healthObserverCycleCount.add(1, {outcome});
 }
 
 export function recordEc2LaunchDuration(params: Ec2DurationObservation): void {

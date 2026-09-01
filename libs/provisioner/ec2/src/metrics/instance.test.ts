@@ -110,6 +110,34 @@ describe('EC2 provisioner metrics', () => {
     });
   });
 
+  it.each([
+    'complete',
+    'empty',
+    'unavailable',
+  ] as const)('records health observer cycles with a bounded outcome: %s', (outcome) => {
+    metrics.recordEc2HealthObserverCycle(outcome);
+
+    expect(counterAdd('ec2_provisioner_health_observer_cycle')).toHaveBeenCalledWith(1, {
+      outcome,
+    });
+  });
+
+  it.each([
+    ['system', 'ok'],
+    ['instance', 'initializing'],
+    ['attached-ebs', 'impaired'],
+    ['system', 'insufficient-data'],
+    ['instance', 'not-applicable'],
+    ['attached-ebs', 'unknown'],
+  ] as const)('records health classifications with bounded labels', (checkType, status) => {
+    metrics.recordEc2HealthObservation(checkType, status);
+
+    expect(counterAdd('ec2_provisioner_health_observation')).toHaveBeenCalledWith(1, {
+      check_type: checkType,
+      status,
+    });
+  });
+
   it('records EC2 launch duration with bounded labels', () => {
     metrics.recordEc2LaunchDuration({durationMs: 1_250, ...durationLabels});
 
