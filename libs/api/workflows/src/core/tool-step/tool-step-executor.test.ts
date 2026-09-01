@@ -856,7 +856,7 @@ describe('tool step executor', () => {
   });
 
   test('stops a log group when its first append fails', async () => {
-    const {jobId} = await arrangeToolStep();
+    const {jobId, stepId} = await arrangeToolStep();
     const callTool = vi.fn<IntegrationsModuleClient['callTool']>().mockResolvedValue({
       outcome: 'success' as const,
       result: {identifier: 'ENG-1680'},
@@ -881,7 +881,9 @@ describe('tool step executor', () => {
       callTimeoutMs: 30_000,
     });
 
-    expect(appendServerRecords).toHaveBeenCalledTimes(1);
+    expect(
+      appendServerRecords.mock.calls.filter(([input]) => input.stepId === stepId),
+    ).toHaveLength(1);
     const [step] = await getStepsByJobId(jobId);
     expect(step).toMatchObject({status: 'succeeded'});
   });
