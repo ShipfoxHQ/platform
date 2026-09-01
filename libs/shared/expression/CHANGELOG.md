@@ -1,5 +1,13 @@
 # @shipfox/expression
 
+## 2.4.2
+
+### Patch Changes
+
+- b416c4c: Preserves existing package behavior while simplifying internal control flow.
+- Updated dependencies [b416c4c]
+  - @shipfox/workflow-document@3.3.2
+
 ## 2.4.1
 
 ### Patch Changes

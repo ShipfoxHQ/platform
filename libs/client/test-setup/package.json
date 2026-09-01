@@ -1,7 +1,7 @@
 {
   "name": "@shipfox/client-test-setup",
   "license": "MIT",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ShipfoxHQ/shipfox.git",

@@ -1,5 +1,11 @@
 # @shipfox/cloudflare-pages
 
+## 0.3.2
+
+### Patch Changes
+
+- b416c4c: Preserves existing package behavior while simplifying internal control flow.
+
 ## 0.3.1
 
 ### Patch Changes

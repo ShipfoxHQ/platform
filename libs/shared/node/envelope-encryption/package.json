@@ -1,7 +1,7 @@
 {
   "name": "@shipfox/node-envelope-encryption",
   "license": "MIT",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ShipfoxHQ/shipfox.git",

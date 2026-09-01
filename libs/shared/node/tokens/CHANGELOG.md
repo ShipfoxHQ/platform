@@ -1,5 +1,16 @@
 # @shipfox/node-tokens
 
+## 1.1.0
+
+### Minor Changes
+
+- 627eda2: Add agent-access authorization storage and personal access token primitives.
+
+### Patch Changes
+
+- @shipfox/config@1.2.4
+- @shipfox/regex@0.3.0
+
 ## 1.0.0
 
 ### Major Changes

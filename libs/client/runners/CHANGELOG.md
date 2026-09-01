@@ -1,5 +1,21 @@
 # @shipfox/client-runners
 
+## 29.0.0
+
+### Patch Changes
+
+- b416c4c: Preserves existing package behavior while simplifying internal control flow.
+- Updated dependencies [b416c4c]
+- Updated dependencies [461e3a0]
+- Updated dependencies [b2e6556]
+- Updated dependencies [cd5fb8f]
+- Updated dependencies [2f35a8b]
+  - @shipfox/client-shell@29.0.0
+  - @shipfox/client-ui@29.0.0
+  - @shipfox/react-ui@2.3.3
+  - @shipfox/api-runners-dto@19.0.0
+  - @shipfox/client-api@6.0.1
+
 ## 28.0.0
 
 ### Patch Changes

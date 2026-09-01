@@ -1,5 +1,38 @@
 # @shipfox/api-workspaces
 
+## 19.0.0
+
+### Patch Changes
+
+- b416c4c: Preserves existing package behavior while simplifying internal control flow.
+- Updated dependencies [b416c4c]
+- Updated dependencies [5af8d52]
+- Updated dependencies [461e3a0]
+- Updated dependencies [a225bf8]
+- Updated dependencies [627eda2]
+- Updated dependencies [b2e6556]
+- Updated dependencies [621108c]
+- Updated dependencies [cd5fb8f]
+  - @shipfox/api-auth-context@19.0.0
+  - @shipfox/node-module@1.0.8
+  - @shipfox/node-outbox@0.2.7
+  - @shipfox/api-projects-dto@19.0.0
+  - @shipfox/api-runners-dto@19.0.0
+  - @shipfox/node-tokens@1.1.0
+  - @shipfox/api-auth-dto@19.0.0
+  - @shipfox/api-common-dto@15.0.0
+  - @shipfox/api-workspaces-dto@15.0.0
+  - @shipfox/config@1.2.4
+  - @shipfox/inter-module@0.2.3
+  - @shipfox/node-auth-root-key@0.2.3
+  - @shipfox/node-drizzle@0.3.5
+  - @shipfox/node-email@0.3.5
+  - @shipfox/node-fastify@0.4.3
+  - @shipfox/node-mailer@0.2.6
+  - @shipfox/node-opentelemetry@0.6.5
+  - @shipfox/node-postgres@0.5.1
+  - @shipfox/node-rate-limit@0.4.0
+
 ## 18.0.0
 
 ### Patch Changes

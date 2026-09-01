@@ -1,5 +1,11 @@
 # @shipfox/engineering-guidance
 
+## 1.0.3
+
+### Patch Changes
+
+- b416c4c: Preserves existing package behavior while simplifying internal control flow.
+
 ## 1.0.2
 
 ### Patch Changes

@@ -1,5 +1,69 @@
 # @shipfox/api-server
 
+## 19.0.0
+
+### Minor Changes
+
+- 6e164c0: Reuses cached GitHub checkout credentials for repeated checkouts of the same repository scope, with GITHUB_CHECKOUT_TOKEN_CACHE_ENABLED (default true) available for direct minting.
+
+### Patch Changes
+
+- b416c4c: Preserves existing package behavior while simplifying internal control flow.
+- 75a54d1: Adds the repository authorization contract with exact-ID/name target resolution and its authorization error codes. Checkout now surfaces repository-authorization failures as not-granted (404), ambiguous (409), and store-unavailable (503) errors.
+- Updated dependencies [34ebe6a]
+- Updated dependencies [c07c8e2]
+- Updated dependencies [6e164c0]
+- Updated dependencies [570f67d]
+- Updated dependencies [b416c4c]
+- Updated dependencies [5af8d52]
+- Updated dependencies [a52cd6d]
+- Updated dependencies [461e3a0]
+- Updated dependencies [9382f15]
+- Updated dependencies [b654054]
+- Updated dependencies [a225bf8]
+- Updated dependencies [feeec08]
+- Updated dependencies [d3746ad]
+- Updated dependencies [75a54d1]
+- Updated dependencies [627eda2]
+- Updated dependencies [b2e6556]
+- Updated dependencies [621108c]
+- Updated dependencies [cd5fb8f]
+- Updated dependencies [e26504d]
+- Updated dependencies [93918a4]
+- Updated dependencies [a61dda2]
+- Updated dependencies [10f18db]
+  - @shipfox/api-workflows@19.0.0
+  - @shipfox/api-workflows-dto@19.0.0
+  - @shipfox/annotations@19.0.0
+  - @shipfox/annotations-dto@19.0.0
+  - @shipfox/api-agent-dto@19.0.0
+  - @shipfox/api-agent@19.0.0
+  - @shipfox/api-integration-core@19.0.0
+  - @shipfox/api-auth@19.0.0
+  - @shipfox/api-definitions@19.0.0
+  - @shipfox/api-email-challenges@1.1.12
+  - @shipfox/api-integration-core-dto@19.0.0
+  - @shipfox/api-logs@19.0.0
+  - @shipfox/api-projects@19.0.0
+  - @shipfox/api-runners@19.0.0
+  - @shipfox/api-triggers@19.0.0
+  - @shipfox/api-workspaces@19.0.0
+  - @shipfox/node-module@1.0.8
+  - @shipfox/api-projects-dto@19.0.0
+  - @shipfox/api-definitions-dto@19.0.0
+  - @shipfox/api-runners-dto@19.0.0
+  - @shipfox/api-auth-dto@19.0.0
+  - @shipfox/api-secrets@19.0.0
+  - @shipfox/api-dispatcher@19.0.0
+  - @shipfox/api-secrets-dto@12.0.0
+  - @shipfox/api-workspaces-dto@15.0.0
+  - @shipfox/config@1.2.4
+  - @shipfox/node-error-monitoring@0.3.0
+  - @shipfox/node-fastify@0.4.3
+  - @shipfox/node-jwt@0.4.0
+  - @shipfox/node-opentelemetry@0.6.5
+  - @shipfox/node-postgres@0.5.1
+
 ## 18.0.0
 
 ### Patch Changes

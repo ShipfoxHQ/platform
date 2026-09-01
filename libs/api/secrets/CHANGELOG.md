@@ -1,5 +1,25 @@
 # @shipfox/api-secrets
 
+## 19.0.0
+
+### Patch Changes
+
+- Updated dependencies [b416c4c]
+- Updated dependencies [5af8d52]
+- Updated dependencies [a225bf8]
+  - @shipfox/api-auth-context@19.0.0
+  - @shipfox/node-envelope-encryption@0.2.1
+  - @shipfox/node-module@1.0.8
+  - @shipfox/node-outbox@0.2.7
+  - @shipfox/api-projects-dto@19.0.0
+  - @shipfox/api-secrets-dto@12.0.0
+  - @shipfox/config@1.2.4
+  - @shipfox/inter-module@0.2.3
+  - @shipfox/node-drizzle@0.3.5
+  - @shipfox/node-fastify@0.4.3
+  - @shipfox/node-opentelemetry@0.6.5
+  - @shipfox/node-postgres@0.5.1
+
 ## 18.0.0
 
 ### Patch Changes

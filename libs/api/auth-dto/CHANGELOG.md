@@ -1,5 +1,16 @@
 # @shipfox/api-auth-dto
 
+## 19.0.0
+
+### Minor Changes
+
+- 621108c: Add administrator user directory query and response schemas.
+
+### Patch Changes
+
+- @shipfox/api-common-dto@15.0.0
+- @shipfox/inter-module@0.2.3
+
 ## 18.0.0
 
 ### Minor Changes

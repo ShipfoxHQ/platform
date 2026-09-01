@@ -1,5 +1,47 @@
 # @shipfox/api-runners
 
+## 19.0.0
+
+### Minor Changes
+
+- 461e3a0: Deliver canonical termination authorizations through poll-demand and reconcile while keeping legacy provisioners wire-compatible.
+- feeec08: Cancelled and timed-out runner jobs now acknowledge and finish downloading or uploading before termination, and keep their stop reason (user cancellation vs. maximum-duration timeout) intact.
+- b2e6556: Retry authorized EC2 runner instances that remain in stopping after the bounded stopping timeout.
+- cd5fb8f: Adds a backward-compatible provider termination-candidate protocol with durable, state-checked authorization.
+
+### Patch Changes
+
+- b416c4c: Preserves existing package behavior while simplifying internal control flow.
+- 9382f15: Routes managed activation timeouts through durable authorization for demand and warm capacity while returning failed demand capacity to the queue.
+- d3746ad: Adds bounded runner lifecycle authorization outcome and state-age telemetry.
+- e26504d: Recovers stale idle managed runner sessions before provider termination.
+- Updated dependencies [34ebe6a]
+- Updated dependencies [b416c4c]
+- Updated dependencies [461e3a0]
+- Updated dependencies [627eda2]
+- Updated dependencies [b2e6556]
+- Updated dependencies [621108c]
+- Updated dependencies [cd5fb8f]
+- Updated dependencies [93918a4]
+  - @shipfox/api-workflows-dto@19.0.0
+  - @shipfox/api-auth-context@19.0.0
+  - @shipfox/node-module@1.0.8
+  - @shipfox/node-outbox@0.2.7
+  - @shipfox/runner-labels@0.2.1
+  - @shipfox/api-runners-dto@19.0.0
+  - @shipfox/node-tokens@1.1.0
+  - @shipfox/api-auth-dto@19.0.0
+  - @shipfox/api-common-dto@15.0.0
+  - @shipfox/config@1.2.4
+  - @shipfox/inter-module@0.2.3
+  - @shipfox/node-auth-root-key@0.2.3
+  - @shipfox/node-drizzle@0.3.5
+  - @shipfox/node-error-monitoring@0.3.0
+  - @shipfox/node-fastify@0.4.3
+  - @shipfox/node-opentelemetry@0.6.5
+  - @shipfox/node-postgres@0.5.1
+  - @shipfox/node-temporal@0.4.6
+
 ## 18.0.0
 
 ### Major Changes

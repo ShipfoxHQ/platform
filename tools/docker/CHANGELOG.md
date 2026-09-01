@@ -1,5 +1,11 @@
 # @shipfox/docker
 
+## 2.0.1
+
+### Patch Changes
+
+- b416c4c: Preserves existing package behavior while simplifying internal control flow.
+
 ## 2.0.0
 
 ### Major Changes

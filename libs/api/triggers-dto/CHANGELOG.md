@@ -1,5 +1,15 @@
 # @shipfox/api-triggers-dto
 
+## 19.0.0
+
+### Minor Changes
+
+- 5af8d52: Adds project catalog and workflow-definition reads, plus trigger-event summaries, details, and facets.
+
+### Patch Changes
+
+- @shipfox/inter-module@0.2.3
+
 ## 15.0.0
 
 ### Minor Changes

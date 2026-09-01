@@ -1,5 +1,19 @@
 # @shipfox/api-definitions-dto
 
+## 19.0.0
+
+### Minor Changes
+
+- 5af8d52: Adds project catalog and workflow-definition reads, plus trigger-event summaries, details, and facets.
+
+### Patch Changes
+
+- Updated dependencies [b416c4c]
+  - @shipfox/expression@2.4.2
+  - @shipfox/workflow-document@3.3.2
+  - @shipfox/inter-module@0.2.3
+  - @shipfox/regex@0.3.0
+
 ## 17.0.0
 
 ### Patch Changes

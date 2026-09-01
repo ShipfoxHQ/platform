@@ -1,5 +1,22 @@
 # @shipfox/api-integration-sentry
 
+## 19.0.0
+
+### Patch Changes
+
+- b416c4c: Preserves existing package behavior while simplifying internal control flow.
+- Updated dependencies [b416c4c]
+- Updated dependencies [a52cd6d]
+  - @shipfox/api-auth-context@19.0.0
+  - @shipfox/node-module@1.0.8
+  - @shipfox/api-integration-spi@2.2.0
+  - @shipfox/api-integration-sentry-dto@19.0.0
+  - @shipfox/config@1.2.4
+  - @shipfox/node-drizzle@0.3.5
+  - @shipfox/node-fastify@0.4.3
+  - @shipfox/node-opentelemetry@0.6.5
+  - @shipfox/node-postgres@0.5.1
+
 ## 18.0.0
 
 ### Patch Changes

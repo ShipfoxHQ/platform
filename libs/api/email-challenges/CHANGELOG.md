@@ -1,5 +1,21 @@
 # @shipfox/api-email-challenges
 
+## 1.1.12
+
+### Patch Changes
+
+- b416c4c: Preserves existing package behavior while simplifying internal control flow.
+- Updated dependencies [b416c4c]
+  - @shipfox/node-module@1.0.8
+  - @shipfox/api-common-dto@15.0.0
+  - @shipfox/config@1.2.4
+  - @shipfox/node-auth-root-key@0.2.3
+  - @shipfox/node-drizzle@0.3.5
+  - @shipfox/node-email@0.3.5
+  - @shipfox/node-mailer@0.2.6
+  - @shipfox/node-opentelemetry@0.6.5
+  - @shipfox/node-postgres@0.5.1
+
 ## 1.1.11
 
 ### Patch Changes

@@ -1,5 +1,20 @@
 # @shipfox/client-invitations
 
+## 29.0.0
+
+### Patch Changes
+
+- b416c4c: Preserves existing package behavior while simplifying internal control flow.
+- Updated dependencies [b416c4c]
+- Updated dependencies [621108c]
+- Updated dependencies [2f35a8b]
+  - @shipfox/client-shell@29.0.0
+  - @shipfox/client-ui@29.0.0
+  - @shipfox/react-ui@2.3.3
+  - @shipfox/api-auth-dto@19.0.0
+  - @shipfox/api-workspaces-dto@15.0.0
+  - @shipfox/client-api@6.0.1
+
 ## 28.0.0
 
 ### Patch Changes

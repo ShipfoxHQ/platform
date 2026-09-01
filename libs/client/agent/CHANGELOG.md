@@ -1,5 +1,19 @@
 # @shipfox/client-agent
 
+## 29.0.0
+
+### Patch Changes
+
+- b416c4c: Preserves existing package behavior while simplifying internal control flow.
+- Updated dependencies [c07c8e2]
+- Updated dependencies [b416c4c]
+- Updated dependencies [2f35a8b]
+  - @shipfox/api-agent-dto@19.0.0
+  - @shipfox/client-shell@29.0.0
+  - @shipfox/client-ui@29.0.0
+  - @shipfox/react-ui@2.3.3
+  - @shipfox/client-api@6.0.1
+
 ## 28.0.0
 
 ### Patch Changes

@@ -1,5 +1,21 @@
 # @shipfox/client-onboarding
 
+## 29.0.0
+
+### Patch Changes
+
+- b416c4c: Preserves existing package behavior while simplifying internal control flow.
+- Updated dependencies [b416c4c]
+- Updated dependencies [b416c4c]
+- Updated dependencies [2f35a8b]
+  - @shipfox/client-agent@29.0.0
+  - @shipfox/client-integrations@29.0.0
+  - @shipfox/client-projects@29.0.0
+  - @shipfox/client-runners@29.0.0
+  - @shipfox/client-shell@29.0.0
+  - @shipfox/react-ui@2.3.3
+  - @shipfox/client-workspace-settings@29.0.0
+
 ## 28.0.0
 
 ### Patch Changes

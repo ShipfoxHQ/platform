@@ -1,5 +1,32 @@
 # @shipfox/client-workflows
 
+## 29.0.0
+
+### Minor Changes
+
+- 93918a4: Server workflow tool steps now return a `wait` protocol while a scheduled tool call is pending, and clients recognize the new `tool_error`, `tool_config_invalid`, and `invocation_interrupted` step error reasons.
+
+### Patch Changes
+
+- b416c4c: Preserves existing package behavior while simplifying internal control flow.
+- Updated dependencies [34ebe6a]
+- Updated dependencies [b416c4c]
+- Updated dependencies [5af8d52]
+- Updated dependencies [b416c4c]
+- Updated dependencies [2f35a8b]
+- Updated dependencies [93918a4]
+  - @shipfox/api-workflows-dto@19.0.0
+  - @shipfox/annotations-dto@19.0.0
+  - @shipfox/client-logs@29.0.0
+  - @shipfox/client-projects@29.0.0
+  - @shipfox/client-shell@29.0.0
+  - @shipfox/client-triggers@29.0.0
+  - @shipfox/client-ui@29.0.0
+  - @shipfox/react-ui@2.3.3
+  - @shipfox/api-definitions-dto@19.0.0
+  - @shipfox/api-triggers-dto@19.0.0
+  - @shipfox/client-api@6.0.1
+
 ## 28.0.0
 
 ### Minor Changes

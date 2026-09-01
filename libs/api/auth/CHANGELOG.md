@@ -1,5 +1,39 @@
 # @shipfox/api-auth
 
+## 19.0.0
+
+### Minor Changes
+
+- 570f67d: Adds the administrator user directory operation and route while preserving the existing rows result field.
+- b654054: Adds the administrator user directory query for browsing users.
+- 627eda2: Add agent-access authorization storage and personal access token primitives.
+
+### Patch Changes
+
+- b416c4c: Preserves existing package behavior while simplifying internal control flow.
+- Updated dependencies [b416c4c]
+- Updated dependencies [627eda2]
+- Updated dependencies [621108c]
+  - @shipfox/api-auth-context@19.0.0
+  - @shipfox/api-email-challenges@1.1.12
+  - @shipfox/node-module@1.0.8
+  - @shipfox/node-outbox@0.2.7
+  - @shipfox/node-tokens@1.1.0
+  - @shipfox/api-auth-dto@19.0.0
+  - @shipfox/api-common-dto@15.0.0
+  - @shipfox/api-workspaces-dto@15.0.0
+  - @shipfox/config@1.2.4
+  - @shipfox/inter-module@0.2.3
+  - @shipfox/node-auth-root-key@0.2.3
+  - @shipfox/node-drizzle@0.3.5
+  - @shipfox/node-email@0.3.5
+  - @shipfox/node-fastify@0.4.3
+  - @shipfox/node-jwt@0.4.0
+  - @shipfox/node-mailer@0.2.6
+  - @shipfox/node-opentelemetry@0.6.5
+  - @shipfox/node-postgres@0.5.1
+  - @shipfox/node-rate-limit@0.4.0
+
 ## 18.0.0
 
 ### Patch Changes

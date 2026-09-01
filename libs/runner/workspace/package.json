@@ -1,7 +1,7 @@
 {
   "name": "@shipfox/runner-workspace",
   "license": "MIT",
-  "version": "0.0.28",
+  "version": "0.0.29",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ShipfoxHQ/shipfox.git",

@@ -1,5 +1,19 @@
 # @shipfox/node-module
 
+## 1.0.8
+
+### Patch Changes
+
+- b416c4c: Preserves existing package behavior while simplifying internal control flow.
+- Updated dependencies [b416c4c]
+  - @shipfox/node-outbox@0.2.7
+  - @shipfox/inter-module@0.2.3
+  - @shipfox/node-drizzle@0.3.5
+  - @shipfox/node-error-monitoring@0.3.0
+  - @shipfox/node-fastify@0.4.3
+  - @shipfox/node-opentelemetry@0.6.5
+  - @shipfox/node-temporal@0.4.6
+
 ## 1.0.7
 
 ### Patch Changes

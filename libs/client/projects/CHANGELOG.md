@@ -1,5 +1,29 @@
 # @shipfox/client-projects
 
+## 29.0.0
+
+### Patch Changes
+
+- b416c4c: Preserves existing package behavior while simplifying internal control flow.
+- b416c4c: Preserves cached empty project states after failed refreshes.
+- Updated dependencies [b416c4c]
+- Updated dependencies [5af8d52]
+- Updated dependencies [a52cd6d]
+- Updated dependencies [a225bf8]
+- Updated dependencies [75a54d1]
+- Updated dependencies [2f35a8b]
+  - @shipfox/api-integration-core-dto@19.0.0
+  - @shipfox/client-agent@29.0.0
+  - @shipfox/client-auth@29.0.0
+  - @shipfox/client-integrations@29.0.0
+  - @shipfox/client-shell@29.0.0
+  - @shipfox/client-ui@29.0.0
+  - @shipfox/react-ui@2.3.3
+  - @shipfox/api-projects-dto@19.0.0
+  - @shipfox/api-definitions-dto@19.0.0
+  - @shipfox/api-common-dto@15.0.0
+  - @shipfox/client-api@6.0.1
+
 ## 28.0.0
 
 ### Patch Changes

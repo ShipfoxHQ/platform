@@ -1,5 +1,11 @@
 # @shipfox/node-outbox
 
+## 0.2.7
+
+### Patch Changes
+
+- b416c4c: Preserves existing package behavior while simplifying internal control flow.
+
 ## 0.2.6
 
 ### Patch Changes

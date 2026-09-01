@@ -1,5 +1,34 @@
 # @shipfox/api-agent
 
+## 19.0.0
+
+### Patch Changes
+
+- c07c8e2: Preserves the pinned agent harness across workflow reruns.
+- b416c4c: Preserves existing package behavior while simplifying internal control flow.
+- Updated dependencies [34ebe6a]
+- Updated dependencies [c07c8e2]
+- Updated dependencies [b416c4c]
+- Updated dependencies [93918a4]
+  - @shipfox/api-workflows-dto@19.0.0
+  - @shipfox/api-agent-dto@19.0.0
+  - @shipfox/api-auth-context@19.0.0
+  - @shipfox/node-egress-guard@0.1.4
+  - @shipfox/node-envelope-encryption@0.2.1
+  - @shipfox/node-module@1.0.8
+  - @shipfox/redact@0.2.7
+  - @shipfox/workflow-document@3.3.2
+  - @shipfox/api-secrets-dto@12.0.0
+  - @shipfox/config@1.2.4
+  - @shipfox/inter-module@0.2.3
+  - @shipfox/node-drizzle@0.3.5
+  - @shipfox/node-error-monitoring@0.3.0
+  - @shipfox/node-fastify@0.4.3
+  - @shipfox/node-object-storage@0.1.1
+  - @shipfox/node-opentelemetry@0.6.5
+  - @shipfox/node-postgres@0.5.1
+  - @shipfox/node-temporal@0.4.6
+
 ## 18.0.0
 
 ### Minor Changes

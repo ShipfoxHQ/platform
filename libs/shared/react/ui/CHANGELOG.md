@@ -1,5 +1,11 @@
 # @shipfox/react-ui
 
+## 2.3.3
+
+### Patch Changes
+
+- b416c4c: Preserves existing package behavior while simplifying internal control flow.
+
 ## 2.3.2
 
 ### Patch Changes
