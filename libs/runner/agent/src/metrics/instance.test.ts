@@ -64,6 +64,16 @@ describe('Pi SVG normalization metrics', () => {
     });
   });
 
+  it('records legacy-context outcomes with a bounded source label', () => {
+    metrics.recordPiSvgNormalization('converted', 'none', 'legacy_context');
+
+    expect(counterAdd('runner_agent_pi_svg_normalization')).toHaveBeenCalledWith(1, {
+      outcome: 'converted',
+      reason: 'none',
+      source: 'legacy_context',
+    });
+  });
+
   it('records bounded rasterization duration labels', () => {
     metrics.recordPiSvgRasterizationDuration('omitted', 5_000);
 
