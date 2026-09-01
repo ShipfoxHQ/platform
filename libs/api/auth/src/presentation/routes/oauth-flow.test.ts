@@ -636,7 +636,9 @@ describe('dormant OAuth authorization and token routes', () => {
     const workspaces = workspaceClient(workspaceId);
     const account = await createVerifiedSession('oauth-request-expired');
     const client = await createTestClient();
-    let currentNow = new Date(Date.now() - (OAUTH_AUTHORIZATION_REQUEST_TTL_SECONDS * 1000 + 1));
+    let currentNow = new Date(
+      Date.now() - (OAUTH_AUTHORIZATION_REQUEST_TTL_SECONDS * 1000 + 1_000),
+    );
     app = await createTestApp(workspaces, {now: () => currentNow});
     const {challenge} = pkce();
     const authorization = await app.inject({
