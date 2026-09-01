@@ -1,3 +1,7 @@
+import {
+  WORKFLOW_RUN_DETAIL_REQUEST_KINDS,
+  type WorkflowRunDetailRequestKind,
+} from '@shipfox/api-workflows-dto';
 import {instanceMetrics} from '@shipfox/node-opentelemetry';
 import type {JobStatus, ResolutionReason} from '#core/entities/job.js';
 import type {JobExecutionStatus} from '#core/entities/job-execution.js';
@@ -134,6 +138,59 @@ const toolInvocationLogAppendFailuresCount = meter.createCounter<{
   description: 'Server-executed workflow tool invocation log append failures by error class',
 });
 
+export type WorkflowRunDetailReadOutcome = 'success' | 'not_found' | 'error';
+export type WorkflowRunDetailRequestKindMetric = WorkflowRunDetailRequestKind | 'unknown';
+
+type WorkflowRunDetailMetricLabels = {
+  request_kind: WorkflowRunDetailRequestKindMetric;
+  outcome: WorkflowRunDetailReadOutcome;
+};
+
+const workflowRunDetailReadCount = meter.createCounter<WorkflowRunDetailMetricLabels>(
+  'workflows_run_detail_reads',
+  {
+    description: 'Legacy workflow-run detail reads by bounded request kind and outcome',
+  },
+);
+
+const workflowRunDetailDuration = meter.createHistogram<WorkflowRunDetailMetricLabels>(
+  'workflows_run_detail_duration',
+  {
+    description: 'Legacy workflow-run detail handler duration',
+    unit: 'ms',
+    advice: {explicitBucketBoundaries: [1, 5, 10, 25, 50, 100, 250, 500, 1_000, 2_500, 5_000]},
+  },
+);
+
+const workflowRunDetailDatabaseDuration = meter.createHistogram<WorkflowRunDetailMetricLabels>(
+  'workflows_run_detail_database_duration',
+  {
+    description: 'Legacy workflow-run detail database read duration',
+    unit: 'ms',
+    advice: {explicitBucketBoundaries: [1, 5, 10, 25, 50, 100, 250, 500, 1_000, 2_500, 5_000]},
+  },
+);
+
+const workflowRunDetailResponseBytes = meter.createHistogram<WorkflowRunDetailMetricLabels>(
+  'workflows_run_detail_response_bytes',
+  {
+    description: 'Serialized legacy workflow-run detail response size',
+    unit: 'By',
+    advice: {
+      explicitBucketBoundaries: [1_024, 10_240, 50_000, 100_000, 200_000, 500_000, 1_000_000],
+    },
+  },
+);
+
+const workflowRunDetailReturnedRows = meter.createHistogram<WorkflowRunDetailMetricLabels>(
+  'workflows_run_detail_returned_rows',
+  {
+    description: 'Rows materialized by the legacy workflow-run detail join',
+    unit: '1',
+    advice: {explicitBucketBoundaries: [1, 10, 100, 1_000, 10_000, 100_000]},
+  },
+);
+
 export function recordWorkflowRunCreated(provider: string): void {
   runCreatedCount.add(1, {provider});
 }
@@ -235,4 +292,53 @@ export function recordWorkflowAgentToolWarningFailed(reason: 'budget' | 'lookup'
 
 export function recordWorkflowFailureAnnotationFailed(reason: 'lookup' | 'budget' | 'write'): void {
   failureAnnotationFailedCount.add(1, {reason});
+}
+
+export interface WorkflowRunDetailReadObservation {
+  durationMilliseconds: number;
+  databaseDurationMilliseconds: number;
+  responseBytes: number;
+  returnedRows: number;
+  requestKind: WorkflowRunDetailRequestKindMetric;
+  outcome: WorkflowRunDetailReadOutcome;
+}
+
+export function recordWorkflowRunDetailRead(observation: WorkflowRunDetailReadObservation): void {
+  if (
+    observation.durationMilliseconds < 0 ||
+    observation.databaseDurationMilliseconds < 0 ||
+    observation.responseBytes < 0 ||
+    observation.returnedRows < 0
+  ) {
+    return;
+  }
+
+  recordMetric(() => {
+    const labels = {
+      request_kind: observation.requestKind,
+      outcome: observation.outcome,
+    } satisfies WorkflowRunDetailMetricLabels;
+    workflowRunDetailReadCount.add(1, labels);
+    workflowRunDetailDuration.record(observation.durationMilliseconds, labels);
+    workflowRunDetailDatabaseDuration.record(observation.databaseDurationMilliseconds, labels);
+    workflowRunDetailResponseBytes.record(observation.responseBytes, labels);
+    workflowRunDetailReturnedRows.record(observation.returnedRows, labels);
+  });
+}
+
+export function classifyWorkflowRunDetailRequestKind(
+  value: string | string[] | undefined,
+): WorkflowRunDetailRequestKindMetric {
+  if (typeof value !== 'string') return 'unknown';
+  return (WORKFLOW_RUN_DETAIL_REQUEST_KINDS as readonly string[]).includes(value)
+    ? (value as WorkflowRunDetailRequestKind)
+    : 'unknown';
+}
+
+function recordMetric(record: () => void): void {
+  try {
+    record();
+  } catch {
+    // Measurement must never change a workflow-read outcome.
+  }
 }

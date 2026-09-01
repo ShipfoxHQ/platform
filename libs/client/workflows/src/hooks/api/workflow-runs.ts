@@ -1,5 +1,6 @@
 import {
   type RerunWorkflowRunBodyDto,
+  WORKFLOW_RUN_DETAIL_REQUEST_KIND_HEADER,
   type WorkflowRunRerunModeDto,
   workflowRunAttemptsResponseSchema,
   workflowRunDetailResponseSchema,
@@ -286,10 +287,12 @@ export function workflowRunsInfiniteQueryOptions(
 async function getWorkflowRun({
   workflowRunId,
   runAttempt,
+  requestKind,
   signal,
 }: {
   workflowRunId: string;
   runAttempt?: number | undefined;
+  requestKind: 'initial' | 'polling';
   signal?: AbortSignal;
 }): Promise<WorkflowRunDetail> {
   const params = new URLSearchParams();
@@ -300,6 +303,7 @@ async function getWorkflowRun({
       workflowRunDetailResponseSchema,
       `/workflows/runs/${workflowRunId}${query}`,
       {
+        headers: {[WORKFLOW_RUN_DETAIL_REQUEST_KIND_HEADER]: requestKind},
         signal,
       },
     ),
@@ -581,7 +585,13 @@ export function workflowRunQueryOptions({
       ? workflowRunsQueryKeys.detail(workflowRunId, runAttempt)
       : ([...workflowRunsQueryKeys.all, 'detail'] as const),
     enabled: Boolean(workflowRunId) && enabled,
-    queryFn: ({signal}) => getWorkflowRun({workflowRunId: workflowRunId ?? '', runAttempt, signal}),
+    queryFn: ({signal, client, queryKey}) =>
+      getWorkflowRun({
+        workflowRunId: workflowRunId ?? '',
+        runAttempt,
+        requestKind: client.getQueryData(queryKey) === undefined ? 'initial' : 'polling',
+        signal,
+      }),
     staleTime: 2_000,
     refetchOnWindowFocus: true,
     refetchInterval: (query) => {
