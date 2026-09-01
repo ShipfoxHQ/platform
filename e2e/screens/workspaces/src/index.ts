@@ -78,7 +78,7 @@ export class WorkspaceHomeScreen {
     const integrationsPath = `/w/${workspaceSlug}/integrations`;
     if (new URL(this.page.url()).pathname === integrationsPath) return;
     await this.page.goto(integrationsPath, {waitUntil: 'commit'});
-    await this.page.waitForURL(new RegExp(`/w/${workspaceSlug}(?:/integrations)?/?$`, 'u'));
+    await this.page.waitForURL(new RegExp(`/w/${workspaceSlug}/integrations/?$`, 'u'));
   }
 
   async gotoSettings(workspaceSlug: string): Promise<void> {
