@@ -545,7 +545,7 @@ describe('runJobSteps', () => {
       repository: checkoutResult.repository,
       ref: checkoutResult.ref,
       result: checkoutResult,
-      credentialSubject: `${checkout.id}:2`,
+      credentialSubject: `${checkout.id}:1`,
     });
   });
 

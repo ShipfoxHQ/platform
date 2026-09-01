@@ -124,6 +124,41 @@ describe('credential broker', () => {
     ]);
   });
 
+  it('attaches a capture to a renewal flight that started before the step', async () => {
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => (release = resolve));
+    let resolveStarted!: () => void;
+    const started = new Promise<void>((resolve) => (resolveStarted = resolve));
+    const renew = vi.fn(async () => {
+      resolveStarted();
+      await pending;
+      throw new Error('renewal failed');
+    });
+    const broker = new CredentialBroker({renew, now: () => now});
+    broker.register({
+      repositoryUrl: repository,
+      subject: 'checkout-step:2',
+      credential: {...baseCredential, renewal: {mode: 'on-rejection' as const}},
+    });
+
+    const firstRejection = broker.reject(repository);
+    await started;
+    const capturedRejection = broker.captureFailureEvents(() => broker.reject(repository));
+    release();
+
+    await expect(firstRejection).resolves.toEqual({rejectedGeneration: 'generation-a'});
+    await expect(capturedRejection).resolves.toMatchObject({
+      events: [
+        {
+          cursor: 1,
+          repositoryUrl: 'https://gitea.example/Org/Repo/',
+          subject: 'checkout-step:2',
+          kind: 'failed',
+        },
+      ],
+    });
+  });
+
   it('accepts an unchanged opaque credential when its generation is fresh', async () => {
     const renew = vi.fn().mockResolvedValue({
       ...baseCredential,

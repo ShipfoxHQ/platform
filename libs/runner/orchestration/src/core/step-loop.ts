@@ -279,10 +279,16 @@ function applyStepExecutionState(
     params.registerCheckoutCredential?.(execution.persistedCheckoutCredential);
   }
   if (execution.result.success && execution.result.checkout) {
+    const credentialSubject = checkoutCredentialSubject({
+      destinations: state.checkoutDestinations,
+      checkout: execution.result.checkout,
+      persistedCredential: execution.persistedCheckoutCredential,
+      fallback: `${step.id}:${attempt}`,
+    });
     rememberCheckoutDestination(
       state.checkoutDestinations,
       execution.result.checkout,
-      `${step.id}:${attempt}`,
+      credentialSubject,
     );
     state.checkoutRef = execution.result.checkout.ref;
   }
@@ -448,6 +454,26 @@ function rememberCheckoutDestination(
     result: checkout,
     credentialSubject,
   });
+}
+
+function checkoutCredentialSubject(params: {
+  destinations: TrackedCheckoutDestinations;
+  checkout: NonNullable<StepResult['checkout']>;
+  persistedCredential: PersistedCheckoutCredential | undefined;
+  fallback: string;
+}): string {
+  if (params.persistedCredential !== undefined) {
+    return `${params.persistedCredential.checkoutStepId}:${params.persistedCredential.checkoutAttempt}`;
+  }
+  const previous = params.destinations.get(params.checkout.path);
+  if (
+    previous !== undefined &&
+    previous.result.repository === params.checkout.repository &&
+    previous.result.ref === params.checkout.ref
+  ) {
+    return previous.credentialSubject;
+  }
+  return params.fallback;
 }
 
 export interface PulledStep {

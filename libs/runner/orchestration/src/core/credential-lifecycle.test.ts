@@ -3,69 +3,19 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import type {CheckoutTokenResponseDto} from '@shipfox/api-workflows-dto';
 
-const {requestCheckoutTokenMock} = vi.hoisted(() => ({
-  requestCheckoutTokenMock: vi.fn(),
-}));
+const {requestCheckoutTokenMock} = vi.hoisted(() => {
+  process.env.SHIPFOX_API_URL = 'https://api.test';
+  process.env.SHIPFOX_RUNNER_LABELS = 'local';
+  return {requestCheckoutTokenMock: vi.fn()};
+});
 
-vi.mock('@shipfox/runner-protocol', () => {
-  function codeFromError(error: unknown): string | undefined {
-    if (!(error instanceof Error) || !('data' in error)) return undefined;
-    const data = (error as {data?: unknown}).data;
-    if (typeof data !== 'object' || data === null || Array.isArray(data) || !('code' in data)) {
-      return undefined;
-    }
-    return typeof data.code === 'string' ? data.code : undefined;
-  }
-
-  function statusFromError(error: unknown): number | undefined {
-    if (!(error instanceof Error) || !('response' in error)) return undefined;
-    const status = (error as {response?: {status?: unknown}}).response?.status;
-    return typeof status === 'number' ? status : undefined;
-  }
-
-  function classifyCheckoutTokenFailure(error: unknown): 'auth' | 'unavailable' | 'failed' {
-    const status = statusFromError(error);
-    const code = codeFromError(error);
-    if (status === 401 || status === 403 || code === 'access-denied' || code === 'forbidden') {
-      return 'auth';
-    }
-    if (
-      status === 429 ||
-      status === 503 ||
-      code === 'rate-limited' ||
-      code === 'timeout' ||
-      code === 'provider-unavailable'
-    ) {
-      return 'unavailable';
-    }
-    return 'failed';
-  }
-
+vi.mock('@shipfox/runner-protocol', async () => {
+  const actual = await vi.importActual<typeof import('@shipfox/runner-protocol')>(
+    '@shipfox/runner-protocol',
+  );
   return {
+    ...actual,
     requestCheckoutToken: (...args: unknown[]) => requestCheckoutTokenMock(...args),
-    isTransientCheckoutTokenError: (error: unknown) => {
-      if (!(error instanceof Error)) return false;
-      const status = statusFromError(error);
-      return (
-        status === 429 ||
-        status === 503 ||
-        ['rate-limited', 'timeout', 'provider-unavailable'].includes(codeFromError(error) ?? '') ||
-        error.name === 'AbortError' ||
-        error.name === 'TimeoutError' ||
-        error instanceof TypeError
-      );
-    },
-    classifyCheckoutTokenFailure,
-    HTTPError: class HTTPError extends Error {
-      response: {status: number};
-      data: unknown;
-
-      constructor(status = 500) {
-        super(`HTTP ${status}`);
-        this.response = {status};
-        this.data = undefined;
-      }
-    },
   };
 });
 
@@ -85,10 +35,11 @@ const LEASE_CLIENT = {} as never;
 type CheckoutRenewal = {mode: 'on-rejection'} | {mode: 'refresh-at'; refresh_at: string};
 
 function buildHTTPError(status: number, data?: unknown): InstanceType<typeof HTTPError> {
-  const ErrorConstructor = HTTPError as unknown as new (
-    status?: number,
-  ) => InstanceType<typeof HTTPError>;
-  const error = new ErrorConstructor(status);
+  const error = new HTTPError(
+    new Response(null, {status}),
+    new Request('https://runner.example.test'),
+    {} as ConstructorParameters<typeof HTTPError>[2],
+  );
   error.data = data;
   return error;
 }

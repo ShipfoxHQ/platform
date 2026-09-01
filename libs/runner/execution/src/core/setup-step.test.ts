@@ -2,6 +2,11 @@ import type {StepDto} from '@shipfox/api-workflows-dto';
 import {logger} from '@shipfox/node-opentelemetry';
 import {HTTPError} from 'ky';
 
+vi.hoisted(() => {
+  process.env.SHIPFOX_API_URL = 'https://api.test';
+  process.env.SHIPFOX_RUNNER_LABELS = 'local';
+});
+
 const requestCheckoutTokenMock = vi.fn();
 const assertGitAvailableMock = vi.fn();
 const createJobDirMock = vi.fn();
@@ -9,34 +14,13 @@ const normalizeCheckoutDestinationMock = vi.fn();
 const checkoutRepositoryMock = vi.fn();
 const writeAmbientGitCredentialMock = vi.fn();
 
-vi.mock('@shipfox/runner-protocol', () => {
-  function classifyCheckoutTokenFailure(error: unknown): 'auth' | 'unavailable' | 'failed' {
-    if (!(error instanceof HTTPError)) return 'failed';
-    const status = error.response.status;
-    const data = error.data;
-    let code: string | undefined;
-    if (typeof data === 'object' && data !== null && !Array.isArray(data) && 'code' in data) {
-      code = typeof data.code === 'string' ? data.code : undefined;
-    }
-    if (status === 401 || status === 403 || code === 'access-denied' || code === 'forbidden') {
-      return 'auth';
-    }
-    if (
-      status === 429 ||
-      status === 503 ||
-      code === 'rate-limited' ||
-      code === 'timeout' ||
-      code === 'provider-unavailable'
-    ) {
-      return 'unavailable';
-    }
-    return 'failed';
-  }
-
+vi.mock('@shipfox/runner-protocol', async () => {
+  const actual = await vi.importActual<typeof import('@shipfox/runner-protocol')>(
+    '@shipfox/runner-protocol',
+  );
   return {
+    ...actual,
     requestCheckoutToken: (...args: unknown[]) => requestCheckoutTokenMock(...args),
-    classifyCheckoutTokenFailure,
-    HTTPError,
   };
 });
 
