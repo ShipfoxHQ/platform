@@ -84,6 +84,15 @@ export interface ClassifiedMintError {
 export const GITHUB_INSTALLATION_TOKEN_ENVELOPE_KEY = 'ENVELOPE';
 
 export type GithubInstallationTokenPermissions = Record<string, 'read' | 'write'>;
+export type MintBackoffScope = 'installation' | 'profile';
+
+const installationWideMintErrorReasons = new Set<IntegrationProviderErrorReason>([
+  'installation-not-found',
+  'malformed-provider-response',
+  'provider-unavailable',
+  'rate-limited',
+  'timeout',
+]);
 
 export function githubInstallationTokenNamespace(installationId: number): string {
   return `system/github/installation-token/${installationId}`;
@@ -103,6 +112,15 @@ export function githubInstallationTokenBackoffKey(permissionFingerprint: string)
   }
 
   return `BACKOFF_${githubInstallationTokenKey(permissionFingerprint).slice('TOKEN_'.length)}`;
+}
+
+export function githubInstallationTokenBackoffKeys(
+  permissionFingerprint: string,
+): readonly string[] {
+  const profileBackoffKey = githubInstallationTokenBackoffKey(permissionFingerprint);
+  return profileBackoffKey === GITHUB_INSTALLATION_TOKEN_BACKOFF_KEY
+    ? [profileBackoffKey]
+    : [profileBackoffKey, GITHUB_INSTALLATION_TOKEN_BACKOFF_KEY];
 }
 
 export function githubInstallationTokenPermissionFingerprint(
@@ -194,6 +212,12 @@ export function classifyMintError(error: unknown): ClassifiedMintError {
 
 export function mintErrorClassForReason(reason: IntegrationProviderErrorReason): MintErrorClass {
   return terminalMintErrorReasons.has(reason) ? 'terminal' : 'transient';
+}
+
+export function mintBackoffScopeForReason(
+  reason: IntegrationProviderErrorReason,
+): MintBackoffScope {
+  return installationWideMintErrorReasons.has(reason) ? 'installation' : 'profile';
 }
 
 export function backoffMs(classified: ClassifiedMintError): number {
