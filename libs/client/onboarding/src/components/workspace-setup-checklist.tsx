@@ -77,10 +77,11 @@ function WorkspaceSetupChecklistForWorkspace({workspace}: {workspace: WorkspaceR
   const expandable =
     queryState.baseSettled && !showCompletion && queryState.checklist.items.length > 1;
 
-  // `trackedCount` only stops moving once every family has reported, so a count
-  // shown before then can read "3 of 3 done" over rows that have yet to arrive.
+  // `trackedCount` only stops moving once the runner and model-provider families
+  // report, so a count shown before then can read "3 of 3 done" over rows that
+  // have yet to arrive.
   const countLabel =
-    queryState.baseSettled && queryState.optionalSettled
+    queryState.baseSettled && queryState.trackedRowsSettled
       ? checklistCountLabel(queryState.checklist)
       : undefined;
 
@@ -164,10 +165,10 @@ function ChecklistPanelBody({
   const nextStep = selectNextSetupStep(queryState.checklist);
   if (!nextStep) return null;
 
-  // A pointer only leads once nothing is left to ask for. The runner,
-  // model-provider, and teammate rows stay hidden while their families load, so
-  // promoting the pointer then would call setup finished a moment too early.
-  if (!nextStep.tracked && !queryState.optionalSettled) return <ChecklistSkeleton />;
+  // A pointer only leads once nothing is left to ask for. The runner and
+  // model-provider rows stay hidden while their families load, so promoting the
+  // pointer then would call setup finished a moment too early.
+  if (!nextStep.tracked && !queryState.trackedRowsSettled) return <ChecklistSkeleton />;
 
   return (
     <SetupChecklistNextStep item={nextStep} workspaceSlug={workspaceSlug} onAction={onAction} />

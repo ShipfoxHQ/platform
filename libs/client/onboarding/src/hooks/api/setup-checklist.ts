@@ -27,8 +27,12 @@ const CHECKLIST_STALE_TIME_MS = 5 * 60 * 1000;
 export interface ChecklistQueryState {
   checklist: SetupChecklist;
   baseSettled: boolean;
-  /** Every non-base family has reported, by success or by failure. */
-  optionalSettled: boolean;
+  /**
+   * Every family that can still add a tracked row has reported, by success or
+   * by failure. The teammates family is excluded: its row is a pointer, so it
+   * never moves `trackedCount`.
+   */
+  trackedRowsSettled: boolean;
   completionReady: boolean;
 }
 
@@ -122,7 +126,7 @@ export function useSetupChecklistQueryState(
 
   return {
     baseSettled: families.baseSettled,
-    optionalSettled: families.optionalSettled,
+    trackedRowsSettled: families.trackedRowsSettled,
     completionReady: families.completionReady,
     checklist: {
       items,
@@ -156,7 +160,7 @@ function checklistFamilyState(queries: {
   const membersSettled = isSettled(queries.membersQuery) && isSettled(queries.invitationsQuery);
   const providersReady = queries.providersQuery.isSuccess;
   const connectionsReady = queries.connectionsQuery.isSuccess;
-  const optionalSettled = runnerSettled && modelSettled && membersSettled;
+  const everyFamilySettled = runnerSettled && modelSettled && membersSettled;
 
   return {
     providersReady,
@@ -165,8 +169,8 @@ function checklistFamilyState(queries: {
     modelReady: queries.catalogQuery.isSuccess && queries.configsQuery.isSuccess,
     membersReady: queries.membersQuery.isSuccess && queries.invitationsQuery.isSuccess,
     baseSettled: isSettled(queries.providersQuery) && isSettled(queries.connectionsQuery),
-    optionalSettled,
-    completionReady: providersReady && connectionsReady && optionalSettled,
+    trackedRowsSettled: runnerSettled && modelSettled,
+    completionReady: providersReady && connectionsReady && everyFamilySettled,
   };
 }
 

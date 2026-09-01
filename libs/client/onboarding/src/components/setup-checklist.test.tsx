@@ -710,6 +710,44 @@ describe('workspace checklist hosts', () => {
     expect(screen.queryByText(DONE_COUNT_RE)).not.toBeInTheDocument();
   });
 
+  test('does not wait on the teammates family, which cannot change the count', async () => {
+    const queryClient = createQueryClient();
+    configureApiClient({
+      baseUrl: 'https://api.example.test',
+      fetchImpl: vi.fn(() => pendingResponse()),
+    });
+    queryClient.setQueryData(integrationProvidersQueryOptions().queryKey, [
+      githubProvider,
+      linearProvider,
+    ]);
+    queryClient.setQueryData(integrationConnectionsQueryOptions(WORKSPACE.id).queryKey, [
+      connection('github', 'active'),
+    ]);
+    queryClient.setQueryData(provisionerTokenQueryKeys.active(WORKSPACE.id), {
+      provisioners: [],
+      installationRunners: 'managed' as const,
+    });
+    queryClient.setQueryData(modelProviderQueryKeys.catalog(), {
+      providers: [],
+      workspaceProviders: 'enabled' as const,
+      managedProviderId: 'managed-default',
+      instanceDefaultProviderId: null,
+    });
+    queryClient.setQueryData(modelProviderQueryKeys.configs(WORKSPACE.id), {
+      configs: [],
+      defaultHarnessId: null,
+      defaultProviderId: null,
+    });
+
+    renderWithProviders(<WorkspaceSetupChecklist workspace={WORKSPACE} />, queryClient, {
+      capture: vi.fn(),
+    });
+
+    // Members and invitations are still in flight, and the count is already final.
+    expect(await screen.findByText('2 of 3 done')).toBeInTheDocument();
+    expect(await screen.findByText('Connect your tools')).toBeInTheDocument();
+  });
+
   test('does not render an initially complete checklist without a transition', async () => {
     const queryClient = createQueryClient();
     seedQueries(queryClient, true);
