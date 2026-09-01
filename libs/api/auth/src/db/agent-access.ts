@@ -3,7 +3,6 @@ import {
   asc,
   desc,
   eq,
-  exists,
   gt,
   inArray,
   isNotNull,
@@ -1431,52 +1430,56 @@ export async function markAgentPersonalAccessTokenUsed(params: {
     throw new Error('PAT last-used throttle must be a non-negative finite number of seconds');
   }
 
-  const currentDatabaseTime = sql`clock_timestamp()`;
-  const activeUser = exists(
-    db()
-      .select({id: users.id})
-      .from(users)
-      .where(and(eq(users.id, agentPersonalAccessTokens.userId), eq(users.status, 'active'))),
-  );
-  const throttleCutoff = sql`clock_timestamp() - (${throttleSeconds} || ' seconds')::interval`;
+  return await db().transaction(async (tx) => {
+    const candidateRows = await tx
+      .select({userId: agentPersonalAccessTokens.userId})
+      .from(agentPersonalAccessTokens)
+      .where(eq(agentPersonalAccessTokens.id, params.id))
+      .limit(1);
+    const candidate = candidateRows[0];
+    if (!candidate) return undefined;
 
-  const rows = await db()
-    .update(agentPersonalAccessTokens)
-    .set({lastUsedAt: currentDatabaseTime, updatedAt: currentDatabaseTime})
-    .where(
-      and(
-        eq(agentPersonalAccessTokens.id, params.id),
-        activeUser,
-        isNull(agentPersonalAccessTokens.revokedAt),
-        gt(agentPersonalAccessTokens.expiresAt, currentDatabaseTime),
-        or(
-          isNull(agentPersonalAccessTokens.lastUsedAt),
-          lte(agentPersonalAccessTokens.lastUsedAt, throttleCutoff),
+    // Serialize PAT use with suspension. A plain EXISTS can read a
+    // pre-suspension snapshot and return a credential after suspension commits.
+    if (!(await isActiveAgentUserTx(tx, {userId: candidate.userId}))) return undefined;
+
+    const currentDatabaseTime = sql`clock_timestamp()`;
+    const throttleCutoff = sql`clock_timestamp() - (${throttleSeconds} || ' seconds')::interval`;
+    const rows = await tx
+      .update(agentPersonalAccessTokens)
+      .set({lastUsedAt: currentDatabaseTime, updatedAt: currentDatabaseTime})
+      .where(
+        and(
+          eq(agentPersonalAccessTokens.id, params.id),
+          isNull(agentPersonalAccessTokens.revokedAt),
+          gt(agentPersonalAccessTokens.expiresAt, currentDatabaseTime),
+          or(
+            isNull(agentPersonalAccessTokens.lastUsedAt),
+            lte(agentPersonalAccessTokens.lastUsedAt, throttleCutoff),
+          ),
         ),
-      ),
-    )
-    .returning();
-  const row = rows[0];
-  if (row) return toAgentPersonalAccessToken(row);
+      )
+      .returning();
+    const row = rows[0];
+    if (row) return toAgentPersonalAccessToken(row);
 
-  // A valid token can intentionally skip the write inside the throttle
-  // window. Return its current row so callers can distinguish that from an
-  // invalid, expired, revoked, or inactive-user token.
-  const existingRows = await db()
-    .select({token: agentPersonalAccessTokens})
-    .from(agentPersonalAccessTokens)
-    .innerJoin(users, eq(agentPersonalAccessTokens.userId, users.id))
-    .where(
-      and(
-        eq(agentPersonalAccessTokens.id, params.id),
-        eq(users.status, 'active'),
-        isNull(agentPersonalAccessTokens.revokedAt),
-        gt(agentPersonalAccessTokens.expiresAt, currentDatabaseTime),
-      ),
-    )
-    .limit(1);
-  const existing = existingRows[0]?.token;
-  return existing ? toAgentPersonalAccessToken(existing) : undefined;
+    // A valid token can intentionally skip the write inside the throttle
+    // window. Return its current row so callers can distinguish that from an
+    // invalid, expired, revoked, or inactive-user token.
+    const existingRows = await tx
+      .select()
+      .from(agentPersonalAccessTokens)
+      .where(
+        and(
+          eq(agentPersonalAccessTokens.id, params.id),
+          isNull(agentPersonalAccessTokens.revokedAt),
+          gt(agentPersonalAccessTokens.expiresAt, currentDatabaseTime),
+        ),
+      )
+      .limit(1);
+    const existing = existingRows[0];
+    return existing ? toAgentPersonalAccessToken(existing) : undefined;
+  });
 }
 
 export async function revokeAgentPersonalAccessToken(params: {
