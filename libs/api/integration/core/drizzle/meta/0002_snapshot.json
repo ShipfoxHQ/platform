@@ -450,6 +450,13 @@
           "primaryKey": false,
           "notNull": true
         },
+        "repository_access": {
+          "name": "repository_access",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'selected'"
+        },
         "connection_created_at": {
           "name": "connection_created_at",
           "type": "timestamp with time zone",

@@ -22,13 +22,6 @@
       "when": 1788264726687,
       "tag": "0002_first_ken_ellis",
       "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "7",
-      "when": 1788272463316,
-      "tag": "0003_sparkling_supernaut",
-      "breakpoints": true
     }
   ]
 }
