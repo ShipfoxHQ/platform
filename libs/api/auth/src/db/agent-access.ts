@@ -1,4 +1,17 @@
-import {and, asc, eq, gt, inArray, isNotNull, isNull, lte, notExists, or, sql} from 'drizzle-orm';
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNotNull,
+  isNull,
+  lte,
+  notExists,
+  or,
+  sql,
+} from 'drizzle-orm';
 import {config} from '#config.js';
 import type {
   AgentAuthorizationCode,
@@ -600,6 +613,42 @@ export async function findAgentGrant(params: {
   return row ? toAgentGrant(row) : undefined;
 }
 
+export interface AgentGrantSummaryRecord {
+  id: string;
+  clientName: string;
+  workspaceId: string;
+  scopes: string[];
+  createdAt: Date;
+  lastRefreshedAt: Date | null;
+}
+
+/** Lists only the caller's active grants, with client identity resolved in auth-owned tables. */
+export async function listAgentGrantSummaries(params: {
+  userId: string;
+}): Promise<AgentGrantSummaryRecord[]> {
+  const rows = await db()
+    .select({
+      id: agentGrants.id,
+      clientName: agentClients.name,
+      workspaceId: agentGrants.workspaceId,
+      scopes: agentGrants.scopes,
+      createdAt: agentGrants.createdAt,
+      lastRefreshedAt: agentGrants.lastUsedAt,
+    })
+    .from(agentGrants)
+    .innerJoin(agentClients, eq(agentGrants.clientId, agentClients.id))
+    .where(
+      and(
+        eq(agentGrants.userId, params.userId),
+        isNull(agentGrants.revokedAt),
+        isNull(agentGrants.terminalAt),
+      ),
+    )
+    .orderBy(desc(agentGrants.createdAt), desc(agentGrants.id));
+
+  return rows;
+}
+
 /**
  * Locks one grant row until the surrounding transaction ends. Code exchange
  * and lifecycle transitions must use this same primitive before inspecting or
@@ -1108,6 +1157,25 @@ export async function revokeAgentGrant(params: {grantId: string}): Promise<Agent
   return await db().transaction((tx) => revokeAgentGrantTx(tx, params));
 }
 
+/** Revokes a grant only when it belongs to the caller; repeated revocation is a success. */
+export async function revokeAgentGrantForUser(params: {
+  userId: string;
+  grantId: string;
+}): Promise<AgentGrant | undefined> {
+  return await db().transaction(async (tx) => {
+    const rows = await tx
+      .select()
+      .from(agentGrants)
+      .where(and(eq(agentGrants.id, params.grantId), eq(agentGrants.userId, params.userId)))
+      .for('update')
+      .limit(1);
+    const grant = rows[0];
+    if (!grant) return undefined;
+    if (grant.revokedAt) return toAgentGrant(grant);
+    return await revokeAgentGrantTx(tx, {grantId: grant.id});
+  });
+}
+
 export async function revokeAgentGrantTx(
   tx: AgentAccessTx,
   params: {grantId: string},
@@ -1261,6 +1329,16 @@ export async function createAgentPersonalAccessToken(
   return await db().transaction((tx) => createAgentPersonalAccessTokenTx(tx, params));
 }
 
+/** Creates a PAT while holding the owning user row lock and requiring an active account. */
+export async function createAgentPersonalAccessTokenForActiveUser(
+  params: CreateAgentPersonalAccessTokenParams,
+): Promise<AgentPersonalAccessToken | undefined> {
+  return await db().transaction(async (tx) => {
+    if (!(await isActiveAgentUserTx(tx, {userId: params.userId}))) return undefined;
+    return await createAgentPersonalAccessTokenTx(tx, params);
+  });
+}
+
 export async function createAgentPersonalAccessTokenTx(
   tx: AgentAccessTx,
   params: CreateAgentPersonalAccessTokenParams,
@@ -1307,6 +1385,42 @@ export async function findActiveAgentPersonalAccessTokenByHash(params: {
   return row ? toAgentPersonalAccessToken(row) : undefined;
 }
 
+export interface AgentPersonalAccessTokenSummaryRecord {
+  id: string;
+  workspaceId: string;
+  prefix: string;
+  name: string;
+  expiresAt: Date;
+  lastUsedAt: Date | null;
+  createdAt: Date;
+}
+
+/** Lists the caller's non-revoked PAT metadata without exposing token hashes. */
+export async function listAgentPersonalAccessTokenSummaries(params: {
+  userId: string;
+}): Promise<AgentPersonalAccessTokenSummaryRecord[]> {
+  const rows = await db()
+    .select({
+      id: agentPersonalAccessTokens.id,
+      workspaceId: agentPersonalAccessTokens.workspaceId,
+      prefix: agentPersonalAccessTokens.prefix,
+      name: agentPersonalAccessTokens.name,
+      expiresAt: agentPersonalAccessTokens.expiresAt,
+      lastUsedAt: agentPersonalAccessTokens.lastUsedAt,
+      createdAt: agentPersonalAccessTokens.createdAt,
+    })
+    .from(agentPersonalAccessTokens)
+    .where(
+      and(
+        eq(agentPersonalAccessTokens.userId, params.userId),
+        isNull(agentPersonalAccessTokens.revokedAt),
+      ),
+    )
+    .orderBy(desc(agentPersonalAccessTokens.createdAt), desc(agentPersonalAccessTokens.id));
+
+  return rows;
+}
+
 export async function markAgentPersonalAccessTokenUsed(params: {
   id: string;
   throttleSeconds?: number;
@@ -1316,43 +1430,54 @@ export async function markAgentPersonalAccessTokenUsed(params: {
     throw new Error('PAT last-used throttle must be a non-negative finite number of seconds');
   }
 
-  const rows = await db()
-    .update(agentPersonalAccessTokens)
-    .set({lastUsedAt: sql`now()`, updatedAt: sql`now()`})
-    .where(
-      and(
-        eq(agentPersonalAccessTokens.id, params.id),
-        isNull(agentPersonalAccessTokens.revokedAt),
-        gt(agentPersonalAccessTokens.expiresAt, sql`now()`),
-        or(
-          isNull(agentPersonalAccessTokens.lastUsedAt),
-          lte(
-            agentPersonalAccessTokens.lastUsedAt,
-            sql`now() - (${throttleSeconds} || ' seconds')::interval`,
+  return await db().transaction(async (tx) => {
+    const candidateRows = await tx
+      .select({userId: agentPersonalAccessTokens.userId})
+      .from(agentPersonalAccessTokens)
+      .where(eq(agentPersonalAccessTokens.id, params.id))
+      .limit(1);
+    const candidate = candidateRows[0];
+    if (!candidate) return undefined;
+    if (!(await isActiveAgentUserTx(tx, {userId: candidate.userId}))) return undefined;
+
+    const rows = await tx
+      .update(agentPersonalAccessTokens)
+      .set({lastUsedAt: sql`now()`, updatedAt: sql`now()`})
+      .where(
+        and(
+          eq(agentPersonalAccessTokens.id, params.id),
+          isNull(agentPersonalAccessTokens.revokedAt),
+          gt(agentPersonalAccessTokens.expiresAt, sql`now()`),
+          or(
+            isNull(agentPersonalAccessTokens.lastUsedAt),
+            lte(
+              agentPersonalAccessTokens.lastUsedAt,
+              sql`now() - (${throttleSeconds} || ' seconds')::interval`,
+            ),
           ),
         ),
-      ),
-    )
-    .returning();
-  const row = rows[0];
-  if (row) return toAgentPersonalAccessToken(row);
+      )
+      .returning();
+    const row = rows[0];
+    if (row) return toAgentPersonalAccessToken(row);
 
-  // A valid token can intentionally skip the write inside the throttle
-  // window. Return its current row so callers can distinguish that from an
-  // invalid, expired, or revoked token.
-  const existingRows = await db()
-    .select()
-    .from(agentPersonalAccessTokens)
-    .where(
-      and(
-        eq(agentPersonalAccessTokens.id, params.id),
-        isNull(agentPersonalAccessTokens.revokedAt),
-        gt(agentPersonalAccessTokens.expiresAt, sql`now()`),
-      ),
-    )
-    .limit(1);
-  const existing = existingRows[0];
-  return existing ? toAgentPersonalAccessToken(existing) : undefined;
+    // A valid token can intentionally skip the write inside the throttle
+    // window. Return its current row so callers can distinguish that from an
+    // invalid, expired, revoked, or inactive-user token.
+    const existingRows = await tx
+      .select()
+      .from(agentPersonalAccessTokens)
+      .where(
+        and(
+          eq(agentPersonalAccessTokens.id, params.id),
+          isNull(agentPersonalAccessTokens.revokedAt),
+          gt(agentPersonalAccessTokens.expiresAt, sql`now()`),
+        ),
+      )
+      .limit(1);
+    const existing = existingRows[0];
+    return existing ? toAgentPersonalAccessToken(existing) : undefined;
+  });
 }
 
 export async function revokeAgentPersonalAccessToken(params: {
@@ -1367,6 +1492,42 @@ export async function revokeAgentPersonalAccessToken(params: {
     .returning();
   const row = rows[0];
   return row ? toAgentPersonalAccessToken(row) : undefined;
+}
+
+/** Revokes a PAT only when it belongs to the caller; repeated revocation is a success. */
+export async function revokeAgentPersonalAccessTokenForUser(params: {
+  userId: string;
+  id: string;
+}): Promise<AgentPersonalAccessToken | undefined> {
+  return await db().transaction(async (tx) => {
+    const existingRows = await tx
+      .select()
+      .from(agentPersonalAccessTokens)
+      .where(
+        and(
+          eq(agentPersonalAccessTokens.id, params.id),
+          eq(agentPersonalAccessTokens.userId, params.userId),
+        ),
+      )
+      .for('update')
+      .limit(1);
+    const existing = existingRows[0];
+    if (!existing) return undefined;
+    if (existing.revokedAt) return toAgentPersonalAccessToken(existing);
+
+    const rows = await tx
+      .update(agentPersonalAccessTokens)
+      .set({revokedAt: sql`now()`, updatedAt: sql`now()`})
+      .where(
+        and(
+          eq(agentPersonalAccessTokens.id, params.id),
+          isNull(agentPersonalAccessTokens.revokedAt),
+        ),
+      )
+      .returning();
+    const row = rows[0];
+    return row ? toAgentPersonalAccessToken(row) : toAgentPersonalAccessToken(existing);
+  });
 }
 
 export interface PruneAgentAccessParams {

@@ -62,6 +62,22 @@ export {
   revokeAdministratorUserSessions,
   suspendAdministratorUser,
 } from '#core/administration.js';
+export type {
+  AgentGrantSummary,
+  AgentPatExpiryDays,
+  AgentPersonalAccessTokenSummary,
+  CreateAgentPersonalAccessTokenParams,
+  CreateAgentPersonalAccessTokenResult,
+} from '#core/agent-access.js';
+export {
+  AGENT_PAT_EXPIRY_DAYS,
+  createAgentPersonalAccessToken,
+  listAgentGrants,
+  listAgentPersonalAccessTokens,
+  requireActiveAgentWorkspaceMembership,
+  revokeAgentGrant,
+  revokeAgentPersonalAccessToken,
+} from '#core/agent-access.js';
 export type {IssueAgentAccessTokenParams} from '#core/agent-access-token.js';
 export {
   AGENT_ACCESS_TOKEN_EXPIRES_IN,
@@ -96,12 +112,17 @@ export type {EmailOwner, FindUserByEmailParams} from '#core/email-owner.js';
 export {findUserByEmail} from '#core/email-owner.js';
 export type {AdminGrant} from '#core/entities/admin-grant.js';
 export type {User, UserStatus} from '#core/entities/user.js';
+export type {AgentAccessWorkspaceErrorCode} from '#core/errors.js';
 export {
   AdminBootstrapClosedError,
   AdminGrantAlreadyExistsError,
   AdminGrantNotFoundError,
   AdminIdempotencyKeyReuseError,
   AdminRoleRequiredError,
+  AgentAccessUserInactiveError,
+  AgentAccessWorkspaceError,
+  AgentGrantNotFoundError,
+  AgentPersonalAccessTokenNotFoundError,
   AuthDependencyUnavailableError,
   CannotImpersonateAdministratorError,
   CannotImpersonateSelfError,
@@ -190,6 +211,7 @@ export {
   DEFAULT_SIGNUP_NOT_ALLOWED_MESSAGE,
 } from '#core/signup-policy.js';
 export type {ImpersonationResult} from '#db/impersonation.js';
+export {createAgentAccessAuthMethod} from '#presentation/auth/agent-access-auth.js';
 export {
   type AuthenticatedSessionContext,
   createJwtAuthMethod,
@@ -206,6 +228,13 @@ export {
 } from '#presentation/auth/refresh-cookie.js';
 export {createRunnerSessionAuthMethod} from '#presentation/auth/runner-session-auth.js';
 export {oauthTokenResponse, toOAuthConsentResponse} from '#presentation/dto/oauth.js';
+export type {CreateAgentAccessManagementRoutesOptions} from '#presentation/routes/agent-access.js';
+export {
+  createAgentAccessManagementRoutes,
+  createAgentAccessRoutes,
+  createAgentGrantRoutes,
+  createAgentPersonalAccessTokenRoutes,
+} from '#presentation/routes/agent-access.js';
 export type {
   CreateOAuthAuthorizationRoutesOptions,
   CreateOAuthRoutesOptions,

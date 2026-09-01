@@ -58,6 +58,22 @@ export {
   suspendAdministratorUserBodySchema,
 } from './admin.js';
 export {
+  type AgentAccessCredentialParamsDto,
+  type AgentGrantSummaryDto,
+  type AgentPersonalAccessTokenSummaryDto,
+  agentAccessCredentialParamsSchema,
+  agentGrantSummarySchema,
+  agentPersonalAccessTokenSummarySchema,
+  type CreateAgentPersonalAccessTokenBodyDto,
+  type CreateAgentPersonalAccessTokenResponseDto,
+  createAgentPersonalAccessTokenBodySchema,
+  createAgentPersonalAccessTokenResponseSchema,
+  type ListAgentGrantsResponseDto,
+  type ListAgentPersonalAccessTokensResponseDto,
+  listAgentGrantsResponseSchema,
+  listAgentPersonalAccessTokensResponseSchema,
+} from './agent-access.js';
+export {
   AGENT_ACCESS_TOKEN_AUDIENCE,
   type AgentAccessTokenClaims,
   agentAccessTokenClaimsSchema,
