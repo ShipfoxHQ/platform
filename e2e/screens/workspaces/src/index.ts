@@ -49,7 +49,11 @@ export class WorkspaceHomeScreen {
   }
 
   async goto(workspaceSlug: string): Promise<void> {
-    await this.page.goto(`/w/${workspaceSlug}`);
+    if (this.page.url() === 'about:blank') {
+      await this.page.goto(`/w/${workspaceSlug}`);
+      return;
+    }
+    await this.page.locator(`a[aria-current="page"][href="/w/${workspaceSlug}"]`).click();
   }
 
   async gotoIntegrations(workspaceSlug: string): Promise<void> {
