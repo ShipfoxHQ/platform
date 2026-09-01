@@ -922,6 +922,7 @@ describe('createDockerLifecycle', () => {
     expect(engine.killedAndRemoved).toEqual([]);
     expect(client.reportBodies.flatMap((body) => body.events.map((event) => event.state))).toEqual([
       'running',
+      'running',
     ]);
     expect(observability.logger.info).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -930,6 +931,46 @@ describe('createDockerLifecycle', () => {
       }),
       'Skipped backend registration-deadline termination after the container state changed',
     );
+  });
+
+  it('revalidates registration-deadline actions with one Docker listing per batch', async () => {
+    const containers = [
+      container({
+        name: 'runner-1',
+        state: 'created',
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      }),
+      container({
+        name: 'runner-2',
+        state: 'created',
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      }),
+    ];
+    const engine = fakeEngine({
+      containers,
+      onList: (call) => {
+        if (call === 2) containers[0] = container({name: 'runner-1', state: 'running'});
+      },
+    });
+    const client = fakeClient({
+      reconcileResponse: {
+        runners: [
+          reconciledRunner('runner-1', 'terminate', 'registration-deadline'),
+          reconciledRunner('runner-2', 'terminate', 'registration-deadline'),
+        ],
+        terminated_absent_provider_runner_ids: [],
+      },
+    });
+    const lifecycle = makeLifecycle({engine, client, registrationDeadlineMs: 60_000});
+
+    await lifecycle.reconcile();
+
+    expect(engine.listManagedCalls).toBe(2);
+    expect(engine.killedAndRemoved).toEqual(['runner-2']);
+    expect(client.reportBodies.flatMap((body) => body.events.map((event) => event.state))).toEqual([
+      'running',
+      'terminated',
+    ]);
   });
 
   it('does not report termination when backend-authorized registration cleanup fails', async () => {

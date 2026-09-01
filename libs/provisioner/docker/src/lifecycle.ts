@@ -1001,7 +1001,35 @@ async function applyTerminalActions(
   actions: readonly TerminalAction[],
 ): Promise<void> {
   logRequestedTerminalActions(context, actions);
-  for (const action of actions) await applyTerminalAction(context, action);
+  const currentContainers = await revalidateRegistrationDeadlineTerminations(context, actions);
+  const skippedActions = new Set<TerminalAction>();
+  const stateTransitionEvents: RunnerInstanceReportEventDto[] = [];
+  for (const action of actions) {
+    const currentContainer = currentContainers.get(action.containerId ?? '');
+    if (!shouldSkipRegistrationDeadlineTermination(action, currentContainer)) continue;
+
+    skippedActions.add(action);
+    context.backendTerminationRequestedIds.delete(action.providerRunnerId);
+    syncTerminationEpisodes(context);
+    const event = recordRevalidatedLiveContainer(context, currentContainer);
+    if (event) stateTransitionEvents.push(event);
+    logger().info(
+      {
+        event: 'runner.container_registration_deadline_termination_skipped',
+        operation: 'kill_and_remove',
+        providerRunnerId: action.providerRunnerId,
+        containerId: action.containerId,
+        currentState: currentContainer?.state ?? 'absent',
+        reason: 'state-changed',
+      },
+      'Skipped backend registration-deadline termination after the container state changed',
+    );
+  }
+  if (stateTransitionEvents.length > 0) await reportEvents(context, stateTransitionEvents);
+  for (const action of actions) {
+    if (skippedActions.has(action)) continue;
+    await applyTerminalAction(context, action);
+  }
 }
 
 function logRequestedTerminalActions(
@@ -1037,7 +1065,6 @@ async function applyTerminalAction(
   context: DockerLifecycleContext,
   action: TerminalAction,
 ): Promise<void> {
-  if (!(await revalidateRegistrationDeadlineTermination(context, action))) return;
   const reportBeforeRemove = action.event?.state === 'failed' && action.remove;
   let reportError: unknown;
   if (reportBeforeRemove && action.event) {
@@ -1074,37 +1101,67 @@ function logTerminalAction(action: TerminalAction): void {
   }
 }
 
-async function revalidateRegistrationDeadlineTermination(
+async function revalidateRegistrationDeadlineTerminations(
   context: DockerLifecycleContext,
-  action: TerminalAction,
-): Promise<boolean> {
+  actions: readonly TerminalAction[],
+): Promise<ReadonlyMap<string, DockerContainerView>> {
   if (
-    action.reason !== 'registration-deadline' ||
-    action.requestSource !== 'backend' ||
-    !action.containerId
+    !actions.some(
+      (action) =>
+        action.reason === 'registration-deadline' &&
+        action.requestSource === 'backend' &&
+        action.containerId,
+    )
   )
-    return true;
+    return new Map();
 
   const currentContainers = await context.engine.listManaged(context.identity.id);
-  const currentContainer = currentContainers.find(
-    (container) => container.id === action.containerId,
-  );
-  if (currentContainer?.state === 'created') return true;
+  return new Map(currentContainers.map((container) => [container.id, container]));
+}
 
-  context.backendTerminationRequestedIds.delete(action.providerRunnerId);
-  syncTerminationEpisodes(context);
-  logger().info(
-    {
-      event: 'runner.container_registration_deadline_termination_skipped',
-      operation: 'kill_and_remove',
-      providerRunnerId: action.providerRunnerId,
-      containerId: action.containerId,
-      currentState: currentContainer?.state ?? 'absent',
-      reason: 'state-changed',
-    },
-    'Skipped backend registration-deadline termination after the container state changed',
+function shouldSkipRegistrationDeadlineTermination(
+  action: TerminalAction,
+  currentContainer: DockerContainerView | undefined,
+): boolean {
+  if (action.reason !== 'registration-deadline' || action.requestSource !== 'backend') return false;
+  if (!currentContainer) return true;
+  return mapContainerState(currentContainer).state === 'running';
+}
+
+function recordRevalidatedLiveContainer(
+  context: DockerLifecycleContext,
+  container: DockerContainerView | undefined,
+): RunnerInstanceReportEventDto | undefined {
+  if (!container) return undefined;
+  const mapped = mapContainerState(container);
+  if (mapped.state !== 'starting' && mapped.state !== 'running') return undefined;
+
+  const parsed = parseContainerIdentity(container);
+  const labels = labelsFor(context, parsed.templateKey, parsed.labels);
+  if (labels.length === 0) {
+    logMissingLabels(context, parsed.providerRunnerId, parsed.templateKey);
+    return undefined;
+  }
+  context.knownLiveIds.add(parsed.providerRunnerId);
+  context.reportedFailedIds.delete(parsed.providerRunnerId);
+  context.reportedFailedContainerIds.delete(parsed.providerRunnerId);
+  context.firstObservedFailedAt.delete(container.id);
+  if (parsed.templateKey) {
+    context.knownTemplateKeys.set(parsed.providerRunnerId, parsed.templateKey);
+    context.tracker.recordStarting({
+      providerRunnerId: parsed.providerRunnerId,
+      templateKey: parsed.templateKey,
+    });
+    if (mapped.state === 'running') context.tracker.markRunning(parsed.providerRunnerId);
+  }
+  return eventFor(
+    container,
+    mapped.state,
+    labels,
+    context.providerKind,
+    context.now(),
+    mapped.reason,
   );
-  return false;
 }
 
 function clearTerminalActionState(context: DockerLifecycleContext, action: TerminalAction): void {
