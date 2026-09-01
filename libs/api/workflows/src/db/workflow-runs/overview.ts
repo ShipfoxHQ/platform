@@ -1,4 +1,5 @@
 import {
+  JOB_EXECUTION_STATUS_REASON_MESSAGE_MAX_LENGTH,
   WORKFLOW_RUN_EXECUTION_COUNT_LIMIT,
   WORKFLOW_RUN_OVERVIEW_COMPLETE_EDGE_LIMIT,
   WORKFLOW_RUN_OVERVIEW_COMPLETE_JOB_LIMIT,
@@ -716,7 +717,8 @@ function toExecutionSummary(row: JobExecutionProjection): WorkflowRunJobExecutio
     status: row.status,
     displayStatus,
     statusReason: toJobStatusReason(row.statusReason),
-    statusReasonMessage: row.statusReasonMessage ?? null,
+    statusReasonMessage:
+      row.statusReasonMessage?.slice(0, JOB_EXECUTION_STATUS_REASON_MESSAGE_MAX_LENGTH) ?? null,
     queuedAt: row.queuedAt,
     startedAt: row.startedAt,
     finishedAt: row.finishedAt,

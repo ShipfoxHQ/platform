@@ -5,9 +5,9 @@ import type {
   WorkflowRunDto,
   WorkflowRunLineageHeadDto,
   WorkflowRunListItemDto,
-  WorkflowRunSelectionDto,
   WorkflowRunOverviewJobsResponseDto,
   WorkflowRunOverviewResponseDto,
+  WorkflowRunSelectionDto,
   WorkflowRunTriggerReferenceDto,
 } from '@shipfox/api-workflows-dto';
 import {encodeStringIdCursor} from '@shipfox/node-drizzle';
@@ -22,9 +22,9 @@ import type {
   WorkflowRunJobOverview,
   WorkflowRunJobsSummary,
   WorkflowRunLineageHead,
-  WorkflowRunSelection,
   WorkflowRunOverviewJobsPageRead,
   WorkflowRunOverviewRead,
+  WorkflowRunSelection,
 } from '#db/index.js';
 import {toJobDto, toJobExecutionDto} from './job.js';
 import {toStepAttemptDto, toStepDto} from './step.js';
@@ -185,9 +185,9 @@ export function toRunSelectionDto(selection: WorkflowRunSelection): WorkflowRunS
 
 export function toRunOverviewDto(
   overview: WorkflowRunOverviewRead,
-  options: {forceLarge?: boolean} = {},
+  options: {forceLarge?: boolean; largePageSize?: number} = {},
 ): WorkflowRunOverviewResponseDto {
-  const jobs = toOverviewJobsDto(overview, options.forceLarge === true);
+  const jobs = toOverviewJobsDto(overview, options);
 
   return {
     run: {
@@ -213,9 +213,9 @@ export function toRunOverviewDto(
 
 function toOverviewJobsDto(
   overview: WorkflowRunOverviewRead,
-  forceLarge: boolean,
+  options: {forceLarge?: boolean; largePageSize?: number},
 ): WorkflowRunOverviewResponseDto['jobs'] {
-  if (forceLarge) return toLargeOverviewJobsDto(overview);
+  if (options.forceLarge) return toLargeOverviewJobsDto(overview, options.largePageSize);
   if (overview.jobs.kind === 'complete') {
     return {
       kind: 'complete',
@@ -250,6 +250,7 @@ export function toRunOverviewJobsPageDto(
 
 function toLargeOverviewJobsDto(
   overview: WorkflowRunOverviewRead,
+  pageSize?: number,
 ): Extract<WorkflowRunOverviewResponseDto['jobs'], {kind: 'large'}> {
   if (overview.jobs.kind === 'large') {
     return {
@@ -266,13 +267,19 @@ function toLargeOverviewJobsDto(
     };
   }
 
+  const items = overview.jobs.items.slice(0, pageSize ?? overview.jobs.items.length);
+  const last = items.at(-1);
+
   return {
     kind: 'large',
     total: overview.jobs.total,
     status_counts: overview.jobs.statusCounts,
     first_page: {
-      items: overview.jobs.items.map(toJobListSummaryDto),
-      next_cursor: null,
+      items: items.map(toJobListSummaryDto),
+      next_cursor:
+        last && items.length < overview.jobs.total
+          ? encodeJobCursor({position: last.position, id: last.id})
+          : null,
       total: overview.jobs.total,
     },
   };

@@ -1,10 +1,11 @@
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import {
+  WORKFLOW_RUN_JOB_POSITION_MAX,
   type WorkflowRunOverviewJobsResponseDto,
   workflowRunOverviewJobsQuerySchema,
   workflowRunOverviewJobsResponseSchema,
 } from '@shipfox/api-workflows-dto';
-import {decodeStringIdCursor, encodeStringIdCursor} from '@shipfox/node-drizzle';
+import {decodeStringIdCursor} from '@shipfox/node-drizzle';
 import {ClientError, defineRoute} from '@shipfox/node-fastify';
 import {logger} from '@shipfox/node-opentelemetry';
 import type {FastifyRequest} from 'fastify';
@@ -13,6 +14,8 @@ import {listWorkflowRunJobsPage, type WorkflowRunJobCursor} from '#db/index.js';
 import {toRunOverviewJobsPageDto} from '#presentation/dto/index.js';
 import {requireAccessibleRunScope} from './require-accessible-run.js';
 import {serializedResponseByteLength} from './serialized-response-byte-length.js';
+
+const decimalCursorValue = /^\d+$/;
 
 export function listRunJobsRoute(projects: ProjectsModuleClient) {
   return defineRoute({
@@ -38,7 +41,7 @@ export function listRunJobsRoute(projects: ProjectsModuleClient) {
       let resultCount = 0;
       let cursorRemaining = false;
       let responseStatus = 200;
-      let outcome: 'success' | 'not_found' | 'error' = 'success';
+      let outcome: 'success' | 'not_found' | 'access_denied' | 'error' = 'success';
 
       try {
         assertValidCursor(cursor, decodedCursor);
@@ -49,6 +52,9 @@ export function listRunJobsRoute(projects: ProjectsModuleClient) {
           limit,
           cursor: decodedCursor,
           projects,
+          onAccessDenied: () => {
+            outcome = 'access_denied';
+          },
           serialize: (response) => reply.serialize(response),
         });
         databaseDurationMilliseconds = result.databaseDurationMilliseconds;
@@ -60,7 +66,7 @@ export function listRunJobsRoute(projects: ProjectsModuleClient) {
       } catch (error) {
         responseStatus =
           error instanceof ClientError && typeof error.status === 'number' ? error.status : 500;
-        if (responseStatus === 404) outcome = 'not_found';
+        if (responseStatus === 404 && outcome === 'success') outcome = 'not_found';
         else if (outcome === 'success') outcome = 'error';
         throw error;
       } finally {
@@ -89,8 +95,11 @@ export function listRunJobsRoute(projects: ProjectsModuleClient) {
 function decodeJobCursor(cursor: string | undefined): WorkflowRunJobCursor | undefined {
   const decoded = decodeStringIdCursor(cursor);
   if (!decoded) return undefined;
+  if (decoded.value.length === 0 || !decimalCursorValue.test(decoded.value)) return undefined;
+  if (!z.string().uuid().safeParse(decoded.id).success) return undefined;
   const position = Number(decoded.value);
-  if (!Number.isInteger(position) || position < 0) return undefined;
+  if (!Number.isInteger(position) || position < 0 || position > WORKFLOW_RUN_JOB_POSITION_MAX)
+    return undefined;
   return {position, id: decoded.id};
 }
 
@@ -110,6 +119,7 @@ async function readRunJobsPage({
   limit,
   cursor,
   projects,
+  onAccessDenied,
   serialize,
 }: {
   request: FastifyRequest;
@@ -118,9 +128,10 @@ async function readRunJobsPage({
   limit: number;
   cursor: WorkflowRunJobCursor | undefined;
   projects: ProjectsModuleClient;
+  onAccessDenied: () => void;
   serialize: (response: WorkflowRunOverviewJobsResponseDto) => string | ArrayBuffer | Buffer;
 }) {
-  const run = await requireAccessibleRunScope({request, id, projects});
+  const run = await requireAccessibleRunScope({request, id, projects, onAccessDenied});
   let databaseDurationMilliseconds = 0;
   const page = await listWorkflowRunJobsPage(
     {
@@ -146,8 +157,4 @@ async function readRunJobsPage({
     serializedResponse: serialize(response),
     databaseDurationMilliseconds,
   };
-}
-
-export function encodeRunJobCursor(cursor: WorkflowRunJobCursor): string {
-  return encodeStringIdCursor({value: String(cursor.position), id: cursor.id});
 }

@@ -1879,6 +1879,26 @@ describe('workflow run queries', () => {
       expect(found?.sourceSnapshot).toEqual({content: sourceContent, format: 'yaml'});
     });
 
+    test('accepts a source snapshot at the exact UTF-8 byte limit', async () => {
+      const sourceContent = 'a'.repeat(WORKFLOW_SOURCE_SNAPSHOT_MAX_BYTES);
+
+      const run = await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId,
+        model: buildModel(),
+        sourceSnapshot: {content: sourceContent, format: 'yaml'},
+        triggerPayload: {
+          source: 'manual',
+          event: 'fire',
+          subscriptionId: crypto.randomUUID(),
+          userId: crypto.randomUUID(),
+        },
+      });
+
+      expect(run.sourceSnapshot).toEqual({content: sourceContent, format: 'yaml'});
+    });
+
     test('stores null source snapshot when omitted', async () => {
       const run = await createWorkflowRun({
         workspaceId,

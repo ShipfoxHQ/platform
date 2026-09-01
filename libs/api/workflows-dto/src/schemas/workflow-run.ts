@@ -3,6 +3,10 @@ import {type CursorPageDto, cursorPageSchema} from './cursor-page.js';
 import {jobStatusSchema} from './job.js';
 import {jobModeSchema, listenerStatusSchema} from './job-listening.js';
 
+/** PostgreSQL int4 upper bound used by persisted workflow-run attempts and positions. */
+export const WORKFLOW_RUN_ATTEMPT_MAX = 2_147_483_647;
+export const WORKFLOW_RUN_JOB_POSITION_MAX = 2_147_483_647;
+
 // This header is an internal rollout signal. It lets the API distinguish the
 // first detail read from a React Query refetch without changing the response
 // contract. Older clients omit it and are recorded as `unknown`.
@@ -190,7 +194,7 @@ export type WorkflowRunDto = z.infer<typeof workflowRunDtoSchema>;
 export const workflowRunAttemptDtoSchema = z.object({
   id: z.string().uuid(),
   workflow_run_id: z.string().uuid(),
-  attempt: z.number().int().positive(),
+  attempt: z.number().int().positive().max(WORKFLOW_RUN_ATTEMPT_MAX),
   status: workflowRunStatusSchema,
   created_at: z.string(),
   started_at: z.string().nullable(),

@@ -93,6 +93,30 @@ describe('POST /:definitionId/fire-manual', () => {
     });
   });
 
+  test('maps an oversized workflow source snapshot to 422 with byte details', async () => {
+    const definitionId = crypto.randomUUID();
+    await triggerSubscriptionFactory.create({workspaceId, workflowDefinitionId: definitionId});
+    fireManualSubscriptionMock.mockRejectedValue(
+      createInterModuleKnownError(
+        workflowsInterModuleContract.methods.startRunFromTrigger,
+        'source-snapshot-too-large',
+        {limitBytes: 1_000_000, measuredBytes: 1_000_001},
+      ),
+    );
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/${definitionId}/fire-manual`,
+      payload: {},
+    });
+
+    expect(res.statusCode).toBe(422);
+    expect(res.json()).toMatchObject({
+      code: 'source-snapshot-too-large',
+      details: {limit_bytes: 1_000_000, measured_bytes: 1_000_001},
+    });
+  });
+
   test('returns workspace-suspended for a suspended membership claim', async () => {
     const definitionId = crypto.randomUUID();
     await triggerSubscriptionFactory.create({workspaceId, workflowDefinitionId: definitionId});

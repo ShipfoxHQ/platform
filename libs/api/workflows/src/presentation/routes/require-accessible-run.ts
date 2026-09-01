@@ -5,62 +5,49 @@ import type {WorkflowRun} from '#core/entities/workflow-run.js';
 import {getWorkflowRunAccessScopeById, getWorkflowRunById} from '#db/index.js';
 import {requireProjectAccess} from './project-access.js';
 
-export async function requireAccessibleRun({
-  request,
-  id,
-  projects,
-  onLookup,
-}: {
+interface RequireAccessibleRunParams {
   request: FastifyRequest;
   id: string;
   projects: ProjectsModuleClient;
   onLookup?: ((found: boolean) => void) | undefined;
-}): Promise<WorkflowRun> {
-  const run = await getWorkflowRunById(id);
-  onLookup?.(run !== undefined);
-  if (!run) {
-    throw new ClientError('Run not found', 'not-found', {status: 404});
-  }
-
-  await requireProjectAccess(request, run.projectId, projects).catch((err: unknown) => {
-    if (
-      err instanceof ClientError &&
-      (err.status === 404 || (err.status === 403 && err.code === 'forbidden'))
-    ) {
-      throw new ClientError('Run not found', 'not-found', {status: 404});
-    }
-    throw err;
-  });
-
-  return run;
+  onAccessDenied?: (() => void) | undefined;
 }
 
-export async function requireAccessibleRunScope({
-  request,
-  id,
-  projects,
-  onLookup,
-}: {
-  request: FastifyRequest;
-  id: string;
-  projects: ProjectsModuleClient;
-  onLookup?: ((found: boolean) => void) | undefined;
-}) {
-  const run = await getWorkflowRunAccessScopeById(id);
-  onLookup?.(run !== undefined);
+export function requireAccessibleRun(params: RequireAccessibleRunParams): Promise<WorkflowRun> {
+  return requireAccessibleRunWithLoader({
+    ...params,
+    load: () => getWorkflowRunById(params.id),
+  });
+}
+
+export function requireAccessibleRunScope(params: RequireAccessibleRunParams) {
+  return requireAccessibleRunWithLoader({
+    ...params,
+    load: () => getWorkflowRunAccessScopeById(params.id),
+  });
+}
+
+async function requireAccessibleRunWithLoader<T extends {projectId: string}>(
+  params: RequireAccessibleRunParams & {load: () => Promise<T | undefined>},
+): Promise<T> {
+  const run = await params.load();
+  params.onLookup?.(run !== undefined);
   if (!run) {
     throw new ClientError('Run not found', 'not-found', {status: 404});
   }
 
-  await requireProjectAccess(request, run.projectId, projects).catch((err: unknown) => {
+  try {
+    await requireProjectAccess(params.request, run.projectId, params.projects);
+  } catch (error: unknown) {
     if (
-      err instanceof ClientError &&
-      (err.status === 404 || (err.status === 403 && err.code === 'forbidden'))
+      error instanceof ClientError &&
+      (error.status === 404 || (error.status === 403 && error.code === 'forbidden'))
     ) {
+      params.onAccessDenied?.();
       throw new ClientError('Run not found', 'not-found', {status: 404});
     }
-    throw err;
-  });
+    throw error;
+  }
 
   return run;
 }

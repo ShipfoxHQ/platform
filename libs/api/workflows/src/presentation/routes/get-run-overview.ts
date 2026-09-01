@@ -1,5 +1,6 @@
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import {
+  WORKFLOW_RUN_OVERVIEW_LARGE_JOB_PAGE_LIMIT,
   WORKFLOW_RUN_OVERVIEW_RESPONSE_BYTE_LIMIT,
   type WorkflowRunOverviewResponseDto,
   workflowRunOverviewQuerySchema,
@@ -36,7 +37,7 @@ export function getRunOverviewRoute(projects: ProjectsModuleClient) {
       let cursorRemaining = false;
       let responseStatus = 200;
       let responseKind: 'complete' | 'large' | null = null;
-      let outcome: 'success' | 'not_found' | 'error' = 'success';
+      let outcome: 'success' | 'not_found' | 'access_denied' | 'error' = 'success';
 
       try {
         const result = await readRunOverview({
@@ -44,6 +45,9 @@ export function getRunOverviewRoute(projects: ProjectsModuleClient) {
           id,
           attempt,
           projects,
+          onAccessDenied: () => {
+            outcome = 'access_denied';
+          },
           serialize: (response) => reply.serialize(response),
         });
         databaseDurationMilliseconds = result.databaseDurationMilliseconds;
@@ -56,7 +60,7 @@ export function getRunOverviewRoute(projects: ProjectsModuleClient) {
       } catch (error) {
         responseStatus =
           error instanceof ClientError && typeof error.status === 'number' ? error.status : 500;
-        if (responseStatus === 404) outcome = 'not_found';
+        if (responseStatus === 404 && outcome === 'success') outcome = 'not_found';
         else if (outcome === 'success') outcome = 'error';
         throw error;
       } finally {
@@ -90,15 +94,17 @@ async function readRunOverview({
   id,
   attempt,
   projects,
+  onAccessDenied,
   serialize,
 }: {
   request: FastifyRequest;
   id: string;
   attempt: number;
   projects: ProjectsModuleClient;
+  onAccessDenied: () => void;
   serialize: (response: WorkflowRunOverviewResponseDto) => string | ArrayBuffer | Buffer;
 }) {
-  const run = await requireAccessibleRunScope({request, id, projects});
+  const run = await requireAccessibleRunScope({request, id, projects, onAccessDenied});
   let databaseDurationMilliseconds = 0;
   const overview = await getWorkflowRunOverview(
     {workflowRunId: run.id, projectId: run.projectId, attempt},
@@ -118,15 +124,35 @@ async function readRunOverview({
     overview.jobs.kind === 'complete' &&
     serializedResponseByteLength(serializedResponse) > WORKFLOW_RUN_OVERVIEW_RESPONSE_BYTE_LIMIT
   ) {
-    const largeResponse = toRunOverviewDto(overview, {forceLarge: true});
     return {
-      response: largeResponse,
-      serializedResponse: serialize(largeResponse),
+      ...toBoundedLargeOverviewResponse(overview, serialize),
       databaseDurationMilliseconds,
     };
   }
 
   return {response, serializedResponse, databaseDurationMilliseconds};
+}
+
+function toBoundedLargeOverviewResponse(
+  overview: Parameters<typeof toRunOverviewDto>[0],
+  serialize: (response: WorkflowRunOverviewResponseDto) => string | ArrayBuffer | Buffer,
+) {
+  let pageSize = WORKFLOW_RUN_OVERVIEW_LARGE_JOB_PAGE_LIMIT;
+  while (true) {
+    const response = toRunOverviewDto(overview, {forceLarge: true, largePageSize: pageSize});
+    const serializedResponse = serialize(response);
+    if (
+      serializedResponseByteLength(serializedResponse) <= WORKFLOW_RUN_OVERVIEW_RESPONSE_BYTE_LIMIT
+    ) {
+      return {response, serializedResponse};
+    }
+    if (pageSize === 1) {
+      throw new ClientError('Run overview is too large to serialize', 'response-too-large', {
+        status: 500,
+      });
+    }
+    pageSize = Math.max(1, Math.floor(pageSize / 2));
+  }
 }
 
 function overviewResultCount(response: WorkflowRunOverviewResponseDto): number {

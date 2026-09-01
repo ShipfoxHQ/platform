@@ -469,6 +469,28 @@ describe('POST /dev-runs', () => {
     });
   });
 
+  test('maps an oversized workflow source snapshot to 422 with byte details', async () => {
+    createDevRunMock.mockRejectedValue(
+      createInterModuleKnownError(
+        workflowsInterModuleContract.methods.startDevRun,
+        'source-snapshot-too-large',
+        {limitBytes: 1_000_000, measuredBytes: 1_000_001},
+      ),
+    );
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/dev-runs',
+      payload: VALID_BODY,
+    });
+
+    expect(res.statusCode).toBe(422);
+    expect(res.json()).toMatchObject({
+      code: 'source-snapshot-too-large',
+      details: {limit_bytes: 1_000_000, measured_bytes: 1_000_001},
+    });
+  });
+
   test.each([
     [
       'agent-config-unresolvable',

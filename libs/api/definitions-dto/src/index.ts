@@ -28,6 +28,7 @@ export {
   definitionValidationDiagnosticSchema,
   definitionValidationErrorSchema,
   definitionValidationWarningSchema,
+  MAX_WORKFLOW_FILE_BYTES,
   type TriggerDto,
 } from '#schemas/index.js';
 export {

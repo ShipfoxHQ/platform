@@ -2,6 +2,7 @@ import {buildUserContext, setUserContext} from '@shipfox/api-auth-context';
 import {
   DEFINITION_SYNC_WARNING_MESSAGE_MAX_LENGTH,
   DEFINITION_SYNC_WARNING_PATH_MAX_LENGTH,
+  MAX_WORKFLOW_FILE_BYTES,
 } from '@shipfox/api-definitions-dto';
 import type {IntegrationsModuleClient} from '@shipfox/api-integration-core-dto/inter-module';
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
@@ -56,6 +57,7 @@ describe('POST /api/definitions', () => {
     workspaceId = crypto.randomUUID();
     projectId = crypto.randomUUID();
     sourceConnectionId = crypto.randomUUID();
+    getProjectById.mockClear();
     getProjectById.mockResolvedValue({
       project: {id: projectId, workspaceId, sourceConnectionId},
     } as never);
@@ -90,6 +92,19 @@ jobs:
     expect(body.ref).toBeNull();
     expect(body.fetched_at).toBeDefined();
     expect(agent.getValidationCatalogV2).toHaveBeenLastCalledWith({workspaceId});
+  });
+
+  test('rejects a YAML body that exceeds the UTF-8 byte limit', async () => {
+    const yaml = '🙂'.repeat(Math.floor(MAX_WORKFLOW_FILE_BYTES / 4) + 1);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/definitions',
+      payload: {project_id: projectId, yaml},
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(getProjectById).not.toHaveBeenCalled();
   });
 
   test('skips connection snapshot loading when YAML has no integrations', async () => {

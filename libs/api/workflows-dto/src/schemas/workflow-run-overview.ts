@@ -1,8 +1,10 @@
+import {MAX_WORKFLOW_FILE_BYTES} from '@shipfox/api-definitions-dto';
 import {z} from 'zod';
 import {jobStatusReasonSchema, jobStatusSchema} from './job.js';
 import {jobModeSchema, listenerStatusSchema} from './job-listening.js';
 import {
   jobExecutionStatusSchema,
+  WORKFLOW_RUN_ATTEMPT_MAX,
   workflowRunAttemptDtoSchema,
   workflowRunDevSourceSchema,
   workflowRunOriginSchema,
@@ -25,7 +27,10 @@ export const WORKFLOW_RUN_OVERVIEW_LARGE_JOB_PAGE_LIMIT = 100;
 export const WORKFLOW_RUN_EXECUTION_COUNT_LIMIT = 100;
 
 /** Source snapshots use the existing workflow-definition file byte limit. */
-export const WORKFLOW_SOURCE_SNAPSHOT_MAX_BYTES = 1_000_000;
+export const WORKFLOW_SOURCE_SNAPSHOT_MAX_BYTES = MAX_WORKFLOW_FILE_BYTES;
+
+/** Persisted execution status-reason messages are bounded at the read boundary. */
+export const JOB_EXECUTION_STATUS_REASON_MESSAGE_MAX_LENGTH = 2048;
 
 export const boundedExecutionCountSchema = z.union([
   z.number().int().nonnegative().max(WORKFLOW_RUN_EXECUTION_COUNT_LIMIT),
@@ -45,7 +50,7 @@ export const jobExecutionSummaryDtoSchema = z.object({
   status: jobExecutionStatusSchema,
   display_status: jobExecutionDisplayStatusSchema,
   status_reason: jobStatusReasonSchema.nullable(),
-  status_reason_message: z.string().max(2048).nullable(),
+  status_reason_message: z.string().max(JOB_EXECUTION_STATUS_REASON_MESSAGE_MAX_LENGTH).nullable(),
   queued_at: z.string().datetime().nullable(),
   started_at: z.string().datetime().nullable(),
   finished_at: z.string().datetime().nullable(),
@@ -110,7 +115,7 @@ export type WorkflowRunOverviewHeaderDto = z.infer<typeof workflowRunOverviewHea
 export const workflowRunOverviewCompleteJobsDtoSchema = z.object({
   kind: z.literal('complete'),
   total: z.number().int().nonnegative(),
-  items: z.array(workflowRunJobOverviewDtoSchema),
+  items: z.array(workflowRunJobOverviewDtoSchema).max(WORKFLOW_RUN_OVERVIEW_COMPLETE_JOB_LIMIT),
 });
 
 export type WorkflowRunOverviewCompleteJobsDto = z.infer<
@@ -150,13 +155,13 @@ export const workflowRunOverviewResponseSchema = z.object({
 export type WorkflowRunOverviewResponseDto = z.infer<typeof workflowRunOverviewResponseSchema>;
 
 export const workflowRunOverviewQuerySchema = z.object({
-  attempt: z.coerce.number().int().positive(),
+  attempt: z.coerce.number().int().positive().max(WORKFLOW_RUN_ATTEMPT_MAX),
 });
 
 export type WorkflowRunOverviewQueryDto = z.infer<typeof workflowRunOverviewQuerySchema>;
 
 export const workflowRunOverviewJobsQuerySchema = z.object({
-  attempt: z.coerce.number().int().positive(),
+  attempt: z.coerce.number().int().positive().max(WORKFLOW_RUN_ATTEMPT_MAX),
   limit: z.coerce
     .number()
     .int()

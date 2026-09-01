@@ -1,4 +1,8 @@
-import {WORKFLOW_RUN_EXECUTION_COUNT_LIMIT} from '@shipfox/api-workflows-dto';
+import {
+  JOB_EXECUTION_STATUS_REASON_MESSAGE_MAX_LENGTH,
+  WORKFLOW_RUN_EXECUTION_COUNT_LIMIT,
+  WORKFLOW_RUN_OVERVIEW_COMPLETE_JOB_LIMIT,
+} from '@shipfox/api-workflows-dto';
 import {eq} from 'drizzle-orm';
 import {buildModel} from '#test/helpers/workflow-runs.js';
 import {createHighCardinalityWorkflowRun} from '#test/index.js';
@@ -208,6 +212,28 @@ describe('bounded workflow run overview reads', () => {
     expect(page?.nextCursor).toBeNull();
   });
 
+  test('uses the large variant when dependency edges exceed the complete graph bound', async () => {
+    const fixture = await createHighCardinalityWorkflowRun({
+      jobs: WORKFLOW_RUN_OVERVIEW_COMPLETE_JOB_LIMIT,
+      dependenciesPerJob: 3,
+      executionsPerJob: 1,
+      stepsPerExecution: 1,
+      attemptsPerStep: 1,
+    });
+
+    const overview = await getWorkflowRunOverview({
+      workflowRunId: fixture.run.id,
+      projectId: fixture.run.projectId,
+      attempt: 1,
+    });
+
+    if (overview?.jobs.kind !== 'large') throw new Error('Expected large overview');
+    expect(overview.jobs.total).toBe(WORKFLOW_RUN_OVERVIEW_COMPLETE_JOB_LIMIT);
+    expect(overview.jobs.firstPage.items).toHaveLength(WORKFLOW_RUN_OVERVIEW_COMPLETE_JOB_LIMIT);
+    expect(overview.jobs.firstPage.nextCursor).toBeNull();
+    expect(overview.jobs.firstPage.items[0]).not.toHaveProperty('dependencies');
+  });
+
   test('caps execution counts while retaining the selected running execution', async () => {
     const fixture = await createHighCardinalityWorkflowRun({
       jobs: 1,
@@ -228,8 +254,42 @@ describe('bounded workflow run overview reads', () => {
     }
     const job = overview.jobs.items[0];
     expect(job?.executionCount).toBe('100+');
+    expect(job?.executionStatusCounts).toEqual({
+      pending: 1,
+      running: 0,
+      succeeded: 33,
+      failed: 33,
+      cancelled: 34,
+    });
     expect(job?.defaultExecution?.status).toBe('running');
     expect(job?.defaultExecution?.displayStatus).toBe('pending');
+  });
+
+  test('truncates a legacy oversized execution status-reason message at the read boundary', async () => {
+    const fixture = await createHighCardinalityWorkflowRun({
+      jobs: 1,
+      dependenciesPerJob: 0,
+      executionsPerJob: 1,
+      stepsPerExecution: 1,
+      attemptsPerStep: 1,
+    });
+    const oversizedMessage = 'x'.repeat(JOB_EXECUTION_STATUS_REASON_MESSAGE_MAX_LENGTH + 1);
+
+    await db()
+      .update(jobExecutions)
+      .set({statusReasonMessage: oversizedMessage})
+      .where(eq(jobExecutions.id, fixture.executionIds[0] as string));
+
+    const overview = await getWorkflowRunOverview({
+      workflowRunId: fixture.run.id,
+      projectId: fixture.run.projectId,
+      attempt: 1,
+    });
+
+    if (overview?.jobs.kind !== 'complete') throw new Error('Expected complete overview');
+    expect(overview.jobs.items[0]?.defaultExecution?.statusReasonMessage).toHaveLength(
+      JOB_EXECUTION_STATUS_REASON_MESSAGE_MAX_LENGTH,
+    );
   });
 
   test('returns no overview for a run from another project or an unknown attempt', async () => {

@@ -1,9 +1,17 @@
 import {buildUserContext, setUserContext} from '@shipfox/api-auth-context';
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
-import {workflowRunOverviewResponseSchema} from '@shipfox/api-workflows-dto';
+import {
+  JOB_EXECUTION_STATUS_REASON_MESSAGE_MAX_LENGTH,
+  WORKFLOW_RUN_OVERVIEW_RESPONSE_BYTE_LIMIT,
+  workflowRunOverviewResponseSchema,
+} from '@shipfox/api-workflows-dto';
+import {ClientError} from '@shipfox/node-fastify';
+import {inArray} from 'drizzle-orm';
 import type {FastifyInstance} from 'fastify';
 import Fastify from 'fastify';
 import {serializerCompiler, validatorCompiler} from 'fastify-type-provider-zod';
+import {db} from '#db/db.js';
+import {jobExecutions} from '#db/schema/job-executions.js';
 import {createWorkflowRun} from '#db/workflow-runs.js';
 import {buildModel} from '#test/helpers/workflow-runs.js';
 import {createHighCardinalityWorkflowRun} from '#test/index.js';
@@ -144,6 +152,95 @@ describe('bounded workflow run overview routes', () => {
     expect(malformed.json().code).toBe('invalid-cursor');
   });
 
+  test.each([
+    ['an invalid job id', '0', 'not-a-uuid'],
+    ['an empty position', '', crypto.randomUUID()],
+    ['a position above PostgreSQL int4', '2147483648', crypto.randomUUID()],
+  ] as const)('rejects cursors with %s', async (_description, value, id) => {
+    const run = await createRun();
+    const cursor = encodeCursorForTest({value, id});
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/workflows/runs/${run.id}/jobs?attempt=1&cursor=${cursor}`,
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().code).toBe('invalid-cursor');
+  });
+
+  test('rejects an attempt above the PostgreSQL int4 range', async () => {
+    const run = await createRun();
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/workflows/runs/${run.id}/overview?attempt=2147483648`,
+    });
+
+    expect(response.statusCode).toBe(400);
+  });
+
+  test.each([
+    403, 404,
+  ] as const)('masks project access status %i for both overview endpoints', async (status) => {
+    const run = await createRun();
+    workspaceId = run.workspaceId;
+    const error = new ClientError(
+      'Project access denied',
+      status === 403 ? 'forbidden' : 'not-found',
+      {
+        status,
+      },
+    );
+
+    getProjectById.mockRejectedValueOnce(error);
+    const overview = await app.inject({
+      method: 'GET',
+      url: `/api/workflows/runs/${run.id}/overview?attempt=1`,
+    });
+    getProjectById.mockRejectedValueOnce(error);
+    const jobs = await app.inject({
+      method: 'GET',
+      url: `/api/workflows/runs/${run.id}/jobs?attempt=1`,
+    });
+
+    expect(overview.statusCode).toBe(404);
+    expect(overview.json().code).toBe('not-found');
+    expect(jobs.statusCode).toBe(404);
+    expect(jobs.json().code).toBe('not-found');
+  });
+
+  test('bounds the byte-limit fallback page before sending it', async () => {
+    const fixture = await createHighCardinalityWorkflowRun({
+      jobs: 100,
+      dependenciesPerJob: 0,
+      executionsPerJob: 1,
+      stepsPerExecution: 1,
+      attemptsPerStep: 1,
+    });
+    workspaceId = fixture.run.workspaceId;
+    const statusReasonMessage = 'x'.repeat(JOB_EXECUTION_STATUS_REASON_MESSAGE_MAX_LENGTH);
+    await db()
+      .update(jobExecutions)
+      .set({statusReasonMessage})
+      .where(inArray(jobExecutions.id, fixture.executionIds));
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/workflows/runs/${fixture.run.id}/overview?attempt=1`,
+    });
+    const body = response.json();
+
+    expect(response.statusCode).toBe(200);
+    expect(Buffer.byteLength(response.body, 'utf8')).toBeLessThanOrEqual(
+      WORKFLOW_RUN_OVERVIEW_RESPONSE_BYTE_LIMIT,
+    );
+    expect(workflowRunOverviewResponseSchema.safeParse(body).success).toBe(true);
+    expect(body.jobs.kind).toBe('large');
+    expect(body.jobs.first_page.items.length).toBeLessThan(100);
+    expect(body.jobs.first_page.next_cursor).toEqual(expect.any(String));
+  });
+
   test('uses the large-workflow variant and continues after its embedded page', async () => {
     const fixture = await createHighCardinalityWorkflowRun({
       jobs: 101,
@@ -190,3 +287,7 @@ describe('bounded workflow run overview routes', () => {
     });
   }
 });
+
+function encodeCursorForTest(payload: {value: string; id: string}): string {
+  return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
+}
