@@ -1,8 +1,8 @@
 import {annotationsModule} from '@shipfox/annotations';
 import {annotationsInterModuleContract} from '@shipfox/annotations-dto/inter-module';
-import {createAgentModule} from '@shipfox/api-agent';
+import {type CreateAgentModuleOptions, createAgentModule} from '@shipfox/api-agent';
 import {agentInterModuleContract} from '@shipfox/api-agent-dto/inter-module';
-import {createAuthModule} from '@shipfox/api-auth';
+import {type CreateAuthModuleOptions, createAuthModule} from '@shipfox/api-auth';
 import {config as authConfig} from '@shipfox/api-auth/config';
 import {
   type AuthInterModuleClient,
@@ -18,7 +18,7 @@ import {createLogsModule} from '@shipfox/api-logs';
 import {logsInterModuleContract} from '@shipfox/api-logs-dto/inter-module';
 import {createProjectsModule} from '@shipfox/api-projects';
 import {projectsInterModuleContract} from '@shipfox/api-projects-dto/inter-module';
-import {createRunnersModule} from '@shipfox/api-runners';
+import {type CreateRunnersModuleOptions, createRunnersModule} from '@shipfox/api-runners';
 import {runnersInterModuleContract} from '@shipfox/api-runners-dto/inter-module';
 import {createSecretsModule} from '@shipfox/api-secrets';
 import {
@@ -47,22 +47,37 @@ import {logger} from '@shipfox/node-opentelemetry';
 
 export interface DefaultModulesOptions {
   webhookDeliverySource?: WebhookDeliverySource | undefined;
+  authModuleOptions?: DefaultAuthModuleOptions | undefined;
+  agentModuleOptions?: DefaultAgentModuleOptions | undefined;
+  runnersModuleOptions?: DefaultRunnersModuleOptions | undefined;
+  authModuleFactory?: DefaultAuthModuleFactory | undefined;
+  agentModuleFactory?: DefaultAgentModuleFactory | undefined;
+  runnersModuleFactory?: DefaultRunnersModuleFactory | undefined;
+  /** @deprecated Use `authModuleOptions` or `authModuleFactory`. */
   authModule?: DefaultAuthModuleFactory | undefined;
+  /** @deprecated Use `agentModuleOptions` or `agentModuleFactory`. */
   agentModule?: DefaultAgentModuleFactory | undefined;
+  /** @deprecated Use `runnersModuleOptions` or `runnersModuleFactory`. */
   runnersModule?: DefaultRunnersModuleFactory | undefined;
   extension?: DefaultModulesExtension | undefined;
 }
 
+/** Options for the standard Auth module. `defaultModules` supplies Workspaces. */
+export type DefaultAuthModuleOptions = Pick<CreateAuthModuleOptions, 'signupPolicy'>;
+
+/** Full replacement escape hatch for the standard Auth module. */
 export type DefaultAuthModuleFactory = (options: {
   workspaces: WorkspacesInterModuleClient;
 }) => ShipfoxModule;
 
+/** Options for the standard Agent module. `defaultModules` supplies Secrets and Workflows. */
+export type DefaultAgentModuleOptions = Pick<CreateAgentModuleOptions, 'managedProvider'>;
+
 /**
- * Builds the Agent module in the standard composition slot. The default
- * factory validates Agent configuration through `createAgentModule`; a custom
- * factory owns equivalent validation when it does not delegate to that
- * factory. Custom modules must preserve the `agent` database namespace and
- * canonical Agent presentation required by the composed clients.
+ * Replaces the Agent module in the standard composition slot. This is a full
+ * replacement escape hatch. Configuration-only changes should use
+ * `agentModuleOptions` so the composition root retains ownership of its
+ * dependencies.
  */
 export type DefaultAgentModuleFactory = (options: {
   secrets: Pick<SecretsInterModuleClient, 'deleteSecrets' | 'getSecretsByNamespace' | 'setSecrets'>;
@@ -75,6 +90,14 @@ export type DefaultAgentModuleFactory = (options: {
    */
   workflows?: WorkflowsModuleClient | undefined;
 }) => ShipfoxModule;
+
+/** Options for the standard Runners module. `defaultModules` supplies Auth. */
+export type DefaultRunnersModuleOptions = Pick<
+  CreateRunnersModuleOptions,
+  'installationProvisioning'
+>;
+
+/** Full replacement escape hatch for the standard Runners module. */
 export type DefaultRunnersModuleFactory = (options: {auth: AuthInterModuleClient}) => ShipfoxModule;
 export type DefaultModulesExtension = (options: {
   workspaces: WorkspacesInterModuleClient;
@@ -226,15 +249,57 @@ export async function defaultModules(
     integrations: integrationsClient,
   });
   const extensionModules = options.extension?.({workspaces: workspacesClient}) ?? [];
-  const agentModule = (options.agentModule ?? createAgentModule)({
-    secrets: createAgentSecretsClient(secretsClient),
-    workflows: workflowsClient,
-  });
-  if (options.agentModule) validateCustomAgentModule(agentModule);
+  const agentModuleFactory = resolveModuleReplacementFactory(
+    options.agentModuleFactory,
+    options.agentModule,
+    'Agent',
+  );
+  const authModuleFactory = resolveModuleReplacementFactory(
+    options.authModuleFactory,
+    options.authModule,
+    'Auth',
+  );
+  const runnersModuleFactory = resolveModuleReplacementFactory(
+    options.runnersModuleFactory,
+    options.runnersModule,
+    'Runners',
+  );
+  assertModuleOptionsNotCombinedWithReplacement(
+    options.agentModuleOptions,
+    agentModuleFactory,
+    'Agent',
+  );
+  assertModuleOptionsNotCombinedWithReplacement(
+    options.authModuleOptions,
+    authModuleFactory,
+    'Auth',
+  );
+  assertModuleOptionsNotCombinedWithReplacement(
+    options.runnersModuleOptions,
+    runnersModuleFactory,
+    'Runners',
+  );
+
+  const agentModule = agentModuleFactory
+    ? agentModuleFactory({
+        secrets: createAgentSecretsClient(secretsClient),
+        workflows: workflowsClient,
+      })
+    : createAgentModule({
+        ...options.agentModuleOptions,
+        secrets: createAgentSecretsClient(secretsClient),
+        workflows: workflowsClient,
+      });
+  if (agentModuleFactory) validateCustomAgentModule(agentModule);
 
   const modules = [
     emailChallengesModule,
-    (options.authModule ?? createAuthModule)({workspaces: workspacesClient}),
+    authModuleFactory
+      ? authModuleFactory({workspaces: workspacesClient})
+      : createAuthModule({
+          ...options.authModuleOptions,
+          workspaces: workspacesClient,
+        }),
     createWorkspacesModule({auth: authClient, projects: projectsClient, runners: runnersClient}),
     createSecretsModule(projectsClient),
     agentModule,
@@ -254,7 +319,12 @@ export async function defaultModules(
       logs: logsClient,
     }),
     annotationsModule,
-    (options.runnersModule ?? createRunnersModule)({auth: authClient}),
+    runnersModuleFactory
+      ? runnersModuleFactory({auth: authClient})
+      : createRunnersModule({
+          ...options.runnersModuleOptions,
+          auth: authClient,
+        }),
     createLogsModule({
       workflows: workflowsClient,
       jobLeaseTokenTtlSeconds: durationToSeconds(authConfig.AUTH_JOB_LEASE_TOKEN_EXPIRES_IN),
@@ -278,6 +348,7 @@ type AgentModuleSecretsClient = Pick<
 >;
 
 const GITHUB_SECRET_NAMESPACE_PREFIX = 'system/github/';
+const INITIAL_VOWEL_RE = /^[aeiou]/iu;
 
 function requireGithubSecretNamespace(namespace: string): string {
   if (!namespace.startsWith(GITHUB_SECRET_NAMESPACE_PREFIX)) {
@@ -294,6 +365,37 @@ function createAgentSecretsClient(
     getSecretsByNamespace: (input, options) => secretsClient.getSecretsByNamespace(input, options),
     setSecrets: (input, options) => secretsClient.setSecrets(input, options),
   };
+}
+
+function resolveModuleReplacementFactory<T>(
+  replacementFactory: T | undefined,
+  legacyFactory: T | undefined,
+  moduleName: string,
+): T | undefined {
+  if (replacementFactory !== undefined && legacyFactory !== undefined) {
+    throw new Error(`Provide only one ${moduleName} module replacement factory.`);
+  }
+  return replacementFactory ?? legacyFactory;
+}
+
+function assertModuleOptionsNotCombinedWithReplacement<T extends object>(
+  moduleOptions: T | undefined,
+  replacementFactory: unknown,
+  moduleName: string,
+): void {
+  if (hasConfiguredModuleOptions(moduleOptions) && replacementFactory !== undefined) {
+    throw new Error(
+      `Use ${moduleName} module options or ${indefiniteArticle(moduleName)} ${moduleName} module replacement factory, not both.`,
+    );
+  }
+}
+
+function hasConfiguredModuleOptions<T extends object>(moduleOptions: T | undefined): boolean {
+  return Object.values(moduleOptions ?? {}).some((value) => value !== undefined);
+}
+
+function indefiniteArticle(value: string): 'a' | 'an' {
+  return INITIAL_VOWEL_RE.test(value) ? 'an' : 'a';
 }
 
 function validateCustomAgentModule(module: ShipfoxModule): void {
