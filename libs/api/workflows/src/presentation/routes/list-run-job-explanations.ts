@@ -1,31 +1,32 @@
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import {
-  type WorkflowRunOverviewJobsResponseDto,
-  workflowRunOverviewJobsQuerySchema,
-  workflowRunOverviewJobsResponseSchema,
+  type WorkflowRunJobExplanationsResponseDto,
+  workflowRunJobExplanationsQuerySchema,
+  workflowRunJobExplanationsResponseSchema,
 } from '@shipfox/api-workflows-dto';
+import {encodeStringIdCursor} from '@shipfox/node-drizzle';
 import {ClientError, defineRoute} from '@shipfox/node-fastify';
 import {logger} from '@shipfox/node-opentelemetry';
 import type {FastifyRequest} from 'fastify';
 import {z} from 'zod';
-import {listWorkflowRunJobsPage, type WorkflowRunJobCursor} from '#db/index.js';
-import {toRunOverviewJobsPageDto} from '#presentation/dto/index.js';
+import {listWorkflowRunJobExplanationsPage} from '#db/index.js';
+import {toWorkflowRunJobExplanationDto} from '#presentation/dto/index.js';
 import {requireAccessibleRunScope} from './require-accessible-run.js';
 import {assertValidRunJobCursor, decodeRunJobCursor} from './run-job-cursor.js';
 import {serializedResponseByteLength} from './serialized-response-byte-length.js';
 
-export function listRunJobsRoute(projects: ProjectsModuleClient) {
+export function listRunJobExplanationsRoute(projects: ProjectsModuleClient) {
   return defineRoute({
     method: 'GET',
-    path: '/:id/jobs',
-    description: 'List bounded job summaries for a pinned workflow run attempt',
+    path: '/:id/job-explanations',
+    description: 'List bounded explanations for failed or skipped jobs without executions',
     schema: {
       params: z.object({
         id: z.string().uuid(),
       }),
-      querystring: workflowRunOverviewJobsQuerySchema,
+      querystring: workflowRunJobExplanationsQuerySchema,
       response: {
-        200: workflowRunOverviewJobsResponseSchema,
+        200: workflowRunJobExplanationsResponseSchema,
       },
     },
     handler: async (request, reply) => {
@@ -42,7 +43,7 @@ export function listRunJobsRoute(projects: ProjectsModuleClient) {
 
       try {
         assertValidRunJobCursor(cursor, decodedCursor);
-        const result = await readRunJobsPage({
+        const result = await readRunJobExplanations({
           request,
           id,
           attempt,
@@ -53,13 +54,14 @@ export function listRunJobsRoute(projects: ProjectsModuleClient) {
             outcome = 'access_denied';
           },
           serialize: (response) => reply.serialize(response),
+          onDatabaseRead: (measurement) => {
+            databaseDurationMilliseconds = measurement.databaseDurationMilliseconds;
+          },
         });
-        databaseDurationMilliseconds = result.databaseDurationMilliseconds;
-        const {response, serializedResponse} = result;
-        responseBytes = serializedResponseByteLength(serializedResponse);
-        resultCount = response.items.length;
-        cursorRemaining = response.next_cursor !== null;
-        return reply.type('application/json').send(serializedResponse);
+        responseBytes = serializedResponseByteLength(result.serializedResponse);
+        resultCount = result.response.items.length;
+        cursorRemaining = result.response.next_cursor !== null;
+        return reply.type('application/json').send(result.serializedResponse);
       } catch (error) {
         responseStatus =
           error instanceof ClientError && typeof error.status === 'number' ? error.status : 500;
@@ -69,7 +71,7 @@ export function listRunJobsRoute(projects: ProjectsModuleClient) {
       } finally {
         logger().info(
           {
-            route: 'workflow-runs/:id/jobs',
+            route: 'workflow-runs/:id/job-explanations',
             status: responseStatus,
             outcome,
             runId: id,
@@ -82,14 +84,14 @@ export function listRunJobsRoute(projects: ProjectsModuleClient) {
             databaseDurationMs: Math.round(databaseDurationMilliseconds),
             durationMs: Math.round(performance.now() - startedAt),
           },
-          'Listed workflow run job summaries',
+          'Listed workflow run job explanations',
         );
       }
     },
   });
 }
 
-async function readRunJobsPage({
+async function readRunJobExplanations({
   request,
   id,
   attempt,
@@ -98,29 +100,31 @@ async function readRunJobsPage({
   projects,
   onAccessDenied,
   serialize,
+  onDatabaseRead,
 }: {
   request: FastifyRequest;
   id: string;
   attempt: number;
   limit: number;
-  cursor: WorkflowRunJobCursor | undefined;
+  cursor: {position: number; id: string} | undefined;
   projects: ProjectsModuleClient;
   onAccessDenied: () => void;
-  serialize: (response: WorkflowRunOverviewJobsResponseDto) => string | ArrayBuffer | Buffer;
+  serialize: (response: WorkflowRunJobExplanationsResponseDto) => string | ArrayBuffer | Buffer;
+  onDatabaseRead: (measurement: {databaseDurationMilliseconds: number}) => void;
 }) {
   const run = await requireAccessibleRunScope({request, id, projects, onAccessDenied});
-  let databaseDurationMilliseconds = 0;
-  const page = await listWorkflowRunJobsPage(
+  const page = await listWorkflowRunJobExplanationsPage(
     {
-      workflowRunId: run.id,
+      workspaceId: run.workspaceId,
       projectId: run.projectId,
+      workflowRunId: run.id,
       attempt,
       limit,
       cursor,
     },
     {
       onRead: (measurement) => {
-        databaseDurationMilliseconds = measurement.databaseDurationMilliseconds;
+        onDatabaseRead(measurement);
       },
     },
   );
@@ -128,10 +132,11 @@ async function readRunJobsPage({
     throw new ClientError('Run attempt not found', 'not-found', {status: 404});
   }
 
-  const response = toRunOverviewJobsPageDto(page);
-  return {
-    response,
-    serializedResponse: serialize(response),
-    databaseDurationMilliseconds,
+  const response: WorkflowRunJobExplanationsResponseDto = {
+    items: page.items.map(toWorkflowRunJobExplanationDto),
+    next_cursor: page.nextCursor
+      ? encodeStringIdCursor({value: String(page.nextCursor.position), id: page.nextCursor.id})
+      : null,
   };
+  return {response, serializedResponse: serialize(response)};
 }

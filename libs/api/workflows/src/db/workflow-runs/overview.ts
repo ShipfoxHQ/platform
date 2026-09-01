@@ -163,6 +163,7 @@ export interface WorkflowRunOverviewParams {
 
 export interface WorkflowRunAccessScope {
   id: string;
+  workspaceId: string;
   projectId: string;
 }
 
@@ -171,7 +172,11 @@ export async function getWorkflowRunAccessScopeById(
   workflowRunId: string,
 ): Promise<WorkflowRunAccessScope | undefined> {
   const [row] = await db()
-    .select({id: workflowRuns.id, projectId: workflowRuns.projectId})
+    .select({
+      id: workflowRuns.id,
+      workspaceId: workflowRuns.workspaceId,
+      projectId: workflowRuns.projectId,
+    })
     .from(workflowRuns)
     .where(eq(workflowRuns.id, workflowRunId))
     .limit(1);

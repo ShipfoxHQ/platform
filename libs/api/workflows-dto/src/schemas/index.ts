@@ -182,6 +182,25 @@ export {
 } from './workflow-run.js';
 export {type WorkflowRunAncestryDto, workflowRunAncestrySchema} from './workflow-run-ancestry.js';
 export {
+  WORKFLOW_RUN_ANNOTATIONS_PAGE_LIMIT,
+  WORKFLOW_RUN_JOB_EXPLANATIONS_PAGE_LIMIT,
+  type WorkflowRunAnnotationItemDto,
+  type WorkflowRunAnnotationOriginDto,
+  type WorkflowRunAnnotationsQueryDto,
+  type WorkflowRunAnnotationsResponseDto,
+  type WorkflowRunJobExplanationDto,
+  type WorkflowRunJobExplanationsQueryDto,
+  type WorkflowRunJobExplanationsResponseDto,
+  workflowRunAnnotationItemSchema,
+  workflowRunAnnotationOriginSchema,
+  workflowRunAnnotationsQuerySchema,
+  workflowRunAnnotationsResponseSchema,
+  workflowRunJobExplanationDtoSchema,
+  workflowRunJobExplanationStatusSchema,
+  workflowRunJobExplanationsQuerySchema,
+  workflowRunJobExplanationsResponseSchema,
+} from './workflow-run-annotations.js';
+export {
   type JobExecutionDto,
   jobExecutionDtoSchema,
   type StepAttemptDetailResponseDto,

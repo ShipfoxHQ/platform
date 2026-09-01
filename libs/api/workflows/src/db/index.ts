@@ -32,6 +32,16 @@ export {
 export {workflowsOutbox} from './schema/outbox.js';
 export {workflowRunCounters} from './schema/workflow-run-counters.js';
 export type {
+  WorkflowRunAnnotationOriginRead,
+  WorkflowRunAnnotationOriginReference,
+} from './workflow-runs/annotation-reads.js';
+export {getWorkflowRunAnnotationOrigins} from './workflow-runs/annotation-reads.js';
+export type {
+  WorkflowRunJobExplanationRead,
+  WorkflowRunJobExplanationsPageRead,
+} from './workflow-runs/job-explanations.js';
+export {listWorkflowRunJobExplanationsPage} from './workflow-runs/job-explanations.js';
+export type {
   BoundedExecutionCount,
   BulkUpdateStepStatusesParams,
   CancelWorkflowRunParams,
