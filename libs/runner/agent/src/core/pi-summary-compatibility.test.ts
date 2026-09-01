@@ -15,6 +15,8 @@ import {
 const HISTORICAL_SVG_DATA =
   'PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjx0ZXh0IHg9IjAiIHk9IjEwIj5IaXN0b3JpY2FsIEJhZGdlPC90ZXh0Pjwvc3ZnPg==';
 const DATA_IMAGE_URL_PATTERN = /data:image\/[^,\s]+(?:;[^,\s]*)?,/i;
+const SERIALIZED_SVG_PATTERN = /(?:<\s*\/?\s*svg\b|&lt;\s*\/?\s*svg\b|image\/svg\+xml)/i;
+const BASE64_TOKEN_PATTERN = /[A-Za-z0-9+/_-]{16,}={0,2}/g;
 const FIXTURE_PATH = new URL('./fixtures/pi-summary-image-session.jsonl', import.meta.url);
 
 type SummaryHarness = {
@@ -117,6 +119,28 @@ function queueSummaryResponses(harness: SummaryHarness): void {
   harness.faux.setResponses([response, response, response, response]);
 }
 
+function decodeUriComponent(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function containsSerializedSvg(value: string): boolean {
+  const uriDecodedValue = decodeUriComponent(value);
+  if (SERIALIZED_SVG_PATTERN.test(uriDecodedValue)) return true;
+
+  for (const token of uriDecodedValue.match(BASE64_TOKEN_PATTERN) ?? []) {
+    const normalizedToken = token.replaceAll('-', '+').replaceAll('_', '/');
+    const padding = '='.repeat((4 - (normalizedToken.length % 4)) % 4);
+    const decodedToken = Buffer.from(normalizedToken + padding, 'base64').toString('utf8');
+    if (SERIALIZED_SVG_PATTERN.test(decodedToken)) return true;
+  }
+
+  return false;
+}
+
 function expectHistoricalSvg(harness: SummaryHarness): void {
   const entry = harness.sessionManager.getEntry('historical-tool-result');
   if (entry?.type !== 'message' || entry.message.role !== 'toolResult') {
@@ -148,6 +172,7 @@ function expectTextOnlySummaryRequests(requests: readonly Context[]): void {
     expect(block.text).not.toMatch(DATA_IMAGE_URL_PATTERN);
     expect(block.text).not.toContain('image/svg+xml');
     expect(block.text).not.toContain(HISTORICAL_SVG_DATA);
+    expect(containsSerializedSvg(block.text)).toBe(false);
   }
 }
 
