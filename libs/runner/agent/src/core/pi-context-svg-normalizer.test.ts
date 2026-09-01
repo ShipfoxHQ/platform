@@ -250,8 +250,12 @@ describe('Pi historical context SVG normalizer', () => {
       messageWithSvg(encodedSvg(`budget-${index}`)),
     );
 
-    const firstContext = await contextHandler(contextEvent(messages));
-    const secondContext = await contextHandler(contextEvent(messages));
+    const firstContext = (await contextHandler(contextEvent(messages))) as {
+      messages: PiContextMessage[];
+    };
+    const secondContext = (await contextHandler(contextEvent(messages))) as {
+      messages: PiContextMessage[];
+    };
 
     expect(rasterize).toHaveBeenCalledTimes(20);
     expect(firstContext).toEqual(secondContext);
@@ -447,11 +451,14 @@ function expectProviderContextToBeImageSafe(context: Context): void {
 }
 
 function expectContextMessagesToContainPng(messages: readonly PiContextMessage[]): void {
-  const hasPng = messages.some(
-    (message) =>
-      Array.isArray(message.content) &&
-      message.content.some((block) => block.type === 'image' && block.mimeType === 'image/png'),
-  );
+  const hasPng = messages.some((message) => {
+    if (!('content' in message) || !Array.isArray(message.content)) return false;
+    return message.content.some((block) => {
+      if (typeof block !== 'object' || block === null) return false;
+      if (!('type' in block) || !('mimeType' in block)) return false;
+      return block.type === 'image' && block.mimeType === 'image/png';
+    });
+  });
   expect(hasPng).toBe(true);
 }
 
