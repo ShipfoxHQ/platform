@@ -14,6 +14,7 @@ import {z} from 'zod';
 import {listRunAttempts, listRunAttemptsPage} from '#db/index.js';
 import {toRunAttemptDto} from '#presentation/dto/index.js';
 import {requireAccessibleRun} from './require-accessible-run.js';
+import {serializedResponseByteLength} from './serialized-response-byte-length.js';
 
 export function listRunAttemptsRoute(projects: ProjectsModuleClient) {
   return defineRoute({
@@ -131,8 +132,4 @@ async function readRunAttempts(params: {
     cursorRemaining: page.nextCursor !== null,
     dbDurationMilliseconds,
   };
-}
-
-function serializedResponseByteLength(payload: string | ArrayBuffer | Buffer): number {
-  return typeof payload === 'string' ? Buffer.byteLength(payload, 'utf8') : payload.byteLength;
 }

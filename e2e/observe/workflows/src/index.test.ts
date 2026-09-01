@@ -72,7 +72,7 @@ function listResponse(
 
 function detail(params: Partial<WorkflowRunDetailResponseDto> = {}): WorkflowRunDetailResponseDto {
   const {jobs: detailJobs, run_attempt: runAttempt, ...runParams} = params;
-  const listItem = run(runParams);
+  const {jobs: _listJobs, job_status_counts: _listOnly, ...listItem} = run(runParams);
   return {
     ...listItem,
     run_attempt: runAttempt ?? {
@@ -227,6 +227,7 @@ describe('waitForRunTerminal', () => {
     });
 
     expect(result.status).toBe(status);
+    expect(result).not.toHaveProperty('job_status_counts');
   });
 
   test('polls until the run reaches a terminal status', async () => {

@@ -13,6 +13,7 @@ import {
 } from '#metrics/instance.js';
 import {toRunDetailDto} from '#presentation/dto/index.js';
 import {requireAccessibleRun} from './require-accessible-run.js';
+import {serializedResponseByteLength} from './serialized-response-byte-length.js';
 
 export function getRunRoute(projects: ProjectsModuleClient) {
   return defineRoute({
@@ -86,8 +87,4 @@ export function getRunRoute(projects: ProjectsModuleClient) {
       }
     },
   });
-}
-
-function serializedResponseByteLength(payload: string | ArrayBuffer | Buffer): number {
-  return typeof payload === 'string' ? Buffer.byteLength(payload, 'utf8') : payload.byteLength;
 }

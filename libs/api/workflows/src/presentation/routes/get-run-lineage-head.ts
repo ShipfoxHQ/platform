@@ -6,6 +6,7 @@ import {z} from 'zod';
 import {getWorkflowRunLineageHead} from '#db/index.js';
 import {toRunLineageHeadDto} from '#presentation/dto/index.js';
 import {requireAccessibleRun} from './require-accessible-run.js';
+import {serializedResponseByteLength} from './serialized-response-byte-length.js';
 
 export function getRunLineageHeadRoute(projects: ProjectsModuleClient) {
   return defineRoute({
@@ -71,8 +72,4 @@ export function getRunLineageHeadRoute(projects: ProjectsModuleClient) {
       }
     },
   });
-}
-
-function serializedResponseByteLength(payload: string | ArrayBuffer | Buffer): number {
-  return typeof payload === 'string' ? Buffer.byteLength(payload, 'utf8') : payload.byteLength;
 }
