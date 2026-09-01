@@ -155,11 +155,22 @@ describe('credential broker', () => {
     const replacementPublished = new Promise<void>((resolve) => (renewalPublished = resolve));
     const renew = vi
       .fn()
-      .mockResolvedValueOnce({...baseCredential, token: 'token-b', generation: 'generation-b'})
-      .mockResolvedValueOnce({...baseCredential, token: 'token-c', generation: 'generation-c'});
+      .mockResolvedValueOnce({
+        ...baseCredential,
+        token: 'token-b',
+        generation: 'generation-b',
+        renewal: {mode: 'on-rejection' as const},
+      })
+      .mockResolvedValueOnce({
+        ...baseCredential,
+        token: 'token-c',
+        generation: 'generation-c',
+        renewal: {mode: 'on-rejection' as const},
+      });
     const broker = new CredentialBroker({
       renew,
       now: () => now,
+      rejectionCooldownMs: 0,
       publishSecrets: async ([token]) => {
         if (token === 'token-b') {
           renewalPublished();
@@ -230,6 +241,43 @@ describe('credential broker', () => {
       'token-two',
       'token-two',
       'token-one-b',
+    ]);
+  });
+
+  it('replaces all active published secrets atomically when configured', async () => {
+    const replacements: string[][] = [];
+    const broker = new CredentialBroker({
+      now: () => now,
+      renew: vi.fn().mockResolvedValue({
+        ...baseCredential,
+        token: 'token-one-b',
+        generation: 'generation-one-b',
+      }),
+      replaceSecrets: (secrets) => {
+        replacements.push([...secrets]);
+      },
+    });
+    broker.register({
+      repositoryUrl: 'https://example.test/one',
+      subject: 'one',
+      credential: {...baseCredential, renewal: {mode: 'on-rejection' as const}},
+    });
+    broker.register({
+      repositoryUrl: 'https://example.test/two',
+      subject: 'two',
+      credential: {...baseCredential, token: 'token-two'},
+    });
+
+    await broker.reject('https://example.test/one');
+
+    expect(replacements).toEqual([
+      ['token-two', Buffer.from('runner:token-two').toString('base64')],
+      [
+        'token-one-b',
+        Buffer.from('runner:token-one-b').toString('base64'),
+        'token-two',
+        Buffer.from('runner:token-two').toString('base64'),
+      ],
     ]);
   });
 
@@ -362,6 +410,48 @@ describe('credential broker', () => {
       token: 'token-a',
     });
     expect(renew).toHaveBeenCalledTimes(1);
+  });
+
+  it('backs off permanent renewal failures instead of retrying every lookup', async () => {
+    const renew = vi.fn().mockRejectedValue(new Error('invalid renewal response'));
+    const broker = new CredentialBroker({renew, now: () => now, backoffMs: 500});
+    now = 5_000;
+    broker.register({repositoryUrl: repository, subject: 'checkout', credential: baseCredential});
+
+    await expect(broker.lookup(repository)).resolves.toBeUndefined();
+    await expect(broker.lookup(repository)).resolves.toBeUndefined();
+    expect(renew).toHaveBeenCalledTimes(1);
+
+    now = 5_500;
+    await expect(broker.lookup(repository)).resolves.toBeUndefined();
+    expect(renew).toHaveBeenCalledTimes(2);
+  });
+
+  it('debounces repeated rejection-triggered renewals after a successful mint', async () => {
+    const renew = vi.fn(async () => ({
+      ...baseCredential,
+      token: `token-${renew.mock.calls.length + 1}`,
+      generation: `generation-${renew.mock.calls.length + 1}`,
+      renewal: {mode: 'on-rejection' as const},
+    }));
+    const broker = new CredentialBroker({
+      renew,
+      now: () => now,
+      rejectionCooldownMs: 500,
+    });
+    broker.register({
+      repositoryUrl: repository,
+      subject: 'checkout',
+      credential: {...baseCredential, renewal: {mode: 'on-rejection' as const}},
+    });
+
+    await broker.reject(repository);
+    await broker.reject(repository);
+    expect(renew).toHaveBeenCalledTimes(1);
+
+    now = 1_500;
+    await broker.reject(repository);
+    expect(renew).toHaveBeenCalledTimes(2);
   });
 
   it('fails closed after shutdown and clears published secrets', async () => {

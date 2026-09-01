@@ -11,6 +11,7 @@ export {
   HTTPError,
   heartbeat,
   heartbeatRunnerControlSession,
+  isTransientCheckoutTokenError,
   type LeaseTokenSource,
   type LogAppendFn,
   type LogAppendOutcome,

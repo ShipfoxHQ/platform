@@ -59,7 +59,7 @@ import {
 import {logger} from '@shipfox/node-opentelemetry';
 import {isUuid} from '@shipfox/regex';
 import {canonicalizeLabels} from '@shipfox/runner-labels';
-import ky, {HTTPError, type KyInstance} from 'ky';
+import ky, {HTTPError, isTimeoutError, type KyInstance} from 'ky';
 import {config} from '#config.js';
 
 /** Media type the append endpoint expects for the raw NDJSON request body. */
@@ -439,6 +439,25 @@ export async function requestCheckoutToken(
     },
   );
   return checkoutTokenResponseSchema.parse(await response.json());
+}
+
+/**
+ * Classifies checkout-token request failures that are safe for the broker to
+ * retry. Response-shape and repository-contract failures stay permanent so a
+ * bad server response cannot trigger an unbounded renewal loop.
+ */
+export function isTransientCheckoutTokenError(error: unknown): boolean {
+  if (error instanceof HTTPError) {
+    return (
+      [429, 503].includes(error.response.status) ||
+      ['rate-limited', 'timeout', 'provider-unavailable'].includes(codeFromBody(error.data) ?? '')
+    );
+  }
+  return (
+    isTimeoutError(error) ||
+    (error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')) ||
+    error instanceof TypeError
+  );
 }
 
 export async function requestAgentRuntimeConfig(

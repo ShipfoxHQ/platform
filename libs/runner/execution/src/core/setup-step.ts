@@ -6,13 +6,13 @@ import {
   createJobDir,
   type GitCredentialHelperConfig,
   normalizeCheckoutDestination,
+  type PersistedCheckoutCredential,
 } from '@shipfox/runner-workspace';
 import type {KyInstance} from 'ky';
 import {
   type CheckoutLogSink,
   type CheckoutPhaseResult,
   checkoutRepositoryAt,
-  type PersistedCheckoutCredential,
   requestCheckoutCredentials,
 } from '#core/checkout-execution.js';
 import type {StepResult} from '#core/step-result.js';

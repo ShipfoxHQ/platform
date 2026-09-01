@@ -22,7 +22,6 @@ import {
   executeCheckoutStep,
   executeRunStep,
   executeSetupStep,
-  type PersistedCheckoutCredential,
   type SetupJobContext,
   type StepResult,
 } from '@shipfox/runner-execution';
@@ -55,6 +54,7 @@ import {
 import {
   createJobLogsDir,
   type GitCredentialHelperConfig,
+  type PersistedCheckoutCredential,
   resolveWorkingDirectory,
 } from '@shipfox/runner-workspace';
 import {isTimeoutError, type KyInstance} from 'ky';

@@ -10,6 +10,7 @@ import {
   type CheckoutPhase,
   checkoutRepository,
   type GitCredentialHelperConfig,
+  type PersistedCheckoutCredential,
   writeAmbientGitCredential,
 } from '@shipfox/runner-workspace';
 import type {KyInstance} from 'ky';
@@ -29,17 +30,6 @@ export interface CheckoutLogSink {
 export type CheckoutFailureScope = 'setup' | 'checkout';
 
 export type CheckoutPhaseResult<T> = {ok: true; value: T} | {ok: false; result: StepResult};
-
-export interface PersistedCheckoutCredential {
-  repositoryUrl: string;
-  checkoutStepId: string;
-  checkoutAttempt: number;
-  username: string;
-  token: string;
-  expiresAt: string;
-  generation: string;
-  renewal: {mode: 'refresh-at'; refreshAt: string} | {mode: 'on-rejection'};
-}
 
 export async function requestCheckoutCredentials(params: {
   leaseClient: KyInstance;
@@ -197,7 +187,10 @@ async function persistAmbientGitCredential(params: {
     });
     return {
       path: gitConfigPath,
-      secrets: shouldPersistCredential && auth ? ambientGitCredentialSecrets(auth) : [],
+      secrets:
+        persistedCheckoutCredential === undefined && shouldPersistCredential && auth
+          ? ambientGitCredentialSecrets(auth)
+          : [],
       ...(persistedCheckoutCredential ? {persistedCheckoutCredential} : {}),
     };
   } catch (error) {
@@ -283,14 +276,16 @@ function persistedCheckoutCredentialFromCheckout(params: {
     repositoryUrl: params.checkout.repository_url,
     checkoutStepId: params.checkoutStepId,
     checkoutAttempt: params.checkoutAttempt,
-    username: auth.username,
-    token: auth.token,
-    expiresAt: auth.expires_at,
-    generation: auth.generation,
-    renewal:
-      auth.renewal.mode === 'refresh-at'
-        ? {mode: 'refresh-at', refreshAt: auth.renewal.refresh_at}
-        : {mode: 'on-rejection'},
+    credential: {
+      username: auth.username,
+      token: auth.token,
+      expiresAt: auth.expires_at,
+      generation: auth.generation,
+      renewal:
+        auth.renewal.mode === 'refresh-at'
+          ? {mode: 'refresh-at', refreshAt: auth.renewal.refresh_at}
+          : {mode: 'on-rejection'},
+    },
   };
 }
 

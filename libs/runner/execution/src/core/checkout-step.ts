@@ -8,6 +8,7 @@ import {
   createCheckoutDestination,
   type GitCredentialHelperConfig,
   inspectCheckoutDestination,
+  type PersistedCheckoutCredential,
   replaceCheckoutDestination,
   resolveCheckoutPath,
 } from '@shipfox/runner-workspace';
@@ -15,7 +16,6 @@ import type {KyInstance} from 'ky';
 import {
   type CheckoutLogSink,
   checkoutRepositoryAt,
-  type PersistedCheckoutCredential,
   requestCheckoutCredentials,
   safeRepositoryUrl,
 } from '#core/checkout-execution.js';

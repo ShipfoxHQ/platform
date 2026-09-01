@@ -1,3 +1,4 @@
+import {randomUUID} from 'node:crypto';
 import {mkdir, mkdtemp, rm, stat, writeFile} from 'node:fs/promises';
 import {homedir, tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -18,7 +19,10 @@ import {
   jobCredentialsPath,
   jobLogsPath,
   jobWorkspacePath,
+  RUNNER_FALLBACK_CREDENTIAL_SOCKET_DIR,
   resolveWorkspaceRoot,
+  runnerFallbackCredentialSocketOwnerPath,
+  runnerFallbackCredentialSocketPath,
   UnsafeWorkspaceRootError,
 } from '#workspace.js';
 
@@ -400,6 +404,32 @@ describe('cleanupOrphanedJobCredentials', () => {
 
   it('does not throw when the runner credential root is missing', async () => {
     await expect(cleanupOrphanedJobCredentials(root)).resolves.toBeUndefined();
+  });
+
+  it('reclaims dead fallback socket owners without touching live sockets', async () => {
+    const deadCapability = randomUUID();
+    const liveCapability = randomUUID();
+    const deadSocketPath = runnerFallbackCredentialSocketPath(deadCapability);
+    const deadOwnerPath = runnerFallbackCredentialSocketOwnerPath(deadCapability);
+    const liveSocketPath = runnerFallbackCredentialSocketPath(liveCapability);
+    const liveOwnerPath = runnerFallbackCredentialSocketOwnerPath(liveCapability);
+    const paths = [deadSocketPath, deadOwnerPath, liveSocketPath, liveOwnerPath];
+    await mkdir(RUNNER_FALLBACK_CREDENTIAL_SOCKET_DIR, {recursive: true});
+    await writeFile(deadSocketPath, 'stale socket placeholder');
+    await writeFile(deadOwnerPath, '-1:stale-owner');
+    await writeFile(liveSocketPath, 'live socket placeholder');
+    await writeFile(liveOwnerPath, `${process.pid}:live-owner`);
+
+    try {
+      await cleanupOrphanedJobCredentials(root);
+
+      await expect(stat(deadSocketPath)).rejects.toThrow();
+      await expect(stat(deadOwnerPath)).rejects.toThrow();
+      await expect(stat(liveSocketPath)).resolves.toBeDefined();
+      await expect(stat(liveOwnerPath)).resolves.toBeDefined();
+    } finally {
+      for (const path of paths) await rm(path, {force: true});
+    }
   });
 });
 

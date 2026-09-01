@@ -4,6 +4,7 @@ import {join} from 'node:path';
 import {gzipSync} from 'node:zlib';
 import type {AgentConfigIssueDto, NextStepResponseDto, StepDto} from '@shipfox/api-workflows-dto';
 import {logger} from '@shipfox/node-opentelemetry';
+import type {PersistedCheckoutCredential} from '@shipfox/runner-workspace';
 import {HTTPError} from 'ky';
 import type {RunnerAgentStepModule} from '#core/step-loop.js';
 
@@ -236,16 +237,7 @@ function runLoop(params: {
   agentStateDir?: string;
   subscribeSecrets?: (subscriber: (secrets: string[]) => void) => () => void;
   registerSecrets?: (secrets: string[]) => void;
-  registerCheckoutCredential?: (credential: {
-    repositoryUrl: string;
-    checkoutStepId: string;
-    checkoutAttempt: number;
-    username: string;
-    token: string;
-    expiresAt: string;
-    generation: string;
-    renewal: {mode: 'refresh-at'; refreshAt: string} | {mode: 'on-rejection'};
-  }) => void;
+  registerCheckoutCredential?: (credential: PersistedCheckoutCredential) => void;
   credentialHelper?: {
     command: string;
     socketPath: string;
@@ -438,11 +430,13 @@ describe('runJobSteps', () => {
       repositoryUrl: 'https://github.com/acme/repo.git',
       checkoutStepId: setup.id,
       checkoutAttempt: 1,
-      username: 'x-access-token',
-      token: 'checkout-token',
-      expiresAt: '2030-01-01T00:00:00.000Z',
-      generation: 'generation-one',
-      renewal: {mode: 'on-rejection' as const},
+      credential: {
+        username: 'x-access-token',
+        token: 'checkout-token',
+        expiresAt: '2030-01-01T00:00:00.000Z',
+        generation: 'generation-one',
+        renewal: {mode: 'on-rejection' as const},
+      },
     };
     executeSetupStepMock.mockResolvedValueOnce({
       result: {success: true, error: null, exit_code: 0},
