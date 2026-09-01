@@ -955,17 +955,17 @@ async function applyObservationPlan(
   plan: ObservationPlan,
 ): Promise<void> {
   context.tracker.replaceAll(plan.trackerRunners);
-  await assignEnrolledReservations(context, plan);
+  await assignEnrolledReservations(context, plan.assignmentCandidates);
   if (plan.liveEvents.length > 0) await reportEvents(context, plan.liveEvents);
   await applyTerminalActions(context, plan.terminalActions);
 }
 
 async function assignEnrolledReservations(
   context: DockerLifecycleContext,
-  plan: ObservationPlan,
+  assignmentCandidates: readonly {reservationId: string; runnerInstanceId: string}[],
 ): Promise<void> {
   const assignments = new Map<string, string[]>();
-  for (const {reservationId, runnerInstanceId} of plan.assignmentCandidates) {
+  for (const {reservationId, runnerInstanceId} of assignmentCandidates) {
     const runnerInstanceIds = assignments.get(reservationId) ?? [];
     runnerInstanceIds.push(runnerInstanceId);
     assignments.set(reservationId, runnerInstanceIds);
@@ -1003,6 +1003,7 @@ async function applyTerminalActions(
   logRequestedTerminalActions(context, actions);
   const currentContainers = await revalidateRegistrationDeadlineTerminations(context, actions);
   const skippedActions = new Set<TerminalAction>();
+  const assignmentCandidates: Array<{reservationId: string; runnerInstanceId: string}> = [];
   const stateTransitionEvents: RunnerInstanceReportEventDto[] = [];
   for (const action of actions) {
     const currentContainer = currentContainers.get(action.containerId ?? '');
@@ -1011,8 +1012,13 @@ async function applyTerminalActions(
     skippedActions.add(action);
     context.backendTerminationRequestedIds.delete(action.providerRunnerId);
     syncTerminationEpisodes(context);
-    const event = recordRevalidatedLiveContainer(context, currentContainer);
-    if (event) stateTransitionEvents.push(event);
+    const revalidatedLive = recordRevalidatedLiveContainer(context, currentContainer);
+    if (revalidatedLive) {
+      stateTransitionEvents.push(revalidatedLive.event);
+      if (revalidatedLive.assignmentCandidate) {
+        assignmentCandidates.push(revalidatedLive.assignmentCandidate);
+      }
+    }
     logger().info(
       {
         event: 'runner.container_registration_deadline_termination_skipped',
@@ -1025,6 +1031,8 @@ async function applyTerminalActions(
       'Skipped backend registration-deadline termination after the container state changed',
     );
   }
+  if (assignmentCandidates.length > 0)
+    await assignEnrolledReservations(context, assignmentCandidates);
   if (stateTransitionEvents.length > 0) await reportEvents(context, stateTransitionEvents);
   for (const action of actions) {
     if (skippedActions.has(action)) continue;
@@ -1131,7 +1139,12 @@ function shouldSkipRegistrationDeadlineTermination(
 function recordRevalidatedLiveContainer(
   context: DockerLifecycleContext,
   container: DockerContainerView | undefined,
-): RunnerInstanceReportEventDto | undefined {
+):
+  | {
+      event: RunnerInstanceReportEventDto;
+      assignmentCandidate?: {reservationId: string; runnerInstanceId: string};
+    }
+  | undefined {
   if (!container) return undefined;
   const mapped = mapContainerState(container);
   if (mapped.state !== 'starting' && mapped.state !== 'running') return undefined;
@@ -1154,14 +1167,24 @@ function recordRevalidatedLiveContainer(
     });
     if (mapped.state === 'running') context.tracker.markRunning(parsed.providerRunnerId);
   }
-  return eventFor(
-    container,
-    mapped.state,
-    labels,
-    context.providerKind,
-    context.now(),
-    mapped.reason,
-  );
+  return {
+    event: eventFor(
+      container,
+      mapped.state,
+      labels,
+      context.providerKind,
+      context.now(),
+      mapped.reason,
+    ),
+    ...(parsed.runnerInstanceId && parsed.reservationId
+      ? {
+          assignmentCandidate: {
+            runnerInstanceId: parsed.runnerInstanceId,
+            reservationId: parsed.reservationId,
+          },
+        }
+      : {}),
+  };
 }
 
 function clearTerminalActionState(context: DockerLifecycleContext, action: TerminalAction): void {

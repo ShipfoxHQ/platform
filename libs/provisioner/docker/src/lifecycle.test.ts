@@ -934,11 +934,20 @@ describe('createDockerLifecycle', () => {
   });
 
   it('revalidates registration-deadline actions with one Docker listing per batch', async () => {
+    const labels = {
+      'shipfox.runner_instance_id': '00000000-0000-4000-8000-000000000004',
+      'shipfox.provider_runner_id': 'runner-1',
+      'shipfox.provisioner_id': '00000000-0000-4000-8000-000000000001',
+      'shipfox.reservation_id': RESERVATION_ID,
+      'shipfox.template_key': 'small',
+      'shipfox.labels': 'ubuntu22',
+    };
     const containers = [
       container({
         name: 'runner-1',
         state: 'created',
         createdAt: new Date('2026-01-01T00:00:00.000Z'),
+        labels,
       }),
       container({
         name: 'runner-2',
@@ -949,7 +958,7 @@ describe('createDockerLifecycle', () => {
     const engine = fakeEngine({
       containers,
       onList: (call) => {
-        if (call === 2) containers[0] = container({name: 'runner-1', state: 'running'});
+        if (call === 2) containers[0] = container({name: 'runner-1', state: 'running', labels});
       },
     });
     const client = fakeClient({
@@ -967,6 +976,12 @@ describe('createDockerLifecycle', () => {
 
     expect(engine.listManagedCalls).toBe(2);
     expect(engine.killedAndRemoved).toEqual(['runner-2']);
+    expect(client.assignmentBodies).toEqual([
+      {
+        reservationId: RESERVATION_ID,
+        runnerInstanceIds: ['00000000-0000-4000-8000-000000000004'],
+      },
+    ]);
     expect(client.reportBodies.flatMap((body) => body.events.map((event) => event.state))).toEqual([
       'running',
       'terminated',
