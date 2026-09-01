@@ -267,6 +267,28 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "logs_attempt_streams_compaction_reconciliation_idx": {
+          "name": "logs_attempt_streams_compaction_reconciliation_idx",
+          "columns": [
+            {
+              "expression": "closed_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "compaction_reconciled_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"state\" = 'closed' and \"object_key\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {},

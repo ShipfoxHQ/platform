@@ -91,6 +91,10 @@ export const attemptStreams = pgTable(
     index('logs_attempt_streams_uncompacted_idx')
       .on(table.closedAt)
       .where(sql`"state" = 'closed' and "object_key" is null`),
+    // Compaction reconciliation scans durable closed streams by close age and its cooldown.
+    index('logs_attempt_streams_compaction_reconciliation_idx')
+      .on(table.closedAt, table.compactionReconciledAt)
+      .where(sql`"state" = 'closed' and "object_key" is not null`),
   ],
 );
 
