@@ -1,4 +1,4 @@
-import {and, eq, sql} from 'drizzle-orm';
+import {and, eq, inArray, sql} from 'drizzle-orm';
 import type {IntegrationConnectionRepositoryGrant} from '#core/entities/repository-grant.js';
 import {db} from './db.js';
 import {integrationConnections} from './schema/connections.js';
@@ -181,24 +181,46 @@ export async function deleteIntegrationConnectionRepositoryGrant(
     return await db().transaction((tx) => deleteIntegrationConnectionRepositoryGrant(params, {tx}));
   }
 
+  const deleted = await deleteIntegrationConnectionRepositoryGrantsByExternalRepositoryIds(
+    {
+      connectionId: params.connectionId,
+      externalRepositoryIds: [params.externalRepositoryId],
+    },
+    {tx: options.tx},
+  );
+  return deleted > 0;
+}
+
+export async function deleteIntegrationConnectionRepositoryGrantsByExternalRepositoryIds(
+  params: {connectionId: string; externalRepositoryIds: string[]},
+  options: {tx?: Executor | undefined} = {},
+): Promise<number> {
+  if (options.tx === undefined) {
+    return await db().transaction((tx) =>
+      deleteIntegrationConnectionRepositoryGrantsByExternalRepositoryIds(params, {tx}),
+    );
+  }
+
+  if (params.externalRepositoryIds.length === 0) return 0;
+
+  const [connection] = await options.tx
+    .select({id: integrationConnections.id})
+    .from(integrationConnections)
+    .where(eq(integrationConnections.id, params.connectionId))
+    .limit(1)
+    .for('update');
+  if (!connection) return 0;
+
   const result = await options.tx
     .delete(integrationConnectionRepositoryGrants)
     .where(
       and(
         eq(integrationConnectionRepositoryGrants.connectionId, params.connectionId),
-        eq(integrationConnectionRepositoryGrants.externalRepositoryId, params.externalRepositoryId),
+        inArray(
+          integrationConnectionRepositoryGrants.externalRepositoryId,
+          params.externalRepositoryIds,
+        ),
       ),
     );
-  return (result.rowCount ?? 0) > 0;
-}
-
-export async function deleteIntegrationConnectionRepositoryGrants(
-  params: {connectionId: string},
-  options: {tx?: Executor | undefined} = {},
-): Promise<number> {
-  const executor = options.tx ?? db();
-  const result = await executor
-    .delete(integrationConnectionRepositoryGrants)
-    .where(eq(integrationConnectionRepositoryGrants.connectionId, params.connectionId));
   return result.rowCount ?? 0;
 }

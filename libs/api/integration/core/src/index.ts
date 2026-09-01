@@ -201,31 +201,11 @@ export {
 export type {
   GetIntegrationConnectionByIdFn,
   GetIntegrationConnectionBySlugFn,
-  UpdateIntegrationConnectionRepositoryAccessModeFn,
-  UpdateIntegrationConnectionRepositoryAccessModeParams,
 } from '#db/connections.js';
 export {
   getIntegrationConnectionById,
   getIntegrationConnectionBySlug,
-  updateIntegrationConnectionRepositoryAccessMode,
 } from '#db/connections.js';
-export type {
-  DeleteIntegrationConnectionRepositoryGrantParams,
-  GetIntegrationConnectionRepositoryGrantParams,
-  ListIntegrationConnectionRepositoryGrantsByNameParams,
-  ListIntegrationConnectionRepositoryGrantsParams,
-  UpdateIntegrationConnectionRepositoryGrantMetadataParams,
-  UpsertIntegrationConnectionRepositoryGrantParams,
-} from '#db/repository-grants.js';
-export {
-  deleteIntegrationConnectionRepositoryGrant,
-  deleteIntegrationConnectionRepositoryGrants,
-  getIntegrationConnectionRepositoryGrant,
-  listIntegrationConnectionRepositoryGrants,
-  listIntegrationConnectionRepositoryGrantsByName,
-  updateIntegrationConnectionRepositoryGrantMetadata,
-  upsertIntegrationConnectionRepositoryGrant,
-} from '#db/repository-grants.js';
 export type {
   ClaimWebhookDeliveryFn,
   PublishIntegrationEventReceivedFn,

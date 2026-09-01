@@ -113,7 +113,7 @@ function getCleanupConnection(
     slug: cleanup.slug,
     displayName: cleanup.displayName,
     lifecycleStatus: cleanup.lifecycleStatus,
-    repositoryAccessMode: 'selected',
+    repositoryAccessMode: cleanup.repositoryAccessMode,
     createdAt: cleanup.connectionCreatedAt,
     updatedAt: cleanup.connectionUpdatedAt,
   };

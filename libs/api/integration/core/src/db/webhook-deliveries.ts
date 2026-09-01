@@ -11,7 +11,7 @@ import {writeOutboxEvent, writeOutboxEvents} from '@shipfox/node-outbox';
 import {lt} from 'drizzle-orm';
 import {db} from './db.js';
 import {
-  deleteIntegrationConnectionRepositoryGrant,
+  deleteIntegrationConnectionRepositoryGrantsByExternalRepositoryIds,
   updateIntegrationConnectionRepositoryGrantMetadata,
 } from './repository-grants.js';
 import {integrationsOutbox} from './schema/outbox.js';
@@ -192,7 +192,7 @@ export interface PublishSourceRepositoryUpdatedParams {
   rawPayload: unknown;
   event: string;
   repositories: SourceRepositoryIdentity[];
-  removedRepositories?: SourceRepositoryIdentity[] | undefined;
+  removedRepositories: SourceRepositoryIdentity[];
 }
 
 // Emits the generic provider envelope for triggers and one typed repository event per
@@ -237,47 +237,31 @@ async function maintainRepositoryGrantMetadata(
   params: PublishSourceRepositoryUpdatedParams,
 ): Promise<void> {
   const removedRepositoryIds = new Set(
-    params.removedRepositories?.map((repository) => repository.externalRepositoryId),
+    params.removedRepositories.map((repository) => repository.externalRepositoryId),
   );
-  const repositoryDeleted = params.event === 'repository.deleted';
+  if (params.event === 'repository.deleted') {
+    for (const repository of params.repositories) {
+      removedRepositoryIds.add(repository.externalRepositoryId);
+    }
+  }
+
+  await deleteIntegrationConnectionRepositoryGrantsByExternalRepositoryIds(
+    {
+      connectionId: params.connectionId,
+      externalRepositoryIds: [...removedRepositoryIds],
+    },
+    {tx: params.tx},
+  );
 
   for (const repository of params.repositories) {
-    const grantParams = {
-      connectionId: params.connectionId,
-      externalRepositoryId: repository.externalRepositoryId,
-    };
-    if (repositoryDeleted || removedRepositoryIds.has(repository.externalRepositoryId)) {
-      await deleteIntegrationConnectionRepositoryGrant(
-        {
-          ...grantParams,
-        },
-        {tx: params.tx},
-      );
-      continue;
-    }
+    if (removedRepositoryIds.has(repository.externalRepositoryId)) continue;
 
     await updateIntegrationConnectionRepositoryGrantMetadata(
       {
-        ...grantParams,
-        repositoryOwner: repository.owner,
-        repositoryName: repository.name,
-      },
-      {tx: params.tx},
-    );
-  }
-
-  for (const repository of params.removedRepositories ?? []) {
-    if (
-      params.repositories.some(
-        (candidate) => candidate.externalRepositoryId === repository.externalRepositoryId,
-      )
-    ) {
-      continue;
-    }
-    await deleteIntegrationConnectionRepositoryGrant(
-      {
         connectionId: params.connectionId,
         externalRepositoryId: repository.externalRepositoryId,
+        repositoryOwner: repository.owner,
+        repositoryName: repository.name,
       },
       {tx: params.tx},
     );

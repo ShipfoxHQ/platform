@@ -1,0 +1,1 @@
+ALTER TABLE "integrations_secret_cleanups" ADD COLUMN "repository_access" text DEFAULT 'selected' NOT NULL;

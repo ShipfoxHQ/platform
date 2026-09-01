@@ -15,7 +15,6 @@ import type {
 import type {IntegrationCapability, IntegrationProviderKind} from '#core/entities/provider.js';
 import {IntegrationConnectionAlreadyExistsError} from '#core/errors.js';
 import {db} from './db.js';
-import {deleteIntegrationConnectionRepositoryGrants} from './repository-grants.js';
 import {integrationConnections, toIntegrationConnection} from './schema/connections.js';
 import {integrationsOutbox} from './schema/outbox.js';
 
@@ -366,12 +365,7 @@ export async function deleteIntegrationConnection(
   params: {id: string},
   options: {tx?: IntegrationDb | IntegrationTx | undefined} = {},
 ): Promise<boolean> {
-  if (options.tx === undefined) {
-    return await db().transaction((tx) => deleteIntegrationConnection(params, {tx}));
-  }
-
-  const executor = options.tx;
-  await deleteIntegrationConnectionRepositoryGrants({connectionId: params.id}, {tx: executor});
+  const executor = options.tx ?? db();
   const result = await executor
     .delete(integrationConnections)
     .where(eq(integrationConnections.id, params.id));

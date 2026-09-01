@@ -313,6 +313,7 @@ describe('publishSourceRepositoryUpdated', () => {
       rawPayload: {action: 'added', repositories_added: repositories},
       event: 'installation_repositories.added',
       repositories,
+      removedRepositories: [],
     };
   }
 
@@ -423,7 +424,8 @@ describe('publishSourceRepositoryUpdated', () => {
       workspaceId: connection.workspaceId,
       event: 'repository.deleted',
       rawPayload: {action: 'deleted'},
-      repositories: [
+      repositories: [],
+      removedRepositories: [
         {
           externalRepositoryId: 'github:42',
           owner: 'acme',
@@ -471,7 +473,7 @@ describe('publishSourceRepositoryUpdated', () => {
       workspaceId: connection.workspaceId,
       event: 'installation_repositories.removed',
       rawPayload: {action: 'removed'},
-      repositories: [repository],
+      repositories: [],
       removedRepositories: [repository],
     };
 

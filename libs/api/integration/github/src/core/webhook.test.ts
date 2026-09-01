@@ -443,7 +443,7 @@ describe('handleGithubEvent', () => {
     );
   });
 
-  it('publishes a typed repository update and removal for a repository deletion', async () => {
+  it('publishes a repository removal without a typed update for a repository deletion', async () => {
     const installationId = 7783;
     const connection = fakeConnection();
     await seedInstallation(installationId, connection.id);
@@ -472,14 +472,7 @@ describe('handleGithubEvent', () => {
     expect(handlers.publishSourceRepositoryUpdated).toHaveBeenCalledWith(
       expect.objectContaining({
         event: 'repository.deleted',
-        repositories: [
-          {
-            externalRepositoryId: 'github:42',
-            owner: 'acme',
-            name: 'platform',
-            defaultBranch: 'main',
-          },
-        ],
+        repositories: [],
         removedRepositories: [
           {
             externalRepositoryId: 'github:42',
@@ -492,7 +485,7 @@ describe('handleGithubEvent', () => {
     );
   });
 
-  it('publishes one typed repository update per installation repository', async () => {
+  it('publishes installation updates and removals separately', async () => {
     const installationId = 7785;
     const connection = fakeConnection();
     await seedInstallation(installationId, connection.id);
@@ -528,6 +521,48 @@ describe('handleGithubEvent', () => {
             name: 'platform',
             defaultBranch: 'main',
           },
+        ],
+        removedRepositories: [
+          {
+            externalRepositoryId: 'github:43',
+            owner: 'acme',
+            name: 'runner',
+            defaultBranch: 'trunk',
+          },
+        ],
+      }),
+    );
+  });
+
+  it('passes removed installation repositories separately', async () => {
+    const installationId = 7786;
+    const connection = fakeConnection();
+    await seedInstallation(installationId, connection.id);
+    const handlers = deps({connection});
+    const deliveryId = randomUUID();
+    const payload = {
+      action: 'removed',
+      installation: {id: installationId},
+      repositories_added: [],
+      repositories_removed: [
+        {id: 43, name: 'runner', owner: {login: 'acme'}, default_branch: 'trunk'},
+      ],
+    };
+
+    const result = await handleGithubEvent({
+      tx: db(),
+      deliveryId,
+      event: 'installation_repositories',
+      payload,
+      ...handlers,
+    });
+
+    expect(result.outcome).toBe('published');
+    expect(handlers.publishSourceRepositoryUpdated).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'installation_repositories.removed',
+        repositories: [],
+        removedRepositories: [
           {
             externalRepositoryId: 'github:43',
             owner: 'acme',

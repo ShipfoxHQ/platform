@@ -24,6 +24,7 @@ export interface IntegrationSecretCleanup {
   slug: string;
   displayName: string;
   lifecycleStatus: IntegrationConnection['lifecycleStatus'];
+  repositoryAccessMode: IntegrationConnection['repositoryAccessMode'];
   connectionCreatedAt: Date;
   connectionUpdatedAt: Date;
   attemptCount: number;
@@ -52,6 +53,7 @@ export async function enqueueIntegrationSecretCleanup(
       slug: params.connection.slug,
       displayName: params.connection.displayName,
       lifecycleStatus: params.connection.lifecycleStatus,
+      repositoryAccessMode: params.connection.repositoryAccessMode,
       connectionCreatedAt: params.connection.createdAt,
       connectionUpdatedAt: params.connection.updatedAt,
       // Claims compare against the application clock, so the first due time must come
@@ -197,6 +199,7 @@ function toIntegrationSecretCleanup(row: IntegrationSecretCleanupDb): Integratio
     slug: row.slug,
     displayName: row.displayName,
     lifecycleStatus: row.lifecycleStatus,
+    repositoryAccessMode: row.repositoryAccessMode,
     connectionCreatedAt: row.connectionCreatedAt,
     connectionUpdatedAt: row.connectionUpdatedAt,
     attemptCount: row.attemptCount,

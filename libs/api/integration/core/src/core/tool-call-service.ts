@@ -77,7 +77,7 @@ export interface IntegrationToolCallInput {
   caller: IntegrationToolCallCaller;
   /** Live catalog metadata used by the shared repository-scope boundary. */
   catalogEntry?: AgentToolCatalogEntry | undefined;
-  /** The persisted connection mode is supplied by the connection authorization boundary. */
+  /** The persisted connection mode will be threaded here when the authorization boundary consumes it. */
   repositoryAccessMode?: RepositoryAuthorizationMode | undefined;
   repositoryAuthorizer?: RepositoryAuthorizer | undefined;
   /** Cooperative cancellation for one call; an abort maps to `provider-timeout`. */

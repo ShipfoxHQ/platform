@@ -141,9 +141,8 @@ async function dispatchGithubEvent(
   }
 
   const eventName = action ? `${params.event}.${action}` : params.event;
-  const repositories = normalizeRepositoryUpdates(params.event, action, params.payload);
-  if (repositories) {
-    const removedRepositories = normalizeRepositoryRemovals(params.event, action, params.payload);
+  const repositoryChanges = normalizeRepositoryChanges(params.event, action, params.payload);
+  if (repositoryChanges) {
     const result = await params.publishSourceRepositoryUpdated({
       tx: params.tx,
       provider: GITHUB_SOURCE,
@@ -155,8 +154,8 @@ async function dispatchGithubEvent(
       receivedAt: new Date().toISOString(),
       rawPayload: params.payload,
       event: eventName,
-      repositories,
-      ...(removedRepositories ? {removedRepositories} : {}),
+      repositories: repositoryChanges.repositories,
+      removedRepositories: repositoryChanges.removedRepositories,
     });
     return withInstallationTokenCleanup(
       {outcome: result.published ? 'published' : 'duplicate'},
@@ -294,21 +293,32 @@ export async function handleGithubEvent(
   return dispatchGithubEvent(params, connection, installationId, action);
 }
 
-function normalizeRepositoryUpdates(
+function normalizeRepositoryChanges(
   event: string,
   action: string | undefined,
   payload: unknown,
-): SourceRepositoryIdentity[] | undefined {
+):
+  | {
+      repositories: SourceRepositoryIdentity[];
+      removedRepositories: SourceRepositoryIdentity[];
+    }
+  | undefined {
   if (event === 'repository' && action === 'renamed') {
     const parsed = githubRepositoryRenamedPayloadSchema.safeParse(payload);
     if (!parsed.success) return undefined;
-    return [toSourceRepositoryIdentity(parsed.data.repository)];
+    return {
+      repositories: [toSourceRepositoryIdentity(parsed.data.repository)],
+      removedRepositories: [],
+    };
   }
 
   if (event === 'repository' && action === 'deleted') {
     const parsed = githubRepositoryDeletedPayloadSchema.safeParse(payload);
     if (!parsed.success) return undefined;
-    return [toSourceRepositoryIdentity(parsed.data.repository)];
+    return {
+      repositories: [],
+      removedRepositories: [toSourceRepositoryIdentity(parsed.data.repository)],
+    };
   }
 
   if (event !== 'installation_repositories' || (action !== 'added' && action !== 'removed')) {
@@ -318,36 +328,15 @@ function normalizeRepositoryUpdates(
   const parsed = githubInstallationRepositoriesPayloadSchema.safeParse(payload);
   if (!parsed.success) return undefined;
 
-  const repositories = new Map<number, SourceRepositoryIdentity>();
-  for (const repository of [
-    ...parsed.data.repositories_added,
-    ...parsed.data.repositories_removed,
-  ]) {
-    const normalized = toSourceRepositoryIdentity(repository);
-    repositories.set(repository.id, normalized);
-  }
-  return repositories.size > 0 ? [...repositories.values()] : undefined;
-}
-
-function normalizeRepositoryRemovals(
-  event: string,
-  action: string | undefined,
-  payload: unknown,
-): SourceRepositoryIdentity[] | undefined {
-  if (event === 'repository' && action === 'deleted') {
-    const parsed = githubRepositoryDeletedPayloadSchema.safeParse(payload);
-    if (!parsed.success) return undefined;
-    return [toSourceRepositoryIdentity(parsed.data.repository)];
-  }
-
-  if (event !== 'installation_repositories' || (action !== 'added' && action !== 'removed')) {
-    return undefined;
-  }
-
-  const parsed = githubInstallationRepositoriesPayloadSchema.safeParse(payload);
-  if (!parsed.success || parsed.data.repositories_removed.length === 0) return undefined;
-
-  return parsed.data.repositories_removed.map(toSourceRepositoryIdentity);
+  const removedRepositories = parsed.data.repositories_removed.map(toSourceRepositoryIdentity);
+  const removedRepositoryIds = new Set(
+    removedRepositories.map((repository) => repository.externalRepositoryId),
+  );
+  const repositories = parsed.data.repositories_added
+    .map(toSourceRepositoryIdentity)
+    .filter((repository) => !removedRepositoryIds.has(repository.externalRepositoryId));
+  if (repositories.length === 0 && removedRepositories.length === 0) return undefined;
+  return {repositories, removedRepositories};
 }
 
 function toSourceRepositoryIdentity(repository: {
