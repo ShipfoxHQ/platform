@@ -610,6 +610,10 @@ describe('github agent tool catalog', () => {
   it('classifies every catalog entry with a pure repository scope classifier', () => {
     const issueRead = githubAgentToolCatalog.find((entry) => entry.id === 'issue_read');
     const issueTypes = githubAgentToolCatalog.find((entry) => entry.id === 'list_issue_types');
+    const searchIssues = githubAgentToolCatalog.find((entry) => entry.id === 'search_issues');
+    const searchPullRequests = githubAgentToolCatalog.find(
+      (entry) => entry.id === 'search_pull_requests',
+    );
     const reviewThread = githubAgentToolCatalog.find(
       (entry) => entry.id === 'pull_request_review_thread_write',
     );
@@ -624,6 +628,22 @@ describe('github agent tool catalog', () => {
     });
     expect(issueTypes?.repositoryScope({owner: 'shipfox'})).toEqual({kind: 'connection'});
     expect(issueTypes?.repositoryScope({owner: 'shipfox', repo: 'platform'})).toEqual({
+      kind: 'declared-targets',
+      repositories: [{owner: 'shipfox', name: 'platform'}],
+    });
+    expect(searchIssues?.repositoryScope({query: 'is:open'})).toEqual({
+      kind: 'connection',
+      requiresExplicitRepository: true,
+      indirectTargetNote:
+        'The free-form query may match results in repositories other than the declared target.',
+    });
+    expect(
+      searchPullRequests?.repositoryScope({
+        query: 'is:open',
+        owner: 'shipfox',
+        repo: 'platform',
+      }),
+    ).toEqual({
       kind: 'declared-targets',
       repositories: [{owner: 'shipfox', name: 'platform'}],
     });
@@ -778,8 +798,16 @@ describe('github agent tool catalog', () => {
     const actionsRunTriggerSchema = inputSchemaFor('actions_run_trigger');
     const getJobLogsSchema = inputSchemaFor('get_job_logs');
     const createCommitSchema = inputSchemaFor('create_commit');
+    const searchIssuesSchema = inputSchemaFor('search_issues');
+    const searchPullRequestsSchema = inputSchemaFor('search_pull_requests');
 
     expect(listIssueTypesSchema.required).toEqual(['owner']);
+    const searchRepositoryPairSchema = [
+      {required: ['owner', 'repo']},
+      {not: {anyOf: [{required: ['owner']}, {required: ['repo']}]}},
+    ];
+    expect(searchIssuesSchema.oneOf).toEqual(searchRepositoryPairSchema);
+    expect(searchPullRequestsSchema.oneOf).toEqual(searchRepositoryPairSchema);
     expect(updatePullRequestSchema.properties).not.toHaveProperty('draft');
     expect(addIssueCommentSchema.anyOf).toEqual([
       {required: ['issue_number', 'body']},
@@ -909,6 +937,197 @@ describe('github agent tool catalog', () => {
       content: [{type: 'text', text: '{"number":1}'}],
       structuredContent: {number: 1},
     });
+  });
+
+  it.each([
+    {toolId: 'search_issues', outputKey: 'issues'},
+    {toolId: 'search_pull_requests', outputKey: 'pull_requests'},
+  ] as const)('builds a server-owned repository-scoped $toolId query', async ({
+    toolId,
+    outputKey,
+  }) => {
+    const request = vi.fn(() => Promise.resolve({data: {items: []}}));
+
+    const result = await callGithubToolWithRequest(
+      toolId,
+      {
+        query: 'is:open',
+        owner: 'shipfox',
+        repo: 'platform',
+        sort: 'updated',
+        order: 'desc',
+        page: 2,
+        per_page: 20,
+      },
+      request,
+    );
+
+    expect(result).toMatchObject({structuredContent: {[outputKey]: []}});
+    expect(request).toHaveBeenCalledOnce();
+    expect(request).toHaveBeenCalledWith('GET /search/issues', {
+      q: 'is:open repo:shipfox/platform',
+      sort: 'updated',
+      order: 'desc',
+      page: 2,
+      per_page: 20,
+    });
+  });
+
+  it.each([
+    'search_issues',
+    'search_pull_requests',
+  ] as const)('projects an unpaired $0 search without repository parameters', async (toolId) => {
+    const request = vi.fn(() => Promise.resolve({data: {items: []}}));
+
+    await callGithubToolWithRequest(toolId, {query: 'is:open', page: 2, per_page: 20}, request);
+
+    expect(request).toHaveBeenCalledWith('GET /search/issues', {
+      q: 'is:open',
+      page: 2,
+      per_page: 20,
+    });
+  });
+
+  it.each([
+    {toolId: 'search_issues', query: ''},
+    {toolId: 'search_issues', query: '   '},
+    {toolId: 'search_pull_requests', query: ''},
+    {toolId: 'search_pull_requests', query: '   '},
+  ] as const)('rejects an empty query for $toolId', async ({toolId, query}) => {
+    const request = vi.fn();
+    const result = await callGithubToolWithRequest(toolId, {query}, request);
+
+    expect(result).toEqual({
+      isError: true,
+      content: [{type: 'text', text: 'Parameter query must be a non-empty string'}],
+      structuredContent: {code: 'invalid-request'},
+    });
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'search_issues',
+    'search_pull_requests',
+  ] as const)('allows scope-like text inside quoted $0 searches', async (toolId) => {
+    const request = vi.fn(() => Promise.resolve({data: {items: []}}));
+    const query = 'label:"org:planning" "repo:managers"';
+
+    await callGithubToolWithRequest(toolId, {query, owner: 'shipfox', repo: 'platform'}, request);
+
+    expect(request).toHaveBeenCalledWith('GET /search/issues', {
+      q: [query, 'repo:shipfox/platform'].join(' '),
+    });
+  });
+
+  it.each([
+    {toolId: 'search_issues', qualifier: 'repo:other/repository'},
+    {toolId: 'search_issues', qualifier: 'org:other-org'},
+    {toolId: 'search_issues', qualifier: 'user:other-user'},
+    {toolId: 'search_pull_requests', qualifier: 'repo:other/repository'},
+    {toolId: 'search_pull_requests', qualifier: 'org:other-org'},
+    {toolId: 'search_pull_requests', qualifier: 'user:other-user'},
+  ] as const)('rejects a conflicting qualifier for $toolId', async ({toolId, qualifier}) => {
+    const request = vi.fn();
+    const result = await callGithubToolWithRequest(
+      toolId,
+      {query: `is:open ${qualifier}`, owner: 'shipfox', repo: 'platform'},
+      request,
+    );
+
+    expect(result).toEqual({
+      isError: true,
+      content: [
+        {type: 'text', text: 'Search query cannot contain repo:, org:, or user: qualifiers'},
+      ],
+      structuredContent: {code: 'search-qualifier-conflict'},
+    });
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      toolId: 'search_issues',
+      query: 'is:open ORG:other-org',
+      arguments_: {owner: 'shipfox', repo: 'platform'},
+    },
+    {
+      toolId: 'search_pull_requests',
+      query: 'is:open REPO:other/repository',
+      arguments_: {owner: 'shipfox', repo: 'platform'},
+    },
+    {
+      toolId: 'search_issues',
+      query: 'is:open org:other-org',
+      arguments_: {},
+    },
+    {
+      toolId: 'search_pull_requests',
+      query: 'is:open USER:other-user',
+      arguments_: {},
+    },
+  ] as const)('rejects an untrusted qualifier for $toolId', async ({toolId, query, arguments_}) => {
+    const request = vi.fn();
+    const result = await callGithubToolWithRequest(toolId, {query, ...arguments_}, request);
+
+    expect(result).toEqual({
+      isError: true,
+      content: [
+        {type: 'text', text: 'Search query cannot contain repo:, org:, or user: qualifiers'},
+      ],
+      structuredContent: {code: 'search-qualifier-conflict'},
+    });
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'search_issues',
+    'search_pull_requests',
+  ] as const)('rejects an unpaired repository for $0', async (toolId) => {
+    const request = vi.fn();
+    const result = await callGithubToolWithRequest(
+      toolId,
+      {query: 'is:open', owner: 'shipfox'},
+      request,
+    );
+
+    expect(result).toEqual({
+      isError: true,
+      content: [{type: 'text', text: 'Parameters owner and repo must be provided together'}],
+      structuredContent: {code: 'invalid-request'},
+    });
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {toolId: 'search_issues', field: 'owner', value: 'ship fox'},
+    {toolId: 'search_issues', field: 'repo', value: 'platform/repository'},
+    {toolId: 'search_issues', field: 'repo', value: 'platform:repository'},
+    {toolId: 'search_pull_requests', field: 'owner', value: 'ship fox'},
+    {toolId: 'search_pull_requests', field: 'repo', value: 'platform/repository'},
+    {toolId: 'search_pull_requests', field: 'repo', value: 'platform:repository'},
+  ] as const)('rejects invalid repository name parts for $toolId', async ({
+    toolId,
+    field,
+    value,
+  }) => {
+    const request = vi.fn();
+    const arguments_: Record<string, unknown> = {
+      query: 'is:open',
+      owner: 'shipfox',
+      repo: 'platform',
+    };
+    arguments_[field] = value;
+
+    const result = await callGithubToolWithRequest(toolId, arguments_, request);
+
+    expect(result).toEqual({
+      isError: true,
+      content: [
+        {type: 'text', text: 'Parameters owner and repo must be valid repository name parts'},
+      ],
+      structuredContent: {code: 'invalid-request'},
+    });
+    expect(request).not.toHaveBeenCalled();
   });
 
   it('derives the token profile from live catalog ids and method allowlists', async () => {

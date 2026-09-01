@@ -431,6 +431,7 @@ describe('repository authorization', () => {
 
   it('publishes closed client error codes for each denial reason', () => {
     expect(repositoryAuthorizationClientErrorCodes).toEqual({
+      repository_required: 'repository-required',
       repository_not_granted: 'repository-not-granted',
       repository_ambiguous: 'repository-ambiguous',
       authorization_store_unavailable: 'repository-authorization-unavailable',

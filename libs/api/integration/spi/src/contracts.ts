@@ -219,7 +219,16 @@ export interface AgentToolRepositoryTarget {
 
 export type AgentToolRepositoryScope =
   | {kind: 'declared-targets'; repositories: readonly AgentToolRepositoryTarget[]}
-  | {kind: 'connection'};
+  | {
+      kind: 'connection';
+      /**
+       * Selected-mode calls must declare repository targets when this is true.
+       * All-mode calls remain connection-scoped without those targets.
+       */
+      requiresExplicitRepository?: boolean;
+      /** Explains why a connection-scoped read may reach outside a target. */
+      indirectTargetNote?: string | undefined;
+    };
 
 /** A pure classifier over already validated tool arguments. */
 export type AgentToolRepositoryScopeClassifier = (
@@ -383,7 +392,8 @@ export type IntegrationProviderErrorReason =
   | 'provider-rejected'
   | 'malformed-provider-response'
   | 'content-too-large'
-  | 'too-many-files';
+  | 'too-many-files'
+  | 'search-qualifier-conflict';
 
 export class IntegrationProviderError extends Error {
   constructor(

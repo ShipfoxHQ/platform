@@ -451,6 +451,115 @@ describe('callIntegrationTool', () => {
     expect(onOpenSession).toHaveBeenCalledTimes(1);
   });
 
+  it('denies selected calls that require an explicit repository without an authorization lookup', async () => {
+    const onOpenSession = vi.fn();
+    const entry = catalogTool({
+      methods: undefined,
+      repositoryScope: () => ({kind: 'connection', requiresExplicitRepository: true}),
+    });
+    const resolveRepositoryAuthorization = vi.fn();
+    const repositoryAuthorizer: RepositoryAuthorizer = {
+      enabled: true,
+      resolveRepositoryAuthorization,
+    };
+    const registry = registryWithAgentTools([entry], {
+      repositoryAuthorization: 'enforced',
+      onOpenSession,
+    });
+
+    const result = await callIntegrationTool(
+      createInput({onOpenSession}, {registry, catalogEntry: entry, repositoryAuthorizer}),
+    );
+
+    expect(result).toMatchObject({
+      outcome: 'error',
+      error: {
+        code: 'repository-required',
+        message: 'Selected repository access requires owner and repo parameters',
+      },
+      authorization: {
+        repositories: [],
+        classification: 'connection',
+        repositoryAccess: 'selected',
+        decision: 'denied',
+        denialReason: 'repository_required',
+        targetProjectIds: [],
+      },
+    });
+    expect(resolveRepositoryAuthorization).not.toHaveBeenCalled();
+    expect(onOpenSession).not.toHaveBeenCalled();
+  });
+
+  it('keeps explicit-repository calls available for an unclassified provider', async () => {
+    const onOpenSession = vi.fn();
+    const entry = catalogTool({
+      methods: undefined,
+      repositoryScope: () => ({kind: 'connection', requiresExplicitRepository: true}),
+    });
+    const resolveRepositoryAuthorization = vi.fn();
+    const repositoryAuthorizer: RepositoryAuthorizer = {
+      enabled: true,
+      resolveRepositoryAuthorization,
+    };
+    const registry = registryWithAgentTools([entry], {
+      repositoryAuthorization: 'unclassified',
+      onOpenSession,
+    });
+
+    const result = await callIntegrationTool(
+      createInput({onOpenSession}, {registry, catalogEntry: entry, repositoryAuthorizer}),
+    );
+
+    expect(result).toMatchObject({
+      outcome: 'success',
+      authorization: {
+        repositories: [],
+        classification: 'unclassified',
+        repositoryAccess: 'selected',
+        decision: 'not-applicable',
+        denialReason: 'none',
+        targetProjectIds: [],
+      },
+    });
+    expect(resolveRepositoryAuthorization).not.toHaveBeenCalled();
+    expect(onOpenSession).toHaveBeenCalledOnce();
+  });
+
+  it('keeps explicit-repository calls available when the authorizer is disabled', async () => {
+    const onOpenSession = vi.fn();
+    const entry = catalogTool({
+      methods: undefined,
+      repositoryScope: () => ({kind: 'connection', requiresExplicitRepository: true}),
+    });
+    const resolveRepositoryAuthorization = vi.fn();
+    const repositoryAuthorizer: RepositoryAuthorizer = {
+      enabled: false,
+      resolveRepositoryAuthorization,
+    };
+    const registry = registryWithAgentTools([entry], {
+      repositoryAuthorization: 'enforced',
+      onOpenSession,
+    });
+
+    const result = await callIntegrationTool(
+      createInput({onOpenSession}, {registry, catalogEntry: entry, repositoryAuthorizer}),
+    );
+
+    expect(result).toMatchObject({
+      outcome: 'success',
+      authorization: {
+        repositories: [],
+        classification: 'connection',
+        repositoryAccess: 'selected',
+        decision: 'not-enforced',
+        denialReason: 'none',
+        targetProjectIds: [],
+      },
+    });
+    expect(resolveRepositoryAuthorization).not.toHaveBeenCalled();
+    expect(onOpenSession).toHaveBeenCalledOnce();
+  });
+
   it('keeps provider-unclassified calls available while recording declared targets', async () => {
     const onOpenSession = vi.fn();
     const entry = catalogWithRepositoryScope(declaredRepositoryScope);
@@ -552,6 +661,49 @@ describe('callIntegrationTool', () => {
     expect(resolveRepositoryAuthorization).toHaveBeenCalledWith(
       expect.objectContaining({mode: 'all'}),
     );
+  });
+
+  it('keeps an explicit-repository connection scope available in all mode', async () => {
+    const onOpenSession = vi.fn();
+    const entry = catalogTool({
+      methods: undefined,
+      repositoryScope: () => ({kind: 'connection', requiresExplicitRepository: true}),
+    });
+    const resolveRepositoryAuthorization = vi.fn();
+    const repositoryAuthorizer: RepositoryAuthorizer = {
+      enabled: true,
+      resolveRepositoryAuthorization,
+    };
+    const registry = registryWithAgentTools([entry], {
+      repositoryAuthorization: 'enforced',
+      onOpenSession,
+    });
+
+    const result = await callIntegrationTool(
+      createInput(
+        {onOpenSession},
+        {
+          registry,
+          catalogEntry: entry,
+          repositoryAccessMode: 'all',
+          repositoryAuthorizer,
+        },
+      ),
+    );
+
+    expect(result).toMatchObject({
+      outcome: 'success',
+      authorization: {
+        repositories: [],
+        classification: 'connection',
+        repositoryAccess: 'all',
+        decision: 'not-applicable',
+        denialReason: 'none',
+        targetProjectIds: [],
+      },
+    });
+    expect(resolveRepositoryAuthorization).not.toHaveBeenCalled();
+    expect(onOpenSession).toHaveBeenCalledOnce();
   });
 
   it.each([
@@ -952,6 +1104,30 @@ describe('callIntegrationTool', () => {
         message: 'Rate limited',
         retryAfterSeconds: 30,
         status: 429,
+      },
+    });
+    expect(serviceMocks.loggerError).not.toHaveBeenCalled();
+    expect(serviceMocks.reportError).not.toHaveBeenCalled();
+  });
+
+  it('preserves the search qualifier conflict code from a provider tool error', async () => {
+    const result = await callIntegrationTool(
+      createInput({
+        result: {
+          isError: true,
+          content: [
+            {type: 'text', text: 'Search query cannot contain repo:, org:, or user: qualifiers'},
+          ],
+          structuredContent: {code: 'search-qualifier-conflict'},
+        },
+      }),
+    );
+
+    expect(result).toEqual({
+      outcome: 'error',
+      error: {
+        code: 'search-qualifier-conflict',
+        message: 'Search query cannot contain repo:, org:, or user: qualifiers',
       },
     });
     expect(serviceMocks.loggerError).not.toHaveBeenCalled();

@@ -33,8 +33,11 @@ import {buildFixedEventProviders, buildProviderEventCatalogs} from '#core/event-
 import type {AgentToolCatalogEntry} from '#core/providers/agent-tools.js';
 import type {IntegrationProviderRegistry} from '#core/providers/registry.js';
 import type {CheckoutSpec, CheckoutTarget} from '#core/providers/source-control.js';
-import type {RepositoryAuthorizer} from '#core/repository-authorizer.js';
-import {RepositoryAuthorizationTargetInvalidError} from '#core/repository-authorizer.js';
+import {
+  RepositoryAuthorizationTargetInvalidError,
+  type RepositoryAuthorizer,
+  repositoryAuthorizationClientErrorCodes,
+} from '#core/repository-authorizer.js';
 import type {
   AuthorizedCheckoutSpec,
   IntegrationSourceControlService,
@@ -542,24 +545,9 @@ function mapRepositoryAuthorizationError(
   }
   if (!(error instanceof IntegrationRepositoryAuthorizationError)) return undefined;
 
-  switch (error.reason) {
-    case 'repository_not_granted':
-      if ('repository-not-granted' in method.errors) {
-        return createInterModuleKnownError(method, 'repository-not-granted', details);
-      }
-      break;
-    case 'repository_ambiguous':
-      if ('repository-ambiguous' in method.errors) {
-        return createInterModuleKnownError(method, 'repository-ambiguous', details);
-      }
-      break;
-    case 'authorization_store_unavailable':
-      if ('repository-authorization-unavailable' in method.errors) {
-        return createInterModuleKnownError(method, 'repository-authorization-unavailable', details);
-      }
-      break;
-  }
-  return undefined;
+  const code = repositoryAuthorizationClientErrorCodes[error.reason];
+  if (!(code in method.errors)) return undefined;
+  return createInterModuleKnownError(method, code as keyof typeof method.errors & string, details);
 }
 
 function repositoryAuthorizationDetails(input: ErrorMappingInput) {

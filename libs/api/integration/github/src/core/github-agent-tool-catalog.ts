@@ -83,7 +83,28 @@ const repositoryProperties = {
   repo: stringSchema('Repository name'),
 };
 
+const indirectSearchTargetNote =
+  'The free-form query may match results in repositories other than the declared target.';
+
 const connectionRepositoryScope: GithubRepositoryScopeClassifier = () => ({kind: 'connection'});
+
+const searchRepositoryScope: GithubRepositoryScopeClassifier = (arguments_) => {
+  const owner = arguments_.owner;
+  const repo = arguments_.repo;
+  if (
+    typeof owner === 'string' &&
+    owner.length > 0 &&
+    typeof repo === 'string' &&
+    repo.length > 0
+  ) {
+    return {kind: 'declared-targets', repositories: [{owner, name: repo}]};
+  }
+  return {
+    kind: 'connection',
+    requiresExplicitRepository: true,
+    indirectTargetNote: indirectSearchTargetNote,
+  };
+};
 
 /** Classifies explicit repository coordinates without resolving them remotely. */
 export const githubRepositoryScope: GithubRepositoryScopeClassifier = (arguments_) => {
@@ -162,9 +183,6 @@ const issueWriteMethods = [
   method('create', 'Create a new issue.', 'write', false, scopes.issuesWrite),
   method('update', 'Update an existing issue.', 'write', false, scopes.issuesWrite),
 ] as const satisfies readonly GithubAgentToolCatalogMethod[];
-
-const indirectSearchTargetNote =
-  'The free-form query may match results in repositories other than the declared target.';
 
 const subIssueIndirectTargetNote =
   'The opaque child and ordering IDs may refer to another repository in the GitHub installation.';
@@ -431,16 +449,22 @@ export const githubAgentToolCatalog = [
     id: 'search_issues',
     category: 'issues',
     description:
-      'Search for issues in GitHub repositories using issues search syntax already scoped to is:issue',
+      'Search for issues in GitHub repositories using issues search syntax already scoped to is:issue. Provide owner and repo together for a repository-scoped search; omit both for a connection-scoped search. Do not include unquoted repo:, org:, or user: qualifiers; quoted occurrences are treated as literal text.',
     sensitivity: 'read',
     sensitive: false,
     requiredScope: scopes.issuesRead,
-    indirectTargetNote: indirectSearchTargetNote,
+    repositoryScope: searchRepositoryScope,
     inputSchema: objectSchema(
       {
-        query: stringSchema('Search query using GitHub issues search syntax'),
-        owner: stringSchema('Optional repository owner'),
-        repo: stringSchema('Optional repository name'),
+        query: stringSchema(
+          'Search query using GitHub issues search syntax. Do not include unquoted repo:, org:, or user: qualifiers; quoted occurrences are treated as literal text.',
+        ),
+        owner: stringSchema(
+          'Optional repository owner. Provide together with repo, or omit both for a connection-scoped search.',
+        ),
+        repo: stringSchema(
+          'Optional repository name. Provide together with owner, or omit both for a connection-scoped search.',
+        ),
         sort: enumSchema(
           [
             'comments',
@@ -461,6 +485,12 @@ export const githubAgentToolCatalog = [
         ...pageProperties,
       },
       ['query'],
+      {
+        oneOf: [
+          {required: ['owner', 'repo']},
+          {not: {anyOf: [{required: ['owner']}, {required: ['repo']}]}},
+        ],
+      },
     ),
     outputSchema: objectSchema({issues: arraySchema(openObjectSchema('GitHub issue'))}, ['issues']),
   }),
@@ -601,16 +631,22 @@ export const githubAgentToolCatalog = [
     id: 'search_pull_requests',
     category: 'pull_requests',
     description:
-      'Search for pull requests in GitHub repositories using issues search syntax already scoped to is:pr',
+      'Search for pull requests in GitHub repositories using issues search syntax already scoped to is:pr. Provide owner and repo together for a repository-scoped search; omit both for a connection-scoped search. Do not include unquoted repo:, org:, or user: qualifiers; quoted occurrences are treated as literal text.',
     sensitivity: 'read',
     sensitive: false,
     requiredScope: scopes.pullRequestsRead,
-    indirectTargetNote: indirectSearchTargetNote,
+    repositoryScope: searchRepositoryScope,
     inputSchema: objectSchema(
       {
-        query: stringSchema('Search query using GitHub pull request search syntax'),
-        owner: stringSchema('Optional repository owner'),
-        repo: stringSchema('Optional repository name'),
+        query: stringSchema(
+          'Search query using GitHub pull request search syntax. Do not include unquoted repo:, org:, or user: qualifiers; quoted occurrences are treated as literal text.',
+        ),
+        owner: stringSchema(
+          'Optional repository owner. Provide together with repo, or omit both for a connection-scoped search.',
+        ),
+        repo: stringSchema(
+          'Optional repository name. Provide together with owner, or omit both for a connection-scoped search.',
+        ),
         sort: enumSchema(
           [
             'comments',
@@ -631,6 +667,12 @@ export const githubAgentToolCatalog = [
         ...pageProperties,
       },
       ['query'],
+      {
+        oneOf: [
+          {required: ['owner', 'repo']},
+          {not: {anyOf: [{required: ['owner']}, {required: ['repo']}]}},
+        ],
+      },
     ),
     outputSchema: objectSchema(
       {pull_requests: arraySchema(openObjectSchema('GitHub pull request'))},

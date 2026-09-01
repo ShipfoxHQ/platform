@@ -140,6 +140,29 @@ describe('integration tool call audit', () => {
     expect(JSON.stringify(logInfo.mock.calls)).not.toContain('must-not-appear');
   });
 
+  it('records search qualifier conflicts as a bounded metric error label', () => {
+    const recordMetric = vi.fn();
+    const logInfo = vi.fn();
+    const recorder = createIntegrationToolCallRecorder(agentCaller, {recordMetric, logInfo});
+
+    recorder({
+      authorizedTool: auditTarget(),
+      arguments: {query: 'org:other-org'},
+      method: 'none',
+      outcome: 'tool-error',
+      errorCode: 'search-qualifier-conflict',
+    });
+
+    expect(recordMetric).toHaveBeenCalledWith({
+      caller: 'agent',
+      provider: 'github',
+      tool: 'issue_read',
+      method: 'none',
+      outcome: 'tool-error',
+      error_code: 'search-qualifier-conflict',
+    });
+  });
+
   it('records repository authorization fields and bounded authorization labels', () => {
     const recordMetric = vi.fn();
     const recordAuthorizationMetric = vi.fn();
