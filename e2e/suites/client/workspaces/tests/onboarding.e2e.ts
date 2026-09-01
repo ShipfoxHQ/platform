@@ -104,7 +104,7 @@ test.describe('workspace onboarding', () => {
     await workspaceHome.goto(workspaceSlug as string);
     const lastWorkspaceId = await workspaceHome.readLastWorkspaceId(user.user.id);
     expect(lastWorkspaceId).toMatch(UUID_RE);
-    await stableScreenshot(page, 'workspaces/onboarding-complete');
+    await stableScreenshot(page, 'workspaces/onboarding-complete', {hideToaster: true});
     await workspaceSwitcher.open();
     const workspaceOption = workspaceSwitcher.workspaceOption(workspaceName);
     await expect(workspaceOption).toBeVisible();
