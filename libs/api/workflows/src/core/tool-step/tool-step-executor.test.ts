@@ -3,6 +3,7 @@ import {MAX_RECORD_DATA_BYTES} from '@shipfox/api-logs-dto';
 import {type LogsModuleClient, logsInterModuleContract} from '@shipfox/api-logs-dto/inter-module';
 import {createWorkflowExpression} from '@shipfox/expression';
 import {createInterModuleKnownError} from '@shipfox/inter-module';
+import {createOutboxRegistry} from '@shipfox/node-module';
 import {eq} from 'drizzle-orm';
 import {db} from '#db/db.js';
 import {stepAttempts as stepAttemptsTable} from '#db/schema/step-attempts.js';
@@ -18,7 +19,11 @@ import {
 } from '#db/workflow-runs.js';
 import {arrangeJobWithSteps} from '#test/fixtures/job-with-steps.js';
 import {nextStepForJob} from '../job-execution.js';
-import {runToolStepExecutorCycle, toolRetryDelayMs} from './tool-step-executor.js';
+import {
+  createToolStepExecutor,
+  runToolStepExecutorCycle,
+  toolRetryDelayMs,
+} from './tool-step-executor.js';
 
 describe('tool step executor', () => {
   test('claims a queued tool, calls the integration, logs it, and settles the step', async () => {
@@ -100,6 +105,72 @@ describe('tool step executor', () => {
     expect(
       records.find((record) => record.type === 'output' && record.data.includes('ENG-1680')),
     ).toBeDefined();
+  });
+
+  test('uses a JSON text content block when the provider result is null', async () => {
+    const {jobId} = await arrangeToolStep();
+    const callTool = vi.fn<IntegrationsModuleClient['callTool']>().mockResolvedValue({
+      outcome: 'success' as const,
+      result: null,
+      content: [{type: 'text', text: '{"identifier":"ENG-1"}'}],
+    });
+    const appendServerRecords = vi
+      .fn<LogsModuleClient['appendServerRecords']>()
+      .mockResolvedValue({committedLength: 0, capped: false});
+
+    await nextStepForJob(jobId);
+    await runToolStepExecutorCycle({
+      integrations: {callTool} as unknown as IntegrationsModuleClient,
+      logs: {appendServerRecords} as unknown as LogsModuleClient,
+      signal: new AbortController().signal,
+      claimOwner: 'executor-test',
+      concurrency: 8,
+      callTimeoutMs: 30_000,
+    });
+
+    const [attempt] = await getStepAttempts(jobId);
+    expect(attempt).toMatchObject({
+      status: 'succeeded',
+      output: {
+        result: {identifier: 'ENG-1'},
+        identifier: 'ENG-1',
+      },
+    });
+  });
+
+  test('recovers from a cycle failure and stops cleanly', async () => {
+    const cycleRecovered = deferred();
+    const waitForStop = deferred();
+    const error = new Error('temporary cycle failure');
+    const runCycle = vi
+      .fn<(signal: AbortSignal) => Promise<boolean>>()
+      .mockRejectedValueOnce(error)
+      .mockImplementationOnce(() => {
+        cycleRecovered.resolve();
+        return Promise.resolve(false);
+      });
+    const logError = vi.fn();
+    const wait = vi.fn(async (ms: number, signal: AbortSignal) => {
+      if (ms === 1_000) return;
+      waitForStop.resolve();
+      await new Promise<void>((resolve) => {
+        signal.addEventListener('abort', () => resolve(), {once: true});
+      });
+    });
+    const {service} = createToolStepExecutor({
+      integrations: {} as unknown as IntegrationsModuleClient,
+      logs: {} as unknown as LogsModuleClient,
+      options: {pollMs: 1, runCycle, wait, logError},
+    });
+
+    const running = await service.start({outboxRegistry: createOutboxRegistry()});
+    await cycleRecovered.promise;
+    await waitForStop.promise;
+    await running.stop();
+
+    expect(logError).toHaveBeenCalledWith(error);
+    expect(runCycle).toHaveBeenCalledTimes(2);
+    expect(wait).toHaveBeenCalledWith(1_000, expect.any(AbortSignal));
   });
 
   test('settles before a slow log append can lose the invocation claim', async () => {
