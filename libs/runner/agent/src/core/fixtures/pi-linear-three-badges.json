@@ -1,0 +1,24 @@
+{
+  "toolName": "linear__get_issue",
+  "content": [
+    {
+      "type": "text",
+      "text": "Linear returned three status badges."
+    },
+    {
+      "type": "image",
+      "data": "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxODAiIGhlaWdodD0iNDAiPjxyZWN0IHdpZHRoPSIxODAiIGhlaWdodD0iNDAiIHJ4PSI4IiBmaWxsPSIjZThlZWZjIi8+PHRleHQgeD0iMTIiIHk9IjI2IiBmb250LWZhbWlseT0ic2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzE3MjU1NCI+Rml4IHdpdGggY3ViaWM8L3RleHQ+PC9zdmc+",
+      "mimeType": "image/svg+xml"
+    },
+    {
+      "type": "image",
+      "data": "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxODAiIGhlaWdodD0iNDAiPjxyZWN0IHdpZHRoPSIxODAiIGhlaWdodD0iNDAiIHJ4PSI4IiBmaWxsPSIjZThlZWZjIi8+PHRleHQgeD0iMTIiIHk9IjI2IiBmb250LWZhbWlseT0ic2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzE3MjU1NCI+UmVhZHk8L3RleHQ+PC9zdmc+",
+      "mimeType": "image/svg+xml"
+    },
+    {
+      "type": "image",
+      "data": "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxODAiIGhlaWdodD0iNDAiPjxyZWN0IHdpZHRoPSIxODAiIGhlaWdodD0iNDAiIHJ4PSI4IiBmaWxsPSIjZThlZWZjIi8+PHRleHQgeD0iMTIiIHk9IjI2IiBmb250LWZhbWlseT0ic2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzE3MjU1NCI+UmVxdWVzdCBSZXZpZXc8L3RleHQ+PC9zdmc+",
+      "mimeType": "image/svg+xml"
+    }
+  ]
+}

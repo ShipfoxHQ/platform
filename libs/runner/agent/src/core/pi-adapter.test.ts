@@ -126,6 +126,7 @@ import type {HarnessInvocation} from '#core/harness.js';
 import type {IntegrationToolsBridge} from '#core/integration-tools-bridge.js';
 import {piHarnessAdapter} from '#core/pi-adapter.js';
 import {piExtensionDirectories} from '#core/pi-extensions.js';
+import {PI_TOOL_SVG_NORMALIZER_EXTENSION_NAME} from '#core/pi-tool-svg-normalizer.js';
 
 function extensionDirectory(packageName: string): string {
   const [directory] = piExtensionDirectories({packageNames: [packageName]});
@@ -321,6 +322,19 @@ describe('piHarnessAdapter', () => {
     expect(createAgentSessionMock.mock.calls[0]?.[0]).not.toHaveProperty('customTools');
   });
 
+  it('binds the inline image normalizer for sessions without MCP', async () => {
+    await piHarnessAdapter.run(invocation());
+
+    const options = createAgentSessionServicesMock.mock.calls[0]?.[0];
+    expect(options.resourceLoaderOptions.extensionFactories).toEqual([
+      expect.objectContaining({
+        name: PI_TOOL_SVG_NORMALIZER_EXTENSION_NAME,
+      }),
+    ]);
+    expect(bindExtensionsMock).toHaveBeenCalledTimes(1);
+    expect(bindExtensionsMock).toHaveBeenCalledWith(expect.objectContaining({mode: 'print'}));
+  });
+
   it('keeps Pi built-ins available when pi-web-access is unavailable', async () => {
     isPiExtensionAvailableMock.mockImplementation(
       ({packageName}: {packageName: string}) => packageName !== 'pi-web-access',
@@ -329,7 +343,9 @@ describe('piHarnessAdapter', () => {
     await piHarnessAdapter.run(invocation());
 
     expect(createAgentSessionServicesMock).toHaveBeenCalledWith(
-      expect.objectContaining({resourceLoaderOptions: {additionalExtensionPaths: []}}),
+      expect.objectContaining({
+        resourceLoaderOptions: expect.objectContaining({additionalExtensionPaths: []}),
+      }),
     );
     expect(createAgentSessionMock).toHaveBeenCalled();
   });
@@ -895,6 +911,7 @@ describe('piHarnessAdapter', () => {
       session: {
         prompt: promptMock,
         abort: abortMock,
+        bindExtensions: bindExtensionsMock,
         getLastAssistantText: getLastAssistantTextMock,
         messages,
       },
@@ -934,6 +951,7 @@ describe('piHarnessAdapter', () => {
         session: {
           prompt: promptMock,
           abort: abortMock,
+          bindExtensions: bindExtensionsMock,
           getLastAssistantText: getLastAssistantTextMock,
           messages: [],
         },
@@ -1506,6 +1524,7 @@ describe('piHarnessAdapter', () => {
       session: {
         prompt: promptMock,
         abort: abortMock,
+        bindExtensions: bindExtensionsMock,
         getLastAssistantText: getLastAssistantTextMock,
         messages: [],
         sessionFile,
@@ -1536,6 +1555,7 @@ describe('piHarnessAdapter', () => {
       session: {
         prompt: promptMock,
         abort: abortMock,
+        bindExtensions: bindExtensionsMock,
         getLastAssistantText: getLastAssistantTextMock,
         messages: [],
         sessionFile,
@@ -1636,6 +1656,7 @@ describe('piHarnessAdapter', () => {
       session: {
         prompt: promptMock,
         abort: abortMock,
+        bindExtensions: bindExtensionsMock,
         getLastAssistantText: getLastAssistantTextMock,
         messages: [],
         sessionFile: forkedSessionFile,
@@ -1671,6 +1692,7 @@ describe('piHarnessAdapter', () => {
       session: {
         prompt: promptMock,
         abort: abortMock,
+        bindExtensions: bindExtensionsMock,
         getLastAssistantText: getLastAssistantTextMock,
         messages: [],
         sessionFile,
@@ -1708,6 +1730,7 @@ describe('piHarnessAdapter', () => {
       session: {
         prompt: promptMock,
         abort: abortMock,
+        bindExtensions: bindExtensionsMock,
         getLastAssistantText: getLastAssistantTextMock,
         messages: [],
         sessionFile: committedFile,
@@ -1744,6 +1767,7 @@ describe('piHarnessAdapter', () => {
       session: {
         prompt: promptMock,
         abort: abortMock,
+        bindExtensions: bindExtensionsMock,
         getLastAssistantText: getLastAssistantTextMock,
         messages: [],
         sessionFile,
@@ -1925,6 +1949,7 @@ describe('piHarnessAdapter', () => {
       session: {
         prompt: promptMock,
         abort: abortMock,
+        bindExtensions: bindExtensionsMock,
         getLastAssistantText: getLastAssistantTextMock,
         messages: [],
       },

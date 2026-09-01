@@ -43,6 +43,7 @@ import {
   isPiExtensionAvailable,
   piExtensionDirectories,
 } from '#core/pi-extensions.js';
+import {createPiToolSvgNormalizerExtension} from '#core/pi-tool-svg-normalizer.js';
 import {type SessionForwarder, startSessionForwarder} from '#core/session-forwarder.js';
 import {toolSelectionOption} from '#core/tool-selection.js';
 
@@ -213,12 +214,10 @@ async function runPiSession(params: {
 async function runActivePiSession(
   params: Parameters<typeof runPiSession>[0],
 ): Promise<HarnessResult> {
-  if (params.mcpConfig !== undefined) {
-    await params.session.bindExtensions({
-      mode: 'print',
-      onError: (error) => logger().warn({err: error}, 'Pi extension failed'),
-    });
-  }
+  await params.session.bindExtensions({
+    mode: 'print',
+    onError: (error) => logger().warn({err: error}, 'Pi extension failed'),
+  });
   if (params.signal.aborted) throw new Error('Agent step aborted during pi session creation');
 
   const forwarder = startForwarding(
@@ -411,7 +410,10 @@ async function preparePiSessionServices(params: {
       ...(mcpConfig === undefined
         ? {}
         : {extensionFlagValues: new Map([['mcp-config', mcpConfig.path]])}),
-      resourceLoaderOptions: {additionalExtensionPaths: extensionDirectories},
+      resourceLoaderOptions: {
+        additionalExtensionPaths: extensionDirectories,
+        extensionFactories: [createPiToolSvgNormalizerExtension()],
+      },
     }),
   );
   const extensionResult = services.resourceLoader?.getExtensions?.();
