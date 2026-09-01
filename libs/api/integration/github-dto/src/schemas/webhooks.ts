@@ -35,6 +35,13 @@ export type GithubRepositoryRenamedPayloadDto = z.infer<
   typeof githubRepositoryRenamedPayloadSchema
 >;
 
+export const githubRepositoryDeletedPayloadSchema = z.object({
+  repository: githubWebhookRepositorySchema,
+});
+export type GithubRepositoryDeletedPayloadDto = z.infer<
+  typeof githubRepositoryDeletedPayloadSchema
+>;
+
 export const githubInstallationRepositoriesPayloadSchema = z.object({
   repositories_added: z.array(githubWebhookRepositorySchema),
   repositories_removed: z.array(githubWebhookRepositorySchema),

@@ -20,6 +20,7 @@ function linearConnection(
     createdAt: now,
     updatedAt: now,
     ...overrides,
+    repositoryAccessMode: overrides.repositoryAccessMode ?? 'selected',
   };
 }
 

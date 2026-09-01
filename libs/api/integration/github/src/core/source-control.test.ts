@@ -112,6 +112,7 @@ describe('GithubSourceControlProvider', () => {
       slug: 'github_shipfox',
       displayName: 'GitHub shipfox',
       lifecycleStatus: 'active' as const,
+      repositoryAccessMode: 'selected' as const,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -245,6 +246,7 @@ describe('GithubSourceControlProvider', () => {
         slug: 'github_shipfox',
         displayName: 'GitHub shipfox',
         lifecycleStatus: 'active',
+        repositoryAccessMode: 'selected',
         createdAt: new Date(),
         updatedAt: new Date(),
       },

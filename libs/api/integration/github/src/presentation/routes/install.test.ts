@@ -97,6 +97,7 @@ async function createTestApp(options: CreateTestAppOptions = {}): Promise<Fastif
           slug: 'github_shipfox',
           displayName: input.displayName,
           lifecycleStatus: 'active',
+          repositoryAccessMode: 'selected',
           createdAt: new Date(),
           updatedAt: new Date(),
         };
@@ -229,6 +230,7 @@ describe('GitHub integration routes', () => {
         slug: 'github_shipfox',
         displayName: 'GitHub shipfox',
         lifecycleStatus: 'active',
+        repositoryAccessMode: 'selected',
         createdAt: new Date(),
         updatedAt: new Date(),
       },

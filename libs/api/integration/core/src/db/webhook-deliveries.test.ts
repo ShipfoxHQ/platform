@@ -7,7 +7,12 @@ import {
   type SourceRepositoryIdentity,
 } from '@shipfox/api-integration-spi';
 import {and, eq, sql} from 'drizzle-orm';
+import {upsertIntegrationConnection} from './connections.js';
 import {db} from './db.js';
+import {
+  getIntegrationConnectionRepositoryGrant,
+  upsertIntegrationConnectionRepositoryGrant,
+} from './repository-grants.js';
 import {integrationsOutbox} from './schema/outbox.js';
 import {integrationsWebhookDeliveries} from './schema/webhook-deliveries.js';
 import {
@@ -308,6 +313,7 @@ describe('publishSourceRepositoryUpdated', () => {
       rawPayload: {action: 'added', repositories_added: repositories},
       event: 'installation_repositories.added',
       repositories,
+      removedRepositories: [],
     };
   }
 
@@ -351,5 +357,133 @@ describe('publishSourceRepositoryUpdated', () => {
     expect(first.published).toBe(true);
     expect(second.published).toBe(false);
     expect(await outboxFor(params.deliveryId)).toHaveLength(3);
+  });
+
+  it('refreshes a manual grant from the signed repository metadata', async () => {
+    const connection = await upsertIntegrationConnection({
+      workspaceId: crypto.randomUUID(),
+      provider: 'github',
+      externalAccountId: `github-${crypto.randomUUID()}`,
+      slug: `github_${crypto.randomUUID()}`,
+      displayName: 'GitHub',
+      capabilities: ['source_control'],
+    });
+    await upsertIntegrationConnectionRepositoryGrant({
+      connectionId: connection.id,
+      externalRepositoryId: 'github:42',
+      repositoryOwner: 'acme',
+      repositoryName: 'platform',
+    });
+
+    const params = {
+      ...buildParams(),
+      connectionId: connection.id,
+      workspaceId: connection.workspaceId,
+      event: 'repository.renamed',
+      rawPayload: {action: 'renamed'},
+      repositories: [
+        {
+          externalRepositoryId: 'github:42',
+          owner: 'acme',
+          name: 'platform-renamed',
+          defaultBranch: 'main',
+        },
+      ],
+    };
+
+    const result = await db().transaction((tx) => publishSourceRepositoryUpdated({tx, ...params}));
+
+    expect(result.published).toBe(true);
+    expect(
+      await getIntegrationConnectionRepositoryGrant({
+        connectionId: connection.id,
+        externalRepositoryId: 'github:42',
+      }),
+    ).toMatchObject({repositoryOwner: 'acme', repositoryName: 'platform-renamed'});
+  });
+
+  it('removes a manual grant from a signed repository deletion', async () => {
+    const connection = await upsertIntegrationConnection({
+      workspaceId: crypto.randomUUID(),
+      provider: 'github',
+      externalAccountId: `github-${crypto.randomUUID()}`,
+      slug: `github_${crypto.randomUUID()}`,
+      displayName: 'GitHub',
+      capabilities: ['source_control'],
+    });
+    await upsertIntegrationConnectionRepositoryGrant({
+      connectionId: connection.id,
+      externalRepositoryId: 'github:42',
+      repositoryOwner: 'acme',
+      repositoryName: 'platform',
+    });
+
+    const params = {
+      ...buildParams(),
+      connectionId: connection.id,
+      workspaceId: connection.workspaceId,
+      event: 'repository.deleted',
+      rawPayload: {action: 'deleted'},
+      repositories: [],
+      removedRepositories: [
+        {
+          externalRepositoryId: 'github:42',
+          owner: 'acme',
+          name: 'platform',
+          defaultBranch: 'main',
+        },
+      ],
+    };
+
+    await db().transaction((tx) => publishSourceRepositoryUpdated({tx, ...params}));
+
+    await expect(
+      getIntegrationConnectionRepositoryGrant({
+        connectionId: connection.id,
+        externalRepositoryId: 'github:42',
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it('removes manual grants listed in a signed installation removal', async () => {
+    const connection = await upsertIntegrationConnection({
+      workspaceId: crypto.randomUUID(),
+      provider: 'github',
+      externalAccountId: `github-${crypto.randomUUID()}`,
+      slug: `github_${crypto.randomUUID()}`,
+      displayName: 'GitHub',
+      capabilities: ['source_control'],
+    });
+    const repository = {
+      externalRepositoryId: 'github:42',
+      owner: 'acme',
+      name: 'platform',
+      defaultBranch: 'main',
+    };
+    await upsertIntegrationConnectionRepositoryGrant({
+      connectionId: connection.id,
+      externalRepositoryId: repository.externalRepositoryId,
+      repositoryOwner: repository.owner,
+      repositoryName: repository.name,
+    });
+
+    const params = {
+      ...buildParams(),
+      connectionId: connection.id,
+      workspaceId: connection.workspaceId,
+      event: 'installation_repositories.removed',
+      rawPayload: {action: 'removed'},
+      repositories: [],
+      removedRepositories: [repository],
+    };
+
+    await db().transaction((tx) => publishSourceRepositoryUpdated({tx, ...params}));
+
+    await expect(
+      getIntegrationConnectionRepositoryGrant({
+        connectionId: connection.id,
+        externalRepositoryId: repository.externalRepositoryId,
+      }),
+    ).resolves.toBeUndefined();
   });
 });

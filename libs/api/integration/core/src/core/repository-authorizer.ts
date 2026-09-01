@@ -1,4 +1,5 @@
 import {repositoryAuthorizationErrorCodes} from '@shipfox/api-integration-core-dto/inter-module';
+import type {IntegrationConnectionRepositoryAccessMode} from '@shipfox/api-integration-spi';
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import {reportError} from '@shipfox/node-error-monitoring';
 import {logger} from '@shipfox/node-opentelemetry';
@@ -10,7 +11,7 @@ const EXTERNAL_REPOSITORY_VALUE_UNSAFE_PATTERN = /\s/u;
 const REPOSITORY_AUTHORIZATION_REPORT_INTERVAL_MS = 60_000;
 let lastRepositoryAuthorizationReportAt = Number.NEGATIVE_INFINITY;
 
-export type RepositoryAuthorizationMode = 'selected' | 'all';
+export type RepositoryAuthorizationMode = IntegrationConnectionRepositoryAccessMode;
 export type RepositoryAuthorizationCapability = 'checkout' | 'tools';
 
 export interface RepositoryAuthorizationExternalIdTarget {

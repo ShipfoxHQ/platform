@@ -18,6 +18,7 @@ function fakeConnection(overrides: Partial<IntegrationConnection> = {}): Integra
     createdAt: now,
     updatedAt: now,
     ...overrides,
+    repositoryAccessMode: overrides.repositoryAccessMode ?? 'selected',
   };
 }
 

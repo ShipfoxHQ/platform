@@ -1,6 +1,9 @@
 import {uuidv7PrimaryKey} from '@shipfox/node-drizzle';
 import {index, integer, text, timestamp, uniqueIndex, uuid} from 'drizzle-orm/pg-core';
-import type {IntegrationConnectionLifecycleStatus} from '#core/entities/connection.js';
+import type {
+  IntegrationConnectionLifecycleStatus,
+  IntegrationConnectionRepositoryAccessMode,
+} from '#core/entities/connection.js';
 import {pgTable} from './common.js';
 
 export const integrationSecretCleanups = pgTable(
@@ -16,6 +19,10 @@ export const integrationSecretCleanups = pgTable(
     lifecycleStatus: text('lifecycle_status')
       .$type<IntegrationConnectionLifecycleStatus>()
       .notNull(),
+    repositoryAccessMode: text('repository_access')
+      .$type<IntegrationConnectionRepositoryAccessMode>()
+      .notNull()
+      .default('selected'),
     connectionCreatedAt: timestamp('connection_created_at', {withTimezone: true}).notNull(),
     connectionUpdatedAt: timestamp('connection_updated_at', {withTimezone: true}).notNull(),
     attemptCount: integer('attempt_count').notNull().default(0),

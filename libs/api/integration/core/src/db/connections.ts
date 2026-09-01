@@ -10,6 +10,7 @@ import {and, eq} from 'drizzle-orm';
 import type {
   IntegrationConnection,
   IntegrationConnectionLifecycleStatus,
+  IntegrationConnectionRepositoryAccessMode,
 } from '#core/entities/connection.js';
 import type {IntegrationCapability, IntegrationProviderKind} from '#core/entities/provider.js';
 import {IntegrationConnectionAlreadyExistsError} from '#core/errors.js';
@@ -316,6 +317,32 @@ export async function updateIntegrationConnectionLifecycleStatus(
 
 export type UpdateIntegrationConnectionLifecycleStatusFn =
   typeof updateIntegrationConnectionLifecycleStatus;
+
+export interface UpdateIntegrationConnectionRepositoryAccessModeParams {
+  id: string;
+  repositoryAccessMode: IntegrationConnectionRepositoryAccessMode;
+}
+
+export async function updateIntegrationConnectionRepositoryAccessMode(
+  params: UpdateIntegrationConnectionRepositoryAccessModeParams,
+  options: {tx?: IntegrationDb | IntegrationTx | undefined} = {},
+): Promise<IntegrationConnection | undefined> {
+  if (options.tx === undefined) {
+    return await db().transaction((tx) =>
+      updateIntegrationConnectionRepositoryAccessMode(params, {tx}),
+    );
+  }
+
+  const [row] = await options.tx
+    .update(integrationConnections)
+    .set({repositoryAccessMode: params.repositoryAccessMode, updatedAt: new Date()})
+    .where(eq(integrationConnections.id, params.id))
+    .returning();
+  return row ? toIntegrationConnection(row) : undefined;
+}
+
+export type UpdateIntegrationConnectionRepositoryAccessModeFn =
+  typeof updateIntegrationConnectionRepositoryAccessMode;
 
 async function writeConnectionAvailableEvent(
   executor: IntegrationDb | IntegrationTx,

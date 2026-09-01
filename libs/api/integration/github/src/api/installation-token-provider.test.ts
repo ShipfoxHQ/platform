@@ -305,6 +305,7 @@ describe('GithubInstallationTokenProvider', () => {
         slug: 'github_shipfox',
         displayName: 'GitHub shipfox',
         lifecycleStatus: 'active',
+        repositoryAccessMode: 'selected',
         createdAt: new Date(),
         updatedAt: new Date(),
       });

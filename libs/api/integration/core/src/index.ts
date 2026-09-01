@@ -75,6 +75,7 @@ export {
 export type {
   IntegrationConnection,
   IntegrationConnectionLifecycleStatus,
+  IntegrationConnectionRepositoryAccessMode,
 } from '#core/entities/connection.js';
 export type {
   IntegrationCapability,
@@ -83,6 +84,7 @@ export type {
   IntegrationProviderKind,
   RegisteredIntegrationProvider,
 } from '#core/entities/provider.js';
+export type {IntegrationConnectionRepositoryGrant} from '#core/entities/repository-grant.js';
 export type {IntegrationProviderErrorReason} from '#core/errors.js';
 export {
   ConnectionSlugConflictError,
@@ -200,7 +202,10 @@ export type {
   GetIntegrationConnectionByIdFn,
   GetIntegrationConnectionBySlugFn,
 } from '#db/connections.js';
-export {getIntegrationConnectionById, getIntegrationConnectionBySlug} from '#db/connections.js';
+export {
+  getIntegrationConnectionById,
+  getIntegrationConnectionBySlug,
+} from '#db/connections.js';
 export type {
   ClaimWebhookDeliveryFn,
   PublishIntegrationEventReceivedFn,

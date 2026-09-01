@@ -21,6 +21,7 @@ function createConnection(
     slug: 'jira_acme',
     displayName: 'Jira Acme',
     lifecycleStatus: 'active',
+    repositoryAccessMode: 'selected',
     createdAt: now,
     updatedAt: now,
   };

@@ -81,6 +81,7 @@ function connection(input: Partial<IntegrationConnection<'slack'>> = {}) {
     createdAt: new Date(),
     updatedAt: new Date(),
     ...input,
+    repositoryAccessMode: input.repositoryAccessMode ?? 'selected',
   } satisfies IntegrationConnection<'slack'>;
 }
 

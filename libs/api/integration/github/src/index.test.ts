@@ -49,6 +49,7 @@ describe('createGithubIntegrationProvider', () => {
       slug: 'github_shipfox',
       displayName: 'GitHub',
       lifecycleStatus: 'active' as const,
+      repositoryAccessMode: 'selected' as const,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -132,6 +133,7 @@ describe('createGithubIntegrationProvider', () => {
       slug: 'github_shipfox',
       displayName: 'GitHub',
       lifecycleStatus: 'active',
+      repositoryAccessMode: 'selected',
       createdAt: new Date(),
       updatedAt: new Date(),
     });
@@ -174,6 +176,7 @@ describe('createGithubIntegrationProvider', () => {
       slug: 'github_shipfox',
       displayName: 'GitHub',
       lifecycleStatus: 'active',
+      repositoryAccessMode: 'selected',
       createdAt: new Date(),
       updatedAt: new Date(),
     });
@@ -213,6 +216,7 @@ describe('createGithubIntegrationProvider', () => {
       slug: 'github_shipfox',
       displayName: 'GitHub',
       lifecycleStatus: 'active',
+      repositoryAccessMode: 'selected',
       createdAt: new Date(),
       updatedAt: new Date(),
     });

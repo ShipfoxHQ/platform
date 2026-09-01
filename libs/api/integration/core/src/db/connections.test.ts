@@ -12,9 +12,14 @@ import {
   listIntegrationConnectionsByProvider,
   resolveUniqueConnectionSlug,
   updateIntegrationConnectionLifecycleStatus,
+  updateIntegrationConnectionRepositoryAccessMode,
   upsertIntegrationConnection,
 } from './connections.js';
 import {db} from './db.js';
+import {
+  listIntegrationConnectionRepositoryGrants,
+  upsertIntegrationConnectionRepositoryGrant,
+} from './repository-grants.js';
 import {integrationsOutbox} from './schema/outbox.js';
 
 function connectionEvents(connectionId: string) {
@@ -451,6 +456,39 @@ describe('integration connection queries', () => {
     expect(result).toBeUndefined();
   });
 
+  it('persists the repository access mode across reconnects', async () => {
+    const connection = await upsertIntegrationConnection({
+      workspaceId,
+      provider: 'github',
+      externalAccountId: 'github-mode',
+      slug: 'github_mode',
+      displayName: 'GitHub',
+      capabilities: ['source_control', 'agent_tools'],
+    });
+
+    expect(connection.repositoryAccessMode).toBe('selected');
+
+    const updated = await updateIntegrationConnectionRepositoryAccessMode({
+      id: connection.id,
+      repositoryAccessMode: 'all',
+    });
+
+    expect(updated?.repositoryAccessMode).toBe('all');
+
+    const reconnected = await upsertIntegrationConnection({
+      workspaceId,
+      provider: 'github',
+      externalAccountId: 'github-mode',
+      slug: 'ignored_on_reconnect',
+      displayName: 'GitHub renamed',
+      capabilities: ['source_control', 'agent_tools'],
+    });
+
+    expect(reconnected.id).toBe(connection.id);
+    expect(reconnected.repositoryAccessMode).toBe('all');
+    expect((await getIntegrationConnectionById(connection.id))?.repositoryAccessMode).toBe('all');
+  });
+
   it('deletes a connection and reports whether a row was removed', async () => {
     const connection = await upsertIntegrationConnection({
       workspaceId,
@@ -467,6 +505,33 @@ describe('integration connection queries', () => {
     expect(deleted).toBe(true);
     expect(deletedAgain).toBe(false);
     expect(await getIntegrationConnectionById(connection.id)).toBeUndefined();
+  });
+
+  it('deletes connection-owned repository grants with the connection', async () => {
+    const connection = await upsertIntegrationConnection({
+      workspaceId,
+      provider: 'github',
+      externalAccountId: 'github-grants',
+      slug: 'github_grants',
+      displayName: 'GitHub',
+      capabilities: ['source_control'],
+    });
+
+    await upsertIntegrationConnectionRepositoryGrant({
+      connectionId: connection.id,
+      externalRepositoryId: 'github:42',
+      repositoryOwner: 'acme',
+      repositoryName: 'platform',
+    });
+
+    expect(
+      await listIntegrationConnectionRepositoryGrants({connectionId: connection.id}),
+    ).toHaveLength(1);
+
+    expect(await deleteIntegrationConnection({id: connection.id})).toBe(true);
+    expect(
+      await listIntegrationConnectionRepositoryGrants({connectionId: connection.id}),
+    ).toHaveLength(0);
   });
 
   it('rolls back a connection when provider-specific installation persistence fails', async () => {

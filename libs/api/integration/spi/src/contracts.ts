@@ -1,6 +1,7 @@
 export type IntegrationProviderKind = string;
 export type IntegrationCapability = 'source_control' | 'agent_tools';
 export type IntegrationConnectionLifecycleStatus = 'active' | 'disabled' | 'error';
+export type IntegrationConnectionRepositoryAccessMode = 'selected' | 'all';
 
 const GIT_OBJECT_ID_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
 const ZERO_GIT_OBJECT_ID_PATTERN = /^0+$/;
@@ -15,6 +16,7 @@ export interface IntegrationConnection<
   slug: string;
   displayName: string;
   lifecycleStatus: IntegrationConnectionLifecycleStatus;
+  repositoryAccessMode: IntegrationConnectionRepositoryAccessMode;
   createdAt: Date;
   updatedAt: Date;
 }
