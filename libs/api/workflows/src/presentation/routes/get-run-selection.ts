@@ -1,6 +1,6 @@
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import {
-  type WorkflowRunSelectionQueryDto,
+  getWorkflowRunSelectionDepth,
   workflowRunSelectionQuerySchema,
   workflowRunSelectionResponseSchema,
 } from '@shipfox/api-workflows-dto';
@@ -11,8 +11,6 @@ import {getWorkflowRunSelection} from '#db/index.js';
 import {toRunSelectionDto} from '#presentation/dto/index.js';
 import {requireAccessibleRun} from './require-accessible-run.js';
 import {serializedResponseByteLength} from './serialized-response-byte-length.js';
-
-type SelectionDepth = 'job' | 'execution' | 'step' | 'step_attempt';
 
 export function getRunSelectionRoute(projects: ProjectsModuleClient) {
   return defineRoute({
@@ -31,7 +29,7 @@ export function getRunSelectionRoute(projects: ProjectsModuleClient) {
     handler: async (request, reply) => {
       const {id} = request.params;
       const query = request.query;
-      const selectionDepth = getSelectionDepth(query);
+      const selectionDepth = getWorkflowRunSelectionDepth(query);
       const startedAt = performance.now();
       let dbDurationMilliseconds = 0;
       let responseBytes = 0;
@@ -46,11 +44,7 @@ export function getRunSelectionRoute(projects: ProjectsModuleClient) {
           {
             workflowRunId: run.id,
             projectId: run.projectId,
-            attempt: query.attempt,
-            jobId: query.job_id,
-            jobExecutionId: query.job_execution_id,
-            stepId: query.step_id,
-            stepAttemptId: query.step_attempt_id,
+            query,
           },
           {
             onRead: (measurement) => {
@@ -95,11 +89,4 @@ export function getRunSelectionRoute(projects: ProjectsModuleClient) {
       }
     },
   });
-}
-
-function getSelectionDepth(query: WorkflowRunSelectionQueryDto): SelectionDepth {
-  if (query.step_attempt_id !== undefined) return 'step_attempt';
-  if (query.step_id !== undefined) return 'step';
-  if (query.job_execution_id !== undefined) return 'execution';
-  return 'job';
 }

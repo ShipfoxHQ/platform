@@ -2,7 +2,20 @@ import {z} from 'zod';
 import {stepSourceLocationSchema} from './step.js';
 import {workflowRunAncestrySchema} from './workflow-run-ancestry.js';
 
-const nestedIdentityKeys = ['job_id', 'job_execution_id', 'step_id', 'step_attempt_id'] as const;
+const nestedIdentityDefinitions = [
+  {key: 'step_attempt_id', depth: 'step_attempt'},
+  {key: 'step_id', depth: 'step'},
+  {key: 'job_execution_id', depth: 'execution'},
+  {key: 'job_id', depth: 'job'},
+] as const;
+
+export type WorkflowRunSelectionDepth = (typeof nestedIdentityDefinitions)[number]['depth'];
+
+export function getWorkflowRunSelectionDepth(
+  query: Pick<WorkflowRunSelectionQueryDto, (typeof nestedIdentityDefinitions)[number]['key']>,
+): WorkflowRunSelectionDepth {
+  return nestedIdentityDefinitions.find(({key}) => query[key] !== undefined)?.depth ?? 'job';
+}
 
 export const workflowRunSelectionQuerySchema = z
   .object({
@@ -13,7 +26,7 @@ export const workflowRunSelectionQuerySchema = z
     step_attempt_id: z.string().uuid().optional(),
   })
   .superRefine((value, context) => {
-    if (nestedIdentityKeys.every((key) => value[key] === undefined)) {
+    if (nestedIdentityDefinitions.every(({key}) => value[key] === undefined)) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message: 'At least one nested identity is required',

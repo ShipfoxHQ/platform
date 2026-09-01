@@ -1,4 +1,5 @@
 import {
+  getWorkflowRunSelectionDepth,
   workflowRunSelectionQuerySchema,
   workflowRunSelectionResponseSchema,
 } from './workflow-run-selection.js';
@@ -12,6 +13,17 @@ const ids = {
 };
 
 describe('workflow run selection schemas', () => {
+  test('derives the deepest supplied identity depth', () => {
+    expect(
+      getWorkflowRunSelectionDepth({
+        job_id: ids.job,
+        job_execution_id: ids.execution,
+        step_id: ids.step,
+        step_attempt_id: ids.stepAttempt,
+      }),
+    ).toBe('step_attempt');
+  });
+
   test.each([
     ['job_id', ids.job],
     ['job_execution_id', ids.execution],

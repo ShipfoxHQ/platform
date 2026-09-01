@@ -1,4 +1,8 @@
-import {WORKFLOW_RUN_JOB_PREVIEW_LIMIT} from '@shipfox/api-workflows-dto';
+import {
+  getWorkflowRunSelectionDepth,
+  WORKFLOW_RUN_JOB_PREVIEW_LIMIT,
+  type WorkflowRunSelectionQueryDto,
+} from '@shipfox/api-workflows-dto';
 import {
   type NumberIdCursor,
   paginateTimestampIdRows,
@@ -81,11 +85,7 @@ export interface WorkflowRunSelection {
 export interface WorkflowRunSelectionParams {
   workflowRunId: string;
   projectId: string;
-  attempt?: number | undefined;
-  jobId?: string | undefined;
-  jobExecutionId?: string | undefined;
-  stepId?: string | undefined;
-  stepAttemptId?: string | undefined;
+  query: WorkflowRunSelectionQueryDto;
 }
 
 export interface WorkflowRunBoundedReadMeasurement {
@@ -318,36 +318,31 @@ export function getWorkflowRunSelection(
   params: WorkflowRunSelectionParams,
   options: WorkflowRunBoundedReadOptions = {},
 ): Promise<WorkflowRunSelection | undefined> {
-  if (params.stepAttemptId) {
-    return getStepAttemptSelection(params, options);
+  switch (getWorkflowRunSelectionDepth(params.query)) {
+    case 'step_attempt':
+      return getStepAttemptSelection(params, options);
+    case 'step':
+      return getStepSelection(params, options);
+    case 'execution':
+      return getJobExecutionSelection(params, options);
+    case 'job':
+      return getJobSelection(params, options);
   }
-
-  if (params.stepId) {
-    return getStepSelection(params, options);
-  }
-
-  if (params.jobExecutionId) {
-    return getJobExecutionSelection(params, options);
-  }
-
-  if (params.jobId) {
-    return getJobSelection(params, options);
-  }
-
-  return Promise.resolve(undefined);
 }
 
 function getStepAttemptSelection(
   params: WorkflowRunSelectionParams,
   options: WorkflowRunBoundedReadOptions,
 ): Promise<WorkflowRunSelection | undefined> {
-  const stepAttemptId = params.stepAttemptId;
+  const stepAttemptId = params.query.step_attempt_id;
   if (!stepAttemptId) return Promise.resolve(undefined);
 
   const identityConditions: SQL[] = [eq(stepAttempts.id, stepAttemptId)];
-  if (params.stepId) identityConditions.push(eq(steps.id, params.stepId));
-  if (params.jobExecutionId) identityConditions.push(eq(jobExecutions.id, params.jobExecutionId));
-  if (params.jobId) identityConditions.push(eq(jobs.id, params.jobId));
+  if (params.query.step_id) identityConditions.push(eq(steps.id, params.query.step_id));
+  if (params.query.job_execution_id) {
+    identityConditions.push(eq(jobExecutions.id, params.query.job_execution_id));
+  }
+  if (params.query.job_id) identityConditions.push(eq(jobs.id, params.query.job_id));
 
   return readWorkflowRunSelection(
     () =>
@@ -385,12 +380,14 @@ function getStepSelection(
   params: WorkflowRunSelectionParams,
   options: WorkflowRunBoundedReadOptions,
 ): Promise<WorkflowRunSelection | undefined> {
-  const stepId = params.stepId;
+  const stepId = params.query.step_id;
   if (!stepId) return Promise.resolve(undefined);
 
   const identityConditions: SQL[] = [eq(steps.id, stepId)];
-  if (params.jobExecutionId) identityConditions.push(eq(jobExecutions.id, params.jobExecutionId));
-  if (params.jobId) identityConditions.push(eq(jobs.id, params.jobId));
+  if (params.query.job_execution_id) {
+    identityConditions.push(eq(jobExecutions.id, params.query.job_execution_id));
+  }
+  if (params.query.job_id) identityConditions.push(eq(jobs.id, params.query.job_id));
 
   return readWorkflowRunSelection(
     () =>
@@ -421,11 +418,11 @@ function getJobExecutionSelection(
   params: WorkflowRunSelectionParams,
   options: WorkflowRunBoundedReadOptions,
 ): Promise<WorkflowRunSelection | undefined> {
-  const jobExecutionId = params.jobExecutionId;
+  const jobExecutionId = params.query.job_execution_id;
   if (!jobExecutionId) return Promise.resolve(undefined);
 
   const identityConditions: SQL[] = [eq(jobExecutions.id, jobExecutionId)];
-  if (params.jobId) identityConditions.push(eq(jobs.id, params.jobId));
+  if (params.query.job_id) identityConditions.push(eq(jobs.id, params.query.job_id));
 
   return readWorkflowRunSelection(
     () =>
@@ -455,7 +452,7 @@ function getJobSelection(
   params: WorkflowRunSelectionParams,
   options: WorkflowRunBoundedReadOptions,
 ): Promise<WorkflowRunSelection | undefined> {
-  const jobId = params.jobId;
+  const jobId = params.query.job_id;
   if (!jobId) return Promise.resolve(undefined);
 
   return readWorkflowRunSelection(
@@ -490,8 +487,8 @@ function workflowRunSelectionConditions(
     eq(workflowRuns.projectId, params.projectId),
     ...identityConditions,
   ];
-  if (params.attempt !== undefined) {
-    conditions.push(eq(workflowRunAttempts.attempt, params.attempt));
+  if (params.query.attempt !== undefined) {
+    conditions.push(eq(workflowRunAttempts.attempt, params.query.attempt));
   }
   return conditions;
 }

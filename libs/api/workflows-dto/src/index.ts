@@ -151,6 +151,8 @@ export {
   workflowRunAncestrySchema,
 } from '#schemas/workflow-run-ancestry.js';
 export {
+  getWorkflowRunSelectionDepth,
+  type WorkflowRunSelectionDepth,
   type WorkflowRunSelectionDto,
   type WorkflowRunSelectionQueryDto,
   type WorkflowRunSelectionResponseDto,

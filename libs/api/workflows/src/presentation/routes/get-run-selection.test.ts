@@ -97,6 +97,41 @@ describe('GET /api/workflows/runs/:id/selection', () => {
     });
   });
 
+  test('resolves a step identity pinned to the requested attempt', async () => {
+    const fixture = await createLineage();
+
+    const response = await app.inject({
+      method: 'GET',
+      url: selectionUrl(fixture.run.id, {step_id: fixture.rerunStep.id, attempt: 2}),
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      workflow_run_id: fixture.run.id,
+      workflow_run_attempt: 2,
+      step_id: fixture.rerunStep.id,
+    });
+  });
+
+  test('resolves a step-attempt identity pinned to the requested attempt', async () => {
+    const fixture = await createLineage();
+
+    const response = await app.inject({
+      method: 'GET',
+      url: selectionUrl(fixture.run.id, {
+        step_attempt_id: fixture.stepAttemptId,
+        attempt: 1,
+      }),
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      workflow_run_id: fixture.run.id,
+      workflow_run_attempt: 1,
+      step_attempt_id: fixture.stepAttemptId,
+    });
+  });
+
   test('returns the stable not-found response for a mismatched attempt', async () => {
     const fixture = await createLineage();
 
@@ -126,6 +161,8 @@ describe('GET /api/workflows/runs/:id/selection', () => {
       {step_id: fixture.sourceStep.id, job_id: otherJob.id},
       {step_id: fixture.sourceStep.id, job_execution_id: otherExecution.id},
       {step_attempt_id: fixture.stepAttemptId, step_id: otherStep.id},
+      {step_attempt_id: fixture.stepAttemptId, job_id: otherJob.id},
+      {step_attempt_id: fixture.stepAttemptId, job_execution_id: otherExecution.id},
     ];
 
     for (const query of mismatchedSelections) {
