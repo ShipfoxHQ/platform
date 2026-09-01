@@ -15,6 +15,7 @@ import {compactedGzipStream} from '#core/compaction.js';
 import {logObjectKey} from '#core/entities/log-object.js';
 import {db} from '#db/db.js';
 import {attemptStreams} from '#db/schema/attempt-streams.js';
+import * as streamDb from '#db/streams.js';
 import {getAttemptStreamById, setObjectKeyAndDeleteChunks} from '#db/streams.js';
 import {arrangeClosedStream, type ClosedStreamIdentity} from '#test/fixtures/closed-stream.js';
 import {ndjsonBody, outputLine} from '#test/fixtures/ndjson.js';
@@ -248,6 +249,48 @@ describe('compactStreamActivity', () => {
     expect(await listKeysUnderStream(identity)).toEqual([key, compactedTailObjectKey(key)]);
     await deleteObject(key);
     await deleteObject(compactedTailObjectKey(key));
+  });
+
+  it('cleans a persisted upload reservation when the post-error reload fails', async () => {
+    const identity = newIdentity();
+    const stream = await arrangeClosedStream(identity, {chunks: [ndjsonBody(outputLine('x\n'))]});
+    const realGetAttemptStreamById = streamDb.getAttemptStreamById;
+    let reloads = 0;
+    vi.spyOn(streamDb, 'getAttemptStreamById').mockImplementation((streamId) => {
+      reloads += 1;
+      return reloads === 2
+        ? Promise.reject(new Error('database unavailable'))
+        : realGetAttemptStreamById(streamId);
+    });
+    // Force a post-upload failure. The failed cleanup reload leaves the uploaded object behind,
+    // and the next activity attempt must use the durable reservation to clean the old key.
+    compactedGzipStreamMock.mockReturnValueOnce({
+      body: Readable.from([]).pipe(createGzip()),
+      stats: {chunkCount: 0, lastSeq: 0, uncompressedBytes: 0},
+      tailArtifact: Promise.resolve({body: Buffer.alloc(0), lineCount: 0, tailLineCount: 0}),
+    });
+
+    await expect(runCompaction(stream.id, compactStreamActivityWithMocks)).rejects.toThrow(
+      'integrity check',
+    );
+    vi.restoreAllMocks();
+
+    const failed = await getAttemptStreamById(stream.id);
+    expect(failed?.compactionUploadKeys).toHaveLength(1);
+    const reservedKey = failed?.compactionUploadKeys[0];
+    expect(reservedKey).toBeDefined();
+
+    const result = await runCompaction(stream.id, compactStreamActivityWithMocks);
+
+    expect(result.outcome).toBe('compacted');
+    expect(compactedKey(result)).not.toBe(reservedKey);
+    expect((await getAttemptStreamById(stream.id))?.compactionUploadKeys).toEqual([]);
+    expect(await listKeysUnderStream(identity)).toEqual([
+      compactedKey(result),
+      compactedTailObjectKey(compactedKey(result)),
+    ]);
+    await deleteObject(compactedKey(result));
+    await deleteObject(compactedTailObjectKey(compactedKey(result)));
   });
 
   it('deletes its own upload and reports superseded when another attempt won the publish', async () => {

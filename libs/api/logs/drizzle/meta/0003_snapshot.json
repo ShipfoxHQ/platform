@@ -122,6 +122,13 @@
           "primaryKey": false,
           "notNull": false
         },
+        "compaction_upload_keys": {
+          "name": "compaction_upload_keys",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
         "object_key": {
           "name": "object_key",
           "type": "text",

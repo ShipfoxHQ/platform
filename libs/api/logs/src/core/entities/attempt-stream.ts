@@ -39,6 +39,8 @@ export interface AttemptStream {
   truncated: boolean;
   /** Total stored NDJSON records, populated when compaction publishes the cold objects. */
   lineCount: number | null;
+  /** Temporary full-object keys reserved by compaction attempts until their objects are cleaned. */
+  compactionUploadKeys: string[];
   objectKey: string | null;
   createdAt: Date;
   updatedAt: Date;

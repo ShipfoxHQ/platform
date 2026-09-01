@@ -40,6 +40,7 @@ function stream(overrides: Partial<AttemptStream> = {}): AttemptStream {
     claudePendingToolRows: [],
     truncated: false,
     lineCount: null,
+    compactionUploadKeys: [],
     objectKey: null,
     createdAt: new Date(0),
     updatedAt: new Date(0),
