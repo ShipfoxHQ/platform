@@ -314,6 +314,10 @@ export function JobDetailView({
                               entry.step.id,
                               entry.attempt,
                             )}
+                            onViewLogs={() => {
+                              onInspectorOpenChange(null);
+                              selectAttempt(entry.id);
+                            }}
                           />
                         )}
                       />

@@ -13,12 +13,14 @@ export type ProviderSetupPath =
 
 interface RouteProviderCatalogEntry {
   kind: 'redirect-install' | 'direct-connect';
+  displayName: string;
   iconName: IconName;
   setupPath: ProviderSetupPath;
 }
 
 interface ModalProviderCatalogEntry {
   kind: 'modal-connect';
+  displayName: string;
   iconName: IconName;
 }
 
@@ -27,36 +29,43 @@ export type ProviderCatalogEntry = RouteProviderCatalogEntry | ModalProviderCata
 export const PROVIDER_CATALOG: Record<string, ProviderCatalogEntry> = {
   github: {
     kind: 'redirect-install',
+    displayName: 'GitHub',
     iconName: PROVIDER_ICONS.github,
     setupPath: '/w/$workspaceSlug/integrations/github',
   },
   sentry: {
     kind: 'redirect-install',
+    displayName: 'Sentry',
     iconName: PROVIDER_ICONS.sentry,
     setupPath: '/w/$workspaceSlug/integrations/sentry',
   },
   linear: {
     kind: 'redirect-install',
+    displayName: 'Linear',
     iconName: PROVIDER_ICONS.linear,
     setupPath: '/w/$workspaceSlug/integrations/linear',
   },
   slack: {
     kind: 'redirect-install',
+    displayName: 'Slack',
     iconName: PROVIDER_ICONS.slack,
     setupPath: '/w/$workspaceSlug/integrations/slack',
   },
   jira: {
     kind: 'redirect-install',
+    displayName: 'Jira',
     iconName: PROVIDER_ICONS.jira,
     setupPath: '/w/$workspaceSlug/integrations/jira',
   },
   gitea: {
     kind: 'direct-connect',
+    displayName: 'Gitea',
     iconName: PROVIDER_ICONS.gitea,
     setupPath: '/w/$workspaceSlug/integrations/gitea',
   },
   webhook: {
     kind: 'modal-connect',
+    displayName: 'Webhook',
     iconName: PROVIDER_ICONS.webhook,
   },
 };

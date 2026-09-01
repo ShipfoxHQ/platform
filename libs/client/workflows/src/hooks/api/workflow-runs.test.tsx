@@ -203,6 +203,7 @@ describe('workflow run API hooks', () => {
       session: null,
       authoredConfig: dto.authored_config,
       config: dto.config,
+      toolArguments: null,
       evaluationTrace: [
         {
           expression: 'inputs.message',
@@ -214,6 +215,25 @@ describe('workflow run API hooks', () => {
           degraded: false,
         },
       ],
+    });
+  });
+
+  test('maps resolved tool arguments from lazy attempt details', () => {
+    const dto: StepAttemptDetailResponseDto = {
+      step_id: '88888888-8888-4888-8888-888888888888',
+      attempt: 2,
+      authored_config: {
+        tool: {with: {channel: String.raw`\${{ inputs.channel }}`}},
+      },
+      config: {
+        tool: {with: {channel: '#releases', text: 'Version 2.4.0 is live.'}},
+      },
+      evaluation_trace: null,
+    };
+
+    expect(toStepAttemptDetail(dto).toolArguments).toEqual({
+      channel: '#releases',
+      text: 'Version 2.4.0 is live.',
     });
   });
 

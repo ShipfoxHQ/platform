@@ -1,3 +1,4 @@
+import type {StepAttemptDto, WorkflowRunStepDetailDto} from '@shipfox/api-workflows-dto';
 import {configureApiClient} from '@shipfox/client-api';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {
@@ -8,7 +9,7 @@ import {
   Outlet,
   RouterProvider,
 } from '@tanstack/react-router';
-import {act, render, screen} from '@testing-library/react';
+import {act, render, screen, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {useState} from 'react';
 import type {StepErrorReason} from '#core/workflow-run.js';
@@ -25,9 +26,11 @@ const STEP_ID = '55555555-5555-4555-8555-555555555555';
 const ATTEMPT_ID = '66666666-6666-4666-8666-666666666666';
 const EXECUTION_ID = '77777777-7777-4777-8777-777777777777';
 const INSPECTOR_TRIGGER_NAME = 'Open inspector';
+const INVOCATION_LOG_DESCRIPTION = /The full result remains available in the invocation log\./u;
 
 describe('StepInspectorSheet', () => {
   afterEach(() => {
+    vi.restoreAllMocks();
     configureApiClient({baseUrl: '', fetchImpl: undefined});
   });
 
@@ -254,14 +257,209 @@ describe('StepInspectorSheet', () => {
     expect(screen.queryByText('Resolved configuration')).toBeNull();
     expect(screen.queryByText('Evaluation')).toBeNull();
   });
+
+  it('shows resolved arguments, results, invocations, outputs, and write sensitivity', async () => {
+    const user = userEvent.setup();
+    configureToolDetailResponse();
+
+    await renderPanel({entry: toolStepEntry({status: 'succeeded'})});
+    await user.click(screen.getByRole('button', {name: INSPECTOR_TRIGGER_NAME}));
+
+    expect(await screen.findByText('Write tool')).toBeInTheDocument();
+    expect(screen.getByRole('region', {name: 'Arguments'})).toHaveTextContent('#releases');
+    expect(screen.getByRole('region', {name: 'Result'})).toHaveTextContent('1717171717.000100');
+    expect(screen.getByRole('region', {name: 'Invocations'})).toHaveTextContent('Succeeded');
+    expect(screen.getByRole('region', {name: 'Invocations'})).toHaveTextContent('412ms');
+    expect(screen.getByRole('region', {name: 'Outputs'})).toHaveTextContent('message_id');
+  });
+
+  it('explains provider access failures and links to recovery and logs', async () => {
+    const user = userEvent.setup();
+    const onViewLogs = vi.fn();
+    configureToolDetailResponse();
+
+    await renderPanel({
+      entry: toolStepEntry({status: 'failed', reason: 'tool_error', code: 'access-denied'}),
+      onViewLogs,
+    });
+    await user.click(screen.getByRole('button', {name: INSPECTOR_TRIGGER_NAME}));
+
+    expect(await screen.findByText('Tool access was denied')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'The integration rejected this call. Review its permissions before re-running the step.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Slack rejected the token.')).toBeInTheDocument();
+    expect(screen.getByRole('link', {name: 'Review integration access'})).toHaveAttribute(
+      'href',
+      '/w/acme/settings/integrations',
+    );
+    const invocations = screen.getByRole('region', {name: 'Invocations'});
+    expect(invocations).toHaveTextContent('Failed');
+    const errorCode = within(invocations).getByText('access-denied');
+    expect(errorCode).toHaveAttribute('tabindex', '0');
+    await user.hover(errorCode);
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('access-denied');
+    expect(screen.queryByRole('region', {name: 'Result'})).toBeNull();
+
+    await user.click(screen.getByRole('button', {name: 'View invocation log'}));
+    expect(onViewLogs).toHaveBeenCalledOnce();
+  });
+
+  it('explains unavailable credentials and links to reconnection', async () => {
+    const user = userEvent.setup();
+    configureToolDetailResponse();
+
+    await renderPanel({
+      entry: toolStepEntry({
+        status: 'failed',
+        reason: 'tool_error',
+        code: 'credentials-unavailable',
+      }),
+    });
+    await user.click(screen.getByRole('button', {name: INSPECTOR_TRIGGER_NAME}));
+
+    expect(await screen.findByText('Tool credentials are unavailable')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'The integration credentials are missing or unavailable. Reconnect the integration before re-running the step.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('link', {name: 'Reconnect integration'})).toHaveAttribute(
+      'href',
+      '/w/acme/settings/integrations',
+    );
+  });
+
+  it('shows a countdown for a scheduled retry', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2999-09-01T09:00:01.000Z'));
+    const user = userEvent.setup();
+    configureToolDetailResponse();
+
+    await renderPanel({entry: toolStepEntry({status: 'running'})});
+    await user.click(screen.getByRole('button', {name: INSPECTOR_TRIGGER_NAME}));
+
+    expect(await screen.findByRole('region', {name: 'Invocations'})).toHaveTextContent('Failed');
+    expect(screen.getByRole('region', {name: 'Invocations'})).toHaveTextContent('Retry pending');
+    expect(screen.getByText('Retry in 5s')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it.each([
+    {nextDueAt: '2999-09-01T09:00:00.000Z', label: 'Retry in now'},
+    {nextDueAt: 'not-a-date', label: 'Retry in pending'},
+  ])('shows $label for a running retry', async ({nextDueAt, label}) => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2999-09-01T09:00:01.000Z'));
+    const user = userEvent.setup();
+    configureToolDetailResponse();
+
+    await renderPanel({entry: toolStepEntry({status: 'running', nextDueAt})});
+    await user.click(screen.getByRole('button', {name: INSPECTOR_TRIGGER_NAME}));
+
+    expect(await screen.findByText(label)).toBeInTheDocument();
+  });
+
+  it('marks a queued retry as not retried after the attempt terminates', async () => {
+    const user = userEvent.setup();
+    configureToolDetailResponse();
+
+    await renderPanel({
+      entry: toolStepEntry({status: 'failed', reason: 'invocation_interrupted'}),
+    });
+    await user.click(screen.getByRole('button', {name: INSPECTOR_TRIGGER_NAME}));
+
+    expect(await screen.findByText('Not retried')).toBeInTheDocument();
+  });
+
+  it.each([
+    {
+      sensitivity: 'write',
+      description:
+        'The provider call was interrupted. Confirm whether the write completed before re-running it.',
+    },
+    {
+      sensitivity: 'read',
+      description:
+        'The provider call was interrupted before its outcome could be recorded. Review the invocation log before retrying.',
+    },
+  ] as const)('explains an interrupted $sensitivity tool invocation', async ({
+    sensitivity,
+    description,
+  }) => {
+    const user = userEvent.setup();
+    configureToolDetailResponse();
+
+    await renderPanel({
+      entry: toolStepEntry({
+        status: 'failed',
+        reason: 'invocation_interrupted',
+        sensitivity,
+      }),
+    });
+    await user.click(screen.getByRole('button', {name: INSPECTOR_TRIGGER_NAME}));
+
+    expect(await screen.findByText(description)).toBeInTheDocument();
+  });
+
+  it('distinguishes a successful provider call from an invalid step output', async () => {
+    const user = userEvent.setup();
+    configureToolDetailResponse();
+
+    await renderPanel({
+      entry: toolStepEntry({status: 'failed', reason: 'output_invalid', code: 'output-too-large'}),
+    });
+    await user.click(screen.getByRole('button', {name: INSPECTOR_TRIGGER_NAME}));
+
+    expect(await screen.findByText('Tool call succeeded, but the step failed')).toBeInTheDocument();
+    expect(screen.getByText(INVOCATION_LOG_DESCRIPTION)).toBeInTheDocument();
+    expect(screen.queryByRole('region', {name: 'Result'})).toBeNull();
+  });
+
+  it('points an invalid resolved tool field back to source', async () => {
+    const user = userEvent.setup();
+    configureToolDetailResponse();
+
+    await renderPanel({
+      entry: toolStepEntry({
+        status: 'failed',
+        reason: 'tool_config_invalid',
+        code: 'invalid-argument',
+        field: 'tool.with.channel',
+      }),
+    });
+    await user.click(screen.getByRole('button', {name: INSPECTOR_TRIGGER_NAME}));
+
+    expect(await screen.findByText('Tool configuration is invalid')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'The resolved tool.with.channel value is invalid. Fix the step configuration before re-running.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('link', {name: 'View in source'})).toBeInTheDocument();
+  });
+
+  it('keeps non-tool failure chips keyed to their stable reason', async () => {
+    const user = userEvent.setup();
+    configureApiClient({fetchImpl: vi.fn(() => new Promise<Response>(() => undefined))});
+
+    await renderPanel({
+      entry: stepEntry('agent_invocation_failed', 'workspace-providers-disabled'),
+    });
+    await user.click(screen.getByRole('button', {name: INSPECTOR_TRIGGER_NAME}));
+
+    expect(await screen.findByText('agent_invocation_failed')).toBeInTheDocument();
+  });
 });
 
 async function renderPanel({
   annotationCount,
   entry,
+  onViewLogs,
 }: {
   annotationCount?: number;
   entry?: StepListEntryModel;
+  onViewLogs?: (() => void) | undefined;
 } = {}) {
   const queryClient = new QueryClient({defaultOptions: {queries: {retry: false}}});
   const rootRoute = createRootRoute({component: Outlet});
@@ -270,7 +468,7 @@ async function renderPanel({
     path: '/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId',
     component: () => (
       <QueryClientProvider client={queryClient}>
-        <PanelHarness annotationCount={annotationCount} entry={entry} />
+        <PanelHarness annotationCount={annotationCount} entry={entry} onViewLogs={onViewLogs} />
       </QueryClientProvider>
     ),
   });
@@ -290,9 +488,11 @@ async function renderPanel({
 function PanelHarness({
   annotationCount,
   entry: providedEntry,
+  onViewLogs,
 }: {
   annotationCount?: number | undefined;
   entry?: StepListEntryModel | undefined;
+  onViewLogs?: (() => void) | undefined;
 }) {
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const entry = providedEntry ?? stepEntry();
@@ -311,12 +511,16 @@ function PanelHarness({
         runAttempt={1}
         jobId="44444444-4444-4444-8444-444444444444"
         annotationCount={annotationCount}
+        onViewLogs={onViewLogs}
       />
     </>
   );
 }
 
-function stepEntry(reason: StepErrorReason = 'agent_invocation_failed'): StepListEntryModel {
+function stepEntry(
+  reason: StepErrorReason = 'agent_invocation_failed',
+  code?: string,
+): StepListEntryModel {
   const jobId = '44444444-4444-4444-8444-444444444444';
   const job = workflowJob({
     id: jobId,
@@ -336,7 +540,7 @@ function stepEntry(reason: StepErrorReason = 'agent_invocation_failed'): StepLis
             status: 'failed',
             type: 'agent',
             config: {run: 'pnpm test'},
-            error: {message: 'Agent dispatch failed', reason},
+            error: {message: 'Agent dispatch failed', reason, ...(code ? {code} : {})},
             evaluation_trace: [
               {
                 expression: 'inputs.message',
@@ -412,6 +616,184 @@ function emptyStepEntry(): StepListEntryModel {
   if (!entry) throw new Error('Test fixture is missing a step attempt.');
 
   return entry;
+}
+
+function toolStepEntry({
+  status,
+  reason,
+  code,
+  field,
+  sensitivity = 'write',
+  nextDueAt = '2999-09-01T09:00:06.000Z',
+}: {
+  status: 'succeeded' | 'failed' | 'running';
+  reason?: StepErrorReason | undefined;
+  code?: string | undefined;
+  field?: string | undefined;
+  sensitivity?: 'read' | 'write' | undefined;
+  nextDueAt?: string | undefined;
+}): StepListEntryModel {
+  const jobId = '44444444-4444-4444-8444-444444444444';
+  const error = toolTestError(reason, code, field);
+  const invocations = toolTestInvocations(status, reason, code, nextDueAt);
+  const succeeded = status === 'succeeded';
+  const running = status === 'running';
+  const output = succeeded ? {result: {ts: '1717171717.000100'}} : null;
+  const outputs = succeeded ? {message_id: '1717171717.000100'} : null;
+  const finishedAt = running ? null : '2026-09-01T09:00:00.412Z';
+  const job = workflowJob({
+    id: jobId,
+    name: 'release',
+    key: 'release',
+    status,
+    job_executions: [
+      workflowJobExecutionDto({
+        id: EXECUTION_ID,
+        job_id: jobId,
+        status,
+        steps: [
+          workflowStepDto({
+            id: STEP_ID,
+            job_execution_id: EXECUTION_ID,
+            name: 'Post release notice',
+            key: 'notify-release',
+            status,
+            source_location: {start_line: 20, end_line: 29},
+            type: 'tool',
+            config: {
+              tool: {
+                provider: 'slack',
+                connection_slug: 'release-notifications',
+                id: 'chat_post_message',
+                method: 'post',
+                sensitivity,
+              },
+            },
+            error,
+            attempts: [
+              workflowStepAttemptDto({
+                id: ATTEMPT_ID,
+                step_id: STEP_ID,
+                status,
+                output,
+                outputs,
+                error,
+                invocations,
+                finished_at: finishedAt,
+              }),
+            ],
+          }),
+        ],
+      }),
+    ],
+  });
+  const execution = job.jobExecutions[0];
+  if (!execution) throw new Error('Test fixture is missing an execution.');
+  const entry = buildStepListModel({job, jobExecution: execution}).entries[0];
+  if (!entry) throw new Error('Test fixture is missing a step attempt.');
+  return entry;
+}
+
+function toolTestInvocations(
+  status: 'succeeded' | 'failed' | 'running',
+  reason: StepErrorReason | undefined,
+  code: string | undefined,
+  nextDueAt: string,
+): StepAttemptDto['invocations'] {
+  if (status === 'running') {
+    return [
+      {
+        call_index: 0,
+        started_at: '2026-09-01T09:00:00.000Z',
+        finished_at: '2026-09-01T09:00:00.412Z',
+        outcome: 'error',
+        error_code: 'rate-limited',
+        duration_ms: 412,
+      },
+      {
+        call_index: 1,
+        started_at: '2026-09-01T09:00:01.000Z',
+        next_due_at: nextDueAt,
+      },
+    ];
+  }
+  if (reason === 'tool_error') {
+    return [
+      {
+        call_index: 0,
+        started_at: '2026-09-01T09:00:00.000Z',
+        finished_at: '2026-09-01T09:00:00.412Z',
+        outcome: 'error',
+        ...(code ? {error_code: code} : {}),
+        duration_ms: 412,
+      },
+    ];
+  }
+  if (reason === 'invocation_interrupted') {
+    return [
+      {
+        call_index: 0,
+        started_at: '2026-09-01T09:00:01.000Z',
+        next_due_at: nextDueAt,
+      },
+    ];
+  }
+  if (status === 'succeeded' || reason === 'output_invalid') {
+    return [
+      {
+        call_index: 0,
+        started_at: '2026-09-01T09:00:00.000Z',
+        finished_at: '2026-09-01T09:00:00.412Z',
+        outcome: 'success',
+        duration_ms: 412,
+      },
+    ];
+  }
+  return [];
+}
+
+function toolTestError(
+  reason: StepErrorReason | undefined,
+  code: string | undefined,
+  field: string | undefined,
+): WorkflowRunStepDetailDto['error'] {
+  if (!reason) return null;
+  const message =
+    code === 'access-denied' ? 'Slack rejected the token.' : 'Tool output was invalid.';
+  return {
+    message,
+    reason,
+    ...(code ? {code} : {}),
+    ...(field ? {field, source: 'resolved'} : {}),
+  };
+}
+
+function configureToolDetailResponse() {
+  configureApiClient({
+    fetchImpl: vi.fn(async () =>
+      jsonResponse({
+        step_id: STEP_ID,
+        attempt: 1,
+        authored_config: {
+          tool: {
+            provider: 'slack',
+            connection: 'release-notifications',
+            id: 'chat_post_message',
+            with: {channel: `\${{ inputs.channel }}`},
+          },
+        },
+        config: {
+          tool: {
+            provider: 'slack',
+            connection_slug: 'release-notifications',
+            id: 'chat_post_message',
+            with: {channel: '#releases', text: 'Version 2.4.0 is live.'},
+          },
+        },
+        evaluation_trace: null,
+      }),
+    ),
+  });
 }
 
 function jsonResponse(body: unknown, init: ResponseInit = {}): Response {

@@ -649,6 +649,100 @@ describe('workflow run model mapping', () => {
     expect(detail.jobs[0]?.jobExecutions[0]?.steps[0]?.agentConfig).toBeNull();
   });
 
+  test('maps tool configuration, invocation history, and structured errors', () => {
+    const attempt = workflowStepAttemptDto({
+      status: 'failed',
+      invocations: [
+        {
+          call_index: 0,
+          started_at: '2026-09-01T09:00:00.000Z',
+          finished_at: '2026-09-01T09:00:00.412Z',
+          outcome: 'error',
+          error_code: 'access-denied',
+          duration_ms: 412,
+        },
+        {
+          call_index: 1,
+          started_at: '2026-09-01T09:00:01.000Z',
+          next_due_at: '2026-09-01T09:00:06.000Z',
+        },
+      ],
+    });
+    const step = workflowStepDto({
+      type: 'tool',
+      config: {
+        tool: {
+          provider: 'slack',
+          connection_slug: 'release-notifications',
+          id: 'chat_post_message',
+          method: 'post',
+          sensitivity: 'write',
+        },
+      },
+      error: {
+        message: 'Slack rejected the token.',
+        code: 'access-denied',
+        reason: 'tool_error',
+        field: 'tool.with.channel',
+        source: 'resolved',
+      },
+      attempts: [attempt],
+    });
+
+    const detail = toWorkflowRunDetail(
+      workflowRunDetailDto({jobs: [workflowJobDto({steps: [step]})]}),
+    );
+    const mappedStep = detail.jobs[0]?.jobExecutions[0]?.steps[0];
+
+    expect(mappedStep?.toolConfig).toEqual({
+      provider: 'slack',
+      connectionSlug: 'release-notifications',
+      toolId: 'chat_post_message',
+      method: 'post',
+      sensitivity: 'write',
+    });
+    expect(mappedStep?.error).toMatchObject({
+      code: 'access-denied',
+      field: 'tool.with.channel',
+      source: 'resolved',
+    });
+    expect(mappedStep?.attempts[0]?.invocations).toEqual([
+      {
+        callIndex: 0,
+        startedAt: '2026-09-01T09:00:00.000Z',
+        finishedAt: '2026-09-01T09:00:00.412Z',
+        outcome: 'error',
+        errorCode: 'access-denied',
+        durationMs: 412,
+      },
+      {
+        callIndex: 1,
+        startedAt: '2026-09-01T09:00:01.000Z',
+        nextDueAt: '2026-09-01T09:00:06.000Z',
+      },
+    ]);
+  });
+
+  test('leaves non-tool steps without tool configuration', () => {
+    const step = workflowStepDto({
+      type: 'run',
+      config: {
+        tool: {
+          provider: 'slack',
+          connection_slug: 'release-notifications',
+          id: 'chat_post_message',
+          sensitivity: 'write',
+        },
+      },
+    });
+
+    const detail = toWorkflowRunDetail(
+      workflowRunDetailDto({jobs: [workflowJobDto({steps: [step]})]}),
+    );
+
+    expect(detail.jobs[0]?.jobExecutions[0]?.steps[0]?.toolConfig).toBeNull();
+  });
+
   test('maps run attempt summaries', () => {
     const dto = workflowRunAttemptDto({
       id: '77777777-7777-4777-8777-777777777777',

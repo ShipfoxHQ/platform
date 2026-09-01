@@ -231,6 +231,7 @@ export function toStep(dto: WorkflowRunStepDetailDto): Step {
     config: dto.config,
     evaluationTrace: toEvaluationTrace(dto.evaluation_trace),
     agentConfig: toAgentStepConfig(dto),
+    toolConfig: toToolStepConfig(dto),
     error: dto.error
       ? {
           message: dto.error.message,
@@ -238,6 +239,8 @@ export function toStep(dto: WorkflowRunStepDetailDto): Step {
           ...(dto.error.managed_provider_id === undefined
             ? {}
             : {managedProviderId: dto.error.managed_provider_id}),
+          ...(dto.error.field === undefined ? {} : {field: dto.error.field}),
+          ...(dto.error.source === undefined ? {} : {source: dto.error.source}),
           exitCode: dto.error.exit_code ?? null,
           signal: dto.error.signal,
           reason: dto.error.reason,
@@ -268,6 +271,15 @@ export function toStepAttempt(dto: StepAttemptDto, jobExecutionId: string): Step
     error: dto.error ?? null,
     gateResult: toStepGateResult(dto.gate_result),
     restartFeedback: dto.restart_feedback ?? null,
+    invocations: dto.invocations.map((invocation) => ({
+      callIndex: invocation.call_index,
+      startedAt: invocation.started_at,
+      ...(invocation.finished_at === undefined ? {} : {finishedAt: invocation.finished_at}),
+      ...(invocation.outcome === undefined ? {} : {outcome: invocation.outcome}),
+      ...(invocation.error_code === undefined ? {} : {errorCode: invocation.error_code}),
+      ...(invocation.duration_ms === undefined ? {} : {durationMs: invocation.duration_ms}),
+      ...(invocation.next_due_at === undefined ? {} : {nextDueAt: invocation.next_due_at}),
+    })),
     startedAt: dto.started_at,
     finishedAt: dto.finished_at ?? null,
   });
@@ -284,6 +296,7 @@ export function toStepAttemptDetail(dto: StepAttemptDetailResponseDto) {
     session: mappedSession,
     authoredConfig: dto.authored_config,
     config: dto.config,
+    toolArguments: toolConfigValue(dto.config)?.with ?? null,
     evaluationTrace: toEvaluationTrace(dto.evaluation_trace),
   };
 }
@@ -357,6 +370,30 @@ function toAgentStepConfig(dto: WorkflowRunStepDetailDto): Step['agentConfig'] {
     model: stringConfigValue(dto.config.model),
     thinking: stringConfigValue(dto.config.thinking),
   };
+}
+
+function toToolStepConfig(dto: WorkflowRunStepDetailDto): Step['toolConfig'] {
+  if (dto.type !== 'tool') return null;
+  const tool = toolConfigValue(dto.config);
+  const sensitivity = tool?.sensitivity;
+  const method = stringConfigValue(tool?.method);
+  return {
+    provider: stringConfigValue(tool?.provider),
+    connectionSlug: stringConfigValue(tool?.connection_slug),
+    toolId: stringConfigValue(tool?.id),
+    ...(method === null ? {} : {method}),
+    sensitivity: sensitivity === 'read' || sensitivity === 'write' ? sensitivity : null,
+  };
+}
+
+function toolConfigValue(config: Record<string, unknown> | null): Record<string, unknown> | null {
+  return recordConfigValue(config?.tool);
+}
+
+function recordConfigValue(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }
 
 function stringConfigValue(value: unknown): string | null {

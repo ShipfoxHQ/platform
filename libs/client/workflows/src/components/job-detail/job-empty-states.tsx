@@ -280,18 +280,28 @@ export function toSelectedAttemptError(
 
   if (resolvedReason === undefined) return null;
 
-  const code = typeof error.code === 'string' ? error.code : undefined;
+  const stringFields = selectedErrorStringFields(error);
   const managedProviderId = selectedManagedProviderId(error);
 
   return {
     message: typeof error.message === 'string' ? error.message : '',
-    ...(code === undefined ? {} : {code}),
+    ...stringFields,
     ...(managedProviderId === undefined ? {} : {managedProviderId}),
     exitCode: exitCode === null || typeof exitCode === 'number' ? exitCode : null,
     signal: typeof error.signal === 'string' ? error.signal : undefined,
     reason: resolvedReason,
     agentConfigIssue,
     category: deriveStepErrorCategory(step.type, resolvedReason),
+  };
+}
+
+function selectedErrorStringFields(
+  error: Record<string, unknown>,
+): Pick<StepError, 'code' | 'field' | 'source'> {
+  return {
+    ...(typeof error.code === 'string' ? {code: error.code} : {}),
+    ...(typeof error.field === 'string' ? {field: error.field} : {}),
+    ...(typeof error.source === 'string' ? {source: error.source} : {}),
   };
 }
 

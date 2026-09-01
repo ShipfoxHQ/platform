@@ -13,7 +13,7 @@ import {
   RouterProvider,
 } from '@tanstack/react-router';
 import {type ReactNode, useState} from 'react';
-import {userEvent, within} from 'storybook/test';
+import {expect, userEvent, waitFor, within} from 'storybook/test';
 import type {RunAnnotationSummary} from '#core/run-annotation.js';
 import type {
   Job,
@@ -192,6 +192,26 @@ export const InspectionData: Story = {
 
 export const RunComposition: Story = {
   render: () => <RunCompositionStory />,
+};
+
+export const TestInvocationLogNavigation: Story = {
+  render: () => <InvocationLogNavigationStory />,
+  play: async ({canvasElement}) => {
+    const canvas = within(canvasElement);
+    const documentBody = within(canvasElement.ownerDocument.body);
+    const toolRow = await canvas.findByRole('button', {
+      name: 'Post release notice, Failed, attempt 1, Slack integration',
+    });
+
+    await userEvent.click(
+      canvas.getByRole('button', {name: 'Inspect Post release notice, attempt 1'}),
+    );
+    await documentBody.findByText('Tool access was denied');
+    await userEvent.click(documentBody.getByRole('button', {name: 'View invocation log'}));
+
+    await waitFor(() => expect(documentBody.queryByRole('dialog')).not.toBeInTheDocument());
+    await waitFor(() => expect(toolRow).toHaveAttribute('aria-expanded', 'true'));
+  },
 };
 
 function JobDetailStoryFrame({
@@ -719,6 +739,7 @@ function stepAttemptDetail({
     session: null,
     authoredConfig,
     config,
+    toolArguments: null,
     evaluationTrace: [
       {
         expression: 'inputs.package',
@@ -738,6 +759,142 @@ function stepAttemptDetail({
       },
     ],
   };
+}
+
+function invocationLogNavigationRun() {
+  const jobId = 'abababab-abab-4bab-8bab-ababababab01';
+  const executionId = 'abababab-abab-4bab-8bab-ababababab02';
+  const firstStepId = 'abababab-abab-4bab-8bab-ababababab03';
+  const firstAttemptId = 'abababab-abab-4bab-8bab-ababababab04';
+  const toolStepId = 'abababab-abab-4bab-8bab-ababababab05';
+  const toolAttemptId = 'abababab-abab-4bab-8bab-ababababab06';
+  const firstStep = workflowStepDto({
+    id: firstStepId,
+    job_execution_id: executionId,
+    key: 'verify',
+    name: 'Verify release',
+    position: 0,
+    status: 'failed',
+    status_reason: 'agent_invocation_failed',
+    error: {message: 'Verification failed.', reason: 'agent_invocation_failed'},
+    attempts: [
+      workflowStepAttemptDto({
+        id: firstAttemptId,
+        step_id: firstStepId,
+        status: 'failed',
+        error: {message: 'Verification failed.', reason: 'agent_invocation_failed'},
+        finished_at: '2026-06-26T11:59:56.000Z',
+      }),
+    ],
+  });
+  const toolError = {
+    message: 'Slack rejected the token.',
+    code: 'access-denied',
+    reason: 'tool_error' as const,
+  };
+  const toolStep = workflowStepDto({
+    id: toolStepId,
+    job_execution_id: executionId,
+    key: 'notify-release',
+    name: 'Post release notice',
+    position: 1,
+    status: 'failed',
+    status_reason: 'tool_error',
+    type: 'tool',
+    config: {
+      tool: {
+        provider: 'slack',
+        connection_slug: 'release-notifications',
+        id: 'chat_post_message',
+        sensitivity: 'write',
+      },
+    },
+    error: toolError,
+    attempts: [
+      workflowStepAttemptDto({
+        id: toolAttemptId,
+        step_id: toolStepId,
+        status: 'failed',
+        error: toolError,
+        invocations: [
+          {
+            call_index: 0,
+            started_at: '2026-06-26T11:59:57.000Z',
+            finished_at: '2026-06-26T11:59:57.412Z',
+            outcome: 'error',
+            error_code: 'access-denied',
+            duration_ms: 412,
+          },
+        ],
+        finished_at: '2026-06-26T11:59:57.412Z',
+      }),
+    ],
+  });
+  const execution = workflowJobExecutionDto({
+    id: executionId,
+    job_id: jobId,
+    status: 'failed',
+    status_reason: 'step_failed',
+    steps: [firstStep, toolStep],
+  });
+  const job = workflowJob({
+    id: jobId,
+    key: 'release',
+    name: 'release',
+    status: 'failed',
+    status_reason: 'step_failed',
+    job_executions: [execution],
+  });
+
+  return {
+    run: storyRun({status: 'failed', jobs: [job]}),
+    jobId,
+    executionId,
+    initialSearch: {
+      jobExecutionId: executionId,
+      stepId: firstStepId,
+      stepAttemptId: firstAttemptId,
+    },
+    stepDetails: [
+      {
+        stepId: toolStepId,
+        attempt: 1,
+        session: null,
+        authoredConfig: null,
+        config: {
+          tool: {
+            provider: 'slack',
+            connection_slug: 'release-notifications',
+            id: 'chat_post_message',
+            with: {channel: '#releases', text: 'Version 2.4.0 is live.'},
+          },
+        },
+        toolArguments: {channel: '#releases', text: 'Version 2.4.0 is live.'},
+        evaluationTrace: null,
+      },
+    ] satisfies StepAttemptDetail[],
+  };
+}
+
+function InvocationLogNavigationStory() {
+  const {run, jobId, executionId, initialSearch, stepDetails} = invocationLogNavigationRun();
+  const [search, setSearch] =
+    useState<Parameters<typeof JobDetailView>[0]['search']>(initialSearch);
+  return (
+    <JobDetailStoryViewport>
+      <StoryQueryProvider run={run} stepDetails={stepDetails}>
+        <JobDetailView
+          workspaceSlug={WORKSPACE_SLUG}
+          projectSlug={PROJECT_SLUG}
+          workflowRunId={run.id}
+          jobId={jobId}
+          search={{...search, jobExecutionId: search.jobExecutionId ?? executionId}}
+          query={makeQuery(run)}
+          onSelectionChange={setSearch}
+        />
+      </StoryQueryProvider>
+    </JobDetailStoryViewport>
+  );
 }
 
 function RunCompositionStory() {
@@ -926,6 +1083,15 @@ function storyStepDto(step: Step) {
       error: attempt.error,
       gate_result: null,
       restart_feedback: attempt.restartFeedback,
+      invocations: attempt.invocations.map((invocation) => ({
+        call_index: invocation.callIndex,
+        started_at: invocation.startedAt,
+        ...(invocation.finishedAt === undefined ? {} : {finished_at: invocation.finishedAt}),
+        ...(invocation.outcome === undefined ? {} : {outcome: invocation.outcome}),
+        ...(invocation.errorCode === undefined ? {} : {error_code: invocation.errorCode}),
+        ...(invocation.durationMs === undefined ? {} : {duration_ms: invocation.durationMs}),
+        ...(invocation.nextDueAt === undefined ? {} : {next_due_at: invocation.nextDueAt}),
+      })),
       started_at: attempt.startedAt,
       finished_at: attempt.finishedAt,
     })),
@@ -936,6 +1102,9 @@ function storyStepErrorDto(step: Step) {
   if (!step.error) return null;
   return {
     message: step.error.message,
+    ...(step.error.code ? {code: step.error.code} : {}),
+    ...(step.error.field ? {field: step.error.field} : {}),
+    ...(step.error.source ? {source: step.error.source} : {}),
     ...(step.error.exitCode !== null ? {exit_code: step.error.exitCode} : {}),
     ...(step.error.signal ? {signal: step.error.signal} : {}),
     ...(step.error.reason ? {reason: step.error.reason} : {}),

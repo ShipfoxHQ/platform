@@ -38,6 +38,7 @@ export type {
   StepErrorCategory,
   StepErrorReason,
   StepSourceLocation,
+  ToolStepConfig,
 } from './entities/step.js';
 export {
   AGENT_CONFIG_ISSUES,
@@ -51,6 +52,7 @@ export type {
   EvaluationTraceValueEntry,
   StepAttemptDetail,
   StepAttemptDisplayDuration,
+  StepAttemptInvocation,
   StepAttemptSession,
   StepGateResult,
 } from './entities/step-attempt.js';

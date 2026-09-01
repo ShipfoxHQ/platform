@@ -685,6 +685,36 @@ describe('StepList', () => {
 
     expect(screen.getByRole('button', {name: `${name}, Pending, attempt 1`})).toBeInTheDocument();
   });
+
+  test('uses the catalog provider name in tool row semantics', () => {
+    render(
+      <StepList
+        job={makeJob({
+          steps: [
+            makeStep({
+              name: 'Post release notice',
+              type: 'tool',
+              config: {
+                tool: {
+                  provider: 'github',
+                  connection_slug: 'release-notifications',
+                  id: 'chat_post_message',
+                  sensitivity: 'write',
+                },
+              },
+              attempts: [makeAttempt({status: 'succeeded'})],
+            }),
+          ],
+        })}
+      />,
+    );
+
+    expect(
+      screen.getByRole('button', {
+        name: 'Post release notice, Succeeded, attempt 1, GitHub integration',
+      }),
+    ).toBeInTheDocument();
+  });
 });
 
 function makeJob(overrides: JobDtoOverrides = {}): Job {

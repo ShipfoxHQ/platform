@@ -67,6 +67,8 @@ export interface StepError {
   message: string;
   code?: string | undefined;
   managedProviderId?: string | undefined;
+  field?: string | undefined;
+  source?: string | undefined;
   exitCode: number | null;
   signal: string | undefined;
   reason: StepErrorReason | undefined;
@@ -78,6 +80,14 @@ export interface AgentStepConfig {
   provider: string | null;
   model: string | null;
   thinking: string | null;
+}
+
+export interface ToolStepConfig {
+  provider: string | null;
+  connectionSlug: string | null;
+  toolId: string | null;
+  method?: string | undefined;
+  sensitivity: 'read' | 'write' | null;
 }
 
 export interface Step {
@@ -92,6 +102,7 @@ export interface Step {
   config: Record<string, unknown>;
   evaluationTrace: EvaluationTraceEntry[] | null;
   agentConfig: AgentStepConfig | null;
+  toolConfig: ToolStepConfig | null;
   error: StepError | null;
   position: number;
   currentAttempt: number;

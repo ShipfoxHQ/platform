@@ -34,6 +34,16 @@ export interface EvaluationTraceLimitEntry {
 
 export type EvaluationTraceEntry = EvaluationTraceValueEntry | EvaluationTraceLimitEntry;
 
+export interface StepAttemptInvocation {
+  callIndex: number;
+  startedAt: string;
+  finishedAt?: string | undefined;
+  outcome?: string | undefined;
+  errorCode?: string | undefined;
+  durationMs?: number | undefined;
+  nextDueAt?: string | undefined;
+}
+
 interface StepAttemptFields {
   id: string;
   stepId: string;
@@ -48,6 +58,7 @@ interface StepAttemptFields {
   error: Record<string, unknown> | null;
   gateResult: StepGateResult;
   restartFeedback: string | null;
+  invocations: StepAttemptInvocation[];
   startedAt: string;
   finishedAt: string | null;
 }
@@ -66,6 +77,7 @@ export class StepAttempt {
   error!: Record<string, unknown> | null;
   gateResult!: StepGateResult;
   restartFeedback!: string | null;
+  invocations!: StepAttemptInvocation[];
   startedAt!: string;
   finishedAt!: string | null;
 
@@ -90,6 +102,7 @@ export interface StepAttemptDetail {
   session: StepAttemptSession | null;
   authoredConfig: Record<string, unknown> | null;
   config: Record<string, unknown> | null;
+  toolArguments: unknown | null;
   evaluationTrace: EvaluationTraceEntry[] | null;
 }
 

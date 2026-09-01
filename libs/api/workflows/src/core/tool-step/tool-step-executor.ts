@@ -311,7 +311,8 @@ function resolveToolCallOutput(
     };
   } catch (error) {
     return {
-      outcome: 'error',
+      outcome: 'output_invalid',
+      result,
       error: {code: 'output_invalid', message: errorMessage(error), reason: 'output_invalid'},
     };
   }
@@ -460,6 +461,7 @@ interface ToolExecutionError {
 
 type ToolExecution =
   | {outcome: 'success'; result: unknown; output: Record<string, unknown>}
+  | {outcome: 'output_invalid'; result: unknown; error: ToolExecutionError}
   | {outcome: 'error'; error: ToolExecutionError};
 
 function interruptedExecution(): ToolExecution {
@@ -535,7 +537,7 @@ async function settleAndRecordToolInvocationInTransaction(
       stepAttemptId: claim.invocation.stepAttemptId,
       claimOwner: claimOwnerFromInvocation(claim),
       callIndex: claim.invocation.callIndex,
-      outcome: execution.outcome === 'success' ? 'success' : 'error',
+      outcome: execution.outcome === 'error' ? 'error' : 'success',
       ...(settledErrorCode(execution) === undefined
         ? {}
         : {errorCode: settledErrorCode(execution)}),
@@ -591,8 +593,7 @@ function recordSettledToolInvocation(
 }
 
 function settledErrorCode(execution: ToolExecution): string | undefined {
-  if (execution.outcome === 'success') return undefined;
-  return execution.error.code;
+  return execution.outcome === 'error' ? execution.error.code : undefined;
 }
 
 async function appendToolInvocationLog(
@@ -606,15 +607,15 @@ async function appendToolInvocationLog(
   const groupId = `tool-${claim.invocation.id}-${claim.invocation.callIndex}`;
   const timestamp = Date.now();
   const result =
-    execution.outcome === 'success'
-      ? execution.result
-      : {
+    execution.outcome === 'error'
+      ? {
           code: execution.error.code,
           message: execution.error.message,
           ...(execution.error.retryAfterSeconds === undefined
             ? {}
             : {retry_after_seconds: execution.error.retryAfterSeconds}),
-        };
+        }
+      : execution.result;
   const sensitive = rawTool.sensitive === true;
   const records: ServerLogRecord[] = [
     {
@@ -754,7 +755,11 @@ function recordToolInvocationDuration(
   durationMs: number,
 ): void {
   if (claim.interrupted) return;
-  recordWorkflowToolInvocationDuration(toolProvider(claim), execution.outcome, durationMs);
+  recordWorkflowToolInvocationDuration(
+    toolProvider(claim),
+    execution.outcome === 'error' ? 'error' : 'success',
+    durationMs,
+  );
 }
 
 function elapsedMilliseconds(startedAt: Date): number {
