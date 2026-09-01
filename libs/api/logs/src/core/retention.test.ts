@@ -71,7 +71,9 @@ describe('runRetentionSweep', () => {
     const id = newIdentity();
     const stream = await arrangeClosedStream(id);
     const key = `${attemptPrefix(id)}/${crypto.randomUUID()}`;
+    const tailKey = `${key}.tail`;
     await putObject(key, Buffer.from('compacted'));
+    await putObject(tailKey, Buffer.from('tail'));
     await setObjectKey(stream.id, key);
     await backdateClosedAt(stream.id, '100 days');
     await jobAccountingFactory.create({jobId: id.jobId, workspaceId: id.workspaceId});
@@ -82,6 +84,7 @@ describe('runRetentionSweep', () => {
     expect(await findStream(id)).toBeNull();
     expect(await listChunks(stream.id)).toHaveLength(0);
     expect(await objectExists(key)).toBe(false);
+    expect(await objectExists(tailKey)).toBe(false);
     expect(await findAccounting(id.jobId)).toBeNull();
   });
 

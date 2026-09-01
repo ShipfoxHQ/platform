@@ -1,8 +1,18 @@
+import {Readable} from 'node:stream';
+import {createGzip} from 'node:zlib';
 import {reportError} from '@shipfox/node-error-monitoring';
 import {logger} from '@shipfox/node-opentelemetry';
 import {Context} from '@temporalio/activity';
-import {compactedObjectKey, deleteObject, putCompactedObject} from '#api/object-storage.js';
-import {compactedGzipStream} from '#core/compaction.js';
+import {
+  compactedObjectKey,
+  compactedTailObjectKey,
+  deleteObject,
+  headObject,
+  putCompactedObject,
+} from '#api/object-storage.js';
+import {type CompactionTailArtifact, compactedGzipStream} from '#core/compaction.js';
+import type {AttemptStream} from '#core/entities/attempt-stream.js';
+import {MAX_STEP_LOG_TAIL_BYTES, MAX_STEP_LOG_TAIL_LINES} from '#core/log-tail.js';
 import {chunkStats} from '#db/chunks.js';
 import {db, type Transaction} from '#db/db.js';
 import {getAttemptStreamById, setObjectKeyAndDeleteChunks} from '#db/streams.js';
@@ -23,7 +33,7 @@ interface CompactStreamDependencies {
   compactedGzipStream: typeof compactedGzipStream;
   setObjectKeyAndDeleteChunks: (
     tx: Transaction,
-    params: {streamId: string; objectKey: string},
+    params: {streamId: string; objectKey: string; lineCount?: number},
   ) => Promise<{updated: boolean}>;
 }
 
@@ -39,17 +49,20 @@ const defaultDependencies: CompactStreamDependencies = {
  *                 ├─ object_key set ───► no-op (idempotent re-run)
  *                 └─ else: upload to a per-attempt key ─► gzip ─► multipart (abort-aware, heartbeat)
  *                          │
- *                 verify streamed count/maxSeq/bytes == table  (mismatch ─► delete upload, throw, retry)
+ *                 verify streamed count/maxSeq/bytes == table and both object heads
+ *                          (mismatch ─► delete both uploads, throw, retry)
  *                          │
- *                 tx: set object_key (state='closed' AND object_key IS NULL) + delete chunks
- *                          └─ 0 rows ─► delete this attempt's upload, then re-read the row:
+ *                 tx: set object_key + line_count (state='closed' AND object_key IS NULL) + delete chunks
+ *                          └─ 0 rows ─► delete both uploads, then re-read the row:
  *                                         gone ─► retention raced · keyed ─► superseded by another attempt
  *
  * Each attempt uploads to its own `compactedObjectKey(stream, uuid)`, so a slow or zombie
- * attempt can never overwrite a published object. The single-winner publish (object_key set
- * + chunk delete, atomic) drops chunks only once a complete object is durable; the integrity
- * check (count, maxSeq, and byte total) guards a read bug from publishing a truncated object
- * before the only copy of the source is gone (S3 part checksums cover byte transfer).
+ * attempt can never overwrite a published object. The single-winner publish (object_key and
+ * line_count set + chunk delete, atomic) drops chunks only once both complete objects are
+ * durable; the integrity check (count, maxSeq, and byte total) guards a read bug from publishing
+ * a truncated object before the only copy of the source is gone (S3 part checksums cover byte
+ * transfer). The compaction reconciliation cron later deletes any non-winner sibling objects,
+ * after the winner is durable, so cleanup cannot race an in-flight loser upload.
  */
 async function compactStream(
   params: {streamId: string},
@@ -61,64 +74,203 @@ async function compactStream(
 
   const ctx = Context.current();
   const uploadKey = compactedObjectKey(stream, crypto.randomUUID());
+  const tailKey = compactedTailObjectKey(uploadKey);
+  let cleanupComplete = false;
+  let published = false;
+
+  const cleanupUploads = async (): Promise<void> => {
+    if (cleanupComplete) return;
+    await deleteCompactionUploads(stream.id, [uploadKey, tailKey]);
+    cleanupComplete = true;
+  };
+
+  const cleanupUnlessPublished = async (): Promise<void> => {
+    // A client-side error can arrive after the publication transaction committed. Never delete
+    // the only durable copies until a fresh primary read proves this attempt did not publish.
+    let current: AttemptStream | null;
+    try {
+      current = await getAttemptStreamById(stream.id);
+    } catch {
+      // Preserve the uploads when the read needed to disambiguate commit state fails. A later
+      // compaction reconciliation pass cleans non-winner siblings after publication is durable.
+      return;
+    }
+    if (current?.objectKey === uploadKey) {
+      cleanupComplete = true;
+      return;
+    }
+    await cleanupUploads();
+  };
+
   const expected = await chunkStats(stream.id);
-  const {body, stats} = dependencies.compactedGzipStream({
-    streamId: stream.id,
-    onPage: () => ctx.heartbeat(),
-  });
+  try {
+    const {stats, artifact} = await uploadCompactionObjects({
+      stream,
+      expected,
+      dependencies,
+      uploadKey,
+      tailKey,
+      heartbeat: () => ctx.heartbeat(),
+      cancellationSignal: ctx.cancellationSignal,
+    });
 
+    const {updated} = await db().transaction((tx) =>
+      dependencies.setObjectKeyAndDeleteChunks(tx, {
+        streamId: stream.id,
+        objectKey: uploadKey,
+        lineCount: artifact.lineCount,
+      }),
+    );
+    if (!updated) {
+      await cleanupUploads();
+      const current = await getAttemptStreamById(stream.id);
+      return {outcome: current ? 'superseded' : 'retention-raced'};
+    }
+
+    published = true;
+    return {
+      outcome: 'compacted',
+      objectKey: uploadKey,
+      chunkCount: stats.chunkCount,
+      uncompressedBytes: stats.uncompressedBytes,
+    };
+  } catch (error) {
+    if (!published) {
+      try {
+        await cleanupUnlessPublished();
+      } catch {
+        // The cleanup helper has already logged and reported each failed delete. Preserve the
+        // original compaction error so Temporal retries the work and the row stays hot.
+      }
+    }
+    throw error;
+  }
+}
+
+async function uploadCompactionObjects(params: {
+  stream: AttemptStream;
+  expected: Awaited<ReturnType<typeof chunkStats>>;
+  dependencies: CompactStreamDependencies;
+  uploadKey: string;
+  tailKey: string;
+  heartbeat: () => void;
+  cancellationSignal: AbortSignal;
+}): Promise<{
+  stats: Awaited<ReturnType<typeof compactedGzipStream>>['stats'];
+  artifact: CompactionTailArtifact;
+}> {
+  const {body, stats, tailArtifact} = params.dependencies.compactedGzipStream({
+    streamId: params.stream.id,
+    onPage: params.heartbeat,
+  });
+  const fullMetadata = {
+    stream_id: params.stream.id,
+    chunk_count: String(params.expected.count),
+    uncompressed_bytes: String(params.expected.uncompressedBytes),
+    last_seq: String(params.expected.maxSeq),
+  };
   await putCompactedObject({
-    key: uploadKey,
+    key: params.uploadKey,
     body,
-    signal: ctx.cancellationSignal,
-    onProgress: () => ctx.heartbeat(),
-    metadata: {
-      stream_id: stream.id,
-      chunk_count: String(expected.count),
-      uncompressed_bytes: String(expected.uncompressedBytes),
-      last_seq: String(expected.maxSeq),
-    },
+    signal: params.cancellationSignal,
+    onProgress: params.heartbeat,
+    metadata: fullMetadata,
   });
 
-  if (
-    stats.chunkCount !== expected.count ||
-    stats.lastSeq !== expected.maxSeq ||
-    stats.uncompressedBytes !== expected.uncompressedBytes
-  ) {
-    await deleteObject(uploadKey).catch((error) => {
+  assertCompactionStatsMatch(params.stream.id, stats, params.expected);
+  const artifact = await tailArtifact;
+  assertTailArtifactWithinBounds(params.stream.id, stats, artifact);
+
+  const tailMetadata = {
+    stream_id: params.stream.id,
+    line_count: String(artifact.lineCount),
+    tail_line_count: String(artifact.tailLineCount),
+    uncompressed_bytes: String(artifact.body.length),
+  };
+  const tailGzip = createGzip();
+  Readable.from([artifact.body]).pipe(tailGzip);
+  await putCompactedObject({
+    key: params.tailKey,
+    body: tailGzip,
+    signal: params.cancellationSignal,
+    onProgress: params.heartbeat,
+    metadata: tailMetadata,
+  });
+
+  await verifyCompactedObject(params.uploadKey, fullMetadata);
+  await verifyCompactedObject(params.tailKey, tailMetadata);
+  return {stats, artifact};
+}
+
+function assertCompactionStatsMatch(
+  streamId: string,
+  stats: Awaited<ReturnType<typeof compactedGzipStream>>['stats'],
+  expected: Awaited<ReturnType<typeof chunkStats>>,
+): void {
+  const matches =
+    stats.chunkCount === expected.count &&
+    stats.lastSeq === expected.maxSeq &&
+    stats.uncompressedBytes === expected.uncompressedBytes;
+  if (matches) return;
+  throw new Error(
+    `Compaction integrity check failed for stream ${streamId}: streamed ${stats.chunkCount} chunks / ${stats.uncompressedBytes} bytes up to seq ${stats.lastSeq}, table holds ${expected.count} / ${expected.uncompressedBytes} bytes up to seq ${expected.maxSeq}`,
+  );
+}
+
+function assertTailArtifactWithinBounds(
+  streamId: string,
+  stats: Awaited<ReturnType<typeof compactedGzipStream>>['stats'],
+  artifact: CompactionTailArtifact,
+): void {
+  const withinBounds =
+    artifact.body.length <= MAX_STEP_LOG_TAIL_BYTES &&
+    artifact.tailLineCount <= MAX_STEP_LOG_TAIL_LINES &&
+    artifact.tailLineCount >= 0 &&
+    artifact.lineCount >= artifact.tailLineCount &&
+    (stats.lineCount === undefined || stats.lineCount === artifact.lineCount);
+  if (!withinBounds) {
+    throw new Error(`Compaction tail artifact exceeded its bounds for stream ${streamId}`);
+  }
+}
+
+async function deleteCompactionUploads(streamId: string, keys: readonly string[]): Promise<void> {
+  const failures: unknown[] = [];
+  for (const key of keys) {
+    try {
+      await deleteObject(key);
+    } catch (error) {
+      failures.push(error);
       logger().error(
-        {err: error, streamId: stream.id, objectKey: uploadKey},
-        'Failed to delete invalid compacted log object',
+        {err: error, streamId, objectKey: key},
+        'Failed to delete temporary compacted log object',
       );
       reportError(error, {
         boundary: 'logs.cleanup',
-        operation: 'delete-invalid-compaction-object',
-        extra: {streamId: stream.id, objectKey: uploadKey},
+        operation: 'delete-compaction-object',
+        extra: {streamId, objectKey: key},
       });
-    });
-    throw new Error(
-      `Compaction integrity check failed for stream ${stream.id}: streamed ${stats.chunkCount} chunks / ${stats.uncompressedBytes} bytes up to seq ${stats.lastSeq}, table holds ${expected.count} / ${expected.uncompressedBytes} bytes up to seq ${expected.maxSeq}`,
-    );
+    }
   }
+  if (failures.length > 0) throw failures[0];
+}
 
-  const {updated} = await db().transaction((tx) =>
-    dependencies.setObjectKeyAndDeleteChunks(tx, {
-      streamId: stream.id,
-      objectKey: uploadKey,
-    }),
-  );
-  if (!updated) {
-    await deleteObject(uploadKey);
-    const current = await getAttemptStreamById(stream.id);
-    return {outcome: current ? 'superseded' : 'retention-raced'};
+async function verifyCompactedObject(
+  key: string,
+  expectedMetadata: Record<string, string>,
+): Promise<void> {
+  const head = await headObject(key);
+  if (!head) throw new Error(`Compacted log object ${key} disappeared before publication`);
+  if (head.contentType !== 'application/x-ndjson' || head.contentEncoding !== 'gzip') {
+    throw new Error(`Compacted log object ${key} has unexpected content metadata`);
   }
-
-  return {
-    outcome: 'compacted',
-    objectKey: uploadKey,
-    chunkCount: stats.chunkCount,
-    uncompressedBytes: stats.uncompressedBytes,
-  };
+  if (head.contentLength === undefined || head.contentLength <= 0) {
+    throw new Error(`Compacted log object ${key} has no stored bytes`);
+  }
+  for (const [name, value] of Object.entries(expectedMetadata)) {
+    if (head.metadata[name] !== value) {
+      throw new Error(`Compacted log object ${key} has unexpected ${name} metadata`);
+    }
+  }
 }
 
 export function createCompactStreamActivity(

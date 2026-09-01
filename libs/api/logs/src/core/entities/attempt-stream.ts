@@ -37,6 +37,8 @@ export interface AttemptStream {
   claudePendingResult: SessionViewLifecycleRow | null;
   claudePendingToolRows: SessionViewRow[];
   truncated: boolean;
+  /** Total stored NDJSON records, populated when compaction publishes the cold objects. */
+  lineCount: number | null;
   objectKey: string | null;
   createdAt: Date;
   updatedAt: Date;

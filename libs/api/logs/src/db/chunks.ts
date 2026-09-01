@@ -1,5 +1,5 @@
 import {Buffer} from 'node:buffer';
-import {and, asc, eq, gt, lte, or, sql} from 'drizzle-orm';
+import {and, asc, desc, eq, gt, inArray, lt, lte, or, sql} from 'drizzle-orm';
 import {db, type Transaction} from './db.js';
 import {type ChunkOrigin, logChunks} from './schema/chunks.js';
 
@@ -70,6 +70,54 @@ export async function readChunksKeyset(params: {
     .orderBy(asc(logChunks.seq))
     .limit(params.limit);
   return rows;
+}
+
+export interface ReverseChunkPage {
+  rows: ChunkPageRow[];
+  hasMore: boolean;
+}
+
+/**
+ * One byte-bounded reverse keyset page for a hot tail read. The cheap `(seq, byte_len)` scan
+ * selects the newest prefix first, so the heavy `data` column is only materialized for chunks
+ * that fit in the page. At least one chunk is returned to advance the cursor when a single
+ * chunk exceeds `maxBytes`.
+ */
+export async function readChunksReverse(params: {
+  streamId: string;
+  beforeSeq?: number;
+  limit: number;
+  maxBytes: number;
+}): Promise<ReverseChunkPage> {
+  const metadata = await db()
+    .select({seq: logChunks.seq, byteLen: logChunks.byteLen})
+    .from(logChunks)
+    .where(
+      and(
+        eq(logChunks.streamId, params.streamId),
+        params.beforeSeq === undefined ? undefined : lt(logChunks.seq, params.beforeSeq),
+      ),
+    )
+    .orderBy(desc(logChunks.seq))
+    .limit(params.limit + 1);
+
+  if (metadata.length === 0) return {rows: [], hasMore: false};
+
+  let selectedBytes = 0;
+  const selectedSeqs: number[] = [];
+  for (const row of metadata) {
+    if (selectedSeqs.length > 0 && selectedBytes + row.byteLen > params.maxBytes) break;
+    selectedBytes += row.byteLen;
+    selectedSeqs.push(row.seq);
+    if (selectedSeqs.length >= params.limit) break;
+  }
+
+  const rows = await db()
+    .select({seq: logChunks.seq, data: logChunks.data})
+    .from(logChunks)
+    .where(and(eq(logChunks.streamId, params.streamId), inArray(logChunks.seq, selectedSeqs)))
+    .orderBy(desc(logChunks.seq));
+  return {rows, hasMore: selectedSeqs.length < metadata.length};
 }
 
 export interface ChunkPage {

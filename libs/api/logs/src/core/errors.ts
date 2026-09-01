@@ -51,3 +51,11 @@ export class LeaseStreamMismatchError extends Error {
     this.name = 'LeaseStreamMismatchError';
   }
 }
+
+/** The stream row points at a compacted object that is not currently readable. */
+export class CompactedLogUnavailableError extends Error {
+  constructor() {
+    super('Compacted log is unavailable');
+    this.name = 'CompactedLogUnavailableError';
+  }
+}

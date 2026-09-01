@@ -6,6 +6,7 @@ import {
   resolveObjectStorageS3Profile,
   type S3ObjectStore,
   type StoredObjectHead,
+  type StoredObjectStream,
 } from '@shipfox/node-object-storage';
 import {logger} from '@shipfox/node-opentelemetry';
 import {config} from '#config.js';
@@ -45,6 +46,11 @@ export function checkBucketReachable(): Promise<boolean> {
 
 export function compactedObjectKey(identity: LogObjectKeyParams, uploadToken: string): string {
   return `${logObjectKey(config.LOG_STORAGE_S3_PREFIX, identity)}/${uploadToken}`;
+}
+
+/** The bounded cold tail is a sibling object of the full compacted stream. */
+export function compactedTailObjectKey(fullObjectKey: string): string {
+  return `${fullObjectKey}.tail`;
 }
 
 const UPLOAD_PART_SIZE = 5 * 1024 * 1024;
@@ -94,6 +100,10 @@ export async function deleteObjectsByPrefix(prefix: string): Promise<void> {
 
 export async function getObjectBytes(key: string): Promise<Buffer | null> {
   return (await objectStore().getBytes(key))?.body ?? null;
+}
+
+export function getObjectStream(key: string): Promise<StoredObjectStream | null> {
+  return objectStore().getStream(key);
 }
 
 export function headObject(key: string): Promise<StoredObjectHead | null> {

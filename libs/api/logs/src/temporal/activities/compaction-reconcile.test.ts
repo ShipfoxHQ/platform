@@ -1,6 +1,16 @@
+import {Buffer} from 'node:buffer';
 import {eq, sql} from 'drizzle-orm';
+import {
+  compactedTailObjectKey,
+  deleteObject,
+  listObjectKeys,
+  putObjectBytes,
+} from '#api/object-storage.js';
+import {config} from '#config.js';
+import {logObjectKey} from '#core/entities/log-object.js';
 import {db} from '#db/db.js';
 import {attemptStreams} from '#db/schema/attempt-streams.js';
+import {listStaleCompactedStreams} from '#db/streams.js';
 import {LOGS_COMPACTION_TASK_QUEUE} from '#temporal/constants.js';
 import {arrangeClosedStream, type ClosedStreamIdentity} from '#test/fixtures/closed-stream.js';
 import {ndjsonBody, outputLine} from '#test/fixtures/ndjson.js';
@@ -25,6 +35,10 @@ function newIdentity(): ClosedStreamIdentity {
     projectId: crypto.randomUUID(),
     workflowRunAttemptId: crypto.randomUUID(),
   };
+}
+
+function attemptPrefix(identity: ClosedStreamIdentity): string {
+  return `${logObjectKey(config.LOG_STORAGE_S3_PREFIX, identity)}/`;
 }
 
 async function backdateClosedAt(streamId: string): Promise<void> {
@@ -94,6 +108,42 @@ describe('compactionReconcileActivity', () => {
       'compactStream',
       expect.objectContaining({workflowId: `logs-compact:${stream.id}`}),
     );
+  });
+
+  it('reconciles temporary siblings after a compacted winner is durable', async () => {
+    const identity = newIdentity();
+    const stream = await arrangeClosedStream(identity, {
+      chunks: [ndjsonBody(outputLine('x\n'))],
+    });
+    const prefix = attemptPrefix(identity);
+    const winner = `${prefix}winner`;
+    const winnerTail = compactedTailObjectKey(winner);
+    const orphan = `${prefix}orphan`;
+    const orphanTail = compactedTailObjectKey(orphan);
+    await putObjectBytes(winner, Buffer.from('winner'));
+    await putObjectBytes(winnerTail, Buffer.from('winner tail'));
+    await putObjectBytes(orphan, Buffer.from('orphan'));
+    await putObjectBytes(orphanTail, Buffer.from('orphan tail'));
+    await db()
+      .update(attemptStreams)
+      .set({objectKey: winner})
+      .where(eq(attemptStreams.id, stream.id));
+    await backdateClosedAt(stream.id);
+
+    const result = await compactionReconcileActivity();
+
+    expect(result.reconciled).toBeGreaterThanOrEqual(1);
+    expect(await listObjectKeys(prefix)).toEqual([winner, winnerTail]);
+    expect(
+      (
+        await listStaleCompactedStreams({
+          olderThanSeconds: config.LOG_COMPACTION_RECONCILE_STALE_SECONDS,
+          limit: 100,
+        })
+      ).some(({id}) => id === stream.id),
+    ).toBe(false);
+    await deleteObject(winner);
+    await deleteObject(winnerTail);
   });
 
   it('swallows an already-started workflow so a still-running compaction is left alone', async () => {

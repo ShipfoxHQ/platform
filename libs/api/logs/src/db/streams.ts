@@ -1,5 +1,16 @@
 import type {SessionViewLifecycleRow, SessionViewRow} from '@shipfox/api-logs-dto';
-import {and, asc, eq, getTableColumns, isNull, lt, notInArray, sql} from 'drizzle-orm';
+import {
+  and,
+  asc,
+  eq,
+  getTableColumns,
+  isNotNull,
+  isNull,
+  lt,
+  notInArray,
+  or,
+  sql,
+} from 'drizzle-orm';
 import type {AttemptStream, StreamCloseReason} from '#core/entities/attempt-stream.js';
 import {LeaseStreamMismatchError} from '#core/errors.js';
 import {db, type Transaction} from './db.js';
@@ -255,21 +266,25 @@ export async function getAttemptStreamByIdInTransaction(
 }
 
 /**
- * Final compaction step: records the object key and deletes the now-cold chunk rows in one
- * transaction. The guard is `state='closed' AND object_key IS NULL`, so the publish is a
+ * Final compaction step: records the object key and line count and deletes the now-cold chunk rows
+ * in one transaction. The guard is `state='closed' AND object_key IS NULL`, so the publish is a
  * single winner even when two compaction attempts (e.g. a heartbeat-timed-out run and its
  * retry) race: each uploads to its own key, and only the first to land here writes a key and
  * drops the chunks. A 0-row result means the row was either hard-deleted by retention or
  * already published by another attempt; the caller re-reads to tell those apart and deletes
- * its own now-orphaned upload either way. Returns whether this attempt won the publish.
+ * its own now-orphaned uploads either way. Returns whether this attempt won the publish.
  */
 export async function setObjectKeyAndDeleteChunks(
   tx: Transaction,
-  params: {streamId: string; objectKey: string},
+  params: {streamId: string; objectKey: string; lineCount?: number},
 ): Promise<{updated: boolean}> {
   const updated = await tx
     .update(attemptStreams)
-    .set({objectKey: params.objectKey, updatedAt: sql`now()`})
+    .set({
+      objectKey: params.objectKey,
+      ...(params.lineCount === undefined ? {} : {lineCount: params.lineCount}),
+      updatedAt: sql`now()`,
+    })
     .where(
       and(
         eq(attemptStreams.id, params.streamId),
@@ -309,6 +324,54 @@ export async function listStaleUncompactedStreams(params: {
     .limit(params.limit);
 
   return rows.map(toAttemptStream);
+}
+
+/**
+ * Closed streams whose winner is old enough for orphan reconciliation and whose last successful
+ * reconciliation is outside the stale window. The winner remains untouched; the compaction
+ * reconcile activity removes any temporary sibling objects under the stream prefix after this
+ * query returns. The dedicated reconciliation timestamp avoids late closed-stream upserts
+ * postponing cleanup.
+ */
+export async function listStaleCompactedStreams(params: {
+  olderThanSeconds: number;
+  limit: number;
+}): Promise<AttemptStream[]> {
+  const rows = await db()
+    .select()
+    .from(attemptStreams)
+    .where(
+      and(
+        eq(attemptStreams.state, 'closed'),
+        isNotNull(attemptStreams.objectKey),
+        lt(attemptStreams.closedAt, sql`now() - make_interval(secs => ${params.olderThanSeconds})`),
+        or(
+          isNull(attemptStreams.compactionReconciledAt),
+          lt(
+            attemptStreams.compactionReconciledAt,
+            sql`now() - make_interval(secs => ${params.olderThanSeconds})`,
+          ),
+        ),
+      ),
+    )
+    .orderBy(asc(attemptStreams.closedAt))
+    .limit(params.limit);
+
+  return rows.map(toAttemptStream);
+}
+
+/** Advances the durable cooldown after a compacted stream's sibling objects were reconciled. */
+export async function markCompactedStreamReconciled(streamId: string): Promise<void> {
+  await db()
+    .update(attemptStreams)
+    .set({compactionReconciledAt: sql`now()`})
+    .where(
+      and(
+        eq(attemptStreams.id, streamId),
+        eq(attemptStreams.state, 'closed'),
+        isNotNull(attemptStreams.objectKey),
+      ),
+    );
 }
 
 /**

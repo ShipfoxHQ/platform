@@ -48,3 +48,4 @@ export {
   sessionViewToolCallRowSchema,
   sessionViewToolResultRowSchema,
 } from './schemas/index.js';
+export {DEFAULT_STEP_LOG_TAIL_LINES, MAX_STEP_LOG_TAIL_LINES} from './tail.js';

@@ -28,6 +28,10 @@ import {pgTable} from './common.js';
  * `truncated` is an out-of-band terminal flag set when the timeout sweep
  * force-closes a stream the runner never ended; the `AttemptStream` entity is the
  * canonical reference for what it means.
+ * `line_count` is populated when compaction publishes the cold objects, so hot reads can omit
+ * the count while cold reads can report it without scanning the full stream.
+ * `compaction_reconciled_at` throttles orphan cleanup without relying on `updated_at`, which late
+ * appends can refresh even after a stream is closed.
  *
  * Per-row `committed_length` and `declared_total_bytes` are bounded by the
  * per-job budget, so `mode: 'number'` is safe on the hot path. Any cross-row
@@ -57,6 +61,8 @@ export const attemptStreams = pgTable(
     claudePendingResult: jsonb('claude_pending_result').$type<SessionViewLifecycleRow>(),
     claudePendingToolRows: jsonb('claude_pending_tool_rows').$type<SessionViewRow[]>(),
     truncated: boolean('truncated').notNull().default(false),
+    lineCount: bigint('line_count', {mode: 'number'}),
+    compactionReconciledAt: timestamp('compaction_reconciled_at', {withTimezone: true}),
     objectKey: text('object_key'),
     createdAt: timestamp('created_at', {withTimezone: true}).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', {withTimezone: true}).notNull().defaultNow(),
@@ -85,6 +91,10 @@ export const attemptStreams = pgTable(
     index('logs_attempt_streams_uncompacted_idx')
       .on(table.closedAt)
       .where(sql`"state" = 'closed' and "object_key" is null`),
+    // Compaction reconciliation scans durable closed streams by close age and its cooldown.
+    index('logs_attempt_streams_compaction_reconciliation_idx')
+      .on(table.closedAt, table.compactionReconciledAt)
+      .where(sql`"state" = 'closed' and "object_key" is not null`),
   ],
 );
 
@@ -110,6 +120,7 @@ export function toAttemptStream(row: AttemptStreamDb): AttemptStream {
     claudePendingResult: row.claudePendingResult ?? null,
     claudePendingToolRows: row.claudePendingToolRows ?? [],
     truncated: row.truncated,
+    lineCount: row.lineCount ?? null,
     objectKey: row.objectKey,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
