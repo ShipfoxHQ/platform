@@ -1,4 +1,3 @@
-import type {IntegrationsModuleClient} from '@shipfox/api-integration-core-dto/inter-module';
 import {projectsInterModuleContract} from '@shipfox/api-projects-dto/inter-module';
 import {
   createInterModuleKnownError,
@@ -13,12 +12,11 @@ import {
   getWorkspaceProjectCounts,
   listProjects,
   resolveCheckoutTarget,
-  updateProjectSourceMetadata,
 } from '#db/projects.js';
 
-export function createProjectsInterModulePresentation(params: {
-  integrations: Pick<IntegrationsModuleClient, 'resolveSourceRepository'>;
-}): InterModulePresentation<typeof projectsInterModuleContract> {
+export function createProjectsInterModulePresentation(): InterModulePresentation<
+  typeof projectsInterModuleContract
+> {
   return defineInterModulePresentation(projectsInterModuleContract, {
     getProjectById: async ({projectId}) => ({project: (await getProjectById(projectId)) ?? null}),
     getProjectBySource: async (input) => ({
@@ -72,55 +70,6 @@ export function createProjectsInterModulePresentation(params: {
         );
       }
 
-      if ('repository' in input.target) {
-        const source = await params.integrations
-          .resolveSourceRepository({
-            workspaceId: input.workspaceId,
-            connectionId: target.connectionId,
-            externalRepositoryId: target.externalRepositoryId,
-          })
-          .catch(() => undefined);
-        if (source === undefined) {
-          throw createInterModuleKnownError(
-            projectsInterModuleContract.methods.resolveCheckoutTarget,
-            'checkout-repository-not-authorized',
-            {},
-          );
-        }
-
-        const {owner: requestedOwner, name: requestedName} = requestedRepository(
-          input.target.repository,
-          input.defaults.owner,
-        );
-        const repositoryMatches =
-          source.repository.owner.toLowerCase() === requestedOwner.toLowerCase() &&
-          source.repository.name.toLowerCase() === requestedName.toLowerCase();
-
-        await updateProjectSourceMetadata({
-          workspaceId: input.workspaceId,
-          projectId: target.projectId,
-          sourceConnectionId: source.connection.id,
-          sourceExternalRepositoryId: source.repository.externalRepositoryId,
-          sourceRepositoryOwner: source.repository.owner,
-          sourceRepositoryName: source.repository.name,
-          sourceDefaultBranch: source.repository.defaultBranch,
-        });
-
-        if (!repositoryMatches) {
-          throw createInterModuleKnownError(
-            projectsInterModuleContract.methods.resolveCheckoutTarget,
-            'checkout-repository-not-authorized',
-            {},
-          );
-        }
-
-        return {
-          ...target,
-          connectionId: source.connection.id,
-          externalRepositoryId: source.repository.externalRepositoryId,
-        };
-      }
-
       return target;
     },
   });
@@ -164,13 +113,4 @@ function toProjectInterModule(project: Project) {
     sourceDefaultBranch: project.sourceDefaultBranch,
     name: project.name,
   };
-}
-
-function requestedRepository(
-  repository: string,
-  defaultOwner: string,
-): {owner: string; name: string} {
-  const separator = repository.indexOf('/');
-  if (separator === -1) return {owner: defaultOwner, name: repository};
-  return {owner: repository.slice(0, separator), name: repository.slice(separator + 1)};
 }

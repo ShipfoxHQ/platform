@@ -26,17 +26,15 @@ const projectCursorSchema = z.object({
   createdAt: z.string().datetime(),
   id: idSchema,
 });
-const checkoutTargetSchema = z.union([
-  z.strictObject({project: idSchema}),
-  z.strictObject({
-    connection: idSchema.optional(),
-    repository: z.string().min(1),
-  }),
-]);
+const checkoutTargetSchema = z.strictObject({project: idSchema});
+const resolvedCheckoutTargetValue = z.strictObject({
+  kind: z.literal('external-id'),
+  externalRepositoryId: z.string(),
+});
 const resolvedCheckoutTargetSchema = z.object({
   projectId: idSchema,
   connectionId: idSchema,
-  externalRepositoryId: z.string(),
+  target: resolvedCheckoutTargetValue,
 });
 
 /** Producer-owned project lookup and workspace ownership operations. */
@@ -101,7 +99,6 @@ export const projectsInterModuleContract = defineInterModuleContract({
     resolveCheckoutTarget: {
       input: z.object({
         workspaceId: idSchema,
-        defaults: z.object({connectionId: idSchema, owner: z.string().min(1)}),
         target: checkoutTargetSchema,
       }),
       output: resolvedCheckoutTargetSchema,

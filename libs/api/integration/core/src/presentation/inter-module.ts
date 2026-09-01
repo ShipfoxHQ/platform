@@ -26,13 +26,19 @@ import {
   IntegrationConnectionWorkspaceMismatchError,
   IntegrationProviderError,
   IntegrationProviderUnavailableError,
+  IntegrationRepositoryAuthorizationError,
+  RepositoryAuthorizerConfigurationError,
 } from '#core/errors.js';
 import {buildFixedEventProviders, buildProviderEventCatalogs} from '#core/event-catalogs.js';
 import type {AgentToolCatalogEntry} from '#core/providers/agent-tools.js';
 import type {IntegrationProviderRegistry} from '#core/providers/registry.js';
-import type {CheckoutSpec} from '#core/providers/source-control.js';
+import type {CheckoutSpec, CheckoutTarget} from '#core/providers/source-control.js';
 import type {RepositoryAuthorizer} from '#core/repository-authorizer.js';
-import type {IntegrationSourceControlService} from '#core/source-control-service.js';
+import {RepositoryAuthorizationTargetInvalidError} from '#core/repository-authorizer.js';
+import type {
+  AuthorizedCheckoutSpec,
+  IntegrationSourceControlService,
+} from '#core/source-control-service.js';
 import {
   createIntegrationToolCallRecorder,
   INVALID_METHOD_LABEL,
@@ -65,6 +71,7 @@ type CheckoutCredentialsDto = {
 type CheckoutSpecDto = {
   repositoryUrl: string;
   ref: string;
+  target: NonNullable<CheckoutSpec['target']>;
   credentials?: CheckoutCredentialsDto;
   gitAuthor?: {name: string; email: string};
 };
@@ -91,10 +98,11 @@ function toCheckoutCredentialsDto(
   return result;
 }
 
-function toCheckoutSpecDto(spec: CheckoutSpec): CheckoutSpecDto {
+function toCheckoutSpecDto(spec: AuthorizedCheckoutSpec): CheckoutSpecDto {
   const result: CheckoutSpecDto = {
     repositoryUrl: spec.repositoryUrl,
     ref: spec.ref,
+    target: spec.target,
   };
   if (spec.credentials !== undefined) {
     result.credentials = toCheckoutCredentialsDto(spec.credentials);
@@ -479,7 +487,7 @@ function toCallToolOutput(outcome: IntegrationToolCallOutcome): CallToolOutput {
 
 async function known<Output>(
   method: InterModuleMethodContract,
-  input: {connectionId?: string; defaultConnectionId?: string; ref?: string | undefined},
+  input: ErrorMappingInput,
   operation: () => Promise<Output>,
 ): Promise<Output> {
   try {
@@ -490,17 +498,86 @@ async function known<Output>(
 }
 function mapError(
   method: InterModuleMethodContract,
-  input: {connectionId?: string; defaultConnectionId?: string; ref?: string | undefined},
+  input: ErrorMappingInput,
   error: unknown,
 ): unknown {
   const connectionError = mapConnectionError(method, input, error);
   if (connectionError !== undefined) return connectionError;
+  const repositoryAuthorizationError = mapRepositoryAuthorizationError(method, input, error);
+  if (repositoryAuthorizationError !== undefined) return repositoryAuthorizationError;
   return mapProviderError(method, input, error);
+}
+
+type ErrorMappingInput = {
+  workspaceId?: string | undefined;
+  connectionId?: string | undefined;
+  defaultConnectionId?: string | undefined;
+  target?: CheckoutTarget | undefined;
+  externalRepositoryId?: string | undefined;
+  ref?: string | undefined;
+};
+
+function mapRepositoryAuthorizationError(
+  method: InterModuleMethodContract,
+  input: ErrorMappingInput,
+  error: unknown,
+): unknown | undefined {
+  const details = repositoryAuthorizationDetails(input);
+
+  if (error instanceof RepositoryAuthorizerConfigurationError) {
+    if ('repository-authorization-unavailable' in method.errors) {
+      return createInterModuleKnownError(method, 'repository-authorization-unavailable', details);
+    }
+    return undefined;
+  }
+  if (error instanceof RepositoryAuthorizationTargetInvalidError) {
+    if ('repository-authorization-target-invalid' in method.errors) {
+      return createInterModuleKnownError(
+        method,
+        'repository-authorization-target-invalid',
+        details,
+      );
+    }
+    return undefined;
+  }
+  if (!(error instanceof IntegrationRepositoryAuthorizationError)) return undefined;
+
+  switch (error.reason) {
+    case 'repository_not_granted':
+      if ('repository-not-granted' in method.errors) {
+        return createInterModuleKnownError(method, 'repository-not-granted', details);
+      }
+      break;
+    case 'repository_ambiguous':
+      if ('repository-ambiguous' in method.errors) {
+        return createInterModuleKnownError(method, 'repository-ambiguous', details);
+      }
+      break;
+    case 'authorization_store_unavailable':
+      if ('repository-authorization-unavailable' in method.errors) {
+        return createInterModuleKnownError(method, 'repository-authorization-unavailable', details);
+      }
+      break;
+  }
+  return undefined;
+}
+
+function repositoryAuthorizationDetails(input: ErrorMappingInput) {
+  const target =
+    input.target ??
+    (input.externalRepositoryId === undefined
+      ? undefined
+      : {kind: 'external-id' as const, externalRepositoryId: input.externalRepositoryId});
+  return {
+    ...(input.workspaceId === undefined ? {} : {workspaceId: input.workspaceId}),
+    ...(input.connectionId === undefined ? {} : {connectionId: input.connectionId}),
+    ...(target === undefined ? {} : {target}),
+  };
 }
 
 function mapConnectionError(
   method: InterModuleMethodContract,
-  input: {connectionId?: string; defaultConnectionId?: string},
+  input: ErrorMappingInput,
   error: unknown,
 ): unknown | undefined {
   if (error instanceof IntegrationConnectionNotFoundError)

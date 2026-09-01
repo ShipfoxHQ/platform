@@ -105,27 +105,41 @@ export async function createStepCheckoutSpec({
     integrations,
     workspaceId,
   });
-  const resolvedTarget = await projects.resolveCheckoutTarget({
-    workspaceId,
-    defaults: {
-      connectionId: defaultProject.sourceConnectionId,
-      owner: defaultOwner(defaultProject.sourceRepositoryOwner, checkout.repository),
-    },
-    target,
-  });
+  const resolvedTarget =
+    'project' in target
+      ? await projects.resolveCheckoutTarget({
+          workspaceId,
+          target,
+        })
+      : repositoryCheckoutTarget({
+          connectionId: target.connection ?? defaultProject.sourceConnectionId,
+          defaultProject,
+          repository: repositoryTarget(
+            target.repository,
+            defaultOwner(defaultProject.sourceRepositoryOwner, target.repository),
+            step.id,
+          ),
+        });
+  if (resolvedTarget === undefined) {
+    throw new CheckoutIntentUnresolvedError({
+      kind: 'project',
+      value: 'project' in target ? target.project : projectId,
+    });
+  }
   const ref = resolveCheckoutRef({checkout, triggerReference, run, resolvedTarget, projectId});
   const permissions = checkout.permissions ?? {contents: 'read'};
   const response = await integrations.createCheckoutSpec({
     workspaceId,
     connectionId: resolvedTarget.connectionId,
-    externalRepositoryId: resolvedTarget.externalRepositoryId,
+    ...(resolvedTarget.projectId === undefined ? {} : {projectId: resolvedTarget.projectId}),
+    target: resolvedTarget.target,
     ...(ref === undefined ? {} : {ref}),
     permissions,
   });
 
   return checkoutResult(checkout, response, {
     connectionId: resolvedTarget.connectionId,
-    externalRepositoryId: resolvedTarget.externalRepositoryId,
+    target: resolvedTarget.target,
     permissions,
   });
 }
@@ -163,6 +177,7 @@ function resolveCheckoutRef(params: {
   let triggerCommitRef: string | undefined;
   const {triggerReference} = params;
   if (
+    params.resolvedTarget.projectId !== undefined &&
     triggerReference !== null &&
     triggerReference !== undefined &&
     triggerReference.project?.id === params.resolvedTarget.projectId
@@ -170,7 +185,11 @@ function resolveCheckoutRef(params: {
     triggerCommitRef = triggerReference.commit ?? undefined;
   }
   let devCommitRef: string | undefined;
-  if (params.run.origin === 'dev' && params.resolvedTarget.projectId === params.projectId) {
+  if (
+    params.run.origin === 'dev' &&
+    params.resolvedTarget.projectId !== undefined &&
+    params.resolvedTarget.projectId === params.projectId
+  ) {
     devCommitRef = params.run.devSource.commit;
   }
   return params.checkout.ref ?? triggerCommitRef ?? devCommitRef;
@@ -181,10 +200,24 @@ type CheckoutSpecResponse = Awaited<ReturnType<IntegrationsModuleClient['createC
 function checkoutResult(
   checkout: CheckoutConfig,
   response: CheckoutSpecResponse,
-  target: Pick<CheckoutRenewalSubject, 'connectionId' | 'externalRepositoryId' | 'permissions'>,
+  target: Pick<CheckoutRenewalSubject, 'connectionId' | 'permissions'> & {
+    target:
+      | {kind: 'external-id'; externalRepositoryId: string}
+      | {kind: 'name'; owner: string; name: string};
+  },
 ) {
   const credentials = checkoutCredentials(response.credentials);
   const persistCredentials = checkout.persist_credentials ?? true;
+  const renewalTarget = response.target ?? target.target;
+  const renewalSubject =
+    credentials === undefined || !persistCredentials || renewalTarget.kind !== 'external-id'
+      ? undefined
+      : {
+          repositoryUrl: normalizeRepositoryUrl(response.repositoryUrl),
+          connectionId: target.connectionId,
+          externalRepositoryId: renewalTarget.externalRepositoryId,
+          permissions: target.permissions,
+        };
   return {
     spec: {
       repositoryUrl: response.repositoryUrl,
@@ -194,16 +227,7 @@ function checkoutResult(
     },
     fetchDepth: checkout.fetch_depth ?? 1,
     persistCredentials,
-    ...(credentials === undefined || !persistCredentials
-      ? {}
-      : {
-          renewalSubject: {
-            repositoryUrl: normalizeRepositoryUrl(response.repositoryUrl),
-            connectionId: target.connectionId,
-            externalRepositoryId: target.externalRepositoryId,
-            permissions: target.permissions,
-          },
-        }),
+    ...(renewalSubject === undefined ? {} : {renewalSubject}),
   };
 }
 
@@ -237,13 +261,17 @@ function parseCheckoutConfig(step: Step): CheckoutConfig {
   return result.data;
 }
 
+type CheckoutTargetSelection =
+  | {project: string}
+  | {connection?: string | undefined; repository: string};
+
 async function checkoutTarget(params: {
   checkout: CheckoutConfig;
   defaultProjectId: string;
   defaultConnectionId: string;
   integrations: IntegrationsModuleClient;
   workspaceId: string;
-}) {
+}): Promise<CheckoutTargetSelection> {
   const {checkout} = params;
   if (checkout.project !== undefined) return {project: checkout.project};
   if (checkout.repository !== undefined) {
@@ -256,12 +284,69 @@ async function checkoutTarget(params: {
             defaultConnectionId: params.defaultConnectionId,
             slug: checkout.connection,
           });
-    return {
-      ...(connection === undefined ? {} : {connection}),
-      repository: checkout.repository,
-    };
+    return connection === undefined
+      ? {repository: checkout.repository}
+      : {connection, repository: checkout.repository};
   }
   return {project: params.defaultProjectId};
+}
+
+function repositoryTarget(
+  repository: string,
+  defaultOwnerValue: string,
+  stepId: string,
+): {kind: 'name'; owner: string; name: string} {
+  const separator = repository.indexOf('/');
+  if (
+    separator === 0 ||
+    separator === repository.length - 1 ||
+    repository.indexOf('/', separator + 1) !== -1
+  ) {
+    throw new CheckoutConfigInvalidError(stepId);
+  }
+  return separator === -1
+    ? {kind: 'name', owner: defaultOwnerValue, name: repository}
+    : {
+        kind: 'name',
+        owner: repository.slice(0, separator),
+        name: repository.slice(separator + 1),
+      };
+}
+
+function repositoryCheckoutTarget(params: {
+  connectionId: string;
+  defaultProject: {
+    id: string;
+    sourceConnectionId: string;
+    sourceExternalRepositoryId: string;
+    sourceRepositoryOwner?: string | null | undefined;
+    sourceRepositoryName?: string | null | undefined;
+  };
+  repository: {kind: 'name'; owner: string; name: string};
+}) {
+  const isSameProjectRepository =
+    params.connectionId === params.defaultProject.sourceConnectionId &&
+    params.defaultProject.sourceRepositoryOwner !== null &&
+    params.defaultProject.sourceRepositoryOwner !== undefined &&
+    params.defaultProject.sourceRepositoryName !== null &&
+    params.defaultProject.sourceRepositoryName !== undefined &&
+    params.repository.owner.toLowerCase() ===
+      params.defaultProject.sourceRepositoryOwner.toLowerCase() &&
+    params.repository.name.toLowerCase() ===
+      params.defaultProject.sourceRepositoryName.toLowerCase();
+
+  if (isSameProjectRepository) {
+    return {
+      projectId: params.defaultProject.id,
+      connectionId: params.connectionId,
+      target: {
+        kind: 'external-id' as const,
+        externalRepositoryId: params.defaultProject.sourceExternalRepositoryId,
+      },
+    };
+  }
+
+  return {connectionId: params.connectionId, target: params.repository};
 }
 
 async function resolveConnectionId(params: {

@@ -262,6 +262,13 @@ export class GiteaSourceControlProvider
     return {
       repositoryUrl: createCheckoutRepositoryUrl(repository.cloneUrl),
       ref,
+      target: {
+        kind: 'external-id',
+        externalRepositoryId: buildProviderRepositoryId(
+          giteaProviderKind,
+          `${repository.ownerLogin}/${repository.name}`,
+        ),
+      },
       credentials,
     };
   }

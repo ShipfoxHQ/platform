@@ -466,6 +466,7 @@ describe('GithubSourceControlProvider', () => {
     expect(result).toEqual({
       repositoryUrl: 'https://github.com/shipfox/platform.git',
       ref: 'feature/x',
+      target: {kind: 'external-id', externalRepositoryId: 'github:42'},
       credentials: {
         username: 'x-access-token',
         token: 'ghs_installationtoken',

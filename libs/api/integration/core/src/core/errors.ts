@@ -4,6 +4,7 @@ import {
   type IntegrationProviderErrorReason,
 } from '@shipfox/api-integration-spi';
 import type {IntegrationCapability, IntegrationProviderKind} from '#core/entities/provider.js';
+import type {RepositoryAuthorizationDenial} from '#core/repository-authorizer.js';
 
 export class IntegrationConnectionNotFoundError extends Error {
   constructor(connectionId: string) {
@@ -65,6 +66,13 @@ export class RepositoryAuthorizerConfigurationError extends Error {
   constructor() {
     super('Repository authorization is enabled but the Projects client is not configured');
     this.name = 'RepositoryAuthorizerConfigurationError';
+  }
+}
+
+export class IntegrationRepositoryAuthorizationError extends Error {
+  constructor(public readonly reason: RepositoryAuthorizationDenial) {
+    super(`Repository authorization denied: ${reason}`);
+    this.name = 'IntegrationRepositoryAuthorizationError';
   }
 }
 

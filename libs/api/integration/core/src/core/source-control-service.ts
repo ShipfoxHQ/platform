@@ -6,6 +6,7 @@ import {
   IntegrationConnectionNotFoundError,
   IntegrationConnectionWorkspaceMismatchError,
   IntegrationProviderError,
+  IntegrationRepositoryAuthorizationError,
 } from './errors.js';
 import type {IntegrationProviderRegistry} from './providers/registry.js';
 import type {
@@ -21,6 +22,14 @@ import type {
   ResolvedRef,
   TriggerReference,
 } from './providers/source-control.js';
+import type {
+  RepositoryAuthorizationMode,
+  RepositoryAuthorizationResult,
+  RepositoryAuthorizer,
+} from './repository-authorizer.js';
+import {RepositoryAuthorizationTargetInvalidError} from './repository-authorizer.js';
+
+export type AuthorizedCheckoutSpec = CheckoutSpec & {target: CheckoutTarget};
 
 export interface IntegrationSourceControlService {
   getConnection(connectionId: string): Promise<IntegrationConnection>;
@@ -30,7 +39,7 @@ export interface IntegrationSourceControlService {
   resolveSourceRef(input: ResolveSourceRefInput): Promise<ResolvedRef>;
   listFiles(input: ListSourceFilesInput): Promise<FilePage>;
   fetchFile(input: FetchSourceFileInput): Promise<FileSnapshot>;
-  createCheckoutSpec(input: CreateSourceCheckoutSpecInput): Promise<CheckoutSpec>;
+  createCheckoutSpec(input: CreateSourceCheckoutSpecInput): Promise<AuthorizedCheckoutSpec>;
   createCheckoutCredentials(
     input: CreateSourceCheckoutCredentialsInput,
   ): Promise<CheckoutCredentials>;
@@ -97,11 +106,20 @@ export interface CreateIntegrationSourceControlServiceOptions {
   getIntegrationConnectionById: (
     connectionId: string,
   ) => Promise<IntegrationConnection | undefined>;
+  repositoryAuthorizer?: RepositoryAuthorizer | undefined;
+  /** Trusted server-side seam for the future per-connection repository mode. */
+  getRepositoryAuthorizationMode?:
+    | ((
+        connection: IntegrationConnection,
+      ) => RepositoryAuthorizationMode | Promise<RepositoryAuthorizationMode>)
+    | undefined;
 }
 
 export function createSourceControlIntegrationService({
   registry,
   getIntegrationConnectionById,
+  repositoryAuthorizer,
+  getRepositoryAuthorizationMode = () => 'selected',
 }: CreateIntegrationSourceControlServiceOptions): IntegrationSourceControlService {
   async function getConnection(connectionId: string): Promise<IntegrationConnection> {
     const connection = await getIntegrationConnectionById(connectionId);
@@ -206,14 +224,24 @@ export function createSourceControlIntegrationService({
       if (!sourceControl.createCheckoutSpec) {
         throw new IntegrationCheckoutUnsupportedError(connection.provider);
       }
-
-      return await sourceControl.createCheckoutSpec({
+      const target = await authorizeCheckoutTarget({
         connection,
-        target: checkoutTarget(input),
+        input,
+        repositoryAuthorizer,
+        getRepositoryAuthorizationMode,
+      });
+
+      const spec = await sourceControl.createCheckoutSpec({
+        connection,
+        target,
         ...(projectId === undefined ? {} : {projectId}),
         ref,
         permissions,
       });
+      return {
+        ...spec,
+        target: checkoutSpecTarget(target, spec.target),
+      };
     },
 
     async createCheckoutCredentials(input) {
@@ -226,10 +254,16 @@ export function createSourceControlIntegrationService({
       if (!sourceControl?.createCheckoutCredentials) {
         throw new IntegrationCheckoutUnsupportedError(connection.provider);
       }
+      const target = await authorizeCheckoutTarget({
+        connection,
+        input,
+        repositoryAuthorizer,
+        getRepositoryAuthorizationMode,
+      });
 
       const credentials = await sourceControl.createCheckoutCredentials({
         connection,
-        target: checkoutTarget(input),
+        target,
         ...(projectId === undefined ? {} : {projectId}),
         permissions,
         rejectedGeneration,
@@ -246,6 +280,60 @@ export function createSourceControlIntegrationService({
       return credentials;
     },
   };
+}
+
+async function authorizeCheckoutTarget(params: {
+  connection: IntegrationConnection;
+  input: CheckoutTargetInput & {workspaceId: string};
+  repositoryAuthorizer: RepositoryAuthorizer | undefined;
+  getRepositoryAuthorizationMode: (
+    connection: IntegrationConnection,
+  ) => RepositoryAuthorizationMode | Promise<RepositoryAuthorizationMode>;
+}): Promise<CheckoutTarget> {
+  const target = checkoutTarget(params.input);
+  if (params.repositoryAuthorizer === undefined) return target;
+
+  const authorization = await params.repositoryAuthorizer.resolveRepositoryAuthorization({
+    workspaceId: params.input.workspaceId,
+    connectionId: params.connection.id,
+    mode: await params.getRepositoryAuthorizationMode(params.connection),
+    repository: target,
+    capability: 'checkout',
+  });
+  if (authorization === undefined) return target;
+  if (!authorization.authorized) {
+    throw new IntegrationRepositoryAuthorizationError(authorization.reason);
+  }
+  return checkoutTargetFromAuthorization(authorization);
+}
+
+function checkoutTargetFromAuthorization(
+  authorization: Extract<RepositoryAuthorizationResult, {authorized: true}>,
+): CheckoutTarget {
+  if (authorization.repository.externalRepositoryId !== undefined) {
+    return {
+      kind: 'external-id',
+      externalRepositoryId: authorization.repository.externalRepositoryId,
+    };
+  }
+  if (authorization.repository.owner !== undefined && authorization.repository.name !== undefined) {
+    return {
+      kind: 'name',
+      owner: authorization.repository.owner,
+      name: authorization.repository.name,
+    };
+  }
+  throw new RepositoryAuthorizationTargetInvalidError();
+}
+
+function checkoutSpecTarget(
+  target: CheckoutTarget,
+  providerTarget: CheckoutSpec['target'],
+): CheckoutTarget {
+  // Name targets are the only form whose provider response can add a stable
+  // identity for credential renewal. An authorizer's external-id decision is
+  // already canonical and must remain authoritative for every other input.
+  return target.kind === 'name' && providerTarget?.kind === 'external-id' ? providerTarget : target;
 }
 
 function checkoutTarget(input: CheckoutTargetInput): CheckoutTarget {

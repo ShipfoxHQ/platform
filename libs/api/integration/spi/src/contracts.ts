@@ -119,6 +119,8 @@ export interface CheckoutPermissions {
 export interface CheckoutSpec {
   repositoryUrl: string;
   ref: string;
+  /** Provider-resolved identity for renewing a checkout addressed by name. */
+  target?: CheckoutTarget | undefined;
   credentials?: CheckoutCredentials | undefined;
   gitAuthor?: CheckoutGitAuthor | undefined;
 }

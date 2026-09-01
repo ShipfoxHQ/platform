@@ -274,6 +274,10 @@ export class GithubSourceControlProvider
     return {
       repositoryUrl: repository.cloneUrl,
       ref,
+      target: {
+        kind: 'external-id',
+        externalRepositoryId: buildProviderRepositoryId(GITHUB_PROVIDER, String(repository.id)),
+      },
       credentials,
       ...(gitAuthor ? {gitAuthor} : {}),
     };

@@ -154,12 +154,50 @@ describe('createIntegrationsContext', () => {
       getProjectBySource,
       findProjectBySourceRepositoryName: vi.fn(),
     } as unknown as ProjectsModuleClient;
+    const workspaceId = crypto.randomUUID();
+    const connection = {
+      id: crypto.randomUUID(),
+      workspaceId,
+      provider: 'github',
+      externalAccountId: 'github-test-account',
+      slug: 'github_test',
+      displayName: 'GitHub Test',
+      lifecycleStatus: 'active' as const,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    const getIntegrationConnectionById = vi.fn(async (id: string) =>
+      id === connection.id ? connection : undefined,
+    );
+    const createCheckoutSpec = vi.fn().mockResolvedValue({
+      repositoryUrl: 'https://github.com/acme/platform.git',
+      ref: 'main',
+    });
 
     try {
       const {createIntegrationsContext: createContext} = await import('./index.js');
       const context = await createContext({
-        parts: [{provider: {provider: 'github', displayName: 'GitHub', adapters: {}}}],
+        parts: [
+          {
+            provider: {
+              provider: 'github',
+              displayName: 'GitHub',
+              adapters: {
+                source_control: {
+                  listRepositories: vi.fn(),
+                  resolveRepository: vi.fn(),
+                  listFiles: vi.fn(),
+                  fetchFile: vi.fn(),
+                  resolveTriggerReference: vi.fn().mockReturnValue(null),
+                  resolveRef: vi.fn(),
+                  createCheckoutSpec,
+                },
+              },
+            },
+          },
+        ],
         projects,
+        getIntegrationConnectionById,
       });
 
       expect(context.repositoryAuthorizer.enabled).toBe(true);
@@ -175,6 +213,20 @@ describe('createIntegrationsContext', () => {
       expect(getProjectBySource).toHaveBeenCalledWith({
         workspaceId: 'workspace-1',
         sourceConnectionId: 'connection-1',
+        sourceExternalRepositoryId: 'github:42',
+      });
+
+      await expect(
+        context.sourceControl.createCheckoutSpec({
+          workspaceId,
+          connectionId: connection.id,
+          target: {kind: 'external-id', externalRepositoryId: 'github:42'},
+        }),
+      ).rejects.toMatchObject({reason: 'repository_not_granted'});
+      expect(createCheckoutSpec).not.toHaveBeenCalled();
+      expect(getProjectBySource).toHaveBeenLastCalledWith({
+        workspaceId,
+        sourceConnectionId: connection.id,
         sourceExternalRepositoryId: 'github:42',
       });
     } finally {

@@ -296,100 +296,36 @@ export async function requireProjectForWorkspace(params: {
 
 export interface ResolveCheckoutTargetParams {
   workspaceId: string;
-  defaults: {
-    connectionId: string;
-    owner: string;
-  };
-  target: {project: string} | {connection?: string | undefined; repository: string};
+  target: {project: string};
 }
 
 export interface ResolvedCheckoutTarget {
   projectId: string;
   connectionId: string;
-  externalRepositoryId: string;
-}
-
-export interface UpdateProjectSourceMetadataParams {
-  workspaceId: string;
-  projectId: string;
-  sourceConnectionId: string;
-  sourceExternalRepositoryId: string;
-  sourceRepositoryOwner: string;
-  sourceRepositoryName: string;
-  sourceDefaultBranch: string;
-}
-
-export async function updateProjectSourceMetadata(
-  params: UpdateProjectSourceMetadataParams,
-): Promise<void> {
-  await db()
-    .update(projects)
-    .set({
-      sourceConnectionId: params.sourceConnectionId,
-      sourceExternalRepositoryId: params.sourceExternalRepositoryId,
-      sourceRepositoryOwner: params.sourceRepositoryOwner,
-      sourceRepositoryName: params.sourceRepositoryName,
-      sourceDefaultBranch: params.sourceDefaultBranch,
-      updatedAt: new Date(),
-    })
-    .where(and(eq(projects.workspaceId, params.workspaceId), eq(projects.id, params.projectId)));
+  target: {kind: 'external-id'; externalRepositoryId: string};
 }
 
 export async function resolveCheckoutTarget(
   params: ResolveCheckoutTargetParams,
 ): Promise<ResolvedCheckoutTarget | undefined> {
-  const selection = {
-    projectId: projects.id,
-    connectionId: projects.sourceConnectionId,
-    externalRepositoryId: projects.sourceExternalRepositoryId,
-  };
-
-  if ('project' in params.target) {
-    const [project] = await db()
-      .select(selection)
-      .from(projects)
-      .where(
-        and(eq(projects.workspaceId, params.workspaceId), eq(projects.id, params.target.project)),
-      )
-      .limit(1);
-    return project;
-  }
-
-  const separator = params.target.repository.indexOf('/');
-  if (separator === 0 || separator === params.target.repository.length - 1) return undefined;
-
-  let repository: {connectionId: string; owner: string; name: string} | undefined;
-  if (separator === -1) {
-    repository = {
-      connectionId: params.target.connection ?? params.defaults.connectionId,
-      owner: params.defaults.owner,
-      name: params.target.repository,
-    };
-  } else if (params.target.repository.indexOf('/', separator + 1) === -1) {
-    repository = {
-      connectionId: params.target.connection ?? params.defaults.connectionId,
-      owner: params.target.repository.slice(0, separator),
-      name: params.target.repository.slice(separator + 1),
-    };
-  }
-  if (repository === undefined) return undefined;
-
-  const matches = await db()
-    .select(selection)
+  const [project] = await db()
+    .select({
+      projectId: projects.id,
+      connectionId: projects.sourceConnectionId,
+      externalRepositoryId: projects.sourceExternalRepositoryId,
+    })
     .from(projects)
     .where(
-      whereSourceRepositoryMatches({
-        workspaceId: params.workspaceId,
-        sourceConnectionId: repository.connectionId,
-        sourceRepositoryOwner: repository.owner,
-        sourceRepositoryName: repository.name,
-      }),
+      and(eq(projects.workspaceId, params.workspaceId), eq(projects.id, params.target.project)),
     )
-    .limit(2);
-
-  // Owner/name isn't a unique key: renamed or reconnected repositories can leave
-  // more than one project row matching. Fail closed instead of picking arbitrarily.
-  return matches.length === 1 ? matches[0] : undefined;
+    .limit(1);
+  return project === undefined
+    ? undefined
+    : {
+        projectId: project.projectId,
+        connectionId: project.connectionId,
+        target: {kind: 'external-id', externalRepositoryId: project.externalRepositoryId},
+      };
 }
 
 export async function listProjects(params: ListProjectsParams): Promise<ListProjectsResult> {

@@ -119,11 +119,18 @@ export const repositoryAuthorizationErrorCodes = {
   notGranted: 'repository-not-granted',
   ambiguous: 'repository-ambiguous',
   storeUnavailable: 'repository-authorization-unavailable',
+  targetInvalid: 'repository-authorization-target-invalid',
 } as const;
+const repositoryAuthorizationDetails = z.object({
+  workspaceId: id.optional(),
+  connectionId: id.optional(),
+  target: checkoutTarget.optional(),
+});
 const repositoryAuthorizationErrors = {
-  [repositoryAuthorizationErrorCodes.notGranted]: z.object({}),
-  [repositoryAuthorizationErrorCodes.ambiguous]: z.object({}),
-  [repositoryAuthorizationErrorCodes.storeUnavailable]: z.object({}),
+  [repositoryAuthorizationErrorCodes.notGranted]: repositoryAuthorizationDetails,
+  [repositoryAuthorizationErrorCodes.ambiguous]: repositoryAuthorizationDetails,
+  [repositoryAuthorizationErrorCodes.storeUnavailable]: repositoryAuthorizationDetails,
+  [repositoryAuthorizationErrorCodes.targetInvalid]: repositoryAuthorizationDetails,
 };
 const toolCallErrors = {
   'connection-not-found': z.object({connectionId: id}),
@@ -211,6 +218,7 @@ export const integrationsInterModuleContract = defineInterModuleContract({
       output: z.object({
         repositoryUrl: z.string(),
         ref: z.string(),
+        target: checkoutTarget,
         credentials: checkoutCredentials.optional(),
         gitAuthor: z.object({name: z.string(), email: z.string()}).optional(),
       }),
