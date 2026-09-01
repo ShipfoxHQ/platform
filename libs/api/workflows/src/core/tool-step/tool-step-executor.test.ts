@@ -171,7 +171,9 @@ describe('tool step executor', () => {
     });
     expect(first.claims).toHaveLength(1);
 
-    const secondNow = new Date(firstNow.getTime() + 2_000);
+    // Keep the requeued row due in the future on the real clock so this test
+    // does not leak work into later executor-cycle tests.
+    const secondNow = new Date(Date.now() + 2_000);
     const second = await claimToolInvocations({
       limit: 1,
       now: secondNow,
