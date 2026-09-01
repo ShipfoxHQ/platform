@@ -1,5 +1,18 @@
 # @shipfox/api-workflows-dto
 
+## 20.0.0
+
+### Minor Changes
+
+- fdfa0b2: Add the `WORKFLOW_RUN_DETAIL_REQUEST_KIND_HEADER` request-kind header and `WorkflowRunDetailRequestKind` type for workflow-run detail reads; client-workflows detail requests now send the request kind, which the API records as initial versus polling.
+- af4a765: Add the workflow-run lineage head endpoint and opt-in cursor pagination for attempt history while preserving the legacy no-query response.
+- 70f2eed: Adds checkout credential renewal to the setup checkout-token response via `refresh-at`/`on-rejection` renewal modes and accepts an optional `rejected_generation` when renewing.
+
+### Patch Changes
+
+- @shipfox/api-agent-dto@20.0.0
+- @shipfox/api-definitions-dto@20.0.0
+
 ## 19.0.0
 
 ### Minor Changes

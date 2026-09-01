@@ -1,5 +1,25 @@
 # @shipfox/api-triggers
 
+## 20.0.0
+
+### Patch Changes
+
+- Updated dependencies [46ae6a8]
+- Updated dependencies [db83e6c]
+- Updated dependencies [ec39327]
+- Updated dependencies [533b968]
+- Updated dependencies [351f02c]
+- Updated dependencies [fdfa0b2]
+- Updated dependencies [af4a765]
+- Updated dependencies [70f2eed]
+  - @shipfox/workflow-document@3.4.0
+  - @shipfox/api-integration-core-dto@20.0.0
+  - @shipfox/api-projects-dto@20.0.0
+  - @shipfox/api-workflows-dto@20.0.0
+  - @shipfox/api-auth-context@20.0.0
+  - @shipfox/api-definitions-dto@20.0.0
+  - @shipfox/expression@2.4.3
+
 ## 19.0.0
 
 ### Minor Changes

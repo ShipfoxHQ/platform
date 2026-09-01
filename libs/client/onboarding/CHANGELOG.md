@@ -1,5 +1,26 @@
 # @shipfox/client-onboarding
 
+## 30.0.0
+
+### Minor Changes
+
+- ac8066f: Collapses the Get-started panel to the next step. A header toggle opens the
+  full list and remembers the choice per device, and the nav-bar indicator still
+  carries the whole checklist on every route.
+
+### Patch Changes
+
+- bfc544f: Improves workspace setup checklist announcements for assistive technology.
+- Updated dependencies [a7ad0a9]
+- Updated dependencies [2881385]
+  - @shipfox/react-ui@2.3.4
+  - @shipfox/client-integrations@30.0.0
+  - @shipfox/client-shell@30.0.0
+  - @shipfox/client-runners@30.0.0
+  - @shipfox/client-agent@30.0.0
+  - @shipfox/client-projects@30.0.0
+  - @shipfox/client-workspace-settings@30.0.0
+
 ## 29.0.0
 
 ### Patch Changes

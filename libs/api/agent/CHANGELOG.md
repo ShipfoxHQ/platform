@@ -1,5 +1,24 @@
 # @shipfox/api-agent
 
+## 20.0.0
+
+### Minor Changes
+
+- 8f7cc71: Adds `CreateAgentModuleOptions` to `@shipfox/api-agent` and `agentModuleOptions`, `authModuleOptions`, and `runnersModuleOptions` to `defaultModules()` in `@shipfox/api-server`.
+
+### Patch Changes
+
+- Updated dependencies [ca7eb23]
+- Updated dependencies [46ae6a8]
+- Updated dependencies [fdfa0b2]
+- Updated dependencies [af4a765]
+- Updated dependencies [70f2eed]
+  - @shipfox/node-object-storage@0.2.0
+  - @shipfox/workflow-document@3.4.0
+  - @shipfox/api-workflows-dto@20.0.0
+  - @shipfox/api-auth-context@20.0.0
+  - @shipfox/api-agent-dto@20.0.0
+
 ## 19.0.0
 
 ### Patch Changes

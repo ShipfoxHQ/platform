@@ -1,5 +1,24 @@
 # @shipfox/api-projects
 
+## 20.0.0
+
+### Minor Changes
+
+- 533b968: Adds a paginated Projects contract for project repositories bound to a source connection.
+
+### Patch Changes
+
+- ec39327: Projects checkout resolution now requires a project ID and no longer accepts repository names. Checkout requests authorize the repository target before issuing credentials. Repository declarations remain valid without a project association.
+- Updated dependencies [9113421]
+- Updated dependencies [db83e6c]
+- Updated dependencies [ec39327]
+- Updated dependencies [533b968]
+- Updated dependencies [351f02c]
+  - @shipfox/api-auth-dto@20.0.0
+  - @shipfox/api-integration-core-dto@20.0.0
+  - @shipfox/api-projects-dto@20.0.0
+  - @shipfox/api-auth-context@20.0.0
+
 ## 19.0.0
 
 ### Minor Changes

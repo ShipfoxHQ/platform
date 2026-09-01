@@ -1,5 +1,18 @@
 # @shipfox/api-workspaces
 
+## 20.0.0
+
+### Patch Changes
+
+- Updated dependencies [9113421]
+- Updated dependencies [794f834]
+- Updated dependencies [ec39327]
+- Updated dependencies [533b968]
+  - @shipfox/api-auth-dto@20.0.0
+  - @shipfox/api-runners-dto@20.0.0
+  - @shipfox/api-projects-dto@20.0.0
+  - @shipfox/api-auth-context@20.0.0
+
 ## 19.0.0
 
 ### Patch Changes

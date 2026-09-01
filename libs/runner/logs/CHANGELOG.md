@@ -1,5 +1,13 @@
 # @shipfox/runner-logs
 
+## 0.1.34
+
+### Patch Changes
+
+- Updated dependencies [ca7eb23]
+  - @shipfox/api-logs-dto@20.0.0
+  - @shipfox/runner-protocol@0.2.28
+
 ## 0.1.33
 
 ### Patch Changes

@@ -1,5 +1,29 @@
 # @shipfox/api-integration-github
 
+## 20.0.0
+
+### Minor Changes
+
+- ec39327: Projects checkout resolution now requires a project ID and no longer accepts repository names. Checkout requests authorize the repository target before issuing credentials. Repository declarations remain valid without a project association.
+- 2a441cd: Narrows GitHub agent-tool installation tokens to the permissions required by the live catalog.
+
+### Patch Changes
+
+- 09b8e1e: Persist per-connection repository access modes and manual repository grants.
+
+  The IntegrationConnection contract now requires `repositoryAccessMode`. Consumers
+  implementing or constructing connection values must add the field when upgrading
+  the core, Gitea, or SPI packages.
+
+- 351f02c: Build GitHub issue and pull request search queries from server-owned repository scope, driven by a new repository-scope classifier on agent tool catalog entries.
+- 4e64ffd: Invalidates local repository authorization after committed GitHub repository changes.
+- Updated dependencies [ec39327]
+- Updated dependencies [09b8e1e]
+- Updated dependencies [351f02c]
+  - @shipfox/api-integration-spi@3.0.0
+  - @shipfox/api-integration-github-dto@20.0.0
+  - @shipfox/api-auth-context@20.0.0
+
 ## 19.0.0
 
 ### Minor Changes

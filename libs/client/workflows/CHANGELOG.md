@@ -1,5 +1,30 @@
 # @shipfox/client-workflows
 
+## 30.0.0
+
+### Minor Changes
+
+- 2881385: Show tool providers, resolved arguments, results, invocation retries, and actionable failures in workflow run details.
+- a7ad0a9: Adds a searchable, URL-backed workflow filter to the run list and improves the Sheet close button's accessible focus treatment.
+
+### Patch Changes
+
+- fdfa0b2: Add the `WORKFLOW_RUN_DETAIL_REQUEST_KIND_HEADER` request-kind header and `WorkflowRunDetailRequestKind` type for workflow-run detail reads; client-workflows detail requests now send the request kind, which the API records as initial versus polling.
+- Updated dependencies [a7ad0a9]
+- Updated dependencies [fdfa0b2]
+- Updated dependencies [af4a765]
+- Updated dependencies [70f2eed]
+- Updated dependencies [2881385]
+  - @shipfox/react-ui@2.3.4
+  - @shipfox/api-workflows-dto@20.0.0
+  - @shipfox/client-integrations@30.0.0
+  - @shipfox/client-logs@30.0.0
+  - @shipfox/client-shell@30.0.0
+  - @shipfox/api-definitions-dto@20.0.0
+  - @shipfox/client-projects@30.0.0
+  - @shipfox/client-triggers@30.0.0
+  - @shipfox/client-ui@30.0.0
+
 ## 29.0.0
 
 ### Minor Changes

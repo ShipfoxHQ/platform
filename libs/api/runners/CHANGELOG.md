@@ -1,5 +1,21 @@
 # @shipfox/api-runners
 
+## 20.0.0
+
+### Patch Changes
+
+- 794f834: Authorizes registration-deadline EC2 runner instances for termination through the backend.
+- 82048ec: Keep terminal runner cleanup independent of correlated stale-lease protection.
+- Updated dependencies [9113421]
+- Updated dependencies [794f834]
+- Updated dependencies [fdfa0b2]
+- Updated dependencies [af4a765]
+- Updated dependencies [70f2eed]
+  - @shipfox/api-auth-dto@20.0.0
+  - @shipfox/api-runners-dto@20.0.0
+  - @shipfox/api-workflows-dto@20.0.0
+  - @shipfox/api-auth-context@20.0.0
+
 ## 19.0.0
 
 ### Minor Changes

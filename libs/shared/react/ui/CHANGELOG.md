@@ -1,5 +1,11 @@
 # @shipfox/react-ui
 
+## 2.3.4
+
+### Patch Changes
+
+- a7ad0a9: Adds a searchable, URL-backed workflow filter to the run list and improves the Sheet close button's accessible focus treatment.
+
 ## 2.3.3
 
 ### Patch Changes

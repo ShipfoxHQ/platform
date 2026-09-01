@@ -1,5 +1,15 @@
 # @shipfox/api-projects-dto
 
+## 20.0.0
+
+### Major Changes
+
+- ec39327: Projects checkout resolution now requires a project ID and no longer accepts repository names. Checkout requests authorize the repository target before issuing credentials. Repository declarations remain valid without a project association.
+
+### Minor Changes
+
+- 533b968: Adds a paginated Projects contract for project repositories bound to a source connection.
+
 ## 19.0.0
 
 ### Minor Changes

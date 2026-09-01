@@ -1,5 +1,12 @@
 # @shipfox/client-ui
 
+## 30.0.0
+
+### Patch Changes
+
+- Updated dependencies [a7ad0a9]
+  - @shipfox/react-ui@2.3.4
+
 ## 29.0.0
 
 ### Patch Changes

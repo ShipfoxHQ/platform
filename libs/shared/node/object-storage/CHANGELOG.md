@@ -1,5 +1,11 @@
 # @shipfox/node-object-storage
 
+## 0.2.0
+
+### Minor Changes
+
+- ca7eb23: Adds bounded step-log tail reads with consistent output before and after compaction.
+
 ## 0.1.1
 
 ### Patch Changes

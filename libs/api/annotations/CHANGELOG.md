@@ -1,5 +1,11 @@
 # @shipfox/annotations
 
+## 20.0.0
+
+### Patch Changes
+
+- @shipfox/api-auth-context@20.0.0
+
 ## 19.0.0
 
 ### Minor Changes

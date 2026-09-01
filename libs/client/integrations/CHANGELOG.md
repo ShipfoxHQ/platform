@@ -1,5 +1,32 @@
 # @shipfox/client-integrations
 
+## 30.0.0
+
+### Minor Changes
+
+- 2881385: Expose authored provider display names in the integration catalog.
+
+### Patch Changes
+
+- Updated dependencies [db83e6c]
+- Updated dependencies [ec39327]
+- Updated dependencies [09b8e1e]
+- Updated dependencies [a7ad0a9]
+- Updated dependencies [351f02c]
+  - @shipfox/api-integration-core-dto@20.0.0
+  - @shipfox/api-integration-github-dto@20.0.0
+  - @shipfox/react-ui@2.3.4
+  - @shipfox/client-auth@30.0.0
+  - @shipfox/client-shell@30.0.0
+  - @shipfox/api-integration-gitea-dto@20.0.0
+  - @shipfox/api-integration-jira-dto@20.0.0
+  - @shipfox/api-integration-linear-dto@20.0.0
+  - @shipfox/api-integration-sentry-dto@20.0.0
+  - @shipfox/api-integration-slack-dto@20.0.0
+  - @shipfox/api-integration-webhook-dto@20.0.0
+  - @shipfox/client-ui@30.0.0
+  - @shipfox/integration-icons@0.3.12
+
 ## 29.0.0
 
 ### Patch Changes

@@ -1,5 +1,18 @@
 # @shipfox/api-auth
 
+## 20.0.0
+
+### Minor Changes
+
+- 9113421: Add MCP OAuth discovery, public-client registration, and Client ID Metadata Document resolution for the read-only profile.
+- 05dc593: Add agent credential rotation, grant lifecycle transitions, and bounded credential retention.
+
+### Patch Changes
+
+- Updated dependencies [9113421]
+  - @shipfox/api-auth-dto@20.0.0
+  - @shipfox/api-auth-context@20.0.0
+
 ## 19.0.0
 
 ### Minor Changes

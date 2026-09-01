@@ -1,5 +1,63 @@
 # @shipfox/api-server
 
+## 20.0.0
+
+### Minor Changes
+
+- 8f7cc71: Adds `CreateAgentModuleOptions` to `@shipfox/api-agent` and `agentModuleOptions`, `authModuleOptions`, and `runnersModuleOptions` to `defaultModules()` in `@shipfox/api-server`.
+
+### Patch Changes
+
+- b5c8329: Execute queued workflow tool steps on the server instead of the client.
+
+  The API Workflows module now requires the Logs inter-module client and starts a
+  server-side tool-step executor by default. Set
+  `WORKFLOWS_TOOL_STEP_EXECUTOR_ENABLED=false` before restarting an API process
+  to disable new tool-step calls. Older API builds do not run this executor, so
+  drain or settle pending tool invocations before rolling back this release.
+
+- Updated dependencies [ca7eb23]
+- Updated dependencies [9113421]
+- Updated dependencies [794f834]
+- Updated dependencies [46ae6a8]
+- Updated dependencies [db83e6c]
+- Updated dependencies [ec39327]
+- Updated dependencies [09b8e1e]
+- Updated dependencies [533b968]
+- Updated dependencies [2881385]
+- Updated dependencies [351f02c]
+- Updated dependencies [fdfa0b2]
+- Updated dependencies [2a441cd]
+- Updated dependencies [af4a765]
+- Updated dependencies [70f2eed]
+- Updated dependencies [4e64ffd]
+- Updated dependencies [8f7cc71]
+- Updated dependencies [05dc593]
+- Updated dependencies [82048ec]
+- Updated dependencies [f2bf4bf]
+- Updated dependencies [b5c8329]
+  - @shipfox/api-logs@20.0.0
+  - @shipfox/api-logs-dto@20.0.0
+  - @shipfox/api-auth@20.0.0
+  - @shipfox/api-auth-dto@20.0.0
+  - @shipfox/api-runners@20.0.0
+  - @shipfox/api-runners-dto@20.0.0
+  - @shipfox/api-definitions@20.0.0
+  - @shipfox/api-integration-core@20.0.0
+  - @shipfox/api-integration-core-dto@20.0.0
+  - @shipfox/api-projects@20.0.0
+  - @shipfox/api-projects-dto@20.0.0
+  - @shipfox/api-workflows@20.0.0
+  - @shipfox/api-workflows-dto@20.0.0
+  - @shipfox/api-agent@20.0.0
+  - @shipfox/annotations@20.0.0
+  - @shipfox/api-workspaces@20.0.0
+  - @shipfox/api-agent-dto@20.0.0
+  - @shipfox/api-definitions-dto@20.0.0
+  - @shipfox/api-triggers@20.0.0
+  - @shipfox/api-secrets@20.0.0
+  - @shipfox/api-dispatcher@19.0.0
+
 ## 19.0.0
 
 ### Minor Changes
