@@ -236,6 +236,21 @@ function runLoop(params: {
   agentStateDir?: string;
   subscribeSecrets?: (subscriber: (secrets: string[]) => void) => () => void;
   registerSecrets?: (secrets: string[]) => void;
+  registerCheckoutCredential?: (credential: {
+    repositoryUrl: string;
+    checkoutStepId: string;
+    checkoutAttempt: number;
+    username: string;
+    token: string;
+    expiresAt: string;
+    generation: string;
+    renewal: {mode: 'refresh-at'; refreshAt: string} | {mode: 'on-rejection'};
+  }) => void;
+  credentialHelper?: {
+    command: string;
+    socketPath: string;
+    capability: string;
+  };
   prepareAgentState?: () => Promise<void>;
   onLeaseTokenAdopted?: (leaseToken: string) => void;
 }): Promise<void> {
@@ -246,6 +261,10 @@ function runLoop(params: {
     secrets: params.secrets ?? [],
     ...(params.subscribeSecrets ? {subscribeSecrets: params.subscribeSecrets} : {}),
     ...(params.registerSecrets ? {registerSecrets: params.registerSecrets} : {}),
+    ...(params.registerCheckoutCredential
+      ? {registerCheckoutCredential: params.registerCheckoutCredential}
+      : {}),
+    ...(params.credentialHelper ? {credentialHelper: params.credentialHelper} : {}),
     signal: params.signal,
     cwd: params.cwd ?? '/work',
     gitConfigPath: GIT_CONFIG_PATH,
@@ -405,6 +424,49 @@ describe('runJobSteps', () => {
       signal: ac.signal,
     });
     expect(requestNextStepMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('passes the live credential helper through checkout lifecycle and registers the result', async () => {
+    const setup = buildSetupStep();
+    const run = buildRunStep();
+    const helper = {
+      command: 'git-credential-shipfox',
+      socketPath: '/work/.shipfox-runner-cred/job-1/credential.sock',
+      capability: 'job-capability',
+    };
+    const credential = {
+      repositoryUrl: 'https://github.com/acme/repo.git',
+      checkoutStepId: setup.id,
+      checkoutAttempt: 1,
+      username: 'x-access-token',
+      token: 'checkout-token',
+      expiresAt: '2030-01-01T00:00:00.000Z',
+      generation: 'generation-one',
+      renewal: {mode: 'on-rejection' as const},
+    };
+    executeSetupStepMock.mockResolvedValueOnce({
+      result: {success: true, error: null, exit_code: 0},
+      ambientGitConfigPath: GIT_CONFIG_PATH,
+      persistedCheckoutCredential: credential,
+    });
+    requestNextStepMock
+      .mockResolvedValueOnce(stepResponse(setup, 1))
+      .mockResolvedValueOnce(stepResponse(run, 1))
+      .mockResolvedValueOnce({kind: 'done', status: 'succeeded'});
+    executeRunStepMock.mockResolvedValue({success: true, error: null, exit_code: 0});
+    const registerCheckoutCredential = vi.fn();
+    const ac = new AbortController();
+
+    await runLoop({signal: ac.signal, credentialHelper: helper, registerCheckoutCredential});
+
+    expect(executeSetupStepMock).toHaveBeenCalledWith(
+      expect.objectContaining({credentialHelper: helper}),
+    );
+    expect(registerCheckoutCredential).toHaveBeenCalledWith(credential);
+    expect(executeRunStepMock).toHaveBeenCalledWith(
+      run,
+      expect.objectContaining({gitConfigGlobal: GIT_CONFIG_PATH}),
+    );
   });
 
   it('dispatches an explicit checkout step through its executor and reports checkout details', async () => {

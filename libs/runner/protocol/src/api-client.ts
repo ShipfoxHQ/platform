@@ -44,6 +44,7 @@ import {
   type AgentConfigIssueDto,
   type CheckoutResultDto,
   type CheckoutTokenResponseDto,
+  checkoutTokenBodySchema,
   checkoutTokenResponseSchema,
   type LogOutcomeDto,
   type NextStepResponseDto,
@@ -422,12 +423,18 @@ export async function requestCheckoutToken(
     stepId: string;
     attempt: number;
     signal?: AbortSignal;
+    rejectedGeneration?: string | undefined;
   },
 ): Promise<CheckoutTokenResponseDto> {
+  const body =
+    params.rejectedGeneration === undefined
+      ? undefined
+      : checkoutTokenBodySchema.parse({rejected_generation: params.rejectedGeneration});
   const response = await leaseClient.post(
     `runs/jobs/current/steps/${params.stepId}/checkout-token`,
     {
       searchParams: {attempt: params.attempt},
+      ...(body === undefined ? {} : {json: body}),
       ...(params.signal ? {signal: params.signal} : {}),
     },
   );

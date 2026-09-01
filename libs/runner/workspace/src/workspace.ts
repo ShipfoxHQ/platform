@@ -148,6 +148,28 @@ export async function createJobAgentStateDir(agentStateDir: string): Promise<() 
 }
 
 /**
+ * Pre-cleans the runner-owned credential directory and keeps its lock held for
+ * the lifetime of the job. The startup sweep uses the same lock, so it cannot
+ * remove a live broker socket or helper configuration.
+ */
+export async function createJobCredentialsDir(
+  credentialsDir: string,
+): Promise<() => Promise<void>> {
+  const release = await acquireJobDirectoryLock(credentialsDir, true);
+  if (release === undefined) {
+    throw new Error('Failed to acquire the job credential lock');
+  }
+
+  try {
+    await resetDir(credentialsDir);
+    return release;
+  } catch (error) {
+    await release();
+    throw error;
+  }
+}
+
+/**
  * Removes only UUID-named per-job directories left under a runner-owned root.
  * The root itself and unrelated entries are preserved.
  */
@@ -166,6 +188,15 @@ export async function cleanupOrphanedJobAgentState(root: string): Promise<void> 
     RUNNER_AGENT_STATE_DIR,
     cleanupJobAgentState,
     'Failed to sweep orphaned job agent state',
+  );
+}
+
+export async function cleanupOrphanedJobCredentials(root: string): Promise<void> {
+  await cleanupOrphanedJobDirectories(
+    root,
+    RUNNER_CRED_DIR,
+    cleanupJobCredentials,
+    'Failed to sweep orphaned job credentials',
   );
 }
 

@@ -9,6 +9,7 @@ import {
   type CheckoutOutputSink,
   type CheckoutPhase,
   checkoutRepository,
+  type GitCredentialHelperConfig,
   writeAmbientGitCredential,
 } from '@shipfox/runner-workspace';
 import type {KyInstance} from 'ky';
@@ -28,6 +29,17 @@ export interface CheckoutLogSink {
 export type CheckoutFailureScope = 'setup' | 'checkout';
 
 export type CheckoutPhaseResult<T> = {ok: true; value: T} | {ok: false; result: StepResult};
+
+export interface PersistedCheckoutCredential {
+  repositoryUrl: string;
+  checkoutStepId: string;
+  checkoutAttempt: number;
+  username: string;
+  token: string;
+  expiresAt: string;
+  generation: string;
+  renewal: {mode: 'refresh-at'; refreshAt: string} | {mode: 'on-rejection'};
+}
 
 export async function requestCheckoutCredentials(params: {
   leaseClient: KyInstance;
@@ -68,17 +80,31 @@ export async function checkoutRepositoryAt(params: {
   destination: string;
   gitConfigPath: string;
   checkout: CheckoutTokenResponseDto;
+  checkoutStepId: string;
+  checkoutAttempt: number;
   signal: AbortSignal;
   log?: CheckoutLogSink | undefined;
   scope: CheckoutFailureScope;
+  credentialHelper?: GitCredentialHelperConfig | undefined;
 }): Promise<
   CheckoutPhaseResult<{
     ambientGitConfigPath?: string | undefined;
     ambientGitConfigSecrets?: string[] | undefined;
+    persistedCheckoutCredential?: PersistedCheckoutCredential | undefined;
     checkout: NonNullable<StepResult['checkout']>;
   }>
 > {
-  const {destination, gitConfigPath, checkout, signal, log, scope} = params;
+  const {
+    destination,
+    gitConfigPath,
+    checkout,
+    checkoutStepId,
+    checkoutAttempt,
+    signal,
+    log,
+    scope,
+    credentialHelper,
+  } = params;
   try {
     log?.writeGroup({
       name: 'Repository details',
@@ -105,23 +131,13 @@ export async function checkoutRepositoryAt(params: {
       checkout,
       log,
       scope,
+      checkoutStepId,
+      checkoutAttempt,
+      ...credentialHelperOptions(credentialHelper),
     });
     return {
       ok: true,
-      value: {
-        checkout: {
-          repository: checkout.repository_url,
-          ref: checkout.ref,
-          commit,
-          path: destination,
-        },
-        ...(ambientGitConfig
-          ? {
-              ambientGitConfigPath: ambientGitConfig.path,
-              ambientGitConfigSecrets: ambientGitConfig.secrets,
-            }
-          : {}),
-      },
+      value: checkoutPhaseValue({checkout, destination, commit, ambientGitConfig}),
     };
   } catch (error) {
     const reason =
@@ -150,22 +166,39 @@ async function persistAmbientGitCredential(params: {
   checkout: CheckoutTokenResponseDto;
   log?: CheckoutLogSink | undefined;
   scope: CheckoutFailureScope;
-}): Promise<{path: string; secrets: string[]} | undefined> {
-  const {gitConfigPath, checkout, log, scope} = params;
+  checkoutStepId: string;
+  checkoutAttempt: number;
+  credentialHelper?: GitCredentialHelperConfig | undefined;
+}): Promise<
+  | {
+      path: string;
+      secrets: string[];
+      persistedCheckoutCredential?: PersistedCheckoutCredential | undefined;
+    }
+  | undefined
+> {
+  const {gitConfigPath, checkout, log, scope, checkoutStepId, checkoutAttempt, credentialHelper} =
+    params;
   const auth = checkout.auth;
   const shouldPersistCredential = auth?.persist === true && auth.carry === 'header';
   if (!shouldPersistCredential && checkout.git_author === undefined) return undefined;
+  const persistedCheckoutCredential =
+    credentialHelper === undefined || !shouldPersistCredential
+      ? undefined
+      : persistedCheckoutCredentialFromCheckout({checkout, checkoutStepId, checkoutAttempt});
 
   try {
     await writeAmbientGitCredential({
       configPath: gitConfigPath,
       repositoryUrl: checkout.repository_url,
-      ...(shouldPersistCredential && auth ? {auth} : {}),
+      ...credentialHelperOptions(persistedCheckoutCredential ? credentialHelper : undefined),
+      ...authOptions({auth, shouldPersistCredential, persistedCheckoutCredential}),
       ...(checkout.git_author ? {gitAuthor: checkout.git_author} : {}),
     });
     return {
       path: gitConfigPath,
       secrets: shouldPersistCredential && auth ? ambientGitCredentialSecrets(auth) : [],
+      ...(persistedCheckoutCredential ? {persistedCheckoutCredential} : {}),
     };
   } catch (error) {
     writeWarning(
@@ -179,6 +212,86 @@ async function persistAmbientGitCredential(params: {
     );
     return undefined;
   }
+}
+
+function checkoutPhaseValue(params: {
+  checkout: CheckoutTokenResponseDto;
+  destination: string;
+  commit: string;
+  ambientGitConfig:
+    | {
+        path: string;
+        secrets: string[];
+        persistedCheckoutCredential?: PersistedCheckoutCredential | undefined;
+      }
+    | undefined;
+}): {
+  ambientGitConfigPath?: string | undefined;
+  ambientGitConfigSecrets?: string[] | undefined;
+  persistedCheckoutCredential?: PersistedCheckoutCredential | undefined;
+  checkout: NonNullable<StepResult['checkout']>;
+} {
+  const {checkout, destination, commit, ambientGitConfig} = params;
+  return {
+    checkout: {
+      repository: checkout.repository_url,
+      ref: checkout.ref,
+      commit,
+      path: destination,
+    },
+    ...(ambientGitConfig
+      ? {
+          ambientGitConfigPath: ambientGitConfig.path,
+          ambientGitConfigSecrets: ambientGitConfig.secrets,
+          ...(ambientGitConfig.persistedCheckoutCredential
+            ? {persistedCheckoutCredential: ambientGitConfig.persistedCheckoutCredential}
+            : {}),
+        }
+      : {}),
+  };
+}
+
+function credentialHelperOptions(credentialHelper: GitCredentialHelperConfig | undefined): {
+  credentialHelper?: GitCredentialHelperConfig;
+} {
+  return credentialHelper === undefined ? {} : {credentialHelper};
+}
+
+function authOptions(params: {
+  auth: CheckoutTokenResponseDto['auth'];
+  shouldPersistCredential: boolean;
+  persistedCheckoutCredential: PersistedCheckoutCredential | undefined;
+}): {auth?: CheckoutTokenResponseDto['auth']} {
+  if (params.persistedCheckoutCredential !== undefined || !params.shouldPersistCredential) {
+    return {};
+  }
+  if (params.auth === undefined) return {};
+  return {auth: params.auth};
+}
+
+function persistedCheckoutCredentialFromCheckout(params: {
+  checkout: CheckoutTokenResponseDto;
+  checkoutStepId: string;
+  checkoutAttempt: number;
+}): PersistedCheckoutCredential | undefined {
+  const auth = params.checkout.auth;
+  if (auth?.kind !== 'basic' || auth.generation === undefined || auth.renewal === undefined) {
+    return undefined;
+  }
+
+  return {
+    repositoryUrl: params.checkout.repository_url,
+    checkoutStepId: params.checkoutStepId,
+    checkoutAttempt: params.checkoutAttempt,
+    username: auth.username,
+    token: auth.token,
+    expiresAt: auth.expires_at,
+    generation: auth.generation,
+    renewal:
+      auth.renewal.mode === 'refresh-at'
+        ? {mode: 'refresh-at', refreshAt: auth.renewal.refresh_at}
+        : {mode: 'on-rejection'},
+  };
 }
 
 const CHECKOUT_KIND_REASON: Record<CheckoutFailureKind, StepErrorReasonDto> = {

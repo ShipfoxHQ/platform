@@ -388,6 +388,39 @@ describe('api-client auth contexts', () => {
     expect(calls[0]?.authorization).toBe('Bearer lease-ghi');
   });
 
+  it('sends a rejected credential generation only for renewal requests', async () => {
+    stubFetch(() =>
+      jsonResponse({
+        repository_url: 'https://github.com/acme/repo.git',
+        ref: 'main',
+        fetch_depth: 1,
+        auth: {
+          kind: 'basic',
+          username: 'x-access-token',
+          token: 'renewed-token',
+          expires_at: '2026-01-01T00:00:00.000Z',
+          generation: 'generation-two',
+          renewal: {mode: 'on-rejection'},
+          carry: 'header',
+          host: 'github.com',
+          persist: true,
+        },
+      }),
+    );
+    const leaseClient = createLeaseClient('lease-renewal');
+
+    await requestCheckoutToken(leaseClient, {
+      stepId: STEP_ID,
+      attempt: 3,
+      rejectedGeneration: 'generation-one',
+    });
+
+    expect(JSON.parse(calls[0]?.body ?? '{}')).toEqual({
+      rejected_generation: 'generation-one',
+    });
+    expect(calls[0]?.url).toContain(`attempt=3`);
+  });
+
   it('requestAgentRuntimeConfig sends the lease token and parses credentials', async () => {
     stubFetch(() =>
       jsonResponse({

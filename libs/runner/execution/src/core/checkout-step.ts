@@ -6,6 +6,7 @@ import {
   CheckoutDestinationOccupiedError,
   CheckoutPathInvalidError,
   createCheckoutDestination,
+  type GitCredentialHelperConfig,
   inspectCheckoutDestination,
   replaceCheckoutDestination,
   resolveCheckoutPath,
@@ -14,6 +15,7 @@ import type {KyInstance} from 'ky';
 import {
   type CheckoutLogSink,
   checkoutRepositoryAt,
+  type PersistedCheckoutCredential,
   requestCheckoutCredentials,
   safeRepositoryUrl,
 } from '#core/checkout-execution.js';
@@ -34,6 +36,7 @@ export interface CheckoutStepExecution {
   result: StepResult;
   ambientGitConfigPath?: string | undefined;
   ambientGitConfigSecrets?: string[] | undefined;
+  persistedCheckoutCredential?: PersistedCheckoutCredential | undefined;
 }
 
 /**
@@ -50,8 +53,19 @@ export async function executeCheckoutStep(params: {
   attempt: number;
   destinations: CheckoutDestinations;
   log?: CheckoutLogSink | undefined;
+  credentialHelper?: GitCredentialHelperConfig | undefined;
 }): Promise<CheckoutStepExecution> {
-  const {cwd, gitConfigPath, leaseClient, signal, step, attempt, destinations, log} = params;
+  const {
+    cwd,
+    gitConfigPath,
+    leaseClient,
+    signal,
+    step,
+    attempt,
+    destinations,
+    log,
+    credentialHelper,
+  } = params;
   const config = readCheckoutConfig(step.config.checkout);
   const preflightFailure = await checkoutPreflight(config.path, log);
   if (preflightFailure) return preflightFailure;
@@ -88,9 +102,12 @@ export async function executeCheckoutStep(params: {
       destination,
       gitConfigPath,
       checkout: requested.value,
+      checkoutStepId: step.id,
+      checkoutAttempt: attempt,
       signal,
       ...(log ? {log} : {}),
       scope: 'checkout',
+      credentialHelper,
     });
     if (!checkout.ok) return {result: checkout.result};
 
@@ -100,15 +117,7 @@ export async function executeCheckoutStep(params: {
       ref: result.ref,
       result,
     });
-    return {
-      result: {success: true, error: null, exit_code: 0, checkout: result},
-      ...(checkout.value.ambientGitConfigPath
-        ? {ambientGitConfigPath: checkout.value.ambientGitConfigPath}
-        : {}),
-      ...(checkout.value.ambientGitConfigSecrets
-        ? {ambientGitConfigSecrets: checkout.value.ambientGitConfigSecrets}
-        : {}),
-    };
+    return checkoutStepExecution({result, checkout: checkout.value});
   } catch (error) {
     if (error instanceof CheckoutPathInvalidError) return pathFailure(error, log);
     if (error instanceof CheckoutDestinationOccupiedError) {
@@ -124,6 +133,28 @@ export async function executeCheckoutStep(params: {
   } finally {
     log?.writeGroupEnd();
   }
+}
+
+function checkoutStepExecution(params: {
+  result: NonNullable<StepResult['checkout']>;
+  checkout: {
+    ambientGitConfigPath?: string | undefined;
+    ambientGitConfigSecrets?: string[] | undefined;
+    persistedCheckoutCredential?: PersistedCheckoutCredential | undefined;
+  };
+}): CheckoutStepExecution {
+  return {
+    result: {success: true, error: null, exit_code: 0, checkout: params.result},
+    ...(params.checkout.ambientGitConfigPath
+      ? {ambientGitConfigPath: params.checkout.ambientGitConfigPath}
+      : {}),
+    ...(params.checkout.ambientGitConfigSecrets
+      ? {ambientGitConfigSecrets: params.checkout.ambientGitConfigSecrets}
+      : {}),
+    ...(params.checkout.persistedCheckoutCredential
+      ? {persistedCheckoutCredential: params.checkout.persistedCheckoutCredential}
+      : {}),
+  };
 }
 
 async function checkoutPreflight(

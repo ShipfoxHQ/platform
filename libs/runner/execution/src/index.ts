@@ -1,3 +1,4 @@
+export type {PersistedCheckoutCredential} from '#core/checkout-execution.js';
 export {
   type CheckoutDestination,
   type CheckoutDestinations,
