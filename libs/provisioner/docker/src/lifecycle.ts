@@ -29,6 +29,7 @@ const MAX_REGISTRATION_CANDIDATE_IDS_IN_LOG = 20;
 const REGISTRATION_CANDIDATE_RETRY_INITIAL_DELAY_MS = 1_000;
 const REGISTRATION_CANDIDATE_RETRY_MAX_DELAY_MS = 60_000;
 const REGISTRATION_CANDIDATE_SUBMISSION_EPISODE = 'registration-deadline-candidates';
+const REGISTRATION_CANDIDATE_WINDOW_LIMIT_EPISODE = 'registration-deadline-candidate-window-limit';
 const REGISTRATION_CANDIDATE_LIMIT_EPISODE = 'registration-deadline-candidate-limit';
 const EMPTY_TERMINATE_INTENT_IDS = new Set<string>();
 
@@ -476,6 +477,7 @@ function selectRegistrationDeadlineCandidateWindow(
 
   if (orderedCandidates.length <= MAX_TERMINATION_CANDIDATES) {
     context.registrationCandidateCursor = 0;
+    closeEpisode(context.episodes, REGISTRATION_CANDIDATE_WINDOW_LIMIT_EPISODE, context.now());
     return [...orderedCandidates];
   }
 
@@ -487,18 +489,36 @@ function selectRegistrationDeadlineCandidateWindow(
   const selectedCandidates = rotatedCandidates.slice(0, MAX_TERMINATION_CANDIDATES);
   context.registrationCandidateCursor =
     (start + selectedCandidates.length) % orderedCandidates.length;
+  logRegistrationCandidateWindowLimit(context, orderedCandidates, selectedCandidates.length, start);
+  return selectedCandidates;
+}
+
+function logRegistrationCandidateWindowLimit(
+  context: DockerLifecycleContext,
+  orderedCandidates: readonly ProviderTerminationCandidateDto[],
+  submittedCount: number,
+  start: number,
+): void {
+  const update = recordEpisode(
+    context.episodes,
+    REGISTRATION_CANDIDATE_WINDOW_LIMIT_EPISODE,
+    context.registrationCandidateFingerprint ?? '',
+    context.now(),
+  );
+  if (!shouldLogEpisode(update)) return;
   logger().warn(
     {
       event: 'provisioner.docker.registration_deadline_candidate_limit',
       candidate_count: orderedCandidates.length,
-      submitted_count: selectedCandidates.length,
-      dropped_count: orderedCandidates.length - selectedCandidates.length,
+      submitted_count: submittedCount,
+      dropped_count: orderedCandidates.length - submittedCount,
       start_index: start,
       next_start_index: context.registrationCandidateCursor,
+      attempts: update.state.attempts,
+      suppressed: update.state.suppressed,
     },
     'Capped Docker registration-deadline termination candidates at the API limit',
   );
-  return selectedCandidates;
 }
 
 function scheduleRegistrationCandidateRetry(context: DockerLifecycleContext): void {
@@ -516,6 +536,7 @@ function resetRegistrationCandidateState(context: DockerLifecycleContext): void 
   context.registrationCandidateRetryDelayMs = REGISTRATION_CANDIDATE_RETRY_INITIAL_DELAY_MS;
   context.registrationCandidateCursor = 0;
   closeEpisode(context.episodes, REGISTRATION_CANDIDATE_SUBMISSION_EPISODE, context.now());
+  closeEpisode(context.episodes, REGISTRATION_CANDIDATE_WINDOW_LIMIT_EPISODE, context.now());
 }
 
 function logSubmittedRegistrationDeadlineCandidates(

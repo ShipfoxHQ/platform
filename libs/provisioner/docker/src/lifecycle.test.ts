@@ -852,7 +852,7 @@ describe('createDockerLifecycle', () => {
       observability.logger.warn.mock.calls.filter(
         ([fields]) => fields?.event === 'provisioner.docker.registration_deadline_candidate_limit',
       ),
-    ).toHaveLength(2);
+    ).toHaveLength(1);
 
     containers.splice(2);
     await lifecycle.reconcile();
