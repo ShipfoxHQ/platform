@@ -335,7 +335,7 @@ describe('POST /provisioners/runner-instances/reconcile', () => {
       url: '/provisioners/runner-instances/reconcile',
       headers: {authorization: `Bearer ${VALID_PROVISIONER_TOKEN}`},
       payload: {
-        observed_provider_runner_ids: [],
+        observed_provider_runner_ids: ['candidate-runner'],
         termination_candidates: [
           {provider_runner_id: 'candidate-runner', reason: 'registration-deadline'},
         ],
