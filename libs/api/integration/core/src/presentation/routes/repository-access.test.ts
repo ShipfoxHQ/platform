@@ -1,3 +1,4 @@
+import type {UserContextMembership} from '@shipfox/api-auth-context';
 import {
   CONNECTION_REPOSITORY_ACCESS_CHANGED,
   CONNECTION_REPOSITORY_GRANTED,
@@ -46,6 +47,7 @@ describe('repository access mutation routes', () => {
     expect(reloaded?.repositoryAccessMode).toBe('all');
     expect(reloaded?.updatedAt).toEqual(afterFirst?.updatedAt);
     expect(events).toHaveLength(2);
+    expect(events[0]?.orderingKey).toBe(connection.id);
     expect(events[0]?.payload).toMatchObject({
       actorId: 'user-1',
       workspaceId: context.workspaceId,
@@ -95,6 +97,7 @@ describe('repository access mutation routes', () => {
     });
     expect(repeated.json()).toEqual(first.json());
     expect(grants).toHaveLength(1);
+    expect(events[0]?.orderingKey).toBe(connection.id);
     expect(events[0]?.payload).toMatchObject({
       actorId: 'user-1',
       grantId: first.json().id,
@@ -130,7 +133,9 @@ describe('repository access mutation routes', () => {
       }),
     ).resolves.toBeUndefined();
     expect(revoked.statusCode).toBe(204);
-    expect(await auditEvents(CONNECTION_REPOSITORY_REVOKED, firstConnection.id)).toHaveLength(1);
+    const events = await auditEvents(CONNECTION_REPOSITORY_REVOKED, firstConnection.id);
+    expect(events).toHaveLength(1);
+    expect(events[0]?.orderingKey).toBe(firstConnection.id);
   });
 
   it('rejects unsupported providers before changing repository state', async () => {
@@ -203,13 +208,167 @@ describe('repository access mutation routes', () => {
         name: 'platform',
       },
     });
+    const mismatchedCoordinates = await app.inject({
+      method: 'POST',
+      url,
+      headers,
+      payload: {
+        external_repository_id: 'gitea:other-owner/platform',
+        owner: 'gitea-owner',
+        name: 'platform',
+      },
+    });
 
     expect(wrongProvider.statusCode).toBe(400);
     expect(wrongProvider.json().code).toBe('invalid-repository');
     expect(invalidOwner.statusCode).toBe(400);
+    expect(mismatchedCoordinates.statusCode).toBe(400);
+    expect(mismatchedCoordinates.json().code).toBe('invalid-repository');
     await expect(
       listIntegrationConnectionRepositoryGrants({connectionId: connection.id}),
     ).resolves.toEqual([]);
+  });
+
+  it('requires a workspace admin for repository access mutations', async () => {
+    const app = await createTestApp([sourceProvider({repositoryAuthorization: 'enforced'})], {
+      memberships: [
+        {
+          workspaceId: context.workspaceId,
+          role: 'member' as UserContextMembership['role'],
+          workspaceStatus: 'active',
+        },
+      ],
+    });
+    const connection = await createConnection();
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: `/integration-connections/${connection.id}/repository-access`,
+      headers: {authorization: 'Bearer user'},
+      payload: {mode: 'all'},
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json().code).toBe('forbidden');
+    expect((await getIntegrationConnectionById(connection.id))?.repositoryAccessMode).toBe(
+      'selected',
+    );
+    expect(await auditEvents(CONNECTION_REPOSITORY_ACCESS_CHANGED, connection.id)).toHaveLength(0);
+  });
+
+  it('rejects impersonated sessions before changing repository access mode', async () => {
+    const app = await createTestApp([sourceProvider({repositoryAuthorization: 'enforced'})]);
+    const connection = await createConnection();
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: `/integration-connections/${connection.id}/repository-access`,
+      headers: {authorization: 'Bearer impersonated'},
+      payload: {mode: 'all'},
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json().code).toBe('impersonation-not-permitted');
+    expect((await getIntegrationConnectionById(connection.id))?.repositoryAccessMode).toBe(
+      'selected',
+    );
+    expect(await auditEvents(CONNECTION_REPOSITORY_ACCESS_CHANGED, connection.id)).toHaveLength(0);
+  });
+
+  it('rejects impersonated sessions before revoking a repository grant', async () => {
+    const app = await createTestApp([sourceProvider({repositoryAuthorization: 'enforced'})]);
+    const connection = await createConnection();
+    const grant = await createGrant(connection.id);
+
+    const response = await app.inject({
+      method: 'DELETE',
+      url: `/integration-connections/${connection.id}/repository-grants/${grant.id}`,
+      headers: {authorization: 'Bearer impersonated'},
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json().code).toBe('impersonation-not-permitted');
+    await expect(
+      getIntegrationConnectionRepositoryGrant({
+        connectionId: connection.id,
+        externalRepositoryId: grant.externalRepositoryId,
+      }),
+    ).resolves.toMatchObject({id: grant.id});
+    expect(await auditEvents(CONNECTION_REPOSITORY_REVOKED, connection.id)).toHaveLength(0);
+  });
+
+  it('rejects unsupported providers for every repository access mutation', async () => {
+    const app = await createTestApp([sourceProvider()]);
+    const connection = await createConnection();
+    const grant = await createGrant(connection.id);
+
+    const update = await app.inject({
+      method: 'PUT',
+      url: `/integration-connections/${connection.id}/repository-access`,
+      headers: {authorization: 'Bearer user'},
+      payload: {mode: 'all'},
+    });
+    const revoke = await app.inject({
+      method: 'DELETE',
+      url: `/integration-connections/${connection.id}/repository-grants/${grant.id}`,
+      headers: {authorization: 'Bearer user'},
+    });
+
+    expect(update.statusCode).toBe(422);
+    expect(update.json().code).toBe('integration-repository-access-unsupported');
+    expect(revoke.statusCode).toBe(422);
+    expect(revoke.json().code).toBe('integration-repository-access-unsupported');
+    expect((await getIntegrationConnectionById(connection.id))?.repositoryAccessMode).toBe(
+      'selected',
+    );
+    await expect(
+      getIntegrationConnectionRepositoryGrant({
+        connectionId: connection.id,
+        externalRepositoryId: grant.externalRepositoryId,
+      }),
+    ).resolves.toMatchObject({id: grant.id});
+  });
+
+  it('invalidates authorization cache after each committed mutation', async () => {
+    const invalidateRepositoryAuthorizationCache = vi.fn();
+    const app = await createTestApp([sourceProvider({repositoryAuthorization: 'enforced'})], {
+      repositoryAuthorizer: {
+        enabled: false,
+        resolveRepositoryAuthorization: () => Promise.resolve(undefined),
+        invalidateRepositoryAuthorizationCache,
+      },
+    });
+    const connection = await createConnection();
+
+    const update = await app.inject({
+      method: 'PUT',
+      url: `/integration-connections/${connection.id}/repository-access`,
+      headers: {authorization: 'Bearer user'},
+      payload: {mode: 'all'},
+    });
+    const grant = await app.inject({
+      method: 'POST',
+      url: `/integration-connections/${connection.id}/repository-grants`,
+      headers: {authorization: 'Bearer user'},
+      payload: {
+        external_repository_id: 'gitea:gitea-owner/platform',
+        owner: 'gitea-owner',
+        name: 'platform',
+      },
+    });
+    const revoke = await app.inject({
+      method: 'DELETE',
+      url: `/integration-connections/${connection.id}/repository-grants/${grant.json().id}`,
+      headers: {authorization: 'Bearer user'},
+    });
+
+    expect(update.statusCode).toBe(200);
+    expect(grant.statusCode).toBe(200);
+    expect(revoke.statusCode).toBe(204);
+    expect(invalidateRepositoryAuthorizationCache).toHaveBeenCalledTimes(3);
+    expect(invalidateRepositoryAuthorizationCache).toHaveBeenNthCalledWith(1, connection.id);
+    expect(invalidateRepositoryAuthorizationCache).toHaveBeenNthCalledWith(2, connection.id);
+    expect(invalidateRepositoryAuthorizationCache).toHaveBeenNthCalledWith(3, connection.id);
   });
 
   async function createConnection(slug = `gitea_${crypto.randomUUID()}`) {
@@ -236,7 +395,10 @@ describe('repository access mutation routes', () => {
 
   async function auditEvents(eventType: string, connectionId: string) {
     return await db()
-      .select({payload: integrationsOutbox.payload})
+      .select({
+        payload: integrationsOutbox.payload,
+        orderingKey: integrationsOutbox.orderingKey,
+      })
       .from(integrationsOutbox)
       .where(
         sql`${integrationsOutbox.eventType} = ${eventType} AND ${integrationsOutbox.payload}->>'connectionId' = ${connectionId}`,

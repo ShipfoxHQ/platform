@@ -1,4 +1,5 @@
 import {z} from 'zod';
+import {isSafeExternalRepositoryValue, isSafeRepositoryPart} from '../repository-identifiers.js';
 
 export const CONNECTION_SLUG_MAX_LENGTH = 100;
 
@@ -100,19 +101,8 @@ export type UpdateIntegrationConnectionRepositoryAccessBodyDto = z.infer<
   typeof updateIntegrationConnectionRepositoryAccessBodySchema
 >;
 
-const REPOSITORY_EXTERNAL_ID_UNSAFE_PATTERN = /[\s\p{Cc}\p{Cf}]/u;
-const REPOSITORY_PART_UNSAFE_PATTERN = /[\s/:\\\p{Cc}\p{Cf}]/u;
-
-const repositoryExternalIdSchema = z
-  .string()
-  .min(1)
-  .max(255)
-  .refine((value) => !REPOSITORY_EXTERNAL_ID_UNSAFE_PATTERN.test(value));
-const repositoryPartSchema = z
-  .string()
-  .min(1)
-  .max(255)
-  .refine((value) => !REPOSITORY_PART_UNSAFE_PATTERN.test(value));
+const repositoryExternalIdSchema = z.string().min(1).max(255).refine(isSafeExternalRepositoryValue);
+const repositoryPartSchema = z.string().min(1).max(255).refine(isSafeRepositoryPart);
 
 export const createIntegrationConnectionRepositoryGrantBodySchema = z.object({
   external_repository_id: repositoryExternalIdSchema,

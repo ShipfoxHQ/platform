@@ -85,7 +85,12 @@ export function createRepositoryAccessMutationRoutes(
       const access = requireRepositoryAccessAdmin(request, connection);
       const provider = params.registry.get(connection.provider);
       requireRepositoryAccessSupport(provider.repositoryAuthorization);
-      validateExternalRepositoryId(request.body.external_repository_id, connection.provider);
+      validateExternalRepositoryId(
+        request.body.external_repository_id,
+        connection.provider,
+        request.body.owner,
+        request.body.name,
+      );
 
       const grant = await upsertIntegrationConnectionRepositoryGrantWithAudit({
         connectionId: connection.id,
@@ -162,9 +167,20 @@ function requireRepositoryAccessSupport(repositoryAuthorization: string | undefi
   );
 }
 
-function validateExternalRepositoryId(externalRepositoryId: string, provider: string): void {
+function validateExternalRepositoryId(
+  externalRepositoryId: string,
+  provider: string,
+  repositoryOwner: string,
+  repositoryName: string,
+): void {
   try {
-    parseProviderRepositoryId(externalRepositoryId, provider);
+    const providerRepositoryId = parseProviderRepositoryId(externalRepositoryId, provider);
+    if (
+      providerRepositoryId.includes('/') &&
+      providerRepositoryId.toLowerCase() !== `${repositoryOwner}/${repositoryName}`.toLowerCase()
+    ) {
+      throw new Error('Provider repository id does not match repository coordinates');
+    }
   } catch {
     throw new ClientError('Invalid provider-namespaced repository id', 'invalid-repository', {
       status: 400,

@@ -35,6 +35,7 @@ export async function updateIntegrationConnectionRepositoryAccessModeWithAudit(
 
     await writeOutboxEvent<IntegrationsEventMap>(tx, integrationsOutbox, {
       type: CONNECTION_REPOSITORY_ACCESS_CHANGED,
+      orderingKey: connection.id,
       payload: {
         actorId: params.actorId,
         workspaceId: connection.workspaceId,
@@ -58,6 +59,7 @@ export async function upsertIntegrationConnectionRepositoryGrantWithAudit(
 
     await writeOutboxEvent<IntegrationsEventMap>(tx, integrationsOutbox, {
       type: CONNECTION_REPOSITORY_GRANTED,
+      orderingKey: grant.connectionId,
       payload: {
         actorId: params.actorId,
         workspaceId: grant.workspaceId,
@@ -84,6 +86,7 @@ export async function deleteIntegrationConnectionRepositoryGrantByIdWithAudit(
 
     await writeOutboxEvent<IntegrationsEventMap>(tx, integrationsOutbox, {
       type: CONNECTION_REPOSITORY_REVOKED,
+      orderingKey: grant.connectionId,
       payload: {
         actorId: params.actorId,
         workspaceId: grant.workspaceId,

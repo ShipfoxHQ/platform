@@ -9,7 +9,11 @@ import {afterEach, beforeEach} from '@shipfox/vitest/vi';
 import {sql} from 'drizzle-orm';
 import type {FastifyInstance, FastifyRequest} from 'fastify';
 import {db} from '#db/db.js';
-import {createIntegrationsModule, type IntegrationProvider} from '#index.js';
+import {
+  createIntegrationsModule,
+  type IntegrationProvider,
+  type RepositoryAuthorizer,
+} from '#index.js';
 
 let authenticatedMemberships: UserContextMembership[] = [];
 
@@ -85,8 +89,20 @@ export function sourceProvider(overrides: Partial<IntegrationProvider> = {}): In
   };
 }
 
-export async function createTestApp(providers: IntegrationProvider[]): Promise<FastifyInstance> {
-  const integrationsModule = await createIntegrationsModule({providers});
+export interface CreateTestAppOptions {
+  memberships?: UserContextMembership[] | undefined;
+  repositoryAuthorizer?: RepositoryAuthorizer | undefined;
+}
+
+export async function createTestApp(
+  providers: IntegrationProvider[],
+  options: CreateTestAppOptions = {},
+): Promise<FastifyInstance> {
+  if (options.memberships !== undefined) authenticatedMemberships = options.memberships;
+  const integrationsModule = await createIntegrationsModule({
+    providers,
+    repositoryAuthorizer: options.repositoryAuthorizer,
+  });
   const app = await createApp({
     auth: [fakeUserAuth],
     routes: integrationsModule.routes ?? [],

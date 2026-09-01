@@ -1,3 +1,7 @@
+import {
+  isSafeExternalRepositoryValue,
+  isSafeRepositoryPart,
+} from '@shipfox/api-integration-core-dto';
 import {repositoryAuthorizationErrorCodes} from '@shipfox/api-integration-core-dto/inter-module';
 import type {IntegrationConnectionRepositoryAccessMode} from '@shipfox/api-integration-spi';
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
@@ -5,8 +9,6 @@ import {reportError} from '@shipfox/node-error-monitoring';
 import {logger} from '@shipfox/node-opentelemetry';
 import {RepositoryAuthorizerConfigurationError} from './errors.js';
 
-const REPOSITORY_PART_UNSAFE_PATTERN = /[\s/:\\]/u;
-const EXTERNAL_REPOSITORY_VALUE_UNSAFE_PATTERN = /\s/u;
 // Keep every outage retryable while bounding the Sentry volume process-wide.
 const REPOSITORY_AUTHORIZATION_REPORT_INTERVAL_MS = 60_000;
 const REPOSITORY_AUTHORIZATION_CACHE_TTL_MS = 30_000;
@@ -552,29 +554,4 @@ function assertValidTarget(
   ) {
     throw new RepositoryAuthorizationTargetInvalidError();
   }
-}
-
-function isSafeRepositoryPart(value: unknown): value is string {
-  return (
-    typeof value === 'string' &&
-    value.length > 0 &&
-    !REPOSITORY_PART_UNSAFE_PATTERN.test(value) &&
-    !containsControlCharacter(value)
-  );
-}
-
-function isSafeExternalRepositoryValue(value: unknown): value is string {
-  return (
-    typeof value === 'string' &&
-    value.length > 0 &&
-    !EXTERNAL_REPOSITORY_VALUE_UNSAFE_PATTERN.test(value) &&
-    !containsControlCharacter(value)
-  );
-}
-
-function containsControlCharacter(value: string): boolean {
-  return [...value].some((character) => {
-    const code = character.codePointAt(0) ?? 0;
-    return code <= 0x1f || code === 0x7f;
-  });
 }
