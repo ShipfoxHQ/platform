@@ -211,7 +211,6 @@ describe('POST /runs/jobs/current/steps/:stepId/checkout-token', () => {
       connectionId: project.sourceConnectionId,
       externalRepositoryId: project.sourceExternalRepositoryId,
     });
-    createCheckoutSpec.mockResolvedValue(githubSpec('ghs-expired-lease-token'));
     const token = await mintActiveLeaseToken({jobId: job.id});
     vi.spyOn(runnersTestClient, 'getLeaseState')
       .mockResolvedValueOnce({active: true})

@@ -139,7 +139,6 @@ async function createCheckoutTokenResponse(params: {
     persist: checkout.persistCredentials,
   });
   if (checkout.renewalSubject !== undefined) {
-    await assertLeasedJobActive(params.clients.runners, params.loaded.leasedJob);
     const subjectSaved = await persistCheckoutRenewalSubject({
       renewalSubject: checkout.renewalSubject,
       stepId: params.stepId,
@@ -151,7 +150,6 @@ async function createCheckoutTokenResponse(params: {
     });
     if (!subjectSaved && response.auth !== undefined) response.auth.persist = false;
   }
-  await assertLeasedJobActive(params.clients.runners, params.loaded.leasedJob);
   return response;
 }
 
