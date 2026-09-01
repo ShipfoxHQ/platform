@@ -102,6 +102,7 @@ export interface StepAttemptDetail {
   session: StepAttemptSession | null;
   authoredConfig: Record<string, unknown> | null;
   config: Record<string, unknown> | null;
+  toolArguments: unknown | null;
   evaluationTrace: EvaluationTraceEntry[] | null;
 }
 

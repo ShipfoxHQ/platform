@@ -9,7 +9,7 @@ import {
   Outlet,
   RouterProvider,
 } from '@tanstack/react-router';
-import {act, render, screen} from '@testing-library/react';
+import {act, render, screen, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {useState} from 'react';
 import type {StepErrorReason} from '#core/workflow-run.js';
@@ -26,11 +26,11 @@ const STEP_ID = '55555555-5555-4555-8555-555555555555';
 const ATTEMPT_ID = '66666666-6666-4666-8666-666666666666';
 const EXECUTION_ID = '77777777-7777-4777-8777-777777777777';
 const INSPECTOR_TRIGGER_NAME = 'Open inspector';
-const RETRY_COUNTDOWN_NAME = /^Retry in /u;
 const INVOCATION_LOG_DESCRIPTION = /The full result remains available in the invocation log\./u;
 
 describe('StepInspectorSheet', () => {
   afterEach(() => {
+    vi.restoreAllMocks();
     configureApiClient({baseUrl: '', fetchImpl: undefined});
   });
 
@@ -295,14 +295,45 @@ describe('StepInspectorSheet', () => {
       'href',
       '/w/acme/settings/integrations',
     );
-    expect(screen.getByRole('region', {name: 'Invocations'})).toHaveTextContent('Failed');
+    const invocations = screen.getByRole('region', {name: 'Invocations'});
+    expect(invocations).toHaveTextContent('Failed');
+    const errorCode = within(invocations).getByText('access-denied');
+    expect(errorCode).toHaveAttribute('tabindex', '0');
+    await user.hover(errorCode);
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('access-denied');
     expect(screen.queryByRole('region', {name: 'Result'})).toBeNull();
 
     await user.click(screen.getByRole('button', {name: 'View invocation log'}));
     expect(onViewLogs).toHaveBeenCalledOnce();
   });
 
+  it('explains unavailable credentials and links to reconnection', async () => {
+    const user = userEvent.setup();
+    configureToolDetailResponse();
+
+    await renderPanel({
+      entry: toolStepEntry({
+        status: 'failed',
+        reason: 'tool_error',
+        code: 'credentials-unavailable',
+      }),
+    });
+    await user.click(screen.getByRole('button', {name: INSPECTOR_TRIGGER_NAME}));
+
+    expect(await screen.findByText('Tool credentials are unavailable')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'The integration credentials are missing or unavailable. Reconnect the integration before re-running the step.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('link', {name: 'Reconnect integration'})).toHaveAttribute(
+      'href',
+      '/w/acme/settings/integrations',
+    );
+  });
+
   it('shows a countdown for a scheduled retry', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2999-09-01T09:00:01.000Z'));
     const user = userEvent.setup();
     configureToolDetailResponse();
 
@@ -311,8 +342,64 @@ describe('StepInspectorSheet', () => {
 
     expect(await screen.findByRole('region', {name: 'Invocations'})).toHaveTextContent('Failed');
     expect(screen.getByRole('region', {name: 'Invocations'})).toHaveTextContent('Retry pending');
-    expect(screen.getByLabelText(RETRY_COUNTDOWN_NAME)).toBeInTheDocument();
+    expect(screen.getByText('Retry in 5s')).toBeInTheDocument();
     expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it.each([
+    {nextDueAt: '2999-09-01T09:00:00.000Z', label: 'Retry in now'},
+    {nextDueAt: 'not-a-date', label: 'Retry in pending'},
+  ])('shows $label for a running retry', async ({nextDueAt, label}) => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2999-09-01T09:00:01.000Z'));
+    const user = userEvent.setup();
+    configureToolDetailResponse();
+
+    await renderPanel({entry: toolStepEntry({status: 'running', nextDueAt})});
+    await user.click(screen.getByRole('button', {name: INSPECTOR_TRIGGER_NAME}));
+
+    expect(await screen.findByText(label)).toBeInTheDocument();
+  });
+
+  it('marks a queued retry as not retried after the attempt terminates', async () => {
+    const user = userEvent.setup();
+    configureToolDetailResponse();
+
+    await renderPanel({
+      entry: toolStepEntry({status: 'failed', reason: 'invocation_interrupted'}),
+    });
+    await user.click(screen.getByRole('button', {name: INSPECTOR_TRIGGER_NAME}));
+
+    expect(await screen.findByText('Not retried')).toBeInTheDocument();
+  });
+
+  it.each([
+    {
+      sensitivity: 'write',
+      description:
+        'The provider call was interrupted. Confirm whether the write completed before re-running it.',
+    },
+    {
+      sensitivity: 'read',
+      description:
+        'The provider call was interrupted before its outcome could be recorded. Review the invocation log before retrying.',
+    },
+  ] as const)('explains an interrupted $sensitivity tool invocation', async ({
+    sensitivity,
+    description,
+  }) => {
+    const user = userEvent.setup();
+    configureToolDetailResponse();
+
+    await renderPanel({
+      entry: toolStepEntry({
+        status: 'failed',
+        reason: 'invocation_interrupted',
+        sensitivity,
+      }),
+    });
+    await user.click(screen.getByRole('button', {name: INSPECTOR_TRIGGER_NAME}));
+
+    expect(await screen.findByText(description)).toBeInTheDocument();
   });
 
   it('distinguishes a successful provider call from an invalid step output', async () => {
@@ -350,6 +437,18 @@ describe('StepInspectorSheet', () => {
       ),
     ).toBeInTheDocument();
     expect(screen.getByRole('link', {name: 'View in source'})).toBeInTheDocument();
+  });
+
+  it('keeps non-tool failure chips keyed to their stable reason', async () => {
+    const user = userEvent.setup();
+    configureApiClient({fetchImpl: vi.fn(() => new Promise<Response>(() => undefined))});
+
+    await renderPanel({
+      entry: stepEntry('agent_invocation_failed', 'workspace-providers-disabled'),
+    });
+    await user.click(screen.getByRole('button', {name: INSPECTOR_TRIGGER_NAME}));
+
+    expect(await screen.findByText('agent_invocation_failed')).toBeInTheDocument();
   });
 });
 
@@ -418,7 +517,10 @@ function PanelHarness({
   );
 }
 
-function stepEntry(reason: StepErrorReason = 'agent_invocation_failed'): StepListEntryModel {
+function stepEntry(
+  reason: StepErrorReason = 'agent_invocation_failed',
+  code?: string,
+): StepListEntryModel {
   const jobId = '44444444-4444-4444-8444-444444444444';
   const job = workflowJob({
     id: jobId,
@@ -438,7 +540,7 @@ function stepEntry(reason: StepErrorReason = 'agent_invocation_failed'): StepLis
             status: 'failed',
             type: 'agent',
             config: {run: 'pnpm test'},
-            error: {message: 'Agent dispatch failed', reason},
+            error: {message: 'Agent dispatch failed', reason, ...(code ? {code} : {})},
             evaluation_trace: [
               {
                 expression: 'inputs.message',
@@ -521,15 +623,19 @@ function toolStepEntry({
   reason,
   code,
   field,
+  sensitivity = 'write',
+  nextDueAt = '2999-09-01T09:00:06.000Z',
 }: {
   status: 'succeeded' | 'failed' | 'running';
   reason?: StepErrorReason | undefined;
   code?: string | undefined;
   field?: string | undefined;
+  sensitivity?: 'read' | 'write' | undefined;
+  nextDueAt?: string | undefined;
 }): StepListEntryModel {
   const jobId = '44444444-4444-4444-8444-444444444444';
   const error = toolTestError(reason, code, field);
-  const invocations = toolTestInvocations(status, reason, code);
+  const invocations = toolTestInvocations(status, reason, code, nextDueAt);
   const succeeded = status === 'succeeded';
   const running = status === 'running';
   const output = succeeded ? {result: {ts: '1717171717.000100'}} : null;
@@ -560,7 +666,7 @@ function toolStepEntry({
                 connection_slug: 'release-notifications',
                 id: 'chat_post_message',
                 method: 'post',
-                sensitivity: 'write',
+                sensitivity,
               },
             },
             error,
@@ -592,6 +698,7 @@ function toolTestInvocations(
   status: 'succeeded' | 'failed' | 'running',
   reason: StepErrorReason | undefined,
   code: string | undefined,
+  nextDueAt: string,
 ): StepAttemptDto['invocations'] {
   if (status === 'running') {
     return [
@@ -606,7 +713,7 @@ function toolTestInvocations(
       {
         call_index: 1,
         started_at: '2026-09-01T09:00:01.000Z',
-        next_due_at: '2999-09-01T09:00:06.000Z',
+        next_due_at: nextDueAt,
       },
     ];
   }
@@ -619,6 +726,15 @@ function toolTestInvocations(
         outcome: 'error',
         ...(code ? {error_code: code} : {}),
         duration_ms: 412,
+      },
+    ];
+  }
+  if (reason === 'invocation_interrupted') {
+    return [
+      {
+        call_index: 0,
+        started_at: '2026-09-01T09:00:01.000Z',
+        next_due_at: nextDueAt,
       },
     ];
   }

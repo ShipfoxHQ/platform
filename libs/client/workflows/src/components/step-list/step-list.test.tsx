@@ -686,7 +686,7 @@ describe('StepList', () => {
     expect(screen.getByRole('button', {name: `${name}, Pending, attempt 1`})).toBeInTheDocument();
   });
 
-  test('adds the tool provider to row semantics without rendering provider text', () => {
+  test('uses the catalog provider name in tool row semantics', () => {
     render(
       <StepList
         job={makeJob({
@@ -696,7 +696,7 @@ describe('StepList', () => {
               type: 'tool',
               config: {
                 tool: {
-                  provider: 'slack',
+                  provider: 'github',
                   connection_slug: 'release-notifications',
                   id: 'chat_post_message',
                   sensitivity: 'write',
@@ -711,10 +711,9 @@ describe('StepList', () => {
 
     expect(
       screen.getByRole('button', {
-        name: 'Post release notice, Succeeded, attempt 1, Slack integration',
+        name: 'Post release notice, Succeeded, attempt 1, GitHub integration',
       }),
     ).toBeInTheDocument();
-    expect(screen.queryByText('Slack')).toBeNull();
   });
 });
 

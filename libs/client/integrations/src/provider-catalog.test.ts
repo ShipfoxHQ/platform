@@ -4,6 +4,7 @@ describe('PROVIDER_CATALOG', () => {
   test('contains route entries for github, sentry, and gitea', () => {
     expect(PROVIDER_CATALOG.github).toMatchObject({
       kind: 'redirect-install',
+      displayName: 'GitHub',
       setupPath: '/w/$workspaceSlug/integrations/github',
     });
     expect(PROVIDER_CATALOG.sentry).toMatchObject({
@@ -38,6 +39,7 @@ describe('PROVIDER_CATALOG', () => {
   test('declares webhook as a modal provider with the remixicon webhook icon', () => {
     expect(PROVIDER_CATALOG.webhook).toEqual({
       kind: 'modal-connect',
+      displayName: 'Webhook',
       iconName: 'webhookLine',
     });
   });

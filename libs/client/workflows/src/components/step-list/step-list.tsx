@@ -539,10 +539,10 @@ function StepStatusIcon({entry}: {entry: StepListEntryModel}) {
 function ToolProviderIcon({entry}: {entry: StepListEntryModel}) {
   if (entry.step.type !== 'tool') return null;
   const provider = entry.step.toolConfig?.provider;
-  const iconName = provider ? PROVIDER_CATALOG[provider]?.iconName : undefined;
+  const catalogEntry = provider ? PROVIDER_CATALOG[provider] : undefined;
   return (
     <Icon
-      name={iconName ?? 'componentLine'}
+      name={catalogEntry?.iconName ?? 'componentLine'}
       size={14}
       aria-hidden="true"
       className="shrink-0 text-foreground-neutral-muted"
@@ -577,7 +577,10 @@ function StepAttemptChip({attempt}: {attempt: StepAttemptModel}) {
 function entryAccessibleLabel(entry: StepListEntryModel): string {
   const parts = [entry.step.label, entry.statusVisual.label, `attempt ${entry.attempt}`];
   if (entry.step.toolConfig?.provider) {
-    parts.push(`${humanizeStatus(entry.step.toolConfig.provider)} integration`);
+    const provider = entry.step.toolConfig.provider;
+    parts.push(
+      `${PROVIDER_CATALOG[provider]?.displayName ?? humanizeStatus(provider)} integration`,
+    );
   }
   if (entry.step.error?.category) parts.push(humanizeStatus(entry.step.error.category));
   return parts.join(', ');

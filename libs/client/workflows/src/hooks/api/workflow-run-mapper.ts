@@ -296,6 +296,7 @@ export function toStepAttemptDetail(dto: StepAttemptDetailResponseDto) {
     session: mappedSession,
     authoredConfig: dto.authored_config,
     config: dto.config,
+    toolArguments: toolConfigValue(dto.config)?.with ?? null,
     evaluationTrace: toEvaluationTrace(dto.evaluation_trace),
   };
 }
@@ -373,7 +374,7 @@ function toAgentStepConfig(dto: WorkflowRunStepDetailDto): Step['agentConfig'] {
 
 function toToolStepConfig(dto: WorkflowRunStepDetailDto): Step['toolConfig'] {
   if (dto.type !== 'tool') return null;
-  const tool = recordConfigValue(dto.config.tool);
+  const tool = toolConfigValue(dto.config);
   const sensitivity = tool?.sensitivity;
   const method = stringConfigValue(tool?.method);
   return {
@@ -383,6 +384,10 @@ function toToolStepConfig(dto: WorkflowRunStepDetailDto): Step['toolConfig'] {
     ...(method === null ? {} : {method}),
     sensitivity: sensitivity === 'read' || sensitivity === 'write' ? sensitivity : null,
   };
+}
+
+function toolConfigValue(config: Record<string, unknown> | null): Record<string, unknown> | null {
+  return recordConfigValue(config?.tool);
 }
 
 function recordConfigValue(value: unknown): Record<string, unknown> | null {

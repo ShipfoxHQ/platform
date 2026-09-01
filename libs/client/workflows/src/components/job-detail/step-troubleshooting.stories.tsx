@@ -13,12 +13,24 @@ import {
 import {buildStepListModel, type StepListEntryModel} from '../step-list/step-list-model.js';
 import {StepInspectorSheet} from './step-troubleshooting.js';
 
+type ToolStepOutcome = 'succeeded' | 'failed' | 'running';
+
+interface StepInspectorStoryArgs {
+  toolOutcome: ToolStepOutcome;
+}
+
 const meta = {
   title: 'Workflows/StepInspector',
   parameters: {
     layout: 'fullscreen',
   },
-} satisfies Meta;
+  args: {
+    toolOutcome: 'succeeded',
+  },
+  argTypes: {
+    toolOutcome: {control: 'select', options: ['succeeded', 'failed', 'running']},
+  },
+} satisfies Meta<StepInspectorStoryArgs>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
@@ -27,19 +39,11 @@ export const FailedStep: Story = {
   render: () => <FailedStepStory />,
 };
 
-export const SuccessfulToolStep: Story = {
-  render: () => <ToolStepStory outcome="succeeded" />,
+export const ToolStep: Story = {
+  render: ({toolOutcome}) => <ToolStepStory outcome={toolOutcome} />,
 };
 
-export const FailedToolStep: Story = {
-  render: () => <ToolStepStory outcome="failed" />,
-};
-
-export const RetryingToolStep: Story = {
-  render: () => <ToolStepStory outcome="running" />,
-};
-
-function ToolStepStory({outcome}: {outcome: 'succeeded' | 'failed' | 'running'}) {
+function ToolStepStory({outcome}: {outcome: ToolStepOutcome}) {
   const entry = toolStepEntry(outcome);
   const [queryClient] = useState(() => {
     const client = new QueryClient({
@@ -166,7 +170,7 @@ function failedStepEntry(): StepListEntryModel {
   return entry;
 }
 
-function toolStepEntry(outcome: 'succeeded' | 'failed' | 'running'): StepListEntryModel {
+function toolStepEntry(outcome: ToolStepOutcome): StepListEntryModel {
   const jobId = '44444444-4444-4444-8444-000000000002';
   const executionId = '77777777-7777-4777-8777-000000000002';
   const stepId = '55555555-5555-4555-8555-000000000002';
@@ -237,9 +241,7 @@ function toolStepEntry(outcome: 'succeeded' | 'failed' | 'running'): StepListEnt
   return entry;
 }
 
-function toolStoryInvocations(
-  outcome: 'succeeded' | 'failed' | 'running',
-): StepAttemptDto['invocations'] {
+function toolStoryInvocations(outcome: ToolStepOutcome): StepAttemptDto['invocations'] {
   if (outcome === 'running') {
     return [
       {
@@ -253,7 +255,8 @@ function toolStoryInvocations(
       {
         call_index: 1,
         started_at: '2026-06-26T11:59:58.000Z',
-        next_due_at: '2026-06-26T12:00:05.000Z',
+        // Storybook freezes Date.now(), so this stays a deterministic five-second countdown.
+        next_due_at: new Date(Date.now() + 5000).toISOString(),
       },
     ];
   }
@@ -301,6 +304,7 @@ function toolStepDetail(stepId: string): StepAttemptDetail {
         with: {channel: '#releases', text: 'Version 2.4.0 is live.'},
       },
     },
+    toolArguments: {channel: '#releases', text: 'Version 2.4.0 is live.'},
     evaluationTrace: null,
   };
 }

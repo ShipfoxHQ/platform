@@ -17,7 +17,8 @@ import {
   SheetTitle,
 } from '@shipfox/react-ui/sheet';
 import {Skeleton} from '@shipfox/react-ui/skeleton';
-import {useTimeTick} from '@shipfox/react-ui/time-ticker';
+import {TimeTickerProvider, useTimeTick} from '@shipfox/react-ui/time-ticker';
+import {Tooltip, TooltipContent, TooltipTrigger} from '@shipfox/react-ui/tooltip';
 import {Code, Text} from '@shipfox/react-ui/typography';
 import {cn, formatDuration} from '@shipfox/react-ui/utils';
 import {Link} from '@tanstack/react-router';
@@ -125,7 +126,10 @@ function StepFailureCallout({
   onViewLogs: (() => void) | undefined;
 }) {
   const reason = error?.reason ?? step.statusReason ?? 'unknown';
-  const title = failureTitle(reason, step, attempt, error);
+  const toolGuidance = toolFailureGuidance(reason, step, attempt, error);
+  const title = toolGuidance?.title ?? failureTitle(reason);
+  const description = toolGuidance?.description ?? failureDescription(reason, step, error);
+  const failureCode = step.type === 'tool' ? (error?.code ?? reason) : reason;
   const sourceLink = sourceLinkForFailure(reason) && step.sourceLocation;
 
   if (step.type === 'agent' && reason === 'agent_config_invalid') {
@@ -150,13 +154,13 @@ function StepFailureCallout({
         <CalloutDescription>
           <div className="flex min-w-0 flex-wrap items-center gap-x-inline gap-y-tight">
             <div className="flex min-w-0 flex-col gap-tight">
-              <span>{failureDescription(reason, step, attempt, error)}</span>
+              <span>{description}</span>
               {error?.message ? (
                 <span className="text-foreground-neutral-muted">{error.message}</span>
               ) : null}
             </div>
             <Code as="span" variant="label" className="text-tag-error-text">
-              {error?.code ?? reason}
+              {failureCode}
             </Code>
             {sourceLink ? (
               <Link
@@ -173,13 +177,13 @@ function StepFailureCallout({
                 View in source
               </Link>
             ) : null}
-            {toolConnectionRecovery(error) ? (
+            {toolGuidance?.recoveryLabel ? (
               <Link
                 to="/w/$workspaceSlug/settings/integrations"
                 params={{workspaceSlug}}
                 className="font-medium text-foreground-highlight-interactive underline-offset-2 hover:underline"
               >
-                {toolConnectionRecovery(error)}
+                {toolGuidance.recoveryLabel}
               </Link>
             ) : null}
           </div>
@@ -382,7 +386,7 @@ function ToolStepDetails({
       <InspectorSection title="Arguments">
         <JsonCode
           title="arguments.json"
-          value={toolArguments(detail.config)}
+          value={detail.toolArguments ?? {}}
           emptyMessage="No arguments were passed to this tool."
         />
       </InspectorSection>
@@ -392,7 +396,7 @@ function ToolStepDetails({
         </InspectorSection>
       ) : null}
       <InspectorSection title="Invocations">
-        <ToolInvocationList invocations={attempt.invocations} />
+        <ToolInvocationList attempt={attempt} />
       </InspectorSection>
       {mappedOutputs ? (
         <InspectorSection title="Outputs">
@@ -403,7 +407,8 @@ function ToolStepDetails({
   );
 }
 
-function ToolInvocationList({invocations}: {invocations: readonly StepAttemptInvocation[]}) {
+function ToolInvocationList({attempt}: {attempt: StepAttempt}) {
+  const {invocations} = attempt;
   if (invocations.length === 0) {
     return (
       <Text size="xs" className="text-foreground-neutral-muted">
@@ -417,7 +422,11 @@ function ToolInvocationList({invocations}: {invocations: readonly StepAttemptInv
       <PanelBody asChild>
         <ol>
           {invocations.map((invocation) => (
-            <ToolInvocationRow key={invocation.callIndex} invocation={invocation} />
+            <ToolInvocationRow
+              key={invocation.callIndex}
+              invocation={invocation}
+              attemptActive={attempt.status === 'running'}
+            />
           ))}
         </ol>
       </PanelBody>
@@ -425,8 +434,14 @@ function ToolInvocationList({invocations}: {invocations: readonly StepAttemptInv
   );
 }
 
-function ToolInvocationRow({invocation}: {invocation: StepAttemptInvocation}) {
-  const visual = invocationVisual(invocation);
+function ToolInvocationRow({
+  invocation,
+  attemptActive,
+}: {
+  invocation: StepAttemptInvocation;
+  attemptActive: boolean;
+}) {
+  const visual = invocationVisual(invocation, attemptActive);
   return (
     <PanelRow asChild className="hover:bg-background-neutral-base">
       <li>
@@ -438,20 +453,42 @@ function ToolInvocationRow({invocation}: {invocation: StepAttemptInvocation}) {
             {visual.label}
           </Badge>
           {invocation.errorCode ? (
-            <Code as="span" variant="label" className="truncate text-foreground-neutral-muted">
-              {invocation.errorCode}
-            </Code>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Code
+                  as="span"
+                  variant="label"
+                  tabIndex={0}
+                  className="truncate rounded-4 text-foreground-neutral-muted focus-visible:shadow-border-interactive-with-active focus-visible:outline-none"
+                >
+                  {invocation.errorCode}
+                </Code>
+              </TooltipTrigger>
+              <TooltipContent>
+                <span className="block max-w-320 break-all">{invocation.errorCode}</span>
+              </TooltipContent>
+            </Tooltip>
           ) : null}
         </div>
-        <InvocationTiming invocation={invocation} />
+        <InvocationTiming invocation={invocation} attemptActive={attemptActive} />
       </li>
     </PanelRow>
   );
 }
 
-function InvocationTiming({invocation}: {invocation: StepAttemptInvocation}) {
-  if (invocation.nextDueAt && invocation.outcome === undefined) {
-    return <RetryCountdown dueAt={invocation.nextDueAt} />;
+function InvocationTiming({
+  invocation,
+  attemptActive,
+}: {
+  invocation: StepAttemptInvocation;
+  attemptActive: boolean;
+}) {
+  if (attemptActive && invocation.nextDueAt && invocation.outcome === undefined) {
+    return (
+      <TimeTickerProvider intervalMs={1000} reducedMotionIntervalMs={1000}>
+        <RetryCountdown dueAt={invocation.nextDueAt} />
+      </TimeTickerProvider>
+    );
   }
   if (invocation.durationMs === undefined) return null;
   return (
@@ -466,13 +503,8 @@ function RetryCountdown({dueAt}: {dueAt: string}) {
   const remainingMs = Date.parse(dueAt) - Date.now();
   const label = retryCountdownLabel(remainingMs);
   return (
-    <Code
-      as="span"
-      variant="label"
-      className="shrink-0 tabular-nums text-foreground-neutral-muted"
-      aria-label={`Retry in ${label}`}
-    >
-      in {label}
+    <Code as="span" variant="label" className="shrink-0 tabular-nums text-foreground-neutral-muted">
+      Retry in {label}
     </Code>
   );
 }
@@ -483,20 +515,24 @@ function retryCountdownLabel(remainingMs: number): string {
   return `${Math.ceil(remainingMs / 1000)}s`;
 }
 
-function invocationVisual(invocation: StepAttemptInvocation): {
+function invocationVisual(
+  invocation: StepAttemptInvocation,
+  attemptActive: boolean,
+): {
   label: string;
   badge: 'neutral' | 'info' | 'success' | 'warning' | 'error';
 } {
   if (invocation.outcome === 'success') return {label: 'Succeeded', badge: 'success'};
   if (invocation.outcome === 'error') return {label: 'Failed', badge: 'error'};
-  if (invocation.nextDueAt) return {label: 'Retry pending', badge: 'warning'};
   if (invocation.outcome) return {label: humanizeStatus(invocation.outcome), badge: 'neutral'};
-  return {label: 'Running', badge: 'info'};
-}
-
-function toolArguments(config: Record<string, unknown> | null): unknown {
-  const tool = recordValue(config?.tool);
-  return tool?.with ?? {};
+  if (!attemptActive) {
+    return invocation.nextDueAt
+      ? {label: 'Not retried', badge: 'neutral'}
+      : {label: 'Interrupted', badge: 'warning'};
+  }
+  return invocation.nextDueAt
+    ? {label: 'Retry pending', badge: 'warning'}
+    : {label: 'Running', badge: 'info'};
 }
 
 function toolResult(attempt: StepAttempt): {present: boolean; value?: unknown} {
@@ -511,12 +547,6 @@ function toolMappedOutputs(attempt: StepAttempt): Record<string, unknown> | null
   if (!output) return null;
   const mapped = Object.fromEntries(Object.entries(output).filter(([key]) => key !== 'result'));
   return Object.keys(mapped).length > 0 ? mapped : null;
-}
-
-function recordValue(value: unknown): Record<string, unknown> | null {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
 }
 
 function InspectorOutputs({attempt}: {attempt: StepAttempt}) {
@@ -690,18 +720,7 @@ function selectedStepError(
   return toSelectedAttemptError(step, attemptError) ?? step.error;
 }
 
-function failureTitle(
-  reason: string | JobStatusReason,
-  step: Step,
-  attempt: StepAttempt,
-  error: StepError | null,
-): string {
-  if (toolCallSucceededBeforeFailure(reason, step, attempt)) {
-    return 'Tool call succeeded, but the step failed';
-  }
-  if (error?.code === 'access-denied') return 'Tool access was denied';
-  if (error?.code === 'credentials-unavailable') return 'Tool credentials are unavailable';
-
+function failureTitle(reason: string | JobStatusReason): string {
   switch (reason) {
     case 'checkout_failed':
       return 'Checkout failed';
@@ -775,19 +794,8 @@ function failureTitle(
 function failureDescription(
   reason: string | JobStatusReason,
   step: Step,
-  attempt: StepAttempt,
   error: StepError | null,
 ): string {
-  if (toolCallSucceededBeforeFailure(reason, step, attempt)) {
-    return 'The integration returned a result, but Shipfox could not map or store it because it did not satisfy the output contract or size limit. The full result remains available in the invocation log.';
-  }
-  if (error?.code === 'access-denied') {
-    return 'The integration rejected this call. Review its permissions before re-running the step.';
-  }
-  if (error?.code === 'credentials-unavailable') {
-    return 'The integration credentials are missing or unavailable. Reconnect the integration before re-running the step.';
-  }
-
   switch (reason) {
     case 'checkout_auth_failed':
       return 'Checkout credentials were rejected. Verify repository access before re-running.';
@@ -852,6 +860,46 @@ function failureDescription(
   }
 }
 
+interface ToolFailureGuidance {
+  title: string;
+  description: string;
+  recoveryLabel?: string | undefined;
+}
+
+const TOOL_FAILURE_GUIDANCE_BY_CODE: Readonly<Record<string, ToolFailureGuidance>> = {
+  'access-denied': {
+    title: 'Tool access was denied',
+    description:
+      'The integration rejected this call. Review its permissions before re-running the step.',
+    recoveryLabel: 'Review integration access',
+  },
+  'credentials-unavailable': {
+    title: 'Tool credentials are unavailable',
+    description:
+      'The integration credentials are missing or unavailable. Reconnect the integration before re-running the step.',
+    recoveryLabel: 'Reconnect integration',
+  },
+};
+
+const SUCCESSFUL_TOOL_OUTPUT_FAILURE_GUIDANCE: ToolFailureGuidance = {
+  title: 'Tool call succeeded, but the step failed',
+  description:
+    'The integration returned a result, but Shipfox could not map or store it because it did not satisfy the output contract or size limit. The full result remains available in the invocation log.',
+};
+
+function toolFailureGuidance(
+  reason: string | JobStatusReason,
+  step: Step,
+  attempt: StepAttempt,
+  error: StepError | null,
+): ToolFailureGuidance | null {
+  if (step.type !== 'tool') return null;
+  if (toolCallSucceededBeforeFailure(reason, attempt)) {
+    return SUCCESSFUL_TOOL_OUTPUT_FAILURE_GUIDANCE;
+  }
+  return error?.code ? (TOOL_FAILURE_GUIDANCE_BY_CODE[error.code] ?? null) : null;
+}
+
 function sourceLinkForFailure(reason: string | JobStatusReason): boolean {
   return (
     reason === 'config_unresolvable' ||
@@ -866,20 +914,12 @@ function sourceLinkForFailure(reason: string | JobStatusReason): boolean {
 
 function toolCallSucceededBeforeFailure(
   reason: string | JobStatusReason,
-  step: Step,
   attempt: StepAttempt,
 ): boolean {
   return (
-    step.type === 'tool' &&
     reason === 'output_invalid' &&
     attempt.invocations.some((invocation) => invocation.outcome === 'success')
   );
-}
-
-function toolConnectionRecovery(error: StepError | null): string | undefined {
-  if (error?.code === 'access-denied') return 'Review integration access';
-  if (error?.code === 'credentials-unavailable') return 'Reconnect integration';
-  return undefined;
 }
 
 function humanize(value: string): string {
