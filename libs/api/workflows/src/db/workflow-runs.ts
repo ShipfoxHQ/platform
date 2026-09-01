@@ -130,12 +130,15 @@ export type {
   RetryToolInvocationParams,
   SettleToolInvocationParams,
   ToolInvocationClaim,
+  ToolInvocationDepth,
   ToolStepWorkflowContext,
 } from './workflow-runs/tool-invocations.js';
 export {
   claimToolInvocations,
   enqueueToolInvocation,
+  getToolInvocationDepth,
   getToolInvocationsByJobExecutionId,
+  MAX_TOOL_STEP_CALLS_PER_ATTEMPT,
   retryToolInvocation,
   settleToolInvocation,
 } from './workflow-runs/tool-invocations.js';

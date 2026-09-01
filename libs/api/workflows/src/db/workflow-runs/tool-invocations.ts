@@ -1,4 +1,4 @@
-import {and, asc, eq, lte, or} from 'drizzle-orm';
+import {and, asc, count, eq, lte, or} from 'drizzle-orm';
 import type {Step, StepAttempt, StepAttemptInvocation} from '#core/entities/step.js';
 import {db, type Tx} from '../db.js';
 import {jobExecutions} from '../schema/job-executions.js';
@@ -43,6 +43,11 @@ export interface ClaimToolInvocationsResult {
   requeued: number;
 }
 
+export interface ToolInvocationDepth {
+  queued: number;
+  inFlight: number;
+}
+
 export interface ClaimToolInvocationsParams {
   limit: number;
   now: Date;
@@ -78,6 +83,19 @@ export function getToolInvocationsByJobExecutionId(
     .from(toolInvocations)
     .where(eq(toolInvocations.jobExecutionId, jobExecutionId))
     .orderBy(asc(toolInvocations.callIndex), asc(toolInvocations.id));
+}
+
+export async function getToolInvocationDepth(): Promise<ToolInvocationDepth> {
+  const rows = await db()
+    .select({status: toolInvocations.status, count: count()})
+    .from(toolInvocations)
+    .where(or(eq(toolInvocations.status, 'queued'), eq(toolInvocations.status, 'in_flight')))
+    .groupBy(toolInvocations.status);
+
+  return {
+    queued: rows.find((row) => row.status === 'queued')?.count ?? 0,
+    inFlight: rows.find((row) => row.status === 'in_flight')?.count ?? 0,
+  };
 }
 
 /**
@@ -232,8 +250,8 @@ async function processExpiredInFlightInvocation(
     toolStepSensitivity(candidate.step) === 'read' &&
     candidate.invocation.callIndex + 1 < MAX_TOOL_STEP_CALLS_PER_ATTEMPT;
   if (canRetry) {
-    await requeueExpiredInvocation(candidate, params, tx);
-    return {requeued: true};
+    const requeued = await requeueExpiredInvocation(candidate, params, tx);
+    return {requeued};
   }
   const claim = await claimInterruptedInvocation(candidate, params, tx);
   return claim ? {claim, requeued: false} : {requeued: false};
@@ -260,10 +278,16 @@ async function claimQueuedInvocation(
   const stepAttempt = await updateStepAttemptInvocations(tx, candidate.stepAttempt.id, (history) =>
     markInvocationStarted(history, candidate.invocation.callIndex, params.now),
   );
+  if (!stepAttempt) {
+    // The step or attempt may have become terminal after the candidate query.
+    // Do not let a stale claim escape the transaction and call the provider.
+    await settleUnusableInvocation(candidate, params, tx);
+    return undefined;
+  }
   return {
     invocation,
     step: toStep(candidate.step),
-    attempt: toStepAttempt(stepAttempt ?? candidate.stepAttempt),
+    attempt: toStepAttempt(stepAttempt),
     workflowContext: candidate.workflowContext,
     interrupted: false,
   };
@@ -294,10 +318,16 @@ async function claimInterruptedInvocation(
       INVOCATION_INTERRUPTED_ERROR_CODE,
     ),
   );
+  if (!stepAttempt) {
+    // An expired claim is unusable once its running attempt has disappeared.
+    // Settle the invocation without returning work to the external provider.
+    await settleUnusableInvocation(candidate, params, tx);
+    return undefined;
+  }
   return {
     invocation,
     step: toStep(candidate.step),
-    attempt: toStepAttempt(stepAttempt ?? candidate.stepAttempt),
+    attempt: toStepAttempt(stepAttempt),
     workflowContext: candidate.workflowContext,
     interrupted: true,
   };
@@ -307,7 +337,7 @@ async function requeueExpiredInvocation(
   candidate: ToolInvocationCandidate,
   params: ClaimToolInvocationsParams,
   tx: Tx,
-): Promise<void> {
+): Promise<boolean> {
   const nextCallIndex = candidate.invocation.callIndex + 1;
   const [invocation] = await tx
     .update(toolInvocations)
@@ -323,17 +353,28 @@ async function requeueExpiredInvocation(
       and(eq(toolInvocations.id, candidate.invocation.id), eq(toolInvocations.status, 'in_flight')),
     )
     .returning({id: toolInvocations.id});
-  if (!invocation) return;
+  if (!invocation) return false;
 
-  await updateStepAttemptInvocations(tx, candidate.stepAttempt.id, (history) => {
-    const finished = finishInvocation(
-      history,
-      candidate.invocation.callIndex,
-      params.now,
-      INVOCATION_INTERRUPTED_ERROR_CODE,
-    );
-    return queueInvocation(finished, nextCallIndex, params.now);
-  });
+  const stepAttempt = await updateStepAttemptInvocations(
+    tx,
+    candidate.stepAttempt.id,
+    (history) => {
+      const finished = finishInvocation(
+        history,
+        candidate.invocation.callIndex,
+        params.now,
+        INVOCATION_INTERRUPTED_ERROR_CODE,
+      );
+      return queueInvocation(finished, nextCallIndex, params.now);
+    },
+  );
+  if (!stepAttempt) {
+    // Keep the invocation and its history in sync when the candidate became
+    // unusable between the candidate snapshot and the history update.
+    await settleUnusableInvocation(candidate, params, tx);
+    return false;
+  }
+  return true;
 }
 
 async function settleUnusableInvocation(
@@ -341,23 +382,22 @@ async function settleUnusableInvocation(
   params: ClaimToolInvocationsParams,
   tx: Tx,
 ): Promise<void> {
+  const errorCode =
+    candidate.invocation.status === 'in_flight'
+      ? INVOCATION_INTERRUPTED_ERROR_CODE
+      : (candidate.invocation.lastErrorCode ?? undefined);
   await tx
     .update(toolInvocations)
     .set({
       status: 'settled',
       claimedBy: null,
       claimExpiresAt: null,
-      lastErrorCode: INVOCATION_INTERRUPTED_ERROR_CODE,
+      lastErrorCode: errorCode ?? null,
     })
     .where(eq(toolInvocations.id, candidate.invocation.id));
 
   await updateStepAttemptInvocations(tx, candidate.stepAttempt.id, (history) =>
-    finishInvocation(
-      history,
-      candidate.invocation.callIndex,
-      params.now,
-      INVOCATION_INTERRUPTED_ERROR_CODE,
-    ),
+    finishInvocation(history, candidate.invocation.callIndex, params.now, errorCode),
   );
 }
 
@@ -365,73 +405,96 @@ async function retryToolInvocationInTransaction(
   params: RetryToolInvocationParams,
   tx: Tx,
 ): Promise<boolean> {
-  const nextCallIndex = params.callIndex + 1;
-  const [updated] = await tx
-    .update(toolInvocations)
-    .set({
-      status: 'queued',
-      callIndex: nextCallIndex,
-      dueAt: params.dueAt,
-      claimedBy: null,
-      claimExpiresAt: null,
-      lastErrorCode: params.errorCode,
-    })
-    .where(
-      and(
-        eq(toolInvocations.id, params.invocationId),
-        eq(toolInvocations.status, 'in_flight'),
-        eq(toolInvocations.claimedBy, params.claimOwner),
-      ),
-    )
-    .returning({id: toolInvocations.id});
-  if (!updated) return false;
+  try {
+    return await tx.transaction(async (transitionTx) => {
+      const nextCallIndex = params.callIndex + 1;
+      const [updated] = await transitionTx
+        .update(toolInvocations)
+        .set({
+          status: 'queued',
+          callIndex: nextCallIndex,
+          dueAt: params.dueAt,
+          claimedBy: null,
+          claimExpiresAt: null,
+          lastErrorCode: params.errorCode,
+        })
+        .where(
+          and(
+            eq(toolInvocations.id, params.invocationId),
+            eq(toolInvocations.status, 'in_flight'),
+            eq(toolInvocations.claimedBy, params.claimOwner),
+          ),
+        )
+        .returning({id: toolInvocations.id});
+      if (!updated) return false;
 
-  await updateStepAttemptInvocations(tx, params.stepAttemptId, (history) => {
-    const finished = finishInvocation(
-      history,
-      params.callIndex,
-      params.finishedAt,
-      params.errorCode,
-      params.durationMs,
-    );
-    return queueInvocation(finished, nextCallIndex, params.dueAt);
-  });
-  return true;
+      const stepAttempt = await updateStepAttemptInvocations(
+        transitionTx,
+        params.stepAttemptId,
+        (history) => {
+          const finished = finishInvocation(
+            history,
+            params.callIndex,
+            params.finishedAt,
+            params.errorCode,
+            params.durationMs,
+          );
+          return queueInvocation(finished, nextCallIndex, params.dueAt);
+        },
+      );
+      if (!stepAttempt) throw new MissingRunningToolAttemptError(params.stepAttemptId);
+      return true;
+    });
+  } catch (error) {
+    if (error instanceof MissingRunningToolAttemptError) return false;
+    throw error;
+  }
 }
 
 async function settleToolInvocationInTransaction(
   params: SettleToolInvocationParams,
   tx: Tx,
 ): Promise<boolean> {
-  const [updated] = await tx
-    .update(toolInvocations)
-    .set({
-      status: 'settled',
-      claimedBy: null,
-      claimExpiresAt: null,
-      lastErrorCode: params.errorCode ?? null,
-    })
-    .where(
-      and(
-        eq(toolInvocations.id, params.invocationId),
-        eq(toolInvocations.status, 'in_flight'),
-        eq(toolInvocations.claimedBy, params.claimOwner),
-      ),
-    )
-    .returning({id: toolInvocations.id});
-  if (!updated) return false;
+  try {
+    return await tx.transaction(async (transitionTx) => {
+      const [updated] = await transitionTx
+        .update(toolInvocations)
+        .set({
+          status: 'settled',
+          claimedBy: null,
+          claimExpiresAt: null,
+          lastErrorCode: params.errorCode ?? null,
+        })
+        .where(
+          and(
+            eq(toolInvocations.id, params.invocationId),
+            eq(toolInvocations.status, 'in_flight'),
+            eq(toolInvocations.claimedBy, params.claimOwner),
+          ),
+        )
+        .returning({id: toolInvocations.id});
+      if (!updated) return false;
 
-  await updateStepAttemptInvocations(tx, params.stepAttemptId, (history) =>
-    finishInvocation(
-      history,
-      params.callIndex,
-      params.finishedAt,
-      params.errorCode,
-      params.durationMs,
-      params.outcome,
-    ),
-  );
-  return true;
+      const stepAttempt = await updateStepAttemptInvocations(
+        transitionTx,
+        params.stepAttemptId,
+        (history) =>
+          finishInvocation(
+            history,
+            params.callIndex,
+            params.finishedAt,
+            params.errorCode,
+            params.durationMs,
+            params.outcome,
+          ),
+      );
+      if (!stepAttempt) throw new MissingRunningToolAttemptError(params.stepAttemptId);
+      return true;
+    });
+  } catch (error) {
+    if (error instanceof MissingRunningToolAttemptError) return false;
+    throw error;
+  }
 }
 
 async function updateStepAttemptInvocations(
@@ -440,19 +503,34 @@ async function updateStepAttemptInvocations(
   update: (history: readonly StepAttemptInvocation[]) => readonly StepAttemptInvocation[],
 ): Promise<StepAttemptDb | undefined> {
   const [current] = await tx
-    .select()
+    .select({stepAttempt: stepAttempts})
     .from(stepAttempts)
+    .innerJoin(
+      steps,
+      and(
+        eq(stepAttempts.stepId, steps.id),
+        eq(stepAttempts.jobExecutionId, steps.jobExecutionId),
+        eq(steps.status, 'running'),
+      ),
+    )
     .where(and(eq(stepAttempts.id, stepAttemptId), eq(stepAttempts.status, 'running')))
     .limit(1)
-    .for('update');
+    .for('update', {of: [stepAttempts]});
   if (!current) return undefined;
 
   const [updated] = await tx
     .update(stepAttempts)
-    .set({invocations: update(current.invocations ?? [])})
+    .set({invocations: update(current.stepAttempt.invocations ?? [])})
     .where(and(eq(stepAttempts.id, stepAttemptId), eq(stepAttempts.status, 'running')))
     .returning();
   return updated;
+}
+
+class MissingRunningToolAttemptError extends Error {
+  constructor(stepAttemptId: string) {
+    super(`Tool invocation step attempt is no longer running: ${stepAttemptId}`);
+    this.name = 'MissingRunningToolAttemptError';
+  }
 }
 
 function markInvocationStarted(

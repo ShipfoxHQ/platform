@@ -106,6 +106,26 @@ const listenerEventsCoalesced = meter.createHistogram<Record<string, never>>(
   },
 );
 
+const toolInvocationDuration = meter.createHistogram<{
+  provider: string;
+  outcome: 'success' | 'error';
+}>('workflows_tool_invocation_duration', {
+  description: 'Server-executed workflow tool invocation duration by provider and outcome',
+  unit: 'ms',
+  advice: {explicitBucketBoundaries: [10, 50, 100, 500, 1_000, 5_000, 30_000, 120_000]},
+});
+
+const toolInvocationReclaimsCount = meter.createCounter<Record<string, never>>(
+  'workflows_tool_invocation_reclaims',
+  {description: 'Expired server-executed workflow tool invocations reclaimed by the executor'},
+);
+
+const toolInvocationLogAppendFailuresCount = meter.createCounter<{
+  reason: 'known' | 'unexpected';
+}>('workflows_tool_invocation_log_append_failures', {
+  description: 'Server-executed workflow tool invocation log append failures by error class',
+});
+
 export function recordWorkflowRunCreated(provider: string): void {
   runCreatedCount.add(1, {provider});
 }
@@ -173,6 +193,22 @@ export function recordWorkflowListenerResolved(reason: ResolutionReason): void {
 
 export function recordListenerEventsCoalesced(batchSize: number): void {
   listenerEventsCoalesced.record(batchSize);
+}
+
+export function recordWorkflowToolInvocationDuration(
+  provider: string,
+  outcome: 'success' | 'error',
+  durationMs: number,
+): void {
+  toolInvocationDuration.record(durationMs, {provider, outcome});
+}
+
+export function recordWorkflowToolInvocationReclaims(count: number): void {
+  if (count > 0) toolInvocationReclaimsCount.add(count);
+}
+
+export function recordWorkflowToolInvocationLogAppendFailure(reason: 'known' | 'unexpected'): void {
+  toolInvocationLogAppendFailuresCount.add(1, {reason});
 }
 
 export function recordWorkflowAgentToolWarningFailed(reason: 'budget' | 'lookup' | 'write'): void {

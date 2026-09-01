@@ -948,12 +948,12 @@ export async function recordStepResult(
         recordStepResultInTransaction(params, transaction),
       );
 
-  recordStepProgressionMetrics(progression.metrics);
+  if (tx === undefined) recordStepProgressionMetrics(progression.metrics);
 
   return progression.outcome;
 }
 
-async function recordStepResultInTransaction(
+export async function recordStepResultInTransaction(
   params: RecordStepResultParams,
   tx: Tx,
 ): Promise<RecordStepResultTransactionResult> {
@@ -1170,7 +1170,7 @@ function resolveRestartFeedback(params: {
   }
 }
 
-function recordStepProgressionMetrics(metrics: StepProgressionMetrics): void {
+export function recordStepProgressionMetrics(metrics: StepProgressionMetrics): void {
   const settledStatus = metrics.jobStepsSettledStatus;
   const hasSettledStatus = settledStatus !== undefined;
   if (hasSettledStatus) recordWorkflowJobExecutionStepsSettled(settledStatus);

@@ -469,7 +469,7 @@ describe('normalizeToolStep', () => {
     const step = model.jobs[0]?.steps[0] as WorkflowModelToolStep;
     expect(step.outputMappings).toBeDefined();
     expect(Object.hasOwn(step.outputMappings as object, '__proto__')).toBe(true);
-    expect(step.outputMappings?.['__proto__']).toMatchObject({
+    expect(Object.getOwnPropertyDescriptor(step.outputMappings, '__proto__')?.value).toMatchObject({
       language: 'cel',
       source: 'result.identifier',
     });

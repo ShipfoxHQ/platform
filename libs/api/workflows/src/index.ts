@@ -26,6 +26,7 @@ import {
 } from '@shipfox/api-workflows-dto';
 import type {WorkspacesInterModuleClient} from '@shipfox/api-workspaces-dto/inter-module';
 import {type ShipfoxModule, subscriberFactory} from '@shipfox/node-module';
+import {config} from '#config.js';
 import {createToolStepExecutor} from '#core/tool-step/tool-step-executor.js';
 import {db, migrationsPath, workflowsOutbox} from '#db/index.js';
 import {registerWorkflowsServiceMetrics} from '#metrics/index.js';
@@ -119,7 +120,7 @@ export function createWorkflowsModule({
       workspaces,
     }),
     metrics: registerWorkflowsServiceMetrics,
-    services: [toolStepExecutor.service],
+    ...(config.WORKFLOWS_TOOL_STEP_EXECUTOR_ENABLED ? {services: [toolStepExecutor.service]} : {}),
     publishers: [
       {name: 'workflows', table: workflowsOutbox, db, eventSchemas: workflowsEventSchemas},
     ],

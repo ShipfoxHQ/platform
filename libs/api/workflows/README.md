@@ -15,8 +15,8 @@ Shipfox API Workflows creates and runs workflow definitions, jobs, executions, s
 pnpm add @shipfox/api-workflows
 ```
 
-The module requires the Auth, Definitions, Integrations, Projects, Runners,
-Secrets, Workspaces, Annotations, and Agent inter-module clients.
+The module requires the Auth, Definitions, Integrations, Logs, Projects,
+Runners, Secrets, Workspaces, Annotations, and Agent inter-module clients.
 
 ## Usage
 
@@ -42,6 +42,10 @@ const run = await runWorkflow(definitions, {
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `RUNNER_CATALOG_PATH` | empty | Optional path to a YAML file mapping runner catalog names to complete runner label sets. |
+| `WORKFLOWS_TOOL_STEP_EXECUTOR_ENABLED` | `true` | Starts the server-side tool-step executor. Set `false` to stop claiming new tool invocations after an API restart. |
+| `WORKFLOWS_TOOL_STEP_POLL_INTERVAL_MS` | `1000` | Delay between scans for due server-executed tool-step invocations, in milliseconds. The value must be a safe whole number from `1` through `2147483647`. |
+| `WORKFLOWS_TOOL_STEP_EXECUTOR_CONCURRENCY` | `8` | Maximum number of tool-step invocations claimed in one executor pass. The value must be a safe whole number greater than `0`. |
+| `WORKFLOWS_TOOL_STEP_CALL_TIMEOUT_MS` | `30000` | Maximum duration of one provider call, in milliseconds. The value must be a safe whole number from `1` through `2147483647`. |
 
 The catalog is loaded and validated once when the Workflows module is imported;
 restart the API after changing the file. An empty YAML document behaves like an

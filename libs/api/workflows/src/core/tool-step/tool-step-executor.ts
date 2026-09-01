@@ -10,21 +10,29 @@ import {reportError} from '@shipfox/node-error-monitoring';
 import type {ModuleService} from '@shipfox/node-module';
 import {logger} from '@shipfox/node-opentelemetry';
 import {config} from '#config.js';
-import {recordStepResult} from '#core/job-execution.js';
+import {recordStepProgressionMetrics, recordStepResultInTransaction} from '#core/job-execution.js';
 import {type Tx, withTransaction} from '#db/db.js';
 import {
   claimToolInvocations,
   getStepsByJobExecutionIdForUpdate,
+  MAX_TOOL_STEP_CALLS_PER_ATTEMPT,
   retryToolInvocation,
   settleToolInvocation,
   type ToolInvocationClaim,
   type ToolStepWorkflowContext,
 } from '#db/workflow-runs.js';
+import {
+  recordWorkflowToolInvocationDuration,
+  recordWorkflowToolInvocationLogAppendFailure,
+  recordWorkflowToolInvocationReclaims,
+} from '#metrics/instance.js';
 
 const CLAIM_HEADROOM_MS = 15_000;
 const ERROR_BACKOFF_MS = 1_000;
 const SHUTDOWN_TIMEOUT_MS = 5_000;
 const MAX_RETRY_AFTER_SECONDS = 120;
+const MAX_TOOL_LOG_VALUE_BYTES = MAX_RECORD_DATA_BYTES * 64;
+const TOOL_LOG_TRUNCATION_MARKER = '\n...[truncated]';
 
 type ToolCallInput = Parameters<IntegrationsModuleClient['callTool']>[0];
 type ToolCallOutput = Awaited<ReturnType<IntegrationsModuleClient['callTool']>>;
@@ -149,6 +157,9 @@ export async function runToolStepExecutorCycle(params: {
     claimOwner: params.claimOwner,
     claimExpiresAt: new Date(now.getTime() + params.callTimeoutMs + CLAIM_HEADROOM_MS),
   });
+  recordWorkflowToolInvocationReclaims(
+    claimed.requeued + claimed.claims.filter((claim) => claim.interrupted).length,
+  );
 
   await Promise.all(
     claimed.claims.map((claim) =>
@@ -198,14 +209,13 @@ interface ExecuteToolInvocationParams {
 
 async function executeToolInvocation(params: ExecuteToolInvocationParams): Promise<void> {
   const {claim} = params;
-  if (params.serviceSignal.aborted) return;
 
   const startedAt = new Date();
-  const execution = claim.interrupted ? interruptedExecution() : await callToolInvocation(params);
-
-  if (params.serviceSignal.aborted) return;
+  const execution =
+    claim.interrupted || params.serviceSignal.aborted
+      ? interruptedExecution()
+      : await callToolInvocation(params);
   await appendToolInvocationLog(params.logs, claim, execution);
-  if (params.serviceSignal.aborted) return;
 
   if (execution.outcome === 'error') {
     const retryAfterMs = toolRetryDelayMs({
@@ -226,7 +236,10 @@ async function executeToolInvocation(params: ExecuteToolInvocationParams): Promi
         finishedAt: new Date(),
         durationMs: elapsedMilliseconds(startedAt),
       });
-      if (retried) params.nudge?.();
+      if (retried) {
+        recordToolInvocationDuration(claim, execution, elapsedMilliseconds(startedAt));
+        params.nudge?.();
+      }
       return;
     }
   }
@@ -236,7 +249,6 @@ async function executeToolInvocation(params: ExecuteToolInvocationParams): Promi
     execution,
     finishedAt: new Date(),
     durationMs: elapsedMilliseconds(startedAt),
-    serviceSignal: params.serviceSignal,
   });
 }
 
@@ -252,53 +264,71 @@ async function callToolInvocation(params: ExecuteToolInvocationParams): Promise<
     return {outcome: 'error', error: prepared.error};
   }
 
+  const timeoutSignal = AbortSignal.timeout(params.callTimeoutMs);
+  const signal = AbortSignal.any([params.serviceSignal, timeoutSignal]);
   try {
-    const timeoutSignal = AbortSignal.timeout(params.callTimeoutMs);
-    const signal = AbortSignal.any([params.serviceSignal, timeoutSignal]);
     const output = await params.integrations.callTool(prepared.input, {signal});
-    if (params.serviceSignal.aborted) return interruptedExecution();
-    if (output.outcome === 'error') {
-      return {
-        outcome: 'error',
-        error: {
-          code: output.code,
-          message: output.message,
-          ...(output.retryAfterSeconds === undefined
-            ? {}
-            : {retryAfterSeconds: output.retryAfterSeconds}),
-          ...(output.status === undefined ? {} : {status: output.status}),
-        },
-      };
-    }
-
-    const result = fullToolResult(output);
-    try {
-      return {
-        outcome: 'success',
-        result,
-        output: mapToolOutputs(prepared.toolConfig, result, params.claim.workflowContext),
-      };
-    } catch (error) {
-      reportUnexpectedToolError(error, params.claim, 'output-mapping');
-      return {
-        outcome: 'error',
-        error: {code: 'tool_error', message: errorMessage(error)},
-      };
-    }
+    return resolveToolCallOutput(output, prepared, params, timeoutSignal);
   } catch (error) {
-    if (params.serviceSignal.aborted) return interruptedExecution();
-    if (isInterModuleKnownError(integrationsInterModuleContract.methods.callTool, error)) {
-      return {
-        outcome: 'error',
-        error: {code: error.code, message: error.message},
-      };
-    }
-    reportUnexpectedToolError(error, params.claim, 'call');
+    return resolveToolCallError(error, params, timeoutSignal);
+  }
+}
+
+function resolveToolCallOutput(
+  output: ToolCallOutput,
+  prepared: Extract<PreparedToolCallResult, {kind: 'ok'}>,
+  params: ExecuteToolInvocationParams,
+  timeoutSignal: AbortSignal,
+): ToolExecution {
+  if (params.serviceSignal.aborted) return interruptedExecution();
+  if (timeoutSignal.aborted) return timedOutExecution();
+  if (output.outcome === 'error') {
     return {
       outcome: 'error',
-      error: {code: 'tool_error', message: errorMessage(error)},
+      error: {
+        code: output.code,
+        message: output.message,
+        ...(output.retryAfterSeconds === undefined
+          ? {}
+          : {retryAfterSeconds: output.retryAfterSeconds}),
+        ...(output.status === undefined ? {} : {status: output.status}),
+      },
     };
   }
+
+  const result = fullToolResult(output);
+  try {
+    return {
+      outcome: 'success',
+      result,
+      output: mapToolOutputs(prepared.toolConfig, result, params.claim.workflowContext),
+    };
+  } catch (error) {
+    return {
+      outcome: 'error',
+      error: {code: 'output_invalid', message: errorMessage(error), reason: 'output_invalid'},
+    };
+  }
+}
+
+function resolveToolCallError(
+  error: unknown,
+  params: ExecuteToolInvocationParams,
+  timeoutSignal: AbortSignal,
+): ToolExecution {
+  if (params.serviceSignal.aborted) return interruptedExecution();
+  if (timeoutSignal.aborted) return timedOutExecution();
+  if (isInterModuleKnownError(integrationsInterModuleContract.methods.callTool, error)) {
+    return {
+      outcome: 'error',
+      error: {code: error.code, message: error.message},
+    };
+  }
+  reportUnexpectedToolError(error, params.claim, 'call');
+  return {
+    outcome: 'error',
+    error: {code: 'tool_error', message: errorMessage(error)},
+  };
 }
 
 type PreparedToolCallResult =
@@ -397,9 +427,14 @@ function mapToolOutputs(
     if (!isRecord(rawExpression) || typeof rawExpression.source !== 'string') {
       throw new Error(`Tool output mapping "${key}" is invalid`);
     }
-    output[key] = evaluateWorkflowExpression(rawExpression as unknown as WorkflowExpression, {
-      result,
-      vars: workflowContext.vars ?? {},
+    Object.defineProperty(output, key, {
+      configurable: true,
+      enumerable: true,
+      value: evaluateWorkflowExpression(rawExpression as unknown as WorkflowExpression, {
+        result,
+        vars: workflowContext.vars ?? {},
+      }),
+      writable: true,
     });
   }
   return output;
@@ -410,7 +445,7 @@ interface ToolExecutionError {
   message: string;
   retryAfterSeconds?: number;
   status?: number;
-  reason?: 'tool_error' | 'tool_config_invalid' | 'invocation_interrupted';
+  reason?: 'tool_error' | 'tool_config_invalid' | 'output_invalid' | 'invocation_interrupted';
 }
 
 type ToolExecution =
@@ -428,13 +463,23 @@ function interruptedExecution(): ToolExecution {
   };
 }
 
+function timedOutExecution(): ToolExecution {
+  return {
+    outcome: 'error',
+    error: {
+      code: 'provider-timeout',
+      message: 'Integration provider timed out',
+    },
+  };
+}
+
 export function toolRetryDelayMs(params: {
   code: string;
   sensitivity: 'read' | 'write';
   callIndex: number;
   retryAfterSeconds?: number | undefined;
 }): number | undefined {
-  if (params.callIndex >= 2) return undefined;
+  if (params.callIndex + 1 >= MAX_TOOL_STEP_CALLS_PER_ATTEMPT) return undefined;
   const retryable =
     params.code === 'rate-limited' ||
     (params.sensitivity === 'read' &&
@@ -451,10 +496,13 @@ async function settleAndRecordToolInvocation(params: {
   execution: ToolExecution;
   finishedAt: Date;
   durationMs: number;
-  serviceSignal: AbortSignal;
 }): Promise<void> {
-  if (params.serviceSignal.aborted) return;
-  await withTransaction((tx) => settleAndRecordToolInvocationInTransaction(params, tx));
+  const progression = await withTransaction((tx) =>
+    settleAndRecordToolInvocationInTransaction(params, tx),
+  );
+  if (!progression) return;
+  recordStepProgressionMetrics(progression.metrics);
+  recordToolInvocationDuration(params.claim, params.execution, params.durationMs);
 }
 
 async function settleAndRecordToolInvocationInTransaction(
@@ -463,11 +511,9 @@ async function settleAndRecordToolInvocationInTransaction(
     execution: ToolExecution;
     finishedAt: Date;
     durationMs: number;
-    serviceSignal: AbortSignal;
   },
   tx: Tx,
-): Promise<void> {
-  if (params.serviceSignal.aborted) return;
+): Promise<Awaited<ReturnType<typeof recordStepResultInTransaction>> | undefined> {
   const {claim, execution} = params;
   // Keep the lock order aligned with recordStepResult: the step projection is
   // locked before the invocation history is finalized.
@@ -487,17 +533,17 @@ async function settleAndRecordToolInvocationInTransaction(
     },
     tx,
   );
-  if (!settled) return;
-  await recordSettledToolInvocation(claim, execution, tx);
+  if (!settled) return undefined;
+  return recordSettledToolInvocation(claim, execution, tx);
 }
 
-async function recordSettledToolInvocation(
+function recordSettledToolInvocation(
   claim: ToolInvocationClaim,
   execution: ToolExecution,
   tx: Tx,
-): Promise<void> {
+): Promise<Awaited<ReturnType<typeof recordStepResultInTransaction>>> {
   if (execution.outcome === 'success') {
-    await recordStepResult(
+    return recordStepResultInTransaction(
       {
         jobExecutionId: claim.invocation.jobExecutionId,
         stepId: claim.invocation.stepId,
@@ -510,10 +556,9 @@ async function recordSettledToolInvocation(
       },
       tx,
     );
-    return;
   }
 
-  await recordStepResult(
+  return recordStepResultInTransaction(
     {
       jobExecutionId: claim.invocation.jobExecutionId,
       stepId: claim.invocation.stepId,
@@ -545,7 +590,7 @@ async function appendToolInvocationLog(
   execution: ToolExecution,
 ): Promise<void> {
   const rawTool = isRecord(claim.step.config.tool) ? claim.step.config.tool : {};
-  const provider = stringField(rawTool.provider) ?? 'unknown-provider';
+  const provider = toolProvider(claim);
   const id = stringField(rawTool.id) ?? 'unknown-tool';
   const groupId = `tool-${claim.invocation.id}-${claim.invocation.callIndex}`;
   const timestamp = Date.now();
@@ -559,6 +604,7 @@ async function appendToolInvocationLog(
             ? {}
             : {retry_after_seconds: execution.error.retryAfterSeconds}),
         };
+  const sensitive = rawTool.sensitive === true;
   const records: ServerLogRecord[] = [
     {
       v: 1,
@@ -568,34 +614,49 @@ async function appendToolInvocationLog(
       parent_group_id: null,
       name: `tool ${provider}/${id}`,
     },
-    ...outputRecords(timestamp, prettyJson(readToolArguments(claim))),
-    ...outputRecords(timestamp, prettyJson(result)),
+    ...outputRecords(
+      timestamp,
+      sensitive ? '[sensitive tool arguments redacted]' : prettyJson(readToolArguments(claim)),
+    ),
+    ...outputRecords(
+      timestamp,
+      sensitive ? '[sensitive tool result redacted]' : prettyJson(result),
+    ),
     {v: 1, ts: timestamp, type: 'group_end', group_id: groupId},
   ];
 
-  try {
-    await logs.appendServerRecords({
-      jobId: claim.workflowContext.jobId,
-      workspaceId: claim.workflowContext.workspaceId,
-      projectId: claim.workflowContext.projectId,
-      workflowRunAttemptId: claim.workflowContext.workflowRunAttemptId,
-      stepId: claim.invocation.stepId,
-      attempt: claim.attempt.attempt,
-      records,
-    });
-  } catch (error) {
-    if (isInterModuleKnownError(logsInterModuleContract.methods.appendServerRecords, error)) {
-      logger().warn(
-        {code: error.code, invocationId: claim.invocation.id},
-        'Tool step invocation log was not appended',
+  // The Logs module owns the request-size limit, so append records separately.
+  // A large provider result must not cause the complete group to be rejected.
+  for (const record of records) {
+    try {
+      await logs.appendServerRecords({
+        jobId: claim.workflowContext.jobId,
+        workspaceId: claim.workflowContext.workspaceId,
+        projectId: claim.workflowContext.projectId,
+        workflowRunAttemptId: claim.workflowContext.workflowRunAttemptId,
+        stepId: claim.invocation.stepId,
+        attempt: claim.attempt.attempt,
+        records: [record],
+      });
+    } catch (error) {
+      if (isInterModuleKnownError(logsInterModuleContract.methods.appendServerRecords, error)) {
+        recordWorkflowToolInvocationLogAppendFailure('known');
+        logger().warn(
+          {code: error.code, invocationId: claim.invocation.id},
+          'Tool step invocation log was not appended',
+        );
+        continue;
+      }
+      logger().error(
+        {err: error, invocationId: claim.invocation.id},
+        'Tool step log append failed',
       );
-      return;
+      recordWorkflowToolInvocationLogAppendFailure('unexpected');
+      reportError(error, {
+        boundary: 'workflows.tool-step-executor',
+        operation: 'append-log',
+      });
     }
-    logger().error({err: error, invocationId: claim.invocation.id}, 'Tool step log append failed');
-    reportError(error, {
-      boundary: 'workflows.tool-step-executor',
-      operation: 'append-log',
-    });
   }
 }
 
@@ -606,7 +667,7 @@ function readToolArguments(claim: ToolInvocationClaim): Record<string, unknown> 
 }
 
 function outputRecords(timestamp: number, data: string): ServerLogRecord[] {
-  return splitLogData(data).map((chunk) => ({
+  return splitLogData(truncateLogData(data)).map((chunk) => ({
     v: 1,
     ts: timestamp,
     type: 'output' as const,
@@ -618,17 +679,36 @@ function outputRecords(timestamp: number, data: string): ServerLogRecord[] {
 function splitLogData(data: string): string[] {
   const chunks: string[] = [];
   let current = '';
+  let currentBytes = 0;
+  const encoder = new TextEncoder();
   for (const character of data) {
-    const candidate = current + character;
-    if (current !== '' && new TextEncoder().encode(candidate).byteLength > MAX_RECORD_DATA_BYTES) {
+    const characterBytes = encoder.encode(character).byteLength;
+    if (current !== '' && currentBytes + characterBytes > MAX_RECORD_DATA_BYTES) {
       chunks.push(current);
       current = character;
+      currentBytes = characterBytes;
     } else {
-      current = candidate;
+      current += character;
+      currentBytes += characterBytes;
     }
   }
   if (current !== '') chunks.push(current);
   return chunks.length === 0 ? ['{}'] : chunks;
+}
+
+function truncateLogData(data: string): string {
+  const encoder = new TextEncoder();
+  let bytes = 0;
+  let result = '';
+  for (const character of data) {
+    const characterBytes = encoder.encode(character).byteLength;
+    if (bytes + characterBytes > MAX_TOOL_LOG_VALUE_BYTES) {
+      return `${result}${TOOL_LOG_TRUNCATION_MARKER}`;
+    }
+    result += character;
+    bytes += characterBytes;
+  }
+  return result;
 }
 
 function prettyJson(value: unknown): string {
@@ -643,6 +723,20 @@ function prettyJson(value: unknown): string {
 function toolSensitivity(claim: ToolInvocationClaim): 'read' | 'write' {
   const tool = claim.step.config.tool;
   return isRecord(tool) && tool.sensitivity === 'read' ? 'read' : 'write';
+}
+
+function toolProvider(claim: ToolInvocationClaim): string {
+  const tool = claim.step.config.tool;
+  return isRecord(tool) ? (stringField(tool.provider) ?? 'unknown-provider') : 'unknown-provider';
+}
+
+function recordToolInvocationDuration(
+  claim: ToolInvocationClaim,
+  execution: ToolExecution,
+  durationMs: number,
+): void {
+  if (claim.interrupted) return;
+  recordWorkflowToolInvocationDuration(toolProvider(claim), execution.outcome, durationMs);
 }
 
 function elapsedMilliseconds(startedAt: Date): number {

@@ -2,7 +2,11 @@ import {randomUUID} from 'node:crypto';
 import {mkdtempSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {loadRunnerCatalog} from './config.js';
+import {
+  loadRunnerCatalog,
+  MAX_NODE_TIMER_DELAY_MS,
+  validateToolStepExecutorConfig,
+} from './config.js';
 
 let dir: string;
 
@@ -81,5 +85,35 @@ ShipFox-4CPU:
     expect(() => loadRunnerCatalog(path)).toThrow(
       `Runner catalog entry "too-many" in ${path} has 21 labels`,
     );
+  });
+});
+
+describe('validateToolStepExecutorConfig', () => {
+  const valid = {
+    pollIntervalMs: 1_000,
+    concurrency: 8,
+    callTimeoutMs: 30_000,
+  };
+
+  it('accepts safe positive values and the Node timer maximum', () => {
+    expect(() =>
+      validateToolStepExecutorConfig({
+        ...valid,
+        pollIntervalMs: MAX_NODE_TIMER_DELAY_MS,
+        callTimeoutMs: MAX_NODE_TIMER_DELAY_MS,
+      }),
+    ).not.toThrow();
+  });
+
+  it.each([
+    ['pollIntervalMs', 0],
+    ['pollIntervalMs', MAX_NODE_TIMER_DELAY_MS + 1],
+    ['pollIntervalMs', Number.MAX_SAFE_INTEGER + 1],
+    ['concurrency', 0],
+    ['concurrency', 1.5],
+    ['callTimeoutMs', -1],
+    ['callTimeoutMs', MAX_NODE_TIMER_DELAY_MS + 1],
+  ] as const)('rejects an invalid %s value (%s)', (key, value) => {
+    expect(() => validateToolStepExecutorConfig({...valid, [key]: value})).toThrow();
   });
 });
