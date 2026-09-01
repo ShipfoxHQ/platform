@@ -429,6 +429,63 @@ describe('credential broker', () => {
     expect(renew).toHaveBeenCalledTimes(2);
   });
 
+  it('records a failure when a rejection renewal returns the same generation', async () => {
+    const renew = vi.fn().mockResolvedValue({...baseCredential});
+    const broker = new CredentialBroker({renew, now: () => now});
+    broker.register({
+      repositoryUrl: repository,
+      subject: 'checkout-step:2',
+      credential: {...baseCredential, renewal: {mode: 'on-rejection' as const}},
+    });
+
+    await broker.reject(repository);
+
+    expect(broker.getFailureEventsSince(0)).toEqual([
+      {
+        cursor: 1,
+        repositoryUrl: 'https://gitea.example/Org/Repo/',
+        subject: 'checkout-step:2',
+        kind: 'failed',
+      },
+    ]);
+  });
+
+  it('does not record a failure for a spontaneous refresh renewal', async () => {
+    const renew = vi.fn().mockRejectedValue(new Error('background renewal failed'));
+    const broker = new CredentialBroker({renew, now: () => 5_000});
+    broker.register({
+      repositoryUrl: repository,
+      subject: 'checkout-step:2',
+      credential: baseCredential,
+    });
+
+    await expect(broker.lookup(repository)).resolves.toBeUndefined();
+
+    expect(broker.getFailureEventCursor()).toBe(0);
+  });
+
+  it('records a rejection-triggered transient failure even while the old credential is usable', async () => {
+    const renew = vi.fn().mockRejectedValue(new TransientCredentialRenewalError());
+    const broker = new CredentialBroker({
+      renew,
+      now: () => now,
+      classifyFailure: () => 'unavailable',
+    });
+    broker.register({
+      repositoryUrl: repository,
+      subject: 'checkout-step:2',
+      credential: {...baseCredential, renewal: {mode: 'on-rejection' as const}},
+    });
+
+    await broker.reject(repository);
+
+    expect(broker.getFailureEventsSince(0)[0]).toMatchObject({
+      repositoryUrl: 'https://gitea.example/Org/Repo/',
+      subject: 'checkout-step:2',
+      kind: 'unavailable',
+    });
+  });
+
   it('records a classified fatal renewal event without retaining provider details', async () => {
     const renew = vi.fn().mockRejectedValue(new Error('provider token must not be retained'));
     const broker = new CredentialBroker({
@@ -439,14 +496,19 @@ describe('credential broker', () => {
     broker.register({
       repositoryUrl: repository,
       subject: 'checkout-step:2',
-      credential: baseCredential,
+      credential: {...baseCredential, renewal: {mode: 'on-rejection' as const}},
     });
 
-    await expect(broker.lookup(repository)).resolves.toBeUndefined();
+    await broker.reject(repository);
 
     expect(broker.getFailureEventCursor()).toBe(1);
     expect(broker.getFailureEventsSince(0)).toEqual([
-      {cursor: 1, subject: 'checkout-step:2', kind: 'auth'},
+      {
+        cursor: 1,
+        repositoryUrl: 'https://gitea.example/Org/Repo/',
+        subject: 'checkout-step:2',
+        kind: 'auth',
+      },
     ]);
     expect(broker.getFailureEventsSince(1)).toEqual([]);
     expect(JSON.stringify(broker.getFailureEventsSince(0))).not.toContain('provider token');
@@ -466,16 +528,21 @@ describe('credential broker', () => {
       credential: {...baseCredential, renewal: {mode: 'on-rejection' as const}},
     });
 
-    for (let index = 0; index < MAX_CREDENTIAL_FAILURE_EVENTS + 1; index += 1) {
-      await broker.reject(repository);
-    }
+    const captured = await broker.captureFailureEvents(async () => {
+      for (let index = 0; index < MAX_CREDENTIAL_FAILURE_EVENTS + 1; index += 1) {
+        await broker.reject(repository);
+      }
+    });
 
     expect(broker.getFailureEventCursor()).toBe(MAX_CREDENTIAL_FAILURE_EVENTS + 1);
     expect(broker.getFailureEventsSince(0)).toHaveLength(MAX_CREDENTIAL_FAILURE_EVENTS);
     expect(broker.getFailureEventsSince(0)[0]?.cursor).toBe(2);
+    expect(captured.events).toHaveLength(MAX_CREDENTIAL_FAILURE_EVENTS);
+    expect(captured.events[0]?.cursor).toBe(1);
     expect(broker.getFailureEventsSince(MAX_CREDENTIAL_FAILURE_EVENTS)).toEqual([
       {
         cursor: MAX_CREDENTIAL_FAILURE_EVENTS + 1,
+        repositoryUrl: 'https://gitea.example/Org/Repo/',
         subject: 'checkout-step:2',
         kind: 'failed',
       },

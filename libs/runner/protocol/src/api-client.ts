@@ -460,6 +460,32 @@ export function isTransientCheckoutTokenError(error: unknown): boolean {
   );
 }
 
+export type CheckoutTokenFailureKind = 'auth' | 'unavailable' | 'failed';
+
+/**
+ * Maps a checkout-token response failure to the stable runner failure taxonomy. The
+ * response body is already parsed by ky and is read only for its non-sensitive code.
+ */
+export function classifyCheckoutTokenFailure(error: unknown): CheckoutTokenFailureKind {
+  if (!(error instanceof HTTPError)) return 'failed';
+
+  const {status} = error.response;
+  const code = codeFromBody(error.data);
+  if (status === 401 || status === 403 || code === 'access-denied' || code === 'forbidden') {
+    return 'auth';
+  }
+  if (
+    status === 429 ||
+    status === 503 ||
+    code === 'rate-limited' ||
+    code === 'timeout' ||
+    code === 'provider-unavailable'
+  ) {
+    return 'unavailable';
+  }
+  return 'failed';
+}
+
 export async function requestAgentRuntimeConfig(
   leaseClient: KyInstance,
   params: {

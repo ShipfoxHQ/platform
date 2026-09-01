@@ -30,6 +30,7 @@ export {
   CredentialBroker,
   type CredentialBrokerOptions,
   CredentialBrokerShutdownError,
+  type CredentialFailureCapture,
   type CredentialFailureClassifier,
   type CredentialFailureEvent,
   type CredentialFailureEventSource,

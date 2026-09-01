@@ -4,6 +4,7 @@ import {join} from 'node:path';
 import type {CheckoutTokenResponseDto} from '@shipfox/api-workflows-dto';
 import {logger} from '@shipfox/node-opentelemetry';
 import {
+  classifyCheckoutTokenFailure,
   HTTPError,
   isTransientCheckoutTokenError,
   requestCheckoutToken,
@@ -111,6 +112,8 @@ export function createJobCredentialLifecycle(options: {
     getFailureEventCursor: () => broker.getFailureEventCursor(),
     getFailureEventsSince: (cursor: number): readonly CredentialFailureEvent[] =>
       broker.getFailureEventsSince(cursor),
+    captureFailureEvents: <T>(operation: () => Promise<T>) =>
+      broker.captureFailureEvents(operation),
     close: async () => {
       renewalController.abort();
       try {
@@ -125,7 +128,7 @@ export function createJobCredentialLifecycle(options: {
 function classifyCredentialFailure(error: unknown): CredentialFailureKind {
   const chain = errorChain(error);
   const httpError = chain.find((cause): cause is HTTPError => cause instanceof HTTPError);
-  if (httpError !== undefined) return classifyHttpCredentialFailure(httpError);
+  if (httpError !== undefined) return classifyCheckoutTokenFailure(httpError);
   return chain.some((cause) => cause instanceof TransientCredentialRenewalError)
     ? 'unavailable'
     : 'failed';
@@ -139,32 +142,6 @@ function errorChain(error: unknown): Error[] {
     current = current.cause;
   }
   return chain;
-}
-
-function classifyHttpCredentialFailure(error: HTTPError): CredentialFailureKind {
-  const {status} = error.response;
-  const code = readErrorCode(error);
-  if (status === 401 || status === 403 || code === 'access-denied' || code === 'forbidden') {
-    return 'auth';
-  }
-  if (
-    status === 429 ||
-    status === 503 ||
-    code === 'rate-limited' ||
-    code === 'timeout' ||
-    code === 'provider-unavailable'
-  ) {
-    return 'unavailable';
-  }
-  return 'failed';
-}
-
-function readErrorCode(error: HTTPError): string | undefined {
-  const body = error.data;
-  if (body && typeof body === 'object' && 'code' in body && typeof body.code === 'string') {
-    return body.code;
-  }
-  return undefined;
 }
 
 function credentialSocketPath(

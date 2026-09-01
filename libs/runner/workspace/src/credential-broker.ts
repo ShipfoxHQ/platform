@@ -37,15 +37,22 @@ export type CredentialFailureKind = 'auth' | 'unavailable' | 'failed';
 
 export type CredentialFailureEvent = {
   readonly cursor: number;
+  readonly repositoryUrl: string;
   readonly subject: string;
   readonly kind: CredentialFailureKind;
 };
 
 export type CredentialFailureClassifier = (error: unknown) => CredentialFailureKind;
 
+export type CredentialFailureCapture<T> = {
+  readonly value: T;
+  readonly events: readonly CredentialFailureEvent[];
+};
+
 export type CredentialFailureEventSource = {
   getFailureEventCursor(): number;
   getFailureEventsSince(cursor: number): readonly CredentialFailureEvent[];
+  captureFailureEvents<T>(operation: () => Promise<T>): Promise<CredentialFailureCapture<T>>;
 };
 
 export type CredentialBrokerOptions = {
@@ -106,6 +113,7 @@ export class CredentialBroker {
   private readonly renewalTimeoutMsValue: number;
   private publication: Promise<void> = Promise.resolve();
   private failureEventCursorValue = 0;
+  private activeFailureCapture: FailureEventCapture | undefined;
   private stopped = false;
 
   constructor(private readonly options: CredentialBrokerOptions) {
@@ -203,6 +211,19 @@ export class CredentialBroker {
     return this.failureEvents.filter((event) => event.cursor > cursor);
   }
 
+  async captureFailureEvents<T>(operation: () => Promise<T>): Promise<CredentialFailureCapture<T>> {
+    const previous = this.activeFailureCapture;
+    const capture: FailureEventCapture = {active: true, events: []};
+    this.activeFailureCapture = capture;
+    try {
+      const value = await operation();
+      return {value, events: [...capture.events]};
+    } finally {
+      capture.active = false;
+      this.activeFailureCapture = previous;
+    }
+  }
+
   shutdown(): void {
     if (this.stopped) return;
     this.stopped = true;
@@ -284,11 +305,15 @@ export class CredentialBroker {
     )
       return Promise.resolve();
 
-    const promise = this.performRenewal(entry, rejectedGeneration, rejectionRequested).finally(
-      () => {
-        if (this.flights.get(flightKey)?.promise === promise) this.flights.delete(flightKey);
-      },
-    );
+    const failureCapture = this.activeFailureCapture;
+    const promise = this.performRenewal(
+      entry,
+      rejectedGeneration,
+      rejectionRequested,
+      failureCapture,
+    ).finally(() => {
+      if (this.flights.get(flightKey)?.promise === promise) this.flights.delete(flightKey);
+    });
     this.flights.set(flightKey, {
       entry,
       promise,
@@ -302,6 +327,7 @@ export class CredentialBroker {
     entry: Entry,
     rejectedGeneration: string | undefined,
     rejectionRequested: boolean,
+    failureCapture: FailureEventCapture | undefined,
   ): Promise<void> {
     try {
       const input = await this.requestRenewal(entry, rejectedGeneration);
@@ -310,7 +336,7 @@ export class CredentialBroker {
       if (!this.applyRenewedCredential(entry, credential, rejectedGeneration, rejectionRequested)) {
         if (this.isCurrentRenewal(entry, rejectionRequested)) {
           recordCredentialRenewal('failure');
-          this.recordFailure(entry, 'failed');
+          this.recordFailure(entry, 'failed', failureCapture);
         }
         return;
       }
@@ -326,7 +352,7 @@ export class CredentialBroker {
       if (this.stopped) return;
       const current = this.isCurrentRenewal(entry, rejectionRequested);
       this.handleRenewalError(entry, error);
-      if (current && entry.rejected) this.recordFailureFromError(entry, error);
+      if (current && rejectionRequested) this.recordFailureFromError(entry, error, failureCapture);
     }
   }
 
@@ -391,17 +417,29 @@ export class CredentialBroker {
     entry.backoffUntil = this.now() + this.backoffMs;
   }
 
-  private recordFailure(entry: Entry, kind: CredentialFailureKind): void {
+  private recordFailure(
+    entry: Entry,
+    kind: CredentialFailureKind,
+    failureCapture: FailureEventCapture | undefined,
+  ): void {
     const event: CredentialFailureEvent = {
       cursor: ++this.failureEventCursorValue,
+      repositoryUrl: entry.url,
       subject: entry.subject,
       kind,
     };
     this.failureEvents.push(event);
     if (this.failureEvents.length > MAX_CREDENTIAL_FAILURE_EVENTS) this.failureEvents.shift();
+    if (failureCapture?.active && failureCapture.events.length < MAX_CREDENTIAL_FAILURE_EVENTS) {
+      failureCapture.events.push(event);
+    }
   }
 
-  private recordFailureFromError(entry: Entry, error: unknown): void {
+  private recordFailureFromError(
+    entry: Entry,
+    error: unknown,
+    failureCapture: FailureEventCapture | undefined,
+  ): void {
     let kind: CredentialFailureKind = 'failed';
     try {
       const classified = this.options.classifyFailure?.(error);
@@ -409,7 +447,7 @@ export class CredentialBroker {
     } catch {
       // A failure classifier is advisory; an invalid classifier result must not break renewal.
     }
-    this.recordFailure(entry, kind);
+    this.recordFailure(entry, kind, failureCapture);
   }
 
   private publish(credential: BrokerCredential): Promise<void> {
@@ -442,6 +480,11 @@ type Flight = {
   promise: Promise<void>;
   rejectionRequested: boolean;
   rejectedGeneration: string | undefined;
+};
+
+type FailureEventCapture = {
+  active: boolean;
+  events: CredentialFailureEvent[];
 };
 
 export function normalizeRepositoryUrl(value: string): string {

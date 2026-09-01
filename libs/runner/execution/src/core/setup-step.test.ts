@@ -9,10 +9,36 @@ const normalizeCheckoutDestinationMock = vi.fn();
 const checkoutRepositoryMock = vi.fn();
 const writeAmbientGitCredentialMock = vi.fn();
 
-vi.mock('@shipfox/runner-protocol', () => ({
-  requestCheckoutToken: (...args: unknown[]) => requestCheckoutTokenMock(...args),
-  HTTPError,
-}));
+vi.mock('@shipfox/runner-protocol', () => {
+  function classifyCheckoutTokenFailure(error: unknown): 'auth' | 'unavailable' | 'failed' {
+    if (!(error instanceof HTTPError)) return 'failed';
+    const status = error.response.status;
+    const data = error.data;
+    let code: string | undefined;
+    if (typeof data === 'object' && data !== null && !Array.isArray(data) && 'code' in data) {
+      code = typeof data.code === 'string' ? data.code : undefined;
+    }
+    if (status === 401 || status === 403 || code === 'access-denied' || code === 'forbidden') {
+      return 'auth';
+    }
+    if (
+      status === 429 ||
+      status === 503 ||
+      code === 'rate-limited' ||
+      code === 'timeout' ||
+      code === 'provider-unavailable'
+    ) {
+      return 'unavailable';
+    }
+    return 'failed';
+  }
+
+  return {
+    requestCheckoutToken: (...args: unknown[]) => requestCheckoutTokenMock(...args),
+    classifyCheckoutTokenFailure,
+    HTTPError,
+  };
+});
 
 // CheckoutError is a real class (setup-step branches on instanceof), so keep the actual
 // implementation and only stub the side-effecting functions.

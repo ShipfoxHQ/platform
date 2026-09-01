@@ -1,5 +1,5 @@
 import {mkdir, readFile, writeFile} from 'node:fs/promises';
-import {join} from 'node:path';
+import {isAbsolute, join, relative, sep} from 'node:path';
 import {promisify} from 'node:util';
 import {gunzip, gzip} from 'node:zlib';
 import {
@@ -52,10 +52,12 @@ import {
   writeStepAnnotations,
 } from '@shipfox/runner-protocol';
 import {
+  type CredentialFailureEvent,
   type CredentialFailureEventSource,
   type CredentialFailureKind,
   createJobLogsDir,
   type GitCredentialHelperConfig,
+  normalizeRepositoryUrl,
   type PersistedCheckoutCredential,
   resolveWorkingDirectory,
 } from '@shipfox/runner-workspace';
@@ -187,7 +189,7 @@ async function runJobStepIteration(
     `Running ${stepLabel}`,
   );
   const preparation = stepPreparation(params, state, step);
-  const execution = await executeStep({
+  const executeStepParams: Parameters<typeof executeStep>[0] = {
     step,
     attempt,
     cwd: params.cwd,
@@ -209,7 +211,14 @@ async function runJobStepIteration(
     gitConfigPath: params.gitConfigPath,
     ...(params.credentialHelper ? {credentialHelper: params.credentialHelper} : {}),
     ...preparation,
-  });
+  };
+  const capturedExecution =
+    credentialFailureCursor === undefined || params.credentialFailureEvents === undefined
+      ? {value: await executeStep(executeStepParams), events: undefined}
+      : await params.credentialFailureEvents.captureFailureEvents(() =>
+          executeStep(executeStepParams),
+        );
+  const execution = capturedExecution.value;
   applyStepExecutionState(params, state, execution);
   if (params.signal.aborted) return 'stop';
   return finishStepExecution(
@@ -220,6 +229,7 @@ async function runJobStepIteration(
     stepLabel,
     execution,
     credentialFailureCursor,
+    capturedExecution.events,
   );
 }
 
@@ -279,6 +289,7 @@ async function finishStepExecution(
   stepLabel: string,
   execution: StepExecution,
   credentialFailureCursor: number | undefined,
+  capturedCredentialFailureEvents: readonly CredentialFailureEvent[] | undefined,
 ): Promise<'continue' | 'stop'> {
   const logOutcome =
     (await settleStream({stream: state.activeStream, signal: params.signal})) ??
@@ -301,7 +312,8 @@ async function finishStepExecution(
     step,
     result: settlement.result,
     cursor: credentialFailureCursor,
-    events: params.credentialFailureEvents,
+    events: capturedCredentialFailureEvents,
+    credentialRepositories: execution.credentialRepositories,
   });
   await publishStepAnnotations({
     leaseClient: params.leaseClient,
@@ -338,21 +350,25 @@ function attributeCredentialFailure(params: {
   step: StepDto;
   result: StepResult;
   cursor: number | undefined;
-  events: CredentialFailureEventSource | undefined;
+  events: readonly CredentialFailureEvent[] | undefined;
+  credentialRepositories: readonly string[] | undefined;
 }): StepResult {
   if (
     params.cursor === undefined ||
     params.events === undefined ||
+    params.credentialRepositories === undefined ||
     params.result.success ||
-    !isCredentialFailureAttributionStep(params.step)
+    !isCredentialFailureAttributionStep(params.step) ||
+    params.credentialRepositories.length === 0
   ) {
     return params.result;
   }
 
   const cursor = params.cursor;
-  const failure = params.events
-    .getFailureEventsSince(cursor)
-    .find((event) => event.cursor > cursor);
+  const credentialRepositories = new Set(params.credentialRepositories);
+  const failure = params.events.find(
+    (event) => event.cursor > cursor && credentialRepositories.has(event.repositoryUrl),
+  );
   if (failure === undefined) return params.result;
 
   const error = params.result.error ?? {message: 'Step failed'};
@@ -361,6 +377,40 @@ function attributeCredentialFailure(params: {
     ...params.result,
     error: {...errorWithoutAgentConfigIssue, reason: credentialFailureReason(failure.kind)},
   };
+}
+
+function credentialRepositoriesForStep(params: {
+  checkoutDestinations: CheckoutDestinations | undefined;
+  cwd: string;
+  stepCwd: string;
+}): readonly string[] {
+  const destinations = [...(params.checkoutDestinations?.values() ?? [])];
+  const relevantDestinations = destinations.filter(
+    (destination) =>
+      params.stepCwd === params.cwd || pathsOverlap(destination.result.path, params.stepCwd),
+  );
+  const repositories = new Set<string>();
+  for (const destination of relevantDestinations) {
+    try {
+      repositories.add(normalizeRepositoryUrl(destination.repository));
+    } catch {
+      // Checkout results are validated before reaching the loop; fail closed for test or
+      // mixed-version data that cannot identify a repository safely.
+    }
+  }
+  return [...repositories];
+}
+
+function pathsOverlap(first: string, second: string): boolean {
+  return isWithinPath(first, second) || isWithinPath(second, first);
+}
+
+function isWithinPath(parent: string, candidate: string): boolean {
+  const distance = relative(parent, candidate);
+  return (
+    distance === '' ||
+    (!distance.startsWith(`..${sep}`) && distance !== '..' && !isAbsolute(distance))
+  );
 }
 
 function credentialFailureReason(kind: CredentialFailureKind): StepErrorReasonDto {
@@ -464,6 +514,7 @@ function isTransientNextStepError(error: unknown): boolean {
 
 export interface StepExecution {
   result: StepResult;
+  credentialRepositories?: readonly string[] | undefined;
   sessionCommit?: AgentSessionCommitContext | undefined;
   stream?: LogStreamLifecycle | undefined;
   logOutcome?: LogOutcomeDto | undefined;
@@ -583,6 +634,11 @@ export async function executeStep(params: {
     const workingDirectory = await resolveStepWorkingDirectory(cwd, step.config.working_directory);
     if (!workingDirectory.ok) return workingDirectory.execution;
     const stepCwd = workingDirectory.path;
+    const credentialRepositories = credentialRepositoriesForStep({
+      checkoutDestinations: params.checkoutDestinations,
+      cwd,
+      stepCwd,
+    });
 
     // Agent steps run the embedded pi harness and forward every session entry into the log
     // pipeline as opaque `agent_session` records. Capture is best-effort: if the spool cannot
@@ -600,7 +656,7 @@ export async function executeStep(params: {
         checkoutRef,
       });
       stream = execution.stream;
-      return execution;
+      return {...execution, credentialRepositories};
     }
 
     const execution = await executeRunStepBranch({
@@ -616,7 +672,7 @@ export async function executeStep(params: {
     });
     stream = execution.stream;
     runStream = execution.stream as StepLogStream | undefined;
-    return execution;
+    return {...execution, credentialRepositories};
   } catch (error) {
     return crashedStepExecution({
       error,

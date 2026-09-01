@@ -7,33 +7,91 @@ const {requestCheckoutTokenMock} = vi.hoisted(() => ({
   requestCheckoutTokenMock: vi.fn(),
 }));
 
-vi.mock('@shipfox/runner-protocol', () => ({
-  requestCheckoutToken: (...args: unknown[]) => requestCheckoutTokenMock(...args),
-  isTransientCheckoutTokenError: (error: unknown) =>
-    error instanceof Error &&
-    (error.name === 'AbortError' || error.name === 'TimeoutError' || error instanceof TypeError),
-  HTTPError: class HTTPError extends Error {
-    response: {status: number};
-
-    constructor(status = 500) {
-      super(`HTTP ${status}`);
-      this.response = {status};
+vi.mock('@shipfox/runner-protocol', () => {
+  function codeFromError(error: unknown): string | undefined {
+    if (!(error instanceof Error) || !('data' in error)) return undefined;
+    const data = (error as {data?: unknown}).data;
+    if (typeof data !== 'object' || data === null || Array.isArray(data) || !('code' in data)) {
+      return undefined;
     }
-  },
-}));
+    return typeof data.code === 'string' ? data.code : undefined;
+  }
+
+  function statusFromError(error: unknown): number | undefined {
+    if (!(error instanceof Error) || !('response' in error)) return undefined;
+    const status = (error as {response?: {status?: unknown}}).response?.status;
+    return typeof status === 'number' ? status : undefined;
+  }
+
+  function classifyCheckoutTokenFailure(error: unknown): 'auth' | 'unavailable' | 'failed' {
+    const status = statusFromError(error);
+    const code = codeFromError(error);
+    if (status === 401 || status === 403 || code === 'access-denied' || code === 'forbidden') {
+      return 'auth';
+    }
+    if (
+      status === 429 ||
+      status === 503 ||
+      code === 'rate-limited' ||
+      code === 'timeout' ||
+      code === 'provider-unavailable'
+    ) {
+      return 'unavailable';
+    }
+    return 'failed';
+  }
+
+  return {
+    requestCheckoutToken: (...args: unknown[]) => requestCheckoutTokenMock(...args),
+    isTransientCheckoutTokenError: (error: unknown) => {
+      if (!(error instanceof Error)) return false;
+      const status = statusFromError(error);
+      return (
+        status === 429 ||
+        status === 503 ||
+        ['rate-limited', 'timeout', 'provider-unavailable'].includes(codeFromError(error) ?? '') ||
+        error.name === 'AbortError' ||
+        error.name === 'TimeoutError' ||
+        error instanceof TypeError
+      );
+    },
+    classifyCheckoutTokenFailure,
+    HTTPError: class HTTPError extends Error {
+      response: {status: number};
+      data: unknown;
+
+      constructor(status = 500) {
+        super(`HTTP ${status}`);
+        this.response = {status};
+        this.data = undefined;
+      }
+    },
+  };
+});
 
 const {createJobCredentialLifecycle} = await import('#core/credential-lifecycle.js');
 const {HTTPError} = await import('@shipfox/runner-protocol');
 const {
   requestCredentialSocket,
+  normalizeRepositoryUrl,
   runnerFallbackCredentialSocketOwnerPath,
   runnerFallbackCredentialSocketPath,
+  TransientCredentialRenewalError,
 } = await import('@shipfox/runner-workspace');
 
 const REPOSITORY = 'https://github.com/acme/repo.git';
 const STEP_ID = '00000000-0000-4000-8000-000000000001';
 const LEASE_CLIENT = {} as never;
 type CheckoutRenewal = {mode: 'on-rejection'} | {mode: 'refresh-at'; refresh_at: string};
+
+function buildHTTPError(status: number, data?: unknown): InstanceType<typeof HTTPError> {
+  const ErrorConstructor = HTTPError as unknown as new (
+    status?: number,
+  ) => InstanceType<typeof HTTPError>;
+  const error = new ErrorConstructor(status);
+  error.data = data;
+  return error;
+}
 
 function checkoutResponse(
   token: string,
@@ -202,12 +260,18 @@ describe('createJobCredentialLifecycle', () => {
   });
 
   it.each([
-    [401, 'auth'],
-    [403, 'auth'],
-    [429, 'unavailable'],
-    [503, 'unavailable'],
-    [404, 'failed'],
-  ] as const)('records the typed provider failure for HTTP %s', async (status, kind) => {
+    [401, undefined, 'auth'],
+    [403, undefined, 'auth'],
+    [401, {code: 'timeout'}, 'auth'],
+    [429, undefined, 'unavailable'],
+    [503, undefined, 'unavailable'],
+    [500, {code: 'rate-limited'}, 'unavailable'],
+    [500, {code: 'timeout'}, 'unavailable'],
+    [500, {code: 'provider-unavailable'}, 'unavailable'],
+    [500, {code: 'access-denied'}, 'auth'],
+    [404, undefined, 'failed'],
+    [500, 'gateway error', 'failed'],
+  ] as const)('records the typed provider failure for HTTP %s', async (status, data, kind) => {
     const lifecycle = createJobCredentialLifecycle({
       credentialsDir,
       leaseClient: LEASE_CLIENT,
@@ -231,7 +295,7 @@ describe('createJobCredentialLifecycle', () => {
         },
       });
       const cursor = lifecycle.getFailureEventCursor();
-      const error = new (HTTPError as unknown as new (status?: number) => Error)(status);
+      const error = buildHTTPError(status, data);
       requestCheckoutTokenMock.mockRejectedValueOnce(error);
 
       await expect(
@@ -243,7 +307,59 @@ describe('createJobCredentialLifecycle', () => {
       ).resolves.toEqual({version: 1, ok: true});
 
       expect(lifecycle.getFailureEventsSince(cursor)).toEqual([
-        {cursor: cursor + 1, subject: `${STEP_ID}:2`, kind},
+        {
+          cursor: cursor + 1,
+          repositoryUrl: normalizeRepositoryUrl(REPOSITORY),
+          subject: `${STEP_ID}:2`,
+          kind,
+        },
+      ]);
+    } finally {
+      await lifecycle.close();
+    }
+  });
+
+  it('classifies a wrapped transient renewal failure as unavailable', async () => {
+    const lifecycle = createJobCredentialLifecycle({
+      credentialsDir,
+      leaseClient: LEASE_CLIENT,
+      signal: new AbortController().signal,
+      registerSecrets: vi.fn(),
+      replaceSecrets: vi.fn(),
+      clearSecrets: vi.fn(),
+    });
+    await lifecycle.start();
+    try {
+      lifecycle.register({
+        repositoryUrl: REPOSITORY,
+        checkoutStepId: STEP_ID,
+        checkoutAttempt: 2,
+        credential: {
+          username: 'x-access-token',
+          token: 'initial-token',
+          expiresAt: '2030-01-01T00:00:00.000Z',
+          generation: 'generation-one',
+          renewal: {mode: 'on-rejection'},
+        },
+      });
+      const cursor = lifecycle.getFailureEventCursor();
+      requestCheckoutTokenMock.mockRejectedValueOnce(new TransientCredentialRenewalError());
+
+      await expect(
+        requestCredentialSocket(lifecycle.helper.socketPath, {
+          operation: 'erase',
+          repositoryUrl: REPOSITORY,
+          capability: lifecycle.helper.capability,
+        }),
+      ).resolves.toEqual({version: 1, ok: true});
+
+      expect(lifecycle.getFailureEventsSince(cursor)).toEqual([
+        {
+          cursor: cursor + 1,
+          repositoryUrl: normalizeRepositoryUrl(REPOSITORY),
+          subject: `${STEP_ID}:2`,
+          kind: 'unavailable',
+        },
       ]);
     } finally {
       await lifecycle.close();
