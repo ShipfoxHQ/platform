@@ -48,6 +48,7 @@
     "@shipfox/api-definitions-dto": "workspace:*",
     "@shipfox/api-projects-dto": "workspace:*",
     "@shipfox/api-integration-core-dto": "workspace:*",
+    "@shipfox/api-logs-dto": "workspace:*",
     "@shipfox/api-runners-dto": "workspace:*",
     "@shipfox/api-secrets-dto": "workspace:*",
     "@shipfox/api-workflows-dto": "workspace:*",

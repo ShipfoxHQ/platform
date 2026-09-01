@@ -1,5 +1,5 @@
 import {readFileSync} from 'node:fs';
-import {createConfig, str} from '@shipfox/config';
+import {bool, createConfig, num, str} from '@shipfox/config';
 import {MAX_RUNNER_LABELS, parseRunnerCatalog, type RunnerCatalog} from '@shipfox/runner-labels';
 import yaml from 'js-yaml';
 
@@ -8,6 +8,50 @@ export const config = createConfig({
     desc: 'Path to the YAML file that maps runner catalog names to complete label sets. Leave it empty to use every job runner value as a literal label. The file is loaded at startup; restart the API after changing it.',
     default: '',
   }),
+  WORKFLOWS_TOOL_STEP_EXECUTOR_ENABLED: bool({
+    desc: 'Whether the API process runs the server-side workflow tool-step executor. Set false to disable new tool-step calls until the API restarts.',
+    default: true,
+  }),
+  WORKFLOWS_TOOL_STEP_POLL_INTERVAL_MS: num({
+    desc: 'Delay, in milliseconds, between scans for due server-executed tool-step invocations.',
+    default: 1000,
+  }),
+  WORKFLOWS_TOOL_STEP_EXECUTOR_CONCURRENCY: num({
+    desc: 'Maximum number of server-executed tool-step invocations claimed in one executor pass.',
+    default: 8,
+  }),
+  WORKFLOWS_TOOL_STEP_CALL_TIMEOUT_MS: num({
+    desc: 'Maximum duration, in milliseconds, of one server-executed tool provider call.',
+    default: 30_000,
+  }),
+});
+
+export const MAX_NODE_TIMER_DELAY_MS = 2_147_483_647;
+
+export interface ToolStepExecutorConfigValues {
+  pollIntervalMs: number;
+  concurrency: number;
+  callTimeoutMs: number;
+}
+
+export function validateToolStepExecutorConfig(values: ToolStepExecutorConfigValues): void {
+  assertPositiveSafeInteger('WORKFLOWS_TOOL_STEP_POLL_INTERVAL_MS', values.pollIntervalMs, true);
+  assertPositiveSafeInteger('WORKFLOWS_TOOL_STEP_EXECUTOR_CONCURRENCY', values.concurrency, false);
+  assertPositiveSafeInteger('WORKFLOWS_TOOL_STEP_CALL_TIMEOUT_MS', values.callTimeoutMs, true);
+}
+
+function assertPositiveSafeInteger(name: string, value: number, isTimer: boolean): void {
+  const exceedsTimerLimit = isTimer && value > MAX_NODE_TIMER_DELAY_MS;
+  if (Number.isSafeInteger(value) && value >= 1 && !exceedsTimerLimit) return;
+
+  const limit = isTimer ? ` and at most ${MAX_NODE_TIMER_DELAY_MS}` : '';
+  throw new Error(`${name} (${value}) must be a safe whole number greater than 0${limit}.`);
+}
+
+validateToolStepExecutorConfig({
+  pollIntervalMs: config.WORKFLOWS_TOOL_STEP_POLL_INTERVAL_MS,
+  concurrency: config.WORKFLOWS_TOOL_STEP_EXECUTOR_CONCURRENCY,
+  callTimeoutMs: config.WORKFLOWS_TOOL_STEP_CALL_TIMEOUT_MS,
 });
 
 /** Raised when the configured runner catalog cannot be read, parsed, or validated. */

@@ -15,6 +15,7 @@ export function createNextStepRoute(params: {
   annotations: AnnotationsInterModuleClient;
   auth: AuthInterModuleClient;
   runners: RunnersInterModuleClient;
+  toolStepExecutor?: {nudge(): void};
 }) {
   return defineRoute({
     method: 'POST',
@@ -81,6 +82,7 @@ export function createNextStepRoute(params: {
         };
       }
       if (next.kind === 'wait') {
+        params.toolStepExecutor?.nudge();
         return {kind: 'wait' as const, retry_after_ms: next.retryAfterMs};
       }
       return {kind: 'done' as const, status: next.status};
