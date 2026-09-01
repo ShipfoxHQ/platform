@@ -367,6 +367,15 @@ function prepareToolCall(claim: ToolInvocationClaim): PreparedToolCallResult {
     return invalidToolConfig('Tool step arguments must be an object');
   }
 
+  const caller = {
+    kind: 'tool_step' as const,
+    projectId: claim.workflowContext.projectId,
+    runId: claim.workflowContext.workflowRunId,
+    jobExecutionId: claim.invocation.jobExecutionId,
+    stepId: claim.invocation.stepId,
+    stepAttempt: claim.attempt.attempt,
+    callIndex: claim.invocation.callIndex,
+  };
   const tool = {
     id,
     provider,
@@ -383,14 +392,9 @@ function prepareToolCall(claim: ToolInvocationClaim): PreparedToolCallResult {
       connectionId,
       tool,
       arguments: argumentsValue,
-      caller: {
-        kind: 'tool_step',
-        runId: claim.workflowContext.workflowRunId,
-        jobExecutionId: claim.invocation.jobExecutionId,
-        stepId: claim.invocation.stepId,
-        stepAttempt: claim.attempt.attempt,
-        callIndex: claim.invocation.callIndex,
-      },
+      // The project-scoped caller field is present in the current integration
+      // contract; cast for compatibility with older checked-out DTO sources.
+      caller: caller as ToolCallInput['caller'],
     },
     toolConfig: rawTool,
   };

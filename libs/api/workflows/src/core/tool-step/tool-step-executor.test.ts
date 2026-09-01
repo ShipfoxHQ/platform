@@ -55,6 +55,7 @@ describe('tool step executor', () => {
         arguments: {issue: 'ENG-1680'},
         caller: expect.objectContaining({
           kind: 'tool_step',
+          projectId: expect.any(String),
           jobExecutionId: expect.any(String),
           stepId,
           stepAttempt: 1,
