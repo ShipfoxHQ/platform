@@ -506,6 +506,20 @@ export async function reportRunnerInstances(params: ReportRunnerInstancesParams)
           runnerSessionId: sql`CASE WHEN ${providerRunnerProjectionUpdateCondition()} THEN coalesce(${providerRunners.runnerSessionId}, excluded.runner_session_id) ELSE ${providerRunners.runnerSessionId} END`,
           providerKind: sql`CASE WHEN ${providerRunnerProjectionUpdateCondition()} THEN coalesce(excluded.provider_kind, ${providerRunners.providerKind}) ELSE ${providerRunners.providerKind} END`,
           reportedAt: sql`CASE WHEN ${providerRunnerProjectionUpdateCondition()} THEN excluded.reported_at ELSE ${providerRunners.reportedAt} END`,
+          terminationAuthorizedAt: sql`CASE
+            WHEN (${providerRunnerProjectionUpdateCondition()})
+              AND ${providerRunners.terminationReason} = 'registration-deadline'
+              AND excluded.state IN ('starting', 'running')
+            THEN NULL
+            ELSE ${providerRunners.terminationAuthorizedAt}
+          END`,
+          terminationReason: sql`CASE
+            WHEN (${providerRunnerProjectionUpdateCondition()})
+              AND ${providerRunners.terminationReason} = 'registration-deadline'
+              AND excluded.state IN ('starting', 'running')
+            THEN NULL
+            ELSE ${providerRunners.terminationReason}
+          END`,
           startedAt: firstObservedAt(providerRunners.startedAt, sql`excluded.started_at`),
           stoppingAt: firstObservedAt(providerRunners.stoppingAt, sql`excluded.stopping_at`),
           stoppedAt: firstObservedAt(providerRunners.stoppedAt, sql`excluded.stopped_at`),

@@ -1,6 +1,10 @@
 import {
   MAX_RECONCILE_OBSERVED_RUNNERS,
+  MAX_TERMINATION_CANDIDATES,
+  type ProviderTerminationCandidateDto,
+  type ReconcileRunnerInstancesResponseDto,
   type RunnerInstanceReportEventDto,
+  type TerminationReasonDto,
 } from '@shipfox/api-runners-dto';
 import {logger} from '@shipfox/node-opentelemetry';
 import type {
@@ -21,6 +25,12 @@ import type {DockerTemplateSpec} from '#templates.js';
 const MAX_REPORT_BATCH = 1000;
 const MAX_PENDING_REPORTS = 5000;
 const MAX_REASON_LENGTH = 500;
+const MAX_REGISTRATION_CANDIDATE_IDS_IN_LOG = 20;
+const REGISTRATION_CANDIDATE_RETRY_INITIAL_DELAY_MS = 1_000;
+const REGISTRATION_CANDIDATE_RETRY_MAX_DELAY_MS = 60_000;
+const REGISTRATION_CANDIDATE_SUBMISSION_EPISODE = 'registration-deadline-candidates';
+const REGISTRATION_CANDIDATE_WINDOW_LIMIT_EPISODE = 'registration-deadline-candidate-window-limit';
+const REGISTRATION_CANDIDATE_LIMIT_EPISODE = 'registration-deadline-candidate-limit';
 const EMPTY_TERMINATE_INTENT_IDS = new Set<string>();
 
 class DockerReconciliationLimitError extends Error {
@@ -92,6 +102,10 @@ interface DockerLifecycleContext {
   readonly maxRetainedFailedContainers: number;
   loggingDriver?: string;
   readonly loggingDriverSource: 'daemon' | 'provisioner';
+  registrationCandidateCursor: number;
+  registrationCandidateFingerprint?: string;
+  registrationCandidateRetryAt?: number;
+  registrationCandidateRetryDelayMs: number;
   backendReconcileSucceeded: boolean;
   reportDeliveryDelivered: number;
   reportQueueDropped: number;
@@ -106,6 +120,7 @@ interface ObservationPlan {
 
 interface TerminalAction {
   readonly providerRunnerId: string;
+  readonly containerId?: string;
   readonly event?: RunnerInstanceReportEventDto;
   readonly remove?: string;
   readonly killAndRemove?: string;
@@ -145,6 +160,8 @@ export function createDockerLifecycle(args: DockerLifecycleOptions): DockerLifec
     maxRetainedFailedContainers: args.maxRetainedFailedContainers ?? 0,
     ...(args.loggingDriver ? {loggingDriver: args.loggingDriver} : {}),
     loggingDriverSource: args.loggingDriverSource ?? 'daemon',
+    registrationCandidateCursor: 0,
+    registrationCandidateRetryDelayMs: REGISTRATION_CANDIDATE_RETRY_INITIAL_DELAY_MS,
     backendReconcileSucceeded: false,
     reportDeliveryDelivered: 0,
     reportQueueDropped: 0,
@@ -271,6 +288,20 @@ async function reportContainerCreationFailure(
 async function observe(context: DockerLifecycleContext): Promise<void> {
   await reportEvents(context, []);
   const listedContainers = await context.engine.listManaged(context.identity.id);
+  const registrationDeadlineCandidates = collectRegistrationDeadlineCandidates(
+    context,
+    listedContainers,
+  );
+  if (registrationDeadlineCandidates.length > 0) {
+    await reconcileListedContainers(
+      context,
+      listedContainers,
+      registrationDeadlineCandidates,
+      false,
+    );
+    return;
+  }
+  resetRegistrationCandidateState(context);
   await applyObservedContainers(context, listedContainers, EMPTY_TERMINATE_INTENT_IDS);
   await cleanupRetainedFailedContainers(context, listedContainers);
 }
@@ -278,20 +309,74 @@ async function observe(context: DockerLifecycleContext): Promise<void> {
 async function reconcile(context: DockerLifecycleContext): Promise<void> {
   await reportEvents(context, []);
   const listedContainers = await context.engine.listManaged(context.identity.id);
+  await reconcileListedContainers(
+    context,
+    listedContainers,
+    collectRegistrationDeadlineCandidates(context, listedContainers),
+    true,
+  );
+}
+
+async function reconcileListedContainers(
+  context: DockerLifecycleContext,
+  listedContainers: readonly DockerContainerView[],
+  registrationDeadlineCandidates: readonly ProviderTerminationCandidateDto[],
+  forceReconcile: boolean,
+): Promise<void> {
   const observedProviderRunnerIds = observedRunnerIds(listedContainers);
   if (observedProviderRunnerIds.length > MAX_RECONCILE_OBSERVED_RUNNERS) {
-    await applyObservedContainers(context, listedContainers, EMPTY_TERMINATE_INTENT_IDS);
-    await cleanupRetainedFailedContainers(context, listedContainers);
+    logSkippedRegistrationDeadlineCandidates(
+      context,
+      registrationDeadlineCandidates.length,
+      observedProviderRunnerIds.length,
+    );
+    await applyLocalObservationAndCleanup(context, listedContainers);
     throw new DockerReconciliationLimitError(observedProviderRunnerIds.length);
   }
 
-  const response = await context.client.reconcileRunnerInstances({
-    observed_provider_runner_ids: observedProviderRunnerIds,
-  });
+  closeEpisode(context.episodes, REGISTRATION_CANDIDATE_LIMIT_EPISODE, context.now());
+  const candidatesToSubmit = selectRegistrationDeadlineCandidateWindow(
+    context,
+    registrationDeadlineCandidates,
+    forceReconcile,
+  );
+  if (candidatesToSubmit === undefined) {
+    await applyLocalObservationAndCleanup(context, listedContainers);
+    return;
+  }
+
+  let response: ReconcileRunnerInstancesResponseDto;
+  try {
+    response = await context.client.reconcileRunnerInstances({
+      observed_provider_runner_ids: observedProviderRunnerIds,
+      ...(candidatesToSubmit.length > 0 ? {termination_candidates: candidatesToSubmit} : {}),
+    });
+  } catch (error) {
+    if (candidatesToSubmit.length > 0) scheduleRegistrationCandidateRetry(context);
+    await applyLocalObservationAndCleanup(context, listedContainers);
+    throw error;
+  }
+  if (candidatesToSubmit.length > 0) {
+    scheduleRegistrationCandidateRetry(context);
+    logSubmittedRegistrationDeadlineCandidates(context, candidatesToSubmit);
+  }
+  const terminateIntentReasons = new Map<string, TerminationReasonDto | undefined>();
+  for (const runner of response.runners) {
+    if (runner.desired_intent !== 'terminate') continue;
+    terminateIntentReasons.set(runner.provider_runner_id, runner.termination_reason ?? undefined);
+  }
+  const containersByProviderRunnerId = new Map(
+    listedContainers.map((container) => [
+      parseContainerIdentity(container).providerRunnerId,
+      container,
+    ]),
+  );
   const terminateIntentIds = new Set(
-    response.runners
-      .filter((runner) => runner.desired_intent === 'terminate')
-      .map((runner) => runner.provider_runner_id),
+    [...terminateIntentReasons.keys()].filter((providerRunnerId) => {
+      const reason = terminateIntentReasons.get(providerRunnerId);
+      const container = containersByProviderRunnerId.get(providerRunnerId);
+      return reason !== 'registration-deadline' || container?.state === 'created';
+    }),
   );
   context.backendTerminationRequestedIds.clear();
   for (const providerRunnerId of terminateIntentIds) {
@@ -310,7 +395,12 @@ async function reconcile(context: DockerLifecycleContext): Promise<void> {
     );
   }
 
-  await applyObservedContainers(context, listedContainers, terminateIntentIds);
+  await applyObservedContainers(
+    context,
+    listedContainers,
+    terminateIntentIds,
+    terminateIntentReasons,
+  );
   await cleanupRetainedFailedContainers(
     context,
     listedContainers.filter(
@@ -318,6 +408,186 @@ async function reconcile(context: DockerLifecycleContext): Promise<void> {
     ),
   );
   context.backendReconcileSucceeded = true;
+}
+
+async function applyLocalObservationAndCleanup(
+  context: DockerLifecycleContext,
+  containers: readonly DockerContainerView[],
+): Promise<void> {
+  await applyObservedContainers(context, containers, EMPTY_TERMINATE_INTENT_IDS);
+  await cleanupRetainedFailedContainers(context, containers);
+}
+
+function collectRegistrationDeadlineCandidates(
+  context: DockerLifecycleContext,
+  containers: readonly DockerContainerView[],
+): ProviderTerminationCandidateDto[] {
+  const candidates = new Map<string, ProviderTerminationCandidateDto>();
+  for (const container of containers) {
+    if (!isStaleRegistrationContainer(context, container)) continue;
+    const providerRunnerId = parseContainerIdentity(container).providerRunnerId;
+    candidates.set(providerRunnerId, {
+      provider_runner_id: providerRunnerId,
+      reason: 'registration-deadline',
+    });
+  }
+
+  const orderedCandidates = [...candidates.values()].sort((left, right) =>
+    left.provider_runner_id.localeCompare(right.provider_runner_id),
+  );
+  return orderedCandidates;
+}
+
+function isStaleRegistrationContainer(
+  context: DockerLifecycleContext,
+  container: DockerContainerView,
+): boolean {
+  return (
+    container.state === 'created' &&
+    isPastDeadline(container.createdAt, context.now(), context.registrationDeadlineMs)
+  );
+}
+
+function selectRegistrationDeadlineCandidateWindow(
+  context: DockerLifecycleContext,
+  orderedCandidates: readonly ProviderTerminationCandidateDto[],
+  forceReconcile: boolean,
+): ProviderTerminationCandidateDto[] | undefined {
+  if (orderedCandidates.length === 0) {
+    resetRegistrationCandidateState(context);
+    return [];
+  }
+
+  const fingerprint = orderedCandidates
+    .map((candidate) => candidate.provider_runner_id)
+    .join('\u0000');
+  if (context.registrationCandidateFingerprint !== fingerprint) {
+    context.registrationCandidateFingerprint = fingerprint;
+    delete context.registrationCandidateRetryAt;
+    context.registrationCandidateRetryDelayMs = REGISTRATION_CANDIDATE_RETRY_INITIAL_DELAY_MS;
+    context.registrationCandidateCursor = 0;
+  }
+  if (
+    !forceReconcile &&
+    context.registrationCandidateRetryAt !== undefined &&
+    context.now().getTime() < context.registrationCandidateRetryAt
+  ) {
+    return undefined;
+  }
+
+  if (orderedCandidates.length <= MAX_TERMINATION_CANDIDATES) {
+    context.registrationCandidateCursor = 0;
+    closeEpisode(context.episodes, REGISTRATION_CANDIDATE_WINDOW_LIMIT_EPISODE, context.now());
+    return [...orderedCandidates];
+  }
+
+  const start = context.registrationCandidateCursor % orderedCandidates.length;
+  const rotatedCandidates = [
+    ...orderedCandidates.slice(start),
+    ...orderedCandidates.slice(0, start),
+  ];
+  const selectedCandidates = rotatedCandidates.slice(0, MAX_TERMINATION_CANDIDATES);
+  context.registrationCandidateCursor =
+    (start + selectedCandidates.length) % orderedCandidates.length;
+  logRegistrationCandidateWindowLimit(context, orderedCandidates, selectedCandidates.length, start);
+  return selectedCandidates;
+}
+
+function logRegistrationCandidateWindowLimit(
+  context: DockerLifecycleContext,
+  orderedCandidates: readonly ProviderTerminationCandidateDto[],
+  submittedCount: number,
+  start: number,
+): void {
+  const update = recordEpisode(
+    context.episodes,
+    REGISTRATION_CANDIDATE_WINDOW_LIMIT_EPISODE,
+    context.registrationCandidateFingerprint ?? '',
+    context.now(),
+  );
+  if (!shouldLogEpisode(update)) return;
+  logger().warn(
+    {
+      event: 'provisioner.docker.registration_deadline_candidate_limit',
+      candidate_count: orderedCandidates.length,
+      submitted_count: submittedCount,
+      dropped_count: orderedCandidates.length - submittedCount,
+      start_index: start,
+      next_start_index: context.registrationCandidateCursor,
+      attempts: update.state.attempts,
+      suppressed: update.state.suppressed,
+    },
+    'Capped Docker registration-deadline termination candidates at the API limit',
+  );
+}
+
+function scheduleRegistrationCandidateRetry(context: DockerLifecycleContext): void {
+  const delay = context.registrationCandidateRetryDelayMs;
+  context.registrationCandidateRetryAt = context.now().getTime() + delay;
+  context.registrationCandidateRetryDelayMs = Math.min(
+    REGISTRATION_CANDIDATE_RETRY_MAX_DELAY_MS,
+    delay * 2,
+  );
+}
+
+function resetRegistrationCandidateState(context: DockerLifecycleContext): void {
+  delete context.registrationCandidateFingerprint;
+  delete context.registrationCandidateRetryAt;
+  context.registrationCandidateRetryDelayMs = REGISTRATION_CANDIDATE_RETRY_INITIAL_DELAY_MS;
+  context.registrationCandidateCursor = 0;
+  closeEpisode(context.episodes, REGISTRATION_CANDIDATE_SUBMISSION_EPISODE, context.now());
+  closeEpisode(context.episodes, REGISTRATION_CANDIDATE_WINDOW_LIMIT_EPISODE, context.now());
+}
+
+function logSubmittedRegistrationDeadlineCandidates(
+  context: DockerLifecycleContext,
+  candidates: readonly ProviderTerminationCandidateDto[],
+): void {
+  const update = recordEpisode(
+    context.episodes,
+    REGISTRATION_CANDIDATE_SUBMISSION_EPISODE,
+    context.registrationCandidateFingerprint ?? '',
+    context.now(),
+  );
+  if (!shouldLogEpisode(update)) return;
+  logger().info(
+    {
+      event: 'provisioner.docker.registration_deadline_candidates_submitted',
+      requested_count: candidates.length,
+      termination_authorization: 'backend-gated',
+      provider_runner_ids: candidates
+        .slice(0, MAX_REGISTRATION_CANDIDATE_IDS_IN_LOG)
+        .map((candidate) => candidate.provider_runner_id),
+      ...(update.transition === 'changed' ? {changed: true} : {}),
+    },
+    'Sent Docker registration-deadline termination candidates for backend authorization',
+  );
+}
+
+function logSkippedRegistrationDeadlineCandidates(
+  context: DockerLifecycleContext,
+  candidateCount: number,
+  observedCount: number,
+): void {
+  if (candidateCount === 0) return;
+  const update = recordEpisode(
+    context.episodes,
+    REGISTRATION_CANDIDATE_LIMIT_EPISODE,
+    `${candidateCount}:${observedCount}`,
+    context.now(),
+  );
+  if (!shouldLogEpisode(update)) return;
+  logger().warn(
+    {
+      event: 'provisioner.docker.registration_deadline_candidates_skipped',
+      candidate_count: candidateCount,
+      observed_count: observedCount,
+      max_observed: MAX_RECONCILE_OBSERVED_RUNNERS,
+      attempts: update.state.attempts,
+      suppressed: update.state.suppressed,
+    },
+    'Skipped Docker registration-deadline candidates because the observed runner set exceeds the API limit',
+  );
 }
 
 async function tick(context: DockerLifecycleContext): Promise<void> {
@@ -358,6 +628,7 @@ function buildObservationPlan(
   context: DockerLifecycleContext,
   containers: readonly DockerContainerView[],
   terminateIntentIds: ReadonlySet<string>,
+  terminateIntentReasons: ReadonlyMap<string, TerminationReasonDto | undefined>,
 ): ObservationPlan {
   const listedIds = new Set<string>();
   const plan: ObservationPlan = {
@@ -368,7 +639,14 @@ function buildObservationPlan(
   };
 
   for (const container of containers) {
-    recordContainerObservation(context, plan, listedIds, container, terminateIntentIds);
+    recordContainerObservation(
+      context,
+      plan,
+      listedIds,
+      container,
+      terminateIntentIds,
+      terminateIntentReasons,
+    );
   }
   pruneFailedObservationState(context, containers, listedIds);
   pruneRequestState(context, listedIds);
@@ -383,18 +661,22 @@ function recordContainerObservation(
   listedIds: Set<string>,
   container: DockerContainerView,
   terminateIntentIds: ReadonlySet<string>,
+  terminateIntentReasons: ReadonlyMap<string, TerminationReasonDto | undefined>,
 ): void {
   const parsed = parseContainerIdentity(container);
   listedIds.add(parsed.providerRunnerId);
-  const staleRegistration =
-    container.state === 'created' &&
-    isPastDeadline(container.createdAt, context.now(), context.registrationDeadlineMs);
+  const staleRegistration = isStaleRegistrationContainer(context, container);
   const staleEpisodeKey = episodeKey('stale-reap', parsed.providerRunnerId);
   if (!staleRegistration) closeEpisode(context.episodes, staleEpisodeKey);
   if (terminateIntentIds.has(parsed.providerRunnerId)) {
     closeEpisode(context.episodes, staleEpisodeKey);
     plan.terminalActions.push(
-      terminalActionFor(context, container, 'backend-terminate', 'backend'),
+      terminalActionFor(
+        context,
+        container,
+        terminateIntentReasons.get(parsed.providerRunnerId) ?? 'backend-terminate',
+        'backend',
+      ),
     );
     return;
   }
@@ -405,8 +687,7 @@ function recordContainerObservation(
     return;
   }
   logMissingLabelsRecovery(context, parsed.providerRunnerId);
-  if (recordStaleContainer(context, plan, container, parsed, staleRegistration, staleEpisodeKey))
-    return;
+  recordStaleContainer(context, container, parsed, staleRegistration, staleEpisodeKey);
   recordMappedContainer(context, plan, container, parsed, labels);
 }
 
@@ -432,13 +713,12 @@ function logMissingLabelsRecovery(context: DockerLifecycleContext, providerRunne
 
 function recordStaleContainer(
   context: DockerLifecycleContext,
-  plan: ObservationPlan,
   container: DockerContainerView,
   parsed: ParsedContainerIdentity,
   staleRegistration: boolean,
   staleEpisodeKey: string,
-): boolean {
-  if (!staleRegistration) return false;
+): void {
+  if (!staleRegistration) return;
   const update = recordEpisode(
     context.episodes,
     staleEpisodeKey,
@@ -448,8 +728,8 @@ function recordStaleContainer(
   if (shouldLogEpisode(update)) {
     logger().info(
       {
-        event: 'runner.container_stale_reap_requested',
-        operation: 'kill_and_remove',
+        event: 'runner.container_registration_deadline_observed',
+        operation: 'backend_authorization',
         providerRunnerId: parsed.providerRunnerId,
         containerId: container.id,
         containerName: container.name,
@@ -459,11 +739,9 @@ function recordStaleContainer(
         suppressed: update.state.suppressed,
         ...(update.transition === 'changed' ? {changed: true} : {}),
       },
-      'Stale runner container reap requested before registration',
+      'Stale runner container awaiting backend authorization',
     );
   }
-  plan.terminalActions.push(terminalActionFor(context, container, 'registration-deadline'));
-  return true;
 }
 
 function recordMappedContainer(
@@ -677,17 +955,17 @@ async function applyObservationPlan(
   plan: ObservationPlan,
 ): Promise<void> {
   context.tracker.replaceAll(plan.trackerRunners);
-  await assignEnrolledReservations(context, plan);
+  await assignEnrolledReservations(context, plan.assignmentCandidates);
   if (plan.liveEvents.length > 0) await reportEvents(context, plan.liveEvents);
   await applyTerminalActions(context, plan.terminalActions);
 }
 
 async function assignEnrolledReservations(
   context: DockerLifecycleContext,
-  plan: ObservationPlan,
+  assignmentCandidates: readonly {reservationId: string; runnerInstanceId: string}[],
 ): Promise<void> {
   const assignments = new Map<string, string[]>();
-  for (const {reservationId, runnerInstanceId} of plan.assignmentCandidates) {
+  for (const {reservationId, runnerInstanceId} of assignmentCandidates) {
     const runnerInstanceIds = assignments.get(reservationId) ?? [];
     runnerInstanceIds.push(runnerInstanceId);
     assignments.set(reservationId, runnerInstanceIds);
@@ -705,9 +983,15 @@ async function applyObservedContainers(
   context: DockerLifecycleContext,
   containers: readonly DockerContainerView[],
   terminateIntentIds: ReadonlySet<string>,
+  terminateIntentReasons: ReadonlyMap<string, TerminationReasonDto | undefined> = new Map(),
 ): Promise<void> {
   context.pendingMissingLabelEpisodes.length = 0;
-  const plan = buildObservationPlan(context, containers, terminateIntentIds);
+  const plan = buildObservationPlan(
+    context,
+    containers,
+    terminateIntentIds,
+    terminateIntentReasons,
+  );
   flushMissingLabelEpisodes(context);
   await applyObservationPlan(context, plan);
 }
@@ -717,7 +1001,43 @@ async function applyTerminalActions(
   actions: readonly TerminalAction[],
 ): Promise<void> {
   logRequestedTerminalActions(context, actions);
-  for (const action of actions) await applyTerminalAction(context, action);
+  const currentContainers = await revalidateRegistrationDeadlineTerminations(context, actions);
+  const skippedActions = new Set<TerminalAction>();
+  const assignmentCandidates: Array<{reservationId: string; runnerInstanceId: string}> = [];
+  const stateTransitionEvents: RunnerInstanceReportEventDto[] = [];
+  for (const action of actions) {
+    const currentContainer = currentContainers.get(action.containerId ?? '');
+    if (!shouldSkipRegistrationDeadlineTermination(action, currentContainer)) continue;
+
+    skippedActions.add(action);
+    context.backendTerminationRequestedIds.delete(action.providerRunnerId);
+    syncTerminationEpisodes(context);
+    const revalidatedLive = recordRevalidatedLiveContainer(context, currentContainer);
+    if (revalidatedLive) {
+      stateTransitionEvents.push(revalidatedLive.event);
+      if (revalidatedLive.assignmentCandidate) {
+        assignmentCandidates.push(revalidatedLive.assignmentCandidate);
+      }
+    }
+    logger().info(
+      {
+        event: 'runner.container_registration_deadline_termination_skipped',
+        operation: 'kill_and_remove',
+        providerRunnerId: action.providerRunnerId,
+        containerId: action.containerId,
+        currentState: currentContainer?.state ?? 'absent',
+        reason: 'state-changed',
+      },
+      'Skipped backend registration-deadline termination after the container state changed',
+    );
+  }
+  if (assignmentCandidates.length > 0)
+    await assignEnrolledReservations(context, assignmentCandidates);
+  if (stateTransitionEvents.length > 0) await reportEvents(context, stateTransitionEvents);
+  for (const action of actions) {
+    if (skippedActions.has(action)) continue;
+    await applyTerminalAction(context, action);
+  }
 }
 
 function logRequestedTerminalActions(
@@ -725,7 +1045,7 @@ function logRequestedTerminalActions(
   actions: readonly TerminalAction[],
 ): void {
   const requestedIds = actions
-    .filter((action) => action.reason === 'backend-terminate')
+    .filter((action) => action.requestSource === 'backend' || action.reason === 'backend-terminate')
     .filter((action) => {
       const update = recordEpisode(
         context.episodes,
@@ -789,11 +1109,89 @@ function logTerminalAction(action: TerminalAction): void {
   }
 }
 
+async function revalidateRegistrationDeadlineTerminations(
+  context: DockerLifecycleContext,
+  actions: readonly TerminalAction[],
+): Promise<ReadonlyMap<string, DockerContainerView>> {
+  if (
+    !actions.some(
+      (action) =>
+        action.reason === 'registration-deadline' &&
+        action.requestSource === 'backend' &&
+        action.containerId,
+    )
+  )
+    return new Map();
+
+  const currentContainers = await context.engine.listManaged(context.identity.id);
+  return new Map(currentContainers.map((container) => [container.id, container]));
+}
+
+function shouldSkipRegistrationDeadlineTermination(
+  action: TerminalAction,
+  currentContainer: DockerContainerView | undefined,
+): boolean {
+  if (action.reason !== 'registration-deadline' || action.requestSource !== 'backend') return false;
+  if (!currentContainer) return true;
+  return mapContainerState(currentContainer).state === 'running';
+}
+
+function recordRevalidatedLiveContainer(
+  context: DockerLifecycleContext,
+  container: DockerContainerView | undefined,
+):
+  | {
+      event: RunnerInstanceReportEventDto;
+      assignmentCandidate?: {reservationId: string; runnerInstanceId: string};
+    }
+  | undefined {
+  if (!container) return undefined;
+  const mapped = mapContainerState(container);
+  if (mapped.state !== 'starting' && mapped.state !== 'running') return undefined;
+
+  const parsed = parseContainerIdentity(container);
+  const labels = labelsFor(context, parsed.templateKey, parsed.labels);
+  if (labels.length === 0) {
+    logMissingLabels(context, parsed.providerRunnerId, parsed.templateKey);
+    return undefined;
+  }
+  context.knownLiveIds.add(parsed.providerRunnerId);
+  context.reportedFailedIds.delete(parsed.providerRunnerId);
+  context.reportedFailedContainerIds.delete(parsed.providerRunnerId);
+  context.firstObservedFailedAt.delete(container.id);
+  if (parsed.templateKey) {
+    context.knownTemplateKeys.set(parsed.providerRunnerId, parsed.templateKey);
+    context.tracker.recordStarting({
+      providerRunnerId: parsed.providerRunnerId,
+      templateKey: parsed.templateKey,
+    });
+    if (mapped.state === 'running') context.tracker.markRunning(parsed.providerRunnerId);
+  }
+  return {
+    event: eventFor(
+      container,
+      mapped.state,
+      labels,
+      context.providerKind,
+      context.now(),
+      mapped.reason,
+    ),
+    ...(parsed.runnerInstanceId && parsed.reservationId
+      ? {
+          assignmentCandidate: {
+            runnerInstanceId: parsed.runnerInstanceId,
+            reservationId: parsed.reservationId,
+          },
+        }
+      : {}),
+  };
+}
+
 function clearTerminalActionState(context: DockerLifecycleContext, action: TerminalAction): void {
   if (action.reason === 'registration-deadline') {
     closeEpisode(context.episodes, episodeKey('stale-reap', action.providerRunnerId));
   }
-  if (action.reason === 'backend-terminate') {
+  if (action.requestSource || action.reason === 'backend-terminate') {
     const requestedIds =
       action.requestSource === 'poll'
         ? context.pollTerminationRequestedIds
@@ -885,6 +1283,7 @@ function terminalActionFor(
     logMissingLabels(context, parsed.providerRunnerId, parsed.templateKey);
     return {
       providerRunnerId: parsed.providerRunnerId,
+      containerId: container.id,
       killAndRemove: container.name,
       reason,
       ...(requestSource ? {requestSource} : {}),
@@ -892,6 +1291,7 @@ function terminalActionFor(
   }
 
   return {
+    containerId: container.id,
     ...(parsed.runnerInstanceId ? {runner_instance_id: parsed.runnerInstanceId} : {}),
     providerRunnerId: parsed.providerRunnerId,
     event: eventFor(container, 'terminated', labels, context.providerKind, context.now(), reason),

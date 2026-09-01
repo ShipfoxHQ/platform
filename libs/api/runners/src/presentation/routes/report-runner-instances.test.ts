@@ -118,6 +118,82 @@ describe('POST /provisioners/runner-instances/report', () => {
     expect(rows[0]?.reportedAt.toISOString()).toBe(reportedAt);
   });
 
+  it('clears registration-deadline authorization when a runner reports an active state', async () => {
+    const registrationDeadlineRunner = await providerRunnerFactory.create({
+      workspaceId,
+      provisionerId: provisionerTokenId,
+      providerRunnerId: 'registration-deadline-runner',
+      state: 'starting',
+      terminationAuthorizedAt: new Date('2025-01-01T00:01:00.000Z'),
+      terminationReason: 'registration-deadline',
+    });
+    const otherAuthorizedRunner = await providerRunnerFactory.create({
+      workspaceId,
+      provisionerId: provisionerTokenId,
+      providerRunnerId: 'other-authorized-runner',
+      state: 'starting',
+      terminationAuthorizedAt: new Date('2025-01-01T00:01:00.000Z'),
+      terminationReason: 'job-cancelled',
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/provisioners/runner-instances/report',
+      headers: {authorization: `Bearer ${VALID_PROVISIONER_TOKEN}`},
+      payload: {
+        events: [
+          {
+            provider_runner_id: registrationDeadlineRunner.providerRunnerId,
+            labels: ['linux'],
+            state: 'running',
+            reported_at: new Date('2025-01-01T00:02:00.000Z').toISOString(),
+          },
+          {
+            provider_runner_id: otherAuthorizedRunner.providerRunnerId,
+            labels: ['linux'],
+            state: 'running',
+            reported_at: new Date('2025-01-01T00:02:00.000Z').toISOString(),
+          },
+        ],
+      },
+    });
+
+    const rows = await db()
+      .select({
+        providerRunnerId: providerRunners.providerRunnerId,
+        terminationAuthorizedAt: providerRunners.terminationAuthorizedAt,
+        terminationReason: providerRunners.terminationReason,
+      })
+      .from(providerRunners)
+      .where(
+        and(
+          eq(providerRunners.provisionerId, provisionerTokenId),
+          eq(providerRunners.providerRunnerId, registrationDeadlineRunner.providerRunnerId),
+        ),
+      );
+    const [otherRow] = await db()
+      .select({
+        terminationAuthorizedAt: providerRunners.terminationAuthorizedAt,
+        terminationReason: providerRunners.terminationReason,
+      })
+      .from(providerRunners)
+      .where(
+        and(
+          eq(providerRunners.provisionerId, provisionerTokenId),
+          eq(providerRunners.providerRunnerId, otherAuthorizedRunner.providerRunnerId),
+        ),
+      );
+
+    expect(res.statusCode).toBe(200);
+    expect(rows[0]).toEqual({
+      providerRunnerId: registrationDeadlineRunner.providerRunnerId,
+      terminationAuthorizedAt: null,
+      terminationReason: null,
+    });
+    expect(otherRow?.terminationAuthorizedAt).toEqual(new Date('2025-01-01T00:01:00.000Z'));
+    expect(otherRow?.terminationReason).toBe('job-cancelled');
+  });
+
   it('strips reserved labels from workspace runner reports', async () => {
     const res = await app.inject({
       method: 'POST',

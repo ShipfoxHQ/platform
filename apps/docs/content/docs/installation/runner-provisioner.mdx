@@ -16,6 +16,16 @@ provisioner.
 - Access to your workspace settings in the Shipfox dashboard.
 - A Shipfox source checkout with `mise install` and `pnpm install` complete.
 
+<Callout title="Upgrade order for self-hosted deployments" type="info">
+  Upgrade the Shipfox API before upgrading the Docker provisioner. The provisioner
+  submits stale-created containers as registration-deadline candidates and removes
+  them only after the API authorizes termination. Set
+  `RUNNER_TERMINATION_REASON_REGISTRATION_DEADLINE_ENABLED=true` on the API before
+  upgrading the provisioner; it defaults to `false`. Keep the older provisioner
+  running until the API upgrade is complete. On rollback, downgrade the Docker
+  provisioner before the API.
+</Callout>
+
 ## Create a provisioner token
 
 <Steps>
