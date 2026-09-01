@@ -1,8 +1,10 @@
 import {createRequire} from 'node:module';
 import {assertPiHarnessExtensionsAvailable} from '@shipfox/runner-agent/pi-extensions';
+import {assertPiImageRasterizerAvailable} from '@shipfox/runner-agent/pi-image-rasterizer';
 
 const require = createRequire(import.meta.url);
 const RUNNER_AGENT_RUNTIME_EXPORTS = [
+  '@shipfox/runner-agent/pi-image-rasterizer',
   '@shipfox/runner-agent/tool-capabilities',
   '@shipfox/runner-agent/step',
 ] as const;
@@ -21,3 +23,4 @@ for (const specifier of RUNNER_AGENT_RUNTIME_EXPORTS) {
 // validate the runtime environment at module load, which no image build can satisfy. A throw prints
 // the offending package and exits nonzero, which is the whole contract here.
 assertPiHarnessExtensionsAvailable();
+await assertPiImageRasterizerAvailable();

@@ -13,7 +13,10 @@
   "types": "dist/index.d.ts",
   "imports": {
     "#test/*": "./test/*",
-    "#*": "./src/*"
+    "#*": {
+      "workspace-source": "./src/*",
+      "default": "./dist/*"
+    }
   },
   "exports": {
     ".": {
@@ -24,6 +27,16 @@
       "default": {
         "types": "./dist/index.d.ts",
         "default": "./dist/index.js"
+      }
+    },
+    "./pi-image-rasterizer": {
+      "workspace-source": {
+        "types": "./src/pi-image-rasterizer.ts",
+        "default": "./src/pi-image-rasterizer.ts"
+      },
+      "default": {
+        "types": "./dist/pi-image-rasterizer.d.ts",
+        "default": "./dist/pi-image-rasterizer.js"
       }
     },
     "./pi-extensions": {
@@ -58,7 +71,7 @@
     }
   },
   "scripts": {
-    "build": "shipfox-swc",
+    "build": "shipfox-swc --copy-files",
     "check": "shipfox-biome-check",
     "check:fix": "shipfox-biome-check --write",
     "test": "shipfox-vitest-run",
@@ -73,6 +86,7 @@
     "@earendil-works/pi-coding-agent": "catalog:",
     "@earendil-works/pi-tui": "catalog:",
     "@modelcontextprotocol/sdk": "catalog:",
+    "@resvg/resvg-wasm": "catalog:",
     "@shipfox/api-agent-dto": "workspace:*",
     "@shipfox/api-runners-dto": "workspace:*",
     "@shipfox/api-workflows-dto": "workspace:*",
