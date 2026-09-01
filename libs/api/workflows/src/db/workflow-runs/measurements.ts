@@ -111,18 +111,20 @@ export async function measureWorkflowRunDetailCardinality(
 export async function auditWorkflowRunStorage(
   params: WorkflowRunStorageAuditOptions,
 ): Promise<WorkflowRunStorageAudit> {
-  if (
-    !params ||
-    (!('workflowRunAttemptId' in params) &&
-      !(params.scope === 'all' && params.allowFullTableScan === true))
-  ) {
+  const hasAttemptScope =
+    'workflowRunAttemptId' in params &&
+    typeof params.workflowRunAttemptId === 'string' &&
+    params.workflowRunAttemptId.length > 0;
+  const hasFullTableScanOptIn =
+    'scope' in params && params.scope === 'all' && params.allowFullTableScan === true;
+
+  if (!hasAttemptScope && !hasFullTableScanOptIn) {
     throw new Error(
       'Workflow-run storage audits require an attempt id or explicit full-table-scan opt-in',
     );
   }
 
-  const workflowRunAttemptId =
-    'workflowRunAttemptId' in params ? params.workflowRunAttemptId : undefined;
+  const workflowRunAttemptId = hasAttemptScope ? params.workflowRunAttemptId : undefined;
   const [executionStatusReasons, stepTypes, stepStatuses, stepAttemptStatuses, invocationRows] =
     await Promise.all([
       auditExecutionStatusReasons(workflowRunAttemptId),

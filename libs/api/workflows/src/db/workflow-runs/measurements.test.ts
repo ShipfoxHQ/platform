@@ -84,6 +84,12 @@ describe('workflow-run detail measurements', () => {
     await expect(auditWorkflowRunStorage({} as never)).rejects.toThrow(
       'explicit full-table-scan opt-in',
     );
+    await expect(auditWorkflowRunStorage({scope: 'all'} as never)).rejects.toThrow(
+      'explicit full-table-scan opt-in',
+    );
+    await expect(auditWorkflowRunStorage({workflowRunAttemptId: ''})).rejects.toThrow(
+      'explicit full-table-scan opt-in',
+    );
 
     const serializedReport = JSON.stringify(report);
     expect(serializedReport).not.toContain('measurement-source');
