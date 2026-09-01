@@ -1,8 +1,9 @@
 # @shipfox/e2e-driver-gitea
 
 The integration/gitea domain end to end for E2E suites. It drives the external Gitea
-instance with admin credentials (org, team, webhook, repos, commits) and links the org
-to a workspace through the product route. One import gives a scenario a connected org.
+instance with admin credentials (org, scoped teams, webhook, repos, issues, comments,
+commits) and links the org to a workspace through the product route. One import gives
+a scenario a connected org.
 
 Calling Gitea's REST API directly is on purpose: Gitea is the external system under
 integration, exactly like the browser is for client E2E. Everything else goes through
@@ -12,12 +13,16 @@ the platform's public HTTP surface.
 
 Instance side (admin-credentialed, against `E2E_GITEA_URL`):
 
-- `createOrg(params?)`: org + read-only team (`includes_all_repositories`) + bot
-  membership + org push webhook, mirroring `dev/gitea/bootstrap.sh`. Returns
-  `{org, teamId, webhookId}`. A fresh org per suite run is required because an org can
-  only ever be linked to one workspace.
+- `createOrg(params?)`: org + code-read and issue-comment-write teams
+  (`includes_all_repositories`) + bot membership + org push webhook, mirroring
+  `dev/gitea/bootstrap.sh`. Returns `{org, teamId, webhookId}`. A fresh org per suite
+  run is required because an org can only ever be linked to one workspace.
 - `createRepo({org, name, ...})`: create a repo in the org. Returns `{name, fullName,
   cloneUrl, defaultBranch}`.
+- `createIssue({org, repo, title, body?})`: seed an issue in a repo. Returns its
+  `{number, title, body}`.
+- `listIssueComments({org, repo, index})`: read the comments on an issue. Returns
+  `{id, body}` entries for external-state assertions.
 - `commitFiles({org, repo, message, files, branch?})`: one commit for the whole batch
   through Gitea's change-files contents API. Returns the commit SHA. File `content` is
   UTF-8 text; the helper base64-encodes it. `operation` defaults to `create`; `update`
@@ -59,7 +64,7 @@ with no environment set.
 | `E2E_GITEA_URL` | `http://localhost:3000` | Gitea instance, seen from the test host. |
 | `E2E_GITEA_ADMIN_USERNAME` | `gitea-admin` | Site admin the helper authenticates as. |
 | `E2E_GITEA_ADMIN_PASSWORD` | `gitea-admin-dev-password` | Site admin password (Basic auth). |
-| `E2E_GITEA_BOT_USERNAME` | `shipfox-bot` | Read-only bot added to each run org's team. |
+| `E2E_GITEA_BOT_USERNAME` | `shipfox-bot` | Scoped bot added to each run org's code-read and issue-comment-write teams. |
 | `E2E_GITEA_WEBHOOK_SECRET` | `shipfox-gitea-dev-webhook-secret` | Secret on the org push webhook; must match the API's `GITEA_WEBHOOK_SECRET`. |
 | `E2E_API_HOST_FROM_CONTAINER` | `host.docker.internal` | Host the Gitea container uses to reach the API when delivering webhooks. |
 

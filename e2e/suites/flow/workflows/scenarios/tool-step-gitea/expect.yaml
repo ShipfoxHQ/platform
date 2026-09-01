@@ -1,0 +1,27 @@
+trigger: push
+run:
+  status: succeeded
+gitea:
+  issue:
+    title: Gitea tool step fixture
+    body: Read this issue through a workflow tool step.
+  comment: Tool step comment landed
+jobs:
+  tools:
+    status: succeeded
+    steps:
+      read_issue:
+        type: tool
+        status: succeeded
+        gate_result:
+          kind: passed
+          exit_code: null
+      consume_result:
+        type: run
+        status: succeeded
+        exit_code: 0
+        logs:
+          include: ["tool output consumed: Gitea tool step fixture"]
+      comment_issue:
+        type: tool
+        status: succeeded

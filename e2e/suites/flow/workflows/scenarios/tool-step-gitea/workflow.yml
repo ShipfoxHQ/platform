@@ -1,0 +1,45 @@
+name: Gitea tool step
+runner: __RUNNER_LABEL__
+triggers:
+  on_push:
+    source: __GITEA_SOURCE__
+    event: push
+    filter: 'event.ref == "refs/heads/main" && event.repository.full_name == "__GITEA_REPOSITORY__"'
+jobs:
+  tools:
+    steps:
+      - key: read_issue
+        name: Read Gitea issue
+        tool: get_issue
+        connection: __GITEA_SOURCE__
+        with:
+          repo: __GITEA_REPOSITORY_NAME__
+          index: __GITEA_ISSUE_NUMBER__
+        outputs:
+          title: ${{ result.title }}
+          body: ${{ result.body }}
+        gate:
+          success: step.outputs.result.number == __GITEA_ISSUE_NUMBER__
+      - key: consume_result
+        name: Consume issue output
+        env:
+          ISSUE_TITLE: '${{ steps.read_issue.outputs.result.title }}'
+          ISSUE_BODY: '${{ steps.read_issue.outputs.result.body }}'
+          MAPPED_TITLE: '${{ steps.read_issue.outputs.title }}'
+          EXPECTED_TITLE: __GITEA_ISSUE_TITLE__
+          EXPECTED_BODY: __GITEA_ISSUE_BODY__
+        run: |
+          test "$ISSUE_TITLE" = "$EXPECTED_TITLE"
+          test "$ISSUE_BODY" = "$EXPECTED_BODY"
+          test "$MAPPED_TITLE" = "$EXPECTED_TITLE"
+          echo "tool output consumed: $ISSUE_TITLE"
+      - key: comment_issue
+        name: Comment on Gitea issue
+        tool: comment_on_issue
+        connection: __GITEA_SOURCE__
+        with:
+          repo: __GITEA_REPOSITORY_NAME__
+          index: __GITEA_ISSUE_NUMBER__
+          body: __GITEA_COMMENT_BODY__
+        outputs:
+          body: ${{ result.body }}

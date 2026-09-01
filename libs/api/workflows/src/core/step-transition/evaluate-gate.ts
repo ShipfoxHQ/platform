@@ -66,8 +66,10 @@ function readGateFeedbackTemplate(value: unknown): ResolvedField | undefined {
 }
 
 /**
- * Gate evaluation fails closed: a missing exit code or CEL evaluation error is
- * `uncheckable` (a plain command failure), never a gate failure that can restart.
+ * Gate evaluation fails closed: a missing exit code on a runner step or a CEL
+ * evaluation error is `uncheckable` (a plain command failure), never a gate
+ * failure that can restart. Tool steps intentionally have no exit code, so
+ * their gates evaluate against the step status and outputs instead.
  *
  * Callers hold step-row locks while this runs. Keep the CEL context bounded
  * unless evaluation gets a budget outside the lock. The materializer only
@@ -77,17 +79,18 @@ export function evaluateGate(
   gate: StepGate | undefined,
   result: StepReport,
   vars?: Record<string, string> | undefined,
+  options?: {readonly stepType?: 'tool'},
 ): GateOutcome {
   if (!gate?.success) return {kind: 'no-gate'};
   const source = gate.success.source;
 
-  if (result.exitCode === null || result.exitCode === undefined) {
+  if (options?.stepType !== 'tool' && (result.exitCode === null || result.exitCode === undefined)) {
     return {kind: 'uncheckable', reason: 'step produced no exit code'};
   }
 
   const context = assembleGateContext({
     status: result.status,
-    exitCode: result.exitCode,
+    exitCode: result.exitCode ?? null,
     output: result.output,
     vars,
   });

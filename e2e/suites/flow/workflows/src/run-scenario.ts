@@ -1,5 +1,6 @@
 import {readFile} from 'node:fs/promises';
 import {createApiClient} from '@shipfox/e2e-core';
+import {type CreatedIssue, listIssueComments} from '@shipfox/e2e-driver-gitea';
 import {readFakeOpenAiModelProviderState} from '@shipfox/e2e-driver-model-provider';
 import {type LocalRunnerHandle, stopLocalRunner} from '@shipfox/e2e-driver-runner-process';
 import {fetchStepLogs} from '@shipfox/e2e-observe-logs';
@@ -34,6 +35,10 @@ import {seedAndWaitForDefinition, seedWorkflowProject} from './workflow-project.
 const REJECTION_NO_RUN_TIMEOUT_MS = 15_000;
 const E2E_SECRET_ACTOR_ID = '11111111-1111-4111-8111-111111111111';
 const FAKE_MODEL_PROVIDER_REQUEST_TIMEOUT_MS = 5_000;
+
+type GiteaScenarioExpectation = NonNullable<
+  Extract<Scenario, {kind: 'expect'}>['expectation']['gitea']
+>;
 
 export interface RunScenarioParams {
   scenario: Scenario;
@@ -101,6 +106,47 @@ async function evaluateScenarioResult(params: {
   }
 
   return {allMismatches, fetchedLogs};
+}
+
+async function evaluateGiteaScenario(params: {
+  expectation: GiteaScenarioExpectation | undefined;
+  issue: CreatedIssue | undefined;
+  org: string;
+  repo: string;
+}): Promise<Mismatch[]> {
+  if (params.expectation === undefined) return [];
+  if (params.issue === undefined) {
+    return [{path: 'gitea.issue', expected: 'created', actual: 'missing'}];
+  }
+  const expectedComment = params.expectation.comment;
+
+  let comments: Awaited<ReturnType<typeof listIssueComments>>;
+  try {
+    comments = await listIssueComments({
+      org: params.org,
+      repo: params.repo,
+      index: params.issue.number,
+    });
+  } catch (error) {
+    return [
+      {
+        path: 'gitea.issue.comments',
+        expected: 'readable',
+        actual: error instanceof Error ? error.message : String(error),
+      },
+    ];
+  }
+
+  if (comments.some((comment) => comment.body === expectedComment)) return [];
+
+  return [
+    {
+      path: 'gitea.issue.comments',
+      expected: `include ${expectedComment}`,
+      actual:
+        comments.length === 0 ? 'none' : comments.map((comment) => comment.body).join('\n---\n'),
+    },
+  ];
 }
 
 async function attachScenarioMismatches(params: {
@@ -201,6 +247,7 @@ async function seedScenarioProject(params: {
   token: string;
   webhookSlug: string;
 }) {
+  const gitea = params.scenario.kind === 'expect' ? params.scenario.expectation.gitea : undefined;
   const seedParams = {
     suite: params.suite,
     token: params.token,
@@ -211,13 +258,27 @@ async function seedScenarioProject(params: {
     configPath: params.scenario.configPath,
     webhookSlug: params.webhookSlug,
     extraFiles: params.scenario.extraFiles,
+    ...(gitea === undefined
+      ? {}
+      : {
+          giteaIssue: gitea.issue,
+          replacements: {
+            __GITEA_ISSUE_TITLE__: JSON.stringify(gitea.issue.title),
+            __GITEA_ISSUE_BODY__: JSON.stringify(gitea.issue.body),
+            __GITEA_COMMENT_BODY__: JSON.stringify(gitea.comment),
+          },
+        }),
   };
   if (params.scenario.kind === 'reject') {
     const seeded = await seedWorkflowProject(seedParams);
-    return {definition: undefined, project: seeded.project};
+    return {definition: undefined, project: seeded.project, giteaIssue: seeded.giteaIssue};
   }
   const seeded = await seedAndWaitForDefinition(seedParams);
-  return {definition: seeded.definition, project: seeded.project};
+  return {
+    definition: seeded.definition,
+    project: seeded.project,
+    giteaIssue: seeded.giteaIssue,
+  };
 }
 
 async function seedScenarioValues(params: {
@@ -370,7 +431,7 @@ export async function runScenario(params: RunScenarioParams): Promise<Mismatch[]
       uniqueId,
       webhookSlug,
     });
-    const {definition, project} = await seedScenarioProject({
+    const {definition, project, giteaIssue} = await seedScenarioProject({
       repo,
       runnerLabel,
       scenario,
@@ -424,10 +485,16 @@ export async function runScenario(params: RunScenarioParams): Promise<Mismatch[]
     });
 
     const {mismatches, logRequirements} = evaluateExpectations(runDetail, scenario.expectation);
+    const giteaMismatches = await evaluateGiteaScenario({
+      expectation: scenario.expectation.gitea,
+      issue: giteaIssue,
+      org: suite.org,
+      repo,
+    });
     const {allMismatches, fetchedLogs} = await evaluateScenarioResult({
       expectation: scenario.expectation,
       logRequirements,
-      mismatches,
+      mismatches: [...mismatches, ...giteaMismatches],
       runnerLogFile,
       token,
     });

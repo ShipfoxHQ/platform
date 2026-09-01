@@ -7,8 +7,9 @@ file is the deep runbook for the workflow flow suite.
 End-to-end tests where each case is a real workflow YAML run through the whole
 platform: a gitea push, the org webhook, definition sync, trigger dispatch, Temporal
 orchestration, a local source runner, step execution, and log capture. The suite
-asserts only on the public observation APIs (`/workflows/runs`, `/workflows/runs/:id`,
-and the step logs route).
+asserts on the public observation APIs (`/workflows/runs`, `/workflows/runs/:id`, and
+the step logs route). Scenarios with a `gitea` fixture also verify the external Gitea
+state through the driver.
 
 ## How a scenario works
 
@@ -17,7 +18,7 @@ A scenario is a directory under `scenarios/`:
 ```
 scenarios/hello-world/
   workflow.yml    pushed verbatim to .shipfox/workflows/hello-world.yml
-  expect.yaml     declarative expectations (run/job/step status, job status reason, step error, exit code, logs)
+  expect.yaml     declarative expectations (run/job/step status and type, errors, gates, exit code, logs)
   reject.yaml     alternative to expect.yaml for authoring-time rejection scenarios
   model-provider.yaml optional fake model-provider script metadata
   secrets.yaml    optional E2E setup secrets to seed before the run
@@ -60,6 +61,7 @@ jobs:                    # optional, keyed by job key
     status_reason: step_failed   # optional: why the job ended (step_failed, condition_false, ...)
     steps:               # optional, keyed by step key or name
       greet:
+        type: run         # optional: setup | run | agent | checkout | tool
         status: succeeded
         exit_code: 0     # optional
         gate_result:     # optional: assert the latest attempt's gate evaluation
@@ -73,11 +75,17 @@ jobs:                    # optional, keyed by job key
         logs:
           include: ["hello world"]   # substring, or /regex/
           exclude: ["SECRET_VALUE"]
+gitea:                    # optional external fixture and post-run assertion
+  issue:
+    title: Tool step fixture
+    body: Read this issue from the workflow.
+  comment: Tool step comment
 ```
 
 Assertions that are only observable inside the runner (checkout contents, env
-propagation) are written as self-asserting `run` steps in the workflow itself; the
-manifest then only asserts the run succeeded.
+propagation, or output propagation) are written as self-asserting `run` steps in the
+workflow itself. A `gitea` block creates the declared issue before the workflow is
+synced and checks for the exact comment after the run completes.
 
 ### model-provider.yaml
 

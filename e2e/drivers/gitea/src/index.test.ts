@@ -12,10 +12,12 @@ describe('createConnectedOrg', () => {
     vi.doMock('./instance.js', () => ({
       bestEffortDeleteOrg,
       commitFiles: vi.fn(),
+      createIssue: vi.fn(),
       createOrg,
       createRepo: vi.fn(),
       deleteOrg: vi.fn(),
       deleteRepo: vi.fn(),
+      listIssueComments: vi.fn(),
     }));
     vi.doMock('./connect.js', () => ({connectGiteaOrg}));
     const {createConnectedOrg} = await import('./index.js');
@@ -44,10 +46,12 @@ describe('createConnectedOrg', () => {
     vi.doMock('./instance.js', () => ({
       bestEffortDeleteOrg,
       commitFiles: vi.fn(),
+      createIssue: vi.fn(),
       createOrg,
       createRepo: vi.fn(),
       deleteOrg: vi.fn(),
       deleteRepo: vi.fn(),
+      listIssueComments: vi.fn(),
     }));
     vi.doMock('./connect.js', () => ({connectGiteaOrg}));
     const {createConnectedOrg} = await import('./index.js');

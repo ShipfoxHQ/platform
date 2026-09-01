@@ -15,7 +15,7 @@ export const config = createConfig({
     default: 'gitea-admin-dev-password',
   }),
   E2E_GITEA_BOT_USERNAME: str({
-    desc: "Username of the read-only bot added to each run org's team, so the platform service account can read the org's repositories. Matches the value dev/gitea/bootstrap.sh creates.",
+    desc: "Username of the scoped bot added to each run org's code-read and issue-comment-write teams. Matches the value dev/gitea/bootstrap.sh creates.",
     default: 'shipfox-bot',
   }),
   E2E_GITEA_WEBHOOK_SECRET: str({

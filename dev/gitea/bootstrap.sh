@@ -15,11 +15,13 @@ BOT_USER="${GITEA_SERVICE_USERNAME:-shipfox-bot}"
 BOT_PASSWORD="${GITEA_SERVICE_TOKEN:-shipfox-bot-dev-password}"
 BOT_EMAIL="${GITEA_BOT_EMAIL:-shipfox-bot@shipfox.local}"
 ORG="${GITEA_ORG:-shipfox}"
-# A read-only team that includes every repo, current and future. It is the bot's
-# only org membership, so a leaked bot credential is bounded to read access on the
-# demo repos rather than the whole instance.
+# Scoped teams that include every repo, current and future. Keeping code read access
+# and issue-comment write access separate means a leaked bot credential cannot push
+# code or manage the org.
 READ_TEAM="shipfox-readers"
-# Webhook setup uses admin credentials because the service account has read-only org access.
+ISSUE_WRITE_TEAM="shipfox-issue-writers"
+# Webhook setup uses admin credentials because the service account's scoped teams do not grant
+# org-hook administration.
 WEBHOOK_TARGET_URL="${GITEA_WEBHOOK_TARGET_URL:-http://host.docker.internal:16101/webhooks/integrations/gitea}"
 WEBHOOK_SECRET="${GITEA_WEBHOOK_SECRET:-shipfox-gitea-dev-webhook-secret}"
 SEED_DIR="${SEED_DIR:-/seed}"
@@ -106,6 +108,18 @@ fi
 # PUT is idempotent: re-adding an existing member is a no-op.
 admin_api PUT "/teams/$team_id/members/$BOT_USER" >/dev/null
 echo "Bot user '$BOT_USER' is a member of read team '$READ_TEAM'."
+
+# Issue tools need to read issues and write comments, but do not need repository
+# code write access. Keep that capability on its own unit-scoped team.
+issue_team_id="$(admin_api GET "/orgs/$ORG/teams" | jq -r --arg name "$ISSUE_WRITE_TEAM" '.[] | select(.name == $name) | .id' | head -n1)"
+if [ -z "$issue_team_id" ]; then
+  issue_team_id="$(admin_api POST "/orgs/$ORG/teams" "$(jq -n --arg name "$ISSUE_WRITE_TEAM" \
+    '{name: $name, permission: "write", includes_all_repositories: true, units: ["repo.issues"]}')" \
+    | jq -r '.id')"
+  echo "Created issue-write team '$ISSUE_WRITE_TEAM' (#$issue_team_id)."
+fi
+admin_api PUT "/teams/$issue_team_id/members/$BOT_USER" >/dev/null
+echo "Bot user '$BOT_USER' is a member of issue-write team '$ISSUE_WRITE_TEAM'."
 
 # Skip an existing hook with the same target so re-runs do not stack duplicate deliveries.
 existing_hook="$(admin_api GET "/orgs/$ORG/hooks" \

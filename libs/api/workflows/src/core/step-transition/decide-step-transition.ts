@@ -26,8 +26,8 @@ export interface StepReport {
 
 // Precomputed gate evaluation (the CEL engine runs in evaluate-gate.ts, never
 // here). `passed`/`failed` are clean evaluations; `uncheckable` means the gate
-// could not be evaluated (no exit code, or an evaluation error) and is treated
-// as a plain command failure. It is never a restart.
+// could not be evaluated (a required exit code is missing, or an evaluation
+// error) and is treated as a plain command failure. It is never a restart.
 export type GateOutcome =
   | {kind: 'no-gate'}
   | {kind: 'passed'; source: string; trace?: readonly PersistedEvaluationTraceEntry[]}
@@ -125,8 +125,9 @@ function fail(
 // Pure: maps a step report (and its precomputed gate outcome) to a transition
 // decision. No DB, no expression engine. A passing gate succeeds; a checkable
 // failure with a resolvable `restart_from` rewinds (until the per-step attempt cap
-// is hit); everything else fails the job. An `uncheckable` failure (no exit code /
-// eval error) is always a plain failure, never a restart.
+// is hit); everything else fails the job. An `uncheckable` failure (a required
+// exit code is missing or evaluation errors) is always a plain failure, never a
+// restart.
 export function decideStepTransition(input: DecideStepTransitionInput): StepTransitionDecision {
   const {steps, target, reportedAttempt, result, gateOnFailure} = input;
   const gate = input.gateOutcome ?? {kind: 'no-gate'};
@@ -139,8 +140,8 @@ export function decideStepTransition(input: DecideStepTransitionInput): StepTran
   }
 
   // 2. It failed. Classify the failure error and whether it is restartable.
-  //    `uncheckable` (no exit code / eval error) is a plain command failure that
-  //    never restarts.
+  //    `uncheckable` (a required exit code is missing or evaluation errors) is a
+  //    plain command failure that never restarts.
   const uncheckable = gate.kind === 'uncheckable';
   const failureError = stepFailureError(gate, result);
 

@@ -217,6 +217,41 @@ describe('evaluateExpectations', () => {
     expect(result.mismatches).toEqual([]);
   });
 
+  test('matches an expected step type', () => {
+    const detail = makeDetail({
+      jobs: [
+        makeJob({
+          job_executions: [makeJobExecution({steps: [makeStep({type: 'tool'})]})],
+        }),
+      ],
+    });
+
+    const result = evaluateExpectations(
+      detail,
+      parseExpectation({
+        run: {status: 'succeeded'},
+        jobs: {build: {steps: {greet: {type: 'tool'}}}},
+      }),
+    );
+
+    expect(result.mismatches).toEqual([]);
+  });
+
+  test('parses an external Gitea fixture expectation', () => {
+    const expectation = parseExpectation({
+      run: {status: 'succeeded'},
+      gitea: {
+        issue: {title: 'Fixture', body: 'Read me'},
+        comment: 'Comment landed',
+      },
+    });
+
+    expect(expectation.gitea).toEqual({
+      issue: {title: 'Fixture', body: 'Read me'},
+      comment: 'Comment landed',
+    });
+  });
+
   test('flags job status, step status, and exit code mismatches together', () => {
     const detail = makeDetail({
       status: 'failed',
