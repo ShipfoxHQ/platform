@@ -428,6 +428,13 @@ describe('piHarnessAdapter', () => {
       ['pi-web-access', 'pi-mcp-adapter'],
       sessionDir,
     );
+    expect(
+      createAgentSessionServicesMock.mock.calls[0]?.[0].resourceLoaderOptions.extensionFactories,
+    ).toEqual([
+      expect.objectContaining({
+        name: PI_TOOL_SVG_NORMALIZER_EXTENSION_NAME,
+      }),
+    ]);
     expect(extensionShutdownMock).toHaveBeenCalledWith({type: 'session_shutdown', reason: 'quit'});
     expect(disposeMock).toHaveBeenCalledAfter(extensionShutdownMock);
     expect(existsSync(configPath)).toBe(false);

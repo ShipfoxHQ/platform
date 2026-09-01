@@ -3,7 +3,7 @@ import {mkdtempSync, readFileSync, rmSync} from 'node:fs';
 import {createServer, type Server as HttpServer} from 'node:http';
 import {tmpdir} from 'node:os';
 import type {ImageContent} from '@earendil-works/pi-ai';
-import type {ContextEvent, ExtensionAPI, ToolResultEvent} from '@earendil-works/pi-coding-agent';
+import type {ExtensionAPI, ToolResultEvent} from '@earendil-works/pi-coding-agent';
 import {
   createAgentSessionFromServices,
   createAgentSessionServices,
@@ -44,7 +44,9 @@ describe('Pi tool SVG normalizer', () => {
   it('converts SVG blocks after canonical MIME classification and preserves order', async () => {
     const svg = encodedSvg('first');
     const rasterize = vi.fn<Rasterizer>(async () => convertedResult());
-    const normalizer = createPiToolSvgNormalizer({rasterize});
+    const recordNormalization = vi.fn();
+    const recordDuration = vi.fn();
+    const normalizer = createPiToolSvgNormalizer({rasterize, recordNormalization, recordDuration});
     const original: PiImageContent[] = [
       {type: 'text', text: 'before'},
       {type: 'image', data: svg, mimeType: ' IMAGE/SVG+XML ; charset=utf-8'},
@@ -67,6 +69,8 @@ describe('Pi tool SVG normalizer', () => {
       mimeType: ' IMAGE/SVG+XML ; charset=utf-8',
     });
     expect(rasterize).toHaveBeenCalledWith({base64: svg, deadlineMs: expect.any(Number)});
+    expect(recordNormalization).toHaveBeenCalledWith('converted', 'none', 'tool_result');
+    expect(recordDuration).toHaveBeenCalledWith('converted', 1);
   });
 
   it('leaves every non-SVG tool-result image untouched without decoding it', async () => {
@@ -84,44 +88,6 @@ describe('Pi tool SVG normalizer', () => {
     expect(result).toBe(content);
     expect(result).toEqual(content);
     expect(rasterize).not.toHaveBeenCalled();
-  });
-
-  it('normalizes legacy context images while preserving unrelated messages', async () => {
-    const svg = encodedSvg('legacy');
-    const rasterize = vi.fn<Rasterizer>(async () => convertedResult());
-    const normalizer = createPiToolSvgNormalizer({rasterize});
-    const userMessage = {
-      role: 'user',
-      content: [
-        {type: 'text', text: 'context'},
-        {type: 'image', data: svg, mimeType: 'image/svg+xml; charset=utf-8'},
-        {type: 'image', data: 'jpg bytes', mimeType: 'IMAGE/JPG; quality=1'},
-        {type: 'image', data: 'png bytes', mimeType: 'image/png'},
-        {type: 'image', data: 'bmp bytes', mimeType: 'image/bmp'},
-      ],
-      timestamp: 1,
-    } as ContextEvent['messages'][number];
-    const assistantMessage = {
-      role: 'assistant',
-      content: [{type: 'text', text: 'assistant'}],
-      timestamp: 2,
-    } as unknown as ContextEvent['messages'][number];
-    const messages = [userMessage, assistantMessage] as ContextEvent['messages'];
-
-    const result = await normalizer.normalizeContext(messages);
-
-    expect(result).toHaveLength(2);
-    expect(result[1]).toBe(assistantMessage);
-    expect(result[0]).toMatchObject({role: 'user', timestamp: 1});
-    if (result[0]?.role !== 'user' || !Array.isArray(result[0].content)) return;
-    expect(result[0].content).toEqual([
-      {type: 'text', text: 'context'},
-      {type: 'image', data: Buffer.from(PNG_BYTES).toString('base64'), mimeType: 'image/png'},
-      {type: 'image', data: 'jpg bytes', mimeType: 'image/jpeg'},
-      {type: 'image', data: 'png bytes', mimeType: 'image/png'},
-      {type: 'text', text: PI_IMAGE_OMISSION_PLACEHOLDER},
-    ]);
-    expect(rasterize).toHaveBeenCalledTimes(1);
   });
 
   it('bounds SVG count and aggregate normalization time for one pass', async () => {
@@ -151,25 +117,16 @@ describe('Pi tool SVG normalizer', () => {
     expect(timedResult[5]).toEqual({type: 'text', text: PI_IMAGE_OMISSION_PLACEHOLDER});
   });
 
-  it('caches converted SVGs within the session', async () => {
-    const svg = encodedSvg('cached');
-    const rasterize = vi.fn<Rasterizer>(async () => convertedResult());
-    const normalizer = createPiToolSvgNormalizer({rasterize});
-
-    const first = await normalizer.normalizeToolResult([image(svg, 'image/svg+xml')]);
-    const second = await normalizer.normalizeToolResult([image(svg, 'image/svg+xml')]);
-
-    expect(rasterize).toHaveBeenCalledTimes(1);
-    expect(second).toEqual(first);
-    expect(second[0]).not.toBe(first[0]);
-  });
-
   it('omits malformed SVG data with the exact placeholder', async () => {
-    const normalizer = createPiToolSvgNormalizer();
+    const recordNormalization = vi.fn();
+    const recordDuration = vi.fn();
+    const normalizer = createPiToolSvgNormalizer({recordNormalization, recordDuration});
 
     await expect(
       normalizer.normalizeToolResult([image('not valid base64', 'image/svg+xml')]),
     ).resolves.toEqual([{type: 'text', text: PI_IMAGE_OMISSION_PLACEHOLDER}]);
+    expect(recordNormalization).toHaveBeenCalledWith('omitted', 'invalid_base64', 'tool_result');
+    expect(recordDuration).toHaveBeenCalledWith('omitted', expect.any(Number));
   });
 
   it('runs the exact three-badge Linear result through the typed tool-result hook', async () => {
