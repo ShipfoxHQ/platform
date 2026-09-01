@@ -1,3 +1,4 @@
+import type {IntegrationConnectionRepositoryAccessRepositoryDto} from '@shipfox/api-integration-spi';
 import type {IntegrationConnection} from '#core/entities/connection.js';
 import type {
   IntegrationCapability,
@@ -5,6 +6,7 @@ import type {
 } from '#core/entities/provider.js';
 import type {IntegrationConnectionRepositoryGrant} from '#core/entities/repository-grant.js';
 import type {RepositorySnapshot} from '#core/providers/source-control.js';
+import type {RepositoryAccessRepository} from '#core/repository-access-read.js';
 
 export function toIntegrationProviderDto(provider: RegisteredIntegrationProvider) {
   return {
@@ -68,5 +70,24 @@ export function toRepositoryGrantDto(grant: IntegrationConnectionRepositoryGrant
     name: grant.repositoryName,
     created_at: grant.createdAt.toISOString(),
     updated_at: grant.updatedAt.toISOString(),
+  };
+}
+
+export function toRepositoryAccessRepositoryDto(
+  repository: RepositoryAccessRepository,
+): IntegrationConnectionRepositoryAccessRepositoryDto {
+  return {
+    external_repository_id: repository.externalRepositoryId,
+    owner: repository.owner,
+    name: repository.name,
+    origins: repository.origins.map((origin) =>
+      origin.type === 'project'
+        ? {
+            type: origin.type,
+            project_id: origin.projectId,
+            project_name: origin.projectName,
+          }
+        : {type: origin.type, grant_id: origin.grantId},
+    ),
   };
 }

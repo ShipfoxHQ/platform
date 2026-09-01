@@ -131,7 +131,7 @@ export const integrationConnectionRepositoryAccessOriginSchema = z.discriminated
   z.object({
     type: z.literal('project'),
     project_id: z.string().uuid(),
-    project_name: z.string(),
+    project_name: z.string().min(1).max(255),
   }),
   z.object({
     type: z.literal('manual'),

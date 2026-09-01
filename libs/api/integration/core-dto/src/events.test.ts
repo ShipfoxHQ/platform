@@ -15,7 +15,10 @@ import {
   integrationSourceRepositoryUpdatedSchema,
   integrationsEventSchemas,
 } from './events.js';
-import {createIntegrationConnectionRepositoryGrantBodySchema} from './schemas/integrations.js';
+import {
+  createIntegrationConnectionRepositoryGrantBodySchema,
+  integrationConnectionRepositoryAccessRepositorySchema,
+} from './schemas/integrations.js';
 
 const validConnectionAvailable = {
   provider: 'linear',
@@ -145,6 +148,42 @@ describe('integrationConnectionAvailableSchema', () => {
     const {slug: _slug, ...withoutSlug} = validConnectionAvailable;
 
     expect(() => integrationConnectionAvailableSchema.parse(withoutSlug)).toThrow();
+  });
+});
+
+describe('integrationConnectionRepositoryAccessRepositorySchema', () => {
+  const repository = {
+    external_repository_id: 'gitea:acme/platform',
+    owner: 'acme',
+    name: 'platform',
+    origins: [
+      {
+        type: 'project' as const,
+        project_id: '00000000-0000-4000-8000-000000000001',
+        project_name: 'Platform',
+      },
+    ],
+  };
+
+  it('accepts a bounded project origin name', () => {
+    expect(integrationConnectionRepositoryAccessRepositorySchema.parse(repository)).toEqual(
+      repository,
+    );
+  });
+
+  it('rejects empty or overlong project origin names', () => {
+    expect(() =>
+      integrationConnectionRepositoryAccessRepositorySchema.parse({
+        ...repository,
+        origins: [{...repository.origins[0], project_name: ''}],
+      }),
+    ).toThrow();
+    expect(() =>
+      integrationConnectionRepositoryAccessRepositorySchema.parse({
+        ...repository,
+        origins: [{...repository.origins[0], project_name: 'x'.repeat(256)}],
+      }),
+    ).toThrow();
   });
 });
 
