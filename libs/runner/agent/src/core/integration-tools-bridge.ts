@@ -57,6 +57,7 @@ export function createIntegrationToolsBridge(params: {
   let connectPromise: Promise<void> | undefined;
   let resetPromise: Promise<void> | undefined;
   let activationPromise: Promise<URL> | undefined;
+  let cancelActivation: ((reason: unknown) => void) | undefined;
   let closePromise: Promise<void> | undefined;
   let closed = false;
   let httpServer: HttpServer | undefined;
@@ -127,30 +128,43 @@ export function createIntegrationToolsBridge(params: {
       if (closePromise !== undefined) {
         return Promise.reject(new Error('Integration tools bridge is closed.'));
       }
-      activationPromise ??= activateBridgeHttp({
-        server,
-        setHttpServer: (value) => (httpServer = value),
-        ...(params.preferredPort === undefined ? {} : {preferredPort: params.preferredPort}),
-        ...(options?.authToken === undefined ? {} : {authToken: options.authToken}),
-        createHttpSession: async () => {
-          const id = crypto.randomUUID();
-          const sessionServer = new Server(
-            {name: params.name, version: '0.0.0'},
-            {capabilities: {tools: {}}},
-          );
-          installForwardingHandlers(sessionServer, ensureConnected, () => client, resetConnection);
-          const sessionTransport = new StreamableHTTPServerTransport({
-            sessionIdGenerator: () => id,
-          });
-          await sessionServer.connect(sessionTransport as unknown as Transport);
-          return {id, server: sessionServer, transport: sessionTransport};
-        },
-        httpSessions,
-      });
-      return boundedActivation(activationPromise, options);
+      if (activationPromise === undefined) {
+        const activationController = new AbortController();
+        cancelActivation = (reason) => {
+          if (!activationController.signal.aborted) activationController.abort(reason);
+        };
+        activationPromise = activateBridgeHttp({
+          server,
+          signal: activationController.signal,
+          setHttpServer: (value) => (httpServer = value),
+          ...(params.preferredPort === undefined ? {} : {preferredPort: params.preferredPort}),
+          ...(options?.authToken === undefined ? {} : {authToken: options.authToken}),
+          createHttpSession: async () => {
+            const id = crypto.randomUUID();
+            const sessionServer = new Server(
+              {name: params.name, version: '0.0.0'},
+              {capabilities: {tools: {}}},
+            );
+            installForwardingHandlers(
+              sessionServer,
+              ensureConnected,
+              () => client,
+              resetConnection,
+            );
+            const sessionTransport = new StreamableHTTPServerTransport({
+              sessionIdGenerator: () => id,
+            });
+            await sessionServer.connect(sessionTransport as unknown as Transport);
+            return {id, server: sessionServer, transport: sessionTransport};
+          },
+          httpSessions,
+        });
+      }
+      return boundedActivation(activationPromise, options, cancelActivation);
     },
     close() {
       closed = true;
+      cancelActivation?.(new Error('Integration tools bridge is closed.'));
       closePromise ??= closeBridge({
         activationPromise,
         getClient: () => client,
@@ -169,6 +183,7 @@ export function createIntegrationToolsBridge(params: {
 
 async function activateBridgeHttp(params: {
   server: McpServer;
+  signal: AbortSignal;
   setHttpServer: (server: HttpServer) => void;
   preferredPort?: number;
   authToken?: string;
@@ -190,14 +205,14 @@ async function activateBridgeHttp(params: {
 
   try {
     try {
-      await listenHttpServer(httpServer, params.preferredPort ?? 0);
+      await listenHttpServer(httpServer, params.preferredPort ?? 0, params.signal);
     } catch (error) {
       if (params.preferredPort === undefined || !isAddressInUseError(error)) throw error;
       logger().warn(
         {err: error, port: params.preferredPort},
         'Stable MCP bridge port is unavailable; using an ephemeral port',
       );
-      await listenHttpServer(httpServer, 0);
+      await listenHttpServer(httpServer, 0, params.signal);
     }
     const address = httpServer.address();
     if (typeof address !== 'object' || address === null) {
@@ -218,11 +233,16 @@ async function activateBridgeHttp(params: {
   }
 }
 
-async function listenHttpServer(server: HttpServer, port: number): Promise<void> {
+async function listenHttpServer(
+  server: HttpServer,
+  port: number,
+  signal?: AbortSignal,
+): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const cleanup = () => {
       server.removeListener('listening', onListening);
       server.removeListener('error', onError);
+      signal?.removeEventListener('abort', onAbort);
     };
     const onListening = () => {
       cleanup();
@@ -232,9 +252,19 @@ async function listenHttpServer(server: HttpServer, port: number): Promise<void>
       cleanup();
       reject(error);
     };
+    const onAbort = () => {
+      cleanup();
+      server.close(() => undefined);
+      reject(signal?.reason ?? new Error('Integration tools bridge activation aborted.'));
+    };
 
     server.once('listening', onListening);
     server.once('error', onError);
+    if (signal?.aborted === true) {
+      onAbort();
+      return;
+    }
+    signal?.addEventListener('abort', onAbort, {once: true});
     try {
       server.listen(port, '127.0.0.1');
     } catch (error) {
@@ -448,6 +478,7 @@ function closeHttpServer(server: HttpServer): Promise<void> {
 function boundedActivation<T>(
   activation: Promise<T>,
   options: IntegrationToolsBridgeActivationOptions | undefined,
+  cancel?: (reason: unknown) => void,
 ): Promise<T> {
   if (options?.signal === undefined && options?.timeout === undefined) return activation;
 
@@ -457,7 +488,9 @@ function boundedActivation<T>(
       options.timeout === undefined
         ? undefined
         : setTimeout(() => {
-            settle(() => reject(new Error('Integration tools bridge activation timed out.')));
+            const error = new Error('Integration tools bridge activation timed out.');
+            cancel?.(error);
+            settle(() => reject(error));
           }, options.timeout);
     const cleanup = () => {
       if (timeout !== undefined) clearTimeout(timeout);
@@ -469,10 +502,11 @@ function boundedActivation<T>(
       cleanup();
       handler();
     };
-    const onAbort = () =>
-      settle(() =>
-        reject(options.signal?.reason ?? new Error('Integration tools bridge aborted.')),
-      );
+    const onAbort = () => {
+      const reason = options.signal?.reason ?? new Error('Integration tools bridge aborted.');
+      cancel?.(reason);
+      settle(() => reject(reason));
+    };
 
     activation.then(
       (value) => settle(() => resolve(value)),

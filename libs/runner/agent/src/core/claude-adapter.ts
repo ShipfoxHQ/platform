@@ -25,6 +25,7 @@ import {logger} from '@shipfox/node-opentelemetry';
 import {z} from 'zod';
 import {config} from '#config.js';
 import {
+  type ClaudeToolCatalogErrorClass,
   type ClaudeToolCatalogFailure,
   type ClaudeToolCatalogFailureReason,
   ClaudeToolDiagnostics,
@@ -58,6 +59,7 @@ const CLAUDE_THINKING_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as cons
 const CLAUDE_SESSION_FILE_NAME = 'claude-session.jsonl';
 const CLAUDE_SESSION_LINE_SEPARATOR = /\r?\n/u;
 const CLAUDE_MCP_METADATA_TIMEOUT_MS = 10_000;
+const CLAUDE_MCP_METADATA_TIMEOUT_MESSAGE = 'Claude integration tool catalog resolution timed out.';
 
 // Shipfox thinking level → extended-thinking budget for legacy Claude models.
 // Budgets follow Anthropic's extended-thinking rules (minimum 1,024 tokens;
@@ -724,7 +726,8 @@ async function prepareClaudeIntegrationTools(
           : ({
               server: bridge.name,
               reason: listed.failureReason,
-              errorMessage: listed.errorMessage,
+              errorClass: listed.errorClass ?? 'unknown',
+              ...(listed.errorStatus === undefined ? {} : {errorStatus: listed.errorStatus}),
             } satisfies ClaudeToolCatalogFailure);
       return {
         name: bridge.name,
@@ -786,7 +789,8 @@ interface ClaudeToolCatalogResult {
   readonly toolNames: readonly string[];
   readonly failed: boolean;
   readonly failureReason?: ClaudeToolCatalogFailureReason;
-  readonly errorMessage: string;
+  readonly errorClass?: ClaudeToolCatalogErrorClass;
+  readonly errorStatus?: number;
 }
 
 async function listClaudeIntegrationToolNames(
@@ -806,48 +810,64 @@ async function listClaudeIntegrationToolNames(
       {
         signal,
         timeoutMs: CLAUDE_MCP_METADATA_TIMEOUT_MS,
-        timeoutMessage: 'Claude integration tool catalog resolution timed out.',
+        timeoutMessage: CLAUDE_MCP_METADATA_TIMEOUT_MESSAGE,
         onAbort: () => controller.abort(signal.reason),
-        onTimeout: () =>
-          controller.abort(new Error('Claude integration tool catalog resolution timed out.')),
+        onTimeout: () => controller.abort(new Error(CLAUDE_MCP_METADATA_TIMEOUT_MESSAGE)),
       },
     );
-    return {toolNames: result.tools.map((tool) => tool.name), failed: false, errorMessage: ''};
+    return {toolNames: result.tools.map((tool) => tool.name), failed: false};
   } catch (error) {
     if (signal.aborted) throw error;
     const failureReason = catalogFailureReason(error);
-    const errorMessage = safeCatalogErrorMessage(error);
+    const errorStatus = catalogErrorStatus(error);
+    const errorClass = catalogErrorClass(error, errorStatus);
     logger().warn(
       {
         event: 'runner.agent_claude_tool_catalog_unavailable',
         server: bridge.name,
         failureReason,
-        errorMessage,
+        errorClass,
+        ...(errorStatus === undefined ? {} : {errorStatus}),
       },
       'Claude integration tool catalog could not be resolved before invocation',
     );
-    return {toolNames: [], failed: true, failureReason, errorMessage};
+    return {
+      toolNames: [],
+      failed: true,
+      failureReason,
+      errorClass,
+      ...(errorStatus === undefined ? {} : {errorStatus}),
+    };
   }
 }
 
 function catalogFailureReason(error: unknown): ClaudeToolCatalogFailureReason {
-  const status = errorStatus(error);
+  const status = catalogErrorStatus(error);
   return status === 401 || status === 403 ? 'connection_policy' : 'catalog_resolution';
 }
 
-function errorStatus(error: unknown): number | undefined {
+function catalogErrorStatus(error: unknown): number | undefined {
   if (!isRecord(error)) return undefined;
   const status = error.status ?? error.statusCode ?? error.code;
-  return typeof status === 'number' ? status : undefined;
+  return typeof status === 'number' && Number.isInteger(status) && status >= 100 && status <= 599
+    ? status
+    : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function safeCatalogErrorMessage(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
-  return message.replace(/Bearer\s+\S+/giu, 'Bearer [redacted]').slice(0, 256);
+function catalogErrorClass(
+  error: unknown,
+  status: number | undefined,
+): ClaudeToolCatalogErrorClass {
+  if (status !== undefined) return 'http';
+  if (error instanceof Error && error.message === CLAUDE_MCP_METADATA_TIMEOUT_MESSAGE) {
+    return 'timeout';
+  }
+  if (error instanceof TypeError) return 'transport';
+  return 'unknown';
 }
 
 function boundedPromise<T>(

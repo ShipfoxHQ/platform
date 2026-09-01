@@ -30,9 +30,11 @@ The runner uses these bounded failure phases:
 
 Catalog discovery is best effort and does not delay the Claude invocation beyond
 its bounded lookup window. When discovery fails, `catalogFailures[]` records the
-bridge, a `catalog_resolution` or `connection_policy` reason, and a bounded safe
-error message. The Claude SDK tool advertisement and invocation records remain
-the authority for deciding whether a requested tool was available or called.
+bridge, a `catalog_resolution` or `connection_policy` reason, and a fixed
+`errorClass` (`http`, `timeout`, `transport`, or `unknown`). HTTP failures also
+record the bounded `errorStatus`; arbitrary exception messages are not logged.
+The Claude SDK tool advertisement and invocation records remain the authority
+for deciding whether a requested tool was available or called.
 
 The omission reasons identify the boundary that dropped a requested tool:
 `catalog_resolution`, `runner_capability`, `connection_policy`, or

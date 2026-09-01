@@ -1,5 +1,5 @@
 import {once} from 'node:events';
-import {createServer, type Server as HttpServer} from 'node:http';
+import {createServer, type Server as HttpServer, Server as NodeHttpServer} from 'node:http';
 import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {StreamableHTTPClientTransport} from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import {InMemoryTransport} from '@modelcontextprotocol/sdk/inMemory.js';
@@ -217,6 +217,31 @@ describe('createIntegrationToolsBridge', () => {
       'activation cancelled',
     );
     await expect(bridge.close()).resolves.toBeUndefined();
+  });
+
+  it('cancels an in-flight activation before closing the bridge', async () => {
+    gateway = await startFakeGateway(() => 'lease');
+    const bridge = createIntegrationToolsBridge({
+      name: 'shipfox_integration_tools',
+      url: gateway.url,
+      fetch: leaseFetch(() => 'lease'),
+    });
+    const listen = vi.spyOn(NodeHttpServer.prototype, 'listen').mockImplementation(function (
+      this: NodeHttpServer,
+    ) {
+      return this;
+    });
+    const ac = new AbortController();
+
+    try {
+      const activation = bridge.activateHttp({signal: ac.signal, timeout: 10_000});
+      ac.abort(new Error('activation cancelled'));
+
+      await expect(activation).rejects.toThrow('activation cancelled');
+      await expect(bridge.close()).resolves.toBeUndefined();
+    } finally {
+      listen.mockRestore();
+    }
   });
 
   it('reuses a preferred loopback port after a bridge is recreated', async () => {

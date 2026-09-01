@@ -1177,7 +1177,7 @@ describe('claudeHarnessAdapter', () => {
     const infoLog = vi.spyOn(logger(), 'info').mockImplementation(() => undefined);
     const warnLog = vi.spyOn(logger(), 'warn').mockImplementation(() => undefined);
     const bridge = mcpBridge([], {
-      listTools: vi.fn().mockRejectedValue(new Error('gateway unavailable')),
+      listTools: vi.fn().mockRejectedValue(new Error('gateway unavailable secret=do-not-log')),
     });
     queryMock.mockReturnValue(makeQuery([initWithTools([sdkTool]), successMessage]));
 
@@ -1194,10 +1194,11 @@ describe('claudeHarnessAdapter', () => {
       expect.objectContaining({
         event: 'runner.agent_claude_tool_catalog_unavailable',
         failureReason: 'catalog_resolution',
-        errorMessage: 'gateway unavailable',
+        errorClass: 'unknown',
       }),
       'Claude integration tool catalog could not be resolved before invocation',
     );
+    expect(JSON.stringify(warnLog.mock.calls)).not.toContain('do-not-log');
     expect(infoLog).toHaveBeenCalledWith(
       expect.objectContaining({
         event: 'runner.agent_claude_tool_outcome',
@@ -1206,7 +1207,7 @@ describe('claudeHarnessAdapter', () => {
           {
             server: 'shipfox_integration_tools',
             reason: 'catalog_resolution',
-            errorMessage: 'gateway unavailable',
+            errorClass: 'unknown',
           },
         ],
         omissions: [],
@@ -1241,7 +1242,8 @@ describe('claudeHarnessAdapter', () => {
           {
             server: 'shipfox_integration_tools',
             reason: 'connection_policy',
-            errorMessage: 'gateway denied access',
+            errorClass: 'http',
+            errorStatus: 403,
           },
         ],
         omissions: [{toolName: integrationTool, reason: 'connection_policy'}],
@@ -1331,7 +1333,7 @@ describe('claudeHarnessAdapter', () => {
         expect.objectContaining({
           event: 'runner.agent_claude_tool_catalog_unavailable',
           failureReason: 'catalog_resolution',
-          errorMessage: 'Claude integration tool catalog resolution timed out.',
+          errorClass: 'timeout',
         }),
         'Claude integration tool catalog could not be resolved before invocation',
       );
@@ -1342,7 +1344,7 @@ describe('claudeHarnessAdapter', () => {
             {
               server: 'shipfox_integration_tools',
               reason: 'catalog_resolution',
-              errorMessage: 'Claude integration tool catalog resolution timed out.',
+              errorClass: 'timeout',
             },
           ],
         }),

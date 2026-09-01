@@ -24,10 +24,13 @@ export type ClaudeToolCatalogFailureReason = Extract<
   'catalog_resolution' | 'connection_policy'
 >;
 
+export type ClaudeToolCatalogErrorClass = 'http' | 'timeout' | 'transport' | 'unknown';
+
 export interface ClaudeToolCatalogFailure {
   readonly server: string;
   readonly reason: ClaudeToolCatalogFailureReason;
-  readonly errorMessage: string;
+  readonly errorClass: ClaudeToolCatalogErrorClass;
+  readonly errorStatus?: number;
 }
 
 interface ClaudeToolDiagnosticsParams {
@@ -124,7 +127,8 @@ export class ClaudeToolDiagnostics {
         catalogFailures: this.#catalogFailures.map((failure) => ({
           server: truncate(failure.server),
           reason: failure.reason,
-          errorMessage: truncate(failure.errorMessage),
+          errorClass: failure.errorClass,
+          ...(failure.errorStatus === undefined ? {} : {errorStatus: failure.errorStatus}),
         })),
         omissions: this.#omissionEntries(),
       },
@@ -186,7 +190,8 @@ export class ClaudeToolDiagnostics {
         catalogFailures: this.#catalogFailures.map((failure) => ({
           server: truncate(failure.server),
           reason: failure.reason,
-          errorMessage: truncate(failure.errorMessage),
+          errorClass: failure.errorClass,
+          ...(failure.errorStatus === undefined ? {} : {errorStatus: failure.errorStatus}),
         })),
         omissions: this.#omissionEntries(),
       },
