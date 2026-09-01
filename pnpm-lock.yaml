@@ -6326,6 +6326,9 @@ importers:
       '@shipfox/react-ui':
         specifier: workspace:*
         version: link:../../shared/react/ui
+      '@shipfox/regex':
+        specifier: workspace:*
+        version: link:../../shared/common/regex
       '@swc/helpers':
         specifier: 'catalog:'
         version: 0.5.23

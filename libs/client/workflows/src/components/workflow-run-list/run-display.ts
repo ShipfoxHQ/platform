@@ -24,6 +24,8 @@ export type WorkflowRunFacets = Record<WorkflowRunFacetName, string[]> & {
   workflow: WorkflowRunWorkflowFacet[];
 };
 
+const UNKNOWN_WORKFLOW_LABEL = 'Unknown workflow';
+
 export function runMatchesSearch(run: WorkflowRunListItem, query: string): boolean {
   const needle = query.trim().toLowerCase();
   if (needle === '') return true;
@@ -113,12 +115,12 @@ function workflowFacetValues(
 ): WorkflowRunWorkflowFacet[] {
   const options = new Map(workflows.map((workflow) => [workflow.value, workflow]));
   for (const run of runs) {
-    if (!options.has(run.definitionId)) {
+    if (run.definitionId && !options.has(run.definitionId)) {
       options.set(run.definitionId, {value: run.definitionId, label: run.workflowName});
     }
   }
   if (selected && !options.has(selected)) {
-    options.set(selected, {value: selected, label: selected});
+    options.set(selected, {value: selected, label: UNKNOWN_WORKFLOW_LABEL});
   }
   return [...options.values()].sort((left, right) => left.label.localeCompare(right.label));
 }

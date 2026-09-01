@@ -22,6 +22,7 @@ import {
 import {useState} from 'react';
 import {getWorkflowStatusVisual} from '#components/workflow-status/status-visuals.js';
 import {
+  countWorkflowRunFilters,
   WORKFLOW_RUN_LIST_STATUSES,
   type WorkflowRunFilterPatch,
   type WorkflowRunListStatus,
@@ -43,6 +44,7 @@ export interface WorkflowRunFiltersProps {
   onClear: () => void;
   hasActiveFilters: boolean;
   workflowOptionsStatus: WorkflowOptionsStatus;
+  onOpenWorkflowOptions?: () => void;
   onRetryWorkflowOptions?: () => void;
 }
 
@@ -60,10 +62,11 @@ export function WorkflowRunFilters({
   onClear,
   hasActiveFilters,
   workflowOptionsStatus,
+  onOpenWorkflowOptions,
   onRetryWorkflowOptions,
 }: WorkflowRunFiltersProps) {
   const [sheetOpen, setSheetOpen] = useState(false);
-  const activeSheetFilterCount = sheetFilterCount(search);
+  const activeSheetFilterCount = countWorkflowRunFilters(search, {includeSearch: false});
 
   return (
     <div className="flex w-full flex-wrap items-center gap-inline">
@@ -83,6 +86,7 @@ export function WorkflowRunFilters({
           facets={facets}
           onChange={onChange}
           workflowOptionsStatus={workflowOptionsStatus}
+          {...(onOpenWorkflowOptions ? {onOpenWorkflowOptions} : {})}
           {...(onRetryWorkflowOptions ? {onRetryWorkflowOptions} : {})}
         />
         {hasActiveFilters ? <ClearFiltersButton onClear={onClear} /> : null}
@@ -110,6 +114,7 @@ export function WorkflowRunFilters({
               facets={facets}
               onChange={onChange}
               workflowOptionsStatus={workflowOptionsStatus}
+              {...(onOpenWorkflowOptions ? {onOpenWorkflowOptions} : {})}
               {...(onRetryWorkflowOptions ? {onRetryWorkflowOptions} : {})}
               stacked
             />
@@ -134,23 +139,12 @@ export function WorkflowRunFilters({
   );
 }
 
-function sheetFilterCount(search: WorkflowRunsSearch): number {
-  return [
-    search.workflow,
-    search.status?.length,
-    search.origin,
-    search.branch?.length,
-    search.actor?.length,
-    search.event?.length,
-    search.after || search.before,
-  ].filter(Boolean).length;
-}
-
 function WorkflowRunFilterControls({
   search,
   facets,
   onChange,
   workflowOptionsStatus,
+  onOpenWorkflowOptions,
   onRetryWorkflowOptions,
   stacked = false,
 }: {
@@ -158,6 +152,7 @@ function WorkflowRunFilterControls({
   facets: WorkflowRunFacets;
   onChange: (patch: WorkflowRunFilterPatch) => void;
   workflowOptionsStatus: WorkflowOptionsStatus;
+  onOpenWorkflowOptions?: () => void;
   onRetryWorkflowOptions?: () => void;
   stacked?: boolean;
 }) {
@@ -170,6 +165,7 @@ function WorkflowRunFilterControls({
         facets={facets}
         onChange={onChange}
         workflowOptionsStatus={workflowOptionsStatus}
+        {...(onOpenWorkflowOptions ? {onOpenWorkflowOptions} : {})}
         {...(onRetryWorkflowOptions ? {onRetryWorkflowOptions} : {})}
         stacked={stacked}
       />
@@ -222,6 +218,7 @@ function WorkflowFilter({
   facets,
   onChange,
   workflowOptionsStatus,
+  onOpenWorkflowOptions,
   onRetryWorkflowOptions,
   stacked,
 }: {
@@ -229,6 +226,7 @@ function WorkflowFilter({
   facets: WorkflowRunFacets;
   onChange: (patch: WorkflowRunFilterPatch) => void;
   workflowOptionsStatus: WorkflowOptionsStatus;
+  onOpenWorkflowOptions?: () => void;
   onRetryWorkflowOptions?: () => void;
   stacked: boolean;
 }) {
@@ -245,12 +243,13 @@ function WorkflowFilter({
       <ComboboxTrigger
         size="small"
         aria-label={`${triggerText} filter`}
+        onClick={onOpenWorkflowOptions}
         className={stacked ? 'w-full max-w-none' : 'max-w-[200px]'}
       >
         {triggerText}
       </ComboboxTrigger>
       <ComboboxContent className="w-[280px]">
-        <ComboboxInput placeholder="Search workflows..." />
+        <ComboboxInput aria-label="Search workflows" placeholder="Search workflows..." />
         <WorkflowOptionsFeedback
           status={workflowOptionsStatus}
           {...(onRetryWorkflowOptions ? {onRetry: onRetryWorkflowOptions} : {})}
@@ -272,14 +271,27 @@ function WorkflowOptionsFeedback({
 }) {
   if (status === 'ready') return null;
 
+  if (status === 'loading') {
+    return (
+      <div
+        key="workflow-options-loading"
+        role="status"
+        className="flex min-h-32 items-center border-b border-border-neutral-strong px-row py-row text-xs text-foreground-neutral-muted"
+      >
+        Loading workflows...
+      </div>
+    );
+  }
+
   return (
     <div
-      role={status === 'error' ? 'alert' : 'status'}
+      key="workflow-options-error"
+      role="alert"
       className="flex min-h-32 items-center justify-between gap-inline border-b border-border-neutral-strong px-row py-row text-xs text-foreground-neutral-muted"
     >
-      <span>{status === 'error' ? 'Could not load all workflows.' : 'Loading workflows...'}</span>
-      {status === 'error' && onRetry ? (
-        <Button type="button" variant="transparent" size="2xs" onClick={onRetry}>
+      <span>Could not load all workflows.</span>
+      {onRetry ? (
+        <Button type="button" variant="transparent" size="xs" onClick={onRetry}>
           Retry
         </Button>
       ) : null}

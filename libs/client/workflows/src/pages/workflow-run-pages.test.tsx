@@ -206,6 +206,21 @@ describe('WorkflowRunPages', () => {
 
     renderRunsPath();
 
+    await waitFor(() => {
+      expect(
+        fetchImpl.mock.calls.some((call) => {
+          const url = new URL(requestInputUrl(call[0]));
+          return url.pathname === '/definitions' && !url.searchParams.has('cursor');
+        }),
+      ).toBe(true);
+    });
+    expect(
+      fetchImpl.mock.calls.some((call) => {
+        const url = new URL(requestInputUrl(call[0]));
+        return url.pathname === '/definitions' && url.searchParams.has('cursor');
+      }),
+    ).toBe(false);
+
     await user.click(await screen.findByRole('button', {name: WORKFLOW_FILTER_RE}));
 
     expect(await screen.findByRole('option', {name: 'Nightly'})).toBeInTheDocument();
@@ -215,6 +230,28 @@ describe('WorkflowRunPages', () => {
         return url.pathname === '/definitions' && url.searchParams.get('cursor') === 'workflow-2';
       }),
     ).toBe(true);
+  });
+
+  test('reports a workflow definition failure and recovers when retried', async () => {
+    const user = userEvent.setup();
+    const fetchImpl = createRecoveringWorkflowDefinitionsFetch();
+    configureApiClient({fetchImpl});
+
+    renderRunsPath();
+
+    await user.click(await screen.findByRole('button', {name: WORKFLOW_FILTER_RE}));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not load all workflows.');
+
+    await user.click(screen.getByRole('button', {name: 'Retry'}));
+
+    expect(await screen.findByRole('option', {name: 'Deploy production'})).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(
+      fetchImpl.mock.calls.filter((call) => {
+        const url = new URL(requestInputUrl(call[0]));
+        return url.pathname === '/definitions';
+      }),
+    ).toHaveLength(2);
   });
 
   test('replaces history on a filter change so back leaves the list', async () => {
@@ -569,6 +606,19 @@ function createMixedWorkflowRunsFetch() {
       );
     }
 
+    if (url.pathname === '/definitions') {
+      return Promise.resolve(
+        jsonResponse({
+          definitions: [
+            definitionDto(DEFINITION_ID, 'Deploy production'),
+            definitionDto(SECOND_DEFINITION_ID, 'CI'),
+          ],
+          next_cursor: null,
+          sync: null,
+        }),
+      );
+    }
+
     return Promise.resolve(jsonResponse({code: 'not-found'}, {status: 404}));
   });
 }
@@ -588,6 +638,34 @@ function createPaginatedWorkflowDefinitionsFetch() {
             ),
           ],
           next_cursor: isSecondPage ? null : 'workflow-2',
+          sync: null,
+        }),
+      );
+    }
+
+    if (url.pathname === '/workflows/runs') {
+      return Promise.resolve(jsonResponse({runs: [], next_cursor: null, filtered_total_count: 0}));
+    }
+
+    return Promise.resolve(jsonResponse({code: 'not-found'}, {status: 404}));
+  });
+}
+
+function createRecoveringWorkflowDefinitionsFetch() {
+  let definitionAttempts = 0;
+
+  return vi.fn((input: RequestInfo | URL) => {
+    const url = new URL(requestInputUrl(input));
+
+    if (url.pathname === '/definitions') {
+      definitionAttempts += 1;
+      if (definitionAttempts === 1) {
+        return Promise.resolve(jsonResponse({code: 'unexpected'}, {status: 500}));
+      }
+      return Promise.resolve(
+        jsonResponse({
+          definitions: [definitionDto(DEFINITION_ID, 'Deploy production')],
+          next_cursor: null,
           sync: null,
         }),
       );

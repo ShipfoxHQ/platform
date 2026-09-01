@@ -101,18 +101,55 @@ describe('WorkflowRunListView', () => {
       expect(screen.getByRole('button', {name: 'Filters (1)'})).toBeInTheDocument();
     });
 
+    test('clears the workflow filter when its selected option is chosen again', async () => {
+      const user = userEvent.setup();
+      renderListView([
+        run('succeeded', 'deploy-run', 'run-1', {
+          definition_id: '55555555-5555-4555-8555-000000000001',
+          workflow_name: 'Deploy production',
+        }),
+        run('failed', 'ci-run', 'run-2', {
+          definition_id: '55555555-5555-4555-8555-000000000002',
+          workflow_name: 'CI',
+        }),
+      ]);
+
+      await selectWorkflowFilter(user, 'Deploy production');
+      await selectWorkflowFilter(user, 'Deploy production');
+
+      expect(screen.getByText('deploy-run')).toBeInTheDocument();
+      expect(screen.getByText('ci-run')).toBeInTheDocument();
+      expect(screen.getByRole('button', {name: filterTrigger('Workflow')})).toHaveTextContent(
+        'Workflow',
+      );
+    });
+
     test('offers project workflows outside the loaded run history', async () => {
       const user = userEvent.setup();
+      const onOpenWorkflowOptions = vi.fn();
       renderListView([run('succeeded', 'deploy-run')], {
         workflowOptions: [
           {value: '55555555-5555-4555-8555-000000000001', label: 'Deploy production'},
           {value: '55555555-5555-4555-8555-000000000002', label: 'Nightly'},
         ],
+        onOpenWorkflowOptions,
       });
 
       await user.click(await screen.findByRole('button', {name: filterTrigger('Workflow')}));
 
+      expect(onOpenWorkflowOptions).toHaveBeenCalledOnce();
+      expect(await screen.findByLabelText('Search workflows')).toBeInTheDocument();
       expect(await screen.findByRole('option', {name: 'Nightly'})).toBeInTheDocument();
+    });
+
+    test('uses a human fallback for a selected workflow that has not loaded', async () => {
+      renderListView([], {
+        search: {workflow: '55555555-5555-4555-8555-000000000009'},
+      });
+
+      expect(
+        await screen.findByRole('button', {name: filterTrigger('Workflow')}),
+      ).toHaveTextContent('Workflow: Unknown workflow');
     });
 
     test('reports workflow option loading in the chooser', async () => {
@@ -240,21 +277,26 @@ describe('WorkflowRunListView', () => {
       expect(trigger).toHaveAccessibleName('Status: Failed filter');
     });
 
-    test('includes origin when a controlled consumer uses the default clear path', async () => {
+    test('includes workflow and origin when a controlled consumer uses the default clear path', async () => {
       const user = userEvent.setup();
       const onFiltersChange = vi.fn();
       renderWithRouter(
         <WorkflowRunListView
           runs={[run('succeeded', 'triage-sentry', 'run-2', devRunOverrides())]}
           query={loadedQuery()}
-          search={{origin: 'dev'}}
+          search={{
+            workflow: '55555555-5555-4555-8555-555555555555',
+            origin: 'dev',
+          }}
           onFiltersChange={onFiltersChange}
         />,
       );
 
       await user.click(await screen.findByRole('button', {name: 'Clear filters'}));
 
-      expect(onFiltersChange).toHaveBeenCalledWith(expect.objectContaining({origin: undefined}));
+      expect(onFiltersChange).toHaveBeenCalledWith(
+        expect.objectContaining({workflow: undefined, origin: undefined}),
+      );
     });
 
     test('restores every row after the filters are cleared', async () => {
@@ -281,6 +323,16 @@ describe('WorkflowRunListView', () => {
 
       expect(await screen.findByText('build-image')).toBeInTheDocument();
       expect(screen.queryByRole('button', {name: 'Clear filters'})).not.toBeInTheDocument();
+    });
+
+    test('does not count text search in the compact filter badge', async () => {
+      const user = userEvent.setup();
+      renderListView([run('succeeded', 'build-image')]);
+
+      await user.type(await screen.findByLabelText('Search runs'), 'build');
+
+      expect(screen.getByRole('button', {name: 'Filters'})).toBeInTheDocument();
+      expect(screen.queryByRole('button', {name: 'Filters (1)'})).not.toBeInTheDocument();
     });
   });
 
@@ -609,7 +661,10 @@ describe('WorkflowRunListView', () => {
 
     test('renders optimistic temp runs without a navigable link', async () => {
       const optimisticRun = {
-        ...run('pending', 'queued-build', 'temp-1234', {workflow_name: 'CI'}),
+        ...run('pending', 'queued-build', 'temp-1234', {
+          definition_id: '',
+          workflow_name: 'CI',
+        }),
         number: null,
       };
       renderListView([optimisticRun, run('running', 'deploy-web')]);
@@ -738,8 +793,10 @@ function renderListView(
       | 'hasNextPage'
       | 'onLoadMore'
       | 'query'
+      | 'search'
       | 'workflowOptions'
       | 'workflowOptionsStatus'
+      | 'onOpenWorkflowOptions'
       | 'onRetryWorkflowOptions'
     >
   > = {},

@@ -2,6 +2,7 @@ import {parseAppSearch, stringifyAppSearch} from '@shipfox/client-shell/runtime'
 import {
   applyWorkflowRunFilterPatch,
   clearWorkflowRunFilters,
+  countWorkflowRunFilters,
   hasWorkflowRunFilters,
   validateWorkflowJobSearch,
   validateWorkflowRunsSearch,
@@ -311,6 +312,19 @@ describe('hasWorkflowRunFilters', () => {
 
   test('does not count a run selection parameter as a filter', () => {
     expect(hasWorkflowRunFilters({runAttempt: 2})).toBe(false);
+  });
+
+  test('can exclude text search from a compact filter count', () => {
+    const search: WorkflowRunsSearch = {
+      search: 'deploy',
+      workflow: WORKFLOW_ID,
+      status: ['failed', 'running'],
+      after: '2026-05-01',
+      before: '2026-05-31',
+    };
+
+    expect(countWorkflowRunFilters(search)).toBe(4);
+    expect(countWorkflowRunFilters(search, {includeSearch: false})).toBe(3);
   });
 });
 

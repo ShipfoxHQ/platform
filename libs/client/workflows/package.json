@@ -74,6 +74,7 @@
     "@shipfox/client-triggers": "workspace:*",
     "@shipfox/client-ui": "workspace:*",
     "@shipfox/react-ui": "workspace:*",
+    "@shipfox/regex": "workspace:*",
     "@swc/helpers": "catalog:",
     "date-fns": "catalog:"
   },

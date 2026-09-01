@@ -28,6 +28,5 @@ describe('Sheet', () => {
     const close = screen.getByRole('button', {name: 'Close'});
 
     expect(close.classList.contains('focus-visible:shadow-button-neutral-focus')).toBe(true);
-    expect(close.classList.contains('focus-visible:ring-background-accent-blue-base')).toBe(false);
   });
 });

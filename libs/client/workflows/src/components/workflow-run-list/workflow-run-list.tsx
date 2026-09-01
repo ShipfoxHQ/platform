@@ -19,6 +19,7 @@ export function WorkflowRunList({
   className,
   workflowOptions,
   workflowOptionsStatus,
+  onOpenWorkflowOptions,
   onRetryWorkflowOptions,
   search,
   onFiltersChange,
@@ -56,6 +57,7 @@ export function WorkflowRunList({
       className={className}
       {...(workflowOptions ? {workflowOptions} : {})}
       {...(workflowOptionsStatus ? {workflowOptionsStatus} : {})}
+      {...(onOpenWorkflowOptions ? {onOpenWorkflowOptions} : {})}
       {...(onRetryWorkflowOptions ? {onRetryWorkflowOptions} : {})}
       {...(effectiveSearch ? {search: effectiveSearch} : {})}
       onFiltersChange={handleFiltersChange}

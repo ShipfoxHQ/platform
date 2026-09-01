@@ -1,3 +1,4 @@
+import {isUuid} from '@shipfox/regex';
 import {RUN_ANNOTATION_SEVERITIES, type RunAnnotationSeverity} from '#core/run-annotation.js';
 import {WORKFLOW_RUN_ORIGINS, type WorkflowRunOrigin} from '#core/workflow-run.js';
 import type {WorkflowRunSelectionInput} from '#core/workflow-run-url-state.js';
@@ -54,7 +55,6 @@ const ORIGIN_VALUES = new Set<string>(WORKFLOW_RUN_LIST_ORIGINS);
 const TAB_VALUES = new Set<string>(WORKFLOW_RUN_TABS);
 const ANNOTATION_SEVERITY_VALUES = new Set<string>(WORKFLOW_RUN_ANNOTATION_SEVERITIES);
 const CALENDAR_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/u;
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 
 /**
  * Reads the run list and run detail query string.
@@ -212,17 +212,24 @@ export function clearWorkflowRunFilters(search: WorkflowRunsSearch): WorkflowRun
 
 /** True when any list filter is active, which separates "no matches" from "no runs". */
 export function hasWorkflowRunFilters(search: WorkflowRunsSearch): boolean {
-  return Boolean(
-    search.search ||
-      search.workflow ||
-      search.status?.length ||
-      search.origin ||
-      search.branch?.length ||
-      search.actor?.length ||
-      search.event?.length ||
-      search.after ||
-      search.before,
-  );
+  return countWorkflowRunFilters(search) > 0;
+}
+
+/** Counts active filter dimensions, optionally excluding the always-visible text search. */
+export function countWorkflowRunFilters(
+  search: WorkflowRunsSearch,
+  {includeSearch = true}: {includeSearch?: boolean} = {},
+): number {
+  return [
+    includeSearch && search.search,
+    search.workflow,
+    search.status?.length,
+    search.origin,
+    search.branch?.length,
+    search.actor?.length,
+    search.event?.length,
+    search.after || search.before,
+  ].filter(Boolean).length;
 }
 
 export function workflowRouteParams(input: Record<string, unknown>): {
@@ -341,7 +348,7 @@ function string(value: unknown): string | undefined {
 
 function uuid(value: unknown): string | undefined {
   const candidate = string(value);
-  return candidate && UUID_PATTERN.test(candidate) ? candidate : undefined;
+  return candidate && isUuid(candidate) ? candidate : undefined;
 }
 
 function positiveInteger(value: unknown): number | undefined {

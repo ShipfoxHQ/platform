@@ -25,6 +25,7 @@ export function WorkflowRunListView({
   className,
   workflowOptions = [],
   workflowOptionsStatus = 'ready',
+  onOpenWorkflowOptions,
   onRetryWorkflowOptions,
   search = EMPTY_SEARCH,
   onFiltersChange,
@@ -82,6 +83,7 @@ export function WorkflowRunListView({
               onClear={handleClearFilters}
               hasActiveFilters={hasActiveFilters}
               workflowOptionsStatus={workflowOptionsStatus}
+              {...(onOpenWorkflowOptions ? {onOpenWorkflowOptions} : {})}
               {...(onRetryWorkflowOptions ? {onRetryWorkflowOptions} : {})}
             />
           </PanelHeader>

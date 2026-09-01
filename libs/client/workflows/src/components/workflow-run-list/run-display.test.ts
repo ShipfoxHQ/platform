@@ -257,6 +257,20 @@ describe('workflowRunFacets', () => {
 
     expect(facets.workflow).toContainEqual(workflow);
   });
+
+  test('ignores optimistic runs that do not have a definition yet', () => {
+    const run = workflowRunListItem({definition_id: '', workflow_name: 'Optimistic run'});
+
+    expect(workflowRunFacets([run]).workflow).toEqual([]);
+  });
+
+  test('names an unresolved selected workflow without exposing its id', () => {
+    const selected = '44444444-4444-4444-8444-000000000009';
+
+    expect(workflowRunFacets([], {workflow: selected}).workflow).toEqual([
+      {value: selected, label: 'Unknown workflow'},
+    ]);
+  });
 });
 
 function shiftDay(date: string, days: number): string {

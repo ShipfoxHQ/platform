@@ -13,6 +13,7 @@ interface WorkflowRunListCommonProps {
   /** Project workflows available even when their runs are outside the loaded history. */
   workflowOptions?: WorkflowRunWorkflowFacet[];
   workflowOptionsStatus?: WorkflowOptionsStatus;
+  onOpenWorkflowOptions?: () => void;
   onRetryWorkflowOptions?: () => void;
   /**
    * The parsed URL search. Pair with `onFiltersChange` to keep it in the URL; omit the
