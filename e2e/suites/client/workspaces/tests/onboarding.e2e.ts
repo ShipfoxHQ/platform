@@ -62,6 +62,10 @@ test.describe('workspace onboarding', () => {
     await workspaceOnboarding.createWorkspace(workspaceName);
 
     await expect(page).toHaveURL(WORKSPACE_INTEGRATIONS_URL_RE);
+    const workspaceId = await workspaceHome.readLastWorkspaceId(user.user.id);
+    await stubChecklistDependencies(page, workspaceId);
+    await page.reload();
+    await expect(page).toHaveURL(WORKSPACE_INTEGRATIONS_URL_RE);
     await expect(setupShell.sourceControlHeading()).toBeVisible({
       timeout: SETUP_NAVIGATION_TIMEOUT_MS,
     });
@@ -70,7 +74,6 @@ test.describe('workspace onboarding', () => {
     const workspaceSlug = workspaceHome.currentWorkspaceSlug();
     expect(workspaceSlug).toBeTruthy();
     expect(workspaceSlug).not.toMatch(UUID_RE);
-    await stubChecklistDependencies(page, await workspaceHome.readLastWorkspaceId(user.user.id));
     await workspaceHome.gotoIntegrations(workspaceSlug as string);
     const org = await gitea.createOrg();
     await gitea.createRepo({org: org.org, name: 'platform'});
