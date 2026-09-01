@@ -105,6 +105,8 @@ export interface CreateGithubIntegrationProviderOptions
   publishSourcePush: PublishSourcePushFn;
   recordDeliveryOnly: RecordDeliveryOnlyFn;
   getIntegrationConnectionById: GetIntegrationConnectionByIdFn;
+  /** Invalidates local repository authorization decisions after a committed webhook mutation. */
+  invalidateRepositoryAuthorizationCache?: ((connectionId: string) => void) | undefined;
   getGithubInstallationByConnectionId?: typeof getGithubInstallationByConnectionId | undefined;
   getGithubInstallationByInstallationId?: typeof getGithubInstallationByInstallationId | undefined;
   deleteSecrets?:

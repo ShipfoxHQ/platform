@@ -377,6 +377,27 @@ describe('repository authorization', () => {
     ).resolves.toEqual({authorized: false, reason: 'authorization_store_unavailable'});
   });
 
+  it.each([
+    'getByExternalId',
+    'listByName',
+  ] as const)('distinguishes a %s grant-store failure from a repository denial', async (method) => {
+    const grants = createGrants({
+      [method]: vi.fn().mockRejectedValue(new Error('grant store unavailable')),
+    });
+    const repository =
+      method === 'getByExternalId'
+        ? {kind: 'external-id' as const, externalRepositoryId: 'github:42'}
+        : {kind: 'name' as const, owner: 'shipfox', name: 'platform'};
+
+    await expect(
+      resolveRepositoryAuthorization({
+        projects: createProjects(),
+        grants,
+        ...selectedInput(repository),
+      }),
+    ).resolves.toEqual({authorized: false, reason: 'authorization_store_unavailable'});
+  });
+
   it('accepts valid all-mode declarations without consulting Projects', async () => {
     const projects = createProjects({
       getProjectBySource: vi.fn().mockRejectedValue(new Error('must not be called')),
@@ -527,6 +548,94 @@ describe('repository authorization', () => {
       request: createRepositoryAuthorizationRequestContext(),
     });
     expect(getProjectBySource).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not repopulate a connection cache after invalidation during an in-flight lookup', async () => {
+    let releaseProject:
+      | ((result: {project: {id: string; sourceExternalRepositoryId: string}}) => void)
+      | undefined;
+    const pendingProject = new Promise<{project: {id: string; sourceExternalRepositoryId: string}}>(
+      (resolve) => {
+        releaseProject = resolve;
+      },
+    );
+    const getProjectBySource = vi
+      .fn()
+      .mockReturnValueOnce(pendingProject)
+      .mockResolvedValueOnce({project: null});
+    const authorizer = createRepositoryAuthorizer({
+      projects: createProjects({getProjectBySource}),
+      grants: createGrants(),
+      enabled: true,
+    });
+    const input = selectedInput({kind: 'external-id', externalRepositoryId: 'github:42'});
+
+    const inFlight = authorizer.resolveRepositoryAuthorization(input);
+    await vi.waitFor(() => expect(getProjectBySource).toHaveBeenCalledOnce());
+    authorizer.invalidateRepositoryAuthorizationCache?.(connectionId);
+    releaseProject?.({
+      project: {id: 'project-1', sourceExternalRepositoryId: 'github:42'},
+    });
+
+    await expect(inFlight).resolves.toMatchObject({authorized: true});
+    await expect(authorizer.resolveRepositoryAuthorization(input)).resolves.toEqual({
+      authorized: false,
+      reason: 'repository_not_granted',
+    });
+    expect(getProjectBySource).toHaveBeenCalledTimes(2);
+  });
+
+  it('evicts the oldest positive decision when the cache reaches its configured capacity', async () => {
+    const getProjectBySource = vi.fn(
+      async (input: Parameters<ProjectsModuleClient['getProjectBySource']>[0]) => ({
+        project: {
+          id: input.sourceExternalRepositoryId,
+          workspaceId: input.workspaceId,
+          sourceConnectionId: input.sourceConnectionId,
+          sourceExternalRepositoryId: input.sourceExternalRepositoryId,
+          name: input.sourceExternalRepositoryId,
+        },
+      }),
+    );
+    const authorizer = createRepositoryAuthorizer({
+      projects: createProjects({getProjectBySource}),
+      grants: createGrants(),
+      enabled: true,
+      maxCacheEntries: 1,
+    });
+
+    await authorizer.resolveRepositoryAuthorization(
+      selectedInput({kind: 'external-id', externalRepositoryId: 'github:1'}),
+    );
+    await authorizer.resolveRepositoryAuthorization(
+      selectedInput({kind: 'external-id', externalRepositoryId: 'github:2'}),
+    );
+    await authorizer.resolveRepositoryAuthorization(
+      selectedInput({kind: 'external-id', externalRepositoryId: 'github:1'}),
+    );
+
+    expect(getProjectBySource).toHaveBeenCalledTimes(3);
+  });
+
+  it.each([
+    0,
+    Number.NaN,
+  ])('falls back to a bounded cache for invalid capacity %s', async (maxCacheEntries) => {
+    const getProjectBySource = vi.fn().mockResolvedValue({
+      project: {id: 'project-1', sourceExternalRepositoryId: 'github:1'},
+    });
+    const authorizer = createRepositoryAuthorizer({
+      projects: createProjects({getProjectBySource}),
+      grants: createGrants(),
+      enabled: true,
+      maxCacheEntries,
+    });
+    const input = selectedInput({kind: 'external-id', externalRepositoryId: 'github:1'});
+
+    await authorizer.resolveRepositoryAuthorization(input);
+    await authorizer.resolveRepositoryAuthorization(input);
+
+    expect(getProjectBySource).toHaveBeenCalledOnce();
   });
 
   it('does not share denials between request contexts', async () => {

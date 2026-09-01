@@ -208,9 +208,9 @@ export function createRepositoryAuthorizer({
       const cached = cache.get(key);
       if (cached) return cloneAuthorizationResult(cached);
 
-      const generation = cache.generation(input.connectionId);
+      const generation = cache.generation();
       const result = await resolveRepositoryAuthorization({projects, grants, ...input});
-      if (result.authorized && cache.generation(input.connectionId) === generation) {
+      if (result.authorized && cache.generation() === generation) {
         cache.set(key, input.connectionId, result);
       }
       return result;
@@ -454,7 +454,7 @@ function createSharedAuthorizationCache({
 }): {
   get(key: string): AuthorizedRepositoryAuthorizationResult | undefined;
   set(key: string, connectionId: string, result: AuthorizedRepositoryAuthorizationResult): void;
-  generation(connectionId: string): number;
+  generation(): number;
   invalidate(connectionId: string): void;
 } {
   const entries = new Map<
@@ -465,7 +465,7 @@ function createSharedAuthorizationCache({
       result: AuthorizedRepositoryAuthorizationResult;
     }
   >();
-  const generations = new Map<string, number>();
+  let invalidationGeneration = 0;
   const capacity =
     Number.isSafeInteger(maxCacheEntries) && maxCacheEntries > 0
       ? maxCacheEntries
@@ -502,11 +502,11 @@ function createSharedAuthorizationCache({
         entries.delete(oldest.value);
       }
     },
-    generation(connectionId) {
-      return generations.get(connectionId) ?? 0;
+    generation() {
+      return invalidationGeneration;
     },
     invalidate(connectionId) {
-      generations.set(connectionId, (generations.get(connectionId) ?? 0) + 1);
+      invalidationGeneration += 1;
       for (const [key, entry] of entries) {
         if (entry.connectionId === connectionId) entries.delete(key);
       }

@@ -290,6 +290,14 @@ export async function createIntegrationsModule(
 export async function createIntegrationsContext(
   options: CreateIntegrationsModuleOptions = {},
 ): Promise<IntegrationsContext> {
+  const repositoryAuthorizer = createRepositoryAuthorizer({
+    projects: options.projects,
+    grants: options.repositoryGrants ?? {
+      getByExternalId: getIntegrationConnectionRepositoryGrant,
+      listByName: listIntegrationConnectionRepositoryGrantsByName,
+    },
+    enabled: config.INTEGRATIONS_ENABLE_REPOSITORY_AUTHORIZATION,
+  });
   const workspaces = options.workspaces;
   const parts: IntegrationModuleParts[] =
     options.parts ??
@@ -315,19 +323,13 @@ export async function createIntegrationsContext(
                   }),
               }
             : {}),
+          invalidateRepositoryAuthorizationCache:
+            repositoryAuthorizer.invalidateRepositoryAuthorizationCache,
         }));
 
   const registry = createIntegrationProviderRegistry(parts.map((part) => part.provider));
   const resolveIntegrationConnectionById =
     options.getIntegrationConnectionById ?? getIntegrationConnectionById;
-  const repositoryAuthorizer = createRepositoryAuthorizer({
-    projects: options.projects,
-    grants: options.repositoryGrants ?? {
-      getByExternalId: getIntegrationConnectionRepositoryGrant,
-      listByName: listIntegrationConnectionRepositoryGrantsByName,
-    },
-    enabled: config.INTEGRATIONS_ENABLE_REPOSITORY_AUTHORIZATION,
-  });
   const sourceControl = createSourceControlIntegrationService({
     registry,
     getIntegrationConnectionById: resolveIntegrationConnectionById,
