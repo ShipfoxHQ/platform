@@ -545,6 +545,7 @@ describe('runJobSteps', () => {
       repository: checkoutResult.repository,
       ref: checkoutResult.ref,
       result: checkoutResult,
+      credentialSubject: `${checkout.id}:2`,
     });
   });
 
@@ -1553,7 +1554,7 @@ describe('runJobSteps', () => {
       .mockResolvedValueOnce({ok: true, cancel: true});
     const getFailureEventCursor = vi.fn().mockReturnValue(0);
     const capturedEvents = [
-      {cursor: 1, repositoryUrl: REPOSITORY, subject: 'checkout-step:1', kind: 'auth' as const},
+      {cursor: 1, repositoryUrl: REPOSITORY, subject: `${setup.id}:1`, kind: 'auth' as const},
     ];
     const credentialFailureEvents: CredentialFailureEventSource = {
       getFailureEventCursor,
@@ -1601,7 +1602,7 @@ describe('runJobSteps', () => {
       getFailureEventCursor: vi.fn().mockReturnValue(3),
       getFailureEventsSince: vi.fn().mockReturnValue([]),
       captureFailureEvents: captureFailureEvents([
-        {cursor: 4, repositoryUrl: REPOSITORY, subject: 'checkout-step:1', kind},
+        {cursor: 4, repositoryUrl: REPOSITORY, subject: `${setup.id}:1`, kind},
       ]),
     };
     const ac = new AbortController();
@@ -1666,6 +1667,49 @@ describe('runJobSteps', () => {
     );
   });
 
+  it('does not attribute a broker event for a different checkout subject', async () => {
+    const setup = buildSetupStep();
+    const run = buildRunStep();
+    executeSetupStepMock.mockResolvedValueOnce({
+      result: {success: true, error: null, exit_code: 0, checkout: buildCheckoutResult()},
+    });
+    requestNextStepMock
+      .mockResolvedValueOnce(stepResponse(setup, 1))
+      .mockResolvedValueOnce(stepResponse(run, 1));
+    executeRunStepMock.mockResolvedValueOnce({
+      success: false,
+      error: {message: 'unrelated command failed', exit_code: 1},
+      exit_code: 1,
+    });
+    reportStepMock
+      .mockResolvedValueOnce({ok: true, cancel: false})
+      .mockResolvedValueOnce({ok: true, cancel: true});
+    const credentialFailureEvents: CredentialFailureEventSource = {
+      getFailureEventCursor: vi.fn().mockReturnValue(0),
+      getFailureEventsSince: vi.fn().mockReturnValue([]),
+      captureFailureEvents: captureFailureEvents([
+        {
+          cursor: 1,
+          repositoryUrl: REPOSITORY,
+          subject: 'other-checkout:1',
+          kind: 'auth',
+        },
+      ]),
+    };
+    const ac = new AbortController();
+
+    await runLoop({signal: ac.signal, credentialFailureEvents});
+
+    expect(reportStepMock).toHaveBeenCalledWith(
+      leaseClient,
+      expect.objectContaining({
+        stepId: run.id,
+        status: 'failed',
+        error: {message: 'unrelated command failed', exit_code: 1},
+      }),
+    );
+  });
+
   it('keeps a caught Git failure successful and does not inherit its event into a later run', async () => {
     const setup = buildSetupStep();
     const caughtRun = buildRunStep({id: '00000000-0000-0000-0000-0000000000c1', position: 1});
@@ -1698,7 +1742,7 @@ describe('runJobSteps', () => {
       .fn()
       .mockImplementationOnce(
         captureFailureEvents([
-          {cursor: 1, repositoryUrl: REPOSITORY, subject: 'checkout-step:1', kind: 'auth' as const},
+          {cursor: 1, repositoryUrl: REPOSITORY, subject: `${setup.id}:1`, kind: 'auth' as const},
         ]),
       )
       .mockImplementationOnce(captureFailureEvents([]));
