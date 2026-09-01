@@ -116,8 +116,9 @@ COPY --from=build /prod ./
 # is not linked onto PATH by pnpm. Keep Git's name-based helper resolution usable in production.
 RUN ln -s /app/dist/git-credential-helper.js /usr/local/bin/git-credential-shipfox
 
-# Verify the production dependency closure contains every Pi extension entry before the image
-# can be published. This runs against the deployed flat layout, not the pnpm development tree.
+# Verify the production dependency closure contains every Pi extension entry and the
+# WASM-backed SVG image-preparation assets before the image can be published. This
+# runs against the deployed flat layout, not the pnpm development tree.
 RUN node ./dist/verify-installation.js
 
 USER shipfox

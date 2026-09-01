@@ -207,6 +207,9 @@ catalogs:
     '@remixicon/react':
       specifier: ^4.6.0
       version: 4.9.0
+    '@resvg/resvg-wasm':
+      specifier: ^2.6.2
+      version: 2.6.2
     '@sentry/node':
       specifier: ^10.44.0
       version: 10.58.0
@@ -6637,6 +6640,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: 'catalog:'
         version: 1.29.0(zod@4.4.3)
+      '@resvg/resvg-wasm':
+        specifier: 'catalog:'
+        version: 2.6.2
       '@shipfox/api-agent-dto':
         specifier: workspace:*
         version: link:../../api/agent-dto
@@ -12175,6 +12181,10 @@ packages:
     resolution: {integrity: sha512-5/jLDD4DtKxH2B4QVXTobvV1C2uL8ab9D5yAYNtFt+w80O0Ys1xFOrspqROL3fjrZi+7ElFUWE37hBfaAl6U+Q==}
     peerDependencies:
       react: '>=18.2.0'
+
+  '@resvg/resvg-wasm@2.6.2':
+    resolution: {integrity: sha512-FqALmHI8D4o6lk/LRWDnhw95z5eO+eAa6ORjVg09YRR7BkcM6oPHU9uyC0gtQG5vpFLvgpeU4+zEAz2H8APHNw==}
+    engines: {node: '>= 10'}
 
   '@rolldown/binding-android-arm64@1.0.3':
     resolution: {integrity: sha512-454rs7jHngixp/NMxd5srYD57OnzSlZ/eFTETjORQHLwJG1lRtmNOJcBerZlfu4GjKqeq8aCCIQrMdHyhI51Hw==}
@@ -22045,6 +22055,8 @@ snapshots:
   '@remixicon/react@4.9.0(react@19.2.7)':
     dependencies:
       react: 19.2.7
+
+  '@resvg/resvg-wasm@2.6.2': {}
 
   '@rolldown/binding-android-arm64@1.0.3':
     optional: true
