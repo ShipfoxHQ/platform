@@ -105,7 +105,7 @@ export interface CreateGithubIntegrationProviderOptions
     | ((params: {workspaceId: string; namespace: string}) => Promise<number>)
     | undefined;
   agentTools?: {tokenProvider: GithubInstallationTokenProvider} | undefined;
-  /** Optional exact-scope cache seam; omitted until checkout-cache activation. */
+  /** Optional exact-scope cache for credential-only checkout delivery. */
   checkoutTokenCache?: GithubCheckoutTokenCachePort | undefined;
 }
 

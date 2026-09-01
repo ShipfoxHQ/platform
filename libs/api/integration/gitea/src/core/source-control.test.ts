@@ -535,6 +535,8 @@ describe('GiteaSourceControlProvider', () => {
     'gitea:shipfox/',
     'gitea:/platform',
     'gitea:shipfox/platform/extra',
+    'gitea:shipfox/.',
+    'gitea:shipfox/..',
     'github:shipfox/platform',
     '',
   ])('rejects the malformed external repository id %s before any api call', async (id) => {
@@ -591,6 +593,81 @@ describe('GiteaSourceControlProvider', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('creates a checkout spec from a name target in the connection account', async () => {
+    const gitea = giteaClient();
+    const provider = new GiteaSourceControlProvider(gitea);
+
+    const result = await provider.createCheckoutSpec({
+      connection: connection(),
+      target: {kind: 'name', owner: 'shipfox', name: 'platform'},
+      ref: 'feature/x',
+    });
+
+    expect(result.repositoryUrl).toBe('https://gitea.example.com/shipfox/platform.git');
+    expect(result.ref).toBe('feature/x');
+    expect(gitea.getRepository).toHaveBeenCalledWith({owner: 'shipfox', repo: 'platform'});
+  });
+
+  it('creates credential-only delivery from a name target in the connection account', async () => {
+    const gitea = giteaClient();
+    const provider = new GiteaSourceControlProvider(gitea);
+
+    await expect(
+      provider.createCheckoutCredentials({
+        connection: connection(),
+        target: {kind: 'name', owner: 'shipfox', name: 'platform'},
+        permissions: {contents: 'read'},
+      }),
+    ).resolves.toMatchObject({username: 'shipfox-bot', token: 'test-service-token'});
+    expect(gitea.getRepository).not.toHaveBeenCalled();
+  });
+
+  it('rejects a name target outside the connection account before any api call', async () => {
+    const gitea = giteaClient();
+    const provider = new GiteaSourceControlProvider(gitea);
+
+    await expect(
+      provider.createCheckoutCredentials({
+        connection: connection(),
+        target: {kind: 'name', owner: 'intruder', name: 'platform'},
+        permissions: {contents: 'read'},
+      }),
+    ).rejects.toMatchObject({reason: 'repository-not-found'});
+    expect(gitea.getRepository).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    '.',
+    '..',
+  ])('rejects dot-segment repository name %s before any api call', async (name) => {
+    const gitea = giteaClient();
+    const provider = new GiteaSourceControlProvider(gitea);
+
+    await expect(
+      provider.createCheckoutSpec({
+        connection: connection(),
+        target: {kind: 'name', owner: 'shipfox', name},
+      }),
+    ).rejects.toMatchObject({reason: 'repository-not-found'});
+    expect(gitea.getRepository).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    '.',
+    '..',
+  ])('rejects dot-segment repository name %s in a legacy external id before any api call', async (name) => {
+    const gitea = giteaClient();
+    const provider = new GiteaSourceControlProvider(gitea);
+
+    await expect(
+      provider.createCheckoutSpec({
+        connection: connection(),
+        externalRepositoryId: `gitea:shipfox/${name}`,
+      }),
+    ).rejects.toMatchObject({reason: 'repository-not-found'});
+    expect(gitea.getRepository).not.toHaveBeenCalled();
   });
 
   it('rejects credential-only delivery outside the connection account before returning credentials', async () => {

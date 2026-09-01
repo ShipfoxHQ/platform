@@ -88,6 +88,11 @@ export interface GithubCheckoutTokenSecretStore {
   deleteNamespace?(params: {workspaceId: string; namespace: string}): Promise<number>;
 }
 
+/**
+ * Exact-scope cache for credential-only checkout delivery. Checkout specs need
+ * the repository metadata returned by the mint and therefore intentionally
+ * bypass this credentials-only interface.
+ */
 export interface GithubCheckoutTokenCachePort {
   getOrMint(
     scope: GithubCheckoutTokenScope,

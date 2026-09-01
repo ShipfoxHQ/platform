@@ -5,6 +5,7 @@ import {
   isValidGitRefName,
   isValidResolvableRef,
   isValidTriggerRef,
+  normalizeCheckoutTarget,
   parseProviderRepositoryId,
 } from './contracts.js';
 
@@ -94,5 +95,36 @@ describe('provider repository identifiers', () => {
     const parse = () => parseProviderRepositoryId(value, 'github');
 
     expect(parse).toThrow(IntegrationProviderError);
+  });
+});
+
+describe('checkout targets', () => {
+  it('normalizes the legacy external id form', () => {
+    expect(normalizeCheckoutTarget({externalRepositoryId: 'github:42'})).toEqual({
+      status: 'valid',
+      target: {
+        kind: 'external-id',
+        externalRepositoryId: 'github:42',
+      },
+    });
+  });
+
+  it('preserves an explicit target', () => {
+    expect(
+      normalizeCheckoutTarget({target: {kind: 'name', owner: 'shipfox', name: 'platform'}}),
+    ).toEqual({
+      status: 'valid',
+      target: {kind: 'name', owner: 'shipfox', name: 'platform'},
+    });
+  });
+
+  it('classifies missing and ambiguous target shapes separately', () => {
+    expect(normalizeCheckoutTarget({})).toEqual({status: 'missing'});
+    expect(
+      normalizeCheckoutTarget({
+        target: {kind: 'name', owner: 'shipfox', name: 'platform'},
+        externalRepositoryId: 'github:42',
+      }),
+    ).toEqual({status: 'ambiguous'});
   });
 });

@@ -113,18 +113,26 @@ export interface GithubApiClient extends Partial<GithubBotUserClient> {
     repositoryId: number;
     ref: string;
   }): Promise<GithubCommit[]>;
-  createInstallationAccessToken(input: {
-    installationId: number;
-    repositoryId: number;
-    permissions?: {contents: 'read' | 'write'} | undefined;
-  }): Promise<GithubInstallationAccessToken>;
+  createInstallationAccessToken(
+    input: GithubInstallationAccessTokenInput,
+  ): Promise<GithubInstallationAccessToken>;
 }
+
+export type GithubInstallationAccessTokenInput = {
+  installationId: number;
+  permissions?: {contents: 'read' | 'write'} | undefined;
+} & (
+  | {repositoryId: number; repositoryName?: never}
+  | {repositoryName: string; repositoryId?: never}
+);
 
 export interface GithubInstallationAccessToken {
   token: string;
   expiresAt: Date;
   permissions?: Record<string, 'read' | 'write' | 'admin'> | undefined;
-  /** GitHub returns this list for repository-scoped installation tokens. */
+  /** GitHub returns the repositories granted to a repository-scoped token. */
+  repositories?: GithubRepository[] | undefined;
+  /** Numeric repository ids retained for exact-scope checkout-cache validation. */
   repositoryIds?: number[] | undefined;
 }
 
@@ -449,15 +457,24 @@ class OctokitGithubApiClient implements GithubApiClient, GithubBotUserClient {
     });
   }
 
-  async createInstallationAccessToken(input: {
-    installationId: number;
-    repositoryId: number;
-    permissions?: {contents: 'read' | 'write'} | undefined;
-  }): Promise<GithubInstallationAccessToken> {
+  async createInstallationAccessToken(
+    input: GithubInstallationAccessTokenInput,
+  ): Promise<GithubInstallationAccessToken> {
+    let repositorySelector: {repositories: string[]} | {repository_ids: number[]};
+    if (input.repositoryName !== undefined) {
+      repositorySelector = {repositories: [input.repositoryName]};
+    } else if (input.repositoryId !== undefined) {
+      repositorySelector = {repository_ids: [input.repositoryId]};
+    } else {
+      throw new GithubIntegrationProviderError(
+        'malformed-provider-response',
+        'GitHub installation access token request did not include a repository',
+      );
+    }
     const response = await mapGithubError(() =>
       this.getApp().octokit.rest.apps.createInstallationAccessToken({
         installation_id: input.installationId,
-        repository_ids: [input.repositoryId],
+        ...repositorySelector,
         permissions: input.permissions ?? {contents: 'read'},
       }),
     );
@@ -479,16 +496,16 @@ class OctokitGithubApiClient implements GithubApiClient, GithubBotUserClient {
       );
     }
 
-    const repositoryIds = Array.isArray(response.data.repositories)
-      ? response.data.repositories
-          .map((repository) => repository.id)
-          .filter((id): id is number => typeof id === 'number' && Number.isSafeInteger(id))
+    const repositories = Array.isArray(response.data.repositories)
+      ? response.data.repositories.map(toGithubRepository)
       : undefined;
+    const repositoryIds = repositories?.map(({id}) => id);
 
     return {
       token: response.data.token,
       expiresAt,
       ...(response.data.permissions === undefined ? {} : {permissions: response.data.permissions}),
+      ...(repositories === undefined ? {} : {repositories}),
       ...(repositoryIds === undefined ? {} : {repositoryIds}),
     };
   }
@@ -700,11 +717,25 @@ function toGithubRepository(repository: {
   full_name: string;
   default_branch?: string | null | undefined;
   private: boolean;
-  visibility?: string | undefined;
+  visibility?: string | null | undefined;
   clone_url?: string | null | undefined;
   html_url?: string | null | undefined;
 }): GithubRepository {
-  if (!repository.default_branch || !repository.clone_url || !repository.html_url) {
+  const ownerLogin = repository.owner?.login;
+  if (
+    !Number.isSafeInteger(repository.id) ||
+    repository.id <= 0 ||
+    !nonEmptyGithubField(ownerLogin) ||
+    !nonEmptyGithubField(repository.name) ||
+    !nonEmptyGithubField(repository.full_name) ||
+    typeof repository.private !== 'boolean' ||
+    (repository.visibility !== undefined &&
+      repository.visibility !== null &&
+      typeof repository.visibility !== 'string') ||
+    !nonEmptyGithubField(repository.default_branch) ||
+    !nonEmptyGithubField(repository.clone_url) ||
+    !nonEmptyGithubField(repository.html_url)
+  ) {
     throw new GithubIntegrationProviderError(
       'malformed-provider-response',
       'GitHub repository response is missing required fields',
@@ -712,13 +743,17 @@ function toGithubRepository(repository: {
   }
   return {
     id: repository.id,
-    ownerLogin: repository.owner.login,
+    ownerLogin,
     name: repository.name,
     fullName: repository.full_name,
     defaultBranch: repository.default_branch,
     private: repository.private,
-    visibility: repository.visibility,
+    visibility: repository.visibility ?? undefined,
     cloneUrl: repository.clone_url,
     htmlUrl: repository.html_url,
   };
+}
+
+function nonEmptyGithubField(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
 }

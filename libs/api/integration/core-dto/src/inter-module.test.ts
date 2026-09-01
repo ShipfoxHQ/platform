@@ -96,6 +96,74 @@ describe('integrationsInterModuleContract', () => {
     ).toThrow();
   });
 
+  test('accepts checkout targets addressed by an external id or owner/name', () => {
+    const workspaceId = '00000000-0000-4000-8000-000000000001';
+    const connectionId = '00000000-0000-4000-8000-000000000002';
+    const projectId = '00000000-0000-4000-8000-000000000003';
+
+    expect(
+      integrationsInterModuleContract.methods.createCheckoutSpec.input.parse({
+        workspaceId,
+        connectionId,
+        projectId,
+        target: {kind: 'external-id', externalRepositoryId: 'github:42'},
+      }),
+    ).toMatchObject({projectId, target: {kind: 'external-id', externalRepositoryId: 'github:42'}});
+
+    expect(
+      integrationsInterModuleContract.methods.createCheckoutCredentials.input.parse({
+        workspaceId,
+        connectionId,
+        target: {kind: 'name', owner: 'shipfox', name: 'platform'},
+        permissions: {contents: 'read'},
+      }).target,
+    ).toEqual({kind: 'name', owner: 'shipfox', name: 'platform'});
+  });
+
+  test('trims name targets and rejects whitespace-only names', () => {
+    const input = {
+      workspaceId: '00000000-0000-4000-8000-000000000001',
+      connectionId: '00000000-0000-4000-8000-000000000002',
+      target: {kind: 'name' as const, owner: ' shipfox ', name: ' platform '},
+    };
+
+    expect(
+      integrationsInterModuleContract.methods.createCheckoutSpec.input.parse(input),
+    ).toMatchObject({target: {kind: 'name', owner: 'shipfox', name: 'platform'}});
+    expect(() =>
+      integrationsInterModuleContract.methods.createCheckoutSpec.input.parse({
+        ...input,
+        target: {kind: 'name', owner: ' ', name: 'platform'},
+      }),
+    ).toThrow();
+  });
+
+  test.each([
+    ['a missing target', {}],
+    [
+      'both target forms',
+      {
+        target: {kind: 'name', owner: 'shipfox', name: 'platform'},
+        externalRepositoryId: 'github:42',
+      },
+    ],
+    [
+      'a caller-supplied clone URL',
+      {
+        target: {kind: 'name', owner: 'shipfox', name: 'platform'},
+        repositoryUrl: 'https://github.com/shipfox/platform.git',
+      },
+    ],
+  ])('rejects checkout input with %s', (_label, extra) => {
+    expect(() =>
+      integrationsInterModuleContract.methods.createCheckoutSpec.input.parse({
+        workspaceId: '00000000-0000-4000-8000-000000000001',
+        connectionId: '00000000-0000-4000-8000-000000000002',
+        ...extra,
+      }),
+    ).toThrow();
+  });
+
   test.each([
     ['connection-not-found', {connectionId: '00000000-0000-4000-8000-000000000001'}],
     ['provider-unavailable', {provider: 'github'}],

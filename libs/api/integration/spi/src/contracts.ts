@@ -123,20 +123,60 @@ export interface CheckoutSpec {
   gitAuthor?: CheckoutGitAuthor | undefined;
 }
 
-export interface CreateCheckoutSpecInput<
-  Connection extends IntegrationConnection = IntegrationConnection,
-> extends ResolveRepositoryInput<Connection> {
-  ref?: string | undefined;
-  permissions?: CheckoutPermissions | undefined;
+export type CheckoutTarget =
+  | {kind: 'external-id'; externalRepositoryId: string}
+  | {kind: 'name'; owner: string; name: string};
+
+/**
+ * Checkout callers may use the legacy external repository id field while
+ * integrations migrate to the explicit target contract. Name targets must be
+ * authorized by the owning project/workflow boundary before reaching the SPI.
+ */
+export interface CheckoutTargetInput {
+  target?: CheckoutTarget | undefined;
+  externalRepositoryId?: string | undefined;
 }
 
-/** Requests credentials without asking the provider to resolve repository metadata. */
-export interface CreateCheckoutCredentialsInput<
+export type CheckoutTargetNormalizationResult =
+  | {status: 'valid'; target: CheckoutTarget}
+  | {status: 'missing'}
+  | {status: 'ambiguous'};
+
+/** Classifies checkout input so callers can preserve missing versus ambiguous errors. */
+export function normalizeCheckoutTarget(
+  input: CheckoutTargetInput,
+): CheckoutTargetNormalizationResult {
+  if (input.target !== undefined && input.externalRepositoryId !== undefined) {
+    return {status: 'ambiguous'};
+  }
+  if (input.target !== undefined) return {status: 'valid', target: input.target};
+  if (input.externalRepositoryId !== undefined) {
+    return {
+      status: 'valid',
+      target: {kind: 'external-id', externalRepositoryId: input.externalRepositoryId},
+    };
+  }
+  return {status: 'missing'};
+}
+
+export type CreateCheckoutSpecInput<
   Connection extends IntegrationConnection = IntegrationConnection,
-> extends ResolveRepositoryInput<Connection> {
+> = {
+  connection: Connection;
+  projectId?: string | undefined;
+  ref?: string | undefined;
+  permissions?: CheckoutPermissions | undefined;
+} & CheckoutTargetInput;
+
+/** Requests credentials without asking the provider to resolve repository metadata. */
+export type CreateCheckoutCredentialsInput<
+  Connection extends IntegrationConnection = IntegrationConnection,
+> = {
+  connection: Connection;
+  projectId?: string | undefined;
   permissions: CheckoutPermissions;
   rejectedGeneration?: string | undefined;
-}
+} & CheckoutTargetInput;
 
 export interface TriggerReference {
   externalRepositoryId: string;

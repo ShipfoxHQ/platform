@@ -256,8 +256,60 @@ describe('integration source-control service', () => {
       ref: 'feature/x',
     });
     expect(createCheckoutSpec).toHaveBeenCalledWith(
-      expect.objectContaining({permissions: {contents: 'write'}}),
+      expect.objectContaining({
+        target: {kind: 'external-id', externalRepositoryId: 'gitea:gitea-owner/platform'},
+        permissions: {contents: 'write'},
+      }),
     );
+  });
+
+  it('forwards a name target and optional project association to the provider', async () => {
+    const createCheckoutSpec = vi.fn(
+      async (input: Parameters<NonNullable<SourceControlProvider['createCheckoutSpec']>>[0]) => {
+        await Promise.resolve();
+        return {repositoryUrl: repository.cloneUrl, ref: input.ref ?? repository.defaultBranch};
+      },
+    );
+    const service = createService({createCheckoutSpec});
+    const projectId = crypto.randomUUID();
+
+    await service.createCheckoutSpec({
+      workspaceId,
+      connectionId: connection.id,
+      projectId,
+      target: {kind: 'name', owner: 'acme', name: 'platform'},
+      ref: 'feature/x',
+    });
+
+    expect(createCheckoutSpec).toHaveBeenCalledWith({
+      connection,
+      projectId,
+      target: {kind: 'name', owner: 'acme', name: 'platform'},
+      ref: 'feature/x',
+      permissions: undefined,
+    });
+  });
+
+  it('preserves distinct errors for missing and ambiguous checkout targets', async () => {
+    const service = createService();
+
+    await expect(
+      service.createCheckoutSpec({workspaceId, connectionId: connection.id}),
+    ).rejects.toMatchObject({
+      reason: 'repository-not-found',
+      message: 'Checkout input must include exactly one target or external repository id',
+    });
+    await expect(
+      service.createCheckoutSpec({
+        workspaceId,
+        connectionId: connection.id,
+        target: {kind: 'name', owner: 'acme', name: 'platform'},
+        externalRepositoryId: repository.externalRepositoryId,
+      }),
+    ).rejects.toMatchObject({
+      reason: 'provider-rejected',
+      message: 'Checkout input cannot include both a target and an external repository id',
+    });
   });
 
   it('rejects a checkout spec for a connection in another workspace', async () => {
