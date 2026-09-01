@@ -1,48 +1,24 @@
 ---
 title: "Getting Started with Shipfox: Run Your First Workflow"
 sidebarTitle: "Quick Start"
-description: "Connect a project, add a workflow, and verify a command and agent step in your first Shipfox run."
+description: "Add a workflow and verify a command and agent step in your first Shipfox run."
 ---
 
-In this lesson, you will connect a test repository and run one complete
-workflow. The final run prints a command result and contains an agent summary
-based on the repository's files.
+In this lesson, you will add a complete workflow to a test repository and run
+it. The final run prints a command result and contains an agent summary based
+on the repository's files.
 
 ## Before you begin
 
-This lesson starts from a Shipfox workspace you already have access to. In that
-workspace, you need:
-
-- A [source integration connection](/integrations) that can read the test
-  repository.
-- A configured [model provider and workspace agent
-  defaults](/how-to/set-up-work/configure-model-providers).
-- Runner capacity that matches the `runner:` value in the workflow below. See
-  [Runner labels](/reference/runner-labels).
+This lesson starts with a Shipfox project connected to a repository where you
+can push a test workflow. If your workspace needs more setup, the in-product
+**Get started** guide lists the next step. Open it from the workspace home or
+the **Get started** button in the top bar.
 
 <Callout type="info">
-  No workspace yet? Getting one is a separate task. See
-  [Installation](/installation).
+  No project yet? Open your workspace and follow its setup flow. No workspace
+  yet? See [Installation](/installation).
 </Callout>
-
-## Connect your project
-
-A project connects one repository to Shipfox and is the container for all workflows, runs, and settings related to that repo.
-
-<Steps>
-  <Step>
-
-    **Create a project**
-
-    Open your Shipfox workspace dashboard and create a project. Pick the source integration connection, then the repository. The project name is pre-filled from the repository and can be edited.
-  </Step>
-  <Step>
-
-    **Connect the repository**
-
-    Shipfox reads workflow files from `.shipfox/workflows/` in the default branch. No extra configuration is needed: any `.yaml` or `.yml` file in that directory is treated as a workflow definition.
-  </Step>
-</Steps>
 
 ## Add your first workflow
 
@@ -105,9 +81,9 @@ tool calls, token use, cost, and final response remain in the step log.
 
 ## What you built
 
-You connected one repository, synced a complete workflow, and started it with a
-manual trigger. One job ran a fixed command and an agent in the same checkout.
-The run now provides a visible record of both steps and their results.
+You added a complete workflow and started it with a manual trigger. One job ran
+a fixed command and an agent in the same checkout. The run now provides a
+visible record of both steps and their results.
 
 ## Next steps
 
