@@ -77,6 +77,13 @@ function WorkspaceSetupChecklistForWorkspace({workspace}: {workspace: WorkspaceR
   const expandable =
     queryState.baseSettled && !showCompletion && queryState.checklist.items.length > 1;
 
+  // `trackedCount` only stops moving once every family has reported, so a count
+  // shown before then can read "3 of 3 done" over rows that have yet to arrive.
+  const countLabel =
+    queryState.baseSettled && queryState.optionalSettled
+      ? checklistCountLabel(queryState.checklist)
+      : undefined;
+
   const expansionControl: ChecklistExpansionControl | undefined = expandable
     ? {
         expanded,
@@ -89,11 +96,7 @@ function WorkspaceSetupChecklistForWorkspace({workspace}: {workspace: WorkspaceR
   return (
     <Panel asChild className="w-full">
       <section aria-label="Get started">
-        <ChecklistHeader
-          count={queryState.baseSettled ? checklistCountLabel(queryState.checklist) : undefined}
-          expansion={expansionControl}
-          onDismiss={dismiss}
-        />
+        <ChecklistHeader count={countLabel} expansion={expansionControl} onDismiss={dismiss} />
         <PanelBody id={bodyId}>
           <ChecklistPanelBody
             queryState={queryState}

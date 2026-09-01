@@ -40,6 +40,7 @@ const WORKSPACE: WorkspaceReference = {id: 'test-workspace', slug: 'acme'};
 const OTHER_WORKSPACE: WorkspaceReference = {id: 'other-test-workspace', slug: 'acme'};
 const GET_STARTED_BUTTON_RE = /Get started/u;
 const SHOW_ALL_STEPS_RE = /Show all/u;
+const DONE_COUNT_RE = /\d+ of \d+ done/u;
 const now = new Date().toISOString();
 const githubProvider: IntegrationProvider = {
   provider: 'github',
@@ -705,6 +706,8 @@ describe('workspace checklist hosts', () => {
 
     expect(await screen.findByRole('status', {name: 'Loading setup guide'})).toBeInTheDocument();
     expect(screen.queryByText('Push your first workflow')).not.toBeInTheDocument();
+    // The tracked rows are still hidden, so no count may claim they are done.
+    expect(screen.queryByText(DONE_COUNT_RE)).not.toBeInTheDocument();
   });
 
   test('does not render an initially complete checklist without a transition', async () => {
