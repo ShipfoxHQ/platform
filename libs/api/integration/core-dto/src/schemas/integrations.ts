@@ -1,4 +1,5 @@
 import {z} from 'zod';
+import {isSafeExternalRepositoryValue, isSafeRepositoryPart} from '../repository-identifiers.js';
 
 export const CONNECTION_SLUG_MAX_LENGTH = 100;
 
@@ -24,6 +25,10 @@ export type IntegrationCapabilityDto = z.infer<typeof integrationCapabilitySchem
 export const integrationConnectionLifecycleStatusSchema = z.enum(['active', 'disabled', 'error']);
 export type IntegrationConnectionLifecycleStatusDto = z.infer<
   typeof integrationConnectionLifecycleStatusSchema
+>;
+export const integrationConnectionRepositoryAccessModeSchema = z.enum(['selected', 'all']);
+export type IntegrationConnectionRepositoryAccessModeDto = z.infer<
+  typeof integrationConnectionRepositoryAccessModeSchema
 >;
 export const updateIntegrationConnectionLifecycleStatusSchema = z.enum(['active', 'disabled']);
 export type UpdateIntegrationConnectionLifecycleStatusDto = z.infer<
@@ -87,6 +92,46 @@ export const updateIntegrationConnectionBodySchema = z.object({
 });
 export type UpdateIntegrationConnectionBodyDto = z.infer<
   typeof updateIntegrationConnectionBodySchema
+>;
+
+export const updateIntegrationConnectionRepositoryAccessBodySchema = z.object({
+  mode: integrationConnectionRepositoryAccessModeSchema,
+});
+export type UpdateIntegrationConnectionRepositoryAccessBodyDto = z.infer<
+  typeof updateIntegrationConnectionRepositoryAccessBodySchema
+>;
+
+const repositoryExternalIdSchema = z.string().min(1).max(255).refine(isSafeExternalRepositoryValue);
+const repositoryPartSchema = z.string().min(1).max(255).refine(isSafeRepositoryPart);
+
+export const createIntegrationConnectionRepositoryGrantBodySchema = z.object({
+  external_repository_id: repositoryExternalIdSchema,
+  owner: repositoryPartSchema,
+  name: repositoryPartSchema,
+});
+export type CreateIntegrationConnectionRepositoryGrantBodyDto = z.infer<
+  typeof createIntegrationConnectionRepositoryGrantBodySchema
+>;
+
+export const integrationConnectionRepositoryGrantDtoSchema = z.object({
+  id: z.string().uuid(),
+  connection_id: z.string().uuid(),
+  workspace_id: z.string().uuid(),
+  external_repository_id: z.string().min(1).max(255),
+  owner: z.string().min(1).max(255),
+  name: z.string().min(1).max(255),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type IntegrationConnectionRepositoryGrantDto = z.infer<
+  typeof integrationConnectionRepositoryGrantDtoSchema
+>;
+
+export const updateIntegrationConnectionRepositoryAccessResponseSchema = z.object({
+  mode: integrationConnectionRepositoryAccessModeSchema,
+});
+export type UpdateIntegrationConnectionRepositoryAccessResponseDto = z.infer<
+  typeof updateIntegrationConnectionRepositoryAccessResponseSchema
 >;
 
 export const listRepositoriesParamsSchema = z.object({

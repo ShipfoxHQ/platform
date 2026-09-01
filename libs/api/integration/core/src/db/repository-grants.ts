@@ -40,6 +40,26 @@ export async function upsertIntegrationConnectionRepositoryGrant(
     .for('update');
   if (!connection) return undefined;
 
+  const [existing] = await options.tx
+    .select()
+    .from(integrationConnectionRepositoryGrants)
+    .where(
+      and(
+        eq(integrationConnectionRepositoryGrants.connectionId, params.connectionId),
+        eq(integrationConnectionRepositoryGrants.externalRepositoryId, params.externalRepositoryId),
+      ),
+    )
+    .limit(1)
+    .for('update');
+  if (
+    existing &&
+    existing.workspaceId === connection.workspaceId &&
+    existing.repositoryOwner === params.repositoryOwner &&
+    existing.repositoryName === params.repositoryName
+  ) {
+    return toIntegrationConnectionRepositoryGrant(existing);
+  }
+
   const [row] = await options.tx
     .insert(integrationConnectionRepositoryGrants)
     .values({
@@ -189,6 +209,41 @@ export async function deleteIntegrationConnectionRepositoryGrant(
     {tx: options.tx},
   );
   return deleted > 0;
+}
+
+export interface DeleteIntegrationConnectionRepositoryGrantByIdParams {
+  connectionId: string;
+  grantId: string;
+}
+
+export async function deleteIntegrationConnectionRepositoryGrantById(
+  params: DeleteIntegrationConnectionRepositoryGrantByIdParams,
+  options: {tx?: Executor | undefined} = {},
+): Promise<IntegrationConnectionRepositoryGrant | undefined> {
+  if (options.tx === undefined) {
+    return await db().transaction((tx) =>
+      deleteIntegrationConnectionRepositoryGrantById(params, {tx}),
+    );
+  }
+
+  const [connection] = await options.tx
+    .select({id: integrationConnections.id})
+    .from(integrationConnections)
+    .where(eq(integrationConnections.id, params.connectionId))
+    .limit(1)
+    .for('update');
+  if (!connection) return undefined;
+
+  const [row] = await options.tx
+    .delete(integrationConnectionRepositoryGrants)
+    .where(
+      and(
+        eq(integrationConnectionRepositoryGrants.id, params.grantId),
+        eq(integrationConnectionRepositoryGrants.connectionId, params.connectionId),
+      ),
+    )
+    .returning();
+  return row ? toIntegrationConnectionRepositoryGrant(row) : undefined;
 }
 
 export async function deleteIntegrationConnectionRepositoryGrantsByExternalRepositoryIds(

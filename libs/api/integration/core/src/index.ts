@@ -244,6 +244,8 @@ export interface CreateIntegrationsModuleOptions {
   projects?: ProjectsModuleClient | undefined;
   /** Test seam for composing repository authorization without the grants database. */
   repositoryGrants?: RepositoryAuthorizationGrantStore | undefined;
+  /** Test seam for composing repository authorization without configuration. */
+  repositoryAuthorizer?: RepositoryAuthorizer | undefined;
   /** Test seam for composing checkout authorization without a database connection. */
   getIntegrationConnectionById?: GetIntegrationConnectionByIdFn | undefined;
   workspaces?: WorkspacesInterModuleClient | undefined;
@@ -290,14 +292,16 @@ export async function createIntegrationsModule(
 export async function createIntegrationsContext(
   options: CreateIntegrationsModuleOptions = {},
 ): Promise<IntegrationsContext> {
-  const repositoryAuthorizer = createRepositoryAuthorizer({
-    projects: options.projects,
-    grants: options.repositoryGrants ?? {
-      getByExternalId: getIntegrationConnectionRepositoryGrant,
-      listByName: listIntegrationConnectionRepositoryGrantsByName,
-    },
-    enabled: config.INTEGRATIONS_ENABLE_REPOSITORY_AUTHORIZATION,
-  });
+  const repositoryAuthorizer =
+    options.repositoryAuthorizer ??
+    createRepositoryAuthorizer({
+      projects: options.projects,
+      grants: options.repositoryGrants ?? {
+        getByExternalId: getIntegrationConnectionRepositoryGrant,
+        listByName: listIntegrationConnectionRepositoryGrantsByName,
+      },
+      enabled: config.INTEGRATIONS_ENABLE_REPOSITORY_AUTHORIZATION,
+    });
   const workspaces = options.workspaces;
   const parts: IntegrationModuleParts[] =
     options.parts ??
@@ -362,6 +366,7 @@ export async function createIntegrationsContext(
       ...parts.flatMap((part) => (part.database ? [part.database] : [])),
     ],
     routes: createIntegrationRoutes(registry, sourceControl, {
+      repositoryAuthorization: repositoryAuthorizer,
       agentTools: options.agentTools
         ? {
             workflows: options.agentTools.workflows,

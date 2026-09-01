@@ -15,8 +15,14 @@ import {
   createDeleteIntegrationConnectionRoute,
   createUpdateIntegrationConnectionRoute,
 } from './manage-connections.js';
+import {createRepositoryAccessMutationRoutes} from './repository-access.js';
 
 export interface CreateIntegrationRoutesOptions {
+  repositoryAuthorization?:
+    | {
+        invalidateRepositoryAuthorizationCache?: ((connectionId: string) => void) | undefined;
+      }
+    | undefined;
   agentTools?:
     | {
         workflows: WorkflowsModuleClient;
@@ -48,6 +54,11 @@ export function createIntegrationRoutes(
     createListIntegrationConnectionsRoute(registry),
     createUpdateIntegrationConnectionRoute(registry),
     createDeleteIntegrationConnectionRoute(registry),
+    ...createRepositoryAccessMutationRoutes({
+      registry,
+      invalidateRepositoryAuthorizationCache:
+        options.repositoryAuthorization?.invalidateRepositoryAuthorizationCache,
+    }),
     createListRepositoriesRoute(sourceControl),
     ...agentToolsRoutes,
     ...providerRoutes,

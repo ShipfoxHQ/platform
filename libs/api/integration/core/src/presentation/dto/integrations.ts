@@ -3,6 +3,7 @@ import type {
   IntegrationCapability,
   RegisteredIntegrationProvider,
 } from '#core/entities/provider.js';
+import type {IntegrationConnectionRepositoryGrant} from '#core/entities/repository-grant.js';
 import type {RepositorySnapshot} from '#core/providers/source-control.js';
 
 export function toIntegrationProviderDto(provider: RegisteredIntegrationProvider) {
@@ -54,5 +55,18 @@ export function toRepositoryDto(connectionId: string, repository: RepositorySnap
     visibility: repository.visibility,
     clone_url: repository.cloneUrl,
     html_url: repository.htmlUrl,
+  };
+}
+
+export function toRepositoryGrantDto(grant: IntegrationConnectionRepositoryGrant) {
+  return {
+    id: grant.id,
+    connection_id: grant.connectionId,
+    workspace_id: grant.workspaceId,
+    external_repository_id: grant.externalRepositoryId,
+    owner: grant.repositoryOwner,
+    name: grant.repositoryName,
+    created_at: grant.createdAt.toISOString(),
+    updated_at: grant.updatedAt.toISOString(),
   };
 }

@@ -9,28 +9,40 @@ import {afterEach, beforeEach} from '@shipfox/vitest/vi';
 import {sql} from 'drizzle-orm';
 import type {FastifyInstance, FastifyRequest} from 'fastify';
 import {db} from '#db/db.js';
-import {createIntegrationsModule, type IntegrationProvider} from '#index.js';
+import {
+  createIntegrationsModule,
+  type IntegrationProvider,
+  type RepositoryAuthorizer,
+} from '#index.js';
 
 let authenticatedMemberships: UserContextMembership[] = [];
 
-const fakeUserAuth: AuthMethod = {
-  name: AUTH_USER,
-  authenticate: (request: FastifyRequest) => {
-    if (request.headers.authorization !== 'Bearer user') {
-      throw new ClientError('Invalid user token', 'unauthorized', {status: 401});
-    }
+function createFakeUserAuth(memberships: ReadonlyArray<UserContextMembership>): AuthMethod {
+  return {
+    name: AUTH_USER,
+    authenticate: (request: FastifyRequest) => {
+      if (
+        request.headers.authorization !== 'Bearer user' &&
+        request.headers.authorization !== 'Bearer impersonated'
+      ) {
+        throw new ClientError('Invalid user token', 'unauthorized', {status: 401});
+      }
 
-    setUserContext(
-      request,
-      buildUserContext({
-        userId: 'user-1',
-        email: 'user@example.com',
-        memberships: authenticatedMemberships,
-      }),
-    );
-    return Promise.resolve();
-  },
-};
+      setUserContext(
+        request,
+        buildUserContext({
+          userId: 'user-1',
+          email: 'user@example.com',
+          memberships,
+          ...(request.headers.authorization === 'Bearer impersonated'
+            ? {impersonatorId: 'impersonator-1'}
+            : {}),
+        }),
+      );
+      return Promise.resolve();
+    },
+  };
+}
 
 export function sourceProvider(overrides: Partial<IntegrationProvider> = {}): IntegrationProvider {
   return {
@@ -79,10 +91,22 @@ export function sourceProvider(overrides: Partial<IntegrationProvider> = {}): In
   };
 }
 
-export async function createTestApp(providers: IntegrationProvider[]): Promise<FastifyInstance> {
-  const integrationsModule = await createIntegrationsModule({providers});
+export interface CreateTestAppOptions {
+  memberships?: ReadonlyArray<UserContextMembership> | undefined;
+  repositoryAuthorizer?: RepositoryAuthorizer | undefined;
+}
+
+export async function createTestApp(
+  providers: IntegrationProvider[],
+  options: CreateTestAppOptions = {},
+): Promise<FastifyInstance> {
+  const memberships = options.memberships ?? authenticatedMemberships;
+  const integrationsModule = await createIntegrationsModule({
+    providers,
+    repositoryAuthorizer: options.repositoryAuthorizer,
+  });
   const app = await createApp({
-    auth: [fakeUserAuth],
+    auth: [createFakeUserAuth(memberships)],
     routes: integrationsModule.routes ?? [],
     swagger: false,
   });
