@@ -57,13 +57,16 @@ export class WorkspaceHomeScreen {
       await this.page.goto(workspacePath);
       return;
     }
-    const projectsTab = this.page.getByRole('tab', {name: 'Projects'});
+    const projectsTab = this.page.locator(`a[role="tab"][href="${workspacePath}"]`);
     if ((await projectsTab.count()) === 1) {
       await projectsTab.click({noWaitAfter: true});
     } else {
-      await this.page
-        .locator(`a[aria-current="page"][href="${workspacePath}"]`)
-        .click({noWaitAfter: true});
+      const workspaceCrumb = this.page.locator(`a[aria-current="page"][href="${workspacePath}"]`);
+      if ((await workspaceCrumb.count()) === 1) {
+        await workspaceCrumb.click({noWaitAfter: true});
+      } else {
+        await this.page.goto(workspacePath, {waitUntil: 'commit'});
+      }
     }
     await this.page.waitForURL(new RegExp(`/w/${workspaceSlug}/?$`, 'u'));
     await this.page
