@@ -22,6 +22,7 @@ import {
 } from '#core/providers/registry.js';
 import {
   createRepositoryAuthorizer,
+  type RepositoryAuthorizationGrantStore,
   type RepositoryAuthorizer,
 } from '#core/repository-authorizer.js';
 import {
@@ -34,6 +35,10 @@ import {
 } from '#db/connections.js';
 import {db} from '#db/db.js';
 import {migrationsPath} from '#db/migrations.js';
+import {
+  getIntegrationConnectionRepositoryGrant,
+  listIntegrationConnectionRepositoryGrantsByName,
+} from '#db/repository-grants.js';
 import {integrationsOutbox} from '#db/schema/outbox.js';
 import {createIntegrationsInterModulePresentation} from '#presentation/inter-module.js';
 import {createIntegrationRoutes} from '#presentation/routes/index.js';
@@ -147,6 +152,8 @@ export type {
   RepositoryAuthorizationClientErrorCode,
   RepositoryAuthorizationDenial,
   RepositoryAuthorizationExternalIdTarget,
+  RepositoryAuthorizationGrant,
+  RepositoryAuthorizationGrantStore,
   RepositoryAuthorizationMode,
   RepositoryAuthorizationNameTarget,
   RepositoryAuthorizationRequestContext,
@@ -235,6 +242,8 @@ export interface CreateIntegrationsModuleOptions {
   parts?: IntegrationModuleParts[] | undefined;
   secrets?: IntegrationProviderSecrets | undefined;
   projects?: ProjectsModuleClient | undefined;
+  /** Test seam for composing repository authorization without the grants database. */
+  repositoryGrants?: RepositoryAuthorizationGrantStore | undefined;
   /** Test seam for composing checkout authorization without a database connection. */
   getIntegrationConnectionById?: GetIntegrationConnectionByIdFn | undefined;
   workspaces?: WorkspacesInterModuleClient | undefined;
@@ -313,6 +322,10 @@ export async function createIntegrationsContext(
     options.getIntegrationConnectionById ?? getIntegrationConnectionById;
   const repositoryAuthorizer = createRepositoryAuthorizer({
     projects: options.projects,
+    grants: options.repositoryGrants ?? {
+      getByExternalId: getIntegrationConnectionRepositoryGrant,
+      listByName: listIntegrationConnectionRepositoryGrantsByName,
+    },
     enabled: config.INTEGRATIONS_ENABLE_REPOSITORY_AUTHORIZATION,
   });
   const sourceControl = createSourceControlIntegrationService({

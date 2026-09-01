@@ -3,6 +3,7 @@ import {RepositoryAuthorizerConfigurationError} from './errors.js';
 import {
   createRepositoryAuthorizationRequestContext,
   createRepositoryAuthorizer,
+  type RepositoryAuthorizationGrantStore,
   RepositoryAuthorizationTargetInvalidError,
   repositoryAuthorizationClientErrorCode,
   repositoryAuthorizationClientErrorCodes,
@@ -33,6 +34,16 @@ function createProjects(
     findProjectBySourceRepositoryName: vi.fn().mockResolvedValue({projects: []}),
     ...overrides,
   } as unknown as ProjectsModuleClient;
+}
+
+function createGrants(
+  overrides: Partial<RepositoryAuthorizationGrantStore> = {},
+): RepositoryAuthorizationGrantStore {
+  return {
+    getByExternalId: vi.fn().mockResolvedValue(undefined),
+    listByName: vi.fn().mockResolvedValue([]),
+    ...overrides,
+  };
 }
 
 function selectedInput(
@@ -125,6 +136,31 @@ describe('repository authorization', () => {
     ).resolves.toEqual({authorized: false, reason: 'repository_not_granted'});
   });
 
+  it('authorizes an exact external-id manual grant', async () => {
+    const grants = createGrants({
+      getByExternalId: vi.fn().mockResolvedValue({
+        externalRepositoryId: 'github:42',
+        repositoryOwner: 'Shipfox',
+        repositoryName: 'Platform',
+      }),
+    });
+
+    await expect(
+      resolveRepositoryAuthorization({
+        projects: createProjects(),
+        grants,
+        ...selectedInput({kind: 'external-id', externalRepositoryId: 'github:42'}),
+      }),
+    ).resolves.toEqual({
+      authorized: true,
+      repository: {
+        externalRepositoryId: 'github:42',
+        owner: 'Shipfox',
+        name: 'Platform',
+      },
+    });
+  });
+
   it('passes selected external IDs through as exact project lookup keys', async () => {
     const getProjectBySource = vi.fn().mockResolvedValue({
       project: {
@@ -191,6 +227,105 @@ describe('repository authorization', () => {
     ).resolves.toEqual({authorized: false, reason: 'repository_not_granted'});
   });
 
+  it('authorizes a name matched by a manual grant without a project', async () => {
+    const grants = createGrants({
+      listByName: vi.fn().mockResolvedValue([
+        {
+          externalRepositoryId: 'github:42',
+          repositoryOwner: 'Shipfox',
+          repositoryName: 'Platform',
+        },
+      ]),
+    });
+
+    await expect(
+      resolveRepositoryAuthorization({
+        projects: createProjects(),
+        grants,
+        ...selectedInput({kind: 'name', owner: 'shipfox', name: 'platform'}),
+      }),
+    ).resolves.toEqual({
+      authorized: true,
+      repository: {
+        externalRepositoryId: 'github:42',
+        owner: 'Shipfox',
+        name: 'Platform',
+      },
+    });
+  });
+
+  it('deduplicates project and manual-grant provenance by external repository id', async () => {
+    const projects = createProjects({
+      findProjectBySourceRepositoryName: vi.fn().mockResolvedValue({
+        projects: [
+          {
+            id: 'project-1',
+            sourceExternalRepositoryId: 'github:42',
+            sourceRepositoryOwner: 'shipfox',
+            sourceRepositoryName: 'platform',
+          },
+        ],
+      }),
+    });
+    const grants = createGrants({
+      listByName: vi.fn().mockResolvedValue([
+        {
+          externalRepositoryId: 'github:42',
+          repositoryOwner: 'Shipfox',
+          repositoryName: 'Platform',
+        },
+      ]),
+    });
+
+    await expect(
+      resolveRepositoryAuthorization({
+        projects,
+        grants,
+        ...selectedInput({kind: 'name', owner: 'shipfox', name: 'platform'}),
+      }),
+    ).resolves.toEqual({
+      authorized: true,
+      repository: {
+        externalRepositoryId: 'github:42',
+        owner: 'shipfox',
+        name: 'platform',
+      },
+      targetProjectId: 'project-1',
+    });
+  });
+
+  it('denies a name when project and manual-grant matches have distinct ids', async () => {
+    const projects = createProjects({
+      findProjectBySourceRepositoryName: vi.fn().mockResolvedValue({
+        projects: [
+          {
+            id: 'project-1',
+            sourceExternalRepositoryId: 'github:42',
+            sourceRepositoryOwner: 'shipfox',
+            sourceRepositoryName: 'platform',
+          },
+        ],
+      }),
+    });
+    const grants = createGrants({
+      listByName: vi.fn().mockResolvedValue([
+        {
+          externalRepositoryId: 'github:43',
+          repositoryOwner: 'shipfox',
+          repositoryName: 'platform',
+        },
+      ]),
+    });
+
+    await expect(
+      resolveRepositoryAuthorization({
+        projects,
+        grants,
+        ...selectedInput({kind: 'name', owner: 'shipfox', name: 'platform'}),
+      }),
+    ).resolves.toEqual({authorized: false, reason: 'repository_ambiguous'});
+  });
+
   it('denies an ambiguous name after deduplicating rows by external repository id', async () => {
     const projects = createProjects({
       findProjectBySourceRepositoryName: vi.fn().mockResolvedValue({
@@ -247,10 +382,15 @@ describe('repository authorization', () => {
       getProjectBySource: vi.fn().mockRejectedValue(new Error('must not be called')),
       findProjectBySourceRepositoryName: vi.fn().mockRejectedValue(new Error('must not be called')),
     });
+    const grants = createGrants({
+      getByExternalId: vi.fn().mockRejectedValue(new Error('must not be called')),
+      listByName: vi.fn().mockRejectedValue(new Error('must not be called')),
+    });
 
     await expect(
       resolveRepositoryAuthorization({
         projects,
+        grants,
         ...selectedInput({kind: 'external-id', externalRepositoryId: 'github:42'}),
         mode: 'all',
       }),
@@ -261,6 +401,7 @@ describe('repository authorization', () => {
     await expect(
       resolveRepositoryAuthorization({
         projects,
+        grants,
         ...selectedInput({kind: 'name', owner: 'shipfox', name: 'platform'}),
         mode: 'all',
       }),
@@ -270,6 +411,8 @@ describe('repository authorization', () => {
     });
     expect(projects.getProjectBySource).not.toHaveBeenCalled();
     expect(projects.findProjectBySourceRepositoryName).not.toHaveBeenCalled();
+    expect(grants.getByExternalId).not.toHaveBeenCalled();
+    expect(grants.listByName).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -348,6 +491,99 @@ describe('repository authorization', () => {
       authorized: true,
       repository: {externalRepositoryId: 'github:42'},
       targetProjectId: 'project-1',
+    });
+    expect(getProjectBySource).toHaveBeenCalledTimes(2);
+  });
+
+  it('shares positive selected decisions for 30 seconds and then refreshes them', async () => {
+    let now = 0;
+    const getProjectBySource = vi.fn().mockResolvedValue({
+      project: {
+        id: 'project-1',
+        sourceExternalRepositoryId: 'github:42',
+      },
+    });
+    const authorizer = createRepositoryAuthorizer({
+      projects: createProjects({getProjectBySource}),
+      grants: createGrants(),
+      enabled: true,
+      now: () => now,
+    });
+    const input = selectedInput({kind: 'external-id', externalRepositoryId: 'github:42'});
+
+    await authorizer.resolveRepositoryAuthorization({
+      ...input,
+      request: createRepositoryAuthorizationRequestContext(),
+    });
+    await authorizer.resolveRepositoryAuthorization({
+      ...input,
+      request: createRepositoryAuthorizationRequestContext(),
+    });
+    expect(getProjectBySource).toHaveBeenCalledOnce();
+
+    now = 30_000;
+    await authorizer.resolveRepositoryAuthorization({
+      ...input,
+      request: createRepositoryAuthorizationRequestContext(),
+    });
+    expect(getProjectBySource).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not share denials between request contexts', async () => {
+    const getProjectBySource = vi
+      .fn()
+      .mockResolvedValueOnce({project: null})
+      .mockResolvedValueOnce({
+        project: {
+          id: 'project-1',
+          sourceExternalRepositoryId: 'github:42',
+        },
+      });
+    const authorizer = createRepositoryAuthorizer({
+      projects: createProjects({getProjectBySource}),
+      grants: createGrants(),
+      enabled: true,
+    });
+    const input = selectedInput({kind: 'external-id', externalRepositoryId: 'github:42'});
+
+    await expect(
+      authorizer.resolveRepositoryAuthorization({
+        ...input,
+        request: createRepositoryAuthorizationRequestContext(),
+      }),
+    ).resolves.toEqual({authorized: false, reason: 'repository_not_granted'});
+    await expect(
+      authorizer.resolveRepositoryAuthorization({
+        ...input,
+        request: createRepositoryAuthorizationRequestContext(),
+      }),
+    ).resolves.toMatchObject({authorized: true});
+    expect(getProjectBySource).toHaveBeenCalledTimes(2);
+  });
+
+  it('invalidates positive decisions for a connection immediately', async () => {
+    const getProjectBySource = vi.fn().mockResolvedValue({
+      project: {
+        id: 'project-1',
+        sourceExternalRepositoryId: 'github:42',
+      },
+    });
+    const authorizer = createRepositoryAuthorizer({
+      projects: createProjects({getProjectBySource}),
+      grants: createGrants(),
+      enabled: true,
+    });
+    const input = selectedInput({kind: 'external-id', externalRepositoryId: 'github:42'});
+
+    await expect(authorizer.resolveRepositoryAuthorization(input)).resolves.toMatchObject({
+      authorized: true,
+    });
+    getProjectBySource.mockResolvedValue({project: null});
+    authorizer.invalidateRepositoryAuthorizationCache?.(connectionId);
+
+    await expect(authorizer.resolveRepositoryAuthorization(input)).resolves.toEqual({
+      authorized: false,
+      reason: 'repository_not_granted',
     });
     expect(getProjectBySource).toHaveBeenCalledTimes(2);
   });

@@ -107,7 +107,7 @@ export interface CreateIntegrationSourceControlServiceOptions {
     connectionId: string,
   ) => Promise<IntegrationConnection | undefined>;
   repositoryAuthorizer?: RepositoryAuthorizer | undefined;
-  /** Trusted server-side seam for the future per-connection repository mode. */
+  /** Trusted server-side seam for overriding the persisted per-connection repository mode. */
   getRepositoryAuthorizationMode?:
     | ((
         connection: IntegrationConnection,
@@ -119,7 +119,7 @@ export function createSourceControlIntegrationService({
   registry,
   getIntegrationConnectionById,
   repositoryAuthorizer,
-  getRepositoryAuthorizationMode = () => 'selected',
+  getRepositoryAuthorizationMode = (connection) => connection.repositoryAccessMode,
 }: CreateIntegrationSourceControlServiceOptions): IntegrationSourceControlService {
   async function getConnection(connectionId: string): Promise<IntegrationConnection> {
     const connection = await getIntegrationConnectionById(connectionId);
