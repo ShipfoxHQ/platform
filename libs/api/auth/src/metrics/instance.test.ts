@@ -52,6 +52,27 @@ describe('auth metrics', () => {
     expect(counterAdd('auth_rate_limit_prune_failures')).toHaveBeenCalledWith(1);
   });
 
+  it('records token issuance and verification outcomes by token type', () => {
+    metrics.recordTokenIssued('agent_access');
+    metrics.recordTokenVerified('agent_access', 'rejected');
+
+    expect(counterAdd('auth_token_issued')).toHaveBeenCalledWith(1, {
+      token_type: 'agent_access',
+    });
+    expect(counterAdd('auth_token_verified')).toHaveBeenCalledWith(1, {
+      token_type: 'agent_access',
+      outcome: 'rejected',
+    });
+  });
+
+  it('records refresh-token reuse as a security outcome', () => {
+    metrics.recordTokenRefreshed('reused');
+
+    expect(counterAdd('auth_token_refreshed')).toHaveBeenCalledWith(1, {
+      outcome: 'reused',
+    });
+  });
+
   it('does not let metric failures affect callers', () => {
     counterAdd('auth_rate_limit_checks').mockImplementationOnce(() => {
       throw new Error('metrics unavailable');

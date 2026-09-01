@@ -76,6 +76,7 @@
     "@temporalio/activity": "catalog:",
     "@temporalio/workflow": "catalog:",
     "drizzle-orm": "catalog:",
+    "fastify-plugin": "^6.0.0",
     "zod": "catalog:"
   },
   "devDependencies": {

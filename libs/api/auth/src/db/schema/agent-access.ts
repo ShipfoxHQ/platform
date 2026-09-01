@@ -42,6 +42,7 @@ export const agentAuthorizationRequests = pgTable(
     clientId: uuid('client_id')
       .notNull()
       .references(() => agentClients.id, {onDelete: 'cascade'}),
+    userId: uuid('user_id').references(() => users.id, {onDelete: 'cascade'}),
     redirectUri: text('redirect_uri').notNull(),
     resource: text('resource').notNull(),
     scopes: text('scopes').array().notNull(),
@@ -54,6 +55,7 @@ export const agentAuthorizationRequests = pgTable(
   },
   (table) => [
     index('auth_agent_authorization_requests_client_id_idx').on(table.clientId),
+    index('auth_agent_authorization_requests_user_id_idx').on(table.userId),
     index('auth_agent_authorization_requests_expires_at_idx').on(table.expiresAt),
   ],
 );
@@ -197,6 +199,7 @@ export function toAgentAuthorizationRequest(
   return {
     id: row.id,
     clientId: row.clientId,
+    userId: row.userId,
     redirectUri: row.redirectUri,
     resource: row.resource,
     scopes: row.scopes,

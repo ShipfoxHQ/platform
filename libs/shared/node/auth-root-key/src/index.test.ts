@@ -21,13 +21,14 @@ describe('auth root key derivation', () => {
       new Set(
         [
           first,
+          keys.agentAccessTokenKey(),
           keys.jobLeaseTokenKey(),
           keys.runnerSessionTokenKey(),
           keys.rateLimitIdentifierKey(),
           keys.emailChallengeKey(),
         ].map((key) => Buffer.from(key).toString('hex')),
       ),
-    ).toHaveLength(5);
+    ).toHaveLength(6);
     expect(Buffer.from(first).toString('hex')).toBe(
       'fab85cafc21c6a9580b7f93ec5cdd880cb3abf9ab22fcf9652029f8cf44c1c5a',
     );

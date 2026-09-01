@@ -39,6 +39,35 @@ type AgentAccessExecutor = ReturnType<typeof db> | AgentAccessTx;
 
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
 const MILLISECONDS_PER_SECOND = 1000;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
+
+function isUuid(value: string): boolean {
+  return UUID_PATTERN.test(value);
+}
+
+export type AgentGrantBindingEvaluation =
+  | {kind: 'valid'; grant: AgentGrant; client: AgentClient}
+  | {kind: 'invalid'; reason: 'grant' | 'client' | 'resource'};
+
+/** Applies the shared OAuth grant, client, and resource binding policy. */
+export function evaluateAgentGrantBinding(params: {
+  grant: AgentGrant | undefined;
+  client: AgentClient | undefined;
+  clientId: string;
+  resource: string | undefined;
+  expectedResource: string;
+}): AgentGrantBindingEvaluation {
+  if (!params.grant || params.grant.revokedAt || params.grant.terminalAt) {
+    return {kind: 'invalid', reason: 'grant'};
+  }
+  if (!params.client || params.client.clientId !== params.clientId) {
+    return {kind: 'invalid', reason: 'client'};
+  }
+  if (params.resource !== undefined && params.resource !== params.expectedResource) {
+    return {kind: 'invalid', reason: 'resource'};
+  }
+  return {kind: 'valid', grant: params.grant, client: params.client};
+}
 
 function retentionCutoff(now: Date, days: number): Date {
   if (!Number.isFinite(days) || days < 0) {
@@ -100,8 +129,50 @@ async function isActiveUser(tx: AgentAccessTx, userId: string): Promise<boolean>
     .select({id: users.id})
     .from(users)
     .where(and(eq(users.id, userId), eq(users.status, 'active')))
+    .for('update')
     .limit(1);
   return rows.length > 0;
+}
+
+/** Locks the user before the grant so approval and token issuance share one order. */
+async function lockActiveAgentGrant(
+  tx: AgentAccessTx,
+  grantId: string,
+): Promise<AgentGrant | undefined> {
+  const candidate = await findAgentGrant({id: grantId, executor: tx});
+  if (!candidate || candidate.revokedAt || candidate.terminalAt) return undefined;
+  if (!(await isActiveUser(tx, candidate.userId))) return undefined;
+
+  const grant = await lockAgentGrant(tx, {grantId});
+  if (!grant || grant.revokedAt || grant.terminalAt) return undefined;
+  return grant;
+}
+
+async function databaseClock(tx: AgentAccessTx): Promise<Date> {
+  const result = await tx.execute<{now: Date | string}>(sql`select clock_timestamp() as now`);
+  const raw = result.rows[0]?.now;
+  if (raw === undefined) throw new Error('Database clock returned no timestamp');
+  const now = raw instanceof Date ? raw : new Date(raw);
+  if (Number.isNaN(now.getTime())) throw new Error('Database clock returned an invalid timestamp');
+  return now;
+}
+
+/** Checks the authority-creating user state inside the caller's transaction. */
+export async function isActiveAgentUserTx(
+  tx: AgentAccessTx,
+  params: {userId: string},
+): Promise<boolean> {
+  const rows = await tx
+    .select({id: users.id})
+    .from(users)
+    .where(and(eq(users.id, params.userId), eq(users.status, 'active')))
+    .for('update')
+    .limit(1);
+  return rows.length > 0;
+}
+
+export async function isActiveAgentUser(params: {userId: string}): Promise<boolean> {
+  return await db().transaction((tx) => isActiveAgentUserTx(tx, params));
 }
 
 async function lockAgentClient(
@@ -231,6 +302,21 @@ export async function findAgentClientByClientId(params: {
   return row ? toAgentClient(row) : undefined;
 }
 
+/** Resolves a client by its private database id for stored OAuth artifacts. */
+export async function findAgentClientById(params: {
+  id: string;
+  executor?: AgentAccessExecutor;
+}): Promise<AgentClient | undefined> {
+  const executor = params.executor ?? db();
+  const rows = await executor
+    .select()
+    .from(agentClients)
+    .where(eq(agentClients.id, params.id))
+    .limit(1);
+  const row = rows[0];
+  return row ? toAgentClient(row) : undefined;
+}
+
 export async function markAgentClientReferenced(
   tx: AgentAccessTx,
   params: {clientUuid: string},
@@ -291,10 +377,63 @@ export async function createAgentAuthorizationRequestTx(
   return toAgentAuthorizationRequest(row);
 }
 
+export type AgentAuthorizationRequestDecision =
+  | {kind: 'inactive'}
+  | {kind: 'not-found'}
+  | {kind: 'consumed'; request: AgentAuthorizationRequest};
+
+async function consumeAgentAuthorizationRequestForActiveUserTx(
+  tx: AgentAccessTx,
+  params: {id: string; userId: string},
+): Promise<AgentAuthorizationRequestDecision> {
+  if (!(await isActiveAgentUserTx(tx, {userId: params.userId}))) return {kind: 'inactive'};
+  const request = await consumeAgentAuthorizationRequestTx(tx, params);
+  return request ? {kind: 'consumed', request} : {kind: 'not-found'};
+}
+
+export async function approveAgentAuthorizationRequest(params: {
+  id: string;
+  userId: string;
+  workspaceId: string;
+  hashedCode: string;
+  codeExpiresAt: Date;
+}): Promise<AgentAuthorizationRequestDecision> {
+  return await db().transaction(async (tx) => {
+    const decision = await consumeAgentAuthorizationRequestForActiveUserTx(tx, params);
+    if (decision.kind !== 'consumed') return decision;
+
+    const grant = await createAgentGrantTx(tx, {
+      userId: params.userId,
+      workspaceId: params.workspaceId,
+      clientId: decision.request.clientId,
+      scopes: decision.request.scopes,
+    });
+    await createAgentAuthorizationCodeTx(tx, {
+      grantId: grant.id,
+      hashedCode: params.hashedCode,
+      codeChallenge: decision.request.codeChallenge,
+      redirectUri: decision.request.redirectUri,
+      resource: decision.request.resource,
+      expiresAt: params.codeExpiresAt,
+    });
+    return decision;
+  });
+}
+
+export async function denyAgentAuthorizationRequest(params: {
+  id: string;
+  userId: string;
+}): Promise<AgentAuthorizationRequestDecision> {
+  return await db().transaction((tx) =>
+    consumeAgentAuthorizationRequestForActiveUserTx(tx, params),
+  );
+}
+
 export async function findPendingAgentAuthorizationRequest(params: {
   id: string;
   executor?: AgentAccessExecutor;
 }): Promise<AgentAuthorizationRequest | undefined> {
+  if (!isUuid(params.id)) return undefined;
   const executor = params.executor ?? db();
   const rows = await executor
     .select()
@@ -307,6 +446,38 @@ export async function findPendingAgentAuthorizationRequest(params: {
       ),
     )
     .limit(1);
+  const row = rows[0];
+  return row ? toAgentAuthorizationRequest(row) : undefined;
+}
+
+/** Binds an unclaimed pending request to the first authenticated consent user. */
+export async function claimAgentAuthorizationRequest(params: {
+  id: string;
+  userId: string;
+}): Promise<AgentAuthorizationRequest | undefined> {
+  return await db().transaction((tx) => claimAgentAuthorizationRequestTx(tx, params));
+}
+
+export async function claimAgentAuthorizationRequestTx(
+  tx: AgentAccessTx,
+  params: {id: string; userId: string},
+): Promise<AgentAuthorizationRequest | undefined> {
+  if (!isUuid(params.id)) return undefined;
+  const rows = await tx
+    .update(agentAuthorizationRequests)
+    .set({userId: params.userId, updatedAt: sql`now()`})
+    .where(
+      and(
+        eq(agentAuthorizationRequests.id, params.id),
+        isNull(agentAuthorizationRequests.consumedAt),
+        gt(agentAuthorizationRequests.expiresAt, sql`now()`),
+        or(
+          isNull(agentAuthorizationRequests.userId),
+          eq(agentAuthorizationRequests.userId, params.userId),
+        ),
+      ),
+    )
+    .returning();
   const row = rows[0];
   return row ? toAgentAuthorizationRequest(row) : undefined;
 }
@@ -324,18 +495,35 @@ export async function consumeAgentAuthorizationRequest(params: {
  */
 export async function consumeAgentAuthorizationRequestTx(
   tx: AgentAccessTx,
-  params: {id: string},
+  params: {id: string; userId?: string},
 ): Promise<AgentAuthorizationRequest | undefined> {
-  const rows = await tx
-    .update(agentAuthorizationRequests)
-    .set({consumedAt: sql`now()`, updatedAt: sql`now()`})
-    .where(
-      and(
+  if (!isUuid(params.id)) return undefined;
+  const userBinding = params.userId
+    ? or(
+        isNull(agentAuthorizationRequests.userId),
+        eq(agentAuthorizationRequests.userId, params.userId),
+      )
+    : undefined;
+  const predicate = userBinding
+    ? and(
         eq(agentAuthorizationRequests.id, params.id),
         isNull(agentAuthorizationRequests.consumedAt),
         gt(agentAuthorizationRequests.expiresAt, sql`now()`),
-      ),
-    )
+        userBinding,
+      )
+    : and(
+        eq(agentAuthorizationRequests.id, params.id),
+        isNull(agentAuthorizationRequests.consumedAt),
+        gt(agentAuthorizationRequests.expiresAt, sql`now()`),
+      );
+  const rows = await tx
+    .update(agentAuthorizationRequests)
+    .set({
+      ...(params.userId ? {userId: params.userId} : {}),
+      consumedAt: sql`now()`,
+      updatedAt: sql`now()`,
+    })
+    .where(predicate)
     .returning();
   const row = rows[0];
   return row ? toAgentAuthorizationRequest(row) : undefined;
@@ -514,9 +702,8 @@ export async function consumeAgentAuthorizationCodeTx(
   const existing = existingRows[0];
   if (!existing) return undefined;
 
-  const grant = await lockAgentGrant(tx, {grantId: existing.grantId});
-  if (!grant || grant.revokedAt || grant.terminalAt) return undefined;
-  if (!(await isActiveUser(tx, grant.userId))) return undefined;
+  const grant = await lockActiveAgentGrant(tx, existing.grantId);
+  if (!grant) return undefined;
 
   const rows = await tx
     .update(agentAuthorizationCodes)
@@ -532,6 +719,23 @@ export async function consumeAgentAuthorizationCodeTx(
     .returning();
   const row = rows[0];
   return row ? toAgentAuthorizationCode(row) : undefined;
+}
+
+export async function exchangeAgentAuthorizationCode(params: {
+  hashedCode: string;
+  hashedRefreshToken: string;
+  refreshTokenExpiresAt: Date;
+}): Promise<{code: AgentAuthorizationCode; refreshToken: AgentRefreshToken} | undefined> {
+  return await db().transaction(async (tx) => {
+    const code = await consumeAgentAuthorizationCodeTx(tx, {hashedCode: params.hashedCode});
+    if (!code) return undefined;
+    const refreshToken = await createAgentRefreshTokenTx(tx, {
+      grantId: code.grantId,
+      hashedToken: params.hashedRefreshToken,
+      expiresAt: params.refreshTokenExpiresAt,
+    });
+    return {code, refreshToken};
+  });
 }
 
 export interface CreateAgentRefreshTokenParams {
@@ -671,9 +875,8 @@ export async function resolveAgentRefreshTokenReplayTx(
   const existing = rows[0];
   if (!existing) return undefined;
 
-  const grant = await lockAgentGrant(tx, {grantId: existing.grantId});
-  if (!grant || grant.revokedAt || grant.terminalAt) return undefined;
-  if (!(await isActiveUser(tx, grant.userId))) return undefined;
+  const grant = await lockActiveAgentGrant(tx, existing.grantId);
+  if (!grant) return undefined;
 
   const currentRows = await tx
     .select()
@@ -683,8 +886,9 @@ export async function resolveAgentRefreshTokenReplayTx(
   const current = currentRows[0];
   if (!current?.rotatedAt) return undefined;
 
-  const now = params.now ?? new Date();
+  const now = params.now ?? (await databaseClock(tx));
   if (
+    current.expiresAt.getTime() > now.getTime() &&
     isWithinAgentRefreshRotationGrace({
       rotatedAt: current.rotatedAt,
       now,
@@ -754,9 +958,8 @@ export async function rotateAgentRefreshTokenTx(
   const existing = existingRows[0];
   if (!existing) return undefined;
 
-  const grant = await lockAgentGrant(tx, {grantId: existing.grantId});
-  if (!grant || grant.revokedAt || grant.terminalAt) return undefined;
-  if (!(await isActiveUser(tx, grant.userId))) return undefined;
+  const grant = await lockActiveAgentGrant(tx, existing.grantId);
+  if (!grant) return undefined;
 
   const rows = await tx
     .update(agentRefreshTokens)
@@ -790,6 +993,90 @@ export async function rotateAgentRefreshTokenTx(
   const successor = successorRows[0];
   if (!successor) throw new Error('Insert returned no rows');
   return toAgentRefreshToken(successor);
+}
+
+export type AgentRefreshExchangeOutcome =
+  | {kind: 'rotated'; grant: AgentGrant}
+  | {kind: 'grace'; grant: AgentGrant}
+  | {kind: 'rejected'}
+  | {kind: 'reused'; grant: AgentGrant};
+
+async function refreshReplayOutcome(
+  tx: AgentAccessTx,
+  params: {hashedToken: string; now?: Date},
+): Promise<AgentRefreshExchangeOutcome> {
+  const replay = await resolveAgentRefreshTokenReplayTx(tx, {
+    hashedToken: params.hashedToken,
+    ...(params.now === undefined ? {} : {now: params.now}),
+  });
+  if (!replay) return {kind: 'rejected'};
+  if (replay.kind === 'reused') return {kind: 'reused', grant: replay.grant};
+  return {kind: 'grace', grant: replay.grant};
+}
+
+async function rotateRefreshInTransaction(
+  tx: AgentAccessTx,
+  params: {
+    hashedToken: string;
+    replacementHashedToken: string;
+    grant: AgentGrant;
+    replacementExpiresAt: Date;
+    now?: Date;
+  },
+): Promise<AgentRefreshExchangeOutcome> {
+  const successor = await rotateAgentRefreshTokenTx(tx, {
+    hashedToken: params.hashedToken,
+    replacementHashedToken: params.replacementHashedToken,
+    replacementExpiresAt: params.replacementExpiresAt,
+  });
+  if (successor) {
+    return {kind: 'rotated', grant: params.grant};
+  }
+
+  return await refreshReplayOutcome(tx, {
+    hashedToken: params.hashedToken,
+    ...(params.now === undefined ? {} : {now: params.now}),
+  });
+}
+
+export async function exchangeAgentRefreshToken(params: {
+  hashedToken: string;
+  clientId: string;
+  resource: string | undefined;
+  expectedResource: string;
+  replacementHashedToken: string;
+  replacementExpiresAt: Date;
+  now?: Date;
+}): Promise<AgentRefreshExchangeOutcome> {
+  return await db().transaction(async (tx) => {
+    const existing = await findAgentRefreshTokenByHash({
+      hashedToken: params.hashedToken,
+      executor: tx,
+    });
+    if (!existing) return {kind: 'rejected'};
+
+    const grant = await findAgentGrant({id: existing.grantId, executor: tx});
+    const client = grant
+      ? await findAgentClientById({id: grant.clientId, executor: tx})
+      : undefined;
+    const binding = evaluateAgentGrantBinding({
+      grant,
+      client,
+      clientId: params.clientId,
+      resource: params.resource,
+      expectedResource: params.expectedResource,
+    });
+    if (binding.kind === 'invalid') return {kind: 'rejected'};
+
+    if (existing.rotatedAt) {
+      return await refreshReplayOutcome(tx, {
+        hashedToken: params.hashedToken,
+        ...(params.now === undefined ? {} : {now: params.now}),
+      });
+    }
+
+    return await rotateRefreshInTransaction(tx, {...params, grant: binding.grant});
+  });
 }
 
 export async function revokeAgentRefreshToken(params: {

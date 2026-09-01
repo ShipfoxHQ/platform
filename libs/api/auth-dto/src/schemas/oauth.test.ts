@@ -1,12 +1,27 @@
 import {describe, expect, it} from '@shipfox/vitest/vi';
 import {
   oauthAuthorizationServerMetadataSchema,
+  oauthAuthorizeQuerySchema,
   oauthClientMetadataDocumentSchema,
   oauthDynamicClientRegistrationRequestSchema,
   oauthProtectedResourceMetadataSchema,
 } from './oauth.js';
 
 describe('OAuth metadata schemas', () => {
+  it('requires a non-empty authorization state when it is supplied', () => {
+    expect(
+      oauthAuthorizeQuerySchema.safeParse({
+        client_id: 'client-id',
+        response_type: 'code',
+        redirect_uri: 'https://client.example/callback',
+        code_challenge: 'a'.repeat(43),
+        code_challenge_method: 'S256',
+        resource: 'https://api.example.test/mcp',
+        state: '',
+      }).success,
+    ).toBe(false);
+  });
+
   it('accepts the MCP read-only discovery profile', () => {
     expect(
       oauthProtectedResourceMetadataSchema.safeParse({

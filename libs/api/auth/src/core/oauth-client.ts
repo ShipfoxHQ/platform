@@ -15,6 +15,7 @@ import {
 const URI_SUFFIX_PATTERN = /[/?#]/u;
 const PORT_PATTERN = /^\d+$/u;
 const BRACKETED_PORT_PATTERN = /^:\d+$/u;
+const OAUTH_HOSTNAME_MAX_LENGTH = 253;
 
 function hasControlCharacter(value: string): boolean {
   return [...value].some((character) => {
@@ -72,6 +73,7 @@ function validateUrlShape(url: URL): void {
     url.password ||
     url.hash ||
     url.hostname.length === 0 ||
+    url.hostname.length > OAUTH_HOSTNAME_MAX_LENGTH ||
     hasControlCharacter(url.href)
   ) {
     rejectInvalidMetadata();

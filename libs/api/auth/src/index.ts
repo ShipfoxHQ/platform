@@ -34,7 +34,12 @@ const authPublisherEventSchemas = {...authEventSchemas, ...administrationActionE
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const workflowsPath = resolve(packageRoot, 'dist/temporal/workflows/index.js');
 
-export type {AdminRole, JobLeaseTokenClaims, RunnerSessionTokenClaims} from '@shipfox/api-auth-dto';
+export type {
+  AdminRole,
+  AgentAccessTokenClaims,
+  JobLeaseTokenClaims,
+  RunnerSessionTokenClaims,
+} from '@shipfox/api-auth-dto';
 export {
   ADMIN_ROLES,
   getCurrentAdminRole,
@@ -57,6 +62,13 @@ export {
   revokeAdministratorUserSessions,
   suspendAdministratorUser,
 } from '#core/administration.js';
+export type {IssueAgentAccessTokenParams} from '#core/agent-access-token.js';
+export {
+  AGENT_ACCESS_TOKEN_EXPIRES_IN,
+  AGENT_ACCESS_TOKEN_EXPIRES_IN_SECONDS,
+  issueAgentAccessToken,
+  verifyAgentAccessToken,
+} from '#core/agent-access-token.js';
 export type {
   CreateImpersonatedSessionTokenParams,
   CreateImpersonatedSessionTokenResult,
@@ -103,7 +115,12 @@ export {
   InvalidOAuthClientMetadataError,
   InvalidOAuthConfigurationError,
   LastAdminOwnerError,
+  OAuthConsentNotFoundError,
   OAuthMetadataFetchError,
+  OAuthOwnershipNotFoundError,
+  OAuthProtocolError,
+  type OAuthProtocolErrorCode,
+  type OAuthProtocolErrorParams,
   OAuthRedirectUriNotRegisteredError,
   SignupNotAllowedError,
   UserNotFoundError,
@@ -145,6 +162,24 @@ export {
   registerOAuthClient,
   resolveOAuthClient,
 } from '#core/oauth-client-resolver.js';
+export type {
+  BeginOAuthAuthorizationResult,
+  OAuthConsentDetail,
+  OAuthConsentWorkspace,
+  OAuthFlowOptions,
+  OAuthTokenExchangeResult,
+} from '#core/oauth-flow.js';
+export {
+  approveOAuthConsent,
+  beginOAuthAuthorization,
+  denyOAuthConsent,
+  exchangeOAuthAuthorizationCode,
+  exchangeOAuthRefreshToken,
+  exchangeOAuthToken,
+  getOAuthConsentDetail,
+  OAUTH_AUTHORIZATION_CODE_TTL_SECONDS,
+  OAUTH_AUTHORIZATION_REQUEST_TTL_SECONDS,
+} from '#core/oauth-flow.js';
 export type {SignupDenialMessageFormat, SignupPolicy} from '#core/ports.js';
 export {
   issueRunnerSessionToken,
@@ -170,8 +205,13 @@ export {
   setRefreshTokenCookie,
 } from '#presentation/auth/refresh-cookie.js';
 export {createRunnerSessionAuthMethod} from '#presentation/auth/runner-session-auth.js';
-export type {CreateOAuthRoutesOptions} from '#presentation/routes/oauth.js';
+export {oauthTokenResponse, toOAuthConsentResponse} from '#presentation/dto/oauth.js';
+export type {
+  CreateOAuthAuthorizationRoutesOptions,
+  CreateOAuthRoutesOptions,
+} from '#presentation/routes/oauth.js';
 export {
+  createOAuthAuthorizationRoutes,
   createOAuthClientIdentificationRoutes,
   createOAuthMetadataRoutes,
   createOAuthRoutes,

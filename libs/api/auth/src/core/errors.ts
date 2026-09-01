@@ -268,3 +268,56 @@ export class InvalidOAuthConfigurationError extends Error {
     this.name = 'InvalidOAuthConfigurationError';
   }
 }
+
+export type OAuthProtocolErrorCode =
+  | 'invalid_request'
+  | 'invalid_grant'
+  | 'invalid_client'
+  | 'invalid_scope'
+  | 'invalid_target'
+  | 'access_denied';
+
+export interface OAuthProtocolErrorParams {
+  status?: number;
+  description?: string;
+  redirectUri?: string;
+  state?: string | null;
+}
+
+/** A safe OAuth error that can be rendered as a protocol response. */
+export class OAuthProtocolError extends Error {
+  readonly code: OAuthProtocolErrorCode;
+  readonly status: number;
+  readonly description: string | undefined;
+  readonly redirectUri: string | undefined;
+  readonly state: string | null | undefined;
+
+  constructor(
+    code: OAuthProtocolErrorCode,
+    message: string,
+    params: OAuthProtocolErrorParams = {},
+  ) {
+    super(message);
+    this.name = 'OAuthProtocolError';
+    this.code = code;
+    this.status = params.status ?? 400;
+    this.description = params.description;
+    this.redirectUri = params.redirectUri;
+    this.state = params.state;
+  }
+}
+
+export class OAuthConsentNotFoundError extends Error {
+  constructor() {
+    super('OAuth consent request was not found');
+    this.name = 'OAuthConsentNotFoundError';
+  }
+}
+
+/** Keeps workspace ownership failures indistinguishable from a missing row. */
+export class OAuthOwnershipNotFoundError extends Error {
+  constructor() {
+    super('OAuth workspace access was not found');
+    this.name = 'OAuthOwnershipNotFoundError';
+  }
+}

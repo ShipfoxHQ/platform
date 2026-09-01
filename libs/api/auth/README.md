@@ -355,6 +355,21 @@ Each command requires an `Idempotency-Key`. Suspension requires a bounded reason
 
 Suspension preserves the user record and rejects the final active administrator owner. State, the command result, and one redacted `administration.action.performed` outbox event commit atomically. The event stores only the idempotency-key fingerprint, never the raw key or session material.
 
+### Agent access OAuth
+
+`createOAuthAuthorizationRoutes` is an explicit opt-in factory for the OAuth authorization,
+consent, authorization-code, and refresh-token routes. `createAuthModule().routes` does not
+compose these routes until an application provides its consent UI and agent-resource boundary.
+
+Consent approval creates a durable agent grant from a pre-commit workspace-membership snapshot;
+every authorization-code and refresh exchange revalidates membership before issuing tokens. The
+current package does not expose agent-grant listing or revocation routes; composition should add
+that lifecycle surface before treating a grant as an operator-managed credential.
+Authorization-code replay returns `invalid_grant` and
+does not revoke a grant that was already issued, because a lost token response is indistinguishable
+from a replay. Refresh-token reuse outside the grace window revokes the grant family, and a lost
+rotation response therefore requires a new consent flow.
+
 ## API
 
 The package exports a module factory. Pass it the Workspaces inter-module client from the
@@ -380,6 +395,7 @@ It also exports lower-level pieces for tests and advanced integration:
 - `createEnvironmentSignupPolicy()`: creates the environment-backed signup policy used by default. Pass `signupPolicy` to `createAuthModule` to replace it. A denied custom policy can opt into sanitized Markdown with `format: 'markdown'`; without a format, its message stays plain text.
 - `getClientContext(request)`: reads the authenticated user context from a Fastify request.
 - `createImpersonatedSessionToken({targetUserId, impersonatorId, workspaces})`: mints an access-token-only impersonated session (capped TTL, `impersonatorId` claim, no refresh material). The `impersonateUser` administration command owns the authorization ladder, idempotency, and audit flow.
+- `createOAuthAuthorizationRoutes(options)`: explicitly composes the OAuth authorization, consent, authorization-code, and refresh-token routes for an agent-resource integration.
 - `getAuthenticatedSessionContext(request)`: reads the user ID and required refresh-session ID from verified access-token claims. It does not check whether the refresh session is still active.
 - `findUserByEmail({email})`: read-only lookup of the current owner of a normalized email; see below.
 - `listAdministratorUsers({actorId, limit, cursor?, search?, status?, eligible?})`: returns `{users, rows, nextCursor}` after requiring an active observer role. `rows` remains as a compatibility alias. Search accepts at most 10 whitespace-separated terms. Each term can contain at most 100 characters.

@@ -180,10 +180,10 @@ days. An operator could mint permanent, unattributed workspace access inside a 1
 audited window, stop impersonating, and use it later. Nothing in the audit trail would point at
 it.
 
-The deny-list covers runner registration tokens, provisioner tokens, and workspace
-invitations. Its guard is the administration guard under a second name, exported from the same
-package, so a route opts in with one line. Adding a credential-issuing or grant-creating route
-later means adding it here.
+The deny-list covers runner registration tokens, provisioner tokens, workspace invitations, and
+OAuth consent approval, which creates an agent grant and its refresh-token family. Its guard is
+the administration guard under a second name, exported from the same package, so a route opts in
+with one line. Adding a credential-issuing or grant-creating route later means adding it here.
 
 This narrows read-write capability in an enumerated, documented way. It is not the per-route policy
 scoping this record rejects below. The deny-list governs what a session can leave behind, not

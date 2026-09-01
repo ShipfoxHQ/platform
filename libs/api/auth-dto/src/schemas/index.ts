@@ -58,6 +58,11 @@ export {
   suspendAdministratorUserBodySchema,
 } from './admin.js';
 export {
+  AGENT_ACCESS_TOKEN_AUDIENCE,
+  type AgentAccessTokenClaims,
+  agentAccessTokenClaimsSchema,
+} from './agent-access-token.js';
+export {
   type ChangePasswordBodyDto,
   changePasswordBodySchema,
   emailSchema,
@@ -120,17 +125,32 @@ export {
   jobLeaseTokenClaimsSchema,
 } from './job-lease-token.js';
 export {
+  OAUTH_MCP_RESOURCE_PATH,
   OAUTH_READ_SCOPE,
   type OAuthAuthorizationServerMetadataDto,
+  type OAuthAuthorizeQueryDto,
   type OAuthClientMetadataDocumentDto,
+  type OAuthConsentApprovalBodyDto,
+  type OAuthConsentDecisionResponseDto,
+  type OAuthConsentParamsDto,
+  type OAuthConsentResponseDto,
   type OAuthDynamicClientRegistrationRequestDto,
   type OAuthDynamicClientRegistrationResponseDto,
   type OAuthProtectedResourceMetadataDto,
+  type OAuthTokenRequestDto,
+  type OAuthTokenResponseDto,
   oauthAuthorizationServerMetadataSchema,
+  oauthAuthorizeQuerySchema,
   oauthClientMetadataDocumentSchema,
+  oauthConsentApprovalBodySchema,
+  oauthConsentDecisionResponseSchema,
+  oauthConsentParamsSchema,
+  oauthConsentResponseSchema,
   oauthDynamicClientRegistrationRequestSchema,
   oauthDynamicClientRegistrationResponseSchema,
   oauthProtectedResourceMetadataSchema,
+  oauthTokenRequestSchema,
+  oauthTokenResponseSchema,
 } from './oauth.js';
 export {
   RUNNER_SESSION_TOKEN_AUDIENCE,
