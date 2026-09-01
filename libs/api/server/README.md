@@ -76,7 +76,9 @@ factories to the matching `*ModuleOptions` field.
 The standard Agent module validates its configuration during composition. Its
 additive options cannot provide or replace the composition-owned Secrets and
 Workflows clients. The returned standard module therefore keeps the
-Workflows-backed session transcript routes mounted.
+Workflows-backed session transcript routes mounted. An options object whose
+fields are all undefined is treated as unconfigured and does not conflict with
+a full replacement factory.
 
 Load the instrumentation entry before feature modules:
 

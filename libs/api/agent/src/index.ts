@@ -66,7 +66,7 @@ export {
   upsertModelProviderConfig,
 } from '#db/index.js';
 
-export function createAgentModule(params: {
+export interface CreateAgentModuleOptions {
   secrets: AgentSecretsClient;
   managedProvider?: ManagedModelProvider | undefined;
   /**
@@ -77,7 +77,9 @@ export function createAgentModule(params: {
    * so an external consumer can omit it and keep the module claim/release-free.
    */
   workflows?: WorkflowsModuleClient | undefined;
-}): ShipfoxModule {
+}
+
+export function createAgentModule(params: CreateAgentModuleOptions): ShipfoxModule {
   assertAgentConfig(params.managedProvider);
   warnOnUnsafeAgentSessionConfig();
 

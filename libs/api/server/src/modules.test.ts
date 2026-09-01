@@ -16,7 +16,11 @@ import {
   workspacesInterModuleContract,
 } from '@shipfox/api-workspaces-dto/inter-module';
 import {defineInterModuleContract, defineInterModulePresentation} from '@shipfox/inter-module';
-import type {DefaultAgentModuleFactory, DefaultAgentModuleOptions} from './modules.js';
+import type {
+  DefaultAgentModuleFactory,
+  DefaultAgentModuleOptions,
+  DefaultModulesOptions,
+} from './modules.js';
 import {defaultModules} from './modules.js';
 
 const mocks = vi.hoisted(() => ({
@@ -401,6 +405,29 @@ describe('defaultModules', () => {
     expect(modules.find((module) => module.name === 'agent')?.routes).toBe(sessionTranscriptRoutes);
   });
 
+  it('keeps composition-owned Agent dependencies ahead of runtime options', async () => {
+    const hostSecrets = {getSecret: vi.fn()};
+    const hostWorkflows = {getLeasedAgentSessionContext: vi.fn()};
+    const agentModuleOptions = {
+      secrets: hostSecrets,
+      workflows: hostWorkflows,
+    } as unknown as DefaultAgentModuleOptions;
+
+    await defaultModules({agentModuleOptions});
+
+    const agentOptions = mocks.createAgentModule.mock.calls[0]?.[0] as
+      | {secrets: object; workflows: object}
+      | undefined;
+    expect(agentOptions).toBeDefined();
+    if (!agentOptions) throw new Error('Default Agent module options were not captured.');
+    expect(agentOptions.secrets).not.toBe(hostSecrets);
+    expect(agentOptions.secrets).not.toHaveProperty('getSecret');
+    expect(agentOptions.workflows).not.toBe(hostWorkflows);
+    expect(agentOptions.workflows).toEqual(
+      expect.objectContaining({getLeasedAgentSessionContext: expect.any(Function)}),
+    );
+  });
+
   it('supports an explicitly named full Agent module replacement', async () => {
     const customAgentModule = mocks.createAgentModule();
     mocks.createAgentModule.mockClear();
@@ -511,10 +538,95 @@ describe('defaultModules', () => {
     );
   });
 
-  it('rejects Agent options combined with a full replacement', async () => {
-    await expect(
-      defaultModules({agentModuleOptions: {}, agentModuleFactory: () => mocks.createAgentModule()}),
-    ).rejects.toThrow('Use Agent module options or a Agent module replacement factory, not both.');
+  it('rejects conflicting module customization paths before creating a module', async () => {
+    const managedProvider: NonNullable<DefaultAgentModuleOptions['managedProvider']> = {
+      id: 'managed',
+      label: 'Managed',
+      models: [{id: 'managed-model', label: 'Managed model', api: 'openai-responses'}],
+      defaultModel: 'managed-model',
+      resolveCredentials: async () => ({
+        api: 'openai-responses',
+        baseUrl: 'https://gateway.example.test',
+        credentials: {},
+      }),
+    };
+    const signupPolicy = {isSignupAllowed: vi.fn().mockResolvedValue({allowed: true})};
+    const installationProvisioning = {
+      policy: {
+        filterEligibleWorkspaceIds: async (workspaceIds: readonly string[]) =>
+          new Set(workspaceIds),
+      },
+    };
+    const replacementFactory = () => ({name: 'replacement'});
+    const cases = [
+      {
+        moduleName: 'Agent',
+        article: 'an',
+        moduleMock: mocks.createAgentModule,
+        moduleOptions: {agentModuleOptions: {managedProvider}},
+        newFactory: {agentModuleFactory: replacementFactory},
+        legacyFactory: {agentModule: replacementFactory},
+      },
+      {
+        moduleName: 'Auth',
+        article: 'an',
+        moduleMock: mocks.createAuthModule,
+        moduleOptions: {authModuleOptions: {signupPolicy}},
+        newFactory: {authModuleFactory: replacementFactory},
+        legacyFactory: {authModule: replacementFactory},
+      },
+      {
+        moduleName: 'Runners',
+        article: 'a',
+        moduleMock: mocks.createRunnersModule,
+        moduleOptions: {runnersModuleOptions: {installationProvisioning}},
+        newFactory: {runnersModuleFactory: replacementFactory},
+        legacyFactory: {runnersModule: replacementFactory},
+      },
+    ] as const;
+
+    for (const {
+      moduleName,
+      article,
+      moduleMock,
+      moduleOptions,
+      newFactory,
+      legacyFactory,
+    } of cases) {
+      for (const [description, conflict] of [
+        ['options with named replacement', {...moduleOptions, ...newFactory}],
+        ['options with legacy replacement', {...moduleOptions, ...legacyFactory}],
+      ] as const) {
+        moduleMock.mockClear();
+        await expect(defaultModules(conflict as DefaultModulesOptions)).rejects.toThrow(
+          `Use ${moduleName} module options or ${article} ${moduleName} module replacement factory, not both.`,
+        );
+        expect(moduleMock, `${moduleName} ${description}`).not.toHaveBeenCalled();
+      }
+
+      moduleMock.mockClear();
+      await expect(
+        defaultModules({...newFactory, ...legacyFactory} as DefaultModulesOptions),
+      ).rejects.toThrow(`Provide only one ${moduleName} module replacement factory.`);
+      expect(moduleMock, `${moduleName} replacement conflict`).not.toHaveBeenCalled();
+    }
+  });
+
+  it('treats module options with no defined values as unconfigured', async () => {
+    const customAgentModule = mocks.createAgentModule();
+    mocks.createAgentModule.mockClear();
+    const agentModuleFactory = vi.fn(() => customAgentModule);
+
+    await defaultModules({
+      agentModuleOptions: {managedProvider: undefined},
+      agentModuleFactory,
+    });
+
+    expect(agentModuleFactory).toHaveBeenCalledWith({
+      secrets: expect.any(Object),
+      workflows: expect.any(Object),
+    });
+    expect(mocks.createAgentModule).not.toHaveBeenCalled();
   });
 
   it('keeps legacy module replacement aliases working during migration', async () => {

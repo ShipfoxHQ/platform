@@ -1,6 +1,6 @@
 import {annotationsModule} from '@shipfox/annotations';
 import {annotationsInterModuleContract} from '@shipfox/annotations-dto/inter-module';
-import {createAgentModule} from '@shipfox/api-agent';
+import {type CreateAgentModuleOptions, createAgentModule} from '@shipfox/api-agent';
 import {agentInterModuleContract} from '@shipfox/api-agent-dto/inter-module';
 import {type CreateAuthModuleOptions, createAuthModule} from '@shipfox/api-auth';
 import {config as authConfig} from '@shipfox/api-auth/config';
@@ -71,10 +71,7 @@ export type DefaultAuthModuleFactory = (options: {
 }) => ShipfoxModule;
 
 /** Options for the standard Agent module. `defaultModules` supplies Secrets and Workflows. */
-export type DefaultAgentModuleOptions = Pick<
-  Parameters<typeof createAgentModule>[0],
-  'managedProvider'
->;
+export type DefaultAgentModuleOptions = Pick<CreateAgentModuleOptions, 'managedProvider'>;
 
 /**
  * Replaces the Agent module in the standard composition slot. This is a full
@@ -351,6 +348,7 @@ type AgentModuleSecretsClient = Pick<
 >;
 
 const GITHUB_SECRET_NAMESPACE_PREFIX = 'system/github/';
+const INITIAL_VOWEL_RE = /^[aeiou]/iu;
 
 function requireGithubSecretNamespace(namespace: string): string {
   if (!namespace.startsWith(GITHUB_SECRET_NAMESPACE_PREFIX)) {
@@ -380,16 +378,24 @@ function resolveModuleReplacementFactory<T>(
   return replacementFactory ?? legacyFactory;
 }
 
-function assertModuleOptionsNotCombinedWithReplacement<T>(
+function assertModuleOptionsNotCombinedWithReplacement<T extends object>(
   moduleOptions: T | undefined,
   replacementFactory: unknown,
   moduleName: string,
 ): void {
-  if (moduleOptions !== undefined && replacementFactory !== undefined) {
+  if (hasConfiguredModuleOptions(moduleOptions) && replacementFactory !== undefined) {
     throw new Error(
-      `Use ${moduleName} module options or a ${moduleName} module replacement factory, not both.`,
+      `Use ${moduleName} module options or ${indefiniteArticle(moduleName)} ${moduleName} module replacement factory, not both.`,
     );
   }
+}
+
+function hasConfiguredModuleOptions<T extends object>(moduleOptions: T | undefined): boolean {
+  return Object.values(moduleOptions ?? {}).some((value) => value !== undefined);
+}
+
+function indefiniteArticle(value: string): 'a' | 'an' {
+  return INITIAL_VOWEL_RE.test(value) ? 'an' : 'a';
 }
 
 function validateCustomAgentModule(module: ShipfoxModule): void {
