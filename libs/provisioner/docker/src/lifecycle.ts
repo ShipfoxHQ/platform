@@ -1,6 +1,9 @@
 import {
   MAX_RECONCILE_OBSERVED_RUNNERS,
+  MAX_TERMINATION_CANDIDATES,
+  type ProviderTerminationCandidateDto,
   type RunnerInstanceReportEventDto,
+  type TerminationReasonDto,
 } from '@shipfox/api-runners-dto';
 import {logger} from '@shipfox/node-opentelemetry';
 import type {
@@ -21,6 +24,7 @@ import type {DockerTemplateSpec} from '#templates.js';
 const MAX_REPORT_BATCH = 1000;
 const MAX_PENDING_REPORTS = 5000;
 const MAX_REASON_LENGTH = 500;
+const MAX_REGISTRATION_CANDIDATE_IDS_IN_LOG = 20;
 const EMPTY_TERMINATE_INTENT_IDS = new Set<string>();
 
 class DockerReconciliationLimitError extends Error {
@@ -92,6 +96,7 @@ interface DockerLifecycleContext {
   readonly maxRetainedFailedContainers: number;
   loggingDriver?: string;
   readonly loggingDriverSource: 'daemon' | 'provisioner';
+  registrationCandidateCursor: number;
   backendReconcileSucceeded: boolean;
   reportDeliveryDelivered: number;
   reportQueueDropped: number;
@@ -145,6 +150,7 @@ export function createDockerLifecycle(args: DockerLifecycleOptions): DockerLifec
     maxRetainedFailedContainers: args.maxRetainedFailedContainers ?? 0,
     ...(args.loggingDriver ? {loggingDriver: args.loggingDriver} : {}),
     loggingDriverSource: args.loggingDriverSource ?? 'daemon',
+    registrationCandidateCursor: 0,
     backendReconcileSucceeded: false,
     reportDeliveryDelivered: 0,
     reportQueueDropped: 0,
@@ -271,6 +277,10 @@ async function reportContainerCreationFailure(
 async function observe(context: DockerLifecycleContext): Promise<void> {
   await reportEvents(context, []);
   const listedContainers = await context.engine.listManaged(context.identity.id);
+  if (hasStaleRegistrationCandidate(context, listedContainers)) {
+    await reconcileListedContainers(context, listedContainers);
+    return;
+  }
   await applyObservedContainers(context, listedContainers, EMPTY_TERMINATE_INTENT_IDS);
   await cleanupRetainedFailedContainers(context, listedContainers);
 }
@@ -278,6 +288,13 @@ async function observe(context: DockerLifecycleContext): Promise<void> {
 async function reconcile(context: DockerLifecycleContext): Promise<void> {
   await reportEvents(context, []);
   const listedContainers = await context.engine.listManaged(context.identity.id);
+  await reconcileListedContainers(context, listedContainers);
+}
+
+async function reconcileListedContainers(
+  context: DockerLifecycleContext,
+  listedContainers: readonly DockerContainerView[],
+): Promise<void> {
   const observedProviderRunnerIds = observedRunnerIds(listedContainers);
   if (observedProviderRunnerIds.length > MAX_RECONCILE_OBSERVED_RUNNERS) {
     await applyObservedContainers(context, listedContainers, EMPTY_TERMINATE_INTENT_IDS);
@@ -285,14 +302,35 @@ async function reconcile(context: DockerLifecycleContext): Promise<void> {
     throw new DockerReconciliationLimitError(observedProviderRunnerIds.length);
   }
 
+  const registrationDeadlineCandidates = observeRegistrationDeadlineCandidates(
+    context,
+    listedContainers,
+  );
   const response = await context.client.reconcileRunnerInstances({
     observed_provider_runner_ids: observedProviderRunnerIds,
+    ...(registrationDeadlineCandidates.length > 0
+      ? {termination_candidates: registrationDeadlineCandidates}
+      : {}),
   });
-  const terminateIntentIds = new Set(
-    response.runners
-      .filter((runner) => runner.desired_intent === 'terminate')
-      .map((runner) => runner.provider_runner_id),
-  );
+  if (registrationDeadlineCandidates.length > 0) {
+    logger().info(
+      {
+        event: 'provisioner.docker.registration_deadline_candidates_submitted',
+        requested_count: registrationDeadlineCandidates.length,
+        termination_authorization: 'backend-gated',
+        provider_runner_ids: registrationDeadlineCandidates
+          .slice(0, MAX_REGISTRATION_CANDIDATE_IDS_IN_LOG)
+          .map((candidate) => candidate.provider_runner_id),
+      },
+      'Sent Docker registration-deadline termination candidates for backend authorization',
+    );
+  }
+  const terminateIntentReasons = new Map<string, TerminationReasonDto | undefined>();
+  for (const runner of response.runners) {
+    if (runner.desired_intent !== 'terminate') continue;
+    terminateIntentReasons.set(runner.provider_runner_id, runner.termination_reason ?? undefined);
+  }
+  const terminateIntentIds = new Set(terminateIntentReasons.keys());
   context.backendTerminationRequestedIds.clear();
   for (const providerRunnerId of terminateIntentIds) {
     context.backendTerminationRequestedIds.add(providerRunnerId);
@@ -310,7 +348,12 @@ async function reconcile(context: DockerLifecycleContext): Promise<void> {
     );
   }
 
-  await applyObservedContainers(context, listedContainers, terminateIntentIds);
+  await applyObservedContainers(
+    context,
+    listedContainers,
+    terminateIntentIds,
+    terminateIntentReasons,
+  );
   await cleanupRetainedFailedContainers(
     context,
     listedContainers.filter(
@@ -318,6 +361,65 @@ async function reconcile(context: DockerLifecycleContext): Promise<void> {
     ),
   );
   context.backendReconcileSucceeded = true;
+}
+
+function hasStaleRegistrationCandidate(
+  context: DockerLifecycleContext,
+  containers: readonly DockerContainerView[],
+): boolean {
+  return containers.some(
+    (container) =>
+      container.state === 'created' &&
+      isPastDeadline(container.createdAt, context.now(), context.registrationDeadlineMs),
+  );
+}
+
+function observeRegistrationDeadlineCandidates(
+  context: DockerLifecycleContext,
+  containers: readonly DockerContainerView[],
+): ProviderTerminationCandidateDto[] {
+  const candidates = new Map<string, ProviderTerminationCandidateDto>();
+  for (const container of containers) {
+    if (
+      container.state !== 'created' ||
+      !isPastDeadline(container.createdAt, context.now(), context.registrationDeadlineMs)
+    )
+      continue;
+    const providerRunnerId = parseContainerIdentity(container).providerRunnerId;
+    candidates.set(providerRunnerId, {
+      provider_runner_id: providerRunnerId,
+      reason: 'registration-deadline',
+    });
+  }
+
+  const orderedCandidates = [...candidates.values()].sort((left, right) =>
+    left.provider_runner_id.localeCompare(right.provider_runner_id),
+  );
+  if (orderedCandidates.length <= MAX_TERMINATION_CANDIDATES) {
+    context.registrationCandidateCursor = 0;
+    return orderedCandidates;
+  }
+
+  const start = context.registrationCandidateCursor % orderedCandidates.length;
+  const rotatedCandidates = [
+    ...orderedCandidates.slice(start),
+    ...orderedCandidates.slice(0, start),
+  ];
+  const selectedCandidates = rotatedCandidates.slice(0, MAX_TERMINATION_CANDIDATES);
+  context.registrationCandidateCursor =
+    (start + selectedCandidates.length) % orderedCandidates.length;
+  logger().warn(
+    {
+      event: 'provisioner.docker.registration_deadline_candidate_limit',
+      candidate_count: orderedCandidates.length,
+      submitted_count: selectedCandidates.length,
+      dropped_count: orderedCandidates.length - selectedCandidates.length,
+      start_index: start,
+      next_start_index: context.registrationCandidateCursor,
+    },
+    'Capped Docker registration-deadline termination candidates at the API limit',
+  );
+  return selectedCandidates;
 }
 
 async function tick(context: DockerLifecycleContext): Promise<void> {
@@ -358,6 +460,7 @@ function buildObservationPlan(
   context: DockerLifecycleContext,
   containers: readonly DockerContainerView[],
   terminateIntentIds: ReadonlySet<string>,
+  terminateIntentReasons: ReadonlyMap<string, TerminationReasonDto | undefined>,
 ): ObservationPlan {
   const listedIds = new Set<string>();
   const plan: ObservationPlan = {
@@ -368,7 +471,14 @@ function buildObservationPlan(
   };
 
   for (const container of containers) {
-    recordContainerObservation(context, plan, listedIds, container, terminateIntentIds);
+    recordContainerObservation(
+      context,
+      plan,
+      listedIds,
+      container,
+      terminateIntentIds,
+      terminateIntentReasons,
+    );
   }
   pruneFailedObservationState(context, containers, listedIds);
   pruneRequestState(context, listedIds);
@@ -383,6 +493,7 @@ function recordContainerObservation(
   listedIds: Set<string>,
   container: DockerContainerView,
   terminateIntentIds: ReadonlySet<string>,
+  terminateIntentReasons: ReadonlyMap<string, TerminationReasonDto | undefined>,
 ): void {
   const parsed = parseContainerIdentity(container);
   listedIds.add(parsed.providerRunnerId);
@@ -394,7 +505,12 @@ function recordContainerObservation(
   if (terminateIntentIds.has(parsed.providerRunnerId)) {
     closeEpisode(context.episodes, staleEpisodeKey);
     plan.terminalActions.push(
-      terminalActionFor(context, container, 'backend-terminate', 'backend'),
+      terminalActionFor(
+        context,
+        container,
+        terminateIntentReasons.get(parsed.providerRunnerId) ?? 'backend-terminate',
+        'backend',
+      ),
     );
     return;
   }
@@ -405,8 +521,7 @@ function recordContainerObservation(
     return;
   }
   logMissingLabelsRecovery(context, parsed.providerRunnerId);
-  if (recordStaleContainer(context, plan, container, parsed, staleRegistration, staleEpisodeKey))
-    return;
+  recordStaleContainer(context, container, parsed, staleRegistration, staleEpisodeKey);
   recordMappedContainer(context, plan, container, parsed, labels);
 }
 
@@ -432,13 +547,12 @@ function logMissingLabelsRecovery(context: DockerLifecycleContext, providerRunne
 
 function recordStaleContainer(
   context: DockerLifecycleContext,
-  plan: ObservationPlan,
   container: DockerContainerView,
   parsed: ParsedContainerIdentity,
   staleRegistration: boolean,
   staleEpisodeKey: string,
-): boolean {
-  if (!staleRegistration) return false;
+): void {
+  if (!staleRegistration) return;
   const update = recordEpisode(
     context.episodes,
     staleEpisodeKey,
@@ -448,8 +562,8 @@ function recordStaleContainer(
   if (shouldLogEpisode(update)) {
     logger().info(
       {
-        event: 'runner.container_stale_reap_requested',
-        operation: 'kill_and_remove',
+        event: 'runner.container_registration_deadline_observed',
+        operation: 'backend_authorization',
         providerRunnerId: parsed.providerRunnerId,
         containerId: container.id,
         containerName: container.name,
@@ -459,11 +573,9 @@ function recordStaleContainer(
         suppressed: update.state.suppressed,
         ...(update.transition === 'changed' ? {changed: true} : {}),
       },
-      'Stale runner container reap requested before registration',
+      'Stale runner container awaiting backend authorization',
     );
   }
-  plan.terminalActions.push(terminalActionFor(context, container, 'registration-deadline'));
-  return true;
 }
 
 function recordMappedContainer(
@@ -705,9 +817,15 @@ async function applyObservedContainers(
   context: DockerLifecycleContext,
   containers: readonly DockerContainerView[],
   terminateIntentIds: ReadonlySet<string>,
+  terminateIntentReasons: ReadonlyMap<string, TerminationReasonDto | undefined> = new Map(),
 ): Promise<void> {
   context.pendingMissingLabelEpisodes.length = 0;
-  const plan = buildObservationPlan(context, containers, terminateIntentIds);
+  const plan = buildObservationPlan(
+    context,
+    containers,
+    terminateIntentIds,
+    terminateIntentReasons,
+  );
   flushMissingLabelEpisodes(context);
   await applyObservationPlan(context, plan);
 }
@@ -725,7 +843,7 @@ function logRequestedTerminalActions(
   actions: readonly TerminalAction[],
 ): void {
   const requestedIds = actions
-    .filter((action) => action.reason === 'backend-terminate')
+    .filter((action) => action.requestSource === 'backend' || action.reason === 'backend-terminate')
     .filter((action) => {
       const update = recordEpisode(
         context.episodes,
@@ -793,7 +911,7 @@ function clearTerminalActionState(context: DockerLifecycleContext, action: Termi
   if (action.reason === 'registration-deadline') {
     closeEpisode(context.episodes, episodeKey('stale-reap', action.providerRunnerId));
   }
-  if (action.reason === 'backend-terminate') {
+  if (action.requestSource || action.reason === 'backend-terminate') {
     const requestedIds =
       action.requestSource === 'poll'
         ? context.pollTerminationRequestedIds

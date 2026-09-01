@@ -334,7 +334,7 @@ describe('createDockerLifecycle', () => {
     expect(client.reportBodies).toEqual([]);
   });
 
-  it('buffers stale-created terminal reports and still kills containers when reporting transiently fails', async () => {
+  it('keeps stale-created containers when lifecycle report delivery is unavailable', async () => {
     const engine = fakeEngine({
       containers: [
         container({
@@ -348,11 +348,15 @@ describe('createDockerLifecycle', () => {
 
     await lifecycle.observe();
 
-    expect(engine.killedAndRemoved).toEqual(['runner-1']);
+    expect(engine.killedAndRemoved).toEqual([]);
+    expect(client.reconcileBodies[0]).toEqual({
+      observed_provider_runner_ids: ['runner-1'],
+      termination_candidates: [{provider_runner_id: 'runner-1', reason: 'registration-deadline'}],
+    });
   });
 
-  it('logs stale cleanup as requested when kill-and-remove fails', async () => {
-    const error = new DockerEngineError('unknown', 'daemon unavailable');
+  it('keeps stale-created containers when backend reconciliation is unavailable', async () => {
+    const error = new Error('api unavailable');
     const containers = [
       container({
         state: 'created',
@@ -361,33 +365,16 @@ describe('createDockerLifecycle', () => {
     ];
     const engine = fakeEngine({
       containers,
-      killAndRemoveError: error,
     });
-    const lifecycle = makeLifecycle({engine, registrationDeadlineMs: 60_000});
+    const client = fakeClient({reconcileErrors: [error, error]});
+    const lifecycle = makeLifecycle({engine, client, registrationDeadlineMs: 60_000});
 
     await expect(lifecycle.observe()).rejects.toThrow(error);
     await expect(lifecycle.observe()).rejects.toThrow(error);
-    containers[0] = container({state: 'running'});
-    await lifecycle.observe();
-    containers[0] = container({
-      state: 'created',
-      createdAt: new Date('2026-01-01T00:00:00.000Z'),
-    });
-    await expect(lifecycle.observe()).rejects.toThrow(error);
 
-    expect(observability.logger.info).toHaveBeenCalledWith(
-      expect.objectContaining({event: 'runner.container_stale_reap_requested'}),
-      'Stale runner container reap requested before registration',
-    );
-    expect(
-      observability.logger.info.mock.calls.filter(
-        ([fields]) => fields?.event === 'runner.container_stale_reap_requested',
-      ),
-    ).toHaveLength(2);
-    expect(observability.logger.info).not.toHaveBeenCalledWith(
-      expect.objectContaining({event: 'runner.container_stale_reaped'}),
-      expect.any(String),
-    );
+    expect(engine.killedAndRemoved).toEqual([]);
+    expect(engine.removed).toEqual([]);
+    expect(client.reconcileBodies).toHaveLength(2);
   });
 
   it('marks OOM exits as failed with an oom reason', async () => {
@@ -739,7 +726,7 @@ describe('createDockerLifecycle', () => {
     ).toHaveLength(2);
   });
 
-  it('reaps only created containers past the registration deadline', async () => {
+  it('submits only created containers past the registration deadline as candidates', async () => {
     const engine = fakeEngine({
       containers: [
         container({
@@ -754,17 +741,88 @@ describe('createDockerLifecycle', () => {
         }),
       ],
     });
-    const client = fakeClient();
+    const client = fakeClient({
+      reconcileResponse: {
+        runners: [reconciledRunner('created-old', 'keep'), reconciledRunner('running-old', 'keep')],
+        terminated_absent_provider_runner_ids: [],
+      },
+    });
     const lifecycle = makeLifecycle({engine, client, registrationDeadlineMs: 60_000});
 
     await lifecycle.observe();
 
-    expect(engine.killedAndRemoved).toEqual(['created-old']);
+    expect(engine.killedAndRemoved).toEqual([]);
     expect(engine.removed).toEqual([]);
     expect(client.reportBodies.flatMap((body) => body.events.map((event) => event.state))).toEqual([
+      'starting',
       'running',
-      'terminated',
     ]);
+    expect(client.reconcileBodies[0]).toEqual({
+      observed_provider_runner_ids: ['created-old', 'running-old'],
+      termination_candidates: [
+        {provider_runner_id: 'created-old', reason: 'registration-deadline'},
+      ],
+    });
+    expect(observability.logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'provisioner.docker.registration_deadline_candidates_submitted',
+        requested_count: 1,
+        termination_authorization: 'backend-gated',
+      }),
+      'Sent Docker registration-deadline termination candidates for backend authorization',
+    );
+  });
+
+  it('terminates a stale-created container only after backend authorization', async () => {
+    const engine = fakeEngine({
+      containers: [
+        container({
+          state: 'created',
+          createdAt: new Date('2026-01-01T00:00:00.000Z'),
+        }),
+      ],
+    });
+    const client = fakeClient({
+      reconcileResponse: {
+        runners: [reconciledRunner('runner-1', 'terminate', 'registration-deadline')],
+        terminated_absent_provider_runner_ids: [],
+      },
+    });
+    const lifecycle = makeLifecycle({engine, client, registrationDeadlineMs: 60_000});
+
+    await lifecycle.observe();
+
+    expect(client.reconcileBodies[0]).toEqual({
+      observed_provider_runner_ids: ['runner-1'],
+      termination_candidates: [{provider_runner_id: 'runner-1', reason: 'registration-deadline'}],
+    });
+    expect(engine.killedAndRemoved).toEqual(['runner-1']);
+    expect(client.reportBodies[0]?.events[0]).toMatchObject({
+      provider_runner_id: 'runner-1',
+      state: 'terminated',
+      reason: 'registration-deadline',
+    });
+  });
+
+  it('reconciles a stale-created container discovered after the first successful tick', async () => {
+    const containers = [container({state: 'running'})];
+    const engine = fakeEngine({containers});
+    const client = fakeClient();
+    const lifecycle = makeLifecycle({engine, client, registrationDeadlineMs: 60_000});
+
+    await lifecycle.tick();
+    containers[0] = container({
+      state: 'created',
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    });
+    await lifecycle.tick();
+
+    expect(client.reconcileBodies).toHaveLength(2);
+    expect(client.reconcileBodies[1]).toEqual({
+      observed_provider_runner_ids: ['runner-1'],
+      termination_candidates: [{provider_runner_id: 'runner-1', reason: 'registration-deadline'}],
+    });
+    expect(engine.killedAndRemoved).toEqual([]);
   });
 
   it('reconcile rebuilds tracker counts from listed containers', async () => {
@@ -1538,6 +1596,7 @@ function container(args: {
 function reconciledRunner(
   providerRunnerId: string,
   desiredIntent: 'keep' | 'terminate',
+  terminationReason?: ReconcileRunnerInstancesResponseDto['runners'][number]['termination_reason'],
 ): ReconcileRunnerInstancesResponseDto['runners'][number] {
   return {
     provider_runner_id: providerRunnerId,
@@ -1547,6 +1606,7 @@ function reconciledRunner(
     runner_session_id: null,
     bound_job: null,
     desired_intent: desiredIntent,
+    ...(terminationReason !== undefined ? {termination_reason: terminationReason} : {}),
   };
 }
 
