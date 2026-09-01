@@ -235,16 +235,34 @@ export async function stepLogText(params: {
   return logText(logs.records);
 }
 
-export async function sendBatchPairAndAwaitMaterialization(params: {
+export async function sendBatchAndAwaitMaterialization(params: {
   testCase: ListenerCase;
   runId: string;
   label: string;
   sequence: number;
   timeoutMs: number;
+  eventCount?: number | undefined;
+  expectedEventCount?: number | undefined;
 }): Promise<{deliveryIds: string[]; runDetail: Awaited<ReturnType<typeof waitForRunTerminal>>}> {
+  const eventCount = params.eventCount ?? 2;
+  const expectedEventCount = params.expectedEventCount ?? eventCount;
+  if (
+    !Number.isInteger(eventCount) ||
+    eventCount < 1 ||
+    !Number.isInteger(expectedEventCount) ||
+    expectedEventCount < 1 ||
+    expectedEventCount > eventCount
+  ) {
+    throw new Error(
+      `Invalid listener batch counts: eventCount=${eventCount}, expectedEventCount=${expectedEventCount}`,
+    );
+  }
+
   const deliveryIds = [
-    `${params.testCase.uniqueId}-${params.label}-a`,
-    `${params.testCase.uniqueId}-${params.label}-b`,
+    ...Array.from({length: eventCount}, (_, index) => {
+      const suffix = String.fromCharCode('a'.charCodeAt(0) + index);
+      return `${params.testCase.uniqueId}-${params.label}-${suffix}`;
+    }),
   ];
   for (const deliveryId of deliveryIds) {
     params.testCase.fireDiagnostics.deliveryIds.push(deliveryId);
@@ -266,10 +284,20 @@ export async function sendBatchPairAndAwaitMaterialization(params: {
         runDetail: candidate,
         jobKey: LISTENER_JOB,
         sequence: params.sequence,
-        deliveryIds,
+        deliveryIds: deliveryIds.slice(0, expectedEventCount),
       }),
   });
   return {deliveryIds, runDetail};
+}
+
+export async function sendBatchPairAndAwaitMaterialization(params: {
+  testCase: ListenerCase;
+  runId: string;
+  label: string;
+  sequence: number;
+  timeoutMs: number;
+}): Promise<{deliveryIds: string[]; runDetail: Awaited<ReturnType<typeof waitForRunTerminal>>}> {
+  return await sendBatchAndAwaitMaterialization({...params, eventCount: 2});
 }
 
 export const listenerWorkflows = {
@@ -384,3 +412,56 @@ jobs:
           echo "listener_done"
 `,
 };
+
+export function sessionContinuationWorkflow(params: {provider: string; model: string}): string {
+  return `
+name: Session continuation
+runner: __RUNNER_LABEL__
+triggers:
+  manual:
+    source: manual
+    event: fire
+jobs:
+  plan:
+    steps:
+      - key: draft
+        harness: pi
+        provider: ${params.provider}
+        model: ${params.model}
+        thinking: off
+        session: main
+        prompt: |
+          Prepare the plan and reply with exactly: PLAN_SESSION_SEGMENT
+  implement:
+    needs: plan
+    steps:
+      - key: apply
+        harness: pi
+        provider: ${params.provider}
+        model: ${params.model}
+        thinking: off
+        session: main
+        prompt: |
+          Implement the plan and reply with exactly: IMPLEMENT_SESSION_SEGMENT
+  listen:
+    needs: implement
+    listening:
+      on:
+        - source: __FIRE_WEBHOOK_SOURCE__
+          event: received
+      until:
+        - source: __RESOLVE_WEBHOOK_SOURCE__
+          event: received
+      batch:
+        max_size: 2
+    steps:
+      - key: continue
+        harness: pi
+        provider: ${params.provider}
+        model: ${params.model}
+        thinking: off
+        session: main
+        prompt: |
+          Process this event batch and reply with the next session marker.
+`;
+}
