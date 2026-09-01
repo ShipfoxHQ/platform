@@ -4,6 +4,7 @@ import {
   deriveSetupChecklist,
   type SetupChecklistInput,
   type SetupChecklistItem,
+  selectNextSetupStep,
 } from './setup-checklist.js';
 
 function readiness(overrides: Partial<ReturnType<typeof deriveIntegrationReadiness>> = {}) {
@@ -338,5 +339,45 @@ describe('deriveSetupChecklist', () => {
     expect(checklist.trackedCount).toBe(5);
     expect(checklist.openCount).toBe(3);
     expect(checklist.items.filter((item) => !item.tracked)).toHaveLength(2);
+  });
+});
+
+describe('selectNextSetupStep', () => {
+  test('picks the first open tracked row ahead of every pointer', () => {
+    const checklist = deriveSetupChecklist(
+      input({
+        installationRunners: 'none',
+        modelProvider: {installationProvided: false, configured: false},
+      }),
+    );
+
+    expect(selectNextSetupStep(checklist)?.id).toBe('tools');
+  });
+
+  test('follows the spec order once an earlier ask is done', () => {
+    const checklist = deriveSetupChecklist(
+      input({
+        readiness: readiness({hasToolIntegration: true}),
+        installationRunners: 'none',
+        modelProvider: {installationProvided: false, configured: false},
+      }),
+    );
+
+    expect(selectNextSetupStep(checklist)?.id).toBe('runner');
+  });
+
+  test('falls back to the first unfinished pointer when every tracked row is done', () => {
+    const checklist = deriveSetupChecklist(
+      input({readiness: readiness({hasToolIntegration: true})}),
+    );
+
+    expect(checklist.openCount).toBe(0);
+    expect(selectNextSetupStep(checklist)?.id).toBe('first-workflow');
+  });
+
+  test('returns nothing when the checklist has no rows left to show', () => {
+    expect(
+      selectNextSetupStep({items: [], openCount: 0, trackedCount: 0, complete: true}),
+    ).toBeUndefined();
   });
 });

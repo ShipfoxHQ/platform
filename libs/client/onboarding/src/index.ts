@@ -12,6 +12,7 @@ export {
   type SetupChecklistItem,
   type SetupChecklistItemId,
   type SetupChecklistItemStatus,
+  selectNextSetupStep,
 } from '#core/setup-checklist.js';
 export {
   SetupChecklistBody,

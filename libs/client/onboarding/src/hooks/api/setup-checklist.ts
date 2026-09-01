@@ -27,6 +27,12 @@ const CHECKLIST_STALE_TIME_MS = 5 * 60 * 1000;
 export interface ChecklistQueryState {
   checklist: SetupChecklist;
   baseSettled: boolean;
+  /**
+   * Every family that can still add a tracked row has reported, by success or
+   * by failure. The teammates family is excluded: its row is a pointer, so it
+   * never moves `trackedCount`.
+   */
+  trackedRowsSettled: boolean;
   completionReady: boolean;
 }
 
@@ -82,20 +88,15 @@ export function useSetupChecklistQueryState(
     ...queryPolicy,
   });
 
-  const baseSettled = isSettled(providersQuery) && isSettled(connectionsQuery);
-  const runnerSettled = isSettled(activeProvisionersQuery) && isSettled(runnersStatusQuery);
-  const runnerReady = activeProvisionersQuery.isSuccess && runnersStatusQuery.isSuccess;
-  const catalogInstallationProvided = hasInstallationProvider(catalogQuery.data);
-  const modelReady = catalogQuery.isSuccess && configsQuery.isSuccess;
-  const membersReady = membersQuery.isSuccess && invitationsQuery.isSuccess;
-  const modelSettled = isSettled(catalogQuery) && isSettled(configsQuery);
-  const membersSettled = isSettled(membersQuery) && isSettled(invitationsQuery);
-  const completionReady = allChecklistQueriesReady({
-    providersReady: providersQuery.isSuccess,
-    connectionsReady: connectionsQuery.isSuccess,
-    runnerSettled,
-    modelSettled,
-    membersSettled,
+  const families = checklistFamilyState({
+    providersQuery,
+    connectionsQuery,
+    activeProvisionersQuery,
+    runnersStatusQuery,
+    catalogQuery,
+    configsQuery,
+    membersQuery,
+    invitationsQuery,
   });
 
   const rawChecklist = deriveSetupChecklist({
@@ -108,7 +109,7 @@ export function useSetupChecklistQueryState(
     modelProvider: {
       installationProvided: installationProviderReadiness(
         catalogQuery.isSuccess,
-        catalogInstallationProvided,
+        hasInstallationProvider(catalogQuery.data),
       ),
       configured: (configsQuery.data?.configs.length ?? 0) > 0,
     },
@@ -118,27 +119,58 @@ export function useSetupChecklistQueryState(
     },
   });
 
-  const hiddenRows = hiddenChecklistRows({
-    providersReady: providersQuery.isSuccess,
-    connectionsReady: connectionsQuery.isSuccess,
-    runnerReady,
-    modelReady,
-    membersReady,
-  });
-
+  const hiddenRows = hiddenChecklistRows(families);
   const items = rawChecklist.items.filter((item) => !hiddenRows.has(item.id));
   const trackedItems = items.filter((item) => item.tracked);
   const openCount = trackedItems.filter((item) => item.status === 'open').length;
 
   return {
-    baseSettled,
-    completionReady,
+    baseSettled: families.baseSettled,
+    trackedRowsSettled: families.trackedRowsSettled,
+    completionReady: families.completionReady,
     checklist: {
       items,
       openCount,
       trackedCount: trackedItems.length,
-      complete: completionReady && openCount === 0,
+      complete: families.completionReady && openCount === 0,
     },
+  };
+}
+
+type SettleableQuery = {isError: boolean; isSuccess: boolean};
+
+/**
+ * Per-family readiness. A row is hidden while its family is merely loading, so
+ * `ready` tracks success while `settled` also accepts a failure: a family that
+ * gave up must not hold the whole checklist back.
+ */
+function checklistFamilyState(queries: {
+  providersQuery: SettleableQuery;
+  connectionsQuery: SettleableQuery;
+  activeProvisionersQuery: SettleableQuery;
+  runnersStatusQuery: SettleableQuery;
+  catalogQuery: SettleableQuery;
+  configsQuery: SettleableQuery;
+  membersQuery: SettleableQuery;
+  invitationsQuery: SettleableQuery;
+}) {
+  const runnerSettled =
+    isSettled(queries.activeProvisionersQuery) && isSettled(queries.runnersStatusQuery);
+  const modelSettled = isSettled(queries.catalogQuery) && isSettled(queries.configsQuery);
+  const membersSettled = isSettled(queries.membersQuery) && isSettled(queries.invitationsQuery);
+  const providersReady = queries.providersQuery.isSuccess;
+  const connectionsReady = queries.connectionsQuery.isSuccess;
+  const everyFamilySettled = runnerSettled && modelSettled && membersSettled;
+
+  return {
+    providersReady,
+    connectionsReady,
+    runnerReady: queries.activeProvisionersQuery.isSuccess && queries.runnersStatusQuery.isSuccess,
+    modelReady: queries.catalogQuery.isSuccess && queries.configsQuery.isSuccess,
+    membersReady: queries.membersQuery.isSuccess && queries.invitationsQuery.isSuccess,
+    baseSettled: isSettled(queries.providersQuery) && isSettled(queries.connectionsQuery),
+    trackedRowsSettled: runnerSettled && modelSettled,
+    completionReady: providersReady && connectionsReady && everyFamilySettled,
   };
 }
 
@@ -164,22 +196,6 @@ function hasInstallationProvider(
   return catalog.managedProviderId !== null || catalog.instanceDefaultProviderId !== null;
 }
 
-function allChecklistQueriesReady(readiness: {
-  providersReady: boolean;
-  connectionsReady: boolean;
-  runnerSettled: boolean;
-  modelSettled: boolean;
-  membersSettled: boolean;
-}): boolean {
-  return (
-    readiness.providersReady &&
-    readiness.connectionsReady &&
-    readiness.runnerSettled &&
-    readiness.modelSettled &&
-    readiness.membersSettled
-  );
-}
-
 function installationProviderReadiness(
   catalogReady: boolean,
   installationProvided: boolean,
@@ -188,7 +204,7 @@ function installationProviderReadiness(
   return installationProvided;
 }
 
-function isSettled(query: {isError: boolean; isSuccess: boolean}) {
+function isSettled(query: SettleableQuery) {
   return query.isSuccess || query.isError;
 }
 

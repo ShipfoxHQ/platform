@@ -20,9 +20,15 @@ post-activation Get-started checklist, and its panel and top-bar hosts.
   `complete`. Rows follow the spec order; the runner and model-provider rows
   exist only when the installation does not already provide the capability;
   the first-workflow and teammates rows are pointers that never count.
+- **`selectNextSetupStep`**: the one row a compact host asks for. It returns the
+  first open tracked row, falling back to the first unfinished pointer once
+  every tracked row is done.
 - **`WorkspaceSetupChecklist`** and **`WorkspaceSetupIndicator`**: slot-ready
   hosts that load the five checklist query families, render the checklist in a
-  panel or a non-modal popover, and persist per-device dismissal.
+  panel or a non-modal popover, and persist per-device dismissal. The panel sits
+  above a page's own content, so it shows only the next step. A header toggle
+  opens the full list, and that choice is remembered per device. The popover
+  always carries the whole checklist.
 
 The derivations are pure functions. They test without React and decide what
 the checklist shows, while the hosts own query freshness, loading and failure
@@ -44,6 +50,7 @@ are `client-agent`, `client-integrations`, `client-projects`, `client-runners`,
 import {
   deriveIntegrationReadiness,
   deriveSetupChecklist,
+  selectNextSetupStep,
 } from '@shipfox/client-onboarding';
 
 const readiness = deriveIntegrationReadiness({
@@ -67,6 +74,8 @@ checklist.items; // 7 rows: source control, project, tools, runner,
 checklist.trackedCount; // 5
 checklist.openCount; // 3
 checklist.complete; // false
+
+selectNextSetupStep(checklist)?.id; // 'tools'
 ```
 
 The rendered hosts can be exported through the package feature entry point for

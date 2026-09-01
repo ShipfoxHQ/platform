@@ -37,7 +37,10 @@ import {
 } from './setup-checklist.js';
 
 const WORKSPACE: WorkspaceReference = {id: 'test-workspace', slug: 'acme'};
+const OTHER_WORKSPACE: WorkspaceReference = {id: 'other-test-workspace', slug: 'acme'};
 const GET_STARTED_BUTTON_RE = /Get started/u;
+const SHOW_ALL_STEPS_RE = /Show all/u;
+const DONE_COUNT_RE = /\d+ of \d+ done/u;
 const now = new Date().toISOString();
 const githubProvider: IntegrationProvider = {
   provider: 'github',
@@ -78,16 +81,20 @@ function pendingResponse(): Promise<Response> {
   });
 }
 
-function seedQueries(queryClient: QueryClient, toolsConnected = false) {
+function seedQueries(
+  queryClient: QueryClient,
+  toolsConnected = false,
+  workspace: WorkspaceReference = WORKSPACE,
+) {
   queryClient.setQueryData(integrationProvidersQueryOptions().queryKey, [
     githubProvider,
     linearProvider,
   ]);
-  queryClient.setQueryData(integrationConnectionsQueryOptions(WORKSPACE.id).queryKey, [
+  queryClient.setQueryData(integrationConnectionsQueryOptions(workspace.id).queryKey, [
     connection('github', 'active'),
     ...(toolsConnected ? [connection('linear', 'active')] : []),
   ]);
-  queryClient.setQueryData(provisionerTokenQueryKeys.active(WORKSPACE.id), {
+  queryClient.setQueryData(provisionerTokenQueryKeys.active(workspace.id), {
     provisioners: [],
     installationRunners: 'managed' as const,
   });
@@ -97,16 +104,16 @@ function seedQueries(queryClient: QueryClient, toolsConnected = false) {
     managedProviderId: 'managed-default',
     instanceDefaultProviderId: null,
   });
-  queryClient.setQueryData(modelProviderQueryKeys.configs(WORKSPACE.id), {
+  queryClient.setQueryData(modelProviderQueryKeys.configs(workspace.id), {
     configs: [],
     defaultHarnessId: null,
     defaultProviderId: null,
   });
-  queryClient.setQueryData(listMembersQueryKey(WORKSPACE.id), [
+  queryClient.setQueryData(listMembersQueryKey(workspace.id), [
     {
       id: 'member-1',
       userId: 'user-1',
-      workspaceId: WORKSPACE.id,
+      workspaceId: workspace.id,
       email: 'you@example.com',
       name: 'You',
       role: 'admin' as const,
@@ -114,7 +121,7 @@ function seedQueries(queryClient: QueryClient, toolsConnected = false) {
       updatedAt: now,
     },
   ]);
-  queryClient.setQueryData(listInvitationsQueryKey(WORKSPACE.id), []);
+  queryClient.setQueryData(listInvitationsQueryKey(workspace.id), []);
 }
 
 function renderWithProviders(
@@ -534,6 +541,211 @@ describe('workspace checklist hosts', () => {
       expect(screen.queryByRole('button', {name: GET_STARTED_BUTTON_RE})).not.toBeInTheDocument();
     });
     expect(capture).not.toHaveBeenCalledWith('onboarding_checklist_shown', {host: 'popover'});
+  });
+
+  test('shows only the next step until the reader opens the full list', async () => {
+    const queryClient = createQueryClient();
+    seedQueries(queryClient);
+
+    renderWithProviders(<WorkspaceSetupChecklist workspace={WORKSPACE} />, queryClient, {
+      capture: vi.fn(),
+    });
+
+    expect(await screen.findByText('Connect your tools')).toBeInTheDocument();
+    expect(screen.queryByRole('list', {name: 'Setup steps'})).not.toBeInTheDocument();
+    expect(screen.queryByText('Create a project')).not.toBeInTheDocument();
+    expect(screen.queryByText('Push your first workflow')).not.toBeInTheDocument();
+
+    const toggle = screen.getByRole('button', {name: 'Show all 5 steps'});
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(toggle);
+
+    expect(await screen.findByRole('list', {name: 'Setup steps'})).toBeInTheDocument();
+    expect(screen.getAllByRole('listitem')).toHaveLength(5);
+    expect(screen.getByText('Push your first workflow')).toBeInTheDocument();
+
+    const collapse = screen.getByRole('button', {name: 'Show less'});
+    expect(collapse).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.click(collapse);
+
+    await waitFor(() =>
+      expect(screen.queryByRole('list', {name: 'Setup steps'})).not.toBeInTheDocument(),
+    );
+  });
+
+  test('reopens the full list on a later visit once the reader expanded it', async () => {
+    const queryClient = createQueryClient();
+    seedQueries(queryClient);
+
+    const first = renderWithProviders(
+      <WorkspaceSetupChecklist workspace={WORKSPACE} />,
+      queryClient,
+      {capture: vi.fn()},
+    );
+    fireEvent.click(await screen.findByRole('button', {name: 'Show all 5 steps'}));
+    expect(await screen.findByRole('list', {name: 'Setup steps'})).toBeInTheDocument();
+    first.unmount();
+
+    renderWithProviders(<WorkspaceSetupChecklist workspace={WORKSPACE} />, queryClient, {
+      capture: vi.fn(),
+    });
+
+    expect(await screen.findByRole('list', {name: 'Setup steps'})).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'Show less'})).toBeInTheDocument();
+  });
+
+  test('replaces the panel body with the completion state rather than the finished list', async () => {
+    const queryClient = createQueryClient();
+    seedQueries(queryClient);
+
+    renderWithProviders(<WorkspaceSetupChecklist workspace={WORKSPACE} />, queryClient, {
+      capture: vi.fn(),
+    });
+    expect(await screen.findByText('Connect your tools')).toBeInTheDocument();
+
+    act(() => {
+      queryClient.setQueryData(integrationConnectionsQueryOptions(WORKSPACE.id).queryKey, [
+        connection('github', 'active'),
+        connection('linear', 'active'),
+      ]);
+    });
+
+    expect(await screen.findByText("You're set up")).toBeInTheDocument();
+    expect(screen.queryByRole('list', {name: 'Setup steps'})).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: SHOW_ALL_STEPS_RE})).not.toBeInTheDocument();
+  });
+
+  test('replaces an expanded list with the completion state, not just a collapsed one', async () => {
+    const queryClient = createQueryClient();
+    seedQueries(queryClient);
+
+    renderWithProviders(<WorkspaceSetupChecklist workspace={WORKSPACE} />, queryClient, {
+      capture: vi.fn(),
+    });
+    fireEvent.click(await screen.findByRole('button', {name: 'Show all 5 steps'}));
+    expect(await screen.findByRole('list', {name: 'Setup steps'})).toBeInTheDocument();
+
+    act(() => {
+      queryClient.setQueryData(integrationConnectionsQueryOptions(WORKSPACE.id).queryKey, [
+        connection('github', 'active'),
+        connection('linear', 'active'),
+      ]);
+    });
+
+    expect(await screen.findByText("You're set up")).toBeInTheDocument();
+    expect(screen.queryByRole('list', {name: 'Setup steps'})).not.toBeInTheDocument();
+  });
+
+  test('scopes the remembered expansion to the workspace that was expanded', async () => {
+    const queryClient = createQueryClient();
+    seedQueries(queryClient);
+    seedQueries(queryClient, false, OTHER_WORKSPACE);
+
+    const expandedHost = renderWithProviders(
+      <WorkspaceSetupChecklist workspace={WORKSPACE} />,
+      queryClient,
+      {capture: vi.fn()},
+    );
+    fireEvent.click(await screen.findByRole('button', {name: 'Show all 5 steps'}));
+    expect(await screen.findByRole('list', {name: 'Setup steps'})).toBeInTheDocument();
+    expandedHost.unmount();
+
+    const otherHost = renderWithProviders(
+      <WorkspaceSetupChecklist workspace={OTHER_WORKSPACE} />,
+      queryClient,
+      {capture: vi.fn()},
+    );
+    expect(await screen.findByRole('button', {name: 'Show all 5 steps'})).toBeInTheDocument();
+    expect(screen.queryByRole('list', {name: 'Setup steps'})).not.toBeInTheDocument();
+    otherHost.unmount();
+
+    renderWithProviders(<WorkspaceSetupChecklist workspace={WORKSPACE} />, queryClient, {
+      capture: vi.fn(),
+    });
+    expect(await screen.findByRole('button', {name: 'Show less'})).toBeInTheDocument();
+  });
+
+  test('captures the expansion toggle so adoption of the collapsed panel is measurable', async () => {
+    const queryClient = createQueryClient();
+    seedQueries(queryClient);
+    const capture = vi.fn();
+
+    renderWithProviders(<WorkspaceSetupChecklist workspace={WORKSPACE} />, queryClient, {capture});
+
+    fireEvent.click(await screen.findByRole('button', {name: 'Show all 5 steps'}));
+    expect(capture).toHaveBeenCalledWith('onboarding_checklist_expansion_toggled', {
+      host: 'panel',
+      expanded: true,
+    });
+
+    fireEvent.click(await screen.findByRole('button', {name: 'Show less'}));
+    expect(capture).toHaveBeenCalledWith('onboarding_checklist_expansion_toggled', {
+      host: 'panel',
+      expanded: false,
+    });
+  });
+
+  test('keeps the skeleton rather than promoting a pointer while optional families load', async () => {
+    const queryClient = createQueryClient();
+    configureApiClient({
+      baseUrl: 'https://api.example.test',
+      fetchImpl: vi.fn(() => pendingResponse()),
+    });
+    queryClient.setQueryData(integrationProvidersQueryOptions().queryKey, [
+      githubProvider,
+      linearProvider,
+    ]);
+    queryClient.setQueryData(integrationConnectionsQueryOptions(WORKSPACE.id).queryKey, [
+      connection('github', 'active'),
+      connection('linear', 'active'),
+    ]);
+
+    renderWithProviders(<WorkspaceSetupChecklist workspace={WORKSPACE} />, queryClient, {
+      capture: vi.fn(),
+    });
+
+    expect(await screen.findByRole('status', {name: 'Loading setup guide'})).toBeInTheDocument();
+    expect(screen.queryByText('Push your first workflow')).not.toBeInTheDocument();
+    // The tracked rows are still hidden, so no count may claim they are done.
+    expect(screen.queryByText(DONE_COUNT_RE)).not.toBeInTheDocument();
+  });
+
+  test('does not wait on the teammates family, which cannot change the count', async () => {
+    const queryClient = createQueryClient();
+    configureApiClient({
+      baseUrl: 'https://api.example.test',
+      fetchImpl: vi.fn(() => pendingResponse()),
+    });
+    queryClient.setQueryData(integrationProvidersQueryOptions().queryKey, [
+      githubProvider,
+      linearProvider,
+    ]);
+    queryClient.setQueryData(integrationConnectionsQueryOptions(WORKSPACE.id).queryKey, [
+      connection('github', 'active'),
+    ]);
+    queryClient.setQueryData(provisionerTokenQueryKeys.active(WORKSPACE.id), {
+      provisioners: [],
+      installationRunners: 'managed' as const,
+    });
+    queryClient.setQueryData(modelProviderQueryKeys.catalog(), {
+      providers: [],
+      workspaceProviders: 'enabled' as const,
+      managedProviderId: 'managed-default',
+      instanceDefaultProviderId: null,
+    });
+    queryClient.setQueryData(modelProviderQueryKeys.configs(WORKSPACE.id), {
+      configs: [],
+      defaultHarnessId: null,
+      defaultProviderId: null,
+    });
+
+    renderWithProviders(<WorkspaceSetupChecklist workspace={WORKSPACE} />, queryClient, {
+      capture: vi.fn(),
+    });
+
+    // Members and invitations are still in flight, and the count is already final.
+    expect(await screen.findByText('2 of 3 done')).toBeInTheDocument();
+    expect(await screen.findByText('Connect your tools')).toBeInTheDocument();
   });
 
   test('does not render an initially complete checklist without a transition', async () => {
