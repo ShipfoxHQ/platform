@@ -103,7 +103,6 @@ const shutdownController = createGracefulShutdownController({
   onFirstSignal: (signal) => {
     running = false;
     logger().info({signal}, 'Shutting down gracefully, waiting for current job to finish...');
-    emitRunnerShutdownIntent('controlled-exit');
   },
   onSecondSignal: (signal) => {
     logger().info({signal}, 'Second signal received, aborting current job');
@@ -156,7 +155,10 @@ export async function startRunner(
     };
     if (startupMode === 'managed') {
       state.runnerSession = await initializeManagedRunnerSession(runnerBootPhaseTimeline);
-      if (!state.runnerSession) return;
+      if (!state.runnerSession) {
+        shutdownReason = running ? 'fatal-failure' : 'controlled-exit';
+        return;
+      }
     } else {
       await interruptableSleep(withJitter(config.SHIPFOX_POLL_INTERVAL_MS));
     }

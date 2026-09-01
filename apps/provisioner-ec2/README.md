@@ -31,6 +31,19 @@ raw environment file. A rollback requires a provider and AMI from the same contr
 the transition, keep `root_volume_gb` at or above the old AMI's root snapshot size until every
 template uses a rebuilt AMI.
 
+The compatibility image has no control-plane-independent lifetime cutoff. A
+wedged instance can keep running while both the runner and provisioner are
+unavailable. Treat this as an accepted migration risk until the old images leave
+the rollback window. Keep the provisioner supervised and monitor reconciliation
+and termination failures.
+
+Before retiring old AMIs, run a recovery drill with a test runner and a stopped
+provisioner. Restore the provisioner and verify that backend stale handling
+produces a termination intent, then verify EC2 termination on the next full
+reconcile. The default full-reconcile cadence is 60 seconds after the backend
+intent is available, plus backend stale thresholds and API or EC2 request
+latency. Record the observed end-to-end time in the deployment notes.
+
 ## Template families
 
 The checked-in [`templates.example.yaml`](templates.example.yaml) contains a general

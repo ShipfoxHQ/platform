@@ -143,6 +143,13 @@ With `InstanceInitiatedShutdownBehavior=terminate` and Spot `InstanceInterruptio
 
 On EC2, launch a runner with the legacy lifetime key and verify that a job running longer than the former 3600-second fallback remains alive and heartbeating. For Spot, request an interruption notice in a test environment and verify the runner stops claiming work, drains, and powers off before reclaim. These drills feed the deployment runbook for the EC2 provisioner.
 
+During an AMI migration, also stop the provisioner while a test runner is
+wedged. Restore the provisioner and verify that backend stale handling produces
+a termination intent, then verify that EC2 terminates the tagged instance on
+the next full reconcile. The default reconcile cadence is 60 seconds after the
+intent is available, plus backend stale thresholds and API or EC2 request
+latency. Record the end-to-end time before retiring the old AMI.
+
 ## Candidate builds
 
 After every successful merge to `main`, CI builds one candidate AMI per architecture in the candidate AWS account. Candidates are not releases: CI shares them only with the configured worker-plane accounts and publishes one immutable OCI manifest at the full source revision. There is no moving `latest` or `main` pointer.

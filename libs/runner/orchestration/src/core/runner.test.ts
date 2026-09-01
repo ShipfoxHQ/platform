@@ -592,6 +592,26 @@ describe('startRunner', () => {
     }
   });
 
+  it('keeps the structured shutdown intent when the console descriptor is unavailable', async () => {
+    setConsoleFd(999_999);
+    const info = vi.spyOn(logger(), 'info').mockImplementation(() => undefined);
+    mockRequestJob.mockRejectedValue(new RunnerSessionExhaustedError());
+
+    await expect(startRunner()).resolves.toBeUndefined();
+
+    expect(info).toHaveBeenCalledWith(
+      {
+        event: 'runner.shutdown_intent',
+        console_marker: 'runner_shutdown_intent',
+        reason: 'success',
+      },
+      'runner.shutdown_intent',
+    );
+    expect(
+      info.mock.calls.filter(([, message]) => message === 'runner.shutdown_intent'),
+    ).toHaveLength(1);
+  });
+
   it('emits a controlled-exit shutdown intent after a graceful signal', async () => {
     const consoleFile = await createConsoleMarkerFile();
     try {
@@ -608,6 +628,31 @@ describe('startRunner', () => {
           event: 'runner.shutdown_intent',
           console_marker: 'runner_shutdown_intent',
           reason: 'controlled-exit',
+          msg: 'runner.shutdown_intent',
+        }),
+      );
+    } finally {
+      await consoleFile.cleanup();
+    }
+  });
+
+  it('emits a fatal-failure shutdown intent when startup fails after a graceful signal', async () => {
+    const consoleFile = await createConsoleMarkerFile();
+    try {
+      setConsoleFd(consoleFile.fd);
+      const startupError = new Error('workspace unavailable');
+      mockResolveWorkspaceRoot.mockImplementation(() => {
+        process.emit('SIGTERM');
+        throw startupError;
+      });
+
+      await expect(startRunner()).rejects.toBe(startupError);
+
+      expect(JSON.parse(await readFile(consoleFile.path, 'utf8'))).toEqual(
+        expect.objectContaining({
+          event: 'runner.shutdown_intent',
+          console_marker: 'runner_shutdown_intent',
+          reason: 'fatal-failure',
           msg: 'runner.shutdown_intent',
         }),
       );
@@ -693,6 +738,70 @@ describe('startRunner', () => {
       'Failed to sweep orphaned job logs',
     );
     expect(mockExchangeRunnerBootstrapToken).toHaveBeenCalledWith('sf_rbt_bootstrap-token');
+  });
+
+  it('emits a fatal-failure shutdown intent when managed heartbeat loses its control session', async () => {
+    const consoleFile = await createConsoleMarkerFile();
+    try {
+      setConsoleFd(consoleFile.fd);
+      vi.stubEnv('SHIPFOX_RUNNER_BOOTSTRAP_TOKEN', 'sf_rbt_bootstrap-token');
+      vi.stubEnv('SHIPFOX_RUNNER_PROVIDER_KIND', 'ec2');
+      vi.stubEnv('SHIPFOX_RUNNER_PROTOCOL_VERSION', '1');
+      mockRunnerStartupMode.mockReturnValue('managed');
+      mockExchangeRunnerBootstrapToken.mockResolvedValue({controlSessionToken: 'control-token'});
+      mockEnrollRunnerControlSession.mockResolvedValue(null);
+      mockHeartbeatRunnerControlSession.mockRejectedValue(httpError(401));
+
+      await expect(startRunner()).resolves.toBeUndefined();
+
+      const events = (await readFile(consoleFile.path, 'utf8'))
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+      expect(events.at(-1)).toEqual(
+        expect.objectContaining({
+          event: 'runner.shutdown_intent',
+          console_marker: 'runner_shutdown_intent',
+          reason: 'fatal-failure',
+          msg: 'runner.shutdown_intent',
+        }),
+      );
+      expect(mockPollRunnerAssignment).not.toHaveBeenCalled();
+    } finally {
+      await consoleFile.cleanup();
+    }
+  });
+
+  it('emits a fatal-failure shutdown intent when managed assignment polling loses its control session', async () => {
+    const consoleFile = await createConsoleMarkerFile();
+    try {
+      setConsoleFd(consoleFile.fd);
+      vi.stubEnv('SHIPFOX_RUNNER_BOOTSTRAP_TOKEN', 'sf_rbt_bootstrap-token');
+      vi.stubEnv('SHIPFOX_RUNNER_PROVIDER_KIND', 'ec2');
+      vi.stubEnv('SHIPFOX_RUNNER_PROTOCOL_VERSION', '1');
+      mockRunnerStartupMode.mockReturnValue('managed');
+      mockExchangeRunnerBootstrapToken.mockResolvedValue({controlSessionToken: 'control-token'});
+      mockEnrollRunnerControlSession.mockResolvedValue(null);
+      mockHeartbeatRunnerControlSession.mockResolvedValue();
+      mockPollRunnerAssignment.mockRejectedValue(httpError(409));
+
+      await expect(startRunner()).resolves.toBeUndefined();
+
+      const events = (await readFile(consoleFile.path, 'utf8'))
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+      expect(events.at(-1)).toEqual(
+        expect.objectContaining({
+          event: 'runner.shutdown_intent',
+          console_marker: 'runner_shutdown_intent',
+          reason: 'fatal-failure',
+          msg: 'runner.shutdown_intent',
+        }),
+      );
+    } finally {
+      await consoleFile.cleanup();
+    }
   });
 
   it('enrolls, waits, activates, and uses the activation session for managed runners', async () => {
