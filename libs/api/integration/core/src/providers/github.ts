@@ -161,6 +161,7 @@ async function loadGithubModuleParts(
     publishSourcePush,
     recordDeliveryOnly,
     getIntegrationConnectionById,
+    invalidateRepositoryAuthorizationCache: options.invalidateRepositoryAuthorizationCache,
     coreDb: db,
     deleteSecrets: options.secrets?.deleteSecrets,
     checkoutTokenCache,

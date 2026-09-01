@@ -26,6 +26,8 @@ export interface CreateGithubWebhookProcessorOptions {
   publishSourcePush: PublishSourcePushFn;
   recordDeliveryOnly: RecordDeliveryOnlyFn;
   getIntegrationConnectionById: GetIntegrationConnectionByIdFn;
+  /** Invalidates local repository authorization decisions after the delivery transaction commits. */
+  invalidateRepositoryAuthorizationCache?: ((connectionId: string) => void) | undefined;
   deleteInstallationTokenSecret?:
     | ((params: {workspaceId: string; installationId: number}) => Promise<unknown>)
     | undefined;
@@ -89,6 +91,12 @@ async function processGithubWebhookRequest(
       getIntegrationConnectionById: options.getIntegrationConnectionById,
     }),
   );
+
+  if (result.repositoryAuthorizationCacheInvalidationConnectionId !== undefined) {
+    options.invalidateRepositoryAuthorizationCache?.(
+      result.repositoryAuthorizationCacheInvalidationConnectionId,
+    );
+  }
 
   if (result.installationTokenCleanup && options.deleteInstallationTokenSecret) {
     await options.deleteInstallationTokenSecret(result.installationTokenCleanup);

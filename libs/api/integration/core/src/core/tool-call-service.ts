@@ -77,7 +77,7 @@ export interface IntegrationToolCallInput {
   caller: IntegrationToolCallCaller;
   /** Live catalog metadata used by the shared repository-scope boundary. */
   catalogEntry?: AgentToolCatalogEntry | undefined;
-  /** The persisted connection mode will be threaded here when the authorization boundary consumes it. */
+  /** Trusted override for the persisted connection mode, primarily for callers and tests. */
   repositoryAccessMode?: RepositoryAuthorizationMode | undefined;
   repositoryAuthorizer?: RepositoryAuthorizer | undefined;
   /** Cooperative cancellation for one call; an abort maps to `provider-timeout`. */
@@ -216,7 +216,7 @@ async function resolveIntegrationToolAuthorization(
   input: IntegrationToolCallInput,
   catalogEntry: AgentToolCatalogEntry | undefined,
 ): Promise<IntegrationToolCallAuthorization> {
-  const mode = input.repositoryAccessMode ?? 'selected';
+  const mode = input.repositoryAccessMode ?? input.connection.repositoryAccessMode;
   const provider = input.registry.get(input.integration.provider);
   const scope = classifyToolCall(
     catalogEntry,

@@ -1,4 +1,5 @@
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
+import type {IntegrationConnection} from './entities/connection.js';
 import {
   IntegrationCheckoutUnsupportedError,
   IntegrationProviderError,
@@ -45,6 +46,7 @@ describe('integration source-control service', () => {
       omitCheckoutSpec?: boolean;
       repositoryAuthorizer?: RepositoryAuthorizer;
       getRepositoryAuthorizationMode?: () => 'selected' | 'all';
+      connection?: IntegrationConnection;
     } = {},
   ) {
     const sourceControl: SourceControlProvider = {
@@ -93,7 +95,8 @@ describe('integration source-control service', () => {
       ]),
       getIntegrationConnectionById: async (connectionId) => {
         await Promise.resolve();
-        return connectionId === connection.id ? connection : undefined;
+        const activeConnection = options.connection ?? connection;
+        return connectionId === activeConnection.id ? activeConnection : undefined;
       },
       repositoryAuthorizer: options.repositoryAuthorizer,
       getRepositoryAuthorizationMode: options.getRepositoryAuthorizationMode,
@@ -343,6 +346,42 @@ describe('integration source-control service', () => {
       capability: 'checkout',
     });
     expect(createCheckoutSpec).not.toHaveBeenCalled();
+  });
+
+  it('uses the persisted connection repository mode by default', async () => {
+    const allModeConnection = {...connection, repositoryAccessMode: 'all' as const};
+    const createCheckoutSpec = vi.fn(async () => ({
+      repositoryUrl: repository.cloneUrl,
+      ref: repository.defaultBranch,
+    }));
+    const resolveRepositoryAuthorization = vi.fn().mockResolvedValue({
+      authorized: true,
+      repository: {externalRepositoryId: repository.externalRepositoryId},
+    } as const);
+    const service = createService(
+      {createCheckoutSpec},
+      {
+        connection: allModeConnection,
+        repositoryAuthorizer: {
+          enabled: true,
+          resolveRepositoryAuthorization,
+        },
+      },
+    );
+
+    await service.createCheckoutSpec({
+      workspaceId,
+      connectionId: connection.id,
+      target: {kind: 'external-id', externalRepositoryId: repository.externalRepositoryId},
+    });
+
+    expect(resolveRepositoryAuthorization).toHaveBeenCalledWith({
+      workspaceId,
+      connectionId: connection.id,
+      mode: 'all',
+      repository: {kind: 'external-id', externalRepositoryId: repository.externalRepositoryId},
+      capability: 'checkout',
+    });
   });
 
   it('authorizes checkout credentials before calling the provider', async () => {

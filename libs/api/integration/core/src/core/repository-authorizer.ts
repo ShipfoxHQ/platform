@@ -9,6 +9,8 @@ const REPOSITORY_PART_UNSAFE_PATTERN = /[\s/:\\]/u;
 const EXTERNAL_REPOSITORY_VALUE_UNSAFE_PATTERN = /\s/u;
 // Keep every outage retryable while bounding the Sentry volume process-wide.
 const REPOSITORY_AUTHORIZATION_REPORT_INTERVAL_MS = 60_000;
+const REPOSITORY_AUTHORIZATION_CACHE_TTL_MS = 30_000;
+const DEFAULT_REPOSITORY_AUTHORIZATION_CACHE_SIZE = 256;
 let lastRepositoryAuthorizationReportAt = Number.NEGATIVE_INFINITY;
 
 export type RepositoryAuthorizationMode = IntegrationConnectionRepositoryAccessMode;
@@ -85,11 +87,33 @@ export interface ResolveRepositoryAuthorizationInput {
 
 export interface ResolveRepositoryAuthorizationParams extends ResolveRepositoryAuthorizationInput {
   projects: ProjectsModuleClient;
+  grants?: RepositoryAuthorizationGrantStore | undefined;
+}
+
+export interface RepositoryAuthorizationGrant {
+  externalRepositoryId: string;
+  repositoryOwner: string;
+  repositoryName: string;
+}
+
+export interface RepositoryAuthorizationGrantStore {
+  getByExternalId(input: {
+    connectionId: string;
+    externalRepositoryId: string;
+  }): Promise<RepositoryAuthorizationGrant | undefined>;
+  listByName(input: {
+    connectionId: string;
+    repositoryOwner: string;
+    repositoryName: string;
+  }): Promise<readonly RepositoryAuthorizationGrant[]>;
 }
 
 export interface CreateRepositoryAuthorizerOptions {
   projects?: ProjectsModuleClient | undefined;
+  grants?: RepositoryAuthorizationGrantStore | undefined;
   enabled?: boolean | undefined;
+  now?: (() => number) | undefined;
+  maxCacheEntries?: number | undefined;
 }
 
 export interface RepositoryAuthorizer {
@@ -97,6 +121,7 @@ export interface RepositoryAuthorizer {
   resolveRepositoryAuthorization(
     input: ResolveRepositoryAuthorizationInput,
   ): Promise<RepositoryAuthorizationResult | undefined>;
+  invalidateRepositoryAuthorizationCache?: (connectionId: string) => void;
 }
 
 export class RepositoryAuthorizationTargetInvalidError extends Error {
@@ -107,12 +132,13 @@ export class RepositoryAuthorizationTargetInvalidError extends Error {
 }
 
 /**
- * Resolves a repository declaration against local project state. This function
- * accepts only the Projects contract; provider adapters are deliberately not
- * part of the authorization boundary.
+ * Resolves a repository declaration against local project and integration-owned
+ * grant state. Provider adapters are deliberately not part of the authorization
+ * boundary.
  */
 export async function resolveRepositoryAuthorization({
   projects,
+  grants,
   request,
   ...input
 }: ResolveRepositoryAuthorizationParams): Promise<RepositoryAuthorizationResult> {
@@ -122,7 +148,7 @@ export async function resolveRepositoryAuthorization({
     return authorizeAllMode(input.repository);
   }
 
-  const resolve = () => resolveSelectedMode({projects, ...input});
+  const resolve = () => resolveSelectedMode({projects, grants, ...input});
   if (!request) return await resolve();
 
   const key = authorizationMemoKey(input);
@@ -153,7 +179,10 @@ export async function resolveRepositoryAuthorization({
  */
 export function createRepositoryAuthorizer({
   projects,
+  grants,
   enabled = false,
+  now = Date.now,
+  maxCacheEntries = DEFAULT_REPOSITORY_AUTHORIZATION_CACHE_SIZE,
 }: CreateRepositoryAuthorizerOptions): RepositoryAuthorizer {
   if (!enabled) {
     return {
@@ -165,64 +194,93 @@ export function createRepositoryAuthorizer({
   }
   if (!projects) throw new RepositoryAuthorizerConfigurationError();
 
+  const cache = createSharedAuthorizationCache({now, maxCacheEntries});
+
   return {
     enabled: true,
     async resolveRepositoryAuthorization(input) {
-      return await resolveRepositoryAuthorization({projects, ...input});
+      assertValidTarget(input.repository, input.mode);
+      if (input.mode === 'all') {
+        return await resolveRepositoryAuthorization({projects, grants, ...input});
+      }
+
+      const key = authorizationSharedCacheKey(input);
+      const cached = cache.get(key);
+      if (cached) return cloneAuthorizationResult(cached);
+
+      const generation = cache.generation();
+      const result = await resolveRepositoryAuthorization({projects, grants, ...input});
+      if (result.authorized && cache.generation() === generation) {
+        cache.set(key, input.connectionId, result);
+      }
+      return result;
+    },
+    invalidateRepositoryAuthorizationCache(connectionId) {
+      cache.invalidate(connectionId);
     },
   };
 }
 
 async function resolveSelectedMode({
   projects,
+  grants,
   workspaceId,
   connectionId,
   repository,
 }: Pick<
   ResolveRepositoryAuthorizationParams,
-  'projects' | 'workspaceId' | 'connectionId' | 'repository'
+  'projects' | 'grants' | 'workspaceId' | 'connectionId' | 'repository'
 >): Promise<RepositoryAuthorizationResult> {
   if (repository.kind === 'external-id') {
-    let projectResult: Awaited<ReturnType<ProjectsModuleClient['getProjectBySource']>>;
     try {
-      projectResult = await projects.getProjectBySource({
-        workspaceId,
-        sourceConnectionId: connectionId,
-        sourceExternalRepositoryId: repository.externalRepositoryId,
-      });
+      const [projectResult, grant] = await Promise.all([
+        projects.getProjectBySource({
+          workspaceId,
+          sourceConnectionId: connectionId,
+          sourceExternalRepositoryId: repository.externalRepositoryId,
+        }),
+        grants?.getByExternalId({
+          connectionId,
+          externalRepositoryId: repository.externalRepositoryId,
+        }) ?? Promise.resolve(undefined),
+      ]);
+
+      const candidates = new Map<string, RepositoryAuthorizationCandidate>();
+      if (projectResult.project)
+        addCandidate(candidates, projectToCandidate(projectResult.project));
+      if (grant) addCandidate(candidates, grantToCandidate(grant));
+      return authorizeCandidates(candidates);
     } catch (error) {
       return storeUnavailable(error, repository.kind);
     }
-
-    return projectResult.project
-      ? authorizeProject(projectResult.project)
-      : deny('repository_not_granted');
   }
 
-  let projectResult: Awaited<ReturnType<ProjectsModuleClient['findProjectBySourceRepositoryName']>>;
   try {
-    projectResult = await projects.findProjectBySourceRepositoryName({
-      workspaceId,
-      sourceConnectionId: connectionId,
-      sourceRepositoryOwner: repository.owner,
-      sourceRepositoryName: repository.name,
-    });
+    const [projectResult, grantsResult] = await Promise.all([
+      projects.findProjectBySourceRepositoryName({
+        workspaceId,
+        sourceConnectionId: connectionId,
+        sourceRepositoryOwner: repository.owner,
+        sourceRepositoryName: repository.name,
+      }),
+      grants?.listByName({
+        connectionId,
+        repositoryOwner: repository.owner,
+        repositoryName: repository.name,
+      }) ?? Promise.resolve([]),
+    ]);
+
+    const candidates = new Map<string, RepositoryAuthorizationCandidate>();
+    for (const project of projectResult.projects) {
+      addCandidate(candidates, projectToCandidate(project));
+    }
+    for (const grant of grantsResult) {
+      addCandidate(candidates, grantToCandidate(grant));
+    }
+    return authorizeCandidates(candidates);
   } catch (error) {
     return storeUnavailable(error, repository.kind);
   }
-
-  const projectsByRepositoryId = new Map<string, (typeof projectResult.projects)[number]>();
-  for (const project of projectResult.projects) {
-    if (!projectsByRepositoryId.has(project.sourceExternalRepositoryId)) {
-      projectsByRepositoryId.set(project.sourceExternalRepositoryId, project);
-    }
-  }
-
-  if (projectsByRepositoryId.size === 0) return deny('repository_not_granted');
-  if (projectsByRepositoryId.size > 1) return deny('repository_ambiguous');
-
-  const project = projectsByRepositoryId.values().next().value;
-  return project ? authorizeProject(project) : deny('repository_not_granted');
 }
 
 function storeUnavailable(
@@ -267,20 +325,72 @@ function authorizeAllMode(
   };
 }
 
-function authorizeProject(project: {
+interface RepositoryAuthorizationCandidate {
+  externalRepositoryId: string;
+  owner?: string | undefined;
+  name?: string | undefined;
+  targetProjectId?: string | undefined;
+}
+
+function projectToCandidate(project: {
   id: string;
   sourceExternalRepositoryId: string;
   sourceRepositoryOwner?: string | null | undefined;
   sourceRepositoryName?: string | null | undefined;
-}): RepositoryAuthorizationResult {
+}): RepositoryAuthorizationCandidate {
+  return {
+    externalRepositoryId: project.sourceExternalRepositoryId,
+    ...(project.sourceRepositoryOwner == null ? {} : {owner: project.sourceRepositoryOwner}),
+    ...(project.sourceRepositoryName == null ? {} : {name: project.sourceRepositoryName}),
+    targetProjectId: project.id,
+  };
+}
+
+function grantToCandidate(grant: RepositoryAuthorizationGrant): RepositoryAuthorizationCandidate {
+  return {
+    externalRepositoryId: grant.externalRepositoryId,
+    owner: grant.repositoryOwner,
+    name: grant.repositoryName,
+  };
+}
+
+function addCandidate(
+  candidates: Map<string, RepositoryAuthorizationCandidate>,
+  candidate: RepositoryAuthorizationCandidate,
+): void {
+  const existing = candidates.get(candidate.externalRepositoryId);
+  if (!existing) {
+    candidates.set(candidate.externalRepositoryId, candidate);
+    return;
+  }
+
+  candidates.set(candidate.externalRepositoryId, {
+    externalRepositoryId: candidate.externalRepositoryId,
+    owner: existing.owner ?? candidate.owner,
+    name: existing.name ?? candidate.name,
+    targetProjectId: existing.targetProjectId ?? candidate.targetProjectId,
+  });
+}
+
+function authorizeCandidates(
+  candidates: Map<string, RepositoryAuthorizationCandidate>,
+): RepositoryAuthorizationResult {
+  if (candidates.size === 0) return deny('repository_not_granted');
+  if (candidates.size > 1) return deny('repository_ambiguous');
+
+  const candidate = candidates.values().next().value;
+  if (!candidate) return deny('repository_not_granted');
+
   return {
     authorized: true,
     repository: {
-      externalRepositoryId: project.sourceExternalRepositoryId,
-      ...(project.sourceRepositoryOwner == null ? {} : {owner: project.sourceRepositoryOwner}),
-      ...(project.sourceRepositoryName == null ? {} : {name: project.sourceRepositoryName}),
+      externalRepositoryId: candidate.externalRepositoryId,
+      ...(candidate.owner === undefined ? {} : {owner: candidate.owner}),
+      ...(candidate.name === undefined ? {} : {name: candidate.name}),
     },
-    targetProjectId: project.id,
+    ...(candidate.targetProjectId === undefined
+      ? {}
+      : {targetProjectId: candidate.targetProjectId}),
   };
 }
 
@@ -300,10 +410,108 @@ function authorizationMemoKey({
     connectionId,
     mode,
     capability,
-    repository.kind === 'external-id'
-      ? [repository.kind, repository.externalRepositoryId]
-      : [repository.kind, repository.owner.toLowerCase(), repository.name.toLowerCase()],
+    normalizedRepositoryTarget(repository),
   ]);
+}
+
+function authorizationSharedCacheKey({
+  connectionId,
+  mode,
+  repository,
+}: Pick<ResolveRepositoryAuthorizationInput, 'connectionId' | 'mode' | 'repository'>): string {
+  return JSON.stringify([connectionId, mode, normalizedRepositoryTarget(repository)]);
+}
+
+function normalizedRepositoryTarget(
+  repository: RepositoryAuthorizationTarget,
+): readonly [string, ...string[]] {
+  return repository.kind === 'external-id'
+    ? [repository.kind, repository.externalRepositoryId]
+    : [repository.kind, repository.owner.toLowerCase(), repository.name.toLowerCase()];
+}
+
+type AuthorizedRepositoryAuthorizationResult = Extract<
+  RepositoryAuthorizationResult,
+  {authorized: true}
+>;
+
+function cloneAuthorizationResult(
+  result: AuthorizedRepositoryAuthorizationResult,
+): AuthorizedRepositoryAuthorizationResult {
+  return {
+    authorized: true,
+    repository: {...result.repository},
+    ...(result.targetProjectId === undefined ? {} : {targetProjectId: result.targetProjectId}),
+  };
+}
+
+function createSharedAuthorizationCache({
+  now,
+  maxCacheEntries,
+}: {
+  now: () => number;
+  maxCacheEntries: number;
+}): {
+  get(key: string): AuthorizedRepositoryAuthorizationResult | undefined;
+  set(key: string, connectionId: string, result: AuthorizedRepositoryAuthorizationResult): void;
+  generation(): number;
+  invalidate(connectionId: string): void;
+} {
+  const entries = new Map<
+    string,
+    {
+      connectionId: string;
+      expiresAt: number;
+      result: AuthorizedRepositoryAuthorizationResult;
+    }
+  >();
+  let invalidationGeneration = 0;
+  const capacity =
+    Number.isSafeInteger(maxCacheEntries) && maxCacheEntries > 0
+      ? maxCacheEntries
+      : DEFAULT_REPOSITORY_AUTHORIZATION_CACHE_SIZE;
+
+  function removeExpired(currentTime: number): void {
+    for (const [key, entry] of entries) {
+      if (entry.expiresAt <= currentTime) entries.delete(key);
+    }
+  }
+
+  return {
+    get(key) {
+      const currentTime = now();
+      const entry = entries.get(key);
+      if (!entry) return undefined;
+      if (entry.expiresAt <= currentTime) {
+        entries.delete(key);
+        return undefined;
+      }
+      return entry.result;
+    },
+    set(key, connectionId, result) {
+      removeExpired(now());
+      entries.delete(key);
+      entries.set(key, {
+        connectionId,
+        expiresAt: now() + REPOSITORY_AUTHORIZATION_CACHE_TTL_MS,
+        result: cloneAuthorizationResult(result),
+      });
+      while (entries.size > capacity) {
+        const oldest = entries.keys().next();
+        if (oldest.done) break;
+        entries.delete(oldest.value);
+      }
+    },
+    generation() {
+      return invalidationGeneration;
+    },
+    invalidate(connectionId) {
+      invalidationGeneration += 1;
+      for (const [key, entry] of entries) {
+        if (entry.connectionId === connectionId) entries.delete(key);
+      }
+    },
+  };
 }
 
 function assertValidTarget(

@@ -663,6 +663,45 @@ describe('callIntegrationTool', () => {
     );
   });
 
+  it('uses the persisted connection repository mode when no override is supplied', async () => {
+    const entry = catalogWithRepositoryScope(declaredRepositoryScope);
+    const resolveRepositoryAuthorization = vi.fn(
+      async (): Promise<RepositoryAuthorizationResult> => ({
+        authorized: true,
+        repository: {owner: 'shipfox', name: 'platform'},
+      }),
+    );
+    const repositoryAuthorizer: RepositoryAuthorizer = {
+      enabled: true,
+      resolveRepositoryAuthorization,
+    };
+    const registry = registryWithAgentTools([entry], {repositoryAuthorization: 'enforced'});
+
+    const result = await callIntegrationTool(
+      createInput(
+        {},
+        {
+          registry,
+          catalogEntry: entry,
+          connection: connection({
+            id: 'connection-1',
+            workspaceId: 'workspace-1',
+            repositoryAccessMode: 'all',
+          }),
+          repositoryAuthorizer,
+        },
+      ),
+    );
+
+    expect(result).toMatchObject({
+      outcome: 'success',
+      authorization: {repositoryAccess: 'all', decision: 'allowed'},
+    });
+    expect(resolveRepositoryAuthorization).toHaveBeenCalledWith(
+      expect.objectContaining({mode: 'all'}),
+    );
+  });
+
   it('keeps an explicit-repository connection scope available in all mode', async () => {
     const onOpenSession = vi.fn();
     const entry = catalogTool({
