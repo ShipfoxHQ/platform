@@ -25,6 +25,7 @@ import {
   HTTPError,
   heartbeat,
   heartbeatRunnerControlSession,
+  isTransientCheckoutTokenError,
   pollRunnerAssignment,
   RunnerSessionExhaustedError,
   registerRunnerSession,
@@ -61,7 +62,7 @@ let calls: Array<{
   method: string;
   authorization: string | null;
   headers: Record<string, string>;
-  body: string;
+  body: string | undefined;
   signal: AbortSignal;
 }>;
 let originalFetch: typeof globalThis.fetch;
@@ -385,7 +386,54 @@ describe('api-client auth contexts', () => {
     expect(checkout.ref).toBe('main');
     expect(checkout.fetch_depth).toBe(1);
     expect(calls[0]?.url).toContain(`runs/jobs/current/steps/${STEP_ID}/checkout-token?attempt=2`);
+    expect(calls[0]?.body).toBeUndefined();
     expect(calls[0]?.authorization).toBe('Bearer lease-ghi');
+  });
+
+  it('sends a rejected credential generation only for renewal requests', async () => {
+    stubFetch(() =>
+      jsonResponse({
+        repository_url: 'https://github.com/acme/repo.git',
+        ref: 'main',
+        fetch_depth: 1,
+        auth: {
+          kind: 'basic',
+          username: 'x-access-token',
+          token: 'renewed-token',
+          expires_at: '2026-01-01T00:00:00.000Z',
+          generation: 'generation-two',
+          renewal: {mode: 'on-rejection'},
+          carry: 'header',
+          host: 'github.com',
+          persist: true,
+        },
+      }),
+    );
+    const leaseClient = createLeaseClient('lease-renewal');
+
+    await requestCheckoutToken(leaseClient, {
+      stepId: STEP_ID,
+      attempt: 3,
+      rejectedGeneration: 'generation-one',
+    });
+
+    expect(JSON.parse(calls[0]?.body ?? '{}')).toEqual({
+      rejected_generation: 'generation-one',
+    });
+    expect(calls[0]?.url).toContain(`attempt=3`);
+  });
+
+  it('classifies checkout-token transport failures without downgrading permanent responses', () => {
+    expect(isTransientCheckoutTokenError(checkoutTokenHttpError(401))).toBe(false);
+    expect(isTransientCheckoutTokenError(checkoutTokenHttpError(503))).toBe(true);
+    expect(
+      isTransientCheckoutTokenError(checkoutTokenHttpError(400, {code: 'provider-unavailable'})),
+    ).toBe(true);
+
+    const aborted = new Error('aborted');
+    aborted.name = 'AbortError';
+    expect(isTransientCheckoutTokenError(aborted)).toBe(true);
+    expect(isTransientCheckoutTokenError(new TypeError('network unavailable'))).toBe(true);
   });
 
   it('requestAgentRuntimeConfig sends the lease token and parses credentials', async () => {
@@ -1276,6 +1324,16 @@ function registerResponse() {
   };
 }
 
+function checkoutTokenHttpError(status: number, data?: unknown): HTTPError {
+  const error = new HTTPError(
+    new Response(null, {status}),
+    new Request('https://runner.example.test'),
+    {} as ConstructorParameters<typeof HTTPError>[2],
+  );
+  error.data = data;
+  return error;
+}
+
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -1286,12 +1344,13 @@ function jsonResponse(body: unknown, status = 200): Response {
 function stubFetch(handler: (url: string) => Response | Promise<Response>): void {
   globalThis.fetch = vi.fn(async (input: Request | string | URL, init?: RequestInit) => {
     const request = input instanceof Request ? input : new Request(String(input), init);
+    const body = await request.clone().text();
     calls.push({
       url: request.url,
       method: request.method,
       authorization: request.headers.get('authorization'),
       headers: Object.fromEntries(request.headers.entries()),
-      body: await request.clone().text(),
+      body: body === '' ? undefined : body,
       signal: request.signal,
     });
     return handler(request.url);

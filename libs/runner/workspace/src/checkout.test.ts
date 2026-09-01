@@ -709,6 +709,35 @@ describe('writeAmbientGitCredential', () => {
     expect(content.match(/^\[credential\]$/gm)).toHaveLength(1);
   });
 
+  it('removes a previous helper before writing an inline credential for the same repository', async () => {
+    const configPath = join(root, 'git-cred.config');
+    await writeFile(
+      configPath,
+      '[credential]\n\tuseHttpPath = true\n[credential "https://github.com/acme/repo.git"]\n\thelper = old-helper\n\tusername = old-user\n\tpassword = old-password\n',
+    );
+    mockExistingGitCredentialConfig();
+
+    await writeAmbientGitCredential({
+      configPath,
+      repositoryUrl: 'https://github.com/acme/repo.git',
+      auth: {
+        kind: 'basic',
+        username: 'x-access-token',
+        token: 'inline-token',
+        expires_at: '2030-01-01T00:00:00.000Z',
+        carry: 'header',
+        host: 'github.com',
+        persist: true,
+      },
+    });
+
+    const content = await readFile(configPath, 'utf8');
+    const expected = Buffer.from('x-access-token:inline-token').toString('base64');
+    expect(content).not.toContain('old-helper');
+    expect(content).not.toContain('old-password');
+    expect(content).toContain(`extraHeader = "Authorization: Basic ${expected}"`);
+  });
+
   it('adds the helper alongside a Git author and rejects persisted auth', async () => {
     const configPath = join(root, 'git-cred.config');
 

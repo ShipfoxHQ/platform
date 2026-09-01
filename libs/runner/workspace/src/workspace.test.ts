@@ -1,3 +1,4 @@
+import {randomUUID} from 'node:crypto';
 import {mkdir, mkdtemp, rm, stat, writeFile} from 'node:fs/promises';
 import {homedir, tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -6,9 +7,11 @@ import {
   cleanupJobCredentials,
   cleanupJobLogs,
   cleanupOrphanedJobAgentState,
+  cleanupOrphanedJobCredentials,
   cleanupOrphanedJobLogs,
   cleanupWorkspace,
   createJobAgentStateDir,
+  createJobCredentialsDir,
   createJobDir,
   createJobLogsDir,
   InvalidJobIdError,
@@ -16,7 +19,10 @@ import {
   jobCredentialsPath,
   jobLogsPath,
   jobWorkspacePath,
+  RUNNER_FALLBACK_CREDENTIAL_SOCKET_DIR,
   resolveWorkspaceRoot,
+  runnerFallbackCredentialSocketOwnerPath,
+  runnerFallbackCredentialSocketPath,
   UnsafeWorkspaceRootError,
 } from '#workspace.js';
 
@@ -220,6 +226,39 @@ describe('createJobAgentStateDir', () => {
   });
 });
 
+describe('createJobCredentialsDir', () => {
+  let root: string;
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'shipfox-job-credentials-create-test-'));
+  });
+
+  afterEach(async () => {
+    await rm(root, {recursive: true, force: true});
+  });
+
+  it('pre-cleans the directory and holds its lock until release', async () => {
+    const credentialsDir = join(
+      root,
+      '.shipfox-runner-cred',
+      'job-11111111-1111-4111-8111-111111111111',
+    );
+    await mkdir(credentialsDir, {recursive: true});
+    await writeFile(join(credentialsDir, 'git-cred.config'), 'stale');
+
+    const release = await createJobCredentialsDir(credentialsDir);
+
+    await expect(stat(join(credentialsDir, 'git-cred.config'))).rejects.toThrow();
+    await expect(stat(`${credentialsDir}.lock`)).resolves.toBeDefined();
+    await cleanupOrphanedJobCredentials(root);
+    await expect(stat(credentialsDir)).resolves.toBeDefined();
+
+    await release();
+    await cleanupOrphanedJobCredentials(root);
+    await expect(stat(credentialsDir)).rejects.toThrow();
+  });
+});
+
 describe('cleanupOrphanedJobLogs', () => {
   let root: string;
 
@@ -333,6 +372,64 @@ describe('cleanupOrphanedJobAgentState', () => {
 
   it('does not throw when the runner agent-state root is missing', async () => {
     await expect(cleanupOrphanedJobAgentState(root)).resolves.toBeUndefined();
+  });
+});
+
+describe('cleanupOrphanedJobCredentials', () => {
+  let root: string;
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'shipfox-job-credentials-sweep-test-'));
+  });
+
+  afterEach(async () => {
+    await rm(root, {recursive: true, force: true});
+  });
+
+  it('removes an orphaned credential directory and preserves a locked one', async () => {
+    const credentialsRoot = join(root, '.shipfox-runner-cred');
+    const orphan = join(credentialsRoot, 'job-33333333-3333-4333-8333-333333333333');
+    const active = join(credentialsRoot, 'job-44444444-4444-4444-8444-444444444444');
+    await mkdir(orphan, {recursive: true});
+    await writeFile(join(orphan, 'git-cred.config'), '[credential]\n');
+    const release = await createJobCredentialsDir(active);
+    await writeFile(join(active, 'git-cred.config'), '[credential]\n');
+
+    await cleanupOrphanedJobCredentials(root);
+
+    await expect(stat(orphan)).rejects.toThrow();
+    await expect(stat(active)).resolves.toBeDefined();
+    await release();
+  });
+
+  it('does not throw when the runner credential root is missing', async () => {
+    await expect(cleanupOrphanedJobCredentials(root)).resolves.toBeUndefined();
+  });
+
+  it('reclaims dead fallback socket owners without touching live sockets', async () => {
+    const deadCapability = randomUUID();
+    const liveCapability = randomUUID();
+    const deadSocketPath = runnerFallbackCredentialSocketPath(deadCapability);
+    const deadOwnerPath = runnerFallbackCredentialSocketOwnerPath(deadCapability);
+    const liveSocketPath = runnerFallbackCredentialSocketPath(liveCapability);
+    const liveOwnerPath = runnerFallbackCredentialSocketOwnerPath(liveCapability);
+    const paths = [deadSocketPath, deadOwnerPath, liveSocketPath, liveOwnerPath];
+    await mkdir(RUNNER_FALLBACK_CREDENTIAL_SOCKET_DIR, {recursive: true});
+    await writeFile(deadSocketPath, 'stale socket placeholder');
+    await writeFile(deadOwnerPath, '-1:stale-owner');
+    await writeFile(liveSocketPath, 'live socket placeholder');
+    await writeFile(liveOwnerPath, `${process.pid}:live-owner`);
+
+    try {
+      await cleanupOrphanedJobCredentials(root);
+
+      await expect(stat(deadSocketPath)).rejects.toThrow();
+      await expect(stat(deadOwnerPath)).rejects.toThrow();
+      await expect(stat(liveSocketPath)).resolves.toBeDefined();
+      await expect(stat(liveOwnerPath)).resolves.toBeDefined();
+    } finally {
+      for (const path of paths) await rm(path, {force: true});
+    }
   });
 });
 

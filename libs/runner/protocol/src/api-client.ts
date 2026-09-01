@@ -44,6 +44,7 @@ import {
   type AgentConfigIssueDto,
   type CheckoutResultDto,
   type CheckoutTokenResponseDto,
+  checkoutTokenBodySchema,
   checkoutTokenResponseSchema,
   type LogOutcomeDto,
   type NextStepResponseDto,
@@ -58,7 +59,7 @@ import {
 import {logger} from '@shipfox/node-opentelemetry';
 import {isUuid} from '@shipfox/regex';
 import {canonicalizeLabels} from '@shipfox/runner-labels';
-import ky, {HTTPError, type KyInstance} from 'ky';
+import ky, {HTTPError, isTimeoutError, type KyInstance} from 'ky';
 import {config} from '#config.js';
 
 /** Media type the append endpoint expects for the raw NDJSON request body. */
@@ -422,16 +423,41 @@ export async function requestCheckoutToken(
     stepId: string;
     attempt: number;
     signal?: AbortSignal;
+    rejectedGeneration?: string | undefined;
   },
 ): Promise<CheckoutTokenResponseDto> {
+  const body =
+    params.rejectedGeneration === undefined
+      ? undefined
+      : checkoutTokenBodySchema.parse({rejected_generation: params.rejectedGeneration});
   const response = await leaseClient.post(
     `runs/jobs/current/steps/${params.stepId}/checkout-token`,
     {
       searchParams: {attempt: params.attempt},
+      ...(body === undefined ? {} : {json: body}),
       ...(params.signal ? {signal: params.signal} : {}),
     },
   );
   return checkoutTokenResponseSchema.parse(await response.json());
+}
+
+/**
+ * Classifies checkout-token request failures that are safe for the broker to
+ * retry. Response-shape and repository-contract failures stay permanent so a
+ * bad server response cannot trigger an unbounded renewal loop.
+ */
+export function isTransientCheckoutTokenError(error: unknown): boolean {
+  if (error instanceof HTTPError) {
+    return (
+      [429, 503].includes(error.response.status) ||
+      ['rate-limited', 'timeout', 'provider-unavailable'].includes(codeFromBody(error.data) ?? '')
+    );
+  }
+  return (
+    isTimeoutError(error) ||
+    (error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')) ||
+    error instanceof TypeError
+  );
 }
 
 export async function requestAgentRuntimeConfig(

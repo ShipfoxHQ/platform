@@ -27,14 +27,23 @@ vi.mock('#core/heartbeat-loop.js', () => ({
   startHeartbeatLoop: vi.fn(() => ({stop: vi.fn(), bumpGeneration: vi.fn()})),
 }));
 
+const {createJobCredentialLifecycleMock} = vi.hoisted(() => ({
+  createJobCredentialLifecycleMock: vi.fn(),
+}));
+vi.mock('#core/credential-lifecycle.js', () => ({
+  createJobCredentialLifecycle: (...args: unknown[]) => createJobCredentialLifecycleMock(...args),
+}));
+
 vi.mock('@shipfox/runner-workspace', async (importActual) => ({
   ...(await importActual<typeof import('@shipfox/runner-workspace')>()),
   cleanupJobAgentState: vi.fn(),
   cleanupJobCredentials: vi.fn(),
   cleanupJobLogs: vi.fn(),
   cleanupOrphanedJobAgentState: vi.fn(),
+  cleanupOrphanedJobCredentials: vi.fn(),
   cleanupOrphanedJobLogs: vi.fn(),
   createJobAgentStateDir: vi.fn(),
+  createJobCredentialsDir: vi.fn(),
   jobAgentStatePath: vi.fn(),
   jobCredentialsPath: vi.fn(),
   jobWorkspacePath: vi.fn(),
@@ -126,9 +135,11 @@ import {
   cleanupJobCredentials,
   cleanupJobLogs,
   cleanupOrphanedJobAgentState,
+  cleanupOrphanedJobCredentials,
   cleanupOrphanedJobLogs,
   cleanupWorkspace,
   createJobAgentStateDir,
+  createJobCredentialsDir,
   InvalidJobIdError,
   jobAgentStatePath,
   jobCredentialsPath,
@@ -148,10 +159,12 @@ const mockJobLogsPath = vi.mocked(jobLogsPath);
 const mockJobAgentStatePath = vi.mocked(jobAgentStatePath);
 const mockJobCredentialsPath = vi.mocked(jobCredentialsPath);
 const mockCreateJobAgentStateDir = vi.mocked(createJobAgentStateDir);
+const mockCreateJobCredentialsDir = vi.mocked(createJobCredentialsDir);
 const mockCleanupJobAgentState = vi.mocked(cleanupJobAgentState);
 const mockCleanupWorkspace = vi.mocked(cleanupWorkspace);
 const mockCleanupJobLogs = vi.mocked(cleanupJobLogs);
 const mockCleanupOrphanedJobAgentState = vi.mocked(cleanupOrphanedJobAgentState);
+const mockCleanupOrphanedJobCredentials = vi.mocked(cleanupOrphanedJobCredentials);
 const mockCleanupOrphanedJobLogs = vi.mocked(cleanupOrphanedJobLogs);
 const mockCleanupJobCredentials = vi.mocked(cleanupJobCredentials);
 const mockResolveWorkspaceRoot = vi.mocked(resolveWorkspaceRootFromEnv);
@@ -170,6 +183,7 @@ const mockStartHeartbeatLoop = vi.mocked(startHeartbeatLoop);
 const mockRunnerToolCapabilities = vi.mocked(runnerToolCapabilities);
 const mockInterruptibleSleep = vi.mocked(interruptibleSleep);
 const mockReleaseAgentStateLock = vi.fn(async () => undefined);
+const mockReleaseCredentialLock = vi.fn(async () => undefined);
 
 const JOB = {
   workflow_run_id: '00000000-0000-0000-0000-000000000004',
@@ -188,6 +202,16 @@ const JOB_LOGS_DIR = '/tmp/shipfox-test-root/.shipfox-runner-logs/job-1';
 const JOB_AGENT_STATE_DIR = '/tmp/shipfox-test-root/.shipfox-runner-agent/job-1';
 const JOB_CREDENTIALS_DIR = '/tmp/shipfox-test-root/.shipfox-runner-cred/job-1';
 const JOB_GIT_CONFIG_PATH = `${JOB_CREDENTIALS_DIR}/git-cred.config`;
+const mockCredentialLifecycle = {
+  helper: {
+    command: 'git-credential-shipfox',
+    socketPath: `${JOB_CREDENTIALS_DIR}/credential.sock`,
+    capability: 'job-capability',
+  },
+  start: vi.fn(async () => undefined),
+  register: vi.fn(),
+  close: vi.fn(async () => undefined),
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -210,9 +234,16 @@ beforeEach(() => {
   mockJobAgentStatePath.mockReturnValue(JOB_AGENT_STATE_DIR);
   mockJobCredentialsPath.mockReturnValue(JOB_CREDENTIALS_DIR);
   mockReleaseAgentStateLock.mockClear();
+  mockReleaseCredentialLock.mockClear();
+  createJobCredentialLifecycleMock.mockReturnValue(mockCredentialLifecycle);
+  mockCredentialLifecycle.start.mockResolvedValue(undefined);
+  mockCredentialLifecycle.register.mockReset();
+  mockCredentialLifecycle.close.mockResolvedValue(undefined);
   mockCreateJobAgentStateDir.mockResolvedValue(mockReleaseAgentStateLock);
+  mockCreateJobCredentialsDir.mockResolvedValue(mockReleaseCredentialLock);
   mockCleanupJobAgentState.mockResolvedValue(undefined);
   mockCleanupOrphanedJobAgentState.mockResolvedValue(undefined);
+  mockCleanupOrphanedJobCredentials.mockResolvedValue(undefined);
   mockCleanupOrphanedJobLogs.mockResolvedValue(undefined);
   mockRunJobSteps.mockResolvedValue();
 });
@@ -279,8 +310,66 @@ describe('runJob', () => {
     expect(mockCleanupJobAgentState.mock.invocationCallOrder[0]).toBeLessThan(
       mockReleaseAgentStateLock.mock.invocationCallOrder[0] ?? Infinity,
     );
-    expect(mockCleanupJobCredentials).toHaveBeenNthCalledWith(1, JOB_CREDENTIALS_DIR);
-    expect(mockCleanupJobCredentials).toHaveBeenNthCalledWith(2, JOB_CREDENTIALS_DIR);
+    expect(mockRunJobSteps.mock.calls[0]?.[0]).not.toHaveProperty('credentialHelper');
+    expect(mockRunJobSteps.mock.calls[0]?.[0]).not.toHaveProperty('registerCheckoutCredential');
+    expect(mockCreateJobCredentialsDir.mock.invocationCallOrder[0]).toBeLessThan(
+      mockCleanupJobCredentials.mock.invocationCallOrder[0] ?? Infinity,
+    );
+    expect(mockCleanupJobCredentials).toHaveBeenCalledOnce();
+    expect(mockCleanupJobCredentials).toHaveBeenCalledWith(JOB_CREDENTIALS_DIR);
+    expect(mockCleanupJobCredentials.mock.invocationCallOrder[0]).toBeLessThan(
+      mockReleaseCredentialLock.mock.invocationCallOrder[0] ?? Infinity,
+    );
+  });
+
+  it('starts the broker lifecycle only when renewable Git is explicitly enabled', async () => {
+    mockRunnerToolCapabilities.mockReturnValueOnce({
+      features: {renewable_git: true},
+      harnesses: {pi: {tools: ['read']}},
+    });
+
+    await runJob(JOB, WORKSPACE_ROOT);
+
+    expect(mockRunJobSteps).toHaveBeenCalledWith(
+      expect.objectContaining({
+        credentialHelper: {
+          command: 'git-credential-shipfox',
+          socketPath: `${JOB_CREDENTIALS_DIR}/credential.sock`,
+          capability: expect.any(String),
+        },
+        registerCheckoutCredential: expect.any(Function),
+      }),
+    );
+    expect(mockCreateJobCredentialsDir).toHaveBeenCalledWith(JOB_CREDENTIALS_DIR);
+    expect(mockReleaseCredentialLock).toHaveBeenCalledOnce();
+  });
+
+  it('degrades to static checkout credentials when the broker cannot start', async () => {
+    const startError = new Error('socket unavailable');
+    mockRunnerToolCapabilities.mockReturnValueOnce({
+      features: {renewable_git: true},
+      harnesses: {pi: {tools: ['read']}},
+    });
+    mockCredentialLifecycle.start.mockRejectedValueOnce(startError);
+
+    await runJob(JOB, WORKSPACE_ROOT);
+
+    expect(mockRunJobSteps).toHaveBeenCalledOnce();
+    expect(mockRunJobSteps.mock.calls[0]?.[0]).not.toHaveProperty('credentialHelper');
+    expect(mockRunJobSteps.mock.calls[0]?.[0]).not.toHaveProperty('registerCheckoutCredential');
+    expect(mockCredentialLifecycle.close).toHaveBeenCalledOnce();
+    expect(mockCleanupJobCredentials).toHaveBeenCalledOnce();
+  });
+
+  it('does not enter the step loop when the credential directory cannot be created', async () => {
+    const directoryError = new Error('credential directory unavailable');
+    mockCreateJobCredentialsDir.mockRejectedValueOnce(directoryError);
+
+    await runJob(JOB, WORKSPACE_ROOT);
+
+    expect(mockRunJobSteps).not.toHaveBeenCalled();
+    expect(mockCleanupJobCredentials).toHaveBeenCalledWith(JOB_CREDENTIALS_DIR);
+    expect(mockReleaseCredentialLock).not.toHaveBeenCalled();
   });
 
   it('does not enable the isolation fence for jobs without a server timeout', async () => {
@@ -441,8 +530,70 @@ describe('runJob', () => {
     expect(mockCleanupJobAgentState.mock.invocationCallOrder[0]).toBeLessThan(
       mockReleaseAgentStateLock.mock.invocationCallOrder[0] ?? Infinity,
     );
-    expect(mockCleanupJobCredentials).toHaveBeenNthCalledWith(1, JOB_CREDENTIALS_DIR);
-    expect(mockCleanupJobCredentials).toHaveBeenNthCalledWith(2, JOB_CREDENTIALS_DIR);
+    expect(mockCleanupJobCredentials).toHaveBeenCalledOnce();
+    expect(mockCleanupJobCredentials).toHaveBeenCalledWith(JOB_CREDENTIALS_DIR);
+  });
+
+  it('releases the credential lock when agent-state lock release fails', async () => {
+    const releaseError = new Error('agent lock release failed');
+    mockReleaseAgentStateLock.mockRejectedValueOnce(releaseError);
+    mockRunJobSteps.mockImplementationOnce(async ({prepareAgentState}) => {
+      await prepareAgentState?.();
+    });
+
+    await expect(runJob(JOB, WORKSPACE_ROOT)).rejects.toBe(releaseError);
+
+    expect(mockReleaseCredentialLock).toHaveBeenCalledOnce();
+    expect(mockReleaseAgentStateLock.mock.invocationCallOrder[0]).toBeLessThan(
+      mockReleaseCredentialLock.mock.invocationCallOrder[0] ?? Infinity,
+    );
+  });
+
+  it('closes and clears the broker before terminal credential cleanup', async () => {
+    const observedSecrets: string[][] = [];
+    const credential = {
+      repositoryUrl: 'https://github.com/acme/repo.git',
+      checkoutStepId: '00000000-0000-4000-8000-000000000010',
+      checkoutAttempt: 1,
+      credential: {
+        username: 'x-access-token',
+        token: 'shared-secret',
+        expiresAt: '2030-01-01T00:00:00.000Z',
+        generation: 'generation-one',
+        renewal: {mode: 'on-rejection' as const},
+      },
+    };
+    mockRunnerToolCapabilities.mockReturnValueOnce({
+      features: {renewable_git: true},
+      harnesses: {pi: {tools: ['read']}},
+    });
+    createJobCredentialLifecycleMock.mockImplementationOnce((options) => {
+      mockCredentialLifecycle.register.mockImplementationOnce((registered) => {
+        options.registerSecrets([registered.credential.token]);
+      });
+      mockCredentialLifecycle.close.mockImplementationOnce(() =>
+        Promise.resolve(options.clearSecrets()),
+      );
+      return mockCredentialLifecycle;
+    });
+    mockRunJobSteps.mockImplementationOnce((params) => {
+      params.subscribeSecrets?.((secrets) => observedSecrets.push(secrets));
+      params.registerSecrets?.(['shared-secret']);
+      params.registerCheckoutCredential?.(credential);
+      throw new Error('terminal step-loop failure');
+    });
+
+    await runJob(JOB, WORKSPACE_ROOT);
+
+    expect(mockCredentialLifecycle.close).toHaveBeenCalledOnce();
+    expect(mockCleanupJobCredentials.mock.invocationCallOrder[0]).toBeGreaterThan(
+      mockCredentialLifecycle.close.mock.invocationCallOrder[0] ?? -1,
+    );
+    expect(observedSecrets.at(-1)).toEqual([
+      'sf_mrt_runner-registration-token',
+      JOB.lease_token,
+      'shared-secret',
+    ]);
   });
 
   it('skips the job without running the loop or cleaning up when the job id is invalid', async () => {
@@ -469,10 +620,14 @@ describe('startRunner', () => {
 
     expect(mockCleanupOrphanedJobLogs).toHaveBeenCalledWith(WORKSPACE_ROOT);
     expect(mockCleanupOrphanedJobAgentState).toHaveBeenCalledWith(WORKSPACE_ROOT);
+    expect(mockCleanupOrphanedJobCredentials).toHaveBeenCalledWith(WORKSPACE_ROOT);
     expect(mockCleanupOrphanedJobLogs.mock.invocationCallOrder[0]).toBeLessThan(
       mockRegisterRunnerSession.mock.invocationCallOrder[0] ?? Infinity,
     );
     expect(mockCleanupOrphanedJobAgentState.mock.invocationCallOrder[0]).toBeLessThan(
+      mockRegisterRunnerSession.mock.invocationCallOrder[0] ?? Infinity,
+    );
+    expect(mockCleanupOrphanedJobCredentials.mock.invocationCallOrder[0]).toBeLessThan(
       mockRegisterRunnerSession.mock.invocationCallOrder[0] ?? Infinity,
     );
   });

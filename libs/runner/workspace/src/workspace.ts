@@ -12,6 +12,26 @@ const RUNNER_AGENT_STATE_DIR = '.shipfox-runner-agent';
 const RUNNER_CRED_DIR = '.shipfox-runner-cred';
 const JOB_DIRECTORY_LOCK_SUFFIX = '.lock';
 const JOB_DIRECTORY_LOCK_RETRY_MS = 10;
+export const RUNNER_FALLBACK_CREDENTIAL_SOCKET_DIR = '/tmp/shipfox-runner-credentials';
+const FALLBACK_CREDENTIAL_SOCKET_SUFFIX = '.sock';
+const FALLBACK_CREDENTIAL_SOCKET_OWNER_SUFFIX = '.owner';
+const FALLBACK_CREDENTIAL_SOCKET_ENTRY_RE = /^(?<capability>[0-9a-f-]+)\.sock(?:\.owner)?$/u;
+
+export function runnerFallbackCredentialSocketPath(capability: string): string {
+  assertUuidCapability(capability);
+  return join(
+    RUNNER_FALLBACK_CREDENTIAL_SOCKET_DIR,
+    `${capability}${FALLBACK_CREDENTIAL_SOCKET_SUFFIX}`,
+  );
+}
+
+export function runnerFallbackCredentialSocketOwnerPath(capability: string): string {
+  assertUuidCapability(capability);
+  return join(
+    RUNNER_FALLBACK_CREDENTIAL_SOCKET_DIR,
+    `${capability}${FALLBACK_CREDENTIAL_SOCKET_SUFFIX}${FALLBACK_CREDENTIAL_SOCKET_OWNER_SUFFIX}`,
+  );
+}
 
 /**
  * Thrown when `SHIPFOX_RUNNER_WORKSPACE_ROOT` resolves to a path we refuse to
@@ -148,6 +168,28 @@ export async function createJobAgentStateDir(agentStateDir: string): Promise<() 
 }
 
 /**
+ * Pre-cleans the runner-owned credential directory and keeps its lock held for
+ * the lifetime of the job. The startup sweep uses the same lock, so it cannot
+ * remove a live broker socket or helper configuration.
+ */
+export async function createJobCredentialsDir(
+  credentialsDir: string,
+): Promise<() => Promise<void>> {
+  const release = await acquireJobDirectoryLock(credentialsDir, true);
+  if (release === undefined) {
+    throw new Error('Failed to acquire the job credential lock');
+  }
+
+  try {
+    await resetDir(credentialsDir);
+    return release;
+  } catch (error) {
+    await release();
+    throw error;
+  }
+}
+
+/**
  * Removes only UUID-named per-job directories left under a runner-owned root.
  * The root itself and unrelated entries are preserved.
  */
@@ -167,6 +209,65 @@ export async function cleanupOrphanedJobAgentState(root: string): Promise<void> 
     cleanupJobAgentState,
     'Failed to sweep orphaned job agent state',
   );
+}
+
+export async function cleanupOrphanedJobCredentials(root: string): Promise<void> {
+  await cleanupOrphanedJobDirectories(
+    root,
+    RUNNER_CRED_DIR,
+    cleanupJobCredentials,
+    'Failed to sweep orphaned job credentials',
+  );
+  await cleanupOrphanedFallbackCredentialSockets();
+}
+
+async function cleanupOrphanedFallbackCredentialSockets(): Promise<void> {
+  let entries: Dirent[];
+  try {
+    entries = await readdir(RUNNER_FALLBACK_CREDENTIAL_SOCKET_DIR, {withFileTypes: true});
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+    logger().warn(
+      {err: error, fallbackSocketDir: RUNNER_FALLBACK_CREDENTIAL_SOCKET_DIR},
+      'Failed to sweep fallback credential sockets',
+    );
+    return;
+  }
+
+  const capabilities = new Set<string>();
+  for (const entry of entries) {
+    if (!entry.isFile() && !entry.isSocket()) continue;
+    const match = FALLBACK_CREDENTIAL_SOCKET_ENTRY_RE.exec(entry.name);
+    const capability = match?.groups?.capability;
+    if (capability !== undefined && isUuid(capability)) capabilities.add(capability);
+  }
+
+  await Promise.all(
+    [...capabilities].map((capability) => cleanupFallbackCredentialSocket(capability)),
+  );
+}
+
+async function cleanupFallbackCredentialSocket(capability: string): Promise<void> {
+  const socketPath = runnerFallbackCredentialSocketPath(capability);
+  const ownerPath = runnerFallbackCredentialSocketOwnerPath(capability);
+  let owner: string | undefined;
+  try {
+    owner = (await readFile(ownerPath, 'utf8')).trim();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      logger().warn({err: error, ownerPath}, 'Failed to inspect fallback credential socket owner');
+      return;
+    }
+  }
+
+  if (owner !== undefined && !isProcessDead(Number(owner.split(':', 1)[0]))) return;
+
+  try {
+    await rm(socketPath, {force: true});
+    await rm(ownerPath, {force: true});
+  } catch (error) {
+    logger().warn({err: error, socketPath}, 'Failed to remove orphaned fallback credential socket');
+  }
 }
 
 async function cleanupOrphanedJobDirectories(
@@ -300,6 +401,10 @@ function isProcessDead(pid: number): boolean {
   } catch (error) {
     return (error as NodeJS.ErrnoException).code === 'ESRCH';
   }
+}
+
+function assertUuidCapability(capability: string): void {
+  if (!isUuid(capability)) throw new TypeError('Credential socket capability must be a UUID');
 }
 
 /**

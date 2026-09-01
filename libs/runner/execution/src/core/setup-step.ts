@@ -4,7 +4,9 @@ import {logger} from '@shipfox/node-opentelemetry';
 import {
   assertGitAvailable,
   createJobDir,
+  type GitCredentialHelperConfig,
   normalizeCheckoutDestination,
+  type PersistedCheckoutCredential,
 } from '@shipfox/runner-workspace';
 import type {KyInstance} from 'ky';
 import {
@@ -28,6 +30,7 @@ export interface SetupStepExecution {
   result: StepResult;
   ambientGitConfigPath?: string | undefined;
   ambientGitConfigSecrets?: string[] | undefined;
+  persistedCheckoutCredential?: PersistedCheckoutCredential | undefined;
 }
 
 // The synthetic "Set up job" step body. It owns per-job workspace preparation and the
@@ -46,6 +49,7 @@ export async function executeSetupStep(params: {
   attempt: number;
   log?: SetupLogSink | undefined;
   jobContext?: SetupJobContext | undefined;
+  credentialHelper?: GitCredentialHelperConfig | undefined;
 }): Promise<SetupStepExecution> {
   const {cwd, log, jobContext, step} = params;
 
@@ -82,6 +86,9 @@ export async function executeSetupStep(params: {
       : {}),
     ...(checkout.value.ambientGitConfigSecrets
       ? {ambientGitConfigSecrets: checkout.value.ambientGitConfigSecrets}
+      : {}),
+    ...(checkout.value.persistedCheckoutCredential
+      ? {persistedCheckoutCredential: checkout.value.persistedCheckoutCredential}
       : {}),
   };
 }
@@ -134,10 +141,12 @@ async function runCheckoutSetup(params: {
   stepId: string;
   attempt: number;
   log?: SetupLogSink | undefined;
+  credentialHelper?: GitCredentialHelperConfig | undefined;
 }): Promise<
   CheckoutPhaseResult<{
     ambientGitConfigPath?: string | undefined;
     ambientGitConfigSecrets?: string[] | undefined;
+    persistedCheckoutCredential?: PersistedCheckoutCredential | undefined;
     checkout: NonNullable<StepResult['checkout']>;
   }>
 > {
@@ -152,9 +161,12 @@ async function runCheckoutSetup(params: {
       destination,
       gitConfigPath: params.gitConfigPath,
       checkout: checkout.value,
+      checkoutStepId: params.stepId,
+      checkoutAttempt: params.attempt,
       signal: params.signal,
       ...(log ? {log} : {}),
       scope: 'setup',
+      credentialHelper: params.credentialHelper,
     });
   } finally {
     log?.writeGroupEnd();

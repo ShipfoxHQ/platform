@@ -33,9 +33,11 @@ import {
   cleanupJobCredentials,
   cleanupJobLogs,
   cleanupOrphanedJobAgentState,
+  cleanupOrphanedJobCredentials,
   cleanupOrphanedJobLogs,
   cleanupWorkspace,
   createJobAgentStateDir,
+  createJobCredentialsDir,
   jobAgentStatePath,
   jobCredentialsPath,
   jobLogsPath,
@@ -45,6 +47,7 @@ import {
 import {isTimeoutError} from 'ky';
 import {config} from '#config.js';
 import {createBootTimelineCollector, createRunnerBootPhaseTimeline} from '#core/boot-timeline.js';
+import {createJobCredentialLifecycle} from '#core/credential-lifecycle.js';
 import {startHeartbeatLoop} from '#core/heartbeat-loop.js';
 import {runJobSteps} from '#core/step-loop.js';
 
@@ -132,6 +135,9 @@ export async function startRunner(
     });
     void cleanupOrphanedJobAgentState(workspaceRoot).catch((error) => {
       logger().warn({err: error, workspaceRoot}, 'Failed to sweep orphaned job agent state');
+    });
+    void cleanupOrphanedJobCredentials(workspaceRoot).catch((error) => {
+      logger().warn({err: error, workspaceRoot}, 'Failed to sweep orphaned job credentials');
     });
     requireRunnerLabels();
     warnAboutUnavailablePiExtensions();
@@ -349,7 +355,8 @@ export async function runJob(
   let previousRenewedLeaseToken: string | undefined;
   let currentRenewedLeaseToken: string | undefined;
   const runnerSecrets = runnerSecret.length > 0 ? [runnerSecret] : [];
-  const registeredSecrets: string[] = [];
+  const registeredSecrets = new Set<string>();
+  const brokerSecrets = new Set<string>();
   const secrets = [...runnerSecrets, initialLeaseToken];
   const secretSubscribers = new Set<(secrets: string[]) => void>();
   const rotatingLeaseSecrets = () =>
@@ -365,29 +372,62 @@ export async function runJob(
       }
     }
   };
+  const rebuildSecrets = () => {
+    secrets.splice(
+      0,
+      secrets.length,
+      ...new Set([
+        ...runnerSecrets,
+        initialLeaseToken,
+        ...rotatingLeaseSecrets(),
+        ...registeredSecrets,
+        ...brokerSecrets,
+      ]),
+    );
+    notifySecretSubscribers();
+  };
   const rememberLeaseToken = (leaseToken: string) => {
     if (leaseToken === currentLeaseToken) return;
     previousRenewedLeaseToken = currentRenewedLeaseToken;
     currentRenewedLeaseToken = leaseToken;
     currentLeaseToken = leaseToken;
-    secrets.splice(
-      0,
-      secrets.length,
-      ...runnerSecrets,
-      initialLeaseToken,
-      ...rotatingLeaseSecrets(),
-      ...registeredSecrets,
-    );
-    notifySecretSubscribers();
+    rebuildSecrets();
   };
   const registerSecrets = (additionalSecrets: string[]) => {
-    const newSecrets = additionalSecrets.filter(
-      (secret) => secret.length > 0 && !secrets.includes(secret),
-    );
-    if (newSecrets.length === 0) return;
-    registeredSecrets.push(...newSecrets);
-    secrets.push(...newSecrets);
-    notifySecretSubscribers();
+    let changed = false;
+    for (const secret of additionalSecrets) {
+      if (secret.length === 0 || registeredSecrets.has(secret)) continue;
+      registeredSecrets.add(secret);
+      changed = true;
+    }
+    if (changed) rebuildSecrets();
+  };
+  const registerBrokerSecrets = (additionalSecrets: string[]) => {
+    let changed = false;
+    for (const secret of additionalSecrets) {
+      if (secret.length > 0 && !brokerSecrets.has(secret)) {
+        brokerSecrets.add(secret);
+        changed = true;
+      }
+    }
+    if (changed) rebuildSecrets();
+  };
+  const replaceBrokerSecrets = (replacement: string[]) => {
+    const next = new Set(replacement.filter((secret) => secret.length > 0));
+    if (
+      next.size === brokerSecrets.size &&
+      [...next].every((secret) => brokerSecrets.has(secret))
+    ) {
+      return;
+    }
+    brokerSecrets.clear();
+    for (const secret of next) brokerSecrets.add(secret);
+    rebuildSecrets();
+  };
+  const clearBrokerSecrets = () => {
+    if (brokerSecrets.size === 0) return;
+    brokerSecrets.clear();
+    rebuildSecrets();
   };
 
   const heartbeatLoop = startHeartbeatLoop(job.job_id, () => currentLeaseToken, ac, {
@@ -400,11 +440,40 @@ export async function runJob(
     onLeaseTokenRenewed: rememberLeaseToken,
   });
   let releaseAgentStateLock: (() => Promise<void>) | undefined;
+  let releaseCredentialLock: (() => Promise<void>) | undefined;
+  let credentialLifecycle: ReturnType<typeof createJobCredentialLifecycle> | undefined;
 
   try {
-    await cleanupJobCredentials(credentialsDir);
+    releaseCredentialLock = await createJobCredentialsDir(credentialsDir);
 
     const leaseClient = createLeaseClient(() => currentLeaseToken);
+    const renewableGitEnabled = runnerToolCapabilities().features?.renewable_git === true;
+    if (renewableGitEnabled) {
+      let candidate: ReturnType<typeof createJobCredentialLifecycle> | undefined;
+      try {
+        candidate = createJobCredentialLifecycle({
+          credentialsDir,
+          leaseClient,
+          signal: ac.signal,
+          registerSecrets: registerBrokerSecrets,
+          replaceSecrets: replaceBrokerSecrets,
+          clearSecrets: clearBrokerSecrets,
+        });
+        await candidate.start();
+        credentialLifecycle = candidate;
+      } catch (error) {
+        logger().warn(
+          {err: error, jobId: job.job_id},
+          'Renewable Git broker unavailable; continuing with static checkout credentials',
+        );
+        await candidate?.close().catch((closeError) => {
+          logger().warn(
+            {err: closeError, jobId: job.job_id},
+            'Failed to close unavailable job credential broker',
+          );
+        });
+      }
+    }
     await runJobSteps({
       jobId: job.job_id,
       leaseClient,
@@ -415,6 +484,12 @@ export async function runJob(
         return () => secretSubscribers.delete(subscriber);
       },
       registerSecrets,
+      ...(credentialLifecycle
+        ? {
+            credentialHelper: credentialLifecycle.helper,
+            registerCheckoutCredential: credentialLifecycle.register,
+          }
+        : {}),
       signal: ac.signal,
       cwd,
       gitConfigPath,
@@ -444,11 +519,18 @@ export async function runJob(
   } finally {
     heartbeatLoop.stop();
     if (currentJobAbortController === ac) currentJobAbortController = undefined;
+    await credentialLifecycle?.close().catch((error) => {
+      logger().warn({err: error, jobId: job.job_id}, 'Failed to close job credential broker');
+    });
     await cleanupJobCredentials(credentialsDir);
     await cleanupWorkspace(cwd);
     await cleanupJobLogs(logsDir);
     await cleanupJobAgentState(agentStateDir);
-    await releaseAgentStateLock?.();
+    try {
+      await releaseAgentStateLock?.();
+    } finally {
+      await releaseCredentialLock?.();
+    }
   }
 }
 

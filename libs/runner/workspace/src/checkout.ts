@@ -445,8 +445,12 @@ async function updateAmbientGitConfig(params: {
   repositoryLines: readonly string[];
 }): Promise<void> {
   await writeFile(params.temporaryConfigPath, params.existing, {flag: 'wx', mode: 0o600});
-  if (params.auth)
-    await unsetAmbientGitCredential(params.temporaryConfigPath, params.repositoryUrl);
+  if (params.auth) {
+    await unsetGitCredentialValues(
+      params.temporaryConfigPath,
+      credentialCleanupRepositoryUrl(params.repositoryUrl),
+    );
+  }
   const current = await readFile(params.temporaryConfigPath, 'utf8');
   // [user] applies to the whole ambient config. Keep the first author for v1.
   const additions = [
@@ -455,6 +459,16 @@ async function updateAmbientGitConfig(params: {
     '',
   ].join('\n');
   await appendFile(params.temporaryConfigPath, `${current.endsWith('\n') ? '' : '\n'}${additions}`);
+}
+
+function credentialCleanupRepositoryUrl(repositoryUrl: string): string {
+  try {
+    return normalizeRepositoryUrl(repositoryUrl);
+  } catch {
+    // Inline credentials also support non-HTTPS Git URLs used by local/self-hosted
+    // transports. Preserve those URLs for the existing cleanup comparison.
+    return repositoryUrl;
+  }
 }
 
 /** Returns every persisted credential form that can appear in the ambient Git config. */
@@ -495,21 +509,6 @@ function authorizationValue(auth: CheckoutTokenAuthDto): string {
 
 async function validateAmbientGitConfig(configPath: string): Promise<void> {
   await execFileAsync('git', ['config', '--file', configPath, '--list']);
-}
-
-async function unsetAmbientGitCredential(configPath: string, repositoryUrl: string): Promise<void> {
-  try {
-    await execFileAsync('git', [
-      'config',
-      '--file',
-      configPath,
-      '--unset-all',
-      `http.${gitConfigSubsection(repositoryUrl)}.extraHeader`,
-    ]);
-  } catch (error) {
-    if (isGitConfigKeyMissing(error)) return;
-    throw error;
-  }
 }
 
 function isGitConfigKeyMissing(error: unknown): boolean {

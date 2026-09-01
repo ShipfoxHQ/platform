@@ -51,7 +51,12 @@ import {
   StepSecretsRequestError,
   writeStepAnnotations,
 } from '@shipfox/runner-protocol';
-import {createJobLogsDir, resolveWorkingDirectory} from '@shipfox/runner-workspace';
+import {
+  createJobLogsDir,
+  type GitCredentialHelperConfig,
+  type PersistedCheckoutCredential,
+  resolveWorkingDirectory,
+} from '@shipfox/runner-workspace';
 import {isTimeoutError, type KyInstance} from 'ky';
 import {config} from '#config.js';
 
@@ -99,6 +104,8 @@ export async function runJobSteps(params: {
   secrets: string[];
   subscribeSecrets?: (subscriber: (secrets: string[]) => void) => () => void;
   registerSecrets?: (secrets: string[]) => void;
+  registerCheckoutCredential?: (credential: PersistedCheckoutCredential) => void;
+  credentialHelper?: GitCredentialHelperConfig | undefined;
   signal: AbortSignal;
   cwd: string;
   gitConfigPath: string;
@@ -193,6 +200,7 @@ async function runJobStepIteration(
     logsDir: params.logsDir,
     jobContext: params.jobContext,
     gitConfigPath: params.gitConfigPath,
+    ...(params.credentialHelper ? {credentialHelper: params.credentialHelper} : {}),
     ...preparation,
   });
   applyStepExecutionState(params, state, execution);
@@ -238,6 +246,9 @@ function applyStepExecutionState(
     state.ambientGitConfigSecrets = [
       ...new Set([...state.ambientGitConfigSecrets, ...execution.ambientGitConfigSecrets]),
     ];
+  }
+  if (execution.persistedCheckoutCredential) {
+    params.registerCheckoutCredential?.(execution.persistedCheckoutCredential);
   }
   if (execution.result.success && execution.result.checkout) {
     rememberCheckoutDestination(state.checkoutDestinations, execution.result.checkout);
@@ -395,6 +406,7 @@ export interface StepExecution {
   preparedWorkspace: boolean;
   ambientGitConfigPath?: string | undefined;
   ambientGitConfigSecrets?: string[] | undefined;
+  persistedCheckoutCredential?: PersistedCheckoutCredential | undefined;
 }
 
 // Runs one step and always yields a StepResult, never throws: a crash before a result
@@ -423,6 +435,7 @@ export async function executeStep(params: {
   stepLabel: string;
   prepareLogs?: (() => Promise<void>) | undefined;
   prepareAgentState?: (() => Promise<void>) | undefined;
+  credentialHelper?: GitCredentialHelperConfig | undefined;
 }): Promise<StepExecution> {
   const {
     step,
@@ -680,6 +693,7 @@ async function executeSetupStepBranch(params: {
     attempt: input.attempt,
     ...(setupStream ? {log: setupStream} : {}),
     jobContext: input.jobContext,
+    ...(input.credentialHelper ? {credentialHelper: input.credentialHelper} : {}),
   });
   return {
     result: setup.result,
@@ -689,6 +703,9 @@ async function executeSetupStepBranch(params: {
     ...(setup.ambientGitConfigPath ? {ambientGitConfigPath: setup.ambientGitConfigPath} : {}),
     ...(setup.ambientGitConfigSecrets
       ? {ambientGitConfigSecrets: setup.ambientGitConfigSecrets}
+      : {}),
+    ...(setup.persistedCheckoutCredential
+      ? {persistedCheckoutCredential: setup.persistedCheckoutCredential}
       : {}),
   };
 }
@@ -726,6 +743,7 @@ async function executeCheckoutStepBranch(params: {
     attempt: input.attempt,
     destinations: input.checkoutDestinations ?? new Map(),
     ...(checkoutStream ? {log: checkoutStream} : {}),
+    ...(input.credentialHelper ? {credentialHelper: input.credentialHelper} : {}),
   });
   return {
     result: checkout.result,
@@ -735,6 +753,9 @@ async function executeCheckoutStepBranch(params: {
     ...(checkout.ambientGitConfigPath ? {ambientGitConfigPath: checkout.ambientGitConfigPath} : {}),
     ...(checkout.ambientGitConfigSecrets
       ? {ambientGitConfigSecrets: checkout.ambientGitConfigSecrets}
+      : {}),
+    ...(checkout.persistedCheckoutCredential
+      ? {persistedCheckoutCredential: checkout.persistedCheckoutCredential}
       : {}),
   };
 }

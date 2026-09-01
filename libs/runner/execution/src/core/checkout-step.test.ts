@@ -33,11 +33,12 @@ const GIT_CONFIG_PATH = '/tmp/shipfox-checkout-test/git-cred.config';
 const signal = new AbortController().signal;
 const leaseClient = {} as never;
 
-function checkoutResponse(repository = 'repo-a', ref = 'main') {
+function checkoutResponse(repository = 'repo-a', ref = 'main', auth?: unknown) {
   return {
     repository_url: `https://github.com/acme/${repository}.git`,
     ref,
     fetch_depth: 1,
+    ...(auth === undefined ? {} : {auth}),
   };
 }
 
@@ -89,18 +90,73 @@ describe('executeCheckoutStep', () => {
     await rm(workspace, {recursive: true, force: true});
   });
 
-  function run(config: Record<string, unknown> = {}, destinations = new Map(), log = fakeLog()) {
+  function run(
+    config: Record<string, unknown> = {},
+    destinations = new Map(),
+    log = fakeLog(),
+    options: {
+      attempt?: number;
+      credentialHelper?: {
+        command: string;
+        socketPath: string;
+        capability: string;
+      };
+      step?: StepDto;
+    } = {},
+  ) {
     return executeCheckoutStep({
       cwd: workspace,
       gitConfigPath: GIT_CONFIG_PATH,
       leaseClient,
       signal,
-      step: checkoutStep(config),
-      attempt: 1,
+      step: options.step ?? checkoutStep(config),
+      attempt: options.attempt ?? 1,
       destinations,
       log,
+      ...(options.credentialHelper ? {credentialHelper: options.credentialHelper} : {}),
     });
   }
+
+  it('propagates an explicit step id and attempt into a helper registration', async () => {
+    const step = checkoutStep();
+    const helper = {
+      command: 'git-credential-shipfox',
+      socketPath: '/tmp/shipfox-checkout-test/credential.sock',
+      capability: 'checkout-capability',
+    };
+    requestCheckoutTokenMock.mockResolvedValue(
+      checkoutResponse('repo-a', 'main', {
+        kind: 'basic',
+        username: 'x-access-token',
+        token: 'checkout-token',
+        expires_at: '2030-01-01T00:00:00.000Z',
+        generation: 'generation-one',
+        renewal: {mode: 'on-rejection'},
+        carry: 'header',
+        host: 'github.com',
+        persist: true,
+      }),
+    );
+
+    const result = await run({}, new Map(), fakeLog(), {
+      attempt: 3,
+      credentialHelper: helper,
+      step,
+    });
+
+    expect(result.persistedCheckoutCredential).toMatchObject({
+      repositoryUrl: 'https://github.com/acme/repo-a.git',
+      checkoutStepId: step.id,
+      checkoutAttempt: 3,
+      credential: {token: 'checkout-token', generation: 'generation-one'},
+    });
+    expect(checkoutRepositoryMock.mock.calls[0]?.[0]).not.toHaveProperty('credentialHelper');
+    expect(writeAmbientGitCredentialMock).toHaveBeenCalledWith({
+      configPath: GIT_CONFIG_PATH,
+      repositoryUrl: 'https://github.com/acme/repo-a.git',
+      credentialHelper: helper,
+    });
+  });
 
   it('checks out into a missing explicit path and reports the resolved destination', async () => {
     const destinations = new Map();

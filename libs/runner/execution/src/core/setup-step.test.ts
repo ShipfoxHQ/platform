@@ -39,6 +39,11 @@ const STEP_ID = '00000000-0000-0000-0000-0000000000b0';
 const STEP_ATTEMPT = 1;
 const leaseClient = {} as never;
 const signal = new AbortController().signal;
+const credentialHelper = {
+  command: 'git-credential-shipfox',
+  socketPath: '/tmp/shipfox-test-root/.shipfox-runner-cred/job-1/credential.sock',
+  capability: 'job-capability',
+};
 const jobContext = {
   workflowRunId: '00000000-0000-0000-0000-0000000000ac',
   workflowRunAttemptId: '00000000-0000-0000-0000-0000000000ab',
@@ -56,7 +61,7 @@ function checkoutResponse(auth?: unknown, gitAuthor?: unknown) {
   };
 }
 
-function run(log?: ReturnType<typeof fakeLog>, step = buildSetupStep()) {
+function run(log?: ReturnType<typeof fakeLog>, step = buildSetupStep(), helper = false) {
   return executeSetupStep({
     cwd: CWD,
     gitConfigPath: GIT_CONFIG_PATH,
@@ -66,6 +71,7 @@ function run(log?: ReturnType<typeof fakeLog>, step = buildSetupStep()) {
     attempt: STEP_ATTEMPT,
     ...(log ? {log} : {}),
     jobContext,
+    ...(helper ? {credentialHelper} : {}),
   });
 }
 
@@ -236,6 +242,103 @@ describe('executeSetupStep', () => {
       ambientGitConfigPath: GIT_CONFIG_PATH,
       ambientGitConfigSecrets: ['t'],
     });
+  });
+
+  it('writes a token-free helper config and returns a renewable broker registration', async () => {
+    const token = 'renewable-token';
+    requestCheckoutTokenMock.mockResolvedValue(
+      checkoutResponse({
+        kind: 'basic',
+        username: 'x-access-token',
+        token,
+        expires_at: '2030-01-01T00:00:00.000Z',
+        generation: 'generation-one',
+        renewal: {mode: 'on-rejection'},
+        carry: 'header',
+        host: 'github.com',
+        persist: true,
+      }),
+    );
+
+    const result = await run(undefined, buildSetupStep(), true);
+
+    expect(writeAmbientGitCredentialMock).toHaveBeenCalledWith({
+      configPath: GIT_CONFIG_PATH,
+      repositoryUrl: 'https://github.com/acme/repo.git',
+      credentialHelper,
+    });
+    expect(result).toEqual({
+      result: {
+        success: true,
+        error: null,
+        exit_code: 0,
+        checkout: {
+          repository: 'https://github.com/acme/repo.git',
+          ref: 'main',
+          commit: 'abc123',
+          path: CWD,
+        },
+      },
+      ambientGitConfigPath: GIT_CONFIG_PATH,
+      ambientGitConfigSecrets: [],
+      persistedCheckoutCredential: {
+        repositoryUrl: 'https://github.com/acme/repo.git',
+        checkoutStepId: STEP_ID,
+        checkoutAttempt: STEP_ATTEMPT,
+        credential: {
+          username: 'x-access-token',
+          token,
+          expiresAt: '2030-01-01T00:00:00.000Z',
+          generation: 'generation-one',
+          renewal: {mode: 'on-rejection'},
+        },
+      },
+    });
+  });
+
+  it('preserves the refresh-at renewal mode in the broker registration', async () => {
+    requestCheckoutTokenMock.mockResolvedValue(
+      checkoutResponse({
+        kind: 'basic',
+        username: 'x-access-token',
+        token: 'refresh-at-token',
+        expires_at: '2030-01-01T00:00:00.000Z',
+        generation: 'generation-one',
+        renewal: {mode: 'refresh-at', refresh_at: '2029-12-31T23:00:00.000Z'},
+        carry: 'header',
+        host: 'github.com',
+        persist: true,
+      }),
+    );
+
+    const result = await run(undefined, buildSetupStep(), true);
+
+    expect(result.persistedCheckoutCredential?.credential.renewal).toEqual({
+      mode: 'refresh-at',
+      refreshAt: '2029-12-31T23:00:00.000Z',
+    });
+  });
+
+  it('falls back to inline auth when helper-enabled credentials are not renewable', async () => {
+    const auth = {
+      kind: 'basic' as const,
+      username: 'x-access-token',
+      token: 'static-token',
+      expires_at: '2030-01-01T00:00:00.000Z',
+      carry: 'header' as const,
+      host: 'github.com',
+      persist: true,
+    };
+    requestCheckoutTokenMock.mockResolvedValue(checkoutResponse(auth));
+
+    const result = await run(undefined, buildSetupStep(), true);
+
+    expect(writeAmbientGitCredentialMock).toHaveBeenCalledWith({
+      configPath: GIT_CONFIG_PATH,
+      repositoryUrl: 'https://github.com/acme/repo.git',
+      auth,
+    });
+    expect(result).not.toHaveProperty('persistedCheckoutCredential');
   });
 
   it('keeps the author when credentials are not persisted', async () => {
