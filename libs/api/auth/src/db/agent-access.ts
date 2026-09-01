@@ -181,6 +181,42 @@ export async function createAgentClientTx(
   return toAgentClient(row);
 }
 
+export interface UpsertCimdAgentClientParams {
+  clientId: string;
+  name: string;
+  redirectUris: string[];
+}
+
+/**
+ * Stores the latest validated CIMD identity. The generic client upsert above
+ * intentionally preserves registration metadata; CIMD documents are the
+ * source of truth and therefore use this explicit update path.
+ */
+export async function upsertCimdAgentClient(
+  params: UpsertCimdAgentClientParams,
+): Promise<AgentClient> {
+  return await db().transaction(async (tx) => {
+    const rows = await tx
+      .insert(agentClients)
+      .values({...params, kind: 'cimd'})
+      .onConflictDoUpdate({
+        target: agentClients.clientId,
+        set: {
+          name: params.name,
+          redirectUris: params.redirectUris,
+          kind: 'cimd',
+          lastSeenAt: sql`now()`,
+          unreferencedAt: null,
+          updatedAt: sql`now()`,
+        },
+      })
+      .returning();
+    const row = rows[0];
+    if (!row) throw new Error('CIMD client upsert returned no row');
+    return toAgentClient(row);
+  });
+}
+
 export async function findAgentClientByClientId(params: {
   clientId: string;
   executor?: AgentAccessExecutor;

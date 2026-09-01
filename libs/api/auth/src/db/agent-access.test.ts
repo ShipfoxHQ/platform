@@ -31,6 +31,7 @@ import {
   revokeAgentPersonalAccessToken,
   rotateAgentRefreshToken,
   transitionAgentGrantsToTerminal,
+  upsertCimdAgentClient,
 } from './agent-access.js';
 import {db} from './db.js';
 import {
@@ -155,6 +156,29 @@ describe('agent-access db', () => {
     ).toBeUndefined();
     expect(await findAgentClientByClientId({clientId: client.clientId})).toMatchObject({
       id: client.id,
+      unreferencedAt: null,
+    });
+  });
+
+  test('refreshes validated CIMD metadata while preserving the client row', async () => {
+    const clientId = `https://client.example/.well-known/${crypto.randomUUID()}`;
+    const first = await upsertCimdAgentClient({
+      clientId,
+      name: 'First name',
+      redirectUris: ['https://client.example/first'],
+    });
+    const second = await upsertCimdAgentClient({
+      clientId,
+      name: 'Updated name',
+      redirectUris: ['https://client.example/updated'],
+    });
+
+    expect(second).toMatchObject({
+      id: first.id,
+      clientId,
+      name: 'Updated name',
+      redirectUris: ['https://client.example/updated'],
+      kind: 'cimd',
       unreferencedAt: null,
     });
   });

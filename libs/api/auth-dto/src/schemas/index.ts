@@ -120,6 +120,19 @@ export {
   jobLeaseTokenClaimsSchema,
 } from './job-lease-token.js';
 export {
+  OAUTH_READ_SCOPE,
+  type OAuthAuthorizationServerMetadataDto,
+  type OAuthClientMetadataDocumentDto,
+  type OAuthDynamicClientRegistrationRequestDto,
+  type OAuthDynamicClientRegistrationResponseDto,
+  type OAuthProtectedResourceMetadataDto,
+  oauthAuthorizationServerMetadataSchema,
+  oauthClientMetadataDocumentSchema,
+  oauthDynamicClientRegistrationRequestSchema,
+  oauthDynamicClientRegistrationResponseSchema,
+  oauthProtectedResourceMetadataSchema,
+} from './oauth.js';
+export {
   RUNNER_SESSION_TOKEN_AUDIENCE,
   type RunnerSessionTokenClaims,
   runnerSessionTokenClaimsSchema,

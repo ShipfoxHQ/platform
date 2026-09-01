@@ -10,7 +10,11 @@ export type AuthRateLimitAction =
   | 'bootstrap-state'
   | 'lookup'
   | 'directory'
-  | 'impersonate';
+  | 'impersonate'
+  | 'oauth-register'
+  | 'oauth-cimd'
+  | 'oauth-authorize'
+  | 'oauth-token';
 export type AuthRateLimitScope = 'ip' | 'email' | 'actor';
 export type AuthRateLimitOutcome = 'allowed' | 'blocked' | 'unavailable';
 export type AuthImpersonationOutcome = 'succeeded' | 'failed';
