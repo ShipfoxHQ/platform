@@ -154,7 +154,7 @@ test.describe('workspace setup checklist', () => {
       accessToken: `linear-cloud-e2e-token-${linearOrganizationId}`,
     });
     await test.step('refresh the mounted checklist from the integration settings', async () => {
-      await workspaceSetupChecklist.connectLink().click();
+      await workspaceHome.gotoSettingsIntegrations();
       await expect(page).toHaveURL(
         new RegExp(`/w/${workspace.slug}/settings/integrations/?$`, 'u'),
       );

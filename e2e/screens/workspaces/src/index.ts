@@ -7,6 +7,7 @@ const LAST_WORKSPACE_KEY = 'shipfox.lastWorkspaceId';
 const SETUP_INDICATOR_NAME_RE = /Get started/u;
 const SETUP_STATUS_NAME_RE = /^(?:\d+ of \d+ done|You're set up)$/u;
 const SETUP_DIALOG_NAME_RE = /Get started/u;
+const SETTINGS_ROOT_URL_RE = /\/settings(?:\/members)?\/?$/u;
 
 function lastWorkspaceStorageKey(principalId: string): string {
   return `${LAST_WORKSPACE_KEY}.principal.${encodeURIComponent(principalId)}`;
@@ -53,7 +54,10 @@ export class WorkspaceHomeScreen {
       await this.page.goto(`/w/${workspaceSlug}`);
       return;
     }
-    await this.page.locator(`a[aria-current="page"][href="/w/${workspaceSlug}"]`).click();
+    await this.page
+      .locator(`a[aria-current="page"][href="/w/${workspaceSlug}"]`)
+      .click({noWaitAfter: true});
+    await this.page.waitForURL(new RegExp(`/w/${workspaceSlug}/?$`, 'u'));
   }
 
   async gotoIntegrations(workspaceSlug: string): Promise<void> {
@@ -65,11 +69,21 @@ export class WorkspaceHomeScreen {
   }
 
   async gotoSettingsGeneral(): Promise<void> {
-    await this.settingsTab().click();
+    await this.gotoSettingsSection('General');
+  }
+
+  async gotoSettingsIntegrations(): Promise<void> {
+    await this.gotoSettingsSection('Integrations');
+  }
+
+  private async gotoSettingsSection(section: 'General' | 'Integrations'): Promise<void> {
+    await this.settingsTab().click({noWaitAfter: true});
+    await this.page.waitForURL(SETTINGS_ROOT_URL_RE);
     await this.page
       .getByRole('navigation', {name: 'Workspace settings'})
-      .getByRole('link', {name: 'General', exact: true})
-      .click();
+      .getByRole('link', {name: section, exact: true})
+      .click({noWaitAfter: true});
+    await this.page.waitForURL(new RegExp(`/settings/${section.toLowerCase()}/?$`, 'u'));
   }
 
   settingsTab(): Locator {
