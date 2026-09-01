@@ -27,12 +27,18 @@ export interface IntegrationToolsBridgeRequestOptions {
   readonly timeout?: number;
 }
 
+export interface IntegrationToolsBridgeActivationOptions {
+  readonly authToken?: string;
+  readonly signal?: AbortSignal;
+  readonly timeout?: number;
+}
+
 export interface IntegrationToolsBridge {
   readonly name: string;
   readonly server: McpServer;
   listTools(options?: IntegrationToolsBridgeRequestOptions): Promise<ListToolsResult>;
   callTool(name: string, args?: Record<string, unknown>): Promise<CallToolResult>;
-  activateHttp(): Promise<URL>;
+  activateHttp(options?: IntegrationToolsBridgeActivationOptions): Promise<URL>;
   close(): Promise<void>;
 }
 
@@ -51,6 +57,9 @@ export function createIntegrationToolsBridge(params: {
   let connectPromise: Promise<void> | undefined;
   let resetPromise: Promise<void> | undefined;
   let activationPromise: Promise<URL> | undefined;
+  let cancelActivation: ((reason: unknown) => void) | undefined;
+  let activationSettled = false;
+  let activationWaiters = 0;
   let closePromise: Promise<void> | undefined;
   let closed = false;
   let httpServer: HttpServer | undefined;
@@ -117,33 +126,66 @@ export function createIntegrationToolsBridge(params: {
         throw error;
       }
     },
-    activateHttp() {
+    activateHttp(options?: IntegrationToolsBridgeActivationOptions) {
       if (closePromise !== undefined) {
         return Promise.reject(new Error('Integration tools bridge is closed.'));
       }
-      activationPromise ??= activateBridgeHttp({
-        server,
-        setHttpServer: (value) => (httpServer = value),
-        ...(params.preferredPort === undefined ? {} : {preferredPort: params.preferredPort}),
-        createHttpSession: async () => {
-          const id = crypto.randomUUID();
-          const sessionServer = new Server(
-            {name: params.name, version: '0.0.0'},
-            {capabilities: {tools: {}}},
-          );
-          installForwardingHandlers(sessionServer, ensureConnected, () => client, resetConnection);
-          const sessionTransport = new StreamableHTTPServerTransport({
-            sessionIdGenerator: () => id,
-          });
-          await sessionServer.connect(sessionTransport as unknown as Transport);
-          return {id, server: sessionServer, transport: sessionTransport};
-        },
-        httpSessions,
-      });
-      return activationPromise;
+      if (activationPromise === undefined) {
+        const activationController = new AbortController();
+        cancelActivation = (reason) => {
+          if (!activationController.signal.aborted) activationController.abort(reason);
+        };
+        activationPromise = activateBridgeHttp({
+          server,
+          signal: activationController.signal,
+          setHttpServer: (value) => (httpServer = value),
+          ...(params.preferredPort === undefined ? {} : {preferredPort: params.preferredPort}),
+          ...(options?.authToken === undefined ? {} : {authToken: options.authToken}),
+          createHttpSession: async () => {
+            const id = crypto.randomUUID();
+            const sessionServer = new Server(
+              {name: params.name, version: '0.0.0'},
+              {capabilities: {tools: {}}},
+            );
+            installForwardingHandlers(
+              sessionServer,
+              ensureConnected,
+              () => client,
+              resetConnection,
+            );
+            const sessionTransport = new StreamableHTTPServerTransport({
+              sessionIdGenerator: () => id,
+            });
+            await sessionServer.connect(sessionTransport as unknown as Transport);
+            return {id, server: sessionServer, transport: sessionTransport};
+          },
+          httpSessions,
+        }).then(
+          (value) => {
+            activationSettled = true;
+            return value;
+          },
+          (error: unknown) => {
+            activationSettled = true;
+            throw error;
+          },
+        );
+      }
+      activationWaiters += 1;
+      let waiterReleased = false;
+      const releaseWaiter = (reason?: unknown) => {
+        if (waiterReleased) return;
+        waiterReleased = true;
+        activationWaiters -= 1;
+        if (reason !== undefined && activationWaiters === 0 && !activationSettled) {
+          cancelActivation?.(reason);
+        }
+      };
+      return boundedActivation(activationPromise, options, releaseWaiter);
     },
     close() {
       closed = true;
+      cancelActivation?.(new Error('Integration tools bridge is closed.'));
       closePromise ??= closeBridge({
         activationPromise,
         getClient: () => client,
@@ -162,13 +204,21 @@ export function createIntegrationToolsBridge(params: {
 
 async function activateBridgeHttp(params: {
   server: McpServer;
+  signal: AbortSignal;
   setHttpServer: (server: HttpServer) => void;
   preferredPort?: number;
+  authToken?: string;
   createHttpSession: () => Promise<HttpSession>;
   httpSessions: Map<string, HttpSession>;
 }): Promise<URL> {
   const httpServer = createServer((request, response) => {
-    void handleHttpRequest(request, response, params.httpSessions, params.createHttpSession);
+    void handleHttpRequest(
+      request,
+      response,
+      params.httpSessions,
+      params.createHttpSession,
+      params.authToken,
+    );
   });
   httpServer.headersTimeout = MCP_REQUEST_TIMEOUT_MS;
   httpServer.requestTimeout = MCP_REQUEST_TIMEOUT_MS;
@@ -176,14 +226,14 @@ async function activateBridgeHttp(params: {
 
   try {
     try {
-      await listenHttpServer(httpServer, params.preferredPort ?? 0);
+      await listenHttpServer(httpServer, params.preferredPort ?? 0, params.signal);
     } catch (error) {
       if (params.preferredPort === undefined || !isAddressInUseError(error)) throw error;
       logger().warn(
         {err: error, port: params.preferredPort},
         'Stable MCP bridge port is unavailable; using an ephemeral port',
       );
-      await listenHttpServer(httpServer, 0);
+      await listenHttpServer(httpServer, 0, params.signal);
     }
     const address = httpServer.address();
     if (typeof address !== 'object' || address === null) {
@@ -204,11 +254,16 @@ async function activateBridgeHttp(params: {
   }
 }
 
-async function listenHttpServer(server: HttpServer, port: number): Promise<void> {
+async function listenHttpServer(
+  server: HttpServer,
+  port: number,
+  signal?: AbortSignal,
+): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const cleanup = () => {
       server.removeListener('listening', onListening);
       server.removeListener('error', onError);
+      signal?.removeEventListener('abort', onAbort);
     };
     const onListening = () => {
       cleanup();
@@ -218,9 +273,19 @@ async function listenHttpServer(server: HttpServer, port: number): Promise<void>
       cleanup();
       reject(error);
     };
+    const onAbort = () => {
+      cleanup();
+      server.close(() => undefined);
+      reject(signal?.reason ?? new Error('Integration tools bridge activation aborted.'));
+    };
 
     server.once('listening', onListening);
     server.once('error', onError);
+    if (signal?.aborted === true) {
+      onAbort();
+      return;
+    }
+    signal?.addEventListener('abort', onAbort, {once: true});
     try {
       server.listen(port, '127.0.0.1');
     } catch (error) {
@@ -245,6 +310,7 @@ async function handleHttpRequest(
   response: ServerResponse,
   sessions: Map<string, HttpSession>,
   createHttpSession: () => Promise<HttpSession>,
+  authToken: string | undefined,
 ): Promise<void> {
   const requestUrl = new URL(request.url ?? '/', 'http://127.0.0.1');
   if (requestUrl.pathname !== '/mcp') {
@@ -252,15 +318,9 @@ async function handleHttpRequest(
     return;
   }
 
-  if (!isLoopbackRequest(request)) {
-    sendMcpError(response, 403, -32600, 'MCP endpoint accepts loopback requests only.');
-    return;
-  }
-  if (
-    request.headers['content-length'] !== undefined &&
-    Number(request.headers['content-length']) > MAX_MCP_REQUEST_BYTES
-  ) {
-    sendMcpError(response, 413, -32600, 'MCP request is too large.');
+  const invalidRequest = invalidHttpRequest(request, authToken);
+  if (invalidRequest !== undefined) {
+    sendMcpError(response, invalidRequest.statusCode, -32600, invalidRequest.message);
     return;
   }
 
@@ -288,6 +348,25 @@ async function handleHttpRequest(
     if (!response.headersSent) sendMcpError(response, 500, -32603, 'MCP request failed.');
     else response.end();
   }
+}
+
+function invalidHttpRequest(
+  request: IncomingMessage,
+  authToken: string | undefined,
+): {readonly statusCode: number; readonly message: string} | undefined {
+  if (!isLoopbackRequest(request)) {
+    return {statusCode: 403, message: 'MCP endpoint accepts loopback requests only.'};
+  }
+  if (authToken !== undefined && request.headers.authorization !== `Bearer ${authToken}`) {
+    return {statusCode: 401, message: 'MCP endpoint requires an invocation token.'};
+  }
+  if (
+    request.headers['content-length'] !== undefined &&
+    Number(request.headers['content-length']) > MAX_MCP_REQUEST_BYTES
+  ) {
+    return {statusCode: 413, message: 'MCP request is too large.'};
+  }
+  return undefined;
 }
 
 function installForwardingHandlers(
@@ -414,5 +493,57 @@ function closeHttpServer(server: HttpServer): Promise<void> {
   return new Promise((resolve, reject) => {
     server.close((error) => (error === undefined ? resolve() : reject(error)));
     server.closeAllConnections();
+  });
+}
+
+function boundedActivation<T>(
+  activation: Promise<T>,
+  options: IntegrationToolsBridgeActivationOptions | undefined,
+  onWaiterDone?: (reason?: unknown) => void,
+): Promise<T> {
+  if (options?.signal === undefined && options?.timeout === undefined) {
+    return activation.then(
+      (value) => {
+        onWaiterDone?.();
+        return value;
+      },
+      (error: unknown) => {
+        onWaiterDone?.();
+        throw error;
+      },
+    );
+  }
+
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const timeout =
+      options.timeout === undefined
+        ? undefined
+        : setTimeout(() => {
+            const error = new Error('Integration tools bridge activation timed out.');
+            settle(() => reject(error), error);
+          }, options.timeout);
+    const cleanup = () => {
+      if (timeout !== undefined) clearTimeout(timeout);
+      options.signal?.removeEventListener('abort', onAbort);
+    };
+    const settle = (handler: () => void, reason?: unknown) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      onWaiterDone?.(reason);
+      handler();
+    };
+    const onAbort = () => {
+      const reason = options.signal?.reason ?? new Error('Integration tools bridge aborted.');
+      settle(() => reject(reason), reason);
+    };
+
+    activation.then(
+      (value) => settle(() => resolve(value)),
+      (error: unknown) => settle(() => reject(error)),
+    );
+    if (options.signal?.aborted === true) onAbort();
+    else options.signal?.addEventListener('abort', onAbort, {once: true});
   });
 }

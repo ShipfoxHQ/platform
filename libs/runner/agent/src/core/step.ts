@@ -24,7 +24,7 @@ import {
   AgentPermissionModeError,
   AgentSessionUnavailableError,
 } from '#core/errors.js';
-import type {HarnessAdapter} from '#core/harness.js';
+import type {HarnessAdapter, RequestedIntegrationTool} from '#core/harness.js';
 import {
   createIntegrationToolsBridge,
   type IntegrationToolsBridge,
@@ -120,6 +120,7 @@ export async function executeAgentStep(
       prompt,
       tools,
       mcpServers: integrationToolsBridges,
+      requestedIntegrationTools: requestedIntegrationToolsFromConfig(mcpServers),
       thinking: options.runtime.thinking,
       provider: options.runtime.provider,
       credentials: options.runtime.credentials,
@@ -147,6 +148,7 @@ async function runSelectedHarness(params: {
   prompt: string;
   tools: readonly string[] | undefined;
   mcpServers: readonly IntegrationToolsBridge[] | undefined;
+  requestedIntegrationTools: readonly RequestedIntegrationTool[] | undefined;
   thinking: string;
   provider: string;
   credentials: Record<string, string>;
@@ -169,6 +171,7 @@ async function runSelectedHarness(params: {
     prompt,
     tools,
     mcpServers,
+    requestedIntegrationTools,
     thinking,
     provider,
     credentials,
@@ -183,6 +186,9 @@ async function runSelectedHarness(params: {
     const adapter = await selectHarnessAdapter(harness);
     const harnessResult = await raceAbort(
       adapter.run({
+        jobExecutionId,
+        stepId,
+        attempt,
         cwd,
         ...(agentStateDir === undefined ? {} : {agentStateDir}),
         ...(session === undefined ? {} : {session}),
@@ -192,6 +198,7 @@ async function runSelectedHarness(params: {
         prompt,
         ...(tools === undefined ? {} : {tools}),
         ...(mcpServers === undefined ? {} : {mcpServers}),
+        ...(requestedIntegrationTools === undefined ? {} : {requestedIntegrationTools}),
         outputs,
         credentials,
         customProvider,
@@ -247,6 +254,7 @@ function harnessFailureResult(
     reason,
     error instanceof AgentConfigError ? error.agentConfigIssue : undefined,
     error instanceof AgentInvocationError ? error.response : undefined,
+    error instanceof AgentInvocationError ? error.failurePhase : undefined,
   );
   if (
     error instanceof AgentInvocationError &&
@@ -376,11 +384,13 @@ function agentFailure(
   reason: StepErrorReasonDto = 'agent_invocation_failed',
   agentConfigIssue?: AgentConfigIssueDto,
   response?: string,
+  failurePhase?: AgentInvocationError['failurePhase'],
 ): StepResult {
   const error: StepErrorDto = {
     message,
     reason,
     ...(agentConfigIssue === undefined ? {} : {agent_config_issue: agentConfigIssue}),
+    ...(failurePhase === undefined ? {} : {code: failurePhase}),
   };
   return {
     success: false,
@@ -388,6 +398,20 @@ function agentFailure(
     error,
     exit_code: null,
   };
+}
+
+function requestedIntegrationToolsFromConfig(
+  mcpServers: readonly AgentIntegrationMcpServerConfigDto[] | undefined,
+): readonly RequestedIntegrationTool[] | undefined {
+  if (mcpServers === undefined) return undefined;
+  return mcpServers.flatMap((server) =>
+    server.integrations.flatMap((integration) =>
+      integration.tools.map((tool) => ({
+        connectionSlug: integration.connectionSlug,
+        toolId: tool.id,
+      })),
+    ),
+  );
 }
 
 function outputDeclarationsFromConfig(value: unknown): OutputDeclarations | undefined {

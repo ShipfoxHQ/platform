@@ -39,6 +39,15 @@ export const AGENT_INTEGRATION_MCP_ENDPOINT = '/runs/jobs/current/integration-to
 export const AGENT_INTEGRATION_MCP_TRANSPORT = 'http';
 export const AGENT_INTEGRATION_MCP_AUTH = 'lease_token';
 
+/** The namespaced MCP name shared by the gateway and runner transports. */
+export function agentIntegrationMcpToolName(connectionSlug: string, toolId: string): string {
+  return `${sanitizeAgentIntegrationConnectionSlug(connectionSlug)}__${toolId}`;
+}
+
+export function sanitizeAgentIntegrationConnectionSlug(slug: string): string {
+  return slug.replaceAll('-', '_');
+}
+
 export const agentIntegrationMcpServerSchema = z.strictObject({
   name: z.literal(AGENT_INTEGRATION_MCP_SERVER_NAME),
   transport: z.literal(AGENT_INTEGRATION_MCP_TRANSPORT),

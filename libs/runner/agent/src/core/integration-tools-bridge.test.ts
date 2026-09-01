@@ -1,5 +1,5 @@
 import {once} from 'node:events';
-import {createServer, type Server as HttpServer} from 'node:http';
+import {createServer, type Server as HttpServer, Server as NodeHttpServer} from 'node:http';
 import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {StreamableHTTPClientTransport} from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import {InMemoryTransport} from '@modelcontextprotocol/sdk/inMemory.js';
@@ -151,6 +151,7 @@ describe('createIntegrationToolsBridge', () => {
   it('serves the MCP bridge over one loopback endpoint', async () => {
     let leaseToken = 'lease-initial';
     gateway = await startFakeGateway(() => leaseToken);
+    const authToken = 'claude-invocation-secret';
     const bridge = createIntegrationToolsBridge({
       name: 'shipfox_integration_tools',
       url: gateway.url,
@@ -158,14 +159,18 @@ describe('createIntegrationToolsBridge', () => {
     });
 
     const [endpoint, concurrentEndpoint] = await Promise.all([
-      bridge.activateHttp(),
-      bridge.activateHttp(),
+      bridge.activateHttp({authToken}),
+      bridge.activateHttp({authToken}),
     ]);
+    const requestInit = {headers: {Authorization: `Bearer ${authToken}`}};
+    const unauthorized = await fetch(endpoint);
     const probe = new Client({name: 'pi-mcp-probe', version: '2.1.2'});
-    await probe.connect(new StreamableHTTPClientTransport(endpoint) as unknown as Transport);
+    await probe.connect(
+      new StreamableHTTPClientTransport(endpoint, {requestInit}) as unknown as Transport,
+    );
     await probe.close();
     const client = new Client({name: 'test-client', version: '0.0.0'});
-    const transport = new StreamableHTTPClientTransport(endpoint);
+    const transport = new StreamableHTTPClientTransport(endpoint, {requestInit});
     await client.connect(transport as unknown as Transport);
     const tools = await client.listTools();
     leaseToken = 'lease-next';
@@ -177,7 +182,9 @@ describe('createIntegrationToolsBridge', () => {
       CallToolResultSchema,
     );
     const invalidPath = await fetch(new URL('/other', endpoint));
-    const invalidOrigin = await fetch(endpoint, {headers: {Origin: 'http://outside.example.test'}});
+    const invalidOrigin = await fetch(endpoint, {
+      headers: {...requestInit.headers, Origin: 'http://outside.example.test'},
+    });
     await client.close();
     await bridge.close();
 
@@ -191,8 +198,83 @@ describe('createIntegrationToolsBridge', () => {
       issue_number: 3,
     });
     expect(gateway.authorizations.at(-1)).toBe('Bearer lease-next');
+    expect(unauthorized.status).toBe(401);
     expect(invalidPath.status).toBe(404);
     expect(invalidOrigin.status).toBe(403);
+  });
+
+  it('cancels activation and releases the HTTP bridge resources', async () => {
+    gateway = await startFakeGateway(() => 'lease');
+    const bridge = createIntegrationToolsBridge({
+      name: 'shipfox_integration_tools',
+      url: gateway.url,
+      fetch: leaseFetch(() => 'lease'),
+    });
+    const ac = new AbortController();
+    ac.abort(new Error('activation cancelled'));
+
+    await expect(bridge.activateHttp({signal: ac.signal, timeout: 10_000})).rejects.toThrow(
+      'activation cancelled',
+    );
+    await expect(bridge.close()).resolves.toBeUndefined();
+  });
+
+  it('cancels an in-flight activation before closing the bridge', async () => {
+    gateway = await startFakeGateway(() => 'lease');
+    const bridge = createIntegrationToolsBridge({
+      name: 'shipfox_integration_tools',
+      url: gateway.url,
+      fetch: leaseFetch(() => 'lease'),
+    });
+    const listen = vi.spyOn(NodeHttpServer.prototype, 'listen').mockImplementation(function (
+      this: NodeHttpServer,
+    ) {
+      return this;
+    });
+    const ac = new AbortController();
+
+    try {
+      const activation = bridge.activateHttp({signal: ac.signal, timeout: 10_000});
+      ac.abort(new Error('activation cancelled'));
+
+      await expect(activation).rejects.toThrow('activation cancelled');
+      await expect(bridge.close()).resolves.toBeUndefined();
+    } finally {
+      listen.mockRestore();
+    }
+  });
+
+  it('does not cancel a shared activation while another caller is waiting', async () => {
+    const bridge = createIntegrationToolsBridge({
+      name: 'shipfox_integration_tools',
+      url: new URL('http://127.0.0.1:43124/mcp'),
+      fetch: fetch,
+    });
+    const listen = vi.spyOn(NodeHttpServer.prototype, 'listen').mockImplementation(function (
+      this: NodeHttpServer,
+    ) {
+      return this;
+    });
+    const close = vi.spyOn(NodeHttpServer.prototype, 'close');
+    const first = new AbortController();
+    const second = new AbortController();
+
+    try {
+      const firstActivation = bridge.activateHttp({signal: first.signal, timeout: 10_000});
+      const secondActivation = bridge.activateHttp({signal: second.signal, timeout: 10_000});
+      first.abort(new Error('first activation cancelled'));
+
+      await expect(firstActivation).rejects.toThrow('first activation cancelled');
+      expect(close).not.toHaveBeenCalled();
+
+      second.abort(new Error('second activation cancelled'));
+      await expect(secondActivation).rejects.toThrow('second activation cancelled');
+      expect(close).toHaveBeenCalledTimes(1);
+      await expect(bridge.close()).resolves.toBeUndefined();
+    } finally {
+      listen.mockRestore();
+      close.mockRestore();
+    }
   });
 
   it('reuses a preferred loopback port after a bridge is recreated', async () => {

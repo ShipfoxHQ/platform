@@ -16,6 +16,7 @@ import {
   tool,
 } from '@anthropic-ai/claude-agent-sdk';
 import {
+  agentIntegrationMcpToolName,
   type ClaudeModelFamilyId,
   claudeRuntimeConfigSchema,
   isReservedModelProviderId,
@@ -23,6 +24,14 @@ import {
 import {logger} from '@shipfox/node-opentelemetry';
 import {z} from 'zod';
 import {config} from '#config.js';
+import {
+  type ClaudeToolCatalogErrorClass,
+  type ClaudeToolCatalogFailure,
+  type ClaudeToolCatalogFailureReason,
+  ClaudeToolDiagnostics,
+  type ClaudeToolOmission,
+  claudeSdkToolName,
+} from '#core/claude-tool-diagnostics.js';
 import {assertRunnerEgressAllowed} from '#core/egress.js';
 import {
   AgentConfigError,
@@ -49,6 +58,8 @@ const REPOSITORY_INSTRUCTIONS_HEADER =
 const CLAUDE_THINKING_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
 const CLAUDE_SESSION_FILE_NAME = 'claude-session.jsonl';
 const CLAUDE_SESSION_LINE_SEPARATOR = /\r?\n/u;
+const CLAUDE_MCP_METADATA_TIMEOUT_MS = 10_000;
+const CLAUDE_MCP_METADATA_TIMEOUT_MESSAGE = 'Claude integration tool catalog resolution timed out.';
 
 // Shipfox thinking level → extended-thinking budget for legacy Claude models.
 // Budgets follow Anthropic's extended-thinking rules (minimum 1,024 tokens;
@@ -283,7 +294,6 @@ async function runClaudeAgent(invocation: HarnessInvocation): Promise<HarnessRes
     model,
     thinking,
     prompt,
-    tools,
     credentials,
     gitConfigGlobal,
     signal,
@@ -301,12 +311,16 @@ async function runClaudeAgent(invocation: HarnessInvocation): Promise<HarnessRes
     invocation.outputs !== undefined && Object.keys(invocation.outputs).length > 0;
   const useOutputTools = hasDeclaredOutputs;
   const managedMcpServers = useOutputTools ? [outputMcpServer(collector)] : [];
-  const mcpServers = claudeMcpServers(invocation.mcpServers, managedMcpServers);
 
   await assertRunnerEgressAllowed(targetUrl, targetLabel);
 
   const effectiveModel = override?.model ?? model;
   const thinkingOptions = claudeThinkingOptions(effectiveModel, thinking);
+  const preparationDiagnostics = new ClaudeToolDiagnostics({
+    invocation,
+    requestedTools: invocation.requestedIntegrationTools ?? [],
+    requiredOutputCount: Object.keys(invocation.outputs ?? {}).length,
+  });
 
   let configDir: string | undefined;
   let claudeQuery: Query | undefined;
@@ -314,6 +328,8 @@ async function runClaudeAgent(invocation: HarnessInvocation): Promise<HarnessRes
   let sessionStore: ClaudeSessionStore | undefined;
   let sessionId: string | undefined;
   let response = '';
+  let toolContext: ClaudeToolContext | undefined;
+  let turnsCompleted = false;
   const controller = new AbortController();
   const abortQuery = () => {
     controller.abort();
@@ -321,6 +337,8 @@ async function runClaudeAgent(invocation: HarnessInvocation): Promise<HarnessRes
   };
 
   try {
+    toolContext = await createClaudeToolContext(invocation, managedMcpServers);
+    toolContext.diagnostics.logManifest();
     configDir = await createClaudeConfigDir(agentStateDir);
 
     assertClaudeNotAborted(signal);
@@ -338,13 +356,10 @@ async function runClaudeAgent(invocation: HarnessInvocation): Promise<HarnessRes
         strictMcpConfig: true,
         ...thinkingOptions,
         abortController: controller,
-        ...toolSelectionOption(
-          tools,
-          managedMcpServers.flatMap((server) => server.requiredToolNames),
-        ),
+        ...toolContext.selectedToolOptions,
         ...claudeSystemPromptOption(),
         env: claudeEnvironment(auth, configDir, gitConfigGlobal, override),
-        ...(mcpServers === undefined ? {} : {mcpServers}),
+        ...(toolContext.mcpServers === undefined ? {} : {mcpServers: toolContext.mcpServers}),
         ...claudeSessionQueryOptions(sessionInvocation, sessionStore),
         includePartialMessages: false,
       },
@@ -359,12 +374,14 @@ async function runClaudeAgent(invocation: HarnessInvocation): Promise<HarnessRes
       cwd,
       useOutputTools,
       collector,
+      toolDiagnostics: toolContext.diagnostics,
       onSessionEntry,
       onSessionId: (id) => {
         sessionId = id;
       },
     });
     response = turnResponse;
+    turnsCompleted = true;
     const persistedSession = await persistClaudeSessionIfNeeded({
       shouldPersistSession,
       agentStateDir,
@@ -372,16 +389,27 @@ async function runClaudeAgent(invocation: HarnessInvocation): Promise<HarnessRes
       sessionStore,
       sessionId,
     });
+    toolContext.diagnostics.finish({
+      outputGate: hasDeclaredOutputs ? 'passed' : 'not_required',
+    });
     return claudeHarnessResult(response, collector.snapshot(), persistedSession);
   } catch (error) {
-    return await rethrowClaudeSessionError({
+    const diagnostics = diagnosticsForClaudeFailure(
+      toolContext?.diagnostics,
+      preparationDiagnostics,
+      signal,
+    );
+    return await handleClaudeAgentFailure({
       error,
+      diagnostics,
+      collector,
+      response,
+      sessionId,
+      executionCompleted: turnsCompleted,
       shouldPersistSession,
       agentStateDir,
       session: sessionInvocation,
       sessionStore,
-      sessionId,
-      response,
     });
   } finally {
     messages?.close();
@@ -389,6 +417,118 @@ async function runClaudeAgent(invocation: HarnessInvocation): Promise<HarnessRes
     claudeQuery?.close();
     if (configDir !== undefined) await cleanupClaudeConfigDir(configDir);
   }
+}
+
+function diagnosticsForClaudeFailure(
+  diagnostics: ClaudeToolDiagnostics | undefined,
+  preparationDiagnostics: ClaudeToolDiagnostics,
+  signal: AbortSignal,
+): ClaudeToolDiagnostics {
+  if (diagnostics !== undefined) return diagnostics;
+  if (!signal.aborted) preparationDiagnostics.recordPreparationFailure('runner_capability');
+  preparationDiagnostics.logManifest();
+  return preparationDiagnostics;
+}
+
+interface ClaudeToolContext {
+  readonly diagnostics: ClaudeToolDiagnostics;
+  readonly mcpServers: ReturnType<typeof claudeMcpServers>;
+  readonly selectedToolOptions: ReturnType<typeof toolSelectionOption>;
+}
+
+async function createClaudeToolContext(
+  invocation: HarnessInvocation,
+  managedMcpServers: readonly ClaudeManagedMcpServer[],
+): Promise<ClaudeToolContext> {
+  const integrationTools = await prepareClaudeIntegrationTools(invocation);
+  const selectedToolOptions = toolSelectionOption(invocation.tools, [
+    ...(invocation.requestedIntegrationTools ?? []).map((tool) =>
+      claudeSdkToolName(agentIntegrationMcpToolName(tool.connectionSlug, tool.toolId)),
+    ),
+    ...integrationTools.resolvedSdkToolNames,
+    ...managedMcpServers.flatMap((server) => server.requiredToolNames),
+  ]);
+  const selectedToolNames = selectedToolOptions.tools;
+  const diagnostics = new ClaudeToolDiagnostics({
+    invocation,
+    requestedTools: invocation.requestedIntegrationTools ?? [],
+    resolvedToolNames: integrationTools.resolvedToolNames,
+    expectedSdkToolNames: integrationTools.expectedSdkToolNames,
+    sdkToolToIntegrationTool: integrationTools.sdkToolToIntegrationTool,
+    selectedToolNames,
+    omissions: integrationTools.omissions,
+    catalogFailures: integrationTools.catalogFailures,
+    requiredOutputCount: Object.keys(invocation.outputs ?? {}).length,
+  });
+  return {
+    diagnostics,
+    mcpServers: claudeMcpServers(integrationTools.servers, managedMcpServers),
+    selectedToolOptions,
+  };
+}
+
+async function handleClaudeAgentFailure(params: {
+  error: unknown;
+  diagnostics: ClaudeToolDiagnostics;
+  collector: OutputCollector;
+  response: string;
+  executionCompleted: boolean;
+  sessionId: string | undefined;
+  shouldPersistSession: boolean;
+  agentStateDir: string;
+  session: HarnessInvocation['session'];
+  sessionStore: ClaudeSessionStore | undefined;
+}): Promise<never> {
+  const failurePhase = params.diagnostics.finish({
+    outputGate: outputGateForError(params.error),
+    missingOutputCount: params.collector.missingRequired().length,
+    executionFailed: true,
+    executionCompleted: params.executionCompleted,
+  });
+  return await rethrowClaudeSessionError({
+    error: classifyClaudeAgentError({
+      error: params.error,
+      failurePhase,
+      response: params.response,
+      sessionId: params.sessionId,
+    }),
+    shouldPersistSession: params.shouldPersistSession,
+    agentStateDir: params.agentStateDir,
+    session: params.session,
+    sessionStore: params.sessionStore,
+    sessionId: params.sessionId,
+    response: params.response,
+  });
+}
+
+function outputGateForError(error: unknown): 'failed' | 'not_evaluated' {
+  return error instanceof AgentInvocationError && error.failurePhase === 'output_gate_failed'
+    ? 'failed'
+    : 'not_evaluated';
+}
+
+function classifyClaudeAgentError(params: {
+  error: unknown;
+  failurePhase: ReturnType<ClaudeToolDiagnostics['finish']>;
+  response: string;
+  sessionId: string | undefined;
+}): unknown {
+  if (
+    params.failurePhase === undefined ||
+    params.error instanceof AgentInvocationError ||
+    params.error instanceof AgentConfigError ||
+    params.error instanceof AgentSessionUnavailableError ||
+    params.error instanceof AgentPermissionModeError
+  ) {
+    return params.error;
+  }
+  return new AgentInvocationError(
+    params.error instanceof Error ? params.error.message : String(params.error),
+    params.response,
+    undefined,
+    params.sessionId,
+    params.failurePhase,
+  );
 }
 
 function assertClaudeNotAborted(signal: AbortSignal): void {
@@ -457,6 +597,7 @@ async function rethrowClaudeSessionError(params: {
       error.response ?? params.response,
       persistedSession.sessionFile,
       params.sessionId,
+      error.failurePhase,
     );
   }
   throw new AgentInvocationError(
@@ -505,14 +646,11 @@ function claudeTargetLabel(
 }
 
 function claudeMcpServers(
-  integrationMcpServers: HarnessInvocation['mcpServers'],
+  integrationMcpServers: readonly ClaudeIntegrationMcpServer[],
   managedMcpServers: readonly ClaudeManagedMcpServer[],
 ) {
-  const servers = Object.fromEntries(
-    (integrationMcpServers ?? []).map((server) => [
-      server.name,
-      {type: 'sdk' as const, name: server.name, instance: server.server},
-    ]),
+  const servers: Record<string, ClaudeMcpServerConfig> = Object.fromEntries(
+    integrationMcpServers.map((server) => [server.name, server.config]),
   );
   for (const server of managedMcpServers) {
     servers[server.name] = server.config;
@@ -520,10 +658,263 @@ function claudeMcpServers(
   return Object.keys(servers).length === 0 ? undefined : servers;
 }
 
+type ClaudeMcpServerConfig =
+  | ClaudeIntegrationMcpServer['config']
+  | ReturnType<typeof createSdkMcpServer>;
+
 interface ClaudeManagedMcpServer {
   readonly name: string;
   readonly config: ReturnType<typeof createSdkMcpServer>;
   readonly requiredToolNames: readonly string[];
+}
+
+interface ClaudeIntegrationMcpServer {
+  readonly name: string;
+  readonly config: {
+    readonly type: 'http';
+    readonly url: string;
+    readonly alwaysLoad: true;
+    readonly headers: Readonly<Record<string, string>>;
+  };
+  readonly resolvedToolNames: readonly string[];
+  readonly listToolsFailed: boolean;
+  readonly catalogFailure?: ClaudeToolCatalogFailure;
+}
+
+interface PreparedClaudeIntegrationTools {
+  readonly servers: readonly ClaudeIntegrationMcpServer[];
+  readonly resolvedToolNames: readonly string[];
+  readonly resolvedSdkToolNames: readonly string[];
+  readonly expectedSdkToolNames: readonly string[];
+  readonly sdkToolToIntegrationTool: ReadonlyMap<string, string>;
+  readonly omissions: readonly ClaudeToolOmission[];
+  readonly catalogFailures: readonly ClaudeToolCatalogFailure[];
+}
+
+async function prepareClaudeIntegrationTools(
+  invocation: HarnessInvocation,
+): Promise<PreparedClaudeIntegrationTools> {
+  const bridges = invocation.mcpServers ?? [];
+  const requestedToolNames = uniqueStrings(
+    (invocation.requestedIntegrationTools ?? []).map((tool) =>
+      agentIntegrationMcpToolName(tool.connectionSlug, tool.toolId),
+    ),
+  );
+  const preparedServers = await Promise.all(
+    bridges.map(async (bridge): Promise<ClaudeIntegrationMcpServer> => {
+      const authToken = crypto.randomUUID();
+      const [endpoint, listed] = await Promise.all([
+        boundedPromise(
+          Promise.resolve().then(() =>
+            bridge.activateHttp({
+              authToken,
+              signal: invocation.signal,
+              timeout: CLAUDE_MCP_METADATA_TIMEOUT_MS,
+            }),
+          ),
+          {
+            signal: invocation.signal,
+            timeoutMs: CLAUDE_MCP_METADATA_TIMEOUT_MS,
+            timeoutMessage: 'Claude integration tools bridge activation timed out.',
+          },
+        ),
+        listClaudeIntegrationToolNames(bridge, invocation.signal),
+      ]);
+      const catalogFailure =
+        listed.failureReason === undefined
+          ? undefined
+          : ({
+              server: bridge.name,
+              reason: listed.failureReason,
+              errorClass: listed.errorClass ?? 'unknown',
+              ...(listed.errorStatus === undefined ? {} : {errorStatus: listed.errorStatus}),
+            } satisfies ClaudeToolCatalogFailure);
+      return {
+        name: bridge.name,
+        config: {
+          type: 'http',
+          url: endpoint.toString(),
+          alwaysLoad: true,
+          headers: {Authorization: `Bearer ${authToken}`},
+        },
+        resolvedToolNames: listed.toolNames,
+        listToolsFailed: listed.failed,
+        ...(catalogFailure === undefined ? {} : {catalogFailure}),
+      };
+    }),
+  );
+  const resolvedToolNames = uniqueStrings(
+    preparedServers.flatMap((server) => server.resolvedToolNames),
+  );
+  const resolvedSdkToolNames = resolvedToolNames.map(claudeSdkToolName);
+  const expectedIntegrationToolNames = uniqueStrings([...requestedToolNames, ...resolvedToolNames]);
+  const expectedSdkToolNames = expectedIntegrationToolNames.map(claudeSdkToolName);
+  const sdkToolToIntegrationTool = new Map<string, string>();
+  expectedSdkToolNames.forEach((sdkName, index) => {
+    const integrationName = expectedIntegrationToolNames[index];
+    if (integrationName !== undefined) sdkToolToIntegrationTool.set(sdkName, integrationName);
+  });
+  const omissions = requestedToolNames.flatMap((toolName) => {
+    if (preparedServers.some((server) => server.resolvedToolNames.includes(toolName))) return [];
+    const reason = omissionReason(preparedServers);
+    return reason === undefined ? [] : [{toolName, reason} satisfies ClaudeToolOmission];
+  });
+  const catalogFailures = preparedServers.flatMap((server) =>
+    server.catalogFailure === undefined ? [] : [server.catalogFailure],
+  );
+  return {
+    servers: preparedServers,
+    resolvedToolNames,
+    resolvedSdkToolNames,
+    expectedSdkToolNames,
+    sdkToolToIntegrationTool,
+    omissions,
+    catalogFailures,
+  };
+}
+
+function omissionReason(
+  servers: readonly ClaudeIntegrationMcpServer[],
+): ClaudeToolOmission['reason'] | undefined {
+  if (servers.length === 0) return 'runner_capability';
+  if (servers.every((server) => server.listToolsFailed)) {
+    return servers.every((server) => server.catalogFailure?.reason === 'connection_policy')
+      ? 'connection_policy'
+      : undefined;
+  }
+  return 'catalog_resolution';
+}
+
+interface ClaudeToolCatalogResult {
+  readonly toolNames: readonly string[];
+  readonly failed: boolean;
+  readonly failureReason?: ClaudeToolCatalogFailureReason;
+  readonly errorClass?: ClaudeToolCatalogErrorClass;
+  readonly errorStatus?: number;
+}
+
+async function listClaudeIntegrationToolNames(
+  bridge: NonNullable<HarnessInvocation['mcpServers']>[number],
+  signal: AbortSignal,
+): Promise<ClaudeToolCatalogResult> {
+  const controller = new AbortController();
+
+  try {
+    const result = await boundedPromise(
+      Promise.resolve().then(() =>
+        bridge.listTools({
+          signal: controller.signal,
+          timeout: CLAUDE_MCP_METADATA_TIMEOUT_MS,
+        }),
+      ),
+      {
+        signal,
+        timeoutMs: CLAUDE_MCP_METADATA_TIMEOUT_MS,
+        timeoutMessage: CLAUDE_MCP_METADATA_TIMEOUT_MESSAGE,
+        onAbort: () => controller.abort(signal.reason),
+        onTimeout: () => controller.abort(new Error(CLAUDE_MCP_METADATA_TIMEOUT_MESSAGE)),
+      },
+    );
+    return {toolNames: result.tools.map((tool) => tool.name), failed: false};
+  } catch (error) {
+    if (signal.aborted) throw error;
+    const failureReason = catalogFailureReason(error);
+    const errorStatus = catalogErrorStatus(error);
+    const errorClass = catalogErrorClass(error, errorStatus);
+    logger().warn(
+      {
+        event: 'runner.agent_claude_tool_catalog_unavailable',
+        server: bridge.name,
+        failureReason,
+        errorClass,
+        ...(errorStatus === undefined ? {} : {errorStatus}),
+      },
+      'Claude integration tool catalog could not be resolved before invocation',
+    );
+    return {
+      toolNames: [],
+      failed: true,
+      failureReason,
+      errorClass,
+      ...(errorStatus === undefined ? {} : {errorStatus}),
+    };
+  }
+}
+
+function catalogFailureReason(error: unknown): ClaudeToolCatalogFailureReason {
+  const status = catalogErrorStatus(error);
+  return status === 401 || status === 403 ? 'connection_policy' : 'catalog_resolution';
+}
+
+function catalogErrorStatus(error: unknown): number | undefined {
+  if (!isRecord(error)) return undefined;
+  const status = error.status ?? error.statusCode ?? error.code;
+  return typeof status === 'number' && Number.isInteger(status) && status >= 100 && status <= 599
+    ? status
+    : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function catalogErrorClass(
+  error: unknown,
+  status: number | undefined,
+): ClaudeToolCatalogErrorClass {
+  if (status !== undefined) return 'http';
+  if (error instanceof Error && error.message === CLAUDE_MCP_METADATA_TIMEOUT_MESSAGE) {
+    return 'timeout';
+  }
+  if (error instanceof TypeError) return 'transport';
+  return 'unknown';
+}
+
+function boundedPromise<T>(
+  work: Promise<T>,
+  params: {
+    signal: AbortSignal;
+    timeoutMs: number;
+    timeoutMessage: string;
+    onAbort?: () => void;
+    onTimeout?: () => void;
+  },
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      params.onTimeout?.();
+      settle(() => reject(new Error(params.timeoutMessage)));
+    }, params.timeoutMs);
+    const cleanup = () => {
+      clearTimeout(timeout);
+      params.signal.removeEventListener('abort', onAbort);
+    };
+    const settle = (handler: () => void) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      handler();
+    };
+    const onAbort = () => {
+      params.onAbort?.();
+      settle(() =>
+        reject(params.signal.reason ?? new Error('Claude integration preparation aborted.')),
+      );
+    };
+
+    work.then(
+      (value) => settle(() => resolve(value)),
+      (error: unknown) => settle(() => reject(error)),
+    );
+    if (params.signal.aborted) onAbort();
+    else params.signal.addEventListener('abort', onAbort, {once: true});
+  });
+}
+
+function uniqueStrings(values: readonly string[]): string[] {
+  return [...new Set(values)];
 }
 
 type ClaudeMcpTools = NonNullable<Parameters<typeof createSdkMcpServer>[0]['tools']>;
@@ -598,6 +989,7 @@ async function runClaudeTurns(params: {
   cwd: string;
   useOutputTools: boolean;
   collector: OutputCollector;
+  toolDiagnostics: ClaudeToolDiagnostics;
   onSessionEntry: ((line: string) => void) | undefined;
   onSessionId: (sessionId: string) => void;
 }): Promise<string> {
@@ -618,6 +1010,7 @@ async function runClaudeTurns(params: {
           (
             await readClaudeResult({
               queryIterator: params.queryIterator,
+              toolDiagnostics: params.toolDiagnostics,
               onSessionEntry: params.onSessionEntry,
               onSessionId: params.onSessionId,
             })
@@ -626,7 +1019,13 @@ async function runClaudeTurns(params: {
     });
   } catch (error) {
     if (error instanceof RequiredOutputsMissingError) {
-      throw new AgentInvocationError(error.message, response);
+      throw new AgentInvocationError(
+        error.message,
+        response,
+        undefined,
+        undefined,
+        'output_gate_failed',
+      );
     }
     throw error;
   }
@@ -635,6 +1034,7 @@ async function runClaudeTurns(params: {
 
 async function readClaudeResult(params: {
   queryIterator: AsyncIterator<unknown>;
+  toolDiagnostics: ClaudeToolDiagnostics;
   onSessionEntry: ((line: string) => void) | undefined;
   onSessionId: (sessionId: string) => void;
 }): Promise<HarnessResult> {
@@ -642,6 +1042,7 @@ async function readClaudeResult(params: {
     const next = await params.queryIterator.next();
     if (next.done === true) break;
     const message = next.value;
+    params.toolDiagnostics.recordMessage(message);
     forwardSessionEntry(params.onSessionEntry, message);
     if (isInitMessage(message)) {
       params.onSessionId(message.session_id);
