@@ -25,6 +25,9 @@ export const reconcileRunnerInstancesRoute = defineRoute({
       workspaceId: context.scope === 'workspace' ? context.workspaceId : null,
       provisionerId: context.provisionerTokenId,
       observedRunnerInstanceIds: request.body.observed_provider_runner_ids,
+      ...(request.body.candidate_only_reconcile !== undefined
+        ? {candidateOnlyReconcile: request.body.candidate_only_reconcile}
+        : {}),
       ...(request.body.termination_candidates
         ? {
             terminationCandidates: request.body.termination_candidates.map((candidate) => ({

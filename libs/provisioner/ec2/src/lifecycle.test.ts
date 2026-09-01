@@ -952,10 +952,43 @@ describe('createEc2Lifecycle', () => {
         candidate_count: 101,
         submitted_count: 100,
         dropped_count: 1,
+        candidate_counts: {'registration-deadline': 0, 'provider-health-failed': 101},
+        submitted_candidate_counts: {'registration-deadline': 0, 'provider-health-failed': 100},
+        dropped_candidate_counts: {'registration-deadline': 0, 'provider-health-failed': 1},
       }),
       'Capped EC2 provider health termination candidates at the API limit',
     );
     expect(engine.terminationCalls).toEqual([]);
+  });
+
+  it('preserves registration-deadline precedence when candidate sources collide', async () => {
+    const engine = fakeEngine({
+      instances: [
+        instance({
+          state: 'pending',
+          instanceId: 'i-pending',
+          providerRunnerId: 'duplicate-runner',
+          launchTime: new Date('2026-01-01T00:00:00.000Z'),
+        }),
+        instance({
+          state: 'running',
+          instanceId: 'i-running',
+          providerRunnerId: 'duplicate-runner',
+          systemStatus: {
+            status: 'impaired',
+            impairedSince: new Date(NOW.getTime() - RECONCILE_INTERVAL_MS),
+          },
+        }),
+      ],
+    });
+    const client = fakeClient();
+    const lifecycle = makeLifecycle({engine, client, registrationDeadlineMs: 60_000});
+
+    await lifecycle.reconcile();
+
+    expect(client.reconcileBodies[0]?.termination_candidates).toEqual([
+      {provider_runner_id: 'duplicate-runner', reason: 'registration-deadline'},
+    ]);
   });
 
   it('fails closed when the health candidate reconcile request is unauthorized', async () => {
@@ -1038,21 +1071,126 @@ describe('createEc2Lifecycle', () => {
     await expect(lifecycle.launch(launch())).rejects.toThrow(ProvisionerAuthenticationError);
   });
 
-  it('terminates an overdue instance before authentication failures can block reporting', async () => {
+  it('does not terminate or advertise an overdue instance during observation', async () => {
     const engine = fakeEngine({
       instances: [instance({state: 'pending', launchTime: new Date('2026-01-01T00:00:00.000Z')})],
     });
     const client = fakeClient({
       reportErrors: [new ProvisionerAuthenticationError(401)],
     });
-    const lifecycle = makeLifecycle({engine, client, registrationDeadlineMs: 60_000});
+    const tracker = testTracker();
+    const lifecycle = makeLifecycle({
+      engine,
+      client,
+      registrationDeadlineMs: 60_000,
+      tracker,
+    });
 
-    await expect(lifecycle.observe()).rejects.toThrow(ProvisionerAuthenticationError);
+    await lifecycle.observe();
 
-    expect(engine.terminated).toEqual(['i-123']);
+    expect(engine.terminationCalls).toEqual([]);
+    expect(client.reportBodies).toEqual([]);
+    expect(tracker.countsByTemplate()).toEqual(new Map());
   });
 
-  it('reaps an overdue instance before a failed reconcile request from tick', async () => {
+  it('submits only pending instances as registration deadline candidates', async () => {
+    const engine = fakeEngine({
+      instances: [
+        instance({
+          state: 'pending',
+          instanceId: 'i-pending',
+          providerRunnerId: 'pending-runner',
+          launchTime: new Date('2026-01-01T00:00:00.000Z'),
+        }),
+        instance({
+          state: 'running',
+          instanceId: 'i-running',
+          providerRunnerId: 'running-runner',
+          launchTime: new Date('2026-01-01T00:00:00.000Z'),
+        }),
+      ],
+    });
+    const client = fakeClient();
+    const tracker = testTracker();
+    const lifecycle = makeLifecycle({
+      engine,
+      client,
+      registrationDeadlineMs: 60_000,
+      tracker,
+    });
+
+    await lifecycle.reconcile();
+
+    expect(client.reconcileBodies).toEqual([
+      {
+        observed_provider_runner_ids: ['pending-runner', 'running-runner'],
+        termination_candidates: [
+          {provider_runner_id: 'pending-runner', reason: 'registration-deadline'},
+        ],
+      },
+    ]);
+    expect(client.reportBodies.flatMap((body) => body.events)).toEqual([
+      expect.objectContaining({provider_runner_id: 'running-runner', state: 'running'}),
+    ]);
+    expect(tracker.countsByTemplate()).toEqual(
+      new Map([['spot-small', {starting: 0, running: 1}]]),
+    );
+  });
+
+  it('warns when a deadline candidate remains without backend authorization', async () => {
+    const now = new Date(NOW);
+    const engine = fakeEngine({
+      instances: [instance({state: 'pending', launchTime: new Date('2026-01-01T00:00:00.000Z')})],
+    });
+    const lifecycle = makeLifecycle({engine, registrationDeadlineMs: 60_000, now: () => now});
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      await lifecycle.reconcile();
+      if (attempt < 4) now.setTime(now.getTime() + 1_000);
+    }
+
+    expect(observability.logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'provisioner.ec2.registration_deadline_authorization_waiting',
+        provider_runner_id: 'runner-1',
+        attempt_count: 5,
+        first_attempt_at: NOW.toISOString(),
+        age_ms: 4_000,
+        termination_authorization: 'backend-gated',
+      }),
+      'EC2 registration deadline candidate is still waiting for backend authorization',
+    );
+  });
+
+  it('warns when an overdue instance has no provider runner identity', async () => {
+    const engine = fakeEngine({
+      instances: [
+        instance({
+          state: 'pending',
+          instanceId: 'i-unidentifiable',
+          providerRunnerId: null,
+          launchTime: new Date('2026-01-01T00:00:00.000Z'),
+        }),
+      ],
+    });
+    const client = fakeClient();
+    const lifecycle = makeLifecycle({engine, client, registrationDeadlineMs: 60_000});
+
+    await lifecycle.reconcile();
+
+    expect(client.reconcileBodies).toEqual([{observed_provider_runner_ids: []}]);
+    expect(observability.logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'provisioner.ec2.registration_deadline_candidate_unidentifiable',
+        aws_instance_id: 'i-unidentifiable',
+        provisioner_id: '00000000-0000-4000-8000-000000000001',
+        termination_authorization: 'backend-gated',
+      }),
+      'Cannot submit an EC2 registration deadline candidate without provider runner identity',
+    );
+  });
+
+  it('keeps an overdue instance when backend candidate authorization fails', async () => {
     const engine = fakeEngine({
       instances: [instance({state: 'pending', launchTime: new Date('2026-01-01T00:00:00.000Z')})],
     });
@@ -1063,8 +1201,17 @@ describe('createEc2Lifecycle', () => {
     await expect(lifecycle.tick()).rejects.toThrow(ProvisionerAuthenticationError);
     await expect(lifecycle.tick()).rejects.toThrow(ProvisionerAuthenticationError);
 
-    expect(engine.terminated).toEqual(['i-123']);
-    expect(client.reconcileBodies).toHaveLength(2);
+    expect(engine.terminationCalls).toEqual([]);
+    expect(client.reconcileBodies).toEqual([
+      {
+        observed_provider_runner_ids: ['runner-1'],
+        termination_candidates: [{provider_runner_id: 'runner-1', reason: 'registration-deadline'}],
+      },
+      {
+        observed_provider_runner_ids: ['runner-1'],
+        termination_candidates: [{provider_runner_id: 'runner-1', reason: 'registration-deadline'}],
+      },
+    ]);
   });
 
   it('reports a failed launch and does not launch when provider identity attachment is rejected', async () => {
@@ -1200,6 +1347,54 @@ describe('createEc2Lifecycle', () => {
     expect(client.reportBodies.map((body) => body.events.length)).toEqual([
       1000, 1000, 1000, 1000, 1000, 1,
     ]);
+  });
+
+  it('reconciles deadline candidates separately when the observed id count exceeds the API limit', async () => {
+    const engine = fakeEngine({
+      instances: [
+        instance({
+          state: 'pending',
+          instanceId: 'i-pending',
+          providerRunnerId: 'pending-runner',
+          launchTime: new Date('2026-01-01T00:00:00.000Z'),
+        }),
+        ...Array.from({length: 5000}, (_, index) =>
+          instance({
+            state: 'running',
+            instanceId: `i-running-${index}`,
+            providerRunnerId: `running-runner-${index}`,
+          }),
+        ),
+      ],
+    });
+    const client = fakeClient();
+    const lifecycle = makeLifecycle({engine, client, registrationDeadlineMs: 60_000});
+
+    await lifecycle.reconcile();
+
+    expect(client.reconcileBodies).toEqual([
+      {
+        observed_provider_runner_ids: [],
+        termination_candidates: [
+          {provider_runner_id: 'pending-runner', reason: 'registration-deadline'},
+        ],
+        candidate_only_reconcile: true,
+      },
+    ]);
+    expect(observability.logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'provisioner.ec2.reconcile_observed_runner_limit',
+        observedCount: 5001,
+        termination_candidate_count: 1,
+        termination_candidate_counts: {
+          'registration-deadline': 1,
+          'provider-health-failed': 0,
+        },
+        termination_candidates_submitted: 1,
+        candidate_only_reconcile: true,
+      }),
+      'EC2 observed runner count exceeds the API limit; reconciling termination candidates separately',
+    );
   });
 
   it('terminates and reports instances with backend terminate intent', async () => {
@@ -1754,7 +1949,7 @@ describe('createEc2Lifecycle', () => {
     expect(observability.recordEc2Termination).toHaveBeenCalledTimes(1);
   });
 
-  it('reaps a pending instance past its registration deadline even when its labels are unresolvable', async () => {
+  it('submits an overdue candidate even when its labels are unresolvable', async () => {
     const engine = fakeEngine({
       instances: [
         instance({
@@ -1768,15 +1963,40 @@ describe('createEc2Lifecycle', () => {
     const client = fakeClient();
     const lifecycle = makeLifecycle({engine, client, registrationDeadlineMs: 60_000});
 
-    await lifecycle.observe();
-    await lifecycle.observe();
+    await lifecycle.reconcile();
 
-    expect(engine.terminated).toEqual(['i-123']);
-    expect(observability.recordEc2Termination).toHaveBeenCalledWith(
-      'registration-deadline',
-      UNKNOWN_TEMPLATE_KEY,
-    );
-    expect(observability.recordEc2Termination).toHaveBeenCalledTimes(1);
+    expect(engine.terminationCalls).toEqual([]);
+    expect(client.reconcileBodies).toEqual([
+      {
+        observed_provider_runner_ids: ['runner-1'],
+        termination_candidates: [{provider_runner_id: 'runner-1', reason: 'registration-deadline'}],
+      },
+    ]);
+    expect(observability.recordEc2Termination).not.toHaveBeenCalled();
+  });
+
+  it('does not report or assign an overdue instance until backend authorization arrives', async () => {
+    const engine = fakeEngine({
+      instances: [instance({state: 'pending', launchTime: new Date('2026-01-01T00:00:00.000Z')})],
+    });
+    const client = fakeClient();
+    const tracker = testTracker();
+    const lifecycle = makeLifecycle({
+      engine,
+      client,
+      registrationDeadlineMs: 60_000,
+      tracker,
+    });
+
+    await lifecycle.reconcile();
+
+    expect(engine.terminationCalls).toEqual([]);
+    expect(client.reconcileBodies[0]?.termination_candidates).toEqual([
+      {provider_runner_id: 'runner-1', reason: 'registration-deadline'},
+    ]);
+    expect(client.assignmentBodies).toEqual([]);
+    expect(client.reportBodies).toEqual([]);
+    expect(tracker.countsByTemplate()).toEqual(new Map());
   });
 
   it('attributes an observed tagless termination to the reserved fallback key', async () => {
@@ -1804,27 +2024,52 @@ describe('createEc2Lifecycle', () => {
     );
   });
 
-  it('reaps a pending instance past its registration deadline', async () => {
-    const instances = [
-      instance({state: 'pending', launchTime: new Date('2026-01-01T00:00:00.000Z')}),
-    ];
+  it('honors an authorized registration deadline termination idempotently', async () => {
     const engine = fakeEngine({
-      instances,
+      instances: [instance({state: 'pending', launchTime: new Date('2026-01-01T00:00:00.000Z')})],
     });
-    const client = fakeClient();
+    const client = fakeClient({
+      reconcileResponse: {
+        runners: [
+          reconciledRunner(
+            'runner-1',
+            'terminate',
+            null,
+            null,
+            true,
+            'starting',
+            'registration-deadline',
+          ),
+        ],
+        terminated_absent_provider_runner_ids: [],
+      },
+    });
     const lifecycle = makeLifecycle({engine, client, registrationDeadlineMs: 60_000});
 
-    await lifecycle.observe();
-    instances[0] = instance({state: 'terminated'});
-    await lifecycle.observe();
+    await lifecycle.reconcile();
+    await lifecycle.reconcile();
 
-    expect(engine.terminated).toEqual(['i-123']);
+    expect(engine.terminationCalls).toEqual([{instanceIds: ['i-123'], options: undefined}]);
+    expect(client.reconcileBodies).toEqual([
+      {
+        observed_provider_runner_ids: ['runner-1'],
+        termination_candidates: [{provider_runner_id: 'runner-1', reason: 'registration-deadline'}],
+      },
+      {
+        observed_provider_runner_ids: ['runner-1'],
+        termination_candidates: [{provider_runner_id: 'runner-1', reason: 'registration-deadline'}],
+      },
+    ]);
     expect(client.reportBodies.flatMap((body) => body.events)).toEqual([
       expect.objectContaining({state: 'terminated', reason: 'registration-deadline'}),
     ]);
     expect(observability.recordEc2Termination).toHaveBeenCalledWith(
       'registration-deadline',
       'spot-small',
+    );
+    expect(observability.logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({reason: 'registration-deadline'}),
+      'Terminated EC2 runner instance',
     );
     expect(observability.recordEc2Termination).toHaveBeenCalledTimes(1);
   });

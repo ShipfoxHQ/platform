@@ -1,3 +1,4 @@
+import type {TerminationReasonDto} from '@shipfox/api-runners-dto';
 import {instanceMetrics} from '@shipfox/node-opentelemetry';
 
 const meter = instanceMetrics.getMeter('provisioner-ec2');
@@ -33,11 +34,7 @@ const launchCount = meter.createCounter<{
 
 const terminateCount = meter.createCounter<{
   template_key: string;
-  reason:
-    | 'backend-terminate'
-    | 'registration-deadline'
-    | 'spot-interruption'
-    | 'observed-terminated';
+  reason: Ec2TerminationReason;
 }>('ec2_provisioner_terminate', {
   description: 'EC2 runner instance terminations by template and reason',
 });
@@ -93,6 +90,7 @@ const pendingDuration = meter.createHistogram<{
 
 export type Ec2LaunchOutcome = 'launched' | 'capacity' | 'throttled' | 'error';
 export type Ec2TerminationReason =
+  | TerminationReasonDto
   | 'backend-terminate'
   | 'registration-deadline'
   | 'spot-interruption'

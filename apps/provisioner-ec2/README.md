@@ -6,7 +6,8 @@ Runs one-job Shipfox runners on Amazon EC2 from a prebaked AMI.
 
 - **Starts runners**: Creates a runner instance and one-use bootstrap token before launch.
 - **Uses EC2 tags**: Finds and adopts its instances after a restart.
-- **Keeps state in sync**: Reports state, reaps missed enrollment, and applies terminate requests.
+- **Keeps state in sync**: Reports state, requests backend authorization for missed enrollment,
+  and applies authorized termination requests.
 - **Protects credentials**: Sends bootstrap data to the AMI. It never sends workspace registration credentials.
 
 ## Setup
@@ -92,6 +93,11 @@ remain continuous.
 | `SHIPFOX_PROVISIONER_RUNNER_INSTANCE_BATCH_SIZE` | no | `250` | Runner instances created per control-plane request. |
 | `SHIPFOX_RUNNER_POLL_MAX_DURATION_MS` | no | `300000` | Idle polling lifetime injected into each runner. |
 | `SHIPFOX_RUNNER_MAX_LIFETIME_SECONDS` | no | `3600` | Legacy lifetime key retained in user data while old images remain in the rollback window; timer-free images accept it without scheduling age-based shutdown. |
+
+Before deploying registration-deadline cleanup, enable
+`RUNNER_TERMINATION_REASON_REGISTRATION_DEADLINE_ENABLED=true` in the runners API. The flag
+defaults to false; an EC2 provider safely keeps overdue instances out of capacity and retries
+backend authorization while it remains disabled.
 
 ## Development
 

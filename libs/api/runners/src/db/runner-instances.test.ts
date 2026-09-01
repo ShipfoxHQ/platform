@@ -1,6 +1,6 @@
 import {pgClient} from '@shipfox/node-postgres';
 import {beforeEach, vi} from '@shipfox/vitest/vi';
-import {and, desc, eq, inArray, or, sql} from 'drizzle-orm';
+import {and, desc, eq, inArray, isNull, or, sql} from 'drizzle-orm';
 import {reconcileRunnerInstances as reconcileRunnerInstancesCore} from '#core/runner-instances.js';
 import {
   authorizeRunnerTermination,
@@ -540,7 +540,7 @@ describe('reportRunnerInstances', () => {
     expect(row).toMatchObject({workspaceId: null, provisionerId, reportedAt});
   });
 
-  it('returns installation candidates rejected by scope as keep observations', async () => {
+  it('authorizes an unassigned installation termination candidate', async () => {
     const reportedAt = new Date();
     await reportRunnerInstances({
       scope: 'installation',
@@ -561,10 +561,26 @@ describe('reportRunnerInstances', () => {
     expect(result.runners).toMatchObject([
       {
         providerRunnerId: 'installation-candidate',
-        desiredIntent: 'keep',
-        desiredIntentReason: null,
+        desiredIntent: 'terminate',
+        desiredIntentReason: 'registration-deadline',
+        terminationReason: 'registration-deadline',
       },
     ]);
+    const [runner] = await db()
+      .select({
+        terminationAuthorizedAt: providerRunners.terminationAuthorizedAt,
+        terminationReason: providerRunners.terminationReason,
+      })
+      .from(providerRunners)
+      .where(
+        and(
+          isNull(providerRunners.workspaceId),
+          eq(providerRunners.provisionerId, provisionerId),
+          eq(providerRunners.providerRunnerId, 'installation-candidate'),
+        ),
+      );
+    expect(runner?.terminationAuthorizedAt).toBeInstanceOf(Date);
+    expect(runner?.terminationReason).toBe('registration-deadline');
   });
 
   it('dedupes duplicate provisioned runner ids in one batch', async () => {
