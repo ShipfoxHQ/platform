@@ -51,18 +51,31 @@ export class WorkspaceHomeScreen {
   }
 
   async goto(workspaceSlug: string): Promise<void> {
+    const workspacePath = `/w/${workspaceSlug}`;
+    if (new URL(this.page.url()).pathname === workspacePath) return;
     if (this.page.url() === 'about:blank') {
-      await this.page.goto(`/w/${workspaceSlug}`);
+      await this.page.goto(workspacePath);
       return;
     }
-    await this.page
-      .locator(`a[aria-current="page"][href="/w/${workspaceSlug}"]`)
-      .click({noWaitAfter: true});
+    const projectsTab = this.page.getByRole('tab', {name: 'Projects'});
+    if ((await projectsTab.count()) === 1) {
+      await projectsTab.click({noWaitAfter: true});
+    } else {
+      await this.page
+        .locator(`a[aria-current="page"][href="${workspacePath}"]`)
+        .click({noWaitAfter: true});
+    }
     await this.page.waitForURL(new RegExp(`/w/${workspaceSlug}/?$`, 'u'));
+    await this.page
+      .locator(`a[role="tab"][href="${workspacePath}"][aria-selected="true"]`)
+      .waitFor({state: 'visible'});
   }
 
   async gotoIntegrations(workspaceSlug: string): Promise<void> {
-    await this.page.goto(`/w/${workspaceSlug}/integrations`);
+    const integrationsPath = `/w/${workspaceSlug}/integrations`;
+    if (new URL(this.page.url()).pathname === integrationsPath) return;
+    await this.page.goto(integrationsPath, {waitUntil: 'commit'});
+    await this.page.waitForURL(new RegExp(`/w/${workspaceSlug}(?:/integrations)?/?$`, 'u'));
   }
 
   async gotoSettings(workspaceSlug: string): Promise<void> {
