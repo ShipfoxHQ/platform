@@ -416,6 +416,43 @@ describe('createEc2Engine', () => {
     expect(result[100]).toMatchObject({systemStatus: {status: 'ok'}});
   });
 
+  it('retains statuses for other instances when a batch contains a stale instance', async () => {
+    const ec2 = fakeEc2({
+      describeOutputs: [
+        {
+          Reservations: [
+            {
+              Instances: [instance({InstanceId: 'i-live'}), instance({InstanceId: 'i-stale'})],
+            },
+          ],
+        },
+      ],
+      describeStatusErrors: [
+        awsError('InvalidInstanceID.NotFound'),
+        undefined,
+        awsError('InvalidInstanceID.NotFound'),
+      ],
+      describeStatusOutputs: [
+        {InstanceStatuses: [{InstanceId: 'i-live', SystemStatus: {Status: 'impaired'}}]},
+      ],
+    });
+    const engine = createEc2Engine({region: 'eu-west-3', client: ec2 as never});
+
+    const result = await engine.listManaged('provisioner-1', {includeStatus: true});
+
+    expect(
+      ec2.commands
+        .filter((command) => command instanceof DescribeInstanceStatusCommand)
+        .map((command) => commandInput<DescribeInstanceStatusCommand>(command).InstanceIds),
+    ).toEqual([['i-live', 'i-stale'], ['i-live'], ['i-stale']]);
+    expect(result.find((instance) => instance.instanceId === 'i-live')).toMatchObject({
+      systemStatus: {status: 'impaired'},
+    });
+    expect(result.find((instance) => instance.instanceId === 'i-stale')).not.toHaveProperty(
+      'systemStatus',
+    );
+  });
+
   it.each([
     ['pending', 'pending'],
     ['running', 'running'],
@@ -505,6 +542,7 @@ function fakeEc2(
     describeOutputs?: unknown[];
     describeStatusOutputs?: unknown[];
     describeStatusError?: Error;
+    describeStatusErrors?: Array<Error | undefined>;
     terminateError?: Error;
     terminateErrorById?: Map<string, Error>;
   } = {},
@@ -512,6 +550,7 @@ function fakeEc2(
   const commands: unknown[] = [];
   const describeOutputs = [...(options.describeOutputs ?? [])];
   const describeStatusOutputs = [...(options.describeStatusOutputs ?? [])];
+  const describeStatusErrors = [...(options.describeStatusErrors ?? [])];
 
   return {
     commands,
@@ -523,7 +562,7 @@ function fakeEc2(
       if (command instanceof DescribeInstancesCommand)
         return Promise.resolve(describeOutputs.shift() ?? {});
       if (command instanceof DescribeInstanceStatusCommand)
-        return describeStatusResponse(options, describeStatusOutputs);
+        return describeStatusResponse(options, describeStatusOutputs, describeStatusErrors);
       if (command instanceof TerminateInstancesCommand)
         return terminateInstanceResponse(command, options);
       return Promise.reject(new Error('Unexpected EC2 command'));
@@ -539,8 +578,10 @@ function runInstanceResponse(options: {runOutput?: unknown; runError?: Error}): 
 function describeStatusResponse(
   options: {describeStatusError?: Error},
   outputs: unknown[],
+  errors: Array<Error | undefined>,
 ): Promise<unknown> {
-  if (options.describeStatusError) return Promise.reject(options.describeStatusError);
+  const error = options.describeStatusError ?? errors.shift();
+  if (error) return Promise.reject(error);
   return Promise.resolve(outputs.shift() ?? {});
 }
 

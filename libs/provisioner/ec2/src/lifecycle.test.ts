@@ -866,7 +866,10 @@ describe('createEc2Lifecycle', () => {
     const lifecycle = makeLifecycle({engine, client});
 
     await lifecycle.reconcile();
-    instances[0] = instance({state: 'running'});
+    instances[0] = instance({
+      state: 'running',
+      scheduledEvents: [{code: 'system-reboot'}],
+    });
     await lifecycle.reconcile();
     instances[0] = instance({state: 'running', systemStatus: {status: 'impaired'}});
     await lifecycle.reconcile();

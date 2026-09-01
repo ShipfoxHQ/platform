@@ -443,7 +443,7 @@ function updateHealthImpairmentObservation(
   }
 
   const previous = context.healthImpairmentObservations.get(instance.instanceId);
-  if (!hasEc2StatusData(instance)) return previous?.consecutiveObservations ?? 0;
+  if (!hasEc2HealthCheckData(instance)) return previous?.consecutiveObservations ?? 0;
   if (impaired.length === 0) {
     context.healthImpairmentObservations.delete(instance.instanceId);
     return 0;
@@ -465,12 +465,11 @@ function updateHealthImpairmentObservation(
   return consecutiveObservations;
 }
 
-function hasEc2StatusData(instance: Ec2InstanceView): boolean {
+function hasEc2HealthCheckData(instance: Ec2InstanceView): boolean {
   return (
     instance.systemStatus !== undefined ||
     instance.instanceStatus !== undefined ||
-    instance.attachedEbsStatus !== undefined ||
-    instance.scheduledEvents !== undefined
+    instance.attachedEbsStatus !== undefined
   );
 }
 

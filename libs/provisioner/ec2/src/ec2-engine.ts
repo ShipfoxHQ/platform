@@ -340,22 +340,65 @@ async function describeInstanceStatuses(
   const statuses = new Map<string, Ec2InstanceStatusFields>();
   for (let start = 0; start < instanceIds.length; start += MAX_STATUS_INSTANCE_IDS) {
     const batch = instanceIds.slice(start, start + MAX_STATUS_INSTANCE_IDS);
-    let nextToken: string | undefined;
-    do {
-      const output = await client.send(
-        new DescribeInstanceStatusCommand({
-          InstanceIds: [...batch],
-          IncludeAllInstances: true,
-          NextToken: nextToken,
-        }),
-      );
-      for (const status of output.InstanceStatuses ?? []) {
-        const fields = toInstanceStatusFields(status);
-        if (status.InstanceId && fields) statuses.set(status.InstanceId, fields);
-      }
-      nextToken = output.NextToken;
-    } while (nextToken);
+    const batchStatuses = await describeInstanceStatusBatch(client, batch);
+    for (const [instanceId, fields] of batchStatuses) statuses.set(instanceId, fields);
   }
+  return statuses;
+}
+
+async function describeInstanceStatusBatch(
+  client: EC2Client,
+  instanceIds: readonly string[],
+): Promise<ReadonlyMap<string, Ec2InstanceStatusFields>> {
+  try {
+    return await describeInstanceStatusBatchPages(client, instanceIds);
+  } catch (error) {
+    if (!isStaleInstanceStatusError(error) || instanceIds.length <= 1) throw error;
+
+    // DescribeInstanceStatus rejects the whole request when one ID was terminated after
+    // DescribeInstances. Retry each ID to retain the remaining statuses and skip only the stale
+    // instance. This fallback is limited to the stale-ID race and does not mask other errors.
+    return retryStatusBatchByInstance(client, instanceIds);
+  }
+}
+
+async function retryStatusBatchByInstance(
+  client: EC2Client,
+  instanceIds: readonly string[],
+): Promise<ReadonlyMap<string, Ec2InstanceStatusFields>> {
+  const statuses = new Map<string, Ec2InstanceStatusFields>();
+  for (const instanceId of instanceIds) {
+    try {
+      const instanceStatuses = await describeInstanceStatusBatchPages(client, [instanceId]);
+      for (const [statusInstanceId, fields] of instanceStatuses)
+        statuses.set(statusInstanceId, fields);
+    } catch (error) {
+      if (!isStaleInstanceStatusError(error)) throw error;
+    }
+  }
+  return statuses;
+}
+
+async function describeInstanceStatusBatchPages(
+  client: EC2Client,
+  instanceIds: readonly string[],
+): Promise<ReadonlyMap<string, Ec2InstanceStatusFields>> {
+  const statuses = new Map<string, Ec2InstanceStatusFields>();
+  let nextToken: string | undefined;
+  do {
+    const output = await client.send(
+      new DescribeInstanceStatusCommand({
+        InstanceIds: [...instanceIds],
+        IncludeAllInstances: true,
+        NextToken: nextToken,
+      }),
+    );
+    for (const status of output.InstanceStatuses ?? []) {
+      const fields = toInstanceStatusFields(status);
+      if (status.InstanceId && fields) statuses.set(status.InstanceId, fields);
+    }
+    nextToken = output.NextToken;
+  } while (nextToken);
   return statuses;
 }
 
