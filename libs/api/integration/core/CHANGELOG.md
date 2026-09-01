@@ -1,5 +1,34 @@
 # @shipfox/api-integration-core
 
+## 20.1.0
+
+### Minor Changes
+
+- bb334f7: Add workspace-admin mutation routes for repository access modes and manual grants.
+- 7467ee6: Add the composed repository-access read route for integration connections.
+
+### Patch Changes
+
+- 3ec04b0: Exposes integration tools with consistent namespaced MCP names across gateway and runner transports.
+- Updated dependencies [2bf937b]
+- Updated dependencies [6207ce3]
+- Updated dependencies [3ec04b0]
+- Updated dependencies [5efaf93]
+- Updated dependencies [bb334f7]
+- Updated dependencies [7467ee6]
+  - @shipfox/api-auth-context@20.1.0
+  - @shipfox/api-workflows-dto@20.1.0
+  - @shipfox/api-agent-dto@20.1.0
+  - @shipfox/api-integration-core-dto@20.1.0
+  - @shipfox/api-integration-gitea@20.1.0
+  - @shipfox/api-integration-github@20.1.0
+  - @shipfox/api-integration-jira@20.1.0
+  - @shipfox/api-integration-linear@20.1.0
+  - @shipfox/api-integration-sentry@20.1.0
+  - @shipfox/api-integration-slack@20.1.0
+  - @shipfox/api-integration-webhook@20.1.0
+  - @shipfox/api-integration-spi@3.0.1
+
 ## 20.0.0
 
 ### Major Changes

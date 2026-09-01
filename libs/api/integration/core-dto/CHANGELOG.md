@@ -1,5 +1,12 @@
 # @shipfox/api-integration-core-dto
 
+## 20.1.0
+
+### Minor Changes
+
+- bb334f7: Add workspace-admin mutation routes for repository access modes and manual grants.
+- 7467ee6: Add the composed repository-access read route for integration connections.
+
 ## 20.0.0
 
 ### Major Changes

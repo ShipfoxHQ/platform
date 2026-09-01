@@ -1,5 +1,11 @@
 # @shipfox/node-auth-root-key
 
+## 0.3.0
+
+### Minor Changes
+
+- ebe5c00: Add `agentAccessTokenKey()` for signing agent access tokens.
+
 ## 0.2.3
 
 ### Patch Changes

@@ -1,5 +1,12 @@
 # @shipfox/api-auth-dto
 
+## 20.1.0
+
+### Minor Changes
+
+- 2bf937b: Add opt-in agent credential management and unified OAuth/PAT request authentication.
+- ebe5c00: Add `createOAuthAuthorizationRoutes` and the OAuth authorization, consent, authorization-code, and refresh-token contracts for agent access.
+
 ## 20.0.0
 
 ### Minor Changes

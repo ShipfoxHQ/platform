@@ -1,5 +1,13 @@
 # Changelog
 
+## 30.0.1
+
+### Patch Changes
+
+- Updated dependencies [2bf937b]
+- Updated dependencies [ebe5c00]
+  - @shipfox/api-auth-dto@20.1.0
+
 ## 30.0.0
 
 ### Patch Changes

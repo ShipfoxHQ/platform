@@ -1,5 +1,29 @@
 # @shipfox/api-workflows
 
+## 20.1.0
+
+### Minor Changes
+
+- 6207ce3: Adds bounded workflow run overview and job-page APIs with capped execution counts and source-snapshot enforcement.
+
+### Patch Changes
+
+- 5efaf93: Allow workflow run detail URLs to resolve a single run selection from a deeply nested attempt, job, execution, or step ID without requiring the intermediate ancestry in the URL.
+- ab6de5d: Enforces tool-step gates against provider outputs without an exit code and keeps failed provider calls from rewinding.
+- Updated dependencies [2bf937b]
+- Updated dependencies [ebe5c00]
+- Updated dependencies [6207ce3]
+- Updated dependencies [3ec04b0]
+- Updated dependencies [5efaf93]
+- Updated dependencies [bb334f7]
+- Updated dependencies [7467ee6]
+  - @shipfox/api-auth-context@20.1.0
+  - @shipfox/api-auth-dto@20.1.0
+  - @shipfox/api-definitions-dto@20.1.0
+  - @shipfox/api-workflows-dto@20.1.0
+  - @shipfox/api-agent-dto@20.1.0
+  - @shipfox/api-integration-core-dto@20.1.0
+
 ## 20.0.0
 
 ### Major Changes

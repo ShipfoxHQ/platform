@@ -1,5 +1,14 @@
 # @shipfox/api-integration-webhook
 
+## 20.1.0
+
+### Patch Changes
+
+- Updated dependencies [2bf937b]
+  - @shipfox/api-auth-context@20.1.0
+  - @shipfox/api-integration-spi@3.0.1
+  - @shipfox/api-integration-webhook-dto@20.1.0
+
 ## 20.0.0
 
 ### Patch Changes

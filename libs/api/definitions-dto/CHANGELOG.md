@@ -1,5 +1,11 @@
 # @shipfox/api-definitions-dto
 
+## 20.1.0
+
+### Patch Changes
+
+- 6207ce3: Adds bounded workflow run overview and job-page APIs with capped execution counts and source-snapshot enforcement.
+
 ## 20.0.0
 
 ### Patch Changes

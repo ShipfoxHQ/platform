@@ -1,5 +1,20 @@
 # @shipfox/api-definitions
 
+## 20.1.0
+
+### Patch Changes
+
+- 6207ce3: Adds bounded workflow run overview and job-page APIs with capped execution counts and source-snapshot enforcement.
+- Updated dependencies [2bf937b]
+- Updated dependencies [6207ce3]
+- Updated dependencies [3ec04b0]
+- Updated dependencies [bb334f7]
+- Updated dependencies [7467ee6]
+  - @shipfox/api-auth-context@20.1.0
+  - @shipfox/api-definitions-dto@20.1.0
+  - @shipfox/api-agent-dto@20.1.0
+  - @shipfox/api-integration-core-dto@20.1.0
+
 ## 20.0.0
 
 ### Minor Changes

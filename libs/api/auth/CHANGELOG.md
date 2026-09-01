@@ -1,5 +1,22 @@
 # @shipfox/api-auth
 
+## 20.1.0
+
+### Minor Changes
+
+- 2bf937b: Add opt-in agent credential management and unified OAuth/PAT request authentication.
+- ebe5c00: Add `createOAuthAuthorizationRoutes` and the OAuth authorization, consent, authorization-code, and refresh-token contracts for agent access.
+
+### Patch Changes
+
+- Updated dependencies [2bf937b]
+- Updated dependencies [ebe5c00]
+- Updated dependencies [ebe5c00]
+  - @shipfox/api-auth-context@20.1.0
+  - @shipfox/api-auth-dto@20.1.0
+  - @shipfox/node-auth-root-key@0.3.0
+  - @shipfox/api-email-challenges@1.1.13
+
 ## 20.0.0
 
 ### Minor Changes
