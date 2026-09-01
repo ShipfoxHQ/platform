@@ -1,9 +1,10 @@
 import {createWorkflowModelSnapshot} from '@shipfox/api-definitions-dto';
+import {WORKFLOW_SOURCE_SNAPSHOT_MAX_BYTES} from '@shipfox/api-workflows-dto';
 import {workflowsInterModuleContract} from '@shipfox/api-workflows-dto/inter-module';
 import {workspacesInterModuleContract} from '@shipfox/api-workspaces-dto/inter-module';
 import {createInterModuleKnownError, isInterModuleKnownError} from '@shipfox/inter-module';
 import type {WorkflowRun} from '#core/entities/workflow-run.js';
-import {InvalidJobRunnerLabelsError} from '#core/errors.js';
+import {InvalidJobRunnerLabelsError, WorkflowSourceSnapshotTooLargeError} from '#core/errors.js';
 import {
   AgentConfigUnresolvableError,
   AgentIntegrationMaterializationError,
@@ -639,6 +640,14 @@ describe('Workflows inter-module presentation', () => {
         }),
     ],
     ['invalid-job-runner-labels', () => new InvalidJobRunnerLabelsError(['gpu'])],
+    [
+      'source-snapshot-too-large',
+      () =>
+        new WorkflowSourceSnapshotTooLargeError(
+          WORKFLOW_SOURCE_SNAPSHOT_MAX_BYTES,
+          WORKFLOW_SOURCE_SNAPSHOT_MAX_BYTES + 1,
+        ),
+    ],
   ] as const)('maps %s to the published contract error', (code, error) => {
     const result = toStartRunKnownError(error(), input.definitionId);
 
@@ -717,6 +726,14 @@ describe('Workflows inter-module presentation', () => {
         }),
     ],
     ['invalid-job-runner-labels', () => new InvalidJobRunnerLabelsError(['gpu'])],
+    [
+      'source-snapshot-too-large',
+      () =>
+        new WorkflowSourceSnapshotTooLargeError(
+          WORKFLOW_SOURCE_SNAPSHOT_MAX_BYTES,
+          WORKFLOW_SOURCE_SNAPSHOT_MAX_BYTES + 1,
+        ),
+    ],
   ] as const)('maps %s to the published dev-run contract error', (code, error) => {
     const result = toStartDevRunKnownError(error());
 

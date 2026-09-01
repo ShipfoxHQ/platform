@@ -5,6 +5,7 @@ import {
   isPermanentRunWorkflowError,
   JobOutputTooLargeError,
   ProjectMismatchError,
+  WorkflowSourceSnapshotTooLargeError,
 } from './errors.js';
 
 describe('isPermanentRunWorkflowError', () => {
@@ -28,6 +29,12 @@ describe('isPermanentRunWorkflowError', () => {
 
   test('is true for invalid job runner labels', () => {
     const result = isPermanentRunWorkflowError(new InvalidJobRunnerLabelsError(['has space']));
+
+    expect(result).toBe(true);
+  });
+
+  test('is true for an oversized workflow source snapshot', () => {
+    const result = isPermanentRunWorkflowError(new WorkflowSourceSnapshotTooLargeError(100, 101));
 
     expect(result).toBe(true);
   });

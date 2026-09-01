@@ -130,6 +130,10 @@ export const workflowsInterModuleContract = defineInterModuleContract({
           envKey: z.string().optional(),
         }),
         'invalid-job-runner-labels': z.object({labels: z.array(z.string())}),
+        'source-snapshot-too-large': z.object({
+          limitBytes: z.number().int().positive(),
+          measuredBytes: z.number().int().positive(),
+        }),
       },
     },
     startDevRun: {
@@ -165,6 +169,10 @@ export const workflowsInterModuleContract = defineInterModuleContract({
           envKey: z.string().optional(),
         }),
         'invalid-job-runner-labels': z.object({labels: z.array(z.string())}),
+        'source-snapshot-too-large': z.object({
+          limitBytes: z.number().int().positive(),
+          measuredBytes: z.number().int().positive(),
+        }),
       },
     },
     resolveWorkflowRunTriggerReference: {

@@ -21,6 +21,7 @@ import type {Step} from '#core/entities/step.js';
 import type {WorkflowRunTriggerReference} from '#core/entities/workflow-run.js';
 import {
   InvalidJobRunnerLabelsError,
+  WorkflowSourceSnapshotTooLargeError,
   WorkspaceDeletedError,
   WorkspaceNotFoundError,
   WorkspaceSuspendedError,
@@ -385,6 +386,12 @@ function toRunCreationKnownError(
   if (error instanceof InvalidJobRunnerLabelsError) {
     return createInterModuleKnownError(method, 'invalid-job-runner-labels', {
       labels: [...error.labels],
+    });
+  }
+  if (error instanceof WorkflowSourceSnapshotTooLargeError) {
+    return createInterModuleKnownError(method, 'source-snapshot-too-large', {
+      limitBytes: error.limitBytes,
+      measuredBytes: error.measuredBytes,
     });
   }
   return undefined;
