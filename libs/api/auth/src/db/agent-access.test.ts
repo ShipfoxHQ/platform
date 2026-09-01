@@ -979,7 +979,7 @@ describe('agent-access db', () => {
           pruneAgentAccessBatch({
             now: new Date('2026-09-01T00:00:00.000Z'),
             limit: 1,
-            statementTimeoutMs: 500,
+            deadlineMs: Date.now() + 1_500,
           }),
         ).rejects.toMatchObject({
           cause: {code: expect.stringMatching('^(55P03|57014)$')},

@@ -4,7 +4,6 @@ import {
   AGENT_ACCESS_RETENTION_BATCH_LIMIT,
   AGENT_ACCESS_RETENTION_MAX_ITERATIONS,
   AGENT_ACCESS_RETENTION_TIME_BUDGET_MS,
-  AGENT_ACCESS_RETENTION_TIMEOUT_MARGIN_MS,
 } from '#db/agent-access-retention.js';
 
 export interface AgentAccessRetentionResult {
@@ -48,14 +47,10 @@ export async function agentAccessRetentionActivity(): Promise<AgentAccessRetenti
         break;
       }
 
-      const statementTimeoutMs = Math.max(
-        1,
-        deadline - Date.now() - AGENT_ACCESS_RETENTION_TIMEOUT_MARGIN_MS,
-      );
       try {
         const batch = await pruneAgentAccessBatch({
           limit: AGENT_ACCESS_RETENTION_BATCH_LIMIT,
-          statementTimeoutMs,
+          deadlineMs: deadline,
         });
         result.deleted += batch.deleted;
         result.transitioned += batch.transitioned;

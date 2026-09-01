@@ -9,6 +9,7 @@ import type {
   AgentRefreshToken,
 } from '#core/entities/agent-access.js';
 import {
+  AGENT_ACCESS_RETENTION_TIMEOUT_MARGIN_MS,
   AGENT_AUTHORIZATION_RETENTION_DAYS,
   AGENT_CLIENT_RETENTION_DAYS,
   AGENT_GRANT_RETENTION_DAYS,
@@ -54,12 +55,35 @@ function batchLimit(limit: number | undefined): number {
   return value;
 }
 
-function statementTimeoutMs(timeoutMs: number | undefined): number | undefined {
-  if (timeoutMs === undefined) return undefined;
-  if (!Number.isInteger(timeoutMs) || timeoutMs < 1) {
-    throw new Error('Agent-access statement timeout must be a positive integer');
+class AgentAccessRetentionDeadlineExceededError extends Error {
+  readonly code = '57014';
+
+  constructor() {
+    super('Agent-access retention deadline exceeded');
+    this.name = 'AgentAccessRetentionDeadlineExceededError';
   }
-  return timeoutMs;
+}
+
+function retentionStatementTimeoutMs(deadlineMs: number): number {
+  if (!Number.isFinite(deadlineMs)) {
+    throw new Error('Agent-access retention deadline must be a finite timestamp');
+  }
+  const remainingMs = Math.floor(
+    deadlineMs - Date.now() - AGENT_ACCESS_RETENTION_TIMEOUT_MARGIN_MS,
+  );
+  if (remainingMs < 1) throw new AgentAccessRetentionDeadlineExceededError();
+  return remainingMs;
+}
+
+async function prepareAgentAccessRetentionStatement(
+  tx: AgentAccessTx,
+  deadlineMs: number | undefined,
+): Promise<void> {
+  if (deadlineMs === undefined) return;
+  const timeout = `${retentionStatementTimeoutMs(deadlineMs)}ms`;
+  await tx.execute(
+    sql`select set_config('statement_timeout', ${timeout}, true), set_config('lock_timeout', ${timeout}, true)`,
+  );
 }
 
 async function requireActiveAgentGrant(tx: AgentAccessTx, grantId: string): Promise<AgentGrant> {
@@ -791,6 +815,7 @@ export async function revokeAgentGrantTx(
 export interface TransitionAgentGrantsToTerminalParams {
   limit?: number;
   now?: Date;
+  deadlineMs?: number | undefined;
 }
 
 /**
@@ -832,6 +857,7 @@ export async function transitionAgentGrantsToTerminalTx(
         gt(agentAuthorizationCodes.expiresAt, now),
       ),
     );
+  await prepareAgentAccessRetentionStatement(tx, params.deadlineMs);
   const candidates = await tx
     .select({id: agentGrants.id})
     .from(agentGrants)
@@ -849,10 +875,12 @@ export async function transitionAgentGrantsToTerminalTx(
 
   let transitioned = 0;
   for (const candidate of candidates) {
+    await prepareAgentAccessRetentionStatement(tx, params.deadlineMs);
     const grant = await lockAgentGrant(tx, {grantId: candidate.id});
     if (!grant || grant.terminalAt) continue;
 
     if (!grant.revokedAt) {
+      await prepareAgentAccessRetentionStatement(tx, params.deadlineMs);
       const liveRefreshTokens = await tx
         .select({id: agentRefreshTokens.id})
         .from(agentRefreshTokens)
@@ -867,6 +895,7 @@ export async function transitionAgentGrantsToTerminalTx(
         .limit(1);
       if (liveRefreshTokens.length > 0) continue;
 
+      await prepareAgentAccessRetentionStatement(tx, params.deadlineMs);
       const liveAuthorizationCodes = await tx
         .select({id: agentAuthorizationCodes.id})
         .from(agentAuthorizationCodes)
@@ -881,6 +910,7 @@ export async function transitionAgentGrantsToTerminalTx(
       if (liveAuthorizationCodes.length > 0) continue;
     }
 
+    await prepareAgentAccessRetentionStatement(tx, params.deadlineMs);
     const rows = await tx
       .update(agentGrants)
       .set({terminalAt: now, updatedAt: now})
@@ -1021,8 +1051,8 @@ export interface PruneAgentAccessParams {
   retentionDays?: number;
   limit?: number;
   now?: Date;
-  /** Bounds each PostgreSQL statement, including row-lock waits, when provided. */
-  statementTimeoutMs?: number;
+  /** Absolute epoch deadline used to bound every PostgreSQL statement. */
+  deadlineMs?: number;
 }
 
 export interface PruneAgentAccessResult {
@@ -1042,7 +1072,9 @@ async function deleteExpiredAgentAuthorizationRequests(
   tx: AgentAccessTx,
   cutoff: Date,
   limit: number,
+  deadlineMs: number | undefined,
 ): Promise<number> {
+  await prepareAgentAccessRetentionStatement(tx, deadlineMs);
   const candidates = await tx
     .select({id: agentAuthorizationRequests.id})
     .from(agentAuthorizationRequests)
@@ -1051,6 +1083,7 @@ async function deleteExpiredAgentAuthorizationRequests(
     .limit(limit);
   if (candidates.length === 0) return 0;
 
+  await prepareAgentAccessRetentionStatement(tx, deadlineMs);
   const rows = await tx
     .delete(agentAuthorizationRequests)
     .where(
@@ -1067,7 +1100,9 @@ async function deleteExpiredAgentAuthorizationCodes(
   tx: AgentAccessTx,
   cutoff: Date,
   limit: number,
+  deadlineMs: number | undefined,
 ): Promise<number> {
+  await prepareAgentAccessRetentionStatement(tx, deadlineMs);
   const candidates = await tx
     .select({id: agentAuthorizationCodes.id})
     .from(agentAuthorizationCodes)
@@ -1076,6 +1111,7 @@ async function deleteExpiredAgentAuthorizationCodes(
     .limit(limit);
   if (candidates.length === 0) return 0;
 
+  await prepareAgentAccessRetentionStatement(tx, deadlineMs);
   const rows = await tx
     .delete(agentAuthorizationCodes)
     .where(
@@ -1092,7 +1128,9 @@ async function deleteRetainedAgentRefreshTokens(
   tx: AgentAccessTx,
   cutoff: Date,
   limit: number,
+  deadlineMs: number | undefined,
 ): Promise<number> {
+  await prepareAgentAccessRetentionStatement(tx, deadlineMs);
   const candidates = await tx
     .select({id: agentRefreshTokens.id})
     .from(agentRefreshTokens)
@@ -1111,6 +1149,7 @@ async function deleteRetainedAgentRefreshTokens(
     .limit(limit);
   if (candidates.length === 0) return 0;
 
+  await prepareAgentAccessRetentionStatement(tx, deadlineMs);
   const rows = await tx
     .delete(agentRefreshTokens)
     .where(
@@ -1127,7 +1166,9 @@ async function deleteRetainedAgentPersonalAccessTokens(
   tx: AgentAccessTx,
   cutoff: Date,
   limit: number,
+  deadlineMs: number | undefined,
 ): Promise<number> {
+  await prepareAgentAccessRetentionStatement(tx, deadlineMs);
   const candidates = await tx
     .select({id: agentPersonalAccessTokens.id})
     .from(agentPersonalAccessTokens)
@@ -1144,6 +1185,7 @@ async function deleteRetainedAgentPersonalAccessTokens(
     .limit(limit);
   if (candidates.length === 0) return 0;
 
+  await prepareAgentAccessRetentionStatement(tx, deadlineMs);
   const rows = await tx
     .delete(agentPersonalAccessTokens)
     .where(
@@ -1158,7 +1200,7 @@ async function deleteRetainedAgentPersonalAccessTokens(
 
 async function pruneTerminalAgentGrants(
   tx: AgentAccessTx,
-  params: {cutoff: Date; now: Date; limit: number},
+  params: {cutoff: Date; now: Date; limit: number; deadlineMs: number | undefined},
 ): Promise<number> {
   const remainingCodes = tx
     .select({id: agentAuthorizationCodes.id})
@@ -1168,6 +1210,7 @@ async function pruneTerminalAgentGrants(
     .select({id: agentRefreshTokens.id})
     .from(agentRefreshTokens)
     .where(eq(agentRefreshTokens.grantId, agentGrants.id));
+  await prepareAgentAccessRetentionStatement(tx, params.deadlineMs);
   const candidates = await tx
     .select({id: agentGrants.id, clientId: agentGrants.clientId})
     .from(agentGrants)
@@ -1188,10 +1231,12 @@ async function pruneTerminalAgentGrants(
   // because its grant reached the 90-day horizon: a child can have been
   // revoked after the grant became terminal and still needs its own 30-day
   // replay/forensics window. Such a grant waits for the next sweep.
+  await prepareAgentAccessRetentionStatement(tx, params.deadlineMs);
   const remainingCodeGrants = await tx
     .select({grantId: agentAuthorizationCodes.grantId})
     .from(agentAuthorizationCodes)
     .where(inArray(agentAuthorizationCodes.grantId, grantIds));
+  await prepareAgentAccessRetentionStatement(tx, params.deadlineMs);
   const remainingRefreshTokenGrants = await tx
     .select({grantId: agentRefreshTokens.grantId})
     .from(agentRefreshTokens)
@@ -1203,6 +1248,7 @@ async function pruneTerminalAgentGrants(
   const deletableGrantIds = grantIds.filter((grantId) => !grantsWithChildren.has(grantId));
   if (deletableGrantIds.length === 0) return 0;
 
+  await prepareAgentAccessRetentionStatement(tx, params.deadlineMs);
   const deletedGrants = await tx
     .delete(agentGrants)
     .where(inArray(agentGrants.id, deletableGrantIds))
@@ -1210,6 +1256,7 @@ async function pruneTerminalAgentGrants(
 
   const clientIds = new Set(deletedGrants.map(({clientId}) => clientId));
   if (clientIds.size > 0) {
+    await prepareAgentAccessRetentionStatement(tx, params.deadlineMs);
     await tx
       .update(agentClients)
       .set({
@@ -1234,7 +1281,7 @@ async function pruneTerminalAgentGrants(
 
 async function pruneUnreferencedAgentClients(
   tx: AgentAccessTx,
-  params: {cutoff: Date; now: Date; limit: number},
+  params: {cutoff: Date; now: Date; limit: number; deadlineMs: number | undefined},
 ): Promise<number> {
   const liveAuthorizationRequests = tx
     .select({id: agentAuthorizationRequests.id})
@@ -1246,6 +1293,7 @@ async function pruneUnreferencedAgentClients(
         gt(agentAuthorizationRequests.expiresAt, params.now),
       ),
     );
+  await prepareAgentAccessRetentionStatement(tx, params.deadlineMs);
   const candidates = await tx
     .select({id: agentClients.id})
     .from(agentClients)
@@ -1274,10 +1322,12 @@ async function pruneUnreferencedAgentClients(
   if (candidates.length === 0) return 0;
 
   const candidateIds = candidates.map(({id}) => id);
+  await prepareAgentAccessRetentionStatement(tx, params.deadlineMs);
   const grantsForCandidates = await tx
     .select({clientId: agentGrants.clientId})
     .from(agentGrants)
     .where(inArray(agentGrants.clientId, candidateIds));
+  await prepareAgentAccessRetentionStatement(tx, params.deadlineMs);
   const liveRequestsForCandidates = await tx
     .select({clientId: agentAuthorizationRequests.clientId})
     .from(agentAuthorizationRequests)
@@ -1295,6 +1345,7 @@ async function pruneUnreferencedAgentClients(
   const deletableClientIds = candidateIds.filter((id) => !protectedClientIds.has(id));
   if (deletableClientIds.length === 0) return 0;
 
+  await prepareAgentAccessRetentionStatement(tx, params.deadlineMs);
   const rows = await tx
     .delete(agentClients)
     .where(
@@ -1343,7 +1394,6 @@ export async function pruneAgentAccessBatch(
 ): Promise<PruneAgentAccessResult> {
   const now = params.now ?? new Date();
   const limit = batchLimit(params.limit);
-  const timeoutMs = statementTimeoutMs(params.statementTimeoutMs);
   const retentionDays = params.retentionDays;
   const authorizationCutoff = retentionCutoff(
     now,
@@ -1365,31 +1415,40 @@ export async function pruneAgentAccessBatch(
   };
 
   return await db().transaction(async (tx) => {
-    if (timeoutMs !== undefined) {
-      const timeout = `${timeoutMs}ms`;
-      await tx.execute(
-        sql`select set_config('statement_timeout', ${timeout}, true), set_config('lock_timeout', ${timeout}, true)`,
-      );
-    }
-
     // This runs first so grants whose last child expired can be terminalized in
     // the same maintenance tick. It takes the same grant row lock as code
     // exchange and refresh rotation.
-    const transitioned = await transitionAgentGrantsToTerminalTx(tx, {limit, now});
+    const transitioned = await transitionAgentGrantsToTerminalTx(tx, {
+      limit,
+      now,
+      deadlineMs: params.deadlineMs,
+    });
     const deleted =
-      (await deleteExpiredAgentAuthorizationRequests(tx, cutoffs.authorization, limit)) +
-      (await deleteExpiredAgentAuthorizationCodes(tx, cutoffs.authorization, limit)) +
-      (await deleteRetainedAgentRefreshTokens(tx, cutoffs.refreshToken, limit)) +
-      (await deleteRetainedAgentPersonalAccessTokens(tx, cutoffs.pat, limit)) +
+      (await deleteExpiredAgentAuthorizationRequests(
+        tx,
+        cutoffs.authorization,
+        limit,
+        params.deadlineMs,
+      )) +
+      (await deleteExpiredAgentAuthorizationCodes(
+        tx,
+        cutoffs.authorization,
+        limit,
+        params.deadlineMs,
+      )) +
+      (await deleteRetainedAgentRefreshTokens(tx, cutoffs.refreshToken, limit, params.deadlineMs)) +
+      (await deleteRetainedAgentPersonalAccessTokens(tx, cutoffs.pat, limit, params.deadlineMs)) +
       (await pruneTerminalAgentGrants(tx, {
         cutoff: cutoffs.grant,
         now,
         limit,
+        deadlineMs: params.deadlineMs,
       })) +
       (await pruneUnreferencedAgentClients(tx, {
         cutoff: cutoffs.client,
         now,
         limit,
+        deadlineMs: params.deadlineMs,
       }));
     return {deleted, transitioned};
   });
