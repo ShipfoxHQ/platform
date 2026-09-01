@@ -2,6 +2,10 @@ import {test as base, expect} from '@shipfox/e2e-core/playwright';
 import {type GiteaFixtures, giteaHelper} from '@shipfox/e2e-driver-gitea';
 import {type WorkspaceFixtures, workspaceFixtures} from '@shipfox/e2e-kit/fixtures';
 import {SetupShell, TopNav, WorkspaceSwitcher} from '@shipfox/e2e-kit/ui';
+import {
+  type IntegrationsScreenFixtures,
+  integrationsScreens,
+} from '@shipfox/e2e-screens-integrations';
 import {type WorkspacesScreenFixtures, workspacesScreens} from '@shipfox/e2e-screens-workspaces';
 import type {Page} from '@shipfox/playwright';
 
@@ -27,10 +31,15 @@ const workspacesShellFixtures = {
 };
 
 export const test = base.extend<
-  WorkspaceFixtures & GiteaFixtures & WorkspacesScreenFixtures & WorkspacesShellFixtures
+  WorkspaceFixtures &
+    GiteaFixtures &
+    IntegrationsScreenFixtures &
+    WorkspacesScreenFixtures &
+    WorkspacesShellFixtures
 >({
   ...workspaceFixtures,
   ...giteaHelper,
+  ...integrationsScreens,
   ...workspacesScreens,
   ...workspacesShellFixtures,
 });

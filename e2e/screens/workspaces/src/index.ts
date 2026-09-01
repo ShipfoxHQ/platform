@@ -4,6 +4,11 @@ import type {Page} from '@shipfox/playwright';
 type Locator = ReturnType<Page['locator']>;
 type FixtureUse<T> = (fixture: T) => Promise<void>;
 const LAST_WORKSPACE_KEY = 'shipfox.lastWorkspaceId';
+const SETUP_INDICATOR_NAME_RE = /Get started/u;
+const SETUP_STATUS_NAME_RE = /^(?:\d+ of \d+ done|You're set up)$/u;
+const SETUP_DIALOG_NAME_RE = /Get started/u;
+const SETTINGS_ROOT_URL_RE = /\/settings(?:\/members)?\/?$/u;
+const SHOW_ALL_STEPS_NAME_RE = /^Show all \d+ steps$/u;
 
 function lastWorkspaceStorageKey(principalId: string): string {
   return `${LAST_WORKSPACE_KEY}.principal.${encodeURIComponent(principalId)}`;
@@ -46,19 +51,77 @@ export class WorkspaceHomeScreen {
   }
 
   async goto(workspaceSlug: string): Promise<void> {
-    await this.page.goto(`/w/${workspaceSlug}`);
+    const workspacePath = `/w/${workspaceSlug}`;
+    if (new URL(this.page.url()).pathname === workspacePath) return;
+    if (this.page.url() === 'about:blank') {
+      await this.page.goto(workspacePath);
+      return;
+    }
+    const projectsTab = this.page.locator(`a[role="tab"][href="${workspacePath}"]`);
+    if ((await projectsTab.count()) === 1) {
+      await projectsTab.click({noWaitAfter: true});
+    } else {
+      const workspaceCrumb = this.page.locator(`a[aria-current="page"][href="${workspacePath}"]`);
+      if ((await workspaceCrumb.count()) === 1) {
+        await workspaceCrumb.click({noWaitAfter: true});
+      } else {
+        await this.page.goto(workspacePath, {waitUntil: 'commit'});
+      }
+    }
+    await this.page.waitForURL(new RegExp(`/w/${workspaceSlug}/?$`, 'u'));
+    await this.page
+      .locator(`a[role="tab"][href="${workspacePath}"][aria-selected="true"]`)
+      .waitFor({state: 'visible'});
   }
 
   async gotoIntegrations(workspaceSlug: string): Promise<void> {
-    await this.page.goto(`/w/${workspaceSlug}/integrations`);
+    const integrationsPath = `/w/${workspaceSlug}/integrations`;
+    if (new URL(this.page.url()).pathname === integrationsPath) return;
+    await this.page.goto(integrationsPath, {waitUntil: 'commit'});
+    await this.page.waitForURL(new RegExp(`/w/${workspaceSlug}/integrations/?$`, 'u'));
   }
 
   async gotoSettings(workspaceSlug: string): Promise<void> {
     await this.page.goto(`/w/${workspaceSlug}/settings`);
   }
 
+  async gotoSettingsGeneral(): Promise<void> {
+    await this.gotoSettingsSection('General');
+  }
+
+  async gotoSettingsIntegrations(): Promise<void> {
+    await this.gotoSettingsSection('Integrations');
+  }
+
+  private async gotoSettingsSection(section: 'General' | 'Integrations'): Promise<void> {
+    await this.settingsTab().click({noWaitAfter: true});
+    await this.page.waitForURL(SETTINGS_ROOT_URL_RE);
+    await this.page
+      .getByRole('navigation', {name: 'Workspace settings'})
+      .getByRole('link', {name: section, exact: true})
+      .click({noWaitAfter: true});
+    await this.page.waitForURL(new RegExp(`/settings/${section.toLowerCase()}/?$`, 'u'));
+  }
+
   settingsTab(): Locator {
     return this.page.getByRole('tab', {name: 'Settings'});
+  }
+
+  createProjectNameField(): Locator {
+    return this.page.getByLabel('Project name');
+  }
+
+  createProjectButton(): Locator {
+    return this.page.getByRole('button', {name: 'Create project'});
+  }
+
+  async createProject(name: string): Promise<void> {
+    await this.createProjectNameField().fill(name);
+    await this.createProjectButton().click();
+  }
+
+  showSetupGuideButton(): Locator {
+    return this.page.getByRole('button', {name: 'Show the setup guide'});
   }
 
   currentWorkspaceSlug(): string | undefined {
@@ -88,6 +151,68 @@ export class WorkspaceHomeScreen {
   }
 }
 
+export class WorkspaceSetupChecklistScreen {
+  constructor(private readonly page: Page) {}
+
+  panel(): Locator {
+    return this.page.getByRole('main').getByRole('region', {name: 'Get started'});
+  }
+
+  indicator(): Locator {
+    return this.page.getByRole('button', {name: SETUP_INDICATOR_NAME_RE});
+  }
+
+  row(title: string | RegExp): Locator {
+    return this.panel().getByRole('listitem').filter({hasText: title});
+  }
+
+  heading(): Locator {
+    return this.panel().getByRole('heading', {name: 'Get started'});
+  }
+
+  firstRow(): Locator {
+    return this.panel().getByRole('listitem').first();
+  }
+
+  async expandAllStepsIfNeeded(): Promise<void> {
+    const expandButton = this.panel().getByRole('button', {name: SHOW_ALL_STEPS_NAME_RE});
+    if ((await expandButton.count()) === 1) {
+      await expandButton.click();
+    }
+  }
+
+  connectLink(): Locator {
+    return this.panel().getByRole('link', {name: 'Connect'});
+  }
+
+  text(text: string | RegExp): Locator {
+    return this.panel().getByText(text);
+  }
+
+  countLabel(count: string | RegExp): Locator {
+    return this.panel().getByText(count);
+  }
+
+  hideButton(): Locator {
+    return this.panel().getByRole('button', {name: 'Hide setup guide'});
+  }
+
+  completionMessage(): Locator {
+    return this.dialog().getByText("You're set up");
+  }
+
+  status(): Locator {
+    return this.page.getByRole('status').filter({hasText: SETUP_STATUS_NAME_RE});
+  }
+
+  doneButton(): Locator {
+    return this.dialog().getByRole('button', {name: 'Done', exact: true});
+  }
+
+  dialog(): Locator {
+    return this.page.getByRole('dialog', {name: SETUP_DIALOG_NAME_RE});
+  }
+}
 export class MembersSettingsScreen {
   private readonly shell: SettingsShell;
 
@@ -189,6 +314,7 @@ export interface WorkspacesScreenFixtures {
   membersSettings: MembersSettingsScreen;
   workspaceHome: WorkspaceHomeScreen;
   workspaceOnboarding: WorkspaceOnboardingScreen;
+  workspaceSetupChecklist: WorkspaceSetupChecklistScreen;
 }
 
 export const workspacesScreens = {
@@ -203,5 +329,11 @@ export const workspacesScreens = {
   },
   workspaceOnboarding: async ({page}: {page: Page}, use: FixtureUse<WorkspaceOnboardingScreen>) => {
     await use(new WorkspaceOnboardingScreen(page));
+  },
+  workspaceSetupChecklist: async (
+    {page}: {page: Page},
+    use: FixtureUse<WorkspaceSetupChecklistScreen>,
+  ) => {
+    await use(new WorkspaceSetupChecklistScreen(page));
   },
 };

@@ -75,52 +75,59 @@ function WorkspaceSetupIndicatorForWorkspace({workspace}: {workspace: WorkspaceR
 
   const countLabel = checklistCountLabel(queryState.checklist);
   const ariaLabel = `Get started, ${countLabel}`;
+  const statusLabel =
+    queryState.checklist.complete && showCompletion ? "You're set up" : countLabel;
 
   return (
-    <Popover modal={false} open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="transparent"
-          size="sm"
-          id={triggerId}
-          aria-label={ariaLabel}
-          className="gap-inline"
-        >
-          <span
-            key={pulseKey}
-            className={cn(
-              'inline-flex items-center',
-              pulseKey > 0 && 'motion-safe:animate-[pulse_1s_ease-in-out_1]',
-            )}
+    <>
+      <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+        {statusLabel}
+      </div>
+      <Popover modal={false} open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            variant="transparent"
+            size="sm"
+            id={triggerId}
+            aria-label={ariaLabel}
+            className="gap-inline"
           >
-            <Icon name="circleDottedLine" size={16} aria-hidden="true" />
-          </span>
-          <span>Get started · {countLabel}</span>
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="end"
-        className="w-[360px] max-w-[calc(100vw-32px)] p-0"
-        aria-labelledby={triggerId}
-      >
-        <Panel asChild>
-          <section aria-label="Get started">
-            <PanelBody>
-              <SetupChecklistBody
-                checklist={queryState.checklist}
-                workspaceSlug={workspace.slug}
-                completion={showCompletion}
-                showBurst={burstPending}
-                onBurstComplete={consumeBurst}
-                onAction={handleAction}
-                onDone={dismiss}
-              />
-            </PanelBody>
-            <ChecklistDismissAction onDismiss={dismiss} />
-          </section>
-        </Panel>
-      </PopoverContent>
-    </Popover>
+            <span
+              key={pulseKey}
+              className={cn(
+                'inline-flex items-center',
+                pulseKey > 0 && 'motion-safe:animate-[pulse_1s_ease-in-out_1]',
+              )}
+            >
+              <Icon name="circleDottedLine" size={16} aria-hidden="true" />
+            </span>
+            <span>Get started · {countLabel}</span>
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent
+          align="end"
+          className="w-[360px] max-w-[calc(100vw-32px)] p-0"
+          aria-labelledby={triggerId}
+        >
+          <Panel asChild>
+            <section aria-label="Get started">
+              <PanelBody>
+                <SetupChecklistBody
+                  checklist={queryState.checklist}
+                  workspaceSlug={workspace.slug}
+                  completion={showCompletion}
+                  showBurst={burstPending}
+                  onBurstComplete={consumeBurst}
+                  onAction={handleAction}
+                  onDone={dismiss}
+                />
+              </PanelBody>
+              <ChecklistDismissAction onDismiss={dismiss} />
+            </section>
+          </Panel>
+        </PopoverContent>
+      </Popover>
+    </>
   );
 }

@@ -1849,9 +1849,15 @@ importers:
       '@shipfox/e2e-kit':
         specifier: workspace:*
         version: link:../../../kit
+      '@shipfox/e2e-screens-integrations':
+        specifier: workspace:*
+        version: link:../../../screens/integrations
       '@shipfox/e2e-screens-workspaces':
         specifier: workspace:*
         version: link:../../../screens/workspaces
+      '@shipfox/e2e-setup-integrations':
+        specifier: workspace:*
+        version: link:../../../setup/integrations
       '@shipfox/playwright':
         specifier: workspace:*
         version: link:../../../../tools/playwright

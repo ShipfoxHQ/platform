@@ -67,6 +67,10 @@ export class SourceControlSetupScreen {
     return this.page.locator(`a[href$="/w/${workspaceSlug}/integrations/${provider}"]`);
   }
 
+  skipModelProviderButton(): Locator {
+    return this.page.getByRole('button', {name: 'Skip for now'});
+  }
+
   projectTab(): Locator {
     return this.page.getByRole('tab', {name: 'Projects'});
   }
