@@ -157,8 +157,10 @@ export async function runToolStepExecutorCycle(params: {
     claimOwner: params.claimOwner,
     claimExpiresAt: new Date(now.getTime() + params.callTimeoutMs + CLAIM_HEADROOM_MS),
   });
+  recordWorkflowToolInvocationReclaims('requeued', claimed.requeued);
   recordWorkflowToolInvocationReclaims(
-    claimed.requeued + claimed.claims.filter((claim) => claim.interrupted).length,
+    'failed',
+    claimed.claims.filter((claim) => claim.interrupted).length,
   );
 
   await Promise.all(
