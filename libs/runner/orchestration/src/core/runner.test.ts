@@ -210,6 +210,8 @@ const mockCredentialLifecycle = {
   },
   start: vi.fn(async () => undefined),
   register: vi.fn(),
+  getFailureEventCursor: vi.fn(() => 0),
+  getFailureEventsSince: vi.fn(() => []),
   close: vi.fn(async () => undefined),
 };
 
@@ -338,6 +340,7 @@ describe('runJob', () => {
           capability: expect.any(String),
         },
         registerCheckoutCredential: expect.any(Function),
+        credentialFailureEvents: mockCredentialLifecycle,
       }),
     );
     expect(mockCreateJobCredentialsDir).toHaveBeenCalledWith(JOB_CREDENTIALS_DIR);

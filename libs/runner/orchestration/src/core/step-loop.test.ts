@@ -4,7 +4,10 @@ import {join} from 'node:path';
 import {gzipSync} from 'node:zlib';
 import type {AgentConfigIssueDto, NextStepResponseDto, StepDto} from '@shipfox/api-workflows-dto';
 import {logger} from '@shipfox/node-opentelemetry';
-import type {PersistedCheckoutCredential} from '@shipfox/runner-workspace';
+import type {
+  CredentialFailureEventSource,
+  PersistedCheckoutCredential,
+} from '@shipfox/runner-workspace';
 import {HTTPError} from 'ky';
 import type {RunnerAgentStepModule} from '#core/step-loop.js';
 
@@ -238,6 +241,7 @@ function runLoop(params: {
   subscribeSecrets?: (subscriber: (secrets: string[]) => void) => () => void;
   registerSecrets?: (secrets: string[]) => void;
   registerCheckoutCredential?: (credential: PersistedCheckoutCredential) => void;
+  credentialFailureEvents?: CredentialFailureEventSource;
   credentialHelper?: {
     command: string;
     socketPath: string;
@@ -255,6 +259,9 @@ function runLoop(params: {
     ...(params.registerSecrets ? {registerSecrets: params.registerSecrets} : {}),
     ...(params.registerCheckoutCredential
       ? {registerCheckoutCredential: params.registerCheckoutCredential}
+      : {}),
+    ...(params.credentialFailureEvents
+      ? {credentialFailureEvents: params.credentialFailureEvents}
       : {}),
     ...(params.credentialHelper ? {credentialHelper: params.credentialHelper} : {}),
     signal: params.signal,
@@ -1510,6 +1517,135 @@ describe('runJobSteps', () => {
       'stderr',
     );
     expect(events.indexOf(`line:${run.id}`)).toBeLessThan(events.indexOf(`close:${run.id}`));
+  });
+
+  it('attributes a broker auth failure to a failed agent result', async () => {
+    const setup = buildSetupStep();
+    const agent = buildAgentStep();
+    requestNextStepMock
+      .mockResolvedValueOnce(stepResponse(setup, 1))
+      .mockResolvedValueOnce(stepResponse(agent, 1));
+    executeAgentStepMock.mockResolvedValueOnce({
+      success: false,
+      error: {message: 'provider failed', reason: 'agent_invocation_failed' as const},
+      exit_code: null,
+    });
+    reportStepMock
+      .mockResolvedValueOnce({ok: true, cancel: false})
+      .mockResolvedValueOnce({ok: true, cancel: true});
+    const getFailureEventCursor = vi.fn().mockReturnValue(0);
+    const getFailureEventsSince = vi
+      .fn()
+      .mockReturnValue([{cursor: 1, subject: 'checkout-step:1', kind: 'auth' as const}]);
+    const credentialFailureEvents: CredentialFailureEventSource = {
+      getFailureEventCursor,
+      getFailureEventsSince,
+    };
+    const ac = new AbortController();
+
+    await runLoop({signal: ac.signal, credentialFailureEvents});
+
+    expect(getFailureEventCursor.mock.invocationCallOrder[0]).toBeLessThan(
+      executeAgentStepMock.mock.invocationCallOrder[0] ?? Infinity,
+    );
+    expect(getFailureEventsSince).toHaveBeenCalledWith(0);
+    expect(reportStepMock).toHaveBeenCalledWith(
+      leaseClient,
+      expect.objectContaining({
+        stepId: agent.id,
+        status: 'failed',
+        error: {message: 'provider failed', reason: 'checkout_auth_failed'},
+      }),
+    );
+  });
+
+  it('attributes a broker outage to a failed run result', async () => {
+    const setup = buildSetupStep();
+    const run = buildRunStep();
+    requestNextStepMock
+      .mockResolvedValueOnce(stepResponse(setup, 1))
+      .mockResolvedValueOnce(stepResponse(run, 1));
+    executeRunStepMock.mockResolvedValueOnce({
+      success: false,
+      error: {message: 'git fetch failed', exit_code: 128},
+      exit_code: 128,
+    });
+    reportStepMock
+      .mockResolvedValueOnce({ok: true, cancel: false})
+      .mockResolvedValueOnce({ok: true, cancel: true});
+    const credentialFailureEvents: CredentialFailureEventSource = {
+      getFailureEventCursor: vi.fn().mockReturnValue(3),
+      getFailureEventsSince: vi
+        .fn()
+        .mockReturnValue([{cursor: 4, subject: 'checkout-step:1', kind: 'unavailable' as const}]),
+    };
+    const ac = new AbortController();
+
+    await runLoop({signal: ac.signal, credentialFailureEvents});
+
+    expect(reportStepMock).toHaveBeenCalledWith(
+      leaseClient,
+      expect.objectContaining({
+        stepId: run.id,
+        status: 'failed',
+        error: {message: 'git fetch failed', exit_code: 128, reason: 'checkout_unavailable'},
+      }),
+    );
+  });
+
+  it('keeps a caught Git failure successful and does not inherit its event into a later run', async () => {
+    const setup = buildSetupStep();
+    const caughtRun = buildRunStep({id: '00000000-0000-0000-0000-0000000000c1', position: 1});
+    const laterRun = buildRunStep({id: '00000000-0000-0000-0000-0000000000c2', position: 2});
+    requestNextStepMock
+      .mockResolvedValueOnce(stepResponse(setup, 1))
+      .mockResolvedValueOnce(stepResponse(caughtRun, 1))
+      .mockResolvedValueOnce(stepResponse(laterRun, 1));
+    executeRunStepMock
+      .mockResolvedValueOnce({
+        success: true,
+        response: 'caught git failure',
+        error: null,
+        exit_code: 0,
+      })
+      .mockResolvedValueOnce({
+        success: false,
+        error: {message: 'unrelated command failed', exit_code: 1},
+        exit_code: 1,
+      });
+    reportStepMock
+      .mockResolvedValueOnce({ok: true, cancel: false})
+      .mockResolvedValueOnce({ok: true, cancel: false})
+      .mockResolvedValueOnce({ok: true, cancel: true});
+    const getFailureEventCursor = vi.fn().mockReturnValueOnce(0).mockReturnValueOnce(1);
+    const getFailureEventsSince = vi.fn((cursor: number) =>
+      cursor === 0 ? [{cursor: 1, subject: 'checkout-step:1', kind: 'auth' as const}] : [],
+    );
+    const credentialFailureEvents: CredentialFailureEventSource = {
+      getFailureEventCursor,
+      getFailureEventsSince,
+    };
+    const ac = new AbortController();
+
+    await runLoop({signal: ac.signal, credentialFailureEvents});
+
+    expect(reportStepMock).toHaveBeenCalledWith(
+      leaseClient,
+      expect.objectContaining({
+        stepId: caughtRun.id,
+        status: 'succeeded',
+        error: null,
+      }),
+    );
+    expect(getFailureEventsSince).toHaveBeenCalledWith(1);
+    expect(reportStepMock).toHaveBeenCalledWith(
+      leaseClient,
+      expect.objectContaining({
+        stepId: laterRun.id,
+        status: 'failed',
+        error: {message: 'unrelated command failed', exit_code: 1},
+      }),
+    );
   });
 
   it('masks run step output values with the full secret set before reporting', async () => {

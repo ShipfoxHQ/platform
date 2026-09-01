@@ -1,5 +1,6 @@
 import {
   CredentialBroker,
+  MAX_CREDENTIAL_FAILURE_EVENTS,
   normalizeRepositoryUrl,
   TransientCredentialRenewalError,
 } from '#credential-broker.js';
@@ -405,6 +406,7 @@ describe('credential broker', () => {
       token: 'token-a',
     });
     expect(renew).toHaveBeenCalledTimes(1);
+    expect(broker.getFailureEventCursor()).toBe(0);
     await expect(broker.lookup(repository)).resolves.toEqual({
       username: 'runner',
       token: 'token-a',
@@ -425,6 +427,59 @@ describe('credential broker', () => {
     now = 5_500;
     await expect(broker.lookup(repository)).resolves.toBeUndefined();
     expect(renew).toHaveBeenCalledTimes(2);
+  });
+
+  it('records a classified fatal renewal event without retaining provider details', async () => {
+    const renew = vi.fn().mockRejectedValue(new Error('provider token must not be retained'));
+    const broker = new CredentialBroker({
+      renew,
+      now: () => 5_000,
+      classifyFailure: () => 'auth',
+    });
+    broker.register({
+      repositoryUrl: repository,
+      subject: 'checkout-step:2',
+      credential: baseCredential,
+    });
+
+    await expect(broker.lookup(repository)).resolves.toBeUndefined();
+
+    expect(broker.getFailureEventCursor()).toBe(1);
+    expect(broker.getFailureEventsSince(0)).toEqual([
+      {cursor: 1, subject: 'checkout-step:2', kind: 'auth'},
+    ]);
+    expect(broker.getFailureEventsSince(1)).toEqual([]);
+    expect(JSON.stringify(broker.getFailureEventsSince(0))).not.toContain('provider token');
+  });
+
+  it('bounds the failure event history while keeping cursors monotonic', async () => {
+    const renew = vi.fn().mockRejectedValue(new Error('renewal failed'));
+    const broker = new CredentialBroker({
+      renew,
+      now: () => 1_000,
+      backoffMs: 0,
+      rejectionCooldownMs: 0,
+    });
+    broker.register({
+      repositoryUrl: repository,
+      subject: 'checkout-step:2',
+      credential: {...baseCredential, renewal: {mode: 'on-rejection' as const}},
+    });
+
+    for (let index = 0; index < MAX_CREDENTIAL_FAILURE_EVENTS + 1; index += 1) {
+      await broker.reject(repository);
+    }
+
+    expect(broker.getFailureEventCursor()).toBe(MAX_CREDENTIAL_FAILURE_EVENTS + 1);
+    expect(broker.getFailureEventsSince(0)).toHaveLength(MAX_CREDENTIAL_FAILURE_EVENTS);
+    expect(broker.getFailureEventsSince(0)[0]?.cursor).toBe(2);
+    expect(broker.getFailureEventsSince(MAX_CREDENTIAL_FAILURE_EVENTS)).toEqual([
+      {
+        cursor: MAX_CREDENTIAL_FAILURE_EVENTS + 1,
+        subject: 'checkout-step:2',
+        kind: 'failed',
+      },
+    ]);
   });
 
   it('debounces repeated rejection-triggered renewals after a successful mint', async () => {

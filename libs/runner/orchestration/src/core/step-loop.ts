@@ -52,6 +52,8 @@ import {
   writeStepAnnotations,
 } from '@shipfox/runner-protocol';
 import {
+  type CredentialFailureEventSource,
+  type CredentialFailureKind,
   createJobLogsDir,
   type GitCredentialHelperConfig,
   type PersistedCheckoutCredential,
@@ -106,6 +108,7 @@ export async function runJobSteps(params: {
   registerSecrets?: (secrets: string[]) => void;
   registerCheckoutCredential?: (credential: PersistedCheckoutCredential) => void;
   credentialHelper?: GitCredentialHelperConfig | undefined;
+  credentialFailureEvents?: CredentialFailureEventSource | undefined;
   signal: AbortSignal;
   cwd: string;
   gitConfigPath: string;
@@ -168,6 +171,10 @@ async function runJobStepIteration(
   if (!pulled || params.signal.aborted) return 'stop';
   params.onLeaseTokenAdopted?.(pulled.leaseToken);
   const {step, attempt} = pulled;
+  const credentialFailureCursor =
+    isCredentialFailureAttributionStep(step) && params.credentialFailureEvents !== undefined
+      ? params.credentialFailureEvents.getFailureEventCursor()
+      : undefined;
   const stepLabel = step.name ?? `step #${step.position}`;
   logger().info(
     {
@@ -205,7 +212,15 @@ async function runJobStepIteration(
   });
   applyStepExecutionState(params, state, execution);
   if (params.signal.aborted) return 'stop';
-  return finishStepExecution(params, state, step, attempt, stepLabel, execution);
+  return finishStepExecution(
+    params,
+    state,
+    step,
+    attempt,
+    stepLabel,
+    execution,
+    credentialFailureCursor,
+  );
 }
 
 function stepPreparation(
@@ -263,6 +278,7 @@ async function finishStepExecution(
   attempt: number,
   stepLabel: string,
   execution: StepExecution,
+  credentialFailureCursor: number | undefined,
 ): Promise<'continue' | 'stop'> {
   const logOutcome =
     (await settleStream({stream: state.activeStream, signal: params.signal})) ??
@@ -281,7 +297,12 @@ async function finishStepExecution(
   // an abort must not leave a committed attempt invisible to the API.
   if (params.signal.aborted && !settlement.committed) return 'stop';
   const reportSignal = settlement.committed ? new AbortController().signal : params.signal;
-  const {result} = settlement;
+  const result = attributeCredentialFailure({
+    step,
+    result: settlement.result,
+    cursor: credentialFailureCursor,
+    events: params.credentialFailureEvents,
+  });
   await publishStepAnnotations({
     leaseClient: params.leaseClient,
     step,
@@ -307,6 +328,50 @@ async function finishStepExecution(
     'Job finished without full success; stopping step loop',
   );
   return 'stop';
+}
+
+function isCredentialFailureAttributionStep(step: StepDto): boolean {
+  return step.type === 'agent' || step.type === 'run';
+}
+
+function attributeCredentialFailure(params: {
+  step: StepDto;
+  result: StepResult;
+  cursor: number | undefined;
+  events: CredentialFailureEventSource | undefined;
+}): StepResult {
+  if (
+    params.cursor === undefined ||
+    params.events === undefined ||
+    params.result.success ||
+    !isCredentialFailureAttributionStep(params.step)
+  ) {
+    return params.result;
+  }
+
+  const cursor = params.cursor;
+  const failure = params.events
+    .getFailureEventsSince(cursor)
+    .find((event) => event.cursor > cursor);
+  if (failure === undefined) return params.result;
+
+  const error = params.result.error ?? {message: 'Step failed'};
+  const {agent_config_issue: _agentConfigIssue, ...errorWithoutAgentConfigIssue} = error;
+  return {
+    ...params.result,
+    error: {...errorWithoutAgentConfigIssue, reason: credentialFailureReason(failure.kind)},
+  };
+}
+
+function credentialFailureReason(kind: CredentialFailureKind): StepErrorReasonDto {
+  switch (kind) {
+    case 'auth':
+      return 'checkout_auth_failed';
+    case 'unavailable':
+      return 'checkout_unavailable';
+    case 'failed':
+      return 'checkout_failed';
+  }
 }
 
 function rememberCheckoutDestination(

@@ -23,6 +23,7 @@ vi.mock('@shipfox/runner-protocol', () => ({
 }));
 
 const {createJobCredentialLifecycle} = await import('#core/credential-lifecycle.js');
+const {HTTPError} = await import('@shipfox/runner-protocol');
 const {
   requestCredentialSocket,
   runnerFallbackCredentialSocketOwnerPath,
@@ -198,6 +199,55 @@ describe('createJobCredentialLifecycle', () => {
     ]);
 
     await lifecycle.close();
+  });
+
+  it.each([
+    [401, 'auth'],
+    [403, 'auth'],
+    [429, 'unavailable'],
+    [503, 'unavailable'],
+    [404, 'failed'],
+  ] as const)('records the typed provider failure for HTTP %s', async (status, kind) => {
+    const lifecycle = createJobCredentialLifecycle({
+      credentialsDir,
+      leaseClient: LEASE_CLIENT,
+      signal: new AbortController().signal,
+      registerSecrets: vi.fn(),
+      replaceSecrets: vi.fn(),
+      clearSecrets: vi.fn(),
+    });
+    await lifecycle.start();
+    try {
+      lifecycle.register({
+        repositoryUrl: REPOSITORY,
+        checkoutStepId: STEP_ID,
+        checkoutAttempt: 2,
+        credential: {
+          username: 'x-access-token',
+          token: 'initial-token',
+          expiresAt: '2030-01-01T00:00:00.000Z',
+          generation: 'generation-one',
+          renewal: {mode: 'on-rejection'},
+        },
+      });
+      const cursor = lifecycle.getFailureEventCursor();
+      const error = new (HTTPError as unknown as new (status?: number) => Error)(status);
+      requestCheckoutTokenMock.mockRejectedValueOnce(error);
+
+      await expect(
+        requestCredentialSocket(lifecycle.helper.socketPath, {
+          operation: 'erase',
+          repositoryUrl: REPOSITORY,
+          capability: lifecycle.helper.capability,
+        }),
+      ).resolves.toEqual({version: 1, ok: true});
+
+      expect(lifecycle.getFailureEventsSince(cursor)).toEqual([
+        {cursor: cursor + 1, subject: `${STEP_ID}:2`, kind},
+      ]);
+    } finally {
+      await lifecycle.close();
+    }
   });
 
   it('tracks and removes the owner sidecar for a fallback socket path', async () => {

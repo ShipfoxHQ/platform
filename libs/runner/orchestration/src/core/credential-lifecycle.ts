@@ -10,6 +10,9 @@ import {
 } from '@shipfox/runner-protocol';
 import {
   type BrokerCredentialInput,
+  type CredentialFailureEvent,
+  type CredentialFailureEventSource,
+  type CredentialFailureKind,
   createCredentialBroker,
   createCredentialSocketServer,
   type GitCredentialHelperConfig,
@@ -25,7 +28,7 @@ import type {KyInstance} from 'ky';
 const GIT_CREDENTIAL_HELPER_COMMAND = 'git-credential-shipfox';
 const MAX_SOCKET_PATH_BYTES = 103;
 
-export interface JobCredentialLifecycle {
+export interface JobCredentialLifecycle extends CredentialFailureEventSource {
   readonly helper: GitCredentialHelperConfig;
   start(): Promise<void>;
   register(credential: PersistedCheckoutCredential): void;
@@ -46,6 +49,7 @@ export function createJobCredentialLifecycle(options: {
   const renewalSignal = AbortSignal.any([options.signal, renewalController.signal]);
 
   const broker = createCredentialBroker({
+    classifyFailure: classifyCredentialFailure,
     renew: async ({repositoryUrl, subject, rejectedGeneration}) => {
       const checkout = parseCheckoutSubject(subject);
       let response: CheckoutTokenResponseDto;
@@ -104,6 +108,9 @@ export function createJobCredentialLifecycle(options: {
       });
       options.registerSecrets([credential.credential.token, basicCredential(credential)]);
     },
+    getFailureEventCursor: () => broker.getFailureEventCursor(),
+    getFailureEventsSince: (cursor: number): readonly CredentialFailureEvent[] =>
+      broker.getFailureEventsSince(cursor),
     close: async () => {
       renewalController.abort();
       try {
@@ -113,6 +120,51 @@ export function createJobCredentialLifecycle(options: {
       }
     },
   };
+}
+
+function classifyCredentialFailure(error: unknown): CredentialFailureKind {
+  const chain = errorChain(error);
+  const httpError = chain.find((cause): cause is HTTPError => cause instanceof HTTPError);
+  if (httpError !== undefined) return classifyHttpCredentialFailure(httpError);
+  return chain.some((cause) => cause instanceof TransientCredentialRenewalError)
+    ? 'unavailable'
+    : 'failed';
+}
+
+function errorChain(error: unknown): Error[] {
+  const chain: Error[] = [];
+  let current: unknown = error;
+  for (let depth = 0; depth < 4 && current instanceof Error; depth += 1) {
+    chain.push(current);
+    current = current.cause;
+  }
+  return chain;
+}
+
+function classifyHttpCredentialFailure(error: HTTPError): CredentialFailureKind {
+  const {status} = error.response;
+  const code = readErrorCode(error);
+  if (status === 401 || status === 403 || code === 'access-denied' || code === 'forbidden') {
+    return 'auth';
+  }
+  if (
+    status === 429 ||
+    status === 503 ||
+    code === 'rate-limited' ||
+    code === 'timeout' ||
+    code === 'provider-unavailable'
+  ) {
+    return 'unavailable';
+  }
+  return 'failed';
+}
+
+function readErrorCode(error: HTTPError): string | undefined {
+  const body = error.data;
+  if (body && typeof body === 'object' && 'code' in body && typeof body.code === 'string') {
+    return body.code;
+  }
+  return undefined;
 }
 
 function credentialSocketPath(

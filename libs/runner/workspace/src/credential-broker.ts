@@ -33,9 +33,25 @@ export type CredentialRenewal = (
   request: CredentialRenewalRequest,
 ) => BrokerCredentialInput | Promise<BrokerCredentialInput>;
 
+export type CredentialFailureKind = 'auth' | 'unavailable' | 'failed';
+
+export type CredentialFailureEvent = {
+  readonly cursor: number;
+  readonly subject: string;
+  readonly kind: CredentialFailureKind;
+};
+
+export type CredentialFailureClassifier = (error: unknown) => CredentialFailureKind;
+
+export type CredentialFailureEventSource = {
+  getFailureEventCursor(): number;
+  getFailureEventsSince(cursor: number): readonly CredentialFailureEvent[];
+};
+
 export type CredentialBrokerOptions = {
   now?: () => number;
   renew: CredentialRenewal;
+  classifyFailure?: CredentialFailureClassifier;
   publishSecrets?: (secrets: readonly string[]) => void | Promise<void>;
   replaceSecrets?: (secrets: readonly string[]) => void | Promise<void>;
   clearSecrets?: () => void | Promise<void>;
@@ -54,6 +70,7 @@ export type RejectionResult = {rejectedGeneration?: string};
 
 const TRAILING_SLASHES = /\/+$/;
 const MAX_REPOSITORY_URL_LENGTH = 2_048;
+export const MAX_CREDENTIAL_FAILURE_EVENTS = 128;
 export const DEFAULT_CREDENTIAL_RENEWAL_TIMEOUT_MS = 30_000;
 export const DEFAULT_CREDENTIAL_REJECTION_COOLDOWN_MS = 1_000;
 
@@ -82,11 +99,13 @@ export class TransientCredentialRenewalError extends Error {
 export class CredentialBroker {
   private readonly entries = new Map<string, Entry>();
   private readonly flights = new Map<string, Flight>();
+  private readonly failureEvents: CredentialFailureEvent[] = [];
   private readonly now: () => number;
   private readonly backoffMs: number;
   private readonly rejectionCooldownMs: number;
   private readonly renewalTimeoutMsValue: number;
   private publication: Promise<void> = Promise.resolve();
+  private failureEventCursorValue = 0;
   private stopped = false;
 
   constructor(private readonly options: CredentialBrokerOptions) {
@@ -173,6 +192,15 @@ export class CredentialBroker {
 
   get renewalTimeoutMs(): number {
     return this.renewalTimeoutMsValue;
+  }
+
+  getFailureEventCursor(): number {
+    return this.failureEventCursorValue;
+  }
+
+  getFailureEventsSince(cursor: number): readonly CredentialFailureEvent[] {
+    if (!Number.isSafeInteger(cursor)) return [];
+    return this.failureEvents.filter((event) => event.cursor > cursor);
   }
 
   shutdown(): void {
@@ -280,7 +308,10 @@ export class CredentialBroker {
       if (this.stopped) return;
       const credential = normalizeCredential(input);
       if (!this.applyRenewedCredential(entry, credential, rejectedGeneration, rejectionRequested)) {
-        if (this.isCurrentRenewal(entry, rejectionRequested)) recordCredentialRenewal('failure');
+        if (this.isCurrentRenewal(entry, rejectionRequested)) {
+          recordCredentialRenewal('failure');
+          this.recordFailure(entry, 'failed');
+        }
         return;
       }
       if (this.options.replaceSecrets) {
@@ -292,7 +323,10 @@ export class CredentialBroker {
       recordCredentialRenewal('success');
     } catch (error) {
       recordCredentialRenewal('failure');
+      if (this.stopped) return;
+      const current = this.isCurrentRenewal(entry, rejectionRequested);
       this.handleRenewalError(entry, error);
+      if (current && entry.rejected) this.recordFailureFromError(entry, error);
     }
   }
 
@@ -355,6 +389,27 @@ export class CredentialBroker {
     }
     entry.rejected = true;
     entry.backoffUntil = this.now() + this.backoffMs;
+  }
+
+  private recordFailure(entry: Entry, kind: CredentialFailureKind): void {
+    const event: CredentialFailureEvent = {
+      cursor: ++this.failureEventCursorValue,
+      subject: entry.subject,
+      kind,
+    };
+    this.failureEvents.push(event);
+    if (this.failureEvents.length > MAX_CREDENTIAL_FAILURE_EVENTS) this.failureEvents.shift();
+  }
+
+  private recordFailureFromError(entry: Entry, error: unknown): void {
+    let kind: CredentialFailureKind = 'failed';
+    try {
+      const classified = this.options.classifyFailure?.(error);
+      if (isCredentialFailureKind(classified)) kind = classified;
+    } catch {
+      // A failure classifier is advisory; an invalid classifier result must not break renewal.
+    }
+    this.recordFailure(entry, kind);
   }
 
   private publish(credential: BrokerCredential): Promise<void> {
@@ -499,4 +554,8 @@ function credentialSecrets(credential: BrokerCredential): string[] {
     credential.token,
     Buffer.from(`${credential.username}:${credential.token}`).toString('base64'),
   ];
+}
+
+function isCredentialFailureKind(value: unknown): value is CredentialFailureKind {
+  return value === 'auth' || value === 'unavailable' || value === 'failed';
 }
