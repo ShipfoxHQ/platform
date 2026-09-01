@@ -38,6 +38,7 @@ import {
 
 const WORKSPACE: WorkspaceReference = {id: 'test-workspace', slug: 'acme'};
 const GET_STARTED_BUTTON_RE = /Get started/u;
+const SHOW_ALL_STEPS_RE = /Show all/u;
 const now = new Date().toISOString();
 const githubProvider: IntegrationProvider = {
   provider: 'github',
@@ -534,6 +535,78 @@ describe('workspace checklist hosts', () => {
       expect(screen.queryByRole('button', {name: GET_STARTED_BUTTON_RE})).not.toBeInTheDocument();
     });
     expect(capture).not.toHaveBeenCalledWith('onboarding_checklist_shown', {host: 'popover'});
+  });
+
+  test('shows only the next step until the reader opens the full list', async () => {
+    const queryClient = createQueryClient();
+    seedQueries(queryClient);
+
+    renderWithProviders(<WorkspaceSetupChecklist workspace={WORKSPACE} />, queryClient, {
+      capture: vi.fn(),
+    });
+
+    expect(await screen.findByText('Connect your tools')).toBeInTheDocument();
+    expect(screen.queryByRole('list', {name: 'Setup steps'})).not.toBeInTheDocument();
+    expect(screen.queryByText('Create a project')).not.toBeInTheDocument();
+    expect(screen.queryByText('Push your first workflow')).not.toBeInTheDocument();
+
+    const toggle = screen.getByRole('button', {name: 'Show all 5 steps'});
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(toggle);
+
+    expect(await screen.findByRole('list', {name: 'Setup steps'})).toBeInTheDocument();
+    expect(screen.getAllByRole('listitem')).toHaveLength(5);
+    expect(screen.getByText('Push your first workflow')).toBeInTheDocument();
+
+    const collapse = screen.getByRole('button', {name: 'Show less'});
+    expect(collapse).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.click(collapse);
+
+    await waitFor(() =>
+      expect(screen.queryByRole('list', {name: 'Setup steps'})).not.toBeInTheDocument(),
+    );
+  });
+
+  test('reopens the full list on a later visit once the reader expanded it', async () => {
+    const queryClient = createQueryClient();
+    seedQueries(queryClient);
+
+    const first = renderWithProviders(
+      <WorkspaceSetupChecklist workspace={WORKSPACE} />,
+      queryClient,
+      {capture: vi.fn()},
+    );
+    fireEvent.click(await screen.findByRole('button', {name: 'Show all 5 steps'}));
+    expect(await screen.findByRole('list', {name: 'Setup steps'})).toBeInTheDocument();
+    first.unmount();
+
+    renderWithProviders(<WorkspaceSetupChecklist workspace={WORKSPACE} />, queryClient, {
+      capture: vi.fn(),
+    });
+
+    expect(await screen.findByRole('list', {name: 'Setup steps'})).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'Show less'})).toBeInTheDocument();
+  });
+
+  test('replaces the panel body with the completion state rather than the finished list', async () => {
+    const queryClient = createQueryClient();
+    seedQueries(queryClient);
+
+    renderWithProviders(<WorkspaceSetupChecklist workspace={WORKSPACE} />, queryClient, {
+      capture: vi.fn(),
+    });
+    expect(await screen.findByText('Connect your tools')).toBeInTheDocument();
+
+    act(() => {
+      queryClient.setQueryData(integrationConnectionsQueryOptions(WORKSPACE.id).queryKey, [
+        connection('github', 'active'),
+        connection('linear', 'active'),
+      ]);
+    });
+
+    expect(await screen.findByText("You're set up")).toBeInTheDocument();
+    expect(screen.queryByRole('list', {name: 'Setup steps'})).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: SHOW_ALL_STEPS_RE})).not.toBeInTheDocument();
   });
 
   test('does not render an initially complete checklist without a transition', async () => {

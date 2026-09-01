@@ -163,3 +163,15 @@ function attentionToolProviders(readiness: WorkspaceIntegrationReadiness) {
       (provider) => provider !== undefined && !provider.capabilities.includes('source_control'),
     );
 }
+
+/**
+ * The single step a compact host asks for: the first open tracked row, or the
+ * first unfinished pointer once every tracked row is done but the checklist has
+ * not settled as complete.
+ */
+export function selectNextSetupStep(checklist: SetupChecklist): SetupChecklistItem | undefined {
+  return (
+    checklist.items.find((item) => item.tracked && item.status === 'open') ??
+    checklist.items.find((item) => item.status !== 'done')
+  );
+}

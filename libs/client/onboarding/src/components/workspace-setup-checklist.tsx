@@ -1,16 +1,20 @@
 import {useClientAnalytics, useMaybeActiveWorkspace} from '@shipfox/client-shell/runtime';
 import {Panel, PanelBody} from '@shipfox/react-ui/panel';
-import {useCallback, useState} from 'react';
-import type {SetupChecklistItem} from '#core/setup-checklist.js';
-import {useSetupChecklistQueryState} from '#hooks/api/setup-checklist.js';
+import {useCallback, useId, useState} from 'react';
+import {type SetupChecklistItem, selectNextSetupStep} from '#core/setup-checklist.js';
+import {type ChecklistQueryState, useSetupChecklistQueryState} from '#hooks/api/setup-checklist.js';
 import {useCompletionTransition, useShownAnalytics} from '#hooks/use-checklist-analytics.js';
 import {useChecklistDismissal} from '#hooks/use-checklist-dismissal.js';
+import {useChecklistExpansion} from '#hooks/use-checklist-expansion.js';
 import {SetupChecklistBody} from './setup-checklist-body.js';
+import {SetupChecklistCompletion} from './setup-checklist-completion.js';
 import {
+  type ChecklistExpansionControl,
   ChecklistHeader,
   ChecklistSkeleton,
   checklistCountLabel,
 } from './setup-checklist-host-primitives.js';
+import {SetupChecklistNextStep} from './setup-checklist-next-step.js';
 import type {WorkspaceReference, WorkspaceSetupHostProps} from './setup-checklist-types.js';
 
 export function WorkspaceSetupChecklist(props: WorkspaceSetupHostProps = {}) {
@@ -32,7 +36,9 @@ function WorkspaceSetupChecklistFromShell() {
 
 function WorkspaceSetupChecklistForWorkspace({workspace}: {workspace: WorkspaceReference}) {
   const dismissal = useChecklistDismissal(workspace.id);
+  const expansion = useChecklistExpansion(workspace.id);
   const queryState = useSetupChecklistQueryState(workspace.id, !dismissal.dismissed);
+  const bodyId = useId();
   const [burstPending, setBurstPending] = useState(false);
   const handleCompleted = useCallback((completed: boolean) => {
     if (completed) setBurstPending(true);
@@ -61,30 +67,94 @@ function WorkspaceSetupChecklistForWorkspace({workspace}: {workspace: WorkspaceR
 
   if (queryState.baseSettled && queryState.checklist.complete && !showCompletion) return null;
 
-  let checklistBody = <ChecklistSkeleton />;
-  if (queryState.baseSettled) {
-    checklistBody = (
-      <SetupChecklistBody
-        checklist={queryState.checklist}
-        workspaceSlug={workspace.slug}
-        completion={showCompletion}
-        showBurst={burstPending}
-        onBurstComplete={consumeBurst}
-        onAction={handleAction}
-        onDone={dismiss}
-      />
-    );
-  }
+  const expandable =
+    queryState.baseSettled && !showCompletion && queryState.checklist.items.length > 1;
+
+  const expansionControl: ChecklistExpansionControl | undefined = expandable
+    ? {
+        expanded: expansion.expanded,
+        stepCount: queryState.checklist.items.length,
+        bodyId,
+        onToggle: expansion.toggle,
+      }
+    : undefined;
 
   return (
     <Panel asChild className="w-full">
       <section aria-label="Get started">
         <ChecklistHeader
           count={queryState.baseSettled ? checklistCountLabel(queryState.checklist) : undefined}
+          expansion={expansionControl}
           onDismiss={dismiss}
         />
-        <PanelBody>{checklistBody}</PanelBody>
+        <PanelBody id={bodyId}>
+          <ChecklistPanelBody
+            queryState={queryState}
+            workspaceSlug={workspace.slug}
+            expanded={expansion.expanded}
+            completion={showCompletion}
+            showBurst={burstPending}
+            onBurstComplete={consumeBurst}
+            onAction={handleAction}
+            onDone={dismiss}
+          />
+        </PanelBody>
       </section>
     </Panel>
+  );
+}
+
+/**
+ * The panel stays at one step until the reader asks for the list, because it
+ * sits above the page's own content. The nav-bar indicator carries the full
+ * checklist on every route.
+ */
+function ChecklistPanelBody({
+  queryState,
+  workspaceSlug,
+  expanded,
+  completion,
+  showBurst,
+  onBurstComplete,
+  onAction,
+  onDone,
+}: {
+  queryState: ChecklistQueryState;
+  workspaceSlug: string;
+  expanded: boolean;
+  completion: boolean;
+  showBurst: boolean;
+  onBurstComplete: () => void;
+  onAction: (item: SetupChecklistItem) => void;
+  onDone: () => void;
+}) {
+  if (!queryState.baseSettled) return <ChecklistSkeleton />;
+
+  if (completion) {
+    return (
+      <SetupChecklistCompletion
+        standalone
+        showBurst={showBurst}
+        onBurstComplete={onBurstComplete}
+        onDone={onDone}
+      />
+    );
+  }
+
+  if (expanded) {
+    return (
+      <SetupChecklistBody
+        checklist={queryState.checklist}
+        workspaceSlug={workspaceSlug}
+        onAction={onAction}
+      />
+    );
+  }
+
+  const nextStep = selectNextSetupStep(queryState.checklist);
+  if (!nextStep) return null;
+
+  return (
+    <SetupChecklistNextStep item={nextStep} workspaceSlug={workspaceSlug} onAction={onAction} />
   );
 }

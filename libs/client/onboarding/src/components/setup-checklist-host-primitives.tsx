@@ -4,6 +4,15 @@ import {Skeleton} from '@shipfox/react-ui/skeleton';
 import {Text} from '@shipfox/react-ui/typography';
 import type {SetupChecklist} from '#core/setup-checklist.js';
 
+export interface ChecklistExpansionControl {
+  expanded: boolean;
+  /** Rows behind the toggle, so the collapsed label can name what it opens. */
+  stepCount: number;
+  /** The panel body the toggle controls. */
+  bodyId: string;
+  onToggle: () => void;
+}
+
 export function ChecklistDismissAction({onDismiss}: {onDismiss: () => void}) {
   return (
     <div className="flex justify-end border-t border-border-neutral-base px-row py-row">
@@ -16,13 +25,15 @@ export function ChecklistDismissAction({onDismiss}: {onDismiss: () => void}) {
 
 export function ChecklistHeader({
   count,
+  expansion,
   onDismiss,
 }: {
   count?: string | undefined;
+  expansion?: ChecklistExpansionControl | undefined;
   onDismiss: () => void;
 }) {
   return (
-    <PanelHeader>
+    <PanelHeader className="flex-wrap">
       <div className="flex min-w-0 items-center gap-group">
         <PanelTitle>Get started</PanelTitle>
         {count ? (
@@ -32,6 +43,24 @@ export function ChecklistHeader({
         ) : null}
       </div>
       <PanelActions>
+        {expansion ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="transparentMuted"
+            aria-expanded={expansion.expanded}
+            aria-controls={expansion.bodyId}
+            iconRight={expansion.expanded ? 'arrowUpSLine' : 'arrowDownSLine'}
+            onClick={expansion.onToggle}
+          >
+            {/* Below the narrow breakpoint the label would wrap the header onto a
+                second row, so the chevron carries the control and the name stays
+                readable to assistive technology. */}
+            <span className="max-[480px]:sr-only">
+              {expansion.expanded ? 'Show less' : `Show all ${expansion.stepCount} steps`}
+            </span>
+          </Button>
+        ) : null}
         <IconButton
           type="button"
           variant="transparent"

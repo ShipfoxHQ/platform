@@ -1,6 +1,7 @@
 import {Button} from '@shipfox/react-ui/button';
 import {Icon} from '@shipfox/react-ui/icon';
 import {Text} from '@shipfox/react-ui/typography';
+import {cn} from '@shipfox/react-ui/utils';
 import {useEffect, useRef} from 'react';
 import {createConfettiParticles} from './setup-checklist-confetti.js';
 
@@ -12,13 +13,21 @@ export function SetupChecklistCompletion({
   showBurst,
   onBurstComplete,
   onDone,
+  standalone = false,
 }: {
   showBurst: boolean;
   onBurstComplete?: (() => void) | undefined;
   onDone?: (() => void) | undefined;
+  /** The whole panel body, so the divider would double the panel's own edge. */
+  standalone?: boolean;
 }) {
   return (
-    <div className="relative overflow-hidden border-b border-tag-success-border bg-tag-success-bg p-panel">
+    <div
+      className={cn(
+        'relative overflow-hidden bg-tag-success-bg p-panel',
+        !standalone && 'border-b border-tag-success-border',
+      )}
+    >
       <ConfettiBurst active={showBurst} onComplete={onBurstComplete} />
       <div className="relative flex items-center gap-group">
         <Icon
