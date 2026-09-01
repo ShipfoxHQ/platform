@@ -164,7 +164,7 @@ export class WorkspaceSetupChecklistScreen {
   }
 
   status(): Locator {
-    return this.page.getByRole('status', {name: SETUP_STATUS_NAME_RE});
+    return this.page.getByRole('status').filter({hasText: SETUP_STATUS_NAME_RE});
   }
 
   doneButton(): Locator {

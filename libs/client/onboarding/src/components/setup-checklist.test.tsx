@@ -351,7 +351,7 @@ describe('workspace checklist hosts', () => {
     expect(capture).toHaveBeenCalledWith('onboarding_checklist_completed', {host: 'popover'});
     fireEvent.click(trigger);
 
-    const status = await screen.findByRole('status', {name: "You're set up"});
+    const status = await screen.findByRole('status');
     expect(status).toHaveTextContent("You're set up");
     expect(status).toHaveAttribute('aria-live', 'polite');
     const dialog = screen.getByRole('dialog');

@@ -80,13 +80,7 @@ function WorkspaceSetupIndicatorForWorkspace({workspace}: {workspace: WorkspaceR
 
   return (
     <>
-      <div
-        role="status"
-        aria-live="polite"
-        aria-atomic="true"
-        aria-label={statusLabel}
-        className="sr-only"
-      >
+      <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
         {statusLabel}
       </div>
       <Popover modal={false} open={open} onOpenChange={setOpen}>
