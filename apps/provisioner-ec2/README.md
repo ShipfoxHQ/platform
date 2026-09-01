@@ -6,7 +6,8 @@ Runs one-job Shipfox runners on Amazon EC2 from a prebaked AMI.
 
 - **Starts runners**: Creates a runner instance and one-use bootstrap token before launch.
 - **Uses EC2 tags**: Finds and adopts its instances after a restart.
-- **Keeps state in sync**: Reports state, reaps missed enrollment, and applies terminate requests.
+- **Keeps state in sync**: Reports state, requests backend authorization for missed enrollment,
+  and applies authorized termination requests.
 - **Protects credentials**: Sends bootstrap data to the AMI. It never sends workspace registration credentials.
 
 ## Setup

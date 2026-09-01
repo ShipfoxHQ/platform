@@ -25,10 +25,13 @@ events with `ec2:DescribeInstanceStatus`. The provisioner role must grant that a
 runner region. An authorization or other permanent status-read failure fails the reconciliation
 closed; a transient or stale-instance status-read failure keeps the ordinary `DescribeInstances`
 snapshot and submits no health candidate.
-Candidates require an impairment that is at least one reconciliation interval old or two
+Health candidates require an impairment that is at least one reconciliation interval old or two
 consecutive close observations. Candidates are requests to the existing backend authorization
 gate, not direct termination calls. Regular observation, termination lookup, and service metrics
 omit status checks so they do not poll the status API unnecessarily.
+A pending instance past its registration deadline is submitted to the same authorization gate
+during reconciliation. The provider keeps it out of usable capacity and does not terminate it
+until the backend authorizes the request.
 
 ## Template config
 
@@ -189,8 +192,8 @@ Search for `Observed EC2 runner instance termination` to find one terminal log p
 instance ID. The provider keeps the marker while AWS lists the instance, and for one
 hour after a listing gap.
 The provider reports non-terminal states on every observation.
-When the provider terminates an instance, it reports `terminated` with either
-`backend-terminate` or `registration-deadline`.
+When the provider terminates an instance, it reports `terminated` with the backend authorization
+reason when one is present. Direct provider termination requests use `backend-terminate`.
 An authorized instance that remains in `stopping` past its configured timeout receives one forced termination retry.
 The retry reuses the API's first-observed `stopping_at` timestamp and does not create authorization.
 A live bound job fences the retry; a bound job with cancellation requested does not, because the API has already authorized cleanup.
