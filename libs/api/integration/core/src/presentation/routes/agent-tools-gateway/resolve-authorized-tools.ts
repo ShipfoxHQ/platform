@@ -1,4 +1,5 @@
 import {
+  agentIntegrationMcpToolName,
   type MaterializedAgentIntegrationConfigDto,
   type MaterializedAgentIntegrationToolConfigDto,
   materializedAgentStepConfigSchema,
@@ -142,7 +143,7 @@ function addAuthorizedTool(
   connection: IntegrationConnection,
   catalogTool: AgentToolCatalogEntry | undefined,
 ): void {
-  const mcpName = mcpToolName(integration.connectionSlug, tool.id);
+  const mcpName = agentIntegrationMcpToolName(integration.connectionSlug, tool.id);
   if (authorizedTools.has(mcpName)) {
     throw new ClientError(
       'Integration tool names collide after MCP namespacing',
@@ -178,14 +179,6 @@ function legacyIntegrations(step: {type: string; config: Record<string, unknown>
       cause: error,
     });
   }
-}
-
-export function sanitizeSlug(slug: string): string {
-  return slug.replaceAll('-', '_');
-}
-
-export function mcpToolName(connectionSlug: string, toolId: string): string {
-  return `${sanitizeSlug(connectionSlug)}__${toolId}`;
 }
 
 export function narrowMethodEnum(

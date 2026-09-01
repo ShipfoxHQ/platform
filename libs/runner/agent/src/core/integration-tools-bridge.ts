@@ -27,12 +27,18 @@ export interface IntegrationToolsBridgeRequestOptions {
   readonly timeout?: number;
 }
 
+export interface IntegrationToolsBridgeActivationOptions {
+  readonly authToken?: string;
+  readonly signal?: AbortSignal;
+  readonly timeout?: number;
+}
+
 export interface IntegrationToolsBridge {
   readonly name: string;
   readonly server: McpServer;
   listTools(options?: IntegrationToolsBridgeRequestOptions): Promise<ListToolsResult>;
   callTool(name: string, args?: Record<string, unknown>): Promise<CallToolResult>;
-  activateHttp(): Promise<URL>;
+  activateHttp(options?: IntegrationToolsBridgeActivationOptions): Promise<URL>;
   close(): Promise<void>;
 }
 
@@ -117,7 +123,7 @@ export function createIntegrationToolsBridge(params: {
         throw error;
       }
     },
-    activateHttp() {
+    activateHttp(options?: IntegrationToolsBridgeActivationOptions) {
       if (closePromise !== undefined) {
         return Promise.reject(new Error('Integration tools bridge is closed.'));
       }
@@ -125,6 +131,7 @@ export function createIntegrationToolsBridge(params: {
         server,
         setHttpServer: (value) => (httpServer = value),
         ...(params.preferredPort === undefined ? {} : {preferredPort: params.preferredPort}),
+        ...(options?.authToken === undefined ? {} : {authToken: options.authToken}),
         createHttpSession: async () => {
           const id = crypto.randomUUID();
           const sessionServer = new Server(
@@ -140,7 +147,7 @@ export function createIntegrationToolsBridge(params: {
         },
         httpSessions,
       });
-      return activationPromise;
+      return boundedActivation(activationPromise, options);
     },
     close() {
       closed = true;
@@ -164,11 +171,18 @@ async function activateBridgeHttp(params: {
   server: McpServer;
   setHttpServer: (server: HttpServer) => void;
   preferredPort?: number;
+  authToken?: string;
   createHttpSession: () => Promise<HttpSession>;
   httpSessions: Map<string, HttpSession>;
 }): Promise<URL> {
   const httpServer = createServer((request, response) => {
-    void handleHttpRequest(request, response, params.httpSessions, params.createHttpSession);
+    void handleHttpRequest(
+      request,
+      response,
+      params.httpSessions,
+      params.createHttpSession,
+      params.authToken,
+    );
   });
   httpServer.headersTimeout = MCP_REQUEST_TIMEOUT_MS;
   httpServer.requestTimeout = MCP_REQUEST_TIMEOUT_MS;
@@ -245,6 +259,7 @@ async function handleHttpRequest(
   response: ServerResponse,
   sessions: Map<string, HttpSession>,
   createHttpSession: () => Promise<HttpSession>,
+  authToken: string | undefined,
 ): Promise<void> {
   const requestUrl = new URL(request.url ?? '/', 'http://127.0.0.1');
   if (requestUrl.pathname !== '/mcp') {
@@ -252,15 +267,9 @@ async function handleHttpRequest(
     return;
   }
 
-  if (!isLoopbackRequest(request)) {
-    sendMcpError(response, 403, -32600, 'MCP endpoint accepts loopback requests only.');
-    return;
-  }
-  if (
-    request.headers['content-length'] !== undefined &&
-    Number(request.headers['content-length']) > MAX_MCP_REQUEST_BYTES
-  ) {
-    sendMcpError(response, 413, -32600, 'MCP request is too large.');
+  const invalidRequest = invalidHttpRequest(request, authToken);
+  if (invalidRequest !== undefined) {
+    sendMcpError(response, invalidRequest.statusCode, -32600, invalidRequest.message);
     return;
   }
 
@@ -288,6 +297,25 @@ async function handleHttpRequest(
     if (!response.headersSent) sendMcpError(response, 500, -32603, 'MCP request failed.');
     else response.end();
   }
+}
+
+function invalidHttpRequest(
+  request: IncomingMessage,
+  authToken: string | undefined,
+): {readonly statusCode: number; readonly message: string} | undefined {
+  if (!isLoopbackRequest(request)) {
+    return {statusCode: 403, message: 'MCP endpoint accepts loopback requests only.'};
+  }
+  if (authToken !== undefined && request.headers.authorization !== `Bearer ${authToken}`) {
+    return {statusCode: 401, message: 'MCP endpoint requires an invocation token.'};
+  }
+  if (
+    request.headers['content-length'] !== undefined &&
+    Number(request.headers['content-length']) > MAX_MCP_REQUEST_BYTES
+  ) {
+    return {statusCode: 413, message: 'MCP request is too large.'};
+  }
+  return undefined;
 }
 
 function installForwardingHandlers(
@@ -414,5 +442,43 @@ function closeHttpServer(server: HttpServer): Promise<void> {
   return new Promise((resolve, reject) => {
     server.close((error) => (error === undefined ? resolve() : reject(error)));
     server.closeAllConnections();
+  });
+}
+
+function boundedActivation<T>(
+  activation: Promise<T>,
+  options: IntegrationToolsBridgeActivationOptions | undefined,
+): Promise<T> {
+  if (options?.signal === undefined && options?.timeout === undefined) return activation;
+
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const timeout =
+      options.timeout === undefined
+        ? undefined
+        : setTimeout(() => {
+            settle(() => reject(new Error('Integration tools bridge activation timed out.')));
+          }, options.timeout);
+    const cleanup = () => {
+      if (timeout !== undefined) clearTimeout(timeout);
+      options.signal?.removeEventListener('abort', onAbort);
+    };
+    const settle = (handler: () => void) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      handler();
+    };
+    const onAbort = () =>
+      settle(() =>
+        reject(options.signal?.reason ?? new Error('Integration tools bridge aborted.')),
+      );
+
+    activation.then(
+      (value) => settle(() => resolve(value)),
+      (error: unknown) => settle(() => reject(error)),
+    );
+    if (options.signal?.aborted === true) onAbort();
+    else options.signal?.addEventListener('abort', onAbort, {once: true});
   });
 }

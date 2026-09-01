@@ -1,3 +1,7 @@
+import {
+  agentIntegrationMcpToolName,
+  sanitizeAgentIntegrationConnectionSlug,
+} from '@shipfox/api-agent-dto';
 import {setLeasedJobContext} from '@shipfox/api-auth-context';
 import {workflowsInterModuleContract} from '@shipfox/api-workflows-dto/inter-module';
 import {createInterModuleKnownError} from '@shipfox/inter-module';
@@ -12,10 +16,8 @@ import {
 } from '#test/agent-tools-gateway-helpers.js';
 import {
   createWorkflowsLeasedAgentStepLoader,
-  mcpToolName,
   narrowMethodEnum,
   resolveAuthorizedIntegrationTools,
-  sanitizeSlug,
 } from './resolve-authorized-tools.js';
 
 describe('resolveAuthorizedIntegrationTools', () => {
@@ -215,7 +217,9 @@ describe('resolveAuthorizedIntegrationTools', () => {
 
 describe('MCP tool names', () => {
   it('sanitizes connection slugs without parsing names back apart', () => {
-    expect(sanitizeSlug('github-main')).toBe('github_main');
-    expect(mcpToolName('github-main', 'issue_read')).toBe('github_main__issue_read');
+    expect(sanitizeAgentIntegrationConnectionSlug('github-main')).toBe('github_main');
+    expect(agentIntegrationMcpToolName('github-main', 'issue_read')).toBe(
+      'github_main__issue_read',
+    );
   });
 });

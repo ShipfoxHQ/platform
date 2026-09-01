@@ -1,3 +1,7 @@
+import {
+  AGENT_INTEGRATION_MCP_SERVER_NAME,
+  agentIntegrationMcpToolName,
+} from '@shipfox/api-agent-dto';
 import {logger} from '@shipfox/node-opentelemetry';
 import type {AgentInvocationFailurePhase} from '#core/errors.js';
 import type {HarnessInvocation, RequestedIntegrationTool} from '#core/harness.js';
@@ -5,7 +9,6 @@ import type {HarnessInvocation, RequestedIntegrationTool} from '#core/harness.js
 export type ClaudeToolOmissionReason =
   | 'catalog_resolution'
   | 'runner_capability'
-  | 'allowlist'
   | 'connection_policy'
   | 'sdk_registration';
 
@@ -16,14 +19,26 @@ export interface ClaudeToolOmission {
   readonly reason: ClaudeToolOmissionReason;
 }
 
+export type ClaudeToolCatalogFailureReason = Extract<
+  ClaudeToolOmissionReason,
+  'catalog_resolution' | 'connection_policy'
+>;
+
+export interface ClaudeToolCatalogFailure {
+  readonly server: string;
+  readonly reason: ClaudeToolCatalogFailureReason;
+  readonly errorMessage: string;
+}
+
 interface ClaudeToolDiagnosticsParams {
   readonly invocation: Pick<HarnessInvocation, 'jobExecutionId' | 'stepId' | 'attempt'>;
   readonly requestedTools: readonly RequestedIntegrationTool[];
-  readonly resolvedToolNames: readonly string[];
-  readonly expectedSdkToolNames: readonly string[];
-  readonly sdkToolToIntegrationTool: ReadonlyMap<string, string>;
-  readonly selectedToolNames: readonly string[] | undefined;
-  readonly omissions: readonly ClaudeToolOmission[];
+  readonly resolvedToolNames?: readonly string[];
+  readonly expectedSdkToolNames?: readonly string[];
+  readonly sdkToolToIntegrationTool?: ReadonlyMap<string, string>;
+  readonly selectedToolNames?: readonly string[] | undefined;
+  readonly omissions?: readonly ClaudeToolOmission[];
+  readonly catalogFailures?: readonly ClaudeToolCatalogFailure[];
   readonly requiredOutputCount: number;
 }
 
@@ -40,6 +55,7 @@ export class ClaudeToolDiagnostics {
   readonly #requestedSdkToolNames: ReadonlySet<string>;
   readonly #sdkToolToIntegrationTool: ReadonlyMap<string, string>;
   readonly #selectedToolNames: readonly string[] | undefined;
+  readonly #catalogFailures: readonly ClaudeToolCatalogFailure[];
   readonly #omissions = new Map<string, ClaudeToolOmissionReason>();
   readonly #requiredOutputCount: number;
   readonly #advertisedToolNames = new Set<string>();
@@ -56,22 +72,34 @@ export class ClaudeToolDiagnostics {
     this.#jobExecutionId = params.invocation.jobExecutionId ?? 'unknown';
     this.#stepId = params.invocation.stepId ?? 'unknown';
     this.#attempt = params.invocation.attempt ?? 0;
-    this.#requestedToolNames = uniqueStrings(
+    const requestedToolNames = uniqueStrings(
       params.requestedTools.map((tool) => integrationToolName(tool)),
     );
-    this.#resolvedToolNames = uniqueStrings(params.resolvedToolNames);
-    this.#expectedSdkToolNames = new Set(params.expectedSdkToolNames);
+    this.#requestedToolNames = requestedToolNames;
+    this.#resolvedToolNames = uniqueStrings(params.resolvedToolNames ?? []);
+    const expectedSdkToolNames =
+      params.expectedSdkToolNames ?? requestedToolNames.map((name) => claudeSdkToolName(name));
+    this.#expectedSdkToolNames = new Set(expectedSdkToolNames);
     this.#requestedSdkToolNames = new Set(
       this.#requestedToolNames.map((name) => claudeSdkToolName(name)),
     );
-    this.#sdkToolToIntegrationTool = params.sdkToolToIntegrationTool;
+    this.#sdkToolToIntegrationTool =
+      params.sdkToolToIntegrationTool ??
+      new Map(this.#requestedToolNames.map((name) => [claudeSdkToolName(name), name]));
     this.#selectedToolNames = params.selectedToolNames;
+    this.#catalogFailures = (params.catalogFailures ?? []).slice(0, MAX_DIAGNOSTIC_ENTRIES);
     this.#requiredOutputCount = params.requiredOutputCount;
-    for (const omission of params.omissions) this.#addOmission(omission.toolName, omission.reason);
+    for (const omission of params.omissions ?? []) {
+      this.#addOmission(omission.toolName, omission.reason);
+    }
   }
 
   get failurePhase(): AgentInvocationFailurePhase | undefined {
     return this.#failurePhase;
+  }
+
+  recordPreparationFailure(reason: ClaudeToolOmissionReason): void {
+    for (const toolName of this.#requestedToolNames) this.#addOmission(toolName, reason);
   }
 
   logManifest(): void {
@@ -93,6 +121,11 @@ export class ClaudeToolDiagnostics {
           this.#selectedToolNames === undefined
             ? undefined
             : boundedStrings(this.#selectedToolNames),
+        catalogFailures: this.#catalogFailures.map((failure) => ({
+          server: truncate(failure.server),
+          reason: failure.reason,
+          errorMessage: truncate(failure.errorMessage),
+        })),
         omissions: this.#omissionEntries(),
       },
       'Claude integration tool manifest',
@@ -121,6 +154,7 @@ export class ClaudeToolDiagnostics {
     outputGate: ClaudeToolOutputGate;
     missingOutputCount?: number;
     executionFailed?: boolean;
+    executionCompleted?: boolean;
   }): AgentInvocationFailurePhase | undefined {
     if (this.#outcomeLogged) return this.#failurePhase;
     this.#outcomeLogged = true;
@@ -149,6 +183,11 @@ export class ClaudeToolDiagnostics {
         attemptedIntegrationToolNames: boundedStrings([...this.#attemptedToolNames]),
         failedIntegrationToolCount: this.#failedToolNames.size,
         failedIntegrationToolNames: boundedStrings([...this.#failedToolNames]),
+        catalogFailures: this.#catalogFailures.map((failure) => ({
+          server: truncate(failure.server),
+          reason: failure.reason,
+          errorMessage: truncate(failure.errorMessage),
+        })),
         omissions: this.#omissionEntries(),
       },
       'Claude integration tool outcome',
@@ -167,6 +206,7 @@ export class ClaudeToolDiagnostics {
       const integrationName = this.#sdkToolToIntegrationTool.get(toolName);
       if (integrationName === undefined) continue;
       if (advertised.has(toolName)) {
+        this.#omissions.delete(integrationName);
         this.#advertisedSdkToolNames.add(toolName);
         this.#advertisedToolNames.add(integrationName);
       } else if (!this.#omissions.has(integrationName)) {
@@ -197,6 +237,7 @@ export class ClaudeToolDiagnostics {
     if (typeof name !== 'string' || !this.#expectedSdkToolNames.has(name)) return;
     const integrationName = this.#sdkToolToIntegrationTool.get(name);
     if (integrationName === undefined) return;
+    this.#omissions.delete(integrationName);
     this.#attemptedToolNames.add(integrationName);
     if (typeof toolUseId === 'string') this.#toolUseIds.set(toolUseId, integrationName);
   }
@@ -204,13 +245,18 @@ export class ClaudeToolDiagnostics {
   #classify(params: {
     outputGate: ClaudeToolOutputGate;
     executionFailed?: boolean;
+    executionCompleted?: boolean;
   }): AgentInvocationFailurePhase | undefined {
     if (params.outputGate === 'failed') return 'output_gate_failed';
-    if (this.#omissions.size > 0) return 'requested_tool_omitted';
     if (this.#failedToolNames.size > 0) return 'integration_tool_invocation_failed';
-    if (params.executionFailed === true && this.#attemptedToolNames.size > 0) {
+    if (
+      params.executionFailed === true &&
+      params.executionCompleted !== true &&
+      this.#attemptedToolNames.size > 0
+    ) {
       return 'integration_tool_invocation_failed';
     }
+    if (this.#omissions.size > 0) return 'requested_tool_omitted';
     if (
       this.#requestedSdkToolNames.size > 0 &&
       [...this.#requestedSdkToolNames].some((toolName) => {
@@ -256,15 +302,11 @@ export class ClaudeToolDiagnostics {
 }
 
 export function integrationToolName(tool: RequestedIntegrationTool): string {
-  return `${sanitizeSlug(tool.connectionSlug)}__${tool.toolId}`;
+  return agentIntegrationMcpToolName(tool.connectionSlug, tool.toolId);
 }
 
 export function claudeSdkToolName(integrationName: string): string {
-  return `mcp__shipfox_integration_tools__${integrationName}`;
-}
-
-function sanitizeSlug(slug: string): string {
-  return slug.replaceAll('-', '_');
+  return `mcp__${AGENT_INTEGRATION_MCP_SERVER_NAME}__${integrationName}`;
 }
 
 function isInitMessage(message: unknown): message is Record<string, unknown> {

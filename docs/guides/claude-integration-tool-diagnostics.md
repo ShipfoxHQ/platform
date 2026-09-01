@@ -28,17 +28,28 @@ The runner uses these bounded failure phases:
 | `integration_tool_invocation_failed` | Claude attempted the tool and the tool result failed, or the harness failed after the attempt. |
 | `output_gate_failed` | The harness completed without all declared structured outputs. |
 
+Catalog discovery is best effort and does not delay the Claude invocation beyond
+its bounded lookup window. When discovery fails, `catalogFailures[]` records the
+bridge, a `catalog_resolution` or `connection_policy` reason, and a bounded safe
+error message. The Claude SDK tool advertisement and invocation records remain
+the authority for deciding whether a requested tool was available or called.
+
 The omission reasons identify the boundary that dropped a requested tool:
-`catalog_resolution`, `runner_capability`, `allowlist`, `connection_policy`,
-or `sdk_registration`.
+`catalog_resolution`, `runner_capability`, `connection_policy`, or
+`sdk_registration`. The runner appends requested integration SDK names to a
+configured Claude tool selection, so a configured built-in-tool list cannot
+drop a requested integration tool and is not reported as a separate omission.
 
 ## Join the gateway audit
 
 Search for the `integration tool call audited` log using the same
 `jobExecutionId`. The gateway audit uses `currentStepId` and
-`currentStepAttempt` for the step fields. Compare its `toolId`, `outcome`, and
-`errorCode` with `attemptedIntegrationToolNames` and
-`failedIntegrationToolNames` in the runner outcome.
+`currentStepAttempt` for the step fields. Compare its connection-qualified tool
+name, `outcome`, and `errorCode` with `attemptedIntegrationToolNames` and
+`failedIntegrationToolNames` in the runner outcome. The audit record stores the
+bare `toolId` and `connectionId`; combine the connection's materialized
+`connectionSlug` (replacing `-` with `_`) and the `toolId` with `__`, for example
+`linear_shipfox__get_team`.
 
 No gateway audit record means the model did not reach the authorized gateway
 call. A gateway record with `outcome` `tool-error` or `exception` means the

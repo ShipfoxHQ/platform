@@ -3,7 +3,9 @@ import {
   AGENT_INTEGRATION_MCP_ENDPOINT,
   AGENT_INTEGRATION_MCP_SERVER_NAME,
   AGENT_INTEGRATION_MCP_TRANSPORT,
+  agentIntegrationMcpToolName,
   materializedAgentStepConfigSchema,
+  sanitizeAgentIntegrationConnectionSlug,
 } from './materialized-agent-step-config.js';
 
 const materializedIntegration = {
@@ -188,6 +190,15 @@ describe('materializedAgentStepConfigSchema', () => {
       });
 
     expect(parse).toThrow();
+  });
+});
+
+describe('agentIntegrationMcpToolName', () => {
+  it('uses the gateway namespace for sanitized connection slugs', () => {
+    expect(sanitizeAgentIntegrationConnectionSlug('github-main')).toBe('github_main');
+    expect(agentIntegrationMcpToolName('github-main', 'issue_read')).toBe(
+      'github_main__issue_read',
+    );
   });
 });
 

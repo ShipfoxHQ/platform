@@ -108,12 +108,14 @@ export {
   AGENT_INTEGRATION_MCP_TRANSPORT,
   type AgentIntegrationMcpServerConfigDto,
   agentIntegrationMcpServerSchema,
+  agentIntegrationMcpToolName,
   type MaterializedAgentIntegrationConfigDto,
   type MaterializedAgentIntegrationToolConfigDto,
   type MaterializedAgentStepConfigDto,
   materializedAgentIntegrationSchema,
   materializedAgentIntegrationToolSchema,
   materializedAgentStepConfigSchema,
+  sanitizeAgentIntegrationConnectionSlug,
 } from './materialized-agent-step-config.js';
 export {
   getModelProviderCredentialKeys,
