@@ -33,7 +33,7 @@ export const config = createConfig({
     default: 20,
   }),
   SHIPFOX_PROVISIONER_REGISTRATION_DEADLINE_MS: num({
-    desc: 'How long a created runner container may remain unstarted before the provisioner submits a registration-deadline candidate, in milliseconds. The API authorizes cleanup, and an unavailable API leaves the container in place for retry.',
+    desc: 'How long a created runner container may remain unstarted before the provisioner submits a registration-deadline candidate, in milliseconds. Enable RUNNER_TERMINATION_REASON_REGISTRATION_DEADLINE_ENABLED=true on the API to authorize cleanup; it defaults to false. An unavailable API leaves the container in place for retry.',
     default: 120_000,
   }),
 });

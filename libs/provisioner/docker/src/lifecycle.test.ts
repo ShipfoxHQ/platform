@@ -4,6 +4,7 @@ import type {
   ReportRunnerInstancesBodyDto,
   ReportRunnerInstancesResponseDto,
 } from '@shipfox/api-runners-dto';
+import {MAX_TERMINATION_CANDIDATES} from '@shipfox/api-runners-dto';
 import type {
   ProviderRunnerLaunch,
   ProviderRunnerTracker,
@@ -357,24 +358,38 @@ describe('createDockerLifecycle', () => {
 
   it('keeps stale-created containers when backend reconciliation is unavailable', async () => {
     const error = new Error('api unavailable');
+    let currentTime = NOW;
     const containers = [
       container({
         state: 'created',
         createdAt: new Date('2026-01-01T00:00:00.000Z'),
       }),
+      container({name: 'running-1', state: 'running'}),
     ];
     const engine = fakeEngine({
       containers,
     });
     const client = fakeClient({reconcileErrors: [error, error]});
-    const lifecycle = makeLifecycle({engine, client, registrationDeadlineMs: 60_000});
+    const lifecycle = makeLifecycle({
+      engine,
+      client,
+      now: () => currentTime,
+      registrationDeadlineMs: 60_000,
+    });
 
     await expect(lifecycle.observe()).rejects.toThrow(error);
+    currentTime = new Date(NOW.getTime() + 1_000);
     await expect(lifecycle.observe()).rejects.toThrow(error);
 
     expect(engine.killedAndRemoved).toEqual([]);
     expect(engine.removed).toEqual([]);
     expect(client.reconcileBodies).toHaveLength(2);
+    expect(client.reportBodies.flatMap((body) => body.events.map((event) => event.state))).toEqual([
+      'starting',
+      'running',
+      'starting',
+      'running',
+    ]);
   });
 
   it('marks OOM exits as failed with an oom reason', async () => {
@@ -773,6 +788,82 @@ describe('createDockerLifecycle', () => {
     );
   });
 
+  it('backs off unchanged registration-deadline candidate retries', async () => {
+    let currentTime = NOW;
+    const engine = fakeEngine({
+      containers: [
+        container({
+          state: 'created',
+          createdAt: new Date('2026-01-01T00:00:00.000Z'),
+        }),
+      ],
+    });
+    const client = fakeClient();
+    const lifecycle = makeLifecycle({engine, client, now: () => currentTime});
+
+    await lifecycle.observe();
+    currentTime = new Date(NOW.getTime() + 500);
+    await lifecycle.observe();
+    currentTime = new Date(NOW.getTime() + 1_000);
+    await lifecycle.observe();
+
+    expect(client.reconcileBodies).toHaveLength(2);
+    expect(
+      observability.logger.info.mock.calls.filter(
+        ([fields]) =>
+          fields?.event === 'provisioner.docker.registration_deadline_candidates_submitted',
+      ),
+    ).toHaveLength(1);
+  });
+
+  it('caps and rotates registration-deadline candidate submissions', async () => {
+    const orderedIds = Array.from(
+      {length: MAX_TERMINATION_CANDIDATES + 2},
+      (_, index) => `runner-${index.toString().padStart(3, '0')}`,
+    );
+    const containers = orderedIds.map((name) =>
+      container({
+        name,
+        state: 'created',
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      }),
+    );
+    const engine = fakeEngine({containers});
+    const client = fakeClient();
+    const lifecycle = makeLifecycle({engine, client, registrationDeadlineMs: 60_000});
+
+    await lifecycle.reconcile();
+    await lifecycle.reconcile();
+
+    expect(
+      client.reconcileBodies[0]?.termination_candidates?.map(
+        (candidate) => candidate.provider_runner_id,
+      ),
+    ).toEqual(orderedIds.slice(0, MAX_TERMINATION_CANDIDATES));
+    expect(
+      client.reconcileBodies[1]?.termination_candidates?.map(
+        (candidate) => candidate.provider_runner_id,
+      ),
+    ).toEqual([
+      ...orderedIds.slice(MAX_TERMINATION_CANDIDATES),
+      ...orderedIds.slice(0, MAX_TERMINATION_CANDIDATES - 2),
+    ]);
+    expect(
+      observability.logger.warn.mock.calls.filter(
+        ([fields]) => fields?.event === 'provisioner.docker.registration_deadline_candidate_limit',
+      ),
+    ).toHaveLength(2);
+
+    containers.splice(2);
+    await lifecycle.reconcile();
+
+    expect(
+      client.reconcileBodies[2]?.termination_candidates?.map(
+        (candidate) => candidate.provider_runner_id,
+      ),
+    ).toEqual(orderedIds.slice(0, 2));
+  });
+
   it('terminates a stale-created container only after backend authorization', async () => {
     const engine = fakeEngine({
       containers: [
@@ -802,6 +893,75 @@ describe('createDockerLifecycle', () => {
       state: 'terminated',
       reason: 'registration-deadline',
     });
+  });
+
+  it('revalidates a registration-deadline authorization before killing a container', async () => {
+    const containers = [
+      container({
+        state: 'created',
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      }),
+    ];
+    const engine = fakeEngine({
+      containers,
+      onList: (call) => {
+        if (call === 2) containers[0] = container({state: 'running'});
+      },
+    });
+    const client = fakeClient({
+      reconcileResponse: {
+        runners: [reconciledRunner('runner-1', 'terminate', 'registration-deadline')],
+        terminated_absent_provider_runner_ids: [],
+      },
+    });
+    const lifecycle = makeLifecycle({engine, client, registrationDeadlineMs: 60_000});
+
+    await lifecycle.reconcile();
+    await lifecycle.reconcile();
+
+    expect(engine.killedAndRemoved).toEqual([]);
+    expect(client.reportBodies.flatMap((body) => body.events.map((event) => event.state))).toEqual([
+      'running',
+    ]);
+    expect(observability.logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'runner.container_registration_deadline_termination_skipped',
+        currentState: 'running',
+      }),
+      'Skipped backend registration-deadline termination after the container state changed',
+    );
+  });
+
+  it('does not report termination when backend-authorized registration cleanup fails', async () => {
+    const error = new DockerEngineError('unknown', 'kill failed');
+    const engine = fakeEngine({
+      containers: [
+        container({
+          state: 'created',
+          createdAt: new Date('2026-01-01T00:00:00.000Z'),
+        }),
+      ],
+      killAndRemoveErrors: [error],
+    });
+    const client = fakeClient({
+      reconcileResponse: {
+        runners: [reconciledRunner('runner-1', 'terminate', 'registration-deadline')],
+        terminated_absent_provider_runner_ids: [],
+      },
+    });
+    const lifecycle = makeLifecycle({engine, client, registrationDeadlineMs: 60_000});
+
+    await expect(lifecycle.reconcile()).rejects.toThrow(error);
+    expect(client.reportBodies.flatMap((body) => body.events.map((event) => event.state))).toEqual(
+      [],
+    );
+
+    await lifecycle.reconcile();
+
+    expect(engine.killedAndRemoved).toEqual(['runner-1', 'runner-1']);
+    expect(client.reportBodies.flatMap((body) => body.events.map((event) => event.state))).toEqual([
+      'terminated',
+    ]);
   });
 
   it('reconciles a stale-created container discovered after the first successful tick', async () => {
@@ -864,13 +1024,14 @@ describe('createDockerLifecycle', () => {
 
     await expect(lifecycle.tick()).rejects.toThrow('api down');
     expect(client.reconcileBodies).toHaveLength(1);
-    expect(client.reportBodies).toHaveLength(0);
+    expect(client.reportBodies.map((body) => body.events[0]?.state)).toEqual(['running']);
 
     await lifecycle.tick();
     await lifecycle.tick();
 
     expect(client.reconcileBodies).toHaveLength(2);
     expect(client.reportBodies.map((body) => body.events[0]?.state)).toEqual([
+      'running',
       'running',
       'running',
     ]);
@@ -1095,9 +1256,16 @@ describe('createDockerLifecycle', () => {
 
   it('reports oversized reconciliation as an incomplete provider operation', async () => {
     const engine = fakeEngine({
-      containers: Array.from({length: 5001}, (_, index) =>
-        container({name: `runner-${index}`, state: 'running'}),
-      ),
+      containers: [
+        container({
+          name: 'stale-runner',
+          state: 'created',
+          createdAt: new Date('2026-01-01T00:00:00.000Z'),
+        }),
+        ...Array.from({length: 5000}, (_, index) =>
+          container({name: `runner-${index}`, state: 'running'}),
+        ),
+      ],
     });
     const client = fakeClient();
     const lifecycle = makeLifecycle({engine, client});
@@ -1108,6 +1276,15 @@ describe('createDockerLifecycle', () => {
     expect(client.reportBodies.map((body) => body.events.length)).toEqual([
       1000, 1000, 1000, 1000, 1000, 1,
     ]);
+    expect(observability.logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'provisioner.docker.registration_deadline_candidates_skipped',
+        candidate_count: 1,
+        observed_count: 5001,
+        max_observed: 5000,
+      }),
+      'Skipped Docker registration-deadline candidates because the observed runner set exceeds the API limit',
+    );
   });
 
   it('tick retries backend reconcile after an oversized observed set later fits the API limit', async () => {
@@ -1357,6 +1534,7 @@ function makeLifecycle(
     engine?: ReturnType<typeof fakeEngine>;
     client?: ReturnType<typeof fakeClient>;
     tracker?: ProviderRunnerTracker;
+    now?: () => Date;
     registrationDeadlineMs?: number;
     failedContainerRetentionMs?: number;
     maxRetainedFailedContainers?: number;
@@ -1371,7 +1549,7 @@ function makeLifecycle(
     },
     tracker: args.tracker ?? testTracker(),
     templates: [template],
-    now: () => NOW,
+    now: args.now ?? (() => NOW),
     registrationDeadlineMs: args.registrationDeadlineMs ?? 120_000,
     providerKind: 'docker',
     ...(args.failedContainerRetentionMs !== undefined
@@ -1469,6 +1647,8 @@ function fakeEngine(
     removeError?: Error;
     removeErrors?: Array<Error | undefined>;
     killAndRemoveError?: Error;
+    killAndRemoveErrors?: Array<Error | undefined>;
+    onList?: (call: number) => void;
     onRemove?: () => void;
     events?: string[];
   } = {},
@@ -1482,6 +1662,7 @@ function fakeEngine(
   const removed: string[] = [];
   const killedAndRemoved: string[] = [];
   const removeErrors = [...(options.removeErrors ?? [])];
+  const killAndRemoveErrors = [...(options.killAndRemoveErrors ?? [])];
   let listManagedCalls = 0;
 
   return {
@@ -1504,6 +1685,7 @@ function fakeEngine(
     },
     listManaged: () => {
       listManagedCalls += 1;
+      options.onList?.(listManagedCalls);
       if (options.listError) return Promise.reject(options.listError);
       return Promise.resolve(options.containers ?? []);
     },
@@ -1516,7 +1698,8 @@ function fakeEngine(
     },
     killAndRemove: (name) => {
       killedAndRemoved.push(name);
-      if (options.killAndRemoveError) return Promise.reject(options.killAndRemoveError);
+      const error = killAndRemoveErrors.shift() ?? options.killAndRemoveError;
+      if (error) return Promise.reject(error);
       return Promise.resolve();
     },
   };
