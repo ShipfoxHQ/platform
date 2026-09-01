@@ -4,12 +4,16 @@ import {join} from 'node:path';
 import type {CheckoutTokenResponseDto} from '@shipfox/api-workflows-dto';
 import {logger} from '@shipfox/node-opentelemetry';
 import {
+  classifyCheckoutTokenFailure,
   HTTPError,
   isTransientCheckoutTokenError,
   requestCheckoutToken,
 } from '@shipfox/runner-protocol';
 import {
   type BrokerCredentialInput,
+  type CredentialFailureEvent,
+  type CredentialFailureEventSource,
+  type CredentialFailureKind,
   createCredentialBroker,
   createCredentialSocketServer,
   type GitCredentialHelperConfig,
@@ -25,7 +29,7 @@ import type {KyInstance} from 'ky';
 const GIT_CREDENTIAL_HELPER_COMMAND = 'git-credential-shipfox';
 const MAX_SOCKET_PATH_BYTES = 103;
 
-export interface JobCredentialLifecycle {
+export interface JobCredentialLifecycle extends CredentialFailureEventSource {
   readonly helper: GitCredentialHelperConfig;
   start(): Promise<void>;
   register(credential: PersistedCheckoutCredential): void;
@@ -46,6 +50,7 @@ export function createJobCredentialLifecycle(options: {
   const renewalSignal = AbortSignal.any([options.signal, renewalController.signal]);
 
   const broker = createCredentialBroker({
+    classifyFailure: classifyCredentialFailure,
     renew: async ({repositoryUrl, subject, rejectedGeneration}) => {
       const checkout = parseCheckoutSubject(subject);
       let response: CheckoutTokenResponseDto;
@@ -104,6 +109,11 @@ export function createJobCredentialLifecycle(options: {
       });
       options.registerSecrets([credential.credential.token, basicCredential(credential)]);
     },
+    getFailureEventCursor: () => broker.getFailureEventCursor(),
+    getFailureEventsSince: (cursor: number): readonly CredentialFailureEvent[] =>
+      broker.getFailureEventsSince(cursor),
+    captureFailureEvents: <T>(operation: () => Promise<T>) =>
+      broker.captureFailureEvents(operation),
     close: async () => {
       renewalController.abort();
       try {
@@ -113,6 +123,25 @@ export function createJobCredentialLifecycle(options: {
       }
     },
   };
+}
+
+function classifyCredentialFailure(error: unknown): CredentialFailureKind {
+  const chain = errorChain(error);
+  const httpError = chain.find((cause): cause is HTTPError => cause instanceof HTTPError);
+  if (httpError !== undefined) return classifyCheckoutTokenFailure(httpError);
+  return chain.some((cause) => cause instanceof TransientCredentialRenewalError)
+    ? 'unavailable'
+    : 'failed';
+}
+
+function errorChain(error: unknown): Error[] {
+  const chain: Error[] = [];
+  let current: unknown = error;
+  for (let depth = 0; depth < 4 && current instanceof Error; depth += 1) {
+    chain.push(current);
+    current = current.cause;
+  }
+  return chain;
 }
 
 function credentialSocketPath(

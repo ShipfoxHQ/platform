@@ -210,6 +210,12 @@ const mockCredentialLifecycle = {
   },
   start: vi.fn(async () => undefined),
   register: vi.fn(),
+  getFailureEventCursor: vi.fn(() => 0),
+  getFailureEventsSince: vi.fn(() => []),
+  captureFailureEvents: vi.fn(async (operation: () => Promise<unknown>) => ({
+    value: await operation(),
+    events: [],
+  })),
   close: vi.fn(async () => undefined),
 };
 
@@ -312,6 +318,7 @@ describe('runJob', () => {
     );
     expect(mockRunJobSteps.mock.calls[0]?.[0]).not.toHaveProperty('credentialHelper');
     expect(mockRunJobSteps.mock.calls[0]?.[0]).not.toHaveProperty('registerCheckoutCredential');
+    expect(mockRunJobSteps.mock.calls[0]?.[0]).not.toHaveProperty('credentialFailureEvents');
     expect(mockCreateJobCredentialsDir.mock.invocationCallOrder[0]).toBeLessThan(
       mockCleanupJobCredentials.mock.invocationCallOrder[0] ?? Infinity,
     );
@@ -338,6 +345,7 @@ describe('runJob', () => {
           capability: expect.any(String),
         },
         registerCheckoutCredential: expect.any(Function),
+        credentialFailureEvents: mockCredentialLifecycle,
       }),
     );
     expect(mockCreateJobCredentialsDir).toHaveBeenCalledWith(JOB_CREDENTIALS_DIR);
@@ -357,6 +365,7 @@ describe('runJob', () => {
     expect(mockRunJobSteps).toHaveBeenCalledOnce();
     expect(mockRunJobSteps.mock.calls[0]?.[0]).not.toHaveProperty('credentialHelper');
     expect(mockRunJobSteps.mock.calls[0]?.[0]).not.toHaveProperty('registerCheckoutCredential');
+    expect(mockRunJobSteps.mock.calls[0]?.[0]).not.toHaveProperty('credentialFailureEvents');
     expect(mockCredentialLifecycle.close).toHaveBeenCalledOnce();
     expect(mockCleanupJobCredentials).toHaveBeenCalledOnce();
   });

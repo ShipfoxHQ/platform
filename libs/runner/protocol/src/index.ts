@@ -3,6 +3,8 @@ export {
   ANNOTATION_POST_TIMEOUT_MS,
   type AnnotationWriteOutcome,
   appendStepLogs,
+  type CheckoutTokenFailureKind,
+  classifyCheckoutTokenFailure,
   commitSessionTranscript,
   configuredRunnerLabels,
   createLeaseClient,

@@ -1,6 +1,6 @@
 import type {CheckoutTokenResponseDto, StepErrorReasonDto} from '@shipfox/api-workflows-dto';
 import {logger} from '@shipfox/node-opentelemetry';
-import {HTTPError, requestCheckoutToken} from '@shipfox/runner-protocol';
+import {classifyCheckoutTokenFailure, requestCheckoutToken} from '@shipfox/runner-protocol';
 import {
   ambientGitCredentialSecrets,
   type CheckoutCommandStartMetadata,
@@ -53,7 +53,7 @@ export async function requestCheckoutCredentials(params: {
     });
     return {ok: true, value: checkout};
   } catch (error) {
-    const reason = classifyCheckoutTokenError(error);
+    const reason = CHECKOUT_KIND_REASON[classifyCheckoutTokenFailure(error)];
     writeFailure(
       log,
       scope === 'setup'
@@ -295,43 +295,6 @@ const CHECKOUT_KIND_REASON: Record<CheckoutFailureKind, StepErrorReasonDto> = {
   failed: 'checkout_failed',
   aborted: 'setup_aborted',
 };
-
-// Maps a checkout-token endpoint failure to a reason. Auth denial and the backend's
-// retryable provider signals (429/503, or their typed `code`) get distinct reasons; a
-// missing checkout intent (404) and everything else fold into the generic failure.
-// CheckoutError messages are already redacted in the workspace layer; the token-fetch
-// error never carries credential material.
-function classifyCheckoutTokenError(error: unknown): StepErrorReasonDto {
-  if (!(error instanceof HTTPError)) return 'checkout_failed';
-
-  const {status} = error.response;
-  const code = readErrorCode(error);
-
-  if (status === 401 || status === 403 || code === 'access-denied' || code === 'forbidden') {
-    return 'checkout_auth_failed';
-  }
-  if (
-    status === 429 ||
-    status === 503 ||
-    code === 'rate-limited' ||
-    code === 'timeout' ||
-    code === 'provider-unavailable'
-  ) {
-    return 'checkout_unavailable';
-  }
-  return 'checkout_failed';
-}
-
-// ky consumes the response body to populate `error.data` before throwing, so the body
-// is already read here: `error.response.json()` would throw "Body has already been
-// consumed". Read ky's pre-parsed `data` instead.
-function readErrorCode(error: HTTPError): string | undefined {
-  const body = error.data;
-  if (body && typeof body === 'object' && 'code' in body && typeof body.code === 'string') {
-    return body.code;
-  }
-  return undefined;
-}
 
 function fail(error: unknown, reason: StepErrorReasonDto): StepResult {
   return {

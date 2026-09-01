@@ -1,5 +1,5 @@
 import {mkdir, readFile, writeFile} from 'node:fs/promises';
-import {join} from 'node:path';
+import {isAbsolute, join, relative, sep} from 'node:path';
 import {promisify} from 'node:util';
 import {gunzip, gzip} from 'node:zlib';
 import {
@@ -17,6 +17,7 @@ import {logger} from '@shipfox/node-opentelemetry';
 import {interruptibleSleep, nextBackoffInterval, withJitter} from '@shipfox/node-resilient-loop';
 import {redactSecrets} from '@shipfox/redact';
 import {
+  type CheckoutDestination,
   type CheckoutDestinations,
   type CommandStartMetadata,
   executeCheckoutStep,
@@ -52,8 +53,12 @@ import {
   writeStepAnnotations,
 } from '@shipfox/runner-protocol';
 import {
+  type CredentialFailureEvent,
+  type CredentialFailureEventSource,
+  type CredentialFailureKind,
   createJobLogsDir,
   type GitCredentialHelperConfig,
+  normalizeRepositoryUrl,
   type PersistedCheckoutCredential,
   resolveWorkingDirectory,
 } from '@shipfox/runner-workspace';
@@ -106,6 +111,7 @@ export async function runJobSteps(params: {
   registerSecrets?: (secrets: string[]) => void;
   registerCheckoutCredential?: (credential: PersistedCheckoutCredential) => void;
   credentialHelper?: GitCredentialHelperConfig | undefined;
+  credentialFailureEvents?: CredentialFailureEventSource | undefined;
   signal: AbortSignal;
   cwd: string;
   gitConfigPath: string;
@@ -149,7 +155,7 @@ interface JobStepLoopState {
   agentStatePrepared: boolean;
   ambientGitConfigPath: string | undefined;
   ambientGitConfigSecrets: string[];
-  checkoutDestinations: CheckoutDestinations;
+  checkoutDestinations: TrackedCheckoutDestinations;
   activeStream: LogStreamLifecycle | undefined;
   checkoutRef: string | undefined;
 }
@@ -168,7 +174,14 @@ async function runJobStepIteration(
   if (!pulled || params.signal.aborted) return 'stop';
   params.onLeaseTokenAdopted?.(pulled.leaseToken);
   const {step, attempt} = pulled;
+  const credentialFailureCursor =
+    isCredentialFailureAttributionStep(step) && params.credentialFailureEvents !== undefined
+      ? params.credentialFailureEvents.getFailureEventCursor()
+      : undefined;
   const stepLabel = step.name ?? `step #${step.position}`;
+  const checkoutDestinationsBeforeExecution = snapshotCheckoutDestinations(
+    state.checkoutDestinations,
+  );
   logger().info(
     {
       jobId: params.jobId,
@@ -180,7 +193,7 @@ async function runJobStepIteration(
     `Running ${stepLabel}`,
   );
   const preparation = stepPreparation(params, state, step);
-  const execution = await executeStep({
+  const executeStepParams: Parameters<typeof executeStep>[0] = {
     step,
     attempt,
     cwd: params.cwd,
@@ -202,10 +215,33 @@ async function runJobStepIteration(
     gitConfigPath: params.gitConfigPath,
     ...(params.credentialHelper ? {credentialHelper: params.credentialHelper} : {}),
     ...preparation,
-  });
-  applyStepExecutionState(params, state, execution);
+  };
+  const capturedExecution =
+    credentialFailureCursor === undefined || params.credentialFailureEvents === undefined
+      ? {value: await executeStep(executeStepParams), events: undefined}
+      : await params.credentialFailureEvents.captureFailureEvents(() =>
+          executeStep(executeStepParams),
+        );
+  const execution = capturedExecution.value;
+  applyStepExecutionState(
+    params,
+    state,
+    step,
+    attempt,
+    checkoutDestinationsBeforeExecution,
+    execution,
+  );
   if (params.signal.aborted) return 'stop';
-  return finishStepExecution(params, state, step, attempt, stepLabel, execution);
+  return finishStepExecution(
+    params,
+    state,
+    step,
+    attempt,
+    stepLabel,
+    execution,
+    credentialFailureCursor,
+    capturedExecution.events,
+  );
 }
 
 function stepPreparation(
@@ -236,6 +272,9 @@ function stepPreparation(
 function applyStepExecutionState(
   params: Parameters<typeof runJobSteps>[0],
   state: JobStepLoopState,
+  step: StepDto,
+  attempt: number,
+  checkoutDestinationsBeforeExecution: ReadonlyMap<string, CheckoutDestinationWithSubject>,
   execution: StepExecution,
 ): void {
   state.activeStream = execution.stream;
@@ -251,7 +290,17 @@ function applyStepExecutionState(
     params.registerCheckoutCredential?.(execution.persistedCheckoutCredential);
   }
   if (execution.result.success && execution.result.checkout) {
-    rememberCheckoutDestination(state.checkoutDestinations, execution.result.checkout);
+    const credentialSubject = checkoutCredentialSubject({
+      checkout: execution.result.checkout,
+      previousDestinations: checkoutDestinationsBeforeExecution,
+      persistedCredential: execution.persistedCheckoutCredential,
+      fallback: `${step.id}:${attempt}`,
+    });
+    rememberCheckoutDestination(
+      state.checkoutDestinations,
+      execution.result.checkout,
+      credentialSubject,
+    );
     state.checkoutRef = execution.result.checkout.ref;
   }
 }
@@ -263,6 +312,8 @@ async function finishStepExecution(
   attempt: number,
   stepLabel: string,
   execution: StepExecution,
+  credentialFailureCursor: number | undefined,
+  capturedCredentialFailureEvents: readonly CredentialFailureEvent[] | undefined,
 ): Promise<'continue' | 'stop'> {
   const logOutcome =
     (await settleStream({stream: state.activeStream, signal: params.signal})) ??
@@ -281,7 +332,13 @@ async function finishStepExecution(
   // an abort must not leave a committed attempt invisible to the API.
   if (params.signal.aborted && !settlement.committed) return 'stop';
   const reportSignal = settlement.committed ? new AbortController().signal : params.signal;
-  const {result} = settlement;
+  const result = attributeCredentialFailure({
+    step,
+    result: settlement.result,
+    cursor: credentialFailureCursor,
+    events: capturedCredentialFailureEvents,
+    credentialScopes: execution.credentialScopes,
+  });
   await publishStepAnnotations({
     leaseClient: params.leaseClient,
     step,
@@ -309,15 +366,132 @@ async function finishStepExecution(
   return 'stop';
 }
 
+function isCredentialFailureAttributionStep(step: StepDto): boolean {
+  return step.type === 'agent' || step.type === 'run';
+}
+
+function attributeCredentialFailure(params: {
+  step: StepDto;
+  result: StepResult;
+  cursor: number | undefined;
+  events: readonly CredentialFailureEvent[] | undefined;
+  credentialScopes: readonly CredentialScope[] | undefined;
+}): StepResult {
+  if (
+    params.cursor === undefined ||
+    params.events === undefined ||
+    params.credentialScopes === undefined ||
+    params.result.success ||
+    !isCredentialFailureAttributionStep(params.step) ||
+    params.credentialScopes.length === 0
+  ) {
+    return params.result;
+  }
+
+  const cursor = params.cursor;
+  const failure = params.events.find(
+    (event) =>
+      event.cursor > cursor &&
+      params.credentialScopes?.some(
+        (scope) => scope.repositoryUrl === event.repositoryUrl && scope.subject === event.subject,
+      ),
+  );
+  if (failure === undefined) return params.result;
+
+  const error = params.result.error ?? {message: 'Step failed'};
+  const {agent_config_issue: _agentConfigIssue, ...errorWithoutAgentConfigIssue} = error;
+  return {
+    ...params.result,
+    error: {...errorWithoutAgentConfigIssue, reason: credentialFailureReason(failure.kind)},
+  };
+}
+
+function credentialScopesForStep(params: {
+  checkoutDestinations: ReadonlyMap<string, CheckoutDestinationWithSubject> | undefined;
+  cwd: string;
+  stepCwd: string;
+}): readonly CredentialScope[] {
+  const destinations = [...(params.checkoutDestinations?.values() ?? [])];
+  const relevantDestinations = destinations.filter(
+    (destination) =>
+      params.stepCwd === params.cwd || pathsOverlap(destination.result.path, params.stepCwd),
+  );
+  const scopes = new Map<string, CredentialScope>();
+  for (const destination of relevantDestinations) {
+    if (destination.credentialSubject === undefined) continue;
+    try {
+      const repositoryUrl = normalizeRepositoryUrl(destination.repository);
+      const scope = {repositoryUrl, subject: destination.credentialSubject};
+      scopes.set(`${scope.subject}\u0000${scope.repositoryUrl}`, scope);
+    } catch {
+      // Checkout results are validated before reaching the loop; fail closed for test or
+      // mixed-version data that cannot identify a repository safely.
+    }
+  }
+  return [...scopes.values()];
+}
+
+function pathsOverlap(first: string, second: string): boolean {
+  return isWithinPath(first, second) || isWithinPath(second, first);
+}
+
+function isWithinPath(parent: string, candidate: string): boolean {
+  const distance = relative(parent, candidate);
+  return (
+    distance === '' ||
+    (!distance.startsWith(`..${sep}`) && distance !== '..' && !isAbsolute(distance))
+  );
+}
+
+function credentialFailureReason(kind: CredentialFailureKind): StepErrorReasonDto {
+  switch (kind) {
+    case 'auth':
+      return 'checkout_auth_failed';
+    case 'unavailable':
+      return 'checkout_unavailable';
+    case 'failed':
+      return 'checkout_failed';
+  }
+}
+
 function rememberCheckoutDestination(
-  destinations: CheckoutDestinations,
+  destinations: TrackedCheckoutDestinations,
   checkout: NonNullable<StepResult['checkout']>,
+  credentialSubject: string,
 ): void {
   destinations.set(checkout.path, {
     repository: checkout.repository,
     ref: checkout.ref,
     result: checkout,
+    credentialSubject,
   });
+}
+
+function snapshotCheckoutDestinations(
+  destinations: TrackedCheckoutDestinations,
+): ReadonlyMap<string, CheckoutDestinationWithSubject> {
+  return new Map([...destinations].map(([path, destination]) => [path, {...destination}]));
+}
+
+function checkoutCredentialSubject(params: {
+  previousDestinations: ReadonlyMap<string, CheckoutDestinationWithSubject>;
+  checkout: NonNullable<StepResult['checkout']>;
+  persistedCredential: PersistedCheckoutCredential | undefined;
+  fallback: string;
+}): string {
+  if (params.persistedCredential !== undefined) {
+    return `${params.persistedCredential.checkoutStepId}:${params.persistedCredential.checkoutAttempt}`;
+  }
+  const previous = params.previousDestinations.get(params.checkout.path);
+  if (
+    previous !== undefined &&
+    previous.result.repository === params.checkout.repository &&
+    previous.result.ref === params.checkout.ref &&
+    previous.credentialSubject !== undefined
+  ) {
+    return previous.credentialSubject;
+  }
+  return params.fallback;
 }
 
 export interface PulledStep {
@@ -399,6 +573,7 @@ function isTransientNextStepError(error: unknown): boolean {
 
 export interface StepExecution {
   result: StepResult;
+  credentialScopes?: readonly CredentialScope[] | undefined;
   sessionCommit?: AgentSessionCommitContext | undefined;
   stream?: LogStreamLifecycle | undefined;
   logOutcome?: LogOutcomeDto | undefined;
@@ -408,6 +583,21 @@ export interface StepExecution {
   ambientGitConfigSecrets?: string[] | undefined;
   persistedCheckoutCredential?: PersistedCheckoutCredential | undefined;
 }
+
+type CredentialScope = {
+  repositoryUrl: string;
+  subject: string;
+};
+
+type TrackedCheckoutDestination = CheckoutDestination & {
+  credentialSubject: string;
+};
+
+type TrackedCheckoutDestinations = Map<string, TrackedCheckoutDestination>;
+
+type CheckoutDestinationWithSubject = CheckoutDestination & {
+  credentialSubject?: string;
+};
 
 // Runs one step and always yields a StepResult, never throws: a crash before a result
 // exists (e.g. writing the temp script) becomes a reported failure so the step does not
@@ -518,6 +708,11 @@ export async function executeStep(params: {
     const workingDirectory = await resolveStepWorkingDirectory(cwd, step.config.working_directory);
     if (!workingDirectory.ok) return workingDirectory.execution;
     const stepCwd = workingDirectory.path;
+    const credentialScopes = credentialScopesForStep({
+      checkoutDestinations: params.checkoutDestinations,
+      cwd,
+      stepCwd,
+    });
 
     // Agent steps run the embedded pi harness and forward every session entry into the log
     // pipeline as opaque `agent_session` records. Capture is best-effort: if the spool cannot
@@ -535,7 +730,7 @@ export async function executeStep(params: {
         checkoutRef,
       });
       stream = execution.stream;
-      return execution;
+      return {...execution, credentialScopes};
     }
 
     const execution = await executeRunStepBranch({
@@ -551,7 +746,7 @@ export async function executeStep(params: {
     });
     stream = execution.stream;
     runStream = execution.stream as StepLogStream | undefined;
-    return execution;
+    return {...execution, credentialScopes};
   } catch (error) {
     return crashedStepExecution({
       error,

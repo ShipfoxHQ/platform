@@ -2,17 +2,26 @@ import {mkdir, mkdtemp, readFile, realpath, rm, writeFile} from 'node:fs/promise
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import type {StepDto} from '@shipfox/api-workflows-dto';
-import {HTTPError} from 'ky';
+
+vi.hoisted(() => {
+  process.env.SHIPFOX_API_URL = 'https://api.test';
+  process.env.SHIPFOX_RUNNER_LABELS = 'local';
+});
 
 const requestCheckoutTokenMock = vi.fn();
 const assertGitAvailableMock = vi.fn();
 const checkoutRepositoryMock = vi.fn();
 const writeAmbientGitCredentialMock = vi.fn();
 
-vi.mock('@shipfox/runner-protocol', () => ({
-  requestCheckoutToken: (...args: unknown[]) => requestCheckoutTokenMock(...args),
-  HTTPError,
-}));
+vi.mock('@shipfox/runner-protocol', async () => {
+  const actual = await vi.importActual<typeof import('@shipfox/runner-protocol')>(
+    '@shipfox/runner-protocol',
+  );
+  return {
+    ...actual,
+    requestCheckoutToken: (...args: unknown[]) => requestCheckoutTokenMock(...args),
+  };
+});
 
 vi.mock('@shipfox/runner-workspace', async () => {
   const actual = await vi.importActual<typeof import('@shipfox/runner-workspace')>(

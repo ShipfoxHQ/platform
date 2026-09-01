@@ -488,6 +488,7 @@ export async function runJob(
         ? {
             credentialHelper: credentialLifecycle.helper,
             registerCheckoutCredential: credentialLifecycle.register,
+            credentialFailureEvents: credentialLifecycle,
           }
         : {}),
       signal: ac.signal,

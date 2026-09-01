@@ -3,36 +3,46 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import type {CheckoutTokenResponseDto} from '@shipfox/api-workflows-dto';
 
-const {requestCheckoutTokenMock} = vi.hoisted(() => ({
-  requestCheckoutTokenMock: vi.fn(),
-}));
+const {requestCheckoutTokenMock} = vi.hoisted(() => {
+  process.env.SHIPFOX_API_URL = 'https://api.test';
+  process.env.SHIPFOX_RUNNER_LABELS = 'local';
+  return {requestCheckoutTokenMock: vi.fn()};
+});
 
-vi.mock('@shipfox/runner-protocol', () => ({
-  requestCheckoutToken: (...args: unknown[]) => requestCheckoutTokenMock(...args),
-  isTransientCheckoutTokenError: (error: unknown) =>
-    error instanceof Error &&
-    (error.name === 'AbortError' || error.name === 'TimeoutError' || error instanceof TypeError),
-  HTTPError: class HTTPError extends Error {
-    response: {status: number};
-
-    constructor(status = 500) {
-      super(`HTTP ${status}`);
-      this.response = {status};
-    }
-  },
-}));
+vi.mock('@shipfox/runner-protocol', async () => {
+  const actual = await vi.importActual<typeof import('@shipfox/runner-protocol')>(
+    '@shipfox/runner-protocol',
+  );
+  return {
+    ...actual,
+    requestCheckoutToken: (...args: unknown[]) => requestCheckoutTokenMock(...args),
+  };
+});
 
 const {createJobCredentialLifecycle} = await import('#core/credential-lifecycle.js');
+const {HTTPError} = await import('@shipfox/runner-protocol');
 const {
   requestCredentialSocket,
+  normalizeRepositoryUrl,
   runnerFallbackCredentialSocketOwnerPath,
   runnerFallbackCredentialSocketPath,
+  TransientCredentialRenewalError,
 } = await import('@shipfox/runner-workspace');
 
 const REPOSITORY = 'https://github.com/acme/repo.git';
 const STEP_ID = '00000000-0000-4000-8000-000000000001';
 const LEASE_CLIENT = {} as never;
 type CheckoutRenewal = {mode: 'on-rejection'} | {mode: 'refresh-at'; refresh_at: string};
+
+function buildHTTPError(status: number, data?: unknown): InstanceType<typeof HTTPError> {
+  const error = new HTTPError(
+    new Response(null, {status}),
+    new Request('https://runner.example.test'),
+    {} as ConstructorParameters<typeof HTTPError>[2],
+  );
+  error.data = data;
+  return error;
+}
 
 function checkoutResponse(
   token: string,
@@ -198,6 +208,113 @@ describe('createJobCredentialLifecycle', () => {
     ]);
 
     await lifecycle.close();
+  });
+
+  it.each([
+    [401, undefined, 'auth'],
+    [403, undefined, 'auth'],
+    [401, {code: 'timeout'}, 'auth'],
+    [429, undefined, 'unavailable'],
+    [503, undefined, 'unavailable'],
+    [500, {code: 'rate-limited'}, 'unavailable'],
+    [500, {code: 'timeout'}, 'unavailable'],
+    [500, {code: 'provider-unavailable'}, 'unavailable'],
+    [500, {code: 'access-denied'}, 'auth'],
+    [404, undefined, 'failed'],
+    [500, 'gateway error', 'failed'],
+  ] as const)('records the typed provider failure for HTTP %s', async (status, data, kind) => {
+    const lifecycle = createJobCredentialLifecycle({
+      credentialsDir,
+      leaseClient: LEASE_CLIENT,
+      signal: new AbortController().signal,
+      registerSecrets: vi.fn(),
+      replaceSecrets: vi.fn(),
+      clearSecrets: vi.fn(),
+    });
+    await lifecycle.start();
+    try {
+      lifecycle.register({
+        repositoryUrl: REPOSITORY,
+        checkoutStepId: STEP_ID,
+        checkoutAttempt: 2,
+        credential: {
+          username: 'x-access-token',
+          token: 'initial-token',
+          expiresAt: '2030-01-01T00:00:00.000Z',
+          generation: 'generation-one',
+          renewal: {mode: 'on-rejection'},
+        },
+      });
+      const cursor = lifecycle.getFailureEventCursor();
+      const error = buildHTTPError(status, data);
+      requestCheckoutTokenMock.mockRejectedValueOnce(error);
+
+      await expect(
+        requestCredentialSocket(lifecycle.helper.socketPath, {
+          operation: 'erase',
+          repositoryUrl: REPOSITORY,
+          capability: lifecycle.helper.capability,
+        }),
+      ).resolves.toEqual({version: 1, ok: true});
+
+      expect(lifecycle.getFailureEventsSince(cursor)).toEqual([
+        {
+          cursor: cursor + 1,
+          repositoryUrl: normalizeRepositoryUrl(REPOSITORY),
+          subject: `${STEP_ID}:2`,
+          kind,
+        },
+      ]);
+    } finally {
+      await lifecycle.close();
+    }
+  });
+
+  it('classifies a wrapped transient renewal failure as unavailable', async () => {
+    const lifecycle = createJobCredentialLifecycle({
+      credentialsDir,
+      leaseClient: LEASE_CLIENT,
+      signal: new AbortController().signal,
+      registerSecrets: vi.fn(),
+      replaceSecrets: vi.fn(),
+      clearSecrets: vi.fn(),
+    });
+    await lifecycle.start();
+    try {
+      lifecycle.register({
+        repositoryUrl: REPOSITORY,
+        checkoutStepId: STEP_ID,
+        checkoutAttempt: 2,
+        credential: {
+          username: 'x-access-token',
+          token: 'initial-token',
+          expiresAt: '2030-01-01T00:00:00.000Z',
+          generation: 'generation-one',
+          renewal: {mode: 'on-rejection'},
+        },
+      });
+      const cursor = lifecycle.getFailureEventCursor();
+      requestCheckoutTokenMock.mockRejectedValueOnce(new TransientCredentialRenewalError());
+
+      await expect(
+        requestCredentialSocket(lifecycle.helper.socketPath, {
+          operation: 'erase',
+          repositoryUrl: REPOSITORY,
+          capability: lifecycle.helper.capability,
+        }),
+      ).resolves.toEqual({version: 1, ok: true});
+
+      expect(lifecycle.getFailureEventsSince(cursor)).toEqual([
+        {
+          cursor: cursor + 1,
+          repositoryUrl: normalizeRepositoryUrl(REPOSITORY),
+          subject: `${STEP_ID}:2`,
+          kind: 'unavailable',
+        },
+      ]);
+    } finally {
+      await lifecycle.close();
+    }
   });
 
   it('tracks and removes the owner sidecar for a fallback socket path', async () => {

@@ -18,6 +18,7 @@ import {STEP_ERROR_MESSAGE_MAX_LENGTH, STEP_RESPONSE_MAX_LENGTH} from '@shipfox/
 import {
   AgentRuntimeConfigRequestError,
   appendStepLogs,
+  classifyCheckoutTokenFailure,
   commitSessionTranscript,
   createLeaseClient,
   enrollRunnerControlSession,
@@ -434,6 +435,29 @@ describe('api-client auth contexts', () => {
     aborted.name = 'AbortError';
     expect(isTransientCheckoutTokenError(aborted)).toBe(true);
     expect(isTransientCheckoutTokenError(new TypeError('network unavailable'))).toBe(true);
+  });
+
+  it.each([
+    [401, undefined, 'auth'],
+    [403, undefined, 'auth'],
+    [401, {code: 'timeout'}, 'auth'],
+    [500, {code: 'access-denied'}, 'auth'],
+    [500, {code: 'forbidden'}, 'auth'],
+    [429, undefined, 'unavailable'],
+    [503, undefined, 'unavailable'],
+    [500, {code: 'rate-limited'}, 'unavailable'],
+    [500, {code: 'timeout'}, 'unavailable'],
+    [500, {code: 'provider-unavailable'}, 'unavailable'],
+    [404, undefined, 'failed'],
+    [500, 'gateway error', 'failed'],
+    [500, [], 'failed'],
+    [500, {code: 503}, 'failed'],
+  ] as const)('classifies checkout-token failures consistently for HTTP %s', (status, data, kind) => {
+    expect(classifyCheckoutTokenFailure(checkoutTokenHttpError(status, data))).toBe(kind);
+  });
+
+  it('classifies non-HTTP checkout-token failures as generic failures', () => {
+    expect(classifyCheckoutTokenFailure(new TypeError('network unavailable'))).toBe('failed');
   });
 
   it('requestAgentRuntimeConfig sends the lease token and parses credentials', async () => {

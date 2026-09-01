@@ -1,5 +1,6 @@
 import {
   CredentialBroker,
+  MAX_CREDENTIAL_FAILURE_EVENTS,
   normalizeRepositoryUrl,
   TransientCredentialRenewalError,
 } from '#credential-broker.js';
@@ -121,6 +122,84 @@ describe('credential broker', () => {
       {username: 'runner', token: 'one-b'},
       {username: 'runner', token: 'two-b'},
     ]);
+  });
+
+  it('attaches a capture to a renewal flight that started before the step', async () => {
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => (release = resolve));
+    let resolveStarted!: () => void;
+    const started = new Promise<void>((resolve) => (resolveStarted = resolve));
+    const renew = vi.fn(async () => {
+      resolveStarted();
+      await pending;
+      throw new Error('renewal failed');
+    });
+    const broker = new CredentialBroker({renew, now: () => now});
+    broker.register({
+      repositoryUrl: repository,
+      subject: 'checkout-step:2',
+      credential: {...baseCredential, renewal: {mode: 'on-rejection' as const}},
+    });
+
+    const firstRejection = broker.reject(repository);
+    await started;
+    const capturedRejection = broker.captureFailureEvents(() => broker.reject(repository));
+    release();
+
+    await expect(firstRejection).resolves.toEqual({rejectedGeneration: 'generation-a'});
+    await expect(capturedRejection).resolves.toMatchObject({
+      events: [
+        {
+          cursor: 1,
+          repositoryUrl: 'https://gitea.example/Org/Repo/',
+          subject: 'checkout-step:2',
+          kind: 'failed',
+        },
+      ],
+    });
+  });
+
+  it('starts a rejection-aware renewal after an in-flight refresh settles', async () => {
+    let releaseRefresh!: () => void;
+    const refreshPending = new Promise<void>((resolve) => (releaseRefresh = resolve));
+    let resolveRefreshStarted!: () => void;
+    const refreshStarted = new Promise<void>((resolve) => (resolveRefreshStarted = resolve));
+    const renew = vi
+      .fn()
+      .mockImplementationOnce(async () => {
+        resolveRefreshStarted();
+        await refreshPending;
+        return {...baseCredential, token: 'refresh-token', generation: 'generation-b'};
+      })
+      .mockResolvedValueOnce({
+        ...baseCredential,
+        token: 'rejection-token',
+        generation: 'generation-c',
+        renewal: {mode: 'on-rejection' as const},
+      });
+    const broker = new CredentialBroker({renew, now: () => 5_000});
+    broker.register({repositoryUrl: repository, subject: 'checkout', credential: baseCredential});
+
+    const refreshLookup = broker.lookup(repository);
+    await refreshStarted;
+    const rejection = broker.reject(repository);
+    releaseRefresh();
+
+    await expect(refreshLookup).resolves.toBeUndefined();
+    await expect(rejection).resolves.toEqual({rejectedGeneration: 'generation-a'});
+    await expect(broker.lookup(repository)).resolves.toEqual({
+      username: 'runner',
+      token: 'rejection-token',
+    });
+    expect(renew).toHaveBeenNthCalledWith(1, {
+      repositoryUrl: 'https://gitea.example/Org/Repo/',
+      subject: 'checkout',
+    });
+    expect(renew).toHaveBeenNthCalledWith(2, {
+      repositoryUrl: 'https://gitea.example/Org/Repo/',
+      subject: 'checkout',
+      rejectedGeneration: 'generation-a',
+    });
   });
 
   it('accepts an unchanged opaque credential when its generation is fresh', async () => {
@@ -405,6 +484,7 @@ describe('credential broker', () => {
       token: 'token-a',
     });
     expect(renew).toHaveBeenCalledTimes(1);
+    expect(broker.getFailureEventCursor()).toBe(0);
     await expect(broker.lookup(repository)).resolves.toEqual({
       username: 'runner',
       token: 'token-a',
@@ -425,6 +505,126 @@ describe('credential broker', () => {
     now = 5_500;
     await expect(broker.lookup(repository)).resolves.toBeUndefined();
     expect(renew).toHaveBeenCalledTimes(2);
+  });
+
+  it('records a failure when a rejection renewal returns the same generation', async () => {
+    const renew = vi.fn().mockResolvedValue({...baseCredential});
+    const broker = new CredentialBroker({renew, now: () => now});
+    broker.register({
+      repositoryUrl: repository,
+      subject: 'checkout-step:2',
+      credential: {...baseCredential, renewal: {mode: 'on-rejection' as const}},
+    });
+
+    await broker.reject(repository);
+
+    expect(broker.getFailureEventsSince(0)).toEqual([
+      {
+        cursor: 1,
+        repositoryUrl: 'https://gitea.example/Org/Repo/',
+        subject: 'checkout-step:2',
+        kind: 'failed',
+      },
+    ]);
+  });
+
+  it('does not record a failure for a spontaneous refresh renewal', async () => {
+    const renew = vi.fn().mockRejectedValue(new Error('background renewal failed'));
+    const broker = new CredentialBroker({renew, now: () => 5_000});
+    broker.register({
+      repositoryUrl: repository,
+      subject: 'checkout-step:2',
+      credential: baseCredential,
+    });
+
+    await expect(broker.lookup(repository)).resolves.toBeUndefined();
+
+    expect(broker.getFailureEventCursor()).toBe(0);
+  });
+
+  it('records a rejection-triggered transient failure even while the old credential is usable', async () => {
+    const renew = vi.fn().mockRejectedValue(new TransientCredentialRenewalError());
+    const broker = new CredentialBroker({
+      renew,
+      now: () => now,
+      classifyFailure: () => 'unavailable',
+    });
+    broker.register({
+      repositoryUrl: repository,
+      subject: 'checkout-step:2',
+      credential: {...baseCredential, renewal: {mode: 'on-rejection' as const}},
+    });
+
+    await broker.reject(repository);
+
+    expect(broker.getFailureEventsSince(0)[0]).toMatchObject({
+      repositoryUrl: 'https://gitea.example/Org/Repo/',
+      subject: 'checkout-step:2',
+      kind: 'unavailable',
+    });
+  });
+
+  it('records a classified fatal renewal event without retaining provider details', async () => {
+    const renew = vi.fn().mockRejectedValue(new Error('provider token must not be retained'));
+    const broker = new CredentialBroker({
+      renew,
+      now: () => 5_000,
+      classifyFailure: () => 'auth',
+    });
+    broker.register({
+      repositoryUrl: repository,
+      subject: 'checkout-step:2',
+      credential: {...baseCredential, renewal: {mode: 'on-rejection' as const}},
+    });
+
+    await broker.reject(repository);
+
+    expect(broker.getFailureEventCursor()).toBe(1);
+    expect(broker.getFailureEventsSince(0)).toEqual([
+      {
+        cursor: 1,
+        repositoryUrl: 'https://gitea.example/Org/Repo/',
+        subject: 'checkout-step:2',
+        kind: 'auth',
+      },
+    ]);
+    expect(broker.getFailureEventsSince(1)).toEqual([]);
+    expect(JSON.stringify(broker.getFailureEventsSince(0))).not.toContain('provider token');
+  });
+
+  it('bounds the failure event history while keeping cursors monotonic', async () => {
+    const renew = vi.fn().mockRejectedValue(new Error('renewal failed'));
+    const broker = new CredentialBroker({
+      renew,
+      now: () => 1_000,
+      backoffMs: 0,
+      rejectionCooldownMs: 0,
+    });
+    broker.register({
+      repositoryUrl: repository,
+      subject: 'checkout-step:2',
+      credential: {...baseCredential, renewal: {mode: 'on-rejection' as const}},
+    });
+
+    const captured = await broker.captureFailureEvents(async () => {
+      for (let index = 0; index < MAX_CREDENTIAL_FAILURE_EVENTS + 1; index += 1) {
+        await broker.reject(repository);
+      }
+    });
+
+    expect(broker.getFailureEventCursor()).toBe(MAX_CREDENTIAL_FAILURE_EVENTS + 1);
+    expect(broker.getFailureEventsSince(0)).toHaveLength(MAX_CREDENTIAL_FAILURE_EVENTS);
+    expect(broker.getFailureEventsSince(0)[0]?.cursor).toBe(2);
+    expect(captured.events).toHaveLength(MAX_CREDENTIAL_FAILURE_EVENTS);
+    expect(captured.events[0]?.cursor).toBe(1);
+    expect(broker.getFailureEventsSince(MAX_CREDENTIAL_FAILURE_EVENTS)).toEqual([
+      {
+        cursor: MAX_CREDENTIAL_FAILURE_EVENTS + 1,
+        repositoryUrl: 'https://gitea.example/Org/Repo/',
+        subject: 'checkout-step:2',
+        kind: 'failed',
+      },
+    ]);
   });
 
   it('debounces repeated rejection-triggered renewals after a successful mint', async () => {

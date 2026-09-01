@@ -33,9 +33,32 @@ export type CredentialRenewal = (
   request: CredentialRenewalRequest,
 ) => BrokerCredentialInput | Promise<BrokerCredentialInput>;
 
+export type CredentialFailureKind = 'auth' | 'unavailable' | 'failed';
+
+export type CredentialFailureEvent = {
+  readonly cursor: number;
+  readonly repositoryUrl: string;
+  readonly subject: string;
+  readonly kind: CredentialFailureKind;
+};
+
+export type CredentialFailureClassifier = (error: unknown) => CredentialFailureKind;
+
+export type CredentialFailureCapture<T> = {
+  readonly value: T;
+  readonly events: readonly CredentialFailureEvent[];
+};
+
+export type CredentialFailureEventSource = {
+  getFailureEventCursor(): number;
+  getFailureEventsSince(cursor: number): readonly CredentialFailureEvent[];
+  captureFailureEvents<T>(operation: () => Promise<T>): Promise<CredentialFailureCapture<T>>;
+};
+
 export type CredentialBrokerOptions = {
   now?: () => number;
   renew: CredentialRenewal;
+  classifyFailure?: CredentialFailureClassifier;
   publishSecrets?: (secrets: readonly string[]) => void | Promise<void>;
   replaceSecrets?: (secrets: readonly string[]) => void | Promise<void>;
   clearSecrets?: () => void | Promise<void>;
@@ -54,6 +77,7 @@ export type RejectionResult = {rejectedGeneration?: string};
 
 const TRAILING_SLASHES = /\/+$/;
 const MAX_REPOSITORY_URL_LENGTH = 2_048;
+export const MAX_CREDENTIAL_FAILURE_EVENTS = 128;
 export const DEFAULT_CREDENTIAL_RENEWAL_TIMEOUT_MS = 30_000;
 export const DEFAULT_CREDENTIAL_REJECTION_COOLDOWN_MS = 1_000;
 
@@ -82,11 +106,14 @@ export class TransientCredentialRenewalError extends Error {
 export class CredentialBroker {
   private readonly entries = new Map<string, Entry>();
   private readonly flights = new Map<string, Flight>();
+  private readonly failureEvents: CredentialFailureEvent[] = [];
   private readonly now: () => number;
   private readonly backoffMs: number;
   private readonly rejectionCooldownMs: number;
   private readonly renewalTimeoutMsValue: number;
   private publication: Promise<void> = Promise.resolve();
+  private failureEventCursorValue = 0;
+  private activeFailureCapture: FailureEventCapture | undefined;
   private stopped = false;
 
   constructor(private readonly options: CredentialBrokerOptions) {
@@ -158,8 +185,9 @@ export class CredentialBroker {
       flight.rejectionRequested &&
       flight.rejectedGeneration !== rejectedGeneration;
     await this.renewEntry(entry, rejectedGeneration, true);
-    if ((wasRefreshing || needsFollowUp) && !this.stopped)
-      await this.renewEntry(entry, rejectedGeneration, true);
+    if ((wasRefreshing || needsFollowUp) && !this.stopped) {
+      await this.renewEntry(entry, rejectedGeneration, true, true);
+    }
     return rejectedGeneration === undefined ? {} : {rejectedGeneration};
   }
 
@@ -173,6 +201,28 @@ export class CredentialBroker {
 
   get renewalTimeoutMs(): number {
     return this.renewalTimeoutMsValue;
+  }
+
+  getFailureEventCursor(): number {
+    return this.failureEventCursorValue;
+  }
+
+  getFailureEventsSince(cursor: number): readonly CredentialFailureEvent[] {
+    if (!Number.isSafeInteger(cursor)) return [];
+    return this.failureEvents.filter((event) => event.cursor > cursor);
+  }
+
+  async captureFailureEvents<T>(operation: () => Promise<T>): Promise<CredentialFailureCapture<T>> {
+    const previous = this.activeFailureCapture;
+    const capture: FailureEventCapture = {active: true, events: []};
+    this.activeFailureCapture = capture;
+    try {
+      const value = await operation();
+      return {value, events: [...capture.events]};
+    } finally {
+      capture.active = false;
+      this.activeFailureCapture = previous;
+    }
   }
 
   shutdown(): void {
@@ -243,44 +293,61 @@ export class CredentialBroker {
     entry: Entry,
     rejectedGeneration?: string,
     rejectionRequested = false,
+    bypassBackoff = false,
   ): Promise<void> {
     const flightKey = `${entry.subject}\u0000${entry.url}`;
     const existing = this.flights.get(flightKey);
-    if (existing?.entry === entry) return existing.promise;
-    if (entry.backoffUntil !== undefined && this.now() < entry.backoffUntil)
+    if (existing?.entry === entry) {
+      if (this.activeFailureCapture !== undefined) {
+        existing.failureCaptures.add(this.activeFailureCapture);
+      }
+      return existing.promise;
+    }
+    if (!bypassBackoff && entry.backoffUntil !== undefined && this.now() < entry.backoffUntil)
       return Promise.resolve();
     if (
+      !bypassBackoff &&
       rejectionRequested &&
       entry.rejectionCooldownUntil !== undefined &&
       this.now() < entry.rejectionCooldownUntil
     )
       return Promise.resolve();
 
-    const promise = this.performRenewal(entry, rejectedGeneration, rejectionRequested).finally(
-      () => {
-        if (this.flights.get(flightKey)?.promise === promise) this.flights.delete(flightKey);
-      },
-    );
-    this.flights.set(flightKey, {
+    const failureCaptures = new Set<FailureEventCapture>();
+    if (this.activeFailureCapture !== undefined) failureCaptures.add(this.activeFailureCapture);
+    const flight: Flight = {
       entry,
-      promise,
+      promise: Promise.resolve(),
       rejectionRequested,
       rejectedGeneration,
+      failureCaptures,
+    };
+    const promise = this.performRenewal(flight).finally(() => {
+      if (this.flights.get(flightKey)?.promise === promise) this.flights.delete(flightKey);
     });
+    flight.promise = promise;
+    this.flights.set(flightKey, flight);
     return promise;
   }
 
-  private async performRenewal(
-    entry: Entry,
-    rejectedGeneration: string | undefined,
-    rejectionRequested: boolean,
-  ): Promise<void> {
+  private async performRenewal(flight: Flight): Promise<void> {
+    const {entry} = flight;
     try {
-      const input = await this.requestRenewal(entry, rejectedGeneration);
+      const input = await this.requestRenewal(entry, flight.rejectedGeneration);
       if (this.stopped) return;
       const credential = normalizeCredential(input);
-      if (!this.applyRenewedCredential(entry, credential, rejectedGeneration, rejectionRequested)) {
-        if (this.isCurrentRenewal(entry, rejectionRequested)) recordCredentialRenewal('failure');
+      if (
+        !this.applyRenewedCredential(
+          entry,
+          credential,
+          flight.rejectedGeneration,
+          flight.rejectionRequested,
+        )
+      ) {
+        if (this.isCurrentRenewal(entry, flight.rejectionRequested)) {
+          recordCredentialRenewal('failure');
+          this.recordFailure(entry, 'failed', flight.failureCaptures);
+        }
         return;
       }
       if (this.options.replaceSecrets) {
@@ -288,11 +355,16 @@ export class CredentialBroker {
       } else {
         await this.publish(credential).catch(() => undefined);
       }
-      if (!this.isCurrentRenewal(entry, rejectionRequested)) return;
+      if (!this.isCurrentRenewal(entry, flight.rejectionRequested)) return;
       recordCredentialRenewal('success');
     } catch (error) {
       recordCredentialRenewal('failure');
+      if (this.stopped) return;
+      const current = this.isCurrentRenewal(entry, flight.rejectionRequested);
       this.handleRenewalError(entry, error);
+      if (current && flight.rejectionRequested) {
+        this.recordFailureFromError(entry, error, flight.failureCaptures);
+      }
     }
   }
 
@@ -357,6 +429,41 @@ export class CredentialBroker {
     entry.backoffUntil = this.now() + this.backoffMs;
   }
 
+  private recordFailure(
+    entry: Entry,
+    kind: CredentialFailureKind,
+    failureCaptures: ReadonlySet<FailureEventCapture>,
+  ): void {
+    const event: CredentialFailureEvent = {
+      cursor: ++this.failureEventCursorValue,
+      repositoryUrl: entry.url,
+      subject: entry.subject,
+      kind,
+    };
+    this.failureEvents.push(event);
+    if (this.failureEvents.length > MAX_CREDENTIAL_FAILURE_EVENTS) this.failureEvents.shift();
+    for (const failureCapture of failureCaptures) {
+      if (failureCapture.active && failureCapture.events.length < MAX_CREDENTIAL_FAILURE_EVENTS) {
+        failureCapture.events.push(event);
+      }
+    }
+  }
+
+  private recordFailureFromError(
+    entry: Entry,
+    error: unknown,
+    failureCaptures: ReadonlySet<FailureEventCapture>,
+  ): void {
+    let kind: CredentialFailureKind = 'failed';
+    try {
+      const classified = this.options.classifyFailure?.(error);
+      if (isCredentialFailureKind(classified)) kind = classified;
+    } catch {
+      // A failure classifier is advisory; an invalid classifier result must not break renewal.
+    }
+    this.recordFailure(entry, kind, failureCaptures);
+  }
+
   private publish(credential: BrokerCredential): Promise<void> {
     if (!this.options.publishSecrets) return Promise.resolve();
     const publication = this.publication.then(async () => {
@@ -387,6 +494,12 @@ type Flight = {
   promise: Promise<void>;
   rejectionRequested: boolean;
   rejectedGeneration: string | undefined;
+  failureCaptures: Set<FailureEventCapture>;
+};
+
+type FailureEventCapture = {
+  active: boolean;
+  events: CredentialFailureEvent[];
 };
 
 export function normalizeRepositoryUrl(value: string): string {
@@ -499,4 +612,8 @@ function credentialSecrets(credential: BrokerCredential): string[] {
     credential.token,
     Buffer.from(`${credential.username}:${credential.token}`).toString('base64'),
   ];
+}
+
+function isCredentialFailureKind(value: unknown): value is CredentialFailureKind {
+  return value === 'auth' || value === 'unavailable' || value === 'failed';
 }
