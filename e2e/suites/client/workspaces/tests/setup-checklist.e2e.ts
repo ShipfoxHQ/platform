@@ -59,7 +59,24 @@ test.describe('workspace setup checklist', () => {
       await expect(page).toHaveURL(
         new RegExp(`/w/${workspace.slug}/settings/integrations/?$`, 'u'),
       );
+      let resolveLinearNavigation!: (url: string) => void;
+      const linearNavigation = new Promise<string>((resolve) => {
+        resolveLinearNavigation = resolve;
+      });
+      await page.route('https://linear.app/**', async (route) => {
+        resolveLinearNavigation(route.request().url());
+        await route.fulfill({
+          status: 200,
+          contentType: 'text/html',
+          body: '<!doctype html><title>Linear OAuth</title>',
+        });
+      });
       await integrationsCatalogue.installLink('Linear').click();
+      const navigatedUrl = await linearNavigation;
+      const linearInstallUrl = new URL(navigatedUrl);
+      expect(linearInstallUrl.origin + linearInstallUrl.pathname).toBe(
+        'https://linear.app/oauth/authorize',
+      );
       await createLinearConnection({
         workspaceId: workspace.id,
         organizationId: linearOrganizationId,

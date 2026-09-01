@@ -82,7 +82,12 @@ test.describe('workspace onboarding', () => {
     await sourceControlSetup.skipModelProviderButton().click();
     await expect(page).toHaveURL(new RegExp(`/w/${workspaceSlug}/projects/new/?$`, 'u'));
     await workspaceHome.gotoModelProvider(workspaceSlug as string);
-    await workspaceHome.gotoNewProject(workspaceSlug as string);
+    await expect(page).toHaveURL(new RegExp(`/w/${workspaceSlug}/projects/new/?$`, 'u'), {
+      timeout: SETUP_NAVIGATION_TIMEOUT_MS,
+    });
+    await expect(workspaceHome.createProjectNameField()).toBeVisible({
+      timeout: SETUP_NAVIGATION_TIMEOUT_MS,
+    });
     await workspaceHome.createProject('E2E First Project');
     await expect(page).toHaveURL(new RegExp(`/w/${workspaceSlug}/?$`, 'u'));
     await expect(workspaceSetupChecklist.panel()).toBeVisible();
