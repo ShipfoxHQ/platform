@@ -57,7 +57,9 @@ describe('tool step executor', () => {
       }),
       expect.objectContaining({signal: expect.any(AbortSignal)}),
     );
-    const toolCall = callTool.mock.calls.find(([input]) => input.caller.stepId === stepId);
+    const toolCall = callTool.mock.calls.find(
+      ([input]) => input.caller.kind === 'tool_step' && input.caller.stepId === stepId,
+    );
     expect(toolCall?.[0].tool).not.toHaveProperty('method');
 
     const [step] = await getStepsByJobId(jobId);
