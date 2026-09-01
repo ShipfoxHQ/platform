@@ -5,6 +5,8 @@ type Locator = ReturnType<Page['locator']>;
 type FixtureUse<T> = (fixture: T) => Promise<void>;
 const LAST_WORKSPACE_KEY = 'shipfox.lastWorkspaceId';
 const SETUP_INDICATOR_NAME_RE = /Get started/u;
+const SETUP_STATUS_NAME_RE = /^(?:\d+ of \d+ done|You're set up)$/u;
+const SETUP_DIALOG_NAME_RE = /Get started/u;
 
 function lastWorkspaceStorageKey(principalId: string): string {
   return `${LAST_WORKSPACE_KEY}.principal.${encodeURIComponent(principalId)}`;
@@ -122,7 +124,7 @@ export class WorkspaceSetupChecklistScreen {
   constructor(private readonly page: Page) {}
 
   panel(): Locator {
-    return this.page.getByRole('region', {name: 'Get started'});
+    return this.page.getByRole('main').getByRole('region', {name: 'Get started'});
   }
 
   indicator(): Locator {
@@ -158,15 +160,19 @@ export class WorkspaceSetupChecklistScreen {
   }
 
   completionMessage(): Locator {
-    return this.panel().getByText("You're set up");
+    return this.dialog().getByText("You're set up");
   }
 
   status(): Locator {
-    return this.page.getByRole('status');
+    return this.page.getByRole('status', {name: SETUP_STATUS_NAME_RE});
   }
 
   doneButton(): Locator {
-    return this.page.getByRole('button', {name: 'Done'});
+    return this.dialog().getByRole('button', {name: 'Done', exact: true});
+  }
+
+  dialog(): Locator {
+    return this.page.getByRole('dialog', {name: SETUP_DIALOG_NAME_RE});
   }
 }
 export class MembersSettingsScreen {

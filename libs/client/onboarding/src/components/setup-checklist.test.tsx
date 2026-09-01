@@ -351,7 +351,9 @@ describe('workspace checklist hosts', () => {
     expect(capture).toHaveBeenCalledWith('onboarding_checklist_completed', {host: 'popover'});
     fireEvent.click(trigger);
 
-    expect(await screen.findByRole('status', {name: "You're set up"})).toBeInTheDocument();
+    const status = await screen.findByRole('status', {name: "You're set up"});
+    expect(status).toHaveTextContent("You're set up");
+    expect(status).toHaveAttribute('aria-live', 'polite');
     const dialog = screen.getByRole('dialog');
     expect(dialog).toHaveAttribute('aria-labelledby', trigger.id);
     fireEvent.click(screen.getByRole('button', {name: 'Hide setup guide'}));

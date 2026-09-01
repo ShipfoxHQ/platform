@@ -75,6 +75,8 @@ function WorkspaceSetupIndicatorForWorkspace({workspace}: {workspace: WorkspaceR
 
   const countLabel = checklistCountLabel(queryState.checklist);
   const ariaLabel = `Get started, ${countLabel}`;
+  const statusLabel =
+    queryState.checklist.complete && showCompletion ? "You're set up" : countLabel;
 
   return (
     <>
@@ -82,9 +84,11 @@ function WorkspaceSetupIndicatorForWorkspace({workspace}: {workspace: WorkspaceR
         role="status"
         aria-live="polite"
         aria-atomic="true"
-        aria-label={queryState.checklist.complete && showCompletion ? "You're set up" : countLabel}
+        aria-label={statusLabel}
         className="sr-only"
-      />
+      >
+        {statusLabel}
+      </div>
       <Popover modal={false} open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <Button
