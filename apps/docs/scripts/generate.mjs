@@ -446,6 +446,7 @@ function renderWorkflowSchemaReference() {
       required: ['tool'],
       nested: {
         gate: '#gate-fields',
+        outputs: '#tool-step-outputs',
       },
       types: {
         with: codeType('Record<string, value>'),

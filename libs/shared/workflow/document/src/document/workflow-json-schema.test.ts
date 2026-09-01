@@ -1,4 +1,7 @@
 import {
+  WORKFLOW_DOCUMENT_STEP_OUTPUT_KEY_PATTERN,
+  WORKFLOW_DOCUMENT_STEP_OUTPUTS_MAX_ENTRIES,
+  WORKFLOW_INTERPOLATION_MARKER_PATTERN,
   WORKFLOW_LITERAL_NAME_PATTERN,
   WORKFLOW_SESSION_KEY_MAX_LENGTH,
   WORKFLOW_SESSION_KEY_PATTERN_SOURCE,
@@ -63,13 +66,30 @@ describe('buildWorkflowJsonSchema', () => {
     expect(object(toolOutput)).toMatchObject({
       type: 'string',
       minLength: 1,
-      pattern: '\\$\\{\\{',
+      pattern: WORKFLOW_INTERPOLATION_MARKER_PATTERN.source,
+    });
+    expect(object(object(condition?.then).properties).outputs).toMatchObject({
+      maxProperties: WORKFLOW_DOCUMENT_STEP_OUTPUTS_MAX_ENTRIES,
+      propertyNames: {pattern: WORKFLOW_DOCUMENT_STEP_OUTPUT_KEY_PATTERN.source},
     });
 
     const declarationCondition = objects(step.allOf).find(
       (candidate) => JSON.stringify(candidate.if) === JSON.stringify({not: {required: ['tool']}}),
     );
     expect(declarationCondition).toBeDefined();
+    const declarationOutput = object(
+      object(object(declarationCondition?.then).properties).outputs,
+    ).additionalProperties;
+    expect(declarationOutput).toEqual(
+      expect.objectContaining({
+        anyOf: expect.arrayContaining([
+          expect.objectContaining({enum: ['string', 'number', 'boolean', 'json']}),
+        ]),
+      }),
+    );
+    expect(objects(object(declarationOutput).anyOf)).not.toContainEqual(
+      expect.objectContaining({pattern: WORKFLOW_INTERPOLATION_MARKER_PATTERN.source}),
+    );
   });
 
   it('describes static and dynamic workflow and job name fields', () => {
@@ -179,6 +199,9 @@ describe('buildWorkflowJsonSchema', () => {
     );
     expect(object(checkoutBranch?.not).anyOf).toEqual(
       expect.arrayContaining([expect.objectContaining({required: ['session']})]),
+    );
+    expect(object(checkoutBranch?.not).anyOf).not.toContainEqual(
+      expect.objectContaining({required: ['working_directory']}),
     );
   });
 

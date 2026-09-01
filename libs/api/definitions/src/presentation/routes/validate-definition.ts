@@ -4,9 +4,12 @@ import {
   definitionValidationDiagnosticSchema,
   definitionValidationErrorSchema,
 } from '@shipfox/api-definitions-dto';
+import type {IntegrationsModuleClient} from '@shipfox/api-integration-core-dto/inter-module';
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import {defineRoute} from '@shipfox/node-fastify';
 import {z} from 'zod';
+import {loadIntegrationValidationContext} from '#core/integrations.js';
+import {needsIntegrationValidationContext} from '#core/needs-integration-validation-context.js';
 import {validateDefinition} from '#core/validate-definition.js';
 import {requireProjectAccess} from './project-access.js';
 
@@ -31,6 +34,7 @@ const validationResultSchema = z.union([
 export function buildValidateDefinitionRoute(options: {
   agent: AgentInterModuleClient;
   projects: ProjectsModuleClient;
+  integrations: IntegrationsModuleClient;
 }) {
   return defineRoute({
     method: 'POST',
@@ -44,13 +48,39 @@ export function buildValidateDefinitionRoute(options: {
     },
     handler: async (request) => {
       const {yaml, project_id: projectId} = request.body;
-      const workspaceId =
+      const project =
         projectId === undefined
           ? null
-          : (await requireProjectAccess(request, projectId, options.projects)).workspaceId;
-      const result = validateDefinition(yaml, {
-        agentValidationCatalog: await options.agent.getValidationCatalogV2({workspaceId}),
+          : await requireProjectAccess(request, projectId, options.projects);
+      const workspaceId = project?.workspaceId ?? null;
+      const agentValidationCatalog = await options.agent.getValidationCatalogV2({workspaceId});
+      let result = validateDefinition(yaml, {
+        agentValidationCatalog,
       });
+
+      if (result.valid && needsIntegrationValidationContext(result.definition.document)) {
+        if (project === null) {
+          return {
+            valid: false as const,
+            errors: [
+              {
+                path: 'project_id',
+                message:
+                  '`project_id` is required to validate integration triggers, listeners, agent integrations, and tool steps.',
+              },
+            ],
+          };
+        }
+
+        result = validateDefinition(yaml, {
+          agentValidationCatalog,
+          integrationValidationContext: await loadIntegrationValidationContext(
+            options.integrations,
+            project.workspaceId,
+            project.sourceConnectionId,
+          ),
+        });
+      }
 
       if (result.valid) {
         return {

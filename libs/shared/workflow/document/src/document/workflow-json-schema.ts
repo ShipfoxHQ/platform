@@ -1,9 +1,12 @@
 import {z} from 'zod';
 import {thinkingLevelsForHarness} from './step-enums.js';
 import {
+  WORKFLOW_DOCUMENT_STEP_OUTPUT_KEY_PATTERN,
+  WORKFLOW_DOCUMENT_STEP_OUTPUTS_MAX_ENTRIES,
+  WORKFLOW_INTERPOLATION_MARKER_PATTERN,
   WORKFLOW_LITERAL_NAME_PATTERN,
-  workflowDocumentAgentStepFields,
   workflowDocumentSchema,
+  workflowDocumentStepKindInvalidFields,
   workflowDocumentStepOutputDeclarationSchema,
   workflowDocumentToolStepOutputsSchema,
 } from './workflow-document.js';
@@ -85,52 +88,36 @@ function projectWorkflowValidation(schema: JsonSchema, stepSchema: JsonSchema) {
         {
           required: ['run'],
           not: {
-            anyOf: [
-              ...workflowDocumentAgentStepFields.map((field) => ({required: [field]})),
-              {required: ['checkout']},
-              {required: ['tool']},
-              {required: ['connection']},
-              {required: ['with']},
-            ],
+            anyOf: workflowDocumentStepKindInvalidFields.run.map((field) => ({
+              required: [field],
+            })),
           },
         },
         {
           required: ['prompt'],
           not: {
             anyOf: [
-              {required: ['run']},
-              {required: ['checkout']},
+              ...workflowDocumentStepKindInvalidFields.agent.map((field) => ({
+                required: [field],
+              })),
               {required: ['env']},
-              {required: ['tool']},
-              {required: ['connection']},
-              {required: ['with']},
             ],
           },
         },
         {
           required: ['checkout'],
           not: {
-            anyOf: [
-              {required: ['run']},
-              ...workflowDocumentAgentStepFields.map((field) => ({required: [field]})),
-              {required: ['env']},
-              {required: ['working_directory']},
-              {required: ['tool']},
-              {required: ['connection']},
-              {required: ['with']},
-            ],
+            anyOf: workflowDocumentStepKindInvalidFields.checkout.map((field) => ({
+              required: [field],
+            })),
           },
         },
         {
           required: ['tool'],
           not: {
-            anyOf: [
-              {required: ['run']},
-              ...workflowDocumentAgentStepFields.map((field) => ({required: [field]})),
-              {required: ['checkout']},
-              {required: ['env']},
-              {required: ['working_directory']},
-            ],
+            anyOf: workflowDocumentStepKindInvalidFields.tool.map((field) => ({
+              required: [field],
+            })),
           },
         },
       ],
@@ -167,7 +154,9 @@ function projectWorkflowValidation(schema: JsonSchema, stepSchema: JsonSchema) {
   // Zod refinements are not representable in its JSON Schema projection. Keep
   // the mapping marker in the editor schema; exact expression validation stays
   // in the model layer.
-  toolOutputValue.pattern = '\\$\\{\\{';
+  toolOutputValue.pattern = WORKFLOW_INTERPOLATION_MARKER_PATTERN.source;
+  outputs.maxProperties = WORKFLOW_DOCUMENT_STEP_OUTPUTS_MAX_ENTRIES;
+  outputs.propertyNames = {pattern: WORKFLOW_DOCUMENT_STEP_OUTPUT_KEY_PATTERN.source};
   outputs.additionalProperties = {
     anyOf: [declarationOutputValue, toolOutputValue],
   };

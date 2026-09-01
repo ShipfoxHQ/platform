@@ -1,4 +1,5 @@
 import {buildUserContext, setUserContext} from '@shipfox/api-auth-context';
+import type {IntegrationsModuleClient} from '@shipfox/api-integration-core-dto/inter-module';
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import type {FastifyInstance} from 'fastify';
 import Fastify from 'fastify';
@@ -10,8 +11,10 @@ describe('POST /definitions/validate', () => {
   let app: FastifyInstance;
   let projectId = crypto.randomUUID();
   let workspaceId = crypto.randomUUID();
+  let sourceConnectionId = crypto.randomUUID();
   const getProjectById = vi.fn();
   const getValidationCatalogV2 = vi.fn(() => agentValidationCatalog);
+  const getAgentToolsContext = vi.fn();
 
   beforeAll(async () => {
     app = Fastify();
@@ -33,6 +36,9 @@ describe('POST /definitions/validate', () => {
       buildValidateDefinitionRoute({
         agent: {getValidationCatalogV2} as never,
         projects: {getProjectById} as Pick<ProjectsModuleClient, 'getProjectById'> as never,
+        integrations: {
+          getAgentToolsContext,
+        } as Pick<IntegrationsModuleClient, 'getAgentToolsContext'> as IntegrationsModuleClient,
       }),
     );
     await app.ready();
@@ -41,7 +47,28 @@ describe('POST /definitions/validate', () => {
   beforeEach(() => {
     projectId = crypto.randomUUID();
     workspaceId = crypto.randomUUID();
-    getProjectById.mockResolvedValue({project: {id: projectId, workspaceId}});
+    sourceConnectionId = crypto.randomUUID();
+    getProjectById.mockResolvedValue({project: {id: projectId, workspaceId, sourceConnectionId}});
+    getAgentToolsContext.mockClear();
+    getAgentToolsContext.mockResolvedValue({
+      selectionCatalogs: [],
+      catalogs: [{provider: 'github', tools: []}],
+      workspaceConnections: [
+        {
+          id: sourceConnectionId,
+          slug: 'github-main',
+          provider: 'github',
+          capabilities: ['agent_tools'],
+        },
+      ],
+      eventCatalogs: [],
+      fixedEventProviders: [],
+      defaultConnection: {
+        id: sourceConnectionId,
+        slug: 'github-main',
+        provider: 'github',
+      },
+    });
   });
 
   test('valid YAML returns 200 with { valid: true }', async () => {
@@ -103,6 +130,69 @@ jobs:
     expect(body.valid).toBe(false);
     expect(body.errors).toBeDefined();
     expect(body.errors.length).toBeGreaterThan(0);
+  });
+
+  test('loads integration context when validating a tool step', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/definitions/validate',
+      payload: {
+        project_id: projectId,
+        yaml: `
+name: Tool workflow
+runner: ubuntu-latest
+jobs:
+  inspect:
+    steps:
+      - tool: missing_tool
+`,
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(getAgentToolsContext).toHaveBeenCalledWith({
+      workspaceId,
+      defaultConnectionId: sourceConnectionId,
+    });
+    expect(res.json()).toEqual({
+      valid: false,
+      errors: [
+        {
+          path: 'jobs.inspect.steps.0.tool',
+          message: 'Unknown integration tool: missing_tool.',
+        },
+      ],
+    });
+  });
+
+  test('requires project context when validating a tool step', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/definitions/validate',
+      payload: {
+        yaml: `
+name: Tool workflow
+runner: ubuntu-latest
+jobs:
+  inspect:
+    steps:
+      - tool: missing_tool
+`,
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(getAgentToolsContext).not.toHaveBeenCalled();
+    expect(res.json()).toEqual({
+      valid: false,
+      errors: [
+        {
+          path: 'project_id',
+          message:
+            '`project_id` is required to validate integration triggers, listeners, agent integrations, and tool steps.',
+        },
+      ],
+    });
   });
 
   test('missing body returns 400', async () => {

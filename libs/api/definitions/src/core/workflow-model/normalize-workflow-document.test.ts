@@ -369,8 +369,13 @@ describe('normalizeWorkflowDocument', () => {
               key: 'issue',
               tool: 'issue_read.get',
               connection: 'github-main',
-              with: {owner: 'acme', repo: 'platform', number: 7},
+              with: {
+                owner: 'acme',
+                repo: 'platform',
+                number: interpolation('inputs.issue_number'),
+              },
               outputs: {title: interpolation('result.title')},
+              gate: {success: 'step.outputs.result.title != ""'},
             },
           ],
         },
@@ -385,10 +390,20 @@ describe('normalizeWorkflowDocument', () => {
       key: 'issue',
       tool: {id: 'issue_read', method: 'get'},
       connection: 'github-main',
-      with: {owner: 'acme', repo: 'platform', number: 7},
+      with: {
+        owner: 'acme',
+        repo: 'platform',
+        number: interpolation('inputs.issue_number'),
+      },
       outputs: {title: {type: 'json'}},
       outputMappings: {
         title: {language: 'cel', source: 'result.title'},
+      },
+      templates: {
+        with: {number: [{kind: 'deferred', roots: ['inputs']}]},
+      },
+      gate: {
+        success: expect.objectContaining({source: 'step.outputs.result.title != ""'}),
       },
     });
   });

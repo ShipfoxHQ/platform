@@ -100,12 +100,13 @@ describe('workflowDocumentSchema', () => {
     expect(checkout).toBe(false);
   });
 
-  it('accepts working_directory on run and agent steps', () => {
+  it('accepts working_directory on run, agent, and checkout steps', () => {
     const result = workflowDocumentSchema.safeParse({
       name: 'multi-directory build',
       jobs: {
         build: {steps: [{run: 'make test', working_directory: 'api'}]},
         review: {steps: [{prompt: 'Review the API changes.', working_directory: 'api'}]},
+        checkout: {steps: [{checkout: {}, working_directory: 'api'}]},
       },
     });
 
@@ -1417,14 +1418,22 @@ describe('workflowDocumentSchema', () => {
       jobs: {build: {steps: [step]}},
     });
 
-    const issue = result.success
-      ? undefined
-      : result.error.issues.find(
-          (candidate) => candidate.path.join('.') === `jobs.build.steps.0.${field}`,
-        );
-    let stepKind = 'run';
-    if (_label.startsWith('agent')) stepKind = 'agent';
-    if (_label.startsWith('checkout')) stepKind = 'checkout';
+    const issues = result.success ? [] : result.error.issues;
+    if (_label.startsWith('agent')) {
+      expect(issues).toContainEqual(
+        expect.objectContaining({
+          path: ['jobs', 'build', 'steps', 0, 'tool'],
+          message:
+            'A tool step requires `tool`; `connection` and `with` are only valid alongside it.',
+        }),
+      );
+      return;
+    }
+
+    const issue = issues.find(
+      (candidate) => candidate.path.join('.') === `jobs.build.steps.0.${field}`,
+    );
+    const stepKind = _label.startsWith('checkout') ? 'checkout' : 'run';
     expect(issue?.message).toBe(`"${field}" is not valid on a ${stepKind} step.`);
   });
 
@@ -1583,6 +1592,42 @@ describe('workflowDocumentSchema', () => {
           (candidate) => candidate.path.join('.') === 'jobs.build.steps.0.outputs',
         );
     expect(issue?.message).toBe('The `outputs` declaration form is required on a run step.');
+  });
+
+  it.each([
+    ['run', {run: 'npm run build'}, 'a run'],
+    ['agent', {prompt: 'Review the build.'}, 'an agent'],
+    ['checkout', {checkout: {}}, 'a checkout'],
+  ] as const)('rejects expression-mapped outputs on %s steps', (_kind, step, articleAndKind) => {
+    const result = workflowDocumentSchema.safeParse({
+      name: 'typed outputs',
+      jobs: {
+        build: {
+          steps: [{...step, outputs: {value: interpolation('result.value')}}],
+        },
+      },
+    });
+
+    const issue = result.success
+      ? undefined
+      : result.error.issues.find(
+          (candidate) => candidate.path.join('.') === 'jobs.build.steps.0.outputs',
+        );
+    expect(issue?.message).toBe(
+      `The \`outputs\` declaration form is required on ${articleAndKind} step.`,
+    );
+  });
+
+  it('explains the available kind when a step has no kind', () => {
+    const result = workflowDocumentSchema.safeParse({
+      name: 'missing kind',
+      jobs: {build: {steps: [{name: 'noop'}]}},
+    });
+
+    const issue = result.success ? undefined : result.error.issues[0];
+    expect(issue?.message).toBe(
+      'A step must define either "run", an agent "prompt", a "checkout", or a "tool".',
+    );
   });
 
   it('reports a non-expression output string at its value path', () => {

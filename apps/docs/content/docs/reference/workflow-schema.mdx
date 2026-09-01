@@ -207,6 +207,11 @@ The `with` block contains JSON-compatible tool inputs. String values can use
 workflow expressions. Tool outputs use a mapping from output names to one
 expression over `result` or `vars`.
 
+Tool-step authoring requires a validation API deployment that supports these
+fields. Deploy the editor schema and validation API together; rolling back the
+validation API after tool-step definitions are saved makes those definitions
+fail validation until tool-step support is restored.
+
 ### Tool step outputs
 
 <ToolStepOutputs />

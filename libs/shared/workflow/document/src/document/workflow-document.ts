@@ -12,6 +12,7 @@ export const WORKFLOW_LITERAL_NAME_PATTERN = /^(?:[^$]|\$\$\{\{|\$(?!\{\{))*$/;
 // The inverse of a literal name: a literal prefix followed by an unescaped
 // `${{`. An enum field that also accepts a template matches one or the other.
 export const WORKFLOW_INTERPOLATED_VALUE_PATTERN = /^(?:[^$]|\$\$\{\{|\$(?!\{\{))*\$\{\{/;
+export const WORKFLOW_INTERPOLATION_MARKER_PATTERN = /\$\{\{/;
 export const WORKFLOW_SESSION_KEY_MAX_LENGTH = 128;
 export const WORKFLOW_SESSION_KEY_PATTERN_SOURCE = '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$';
 export const WORKFLOW_SESSION_KEY_PATTERN = new RegExp(WORKFLOW_SESSION_KEY_PATTERN_SOURCE);
@@ -89,7 +90,7 @@ export const workflowDocumentEnvSchema = z
     description: `Environment variables as string, number, or boolean values. Each map allows up to ${WORKFLOW_DOCUMENT_ENV_MAX_ENTRIES} entries and ${WORKFLOW_DOCUMENT_ENV_MAX_SERIALIZED_BYTES} serialized bytes.`,
   });
 
-const workflowDocumentStepOutputKeyPattern = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+export const WORKFLOW_DOCUMENT_STEP_OUTPUT_KEY_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 
 // Tool inputs are a JSON tree: scalars, nested mappings, and sequences. String
 // leaves accept `${{ }}` interpolation; the expression layer validates them.
@@ -309,7 +310,7 @@ const workflowDocumentStepOutputTypeSchema = z.enum(workflowDocumentStepOutputTy
 const workflowDocumentToolStepOutputMappingValueSchema = z
   .string()
   .min(1)
-  .refine((value) => value.includes('$' + '{{'), {
+  .refine((value) => WORKFLOW_INTERPOLATION_MARKER_PATTERN.test(value), {
     message: 'Tool-step output mappings must use a $' + '{{ }} expression.',
   });
 
@@ -382,18 +383,18 @@ export const workflowDocumentStepOutputDeclarationSchema = z
   });
 
 function stepOutputsAreMappingForm(outputs: Readonly<Record<string, unknown>>): boolean {
-  const interpolationOpen = '$' + '{{';
   const values = Object.values(outputs);
   return (
     values.length > 0 &&
-    values.every((value) => typeof value === 'string' && value.includes(interpolationOpen))
+    values.every(
+      (value) => typeof value === 'string' && WORKFLOW_INTERPOLATION_MARKER_PATTERN.test(value),
+    )
   );
 }
 
 function stepOutputsContainMappingForm(outputs: Readonly<Record<string, unknown>>): boolean {
-  const interpolationOpen = '$' + '{{';
   return Object.values(outputs).some(
-    (value) => typeof value === 'string' && value.includes(interpolationOpen),
+    (value) => typeof value === 'string' && WORKFLOW_INTERPOLATION_MARKER_PATTERN.test(value),
   );
 }
 
@@ -407,7 +408,7 @@ function stepOutputsRecordChecks(outputs: Readonly<Record<string, unknown>>, ctx
   }
 
   for (const key of Object.keys(outputs)) {
-    if (workflowDocumentStepOutputKeyPattern.test(key)) continue;
+    if (WORKFLOW_DOCUMENT_STEP_OUTPUT_KEY_PATTERN.test(key)) continue;
     ctx.addIssue({
       code: 'custom',
       path: [key],
@@ -959,6 +960,13 @@ type WorkflowDocumentStepSchemaOutput =
     });
 type WorkflowDocumentStepInput = z.infer<typeof workflowDocumentStepBaseSchema>;
 
+export const workflowDocumentStepKindInvalidFields = {
+  run: [...workflowDocumentAgentStepFields, 'checkout', 'tool', 'connection', 'with'],
+  agent: ['run', 'checkout', 'tool', 'connection', 'with'],
+  checkout: ['run', ...workflowDocumentAgentStepFields, 'env', 'tool', 'connection', 'with'],
+  tool: ['run', ...workflowDocumentAgentStepFields, 'checkout', 'env', 'working_directory'],
+} as const;
+
 export const workflowDocumentStepSchema = workflowDocumentStepBaseSchema
   .superRefine(validateWorkflowDocumentStep)
   .transform<WorkflowDocumentStepSchemaOutput>(
@@ -1025,7 +1033,7 @@ function validateWorkflowDocumentStepOutputs(
   ctx.addIssue({
     code: 'custom',
     path: ['outputs'],
-    message: `The \`outputs\` declaration form is required on a ${stepKind} step.`,
+    message: `The \`outputs\` declaration form is required on ${articleForStepKind(stepKind)} ${stepKind} step.`,
   });
 }
 
@@ -1033,52 +1041,31 @@ function validateWorkflowDocumentRunStep(
   step: WorkflowDocumentStepInput,
   ctx: z.RefinementCtx,
 ): void {
-  addWorkflowDocumentInvalidAgentFields(step, ctx, 'run');
-  addWorkflowDocumentInvalidToolFields(step, ctx, 'run');
+  addWorkflowDocumentInvalidStepFields(step, ctx, 'run', workflowDocumentStepKindInvalidFields.run);
 }
 
 function validateWorkflowDocumentToolStep(
   step: WorkflowDocumentStepInput,
   ctx: z.RefinementCtx,
 ): void {
-  addWorkflowDocumentInvalidStepFields(step, ctx, 'tool', [
-    'run',
-    ...workflowDocumentAgentStepFields,
-    'checkout',
-    'env',
-    'working_directory',
-  ]);
+  addWorkflowDocumentInvalidStepFields(
+    step,
+    ctx,
+    'tool',
+    workflowDocumentStepKindInvalidFields.tool,
+  );
 }
 
 function validateWorkflowDocumentCheckoutStep(
   step: WorkflowDocumentStepInput,
   ctx: z.RefinementCtx,
 ): void {
-  addWorkflowDocumentInvalidStepFields(step, ctx, 'checkout', [
-    'run',
-    ...workflowDocumentAgentStepFields,
-    'tool',
-    'connection',
-    'with',
-    'env',
-    'working_directory',
-  ]);
-}
-
-function addWorkflowDocumentInvalidAgentFields(
-  step: WorkflowDocumentStepInput,
-  ctx: z.RefinementCtx,
-  stepKind: 'checkout' | 'run' | 'tool',
-): void {
-  addWorkflowDocumentInvalidStepFields(step, ctx, stepKind, workflowDocumentAgentStepFields);
-}
-
-function addWorkflowDocumentInvalidToolFields(
-  step: WorkflowDocumentStepInput,
-  ctx: z.RefinementCtx,
-  stepKind: 'agent' | 'checkout' | 'run',
-): void {
-  addWorkflowDocumentInvalidStepFields(step, ctx, stepKind, ['tool', 'connection', 'with']);
+  addWorkflowDocumentInvalidStepFields(
+    step,
+    ctx,
+    'checkout',
+    workflowDocumentStepKindInvalidFields.checkout,
+  );
 }
 
 function addWorkflowDocumentInvalidStepFields(
@@ -1101,7 +1088,7 @@ function addWorkflowDocumentInvalidStepFields(
     ctx.addIssue({
       code: 'custom',
       path: [key],
-      message: `"${key}" is not valid on a ${stepKind} step.`,
+      message: `"${key}" is not valid on ${articleForStepKind(stepKind)} ${stepKind} step.`,
     });
   }
 }
@@ -1110,27 +1097,51 @@ function validateWorkflowDocumentAgentStep(
   step: WorkflowDocumentStepInput,
   ctx: z.RefinementCtx,
 ): void {
-  const isAgent = workflowDocumentAgentStepFields.some((field) => step[field] !== undefined);
-  if (!isAgent) {
-    addWorkflowDocumentInvalidToolFields(step, ctx, 'agent');
-    if (hasToolOnlyField(step)) return;
+  if (hasToolOnlyField(step)) {
+    if (hasInvalidToolOnlyField(step)) return;
     ctx.addIssue({
       code: 'custom',
-      message: 'A step must define either "run", an agent "prompt", or "checkout".',
+      path: ['tool'],
+      message: 'A tool step requires `tool`; `connection` and `with` are only valid alongside it.',
+    });
+    return;
+  }
+  const isAgent = workflowDocumentAgentStepFields.some((field) => step[field] !== undefined);
+  if (!isAgent) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'A step must define either "run", an agent "prompt", a "checkout", or a "tool".',
     });
     return;
   }
   if (step.env !== undefined) {
     ctx.addIssue({code: 'custom', path: ['env'], message: '"env" is supported only on run steps.'});
   }
-  addWorkflowDocumentInvalidToolFields(step, ctx, 'agent');
+  addWorkflowDocumentInvalidStepFields(
+    step,
+    ctx,
+    'agent',
+    workflowDocumentStepKindInvalidFields.agent,
+  );
   if (step.prompt === undefined) {
     ctx.addIssue({code: 'custom', path: ['prompt'], message: 'An agent step requires "prompt".'});
   }
 }
 
 function hasToolOnlyField(step: WorkflowDocumentStepInput): boolean {
-  return step.tool !== undefined || step.connection !== undefined || step.with !== undefined;
+  return step.tool === undefined && (step.connection !== undefined || step.with !== undefined);
+}
+
+function hasInvalidToolOnlyField(step: WorkflowDocumentStepInput): boolean {
+  return (
+    step.tool === undefined &&
+    step.connection !== undefined &&
+    (step.connection.length === 0 || !WORKFLOW_LITERAL_NAME_PATTERN.test(step.connection))
+  );
+}
+
+function articleForStepKind(stepKind: 'agent' | 'checkout' | 'run' | 'tool'): 'a' | 'an' {
+  return stepKind === 'agent' ? 'an' : 'a';
 }
 
 const workflowDocumentJobOutputsSchema = nonEmptyRecordSchema(z.string().min(1)).superRefine(
