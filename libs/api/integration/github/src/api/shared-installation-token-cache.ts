@@ -543,6 +543,7 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
     let profile = parseRawEnvelope(profileRaw, installationId);
     let backoff = latestBackoff(
       backoffRaws.map((backoffRaw) => parseRawEnvelope(backoffRaw, installationId)),
+      this.now(),
     );
     const fixedEnvelope = parseRawEnvelope(fixedEnvelopeRaw, installationId);
     const legacy = parseRawEnvelope(legacyRaw, installationId);
@@ -660,8 +661,10 @@ function parseRawEnvelope(
 
 function latestBackoff(
   envelopes: readonly (InstallationTokenEnvelope | undefined)[],
+  now: Date,
 ): InstallationTokenEnvelope | undefined {
   let latest: InstallationTokenEnvelope | undefined;
+  let latestActiveTerminal: InstallationTokenEnvelope | undefined;
   for (const envelope of envelopes) {
     if (envelope?.backoffUntil === undefined || envelope.backoffReason === undefined) continue;
     const latestBackoffUntil = latest?.backoffUntil;
@@ -672,8 +675,16 @@ function latestBackoff(
     ) {
       latest = envelope;
     }
+    const latestActiveTerminalUntil = latestActiveTerminal?.backoffUntil;
+    if (
+      envelope.backoffUntil > now &&
+      mintErrorClassForReason(envelope.backoffReason) === 'terminal' &&
+      (latestActiveTerminalUntil === undefined || envelope.backoffUntil > latestActiveTerminalUntil)
+    ) {
+      latestActiveTerminal = envelope;
+    }
   }
-  return latest;
+  return latestActiveTerminal ?? latest;
 }
 
 class InstallationTokenMintFailure extends Error {

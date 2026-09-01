@@ -89,9 +89,10 @@ function cache(
 function setEnvelope(
   store: {values: Map<string, string>},
   envelope: Parameters<typeof encodeInstallationTokenEnvelope>[0],
+  permissionFingerprint = GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT,
 ) {
   store.values.set(
-    `${workspaceId}:${installationId}:${githubInstallationTokenKey(GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT)}`,
+    `${workspaceId}:${installationId}:${githubInstallationTokenKey(permissionFingerprint)}`,
     encodeInstallationTokenEnvelope(envelope),
   );
 }
@@ -244,6 +245,38 @@ describe('SharedInstallationTokenCache', () => {
         `${workspaceId}:${installationId}:${githubInstallationTokenBackoffKey(GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT)}`,
       ),
     ).toContain('provider-unavailable');
+  });
+
+  it('preserves an active terminal backoff over a later transient backoff', async () => {
+    const store = createStore();
+    setEnvelope(
+      store,
+      {
+        ...token('ghs_existing', '2026-06-10T11:04:30.000Z'),
+      },
+      'broad',
+    );
+    store.values.set(
+      `${workspaceId}:${installationId}:${githubInstallationTokenBackoffKey('broad')}`,
+      encodeInstallationTokenEnvelope({
+        backoffUntil: new Date('2026-06-10T11:10:00.000Z'),
+        backoffReason: 'provider-rejected',
+      }),
+    );
+    store.values.set(
+      `${workspaceId}:${installationId}:${githubInstallationTokenBackoffKey(GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT)}`,
+      encodeInstallationTokenEnvelope({
+        backoffUntil: new Date('2026-06-10T11:15:00.000Z'),
+        backoffReason: 'provider-unavailable',
+      }),
+    );
+    const mint = vi.fn(() => Promise.resolve(token('ghs_new')));
+    const shared = cache({store});
+
+    await expect(shared.getOrMint(installationId, 'broad', mint)).rejects.toMatchObject({
+      reason: 'provider-rejected',
+    });
+    expect(mint).not.toHaveBeenCalled();
   });
 
   it('shares one mint between two concurrent cache replicas', async () => {
