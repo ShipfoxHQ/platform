@@ -48,8 +48,10 @@ src/metrics/
 
 Use snake_case names prefixed with the module, such as
 `runners_job_claimed` or `workflows_pending_runs`. Do not append `_total` to a
-counter. Do not append a unit suffix to a histogram name. The exporter derives
-those suffixes. Set `unit: 'ms'` and explicit histogram buckets where they help.
+counter. Histogram names normally omit a unit suffix when the exporter derives
+one. The API Prometheus exporter emits histogram names verbatim, so keep an
+explicit suffix when the owning metric contract requires one. Set `unit: 'ms'`
+and explicit histogram buckets where they help.
 
 Metric labels must be bounded and low-cardinality. Use an outcome, reason, type,
 conclusion, provider, or operating system. Never use an identifier, raw URL, or
