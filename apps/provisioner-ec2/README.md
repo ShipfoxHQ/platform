@@ -15,10 +15,11 @@ Copy [`templates.example.yaml`](templates.example.yaml). Set
 `SHIPFOX_PROVISIONER_TEMPLATES_FILE` to that copy. Set `target_concurrency` above
 zero to keep ready runners without demand.
 
-The AMI must include the Shipfox runner and its shutdown watchdog. `shipfox-bootstrap.service`
+The AMI must include the Shipfox runner lifecycle units. `shipfox-bootstrap.service`
 reads IMDSv2 user data and writes `/etc/shipfox/runner.env`. It formats and mounts the separate
 workspace volume at `/var/lib/shipfox/workspaces` before the runner starts. The AMI reads that
-file and shuts down when its watchdog exits.
+file and shuts down when its runner service exits. Compatibility images accept the legacy
+`SHIPFOX_RUNNER_MAX_LIFETIME_SECONDS` key without scheduling an age-based shutdown.
 
 ### AMI migration
 
@@ -75,7 +76,7 @@ remain continuous.
 | `SHIPFOX_PROVISIONER_MAX_RESERVATIONS` | no | `250` | Largest demand reservation request. |
 | `SHIPFOX_PROVISIONER_RUNNER_INSTANCE_BATCH_SIZE` | no | `250` | Runner instances created per control-plane request. |
 | `SHIPFOX_RUNNER_POLL_MAX_DURATION_MS` | no | `300000` | Idle polling lifetime injected into each runner. |
-| `SHIPFOX_RUNNER_MAX_LIFETIME_SECONDS` | no | `3600` | Hard lifetime injected into each runner watchdog. |
+| `SHIPFOX_RUNNER_MAX_LIFETIME_SECONDS` | no | `3600` | Legacy lifetime key retained in user data while old images remain in the rollback window; timer-free images accept it without scheduling age-based shutdown. |
 
 ## Development
 

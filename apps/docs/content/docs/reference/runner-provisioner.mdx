@@ -34,7 +34,7 @@ This page is the canonical reference for configuring the Docker runner provision
 | `SHIPFOX_PROVISIONER_REGISTRATION_DEADLINE_MS` | `120000` | How long a created container may stay unstarted before the provisioner reaps it as stale. |
 | `SHIPFOX_PROVISIONER_DOCKER_FAILED_CONTAINER_RETENTION_MS` | `3600000` | How long failed runner containers remain stopped for forensic inspection. Set to `0` to disable retention. |
 | `SHIPFOX_PROVISIONER_DOCKER_MAX_RETAINED_FAILED_CONTAINERS` | `20` | Maximum number of failed runner containers retained per provisioner. Set to `0` to disable retention. |
-| `SHIPFOX_RUNNER_MAX_LIFETIME_SECONDS` | `3600` | Hard maximum lifetime injected into each runner. Set it above the longest permitted job so a runner terminates if its provisioner is unavailable. |
+| `SHIPFOX_RUNNER_MAX_LIFETIME_SECONDS` | `3600` | Legacy lifetime value retained for older runner images. Timer-free images accept it without scheduling age-based shutdown. |
 
 ## Docker logging and failed-container forensics
 

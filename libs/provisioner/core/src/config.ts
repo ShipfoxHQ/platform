@@ -46,7 +46,7 @@ export const config = createConfig({
     default: 300_000,
   }),
   SHIPFOX_RUNNER_MAX_LIFETIME_SECONDS: num({
-    desc: 'Hard maximum lifetime injected into each runner as SHIPFOX_RUNNER_MAX_LIFETIME_SECONDS, in seconds. Set it above the longest permitted job so a runner always self-terminates if the provisioner is unavailable.',
+    desc: 'Legacy lifetime value emitted as SHIPFOX_RUNNER_MAX_LIFETIME_SECONDS for compatibility with older runner images. Timer-free images accept it without scheduling age-based shutdown.',
     default: 3600,
   }),
 });

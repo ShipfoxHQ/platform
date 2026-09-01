@@ -923,6 +923,8 @@ describe('systemd boot activation', () => {
     expect(systemdDirective(unit, 'Service', 'ExecStart')).toBe(
       '/opt/shipfox-runner/scripts/runtime/run-runner.sh /usr/local/bin/node dist/index.js',
     );
+    expect(systemdDirective(unit, 'Unit', 'SuccessAction')).toBe('poweroff-immediate');
+    expect(systemdDirective(unit, 'Unit', 'FailureAction')).toBe('poweroff-immediate');
     expect(systemdDirective(unit, 'Service', 'StandardOutput')).toBe('journal+console');
     expect(unit).not.toContain('--enable-source-maps');
   });
@@ -1013,9 +1015,71 @@ describe('systemd boot activation', () => {
       'network-online.target shipfox-runner-env.service',
     );
     expect(systemdDirective(targetUnit, 'Unit', 'Wants')).toBe(
-      'network-online.target shipfox-runner.service shipfox-max-lifetime.service',
+      'network-online.target shipfox-runner.service',
     );
     expect(systemdDirective(targetUnit, 'Unit', 'Requires')).toBe('shipfox-runner-env.service');
+  });
+
+  it('accepts the legacy lifetime key without shipping an age timer', async () => {
+    const targetUnit = await readUnit('shipfox-runner.target');
+    const bootstrap = await readFile(
+      new URL('../scripts/runtime/shipfox-bootstrap.sh', import.meta.url),
+      'utf8',
+    );
+    const build = await readFile(new URL('../build.pkr.hcl', import.meta.url), 'utf8');
+    const readme = await readFile(new URL('../README.md', import.meta.url), 'utf8');
+    const fixtureRoot = await mkdtemp(join(tmpdir(), 'shipfox-runner-legacy-env-'));
+
+    try {
+      await expect(
+        readFile(new URL('../assets/shipfox-max-lifetime.service', import.meta.url), 'utf8'),
+      ).rejects.toMatchObject({code: 'ENOENT'});
+      await expect(
+        readFile(new URL('../scripts/runtime/start-max-lifetime.sh', import.meta.url), 'utf8'),
+      ).rejects.toMatchObject({code: 'ENOENT'});
+
+      const legacyEnvironmentPath = join(fixtureRoot, 'runner.env');
+      await writeFile(
+        legacyEnvironmentPath,
+        [
+          'SHIPFOX_API_URL="https://api.shipfox.io"',
+          'SHIPFOX_RUNNER_BOOTSTRAP_TOKEN="bootstrap-token"',
+          'SHIPFOX_RUNNER_PROVIDER_KIND="ec2"',
+          'SHIPFOX_RUNNER_PROTOCOL_VERSION="1"',
+          'SHIPFOX_RUNNER_LABELS="linux"',
+          'SHIPFOX_RUNNER_WORKSPACE_ROOT="/var/lib/shipfox/workspaces"',
+          'SHIPFOX_POLL_MAX_DURATION_MS="300000"',
+          'SHIPFOX_RUNNER_MAX_LIFETIME_SECONDS="3600"',
+          '',
+        ].join('\n'),
+      );
+      const validateStart = bootstrap.indexOf('validate_runner_env() {');
+      const validateEnd = bootstrap.indexOf('\nfetch_user_data() {', validateStart);
+      expect(validateStart).toBeGreaterThanOrEqual(0);
+      expect(validateEnd).toBeGreaterThan(validateStart);
+      expect(() =>
+        execFileSync(
+          '/bin/sh',
+          [
+            '-c',
+            `set -eu\n${bootstrap.slice(validateStart, validateEnd)}\nvalidate_runner_env "$1"`,
+            'sh',
+            legacyEnvironmentPath,
+          ],
+          {stdio: 'pipe'},
+        ),
+      ).not.toThrow();
+
+      expect(bootstrap).toContain('SHIPFOX_RUNNER_MAX_LIFETIME_SECONDS');
+      expect(bootstrap).not.toContain('RUNNER_PREFERRED_RETIREMENT_AGE_SECONDS');
+      expect(targetUnit).not.toContain('shipfox-max-lifetime.service');
+      expect(build).not.toContain('shipfox-max-lifetime.service');
+      expect(build).not.toContain('start-max-lifetime.sh');
+      expect(readme).toContain('does not schedule an age-based poweroff');
+      expect(readme).not.toContain('RUNNER_PREFERRED_RETIREMENT_AGE_SECONDS');
+    } finally {
+      await rm(fixtureRoot, {force: true, recursive: true});
+    }
   });
 
   it('keeps lifecycle units behind the fail-closed environment gate', async () => {
@@ -1027,13 +1091,6 @@ describe('systemd boot activation', () => {
         wants: 'network-online.target time-sync.target',
         wantedBy: undefined,
         requires: 'shipfox-runner-env.service shipfox-runner-boot-complete.service',
-      },
-      {
-        name: 'shipfox-max-lifetime.service',
-        after: 'network-online.target shipfox-runner-env.service',
-        wants: 'network-online.target',
-        wantedBy: undefined,
-        requires: 'shipfox-runner-env.service',
       },
       {
         name: 'shipfox-spot-watchdog.service',
@@ -1108,6 +1165,8 @@ describe('systemd boot activation', () => {
     );
     expect(systemdDirective(bootstrapUnit, 'Install', 'WantedBy')).toBe('multi-user.target');
     expect(source).toContain('X-aws-ec2-metadata-token-ttl-seconds: 21600');
+    expect(source).toContain('SHIPFOX_RUNNER_MAX_LIFETIME_SECONDS');
+    expect(source).not.toContain('RUNNER_PREFERRED_RETIREMENT_AGE_SECONDS');
     expect(source).toContain('--request PUT');
     expect(source).toContain('/latest/user-data');
     expect(source).toContain("awk '{print int($1)}' /proc/uptime");

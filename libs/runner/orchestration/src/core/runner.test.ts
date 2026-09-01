@@ -1,3 +1,7 @@
+import {mkdtemp, open, readFile, rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+
 vi.mock('#config.js', () => ({
   config: {
     SHIPFOX_POLL_INTERVAL_MS: 1,
@@ -5,6 +9,7 @@ vi.mock('#config.js', () => ({
     SHIPFOX_POLL_MAX_DURATION_MS: 1,
     SHIPFOX_HEARTBEAT_INTERVAL_MS: 10_000,
     SHIPFOX_HEARTBEAT_MAX_STALE_MS: 10_000,
+    SHIPFOX_BOOT_CONSOLE_FD: undefined,
     SHIPFOX_RUNNER_PROVIDER_KIND: 'ec2',
     SHIPFOX_RUNNER_PROTOCOL_VERSION: '1',
   },
@@ -188,6 +193,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.spyOn(Math, 'random').mockReturnValue(0);
   setPollConfig({interval: 1, maxInterval: 5, maxDuration: 1});
+  setConsoleFd(undefined);
   mockResolveWorkspaceRoot.mockReturnValue(WORKSPACE_ROOT);
   isPiExtensionAvailableMock.mockReturnValue(true);
   mockRequireRunnerLabels.mockReturnValue(['local']);
@@ -547,6 +553,92 @@ describe('startRunner', () => {
     expect(mockRegisterRunnerSession).toHaveBeenCalledTimes(1);
     expect(mockRequestJob).toHaveBeenCalledTimes(1);
     expect(mockInterruptibleSleep).toHaveBeenCalledTimes(1);
+  });
+
+  it('emits one bounded success shutdown intent to the logger and console', async () => {
+    const consoleFile = await createConsoleMarkerFile();
+    try {
+      setConsoleFd(consoleFile.fd);
+      const info = vi.spyOn(logger(), 'info').mockImplementation(() => undefined);
+      mockRequestJob.mockRejectedValue(new RunnerSessionExhaustedError());
+
+      await startRunner();
+
+      const marker = JSON.parse(await readFile(consoleFile.path, 'utf8')) as Record<
+        string,
+        unknown
+      >;
+      expect(marker).toEqual({
+        level: 30,
+        time: expect.any(Number),
+        event: 'runner.shutdown_intent',
+        console_marker: 'runner_shutdown_intent',
+        reason: 'success',
+        msg: 'runner.shutdown_intent',
+      });
+      expect(info).toHaveBeenCalledWith(
+        {
+          event: 'runner.shutdown_intent',
+          console_marker: 'runner_shutdown_intent',
+          reason: 'success',
+        },
+        'runner.shutdown_intent',
+      );
+      expect(
+        info.mock.calls.filter(([, message]) => message === 'runner.shutdown_intent'),
+      ).toHaveLength(1);
+    } finally {
+      await consoleFile.cleanup();
+    }
+  });
+
+  it('emits a controlled-exit shutdown intent after a graceful signal', async () => {
+    const consoleFile = await createConsoleMarkerFile();
+    try {
+      setConsoleFd(consoleFile.fd);
+      mockRequestJob.mockImplementation(() => {
+        process.emit('SIGTERM');
+        return Promise.resolve(JOB);
+      });
+
+      await startRunner();
+
+      expect(JSON.parse(await readFile(consoleFile.path, 'utf8'))).toEqual(
+        expect.objectContaining({
+          event: 'runner.shutdown_intent',
+          console_marker: 'runner_shutdown_intent',
+          reason: 'controlled-exit',
+          msg: 'runner.shutdown_intent',
+        }),
+      );
+    } finally {
+      await consoleFile.cleanup();
+    }
+  });
+
+  it('emits a fatal-failure shutdown intent before propagating a poll failure', async () => {
+    const consoleFile = await createConsoleMarkerFile();
+    try {
+      setConsoleFd(consoleFile.fd);
+      const pollError = new Error('api unavailable');
+      mockRequestJob.mockRejectedValue(pollError);
+      vi.spyOn(Date, 'now').mockImplementation(() =>
+        mockRequestJob.mock.calls.length === 0 ? 0 : 2,
+      );
+
+      await expect(startRunner()).rejects.toBe(pollError);
+
+      expect(JSON.parse(await readFile(consoleFile.path, 'utf8'))).toEqual(
+        expect.objectContaining({
+          event: 'runner.shutdown_intent',
+          console_marker: 'runner_shutdown_intent',
+          reason: 'fatal-failure',
+          msg: 'runner.shutdown_intent',
+        }),
+      );
+    } finally {
+      await consoleFile.cleanup();
+    }
   });
 
   it('does not wait for orphan log cleanup before managed bootstrap', async () => {
@@ -927,4 +1019,28 @@ function setPollConfig(values: {
     mutableConfig.SHIPFOX_POLL_MAX_INTERVAL_MS = values.maxInterval;
   if (values.maxDuration !== undefined)
     mutableConfig.SHIPFOX_POLL_MAX_DURATION_MS = values.maxDuration;
+}
+
+function setConsoleFd(fd: number | undefined): void {
+  const mutableConfig = runnerConfig as {SHIPFOX_BOOT_CONSOLE_FD: number | undefined};
+  mutableConfig.SHIPFOX_BOOT_CONSOLE_FD = fd;
+}
+
+async function createConsoleMarkerFile(): Promise<{
+  fd: number;
+  path: string;
+  cleanup: () => Promise<void>;
+}> {
+  const root = await mkdtemp(join(tmpdir(), 'shipfox-runner-shutdown-'));
+  const path = join(root, 'console.log');
+  const handle = await open(path, 'w');
+
+  return {
+    fd: handle.fd,
+    path,
+    cleanup: async () => {
+      await handle.close();
+      await rm(root, {force: true, recursive: true});
+    },
+  };
 }
