@@ -114,6 +114,16 @@ const toolCallOutcome = z.discriminatedUnion('outcome', [
     status: z.number().int().min(100).max(599).optional(),
   }),
 ]);
+export const repositoryAuthorizationErrorCodes = {
+  notGranted: 'repository-not-granted',
+  ambiguous: 'repository-ambiguous',
+  storeUnavailable: 'repository-authorization-unavailable',
+} as const;
+const repositoryAuthorizationErrors = {
+  [repositoryAuthorizationErrorCodes.notGranted]: z.object({}),
+  [repositoryAuthorizationErrorCodes.ambiguous]: z.object({}),
+  [repositoryAuthorizationErrorCodes.storeUnavailable]: z.object({}),
+};
 const toolCallErrors = {
   'connection-not-found': z.object({connectionId: id}),
   'connection-inactive': z.object({connectionId: id}),
@@ -121,6 +131,7 @@ const toolCallErrors = {
   'connection-provider-changed': z.object({connectionId: id}),
   'provider-unavailable': z.object({provider}),
   'capability-unavailable': z.object({provider, capability}),
+  ...repositoryAuthorizationErrors,
 };
 const providerError = z.object({
   reason: z.string(),
@@ -134,6 +145,10 @@ const sourceErrors = {
   'capability-unavailable': z.object({provider, capability}),
   'checkout-unsupported': z.object({provider}),
   'provider-failure': providerError,
+};
+const checkoutErrors = {
+  ...sourceErrors,
+  ...repositoryAuthorizationErrors,
 };
 
 const refErrors = {
@@ -198,7 +213,7 @@ export const integrationsInterModuleContract = defineInterModuleContract({
         credentials: checkoutCredentials.optional(),
         gitAuthor: z.object({name: z.string(), email: z.string()}).optional(),
       }),
-      errors: sourceErrors,
+      errors: checkoutErrors,
     },
     createCheckoutCredentials: {
       input: checkoutInput
@@ -208,7 +223,7 @@ export const integrationsInterModuleContract = defineInterModuleContract({
         })
         .superRefine(requireCheckoutTarget),
       output: checkoutCredentials,
-      errors: sourceErrors,
+      errors: checkoutErrors,
     },
     getAgentToolsContext: {
       input: z.object({workspaceId: id, defaultConnectionId: id}),

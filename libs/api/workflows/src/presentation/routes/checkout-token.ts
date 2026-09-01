@@ -1,6 +1,7 @@
 import {
   type IntegrationsModuleClient,
   integrationsInterModuleContract,
+  repositoryAuthorizationErrorCodes,
 } from '@shipfox/api-integration-core-dto/inter-module';
 import {
   type ProjectsModuleClient,
@@ -203,6 +204,24 @@ function throwIntegrationCheckoutError(
         status: providerFailureStatus(details.reason),
       });
     }
+    case repositoryAuthorizationErrorCodes.notGranted:
+      throw new ClientError(
+        'Checkout repository is not authorized for this workspace',
+        repositoryAuthorizationErrorCodes.notGranted,
+        {status: 404},
+      );
+    case repositoryAuthorizationErrorCodes.ambiguous:
+      throw new ClientError(
+        'Checkout repository target is ambiguous',
+        repositoryAuthorizationErrorCodes.ambiguous,
+        {status: 409},
+      );
+    case repositoryAuthorizationErrorCodes.storeUnavailable:
+      throw new ClientError(
+        'Repository authorization is unavailable',
+        repositoryAuthorizationErrorCodes.storeUnavailable,
+        {status: 503},
+      );
     default:
       throw error;
   }

@@ -1,6 +1,17 @@
-import {integrationsInterModuleContract} from './inter-module.js';
+import {
+  integrationsInterModuleContract,
+  repositoryAuthorizationErrorCodes,
+} from './inter-module.js';
 
 describe('integrationsInterModuleContract', () => {
+  test('owns the repository authorization error codes', () => {
+    expect(repositoryAuthorizationErrorCodes).toEqual({
+      notGranted: 'repository-not-granted',
+      ambiguous: 'repository-ambiguous',
+      storeUnavailable: 'repository-authorization-unavailable',
+    });
+  });
+
   test('accepts a nullable normalized trigger reference', () => {
     const result = integrationsInterModuleContract.methods.resolveTriggerReference.output.parse({
       externalRepositoryId: 'github:42',
@@ -178,6 +189,16 @@ describe('integrationsInterModuleContract', () => {
   });
 
   test.each([
+    'repository-not-granted',
+    'repository-ambiguous',
+    'repository-authorization-unavailable',
+  ] as const)('defines the %s checkout failure', (code) => {
+    const schema = integrationsInterModuleContract.methods.createCheckoutSpec.errors[code];
+
+    expect(schema.parse({})).toEqual({});
+  });
+
+  test.each([
     ['ref-not-found', {ref: 'refs/heads/missing'}],
     ['ref-invalid', {ref: 'a'.repeat(40)}],
   ] as const)('defines the %s ref failure', (code, details) => {
@@ -328,5 +349,15 @@ describe('integrationsInterModuleContract', () => {
       ];
 
     expect(schema.parse(details)).toEqual(details);
+  });
+
+  test.each([
+    'repository-not-granted',
+    'repository-ambiguous',
+    'repository-authorization-unavailable',
+  ] as const)('defines the %s callTool failure', (code) => {
+    const schema = integrationsInterModuleContract.methods.callTool.errors[code];
+
+    expect(schema.parse({})).toEqual({});
   });
 });

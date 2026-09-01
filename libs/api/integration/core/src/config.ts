@@ -5,6 +5,10 @@ export const config = createConfig({
     desc: 'Enables the cron integration provider so workflow schedules can use the built-in cron source. It is enabled by default because it does not require provider setup.',
     default: true,
   }),
+  INTEGRATIONS_ENABLE_REPOSITORY_AUTHORIZATION: bool({
+    desc: 'Enables the provider-free repository authorization guard. It is disabled by default while repository authorization is rolled out.',
+    default: false,
+  }),
   INTEGRATIONS_ENABLE_GITEA_PROVIDER: bool({
     desc: 'Enables the Gitea integration provider so users can connect a Gitea instance.',
     default: false,
