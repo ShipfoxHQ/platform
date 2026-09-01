@@ -578,6 +578,7 @@ describe('GiteaSourceControlProvider', () => {
       expect(result).toEqual({
         repositoryUrl: 'https://gitea.example.com/shipfox/platform.git',
         ref: 'feature/x',
+        target: {kind: 'external-id', externalRepositoryId: 'gitea:shipfox/platform'},
         credentials: {
           username: 'shipfox-bot',
           token: 'test-service-token',

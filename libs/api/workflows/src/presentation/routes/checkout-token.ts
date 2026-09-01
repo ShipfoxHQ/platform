@@ -292,6 +292,12 @@ function throwIntegrationCheckoutError(
         repositoryAuthorizationErrorCodes.storeUnavailable,
         {status: 503},
       );
+    case repositoryAuthorizationErrorCodes.targetInvalid:
+      throw new ClientError(
+        'Checkout repository target is invalid',
+        repositoryAuthorizationErrorCodes.targetInvalid,
+        {status: 409},
+      );
     default:
       throw error;
   }

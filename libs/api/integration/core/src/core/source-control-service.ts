@@ -27,6 +27,9 @@ import type {
   RepositoryAuthorizationResult,
   RepositoryAuthorizer,
 } from './repository-authorizer.js';
+import {RepositoryAuthorizationTargetInvalidError} from './repository-authorizer.js';
+
+export type AuthorizedCheckoutSpec = CheckoutSpec & {target: CheckoutTarget};
 
 export interface IntegrationSourceControlService {
   getConnection(connectionId: string): Promise<IntegrationConnection>;
@@ -36,7 +39,7 @@ export interface IntegrationSourceControlService {
   resolveSourceRef(input: ResolveSourceRefInput): Promise<ResolvedRef>;
   listFiles(input: ListSourceFilesInput): Promise<FilePage>;
   fetchFile(input: FetchSourceFileInput): Promise<FileSnapshot>;
-  createCheckoutSpec(input: CreateSourceCheckoutSpecInput): Promise<CheckoutSpec>;
+  createCheckoutSpec(input: CreateSourceCheckoutSpecInput): Promise<AuthorizedCheckoutSpec>;
   createCheckoutCredentials(
     input: CreateSourceCheckoutCredentialsInput,
   ): Promise<CheckoutCredentials>;
@@ -228,13 +231,17 @@ export function createSourceControlIntegrationService({
         getRepositoryAuthorizationMode,
       });
 
-      return await sourceControl.createCheckoutSpec({
+      const spec = await sourceControl.createCheckoutSpec({
         connection,
         target,
         ...(projectId === undefined ? {} : {projectId}),
         ref,
         permissions,
       });
+      return {
+        ...spec,
+        target: checkoutSpecTarget(target, spec.target),
+      };
     },
 
     async createCheckoutCredentials(input) {
@@ -316,10 +323,17 @@ function checkoutTargetFromAuthorization(
       name: authorization.repository.name,
     };
   }
-  throw new IntegrationProviderError(
-    'malformed-provider-response',
-    'Repository authorizer returned an empty authorized target',
-  );
+  throw new RepositoryAuthorizationTargetInvalidError();
+}
+
+function checkoutSpecTarget(
+  target: CheckoutTarget,
+  providerTarget: CheckoutSpec['target'],
+): CheckoutTarget {
+  // Name targets are the only form whose provider response can add a stable
+  // identity for credential renewal. An authorizer's external-id decision is
+  // already canonical and must remain authoritative for every other input.
+  return target.kind === 'name' && providerTarget?.kind === 'external-id' ? providerTarget : target;
 }
 
 function checkoutTarget(input: CheckoutTargetInput): CheckoutTarget {

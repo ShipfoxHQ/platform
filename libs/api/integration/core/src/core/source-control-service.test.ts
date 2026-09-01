@@ -6,8 +6,11 @@ import {
 } from './errors.js';
 import {createIntegrationProviderRegistry} from './providers/registry.js';
 import type {RepositorySnapshot, SourceControlProvider} from './providers/source-control.js';
-import type {RepositoryAuthorizer} from './repository-authorizer.js';
-import {createRepositoryAuthorizer} from './repository-authorizer.js';
+import {
+  createRepositoryAuthorizer,
+  RepositoryAuthorizationTargetInvalidError,
+  type RepositoryAuthorizer,
+} from './repository-authorizer.js';
 import {createSourceControlIntegrationService} from './source-control-service.js';
 
 const repository: RepositorySnapshot = {
@@ -267,6 +270,7 @@ describe('integration source-control service', () => {
     expect(result).toEqual({
       repositoryUrl: 'https://gitea.local/gitea-owner/platform.git',
       ref: 'feature/x',
+      target: {kind: 'external-id', externalRepositoryId: 'gitea:gitea-owner/platform'},
     });
     expect(createCheckoutSpec).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -384,6 +388,10 @@ describe('integration source-control service', () => {
       async (input: Parameters<NonNullable<SourceControlProvider['createCheckoutSpec']>>[0]) => ({
         repositoryUrl: repository.cloneUrl,
         ref: input.ref ?? repository.defaultBranch,
+        target: {
+          kind: 'external-id' as const,
+          externalRepositoryId: repository.externalRepositoryId,
+        },
       }),
     );
     const resolveRepositoryAuthorization = vi.fn().mockResolvedValue({
@@ -415,6 +423,32 @@ describe('integration source-control service', () => {
     });
   });
 
+  it('rejects an invalid authorized target before calling the provider', async () => {
+    const createCheckoutSpec = vi.fn();
+    const resolveRepositoryAuthorization = vi.fn().mockResolvedValue({
+      authorized: true,
+      repository: {},
+    } as const);
+    const service = createService(
+      {createCheckoutSpec},
+      {
+        repositoryAuthorizer: {
+          enabled: true,
+          resolveRepositoryAuthorization,
+        },
+      },
+    );
+
+    await expect(
+      service.createCheckoutSpec({
+        workspaceId,
+        connectionId: connection.id,
+        target: {kind: 'name', owner: 'acme', name: 'platform'},
+      }),
+    ).rejects.toBeInstanceOf(RepositoryAuthorizationTargetInvalidError);
+    expect(createCheckoutSpec).not.toHaveBeenCalled();
+  });
+
   it('does not query Projects for an all-mode name target', async () => {
     const getProjectBySource = vi.fn();
     const findProjectBySourceRepositoryName = vi.fn();
@@ -429,6 +463,10 @@ describe('integration source-control service', () => {
       async (input: Parameters<NonNullable<SourceControlProvider['createCheckoutSpec']>>[0]) => ({
         repositoryUrl: repository.cloneUrl,
         ref: input.ref ?? repository.defaultBranch,
+        target: {
+          kind: 'external-id' as const,
+          externalRepositoryId: repository.externalRepositoryId,
+        },
       }),
     );
     const service = createService(
@@ -439,10 +477,15 @@ describe('integration source-control service', () => {
       },
     );
 
-    await service.createCheckoutSpec({
+    const result = await service.createCheckoutSpec({
       workspaceId,
       connectionId: connection.id,
       target: {kind: 'name', owner: 'acme', name: 'unassociated'},
+    });
+
+    expect(result.target).toEqual({
+      kind: 'external-id',
+      externalRepositoryId: repository.externalRepositoryId,
     });
 
     expect(createCheckoutSpec).toHaveBeenCalledWith({

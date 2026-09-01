@@ -9,6 +9,7 @@ describe('integrationsInterModuleContract', () => {
       notGranted: 'repository-not-granted',
       ambiguous: 'repository-ambiguous',
       storeUnavailable: 'repository-authorization-unavailable',
+      targetInvalid: 'repository-authorization-target-invalid',
     });
   });
 
@@ -192,10 +193,21 @@ describe('integrationsInterModuleContract', () => {
     'repository-not-granted',
     'repository-ambiguous',
     'repository-authorization-unavailable',
+    'repository-authorization-target-invalid',
   ] as const)('defines the %s checkout failure', (code) => {
     const schema = integrationsInterModuleContract.methods.createCheckoutSpec.errors[code];
 
     expect(schema.parse({})).toEqual({});
+  });
+
+  test('requires the provider-resolved checkout target in a checkout spec', () => {
+    const output = integrationsInterModuleContract.methods.createCheckoutSpec.output.parse({
+      repositoryUrl: 'https://github.com/shipfox/platform.git',
+      ref: 'main',
+      target: {kind: 'external-id', externalRepositoryId: 'github:42'},
+    });
+
+    expect(output.target).toEqual({kind: 'external-id', externalRepositoryId: 'github:42'});
   });
 
   test.each([

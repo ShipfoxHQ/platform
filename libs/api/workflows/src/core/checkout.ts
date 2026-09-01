@@ -109,22 +109,22 @@ export async function createStepCheckoutSpec({
     'project' in target
       ? await projects.resolveCheckoutTarget({
           workspaceId,
-          defaults: {
-            connectionId: defaultProject.sourceConnectionId,
-            owner: defaultOwner(defaultProject.sourceRepositoryOwner, checkout.repository),
-          },
           target,
         })
-      : {
+      : repositoryCheckoutTarget({
           connectionId: target.connection ?? defaultProject.sourceConnectionId,
-          target: repositoryTarget(
+          defaultProject,
+          repository: repositoryTarget(
             target.repository,
             defaultOwner(defaultProject.sourceRepositoryOwner, target.repository),
             step.id,
           ),
-        };
+        });
   if (resolvedTarget === undefined) {
-    throw new CheckoutIntentUnresolvedError({kind: 'project', value: projectId});
+    throw new CheckoutIntentUnresolvedError({
+      kind: 'project',
+      value: 'project' in target ? target.project : projectId,
+    });
   }
   const ref = resolveCheckoutRef({checkout, triggerReference, run, resolvedTarget, projectId});
   const permissions = checkout.permissions ?? {contents: 'read'};
@@ -208,13 +208,14 @@ function checkoutResult(
 ) {
   const credentials = checkoutCredentials(response.credentials);
   const persistCredentials = checkout.persist_credentials ?? true;
+  const renewalTarget = response.target ?? target.target;
   const renewalSubject =
-    credentials === undefined || !persistCredentials || target.target.kind !== 'external-id'
+    credentials === undefined || !persistCredentials || renewalTarget.kind !== 'external-id'
       ? undefined
       : {
           repositoryUrl: normalizeRepositoryUrl(response.repositoryUrl),
           connectionId: target.connectionId,
-          externalRepositoryId: target.target.externalRepositoryId,
+          externalRepositoryId: renewalTarget.externalRepositoryId,
           permissions: target.permissions,
         };
   return {
@@ -260,13 +261,17 @@ function parseCheckoutConfig(step: Step): CheckoutConfig {
   return result.data;
 }
 
+type CheckoutTargetSelection =
+  | {project: string}
+  | {connection?: string | undefined; repository: string};
+
 async function checkoutTarget(params: {
   checkout: CheckoutConfig;
   defaultProjectId: string;
   defaultConnectionId: string;
   integrations: IntegrationsModuleClient;
   workspaceId: string;
-}) {
+}): Promise<CheckoutTargetSelection> {
   const {checkout} = params;
   if (checkout.project !== undefined) return {project: checkout.project};
   if (checkout.repository !== undefined) {
@@ -279,10 +284,9 @@ async function checkoutTarget(params: {
             defaultConnectionId: params.defaultConnectionId,
             slug: checkout.connection,
           });
-    return {
-      ...(connection === undefined ? {} : {connection}),
-      repository: checkout.repository,
-    };
+    return connection === undefined
+      ? {repository: checkout.repository}
+      : {connection, repository: checkout.repository};
   }
   return {project: params.defaultProjectId};
 }
@@ -307,6 +311,42 @@ function repositoryTarget(
         owner: repository.slice(0, separator),
         name: repository.slice(separator + 1),
       };
+}
+
+function repositoryCheckoutTarget(params: {
+  connectionId: string;
+  defaultProject: {
+    id: string;
+    sourceConnectionId: string;
+    sourceExternalRepositoryId: string;
+    sourceRepositoryOwner?: string | null | undefined;
+    sourceRepositoryName?: string | null | undefined;
+  };
+  repository: {kind: 'name'; owner: string; name: string};
+}) {
+  const isSameProjectRepository =
+    params.connectionId === params.defaultProject.sourceConnectionId &&
+    params.defaultProject.sourceRepositoryOwner !== null &&
+    params.defaultProject.sourceRepositoryOwner !== undefined &&
+    params.defaultProject.sourceRepositoryName !== null &&
+    params.defaultProject.sourceRepositoryName !== undefined &&
+    params.repository.owner.toLowerCase() ===
+      params.defaultProject.sourceRepositoryOwner.toLowerCase() &&
+    params.repository.name.toLowerCase() ===
+      params.defaultProject.sourceRepositoryName.toLowerCase();
+
+  if (isSameProjectRepository) {
+    return {
+      projectId: params.defaultProject.id,
+      connectionId: params.connectionId,
+      target: {
+        kind: 'external-id' as const,
+        externalRepositoryId: params.defaultProject.sourceExternalRepositoryId,
+      },
+    };
+  }
+
+  return {connectionId: params.connectionId, target: params.repository};
 }
 
 async function resolveConnectionId(params: {

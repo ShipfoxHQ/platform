@@ -237,7 +237,6 @@ describe('Projects checkout target inter-module presentation', () => {
     await expect(
       client.resolveCheckoutTarget({
         workspaceId,
-        defaults: {connectionId: crypto.randomUUID(), owner: 'other'},
         target: {project: project.projectId},
       }),
     ).resolves.toEqual({
@@ -247,124 +246,6 @@ describe('Projects checkout target inter-module presentation', () => {
         kind: 'external-id',
         externalRepositoryId: project.externalRepositoryId,
       },
-    });
-  });
-
-  test('resolves a bare repository name against the default owner', async () => {
-    const client = createClient();
-    const workspaceId = crypto.randomUUID();
-    const connectionId = crypto.randomUUID();
-    await insertProject({
-      workspaceId,
-      connectionId,
-      owner: 'AcMe',
-      name: 'Api',
-    });
-
-    await expect(
-      client.resolveCheckoutTarget({
-        workspaceId,
-        defaults: {connectionId, owner: 'acme'},
-        target: {repository: 'api'},
-      }),
-    ).resolves.toEqual({
-      connectionId,
-      target: {kind: 'name', owner: 'acme', name: 'api'},
-    });
-  });
-
-  test('resolves an owner/name repository case-insensitively', async () => {
-    const client = createClient();
-    const workspaceId = crypto.randomUUID();
-    const connectionId = crypto.randomUUID();
-    await insertProject({
-      workspaceId,
-      connectionId,
-      owner: 'AcMe',
-      name: 'Api',
-    });
-
-    await expect(
-      client.resolveCheckoutTarget({
-        workspaceId,
-        defaults: {connectionId, owner: 'other'},
-        target: {repository: 'aCmE/aPI'},
-      }),
-    ).resolves.toEqual({
-      connectionId,
-      target: {kind: 'name', owner: 'aCmE', name: 'aPI'},
-    });
-  });
-
-  test('uses an explicit connection to select between identical repositories', async () => {
-    const client = createClient();
-    const workspaceId = crypto.randomUUID();
-    const defaultConnectionId = crypto.randomUUID();
-    const explicitConnectionId = crypto.randomUUID();
-    await insertProject({
-      workspaceId,
-      connectionId: defaultConnectionId,
-      owner: 'acme',
-      name: 'api',
-    });
-    await insertProject({
-      workspaceId,
-      connectionId: explicitConnectionId,
-      owner: 'acme',
-      name: 'api',
-    });
-
-    await expect(
-      client.resolveCheckoutTarget({
-        workspaceId,
-        defaults: {connectionId: defaultConnectionId, owner: 'acme'},
-        target: {connection: explicitConnectionId, repository: 'acme/api'},
-      }),
-    ).resolves.toEqual({
-      connectionId: explicitConnectionId,
-      target: {kind: 'name', owner: 'acme', name: 'api'},
-    });
-  });
-
-  test('preserves an owner/name target without deciding authorization', async () => {
-    const client = createClient();
-    const workspaceId = crypto.randomUUID();
-    const connectionId = crypto.randomUUID();
-    await insertProject({workspaceId, connectionId, owner: 'acme', name: 'api'});
-    await insertProject({workspaceId, connectionId, owner: 'acme', name: 'api'});
-
-    await expect(
-      client.resolveCheckoutTarget({
-        workspaceId,
-        defaults: {connectionId, owner: 'acme'},
-        target: {repository: 'acme/api'},
-      }),
-    ).resolves.toEqual({
-      connectionId,
-      target: {kind: 'name', owner: 'acme', name: 'api'},
-    });
-  });
-
-  test('does not decide authorization for a bare repository name', async () => {
-    const client = createClient();
-    const workspaceId = crypto.randomUUID();
-    const connectionId = crypto.randomUUID();
-    await insertProject({
-      workspaceId,
-      connectionId,
-      owner: 'other',
-      name: 'api',
-    });
-
-    await expect(
-      client.resolveCheckoutTarget({
-        workspaceId,
-        defaults: {connectionId, owner: 'acme'},
-        target: {repository: 'api'},
-      }),
-    ).resolves.toEqual({
-      connectionId,
-      target: {kind: 'name', owner: 'acme', name: 'api'},
     });
   });
 
@@ -379,30 +260,7 @@ describe('Projects checkout target inter-module presentation', () => {
 
     await expectUnauthorized(client, {
       workspaceId: crypto.randomUUID(),
-      defaults: {connectionId: project.connectionId, owner: 'acme'},
       target: {project: project.projectId},
-    });
-  });
-
-  test.each([
-    ['a leading slash', {repository: '/api'}],
-    ['a trailing slash', {repository: 'acme/'}],
-    ['more than one slash', {repository: 'acme/api/extra'}],
-  ])('rejects %s', async (_label, target) => {
-    const client = createClient();
-    const workspaceId = crypto.randomUUID();
-    const connectionId = crypto.randomUUID();
-    await insertProject({
-      workspaceId,
-      connectionId,
-      owner: 'acme',
-      name: 'new-name',
-    });
-
-    await expectUnauthorized(client, {
-      workspaceId,
-      defaults: {connectionId, owner: 'acme'},
-      target,
     });
   });
 });

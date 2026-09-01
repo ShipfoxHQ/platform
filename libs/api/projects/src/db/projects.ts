@@ -296,69 +296,36 @@ export async function requireProjectForWorkspace(params: {
 
 export interface ResolveCheckoutTargetParams {
   workspaceId: string;
-  defaults: {
-    connectionId: string;
-    owner: string;
-  };
-  target: {project: string} | {connection?: string | undefined; repository: string};
+  target: {project: string};
 }
 
 export interface ResolvedCheckoutTarget {
-  projectId?: string | undefined;
+  projectId: string;
   connectionId: string;
-  target:
-    | {kind: 'external-id'; externalRepositoryId: string}
-    | {kind: 'name'; owner: string; name: string};
+  target: {kind: 'external-id'; externalRepositoryId: string};
 }
 
 export async function resolveCheckoutTarget(
   params: ResolveCheckoutTargetParams,
 ): Promise<ResolvedCheckoutTarget | undefined> {
-  const selection = {
-    projectId: projects.id,
-    connectionId: projects.sourceConnectionId,
-    externalRepositoryId: projects.sourceExternalRepositoryId,
-  };
-
-  if ('project' in params.target) {
-    const [project] = await db()
-      .select(selection)
-      .from(projects)
-      .where(
-        and(eq(projects.workspaceId, params.workspaceId), eq(projects.id, params.target.project)),
-      )
-      .limit(1);
-    return project === undefined
-      ? undefined
-      : {
-          projectId: project.projectId,
-          connectionId: project.connectionId,
-          target: {kind: 'external-id', externalRepositoryId: project.externalRepositoryId},
-        };
-  }
-
-  const separator = params.target.repository.indexOf('/');
-  if (separator === 0 || separator === params.target.repository.length - 1) return undefined;
-
-  let repository: {connectionId: string; owner: string; name: string} | undefined;
-  if (separator === -1) {
-    repository = {
-      connectionId: params.target.connection ?? params.defaults.connectionId,
-      owner: params.defaults.owner,
-      name: params.target.repository,
-    };
-  } else if (params.target.repository.indexOf('/', separator + 1) === -1) {
-    repository = {
-      connectionId: params.target.connection ?? params.defaults.connectionId,
-      owner: params.target.repository.slice(0, separator),
-      name: params.target.repository.slice(separator + 1),
-    };
-  }
-  if (repository === undefined) return undefined;
-  return {
-    connectionId: repository.connectionId,
-    target: {kind: 'name', owner: repository.owner, name: repository.name},
-  };
+  const [project] = await db()
+    .select({
+      projectId: projects.id,
+      connectionId: projects.sourceConnectionId,
+      externalRepositoryId: projects.sourceExternalRepositoryId,
+    })
+    .from(projects)
+    .where(
+      and(eq(projects.workspaceId, params.workspaceId), eq(projects.id, params.target.project)),
+    )
+    .limit(1);
+  return project === undefined
+    ? undefined
+    : {
+        projectId: project.projectId,
+        connectionId: project.connectionId,
+        target: {kind: 'external-id', externalRepositoryId: project.externalRepositoryId},
+      };
 }
 
 export async function listProjects(params: ListProjectsParams): Promise<ListProjectsResult> {

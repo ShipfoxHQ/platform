@@ -123,7 +123,6 @@ describe('createStepCheckoutSpec', () => {
     });
     expect(resolveCheckoutTarget).toHaveBeenCalledWith({
       workspaceId: project.workspaceId,
-      defaults: {connectionId: project.sourceConnectionId, owner: 'acme'},
       target: {project: project.id},
     });
     expect(createCheckoutSpec).toHaveBeenCalledWith({
@@ -584,6 +583,71 @@ describe('createStepCheckoutSpec', () => {
     });
   });
 
+  it('preserves the same-project trigger commit for a repository-name target', async () => {
+    const project = projectFactory.build({
+      sourceExternalRepositoryId: 'github:42',
+      sourceRepositoryName: 'repo',
+    });
+    const triggerCommit = 'c'.repeat(40);
+    const step = checkoutStep({repository: 'ACME/REPO'});
+    getProjectById.mockResolvedValue({project});
+    createCheckoutSpec.mockResolvedValue({
+      repositoryUrl: 'https://github.com/acme/repo.git',
+      ref: triggerCommit,
+    });
+
+    await createStepCheckoutSpec({
+      run: syncedRun,
+      step,
+      workspaceId: project.workspaceId,
+      projectId: project.id,
+      triggerReference: {...triggerReferenceFor(project.id), commit: triggerCommit},
+      integrations: integrations as IntegrationsModuleClient,
+      projects: projects as ProjectsModuleClient,
+    });
+
+    expect(createCheckoutSpec).toHaveBeenCalledWith({
+      workspaceId: project.workspaceId,
+      connectionId: project.sourceConnectionId,
+      projectId: project.id,
+      target: {kind: 'external-id', externalRepositoryId: 'github:42'},
+      ref: triggerCommit,
+      permissions: {contents: 'read'},
+    });
+  });
+
+  it('preserves the same-project dev commit for a repository-name target', async () => {
+    const project = projectFactory.build({
+      sourceExternalRepositoryId: 'github:42',
+      sourceRepositoryName: 'repo',
+    });
+    const devCommit = 'd'.repeat(40);
+    const step = checkoutStep({repository: 'acme/repo'});
+    getProjectById.mockResolvedValue({project});
+    createCheckoutSpec.mockResolvedValue({
+      repositoryUrl: 'https://github.com/acme/repo.git',
+      ref: devCommit,
+    });
+
+    await createStepCheckoutSpec({
+      run: devRun(devCommit),
+      step,
+      workspaceId: project.workspaceId,
+      projectId: project.id,
+      integrations: integrations as IntegrationsModuleClient,
+      projects: projects as ProjectsModuleClient,
+    });
+
+    expect(createCheckoutSpec).toHaveBeenCalledWith({
+      workspaceId: project.workspaceId,
+      connectionId: project.sourceConnectionId,
+      projectId: project.id,
+      target: {kind: 'external-id', externalRepositoryId: 'github:42'},
+      ref: devCommit,
+      permissions: {contents: 'read'},
+    });
+  });
+
   it('does not use another project trigger or dev commit for a repository target', async () => {
     const project = projectFactory.build();
     const step = checkoutStep({repository: 'acme/other'});
@@ -610,6 +674,61 @@ describe('createStepCheckoutSpec', () => {
       target: {kind: 'name', owner: 'acme', name: 'other'},
       permissions: {contents: 'read'},
     });
+  });
+
+  it('uses the provider-resolved target for name-target credential renewal', async () => {
+    const project = projectFactory.build();
+    const step = checkoutStep({repository: 'acme/other', persist_credentials: true});
+    getProjectById.mockResolvedValue({project});
+    createCheckoutSpec.mockResolvedValue({
+      repositoryUrl: 'https://github.com/acme/other.git',
+      ref: 'main',
+      target: {kind: 'external-id', externalRepositoryId: 'github:412'},
+      credentials: {
+        username: 'x-access-token',
+        token: 'secret',
+        expiresAt: '2027-01-01T00:00:00.000Z',
+        generation: 'generation-1',
+        renewal: {mode: 'on-rejection'},
+      },
+    });
+
+    const result = await createStepCheckoutSpec({
+      run: syncedRun,
+      step,
+      workspaceId: project.workspaceId,
+      projectId: project.id,
+      integrations: integrations as IntegrationsModuleClient,
+      projects: projects as ProjectsModuleClient,
+    });
+
+    expect(result.renewalSubject).toEqual({
+      repositoryUrl: 'https://github.com/acme/other',
+      connectionId: project.sourceConnectionId,
+      externalRepositoryId: 'github:412',
+      permissions: {contents: 'read'},
+    });
+  });
+
+  it.each([
+    '/repo',
+    'owner/',
+    'owner/repo/extra',
+  ])('rejects malformed repository syntax: %s', async (repository) => {
+    const project = projectFactory.build();
+    getProjectById.mockResolvedValue({project});
+
+    const act = createStepCheckoutSpec({
+      run: syncedRun,
+      step: checkoutStep({repository}),
+      workspaceId: project.workspaceId,
+      projectId: project.id,
+      integrations: integrations as IntegrationsModuleClient,
+      projects: projects as ProjectsModuleClient,
+    });
+
+    await expect(act).rejects.toBeInstanceOf(CheckoutConfigInvalidError);
+    expect(createCheckoutSpec).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -647,6 +766,27 @@ describe('createStepCheckoutSpec', () => {
 
     await expect(act).rejects.toBeInstanceOf(CheckoutIntentUnresolvedError);
     expect(resolveCheckoutTarget).not.toHaveBeenCalled();
+    expect(createCheckoutSpec).not.toHaveBeenCalled();
+  });
+
+  it('identifies a missing explicit project in the unresolved error', async () => {
+    const project = projectFactory.build();
+    const targetProjectId = crypto.randomUUID();
+    getProjectById.mockResolvedValue({project});
+    resolveCheckoutTarget.mockResolvedValue(undefined);
+
+    const act = createStepCheckoutSpec({
+      run: syncedRun,
+      step: checkoutStep({project: targetProjectId}),
+      workspaceId: project.workspaceId,
+      projectId: project.id,
+      integrations: integrations as IntegrationsModuleClient,
+      projects: projects as ProjectsModuleClient,
+    });
+
+    await expect(act).rejects.toThrow(
+      `Checkout intent unresolved: project ${targetProjectId} not found`,
+    );
     expect(createCheckoutSpec).not.toHaveBeenCalled();
   });
 

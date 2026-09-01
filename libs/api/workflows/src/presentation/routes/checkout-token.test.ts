@@ -172,7 +172,6 @@ describe('POST /runs/jobs/current/steps/:stepId/checkout-token', () => {
     expect(storedSubject).not.toHaveProperty('token');
     expect(resolveCheckoutTarget).toHaveBeenCalledWith({
       workspaceId: project.workspaceId,
-      defaults: {connectionId: project.sourceConnectionId, owner: 'acme'},
       target: {project: project.id},
     });
     expect(createCheckoutSpec).toHaveBeenCalledWith({
@@ -210,7 +209,7 @@ describe('POST /runs/jobs/current/steps/:stepId/checkout-token', () => {
     resolveCheckoutTarget.mockResolvedValue({
       projectId: project.id,
       connectionId: project.sourceConnectionId,
-      externalRepositoryId: project.sourceExternalRepositoryId,
+      target: {kind: 'external-id', externalRepositoryId: project.sourceExternalRepositoryId},
     });
     const token = await mintActiveLeaseToken({jobId: job.id});
     vi.spyOn(runnersTestClient, 'getLeaseState')
@@ -240,7 +239,7 @@ describe('POST /runs/jobs/current/steps/:stepId/checkout-token', () => {
     resolveCheckoutTarget.mockResolvedValue({
       projectId: project.id,
       connectionId: project.sourceConnectionId,
-      externalRepositoryId: project.sourceExternalRepositoryId,
+      target: {kind: 'external-id', externalRepositoryId: project.sourceExternalRepositoryId},
     });
     createCheckoutSpec.mockResolvedValue(githubSpec('ghs-expired-after-mint-token'));
     const token = await mintActiveLeaseToken({jobId: job.id});
@@ -271,7 +270,7 @@ describe('POST /runs/jobs/current/steps/:stepId/checkout-token', () => {
     resolveCheckoutTarget.mockResolvedValue({
       projectId: project.id,
       connectionId: project.sourceConnectionId,
-      externalRepositoryId: project.sourceExternalRepositoryId,
+      target: {kind: 'external-id', externalRepositoryId: project.sourceExternalRepositoryId},
     });
     createCheckoutSpec.mockResolvedValue(githubSpec('ghs-initial-token'));
     const token = await mintActiveLeaseToken({jobId: job.id});
@@ -810,6 +809,7 @@ describe('POST /runs/jobs/current/steps/:stepId/checkout-token', () => {
     ['repository-not-granted', 404],
     ['repository-ambiguous', 409],
     ['repository-authorization-unavailable', 503],
+    ['repository-authorization-target-invalid', 409],
   ] as const)('maps the %s integration checkout failure', async (code, status) => {
     const {project, job, step} = await createRunningCheckoutStep();
     getProjectById.mockResolvedValue({project});
@@ -1025,7 +1025,7 @@ async function createPromotedCheckout(app: FastifyInstance) {
   resolveCheckoutTarget.mockResolvedValue({
     projectId: project.id,
     connectionId: project.sourceConnectionId,
-    externalRepositoryId: project.sourceExternalRepositoryId,
+    target: {kind: 'external-id', externalRepositoryId: project.sourceExternalRepositoryId},
   });
   createCheckoutSpec.mockResolvedValue(githubSpec('ghs-initial-token'));
   const token = await mintActiveLeaseToken({jobId: job.id});

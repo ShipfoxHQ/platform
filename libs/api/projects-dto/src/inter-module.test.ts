@@ -35,24 +35,16 @@ describe('projectsInterModuleContract', () => {
     ).toEqual(input);
   });
 
-  test('accepts checkout targets addressed by project or repository', () => {
+  test('accepts checkout targets addressed by project', () => {
     const workspaceId = '00000000-0000-4000-8000-000000000001';
-    const connectionId = '00000000-0000-4000-8000-000000000002';
+    const projectId = '00000000-0000-4000-8000-000000000003';
 
     expect(
       projectsInterModuleContract.methods.resolveCheckoutTarget.input.parse({
         workspaceId,
-        defaults: {connectionId, owner: 'acme'},
-        target: {project: '00000000-0000-4000-8000-000000000003'},
+        target: {project: projectId},
       }).target,
-    ).toEqual({project: '00000000-0000-4000-8000-000000000003'});
-    expect(
-      projectsInterModuleContract.methods.resolveCheckoutTarget.input.parse({
-        workspaceId,
-        defaults: {connectionId, owner: 'acme'},
-        target: {connection: connectionId, repository: 'acme/api'},
-      }).target,
-    ).toEqual({connection: connectionId, repository: 'acme/api'});
+    ).toEqual({project: projectId});
   });
 
   test('accepts paginated workspace project source listings', () => {

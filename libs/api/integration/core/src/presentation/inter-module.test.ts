@@ -3,10 +3,13 @@ import {isInterModuleKnownError} from '@shipfox/inter-module';
 import {createInMemoryInterModuleTransport} from '@shipfox/node-module/inter-module';
 import type {z} from 'zod';
 import type {IntegrationConnection} from '#core/entities/connection.js';
-import {IntegrationProviderError} from '#core/errors.js';
+import {IntegrationProviderError, RepositoryAuthorizerConfigurationError} from '#core/errors.js';
 import {createIntegrationProviderRegistry} from '#core/providers/registry.js';
 import type {SourceControlProvider} from '#core/providers/source-control.js';
-import type {RepositoryAuthorizer} from '#core/repository-authorizer.js';
+import {
+  RepositoryAuthorizationTargetInvalidError,
+  type RepositoryAuthorizer,
+} from '#core/repository-authorizer.js';
 import {createSourceControlIntegrationService} from '#core/source-control-service.js';
 import type {
   IntegrationToolCallCaller,
@@ -35,6 +38,10 @@ function createClient(
     expiresAt: new Date('2026-01-01T00:00:00.000Z'),
   }),
   repositoryAuthorizer?: RepositoryAuthorizer,
+  createCheckoutSpec: NonNullable<SourceControlProvider['createCheckoutSpec']> = async (input) => ({
+    repositoryUrl: 'https://gitea.local/gitea-owner/platform.git',
+    ref: input.ref ?? 'main',
+  }),
 ) {
   const transport = createInMemoryInterModuleTransport();
   const client = transport.createClient(integrationsInterModuleContract);
@@ -52,6 +59,7 @@ function createClient(
             fetchFile: vi.fn(),
             resolveTriggerReference: () => null,
             resolveRef: async (input) => await resolveRef(input),
+            createCheckoutSpec,
             createCheckoutCredentials,
           },
         },
@@ -156,44 +164,97 @@ describe('integrations inter-module presentation', () => {
     }
   });
 
-  it('maps checkout authorization denials to the transport error contract', async () => {
+  it.each([
+    ['repository_not_granted', 'repository-not-granted'],
+    ['repository_ambiguous', 'repository-ambiguous'],
+    ['authorization_store_unavailable', 'repository-authorization-unavailable'],
+  ] as const)('maps %s for both checkout methods', async (reason, code) => {
     const resolveRepositoryAuthorization = vi.fn().mockResolvedValue({
       authorized: false,
-      reason: 'repository_not_granted',
-    } as const);
+      reason,
+    });
     const client = createClient(
       async () => ({ref: 'main', commit: 'a'.repeat(40)}),
       undefined,
       undefined,
       {enabled: true, resolveRepositoryAuthorization},
     );
+    const details = {
+      workspaceId,
+      connectionId,
+      target: {kind: 'external-id' as const, externalRepositoryId: input.externalRepositoryId},
+    };
 
-    const error = await client
+    const specError = await client.createCheckoutSpec(input).catch((caught: unknown) => caught);
+    expect(
+      isInterModuleKnownError(
+        integrationsInterModuleContract.methods.createCheckoutSpec,
+        specError,
+      ),
+    ).toBe(true);
+    if (
+      isInterModuleKnownError(integrationsInterModuleContract.methods.createCheckoutSpec, specError)
+    ) {
+      expect(specError.code).toBe(code);
+      expect(specError.details).toEqual(details);
+    }
+
+    const credentialsError = await client
       .createCheckoutCredentials({...input, permissions: {contents: 'read'}})
       .catch((caught: unknown) => caught);
-
     expect(
       isInterModuleKnownError(
         integrationsInterModuleContract.methods.createCheckoutCredentials,
-        error,
+        credentialsError,
       ),
     ).toBe(true);
     if (
       isInterModuleKnownError(
         integrationsInterModuleContract.methods.createCheckoutCredentials,
-        error,
+        credentialsError,
       )
     ) {
-      expect(error.code).toBe('repository-not-granted');
-      expect(error.details).toEqual({});
+      expect(credentialsError.code).toBe(code);
+      expect(credentialsError.details).toEqual(details);
     }
-    expect(resolveRepositoryAuthorization).toHaveBeenCalledWith({
+    expect(resolveRepositoryAuthorization).toHaveBeenNthCalledWith(1, {
       workspaceId,
       connectionId,
       mode: 'selected',
       repository: {kind: 'external-id', externalRepositoryId: input.externalRepositoryId},
       capability: 'checkout',
     });
+  });
+
+  it.each([
+    [RepositoryAuthorizationTargetInvalidError, 'repository-authorization-target-invalid'],
+    [RepositoryAuthorizerConfigurationError, 'repository-authorization-unavailable'],
+  ] as const)('maps %s to a checkout contract error', async (ErrorType, code) => {
+    const client = createClient(
+      async () => ({ref: 'main', commit: 'a'.repeat(40)}),
+      undefined,
+      undefined,
+      {
+        enabled: true,
+        resolveRepositoryAuthorization: vi.fn().mockRejectedValue(new ErrorType()),
+      },
+    );
+
+    const error = await client.createCheckoutSpec(input).catch((caught: unknown) => caught);
+
+    expect(
+      isInterModuleKnownError(integrationsInterModuleContract.methods.createCheckoutSpec, error),
+    ).toBe(true);
+    if (
+      isInterModuleKnownError(integrationsInterModuleContract.methods.createCheckoutSpec, error)
+    ) {
+      expect(error.code).toBe(code);
+      expect(error.details).toEqual({
+        workspaceId,
+        connectionId,
+        target: {kind: 'external-id', externalRepositoryId: input.externalRepositoryId},
+      });
+    }
   });
 
   it('round-trips on-rejection renewal without a refresh timestamp', async () => {

@@ -68,6 +68,12 @@ The create form derives an editable default slug from the project name. The API
 requires an explicit slug and never adds a suffix when the value is taken. A
 rename frees the old slug immediately and emits a project-updated outbox event.
 
+Checkout authorization in selected mode reads the persisted source repository
+owner and name. The `integrations.source_control.repository_updated` event
+refreshes this metadata after provider-side changes. If a provider misses a
+webhook, use the project and source identifiers to locate the stale row.
+Reprocess the provider event before enabling authorization or retrying checkout.
+
 ## Development
 
 ```sh

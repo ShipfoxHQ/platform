@@ -28,7 +28,10 @@ import {
   createSourceControlIntegrationService,
   type IntegrationSourceControlService,
 } from '#core/source-control-service.js';
-import {getIntegrationConnectionById} from '#db/connections.js';
+import {
+  type GetIntegrationConnectionByIdFn,
+  getIntegrationConnectionById,
+} from '#db/connections.js';
 import {db} from '#db/db.js';
 import {migrationsPath} from '#db/migrations.js';
 import {integrationsOutbox} from '#db/schema/outbox.js';
@@ -160,6 +163,7 @@ export {
   resolveRepositoryAuthorization,
 } from '#core/repository-authorizer.js';
 export type {
+  AuthorizedCheckoutSpec,
   CreateSourceCheckoutCredentialsInput,
   IntegrationSourceControlService,
 } from '#core/source-control-service.js';
@@ -226,6 +230,8 @@ export interface CreateIntegrationsModuleOptions {
   parts?: IntegrationModuleParts[] | undefined;
   secrets?: IntegrationProviderSecrets | undefined;
   projects?: ProjectsModuleClient | undefined;
+  /** Test seam for composing checkout authorization without a database connection. */
+  getIntegrationConnectionById?: GetIntegrationConnectionByIdFn | undefined;
   workspaces?: WorkspacesInterModuleClient | undefined;
   agentTools?:
     | {
@@ -298,13 +304,15 @@ export async function createIntegrationsContext(
         }));
 
   const registry = createIntegrationProviderRegistry(parts.map((part) => part.provider));
+  const resolveIntegrationConnectionById =
+    options.getIntegrationConnectionById ?? getIntegrationConnectionById;
   const repositoryAuthorizer = createRepositoryAuthorizer({
     projects: options.projects,
     enabled: config.INTEGRATIONS_ENABLE_REPOSITORY_AUTHORIZATION,
   });
   const sourceControl = createSourceControlIntegrationService({
     registry,
-    getIntegrationConnectionById,
+    getIntegrationConnectionById: resolveIntegrationConnectionById,
     repositoryAuthorizer,
   });
   const webhookProcessor = createComposedWebhookProcessor(
