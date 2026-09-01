@@ -207,7 +207,10 @@ export {
   setRefreshTokenCookie,
 } from '#presentation/auth/refresh-cookie.js';
 export {createRunnerSessionAuthMethod} from '#presentation/auth/runner-session-auth.js';
-export type {CreateOAuthRoutesOptions} from '#presentation/routes/oauth.js';
+export type {
+  CreateOAuthAuthorizationRoutesOptions,
+  CreateOAuthRoutesOptions,
+} from '#presentation/routes/oauth.js';
 export {
   createOAuthAuthorizationRoutes,
   createOAuthClientIdentificationRoutes,

@@ -58,6 +58,12 @@ describe('OAuth client validation', () => {
     }
   });
 
+  it('rejects redirect hostnames longer than the DNS hostname limit', () => {
+    expect(() => validateOAuthRedirectUri(`https://${'a'.repeat(254)}/callback`)).toThrow(
+      InvalidOAuthClientMetadataError,
+    );
+  });
+
   it('requires CIMD client IDs to be HTTPS URLs with a path', () => {
     expect(validateOAuthClientId('https://client.example/.well-known/oauth-client').pathname).toBe(
       '/.well-known/oauth-client',

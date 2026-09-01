@@ -5,7 +5,7 @@ Named HKDF-SHA256 keys for Shipfox API authentication and email challenges.
 ## What it does
 
 - **Root-key loading**: Reads and checks `AUTH_ROOT_KEY` before application startup.
-- **Named keys**: Exports one key function for user tokens, job leases, runner sessions, rate-limit identifiers, and email challenges.
+- **Named keys**: Exports one key function for user tokens, agent access tokens, job leases, runner sessions, rate-limit identifiers, and email challenges.
 - **Fixed domains**: Uses versioned labels and a fixed salt so callers cannot select an arbitrary HMAC or signing domain.
 
 ## Installation

@@ -123,6 +123,10 @@ export async function isActiveAgentUserTx(
   return rows.length > 0;
 }
 
+export async function isActiveAgentUser(params: {userId: string}): Promise<boolean> {
+  return await db().transaction((tx) => isActiveAgentUserTx(tx, params));
+}
+
 async function lockAgentClient(
   tx: AgentAccessTx,
   clientId: string,

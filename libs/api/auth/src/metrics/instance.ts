@@ -1,6 +1,6 @@
 import {instanceMetrics} from '@shipfox/node-opentelemetry';
 
-export type AuthTokenType = 'session' | 'job_lease' | 'runner_session';
+export type AuthTokenType = 'session' | 'agent_access' | 'job_lease' | 'runner_session';
 export type AuthTokenVerificationOutcome = 'ok' | 'rejected';
 export type AuthTokenRefreshOutcome = 'rotated' | 'grace' | 'rejected';
 export type AuthRateLimitAction =

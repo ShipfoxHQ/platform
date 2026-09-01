@@ -54,12 +54,14 @@ import {createAuthIpRateLimitPreHandler} from './rate-limit.js';
 export interface CreateOAuthRoutesOptions {
   /** Validated here and deliberately injected until production composition. */
   apiPublicUrl: string;
-  /** Required only when the dormant authorization and consent routes are requested. */
-  workspaces?: WorkspacesInterModuleClient;
   /** Optional dashboard base URL override for isolated route tests. */
   clientBaseUrl?: string;
   /** Optional resolver override for isolated CIMD/client tests. */
   clientResolver?: OAuthClientResolver;
+}
+
+export interface CreateOAuthAuthorizationRoutesOptions extends CreateOAuthRoutesOptions {
+  workspaces: WorkspacesInterModuleClient;
 }
 
 function apiPublicOrigin(options: CreateOAuthRoutesOptions): string {
@@ -264,7 +266,7 @@ function createDynamicRegistrationRoute() {
 }
 
 function flowOptions(
-  options: CreateOAuthRoutesOptions & {workspaces: WorkspacesInterModuleClient},
+  options: CreateOAuthAuthorizationRoutesOptions,
   origin: string,
 ): OAuthFlowOptions {
   return {
@@ -389,7 +391,12 @@ function createOAuthConsentDenyRoute() {
     },
     errorHandler: translateOAuthConsentError,
     handler: async (request) => {
-      const result = await denyOAuthConsent({requestId: request.params.requestId});
+      const context = getUserContext(request);
+      if (!context) throw new ClientError('Authentication required', 'unauthorized', {status: 401});
+      const result = await denyOAuthConsent({
+        requestId: request.params.requestId,
+        userId: context.userId,
+      });
       return {redirect_url: result.redirectUrl};
     },
   });
@@ -412,7 +419,7 @@ export function createOAuthClientIdentificationRoutes(): RouteGroup {
 
 /** Dormant OAuth authorization, consent, and token routes for isolated composition. */
 export function createOAuthAuthorizationRoutes(
-  options: CreateOAuthRoutesOptions & {workspaces: WorkspacesInterModuleClient},
+  options: CreateOAuthAuthorizationRoutesOptions,
 ): RouteGroup {
   const origin = apiPublicOrigin(options);
   const flow = flowOptions(options, origin);
@@ -432,16 +439,8 @@ export function createOAuthAuthorizationRoutes(
 export function createOAuthRoutes(options: CreateOAuthRoutesOptions): RouteGroup {
   const metadataRoutes = createOAuthMetadataRoutes(options);
   const clientIdentificationRoutes = createOAuthClientIdentificationRoutes();
-  const authorizationRoutes = options.workspaces
-    ? createOAuthAuthorizationRoutes({...options, workspaces: options.workspaces})
-    : undefined;
   return {
     prefix: '',
-    routes: [
-      ...metadataRoutes.routes,
-      ...clientIdentificationRoutes.routes,
-      ...(authorizationRoutes ? authorizationRoutes.routes : []),
-    ],
-    ...(authorizationRoutes?.plugins ? {plugins: authorizationRoutes.plugins} : {}),
+    routes: [...metadataRoutes.routes, ...clientIdentificationRoutes.routes],
   };
 }

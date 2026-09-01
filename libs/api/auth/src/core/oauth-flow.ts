@@ -25,6 +25,7 @@ import {
   findAgentGrant,
   findAgentRefreshTokenByHash,
   findPendingAgentAuthorizationRequest,
+  isActiveAgentUser,
   isActiveAgentUserTx,
   resolveAgentRefreshTokenReplayTx,
   rotateAgentRefreshTokenTx,
@@ -49,6 +50,7 @@ import {createOAuthClientResolver} from './oauth-client-resolver.js';
 
 export const OAUTH_AUTHORIZATION_REQUEST_TTL_SECONDS = 5 * 60;
 export const OAUTH_AUTHORIZATION_CODE_TTL_SECONDS = 60;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 
 export interface OAuthFlowOptions {
   /** The normalized API origin, validated by the route factory. */
@@ -106,6 +108,14 @@ function invalidGrant(message = 'The OAuth grant is invalid'): OAuthProtocolErro
 
 function invalidClient(message = 'The OAuth client is invalid'): OAuthProtocolError {
   return new OAuthProtocolError('invalid_client', message);
+}
+
+function inactiveUserError(): OAuthProtocolError {
+  return new OAuthProtocolError('access_denied', 'The user is not active');
+}
+
+function assertConsentRequestId(requestId: string): void {
+  if (!UUID_PATTERN.test(requestId)) throw new OAuthConsentNotFoundError();
 }
 
 function redirectableError(
@@ -280,6 +290,8 @@ export async function getOAuthConsentDetail(params: {
   userId: string;
   options: OAuthFlowOptions;
 }): Promise<OAuthConsentDetail> {
+  assertConsentRequestId(params.requestId);
+  if (!(await isActiveAgentUser({userId: params.userId}))) throw inactiveUserError();
   const request = await findPendingRequestOrThrow(params.requestId);
   const client = await findAgentClientById({id: request.clientId});
   if (!client) throw new OAuthConsentNotFoundError();
@@ -303,6 +315,7 @@ export async function approveOAuthConsent(params: {
   workspaceId: string;
   options: OAuthFlowOptions;
 }): Promise<{redirectUrl: string}> {
+  assertConsentRequestId(params.requestId);
   await requireCurrentMembership({
     userId: params.userId,
     workspaceId: params.workspaceId,
@@ -314,7 +327,7 @@ export async function approveOAuthConsent(params: {
   const now = nowFor(params.options);
   const result = await db().transaction(async (tx) => {
     if (!(await isActiveAgentUserTx(tx, {userId: params.userId}))) {
-      throw new OAuthProtocolError('access_denied', 'The user is not active');
+      throw inactiveUserError();
     }
 
     const request = await consumeAgentAuthorizationRequestTx(tx, {id: params.requestId});
@@ -347,8 +360,13 @@ export async function approveOAuthConsent(params: {
 
 export async function denyOAuthConsent(params: {
   requestId: string;
+  userId: string;
 }): Promise<{redirectUrl: string}> {
+  assertConsentRequestId(params.requestId);
   const result = await db().transaction(async (tx) => {
+    if (!(await isActiveAgentUserTx(tx, {userId: params.userId}))) {
+      throw inactiveUserError();
+    }
     const request = await consumeAgentAuthorizationRequestTx(tx, {id: params.requestId});
     if (!request) throw new OAuthConsentNotFoundError();
     return {request};

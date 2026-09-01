@@ -14,6 +14,7 @@ const config = createConfig({
 const rootKey = decodeAuthRootKey(config.AUTH_ROOT_KEY);
 
 const userAccessKey = deriveKey('shipfox/user-access-token/v1');
+const agentAccessTokenDerivedKey = deriveKey('shipfox/agent-access-token/v1');
 const jobLeaseKey = deriveKey('shipfox/job-lease-token/v1');
 const runnerSessionKey = deriveKey('shipfox/runner-session-token/v1');
 const rateLimitKey = deriveKey('shipfox/rate-limit-identifier/v1');
@@ -21,6 +22,10 @@ const emailChallengeDerivedKey = deriveKey('shipfox/email-challenge/v1');
 
 export function userAccessTokenKey(): Uint8Array {
   return userAccessKey;
+}
+
+export function agentAccessTokenKey(): Uint8Array {
+  return agentAccessTokenDerivedKey;
 }
 
 export function jobLeaseTokenKey(): Uint8Array {

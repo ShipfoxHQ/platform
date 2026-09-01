@@ -57,6 +57,12 @@ describe('OAuth route factories', () => {
     });
   });
 
+  it('keeps authorization and token routes behind the explicit flow factory', async () => {
+    const result = await app.inject({method: 'GET', url: '/oauth/authorize'});
+
+    expect(result.statusCode).toBe(404);
+  });
+
   it('creates a public registration with no client secret', async () => {
     const result = await app.inject({
       method: 'POST',

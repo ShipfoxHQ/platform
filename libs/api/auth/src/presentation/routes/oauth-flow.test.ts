@@ -82,6 +82,18 @@ function bearer(token: string) {
   return {authorization: `Bearer ${token}`};
 }
 
+function tokenForm(payload: Record<string, string>, ip: string) {
+  return {
+    method: 'POST' as const,
+    url: '/oauth/token',
+    headers: {
+      'content-type': 'application/x-www-form-urlencoded',
+      'x-forwarded-for': ip,
+    },
+    payload: new URLSearchParams(payload).toString(),
+  };
+}
+
 describe('dormant OAuth authorization and token routes', () => {
   let app: FastifyInstance;
 
@@ -138,22 +150,19 @@ describe('dormant OAuth authorization and token routes', () => {
     const code = callback.searchParams.get('code');
     expect(code).toBeTruthy();
 
-    const token = await app.inject({
-      method: 'POST',
-      url: '/oauth/token',
-      headers: {
-        'content-type': 'application/x-www-form-urlencoded',
-        'x-forwarded-for': '198.51.100.240',
-      },
-      payload: new URLSearchParams({
-        grant_type: 'authorization_code',
-        client_id: client.clientId,
-        code: code ?? '',
-        redirect_uri: REDIRECT_URI,
-        code_verifier: verifier,
-        resource: RESOURCE,
-      }).toString(),
-    });
+    const token = await app.inject(
+      tokenForm(
+        {
+          grant_type: 'authorization_code',
+          client_id: client.clientId,
+          code: code ?? '',
+          redirect_uri: REDIRECT_URI,
+          code_verifier: verifier,
+          resource: RESOURCE,
+        },
+        '198.51.100.240',
+      ),
+    );
     expect(token.statusCode).toBe(200);
     expect(token.json()).toMatchObject({
       token_type: 'Bearer',
@@ -171,18 +180,18 @@ describe('dormant OAuth authorization and token routes', () => {
       scopes: ['read'],
     });
 
-    const replay = await app.inject({
-      method: 'POST',
-      url: '/oauth/token',
-      headers: {'x-forwarded-for': '198.51.100.246'},
-      payload: {
-        grant_type: 'authorization_code',
-        client_id: client.clientId,
-        code,
-        redirect_uri: REDIRECT_URI,
-        code_verifier: verifier,
-      },
-    });
+    const replay = await app.inject(
+      tokenForm(
+        {
+          grant_type: 'authorization_code',
+          client_id: client.clientId,
+          code: code ?? '',
+          redirect_uri: REDIRECT_URI,
+          code_verifier: verifier,
+        },
+        '198.51.100.246',
+      ),
+    );
     expect(replay.statusCode).toBe(400);
     expect(replay.json()).toMatchObject({error: 'invalid_grant'});
   });
@@ -241,48 +250,48 @@ describe('dormant OAuth authorization and token routes', () => {
     });
     const code = new URL(approval.json().redirect_url).searchParams.get('code') ?? '';
 
-    const badCode = await app.inject({
-      method: 'POST',
-      url: '/oauth/token',
-      headers: {'x-forwarded-for': '198.51.100.241'},
-      payload: {
-        grant_type: 'authorization_code',
-        client_id: client.clientId,
-        code,
-        redirect_uri: REDIRECT_URI,
-        code_verifier: 'a'.repeat(43),
-      },
-    });
+    const badCode = await app.inject(
+      tokenForm(
+        {
+          grant_type: 'authorization_code',
+          client_id: client.clientId,
+          code,
+          redirect_uri: REDIRECT_URI,
+          code_verifier: 'a'.repeat(43),
+        },
+        '198.51.100.241',
+      ),
+    );
     expect(badCode.statusCode).toBe(400);
     expect(badCode.json()).toMatchObject({error: 'invalid_grant'});
 
-    const token = await app.inject({
-      method: 'POST',
-      url: '/oauth/token',
-      headers: {'x-forwarded-for': '198.51.100.242'},
-      payload: {
-        grant_type: 'authorization_code',
-        client_id: client.clientId,
-        code,
-        redirect_uri: REDIRECT_URI,
-        code_verifier: firstPkce.verifier,
-      },
-    });
+    const token = await app.inject(
+      tokenForm(
+        {
+          grant_type: 'authorization_code',
+          client_id: client.clientId,
+          code,
+          redirect_uri: REDIRECT_URI,
+          code_verifier: firstPkce.verifier,
+        },
+        '198.51.100.242',
+      ),
+    );
     const refreshToken = token.json().refresh_token;
     expect(token.statusCode).toBe(200);
     expect(refreshToken).toEqual(expect.any(String));
 
     const refresh = () =>
-      app.inject({
-        method: 'POST',
-        url: '/oauth/token',
-        headers: {'x-forwarded-for': '198.51.100.243'},
-        payload: {
-          grant_type: 'refresh_token',
-          client_id: client.clientId,
-          refresh_token: refreshToken,
-        },
-      });
+      app.inject(
+        tokenForm(
+          {
+            grant_type: 'refresh_token',
+            client_id: client.clientId,
+            refresh_token: refreshToken,
+          },
+          '198.51.100.243',
+        ),
+      );
     const [first, second] = await Promise.all([refresh(), refresh()]);
     expect(first.statusCode).toBe(200);
     expect(second.statusCode).toBe(200);
@@ -381,6 +390,55 @@ describe('dormant OAuth authorization and token routes', () => {
     });
     expect(invalidRedirect.statusCode).toBe(400);
     expect(invalidRedirect.json()).toMatchObject({error: 'invalid_request'});
+
+    const emptyState = await app.inject({
+      method: 'GET',
+      url: authorizationUrl(client.clientId, challenge, ''),
+      headers: {'x-forwarded-for': '198.51.100.250'},
+    });
+    expect(emptyState.statusCode).toBe(400);
+    expect(emptyState.json()).toEqual({error: 'invalid_request'});
+  });
+
+  it('rejects consent detail and denial for a suspended account without consuming the request', async () => {
+    const workspaceId = crypto.randomUUID();
+    const workspaces = workspaceClient(workspaceId);
+    const account = await createVerifiedSession('oauth-suspended-consent');
+    const client = await createTestClient();
+    app = await createTestApp(workspaces);
+    const {challenge} = pkce();
+    const authorization = await app.inject({
+      method: 'GET',
+      url: authorizationUrl(client.clientId, challenge),
+      headers: {'x-forwarded-for': '198.51.100.252'},
+    });
+    const requestId = new URL(authorization.headers.location ?? '').searchParams.get('request_id');
+
+    await db().update(users).set({status: 'suspended'}).where(eq(users.id, account.userId));
+
+    const detail = await app.inject({
+      method: 'GET',
+      url: `/oauth/consents/${requestId}`,
+      headers: bearer(account.token),
+    });
+    expect(detail.statusCode).toBe(403);
+    expect(detail.json()).toEqual({code: 'access-denied'});
+
+    const denial = await app.inject({
+      method: 'POST',
+      url: `/oauth/consents/${requestId}/deny`,
+      headers: bearer(account.token),
+    });
+    expect(denial.statusCode).toBe(403);
+    expect(denial.json()).toEqual({code: 'access-denied'});
+
+    await db().update(users).set({status: 'active'}).where(eq(users.id, account.userId));
+    const allowedDenial = await app.inject({
+      method: 'POST',
+      url: `/oauth/consents/${requestId}/deny`,
+      headers: bearer(account.token),
+    });
+    expect(allowedDenial.statusCode).toBe(200);
   });
 
   it('rejects approval after the account is suspended and treats malformed ids as not found', async () => {
@@ -438,18 +496,18 @@ describe('dormant OAuth authorization and token routes', () => {
     const code = new URL(approval.json().redirect_url).searchParams.get('code') ?? '';
     await db().update(users).set({status: 'suspended'}).where(eq(users.id, account.userId));
 
-    const token = await app.inject({
-      method: 'POST',
-      url: '/oauth/token',
-      headers: {'x-forwarded-for': '198.51.100.245'},
-      payload: {
-        grant_type: 'authorization_code',
-        client_id: client.clientId,
-        code,
-        redirect_uri: REDIRECT_URI,
-        code_verifier: verifier,
-      },
-    });
+    const token = await app.inject(
+      tokenForm(
+        {
+          grant_type: 'authorization_code',
+          client_id: client.clientId,
+          code,
+          redirect_uri: REDIRECT_URI,
+          code_verifier: verifier,
+        },
+        '198.51.100.245',
+      ),
+    );
     expect(token.statusCode).toBe(400);
     expect(token.json()).toMatchObject({error: 'invalid_grant'});
   });

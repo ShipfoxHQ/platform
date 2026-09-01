@@ -113,6 +113,7 @@ const oauthClientIdSchema = z
   .refine((value) => utf8ByteLengthAtMost(value, 2048));
 const oauthStateSchema = z
   .string()
+  .min(1)
   .max(2048)
   .refine((value) => utf8ByteLengthAtMost(value, 2048));
 const oauthCodeChallengeSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/u);
