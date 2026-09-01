@@ -2,6 +2,11 @@ import {isSafeRefInput} from '@shipfox/regex';
 import {z} from 'zod';
 import {triggerDtoSchema} from './trigger.js';
 
+/** Maximum UTF-8 encoded size of a workflow definition source file. */
+export const MAX_WORKFLOW_FILE_BYTES = 1_000_000;
+
+const utf8Encoder = new TextEncoder();
+
 export const DEFINITION_SYNC_DIAGNOSTICS_MAX_COUNT = 100;
 export const DEFINITION_SYNC_WARNING_CODE_MAX_LENGTH = 128;
 export const DEFINITION_SYNC_WARNING_MESSAGE_MAX_LENGTH = 2048;
@@ -13,7 +18,13 @@ export const createDefinitionBodySchema = z
     project_id: z.string().uuid(),
     config_path: z.string().min(1).optional(),
     source: z.enum(['manual', 'vcs']).optional(),
-    yaml: z.string().min(1).max(1_000_000),
+    yaml: z
+      .string()
+      .min(1)
+      .max(MAX_WORKFLOW_FILE_BYTES)
+      .refine((value) => utf8Encoder.encode(value).length <= MAX_WORKFLOW_FILE_BYTES, {
+        message: `yaml exceeds ${MAX_WORKFLOW_FILE_BYTES} bytes`,
+      }),
     sha: z.string().optional(),
     ref: z.string().optional(),
   })

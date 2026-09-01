@@ -65,6 +65,15 @@ export function mapStartRunError(error: unknown, method: StartRunMethod): Client
           cause: error,
         },
       );
+    case 'source-snapshot-too-large':
+      return new ClientError('Workflow source snapshot is too large', 'source-snapshot-too-large', {
+        status: 422,
+        details: {
+          limit_bytes: error.details.limitBytes,
+          measured_bytes: error.details.measuredBytes,
+        },
+        cause: error,
+      });
     default:
       return undefined;
   }

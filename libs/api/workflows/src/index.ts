@@ -61,6 +61,7 @@ export {
   ProjectMismatchError,
   runWorkflow,
   WorkflowRunNotCancellableError,
+  WorkflowSourceSnapshotTooLargeError,
 } from '#core/index.js';
 export {
   closeDb,

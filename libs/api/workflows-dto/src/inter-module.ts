@@ -8,6 +8,7 @@ import {defineInterModuleContract, type InterModuleClient} from '@shipfox/inter-
 import {z} from 'zod';
 import {
   validateDateWindow,
+  WORKFLOW_RUN_ATTEMPT_MAX,
   workflowRunListItemSchema,
   workflowRunOriginSchema,
   workflowRunStatusSchema,
@@ -76,7 +77,7 @@ const interpolationFieldSchema = z.enum([
   'checkout.path',
 ]);
 
-const attemptSchema = z.number().int().min(1).max(2_147_483_647);
+const attemptSchema = z.number().int().min(1).max(WORKFLOW_RUN_ATTEMPT_MAX);
 const workflowRunCursorSchema = z.object({
   createdAt: z.string().datetime(),
   id: idSchema,
@@ -130,6 +131,10 @@ export const workflowsInterModuleContract = defineInterModuleContract({
           envKey: z.string().optional(),
         }),
         'invalid-job-runner-labels': z.object({labels: z.array(z.string())}),
+        'source-snapshot-too-large': z.object({
+          limitBytes: z.number().int().positive(),
+          measuredBytes: z.number().int().positive(),
+        }),
       },
     },
     startDevRun: {
@@ -165,6 +170,10 @@ export const workflowsInterModuleContract = defineInterModuleContract({
           envKey: z.string().optional(),
         }),
         'invalid-job-runner-labels': z.object({labels: z.array(z.string())}),
+        'source-snapshot-too-large': z.object({
+          limitBytes: z.number().int().positive(),
+          measuredBytes: z.number().int().positive(),
+        }),
       },
     },
     resolveWorkflowRunTriggerReference: {

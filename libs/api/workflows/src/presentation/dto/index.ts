@@ -7,5 +7,7 @@ export {
   toRunDto,
   toRunLineageHeadDto,
   toRunListItemDto,
+  toRunOverviewDto,
+  toRunOverviewJobsPageDto,
   toRunSelectionDto,
 } from './workflow-run.js';

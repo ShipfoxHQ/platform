@@ -7,6 +7,7 @@ import {
 import type {IntegrationsModuleClient} from '@shipfox/api-integration-core-dto/inter-module';
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import type {SecretsInterModuleClient} from '@shipfox/api-secrets-dto/inter-module';
+import {WORKFLOW_SOURCE_SNAPSHOT_MAX_BYTES} from '@shipfox/api-workflows-dto';
 import {
   analyzeContextKeyAccess,
   type ResolvedFieldSegment,
@@ -26,7 +27,7 @@ import type {
   WorkflowRunOrigin,
   WorkflowSourceSnapshot,
 } from '#core/entities/workflow-run.js';
-import {InterpolationUnresolvableError} from '#core/errors.js';
+import {InterpolationUnresolvableError, WorkflowSourceSnapshotTooLargeError} from '#core/errors.js';
 import {resolveWorkflowRunTriggerReference} from '#core/resolve-trigger-reference.js';
 import {assembleCreationContext} from '#core/step-config/assemble-run-context.js';
 import type {MaterializedWorkflowJob} from '#core/step-config/materialize-workflow-model.js';
@@ -173,6 +174,7 @@ async function insertWorkflowRun(
   {kind: 'created'; row: typeof workflowRuns.$inferSelect} | {kind: 'existing'; run: WorkflowRun}
 > {
   const {params} = context;
+  assertWorkflowSourceSnapshotSize(params.sourceSnapshot);
   // Keep allocation on the existing transaction so a trigger burst cannot pin
   // every pool connection and then wait for a second connection per run.
   const number = await allocateWorkflowRunNumber(tx, params.definitionId);
@@ -205,6 +207,15 @@ async function insertWorkflowRun(
     .returning();
   if (runRow) return {kind: 'created', row: runRow};
   return loadConflictingWorkflowRun(params.triggerIdempotencyKey, tx);
+}
+
+function assertWorkflowSourceSnapshotSize(
+  sourceSnapshot: WorkflowSourceSnapshot | null | undefined,
+): void {
+  if (!sourceSnapshot) return;
+  const measuredBytes = Buffer.byteLength(sourceSnapshot.content, 'utf8');
+  if (measuredBytes <= WORKFLOW_SOURCE_SNAPSHOT_MAX_BYTES) return;
+  throw new WorkflowSourceSnapshotTooLargeError(WORKFLOW_SOURCE_SNAPSHOT_MAX_BYTES, measuredBytes);
 }
 
 async function loadConflictingWorkflowRun(

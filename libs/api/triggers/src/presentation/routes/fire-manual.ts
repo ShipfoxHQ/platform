@@ -18,6 +18,7 @@ const startRunErrorDetailsSchema = z.union([
   z.object({definition_id: z.string()}),
   z.object({field: z.string(), source: z.string(), env_key: z.string().optional()}),
   z.object({labels: z.array(z.string())}),
+  z.object({limit_bytes: z.number().int().positive(), measured_bytes: z.number().int().positive()}),
 ]);
 
 export function createFireManualTriggerRoute(workflows: WorkflowsModuleClient) {

@@ -5,9 +5,12 @@ import type {
   WorkflowRunDto,
   WorkflowRunLineageHeadDto,
   WorkflowRunListItemDto,
+  WorkflowRunOverviewJobsResponseDto,
+  WorkflowRunOverviewResponseDto,
   WorkflowRunSelectionDto,
   WorkflowRunTriggerReferenceDto,
 } from '@shipfox/api-workflows-dto';
+import {encodeStringIdCursor} from '@shipfox/node-drizzle';
 import type {
   WorkflowRun,
   WorkflowRunDetail,
@@ -16,8 +19,11 @@ import type {
 } from '#core/entities/workflow-run.js';
 import type {WorkflowRunAttempt} from '#core/entities/workflow-run-attempt.js';
 import type {
+  WorkflowRunJobOverview,
   WorkflowRunJobsSummary,
   WorkflowRunLineageHead,
+  WorkflowRunOverviewJobsPageRead,
+  WorkflowRunOverviewRead,
   WorkflowRunSelection,
 } from '#db/index.js';
 import {toJobDto, toJobExecutionDto} from './job.js';
@@ -175,4 +181,168 @@ export function toRunSelectionDto(selection: WorkflowRunSelection): WorkflowRunS
             end_line: selection.sourceLocation.endLine,
           },
   };
+}
+
+export function toRunOverviewDto(
+  overview: WorkflowRunOverviewRead,
+  options: {forceLarge?: boolean; largePageSize?: number} = {},
+): WorkflowRunOverviewResponseDto {
+  const jobs = toOverviewJobsDto(overview, options);
+
+  return {
+    run: {
+      id: overview.run.id,
+      project_id: overview.run.projectId,
+      definition_id: overview.run.definitionId,
+      number: overview.run.number,
+      name: overview.run.name,
+      workflow_name: overview.run.workflowName,
+      origin: overview.run.origin,
+      dev_source: toDevSourceDto(overview.run.devSource),
+      trigger_provider: overview.run.triggerProvider,
+      trigger_source: overview.run.triggerSource,
+      trigger_event: overview.run.triggerEvent,
+      trigger_reference: toTriggerReferenceDto(overview.run.triggerReference),
+      created_at: overview.run.createdAt.toISOString(),
+    },
+    attempt: toRunOverviewAttemptDto(overview.attempt),
+    has_started_job_execution: overview.hasStartedJobExecution,
+    jobs,
+  };
+}
+
+function toOverviewJobsDto(
+  overview: WorkflowRunOverviewRead,
+  options: {forceLarge?: boolean; largePageSize?: number},
+): WorkflowRunOverviewResponseDto['jobs'] {
+  if (options.forceLarge) return toLargeOverviewJobsDto(overview, options.largePageSize);
+  if (overview.jobs.kind === 'complete') {
+    return {
+      kind: 'complete',
+      total: overview.jobs.total,
+      items: overview.jobs.items.map(toJobOverviewDto),
+    };
+  }
+
+  return {
+    kind: 'large',
+    total: overview.jobs.total,
+    status_counts: overview.jobs.statusCounts,
+    first_page: {
+      items: overview.jobs.firstPage.items.map(toJobListSummaryDto),
+      next_cursor: overview.jobs.firstPage.nextCursor
+        ? encodeJobCursor(overview.jobs.firstPage.nextCursor)
+        : null,
+      total: overview.jobs.firstPage.total,
+    },
+  };
+}
+
+export function toRunOverviewJobsPageDto(
+  page: WorkflowRunOverviewJobsPageRead,
+): WorkflowRunOverviewJobsResponseDto {
+  return {
+    items: page.items.map(toJobListSummaryDto),
+    next_cursor: page.nextCursor ? encodeJobCursor(page.nextCursor) : null,
+    ...(page.total === undefined ? {} : {total: page.total}),
+  };
+}
+
+function toLargeOverviewJobsDto(
+  overview: WorkflowRunOverviewRead,
+  pageSize?: number,
+): Extract<WorkflowRunOverviewResponseDto['jobs'], {kind: 'large'}> {
+  if (overview.jobs.kind === 'large') {
+    return {
+      kind: 'large',
+      total: overview.jobs.total,
+      status_counts: overview.jobs.statusCounts,
+      first_page: {
+        items: overview.jobs.firstPage.items.map(toJobListSummaryDto),
+        next_cursor: overview.jobs.firstPage.nextCursor
+          ? encodeJobCursor(overview.jobs.firstPage.nextCursor)
+          : null,
+        total: overview.jobs.firstPage.total,
+      },
+    };
+  }
+
+  const items = overview.jobs.items.slice(0, pageSize ?? overview.jobs.items.length);
+  const last = items.at(-1);
+
+  return {
+    kind: 'large',
+    total: overview.jobs.total,
+    status_counts: overview.jobs.statusCounts,
+    first_page: {
+      items: items.map(toJobListSummaryDto),
+      next_cursor:
+        last && items.length < overview.jobs.total
+          ? encodeJobCursor({position: last.position, id: last.id})
+          : null,
+      total: overview.jobs.total,
+    },
+  };
+}
+
+function toRunOverviewAttemptDto(
+  attempt: WorkflowRunOverviewRead['attempt'],
+): WorkflowRunOverviewResponseDto['attempt'] {
+  return {
+    id: attempt.id,
+    workflow_run_id: attempt.workflowRunId,
+    attempt: attempt.attempt,
+    status: attempt.status,
+    created_at: attempt.createdAt.toISOString(),
+    started_at: attempt.startedAt?.toISOString() ?? null,
+    finished_at: attempt.finishedAt?.toISOString() ?? null,
+    rerun_mode: attempt.rerunMode,
+  };
+}
+
+function toJobOverviewDto(job: WorkflowRunJobOverview) {
+  return {
+    ...toJobSummaryFields(job),
+    dependencies: job.dependencies,
+  };
+}
+
+function toJobSummaryFields(job: Omit<WorkflowRunJobOverview, 'dependencies'>) {
+  return {
+    id: job.id,
+    key: job.key,
+    name: job.name,
+    position: job.position,
+    status: job.status,
+    status_reason: job.statusReason,
+    mode: job.mode,
+    listener_status: job.listenerStatus,
+    carried_over: job.carriedOver,
+    execution_count: job.executionCount,
+    execution_status_counts: job.executionStatusCounts,
+    default_execution: job.defaultExecution
+      ? {
+          id: job.defaultExecution.id,
+          sequence: job.defaultExecution.sequence,
+          name: job.defaultExecution.name,
+          status: job.defaultExecution.status,
+          display_status: job.defaultExecution.displayStatus,
+          status_reason: job.defaultExecution.statusReason,
+          status_reason_message: job.defaultExecution.statusReasonMessage,
+          queued_at: job.defaultExecution.queuedAt?.toISOString() ?? null,
+          started_at: job.defaultExecution.startedAt?.toISOString() ?? null,
+          finished_at: job.defaultExecution.finishedAt?.toISOString() ?? null,
+          timed_out_at: job.defaultExecution.timedOutAt?.toISOString() ?? null,
+          updated_at: job.defaultExecution.updatedAt.toISOString(),
+        }
+      : null,
+  };
+}
+
+function toJobListSummaryDto(job: Omit<WorkflowRunJobOverview, 'dependencies'>) {
+  return toJobSummaryFields(job);
+}
+
+function encodeJobCursor(cursor: {position: number; id: string}): string {
+  return encodeStringIdCursor({value: String(cursor.position), id: cursor.id});
 }

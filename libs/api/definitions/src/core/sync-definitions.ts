@@ -1,5 +1,6 @@
 import {createHash} from 'node:crypto';
 import type {AgentValidationCatalogV2} from '@shipfox/api-agent-dto/inter-module';
+import {MAX_WORKFLOW_FILE_BYTES} from '@shipfox/api-definitions-dto';
 import {integrationsInterModuleContract} from '@shipfox/api-integration-core-dto/inter-module';
 import {isInterModuleKnownError} from '@shipfox/inter-module';
 import {boundedMap} from '@shipfox/node-module';
@@ -14,7 +15,7 @@ import {parseDefinitionWithDiagnostics, stripDefinitionDiagnostics} from './pars
 
 export const DEFAULT_WORKFLOW_PATH = '.shipfox/workflows/';
 export const MAX_WORKFLOW_FILES = 100;
-export const MAX_WORKFLOW_FILE_BYTES = 1_000_000;
+export {MAX_WORKFLOW_FILE_BYTES};
 export const FILE_FETCH_CONCURRENCY = 4;
 export const UNRESOLVED_SYNC_REF = '__unresolved__';
 

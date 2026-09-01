@@ -28,5 +28,6 @@ export {
   definitionValidationDiagnosticSchema,
   definitionValidationErrorSchema,
   definitionValidationWarningSchema,
+  MAX_WORKFLOW_FILE_BYTES,
 } from './dto.js';
 export type {TriggerDto} from './trigger.js';

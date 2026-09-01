@@ -167,7 +167,8 @@ export function isPermanentRunWorkflowError(error: unknown): boolean {
     error instanceof AgentConfigUnresolvableError ||
     error instanceof AgentIntegrationMaterializationError ||
     error instanceof InterpolationUnresolvableError ||
-    error instanceof InvalidJobRunnerLabelsError
+    error instanceof InvalidJobRunnerLabelsError ||
+    error instanceof WorkflowSourceSnapshotTooLargeError
   );
 }
 
@@ -231,6 +232,23 @@ export class JobOutputNotJsonSafeError extends Error {
   ) {
     super(`Job output "${outputKey}" cannot be persisted as JSON: ${reason}`);
     this.name = 'JobOutputNotJsonSafeError';
+  }
+}
+
+export class WorkflowSourceSnapshotTooLargeError extends Error {
+  readonly overshootBytes: number;
+
+  constructor(
+    readonly limitBytes: number,
+    readonly measuredBytes: number,
+  ) {
+    const overshootBytes = measuredBytes - limitBytes;
+    super(
+      `Workflow source snapshot exceeds the size limit of ${limitBytes} bytes ` +
+        `(measured ${measuredBytes} bytes; overshoot ${overshootBytes} bytes).`,
+    );
+    this.name = 'WorkflowSourceSnapshotTooLargeError';
+    this.overshootBytes = overshootBytes;
   }
 }
 

@@ -1,9 +1,15 @@
 import type {WorkflowFieldTemplate} from '@shipfox/api-definitions-dto';
-import {WORKFLOWS_WORKFLOW_RUN_ATTEMPT_CREATED} from '@shipfox/api-workflows-dto';
+import {
+  WORKFLOW_SOURCE_SNAPSHOT_MAX_BYTES,
+  WORKFLOWS_WORKFLOW_RUN_ATTEMPT_CREATED,
+} from '@shipfox/api-workflows-dto';
 import {parseWorkflowTemplate, planInterpolationField} from '@shipfox/expression';
 import {and, eq, sql} from 'drizzle-orm';
 import type {AgentDefaultsResolver} from '#core/agent-defaults.js';
-import {InterpolationUnresolvableError} from '#core/errors.js';
+import {
+  InterpolationUnresolvableError,
+  type WorkflowSourceSnapshotTooLargeError,
+} from '#core/errors.js';
 import {nextStepForJob, recordStepResult} from '#core/job-execution.js';
 import {resolveTestAgentDefaults} from '#test/fixtures/agent-inter-module.js';
 import {createTestSecretsClient} from '#test/fixtures/secrets-inter-module.js';
@@ -1873,6 +1879,26 @@ describe('workflow run queries', () => {
       expect(found?.sourceSnapshot).toEqual({content: sourceContent, format: 'yaml'});
     });
 
+    test('accepts a source snapshot at the exact UTF-8 byte limit', async () => {
+      const sourceContent = 'a'.repeat(WORKFLOW_SOURCE_SNAPSHOT_MAX_BYTES);
+
+      const run = await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId,
+        model: buildModel(),
+        sourceSnapshot: {content: sourceContent, format: 'yaml'},
+        triggerPayload: {
+          source: 'manual',
+          event: 'fire',
+          subscriptionId: crypto.randomUUID(),
+          userId: crypto.randomUUID(),
+        },
+      });
+
+      expect(run.sourceSnapshot).toEqual({content: sourceContent, format: 'yaml'});
+    });
+
     test('stores null source snapshot when omitted', async () => {
       const run = await createWorkflowRun({
         workspaceId,
@@ -1891,6 +1917,43 @@ describe('workflow run queries', () => {
 
       expect(run.sourceSnapshot).toBeNull();
       expect(found?.sourceSnapshot).toBeNull();
+    });
+
+    test('rejects a source snapshot above the approved byte limit before allocating a run number', async () => {
+      const sourceSnapshot = {
+        content: '🙂'.repeat(Math.ceil(WORKFLOW_SOURCE_SNAPSHOT_MAX_BYTES / 4) + 1),
+        format: 'yaml' as const,
+      };
+      const measuredBytes = Buffer.byteLength(sourceSnapshot.content, 'utf8');
+
+      await expect(
+        createWorkflowRun({
+          workspaceId,
+          projectId,
+          definitionId,
+          model: buildModel(),
+          sourceSnapshot,
+          triggerPayload: {
+            source: 'manual',
+            event: 'fire',
+            subscriptionId: crypto.randomUUID(),
+            userId: crypto.randomUUID(),
+          },
+        }),
+      ).rejects.toEqual(
+        expect.objectContaining<Partial<WorkflowSourceSnapshotTooLargeError>>({
+          limitBytes: WORKFLOW_SOURCE_SNAPSHOT_MAX_BYTES,
+          measuredBytes,
+          overshootBytes: measuredBytes - WORKFLOW_SOURCE_SNAPSHOT_MAX_BYTES,
+        }),
+      );
+
+      await expect(
+        db()
+          .select()
+          .from(workflowRunCounters)
+          .where(eq(workflowRunCounters.definitionId, definitionId)),
+      ).resolves.toHaveLength(0);
     });
 
     test('duplicate triggerIdempotencyKey returns the existing run without writing jobs/steps/outbox a second time', async () => {
