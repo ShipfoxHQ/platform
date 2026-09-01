@@ -112,11 +112,17 @@ export async function auditWorkflowRunStorage(
   params: WorkflowRunStorageAuditOptions,
 ): Promise<WorkflowRunStorageAudit> {
   const hasAttemptScope =
+    typeof params === 'object' &&
+    params !== null &&
     'workflowRunAttemptId' in params &&
     typeof params.workflowRunAttemptId === 'string' &&
     params.workflowRunAttemptId.length > 0;
   const hasFullTableScanOptIn =
-    'scope' in params && params.scope === 'all' && params.allowFullTableScan === true;
+    typeof params === 'object' &&
+    params !== null &&
+    'scope' in params &&
+    params.scope === 'all' &&
+    params.allowFullTableScan === true;
 
   if (!hasAttemptScope && !hasFullTableScanOptIn) {
     throw new Error(
