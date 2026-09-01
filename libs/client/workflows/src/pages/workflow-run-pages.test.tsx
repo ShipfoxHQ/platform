@@ -206,22 +206,15 @@ describe('WorkflowRunPages', () => {
 
     renderRunsPath();
 
-    await waitFor(() => {
-      expect(
-        fetchImpl.mock.calls.some((call) => {
-          const url = new URL(requestInputUrl(call[0]));
-          return url.pathname === '/definitions' && !url.searchParams.has('cursor');
-        }),
-      ).toBe(true);
-    });
+    const workflowFilter = await screen.findByRole('button', {name: WORKFLOW_FILTER_RE});
     expect(
       fetchImpl.mock.calls.some((call) => {
         const url = new URL(requestInputUrl(call[0]));
-        return url.pathname === '/definitions' && url.searchParams.has('cursor');
+        return url.pathname === '/definitions';
       }),
     ).toBe(false);
 
-    await user.click(await screen.findByRole('button', {name: WORKFLOW_FILTER_RE}));
+    await user.click(workflowFilter);
 
     expect(await screen.findByRole('option', {name: 'Nightly'})).toBeInTheDocument();
     expect(

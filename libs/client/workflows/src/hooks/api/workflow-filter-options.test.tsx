@@ -51,8 +51,9 @@ describe('useWorkflowFilterOptions', () => {
       {projectId: PROJECT_ID},
     );
 
-    await waitFor(() => expect(result.current.workflowOptions).toHaveLength(1));
-    expect(fetchImpl).toHaveBeenCalledOnce();
+    expect(result.current.workflowOptions).toEqual([]);
+    expect(result.current.workflowOptionsStatus).toBe('ready');
+    expect(fetchImpl).not.toHaveBeenCalled();
 
     act(() => result.current.onOpenWorkflowOptions());
 
@@ -81,6 +82,7 @@ describe('useWorkflowFilterOptions', () => {
       {projectId: PROJECT_ID},
     );
 
+    act(() => result.current.onOpenWorkflowOptions());
     await waitFor(() =>
       expect(result.current.workflowOptions).toEqual([
         {value: DEFINITION_ID, label: 'First project workflow'},
@@ -88,6 +90,11 @@ describe('useWorkflowFilterOptions', () => {
     );
 
     rerender({projectId: SECOND_PROJECT_ID});
+
+    expect(result.current.workflowOptions).toEqual([]);
+    expect(result.current.workflowOptionsStatus).toBe('ready');
+
+    act(() => result.current.onOpenWorkflowOptions());
 
     expect(result.current.workflowOptions).toEqual([]);
     expect(result.current.workflowOptionsStatus).toBe('loading');

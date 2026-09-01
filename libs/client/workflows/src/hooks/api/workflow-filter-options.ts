@@ -16,8 +16,9 @@ export function useWorkflowFilterOptions(projectId: string): {
   const [requestedProjectId, setRequestedProjectId] = useState<string>();
   const loadAllRequested = requestedProjectId === projectId;
   // A previous project's definitions must never appear in this project's chooser.
-  const {placeholderData: _placeholderData, ...configuredOptions} =
-    definitionsInfiniteQueryOptions(projectId);
+  const {placeholderData: _placeholderData, ...configuredOptions} = definitionsInfiniteQueryOptions(
+    loadAllRequested ? projectId : undefined,
+  );
   const definitionsQuery = useInfiniteQuery({
     ...configuredOptions,
     staleTime: WORKFLOW_OPTIONS_STALE_TIME_MS,
@@ -62,8 +63,10 @@ export function useWorkflowFilterOptions(projectId: string): {
   if (definitionsQuery.isError || definitionsQuery.isFetchNextPageError || repeatedCursor) {
     workflowOptionsStatus = 'error';
   } else if (
-    definitionsQuery.isPending ||
-    (loadAllRequested && (definitionsQuery.isFetchingNextPage || definitionsQuery.hasNextPage))
+    loadAllRequested &&
+    (definitionsQuery.isPending ||
+      definitionsQuery.isFetchingNextPage ||
+      definitionsQuery.hasNextPage)
   ) {
     workflowOptionsStatus = 'loading';
   }
