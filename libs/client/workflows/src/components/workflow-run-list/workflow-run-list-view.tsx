@@ -23,6 +23,9 @@ export function WorkflowRunListView({
   workspaceSlug,
   projectSlug,
   className,
+  workflowOptions = [],
+  workflowOptionsStatus = 'ready',
+  onRetryWorkflowOptions,
   search = EMPTY_SEARCH,
   onFiltersChange,
   onClearFilters,
@@ -39,7 +42,10 @@ export function WorkflowRunListView({
     () => runs.filter((run) => runMatchesFilters(run, currentSearch)),
     [runs, currentSearch],
   );
-  const facets = useMemo(() => workflowRunFacets(runs, currentSearch), [runs, currentSearch]);
+  const facets = useMemo(
+    () => workflowRunFacets(runs, currentSearch, workflowOptions),
+    [runs, currentSearch, workflowOptions],
+  );
   const hasActiveFilters = hasWorkflowRunFilters(currentSearch);
 
   function handleFiltersChange(patch: WorkflowRunFilterPatch) {
@@ -75,6 +81,8 @@ export function WorkflowRunListView({
               onChange={handleFiltersChange}
               onClear={handleClearFilters}
               hasActiveFilters={hasActiveFilters}
+              workflowOptionsStatus={workflowOptionsStatus}
+              {...(onRetryWorkflowOptions ? {onRetryWorkflowOptions} : {})}
             />
           </PanelHeader>
           <PanelBody className="min-h-0 flex-1 overflow-y-auto">
@@ -100,6 +108,7 @@ export function WorkflowRunListView({
 
 const CLEAR_ALL_FILTERS: WorkflowRunFilterPatch = {
   search: undefined,
+  workflow: undefined,
   status: undefined,
   origin: undefined,
   branch: undefined,

@@ -108,7 +108,9 @@ describe('runMatchesStatusFilter', () => {
 });
 
 describe('runMatchesFilters', () => {
+  const definitionId = '33333333-3333-4333-8333-333333333333';
   const run = workflowRunListItem({
+    definition_id: definitionId,
     name: 'deploy-web',
     status: 'failed',
     trigger_event: 'push',
@@ -125,6 +127,7 @@ describe('runMatchesFilters', () => {
     expect(
       runMatchesFilters(run, {
         search: 'deploy',
+        workflow: definitionId,
         status: ['failed'],
         branch: ['main'],
         actor: ['octocat'],
@@ -134,6 +137,7 @@ describe('runMatchesFilters', () => {
   });
 
   test.each([
+    ['workflow', {workflow: '44444444-4444-4444-8444-444444444444'}],
     ['status', {status: ['succeeded' as const]}],
     ['branch', {branch: ['release']}],
     ['actor', {actor: ['someone-else']}],
@@ -203,6 +207,8 @@ describe('workflowRunFacets', () => {
     const runs = [
       workflowRunListItem({
         id: '11111111-1111-4111-8111-000000000001',
+        definition_id: '33333333-3333-4333-8333-000000000001',
+        workflow_name: 'Deploy production',
         trigger_event: 'push',
         trigger_reference: {
           repository: 'acme/api',
@@ -213,6 +219,8 @@ describe('workflowRunFacets', () => {
       }),
       workflowRunListItem({
         id: '11111111-1111-4111-8111-000000000002',
+        definition_id: '33333333-3333-4333-8333-000000000002',
+        workflow_name: 'CI',
         trigger_event: 'pull_request',
         trigger_reference: {
           repository: 'acme/api',
@@ -224,6 +232,10 @@ describe('workflowRunFacets', () => {
     ];
 
     expect(workflowRunFacets(runs)).toEqual({
+      workflow: [
+        {value: '33333333-3333-4333-8333-000000000002', label: 'CI'},
+        {value: '33333333-3333-4333-8333-000000000001', label: 'Deploy production'},
+      ],
       branch: ['main'],
       actor: ['hubot', 'octocat'],
       event: ['pull_request', 'push'],
@@ -236,6 +248,14 @@ describe('workflowRunFacets', () => {
     });
 
     expect(facets.branch).toEqual(['release/v2']);
+  });
+
+  test('includes project workflows whose runs are outside the loaded history', () => {
+    const workflow = {value: '44444444-4444-4444-8444-444444444444', label: 'Nightly'};
+
+    const facets = workflowRunFacets([workflowRunListItem()], {}, [workflow]);
+
+    expect(facets.workflow).toContainEqual(workflow);
   });
 });
 

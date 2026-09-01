@@ -157,7 +157,8 @@ function SheetHeader({
               <Button
                 variant="transparent"
                 size="xs"
-                className="rounded-4 p-2 cursor-pointer bg-transparent border-none text-foreground-neutral-muted hover:text-foreground-neutral-base hover:bg-background-components-hover transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-background-accent-blue-base focus-visible:ring-offset-2 w-24 h-24"
+                aria-label="Close"
+                className="rounded-4 p-2 cursor-pointer bg-transparent border-none text-foreground-neutral-muted hover:text-foreground-neutral-base hover:bg-background-components-hover transition-colors duration-150 outline-none focus-visible:shadow-button-neutral-focus w-24 h-24"
               >
                 <Icon name="close" />
               </Button>

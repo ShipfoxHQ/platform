@@ -21,6 +21,7 @@ import {WorkflowRunsPage} from './workflow-run-list-page.js';
 
 const PROJECT_ID = '44444444-4444-4444-8444-444444444444';
 const DEFINITION_ID = '55555555-5555-4555-8555-555555555555';
+const SECOND_DEFINITION_ID = '55555555-5555-4555-8555-000000000002';
 const RUN_ID = '66666666-6666-4666-8666-666666666666';
 const SECOND_RUN_ID = '66666666-6666-4666-8666-000000000002';
 const OLDER_RUN_ID = '66666666-6666-4666-8666-000000000003';
@@ -34,11 +35,14 @@ const DEPLOY_ATTEMPT_ONE_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-000000000001';
 const DEPLOY_ATTEMPT_TWO_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-000000000002';
 const SMOKE_WEB_RE = /smoke-web/u;
 const DEPLOY_WEB_RE = /deploy-web/u;
+const DEPLOY_PRODUCTION_RE = /deploy-production/u;
+const CI_RUN_RE = /ci-run/u;
 const OLDER_RUN_RE = /older-run/u;
 const TRIAGE_SENTRY_RE = /triage-sentry/u;
 const INTEGRATION_TESTS_RE = /integration-tests/u;
 const BUILD_IMAGE_RE = /build-image/u;
 const STATUS_FILTER_RE = /^Status\b.*filter$/u;
+const WORKFLOW_FILTER_RE = /^Workflow\b.*filter$/u;
 const ORIGIN_FILTER_RE = /^Origin\b.*filter$/u;
 const JOBS_TAB_NAME = /^Jobs/u;
 const BUILD_JOB_BUTTON_NAME = 'build, Succeeded';
@@ -166,6 +170,51 @@ describe('WorkflowRunPages', () => {
     expect(router.state.location.searchStr).toBe('');
     expect(await screen.findByRole('link', {name: DEPLOY_WEB_RE})).toBeInTheDocument();
     expect(screen.getByRole('link', {name: TRIAGE_SENTRY_RE})).toBeInTheDocument();
+  });
+
+  test('writes the selected workflow to the URL and filters the full history through the API', async () => {
+    const user = userEvent.setup();
+    const fetchImpl = createMixedWorkflowRunsFetch();
+    configureApiClient({fetchImpl});
+
+    const {router} = renderRunsPath();
+
+    await user.click(await screen.findByRole('button', {name: WORKFLOW_FILTER_RE}));
+    await user.click(await screen.findByRole('option', {name: 'Deploy production'}));
+
+    await waitFor(() => {
+      expect(currentSearch(router).workflow).toBe(DEFINITION_ID);
+    });
+    expect(router.state.location.searchStr).toBe(`?workflow=${DEFINITION_ID}`);
+    expect(
+      fetchImpl.mock.calls.some((call) => {
+        const url = new URL(requestInputUrl(call[0]));
+        return (
+          url.pathname === '/workflows/runs' &&
+          url.searchParams.get('definition_id') === DEFINITION_ID
+        );
+      }),
+    ).toBe(true);
+    expect(await screen.findByRole('link', {name: DEPLOY_PRODUCTION_RE})).toBeInTheDocument();
+    expect(screen.queryByRole('link', {name: CI_RUN_RE})).not.toBeInTheDocument();
+  });
+
+  test('loads every workflow definition page into the chooser', async () => {
+    const user = userEvent.setup();
+    const fetchImpl = createPaginatedWorkflowDefinitionsFetch();
+    configureApiClient({fetchImpl});
+
+    renderRunsPath();
+
+    await user.click(await screen.findByRole('button', {name: WORKFLOW_FILTER_RE}));
+
+    expect(await screen.findByRole('option', {name: 'Nightly'})).toBeInTheDocument();
+    expect(
+      fetchImpl.mock.calls.some((call) => {
+        const url = new URL(requestInputUrl(call[0]));
+        return url.pathname === '/definitions' && url.searchParams.get('cursor') === 'workflow-2';
+      }),
+    ).toBe(true);
   });
 
   test('replaces history on a filter change so back leaves the list', async () => {
@@ -489,6 +538,85 @@ function createMixedOriginRunsFetch() {
 
     return Promise.resolve(jsonResponse({code: 'not-found'}, {status: 404}));
   });
+}
+
+function createMixedWorkflowRunsFetch() {
+  const runs = [
+    workflowRunDto({
+      ...RUN_OVERRIDES,
+      name: 'deploy-production',
+      workflow_name: 'Deploy production',
+    }),
+    workflowRunDto({
+      ...RUN_OVERRIDES,
+      id: SECOND_RUN_ID,
+      definition_id: SECOND_DEFINITION_ID,
+      name: 'ci-run',
+      workflow_name: 'CI',
+    }),
+  ];
+
+  return vi.fn((input: RequestInfo | URL) => {
+    const url = new URL(requestInputUrl(input));
+
+    if (url.pathname === '/workflows/runs') {
+      const definitionId = url.searchParams.get('definition_id');
+      const filtered = definitionId
+        ? runs.filter((run) => run.definition_id === definitionId)
+        : runs;
+      return Promise.resolve(
+        jsonResponse({runs: filtered, next_cursor: null, filtered_total_count: filtered.length}),
+      );
+    }
+
+    return Promise.resolve(jsonResponse({code: 'not-found'}, {status: 404}));
+  });
+}
+
+function createPaginatedWorkflowDefinitionsFetch() {
+  return vi.fn((input: RequestInfo | URL) => {
+    const url = new URL(requestInputUrl(input));
+
+    if (url.pathname === '/definitions') {
+      const isSecondPage = url.searchParams.get('cursor') === 'workflow-2';
+      return Promise.resolve(
+        jsonResponse({
+          definitions: [
+            definitionDto(
+              isSecondPage ? SECOND_DEFINITION_ID : DEFINITION_ID,
+              isSecondPage ? 'Nightly' : 'Deploy production',
+            ),
+          ],
+          next_cursor: isSecondPage ? null : 'workflow-2',
+          sync: null,
+        }),
+      );
+    }
+
+    if (url.pathname === '/workflows/runs') {
+      return Promise.resolve(jsonResponse({runs: [], next_cursor: null, filtered_total_count: 0}));
+    }
+
+    return Promise.resolve(jsonResponse({code: 'not-found'}, {status: 404}));
+  });
+}
+
+function definitionDto(id: string, name: string) {
+  return {
+    id,
+    project_id: PROJECT_ID,
+    config_path: `.shipfox/workflows/${name.toLowerCase().replaceAll(' ', '-')}.yml`,
+    source: 'vcs',
+    sha: 'abc123',
+    ref: 'main',
+    name,
+    workflow_document: {name, jobs: {}},
+    workflow_model: {kind: 'workflow', name},
+    manual_trigger: null,
+    fetched_at: '2026-05-07T01:00:00.000Z',
+    created_at: '2026-05-07T01:00:00.000Z',
+    updated_at: '2026-05-07T01:00:00.000Z',
+  };
 }
 
 function createMixedStatusRunsFetch() {

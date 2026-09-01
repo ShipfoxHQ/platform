@@ -32,6 +32,8 @@ export type WorkflowRunAnnotationSeverity = RunAnnotationSeverity;
 
 export interface WorkflowRunsSearch extends WorkflowRunSelectionInput {
   search?: string;
+  /** Workflow definition id. Absent means runs from every workflow. */
+  workflow?: string;
   status?: WorkflowRunListStatus[];
   origin?: WorkflowRunListOrigin;
   branch?: string[];
@@ -52,6 +54,7 @@ const ORIGIN_VALUES = new Set<string>(WORKFLOW_RUN_LIST_ORIGINS);
 const TAB_VALUES = new Set<string>(WORKFLOW_RUN_TABS);
 const ANNOTATION_SEVERITY_VALUES = new Set<string>(WORKFLOW_RUN_ANNOTATION_SEVERITIES);
 const CALENDAR_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/u;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 
 /**
  * Reads the run list and run detail query string.
@@ -62,6 +65,7 @@ const CALENDAR_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/u;
  */
 export function validateWorkflowRunsSearch(input: Record<string, unknown>): WorkflowRunsSearch {
   const search = string(input.search);
+  const workflow = uuid(input.workflow);
   const status = repeatable(input.status).filter(isWorkflowRunListStatus);
   const origin = enumSearchValue<WorkflowRunListOrigin>(input.origin, ORIGIN_VALUES);
   const branch = repeatable(input.branch);
@@ -77,6 +81,7 @@ export function validateWorkflowRunsSearch(input: Record<string, unknown>): Work
 
   return {
     ...(search ? {search} : {}),
+    ...(workflow ? {workflow} : {}),
     ...(status.length > 0 ? {status} : {}),
     ...(origin ? {origin} : {}),
     ...(branch.length > 0 ? {branch} : {}),
@@ -117,6 +122,7 @@ export function workflowRunSearchParams(
 ) {
   return {
     ...(search.search ? {search: search.search} : {}),
+    ...(search.workflow ? {workflow: search.workflow} : {}),
     ...(search.status?.length ? {status: search.status} : {}),
     ...(search.origin ? {origin: search.origin} : {}),
     ...(search.branch?.length ? {branch: search.branch} : {}),
@@ -155,6 +161,7 @@ export function workflowRunListSearchParams(search: WorkflowRunsSearch) {
  */
 export interface WorkflowRunFilterPatch {
   search?: string | undefined;
+  workflow?: string | undefined;
   status?: WorkflowRunListStatus[] | undefined;
   origin?: WorkflowRunListOrigin | undefined;
   branch?: string[] | undefined;
@@ -177,6 +184,7 @@ export function applyWorkflowRunFilterPatch(
 ): WorkflowRunsSearch {
   const next: WorkflowRunsSearch = {...search};
   if ('search' in patch) setOrDelete(next, 'search', patch.search || undefined);
+  if ('workflow' in patch) setOrDelete(next, 'workflow', patch.workflow || undefined);
   if ('status' in patch) setOrDelete(next, 'status', nonEmptyList(patch.status));
   if ('origin' in patch) setOrDelete(next, 'origin', patch.origin || undefined);
   if ('branch' in patch) setOrDelete(next, 'branch', nonEmptyList(patch.branch));
@@ -191,6 +199,7 @@ export function applyWorkflowRunFilterPatch(
 export function clearWorkflowRunFilters(search: WorkflowRunsSearch): WorkflowRunsSearch {
   return applyWorkflowRunFilterPatch(search, {
     search: undefined,
+    workflow: undefined,
     status: undefined,
     origin: undefined,
     branch: undefined,
@@ -205,6 +214,7 @@ export function clearWorkflowRunFilters(search: WorkflowRunsSearch): WorkflowRun
 export function hasWorkflowRunFilters(search: WorkflowRunsSearch): boolean {
   return Boolean(
     search.search ||
+      search.workflow ||
       search.status?.length ||
       search.origin ||
       search.branch?.length ||
@@ -327,6 +337,11 @@ function calendarDate(value: unknown): string | undefined {
 
 function string(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function uuid(value: unknown): string | undefined {
+  const candidate = string(value);
+  return candidate && UUID_PATTERN.test(candidate) ? candidate : undefined;
 }
 
 function positiveInteger(value: unknown): number | undefined {

@@ -53,6 +53,9 @@ describe('WorkflowRunListView', () => {
       expect(body).not.toBeNull();
       expect(within(header as HTMLElement).getByLabelText('Search runs')).toBeInTheDocument();
       expect(
+        within(header as HTMLElement).getByRole('button', {name: filterTrigger('Workflow')}),
+      ).toBeInTheDocument();
+      expect(
         within(header as HTMLElement).getByRole('button', {name: filterTrigger('Status')}),
       ).toBeInTheDocument();
       expect(
@@ -75,6 +78,67 @@ describe('WorkflowRunListView', () => {
   });
 
   describe('filtering', () => {
+    test('narrows the list to the selected workflow', async () => {
+      const user = userEvent.setup();
+      renderListView([
+        run('succeeded', 'deploy-run', 'run-1', {
+          definition_id: '55555555-5555-4555-8555-000000000001',
+          workflow_name: 'Deploy production',
+        }),
+        run('failed', 'ci-run', 'run-2', {
+          definition_id: '55555555-5555-4555-8555-000000000002',
+          workflow_name: 'CI',
+        }),
+      ]);
+
+      await selectWorkflowFilter(user, 'Deploy production');
+
+      expect(screen.getByText('deploy-run')).toBeInTheDocument();
+      expect(screen.queryByText('ci-run')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', {name: filterTrigger('Workflow')})).toHaveTextContent(
+        'Workflow: Deploy production',
+      );
+      expect(screen.getByRole('button', {name: 'Filters (1)'})).toBeInTheDocument();
+    });
+
+    test('offers project workflows outside the loaded run history', async () => {
+      const user = userEvent.setup();
+      renderListView([run('succeeded', 'deploy-run')], {
+        workflowOptions: [
+          {value: '55555555-5555-4555-8555-000000000001', label: 'Deploy production'},
+          {value: '55555555-5555-4555-8555-000000000002', label: 'Nightly'},
+        ],
+      });
+
+      await user.click(await screen.findByRole('button', {name: filterTrigger('Workflow')}));
+
+      expect(await screen.findByRole('option', {name: 'Nightly'})).toBeInTheDocument();
+    });
+
+    test('reports workflow option loading in the chooser', async () => {
+      const user = userEvent.setup();
+      renderListView([], {workflowOptionsStatus: 'loading'});
+
+      await user.click(await screen.findByRole('button', {name: filterTrigger('Workflow')}));
+
+      expect(await screen.findByRole('status')).toHaveTextContent('Loading workflows...');
+      expect(screen.queryByText('No workflows found.')).not.toBeInTheDocument();
+    });
+
+    test('reports workflow option failures and retries them', async () => {
+      const user = userEvent.setup();
+      const onRetryWorkflowOptions = vi.fn();
+      renderListView([], {workflowOptionsStatus: 'error', onRetryWorkflowOptions});
+
+      await user.click(await screen.findByRole('button', {name: filterTrigger('Workflow')}));
+      expect(await screen.findByRole('alert')).toHaveTextContent('Could not load all workflows.');
+      expect(screen.queryByText('No workflows found.')).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', {name: 'Retry'}));
+
+      expect(onRetryWorkflowOptions).toHaveBeenCalledOnce();
+    });
+
     test('narrows the list to the selected status', async () => {
       const user = userEvent.setup();
       renderListView([
@@ -668,7 +732,17 @@ function renderListView(
   {
     query = loadedQuery(),
     ...options
-  }: Partial<Pick<WorkflowRunListViewProps, 'hasNextPage' | 'onLoadMore' | 'query'>> = {},
+  }: Partial<
+    Pick<
+      WorkflowRunListViewProps,
+      | 'hasNextPage'
+      | 'onLoadMore'
+      | 'query'
+      | 'workflowOptions'
+      | 'workflowOptionsStatus'
+      | 'onRetryWorkflowOptions'
+    >
+  > = {},
 ) {
   // Row links need router context; the query and data stay injected by props.
   renderWithRouter(
@@ -680,6 +754,11 @@ function renderListView(
       {...options}
     />,
   );
+}
+
+async function selectWorkflowFilter(user: ReturnType<typeof userEvent.setup>, workflow: string) {
+  await user.click(await screen.findByRole('button', {name: filterTrigger('Workflow')}));
+  await user.click(await screen.findByRole('option', {name: workflow}));
 }
 
 /** Matches a filter trigger by its label, whatever value it currently reports. */

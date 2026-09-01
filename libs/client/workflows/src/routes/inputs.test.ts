@@ -15,6 +15,8 @@ import {
   workflowRunTab,
 } from './inputs.js';
 
+const WORKFLOW_ID = '55555555-5555-4555-8555-555555555555';
+
 /** Everything a filter change writes, then reads back, exactly as the router would. */
 function roundTrip(search: WorkflowRunsSearch): WorkflowRunsSearch {
   const query = stringifyAppSearch(workflowRunSearchParams(search, {}));
@@ -26,6 +28,7 @@ describe('validateWorkflowRunsSearch', () => {
     expect(
       validateWorkflowRunsSearch({
         search: ['unexpected'],
+        workflow: 'not-a-workflow-id',
         status: 'unknown',
         tab: 'unknown',
         severity: 'critical',
@@ -147,6 +150,7 @@ describe('the job detail URL contract', () => {
 describe('the run list URL contract', () => {
   test.each([
     ['search', {search: 'deploy-web'}],
+    ['workflow', {workflow: WORKFLOW_ID}],
     ['status', {status: ['failed' as const, 'running' as const]}],
     ['origin', {origin: 'dev' as const}],
     ['origin synced', {origin: 'synced' as const}],
@@ -161,6 +165,7 @@ describe('the run list URL contract', () => {
   test('round-trips every parameter at once', () => {
     const search: WorkflowRunsSearch = {
       search: 'deploy',
+      workflow: WORKFLOW_ID,
       status: ['failed', 'cancelled'],
       origin: 'dev',
       branch: ['main'],
@@ -214,12 +219,13 @@ describe('the run list URL contract', () => {
     expect(
       workflowRunListSearchParams({
         search: 'deploy',
+        workflow: WORKFLOW_ID,
         status: ['running'],
         tab: 'jobs',
         severity: 'error',
         jobId: 'job-1',
       }),
-    ).toEqual({search: 'deploy', status: ['running']});
+    ).toEqual({search: 'deploy', workflow: WORKFLOW_ID, status: ['running']});
   });
 
   test('has no page or cursor parameter to carry', () => {
@@ -245,6 +251,7 @@ describe('applyWorkflowRunFilterPatch', () => {
   test('deletes a dimension set to undefined, an empty string, or an empty list', () => {
     const search: WorkflowRunsSearch = {
       search: 'deploy',
+      workflow: WORKFLOW_ID,
       status: ['failed'],
       origin: 'dev',
       after: '2026-05-01',
@@ -253,6 +260,7 @@ describe('applyWorkflowRunFilterPatch', () => {
     expect(
       applyWorkflowRunFilterPatch(search, {
         search: '',
+        workflow: undefined,
         status: [],
         origin: undefined,
         after: undefined,
@@ -271,6 +279,7 @@ describe('clearWorkflowRunFilters', () => {
   test('drops every filter and keeps the selection parameters', () => {
     const cleared = clearWorkflowRunFilters({
       search: 'deploy',
+      workflow: WORKFLOW_ID,
       status: ['failed'],
       origin: 'dev',
       branch: ['main'],
@@ -288,6 +297,7 @@ describe('clearWorkflowRunFilters', () => {
 describe('hasWorkflowRunFilters', () => {
   test.each([
     ['search', {search: 'deploy'}],
+    ['workflow', {workflow: WORKFLOW_ID}],
     ['status', {status: ['failed' as const]}],
     ['origin', {origin: 'dev' as const}],
     ['branch', {branch: ['main']}],
