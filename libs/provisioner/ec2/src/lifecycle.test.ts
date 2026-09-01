@@ -1138,12 +1138,16 @@ describe('createEc2Lifecycle', () => {
   });
 
   it('warns when a deadline candidate remains without backend authorization', async () => {
+    const now = new Date(NOW);
     const engine = fakeEngine({
       instances: [instance({state: 'pending', launchTime: new Date('2026-01-01T00:00:00.000Z')})],
     });
-    const lifecycle = makeLifecycle({engine, registrationDeadlineMs: 60_000});
+    const lifecycle = makeLifecycle({engine, registrationDeadlineMs: 60_000, now: () => now});
 
-    for (let attempt = 0; attempt < 5; attempt++) await lifecycle.reconcile();
+    for (let attempt = 0; attempt < 5; attempt++) {
+      await lifecycle.reconcile();
+      if (attempt < 4) now.setTime(now.getTime() + 1_000);
+    }
 
     expect(observability.logger.warn).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1151,7 +1155,7 @@ describe('createEc2Lifecycle', () => {
         provider_runner_id: 'runner-1',
         attempt_count: 5,
         first_attempt_at: NOW.toISOString(),
-        age_ms: 0,
+        age_ms: 4_000,
         termination_authorization: 'backend-gated',
       }),
       'EC2 registration deadline candidate is still waiting for backend authorization',
@@ -1179,6 +1183,7 @@ describe('createEc2Lifecycle', () => {
       expect.objectContaining({
         event: 'provisioner.ec2.registration_deadline_candidate_unidentifiable',
         aws_instance_id: 'i-unidentifiable',
+        provisioner_id: '00000000-0000-4000-8000-000000000001',
         termination_authorization: 'backend-gated',
       }),
       'Cannot submit an EC2 registration deadline candidate without provider runner identity',
@@ -1373,6 +1378,7 @@ describe('createEc2Lifecycle', () => {
         termination_candidates: [
           {provider_runner_id: 'pending-runner', reason: 'registration-deadline'},
         ],
+        candidate_only_reconcile: true,
       },
     ]);
     expect(observability.logger.error).toHaveBeenCalledWith(

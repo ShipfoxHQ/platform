@@ -68,6 +68,7 @@ export interface ReconcileRunnerInstancesParams {
   workspaceId: string | null;
   provisionerId: string;
   observedRunnerInstanceIds: string[];
+  candidateOnlyReconcile?: boolean;
   terminationCandidates?: ProviderTerminationCandidate[];
 }
 

@@ -199,10 +199,11 @@ hour after a listing gap.
 The provider reports non-terminal states on every observation.
 When the provider terminates an instance, it reports `terminated` with the backend authorization
 reason when one is present. Direct provider termination requests use `backend-terminate`.
-If `provisioner.ec2.registration_deadline_candidate_unidentifiable` appears, verify the logged
-`aws_instance_id` and `shipfox.provisioner_id` ownership, then follow the operator-approved AWS
-cleanup procedure. The provider cannot terminate an instance without a provider runner ID and
-does not bypass backend authorization.
+If `provisioner.ec2.registration_deadline_candidate_unidentifiable` appears, use
+`aws ec2 describe-instances --instance-ids <aws_instance_id>` to compare its
+`shipfox.provisioner_id` tag with the logged `provisioner_id`, then follow the operator-approved
+AWS cleanup procedure. The provider cannot terminate an instance without a provider runner ID
+and does not bypass backend authorization.
 An authorized instance that remains in `stopping` past its configured timeout receives one forced termination retry.
 The retry reuses the API's first-observed `stopping_at` timestamp and does not create authorization.
 A live bound job fences the retry; a bound job with cancellation requested does not, because the API has already authorized cleanup.

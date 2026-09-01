@@ -295,43 +295,16 @@ async function reconcile(context: Ec2LifecycleContext): Promise<void> {
   )
     return;
 
-  const submittedHealthCandidates = terminationCandidates.filter(
-    (candidate) => candidate.reason === 'provider-health-failed',
-  );
   const submittedRegistrationDeadlineCandidates = terminationCandidates.filter(
     (candidate) => candidate.reason === 'registration-deadline',
   );
-  recordRegistrationDeadlineAuthorizationAttempts(context, submittedRegistrationDeadlineCandidates);
-  const response = await context.client.reconcileRunnerInstances({
-    observed_provider_runner_ids: observedRunnerLimitExceeded ? [] : observedProviderRunnerIds,
-    ...(terminationCandidates.length > 0 ? {termination_candidates: terminationCandidates} : {}),
-  });
-  if (submittedHealthCandidates.length > 0) {
-    logger().info(
-      {
-        event: 'provisioner.ec2.provider_health_candidates_submitted',
-        requested_count: submittedHealthCandidates.length,
-        termination_authorization: 'backend-gated',
-        provider_runner_ids: submittedHealthCandidates
-          .slice(0, MAX_TERMINATION_CANDIDATE_IDS_IN_LOG)
-          .map((candidate) => candidate.provider_runner_id),
-      },
-      'Sent EC2 provider health termination candidates for backend authorization',
-    );
-  }
-  if (submittedRegistrationDeadlineCandidates.length > 0) {
-    logger().info(
-      {
-        event: 'provisioner.ec2.registration_deadline_candidates_submitted',
-        requested_count: submittedRegistrationDeadlineCandidates.length,
-        termination_authorization: 'backend-gated',
-        provider_runner_ids: submittedRegistrationDeadlineCandidates
-          .slice(0, MAX_TERMINATION_CANDIDATE_IDS_IN_LOG)
-          .map((candidate) => candidate.provider_runner_id),
-      },
-      'Sent EC2 registration deadline candidates for backend authorization',
-    );
-  }
+  const response = await reconcileWithBackend(
+    context,
+    observedProviderRunnerIds,
+    terminationCandidates,
+    observedRunnerLimitExceeded,
+    submittedRegistrationDeadlineCandidates,
+  );
   syncCanonicalReservationIds(context, response.runners);
   const terminateIntents = new Map<string, TerminationIntent>();
   for (const runner of response.runners) {
@@ -359,6 +332,52 @@ async function reconcile(context: Ec2LifecycleContext): Promise<void> {
   await applyObservedInstances(context, instances, terminateIntents);
   await reportEvents(context, []);
   if (!observedRunnerLimitExceeded) context.lastReconciledAt = new Date(context.now());
+}
+
+async function reconcileWithBackend(
+  context: Ec2LifecycleContext,
+  observedProviderRunnerIds: string[],
+  terminationCandidates: ProviderTerminationCandidateDto[],
+  observedRunnerLimitExceeded: boolean,
+  submittedRegistrationDeadlineCandidates: ProviderTerminationCandidateDto[],
+): Promise<ReconcileRunnerInstancesResponseDto> {
+  const submittedHealthCandidates = terminationCandidates.filter(
+    (candidate) => candidate.reason === 'provider-health-failed',
+  );
+  const candidateOnlyReconcile = observedRunnerLimitExceeded && terminationCandidates.length > 0;
+  recordRegistrationDeadlineAuthorizationAttempts(context, submittedRegistrationDeadlineCandidates);
+  const response = await context.client.reconcileRunnerInstances({
+    observed_provider_runner_ids: observedRunnerLimitExceeded ? [] : observedProviderRunnerIds,
+    ...(terminationCandidates.length > 0 ? {termination_candidates: terminationCandidates} : {}),
+    ...(candidateOnlyReconcile ? {candidate_only_reconcile: true} : {}),
+  });
+  if (submittedHealthCandidates.length > 0) {
+    logger().info(
+      {
+        event: 'provisioner.ec2.provider_health_candidates_submitted',
+        requested_count: submittedHealthCandidates.length,
+        termination_authorization: 'backend-gated',
+        provider_runner_ids: submittedHealthCandidates
+          .slice(0, MAX_TERMINATION_CANDIDATE_IDS_IN_LOG)
+          .map((candidate) => candidate.provider_runner_id),
+      },
+      'Sent EC2 provider health termination candidates for backend authorization',
+    );
+  }
+  if (submittedRegistrationDeadlineCandidates.length > 0) {
+    logger().info(
+      {
+        event: 'provisioner.ec2.registration_deadline_candidates_submitted',
+        requested_count: submittedRegistrationDeadlineCandidates.length,
+        termination_authorization: 'backend-gated',
+        provider_runner_ids: submittedRegistrationDeadlineCandidates
+          .slice(0, MAX_TERMINATION_CANDIDATE_IDS_IN_LOG)
+          .map((candidate) => candidate.provider_runner_id),
+      },
+      'Sent EC2 registration deadline candidates for backend authorization',
+    );
+  }
+  return response;
 }
 
 async function handleObservedRunnerLimit(
@@ -585,6 +604,7 @@ function observeRegistrationDeadlineCandidates(
           event: 'provisioner.ec2.registration_deadline_candidate_unidentifiable',
           ...(identity.runnerInstanceId ? {runner_instance_id: identity.runnerInstanceId} : {}),
           aws_instance_id: instance.instanceId,
+          provisioner_id: context.identity.id,
           termination_authorization: 'backend-gated',
         },
         'Cannot submit an EC2 registration deadline candidate without provider runner identity',

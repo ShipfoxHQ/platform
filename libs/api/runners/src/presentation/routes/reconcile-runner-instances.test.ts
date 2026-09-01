@@ -323,6 +323,47 @@ describe('POST /provisioners/runner-instances/reconcile', () => {
     expect(runner?.terminationReason).toBe('registration-deadline');
   });
 
+  it('does not reconcile absent runners for candidate-only requests', async () => {
+    await createRunnerInstance({
+      providerRunnerId: 'stale-runner',
+      reportedAt: new Date(Date.now() - 300_000),
+    });
+    await createRunnerInstance({providerRunnerId: 'candidate-runner'});
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/provisioners/runner-instances/reconcile',
+      headers: {authorization: `Bearer ${VALID_PROVISIONER_TOKEN}`},
+      payload: {
+        observed_provider_runner_ids: [],
+        termination_candidates: [
+          {provider_runner_id: 'candidate-runner', reason: 'registration-deadline'},
+        ],
+        candidate_only_reconcile: true,
+      },
+    });
+
+    const [staleRunner] = await db()
+      .select({state: providerRunners.state})
+      .from(providerRunners)
+      .where(
+        and(
+          eq(providerRunners.workspaceId, workspaceId),
+          eq(providerRunners.provisionerId, provisionerTokenId),
+          eq(providerRunners.providerRunnerId, 'stale-runner'),
+        ),
+      );
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().runners[0]).toMatchObject({
+      provider_runner_id: 'candidate-runner',
+      desired_intent: 'terminate',
+      termination_reason: 'registration-deadline',
+    });
+    expect(res.json().terminated_absent_provider_runner_ids).toEqual([]);
+    expect(staleRunner?.state).toBe('running');
+  });
+
   it('keeps a provider termination candidate when a live job exists', async () => {
     await createRunnerInstance({providerRunnerId: 'busy-candidate'});
     await insertRunningJob({

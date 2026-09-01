@@ -30,6 +30,8 @@ export const reconcileRunnerInstancesBodySchema = z
       .array(providerTerminationCandidateSchema)
       .max(MAX_TERMINATION_CANDIDATES)
       .optional(),
+    // Candidate-only requests carry a bounded subset and must not trigger absence reconciliation.
+    candidate_only_reconcile: z.boolean().optional(),
   })
   .strict()
   .refine(
@@ -47,6 +49,13 @@ export const reconcileRunnerInstancesBodySchema = z
     {
       message: 'termination_candidates provider_runner_id values must be unique',
       path: ['termination_candidates'],
+    },
+  )
+  .refine(
+    (body) => !body.candidate_only_reconcile || (body.termination_candidates?.length ?? 0) > 0,
+    {
+      message: 'candidate_only_reconcile requires termination_candidates',
+      path: ['candidate_only_reconcile'],
     },
   );
 

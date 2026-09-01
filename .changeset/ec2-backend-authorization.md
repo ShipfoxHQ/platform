@@ -1,5 +1,6 @@
 ---
 '@shipfox/api-runners': patch
+'@shipfox/api-runners-dto': patch
 ---
 
-Authorizes installation-scoped EC2 termination candidates through the durable backend termination gate.
+Authorizes registration-deadline EC2 runner instances for termination through the backend.

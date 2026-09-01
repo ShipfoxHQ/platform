@@ -374,6 +374,7 @@ export interface ReconcileRunnerInstancesParams {
   workspaceId: string | null;
   provisionerId: string;
   observedRunnerInstanceIds: string[];
+  candidateOnlyReconcile?: boolean;
   terminationCandidates?: ProviderTerminationCandidate[];
   terminateGraceSeconds: number;
   postJobExitGraceSeconds?: number;
@@ -1287,8 +1288,11 @@ export async function reconcileRunnerInstances(
       sql`select pg_advisory_xact_lock(hashtext(${params.workspaceId ?? params.provisionerId}))`,
     );
 
+    // Candidate-only requests carry a bounded subset, so their IDs are not a complete snapshot.
     const {absentIds, reservationsReleased: absentReservationsReleased} =
-      await reconcileAbsentRunnerInstancesTx(tx, params, observedRunnerInstanceIds);
+      params.candidateOnlyReconcile
+        ? {absentIds: [], reservationsReleased: 0}
+        : await reconcileAbsentRunnerInstancesTx(tx, params, observedRunnerInstanceIds);
     let reservationsReleased = absentReservationsReleased;
     const terminationAuthorizationTelemetry: TerminationAuthorizationTelemetryRecord[] = [];
     terminationAuthorizationTelemetry.push(

@@ -20,6 +20,30 @@ describe('reconcileRunnerInstancesBodySchema', () => {
     expect(result.success).toBe(true);
   });
 
+  it('accepts candidate-only reconciliation with termination candidates', () => {
+    const result = reconcileRunnerInstancesBodySchema.safeParse({
+      observed_provider_runner_ids: [],
+      termination_candidates: [
+        {
+          provider_runner_id: 'provider-runner-1',
+          reason: 'registration-deadline',
+        },
+      ],
+      candidate_only_reconcile: true,
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects candidate-only reconciliation without termination candidates', () => {
+    const result = reconcileRunnerInstancesBodySchema.safeParse({
+      observed_provider_runner_ids: [],
+      candidate_only_reconcile: true,
+    });
+
+    expect(result.success).toBe(false);
+  });
+
   it('rejects duplicate provider termination candidates', () => {
     const result = reconcileRunnerInstancesBodySchema.safeParse({
       observed_provider_runner_ids: [],
