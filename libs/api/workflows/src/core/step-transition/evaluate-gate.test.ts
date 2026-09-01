@@ -178,6 +178,42 @@ describe('evaluateGate', () => {
     });
   });
 
+  test('tool-step output gates do not require an exit code', () => {
+    const source = 'step.outputs.result.number == 1';
+    const gate = readStepGate(gateConfig(source));
+
+    expect(
+      evaluateGate(
+        gate,
+        {status: 'succeeded', exitCode: null, output: {result: {number: 1}}},
+        undefined,
+        {stepType: 'tool'},
+      ),
+    ).toEqual({
+      kind: 'passed',
+      source,
+      trace: gateTrace(source, true),
+    });
+  });
+
+  test('a failing tool-step output gate remains checkable without an exit code', () => {
+    const source = 'step.outputs.result.number == 1';
+    const gate = readStepGate(gateConfig(source));
+
+    expect(
+      evaluateGate(
+        gate,
+        {status: 'succeeded', exitCode: null, output: {result: {number: 2}}},
+        undefined,
+        {stepType: 'tool'},
+      ),
+    ).toEqual({
+      kind: 'failed',
+      source,
+      trace: gateTrace(source, false),
+    });
+  });
+
   test('unguarded missing step output keys fail closed as uncheckable', () => {
     const gate = readStepGate(gateConfig('step.outputs.pass == true'));
 

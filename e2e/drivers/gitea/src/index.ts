@@ -4,10 +4,12 @@ import {
   bestEffortDeleteOrg,
   type CreatedOrg,
   commitFiles,
+  createIssue,
   createOrg,
   createRepo,
   deleteOrg,
   deleteRepo,
+  listIssueComments,
 } from './instance.js';
 
 export type {CreateGiteaConnectionResponseDto} from '@shipfox/api-integration-gitea-dto';
@@ -17,16 +19,21 @@ export {
   type CommitFile,
   type CommitFileOperation,
   type CommitFilesParams,
+  type CreatedIssue,
   type CreatedOrg,
   type CreatedRepo,
+  type CreateIssueParams,
   type CreateOrgParams,
   type CreateRepoParams,
   commitFiles,
+  createIssue,
   createOrg,
   createRepo,
   deleteOrg,
   deleteRepo,
   generateOrgName,
+  type IssueComment,
+  listIssueComments,
 } from './instance.js';
 
 export interface CreateConnectedOrgParams {
@@ -64,6 +71,8 @@ export function createGiteaHelper() {
   return {
     createOrg,
     createRepo,
+    createIssue,
+    listIssueComments,
     commitFiles,
     deleteRepo,
     deleteOrg,

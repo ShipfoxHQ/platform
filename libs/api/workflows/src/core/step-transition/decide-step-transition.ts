@@ -26,8 +26,9 @@ export interface StepReport {
 
 // Precomputed gate evaluation (the CEL engine runs in evaluate-gate.ts, never
 // here). `passed`/`failed` are clean evaluations; `uncheckable` means the gate
-// could not be evaluated (no exit code, or an evaluation error) and is treated
-// as a plain command failure. It is never a restart.
+// could not be evaluated (a required exit code is missing, or an evaluation
+// error) and is treated as a plain command failure. Tool-step failures are also
+// plain failures because provider calls may have side effects. Neither restarts.
 export type GateOutcome =
   | {kind: 'no-gate'}
   | {kind: 'passed'; source: string; trace?: readonly PersistedEvaluationTraceEntry[]}
@@ -124,9 +125,10 @@ function fail(
 
 // Pure: maps a step report (and its precomputed gate outcome) to a transition
 // decision. No DB, no expression engine. A passing gate succeeds; a checkable
-// failure with a resolvable `restart_from` rewinds (until the per-step attempt cap
-// is hit); everything else fails the job. An `uncheckable` failure (no exit code /
-// eval error) is always a plain failure, never a restart.
+// runner-step failure with a resolvable `restart_from` rewinds (until the per-step
+// attempt cap is hit); everything else fails the job. An `uncheckable` failure (a
+// required exit code is missing or evaluation errors) and every tool-step failure
+// are always plain failures, never restarts.
 export function decideStepTransition(input: DecideStepTransitionInput): StepTransitionDecision {
   const {steps, target, reportedAttempt, result, gateOnFailure} = input;
   const gate = input.gateOutcome ?? {kind: 'no-gate'};
@@ -139,13 +141,12 @@ export function decideStepTransition(input: DecideStepTransitionInput): StepTran
   }
 
   // 2. It failed. Classify the failure error and whether it is restartable.
-  //    `uncheckable` (no exit code / eval error) is a plain command failure that
-  //    never restarts.
-  const uncheckable = gate.kind === 'uncheckable';
+  //    Tool provider calls can have side effects, so a tool step never rewinds.
+  const restartAllowed = target.type !== 'tool' && gate.kind !== 'uncheckable';
   const failureError = stepFailureError(gate, result);
 
   // 3. Restart when a policy is configured and the failure is checkable.
-  if (gateOnFailure?.restartFrom && !uncheckable) {
+  if (gateOnFailure?.restartFrom && restartAllowed) {
     return restartStepTransition(input, gateOnFailure, failureError, maxAttempts);
   }
 

@@ -46,6 +46,7 @@ const stepStatusSchema = z.enum([
   'skipped',
   'cancelled',
 ]);
+const stepTypeSchema = z.enum(['setup', 'run', 'agent', 'checkout', 'tool']);
 const stepErrorReasonSchema = z.enum([
   'checkout_failed',
   'checkout_auth_failed',
@@ -132,8 +133,21 @@ const stepGateResultExpectationSchema = z
   })
   .strict();
 
+const giteaExpectationSchema = z
+  .object({
+    issue: z
+      .object({
+        title: z.string().min(1),
+        body: z.string().min(1),
+      })
+      .strict(),
+    comment: z.string().min(1),
+  })
+  .strict();
+
 const stepExpectationSchema = z
   .object({
+    type: stepTypeSchema.optional(),
     status: stepStatusSchema.optional(),
     exit_code: z.number().int().optional(),
     error: stepErrorExpectationSchema.optional(),
@@ -160,6 +174,7 @@ export const expectationSchema = z
     run: z.object({status: runStatusSchema}).strict(),
     jobs: z.record(z.string(), jobExpectationSchema).optional(),
     runner_log: logsExpectationSchema.optional(),
+    gitea: giteaExpectationSchema.optional(),
   })
   .strict();
 
@@ -353,6 +368,14 @@ function evaluateStepExpectation(
     });
   }
 
+  if (expectation.type !== undefined && step.type !== expectation.type) {
+    result.mismatches.push({
+      path: `${path}.type`,
+      expected: expectation.type,
+      actual: step.type,
+    });
+  }
+
   if (expectation.exit_code !== undefined) {
     const exitCode = latestExitCode(step);
     if (exitCode !== expectation.exit_code) {
@@ -416,8 +439,9 @@ function evaluateJobExpectation(
 
 /**
  * Compares a run detail against an expectation, returning every structural mismatch
- * (run/job/step status and step exit code) plus the log requirements the harness still
- * needs to fetch. Pure and synchronous, so it is unit-tested against canned run detail.
+ * (run/job/step status, step type, and step exit code) plus the log requirements the
+ * harness still needs to fetch. Pure and synchronous, so it is unit-tested against canned
+ * run detail.
  */
 export function evaluateExpectations(
   runDetail: WorkflowRunDetailResponseDto,

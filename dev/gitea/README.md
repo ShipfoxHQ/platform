@@ -8,9 +8,9 @@ it uses in production, with no throwaway fake git server.
 
 `docker compose up -d` starts Gitea and runs `gitea-init`, which provisions it over
 the HTTP API (idempotently): a site-admin user, the low-privilege bot user the
-provider authenticates as, a demo org, a read-only team the bot belongs to, the org
-push webhook, and a few seeded repos carrying the demo workflow and code files under
-`dev/gitea/seed/`.
+provider authenticates as, a demo org, code-read and issue-comment-write teams the
+bot belongs to, the org push webhook, and a few seeded repos carrying the demo
+workflow and code files under `dev/gitea/seed/`.
 
 | Setting | Value |
 | -- | -- |
@@ -45,16 +45,23 @@ vantage point:
 
 With `INTEGRATIONS_ENABLE_GITEA_PROVIDER=true` (already set in `apps/api/.env`),
 connect the `shipfox` org through the API to persist the connection. The org
-push webhook is registered by `gitea-init` as admin (the read-only bot cannot manage
-org hooks, so the instance admin owns it). The provider then lists the seeded repos
-and reads their files; a push to Gitea delivers a webhook to the API, verified
-against `GITEA_WEBHOOK_SECRET`.
+push webhook is registered by `gitea-init` as admin (the scoped bot cannot manage org
+hooks, so the instance admin owns it). The provider then lists the seeded repos and
+reads their files; issue tools can read issues and write comments; a push to Gitea
+delivers a webhook to the API, verified against `GITEA_WEBHOOK_SECRET`.
 
 ## Re-seeding
 
 `gitea-init` skips anything that already exists, so `docker compose up` is safe to
-re-run. To start from a clean slate, remove the `gitea` volume (Compose prefixes it
-with the project name, which defaults to the repo directory name):
+re-run. If the stack was created before issue tools were enabled, rerun the bootstrap
+once so it creates the issue-comment-write team:
+
+```sh
+docker compose run --rm gitea-init
+```
+
+To start from a clean slate, remove the `gitea` volume (Compose prefixes it with the
+project name, which defaults to the repo directory name):
 
 ```sh
 docker compose down

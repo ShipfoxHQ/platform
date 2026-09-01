@@ -144,6 +144,31 @@ describe('decideStepTransition', () => {
     });
   });
 
+  test('a failing tool-step gate never rewinds a provider call', () => {
+    const restartTarget = step({id: 's0', key: 'producer', position: 0, status: 'succeeded'});
+    const target = step({id: 's1', position: 1, status: 'running', type: 'tool'});
+
+    const decision = decideStepTransition({
+      steps: [restartTarget, target],
+      target,
+      reportedAttempt: 1,
+      result: {status: 'succeeded', exitCode: null},
+      gateOutcome: {kind: 'failed', source: 'step.outputs.result.ok == true'},
+      gateOnFailure: {restartFrom: 'producer'},
+    });
+
+    expect(decision).toEqual({
+      kind: 'fail-job',
+      failedStepId: 's1',
+      attempt: 1,
+      failureError: {
+        kind: 'gate_failed',
+        message: 'gate condition not met',
+        source: 'step.outputs.result.ok == true',
+      },
+    });
+  });
+
   test('restart_from never resolves to the synthetic setup step (no workspace re-delete)', () => {
     // A user step legitimately keyed "Set up job" shares its label with the synthetic
     // setup step at position 0. Restart must resolve to the user step, not position 0.
