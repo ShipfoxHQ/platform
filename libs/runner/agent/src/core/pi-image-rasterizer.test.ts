@@ -1,10 +1,12 @@
 import {EventEmitter} from 'node:events';
+import {readFileSync} from 'node:fs';
 import {
   closePiSvgRasterizer,
   createPiSvgRasterizer,
   PI_SVG_RASTERIZATION_LIMITS,
   rasterizeSvg,
 } from './pi-image-rasterizer.js';
+import {readFontFamily} from './pi-svg-font.js';
 import {inspectSvgPolicy} from './pi-svg-policy.js';
 
 const PNG_SIGNATURE = [137, 80, 78, 71, 13, 10, 26, 10];
@@ -19,6 +21,7 @@ describe('inspectSvgPolicy', () => {
     ['ENTITY', '<!ENTITY badge "value">'],
     ['script', '<script>alert(1)</script>'],
     ['namespaced script', '<svg:script>alert(1)</svg:script>'],
+    ['unicode namespaced script', '<é:script>alert(1)</é:script>'],
     ['foreignObject', '<foreignObject></foreignObject>'],
   ])('rejects %s tokens', (_name, token) => {
     expect(inspectSvgPolicy(new TextEncoder().encode(token))).toBe('unsafe_svg');
@@ -38,6 +41,20 @@ describe('inspectSvgPolicy', () => {
         new TextEncoder().encode('<use href="#badge" /><rect style="fill:url(#fill)" />'),
       ),
     ).toBeUndefined();
+  });
+
+  it('rejects an unclosed CSS URL without repeatedly rescanning the input', () => {
+    const source = new TextEncoder().encode(`<svg>${'url('.repeat(100_000)}`);
+
+    expect(inspectSvgPolicy(source)).toBe('external_resource');
+  });
+
+  it('derives the bundled font family from its internal WOFF2 metadata', () => {
+    const font = readFileSync(
+      new URL('../assets/pi-svg/ibm-plex-sans-var-roman-latin1.woff2', import.meta.url),
+    );
+
+    expect(readFontFamily(font)).toBe('IBM Plex Sans Var');
   });
 });
 
@@ -82,13 +99,13 @@ describe('rasterizeSvg', () => {
   });
 
   it('rejects decoded SVG input above one MiB before worker dispatch', async () => {
-    const base64 = Buffer.alloc(PI_SVG_RASTERIZATION_LIMITS.maxInputBytes + 1, 65).toString(
-      'base64',
-    );
+    const inputBytes = PI_SVG_RASTERIZATION_LIMITS.maxInputBytes + 3;
+    const base64 = Buffer.alloc(inputBytes, 65).toString('base64');
 
     await expect(rasterizeSvg({base64})).resolves.toMatchObject({
       outcome: 'omitted',
       reason: 'input_too_large',
+      inputBytes,
     });
   });
 
@@ -179,6 +196,36 @@ describe('worker lifecycle', () => {
     await rasterizer.close();
   });
 
+  it('replaces a worker after a worker failure response', async () => {
+    const workers: FakeRenderWorker[] = [];
+    const rasterizer = createPiSvgRasterizer({
+      workerFactory: (() => {
+        const worker = new FakeRenderWorker(
+          workers.length === 0
+            ? (message, current) =>
+                current.emit('message', {
+                  type: 'failed',
+                  requestId: message.requestId,
+                  reason: 'render_error',
+                })
+            : renderPng,
+        );
+        workers.push(worker);
+        return worker;
+      }) as never,
+    });
+
+    await expect(rasterizer.rasterize({base64: encodedSvg('<rect />')})).resolves.toMatchObject({
+      outcome: 'omitted',
+      reason: 'render_error',
+    });
+    await vi.waitFor(() => expect(workers).toHaveLength(2));
+    await expect(rasterizer.rasterize({base64: encodedSvg('<rect />')})).resolves.toMatchObject({
+      outcome: 'converted',
+    });
+    await rasterizer.close();
+  });
+
   it('replaces an idle worker after an unexpected exit', async () => {
     const workers: FakeRenderWorker[] = [];
     const rasterizer = createPiSvgRasterizer({
@@ -238,6 +285,70 @@ describe('worker lifecycle', () => {
     await rasterizer.close();
   });
 
+  it('keeps a worker warm when the parent rejects an oversized PNG', async () => {
+    const workers: FakeRenderWorker[] = [];
+    let first = true;
+    const rasterizer = createPiSvgRasterizer({
+      workerFactory: (() => {
+        const worker = new FakeRenderWorker((message, current) => {
+          if (first) {
+            first = false;
+            current.emit('message', {
+              type: 'rendered',
+              requestId: message.requestId,
+              png: arrayBufferOf(
+                minimalPng(
+                  PI_SVG_RASTERIZATION_LIMITS.maxOutputEdge + 1,
+                  PI_SVG_RASTERIZATION_LIMITS.maxOutputEdge + 1,
+                ),
+              ),
+            });
+            return;
+          }
+          renderPng(message, current);
+        });
+        workers.push(worker);
+        return worker;
+      }) as never,
+    });
+
+    await expect(rasterizer.rasterize({base64: encodedSvg('<rect />')})).resolves.toMatchObject({
+      outcome: 'omitted',
+      reason: 'output_too_large',
+    });
+    expect(workers).toHaveLength(1);
+    expect(workers[0]?.terminated).toBe(false);
+    await expect(rasterizer.rasterize({base64: encodedSvg('<rect />')})).resolves.toMatchObject({
+      outcome: 'converted',
+    });
+    await rasterizer.close();
+  });
+
+  it('releases active and queued renders when closed', async () => {
+    const workers: FakeRenderWorker[] = [];
+    const rasterizer = createPiSvgRasterizer({
+      workerFactory: (() => {
+        const worker = new FakeRenderWorker(() => undefined);
+        workers.push(worker);
+        return worker;
+      }) as never,
+    });
+    const renders = Array.from({length: 3}, () =>
+      rasterizer.rasterize({base64: encodedSvg('<rect />')}),
+    );
+
+    await vi.waitFor(() => expect(workers).toHaveLength(2));
+    await rasterizer.close();
+    const results = await Promise.all(renders);
+    expect(results).toHaveLength(3);
+    expect(
+      results.every(
+        (result) => result.outcome === 'omitted' && result.reason === 'rasterizer_unavailable',
+      ),
+    ).toBe(true);
+    expect(workers.every((worker) => worker.terminated)).toBe(true);
+  });
+
   it('bounds queued work at 32 renders beyond the two active workers', async () => {
     const rasterizer = createPiSvgRasterizer({
       workerFactory: (() => new FakeRenderWorker(() => undefined)) as never,
@@ -252,6 +363,28 @@ describe('worker lifecycle', () => {
         (result) => result.outcome === 'omitted' && result.reason === 'pool_saturated',
       ),
     ).toHaveLength(1);
+    expect(
+      results.filter(
+        (result) => result.outcome === 'omitted' && result.reason === 'result_budget_exhausted',
+      ),
+    ).toHaveLength(34);
+    await rasterizer.close();
+  });
+
+  it('does not create a worker when the render deadline is already exhausted', async () => {
+    const workers: FakeRenderWorker[] = [];
+    const rasterizer = createPiSvgRasterizer({
+      workerFactory: (() => {
+        const worker = new FakeRenderWorker(() => undefined);
+        workers.push(worker);
+        return worker;
+      }) as never,
+    });
+
+    await expect(
+      rasterizer.rasterize({base64: encodedSvg('<rect />'), deadlineMs: 0}),
+    ).resolves.toMatchObject({outcome: 'omitted', reason: 'result_budget_exhausted'});
+    expect(workers).toHaveLength(0);
     await rasterizer.close();
   });
 });

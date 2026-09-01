@@ -6,25 +6,19 @@ import {type CustomFontsOptions, initWasm, Resvg} from '@resvg/resvg-wasm';
 const sourceExtension = import.meta.url.endsWith('.ts') ? 'ts' : 'js';
 const {validatePngOutput} = await import(`./pi-png.${sourceExtension}`);
 const {inspectSvgPolicy} = await import(`./pi-svg-policy.${sourceExtension}`);
-
-const MAX_OUTPUT_EDGE = 2_000;
-const MAX_OUTPUT_PIXELS = 4_000_000;
-const MAX_PNG_BYTES = 3 * 1024 * 1024;
-const RENDER_LIMITS = {
-  maxOutputEdge: MAX_OUTPUT_EDGE,
-  maxOutputPixels: MAX_OUTPUT_PIXELS,
-  maxPngBytes: MAX_PNG_BYTES,
-};
-const FONT_FAMILY = 'IBM Plex Sans';
-const FONT_URLS = [
-  new URL('../assets/pi-svg/ibm-plex-sans-var-roman-latin1.woff2', import.meta.url),
-  new URL('../assets/pi-svg/ibm-plex-sans-var-roman-latin2.woff2', import.meta.url),
-  new URL('../assets/pi-svg/ibm-plex-sans-var-roman-latin3.woff2', import.meta.url),
-  new URL('../assets/pi-svg/ibm-plex-sans-var-roman-pi.woff2', import.meta.url),
-] as const;
+const {PI_SVG_FONT_ASSET_FILENAMES, PI_SVG_RASTERIZATION_LIMITS} = (await import(
+  `./pi-svg-render-config.${sourceExtension}`
+)) as typeof import('./pi-svg-render-config.js');
+const {readFontFamily} = (await import(
+  `./pi-svg-font.${sourceExtension}`
+)) as typeof import('./pi-svg-font.js');
+const FONT_URLS = PI_SVG_FONT_ASSET_FILENAMES.map(
+  (filename) => new URL(`../assets/pi-svg/${filename}`, import.meta.url),
+);
 
 const require = createRequire(import.meta.url);
 let fontBuffers: Uint8Array[] | undefined;
+let fontFamily: string | undefined;
 let initialization: Promise<void> | undefined;
 
 type RenderRequest = {type: 'render'; requestId: number; svg: ArrayBuffer};
@@ -89,6 +83,8 @@ function renderSvg(requestId: number, svg: Uint8Array): RenderResponse {
     const scale = scaleForDimensions(renderer.width, renderer.height);
     if (scale === undefined) return {type: 'failed', requestId, reason: 'render_error'};
 
+    if (scale === 1) return renderPng(requestId, renderer);
+
     const scaledRenderer = new Resvg(svg, {
       fitTo: {mode: 'zoom', value: scale},
       font: fontOptions(),
@@ -97,17 +93,7 @@ function renderSvg(requestId: number, svg: Uint8Array): RenderResponse {
       if (scaledRenderer.imagesToResolve().length > 0) {
         return {type: 'failed', requestId, reason: 'external_resource'};
       }
-      const rendered = scaledRenderer.render();
-      try {
-        const png = rendered.asPng();
-        const validation = validatePngOutput(png, RENDER_LIMITS);
-        if (!validation.ok) return {type: 'failed', requestId, reason: validation.reason};
-
-        const transferred = Uint8Array.from(png).buffer;
-        return {type: 'rendered', requestId, png: transferred};
-      } finally {
-        rendered.free();
-      }
+      return renderPng(requestId, scaledRenderer);
     } finally {
       scaledRenderer.free();
     }
@@ -129,8 +115,12 @@ function scaleForDimensions(width: number, height: number): number | undefined {
     return undefined;
   }
 
-  const edgeScale = Math.min(1, MAX_OUTPUT_EDGE / width, MAX_OUTPUT_EDGE / height);
-  const pixelScale = Math.min(1, Math.sqrt(MAX_OUTPUT_PIXELS / pixels));
+  const edgeScale = Math.min(
+    1,
+    PI_SVG_RASTERIZATION_LIMITS.maxOutputEdge / width,
+    PI_SVG_RASTERIZATION_LIMITS.maxOutputEdge / height,
+  );
+  const pixelScale = Math.min(1, Math.sqrt(PI_SVG_RASTERIZATION_LIMITS.maxOutputPixels / pixels));
   const scale = Math.min(edgeScale, pixelScale);
   if (!Number.isFinite(scale) || scale <= 0) return undefined;
   return scale;
@@ -138,7 +128,12 @@ function scaleForDimensions(width: number, height: number): number | undefined {
 
 async function initializeRenderer(): Promise<void> {
   initialization ??= loadRendererAssets();
-  await initialization;
+  try {
+    await initialization;
+  } catch (error) {
+    initialization = undefined;
+    throw error;
+  }
 }
 
 async function loadRendererAssets(): Promise<void> {
@@ -147,21 +142,43 @@ async function loadRendererAssets(): Promise<void> {
     readFile(wasmPath),
     ...FONT_URLS.map((url) => readFile(url)),
   ]);
+  const families = fonts.map((font) => readFontFamily(font));
+  const firstFamily = families[0];
+  if (firstFamily === undefined || families.some((family) => family !== firstFamily)) {
+    throw new Error('SVG renderer font families are inconsistent');
+  }
   await initWasm(wasm);
   fontBuffers = fonts;
+  fontFamily = firstFamily;
 }
 
 function fontOptions(): CustomFontsOptions {
-  if (fontBuffers === undefined) throw new Error('SVG renderer fonts are unavailable');
+  if (fontBuffers === undefined || fontFamily === undefined) {
+    throw new Error('SVG renderer fonts are unavailable');
+  }
   return {
     fontBuffers,
-    defaultFontFamily: FONT_FAMILY,
-    serifFamily: FONT_FAMILY,
-    sansSerifFamily: FONT_FAMILY,
-    cursiveFamily: FONT_FAMILY,
-    fantasyFamily: FONT_FAMILY,
-    monospaceFamily: FONT_FAMILY,
+    defaultFontFamily: fontFamily,
+    serifFamily: fontFamily,
+    sansSerifFamily: fontFamily,
+    cursiveFamily: fontFamily,
+    fantasyFamily: fontFamily,
+    monospaceFamily: fontFamily,
   };
+}
+
+function renderPng(requestId: number, renderer: InstanceType<typeof Resvg>): RenderResponse {
+  const rendered = renderer.render();
+  try {
+    const png = rendered.asPng();
+    const validation = validatePngOutput(png, PI_SVG_RASTERIZATION_LIMITS);
+    if (!validation.ok) return {type: 'failed', requestId, reason: validation.reason};
+
+    const transferred = png.slice().buffer as ArrayBuffer;
+    return {type: 'rendered', requestId, png: transferred};
+  } finally {
+    rendered.free();
+  }
 }
 
 function isRenderRequest(value: unknown): value is RenderRequest {

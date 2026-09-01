@@ -5,29 +5,25 @@ import {fileURLToPath} from 'node:url';
 import {Worker, type WorkerOptions} from 'node:worker_threads';
 import {validatePngOutput} from './pi-png.js';
 import {inspectSvgPolicy} from './pi-svg-policy.js';
+import {
+  PI_SVG_FONT_ASSET_FILENAMES,
+  PI_SVG_LICENSE_ASSET_FILENAME,
+  PI_SVG_RASTERIZATION_LIMITS,
+} from './pi-svg-render-config.js';
 
-export const PI_SVG_RASTERIZATION_LIMITS = {
-  maxInputBytes: 1 * 1024 * 1024,
-  maxOutputEdge: 2_000,
-  maxOutputPixels: 4_000_000,
-  maxPngBytes: 3 * 1024 * 1024,
-  workerDeadlineMs: 2_000,
-  resultBudgetMs: 5_000,
-  maxWorkers: 2,
-  maxQueuedRenders: 32,
-} as const;
+export {PI_SVG_RASTERIZATION_LIMITS} from './pi-svg-render-config.js';
 
 const MAX_ENCODED_BASE64_LENGTH = Math.ceil(PI_SVG_RASTERIZATION_LIMITS.maxInputBytes / 3) * 4;
 const STRICT_BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 const PRODUCTION_WORKER_URL = new URL('./pi-svg-render-worker.js', import.meta.url);
 const SOURCE_WORKER_URL = new URL('./pi-svg-render-worker.ts', import.meta.url);
-const FONT_ASSET_URLS = [
-  new URL('../assets/pi-svg/ibm-plex-sans-var-roman-latin1.woff2', import.meta.url),
-  new URL('../assets/pi-svg/ibm-plex-sans-var-roman-latin2.woff2', import.meta.url),
-  new URL('../assets/pi-svg/ibm-plex-sans-var-roman-latin3.woff2', import.meta.url),
-  new URL('../assets/pi-svg/ibm-plex-sans-var-roman-pi.woff2', import.meta.url),
-] as const;
-const LICENSE_ASSET_URL = new URL('../assets/pi-svg/ibm-plex-sans-OFL.txt', import.meta.url);
+const FONT_ASSET_URLS = PI_SVG_FONT_ASSET_FILENAMES.map(
+  (filename) => new URL(`../assets/pi-svg/${filename}`, import.meta.url),
+);
+const LICENSE_ASSET_URL = new URL(
+  `../assets/pi-svg/${PI_SVG_LICENSE_ASSET_FILENAME}`,
+  import.meta.url,
+);
 const require = createRequire(import.meta.url);
 
 export type SvgRasterizationReason =
@@ -93,6 +89,7 @@ type WorkerSlot = {
   task: RenderTask | undefined;
   timer: ReturnType<typeof setTimeout> | undefined;
   replacing: boolean;
+  termination: Promise<void> | undefined;
 };
 
 export interface PiSvgRasterizer {
@@ -199,7 +196,13 @@ class BoundedPiSvgRasterizer implements PiSvgRasterizer {
 class SvgRenderPool {
   private readonly slots: WorkerSlot[] = Array.from(
     {length: PI_SVG_RASTERIZATION_LIMITS.maxWorkers},
-    () => ({worker: undefined, task: undefined, timer: undefined, replacing: false}),
+    () => ({
+      worker: undefined,
+      task: undefined,
+      timer: undefined,
+      replacing: false,
+      termination: undefined,
+    }),
   );
   private readonly queue: RenderTask[] = [];
   private readonly workerFactory: WorkerFactory;
@@ -249,7 +252,7 @@ class SvgRenderPool {
       task.resolve({ok: false, reason: 'rasterizer_unavailable'});
     }
 
-    const terminations: Promise<unknown>[] = [];
+    const terminations: Promise<void>[] = [];
     for (const slot of this.slots) {
       if (slot.timer !== undefined) clearTimeout(slot.timer);
       slot.timer = undefined;
@@ -257,11 +260,13 @@ class SvgRenderPool {
         slot.task.resolve({ok: false, reason: 'rasterizer_unavailable'});
         slot.task = undefined;
       }
+      if (slot.termination !== undefined) terminations.push(slot.termination);
       const worker = slot.worker;
       slot.worker = undefined;
       if (worker === undefined) continue;
-      detachWorker(worker);
-      terminations.push(worker.terminate().catch(() => undefined));
+      const termination = terminateWorker(worker);
+      slot.termination = termination;
+      terminations.push(termination);
     }
     await Promise.all(terminations);
   }
@@ -306,8 +311,9 @@ class SvgRenderPool {
 
     slot.task = task;
     const timeoutMs = Math.min(PI_SVG_RASTERIZATION_LIMITS.workerDeadlineMs, remainingMs);
+    const budgetTimeout = remainingMs <= PI_SVG_RASTERIZATION_LIMITS.workerDeadlineMs;
     slot.timer = setTimeout(
-      () => this.failTimedOutTask(slot, worker as RenderWorker, task),
+      () => this.failTimedOutTask(slot, worker as RenderWorker, task, budgetTimeout),
       timeoutMs,
     );
 
@@ -320,7 +326,12 @@ class SvgRenderPool {
     }
   }
 
-  private failTimedOutTask(slot: WorkerSlot, worker: RenderWorker, task: RenderTask): void {
+  private failTimedOutTask(
+    slot: WorkerSlot,
+    worker: RenderWorker,
+    task: RenderTask,
+    budgetTimeout = false,
+  ): void {
     if (slot.worker !== worker || slot.task !== task) return;
     this.finishTask(
       slot,
@@ -328,7 +339,10 @@ class SvgRenderPool {
       task,
       {
         ok: false,
-        reason: performance.now() >= task.deadlineAt ? 'result_budget_exhausted' : 'render_timeout',
+        reason:
+          budgetTimeout || performance.now() >= task.deadlineAt
+            ? 'result_budget_exhausted'
+            : 'render_timeout',
       },
       true,
     );
@@ -352,24 +366,23 @@ class SvgRenderPool {
 
   private replaceWorker(slot: WorkerSlot, worker: RenderWorker): void {
     if (slot.worker !== worker) return;
-    detachWorker(worker);
     slot.worker = undefined;
     slot.replacing = true;
-    void worker
-      .terminate()
-      .catch(() => undefined)
-      .then(() => {
-        slot.replacing = false;
-        if (this.closed) return;
-        try {
-          const replacement = this.workerFactory(this.workerUrl);
-          attachWorker(this, slot, replacement);
-          slot.worker = replacement;
-        } catch {
-          slot.worker = undefined;
-        }
-        this.drain();
-      });
+    const termination = terminateWorker(worker);
+    slot.termination = termination;
+    void termination.then(() => {
+      if (slot.termination === termination) slot.termination = undefined;
+      slot.replacing = false;
+      if (this.closed) return;
+      try {
+        const replacement = this.workerFactory(this.workerUrl);
+        attachWorker(this, slot, replacement);
+        slot.worker = replacement;
+      } catch {
+        slot.worker = undefined;
+      }
+      this.drain();
+    });
   }
 
   handleWorkerMessage(slot: WorkerSlot, worker: RenderWorker, value: unknown): void {
@@ -397,7 +410,13 @@ class SvgRenderPool {
     const png = new Uint8Array(value.png);
     const validation = validatePngOutput(png, PI_SVG_RASTERIZATION_LIMITS);
     if (!validation.ok) {
-      this.finishTask(slot, worker, task, {ok: false, reason: validation.reason}, true);
+      this.finishTask(
+        slot,
+        worker,
+        task,
+        {ok: false, reason: validation.reason},
+        validation.reason !== 'output_too_large',
+      );
       return;
     }
     this.finishTask(
@@ -454,8 +473,19 @@ function attachWorker(pool: SvgRenderPool, slot: WorkerSlot, worker: RenderWorke
   worker.unref?.();
 }
 
-function detachWorker(worker: RenderWorker): void {
+function terminateWorker(worker: RenderWorker): Promise<void> {
   worker.removeAllListeners();
+  worker.on('error', ignoreWorkerError);
+  return Promise.resolve()
+    .then(() => worker.terminate())
+    .catch(() => undefined)
+    .then(() => {
+      worker.removeAllListeners();
+    });
+}
+
+function ignoreWorkerError(): void {
+  return;
 }
 
 function isWorkerResponse(value: unknown): value is WorkerResponse {
@@ -487,7 +517,6 @@ function isWorkerResponse(value: unknown): value is WorkerResponse {
 
 function shouldReplaceAfterFailure(reason: WorkerFailureReason): boolean {
   return (
-    reason === 'output_too_large' ||
     reason === 'rasterizer_unavailable' ||
     reason === 'render_error' ||
     reason === 'protocol_failure'
@@ -507,7 +536,12 @@ function decodeSvgBase64(
     return {ok: false, reason: 'invalid_base64'};
   }
   if (value.length > MAX_ENCODED_BASE64_LENGTH) {
-    return {ok: false, reason: 'input_too_large', inputBytes: value.length};
+    if (!STRICT_BASE64.test(value)) return {ok: false, reason: 'input_too_large'};
+    return {
+      ok: false,
+      reason: 'input_too_large',
+      inputBytes: decodedBase64ByteLength(value),
+    };
   }
   if (!STRICT_BASE64.test(value)) return {ok: false, reason: 'invalid_base64'};
 
@@ -518,7 +552,14 @@ function decodeSvgBase64(
   if (decoded.byteLength > PI_SVG_RASTERIZATION_LIMITS.maxInputBytes) {
     return {ok: false, reason: 'input_too_large', inputBytes: decoded.byteLength};
   }
-  return {ok: true, bytes: Uint8Array.from(decoded)};
+  return {ok: true, bytes: decoded};
+}
+
+function decodedBase64ByteLength(value: string): number {
+  let padding = 0;
+  if (value.endsWith('==')) padding = 2;
+  else if (value.endsWith('=')) padding = 1;
+  return (value.length / 4) * 3 - padding;
 }
 
 function omitted(
