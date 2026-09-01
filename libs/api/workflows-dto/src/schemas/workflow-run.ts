@@ -261,7 +261,7 @@ export const workflowRunJobSummaryDtoSchema = z.object({
   position: z.number().int().nonnegative(),
 });
 
-export type WorkflowRunJobSummaryDto = z.input<typeof workflowRunJobSummaryDtoSchema>;
+export type WorkflowRunJobSummaryDto = z.output<typeof workflowRunJobSummaryDtoSchema>;
 
 /**
  * How many jobs a run list row carries in graph order.
