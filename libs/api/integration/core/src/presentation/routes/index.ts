@@ -1,3 +1,4 @@
+import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import type {WorkflowsModuleClient} from '@shipfox/api-workflows-dto/inter-module';
 import type {RouteExport} from '@shipfox/node-fastify';
 import type {IntegrationProviderRegistry} from '#core/providers/registry.js';
@@ -15,9 +16,13 @@ import {
   createDeleteIntegrationConnectionRoute,
   createUpdateIntegrationConnectionRoute,
 } from './manage-connections.js';
-import {createRepositoryAccessMutationRoutes} from './repository-access.js';
+import {
+  createRepositoryAccessMutationRoutes,
+  createRepositoryAccessReadRoute,
+} from './repository-access.js';
 
 export interface CreateIntegrationRoutesOptions {
+  projects?: ProjectsModuleClient | undefined;
   repositoryAuthorization?:
     | {
         invalidateRepositoryAuthorizationCache?: ((connectionId: string) => void) | undefined;
@@ -54,6 +59,10 @@ export function createIntegrationRoutes(
     createListIntegrationConnectionsRoute(registry),
     createUpdateIntegrationConnectionRoute(registry),
     createDeleteIntegrationConnectionRoute(registry),
+    createRepositoryAccessReadRoute({
+      registry,
+      projects: options.projects,
+    }),
     ...createRepositoryAccessMutationRoutes({
       registry,
       invalidateRepositoryAuthorizationCache:

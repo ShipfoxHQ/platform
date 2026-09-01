@@ -4,6 +4,7 @@ import {
   setUserContext,
   type UserContextMembership,
 } from '@shipfox/api-auth-context';
+import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import {type AuthMethod, ClientError, closeApp, createApp} from '@shipfox/node-fastify';
 import {afterEach, beforeEach} from '@shipfox/vitest/vi';
 import {sql} from 'drizzle-orm';
@@ -93,6 +94,7 @@ export function sourceProvider(overrides: Partial<IntegrationProvider> = {}): In
 
 export interface CreateTestAppOptions {
   memberships?: ReadonlyArray<UserContextMembership> | undefined;
+  projects?: ProjectsModuleClient | undefined;
   repositoryAuthorizer?: RepositoryAuthorizer | undefined;
 }
 
@@ -103,6 +105,7 @@ export async function createTestApp(
   const memberships = options.memberships ?? authenticatedMemberships;
   const integrationsModule = await createIntegrationsModule({
     providers,
+    projects: options.projects,
     repositoryAuthorizer: options.repositoryAuthorizer,
   });
   const app = await createApp({

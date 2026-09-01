@@ -127,6 +127,48 @@ export type IntegrationConnectionRepositoryGrantDto = z.infer<
   typeof integrationConnectionRepositoryGrantDtoSchema
 >;
 
+export const integrationConnectionRepositoryAccessOriginSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('project'),
+    project_id: z.string().uuid(),
+    project_name: z.string(),
+  }),
+  z.object({
+    type: z.literal('manual'),
+    grant_id: z.string().uuid(),
+  }),
+]);
+export type IntegrationConnectionRepositoryAccessOriginDto = z.infer<
+  typeof integrationConnectionRepositoryAccessOriginSchema
+>;
+
+export const integrationConnectionRepositoryAccessRepositorySchema = z.object({
+  external_repository_id: z.string().min(1).max(255),
+  owner: z.string().min(1).max(255),
+  name: z.string().min(1).max(255),
+  origins: z.array(integrationConnectionRepositoryAccessOriginSchema).min(1),
+});
+export type IntegrationConnectionRepositoryAccessRepositoryDto = z.infer<
+  typeof integrationConnectionRepositoryAccessRepositorySchema
+>;
+
+export const listIntegrationConnectionRepositoryAccessQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  cursor: z.string().optional(),
+});
+export type ListIntegrationConnectionRepositoryAccessQueryDto = z.infer<
+  typeof listIntegrationConnectionRepositoryAccessQuerySchema
+>;
+
+export const integrationConnectionRepositoryAccessResponseSchema = z.object({
+  mode: integrationConnectionRepositoryAccessModeSchema,
+  repositories: z.array(integrationConnectionRepositoryAccessRepositorySchema),
+  next_cursor: z.string().nullable(),
+});
+export type IntegrationConnectionRepositoryAccessResponseDto = z.infer<
+  typeof integrationConnectionRepositoryAccessResponseSchema
+>;
+
 export const updateIntegrationConnectionRepositoryAccessResponseSchema = z.object({
   mode: integrationConnectionRepositoryAccessModeSchema,
 });
