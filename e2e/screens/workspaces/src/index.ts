@@ -8,6 +8,7 @@ const SETUP_INDICATOR_NAME_RE = /Get started/u;
 const SETUP_STATUS_NAME_RE = /^(?:\d+ of \d+ done|You're set up)$/u;
 const SETUP_DIALOG_NAME_RE = /Get started/u;
 const SETTINGS_ROOT_URL_RE = /\/settings(?:\/members)?\/?$/u;
+const SHOW_ALL_STEPS_NAME_RE = /^Show all \d+ steps$/u;
 
 function lastWorkspaceStorageKey(principalId: string): string {
   return `${LAST_WORKSPACE_KEY}.principal.${encodeURIComponent(principalId)}`;
@@ -155,6 +156,13 @@ export class WorkspaceSetupChecklistScreen {
 
   firstRow(): Locator {
     return this.panel().getByRole('listitem').first();
+  }
+
+  async expandAllStepsIfNeeded(): Promise<void> {
+    const expandButton = this.panel().getByRole('button', {name: SHOW_ALL_STEPS_NAME_RE});
+    if ((await expandButton.count()) === 1) {
+      await expandButton.click();
+    }
   }
 
   connectLink(): Locator {

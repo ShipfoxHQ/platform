@@ -92,6 +92,7 @@ test.describe('workspace onboarding', () => {
     await expect(workspaceSetupChecklist.panel()).toBeVisible();
     await expect(workspaceSetupChecklist.heading()).toBeVisible();
     await expect(workspaceSetupChecklist.countLabel(INITIAL_CHECKLIST_COUNT_RE)).toBeVisible();
+    await workspaceSetupChecklist.expandAllStepsIfNeeded();
     await expect(workspaceSetupChecklist.firstRow()).toContainText('Connect source control');
     await expect(workspaceSetupChecklist.indicator()).toBeVisible();
     await expect(workspaceSetupChecklist.indicator()).toHaveAttribute(
