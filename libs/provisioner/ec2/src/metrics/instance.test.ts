@@ -128,6 +128,7 @@ describe('EC2 provisioner metrics', () => {
     ['attached-ebs', 'impaired'],
     ['system', 'insufficient-data'],
     ['instance', 'not-applicable'],
+    ['attached-ebs', 'unknown'],
   ] as const)('records health classifications with bounded labels', (checkType, status) => {
     metrics.recordEc2HealthObservation(checkType, status);
 

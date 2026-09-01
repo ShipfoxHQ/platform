@@ -412,6 +412,14 @@ describe('createEc2Engine', () => {
       attachedEbsStatus: {status: 'unknown'},
       scheduledEvents: [{code: 'unknown'}],
     });
+    expect(observability.recordEc2HealthObserverCycle).toHaveBeenCalledWith('complete');
+    expect(observability.recordEc2HealthObservation).toHaveBeenCalledTimes(3);
+    expect(observability.recordEc2HealthObservation).toHaveBeenCalledWith('system', 'unknown');
+    expect(observability.recordEc2HealthObservation).toHaveBeenCalledWith('instance', 'unknown');
+    expect(observability.recordEc2HealthObservation).toHaveBeenCalledWith(
+      'attached-ebs',
+      'unknown',
+    );
   });
 
   it.each([
