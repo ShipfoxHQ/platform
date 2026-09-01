@@ -156,29 +156,29 @@ export async function captureWorkflowRunReadPlanEvidence(params: {
   const jobAttemptId = params.workflowRunAttemptId;
 
   const defaultExecutionSelection = sql`
-    SELECT DISTINCT ON (job_executions.job_id)
-      job_executions.job_id,
-      job_executions.id,
-      job_executions.status,
-      job_executions.sequence
-    FROM workflows_job_executions AS job_executions
-    INNER JOIN workflows_jobs AS jobs
-      ON jobs.id = job_executions.job_id
-    WHERE jobs.workflow_run_attempt_id = ${jobAttemptId}::uuid
+    SELECT DISTINCT ON (${jobExecutions.jobId})
+      ${jobExecutions.jobId},
+      ${jobExecutions.id},
+      ${jobExecutions.status},
+      ${jobExecutions.sequence}
+    FROM ${jobExecutions}
+    INNER JOIN ${jobs}
+      ON ${jobs.id} = ${jobExecutions.jobId}
+    WHERE ${jobs.workflowRunAttemptId} = ${jobAttemptId}::uuid
     ORDER BY
-      job_executions.job_id,
-      CASE WHEN job_executions.status = 'running' THEN 0 ELSE 1 END,
-      job_executions.sequence DESC,
-      job_executions.id DESC
+      ${jobExecutions.jobId},
+      CASE WHEN ${jobExecutions.status} = 'running' THEN 0 ELSE 1 END,
+      ${jobExecutions.sequence} DESC,
+      ${jobExecutions.id} DESC
   `;
   const executionStatusCounts = sql`
-    SELECT job_executions.status, count(*)::integer AS execution_count
-    FROM workflows_job_executions AS job_executions
-    INNER JOIN workflows_jobs AS jobs
-      ON jobs.id = job_executions.job_id
-    WHERE jobs.workflow_run_attempt_id = ${jobAttemptId}::uuid
-    GROUP BY job_executions.status
-    ORDER BY job_executions.status
+    SELECT ${jobExecutions.status}, count(*)::integer AS execution_count
+    FROM ${jobExecutions}
+    INNER JOIN ${jobs}
+      ON ${jobs.id} = ${jobExecutions.jobId}
+    WHERE ${jobs.workflowRunAttemptId} = ${jobAttemptId}::uuid
+    GROUP BY ${jobExecutions.status}
+    ORDER BY ${jobExecutions.status}
   `;
 
   const [defaultSelectionRows, statusCountRows] = await Promise.all([
