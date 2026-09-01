@@ -64,14 +64,6 @@ export class WorkspaceHomeScreen {
     await this.page.goto(`/w/${workspaceSlug}/settings/general`);
   }
 
-  async gotoModelProvider(workspaceSlug: string): Promise<void> {
-    await this.page.goto(`/w/${workspaceSlug}/model-provider`);
-  }
-
-  async gotoNewProject(workspaceSlug: string): Promise<void> {
-    await this.page.goto(`/w/${workspaceSlug}/projects/new`);
-  }
-
   settingsTab(): Locator {
     return this.page.getByRole('tab', {name: 'Settings'});
   }
