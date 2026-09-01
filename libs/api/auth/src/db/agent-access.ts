@@ -134,6 +134,20 @@ async function isActiveUser(tx: AgentAccessTx, userId: string): Promise<boolean>
   return rows.length > 0;
 }
 
+/** Locks the user before the grant so approval and token issuance share one order. */
+async function lockActiveAgentGrant(
+  tx: AgentAccessTx,
+  grantId: string,
+): Promise<AgentGrant | undefined> {
+  const candidate = await findAgentGrant({id: grantId, executor: tx});
+  if (!candidate || candidate.revokedAt || candidate.terminalAt) return undefined;
+  if (!(await isActiveUser(tx, candidate.userId))) return undefined;
+
+  const grant = await lockAgentGrant(tx, {grantId});
+  if (!grant || grant.revokedAt || grant.terminalAt) return undefined;
+  return grant;
+}
+
 async function databaseClock(tx: AgentAccessTx): Promise<Date> {
   const result = await tx.execute<{now: Date | string}>(sql`select clock_timestamp() as now`);
   const raw = result.rows[0]?.now;
@@ -688,9 +702,8 @@ export async function consumeAgentAuthorizationCodeTx(
   const existing = existingRows[0];
   if (!existing) return undefined;
 
-  const grant = await lockAgentGrant(tx, {grantId: existing.grantId});
-  if (!grant || grant.revokedAt || grant.terminalAt) return undefined;
-  if (!(await isActiveUser(tx, grant.userId))) return undefined;
+  const grant = await lockActiveAgentGrant(tx, existing.grantId);
+  if (!grant) return undefined;
 
   const rows = await tx
     .update(agentAuthorizationCodes)
@@ -862,9 +875,8 @@ export async function resolveAgentRefreshTokenReplayTx(
   const existing = rows[0];
   if (!existing) return undefined;
 
-  const grant = await lockAgentGrant(tx, {grantId: existing.grantId});
-  if (!grant || grant.revokedAt || grant.terminalAt) return undefined;
-  if (!(await isActiveUser(tx, grant.userId))) return undefined;
+  const grant = await lockActiveAgentGrant(tx, existing.grantId);
+  if (!grant) return undefined;
 
   const currentRows = await tx
     .select()
@@ -946,9 +958,8 @@ export async function rotateAgentRefreshTokenTx(
   const existing = existingRows[0];
   if (!existing) return undefined;
 
-  const grant = await lockAgentGrant(tx, {grantId: existing.grantId});
-  if (!grant || grant.revokedAt || grant.terminalAt) return undefined;
-  if (!(await isActiveUser(tx, grant.userId))) return undefined;
+  const grant = await lockActiveAgentGrant(tx, existing.grantId);
+  if (!grant) return undefined;
 
   const rows = await tx
     .update(agentRefreshTokens)
