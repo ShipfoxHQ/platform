@@ -102,3 +102,112 @@ export const oauthClientMetadataDocumentSchema = z
   .passthrough();
 
 export type OAuthClientMetadataDocumentDto = z.infer<typeof oauthClientMetadataDocumentSchema>;
+
+const utf8Encoder = new TextEncoder();
+const utf8ByteLengthAtMost = (value: string, maxBytes: number): boolean =>
+  utf8Encoder.encode(value).byteLength <= maxBytes;
+const oauthClientIdSchema = z
+  .string()
+  .min(1)
+  .max(2048)
+  .refine((value) => utf8ByteLengthAtMost(value, 2048));
+const oauthStateSchema = z
+  .string()
+  .max(2048)
+  .refine((value) => utf8ByteLengthAtMost(value, 2048));
+const oauthCodeChallengeSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/u);
+const oauthCodeVerifierSchema = z
+  .string()
+  .min(43)
+  .max(128)
+  .regex(/^[A-Za-z0-9._~-]+$/u);
+const oauthPresentedTokenSchema = z
+  .string()
+  .min(1)
+  .max(1024)
+  .refine((value) => utf8ByteLengthAtMost(value, 1024));
+const oauthRedirectResponseUrlSchema = z.string().url().max(16_384);
+
+/** The validated public request accepted by the OAuth authorization endpoint. */
+export const oauthAuthorizeQuerySchema = z
+  .object({
+    client_id: oauthClientIdSchema,
+    response_type: oauthResponseTypeSchema,
+    redirect_uri: oauthRedirectUriSchema,
+    code_challenge: oauthCodeChallengeSchema,
+    code_challenge_method: z.literal('S256'),
+    resource: oauthUrlSchema,
+    scope: oauthScopeSchema.optional(),
+    state: oauthStateSchema.optional(),
+  })
+  .strict();
+
+export type OAuthAuthorizeQueryDto = z.infer<typeof oauthAuthorizeQuerySchema>;
+
+/** Opaque request id parameters used by the dashboard consent routes. */
+export const oauthConsentParamsSchema = z.object({requestId: z.string().min(1).max(128)}).strict();
+
+export type OAuthConsentParamsDto = z.infer<typeof oauthConsentParamsSchema>;
+
+const oauthConsentWorkspaceSchema = z
+  .object({
+    workspace_id: z.string().uuid(),
+    role: z.string().min(1).max(64),
+  })
+  .strict();
+
+/** Detail returned to the authenticated dashboard before a consent decision. */
+export const oauthConsentResponseSchema = z
+  .object({
+    request_id: z.string().uuid(),
+    client_name: oauthClientNameSchema,
+    scope: z.literal(OAUTH_READ_SCOPE),
+    expires_at: z.string().datetime(),
+    redirect_uri_hostname: z.string().min(1).max(253),
+    client_identity_origin: z.string().min(1).max(2048),
+    is_loopback_redirect: z.boolean(),
+    workspaces: z.array(oauthConsentWorkspaceSchema),
+  })
+  .strict();
+
+export type OAuthConsentResponseDto = z.infer<typeof oauthConsentResponseSchema>;
+
+/** Explicit workspace selection required to approve a consent request. */
+export const oauthConsentApprovalBodySchema = z.object({workspace_id: z.string().uuid()}).strict();
+
+export type OAuthConsentApprovalBodyDto = z.infer<typeof oauthConsentApprovalBodySchema>;
+
+/** The redirect produced after an approval or denial decision. */
+export const oauthConsentDecisionResponseSchema = z
+  .object({redirect_url: oauthRedirectResponseUrlSchema})
+  .strict();
+
+export type OAuthConsentDecisionResponseDto = z.infer<typeof oauthConsentDecisionResponseSchema>;
+
+/** Public OAuth token request supporting authorization-code and refresh grants. */
+export const oauthTokenRequestSchema = z
+  .object({
+    grant_type: oauthGrantTypeSchema,
+    client_id: oauthClientIdSchema,
+    code: oauthPresentedTokenSchema.optional(),
+    redirect_uri: oauthRedirectUriSchema.optional(),
+    code_verifier: oauthCodeVerifierSchema.optional(),
+    refresh_token: oauthPresentedTokenSchema.optional(),
+    resource: oauthUrlSchema.optional(),
+  })
+  .strict();
+
+export type OAuthTokenRequestDto = z.infer<typeof oauthTokenRequestSchema>;
+
+/** RFC 6749 token response for an agent access grant. */
+export const oauthTokenResponseSchema = z
+  .object({
+    access_token: z.string().min(1),
+    token_type: z.literal('Bearer'),
+    expires_in: z.number().int().positive(),
+    refresh_token: z.string().min(1).optional(),
+    scope: z.literal(OAUTH_READ_SCOPE),
+  })
+  .strict();
+
+export type OAuthTokenResponseDto = z.infer<typeof oauthTokenResponseSchema>;

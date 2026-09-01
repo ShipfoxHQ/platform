@@ -39,6 +39,11 @@ type AgentAccessExecutor = ReturnType<typeof db> | AgentAccessTx;
 
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
 const MILLISECONDS_PER_SECOND = 1000;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
+
+function isUuid(value: string): boolean {
+  return UUID_PATTERN.test(value);
+}
 
 function retentionCutoff(now: Date, days: number): Date {
   if (!Number.isFinite(days) || days < 0) {
@@ -100,6 +105,20 @@ async function isActiveUser(tx: AgentAccessTx, userId: string): Promise<boolean>
     .select({id: users.id})
     .from(users)
     .where(and(eq(users.id, userId), eq(users.status, 'active')))
+    .limit(1);
+  return rows.length > 0;
+}
+
+/** Checks the authority-creating user state inside the caller's transaction. */
+export async function isActiveAgentUserTx(
+  tx: AgentAccessTx,
+  params: {userId: string},
+): Promise<boolean> {
+  const rows = await tx
+    .select({id: users.id})
+    .from(users)
+    .where(and(eq(users.id, params.userId), eq(users.status, 'active')))
+    .for('update')
     .limit(1);
   return rows.length > 0;
 }
@@ -231,6 +250,21 @@ export async function findAgentClientByClientId(params: {
   return row ? toAgentClient(row) : undefined;
 }
 
+/** Resolves a client by its private database id for stored OAuth artifacts. */
+export async function findAgentClientById(params: {
+  id: string;
+  executor?: AgentAccessExecutor;
+}): Promise<AgentClient | undefined> {
+  const executor = params.executor ?? db();
+  const rows = await executor
+    .select()
+    .from(agentClients)
+    .where(eq(agentClients.id, params.id))
+    .limit(1);
+  const row = rows[0];
+  return row ? toAgentClient(row) : undefined;
+}
+
 export async function markAgentClientReferenced(
   tx: AgentAccessTx,
   params: {clientUuid: string},
@@ -295,6 +329,7 @@ export async function findPendingAgentAuthorizationRequest(params: {
   id: string;
   executor?: AgentAccessExecutor;
 }): Promise<AgentAuthorizationRequest | undefined> {
+  if (!isUuid(params.id)) return undefined;
   const executor = params.executor ?? db();
   const rows = await executor
     .select()
@@ -326,6 +361,7 @@ export async function consumeAgentAuthorizationRequestTx(
   tx: AgentAccessTx,
   params: {id: string},
 ): Promise<AgentAuthorizationRequest | undefined> {
+  if (!isUuid(params.id)) return undefined;
   const rows = await tx
     .update(agentAuthorizationRequests)
     .set({consumedAt: sql`now()`, updatedAt: sql`now()`})
