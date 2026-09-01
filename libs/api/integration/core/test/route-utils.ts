@@ -16,7 +16,10 @@ let authenticatedMemberships: UserContextMembership[] = [];
 const fakeUserAuth: AuthMethod = {
   name: AUTH_USER,
   authenticate: (request: FastifyRequest) => {
-    if (request.headers.authorization !== 'Bearer user') {
+    if (
+      request.headers.authorization !== 'Bearer user' &&
+      request.headers.authorization !== 'Bearer impersonated'
+    ) {
       throw new ClientError('Invalid user token', 'unauthorized', {status: 401});
     }
 
@@ -26,6 +29,9 @@ const fakeUserAuth: AuthMethod = {
         userId: 'user-1',
         email: 'user@example.com',
         memberships: authenticatedMemberships,
+        ...(request.headers.authorization === 'Bearer impersonated'
+          ? {impersonatorId: 'impersonator-1'}
+          : {}),
       }),
     );
     return Promise.resolve();

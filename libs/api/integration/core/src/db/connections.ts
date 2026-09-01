@@ -333,6 +333,17 @@ export async function updateIntegrationConnectionRepositoryAccessMode(
     );
   }
 
+  const [existing] = await options.tx
+    .select()
+    .from(integrationConnections)
+    .where(eq(integrationConnections.id, params.id))
+    .limit(1)
+    .for('update');
+  if (!existing) return undefined;
+  if (existing.repositoryAccessMode === params.repositoryAccessMode) {
+    return toIntegrationConnection(existing);
+  }
+
   const [row] = await options.tx
     .update(integrationConnections)
     .set({repositoryAccessMode: params.repositoryAccessMode, updatedAt: new Date()})
