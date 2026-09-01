@@ -530,9 +530,20 @@ describe('runJobSteps', () => {
       .mockResolvedValueOnce(stepResponse(checkout, 1))
       .mockResolvedValueOnce(stepResponse(checkout, 2))
       .mockResolvedValueOnce({kind: 'done', status: 'succeeded'});
-    executeCheckoutStepMock.mockResolvedValue({
-      result: {success: true, checkout: checkoutResult, error: null, exit_code: 0},
-    });
+    executeCheckoutStepMock.mockImplementation(
+      ({
+        destinations,
+      }: {
+        destinations: Map<string, {repository: string; ref: string; result: typeof checkoutResult}>;
+      }) => {
+        destinations.set(checkoutResult.path, {
+          repository: checkoutResult.repository,
+          ref: checkoutResult.ref,
+          result: checkoutResult,
+        });
+        return {result: {success: true, checkout: checkoutResult, error: null, exit_code: 0}};
+      },
+    );
     const ac = new AbortController();
 
     await runLoop({signal: ac.signal});

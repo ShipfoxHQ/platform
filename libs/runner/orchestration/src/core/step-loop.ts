@@ -179,6 +179,9 @@ async function runJobStepIteration(
       ? params.credentialFailureEvents.getFailureEventCursor()
       : undefined;
   const stepLabel = step.name ?? `step #${step.position}`;
+  const checkoutDestinationsBeforeExecution = snapshotCheckoutDestinations(
+    state.checkoutDestinations,
+  );
   logger().info(
     {
       jobId: params.jobId,
@@ -220,7 +223,14 @@ async function runJobStepIteration(
           executeStep(executeStepParams),
         );
   const execution = capturedExecution.value;
-  applyStepExecutionState(params, state, step, attempt, execution);
+  applyStepExecutionState(
+    params,
+    state,
+    step,
+    attempt,
+    checkoutDestinationsBeforeExecution,
+    execution,
+  );
   if (params.signal.aborted) return 'stop';
   return finishStepExecution(
     params,
@@ -264,6 +274,7 @@ function applyStepExecutionState(
   state: JobStepLoopState,
   step: StepDto,
   attempt: number,
+  checkoutDestinationsBeforeExecution: ReadonlyMap<string, CheckoutDestinationWithSubject>,
   execution: StepExecution,
 ): void {
   state.activeStream = execution.stream;
@@ -280,8 +291,8 @@ function applyStepExecutionState(
   }
   if (execution.result.success && execution.result.checkout) {
     const credentialSubject = checkoutCredentialSubject({
-      destinations: state.checkoutDestinations,
       checkout: execution.result.checkout,
+      previousDestinations: checkoutDestinationsBeforeExecution,
       persistedCredential: execution.persistedCheckoutCredential,
       fallback: `${step.id}:${attempt}`,
     });
@@ -456,8 +467,14 @@ function rememberCheckoutDestination(
   });
 }
 
+function snapshotCheckoutDestinations(
+  destinations: TrackedCheckoutDestinations,
+): ReadonlyMap<string, CheckoutDestinationWithSubject> {
+  return new Map([...destinations].map(([path, destination]) => [path, {...destination}]));
+}
+
 function checkoutCredentialSubject(params: {
-  destinations: TrackedCheckoutDestinations;
+  previousDestinations: ReadonlyMap<string, CheckoutDestinationWithSubject>;
   checkout: NonNullable<StepResult['checkout']>;
   persistedCredential: PersistedCheckoutCredential | undefined;
   fallback: string;
@@ -465,11 +482,12 @@ function checkoutCredentialSubject(params: {
   if (params.persistedCredential !== undefined) {
     return `${params.persistedCredential.checkoutStepId}:${params.persistedCredential.checkoutAttempt}`;
   }
-  const previous = params.destinations.get(params.checkout.path);
+  const previous = params.previousDestinations.get(params.checkout.path);
   if (
     previous !== undefined &&
     previous.result.repository === params.checkout.repository &&
-    previous.result.ref === params.checkout.ref
+    previous.result.ref === params.checkout.ref &&
+    previous.credentialSubject !== undefined
   ) {
     return previous.credentialSubject;
   }

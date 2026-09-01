@@ -185,8 +185,9 @@ export class CredentialBroker {
       flight.rejectionRequested &&
       flight.rejectedGeneration !== rejectedGeneration;
     await this.renewEntry(entry, rejectedGeneration, true);
-    if ((wasRefreshing || needsFollowUp) && !this.stopped)
-      await this.renewEntry(entry, rejectedGeneration, true);
+    if ((wasRefreshing || needsFollowUp) && !this.stopped) {
+      await this.renewEntry(entry, rejectedGeneration, true, true);
+    }
     return rejectedGeneration === undefined ? {} : {rejectedGeneration};
   }
 
@@ -292,6 +293,7 @@ export class CredentialBroker {
     entry: Entry,
     rejectedGeneration?: string,
     rejectionRequested = false,
+    bypassBackoff = false,
   ): Promise<void> {
     const flightKey = `${entry.subject}\u0000${entry.url}`;
     const existing = this.flights.get(flightKey);
@@ -299,15 +301,12 @@ export class CredentialBroker {
       if (this.activeFailureCapture !== undefined) {
         existing.failureCaptures.add(this.activeFailureCapture);
       }
-      if (rejectionRequested) {
-        existing.rejectionRequested = true;
-        existing.rejectedGeneration = rejectedGeneration;
-      }
       return existing.promise;
     }
-    if (entry.backoffUntil !== undefined && this.now() < entry.backoffUntil)
+    if (!bypassBackoff && entry.backoffUntil !== undefined && this.now() < entry.backoffUntil)
       return Promise.resolve();
     if (
+      !bypassBackoff &&
       rejectionRequested &&
       entry.rejectionCooldownUntil !== undefined &&
       this.now() < entry.rejectionCooldownUntil

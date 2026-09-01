@@ -159,6 +159,49 @@ describe('credential broker', () => {
     });
   });
 
+  it('starts a rejection-aware renewal after an in-flight refresh settles', async () => {
+    let releaseRefresh!: () => void;
+    const refreshPending = new Promise<void>((resolve) => (releaseRefresh = resolve));
+    let resolveRefreshStarted!: () => void;
+    const refreshStarted = new Promise<void>((resolve) => (resolveRefreshStarted = resolve));
+    const renew = vi
+      .fn()
+      .mockImplementationOnce(async () => {
+        resolveRefreshStarted();
+        await refreshPending;
+        return {...baseCredential, token: 'refresh-token', generation: 'generation-b'};
+      })
+      .mockResolvedValueOnce({
+        ...baseCredential,
+        token: 'rejection-token',
+        generation: 'generation-c',
+        renewal: {mode: 'on-rejection' as const},
+      });
+    const broker = new CredentialBroker({renew, now: () => 5_000});
+    broker.register({repositoryUrl: repository, subject: 'checkout', credential: baseCredential});
+
+    const refreshLookup = broker.lookup(repository);
+    await refreshStarted;
+    const rejection = broker.reject(repository);
+    releaseRefresh();
+
+    await expect(refreshLookup).resolves.toBeUndefined();
+    await expect(rejection).resolves.toEqual({rejectedGeneration: 'generation-a'});
+    await expect(broker.lookup(repository)).resolves.toEqual({
+      username: 'runner',
+      token: 'rejection-token',
+    });
+    expect(renew).toHaveBeenNthCalledWith(1, {
+      repositoryUrl: 'https://gitea.example/Org/Repo/',
+      subject: 'checkout',
+    });
+    expect(renew).toHaveBeenNthCalledWith(2, {
+      repositoryUrl: 'https://gitea.example/Org/Repo/',
+      subject: 'checkout',
+      rejectedGeneration: 'generation-a',
+    });
+  });
+
   it('accepts an unchanged opaque credential when its generation is fresh', async () => {
     const renew = vi.fn().mockResolvedValue({
       ...baseCredential,
