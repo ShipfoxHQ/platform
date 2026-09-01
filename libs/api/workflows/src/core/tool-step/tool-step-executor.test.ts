@@ -1,6 +1,7 @@
 import type {IntegrationsModuleClient} from '@shipfox/api-integration-core-dto/inter-module';
-import type {LogsModuleClient} from '@shipfox/api-logs-dto/inter-module';
+import {type LogsModuleClient, logsInterModuleContract} from '@shipfox/api-logs-dto/inter-module';
 import {createWorkflowExpression} from '@shipfox/expression';
+import {createInterModuleKnownError} from '@shipfox/inter-module';
 import {eq} from 'drizzle-orm';
 import {db} from '#db/db.js';
 import {stepAttempts as stepAttemptsTable} from '#db/schema/step-attempts.js';
@@ -97,6 +98,60 @@ describe('tool step executor', () => {
     expect(
       records.find((record) => record.type === 'output' && record.data.includes('ENG-1680')),
     ).toBeDefined();
+  });
+
+  test('settles before a slow log append can lose the invocation claim', async () => {
+    const {jobId} = await arrangeToolStep('write');
+    const appendStarted = deferred();
+    const releaseAppend = deferred();
+    let blockFirstAppend = true;
+    const callTool = vi.fn<IntegrationsModuleClient['callTool']>().mockResolvedValue({
+      outcome: 'success' as const,
+      result: {identifier: 'ENG-1680'},
+      content: [],
+    });
+    const appendServerRecords = vi
+      .fn<LogsModuleClient['appendServerRecords']>()
+      .mockImplementation(async () => {
+        if (blockFirstAppend) {
+          blockFirstAppend = false;
+          appendStarted.resolve();
+          await releaseAppend.promise;
+        }
+        return {committedLength: 0, capped: false};
+      });
+
+    await nextStepForJob(jobId);
+    const firstCycle = runToolStepExecutorCycle({
+      integrations: {callTool} as unknown as IntegrationsModuleClient,
+      logs: {appendServerRecords} as unknown as LogsModuleClient,
+      signal: new AbortController().signal,
+      claimOwner: 'executor-one',
+      concurrency: 8,
+      callTimeoutMs: 30_000,
+    });
+    await appendStarted.promise;
+    const [invocation] = await getToolInvocationsByJobExecutionIdForJob(jobId);
+    if (!invocation) throw new Error('Expected a tool invocation');
+    await db()
+      .update(toolInvocationsTable)
+      .set({claimExpiresAt: new Date(Date.now() - 1)})
+      .where(eq(toolInvocationsTable.id, invocation.id));
+
+    await runToolStepExecutorCycle({
+      integrations: {callTool} as unknown as IntegrationsModuleClient,
+      logs: {appendServerRecords} as unknown as LogsModuleClient,
+      signal: new AbortController().signal,
+      claimOwner: 'executor-two',
+      concurrency: 8,
+      callTimeoutMs: 30_000,
+    });
+    releaseAppend.resolve();
+    await firstCycle;
+
+    expect(callTool).toHaveBeenCalledTimes(1);
+    const [step] = await getStepsByJobId(jobId);
+    expect(step).toMatchObject({status: 'succeeded'});
   });
 
   test('reclaims an expired read invocation into the next call index', async () => {
@@ -302,14 +357,19 @@ describe('tool step executor', () => {
     expect(invocation).toMatchObject({status: 'settled', lastErrorCode: null});
   });
 
-  test('settles a claimed invocation when shutdown aborts its provider call', async () => {
-    const {jobId} = await arrangeToolStep('write');
+  test('leaves a shutdown-aborted read invocation for reclaim', async () => {
+    const {jobId} = await arrangeToolStep('read');
     const controller = new AbortController();
     const callTool = vi
       .fn<IntegrationsModuleClient['callTool']>()
-      .mockImplementation((_input, options) => {
+      .mockImplementationOnce((_input, options) => {
         controller.abort();
         throw options?.signal?.reason ?? new Error('Provider call aborted');
+      })
+      .mockResolvedValueOnce({
+        outcome: 'success' as const,
+        result: {identifier: 'ENG-1680'},
+        content: [],
       });
     const appendServerRecords = vi
       .fn<LogsModuleClient['appendServerRecords']>()
@@ -327,9 +387,40 @@ describe('tool step executor', () => {
 
     const [invocation] = await getToolInvocationsByJobExecutionIdForJob(jobId);
     expect(invocation).toMatchObject({
-      status: 'settled',
-      lastErrorCode: 'invocation_interrupted',
+      status: 'in_flight',
+      claimedBy: 'executor-test',
     });
+    expect(appendServerRecords).not.toHaveBeenCalled();
+
+    if (!invocation) throw new Error('Expected a tool invocation');
+    await db()
+      .update(toolInvocationsTable)
+      .set({claimExpiresAt: new Date(Date.now() - 1)})
+      .where(eq(toolInvocationsTable.id, invocation.id));
+
+    const didReclaim = await runToolStepExecutorCycle({
+      integrations: {callTool} as unknown as IntegrationsModuleClient,
+      logs: {appendServerRecords} as unknown as LogsModuleClient,
+      signal: new AbortController().signal,
+      claimOwner: 'executor-two',
+      concurrency: 8,
+      callTimeoutMs: 30_000,
+    });
+    expect(didReclaim).toBe(true);
+    const [queued] = await getToolInvocationsByJobExecutionIdForJob(jobId);
+    expect(queued).toMatchObject({status: 'queued', callIndex: 1});
+
+    await runToolStepExecutorCycle({
+      integrations: {callTool} as unknown as IntegrationsModuleClient,
+      logs: {appendServerRecords} as unknown as LogsModuleClient,
+      signal: new AbortController().signal,
+      claimOwner: 'executor-two',
+      concurrency: 8,
+      callTimeoutMs: 30_000,
+    });
+    expect(callTool).toHaveBeenCalledTimes(2);
+    const [step] = await getStepsByJobId(jobId);
+    expect(step).toMatchObject({status: 'succeeded'});
   });
 
   test('does not transition an invocation after its running attempt is gone', async () => {
@@ -587,6 +678,37 @@ describe('tool step executor', () => {
     expect(records.at(-1)).toMatchObject({type: 'group_end'});
   });
 
+  test('stops a log group when its first append fails', async () => {
+    const {jobId} = await arrangeToolStep();
+    const callTool = vi.fn<IntegrationsModuleClient['callTool']>().mockResolvedValue({
+      outcome: 'success' as const,
+      result: {identifier: 'ENG-1680'},
+      content: [],
+    });
+    const appendError = createInterModuleKnownError(
+      logsInterModuleContract.methods.appendServerRecords,
+      'append-body-too-large',
+      {maxBytes: 1},
+    );
+    const appendServerRecords = vi
+      .fn<LogsModuleClient['appendServerRecords']>()
+      .mockRejectedValue(appendError);
+
+    await nextStepForJob(jobId);
+    await runToolStepExecutorCycle({
+      integrations: {callTool} as unknown as IntegrationsModuleClient,
+      logs: {appendServerRecords} as unknown as LogsModuleClient,
+      signal: new AbortController().signal,
+      claimOwner: 'executor-test',
+      concurrency: 8,
+      callTimeoutMs: 30_000,
+    });
+
+    expect(appendServerRecords).toHaveBeenCalledTimes(1);
+    const [step] = await getStepsByJobId(jobId);
+    expect(step).toMatchObject({status: 'succeeded'});
+  });
+
   test('retries rate limits for writes and provider failures only for reads', () => {
     expect(toolRetryDelayMs({code: 'rate-limited', sensitivity: 'write', callIndex: 0})).toBe(
       1_000,
@@ -671,4 +793,12 @@ async function getToolInvocationsByJobExecutionIdForJob(jobId: string) {
   const [step] = await getStepsByJobId(jobId);
   if (!step) throw new Error('Expected a workflow step');
   return getToolInvocationsByJobExecutionId(step.jobExecutionId);
+}
+
+function deferred(): {promise: Promise<void>; resolve: () => void} {
+  let resolvePromise!: () => void;
+  const promise = new Promise<void>((resolve) => {
+    resolvePromise = resolve;
+  });
+  return {promise, resolve: resolvePromise};
 }

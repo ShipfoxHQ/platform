@@ -209,13 +209,11 @@ interface ExecuteToolInvocationParams {
 
 async function executeToolInvocation(params: ExecuteToolInvocationParams): Promise<void> {
   const {claim} = params;
+  if (params.serviceSignal.aborted) return;
 
   const startedAt = new Date();
-  const execution =
-    claim.interrupted || params.serviceSignal.aborted
-      ? interruptedExecution()
-      : await callToolInvocation(params);
-  await appendToolInvocationLog(params.logs, claim, execution);
+  const execution = claim.interrupted ? interruptedExecution() : await callToolInvocation(params);
+  if (params.serviceSignal.aborted) return;
 
   if (execution.outcome === 'error') {
     const retryAfterMs = toolRetryDelayMs({
@@ -238,18 +236,22 @@ async function executeToolInvocation(params: ExecuteToolInvocationParams): Promi
       });
       if (retried) {
         recordToolInvocationDuration(claim, execution, elapsedMilliseconds(startedAt));
+        if (params.serviceSignal.aborted) return;
+        await appendToolInvocationLog(params.logs, claim, execution);
         params.nudge?.();
       }
       return;
     }
   }
 
-  await settleAndRecordToolInvocation({
+  const settled = await settleAndRecordToolInvocation({
     claim,
     execution,
     finishedAt: new Date(),
     durationMs: elapsedMilliseconds(startedAt),
   });
+  if (!settled || params.serviceSignal.aborted) return;
+  await appendToolInvocationLog(params.logs, claim, execution);
 }
 
 function claimOwnerFromInvocation(claim: ToolInvocationClaim): string {
@@ -496,13 +498,14 @@ async function settleAndRecordToolInvocation(params: {
   execution: ToolExecution;
   finishedAt: Date;
   durationMs: number;
-}): Promise<void> {
+}): Promise<boolean> {
   const progression = await withTransaction((tx) =>
     settleAndRecordToolInvocationInTransaction(params, tx),
   );
-  if (!progression) return;
+  if (!progression) return false;
   recordStepProgressionMetrics(progression.metrics);
   recordToolInvocationDuration(params.claim, params.execution, params.durationMs);
+  return true;
 }
 
 async function settleAndRecordToolInvocationInTransaction(
@@ -645,7 +648,7 @@ async function appendToolInvocationLog(
           {code: error.code, invocationId: claim.invocation.id},
           'Tool step invocation log was not appended',
         );
-        continue;
+        return;
       }
       logger().error(
         {err: error, invocationId: claim.invocation.id},
@@ -656,6 +659,7 @@ async function appendToolInvocationLog(
         boundary: 'workflows.tool-step-executor',
         operation: 'append-log',
       });
+      return;
     }
   }
 }
