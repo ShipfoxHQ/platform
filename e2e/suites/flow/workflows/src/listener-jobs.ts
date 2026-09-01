@@ -235,16 +235,34 @@ export async function stepLogText(params: {
   return logText(logs.records);
 }
 
-export async function sendBatchPairAndAwaitMaterialization(params: {
+export async function sendBatchAndAwaitMaterialization(params: {
   testCase: ListenerCase;
   runId: string;
   label: string;
   sequence: number;
   timeoutMs: number;
+  eventCount?: number | undefined;
+  expectedEventCount?: number | undefined;
 }): Promise<{deliveryIds: string[]; runDetail: Awaited<ReturnType<typeof waitForRunTerminal>>}> {
+  const eventCount = params.eventCount ?? 2;
+  const expectedEventCount = params.expectedEventCount ?? eventCount;
+  if (
+    !Number.isInteger(eventCount) ||
+    eventCount < 1 ||
+    !Number.isInteger(expectedEventCount) ||
+    expectedEventCount < 1 ||
+    expectedEventCount > eventCount
+  ) {
+    throw new Error(
+      `Invalid listener batch counts: eventCount=${eventCount}, expectedEventCount=${expectedEventCount}`,
+    );
+  }
+
   const deliveryIds = [
-    `${params.testCase.uniqueId}-${params.label}-a`,
-    `${params.testCase.uniqueId}-${params.label}-b`,
+    ...Array.from({length: eventCount}, (_, index) => {
+      const suffix = String.fromCharCode('a'.charCodeAt(0) + index);
+      return `${params.testCase.uniqueId}-${params.label}-${suffix}`;
+    }),
   ];
   for (const deliveryId of deliveryIds) {
     params.testCase.fireDiagnostics.deliveryIds.push(deliveryId);
@@ -266,10 +284,20 @@ export async function sendBatchPairAndAwaitMaterialization(params: {
         runDetail: candidate,
         jobKey: LISTENER_JOB,
         sequence: params.sequence,
-        deliveryIds,
+        deliveryIds: deliveryIds.slice(0, expectedEventCount),
       }),
   });
   return {deliveryIds, runDetail};
+}
+
+export async function sendBatchPairAndAwaitMaterialization(params: {
+  testCase: ListenerCase;
+  runId: string;
+  label: string;
+  sequence: number;
+  timeoutMs: number;
+}): Promise<{deliveryIds: string[]; runDetail: Awaited<ReturnType<typeof waitForRunTerminal>>}> {
+  return await sendBatchAndAwaitMaterialization({...params, eventCount: 2});
 }
 
 export const listenerWorkflows = {

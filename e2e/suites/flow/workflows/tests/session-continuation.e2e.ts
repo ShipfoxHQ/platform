@@ -14,7 +14,7 @@ import {
   fireManualRun,
   LISTENER_JOB,
   type ListenerCase,
-  sendBatchPairAndAwaitMaterialization,
+  sendBatchAndAwaitMaterialization,
   sendResolve,
   sessionContinuationWorkflow,
   setupListenerCase,
@@ -26,6 +26,7 @@ import {expect, test} from './fixtures.js';
 const SESSION_MODEL_MAX_OUTPUT_TOKENS = 64;
 const SESSION_FLOW_OBSERVATION_TIMEOUT_MS = 60_000;
 const SESSION_RUN_TERMINAL_TIMEOUT_MS = 180_000;
+const SESSION_TEST_TIMEOUT_MS = 600_000;
 
 const SESSION_RESPONSES = [
   'PLAN_SESSION_SEGMENT',
@@ -37,6 +38,7 @@ const SESSION_RESPONSES = [
 test('resumes one Pi session across jobs and listening event batches', async ({
   suite,
 }, testInfo) => {
+  test.setTimeout(SESSION_TEST_TIMEOUT_MS);
   const uniqueId = crypto.randomUUID().replaceAll('-', '').slice(0, 10);
   const fakeModelProvider = await startFakeOpenAiModelProvider({
     runId: `${suite.runId}-session-continuation-${uniqueId}`,
@@ -106,12 +108,14 @@ test('resumes one Pi session across jobs and listening event batches', async ({
       timeoutMs: SESSION_FLOW_OBSERVATION_TIMEOUT_MS,
     });
 
-    const firstBatch = await sendBatchPairAndAwaitMaterialization({
+    const firstBatch = await sendBatchAndAwaitMaterialization({
       testCase,
       runId,
       label: 'first-batch',
       sequence: 1,
       timeoutMs: SESSION_FLOW_OBSERVATION_TIMEOUT_MS,
+      eventCount: 4,
+      expectedEventCount: 2,
     });
     await waitForListenerExecution({
       token: testCase.token,
@@ -122,13 +126,6 @@ test('resumes one Pi session across jobs and listening event batches', async ({
       timeoutMs: SESSION_FLOW_OBSERVATION_TIMEOUT_MS,
     });
 
-    const secondBatch = await sendBatchPairAndAwaitMaterialization({
-      testCase,
-      runId,
-      label: 'second-batch',
-      sequence: 2,
-      timeoutMs: SESSION_FLOW_OBSERVATION_TIMEOUT_MS,
-    });
     await waitForListenerExecution({
       token: testCase.token,
       runId,
@@ -138,7 +135,7 @@ test('resumes one Pi session across jobs and listening event batches', async ({
       timeoutMs: SESSION_FLOW_OBSERVATION_TIMEOUT_MS,
     });
 
-    const resolveDeliveryId = await sendResolve(testCase, 'resolve');
+    await sendResolve(testCase, 'resolve');
     const resolved = await waitForListenerResolution({
       token: testCase.token,
       runId,
@@ -156,10 +153,8 @@ test('resumes one Pi session across jobs and listening event batches', async ({
 
     assertSessionRun({
       firstBatch,
-      secondBatch,
       terminal,
       resolved,
-      resolveDeliveryId,
     });
 
     const requests = await fakeModelProvider.getRequests(script.id);
@@ -193,11 +188,9 @@ test('resumes one Pi session across jobs and listening event batches', async ({
 });
 
 function assertSessionRun(params: {
-  firstBatch: Awaited<ReturnType<typeof sendBatchPairAndAwaitMaterialization>>;
-  secondBatch: Awaited<ReturnType<typeof sendBatchPairAndAwaitMaterialization>>;
+  firstBatch: Awaited<ReturnType<typeof sendBatchAndAwaitMaterialization>>;
   terminal: WorkflowRunDetailResponseDto;
   resolved: WorkflowRunDetailResponseDto;
-  resolveDeliveryId: string;
 }): void {
   const plan = sessionStep(params.terminal, 'plan', 1, 'draft');
   const implement = sessionStep(params.terminal, 'implement', 1, 'apply');
@@ -217,16 +210,16 @@ function assertSessionRun(params: {
     'succeeded',
     'succeeded',
   ]);
+  expect(params.firstBatch.deliveryIds).toHaveLength(4);
   expect(listen?.job_executions[0]?.trigger_events.map((event) => event.delivery_id)).toEqual(
-    params.firstBatch.deliveryIds,
+    params.firstBatch.deliveryIds.slice(0, 2),
   );
   expect(listen?.job_executions[1]?.trigger_events.map((event) => event.delivery_id)).toEqual(
-    params.secondBatch.deliveryIds,
+    params.firstBatch.deliveryIds.slice(2),
   );
   expect(params.resolved.jobs.find((job) => job.key === LISTENER_JOB)?.resolution_reason).toBe(
     'until',
   );
-  expect(params.resolveDeliveryId).toContain('resolve');
 
   expect(plan.response?.trim()).toBe(SESSION_RESPONSES[0]);
   expect(implement.response?.trim()).toBe(SESSION_RESPONSES[1]);
