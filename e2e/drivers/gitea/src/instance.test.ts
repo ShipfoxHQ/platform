@@ -129,6 +129,48 @@ describe('gitea instance driver', () => {
       method: 'POST',
       json: {title: 'Fixture', body: 'Read me'},
     });
-    expect(giteaFetchJson).toHaveBeenNthCalledWith(2, 'repos/e2e-org/fixture/issues/1/comments');
+    expect(giteaFetchJson).toHaveBeenNthCalledWith(
+      2,
+      'repos/e2e-org/fixture/issues/1/comments?page=1&limit=50',
+    );
+  });
+
+  test('lists issue comments across pages', async () => {
+    const giteaFetch = vi.fn().mockResolvedValue(undefined);
+    const firstPage = Array.from({length: 50}, (_, index) => ({
+      id: index + 1,
+      body: `Comment ${index + 1}`,
+    }));
+    const giteaFetchJson = vi
+      .fn()
+      .mockResolvedValueOnce(firstPage)
+      .mockResolvedValueOnce([{id: 51, body: 'Comment 51'}]);
+    vi.doMock('./config.js', () => ({
+      config: {
+        E2E_GITEA_BOT_USERNAME: 'shipfox-bot',
+        E2E_GITEA_WEBHOOK_SECRET: 'webhook-secret',
+      },
+      defaultWebhookTargetUrl: () => 'https://api.example.test/webhook',
+    }));
+    vi.doMock('./gitea-client.js', () => ({
+      encodeSegment: encodeURIComponent,
+      GiteaInstanceError: class GiteaInstanceError extends Error {},
+      giteaFetch,
+      giteaFetchJson,
+    }));
+    const {listIssueComments} = await import('./instance.js');
+
+    await expect(
+      listIssueComments({org: 'e2e-org', repo: 'fixture', index: 1}),
+    ).resolves.toHaveLength(51);
+
+    expect(giteaFetchJson).toHaveBeenNthCalledWith(
+      1,
+      'repos/e2e-org/fixture/issues/1/comments?page=1&limit=50',
+    );
+    expect(giteaFetchJson).toHaveBeenNthCalledWith(
+      2,
+      'repos/e2e-org/fixture/issues/1/comments?page=2&limit=50',
+    );
   });
 });

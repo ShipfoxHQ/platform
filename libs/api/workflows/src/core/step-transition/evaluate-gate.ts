@@ -5,6 +5,7 @@ import {
   type ResolvedField,
   type WorkflowExpression,
 } from '@shipfox/expression';
+import type {StepType} from '../entities/step.js';
 import {assembleGateContext} from '../step-config/assemble-run-context.js';
 import {completeStepField} from '../step-config/fields.js';
 import type {GateOutcome, StepReport} from './decide-step-transition.js';
@@ -69,7 +70,8 @@ function readGateFeedbackTemplate(value: unknown): ResolvedField | undefined {
  * Gate evaluation fails closed: a missing exit code on a runner step or a CEL
  * evaluation error is `uncheckable` (a plain command failure), never a gate
  * failure that can restart. Tool steps intentionally have no exit code, so
- * their gates evaluate against the step status and outputs instead.
+ * their gates evaluate against the step status and outputs instead. Tool-step
+ * failures remain non-restartable because provider calls may have side effects.
  *
  * Callers hold step-row locks while this runs. Keep the CEL context bounded
  * unless evaluation gets a budget outside the lock. The materializer only
@@ -79,7 +81,7 @@ export function evaluateGate(
   gate: StepGate | undefined,
   result: StepReport,
   vars?: Record<string, string> | undefined,
-  options?: {readonly stepType?: 'tool'},
+  options?: {readonly stepType?: StepType},
 ): GateOutcome {
   if (!gate?.success) return {kind: 'no-gate'};
   const source = gate.success.source;

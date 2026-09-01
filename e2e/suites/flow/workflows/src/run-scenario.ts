@@ -108,9 +108,10 @@ async function evaluateScenarioResult(params: {
   return {allMismatches, fetchedLogs};
 }
 
-async function evaluateGiteaScenario(params: {
+export async function evaluateGiteaScenario(params: {
   expectation: GiteaScenarioExpectation | undefined;
   issue: CreatedIssue | undefined;
+  listComments?: typeof listIssueComments;
   org: string;
   repo: string;
 }): Promise<Mismatch[]> {
@@ -119,10 +120,11 @@ async function evaluateGiteaScenario(params: {
     return [{path: 'gitea.issue', expected: 'created', actual: 'missing'}];
   }
   const expectedComment = params.expectation.comment;
+  const listComments = params.listComments ?? listIssueComments;
 
   let comments: Awaited<ReturnType<typeof listIssueComments>>;
   try {
-    comments = await listIssueComments({
+    comments = await listComments({
       org: params.org,
       repo: params.repo,
       index: params.issue.number,
@@ -142,7 +144,7 @@ async function evaluateGiteaScenario(params: {
   return [
     {
       path: 'gitea.issue.comments',
-      expected: `include ${expectedComment}`,
+      expected: `exact ${expectedComment}`,
       actual:
         comments.length === 0 ? 'none' : comments.map((comment) => comment.body).join('\n---\n'),
     },

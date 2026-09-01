@@ -1060,12 +1060,7 @@ async function decideReportedStepTransition(params: {
       ? undefined
       : ((await getWorkflowContextForJob(params.jobId, params.tx)).vars ?? undefined);
   const gateOutcome = params.gateEvaluationAllowed
-    ? evaluateGate(
-        gate,
-        params.result,
-        vars,
-        params.target.type === 'tool' ? {stepType: 'tool'} : undefined,
-      )
+    ? evaluateGate(gate, params.result, vars, {stepType: params.target.type})
     : {kind: 'no-gate' as const};
   // The restart cap is bounded on the gating step's OWN attempts, not its
   // current_attempt (which a rewind inflates for downstream steps).

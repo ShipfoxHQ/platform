@@ -53,8 +53,15 @@ delivers a webhook to the API, verified against `GITEA_WEBHOOK_SECRET`.
 ## Re-seeding
 
 `gitea-init` skips anything that already exists, so `docker compose up` is safe to
-re-run. To start from a clean slate, remove the `gitea` volume (Compose prefixes it
-with the project name, which defaults to the repo directory name):
+re-run. If the stack was created before issue tools were enabled, rerun the bootstrap
+once so it creates the issue-comment-write team:
+
+```sh
+docker compose run --rm gitea-init
+```
+
+To start from a clean slate, remove the `gitea` volume (Compose prefixes it with the
+project name, which defaults to the repo directory name):
 
 ```sh
 docker compose down

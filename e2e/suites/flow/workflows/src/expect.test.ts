@@ -237,6 +237,28 @@ describe('evaluateExpectations', () => {
     expect(result.mismatches).toEqual([]);
   });
 
+  test('flags an unexpected step type', () => {
+    const detail = makeDetail({
+      jobs: [
+        makeJob({
+          job_executions: [makeJobExecution({steps: [makeStep({type: 'run'})]})],
+        }),
+      ],
+    });
+
+    const result = evaluateExpectations(
+      detail,
+      parseExpectation({
+        run: {status: 'succeeded'},
+        jobs: {build: {steps: {greet: {type: 'tool'}}}},
+      }),
+    );
+
+    expect(result.mismatches).toEqual([
+      {path: 'jobs.build.steps.greet.type', expected: 'tool', actual: 'run'},
+    ]);
+  });
+
   test('parses an external Gitea fixture expectation', () => {
     const expectation = parseExpectation({
       run: {status: 'succeeded'},

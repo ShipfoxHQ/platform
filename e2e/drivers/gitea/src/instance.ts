@@ -55,6 +55,8 @@ export interface IssueComment {
   body: string;
 }
 
+const ISSUE_COMMENTS_PAGE_SIZE = 50;
+
 export type CommitFileOperation = 'create' | 'update' | 'delete';
 
 export interface CommitFile {
@@ -187,9 +189,14 @@ export async function listIssueComments(params: {
   repo: string;
   index: number;
 }): Promise<IssueComment[]> {
-  const comments = await giteaFetchJson<Array<{id: number; body?: string | null}>>(
-    `repos/${encodeSegment(params.org)}/${encodeSegment(params.repo)}/issues/${params.index}/comments`,
-  );
+  const comments: Array<{id: number; body?: string | null}> = [];
+  for (let page = 1; ; page++) {
+    const pageComments = await giteaFetchJson<Array<{id: number; body?: string | null}>>(
+      `repos/${encodeSegment(params.org)}/${encodeSegment(params.repo)}/issues/${params.index}/comments?page=${page}&limit=${ISSUE_COMMENTS_PAGE_SIZE}`,
+    );
+    comments.push(...pageComments);
+    if (pageComments.length < ISSUE_COMMENTS_PAGE_SIZE) break;
+  }
 
   return comments.map((comment) => ({
     id: comment.id,
