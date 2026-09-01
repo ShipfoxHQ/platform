@@ -8,7 +8,9 @@ import {reportError} from '@shipfox/node-error-monitoring';
 import {logger} from '@shipfox/node-opentelemetry';
 import {
   INVALID_METHOD_LABEL,
+  type IntegrationToolCallAuthorization,
   type IntegrationToolCallRecorder,
+  integrationToolCallAuthorizationAuditFields,
   NO_METHOD_LABEL,
 } from '#core/tool-call-audit.js';
 import {
@@ -28,7 +30,12 @@ export interface IntegrationToolDispatchInput {
 
 export type IntegrationToolDispatcher = (
   input: IntegrationToolDispatchInput,
-) => Promise<CallToolResult>;
+) => Promise<CallToolResult | IntegrationToolDispatchResult>;
+
+export interface IntegrationToolDispatchResult {
+  result: CallToolResult;
+  authorization?: IntegrationToolCallAuthorization | undefined;
+}
 
 export interface BuildAgentToolsMcpServerParams {
   authorizedTools: AuthorizedIntegrationToolMap;
@@ -100,17 +107,19 @@ export function buildAgentToolsMcpServer(params: BuildAgentToolsMcpServerParams)
     const method = methodValidation.method ?? NO_METHOD_LABEL;
 
     try {
-      const result = await params.dispatch({
+      const dispatched = await params.dispatch({
         authorizedTool,
         arguments: args,
         method: methodValidation.method,
       });
+      const {result, authorization} = unpackDispatchResult(dispatched);
       recordToolCall(params.recordCall, {
         authorizedTool,
         arguments: args,
         method,
         outcome: result.isError === true ? 'tool-error' : 'success',
         ...toolCallErrorDetails(result),
+        ...integrationToolCallAuthorizationAuditFields(authorization),
       });
       return result;
     } catch (error) {
@@ -126,6 +135,21 @@ export function buildAgentToolsMcpServer(params: BuildAgentToolsMcpServerParams)
   });
 
   return server;
+}
+
+function unpackDispatchResult(dispatched: CallToolResult | IntegrationToolDispatchResult): {
+  result: CallToolResult;
+  authorization?: IntegrationToolCallAuthorization | undefined;
+} {
+  if (isRecord(dispatched) && isRecord(dispatched.result) && 'content' in dispatched.result) {
+    return {
+      result: dispatched.result as CallToolResult,
+      authorization: isRecord(dispatched.authorization)
+        ? (dispatched.authorization as unknown as IntegrationToolCallAuthorization)
+        : undefined,
+    };
+  }
+  return {result: dispatched as CallToolResult};
 }
 
 function toolCallErrorDetails(result: CallToolResult): {

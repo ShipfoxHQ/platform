@@ -93,6 +93,7 @@ const toolCallCaller = z.discriminatedUnion('kind', [
   z.object({kind: z.literal('agent')}),
   z.object({
     kind: z.literal('tool_step'),
+    projectId: z.string().min(1),
     runId: z.string().min(1),
     jobExecutionId: z.string().min(1),
     stepId: z.string().min(1),

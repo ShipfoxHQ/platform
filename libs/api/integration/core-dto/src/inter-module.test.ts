@@ -267,6 +267,7 @@ describe('integrationsInterModuleContract', () => {
     arguments: {owner: 'shipfox', repo: 'platform', issue_number: 1},
     caller: {
       kind: 'tool_step',
+      projectId: 'project-1',
       runId: 'run-1',
       jobExecutionId: 'execution-1',
       stepId: 'step-1',

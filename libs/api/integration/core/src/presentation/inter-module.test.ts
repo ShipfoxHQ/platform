@@ -6,6 +6,7 @@ import type {IntegrationConnection} from '#core/entities/connection.js';
 import {IntegrationProviderError} from '#core/errors.js';
 import {createIntegrationProviderRegistry} from '#core/providers/registry.js';
 import type {SourceControlProvider} from '#core/providers/source-control.js';
+import type {RepositoryAuthorizer} from '#core/repository-authorizer.js';
 import {createSourceControlIntegrationService} from '#core/source-control-service.js';
 import type {
   IntegrationToolCallCaller,
@@ -386,6 +387,7 @@ describe('integrations inter-module callTool', () => {
     arguments: {method: 'get', owner: 'shipfox', repo: 'platform', issue_number: 1},
     caller: {
       kind: 'tool_step',
+      projectId: 'project-1',
       runId: 'run-1',
       jobExecutionId: 'execution-1',
       stepId: 'step-1',
@@ -402,6 +404,9 @@ describe('integrations inter-module callTool', () => {
       | ((caller: IntegrationToolCallCaller) => IntegrationToolCallRecorder)
       | undefined = undefined,
     catalog = [catalogTool()],
+    options: {
+      repositoryAuthorizer?: RepositoryAuthorizer | undefined;
+    } = {},
   ) {
     const transport = createInMemoryInterModuleTransport();
     const client = transport.createClient(integrationsInterModuleContract);
@@ -413,6 +418,7 @@ describe('integrations inter-module callTool', () => {
           getIntegrationConnectionById: async () => undefined,
         }),
         getIntegrationConnectionById: resolveConnection,
+        repositoryAuthorizer: options.repositoryAuthorizer,
         ...(createRecorder === undefined
           ? {}
           : {createIntegrationToolCallRecorder: createRecorder}),
@@ -443,6 +449,56 @@ describe('integrations inter-module callTool', () => {
       toolId: 'issue_read',
       arguments: toolCallInput.arguments,
     });
+  });
+
+  it('denies a repository before deterministic dispatch and audits the run project', async () => {
+    const onOpenSession = vi.fn();
+    const entry = catalogTool({
+      repositoryScope: () => ({
+        kind: 'declared-targets',
+        repositories: [{owner: 'shipfox', name: 'platform'}],
+      }),
+    });
+    const resolveRepositoryAuthorization = vi.fn(async () => ({
+      authorized: false as const,
+      reason: 'repository_not_granted' as const,
+    }));
+    const recorder = vi.fn();
+    const client = createToolCallClient(
+      {repositoryAuthorization: 'enforced', onOpenSession},
+      undefined,
+      () => recorder,
+      [entry],
+      {
+        repositoryAuthorizer: {
+          enabled: true,
+          resolveRepositoryAuthorization,
+        },
+      },
+    );
+
+    const result = await client.callTool(toolCallInput);
+
+    expect(result).toEqual({
+      outcome: 'error',
+      code: 'repository-not-granted',
+      message: 'Repository is not authorized for this integration connection',
+    });
+    expect(resolveRepositoryAuthorization).toHaveBeenCalledTimes(1);
+    expect(onOpenSession).not.toHaveBeenCalled();
+    expect(recorder).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: 'get',
+        outcome: 'tool-error',
+        errorCode: 'repository-not-granted',
+        repositories: [{owner: 'shipfox', name: 'platform'}],
+        classification: 'declared-targets',
+        repositoryAccess: 'selected',
+        decision: 'denied',
+        denialReason: 'repository_not_granted',
+        runProjectId: 'project-1',
+      }),
+    );
   });
 
   it('accepts the agent caller without tool-step identity fields', async () => {

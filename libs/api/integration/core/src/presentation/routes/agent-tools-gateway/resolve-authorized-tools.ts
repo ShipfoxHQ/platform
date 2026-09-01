@@ -18,7 +18,7 @@ import {
   IntegrationConnectionProviderChangedError,
   IntegrationConnectionWorkspaceMismatchError,
 } from '#core/errors.js';
-import type {AgentToolJsonSchema} from '#core/providers/agent-tools.js';
+import type {AgentToolCatalogEntry, AgentToolJsonSchema} from '#core/providers/agent-tools.js';
 import type {IntegrationProviderRegistry} from '#core/providers/registry.js';
 import {loadAuthorizedToolConnection} from '#core/tool-call-service.js';
 import type {GetIntegrationConnectionByIdFn} from '#db/connections.js';
@@ -79,6 +79,8 @@ export interface AuthorizedIntegrationTool {
   description: string;
   inputSchema: AgentToolJsonSchema;
   outputSchema?: AgentToolJsonSchema | undefined;
+  /** Live catalog entry used for repository classification at dispatch time. */
+  catalogEntry?: AgentToolCatalogEntry | undefined;
 }
 
 export type AuthorizedIntegrationToolMap = Map<string, AuthorizedIntegrationTool>;
@@ -120,32 +122,46 @@ export async function resolveAuthorizedIntegrationTools(
     const catalogByToolId = new Map(catalog.map((entry) => [entry.id, entry]));
 
     for (const tool of integration.tools) {
-      const catalogTool = catalogByToolId.get(tool.id);
-      const mcpName = mcpToolName(integration.connectionSlug, tool.id);
-      if (authorizedTools.has(mcpName)) {
-        throw new ClientError(
-          'Integration tool names collide after MCP namespacing',
-          'integration-tool-name-collision',
-          {
-            status: 409,
-          },
-        );
-      }
-
-      authorizedTools.set(mcpName, {
-        mcpName,
+      addAuthorizedTool(
+        authorizedTools,
         integration,
         tool,
         connection,
-        // The live catalog enriches display metadata only. Frozen step config remains the allowlist.
-        description: catalogTool?.description ?? tool.id,
-        inputSchema: tool.methods ? toolInputSchema(tool) : tool.inputSchema,
-        outputSchema: tool.outputSchema ?? catalogTool?.outputSchema,
-      });
+        catalogByToolId.get(tool.id),
+      );
     }
   }
 
   return authorizedTools;
+}
+
+function addAuthorizedTool(
+  authorizedTools: AuthorizedIntegrationToolMap,
+  integration: MaterializedAgentIntegrationConfigDto,
+  tool: MaterializedAgentIntegrationToolConfigDto,
+  connection: IntegrationConnection,
+  catalogTool: AgentToolCatalogEntry | undefined,
+): void {
+  const mcpName = mcpToolName(integration.connectionSlug, tool.id);
+  if (authorizedTools.has(mcpName)) {
+    throw new ClientError(
+      'Integration tool names collide after MCP namespacing',
+      'integration-tool-name-collision',
+      {status: 409},
+    );
+  }
+
+  authorizedTools.set(mcpName, {
+    mcpName,
+    integration,
+    tool,
+    connection,
+    // Live catalog metadata supplies dispatch classification; frozen step config remains the allowlist.
+    description: catalogTool?.description ?? tool.id,
+    inputSchema: tool.methods ? toolInputSchema(tool) : tool.inputSchema,
+    outputSchema: tool.outputSchema ?? catalogTool?.outputSchema,
+    ...(catalogTool === undefined ? {} : {catalogEntry: catalogTool}),
+  });
 }
 
 function legacyIntegrations(step: {type: string; config: Record<string, unknown>} | undefined) {

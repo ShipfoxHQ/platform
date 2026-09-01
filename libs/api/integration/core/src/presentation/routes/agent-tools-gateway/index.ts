@@ -5,6 +5,7 @@ import {reportError} from '@shipfox/node-error-monitoring';
 import {defineRoute, type RouteGroup} from '@shipfox/node-fastify';
 import {logger} from '@shipfox/node-opentelemetry';
 import type {IntegrationProviderRegistry} from '#core/providers/registry.js';
+import type {RepositoryAuthorizer} from '#core/repository-authorizer.js';
 import {createIntegrationToolCallRecorder} from '#core/tool-call-audit.js';
 import type {GetIntegrationConnectionByIdFn} from '#db/connections.js';
 import {createIntegrationToolDispatcher} from './dispatch.js';
@@ -21,6 +22,7 @@ export interface CreateAgentToolsGatewayRoutesParams {
   loadLeasedAgentStep: LeasedAgentStepLoader;
   registry: IntegrationProviderRegistry;
   getIntegrationConnectionById: GetIntegrationConnectionByIdFn;
+  repositoryAuthorizer?: RepositoryAuthorizer | undefined;
 }
 
 export function createAgentToolsGatewayRoutes(
@@ -44,7 +46,11 @@ export function createAgentToolsGatewayRoutes(
           });
           const server = buildAgentToolsMcpServer({
             authorizedTools,
-            dispatch: createIntegrationToolDispatcher({registry: params.registry, lease}),
+            dispatch: createIntegrationToolDispatcher({
+              registry: params.registry,
+              lease,
+              repositoryAuthorizer: params.repositoryAuthorizer,
+            }),
             recordCall: createIntegrationToolCallRecorder({caller: 'agent', lease}),
           });
           const transport = new StreamableHTTPServerTransport();
