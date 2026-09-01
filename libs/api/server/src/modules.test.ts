@@ -138,12 +138,14 @@ describe('defaultModules', () => {
       registry: {},
       sourceControl: {provider: 'source-control'},
     });
+    const logsInterModuleHandlers = {
+      readStepLogTail: vi.fn(),
+      appendServerRecords: vi.fn(),
+    };
     mocks.createLogsModule.mockReturnValue({
       name: 'logs',
       interModulePresentations: [
-        defineInterModulePresentation(logsInterModuleContract, {
-          appendServerRecords: vi.fn(),
-        }),
+        defineInterModulePresentation(logsInterModuleContract, logsInterModuleHandlers),
       ],
     });
     mocks.buildAgentToolCatalogs.mockResolvedValue(new Map());
