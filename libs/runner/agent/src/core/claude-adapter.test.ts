@@ -57,6 +57,7 @@ import {
   CLAUDE_MODEL_FAMILY_IDS,
   CLAUDE_MODEL_LINE,
 } from '@shipfox/api-agent-dto';
+import {logger} from '@shipfox/node-opentelemetry';
 import {claudeHarnessAdapter} from '#core/claude-adapter.js';
 import {AgentConfigError, AgentPermissionModeError} from '#core/errors.js';
 import type {HarnessInvocation} from '#core/harness.js';
@@ -90,6 +91,17 @@ function makeQuery(messages: unknown[]) {
   };
 }
 
+function makeQueryAfter(ready: Promise<unknown>, messages: unknown[]) {
+  const close = vi.fn();
+  return {
+    close,
+    async *[Symbol.asyncIterator]() {
+      await ready;
+      for (const message of messages) yield message;
+    },
+  };
+}
+
 function makeBlockingQuery(messages: unknown[]) {
   let release: () => void = () => undefined;
   const closed = new Promise<void>((resolve) => {
@@ -115,13 +127,19 @@ function makeThrowingQuery(error: Error) {
   };
 }
 
-function mcpBridge(): IntegrationToolsBridge {
+function mcpBridge(toolNames: readonly string[] = []): IntegrationToolsBridge {
   return {
     name: 'shipfox_integration_tools',
     server: {} as IntegrationToolsBridge['server'],
-    listTools: vi.fn(),
+    listTools: vi.fn().mockResolvedValue({
+      tools: toolNames.map((name) => ({
+        name,
+        description: `Description for ${name}`,
+        inputSchema: {type: 'object'},
+      })),
+    }),
     callTool: vi.fn(),
-    activateHttp: vi.fn(),
+    activateHttp: vi.fn().mockResolvedValue(new URL('http://127.0.0.1:43123/mcp')),
     close: vi.fn(),
   };
 }
@@ -183,6 +201,40 @@ const successMessage = {
   is_error: false,
   result: 'done',
 };
+
+function initWithTools(tools: readonly string[]) {
+  return {
+    ...initMessage,
+    tools,
+    mcp_servers: [{name: 'shipfox_integration_tools', status: 'connected'}],
+  };
+}
+
+function assistantToolUse(name: string, id: string) {
+  return {
+    type: 'assistant',
+    message: {
+      content: [{type: 'tool_use', id, name, input: {secret: 'not logged'}}],
+    },
+  };
+}
+
+function userToolResult(id: string, isError = false) {
+  return {
+    type: 'user',
+    message: {
+      role: 'user',
+      content: [
+        {
+          type: 'tool_result',
+          tool_use_id: id,
+          is_error: isError,
+          content: [{type: 'text', text: 'tool response is not logged'}],
+        },
+      ],
+    },
+  };
+}
 
 let testCwd = '';
 let previousAnthropicApiKey: string | undefined;
@@ -498,9 +550,9 @@ describe('claudeHarnessAdapter', () => {
     expect(lastQueryOptions()).toMatchObject({
       mcpServers: {
         shipfox_integration_tools: {
-          type: 'sdk',
-          name: 'shipfox_integration_tools',
-          instance: bridge.server,
+          type: 'http',
+          url: 'http://127.0.0.1:43123/mcp',
+          alwaysLoad: true,
         },
       },
     });
@@ -1022,9 +1074,9 @@ describe('claudeHarnessAdapter', () => {
 
     expect(lastQueryOptions().mcpServers).toEqual({
       shipfox_integration_tools: {
-        type: 'sdk',
-        name: 'shipfox_integration_tools',
-        instance: bridge.server,
+        type: 'http',
+        url: 'http://127.0.0.1:43123/mcp',
+        alwaysLoad: true,
       },
     });
   });
@@ -1046,13 +1098,255 @@ describe('claudeHarnessAdapter', () => {
     expect(lastQueryOptions().mcpServers).toEqual(
       expect.objectContaining({
         shipfox_integration_tools: {
-          type: 'sdk',
-          name: 'shipfox_integration_tools',
-          instance: bridge.server,
+          type: 'http',
+          url: 'http://127.0.0.1:43123/mcp',
+          alwaysLoad: true,
         },
         shipfox_outputs: expect.objectContaining({name: 'shipfox_outputs'}),
       }),
     );
+  });
+
+  it('resolves and advertises Linear and Slack tools with safe invocation diagnostics', async () => {
+    const linearTool = 'linear_shipfox__get_team';
+    const slackTool = 'slack_shipfox__read_channel';
+    const linearSdkTool = `mcp__shipfox_integration_tools__${linearTool}`;
+    const slackSdkTool = `mcp__shipfox_integration_tools__${slackTool}`;
+    const bridge = mcpBridge([linearTool, slackTool]);
+    const infoLog = vi.spyOn(logger(), 'info').mockImplementation(() => undefined);
+    queryMock.mockImplementation((params: {options: Record<string, unknown>}) => {
+      const servers = params.options.mcpServers as
+        | Record<string, {tools?: Array<{handler?: (args: unknown) => Promise<unknown>}>}>
+        | undefined;
+      const outputHandler = servers?.shipfox_outputs?.tools?.[0]?.handler;
+      const outputReady =
+        outputHandler === undefined
+          ? Promise.resolve()
+          : outputHandler({key: 'summary', value: 'saved'});
+      return makeQueryAfter(outputReady, [
+        initWithTools([linearSdkTool, slackSdkTool, 'mcp__shipfox_outputs__set_output']),
+        assistantToolUse(linearSdkTool, 'linear-call'),
+        assistantToolUse(slackSdkTool, 'slack-call'),
+        userToolResult('linear-call'),
+        userToolResult('slack-call'),
+        successMessage,
+      ]);
+    });
+
+    const result = await claudeHarnessAdapter.run(
+      invocation({
+        jobExecutionId: 'job-1',
+        stepId: 'step-1',
+        attempt: 2,
+        tools: ['Read'],
+        mcpServers: [bridge],
+        requestedIntegrationTools: [
+          {connectionSlug: 'linear_shipfox', toolId: 'get_team'},
+          {connectionSlug: 'slack_shipfox', toolId: 'read_channel'},
+        ],
+        outputs: {summary: {type: 'string'}},
+      }),
+    );
+
+    expect(result).toEqual({response: 'done', outputs: {summary: 'saved'}});
+    expect(lastQueryOptions()).toMatchObject({
+      tools: ['Read', linearSdkTool, slackSdkTool, 'mcp__shipfox_outputs__set_output'],
+      mcpServers: {
+        shipfox_integration_tools: {
+          type: 'http',
+          url: 'http://127.0.0.1:43123/mcp',
+          alwaysLoad: true,
+        },
+      },
+    });
+    expect(vi.mocked(bridge.activateHttp)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(bridge.listTools)).toHaveBeenCalledWith({
+      signal: expect.any(AbortSignal),
+      timeout: 10_000,
+    });
+    expect(infoLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'runner.agent_claude_tool_manifest',
+        jobExecutionId: 'job-1',
+        stepId: 'step-1',
+        attempt: 2,
+        requestedIntegrationToolIds: [linearTool, slackTool],
+        resolvedIntegrationToolNames: [linearTool, slackTool],
+        sdkToolNames: [linearSdkTool, slackSdkTool],
+        omissions: [],
+      }),
+      'Claude integration tool manifest',
+    );
+    expect(infoLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'runner.agent_claude_tool_outcome',
+        failurePhase: 'none',
+        outputGate: 'passed',
+        advertisementObserved: true,
+        advertisedIntegrationToolNames: [linearTool, slackTool],
+        attemptedIntegrationToolNames: [linearTool, slackTool],
+        failedIntegrationToolNames: [],
+      }),
+      'Claude integration tool outcome',
+    );
+    const logged = JSON.stringify(infoLog.mock.calls);
+    expect(logged).not.toContain('sk-runtime-secret');
+    expect(logged).not.toContain('not logged');
+    expect(logged).not.toContain('tool response is not logged');
+  });
+
+  it('distinguishes an advertised integration tool that Claude declines to invoke', async () => {
+    const integrationTool = 'linear_shipfox__get_team';
+    const sdkTool = `mcp__shipfox_integration_tools__${integrationTool}`;
+    const bridge = mcpBridge([integrationTool]);
+    const infoLog = vi.spyOn(logger(), 'info').mockImplementation(() => undefined);
+    queryMock.mockReturnValue(makeQuery([initWithTools([sdkTool]), successMessage]));
+
+    await expect(
+      claudeHarnessAdapter.run(
+        invocation({
+          mcpServers: [bridge],
+          requestedIntegrationTools: [{connectionSlug: 'linear_shipfox', toolId: 'get_team'}],
+        }),
+      ),
+    ).resolves.toEqual({response: 'done'});
+
+    expect(infoLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'runner.agent_claude_tool_outcome',
+        failurePhase: 'advertised_tool_not_invoked',
+        outputGate: 'not_required',
+        advertisedIntegrationToolNames: [integrationTool],
+        attemptedIntegrationToolNames: [],
+        omissions: [],
+      }),
+      'Claude integration tool outcome',
+    );
+  });
+
+  it('classifies a missing Claude SDK advertisement separately from a declined call', async () => {
+    const integrationTool = 'linear_shipfox__get_team';
+    const bridge = mcpBridge([integrationTool]);
+    const infoLog = vi.spyOn(logger(), 'info').mockImplementation(() => undefined);
+    queryMock.mockReturnValue(makeQuery([initWithTools(['Read']), successMessage]));
+
+    await expect(
+      claudeHarnessAdapter.run(
+        invocation({
+          mcpServers: [bridge],
+          requestedIntegrationTools: [{connectionSlug: 'linear_shipfox', toolId: 'get_team'}],
+        }),
+      ),
+    ).resolves.toEqual({response: 'done'});
+
+    expect(infoLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'runner.agent_claude_tool_outcome',
+        failurePhase: 'requested_tool_omitted',
+        omissions: [{toolName: integrationTool, reason: 'sdk_registration'}],
+      }),
+      'Claude integration tool outcome',
+    );
+  });
+
+  it('classifies a successful result without an SDK tool list as an SDK registration omission', async () => {
+    const integrationTool = 'linear_shipfox__get_team';
+    const bridge = mcpBridge([integrationTool]);
+    const infoLog = vi.spyOn(logger(), 'info').mockImplementation(() => undefined);
+    queryMock.mockReturnValue(makeQuery([initMessage, successMessage]));
+
+    await expect(
+      claudeHarnessAdapter.run(
+        invocation({
+          mcpServers: [bridge],
+          requestedIntegrationTools: [{connectionSlug: 'linear_shipfox', toolId: 'get_team'}],
+        }),
+      ),
+    ).resolves.toEqual({response: 'done'});
+
+    expect(infoLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'runner.agent_claude_tool_outcome',
+        failurePhase: 'requested_tool_omitted',
+        advertisementObserved: true,
+        omissions: [{toolName: integrationTool, reason: 'sdk_registration'}],
+      }),
+      'Claude integration tool outcome',
+    );
+  });
+
+  it('classifies a failed integration invocation and carries its phase on the error', async () => {
+    const integrationTool = 'linear_shipfox__get_team';
+    const sdkTool = `mcp__shipfox_integration_tools__${integrationTool}`;
+    const bridge = mcpBridge([integrationTool]);
+    const infoLog = vi.spyOn(logger(), 'info').mockImplementation(() => undefined);
+    queryMock.mockReturnValue(
+      makeQuery([
+        initWithTools([sdkTool]),
+        assistantToolUse(sdkTool, 'failed-call'),
+        userToolResult('failed-call', true),
+        {
+          type: 'result',
+          subtype: 'error_during_execution',
+          is_error: true,
+          errors: ['provider rejected the integration call'],
+        },
+      ]),
+    );
+
+    const result = claudeHarnessAdapter.run(
+      invocation({
+        mcpServers: [bridge],
+        requestedIntegrationTools: [{connectionSlug: 'linear_shipfox', toolId: 'get_team'}],
+      }),
+    );
+
+    await expect(result).rejects.toMatchObject({
+      name: 'AgentInvocationError',
+      failurePhase: 'integration_tool_invocation_failed',
+    });
+    expect(infoLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'runner.agent_claude_tool_outcome',
+        failurePhase: 'integration_tool_invocation_failed',
+        attemptedIntegrationToolNames: [integrationTool],
+        failedIntegrationToolNames: [integrationTool],
+      }),
+      'Claude integration tool outcome',
+    );
+  });
+
+  it('classifies a missing structured output as an output-gate failure', async () => {
+    const integrationTool = 'slack_shipfox__read_channel';
+    const sdkTool = `mcp__shipfox_integration_tools__${integrationTool}`;
+    const bridge = mcpBridge([integrationTool]);
+    const infoLog = vi.spyOn(logger(), 'info').mockImplementation(() => undefined);
+    queryMock.mockReturnValue(makeQuery([successMessage, successMessage, successMessage]));
+
+    const result = claudeHarnessAdapter.run(
+      invocation({
+        tools: ['Read'],
+        mcpServers: [bridge],
+        requestedIntegrationTools: [{connectionSlug: 'slack_shipfox', toolId: 'read_channel'}],
+        outputs: {summary: {type: 'string'}},
+      }),
+    );
+
+    await expect(result).rejects.toMatchObject({
+      name: 'AgentInvocationError',
+      failurePhase: 'output_gate_failed',
+    });
+    expect(infoLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'runner.agent_claude_tool_outcome',
+        failurePhase: 'output_gate_failed',
+        outputGate: 'failed',
+        requiredOutputCount: 1,
+        missingOutputCount: 1,
+      }),
+      'Claude integration tool outcome',
+    );
+    expect(lastQueryOptions().tools).toEqual(['Read', sdkTool, 'mcp__shipfox_outputs__set_output']);
   });
 
   it('hydrates and persists a resumed Claude session through the SDK session store', async () => {

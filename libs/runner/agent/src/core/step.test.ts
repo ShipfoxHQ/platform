@@ -265,6 +265,7 @@ describe('executeAgentStep', () => {
     expect(runAgentMock).toHaveBeenCalledWith(
       expect.objectContaining({
         mcpServers: [expect.objectContaining({name: AGENT_INTEGRATION_MCP_SERVER_NAME})],
+        requestedIntegrationTools: [{connectionSlug: 'github_main', toolId: 'issue_read'}],
       }),
     );
     expect(bridgeCloseMock).toHaveBeenCalledTimes(1);
@@ -585,6 +586,26 @@ describe('executeAgentStep', () => {
         reason: 'agent_invocation_failed',
       },
       exit_code: null,
+    });
+  });
+
+  it('exposes a bounded invocation failure phase in the step error', async () => {
+    runAgentMock.mockRejectedValue(
+      new AgentInvocationError(
+        'Agent step finished without required outputs: summary',
+        'partial',
+        undefined,
+        undefined,
+        'output_gate_failed',
+      ),
+    );
+
+    const result = await executeAgentStep(buildAgentStep(), {runtime: RUNTIME});
+
+    expect(result.error).toEqual({
+      message: 'Agent step finished without required outputs: summary',
+      reason: 'agent_invocation_failed',
+      code: 'output_gate_failed',
     });
   });
 

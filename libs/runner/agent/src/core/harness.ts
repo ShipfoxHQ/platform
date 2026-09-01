@@ -15,7 +15,17 @@ export interface HarnessSessionInvocation {
   readonly harnessSessionId?: string | undefined;
 }
 
+/** Safe identifiers copied from the materialized integration allowlist. */
+export interface RequestedIntegrationTool {
+  readonly connectionSlug: string;
+  readonly toolId: string;
+}
+
 export interface HarnessInvocation {
+  /** Workflow execution identity used to correlate runner diagnostics. */
+  readonly jobExecutionId?: string | undefined;
+  readonly stepId?: string | undefined;
+  readonly attempt?: number | undefined;
   readonly cwd: string;
   /** Runner-owned per-job directory for harness state, outside the checked-out workspace. */
   readonly agentStateDir?: string | undefined;
@@ -27,6 +37,8 @@ export interface HarnessInvocation {
   readonly prompt: string;
   readonly tools?: readonly string[] | undefined;
   readonly mcpServers?: readonly IntegrationToolsBridge[] | undefined;
+  /** Materialized integration tool IDs requested by this step, without schemas or secrets. */
+  readonly requestedIntegrationTools?: readonly RequestedIntegrationTool[] | undefined;
   readonly outputs?: OutputDeclarations | undefined;
   readonly credentials: Record<string, string>;
   readonly customProvider?: CustomModelProviderRuntimeConfigDto | undefined;

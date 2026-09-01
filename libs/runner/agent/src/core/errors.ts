@@ -57,12 +57,19 @@ export class AgentHarnessUnavailableError extends Error {
   }
 }
 
+export type AgentInvocationFailurePhase =
+  | 'requested_tool_omitted'
+  | 'advertised_tool_not_invoked'
+  | 'integration_tool_invocation_failed'
+  | 'output_gate_failed';
+
 export class AgentInvocationError extends Error {
   constructor(
     message: string,
     public readonly response: string | undefined,
     public readonly sessionFile?: string | undefined,
     public readonly sessionId?: string | undefined,
+    public readonly failurePhase?: AgentInvocationFailurePhase | undefined,
   ) {
     super(message);
     this.name = 'AgentInvocationError';
