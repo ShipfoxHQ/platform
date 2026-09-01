@@ -1,4 +1,5 @@
 import type {IntegrationsModuleClient} from '@shipfox/api-integration-core-dto/inter-module';
+import {MAX_RECORD_DATA_BYTES} from '@shipfox/api-logs-dto';
 import {type LogsModuleClient, logsInterModuleContract} from '@shipfox/api-logs-dto/inter-module';
 import {createWorkflowExpression} from '@shipfox/expression';
 import {createInterModuleKnownError} from '@shipfox/inter-module';
@@ -645,7 +646,7 @@ describe('tool step executor', () => {
     const {jobId, stepId} = await arrangeToolStep();
     const callTool = vi.fn<IntegrationsModuleClient['callTool']>().mockResolvedValue({
       outcome: 'success' as const,
-      result: {identifier: 'ENG-1680', value: 'x'.repeat(1_100_000)},
+      result: {identifier: 'ENG-1680', value: '😀'.repeat(300_000)},
       content: [],
     });
     const appendServerRecords = vi
@@ -672,6 +673,11 @@ describe('tool step executor', () => {
     expect(appendServerRecords.mock.calls.every(([input]) => input.records.length === 1)).toBe(
       true,
     );
+    expect(
+      records
+        .filter((record) => record.type === 'output')
+        .every((record) => Buffer.byteLength(record.data, 'utf8') <= MAX_RECORD_DATA_BYTES),
+    ).toBe(true);
     expect(
       records.some((record) => record.type === 'output' && record.data.includes('[truncated]')),
     ).toBe(true);

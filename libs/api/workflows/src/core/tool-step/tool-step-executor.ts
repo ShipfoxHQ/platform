@@ -681,38 +681,44 @@ function outputRecords(timestamp: number, data: string): ServerLogRecord[] {
 }
 
 function splitLogData(data: string): string[] {
+  const encoded = new TextEncoder().encode(data);
+  if (encoded.length === 0) return ['{}'];
+
+  const decoder = new TextDecoder();
   const chunks: string[] = [];
-  let current = '';
-  let currentBytes = 0;
-  const encoder = new TextEncoder();
-  for (const character of data) {
-    const characterBytes = encoder.encode(character).byteLength;
-    if (current !== '' && currentBytes + characterBytes > MAX_RECORD_DATA_BYTES) {
-      chunks.push(current);
-      current = character;
-      currentBytes = characterBytes;
-    } else {
-      current += character;
-      currentBytes += characterBytes;
-    }
+  let offset = 0;
+  while (offset < encoded.length) {
+    const limit = Math.min(offset + MAX_RECORD_DATA_BYTES, encoded.length);
+    const end = utf8ChunkEnd(encoded, offset, limit);
+    chunks.push(decoder.decode(encoded.subarray(offset, end)));
+    offset = end;
   }
-  if (current !== '') chunks.push(current);
-  return chunks.length === 0 ? ['{}'] : chunks;
+  return chunks;
 }
 
 function truncateLogData(data: string): string {
-  const encoder = new TextEncoder();
-  let bytes = 0;
-  let result = '';
-  for (const character of data) {
-    const characterBytes = encoder.encode(character).byteLength;
-    if (bytes + characterBytes > MAX_TOOL_LOG_VALUE_BYTES) {
-      return `${result}${TOOL_LOG_TRUNCATION_MARKER}`;
-    }
-    result += character;
-    bytes += characterBytes;
-  }
-  return result;
+  const encoded = new TextEncoder().encode(data);
+  if (encoded.length <= MAX_TOOL_LOG_VALUE_BYTES) return data;
+
+  const end = utf8ChunkEnd(encoded, 0, MAX_TOOL_LOG_VALUE_BYTES);
+  const prefix = new TextDecoder().decode(encoded.subarray(0, end));
+  return `${prefix}${TOOL_LOG_TRUNCATION_MARKER}`;
+}
+
+function utf8ChunkEnd(bytes: Uint8Array, start: number, limit: number): number {
+  let end = limit;
+  while (end > start && end < bytes.length && isUtf8ContinuationByte(bytes[end])) end -= 1;
+  if (end > start) return end;
+
+  // MAX_RECORD_DATA_BYTES and MAX_TOOL_LOG_VALUE_BYTES are larger than one
+  // UTF-8 code point, but keep this fallback safe if a smaller limit is used.
+  end = Math.min(start + 1, bytes.length);
+  while (end < bytes.length && isUtf8ContinuationByte(bytes[end])) end += 1;
+  return end;
+}
+
+function isUtf8ContinuationByte(byte: number | undefined): boolean {
+  return byte !== undefined && (byte & 0xc0) === 0x80;
 }
 
 function prettyJson(value: unknown): string {
