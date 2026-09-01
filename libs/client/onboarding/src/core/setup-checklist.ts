@@ -11,9 +11,17 @@ export type SetupChecklistItemId =
   | 'first-workflow'
   | 'teammates';
 
+/** Every destination the checklist routes to. Keeps action routing total. */
+export type SetupChecklistActionHref =
+  | '/docs/getting-started'
+  | '/settings/agents'
+  | '/settings/integrations'
+  | '/settings/members'
+  | '/settings/runners';
+
 export interface SetupChecklistAction {
   label: string;
-  href: string;
+  href: SetupChecklistActionHref;
 }
 
 export interface SetupChecklistItem {

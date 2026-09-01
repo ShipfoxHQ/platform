@@ -41,7 +41,9 @@ export function ChecklistStatus({item}: {item: SetupChecklistItem}) {
 /**
  * The anchor for a checklist action, ready to be slotted into a `Button` or a
  * `ButtonLink`. Each route is written out because the router types `params`
- * against a literal `to`, so a computed path loses its inference.
+ * against a literal `to`, so a computed path loses its inference. The switch is
+ * exhaustive over `SetupChecklistActionHref`, so a new destination fails to
+ * compile rather than silently routing to the last branch.
  */
 export function checklistActionTarget({
   action,
@@ -52,41 +54,40 @@ export function checklistActionTarget({
   workspaceSlug: string;
   onClick: () => void;
 }): ReactElement {
-  if (action.href === '/docs/getting-started') {
-    return (
-      <a href={GETTING_STARTED_URL} onClick={onClick}>
-        {action.label}
-      </a>
-    );
+  switch (action.href) {
+    case '/docs/getting-started':
+      return (
+        <a href={GETTING_STARTED_URL} onClick={onClick}>
+          {action.label}
+        </a>
+      );
+    case '/settings/integrations':
+      return (
+        <Link
+          to="/w/$workspaceSlug/settings/integrations"
+          params={{workspaceSlug}}
+          onClick={onClick}
+        >
+          {action.label}
+        </Link>
+      );
+    case '/settings/runners':
+      return (
+        <Link to="/w/$workspaceSlug/settings/runners" params={{workspaceSlug}} onClick={onClick}>
+          {action.label}
+        </Link>
+      );
+    case '/settings/agents':
+      return (
+        <Link to="/w/$workspaceSlug/settings/agents" params={{workspaceSlug}} onClick={onClick}>
+          {action.label}
+        </Link>
+      );
+    case '/settings/members':
+      return (
+        <Link to="/w/$workspaceSlug/settings/members" params={{workspaceSlug}} onClick={onClick}>
+          {action.label}
+        </Link>
+      );
   }
-
-  if (action.href === '/settings/integrations') {
-    return (
-      <Link to="/w/$workspaceSlug/settings/integrations" params={{workspaceSlug}} onClick={onClick}>
-        {action.label}
-      </Link>
-    );
-  }
-
-  if (action.href === '/settings/runners') {
-    return (
-      <Link to="/w/$workspaceSlug/settings/runners" params={{workspaceSlug}} onClick={onClick}>
-        {action.label}
-      </Link>
-    );
-  }
-
-  if (action.href === '/settings/agents') {
-    return (
-      <Link to="/w/$workspaceSlug/settings/agents" params={{workspaceSlug}} onClick={onClick}>
-        {action.label}
-      </Link>
-    );
-  }
-
-  return (
-    <Link to="/w/$workspaceSlug/settings/members" params={{workspaceSlug}} onClick={onClick}>
-      {action.label}
-    </Link>
-  );
 }

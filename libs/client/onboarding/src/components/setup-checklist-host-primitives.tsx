@@ -53,12 +53,7 @@ export function ChecklistHeader({
             iconRight={expansion.expanded ? 'arrowUpSLine' : 'arrowDownSLine'}
             onClick={expansion.onToggle}
           >
-            {/* Below the narrow breakpoint the label would wrap the header onto a
-                second row, so the chevron carries the control and the name stays
-                readable to assistive technology. */}
-            <span className="max-[480px]:sr-only">
-              {expansion.expanded ? 'Show less' : `Show all ${expansion.stepCount} steps`}
-            </span>
+            {expansion.expanded ? 'Show less' : `Show all ${expansion.stepCount} steps`}
           </Button>
         ) : null}
         <IconButton

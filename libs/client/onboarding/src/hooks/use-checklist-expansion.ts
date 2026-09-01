@@ -32,13 +32,13 @@ export function useChecklistExpansion(workspaceId: string) {
     () => checklistExpansionStorage(workspaceId).read() === true,
   );
 
+  // The write stays out of the state updater: React may replay or discard an
+  // updater, so persistence belongs to the event rather than to the render.
   const toggle = useCallback(() => {
-    setExpanded((current) => {
-      const next = !current;
-      setWorkspaceSetupChecklistExpanded(workspaceId, next);
-      return next;
-    });
-  }, [workspaceId]);
+    const next = !expanded;
+    setExpanded(next);
+    setWorkspaceSetupChecklistExpanded(workspaceId, next);
+  }, [expanded, workspaceId]);
 
   return {expanded, toggle};
 }

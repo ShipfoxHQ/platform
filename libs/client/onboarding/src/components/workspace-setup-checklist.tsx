@@ -36,7 +36,7 @@ function WorkspaceSetupChecklistFromShell() {
 
 function WorkspaceSetupChecklistForWorkspace({workspace}: {workspace: WorkspaceReference}) {
   const dismissal = useChecklistDismissal(workspace.id);
-  const expansion = useChecklistExpansion(workspace.id);
+  const {expanded, toggle: toggleExpansion} = useChecklistExpansion(workspace.id);
   const queryState = useSetupChecklistQueryState(workspace.id, !dismissal.dismissed);
   const bodyId = useId();
   const [burstPending, setBurstPending] = useState(false);
@@ -57,6 +57,13 @@ function WorkspaceSetupChecklistForWorkspace({workspace}: {workspace: WorkspaceR
     },
     [analytics],
   );
+  const handleToggleExpansion = useCallback(() => {
+    toggleExpansion();
+    analytics.capture('onboarding_checklist_expansion_toggled', {
+      host: 'panel',
+      expanded: !expanded,
+    });
+  }, [analytics, expanded, toggleExpansion]);
   const isVisible =
     !dismissal.dismissed &&
     queryState.baseSettled &&
@@ -72,10 +79,10 @@ function WorkspaceSetupChecklistForWorkspace({workspace}: {workspace: WorkspaceR
 
   const expansionControl: ChecklistExpansionControl | undefined = expandable
     ? {
-        expanded: expansion.expanded,
+        expanded,
         stepCount: queryState.checklist.items.length,
         bodyId,
-        onToggle: expansion.toggle,
+        onToggle: handleToggleExpansion,
       }
     : undefined;
 
@@ -91,7 +98,7 @@ function WorkspaceSetupChecklistForWorkspace({workspace}: {workspace: WorkspaceR
           <ChecklistPanelBody
             queryState={queryState}
             workspaceSlug={workspace.slug}
-            expanded={expansion.expanded}
+            expanded={expanded}
             completion={showCompletion}
             showBurst={burstPending}
             onBurstComplete={consumeBurst}
@@ -153,6 +160,11 @@ function ChecklistPanelBody({
 
   const nextStep = selectNextSetupStep(queryState.checklist);
   if (!nextStep) return null;
+
+  // A pointer only leads once nothing is left to ask for. The runner,
+  // model-provider, and teammate rows stay hidden while their families load, so
+  // promoting the pointer then would call setup finished a moment too early.
+  if (!nextStep.tracked && !queryState.optionalSettled) return <ChecklistSkeleton />;
 
   return (
     <SetupChecklistNextStep item={nextStep} workspaceSlug={workspaceSlug} onAction={onAction} />

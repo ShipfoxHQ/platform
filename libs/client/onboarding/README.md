@@ -26,9 +26,9 @@ post-activation Get-started checklist, and its panel and top-bar hosts.
 - **`WorkspaceSetupChecklist`** and **`WorkspaceSetupIndicator`**: slot-ready
   hosts that load the five checklist query families, render the checklist in a
   panel or a non-modal popover, and persist per-device dismissal. The panel sits
-  above a page's own content, so it shows only the next step until a header
-  toggle opens the full list, and it remembers that choice per device. The
-  popover always carries the whole checklist.
+  above a page's own content, so it shows only the next step. A header toggle
+  opens the full list, and that choice is remembered per device. The popover
+  always carries the whole checklist.
 
 The derivations are pure functions. They test without React and decide what
 the checklist shows, while the hosts own query freshness, loading and failure
