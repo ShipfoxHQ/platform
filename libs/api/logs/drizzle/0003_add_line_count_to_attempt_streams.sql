@@ -1,1 +1,2 @@
 ALTER TABLE "logs_attempt_streams" ADD COLUMN "line_count" bigint;
+ALTER TABLE "logs_attempt_streams" ADD COLUMN "compaction_reconciled_at" timestamp with time zone;

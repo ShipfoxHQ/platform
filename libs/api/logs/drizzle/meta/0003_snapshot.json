@@ -122,6 +122,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "compaction_reconciled_at": {
+          "name": "compaction_reconciled_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "object_key": {
           "name": "object_key",
           "type": "text",
