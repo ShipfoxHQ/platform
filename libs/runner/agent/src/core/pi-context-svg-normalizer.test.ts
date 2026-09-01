@@ -195,11 +195,27 @@ describe('Pi historical context SVG normalizer', () => {
     expect(recordNormalization).toHaveBeenCalledTimes(1);
     expect(recordNormalization).toHaveBeenCalledWith('converted', 'none', 'legacy_context');
 
+    const unsupportedEvent = contextEvent([
+      {
+        role: 'user',
+        content: [image('tiff-data', 'image/tiff')],
+        timestamp: 2,
+      } as PiContextMessage,
+    ]);
+    await contextHandler(unsupportedEvent);
+    await contextHandler(unsupportedEvent);
+    expect(recordNormalization).toHaveBeenCalledTimes(2);
+    expect(recordNormalization).toHaveBeenCalledWith(
+      'omitted',
+      'unsupported_format',
+      'legacy_context',
+    );
+
     await shutdownHandler({type: 'session_shutdown', reason: 'quit'});
     await contextHandler(event);
 
     expect(rasterize).toHaveBeenCalledTimes(2);
-    expect(recordNormalization).toHaveBeenCalledTimes(2);
+    expect(recordNormalization).toHaveBeenCalledTimes(3);
   });
 
   it('does not retain transient rasterizer outcomes but caches stable omissions', async () => {
