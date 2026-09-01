@@ -232,6 +232,20 @@ async function resolveIntegrationToolAuthorization(
     scope,
   );
 
+  if (
+    input.repositoryAuthorizer?.enabled === true &&
+    provider.repositoryAuthorization === 'enforced' &&
+    mode === 'selected' &&
+    scope.kind === 'connection' &&
+    scope.requiresExplicitRepository === true
+  ) {
+    return {
+      ...authorization,
+      decision: 'denied',
+      denialReason: 'repository_not_granted',
+    };
+  }
+
   if (!shouldAuthorizeDeclaredTargets(input, provider.repositoryAuthorization, scope)) {
     return authorization;
   }

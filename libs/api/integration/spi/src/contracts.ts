@@ -219,7 +219,14 @@ export interface AgentToolRepositoryTarget {
 
 export type AgentToolRepositoryScope =
   | {kind: 'declared-targets'; repositories: readonly AgentToolRepositoryTarget[]}
-  | {kind: 'connection'};
+  | {
+      kind: 'connection';
+      /**
+       * Selected-mode calls must declare repository targets when this is true.
+       * All-mode calls remain connection-scoped without those targets.
+       */
+      requiresExplicitRepository?: boolean;
+    };
 
 /** A pure classifier over already validated tool arguments. */
 export type AgentToolRepositoryScopeClassifier = (

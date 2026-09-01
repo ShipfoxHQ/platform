@@ -60,6 +60,7 @@ type GithubToolCallResult = {
 
 type GithubToolErrorCode =
   | 'invalid-request'
+  | 'search-qualifier-conflict'
   | 'access-denied'
   | 'provider-rejected'
   | 'malformed-provider-response';
@@ -218,7 +219,11 @@ export class GithubAgentToolsProvider
         if (operation === undefined)
           return githubToolError('Unknown GitHub tool operation', 'invalid-request');
         const validationError = validateGithubToolArguments(tool, call.arguments);
-        if (validationError) return githubToolError(validationError, 'invalid-request');
+        if (validationError) {
+          return typeof validationError === 'string'
+            ? githubToolError(validationError, 'invalid-request')
+            : githubToolError(validationError.message, validationError.code);
+        }
         tokenPromise ??= this.tokenProvider.getInstallationAccessToken(
           installationId,
           undefined,
@@ -778,6 +783,9 @@ export function projectGithubOperationParameters(
   method: string | undefined,
   args: Record<string, unknown>,
 ): Record<string, unknown> {
+  if (toolId === 'search_issues' || toolId === 'search_pull_requests') {
+    return projectGithubSearchOperationParameters(args);
+  }
   const parameters = {...args};
   if (toolId === 'add_issue_comment' && parameters.reaction !== undefined) {
     parameters.content = parameters.reaction;
@@ -788,6 +796,22 @@ export function projectGithubOperationParameters(
     parameters.headers = {accept: 'application/vnd.github.diff'};
   }
   return parameters;
+}
+
+function projectGithubSearchOperationParameters(
+  args: Record<string, unknown>,
+): Record<string, unknown> {
+  const {query, owner, repo, ...parameters} = args;
+  if (typeof owner !== 'string' || typeof repo !== 'string') {
+    return {...parameters, q: query};
+  }
+
+  const scopeQualifier = `repo:${owner}/${repo}`;
+  return {
+    ...parameters,
+    q:
+      typeof query === 'string' && query.length > 0 ? `${query} ${scopeQualifier}` : scopeQualifier,
+  };
 }
 
 async function resolveGithubOperationParameters(
@@ -1303,20 +1327,52 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function validateGithubToolArguments(
   tool: AgentToolCatalogEntry<GithubAgentToolRequiredScope>,
   arguments_: Record<string, unknown>,
+): string | GithubToolValidationError | undefined {
+  const missingParameter = validateMissingGithubToolArgument(tool.inputSchema, arguments_);
+  if (missingParameter !== undefined) return missingParameter;
+
+  const searchValidationError = validateGithubSearchArgumentsForTool(tool.id, arguments_);
+  if (searchValidationError !== undefined) return searchValidationError;
+
+  const argumentValidationError = validateGithubArgumentProperties(tool.inputSchema, arguments_);
+  if (argumentValidationError !== undefined) return argumentValidationError;
+
+  return tool.id === 'create_commit' ? validateCreateCommitArguments(arguments_) : undefined;
+}
+
+function validateMissingGithubToolArgument(
+  inputSchema: AgentToolCatalogEntry<GithubAgentToolRequiredScope>['inputSchema'],
+  arguments_: Record<string, unknown>,
 ): string | undefined {
-  const required = Array.isArray(tool.inputSchema.required) ? tool.inputSchema.required : [];
+  const required = Array.isArray(inputSchema.required) ? inputSchema.required : [];
   for (const name of required) {
     if (typeof name === 'string' && arguments_[name] === undefined) {
       return `Missing required parameter: ${name}`;
     }
   }
 
-  const methodRequired = methodRequiredParameters(tool.inputSchema, arguments_);
+  const methodRequired = methodRequiredParameters(inputSchema, arguments_);
   for (const name of methodRequired) {
     if (arguments_[name] === undefined) return `Missing required parameter: ${name}`;
   }
 
-  const properties = tool.inputSchema.properties;
+  return undefined;
+}
+
+function validateGithubSearchArgumentsForTool(
+  toolId: string,
+  arguments_: Record<string, unknown>,
+): GithubToolValidationError | undefined {
+  return toolId === 'search_issues' || toolId === 'search_pull_requests'
+    ? validateGithubSearchArguments(arguments_)
+    : undefined;
+}
+
+function validateGithubArgumentProperties(
+  inputSchema: AgentToolCatalogEntry<GithubAgentToolRequiredScope>['inputSchema'],
+  arguments_: Record<string, unknown>,
+): string | undefined {
+  const properties = inputSchema.properties;
   if (typeof properties !== 'object' || properties === null || Array.isArray(properties)) {
     return undefined;
   }
@@ -1325,7 +1381,47 @@ function validateGithubToolArguments(
     const invalid = validateGithubArgument(name, value, propertySchemas[name]);
     if (invalid !== undefined) return invalid;
   }
-  if (tool.id === 'create_commit') return validateCreateCommitArguments(arguments_);
+  return undefined;
+}
+
+interface GithubToolValidationError {
+  message: string;
+  code: GithubToolErrorCode;
+}
+
+function validateGithubSearchArguments(
+  arguments_: Record<string, unknown>,
+): GithubToolValidationError | undefined {
+  if (typeof arguments_.query !== 'string') {
+    return {message: 'Parameter query must be a string', code: 'invalid-request'};
+  }
+
+  const hasOwner = arguments_.owner !== undefined;
+  const hasRepo = arguments_.repo !== undefined;
+  if (hasOwner !== hasRepo) {
+    return {
+      message: 'Parameters owner and repo must be provided together',
+      code: 'invalid-request',
+    };
+  }
+  if (hasOwner && (typeof arguments_.owner !== 'string' || typeof arguments_.repo !== 'string')) {
+    return {
+      message: 'Parameters owner and repo must be strings',
+      code: 'invalid-request',
+    };
+  }
+  if (hasOwner && (arguments_.owner === '' || arguments_.repo === '')) {
+    return {
+      message: 'Parameters owner and repo must be non-empty strings',
+      code: 'invalid-request',
+    };
+  }
+  if (GITHUB_SEARCH_SCOPE_QUALIFIER_PATTERN.test(arguments_.query)) {
+    return {
+      message: 'Search query cannot contain repo:, org:, or user: qualifiers',
+      code: 'search-qualifier-conflict',
+    };
+  }
   return undefined;
 }
 
@@ -1337,6 +1433,8 @@ function validateGithubArgument(name: string, value: unknown, schema: unknown): 
   if (schema.type === 'array' && !Array.isArray(value)) return `Parameter ${name} must be an array`;
   return undefined;
 }
+
+const GITHUB_SEARCH_SCOPE_QUALIFIER_PATTERN = /\b(?:repo|org|user):/iu;
 
 function validateCreateCommitArguments(arguments_: Record<string, unknown>): string | undefined {
   const metadataError = validateCreateCommitMetadata(arguments_);

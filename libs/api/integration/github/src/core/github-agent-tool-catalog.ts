@@ -85,6 +85,20 @@ const repositoryProperties = {
 
 const connectionRepositoryScope: GithubRepositoryScopeClassifier = () => ({kind: 'connection'});
 
+const searchRepositoryScope: GithubRepositoryScopeClassifier = (arguments_) => {
+  const owner = arguments_.owner;
+  const repo = arguments_.repo;
+  if (
+    typeof owner === 'string' &&
+    owner.length > 0 &&
+    typeof repo === 'string' &&
+    repo.length > 0
+  ) {
+    return {kind: 'declared-targets', repositories: [{owner, name: repo}]};
+  }
+  return {kind: 'connection', requiresExplicitRepository: true};
+};
+
 /** Classifies explicit repository coordinates without resolving them remotely. */
 export const githubRepositoryScope: GithubRepositoryScopeClassifier = (arguments_) => {
   const repositories: AgentToolRepositoryTarget[] = [];
@@ -162,9 +176,6 @@ const issueWriteMethods = [
   method('create', 'Create a new issue.', 'write', false, scopes.issuesWrite),
   method('update', 'Update an existing issue.', 'write', false, scopes.issuesWrite),
 ] as const satisfies readonly GithubAgentToolCatalogMethod[];
-
-const indirectSearchTargetNote =
-  'The free-form query may match results in repositories other than the declared target.';
 
 const subIssueIndirectTargetNote =
   'The opaque child and ordering IDs may refer to another repository in the GitHub installation.';
@@ -435,7 +446,7 @@ export const githubAgentToolCatalog = [
     sensitivity: 'read',
     sensitive: false,
     requiredScope: scopes.issuesRead,
-    indirectTargetNote: indirectSearchTargetNote,
+    repositoryScope: searchRepositoryScope,
     inputSchema: objectSchema(
       {
         query: stringSchema('Search query using GitHub issues search syntax'),
@@ -461,6 +472,12 @@ export const githubAgentToolCatalog = [
         ...pageProperties,
       },
       ['query'],
+      {
+        oneOf: [
+          {required: ['owner', 'repo']},
+          {not: {anyOf: [{required: ['owner']}, {required: ['repo']}]}},
+        ],
+      },
     ),
     outputSchema: objectSchema({issues: arraySchema(openObjectSchema('GitHub issue'))}, ['issues']),
   }),
@@ -605,7 +622,7 @@ export const githubAgentToolCatalog = [
     sensitivity: 'read',
     sensitive: false,
     requiredScope: scopes.pullRequestsRead,
-    indirectTargetNote: indirectSearchTargetNote,
+    repositoryScope: searchRepositoryScope,
     inputSchema: objectSchema(
       {
         query: stringSchema('Search query using GitHub pull request search syntax'),
@@ -631,6 +648,12 @@ export const githubAgentToolCatalog = [
         ...pageProperties,
       },
       ['query'],
+      {
+        oneOf: [
+          {required: ['owner', 'repo']},
+          {not: {anyOf: [{required: ['owner']}, {required: ['repo']}]}},
+        ],
+      },
     ),
     outputSchema: objectSchema(
       {pull_requests: arraySchema(openObjectSchema('GitHub pull request'))},

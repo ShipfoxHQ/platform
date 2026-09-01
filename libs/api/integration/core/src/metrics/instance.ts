@@ -29,6 +29,7 @@ export type IntegrationToolRepositoryDenialReason =
 
 export type IntegrationAgentToolCallErrorCode =
   | 'invalid-request'
+  | 'search-qualifier-conflict'
   | 'unknown'
   | 'provider-timeout'
   | 'cancelled'
@@ -42,6 +43,7 @@ export type IntegrationAgentToolCallErrorLabel = IntegrationAgentToolCallErrorCo
 
 const integrationAgentToolCallErrorCodes = new Set<string>([
   'invalid-request',
+  'search-qualifier-conflict',
   'unknown',
   'provider-timeout',
   'cancelled',
