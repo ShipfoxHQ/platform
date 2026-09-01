@@ -1,10 +1,11 @@
 import {WORKFLOW_RUN_JOB_PREVIEW_LIMIT} from '@shipfox/api-workflows-dto';
 import {
+  type NumberIdCursor,
   paginateTimestampIdRows,
   type TimestampIdCursor,
   timestampIdCursorWhere,
 } from '@shipfox/node-drizzle';
-import {and, asc, count, desc, eq, gte, lte, type SQL, sql} from 'drizzle-orm';
+import {and, asc, count, desc, eq, gte, lt, lte, or, type SQL, sql} from 'drizzle-orm';
 import type {JobMode, JobStatus, ListenerStatus} from '#core/entities/job.js';
 import type {JobExecutionStatus} from '#core/entities/job-execution.js';
 import type {
@@ -16,6 +17,7 @@ import type {
   WorkflowRunOrigin,
   WorkflowRunStatus,
 } from '#core/entities/workflow-run.js';
+import type {WorkflowRunAttempt} from '#core/entities/workflow-run-attempt.js';
 import {db} from '../db.js';
 import {jobExecutions, toJobExecution} from '../schema/job-executions.js';
 import {jobs, toJob} from '../schema/jobs.js';
@@ -48,6 +50,29 @@ export interface ListWorkflowRunsResult {
   runs: WorkflowRun[];
   nextCursor: WorkflowRunCursor | null;
   filteredTotalCount: number | null;
+}
+
+export type WorkflowRunAttemptCursor = NumberIdCursor;
+
+export interface ListRunAttemptsPageResult {
+  attempts: WorkflowRunAttempt[];
+  nextCursor: WorkflowRunAttemptCursor | null;
+}
+
+export interface WorkflowRunLineageHead {
+  currentAttempt: number;
+  latestAttempt: number;
+  currentStatus: WorkflowRunStatus;
+  updatedAt: Date;
+}
+
+export interface WorkflowRunBoundedReadMeasurement {
+  databaseDurationMilliseconds: number;
+  returnedRows: number;
+}
+
+export interface WorkflowRunBoundedReadOptions {
+  onRead?: ((measurement: WorkflowRunBoundedReadMeasurement) => void) | undefined;
 }
 
 /** A run-list job glyph: enough to draw and label it, none of its steps. */
@@ -141,6 +166,115 @@ export async function listRunAttempts(params: {workflowRunId: string; projectId:
       )
       .orderBy(asc(workflowRunAttempts.attempt))
   ).map((row) => toWorkflowRunAttempt(row.attempt));
+}
+
+export async function listRunAttemptsPage(
+  params: {
+    workflowRunId: string;
+    projectId: string;
+    limit: number;
+    cursor?: WorkflowRunAttemptCursor | undefined;
+  },
+  options: WorkflowRunBoundedReadOptions = {},
+): Promise<ListRunAttemptsPageResult> {
+  const startedAt = performance.now();
+  let returnedRows = 0;
+
+  try {
+    const cursorCondition = params.cursor
+      ? or(
+          lt(workflowRunAttempts.attempt, params.cursor.value),
+          and(
+            eq(workflowRunAttempts.attempt, params.cursor.value),
+            lt(workflowRunAttempts.id, params.cursor.id),
+          ),
+        )
+      : undefined;
+    const conditions = [
+      eq(workflowRunAttempts.workflowRunId, params.workflowRunId),
+      eq(workflowRuns.projectId, params.projectId),
+    ];
+    if (cursorCondition) conditions.push(cursorCondition);
+
+    const rows = await db()
+      .select({attempt: workflowRunAttempts})
+      .from(workflowRunAttempts)
+      .innerJoin(workflowRuns, eq(workflowRunAttempts.workflowRunId, workflowRuns.id))
+      .where(and(...conditions))
+      .orderBy(desc(workflowRunAttempts.attempt), desc(workflowRunAttempts.id))
+      .limit(params.limit + 1);
+    returnedRows = rows.length;
+
+    const hasMore = rows.length > params.limit;
+    const pageRows = hasMore ? rows.slice(0, params.limit) : rows;
+    const last = pageRows.at(-1)?.attempt;
+
+    return {
+      attempts: pageRows.map((row) => toWorkflowRunAttempt(row.attempt)),
+      nextCursor: hasMore && last ? {value: last.attempt, id: last.id} : null,
+    };
+  } finally {
+    try {
+      options.onRead?.({
+        databaseDurationMilliseconds: performance.now() - startedAt,
+        returnedRows,
+      });
+    } catch {
+      // Measurement observers must not change the bounded read outcome.
+    }
+  }
+}
+
+export async function getWorkflowRunLineageHead(
+  params: {workflowRunId: string; projectId: string},
+  options: WorkflowRunBoundedReadOptions = {},
+): Promise<WorkflowRunLineageHead | undefined> {
+  const startedAt = performance.now();
+  let returnedRows = 0;
+
+  try {
+    const [row] = await db()
+      .select({
+        currentAttempt: workflowRuns.currentAttempt,
+        currentStatus: workflowRuns.status,
+        updatedAt: workflowRuns.updatedAt,
+        latestAttempt: sql<number>`coalesce(max(${workflowRunAttempts.attempt}), 1)`,
+      })
+      .from(workflowRuns)
+      .leftJoin(workflowRunAttempts, eq(workflowRunAttempts.workflowRunId, workflowRuns.id))
+      .where(
+        and(
+          eq(workflowRuns.id, params.workflowRunId),
+          eq(workflowRuns.projectId, params.projectId),
+        ),
+      )
+      .groupBy(
+        workflowRuns.id,
+        workflowRuns.currentAttempt,
+        workflowRuns.status,
+        workflowRuns.updatedAt,
+      )
+      .limit(1);
+    returnedRows = row ? 1 : 0;
+
+    return row
+      ? {
+          currentAttempt: row.currentAttempt,
+          latestAttempt: Number(row.latestAttempt),
+          currentStatus: row.currentStatus,
+          updatedAt: row.updatedAt,
+        }
+      : undefined;
+  } finally {
+    try {
+      options.onRead?.({
+        databaseDurationMilliseconds: performance.now() - startedAt,
+        returnedRows,
+      });
+    } catch {
+      // Measurement observers must not change the bounded read outcome.
+    }
+  }
 }
 
 export async function getLatestAttempt(params: {

@@ -1,4 +1,5 @@
 import {z} from 'zod';
+import {type CursorPageDto, cursorPageSchema} from './cursor-page.js';
 import {jobStatusSchema} from './job.js';
 import {jobModeSchema, listenerStatusSchema} from './job-listening.js';
 
@@ -199,13 +200,48 @@ export const workflowRunAttemptDtoSchema = z.object({
 
 export type WorkflowRunAttemptDto = z.infer<typeof workflowRunAttemptDtoSchema>;
 
+export const workflowRunLineageHeadSchema = z.object({
+  current_attempt: z.number().int().positive(),
+  latest_attempt: z.number().int().positive(),
+  current_status: workflowRunStatusSchema,
+  updated_at: z.string().datetime(),
+});
+
+export type WorkflowRunLineageHeadDto = z.infer<typeof workflowRunLineageHeadSchema>;
+
+export const workflowRunLineageHeadResponseSchema = workflowRunLineageHeadSchema;
+
+export type WorkflowRunLineageHeadResponseDto = WorkflowRunLineageHeadDto;
+
+export const workflowRunAttemptsQuerySchema = z
+  .object({
+    limit: z.coerce.number().int().min(1).max(100).optional(),
+    cursor: z.string().optional(),
+  })
+  .superRefine(({limit, cursor}, ctx) => {
+    if (cursor !== undefined && limit === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'limit is required when cursor is provided',
+        path: ['limit'],
+      });
+    }
+  });
+
+export type WorkflowRunAttemptsQueryDto = z.infer<typeof workflowRunAttemptsQuerySchema>;
+
+export const workflowRunAttemptsPageSchema = cursorPageSchema(workflowRunAttemptDtoSchema);
+
+export type WorkflowRunAttemptsPageDto = CursorPageDto<WorkflowRunAttemptDto>;
+
 export const workflowRunResponseSchema = workflowRunDtoSchema;
 
 export type WorkflowRunResponseDto = z.infer<typeof workflowRunResponseSchema>;
 
-export const workflowRunAttemptsResponseSchema = z.object({
-  attempts: z.array(workflowRunAttemptDtoSchema),
-});
+export const workflowRunAttemptsResponseSchema = z.union([
+  z.object({attempts: z.array(workflowRunAttemptDtoSchema)}),
+  workflowRunAttemptsPageSchema,
+]);
 
 export type WorkflowRunAttemptsResponseDto = z.infer<typeof workflowRunAttemptsResponseSchema>;
 
@@ -258,6 +294,12 @@ export type WorkflowRunJobDisplayStatusCountDto = z.infer<
 export const workflowRunListItemSchema = z
   .object({
     ...workflowRunDtoFields,
+    // These fields are still emitted by the server during the mixed-deployment window, but an
+    // older server may omit them after the list payload is trimmed. Defaults keep parsed rows
+    // fully populated without weakening the detail response contract above.
+    trigger_payload: z.record(z.string(), z.unknown()).optional().default({}),
+    inputs: z.record(z.string(), z.unknown()).nullable().optional().default(null),
+    source_snapshot: workflowSourceSnapshotSchema.nullable().optional().default(null),
     /** Up to `WORKFLOW_RUN_JOB_PREVIEW_LIMIT` jobs in graph order, not the whole set. */
     jobs: z.array(workflowRunJobSummaryDtoSchema).max(WORKFLOW_RUN_JOB_PREVIEW_LIMIT),
     /** Persisted verdict counts, kept stable so older web clients can consume new responses. */
@@ -278,9 +320,9 @@ export const workflowRunListItemSchema = z
   })
   .superRefine(validateWorkflowRunOrigin);
 
-type WorkflowRunListItemInput = z.input<typeof workflowRunListItemSchema>;
+type WorkflowRunListItemOutput = z.output<typeof workflowRunListItemSchema>;
 
-export type WorkflowRunListItemDto = Omit<WorkflowRunListItemInput, 'origin' | 'dev_source'> & {
+export type WorkflowRunListItemDto = Omit<WorkflowRunListItemOutput, 'origin' | 'dev_source'> & {
   origin: WorkflowRunOriginDto;
   dev_source: WorkflowRunDevSourceDto | null;
 };
@@ -291,9 +333,9 @@ export const workflowRunListResponseSchema = z.object({
   filtered_total_count: z.number().int().nonnegative().nullable(),
 });
 
-type WorkflowRunListResponseInput = z.input<typeof workflowRunListResponseSchema>;
+type WorkflowRunListResponseOutput = z.output<typeof workflowRunListResponseSchema>;
 
-export type WorkflowRunListResponseDto = Omit<WorkflowRunListResponseInput, 'runs'> & {
+export type WorkflowRunListResponseDto = Omit<WorkflowRunListResponseOutput, 'runs'> & {
   runs: WorkflowRunListItemDto[];
 };
 

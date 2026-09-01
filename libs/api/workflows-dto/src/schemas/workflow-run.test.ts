@@ -1,10 +1,14 @@
 import {
   WORKFLOW_RUN_JOB_PREVIEW_LIMIT,
+  workflowRunAttemptsPageSchema,
+  workflowRunAttemptsQuerySchema,
   workflowRunDtoSchema,
+  workflowRunLineageHeadSchema,
   workflowRunListItemSchema,
   workflowRunListQuerySchema,
   workflowSourceSnapshotSchema,
 } from './workflow-run.js';
+import {workflowRunAncestrySchema} from './workflow-run-ancestry.js';
 
 const baseRun = {
   id: '11111111-1111-4111-8111-111111111111',
@@ -28,6 +32,7 @@ const baseRun = {
   trigger_payload: {source: 'manual', event: 'fire'},
   trigger_reference: null,
   inputs: null,
+  source_snapshot: null,
   created_at: '2026-06-16T00:00:00.000Z',
   updated_at: '2026-06-16T00:00:00.000Z',
   started_at: null,
@@ -251,6 +256,70 @@ describe('workflow run list query schema', () => {
   });
 });
 
+describe('workflow run lineage contracts', () => {
+  test('accepts the legacy attempt request without a limit', () => {
+    expect(workflowRunAttemptsQuerySchema.parse({})).toEqual({});
+  });
+
+  test('accepts a bounded attempt request and coerces its limit', () => {
+    expect(workflowRunAttemptsQuerySchema.parse({limit: '25', cursor: 'opaque-cursor'})).toEqual({
+      limit: 25,
+      cursor: 'opaque-cursor',
+    });
+  });
+
+  test.each([
+    {limit: 0},
+    {limit: 101},
+    {cursor: 'opaque-cursor'},
+  ])('rejects an incomplete or out-of-range bounded request %#', (query) => {
+    expect(workflowRunAttemptsQuerySchema.safeParse(query).success).toBe(false);
+  });
+
+  test('parses a cursor page of attempts', () => {
+    const attempt = {
+      id: '44444444-4444-4444-8444-444444444444',
+      workflow_run_id: baseRun.id,
+      attempt: 2,
+      status: 'pending' as const,
+      created_at: '2026-06-16T00:00:00.000Z',
+      started_at: null,
+      finished_at: null,
+      rerun_mode: 'all' as const,
+    };
+
+    expect(workflowRunAttemptsPageSchema.parse({items: [attempt], next_cursor: null})).toEqual({
+      items: [attempt],
+      next_cursor: null,
+    });
+  });
+
+  test('parses the compact lineage head', () => {
+    expect(
+      workflowRunLineageHeadSchema.parse({
+        current_attempt: 2,
+        latest_attempt: 3,
+        current_status: 'pending',
+        updated_at: '2026-06-16T00:00:00.000Z',
+      }),
+    ).toMatchObject({current_attempt: 2, latest_attempt: 3, current_status: 'pending'});
+  });
+
+  test('parses complete ancestry with nullable nested identities', () => {
+    expect(
+      workflowRunAncestrySchema.parse({
+        workflow_run_id: baseRun.id,
+        workflow_run_attempt: 2,
+        job_id: null,
+        job_execution_id: null,
+        step_id: null,
+        step_attempt_id: null,
+        step_attempt: null,
+      }),
+    ).toMatchObject({workflow_run_id: baseRun.id, workflow_run_attempt: 2});
+  });
+});
+
 describe('workflow run list item schema', () => {
   function jobDto(position: number) {
     return {
@@ -277,6 +346,25 @@ describe('workflow run list item schema', () => {
     expect(result.jobs).toHaveLength(1);
     expect(result.jobs[0]?.status).toBe('succeeded');
     expect(result.jobs[0]?.execution_status).toBeNull();
+  });
+
+  test('normalizes omitted heavy fields while keeping parsed output populated', () => {
+    const {
+      trigger_payload: _triggerPayload,
+      inputs: _inputs,
+      source_snapshot: _sourceSnapshot,
+      ...runWithoutHeavyFields
+    } = baseRun;
+
+    const result = workflowRunListItemSchema.parse({
+      ...runWithoutHeavyFields,
+      jobs: [],
+      job_status_counts: [],
+    });
+
+    expect(result.trigger_payload).toEqual({});
+    expect(result.inputs).toBeNull();
+    expect(result.source_snapshot).toBeNull();
   });
 
   test('carries execution evidence and listening state for display derivation', () => {

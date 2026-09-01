@@ -107,6 +107,53 @@ describe('GET /api/workflows/runs/:id/attempts', () => {
     });
   });
 
+  test('returns bounded attempts newest first and continues with a cursor', async () => {
+    const {source} = await createLineage();
+
+    const first = await app.inject({
+      method: 'GET',
+      url: `/api/workflows/runs/${source.id}/attempts?limit=1`,
+    });
+
+    expect(first.statusCode).toBe(200);
+    expect(first.json().items).toHaveLength(1);
+    expect(first.json().items[0]).toMatchObject({attempt: 2, rerun_mode: 'all'});
+    expect(first.json().next_cursor).toEqual(expect.any(String));
+
+    const second = await app.inject({
+      method: 'GET',
+      url: `/api/workflows/runs/${source.id}/attempts?limit=1&cursor=${first.json().next_cursor}`,
+    });
+
+    expect(second.statusCode).toBe(200);
+    expect(second.json()).toMatchObject({
+      items: [expect.objectContaining({attempt: 1, rerun_mode: null})],
+      next_cursor: null,
+    });
+  });
+
+  test('rejects a cursor without a limit and invalid bounded limits', async () => {
+    const {source} = await createLineage();
+
+    const missingLimit = await app.inject({
+      method: 'GET',
+      url: `/api/workflows/runs/${source.id}/attempts?cursor=opaque-cursor`,
+    });
+    const invalidCursor = await app.inject({
+      method: 'GET',
+      url: `/api/workflows/runs/${source.id}/attempts?limit=1&cursor=opaque-cursor`,
+    });
+    const invalidLimit = await app.inject({
+      method: 'GET',
+      url: `/api/workflows/runs/${source.id}/attempts?limit=101`,
+    });
+
+    expect(missingLimit.statusCode).toBe(400);
+    expect(invalidCursor.statusCode).toBe(400);
+    expect(invalidCursor.json().code).toBe('invalid-cursor');
+    expect(invalidLimit.statusCode).toBe(400);
+  });
+
   test('returns 404 for a missing or inaccessible run', async () => {
     const missing = await app.inject({
       method: 'GET',
