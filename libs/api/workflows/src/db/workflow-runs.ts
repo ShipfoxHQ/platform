@@ -40,6 +40,7 @@ export type {
   WorkflowRunDetailMeasurementReport,
   WorkflowRunReadPlanEvidence,
   WorkflowRunStorageAudit,
+  WorkflowRunStorageAuditOptions,
 } from './workflow-runs/measurements.js';
 export {
   auditWorkflowRunStorage,

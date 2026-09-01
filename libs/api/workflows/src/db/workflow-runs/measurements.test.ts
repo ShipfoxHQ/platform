@@ -1,6 +1,10 @@
 import {createHighCardinalityWorkflowRun} from '#test/index.js';
 import {getWorkflowRunDetail, type WorkflowRunDetailReadMeasurement} from '../workflow-runs.js';
-import {measureWorkflowRunDetail} from './measurements.js';
+import {
+  auditWorkflowRunStorage,
+  captureWorkflowRunReadPlanEvidence,
+  measureWorkflowRunDetail,
+} from './measurements.js';
 
 describe('workflow-run detail measurements', () => {
   test('reproduces legacy join amplification and audits safe compatibility evidence', async () => {
@@ -60,6 +64,26 @@ describe('workflow-run detail measurements', () => {
       defaultExecutionSelection: expect.anything(),
       executionStatusCounts: expect.anything(),
     });
+
+    const defaultPlans = await captureWorkflowRunReadPlanEvidence({
+      workflowRunAttemptId: fixture.workflowRunAttemptId,
+    });
+    expect(defaultPlans).toMatchObject({
+      analyzed: false,
+      defaultExecutionSelection: expect.anything(),
+      executionStatusCounts: expect.anything(),
+    });
+
+    const wholeTableAudit = await auditWorkflowRunStorage({
+      scope: 'all',
+      allowFullTableScan: true,
+    });
+    expect(wholeTableAudit.executionStatusReasons.length).toBeGreaterThan(0);
+    expect(wholeTableAudit.maximumInvocationArrayLength).toBeGreaterThanOrEqual(4);
+
+    await expect(auditWorkflowRunStorage({} as never)).rejects.toThrow(
+      'explicit full-table-scan opt-in',
+    );
 
     const serializedReport = JSON.stringify(report);
     expect(serializedReport).not.toContain('measurement-source');

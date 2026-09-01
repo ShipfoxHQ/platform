@@ -143,7 +143,7 @@ describe('workflow-run detail measurement metrics', () => {
       17,
       labels,
     );
-    expect(metric('workflows_run_detail_response_bytes').record).toHaveBeenCalledWith(
+    expect(metric('workflows_run_detail_response_size').record).toHaveBeenCalledWith(
       12_345,
       labels,
     );
@@ -172,5 +172,22 @@ describe('workflow-run detail measurement metrics', () => {
         outcome: 'error',
       }),
     ).not.toThrow();
+  });
+
+  test('drops observations with negative measurements', () => {
+    metrics.recordWorkflowRunDetailRead({
+      durationMilliseconds: -1,
+      databaseDurationMilliseconds: 1,
+      responseBytes: 1,
+      returnedRows: 1,
+      requestKind: 'initial',
+      outcome: 'success',
+    });
+
+    expect(metric('workflows_run_detail_reads').add).not.toHaveBeenCalled();
+    expect(metric('workflows_run_detail_duration').record).not.toHaveBeenCalled();
+    expect(metric('workflows_run_detail_database_duration').record).not.toHaveBeenCalled();
+    expect(metric('workflows_run_detail_response_size').record).not.toHaveBeenCalled();
+    expect(metric('workflows_run_detail_returned_rows').record).not.toHaveBeenCalled();
   });
 });

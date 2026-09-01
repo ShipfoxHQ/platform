@@ -83,6 +83,49 @@ describe('workflow run queries', () => {
     });
   });
 
+  describe('getWorkflowRunDetail measurement observer', () => {
+    test('does not let a throwing observer change a successful read', async () => {
+      const created = await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId,
+        model: buildModel(),
+        triggerPayload: {
+          source: 'manual',
+          event: 'fire',
+          subscriptionId: crypto.randomUUID(),
+          userId: crypto.randomUUID(),
+        },
+      });
+      const onRead = vi.fn(() => {
+        throw new Error('observer unavailable');
+      });
+
+      await expect(getWorkflowRunDetail(created.id, 1, undefined, {onRead})).resolves.toBeDefined();
+      expect(onRead).toHaveBeenCalledWith(
+        expect.objectContaining({
+          databaseDurationMilliseconds: expect.any(Number),
+          returnedRows: expect.any(Number),
+        }),
+      );
+    });
+
+    test('notifies the observer for a missing run with zero returned rows', async () => {
+      const onRead = vi.fn();
+
+      await expect(
+        getWorkflowRunDetail(crypto.randomUUID(), 1, undefined, {onRead}),
+      ).resolves.toBeUndefined();
+      expect(onRead).toHaveBeenCalledTimes(1);
+      expect(onRead).toHaveBeenCalledWith(
+        expect.objectContaining({
+          databaseDurationMilliseconds: expect.any(Number),
+          returnedRows: 0,
+        }),
+      );
+    });
+  });
+
   describe('run attempt lineage queries', () => {
     test('lists run attempts ordered by attempt and returns the latest attempt', async () => {
       const source = await createWorkflowRun({

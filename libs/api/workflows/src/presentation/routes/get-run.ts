@@ -30,7 +30,7 @@ export function getRunRoute(projects: ProjectsModuleClient) {
         200: workflowRunDetailResponseSchema,
       },
     },
-    handler: async (request) => {
+    handler: async (request, reply) => {
       const {id} = request.params;
       const startedAt = performance.now();
       const requestKind = classifyWorkflowRunDetailRequestKind(
@@ -42,7 +42,17 @@ export function getRunRoute(projects: ProjectsModuleClient) {
       let outcome: WorkflowRunDetailReadOutcome = 'success';
 
       try {
-        await requireAccessibleRun({request, id, projects});
+        await requireAccessibleRun({
+          request,
+          id,
+          projects,
+          onLookup: (found) => {
+            if (!found) {
+              readAttempted = true;
+              outcome = 'not_found';
+            }
+          },
+        });
 
         readAttempted = true;
         const run = await getWorkflowRunDetail(id, request.query.attempt, undefined, {
@@ -56,8 +66,9 @@ export function getRunRoute(projects: ProjectsModuleClient) {
         }
 
         const response = toRunDetailDto(run);
-        responseBytes = Buffer.byteLength(JSON.stringify(response), 'utf8');
-        return response;
+        const serializedResponse = reply.serialize(response);
+        responseBytes = serializedResponseByteLength(serializedResponse);
+        return reply.type('application/json').send(serializedResponse);
       } catch (error) {
         if (outcome === 'success') outcome = 'error';
         throw error;
@@ -75,4 +86,8 @@ export function getRunRoute(projects: ProjectsModuleClient) {
       }
     },
   });
+}
+
+function serializedResponseByteLength(payload: string | ArrayBuffer | Buffer): number {
+  return typeof payload === 'string' ? Buffer.byteLength(payload, 'utf8') : payload.byteLength;
 }

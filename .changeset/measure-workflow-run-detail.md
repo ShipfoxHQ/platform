@@ -4,4 +4,4 @@
 "@shipfox/client-workflows": patch
 ---
 
-Add workflow-run detail measurement telemetry and reproducible compatibility evidence.
+Add the `WORKFLOW_RUN_DETAIL_REQUEST_KIND_HEADER` request-kind header and `WorkflowRunDetailRequestKind` type for workflow-run detail reads; client-workflows detail requests now send the request kind, which the API records as initial versus polling.

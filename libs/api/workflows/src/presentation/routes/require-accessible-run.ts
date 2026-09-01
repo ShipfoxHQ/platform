@@ -9,12 +9,15 @@ export async function requireAccessibleRun({
   request,
   id,
   projects,
+  onLookup,
 }: {
   request: FastifyRequest;
   id: string;
   projects: ProjectsModuleClient;
+  onLookup?: ((found: boolean) => void) | undefined;
 }): Promise<WorkflowRun> {
   const run = await getWorkflowRunById(id);
+  onLookup?.(run !== undefined);
   if (!run) {
     throw new ClientError('Run not found', 'not-found', {status: 404});
   }

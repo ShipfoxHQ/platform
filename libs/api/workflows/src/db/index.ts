@@ -69,6 +69,7 @@ export type {
   WorkflowRunJobsSummary,
   WorkflowRunReadPlanEvidence,
   WorkflowRunStorageAudit,
+  WorkflowRunStorageAuditOptions,
 } from './workflow-runs.js';
 export {
   auditWorkflowRunStorage,

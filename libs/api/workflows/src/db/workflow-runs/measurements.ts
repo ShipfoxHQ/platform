@@ -29,6 +29,10 @@ export interface WorkflowRunStorageAudit {
   maximumInvocationArrayLength: number;
 }
 
+export type WorkflowRunStorageAuditOptions =
+  | {workflowRunAttemptId: string}
+  | {scope: 'all'; allowFullTableScan: true};
+
 export interface WorkflowRunReadPlanEvidence {
   analyzed: boolean;
   defaultExecutionSelection: unknown;
@@ -100,19 +104,32 @@ export async function measureWorkflowRunDetailCardinality(
 
 /**
  * Audits the stored vocabulary and array cardinality without selecting any diagnostic JSON or
- * text. Passing an attempt keeps fixture and deep-history reports isolated; omitting it audits
- * the complete workflows-owned tables for a production baseline.
+ * text. Attempt-scoped audits are the default operation. A complete-table production baseline
+ * requires the explicit `scope: 'all'` and `allowFullTableScan: true` opt-in and must stay out of
+ * request paths.
  */
 export async function auditWorkflowRunStorage(
-  params: {workflowRunAttemptId?: string | undefined} = {},
+  params: WorkflowRunStorageAuditOptions,
 ): Promise<WorkflowRunStorageAudit> {
+  if (
+    !params ||
+    (!('workflowRunAttemptId' in params) &&
+      !(params.scope === 'all' && params.allowFullTableScan === true))
+  ) {
+    throw new Error(
+      'Workflow-run storage audits require an attempt id or explicit full-table-scan opt-in',
+    );
+  }
+
+  const workflowRunAttemptId =
+    'workflowRunAttemptId' in params ? params.workflowRunAttemptId : undefined;
   const [executionStatusReasons, stepTypes, stepStatuses, stepAttemptStatuses, invocationRows] =
     await Promise.all([
-      auditExecutionStatusReasons(params.workflowRunAttemptId),
-      auditStepTypes(params.workflowRunAttemptId),
-      auditStepStatuses(params.workflowRunAttemptId),
-      auditStepAttemptStatuses(params.workflowRunAttemptId),
-      auditInvocationLength(params.workflowRunAttemptId),
+      auditExecutionStatusReasons(workflowRunAttemptId),
+      auditStepTypes(workflowRunAttemptId),
+      auditStepStatuses(workflowRunAttemptId),
+      auditStepAttemptStatuses(workflowRunAttemptId),
+      auditInvocationLength(workflowRunAttemptId),
     ]);
 
   return {

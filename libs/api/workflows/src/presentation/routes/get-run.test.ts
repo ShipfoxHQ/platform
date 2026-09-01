@@ -1,5 +1,6 @@
 import {buildUserContext, setUserContext} from '@shipfox/api-auth-context';
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
+import {WORKFLOW_RUN_DETAIL_REQUEST_KIND_HEADER} from '@shipfox/api-workflows-dto';
 import {ClientError} from '@shipfox/node-fastify';
 import {eq} from 'drizzle-orm';
 import type {FastifyInstance} from 'fastify';
@@ -26,6 +27,19 @@ import {
 } from '#db/workflow-runs.js';
 import {workflowModel} from '#test/index.js';
 import {getRunRoute} from './get-run.js';
+
+const routeMetricMocks = vi.hoisted(() => ({
+  classifyWorkflowRunDetailRequestKind: vi.fn(
+    (value: string | string[] | undefined): 'initial' | 'polling' | 'unknown' =>
+      value === 'initial' || value === 'polling' ? value : 'unknown',
+  ),
+  recordWorkflowRunDetailRead: vi.fn(),
+}));
+
+vi.mock('#metrics/instance.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('#metrics/instance.js')>()),
+  ...routeMetricMocks,
+}));
 
 const projectAccessState = vi.hoisted(() => ({workspaceId: ''}));
 
@@ -72,6 +86,8 @@ describe('GET /api/workflows/runs/:id', () => {
   });
 
   beforeEach(() => {
+    routeMetricMocks.classifyWorkflowRunDetailRequestKind.mockClear();
+    routeMetricMocks.recordWorkflowRunDetailRead.mockClear();
     workspaceId = crypto.randomUUID();
     workspaceStatus = 'active';
     projectAccessState.workspaceId = workspaceId;
@@ -113,6 +129,7 @@ describe('GET /api/workflows/runs/:id', () => {
     const res = await app.inject({
       method: 'GET',
       url: `/api/workflows/runs/${run.id}`,
+      headers: {[WORKFLOW_RUN_DETAIL_REQUEST_KIND_HEADER]: 'initial'},
     });
 
     expect(res.statusCode).toBe(200);
@@ -136,6 +153,16 @@ describe('GET /api/workflows/runs/:id', () => {
     expect(body.jobs[0]).not.toHaveProperty('queued_at');
     expect(body.jobs[0]).not.toHaveProperty('started_at');
     expect(body.jobs[0]).not.toHaveProperty('finished_at');
+
+    expect(routeMetricMocks.recordWorkflowRunDetailRead).toHaveBeenCalledWith(
+      expect.objectContaining({requestKind: 'initial', outcome: 'success'}),
+    );
+    const observation = routeMetricMocks.recordWorkflowRunDetailRead.mock.calls[0]?.[0] as
+      | {responseBytes?: number; returnedRows?: number}
+      | undefined;
+    expect(observation?.returnedRows).toBeGreaterThan(0);
+    expect(observation?.responseBytes).toBeGreaterThan(0);
+    expect(observation?.responseBytes).toBe(res.rawPayload.byteLength);
   });
 
   // The run list decides this from the same executions, so a run detail that answered it from
@@ -369,10 +396,18 @@ jobs:
     const res = await app.inject({
       method: 'GET',
       url: `/api/workflows/runs/${crypto.randomUUID()}`,
+      headers: {[WORKFLOW_RUN_DETAIL_REQUEST_KIND_HEADER]: 'polling'},
     });
 
     expect(res.statusCode).toBe(404);
     expect(res.json().code).toBe('not-found');
+    expect(routeMetricMocks.recordWorkflowRunDetailRead).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: 'not_found',
+        responseBytes: 0,
+        returnedRows: 0,
+      }),
+    );
   });
 
   test('returns 404 for inaccessible run', async () => {
@@ -401,6 +436,43 @@ jobs:
     expect(res.statusCode).toBe(404);
     expect(res.json().code).toBe('not-found');
     expect(detailSpy).not.toHaveBeenCalled();
+    expect(routeMetricMocks.recordWorkflowRunDetailRead).not.toHaveBeenCalled();
+  });
+
+  test('records an error measurement when the detail read fails', async () => {
+    const run = await createWorkflowRun({
+      workspaceId,
+      projectId: crypto.randomUUID(),
+      definitionId: crypto.randomUUID(),
+      model: workflowModel({name: 'Database failure'}),
+      triggerPayload: {
+        source: 'manual',
+        event: 'fire',
+        subscriptionId: crypto.randomUUID(),
+        userId: crypto.randomUUID(),
+      },
+    });
+    const detailSpy = vi
+      .spyOn(dbIndex, 'getWorkflowRunDetail')
+      .mockImplementationOnce((_workflowRunId, _attempt, _workspaceId, options) => {
+        options?.onRead?.({databaseDurationMilliseconds: 7, returnedRows: 0});
+        return Promise.reject(new Error('database connection lost'));
+      });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/workflows/runs/${run.id}`,
+    });
+
+    expect(res.statusCode).toBe(500);
+    expect(detailSpy).toHaveBeenCalledTimes(1);
+    expect(routeMetricMocks.recordWorkflowRunDetailRead).toHaveBeenCalledWith(
+      expect.objectContaining({
+        databaseDurationMilliseconds: 7,
+        outcome: 'error',
+        responseBytes: 0,
+      }),
+    );
   });
 
   test('preserves workspace-inactive for a deleted membership claim', async () => {

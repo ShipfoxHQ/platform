@@ -13,6 +13,7 @@ import {
   type InfiniteData,
   infiniteQueryOptions,
   keepPreviousData,
+  type QueryClient,
   queryOptions,
   type UseInfiniteQueryOptions,
   type UseQueryOptions,
@@ -161,6 +162,7 @@ export async function fireManualWorkflow({
 
 const ACTIVE_POLL_MS = 4_000;
 const IDLE_POLL_MS = 30_000;
+const workflowRunDetailRequests = new WeakSet<object>();
 
 export type RunListInfinite = InfiniteData<WorkflowRunListPage, string | undefined>;
 
@@ -553,6 +555,17 @@ function lookupDefinitionName(
   return undefined;
 }
 
+function workflowRunDetailRequestKind(
+  client: QueryClient,
+  queryKey: WorkflowRunDetailQueryKey,
+): 'initial' | 'polling' {
+  const query = client.getQueryCache().find({queryKey});
+  if (!query) return 'initial';
+  if (workflowRunDetailRequests.has(query)) return 'polling';
+  workflowRunDetailRequests.add(query);
+  return 'initial';
+}
+
 export function useWorkflowRunQuery(workflowRunId: string | undefined) {
   return useWorkflowRunAttemptQuery({workflowRunId, runAttempt: undefined});
 }
@@ -589,7 +602,7 @@ export function workflowRunQueryOptions({
       getWorkflowRun({
         workflowRunId: workflowRunId ?? '',
         runAttempt,
-        requestKind: client.getQueryData(queryKey) === undefined ? 'initial' : 'polling',
+        requestKind: workflowRunDetailRequestKind(client, queryKey),
         signal,
       }),
     staleTime: 2_000,

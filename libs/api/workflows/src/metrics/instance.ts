@@ -172,7 +172,7 @@ const workflowRunDetailDatabaseDuration = meter.createHistogram<WorkflowRunDetai
 );
 
 const workflowRunDetailResponseBytes = meter.createHistogram<WorkflowRunDetailMetricLabels>(
-  'workflows_run_detail_response_bytes',
+  'workflows_run_detail_response_size',
   {
     description: 'Serialized legacy workflow-run detail response size',
     unit: 'By',
