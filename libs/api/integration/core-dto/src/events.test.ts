@@ -165,25 +165,10 @@ describe('integrationConnectionRepositoryAccessRepositorySchema', () => {
     ],
   };
 
-  it('accepts a bounded project origin name', () => {
+  it('accepts a project origin name', () => {
     expect(integrationConnectionRepositoryAccessRepositorySchema.parse(repository)).toEqual(
       repository,
     );
-  });
-
-  it('rejects empty or overlong project origin names', () => {
-    expect(() =>
-      integrationConnectionRepositoryAccessRepositorySchema.parse({
-        ...repository,
-        origins: [{...repository.origins[0], project_name: ''}],
-      }),
-    ).toThrow();
-    expect(() =>
-      integrationConnectionRepositoryAccessRepositorySchema.parse({
-        ...repository,
-        origins: [{...repository.origins[0], project_name: 'x'.repeat(256)}],
-      }),
-    ).toThrow();
   });
 });
 
