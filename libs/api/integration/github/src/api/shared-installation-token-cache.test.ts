@@ -4,6 +4,7 @@ import {
   backoffActive,
   encodeInstallationTokenEnvelope,
   GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT,
+  githubInstallationTokenBackoffKey,
   githubInstallationTokenKey,
   needsRefresh,
   stillValid,
@@ -88,9 +89,10 @@ function cache(
 function setEnvelope(
   store: {values: Map<string, string>},
   envelope: Parameters<typeof encodeInstallationTokenEnvelope>[0],
+  permissionFingerprint = GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT,
 ) {
   store.values.set(
-    `${workspaceId}:${installationId}:${githubInstallationTokenKey(GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT)}`,
+    `${workspaceId}:${installationId}:${githubInstallationTokenKey(permissionFingerprint)}`,
     encodeInstallationTokenEnvelope(envelope),
   );
 }
@@ -180,23 +182,101 @@ describe('SharedInstallationTokenCache', () => {
     ).toBe(true);
   });
 
-  it('shares installation-wide backoff across profile keys', async () => {
+  it('isolates profile-specific backoff across permission profile keys', async () => {
     const store = createStore();
     const shared = cache({store});
     const failedMint = vi
       .fn()
-      .mockRejectedValue(new GithubIntegrationProviderError('rate-limited', 'rate limited', 42));
+      .mockRejectedValue(new GithubIntegrationProviderError('provider-rejected', 'rejected'));
     const siblingMint = vi.fn(() => Promise.resolve(token('ghs_sibling')));
 
     await expect(shared.getOrMint(installationId, 'broad', failedMint)).rejects.toMatchObject({
-      reason: 'rate-limited',
+      reason: 'provider-rejected',
+    });
+    await expect(shared.getOrMint(installationId, 'narrow', siblingMint)).resolves.toEqual(
+      token('ghs_sibling'),
+    );
+
+    expect(failedMint).toHaveBeenCalledTimes(1);
+    expect(siblingMint).toHaveBeenCalledTimes(1);
+    expect(
+      store.values.get(
+        `${workspaceId}:${installationId}:${githubInstallationTokenBackoffKey('broad')}`,
+      ),
+    ).toContain('provider-rejected');
+    expect(
+      store.values.get(
+        `${workspaceId}:${installationId}:${githubInstallationTokenBackoffKey('narrow')}`,
+      ),
+    ).toBe('{}');
+  });
+
+  it('shares installation-wide backoff across permission profile keys', async () => {
+    const store = createStore();
+    const lockFingerprints: string[] = [];
+    const shared = cache({
+      store,
+      withLock: async <T>(
+        _installationId: number,
+        permissionFingerprint: string,
+        fn: () => Promise<T>,
+      ): Promise<InstallationTokenLockResult<T>> => {
+        lockFingerprints.push(permissionFingerprint);
+        return {acquired: true as const, value: await fn()};
+      },
+    });
+    const failedMint = vi
+      .fn()
+      .mockRejectedValue(new GithubIntegrationProviderError('provider-unavailable', 'unavailable'));
+    const siblingMint = vi.fn(() => Promise.resolve(token('ghs_sibling')));
+
+    await expect(shared.getOrMint(installationId, 'broad', failedMint)).rejects.toMatchObject({
+      reason: 'provider-unavailable',
     });
     await expect(shared.getOrMint(installationId, 'narrow', siblingMint)).rejects.toMatchObject({
-      reason: 'rate-limited',
+      reason: 'provider-unavailable',
     });
 
     expect(failedMint).toHaveBeenCalledTimes(1);
     expect(siblingMint).not.toHaveBeenCalled();
+    expect(lockFingerprints).toContain(GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT);
+    expect(
+      store.values.get(
+        `${workspaceId}:${installationId}:${githubInstallationTokenBackoffKey(GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT)}`,
+      ),
+    ).toContain('provider-unavailable');
+  });
+
+  it('preserves an active terminal backoff over a later transient backoff', async () => {
+    const store = createStore();
+    setEnvelope(
+      store,
+      {
+        ...token('ghs_existing', '2026-06-10T11:04:30.000Z'),
+      },
+      'broad',
+    );
+    store.values.set(
+      `${workspaceId}:${installationId}:${githubInstallationTokenBackoffKey('broad')}`,
+      encodeInstallationTokenEnvelope({
+        backoffUntil: new Date('2026-06-10T11:10:00.000Z'),
+        backoffReason: 'provider-rejected',
+      }),
+    );
+    store.values.set(
+      `${workspaceId}:${installationId}:${githubInstallationTokenBackoffKey(GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT)}`,
+      encodeInstallationTokenEnvelope({
+        backoffUntil: new Date('2026-06-10T11:15:00.000Z'),
+        backoffReason: 'provider-unavailable',
+      }),
+    );
+    const mint = vi.fn(() => Promise.resolve(token('ghs_new')));
+    const shared = cache({store});
+
+    await expect(shared.getOrMint(installationId, 'broad', mint)).rejects.toMatchObject({
+      reason: 'provider-rejected',
+    });
+    expect(mint).not.toHaveBeenCalled();
   });
 
   it('shares one mint between two concurrent cache replicas', async () => {

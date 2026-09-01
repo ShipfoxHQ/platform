@@ -25,7 +25,12 @@ interface GithubCatalogEntry<RequiredScope = unknown> extends AgentToolCatalogEn
 export const DEFAULT_JOB_LOG_TAIL_LINES = 500;
 
 export type GithubAgentToolCategory = 'issues' | 'pull_requests' | 'actions' | 'repository';
-export type GithubAgentToolPermission = 'actions' | 'contents' | 'issues' | 'pull_requests';
+export type GithubAgentToolPermission =
+  | 'actions'
+  | 'checks'
+  | 'contents'
+  | 'issues'
+  | 'pull_requests';
 export type GithubAgentToolPermissionAccess = 'read' | 'write';
 export type GithubAgentToolSensitivity = 'read' | 'write';
 
@@ -65,6 +70,7 @@ const scopes = {
   pullRequestsWrite: [{permission: 'pull_requests', access: 'write'}],
   actionsRead: [{permission: 'actions', access: 'read'}],
   actionsWrite: [{permission: 'actions', access: 'write'}],
+  checksRead: [{permission: 'checks', access: 'read'}],
   contentsWrite: [{permission: 'contents', access: 'write'}],
   mergePullRequest: [
     {permission: 'pull_requests', access: 'write'},
@@ -262,7 +268,7 @@ const pullRequestReadMethods = [
     'Get check runs for the head commit of a pull request.',
     'read',
     false,
-    scopes.pullRequestsRead,
+    scopes.checksRead,
   ),
 ] as const satisfies readonly GithubAgentToolCatalogMethod[];
 

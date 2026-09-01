@@ -17,8 +17,11 @@ import {
   GITHUB_INSTALLATION_TOKEN_BACKOFF_KEY,
   GITHUB_INSTALLATION_TOKEN_ENVELOPE_KEY,
   GITHUB_LEGACY_INSTALLATION_TOKEN_KEY,
+  githubInstallationTokenBackoffKey,
+  githubInstallationTokenBackoffKeys,
   githubInstallationTokenKey,
   type InstallationTokenEnvelope,
+  mintBackoffScopeForReason,
   mintErrorClassForReason,
   parseInstallationTokenEnvelope,
   providerErrorFromBackoff,
@@ -92,6 +95,8 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
   ): Promise<GithubInstallationAccessToken> {
     const workspaceId = await this.resolveWorkspaceId(installationId);
     const profileKey = githubInstallationTokenKey(permissionFingerprint);
+    const backoffKeys = githubInstallationTokenBackoffKeys(permissionFingerprint);
+    const profileBackoffKey = githubInstallationTokenBackoffKey(permissionFingerprint);
     let readFailureReported = false;
     const reportReadFailure = (error: unknown) => {
       if (readFailureReported) return;
@@ -107,6 +112,7 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
       workspaceId,
       installationId,
       profileKey,
+      backoffKeys,
       reportReadFailure,
     );
     if (usable(envelope, this.now())) {
@@ -121,6 +127,8 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
           workspaceId,
           installationId,
           profileKey,
+          backoffKeys,
+          permissionFingerprint,
           mint,
           reportReadFailure,
         }),
@@ -131,6 +139,8 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
         workspaceId,
         installationId,
         profileKey,
+        profileBackoffKey,
+        permissionFingerprint,
         reportReadFailure,
         failure: error,
       });
@@ -143,6 +153,7 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
           {
             installationId,
             expiresAt: error.failureEnvelope.expiresAt?.toISOString(),
+            permissionProfile: profileKey,
             reason: error.providerError.reason,
             backoffUntil: until.toISOString(),
           },
@@ -155,6 +166,7 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
       logger().warn(
         {
           installationId,
+          permissionProfile: profileKey,
           reason: error.providerError.reason,
           backoffUntil: until.toISOString(),
           error: error.providerError,
@@ -165,7 +177,13 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
       throw error.providerError;
     }
     if (result.acquired) {
-      await this.clearBackoff({workspaceId, installationId, profileKey, reportReadFailure});
+      await this.clearBackoff({
+        workspaceId,
+        installationId,
+        profileKey,
+        backoffKeys,
+        reportReadFailure,
+      });
       return result.value;
     }
 
@@ -173,6 +191,7 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
       workspaceId,
       installationId,
       profileKey,
+      backoffKeys,
       envelope,
       reportReadFailure,
     });
@@ -182,6 +201,8 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
     workspaceId: string;
     installationId: number;
     profileKey: string;
+    backoffKeys: readonly string[];
+    permissionFingerprint: string;
     mint: () => Promise<GithubInstallationAccessToken>;
     reportReadFailure: (error: unknown) => void;
   }): Promise<GithubInstallationAccessToken> {
@@ -189,6 +210,7 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
       params.workspaceId,
       params.installationId,
       params.profileKey,
+      params.backoffKeys,
       params.reportReadFailure,
     );
     const now = this.now();
@@ -216,7 +238,14 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
     } catch (error) {
       const providerError = toProviderError(error);
       const failure = classifyMintError(providerError);
-      recordInstallationTokenBackoff({reason: failure.reason, class: failure.class});
+      recordInstallationTokenBackoff({
+        reason: failure.reason,
+        class: failure.class,
+        profile:
+          params.permissionFingerprint === GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT
+            ? 'compatibility'
+            : 'scoped',
+      });
       throw new InstallationTokenMintFailure(providerError, failure, envelope);
     }
 
@@ -239,7 +268,11 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
     }
 
     logger().info(
-      {installationId: params.installationId, expiresAt: token.expiresAt.toISOString()},
+      {
+        installationId: params.installationId,
+        permissionProfile: params.profileKey,
+        expiresAt: token.expiresAt.toISOString(),
+      },
       'github installation token minted',
     );
     recordInstallationTokenLookup('minted');
@@ -250,74 +283,99 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
     workspaceId: string;
     installationId: number;
     profileKey: string;
+    profileBackoffKey: string;
+    permissionFingerprint: string;
     reportReadFailure: (error: unknown) => void;
     failure: InstallationTokenMintFailure;
   }): Promise<Date> {
     const candidateUntil = new Date(this.now().getTime() + backoffMs(params.failure.failure));
+    const backoffScope = mintBackoffScopeForReason(params.failure.failure.reason);
+    const backoffKey =
+      backoffScope === 'installation'
+        ? GITHUB_INSTALLATION_TOKEN_BACKOFF_KEY
+        : params.profileBackoffKey;
+    const lockFingerprint =
+      backoffScope === 'installation'
+        ? GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT
+        : params.permissionFingerprint;
     try {
-      const result = await this.withBackoffLock(params.installationId, async () => {
-        let readFailed = false;
-        const reportReadFailure = (error: unknown) => {
-          readFailed = true;
-          params.reportReadFailure(error);
-        };
-        const envelope = await this.readEnvelope(
-          params.workspaceId,
-          params.installationId,
-          params.profileKey,
-          reportReadFailure,
-        );
-        const existingBackoff =
-          envelope?.backoffUntil !== undefined && envelope.backoffReason !== undefined
-            ? {
-                backoffUntil: envelope.backoffUntil,
-                backoffReason: envelope.backoffReason,
-                backoffError: envelope.backoffError,
-              }
-            : undefined;
-        const selectedBackoff =
-          existingBackoff && existingBackoff.backoffUntil.getTime() >= candidateUntil.getTime()
-            ? existingBackoff
-            : {
-                backoffUntil: candidateUntil,
-                backoffReason: params.failure.failure.reason,
-                backoffError: {
-                  message: params.failure.providerError.message,
-                  ...(params.failure.providerError.status === undefined
-                    ? {}
-                    : {status: params.failure.providerError.status}),
-                },
-              };
-
-        const writes = [
-          this.writeEnvelope(
+      const result = await this.withBackoffLock(
+        params.installationId,
+        lockFingerprint,
+        async () => {
+          let readFailed = false;
+          const reportReadFailure = (error: unknown) => {
+            readFailed = true;
+            params.reportReadFailure(error);
+          };
+          const envelope = await this.readEnvelope(
             params.workspaceId,
             params.installationId,
-            GITHUB_INSTALLATION_TOKEN_BACKOFF_KEY,
-            selectedBackoff,
-          ),
-        ];
-        if (!readFailed) {
-          writes.push(
-            this.writeEnvelope(params.workspaceId, params.installationId, params.profileKey, {
-              token: envelope?.token,
-              expiresAt: envelope?.expiresAt,
-              permissions: envelope?.permissions,
-            }),
+            params.profileKey,
+            [backoffKey],
+            reportReadFailure,
           );
-        }
-        await Promise.all(writes);
-        return selectedBackoff.backoffUntil;
-      });
+          const existingBackoff =
+            envelope?.backoffUntil !== undefined && envelope.backoffReason !== undefined
+              ? {
+                  backoffUntil: envelope.backoffUntil,
+                  backoffReason: envelope.backoffReason,
+                  backoffError: envelope.backoffError,
+                }
+              : undefined;
+          const selectedBackoff =
+            existingBackoff && existingBackoff.backoffUntil.getTime() >= candidateUntil.getTime()
+              ? existingBackoff
+              : {
+                  backoffUntil: candidateUntil,
+                  backoffReason: params.failure.failure.reason,
+                  backoffError: {
+                    message: params.failure.providerError.message,
+                    ...(params.failure.providerError.status === undefined
+                      ? {}
+                      : {status: params.failure.providerError.status}),
+                  },
+                };
+
+          const writes = [
+            this.writeEnvelope(
+              params.workspaceId,
+              params.installationId,
+              backoffKey,
+              selectedBackoff,
+            ),
+          ];
+          if (!readFailed) {
+            writes.push(
+              this.writeEnvelope(params.workspaceId, params.installationId, params.profileKey, {
+                token: envelope?.token,
+                expiresAt: envelope?.expiresAt,
+                permissions: envelope?.permissions,
+              }),
+            );
+          }
+          await Promise.all(writes);
+          return selectedBackoff.backoffUntil;
+        },
+      );
 
       if (result.acquired) return result.value;
       logger().warn(
-        {installationId: params.installationId, reason: params.failure.failure.reason},
+        {
+          installationId: params.installationId,
+          permissionProfile: params.profileKey,
+          reason: params.failure.failure.reason,
+        },
         'github installation token backoff lock was contended',
       );
     } catch (error) {
       logger().warn(
-        {installationId: params.installationId, reason: params.failure.failure.reason, error},
+        {
+          installationId: params.installationId,
+          permissionProfile: params.profileKey,
+          reason: params.failure.failure.reason,
+          error,
+        },
         'github installation token backoff write failed',
       );
       reportError(error, {
@@ -333,31 +391,36 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
     workspaceId: string;
     installationId: number;
     profileKey: string;
+    backoffKeys: readonly string[];
     reportReadFailure: (error: unknown) => void;
   }): Promise<void> {
     try {
-      await this.withBackoffLock(params.installationId, async () => {
-        let readFailed = false;
-        const envelope = await this.readEnvelope(
-          params.workspaceId,
-          params.installationId,
-          params.profileKey,
-          (error) => {
-            readFailed = true;
-            params.reportReadFailure(error);
-          },
-        );
-        if (readFailed || activeBackoff(envelope, this.now())) return;
-        await this.writeEnvelope(
-          params.workspaceId,
-          params.installationId,
-          GITHUB_INSTALLATION_TOKEN_BACKOFF_KEY,
-          {},
-        );
-      });
+      await this.withBackoffLock(
+        params.installationId,
+        GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT,
+        async () => {
+          let readFailed = false;
+          const envelope = await this.readEnvelope(
+            params.workspaceId,
+            params.installationId,
+            params.profileKey,
+            params.backoffKeys,
+            (error) => {
+              readFailed = true;
+              params.reportReadFailure(error);
+            },
+          );
+          if (readFailed || activeBackoff(envelope, this.now())) return;
+          await Promise.all(
+            params.backoffKeys.map((backoffKey) =>
+              this.writeEnvelope(params.workspaceId, params.installationId, backoffKey, {}),
+            ),
+          );
+        },
+      );
     } catch (error) {
       logger().warn(
-        {installationId: params.installationId, error},
+        {installationId: params.installationId, permissionProfile: params.profileKey, error},
         'github installation token backoff clear failed',
       );
       reportError(error, {
@@ -370,16 +433,13 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
 
   private async withBackoffLock<T>(
     installationId: number,
+    permissionFingerprint: string,
     operation: () => Promise<T>,
   ): Promise<InstallationTokenLockResult<T>> {
     const withLock = this.options.withBackoffLock ?? this.options.withLock;
     for (const delayMs of [0, ...this.pollDelaysMs]) {
       if (delayMs > 0) await this.sleep(delayMs);
-      const result = await withLock(
-        installationId,
-        GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT,
-        operation,
-      );
+      const result = await withLock(installationId, permissionFingerprint, operation);
       if (result.acquired) return result;
     }
     return {acquired: false};
@@ -389,6 +449,7 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
     workspaceId: string;
     installationId: number;
     profileKey: string;
+    backoffKeys: readonly string[];
     envelope: InstallationTokenEnvelope | undefined;
     reportReadFailure: (error: unknown) => void;
   }): Promise<GithubInstallationAccessToken> {
@@ -412,6 +473,7 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
         params.workspaceId,
         params.installationId,
         params.profileKey,
+        params.backoffKeys,
         params.reportReadFailure,
       );
       const now = this.now();
@@ -454,51 +516,49 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
     workspaceId: string,
     installationId: number,
     profileKey: string,
+    backoffKeys: readonly string[],
     reportReadFailure: (error: unknown) => void,
   ): Promise<InstallationTokenEnvelope | undefined> {
     const isCompatibilityProfile =
       profileKey === githubInstallationTokenKey(GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT);
-    const fixedEnvelopeRead = this.options.secretStore.read(
-      workspaceId,
-      installationId,
-      GITHUB_INSTALLATION_TOKEN_ENVELOPE_KEY,
-    );
-    const legacyRead = this.options.secretStore.read(
-      workspaceId,
-      installationId,
-      GITHUB_LEGACY_INSTALLATION_TOKEN_KEY,
-    );
-    const [profileResult, backoffResult, fixedEnvelopeResult, legacyResult] =
-      await Promise.allSettled([
-        this.options.secretStore.read(workspaceId, installationId, profileKey),
-        this.options.secretStore.read(
-          workspaceId,
-          installationId,
-          GITHUB_INSTALLATION_TOKEN_BACKOFF_KEY,
-        ),
-        fixedEnvelopeRead,
-        legacyRead,
-      ]);
-    if (profileResult.status === 'rejected') reportReadFailure(profileResult.reason);
-    if (backoffResult.status === 'rejected') reportReadFailure(backoffResult.reason);
-    if (fixedEnvelopeResult.status === 'rejected') {
-      reportReadFailure(fixedEnvelopeResult.reason);
+    const {profileResult, backoffResults, fixedEnvelopeResult, legacyResult} =
+      await readSecretValues(
+        this.options.secretStore,
+        workspaceId,
+        installationId,
+        profileKey,
+        backoffKeys,
+      );
+    reportSecretReadFailure(profileResult, reportReadFailure);
+    for (const backoffResult of backoffResults) {
+      reportSecretReadFailure(backoffResult, reportReadFailure);
     }
-    if (legacyResult.status === 'rejected') reportReadFailure(legacyResult.reason);
+    reportSecretReadFailure(fixedEnvelopeResult, reportReadFailure);
+    reportSecretReadFailure(legacyResult, reportReadFailure);
 
     const profileRaw = settledRaw(profileResult);
-    const backoffRaw = settledRaw(backoffResult);
+    const backoffRaws = backoffResults.map(settledRaw);
     const fixedEnvelopeRaw = settledRaw(fixedEnvelopeResult);
     const legacyRaw = settledRaw(legacyResult);
     let profile = parseRawEnvelope(profileRaw, installationId);
-    let backoff = parseRawEnvelope(backoffRaw, installationId);
+    let backoff = latestBackoff(
+      backoffRaws.map((backoffRaw) => parseRawEnvelope(backoffRaw, installationId)),
+      this.now(),
+    );
     const fixedEnvelope = parseRawEnvelope(fixedEnvelopeRaw, installationId);
     const legacy = parseRawEnvelope(legacyRaw, installationId);
     const compatibilityEnvelope = fixedEnvelope ?? legacy;
     if (isCompatibilityProfile && profile === undefined && profileRaw === null) {
       profile = compatibilityEnvelope;
     }
-    if (backoff === undefined && backoffRaw === null) backoff = compatibilityEnvelope;
+    if (
+      isCompatibilityProfile &&
+      backoff === undefined &&
+      backoffRaws.length === 1 &&
+      backoffRaws[0] === null
+    ) {
+      backoff = compatibilityEnvelope;
+    }
     if (!profile && !backoff) return undefined;
     return {
       ...profile,
@@ -531,7 +591,58 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
   }
 }
 
-function settledRaw(result: PromiseSettledResult<string | null>): string | null | undefined {
+type SettledSecretRead = PromiseSettledResult<string | null>;
+
+interface InstallationTokenSecretReads {
+  profileResult: SettledSecretRead;
+  backoffResults: readonly SettledSecretRead[];
+  fixedEnvelopeResult: SettledSecretRead;
+  legacyResult: SettledSecretRead;
+}
+
+async function readSecretValues(
+  secretStore: InstallationTokenSecretStore,
+  workspaceId: string,
+  installationId: number,
+  profileKey: string,
+  backoffKeys: readonly string[],
+): Promise<InstallationTokenSecretReads> {
+  const profileRead = secretStore.read(workspaceId, installationId, profileKey);
+  const backoffReads = backoffKeys.map((backoffKey) =>
+    secretStore.read(workspaceId, installationId, backoffKey),
+  );
+  const fixedEnvelopeRead = secretStore.read(
+    workspaceId,
+    installationId,
+    GITHUB_INSTALLATION_TOKEN_ENVELOPE_KEY,
+  );
+  const legacyRead = secretStore.read(
+    workspaceId,
+    installationId,
+    GITHUB_LEGACY_INSTALLATION_TOKEN_KEY,
+  );
+  const [profileResult, fixedEnvelopeResult, legacyResult] = await Promise.allSettled([
+    profileRead,
+    fixedEnvelopeRead,
+    legacyRead,
+  ]);
+  const backoffResults = await Promise.allSettled(backoffReads);
+  return {
+    profileResult,
+    backoffResults,
+    fixedEnvelopeResult,
+    legacyResult,
+  };
+}
+
+function reportSecretReadFailure(
+  result: SettledSecretRead,
+  report: (error: unknown) => void,
+): void {
+  if (result.status === 'rejected') report(result.reason);
+}
+
+function settledRaw(result: SettledSecretRead): string | null | undefined {
   if (result.status === 'rejected') return undefined;
   return result.value;
 }
@@ -546,6 +657,34 @@ function parseRawEnvelope(
     logger().warn({installationId}, 'github installation token cache envelope failed to decode');
   }
   return envelope;
+}
+
+function latestBackoff(
+  envelopes: readonly (InstallationTokenEnvelope | undefined)[],
+  now: Date,
+): InstallationTokenEnvelope | undefined {
+  let latest: InstallationTokenEnvelope | undefined;
+  let latestActiveTerminal: InstallationTokenEnvelope | undefined;
+  for (const envelope of envelopes) {
+    if (envelope?.backoffUntil === undefined || envelope.backoffReason === undefined) continue;
+    const latestBackoffUntil = latest?.backoffUntil;
+    if (
+      latest === undefined ||
+      latestBackoffUntil === undefined ||
+      envelope.backoffUntil > latestBackoffUntil
+    ) {
+      latest = envelope;
+    }
+    const latestActiveTerminalUntil = latestActiveTerminal?.backoffUntil;
+    if (
+      envelope.backoffUntil > now &&
+      mintErrorClassForReason(envelope.backoffReason) === 'terminal' &&
+      (latestActiveTerminalUntil === undefined || envelope.backoffUntil > latestActiveTerminalUntil)
+    ) {
+      latestActiveTerminal = envelope;
+    }
+  }
+  return latestActiveTerminal ?? latest;
 }
 
 class InstallationTokenMintFailure extends Error {

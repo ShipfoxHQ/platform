@@ -9,6 +9,7 @@ import {
   encodeInstallationTokenEnvelope,
   GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT,
   githubInstallationTokenKey,
+  githubInstallationTokenPermissionFingerprint,
 } from './installation-token-envelope.js';
 import {createGithubInstallationTokenProvider} from './installation-token-provider.js';
 
@@ -77,6 +78,85 @@ describe('GithubInstallationTokenProvider', () => {
     expect(GITHUB_STATELESS_INSTALLATION_TOKEN.slice(4).split('.')).toHaveLength(3);
     expect(createInstallationAccessTokenMock).toHaveBeenCalledWith({
       installation_id: 1,
+    });
+  });
+
+  it('mints an installation token with the requested permission profile', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-10T11:00:00.000Z'));
+    createInstallationAccessTokenMock.mockResolvedValue({
+      data: {
+        token: GITHUB_STATELESS_INSTALLATION_TOKEN,
+        expires_at: '2026-06-10T12:00:00.000Z',
+      },
+    });
+    const provider = createGithubInstallationTokenProvider();
+    const permissions = {pull_requests: 'read' as const, contents: 'write' as const};
+
+    await provider.getInstallationAccessToken(1, undefined, permissions);
+    await provider.getInstallationAccessToken(1, undefined, {
+      contents: 'write',
+      pull_requests: 'read',
+    });
+
+    expect(createInstallationAccessTokenMock).toHaveBeenCalledTimes(1);
+    expect(createInstallationAccessTokenMock).toHaveBeenCalledWith({
+      installation_id: 1,
+      permissions,
+    });
+    expect(githubInstallationTokenPermissionFingerprint(permissions)).toBe(
+      '{"contents":"write","pull_requests":"read"}',
+    );
+  });
+
+  it('uses byte-stable ordering for permission fingerprints', () => {
+    expect(githubInstallationTokenPermissionFingerprint({é: 'read', z: 'read', a: 'write'})).toBe(
+      '{"a":"write","z":"read","é":"read"}',
+    );
+  });
+
+  it('rejects a permission profile whose explicit fingerprint does not match', async () => {
+    const provider = createGithubInstallationTokenProvider();
+
+    await expect(
+      provider.getInstallationAccessToken(1, 'wrong', {contents: 'read'}),
+    ).rejects.toThrow('permission fingerprint does not match permissions');
+    expect(createInstallationAccessTokenMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps the compatibility and permissions-derived cache profiles separate', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-10T11:00:00.000Z'));
+    createInstallationAccessTokenMock
+      .mockResolvedValueOnce({
+        data: {
+          token: 'ghs_broad',
+          expires_at: '2026-06-10T12:00:00.000Z',
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          token: 'ghs_narrow',
+          expires_at: '2026-06-10T12:00:00.000Z',
+        },
+      });
+    const provider = createGithubInstallationTokenProvider();
+    const permissions = {contents: 'read' as const};
+
+    const broad = await provider.getInstallationAccessToken(1);
+    const narrow = await provider.getInstallationAccessToken(1, undefined, permissions);
+    const narrowAgain = await provider.getInstallationAccessToken(1, undefined, permissions);
+
+    expect(broad.token).toBe('ghs_broad');
+    expect(narrow.token).toBe('ghs_narrow');
+    expect(narrowAgain.token).toBe('ghs_narrow');
+    expect(createInstallationAccessTokenMock).toHaveBeenCalledTimes(2);
+    expect(createInstallationAccessTokenMock).toHaveBeenNthCalledWith(1, {
+      installation_id: 1,
+    });
+    expect(createInstallationAccessTokenMock).toHaveBeenNthCalledWith(2, {
+      installation_id: 1,
+      permissions,
     });
   });
 

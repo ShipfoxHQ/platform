@@ -9,8 +9,10 @@ import {type GithubInstallationAccessToken, mapGithubError} from './client.js';
 import {githubInstallationTokenFormatPlugin} from './github-octokit.js';
 import {
   GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT,
+  type GithubInstallationTokenPermissions,
   githubInstallationTokenKey,
   githubInstallationTokenNamespace,
+  githubInstallationTokenPermissionFingerprint,
   TOKEN_REFRESH_MARGIN_MS,
 } from './installation-token-envelope.js';
 import {
@@ -24,6 +26,7 @@ export interface GithubInstallationTokenProvider {
   getInstallationAccessToken(
     installationId: number,
     permissionFingerprint?: string,
+    permissions?: GithubInstallationTokenPermissions,
   ): Promise<GithubInstallationAccessToken>;
 }
 
@@ -56,11 +59,30 @@ class OctokitGithubInstallationTokenProvider implements GithubInstallationTokenP
 
   async getInstallationAccessToken(
     installationId: number,
-    permissionFingerprint = GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT,
+    permissionFingerprint?: string,
+    permissions?: GithubInstallationTokenPermissions,
   ): Promise<GithubInstallationAccessToken> {
     await this.assertInstallationIsActive(installationId);
-    return await this.cache.getOrMint(installationId, permissionFingerprint, () =>
-      this.mintInstallationAccessToken(installationId),
+    const derivedPermissionFingerprint =
+      permissions === undefined
+        ? undefined
+        : githubInstallationTokenPermissionFingerprint(permissions);
+    if (
+      permissionFingerprint !== undefined &&
+      derivedPermissionFingerprint !== undefined &&
+      permissionFingerprint !== derivedPermissionFingerprint
+    ) {
+      throw new TypeError(
+        'GitHub installation token permission fingerprint does not match permissions',
+      );
+    }
+    const effectivePermissionFingerprint =
+      derivedPermissionFingerprint ??
+      permissionFingerprint ??
+      GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT;
+    const requestedPermissions = permissions === undefined ? undefined : {...permissions};
+    return await this.cache.getOrMint(installationId, effectivePermissionFingerprint, () =>
+      this.mintInstallationAccessToken(installationId, requestedPermissions),
     );
   }
 
@@ -79,11 +101,13 @@ class OctokitGithubInstallationTokenProvider implements GithubInstallationTokenP
 
   private async mintInstallationAccessToken(
     installationId: number,
+    permissions: GithubInstallationTokenPermissions | undefined,
   ): Promise<GithubInstallationAccessToken> {
     const response = await mapGithubError(
       () =>
         this.getApp().octokit.rest.apps.createInstallationAccessToken({
           installation_id: installationId,
+          ...(permissions === undefined ? {} : {permissions}),
         }),
       'installation-not-found',
     );

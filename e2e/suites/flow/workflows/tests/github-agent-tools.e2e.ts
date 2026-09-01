@@ -150,7 +150,7 @@ for (const tokenCase of GITHUB_TOKEN_CASES) {
           authorization: expect.stringMatching(BEARER_AUTHORIZATION),
           tokenFormatOverride: 'enabled',
           installationId,
-          body: {},
+          body: {permissions: {issues: 'write'}},
         },
         {
           kind: 'read-issue',
