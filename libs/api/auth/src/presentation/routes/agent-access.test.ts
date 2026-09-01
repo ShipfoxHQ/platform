@@ -18,6 +18,7 @@ import {
   findAgentGrant,
 } from '#db/agent-access.js';
 import {db} from '#db/db.js';
+import {agentGrants} from '#db/schema/agent-access.js';
 import {users} from '#db/schema/users.js';
 import {createJwtAuthMethod} from '#presentation/auth/jwt-auth.js';
 import {userFactory} from '#test/index.js';
@@ -144,6 +145,25 @@ describe('agent access management routes', () => {
       });
       expect(relisted.statusCode).toBe(200);
       expect(relisted.json()).toEqual({grants: []});
+
+      const terminalGrant = await createAgentGrant({
+        userId: owner.id,
+        workspaceId: crypto.randomUUID(),
+        clientId: ownerClient.id,
+        scopes: ['read'],
+      });
+      await db()
+        .update(agentGrants)
+        .set({terminalAt: new Date(), updatedAt: new Date()})
+        .where(eq(agentGrants.id, terminalGrant.id));
+
+      const terminalRelisted = await app.inject({
+        method: 'GET',
+        url: '/agent-access/grants',
+        headers: {authorization: `Bearer ${token}`},
+      });
+      expect(terminalRelisted.statusCode).toBe(200);
+      expect(terminalRelisted.json()).toEqual({grants: []});
     } finally {
       await app.close();
     }
