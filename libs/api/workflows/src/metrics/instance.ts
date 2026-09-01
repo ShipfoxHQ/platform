@@ -52,6 +52,13 @@ const jobExecutionStepsSettledCount = meter.createCounter<{
   description: 'Job execution steps-settled events enqueued by resulting completion status',
 });
 
+const checkoutTokenRequestsCount = meter.createCounter<{
+  mode: 'initial' | 'renewal';
+  outcome: 'success' | 'failure';
+}>('workflows_checkout_token_requests', {
+  description: 'Checkout credential requests by delivery mode and outcome',
+});
+
 const jobExecutionTimedOutCount = meter.createCounter<Record<string, never>>(
   'workflows_job_execution_timed_out',
   {
@@ -141,6 +148,13 @@ export function recordWorkflowJobExecutionStepsSettled(
   status: Extract<RuntimeCompletionStatus, 'failed' | 'succeeded'>,
 ): void {
   jobExecutionStepsSettledCount.add(1, {status});
+}
+
+export function recordWorkflowCheckoutTokenRequest(
+  mode: 'initial' | 'renewal',
+  outcome: 'success' | 'failure',
+): void {
+  checkoutTokenRequestsCount.add(1, {mode, outcome});
 }
 
 export function recordWorkflowJobExecutionTimedOut(): void {

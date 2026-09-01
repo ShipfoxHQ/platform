@@ -13,11 +13,13 @@ import {createCapturingLogger} from '@shipfox/node-log/test';
 import {eq} from 'drizzle-orm';
 import type {StepStatus} from '#core/entities/step.js';
 import type {WorkflowRunTriggerReference} from '#core/entities/workflow-run.js';
-import {db} from '#db/db.js';
+import {promoteCheckoutRenewalSubject} from '#db/checkout-renewal-subjects.js';
+import {db, withTransaction} from '#db/db.js';
 import {checkoutRenewalSubjects} from '#db/schema/checkout-renewal-subjects.js';
 import {jobs as jobsTable} from '#db/schema/jobs.js';
 import {steps as stepsTable} from '#db/schema/steps.js';
 import {workflowRuns} from '#db/schema/workflow-runs.js';
+import {finishStepAttempt, insertRunningStepAttempt} from '#db/workflow-runs/steps.js';
 import {createWorkflowRun, getJobsByWorkflowRunId, getStepsByJobId} from '#db/workflow-runs.js';
 import {projectFactory} from '#test/factories/project.js';
 import {workflowModel} from '#test/factories/workflow-model.js';
@@ -50,9 +52,11 @@ const projects = {
 } as Pick<ProjectsModuleClient, 'getProjectById' | 'resolveCheckoutTarget'>;
 
 const createCheckoutSpec = vi.fn();
+const createCheckoutCredentials = vi.fn();
 const integrations = {
   createCheckoutSpec,
-} as Pick<IntegrationsModuleClient, 'createCheckoutSpec'>;
+  createCheckoutCredentials,
+} as Pick<IntegrationsModuleClient, 'createCheckoutSpec' | 'createCheckoutCredentials'>;
 
 const {logger, lines: logLines, clear: clearLogLines} = createCapturingLogger();
 
@@ -87,6 +91,7 @@ describe('POST /runs/jobs/current/steps/:stepId/checkout-token', () => {
 
   beforeEach(() => {
     createCheckoutSpec.mockReset();
+    createCheckoutCredentials.mockReset();
     getProjectById.mockReset();
     resolveCheckoutTarget.mockReset();
     savePendingCheckoutRenewalSubjectMock.mockClear();
@@ -175,6 +180,151 @@ describe('POST /runs/jobs/current/steps/:stepId/checkout-token', () => {
       connectionId: project.sourceConnectionId,
       externalRepositoryId: project.sourceExternalRepositoryId,
       permissions: {contents: 'read'},
+    });
+  });
+
+  test('renews a successful persisted checkout from its frozen subject', async () => {
+    const {project, job, step} = await createRunningCheckoutStep();
+    getProjectById.mockResolvedValue({project});
+    resolveCheckoutTarget.mockResolvedValue({
+      projectId: project.id,
+      connectionId: project.sourceConnectionId,
+      externalRepositoryId: project.sourceExternalRepositoryId,
+    });
+    createCheckoutSpec.mockResolvedValue(githubSpec('ghs-initial-token'));
+    const token = await mintActiveLeaseToken({jobId: job.id});
+
+    const initial = await app.inject({
+      method: 'POST',
+      url: checkoutUrl(step.id, step.currentAttempt),
+      headers: {authorization: `Bearer ${token}`},
+    });
+    expect(initial.statusCode).toBe(200);
+    await promoteCheckoutAttempt(step);
+
+    createCheckoutCredentials.mockResolvedValue({
+      username: 'x-access-token',
+      token: 'ghs-renewed-token',
+      expiresAt: '2099-06-10T12:00:00.000Z',
+      generation: 'generation-2',
+      renewal: {mode: 'on-rejection'},
+    });
+
+    const renewal = await app.inject({
+      method: 'POST',
+      url: checkoutUrl(step.id, step.currentAttempt),
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+      },
+      payload: {rejected_generation: 'generation-1'},
+    });
+
+    expect(renewal.statusCode).toBe(200);
+    expect(renewal.headers['cache-control']).toBe('no-store');
+    expect(renewal.json()).toEqual({
+      repository_url: 'https://github.com/acme/repo',
+      ref: 'HEAD',
+      fetch_depth: 1,
+      auth: {
+        kind: 'basic',
+        username: 'x-access-token',
+        token: 'ghs-renewed-token',
+        expires_at: '2099-06-10T12:00:00.000Z',
+        carry: 'header',
+        host: 'github.com',
+        persist: true,
+        generation: 'generation-2',
+        renewal: {mode: 'on-rejection'},
+      },
+    });
+    expect(createCheckoutSpec).toHaveBeenCalledTimes(1);
+    expect(resolveCheckoutTarget).toHaveBeenCalledTimes(1);
+    expect(getProjectById).toHaveBeenCalledTimes(1);
+    expect(createCheckoutCredentials).toHaveBeenCalledWith({
+      workspaceId: project.workspaceId,
+      connectionId: project.sourceConnectionId,
+      externalRepositoryId: project.sourceExternalRepositoryId,
+      permissions: {contents: 'read'},
+      rejectedGeneration: 'generation-1',
+    });
+
+    createCheckoutCredentials.mockResolvedValue({
+      username: 'x-access-token',
+      token: 'ghs-same-opaque-token',
+      expiresAt: '2099-06-10T12:00:00.000Z',
+      generation: 'generation-3',
+      renewal: {
+        mode: 'refresh-at',
+        refreshAt: '2099-06-10T11:55:00.000Z',
+      },
+    });
+    const compatibility = await app.inject({
+      method: 'POST',
+      url: checkoutUrl(step.id, step.currentAttempt),
+      headers: {authorization: `Bearer ${token}`},
+    });
+
+    expect(compatibility.statusCode).toBe(200);
+    expect(compatibility.json()).toMatchObject({
+      repository_url: 'https://github.com/acme/repo',
+      ref: 'HEAD',
+      fetch_depth: 1,
+      auth: {
+        token: 'ghs-same-opaque-token',
+        generation: 'generation-3',
+        renewal: {mode: 'refresh-at', refresh_at: '2099-06-10T11:55:00.000Z'},
+      },
+    });
+    expect(createCheckoutCredentials).toHaveBeenLastCalledWith({
+      workspaceId: project.workspaceId,
+      connectionId: project.sourceConnectionId,
+      externalRepositoryId: project.sourceExternalRepositoryId,
+      permissions: {contents: 'read'},
+    });
+  });
+
+  test('maps credential-only provider failures through the checkout error boundary', async () => {
+    const {project, job, step} = await createRunningCheckoutStep();
+    getProjectById.mockResolvedValue({project});
+    resolveCheckoutTarget.mockResolvedValue({
+      projectId: project.id,
+      connectionId: project.sourceConnectionId,
+      externalRepositoryId: project.sourceExternalRepositoryId,
+    });
+    createCheckoutSpec.mockResolvedValue(githubSpec('ghs-initial-token'));
+    const token = await mintActiveLeaseToken({jobId: job.id});
+
+    const initial = await app.inject({
+      method: 'POST',
+      url: checkoutUrl(step.id, step.currentAttempt),
+      headers: {authorization: `Bearer ${token}`},
+    });
+    expect(initial.statusCode).toBe(200);
+    await promoteCheckoutAttempt(step);
+
+    createCheckoutCredentials.mockRejectedValue(
+      createInterModuleKnownError(
+        integrationsInterModuleContract.methods.createCheckoutCredentials,
+        'provider-failure',
+        {reason: 'rate-limited', retryAfterSeconds: 60},
+      ),
+    );
+
+    const renewal = await app.inject({
+      method: 'POST',
+      url: checkoutUrl(step.id, step.currentAttempt),
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+      },
+      payload: {rejected_generation: 'generation-1'},
+    });
+
+    expect(renewal.statusCode).toBe(429);
+    expect(renewal.json()).toMatchObject({
+      code: 'rate-limited',
+      details: {retry_after_seconds: 60},
     });
   });
 
@@ -727,4 +877,27 @@ async function createRunningCheckoutStep(
     job: {...job, status: 'running' as const},
     step: {...step, status},
   };
+}
+
+async function promoteCheckoutAttempt(step: {
+  id: string;
+  jobExecutionId: string;
+  currentAttempt: number;
+}) {
+  await withTransaction((tx) =>
+    insertRunningStepAttempt(
+      {jobExecutionId: step.jobExecutionId, stepId: step.id, attempt: step.currentAttempt},
+      tx,
+    ),
+  );
+  await withTransaction((tx) =>
+    finishStepAttempt(
+      {stepId: step.id, attempt: step.currentAttempt, status: 'succeeded', logOutcome: 'drained'},
+      tx,
+    ),
+  );
+  await withTransaction((tx) =>
+    promoteCheckoutRenewalSubject({stepId: step.id, attempt: step.currentAttempt}, tx),
+  );
+  await db().update(stepsTable).set({status: 'succeeded'}).where(eq(stepsTable.id, step.id));
 }

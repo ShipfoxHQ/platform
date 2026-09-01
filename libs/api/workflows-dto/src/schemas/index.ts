@@ -5,10 +5,12 @@ export {
 export {type CheckoutIntentDto, checkoutIntentSchema} from './checkout.js';
 export {
   type CheckoutTokenAuthDto,
+  type CheckoutTokenBodyDto,
   type CheckoutTokenParamsDto,
   type CheckoutTokenQueryDto,
   type CheckoutTokenResponseDto,
   checkoutTokenAuthSchema,
+  checkoutTokenBodySchema,
   checkoutTokenParamsSchema,
   checkoutTokenQuerySchema,
   checkoutTokenResponseSchema,

@@ -9,6 +9,7 @@ import {
 } from '@shipfox/api-projects-dto/inter-module';
 import type {RunnersInterModuleClient} from '@shipfox/api-runners-dto/inter-module';
 import {
+  checkoutTokenBodySchema,
   checkoutTokenParamsSchema,
   checkoutTokenQuerySchema,
   checkoutTokenResponseSchema,
@@ -24,8 +25,9 @@ import {
   CheckoutRepositoryUrlInvalidError,
 } from '#core/errors.js';
 import {savePendingCheckoutRenewalSubject} from '#db/checkout-renewal-subjects.js';
-import {toCheckoutTokenDto} from '#presentation/dto/checkout-token.js';
-import {loadRunningLeasedStep} from './leased-step.js';
+import {recordWorkflowCheckoutTokenRequest} from '#metrics/instance.js';
+import {toCheckoutTokenDto, toCheckoutTokenRenewalDto} from '#presentation/dto/checkout-token.js';
+import {type LoadedRunningLeasedStep, loadRunningLeasedStep} from './leased-step.js';
 
 export function createCheckoutTokenRoute(clients: {
   runners: RunnersInterModuleClient;
@@ -36,57 +38,105 @@ export function createCheckoutTokenRoute(clients: {
     method: 'POST',
     path: '/steps/:stepId/checkout-token',
     description:
-      "Exchanges the runner's lease for short-lived checkout credentials for the currently running checkout step. The step id and attempt are checked against the lease and the server-frozen step config supplies the target, ref, permissions, and fetch depth.",
+      "Exchanges the runner's lease for short-lived checkout credentials for a current checkout step or a successful persisted checkout attempt. The step id and attempt are checked against the lease and all repository scope is supplied by server-owned state; a renewal may report only the rejected credential generation.",
     schema: {
       params: checkoutTokenParamsSchema,
       querystring: checkoutTokenQuerySchema,
+      body: checkoutTokenBodySchema.nullish(),
       response: {200: checkoutTokenResponseSchema},
     },
     errorHandler: handleCheckoutTokenError,
     handler: async (request, reply) => {
-      const {stepId} = request.params;
-      const {attempt} = request.query;
-      const {leasedJob, step, workspaceId, projectId, triggerReference, run} =
-        await loadRunningLeasedStep({
+      let mode: 'initial' | 'renewal' =
+        request.body?.rejected_generation === undefined ? 'initial' : 'renewal';
+      try {
+        const {stepId} = request.params;
+        const {attempt} = request.query;
+        const loaded = await loadRunningLeasedStep({
           runners: clients.runners,
           request,
           stepId,
           attempt,
+          allowSuccessfulPersistedCheckout: true,
         });
 
-      if (step.type !== 'setup' && step.type !== 'checkout') {
-        throw new ClientError('Step is not a checkout step', 'step-not-checkout', {status: 409});
-      }
+        if (loaded.checkoutRenewalSubject !== undefined) mode = 'renewal';
 
-      const checkout = await createStepCheckoutSpec({
-        step,
-        workspaceId,
-        projectId,
-        triggerReference,
-        run,
-        integrations: clients.integrations,
-        projects: clients.projects,
-      });
-      const response = toCheckoutTokenDto(checkout.spec, {
-        fetchDepth: checkout.fetchDepth,
-        persist: checkout.persistCredentials,
-      });
-      if (checkout.renewalSubject !== undefined) {
-        const subjectSaved = await persistCheckoutRenewalSubject({
-          renewalSubject: checkout.renewalSubject,
+        if (loaded.step.type !== 'setup' && loaded.step.type !== 'checkout') {
+          throw new ClientError('Step is not a checkout step', 'step-not-checkout', {status: 409});
+        }
+
+        const response = await createCheckoutTokenResponse({
+          clients,
+          loaded,
           stepId,
           attempt,
-          jobExecutionId: step.jobExecutionId,
-          workflowRunAttemptId: leasedJob.workflowRunAttemptId,
+          rejectedGeneration: request.body?.rejected_generation,
           warn: (context, message) => request.log.warn(context, message),
           error: (context, message) => request.log.error(context, message),
         });
-        if (!subjectSaved && response.auth !== undefined) response.auth.persist = false;
+        recordWorkflowCheckoutTokenRequest(mode, 'success');
+        reply.header('cache-control', 'no-store');
+        return response;
+      } catch (error) {
+        recordWorkflowCheckoutTokenRequest(mode, 'failure');
+        throw error;
       }
-      reply.header('cache-control', 'no-store');
-      return response;
     },
   });
+}
+
+async function createCheckoutTokenResponse(params: {
+  clients: Parameters<typeof createCheckoutTokenRoute>[0];
+  loaded: LoadedRunningLeasedStep;
+  stepId: string;
+  attempt: number;
+  rejectedGeneration?: string | undefined;
+  warn: (context: {outcome: string}, message: string) => void;
+  error: (context: {outcome: string}, message: string) => void;
+}): Promise<ReturnType<typeof toCheckoutTokenDto>> {
+  if (params.loaded.checkoutRenewalSubject !== undefined) {
+    const credentials = await params.clients.integrations.createCheckoutCredentials({
+      workspaceId: params.loaded.workspaceId,
+      connectionId: params.loaded.checkoutRenewalSubject.connectionId,
+      externalRepositoryId: params.loaded.checkoutRenewalSubject.externalRepositoryId,
+      permissions: params.loaded.checkoutRenewalSubject.permissions,
+      ...(params.rejectedGeneration === undefined
+        ? {}
+        : {rejectedGeneration: params.rejectedGeneration}),
+    });
+    return toCheckoutTokenRenewalDto(
+      params.loaded.checkoutRenewalSubject.repositoryUrl,
+      credentials,
+    );
+  }
+
+  const checkout = await createStepCheckoutSpec({
+    step: params.loaded.step,
+    workspaceId: params.loaded.workspaceId,
+    projectId: params.loaded.projectId,
+    triggerReference: params.loaded.triggerReference,
+    run: params.loaded.run,
+    integrations: params.clients.integrations,
+    projects: params.clients.projects,
+  });
+  const response = toCheckoutTokenDto(checkout.spec, {
+    fetchDepth: checkout.fetchDepth,
+    persist: checkout.persistCredentials,
+  });
+  if (checkout.renewalSubject !== undefined) {
+    const subjectSaved = await persistCheckoutRenewalSubject({
+      renewalSubject: checkout.renewalSubject,
+      stepId: params.stepId,
+      attempt: params.attempt,
+      jobExecutionId: params.loaded.step.jobExecutionId,
+      workflowRunAttemptId: params.loaded.leasedJob.workflowRunAttemptId,
+      warn: params.warn,
+      error: params.error,
+    });
+    if (!subjectSaved && response.auth !== undefined) response.auth.persist = false;
+  }
+  return response;
 }
 
 async function persistCheckoutRenewalSubject(params: {
@@ -147,8 +197,14 @@ function handleCheckoutTokenError(error: unknown): never {
       {status: 404},
     );
   }
-  if (isInterModuleKnownError(integrationsInterModuleContract.methods.createCheckoutSpec, error)) {
-    throwIntegrationCheckoutError(error);
+  if (
+    isInterModuleKnownError(integrationsInterModuleContract.methods.createCheckoutSpec, error) ||
+    isInterModuleKnownError(
+      integrationsInterModuleContract.methods.createCheckoutCredentials,
+      error,
+    )
+  ) {
+    throwIntegrationCheckoutError(error as {code: string});
   }
   throw error;
 }

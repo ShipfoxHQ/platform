@@ -1,4 +1,4 @@
-import {toCheckoutTokenDto} from './checkout-token.js';
+import {toCheckoutTokenDto, toCheckoutTokenRenewalDto} from './checkout-token.js';
 
 type CheckoutSpec = {
   repositoryUrl: string;
@@ -150,5 +150,34 @@ describe('toCheckoutTokenDto', () => {
     const dto = toCheckoutTokenDto(spec, {fetchDepth: 1, persist: true});
 
     expect(dto.auth).toMatchObject({host: 'github.com'});
+  });
+});
+
+describe('toCheckoutTokenRenewalDto', () => {
+  it('maps credential-only responses into the legacy checkout envelope', () => {
+    const dto = toCheckoutTokenRenewalDto('https://github.com/acme/repo', {
+      username: 'x-access-token',
+      token: 'ghs-renewed-token',
+      expiresAt: '2099-06-10T12:00:00.000Z',
+      generation: 'generation-2',
+      renewal: {mode: 'on-rejection'},
+    });
+
+    expect(dto).toEqual({
+      repository_url: 'https://github.com/acme/repo',
+      ref: 'HEAD',
+      fetch_depth: 1,
+      auth: {
+        kind: 'basic',
+        username: 'x-access-token',
+        token: 'ghs-renewed-token',
+        expires_at: '2099-06-10T12:00:00.000Z',
+        carry: 'header',
+        host: 'github.com',
+        persist: true,
+        generation: 'generation-2',
+        renewal: {mode: 'on-rejection'},
+      },
+    });
   });
 });

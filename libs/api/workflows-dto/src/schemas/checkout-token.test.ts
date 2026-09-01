@@ -1,5 +1,6 @@
 import {
   checkoutTokenAuthSchema,
+  checkoutTokenBodySchema,
   checkoutTokenParamsSchema,
   checkoutTokenQuerySchema,
   checkoutTokenResponseSchema,
@@ -22,6 +23,21 @@ describe('checkout token request schemas', () => {
 
   it.each([0, -1, 'not-a-number'])('rejects invalid attempt %p', (attempt) => {
     expect(() => checkoutTokenQuerySchema.parse({attempt})).toThrow();
+  });
+
+  it('accepts an optional rejected generation and preserves it as opaque input', () => {
+    expect(checkoutTokenBodySchema.parse({rejected_generation: 'generation-1'})).toEqual({
+      rejected_generation: 'generation-1',
+    });
+    expect(checkoutTokenBodySchema.parse({})).toEqual({});
+  });
+
+  it.each([
+    {rejected_generation: ''},
+    {rejected_generation: 'generation-1', repository_url: 'https://github.com/acme/repo.git'},
+    {permissions: {contents: 'write'}},
+  ])('rejects runner-controlled checkout scope input %#', (body) => {
+    expect(() => checkoutTokenBodySchema.parse(body)).toThrow();
   });
 });
 
