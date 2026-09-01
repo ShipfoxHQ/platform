@@ -11,7 +11,11 @@ import {
   SessionManager,
   SettingsManager,
 } from '@earendil-works/pi-coding-agent';
-import type {SvgRasterizationReason, SvgRasterizationResult} from './pi-image-rasterizer.js';
+import {
+  closePiSvgRasterizer,
+  type SvgRasterizationReason,
+  type SvgRasterizationResult,
+} from './pi-image-rasterizer.js';
 import {
   createPiToolSvgNormalizerExtension,
   PI_IMAGE_OMISSION_PLACEHOLDER,
@@ -26,6 +30,10 @@ const FIXTURE_PATH = new URL('./fixtures/pi-context-image-session.jsonl', import
 type PiContextMessage = ContextEvent['messages'][number];
 type Rasterizer = NonNullable<PiToolSvgNormalizerOptions['rasterize']>;
 type ExtensionHandler = (event: unknown) => unknown;
+
+afterEach(async () => {
+  await closePiSvgRasterizer();
+});
 
 describe('Pi historical context SVG normalizer', () => {
   it('normalizes every typed provider-bound content variant without rewriting message fields', async () => {
@@ -118,9 +126,65 @@ describe('Pi historical context SVG normalizer', () => {
     expect(rasterize).toHaveBeenCalledTimes(1);
   });
 
+  it('omits malformed historical image blocks instead of forwarding them', async () => {
+    const handlers = extensionHandlers();
+    const contextHandler = requiredHandler(handlers, 'context');
+    const malformedSvg = {type: 'image', data: 12345, mimeType: 'image/svg+xml'};
+    const malformedMime = {type: 'image', data: encodedSvg('malformed'), mimeType: null};
+    const message = {
+      role: 'user',
+      content: [{type: 'text', text: 'before'}, malformedSvg, malformedMime],
+      timestamp: 1,
+    } as unknown as PiContextMessage;
+
+    const result = (await contextHandler(contextEvent([message]))) as {
+      messages: PiContextMessage[];
+    };
+
+    expect(result.messages[0]).toMatchObject({
+      role: 'user',
+      content: [
+        {type: 'text', text: 'before'},
+        {type: 'text', text: PI_IMAGE_OMISSION_PLACEHOLDER},
+        {type: 'text', text: PI_IMAGE_OMISSION_PLACEHOLDER},
+      ],
+    });
+    expect(message).toMatchObject({
+      content: [{type: 'text', text: 'before'}, malformedSvg, malformedMime],
+    });
+  });
+
+  it('uses the conservative context fallback if the hook fails before rasterization', async () => {
+    const warnUnexpectedFailure = vi.fn();
+    const now = vi.fn(() => {
+      throw new Error('clock failure');
+    });
+    const handlers = extensionHandlers({now, warnUnexpectedFailure});
+    const contextHandler = requiredHandler(handlers, 'context');
+    const event = contextEvent([
+      {
+        role: 'user',
+        content: [{type: 'text', text: 'keep me'}, image(encodedSvg('fallback'), 'image/svg+xml')],
+        timestamp: 1,
+      } as PiContextMessage,
+    ]);
+
+    const result = (await contextHandler(event)) as {messages: PiContextMessage[]};
+
+    expect(result.messages[0]).toMatchObject({
+      role: 'user',
+      content: [
+        {type: 'text', text: 'keep me'},
+        {type: 'text', text: PI_IMAGE_OMISSION_PLACEHOLDER},
+      ],
+    });
+    expect(warnUnexpectedFailure).toHaveBeenCalledWith('legacy_context', 'render_error');
+  });
+
   it('reuses converted context images and clears the cache at session shutdown', async () => {
     const rasterize = vi.fn<Rasterizer>(async () => convertedResult());
-    const handlers = extensionHandlers({rasterize});
+    const recordNormalization = vi.fn();
+    const handlers = extensionHandlers({rasterize, recordNormalization});
     const contextHandler = requiredHandler(handlers, 'context');
     const shutdownHandler = requiredHandler(handlers, 'session_shutdown');
     const event = contextEvent([messageWithSvg(encodedSvg('cached'))]);
@@ -128,11 +192,14 @@ describe('Pi historical context SVG normalizer', () => {
     await contextHandler(event);
     await contextHandler(event);
     expect(rasterize).toHaveBeenCalledTimes(1);
+    expect(recordNormalization).toHaveBeenCalledTimes(1);
+    expect(recordNormalization).toHaveBeenCalledWith('converted', 'none', 'legacy_context');
 
     await shutdownHandler({type: 'session_shutdown', reason: 'quit'});
     await contextHandler(event);
 
     expect(rasterize).toHaveBeenCalledTimes(2);
+    expect(recordNormalization).toHaveBeenCalledTimes(2);
   });
 
   it('does not retain transient rasterizer outcomes but caches stable omissions', async () => {
@@ -149,7 +216,7 @@ describe('Pi historical context SVG normalizer', () => {
     const handlers = extensionHandlers({rasterize});
     const contextHandler = requiredHandler(handlers, 'context');
 
-    await contextHandler(contextEvent([messageWithSvg(timeoutSvg)]));
+    await contextHandler(contextEvent([messageWithSvgs([timeoutSvg, timeoutSvg])]));
     await contextHandler(contextEvent([messageWithSvg(timeoutSvg)]));
     await contextHandler(contextEvent([messageWithSvg(unavailableSvg)]));
     await contextHandler(contextEvent([messageWithSvg(unavailableSvg)]));
@@ -157,6 +224,26 @@ describe('Pi historical context SVG normalizer', () => {
     await contextHandler(contextEvent([messageWithSvg(stableSvg)]));
 
     expect(rasterize).toHaveBeenCalledTimes(5);
+  });
+
+  it('keeps the legacy context budget stable across repeated provider passes', async () => {
+    const rasterize = vi.fn<Rasterizer>(async () => convertedResult());
+    const handlers = extensionHandlers({rasterize});
+    const contextHandler = requiredHandler(handlers, 'context');
+    const messages = Array.from({length: 21}, (_, index) =>
+      messageWithSvg(encodedSvg(`budget-${index}`)),
+    );
+
+    const firstContext = await contextHandler(contextEvent(messages));
+    const secondContext = await contextHandler(contextEvent(messages));
+
+    expect(rasterize).toHaveBeenCalledTimes(20);
+    expect(firstContext).toEqual(secondContext);
+    const lastMessage = firstContext.messages.at(-1);
+    expect(lastMessage?.role).toBe('user');
+    if (lastMessage?.role === 'user') {
+      expect(lastMessage.content).toEqual([{type: 'text', text: PI_IMAGE_OMISSION_PLACEHOLDER}]);
+    }
   });
 
   it('evicts the least recently used historical conversion after 32 entries', async () => {
@@ -176,11 +263,28 @@ describe('Pi historical context SVG normalizer', () => {
     expect(rasterize).toHaveBeenCalledTimes(34);
   });
 
+  it('evicts historical conversions by encoded output bytes', async () => {
+    const largePng = new Uint8Array(12 * 1024 * 1024);
+    const rasterize = vi.fn<Rasterizer>(async () => ({
+      ...convertedResult(),
+      png: largePng,
+      outputBytes: largePng.byteLength,
+    }));
+    const handlers = extensionHandlers({rasterize});
+    const contextHandler = requiredHandler(handlers, 'context');
+
+    await contextHandler(contextEvent([messageWithSvg(encodedSvg('bytes-0'))]));
+    await contextHandler(contextEvent([messageWithSvg(encodedSvg('bytes-1'))]));
+    await contextHandler(contextEvent([messageWithSvg(encodedSvg('bytes-2'))]));
+    await contextHandler(contextEvent([messageWithSvg(encodedSvg('bytes-0'))]));
+
+    expect(rasterize).toHaveBeenCalledTimes(4);
+  });
+
   it('guards a resumed fixture at provider egress while leaving its session file unchanged', async () => {
     const root = mkdtempSync(join(tmpdir(), 'shipfox-pi-context-'));
     const sessionPath = join(root, 'session.jsonl');
     copyFileSync(FIXTURE_PATH, sessionPath);
-    const rasterize = vi.fn<Rasterizer>(async () => convertedResult());
     const requests: Context[] = [];
     const faux = fauxProvider({
       provider: 'context-test',
@@ -216,7 +320,7 @@ describe('Pi historical context SVG normalizer', () => {
           noPromptTemplates: true,
           noSkills: true,
           noThemes: true,
-          extensionFactories: [createPiToolSvgNormalizerExtension({rasterize})],
+          extensionFactories: [createPiToolSvgNormalizerExtension()],
         },
       });
       const sessionManager = SessionManager.open(sessionPath, root, root);
@@ -236,7 +340,7 @@ describe('Pi historical context SVG normalizer', () => {
 
       expect(readFileSync(sessionPath, 'utf8')).toBe(before);
       expect(firstContext).toEqual(secondContext);
-      expect(rasterize).toHaveBeenCalledTimes(1);
+      expectContextMessagesToContainPng(firstContext);
 
       faux.setResponses([
         (context) => {
@@ -250,6 +354,8 @@ describe('Pi historical context SVG normalizer', () => {
       const [request] = requests;
       if (request === undefined) throw new Error('Faux provider request was not captured');
       expectProviderContextToBeImageSafe(request);
+      expectContextMessagesToContainPng(request.messages);
+      expect(JSON.stringify(request)).not.toContain('12345');
       expect(readFileSync(sessionPath, 'utf8')).toContain(HISTORICAL_SVG_DATA);
     } finally {
       session?.dispose();
@@ -298,9 +404,13 @@ function usage(): Record<string, unknown> {
 }
 
 function messageWithSvg(svg: string): PiContextMessage {
+  return messageWithSvgs([svg]);
+}
+
+function messageWithSvgs(svgs: readonly string[]): PiContextMessage {
   return {
     role: 'user',
-    content: [image(svg, 'image/svg+xml')],
+    content: svgs.map((svg) => image(svg, 'image/svg+xml')),
     timestamp: 1,
   } as PiContextMessage;
 }
@@ -318,6 +428,15 @@ function expectProviderContextToBeImageSafe(context: Context): void {
       expect(block.data).not.toBe(HISTORICAL_SVG_DATA);
     }
   }
+}
+
+function expectContextMessagesToContainPng(messages: readonly PiContextMessage[]): void {
+  const hasPng = messages.some(
+    (message) =>
+      Array.isArray(message.content) &&
+      message.content.some((block) => block.type === 'image' && block.mimeType === 'image/png'),
+  );
+  expect(hasPng).toBe(true);
 }
 
 function extensionHandlers(

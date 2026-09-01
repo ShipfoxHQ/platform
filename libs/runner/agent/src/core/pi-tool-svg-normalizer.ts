@@ -37,6 +37,15 @@ const LEGACY_CONTEXT_CACHE_PLACEHOLDER_BYTES = Buffer.byteLength(
   'utf8',
 );
 const STRICT_BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+const MAX_ENCODED_SVG_BASE64_LENGTH = Math.ceil(PI_SVG_RASTERIZATION_LIMITS.maxInputBytes / 3) * 4;
+const STABLE_CONTEXT_OMISSION_REASONS = new Set<ImageOmissionReason>([
+  'unsupported_format',
+  'invalid_base64',
+  'input_too_large',
+  'unsafe_svg',
+  'external_resource',
+  'output_too_large',
+]);
 
 export type ImageOmissionReason = 'unsupported_format' | SvgRasterizationReason;
 export type PiImageContent = TextContent | ImageContent;
@@ -80,11 +89,13 @@ type NormalizationBudget = {
 type NormalizedSvgBlock = {
   block: PiImageContent;
   cacheEntry?: LegacyContextCacheEntry;
+  omissionReason?: ImageOmissionReason;
 };
 
 type LegacyContextCacheEntry =
   | {kind: 'converted'; data: string; weightBytes: number}
   | {kind: 'omitted'; reason: ImageOmissionReason; weightBytes: number};
+type LegacyContextPassCache = Map<string, ImageOmissionReason>;
 
 /**
  * Creates the normalizer used by the inline Pi extension.
@@ -194,6 +205,7 @@ class PiToolSvgNormalizerImpl {
 
   async normalizeContext(messages: PiAgentMessage[]): Promise<PiAgentMessage[]> {
     const budget = this.createBudget();
+    const transientCache: LegacyContextPassCache = new Map();
     let changed = false;
     const normalizedMessages: PiAgentMessage[] = [];
 
@@ -204,7 +216,7 @@ class PiToolSvgNormalizerImpl {
         continue;
       }
 
-      const normalizedContent = await this.normalizeLegacyContent(content, budget);
+      const normalizedContent = await this.normalizeLegacyContent(content, budget, transientCache);
       if (normalizedContent === content) {
         normalizedMessages.push(message);
         continue;
@@ -259,17 +271,23 @@ class PiToolSvgNormalizerImpl {
   private async normalizeLegacyContent(
     content: readonly unknown[],
     budget: NormalizationBudget,
+    transientCache: LegacyContextPassCache,
   ): Promise<readonly unknown[]> {
     let changed = false;
     const normalized: unknown[] = [];
 
     for (const block of content) {
-      if (!isImageContent(block)) {
+      if (!isImageBlock(block)) {
         normalized.push(block);
         continue;
       }
+      if (!isImageContent(block)) {
+        changed = true;
+        normalized.push(this.omittedBlock('unsupported_format', 'legacy_context'));
+        continue;
+      }
 
-      const normalizedImage = await this.normalizeLegacyImage(block, budget);
+      const normalizedImage = await this.normalizeLegacyImage(block, budget, transientCache);
       normalized.push(normalizedImage);
       changed ||= normalizedImage !== block;
     }
@@ -280,25 +298,37 @@ class PiToolSvgNormalizerImpl {
   private async normalizeLegacyImage(
     block: ImageContent,
     budget: NormalizationBudget,
+    transientCache: LegacyContextPassCache,
   ): Promise<PiImageContent> {
     const canonicalMimeType = canonicalPiMimeType(block.mimeType);
-    if (canonicalMimeType === CANONICAL_SVG_MIME_TYPE) {
+    const policy = legacyImagePolicy(canonicalMimeType);
+    if (policy.kind === 'svg') {
+      if (!consumeSvgBudget(budget)) {
+        return this.omittedBlock('result_budget_exhausted', 'legacy_context');
+      }
+
       const cacheKey = legacyContextCacheKey(block);
+      const transientReason = transientCache.get(cacheKey);
+      if (transientReason !== undefined) {
+        return this.omittedBlock(transientReason, 'legacy_context');
+      }
       const cached = this.legacyContextCache.get(cacheKey);
       if (cached !== undefined) return this.blockFromCache(block, cached);
 
-      const normalizedSvg = await this.normalizeSvgBlock(block, 'legacy_context', budget);
+      const normalizedSvg = await this.normalizeSvgBlock(block, 'legacy_context', budget, true);
       if (normalizedSvg.cacheEntry !== undefined) {
         this.legacyContextCache.set(cacheKey, normalizedSvg.cacheEntry);
+      } else if (
+        normalizedSvg.omissionReason !== undefined &&
+        !isStableContextOmissionReason(normalizedSvg.omissionReason)
+      ) {
+        transientCache.set(cacheKey, normalizedSvg.omissionReason);
       }
       return normalizedSvg.block;
     }
 
-    if (canonicalMimeType === 'image/jpg') {
-      return {...block, mimeType: 'image/jpeg'};
-    }
-
-    if (LEGACY_CONTEXT_ALLOWED_MIME_TYPES.has(canonicalMimeType)) return block;
+    if (policy.kind === 'canonicalize') return {...block, mimeType: policy.mimeType};
+    if (policy.kind === 'preserve') return block;
 
     const cacheKey = legacyContextCacheKey(block);
     const cached = this.legacyContextCache.get(cacheKey);
@@ -315,11 +345,9 @@ class PiToolSvgNormalizerImpl {
 
   private blockFromCache(block: ImageContent, entry: LegacyContextCacheEntry): PiImageContent {
     if (entry.kind === 'converted') {
-      this.recordNormalization('converted', 'none', 'legacy_context');
       return {...block, data: entry.data, mimeType: 'image/png'};
     }
 
-    this.recordNormalization('omitted', entry.reason, 'legacy_context');
     return {type: 'text', text: PI_IMAGE_OMISSION_PLACEHOLDER};
   }
 
@@ -327,16 +355,21 @@ class PiToolSvgNormalizerImpl {
     block: ImageContent,
     source: PiSvgNormalizationSource,
     budget: NormalizationBudget,
+    budgetAlreadyConsumed = false,
   ): Promise<NormalizedSvgBlock> {
-    const svgIndex = budget.svgBlocks;
-    budget.svgBlocks += 1;
-    if (svgIndex >= MAX_SVG_BLOCKS_PER_PASS) {
-      return {block: this.omittedBlock('result_budget_exhausted', source)};
+    if (!budgetAlreadyConsumed && !consumeSvgBudget(budget)) {
+      return {
+        block: this.omittedBlock('result_budget_exhausted', source),
+        omissionReason: 'result_budget_exhausted',
+      };
     }
 
     const remainingMs = budget.deadlineAt - this.now();
     if (remainingMs <= 0) {
-      return {block: this.omittedBlock('result_budget_exhausted', source)};
+      return {
+        block: this.omittedBlock('result_budget_exhausted', source),
+        omissionReason: 'result_budget_exhausted',
+      };
     }
 
     let result: SvgRasterizationResult;
@@ -347,11 +380,14 @@ class PiToolSvgNormalizerImpl {
       });
     } catch {
       this.warnUnexpectedFailure(source, 'render_error');
-      return {block: this.omittedBlock('render_error', source)};
+      return {block: this.omittedBlock('render_error', source), omissionReason: 'render_error'};
     }
     if (this.now() > budget.deadlineAt) {
       this.recordDuration('omitted', boundedDuration(result.durationMs));
-      return {block: this.omittedBlock('result_budget_exhausted', source)};
+      return {
+        block: this.omittedBlock('result_budget_exhausted', source),
+        omissionReason: 'result_budget_exhausted',
+      };
     }
     if (result.outcome === 'converted') {
       const converted: ImageContent = {
@@ -376,14 +412,16 @@ class PiToolSvgNormalizerImpl {
       this.warnUnexpectedFailure(source, result.reason);
     }
     const omitted = this.omittedBlock(result.reason, source);
-    const cacheEntry = isStableOmissionReason(result.reason)
+    const cacheEntry = isStableContextOmissionReason(result.reason)
       ? {
           kind: 'omitted' as const,
           reason: result.reason,
           weightBytes: LEGACY_CONTEXT_CACHE_PLACEHOLDER_BYTES,
         }
       : undefined;
-    return cacheEntry === undefined ? {block: omitted} : {block: omitted, cacheEntry};
+    return cacheEntry === undefined
+      ? {block: omitted, omissionReason: result.reason}
+      : {block: omitted, cacheEntry, omissionReason: result.reason};
   }
 
   private omittedBlock(reason: ImageOmissionReason, source: PiSvgNormalizationSource): TextContent {
@@ -421,52 +459,69 @@ function replaceContextMessageContent(
   return {...message, content} as PiAgentMessage;
 }
 
+function isImageBlock(value: unknown): value is {type: 'image'} {
+  return (
+    typeof value === 'object' && value !== null && (value as {type?: unknown}).type === 'image'
+  );
+}
+
 function isImageContent(value: unknown): value is ImageContent {
   return (
-    typeof value === 'object' &&
-    value !== null &&
-    (value as {type?: unknown}).type === 'image' &&
+    isImageBlock(value) &&
     typeof (value as {data?: unknown}).data === 'string' &&
     typeof (value as {mimeType?: unknown}).mimeType === 'string'
   );
 }
 
-function legacyContextCacheKey(block: ImageContent): string {
-  return createHash('sha256')
-    .update(canonicalPiMimeType(block.mimeType), 'utf8')
-    .update('\0', 'utf8')
-    .update(cacheSourceBytes(block.data))
-    .digest('hex');
+type LegacyImagePolicy =
+  | {kind: 'svg'}
+  | {kind: 'canonicalize'; mimeType: 'image/jpeg'}
+  | {kind: 'preserve'}
+  | {kind: 'omit'; reason: 'unsupported_format'};
+
+function legacyImagePolicy(canonicalMimeType: string): LegacyImagePolicy {
+  if (canonicalMimeType === CANONICAL_SVG_MIME_TYPE) return {kind: 'svg'};
+  if (canonicalMimeType === 'image/jpg') {
+    return {kind: 'canonicalize', mimeType: 'image/jpeg'};
+  }
+  if (LEGACY_CONTEXT_ALLOWED_MIME_TYPES.has(canonicalMimeType)) return {kind: 'preserve'};
+  return {kind: 'omit', reason: 'unsupported_format'};
 }
 
-function cacheSourceBytes(value: string): Uint8Array {
-  if (!STRICT_BASE64.test(value) || value.length === 0) {
-    return Buffer.from(`invalid-base64:${value}`, 'utf8');
+type CacheSource = {kind: 'decoded'; bytes: Uint8Array} | {kind: 'raw' | 'oversized'; data: string};
+
+function legacyContextCacheKey(block: ImageContent): string {
+  const hash = createHash('sha256');
+  hash.update(canonicalPiMimeType(block.mimeType), 'utf8');
+  hash.update('\0', 'utf8');
+  const source = cacheSource(block.data);
+  hash.update(source.kind, 'utf8');
+  hash.update('\0', 'utf8');
+  if (source.kind === 'decoded') hash.update(source.bytes);
+  else hash.update(source.data, 'utf8');
+  return hash.digest('hex');
+}
+
+function cacheSource(value: string): CacheSource {
+  if (!STRICT_BASE64.test(value) || value.length === 0) return {kind: 'raw', data: value};
+  if (value.length > MAX_ENCODED_SVG_BASE64_LENGTH) {
+    return {kind: 'oversized', data: value};
   }
 
   const decoded = Buffer.from(value, 'base64');
-  return decoded.toString('base64') === value
-    ? decoded
-    : Buffer.from(`invalid-base64:${value}`, 'utf8');
+  return decoded.byteLength > 0 && decoded.toString('base64') === value
+    ? {kind: 'decoded', bytes: decoded}
+    : {kind: 'raw', data: value};
 }
 
-function isStableOmissionReason(
-  reason: ImageOmissionReason,
-): reason is Exclude<
-  ImageOmissionReason,
-  | 'render_timeout'
-  | 'rasterizer_unavailable'
-  | 'render_error'
-  | 'pool_saturated'
-  | 'result_budget_exhausted'
-> {
-  return ![
-    'render_timeout',
-    'rasterizer_unavailable',
-    'render_error',
-    'pool_saturated',
-    'result_budget_exhausted',
-  ].includes(reason);
+function isStableContextOmissionReason(reason: ImageOmissionReason): boolean {
+  return STABLE_CONTEXT_OMISSION_REASONS.has(reason);
+}
+
+function consumeSvgBudget(budget: NormalizationBudget): boolean {
+  const svgIndex = budget.svgBlocks;
+  budget.svgBlocks += 1;
+  return svgIndex < MAX_SVG_BLOCKS_PER_PASS;
 }
 
 class LegacyContextLruCache {
@@ -545,19 +600,30 @@ function fallbackContextMessages(
 
     let messageChanged = false;
     const normalizedContent = content.map((block) => {
-      if (!isImageContent(block)) return block;
+      if (!isImageBlock(block)) return block;
+      if (!isImageContent(block)) {
+        messageChanged = true;
+        safelyRecordNormalization(
+          recordNormalization,
+          'omitted',
+          'unsupported_format',
+          'legacy_context',
+        );
+        return {type: 'text', text: PI_IMAGE_OMISSION_PLACEHOLDER} satisfies TextContent;
+      }
 
       const canonicalMimeType = canonicalPiMimeType(block.mimeType);
-      if (canonicalMimeType === CANONICAL_SVG_MIME_TYPE) {
+      const policy = legacyImagePolicy(canonicalMimeType);
+      if (policy.kind === 'svg') {
         messageChanged = true;
         safelyRecordNormalization(recordNormalization, 'omitted', 'render_error', 'legacy_context');
         return {type: 'text', text: PI_IMAGE_OMISSION_PLACEHOLDER} satisfies TextContent;
       }
-      if (canonicalMimeType === 'image/jpg') {
+      if (policy.kind === 'canonicalize') {
         messageChanged = true;
-        return {...block, mimeType: 'image/jpeg'};
+        return {...block, mimeType: policy.mimeType};
       }
-      if (LEGACY_CONTEXT_ALLOWED_MIME_TYPES.has(canonicalMimeType)) return block;
+      if (policy.kind === 'preserve') return block;
 
       messageChanged = true;
       safelyRecordNormalization(
@@ -581,15 +647,16 @@ function boundedDuration(value: number): number {
   return Math.min(PI_SVG_RASTERIZATION_LIMITS.resultBudgetMs, Math.max(0, Math.round(value)));
 }
 
-let lastUnexpectedWarningAt = Number.NEGATIVE_INFINITY;
+const lastUnexpectedWarningAt = new Map<PiSvgNormalizationSource, number>();
 
 function warnOnUnexpectedFailure(
   source: PiSvgNormalizationSource,
   reason: 'render_error' | 'rasterizer_unavailable',
 ): void {
   const now = Date.now();
-  if (now - lastUnexpectedWarningAt < WARNING_INTERVAL_MS) return;
-  lastUnexpectedWarningAt = now;
+  const previousWarningAt = lastUnexpectedWarningAt.get(source) ?? Number.NEGATIVE_INFINITY;
+  if (now - previousWarningAt < WARNING_INTERVAL_MS) return;
+  lastUnexpectedWarningAt.set(source, now);
   try {
     logger().warn({source, reason}, 'Pi SVG image normalization encountered an unexpected failure');
   } catch {
