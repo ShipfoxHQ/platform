@@ -179,8 +179,6 @@ export {
   getOAuthConsentDetail,
   OAUTH_AUTHORIZATION_CODE_TTL_SECONDS,
   OAUTH_AUTHORIZATION_REQUEST_TTL_SECONDS,
-  oauthTokenResponse,
-  toOAuthConsentResponse,
 } from '#core/oauth-flow.js';
 export type {SignupDenialMessageFormat, SignupPolicy} from '#core/ports.js';
 export {
@@ -207,6 +205,7 @@ export {
   setRefreshTokenCookie,
 } from '#presentation/auth/refresh-cookie.js';
 export {createRunnerSessionAuthMethod} from '#presentation/auth/runner-session-auth.js';
+export {oauthTokenResponse, toOAuthConsentResponse} from '#presentation/dto/oauth.js';
 export type {
   CreateOAuthAuthorizationRoutesOptions,
   CreateOAuthRoutesOptions,

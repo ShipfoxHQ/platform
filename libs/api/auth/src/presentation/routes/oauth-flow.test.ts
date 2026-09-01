@@ -5,13 +5,17 @@ import {
 } from '@shipfox/api-workspaces-dto/inter-module';
 import {createInterModuleKnownError} from '@shipfox/inter-module';
 import {createApp, type FastifyInstance} from '@shipfox/node-fastify';
+import {hashOpaqueToken} from '@shipfox/node-tokens';
 import {describe, expect, it, vi} from '@shipfox/vitest/vi';
 import {eq} from 'drizzle-orm';
+import {config} from '#config.js';
 import {verifyAgentAccessToken} from '#core/agent-access-token.js';
 import {signUserToken} from '#core/jwt.js';
 import {createOAuthClientResolver} from '#core/oauth-client-resolver.js';
+import {OAUTH_AUTHORIZATION_REQUEST_TTL_SECONDS} from '#core/oauth-flow.js';
 import {createAgentClient, findAgentClientByClientId} from '#db/agent-access.js';
 import {db} from '#db/db.js';
+import {agentAuthorizationCodes, agentRefreshTokens} from '#db/schema/agent-access.js';
 import {users} from '#db/schema/users.js';
 import {createJwtAuthMethod} from '#presentation/auth/jwt-auth.js';
 import {createVerifiedSession, ROUTE_TEST_SECRET} from '#test/routes.js';
@@ -28,8 +32,14 @@ function pkce() {
   return {verifier, challenge};
 }
 
-function workspaceClient(workspaceId: string) {
-  const memberships = [{workspaceId, role: 'admin' as const, workspaceStatus: 'active' as const}];
+function workspaceClient(
+  workspaceId: string,
+  memberships: Array<{
+    workspaceId: string;
+    role: 'admin' | 'member';
+    workspaceStatus: 'active' | 'archived';
+  }> = [{workspaceId, role: 'admin', workspaceStatus: 'active'}],
+) {
   return {
     listMembershipsForTokenClaims: vi.fn(async () => ({memberships})),
     requireActiveMembership: vi.fn(async () => ({})),
@@ -45,7 +55,10 @@ async function createTestClient() {
   });
 }
 
-async function createTestApp(workspaces: WorkspacesInterModuleClient): Promise<FastifyInstance> {
+async function createTestApp(
+  workspaces: WorkspacesInterModuleClient,
+  options: {clientBaseUrl?: string; now?: () => Date} = {},
+): Promise<FastifyInstance> {
   const resolver = createOAuthClientResolver({
     findClient: async ({clientId}) => await findAgentClientByClientId({clientId}),
   });
@@ -54,9 +67,10 @@ async function createTestApp(workspaces: WorkspacesInterModuleClient): Promise<F
     routes: [
       createOAuthAuthorizationRoutes({
         apiPublicUrl: `${API_ORIGIN}/`,
-        clientBaseUrl: 'https://app.example.test',
+        clientBaseUrl: options.clientBaseUrl ?? 'https://app.example.test',
         clientResolver: resolver,
         workspaces,
+        ...(options.now ? {now: options.now} : {}),
       }),
     ],
     swagger: false,
@@ -159,6 +173,7 @@ describe('dormant OAuth authorization and token routes', () => {
           redirect_uri: REDIRECT_URI,
           code_verifier: verifier,
           resource: RESOURCE,
+          scope: 'read',
         },
         '198.51.100.240',
       ),
@@ -302,6 +317,87 @@ describe('dormant OAuth authorization and token routes', () => {
     );
   });
 
+  it('revokes the grant family when a refresh-token replay arrives after the grace window', async () => {
+    const workspaceId = crypto.randomUUID();
+    const workspaces = workspaceClient(workspaceId);
+    const account = await createVerifiedSession('oauth-refresh-reuse');
+    const client = await createTestClient();
+    let currentNow = new Date();
+    app = await createTestApp(workspaces, {now: () => currentNow});
+    const firstPkce = pkce();
+    const authorization = await app.inject({
+      method: 'GET',
+      url: authorizationUrl(client.clientId, firstPkce.challenge),
+      headers: {'x-forwarded-for': '198.51.100.254'},
+    });
+    const requestId = new URL(authorization.headers.location ?? '').searchParams.get('request_id');
+    const approval = await app.inject({
+      method: 'POST',
+      url: `/oauth/consents/${requestId}/approve`,
+      headers: bearer(account.token),
+      payload: {workspace_id: workspaceId},
+    });
+    const code = new URL(approval.json().redirect_url).searchParams.get('code') ?? '';
+    const token = await app.inject(
+      tokenForm(
+        {
+          grant_type: 'authorization_code',
+          client_id: client.clientId,
+          code,
+          redirect_uri: REDIRECT_URI,
+          code_verifier: firstPkce.verifier,
+        },
+        '198.51.100.255',
+      ),
+    );
+    const predecessor = token.json().refresh_token;
+    expect(token.statusCode).toBe(200);
+    expect(predecessor).toEqual(expect.any(String));
+
+    const rotated = await app.inject(
+      tokenForm(
+        {
+          grant_type: 'refresh_token',
+          client_id: client.clientId,
+          refresh_token: predecessor,
+        },
+        '198.51.100.1',
+      ),
+    );
+    const successor = rotated.json().refresh_token;
+    expect(rotated.statusCode).toBe(200);
+    expect(successor).toEqual(expect.any(String));
+
+    currentNow = new Date(
+      currentNow.getTime() + (config.AUTH_REFRESH_ROTATION_GRACE_SECONDS + 1) * 1000,
+    );
+    const reused = await app.inject(
+      tokenForm(
+        {
+          grant_type: 'refresh_token',
+          client_id: client.clientId,
+          refresh_token: predecessor,
+        },
+        '198.51.100.2',
+      ),
+    );
+    expect(reused.statusCode).toBe(400);
+    expect(reused.json()).toMatchObject({error: 'invalid_grant'});
+
+    const revokedSuccessor = await app.inject(
+      tokenForm(
+        {
+          grant_type: 'refresh_token',
+          client_id: client.clientId,
+          refresh_token: successor,
+        },
+        '198.51.100.3',
+      ),
+    );
+    expect(revokedSuccessor.statusCode).toBe(400);
+    expect(revokedSuccessor.json()).toMatchObject({error: 'invalid_grant'});
+  });
+
   it('rejects impersonated approval and preserves 404-shaped workspace ownership failures', async () => {
     const workspaceId = crypto.randomUUID();
     const account = await createVerifiedSession('oauth-impersonation');
@@ -340,6 +436,14 @@ describe('dormant OAuth authorization and token routes', () => {
     });
     expect(rejected.statusCode).toBe(403);
     expect(rejected.json()).toEqual({code: 'impersonation-not-permitted'});
+
+    const denialRejected = await app.inject({
+      method: 'POST',
+      url: `/oauth/consents/${requestId}/deny`,
+      headers: bearer(impersonated),
+    });
+    expect(denialRejected.statusCode).toBe(403);
+    expect(denialRejected.json()).toEqual({code: 'impersonation-not-permitted'});
 
     const ownership = await app.inject({
       method: 'POST',
@@ -398,6 +502,44 @@ describe('dormant OAuth authorization and token routes', () => {
     });
     expect(emptyState.statusCode).toBe(400);
     expect(emptyState.json()).toEqual({error: 'invalid_request'});
+
+    const unsupportedTokenScope = await app.inject(
+      tokenForm(
+        {
+          grant_type: 'authorization_code',
+          client_id: client.clientId,
+          code: 'not-a-real-code',
+          redirect_uri: REDIRECT_URI,
+          code_verifier: 'a'.repeat(43),
+          scope: 'write',
+        },
+        '198.51.100.251',
+      ),
+    );
+    expect(unsupportedTokenScope.statusCode).toBe(400);
+    expect(unsupportedTokenScope.json()).toEqual({
+      error: 'invalid_scope',
+      error_description: 'The requested OAuth scope is not supported',
+    });
+  });
+
+  it('rejects an invalid consent base URL before persisting an authorization request', async () => {
+    const workspaces = workspaceClient(crypto.randomUUID());
+    const client = await createTestClient();
+    app = await createTestApp(workspaces, {clientBaseUrl: 'not-a-url'});
+    const {challenge} = pkce();
+
+    const authorization = await app.inject({
+      method: 'GET',
+      url: authorizationUrl(client.clientId, challenge),
+      headers: {'x-forwarded-for': '198.51.100.252'},
+    });
+
+    expect(authorization.statusCode).toBe(500);
+    expect(authorization.json()).toEqual({
+      error: 'invalid_request',
+      error_description: 'The OAuth consent URL is not configured',
+    });
   });
 
   it('rejects consent detail and denial for a suspended account without consuming the request', async () => {
@@ -439,6 +581,311 @@ describe('dormant OAuth authorization and token routes', () => {
       headers: bearer(account.token),
     });
     expect(allowedDenial.statusCode).toBe(200);
+  });
+
+  it('binds consent detail and denial to the first authenticated user', async () => {
+    const workspaces = workspaceClient(crypto.randomUUID());
+    const consentingAccount = await createVerifiedSession('oauth-bound-consent');
+    const otherAccount = await createVerifiedSession('oauth-other-consent');
+    const client = await createTestClient();
+    app = await createTestApp(workspaces);
+    const {challenge} = pkce();
+    const authorization = await app.inject({
+      method: 'GET',
+      url: authorizationUrl(client.clientId, challenge),
+      headers: {'x-forwarded-for': '198.51.100.15'},
+    });
+    const requestId = new URL(authorization.headers.location ?? '').searchParams.get('request_id');
+
+    const detail = await app.inject({
+      method: 'GET',
+      url: `/oauth/consents/${requestId}`,
+      headers: bearer(consentingAccount.token),
+    });
+    expect(detail.statusCode).toBe(200);
+
+    const otherDetail = await app.inject({
+      method: 'GET',
+      url: `/oauth/consents/${requestId}`,
+      headers: bearer(otherAccount.token),
+    });
+    expect(otherDetail.statusCode).toBe(404);
+    expect(otherDetail.json()).toEqual({code: 'not-found'});
+
+    const otherDenial = await app.inject({
+      method: 'POST',
+      url: `/oauth/consents/${requestId}/deny`,
+      headers: bearer(otherAccount.token),
+    });
+    expect(otherDenial.statusCode).toBe(404);
+    expect(otherDenial.json()).toEqual({code: 'not-found'});
+
+    const denial = await app.inject({
+      method: 'POST',
+      url: `/oauth/consents/${requestId}/deny`,
+      headers: bearer(consentingAccount.token),
+    });
+    expect(denial.statusCode).toBe(200);
+  });
+
+  it('enforces the authorization-request and authorization-code TTLs', async () => {
+    const workspaceId = crypto.randomUUID();
+    const workspaces = workspaceClient(workspaceId);
+    const account = await createVerifiedSession('oauth-request-expired');
+    const client = await createTestClient();
+    let currentNow = new Date(Date.now() - (OAUTH_AUTHORIZATION_REQUEST_TTL_SECONDS * 1000 + 1));
+    app = await createTestApp(workspaces, {now: () => currentNow});
+    const {challenge} = pkce();
+    const authorization = await app.inject({
+      method: 'GET',
+      url: authorizationUrl(client.clientId, challenge),
+      headers: {'x-forwarded-for': '198.51.100.4'},
+    });
+    const requestId = new URL(authorization.headers.location ?? '').searchParams.get('request_id');
+
+    const detail = await app.inject({
+      method: 'GET',
+      url: `/oauth/consents/${requestId}`,
+      headers: bearer(account.token),
+    });
+    expect(detail.statusCode).toBe(404);
+    expect(detail.json()).toEqual({code: 'not-found'});
+
+    const approval = await app.inject({
+      method: 'POST',
+      url: `/oauth/consents/${requestId}/approve`,
+      headers: bearer(account.token),
+      payload: {workspace_id: workspaceId},
+    });
+    expect(approval.statusCode).toBe(404);
+    expect(approval.json()).toEqual({code: 'not-found'});
+
+    const denial = await app.inject({
+      method: 'POST',
+      url: `/oauth/consents/${requestId}/deny`,
+      headers: bearer(account.token),
+    });
+    expect(denial.statusCode).toBe(404);
+    expect(denial.json()).toEqual({code: 'not-found'});
+
+    currentNow = new Date();
+    const firstPkce = pkce();
+    const validAuthorization = await app.inject({
+      method: 'GET',
+      url: authorizationUrl(client.clientId, firstPkce.challenge),
+      headers: {'x-forwarded-for': '198.51.100.5'},
+    });
+    const validRequestId = new URL(validAuthorization.headers.location ?? '').searchParams.get(
+      'request_id',
+    );
+    const validApproval = await app.inject({
+      method: 'POST',
+      url: `/oauth/consents/${validRequestId}/approve`,
+      headers: bearer(account.token),
+      payload: {workspace_id: workspaceId},
+    });
+    const code = new URL(validApproval.json().redirect_url).searchParams.get('code') ?? '';
+    await db()
+      .update(agentAuthorizationCodes)
+      .set({expiresAt: new Date(Date.now() - 1_000)})
+      .where(eq(agentAuthorizationCodes.hashedCode, hashOpaqueToken(code)));
+
+    const expiredCode = await app.inject(
+      tokenForm(
+        {
+          grant_type: 'authorization_code',
+          client_id: client.clientId,
+          code,
+          redirect_uri: REDIRECT_URI,
+          code_verifier: firstPkce.verifier,
+        },
+        '198.51.100.6',
+      ),
+    );
+    expect(expiredCode.statusCode).toBe(400);
+    expect(expiredCode.json()).toMatchObject({error: 'invalid_grant'});
+  });
+
+  it('rejects authorization-code binding mismatches before consuming the code', async () => {
+    const workspaceId = crypto.randomUUID();
+    const workspaces = workspaceClient(workspaceId);
+    const account = await createVerifiedSession('oauth-binding');
+    const client = await createTestClient();
+    const otherClient = await createTestClient();
+    app = await createTestApp(workspaces);
+
+    const issueCode = async () => {
+      const firstPkce = pkce();
+      const authorization = await app.inject({
+        method: 'GET',
+        url: authorizationUrl(client.clientId, firstPkce.challenge),
+        headers: {'x-forwarded-for': `198.51.100.${Math.floor(Math.random() * 200) + 7}`},
+      });
+      const requestId = new URL(authorization.headers.location ?? '').searchParams.get(
+        'request_id',
+      );
+      const approval = await app.inject({
+        method: 'POST',
+        url: `/oauth/consents/${requestId}/approve`,
+        headers: bearer(account.token),
+        payload: {workspace_id: workspaceId},
+      });
+      return {
+        code: new URL(approval.json().redirect_url).searchParams.get('code') ?? '',
+        verifier: firstPkce.verifier,
+      };
+    };
+
+    const redirectCode = await issueCode();
+    const redirectMismatch = await app.inject(
+      tokenForm(
+        {
+          grant_type: 'authorization_code',
+          client_id: client.clientId,
+          code: redirectCode.code,
+          redirect_uri: 'https://other.example/callback',
+          code_verifier: redirectCode.verifier,
+        },
+        '198.51.100.8',
+      ),
+    );
+    expect(redirectMismatch.statusCode).toBe(400);
+    expect(redirectMismatch.json()).toMatchObject({error: 'invalid_grant'});
+
+    const redirectRetry = await app.inject(
+      tokenForm(
+        {
+          grant_type: 'authorization_code',
+          client_id: client.clientId,
+          code: redirectCode.code,
+          redirect_uri: REDIRECT_URI,
+          code_verifier: redirectCode.verifier,
+        },
+        '198.51.100.9',
+      ),
+    );
+    expect(redirectRetry.statusCode).toBe(200);
+
+    const clientCode = await issueCode();
+    const clientMismatch = await app.inject(
+      tokenForm(
+        {
+          grant_type: 'authorization_code',
+          client_id: otherClient.clientId,
+          code: clientCode.code,
+          redirect_uri: REDIRECT_URI,
+          code_verifier: clientCode.verifier,
+        },
+        '198.51.100.10',
+      ),
+    );
+    expect(clientMismatch.statusCode).toBe(400);
+    expect(clientMismatch.json()).toMatchObject({error: 'invalid_grant'});
+
+    const clientRetry = await app.inject(
+      tokenForm(
+        {
+          grant_type: 'authorization_code',
+          client_id: client.clientId,
+          code: clientCode.code,
+          redirect_uri: REDIRECT_URI,
+          code_verifier: clientCode.verifier,
+        },
+        '198.51.100.11',
+      ),
+    );
+    expect(clientRetry.statusCode).toBe(200);
+  });
+
+  it('does not persist a refresh token when membership is lost at exchange time', async () => {
+    const workspaceId = crypto.randomUUID();
+    const workspaces = workspaceClient(workspaceId);
+    const account = await createVerifiedSession('oauth-membership-loss');
+    const client = await createTestClient();
+    app = await createTestApp(workspaces);
+    const firstPkce = pkce();
+    const authorization = await app.inject({
+      method: 'GET',
+      url: authorizationUrl(client.clientId, firstPkce.challenge),
+      headers: {'x-forwarded-for': '198.51.100.12'},
+    });
+    const requestId = new URL(authorization.headers.location ?? '').searchParams.get('request_id');
+    const approval = await app.inject({
+      method: 'POST',
+      url: `/oauth/consents/${requestId}/approve`,
+      headers: bearer(account.token),
+      payload: {workspace_id: workspaceId},
+    });
+    const code = new URL(approval.json().redirect_url).searchParams.get('code') ?? '';
+    const refreshCountBefore = (await db().select().from(agentRefreshTokens)).length;
+    workspaces.requireActiveMembership = vi.fn(() => {
+      throw createInterModuleKnownError(
+        workspacesInterModuleContract.methods.requireActiveMembership,
+        'membership-required',
+        {workspaceId},
+      );
+    }) as unknown as WorkspacesInterModuleClient['requireActiveMembership'];
+
+    const rejected = await app.inject(
+      tokenForm(
+        {
+          grant_type: 'authorization_code',
+          client_id: client.clientId,
+          code,
+          redirect_uri: REDIRECT_URI,
+          code_verifier: firstPkce.verifier,
+        },
+        '198.51.100.13',
+      ),
+    );
+    expect(rejected.statusCode).toBe(400);
+    expect(rejected.json()).toMatchObject({error: 'invalid_grant'});
+    expect((await db().select().from(agentRefreshTokens)).length).toBe(refreshCountBefore);
+
+    workspaces.requireActiveMembership = vi.fn(
+      async () => ({}),
+    ) as unknown as WorkspacesInterModuleClient['requireActiveMembership'];
+    const retry = await app.inject(
+      tokenForm(
+        {
+          grant_type: 'authorization_code',
+          client_id: client.clientId,
+          code,
+          redirect_uri: REDIRECT_URI,
+          code_verifier: firstPkce.verifier,
+        },
+        '198.51.100.14',
+      ),
+    );
+    expect(retry.statusCode).toBe(200);
+  });
+
+  it('shows only active workspaces in the consent detail', async () => {
+    const activeWorkspaceId = crypto.randomUUID();
+    const inactiveWorkspaceId = crypto.randomUUID();
+    const workspaces = workspaceClient(activeWorkspaceId, [
+      {workspaceId: activeWorkspaceId, role: 'admin', workspaceStatus: 'active'},
+      {workspaceId: inactiveWorkspaceId, role: 'member', workspaceStatus: 'archived'},
+    ]);
+    const account = await createVerifiedSession('oauth-active-workspace');
+    const client = await createTestClient();
+    app = await createTestApp(workspaces);
+    const {challenge} = pkce();
+    const authorization = await app.inject({
+      method: 'GET',
+      url: authorizationUrl(client.clientId, challenge),
+      headers: {'x-forwarded-for': '198.51.100.253'},
+    });
+    const requestId = new URL(authorization.headers.location ?? '').searchParams.get('request_id');
+
+    const detail = await app.inject({
+      method: 'GET',
+      url: `/oauth/consents/${requestId}`,
+      headers: bearer(account.token),
+    });
+
+    expect(detail.statusCode).toBe(200);
+    expect(detail.json().workspaces).toEqual([{workspace_id: activeWorkspaceId, role: 'admin'}]);
   });
 
   it('rejects approval after the account is suspended and treats malformed ids as not found', async () => {

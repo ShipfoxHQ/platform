@@ -15,6 +15,7 @@ export interface AgentClient {
 export interface AgentAuthorizationRequest {
   id: string;
   clientId: string;
+  userId: string | null;
   redirectUri: string;
   resource: string;
   scopes: string[];

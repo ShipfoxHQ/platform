@@ -1,8 +1,9 @@
 import {createHash, randomBytes, timingSafeEqual} from 'node:crypto';
-import type {
-  OAuthAuthorizeQueryDto,
-  OAuthConsentResponseDto,
-  OAuthTokenRequestDto,
+import {
+  OAUTH_MCP_RESOURCE_PATH,
+  OAUTH_READ_SCOPE,
+  type OAuthAuthorizeQueryDto,
+  type OAuthTokenRequestDto,
 } from '@shipfox/api-auth-dto';
 import {
   type WorkspacesInterModuleClient,
@@ -12,29 +13,21 @@ import {isInterModuleKnownError} from '@shipfox/inter-module';
 import {hashOpaqueToken} from '@shipfox/node-tokens';
 import {config} from '#config.js';
 import {
-  type AgentAccessTx,
   agentRefreshTokenExpiresAt,
-  consumeAgentAuthorizationCodeTx,
-  consumeAgentAuthorizationRequestTx,
-  createAgentAuthorizationCodeTx,
+  approveAgentAuthorizationRequest,
+  claimAgentAuthorizationRequest,
   createAgentAuthorizationRequest,
-  createAgentGrantTx,
-  createAgentRefreshTokenTx,
+  denyAgentAuthorizationRequest,
+  exchangeAgentAuthorizationCode,
+  exchangeAgentRefreshToken,
   findAgentAuthorizationCodeByHash,
   findAgentClientById,
   findAgentGrant,
   findAgentRefreshTokenByHash,
-  findPendingAgentAuthorizationRequest,
   isActiveAgentUser,
-  isActiveAgentUserTx,
-  resolveAgentRefreshTokenReplayTx,
-  rotateAgentRefreshTokenTx,
 } from '#db/agent-access.js';
-import {db} from '#db/db.js';
-import {
-  AGENT_ACCESS_TOKEN_EXPIRES_IN_SECONDS,
-  issueAgentAccessToken,
-} from './agent-access-token.js';
+import {recordTokenRefreshed} from '#metrics/index.js';
+import {issueAgentAccessToken} from './agent-access-token.js';
 import type {AgentAuthorizationRequest, AgentClient, AgentGrant} from './entities/agent-access.js';
 import {
   AuthDependencyUnavailableError,
@@ -44,7 +37,6 @@ import {
   OAuthProtocolError,
   OAuthRedirectUriNotRegisteredError,
 } from './errors.js';
-import {isOAuthLoopbackRedirectUri} from './oauth-client.js';
 import type {OAuthClientResolver} from './oauth-client-resolver.js';
 import {createOAuthClientResolver} from './oauth-client-resolver.js';
 
@@ -84,18 +76,12 @@ export interface OAuthTokenExchangeResult {
   scope: 'read';
 }
 
-interface RefreshExchangeOutcome {
-  kind: 'rotated' | 'grace' | 'rejected' | 'reused';
-  grant?: AgentGrant;
-  refreshToken?: string;
-}
-
 function nowFor(options: OAuthFlowOptions): Date {
   return options.now?.() ?? new Date();
 }
 
 function expectedResource(options: OAuthFlowOptions): string {
-  return `${options.apiPublicOrigin}/mcp`;
+  return `${options.apiPublicOrigin}${OAUTH_MCP_RESOURCE_PATH}`;
 }
 
 function invalidRequest(message: string, params: {redirectUri?: string; state?: string} = {}) {
@@ -133,18 +119,21 @@ function newOpaqueValue(): string {
   return randomBytes(32).toString('base64url');
 }
 
-function consentUrl(options: OAuthFlowOptions, requestId: string): string {
+function consentBaseUrl(options: OAuthFlowOptions): URL {
   const baseUrl = options.clientBaseUrl ?? config.CLIENT_BASE_URL;
   try {
-    const url = new URL('/oauth/consent', baseUrl);
-    url.searchParams.set('request_id', requestId);
-    return url.toString();
-  } catch (error) {
+    return new URL(baseUrl);
+  } catch {
     throw new OAuthProtocolError('invalid_request', 'The OAuth consent URL is not configured', {
       status: 500,
-      ...(error instanceof Error ? {description: error.message} : {}),
     });
   }
+}
+
+function consentUrl(baseUrl: URL, requestId: string): string {
+  const url = new URL('/oauth/consent', baseUrl);
+  url.searchParams.set('request_id', requestId);
+  return url.toString();
 }
 
 function authorizationRedirect(
@@ -207,39 +196,12 @@ async function requireCurrentMembership(params: {
   }
 }
 
-function identityOrigin(client: AgentClient): string {
-  if (client.kind === 'registered') return 'registered client';
-  try {
-    return new URL(client.clientId).origin;
-  } catch {
-    // A CIMD client was validated before it was stored. Keep an invalid row
-    // from becoming a request-time crash if old data predates that check.
-    return client.clientId;
-  }
-}
-
-function consentDetailDto(detail: OAuthConsentDetail): OAuthConsentResponseDto {
-  const redirectUrl = new URL(detail.request.redirectUri);
-  return {
-    request_id: detail.request.id,
-    client_name: detail.client.name,
-    scope: 'read',
-    expires_at: detail.request.expiresAt.toISOString(),
-    redirect_uri_hostname: redirectUrl.hostname,
-    client_identity_origin: identityOrigin(detail.client),
-    is_loopback_redirect: isOAuthLoopbackRedirectUri(detail.request.redirectUri),
-    workspaces: detail.workspaces.map(({workspaceId, role}) => ({
-      workspace_id: workspaceId,
-      role,
-    })),
-  };
-}
-
 export async function beginOAuthAuthorization(params: {
   request: OAuthAuthorizeQueryDto;
   requestIp: string;
   options: OAuthFlowOptions;
 }): Promise<BeginOAuthAuthorizationResult> {
+  const consentBase = consentBaseUrl(params.options);
   const resolver = params.options.clientResolver ?? createOAuthClientResolver();
   let resolved: Awaited<ReturnType<OAuthClientResolver['resolve']>>;
   try {
@@ -282,7 +244,7 @@ export async function beginOAuthAuthorization(params: {
     expiresAt: new Date(now.getTime() + OAUTH_AUTHORIZATION_REQUEST_TTL_SECONDS * 1000),
   });
 
-  return {request, consentUrl: consentUrl(params.options, request.id)};
+  return {request, consentUrl: consentUrl(consentBase, request.id)};
 }
 
 export async function getOAuthConsentDetail(params: {
@@ -292,21 +254,15 @@ export async function getOAuthConsentDetail(params: {
 }): Promise<OAuthConsentDetail> {
   assertConsentRequestId(params.requestId);
   if (!(await isActiveAgentUser({userId: params.userId}))) throw inactiveUserError();
-  const request = await findPendingRequestOrThrow(params.requestId);
+  const request = await claimAgentAuthorizationRequest({
+    id: params.requestId,
+    userId: params.userId,
+  });
+  if (!request) throw new OAuthConsentNotFoundError();
   const client = await findAgentClientById({id: request.clientId});
   if (!client) throw new OAuthConsentNotFoundError();
   const workspaces = await currentMemberships(params.userId, params.options);
   return {request, client, workspaces};
-}
-
-export function toOAuthConsentResponse(detail: OAuthConsentDetail): OAuthConsentResponseDto {
-  return consentDetailDto(detail);
-}
-
-async function findPendingRequestOrThrow(requestId: string): Promise<AgentAuthorizationRequest> {
-  const request = await findPendingAgentAuthorizationRequest({id: requestId});
-  if (!request) throw new OAuthConsentNotFoundError();
-  return request;
 }
 
 export async function approveOAuthConsent(params: {
@@ -325,30 +281,15 @@ export async function approveOAuthConsent(params: {
 
   const rawCode = newOpaqueValue();
   const now = nowFor(params.options);
-  const result = await db().transaction(async (tx) => {
-    if (!(await isActiveAgentUserTx(tx, {userId: params.userId}))) {
-      throw inactiveUserError();
-    }
-
-    const request = await consumeAgentAuthorizationRequestTx(tx, {id: params.requestId});
-    if (!request) throw new OAuthConsentNotFoundError();
-
-    const grant = await createAgentGrantTx(tx, {
-      userId: params.userId,
-      workspaceId: params.workspaceId,
-      clientId: request.clientId,
-      scopes: request.scopes,
-    });
-    await createAgentAuthorizationCodeTx(tx, {
-      grantId: grant.id,
-      hashedCode: hashOpaqueToken(rawCode),
-      codeChallenge: request.codeChallenge,
-      redirectUri: request.redirectUri,
-      resource: request.resource,
-      expiresAt: new Date(now.getTime() + OAUTH_AUTHORIZATION_CODE_TTL_SECONDS * 1000),
-    });
-    return {request};
+  const result = await approveAgentAuthorizationRequest({
+    id: params.requestId,
+    userId: params.userId,
+    workspaceId: params.workspaceId,
+    hashedCode: hashOpaqueToken(rawCode),
+    codeExpiresAt: new Date(now.getTime() + OAUTH_AUTHORIZATION_CODE_TTL_SECONDS * 1000),
   });
+  if (result.kind === 'inactive') throw inactiveUserError();
+  if (result.kind === 'not-found') throw new OAuthConsentNotFoundError();
 
   return {
     redirectUrl: authorizationRedirect(result.request.redirectUri, {
@@ -363,14 +304,12 @@ export async function denyOAuthConsent(params: {
   userId: string;
 }): Promise<{redirectUrl: string}> {
   assertConsentRequestId(params.requestId);
-  const result = await db().transaction(async (tx) => {
-    if (!(await isActiveAgentUserTx(tx, {userId: params.userId}))) {
-      throw inactiveUserError();
-    }
-    const request = await consumeAgentAuthorizationRequestTx(tx, {id: params.requestId});
-    if (!request) throw new OAuthConsentNotFoundError();
-    return {request};
+  const result = await denyAgentAuthorizationRequest({
+    id: params.requestId,
+    userId: params.userId,
   });
+  if (result.kind === 'inactive') throw inactiveUserError();
+  if (result.kind === 'not-found') throw new OAuthConsentNotFoundError();
 
   return {
     redirectUrl: authorizationRedirect(result.request.redirectUri, {
@@ -444,15 +383,10 @@ export async function exchangeOAuthAuthorizationCode(params: {
   });
 
   const rawRefreshToken = newOpaqueValue();
-  const exchange = await db().transaction(async (tx) => {
-    const code = await consumeAgentAuthorizationCodeTx(tx, {hashedCode});
-    if (!code) return undefined;
-    const refreshToken = await createAgentRefreshTokenTx(tx, {
-      grantId: code.grantId,
-      hashedToken: hashOpaqueToken(rawRefreshToken),
-      expiresAt: agentRefreshTokenExpiresAt(nowFor(params.options)),
-    });
-    return {code, refreshToken};
+  const exchange = await exchangeAgentAuthorizationCode({
+    hashedCode,
+    hashedRefreshToken: hashOpaqueToken(rawRefreshToken),
+    refreshTokenExpiresAt: agentRefreshTokenExpiresAt(nowFor(params.options)),
   });
   if (!exchange) throw invalidGrant();
 
@@ -461,84 +395,6 @@ export async function exchangeOAuthAuthorizationCode(params: {
     refreshToken: rawRefreshToken,
     scope: 'read',
   };
-}
-
-async function refreshReplayOutcome(
-  tx: AgentAccessTx,
-  params: {hashedToken: string; options: OAuthFlowOptions},
-): Promise<RefreshExchangeOutcome> {
-  const replay = await resolveAgentRefreshTokenReplayTx(tx, {
-    hashedToken: params.hashedToken,
-    now: nowFor(params.options),
-  });
-  if (!replay) return {kind: 'rejected'};
-  if (replay.kind === 'reused') return {kind: 'reused', grant: replay.grant};
-  return {kind: 'grace', grant: replay.grant};
-}
-
-async function rotateRefreshInTransaction(
-  tx: AgentAccessTx,
-  params: {
-    hashedToken: string;
-    rawReplacement: string;
-    grant: AgentGrant;
-    options: OAuthFlowOptions;
-  },
-): Promise<RefreshExchangeOutcome> {
-  const successor = await rotateAgentRefreshTokenTx(tx, {
-    hashedToken: params.hashedToken,
-    replacementHashedToken: hashOpaqueToken(params.rawReplacement),
-    replacementExpiresAt: agentRefreshTokenExpiresAt(nowFor(params.options)),
-  });
-  if (successor) {
-    return {kind: 'rotated', grant: params.grant, refreshToken: params.rawReplacement};
-  }
-
-  // Another transaction may have rotated the token while this transaction
-  // waited on the grant row. Resolve the now-rotated predecessor under the
-  // same lock so a grace response and replay revocation remain serialized.
-  return await refreshReplayOutcome(tx, {
-    hashedToken: params.hashedToken,
-    options: params.options,
-  });
-}
-
-async function refreshExchange(params: {
-  hashedToken: string;
-  clientId: string;
-  resource: string | undefined;
-  options: OAuthFlowOptions;
-}): Promise<RefreshExchangeOutcome> {
-  const rawReplacement = newOpaqueValue();
-  return await db().transaction(async (tx) => {
-    const existing = await findAgentRefreshTokenByHash({
-      hashedToken: params.hashedToken,
-      executor: tx,
-    });
-    if (!existing) return {kind: 'rejected'};
-
-    const grant = await findAgentGrant({id: existing.grantId, executor: tx});
-    if (!grant || grant.revokedAt || grant.terminalAt) return {kind: 'rejected'};
-    const client = await findAgentClientById({id: grant.clientId, executor: tx});
-    if (!client || client.clientId !== params.clientId) return {kind: 'rejected'};
-    if (params.resource !== undefined && params.resource !== expectedResource(params.options)) {
-      return {kind: 'rejected'};
-    }
-
-    if (existing.rotatedAt) {
-      return await refreshReplayOutcome(tx, {
-        hashedToken: params.hashedToken,
-        options: params.options,
-      });
-    }
-
-    return await rotateRefreshInTransaction(tx, {
-      hashedToken: params.hashedToken,
-      rawReplacement,
-      grant,
-      options: params.options,
-    });
-  });
 }
 
 export async function exchangeOAuthRefreshToken(params: {
@@ -569,19 +425,33 @@ export async function exchangeOAuthRefreshToken(params: {
     ownershipShape: false,
   });
 
-  const outcome = await refreshExchange({
+  // Keep the inter-module membership check outside the database transaction.
+  // The DB helper re-reads and revalidates the binding under its transaction so
+  // rotation remains safe if the grant or client changes while this check runs.
+  const now = nowFor(params.options);
+  const rawReplacement = newOpaqueValue();
+  const outcome = await exchangeAgentRefreshToken({
     hashedToken,
     clientId: params.request.client_id,
     resource: params.request.resource,
-    options: params.options,
+    expectedResource: expectedResource(params.options),
+    rawReplacement,
+    replacementExpiresAt: agentRefreshTokenExpiresAt(now),
+    now,
   });
-  if (outcome.kind === 'reused' || outcome.kind === 'rejected' || !outcome.grant) {
+  if (outcome.kind === 'reused') {
+    recordTokenRefreshed('reused');
     throw invalidGrant();
   }
+  if (outcome.kind === 'rejected' || !outcome.grant) {
+    recordTokenRefreshed('rejected');
+    throw invalidGrant();
+  }
+  recordTokenRefreshed(outcome.kind);
 
   return {
     accessToken: await accessTokenFor(outcome.grant, client),
-    ...(outcome.refreshToken ? {refreshToken: outcome.refreshToken} : {}),
+    ...(outcome.kind === 'rotated' ? {refreshToken: outcome.refreshToken} : {}),
     scope: 'read',
   };
 }
@@ -590,18 +460,11 @@ export async function exchangeOAuthToken(params: {
   request: OAuthTokenRequestDto;
   options: OAuthFlowOptions;
 }): Promise<OAuthTokenExchangeResult> {
+  if (params.request.scope !== undefined && params.request.scope !== OAUTH_READ_SCOPE) {
+    throw new OAuthProtocolError('invalid_scope', 'The requested OAuth scope is not supported');
+  }
   if (params.request.grant_type === 'authorization_code') {
     return await exchangeOAuthAuthorizationCode(params);
   }
   return await exchangeOAuthRefreshToken(params);
-}
-
-export function oauthTokenResponse(result: OAuthTokenExchangeResult) {
-  return {
-    access_token: result.accessToken,
-    token_type: 'Bearer' as const,
-    expires_in: AGENT_ACCESS_TOKEN_EXPIRES_IN_SECONDS,
-    ...(result.refreshToken ? {refresh_token: result.refreshToken} : {}),
-    scope: result.scope,
-  };
 }

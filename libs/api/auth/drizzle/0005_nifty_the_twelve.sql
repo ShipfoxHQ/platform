@@ -1,0 +1,3 @@
+ALTER TABLE "auth_agent_authorization_requests" ADD COLUMN "user_id" uuid;--> statement-breakpoint
+ALTER TABLE "auth_agent_authorization_requests" ADD CONSTRAINT "auth_agent_authorization_requests_user_id_auth_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."auth_users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "auth_agent_authorization_requests_user_id_idx" ON "auth_agent_authorization_requests" USING btree ("user_id");

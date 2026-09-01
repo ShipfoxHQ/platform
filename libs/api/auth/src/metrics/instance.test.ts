@@ -65,6 +65,14 @@ describe('auth metrics', () => {
     });
   });
 
+  it('records refresh-token reuse as a security outcome', () => {
+    metrics.recordTokenRefreshed('reused');
+
+    expect(counterAdd('auth_token_refreshed')).toHaveBeenCalledWith(1, {
+      outcome: 'reused',
+    });
+  });
+
   it('does not let metric failures affect callers', () => {
     counterAdd('auth_rate_limit_checks').mockImplementationOnce(() => {
       throw new Error('metrics unavailable');

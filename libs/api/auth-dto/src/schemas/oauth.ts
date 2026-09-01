@@ -10,6 +10,9 @@ const oauthResponseTypeSchema = z.literal('code');
 /** The only scope exposed by the MCP read-only profile. */
 export const OAUTH_READ_SCOPE = 'read' as const;
 
+/** The canonical resource path exposed by the MCP read-only profile. */
+export const OAUTH_MCP_RESOURCE_PATH = '/mcp' as const;
+
 /** RFC 9728 metadata advertised for the protected MCP resource. */
 export const oauthProtectedResourceMetadataSchema = z
   .object({
@@ -190,6 +193,7 @@ export const oauthTokenRequestSchema = z
   .object({
     grant_type: oauthGrantTypeSchema,
     client_id: oauthClientIdSchema,
+    scope: oauthScopeSchema.optional(),
     code: oauthPresentedTokenSchema.optional(),
     redirect_uri: oauthRedirectUriSchema.optional(),
     code_verifier: oauthCodeVerifierSchema.optional(),

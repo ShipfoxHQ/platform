@@ -1,5 +1,6 @@
 import {AUTH_USER, getUserContext, rejectImpersonatedSession} from '@shipfox/api-auth-context';
 import {
+  OAUTH_MCP_RESOURCE_PATH,
   type OAuthDynamicClientRegistrationResponseDto,
   oauthAuthorizationServerMetadataSchema,
   oauthAuthorizeQuerySchema,
@@ -46,9 +47,8 @@ import {
   exchangeOAuthToken,
   getOAuthConsentDetail,
   type OAuthFlowOptions,
-  oauthTokenResponse,
-  toOAuthConsentResponse,
 } from '#core/oauth-flow.js';
+import {oauthTokenResponse, toOAuthConsentResponse} from '../dto/oauth.js';
 import {createAuthIpRateLimitPreHandler} from './rate-limit.js';
 
 export interface CreateOAuthRoutesOptions {
@@ -62,6 +62,8 @@ export interface CreateOAuthRoutesOptions {
 
 export interface CreateOAuthAuthorizationRoutesOptions extends CreateOAuthRoutesOptions {
   workspaces: WorkspacesInterModuleClient;
+  /** Optional clock override for deterministic flow tests. */
+  now?: () => Date;
 }
 
 function apiPublicOrigin(options: CreateOAuthRoutesOptions): string {
@@ -210,7 +212,7 @@ function createProtectedResourceMetadataRoute(origin: string) {
     description: 'Describe the protected MCP resource and its authorization server.',
     schema: {response: {200: oauthProtectedResourceMetadataSchema}},
     handler: () => ({
-      resource: `${origin}/mcp`,
+      resource: `${origin}${OAUTH_MCP_RESOURCE_PATH}`,
       authorization_servers: [origin],
       scopes_supported: ['read'],
     }),
@@ -274,6 +276,7 @@ function flowOptions(
     ...(options.clientBaseUrl !== undefined ? {clientBaseUrl: options.clientBaseUrl} : {}),
     workspaces: options.workspaces,
     clientResolver: options.clientResolver ?? createOAuthClientResolver(),
+    ...(options.now ? {now: options.now} : {}),
   };
 }
 
@@ -393,6 +396,7 @@ function createOAuthConsentDenyRoute() {
     handler: async (request) => {
       const context = getUserContext(request);
       if (!context) throw new ClientError('Authentication required', 'unauthorized', {status: 401});
+      rejectImpersonatedSession(request);
       const result = await denyOAuthConsent({
         requestId: request.params.requestId,
         userId: context.userId,

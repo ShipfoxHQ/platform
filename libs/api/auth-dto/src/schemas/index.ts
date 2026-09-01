@@ -125,6 +125,7 @@ export {
   jobLeaseTokenClaimsSchema,
 } from './job-lease-token.js';
 export {
+  OAUTH_MCP_RESOURCE_PATH,
   OAUTH_READ_SCOPE,
   type OAuthAuthorizationServerMetadataDto,
   type OAuthAuthorizeQueryDto,
