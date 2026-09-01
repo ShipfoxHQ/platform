@@ -13,7 +13,13 @@ import {
 } from '@aws-sdk/client-ec2';
 import {logger} from '@shipfox/node-opentelemetry';
 import {SHIPFOX_TAGS} from '#instance-identity.js';
-import {type Ec2Architecture, recordEc2LaunchDuration} from '#metrics/instance.js';
+import {
+  type Ec2Architecture,
+  type Ec2HealthObservationStatus,
+  recordEc2HealthObservation,
+  recordEc2HealthObserverCycle,
+  recordEc2LaunchDuration,
+} from '#metrics/instance.js';
 import {type Ec2Market, UNKNOWN_TEMPLATE_KEY} from '#templates.js';
 
 const TRANSIENT_REASONS = new Set<Ec2EngineErrorReason>([
@@ -56,13 +62,7 @@ export type Ec2InstanceState =
   | 'terminated'
   | 'unknown';
 
-export type Ec2StatusCheckStatus =
-  | 'ok'
-  | 'impaired'
-  | 'initializing'
-  | 'insufficient-data'
-  | 'not-applicable'
-  | 'unknown';
+export type Ec2StatusCheckStatus = Ec2HealthObservationStatus;
 
 export interface Ec2StatusCheck {
   readonly status: Ec2StatusCheckStatus;
@@ -234,13 +234,24 @@ export function createEc2Engine(options: CreateEc2EngineOptions): Ec2Engine {
         const instances = await describeManagedInstances(client, provisionerId);
 
         if (!options?.includeStatus) return instances;
-        const statusByInstanceId = await readManagedInstanceStatuses(
-          client,
-          provisionerId,
-          instances,
-        );
+        if (instances.length === 0) {
+          recordEc2HealthObserverCycle('empty');
+          return instances;
+        }
+
+        let statusRead: Ec2InstanceStatusRead;
+        try {
+          statusRead = await readManagedInstanceStatuses(client, provisionerId, instances);
+        } catch (error) {
+          recordEc2HealthObserverCycle('unavailable');
+          throw error;
+        }
+        recordEc2HealthObserverCycle(statusRead.outcome);
+        if (statusRead.outcome === 'complete')
+          recordHealthObservations(instances, statusRead.statusByInstanceId);
+
         return instances.map((instance) => {
-          const status = statusByInstanceId.get(instance.instanceId);
+          const status = statusRead.statusByInstanceId.get(instance.instanceId);
           return status ? {...instance, ...status} : instance;
         });
       } catch (error) {
@@ -295,16 +306,19 @@ async function readManagedInstanceStatuses(
   client: EC2Client,
   provisionerId: string,
   instances: readonly Ec2InstanceView[],
-): Promise<ReadonlyMap<string, Ec2InstanceStatusFields>> {
+): Promise<Ec2InstanceStatusRead> {
   try {
     // The reconciliation path requires ec2:DescribeInstanceStatus. Auth and other permanent
     // status-read failures are propagated so health enforcement fails closed. Retryable failures
     // keep the ordinary instance snapshot, as does the stale-instance race that EC2 reports as
     // InvalidInstanceID.NotFound.
-    return await describeInstanceStatuses(
-      client,
-      instances.map((instance) => instance.instanceId),
-    );
+    return {
+      statusByInstanceId: await describeInstanceStatuses(
+        client,
+        instances.map((instance) => instance.instanceId),
+      ),
+      outcome: 'complete',
+    };
   } catch (error) {
     const mappedError = mapEc2Error(error, 'Cannot read managed EC2 instance statuses.');
     if (!mappedError.retryable && !isStaleInstanceStatusError(error)) throw mappedError;
@@ -316,7 +330,7 @@ async function readManagedInstanceStatuses(
       },
       'EC2 status checks unavailable; continuing with the instance snapshot',
     );
-    return new Map();
+    return {statusByInstanceId: new Map(), outcome: 'unavailable'};
   }
 }
 
@@ -330,6 +344,26 @@ type Ec2InstanceStatusFields = Pick<
   Ec2InstanceView,
   'systemStatus' | 'instanceStatus' | 'attachedEbsStatus' | 'scheduledEvents'
 >;
+
+type Ec2InstanceStatusRead = {
+  statusByInstanceId: ReadonlyMap<string, Ec2InstanceStatusFields>;
+  outcome: 'complete' | 'unavailable';
+};
+
+function recordHealthObservations(
+  instances: readonly Ec2InstanceView[],
+  statusByInstanceId: ReadonlyMap<string, Ec2InstanceStatusFields>,
+): void {
+  for (const instance of instances) {
+    const status = statusByInstanceId.get(instance.instanceId);
+    recordEc2HealthObservation('system', status?.systemStatus?.status ?? 'not-applicable');
+    recordEc2HealthObservation('instance', status?.instanceStatus?.status ?? 'not-applicable');
+    recordEc2HealthObservation(
+      'attached-ebs',
+      status?.attachedEbsStatus?.status ?? 'not-applicable',
+    );
+  }
+}
 
 async function describeInstanceStatuses(
   client: EC2Client,
