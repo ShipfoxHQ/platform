@@ -22,7 +22,7 @@ export function inspectSvgPolicy(source: Uint8Array): SvgPolicyRejection | undef
   for (;;) {
     const match = CSS_URL_START.exec(text);
     if (match === null) break;
-    const closeIndex = text.indexOf(')', CSS_URL_START.lastIndex);
+    const closeIndex = cssUrlEnd(text, CSS_URL_START.lastIndex);
     if (closeIndex < 0) return 'external_resource';
     if (isExternalReference(cssReference(text.slice(CSS_URL_START.lastIndex, closeIndex)))) {
       return 'external_resource';
@@ -31,6 +31,38 @@ export function inspectSvgPolicy(source: Uint8Array): SvgPolicyRejection | undef
   }
 
   return undefined;
+}
+
+function cssUrlEnd(text: string, start: number): number {
+  let quote: '"' | "'" | undefined;
+  let nestedParentheses = 0;
+  for (let index = start; index < text.length; index += 1) {
+    const char = text.charAt(index);
+    if (char === '\\') {
+      index += 1;
+      continue;
+    }
+    if (quote !== undefined) {
+      quote = nextCssQuote(char, quote);
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (char === '(') {
+      nestedParentheses += 1;
+      continue;
+    }
+    if (char !== ')') continue;
+    if (nestedParentheses === 0) return index;
+    nestedParentheses -= 1;
+  }
+  return -1;
+}
+
+function nextCssQuote(char: string, quote: '"' | "'"): '"' | "'" | undefined {
+  return char === quote ? undefined : quote;
 }
 
 function isExternalReference(value: string | undefined): boolean {

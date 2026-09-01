@@ -125,10 +125,12 @@ function readTransformedLength(
   transformVersion: number,
   originalLength: number,
 ): {value: number; nextOffset: number} | undefined {
-  if (transformVersion !== 0) return undefined;
-  if (tag !== 'glyf' && tag !== 'loca') {
-    return {value: originalLength, nextOffset: startOffset};
+  if (tag === 'glyf' || tag === 'loca') {
+    if (transformVersion === 3) return {value: originalLength, nextOffset: startOffset};
+    if (transformVersion !== 0) return undefined;
+    return readBase128(font, startOffset);
   }
+  if (transformVersion === 0) return {value: originalLength, nextOffset: startOffset};
   return readBase128(font, startOffset);
 }
 

@@ -38,7 +38,9 @@ describe('inspectSvgPolicy', () => {
   it('allows same-document fragment references', () => {
     expect(
       inspectSvgPolicy(
-        new TextEncoder().encode('<use href="#badge" /><rect style="fill:url(#fill)" />'),
+        new TextEncoder().encode(
+          '<use href="#badge" /><rect style="fill:url(#fill)" /><rect style="fill:url(#svgView(viewBox(0,0,10,10)))" /><rect style="fill:url(\'#fill)\')" />',
+        ),
       ),
     ).toBeUndefined();
   });
