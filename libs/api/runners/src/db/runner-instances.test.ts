@@ -1640,9 +1640,15 @@ describe('reportRunnerInstances', () => {
 
     const [providerRunner] = await providerRunnerRowsFor({workspaceId, provisionerId});
     const [reservation] = await reservationRowsFor({workspaceId, provisionerId});
+    const runningJobRows = await db()
+      .select({cancellationRequestedAt: runningJobExecutions.cancellationRequestedAt})
+      .from(runningJobExecutions)
+      .where(eq(runningJobExecutions.providerRunnerId, 'mixed-terminal-runner'));
     expect(result).toEqual({accepted: 1, reservationsReleased: 0, terminateIntentsHonored: []});
     expect(providerRunner).toMatchObject({state: 'terminated', reservationReleasedAt: null});
     expect(reservation?.count).toBe(1);
+    expect(runningJobRows).toHaveLength(1);
+    expect(runningJobRows[0]?.cancellationRequestedAt).toBeNull();
   });
 
   it('releases a reservation when a terminal runner only has a cancelled job', async () => {
@@ -1693,8 +1699,7 @@ describe('reportRunnerInstances', () => {
       reservationReleasedAt: expect.any(Date),
     });
     expect(reservationRows).toHaveLength(0);
-    expect(runningJobRows).toHaveLength(1);
-    expect(runningJobRows[0]?.cancellationRequestedAt).toBeInstanceOf(Date);
+    expect(runningJobRows).toHaveLength(0);
   });
 
   it('preserves claimed runner session metadata when a terminal state wins the batch', async () => {
@@ -3110,6 +3115,41 @@ describe('reconcileRunnerInstances', () => {
       .where(eq(providerRunners.providerRunnerId, providerRunnerId));
     expect(afterAuthorization?.terminationAuthorizedAt).toBeInstanceOf(Date);
     expect(afterAuthorization?.terminationReason).toBe('session-exhausted');
+  });
+
+  it('removes a stop handoff after the bounded cleanup grace', async () => {
+    const providerRunnerId = 'expired-stop-handoff-runner';
+    const jobExecutionId = crypto.randomUUID();
+    await createRunnerInstance({providerRunnerId});
+    await insertRunningJob({
+      jobId: crypto.randomUUID(),
+      jobExecutionId,
+      providerRunnerId,
+      startedAt: new Date(Date.now() - 300_000),
+    });
+    await db()
+      .update(runningJobExecutions)
+      .set({
+        cancellationRequestedAt: new Date(Date.now() - 300_000),
+        cancellationReason: 'run_cancelled',
+      })
+      .where(eq(runningJobExecutions.jobExecutionId, jobExecutionId));
+
+    const result = await reconcileRunnerInstancesCore({
+      workspaceId,
+      provisionerId,
+      observedRunnerInstanceIds: [providerRunnerId],
+    });
+
+    expect(result.runners).toMatchObject([
+      {providerRunnerId, desiredIntent: 'terminate', desiredIntentReason: 'job-cancelled'},
+    ]);
+    expect(
+      await db()
+        .select()
+        .from(runningJobExecutions)
+        .where(eq(runningJobExecutions.jobExecutionId, jobExecutionId)),
+    ).toHaveLength(0);
   });
 
   it('keeps stale managed capacity with a live running job', async () => {

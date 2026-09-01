@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => {
     providerRunnersByStateOldestAge: {},
     reservationLeakUnits: {},
     runningJobExecutions: {},
+    stopHandoffCount: {},
+    stopHandoffOldestAge: {},
   };
   const gaugeByName = {
     runners_enrolled_without_recent_report: gauges.enrolledRunnersWithoutRecentReport,
@@ -18,6 +20,8 @@ const mocks = vi.hoisted(() => {
     runners_provider_runner_by_state_oldest_age: gauges.providerRunnersByStateOldestAge,
     runners_reservation_leaked_units: gauges.reservationLeakUnits,
     runners_running_job_executions: gauges.runningJobExecutions,
+    runners_job_stop_handoff_count: gauges.stopHandoffCount,
+    runners_job_stop_handoff_oldest_age: gauges.stopHandoffOldestAge,
   };
   return {
     addBatchObservableCallback: vi.fn(),
@@ -26,6 +30,7 @@ const mocks = vi.hoisted(() => {
     gauges,
     getMeter: vi.fn(),
     getJobExecutionQueueDepth: vi.fn(),
+    getJobExecutionCleanupStats: vi.fn(),
     countLiveReservationLeakUnits: vi.fn(),
     listProviderRunnerByPhaseMetrics: vi.fn(),
     listProviderRunnerByStateMetrics: vi.fn(),
@@ -40,6 +45,7 @@ vi.mock('#config.js', () => ({
   config: {RUNNER_STALE_PROVISIONED_RUNNER_THRESHOLD_SECONDS: 300},
 }));
 vi.mock('#db/job-executions.js', () => ({
+  getJobExecutionCleanupStats: mocks.getJobExecutionCleanupStats,
   getJobExecutionQueueDepth: mocks.getJobExecutionQueueDepth,
 }));
 vi.mock('#db/reservations.js', () => ({
@@ -66,6 +72,7 @@ describe('registerRunnersServiceMetrics', () => {
     mocks.countStaleEnrolledRunnerInstances.mockReset();
     mocks.createObservableGauge.mockClear();
     mocks.getJobExecutionQueueDepth.mockReset();
+    mocks.getJobExecutionCleanupStats.mockReset();
     mocks.countLiveReservationLeakUnits.mockReset();
     mocks.listProviderRunnerByPhaseMetrics.mockReset();
     mocks.listProviderRunnerByStateMetrics.mockReset();
@@ -74,6 +81,10 @@ describe('registerRunnersServiceMetrics', () => {
     mocks.getJobExecutionQueueDepth.mockResolvedValue({
       pendingJobExecutions: 0,
       runningJobExecutions: 0,
+    });
+    mocks.getJobExecutionCleanupStats.mockResolvedValue({
+      stopHandoffCount: 0,
+      stopHandoffOldestAgeMilliseconds: 0,
     });
     mocks.countLiveReservationLeakUnits.mockResolvedValue(0);
     mocks.listProviderRunnerByPhaseMetrics.mockResolvedValue([]);
@@ -130,6 +141,10 @@ describe('registerRunnersServiceMetrics', () => {
       pendingJobExecutions: 3,
       runningJobExecutions: 4,
     });
+    mocks.getJobExecutionCleanupStats.mockResolvedValue({
+      stopHandoffCount: 2,
+      stopHandoffOldestAgeMilliseconds: 5_000,
+    });
     mocks.countStaleEnrolledRunnerInstances.mockRejectedValue(new Error('database unavailable'));
 
     registerRunnersServiceMetrics();
@@ -141,7 +156,7 @@ describe('registerRunnersServiceMetrics', () => {
 
     expect(observer.observe).toHaveBeenCalledWith(mocks.gauges.pendingJobExecutions, 3);
     expect(observer.observe).toHaveBeenCalledWith(mocks.gauges.runningJobExecutions, 4);
-    expect(observer.observe).toHaveBeenCalledTimes(3);
+    expect(observer.observe).toHaveBeenCalledTimes(5);
   });
 
   it('observes provider runners by lifecycle state and oldest age', async () => {

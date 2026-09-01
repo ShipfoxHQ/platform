@@ -133,14 +133,17 @@ export const staleJobCandidateRatio = meter.createHistogram<Record<string, never
   'runners_job_stale_candidate_ratio',
   {
     description:
-      'Proportion of running job leases that are stale, observed in one database snapshot',
+      'Proportion of runner-owned, non-terminal job leases that are stale, observed in one database snapshot',
     advice: {explicitBucketBoundaries: [0, 0.1, 0.25, 0.5, 0.75, 0.9, 1]},
   },
 );
 
 export const jobLeaseExpiryDeferredCount = meter.createCounter<{cause: 'correlated-stale'}>(
   'runners_job_lease_expiry_deferred',
-  {description: 'Stale job lease expiry batches deferred by the circuit breaker'},
+  {
+    description:
+      'Stale job lease expiry batches deferred by the circuit breaker; one sample per deferred maintenance cycle',
+  },
 );
 
 export const jobLeaseExpiryShadowCount = meter.createCounter<{cause: 'correlated-stale'}>(

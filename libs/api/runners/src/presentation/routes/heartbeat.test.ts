@@ -254,6 +254,12 @@ describe('POST /runners/jobs/:jobId/heartbeat', () => {
       workflowRunAttemptId,
       runnerSessionId,
     });
+    expect(
+      await db()
+        .select()
+        .from(runningJobExecutions)
+        .where(eq(runningJobExecutions.jobExecutionId, jobExecutionId)),
+    ).toHaveLength(0);
   });
 
   it('preserves current step scope when renewing a step-scoped lease', async () => {

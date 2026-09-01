@@ -685,6 +685,7 @@ describe('POST /provisioners/runner-instances/reconcile', () => {
       desired_intent: 'keep',
       bound_job: {
         cancellation_requested_at: expect.any(String),
+        cancellation_reason: 'run_cancelled',
       },
     });
     expect(Object.hasOwn(res.json().runners[0], 'termination_reason')).toBe(false);

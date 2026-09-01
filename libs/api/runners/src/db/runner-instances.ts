@@ -34,6 +34,7 @@ import {lockRunnerEnrollmentTx} from './enrollment-locks.js';
 import {
   listRunningJobExecutionsByRunnerInstanceTx,
   type RunnerInstanceBoundJobExecution,
+  removeJobStopHandoffsForTerminalProviderRunnersTx,
 } from './job-executions.js';
 import {lockRunnerReservationAdvisoryKeysTx} from './reservation-locks.js';
 import {releaseTerminalRunnerInstanceReservationsByIds} from './reservations.js';
@@ -532,6 +533,14 @@ export async function reportRunnerInstances(params: ReportRunnerInstancesParams)
           OR ${providerRunnerMilestoneUpdateCondition()}
         `,
       });
+
+    if (freshTerminalEvents.length > 0) {
+      await removeJobStopHandoffsForTerminalProviderRunnersTx(tx, {
+        workspaceId: params.workspaceId,
+        provisionerId: params.provisionerId,
+        providerRunnerIds: freshTerminalEvents.map((event) => event.providerRunnerId),
+      });
+    }
 
     const reservationsReleased =
       freshTerminalEvents.length > 0

@@ -16,6 +16,7 @@ import {
   listProvisionerTerminationAuthorizations,
   type RunnerInstanceReportEvent,
   reconcileRunnerInstances as reconcileRunnerInstancesDb,
+  removeExpiredJobStopHandoffs,
   reportRunnerInstances as reportRunnerInstancesDb,
 } from '#db/index.js';
 import type {
@@ -261,6 +262,19 @@ export async function reconcileRunnerInstances(
     }),
   );
   const authorizationByCandidateRunnerId = new Map(candidateAuthorizations);
+  const cleanupProviderRunnerIds = [
+    ...new Set([...observedRunnerInstanceIds, ...result.absentIds]),
+  ];
+  const expiredStopHandoffs = await removeExpiredJobStopHandoffs({
+    workspaceId: params.workspaceId,
+    provisionerId: params.provisionerId,
+    providerRunnerIds: cleanupProviderRunnerIds,
+    graceSeconds: config.RUNNER_JOB_CLEANUP_GRACE_SECONDS,
+  });
+  recordRunnerReservationReleased({
+    count: expiredStopHandoffs.reservationsReleased,
+    surface: 'reconcile',
+  });
   const authorizations = await listProvisionerTerminationAuthorizations({
     workspaceId: params.workspaceId,
     provisionerId: params.provisionerId,

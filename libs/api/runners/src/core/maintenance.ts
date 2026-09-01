@@ -1,6 +1,9 @@
 import {config} from '#config.js';
 import {deleteExpiredEphemeralRegistrationTokens as deleteExpiredEphemeralRegistrationTokensDb} from '#db/ephemeral-registration-tokens.js';
-import {expireStuckJobExecutions} from '#db/job-executions.js';
+import {
+  expireStuckJobExecutions,
+  removeExpiredUnlinkedJobStopHandoffs,
+} from '#db/job-executions.js';
 import {deleteExpiredReservations} from '#db/reservations.js';
 import {
   reapStaleRunnerInstances as reapStaleRunnerInstancesDb,
@@ -24,6 +27,9 @@ export interface DetectAndExpireStuckJobsParams {
 export async function detectAndExpireStuckJobs(
   params: DetectAndExpireStuckJobsParams = {},
 ): Promise<{expired: number}> {
+  await removeExpiredUnlinkedJobStopHandoffs({
+    graceSeconds: config.RUNNER_JOB_CLEANUP_GRACE_SECONDS,
+  });
   const reaped = await expireStuckJobExecutions({
     noFirstHeartbeatGraceSeconds:
       params.noFirstHeartbeatGraceSeconds ?? config.RUNNER_NO_FIRST_HEARTBEAT_GRACE_SECONDS,
