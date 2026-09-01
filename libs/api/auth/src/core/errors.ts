@@ -227,3 +227,44 @@ export class OpenInvitationExistsError extends Error {
     this.name = 'OpenInvitationExistsError';
   }
 }
+
+export class InvalidOAuthClientMetadataError extends Error {
+  constructor() {
+    super('OAuth client metadata is invalid');
+    this.name = 'InvalidOAuthClientMetadataError';
+  }
+}
+
+export class OAuthRedirectUriNotRegisteredError extends Error {
+  constructor() {
+    super('OAuth redirect URI is not registered');
+    this.name = 'OAuthRedirectUriNotRegisteredError';
+  }
+}
+
+export class OAuthMetadataFetchError extends Error {
+  readonly reason:
+    | 'invalid-url'
+    | 'private-address'
+    | 'dns-failed'
+    | 'connection-failed'
+    | 'redirected'
+    | 'timeout'
+    | 'response-too-large'
+    | 'invalid-response';
+  override readonly cause: unknown;
+
+  constructor(reason: OAuthMetadataFetchError['reason'], cause?: unknown) {
+    super('OAuth client metadata could not be fetched');
+    this.name = 'OAuthMetadataFetchError';
+    this.reason = reason;
+    this.cause = cause;
+  }
+}
+
+export class InvalidOAuthConfigurationError extends Error {
+  constructor() {
+    super('OAuth public URL configuration is invalid');
+    this.name = 'InvalidOAuthConfigurationError';
+  }
+}

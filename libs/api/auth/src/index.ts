@@ -66,6 +66,20 @@ export type {
   ProvisionUserParams,
 } from '#core/auth.js';
 export {createImpersonatedSessionToken, createSessionForUser, provisionUser} from '#core/auth.js';
+export type {
+  CimdAddress,
+  CimdAddressResolver,
+  CimdHttpRequester,
+  CimdHttpResponse,
+  FetchCimdMetadataOptions,
+  FetchedCimdMetadata,
+} from '#core/cimd.js';
+export {
+  fetchClientIdMetadata,
+  isPublicUnicastAddress,
+  OAUTH_CIMD_FETCH_TIMEOUT_MS,
+  OAUTH_CIMD_MAX_BODY_BYTES,
+} from '#core/cimd.js';
 export type {EmailOwner, FindUserByEmailParams} from '#core/email-owner.js';
 export {findUserByEmail} from '#core/email-owner.js';
 export type {AdminGrant} from '#core/entities/admin-grant.js';
@@ -86,7 +100,11 @@ export {
   InvalidAdminBootstrapTokenError,
   InvalidAdministratorUserDirectoryFilterError,
   InvalidCredentialsError,
+  InvalidOAuthClientMetadataError,
+  InvalidOAuthConfigurationError,
   LastAdminOwnerError,
+  OAuthMetadataFetchError,
+  OAuthRedirectUriNotRegisteredError,
   SignupNotAllowedError,
   UserNotFoundError,
 } from '#core/errors.js';
@@ -95,6 +113,37 @@ export {
   jobLeaseParamsFrom,
   verifyJobLeaseToken,
 } from '#core/job-lease-token.js';
+export type {OAuthGrantType, ValidatedOAuthClientMetadata} from '#core/oauth-client.js';
+export {
+  assertOAuthClientMetadataMatchesRequest,
+  assertOAuthRedirectUriRegistered,
+  isOAuthLoopbackRedirectUri,
+  metadataForAgentClient,
+  OAUTH_CIMD_CACHE_MAX_AGE_SECONDS,
+  OAUTH_CLIENT_ID_MAX_BYTES,
+  OAUTH_CLIENT_NAME_MAX_BYTES,
+  OAUTH_REDIRECT_URI_MAX_BYTES,
+  OAUTH_REDIRECT_URI_MAX_COUNT,
+  oauthRedirectUriMatches,
+  validateOAuthClientId,
+  validateOAuthClientMetadataDocument,
+  validateOAuthDynamicClientRegistration,
+  validateOAuthPublicOrigin,
+  validateOAuthRedirectUri,
+} from '#core/oauth-client.js';
+export type {
+  OAuthClientResolver,
+  OAuthClientResolverOptions,
+  RegisteredOAuthClient,
+  RegisterOAuthClientParams,
+  ResolvedOAuthClient,
+  ResolveOAuthClientParams,
+} from '#core/oauth-client-resolver.js';
+export {
+  createOAuthClientResolver,
+  registerOAuthClient,
+  resolveOAuthClient,
+} from '#core/oauth-client-resolver.js';
 export type {SignupDenialMessageFormat, SignupPolicy} from '#core/ports.js';
 export {
   issueRunnerSessionToken,
@@ -120,6 +169,13 @@ export {
   setRefreshTokenCookie,
 } from '#presentation/auth/refresh-cookie.js';
 export {createRunnerSessionAuthMethod} from '#presentation/auth/runner-session-auth.js';
+export type {CreateOAuthRoutesOptions} from '#presentation/routes/oauth.js';
+export {
+  createAgentAccessOAuthRoutes,
+  createOAuthClientIdentificationRoutes,
+  createOAuthMetadataRoutes,
+  createOAuthRoutes,
+} from '#presentation/routes/oauth.js';
 
 const subscriber = subscriberFactory<AuthEventMap>();
 

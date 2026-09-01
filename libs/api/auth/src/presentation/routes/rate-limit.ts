@@ -43,6 +43,18 @@ const policies: Record<
     ip: {limit: 20, windowSeconds: 15 * 60},
     actor: {limit: 20, windowSeconds: 15 * 60},
   },
+  'oauth-register': {
+    ip: {limit: 10, windowSeconds: 60 * 60},
+  },
+  'oauth-cimd': {
+    ip: {limit: 30, windowSeconds: 60 * 60},
+  },
+  'oauth-authorize': {
+    ip: {limit: 30, windowSeconds: 5 * 60},
+  },
+  'oauth-token': {
+    ip: {limit: 60, windowSeconds: 5 * 60},
+  },
 };
 
 interface EmailBody {
