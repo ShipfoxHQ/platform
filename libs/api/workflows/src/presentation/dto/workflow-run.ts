@@ -5,6 +5,7 @@ import type {
   WorkflowRunDto,
   WorkflowRunLineageHeadDto,
   WorkflowRunListItemDto,
+  WorkflowRunSelectionDto,
   WorkflowRunTriggerReferenceDto,
 } from '@shipfox/api-workflows-dto';
 import type {
@@ -14,7 +15,11 @@ import type {
   WorkflowRunTriggerReference,
 } from '#core/entities/workflow-run.js';
 import type {WorkflowRunAttempt} from '#core/entities/workflow-run-attempt.js';
-import type {WorkflowRunJobsSummary, WorkflowRunLineageHead} from '#db/index.js';
+import type {
+  WorkflowRunJobsSummary,
+  WorkflowRunLineageHead,
+  WorkflowRunSelection,
+} from '#db/index.js';
 import {toJobDto, toJobExecutionDto} from './job.js';
 import {toStepAttemptDto, toStepDto} from './step.js';
 
@@ -150,5 +155,24 @@ export function toRunLineageHeadDto(head: WorkflowRunLineageHead): WorkflowRunLi
     latest_attempt: head.latestAttempt,
     current_status: head.currentStatus,
     updated_at: head.updatedAt.toISOString(),
+  };
+}
+
+export function toRunSelectionDto(selection: WorkflowRunSelection): WorkflowRunSelectionDto {
+  return {
+    workflow_run_id: selection.workflowRunId,
+    workflow_run_attempt: selection.workflowRunAttempt,
+    job_id: selection.jobId,
+    job_execution_id: selection.jobExecutionId,
+    step_id: selection.stepId,
+    step_attempt_id: selection.stepAttemptId,
+    step_attempt: selection.stepAttempt,
+    source_location:
+      selection.sourceLocation === null
+        ? null
+        : {
+            start_line: selection.sourceLocation.startLine,
+            end_line: selection.sourceLocation.endLine,
+          },
   };
 }

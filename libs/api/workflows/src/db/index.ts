@@ -73,6 +73,8 @@ export type {
   WorkflowRunJobsSummary,
   WorkflowRunLineageHead,
   WorkflowRunReadPlanEvidence,
+  WorkflowRunSelection,
+  WorkflowRunSelectionParams,
   WorkflowRunStorageAudit,
   WorkflowRunStorageAuditOptions,
 } from './workflow-runs.js';
@@ -118,6 +120,7 @@ export {
   getWorkflowRunById,
   getWorkflowRunDetail,
   getWorkflowRunLineageHead,
+  getWorkflowRunSelection,
   listRunAttempts,
   listRunAttemptsPage,
   listStepAttemptIdsByJobId,

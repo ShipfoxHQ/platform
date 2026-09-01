@@ -151,6 +151,14 @@ export {
   workflowRunAncestrySchema,
 } from '#schemas/workflow-run-ancestry.js';
 export {
+  type WorkflowRunSelectionDto,
+  type WorkflowRunSelectionQueryDto,
+  type WorkflowRunSelectionResponseDto,
+  workflowRunSelectionQuerySchema,
+  workflowRunSelectionResponseSchema,
+  workflowRunSelectionSchema,
+} from '#schemas/workflow-run-selection.js';
+export {
   jobTerminalStatusSchema,
   type ListenerFilterExpressionType,
   type ListenerFilterOutputTypes,

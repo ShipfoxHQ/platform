@@ -8,6 +8,7 @@ import {
 import {and, asc, count, desc, eq, gte, lt, lte, or, type SQL, sql} from 'drizzle-orm';
 import type {JobMode, JobStatus, ListenerStatus} from '#core/entities/job.js';
 import type {JobExecutionStatus} from '#core/entities/job-execution.js';
+import type {StepSourceLocation} from '#core/entities/step.js';
 import type {
   JobExecutionDetail,
   StepDetail,
@@ -64,6 +65,27 @@ export interface WorkflowRunLineageHead {
   latestAttempt: number;
   currentStatus: WorkflowRunStatus;
   updatedAt: Date;
+}
+
+export interface WorkflowRunSelection {
+  workflowRunId: string;
+  workflowRunAttempt: number;
+  jobId: string;
+  jobExecutionId: string | null;
+  stepId: string | null;
+  stepAttemptId: string | null;
+  stepAttempt: number | null;
+  sourceLocation: StepSourceLocation | null;
+}
+
+export interface WorkflowRunSelectionParams {
+  workflowRunId: string;
+  projectId: string;
+  attempt?: number | undefined;
+  jobId?: string | undefined;
+  jobExecutionId?: string | undefined;
+  stepId?: string | undefined;
+  stepAttemptId?: string | undefined;
 }
 
 export interface WorkflowRunBoundedReadMeasurement {
@@ -265,6 +287,228 @@ export async function getWorkflowRunLineageHead(
           updatedAt: row.updatedAt,
         }
       : undefined;
+  } finally {
+    try {
+      options.onRead?.({
+        databaseDurationMilliseconds: performance.now() - startedAt,
+        returnedRows,
+      });
+    } catch {
+      // Measurement observers must not change the bounded read outcome.
+    }
+  }
+}
+
+type WorkflowRunSelectionRow = {
+  workflowRunId: string;
+  workflowRunAttempt: number;
+  jobId: string;
+  jobExecutionId: string | null;
+  stepId: string | null;
+  stepAttemptId: string | null;
+  stepAttempt: number | null;
+  sourceLocation: StepSourceLocation | null;
+};
+
+/**
+ * Resolve only the supplied identity's ancestry. Each branch starts at the deepest supplied
+ * identity so the resolver never scans unrelated executions, steps, or step-attempt history.
+ */
+export function getWorkflowRunSelection(
+  params: WorkflowRunSelectionParams,
+  options: WorkflowRunBoundedReadOptions = {},
+): Promise<WorkflowRunSelection | undefined> {
+  if (params.stepAttemptId) {
+    return getStepAttemptSelection(params, options);
+  }
+
+  if (params.stepId) {
+    return getStepSelection(params, options);
+  }
+
+  if (params.jobExecutionId) {
+    return getJobExecutionSelection(params, options);
+  }
+
+  if (params.jobId) {
+    return getJobSelection(params, options);
+  }
+
+  return Promise.resolve(undefined);
+}
+
+function getStepAttemptSelection(
+  params: WorkflowRunSelectionParams,
+  options: WorkflowRunBoundedReadOptions,
+): Promise<WorkflowRunSelection | undefined> {
+  const stepAttemptId = params.stepAttemptId;
+  if (!stepAttemptId) return Promise.resolve(undefined);
+
+  const identityConditions: SQL[] = [eq(stepAttempts.id, stepAttemptId)];
+  if (params.stepId) identityConditions.push(eq(steps.id, params.stepId));
+  if (params.jobExecutionId) identityConditions.push(eq(jobExecutions.id, params.jobExecutionId));
+  if (params.jobId) identityConditions.push(eq(jobs.id, params.jobId));
+
+  return readWorkflowRunSelection(
+    () =>
+      db()
+        .select({
+          workflowRunId: workflowRuns.id,
+          workflowRunAttempt: workflowRunAttempts.attempt,
+          jobId: jobs.id,
+          jobExecutionId: jobExecutions.id,
+          stepId: steps.id,
+          stepAttemptId: stepAttempts.id,
+          stepAttempt: stepAttempts.attempt,
+          sourceLocation: steps.sourceLocation,
+        })
+        .from(stepAttempts)
+        .innerJoin(
+          steps,
+          and(
+            eq(stepAttempts.stepId, steps.id),
+            eq(stepAttempts.jobExecutionId, steps.jobExecutionId),
+          ),
+        )
+        .innerJoin(jobExecutions, eq(steps.jobExecutionId, jobExecutions.id))
+        .innerJoin(jobs, eq(jobExecutions.jobId, jobs.id))
+        .innerJoin(workflowRunAttempts, eq(jobs.workflowRunAttemptId, workflowRunAttempts.id))
+        .innerJoin(workflowRuns, eq(workflowRunAttempts.workflowRunId, workflowRuns.id))
+        .where(and(...workflowRunSelectionConditions(params, ...identityConditions)))
+        .limit(1),
+    (row) => row,
+    options,
+  );
+}
+
+function getStepSelection(
+  params: WorkflowRunSelectionParams,
+  options: WorkflowRunBoundedReadOptions,
+): Promise<WorkflowRunSelection | undefined> {
+  const stepId = params.stepId;
+  if (!stepId) return Promise.resolve(undefined);
+
+  const identityConditions: SQL[] = [eq(steps.id, stepId)];
+  if (params.jobExecutionId) identityConditions.push(eq(jobExecutions.id, params.jobExecutionId));
+  if (params.jobId) identityConditions.push(eq(jobs.id, params.jobId));
+
+  return readWorkflowRunSelection(
+    () =>
+      db()
+        .select({
+          workflowRunId: workflowRuns.id,
+          workflowRunAttempt: workflowRunAttempts.attempt,
+          jobId: jobs.id,
+          jobExecutionId: jobExecutions.id,
+          stepId: steps.id,
+          stepAttemptId: sql<string | null>`null`,
+          stepAttempt: sql<number | null>`null`,
+          sourceLocation: steps.sourceLocation,
+        })
+        .from(steps)
+        .innerJoin(jobExecutions, eq(steps.jobExecutionId, jobExecutions.id))
+        .innerJoin(jobs, eq(jobExecutions.jobId, jobs.id))
+        .innerJoin(workflowRunAttempts, eq(jobs.workflowRunAttemptId, workflowRunAttempts.id))
+        .innerJoin(workflowRuns, eq(workflowRunAttempts.workflowRunId, workflowRuns.id))
+        .where(and(...workflowRunSelectionConditions(params, ...identityConditions)))
+        .limit(1),
+    (row) => row,
+    options,
+  );
+}
+
+function getJobExecutionSelection(
+  params: WorkflowRunSelectionParams,
+  options: WorkflowRunBoundedReadOptions,
+): Promise<WorkflowRunSelection | undefined> {
+  const jobExecutionId = params.jobExecutionId;
+  if (!jobExecutionId) return Promise.resolve(undefined);
+
+  const identityConditions: SQL[] = [eq(jobExecutions.id, jobExecutionId)];
+  if (params.jobId) identityConditions.push(eq(jobs.id, params.jobId));
+
+  return readWorkflowRunSelection(
+    () =>
+      db()
+        .select({
+          workflowRunId: workflowRuns.id,
+          workflowRunAttempt: workflowRunAttempts.attempt,
+          jobId: jobs.id,
+          jobExecutionId: jobExecutions.id,
+          stepId: sql<string | null>`null`,
+          stepAttemptId: sql<string | null>`null`,
+          stepAttempt: sql<number | null>`null`,
+          sourceLocation: sql<StepSourceLocation | null>`null`,
+        })
+        .from(jobExecutions)
+        .innerJoin(jobs, eq(jobExecutions.jobId, jobs.id))
+        .innerJoin(workflowRunAttempts, eq(jobs.workflowRunAttemptId, workflowRunAttempts.id))
+        .innerJoin(workflowRuns, eq(workflowRunAttempts.workflowRunId, workflowRuns.id))
+        .where(and(...workflowRunSelectionConditions(params, ...identityConditions)))
+        .limit(1),
+    (row) => row,
+    options,
+  );
+}
+
+function getJobSelection(
+  params: WorkflowRunSelectionParams,
+  options: WorkflowRunBoundedReadOptions,
+): Promise<WorkflowRunSelection | undefined> {
+  const jobId = params.jobId;
+  if (!jobId) return Promise.resolve(undefined);
+
+  return readWorkflowRunSelection(
+    () =>
+      db()
+        .select({
+          workflowRunId: workflowRuns.id,
+          workflowRunAttempt: workflowRunAttempts.attempt,
+          jobId: jobs.id,
+          jobExecutionId: sql<string | null>`null`,
+          stepId: sql<string | null>`null`,
+          stepAttemptId: sql<string | null>`null`,
+          stepAttempt: sql<number | null>`null`,
+          sourceLocation: sql<StepSourceLocation | null>`null`,
+        })
+        .from(jobs)
+        .innerJoin(workflowRunAttempts, eq(jobs.workflowRunAttemptId, workflowRunAttempts.id))
+        .innerJoin(workflowRuns, eq(workflowRunAttempts.workflowRunId, workflowRuns.id))
+        .where(and(...workflowRunSelectionConditions(params, eq(jobs.id, jobId))))
+        .limit(1),
+    (row) => row,
+    options,
+  );
+}
+
+function workflowRunSelectionConditions(
+  params: WorkflowRunSelectionParams,
+  ...identityConditions: SQL[]
+): SQL[] {
+  const conditions: SQL[] = [
+    eq(workflowRuns.id, params.workflowRunId),
+    eq(workflowRuns.projectId, params.projectId),
+    ...identityConditions,
+  ];
+  if (params.attempt !== undefined) {
+    conditions.push(eq(workflowRunAttempts.attempt, params.attempt));
+  }
+  return conditions;
+}
+
+async function readWorkflowRunSelection<T extends WorkflowRunSelectionRow>(
+  read: () => Promise<T[]>,
+  map: (row: T) => WorkflowRunSelection,
+  options: WorkflowRunBoundedReadOptions,
+): Promise<WorkflowRunSelection | undefined> {
+  const startedAt = performance.now();
+  let returnedRows = 0;
+
+  try {
+    const rows = await read();
+    returnedRows = rows.length;
+    const row = rows[0];
+    return row ? map(row) : undefined;
   } finally {
     try {
       options.onRead?.({
