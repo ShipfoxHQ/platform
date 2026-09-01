@@ -9,12 +9,17 @@ import type {
 } from '@shipfox/api-integration-spi';
 import type {NodePgDatabase} from 'drizzle-orm/node-postgres';
 import {createGithubApiClient, type GithubApiClient} from '#api/client.js';
-import type {GithubCheckoutTokenCachePort} from '#api/github-checkout-token-cache.js';
+import {
+  deleteGithubCheckoutTokenSecretGroup,
+  type GithubCheckoutTokenCachePort,
+  githubProviderInstanceFingerprint,
+} from '#api/github-checkout-token-cache.js';
 import type {GithubInstallationTokenProvider} from '#api/installation-token-provider.js';
 import {
   createGithubInstallationTokenProvider,
   deleteGithubInstallationTokenSecret,
 } from '#api/installation-token-provider.js';
+import {config, normalizedGithubApiBaseUrl} from '#config.js';
 import {GithubAgentToolsProvider} from '#core/agent-tools.js';
 import {GithubSourceControlProvider} from '#core/source-control.js';
 import {createGithubWebhookProcessor} from '#core/webhook-processor.js';
@@ -38,6 +43,7 @@ const GITHUB_INSTALLATION_ID_PATTERN = /^[1-9]\d*$/u;
 
 export type {GithubApiClient} from '#api/client.js';
 export {
+  createGithubCheckoutTokenCache,
   type GithubCheckoutToken,
   GithubCheckoutTokenCache,
   type GithubCheckoutTokenCachePort,
@@ -114,15 +120,54 @@ export function createGithubIntegrationProvider(options: CreateGithubIntegration
   const getInstallationByConnectionId =
     options.getGithubInstallationByConnectionId ?? getGithubInstallationByConnectionId;
   const deleteSecrets = options.deleteSecrets;
-  const deleteInstallationTokenSecret = deleteSecrets
-    ? (params: {workspaceId: string; installationId: number}) =>
-        deleteGithubInstallationTokenSecret({
-          workspaceId: params.workspaceId,
-          installationId: params.installationId,
-          deleteSecrets,
-        })
+  const checkoutTokenCache = options.checkoutTokenCache;
+  const checkoutTokenProviderInstance =
+    deleteSecrets || checkoutTokenCache
+      ? githubProviderInstanceFingerprint(normalizedGithubApiBaseUrl(), config.GITHUB_APP_ID)
+      : undefined;
+  const deleteInstallationSecrets =
+    deleteSecrets || checkoutTokenCache
+      ? async (params: {workspaceId: string; installationId: number}): Promise<void> => {
+          const cleanup: Promise<unknown>[] = [];
+          if (deleteSecrets) {
+            cleanup.push(
+              deleteGithubInstallationTokenSecret({
+                workspaceId: params.workspaceId,
+                installationId: params.installationId,
+                deleteSecrets,
+              }),
+            );
+          }
+          if (checkoutTokenProviderInstance) {
+            cleanup.push(
+              (async () => {
+                const deleted = checkoutTokenCache?.deleteInstallation
+                  ? await checkoutTokenCache.deleteInstallation(
+                      params.workspaceId,
+                      checkoutTokenProviderInstance,
+                      params.installationId,
+                    )
+                  : 0;
+                // A cache without a shared store can still evict its RAM copy but
+                // must fall through to the authoritative namespace deletion.
+                if (deleted === 0 && deleteSecrets) {
+                  await deleteGithubCheckoutTokenSecretGroup({
+                    workspaceId: params.workspaceId,
+                    providerInstance: checkoutTokenProviderInstance,
+                    installationId: params.installationId,
+                    deleteSecrets,
+                  });
+                }
+              })(),
+            );
+          }
+          await Promise.all(cleanup);
+        }
+      : undefined;
+  const deleteInstallationTokenSecret = deleteInstallationSecrets
+    ? (params: {workspaceId: string; installationId: number}) => deleteInstallationSecrets(params)
     : undefined;
-  const deleteConnectionSecrets = deleteSecrets
+  const deleteConnectionSecrets = deleteInstallationSecrets
     ? async (connection: IntegrationConnection<'github'>): Promise<void> => {
         const {externalAccountId} = connection;
         if (!GITHUB_INSTALLATION_ID_PATTERN.test(externalAccountId)) {
@@ -132,10 +177,9 @@ export function createGithubIntegrationProvider(options: CreateGithubIntegration
         if (!Number.isSafeInteger(installationId)) {
           throw new Error(`Invalid GitHub installation id: ${externalAccountId}`);
         }
-        await deleteGithubInstallationTokenSecret({
+        await deleteInstallationSecrets({
           workspaceId: connection.workspaceId,
           installationId,
-          deleteSecrets,
         });
       }
     : undefined;
@@ -151,11 +195,7 @@ export function createGithubIntegrationProvider(options: CreateGithubIntegration
     repositoryAuthorization: 'unclassified' as const,
     eventCatalog: githubEventCatalog,
     adapters: {
-      source_control: new GithubSourceControlProvider(
-        github,
-        undefined,
-        options.checkoutTokenCache,
-      ),
+      source_control: new GithubSourceControlProvider(github, undefined, checkoutTokenCache),
       agent_tools: new GithubAgentToolsProvider({
         getInstallationByConnectionId: getInstallationByConnectionId,
         tokenProvider:

@@ -5,6 +5,7 @@ import type {IntegrationCapability} from '#core/entities/provider.js';
 import {getIntegrationProviderCapabilities} from '#core/providers/registry.js';
 import {
   getIntegrationConnectionById,
+  listIntegrationConnectionsByProvider,
   resolveUniqueConnectionSlug,
   upsertIntegrationConnection,
 } from '#db/connections.js';
@@ -21,12 +22,14 @@ import type {
   IntegrationProviderModule,
   IntegrationProviderModuleLoadOptions,
 } from '#providers/types.js';
+import {createGithubCheckoutTokenCacheMaintenanceWorker} from '#temporal/worker.js';
 
 async function loadGithubModuleParts(
   options: IntegrationProviderModuleLoadOptions = {},
 ): Promise<IntegrationModuleParts> {
   const {
     createGithubInstallationTokenProvider,
+    createGithubCheckoutTokenCache,
     createGithubE2eRoutes,
     encodeInstallationTokenEnvelope,
     createGithubIntegrationProvider,
@@ -36,19 +39,54 @@ async function loadGithubModuleParts(
     migrationsPath: githubMigrationsPath,
     upsertGithubInstallation,
   } = await import('@shipfox/api-integration-github');
+  const githubSecrets = options.secrets?.github;
+  const listGithubSecretsByNamespace = githubSecrets?.getSecretsByNamespace;
+  const checkoutTokenSecretStore = githubSecrets
+    ? {
+        read: async (params: {workspaceId: string; namespace: string; key: string}) =>
+          await githubSecrets.getSecret(params),
+        write: async (params: {
+          workspaceId: string;
+          namespace: string;
+          key: string;
+          value: string;
+        }) => {
+          await githubSecrets.setSecrets({
+            workspaceId: params.workspaceId,
+            namespace: params.namespace,
+            values: {[params.key]: params.value},
+          });
+        },
+        delete: async (params: {workspaceId: string; namespace: string; key: string}) => {
+          await githubSecrets.deleteSecrets({
+            workspaceId: params.workspaceId,
+            namespace: params.namespace,
+            keys: [params.key],
+          });
+        },
+        deleteNamespace: async (params: {workspaceId: string; namespace: string}) =>
+          await githubSecrets.deleteSecrets(params),
+        ...(listGithubSecretsByNamespace
+          ? {
+              list: async (params: {workspaceId: string; namespace: string}) =>
+                await listGithubSecretsByNamespace(params),
+            }
+          : {}),
+      }
+    : undefined;
 
   const tokenProvider = createGithubInstallationTokenProvider({
     getIntegrationConnectionById,
-    secretStore: options.secrets?.github
+    secretStore: githubSecrets
       ? {
           read: async (workspaceId, installationId, key) =>
-            (await options.secrets?.github?.getSecret({
+            (await githubSecrets.getSecret({
               workspaceId,
               namespace: githubInstallationTokenNamespace(installationId),
               key,
             })) ?? null,
           write: async (workspaceId, installationId, key, envelope) => {
-            await options.secrets?.github?.setSecrets({
+            await githubSecrets.setSecrets({
               workspaceId,
               namespace: githubInstallationTokenNamespace(installationId),
               values: {[key]: encodeInstallationTokenEnvelope(envelope)},
@@ -112,6 +150,9 @@ async function loadGithubModuleParts(
     );
   }
 
+  const checkoutTokenCache = createGithubCheckoutTokenCache({
+    secretStore: checkoutTokenSecretStore,
+  });
   const integrationProvider = createGithubIntegrationProvider({
     getExistingGithubConnection,
     connectGithubInstallation,
@@ -122,11 +163,20 @@ async function loadGithubModuleParts(
     getIntegrationConnectionById,
     coreDb: db,
     deleteSecrets: options.secrets?.deleteSecrets,
+    checkoutTokenCache,
     agentTools: {tokenProvider},
     ...(options.requireActiveWorkspaceMembership
       ? {requireActiveWorkspaceMembership: options.requireActiveWorkspaceMembership}
       : {}),
   });
+  const checkoutTokenCacheMaintenanceWorker =
+    checkoutTokenCache && checkoutTokenSecretStore?.list
+      ? createGithubCheckoutTokenCacheMaintenanceWorker({
+          cache: checkoutTokenCache,
+          listConnections: async () =>
+            await listIntegrationConnectionsByProvider({provider: 'github'}),
+        })
+      : undefined;
   providerCapabilities = getIntegrationProviderCapabilities(integrationProvider.adapters);
 
   return {
@@ -144,6 +194,9 @@ async function loadGithubModuleParts(
       migrationsPath: githubMigrationsPath,
       databaseNamespace: 'integrations_github',
     },
+    ...(checkoutTokenCacheMaintenanceWorker
+      ? {workers: [checkoutTokenCacheMaintenanceWorker]}
+      : {}),
   };
 }
 

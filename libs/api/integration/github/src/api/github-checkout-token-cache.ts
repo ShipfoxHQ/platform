@@ -3,6 +3,7 @@ import {setTimeout as sleepTimeout} from 'node:timers/promises';
 import type {IntegrationProviderErrorReason} from '@shipfox/api-integration-spi';
 import {reportError} from '@shipfox/node-error-monitoring';
 import {logger} from '@shipfox/node-opentelemetry';
+import {config, normalizedGithubApiBaseUrl} from '#config.js';
 import {GithubIntegrationProviderError} from '#core/errors.js';
 import {withGithubCheckoutTokenLock} from '#db/checkout-token-lock.js';
 import {recordGithubCheckoutTokenLookup, recordGithubCheckoutTokenMint} from '#metrics/instance.js';
@@ -24,7 +25,7 @@ export const GITHUB_CHECKOUT_TOKEN_RETENTION_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_MAX_RAM_ENTRIES = 1_000;
 const DEFAULT_POLL_DELAYS_MS = [100, 200, 400, 800, 1_600, 3_200, 6_400, 12_800, 4_500];
 const DEFAULT_MINT_TIMEOUT_MS = 30_000;
-const STORAGE_KEY_PREFIX = `v${GITHUB_CHECKOUT_TOKEN_CACHE_VERSION}-`;
+const STORAGE_KEY_PREFIX = `CHECKOUT_TOKEN_V${GITHUB_CHECKOUT_TOKEN_CACHE_VERSION}_`;
 const BASELINE_PERMISSION_KEYS = new Set(['metadata']);
 const PROVIDER_ERROR_REASONS = new Set<IntegrationProviderErrorReason>([
   'repository-not-found',
@@ -99,10 +100,21 @@ export interface GithubCheckoutTokenCachePort {
     mint: () => Promise<GithubInstallationAccessToken>,
     rejectedGeneration?: string,
   ): Promise<GithubCheckoutToken>;
+  cleanupExpiredInstallation?(
+    workspaceId: string,
+    installationId: number,
+    limit?: number,
+  ): Promise<number>;
+  deleteInstallation?(
+    workspaceId: string,
+    providerInstance: string,
+    installationId: number,
+  ): Promise<number>;
 }
 
 export interface GithubCheckoutTokenCacheOptions {
   secretStore?: GithubCheckoutTokenSecretStore | undefined;
+  providerInstance?: string | undefined;
   withLock?: <T>(
     scopeDigest: string,
     fn: () => Promise<T>,
@@ -112,6 +124,20 @@ export interface GithubCheckoutTokenCacheOptions {
   pollDelaysMs?: number[] | undefined;
   mintTimeoutMs?: number | undefined;
   maxRamEntries?: number | undefined;
+}
+
+export function createGithubCheckoutTokenCache(
+  options: {secretStore?: GithubCheckoutTokenSecretStore | undefined} = {},
+): GithubCheckoutTokenCache | undefined {
+  if (!config.GITHUB_CHECKOUT_TOKEN_CACHE_ENABLED) return undefined;
+  return new GithubCheckoutTokenCache({
+    ...(options.secretStore === undefined ? {} : {secretStore: options.secretStore}),
+    providerInstance: githubProviderInstanceFingerprint(
+      normalizedGithubApiBaseUrl(),
+      config.GITHUB_APP_ID,
+    ),
+    withLock: withGithubCheckoutTokenLock,
+  });
 }
 
 export function canonicalGithubCheckoutTokenScope(scope: GithubCheckoutTokenScope): string {
@@ -133,7 +159,7 @@ export function githubCheckoutTokenScopeDigest(scope: GithubCheckoutTokenScope):
 }
 
 export function githubCheckoutTokenStorageKey(scope: GithubCheckoutTokenScope): string {
-  return `${STORAGE_KEY_PREFIX}${githubCheckoutTokenScopeDigest(scope)}`;
+  return `${STORAGE_KEY_PREFIX}${githubCheckoutTokenScopeDigest(scope).toUpperCase()}`;
 }
 
 export function deleteGithubCheckoutTokenSecretGroup(params: {
@@ -399,18 +425,41 @@ export class GithubCheckoutTokenCache implements GithubCheckoutTokenCachePort {
 
   /** Deletes expired entries in one bounded namespace pass. */
   async cleanupExpired(scope: GithubCheckoutTokenScope, limit = 100): Promise<number> {
-    const store = this.options.secretStore;
-    if (!store?.list || !store.delete) return 0;
-    if (!Number.isSafeInteger(limit) || limit < 1)
-      throw new Error(`Invalid cleanup limit: ${limit}`);
-
     const normalizedScope = normalizeScope(scope);
     const namespace = githubCheckoutTokenNamespace(
       normalizedScope.providerInstance,
       normalizedScope.installationId,
     );
+    return await this.cleanupExpiredNamespace(normalizedScope.workspaceId, namespace, limit);
+  }
+
+  /** Deletes expired entries from one installation namespace in a bounded pass. */
+  async cleanupExpiredInstallation(
+    workspaceId: string,
+    installationId: number,
+    limit = 100,
+  ): Promise<number> {
+    const providerInstance = this.options.providerInstance;
+    if (!providerInstance) return 0;
+    return await this.cleanupExpiredNamespace(
+      workspaceId,
+      githubCheckoutTokenNamespace(providerInstance, installationId),
+      limit,
+    );
+  }
+
+  private async cleanupExpiredNamespace(
+    workspaceId: string,
+    namespace: string,
+    limit: number,
+  ): Promise<number> {
+    const store = this.options.secretStore;
+    if (!store?.list || !store.delete) return 0;
+    if (!Number.isSafeInteger(limit) || limit < 1)
+      throw new Error(`Invalid cleanup limit: ${limit}`);
+
     const values = await store.list({
-      workspaceId: normalizedScope.workspaceId,
+      workspaceId,
       namespace,
     });
     let deleted = 0;
@@ -421,7 +470,7 @@ export class GithubCheckoutTokenCache implements GithubCheckoutTokenCachePort {
       const envelope = parseGithubCheckoutTokenEnvelope(raw);
       if (!envelope || !isExpiredForCleanup(envelope, now)) continue;
       await store.delete({
-        workspaceId: normalizedScope.workspaceId,
+        workspaceId,
         namespace,
         key,
       });

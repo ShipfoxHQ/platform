@@ -579,6 +579,7 @@ describe('defaultModules', () => {
         github: {
           deleteSecrets: expect.any(Function),
           getSecret: expect.any(Function),
+          getSecretsByNamespace: expect.any(Function),
           setSecrets: expect.any(Function),
         },
         linear: {
@@ -607,7 +608,10 @@ describe('defaultModules', () => {
 
     const integrationsOptions = mocks.createIntegrationsContext.mock.calls[0]?.[0] as {
       secrets: {
-        github: Pick<SecretsInterModuleClient, 'deleteSecrets' | 'getSecret' | 'setSecrets'>;
+        github: Pick<
+          SecretsInterModuleClient,
+          'deleteSecrets' | 'getSecret' | 'getSecretsByNamespace' | 'setSecrets'
+        >;
         linear: Pick<SecretsInterModuleClient, 'deleteSecrets' | 'getSecret' | 'setSecrets'>;
         jira: Pick<SecretsInterModuleClient, 'deleteSecrets' | 'getSecret' | 'setSecrets'>;
         slack: Pick<SecretsInterModuleClient, 'deleteSecrets' | 'getSecret' | 'setSecrets'>;
@@ -635,6 +639,9 @@ describe('defaultModules', () => {
     const githubSecret = await integrationsOptions.secrets.github.getSecret({
       ...githubScope,
       key: 'token',
+    });
+    const githubSecrets = await integrationsOptions.secrets.github.getSecretsByNamespace({
+      ...githubScope,
     });
     const githubDeleted = await integrationsOptions.secrets.github.deleteSecrets({
       ...githubScope,
@@ -725,9 +732,15 @@ describe('defaultModules', () => {
       workspaceId: scope.workspaceId,
     });
     expect(githubSecret).toBe('secret');
+    expect(githubSecrets).toEqual({});
     expect(githubDeleted).toBe(1);
     expect(mocks.getSecret.mock.calls.map(([params]) => params)).toContainEqual({
       key: 'token',
+      namespace: githubScope.namespace,
+      projectId: null,
+      workspaceId: scope.workspaceId,
+    });
+    expect(mocks.getSecretsByNamespace.mock.calls.map(([params]) => params)).toContainEqual({
       namespace: githubScope.namespace,
       projectId: null,
       workspaceId: scope.workspaceId,

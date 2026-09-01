@@ -189,6 +189,13 @@ export async function defaultModules(
               namespace: requireGithubSecretNamespace(params.namespace),
             })
           ).value,
+        getSecretsByNamespace: async (params) =>
+          (
+            await secretsClient.getSecretsByNamespace({
+              ...params,
+              namespace: requireGithubSecretNamespace(params.namespace),
+            })
+          ).values,
         setSecrets: async (params) => {
           const {editedBy, ...secretParams} = params;
           await secretsClient.setSecrets({
