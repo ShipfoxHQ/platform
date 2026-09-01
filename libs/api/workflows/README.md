@@ -91,6 +91,19 @@ URLs continue to use the run UUID. A run number is useful in workflow
 expressions as `run.number` and should appear beside the workflow name when it is
 shown in a list.
 
+### Observability
+
+The executor records instance metrics on each API pod and service metrics from
+shared invocation state. Labels stay bounded, and workflow or tool identifiers
+remain in logs and traces.
+
+| Metric | Plane | Labels | Meaning |
+| --- | --- | --- | --- |
+| `workflows_tool_invocation_duration_ms` | Instance | `provider`, `outcome` | Elapsed time for a claimed tool invocation through its durable result. The histogram uses millisecond units and explicit buckets through 120 seconds. |
+| `workflows_tool_invocation_reclaims` | Instance | `action` | Expired or non-retryable claims handled by the executor. `requeued` means the call advances for another read attempt. `failed` means the invocation is settled as interrupted. |
+| `workflows_tool_invocations_queued` | Service | none | Current count of queued tool invocations across the shared database. |
+| `workflows_tool_invocations_in_flight` | Service | none | Current count of tool invocations claimed by an executor. |
+
 ## Development
 
 ```sh

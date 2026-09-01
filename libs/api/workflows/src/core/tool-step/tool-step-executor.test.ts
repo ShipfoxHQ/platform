@@ -25,7 +25,22 @@ import {
   toolRetryDelayMs,
 } from './tool-step-executor.js';
 
+const metricMocks = vi.hoisted(() => ({
+  recordWorkflowToolInvocationDuration: vi.fn(),
+  recordWorkflowToolInvocationLogAppendFailure: vi.fn(),
+  recordWorkflowToolInvocationReclaims: vi.fn(),
+}));
+
+vi.mock('#metrics/instance.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('#metrics/instance.js')>()),
+  recordWorkflowToolInvocationReclaims: metricMocks.recordWorkflowToolInvocationReclaims,
+}));
+
 describe('tool step executor', () => {
+  beforeEach(() => {
+    metricMocks.recordWorkflowToolInvocationReclaims.mockClear();
+  });
+
   test('claims a queued tool, calls the integration, logs it, and settles the step', async () => {
     const {jobId, stepId, connectionId} = await arrangeToolStep();
     const callTool = vi.fn<IntegrationsModuleClient['callTool']>().mockResolvedValue({
@@ -48,6 +63,7 @@ describe('tool step executor', () => {
     });
 
     expect(didWork).toBe(true);
+    expect(metricMocks.recordWorkflowToolInvocationReclaims).not.toHaveBeenCalled();
     expect(callTool).toHaveBeenCalledWith(
       expect.objectContaining({
         workspaceId: expect.any(String),
@@ -269,6 +285,48 @@ describe('tool step executor', () => {
     ]);
   });
 
+  test('records a requeued reclaim when an expired read invocation is found by the executor', async () => {
+    const {jobId} = await arrangeToolStep('read');
+    await nextStepForJob(jobId);
+    const [queued] = await getToolInvocationsByJobExecutionIdForJob(jobId);
+    if (!queued) throw new Error('Expected a queued invocation');
+
+    const firstNow = new Date();
+    const [claimed] = (
+      await claimToolInvocations({
+        limit: 1,
+        now: firstNow,
+        claimOwner: 'executor-one',
+        claimExpiresAt: new Date(firstNow.getTime() + 1_000),
+      })
+    ).claims;
+    if (!claimed) throw new Error('Expected a claimed invocation');
+    await db()
+      .update(toolInvocationsTable)
+      .set({claimExpiresAt: new Date(Date.now() - 1)})
+      .where(eq(toolInvocationsTable.id, claimed.invocation.id));
+
+    const didReclaim = await runToolStepExecutorCycle({
+      integrations: {} as unknown as IntegrationsModuleClient,
+      logs: {} as unknown as LogsModuleClient,
+      signal: new AbortController().signal,
+      claimOwner: 'executor-two',
+      concurrency: 8,
+      callTimeoutMs: 30_000,
+    });
+
+    expect(didReclaim).toBe(true);
+    await db()
+      .update(toolInvocationsTable)
+      .set({dueAt: new Date(Date.now() + 60_000)})
+      .where(eq(toolInvocationsTable.id, claimed.invocation.id));
+    expect(metricMocks.recordWorkflowToolInvocationReclaims).toHaveBeenCalledWith('requeued', 1);
+    expect(metricMocks.recordWorkflowToolInvocationReclaims).not.toHaveBeenCalledWith(
+      'failed',
+      expect.any(Number),
+    );
+  });
+
   test('retries a rate-limited read and settles the next call', async () => {
     const {jobId} = await arrangeToolStep('read');
     const callTool = vi
@@ -362,6 +420,11 @@ describe('tool step executor', () => {
     });
 
     expect(callTool).not.toHaveBeenCalled();
+    expect(metricMocks.recordWorkflowToolInvocationReclaims).toHaveBeenCalledWith('failed', 1);
+    expect(metricMocks.recordWorkflowToolInvocationReclaims).not.toHaveBeenCalledWith(
+      'requeued',
+      expect.any(Number),
+    );
     const [step] = await getStepsByJobId(jobId);
     expect(step).toMatchObject({status: 'failed', error: {code: 'invocation_interrupted'}});
     const [invocation] = await getToolInvocationsByJobExecutionIdForJob(jobId);
