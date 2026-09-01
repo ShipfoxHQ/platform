@@ -1,5 +1,19 @@
 import {isUniqueViolation} from '@shipfox/node-drizzle';
-import {and, count, desc, eq, ilike, inArray, lt, or, type SQL, sql} from 'drizzle-orm';
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gt,
+  ilike,
+  inArray,
+  isNotNull,
+  lt,
+  or,
+  type SQL,
+  sql,
+} from 'drizzle-orm';
 import type {Project} from '#core/entities/project.js';
 import {
   ProjectAlreadyExistsError,
@@ -249,6 +263,118 @@ export async function findProjectBySourceRepositoryName(
     .orderBy(projects.createdAt, projects.id);
 
   return rows.map(toProject);
+}
+
+export interface ProjectSourceRepository {
+  externalRepositoryId: string;
+  owner: string;
+  name: string;
+  projectId: string;
+  projectName: string;
+}
+
+export interface ProjectSourceRepositoryCursor {
+  owner: string;
+  name: string;
+  externalRepositoryId: string;
+}
+
+export interface ListProjectsBySourceConnectionParams {
+  workspaceId: string;
+  sourceConnectionId: string;
+  limit: number;
+  cursor?: ProjectSourceRepositoryCursor | undefined;
+}
+
+export interface ListProjectsBySourceConnectionResult {
+  projects: ProjectSourceRepository[];
+  nextCursor: ProjectSourceRepositoryCursor | null;
+}
+
+function projectSourceRepositoryCursorWhere(
+  cursor: ProjectSourceRepositoryCursor | undefined,
+): SQL | undefined {
+  if (!cursor) return undefined;
+
+  return or(
+    sql`lower(${projects.sourceRepositoryOwner}) > lower(${cursor.owner})`,
+    and(
+      sql`lower(${projects.sourceRepositoryOwner}) = lower(${cursor.owner})`,
+      sql`lower(${projects.sourceRepositoryName}) > lower(${cursor.name})`,
+    ),
+    and(
+      sql`lower(${projects.sourceRepositoryOwner}) = lower(${cursor.owner})`,
+      sql`lower(${projects.sourceRepositoryName}) = lower(${cursor.name})`,
+      gt(projects.sourceExternalRepositoryId, cursor.externalRepositoryId),
+    ),
+  );
+}
+
+export async function listProjectsBySourceConnection(
+  params: ListProjectsBySourceConnectionParams,
+): Promise<ListProjectsBySourceConnectionResult> {
+  const conditions = [
+    eq(projects.workspaceId, params.workspaceId),
+    eq(projects.sourceConnectionId, params.sourceConnectionId),
+    isNotNull(projects.sourceRepositoryOwner),
+    isNotNull(projects.sourceRepositoryName),
+  ];
+  const cursorCondition = projectSourceRepositoryCursorWhere(params.cursor);
+  if (cursorCondition) conditions.push(cursorCondition);
+
+  const rows = await db()
+    .select({
+      externalRepositoryId: projects.sourceExternalRepositoryId,
+      owner: projects.sourceRepositoryOwner,
+      name: projects.sourceRepositoryName,
+      projectId: projects.id,
+      projectName: projects.name,
+    })
+    .from(projects)
+    .where(and(...conditions))
+    .orderBy(
+      asc(sql`lower(${projects.sourceRepositoryOwner})`),
+      asc(sql`lower(${projects.sourceRepositoryName})`),
+      asc(projects.sourceExternalRepositoryId),
+    )
+    .limit(params.limit + 1);
+
+  const hasMore = rows.length > params.limit;
+  const pageRows = hasMore ? rows.slice(0, params.limit) : rows;
+  const projectRepositories = pageRows.map(toProjectSourceRepository);
+  const last = projectRepositories.at(-1);
+
+  return {
+    projects: projectRepositories,
+    nextCursor:
+      hasMore && last
+        ? {
+            owner: last.owner,
+            name: last.name,
+            externalRepositoryId: last.externalRepositoryId,
+          }
+        : null,
+  };
+}
+
+function toProjectSourceRepository(row: {
+  externalRepositoryId: string;
+  owner: string | null;
+  name: string | null;
+  projectId: string;
+  projectName: string;
+}): ProjectSourceRepository {
+  if (row.owner === null || row.name === null) {
+    throw new Error('Project source repository metadata is missing');
+  }
+
+  return {
+    externalRepositoryId: row.externalRepositoryId,
+    owner: row.owner,
+    name: row.name,
+    projectId: row.projectId,
+    projectName: row.projectName,
+  };
 }
 
 export interface UpdateProjectSourceRepositoryParams extends GetProjectBySourceParams {

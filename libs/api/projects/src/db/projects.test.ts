@@ -6,9 +6,216 @@ import {
   getProjectById,
   getProjectCount,
   getWorkspaceProjectCounts,
+  listProjectsBySourceConnection,
   updateProject,
 } from './projects.js';
 import {projects} from './schema/projects.js';
+
+async function insertSourceRepositoryProject(params: {
+  workspaceId: string;
+  sourceConnectionId: string;
+  sourceRepositoryOwner: string | null;
+  sourceRepositoryName: string | null;
+  sourceExternalRepositoryId: string;
+  name?: string;
+}) {
+  const [project] = await db()
+    .insert(projects)
+    .values({
+      workspaceId: params.workspaceId,
+      sourceConnectionId: params.sourceConnectionId,
+      sourceExternalRepositoryId: params.sourceExternalRepositoryId,
+      sourceRepositoryOwner: params.sourceRepositoryOwner,
+      sourceRepositoryName: params.sourceRepositoryName,
+      name: params.name ?? 'Project',
+      slug: `project-${crypto.randomUUID()}`,
+    })
+    .returning({id: projects.id});
+
+  if (!project) throw new Error('Project insert returned no row');
+  return project.id;
+}
+
+describe('listProjectsBySourceConnection', () => {
+  it('returns an empty page when no project repository matches', async () => {
+    const result = await listProjectsBySourceConnection({
+      workspaceId: crypto.randomUUID(),
+      sourceConnectionId: crypto.randomUUID(),
+      limit: 10,
+    });
+
+    expect(result).toEqual({projects: [], nextCursor: null});
+  });
+
+  it('returns a single project repository with its project details', async () => {
+    const workspaceId = crypto.randomUUID();
+    const sourceConnectionId = crypto.randomUUID();
+    const projectId = await insertSourceRepositoryProject({
+      workspaceId,
+      sourceConnectionId,
+      sourceRepositoryOwner: 'Acme',
+      sourceRepositoryName: 'API',
+      sourceExternalRepositoryId: 'github:1',
+      name: 'API project',
+    });
+
+    const result = await listProjectsBySourceConnection({
+      workspaceId,
+      sourceConnectionId,
+      limit: 10,
+    });
+
+    expect(result).toEqual({
+      projects: [
+        {
+          externalRepositoryId: 'github:1',
+          owner: 'Acme',
+          name: 'API',
+          projectId,
+          projectName: 'API project',
+        },
+      ],
+      nextCursor: null,
+    });
+  });
+
+  it('paginates only the scoped project repositories', async () => {
+    const workspaceId = crypto.randomUUID();
+    const sourceConnectionId = crypto.randomUUID();
+    const firstId = await insertSourceRepositoryProject({
+      workspaceId,
+      sourceConnectionId,
+      sourceRepositoryOwner: 'acme',
+      sourceRepositoryName: 'one',
+      sourceExternalRepositoryId: 'github:1',
+    });
+    const secondId = await insertSourceRepositoryProject({
+      workspaceId,
+      sourceConnectionId,
+      sourceRepositoryOwner: 'acme',
+      sourceRepositoryName: 'two',
+      sourceExternalRepositoryId: 'github:2',
+    });
+    const thirdId = await insertSourceRepositoryProject({
+      workspaceId,
+      sourceConnectionId,
+      sourceRepositoryOwner: 'other',
+      sourceRepositoryName: 'three',
+      sourceExternalRepositoryId: 'github:3',
+    });
+    await insertSourceRepositoryProject({
+      workspaceId: crypto.randomUUID(),
+      sourceConnectionId,
+      sourceRepositoryOwner: 'acme',
+      sourceRepositoryName: 'outside-workspace',
+      sourceExternalRepositoryId: 'github:4',
+    });
+    await insertSourceRepositoryProject({
+      workspaceId,
+      sourceConnectionId: crypto.randomUUID(),
+      sourceRepositoryOwner: 'acme',
+      sourceRepositoryName: 'outside-connection',
+      sourceExternalRepositoryId: 'github:5',
+    });
+
+    const firstPage = await listProjectsBySourceConnection({
+      workspaceId,
+      sourceConnectionId,
+      limit: 2,
+    });
+
+    expect(firstPage.projects.map(({projectId}) => projectId)).toEqual([firstId, secondId]);
+    expect(firstPage.nextCursor).toEqual({
+      owner: 'acme',
+      name: 'two',
+      externalRepositoryId: 'github:2',
+    });
+
+    const secondPage = await listProjectsBySourceConnection({
+      workspaceId,
+      sourceConnectionId,
+      limit: 2,
+      cursor: firstPage.nextCursor ?? undefined,
+    });
+
+    expect(secondPage.projects.map(({projectId}) => projectId)).toEqual([thirdId]);
+    expect(secondPage.nextCursor).toBeNull();
+  });
+
+  it('orders equal folded owner and repository names by external repository id', async () => {
+    const workspaceId = crypto.randomUUID();
+    const sourceConnectionId = crypto.randomUUID();
+    await insertSourceRepositoryProject({
+      workspaceId,
+      sourceConnectionId,
+      sourceRepositoryOwner: 'AcMe',
+      sourceRepositoryName: 'Api',
+      sourceExternalRepositoryId: 'github:2',
+    });
+    await insertSourceRepositoryProject({
+      workspaceId,
+      sourceConnectionId,
+      sourceRepositoryOwner: 'acme',
+      sourceRepositoryName: 'api',
+      sourceExternalRepositoryId: 'github:1',
+    });
+    await insertSourceRepositoryProject({
+      workspaceId,
+      sourceConnectionId,
+      sourceRepositoryOwner: 'ACME',
+      sourceRepositoryName: 'API',
+      sourceExternalRepositoryId: 'github:3',
+    });
+
+    const firstPage = await listProjectsBySourceConnection({
+      workspaceId,
+      sourceConnectionId,
+      limit: 1,
+    });
+    const secondPage = await listProjectsBySourceConnection({
+      workspaceId,
+      sourceConnectionId,
+      limit: 1,
+      cursor: firstPage.nextCursor ?? undefined,
+    });
+    const thirdPage = await listProjectsBySourceConnection({
+      workspaceId,
+      sourceConnectionId,
+      limit: 1,
+      cursor: secondPage.nextCursor ?? undefined,
+    });
+
+    expect(
+      [firstPage, secondPage, thirdPage].flatMap((page) =>
+        page.projects.map(({externalRepositoryId}) => externalRepositoryId),
+      ),
+    ).toEqual(['github:1', 'github:2', 'github:3']);
+    expect(thirdPage.nextCursor).toBeNull();
+  });
+
+  it('excludes project rows without repository owner or name metadata', async () => {
+    const workspaceId = crypto.randomUUID();
+    const sourceConnectionId = crypto.randomUUID();
+    await insertSourceRepositoryProject({
+      workspaceId,
+      sourceConnectionId,
+      sourceRepositoryOwner: 'acme',
+      sourceRepositoryName: null,
+      sourceExternalRepositoryId: 'github:missing-name',
+    });
+    await insertSourceRepositoryProject({
+      workspaceId,
+      sourceConnectionId,
+      sourceRepositoryOwner: null,
+      sourceRepositoryName: 'api',
+      sourceExternalRepositoryId: 'github:missing-owner',
+    });
+
+    await expect(
+      listProjectsBySourceConnection({workspaceId, sourceConnectionId, limit: 10}),
+    ).resolves.toEqual({projects: [], nextCursor: null});
+  });
+});
 
 describe('findProjectBySourceRepositoryName', () => {
   it('returns all case-insensitive matches scoped by workspace and connection', async () => {

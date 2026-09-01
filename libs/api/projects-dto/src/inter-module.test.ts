@@ -35,6 +35,43 @@ describe('projectsInterModuleContract', () => {
     ).toEqual(input);
   });
 
+  test('accepts paginated source connection project repositories', () => {
+    const workspaceId = '00000000-0000-4000-8000-000000000001';
+    const sourceConnectionId = '00000000-0000-4000-8000-000000000002';
+    const cursor = {
+      owner: 'acme',
+      name: 'api',
+      externalRepositoryId: 'github:1',
+    };
+    const input = {
+      workspaceId,
+      sourceConnectionId,
+      limit: 10,
+      cursor,
+    };
+
+    expect(
+      projectsInterModuleContract.methods.listProjectsBySourceConnection.input.parse(input),
+    ).toEqual(input);
+  });
+
+  test('accepts source connection project repository results', () => {
+    const project = {
+      externalRepositoryId: 'github:1',
+      owner: 'acme',
+      name: 'api',
+      projectId: '00000000-0000-4000-8000-000000000001',
+      projectName: 'API',
+    };
+
+    expect(
+      projectsInterModuleContract.methods.listProjectsBySourceConnection.output.parse({
+        projects: [project],
+        nextCursor: null,
+      }),
+    ).toEqual({projects: [project], nextCursor: null});
+  });
+
   test('accepts checkout targets addressed by project', () => {
     const workspaceId = '00000000-0000-4000-8000-000000000001';
     const projectId = '00000000-0000-4000-8000-000000000003';

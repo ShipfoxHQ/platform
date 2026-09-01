@@ -11,6 +11,7 @@ import {
   getProjectBySource,
   getWorkspaceProjectCounts,
   listProjects,
+  listProjectsBySourceConnection,
   resolveCheckoutTarget,
 } from '#db/projects.js';
 
@@ -25,6 +26,7 @@ export function createProjectsInterModulePresentation(): InterModulePresentation
     findProjectBySourceRepositoryName: async (input) => ({
       projects: await findProjectBySourceRepositoryName(input),
     }),
+    listProjectsBySourceConnection: async (input) => await listProjectsBySourceConnection(input),
     listProjectsByWorkspace: async ({workspaceId, limit, cursor}) => {
       const result = await listProjectPage({workspaceId, limit, cursor});
       return {

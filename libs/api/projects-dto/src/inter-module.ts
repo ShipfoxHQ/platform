@@ -26,6 +26,18 @@ const projectCursorSchema = z.object({
   createdAt: z.string().datetime(),
   id: idSchema,
 });
+const projectRepositorySchema = z.object({
+  externalRepositoryId: z.string(),
+  owner: z.string().min(1),
+  name: z.string().min(1),
+  projectId: idSchema,
+  projectName: z.string(),
+});
+const projectRepositoryCursorSchema = z.object({
+  owner: z.string().min(1),
+  name: z.string().min(1),
+  externalRepositoryId: z.string(),
+});
 const checkoutTargetSchema = z.strictObject({project: idSchema});
 const resolvedCheckoutTargetValue = z.strictObject({
   kind: z.literal('external-id'),
@@ -61,6 +73,18 @@ export const projectsInterModuleContract = defineInterModuleContract({
         sourceRepositoryName: z.string().min(1),
       }),
       output: z.object({projects: z.array(projectSchema)}),
+    },
+    listProjectsBySourceConnection: {
+      input: z.object({
+        workspaceId: idSchema,
+        sourceConnectionId: idSchema,
+        limit: z.number().int().min(1).max(100),
+        cursor: projectRepositoryCursorSchema.optional(),
+      }),
+      output: z.object({
+        projects: z.array(projectRepositorySchema),
+        nextCursor: projectRepositoryCursorSchema.nullable(),
+      }),
     },
     listProjectsByWorkspace: {
       input: z.object({

@@ -35,6 +35,10 @@ export {
 export type {
   FindProjectBySourceRepositoryNameParams,
   GetProjectBySourceParams,
+  ListProjectsBySourceConnectionParams,
+  ListProjectsBySourceConnectionResult,
+  ProjectSourceRepository,
+  ProjectSourceRepositoryCursor,
 } from '#db/index.js';
 export {
   createProject,
@@ -44,6 +48,7 @@ export {
   getProjectBySource,
   getWorkspaceProjectCounts,
   listProjects,
+  listProjectsBySourceConnection,
   migrationsPath,
   projectsOutbox,
   requireProjectForWorkspace,
