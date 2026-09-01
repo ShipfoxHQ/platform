@@ -85,7 +85,9 @@ test.describe('workspace setup checklist', () => {
         displayName: 'Linear E2E',
         accessToken: `linear-e2e-token-${linearOrganizationId}`,
       });
-      await page.goto('/integrations/linear/callback?code=e2e-code&state=e2e-state');
+      await page.goto('/integrations/linear/callback?code=e2e-code&state=e2e-state', {
+        waitUntil: 'commit',
+      });
       await expect(page).toHaveURL(
         new RegExp(`/w/${workspace.slug}/settings/integrations/?$`, 'u'),
       );
