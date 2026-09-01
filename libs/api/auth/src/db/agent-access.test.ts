@@ -12,19 +12,30 @@ import {
   createAgentRefreshToken,
   findActiveAgentAuthorizationCodeByHash,
   findActiveAgentPersonalAccessTokenByHash,
+  findActiveAgentRefreshTokenByGrantId,
   findActiveAgentRefreshTokenByHash,
+  findAgentAuthorizationCodeByHash,
   findAgentClientByClientId,
+  findAgentGrant,
   findAgentPersonalAccessTokenByHash,
   findAgentRefreshTokenByHash,
   findPendingAgentAuthorizationRequest,
   lockAgentGrant,
   markAgentPersonalAccessTokenUsed,
   pruneAgentAccess,
+  revokeAgentGrant,
   revokeAgentPersonalAccessToken,
   rotateAgentRefreshToken,
+  transitionAgentGrantsToTerminal,
 } from './agent-access.js';
 import {db} from './db.js';
-import {agentClients} from './schema/agent-access.js';
+import {
+  agentClients,
+  agentGrants,
+  agentPersonalAccessTokens,
+  agentRefreshTokens,
+} from './schema/agent-access.js';
+import {users} from './schema/users.js';
 
 const GRANT_LOCK_TEST_TIMEOUT_MS = 30_000;
 
@@ -191,6 +202,19 @@ describe('agent-access db', () => {
       id: pat.id,
       lastUsedAt: expect.any(Date),
     });
+    expect(await markAgentPersonalAccessTokenUsed({id: pat.id})).toBeUndefined();
+    await db()
+      .update(agentPersonalAccessTokens)
+      .set({lastUsedAt: new Date(Date.now() - 61_000)})
+      .where(eq(agentPersonalAccessTokens.id, pat.id));
+    expect(await markAgentPersonalAccessTokenUsed({id: pat.id})).toMatchObject({
+      id: pat.id,
+      lastUsedAt: expect.any(Date),
+    });
+    await db().update(users).set({status: 'suspended'}).where(eq(users.id, user.id));
+    expect(
+      await findActiveAgentPersonalAccessTokenByHash({hashedToken: pat.hashedToken}),
+    ).toBeUndefined();
     await revokeAgentPersonalAccessToken({id: pat.id});
     expect(
       await findActiveAgentPersonalAccessTokenByHash({hashedToken: pat.hashedToken}),
@@ -204,6 +228,230 @@ describe('agent-access db', () => {
     expect(
       await findAgentPersonalAccessTokenByHash({hashedToken: pat.hashedToken}),
     ).toBeUndefined();
+  });
+
+  test('serializes concurrent refresh rotation and revokes the complete grant family', async () => {
+    const user = await userFactory.create();
+    const client = await createAgentClient({
+      clientId: `https://client.example/${crypto.randomUUID()}`,
+      name: 'Test client',
+      redirectUris: ['https://client.example/callback'],
+      kind: 'registered',
+    });
+    const grant = await createAgentGrant({
+      userId: user.id,
+      workspaceId: crypto.randomUUID(),
+      clientId: client.id,
+      scopes: ['read'],
+    });
+    const first = await createAgentRefreshToken({
+      grantId: grant.id,
+      hashedToken: hashOpaqueToken(`concurrent-refresh-${crypto.randomUUID()}`),
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    const replacements = [
+      hashOpaqueToken(`replacement-a-${crypto.randomUUID()}`),
+      hashOpaqueToken(`replacement-b-${crypto.randomUUID()}`),
+    ];
+
+    const rotations = await Promise.all(
+      replacements.map((replacementHashedToken) =>
+        rotateAgentRefreshToken({
+          hashedToken: first.hashedToken,
+          replacementHashedToken,
+          replacementExpiresAt: new Date(Date.now() + 60_000),
+        }),
+      ),
+    );
+
+    expect(rotations.filter(Boolean)).toHaveLength(1);
+    const refreshRows = await db()
+      .select({id: agentRefreshTokens.id, hashedToken: agentRefreshTokens.hashedToken})
+      .from(agentRefreshTokens)
+      .where(eq(agentRefreshTokens.grantId, grant.id));
+    expect(refreshRows).toHaveLength(2);
+    expect(await findAgentRefreshTokenByHash({hashedToken: first.hashedToken})).toMatchObject({
+      id: first.id,
+      rotatedAt: expect.any(Date),
+    });
+    const live = await findActiveAgentRefreshTokenByGrantId({grantId: grant.id});
+    expect(live?.hashedToken).toBeOneOf(replacements);
+
+    const revoked = await revokeAgentGrant({grantId: grant.id});
+    expect(revoked).toMatchObject({
+      id: grant.id,
+      revokedAt: expect.any(Date),
+      terminalAt: expect.any(Date),
+    });
+    expect(await findAgentRefreshTokenByHash({hashedToken: first.hashedToken})).toBeUndefined();
+    expect(await findActiveAgentRefreshTokenByGrantId({grantId: grant.id})).toBeUndefined();
+    for (const hashedToken of replacements) {
+      expect(await findAgentRefreshTokenByHash({hashedToken})).toBeUndefined();
+    }
+  });
+
+  test('keeps terminal transitions serialized with authorization-code exchange', async () => {
+    const user = await userFactory.create();
+    const client = await createAgentClient({
+      clientId: `https://client.example/${crypto.randomUUID()}`,
+      name: 'Test client',
+      redirectUris: ['https://client.example/callback'],
+      kind: 'registered',
+    });
+    const emptyGrant = await createAgentGrant({
+      userId: user.id,
+      workspaceId: crypto.randomUUID(),
+      clientId: client.id,
+      scopes: ['read'],
+    });
+    expect(await transitionAgentGrantsToTerminal()).toBeGreaterThanOrEqual(1);
+    expect(await findAgentGrant({id: emptyGrant.id})).toMatchObject({
+      terminalAt: expect.any(Date),
+    });
+
+    const grant = await createAgentGrant({
+      userId: user.id,
+      workspaceId: crypto.randomUUID(),
+      clientId: client.id,
+      scopes: ['read'],
+    });
+    const code = await createAgentAuthorizationCode({
+      grantId: grant.id,
+      hashedCode: hashOpaqueToken(`racing-code-${crypto.randomUUID()}`),
+      codeChallenge: 'challenge',
+      redirectUri: 'https://client.example/callback',
+      resource: 'https://api.example/mcp',
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    await transitionAgentGrantsToTerminal({limit: 1_000});
+    expect(await findAgentGrant({id: grant.id})).toMatchObject({terminalAt: null});
+
+    const [consumed, transitioned] = await Promise.all([
+      consumeAgentAuthorizationCode({hashedCode: code.hashedCode}),
+      transitionAgentGrantsToTerminal(),
+    ]);
+
+    expect(consumed).toMatchObject({id: code.id, grantId: grant.id});
+    expect(transitioned).toBeGreaterThanOrEqual(0);
+    expect(await consumeAgentAuthorizationCode({hashedCode: code.hashedCode})).toBeUndefined();
+    expect(await findAgentGrant({id: grant.id})).toBeDefined();
+  });
+
+  test('applies credential retention windows and retires clients after their grants', async () => {
+    const now = new Date('2026-09-01T00:00:00.000Z');
+    const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+    const user = await userFactory.create();
+    const client = await createAgentClient({
+      clientId: `https://client.example/${crypto.randomUUID()}`,
+      name: 'Retention client',
+      redirectUris: ['https://client.example/callback'],
+      kind: 'registered',
+    });
+    const request = await createAgentAuthorizationRequest({
+      clientId: client.id,
+      redirectUri: 'https://client.example/callback',
+      resource: 'https://api.example/mcp',
+      scopes: ['read'],
+      codeChallenge: 'challenge',
+      state: null,
+      expiresAt: oneDayAgo,
+    });
+    const grant = await createAgentGrant({
+      userId: user.id,
+      workspaceId: crypto.randomUUID(),
+      clientId: client.id,
+      scopes: ['read'],
+    });
+    const code = await createAgentAuthorizationCode({
+      grantId: grant.id,
+      hashedCode: hashOpaqueToken(`retention-code-${crypto.randomUUID()}`),
+      codeChallenge: 'challenge',
+      redirectUri: 'https://client.example/callback',
+      resource: 'https://api.example/mcp',
+      expiresAt: oneDayAgo,
+    });
+    const rotated = await createAgentRefreshToken({
+      grantId: grant.id,
+      hashedToken: hashOpaqueToken(`retention-rotated-${crypto.randomUUID()}`),
+      expiresAt: new Date(now.getTime() + 60_000),
+    });
+    await db()
+      .update(agentRefreshTokens)
+      .set({rotatedAt: thirtyDaysAgo})
+      .where(eq(agentRefreshTokens.id, rotated.id));
+    const revoked = await createAgentRefreshToken({
+      grantId: grant.id,
+      hashedToken: hashOpaqueToken(`retention-revoked-${crypto.randomUUID()}`),
+      expiresAt: new Date(now.getTime() + 60_000),
+    });
+    await db()
+      .update(agentRefreshTokens)
+      .set({revokedAt: thirtyDaysAgo})
+      .where(eq(agentRefreshTokens.id, revoked.id));
+    const expired = await createAgentRefreshToken({
+      grantId: grant.id,
+      hashedToken: hashOpaqueToken(`retention-expired-${crypto.randomUUID()}`),
+      expiresAt: thirtyDaysAgo,
+    });
+    const expiredPat = await createAgentPersonalAccessToken({
+      userId: user.id,
+      workspaceId: grant.workspaceId,
+      hashedToken: hashOpaqueToken(`retention-expired-pat-${crypto.randomUUID()}`),
+      prefix: 'sf_pat_expired',
+      name: 'Expired PAT',
+      scopes: ['read'],
+      expiresAt: ninetyDaysAgo,
+    });
+    const revokedPat = await createAgentPersonalAccessToken({
+      userId: user.id,
+      workspaceId: grant.workspaceId,
+      hashedToken: hashOpaqueToken(`retention-revoked-pat-${crypto.randomUUID()}`),
+      prefix: 'sf_pat_revoked',
+      name: 'Revoked PAT',
+      scopes: ['read'],
+      expiresAt: new Date(now.getTime() + 60_000),
+    });
+    await db()
+      .update(agentPersonalAccessTokens)
+      .set({revokedAt: ninetyDaysAgo})
+      .where(eq(agentPersonalAccessTokens.id, revokedPat.id));
+
+    await pruneAgentAccess({now});
+
+    expect(await findPendingAgentAuthorizationRequest({id: request.id})).toBeUndefined();
+    expect(await findAgentAuthorizationCodeByHash({hashedCode: code.hashedCode})).toBeUndefined();
+    for (const token of [rotated, revoked, expired]) {
+      expect(await findAgentRefreshTokenByHash({hashedToken: token.hashedToken})).toBeUndefined();
+    }
+    expect(
+      await findAgentPersonalAccessTokenByHash({hashedToken: expiredPat.hashedToken}),
+    ).toBeUndefined();
+    expect(
+      await findAgentPersonalAccessTokenByHash({hashedToken: revokedPat.hashedToken}),
+    ).toBeUndefined();
+    expect(await findAgentGrant({id: grant.id})).toMatchObject({
+      terminalAt: expect.any(Date),
+    });
+    expect(await findAgentClientByClientId({clientId: client.clientId})).toMatchObject({
+      id: client.id,
+      unreferencedAt: null,
+    });
+
+    await db()
+      .update(agentGrants)
+      .set({terminalAt: ninetyDaysAgo})
+      .where(eq(agentGrants.id, grant.id));
+    await pruneAgentAccess({now});
+    expect(await findAgentGrant({id: grant.id})).toBeUndefined();
+    expect(await findAgentClientByClientId({clientId: client.clientId})).toMatchObject({
+      id: client.id,
+      unreferencedAt: expect.any(Date),
+    });
+
+    await pruneAgentAccess({now: new Date(now.getTime() + 31 * 24 * 60 * 60 * 1000)});
+    expect(await findAgentClientByClientId({clientId: client.clientId})).toBeUndefined();
   });
 
   test('consumes an authorization code exactly once and preserves its bindings', async () => {
@@ -336,7 +584,7 @@ describe('agent-access db', () => {
       scopes: ['read'],
       codeChallenge: 'challenge',
       state: 'state',
-      expiresAt: new Date(Date.now() - 1),
+      expiresAt: new Date(Date.now() - 1_000),
     });
     const user = await userFactory.create();
     const grant = await createAgentGrant({
@@ -351,7 +599,7 @@ describe('agent-access db', () => {
       codeChallenge: 'challenge',
       redirectUri: 'https://client.example/callback',
       resource: 'https://api.example/mcp',
-      expiresAt: new Date(Date.now() - 1),
+      expiresAt: new Date(Date.now() - 1_000),
     });
 
     const pendingRequest = await findPendingAgentAuthorizationRequest({id: request.id});

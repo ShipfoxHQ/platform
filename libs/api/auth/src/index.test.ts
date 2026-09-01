@@ -110,4 +110,19 @@ describe('authModule', () => {
     ]);
     expect(events).toEqual(expect.arrayContaining([AUTH_PASSWORD_RESET_SEND_REQUESTED]));
   });
+
+  test('registers the agent-access retention worker', () => {
+    expect(authModule.workers).toEqual([
+      expect.objectContaining({
+        taskQueue: 'auth-agent-access-maintenance',
+        workflows: [
+          {
+            name: 'agentAccessRetentionCron',
+            id: 'auth-agent-access-retention',
+            cronSchedule: '0 * * * *',
+          },
+        ],
+      }),
+    ]);
+  });
 });

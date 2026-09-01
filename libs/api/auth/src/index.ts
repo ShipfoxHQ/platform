@@ -1,3 +1,5 @@
+import {dirname, resolve} from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {
   AUTH_PASSWORD_RESET_SEND_REQUESTED,
   type AuthEventMap,
@@ -24,9 +26,13 @@ import {
 } from '#presentation/routes/administration.js';
 import {buildAuthRoutes} from '#presentation/routes/index.js';
 import {onPasswordResetSendRequested} from '#presentation/subscribers/index.js';
+import {createAuthMaintenanceActivities} from '#temporal/activities/index.js';
+import {AUTH_AGENT_ACCESS_MAINTENANCE_TASK_QUEUE} from '#temporal/constants.js';
 import {passwordLoginMethods} from './login-methods.js';
 
 const authPublisherEventSchemas = {...authEventSchemas, ...administrationActionEventSchemas};
+const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const workflowsPath = resolve(packageRoot, 'dist/temporal/workflows/index.js');
 
 export type {AdminRole, JobLeaseTokenClaims, RunnerSessionTokenClaims} from '@shipfox/api-auth-dto';
 export {
@@ -140,6 +146,20 @@ export function createAuthModule({
     e2eRoutes: [createAuthE2eRoutes(workspaces)],
     publishers: [{name: 'auth', table: authOutbox, db, eventSchemas: authPublisherEventSchemas}],
     subscribers: [subscriber(AUTH_PASSWORD_RESET_SEND_REQUESTED, onPasswordResetSendRequested)],
+    workers: [
+      {
+        taskQueue: AUTH_AGENT_ACCESS_MAINTENANCE_TASK_QUEUE,
+        workflowsPath,
+        activities: createAuthMaintenanceActivities,
+        workflows: [
+          {
+            name: 'agentAccessRetentionCron',
+            id: 'auth-agent-access-retention',
+            cronSchedule: '0 * * * *',
+          },
+        ],
+      },
+    ],
     interModulePresentations: [createAuthInterModulePresentation()],
   };
 }
