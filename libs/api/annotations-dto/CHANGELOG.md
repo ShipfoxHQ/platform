@@ -1,5 +1,15 @@
 # @shipfox/annotations-dto
 
+## 19.0.0
+
+### Minor Changes
+
+- 34ebe6a: Expose workspace-scoped workflow execution and annotation read contracts.
+
+### Patch Changes
+
+- @shipfox/inter-module@0.2.3
+
 ## 12.3.0
 
 ### Minor Changes

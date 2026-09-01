@@ -1,5 +1,14 @@
 # @shipfox/api-integration-gitea-dto
 
+## 19.0.0
+
+### Patch Changes
+
+- Updated dependencies [b416c4c]
+- Updated dependencies [a52cd6d]
+- Updated dependencies [75a54d1]
+  - @shipfox/api-integration-core-dto@19.0.0
+
 ## 18.0.0
 
 ### Patch Changes

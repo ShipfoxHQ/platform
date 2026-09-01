@@ -1,5 +1,35 @@
 # @shipfox/api-projects
 
+## 19.0.0
+
+### Minor Changes
+
+- 5af8d52: Adds project catalog and workflow-definition reads, plus trigger-event summaries, details, and facets.
+- a225bf8: Adds a case-insensitive project lookup contract for source repository owner and name.
+
+### Patch Changes
+
+- b416c4c: Preserves existing package behavior while simplifying internal control flow.
+- Updated dependencies [b416c4c]
+- Updated dependencies [5af8d52]
+- Updated dependencies [a52cd6d]
+- Updated dependencies [a225bf8]
+- Updated dependencies [75a54d1]
+- Updated dependencies [621108c]
+  - @shipfox/api-auth-context@19.0.0
+  - @shipfox/api-integration-core-dto@19.0.0
+  - @shipfox/node-module@1.0.8
+  - @shipfox/node-outbox@0.2.7
+  - @shipfox/api-projects-dto@19.0.0
+  - @shipfox/api-auth-dto@19.0.0
+  - @shipfox/api-common-dto@15.0.0
+  - @shipfox/inter-module@0.2.3
+  - @shipfox/node-drizzle@0.3.5
+  - @shipfox/node-fastify@0.4.3
+  - @shipfox/node-opentelemetry@0.6.5
+  - @shipfox/node-postgres@0.5.1
+  - @shipfox/node-temporal@0.4.6
+
 ## 18.0.0
 
 ### Patch Changes

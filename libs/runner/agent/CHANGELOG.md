@@ -1,5 +1,27 @@
 # @shipfox/runner-agent
 
+## 0.2.21
+
+### Patch Changes
+
+- eb84a64: Adds Claude Agent SDK session resume, fork handling, transcript commits, and native session ID reporting.
+- Updated dependencies [34ebe6a]
+- Updated dependencies [c07c8e2]
+- Updated dependencies [b416c4c]
+- Updated dependencies [461e3a0]
+- Updated dependencies [b2e6556]
+- Updated dependencies [cd5fb8f]
+- Updated dependencies [93918a4]
+  - @shipfox/api-workflows-dto@19.0.0
+  - @shipfox/api-agent-dto@19.0.0
+  - @shipfox/expression@2.4.2
+  - @shipfox/node-egress-guard@0.1.4
+  - @shipfox/api-runners-dto@19.0.0
+  - @shipfox/runner-execution@0.1.34
+  - @shipfox/runner-protocol@0.2.27
+  - @shipfox/config@1.2.4
+  - @shipfox/node-opentelemetry@0.6.5
+
 ## 0.2.20
 
 ### Patch Changes

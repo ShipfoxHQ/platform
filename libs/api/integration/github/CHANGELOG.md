@@ -1,5 +1,28 @@
 # @shipfox/api-integration-github
 
+## 19.0.0
+
+### Minor Changes
+
+- 6e164c0: Reuses cached GitHub checkout credentials for repeated checkouts of the same repository scope, with GITHUB_CHECKOUT_TOKEN_CACHE_ENABLED (default true) available for direct minting.
+- a52cd6d: Adds checkout targets addressed by stable external IDs or owner/name declarations. Checkout inputs reject ambiguous targets and caller-supplied metadata.
+
+### Patch Changes
+
+- b416c4c: Preserves existing package behavior while simplifying internal control flow.
+- c81ead6: Corrects the GitHub pull-request branch update permission declaration. Runs materialized before this change retain their previous scope and can receive provider-level errors until they are rematerialized.
+- Updated dependencies [b416c4c]
+- Updated dependencies [a52cd6d]
+  - @shipfox/api-auth-context@19.0.0
+  - @shipfox/api-integration-spi@2.2.0
+  - @shipfox/api-integration-github-dto@19.0.0
+  - @shipfox/config@1.2.4
+  - @shipfox/node-drizzle@0.3.5
+  - @shipfox/node-error-monitoring@0.3.0
+  - @shipfox/node-fastify@0.4.3
+  - @shipfox/node-opentelemetry@0.6.5
+  - @shipfox/node-postgres@0.5.1
+
 ## 18.0.0
 
 ### Minor Changes

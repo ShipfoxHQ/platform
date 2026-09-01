@@ -1,5 +1,22 @@
 # @shipfox/client-triggers
 
+## 29.0.0
+
+### Patch Changes
+
+- b416c4c: Preserves existing package behavior while simplifying internal control flow.
+- Updated dependencies [b416c4c]
+- Updated dependencies [5af8d52]
+- Updated dependencies [b416c4c]
+- Updated dependencies [2f35a8b]
+  - @shipfox/client-projects@29.0.0
+  - @shipfox/client-shell@29.0.0
+  - @shipfox/client-ui@29.0.0
+  - @shipfox/react-ui@2.3.3
+  - @shipfox/api-triggers-dto@19.0.0
+  - @shipfox/integration-icons@0.3.11
+  - @shipfox/client-api@6.0.1
+
 ## 28.0.0
 
 ### Patch Changes

@@ -1,5 +1,11 @@
 # @shipfox/vite
 
+## 1.2.8
+
+### Patch Changes
+
+- b416c4c: Preserves existing package behavior while simplifying internal control flow.
+
 ## 1.2.7
 
 ### Patch Changes

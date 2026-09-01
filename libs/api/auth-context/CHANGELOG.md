@@ -1,5 +1,15 @@
 # @shipfox/api-auth-context
 
+## 19.0.0
+
+### Patch Changes
+
+- b416c4c: Preserves existing package behavior while simplifying internal control flow.
+- Updated dependencies [621108c]
+  - @shipfox/api-auth-dto@19.0.0
+  - @shipfox/api-workspaces-dto@15.0.0
+  - @shipfox/node-fastify@0.4.3
+
 ## 18.0.0
 
 ### Patch Changes

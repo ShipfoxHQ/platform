@@ -1,5 +1,55 @@
 # @shipfox/api-workflows
 
+## 19.0.0
+
+### Minor Changes
+
+- 34ebe6a: Expose workspace-scoped workflow execution and annotation read contracts.
+- 93918a4: Server workflow tool steps now return a `wait` protocol while a scheduled tool call is pending, and clients recognize the new `tool_error`, `tool_config_invalid`, and `invocation_interrupted` step error reasons.
+- a61dda2: Materializes integration tool steps with typed inputs, mapped outputs, and frozen catalog metadata.
+
+### Patch Changes
+
+- c07c8e2: Preserves the pinned agent harness across workflow reruns.
+- b416c4c: Preserves existing package behavior while simplifying internal control flow.
+- 75a54d1: Adds the repository authorization contract with exact-ID/name target resolution and its authorization error codes. Checkout now surfaces repository-authorization failures as not-granted (404), ambiguous (409), and store-unavailable (503) errors.
+- Updated dependencies [34ebe6a]
+- Updated dependencies [c07c8e2]
+- Updated dependencies [b416c4c]
+- Updated dependencies [5af8d52]
+- Updated dependencies [a52cd6d]
+- Updated dependencies [461e3a0]
+- Updated dependencies [a225bf8]
+- Updated dependencies [75a54d1]
+- Updated dependencies [b2e6556]
+- Updated dependencies [621108c]
+- Updated dependencies [cd5fb8f]
+- Updated dependencies [93918a4]
+  - @shipfox/api-workflows-dto@19.0.0
+  - @shipfox/annotations-dto@19.0.0
+  - @shipfox/api-agent-dto@19.0.0
+  - @shipfox/api-auth-context@19.0.0
+  - @shipfox/api-integration-core-dto@19.0.0
+  - @shipfox/expression@2.4.2
+  - @shipfox/node-module@1.0.8
+  - @shipfox/node-outbox@0.2.7
+  - @shipfox/runner-labels@0.2.1
+  - @shipfox/workflow-document@3.3.2
+  - @shipfox/api-projects-dto@19.0.0
+  - @shipfox/api-definitions-dto@19.0.0
+  - @shipfox/api-runners-dto@19.0.0
+  - @shipfox/api-auth-dto@19.0.0
+  - @shipfox/api-secrets-dto@12.0.0
+  - @shipfox/api-workspaces-dto@15.0.0
+  - @shipfox/config@1.2.4
+  - @shipfox/inter-module@0.2.3
+  - @shipfox/node-drizzle@0.3.5
+  - @shipfox/node-error-monitoring@0.3.0
+  - @shipfox/node-fastify@0.4.3
+  - @shipfox/node-opentelemetry@0.6.5
+  - @shipfox/node-postgres@0.5.1
+  - @shipfox/node-temporal@0.4.6
+
 ## 18.0.0
 
 ### Minor Changes

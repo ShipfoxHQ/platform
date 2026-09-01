@@ -1,5 +1,11 @@
 # @shipfox/node-egress-guard
 
+## 0.1.4
+
+### Patch Changes
+
+- b416c4c: Preserves existing package behavior while simplifying internal control flow.
+
 ## 0.1.3
 
 ### Patch Changes

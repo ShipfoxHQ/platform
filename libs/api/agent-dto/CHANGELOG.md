@@ -1,5 +1,15 @@
 # @shipfox/api-agent-dto
 
+## 19.0.0
+
+### Patch Changes
+
+- c07c8e2: Preserves the pinned agent harness across workflow reruns.
+- b416c4c: Preserves existing package behavior while simplifying internal control flow.
+- Updated dependencies [b416c4c]
+  - @shipfox/workflow-document@3.3.2
+  - @shipfox/inter-module@0.2.3
+
 ## 18.0.0
 
 ### Minor Changes

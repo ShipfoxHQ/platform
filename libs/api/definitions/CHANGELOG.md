@@ -1,5 +1,41 @@
 # @shipfox/api-definitions
 
+## 19.0.0
+
+### Minor Changes
+
+- 5af8d52: Adds project catalog and workflow-definition reads, plus trigger-event summaries, details, and facets.
+- a61dda2: Materializes integration tool steps with typed inputs, mapped outputs, and frozen catalog metadata.
+
+### Patch Changes
+
+- b416c4c: Preserves existing package behavior while simplifying internal control flow.
+- Updated dependencies [c07c8e2]
+- Updated dependencies [b416c4c]
+- Updated dependencies [5af8d52]
+- Updated dependencies [a52cd6d]
+- Updated dependencies [a225bf8]
+- Updated dependencies [75a54d1]
+  - @shipfox/api-agent-dto@19.0.0
+  - @shipfox/api-auth-context@19.0.0
+  - @shipfox/api-integration-core-dto@19.0.0
+  - @shipfox/expression@2.4.2
+  - @shipfox/node-module@1.0.8
+  - @shipfox/node-outbox@0.2.7
+  - @shipfox/runner-labels@0.2.1
+  - @shipfox/workflow-document@3.3.2
+  - @shipfox/api-projects-dto@19.0.0
+  - @shipfox/api-definitions-dto@19.0.0
+  - @shipfox/api-secrets-dto@12.0.0
+  - @shipfox/config@1.2.4
+  - @shipfox/inter-module@0.2.3
+  - @shipfox/node-drizzle@0.3.5
+  - @shipfox/node-error-monitoring@0.3.0
+  - @shipfox/node-fastify@0.4.3
+  - @shipfox/node-opentelemetry@0.6.5
+  - @shipfox/node-postgres@0.5.1
+  - @shipfox/node-temporal@0.4.6
+
 ## 18.0.0
 
 ### Minor Changes

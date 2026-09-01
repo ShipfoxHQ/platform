@@ -1,5 +1,21 @@
 # @shipfox/api-workflows-dto
 
+## 19.0.0
+
+### Minor Changes
+
+- 34ebe6a: Expose workspace-scoped workflow execution and annotation read contracts.
+- 93918a4: Server workflow tool steps now return a `wait` protocol while a scheduled tool call is pending, and clients recognize the new `tool_error`, `tool_config_invalid`, and `invocation_interrupted` step error reasons.
+
+### Patch Changes
+
+- Updated dependencies [c07c8e2]
+- Updated dependencies [b416c4c]
+- Updated dependencies [5af8d52]
+  - @shipfox/api-agent-dto@19.0.0
+  - @shipfox/api-definitions-dto@19.0.0
+  - @shipfox/inter-module@0.2.3
+
 ## 18.0.0
 
 ### Minor Changes

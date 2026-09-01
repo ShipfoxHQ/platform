@@ -1,5 +1,21 @@
 # @shipfox/api-integration-core-dto
 
+## 19.0.0
+
+### Major Changes
+
+- a52cd6d: Adds checkout targets addressed by stable external IDs or owner/name declarations. Checkout inputs reject ambiguous targets and caller-supplied metadata.
+
+### Minor Changes
+
+- 75a54d1: Adds the repository authorization contract with exact-ID/name target resolution and its authorization error codes. Checkout now surfaces repository-authorization failures as not-granted (404), ambiguous (409), and store-unavailable (503) errors.
+
+### Patch Changes
+
+- b416c4c: Preserves existing package behavior while simplifying internal control flow.
+  - @shipfox/inter-module@0.2.3
+  - @shipfox/regex@0.3.0
+
 ## 18.0.0
 
 ### Minor Changes

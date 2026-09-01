@@ -1,5 +1,17 @@
 # @shipfox/client-secrets
 
+## 29.0.0
+
+### Patch Changes
+
+- Updated dependencies [b416c4c]
+- Updated dependencies [2f35a8b]
+  - @shipfox/client-shell@29.0.0
+  - @shipfox/client-ui@29.0.0
+  - @shipfox/react-ui@2.3.3
+  - @shipfox/api-secrets-dto@12.0.0
+  - @shipfox/client-api@6.0.1
+
 ## 28.0.0
 
 ### Patch Changes

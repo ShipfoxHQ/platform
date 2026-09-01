@@ -1,5 +1,54 @@
 # @shipfox/api-integration-core
 
+## 19.0.0
+
+### Minor Changes
+
+- 6e164c0: Reuses cached GitHub checkout credentials for repeated checkouts of the same repository scope, with GITHUB_CHECKOUT_TOKEN_CACHE_ENABLED (default true) available for direct minting.
+- a52cd6d: Adds checkout targets addressed by stable external IDs or owner/name declarations. Checkout inputs reject ambiguous targets and caller-supplied metadata.
+- 75a54d1: Adds the repository authorization contract with exact-ID/name target resolution and its authorization error codes. Checkout now surfaces repository-authorization failures as not-granted (404), ambiguous (409), and store-unavailable (503) errors.
+
+### Patch Changes
+
+- b416c4c: Preserves existing package behavior while simplifying internal control flow.
+- 10f18db: Uses a Secrets-compatible key for cached GitHub installation-token envelopes.
+- Updated dependencies [34ebe6a]
+- Updated dependencies [c07c8e2]
+- Updated dependencies [6e164c0]
+- Updated dependencies [b416c4c]
+- Updated dependencies [5af8d52]
+- Updated dependencies [a52cd6d]
+- Updated dependencies [a225bf8]
+- Updated dependencies [c81ead6]
+- Updated dependencies [75a54d1]
+- Updated dependencies [93918a4]
+  - @shipfox/api-workflows-dto@19.0.0
+  - @shipfox/api-agent-dto@19.0.0
+  - @shipfox/api-integration-github@19.0.0
+  - @shipfox/api-auth-context@19.0.0
+  - @shipfox/api-integration-core-dto@19.0.0
+  - @shipfox/api-integration-gitea@19.0.0
+  - @shipfox/api-integration-jira@19.0.0
+  - @shipfox/api-integration-linear@19.0.0
+  - @shipfox/api-integration-sentry@19.0.0
+  - @shipfox/api-integration-slack@19.0.0
+  - @shipfox/node-module@1.0.8
+  - @shipfox/node-outbox@0.2.7
+  - @shipfox/redact@0.2.7
+  - @shipfox/api-projects-dto@19.0.0
+  - @shipfox/api-integration-spi@2.2.0
+  - @shipfox/api-integration-webhook@19.0.0
+  - @shipfox/api-workspaces-dto@15.0.0
+  - @shipfox/config@1.2.4
+  - @shipfox/inter-module@0.2.3
+  - @shipfox/regex@0.3.0
+  - @shipfox/node-drizzle@0.3.5
+  - @shipfox/node-error-monitoring@0.3.0
+  - @shipfox/node-fastify@0.4.3
+  - @shipfox/node-opentelemetry@0.6.5
+  - @shipfox/node-postgres@0.5.1
+  - @shipfox/node-temporal@0.4.6
+
 ## 18.0.0
 
 ### Minor Changes

@@ -1,7 +1,7 @@
 {
   "name": "@shipfox/api-triggers-dto",
   "license": "MIT",
-  "version": "15.0.0",
+  "version": "19.0.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ShipfoxHQ/shipfox.git",

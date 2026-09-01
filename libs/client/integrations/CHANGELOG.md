@@ -1,5 +1,29 @@
 # @shipfox/client-integrations
 
+## 29.0.0
+
+### Patch Changes
+
+- b416c4c: Preserves existing package behavior while simplifying internal control flow.
+- Updated dependencies [b416c4c]
+- Updated dependencies [a52cd6d]
+- Updated dependencies [75a54d1]
+- Updated dependencies [2f35a8b]
+  - @shipfox/api-integration-core-dto@19.0.0
+  - @shipfox/client-auth@29.0.0
+  - @shipfox/client-shell@29.0.0
+  - @shipfox/client-ui@29.0.0
+  - @shipfox/react-ui@2.3.3
+  - @shipfox/api-integration-gitea-dto@19.0.0
+  - @shipfox/api-integration-github-dto@19.0.0
+  - @shipfox/api-integration-jira-dto@19.0.0
+  - @shipfox/api-integration-linear-dto@19.0.0
+  - @shipfox/api-integration-sentry-dto@19.0.0
+  - @shipfox/api-integration-slack-dto@19.0.0
+  - @shipfox/api-integration-webhook-dto@19.0.0
+  - @shipfox/integration-icons@0.3.11
+  - @shipfox/client-api@6.0.1
+
 ## 28.0.0
 
 ### Patch Changes

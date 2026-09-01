@@ -1,5 +1,15 @@
 # @shipfox/client-logs
 
+## 29.0.0
+
+### Patch Changes
+
+- b416c4c: Preserves existing package behavior while simplifying internal control flow.
+- Updated dependencies [b416c4c]
+  - @shipfox/react-ui@2.3.3
+  - @shipfox/api-logs-dto@17.0.0
+  - @shipfox/client-api@6.0.1
+
 ## 27.0.1
 
 ### Patch Changes

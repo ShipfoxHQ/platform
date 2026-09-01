@@ -1,5 +1,23 @@
 # @shipfox/provisioner-ec2-provider
 
+## 1.1.0
+
+### Minor Changes
+
+- b2e6556: Retry authorized EC2 runner instances that remain in stopping after the bounded stopping timeout.
+
+### Patch Changes
+
+- Updated dependencies [b416c4c]
+- Updated dependencies [461e3a0]
+- Updated dependencies [b2e6556]
+- Updated dependencies [cd5fb8f]
+  - @shipfox/runner-labels@0.2.1
+  - @shipfox/api-runners-dto@19.0.0
+  - @shipfox/provisioner-core@1.2.7
+  - @shipfox/config@1.2.4
+  - @shipfox/node-opentelemetry@0.6.5
+
 ## 1.0.19
 
 ### Patch Changes

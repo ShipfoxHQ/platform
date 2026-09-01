@@ -1,5 +1,19 @@
 # @shipfox/api-runners-dto
 
+## 19.0.0
+
+### Minor Changes
+
+- 461e3a0: Deliver canonical termination authorizations through poll-demand and reconcile while keeping legacy provisioners wire-compatible.
+- b2e6556: Retry authorized EC2 runner instances that remain in stopping after the bounded stopping timeout.
+- cd5fb8f: Adds a backward-compatible provider termination-candidate protocol with durable, state-checked authorization.
+
+### Patch Changes
+
+- Updated dependencies [b416c4c]
+  - @shipfox/runner-labels@0.2.1
+  - @shipfox/inter-module@0.2.3
+
 ## 18.0.0
 
 ### Major Changes

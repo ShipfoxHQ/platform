@@ -1,5 +1,12 @@
 # @shipfox/vitest
 
+## 1.2.6
+
+### Patch Changes
+
+- Updated dependencies [b416c4c]
+  - @shipfox/vite@1.2.8
+
 ## 1.2.5
 
 ### Patch Changes

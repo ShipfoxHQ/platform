@@ -1,5 +1,25 @@
 # @shipfox/annotations
 
+## 19.0.0
+
+### Minor Changes
+
+- 34ebe6a: Expose workspace-scoped workflow execution and annotation read contracts.
+
+### Patch Changes
+
+- b416c4c: Preserves existing package behavior while simplifying internal control flow.
+- Updated dependencies [34ebe6a]
+- Updated dependencies [b416c4c]
+  - @shipfox/annotations-dto@19.0.0
+  - @shipfox/api-auth-context@19.0.0
+  - @shipfox/node-module@1.0.8
+  - @shipfox/config@1.2.4
+  - @shipfox/inter-module@0.2.3
+  - @shipfox/node-drizzle@0.3.5
+  - @shipfox/node-fastify@0.4.3
+  - @shipfox/node-postgres@0.5.1
+
 ## 18.0.0
 
 ### Patch Changes

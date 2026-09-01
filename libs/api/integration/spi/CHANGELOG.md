@@ -1,5 +1,18 @@
 # @shipfox/api-integration-spi
 
+## 2.2.0
+
+### Minor Changes
+
+- a52cd6d: Adds checkout targets addressed by stable external IDs or owner/name declarations. Checkout inputs reject ambiguous targets and caller-supplied metadata.
+
+### Patch Changes
+
+- Updated dependencies [b416c4c]
+- Updated dependencies [a52cd6d]
+- Updated dependencies [75a54d1]
+  - @shipfox/api-integration-core-dto@19.0.0
+
 ## 2.1.0
 
 ### Minor Changes

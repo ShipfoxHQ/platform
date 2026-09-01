@@ -1,5 +1,17 @@
 # @shipfox/client-ui
 
+## 29.0.0
+
+### Patch Changes
+
+- b416c4c: Preserves existing package behavior while simplifying internal control flow.
+- Updated dependencies [34ebe6a]
+- Updated dependencies [b416c4c]
+  - @shipfox/annotations-dto@19.0.0
+  - @shipfox/react-ui@2.3.3
+  - @shipfox/client-api@6.0.1
+  - @shipfox/regex@0.3.0
+
 ## 27.0.1
 
 ### Patch Changes
