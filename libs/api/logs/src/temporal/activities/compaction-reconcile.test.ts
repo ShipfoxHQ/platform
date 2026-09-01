@@ -44,10 +44,7 @@ function attemptPrefix(identity: ClosedStreamIdentity): string {
 async function backdateClosedAt(streamId: string): Promise<void> {
   await db()
     .update(attemptStreams)
-    .set({
-      closedAt: sql`now() - interval '1 hour'`,
-      updatedAt: sql`now() - interval '1 hour'`,
-    })
+    .set({closedAt: sql`now() - interval '1 hour'`})
     .where(eq(attemptStreams.id, streamId));
 }
 

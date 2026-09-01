@@ -1,5 +1,16 @@
 import type {SessionViewLifecycleRow, SessionViewRow} from '@shipfox/api-logs-dto';
-import {and, asc, eq, getTableColumns, isNotNull, isNull, lt, notInArray, sql} from 'drizzle-orm';
+import {
+  and,
+  asc,
+  eq,
+  getTableColumns,
+  isNotNull,
+  isNull,
+  lt,
+  notInArray,
+  or,
+  sql,
+} from 'drizzle-orm';
 import type {AttemptStream, StreamCloseReason} from '#core/entities/attempt-stream.js';
 import {LeaseStreamMismatchError} from '#core/errors.js';
 import {db, type Transaction} from './db.js';
@@ -319,8 +330,8 @@ export async function listStaleUncompactedStreams(params: {
  * Closed streams whose winner is old enough for orphan reconciliation and whose last successful
  * reconciliation is outside the stale window. The winner remains untouched; the compaction
  * reconcile activity removes any temporary sibling objects under the stream prefix after this
- * query returns. `updated_at` is the durable cooldown marker, since closed streams no longer
- * receive append updates.
+ * query returns. The dedicated reconciliation timestamp avoids late closed-stream upserts
+ * postponing cleanup.
  */
 export async function listStaleCompactedStreams(params: {
   olderThanSeconds: number;
@@ -334,9 +345,12 @@ export async function listStaleCompactedStreams(params: {
         eq(attemptStreams.state, 'closed'),
         isNotNull(attemptStreams.objectKey),
         lt(attemptStreams.closedAt, sql`now() - make_interval(secs => ${params.olderThanSeconds})`),
-        lt(
-          attemptStreams.updatedAt,
-          sql`now() - make_interval(secs => ${params.olderThanSeconds})`,
+        or(
+          isNull(attemptStreams.compactionReconciledAt),
+          lt(
+            attemptStreams.compactionReconciledAt,
+            sql`now() - make_interval(secs => ${params.olderThanSeconds})`,
+          ),
         ),
       ),
     )
@@ -350,7 +364,7 @@ export async function listStaleCompactedStreams(params: {
 export async function markCompactedStreamReconciled(streamId: string): Promise<void> {
   await db()
     .update(attemptStreams)
-    .set({updatedAt: sql`now()`})
+    .set({compactionReconciledAt: sql`now()`})
     .where(
       and(
         eq(attemptStreams.id, streamId),
