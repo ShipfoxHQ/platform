@@ -300,7 +300,7 @@ function toRunOverviewAttemptDto(
   };
 }
 
-function toJobOverviewDto(job: WorkflowRunJobOverview) {
+export function toJobOverviewDto(job: WorkflowRunJobOverview) {
   return {
     ...toJobSummaryFields(job),
     dependencies: job.dependencies,

@@ -286,6 +286,42 @@ export async function listWorkflowRunJobsPage(
   }
 }
 
+/**
+ * Reads the same compact job projection used by the run overview for one job inside
+ * a caller-owned transaction. The transaction keeps this summary consistent with
+ * the selected execution and its step pages.
+ */
+export async function getWorkflowRunJobOverview(
+  tx: Tx,
+  params: {workflowRunAttemptId: string; jobId: string},
+): Promise<WorkflowRunJobOverview | undefined> {
+  const [row] = await tx
+    .select({
+      id: jobs.id,
+      key: jobs.key,
+      name: jobs.name,
+      position: jobs.position,
+      dependencies: jobs.dependencies,
+      status: jobs.status,
+      statusReason: jobs.statusReason,
+      mode: jobs.mode,
+      listenerStatus: jobs.listenerStatus,
+      carriedOver: jobs.carriedOver,
+    })
+    .from(jobs)
+    .where(
+      and(eq(jobs.id, params.jobId), eq(jobs.workflowRunAttemptId, params.workflowRunAttemptId)),
+    )
+    .limit(1);
+  if (!row) return undefined;
+
+  const presentation = await loadJobPresentation(tx, params.workflowRunAttemptId, [params.jobId]);
+  return assembleJobOverviewItems(
+    [{...row, dependencies: row.dependencies as string[]}],
+    presentation,
+  )[0];
+}
+
 interface OverviewTarget {
   run: WorkflowRunOverviewRun;
   attempt: WorkflowRunOverviewAttempt;

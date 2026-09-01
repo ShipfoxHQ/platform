@@ -2,6 +2,7 @@ import {
   agentConfigIssueSchema,
   agentStepSessionDescriptorSchema,
   deriveStepErrorCategory,
+  STEP_ERROR_MESSAGE_MAX_LENGTH,
   type StepAttemptDetailResponseDto,
   type StepAttemptDto,
   type StepDto,
@@ -17,9 +18,13 @@ import {toEvaluationTraceDto} from './evaluation-trace.js';
 // contract rather than trusting whatever shape the row happens to hold. `category`
 // is not stored on the row; the caller derives it from the step type and error
 // reason (server-authoritative, never trusted from the runner).
-function toStepErrorDto(error: Record<string, unknown> | null, stepType: string): StepErrorDto {
+export function toStepErrorDto(
+  error: Record<string, unknown> | null,
+  stepType: string,
+): StepErrorDto {
   if (error === null) return null;
-  const message = typeof error.message === 'string' ? error.message : '';
+  const message =
+    typeof error.message === 'string' ? error.message.slice(0, STEP_ERROR_MESSAGE_MAX_LENGTH) : '';
   const code = typeof error.code === 'string' ? error.code : undefined;
   const managedProviderId =
     typeof error.managedProviderId === 'string' ? error.managedProviderId : undefined;
@@ -95,7 +100,7 @@ function isIntOrNull(value: unknown): value is number | null {
   return value === null || (typeof value === 'number' && Number.isInteger(value));
 }
 
-function toStepGateResultDto(
+export function toStepGateResultDto(
   gateResult: Record<string, unknown> | null,
   status: string,
 ): StepGateResultDto {
