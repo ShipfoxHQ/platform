@@ -5,8 +5,10 @@ Runs a Shipfox API server.
 ## What it does
 
 - **`defaultModules()`**: Returns the standard module list.
-- **`DefaultAgentModuleFactory`**: Builds the Agent module with a scoped Secrets client.
-- **`DefaultAuthModuleFactory`**: Builds the Auth module with the composed Workspaces client.
+- **`DefaultAgentModuleOptions`**: Configures the standard Agent module while `defaultModules()` supplies its Secrets and Workflows clients.
+- **`DefaultAuthModuleOptions`**: Configures the standard Auth module while `defaultModules()` supplies its Workspaces client.
+- **`DefaultRunnersModuleOptions`**: Configures the standard Runners module while `defaultModules()` supplies its Auth client.
+- **`DefaultAgentModuleFactory`**, **`DefaultAuthModuleFactory`**, and **`DefaultRunnersModuleFactory`**: Full module replacement escape hatches.
 - **`createServer()`**: Builds an API server. The caller owns process signals.
 - **`runServer()`**: Starts the server. It listens for SIGTERM and SIGINT.
 - **`createLoginMethodsRoute()`**: Builds the public login-method catalog route. `createServer` mounts it automatically.
@@ -35,36 +37,46 @@ const modules = await defaultModules({
 });
 ```
 
-To provide an Auth module with an application-specific signup policy, use the
-Auth factory. Its returned module is included in the standard composition and
-its inter-module presentations are registered with the same transport:
+To configure the standard Auth module with an application-specific signup
+policy, use `authModuleOptions`. The composition root keeps ownership of the
+Workspaces client and the module lifecycle:
 
 ```ts
-import {createAuthModule} from '@shipfox/api-auth';
-
 const modules = await defaultModules({
-  authModule: ({workspaces}) => createAuthModule({workspaces, signupPolicy}),
+  authModuleOptions: {signupPolicy},
 });
 ```
 
-To replace the Agent module, use the Agent factory. It receives the composed
-Secrets operations used by Agent, and its returned module is included in the
-standard composition before presentation registration and transport sealing:
+To configure the standard Agent module with a managed provider, use
+`agentModuleOptions`. `defaultModules()` calls `createAgentModule` with the
+managed provider and every composition-owned dependency:
 
 ```ts
-import {createAgentModule} from '@shipfox/api-agent';
-
 const modules = await defaultModules({
-  agentModule: ({secrets}) => createAgentModule({secrets, managedProvider}),
+  agentModuleOptions: {managedProvider},
 });
 ```
 
-The standard `createAgentModule` validates Agent configuration during
-composition. A custom factory that does not call it owns equivalent validation.
-Its module must declare the `agent` database namespace and present the canonical
-Agent inter-module contract. The scoped Secrets client exposes only the
-operations used by Agent. Treat a custom module as trusted code with access to
-those operations.
+To configure installation provisioning in the standard Runners module, use
+`runnersModuleOptions`:
+
+```ts
+const modules = await defaultModules({
+  runnersModuleOptions: {installationProvisioning: {policy}},
+});
+```
+
+Use `agentModuleFactory`, `authModuleFactory`, or `runnersModuleFactory` only
+when replacing a complete module. A replacement factory owns equivalent
+validation and must preserve the module contract and forward every dependency
+it needs. The legacy `agentModule`, `authModule`, and `runnersModule` factory
+options remain supported as deprecated aliases. Migrate configuration-only
+factories to the matching `*ModuleOptions` field.
+
+The standard Agent module validates its configuration during composition. Its
+additive options cannot provide or replace the composition-owned Secrets and
+Workflows clients. The returned standard module therefore keeps the
+Workflows-backed session transcript routes mounted.
 
 Load the instrumentation entry before feature modules:
 

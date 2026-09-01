@@ -16,7 +16,7 @@ import {
   workspacesInterModuleContract,
 } from '@shipfox/api-workspaces-dto/inter-module';
 import {defineInterModuleContract, defineInterModulePresentation} from '@shipfox/inter-module';
-import type {DefaultAgentModuleFactory} from './modules.js';
+import type {DefaultAgentModuleFactory, DefaultAgentModuleOptions} from './modules.js';
 import {defaultModules} from './modules.js';
 
 const mocks = vi.hoisted(() => ({
@@ -366,14 +366,49 @@ describe('defaultModules', () => {
     expect(mocks.createAgentModule.mock.calls[0]?.[0].secrets).not.toHaveProperty('getSecret');
   });
 
-  it('composes Agent with the shared Secrets client and registers the supplied module', async () => {
+  it('composes Agent options with the default factory and keeps session routes registered', async () => {
+    const managedProvider: NonNullable<DefaultAgentModuleOptions['managedProvider']> = {
+      id: 'managed',
+      label: 'Managed',
+      models: [],
+      defaultModel: 'managed-model',
+      resolveCredentials: async () => ({
+        api: 'openai-responses',
+        baseUrl: 'https://gateway.example.test',
+        credentials: {},
+      }),
+    };
+    const sessionTranscriptRoutes = [
+      {prefix: '/runs/jobs/current/steps/:stepId/session', routes: []},
+    ];
+    const defaultAgentModule = mocks.createAgentModule();
+    mocks.createAgentModule.mockClear();
+    mocks.createAgentModule.mockImplementation(({workflows}) => ({
+      ...defaultAgentModule,
+      routes: workflows === undefined ? [] : sessionTranscriptRoutes,
+    }));
+
+    const modules = await defaultModules({agentModuleOptions: {managedProvider}});
+    const agentOptions = mocks.createAgentModule.mock.calls[0]?.[0];
+
+    expect(agentOptions).toEqual({
+      managedProvider,
+      secrets: expect.any(Object),
+      workflows: expect.objectContaining({
+        getLeasedAgentSessionContext: expect.any(Function),
+      }),
+    });
+    expect(modules.find((module) => module.name === 'agent')?.routes).toBe(sessionTranscriptRoutes);
+  });
+
+  it('supports an explicitly named full Agent module replacement', async () => {
     const customAgentModule = mocks.createAgentModule();
     mocks.createAgentModule.mockClear();
     const agentModule = vi.fn<DefaultAgentModuleFactory>((options) =>
       mocks.createAgentModule(options),
     );
 
-    const modules = await defaultModules({agentModule});
+    const modules = await defaultModules({agentModuleFactory: agentModule});
     const agentFactoryCall = agentModule.mock.calls[0];
     expect(agentFactoryCall).toBeDefined();
     if (!agentFactoryCall) throw new Error('Agent module factory was not called.');
@@ -437,7 +472,7 @@ describe('defaultModules', () => {
       },
     };
 
-    await expect(defaultModules({agentModule: () => customAgentModule})).rejects.toThrow(
+    await expect(defaultModules({agentModuleFactory: () => customAgentModule})).rejects.toThrow(
       'Custom agentModule must declare database namespace "agent"',
     );
   });
@@ -448,7 +483,7 @@ describe('defaultModules', () => {
       interModulePresentations: [],
     };
 
-    await expect(defaultModules({agentModule: () => customAgentModule})).rejects.toThrow(
+    await expect(defaultModules({agentModuleFactory: () => customAgentModule})).rejects.toThrow(
       'Custom agentModule must present the canonical "agent" inter-module contract',
     );
   });
@@ -471,8 +506,33 @@ describe('defaultModules', () => {
       interModulePresentations: [{...defaultPresentation, contract: mismatchedAgentContract}],
     };
 
-    await expect(defaultModules({agentModule: () => customAgentModule})).rejects.toThrow(
+    await expect(defaultModules({agentModuleFactory: () => customAgentModule})).rejects.toThrow(
       'Custom agentModule must present the canonical "agent" inter-module contract',
+    );
+  });
+
+  it('rejects Agent options combined with a full replacement', async () => {
+    await expect(
+      defaultModules({agentModuleOptions: {}, agentModuleFactory: () => mocks.createAgentModule()}),
+    ).rejects.toThrow('Use Agent module options or a Agent module replacement factory, not both.');
+  });
+
+  it('keeps legacy module replacement aliases working during migration', async () => {
+    const customAgentModule = mocks.createAgentModule();
+    const customAuthModule = mocks.createAuthModule();
+    const customRunnersModule = mocks.createRunnersModule();
+    mocks.createAgentModule.mockClear();
+    mocks.createAuthModule.mockClear();
+    mocks.createRunnersModule.mockClear();
+
+    const modules = await defaultModules({
+      agentModule: () => customAgentModule,
+      authModule: () => customAuthModule,
+      runnersModule: () => customRunnersModule,
+    });
+
+    expect(modules).toEqual(
+      expect.arrayContaining([customAgentModule, customAuthModule, customRunnersModule]),
     );
   });
 
@@ -501,7 +561,7 @@ describe('defaultModules', () => {
       mocks.createAuthModule({workspaces, signupPolicy}),
     );
 
-    const modules = await defaultModules({authModule, extension});
+    const modules = await defaultModules({authModuleFactory: authModule, extension});
     const authWorkspaces = authModule.mock.calls[0]?.[0].workspaces;
 
     expect(authModule).toHaveBeenCalledWith({workspaces: expect.any(Object)});
@@ -519,7 +579,18 @@ describe('defaultModules', () => {
     ).toContain(authInterModuleContract.module);
   });
 
-  it('lets a host replace only the Runners module with the composed Auth client', async () => {
+  it('composes Auth options with the shared Workspaces client', async () => {
+    const signupPolicy = {isSignupAllowed: vi.fn().mockResolvedValue({allowed: true})};
+
+    await defaultModules({authModuleOptions: {signupPolicy}});
+
+    expect(mocks.createAuthModule).toHaveBeenCalledWith({
+      signupPolicy,
+      workspaces: expect.any(Object),
+    });
+  });
+
+  it('supports an explicitly named full Runners module replacement', async () => {
     const policy = {filterEligibleWorkspaceIds: vi.fn().mockResolvedValue(new Set<string>())};
     const runnersModule = mocks.createRunnersModule({});
     const createHostRunnersModule = vi.fn(({auth}) =>
@@ -527,7 +598,7 @@ describe('defaultModules', () => {
     );
     mocks.createRunnersModule.mockClear();
 
-    const modules = await defaultModules({runnersModule: createHostRunnersModule});
+    const modules = await defaultModules({runnersModuleFactory: createHostRunnersModule});
 
     expect(createHostRunnersModule).toHaveBeenCalledWith({auth: expect.any(Object)});
     expect(mocks.createRunnersModule).toHaveBeenCalledWith({
@@ -551,6 +622,19 @@ describe('defaultModules', () => {
       'triggers',
       'dispatcher',
     ]);
+  });
+
+  it('composes Runners options with the shared Auth client', async () => {
+    const policy = {filterEligibleWorkspaceIds: vi.fn().mockResolvedValue(new Set<string>())};
+
+    await defaultModules({
+      runnersModuleOptions: {installationProvisioning: {policy}},
+    });
+
+    expect(mocks.createRunnersModule).toHaveBeenCalledWith({
+      auth: expect.any(Object),
+      installationProvisioning: {policy},
+    });
   });
 
   it('extends the default module list with the composed Workspaces client', async () => {
