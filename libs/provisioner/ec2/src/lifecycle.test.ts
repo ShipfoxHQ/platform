@@ -1,4 +1,5 @@
 import type {
+  ReconcileRunnerInstancesBodyDto,
   ReconcileRunnerInstancesResponseDto,
   ReportRunnerInstancesBodyDto,
 } from '@shipfox/api-runners-dto';
@@ -22,6 +23,7 @@ const observability = vi.hoisted(() => ({
   recordEc2StoppingTimestampMissing: vi.fn(),
   recordEc2Termination: vi.fn(),
   recordEc2ForcedTerminationRetry: vi.fn(),
+  recordEc2HealthImpaired: vi.fn(),
 }));
 
 vi.mock('@shipfox/node-opentelemetry', () => ({logger: () => observability.logger}));
@@ -33,6 +35,7 @@ vi.mock('#metrics/instance.js', () => ({
   recordEc2StoppingTimestampMissing: observability.recordEc2StoppingTimestampMissing,
   recordEc2Termination: observability.recordEc2Termination,
   recordEc2ForcedTerminationRetry: observability.recordEc2ForcedTerminationRetry,
+  recordEc2HealthImpaired: observability.recordEc2HealthImpaired,
 }));
 
 const NOW = new Date('2026-01-01T00:10:00.000Z');
@@ -675,6 +678,307 @@ describe('createEc2Lifecycle', () => {
       'spot-small',
     );
     expect(observability.recordEc2Termination).toHaveBeenCalledTimes(1);
+  });
+
+  it('observes impaired EC2 health without terminating locally', async () => {
+    const engine = fakeEngine({
+      instances: [
+        instance({
+          state: 'running',
+          systemStatus: {status: 'impaired'},
+          instanceStatus: {status: 'ok'},
+          attachedEbsStatus: {status: 'ok'},
+        }),
+      ],
+    });
+    const client = fakeClient();
+    const lifecycle = makeLifecycle({engine, client});
+
+    await lifecycle.reconcile();
+
+    expect(engine.terminationCalls).toEqual([]);
+    expect(observability.recordEc2HealthImpaired).toHaveBeenCalledWith('system');
+    expect(client.reconcileBodies).toEqual([{observed_provider_runner_ids: ['runner-1']}]);
+    expect(observability.logger.debug).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'provisioner.ec2.provider_health_observed',
+        ec2_state: 'running',
+        health_candidate_decision: 'awaiting-persistence',
+        health_checks: expect.arrayContaining([
+          expect.objectContaining({check_type: 'system', status: 'impaired'}),
+        ]),
+      }),
+      'Observed transient EC2 runner health status',
+    );
+  });
+
+  it('submits impaired health candidates during reconcile without terminating locally', async () => {
+    const engine = fakeEngine({
+      instances: [
+        instance({
+          state: 'running',
+          systemStatus: {status: 'ok'},
+          instanceStatus: {status: 'impaired'},
+          attachedEbsStatus: {status: 'insufficient-data'},
+          scheduledEvents: [{code: 'system-reboot'}],
+        }),
+      ],
+    });
+    const client = fakeClient();
+    const lifecycle = makeLifecycle({engine, client});
+
+    await lifecycle.reconcile();
+    await lifecycle.reconcile();
+
+    expect(client.reconcileBodies).toEqual([
+      {observed_provider_runner_ids: ['runner-1']},
+      {
+        observed_provider_runner_ids: ['runner-1'],
+        termination_candidates: [
+          {provider_runner_id: 'runner-1', reason: 'provider-health-failed'},
+        ],
+      },
+    ]);
+    expect(engine.terminationCalls).toEqual([]);
+    expect(observability.recordEc2HealthImpaired).toHaveBeenCalledWith('instance');
+    expect(observability.recordEc2HealthImpaired).toHaveBeenCalledTimes(2);
+    expect(observability.logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'provisioner.ec2.provider_health_candidates_submitted',
+        requested_count: 1,
+        termination_authorization: 'backend-gated',
+        provider_runner_ids: ['runner-1'],
+      }),
+      'Sent EC2 provider health termination candidates for backend authorization',
+    );
+  });
+
+  it.each([
+    'initializing',
+    'insufficient-data',
+  ] as const)('keeps %s EC2 health observations in observe-only mode', async (status) => {
+    const engine = fakeEngine({
+      instances: [instance({state: 'running', systemStatus: {status}})],
+    });
+    const client = fakeClient();
+    const lifecycle = makeLifecycle({engine, client});
+
+    await lifecycle.reconcile();
+
+    expect(client.reconcileBodies).toEqual([{observed_provider_runner_ids: ['runner-1']}]);
+    expect(engine.terminationCalls).toEqual([]);
+    expect(observability.recordEc2HealthImpaired).not.toHaveBeenCalled();
+    expect(observability.logger.debug).toHaveBeenCalledWith(
+      expect.objectContaining({health_candidate_decision: 'observe-only'}),
+      'Observed transient EC2 runner health status',
+    );
+  });
+
+  it('observes scheduled events without submitting a health candidate', async () => {
+    const engine = fakeEngine({
+      instances: [
+        instance({
+          state: 'running',
+          systemStatus: {status: 'ok'},
+          instanceStatus: {status: 'ok'},
+          attachedEbsStatus: {status: 'ok'},
+          scheduledEvents: [{code: 'system-reboot'}],
+        }),
+      ],
+    });
+    const client = fakeClient();
+    const lifecycle = makeLifecycle({engine, client});
+
+    await lifecycle.reconcile();
+
+    expect(client.reconcileBodies).toEqual([{observed_provider_runner_ids: ['runner-1']}]);
+    expect(engine.terminationCalls).toEqual([]);
+    expect(observability.recordEc2HealthImpaired).not.toHaveBeenCalled();
+    expect(observability.logger.debug).toHaveBeenCalledWith(
+      expect.objectContaining({
+        health_candidate_decision: 'observe-only',
+        scheduled_event_codes: ['system-reboot'],
+      }),
+      'Observed transient EC2 runner health status',
+    );
+  });
+
+  it('does not submit an impaired stopped instance as a health candidate', async () => {
+    const engine = fakeEngine({
+      instances: [instance({state: 'stopped', systemStatus: {status: 'impaired'}})],
+    });
+    const client = fakeClient();
+    const lifecycle = makeLifecycle({engine, client});
+
+    await lifecycle.reconcile();
+
+    expect(client.reconcileBodies).toEqual([{observed_provider_runner_ids: ['runner-1']}]);
+    expect(engine.terminationCalls).toEqual([]);
+    expect(observability.recordEc2HealthImpaired).toHaveBeenCalledWith('system');
+    expect(observability.logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({health_candidate_decision: 'not-running'}),
+      'Observed impaired EC2 runner health',
+    );
+  });
+
+  it('does not submit an impaired instance without a provider runner id', async () => {
+    const engine = fakeEngine({
+      instances: [
+        instance({state: 'running', providerRunnerId: null, systemStatus: {status: 'impaired'}}),
+      ],
+    });
+    const client = fakeClient();
+    const lifecycle = makeLifecycle({engine, client});
+
+    await lifecycle.reconcile();
+
+    expect(client.reconcileBodies).toEqual([{observed_provider_runner_ids: []}]);
+    expect(engine.terminationCalls).toEqual([]);
+    expect(observability.recordEc2HealthImpaired).toHaveBeenCalledWith('system');
+    expect(observability.logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({health_candidate_decision: 'missing-provider-runner-id'}),
+      'Observed impaired EC2 runner health',
+    );
+  });
+
+  it('requires persistent impairment before submitting a health candidate', async () => {
+    const instances = [instance({state: 'running', systemStatus: {status: 'impaired'}})];
+    const engine = fakeEngine({instances});
+    const client = fakeClient();
+    const lifecycle = makeLifecycle({engine, client});
+
+    await lifecycle.reconcile();
+    instances[0] = instance({state: 'running', systemStatus: {status: 'ok'}});
+    await lifecycle.reconcile();
+
+    expect(client.reconcileBodies).toEqual([
+      {observed_provider_runner_ids: ['runner-1']},
+      {observed_provider_runner_ids: ['runner-1']},
+    ]);
+    expect(engine.terminationCalls).toEqual([]);
+    expect(observability.recordEc2HealthImpaired).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves impairment persistence across an unavailable status observation', async () => {
+    const instances = [instance({state: 'running', systemStatus: {status: 'impaired'}})];
+    const engine = fakeEngine({instances});
+    const client = fakeClient();
+    const lifecycle = makeLifecycle({engine, client});
+
+    await lifecycle.reconcile();
+    instances[0] = instance({
+      state: 'running',
+      scheduledEvents: [{code: 'system-reboot'}],
+    });
+    await lifecycle.reconcile();
+    instances[0] = instance({state: 'running', systemStatus: {status: 'impaired'}});
+    await lifecycle.reconcile();
+
+    expect(client.reconcileBodies).toEqual([
+      {observed_provider_runner_ids: ['runner-1']},
+      {observed_provider_runner_ids: ['runner-1']},
+      {
+        observed_provider_runner_ids: ['runner-1'],
+        termination_candidates: [
+          {provider_runner_id: 'runner-1', reason: 'provider-health-failed'},
+        ],
+      },
+    ]);
+    expect(observability.recordEc2HealthImpaired).toHaveBeenCalledTimes(2);
+  });
+
+  it('polls EC2 status checks only during backend reconciliation', async () => {
+    const engine = fakeEngine({instances: [instance({state: 'running'})]});
+    const lifecycle = makeLifecycle({engine});
+
+    await lifecycle.observe();
+    await lifecycle.reconcile();
+    await lifecycle.terminate(['runner-1']);
+
+    expect(engine.listCalls).toEqual([
+      {
+        provisionerId: '00000000-0000-4000-8000-000000000001',
+        options: undefined,
+      },
+      {
+        provisionerId: '00000000-0000-4000-8000-000000000001',
+        options: {includeStatus: true},
+      },
+      {
+        provisionerId: '00000000-0000-4000-8000-000000000001',
+        options: undefined,
+      },
+    ]);
+  });
+
+  it('caps provider health candidates at the backend contract limit', async () => {
+    const engine = fakeEngine({
+      instances: Array.from({length: 101}, (_, index) =>
+        instance({
+          state: 'running',
+          instanceId: `i-${index}`,
+          providerRunnerId: `runner-${index}`,
+          systemStatus: {
+            status: 'impaired',
+            impairedSince: new Date(NOW.getTime() - RECONCILE_INTERVAL_MS),
+          },
+        }),
+      ),
+    });
+    const client = fakeClient();
+    const lifecycle = makeLifecycle({engine, client});
+
+    await lifecycle.reconcile();
+
+    const expectedIds = Array.from({length: 101}, (_, index) => `runner-${index}`).sort(
+      (left, right) => left.localeCompare(right),
+    );
+    expect(
+      client.reconcileBodies[0]?.termination_candidates?.map(
+        (candidate) => candidate.provider_runner_id,
+      ),
+    ).toEqual(expectedIds.slice(0, 100));
+
+    await lifecycle.reconcile();
+
+    expect(
+      client.reconcileBodies[1]?.termination_candidates?.map(
+        (candidate) => candidate.provider_runner_id,
+      ),
+    ).toEqual([...expectedIds.slice(100), ...expectedIds.slice(0, 99)]);
+    expect(observability.logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'provisioner.ec2.provider_health_candidate_limit',
+        candidate_count: 101,
+        submitted_count: 100,
+        dropped_count: 1,
+      }),
+      'Capped EC2 provider health termination candidates at the API limit',
+    );
+    expect(engine.terminationCalls).toEqual([]);
+  });
+
+  it('fails closed when the health candidate reconcile request is unauthorized', async () => {
+    const engine = fakeEngine({
+      instances: [
+        instance({
+          state: 'running',
+          systemStatus: {
+            status: 'impaired',
+            impairedSince: new Date(NOW.getTime() - RECONCILE_INTERVAL_MS),
+          },
+        }),
+      ],
+    });
+    const client = fakeClient({reconcileErrors: [new ProvisionerAuthenticationError(403)]});
+    const lifecycle = makeLifecycle({engine, client});
+
+    await expect(lifecycle.reconcile()).rejects.toThrow(ProvisionerAuthenticationError);
+
+    expect(client.reconcileBodies[0]?.termination_candidates).toEqual([
+      {provider_runner_id: 'runner-1', reason: 'provider-health-failed'},
+    ]);
+    expect(engine.terminationCalls).toEqual([]);
   });
 
   it('propagates observation failures so the core loop degrades capacity to zero', async () => {
@@ -1618,7 +1922,7 @@ function launch(): ProviderRunnerLaunch<Ec2TemplateSpec> {
   };
 }
 
-function instance(args: {
+type InstanceArgs = {
   state: Ec2InstanceView['state'];
   architecture?: Ec2InstanceView['architecture'];
   availabilityZone?: string;
@@ -1627,12 +1931,18 @@ function instance(args: {
   stateReasonMessage?: string;
   launchTime?: Date;
   ami?: string;
+  systemStatus?: Ec2InstanceView['systemStatus'];
+  instanceStatus?: Ec2InstanceView['instanceStatus'];
+  attachedEbsStatus?: Ec2InstanceView['attachedEbsStatus'];
+  scheduledEvents?: Ec2InstanceView['scheduledEvents'];
   instanceId?: string;
-  providerRunnerId?: string;
+  providerRunnerId?: string | null;
   runnerInstanceId?: string;
   templateKey?: string | null;
   labels?: string;
-}): Ec2InstanceView {
+};
+
+function instance(args: InstanceArgs): Ec2InstanceView {
   return {
     instanceId: args.instanceId ?? 'i-123',
     state: args.state,
@@ -1641,7 +1951,9 @@ function instance(args: {
     ...(args.availabilityZone ? {availabilityZone: args.availabilityZone} : {}),
     tags: {
       'shipfox.runner_instance_id': args.runnerInstanceId ?? RUNNER_INSTANCE_ID,
-      'shipfox.provider_runner_id': args.providerRunnerId ?? 'runner-1',
+      ...(args.providerRunnerId === null
+        ? {}
+        : {'shipfox.provider_runner_id': args.providerRunnerId ?? 'runner-1'}),
       'shipfox.provisioner_id': '00000000-0000-4000-8000-000000000001',
       'shipfox.reservation_id': '00000000-0000-4000-8000-000000000003',
       ...(args.templateKey === null
@@ -1653,6 +1965,16 @@ function instance(args: {
     ...(args.stateReasonCode ? {stateReasonCode: args.stateReasonCode} : {}),
     ...(args.stateReasonMessage ? {stateReasonMessage: args.stateReasonMessage} : {}),
     ...(args.launchTime ? {launchTime: args.launchTime} : {}),
+    ...optionalInstanceFields(args),
+  };
+}
+
+function optionalInstanceFields(args: InstanceArgs): Partial<Ec2InstanceView> {
+  return {
+    ...(args.systemStatus ? {systemStatus: args.systemStatus} : {}),
+    ...(args.instanceStatus ? {instanceStatus: args.instanceStatus} : {}),
+    ...(args.attachedEbsStatus ? {attachedEbsStatus: args.attachedEbsStatus} : {}),
+    ...(args.scheduledEvents ? {scheduledEvents: args.scheduledEvents} : {}),
   };
 }
 
@@ -1665,6 +1987,10 @@ function fakeEngine(
   } = {},
 ): Ec2Engine & {
   runArgs: Parameters<Ec2Engine['runInstance']>[0][];
+  listCalls: Array<{
+    provisionerId: string;
+    options: Parameters<Ec2Engine['listManaged']>[1];
+  }>;
   terminated: string[];
   terminationCalls: Array<{
     instanceIds: readonly string[];
@@ -1672,6 +1998,10 @@ function fakeEngine(
   }>;
 } {
   const runArgs: Parameters<Ec2Engine['runInstance']>[0][] = [];
+  const listCalls: Array<{
+    provisionerId: string;
+    options: Parameters<Ec2Engine['listManaged']>[1];
+  }> = [];
   const terminated: string[] = [];
   const terminationCalls: Array<{
     instanceIds: readonly string[];
@@ -1680,6 +2010,7 @@ function fakeEngine(
   const terminateErrors = [...(options.terminateErrors ?? [])];
   return {
     runArgs,
+    listCalls,
     terminated,
     terminationCalls,
     runInstance: (args) => {
@@ -1688,10 +2019,12 @@ function fakeEngine(
         ? Promise.reject(options.runError)
         : Promise.resolve(instance({state: 'pending'}));
     },
-    listManaged: () =>
-      options.listError
+    listManaged: (provisionerId, listOptions) => {
+      listCalls.push({provisionerId, options: listOptions});
+      return options.listError
         ? Promise.reject(options.listError)
-        : Promise.resolve(options.instances ?? []),
+        : Promise.resolve(options.instances ?? []);
+    },
     terminate: (instanceIds, options) => {
       terminationCalls.push({instanceIds: [...instanceIds], options});
       const error = terminateErrors.shift();
@@ -1713,12 +2046,12 @@ function fakeClient(
   } = {},
 ): ProvisionerClient & {
   reportBodies: ReportRunnerInstancesBodyDto[];
-  reconcileBodies: Array<{observed_provider_runner_ids: string[]}>;
+  reconcileBodies: ReconcileRunnerInstancesBodyDto[];
   assignmentBodies: Array<{reservationId: string; runnerInstanceIds: string[]}>;
   attachments: Array<{runnerInstanceId: string; providerRunnerId: string}>;
 } {
   const reportBodies: ReportRunnerInstancesBodyDto[] = [];
-  const reconcileBodies: Array<{observed_provider_runner_ids: string[]}> = [];
+  const reconcileBodies: ReconcileRunnerInstancesBodyDto[] = [];
   const assignmentBodies: Array<{reservationId: string; runnerInstanceIds: string[]}> = [];
   const attachments: Array<{runnerInstanceId: string; providerRunnerId: string}> = [];
   const reportErrors = [...(options.reportErrors ?? [])];

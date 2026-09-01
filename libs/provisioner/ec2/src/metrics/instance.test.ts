@@ -102,6 +102,14 @@ describe('EC2 provisioner metrics', () => {
     expect(counterAdd('ec2_provisioner_reconcile_absent')).toHaveBeenCalledWith(2);
   });
 
+  it('records impaired health checks with a bounded check type', () => {
+    metrics.recordEc2HealthImpaired('attached-ebs');
+
+    expect(counterAdd('ec2_provisioner_health_impaired')).toHaveBeenCalledWith(1, {
+      check_type: 'attached-ebs',
+    });
+  });
+
   it('records EC2 launch duration with bounded labels', () => {
     metrics.recordEc2LaunchDuration({durationMs: 1_250, ...durationLabels});
 

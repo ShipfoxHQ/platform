@@ -1,4 +1,5 @@
 import {
+  DescribeInstanceStatusCommand,
   DescribeInstancesCommand,
   RunInstancesCommand,
   TerminateInstancesCommand,
@@ -186,6 +187,11 @@ describe('createEc2Engine', () => {
     ['RequestLimitExceeded', 'throttled', true],
     ['InvalidAMIID.NotFound', 'image-not-found', false],
     ['AuthFailure', 'auth', false],
+    ['AccessDenied', 'auth', false],
+    ['AccessDeniedException', 'auth', false],
+    ['InvalidClientTokenId', 'auth', false],
+    ['SignatureDoesNotMatch', 'auth', false],
+    ['UnrecognizedClientException', 'auth', false],
     ['InvalidParameterValue', 'config-invalid', false],
     ['ECONNREFUSED', 'unreachable', true],
     ['UnexpectedFailure', 'unknown', false],
@@ -230,6 +236,7 @@ describe('createEc2Engine', () => {
       NextToken: undefined,
     });
     expect(commandInput<DescribeInstancesCommand>(ec2.commands[1]).NextToken).toBe('next-page');
+    expect(ec2.commands).toHaveLength(2);
     expect(result[0]).toMatchObject({
       instanceId: 'i-123',
       state: 'terminated',
@@ -239,6 +246,211 @@ describe('createEc2Engine', () => {
       ami: 'ami-actual',
     });
     expect(result[1]?.instanceId).toBe('i-456');
+  });
+
+  it('maps EC2 status checks and scheduled events for managed instances', async () => {
+    const impairedSince = new Date('2026-07-18T12:02:00.000Z');
+    const notBefore = new Date('2026-07-18T13:00:00.000Z');
+    const notAfter = new Date('2026-07-18T14:00:00.000Z');
+    const notBeforeDeadline = new Date('2026-07-18T13:30:00.000Z');
+    const ec2 = fakeEc2({
+      describeOutputs: [{Reservations: [{Instances: [instance()]}]}],
+      describeStatusOutputs: [
+        {
+          InstanceStatuses: [
+            {
+              InstanceId: 'i-123',
+              SystemStatus: {
+                Status: 'impaired',
+                Details: [{Name: 'reachability', Status: 'failed', ImpairedSince: impairedSince}],
+              },
+              InstanceStatus: {Status: 'initializing'},
+              AttachedEbsStatus: {Status: 'insufficient-data'},
+              Events: [
+                {
+                  Code: 'system-reboot',
+                  NotBefore: notBefore,
+                  NotAfter: notAfter,
+                  NotBeforeDeadline: notBeforeDeadline,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    const engine = createEc2Engine({region: 'eu-west-3', client: ec2 as never});
+
+    const result = await engine.listManaged('provisioner-1', {includeStatus: true});
+
+    expect(commandInput<DescribeInstanceStatusCommand>(ec2.commands[1])).toEqual({
+      InstanceIds: ['i-123'],
+      IncludeAllInstances: true,
+      NextToken: undefined,
+    });
+    expect(result[0]).toMatchObject({
+      systemStatus: {status: 'impaired', impairedSince},
+      instanceStatus: {status: 'initializing'},
+      attachedEbsStatus: {status: 'insufficient-data'},
+      scheduledEvents: [{code: 'system-reboot', notBefore, notAfter, notBeforeDeadline}],
+    });
+  });
+
+  it('maps unknown status values and scheduled event codes to bounded values', async () => {
+    const ec2 = fakeEc2({
+      describeOutputs: [{Reservations: [{Instances: [instance()]}]}],
+      describeStatusOutputs: [
+        {
+          InstanceStatuses: [
+            {
+              InstanceId: 'i-123',
+              SystemStatus: {Status: 'unexpected'},
+              InstanceStatus: {},
+              AttachedEbsStatus: {Status: 'unexpected'},
+              Events: [{Code: 'unexpected'}],
+            },
+          ],
+        },
+      ],
+    });
+    const engine = createEc2Engine({region: 'eu-west-3', client: ec2 as never});
+
+    const result = await engine.listManaged('provisioner-1', {includeStatus: true});
+
+    expect(result[0]).toMatchObject({
+      systemStatus: {status: 'unknown'},
+      instanceStatus: {status: 'unknown'},
+      attachedEbsStatus: {status: 'unknown'},
+      scheduledEvents: [{code: 'unknown'}],
+    });
+  });
+
+  it.each([
+    'RequestLimitExceeded',
+    'InvalidInstanceID.NotFound',
+  ])('returns the instance snapshot when a retryable or stale status read fails with %s', async (code) => {
+    const ec2 = fakeEc2({
+      describeOutputs: [{Reservations: [{Instances: [instance()]}]}],
+      describeStatusError: awsError(code),
+    });
+    const engine = createEc2Engine({region: 'eu-west-3', client: ec2 as never});
+
+    const result = await engine.listManaged('provisioner-1', {includeStatus: true});
+
+    expect(result[0]).toMatchObject({instanceId: 'i-123', state: 'running'});
+    expect(result[0]).not.toHaveProperty('systemStatus');
+  });
+
+  it.each([
+    ['InvalidParameterValue', 'config-invalid'],
+    ['UnsupportedOperation', 'config-invalid'],
+    ['UnexpectedFailure', 'unknown'],
+  ])('propagates permanent status-read failure %s as %s', async (code, reason) => {
+    const ec2 = fakeEc2({
+      describeOutputs: [{Reservations: [{Instances: [instance()]}]}],
+      describeStatusError: awsError(code),
+    });
+    const engine = createEc2Engine({region: 'eu-west-3', client: ec2 as never});
+
+    await expect(engine.listManaged('provisioner-1', {includeStatus: true})).rejects.toMatchObject({
+      reason,
+      retryable: false,
+    });
+  });
+
+  it.each([
+    'UnauthorizedOperation',
+    'AccessDenied',
+    'AccessDeniedException',
+    'InvalidClientTokenId',
+    'SignatureDoesNotMatch',
+    'UnrecognizedClientException',
+  ])('fails closed when EC2 status checks return %s', async (code) => {
+    const ec2 = fakeEc2({
+      describeOutputs: [{Reservations: [{Instances: [instance()]}]}],
+      describeStatusError: awsError(code),
+    });
+    const engine = createEc2Engine({region: 'eu-west-3', client: ec2 as never});
+
+    await expect(engine.listManaged('provisioner-1', {includeStatus: true})).rejects.toMatchObject({
+      reason: 'auth',
+      retryable: false,
+    });
+  });
+
+  it('batches and paginates EC2 status checks', async () => {
+    const instances = Array.from({length: 101}, (_, index) => instance({InstanceId: `i-${index}`}));
+    const ec2 = fakeEc2({
+      describeOutputs: [{Reservations: [{Instances: instances}]}],
+      describeStatusOutputs: [
+        {
+          InstanceStatuses: [{InstanceId: 'i-0', SystemStatus: {Status: 'ok'}}],
+          NextToken: 'status-next-page',
+        },
+        {InstanceStatuses: [{InstanceId: 'i-99', SystemStatus: {Status: 'impaired'}}]},
+        {InstanceStatuses: [{InstanceId: 'i-100', SystemStatus: {Status: 'ok'}}]},
+      ],
+    });
+    const engine = createEc2Engine({region: 'eu-west-3', client: ec2 as never});
+
+    const result = await engine.listManaged('provisioner-1', {includeStatus: true});
+
+    expect(ec2.commands).toHaveLength(4);
+    expect(commandInput<DescribeInstanceStatusCommand>(ec2.commands[1])).toMatchObject({
+      InstanceIds: Array.from({length: 100}, (_, index) => `i-${index}`),
+      IncludeAllInstances: true,
+      NextToken: undefined,
+    });
+    expect(commandInput<DescribeInstanceStatusCommand>(ec2.commands[2])).toMatchObject({
+      InstanceIds: Array.from({length: 100}, (_, index) => `i-${index}`),
+      IncludeAllInstances: true,
+      NextToken: 'status-next-page',
+    });
+    expect(commandInput<DescribeInstanceStatusCommand>(ec2.commands[3])).toMatchObject({
+      InstanceIds: ['i-100'],
+      IncludeAllInstances: true,
+      NextToken: undefined,
+    });
+    expect(result[0]).toMatchObject({systemStatus: {status: 'ok'}});
+    expect(result[99]).toMatchObject({systemStatus: {status: 'impaired'}});
+    expect(result[100]).toMatchObject({systemStatus: {status: 'ok'}});
+  });
+
+  it('retains statuses for other instances when a batch contains a stale instance', async () => {
+    const ec2 = fakeEc2({
+      describeOutputs: [
+        {
+          Reservations: [
+            {
+              Instances: [instance({InstanceId: 'i-live'}), instance({InstanceId: 'i-stale'})],
+            },
+          ],
+        },
+      ],
+      describeStatusErrors: [
+        awsError('InvalidInstanceID.NotFound'),
+        undefined,
+        awsError('InvalidInstanceID.NotFound'),
+      ],
+      describeStatusOutputs: [
+        {InstanceStatuses: [{InstanceId: 'i-live', SystemStatus: {Status: 'impaired'}}]},
+      ],
+    });
+    const engine = createEc2Engine({region: 'eu-west-3', client: ec2 as never});
+
+    const result = await engine.listManaged('provisioner-1', {includeStatus: true});
+
+    expect(
+      ec2.commands
+        .filter((command) => command instanceof DescribeInstanceStatusCommand)
+        .map((command) => commandInput<DescribeInstanceStatusCommand>(command).InstanceIds),
+    ).toEqual([['i-live', 'i-stale'], ['i-live'], ['i-stale']]);
+    expect(result.find((instance) => instance.instanceId === 'i-live')).toMatchObject({
+      systemStatus: {status: 'impaired'},
+    });
+    expect(result.find((instance) => instance.instanceId === 'i-stale')).not.toHaveProperty(
+      'systemStatus',
+    );
   });
 
   it.each([
@@ -328,28 +540,49 @@ function fakeEc2(
     runOutput?: unknown;
     runError?: Error;
     describeOutputs?: unknown[];
+    describeStatusOutputs?: unknown[];
+    describeStatusError?: Error;
+    describeStatusErrors?: Array<Error | undefined>;
     terminateError?: Error;
     terminateErrorById?: Map<string, Error>;
   } = {},
 ) {
   const commands: unknown[] = [];
   const describeOutputs = [...(options.describeOutputs ?? [])];
+  const describeStatusOutputs = [...(options.describeStatusOutputs ?? [])];
+  const describeStatusErrors = [...(options.describeStatusErrors ?? [])];
 
   return {
     commands,
     send(command: unknown) {
       commands.push(command);
       if (command instanceof RunInstancesCommand) {
-        if (options.runError) return Promise.reject(options.runError);
-        return Promise.resolve(options.runOutput ?? {Instances: [instance()]});
+        return runInstanceResponse(options);
       }
       if (command instanceof DescribeInstancesCommand)
         return Promise.resolve(describeOutputs.shift() ?? {});
+      if (command instanceof DescribeInstanceStatusCommand)
+        return describeStatusResponse(options, describeStatusOutputs, describeStatusErrors);
       if (command instanceof TerminateInstancesCommand)
         return terminateInstanceResponse(command, options);
       return Promise.reject(new Error('Unexpected EC2 command'));
     },
   };
+}
+
+function runInstanceResponse(options: {runOutput?: unknown; runError?: Error}): Promise<unknown> {
+  if (options.runError) return Promise.reject(options.runError);
+  return Promise.resolve(options.runOutput ?? {Instances: [instance()]});
+}
+
+function describeStatusResponse(
+  options: {describeStatusError?: Error},
+  outputs: unknown[],
+  errors: Array<Error | undefined>,
+): Promise<unknown> {
+  const error = options.describeStatusError ?? errors.shift();
+  if (error) return Promise.reject(error);
+  return Promise.resolve(outputs.shift() ?? {});
 }
 
 function terminateInstanceResponse(
