@@ -540,6 +540,44 @@ describe('reportRunnerInstances', () => {
     expect(row).toMatchObject({workspaceId: null, provisionerId, reportedAt});
   });
 
+  it('removes installation-scoped stop handoffs on a terminal provider report', async () => {
+    const jobWorkspaceId = crypto.randomUUID();
+    const providerRunnerId = 'installation-terminal-stop-handoff';
+    await providerRunnerFactory.create({
+      workspaceId: null,
+      provisionerId,
+      providerRunnerId,
+      state: 'running',
+    });
+    const jobExecutionId = crypto.randomUUID();
+    await insertRunningJobRow({
+      workspaceId: jobWorkspaceId,
+      provisionerId,
+      providerRunnerId,
+      jobExecutionId,
+      cancellationRequestedAt: new Date(Date.now() - 30_000),
+    });
+    await db()
+      .update(runningJobExecutions)
+      .set({cancellationReason: 'run_cancelled'})
+      .where(eq(runningJobExecutions.jobExecutionId, jobExecutionId));
+
+    const result = await reportRunnerInstances({
+      scope: 'installation',
+      workspaceId: null,
+      provisionerId,
+      events: [event({providerRunnerId, state: 'terminated'})],
+    });
+
+    expect(result).toMatchObject({accepted: 1, reservationsReleased: 0});
+    expect(
+      await db()
+        .select()
+        .from(runningJobExecutions)
+        .where(eq(runningJobExecutions.jobExecutionId, jobExecutionId)),
+    ).toHaveLength(0);
+  });
+
   it('authorizes an unassigned installation termination candidate', async () => {
     const reportedAt = new Date();
     await reportRunnerInstances({
@@ -711,6 +749,51 @@ describe('reportRunnerInstances', () => {
     expect(result).toEqual({accepted: 1, reservationsReleased: 0, terminateIntentsHonored: []});
     expect(providerRunner).toMatchObject({state: 'failed', reservationReleasedAt: null});
     expect(reservation?.count).toBe(1);
+  });
+
+  it('removes a stop handoff when a delayed terminal report advances the lifecycle', async () => {
+    const providerRunnerId = 'delayed-terminal-stop-handoff';
+    const currentReportedAt = new Date('2025-01-01T00:01:00.000Z');
+    await providerRunnerFactory.create({
+      workspaceId,
+      provisionerId,
+      providerRunnerId,
+      state: 'running',
+      reportedAt: currentReportedAt,
+    });
+    const jobExecutionId = crypto.randomUUID();
+    await insertRunningJobRow({
+      workspaceId,
+      provisionerId,
+      providerRunnerId,
+      jobExecutionId,
+      cancellationRequestedAt: new Date(Date.now() - 30_000),
+    });
+    await db()
+      .update(runningJobExecutions)
+      .set({cancellationReason: 'run_cancelled'})
+      .where(eq(runningJobExecutions.jobExecutionId, jobExecutionId));
+
+    const result = await reportRunnerInstances({
+      scope: 'workspace',
+      workspaceId,
+      provisionerId,
+      events: [
+        event({
+          providerRunnerId,
+          state: 'failed',
+          reportedAt: new Date(currentReportedAt.getTime() - 1_000),
+        }),
+      ],
+    });
+
+    expect(result).toMatchObject({accepted: 1, reservationsReleased: 0});
+    expect(
+      await db()
+        .select()
+        .from(runningJobExecutions)
+        .where(eq(runningJobExecutions.jobExecutionId, jobExecutionId)),
+    ).toHaveLength(0);
   });
 
   it('rejects older out-of-order events in the same lifecycle state', async () => {
@@ -3055,6 +3138,76 @@ describe('reconcileRunnerInstances', () => {
     expect(reservation?.count).toBe(2);
   });
 
+  it('cleans expired managed handoffs during candidate-only reconciliation', async () => {
+    const providerRunnerId = 'candidate-only-expired-stop-handoff';
+    const jobExecutionId = crypto.randomUUID();
+    await createRunnerInstance({providerRunnerId});
+    await insertRunningJob({
+      jobId: crypto.randomUUID(),
+      providerRunnerId,
+      startedAt: new Date(),
+    });
+    await db()
+      .update(runningJobExecutions)
+      .set({
+        jobExecutionId,
+        cancellationRequestedAt: new Date(Date.now() - 300_000),
+        cancellationReason: 'run_cancelled',
+      })
+      .where(eq(runningJobExecutions.providerRunnerId, providerRunnerId));
+
+    await reconcileRunnerInstancesCore({
+      workspaceId,
+      provisionerId,
+      observedRunnerInstanceIds: [],
+      candidateOnlyReconcile: true,
+    });
+
+    expect(
+      await db()
+        .select()
+        .from(runningJobExecutions)
+        .where(eq(runningJobExecutions.jobExecutionId, jobExecutionId)),
+    ).toHaveLength(0);
+  });
+
+  it('cleans expired installation-scoped managed handoffs across job workspaces', async () => {
+    const installationProvisionerId = crypto.randomUUID();
+    const providerRunnerId = 'installation-expired-stop-handoff';
+    const jobWorkspaceId = crypto.randomUUID();
+    const jobExecutionId = crypto.randomUUID();
+    await providerRunnerFactory.create({
+      workspaceId: null,
+      provisionerId: installationProvisionerId,
+      providerRunnerId,
+      state: 'running',
+    });
+    await insertRunningJobRow({
+      workspaceId: jobWorkspaceId,
+      provisionerId: installationProvisionerId,
+      providerRunnerId,
+      jobExecutionId,
+      cancellationRequestedAt: new Date(Date.now() - 300_000),
+    });
+    await db()
+      .update(runningJobExecutions)
+      .set({cancellationReason: 'run_cancelled'})
+      .where(eq(runningJobExecutions.jobExecutionId, jobExecutionId));
+
+    await reconcileRunnerInstancesCore({
+      workspaceId: null,
+      provisionerId: installationProvisionerId,
+      observedRunnerInstanceIds: [],
+    });
+
+    expect(
+      await db()
+        .select()
+        .from(runningJobExecutions)
+        .where(eq(runningJobExecutions.jobExecutionId, jobExecutionId)),
+    ).toHaveLength(0);
+  });
+
   it('keeps fresh absent provisioned runners inside the grace window', async () => {
     await createRunnerInstance({
       providerRunnerId: 'provisioned-runner-1',
@@ -3142,7 +3295,12 @@ describe('reconcileRunnerInstances', () => {
     });
 
     expect(result.runners).toMatchObject([
-      {providerRunnerId, desiredIntent: 'terminate', desiredIntentReason: 'job-cancelled'},
+      {
+        providerRunnerId,
+        desiredIntent: 'terminate',
+        desiredIntentReason: 'job-cancelled',
+        boundJobExecution: null,
+      },
     ]);
     expect(
       await db()
@@ -3150,6 +3308,48 @@ describe('reconcileRunnerInstances', () => {
         .from(runningJobExecutions)
         .where(eq(runningJobExecutions.jobExecutionId, jobExecutionId)),
     ).toHaveLength(0);
+  });
+
+  it('keeps a fresh managed stop handoff inside the cleanup grace', async () => {
+    const providerRunnerId = 'fresh-stop-handoff-runner';
+    const jobExecutionId = crypto.randomUUID();
+    await createRunnerInstance({providerRunnerId});
+    await insertRunningJob({
+      jobId: crypto.randomUUID(),
+      providerRunnerId,
+      startedAt: new Date(),
+    });
+    await db()
+      .update(runningJobExecutions)
+      .set({
+        jobExecutionId,
+        cancellationRequestedAt: new Date(),
+        cancellationReason: 'run_cancelled',
+      })
+      .where(eq(runningJobExecutions.providerRunnerId, providerRunnerId));
+
+    const result = await reconcileRunnerInstancesCore({
+      workspaceId,
+      provisionerId,
+      observedRunnerInstanceIds: [providerRunnerId],
+    });
+
+    expect(result.runners).toMatchObject([
+      {
+        providerRunnerId,
+        desiredIntent: 'keep',
+        boundJobExecution: {
+          jobExecutionId,
+          cancellationReason: 'run_cancelled',
+        },
+      },
+    ]);
+    expect(
+      await db()
+        .select()
+        .from(runningJobExecutions)
+        .where(eq(runningJobExecutions.jobExecutionId, jobExecutionId)),
+    ).toHaveLength(1);
   });
 
   it('keeps stale managed capacity with a live running job', async () => {

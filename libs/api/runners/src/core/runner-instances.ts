@@ -30,6 +30,7 @@ import {
   providerRunnerTerminateIntentHonoredCount,
   providerRunnerTerminateIntentIssuedCount,
   recordRunnerJobCleanupGraceAge,
+  recordRunnerJobStopHandoffCleaned,
   recordRunnerReservationReleased,
   runnerTerminationAuthorizationHonoredCount,
 } from '#metrics/instance.js';
@@ -262,18 +263,28 @@ export async function reconcileRunnerInstances(
     }),
   );
   const authorizationByCandidateRunnerId = new Map(candidateAuthorizations);
-  const cleanupProviderRunnerIds = [
-    ...new Set([...observedRunnerInstanceIds, ...result.absentIds]),
-  ];
   const expiredStopHandoffs = await removeExpiredJobStopHandoffs({
     workspaceId: params.workspaceId,
     provisionerId: params.provisionerId,
-    providerRunnerIds: cleanupProviderRunnerIds,
     graceSeconds: config.RUNNER_JOB_CLEANUP_GRACE_SECONDS,
   });
   recordRunnerReservationReleased({
     count: expiredStopHandoffs.reservationsReleased,
     surface: 'reconcile',
+  });
+  recordRunnerJobStopHandoffCleaned({count: expiredStopHandoffs.removed, surface: 'reconcile'});
+  const removedJobExecutionIds = new Set(expiredStopHandoffs.removedJobExecutionIds);
+  const boundJobExecutionsAfterCleanup = new Map(
+    [...result.boundJobExecutionsByRunnerInstanceId].filter(
+      ([, jobExecution]) => !removedJobExecutionIds.has(jobExecution.jobExecutionId),
+    ),
+  );
+  const reconciledRunnersAfterCleanup = reconcileRunnerInstancesFromDbResult({
+    observedRunnerInstanceIds,
+    observedRows: result.observedRows,
+    boundJobExecutionsByRunnerInstanceId: boundJobExecutionsAfterCleanup,
+    cleanupGraceSeconds: config.RUNNER_JOB_CLEANUP_GRACE_SECONDS,
+    now,
   });
   const authorizations = await listProvisionerTerminationAuthorizations({
     workspaceId: params.workspaceId,
@@ -289,7 +300,7 @@ export async function reconcileRunnerInstances(
       authorization.desiredIntent === 'terminate' ? [providerRunnerId] : [],
     ),
   );
-  const runners = reconciledRunners.map((runner) => {
+  const runners = reconciledRunnersAfterCleanup.map((runner) => {
     const candidateAuthorization = authorizationByCandidateRunnerId.get(runner.providerRunnerId);
     const observedRow = observedRowByRunnerId.get(runner.providerRunnerId);
     const reason =

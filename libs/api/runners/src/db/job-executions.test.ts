@@ -1107,6 +1107,41 @@ describe('recordHeartbeat', () => {
     ).toHaveLength(0);
   });
 
+  it('keeps a managed stop handoff until provider termination or cleanup grace', async () => {
+    const provisionerId = crypto.randomUUID();
+    const providerRunnerId = crypto.randomUUID();
+    await providerRunnerFactory.create({
+      workspaceId,
+      provisionerId,
+      providerRunnerId,
+      state: 'running',
+    });
+    await pendingJobFactory.create({workspaceId});
+    const claimed = await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: null});
+    expect(claimed?.jobExecutionId).toBeDefined();
+    await db()
+      .update(runningJobExecutions)
+      .set({provisionerId, providerRunnerId})
+      .where(eq(runningJobExecutions.jobExecutionId, claimed?.jobExecutionId as string));
+
+    await reconcileTerminalJobExecution({
+      jobExecutionId: claimed?.jobExecutionId as string,
+      cancellationReason: 'run_cancelled',
+    });
+
+    const result = await recordHeartbeat({
+      jobExecutionId: claimed?.jobExecutionId as string,
+      runnerSessionId,
+    });
+
+    expect(result).toMatchObject({cancellationRequested: true});
+    const [handoff] = await db()
+      .select()
+      .from(runningJobExecutions)
+      .where(eq(runningJobExecutions.jobExecutionId, claimed?.jobExecutionId as string));
+    expect(handoff?.cancellationReason).toBe('run_cancelled');
+  });
+
   it('throws RunningJobExecutionNotFoundError when jobId is unknown', async () => {
     await expect(
       recordHeartbeat({jobExecutionId: crypto.randomUUID(), runnerSessionId}),
@@ -1262,6 +1297,38 @@ describe('reconcileTerminalJobExecution', () => {
       .from(runningJobExecutions)
       .where(eq(runningJobExecutions.jobExecutionId, pending.jobExecutionId));
     expect(after2[0]?.cancellationRequestedAt?.getTime()).toBe(firstTs?.getTime());
+  });
+
+  it('preserves an existing stop handoff when a duplicate terminal event has no stop reason', async () => {
+    const pending = await pendingJobFactory.create({workspaceId});
+    const claimed = await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: null});
+    expect(claimed?.jobExecutionId).toBe(pending.jobExecutionId);
+
+    await reconcileTerminalJobExecution({
+      jobExecutionId: pending.jobExecutionId,
+      cancellationReason: 'timed_out',
+    });
+    const [beforeDuplicate] = await db()
+      .select({cancellationRequestedAt: runningJobExecutions.cancellationRequestedAt})
+      .from(runningJobExecutions)
+      .where(eq(runningJobExecutions.jobExecutionId, pending.jobExecutionId));
+
+    await reconcileTerminalJobExecution({
+      jobExecutionId: pending.jobExecutionId,
+      cancellationReason: null,
+    });
+
+    const [afterDuplicate] = await db()
+      .select({
+        cancellationRequestedAt: runningJobExecutions.cancellationRequestedAt,
+        cancellationReason: runningJobExecutions.cancellationReason,
+      })
+      .from(runningJobExecutions)
+      .where(eq(runningJobExecutions.jobExecutionId, pending.jobExecutionId));
+    expect(afterDuplicate?.cancellationRequestedAt?.getTime()).toBe(
+      beforeDuplicate?.cancellationRequestedAt?.getTime(),
+    );
+    expect(afterDuplicate?.cancellationReason).toBe('timed_out');
   });
 
   it('is a no-op when the job execution is missing', async () => {
@@ -1625,6 +1692,69 @@ describe('detectAndExpireStuckJobs', () => {
 
     await detectAndExpireStuckJobs({thresholdSeconds: 180});
 
+    expect(
+      await db()
+        .select()
+        .from(runningJobExecutions)
+        .where(eq(runningJobExecutions.jobExecutionId, pending.jobExecutionId)),
+    ).toHaveLength(0);
+    expect(await outboxEventsForJob(RUNNER_JOB_LEASE_EXPIRED, pending.jobId)).toHaveLength(0);
+  });
+
+  it('keeps a fresh manual stop handoff inside the cleanup grace', async () => {
+    const pending = await pendingJobFactory.create({workspaceId});
+    const claimed = await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: null});
+    expect(claimed?.jobExecutionId).toBe(pending.jobExecutionId);
+
+    await reconcileTerminalJobExecution({
+      jobExecutionId: pending.jobExecutionId,
+      cancellationReason: 'run_cancelled',
+    });
+    await db()
+      .update(runningJobExecutions)
+      .set({cancellationRequestedAt: new Date()})
+      .where(eq(runningJobExecutions.jobExecutionId, pending.jobExecutionId));
+
+    await detectAndExpireStuckJobs({thresholdSeconds: 180});
+
+    const [handoff] = await db()
+      .select()
+      .from(runningJobExecutions)
+      .where(eq(runningJobExecutions.jobExecutionId, pending.jobExecutionId));
+    expect(handoff?.cancellationReason).toBe('run_cancelled');
+    expect(await outboxEventsForJob(RUNNER_JOB_LEASE_EXPIRED, pending.jobId)).toHaveLength(0);
+  });
+
+  it('cleans an expired managed stop handoff without a provider report', async () => {
+    const pending = await pendingJobFactory.create({workspaceId});
+    const claimed = await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: null});
+    expect(claimed?.jobExecutionId).toBe(pending.jobExecutionId);
+    const provisionerId = crypto.randomUUID();
+    const providerRunnerId = crypto.randomUUID();
+    await providerRunnerFactory.create({
+      workspaceId,
+      provisionerId,
+      providerRunnerId,
+      state: 'terminated',
+      terminatedAt: new Date(),
+    });
+
+    await reconcileTerminalJobExecution({
+      jobExecutionId: pending.jobExecutionId,
+      cancellationReason: 'run_cancelled',
+    });
+    await db()
+      .update(runningJobExecutions)
+      .set({
+        provisionerId,
+        providerRunnerId,
+        cancellationRequestedAt: new Date(Date.now() - 300_000),
+      })
+      .where(eq(runningJobExecutions.jobExecutionId, pending.jobExecutionId));
+
+    const result = await detectAndExpireStuckJobs({thresholdSeconds: 180});
+
+    expect(result.expired).toBe(0);
     expect(
       await db()
         .select()

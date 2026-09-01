@@ -15,6 +15,7 @@ export type {
   ClaimedJobExecution,
   EnqueueJobExecutionParams,
   JobExecutionCleanupStats,
+  JobStopHandoffCleanupResult,
   RunnerInstanceBoundJobExecution,
 } from './job-executions.js';
 export {
@@ -28,6 +29,7 @@ export {
   listRunningJobExecutionsByRunnerInstanceTx,
   recordHeartbeat,
   removeExpiredJobStopHandoffs,
+  removeExpiredManagedJobStopHandoffs,
   removeExpiredUnlinkedJobStopHandoffs,
   removeJobStopHandoffsForTerminalProviderRunnersTx,
 } from './job-executions.js';

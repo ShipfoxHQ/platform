@@ -129,6 +129,14 @@ export const jobExecutionLeaseExpiredCount = meter.createCounter<Record<string, 
   {description: 'Job execution leases reaped after passing the heartbeat threshold'},
 );
 
+export type RunnerJobStopHandoffCleanupSurface = 'maintenance' | 'reconcile';
+
+export const jobStopHandoffCleanedCount = meter.createCounter<{
+  surface: RunnerJobStopHandoffCleanupSurface;
+}>('runners_job_stop_handoff_cleaned', {
+  description: 'Terminal stop handoffs removed by their cleanup surface',
+});
+
 export const staleJobCandidateRatio = meter.createHistogram<Record<string, never>>(
   'runners_job_stale_candidate_ratio',
   {
@@ -339,6 +347,14 @@ export function recordRunnerReservationReleased(params: {
 }): void {
   if (params.count <= 0) return;
   recordMetric(() => reservationReleasedCount.add(params.count, {surface: params.surface}));
+}
+
+export function recordRunnerJobStopHandoffCleaned(params: {
+  count: number;
+  surface: RunnerJobStopHandoffCleanupSurface;
+}): void {
+  if (params.count <= 0) return;
+  recordMetric(() => jobStopHandoffCleanedCount.add(params.count, {surface: params.surface}));
 }
 
 export function recordStaleJobCandidateRatio(value: number): void {

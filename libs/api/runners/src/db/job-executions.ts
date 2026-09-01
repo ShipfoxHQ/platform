@@ -22,6 +22,7 @@ import {
   lt,
   lte,
   or,
+  type SQL,
   sql,
 } from 'drizzle-orm';
 import {
@@ -56,6 +57,13 @@ import {runnerSessions} from './schema/runner-sessions.js';
 import {runningJobExecutions} from './schema/running-job-executions.js';
 
 const runnerJobExecutionLockPrefix = 'runners_job_execution:';
+const defaultJobStopHandoffCleanupLimit = 100;
+
+export interface JobStopHandoffCleanupResult {
+  removed: number;
+  reservationsReleased: number;
+  removedJobExecutionIds: string[];
+}
 
 async function lockJobExecution(tx: Tx, jobExecutionId: string): Promise<void> {
   await tx.execute(
@@ -141,12 +149,11 @@ export async function getJobExecutionCleanupStats(): Promise<JobExecutionCleanup
 export async function removeJobStopHandoffsForTerminalProviderRunnersTx(
   tx: Tx,
   params: {
-    workspaceId: string | null;
     provisionerId: string;
     providerRunnerIds: readonly string[];
   },
 ): Promise<number> {
-  if (params.workspaceId === null || params.providerRunnerIds.length === 0) return 0;
+  if (params.providerRunnerIds.length === 0) return 0;
 
   const candidates = await tx
     .select({
@@ -156,7 +163,6 @@ export async function removeJobStopHandoffsForTerminalProviderRunnersTx(
     .from(runningJobExecutions)
     .where(
       and(
-        eq(runningJobExecutions.workspaceId, params.workspaceId),
         eq(runningJobExecutions.provisionerId, params.provisionerId),
         inArray(runningJobExecutions.providerRunnerId, params.providerRunnerIds),
         isNotNull(runningJobExecutions.cancellationRequestedAt),
@@ -184,65 +190,128 @@ export async function removeJobStopHandoffsForTerminalProviderRunnersTx(
 }
 
 /**
- * Removes stop handoffs that outlived the bounded local cleanup grace. The workspace lock keeps
- * this maintenance action ordered with terminal reconciliation and provider terminal reports.
+ * Removes managed stop handoffs that outlived the bounded local cleanup grace for one provisioner
+ * scope. Installation-scoped provisioners can own jobs in multiple workspaces, so the provisioner
+ * identity is the only required filter when workspaceId is null.
  */
 export async function removeExpiredJobStopHandoffs(params: {
   workspaceId: string | null;
   provisionerId: string;
-  providerRunnerIds: readonly string[];
   graceSeconds: number;
-}): Promise<{removed: number; reservationsReleased: number}> {
-  const workspaceId = params.workspaceId;
-  if (workspaceId === null || params.providerRunnerIds.length === 0)
-    return {removed: 0, reservationsReleased: 0};
+  limit?: number;
+}): Promise<JobStopHandoffCleanupResult> {
+  return await db().transaction((tx) =>
+    removeExpiredJobStopHandoffsTx(tx, {
+      graceSeconds: params.graceSeconds,
+      limit: params.limit,
+      where: and(
+        eq(runningJobExecutions.provisionerId, params.provisionerId),
+        params.workspaceId === null
+          ? undefined
+          : eq(runningJobExecutions.workspaceId, params.workspaceId),
+        isNotNull(runningJobExecutions.providerRunnerId),
+      ),
+    }),
+  );
+}
 
-  return await db().transaction(async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${workspaceId}))`);
+/**
+ * Removes managed stop handoffs after the bounded grace without requiring a provisioner report.
+ * This closes the cleanup path when a provisioner is revoked, disconnected, or has already
+ * reported its provider runners as terminal.
+ */
+export async function removeExpiredManagedJobStopHandoffs(params: {
+  graceSeconds: number;
+  limit?: number;
+}): Promise<JobStopHandoffCleanupResult> {
+  return await db().transaction((tx) =>
+    removeExpiredJobStopHandoffsTx(tx, {
+      graceSeconds: params.graceSeconds,
+      limit: params.limit,
+      where: and(
+        isNotNull(runningJobExecutions.provisionerId),
+        isNotNull(runningJobExecutions.providerRunnerId),
+      ),
+    }),
+  );
+}
 
-    const cutoff = sql`now() - (${params.graceSeconds} || ' seconds')::interval`;
-    const candidates = await tx
-      .select({
-        id: runningJobExecutions.id,
-        jobExecutionId: runningJobExecutions.jobExecutionId,
-      })
-      .from(runningJobExecutions)
-      .where(
-        and(
-          eq(runningJobExecutions.workspaceId, workspaceId),
-          eq(runningJobExecutions.provisionerId, params.provisionerId),
-          inArray(runningJobExecutions.providerRunnerId, params.providerRunnerIds),
-          isNotNull(runningJobExecutions.cancellationRequestedAt),
-          lte(runningJobExecutions.cancellationRequestedAt, cutoff),
+async function removeExpiredJobStopHandoffsTx(
+  tx: Tx,
+  params: {graceSeconds: number; limit?: number | undefined; where: SQL<unknown> | undefined},
+): Promise<JobStopHandoffCleanupResult> {
+  const cutoff = sql`now() - (${params.graceSeconds} || ' seconds')::interval`;
+  const candidates = await tx
+    .select({
+      id: runningJobExecutions.id,
+      jobExecutionId: runningJobExecutions.jobExecutionId,
+      workspaceId: runningJobExecutions.workspaceId,
+      provisionerId: runningJobExecutions.provisionerId,
+      providerRunnerId: runningJobExecutions.providerRunnerId,
+    })
+    .from(runningJobExecutions)
+    .where(
+      and(
+        params.where,
+        isNotNull(runningJobExecutions.cancellationRequestedAt),
+        lte(runningJobExecutions.cancellationRequestedAt, cutoff),
+      ),
+    )
+    .orderBy(
+      asc(runningJobExecutions.cancellationRequestedAt),
+      asc(runningJobExecutions.jobExecutionId),
+    )
+    .limit(params.limit ?? defaultJobStopHandoffCleanupLimit);
+
+  if (candidates.length === 0)
+    return {removed: 0, reservationsReleased: 0, removedJobExecutionIds: []};
+
+  const scopeKeys = [
+    ...new Set(
+      candidates.flatMap((candidate) =>
+        candidate.provisionerId
+          ? [candidate.workspaceId, candidate.provisionerId]
+          : [candidate.workspaceId],
+      ),
+    ),
+  ].sort();
+  for (const scopeKey of scopeKeys)
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${scopeKey}))`);
+
+  for (const candidate of [...candidates].sort((a, b) =>
+    a.jobExecutionId.localeCompare(b.jobExecutionId),
+  )) {
+    await lockJobExecution(tx, candidate.jobExecutionId);
+  }
+
+  const deleted = await tx
+    .delete(runningJobExecutions)
+    .where(
+      and(
+        inArray(
+          runningJobExecutions.id,
+          candidates.map((candidate) => candidate.id),
         ),
-      )
-      .orderBy(asc(runningJobExecutions.jobExecutionId));
+        params.where,
+        isNotNull(runningJobExecutions.cancellationRequestedAt),
+        lte(runningJobExecutions.cancellationRequestedAt, cutoff),
+      ),
+    )
+    .returning({
+      jobExecutionId: runningJobExecutions.jobExecutionId,
+      provisionerId: runningJobExecutions.provisionerId,
+      providerRunnerId: runningJobExecutions.providerRunnerId,
+    });
 
-    for (const candidate of candidates) await lockJobExecution(tx, candidate.jobExecutionId);
-    if (candidates.length === 0) return {removed: 0, reservationsReleased: 0};
+  if (deleted.length === 0)
+    return {removed: 0, reservationsReleased: 0, removedJobExecutionIds: []};
+  const reservationsReleased = await releaseReservationsForTerminalRunningRows(tx, deleted);
 
-    const deleted = await tx
-      .delete(runningJobExecutions)
-      .where(
-        and(
-          inArray(
-            runningJobExecutions.id,
-            candidates.map((candidate) => candidate.id),
-          ),
-          isNotNull(runningJobExecutions.cancellationRequestedAt),
-          lte(runningJobExecutions.cancellationRequestedAt, cutoff),
-        ),
-      )
-      .returning({
-        provisionerId: runningJobExecutions.provisionerId,
-        providerRunnerId: runningJobExecutions.providerRunnerId,
-      });
-
-    if (deleted.length === 0) return {removed: 0, reservationsReleased: 0};
-    const reservationsReleased = await releaseReservationsForTerminalRunningRows(tx, deleted);
-
-    return {removed: deleted.length, reservationsReleased};
-  });
+  return {
+    removed: deleted.length,
+    reservationsReleased,
+    removedJobExecutionIds: deleted.map((row) => row.jobExecutionId),
+  };
 }
 
 /**
@@ -275,7 +344,7 @@ export async function removeExpiredUnlinkedJobStopHandoffs(params: {
         asc(runningJobExecutions.cancellationRequestedAt),
         asc(runningJobExecutions.jobExecutionId),
       )
-      .limit(params.limit ?? 100);
+      .limit(params.limit ?? defaultJobStopHandoffCleanupLimit);
 
     if (candidates.length === 0) return 0;
 
@@ -1291,7 +1360,12 @@ export async function reconcileTerminalJobExecution(params: {
           })
       : await tx
           .delete(runningJobExecutions)
-          .where(eq(runningJobExecutions.jobExecutionId, params.jobExecutionId))
+          .where(
+            and(
+              eq(runningJobExecutions.jobExecutionId, params.jobExecutionId),
+              isNull(runningJobExecutions.cancellationRequestedAt),
+            ),
+          )
           .returning({
             provisionerId: runningJobExecutions.provisionerId,
             providerRunnerId: runningJobExecutions.providerRunnerId,

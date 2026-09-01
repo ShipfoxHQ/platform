@@ -184,4 +184,43 @@ describe('onWorkflowsJobExecutionTerminated', () => {
     expect(lease?.cancellationRequestedAt).toBeInstanceOf(Date);
     expect(lease?.cancellationReason).toBe('run_cancelled');
   });
+
+  it('does not turn a non-stop cancellation status reason into a stop handoff', async () => {
+    const workspaceId = crypto.randomUUID();
+    const runnerSession = await runnerSessionFactory.create({workspaceId});
+    const jobExecutionId = crypto.randomUUID();
+    await db()
+      .insert(runningJobExecutions)
+      .values({
+        workspaceId,
+        workflowRunId: crypto.randomUUID(),
+        workflowRunAttemptId: crypto.randomUUID(),
+        jobId: crypto.randomUUID(),
+        jobExecutionId,
+        projectId: crypto.randomUUID(),
+        runnerSessionId: runnerSession.id,
+        provisionerId: crypto.randomUUID(),
+        providerRunnerId: crypto.randomUUID(),
+        requiredLabels: ['linux'],
+        runnerLabels: ['linux'],
+      });
+
+    await onWorkflowsJobExecutionTerminated({
+      jobId: crypto.randomUUID(),
+      jobExecutionId,
+      workflowRunId: crypto.randomUUID(),
+      workflowRunAttemptId: crypto.randomUUID(),
+      status: 'cancelled',
+      statusReason: 'user_cancelled',
+      cancellationReason: null,
+      statusReasonMessage: null,
+    });
+
+    expect(
+      await db()
+        .select()
+        .from(runningJobExecutions)
+        .where(eq(runningJobExecutions.jobExecutionId, jobExecutionId)),
+    ).toHaveLength(0);
+  });
 });
