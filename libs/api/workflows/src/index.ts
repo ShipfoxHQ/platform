@@ -5,6 +5,7 @@ import type {AgentInterModuleClient} from '@shipfox/api-agent-dto/inter-module';
 import type {AuthInterModuleClient} from '@shipfox/api-auth-dto/inter-module';
 import type {DefinitionsInterModuleClient} from '@shipfox/api-definitions-dto/inter-module';
 import type {IntegrationsModuleClient} from '@shipfox/api-integration-core-dto/inter-module';
+import type {LogsModuleClient} from '@shipfox/api-logs-dto/inter-module';
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import {
   RUNNER_JOB_CLAIMED,
@@ -25,6 +26,7 @@ import {
 } from '@shipfox/api-workflows-dto';
 import type {WorkspacesInterModuleClient} from '@shipfox/api-workspaces-dto/inter-module';
 import {type ShipfoxModule, subscriberFactory} from '@shipfox/node-module';
+import {createToolStepExecutor} from '#core/tool-step/tool-step-executor.js';
 import {db, migrationsPath, workflowsOutbox} from '#db/index.js';
 import {registerWorkflowsServiceMetrics} from '#metrics/index.js';
 import {
@@ -83,6 +85,7 @@ export function createWorkflowsModule({
   annotations,
   auth,
   integrations,
+  logs,
   projects,
   runners,
   secrets,
@@ -93,11 +96,14 @@ export function createWorkflowsModule({
   annotations: AnnotationsInterModuleClient;
   auth: AuthInterModuleClient;
   integrations: IntegrationsModuleClient;
+  logs: LogsModuleClient;
   projects: ProjectsModuleClient;
   runners: RunnersInterModuleClient;
   secrets: SecretsInterModuleClient;
   workspaces: WorkspacesInterModuleClient;
 }): ShipfoxModule {
+  const toolStepExecutor = createToolStepExecutor({integrations, logs});
+
   return {
     name: 'workflows',
     database: {db, migrationsPath, databaseNamespace: 'workflows'},
@@ -106,12 +112,14 @@ export function createWorkflowsModule({
       annotations,
       auth,
       integrations,
+      toolStepExecutor,
       projects,
       runners,
       secrets,
       workspaces,
     }),
     metrics: registerWorkflowsServiceMetrics,
+    services: [toolStepExecutor.service],
     publishers: [
       {name: 'workflows', table: workflowsOutbox, db, eventSchemas: workflowsEventSchemas},
     ],

@@ -3,6 +3,7 @@ import {agentInterModuleContract} from '@shipfox/api-agent-dto/inter-module';
 import {authInterModuleContract} from '@shipfox/api-auth-dto/inter-module';
 import {definitionsInterModuleContract} from '@shipfox/api-definitions-dto/inter-module';
 import {integrationsInterModuleContract} from '@shipfox/api-integration-core-dto/inter-module';
+import {logsInterModuleContract} from '@shipfox/api-logs-dto/inter-module';
 import {projectsInterModuleContract} from '@shipfox/api-projects-dto/inter-module';
 import {runnersInterModuleContract} from '@shipfox/api-runners-dto/inter-module';
 import {
@@ -137,7 +138,14 @@ describe('defaultModules', () => {
       registry: {},
       sourceControl: {provider: 'source-control'},
     });
-    mocks.createLogsModule.mockReturnValue({name: 'logs'});
+    mocks.createLogsModule.mockReturnValue({
+      name: 'logs',
+      interModulePresentations: [
+        defineInterModulePresentation(logsInterModuleContract, {
+          appendServerRecords: vi.fn(),
+        }),
+      ],
+    });
     mocks.buildAgentToolCatalogs.mockResolvedValue(new Map());
     mocks.buildAgentToolSelectionCatalogs.mockResolvedValue(new Map());
     mocks.createWorkspaceConnectionSnapshotLoader.mockReturnValue(vi.fn());
@@ -312,6 +320,7 @@ describe('defaultModules', () => {
       authInterModuleContract,
       definitionsInterModuleContract,
       integrationsInterModuleContract,
+      logsInterModuleContract,
       projectsInterModuleContract,
       runnersInterModuleContract,
       secretsInterModuleContract,

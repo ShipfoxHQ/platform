@@ -15,6 +15,7 @@ import {emailChallengesModule} from '@shipfox/api-email-challenges';
 import {createIntegrationsContext, type WebhookDeliverySource} from '@shipfox/api-integration-core';
 import {integrationsInterModuleContract} from '@shipfox/api-integration-core-dto/inter-module';
 import {createLogsModule} from '@shipfox/api-logs';
+import {logsInterModuleContract} from '@shipfox/api-logs-dto/inter-module';
 import {createProjectsModule} from '@shipfox/api-projects';
 import {projectsInterModuleContract} from '@shipfox/api-projects-dto/inter-module';
 import {createRunnersModule} from '@shipfox/api-runners';
@@ -105,6 +106,7 @@ export async function defaultModules(
   const secretsClient = interModuleTransport.createClient(secretsInterModuleContract);
   const workspacesClient = interModuleTransport.createClient(workspacesInterModuleContract);
   const integrationsClient = interModuleTransport.createClient(integrationsInterModuleContract);
+  const logsClient = interModuleTransport.createClient(logsInterModuleContract);
   const integrations = await createIntegrationsContext({
     workspaces: workspacesClient,
     secrets: {
@@ -241,6 +243,7 @@ export async function defaultModules(
       secrets: secretsClient,
       workspaces: workspacesClient,
       integrations: integrationsClient,
+      logs: logsClient,
     }),
     annotationsModule,
     (options.runnersModule ?? createRunnersModule)({auth: authClient}),

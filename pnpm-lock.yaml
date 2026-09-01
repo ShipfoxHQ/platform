@@ -4167,6 +4167,9 @@ importers:
       '@shipfox/api-logs':
         specifier: workspace:*
         version: link:../logs
+      '@shipfox/api-logs-dto':
+        specifier: workspace:*
+        version: link:../logs-dto
       '@shipfox/api-projects':
         specifier: workspace:*
         version: link:../projects
@@ -4407,6 +4410,9 @@ importers:
       '@shipfox/api-integration-core-dto':
         specifier: workspace:*
         version: link:../integration/core-dto
+      '@shipfox/api-logs-dto':
+        specifier: workspace:*
+        version: link:../logs-dto
       '@shipfox/api-projects-dto':
         specifier: workspace:*
         version: link:../projects-dto

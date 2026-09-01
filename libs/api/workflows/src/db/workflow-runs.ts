@@ -123,8 +123,19 @@ export {
   rewindStepsToPending,
   settleJobFailed,
 } from './workflow-runs/steps.js';
-export type {EnqueueToolInvocationParams} from './workflow-runs/tool-invocations.js';
+export type {
+  ClaimToolInvocationsParams,
+  ClaimToolInvocationsResult,
+  EnqueueToolInvocationParams,
+  RetryToolInvocationParams,
+  SettleToolInvocationParams,
+  ToolInvocationClaim,
+  ToolStepWorkflowContext,
+} from './workflow-runs/tool-invocations.js';
 export {
+  claimToolInvocations,
   enqueueToolInvocation,
   getToolInvocationsByJobExecutionId,
+  retryToolInvocation,
+  settleToolInvocation,
 } from './workflow-runs/tool-invocations.js';

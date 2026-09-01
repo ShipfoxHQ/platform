@@ -1,5 +1,5 @@
 import {readFileSync} from 'node:fs';
-import {createConfig, str} from '@shipfox/config';
+import {createConfig, num, str} from '@shipfox/config';
 import {MAX_RUNNER_LABELS, parseRunnerCatalog, type RunnerCatalog} from '@shipfox/runner-labels';
 import yaml from 'js-yaml';
 
@@ -8,7 +8,44 @@ export const config = createConfig({
     desc: 'Path to the YAML file that maps runner catalog names to complete label sets. Leave it empty to use every job runner value as a literal label. The file is loaded at startup; restart the API after changing it.',
     default: '',
   }),
+  WORKFLOWS_TOOL_STEP_POLL_INTERVAL_MS: num({
+    desc: 'Delay, in milliseconds, between scans for due server-executed tool-step invocations.',
+    default: 1000,
+  }),
+  WORKFLOWS_TOOL_STEP_EXECUTOR_CONCURRENCY: num({
+    desc: 'Maximum number of server-executed tool-step invocations claimed in one executor pass.',
+    default: 8,
+  }),
+  WORKFLOWS_TOOL_STEP_CALL_TIMEOUT_MS: num({
+    desc: 'Maximum duration, in milliseconds, of one server-executed tool provider call.',
+    default: 30_000,
+  }),
 });
+
+if (
+  !Number.isInteger(config.WORKFLOWS_TOOL_STEP_POLL_INTERVAL_MS) ||
+  config.WORKFLOWS_TOOL_STEP_POLL_INTERVAL_MS < 1
+) {
+  throw new Error(
+    `WORKFLOWS_TOOL_STEP_POLL_INTERVAL_MS (${config.WORKFLOWS_TOOL_STEP_POLL_INTERVAL_MS}) must be a whole number greater than 0.`,
+  );
+}
+if (
+  !Number.isInteger(config.WORKFLOWS_TOOL_STEP_EXECUTOR_CONCURRENCY) ||
+  config.WORKFLOWS_TOOL_STEP_EXECUTOR_CONCURRENCY < 1
+) {
+  throw new Error(
+    `WORKFLOWS_TOOL_STEP_EXECUTOR_CONCURRENCY (${config.WORKFLOWS_TOOL_STEP_EXECUTOR_CONCURRENCY}) must be a whole number greater than 0.`,
+  );
+}
+if (
+  !Number.isInteger(config.WORKFLOWS_TOOL_STEP_CALL_TIMEOUT_MS) ||
+  config.WORKFLOWS_TOOL_STEP_CALL_TIMEOUT_MS < 1
+) {
+  throw new Error(
+    `WORKFLOWS_TOOL_STEP_CALL_TIMEOUT_MS (${config.WORKFLOWS_TOOL_STEP_CALL_TIMEOUT_MS}) must be a whole number greater than 0.`,
+  );
+}
 
 /** Raised when the configured runner catalog cannot be read, parsed, or validated. */
 export class RunnerCatalogConfigError extends Error {

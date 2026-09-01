@@ -26,6 +26,7 @@ type WorkflowRouteClients = {
   annotations: AnnotationsInterModuleClient;
   auth: AuthInterModuleClient;
   integrations: IntegrationsModuleClient;
+  toolStepExecutor?: {nudge(): void};
   projects: ProjectsModuleClient;
   runners: RunnersInterModuleClient;
   secrets: SecretsInterModuleClient;

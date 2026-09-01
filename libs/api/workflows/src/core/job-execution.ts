@@ -940,10 +940,13 @@ function outcomeFromSteps(steps: Step[]): RecordStepResultOutcome {
 
 export async function recordStepResult(
   params: RecordStepResultParams,
+  tx?: Tx,
 ): Promise<RecordStepResultOutcome> {
-  const progression = await withTransaction<RecordStepResultTransactionResult>((tx) =>
-    recordStepResultInTransaction(params, tx),
-  );
+  const progression = tx
+    ? await recordStepResultInTransaction(params, tx)
+    : await withTransaction<RecordStepResultTransactionResult>((transaction) =>
+        recordStepResultInTransaction(params, transaction),
+      );
 
   recordStepProgressionMetrics(progression.metrics);
 
