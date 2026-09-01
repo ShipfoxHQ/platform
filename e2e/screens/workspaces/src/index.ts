@@ -60,8 +60,12 @@ export class WorkspaceHomeScreen {
     await this.page.goto(`/w/${workspaceSlug}/settings`);
   }
 
-  async gotoSettingsGeneral(workspaceSlug: string): Promise<void> {
-    await this.page.goto(`/w/${workspaceSlug}/settings/general`);
+  async gotoSettingsGeneral(): Promise<void> {
+    await this.settingsTab().click();
+    await this.page
+      .getByRole('navigation', {name: 'Workspace settings'})
+      .getByRole('link', {name: 'General', exact: true})
+      .click();
   }
 
   settingsTab(): Locator {

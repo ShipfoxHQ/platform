@@ -105,7 +105,7 @@ test.describe('workspace setup checklist', () => {
       await workspaceSetupChecklist.hideButton().click();
       await expect(workspaceSetupChecklist.panel()).toHaveCount(0);
       await expect(workspaceSetupChecklist.indicator()).toHaveCount(0);
-      await workspaceHome.gotoSettingsGeneral(workspace.slug);
+      await workspaceHome.gotoSettingsGeneral();
       await expect(workspaceHome.showSetupGuideButton()).toBeVisible();
       await workspaceHome.showSetupGuideButton().click();
       await expect(workspaceHome.showSetupGuideButton()).toHaveCount(0);

@@ -98,7 +98,7 @@ test.describe('workspace onboarding', () => {
       'aria-label',
       INITIAL_CHECKLIST_COUNT_RE,
     );
-    await workspaceHome.gotoSettingsGeneral(workspaceSlug as string);
+    await workspaceHome.gotoSettingsGeneral();
     await expect(workspaceSetupChecklist.indicator()).toBeVisible();
     await workspaceHome.goto(workspaceSlug as string);
     const lastWorkspaceId = await workspaceHome.readLastWorkspaceId(user.user.id);
