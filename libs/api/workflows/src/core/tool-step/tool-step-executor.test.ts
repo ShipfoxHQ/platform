@@ -685,6 +685,40 @@ describe('tool step executor', () => {
     expect(records.at(-1)).toMatchObject({type: 'group_end'});
   });
 
+  test('preserves a BOM at a log chunk boundary', async () => {
+    const {jobId, stepId} = await arrangeToolStep('read', {outputMappings: {}});
+    const jsonPrefix = '{\n  "value": "';
+    const value =
+      'x'.repeat(MAX_RECORD_DATA_BYTES - new TextEncoder().encode(jsonPrefix).length) +
+      '\uFEFFpreserved';
+    const callTool = vi.fn<IntegrationsModuleClient['callTool']>().mockResolvedValue({
+      outcome: 'success' as const,
+      result: {value},
+      content: [],
+    });
+    const appendServerRecords = vi
+      .fn<LogsModuleClient['appendServerRecords']>()
+      .mockResolvedValue({committedLength: 0, capped: false});
+
+    await nextStepForJob(jobId);
+    await runToolStepExecutorCycle({
+      integrations: {callTool} as unknown as IntegrationsModuleClient,
+      logs: {appendServerRecords} as unknown as LogsModuleClient,
+      signal: new AbortController().signal,
+      claimOwner: 'executor-test',
+      concurrency: 8,
+      callTimeoutMs: 30_000,
+    });
+
+    const output = appendServerRecords.mock.calls
+      .filter(([input]) => input.stepId === stepId)
+      .flatMap(([input]) => input.records)
+      .filter((record) => record.type === 'output')
+      .map((record) => record.data)
+      .join('');
+    expect(output).toContain('\uFEFFpreserved');
+  });
+
   test('stops a log group when its first append fails', async () => {
     const {jobId} = await arrangeToolStep();
     const callTool = vi.fn<IntegrationsModuleClient['callTool']>().mockResolvedValue({

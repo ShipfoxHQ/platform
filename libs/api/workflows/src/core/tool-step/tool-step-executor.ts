@@ -688,7 +688,7 @@ function splitLogData(data: string): string[] {
   const encoded = new TextEncoder().encode(data);
   if (encoded.length === 0) return ['{}'];
 
-  const decoder = new TextDecoder();
+  const decoder = new TextDecoder('utf-8', {ignoreBOM: true});
   const chunks: string[] = [];
   let offset = 0;
   while (offset < encoded.length) {
@@ -705,7 +705,7 @@ function truncateLogData(data: string): string {
   if (encoded.length <= MAX_TOOL_LOG_VALUE_BYTES) return data;
 
   const end = utf8ChunkEnd(encoded, 0, MAX_TOOL_LOG_VALUE_BYTES);
-  const prefix = new TextDecoder().decode(encoded.subarray(0, end));
+  const prefix = new TextDecoder('utf-8', {ignoreBOM: true}).decode(encoded.subarray(0, end));
   return `${prefix}${TOOL_LOG_TRUNCATION_MARKER}`;
 }
 
