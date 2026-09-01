@@ -1179,17 +1179,26 @@ describe('claudeHarnessAdapter', () => {
     const bridge = mcpBridge([], {
       listTools: vi.fn().mockRejectedValue(new Error('gateway unavailable secret=do-not-log')),
     });
-    queryMock.mockReturnValue(makeQuery([initWithTools([sdkTool]), successMessage]));
+    queryMock.mockReturnValue(
+      makeQuery([
+        initWithTools([sdkTool]),
+        assistantToolUse(sdkTool, 'catalog-call'),
+        userToolResult('catalog-call'),
+        successMessage,
+      ]),
+    );
 
     await expect(
       claudeHarnessAdapter.run(
         invocation({
+          tools: ['Read'],
           mcpServers: [bridge],
           requestedIntegrationTools: [{connectionSlug: 'linear_shipfox', toolId: 'get_team'}],
         }),
       ),
     ).resolves.toEqual({response: 'done'});
 
+    expect(lastQueryOptions().tools).toEqual(['Read', sdkTool]);
     expect(warnLog).toHaveBeenCalledWith(
       expect.objectContaining({
         event: 'runner.agent_claude_tool_catalog_unavailable',
@@ -1202,7 +1211,7 @@ describe('claudeHarnessAdapter', () => {
     expect(infoLog).toHaveBeenCalledWith(
       expect.objectContaining({
         event: 'runner.agent_claude_tool_outcome',
-        failurePhase: 'advertised_tool_not_invoked',
+        failurePhase: 'none',
         catalogFailures: [
           {
             server: 'shipfox_integration_tools',
@@ -1210,6 +1219,8 @@ describe('claudeHarnessAdapter', () => {
             errorClass: 'unknown',
           },
         ],
+        attemptedIntegrationToolNames: [integrationTool],
+        failedIntegrationToolNames: [],
         omissions: [],
       }),
       'Claude integration tool outcome',
