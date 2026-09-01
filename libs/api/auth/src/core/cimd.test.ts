@@ -1,5 +1,10 @@
 import {describe, expect, it, vi} from '@shipfox/vitest/vi';
-import {type CimdAddress, fetchClientIdMetadata, isPublicUnicastAddress} from './cimd.js';
+import {
+  type CimdAddress,
+  type CimdHttpResponse,
+  fetchClientIdMetadata,
+  isPublicUnicastAddress,
+} from './cimd.js';
 import {InvalidOAuthClientMetadataError} from './errors.js';
 
 const clientId = 'https://client.example/.well-known/oauth-client';
@@ -11,9 +16,13 @@ const validDocument = {
   token_endpoint_auth_method: 'none',
 };
 
-function response(document: unknown, headers: Record<string, string | string[] | undefined> = {}) {
+function response(
+  document: unknown,
+  headers: Record<string, string | string[] | undefined> = {},
+  statusCode = 200,
+) {
   return {
-    statusCode: 200,
+    statusCode,
     headers,
     body: Buffer.from(JSON.stringify(document)),
   };
@@ -36,6 +45,10 @@ describe('CIMD fetch', () => {
     expect(isPublicUnicastAddress('2001:4860:4860::8888', 6)).toBe(true);
     expect(isPublicUnicastAddress('2001:db8::1', 6)).toBe(false);
     expect(isPublicUnicastAddress('fe80::1', 6)).toBe(false);
+    for (const address of ['2002:0a00:0001::1', '::ffff:10.0.0.1', '::', '1::2::3']) {
+      expect(isPublicUnicastAddress(address, 6)).toBe(false);
+    }
+    expect(isPublicUnicastAddress('fe80::1%eth0', 6)).toBe(false);
   });
 
   it('resolves once and passes the pinned public address to the request', async () => {
@@ -105,6 +118,88 @@ describe('CIMD fetch', () => {
           response({...validDocument, client_id: 'https://other.example/.well-known/client'}),
       }),
     ).rejects.toBeInstanceOf(InvalidOAuthClientMetadataError);
+  });
+
+  it('honors cache directives and rejects invalid response headers', async () => {
+    const cacheCases = [
+      ['no-store', 0],
+      ['no-cache', 0],
+      ['max-age = 0', 0],
+      ['max-age=30', 30],
+      ['max-age=999999', 900],
+      ['max-age=not-a-number', 900],
+      [undefined, 900],
+    ] as const;
+
+    for (const [cacheControl, expectedMaxAge] of cacheCases) {
+      const headers = cacheControl === undefined ? {} : {'cache-control': cacheControl};
+      const result = await fetchClientIdMetadata(clientId, {
+        resolveAddress: async () => [publicAddress],
+        request: async () => response(validDocument, headers),
+      });
+      expect(result.cacheMaxAgeSeconds).toBe(expectedMaxAge);
+    }
+
+    await expect(
+      fetchClientIdMetadata(clientId, {
+        resolveAddress: async () => [publicAddress],
+        request: async () => response(validDocument, {'content-length': '9'}),
+        maxBodyBytes: 8,
+      }),
+    ).rejects.toMatchObject({name: 'OAuthMetadataFetchError', reason: 'response-too-large'});
+
+    await expect(
+      fetchClientIdMetadata(clientId, {
+        resolveAddress: async () => [publicAddress],
+        request: async () => response(validDocument, {'content-encoding': 'gzip'}),
+      }),
+    ).rejects.toMatchObject({name: 'OAuthMetadataFetchError', reason: 'invalid-response'});
+
+    await expect(
+      fetchClientIdMetadata(clientId, {
+        resolveAddress: async () => [publicAddress],
+        request: async () => response(validDocument, {}, 500),
+      }),
+    ).rejects.toMatchObject({name: 'OAuthMetadataFetchError', reason: 'invalid-response'});
+  });
+
+  it('tries the next validated address after a connection failure', async () => {
+    const secondAddress: CimdAddress = {address: '93.184.216.35', family: 4};
+    const request = vi.fn(({address}: {address: CimdAddress}) => {
+      if (address === publicAddress) return Promise.reject(new Error('connection refused'));
+      return Promise.resolve(response(validDocument));
+    });
+
+    await expect(
+      fetchClientIdMetadata(clientId, {
+        resolveAddress: async () => [publicAddress, secondAddress],
+        request,
+      }),
+    ).resolves.toMatchObject({metadata: {clientId}});
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(request).toHaveBeenLastCalledWith(expect.objectContaining({address: secondAddress}));
+  });
+
+  it('aborts an in-flight request when the overall timeout expires', async () => {
+    let signal: AbortSignal | undefined;
+    const request = vi.fn(
+      ({signal: requestSignal}: {signal?: AbortSignal}) =>
+        new Promise<CimdHttpResponse>((_resolve, reject) => {
+          signal = requestSignal;
+          requestSignal?.addEventListener('abort', () => reject(new Error('request aborted')), {
+            once: true,
+          });
+        }),
+    );
+
+    await expect(
+      fetchClientIdMetadata(clientId, {
+        resolveAddress: async () => [publicAddress],
+        request,
+        timeoutMs: 10,
+      }),
+    ).rejects.toMatchObject({name: 'OAuthMetadataFetchError', reason: 'timeout'});
+    expect(signal?.aborted).toBe(true);
   });
 
   it('does not fetch a credential-bearing client ID', async () => {

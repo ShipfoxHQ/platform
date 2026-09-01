@@ -18,17 +18,11 @@ import {createAuthIpRateLimitPreHandler} from './rate-limit.js';
 
 export interface CreateOAuthRoutesOptions {
   /** Validated here and deliberately injected until production composition. */
-  apiPublicUrl?: string;
-  /** Compatibility name for callers that already hold a normalized origin. */
-  apiPublicOrigin?: string;
+  apiPublicUrl: string;
 }
 
-type OAuthRoutesInput = CreateOAuthRoutesOptions | string;
-
-function apiPublicOrigin(input: OAuthRoutesInput): string {
-  const value = typeof input === 'string' ? input : (input.apiPublicUrl ?? input.apiPublicOrigin);
-  if (value === undefined) throw new InvalidOAuthConfigurationError();
-  return validateOAuthPublicOrigin(value);
+function apiPublicOrigin(options: CreateOAuthRoutesOptions): string {
+  return validateOAuthPublicOrigin(options.apiPublicUrl);
 }
 
 function translateOAuthError(error: unknown): never {
@@ -125,8 +119,8 @@ function createDynamicRegistrationRoute() {
   });
 }
 
-export function createOAuthMetadataRoutes(input: OAuthRoutesInput): RouteGroup {
-  const origin = apiPublicOrigin(input);
+export function createOAuthMetadataRoutes(options: CreateOAuthRoutesOptions): RouteGroup {
+  const origin = apiPublicOrigin(options);
   return {
     prefix: '',
     routes: [
@@ -136,23 +130,15 @@ export function createOAuthMetadataRoutes(input: OAuthRoutesInput): RouteGroup {
   };
 }
 
-export function createOAuthClientIdentificationRoutes(_input: OAuthRoutesInput): RouteGroup {
-  // Validate the same injected value for both factories, even though DCR does
-  // not need it yet. This keeps the separately mountable factories consistent.
-  apiPublicOrigin(_input);
+export function createOAuthClientIdentificationRoutes(): RouteGroup {
   return {prefix: '', routes: [createDynamicRegistrationRoute()]};
 }
 
-export function createOAuthRoutes(input: OAuthRoutesInput): RouteGroup {
-  const origin = apiPublicOrigin(input);
+export function createOAuthRoutes(options: CreateOAuthRoutesOptions): RouteGroup {
+  const metadataRoutes = createOAuthMetadataRoutes(options);
+  const clientIdentificationRoutes = createOAuthClientIdentificationRoutes();
   return {
     prefix: '',
-    routes: [
-      createProtectedResourceMetadataRoute(origin),
-      createAuthorizationServerMetadataRoute(origin),
-      createDynamicRegistrationRoute(),
-    ],
+    routes: [...metadataRoutes.routes, ...clientIdentificationRoutes.routes],
   };
 }
-
-export const createAgentAccessOAuthRoutes = createOAuthRoutes;

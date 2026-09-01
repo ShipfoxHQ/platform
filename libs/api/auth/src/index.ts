@@ -141,6 +141,7 @@ export type {
 } from '#core/oauth-client-resolver.js';
 export {
   createOAuthClientResolver,
+  OAUTH_CIMD_CACHE_MAX_ENTRIES,
   registerOAuthClient,
   resolveOAuthClient,
 } from '#core/oauth-client-resolver.js';
@@ -171,7 +172,6 @@ export {
 export {createRunnerSessionAuthMethod} from '#presentation/auth/runner-session-auth.js';
 export type {CreateOAuthRoutesOptions} from '#presentation/routes/oauth.js';
 export {
-  createAgentAccessOAuthRoutes,
   createOAuthClientIdentificationRoutes,
   createOAuthMetadataRoutes,
   createOAuthRoutes,

@@ -1,6 +1,13 @@
 import {describe, expect, it, vi} from '@shipfox/vitest/vi';
 import type {AgentClient} from './entities/agent-access.js';
-import {createOAuthClientResolver, type ResolvedOAuthClient} from './oauth-client-resolver.js';
+import {InvalidOAuthClientMetadataError} from './errors.js';
+import {OAUTH_CIMD_CACHE_MAX_AGE_SECONDS} from './oauth-client.js';
+import {
+  createOAuthClientResolver,
+  OAUTH_CIMD_CACHE_MAX_ENTRIES,
+  type ResolvedOAuthClient,
+  registerOAuthClient,
+} from './oauth-client-resolver.js';
 
 const clientId = 'https://client.example/.well-known/oauth-client';
 const redirectUri = 'https://client.example/callback';
@@ -51,12 +58,15 @@ describe('OAuth client resolver', () => {
     const first = await resolver.resolve({clientId, requestIp: '198.51.100.10', redirectUri});
     nowMs += 30_000;
     const second = await resolver.resolve({clientId, requestIp: '198.51.100.10', redirectUri});
+    nowMs += 31_000;
+    const third = await resolver.resolve({clientId, requestIp: '198.51.100.10', redirectUri});
 
     expect(first).toEqual(second);
-    expect(fetchMetadata).toHaveBeenCalledTimes(1);
-    expect(upsertCimdClient).toHaveBeenCalledTimes(1);
-    expect(findClient).toHaveBeenCalledTimes(1);
-    expect(checkCimdRateLimit).toHaveBeenCalledTimes(2);
+    expect(third).not.toEqual(first);
+    expect(fetchMetadata).toHaveBeenCalledTimes(2);
+    expect(upsertCimdClient).toHaveBeenCalledTimes(2);
+    expect(findClient).toHaveBeenCalledTimes(2);
+    expect(checkCimdRateLimit).toHaveBeenCalledTimes(3);
   });
 
   it('does not cache a no-store CIMD response', async () => {
@@ -69,10 +79,70 @@ describe('OAuth client resolver', () => {
       checkCimdRateLimit: async () => undefined,
     });
 
-    await resolver.resolve({clientId});
-    await resolver.resolve({clientId});
+    await resolver.resolve({clientId, requestIp: '198.51.100.10'});
+    await resolver.resolve({clientId, requestIp: '198.51.100.10'});
 
     expect(fetchMetadata).toHaveBeenCalledTimes(2);
+  });
+
+  it('clamps CIMD cache freshness to the process maximum', async () => {
+    let nowMs = Date.parse('2026-09-01T00:00:00.000Z');
+    const fetchMetadata = vi.fn(async () => ({metadata: fetched(), cacheMaxAgeSeconds: 999_999}));
+    const resolver = createOAuthClientResolver({
+      findClient: async () => undefined,
+      fetchMetadata,
+      upsertCimdClient: async () => client(),
+      checkCimdRateLimit: async () => undefined,
+      now: () => new Date(nowMs),
+    });
+
+    await resolver.resolve({clientId, requestIp: '198.51.100.10'});
+    nowMs += (OAUTH_CIMD_CACHE_MAX_AGE_SECONDS + 1) * 1000;
+    await resolver.resolve({clientId, requestIp: '198.51.100.10'});
+
+    expect(fetchMetadata).toHaveBeenCalledTimes(2);
+  });
+
+  it('bounds the number of cached CIMD clients', async () => {
+    const clientIds = Array.from(
+      {length: OAUTH_CIMD_CACHE_MAX_ENTRIES + 1},
+      (_, index) => `https://client.example/.well-known/oauth-client-${index}`,
+    );
+    const fetchMetadata = vi.fn(async (resolvedClientId: string) => ({
+      metadata: {...fetched(), clientId: resolvedClientId},
+      cacheMaxAgeSeconds: 60,
+    }));
+    const resolver = createOAuthClientResolver({
+      findClient: async () => undefined,
+      fetchMetadata,
+      upsertCimdClient: async (params) => client({clientId: params.clientId}),
+      checkCimdRateLimit: async () => undefined,
+    });
+
+    for (const resolvedClientId of clientIds) {
+      await resolver.resolve({clientId: resolvedClientId, requestIp: '198.51.100.10'});
+    }
+    const firstClientId = clientIds[0];
+    if (firstClientId === undefined) throw new Error('Expected a non-empty client ID list');
+    await resolver.resolve({clientId: firstClientId, requestIp: '198.51.100.10'});
+
+    expect(fetchMetadata).toHaveBeenCalledTimes(clientIds.length + 1);
+  });
+
+  it('requires a source IP before resolving CIMD metadata', async () => {
+    const fetchMetadata = vi.fn();
+    const checkCimdRateLimit = vi.fn(async () => undefined);
+    const resolver = createOAuthClientResolver({
+      findClient: async () => undefined,
+      fetchMetadata,
+      checkCimdRateLimit,
+    });
+
+    await expect(resolver.resolve({clientId})).rejects.toBeInstanceOf(
+      InvalidOAuthClientMetadataError,
+    );
+    expect(fetchMetadata).not.toHaveBeenCalled();
+    expect(checkCimdRateLimit).not.toHaveBeenCalled();
   });
 
   it('returns registered clients without treating opaque IDs as CIMD URLs', async () => {
@@ -107,8 +177,22 @@ describe('OAuth client resolver', () => {
     });
 
     await expect(
-      resolver.resolve({clientId, redirectUri: 'https://client.example/other'}),
+      resolver.resolve({
+        clientId,
+        requestIp: '198.51.100.10',
+        redirectUri: 'https://client.example/other',
+      }),
     ).rejects.toMatchObject({name: 'OAuthRedirectUriNotRegisteredError'});
     expect(upsertCimdClient).not.toHaveBeenCalled();
+  });
+
+  it('does not drop explicitly supplied empty registration values', async () => {
+    await expect(
+      registerOAuthClient({
+        clientName: 'Desktop agent',
+        redirectUris: [redirectUri],
+        scope: '',
+      }),
+    ).rejects.toBeInstanceOf(InvalidOAuthClientMetadataError);
   });
 });

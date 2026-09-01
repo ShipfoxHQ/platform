@@ -196,37 +196,24 @@ export async function upsertCimdAgentClient(
   params: UpsertCimdAgentClientParams,
 ): Promise<AgentClient> {
   return await db().transaction(async (tx) => {
-    const inserted = await tx
+    const rows = await tx
       .insert(agentClients)
       .values({...params, kind: 'cimd'})
-      .onConflictDoNothing({target: agentClients.clientId})
-      .returning();
-    if (inserted[0]) return toAgentClient(inserted[0]);
-
-    const existing = await tx
-      .select()
-      .from(agentClients)
-      .where(eq(agentClients.clientId, params.clientId))
-      .for('update')
-      .limit(1);
-    const existingRow = existing[0];
-    if (!existingRow) throw new Error('CIMD client upsert returned no row');
-
-    const updated = await tx
-      .update(agentClients)
-      .set({
-        name: params.name,
-        redirectUris: params.redirectUris,
-        kind: 'cimd',
-        lastSeenAt: sql`now()`,
-        unreferencedAt: null,
-        updatedAt: sql`now()`,
+      .onConflictDoUpdate({
+        target: agentClients.clientId,
+        set: {
+          name: params.name,
+          redirectUris: params.redirectUris,
+          kind: 'cimd',
+          lastSeenAt: sql`now()`,
+          unreferencedAt: null,
+          updatedAt: sql`now()`,
+        },
       })
-      .where(eq(agentClients.id, existingRow.id))
       .returning();
-    const updatedRow = updated[0];
-    if (!updatedRow) throw new Error('CIMD client update returned no row');
-    return toAgentClient(updatedRow);
+    const row = rows[0];
+    if (!row) throw new Error('CIMD client upsert returned no row');
+    return toAgentClient(row);
   });
 }
 

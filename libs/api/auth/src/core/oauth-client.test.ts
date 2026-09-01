@@ -28,6 +28,9 @@ describe('OAuth client validation', () => {
       oauthRedirectUriMatches('http://127.0.0.1:43123/callback', 'http://127.0.0.1:51999/callback'),
     ).toBe(true);
     expect(
+      oauthRedirectUriMatches('http://[::1]:43123/callback', 'http://[::1]:51999/callback'),
+    ).toBe(true);
+    expect(
       oauthRedirectUriMatches('http://127.0.0.1:43123/callback', 'http://127.0.0.1:51999/other'),
     ).toBe(false);
     expect(
@@ -85,6 +88,14 @@ describe('OAuth client validation', () => {
       tokenEndpointAuthMethod: 'none',
       scope: 'read',
     });
+
+    expect(() =>
+      validateOAuthDynamicClientRegistration({
+        client_name: 'Desktop agent',
+        redirect_uris: ['https://client.example/callback'],
+        grant_types: ['authorization_code', 'refresh_token'],
+      }),
+    ).toThrow(InvalidOAuthClientMetadataError);
 
     expect(() =>
       validateOAuthDynamicClientRegistration({

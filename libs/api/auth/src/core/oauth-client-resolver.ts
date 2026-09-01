@@ -58,6 +58,9 @@ export interface OAuthClientResolverOptions {
   now?: () => Date;
 }
 
+/** Bounds process-wide CIMD metadata retained between authorization requests. */
+export const OAUTH_CIMD_CACHE_MAX_ENTRIES = 1024;
+
 function assertClientIdBounded(clientId: string): void {
   if (
     clientId.length === 0 ||
@@ -71,6 +74,26 @@ function assertClientIdBounded(clientId: string): void {
 function normalizedCacheAge(seconds: number): number {
   if (!Number.isFinite(seconds) || seconds <= 0) return 0;
   return Math.min(Math.floor(seconds), OAUTH_CIMD_CACHE_MAX_AGE_SECONDS);
+}
+
+function pruneExpiredCache(cache: Map<string, CachedCimdClient>, nowMs: number): void {
+  for (const [clientId, cached] of cache) {
+    if (cached.expiresAt <= nowMs) cache.delete(clientId);
+  }
+}
+
+function cacheCimdClient(
+  cache: Map<string, CachedCimdClient>,
+  clientId: string,
+  cached: CachedCimdClient,
+  nowMs: number,
+): void {
+  pruneExpiredCache(cache, nowMs);
+  if (!cache.has(clientId) && cache.size >= OAUTH_CIMD_CACHE_MAX_ENTRIES) {
+    const oldest = cache.keys().next();
+    if (!oldest.done) cache.delete(oldest.value);
+  }
+  cache.set(clientId, cached);
 }
 
 function registeredMetadata(client: AgentClient): ResolvedOAuthClient {
@@ -93,7 +116,8 @@ async function resolveCachedClient(
   cached: CachedCimdClient,
   checkCimdRateLimit: CheckCimdRateLimit,
 ): Promise<ResolvedOAuthClient> {
-  if (params.requestIp !== undefined) await checkCimdRateLimit(params.requestIp);
+  if (params.requestIp === undefined) throw new InvalidOAuthClientMetadataError();
+  await checkCimdRateLimit(params.requestIp);
   assertResolvedClientMatchesRequest(cached.resolved, params);
   return cached.resolved;
 }
@@ -136,7 +160,8 @@ export function createOAuthClientResolver(
       return resolved;
     }
 
-    if (params.requestIp !== undefined) await checkCimdRateLimit(params.requestIp);
+    if (params.requestIp === undefined) throw new InvalidOAuthClientMetadataError();
+    await checkCimdRateLimit(params.requestIp);
     validateOAuthClientId(params.clientId);
     const fetched = await fetchMetadata(params.clientId);
     if (fetched.metadata.clientId !== params.clientId) {
@@ -159,10 +184,13 @@ export function createOAuthClientResolver(
     };
     const cacheAge = normalizedCacheAge(fetched.cacheMaxAgeSeconds);
     if (cacheAge > 0) {
-      cache.set(params.clientId, {
-        expiresAt: now().getTime() + cacheAge * 1000,
-        resolved,
-      });
+      const nowMs = now().getTime();
+      cacheCimdClient(
+        cache,
+        params.clientId,
+        {expiresAt: nowMs + cacheAge * 1000, resolved},
+        nowMs,
+      );
     }
     return resolved;
   };
@@ -193,12 +221,12 @@ export async function registerOAuthClient(
   const validated = validateOAuthDynamicClientRegistration({
     client_name: input.clientName,
     redirect_uris: input.redirectUris,
-    ...(input.grantTypes ? {grant_types: input.grantTypes} : {}),
-    ...(input.responseTypes ? {response_types: input.responseTypes} : {}),
-    ...(input.tokenEndpointAuthMethod
+    ...(input.grantTypes !== undefined ? {grant_types: input.grantTypes} : {}),
+    ...(input.responseTypes !== undefined ? {response_types: input.responseTypes} : {}),
+    ...(input.tokenEndpointAuthMethod !== undefined
       ? {token_endpoint_auth_method: input.tokenEndpointAuthMethod}
       : {}),
-    ...(input.scope ? {scope: input.scope} : {}),
+    ...(input.scope !== undefined ? {scope: input.scope} : {}),
   });
   const client = await createAgentClient({
     clientId: `client_${crypto.randomUUID()}`,

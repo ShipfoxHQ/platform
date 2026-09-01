@@ -41,6 +41,7 @@ export type CimdHttpRequester = (params: {
   address: CimdAddress;
   timeoutMs: number;
   maxBodyBytes: number;
+  signal?: AbortSignal;
 }) => Promise<CimdHttpResponse>;
 
 export interface FetchedCimdMetadata {
@@ -167,7 +168,7 @@ function isPublicIpv6(value: string): boolean {
       return false;
     }
   }
-  if (first === 0x3fff) return false;
+  if (first === 0x2002 || first === 0x3fff) return false;
   return true;
 }
 
@@ -221,7 +222,9 @@ function headerValue(
   headers: Record<string, string | string[] | undefined>,
   name: string,
 ): string | undefined {
-  const value = headers[name.toLowerCase()];
+  const normalizedName = name.toLowerCase();
+  const headerName = Object.keys(headers).find((key) => key.toLowerCase() === normalizedName);
+  const value = headerName === undefined ? undefined : headers[headerName];
   if (Array.isArray(value)) return value.join(', ');
   return value;
 }
@@ -233,7 +236,7 @@ function parseCacheMaxAge(headers: Record<string, string | string[] | undefined>
   let maxAge: number | undefined;
   for (const directive of cacheControl.split(',')) {
     const [rawName, rawValue] = directive.trim().split('=', 2);
-    const name = rawName?.toLowerCase();
+    const name = rawName?.trim().toLowerCase();
     if (name === 'no-store' || name === 'no-cache') return 0;
     if (name === 'max-age' && rawValue !== undefined && DECIMAL_RE.test(rawValue.trim())) {
       maxAge = Number(rawValue.trim());
@@ -242,15 +245,29 @@ function parseCacheMaxAge(headers: Record<string, string | string[] | undefined>
   return Math.min(maxAge ?? OAUTH_CIMD_CACHE_MAX_AGE_SECONDS, OAUTH_CIMD_CACHE_MAX_AGE_SECONDS);
 }
 
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  onTimeout?: () => void,
+): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new CimdTimeoutError()), timeoutMs);
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      onTimeout?.();
+      reject(new CimdTimeoutError());
+    }, timeoutMs);
     promise.then(
       (value) => {
+        if (settled) return;
+        settled = true;
         clearTimeout(timer);
         resolve(value);
       },
       (error: unknown) => {
+        if (settled) return;
+        settled = true;
         clearTimeout(timer);
         reject(error);
       },
@@ -263,6 +280,7 @@ function requestPinnedHttps(params: {
   address: CimdAddress;
   timeoutMs: number;
   maxBodyBytes: number;
+  signal?: AbortSignal;
 }): Promise<CimdHttpResponse> {
   return new Promise((resolve, reject) => {
     const hostname = normalizeHostname(params.url);
@@ -294,6 +312,7 @@ function requestPinnedHttps(params: {
         rejectUnauthorized: true,
         servername: hostname,
         timeout: params.timeoutMs,
+        signal: params.signal,
         // The address was resolved before this request and is the only value
         // the TLS connection is allowed to use.
         lookup: (_lookupHostname, _options, callback) => {
@@ -314,15 +333,11 @@ function requestPinnedHttps(params: {
 }
 
 function responseHeaderError(
-  response: IncomingMessage,
+  statusCode: number | undefined,
+  headers: Record<string, string | string[] | undefined>,
   maxBodyBytes: number,
 ): OAuthMetadataFetchError | undefined {
-  const headers: Record<string, string | string[] | undefined> = response.headers;
-  if (
-    response.statusCode !== undefined &&
-    response.statusCode >= 300 &&
-    response.statusCode < 400
-  ) {
+  if (statusCode !== undefined && statusCode >= 300 && statusCode < 400) {
     return metadataFetchError('redirected');
   }
   const contentLength = headerValue(headers, 'content-length');
@@ -363,7 +378,7 @@ function handleCimdResponse(
   succeed: (response: CimdHttpResponse) => void,
 ): void {
   const headers: Record<string, string | string[] | undefined> = response.headers;
-  const headerError = responseHeaderError(response, maxBodyBytes);
+  const headerError = responseHeaderError(response.statusCode, headers, maxBodyBytes);
   if (headerError) {
     response.destroy();
     fail(headerError);
@@ -388,11 +403,11 @@ function parseCimdDocument(body: Uint8Array, clientId: string): ValidatedOAuthCl
   return validateOAuthClientMetadataDocument(result.data, clientId);
 }
 
-async function resolvePinnedAddress(
+async function resolvePinnedAddresses(
   hostname: string,
   resolveAddress: CimdAddressResolver,
   timeoutMs: number,
-): Promise<CimdAddress> {
+): Promise<readonly CimdAddress[]> {
   let resolved: readonly CimdAddress[];
   try {
     resolved = await withTimeout(resolveAddress(hostname), timeoutMs);
@@ -411,9 +426,7 @@ async function resolvePinnedAddress(
   ) {
     throw metadataFetchError('private-address');
   }
-  const [address] = resolved;
-  if (!address) throw metadataFetchError('dns-failed');
-  return address;
+  return resolved;
 }
 
 async function requestCimdResponse(params: {
@@ -423,6 +436,7 @@ async function requestCimdResponse(params: {
   timeoutMs: number;
   maxBodyBytes: number;
 }): Promise<CimdHttpResponse> {
+  const abortController = new AbortController();
   try {
     return await withTimeout(
       params.request({
@@ -430,8 +444,10 @@ async function requestCimdResponse(params: {
         address: params.address,
         timeoutMs: params.timeoutMs,
         maxBodyBytes: params.maxBodyBytes,
+        signal: abortController.signal,
       }),
       params.timeoutMs,
+      () => abortController.abort(),
     );
   } catch (error) {
     if (error instanceof OAuthMetadataFetchError) throw error;
@@ -440,10 +456,15 @@ async function requestCimdResponse(params: {
   }
 }
 
+function remainingTimeout(deadlineMs: number): number {
+  const timeoutMs = deadlineMs - Date.now();
+  if (timeoutMs <= 0) throw metadataFetchError('timeout');
+  return timeoutMs;
+}
+
 function assertCimdResponse(response: CimdHttpResponse, maxBodyBytes: number): void {
-  if (response.statusCode >= 300 && response.statusCode < 400) {
-    throw metadataFetchError('redirected');
-  }
+  const headerError = responseHeaderError(response.statusCode, response.headers, maxBodyBytes);
+  if (headerError) throw headerError;
   if (response.statusCode !== 200) throw metadataFetchError('invalid-response');
   if (response.body.byteLength > maxBodyBytes) {
     throw metadataFetchError('response-too-large');
@@ -472,19 +493,40 @@ export async function fetchClientIdMetadata(
   const resolveAddress = options.resolveAddress ?? resolvePublicAddress;
   const request = options.request ?? requestPinnedHttps;
   const hostname = normalizeHostname(url);
+  const deadlineMs = Date.now() + timeoutMs;
 
-  const address = await resolvePinnedAddress(hostname, resolveAddress, timeoutMs);
-  const response = await requestCimdResponse({
-    url,
-    address,
-    request,
-    timeoutMs,
-    maxBodyBytes,
-  });
-  assertCimdResponse(response, maxBodyBytes);
+  const addresses = await resolvePinnedAddresses(
+    hostname,
+    resolveAddress,
+    remainingTimeout(deadlineMs),
+  );
+  let lastConnectionError: OAuthMetadataFetchError | undefined;
+  for (const [index, address] of addresses.entries()) {
+    try {
+      const response = await requestCimdResponse({
+        url,
+        address,
+        request,
+        timeoutMs: remainingTimeout(deadlineMs),
+        maxBodyBytes,
+      });
+      assertCimdResponse(response, maxBodyBytes);
 
-  return {
-    metadata: parseCimdDocument(response.body, clientId),
-    cacheMaxAgeSeconds: parseCacheMaxAge(response.headers),
-  };
+      return {
+        metadata: parseCimdDocument(response.body, clientId),
+        cacheMaxAgeSeconds: parseCacheMaxAge(response.headers),
+      };
+    } catch (error) {
+      if (
+        error instanceof OAuthMetadataFetchError &&
+        error.reason === 'connection-failed' &&
+        index < addresses.length - 1
+      ) {
+        lastConnectionError = error;
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw lastConnectionError ?? metadataFetchError('connection-failed');
 }

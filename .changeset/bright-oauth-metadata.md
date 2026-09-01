@@ -3,4 +3,4 @@
 '@shipfox/api-auth-dto': minor
 ---
 
-Add dormant MCP OAuth discovery, public-client registration, and hardened Client ID Metadata Document resolution.
+Add MCP OAuth discovery, public-client registration, and Client ID Metadata Document resolution for the read-only profile.

@@ -102,13 +102,3 @@ export const oauthClientMetadataDocumentSchema = z
   .passthrough();
 
 export type OAuthClientMetadataDocumentDto = z.infer<typeof oauthClientMetadataDocumentSchema>;
-
-// Short aliases keep the route and core APIs readable for callers that do not
-// need to distinguish the RFC names from the MCP profile names.
-export const oauthRegistrationRequestSchema = oauthDynamicClientRegistrationRequestSchema;
-export const oauthRegistrationResponseSchema = oauthDynamicClientRegistrationResponseSchema;
-export const oauthClientMetadataSchema = oauthClientMetadataDocumentSchema;
-
-export type OAuthRegistrationRequestDto = OAuthDynamicClientRegistrationRequestDto;
-export type OAuthRegistrationResponseDto = OAuthDynamicClientRegistrationResponseDto;
-export type OAuthClientMetadataDto = OAuthClientMetadataDocumentDto;
