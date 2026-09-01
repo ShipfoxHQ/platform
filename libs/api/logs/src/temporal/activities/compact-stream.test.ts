@@ -251,7 +251,7 @@ describe('compactStreamActivity', () => {
     await deleteObject(compactedTailObjectKey(key));
   });
 
-  it('cleans a persisted upload reservation when the post-error reload fails', async () => {
+  it('leaves an upload for reconciliation when the post-error reload fails', async () => {
     const identity = newIdentity();
     const stream = await arrangeClosedStream(identity, {chunks: [ndjsonBody(outputLine('x\n'))]});
     const realGetAttemptStreamById = streamDb.getAttemptStreamById;
@@ -263,7 +263,7 @@ describe('compactStreamActivity', () => {
         : realGetAttemptStreamById(streamId);
     });
     // Force a post-upload failure. The failed cleanup reload leaves the uploaded object behind,
-    // and the next activity attempt must use the durable reservation to clean the old key.
+    // and the next activity attempt must publish a winner without overwriting the old key.
     compactedGzipStreamMock.mockReturnValueOnce({
       body: Readable.from([]).pipe(createGzip()),
       stats: {chunkCount: 0, lastSeq: 0, uncompressedBytes: 0},
@@ -275,22 +275,22 @@ describe('compactStreamActivity', () => {
     );
     vi.restoreAllMocks();
 
-    const failed = await getAttemptStreamById(stream.id);
-    expect(failed?.compactionUploadKeys).toHaveLength(1);
-    const reservedKey = failed?.compactionUploadKeys[0];
-    expect(reservedKey).toBeDefined();
+    const orphanKeys = await listKeysUnderStream(identity);
+    expect(orphanKeys).toHaveLength(1);
+    const orphanKey = orphanKeys[0];
+    expect(orphanKey).toBeDefined();
 
     const result = await runCompaction(stream.id, compactStreamActivityWithMocks);
 
     expect(result.outcome).toBe('compacted');
-    expect(compactedKey(result)).not.toBe(reservedKey);
-    expect((await getAttemptStreamById(stream.id))?.compactionUploadKeys).toEqual([]);
-    expect(await listKeysUnderStream(identity)).toEqual([
-      compactedKey(result),
-      compactedTailObjectKey(compactedKey(result)),
-    ]);
-    await deleteObject(compactedKey(result));
-    await deleteObject(compactedTailObjectKey(compactedKey(result)));
+    const key = compactedKey(result);
+    expect(key).not.toBe(orphanKey);
+    expect(await listKeysUnderStream(identity)).toEqual(
+      expect.arrayContaining([orphanKey, key, compactedTailObjectKey(key)]),
+    );
+    for (const uploadedKey of await listKeysUnderStream(identity)) {
+      await deleteObject(uploadedKey);
+    }
   });
 
   it('deletes its own upload and reports superseded when another attempt won the publish', async () => {

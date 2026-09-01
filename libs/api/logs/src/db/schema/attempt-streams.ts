@@ -30,8 +30,6 @@ import {pgTable} from './common.js';
  * canonical reference for what it means.
  * `line_count` is populated when compaction publishes the cold objects, so hot reads can omit
  * the count while cold reads can report it without scanning the full stream.
- * `compaction_upload_keys` records temporary full-object keys before upload, so retries can clean
- * objects left behind by an ambiguous compaction failure after a later publish.
  *
  * Per-row `committed_length` and `declared_total_bytes` are bounded by the
  * per-job budget, so `mode: 'number'` is safe on the hot path. Any cross-row
@@ -62,7 +60,6 @@ export const attemptStreams = pgTable(
     claudePendingToolRows: jsonb('claude_pending_tool_rows').$type<SessionViewRow[]>(),
     truncated: boolean('truncated').notNull().default(false),
     lineCount: bigint('line_count', {mode: 'number'}),
-    compactionUploadKeys: jsonb('compaction_upload_keys').$type<string[]>().notNull().default([]),
     objectKey: text('object_key'),
     createdAt: timestamp('created_at', {withTimezone: true}).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', {withTimezone: true}).notNull().defaultNow(),
@@ -117,7 +114,6 @@ export function toAttemptStream(row: AttemptStreamDb): AttemptStream {
     claudePendingToolRows: row.claudePendingToolRows ?? [],
     truncated: row.truncated,
     lineCount: row.lineCount ?? null,
-    compactionUploadKeys: row.compactionUploadKeys ?? [],
     objectKey: row.objectKey,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,

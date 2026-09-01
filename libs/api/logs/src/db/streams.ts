@@ -1,5 +1,5 @@
 import type {SessionViewLifecycleRow, SessionViewRow} from '@shipfox/api-logs-dto';
-import {and, asc, eq, getTableColumns, isNull, lt, notInArray, sql} from 'drizzle-orm';
+import {and, asc, eq, getTableColumns, isNotNull, isNull, lt, notInArray, sql} from 'drizzle-orm';
 import type {AttemptStream, StreamCloseReason} from '#core/entities/attempt-stream.js';
 import {LeaseStreamMismatchError} from '#core/errors.js';
 import {db, type Transaction} from './db.js';
@@ -254,63 +254,6 @@ export async function getAttemptStreamByIdInTransaction(
   return row ? toAttemptStream(row) : null;
 }
 
-export type CompactionUploadKeyClaim =
-  | {outcome: 'claimed'; objectKey: string}
-  | {outcome: 'gone'}
-  | {outcome: 'already-compacted'};
-
-/**
- * Reserves a distinct temporary object key before compaction starts uploading. The row lock
- * makes the reservation durable across activity retries while allowing concurrent attempts to
- * keep separate keys, so a late attempt cannot overwrite a published winner.
- */
-export async function claimCompactionUploadKey(
-  tx: Transaction,
-  params: {streamId: string; objectKey: string},
-): Promise<CompactionUploadKeyClaim> {
-  const [current] = await tx
-    .select({
-      state: attemptStreams.state,
-      objectKey: attemptStreams.objectKey,
-      compactionUploadKeys: attemptStreams.compactionUploadKeys,
-    })
-    .from(attemptStreams)
-    .where(eq(attemptStreams.id, params.streamId))
-    .for('update');
-
-  if (current?.state !== 'closed') return {outcome: 'gone'};
-  if (current.objectKey) return {outcome: 'already-compacted'};
-
-  if (current.compactionUploadKeys.includes(params.objectKey)) {
-    return {outcome: 'claimed', objectKey: params.objectKey};
-  }
-
-  const [updated] = await tx
-    .update(attemptStreams)
-    .set({
-      compactionUploadKeys: [...current.compactionUploadKeys, params.objectKey],
-      updatedAt: sql`now()`,
-    })
-    .where(eq(attemptStreams.id, params.streamId))
-    .returning({compactionUploadKeys: attemptStreams.compactionUploadKeys});
-
-  const objectKey = updated?.compactionUploadKeys.at(-1);
-  return objectKey ? {outcome: 'claimed', objectKey} : {outcome: 'gone'};
-}
-
-/** Clears durable temporary-key reservations after all unreferenced objects are deleted. */
-export async function clearCompactionUploadKeys(
-  tx: Transaction,
-  params: {streamId: string; objectKey: string},
-): Promise<void> {
-  await tx
-    .update(attemptStreams)
-    .set({compactionUploadKeys: [], updatedAt: sql`now()`})
-    .where(
-      and(eq(attemptStreams.id, params.streamId), eq(attemptStreams.objectKey, params.objectKey)),
-    );
-}
-
 /**
  * Final compaction step: records the object key and line count and deletes the now-cold chunk rows
  * in one transaction. The guard is `state='closed' AND object_key IS NULL`, so the publish is a
@@ -363,6 +306,31 @@ export async function listStaleUncompactedStreams(params: {
       and(
         eq(attemptStreams.state, 'closed'),
         isNull(attemptStreams.objectKey),
+        lt(attemptStreams.closedAt, sql`now() - make_interval(secs => ${params.olderThanSeconds})`),
+      ),
+    )
+    .orderBy(asc(attemptStreams.closedAt))
+    .limit(params.limit);
+
+  return rows.map(toAttemptStream);
+}
+
+/**
+ * Closed streams whose winner is old enough for orphan reconciliation. The winner remains
+ * untouched; the compaction reconcile activity removes any temporary sibling objects under the
+ * stream prefix after this query returns.
+ */
+export async function listStaleCompactedStreams(params: {
+  olderThanSeconds: number;
+  limit: number;
+}): Promise<AttemptStream[]> {
+  const rows = await db()
+    .select()
+    .from(attemptStreams)
+    .where(
+      and(
+        eq(attemptStreams.state, 'closed'),
+        isNotNull(attemptStreams.objectKey),
         lt(attemptStreams.closedAt, sql`now() - make_interval(secs => ${params.olderThanSeconds})`),
       ),
     )

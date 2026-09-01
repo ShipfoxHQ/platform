@@ -42,7 +42,7 @@ export const config = createConfig({
     default: 120,
   }),
   LOG_COMPACTION_RECONCILE_STALE_SECONDS: num({
-    desc: 'How long a closed log stream may stay uncompacted before the reconcile cron re-drives it. The event-triggered compaction normally runs within seconds of close; this backstop only re-drives streams whose compaction never started or permanently failed. Defaults to 900 seconds (15 minutes).',
+    desc: 'How long a closed log stream may stay uncompacted before the reconcile cron re-drives it, or a durable compaction winner may remain alongside temporary sibling objects before the cron removes them. The event-triggered compaction normally runs within seconds of close; this backstop handles compaction runs that never started or permanently failed and cleans up after a winner is durable. Defaults to 900 seconds (15 minutes).',
     default: 900,
   }),
   LOG_STREAM_REAP_AFTER_SECONDS: num({

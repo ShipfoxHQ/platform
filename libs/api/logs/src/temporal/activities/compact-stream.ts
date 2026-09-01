@@ -15,12 +15,7 @@ import type {AttemptStream} from '#core/entities/attempt-stream.js';
 import {MAX_STEP_LOG_TAIL_BYTES, MAX_STEP_LOG_TAIL_LINES} from '#core/log-tail.js';
 import {chunkStats} from '#db/chunks.js';
 import {db, type Transaction} from '#db/db.js';
-import {
-  claimCompactionUploadKey,
-  clearCompactionUploadKeys,
-  getAttemptStreamById,
-  setObjectKeyAndDeleteChunks,
-} from '#db/streams.js';
+import {getAttemptStreamById, setObjectKeyAndDeleteChunks} from '#db/streams.js';
 import {
   type CompactionMetricOutcome,
   compactedBytesCount,
@@ -52,7 +47,7 @@ const defaultDependencies: CompactStreamDependencies = {
  *
  *   load stream ──┬─ gone ─────────────► no-op (retention raced)
  *                 ├─ object_key set ───► no-op (idempotent re-run)
- *                 └─ else: reserve/upload a per-attempt key ─► gzip ─► multipart (abort-aware, heartbeat)
+ *                 └─ else: upload to a per-attempt key ─► gzip ─► multipart (abort-aware, heartbeat)
  *                          │
  *                 verify streamed count/maxSeq/bytes == table and both object heads
  *                          (mismatch ─► delete both uploads, throw, retry)
@@ -62,23 +57,23 @@ const defaultDependencies: CompactStreamDependencies = {
  *                                         gone ─► retention raced · keyed ─► superseded by another attempt
  *
  * Each attempt uploads to its own `compactedObjectKey(stream, uuid)`, so a slow or zombie
- * attempt can never overwrite a published object. The reserved keys are recorded on the stream
- * before upload, which lets a later retry find and clean an attempt whose post-error DB read
- * failed. The single-winner publish (object_key and line_count set + chunk delete, atomic) drops
- * chunks only once both complete objects are durable; the integrity check (count, maxSeq, and
- * byte total) guards a read bug from publishing a truncated object before the only copy of the
- * source is gone (S3 part checksums cover byte transfer). Reservations are cleared after their
- * unreferenced objects are deleted.
+ * attempt can never overwrite a published object. The single-winner publish (object_key and
+ * line_count set + chunk delete, atomic) drops chunks only once both complete objects are
+ * durable; the integrity check (count, maxSeq, and byte total) guards a read bug from publishing
+ * a truncated object before the only copy of the source is gone (S3 part checksums cover byte
+ * transfer). The compaction reconciliation cron later deletes any non-winner sibling objects,
+ * after the winner is durable, so cleanup cannot race an in-flight loser upload.
  */
 async function compactStream(
   params: {streamId: string},
   dependencies: CompactStreamDependencies,
 ): Promise<CompactStreamResult> {
-  const preparation = await prepareCompaction(params.streamId);
-  if (preparation.outcome !== 'claimed') return preparation;
+  const stream = await getAttemptStreamById(params.streamId);
+  if (!stream) return {outcome: 'gone'};
+  if (stream.objectKey) return {outcome: 'already-compacted'};
 
-  const {stream, uploadKey} = preparation;
   const ctx = Context.current();
+  const uploadKey = compactedObjectKey(stream, crypto.randomUUID());
   const tailKey = compactedTailObjectKey(uploadKey);
   let cleanupComplete = false;
   let published = false;
@@ -96,14 +91,12 @@ async function compactStream(
     try {
       current = await getAttemptStreamById(stream.id);
     } catch {
-      // Preserve the uploads when the read needed to disambiguate commit state fails. The
-      // reservation was written before upload, so a retry can find these keys and clean them
-      // after it determines whether publication happened.
+      // Preserve the uploads when the read needed to disambiguate commit state fails. A later
+      // compaction reconciliation pass cleans non-winner siblings after publication is durable.
       return;
     }
     if (current?.objectKey === uploadKey) {
       cleanupComplete = true;
-      await cleanupPublishedCompactionUploads(stream.id, uploadKey);
       return;
     }
     await cleanupUploads();
@@ -131,12 +124,10 @@ async function compactStream(
     if (!updated) {
       await cleanupUploads();
       const current = await getAttemptStreamById(stream.id);
-      if (current?.objectKey) await cleanupPublishedCompactionUploadsIfNeeded(current);
       return {outcome: current ? 'superseded' : 'retention-raced'};
     }
 
     published = true;
-    await cleanupPublishedCompactionUploads(stream.id, uploadKey);
     return {
       outcome: 'compacted',
       objectKey: uploadKey,
@@ -153,68 +144,6 @@ async function compactStream(
       }
     }
     throw error;
-  }
-}
-
-type CompactionPreparation =
-  | {outcome: 'gone'}
-  | {outcome: 'already-compacted'}
-  | {outcome: 'claimed'; stream: AttemptStream; uploadKey: string};
-
-async function prepareCompaction(streamId: string): Promise<CompactionPreparation> {
-  const stream = await getAttemptStreamById(streamId);
-  if (!stream) return {outcome: 'gone'};
-  if (stream.objectKey) {
-    await cleanupPublishedCompactionUploadsIfNeeded(stream);
-    return {outcome: 'already-compacted'};
-  }
-
-  const claim = await db().transaction((tx) =>
-    claimCompactionUploadKey(tx, {
-      streamId: stream.id,
-      objectKey: compactedObjectKey(stream, crypto.randomUUID()),
-    }),
-  );
-  if (claim.outcome === 'claimed') {
-    return {outcome: 'claimed', stream, uploadKey: claim.objectKey};
-  }
-  if (claim.outcome === 'already-compacted') {
-    const current = await getAttemptStreamById(stream.id);
-    if (current?.objectKey) await cleanupPublishedCompactionUploadsIfNeeded(current);
-  }
-  return {outcome: claim.outcome};
-}
-
-async function cleanupPublishedCompactionUploadsIfNeeded(stream: AttemptStream): Promise<void> {
-  if (!stream.objectKey || stream.compactionUploadKeys.length === 0) return;
-  await cleanupPublishedCompactionUploads(stream.id, stream.objectKey);
-}
-
-/** Best-effort cleanup for persisted loser keys after a winner has published. */
-async function cleanupPublishedCompactionUploads(
-  streamId: string,
-  publishedObjectKey: string,
-): Promise<void> {
-  let stream: AttemptStream | null;
-  try {
-    stream = await getAttemptStreamById(streamId);
-  } catch {
-    return;
-  }
-  if (!stream || stream.objectKey !== publishedObjectKey) return;
-
-  const orphanKeys = stream.compactionUploadKeys.filter((key) => key !== publishedObjectKey);
-  try {
-    await deleteCompactionUploads(
-      streamId,
-      orphanKeys.flatMap((key) => [key, compactedTailObjectKey(key)]),
-    );
-    await db().transaction((tx) =>
-      clearCompactionUploadKeys(tx, {streamId, objectKey: publishedObjectKey}),
-    );
-  } catch {
-    // Keep the reservations when cleanup or its DB acknowledgement fails. An idempotent
-    // compaction pass will retry this best-effort cleanup before returning already-compacted.
   }
 }
 
