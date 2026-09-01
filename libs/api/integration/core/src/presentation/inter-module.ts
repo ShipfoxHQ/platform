@@ -249,8 +249,9 @@ export function createIntegrationsInterModulePresentation(params: {
 
         // The executed method is the one the provider resolves from the
         // arguments (`input.arguments.method`), validated against the frozen
-        // method allowlist and then the live catalog - the same rule the MCP
-        // gateway applies.
+        // method allowlist and then the live catalog. This applies the same
+        // frozen allowlist rule as the MCP gateway, with an additional live
+        // catalog check for this transport boundary.
         const allowedMethods = frozenToolMethodAllowlist(input.tool);
         const methodValidation = validateExecutedMethod(
           catalogEntry,
@@ -389,7 +390,7 @@ function validateExecutedMethod(
   if (!entry.methods) {
     if (allowedMethods === undefined) return {kind: 'ok'};
     const method = args.method;
-    const label = typeof method === 'string' ? method : (allowedMethods[0] ?? 'unknown');
+    const label = typeof method === 'string' ? method : NO_METHOD_LABEL;
     return {kind: 'error', message: `Unauthorized integration tool method: ${label}`};
   }
   const method = args.method;

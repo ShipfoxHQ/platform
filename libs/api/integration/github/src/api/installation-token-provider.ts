@@ -63,11 +63,23 @@ class OctokitGithubInstallationTokenProvider implements GithubInstallationTokenP
     permissions?: GithubInstallationTokenPermissions,
   ): Promise<GithubInstallationAccessToken> {
     await this.assertInstallationIsActive(installationId);
+    const derivedPermissionFingerprint =
+      permissions === undefined
+        ? undefined
+        : githubInstallationTokenPermissionFingerprint(permissions);
+    if (
+      permissionFingerprint !== undefined &&
+      derivedPermissionFingerprint !== undefined &&
+      permissionFingerprint !== derivedPermissionFingerprint
+    ) {
+      throw new TypeError(
+        'GitHub installation token permission fingerprint does not match permissions',
+      );
+    }
     const effectivePermissionFingerprint =
+      derivedPermissionFingerprint ??
       permissionFingerprint ??
-      (permissions === undefined
-        ? GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT
-        : githubInstallationTokenPermissionFingerprint(permissions));
+      GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT;
     const requestedPermissions = permissions === undefined ? undefined : {...permissions};
     return await this.cache.getOrMint(installationId, effectivePermissionFingerprint, () =>
       this.mintInstallationAccessToken(installationId, requestedPermissions),

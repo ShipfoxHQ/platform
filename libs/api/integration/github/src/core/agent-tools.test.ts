@@ -81,6 +81,7 @@ const expectedCatalogRows = [
     requiredScope: [
       {permission: 'pull_requests', access: 'read'},
       {permission: 'issues', access: 'read'},
+      {permission: 'checks', access: 'read'},
     ],
     methods: [
       'get',
@@ -929,6 +930,8 @@ describe('github agent tool catalog', () => {
     });
     const issueTool = githubAgentToolCatalog.find((entry) => entry.id === 'issue_read');
     if (!issueTool) throw new Error('Missing issue_read tool');
+    const createCommit = githubAgentToolCatalog.find((entry) => entry.id === 'create_commit');
+    if (!createCommit) throw new Error('Missing create_commit tool');
 
     const session = await provider.openSession({
       connection: connection(),
@@ -940,6 +943,14 @@ describe('github agent tool catalog', () => {
             ...method,
             requiredScope: [{permission: 'actions', access: 'write'}],
           })),
+        },
+        {
+          ...createCommit,
+          requiredScope: [{permission: 'actions', access: 'write'}],
+        },
+        {
+          ...createCommit,
+          id: 'removed_tool',
         },
       ],
       scope: {
@@ -962,6 +973,21 @@ describe('github agent tool catalog', () => {
       },
     });
 
+    await expect(session.call({toolId: 'removed_tool', arguments: {}})).resolves.toMatchObject({
+      isError: true,
+      structuredContent: {code: 'invalid-request'},
+    });
+    await expect(
+      session.call({
+        toolId: 'issue_read',
+        arguments: {method: 'removed_method', owner: 'shipfox', repo: 'platform', issue_number: 1},
+      }),
+    ).resolves.toMatchObject({
+      isError: true,
+      structuredContent: {code: 'invalid-request'},
+    });
+    expect(getInstallationAccessToken).not.toHaveBeenCalled();
+
     await expect(
       session.call({
         toolId: 'issue_read',
@@ -969,11 +995,88 @@ describe('github agent tool catalog', () => {
       }),
     ).resolves.toMatchObject({structuredContent: {number: 1}});
 
-    expect(getInstallationAccessToken).toHaveBeenCalledWith(
-      1,
-      '{"contents":"write","issues":"read"}',
-      {contents: 'write', issues: 'read'},
+    expect(getInstallationAccessToken).toHaveBeenCalledWith(1, undefined, {
+      contents: 'write',
+      issues: 'read',
+    });
+  });
+
+  it('keeps the strongest permission when selected tools share a scope', async () => {
+    const request = vi.fn(() => Promise.resolve({data: {number: 1}}));
+    const getInstallationAccessToken = vi.fn(() =>
+      Promise.resolve({
+        token: 'installation-token',
+        expiresAt: new Date(),
+        permissions: {issues: 'write' as const},
+      }),
     );
+    const issueRead = githubAgentToolCatalog.find((entry) => entry.id === 'issue_read');
+    const issueWrite = githubAgentToolCatalog.find((entry) => entry.id === 'issue_write');
+    if (!issueRead || !issueWrite) throw new Error('Missing issue catalog entries');
+    const provider = new GithubAgentToolsProvider({
+      getInstallationByConnectionId: vi.fn(() => Promise.resolve(installation())),
+      tokenProvider: {getInstallationAccessToken},
+      createClient: vi.fn(() => ({request})),
+    });
+
+    const session = await provider.openSession({
+      connection: connection(),
+      tools: [issueRead, issueWrite],
+      scope: undefined,
+    });
+
+    await expect(
+      session.call({
+        toolId: 'issue_read',
+        arguments: {method: 'get', owner: 'shipfox', repo: 'platform', issue_number: 1},
+      }),
+    ).resolves.toMatchObject({structuredContent: {number: 1}});
+
+    expect(getInstallationAccessToken).toHaveBeenCalledWith(1, undefined, {issues: 'write'});
+  });
+
+  it('requests checks read for check-run reads', async () => {
+    const request = vi.fn(() => Promise.resolve({data: {total_count: 1}}));
+    const getInstallationAccessToken = vi.fn(() =>
+      Promise.resolve({
+        token: 'installation-token',
+        expiresAt: new Date(),
+        permissions: {checks: 'read' as const},
+      }),
+    );
+    const pullRequestRead = githubAgentToolCatalog.find(
+      (entry) => entry.id === 'pull_request_read',
+    );
+    const checkRunsMethod = pullRequestRead?.methods?.find(
+      (method) => method.id === 'get_check_runs',
+    );
+    if (!pullRequestRead || !checkRunsMethod) throw new Error('Missing check-run catalog entry');
+    const provider = new GithubAgentToolsProvider({
+      getInstallationByConnectionId: vi.fn(() => Promise.resolve(installation())),
+      tokenProvider: {getInstallationAccessToken},
+      createClient: vi.fn(() => ({request})),
+    });
+
+    const session = await provider.openSession({
+      connection: connection(),
+      tools: [{...pullRequestRead, methods: [checkRunsMethod]}],
+      scope: undefined,
+    });
+
+    await expect(
+      session.call({
+        toolId: 'pull_request_read',
+        arguments: {
+          method: 'get_check_runs',
+          owner: 'shipfox',
+          repo: 'platform',
+          pull_number: 1,
+          ref: 'abc123',
+        },
+      }),
+    ).resolves.toMatchObject({structuredContent: {total_count: 1}});
+
+    expect(getInstallationAccessToken).toHaveBeenCalledWith(1, undefined, {checks: 'read'});
   });
 
   it('returns artifact download metadata without buffering archive bytes', async () => {
@@ -2118,11 +2221,10 @@ describe('github agent tool catalog', () => {
       content: [{type: 'text', text: '{"message":"Branch updated"}'}],
       structuredContent: {message: 'Branch updated'},
     });
-    expect(getInstallationAccessToken).toHaveBeenCalledWith(
-      1,
-      '{"contents":"write","pull_requests":"write"}',
-      {contents: 'write', pull_requests: 'write'},
-    );
+    expect(getInstallationAccessToken).toHaveBeenCalledWith(1, undefined, {
+      contents: 'write',
+      pull_requests: 'write',
+    });
   });
 
   it('creates a branch from a commit oid through the provider session', async () => {
@@ -3190,6 +3292,7 @@ function createAgentToolsProvider(client: GithubToolClient) {
           expiresAt: new Date(),
           permissions: {
             actions: 'write' as const,
+            checks: 'read' as const,
             contents: 'write' as const,
             issues: 'write' as const,
             pull_requests: 'write' as const,

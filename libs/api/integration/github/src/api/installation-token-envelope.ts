@@ -97,12 +97,24 @@ export function githubInstallationTokenKey(permissionFingerprint: string): strin
   return `TOKEN_${createHash('sha256').update(permissionFingerprint, 'utf8').digest('hex').toUpperCase()}`;
 }
 
+export function githubInstallationTokenBackoffKey(permissionFingerprint: string): string {
+  if (permissionFingerprint === GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT) {
+    return GITHUB_INSTALLATION_TOKEN_BACKOFF_KEY;
+  }
+
+  return `BACKOFF_${githubInstallationTokenKey(permissionFingerprint).slice('TOKEN_'.length)}`;
+}
+
 export function githubInstallationTokenPermissionFingerprint(
   permissions: Readonly<GithubInstallationTokenPermissions>,
 ): string {
   return JSON.stringify(
     Object.fromEntries(
-      Object.entries(permissions).sort(([first], [second]) => first.localeCompare(second)),
+      Object.entries(permissions).sort(([first], [second]) => {
+        if (first < second) return -1;
+        if (first > second) return 1;
+        return 0;
+      }),
     ),
   );
 }

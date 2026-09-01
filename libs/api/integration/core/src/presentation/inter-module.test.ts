@@ -401,12 +401,13 @@ describe('integrations inter-module callTool', () => {
     createRecorder:
       | ((caller: IntegrationToolCallCaller) => IntegrationToolCallRecorder)
       | undefined = undefined,
+    catalog = [catalogTool()],
   ) {
     const transport = createInMemoryInterModuleTransport();
     const client = transport.createClient(integrationsInterModuleContract);
     transport.register(
       createIntegrationsInterModulePresentation({
-        registry: registryWithAgentTools([catalogTool()], providerOptions),
+        registry: registryWithAgentTools(catalog, providerOptions),
         sourceControl: createSourceControlIntegrationService({
           registry: createIntegrationProviderRegistry([]),
           getIntegrationConnectionById: async () => undefined,
@@ -495,6 +496,25 @@ describe('integrations inter-module callTool', () => {
       code: 'invalid-request',
       message: 'Unknown integration tool: removed_tool',
     });
+  });
+
+  it('rejects a frozen method that is no longer in the live catalog', async () => {
+    const onCall = vi.fn();
+    const liveCatalogTool = catalogTool();
+    const liveMethod = liveCatalogTool.methods?.find((method) => method.id === 'get_comments');
+    if (!liveMethod) throw new Error('Missing live fixture method');
+    const client = createToolCallClient({onCall}, undefined, undefined, [
+      catalogTool({methods: [liveMethod]}),
+    ]);
+
+    const result = await client.callTool(toolCallInput);
+
+    expect(result).toEqual({
+      outcome: 'error',
+      code: 'invalid-request',
+      message: 'Unauthorized integration tool method: get',
+    });
+    expect(onCall).not.toHaveBeenCalled();
   });
 
   const connectionFailureCases: ReadonlyArray<

@@ -4,6 +4,7 @@ import {
   backoffActive,
   encodeInstallationTokenEnvelope,
   GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT,
+  githubInstallationTokenBackoffKey,
   githubInstallationTokenKey,
   needsRefresh,
   stillValid,
@@ -180,7 +181,7 @@ describe('SharedInstallationTokenCache', () => {
     ).toBe(true);
   });
 
-  it('shares installation-wide backoff across profile keys', async () => {
+  it('isolates backoff across permission profile keys', async () => {
     const store = createStore();
     const shared = cache({store});
     const failedMint = vi
@@ -191,12 +192,22 @@ describe('SharedInstallationTokenCache', () => {
     await expect(shared.getOrMint(installationId, 'broad', failedMint)).rejects.toMatchObject({
       reason: 'rate-limited',
     });
-    await expect(shared.getOrMint(installationId, 'narrow', siblingMint)).rejects.toMatchObject({
-      reason: 'rate-limited',
-    });
+    await expect(shared.getOrMint(installationId, 'narrow', siblingMint)).resolves.toEqual(
+      token('ghs_sibling'),
+    );
 
     expect(failedMint).toHaveBeenCalledTimes(1);
-    expect(siblingMint).not.toHaveBeenCalled();
+    expect(siblingMint).toHaveBeenCalledTimes(1);
+    expect(
+      store.values.get(
+        `${workspaceId}:${installationId}:${githubInstallationTokenBackoffKey('broad')}`,
+      ),
+    ).toContain('rate-limited');
+    expect(
+      store.values.get(
+        `${workspaceId}:${installationId}:${githubInstallationTokenBackoffKey('narrow')}`,
+      ),
+    ).toBe('{}');
   });
 
   it('shares one mint between two concurrent cache replicas', async () => {
