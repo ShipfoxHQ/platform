@@ -36,10 +36,13 @@ export async function issueAgentAccessToken(claims: IssueAgentAccessTokenParams)
 export async function verifyAgentAccessToken(
   token: string,
 ): Promise<AgentAccessTokenClaims | null> {
+  // Resolve configuration outside the invalid-token catch. A runtime key
+  // failure must remain distinguishable from a malformed or expired token.
+  const secret = agentAccessTokenKey();
   try {
     const claims = await verifyHs256({
       token,
-      secret: agentAccessTokenKey(),
+      secret,
       schema: agentAccessTokenClaimsSchema,
       audience: AGENT_ACCESS_TOKEN_AUDIENCE,
     });
