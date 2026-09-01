@@ -158,3 +158,13 @@ export {
   workflowRunJobExecutionDetailDtoSchema,
   workflowRunStepDetailDtoSchema,
 } from './workflow-run-detail.js';
+export {
+  getWorkflowRunSelectionDepth,
+  type WorkflowRunSelectionDepth,
+  type WorkflowRunSelectionDto,
+  type WorkflowRunSelectionQueryDto,
+  type WorkflowRunSelectionResponseDto,
+  workflowRunSelectionQuerySchema,
+  workflowRunSelectionResponseSchema,
+  workflowRunSelectionSchema,
+} from './workflow-run-selection.js';

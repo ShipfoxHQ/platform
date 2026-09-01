@@ -14,6 +14,7 @@ import {createCheckoutTokenRoute} from './checkout-token.js';
 import {getRunRoute} from './get-run.js';
 import {getRunAggregatesRoute} from './get-run-aggregates.js';
 import {getRunLineageHeadRoute} from './get-run-lineage-head.js';
+import {getRunSelectionRoute} from './get-run-selection.js';
 import {getStepAttemptDetailRoute} from './get-step-attempt-detail.js';
 import {createGetStepSecretsRoute} from './get-step-secrets.js';
 import {listRunAttemptsRoute} from './list-run-attempts.js';
@@ -64,6 +65,7 @@ export function createWorkflowRoutes(params: WorkflowRouteClients): RouteGroup[]
         listRunsRoute(params.projects),
         getRunAggregatesRoute(params.projects),
         getRunLineageHeadRoute(params.projects),
+        getRunSelectionRoute(params.projects),
         listRunAttemptsRoute(params.projects),
         getRunRoute(params.projects),
         getStepAttemptDetailRoute(params.projects),

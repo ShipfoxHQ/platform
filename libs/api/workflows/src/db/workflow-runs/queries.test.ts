@@ -14,6 +14,7 @@ import {
   getWorkflowRunById,
   getWorkflowRunDetail,
   getWorkflowRunLineageHead,
+  getWorkflowRunSelection,
   listRunAttempts,
   listRunAttemptsPage,
   listWorkflowRunJobSummaries,
@@ -117,6 +118,57 @@ describe('workflow run queries', () => {
 
       await expect(
         getWorkflowRunDetail(crypto.randomUUID(), 1, undefined, {onRead}),
+      ).resolves.toBeUndefined();
+      expect(onRead).toHaveBeenCalledTimes(1);
+      expect(onRead).toHaveBeenCalledWith(
+        expect.objectContaining({
+          databaseDurationMilliseconds: expect.any(Number),
+          returnedRows: 0,
+        }),
+      );
+    });
+  });
+
+  describe('getWorkflowRunSelection measurement observer', () => {
+    test('does not let a throwing observer change a successful read', async () => {
+      const created = await createTestRun({workspaceId, projectId, definitionId});
+      const [job] = await getJobsByWorkflowRunId(created.id);
+      if (!job) throw new Error('Expected workflow job');
+      const onRead = vi.fn(() => {
+        throw new Error('observer unavailable');
+      });
+
+      await expect(
+        getWorkflowRunSelection(
+          {
+            workflowRunId: created.id,
+            projectId,
+            query: {job_id: job.id},
+          },
+          {onRead},
+        ),
+      ).resolves.toMatchObject({workflowRunId: created.id, jobId: job.id});
+      expect(onRead).toHaveBeenCalledTimes(1);
+      expect(onRead).toHaveBeenCalledWith(
+        expect.objectContaining({
+          databaseDurationMilliseconds: expect.any(Number),
+          returnedRows: expect.any(Number),
+        }),
+      );
+    });
+
+    test('notifies the observer for a missing identity with zero returned rows', async () => {
+      const onRead = vi.fn();
+
+      await expect(
+        getWorkflowRunSelection(
+          {
+            workflowRunId: crypto.randomUUID(),
+            projectId,
+            query: {job_id: crypto.randomUUID()},
+          },
+          {onRead},
+        ),
       ).resolves.toBeUndefined();
       expect(onRead).toHaveBeenCalledTimes(1);
       expect(onRead).toHaveBeenCalledWith(

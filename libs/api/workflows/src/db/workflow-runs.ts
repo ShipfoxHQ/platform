@@ -75,6 +75,8 @@ export type {
   WorkflowRunJobSummaryTarget,
   WorkflowRunJobsSummary,
   WorkflowRunLineageHead,
+  WorkflowRunSelection,
+  WorkflowRunSelectionParams,
 } from './workflow-runs/queries.js';
 export {
   buildWorkflowRunListConditions,
@@ -88,6 +90,7 @@ export {
   getWorkflowRunById,
   getWorkflowRunDetail,
   getWorkflowRunLineageHead,
+  getWorkflowRunSelection,
   listRunAttempts,
   listRunAttemptsPage,
   listWorkflowRunJobSummaries,
