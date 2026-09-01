@@ -6305,6 +6305,9 @@ importers:
       '@shipfox/client-api':
         specifier: workspace:*
         version: link:../api
+      '@shipfox/client-integrations':
+        specifier: workspace:*
+        version: link:../integrations
       '@shipfox/client-logs':
         specifier: workspace:*
         version: link:../logs

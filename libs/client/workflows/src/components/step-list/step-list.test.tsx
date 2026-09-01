@@ -685,6 +685,37 @@ describe('StepList', () => {
 
     expect(screen.getByRole('button', {name: `${name}, Pending, attempt 1`})).toBeInTheDocument();
   });
+
+  test('adds the tool provider to row semantics without rendering provider text', () => {
+    render(
+      <StepList
+        job={makeJob({
+          steps: [
+            makeStep({
+              name: 'Post release notice',
+              type: 'tool',
+              config: {
+                tool: {
+                  provider: 'slack',
+                  connection_slug: 'release-notifications',
+                  id: 'chat_post_message',
+                  sensitivity: 'write',
+                },
+              },
+              attempts: [makeAttempt({status: 'succeeded'})],
+            }),
+          ],
+        })}
+      />,
+    );
+
+    expect(
+      screen.getByRole('button', {
+        name: 'Post release notice, Succeeded, attempt 1, Slack integration',
+      }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Slack')).toBeNull();
+  });
 });
 
 function makeJob(overrides: JobDtoOverrides = {}): Job {

@@ -1,3 +1,4 @@
+import {PROVIDER_CATALOG} from '@shipfox/client-integrations';
 import {
   Accordion,
   AccordionContent,
@@ -386,6 +387,7 @@ function StepRow({
         )}
       />
       <StepStatusIcon entry={entry} />
+      <ToolProviderIcon entry={entry} />
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-inline">
           <Text size="sm" bold className="truncate text-foreground-neutral-base">
@@ -534,6 +536,20 @@ function StepStatusIcon({entry}: {entry: StepListEntryModel}) {
   );
 }
 
+function ToolProviderIcon({entry}: {entry: StepListEntryModel}) {
+  if (entry.step.type !== 'tool') return null;
+  const provider = entry.step.toolConfig?.provider;
+  const iconName = provider ? PROVIDER_CATALOG[provider]?.iconName : undefined;
+  return (
+    <Icon
+      name={iconName ?? 'componentLine'}
+      size={14}
+      aria-hidden="true"
+      className="shrink-0 text-foreground-neutral-muted"
+    />
+  );
+}
+
 const attemptChipClasses: Record<NonNullable<BadgeVariant>, string> = {
   neutral: 'bg-tag-neutral-bg border-tag-neutral-border',
   info: 'bg-tag-blue-bg border-tag-blue-border',
@@ -560,6 +576,9 @@ function StepAttemptChip({attempt}: {attempt: StepAttemptModel}) {
 
 function entryAccessibleLabel(entry: StepListEntryModel): string {
   const parts = [entry.step.label, entry.statusVisual.label, `attempt ${entry.attempt}`];
+  if (entry.step.toolConfig?.provider) {
+    parts.push(`${humanizeStatus(entry.step.toolConfig.provider)} integration`);
+  }
   if (entry.step.error?.category) parts.push(humanizeStatus(entry.step.error.category));
   return parts.join(', ');
 }

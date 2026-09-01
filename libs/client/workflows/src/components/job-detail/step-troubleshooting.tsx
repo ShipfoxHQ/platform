@@ -1,6 +1,13 @@
 import {Badge} from '@shipfox/react-ui/badge';
 import {Button} from '@shipfox/react-ui/button';
-import {Callout, CalloutContent, CalloutDescription, CalloutTitle} from '@shipfox/react-ui/callout';
+import {
+  Callout,
+  CalloutActions,
+  CalloutContent,
+  CalloutDescription,
+  CalloutTitle,
+} from '@shipfox/react-ui/callout';
+import {Panel, PanelBody, PanelRow} from '@shipfox/react-ui/panel';
 import {
   Sheet,
   SheetBody,
@@ -10,8 +17,9 @@ import {
   SheetTitle,
 } from '@shipfox/react-ui/sheet';
 import {Skeleton} from '@shipfox/react-ui/skeleton';
+import {useTimeTick} from '@shipfox/react-ui/time-ticker';
 import {Code, Text} from '@shipfox/react-ui/typography';
-import {cn} from '@shipfox/react-ui/utils';
+import {cn, formatDuration} from '@shipfox/react-ui/utils';
 import {Link} from '@tanstack/react-router';
 import type {ReactNode} from 'react';
 import type {
@@ -20,6 +28,7 @@ import type {
   Step,
   StepAttempt,
   StepAttemptDetail,
+  StepAttemptInvocation,
   StepError,
 } from '#core/workflow-run.js';
 import {useStepAttemptDetailQuery} from '#hooks/api/step-attempt-detail.js';
@@ -39,6 +48,7 @@ export interface StepInspectorSheetProps {
   runAttempt: number;
   jobId: string;
   annotationCount?: number | undefined;
+  onViewLogs?: (() => void) | undefined;
 }
 
 export function StepInspectorSheet({
@@ -51,6 +61,7 @@ export function StepInspectorSheet({
   runAttempt,
   jobId,
   annotationCount,
+  onViewLogs,
 }: StepInspectorSheetProps) {
   const error = selectedStepError(entry.step, entry.error);
   const inspectorQuery = useStepAttemptDetailQuery(entry.step.id, entry.attempt, {
@@ -62,9 +73,16 @@ export function StepInspectorSheet({
       <SheetContent side="right" className="w-full sm:max-w-[560px]">
         <SheetHeader>
           <SheetTitle>{entry.step.label}</SheetTitle>
-          <SheetDescription>
-            Attempt #{entry.attempt} · {humanizeStatus(entry.statusVisual.kind)}
-          </SheetDescription>
+          <div className="flex min-w-0 flex-wrap items-center gap-inline">
+            <SheetDescription>
+              Attempt #{entry.attempt} · {humanizeStatus(entry.statusVisual.kind)}
+            </SheetDescription>
+            {entry.step.toolConfig?.sensitivity === 'write' ? (
+              <Badge variant="warning" size="2xs" radius="rounded">
+                Write tool
+              </Badge>
+            ) : null}
+          </div>
         </SheetHeader>
         <SheetBody className="gap-section">
           <StepInspector
@@ -79,6 +97,7 @@ export function StepInspectorSheet({
             runAttempt={runAttempt}
             jobId={jobId}
             annotationCount={annotationCount}
+            onViewLogs={onViewLogs}
           />
         </SheetBody>
       </SheetContent>
@@ -94,6 +113,7 @@ function StepFailureCallout({
   projectSlug,
   workflowRunId,
   runAttempt,
+  onViewLogs,
 }: {
   step: Step;
   attempt: StepAttempt;
@@ -102,9 +122,10 @@ function StepFailureCallout({
   projectSlug: string;
   workflowRunId: string;
   runAttempt: number;
+  onViewLogs: (() => void) | undefined;
 }) {
   const reason = error?.reason ?? step.statusReason ?? 'unknown';
-  const title = failureTitle(reason);
+  const title = failureTitle(reason, step, attempt, error);
   const sourceLink = sourceLinkForFailure(reason) && step.sourceLocation;
 
   if (step.type === 'agent' && reason === 'agent_config_invalid') {
@@ -129,13 +150,13 @@ function StepFailureCallout({
         <CalloutDescription>
           <div className="flex min-w-0 flex-wrap items-center gap-x-inline gap-y-tight">
             <div className="flex min-w-0 flex-col gap-tight">
-              <span>{failureDescription(reason)}</span>
+              <span>{failureDescription(reason, step, attempt, error)}</span>
               {error?.message ? (
                 <span className="text-foreground-neutral-muted">{error.message}</span>
               ) : null}
             </div>
             <Code as="span" variant="label" className="text-tag-error-text">
-              {reason}
+              {error?.code ?? reason}
             </Code>
             {sourceLink ? (
               <Link
@@ -152,9 +173,25 @@ function StepFailureCallout({
                 View in source
               </Link>
             ) : null}
+            {toolConnectionRecovery(error) ? (
+              <Link
+                to="/w/$workspaceSlug/settings/integrations"
+                params={{workspaceSlug}}
+                className="font-medium text-foreground-highlight-interactive underline-offset-2 hover:underline"
+              >
+                {toolConnectionRecovery(error)}
+              </Link>
+            ) : null}
           </div>
         </CalloutDescription>
       </CalloutContent>
+      {step.type === 'tool' && onViewLogs ? (
+        <CalloutActions>
+          <Button type="button" size="2xs" variant="secondary" onClick={onViewLogs}>
+            View invocation log
+          </Button>
+        </CalloutActions>
+      ) : null}
     </Callout>
   );
 }
@@ -171,6 +208,7 @@ function StepInspector({
   runAttempt,
   jobId,
   annotationCount,
+  onViewLogs,
 }: {
   step: Step;
   attempt: StepAttempt;
@@ -183,6 +221,7 @@ function StepInspector({
   runAttempt: number;
   jobId: string;
   annotationCount: number | undefined;
+  onViewLogs: (() => void) | undefined;
 }) {
   const detail = query.data;
   const hasAnnotations = annotationCount !== undefined && annotationCount > 0;
@@ -198,11 +237,13 @@ function StepInspector({
           projectSlug={projectSlug}
           workflowRunId={workflowRunId}
           runAttempt={runAttempt}
+          onViewLogs={onViewLogs}
         />
       ) : null}
       <InspectorQueryContent
         query={query}
         detail={detail}
+        step={step}
         attempt={attempt}
         showFailure={showFailure}
         hasAnnotations={hasAnnotations}
@@ -227,12 +268,14 @@ function StepInspector({
 function InspectorQueryContent({
   query,
   detail,
+  step,
   attempt,
   showFailure,
   hasAnnotations,
 }: {
   query: ReturnType<typeof useStepAttemptDetailQuery>;
   detail: ReturnType<typeof useStepAttemptDetailQuery>['data'];
+  step: Step;
   attempt: StepAttempt;
   showFailure: boolean;
   hasAnnotations: boolean;
@@ -269,6 +312,7 @@ function InspectorQueryContent({
   return (
     <InspectorDetailContent
       detail={detail}
+      step={step}
       attempt={attempt}
       showFailure={showFailure}
       hasAnnotations={hasAnnotations}
@@ -278,17 +322,20 @@ function InspectorQueryContent({
 
 function InspectorDetailContent({
   detail,
+  step,
   attempt,
   showFailure,
   hasAnnotations,
 }: {
   detail: NonNullable<ReturnType<typeof useStepAttemptDetailQuery>['data']>;
+  step: Step;
   attempt: StepAttempt;
   showFailure: boolean;
   hasAnnotations: boolean;
 }) {
   const trace = detail.evaluationTrace ?? null;
   const resolvedConfig = detail.config ?? null;
+  const isToolStep = step.type === 'tool';
   const hasInputs =
     countConfigValues(detail.authoredConfig) > 0 || countConfigValues(resolvedConfig) > 0;
   const hasOutputs =
@@ -298,20 +345,178 @@ function InspectorDetailContent({
   return (
     <div className="flex min-w-0 flex-col gap-group">
       {detail.session ? <SessionChip session={detail.session} /> : null}
-      {hasInputs ? (
+      {isToolStep ? (
+        <ToolStepDetails detail={detail} attempt={attempt} showFailure={showFailure} />
+      ) : null}
+      {!isToolStep && hasInputs ? (
         <InspectorSection title="Inputs">
           <ConfigCode authoredConfig={detail.authoredConfig} resolvedConfig={resolvedConfig} />
         </InspectorSection>
       ) : null}
-      {hasOutputs ? <InspectorOutputs attempt={attempt} /> : null}
+      {!isToolStep && hasOutputs ? <InspectorOutputs attempt={attempt} /> : null}
       {hasTrace ? (
         <InspectorSection title="Evaluation">
           <EvaluationTrace trace={trace ?? []} />
         </InspectorSection>
       ) : null}
-      {detailCount === 0 && !showFailure && !hasAnnotations ? <EmptyInspector /> : null}
+      {!isToolStep && detailCount === 0 && !showFailure && !hasAnnotations ? (
+        <EmptyInspector />
+      ) : null}
     </div>
   );
+}
+
+function ToolStepDetails({
+  detail,
+  attempt,
+  showFailure,
+}: {
+  detail: StepAttemptDetail;
+  attempt: StepAttempt;
+  showFailure: boolean;
+}) {
+  const result = toolResult(attempt);
+  const mappedOutputs = toolMappedOutputs(attempt);
+  return (
+    <>
+      <InspectorSection title="Arguments">
+        <JsonCode
+          title="arguments.json"
+          value={toolArguments(detail.config)}
+          emptyMessage="No arguments were passed to this tool."
+        />
+      </InspectorSection>
+      {!showFailure && result.present ? (
+        <InspectorSection title="Result">
+          <JsonCode title="result.json" value={result.value} />
+        </InspectorSection>
+      ) : null}
+      <InspectorSection title="Invocations">
+        <ToolInvocationList invocations={attempt.invocations} />
+      </InspectorSection>
+      {mappedOutputs ? (
+        <InspectorSection title="Outputs">
+          <JsonCode value={mappedOutputs} />
+        </InspectorSection>
+      ) : null}
+    </>
+  );
+}
+
+function ToolInvocationList({invocations}: {invocations: readonly StepAttemptInvocation[]}) {
+  if (invocations.length === 0) {
+    return (
+      <Text size="xs" className="text-foreground-neutral-muted">
+        No provider calls were recorded for this attempt.
+      </Text>
+    );
+  }
+
+  return (
+    <Panel>
+      <PanelBody asChild>
+        <ol>
+          {invocations.map((invocation) => (
+            <ToolInvocationRow key={invocation.callIndex} invocation={invocation} />
+          ))}
+        </ol>
+      </PanelBody>
+    </Panel>
+  );
+}
+
+function ToolInvocationRow({invocation}: {invocation: StepAttemptInvocation}) {
+  const visual = invocationVisual(invocation);
+  return (
+    <PanelRow asChild className="hover:bg-background-neutral-base">
+      <li>
+        <div className="flex min-w-0 items-center gap-inline">
+          <Code as="span" variant="label" className="shrink-0 text-foreground-neutral-base">
+            Call {invocation.callIndex + 1}
+          </Code>
+          <Badge variant={visual.badge} size="2xs" radius="rounded">
+            {visual.label}
+          </Badge>
+          {invocation.errorCode ? (
+            <Code as="span" variant="label" className="truncate text-foreground-neutral-muted">
+              {invocation.errorCode}
+            </Code>
+          ) : null}
+        </div>
+        <InvocationTiming invocation={invocation} />
+      </li>
+    </PanelRow>
+  );
+}
+
+function InvocationTiming({invocation}: {invocation: StepAttemptInvocation}) {
+  if (invocation.nextDueAt && invocation.outcome === undefined) {
+    return <RetryCountdown dueAt={invocation.nextDueAt} />;
+  }
+  if (invocation.durationMs === undefined) return null;
+  return (
+    <Code as="span" variant="label" className="shrink-0 text-foreground-neutral-muted">
+      {formatDuration(invocation.durationMs)}
+    </Code>
+  );
+}
+
+function RetryCountdown({dueAt}: {dueAt: string}) {
+  useTimeTick();
+  const remainingMs = Date.parse(dueAt) - Date.now();
+  const label = retryCountdownLabel(remainingMs);
+  return (
+    <Code
+      as="span"
+      variant="label"
+      className="shrink-0 tabular-nums text-foreground-neutral-muted"
+      aria-label={`Retry in ${label}`}
+    >
+      in {label}
+    </Code>
+  );
+}
+
+function retryCountdownLabel(remainingMs: number): string {
+  if (!Number.isFinite(remainingMs)) return 'pending';
+  if (remainingMs <= 0) return 'now';
+  return `${Math.ceil(remainingMs / 1000)}s`;
+}
+
+function invocationVisual(invocation: StepAttemptInvocation): {
+  label: string;
+  badge: 'neutral' | 'info' | 'success' | 'warning' | 'error';
+} {
+  if (invocation.outcome === 'success') return {label: 'Succeeded', badge: 'success'};
+  if (invocation.outcome === 'error') return {label: 'Failed', badge: 'error'};
+  if (invocation.nextDueAt) return {label: 'Retry pending', badge: 'warning'};
+  if (invocation.outcome) return {label: humanizeStatus(invocation.outcome), badge: 'neutral'};
+  return {label: 'Running', badge: 'info'};
+}
+
+function toolArguments(config: Record<string, unknown> | null): unknown {
+  const tool = recordValue(config?.tool);
+  return tool?.with ?? {};
+}
+
+function toolResult(attempt: StepAttempt): {present: boolean; value?: unknown} {
+  for (const output of [attempt.output, attempt.outputs]) {
+    if (output && Object.hasOwn(output, 'result')) return {present: true, value: output.result};
+  }
+  return {present: false};
+}
+
+function toolMappedOutputs(attempt: StepAttempt): Record<string, unknown> | null {
+  const output = attempt.outputs ?? attempt.output;
+  if (!output) return null;
+  const mapped = Object.fromEntries(Object.entries(output).filter(([key]) => key !== 'result'));
+  return Object.keys(mapped).length > 0 ? mapped : null;
+}
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }
 
 function InspectorOutputs({attempt}: {attempt: StepAttempt}) {
@@ -485,7 +690,18 @@ function selectedStepError(
   return toSelectedAttemptError(step, attemptError) ?? step.error;
 }
 
-function failureTitle(reason: string | JobStatusReason): string {
+function failureTitle(
+  reason: string | JobStatusReason,
+  step: Step,
+  attempt: StepAttempt,
+  error: StepError | null,
+): string {
+  if (toolCallSucceededBeforeFailure(reason, step, attempt)) {
+    return 'Tool call succeeded, but the step failed';
+  }
+  if (error?.code === 'access-denied') return 'Tool access was denied';
+  if (error?.code === 'credentials-unavailable') return 'Tool credentials are unavailable';
+
   switch (reason) {
     case 'checkout_failed':
       return 'Checkout failed';
@@ -521,6 +737,12 @@ function failureTitle(reason: string | JobStatusReason): string {
       return 'Agent session harness does not match';
     case 'agent_session_unavailable':
       return 'Agent session is unavailable';
+    case 'tool_error':
+      return 'Tool call failed';
+    case 'tool_config_invalid':
+      return 'Tool configuration is invalid';
+    case 'invocation_interrupted':
+      return 'Tool invocation was interrupted';
     case 'runner_lost':
       return 'Runner stopped responding';
     case 'output_too_large':
@@ -550,7 +772,22 @@ function failureTitle(reason: string | JobStatusReason): string {
   }
 }
 
-function failureDescription(reason: string | JobStatusReason): string {
+function failureDescription(
+  reason: string | JobStatusReason,
+  step: Step,
+  attempt: StepAttempt,
+  error: StepError | null,
+): string {
+  if (toolCallSucceededBeforeFailure(reason, step, attempt)) {
+    return 'The integration returned a result, but Shipfox could not map or store it because it did not satisfy the output contract or size limit. The full result remains available in the invocation log.';
+  }
+  if (error?.code === 'access-denied') {
+    return 'The integration rejected this call. Review its permissions before re-running the step.';
+  }
+  if (error?.code === 'credentials-unavailable') {
+    return 'The integration credentials are missing or unavailable. Reconnect the integration before re-running the step.';
+  }
+
   switch (reason) {
     case 'checkout_auth_failed':
       return 'Checkout credentials were rejected. Verify repository access before re-running.';
@@ -578,6 +815,16 @@ function failureDescription(reason: string | JobStatusReason): string {
       return 'The step harness differs from the harness the agent session is pinned to.';
     case 'agent_session_unavailable':
       return 'The agent session was unavailable during dispatch. Review the error details below and retry after resolving the cause.';
+    case 'tool_error':
+      return 'The provider rejected or could not complete this tool call.';
+    case 'tool_config_invalid':
+      return error?.field
+        ? `The resolved ${error.field} value is invalid. Fix the step configuration before re-running.`
+        : 'The resolved tool configuration is invalid. Fix the step configuration before re-running.';
+    case 'invocation_interrupted':
+      return step.toolConfig?.sensitivity === 'write'
+        ? 'The provider call was interrupted. Confirm whether the write completed before re-running it.'
+        : 'The provider call was interrupted before its outcome could be recorded. Review the invocation log before retrying.';
     case 'runner_lost':
       return 'The runner stopped responding before the step completed.';
     case 'output_too_large':
@@ -609,11 +856,30 @@ function sourceLinkForFailure(reason: string | JobStatusReason): boolean {
   return (
     reason === 'config_unresolvable' ||
     reason === 'agent_config_invalid' ||
+    reason === 'tool_config_invalid' ||
     reason === 'output_invalid' ||
     reason === 'default_gate_rejected' ||
     reason === 'condition_rejected' ||
     reason === 'condition_errored'
   );
+}
+
+function toolCallSucceededBeforeFailure(
+  reason: string | JobStatusReason,
+  step: Step,
+  attempt: StepAttempt,
+): boolean {
+  return (
+    step.type === 'tool' &&
+    reason === 'output_invalid' &&
+    attempt.invocations.some((invocation) => invocation.outcome === 'success')
+  );
+}
+
+function toolConnectionRecovery(error: StepError | null): string | undefined {
+  if (error?.code === 'access-denied') return 'Review integration access';
+  if (error?.code === 'credentials-unavailable') return 'Reconnect integration';
+  return undefined;
 }
 
 function humanize(value: string): string {

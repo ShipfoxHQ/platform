@@ -926,6 +926,15 @@ function storyStepDto(step: Step) {
       error: attempt.error,
       gate_result: null,
       restart_feedback: attempt.restartFeedback,
+      invocations: attempt.invocations.map((invocation) => ({
+        call_index: invocation.callIndex,
+        started_at: invocation.startedAt,
+        ...(invocation.finishedAt === undefined ? {} : {finished_at: invocation.finishedAt}),
+        ...(invocation.outcome === undefined ? {} : {outcome: invocation.outcome}),
+        ...(invocation.errorCode === undefined ? {} : {error_code: invocation.errorCode}),
+        ...(invocation.durationMs === undefined ? {} : {duration_ms: invocation.durationMs}),
+        ...(invocation.nextDueAt === undefined ? {} : {next_due_at: invocation.nextDueAt}),
+      })),
       started_at: attempt.startedAt,
       finished_at: attempt.finishedAt,
     })),
@@ -936,6 +945,9 @@ function storyStepErrorDto(step: Step) {
   if (!step.error) return null;
   return {
     message: step.error.message,
+    ...(step.error.code ? {code: step.error.code} : {}),
+    ...(step.error.field ? {field: step.error.field} : {}),
+    ...(step.error.source ? {source: step.error.source} : {}),
     ...(step.error.exitCode !== null ? {exit_code: step.error.exitCode} : {}),
     ...(step.error.signal ? {signal: step.error.signal} : {}),
     ...(step.error.reason ? {reason: step.error.reason} : {}),
