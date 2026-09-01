@@ -45,11 +45,14 @@ managed instance when `DescribeInstanceStatus` succeeds.
 | `ec2_provisioner_health_impaired` | `check_type`: `system`, `instance`, `attached-ebs` | Existing impairment signal. It increments for each impaired check observed during reconciliation. |
 
 These metrics contain no workspace, provisioner, runner, instance, job, or volume identifiers.
-Missing AWS check summaries map to `not-applicable`. Unsupported AWS values map to `unknown`.
-Retryable or stale unavailable status reads emit the cycle outcome and existing structured
-warning, but no status classification. Permanent status-read errors propagate instead. The
-absence of a cycle series means that no status-enabled reconciliation has been observed. The
-runner-control heartbeat is not evidence that this observer ran.
+Missing AWS check summaries map to `not-applicable`. Instances missing from a successful status
+response and unsupported AWS values map to `unknown`. Every attempted status read emits an
+`unavailable` cycle outcome on failure. Retryable or stale failures also emit the existing
+structured warning, keep the ordinary instance snapshot, and emit no status classifications.
+Permanent status-read errors emit `unavailable` and then propagate so reconciliation fails closed.
+This outcome also covers a partial multi-batch status read. The absence of a cycle series means
+that no status-enabled reconciliation has been observed. The runner-control heartbeat is not
+evidence that this observer ran.
 
 ## Template config
 
