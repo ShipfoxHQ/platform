@@ -1,4 +1,4 @@
-import {toCheckoutTokenDto} from './checkout-token.js';
+import {toCheckoutTokenDto, toCheckoutTokenRenewalDto} from './checkout-token.js';
 
 type CheckoutSpec = {
   repositoryUrl: string;
@@ -150,5 +150,66 @@ describe('toCheckoutTokenDto', () => {
     const dto = toCheckoutTokenDto(spec, {fetchDepth: 1, persist: true});
 
     expect(dto.auth).toMatchObject({host: 'github.com'});
+  });
+});
+
+describe('toCheckoutTokenRenewalDto', () => {
+  it('maps credential-only responses into the legacy checkout envelope', () => {
+    const dto = toCheckoutTokenRenewalDto('https://github.com/acme/repo', {
+      username: 'x-access-token',
+      token: 'ghs-renewed-token',
+      expiresAt: '2099-06-10T12:00:00.000Z',
+      generation: 'generation-2',
+      renewal: {mode: 'on-rejection'},
+    });
+
+    expect(dto).toEqual({
+      repository_url: 'https://github.com/acme/repo',
+      ref: 'HEAD',
+      fetch_depth: 1,
+      auth: {
+        kind: 'basic',
+        username: 'x-access-token',
+        token: 'ghs-renewed-token',
+        expires_at: '2099-06-10T12:00:00.000Z',
+        carry: 'header',
+        host: 'github.com',
+        persist: true,
+        generation: 'generation-2',
+        renewal: {mode: 'on-rejection'},
+      },
+    });
+  });
+
+  it('omits optional credential metadata when the provider does not return it', () => {
+    const dto = toCheckoutTokenRenewalDto('https://github.com/acme/repo', {
+      username: 'x-access-token',
+      token: 'ghs-renewed-token',
+      expiresAt: '2099-06-10T12:00:00.000Z',
+    });
+
+    expect(dto.auth).toEqual({
+      kind: 'basic',
+      username: 'x-access-token',
+      token: 'ghs-renewed-token',
+      expires_at: '2099-06-10T12:00:00.000Z',
+      carry: 'header',
+      host: 'github.com',
+      persist: true,
+    });
+  });
+
+  it('maps refresh-at renewal when the provider returns a refresh deadline', () => {
+    const dto = toCheckoutTokenRenewalDto('https://github.com/acme/repo', {
+      username: 'x-access-token',
+      token: 'ghs-renewed-token',
+      expiresAt: '2099-06-10T12:00:00.000Z',
+      renewal: {mode: 'refresh-at', refreshAt: '2099-06-10T11:55:00.000Z'},
+    });
+
+    expect(dto.auth?.renewal).toEqual({
+      mode: 'refresh-at',
+      refresh_at: '2099-06-10T11:55:00.000Z',
+    });
   });
 });

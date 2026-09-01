@@ -1,4 +1,4 @@
-import {eq} from 'drizzle-orm';
+import {and, eq} from 'drizzle-orm';
 import {normalizeRepositoryUrl} from '#core/entities/checkout-renewal-subject.js';
 import {CheckoutRepositoryUrlInvalidError} from '#core/errors.js';
 import {
@@ -10,6 +10,7 @@ import {db, withTransaction} from '#db/db.js';
 import {checkoutRenewalSubjects} from '#db/schema/checkout-renewal-subjects.js';
 import {jobExecutions} from '#db/schema/job-executions.js';
 import {jobs} from '#db/schema/jobs.js';
+import {stepAttempts} from '#db/schema/step-attempts.js';
 import {steps} from '#db/schema/steps.js';
 import {
   bulkUpdateStepStatuses,
@@ -157,6 +158,32 @@ describe('checkout renewal subjects', () => {
       connectionId: first.connectionId,
       externalRepositoryId: first.externalRepositoryId,
       permissions: first.permissions,
+      stepId: fixture.step.id,
+      attempt: 1,
+    });
+    const [stored] = await db()
+      .select()
+      .from(checkoutRenewalSubjects)
+      .where(eq(checkoutRenewalSubjects.stepId, fixture.step.id));
+    expect(stored?.status).toBe('promoted');
+  });
+
+  test('retries promotion when completion maintenance left a subject pending', async () => {
+    const fixture = await checkoutFixture();
+    expect(await savePendingCheckoutRenewalSubject(subject(fixture))).toBe(true);
+    await withTransaction((tx) =>
+      insertRunningStepAttempt(
+        {jobExecutionId: fixture.execution.id, stepId: fixture.step.id, attempt: 1},
+        tx,
+      ),
+    );
+    await db()
+      .update(stepAttempts)
+      .set({status: 'succeeded', logOutcome: 'drained', finishedAt: new Date()})
+      .where(and(eq(stepAttempts.stepId, fixture.step.id), eq(stepAttempts.attempt, 1)));
+    await db().update(steps).set({status: 'succeeded'}).where(eq(steps.id, fixture.step.id));
+
+    await expect(loadCheckoutRenewalSubject(fixture.step.id)).resolves.toMatchObject({
       stepId: fixture.step.id,
       attempt: 1,
     });

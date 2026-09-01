@@ -13,6 +13,7 @@ type CheckoutSpec = {
   gitAuthor?: {name: string; email: string} | undefined;
 };
 
+import type {IntegrationsModuleClient} from '@shipfox/api-integration-core-dto/inter-module';
 import type {CheckoutTokenAuthDto, CheckoutTokenResponseDto} from '@shipfox/api-workflows-dto';
 
 const SCP_LIKE_HOST_RE = /^(?:[^@:/]+@)?([^:/]+):/;
@@ -75,6 +76,47 @@ export function toCheckoutTokenDto(
   };
 }
 
+type CheckoutCredentialResponse = Awaited<
+  ReturnType<IntegrationsModuleClient['createCheckoutCredentials']>
+>;
+
+/**
+ * Keeps the legacy checkout response envelope for a renewal. Renewal callers
+ * consume the auth fields, while older protocol clients still require ref and
+ * fetch_depth to be present when they parse the shared response shape. Those
+ * three envelope fields are compatibility placeholders for renewals; callers
+ * must consume auth and must not use them to start another checkout.
+ */
+export function toCheckoutTokenRenewalDto(
+  repositoryUrl: string,
+  credentials: CheckoutCredentialResponse,
+): CheckoutTokenResponseDto {
+  return toCheckoutTokenDto(
+    {
+      repositoryUrl,
+      ref: 'HEAD',
+      credentials: {
+        username: credentials.username,
+        token: credentials.token,
+        expiresAt: new Date(credentials.expiresAt),
+        ...(credentials.generation === undefined ? {} : {generation: credentials.generation}),
+        ...(credentials.renewal === undefined
+          ? {}
+          : {
+              renewal:
+                credentials.renewal.mode === 'refresh-at'
+                  ? {
+                      mode: 'refresh-at' as const,
+                      refreshAt: new Date(credentials.renewal.refreshAt),
+                    }
+                  : {mode: 'on-rejection' as const},
+            }),
+      },
+    },
+    {fetchDepth: 1, persist: true},
+  );
+}
+
 type CheckoutCredentials = NonNullable<CheckoutSpec['credentials']>;
 
 function toCheckoutTokenAuthDto(
@@ -94,13 +136,13 @@ function toCheckoutTokenAuthDto(
 
   if (credentials.generation !== undefined) auth.generation = credentials.generation;
   if (credentials.renewal !== undefined) {
-    auth.renewal = toCheckoutTokenRenewalDto(credentials.renewal);
+    auth.renewal = toCheckoutTokenRenewalLifecycleDto(credentials.renewal);
   }
 
   return auth;
 }
 
-function toCheckoutTokenRenewalDto(renewal: CheckoutCredentials['renewal']) {
+function toCheckoutTokenRenewalLifecycleDto(renewal: CheckoutCredentials['renewal']) {
   if (renewal === undefined) return undefined;
   if (renewal.mode === 'refresh-at') {
     return {mode: 'refresh-at' as const, refresh_at: renewal.refreshAt.toISOString()};

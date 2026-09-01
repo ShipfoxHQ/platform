@@ -83,6 +83,14 @@ export const checkoutTokenQuerySchema = z.object({
 
 export type CheckoutTokenQueryDto = z.infer<typeof checkoutTokenQuerySchema>;
 
+export const checkoutTokenBodySchema = z
+  .object({
+    rejected_generation: z.string().min(1).optional(),
+  })
+  .strict();
+
+export type CheckoutTokenBodyDto = z.infer<typeof checkoutTokenBodySchema>;
+
 export const checkoutTokenResponseSchema = z.object({
   repository_url: z.string().min(1),
   ref: z.string().min(1),
