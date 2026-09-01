@@ -56,6 +56,7 @@ function run(params: Partial<WorkflowRunListItemDto> = {}): WorkflowRunListItemD
     finished_at: valueOr(params.finished_at, null),
     jobs: valueOr(params.jobs, []),
     job_status_counts: valueOr(params.job_status_counts, []),
+    has_started_job_execution: valueOr(params.has_started_job_execution, false),
   };
 }
 
@@ -70,10 +71,11 @@ function listResponse(
 }
 
 function detail(params: Partial<WorkflowRunDetailResponseDto> = {}): WorkflowRunDetailResponseDto {
-  const {job_status_counts: _listOnly, ...listItem} = run(params);
+  const {jobs: detailJobs, run_attempt: runAttempt, ...runParams} = params;
+  const {jobs: _listJobs, job_status_counts: _listOnly, ...listItem} = run(runParams);
   return {
     ...listItem,
-    run_attempt: params.run_attempt ?? {
+    run_attempt: runAttempt ?? {
       id: attemptId,
       workflow_run_id: params.id ?? runId,
       attempt: 1,
@@ -83,7 +85,7 @@ function detail(params: Partial<WorkflowRunDetailResponseDto> = {}): WorkflowRun
       finished_at: null,
       rerun_mode: null,
     },
-    jobs: params.jobs ?? [],
+    jobs: detailJobs ?? [],
     has_started_job_execution: params.has_started_job_execution ?? false,
   };
 }
@@ -225,6 +227,7 @@ describe('waitForRunTerminal', () => {
     });
 
     expect(result.status).toBe(status);
+    expect(result).not.toHaveProperty('job_status_counts');
   });
 
   test('polls until the run reaches a terminal status', async () => {

@@ -381,6 +381,35 @@ describe('workflow run API hooks', () => {
     );
   });
 
+  test('maps paginated run attempts from the compatibility response', async () => {
+    const body = {
+      items: [
+        workflowRunAttemptDto({
+          id: RUN_ID,
+          attempt: 2,
+          status: 'failed',
+          created_at: '2026-05-07T01:02:00.000Z',
+          rerun_mode: 'all',
+        }),
+      ],
+      next_cursor: null,
+    };
+    const fetchImpl = vi.fn(async () => jsonResponse(body));
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
+
+    const {result} = renderWithQueryClient(() =>
+      useWorkflowRunAttemptsQuery({workflowRunId: RUN_ID, enabled: true}),
+    );
+
+    await waitFor(() => expect(result.current.data?.[0]?.attempt).toBe(2));
+    expect(result.current.data?.[0]).toMatchObject({
+      id: RUN_ID,
+      status: 'failed',
+      createdAt: '2026-05-07T01:02:00.000Z',
+      rerunMode: 'all',
+    });
+  });
+
   test('posts manual fire requests with and without inputs', async () => {
     const postBodies: unknown[] = [];
     const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {

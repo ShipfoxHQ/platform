@@ -56,11 +56,15 @@ export {
   writeStepRestartEnqueuedOutbox,
 } from './workflow-runs/outbox.js';
 export type {
+  ListRunAttemptsPageResult,
   ListWorkflowRunsParams,
   ListWorkflowRunsResult,
   WorkflowJobExecutionDepth,
   WorkflowJobExecutionDepthParams,
   WorkflowRunAggregates,
+  WorkflowRunAttemptCursor,
+  WorkflowRunBoundedReadMeasurement,
+  WorkflowRunBoundedReadOptions,
   WorkflowRunCursor,
   WorkflowRunDetailReadMeasurement,
   WorkflowRunDetailReadOptions,
@@ -70,6 +74,7 @@ export type {
   WorkflowRunJobSummary,
   WorkflowRunJobSummaryTarget,
   WorkflowRunJobsSummary,
+  WorkflowRunLineageHead,
 } from './workflow-runs/queries.js';
 export {
   buildWorkflowRunListConditions,
@@ -82,7 +87,9 @@ export {
   getWorkflowRunByAttemptId,
   getWorkflowRunById,
   getWorkflowRunDetail,
+  getWorkflowRunLineageHead,
   listRunAttempts,
+  listRunAttemptsPage,
   listWorkflowRunJobSummaries,
   listWorkflowRuns,
   listWorkflowRunsByProject,

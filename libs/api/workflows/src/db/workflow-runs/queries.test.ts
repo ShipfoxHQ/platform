@@ -13,7 +13,9 @@ import {
   getWorkflowJobExecutionDepth,
   getWorkflowRunById,
   getWorkflowRunDetail,
+  getWorkflowRunLineageHead,
   listRunAttempts,
+  listRunAttemptsPage,
   listWorkflowRunJobSummaries,
   listWorkflowRuns,
   listWorkflowRunsByProject,
@@ -219,6 +221,109 @@ describe('workflow run queries', () => {
       const attempts = await listRunAttempts({workflowRunId: run.id, projectId});
 
       expect(attempts.map((attempt) => attempt.workflowRunId)).toEqual([run.id]);
+    });
+
+    test('pages attempts newest first and keeps a continuation stable after a new attempt', async () => {
+      const source = await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId,
+        model: buildModel(),
+        triggerPayload: {
+          source: 'manual',
+          event: 'fire',
+          subscriptionId: crypto.randomUUID(),
+          userId: crypto.randomUUID(),
+        },
+      });
+      await updateWorkflowRunStatus({
+        workflowRunId: source.id,
+        status: 'failed',
+        expectedVersion: 1,
+      });
+      await createRerunWorkflowRun({
+        workflowRunId: source.id,
+        mode: 'all',
+        actorUserId: crypto.randomUUID(),
+      });
+
+      const firstPage = await listRunAttemptsPage({
+        workflowRunId: source.id,
+        projectId,
+        limit: 1,
+      });
+
+      expect(firstPage.attempts.map((attempt) => attempt.attempt)).toEqual([2]);
+      expect(firstPage.nextCursor).not.toBeNull();
+
+      await updateWorkflowRunStatus({
+        workflowRunId: source.id,
+        status: 'failed',
+        expectedVersion: 1,
+      });
+      await createRerunWorkflowRun({
+        workflowRunId: source.id,
+        mode: 'all',
+        actorUserId: crypto.randomUUID(),
+      });
+
+      const secondPage = await listRunAttemptsPage({
+        workflowRunId: source.id,
+        projectId,
+        limit: 1,
+        cursor: firstPage.nextCursor ?? undefined,
+      });
+
+      expect(secondPage.attempts.map((attempt) => attempt.attempt)).toEqual([1]);
+      expect(secondPage.nextCursor).toBeNull();
+    });
+
+    test('reads the lineage head from run and attempt state only', async () => {
+      const source = await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId,
+        model: buildModel(),
+        triggerPayload: {
+          source: 'manual',
+          event: 'fire',
+          subscriptionId: crypto.randomUUID(),
+          userId: crypto.randomUUID(),
+        },
+      });
+      await updateWorkflowRunStatus({
+        workflowRunId: source.id,
+        status: 'failed',
+        expectedVersion: 1,
+      });
+      await createRerunWorkflowRun({
+        workflowRunId: source.id,
+        mode: 'all',
+        actorUserId: crypto.randomUUID(),
+      });
+      const onRead = vi.fn();
+
+      const head = await getWorkflowRunLineageHead(
+        {
+          workflowRunId: source.id,
+          projectId,
+        },
+        {onRead},
+      );
+
+      expect(head).toMatchObject({
+        currentAttempt: 2,
+        latestAttempt: 2,
+        currentStatus: 'pending',
+        updatedAt: expect.any(Date),
+      });
+      expect(onRead).toHaveBeenCalledWith({
+        databaseDurationMilliseconds: expect.any(Number),
+        returnedRows: 1,
+      });
+      await expect(
+        getWorkflowRunLineageHead({workflowRunId: source.id, projectId: crypto.randomUUID()}),
+      ).resolves.toBeUndefined();
     });
   });
 

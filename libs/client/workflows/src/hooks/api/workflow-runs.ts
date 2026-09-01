@@ -326,7 +326,8 @@ async function getWorkflowRunAttempts({
       signal,
     },
   );
-  return response.attempts.map(toWorkflowRunAttempt);
+  const attempts = 'attempts' in response ? response.attempts : response.items;
+  return attempts.map(toWorkflowRunAttempt);
 }
 
 async function cancelWorkflowRun({
