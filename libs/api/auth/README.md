@@ -357,9 +357,11 @@ All routes are mounted under `/admin/auth/users` and require an authenticated be
 consent, authorization-code, and refresh-token routes. `createAuthModule().routes` does not
 compose these routes until an application provides its consent UI and agent-resource boundary.
 
-Consent approval creates a durable agent grant. The current package does not expose agent-grant
-listing or revocation routes; composition should add that lifecycle surface before treating a
-grant as an operator-managed credential. Authorization-code replay returns `invalid_grant` and
+Consent approval creates a durable agent grant from a pre-commit workspace-membership snapshot;
+every authorization-code and refresh exchange revalidates membership before issuing tokens. The
+current package does not expose agent-grant listing or revocation routes; composition should add
+that lifecycle surface before treating a grant as an operator-managed credential.
+Authorization-code replay returns `invalid_grant` and
 does not revoke a grant that was already issued, because a lost token response is indistinguishable
 from a replay. Refresh-token reuse outside the grace window revokes the grant family, and a lost
 rotation response therefore requires a new consent flow.

@@ -18,6 +18,7 @@ import {
   claimAgentAuthorizationRequest,
   createAgentAuthorizationRequest,
   denyAgentAuthorizationRequest,
+  evaluateAgentGrantBinding,
   exchangeAgentAuthorizationCode,
   exchangeAgentRefreshToken,
   findAgentAuthorizationCodeByHash,
@@ -336,13 +337,21 @@ async function grantBinding(params: {
   expectedResource: string;
 }): Promise<{grant: AgentGrant; client: AgentClient}> {
   const grant = await findAgentGrant({id: params.grantId});
-  if (!grant || grant.revokedAt || grant.terminalAt) throw invalidGrant();
-  const client = await findAgentClientById({id: grant.clientId});
-  if (!client || client.clientId !== params.clientId) throw invalidGrant();
-  if (params.resource !== undefined && params.resource !== params.expectedResource) {
-    throw new OAuthProtocolError('invalid_target', 'The OAuth resource is not supported');
+  const client = grant ? await findAgentClientById({id: grant.clientId}) : undefined;
+  const binding = evaluateAgentGrantBinding({
+    grant,
+    client,
+    clientId: params.clientId,
+    resource: params.resource,
+    expectedResource: params.expectedResource,
+  });
+  if (binding.kind === 'invalid') {
+    if (binding.reason === 'resource') {
+      throw new OAuthProtocolError('invalid_target', 'The OAuth resource is not supported');
+    }
+    throw invalidGrant();
   }
-  return {grant, client};
+  return {grant: binding.grant, client: binding.client};
 }
 
 function accessTokenFor(grant: AgentGrant, client: AgentClient): Promise<string> {
@@ -408,19 +417,24 @@ export async function exchangeOAuthRefreshToken(params: {
   const existing = await findAgentRefreshTokenByHash({hashedToken});
   if (!existing) throw invalidGrant();
   const grant = await findAgentGrant({id: existing.grantId});
-  if (!grant || grant.revokedAt || grant.terminalAt) throw invalidGrant();
-  const client = await findAgentClientById({id: grant.clientId});
-  if (!client || client.clientId !== params.request.client_id) throw invalidGrant();
-  if (
-    params.request.resource !== undefined &&
-    params.request.resource !== expectedResource(params.options)
-  ) {
-    throw new OAuthProtocolError('invalid_target', 'The OAuth resource is not supported');
+  const client = grant ? await findAgentClientById({id: grant.clientId}) : undefined;
+  const binding = evaluateAgentGrantBinding({
+    grant,
+    client,
+    clientId: params.request.client_id,
+    resource: params.request.resource,
+    expectedResource: expectedResource(params.options),
+  });
+  if (binding.kind === 'invalid') {
+    if (binding.reason === 'resource') {
+      throw new OAuthProtocolError('invalid_target', 'The OAuth resource is not supported');
+    }
+    throw invalidGrant();
   }
 
   await requireCurrentMembership({
-    userId: grant.userId,
-    workspaceId: grant.workspaceId,
+    userId: binding.grant.userId,
+    workspaceId: binding.grant.workspaceId,
     options: params.options,
     ownershipShape: false,
   });
@@ -435,7 +449,7 @@ export async function exchangeOAuthRefreshToken(params: {
     clientId: params.request.client_id,
     resource: params.request.resource,
     expectedResource: expectedResource(params.options),
-    rawReplacement,
+    replacementHashedToken: hashOpaqueToken(rawReplacement),
     replacementExpiresAt: agentRefreshTokenExpiresAt(now),
     now,
   });
@@ -450,8 +464,8 @@ export async function exchangeOAuthRefreshToken(params: {
   recordTokenRefreshed(outcome.kind);
 
   return {
-    accessToken: await accessTokenFor(outcome.grant, client),
-    ...(outcome.kind === 'rotated' ? {refreshToken: outcome.refreshToken} : {}),
+    accessToken: await accessTokenFor(outcome.grant, binding.client),
+    ...(outcome.kind === 'rotated' ? {refreshToken: rawReplacement} : {}),
     scope: 'read',
   };
 }

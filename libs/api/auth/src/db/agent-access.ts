@@ -1,4 +1,3 @@
-import {hashOpaqueToken} from '@shipfox/node-tokens';
 import {and, asc, eq, gt, inArray, isNotNull, isNull, lte, notExists, or, sql} from 'drizzle-orm';
 import {config} from '#config.js';
 import type {
@@ -44,6 +43,30 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 
 function isUuid(value: string): boolean {
   return UUID_PATTERN.test(value);
+}
+
+export type AgentGrantBindingEvaluation =
+  | {kind: 'valid'; grant: AgentGrant; client: AgentClient}
+  | {kind: 'invalid'; reason: 'grant' | 'client' | 'resource'};
+
+/** Applies the shared OAuth grant, client, and resource binding policy. */
+export function evaluateAgentGrantBinding(params: {
+  grant: AgentGrant | undefined;
+  client: AgentClient | undefined;
+  clientId: string;
+  resource: string | undefined;
+  expectedResource: string;
+}): AgentGrantBindingEvaluation {
+  if (!params.grant || params.grant.revokedAt || params.grant.terminalAt) {
+    return {kind: 'invalid', reason: 'grant'};
+  }
+  if (!params.client || params.client.clientId !== params.clientId) {
+    return {kind: 'invalid', reason: 'client'};
+  }
+  if (params.resource !== undefined && params.resource !== params.expectedResource) {
+    return {kind: 'invalid', reason: 'resource'};
+  }
+  return {kind: 'valid', grant: params.grant, client: params.client};
 }
 
 function retentionCutoff(now: Date, days: number): Date {
@@ -951,7 +974,7 @@ export async function rotateAgentRefreshTokenTx(
 }
 
 export type AgentRefreshExchangeOutcome =
-  | {kind: 'rotated'; grant: AgentGrant; refreshToken: string}
+  | {kind: 'rotated'; grant: AgentGrant}
   | {kind: 'grace'; grant: AgentGrant}
   | {kind: 'rejected'}
   | {kind: 'reused'; grant: AgentGrant};
@@ -973,7 +996,7 @@ async function rotateRefreshInTransaction(
   tx: AgentAccessTx,
   params: {
     hashedToken: string;
-    rawReplacement: string;
+    replacementHashedToken: string;
     grant: AgentGrant;
     replacementExpiresAt: Date;
     now: Date;
@@ -981,11 +1004,11 @@ async function rotateRefreshInTransaction(
 ): Promise<AgentRefreshExchangeOutcome> {
   const successor = await rotateAgentRefreshTokenTx(tx, {
     hashedToken: params.hashedToken,
-    replacementHashedToken: hashOpaqueToken(params.rawReplacement),
+    replacementHashedToken: params.replacementHashedToken,
     replacementExpiresAt: params.replacementExpiresAt,
   });
   if (successor) {
-    return {kind: 'rotated', grant: params.grant, refreshToken: params.rawReplacement};
+    return {kind: 'rotated', grant: params.grant};
   }
 
   return await refreshReplayOutcome(tx, {
@@ -999,7 +1022,7 @@ export async function exchangeAgentRefreshToken(params: {
   clientId: string;
   resource: string | undefined;
   expectedResource: string;
-  rawReplacement: string;
+  replacementHashedToken: string;
   replacementExpiresAt: Date;
   now: Date;
 }): Promise<AgentRefreshExchangeOutcome> {
@@ -1011,12 +1034,17 @@ export async function exchangeAgentRefreshToken(params: {
     if (!existing) return {kind: 'rejected'};
 
     const grant = await findAgentGrant({id: existing.grantId, executor: tx});
-    if (!grant || grant.revokedAt || grant.terminalAt) return {kind: 'rejected'};
-    const client = await findAgentClientById({id: grant.clientId, executor: tx});
-    if (!client || client.clientId !== params.clientId) return {kind: 'rejected'};
-    if (params.resource !== undefined && params.resource !== params.expectedResource) {
-      return {kind: 'rejected'};
-    }
+    const client = grant
+      ? await findAgentClientById({id: grant.clientId, executor: tx})
+      : undefined;
+    const binding = evaluateAgentGrantBinding({
+      grant,
+      client,
+      clientId: params.clientId,
+      resource: params.resource,
+      expectedResource: params.expectedResource,
+    });
+    if (binding.kind === 'invalid') return {kind: 'rejected'};
 
     if (existing.rotatedAt) {
       return await refreshReplayOutcome(tx, {
@@ -1025,7 +1053,7 @@ export async function exchangeAgentRefreshToken(params: {
       });
     }
 
-    return await rotateRefreshInTransaction(tx, {...params, grant});
+    return await rotateRefreshInTransaction(tx, {...params, grant: binding.grant});
   });
 }
 
