@@ -230,8 +230,31 @@ export async function loadCheckoutRenewalSubject(
 }
 
 async function retryPendingCheckoutRenewalSubjectPromotion(stepId: string): Promise<void> {
+  const [pendingSubject] = await db()
+    .select({attempt: checkoutRenewalSubjects.attempt})
+    .from(checkoutRenewalSubjects)
+    .innerJoin(steps, eq(steps.id, checkoutRenewalSubjects.stepId))
+    .innerJoin(
+      stepAttempts,
+      and(
+        eq(stepAttempts.stepId, checkoutRenewalSubjects.stepId),
+        eq(stepAttempts.attempt, checkoutRenewalSubjects.attempt),
+      ),
+    )
+    .where(
+      and(
+        eq(checkoutRenewalSubjects.stepId, stepId),
+        eq(checkoutRenewalSubjects.status, 'pending'),
+        eq(checkoutRenewalSubjects.attempt, steps.currentAttempt),
+        eq(steps.status, 'succeeded'),
+        eq(stepAttempts.status, 'succeeded'),
+      ),
+    )
+    .limit(1);
+  if (pendingSubject === undefined) return;
+
   await withTransaction(async (tx) => {
-    const [pendingSubject] = await tx
+    const [currentPendingSubject] = await tx
       .select({attempt: checkoutRenewalSubjects.attempt})
       .from(checkoutRenewalSubjects)
       .innerJoin(steps, eq(steps.id, checkoutRenewalSubjects.stepId))
@@ -253,8 +276,8 @@ async function retryPendingCheckoutRenewalSubjectPromotion(stepId: string): Prom
       )
       .limit(1);
 
-    if (pendingSubject !== undefined) {
-      await promoteCheckoutRenewalSubject({stepId, attempt: pendingSubject.attempt}, tx);
+    if (currentPendingSubject !== undefined) {
+      await promoteCheckoutRenewalSubject({stepId, attempt: currentPendingSubject.attempt}, tx);
     }
   });
 }

@@ -40,6 +40,44 @@ const integrations = {
   'createCheckoutSpec' | 'createCheckoutCredentials' | 'resolveConnection'
 >;
 
+describe('renewStepCheckoutCredentials', () => {
+  beforeEach(() => {
+    createCheckoutCredentials.mockReset();
+  });
+
+  it('renews credentials from a frozen target and rejected generation', async () => {
+    const workspaceId = crypto.randomUUID();
+    const subject = {
+      connectionId: crypto.randomUUID(),
+      externalRepositoryId: 'github:repo-1',
+      permissions: {contents: 'write' as const},
+    };
+    createCheckoutCredentials.mockResolvedValue({
+      username: 'x-access-token',
+      token: 'ghs-renewed-token',
+      expiresAt: '2099-06-10T12:00:00.000Z',
+      generation: 'generation-2',
+      renewal: {mode: 'on-rejection'},
+    });
+
+    const credentials = await renewStepCheckoutCredentials({
+      integrations,
+      workspaceId,
+      subject,
+      rejectedGeneration: 'generation-1',
+    });
+
+    expect(credentials).toMatchObject({generation: 'generation-2'});
+    expect(createCheckoutCredentials).toHaveBeenCalledWith({
+      workspaceId,
+      connectionId: subject.connectionId,
+      externalRepositoryId: subject.externalRepositoryId,
+      permissions: subject.permissions,
+      rejectedGeneration: 'generation-1',
+    });
+  });
+});
+
 describe('createStepCheckoutSpec', () => {
   beforeEach(() => {
     getProjectById.mockReset();

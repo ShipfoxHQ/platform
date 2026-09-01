@@ -203,10 +203,8 @@ describe('POST /runs/jobs/current/steps/:stepId/checkout-token', () => {
     expect(createCheckoutCredentials).not.toHaveBeenCalled();
   });
 
-  test('does not deliver credentials when the lease expires during minting', async () => {
-    const {project, job, step} = await createRunningCheckoutStep({
-      checkout: {persistCredentials: false},
-    });
+  test('does not mint credentials when the lease expires before issuance', async () => {
+    const {project, job, step} = await createRunningCheckoutStep();
     getProjectById.mockResolvedValue({project});
     resolveCheckoutTarget.mockResolvedValue({
       projectId: project.id,
@@ -227,6 +225,44 @@ describe('POST /runs/jobs/current/steps/:stepId/checkout-token', () => {
 
     expect(res.statusCode).toBe(404);
     expect(res.json().code).toBe('lease-not-active');
+    expect(createCheckoutSpec).not.toHaveBeenCalled();
+    expect(createCheckoutCredentials).not.toHaveBeenCalled();
+    const [storedSubject] = await db()
+      .select()
+      .from(checkoutRenewalSubjects)
+      .where(eq(checkoutRenewalSubjects.stepId, step.id));
+    expect(storedSubject).toBeUndefined();
+  });
+
+  test('does not persist or deliver credentials when the lease expires after minting', async () => {
+    const {project, job, step} = await createRunningCheckoutStep();
+    getProjectById.mockResolvedValue({project});
+    resolveCheckoutTarget.mockResolvedValue({
+      projectId: project.id,
+      connectionId: project.sourceConnectionId,
+      externalRepositoryId: project.sourceExternalRepositoryId,
+    });
+    createCheckoutSpec.mockResolvedValue(githubSpec('ghs-expired-after-mint-token'));
+    const token = await mintActiveLeaseToken({jobId: job.id});
+    vi.spyOn(runnersTestClient, 'getLeaseState')
+      .mockResolvedValueOnce({active: true})
+      .mockResolvedValueOnce({active: true})
+      .mockResolvedValueOnce({active: false});
+
+    const res = await app.inject({
+      method: 'POST',
+      url: checkoutUrl(step.id, step.currentAttempt),
+      headers: {authorization: `Bearer ${token}`},
+    });
+
+    expect(res.statusCode).toBe(404);
+    expect(res.json().code).toBe('lease-not-active');
+    expect(createCheckoutSpec).toHaveBeenCalledTimes(1);
+    const [storedSubject] = await db()
+      .select()
+      .from(checkoutRenewalSubjects)
+      .where(eq(checkoutRenewalSubjects.stepId, step.id));
+    expect(storedSubject).toBeUndefined();
   });
 
   test('renews a successful persisted checkout from its frozen subject', async () => {
@@ -382,7 +418,7 @@ describe('POST /runs/jobs/current/steps/:stepId/checkout-token', () => {
     expect(renewal.json().code).toBe('integration-connection-inactive');
   });
 
-  test('maps an echoed rejected generation from credential renewal', async () => {
+  test('maps a generic provider failure from credential renewal', async () => {
     const {step, token} = await createPromotedCheckout(app);
     createCheckoutCredentials.mockRejectedValue(
       createInterModuleKnownError(

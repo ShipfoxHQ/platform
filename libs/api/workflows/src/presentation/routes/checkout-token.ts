@@ -86,7 +86,6 @@ export function createCheckoutTokenRoute(clients: {
           warn: (context, message) => request.log.warn(context, message),
           error: (context, message) => request.log.error(context, message),
         });
-        await assertLeasedJobActive(clients.runners, loaded.leasedJob);
         recordWorkflowCheckoutTokenRequest(mode, 'success');
         reply.header('cache-control', 'no-store');
         return response;
@@ -107,6 +106,8 @@ async function createCheckoutTokenResponse(params: {
   warn: (context: {outcome: string}, message: string) => void;
   error: (context: {outcome: string}, message: string) => void;
 }): Promise<ReturnType<typeof toCheckoutTokenDto>> {
+  await assertLeasedJobActive(params.clients.runners, params.loaded.leasedJob);
+
   if (params.loaded.checkoutRenewalSubject !== undefined) {
     const credentials = await renewStepCheckoutCredentials({
       integrations: params.clients.integrations,
@@ -116,6 +117,7 @@ async function createCheckoutTokenResponse(params: {
         ? {}
         : {rejectedGeneration: params.rejectedGeneration}),
     });
+    await assertLeasedJobActive(params.clients.runners, params.loaded.leasedJob);
     return toCheckoutTokenRenewalDto(
       params.loaded.checkoutRenewalSubject.repositoryUrl,
       credentials,
@@ -131,11 +133,13 @@ async function createCheckoutTokenResponse(params: {
     integrations: params.clients.integrations,
     projects: params.clients.projects,
   });
+  await assertLeasedJobActive(params.clients.runners, params.loaded.leasedJob);
   const response = toCheckoutTokenDto(checkout.spec, {
     fetchDepth: checkout.fetchDepth,
     persist: checkout.persistCredentials,
   });
   if (checkout.renewalSubject !== undefined) {
+    await assertLeasedJobActive(params.clients.runners, params.loaded.leasedJob);
     const subjectSaved = await persistCheckoutRenewalSubject({
       renewalSubject: checkout.renewalSubject,
       stepId: params.stepId,
@@ -147,6 +151,7 @@ async function createCheckoutTokenResponse(params: {
     });
     if (!subjectSaved && response.auth !== undefined) response.auth.persist = false;
   }
+  await assertLeasedJobActive(params.clients.runners, params.loaded.leasedJob);
   return response;
 }
 
