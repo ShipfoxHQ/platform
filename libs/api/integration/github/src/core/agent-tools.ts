@@ -159,7 +159,7 @@ export class GithubAgentToolsProvider
     AgentToolsProvider<
       GithubIntegrationConnection,
       GithubAgentToolRequiredScope,
-      unknown,
+      GithubAgentToolsScope | undefined,
       GithubToolCallResult
     >
 {
@@ -178,7 +178,11 @@ export class GithubAgentToolsProvider
   }
 
   async openSession(
-    input: OpenAgentToolsSessionInput<GithubIntegrationConnection, GithubAgentToolRequiredScope>,
+    input: OpenAgentToolsSessionInput<
+      GithubIntegrationConnection,
+      GithubAgentToolRequiredScope,
+      GithubAgentToolsScope | undefined
+    >,
   ): Promise<AgentToolSession<GithubToolCallResult>> {
     const installation = await this.options.getInstallationByConnectionId?.(input.connection.id);
     if (!installation) {
@@ -195,11 +199,13 @@ export class GithubAgentToolsProvider
       );
     }
     const liveCatalog = this.catalog();
-    const authorizedTools = input.tools.flatMap((tool) => {
-      const authorizedTool = intersectGithubToolWithLiveCatalog(tool, liveCatalog);
-      return authorizedTool === undefined ? [] : [authorizedTool];
-    });
-    const permissionProfile = githubToolPermissionProfile(authorizedTools);
+    const authorizedTools = intersectGithubToolsWithLiveCatalog(input.tools, liveCatalog);
+    // The core tool-call service opens one-tool sessions, while scope retains
+    // the full frozen integration selection. Aggregate the token profile from
+    // that selection so sequential calls reuse one token profile.
+    const selectedTools = input.scope?.tools ?? input.tools;
+    const profileTools = intersectGithubToolsWithLiveCatalog(selectedTools, liveCatalog);
+    const permissionProfile = githubToolPermissionProfile(profileTools);
     let tokenPromise:
       | ReturnType<GithubInstallationTokenProvider['getInstallationAccessToken']>
       | undefined;
@@ -271,8 +277,31 @@ interface GithubToolPermissionProfile {
   permissions: GithubInstallationTokenPermissions;
 }
 
+interface GithubToolSelection {
+  id: string;
+  methods?: readonly GithubToolSelectionMethod[] | undefined;
+}
+
+interface GithubToolSelectionMethod {
+  id: string;
+}
+
+interface GithubAgentToolsScope {
+  tools?: readonly GithubToolSelection[] | undefined;
+}
+
+function intersectGithubToolsWithLiveCatalog(
+  tools: readonly GithubToolSelection[],
+  liveCatalog: readonly GithubAgentToolCatalogEntry[],
+): AgentToolCatalogEntry<GithubAgentToolRequiredScope>[] {
+  return tools.flatMap((tool) => {
+    const authorizedTool = intersectGithubToolWithLiveCatalog(tool, liveCatalog);
+    return authorizedTool === undefined ? [] : [authorizedTool];
+  });
+}
+
 function intersectGithubToolWithLiveCatalog(
-  tool: AgentToolCatalogEntry<GithubAgentToolRequiredScope>,
+  tool: GithubToolSelection,
   liveCatalog: readonly GithubAgentToolCatalogEntry[],
 ): AgentToolCatalogEntry<GithubAgentToolRequiredScope> | undefined {
   const liveTool = liveCatalog.find((candidate) => candidate.id === tool.id);

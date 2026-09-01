@@ -954,20 +954,16 @@ describe('github agent tool catalog', () => {
         },
       ],
       scope: {
-        repositories: ['shipfox/platform'],
         tools: [
           {
             id: 'issue_read',
             methods: [{id: 'get'}, {id: 'removed_method'}],
-            requiredScope: [{permission: 'actions', access: 'write'}],
           },
           {
             id: 'create_commit',
-            requiredScope: [{permission: 'actions', access: 'write'}],
           },
           {
             id: 'removed_tool',
-            requiredScope: [{permission: 'actions', access: 'write'}],
           },
         ],
       },
@@ -1023,6 +1019,40 @@ describe('github agent tool catalog', () => {
       connection: connection(),
       tools: [issueRead, issueWrite],
       scope: undefined,
+    });
+
+    await expect(
+      session.call({
+        toolId: 'issue_read',
+        arguments: {method: 'get', owner: 'shipfox', repo: 'platform', issue_number: 1},
+      }),
+    ).resolves.toMatchObject({structuredContent: {number: 1}});
+
+    expect(getInstallationAccessToken).toHaveBeenCalledWith(1, undefined, {issues: 'write'});
+  });
+
+  it('uses the full integration scope for a single-tool session profile', async () => {
+    const request = vi.fn(() => Promise.resolve({data: {number: 1}}));
+    const getInstallationAccessToken = vi.fn(() =>
+      Promise.resolve({
+        token: 'installation-token',
+        expiresAt: new Date(),
+        permissions: {issues: 'write' as const},
+      }),
+    );
+    const issueRead = githubAgentToolCatalog.find((entry) => entry.id === 'issue_read');
+    const issueWrite = githubAgentToolCatalog.find((entry) => entry.id === 'issue_write');
+    if (!issueRead || !issueWrite) throw new Error('Missing issue catalog entries');
+    const provider = new GithubAgentToolsProvider({
+      getInstallationByConnectionId: vi.fn(() => Promise.resolve(installation())),
+      tokenProvider: {getInstallationAccessToken},
+      createClient: vi.fn(() => ({request})),
+    });
+
+    const session = await provider.openSession({
+      connection: connection(),
+      tools: [issueRead],
+      scope: {tools: [{id: issueRead.id}, {id: issueWrite.id}]},
     });
 
     await expect(
