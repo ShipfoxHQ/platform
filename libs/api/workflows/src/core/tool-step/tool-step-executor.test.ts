@@ -613,7 +613,7 @@ describe('tool step executor', () => {
   });
 
   test('records output mapping failures as output_invalid', async () => {
-    const {jobId} = await arrangeToolStep('read', {outputMappings: {identifier: {}}});
+    const {jobId, stepId} = await arrangeToolStep('read', {outputMappings: {identifier: {}}});
     const callTool = vi.fn<IntegrationsModuleClient['callTool']>().mockResolvedValue({
       outcome: 'success' as const,
       result: {identifier: 'ENG-1680'},
@@ -638,6 +638,16 @@ describe('tool step executor', () => {
       status: 'failed',
       error: {code: 'output_invalid', reason: 'output_invalid'},
     });
+    const [attempt] = await getStepAttempts(jobId);
+    expect(attempt?.invocations).toEqual([
+      expect.objectContaining({call_index: 0, outcome: 'success'}),
+    ]);
+    expect(attempt?.invocations[0]).not.toHaveProperty('error_code');
+    const logCalls = appendServerRecords.mock.calls.filter(([input]) => input.stepId === stepId);
+    const records = logCalls.flatMap(([input]) => input.records);
+    expect(
+      records.find((record) => record.type === 'output' && record.data.includes('ENG-1680')),
+    ).toBeDefined();
   });
 
   test('preserves a __proto__ output mapping as ordinary output data', async () => {
