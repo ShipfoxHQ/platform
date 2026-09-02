@@ -352,7 +352,7 @@ describe('runJob', () => {
     expect(mockReleaseCredentialLock).toHaveBeenCalledOnce();
   });
 
-  it('degrades to static checkout credentials when the broker cannot start', async () => {
+  it('refuses an opted-in job when the broker cannot start', async () => {
     const startError = new Error('socket unavailable');
     mockRunnerToolCapabilities.mockReturnValueOnce({
       features: {renewable_git: true},
@@ -362,10 +362,7 @@ describe('runJob', () => {
 
     await runJob(JOB, WORKSPACE_ROOT);
 
-    expect(mockRunJobSteps).toHaveBeenCalledOnce();
-    expect(mockRunJobSteps.mock.calls[0]?.[0]).not.toHaveProperty('credentialHelper');
-    expect(mockRunJobSteps.mock.calls[0]?.[0]).not.toHaveProperty('registerCheckoutCredential');
-    expect(mockRunJobSteps.mock.calls[0]?.[0]).not.toHaveProperty('credentialFailureEvents');
+    expect(mockRunJobSteps).not.toHaveBeenCalled();
     expect(mockCredentialLifecycle.close).toHaveBeenCalledOnce();
     expect(mockCleanupJobCredentials).toHaveBeenCalledOnce();
   });

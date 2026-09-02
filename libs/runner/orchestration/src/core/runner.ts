@@ -462,9 +462,9 @@ export async function runJob(
         await candidate.start();
         credentialLifecycle = candidate;
       } catch (error) {
-        logger().warn(
+        logger().error(
           {err: error, jobId: job.job_id},
-          'Renewable Git broker unavailable; continuing with static checkout credentials',
+          'Renewable Git broker unavailable; refusing opted-in job',
         );
         await candidate?.close().catch((closeError) => {
           logger().warn(
@@ -472,6 +472,7 @@ export async function runJob(
             'Failed to close unavailable job credential broker',
           );
         });
+        return;
       }
     }
     await runJobSteps({

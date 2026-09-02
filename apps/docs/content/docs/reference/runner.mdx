@@ -45,7 +45,7 @@ labels](/reference/runner-labels).
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `SHIPFOX_RUNNER_WORKSPACE_ROOT` | OS temp directory | Parent directory for per-job workspaces. The runner only creates and cleans per-job child directories under this root. |
-| `SHIPFOX_RUNNER_ENABLE_RENEWABLE_GIT` | `false` in source-run mode; `true` in verified managed images | Enables automatic renewal for `persist_credentials: true` Git checkouts. Managed images set this only after verifying the helper and production dependency closure. Do not add it to provider-rendered runner environment data. |
+| `SHIPFOX_RUNNER_ENABLE_RENEWABLE_GIT` | `false` in source-run mode; `true` in verified managed images | Enables automatic renewal for `persist-credentials: true` Git checkouts. Managed images set this only after verifying the helper and production dependency closure. Do not set it on a self-hosted or unverified image, or add it to provider-rendered runner environment data. |
 | `SHIPFOX_POLL_INTERVAL_MS` | `1000` | How often the runner asks the API for new jobs. Backs off toward `SHIPFOX_POLL_MAX_INTERVAL_MS` while idle or after errors. |
 | `SHIPFOX_POLL_MAX_INTERVAL_MS` | `5000` | Largest interval the poll backoff can reach. |
 | `SHIPFOX_POLL_MAX_DURATION_MS` | `300000` | How long the runner keeps polling without claiming a job before it exits. Use `0` for runners that should poll forever. |
@@ -65,9 +65,13 @@ labels](/reference/runner-labels).
 ## Renewable Git credentials
 
 Verified managed runner images advertise renewable Git credentials after their
-installation checks pass. A checkout with `persist_credentials: true` can then
+installation checks pass. A checkout with `persist-credentials: true` can then
 renew its exact repository credential during a long job without workflow-supplied
 tokens or retry logic.
+
+Only a verified managed image may advertise this capability. Do not set the flag
+on a self-hosted or unverified image. The helper and production-closure checks
+must pass before a runner enables it.
 
 Older self-hosted runners remain compatible and continue with static checkout
 credentials. If a persisted checkout is dispatched to one, the job shows a

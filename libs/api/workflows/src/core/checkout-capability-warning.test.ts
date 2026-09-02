@@ -51,6 +51,29 @@ describe('warnRenewableGitCapabilityMismatchOnDispatch', () => {
     );
   });
 
+  it('warns when a fresh runner report explicitly disables renewable Git', async () => {
+    const leaseIdentity = lease();
+    const step = checkoutStep({jobExecutionId: leaseIdentity.jobExecutionId});
+    getEffectiveRunnerToolCapabilities.mockResolvedValue({
+      capabilities: {features: {renewable_git: false}, harnesses: {}},
+      reportFresh: true,
+    });
+
+    await warnRenewableGitCapabilityMismatchOnDispatch({
+      annotations,
+      runners,
+      leaseIdentity,
+      step,
+    });
+
+    expect(annotation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: `renewable-git-capability:${step.id}`,
+        annotation: expect.objectContaining({op: 'replace'}),
+      }),
+    );
+  });
+
   it('removes an existing warning when the runner advertises renewable Git', async () => {
     const leaseIdentity = lease();
     const step = checkoutStep({jobExecutionId: leaseIdentity.jobExecutionId});
@@ -110,6 +133,41 @@ describe('warnRenewableGitCapabilityMismatchOnDispatch', () => {
         step,
       }),
     ).resolves.toBeUndefined();
+
+    expect(annotation).not.toHaveBeenCalled();
+  });
+
+  it('does not make an annotation write failure affect dispatch', async () => {
+    const leaseIdentity = lease();
+    const step = checkoutStep({jobExecutionId: leaseIdentity.jobExecutionId});
+    annotation.mockRejectedValueOnce(new Error('annotation write failed'));
+
+    await expect(
+      warnRenewableGitCapabilityMismatchOnDispatch({
+        annotations,
+        runners,
+        leaseIdentity,
+        step,
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(annotation).toHaveBeenCalledOnce();
+  });
+
+  it('does not project a warning from a stale capability report', async () => {
+    const leaseIdentity = lease();
+    const step = checkoutStep({jobExecutionId: leaseIdentity.jobExecutionId});
+    getEffectiveRunnerToolCapabilities.mockResolvedValue({
+      capabilities: {features: {renewable_git: true}, harnesses: {}},
+      reportFresh: false,
+    });
+
+    await warnRenewableGitCapabilityMismatchOnDispatch({
+      annotations,
+      runners,
+      leaseIdentity,
+      step,
+    });
 
     expect(annotation).not.toHaveBeenCalled();
   });

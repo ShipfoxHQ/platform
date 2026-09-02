@@ -6,7 +6,6 @@ import type {RunnersInterModuleClient} from '@shipfox/api-runners-dto/inter-modu
 import {nextStepResponseSchema} from '@shipfox/api-workflows-dto';
 import {ClientError, defineRoute} from '@shipfox/node-fastify';
 import {warnAgentToolCapabilityMismatchOnDispatch} from '#core/agent-tool-capability-warning.js';
-import {warnRenewableGitCapabilityMismatchOnDispatch} from '#core/checkout-capability-warning.js';
 import {JobNotFoundError} from '#core/errors.js';
 import {nextStepForLeasedJobExecution} from '#core/job-execution.js';
 import {toStepDto} from '#presentation/dto/step.js';
@@ -67,12 +66,6 @@ export function createNextStepRoute(params: {
         });
         if (next.dispatched) {
           await warnAgentToolCapabilityMismatchOnDispatch({
-            annotations: params.annotations,
-            runners: params.runners,
-            leaseIdentity: leasedJob,
-            step: next.step,
-          });
-          await warnRenewableGitCapabilityMismatchOnDispatch({
             annotations: params.annotations,
             runners: params.runners,
             leaseIdentity: leasedJob,

@@ -51,14 +51,14 @@ export function createJobCredentialLifecycle(options: {
 
   const broker = createCredentialBroker({
     classifyFailure: classifyCredentialFailure,
-    renew: async ({repositoryUrl, subject, rejectedGeneration}) => {
+    renew: async ({repositoryUrl, subject, rejectedGeneration, signal}) => {
       const checkout = parseCheckoutSubject(subject);
       let response: CheckoutTokenResponseDto;
       try {
         response = await requestCheckoutToken(options.leaseClient, {
           stepId: checkout.stepId,
           attempt: checkout.attempt,
-          signal: renewalSignal,
+          signal: signal === undefined ? renewalSignal : AbortSignal.any([renewalSignal, signal]),
           ...(rejectedGeneration === undefined ? {} : {rejectedGeneration}),
         });
       } catch (error) {

@@ -150,7 +150,7 @@ that container needs an explicitly supplied credential.
 Roll out a verified image through a candidate and one managed canary before fleet promotion:
 
 1. Build and publish the architecture-specific candidate from the target `main` revision.
-2. Start one managed runner from that candidate and run the long-lived Git checkout challenge.
+2. Start one managed runner in an isolated non-production worker-plane account from that candidate and run the long-lived Git checkout challenge.
 3. Monitor `workflows_checkout_token_requests` for initial and renewal outcomes,
    `github_checkout_token_cache_lookups` for cache and stale-serving outcomes,
    `github_checkout_token_mint_duration` for provider mint latency, and the runner job logs.

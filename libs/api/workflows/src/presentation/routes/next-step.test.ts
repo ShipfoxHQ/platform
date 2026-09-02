@@ -255,7 +255,7 @@ describe('POST /runs/jobs/current/steps/next', () => {
     );
   });
 
-  test('writes the renewable Git upgrade warning only on fresh dispatch', async () => {
+  test('defers the renewable Git upgrade warning until credentials are resolved', async () => {
     annotationWrites.mockClear();
     const {jobId, steps} = await arrangeJobWithSteps(1);
     const step = steps[0];
@@ -290,18 +290,7 @@ describe('POST /runs/jobs/current/steps/next', () => {
 
     expect(first.statusCode).toBe(200);
     expect(second.statusCode).toBe(200);
-    expect(annotationWrites).toHaveBeenCalledTimes(1);
-    expect(annotationWrites).toHaveBeenCalledWith(
-      expect.objectContaining({
-        jobExecutionId: lease.jobExecutionId,
-        originStepId: step.id,
-        context: `renewable-git-capability:${step.id}`,
-        annotation: expect.objectContaining({
-          op: 'replace',
-          body: expect.stringContaining('may expire during a long job'),
-        }),
-      }),
-    );
+    expect(annotationWrites).not.toHaveBeenCalled();
   });
 
   test('returns 404 for a valid token without an active lease', async () => {
