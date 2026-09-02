@@ -85,6 +85,10 @@ const STEP_FAILURE_COPY: Readonly<
     description:
       'Review the declared outputs and the values returned by this step before trying again.',
   },
+  diagnostic_too_large: {
+    title: 'Step diagnostic is too large',
+    description: 'Reduce the step diagnostic before trying again.',
+  },
   agent_invocation_failed: {
     title: 'Agent step failed',
     description:

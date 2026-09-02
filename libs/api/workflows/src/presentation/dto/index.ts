@@ -28,3 +28,8 @@ export {
   toWorkflowRunAnnotationItemDto,
   toWorkflowRunJobExplanationDto,
 } from './workflow-run-annotations.js';
+export {
+  inlineDiagnostic,
+  toWorkflowJobExecutionContextResponseDto,
+  toWorkflowRunSourceResponseDto,
+} from './workflow-run-diagnostics.js';

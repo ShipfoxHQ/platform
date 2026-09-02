@@ -1,17 +1,23 @@
 import {buildUserContext, setUserContext} from '@shipfox/api-auth-context';
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
+import {WORKFLOW_DIAGNOSTIC_CONFIG_MAX_BYTES} from '@shipfox/api-workflows-dto';
 import {
   type WorkspacesInterModuleClient,
   workspacesInterModuleContract,
 } from '@shipfox/api-workspaces-dto/inter-module';
 import {createInterModuleKnownError} from '@shipfox/inter-module';
 import {ClientError} from '@shipfox/node-fastify';
+import {eq} from 'drizzle-orm';
 import type {FastifyInstance} from 'fastify';
 import Fastify from 'fastify';
 import {serializerCompiler, validatorCompiler} from 'fastify-type-provider-zod';
+import {db} from '#db/db.js';
+import {steps} from '#db/schema/steps.js';
 import {
   createWorkflowRun,
   getJobsByWorkflowRunId,
+  getStepsByJobId,
+  getWorkflowRunById,
   updateJobStatus,
   updateWorkflowRunStatus,
 } from '#db/workflow-runs.js';
@@ -126,6 +132,33 @@ describe('POST /api/workflows/runs/:id/rerun', () => {
       current_attempt: 2,
       latest_attempt: 2,
       status: 'pending',
+    });
+  });
+
+  test('returns 409 without creating an attempt for an oversized legacy config', async () => {
+    const source = await createTerminalRun('failed');
+    const [job] = await getJobsByWorkflowRunId(source.id);
+    if (!job) throw new Error('Expected workflow job');
+    const [step] = await getStepsByJobId(job.id);
+    if (!step) throw new Error('Expected workflow step');
+
+    await db()
+      .update(steps)
+      .set({config: {run: 'x'.repeat(WORKFLOW_DIAGNOSTIC_CONFIG_MAX_BYTES)}})
+      .where(eq(steps.id, step.id));
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/workflows/runs/${source.id}/rerun`,
+      payload: {mode: 'all'},
+    });
+
+    expect(res.statusCode).toBe(409);
+    expect(res.json().code).toBe('diagnostic-too-large');
+    await expect(getWorkflowRunById(source.id)).resolves.toMatchObject({
+      currentAttempt: 1,
+      status: 'failed',
+      version: source.version,
     });
   });
 

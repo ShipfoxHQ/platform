@@ -1,7 +1,15 @@
-import type {LogOutcomeDto} from '@shipfox/api-workflows-dto';
+import {
+  type LogOutcomeDto,
+  WORKFLOW_DIAGNOSTIC_CONFIG_MAX_BYTES,
+  WORKFLOW_DIAGNOSTIC_EVALUATION_TRACE_MAX_BYTES,
+} from '@shipfox/api-workflows-dto';
 import {captureException} from '@shipfox/node-error-monitoring';
 import {logger} from '@shipfox/node-opentelemetry';
-import {and, asc, count, desc, eq, gte, inArray, sql} from 'drizzle-orm';
+import {and, asc, count, desc, eq, getTableColumns, gte, inArray, sql} from 'drizzle-orm';
+import {
+  assertWorkflowDiagnosticSize,
+  assertWorkflowStepAttemptInvocationCount,
+} from '#core/diagnostics.js';
 import type {
   PersistedEvaluationTraceEntry,
   Step,
@@ -53,8 +61,21 @@ export async function getStepById(stepId: string): Promise<Step | undefined> {
 export interface StepAttemptDetail {
   workflowRunId: string;
   workflowRunAttemptId: string;
+  workflowRunAttempt: number;
+  jobId: string;
+  jobExecutionId: string;
   step: Step;
   attempt: StepAttempt;
+  /**
+   * The session descriptor is projected independently from the attempt config.
+   * A legacy oversized prompt can therefore hide the config without hiding the
+   * descriptor needed to resume the agent session.
+   */
+  sessionDescriptor?: unknown;
+  diagnosticBytes?: {
+    config: number | null;
+    evaluationTrace: number | null;
+  };
 }
 
 export interface JobExecutionFailureOrigin {
@@ -132,8 +153,42 @@ export async function getStepAttemptDetail(params: {
     .select({
       workflowRunId: workflowRuns.id,
       workflowRunAttemptId: workflowRunAttempts.id,
+      workflowRunAttempt: workflowRunAttempts.attempt,
+      jobId: jobs.id,
+      jobExecutionId: jobExecutions.id,
       step: steps,
-      stepAttempt: stepAttempts,
+      stepAttempt: {
+        ...getTableColumns(stepAttempts),
+        // Keep legacy oversized values out of the Node heap while retaining
+        // their byte counts for the typed oversized-field response.
+        config: sql<Record<string, unknown> | null>`case
+          when ${stepAttempts.config} is null then null
+          when jsonb_typeof(${stepAttempts.config}) = 'object'
+            and octet_length(${stepAttempts.config}::text) <= ${WORKFLOW_DIAGNOSTIC_CONFIG_MAX_BYTES}
+          then ${stepAttempts.config}
+          else null
+        end`,
+        evaluationTrace: sql<readonly PersistedEvaluationTraceEntry[] | null>`case
+          when ${stepAttempts.evaluationTrace} is null then null
+          when jsonb_typeof(${stepAttempts.evaluationTrace}) = 'array'
+            and octet_length(${stepAttempts.evaluationTrace}::text) <= ${WORKFLOW_DIAGNOSTIC_EVALUATION_TRACE_MAX_BYTES}
+          then ${stepAttempts.evaluationTrace}
+          else null
+        end`,
+      },
+      stepAttemptConfigBytes: sql<number | null>`case
+        when ${stepAttempts.config} is null then null
+        when jsonb_typeof(${stepAttempts.config}) = 'object'
+        then octet_length(${stepAttempts.config}::text)
+        else null
+      end`,
+      stepAttemptSessionDescriptor: sql<unknown>`${stepAttempts.config} -> 'session'`,
+      stepAttemptEvaluationTraceBytes: sql<number | null>`case
+        when ${stepAttempts.evaluationTrace} is null then null
+        when jsonb_typeof(${stepAttempts.evaluationTrace}) = 'array'
+        then octet_length(${stepAttempts.evaluationTrace}::text)
+        else null
+      end`,
     })
     .from(stepAttempts)
     .innerJoin(steps, eq(stepAttempts.stepId, steps.id))
@@ -150,8 +205,16 @@ export async function getStepAttemptDetail(params: {
   return {
     workflowRunId: row.workflowRunId,
     workflowRunAttemptId: row.workflowRunAttemptId,
+    workflowRunAttempt: row.workflowRunAttempt,
+    jobId: row.jobId,
+    jobExecutionId: row.jobExecutionId,
     step: toStep(row.step),
     attempt: toStepAttempt(row.stepAttempt),
+    sessionDescriptor: row.stepAttemptSessionDescriptor,
+    diagnosticBytes: {
+      config: row.stepAttemptConfigBytes ?? null,
+      evaluationTrace: row.stepAttemptEvaluationTraceBytes ?? null,
+    },
   };
 }
 
@@ -355,6 +418,9 @@ export async function dispatchStepWithCompletedConfig(
   params: DispatchStepWithCompletedConfigParams,
   tx: Tx,
 ): Promise<Step | null> {
+  assertWorkflowDiagnosticSize('config', params.config);
+  assertWorkflowDiagnosticSize('evaluation_trace', params.evaluationTrace);
+
   const rows = await tx
     .update(steps)
     .set({
@@ -410,6 +476,8 @@ export interface MarkStepSkippedParams {
 }
 
 export async function markStepSkipped(params: MarkStepSkippedParams, tx: Tx): Promise<Step | null> {
+  assertWorkflowDiagnosticSize('evaluation_trace', params.evaluationTrace);
+
   const rows = await tx
     .update(steps)
     .set({
@@ -469,12 +537,21 @@ export interface InsertRunningStepAttemptParams {
   config?: Record<string, unknown> | null;
   evaluationTrace?: readonly PersistedEvaluationTraceEntry[] | null;
   invocations?: readonly StepAttemptInvocation[] | undefined;
+  allowLegacyOversizedDiagnostics?: boolean | undefined;
 }
 
 export async function insertRunningStepAttempt(
   params: InsertRunningStepAttemptParams,
   tx: Tx,
 ): Promise<string | undefined> {
+  const config = params.config;
+  const evaluationTrace = params.evaluationTrace;
+  if (params.allowLegacyOversizedDiagnostics !== true) {
+    assertWorkflowDiagnosticSize('config', config);
+    assertWorkflowDiagnosticSize('evaluation_trace', evaluationTrace);
+  }
+  assertWorkflowStepAttemptInvocationCount(params.invocations?.length ?? 0);
+
   const [{nextExecutionOrder} = {nextExecutionOrder: 1}] = await tx
     .select({
       nextExecutionOrder: sql<number>`coalesce(max(${stepAttempts.executionOrder}), 0) + 1`,
@@ -490,8 +567,8 @@ export async function insertRunningStepAttempt(
       attempt: params.attempt,
       executionOrder: nextExecutionOrder,
       status: 'running',
-      config: params.config ?? null,
-      evaluationTrace: params.evaluationTrace ?? null,
+      config: config ?? null,
+      evaluationTrace: evaluationTrace ?? null,
       invocations: params.invocations ?? [],
     })
     .onConflictDoNothing({target: [stepAttempts.stepId, stepAttempts.attempt]})
@@ -550,6 +627,12 @@ async function runBestEffortCheckoutRenewalSubjectMaintenance(
 // makes this idempotent: a duplicate report finds the attempt already terminal
 // and updates nothing (never-downgrade for the audit row).
 export async function finishStepAttempt(params: FinishStepAttemptParams, tx: Tx): Promise<void> {
+  assertWorkflowDiagnosticSize('output', params.output);
+  assertWorkflowDiagnosticSize('response', params.response);
+  assertWorkflowDiagnosticSize('error', params.error);
+  assertWorkflowDiagnosticSize('gate_result', params.gateResult);
+  assertWorkflowDiagnosticSize('restart_feedback', params.restartFeedback);
+
   const rows = await tx
     .update(stepAttempts)
     .set({
@@ -708,6 +791,8 @@ export interface ApplyStepResultParams {
 }
 
 export async function applyStepResult(params: ApplyStepResultParams, tx: Tx): Promise<void> {
+  assertWorkflowDiagnosticSize('error', params.error);
+
   await tx
     .update(steps)
     .set({

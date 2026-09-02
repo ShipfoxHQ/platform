@@ -1,4 +1,8 @@
 import {and, asc, count, eq, lte, or} from 'drizzle-orm';
+import {
+  assertWorkflowStepAttemptInvocationCount,
+  WORKFLOW_STEP_ATTEMPT_INVOCATION_WRITE_MAX,
+} from '#core/diagnostics.js';
 import type {Step, StepAttempt, StepAttemptInvocation} from '#core/entities/step.js';
 import {db, type Tx} from '../db.js';
 import {jobExecutions} from '../schema/job-executions.js';
@@ -18,7 +22,7 @@ export interface EnqueueToolInvocationParams {
   callIndex?: number | undefined;
 }
 
-export const MAX_TOOL_STEP_CALLS_PER_ATTEMPT = 3;
+export const MAX_TOOL_STEP_CALLS_PER_ATTEMPT = WORKFLOW_STEP_ATTEMPT_INVOCATION_WRITE_MAX;
 export const INVOCATION_INTERRUPTED_ERROR_CODE = 'invocation_interrupted';
 
 export interface ToolStepWorkflowContext {
@@ -520,10 +524,23 @@ async function updateStepAttemptInvocations(
 
   const [updated] = await tx
     .update(stepAttempts)
-    .set({invocations: update(current.stepAttempt.invocations ?? [])})
+    .set({
+      invocations: assertAndReturnInvocationHistory(
+        update(current.stepAttempt.invocations ?? []),
+        current.stepAttempt.invocations?.length ?? 0,
+      ),
+    })
     .where(and(eq(stepAttempts.id, stepAttemptId), eq(stepAttempts.status, 'running')))
     .returning();
   return updated;
+}
+
+function assertAndReturnInvocationHistory(
+  history: readonly StepAttemptInvocation[],
+  previousCount: number,
+): readonly StepAttemptInvocation[] {
+  assertWorkflowStepAttemptInvocationCount(history.length, previousCount);
+  return history;
 }
 
 class MissingRunningToolAttemptError extends Error {

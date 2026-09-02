@@ -4,7 +4,11 @@ import {workflowsInterModuleContract} from '@shipfox/api-workflows-dto/inter-mod
 import {workspacesInterModuleContract} from '@shipfox/api-workspaces-dto/inter-module';
 import {createInterModuleKnownError, isInterModuleKnownError} from '@shipfox/inter-module';
 import type {WorkflowRun} from '#core/entities/workflow-run.js';
-import {InvalidJobRunnerLabelsError, WorkflowSourceSnapshotTooLargeError} from '#core/errors.js';
+import {
+  InvalidJobRunnerLabelsError,
+  WorkflowDiagnosticTooLargeError,
+  WorkflowSourceSnapshotTooLargeError,
+} from '#core/errors.js';
 import {
   AgentConfigUnresolvableError,
   AgentIntegrationMaterializationError,
@@ -482,10 +486,9 @@ describe('Workflows inter-module presentation', () => {
         step: {},
         attempt: {
           id: stepAttemptId,
-          config: {
-            session: {id: sessionId, key: 'main', mode: 'resume', segment: 3},
-          },
+          config: null,
         },
+        sessionDescriptor: {id: sessionId, key: 'main', mode: 'resume', segment: 3},
       });
       const runners = {getLeaseState: vi.fn().mockResolvedValue({active: true})};
 
@@ -513,6 +516,7 @@ describe('Workflows inter-module presentation', () => {
         workflowRunAttemptId: '00000000-0000-4000-8000-000000000015',
         step: {},
         attempt: {id: '00000000-0000-4000-8000-000000000012', config: null},
+        sessionDescriptor: null,
       });
       const runners = {getLeaseState: vi.fn().mockResolvedValue({active: true})};
 
@@ -544,8 +548,9 @@ describe('Workflows inter-module presentation', () => {
         step: {},
         attempt: {
           id: '00000000-0000-4000-8000-000000000012',
-          config: {session: {id: 'not-a-uuid', key: 'main', mode: 'resume', segment: 1}},
+          config: null,
         },
+        sessionDescriptor: {id: 'not-a-uuid', key: 'main', mode: 'resume', segment: 1},
       });
       const runners = {getLeaseState: vi.fn().mockResolvedValue({active: true})};
 
@@ -648,6 +653,10 @@ describe('Workflows inter-module presentation', () => {
           WORKFLOW_SOURCE_SNAPSHOT_MAX_BYTES + 1,
         ),
     ],
+    [
+      'diagnostic-too-large',
+      () => new WorkflowDiagnosticTooLargeError('config', 64 * 1024, 64 * 1024 + 1),
+    ],
   ] as const)('maps %s to the published contract error', (code, error) => {
     const result = toStartRunKnownError(error(), input.definitionId);
 
@@ -733,6 +742,10 @@ describe('Workflows inter-module presentation', () => {
           WORKFLOW_SOURCE_SNAPSHOT_MAX_BYTES,
           WORKFLOW_SOURCE_SNAPSHOT_MAX_BYTES + 1,
         ),
+    ],
+    [
+      'diagnostic-too-large',
+      () => new WorkflowDiagnosticTooLargeError('evaluation_trace', 64 * 1024, 64 * 1024 + 1),
     ],
   ] as const)('maps %s to the published dev-run contract error', (code, error) => {
     const result = toStartDevRunKnownError(error());

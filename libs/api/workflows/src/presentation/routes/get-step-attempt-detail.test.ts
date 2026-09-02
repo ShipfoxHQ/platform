@@ -62,6 +62,9 @@ describe('GET /api/workflows/runs/steps/:stepId/attempts/:attempt', () => {
     getStepAttemptDetail.mockResolvedValue({
       workflowRunId,
       workflowRunAttemptId: crypto.randomUUID(),
+      workflowRunAttempt: 1,
+      jobId: crypto.randomUUID(),
+      jobExecutionId: step.jobExecutionId,
       step,
       attempt,
     });
@@ -97,6 +100,9 @@ describe('GET /api/workflows/runs/steps/:stepId/attempts/:attempt', () => {
     getStepAttemptDetail.mockResolvedValue({
       workflowRunId,
       workflowRunAttemptId: crypto.randomUUID(),
+      workflowRunAttempt: 1,
+      jobId: crypto.randomUUID(),
+      jobExecutionId: crypto.randomUUID(),
       step: stepEntity(),
       attempt: stepAttemptEntity(),
     });

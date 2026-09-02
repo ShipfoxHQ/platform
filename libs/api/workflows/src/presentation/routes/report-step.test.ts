@@ -215,6 +215,35 @@ describe('POST /runs/jobs/current/steps/:stepId/report', () => {
     expect(attempt?.exitCode).toBe(0);
   });
 
+  test('turns a UTF-8 response overflow into a terminal failed attempt', async () => {
+    const {jobId, steps} = await arrangeJobWithSteps(1);
+    const token = await mintActiveLeaseToken({jobId});
+    await nextStepForJob(jobId);
+    const response = '😀'.repeat(3_000);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: reportUrl(steps[0]?.id as string),
+      headers: {authorization: `Bearer ${token}`},
+      payload: reportPayload({status: 'succeeded', response}),
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ok: true, cancel: true});
+    const after = await getStepsByJobId(jobId);
+    expect(after[0]?.status).toBe('failed');
+    const [attempt] = await getStepAttempts(jobId);
+    expect(attempt).toMatchObject({
+      status: 'failed',
+      output: null,
+      response: null,
+      error: {
+        reason: 'diagnostic_too_large',
+        field: 'response',
+      },
+    });
+  });
+
   test('persists dedicated checkout details alongside user output', async () => {
     const {jobId, steps} = await arrangeJobWithSteps(1);
     const token = await mintActiveLeaseToken({jobId});

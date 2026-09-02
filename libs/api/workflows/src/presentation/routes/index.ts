@@ -12,11 +12,13 @@ import {createAgentRuntimeConfigRoute} from './agent-runtime-config.js';
 import {cancelRunRoute} from './cancel-run.js';
 import {createCheckoutTokenRoute} from './checkout-token.js';
 import {getJobDetailRoute} from './get-job-detail.js';
+import {getJobExecutionContextRoute} from './get-job-execution-context.js';
 import {getRunRoute} from './get-run.js';
 import {getRunAggregatesRoute} from './get-run-aggregates.js';
 import {getRunLineageHeadRoute} from './get-run-lineage-head.js';
 import {getRunOverviewRoute} from './get-run-overview.js';
 import {getRunSelectionRoute} from './get-run-selection.js';
+import {getRunSourceRoute} from './get-run-source.js';
 import {getStepAttemptDetailRoute} from './get-step-attempt-detail.js';
 import {createGetStepSecretsRoute} from './get-step-secrets.js';
 import {listExecutionStepsRoute} from './list-execution-steps.js';
@@ -77,6 +79,7 @@ export function createWorkflowRoutes(params: WorkflowRouteClients): RouteGroup[]
         getRunSelectionRoute(params.projects),
         listRunAttemptsRoute(params.projects),
         getRunOverviewRoute(params.projects),
+        getJobExecutionContextRoute(params.projects),
         getJobDetailRoute(params.projects),
         listJobExecutionsRoute(params.projects),
         listExecutionStepsRoute(params.projects),
@@ -84,6 +87,7 @@ export function createWorkflowRoutes(params: WorkflowRouteClients): RouteGroup[]
         listRunJobsRoute(params.projects),
         listRunAnnotationsRoute(params.annotations, params.projects),
         listRunJobExplanationsRoute(params.projects),
+        getRunSourceRoute(params.projects),
         getRunRoute(params.projects),
         getStepAttemptDetailRoute(params.projects),
         cancelRunRoute(params.projects),

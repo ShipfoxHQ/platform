@@ -968,8 +968,11 @@ describe('tool step executor', () => {
         .filter((record) => record.type === 'output')
         .every((record) => Buffer.byteLength(record.data, 'utf8') <= MAX_RECORD_DATA_BYTES),
     ).toBe(true);
+    expect(records.filter((record) => record.type === 'output').length).toBeGreaterThan(1);
     expect(
-      records.some((record) => record.type === 'output' && record.data.includes('[truncated]')),
+      records
+        .filter((record) => record.type === 'output')
+        .some((record) => record.data.includes('[truncated]')),
     ).toBe(true);
     expect(records.at(-1)).toMatchObject({type: 'group_end'});
   });

@@ -8,6 +8,7 @@ import type {IntegrationsModuleClient} from '@shipfox/api-integration-core-dto/i
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import type {RunnersInterModuleClient} from '@shipfox/api-runners-dto/inter-module';
 import type {SecretsInterModuleClient} from '@shipfox/api-secrets-dto/inter-module';
+import {workflowDiagnosticFieldSchema} from '@shipfox/api-workflows-dto';
 import {workflowsInterModuleContract} from '@shipfox/api-workflows-dto/inter-module';
 import type {WorkspacesInterModuleClient} from '@shipfox/api-workspaces-dto/inter-module';
 import {
@@ -21,6 +22,7 @@ import type {Step} from '#core/entities/step.js';
 import type {WorkflowRunTriggerReference} from '#core/entities/workflow-run.js';
 import {
   InvalidJobRunnerLabelsError,
+  WorkflowDiagnosticTooLargeError,
   WorkflowSourceSnapshotTooLargeError,
   WorkspaceDeletedError,
   WorkspaceNotFoundError,
@@ -283,7 +285,19 @@ export function createWorkflowsInterModulePresentation(params: {
         workspaceId: input.workspaceId,
       });
       return {
-        detail: detail ? toStepAttemptDetailResponseDto(detail.step, detail.attempt) : null,
+        detail: detail
+          ? toStepAttemptDetailResponseDto(
+              detail.step,
+              detail.attempt,
+              {
+                workflowRunId: detail.workflowRunId,
+                workflowRunAttempt: detail.workflowRunAttempt,
+                jobId: detail.jobId,
+                jobExecutionId: detail.jobExecutionId,
+              },
+              detail.diagnosticBytes,
+            )
+          : null,
       };
     },
     getLatestRunAttempt: async (input) => ({
@@ -316,8 +330,9 @@ export function createWorkflowsInterModulePresentation(params: {
       if (!detail) throw createInterModuleKnownError(method, 'step-attempt-mismatch', {});
 
       // The dispatch integration records the resolved descriptor on the step
-      // attempt's config; anything else is a recording we cannot trust.
-      const recorded = detail.attempt.config?.session;
+      // attempt's config. The detail query projects it independently so a
+      // legacy oversized config cannot make a valid resume session disappear.
+      const recorded = detail.sessionDescriptor ?? detail.attempt.config?.session;
       if (recorded === undefined || recorded === null) {
         return {
           workspaceId: scope.workspaceId,
@@ -390,6 +405,15 @@ function toRunCreationKnownError(
   }
   if (error instanceof WorkflowSourceSnapshotTooLargeError) {
     return createInterModuleKnownError(method, 'source-snapshot-too-large', {
+      limitBytes: error.limitBytes,
+      measuredBytes: error.measuredBytes,
+    });
+  }
+  if (error instanceof WorkflowDiagnosticTooLargeError) {
+    const field = workflowDiagnosticFieldSchema.safeParse(error.field);
+    if (!field.success) return undefined;
+    return createInterModuleKnownError(method, 'diagnostic-too-large', {
+      field: field.data,
       limitBytes: error.limitBytes,
       measuredBytes: error.measuredBytes,
     });

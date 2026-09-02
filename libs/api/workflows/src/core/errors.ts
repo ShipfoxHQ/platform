@@ -168,7 +168,8 @@ export function isPermanentRunWorkflowError(error: unknown): boolean {
     error instanceof AgentIntegrationMaterializationError ||
     error instanceof InterpolationUnresolvableError ||
     error instanceof InvalidJobRunnerLabelsError ||
-    error instanceof WorkflowSourceSnapshotTooLargeError
+    error instanceof WorkflowSourceSnapshotTooLargeError ||
+    error instanceof WorkflowDiagnosticTooLargeError
   );
 }
 
@@ -249,6 +250,34 @@ export class WorkflowSourceSnapshotTooLargeError extends Error {
     );
     this.name = 'WorkflowSourceSnapshotTooLargeError';
     this.overshootBytes = overshootBytes;
+  }
+}
+
+export class WorkflowDiagnosticTooLargeError extends Error {
+  readonly overshootBytes: number;
+
+  constructor(
+    readonly field: string,
+    readonly limitBytes: number,
+    readonly measuredBytes: number,
+  ) {
+    const overshootBytes = measuredBytes - limitBytes;
+    super(
+      `Workflow diagnostic field "${field}" exceeds the size limit of ${limitBytes} bytes ` +
+        `(measured ${measuredBytes} bytes; overshoot ${overshootBytes} bytes).`,
+    );
+    this.name = 'WorkflowDiagnosticTooLargeError';
+    this.overshootBytes = overshootBytes;
+  }
+}
+
+export class WorkflowStepAttemptInvocationLimitError extends Error {
+  constructor(
+    readonly count: number,
+    readonly limit: number,
+  ) {
+    super(`Step attempt invocation history cannot exceed ${limit} entries (found ${count})`);
+    this.name = 'WorkflowStepAttemptInvocationLimitError';
   }
 }
 

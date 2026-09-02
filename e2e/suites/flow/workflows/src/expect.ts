@@ -65,6 +65,7 @@ const stepErrorReasonSchema = z.enum([
   'agent_session_held',
   'agent_session_harness_mismatch',
   'agent_session_unavailable',
+  'diagnostic_too_large',
   'tool_error',
   'tool_config_invalid',
   'invocation_interrupted',

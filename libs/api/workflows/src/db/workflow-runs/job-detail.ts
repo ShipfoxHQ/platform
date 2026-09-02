@@ -1,9 +1,18 @@
 import {
+  WORKFLOW_DIAGNOSTIC_CONDITION_MAX_BYTES,
+  WORKFLOW_DIAGNOSTIC_EVALUATION_TRACE_MAX_BYTES,
+  WORKFLOW_DIAGNOSTIC_OUTPUT_MAX_BYTES,
+  WORKFLOW_DIAGNOSTIC_TRIGGER_EVENTS_MAX_BYTES,
   WORKFLOW_JOB_DETAIL_STEP_PAGE_LIMIT,
   WORKFLOW_STEP_ATTEMPT_PREVIEW_LIMIT,
 } from '@shipfox/api-workflows-dto';
 import {and, asc, count, desc, eq, gt, inArray, lt, lte, or, sql} from 'drizzle-orm';
 import {
+  normalizeWorkflowExecutionEvent,
+  type WorkflowExecutionEvent,
+} from '#core/entities/job-execution.js';
+import {
+  type PersistedEvaluationTraceEntry,
   type StepAttemptStatus,
   type StepSourceLocation,
   type StepStatus,
@@ -57,6 +66,27 @@ export interface WorkflowJobDetailRead {
   workflowRunAttempt: number;
   job: WorkflowRunJobOverview;
   selectedExecution: WorkflowJobExecutionDetailRead | null;
+}
+
+export interface WorkflowJobExecutionContextRead {
+  workflowRunId: string;
+  workflowRunAttempt: number;
+  jobId: string;
+  jobExecutionId: string;
+  jobRunner: string[] | null;
+  executionRunner: string[] | null;
+  jobOutputs: Record<string, unknown> | null;
+  jobOutputsBytes: number | null;
+  executionOutputs: Record<string, unknown> | null;
+  executionOutputsBytes: number | null;
+  triggerEvents: WorkflowExecutionEvent[] | null;
+  triggerEventsBytes: number | null;
+  jobEvaluationTrace: readonly PersistedEvaluationTraceEntry[] | null;
+  jobEvaluationTraceBytes: number | null;
+  executionEvaluationTrace: readonly PersistedEvaluationTraceEntry[] | null;
+  executionEvaluationTraceBytes: number | null;
+  condition: string | null;
+  conditionBytes: number | null;
 }
 
 export interface WorkflowJobExecutionDetailRead extends WorkflowRunJobExecutionSummary {
@@ -190,6 +220,30 @@ export function getWorkflowJobDetail(
   );
 }
 
+export function getWorkflowJobExecutionContext(
+  params: {
+    jobId: string;
+    executionId: string;
+    scope?: WorkflowJobReadScope | undefined;
+  },
+  options: WorkflowJobReadOptions = {},
+): Promise<WorkflowJobExecutionContextRead | undefined> {
+  return withReadMeasurement(options, async (recordRows) =>
+    db().transaction(
+      async (tx) => {
+        await setWorkflowJobReadStatementTimeout(tx);
+        const context = await readWorkflowJobExecutionContext(tx, params);
+        recordRows(context ? 1 : 0);
+        return context;
+      },
+      {
+        isolationLevel: 'repeatable read',
+        accessMode: 'read only',
+      },
+    ),
+  );
+}
+
 export function listWorkflowJobExecutionSummaries(
   params: {
     jobId: string;
@@ -310,6 +364,141 @@ async function readWorkflowJobDetail(
     hasContext: execution.hasContext,
     steps,
   });
+}
+
+async function readWorkflowJobExecutionContext(
+  tx: Tx,
+  params: {
+    jobId: string;
+    executionId: string;
+    scope?: WorkflowJobReadScope | undefined;
+  },
+): Promise<WorkflowJobExecutionContextRead | undefined> {
+  const conditions = [eq(jobs.id, params.jobId), eq(jobExecutions.id, params.executionId)];
+  if (params.scope)
+    conditions.push(eq(jobs.workflowRunAttemptId, params.scope.workflowRunAttemptId));
+
+  const [row] = await tx
+    .select({
+      workflowRunId: workflowRuns.id,
+      workflowRunAttempt: workflowRunAttempts.attempt,
+      jobId: jobs.id,
+      jobExecutionId: jobExecutions.id,
+      jobRunner: jobs.runner,
+      executionRunner: jobExecutions.runner,
+      // Diagnostic columns are conditionally projected in PostgreSQL. A
+      // legacy value over the inline limit is represented by NULL plus its
+      // byte count, so Node never hydrates the oversized payload.
+      jobOutputs: sql<Record<string, unknown> | null>`case
+        when ${jobs.outputs} is null then null
+        when jsonb_typeof(${jobs.outputs}) = 'object'
+          and octet_length(${jobs.outputs}::text) <= ${WORKFLOW_DIAGNOSTIC_OUTPUT_MAX_BYTES}
+        then ${jobs.outputs}
+        else null
+      end`,
+      jobOutputsBytes: sql<number | null>`case
+        when ${jobs.outputs} is null then null
+        when jsonb_typeof(${jobs.outputs}) = 'object'
+        then octet_length(${jobs.outputs}::text)
+        else null
+      end`,
+      executionOutputs: sql<Record<string, unknown> | null>`case
+        when ${jobExecutions.outputs} is null then null
+        when jsonb_typeof(${jobExecutions.outputs}) = 'object'
+          and octet_length(${jobExecutions.outputs}::text) <= ${WORKFLOW_DIAGNOSTIC_OUTPUT_MAX_BYTES}
+        then ${jobExecutions.outputs}
+        else null
+      end`,
+      executionOutputsBytes: sql<number | null>`case
+        when ${jobExecutions.outputs} is null then null
+        when jsonb_typeof(${jobExecutions.outputs}) = 'object'
+        then octet_length(${jobExecutions.outputs}::text)
+        else null
+      end`,
+      triggerEvents: sql<WorkflowExecutionEvent[] | null>`case
+        when jsonb_typeof(${jobExecutions.triggerEvents}) is distinct from 'array' then '[]'::jsonb
+        when octet_length(${jobExecutions.triggerEvents}::text) <= ${WORKFLOW_DIAGNOSTIC_TRIGGER_EVENTS_MAX_BYTES}
+        then ${jobExecutions.triggerEvents}
+        else null
+      end`,
+      triggerEventsBytes: sql<number | null>`case
+        when jsonb_typeof(${jobExecutions.triggerEvents}) = 'array'
+        then octet_length(${jobExecutions.triggerEvents}::text)
+        else null
+      end`,
+      jobEvaluationTrace: sql<readonly PersistedEvaluationTraceEntry[] | null>`case
+        when ${jobs.evaluationTrace} is null then null
+        when jsonb_typeof(${jobs.evaluationTrace}) = 'array'
+          and octet_length(${jobs.evaluationTrace}::text) <= ${WORKFLOW_DIAGNOSTIC_EVALUATION_TRACE_MAX_BYTES}
+        then ${jobs.evaluationTrace}
+        else null
+      end`,
+      jobEvaluationTraceBytes: sql<number | null>`case
+        when ${jobs.evaluationTrace} is null then null
+        when jsonb_typeof(${jobs.evaluationTrace}) = 'array'
+        then octet_length(${jobs.evaluationTrace}::text)
+        else null
+      end`,
+      executionEvaluationTrace: sql<readonly PersistedEvaluationTraceEntry[] | null>`case
+        when ${jobExecutions.evaluationTrace} is null then null
+        when jsonb_typeof(${jobExecutions.evaluationTrace}) = 'array'
+          and octet_length(${jobExecutions.evaluationTrace}::text) <= ${WORKFLOW_DIAGNOSTIC_EVALUATION_TRACE_MAX_BYTES}
+        then ${jobExecutions.evaluationTrace}
+        else null
+      end`,
+      executionEvaluationTraceBytes: sql<number | null>`case
+        when ${jobExecutions.evaluationTrace} is null then null
+        when jsonb_typeof(${jobExecutions.evaluationTrace}) = 'array'
+        then octet_length(${jobExecutions.evaluationTrace}::text)
+        else null
+      end`,
+      condition: sql<string | null>`case
+        when ${jobs.success} is null then null
+        when octet_length(${jobs.success}) <= ${WORKFLOW_DIAGNOSTIC_CONDITION_MAX_BYTES}
+        then ${jobs.success}
+        else null
+      end`,
+      conditionBytes: sql<number | null>`case
+        when ${jobs.success} is null then null
+        else octet_length(${jobs.success})
+      end`,
+    })
+    .from(jobExecutions)
+    .innerJoin(jobs, eq(jobExecutions.jobId, jobs.id))
+    .innerJoin(workflowRunAttempts, eq(jobs.workflowRunAttemptId, workflowRunAttempts.id))
+    .innerJoin(workflowRuns, eq(workflowRunAttempts.workflowRunId, workflowRuns.id))
+    .where(and(...conditions))
+    .limit(1);
+  if (!row) return undefined;
+
+  return toWorkflowJobExecutionContextRead(row);
+}
+
+function toWorkflowJobExecutionContextRead(
+  row: WorkflowJobExecutionContextRead,
+): WorkflowJobExecutionContextRead {
+  return {
+    workflowRunId: row.workflowRunId,
+    workflowRunAttempt: row.workflowRunAttempt,
+    jobId: row.jobId,
+    jobExecutionId: row.jobExecutionId,
+    jobRunner: row.jobRunner ? [...row.jobRunner] : null,
+    executionRunner: row.executionRunner ? [...row.executionRunner] : null,
+    jobOutputs: row.jobOutputs ?? null,
+    jobOutputsBytes: row.jobOutputsBytes ?? null,
+    executionOutputs: row.executionOutputs ?? null,
+    executionOutputsBytes: row.executionOutputsBytes ?? null,
+    triggerEvents: Array.isArray(row.triggerEvents)
+      ? row.triggerEvents.map(normalizeWorkflowExecutionEvent)
+      : null,
+    triggerEventsBytes: row.triggerEventsBytes ?? null,
+    jobEvaluationTrace: row.jobEvaluationTrace ?? null,
+    jobEvaluationTraceBytes: row.jobEvaluationTraceBytes ?? null,
+    executionEvaluationTrace: row.executionEvaluationTrace ?? null,
+    executionEvaluationTraceBytes: row.executionEvaluationTraceBytes ?? null,
+    condition: row.condition ?? null,
+    conditionBytes: row.conditionBytes ?? null,
+  };
 }
 
 async function readWorkflowJobExecutionSummaries(
@@ -806,7 +995,11 @@ function toStepAttemptSummary(row: StepAttemptSummaryRow): WorkflowStepAttemptSu
 
 function hasExecutionContext() {
   return sql<boolean>`(
-    ${jobExecutions.runner} is not null
+    ${jobs.runner} is not null
+    or ${jobs.outputs} is not null
+    or ${jobs.evaluationTrace} is not null
+    or ${jobs.success} is not null
+    or ${jobExecutions.runner} is not null
     or ${jobExecutions.outputs} is not null
     or ${jobExecutions.evaluationTrace} is not null
     or case

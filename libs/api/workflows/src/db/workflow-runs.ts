@@ -8,6 +8,7 @@ export {
 } from './workflow-runs/annotation-reads.js';
 export type {
   WorkflowJobDetailRead,
+  WorkflowJobExecutionContextRead,
   WorkflowJobExecutionCursor,
   WorkflowJobExecutionDetailRead,
   WorkflowJobExecutionPageRead,
@@ -24,6 +25,7 @@ export type {
 } from './workflow-runs/job-detail.js';
 export {
   getWorkflowJobDetail,
+  getWorkflowJobExecutionContext,
   getWorkflowJobReadScope,
   getWorkflowStepReadScope,
   listWorkflowExecutionSteps,
@@ -173,6 +175,8 @@ export {
   updateWorkflowRunStatus,
 } from './workflow-runs/runs.js';
 export {getWorkflowContextForJob} from './workflow-runs/shared.js';
+export type {WorkflowRunSourceRead} from './workflow-runs/source.js';
+export {getWorkflowRunSource} from './workflow-runs/source.js';
 export type {
   ApplyStepResultParams,
   BulkUpdateStepStatusesParams,

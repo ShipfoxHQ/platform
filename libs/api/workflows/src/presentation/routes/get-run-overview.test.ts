@@ -3,19 +3,23 @@ import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module'
 import {
   JOB_EXECUTION_STATUS_REASON_MESSAGE_MAX_LENGTH,
   WORKFLOW_RUN_OVERVIEW_RESPONSE_BYTE_LIMIT,
+  WORKFLOW_SOURCE_SNAPSHOT_MAX_BYTES,
   workflowRunOverviewResponseSchema,
+  workflowRunSourceResponseSchema,
 } from '@shipfox/api-workflows-dto';
 import {ClientError} from '@shipfox/node-fastify';
-import {inArray} from 'drizzle-orm';
+import {eq, inArray} from 'drizzle-orm';
 import type {FastifyInstance} from 'fastify';
 import Fastify from 'fastify';
 import {serializerCompiler, validatorCompiler} from 'fastify-type-provider-zod';
 import {db} from '#db/db.js';
 import {jobExecutions} from '#db/schema/job-executions.js';
+import {workflowRuns} from '#db/schema/workflow-runs.js';
 import {createWorkflowRun} from '#db/workflow-runs.js';
 import {buildModel} from '#test/helpers/workflow-runs.js';
 import {createHighCardinalityWorkflowRun} from '#test/index.js';
 import {getRunOverviewRoute} from './get-run-overview.js';
+import {getRunSourceRoute} from './get-run-source.js';
 import {listRunJobsRoute} from './list-run-jobs.js';
 
 const getProjectById = vi.fn();
@@ -45,6 +49,7 @@ describe('bounded workflow run overview routes', () => {
       done();
     });
     app.get('/api/workflows/runs/:id/overview', getRunOverviewRoute(projects));
+    app.get('/api/workflows/runs/:id/source', getRunSourceRoute(projects));
     app.get('/api/workflows/runs/:id/jobs', listRunJobsRoute(projects));
     await app.ready();
   });
@@ -95,6 +100,78 @@ describe('bounded workflow run overview routes', () => {
     expect(body.jobs.items[0]).not.toHaveProperty('outputs');
     expect(body.jobs.items[0]).not.toHaveProperty('runner');
     expect(body.jobs.items[0].default_execution).not.toHaveProperty('trigger_events');
+  });
+
+  test('loads a source snapshot on demand and classifies legacy snapshots', async () => {
+    const sourceRun = await createRun(buildModel(), {
+      sourceSnapshot: {
+        content: 'name: source\njobs:\n  build:\n    steps:\n      - run: echo source\n',
+        format: 'yaml',
+      },
+    });
+    const source = await app.inject({
+      method: 'GET',
+      url: `/api/workflows/runs/${sourceRun.id}/source`,
+    });
+
+    expect(source.statusCode).toBe(200);
+    expect(workflowRunSourceResponseSchema.safeParse(source.json()).success).toBe(true);
+    expect(source.json()).toMatchObject({
+      kind: 'available',
+      workflow_run_id: sourceRun.id,
+      workflow_run_attempt: 1,
+      source_snapshot: {format: 'yaml'},
+    });
+
+    const preSnapshotRun = await createRun();
+    const preSnapshot = await app.inject({
+      method: 'GET',
+      url: `/api/workflows/runs/${preSnapshotRun.id}/source`,
+    });
+    expect(preSnapshot.statusCode).toBe(200);
+    expect(preSnapshot.json()).toMatchObject({
+      kind: 'unavailable',
+      reason: 'pre_snapshot_run',
+    });
+
+    const temporaryRun = await createRun(buildModel(), {
+      origin: 'dev',
+      devSource: {
+        ref: 'main',
+        commit: 'abc123',
+        configPath: '.shipfox/workflow.yml',
+        initiatedByUserId: crypto.randomUUID(),
+        replayOfEventId: null,
+      },
+    });
+    const temporary = await app.inject({
+      method: 'GET',
+      url: `/api/workflows/runs/${temporaryRun.id}/source`,
+    });
+    expect(temporary.statusCode).toBe(200);
+    expect(temporary.json()).toMatchObject({
+      kind: 'unavailable',
+      reason: 'temporary_run',
+    });
+
+    await db()
+      .update(workflowRuns)
+      .set({
+        sourceSnapshot: {
+          content: 'x'.repeat(WORKFLOW_SOURCE_SNAPSHOT_MAX_BYTES + 1),
+          format: 'yaml',
+        },
+      })
+      .where(eq(workflowRuns.id, preSnapshotRun.id));
+    const legacy = await app.inject({
+      method: 'GET',
+      url: `/api/workflows/runs/${preSnapshotRun.id}/source`,
+    });
+    expect(legacy.statusCode).toBe(200);
+    expect(legacy.json()).toMatchObject({
+      kind: 'unavailable',
+      reason: 'legacy_snapshot_too_large',
+    });
   });
 
   test('requires the selected attempt and keeps missing attempts as not found', async () => {
@@ -182,7 +259,7 @@ describe('bounded workflow run overview routes', () => {
 
   test.each([
     403, 404,
-  ] as const)('masks project access status %i for both overview endpoints', async (status) => {
+  ] as const)('masks project access status %i for all run read endpoints', async (status) => {
     const run = await createRun();
     workspaceId = run.workspaceId;
     const error = new ClientError(
@@ -203,11 +280,18 @@ describe('bounded workflow run overview routes', () => {
       method: 'GET',
       url: `/api/workflows/runs/${run.id}/jobs?attempt=1`,
     });
+    getProjectById.mockRejectedValueOnce(error);
+    const source = await app.inject({
+      method: 'GET',
+      url: `/api/workflows/runs/${run.id}/source`,
+    });
 
     expect(overview.statusCode).toBe(404);
     expect(overview.json().code).toBe('not-found');
     expect(jobs.statusCode).toBe(404);
     expect(jobs.json().code).toBe('not-found');
+    expect(source.statusCode).toBe(404);
+    expect(source.json().code).toBe('not-found');
   });
 
   test('bounds the byte-limit fallback page before sending it', async () => {
@@ -272,7 +356,13 @@ describe('bounded workflow run overview routes', () => {
     expect(continuation.json()).not.toHaveProperty('total');
   });
 
-  function createRun(model = buildModel()) {
+  function createRun(
+    model = buildModel(),
+    options: Pick<
+      Parameters<typeof createWorkflowRun>[0],
+      'sourceSnapshot' | 'origin' | 'devSource'
+    > = {},
+  ) {
     return createWorkflowRun({
       workspaceId,
       projectId,
@@ -284,6 +374,7 @@ describe('bounded workflow run overview routes', () => {
         subscriptionId: crypto.randomUUID(),
         userId: crypto.randomUUID(),
       },
+      ...options,
     });
   }
 });

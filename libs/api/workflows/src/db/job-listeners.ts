@@ -10,6 +10,7 @@ import {
 import {and, asc, count, eq, inArray, isNull, notInArray, sql} from 'drizzle-orm';
 import {type AgentDefaultsResolver, createAgentDefaultsResolver} from '#core/agent-defaults.js';
 import {loadAgentToolMaterializationContext} from '#core/agent-tools.js';
+import {assertWorkflowDiagnosticSize} from '#core/diagnostics.js';
 import {isJobTerminal, type JobStatus, type ResolutionReason} from '#core/entities/job.js';
 import type {
   JobExecution,
@@ -17,7 +18,7 @@ import type {
   WorkflowExecutionEvent,
 } from '#core/entities/job-execution.js';
 import {normalizeWorkflowExecutionEvent} from '#core/entities/job-execution.js';
-import {InterpolationUnresolvableError} from '#core/errors.js';
+import {InterpolationUnresolvableError, WorkflowDiagnosticTooLargeError} from '#core/errors.js';
 import {type DeriveJobSuccessResult, deriveJobSuccess} from '#core/job-transition/index.js';
 import {
   type MaterializedListenerExecution,
@@ -314,8 +315,8 @@ export async function drainListenerEventsIntoExecution(
       materialized,
     });
 
-    if (materialized.status === 'failed') {
-      recordWorkflowJobExecutionStatusChanged(materialized.status);
+    if (materialized.status === 'failed' || execution.status === 'failed') {
+      recordWorkflowJobExecutionStatusChanged(execution.status);
     }
 
     return {
@@ -624,6 +625,20 @@ async function persistMaterializedListenerExecution(
     readonly materialized: MaterializedListenerExecution;
   },
 ): Promise<JobExecutionDb> {
+  try {
+    assertWorkflowDiagnosticSize('trigger_events', params.materialized.triggerEvents);
+    assertWorkflowDiagnosticSize('execution_evaluation_trace', params.materialized.evaluationTrace);
+    for (const step of params.materialized.steps) {
+      assertWorkflowDiagnosticSize('config', step.config);
+      assertWorkflowDiagnosticSize('authored_config', step.authoredConfig);
+      assertWorkflowDiagnosticSize('condition', step.condition);
+      assertWorkflowDiagnosticSize('config', step.configPlan);
+    }
+  } catch (error) {
+    if (!(error instanceof WorkflowDiagnosticTooLargeError)) throw error;
+    return persistRejectedMaterializedListenerExecution(tx, params, error);
+  }
+
   const [execution] = await tx
     .insert(jobExecutions)
     .values({
@@ -675,6 +690,54 @@ async function persistMaterializedListenerExecution(
   }
 
   return execution;
+}
+
+async function persistRejectedMaterializedListenerExecution(
+  tx: Tx,
+  params: {
+    readonly jobId: string;
+    readonly sequence: number;
+    readonly bufferedEventIds: readonly string[];
+    readonly materialized: MaterializedListenerExecution;
+  },
+  error: WorkflowDiagnosticTooLargeError,
+): Promise<JobExecutionDb> {
+  const [execution] = await tx
+    .insert(jobExecutions)
+    .values({
+      jobId: params.jobId,
+      sequence: params.sequence,
+      name: params.materialized.nameOverride,
+      runner: null,
+      status: 'failed',
+      statusReason: 'output_too_large',
+      statusReasonMessage: boundedListenerDiagnosticMessage(error.message),
+      triggerEvents: [],
+      evaluationTrace: null,
+      finishedAt: sql`now()`,
+    })
+    .returning();
+  if (!execution) throw new Error('Insert rejected listener execution returned no rows');
+
+  await writeJobExecutionTerminatedOutbox(tx, {
+    jobId: execution.jobId,
+    jobExecutionId: execution.id,
+    status: execution.status,
+    finishedAt: execution.finishedAt,
+    statusReason: execution.statusReason,
+    statusReasonMessage: execution.statusReasonMessage,
+  });
+  await tx
+    .update(jobListenerEvents)
+    .set({consumedByExecutionId: execution.id})
+    .where(inArray(jobListenerEvents.id, [...params.bufferedEventIds]));
+
+  return execution;
+}
+
+function boundedListenerDiagnosticMessage(message: string): string {
+  const maxLength = 2048;
+  return message.length <= maxLength ? message : `${message.slice(0, maxLength - 1)}…`;
 }
 
 function drainExecutionResult(

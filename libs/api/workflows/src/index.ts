@@ -60,8 +60,10 @@ export {
   isPermanentRunWorkflowError,
   ProjectMismatchError,
   runWorkflow,
+  WorkflowDiagnosticTooLargeError,
   WorkflowRunNotCancellableError,
   WorkflowSourceSnapshotTooLargeError,
+  WorkflowStepAttemptInvocationLimitError,
 } from '#core/index.js';
 export {
   closeDb,
