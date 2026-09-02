@@ -20,7 +20,10 @@ the per-job directory. The credential scope follows the job's checkout
 permissions. The credentials are fetched only after the job is claimed, never
 persisted to `.git/config`, and never appear in logs or step errors. When a job
 persists checkout credentials for agent steps, the runner writes a 0600 per-job
-Git config file scoped to the repository URL and removes it during job cleanup.
+Git credential-helper configuration scoped to the repository URL and removes it during job cleanup.
+Current managed images use the renewable helper. Older or source-run self-hosted runners use
+static checkout credentials, and a job annotation warns when those credentials may expire during
+a long job.
 A setup failure (missing `git`, a denied credential, or an unreachable provider)
 fails the job before any step runs, with a machine-readable reason recorded on
 the step.
@@ -74,6 +77,7 @@ configured root is empty, the filesystem root (`/`), or a home directory.
 | `SHIPFOX_RUNNER_PROVIDER_KIND` | N/A | Provider kind the managed runner declares during enrollment, such as `ec2` or `docker`. Required with `SHIPFOX_RUNNER_BOOTSTRAP_TOKEN`. |
 | `SHIPFOX_RUNNER_PROTOCOL_VERSION` | `1` | Protocol version the managed runner declares during enrollment. |
 | `SHIPFOX_RUNNER_LABELS` | N/A | Comma-separated labels registered on this runner session, such as `linux,x64,self-hosted`. |
+| `SHIPFOX_RUNNER_ENABLE_RENEWABLE_GIT` | `false` | Enables the runner-local renewable Git credential broker. Verified managed images set this to `true`; keep the source-run default until the image and API rollout is ready. |
 | `SHIPFOX_RUNNER_WORKSPACE_ROOT` | OS temp dir | Parent directory for per-job workspaces (see above). |
 | `SHIPFOX_POLL_INTERVAL_MS` | `1000` | Base poll interval when requesting jobs. |
 | `SHIPFOX_POLL_MAX_INTERVAL_MS` | `5000` | Maximum backoff interval when no jobs are available or the API errors. |

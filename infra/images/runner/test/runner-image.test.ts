@@ -926,6 +926,7 @@ describe('systemd boot activation', () => {
     expect(systemdDirective(unit, 'Unit', 'SuccessAction')).toBe('poweroff-immediate');
     expect(systemdDirective(unit, 'Unit', 'FailureAction')).toBe('poweroff-immediate');
     expect(systemdDirective(unit, 'Service', 'StandardOutput')).toBe('journal+console');
+    expect(unit).toContain('Environment=SHIPFOX_RUNNER_ENABLE_RENEWABLE_GIT=true');
     expect(unit).not.toContain('--enable-source-maps');
   });
 
@@ -1531,8 +1532,18 @@ describe('runner container entrypoint', () => {
       new URL('../../../../apps/runner/Dockerfile', import.meta.url),
       'utf8',
     );
+    const verifyInstallation = await readFile(
+      new URL('../../../../apps/runner/src/verify-installation.ts', import.meta.url),
+      'utf8',
+    );
 
     expect(dockerfile).toContain('RUN node ./dist/verify-installation.js');
+    expect(verifyInstallation).toContain("'@shipfox/runner-execution/git-credential-helper'");
+    expect(verifyInstallation).toContain("'./git-credential-helper.js'");
+    expect(dockerfile).toContain('ENV SHIPFOX_RUNNER_ENABLE_RENEWABLE_GIT=true');
+    expect(dockerfile.indexOf('RUN node ./dist/verify-installation.js')).toBeLessThan(
+      dockerfile.indexOf('ENV SHIPFOX_RUNNER_ENABLE_RENEWABLE_GIT=true'),
+    );
     expect(dockerfile).toContain('ENTRYPOINT ["tini", "--"]');
     expect(dockerfile).toContain('CMD ["node", "./dist/index.js"]');
     expect(dockerfile).not.toContain('--enable-source-maps');

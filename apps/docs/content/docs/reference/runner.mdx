@@ -45,6 +45,7 @@ labels](/reference/runner-labels).
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `SHIPFOX_RUNNER_WORKSPACE_ROOT` | OS temp directory | Parent directory for per-job workspaces. The runner only creates and cleans per-job child directories under this root. |
+| `SHIPFOX_RUNNER_ENABLE_RENEWABLE_GIT` | `false` in source-run mode; `true` in verified managed images | Enables automatic renewal for `persist_credentials: true` Git checkouts. Managed images set this only after verifying the helper and production dependency closure. Do not add it to provider-rendered runner environment data. |
 | `SHIPFOX_POLL_INTERVAL_MS` | `1000` | How often the runner asks the API for new jobs. Backs off toward `SHIPFOX_POLL_MAX_INTERVAL_MS` while idle or after errors. |
 | `SHIPFOX_POLL_MAX_INTERVAL_MS` | `5000` | Largest interval the poll backoff can reach. |
 | `SHIPFOX_POLL_MAX_DURATION_MS` | `300000` | How long the runner keeps polling without claiming a job before it exits. Use `0` for runners that should poll forever. |
@@ -60,6 +61,23 @@ labels](/reference/runner-labels).
 | `SHIPFOX_LOG_SPOOL_MAX_BYTES` | `67108864` | Maximum unacknowledged log bytes kept on disk per step attempt while the API is unreachable. Past it, output is dropped with a gap marker. |
 | `SHIPFOX_LOG_DRAIN_TIMEOUT_MS` | `5000` | How long the runner waits at job end for in-flight uploads before deleting the workspace. |
 | `SHIPFOX_AGENT_SESSION_FLUSH_BYTES` | `4194304` | Upload window and per-entry drop threshold for agent-session logs. An entry above it is dropped with a gap marker. |
+
+## Renewable Git credentials
+
+Verified managed runner images advertise renewable Git credentials after their
+installation checks pass. A checkout with `persist_credentials: true` can then
+renew its exact repository credential during a long job without workflow-supplied
+tokens or retry logic.
+
+Older self-hosted runners remain compatible and continue with static checkout
+credentials. If a persisted checkout is dispatched to one, the job shows a
+warning that the credential may expire and recommends upgrading the runner image.
+Scheduling is not blocked by the missing capability.
+
+Git commands started inside a container from a user step do not inherit the host
+runner's helper or Unix socket. Supply an explicit credential to that container
+when it needs authenticated Git access. Mounting the job workspace alone does not
+change this boundary.
 
 ## Agent steps
 

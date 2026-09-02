@@ -11,6 +11,8 @@ User=shipfox
 EnvironmentFile=-/etc/environment
 EnvironmentFile=/etc/shipfox/runner.env
 Environment=AGENT_CUSTOM_PROVIDER_ALLOW_PRIVATE_NETWORKS=false
+# The image installs this unit only after install-runner.sh verifies the deployed helper.
+Environment=SHIPFOX_RUNNER_ENABLE_RENEWABLE_GIT=true
 ExecStartPre=/opt/shipfox-runner/scripts/runtime/verify-workspace-mount.sh
 WorkingDirectory=/opt/runner
 ExecStart=/opt/shipfox-runner/scripts/runtime/run-runner.sh /usr/local/bin/node dist/index.js
