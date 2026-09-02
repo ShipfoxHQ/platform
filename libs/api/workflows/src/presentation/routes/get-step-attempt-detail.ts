@@ -27,12 +27,17 @@ export function getStepAttemptDetailRoute(projects: ProjectsModuleClient) {
       }
 
       await requireAccessibleRun({request, id: detail.workflowRunId, projects});
-      return toStepAttemptDetailResponseDto(detail.step, detail.attempt, {
-        workflowRunId: detail.workflowRunId,
-        workflowRunAttempt: detail.workflowRunAttempt,
-        jobId: detail.jobId,
-        jobExecutionId: detail.jobExecutionId,
-      });
+      return toStepAttemptDetailResponseDto(
+        detail.step,
+        detail.attempt,
+        {
+          workflowRunId: detail.workflowRunId,
+          workflowRunAttempt: detail.workflowRunAttempt,
+          jobId: detail.jobId,
+          jobExecutionId: detail.jobExecutionId,
+        },
+        detail.diagnosticBytes,
+      );
     },
   });
 }

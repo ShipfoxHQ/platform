@@ -5,6 +5,7 @@ import {
   JobOutputNotJsonSafeError,
   JobOutputTooLargeError,
   JobOutputTooManyEntriesError,
+  WorkflowDiagnosticTooLargeError,
 } from '#core/errors.js';
 import {
   MAX_JOB_OUTPUT_ENTRIES,
@@ -484,6 +485,7 @@ describe('classifyJobOutputFailure', () => {
     [new JobOutputNotJsonSafeError('payload', 'undefined is not a JSON value'), 'output_invalid'],
     [new JobOutputTooManyEntriesError(11, 10), 'output_invalid'],
     [new JobOutputTooLargeError('payload', 16 * 1024, 16 * 1024 + 1, 'value'), 'output_too_large'],
+    [new WorkflowDiagnosticTooLargeError('execution_outputs', 1024, 2048), 'output_too_large'],
   ] as const)('classifies %s with the persisted reason', (error, statusReason) => {
     expect(classifyJobOutputFailure(error)).toMatchObject({statusReason});
   });

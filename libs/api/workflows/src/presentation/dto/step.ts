@@ -236,10 +236,18 @@ export function toStepAttemptDetailResponseDto(
     jobId: string;
     jobExecutionId: string;
   },
+  diagnosticBytes?: {
+    config?: number | null;
+    evaluationTrace?: number | null;
+  },
 ): StepAttemptDetailResponseDto {
   const authoredConfig = inlineDiagnostic('authored_config', step.authoredConfig);
-  const config = inlineDiagnostic('config', attempt.config);
-  const evaluationTrace = inlineDiagnostic('evaluation_trace', attempt.evaluationTrace);
+  const config = inlineDiagnostic('config', attempt.config, diagnosticBytes?.config);
+  const evaluationTrace = inlineDiagnostic(
+    'evaluation_trace',
+    attempt.evaluationTrace,
+    diagnosticBytes?.evaluationTrace,
+  );
   const output = inlineDiagnostic('output', attempt.output);
   const outputs = inlineDiagnostic('outputs', attempt.output);
   const response = inlineDiagnostic('response', attempt.response);

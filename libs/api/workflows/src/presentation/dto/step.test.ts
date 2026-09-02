@@ -1,4 +1,7 @@
-import {WORKFLOW_DIAGNOSTIC_RESPONSE_MAX_BYTES} from '@shipfox/api-workflows-dto';
+import {
+  WORKFLOW_DIAGNOSTIC_CONFIG_MAX_BYTES,
+  WORKFLOW_DIAGNOSTIC_RESPONSE_MAX_BYTES,
+} from '@shipfox/api-workflows-dto';
 import type {Step, StepAttempt} from '#core/entities/step.js';
 import {
   fromStepErrorDto,
@@ -608,6 +611,27 @@ describe('toStepAttemptDetailResponseDto', () => {
         reason: 'legacy_value_exceeds_inline_limit',
       },
     ]);
+  });
+
+  it('describes an oversized diagnostic omitted by the lazy detail query', () => {
+    const result = toStepAttemptDetailResponseDto(
+      step({type: 'run'}),
+      {...baseAttempt, config: null},
+      {
+        workflowRunId: '33333333-3333-4333-8333-333333333333',
+        workflowRunAttempt: 2,
+        jobId: '44444444-4444-4444-8444-444444444444',
+        jobExecutionId: '55555555-5555-4555-8555-555555555555',
+      },
+      {config: WORKFLOW_DIAGNOSTIC_CONFIG_MAX_BYTES + 1},
+    );
+
+    expect(result.config).toBeNull();
+    expect(result.oversized_fields).toContainEqual({
+      field: 'config',
+      stored_bytes: WORKFLOW_DIAGNOSTIC_CONFIG_MAX_BYTES + 1,
+      reason: 'legacy_value_exceeds_inline_limit',
+    });
   });
 
   it('derives a status-based gate result when the stored gate value is null', () => {

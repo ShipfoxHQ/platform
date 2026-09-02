@@ -1,11 +1,14 @@
-import type {LogOutcomeDto} from '@shipfox/api-workflows-dto';
+import {
+  type LogOutcomeDto,
+  WORKFLOW_DIAGNOSTIC_CONFIG_MAX_BYTES,
+  WORKFLOW_DIAGNOSTIC_EVALUATION_TRACE_MAX_BYTES,
+} from '@shipfox/api-workflows-dto';
 import {captureException} from '@shipfox/node-error-monitoring';
 import {logger} from '@shipfox/node-opentelemetry';
-import {and, asc, count, desc, eq, gte, inArray, sql} from 'drizzle-orm';
+import {and, asc, count, desc, eq, getTableColumns, gte, inArray, sql} from 'drizzle-orm';
 import {
   assertWorkflowDiagnosticSize,
   assertWorkflowStepAttemptInvocationCount,
-  boundedLegacyDiagnosticValue,
 } from '#core/diagnostics.js';
 import type {
   PersistedEvaluationTraceEntry,
@@ -63,6 +66,10 @@ export interface StepAttemptDetail {
   jobExecutionId: string;
   step: Step;
   attempt: StepAttempt;
+  diagnosticBytes?: {
+    config: number | null;
+    evaluationTrace: number | null;
+  };
 }
 
 export interface JobExecutionFailureOrigin {
@@ -144,7 +151,37 @@ export async function getStepAttemptDetail(params: {
       jobId: jobs.id,
       jobExecutionId: jobExecutions.id,
       step: steps,
-      stepAttempt: stepAttempts,
+      stepAttempt: {
+        ...getTableColumns(stepAttempts),
+        // Keep legacy oversized values out of the Node heap while retaining
+        // their byte counts for the typed oversized-field response.
+        config: sql<Record<string, unknown> | null>`case
+          when ${stepAttempts.config} is null then null
+          when jsonb_typeof(${stepAttempts.config}) = 'object'
+            and octet_length(${stepAttempts.config}::text) <= ${WORKFLOW_DIAGNOSTIC_CONFIG_MAX_BYTES}
+          then ${stepAttempts.config}
+          else null
+        end`,
+        evaluationTrace: sql<readonly PersistedEvaluationTraceEntry[] | null>`case
+          when ${stepAttempts.evaluationTrace} is null then null
+          when jsonb_typeof(${stepAttempts.evaluationTrace}) = 'array'
+            and octet_length(${stepAttempts.evaluationTrace}::text) <= ${WORKFLOW_DIAGNOSTIC_EVALUATION_TRACE_MAX_BYTES}
+          then ${stepAttempts.evaluationTrace}
+          else null
+        end`,
+      },
+      stepAttemptConfigBytes: sql<number | null>`case
+        when ${stepAttempts.config} is null then null
+        when jsonb_typeof(${stepAttempts.config}) = 'object'
+        then octet_length(${stepAttempts.config}::text)
+        else null
+      end`,
+      stepAttemptEvaluationTraceBytes: sql<number | null>`case
+        when ${stepAttempts.evaluationTrace} is null then null
+        when jsonb_typeof(${stepAttempts.evaluationTrace}) = 'array'
+        then octet_length(${stepAttempts.evaluationTrace}::text)
+        else null
+      end`,
     })
     .from(stepAttempts)
     .innerJoin(steps, eq(stepAttempts.stepId, steps.id))
@@ -166,6 +203,10 @@ export async function getStepAttemptDetail(params: {
     jobExecutionId: row.jobExecutionId,
     step: toStep(row.step),
     attempt: toStepAttempt(row.stepAttempt),
+    diagnosticBytes: {
+      config: row.stepAttemptConfigBytes ?? null,
+      evaluationTrace: row.stepAttemptEvaluationTraceBytes ?? null,
+    },
   };
 }
 
@@ -495,12 +536,9 @@ export async function insertRunningStepAttempt(
   params: InsertRunningStepAttemptParams,
   tx: Tx,
 ): Promise<string | undefined> {
-  let config = params.config;
-  let evaluationTrace = params.evaluationTrace;
-  if (params.allowLegacyOversizedDiagnostics === true) {
-    config = boundedLegacyDiagnosticValue('config', config);
-    evaluationTrace = boundedLegacyDiagnosticValue('evaluation_trace', evaluationTrace);
-  } else {
+  const config = params.config;
+  const evaluationTrace = params.evaluationTrace;
+  if (params.allowLegacyOversizedDiagnostics !== true) {
     assertWorkflowDiagnosticSize('config', config);
     assertWorkflowDiagnosticSize('evaluation_trace', evaluationTrace);
   }

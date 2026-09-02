@@ -126,6 +126,20 @@ describe('workflow run queries', () => {
       expect(latestAttempt).toBe(attempt.attempt);
       expect(foreignWorkspaceAttempt).toBeUndefined();
       expect(foreignScopedDetail).toBeUndefined();
+
+      await db()
+        .update(stepAttemptsTable)
+        .set({config: {run: 'x'.repeat(WORKFLOW_DIAGNOSTIC_CONFIG_MAX_BYTES)}})
+        .where(eq(stepAttemptsTable.id, attempt.id));
+
+      const oversizedDetail = await getStepAttemptDetail({
+        stepId: attempt.stepId,
+        attempt: attempt.attempt,
+      });
+      expect(oversizedDetail?.attempt.config).toBeNull();
+      expect(oversizedDetail?.diagnosticBytes?.config).toBeGreaterThan(
+        WORKFLOW_DIAGNOSTIC_CONFIG_MAX_BYTES,
+      );
     });
   });
 

@@ -286,12 +286,17 @@ export function createWorkflowsInterModulePresentation(params: {
       });
       return {
         detail: detail
-          ? toStepAttemptDetailResponseDto(detail.step, detail.attempt, {
-              workflowRunId: detail.workflowRunId,
-              workflowRunAttempt: detail.workflowRunAttempt,
-              jobId: detail.jobId,
-              jobExecutionId: detail.jobExecutionId,
-            })
+          ? toStepAttemptDetailResponseDto(
+              detail.step,
+              detail.attempt,
+              {
+                workflowRunId: detail.workflowRunId,
+                workflowRunAttempt: detail.workflowRunAttempt,
+                jobId: detail.jobId,
+                jobExecutionId: detail.jobExecutionId,
+              },
+              detail.diagnosticBytes,
+            )
           : null,
       };
     },
