@@ -178,7 +178,7 @@ describe('ConnectionDetailsPage', () => {
     expect(await screen.findByRole('radio', {name: SELECTED_MODE_RE})).toBeChecked();
     expect(screen.getByRole('radio', {name: ALL_MODE_RE})).not.toBeChecked();
     expect(screen.getAllByText('acme/platform')).toHaveLength(2);
-    expect(screen.getByText('Project · Platform')).toBeVisible();
+    expect(screen.getByText('Platform')).toBeVisible();
     expect(screen.getByText(SELECTED_NOTICE_RE)).toBeVisible();
     expect(screen.getByRole('link', {name: 'Change repositories on GitHub'})).toHaveAttribute(
       'href',
@@ -206,9 +206,7 @@ describe('ConnectionDetailsPage', () => {
     );
 
     expect(await screen.findByText('No project repositories yet')).toBeVisible();
-    expect(
-      screen.getByText('Create a Shipfox project to connect a repository in selected mode.'),
-    ).toBeVisible();
+    expect(screen.getByText('Create a Shipfox project to connect a repository.')).toBeVisible();
     expect(screen.getByRole('link', {name: 'Create project'})).toHaveAttribute(
       'href',
       '/w/acme/projects/new',

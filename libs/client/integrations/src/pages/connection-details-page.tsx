@@ -342,7 +342,7 @@ function SelectedRepositories({
           <EmptyState
             icon="folderOpenLine"
             title="No project repositories yet"
-            description="Create a Shipfox project to connect a repository in selected mode."
+            description="Create a Shipfox project to connect a repository."
             variant="panel"
             action={
               <Button asChild variant="secondary" size="sm">
@@ -367,7 +367,7 @@ function SelectedRepositories({
                         {repository.externalRepositoryId}
                       </Text>
                     </div>
-                    <Badge variant="neutral">Project · {repository.projectName}</Badge>
+                    <Badge variant="neutral">{repository.projectName}</Badge>
                   </li>
                 </PanelRow>
               );
