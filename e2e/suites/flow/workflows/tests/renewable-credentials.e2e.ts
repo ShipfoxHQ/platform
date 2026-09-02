@@ -21,6 +21,8 @@ import {expect, test} from './fixtures.js';
 const RUNNER_TERMINAL_TIMEOUT_MS = 180_000;
 const TEST_TIMEOUT_MS = 300_000;
 const TEST_VCS_TOKEN_PATTERN = /test-vcs-[0-9a-f-]{20,}/u;
+const TEST_VCS_EXPIRY_WAIT_SECONDS = 11;
+const TEST_VCS_REFRESH_WAIT_SECONDS = 6;
 
 const ON_REJECTION_WORKFLOW = `
 name: Renewable Git on rejection
@@ -55,7 +57,7 @@ jobs:
           persist-credentials: true
       - key: use-renewed-credentials
         run: |
-          sleep 4
+          sleep ${TEST_VCS_EXPIRY_WAIT_SECONDS}
           if git ls-remote origin main; then
             echo 'expected the expired primary credential to be rejected' >&2
             exit 1
@@ -70,7 +72,7 @@ jobs:
           printf '\\nrenewed\\n' >> README.md
           git add README.md
           git commit -m "renewed credentials"
-          sleep 4
+          sleep ${TEST_VCS_EXPIRY_WAIT_SECONDS}
           if git push origin HEAD:main; then
             echo 'expected the expired primary credential to be rejected' >&2
             exit 1
@@ -95,7 +97,7 @@ jobs:
     steps:
       - key: use-refreshed-credentials
         run: |
-          sleep 2
+          sleep ${TEST_VCS_REFRESH_WAIT_SECONDS}
           git ls-remote origin main
 `;
 
@@ -121,7 +123,7 @@ jobs:
           remote_url="$(git remote get-url origin)"
           test -z "$(git config --global --get-urlmatch credential.helper "$remote_url" || true)"
           test -z "$(git config --global --get-urlmatch http.extraHeader "$remote_url" || true)"
-          sleep 4
+          sleep ${TEST_VCS_EXPIRY_WAIT_SECONDS}
 `;
 
 const CONCURRENT_WORKFLOW = `
