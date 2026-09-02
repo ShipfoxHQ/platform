@@ -125,6 +125,29 @@ describe('buildAgentAccessMcpServer', () => {
     ]);
   });
 
+  test('converts an oversized unpaged success into a bounded content-too-large error', async () => {
+    const fixture = createAgentAccessFixtureTool();
+    const oversizedTool = {
+      ...fixture,
+      name: 'oversized_fixture',
+      execute: () => agentAccessSuccess({message: 'x'.repeat(128 * 1024)}),
+    };
+    const {client, close} = await connectClient(createAgentAccessRateLimiter(), [oversizedTool]);
+
+    const result = await client.callTool(
+      {name: 'oversized_fixture', arguments: {message: 'ignored'}},
+      CallToolResultSchema,
+    );
+    await close();
+
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toEqual({
+      ok: false,
+      error: {code: 'content-too-large'},
+    });
+    expect(agentAccessEnvelopeSchema.safeParse(result.structuredContent).success).toBe(true);
+  });
+
   test('does not count tool discovery against the credential window', async () => {
     const limiter = createAgentAccessRateLimiter({limit: 1, now: () => 1_000});
     const {client, close} = await connectClient(limiter);

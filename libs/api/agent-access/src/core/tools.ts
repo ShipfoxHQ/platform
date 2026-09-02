@@ -19,6 +19,7 @@ export interface AgentAccessTool {
   outputSchema: AgentAccessObjectSchema;
   annotations: {readonly readOnlyHint: true};
   execute: (call: AgentAccessToolCall) => Promise<AgentAccessEnvelopeDto> | AgentAccessEnvelopeDto;
+  validateResult?: ((result: unknown) => boolean) | undefined;
 }
 
 export type AgentAccessToolMap = ReadonlyMap<string, AgentAccessTool>;

@@ -20,6 +20,9 @@ const annotationTargetSchema = z.object({
   originStepId: idSchema,
   originStepAttempt: z.number().int().min(1),
 });
+const annotationReadDtoSchema = annotationDtoSchema.extend({
+  createdAt: z.string().datetime(),
+});
 export const annotationCursorSchema = z.object({
   value: z.number().int().min(1),
   id: idSchema,
@@ -54,7 +57,7 @@ export const annotationsInterModuleContract = defineInterModuleContract({
         limit: z.number().int().min(1).max(READ_ANNOTATIONS_MAX_LIMIT).optional(),
       }),
       output: z.object({
-        annotations: z.array(annotationDtoSchema),
+        annotations: z.array(annotationReadDtoSchema),
         hasMore: z.boolean(),
         nextCursor: annotationCursorSchema.nullable(),
       }),
@@ -63,3 +66,4 @@ export const annotationsInterModuleContract = defineInterModuleContract({
 });
 
 export type AnnotationsInterModuleClient = InterModuleClient<typeof annotationsInterModuleContract>;
+export type AnnotationReadDto = z.infer<typeof annotationReadDtoSchema>;
