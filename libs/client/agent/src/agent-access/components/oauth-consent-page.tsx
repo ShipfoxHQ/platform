@@ -121,11 +121,11 @@ function OAuthConsentLoaded({
   return (
     <AuthShell
       title={`Allow ${consent.clientName} to access Shipfox?`}
-      description={`Choose a workspace to connect to ${consent.clientName}.`}
+      description="Review the connection details before allowing access."
     >
       <div className="flex flex-col gap-section">
         <Panel>
-          <div className="flex flex-col gap-group p-panel">
+          <div className="flex flex-col gap-section p-panel">
             <div className="min-w-0">
               <Text bold className="truncate">
                 {consent.clientName}
@@ -135,7 +135,18 @@ function OAuthConsentLoaded({
               </Text>
             </div>
 
-            <dl className="grid grid-cols-[minmax(112px,auto)_minmax(0,1fr)] gap-x-group gap-y-inline border-t border-border-neutral-base pt-group text-sm max-[520px]:flex max-[520px]:flex-col max-[520px]:gap-group">
+            <hr className="border-border-neutral-base" />
+
+            <dl className="grid grid-cols-[minmax(112px,auto)_minmax(0,1fr)] gap-x-group gap-y-inline text-sm max-[520px]:flex max-[520px]:flex-col max-[520px]:gap-group">
+              {consent.workspaces.length === 1 ? (
+                <div className="contents max-[520px]:flex max-[520px]:flex-col max-[520px]:gap-tight">
+                  <dt className="text-foreground-neutral-muted">Workspace</dt>
+                  <dd className="min-w-0 break-words">
+                    {auth.workspaces.find(({id}) => id === consent.workspaces[0]?.id)?.name ??
+                      'Current workspace'}
+                  </dd>
+                </div>
+              ) : null}
               <div className="contents max-[520px]:flex max-[520px]:flex-col max-[520px]:gap-tight">
                 <dt className="text-foreground-neutral-muted">Client identity</dt>
                 <dd className="min-w-0">
@@ -165,29 +176,35 @@ function OAuthConsentLoaded({
         </Panel>
 
         <div className="flex flex-col gap-group">
-          <fieldset className="flex min-w-0 flex-col gap-inline" disabled={isSubmitting}>
-            <legend className="mb-inline">
-              <Text bold>Workspace</Text>
-            </legend>
-            {consent.workspaces.length > 0 ? (
-              <RadioGroup value={workspaceId} onValueChange={setWorkspaceId} aria-label="Workspace">
-                {consent.workspaces.map((workspace) => {
-                  const sessionWorkspace = auth.workspaces.find(({id}) => id === workspace.id);
-                  return (
-                    <RadioGroupItem key={workspace.id} value={workspace.id}>
-                      <Text bold className="break-words">
-                        {sessionWorkspace?.name ?? 'Workspace'}
-                      </Text>
-                    </RadioGroupItem>
-                  );
-                })}
-              </RadioGroup>
-            ) : (
-              <Callout type="warning">
-                <Text size="sm">No eligible workspaces are available for this request.</Text>
-              </Callout>
-            )}
-          </fieldset>
+          {consent.workspaces.length > 1 ? (
+            <fieldset className="min-w-0" disabled={isSubmitting}>
+              <legend className="sr-only">Workspace</legend>
+              <div className="flex flex-col gap-group">
+                <Text bold>Workspace</Text>
+                <RadioGroup
+                  value={workspaceId}
+                  onValueChange={setWorkspaceId}
+                  aria-label="Workspace"
+                >
+                  {consent.workspaces.map((workspace) => {
+                    const sessionWorkspace = auth.workspaces.find(({id}) => id === workspace.id);
+                    return (
+                      <RadioGroupItem key={workspace.id} value={workspace.id}>
+                        <Text bold className="break-words">
+                          {sessionWorkspace?.name ?? 'Workspace'}
+                        </Text>
+                      </RadioGroupItem>
+                    );
+                  })}
+                </RadioGroup>
+              </div>
+            </fieldset>
+          ) : null}
+          {consent.workspaces.length === 0 ? (
+            <Callout type="warning">
+              <Text size="sm">No eligible workspaces are available for this request.</Text>
+            </Callout>
+          ) : null}
 
           {error ? (
             <Callout type="error" role="alert">
