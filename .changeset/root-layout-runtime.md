@@ -2,4 +2,4 @@
 "@shipfox/client-shell": minor
 ---
 
-Adds a root-safe application layout with shared Shipfox chrome, route frames, and session-banner behavior.
+Adds the `ApplicationLayout` runtime component for authenticated root-scoped routes, with shared Shipfox chrome, route frames, and session-banner behavior.

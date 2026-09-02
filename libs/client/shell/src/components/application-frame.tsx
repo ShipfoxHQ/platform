@@ -1,12 +1,14 @@
 import {Button} from '@shipfox/react-ui/button';
 import {FullPageLoader} from '@shipfox/react-ui/loader';
 import {Logo} from '@shipfox/react-ui/logo';
-import {Link, Navigate, useLocation, useMatches} from '@tanstack/react-router';
+import {Link, useLocation, useMatches, useNavigate} from '@tanstack/react-router';
 import {
+  type ComponentType,
   type CSSProperties,
   type PropsWithChildren,
   type ReactNode,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -66,8 +68,6 @@ export function ApplicationFrame({
   const location = useLocation();
   const matches = useMatches();
   const {SessionBanner} = useChrome();
-  const sessionBannerStripRef = useRef<HTMLDivElement | null>(null);
-  const [bannerFailed, setBannerFailed] = useState(false);
   const [bannerHeightPx, setBannerHeightPx] = useState(() =>
     SessionBanner ? SESSION_BANNER_HEIGHT_PX : 0,
   );
@@ -79,24 +79,9 @@ export function ApplicationFrame({
     [location.href, SessionBanner],
   );
 
-  // Keep the app-content deduction aligned with the rendered strip height.
-  useEffect(() => {
-    if (!SessionBanner || bannerFailed) return;
-    const strip = sessionBannerStripRef.current;
-    if (!strip) return;
-    const observer = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (entry) setBannerHeightPx(entry.contentRect.height);
-    });
-    observer.observe(strip);
-    return () => observer.disconnect();
-  }, [SessionBanner, bannerFailed]);
-
   if (auth.isLoading) return <FullPageLoader />;
   if (!auth.isAuthenticated) {
-    return (
-      <Navigate to={'/auth/login' as never} search={{redirect: location.href} as never} replace />
-    );
+    return <GuestRedirect href={location.href} />;
   }
   if (requireWorkspace && !workspace) return <WorkspaceUnavailablePage />;
 
@@ -104,7 +89,7 @@ export function ApplicationFrame({
     (current, match) => match.staticData.frame ?? current,
     'content',
   );
-  const reservedHeightPx = SessionBanner && !bannerFailed ? bannerHeightPx : 0;
+  const reservedHeightPx = SessionBanner ? bannerHeightPx : 0;
   const chromeHeightPx = 56 + (navigation ? 40 : 0) + reservedHeightPx;
   const appContentHeight = `calc(100dvh - ${chromeHeightPx}px)`;
   const isFullBleedFrame = frame === 'data';
@@ -115,20 +100,11 @@ export function ApplicationFrame({
   return (
     <div className="h-screen w-full flex flex-col bg-background-subtle-base">
       {SessionBanner ? (
-        <ReportErrorBoundary
-          label="Failed to render session banner."
+        <SessionBannerStrip
+          sessionBanner={SessionBanner}
           retryKey={bannerRetryKey}
-          onError={() => setBannerFailed(true)}
-          onRecovered={() => setBannerFailed(false)}
-        >
-          <div
-            ref={sessionBannerStripRef}
-            className="flex shrink-0 items-center bg-background-subtle-base"
-            style={{minHeight: SESSION_BANNER_HEIGHT_PX}}
-          >
-            <SessionBanner />
-          </div>
-        </ReportErrorBoundary>
+          onHeightChange={setBannerHeightPx}
+        />
       ) : undefined}
       <ApplicationHeader compactLogo={compactLogo} context={context} />
       {navigation ? (
@@ -149,13 +125,72 @@ export function ApplicationFrame({
   );
 }
 
+function GuestRedirect({href}: {href: string}) {
+  const navigate = useNavigate();
+  const [search] = useState(() => ({redirect: href}));
+  useEffect(() => {
+    void navigate({to: '/auth/login' as never, search: search as never, replace: true});
+  }, [navigate, search]);
+  return null;
+}
+
+function SessionBannerStrip({
+  sessionBanner,
+  onHeightChange,
+  retryKey,
+}: {
+  sessionBanner: ComponentType;
+  onHeightChange: (heightPx: number) => void;
+  retryKey: unknown;
+}) {
+  const SessionBanner = sessionBanner;
+  const stripRef = useRef<HTMLDivElement | null>(null);
+  const [bannerFailed, setBannerFailed] = useState(false);
+
+  // Reset stale or failed measurements before paint when the slot state changes.
+  useLayoutEffect(() => {
+    onHeightChange(bannerFailed ? 0 : SESSION_BANNER_HEIGHT_PX);
+  }, [bannerFailed, onHeightChange]);
+
+  // The strip exists only after authentication succeeds, so observation starts
+  // when the guarded browser chrome actually mounts.
+  useEffect(() => {
+    if (bannerFailed || typeof ResizeObserver === 'undefined') return;
+    const strip = stripRef.current;
+    if (!strip) return;
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) onHeightChange(entry.contentRect.height);
+    });
+    observer.observe(strip);
+    return () => observer.disconnect();
+  }, [bannerFailed, onHeightChange]);
+
+  return (
+    <ReportErrorBoundary
+      label="Failed to render session banner."
+      retryKey={retryKey}
+      onError={() => setBannerFailed(true)}
+      onRecovered={() => setBannerFailed(false)}
+    >
+      <div
+        ref={stripRef}
+        className="flex shrink-0 items-center bg-background-subtle-base"
+        style={{minHeight: SESSION_BANNER_HEIGHT_PX}}
+      >
+        <SessionBanner />
+      </div>
+    </ReportErrorBoundary>
+  );
+}
+
 function ApplicationHeader({compactLogo, context}: {compactLogo: boolean; context: ReactNode}) {
   return (
     <header className="sticky top-0 z-30 h-56 px-row flex items-center gap-cluster bg-background-subtle-base border-b border-border-neutral-base shrink-0">
       <Link
         to="/"
         aria-label="Shipfox home"
-        className="rounded-6 focus-visible:outline-none focus-visible:shadow-button-neutral-focus"
+        className="shrink-0 rounded-6 focus-visible:outline-none focus-visible:shadow-button-neutral-focus"
       >
         {compactLogo ? (
           <>
@@ -166,20 +201,22 @@ function ApplicationHeader({compactLogo, context}: {compactLogo: boolean; contex
           <Logo variant="wordmark" alt="" />
         )}
       </Link>
-      <span className="h-20 w-px bg-border-neutral-base" aria-hidden="true" />
-      {context}
-      <div className="flex-1" />
-      <Button asChild variant="transparent" size="sm" className="text-foreground-neutral-subtle">
-        <a
-          href="https://shipfox.io/docs"
-          target="_blank"
-          rel="noreferrer noopener"
-          aria-label="Docs (opens in new tab)"
-        >
-          Docs
-        </a>
-      </Button>
-      <UserMenu />
+      <span className="h-20 w-px shrink-0 bg-border-neutral-base" aria-hidden="true" />
+      <div className="flex min-w-0 items-center gap-cluster overflow-hidden">{context}</div>
+      <div className="min-w-0 flex-1" />
+      <div className="flex shrink-0 items-center gap-cluster">
+        <Button asChild variant="transparent" size="sm" className="text-foreground-neutral-subtle">
+          <a
+            href="https://shipfox.io/docs"
+            target="_blank"
+            rel="noreferrer noopener"
+            aria-label="Docs (opens in new tab)"
+          >
+            Docs
+          </a>
+        </Button>
+        <UserMenu />
+      </div>
     </header>
   );
 }

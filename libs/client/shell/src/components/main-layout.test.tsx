@@ -1,5 +1,5 @@
 import type {AnyRouter} from '@tanstack/react-router';
-import {screen} from '@testing-library/react';
+import {fireEvent, screen, waitFor, within} from '@testing-library/react';
 import {atom, useAtomValue} from 'jotai';
 import {defineClientFeature} from '#contract.js';
 import type {ChromeSlots} from '#runtime/chrome-context.js';
@@ -12,20 +12,100 @@ function overviewFeature() {
     routes: [
       {path: '/w/$workspaceSlug/overview', parent: 'workspaceLayout', impl: 'overview'},
       {path: '/w/$workspaceSlug/projects', parent: 'workspaceLayout', impl: 'projects'},
+      {
+        path: '/w/$workspaceSlug/p/$projectSlug/runs',
+        parent: 'projectLayout',
+        impl: 'runs',
+      },
+      {
+        path: '/w/$workspaceSlug/p/$projectSlug/activity',
+        parent: 'projectLayout',
+        impl: 'activity',
+      },
+    ],
+    navigation: [
+      {
+        id: 'overview',
+        scope: 'workspace',
+        label: 'Overview',
+        to: '/w/$workspaceSlug/overview',
+      },
+      {
+        id: 'projects',
+        scope: 'workspace',
+        label: 'Projects',
+        to: '/w/$workspaceSlug/projects',
+      },
+      {
+        id: 'runs',
+        scope: 'project',
+        label: 'Runs',
+        to: '/w/$workspaceSlug/p/$projectSlug/runs',
+      },
+      {
+        id: 'activity',
+        scope: 'project',
+        label: 'Activity',
+        to: '/w/$workspaceSlug/p/$projectSlug/activity',
+      },
     ],
   });
 }
 
-function renderMainLayout(chrome: Partial<ChromeSlots> = {}, hideProjectNavigation = false) {
+function renderMainLayout(
+  chrome: Partial<ChromeSlots> = {},
+  hideProjectNavigation = false,
+  initialPath = '/w/workspace/overview',
+) {
   return renderComposedShell({
     features: [overviewFeature()],
-    initialPath: '/w/workspace/overview',
-    resolveImpl: () =>
-      defineRoute({staticData: {frame: 'content'}, component: () => <h1>Overview</h1>}),
+    initialPath,
+    resolveImpl: (specifier) =>
+      defineRoute({
+        staticData: {frame: 'content'},
+        component: () => <h1>{specifier}</h1>,
+      }),
     chrome,
     workspaceSetup: async () => ({hideProjectNavigation}),
   });
 }
+
+describe('MainLayout navigation', () => {
+  test.each([
+    {
+      initialPath: '/w/workspace/overview',
+      labels: ['Overview', 'Projects'],
+      targetLabel: 'Projects',
+      targetPath: '/w/workspace/projects',
+    },
+    {
+      initialPath: '/w/workspace/p/project/runs',
+      labels: ['Runs', 'Activity'],
+      targetLabel: 'Activity',
+      targetPath: '/w/workspace/p/project/activity',
+    },
+  ])('filters and resolves navigation at $initialPath', async ({
+    initialPath,
+    labels,
+    targetLabel,
+    targetPath,
+  }) => {
+    const {router} = await renderMainLayout({}, false, initialPath);
+
+    const navigation = await screen.findByRole('tablist');
+    expect(
+      within(navigation)
+        .getAllByRole('tab')
+        .map((tab) => tab.textContent),
+    ).toEqual(labels);
+    const target = within(navigation).getByRole('tab', {name: targetLabel});
+    expect(target).toHaveAttribute('href', targetPath);
+
+    fireEvent.click(target);
+
+    await waitFor(() => expect((router as AnyRouter).state.location.pathname).toBe(targetPath));
+  });
+});
 
 describe('MainLayout session banner', () => {
   test('renders no banner strip when the slot is absent', async () => {

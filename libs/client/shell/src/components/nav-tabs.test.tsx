@@ -27,7 +27,13 @@ const entries: readonly NavTabEntry[] = [
 ];
 
 function WorkspaceTabs() {
-  return <NavTabs ariaLabel="Workspace sections" entries={entries} />;
+  return (
+    <NavTabs
+      ariaLabel="Workspace sections"
+      entries={entries}
+      params={{workspaceSlug: 'workspace'}}
+    />
+  );
 }
 
 const projectEntries: readonly NavTabEntry[] = [
@@ -68,6 +74,8 @@ describe('NavTabs', () => {
     expect(projectsTab).toHaveAttribute('aria-selected', 'false');
     expect(settingsTab).toHaveClass('text-foreground-neutral-base');
     expect(settingsTab).toHaveAttribute('aria-selected', 'true');
+    expect(projectsTab).toHaveAttribute('href', '/w/workspace/projects');
+    expect(settingsTab).toHaveAttribute('href', '/w/workspace/settings');
   });
 
   test('uses a quiet branded marker for the active project section', async () => {
@@ -76,7 +84,12 @@ describe('NavTabs', () => {
       getParentRoute: () => rootRoute,
       path: '/w/$workspaceSlug/p/$projectSlug/runs',
       component: () => (
-        <NavTabs ariaLabel="Project sections" entries={projectEntries} projectScoped />
+        <NavTabs
+          ariaLabel="Project sections"
+          entries={projectEntries}
+          params={{workspaceSlug: 'workspace', projectSlug: 'project'}}
+          projectScoped
+        />
       ),
     });
     const router = createRouter({
@@ -94,5 +107,6 @@ describe('NavTabs', () => {
     expect(runsTab).toHaveClass('shrink-0', 'whitespace-nowrap');
     expect(runsTab).toHaveClass('border-b', 'border-border-highlights-interactive');
     expect(runsTab).not.toHaveClass('border-b-2');
+    expect(runsTab).toHaveAttribute('href', '/w/workspace/p/project/runs');
   });
 });

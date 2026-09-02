@@ -1,10 +1,11 @@
 import {DropdownMenuItem} from '@shipfox/react-ui/dropdown-menu';
 import type {AnyRouter} from '@tanstack/react-router';
-import {act, fireEvent, screen, within} from '@testing-library/react';
+import {act, fireEvent, screen, waitFor, within} from '@testing-library/react';
 import {atom, useAtomValue} from 'jotai';
+import type {ComponentType} from 'react';
 import {defineClientFeature} from '#contract.js';
-import type {AuthStateValue} from '#runtime/auth.js';
-import type {ChromeSlots} from '#runtime/chrome-context.js';
+import {type AuthStateValue, authStateAtom} from '#runtime/auth.js';
+import {ChromeProvider, type ChromeSlots, useChrome} from '#runtime/chrome-context.js';
 import {defineRoute} from '#runtime/define-route.js';
 import {useLayoutNavigation} from '#runtime/layout-navigation.js';
 import {renderComposedShell} from '#test/render.js';
@@ -16,6 +17,22 @@ const ROOT_AUTH: AuthStateValue = {
   workspaces: [],
   isLoading: false,
   isAuthenticated: true,
+  hasWorkspace: false,
+};
+
+const LOADING_AUTH: AuthStateValue = {
+  status: 'loading',
+  workspaces: [],
+  isLoading: true,
+  isAuthenticated: false,
+  hasWorkspace: false,
+};
+
+const GUEST_AUTH: AuthStateValue = {
+  status: 'guest',
+  workspaces: [],
+  isLoading: false,
+  isAuthenticated: false,
   hasWorkspace: false,
 };
 
@@ -56,6 +73,39 @@ const emptyAdminFeature = defineClientFeature({
   routes: [{path: '/empty-admin/overview', parent: 'acme.empty-admin', impl: 'empty-overview'}],
 });
 
+const authFeature = defineClientFeature({
+  id: 'acme.auth',
+  routes: [{path: '/auth/login', parent: 'root', impl: 'login'}],
+});
+
+const tenantAdminFeature = defineClientFeature({
+  id: 'acme.tenant-admin',
+  layouts: [
+    {
+      id: 'acme.tenant-admin',
+      path: '/tenant/$tenantSlug/admin',
+      parent: 'root',
+      impl: 'tenant-layout',
+    },
+  ],
+  routes: [
+    {
+      path: '/tenant/$tenantSlug/admin/overview',
+      parent: 'acme.tenant-admin',
+      impl: 'tenant-overview',
+    },
+  ],
+  navigation: [
+    {
+      id: 'tenant-admin.overview',
+      scope: 'layout',
+      layout: 'acme.tenant-admin',
+      label: 'Tenant overview',
+      to: '/tenant/$tenantSlug/admin/overview',
+    },
+  ],
+});
+
 function AdminLayout() {
   const entries = useLayoutNavigation('acme.admin');
   return (
@@ -81,6 +131,28 @@ function EmptyAdminLayout() {
   );
 }
 
+function TenantAdminLayout() {
+  const entries = useLayoutNavigation('acme.tenant-admin');
+  return (
+    <ApplicationLayout
+      context={<span>Tenant administration</span>}
+      navigation={{ariaLabel: 'Tenant administration sections', entries}}
+    />
+  );
+}
+
+function AdminLayoutWithChildren() {
+  const entries = useLayoutNavigation('acme.admin');
+  return (
+    <ApplicationLayout
+      context={<span>Administration</span>}
+      navigation={{ariaLabel: 'Administration sections', entries}}
+    >
+      <div>Inline administration content</div>
+    </ApplicationLayout>
+  );
+}
+
 function routeHeading(specifier: string) {
   const labels: Record<string, string> = {
     overview: 'Overview page',
@@ -88,37 +160,65 @@ function routeHeading(specifier: string) {
     users: 'Users page',
     user: 'User page',
     'empty-overview': 'Empty overview',
+    'tenant-overview': 'Tenant overview page',
   };
   return labels[specifier] ?? specifier;
 }
 
 function renderAdmin({
+  auth = ROOT_AUTH,
   chrome,
   frame = 'content',
+  layoutComponent,
   path = '/admin/overview',
 }: {
+  auth?: AuthStateValue;
   chrome?: Partial<ChromeSlots>;
   frame?: 'content' | 'data' | 'focused';
+  layoutComponent?: ComponentType;
   path?: string;
 } = {}) {
-  const features = path.startsWith('/empty-admin') ? [emptyAdminFeature] : [adminFeature];
+  const feature = path.startsWith('/empty-admin') ? emptyAdminFeature : adminFeature;
   return renderComposedShell({
-    auth: ROOT_AUTH,
-    features,
+    auth,
+    features: [feature, authFeature],
     initialPath: path,
     ...(chrome ? {chrome} : {}),
     resolveImpl: (specifier) => {
       if (specifier === 'layout') {
-        return defineRoute({staticData: {frame: 'content'}, component: AdminLayout});
+        return defineRoute({
+          staticData: {frame: 'content'},
+          component: layoutComponent ?? AdminLayout,
+        });
       }
       if (specifier === 'empty-layout') {
         return defineRoute({staticData: {frame: 'content'}, component: EmptyAdminLayout});
+      }
+      if (specifier === 'login') {
+        return defineRoute({
+          staticData: {frame: 'content'},
+          component: () => <h1>Login page</h1>,
+        });
       }
       return defineRoute({
         staticData: {frame},
         component: () => <h1>{routeHeading(specifier)}</h1>,
       });
     },
+  });
+}
+
+function renderTenantAdmin() {
+  return renderComposedShell({
+    auth: ROOT_AUTH,
+    features: [tenantAdminFeature],
+    initialPath: '/tenant/acme/admin/overview',
+    resolveImpl: (specifier) =>
+      defineRoute({
+        staticData: {frame: 'content'},
+        component:
+          specifier === 'tenant-layout' ? TenantAdminLayout : () => <h1>Tenant overview page</h1>,
+      }),
   });
 }
 
@@ -141,6 +241,26 @@ describe('ApplicationLayout', () => {
         .map((tab) => tab.textContent),
     ).toEqual(['Overview', 'Users']);
     expect(screen.getByRole('main')).toHaveStyle('--app-content-h: calc(100dvh - 96px)');
+  });
+
+  test('keeps account controls reachable when header context is long', async () => {
+    await renderAdmin();
+
+    const context = (await screen.findByText('Administration')).parentElement;
+    expect(context).toHaveClass('min-w-0', 'overflow-hidden');
+    expect(screen.getByRole('link', {name: 'Docs (opens in new tab)'}).parentElement).toHaveClass(
+      'shrink-0',
+    );
+    expect(screen.getByRole('button', {name: 'User menu'})).toBeVisible();
+  });
+
+  test('resolves layout navigation parameters from a dynamic root route', async () => {
+    await renderTenantAdmin();
+
+    expect(await screen.findByRole('tab', {name: 'Tenant overview'})).toHaveAttribute(
+      'href',
+      '/tenant/acme/admin/overview',
+    );
   });
 
   test.each([
@@ -240,6 +360,55 @@ describe('ApplicationLayout', () => {
     }
   });
 
+  test('keeps the 40px fallback when ResizeObserver is unavailable', async () => {
+    vi.stubGlobal('ResizeObserver', undefined);
+
+    try {
+      await renderAdmin({chrome: {SessionBanner: () => <div>Root session banner</div>}});
+
+      expect(await screen.findByText('Root session banner')).toBeVisible();
+      expect(screen.getByRole('main')).toHaveStyle('--app-content-h: calc(100dvh - 136px)');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  test('installs banner measurement after authentication finishes loading', async () => {
+    let resize: ResizeObserverCallback | undefined;
+    class ResizeObserverProbe {
+      constructor(callback: ResizeObserverCallback) {
+        resize = callback;
+      }
+      observe(): void {
+        // The test only needs to confirm observation starts after authentication.
+      }
+      unobserve(): void {
+        // The test only needs to confirm observation starts after authentication.
+      }
+      disconnect(): void {
+        // The test only needs to confirm observation starts after authentication.
+      }
+    }
+    vi.stubGlobal('ResizeObserver', ResizeObserverProbe);
+
+    try {
+      const {store} = await renderAdmin({
+        auth: LOADING_AUTH,
+        chrome: {SessionBanner: () => <div>Root session banner</div>},
+      });
+
+      expect(await screen.findByRole('status', {name: 'Loading'})).toBeVisible();
+      expect(screen.queryByText('Administration')).not.toBeInTheDocument();
+
+      act(() => store.set(authStateAtom, ROOT_AUTH));
+
+      expect(await screen.findByText('Administration')).toBeVisible();
+      await waitFor(() => expect(resize).toBeTypeOf('function'));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   test('contains and retries a failing session banner when the route changes', async () => {
     const failure = new Error('Root session banner failed');
     const reportErrorSpy = vi.fn();
@@ -271,6 +440,61 @@ describe('ApplicationLayout', () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  test('measures a failed banner again after its slot is removed and re-added', async () => {
+    const failure = new Error('Root session banner failed');
+    const reportErrorSpy = vi.fn();
+    const bannerFailedAtom = atom(true);
+    vi.stubGlobal('reportError', reportErrorSpy);
+    function RecoverableSessionBanner() {
+      if (useAtomValue(bannerFailedAtom)) throw failure;
+      return <div>Recovered root session banner</div>;
+    }
+    const bannerSlotAtom = atom<{slot?: ComponentType}>({slot: RecoverableSessionBanner});
+    function DynamicChromeAdminLayout() {
+      const chrome = useChrome();
+      const {slot} = useAtomValue(bannerSlotAtom);
+      return (
+        <ChromeProvider chrome={slot ? {...chrome, SessionBanner: slot} : chrome}>
+          <AdminLayout />
+        </ChromeProvider>
+      );
+    }
+
+    try {
+      const {store} = await renderAdmin({layoutComponent: DynamicChromeAdminLayout});
+
+      expect(await screen.findByRole('main')).toHaveStyle('--app-content-h: calc(100dvh - 96px)');
+      act(() => {
+        store.set(bannerSlotAtom, {});
+        store.set(bannerFailedAtom, false);
+      });
+      act(() => store.set(bannerSlotAtom, {slot: RecoverableSessionBanner}));
+
+      expect(await screen.findByText('Recovered root session banner')).toBeVisible();
+      expect(screen.getByRole('main')).toHaveStyle('--app-content-h: calc(100dvh - 136px)');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  test('redirects guests to login with the original root route', async () => {
+    const {router} = await renderAdmin({auth: GUEST_AUTH});
+
+    expect(await screen.findByRole('heading', {name: 'Login page'})).toBeVisible();
+    await waitFor(() =>
+      expect((router as AnyRouter).state.location.href).toBe(
+        '/auth/login?redirect=%2Fadmin%2Foverview',
+      ),
+    );
+  });
+
+  test('renders supplied children instead of the nested route outlet', async () => {
+    await renderAdmin({layoutComponent: AdminLayoutWithChildren});
+
+    expect(await screen.findByText('Inline administration content')).toBeVisible();
+    expect(screen.queryByRole('heading', {name: 'Overview page'})).not.toBeInTheDocument();
   });
 
   test.each([
