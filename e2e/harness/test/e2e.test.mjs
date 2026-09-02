@@ -233,6 +233,24 @@ describe('turboCommandArgs', () => {
 
     assert.deepEqual(args, ['test:e2e', '--concurrency', '4']);
   });
+
+  test('places the environment concurrency before test-runner arguments', () => {
+    const args = turboCommandArgs(
+      {
+        turboArgs: ['--filter=@shipfox/e2e-client-agent', '--', '--grep=renewable'],
+        turboTask: 'test:e2e',
+      },
+      {SHIPFOX_TURBO_CONCURRENCY: '2'},
+    );
+
+    assert.deepEqual(args, [
+      'test:e2e',
+      '--filter=@shipfox/e2e-client-agent',
+      '--concurrency=2',
+      '--',
+      '--grep=renewable',
+    ]);
+  });
 });
 
 describe('defaultLogDir', () => {

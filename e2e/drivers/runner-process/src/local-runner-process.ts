@@ -9,7 +9,7 @@ import {
   symlinkSync,
 } from 'node:fs';
 import {createRequire} from 'node:module';
-import {delimiter, dirname, join} from 'node:path';
+import {delimiter, dirname, join, resolve} from 'node:path';
 import {config} from '@shipfox/e2e-core';
 
 const DEFAULT_SIGTERM_TIMEOUT_MS = 15_000;
@@ -116,9 +116,14 @@ function createCredentialHelperBin(
     );
   }
 
-  const helperBinDir = mkdtempSync(join(dirname(params.logFile), '.credential-helper-'));
-  symlinkSync(helperTarget, join(helperBinDir, 'git-credential-shipfox'));
-  return helperBinDir;
+  const helperBinDir = mkdtempSync(join(resolve(dirname(params.logFile)), '.credential-helper-'));
+  try {
+    symlinkSync(helperTarget, join(helperBinDir, 'git-credential-shipfox'));
+    return helperBinDir;
+  } catch (error) {
+    removeCredentialHelperBin(helperBinDir);
+    throw error;
+  }
 }
 
 function removeCredentialHelperBin(helperBinDir: string | undefined): void {
@@ -143,19 +148,21 @@ export function startLocalRunner(params: StartLocalRunnerParams): LocalRunnerHan
   const {cwd, entry} = runnerModule;
   const credentialHelperBinDir = createCredentialHelperBin(runnerModule, params);
 
-  const logFd = openSync(params.logFile, 'a');
   let child: ChildProcess;
   try {
-    child = spawn(process.execPath, ['--import', 'tsx', '--conditions=workspace-source', entry], {
-      cwd,
-      stdio: ['ignore', logFd, logFd],
-      env: buildRunnerEnv(params, credentialHelperBinDir),
-    });
+    const logFd = openSync(params.logFile, 'a');
+    try {
+      child = spawn(process.execPath, ['--import', 'tsx', '--conditions=workspace-source', entry], {
+        cwd,
+        stdio: ['ignore', logFd, logFd],
+        env: buildRunnerEnv(params, credentialHelperBinDir),
+      });
+    } finally {
+      closeSync(logFd);
+    }
   } catch (error) {
     removeCredentialHelperBin(credentialHelperBinDir);
     throw error;
-  } finally {
-    closeSync(logFd);
   }
 
   const {pid} = child;

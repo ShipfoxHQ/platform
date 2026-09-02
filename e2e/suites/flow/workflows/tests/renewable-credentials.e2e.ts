@@ -133,6 +133,7 @@ triggers:
     event: fire
 jobs:
   first:
+    runner: __FIRST_RUNNER_LABEL__
     checkout:
       permissions:
         contents: read
@@ -143,6 +144,7 @@ jobs:
           sleep 1
           git ls-remote origin main
   second:
+    runner: __SECOND_RUNNER_LABEL__
     checkout:
       permissions:
         contents: read
@@ -315,6 +317,7 @@ test('shares one provider mint across concurrent jobs with the same scope', asyn
   test.setTimeout(TEST_TIMEOUT_MS);
   const uniqueId = shortId();
   const runnerLabel = `e2e-renewable-concurrent-${uniqueId}`;
+  const runnerLabels = [`${runnerLabel}-first`, `${runnerLabel}-second`] as const;
   const repositoryName = `concurrent-${uniqueId}`;
   const configPath = `.shipfox/workflows/${repositoryName}.yml`;
   const before = await getTestVcsStats({connectionId: suite.testVcsConnectionId});
@@ -326,6 +329,7 @@ test('shares one provider mint across concurrent jobs with the same scope', asyn
     owner: suite.testVcsAccountId,
     repositoryName,
     runnerLabel,
+    runnerLabels,
     configPath,
     workflowYaml: CONCURRENT_WORKFLOW,
   });
@@ -337,6 +341,7 @@ test('shares one provider mint across concurrent jobs with the same scope', asyn
     scenario: 'renewable-credentials-concurrent',
     runnerLabel,
     runnerCount: 2,
+    runnerLabels,
     renewableGit: true,
   });
   const after = await getTestVcsStats({connectionId: suite.testVcsConnectionId});
@@ -400,6 +405,7 @@ async function seedTestVcsWorkflow(params: {
   owner: string;
   repositoryName: string;
   runnerLabel: string;
+  runnerLabels?: readonly [string, string] | undefined;
   configPath: string;
   workflowYaml: string;
   secondaryRepositoryName?: string | undefined;
@@ -433,11 +439,14 @@ function renderTestVcsWorkflow(params: {
   owner: string;
   repositoryName: string;
   runnerLabel: string;
+  runnerLabels?: readonly [string, string] | undefined;
   secondaryRepositoryName?: string | undefined;
   workflowYaml: string;
 }): string {
   let rendered = params.workflowYaml
     .replaceAll('__RUNNER_LABEL__', params.runnerLabel)
+    .replaceAll('__FIRST_RUNNER_LABEL__', params.runnerLabels?.[0] ?? params.runnerLabel)
+    .replaceAll('__SECOND_RUNNER_LABEL__', params.runnerLabels?.[1] ?? params.runnerLabel)
     .replaceAll('__TEST_VCS_CONNECTION__', params.connectionSlug)
     .replaceAll('__TEST_VCS_REPOSITORY__', `${params.owner}/${params.repositoryName}`);
   if (params.secondaryRepositoryName !== undefined) {
@@ -458,24 +467,27 @@ async function runWorkflow(params: {
   scenario: string;
   runnerLabel: string;
   runnerCount?: number | undefined;
+  runnerLabels?: readonly string[] | undefined;
   renewableGit: boolean;
 }): Promise<{terminal: WorkflowRunDetailResponseDto; logFiles: string[]}> {
   const token = params.suite.sessionToken;
   const client = createApiClient({token});
   const localRunners: Array<Awaited<ReturnType<typeof startSuiteLocalRunner>>> = [];
+  const runnerCount = params.runnerCount ?? 1;
+  if (params.runnerLabels !== undefined && params.runnerLabels.length !== runnerCount) {
+    throw new Error(`Expected ${runnerCount} runner labels, got ${params.runnerLabels.length}`);
+  }
 
   try {
-    for (let index = 0; index < (params.runnerCount ?? 1); index += 1) {
+    for (let index = 0; index < runnerCount; index += 1) {
+      const runnerLabel = params.runnerLabels?.[index] ?? params.runnerLabel;
       localRunners.push(
         await startSuiteLocalRunner({
           workspaceId: params.suite.workspaceId,
           userToken: token,
           name: `E2E ${params.scenario} ${params.runnerCount === undefined ? '' : index + 1}`,
-          runnerLabel: params.runnerLabel,
-          runnerInstanceId:
-            params.runnerCount === undefined || params.runnerCount === 1
-              ? undefined
-              : String(index + 1),
+          runnerLabel,
+          runnerInstanceId: runnerCount === 1 ? undefined : String(index + 1),
           extraEnv: {
             GIT_SSL_NO_VERIFY: 'true',
             SHIPFOX_POLL_MAX_DURATION_MS: String(RUNNER_TERMINAL_TIMEOUT_MS),

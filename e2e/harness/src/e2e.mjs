@@ -395,11 +395,21 @@ export function turboCommandArgs(options, env) {
   if (hasTurboConcurrency(args)) return args;
 
   const concurrency = env.SHIPFOX_TURBO_CONCURRENCY;
-  return concurrency ? [...args, `--concurrency=${concurrency}`] : args;
+  if (!concurrency) return args;
+
+  const separatorIndex = args.indexOf('--');
+  if (separatorIndex < 0) return [...args, `--concurrency=${concurrency}`];
+  return [
+    ...args.slice(0, separatorIndex),
+    `--concurrency=${concurrency}`,
+    ...args.slice(separatorIndex),
+  ];
 }
 
 function hasTurboConcurrency(args) {
-  return args.some((arg) => arg === '--concurrency' || arg.startsWith('--concurrency='));
+  const separatorIndex = args.indexOf('--');
+  const turboArgs = separatorIndex < 0 ? args : args.slice(0, separatorIndex);
+  return turboArgs.some((arg) => arg === '--concurrency' || arg.startsWith('--concurrency='));
 }
 
 export function defaultLogDir(env) {

@@ -48,7 +48,7 @@ function credentials(
 
 describe('Test VCS smart HTTP fixture', () => {
   it('requires a credential and accepts a fresh credential after expiry', async () => {
-    const fixture = createTestVcsFixture({port: 0, credentialTtlSeconds: 1});
+    const fixture = createTestVcsFixture({port: 0});
     const workingDirectory = await mkdtemp(join(tmpdir(), 'shipfox-test-vcs-git-'));
     try {
       await fixture.start();
@@ -96,6 +96,25 @@ describe('Test VCS smart HTTP fixture', () => {
     } finally {
       await fixture.close();
       await rm(workingDirectory, {recursive: true, force: true});
+    }
+  });
+
+  it('rejects Git-invalid default branch names before creating a repository', async () => {
+    const fixture = createTestVcsFixture({port: 0});
+    try {
+      await fixture.start();
+
+      await expect(
+        fixture.createRepository({
+          owner: 'e2e-owner',
+          name: 'invalid-branch',
+          defaultBranch: 'feature.lock',
+          files: [{path: 'README.md', content: '# Test VCS\n'}],
+        }),
+      ).rejects.toThrow('Invalid test VCS branch name');
+      expect(fixture.getRepository('e2e-owner', 'invalid-branch')).toBeUndefined();
+    } finally {
+      await fixture.close();
     }
   });
 });

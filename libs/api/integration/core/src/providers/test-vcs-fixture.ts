@@ -18,6 +18,7 @@ import type {
   RepositorySnapshot,
   ResolvedRef,
 } from '@shipfox/api-integration-spi';
+import {isValidGitRefName, MAX_REPOSITORY_FILE_BYTES} from '@shipfox/api-integration-spi';
 import type {ModuleService} from '@shipfox/node-module';
 
 const execFileAsync = promisify(execFile);
@@ -25,6 +26,7 @@ const TEST_VCS_USERNAME = 'x-access-token';
 const TEST_VCS_REALM = 'shipfox-test-vcs';
 const GIT_BACKEND_TIMEOUT_MS = 60_000;
 const MAX_GIT_OUTPUT_BYTES = 8 * 1024 * 1024;
+const MAX_TEST_VCS_FILE_BYTES = MAX_REPOSITORY_FILE_BYTES * 2;
 const REPOSITORY_PART_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u;
 const GIT_TREE_FIELD_PATTERN = /\s+/u;
 const GIT_REPOSITORY_PATH_PATTERN = /^\/([^/]+)\/([^/]+)\.git(?:\/|$)/u;
@@ -118,10 +120,7 @@ interface GitHttpRequest {
   owner?: string | undefined;
 }
 
-export function createTestVcsFixture(options: {
-  port: number;
-  credentialTtlSeconds: number;
-}): TestVcsFixture {
+export function createTestVcsFixture(options: {port: number}): TestVcsFixture {
   const repositories = new Map<string, RepositoryRecord>();
   const credentials = new Map<string, CredentialRecord>();
   const requests: GitHttpRequest[] = [];
@@ -179,11 +178,11 @@ export function createTestVcsFixture(options: {
       assertRepositoryPart(input.owner, 'owner');
       assertRepositoryPart(input.name, 'repository');
       const defaultBranch = input.defaultBranch ?? 'main';
-      assertBranchName(defaultBranch);
+      const root = requireRoot();
+      await assertBranchName(defaultBranch, root);
       if (input.files.length === 0) throw new Error('Test VCS repositories need at least one file');
       const key = repositoryKey(input.owner, input.name);
       if (repositories.has(key)) throw new Error(`Test VCS repository already exists: ${key}`);
-      const root = requireRoot();
       const barePath = join(root, input.owner, `${input.name}.git`);
       const seedPath = join(root, 'seeds', input.owner, input.name);
       await mkdir(dirname(barePath), {recursive: true});
@@ -264,7 +263,7 @@ export function createTestVcsFixture(options: {
       const repository = requireRepository(input.owner, input.name);
       assertRelativePath(input.path);
       const content = await git(['show', `${input.ref}:${input.path}`], repository.seedPath);
-      if (Buffer.byteLength(content, 'utf8') > 1_000_000) {
+      if (Buffer.byteLength(content, 'utf8') > MAX_TEST_VCS_FILE_BYTES) {
         throw new Error('Test VCS file is too large');
       }
       return {path: input.path, ref: input.ref, content};
@@ -522,8 +521,14 @@ function assertRepositoryPart(value: string, label: string): void {
   if (!REPOSITORY_PART_PATTERN.test(value)) throw new Error(`Invalid test VCS ${label}`);
 }
 
-function assertBranchName(value: string): void {
-  if (!value || value.startsWith('-') || value.includes('..') || value.includes(' ')) {
+export function isValidTestVcsBranchName(value: string): boolean {
+  return !value.startsWith('-') && isValidGitRefName(`refs/heads/${value}`);
+}
+
+async function assertBranchName(value: string, cwd: string): Promise<void> {
+  try {
+    await git(['check-ref-format', '--branch', value], cwd);
+  } catch {
     throw new Error('Invalid test VCS branch name');
   }
 }
@@ -592,12 +597,18 @@ async function proxyToGitHttpBackend(
   childExitPromises.set(child, exitPromise);
   child.stdin.on('error', () => request.unpipe(child.stdin));
   request.pipe(child.stdin);
-  const [body, errorOutput, exitCode] = await Promise.all([output, error, exitPromise]).finally(
-    () => {
-      children.delete(child);
-      childExitPromises.delete(child);
-    },
-  );
+  let body: Buffer;
+  let errorOutput: Buffer;
+  let exitCode: number;
+  try {
+    [body, errorOutput, exitCode] = await Promise.all([output, error, exitPromise]);
+  } catch (error) {
+    await terminateChild(child);
+    throw error;
+  } finally {
+    children.delete(child);
+    childExitPromises.delete(child);
+  }
   if (exitCode !== 0) throw new Error(`git-http-backend failed (${errorOutput.byteLength} bytes)`);
   const separator = body.indexOf(Buffer.from('\r\n\r\n'));
   if (separator < 0) throw new Error('git-http-backend returned malformed CGI headers');
@@ -620,17 +631,38 @@ function collect(stream: NodeJS.ReadableStream): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let size = 0;
+    let settled = false;
     stream.on('data', (chunk: Buffer) => {
+      if (settled) return;
       size += chunk.byteLength;
       if (size > MAX_GIT_OUTPUT_BYTES) {
+        settled = true;
         reject(new Error('git-http-backend output exceeded the fixture limit'));
         return;
       }
       chunks.push(Buffer.from(chunk));
     });
-    stream.once('error', reject);
-    stream.once('end', () => resolve(Buffer.concat(chunks)));
+    stream.once('error', (error) => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    });
+    stream.once('end', () => {
+      if (settled) return;
+      settled = true;
+      resolve(Buffer.concat(chunks));
+    });
   });
+}
+
+async function terminateChild(child: ChildProcess): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  const exited = new Promise<void>((resolve) => {
+    child.once('close', () => resolve());
+    child.once('error', () => resolve());
+  });
+  child.kill();
+  await exited;
 }
 
 function waitForExit(child: ChildProcess, timeoutMs: number): Promise<number> {

@@ -23,6 +23,7 @@ import {
 import {
   createTestVcsFixture,
   createTestVcsFixtureService,
+  isValidTestVcsBranchName,
   type TestVcsFileInput,
   type TestVcsRenewalMode,
 } from '#providers/test-vcs-fixture.js';
@@ -33,6 +34,11 @@ const repositoryPartSchema = z
   .min(1)
   .max(64)
   .regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u);
+const branchNameSchema = z
+  .string()
+  .min(1)
+  .max(200)
+  .refine(isValidTestVcsBranchName, {message: 'must be a valid Git branch name'});
 const fileSchema = z.object({path: z.string().min(1).max(512), content: z.string()}).strict();
 const renewalModeSchema = z.enum(['refresh-at', 'on-rejection']);
 const createConnectionBodySchema = z
@@ -47,7 +53,7 @@ const createRepositoryBodySchema = z
   .object({
     connection_id: z.string().uuid(),
     name: repositoryPartSchema,
-    default_branch: z.string().min(1).max(200).default('main'),
+    default_branch: branchNameSchema.default('main'),
     files: z.array(fileSchema).min(1).max(128),
   })
   .strict();
@@ -86,7 +92,6 @@ type TestVcsConnection = SpiIntegrationConnection<typeof TEST_VCS_PROVIDER>;
 export function load(): Promise<IntegrationModuleParts> {
   const fixture = createTestVcsFixture({
     port: config.INTEGRATIONS_TEST_VCS_PORT,
-    credentialTtlSeconds: config.INTEGRATIONS_TEST_VCS_CREDENTIAL_TTL_SECONDS,
   });
   const {provider, sourceControl} = createTestVcsIntegrationProvider({
     fixture,

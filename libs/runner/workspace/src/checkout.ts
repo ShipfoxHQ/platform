@@ -312,7 +312,9 @@ function gitConfigRepositoryUrl(repositoryUrl: string): string {
   const normalized = normalizeRepositoryUrl(repositoryUrl);
   const originalPath = new URL(repositoryUrl).pathname.replace(TRAILING_SLASHES_RE, '');
   if (!originalPath.toLowerCase().endsWith('.git')) return normalized;
-  return `${normalized.slice(0, -1)}${originalPath.slice(-4)}`;
+  const url = new URL(normalized);
+  url.pathname = originalPath;
+  return url.toString();
 }
 
 function validateGitCredentialHelper(helper: GitCredentialHelperConfig): void {

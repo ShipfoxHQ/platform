@@ -3,6 +3,7 @@ import type {
   IntegrationConnection,
   RepositorySnapshot,
 } from '@shipfox/api-integration-spi';
+import {MAX_REPOSITORY_FILE_BYTES} from '@shipfox/api-integration-spi';
 import {
   TestVcsSourceControlProvider,
   type TestVcsSourceControlProviderOptions,
@@ -44,10 +45,12 @@ function credential(generation: string): CheckoutCredentials {
 
 function providerFixture(options: {
   issueCredential: TestVcsSourceControlProviderOptions['fixture']['issueCredential'];
+  fetchFile?: TestVcsSourceControlProviderOptions['fixture']['fetchFile'];
 }): TestVcsSourceControlProvider {
   const fixture = {
     getRepository: () => repository,
     issueCredential: options.issueCredential,
+    ...(options.fetchFile === undefined ? {} : {fetchFile: options.fetchFile}),
   } as unknown as TestVcsSourceControlProviderOptions['fixture'];
   return new TestVcsSourceControlProvider({fixture, credentialTtlSeconds: 3});
 }
@@ -128,5 +131,20 @@ describe('Test VCS source-control provider', () => {
     ).resolves.toMatchObject({
       gitAuthor: {name: 'Shipfox Test VCS', email: 'test-vcs@shipfox.test'},
     });
+  });
+
+  it('reports oversized files before mapping them to file-not-found', async () => {
+    const provider = providerFixture({
+      issueCredential: vi.fn(),
+      fetchFile: vi.fn().mockResolvedValue({
+        path: 'large.txt',
+        ref: 'main',
+        content: 'x'.repeat(MAX_REPOSITORY_FILE_BYTES + 1),
+      }),
+    });
+
+    await expect(
+      provider.fetchFile({...checkoutInput(), path: 'large.txt', ref: 'main'}),
+    ).rejects.toMatchObject({reason: 'content-too-large'});
   });
 });

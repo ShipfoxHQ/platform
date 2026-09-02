@@ -62,13 +62,6 @@ export interface CreateTestVcsRepositoryParams {
   files: TestVcsFile[];
 }
 
-export interface CommitTestVcsFilesParams {
-  connectionId: string;
-  externalRepositoryId: string;
-  message: string;
-  files: TestVcsFile[];
-}
-
 export interface CreateGithubConnectionParams {
   workspaceId: string;
   installationId: number;
@@ -190,19 +183,6 @@ export async function createTestVcsRepository(
       connection_id: params.connectionId,
       name: params.name,
       ...(params.defaultBranch === undefined ? {} : {default_branch: params.defaultBranch}),
-      files: params.files,
-    },
-  });
-}
-
-export async function commitTestVcsFiles(
-  params: CommitTestVcsFilesParams,
-): Promise<{commit: string}> {
-  return await requestJson<{commit: string}>('post', '/__e2e/integrations/test-vcs/commits', {
-    json: {
-      connection_id: params.connectionId,
-      external_repository_id: params.externalRepositoryId,
-      message: params.message,
       files: params.files,
     },
   });

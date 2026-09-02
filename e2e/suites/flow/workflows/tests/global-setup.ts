@@ -41,6 +41,13 @@ export default async function globalSetup(): Promise<void> {
       displayName: 'Test VCS Renewable Credentials E2E',
       renewalMode: 'on-rejection',
     });
+    const testVcsClient = createApiClient({token: session.token});
+    cleanups.push(() =>
+      testVcsClient
+        .request('delete', `/integration-connections/${testVcsConnection.id}`)
+        .then(() => undefined)
+        .catch(() => undefined),
+    );
 
     const fakeModelProvider = await startFakeOpenAiModelProvider({runId});
     cleanups.push(() => fakeModelProvider.stop().catch(() => undefined));
