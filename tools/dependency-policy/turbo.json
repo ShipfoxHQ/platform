@@ -2,6 +2,15 @@
   "$schema": "https://turbo.build/schema.json",
   "extends": ["//"],
   "tasks": {
+    "test": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/package.json",
+        "$TURBO_ROOT$/pnpm-lock.yaml",
+        "$TURBO_ROOT$/pnpm-workspace.yaml",
+        "$TURBO_ROOT$/{apps,dev,e2e,infra,libs,tools,turbo}/**/package.json"
+      ]
+    },
     "verify": {
       "inputs": [
         "$TURBO_DEFAULT$",

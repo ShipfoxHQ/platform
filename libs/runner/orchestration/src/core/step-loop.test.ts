@@ -2122,6 +2122,118 @@ describe('runJobSteps', () => {
     expect(events.indexOf(`commit:${agent.id}`)).toBeLessThan(events.indexOf(`report:${agent.id}`));
   });
 
+  it('preserves the existing workspace when resuming without a checkout', async () => {
+    const setup = buildSetupStep();
+    const agent = buildAgentStep({
+      session: {id: SESSION_ID, key: 'main', mode: 'resume', segment: 0},
+    });
+    const transcriptDir = mkdtempSync(join(tmpdir(), 'shipfox-runner-session-'));
+    const transcriptFile = join(transcriptDir, 'session.jsonl');
+    writeFileSync(transcriptFile, 'session transcript');
+    requestSessionTranscriptMock.mockResolvedValueOnce({
+      blob: gzipSync(Buffer.from('session transcript')),
+      segment: 0,
+      harness: 'pi',
+    });
+    executeAgentStepMock.mockResolvedValueOnce({
+      success: true,
+      response: 'done',
+      sessionFile: transcriptFile,
+      sessionId: 'native-session-1',
+      error: null,
+      exit_code: 0,
+    });
+    requestNextStepMock
+      .mockResolvedValueOnce(stepResponse(setup, 1))
+      .mockResolvedValueOnce(stepResponse(agent, 1))
+      .mockResolvedValueOnce({kind: 'done', status: 'succeeded'});
+
+    try {
+      await runLoop({agentStateDir: transcriptDir, signal: new AbortController().signal});
+    } finally {
+      rmSync(transcriptDir, {recursive: true, force: true});
+    }
+
+    expect(executeAgentStepMock).toHaveBeenCalledWith(
+      agent,
+      expect.objectContaining({
+        prompt:
+          'Resuming session "main". The existing workspace is intact from the previous turn.\n\nFix it.',
+      }),
+    );
+  });
+
+  it('only claims a fresh workspace for the first resumed step after checkout', async () => {
+    const setup = buildSetupStep();
+    const firstAgent = buildAgentStep({
+      id: '00000000-0000-0000-0000-0000000000c1',
+      session: {id: SESSION_ID, key: 'main', mode: 'resume', segment: 0},
+    });
+    const secondAgent = buildAgentStep({
+      id: '00000000-0000-0000-0000-0000000000c2',
+      session: {
+        id: '00000000-0000-0000-0000-0000000000e1',
+        key: 'follow-up',
+        mode: 'resume',
+        segment: 0,
+      },
+    });
+    const transcriptDir = mkdtempSync(join(tmpdir(), 'shipfox-runner-session-'));
+    const transcriptFile = join(transcriptDir, 'session.jsonl');
+    writeFileSync(transcriptFile, 'session transcript');
+    executeSetupStepMock.mockResolvedValueOnce({
+      result: {
+        success: true,
+        checkout: {
+          repository: 'acme/repo',
+          ref: 'refs/heads/main',
+          commit: 'abc123',
+          path: '/work',
+        },
+        error: null,
+        exit_code: 0,
+      },
+    });
+    requestSessionTranscriptMock.mockResolvedValue({
+      blob: gzipSync(Buffer.from('session transcript')),
+      segment: 0,
+      harness: 'pi',
+    });
+    executeAgentStepMock.mockResolvedValue({
+      success: true,
+      response: 'done',
+      sessionFile: transcriptFile,
+      sessionId: 'native-session-1',
+      error: null,
+      exit_code: 0,
+    });
+    requestNextStepMock
+      .mockResolvedValueOnce(stepResponse(setup, 1))
+      .mockResolvedValueOnce(stepResponse(firstAgent, 1))
+      .mockResolvedValueOnce(stepResponse(secondAgent, 1))
+      .mockResolvedValueOnce({kind: 'done', status: 'succeeded'});
+
+    try {
+      await runLoop({agentStateDir: transcriptDir, signal: new AbortController().signal});
+    } finally {
+      rmSync(transcriptDir, {recursive: true, force: true});
+    }
+
+    expect(executeAgentStepMock.mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({
+        prompt: expect.stringContaining(
+          'This is a new execution in a fresh workspace checked out at refs/heads/main.',
+        ),
+      }),
+    );
+    expect(executeAgentStepMock.mock.calls[1]?.[1]).toEqual(
+      expect.objectContaining({
+        prompt:
+          'Resuming session "follow-up". The existing workspace is intact from the previous turn.\n\nFix it.',
+      }),
+    );
+  });
+
   it('commits a loadable failed harness result before reporting it', async () => {
     const setup = buildSetupStep();
     const agent = buildAgentStep({

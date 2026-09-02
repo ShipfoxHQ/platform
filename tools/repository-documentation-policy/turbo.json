@@ -2,13 +2,26 @@
   "$schema": "https://turbo.build/schema.json",
   "extends": ["//"],
   "tasks": {
+    "test": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/{AGENTS.md,CLAUDE.md,CODE_OF_CONDUCT.md,CONTRIBUTING.md,DESIGN.md,README.md,SECURITY.md,WRITING.md}",
+        "$TURBO_ROOT$/.agents/**/*.md",
+        "$TURBO_ROOT$/docs/**/*.md",
+        "$TURBO_ROOT$/{apps,dev,e2e,infra,libs,tools}/**/*.md",
+        "$TURBO_ROOT$/tools/*/package.json",
+        "$TURBO_ROOT$/tools/*/turbo.json"
+      ]
+    },
     "verify": {
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/{AGENTS.md,CLAUDE.md,CODE_OF_CONDUCT.md,CONTRIBUTING.md,DESIGN.md,README.md,SECURITY.md,WRITING.md}",
         "$TURBO_ROOT$/.agents/**/*.md",
         "$TURBO_ROOT$/docs/**/*.md",
-        "$TURBO_ROOT$/{apps,dev,e2e,infra,libs,tools}/**/*.md"
+        "$TURBO_ROOT$/{apps,dev,e2e,infra,libs,tools}/**/*.md",
+        "$TURBO_ROOT$/tools/*/package.json",
+        "$TURBO_ROOT$/tools/*/turbo.json"
       ]
     }
   }

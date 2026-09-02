@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   checkRepositoryDocumentation,
+  checkRepositoryToolTurboInputs,
   collectDocumentationFiles,
   extractMarkdownLinks,
 } from '../src/repository-documentation.js';
@@ -128,6 +129,55 @@ describe('repository documentation policy', () => {
     try {
       assert.deepEqual(await collectDocumentationFiles(root), ['README.md']);
       assert.deepEqual((await checkRepositoryDocumentation(root)).violations, []);
+    } finally {
+      await rm(root, {recursive: true});
+    }
+  });
+
+  test('requires repository policy tasks to declare repository-root inputs', async () => {
+    const root = await fixture({
+      'tools/client-architecture-policy/package.json': JSON.stringify({
+        name: '@shipfox/client-architecture-policy',
+        scripts: {test: 'test', verify: 'verify'},
+      }),
+      'tools/client-architecture-policy/turbo.json': JSON.stringify({
+        tasks: {
+          test: {inputs: ['$TURBO_ROOT$/libs/client/**/*.ts']},
+          verify: {inputs: ['$TURBO_ROOT$/libs/client/**/*.ts']},
+        },
+      }),
+    });
+    try {
+      assert.deepEqual(await checkRepositoryToolTurboInputs(root), []);
+    } finally {
+      await rm(root, {recursive: true});
+    }
+  });
+
+  test('reports repository policy tasks without repository-root inputs', async () => {
+    const root = await fixture({
+      'tools/client-architecture-policy/package.json': JSON.stringify({
+        name: '@shipfox/client-architecture-policy',
+        scripts: {test: 'test', verify: 'verify'},
+      }),
+      'tools/client-architecture-policy/turbo.json': JSON.stringify({
+        tasks: {
+          test: {inputs: ['$TURBO_DEFAULT$']},
+          verify: {inputs: ['$TURBO_ROOT$/libs/client/**/*.ts']},
+        },
+      }),
+    });
+    try {
+      assert.deepEqual(await checkRepositoryToolTurboInputs(root), [
+        {
+          kind: 'missing-repository-root-input',
+          file: 'tools/client-architecture-policy/turbo.json',
+          package: 'tools/client-architecture-policy',
+          task: 'test',
+          reason:
+            'The test task must declare at least one $TURBO_ROOT$ input so repository changes invalidate its cache.',
+        },
+      ]);
     } finally {
       await rm(root, {recursive: true});
     }

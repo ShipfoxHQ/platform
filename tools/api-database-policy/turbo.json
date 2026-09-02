@@ -2,6 +2,13 @@
   "$schema": "https://turbo.build/schema.json",
   "extends": ["//"],
   "tasks": {
+    "test": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/api-contexts.cjs",
+        "$TURBO_ROOT$/api-databases.cjs"
+      ]
+    },
     "verify": {
       "inputs": [
         "$TURBO_DEFAULT$",
