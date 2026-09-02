@@ -233,10 +233,12 @@ describe('claimPendingJobExecution', () => {
     }
   });
 
-  it('emits runner identity from the claimed rows for a provisioned runner claim', async () => {
-    const provisioner = await provisionerTokenFactory.create({scope: 'installation'});
+  it.each([
+    ['installation', 'provisioned-runner-installation'],
+    ['workspace', 'provisioned-runner-workspace'],
+  ] as const)('emits runner identity from the claimed rows for a %s provisioned runner claim', async (scope, providerRunnerId) => {
+    const provisioner = await provisionerTokenFactory.create({scope});
     const provisionerId = provisioner.id;
-    const providerRunnerId = `provisioned-runner-${crypto.randomUUID()}`;
     await db()
       .update(runnerSessions)
       .set({registrationTokenKind: 'ephemeral', maxClaims: 1, provisionerId, providerRunnerId})
@@ -268,7 +270,7 @@ describe('claimPendingJobExecution', () => {
         templateKey: 'linux',
         provisionerId,
         providerRunnerId,
-        provisionerScope: 'installation',
+        provisionerScope: scope,
         providerKind: 'ec2',
         launchKind: 'demand',
       });
@@ -1613,6 +1615,7 @@ describe('detectAndExpireStuckJobs', () => {
     expect(payload.workflowRunId).toBe(workflowRunId);
     expect(payload.workflowRunAttemptId).toBe(workflowRunAttemptId);
     expect(payload.expiredAt).toEqual(expect.any(String));
+    expect(new Date(payload.expiredAt as string).getTime()).toBeLessThan(Date.now() - 180_000);
     // The lease-expired event carries only the assignment identifiers and expiry timestamp.
     expect((payload as Record<string, unknown>).status).toBeUndefined();
     expect((payload as Record<string, unknown>).steps).toBeUndefined();

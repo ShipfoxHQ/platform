@@ -41,15 +41,32 @@ describe('runner job events', () => {
     expect(runnerJobLeaseExpiredEventSchema.parse(payload)).toEqual(payload);
   });
 
+  it('rejects an invalid lease expiry timestamp', () => {
+    expect(() =>
+      runnerJobLeaseExpiredEventSchema.parse({...sharedIdentity, expiredAt: 'not-a-timestamp'}),
+    ).toThrow();
+  });
+
   it('keeps legacy lease-expired events valid while the optional field rolls out', () => {
     const payload = {...sharedIdentity};
 
     expect(runnerJobLeaseExpiredEventSchema.parse(payload)).toEqual(payload);
   });
 
+  it('accepts a workspace provisioner scope', () => {
+    const payload = {
+      ...sharedIdentity,
+      claimedAt: '2026-08-11T08:01:00.000Z',
+      provisionerScope: 'workspace' as const,
+    };
+
+    expect(runnerJobClaimedEventSchema.parse(payload)).toMatchObject(payload);
+  });
+
   it.each([
     ['provisionerScope', {provisionerScope: 'organization'}],
     ['launchKind', {launchKind: 'scheduled'}],
+    ['runnerLabels', {runnerLabels: []}],
   ])('rejects an invalid %s', (_field, invalidField) => {
     const payload = {
       ...sharedIdentity,

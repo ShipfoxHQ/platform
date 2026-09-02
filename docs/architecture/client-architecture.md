@@ -229,9 +229,9 @@ A shell/runtime or cross-feature coordinator that needs a direct query-client
 operation must be recorded in the
 [`cacheOperation` registry](../../tools/client-architecture-policy/src/audit-client-architecture.ts)
 with its exact source file, owner, reason, and focused test. The verifier
-rejects unregistered operations and stale registry records. The step-log query
-is the only narrow query-policy exception. Its per-view cursor and retry
-lifecycle is recorded in the same
+rejects unregistered operations and stale registry records. The step-log and
+workflow-filter-options queries are the narrow query-policy exceptions. Each
+exception's per-view cursor and retry lifecycle is recorded in the same
 [`clientArchitectureExceptions`](../../tools/client-architecture-policy/src/audit-client-architecture.ts)
 registry. Every exception must name one owner, one reason, one owning boundary,
 and one focused test. Never use a baseline, package-wide allowlist,

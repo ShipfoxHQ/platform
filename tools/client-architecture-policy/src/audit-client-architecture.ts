@@ -47,14 +47,6 @@ const stepLogsQueryException = {
   test: 'libs/client/logs/src/hooks/api/step-logs-query.test.tsx',
 } as const;
 
-const workflowFilterOptionsQueryException = {
-  file: 'libs/client/workflows/src/hooks/api/workflow-filter-options.ts',
-  owner: 'workflow filter-options query adapter',
-  reason:
-    'The hook lazily exhausts a paginated definition query through its local retry lifecycle.',
-  test: 'libs/client/workflows/src/hooks/api/workflow-filter-options.test.tsx',
-} as const;
-
 export const clientArchitectureExceptions = {
   cacheOperation: [
     {
@@ -120,7 +112,7 @@ export const clientArchitectureExceptions = {
       test: 'libs/client/projects/src/pages/create-project-page.test.tsx',
     },
   ],
-  queryPolicy: [stepLogsQueryException, workflowFilterOptionsQueryException],
+  queryPolicy: [stepLogsQueryException],
 } as const satisfies ClientArchitectureExceptionRegistry;
 
 const rootDirectory = fileURLToPath(new URL('../../../', import.meta.url));

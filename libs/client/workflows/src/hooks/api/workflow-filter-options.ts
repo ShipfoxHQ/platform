@@ -15,14 +15,9 @@ export function useWorkflowFilterOptions(projectId: string): {
 } {
   const [requestedProjectId, setRequestedProjectId] = useState<string>();
   const loadAllRequested = requestedProjectId === projectId;
-  // A previous project's definitions must never appear in this project's chooser.
-  const {placeholderData: _placeholderData, ...configuredOptions} = definitionsInfiniteQueryOptions(
-    loadAllRequested ? projectId : undefined,
+  const definitionsQuery = useInfiniteQuery(
+    workflowFilterOptionsQueryOptions(projectId, loadAllRequested),
   );
-  const definitionsQuery = useInfiniteQuery({
-    ...configuredOptions,
-    staleTime: WORKFLOW_OPTIONS_STALE_TIME_MS,
-  });
   const repeatedCursor = hasRepeatedCursor(
     definitionsQuery.data?.pages.at(-1)?.nextCursor,
     definitionsQuery.data?.pageParams,
@@ -93,6 +88,17 @@ export function useWorkflowFilterOptions(projectId: string): {
     workflowOptionsStatus,
     onOpenWorkflowOptions,
     onRetryWorkflowOptions,
+  };
+}
+
+function workflowFilterOptionsQueryOptions(projectId: string, loadAllRequested: boolean) {
+  // A previous project's definitions must never appear in this project's chooser.
+  const {placeholderData: _placeholderData, ...configuredOptions} = definitionsInfiniteQueryOptions(
+    loadAllRequested ? projectId : undefined,
+  );
+  return {
+    ...configuredOptions,
+    staleTime: WORKFLOW_OPTIONS_STALE_TIME_MS,
   };
 }
 
