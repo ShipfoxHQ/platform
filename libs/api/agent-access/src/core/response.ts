@@ -46,6 +46,21 @@ export interface ReducePagedAgentAccessResponseParams {
   maxBytes?: number | undefined;
 }
 
+export interface AgentAccessCappedStringRef {
+  readonly get: () => string;
+  readonly set: (value: string) => void;
+  readonly originalValue: string;
+  readonly order: number;
+  readonly onTruncate?: (() => void) | undefined;
+}
+
+export interface ReduceAgentAccessDetailResponseParams {
+  envelope: AgentAccessEnvelopeDto;
+  strings: readonly AgentAccessCappedStringRef[];
+  maxBytes?: number | undefined;
+  originalBytes?: number | undefined;
+}
+
 /**
  * Fits a paged success response without reusing a producer cursor that points past dropped rows.
  * The cursor is always rebuilt from the final retained item.
@@ -85,6 +100,52 @@ export function reducePagedAgentAccessResponse(
   }
 
   return agentAccessError('content-too-large');
+}
+
+/**
+ * Fits a detail response by shrinking its largest registered strings first.
+ * The producer response has already been projected, so this pass only changes
+ * values explicitly registered by the projection and never invents a field.
+ */
+export function reduceAgentAccessDetailResponse(
+  params: ReduceAgentAccessDetailResponseParams,
+): AgentAccessEnvelopeDto {
+  const maxBytes = params.maxBytes ?? AGENT_ACCESS_RESPONSE_MAX_BYTES;
+  const originalBytes =
+    params.originalBytes ?? serializedAgentAccessEnvelopeByteLength(params.envelope);
+  let candidate = params.envelope;
+  if (!candidate.ok) return agentAccessError('content-too-large');
+
+  if (serializedAgentAccessEnvelopeByteLength(candidate) > maxBytes) {
+    candidate = {
+      ...candidate,
+      response_truncated: true,
+      response_total_bytes: originalBytes,
+    };
+  }
+
+  while (serializedAgentAccessEnvelopeByteLength(candidate) > maxBytes) {
+    const largest = params.strings
+      .map((ref) => ({
+        ref,
+        bytes: utf8Encoder.encode(ref.get()).byteLength,
+      }))
+      .filter(({bytes}) => bytes > 0)
+      .sort((left, right) => right.bytes - left.bytes || left.ref.order - right.ref.order)[0];
+
+    if (largest === undefined) return agentAccessError('content-too-large');
+
+    const nextBytes = Math.floor(largest.bytes / 2);
+    const next = truncateAgentAccessUtf8(largest.ref.originalValue, nextBytes);
+    if (next.value === largest.ref.get()) {
+      largest.ref.set('');
+    } else {
+      largest.ref.set(next.value);
+    }
+    largest.ref.onTruncate?.();
+  }
+
+  return candidate;
 }
 
 export function fitAgentAccessResponseToCeiling(

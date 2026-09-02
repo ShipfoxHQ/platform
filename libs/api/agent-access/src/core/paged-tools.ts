@@ -53,6 +53,7 @@ import {
   encodeStringIdCursor,
   encodeTimestampIdCursor,
 } from '@shipfox/node-drizzle';
+import {createAgentAccessDiagnosticTools} from './diagnostic-tools.js';
 import {agentAccessError, agentAccessSuccess} from './envelope.js';
 import {reducePagedAgentAccessResponse, truncateAgentAccessUtf8} from './response.js';
 import type {AgentAccessTool} from './tools.js';
@@ -74,6 +75,10 @@ export function createAgentAccessTools(
     createListWorkflowRunsTool(options.projects, options.workflows),
     createGetRunAnnotationsTool(options.workflows, options.annotations),
     createListTriggerEventsTool(options.triggers),
+    ...createAgentAccessDiagnosticTools({
+      workflows: options.workflows,
+      triggers: options.triggers,
+    }),
   ];
 }
 
