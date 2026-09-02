@@ -76,6 +76,135 @@ describe('failure annotations', () => {
     );
   });
 
+  it('explains validation after a successful Slack call without exposing internals', async () => {
+    const payload = stepAttemptTerminatedPayload();
+    const step = stepEntity({
+      id: payload.stepId,
+      jobExecutionId: JOB_EXECUTION_ID,
+      type: 'tool',
+      config: {tool: {provider: 'slack', sensitivity: 'read'}},
+      error: {kind: 'gate_uncheckable', message: 'step produced no exit code'},
+    });
+    const attempt = stepAttemptEntity({
+      stepId: step.id,
+      exitCode: null,
+      error: {kind: 'gate_uncheckable', message: 'step produced no exit code'},
+      gateResult: {
+        passed: false,
+        uncheckable: true,
+        reason: 'step produced no exit code',
+        exit_code: null,
+      },
+      invocations: [
+        {
+          call_index: 0,
+          started_at: '2026-09-02T07:25:28.000Z',
+          finished_at: '2026-09-02T07:25:28.879Z',
+          outcome: 'success',
+        },
+      ],
+    });
+    dbMocks.getStepAttemptDetail.mockResolvedValue({
+      workflowRunId: payload.workflowRunId,
+      workflowRunAttemptId: payload.workflowRunAttemptId,
+      step,
+      attempt,
+    });
+    dbMocks.getWorkflowRunAttemptById.mockResolvedValue({attempt: 1});
+
+    await onStepAttemptTerminatedFailureAnnotation(annotations)(payload);
+
+    expect(replaceOrRemoveAnnotation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        annotation: {
+          op: 'replace',
+          style: 'error',
+          body: [
+            '**Step validation failed**',
+            '',
+            "The Slack call succeeded, but Shipfox could not evaluate the step's success condition. No workflow configuration change is required.",
+          ].join('\n'),
+        },
+      }),
+    );
+  });
+
+  it('uses safe fallback copy instead of an unknown error payload', async () => {
+    const payload = stepAttemptTerminatedPayload();
+    const step = stepEntity({
+      id: payload.stepId,
+      jobExecutionId: JOB_EXECUTION_ID,
+      error: {kind: 'unexpected_internal_failure', message: 'database host api-1 failed'},
+    });
+    const attempt = stepAttemptEntity({
+      stepId: step.id,
+      error: {kind: 'unexpected_internal_failure', message: 'database host api-1 failed'},
+      exitCode: null,
+    });
+    dbMocks.getStepAttemptDetail.mockResolvedValue({
+      workflowRunId: payload.workflowRunId,
+      workflowRunAttemptId: payload.workflowRunAttemptId,
+      step,
+      attempt,
+    });
+    dbMocks.getWorkflowRunAttemptById.mockResolvedValue({attempt: 1});
+
+    await onStepAttemptTerminatedFailureAnnotation(annotations)(payload);
+
+    expect(replaceOrRemoveAnnotation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        annotation: {
+          op: 'replace',
+          style: 'error',
+          body: [
+            '**Step failed**',
+            '',
+            'Shipfox could not complete this step. Try again or review the step logs.',
+          ].join('\n'),
+        },
+      }),
+    );
+  });
+
+  it('warns before retrying an interrupted write tool without exposing its error', async () => {
+    const payload = stepAttemptTerminatedPayload();
+    const step = stepEntity({
+      id: payload.stepId,
+      jobExecutionId: JOB_EXECUTION_ID,
+      type: 'tool',
+      config: {tool: {provider: 'github', sensitivity: 'write'}},
+      error: {reason: 'invocation_interrupted', message: 'request stream closed at byte 391'},
+    });
+    const attempt = stepAttemptEntity({
+      stepId: step.id,
+      error: {reason: 'invocation_interrupted', message: 'request stream closed at byte 391'},
+      exitCode: null,
+    });
+    dbMocks.getStepAttemptDetail.mockResolvedValue({
+      workflowRunId: payload.workflowRunId,
+      workflowRunAttemptId: payload.workflowRunAttemptId,
+      step,
+      attempt,
+    });
+    dbMocks.getWorkflowRunAttemptById.mockResolvedValue({attempt: 1});
+
+    await onStepAttemptTerminatedFailureAnnotation(annotations)(payload);
+
+    expect(replaceOrRemoveAnnotation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        annotation: {
+          op: 'replace',
+          style: 'error',
+          body: [
+            '**Tool call outcome is uncertain**',
+            '',
+            'The connected service may have completed the request. Check it before trying again.',
+          ].join('\n'),
+        },
+      }),
+    );
+  });
+
   it('removes a stale step failure annotation after a successful terminal event', async () => {
     const payload = stepAttemptTerminatedPayload({attempt: 2, status: 'succeeded'});
     const step = stepEntity({
@@ -213,7 +342,7 @@ describe('failure annotations', () => {
         originStepAttempt: 2,
         annotation: expect.objectContaining({
           op: 'replace',
-          body: expect.stringContaining('current failure'),
+          body: expect.stringContaining('Agent step failed'),
         }),
       }),
     );
@@ -272,13 +401,19 @@ describe('failure annotations', () => {
     expect(replaceOrRemoveAnnotation).toHaveBeenCalledWith(
       expect.objectContaining({
         annotation: expect.objectContaining({
-          body: expect.stringContaining('measured 16385 bytes; overshoot 1 bytes'),
+          body: [
+            '**Job output is too large**',
+            '',
+            'The job stopped while processing **Run tests**.',
+            '',
+            'Reduce the declared output before trying again.',
+          ].join('\n'),
         }),
       }),
     );
   });
 
-  it('projects an output-invalid job failure with its status message', async () => {
+  it('explains an invalid job output without exposing its status message', async () => {
     const payload = jobTerminatedPayload({
       statusReason: 'output_invalid',
       statusReasonMessage: 'Job output "payload" cannot be persisted as JSON: undefined.',
@@ -306,7 +441,13 @@ describe('failure annotations', () => {
     expect(replaceOrRemoveAnnotation).toHaveBeenCalledWith(
       expect.objectContaining({
         annotation: expect.objectContaining({
-          body: expect.stringContaining('Job output "payload" cannot be persisted as JSON'),
+          body: [
+            '**Job output could not be used**',
+            '',
+            'The job stopped while processing **Run tests**.',
+            '',
+            'Ensure every declared output resolves to a valid JSON value before trying again.',
+          ].join('\n'),
         }),
       }),
     );
