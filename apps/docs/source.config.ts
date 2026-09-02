@@ -5,6 +5,8 @@ import {
   INTEGRATION_CATALOG_CATEGORIES,
   INTEGRATION_CATALOG_ICONS,
 } from './src/lib/integration-catalog';
+import {stringifyMachineReadableComponent} from './src/lib/machine-readable';
+import {remarkGeneratedComponents} from './src/lib/remark-generated-components';
 
 export type {z} from 'zod';
 
@@ -29,7 +31,10 @@ export const docs = defineDocs({
         .optional(),
     }),
     postprocess: {
-      includeProcessedMarkdown: true,
+      includeProcessedMarkdown: {
+        mdxAsPlaceholder: ['IntegrationCatalog'],
+        stringify: stringifyMachineReadableComponent,
+      },
     },
   },
   meta: {
@@ -38,5 +43,8 @@ export const docs = defineDocs({
 });
 
 export default defineConfig({
-  mdxOptions: {},
+  mdxOptions: {
+    remarkImageOptions: {useImport: false},
+    remarkPlugins: [remarkGeneratedComponents],
+  },
 });

@@ -372,6 +372,7 @@ function objects(value) {
 
 function renderWorkflowSchemaReference() {
   const schema = buildWorkflowJsonSchema();
+  const workflowSchemaMarkdown = {};
   const root = object(schema.properties);
   const jobs = object(object(root.jobs).additionalProperties);
   const steps = object(object(object(jobs.properties).steps).items);
@@ -388,10 +389,10 @@ function renderWorkflowSchemaReference() {
   const batch = object(listening.properties).batch;
   const session = objectSchemaFor(object(steps.properties).session);
 
-  return [
+  const output = [
     "import {TypeTable} from 'fumadocs-ui/components/type-table';",
     '',
-    component('TopLevelFields', root, {
+    workflowComponent(workflowSchemaMarkdown, 'TopLevelFields', root, {
       required: ['name', 'jobs'],
       nested: {
         env: '#environment-variables',
@@ -404,8 +405,10 @@ function renderWorkflowSchemaReference() {
         jobs: recordType('Job'),
       },
     }),
-    component('TriggerFields', object(trigger.properties), {required: strings(trigger.required)}),
-    component('JobFields', object(jobs.properties), {
+    workflowComponent(workflowSchemaMarkdown, 'TriggerFields', object(trigger.properties), {
+      required: strings(trigger.required),
+    }),
+    workflowComponent(workflowSchemaMarkdown, 'JobFields', object(jobs.properties), {
       required: ['steps'],
       nested: {
         checkout: '#job-checkout-fields',
@@ -419,16 +422,20 @@ function renderWorkflowSchemaReference() {
         steps: codeType('Step[]'),
       },
     }),
-    component('JobCheckoutFields', object(jobCheckout.properties), {
+    workflowComponent(workflowSchemaMarkdown, 'JobCheckoutFields', object(jobCheckout.properties), {
       nested: {permissions: '#checkout-permissions-fields'},
       types: {permissions: namedType('CheckoutPermissions')},
     }),
-    component('CheckoutFields', object(checkout.properties), {
+    workflowComponent(workflowSchemaMarkdown, 'CheckoutFields', object(checkout.properties), {
       nested: {permissions: '#checkout-permissions-fields'},
       types: {permissions: namedType('CheckoutPermissions')},
     }),
-    component('CheckoutPermissionsFields', object(checkoutPermissions.properties)),
-    component('RunStepFields', object(steps.properties), {
+    workflowComponent(
+      workflowSchemaMarkdown,
+      'CheckoutPermissionsFields',
+      object(checkoutPermissions.properties),
+    ),
+    workflowComponent(workflowSchemaMarkdown, 'RunStepFields', object(steps.properties), {
       fields: ['key', 'if', 'name', 'run', 'gate', 'env', 'outputs'],
       required: ['run'],
       nested: {
@@ -442,7 +449,7 @@ function renderWorkflowSchemaReference() {
         outputs: recordType('Output'),
       },
     }),
-    component('ToolStepFields', object(steps.properties), {
+    workflowComponent(workflowSchemaMarkdown, 'ToolStepFields', object(steps.properties), {
       fields: ['key', 'if', 'name', 'tool', 'connection', 'with', 'gate', 'outputs'],
       required: ['tool'],
       nested: {
@@ -455,7 +462,7 @@ function renderWorkflowSchemaReference() {
         outputs: recordType('string'),
       },
     }),
-    component('CheckoutStepFields', object(steps.properties), {
+    workflowComponent(workflowSchemaMarkdown, 'CheckoutStepFields', object(steps.properties), {
       fields: ['key', 'if', 'name', 'checkout', 'gate', 'outputs'],
       required: ['checkout'],
       nested: {
@@ -469,7 +476,7 @@ function renderWorkflowSchemaReference() {
         outputs: recordType('Output'),
       },
     }),
-    component('AgentStepFields', object(steps.properties), {
+    workflowComponent(workflowSchemaMarkdown, 'AgentStepFields', object(steps.properties), {
       fields: [
         'key',
         'if',
@@ -500,20 +507,27 @@ function renderWorkflowSchemaReference() {
         outputs: recordType('Output'),
       },
     }),
-    component('AgentIntegrationFields', object(integration.properties), {required: ['include']}),
-    component('AgentSessionFields', object(session.properties), {
+    workflowComponent(
+      workflowSchemaMarkdown,
+      'AgentIntegrationFields',
+      object(integration.properties),
+      {required: ['include']},
+    ),
+    workflowComponent(workflowSchemaMarkdown, 'AgentSessionFields', object(session.properties), {
       required: ['key'],
       defaults: {mode: 'resume'},
       types: {key: codeType('string')},
     }),
-    component('GateFields', object(gate.properties), {
+    workflowComponent(workflowSchemaMarkdown, 'GateFields', object(gate.properties), {
       nested: {on_failure: '#gate-failure-fields'},
       types: {on_failure: namedType('GateFailure')},
     }),
-    component('GateFailureFields', object(gateFailure.properties), {required: ['restart_from']}),
-    component('StepOutputs', outputFields()),
-    component('ToolStepOutputs', toolOutputFields()),
-    component('ListeningFields', object(listening.properties), {
+    workflowComponent(workflowSchemaMarkdown, 'GateFailureFields', object(gateFailure.properties), {
+      required: ['restart_from'],
+    }),
+    workflowComponent(workflowSchemaMarkdown, 'StepOutputs', outputFields()),
+    workflowComponent(workflowSchemaMarkdown, 'ToolStepOutputs', toolOutputFields()),
+    workflowComponent(workflowSchemaMarkdown, 'ListeningFields', object(listening.properties), {
       required: ['on'],
       nested: {
         on: '#trigger-fields',
@@ -526,11 +540,17 @@ function renderWorkflowSchemaReference() {
         batch: namedType('ListeningBatch'),
       },
     }),
-    component('ListeningBatchFields', object(batch.properties)),
-    component('EnvironmentVariables', environmentFields()),
+    workflowComponent(workflowSchemaMarkdown, 'ListeningBatchFields', object(batch.properties)),
+    workflowComponent(workflowSchemaMarkdown, 'EnvironmentVariables', environmentFields()),
   ]
     .filter(Boolean)
     .join('\n\n');
+
+  writeFileSync(
+    join(docsRoot, 'content/generated/reference/workflow-schema.llm.json'),
+    `${JSON.stringify(workflowSchemaMarkdown, null, 2)}\n`,
+  );
+  return output;
 }
 
 function component(name, properties, options = {}) {
@@ -539,6 +559,11 @@ function component(name, properties, options = {}) {
     .map((line) => `    ${line}`)
     .join('\n');
   return [`export function ${name}() {`, '  return (', table, '  );', '}'].join('\n');
+}
+
+function workflowComponent(markdown, name, properties, options = {}) {
+  markdown[name] = renderTypeTableMarkdown(properties, options);
+  return component(name, properties, options);
 }
 
 function renderTypeTable(properties, options) {
@@ -561,6 +586,51 @@ function renderTypeTable(properties, options) {
   });
 
   return ['<TypeTable', '  type={{', ...rows, '  }}', '/>'].join('\n');
+}
+
+function renderTypeTableMarkdown(properties, options) {
+  const required = new Set(options.required ?? []);
+  const names = options.fields ?? Object.keys(properties);
+  const rows = names.flatMap((name) => {
+    const property = properties[name];
+    if (!property) return [];
+
+    const type = options.types?.[name]
+      ? markdownTypeFromExpression(options.types[name])
+      : markdownTypeFromExpression(typeFor(property));
+    const linkedType = options.nested?.[name]
+      ? `[${inlineCode(type)}](${options.nested[name]})`
+      : inlineCode(type);
+    const defaultValue = options.defaults?.[name];
+    const defaultText = defaultValue ? inlineCode(defaultValue) : '-';
+    const description = typeof property.description === 'string' ? property.description : '';
+
+    return [
+      `| ${inlineCode(name)} | ${linkedType} | ${required.has(name) ? 'Required' : 'Optional'} | ${defaultText} | ${tableValue(description || '-')} |`,
+    ];
+  });
+
+  return [
+    '| Field | Type | Required | Default | Description |',
+    '|---|---|---|---|---|',
+    ...rows,
+  ].join('\n');
+}
+
+function markdownTypeFromExpression(expression) {
+  const values = [...expression.matchAll(/<code>\{("(?:\\.|[^"\\])*")\}<\/code>/g)].map((match) =>
+    JSON.parse(match[1]),
+  );
+  if (values.length > 0) return values.join(' | ');
+  return expression;
+}
+
+function inlineCode(value) {
+  return `\`${tableValue(value)}\``;
+}
+
+function tableValue(value) {
+  return value.replaceAll('|', '\\|').replaceAll('\n', ' ');
 }
 
 function typeFor(schema) {

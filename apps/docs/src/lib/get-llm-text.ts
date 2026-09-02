@@ -1,10 +1,69 @@
 import type {InferPageType} from 'fumadocs-core/source';
+import {getIntegrationCatalog} from '@/lib/integration-catalog-source';
+import {
+  assertMachineReadableMarkdown,
+  canonicalDocsUrl,
+  serializeMachineReadableMarkdown,
+} from '@/lib/machine-readable';
 import type {source} from '@/lib/source';
-import {toUrl} from '@/url';
+
+const TRAILING_SLASH_PATTERN = /\/$/;
+const INTEGRATION_EVENTS_PAGE_PATTERN = /^\/integrations\/[^/]+\/events$/;
+const INTEGRATION_TOOLS_PAGE_PATTERN = /^\/integrations\/[^/]+\/tools$/;
 
 export async function getLLMText(page: InferPageType<typeof source>) {
   const processed = await page.data.getText('processed');
-  // toUrl carries the /docs basePath, matching the llms.txt route, so the
-  // full-text and per-page markdown advertise canonical URLs.
-  return `# ${page.data.title} (${toUrl(page.url)})\n\n${processed}`;
+  const description = page.data.description;
+  if (typeof description !== 'string' || description.length === 0) {
+    throw new Error(`Documentation page "${page.url}" is missing a description.`);
+  }
+
+  const body = serializeMachineReadableMarkdown(processed, {
+    integrationCatalog: processed.includes('IntegrationCatalog')
+      ? getIntegrationCatalog()
+      : undefined,
+    pageUrl: page.url,
+    requiredFacts: requiredFactsForPage(page.url),
+  });
+  const markdown = [
+    `# ${page.data.title}`,
+    '',
+    `Canonical URL: ${canonicalDocsUrl(page.url)}`,
+    '',
+    `Description: ${description}`,
+    '',
+    body,
+  ].join('\n');
+
+  assertMachineReadableMarkdown(markdown, {
+    pageUrl: page.url,
+    requiredFacts: requiredFactsForPage(page.url),
+  });
+  return markdown;
+}
+
+function requiredFactsForPage(pageUrl: string): string[] {
+  const path = pageUrl.replace(TRAILING_SLASH_PATTERN, '');
+  if (path === '/reference/workflow-schema') {
+    return ['## Top-level fields', '| `name` |', '## Agent step fields', '| `prompt` |'];
+  }
+  if (path === '/reference/contexts') {
+    return [
+      '## Available contexts',
+      '| Context | Holds |',
+      '## Context properties',
+      '| Property | Type | Description |',
+    ];
+  }
+  if (path === '/reference/model-providers') {
+    return ['## Supported providers', '| Provider | `provider` ID |'];
+  }
+  if (path === '/integrations') return ['## Integration catalog', '### GitHub'];
+  if (INTEGRATION_EVENTS_PAGE_PATTERN.test(path)) {
+    return ['## Event catalog', '### `'];
+  }
+  if (INTEGRATION_TOOLS_PAGE_PATTERN.test(path)) {
+    return ['## Tool catalog', '##### Input'];
+  }
+  return [];
 }
