@@ -1,4 +1,5 @@
 import type {AgentValidationCatalogV2} from '@shipfox/api-agent-dto/inter-module';
+import {DEFINITION_SYNC_LAST_ERROR_MESSAGE_MAX_LENGTH} from '@shipfox/api-definitions-dto';
 import {InvalidWorkflowDocumentError} from '@shipfox/workflow-document';
 import {definitionDefaultRunnerLabels} from '../config.js';
 import type {IntegrationValidationContext} from './entities/integration-context.js';
@@ -11,7 +12,11 @@ import {
 } from './workflow-model/index.js';
 import {InvalidWorkflowYamlError, parseWorkflowYamlWithLocations} from './workflow-yaml/index.js';
 
-export type ValidationError = {message: string; path?: string | undefined};
+export type ValidationError = {
+  message: string;
+  path?: string | undefined;
+  reason?: string | undefined;
+};
 export type {ValidationDiagnostic} from './entities/validation-diagnostic.js';
 
 export interface DefinitionValidationOptions {
@@ -91,16 +96,30 @@ function validationErrorsFor(error: unknown): ValidationError[] {
 
   if (error instanceof InvalidWorkflowModelError) {
     return error.issues.map((issue) =>
-      validationError({message: issue.message, path: issue.path.join('.')}),
+      validationError({
+        message: issue.message,
+        path: issue.path.join('.'),
+        reason:
+          typeof issue.details?.reason === 'string'
+            ? issue.details.reason.slice(0, DEFINITION_SYNC_LAST_ERROR_MESSAGE_MAX_LENGTH)
+            : undefined,
+      }),
     );
   }
 
   throw error;
 }
 
-function validationError(params: {message: string; path?: string | undefined}): ValidationError {
-  if (params.path === undefined) return {message: params.message};
-  return {message: params.message, path: params.path};
+function validationError(params: {
+  message: string;
+  path?: string | undefined;
+  reason?: string | undefined;
+}): ValidationError {
+  return {
+    message: params.message,
+    ...(params.path === undefined ? {} : {path: params.path}),
+    ...(params.reason === undefined ? {} : {reason: params.reason}),
+  };
 }
 
 function validationDiagnostic(params: {

@@ -140,7 +140,7 @@ function toDefinitionAtRefKnownError(method: InterModuleMethodContract, error: u
       });
     case 'invalid-definition':
       return createInterModuleKnownError(method, 'invalid-definition', {
-        errors: details.errors as Array<{message: string; path?: string}>,
+        errors: details.errors as Array<{message: string; path?: string; reason?: string}>,
       });
     case 'too-many-files':
       return createInterModuleKnownError(method, 'too-many-files', {

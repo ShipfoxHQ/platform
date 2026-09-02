@@ -183,18 +183,55 @@ describe('createWorkflowExpression', () => {
     expect(act).toThrow(InvalidWorkflowExpressionError);
   });
 
-  it('does not treat fromJson text in a dynamic expression as a function call', () => {
-    const act = () =>
+  it('accepts a bare dynamic result for an expected predicate type', () => {
+    const expression = createWorkflowExpression({
+      source: 'event.value',
+      check: {
+        mode: 'typed',
+        typeEnvironment: {event: {kind: 'map'}},
+        expectedResultType: 'bool',
+      },
+    });
+
+    expect(expression).toEqual({
+      language: 'cel',
+      source: 'event.value',
+      check: 'typed',
+      resultType: 'string',
+    });
+  });
+
+  it('rejects a bare dynamic result for a non-predicate expected type', () => {
+    let error: unknown;
+    try {
       createWorkflowExpression({
-        source: 'event["fromJson("]',
+        source: 'event.value',
         check: {
           mode: 'typed',
           typeEnvironment: {event: {kind: 'map'}},
-          expectedResultType: 'bool',
+          expectedResultType: 'string',
         },
       });
+    } catch (caught) {
+      error = caught;
+    }
 
-    expect(act).toThrow(InvalidWorkflowExpressionError);
+    expect(error).toBeInstanceOf(InvalidWorkflowExpressionError);
+    expect((error as InvalidWorkflowExpressionError).reason).toContain(
+      'must return string; got dyn',
+    );
+  });
+
+  it('does not treat fromJson text in a dynamic expression as a function call', () => {
+    const expression = createWorkflowExpression({
+      source: 'event["fromJson("]',
+      check: {
+        mode: 'typed',
+        typeEnvironment: {event: {kind: 'map'}},
+      },
+    });
+
+    expect(expression.resultType).toBe('string');
   });
 
   it('rejects misspelled fields from the typed environment', () => {

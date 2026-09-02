@@ -3877,6 +3877,24 @@ describe('normalizeWorkflowDocument', () => {
     });
   });
 
+  it('allows bare dynamic step outputs in gate success expressions', () => {
+    const document: WorkflowDocument = {
+      name: 'dynamic self gate',
+      jobs: {
+        build: {
+          steps: [{run: 'npm run collect', gate: {success: 'step.outputs.ready'}}],
+        },
+      },
+    };
+
+    const model = normalizeWorkflowDocument(document);
+
+    expect(model.jobs[0]?.steps[0]?.gate?.success).toMatchObject({
+      source: 'step.outputs.ready',
+      check: 'typed',
+    });
+  });
+
   it('allows integer equality literals for number step outputs in gate success expressions', () => {
     const document: WorkflowDocument = {
       name: 'number output equality',

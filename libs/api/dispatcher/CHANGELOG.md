@@ -1,5 +1,11 @@
 # @shipfox/api-dispatcher
 
+## 20.2.0
+
+### Patch Changes
+
+- @shipfox/node-module@1.0.9
+
 ## 19.0.0
 
 ### Patch Changes

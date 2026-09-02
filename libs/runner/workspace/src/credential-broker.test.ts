@@ -1,5 +1,6 @@
 import {
   CredentialBroker,
+  type CredentialRenewalRequest,
   MAX_CREDENTIAL_FAILURE_EVENTS,
   normalizeRepositoryUrl,
   TransientCredentialRenewalError,
@@ -194,11 +195,13 @@ describe('credential broker', () => {
     expect(renew).toHaveBeenNthCalledWith(1, {
       repositoryUrl: 'https://gitea.example/Org/Repo/',
       subject: 'checkout',
+      signal: expect.any(AbortSignal),
     });
     expect(renew).toHaveBeenNthCalledWith(2, {
       repositoryUrl: 'https://gitea.example/Org/Repo/',
       subject: 'checkout',
       rejectedGeneration: 'generation-a',
+      signal: expect.any(AbortSignal),
     });
   });
 
@@ -224,6 +227,7 @@ describe('credential broker', () => {
       repositoryUrl: 'https://gitea.example/Org/Repo/',
       subject: 'checkout',
       rejectedGeneration: 'generation-a',
+      signal: expect.any(AbortSignal),
     });
   });
 
@@ -280,11 +284,13 @@ describe('credential broker', () => {
       repositoryUrl: 'https://gitea.example/Org/Repo/',
       subject: 'checkout',
       rejectedGeneration: 'generation-a',
+      signal: expect.any(AbortSignal),
     });
     expect(renew).toHaveBeenNthCalledWith(2, {
       repositoryUrl: 'https://gitea.example/Org/Repo/',
       subject: 'checkout',
       rejectedGeneration: 'generation-b',
+      signal: expect.any(AbortSignal),
     });
   });
 
@@ -385,6 +391,7 @@ describe('credential broker', () => {
       repositoryUrl: 'https://gitea.example/Org/Repo/',
       subject: 'checkout',
       rejectedGeneration: 'generation-a',
+      signal: expect.any(AbortSignal),
     });
 
     await broker.reject(repository);
@@ -413,6 +420,7 @@ describe('credential broker', () => {
       repositoryUrl: 'https://gitea.example/Org/Repo/',
       subject: 'checkout',
       rejectedGeneration: 'generation-a',
+      signal: expect.any(AbortSignal),
     });
   });
 
@@ -453,7 +461,11 @@ describe('credential broker', () => {
   });
 
   it('times out a renewal and applies backoff', async () => {
-    const renew = vi.fn(() => new Promise<never>(() => undefined));
+    let renewalSignal: AbortSignal | undefined;
+    const renew = vi.fn(({signal}: CredentialRenewalRequest) => {
+      renewalSignal = signal;
+      return new Promise<never>(() => undefined);
+    });
     const broker = new CredentialBroker({
       renew,
       now: () => 5_000,
@@ -466,6 +478,7 @@ describe('credential broker', () => {
       username: 'runner',
       token: 'token-a',
     });
+    expect(renewalSignal?.aborted).toBe(true);
     await expect(broker.lookup(repository)).resolves.toEqual({
       username: 'runner',
       token: 'token-a',

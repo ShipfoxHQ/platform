@@ -1,7 +1,7 @@
 {
   "name": "@shipfox/api-agent-access",
   "license": "MIT",
-  "version": "20.0.0",
+  "version": "20.2.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ShipfoxHQ/shipfox.git",
@@ -43,7 +43,14 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "catalog:",
     "@shipfox/api-agent-access-dto": "workspace:*",
+    "@shipfox/annotations-dto": "workspace:*",
     "@shipfox/api-auth-context": "workspace:*",
+    "@shipfox/api-definitions-dto": "workspace:*",
+    "@shipfox/api-projects-dto": "workspace:*",
+    "@shipfox/api-triggers-dto": "workspace:*",
+    "@shipfox/api-workflows-dto": "workspace:*",
+    "@shipfox/inter-module": "workspace:*",
+    "@shipfox/node-drizzle": "workspace:*",
     "@shipfox/node-error-monitoring": "workspace:*",
     "@shipfox/node-fastify": "workspace:*",
     "@shipfox/node-module": "workspace:*",

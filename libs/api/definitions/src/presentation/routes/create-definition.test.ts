@@ -452,6 +452,37 @@ jobs:
     });
   });
 
+  test('invalid predicates return their CEL reason in validation details', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/definitions',
+      payload: {
+        project_id: projectId,
+        config_path: 'test.yml',
+        yaml: `
+name: Invalid predicate
+runner: ubuntu-latest
+jobs:
+  build:
+    success: 'executions.size()'
+    steps:
+      - run: echo hello
+`,
+      },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({
+      code: 'invalid-workflow-definition',
+      details: [
+        expect.objectContaining({
+          path: 'jobs.build.success',
+          reason: expect.stringContaining('must return bool'),
+        }),
+      ],
+    });
+  });
+
   test('missing body fields returns 400', async () => {
     const res = await app.inject({
       method: 'POST',

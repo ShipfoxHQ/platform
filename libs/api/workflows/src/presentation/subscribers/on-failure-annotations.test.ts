@@ -3,6 +3,8 @@ import {
   annotationsInterModuleContract,
 } from '@shipfox/annotations-dto/inter-module';
 import type {
+  AgentConfigIssueDto,
+  StepErrorReasonDto,
   WorkflowsJobTerminatedEventDto,
   WorkflowsStepAttemptTerminatedEventDto,
 } from '@shipfox/api-workflows-dto';
@@ -30,6 +32,200 @@ vi.mock('@shipfox/node-opentelemetry', () => ({logger: () => ({warn: loggerWarn}
 const replaceOrRemoveAnnotation = vi.fn(async () => ({}));
 const annotations = {replaceOrRemoveAnnotation} as unknown as AnnotationsInterModuleClient;
 const JOB_EXECUTION_ID = '66666666-6666-4666-8666-666666666666';
+
+type MappedStepErrorReason = Exclude<
+  StepErrorReasonDto,
+  'agent_config_invalid' | 'invocation_interrupted'
+>;
+
+const STEP_FAILURE_CASES = [
+  {
+    reason: 'checkout_failed',
+    type: 'checkout',
+    title: 'Repository checkout failed',
+    description:
+      'Shipfox could not check out the repository. Verify repository access before trying again.',
+  },
+  {
+    reason: 'checkout_auth_failed',
+    type: 'checkout',
+    title: 'Repository access failed',
+    description:
+      'Shipfox could not access the repository. Verify the connection and repository permissions before trying again.',
+  },
+  {
+    reason: 'checkout_unavailable',
+    type: 'checkout',
+    title: 'Repository checkout unavailable',
+    description: 'The repository could not be checked out right now. Try again.',
+  },
+  {
+    reason: 'checkout_path_invalid',
+    type: 'checkout',
+    title: 'Checkout path needs attention',
+    description: 'Review the checkout path in the workflow before trying again.',
+  },
+  {
+    reason: 'checkout_destination_occupied',
+    type: 'checkout',
+    title: 'Checkout path is already in use',
+    description: 'Choose another checkout path or use a clean workspace before trying again.',
+  },
+  {
+    reason: 'git_unavailable',
+    type: 'checkout',
+    title: 'Git is unavailable',
+    description:
+      'Git is not available on the selected runner. Check the runner setup before trying again.',
+  },
+  {
+    reason: 'workspace_prep_failed',
+    type: 'setup',
+    title: 'Workspace setup failed',
+    description:
+      'Shipfox could not prepare the workspace. Try again. If the problem continues, check the runner setup.',
+  },
+  {
+    reason: 'setup_aborted',
+    type: 'setup',
+    title: 'Workspace setup stopped',
+    description: 'Workspace setup did not finish. Try again.',
+  },
+  {
+    reason: 'config_unresolvable',
+    type: 'run',
+    title: 'Step configuration needs attention',
+    description: 'Review the values referenced by this step before trying again.',
+  },
+  {
+    reason: 'output_invalid',
+    type: 'run',
+    title: 'Step output could not be used',
+    description:
+      'Review the declared outputs and the values returned by this step before trying again.',
+  },
+  {
+    reason: 'agent_invocation_failed',
+    type: 'agent',
+    title: 'Agent step failed',
+    description:
+      'The agent could not complete this step. Review the step logs before trying again.',
+  },
+  {
+    reason: 'agent_harness_unavailable',
+    type: 'agent',
+    title: 'Agent could not start',
+    description:
+      'Shipfox could not start the agent. Try again. If the problem continues, check the runner setup.',
+  },
+  {
+    reason: 'agent_session_key_invalid',
+    type: 'agent',
+    title: 'Agent session configuration needs attention',
+    description: 'Review the session key and mode before trying again.',
+  },
+  {
+    reason: 'agent_session_held',
+    type: 'agent',
+    title: 'Agent session is busy',
+    description: 'Another step is using this session. Try again after that step finishes.',
+  },
+  {
+    reason: 'agent_session_harness_mismatch',
+    type: 'agent',
+    title: 'Agent session is incompatible',
+    description: 'Use the original harness for this session or start a new session.',
+  },
+  {
+    reason: 'agent_session_unavailable',
+    type: 'agent',
+    title: 'Agent session is unavailable',
+    description: 'Start a new session or try again.',
+  },
+  {
+    reason: 'tool_error',
+    type: 'tool',
+    title: 'Tool call failed',
+    description:
+      'The connected service could not complete the request. Review the connection and tool inputs before trying again.',
+  },
+  {
+    reason: 'tool_config_invalid',
+    type: 'tool',
+    title: 'Tool configuration needs attention',
+    description: 'Review the connection and tool inputs before trying again.',
+  },
+] as const satisfies readonly {
+  reason: MappedStepErrorReason;
+  type: Step['type'];
+  title: string;
+  description: string;
+}[];
+
+const AGENT_CONFIG_FAILURE_CASES = [
+  {
+    issue: 'step_config_invalid',
+    title: 'Agent configuration needs attention',
+    description: 'Review the agent step configuration before trying again.',
+  },
+  {
+    issue: 'provider_not_configured',
+    title: 'Model provider is not connected',
+    description: 'Connect a model provider before running this step again.',
+  },
+  {
+    issue: 'provider_unsupported',
+    title: 'Model provider is unavailable',
+    description: 'Choose a model provider supported by this Shipfox installation.',
+  },
+  {
+    issue: 'model_unavailable',
+    title: 'Model is unavailable',
+    description: 'Choose an available model or update the provider access before trying again.',
+  },
+  {
+    issue: 'credentials_invalid',
+    title: 'Model provider credentials need attention',
+    description: 'Update the model provider credentials before trying again.',
+  },
+] as const satisfies readonly {
+  issue: AgentConfigIssueDto;
+  title: string;
+  description: string;
+}[];
+
+const JOB_FAILURE_CASES = [
+  {
+    reason: 'timed_out',
+    title: 'Job timed out',
+    description:
+      'The job did not finish within its configured time limit. Review the timeout or workload before trying again.',
+  },
+  {
+    reason: 'runner_lost',
+    title: 'Runner connection lost',
+    description: 'The runner stopped responding before the job finished. Try the job again.',
+  },
+  {
+    reason: 'condition_errored',
+    title: 'Job condition could not be evaluated',
+    description: 'Review the job condition and the values it references before trying again.',
+  },
+  {
+    reason: 'output_too_large',
+    title: 'Job output is too large',
+    description: 'Reduce the declared output before trying again.',
+  },
+  {
+    reason: 'output_invalid',
+    title: 'Job output could not be used',
+    description: 'Ensure every declared output resolves to a valid JSON value before trying again.',
+  },
+] as const satisfies readonly {
+  reason: NonNullable<WorkflowsJobTerminatedEventDto['statusReason']>;
+  title: string;
+  description: string;
+}[];
 
 describe('failure annotations', () => {
   beforeEach(() => {
@@ -72,6 +268,369 @@ describe('failure annotations', () => {
         originStepAttempt: payload.attempt,
         context: `failure:step:${payload.stepId}`,
         annotation: expect.objectContaining({op: 'replace', style: 'error'}),
+      }),
+    );
+  });
+
+  it.each(STEP_FAILURE_CASES)('uses safe exact copy for $reason', async ({
+    reason,
+    type,
+    title,
+    description,
+  }) => {
+    const payload = stepAttemptTerminatedPayload();
+    const step = stepEntity({
+      id: payload.stepId,
+      jobExecutionId: JOB_EXECUTION_ID,
+      type,
+    });
+    const attempt = stepAttemptEntity({
+      stepId: step.id,
+      error: {reason, message: 'internal runtime detail'},
+      exitCode: 73,
+    });
+    dbMocks.getStepAttemptDetail.mockResolvedValue({
+      workflowRunId: payload.workflowRunId,
+      workflowRunAttemptId: payload.workflowRunAttemptId,
+      step,
+      attempt,
+    });
+    dbMocks.getWorkflowRunAttemptById.mockResolvedValue({attempt: 1});
+
+    await onStepAttemptTerminatedFailureAnnotation(annotations)(payload);
+
+    expect(replaceOrRemoveAnnotation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        annotation: {
+          op: 'replace',
+          style: 'error',
+          body: [`**${title}**`, '', description].join('\n'),
+        },
+      }),
+    );
+  });
+
+  it('explains validation after a successful Slack call without exposing internals', async () => {
+    const payload = stepAttemptTerminatedPayload();
+    const step = stepEntity({
+      id: payload.stepId,
+      jobExecutionId: JOB_EXECUTION_ID,
+      type: 'tool',
+      config: {tool: {provider: 'slack', sensitivity: 'read'}},
+      error: {kind: 'gate_uncheckable', message: 'step produced no exit code'},
+    });
+    const attempt = stepAttemptEntity({
+      stepId: step.id,
+      exitCode: null,
+      error: {kind: 'gate_uncheckable', message: 'step produced no exit code'},
+      gateResult: {
+        passed: false,
+        uncheckable: true,
+        reason: 'step produced no exit code',
+        exit_code: null,
+      },
+      invocations: [successfulToolInvocation()],
+    });
+    dbMocks.getStepAttemptDetail.mockResolvedValue({
+      workflowRunId: payload.workflowRunId,
+      workflowRunAttemptId: payload.workflowRunAttemptId,
+      step,
+      attempt,
+    });
+    dbMocks.getWorkflowRunAttemptById.mockResolvedValue({attempt: 1});
+
+    await onStepAttemptTerminatedFailureAnnotation(annotations)(payload);
+
+    expect(replaceOrRemoveAnnotation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        annotation: {
+          op: 'replace',
+          style: 'error',
+          body: [
+            '**Step validation failed**',
+            '',
+            "The Slack call succeeded, but Shipfox could not evaluate the step's success condition. No workflow configuration change is required.",
+          ].join('\n'),
+        },
+      }),
+    );
+  });
+
+  it('identifies a successful Slack call before a gate expression error', async () => {
+    const payload = stepAttemptTerminatedPayload();
+    const step = stepEntity({
+      id: payload.stepId,
+      jobExecutionId: JOB_EXECUTION_ID,
+      type: 'tool',
+      config: {tool: {provider: 'slack', sensitivity: 'read'}},
+    });
+    const attempt = stepAttemptEntity({
+      stepId: step.id,
+      error: {kind: 'gate_uncheckable', message: 'gate expression evaluation failed'},
+      exitCode: null,
+      gateResult: {
+        passed: false,
+        uncheckable: true,
+        reason: 'gate expression evaluation failed',
+        exit_code: null,
+      },
+      invocations: [successfulToolInvocation()],
+    });
+    dbMocks.getStepAttemptDetail.mockResolvedValue({
+      workflowRunId: payload.workflowRunId,
+      workflowRunAttemptId: payload.workflowRunAttemptId,
+      step,
+      attempt,
+    });
+    dbMocks.getWorkflowRunAttemptById.mockResolvedValue({attempt: 1});
+
+    await onStepAttemptTerminatedFailureAnnotation(annotations)(payload);
+
+    expect(replaceOrRemoveAnnotation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        annotation: {
+          op: 'replace',
+          style: 'error',
+          body: [
+            '**Step validation failed**',
+            '',
+            "The Slack call succeeded, but Shipfox could not evaluate the step's success condition. Review the condition and the values it references.",
+          ].join('\n'),
+        },
+      }),
+    );
+  });
+
+  it('identifies a successful Slack call before a rejected gate', async () => {
+    const payload = stepAttemptTerminatedPayload();
+    const step = stepEntity({
+      id: payload.stepId,
+      jobExecutionId: JOB_EXECUTION_ID,
+      type: 'tool',
+      config: {tool: {provider: 'slack', sensitivity: 'read'}},
+    });
+    const attempt = stepAttemptEntity({
+      stepId: step.id,
+      error: {kind: 'gate_failed', message: 'gate condition not met'},
+      exitCode: null,
+      gateResult: {passed: false, source: 'output.ok', exit_code: null},
+      invocations: [successfulToolInvocation()],
+    });
+    dbMocks.getStepAttemptDetail.mockResolvedValue({
+      workflowRunId: payload.workflowRunId,
+      workflowRunAttemptId: payload.workflowRunAttemptId,
+      step,
+      attempt,
+    });
+    dbMocks.getWorkflowRunAttemptById.mockResolvedValue({attempt: 1});
+
+    await onStepAttemptTerminatedFailureAnnotation(annotations)(payload);
+
+    expect(replaceOrRemoveAnnotation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        annotation: {
+          op: 'replace',
+          style: 'error',
+          body: [
+            '**Step validation failed**',
+            '',
+            "The Slack call succeeded, but the step's success condition was not met. Review the result and success condition.",
+          ].join('\n'),
+        },
+      }),
+    );
+  });
+
+  it('identifies a successful Slack call before invalid output mapping', async () => {
+    const payload = stepAttemptTerminatedPayload();
+    const step = stepEntity({
+      id: payload.stepId,
+      jobExecutionId: JOB_EXECUTION_ID,
+      type: 'tool',
+      config: {tool: {provider: 'slack', sensitivity: 'read'}},
+    });
+    const attempt = stepAttemptEntity({
+      stepId: step.id,
+      error: {reason: 'output_invalid', message: 'output path exposed an internal value'},
+      exitCode: null,
+      invocations: [successfulToolInvocation()],
+    });
+    dbMocks.getStepAttemptDetail.mockResolvedValue({
+      workflowRunId: payload.workflowRunId,
+      workflowRunAttemptId: payload.workflowRunAttemptId,
+      step,
+      attempt,
+    });
+    dbMocks.getWorkflowRunAttemptById.mockResolvedValue({attempt: 1});
+
+    await onStepAttemptTerminatedFailureAnnotation(annotations)(payload);
+
+    expect(replaceOrRemoveAnnotation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        annotation: {
+          op: 'replace',
+          style: 'error',
+          body: [
+            '**Tool result could not be used**',
+            '',
+            'The Slack call succeeded, but Shipfox could not use its result as the step output. Review the declared outputs before trying again.',
+          ].join('\n'),
+        },
+      }),
+    );
+  });
+
+  it('does not present a failed Slack call as a gate failure', async () => {
+    const payload = stepAttemptTerminatedPayload();
+    const step = stepEntity({
+      id: payload.stepId,
+      jobExecutionId: JOB_EXECUTION_ID,
+      type: 'tool',
+      config: {tool: {provider: 'slack', sensitivity: 'read'}},
+    });
+    const attempt = stepAttemptEntity({
+      stepId: step.id,
+      error: {kind: 'gate_failed', message: 'gate condition not met'},
+      exitCode: null,
+      gateResult: {passed: false, source: 'output.ok', exit_code: null},
+      invocations: [failedToolInvocation()],
+    });
+    dbMocks.getStepAttemptDetail.mockResolvedValue({
+      workflowRunId: payload.workflowRunId,
+      workflowRunAttemptId: payload.workflowRunAttemptId,
+      step,
+      attempt,
+    });
+    dbMocks.getWorkflowRunAttemptById.mockResolvedValue({attempt: 1});
+
+    await onStepAttemptTerminatedFailureAnnotation(annotations)(payload);
+
+    expect(replaceOrRemoveAnnotation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        annotation: {
+          op: 'replace',
+          style: 'error',
+          body: [
+            '**Tool call failed**',
+            '',
+            'The connected service could not complete the request. Review the connection and tool inputs before trying again.',
+          ].join('\n'),
+        },
+      }),
+    );
+  });
+
+  it('uses safe fallback copy instead of an unknown error payload', async () => {
+    const payload = stepAttemptTerminatedPayload();
+    const step = stepEntity({
+      id: payload.stepId,
+      jobExecutionId: JOB_EXECUTION_ID,
+      error: {kind: 'unexpected_internal_failure', message: 'database host api-1 failed'},
+    });
+    const attempt = stepAttemptEntity({
+      stepId: step.id,
+      error: {kind: 'unexpected_internal_failure', message: 'database host api-1 failed'},
+      exitCode: null,
+    });
+    dbMocks.getStepAttemptDetail.mockResolvedValue({
+      workflowRunId: payload.workflowRunId,
+      workflowRunAttemptId: payload.workflowRunAttemptId,
+      step,
+      attempt,
+    });
+    dbMocks.getWorkflowRunAttemptById.mockResolvedValue({attempt: 1});
+
+    await onStepAttemptTerminatedFailureAnnotation(annotations)(payload);
+
+    expect(replaceOrRemoveAnnotation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        annotation: {
+          op: 'replace',
+          style: 'error',
+          body: [
+            '**Step failed**',
+            '',
+            'Shipfox could not complete this step. Try again or review the step logs.',
+          ].join('\n'),
+        },
+      }),
+    );
+  });
+
+  it('warns before retrying an interrupted write tool without exposing its error', async () => {
+    const payload = stepAttemptTerminatedPayload();
+    const step = stepEntity({
+      id: payload.stepId,
+      jobExecutionId: JOB_EXECUTION_ID,
+      type: 'tool',
+      config: {tool: {provider: 'github', sensitivity: 'write'}},
+      error: {reason: 'invocation_interrupted', message: 'request stream closed at byte 391'},
+    });
+    const attempt = stepAttemptEntity({
+      stepId: step.id,
+      error: {reason: 'invocation_interrupted', message: 'request stream closed at byte 391'},
+      exitCode: null,
+    });
+    dbMocks.getStepAttemptDetail.mockResolvedValue({
+      workflowRunId: payload.workflowRunId,
+      workflowRunAttemptId: payload.workflowRunAttemptId,
+      step,
+      attempt,
+    });
+    dbMocks.getWorkflowRunAttemptById.mockResolvedValue({attempt: 1});
+
+    await onStepAttemptTerminatedFailureAnnotation(annotations)(payload);
+
+    expect(replaceOrRemoveAnnotation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        annotation: {
+          op: 'replace',
+          style: 'error',
+          body: [
+            '**Tool call outcome is uncertain**',
+            '',
+            'The connected service may have completed the request. Check it before trying again.',
+          ].join('\n'),
+        },
+      }),
+    );
+  });
+
+  it.each(
+    AGENT_CONFIG_FAILURE_CASES,
+  )('explains persisted agent configuration issue $issue', async ({issue, title, description}) => {
+    const payload = stepAttemptTerminatedPayload();
+    const step = stepEntity({
+      id: payload.stepId,
+      jobExecutionId: JOB_EXECUTION_ID,
+      type: 'agent',
+    });
+    const attempt = stepAttemptEntity({
+      stepId: step.id,
+      error: {
+        reason: 'agent_config_invalid',
+        agentConfigIssue: issue,
+        message: 'provider lookup returned an internal configuration detail',
+      },
+      exitCode: null,
+    });
+    dbMocks.getStepAttemptDetail.mockResolvedValue({
+      workflowRunId: payload.workflowRunId,
+      workflowRunAttemptId: payload.workflowRunAttemptId,
+      step,
+      attempt,
+    });
+    dbMocks.getWorkflowRunAttemptById.mockResolvedValue({attempt: 1});
+
+    await onStepAttemptTerminatedFailureAnnotation(annotations)(payload);
+
+    expect(replaceOrRemoveAnnotation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        annotation: {
+          op: 'replace',
+          style: 'error',
+          body: [`**${title}**`, '', description].join('\n'),
+        },
       }),
     );
   });
@@ -213,7 +772,7 @@ describe('failure annotations', () => {
         originStepAttempt: 2,
         annotation: expect.objectContaining({
           op: 'replace',
-          body: expect.stringContaining('current failure'),
+          body: expect.stringContaining('Agent step failed'),
         }),
       }),
     );
@@ -227,6 +786,53 @@ describe('failure annotations', () => {
     expect(dbMocks.getStepAttemptDetail).not.toHaveBeenCalled();
     expect(dbMocks.getWorkflowRunAttemptById).not.toHaveBeenCalled();
     expect(replaceOrRemoveAnnotation).not.toHaveBeenCalled();
+  });
+
+  it.each(JOB_FAILURE_CASES)('uses safe exact job copy for $reason', async ({
+    reason,
+    title,
+    description,
+  }) => {
+    const payload = jobTerminatedPayload({
+      status: reason === 'condition_errored' ? 'skipped' : 'failed',
+      statusReason: reason,
+      statusReasonMessage: 'internal scheduler detail with host and process information',
+    });
+    dbMocks.getJobScope.mockResolvedValue({
+      workspaceId: '44444444-4444-4444-8444-444444444444',
+      projectId: '55555555-5555-4555-8555-555555555555',
+      triggerReference: null,
+    });
+    dbMocks.getWorkflowRunAttemptById.mockResolvedValue({attempt: 3});
+    dbMocks.getJobExecutionFailureOrigin.mockResolvedValue({
+      jobExecutionId: payload.jobExecutionId,
+      stepId: '77777777-7777-4777-8777-777777777777',
+      stepName: 'Run tests',
+      stepStatus: 'failed',
+      stepAttempt: 2,
+      stepError: {reason: 'agent_invocation_failed', message: 'internal step detail'},
+      attemptStatus: 'failed',
+      attemptError: {reason: 'agent_invocation_failed', message: 'internal attempt detail'},
+      attemptExitCode: 73,
+    });
+
+    await onJobTerminatedFailureAnnotation(annotations)(payload);
+
+    expect(replaceOrRemoveAnnotation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        annotation: {
+          op: 'replace',
+          style: 'error',
+          body: [
+            `**${title}**`,
+            '',
+            'The job stopped while processing **Run tests**.',
+            '',
+            description,
+          ].join('\n'),
+        },
+      }),
+    );
   });
 
   it('projects a job failure from the current execution origin', async () => {
@@ -272,13 +878,19 @@ describe('failure annotations', () => {
     expect(replaceOrRemoveAnnotation).toHaveBeenCalledWith(
       expect.objectContaining({
         annotation: expect.objectContaining({
-          body: expect.stringContaining('measured 16385 bytes; overshoot 1 bytes'),
+          body: [
+            '**Job output is too large**',
+            '',
+            'The job stopped while processing **Run tests**.',
+            '',
+            'Reduce the declared output before trying again.',
+          ].join('\n'),
         }),
       }),
     );
   });
 
-  it('projects an output-invalid job failure with its status message', async () => {
+  it('explains an invalid job output without exposing its status message', async () => {
     const payload = jobTerminatedPayload({
       statusReason: 'output_invalid',
       statusReasonMessage: 'Job output "payload" cannot be persisted as JSON: undefined.',
@@ -306,7 +918,13 @@ describe('failure annotations', () => {
     expect(replaceOrRemoveAnnotation).toHaveBeenCalledWith(
       expect.objectContaining({
         annotation: expect.objectContaining({
-          body: expect.stringContaining('Job output "payload" cannot be persisted as JSON'),
+          body: [
+            '**Job output could not be used**',
+            '',
+            'The job stopped while processing **Run tests**.',
+            '',
+            'Ensure every declared output resolves to a valid JSON value before trying again.',
+          ].join('\n'),
         }),
       }),
     );
@@ -553,5 +1171,24 @@ function stepAttemptEntity(overrides: Partial<StepAttempt> = {}): StepAttempt {
     finishedAt: new Date('2026-08-05T12:01:00.000Z'),
     createdAt: new Date('2026-08-05T12:00:00.000Z'),
     ...overrides,
+  };
+}
+
+function successfulToolInvocation(): StepAttempt['invocations'][number] {
+  return {
+    call_index: 0,
+    started_at: '2026-09-02T07:25:28.000Z',
+    finished_at: '2026-09-02T07:25:28.879Z',
+    outcome: 'success',
+  };
+}
+
+function failedToolInvocation(): StepAttempt['invocations'][number] {
+  return {
+    call_index: 0,
+    started_at: '2026-09-02T07:25:28.000Z',
+    finished_at: '2026-09-02T07:25:28.879Z',
+    outcome: 'error',
+    error_code: 'provider_error',
   };
 }

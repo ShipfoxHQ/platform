@@ -1,5 +1,11 @@
 # @shipfox/annotations-dto
 
+## 20.2.0
+
+### Minor Changes
+
+- ff63dcd: Adds the workflow-run annotations endpoint with job, execution, and step ancestry, plus the job-explanations endpoint for failed or skipped jobs without execution rows.
+
 ## 19.0.0
 
 ### Minor Changes

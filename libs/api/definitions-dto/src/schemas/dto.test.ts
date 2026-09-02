@@ -1,9 +1,32 @@
 import {
   DEFINITION_SYNC_DIAGNOSTICS_MAX_COUNT,
+  DEFINITION_SYNC_LAST_ERROR_MESSAGE_MAX_LENGTH,
   definitionAtRefQuerySchema,
   definitionAtRefResponseSchema,
   definitionSyncSummarySchema,
+  definitionValidationErrorSchema,
 } from './dto.js';
+
+describe('definitionValidationErrorSchema', () => {
+  test('accepts a bounded validation reason', () => {
+    const input = {
+      message: 'Invalid expression',
+      path: 'jobs.build.success',
+      reason: 'No such key: attempt',
+    };
+
+    expect(definitionValidationErrorSchema.parse(input)).toEqual(input);
+  });
+
+  test('rejects an oversized validation reason', () => {
+    expect(() =>
+      definitionValidationErrorSchema.parse({
+        message: 'Invalid expression',
+        reason: 'r'.repeat(DEFINITION_SYNC_LAST_ERROR_MESSAGE_MAX_LENGTH + 1),
+      }),
+    ).toThrow();
+  });
+});
 
 describe('definitionSyncSummarySchema', () => {
   test('round trips diagnostics with mixed severities', () => {
@@ -61,6 +84,21 @@ describe('definitionSyncSummarySchema', () => {
         last_error_code: null,
         last_error_message: null,
         diagnostics: [{code: 'warning-code', message: 'Missing severity'}],
+      }),
+    ).toThrow();
+  });
+
+  test('rejects an oversized last error message', () => {
+    expect(() =>
+      definitionSyncSummarySchema.parse({
+        ref: 'main',
+        status: 'failed',
+        last_sync_at: '2026-05-07T01:00:00.000Z',
+        started_at: null,
+        finished_at: null,
+        last_error_code: 'invalid-definition',
+        last_error_message: 'x'.repeat(DEFINITION_SYNC_LAST_ERROR_MESSAGE_MAX_LENGTH + 1),
+        diagnostics: [],
       }),
     ).toThrow();
   });

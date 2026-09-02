@@ -27,6 +27,7 @@ export type CredentialRenewalRequest = {
   repositoryUrl: string;
   subject: string;
   rejectedGeneration?: string;
+  signal?: AbortSignal;
 };
 
 export type CredentialRenewal = (
@@ -373,19 +374,21 @@ export class CredentialBroker {
     rejectedGeneration: string | undefined,
   ): Promise<BrokerCredentialInput> {
     let timer: ReturnType<typeof setTimeout> | undefined;
+    const controller = new AbortController();
     try {
       const renewal = Promise.resolve().then(() =>
         this.options.renew({
           repositoryUrl: entry.url,
           subject: entry.subject,
           ...(rejectedGeneration === undefined ? {} : {rejectedGeneration}),
+          signal: controller.signal,
         }),
       );
       const timeout = new Promise<never>((_, reject) => {
-        timer = setTimeout(
-          () => reject(new TransientCredentialRenewalError('Credential renewal timed out')),
-          this.renewalTimeoutMsValue,
-        );
+        timer = setTimeout(() => {
+          controller.abort('renewal-timeout');
+          reject(new TransientCredentialRenewalError('Credential renewal timed out'));
+        }, this.renewalTimeoutMsValue);
       });
       return await Promise.race([renewal, timeout]);
     } finally {

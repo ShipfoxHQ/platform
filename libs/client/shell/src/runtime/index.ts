@@ -1,3 +1,7 @@
+export {
+  ApplicationLayout,
+  type ApplicationLayoutProps,
+} from '#components/application-layout.js';
 export {AuthActions, AuthShell, type AuthShellProps} from '#components/auth-shell.js';
 export {
   FOCUSED_FRAME_CONTENT_CLASS_NAME,

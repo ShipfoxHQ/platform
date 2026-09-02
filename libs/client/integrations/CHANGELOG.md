@@ -1,5 +1,18 @@
 # @shipfox/client-integrations
 
+## 31.0.0
+
+### Minor Changes
+
+- 03df2b7: Add a connection-detail page for managing repository access modes.
+
+### Patch Changes
+
+- Updated dependencies [f4dbc1a]
+  - @shipfox/client-shell@31.0.0
+  - @shipfox/client-ui@31.0.0
+  - @shipfox/client-auth@31.0.0
+
 ## 30.0.1
 
 ### Patch Changes

@@ -1,3 +1,4 @@
+import type {AnnotationsInterModuleClient} from '@shipfox/annotations-dto/inter-module';
 import type {WorkflowModel} from '@shipfox/api-definitions-dto';
 import {
   type IntegrationsModuleClient,
@@ -24,8 +25,12 @@ import {createWorkflowRun, getJobsByWorkflowRunId, getStepsByJobId} from '#db/wo
 import {projectFactory} from '#test/factories/project.js';
 import {workflowModel} from '#test/factories/workflow-model.js';
 import {insertRunningJobLease, mintActiveLeaseToken} from '#test/fixtures/active-lease-token.js';
-import {fakeLeaseTokenAuthMethod, mintLeaseToken} from '#test/fixtures/lease-token.js';
-import {runnersTestClient} from '#test/fixtures/runners-inter-module.js';
+import {
+  fakeLeaseTokenAuthMethod,
+  getLeaseTokenClaims,
+  mintLeaseToken,
+} from '#test/fixtures/lease-token.js';
+import {runnersTestClient, setRunnerToolCapabilities} from '#test/fixtures/runners-inter-module.js';
 import {createLeaseTokenRouteGroup} from './index.js';
 
 const {captureExceptionMock, savePendingCheckoutRenewalSubjectMock} = vi.hoisted(() => ({
@@ -58,6 +63,12 @@ const integrations = {
   createCheckoutCredentials,
 } as Pick<IntegrationsModuleClient, 'createCheckoutSpec' | 'createCheckoutCredentials'>;
 
+const annotationWrites = vi.fn<AnnotationsInterModuleClient['replaceOrRemoveAnnotation']>();
+const annotations = {
+  replaceOrRemoveAnnotation: annotationWrites.mockResolvedValue({}),
+  listAnnotationsForRunAttempt: vi.fn(),
+} satisfies AnnotationsInterModuleClient;
+
 const {logger, lines: logLines, clear: clearLogLines} = createCapturingLogger();
 
 const githubSpec = (token: string) => ({
@@ -75,7 +86,7 @@ describe('POST /runs/jobs/current/steps/:stepId/checkout-token', () => {
       routes: [
         createLeaseTokenRouteGroup({
           agent: {} as never,
-          annotations: {} as never,
+          annotations,
           auth: {} as never,
           integrations: integrations as never,
           projects: projects as never,
@@ -96,6 +107,7 @@ describe('POST /runs/jobs/current/steps/:stepId/checkout-token', () => {
     resolveCheckoutTarget.mockReset();
     savePendingCheckoutRenewalSubjectMock.mockClear();
     captureExceptionMock.mockReset();
+    annotationWrites.mockClear();
     clearLogLines();
   });
 
@@ -181,6 +193,82 @@ describe('POST /runs/jobs/current/steps/:stepId/checkout-token', () => {
       target: {kind: 'external-id', externalRepositoryId: project.sourceExternalRepositoryId},
       permissions: {contents: 'read'},
     });
+  });
+
+  test('writes the renewable Git warning after persisted credentials are issued', async () => {
+    const {project, job, step} = await createRunningCheckoutStep({kind: 'checkout'});
+    getProjectById.mockResolvedValue({project});
+    resolveCheckoutTarget.mockResolvedValue({
+      projectId: project.id,
+      connectionId: project.sourceConnectionId,
+      target: {kind: 'external-id', externalRepositoryId: project.sourceExternalRepositoryId},
+    });
+    createCheckoutSpec.mockResolvedValue(githubSpec('ghs-warning-token'));
+    const token = await mintActiveLeaseToken({jobId: job.id});
+    const lease = getLeaseTokenClaims(token);
+    if (!lease) throw new Error('Expected minted lease token to verify');
+    setRunnerToolCapabilities(lease.runnerSessionId, {
+      capabilities: {harnesses: {}},
+      reportFresh: true,
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: checkoutUrl(step.id, step.currentAttempt),
+      headers: {authorization: `Bearer ${token}`},
+    });
+
+    expect(res.statusCode).toBe(200);
+    const retry = await app.inject({
+      method: 'POST',
+      url: checkoutUrl(step.id, step.currentAttempt),
+      headers: {authorization: `Bearer ${token}`},
+    });
+
+    expect(retry.statusCode).toBe(200);
+    expect(annotationWrites).toHaveBeenCalledTimes(2);
+    expect(annotationWrites).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobExecutionId: lease.jobExecutionId,
+        originStepId: step.id,
+        context: `renewable-git-capability:${step.id}`,
+        annotation: expect.objectContaining({
+          op: 'replace',
+          body: expect.stringContaining('may expire during a long job'),
+        }),
+      }),
+    );
+  });
+
+  test('does not warn when the checkout response has no credentials', async () => {
+    const {project, job, step} = await createRunningCheckoutStep({kind: 'checkout'});
+    getProjectById.mockResolvedValue({project});
+    resolveCheckoutTarget.mockResolvedValue({
+      projectId: project.id,
+      connectionId: project.sourceConnectionId,
+      target: {kind: 'external-id', externalRepositoryId: project.sourceExternalRepositoryId},
+    });
+    createCheckoutSpec.mockResolvedValue({
+      repositoryUrl: 'https://github.com/acme/public-repo.git',
+      ref: 'main',
+    });
+    const token = await mintActiveLeaseToken({jobId: job.id});
+    const lease = getLeaseTokenClaims(token);
+    if (!lease) throw new Error('Expected minted lease token to verify');
+    setRunnerToolCapabilities(lease.runnerSessionId, {
+      capabilities: {harnesses: {}},
+      reportFresh: true,
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: checkoutUrl(step.id, step.currentAttempt),
+      headers: {authorization: `Bearer ${token}`},
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).not.toHaveProperty('auth');
+    expect(annotationWrites).not.toHaveBeenCalled();
   });
 
   test('rejects a renewal generation while the checkout step is still running', async () => {

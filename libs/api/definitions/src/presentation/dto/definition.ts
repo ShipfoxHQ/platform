@@ -1,4 +1,8 @@
-import type {DefinitionDto, DefinitionSyncSummaryDto} from '@shipfox/api-definitions-dto';
+import {
+  DEFINITION_SYNC_LAST_ERROR_MESSAGE_MAX_LENGTH,
+  type DefinitionDto,
+  type DefinitionSyncSummaryDto,
+} from '@shipfox/api-definitions-dto';
 import type {DefinitionSyncState} from '#core/entities/sync-state.js';
 import type {WorkflowDefinition} from '#core/entities/workflow-definition.js';
 import {UNRESOLVED_SYNC_REF} from '#core/sync-definitions.js';
@@ -39,7 +43,8 @@ export function toDefinitionSyncSummary(syncState: DefinitionSyncState | undefin
     startedAt: syncState.startedAt?.toISOString() ?? null,
     finishedAt: syncState.finishedAt?.toISOString() ?? null,
     lastErrorCode: syncState.lastErrorCode,
-    lastErrorMessage: syncState.lastErrorMessage,
+    lastErrorMessage:
+      syncState.lastErrorMessage?.slice(0, DEFINITION_SYNC_LAST_ERROR_MESSAGE_MAX_LENGTH) ?? null,
     diagnostics: syncState.diagnostics.map(({filePath, ...diagnostic}) => ({
       ...diagnostic,
       ...(filePath === undefined ? {} : {filePath}),

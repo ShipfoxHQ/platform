@@ -1,5 +1,18 @@
 # @shipfox/api-workflows-dto
 
+## 20.2.0
+
+### Minor Changes
+
+- ff63dcd: Adds the workflow-run annotations endpoint with job, execution, and step ancestry, plus the job-explanations endpoint for failed or skipped jobs without execution rows.
+- 61f7b94: Adds bounded selected-job detail and cursor-paginated execution, step, and step-attempt API responses, and caps persisted error and gate text in workflow-run responses.
+
+### Patch Changes
+
+- Updated dependencies [ff63dcd]
+  - @shipfox/annotations-dto@20.2.0
+  - @shipfox/api-definitions-dto@20.2.0
+
 ## 20.1.0
 
 ### Minor Changes

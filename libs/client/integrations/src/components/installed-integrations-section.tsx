@@ -167,15 +167,27 @@ function InstalledRow({
               Use this integration
             </DropdownMenuItem>
             {workspaceSlug ? (
-              <DropdownMenuItem asChild>
-                <Link
-                  to="/w/$workspaceSlug/settings/events"
-                  params={{workspaceSlug}}
-                  search={{source: [connection.slug], event: [recentEventsEvent]}}
-                >
-                  View recent events
-                </Link>
-              </DropdownMenuItem>
+              <>
+                {connection.capabilities.includes('source_control') ? (
+                  <DropdownMenuItem asChild>
+                    <Link
+                      to="/w/$workspaceSlug/settings/integrations/$connectionSlug"
+                      params={{workspaceSlug, connectionSlug: connection.slug}}
+                    >
+                      Manage repository access
+                    </Link>
+                  </DropdownMenuItem>
+                ) : null}
+                <DropdownMenuItem asChild>
+                  <Link
+                    to="/w/$workspaceSlug/settings/events"
+                    params={{workspaceSlug}}
+                    search={{source: [connection.slug], event: [recentEventsEvent]}}
+                  >
+                    View recent events
+                  </Link>
+                </DropdownMenuItem>
+              </>
             ) : null}
             <DropdownMenuSeparator />
             <DropdownMenuItem disabled={isMutating} onSelect={() => onSetActive(!active)}>

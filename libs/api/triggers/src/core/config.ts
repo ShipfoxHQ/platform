@@ -1,6 +1,6 @@
 import {
   createWorkflowExpression,
-  evaluateWorkflowPredicateFailClosed,
+  evaluateWorkflowPredicate,
   InvalidWorkflowExpressionError,
   projectWorkflowPredicateContext,
   type WorkflowExpression,
@@ -50,13 +50,14 @@ export function evaluateStoredFilter(params: EvaluateStoredFilterParams): Stored
     return {kind: 'filter-error', reason: reasonFrom(error)};
   }
 
-  const result = evaluateWorkflowPredicateFailClosed(expression, params.context);
-
-  if (result.evaluationFailed) {
+  let matches: boolean;
+  try {
+    matches = evaluateWorkflowPredicate(expression, params.context);
+  } catch {
     return {kind: 'filter-error', reason: params.evaluationFailedReason};
   }
 
-  return result.value ? {kind: 'matched'} : {kind: 'filtered'};
+  return matches ? {kind: 'matched'} : {kind: 'filtered'};
 }
 
 export interface EvaluateTriggerFilterParams {

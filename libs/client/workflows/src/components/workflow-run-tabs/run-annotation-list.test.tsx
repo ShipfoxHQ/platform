@@ -1,4 +1,5 @@
-import {screen, within} from '@testing-library/react';
+import {act, screen, within} from '@testing-library/react';
+import {useState} from 'react';
 import {
   buildRunAnnotationList,
   type RunAnnotationRecord,
@@ -48,6 +49,30 @@ describe('RunAnnotationList', () => {
     renderList([annotation({id: 'a1', context: `agent-tool-capability:${BUILD_STEP_ID}`})]);
 
     expect(await screen.findByRole('heading', {level: 3, name: 'build'})).toBeInTheDocument();
+  });
+
+  test('heads the renewable Git context with the emitting job', async () => {
+    renderList([annotation({id: 'a1', context: `renewable-git-capability:${BUILD_STEP_ID}`})]);
+
+    expect(await screen.findByRole('heading', {level: 3, name: 'build'})).toBeInTheDocument();
+  });
+
+  test('announces annotations added after the initial snapshot once', async () => {
+    let updateEntries: (entries: RunAnnotationRecord[]) => void = () => undefined;
+    function Harness() {
+      const [entries, setEntries] = useState([annotation({id: 'a1', sequence: 1})]);
+      updateEntries = setEntries;
+      return renderListElement(entries);
+    }
+
+    renderWithRouter(<Harness />);
+    await screen.findByRole('heading', {level: 3, name: 'default'});
+
+    act(() => {
+      updateEntries([annotation({id: 'a1', sequence: 1}), annotation({id: 'a2', sequence: 2})]);
+    });
+
+    expect(await screen.findByText('A new annotation was added to this run.')).toBeInTheDocument();
   });
 
   test('leaves a step-chosen context that only looks minted as the heading', async () => {
@@ -142,11 +167,24 @@ function renderList(
     derivedAnnotations,
     query = listQuery(),
   }: {
-    derivedAnnotations?: readonly DerivedRunAnnotation[];
+    derivedAnnotations?: readonly DerivedRunAnnotation[] | undefined;
     query?: RunAnnotationListQuery;
   } = {},
 ) {
-  return renderWithRouter(
+  return renderWithRouter(renderListElement(annotations, {derivedAnnotations, query}));
+}
+
+function renderListElement(
+  annotations: RunAnnotationRecord[],
+  {
+    derivedAnnotations,
+    query = listQuery(),
+  }: {
+    derivedAnnotations?: readonly DerivedRunAnnotation[] | undefined;
+    query?: RunAnnotationListQuery;
+  } = {},
+) {
+  return (
     <RunAnnotationList
       query={query}
       entries={buildRunAnnotationList({annotations, jobs})}
@@ -156,7 +194,7 @@ function renderList(
       workflowRunId={RUN_ID}
       runAttempt={1}
       filtered={false}
-    />,
+    />
   );
 }
 

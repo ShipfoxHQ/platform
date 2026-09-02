@@ -93,6 +93,32 @@ jobs:
     }
   });
 
+  test('includes CEL reasons in model validation errors', () => {
+    const yaml = `
+name: Invalid predicate
+runner: ubuntu-latest
+jobs:
+  build:
+    success: 'executions.size()'
+    steps:
+      - run: echo hello
+`;
+
+    const result = validateDefinition(yaml);
+
+    expect(result.valid).toBe(false);
+    if (!result.valid) {
+      expect(result.errors).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            path: 'jobs.build.success',
+            reason: expect.stringContaining('must return bool'),
+          }),
+        ]),
+      );
+    }
+  });
+
   test('runner-less YAML returns a validation path for the missing runner', () => {
     const yaml = `
 name: Missing runner

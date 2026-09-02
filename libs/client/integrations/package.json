@@ -1,7 +1,7 @@
 {
   "name": "@shipfox/client-integrations",
   "license": "MIT",
-  "version": "30.0.1",
+  "version": "31.0.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ShipfoxHQ/shipfox.git",

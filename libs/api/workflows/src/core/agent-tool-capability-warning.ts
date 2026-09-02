@@ -12,6 +12,7 @@ import type {RunnersInterModuleClient} from '@shipfox/api-runners-dto/inter-modu
 import {isInterModuleKnownError} from '@shipfox/inter-module';
 import {logger} from '@shipfox/node-opentelemetry';
 import {recordWorkflowAgentToolWarningFailed} from '#metrics/instance.js';
+import {annotationTargetFromLease} from './annotation-target.js';
 import type {Step} from './entities/step.js';
 
 const TOOL_LIST_LIMIT = 10;
@@ -171,23 +172,6 @@ function markdownInlineCode(value: string): string {
 function warningReason(params: {reportFresh: boolean; harnessKnown: boolean}): WarningReason {
   if (params.harnessKnown) return 'known-absence';
   return params.reportFresh ? 'harness-not-advertised' : 'unknown-or-stale';
-}
-
-function annotationTargetFromLease(
-  lease: LeasedJobContext,
-): Omit<
-  Parameters<AnnotationsInterModuleClient['replaceOrRemoveAnnotation']>[0],
-  'originStepId' | 'originStepAttempt' | 'context' | 'annotation'
-> {
-  return {
-    workspaceId: lease.workspaceId,
-    projectId: lease.projectId,
-    workflowRunId: lease.workflowRunId,
-    workflowRunAttempt: lease.workflowRunAttempt ?? 1,
-    workflowRunAttemptId: lease.workflowRunAttemptId,
-    jobId: lease.jobId,
-    jobExecutionId: lease.jobExecutionId,
-  };
 }
 
 function isAnnotationBudgetError(error: unknown): boolean {

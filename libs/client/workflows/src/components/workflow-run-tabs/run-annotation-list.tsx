@@ -5,7 +5,7 @@ import {EmptyState} from '@shipfox/react-ui/empty-state';
 import {PanelBody, PanelRow} from '@shipfox/react-ui/panel';
 import {Skeleton} from '@shipfox/react-ui/skeleton';
 import {Text} from '@shipfox/react-ui/typography';
-import {type ReactNode, useState} from 'react';
+import {type ReactNode, useEffect, useRef, useState} from 'react';
 import type {RunAnnotationEntry, RunAnnotationStyle} from '#core/run-annotation.js';
 import {RunAnnotationItem, RunDerivedAnnotationItem} from './run-annotation-item.js';
 import {RunAnnotationsEmpty} from './run-annotations-empty.js';
@@ -167,11 +167,43 @@ export function RunAnnotationList({
 
   return (
     <>
+      <RunAnnotationLiveRegion entries={entries} />
       {query.isError ? <RunAnnotationStaleError query={query} /> : null}
 
       {content}
       {footer}
     </>
+  );
+}
+
+function RunAnnotationLiveRegion({entries}: {entries: readonly RunAnnotationEntry[]}): ReactNode {
+  const latestSequence = useRef<number | undefined>(undefined);
+  const [announcement, setAnnouncement] = useState('');
+
+  useEffect(() => {
+    const previousSequence = latestSequence.current;
+    const highestSequence = entries.reduce(
+      (highest, entry) => Math.max(highest, entry.annotation.sequence),
+      previousSequence ?? 0,
+    );
+    latestSequence.current = highestSequence;
+    if (previousSequence === undefined) return;
+
+    const addedCount = entries.filter(
+      ({annotation}) => annotation.sequence > previousSequence,
+    ).length;
+    if (addedCount === 0) return;
+    setAnnouncement(
+      addedCount === 1
+        ? 'A new annotation was added to this run.'
+        : `${addedCount} new annotations were added to this run.`,
+    );
+  }, [entries]);
+
+  return (
+    <div role="status" aria-live="polite" className="sr-only">
+      {announcement}
+    </div>
   );
 }
 

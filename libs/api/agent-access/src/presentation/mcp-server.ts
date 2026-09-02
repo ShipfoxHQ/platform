@@ -11,6 +11,7 @@ import {logger} from '@shipfox/node-opentelemetry';
 import {AGENT_ACCESS_MCP_INSTRUCTIONS, AGENT_ACCESS_MCP_SERVER_NAME} from '#constants.js';
 import {agentAccessError, serializeAgentAccessEnvelope} from '#core/envelope.js';
 import {type AgentAccessRateLimiter, createAgentAccessRateLimiter} from '#core/rate-limiter.js';
+import {fitAgentAccessResponseToCeiling} from '#core/response.js';
 import {
   type AgentAccessTool,
   type AgentAccessToolMap,
@@ -124,6 +125,16 @@ async function executeAgentAccessTool(params: {
   recordCall: AgentAccessToolCallRecorder;
 }): Promise<CallToolResult> {
   try {
+    if (params.tool.validateInput?.(params.input) === false) {
+      recordToolCall(params.recordCall, {
+        tool: params.tool.name,
+        outcome: 'invalid-request',
+        errorCode: 'invalid-request',
+        context: params.context,
+      });
+      return toolResult(agentAccessError('invalid-request'), true);
+    }
+
     const response = await params.tool.execute({context: params.context, arguments: params.input});
     const envelope = agentAccessEnvelopeSchema.safeParse(response);
     if (!envelope.success) {
@@ -136,12 +147,23 @@ async function executeAgentAccessTool(params: {
       return toolResult(agentAccessError('invalid-tool-response'), true);
     }
 
-    const outcome: AgentAccessToolCallOutcome = envelope.data.ok ? 'success' : 'tool-error';
-    const result = toolResult(envelope.data, !envelope.data.ok);
+    if (envelope.data.ok && params.tool.validateResult?.(envelope.data.result) === false) {
+      recordToolCall(params.recordCall, {
+        tool: params.tool.name,
+        outcome: 'exception',
+        errorCode: 'invalid-tool-response',
+        context: params.context,
+      });
+      return toolResult(agentAccessError('invalid-tool-response'), true);
+    }
+
+    const boundedEnvelope = fitAgentAccessResponseToCeiling(envelope.data);
+    const outcome: AgentAccessToolCallOutcome = boundedEnvelope.ok ? 'success' : 'tool-error';
+    const result = toolResult(boundedEnvelope, !boundedEnvelope.ok);
     recordToolCall(params.recordCall, {
       tool: params.tool.name,
       outcome,
-      errorCode: envelope.data.ok ? 'none' : (envelope.data.error?.code ?? 'unknown'),
+      errorCode: boundedEnvelope.ok ? 'none' : (boundedEnvelope.error?.code ?? 'unknown'),
       context: params.context,
     });
     return result;

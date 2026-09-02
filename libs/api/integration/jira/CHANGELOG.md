@@ -1,5 +1,16 @@
 # @shipfox/api-integration-jira
 
+## 20.2.0
+
+### Patch Changes
+
+- Updated dependencies [ba481d6]
+- Updated dependencies [be556f0]
+  - @shipfox/node-fastify@0.4.4
+  - @shipfox/api-integration-spi@3.0.2
+  - @shipfox/api-auth-context@20.2.0
+  - @shipfox/node-module@1.0.9
+
 ## 20.1.0
 
 ### Patch Changes

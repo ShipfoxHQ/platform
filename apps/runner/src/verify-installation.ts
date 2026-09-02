@@ -3,18 +3,20 @@ import {assertPiHarnessExtensionsAvailable} from '@shipfox/runner-agent/pi-exten
 import {assertPiImageRasterizerAvailable} from '@shipfox/runner-agent/pi-image-rasterizer';
 
 const require = createRequire(import.meta.url);
-const RUNNER_AGENT_RUNTIME_EXPORTS = [
+const RUNNER_RUNTIME_EXPORTS = [
   '@shipfox/runner-agent/pi-image-rasterizer',
   '@shipfox/runner-agent/tool-capabilities',
   '@shipfox/runner-agent/step',
+  '@shipfox/runner-execution/git-credential-helper',
+  './git-credential-helper.js',
 ] as const;
 
-for (const specifier of RUNNER_AGENT_RUNTIME_EXPORTS) {
+for (const specifier of RUNNER_RUNTIME_EXPORTS) {
   try {
     require.resolve(specifier);
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
-    throw new Error(`Unable to resolve runner agent export "${specifier}": ${reason}`);
+    throw new Error(`Unable to resolve runner runtime export "${specifier}": ${reason}`);
   }
 }
 

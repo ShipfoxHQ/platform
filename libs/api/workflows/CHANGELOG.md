@@ -1,5 +1,29 @@
 # @shipfox/api-workflows
 
+## 20.2.0
+
+### Minor Changes
+
+- ff63dcd: Adds the workflow-run annotations endpoint with job, execution, and step ancestry, plus the job-explanations endpoint for failed or skipped jobs without execution rows.
+- 61f7b94: Adds bounded selected-job detail and cursor-paginated execution, step, and step-attempt API responses, and caps persisted error and gate text in workflow-run responses.
+
+### Patch Changes
+
+- b96c9cb: Improves workflow failure annotations with actionable recovery guidance while hiding internal reason codes, exit codes, and raw runtime messages.
+- eb45f1d: Names mapped tool output failures with their mapping key and a bounded CEL diagnostic.
+- Updated dependencies [ba481d6]
+- Updated dependencies [ff63dcd]
+- Updated dependencies [646373f]
+- Updated dependencies [eb45f1d]
+- Updated dependencies [61f7b94]
+  - @shipfox/node-fastify@0.4.4
+  - @shipfox/annotations-dto@20.2.0
+  - @shipfox/api-workflows-dto@20.2.0
+  - @shipfox/expression@2.5.0
+  - @shipfox/api-auth-context@20.2.0
+  - @shipfox/node-module@1.0.9
+  - @shipfox/api-definitions-dto@20.2.0
+
 ## 20.1.0
 
 ### Minor Changes

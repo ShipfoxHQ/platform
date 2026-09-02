@@ -117,9 +117,14 @@ COPY --from=build /prod ./
 RUN ln -s /app/dist/git-credential-helper.js /usr/local/bin/git-credential-shipfox
 
 # Verify the production dependency closure contains every Pi extension entry and the
-# WASM-backed SVG image-preparation assets before the image can be published. This
-# runs against the deployed flat layout, not the pnpm development tree.
+# WASM-backed SVG image-preparation assets, plus the Git credential helper, before
+# the image can be published. This runs against the deployed flat layout, not the
+# pnpm development tree.
 RUN node ./dist/verify-installation.js
+
+# This image has passed the installation gate, so managed containers may advertise
+# renewable Git credentials. Source-run and older images retain the flag's false default.
+ENV SHIPFOX_RUNNER_ENABLE_RENEWABLE_GIT=true
 
 USER shipfox
 

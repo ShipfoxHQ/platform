@@ -1,5 +1,15 @@
 # Changelog
 
+## 31.0.0
+
+### Minor Changes
+
+- f4dbc1a: Adds the `ApplicationLayout` runtime component for authenticated root-scoped routes, with shared Shipfox chrome, route frames, and session-banner behavior.
+
+### Patch Changes
+
+- @shipfox/client-ui@31.0.0
+
 ## 30.0.1
 
 ### Patch Changes

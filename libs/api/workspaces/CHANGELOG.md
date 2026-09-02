@@ -1,5 +1,14 @@
 # @shipfox/api-workspaces
 
+## 20.2.0
+
+### Patch Changes
+
+- Updated dependencies [ba481d6]
+  - @shipfox/node-fastify@0.4.4
+  - @shipfox/api-auth-context@20.2.0
+  - @shipfox/node-module@1.0.9
+
 ## 20.1.0
 
 ### Patch Changes
