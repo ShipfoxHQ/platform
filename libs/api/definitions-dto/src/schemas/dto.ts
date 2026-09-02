@@ -60,7 +60,7 @@ export type CreateDefinitionBodyDto = z.infer<typeof createDefinitionBodySchema>
 export const definitionValidationErrorSchema = z.object({
   message: z.string(),
   path: z.string().optional(),
-  reason: z.string().max(DEFINITION_SYNC_WARNING_MESSAGE_MAX_LENGTH).optional(),
+  reason: z.string().max(DEFINITION_SYNC_LAST_ERROR_MESSAGE_MAX_LENGTH).optional(),
 });
 
 export type DefinitionValidationErrorDto = z.infer<typeof definitionValidationErrorSchema>;

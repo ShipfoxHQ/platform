@@ -25,8 +25,14 @@ export class DefinitionSyncPermanentError extends Error {
 }
 
 export function limitDefinitionSyncErrorMessage(message: string): string {
-  if (message.length <= DEFINITION_SYNC_LAST_ERROR_MESSAGE_MAX_LENGTH) return message;
-  return `${message.slice(0, DEFINITION_SYNC_LAST_ERROR_MESSAGE_MAX_LENGTH - 1)}…`;
+  const maxLength = DEFINITION_SYNC_LAST_ERROR_MESSAGE_MAX_LENGTH;
+  if (message.length <= maxLength) return message;
+
+  let contentLength = maxLength - 1;
+  const lastCodeUnit = message.charCodeAt(contentLength - 1);
+  if (lastCodeUnit >= 0xd800 && lastCodeUnit <= 0xdbff) contentLength -= 1;
+
+  return `${message.slice(0, contentLength)}…`;
 }
 
 export type DefinitionAtRefErrorCode =

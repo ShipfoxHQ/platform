@@ -1,5 +1,6 @@
 import {DEFINITION_SYNC_LAST_ERROR_MESSAGE_MAX_LENGTH} from '@shipfox/api-definitions-dto';
 import {agentValidationCatalog} from '#test/agent-validation-catalog.js';
+import {limitDefinitionSyncErrorMessage} from './errors.js';
 import {parseDefinitionWithDiagnostics} from './parse-definition.js';
 import {validateDefinition} from './validate-definition.js';
 
@@ -122,5 +123,14 @@ describe('parseDefinitionWithDiagnostics', () => {
       expect((error as Error).message).toHaveLength(DEFINITION_SYNC_LAST_ERROR_MESSAGE_MAX_LENGTH);
       expect((error as Error).message.endsWith('…')).toBe(true);
     }
+  });
+
+  it('does not split a surrogate pair when bounding an error message', () => {
+    const message = `${'a'.repeat(DEFINITION_SYNC_LAST_ERROR_MESSAGE_MAX_LENGTH - 2)}🙂x`;
+
+    const limited = limitDefinitionSyncErrorMessage(message);
+
+    expect(limited).toBe(`${'a'.repeat(DEFINITION_SYNC_LAST_ERROR_MESSAGE_MAX_LENGTH - 2)}…`);
+    expect(limited.length).toBeLessThanOrEqual(DEFINITION_SYNC_LAST_ERROR_MESSAGE_MAX_LENGTH);
   });
 });

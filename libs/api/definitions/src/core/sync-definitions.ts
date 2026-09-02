@@ -12,11 +12,7 @@ import {
 } from './entities/sync-state.js';
 import type {ValidationDiagnostic} from './entities/validation-diagnostic.js';
 import type {WorkflowDefinitionPayload} from './entities/workflow-definition.js';
-import {
-  DefinitionParseError,
-  DefinitionSyncPermanentError,
-  limitDefinitionSyncErrorMessage,
-} from './errors.js';
+import {DefinitionParseError, DefinitionSyncPermanentError} from './errors.js';
 import type {DefinitionsSourceControl} from './integrations.js';
 import {needsIntegrationValidationContext} from './needs-integration-validation-context.js';
 import {parseDefinitionWithDiagnostics, stripDefinitionDiagnostics} from './parse-definition.js';
@@ -184,9 +180,7 @@ function parseWorkflowSnapshot(params: {
     if (error instanceof DefinitionParseError) {
       throw new DefinitionSyncPermanentError(
         'invalid-definition',
-        limitDefinitionSyncErrorMessage(
-          `Invalid workflow definition at ${params.path}: ${error.message}`,
-        ),
+        `Invalid workflow definition at ${params.path}: ${error.message}`,
         validationErrorsFrom(error.details),
         params.path,
       );

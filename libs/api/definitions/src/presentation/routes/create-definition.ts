@@ -1,6 +1,7 @@
 import type {AgentInterModuleClient} from '@shipfox/api-agent-dto/inter-module';
 import {
   createDefinitionBodySchema,
+  DEFINITION_SYNC_LAST_ERROR_MESSAGE_MAX_LENGTH,
   definitionResponseSchema,
   definitionValidationErrorSchema,
 } from '@shipfox/api-definitions-dto';
@@ -105,7 +106,9 @@ function parseDefinitionForCreate(
     .map(({message, path, details}) => ({
       message,
       ...(path.length === 0 ? {} : {path: path.join('.')}),
-      ...(typeof details?.reason === 'string' ? {reason: details.reason} : {}),
+      ...(typeof details?.reason === 'string'
+        ? {reason: details.reason.slice(0, DEFINITION_SYNC_LAST_ERROR_MESSAGE_MAX_LENGTH)}
+        : {}),
     }));
 
   if (errors.length > 0) {

@@ -1,7 +1,6 @@
 import {
   DEFINITION_SYNC_DIAGNOSTICS_MAX_COUNT,
   DEFINITION_SYNC_LAST_ERROR_MESSAGE_MAX_LENGTH,
-  DEFINITION_SYNC_WARNING_MESSAGE_MAX_LENGTH,
   definitionAtRefQuerySchema,
   definitionAtRefResponseSchema,
   definitionSyncSummarySchema,
@@ -23,7 +22,7 @@ describe('definitionValidationErrorSchema', () => {
     expect(() =>
       definitionValidationErrorSchema.parse({
         message: 'Invalid expression',
-        reason: 'r'.repeat(DEFINITION_SYNC_WARNING_MESSAGE_MAX_LENGTH + 1),
+        reason: 'r'.repeat(DEFINITION_SYNC_LAST_ERROR_MESSAGE_MAX_LENGTH + 1),
       }),
     ).toThrow();
   });
