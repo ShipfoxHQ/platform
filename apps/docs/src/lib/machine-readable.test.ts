@@ -8,6 +8,7 @@ import {
   rewriteMachineReadableLinks,
   serializeMachineReadableMarkdown,
 } from './machine-readable';
+import {inlineCode} from './markdown';
 
 const github: CatalogProvider = {
   slug: 'github',
@@ -128,6 +129,9 @@ test('replaces unusable imported image sources with descriptive text', () => {
 
 test('fails deterministic checks for unresolved components and links', () => {
   assert.doesNotThrow(() => assertMachineReadableMarkdown('# Test (https://www.shipfox.io/docs)'));
+  assert.throws(() => assertMachineReadableMarkdown('https://www.shipfox.io/docs.foo'), {
+    message: 'Machine-readable Markdown contains a non-canonical Shipfox URL.',
+  });
   assert.throws(
     () =>
       serializeMachineReadableMarkdown(
@@ -175,4 +179,9 @@ test('fails deterministic checks for unresolved components and links', () => {
         'Machine-readable Markdown for https://www.shipfox.io/changelog contains a non-canonical Shipfox URL.',
     },
   );
+});
+
+test('uses safe Markdown code spans for values containing backticks', () => {
+  assert.equal(inlineCode('value`with`backticks'), '``value`with`backticks``');
+  assert.equal(inlineCode('`'), '`` ` ``');
 });

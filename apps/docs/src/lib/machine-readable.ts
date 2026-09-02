@@ -22,7 +22,7 @@ const ROOT_RELATIVE_ATTRIBUTE_PATTERN = /\b(?:href|src)=(['"])\//;
 const PREVIEW_DOC_URL_PATTERN =
   /https?:\/\/(?:[^/\s]+\.vercel\.app|localhost(?::\d+)?|127\.0\.0\.1(?::\d+)?)(?:\/|$)/;
 const NON_CANONICAL_SHIPFOX_URL_PATTERN =
-  /https?:\/\/(?:www\.)?shipfox\.io\/(?!docs(?:[/?#\s)\]"'<>.,;:]|$))/;
+  /https?:\/\/(?:www\.)?shipfox\.io\/(?!docs(?:[/?#\s)\]"'<>]|[.,;:](?=$|[\s)\]"'<>])))/;
 const UNUSABLE_IMAGE_SOURCE_PATTERN = /__img\d+/;
 const UNUSABLE_MDX_IMAGE_PATTERN =
   /<img\b(?=[^>]*\bsrc\s*=\s*(?:["']__img\d+["']|\{__img\d+\}))[^>]*\/?>/gi;

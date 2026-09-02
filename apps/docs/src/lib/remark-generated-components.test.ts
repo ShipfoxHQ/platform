@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
-import {join} from 'node:path';
+import {dirname, join} from 'node:path';
 import test from 'node:test';
+import {fileURLToPath} from 'node:url';
 import {remarkGeneratedComponents} from './remark-generated-components';
 
-const docsRoot = process.cwd();
+const docsRoot = join(dirname(fileURLToPath(import.meta.url)), '../..');
 
 const fixtures = [
   {
