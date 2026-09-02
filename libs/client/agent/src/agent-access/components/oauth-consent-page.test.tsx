@@ -6,7 +6,6 @@ import {OAuthConsentPage} from './oauth-consent-page.js';
 
 const REQUEST_ID = '11111111-1111-4111-8111-111111111111';
 const WORKSPACE_ID = '22222222-2222-4222-8222-222222222222';
-const LOOPBACK_WARNING_RE = /app running on this device/i;
 
 function jsonResponse(body: unknown, init: ResponseInit = {}) {
   return new Response(JSON.stringify(body), {
@@ -63,13 +62,14 @@ describe('OAuthConsentPage', () => {
       }),
     ).toBeVisible();
     expect(screen.getByText('https://claude.ai')).toBeVisible();
-    expect(screen.getByText('127.0.0.1')).toBeVisible();
-    expect(screen.getByText('Read-only')).toBeVisible();
-    expect(screen.getByText(LOOPBACK_WARNING_RE)).toBeVisible();
+    expect(screen.getByText('Claude Desktop on this device')).toBeVisible();
+    expect(screen.queryByText('Read-only')).not.toBeInTheDocument();
+    expect(screen.queryByText(WORKSPACE_ID)).not.toBeInTheDocument();
+    expect(screen.queryByText('owner')).not.toBeInTheDocument();
     expect(screen.getByRole('radio')).toBeChecked();
     expect(onRedirect).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole('button', {name: 'Allow read-only access'}));
+    await user.click(screen.getByRole('button', {name: 'Allow access'}));
 
     expect(onRedirect).toHaveBeenCalledWith('http://127.0.0.1:4567/callback?code=server-code');
     expect(approvalBody).toEqual({workspace_id: WORKSPACE_ID});

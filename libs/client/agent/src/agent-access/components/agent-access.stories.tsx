@@ -75,8 +75,8 @@ export const Consent: Story = {
   play: async ({canvasElement}) => {
     const canvas = within(canvasElement);
     await canvas.findByRole('heading', {name: 'Allow Claude Desktop to access Shipfox?'});
-    await canvas.findByText('Read-only');
-    await canvas.findByText('127.0.0.1');
+    await canvas.findByText('Claude Desktop on this device');
+    await canvas.findByRole('button', {name: 'Allow access'});
   },
 };
 

@@ -1,5 +1,4 @@
 import {AuthShell, useAuthState, useRouteSearch} from '@shipfox/client-shell/runtime';
-import {Badge} from '@shipfox/react-ui/badge';
 import {Button} from '@shipfox/react-ui/button';
 import {Callout} from '@shipfox/react-ui/callout';
 import {EmptyState} from '@shipfox/react-ui/empty-state';
@@ -122,23 +121,18 @@ function OAuthConsentLoaded({
   return (
     <AuthShell
       title={`Allow ${consent.clientName} to access Shipfox?`}
-      description="Review the verified request before choosing a workspace."
+      description={`Choose a workspace to connect to ${consent.clientName}.`}
       className="relative flex w-full max-w-[640px] flex-col items-stretch gap-region"
     >
       <Panel className="overflow-hidden">
         <div className="flex flex-col gap-group p-panel">
-          <div className="flex items-start justify-between gap-group max-[520px]:flex-col">
-            <div className="min-w-0">
-              <Text bold className="truncate">
-                {consent.clientName}
-              </Text>
-              <Text size="sm" className="text-foreground-neutral-muted">
-                External agent client
-              </Text>
-            </div>
-            <Badge variant="info" iconLeft="eyeLine">
-              Read-only
-            </Badge>
+          <div className="min-w-0">
+            <Text bold className="truncate">
+              {consent.clientName}
+            </Text>
+            <Text size="sm" className="text-foreground-neutral-muted">
+              External agent client
+            </Text>
           </div>
 
           <dl className="grid grid-cols-[minmax(112px,auto)_minmax(0,1fr)] gap-x-group gap-y-inline border-t border-border-neutral-base pt-group text-sm max-[520px]:grid-cols-1 max-[520px]:gap-y-tight">
@@ -150,22 +144,17 @@ function OAuthConsentLoaded({
             </dd>
             <dt className="text-foreground-neutral-muted">Returns to</dt>
             <dd className="min-w-0">
-              <Code variant="paragraph" className="block break-all">
-                {consent.redirectHostname}
-              </Code>
+              {consent.isLoopbackRedirect ? (
+                <Text size="sm">{consent.clientName} on this device</Text>
+              ) : (
+                <Code variant="paragraph" className="block break-all">
+                  {consent.redirectHostname}
+                </Code>
+              )}
             </dd>
             <dt className="text-foreground-neutral-muted">Request expires</dt>
             <dd>{formatAgentAccessTimestamp(consent.expiresAt)}</dd>
           </dl>
-
-          {consent.isLoopbackRedirect ? (
-            <Callout type="warning" role="status">
-              <Text size="sm">
-                This request returns to an app running on this device. Continue only if you started
-                the connection.
-              </Text>
-            </Callout>
-          ) : null}
         </div>
       </Panel>
 
@@ -181,9 +170,6 @@ function OAuthConsentLoaded({
                 <RadioGroupItem key={workspace.id} value={workspace.id}>
                   <Text bold className="truncate">
                     {sessionWorkspace?.name ?? 'Workspace'}
-                  </Text>
-                  <Text size="sm" className="truncate text-foreground-neutral-muted">
-                    {sessionWorkspace?.slug ?? workspace.id} · {workspace.role}
                   </Text>
                 </RadioGroupItem>
               );
@@ -216,7 +202,7 @@ function OAuthConsentLoaded({
           disabled={!workspaceId || deny.isPending}
           onClick={() => void handleApprove()}
         >
-          Allow read-only access
+          Allow access
         </Button>
       </div>
       <Text size="sm" className="text-center text-foreground-neutral-muted">
