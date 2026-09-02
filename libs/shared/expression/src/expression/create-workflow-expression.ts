@@ -86,7 +86,7 @@ function assertExpectedResultType(
   expectedType: ExpressionScalarType | undefined,
 ): void {
   if (expectedType === undefined || actualType === scalarTypeToCelType[expectedType]) return;
-  if (actualType === 'dyn') return;
+  if (actualType === 'dyn' && expectedType === 'bool') return;
   throw new InvalidWorkflowExpressionError({
     source,
     reason: `Expression source must return ${scalarTypeToCelType[expectedType]}; got ${actualType ?? 'unknown'}.`,

@@ -16,6 +16,8 @@ CEL checks and run-time evaluation for Shipfox workflow expressions.
   a caller-owned CEL environment for explicitly scoped custom functions.
 - **`WorkflowExpressionEnvironment`**: The evaluate-only environment shape
   accepted by the scoped evaluator.
+- **`evaluateWorkflowPredicateFailClosed`**: Reports evaluation failures,
+  including non-boolean predicate results, alongside the boolean value.
 - **`createRangeEnvironment`**: Compatibility alias for
   `createWorkflowEnvironment`.
 - **`MAX_RANGE_ELEMENTS`**: The per-evaluation range materialization limit,
@@ -95,6 +97,10 @@ const passed = evaluateWorkflowPredicate(expression, {
 - Predicate evaluation narrows the supplied context to the roots
   `workflowPredicateContextRoots` declares for that field, so a reference
   outside the policy fails closed rather than reading an incidental value.
+- `evaluateWorkflowPredicate` preserves its boolean-only mapping: only `true`
+  passes, while a non-boolean result returns `false`. Use
+  `evaluateWorkflowPredicateFailClosed` when callers must distinguish that
+  result from an evaluation failure.
 - Context values can include external data. Interpolatable fields rely on their
   structural sink guarantees, while host and availability checks remain enforced.
 - Evaluation is deterministic and has no side effects.

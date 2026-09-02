@@ -201,6 +201,27 @@ describe('createWorkflowExpression', () => {
     });
   });
 
+  it('rejects a bare dynamic result for a non-predicate expected type', () => {
+    let error: unknown;
+    try {
+      createWorkflowExpression({
+        source: 'event.value',
+        check: {
+          mode: 'typed',
+          typeEnvironment: {event: {kind: 'map'}},
+          expectedResultType: 'string',
+        },
+      });
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(InvalidWorkflowExpressionError);
+    expect((error as InvalidWorkflowExpressionError).reason).toContain(
+      'must return string; got dyn',
+    );
+  });
+
   it('does not treat fromJson text in a dynamic expression as a function call', () => {
     const expression = createWorkflowExpression({
       source: 'event["fromJson("]',

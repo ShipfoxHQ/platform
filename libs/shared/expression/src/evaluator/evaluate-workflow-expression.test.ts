@@ -327,7 +327,7 @@ describe('evaluateWorkflowExpression', () => {
     ]);
   });
 
-  it('reports non-boolean predicate results as evaluation failures', () => {
+  it('preserves the total predicate result and reports non-boolean fail-closed outcomes', () => {
     const expression = createWorkflowExpression({
       source: 'event.conclusion',
       check: {
@@ -338,21 +338,26 @@ describe('evaluateWorkflowExpression', () => {
       },
     });
 
-    let error: unknown;
-    try {
-      evaluateWorkflowPredicate(expression, {event: {conclusion: 'success'}});
-    } catch (caught) {
-      error = caught;
-    }
-
-    expect(error).toBeInstanceOf(WorkflowExpressionEvaluationError);
-    expect(error).toMatchObject({
-      reason: 'evaluation-error',
-      cause: expect.any(TypeError),
-    });
+    expect(evaluateWorkflowPredicate(expression, {event: {conclusion: 'success'}})).toBe(false);
     expect(
       evaluateWorkflowPredicateFailClosed(expression, {event: {conclusion: 'success'}}),
     ).toEqual({value: false, evaluationFailed: true});
+  });
+
+  it.each([true, false])('keeps dynamic boolean predicate results checkable: %s', (value) => {
+    const expression = createWorkflowExpression({
+      source: 'event.value',
+      check: {
+        mode: 'typed',
+        typeEnvironment: {event: {kind: 'map'}},
+        expectedResultType: 'bool',
+      },
+    });
+
+    expect(evaluateWorkflowPredicateFailClosed(expression, {event: {value}})).toEqual({
+      value,
+      evaluationFailed: false,
+    });
   });
 
   it('returns true for predicates that evaluate to the boolean true value', () => {

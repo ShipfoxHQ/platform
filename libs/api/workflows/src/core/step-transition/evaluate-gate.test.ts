@@ -232,6 +232,22 @@ describe('evaluateGate', () => {
     });
   });
 
+  test.each([
+    [true, 'passed'],
+    [false, 'failed'],
+  ] as const)('dynamic boolean gate results remain checkable: %s', (ready, kind) => {
+    const source = 'step.outputs.ready';
+    const gate = readStepGate(gateConfig(source));
+
+    const result = evaluateGate(gate, {
+      status: 'succeeded',
+      exitCode: 0,
+      output: {ready},
+    });
+
+    expect(result).toEqual({kind, source, trace: gateTrace(source, ready)});
+  });
+
   test('unguarded missing step output keys fail closed as uncheckable', () => {
     const gate = readStepGate(gateConfig('step.outputs.pass == true'));
 

@@ -38,7 +38,18 @@ export function evaluateWorkflowExpressionWithEnvironment(
   }
 }
 
+/**
+ * Evaluates a predicate while preserving the historical boolean-only result mapping.
+ * Use `evaluateWorkflowPredicateFailClosed` when non-boolean results must be reported.
+ */
 export function evaluateWorkflowPredicate(
+  expression: WorkflowExpression,
+  context: WorkflowExpressionEvaluationContext,
+): boolean {
+  return evaluateWorkflowExpression(expression, context) === true;
+}
+
+function evaluateWorkflowPredicateStrict(
   expression: WorkflowExpression,
   context: WorkflowExpressionEvaluationContext,
 ): boolean {
@@ -61,7 +72,7 @@ export function evaluateWorkflowPredicateFailClosed(
   context: WorkflowExpressionEvaluationContext,
 ): FailClosedPredicateOutcome {
   try {
-    return {value: evaluateWorkflowPredicate(expression, context), evaluationFailed: false};
+    return {value: evaluateWorkflowPredicateStrict(expression, context), evaluationFailed: false};
   } catch (error) {
     if (error instanceof WorkflowExpressionEvaluationError) {
       return {value: false, evaluationFailed: true};
