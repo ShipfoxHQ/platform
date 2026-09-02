@@ -398,7 +398,7 @@ describe('IntegrationGallery — installed section', () => {
 
     await openActions('Open acme-corp integration actions');
 
-    expect(screen.getByRole('menuitem', {name: 'Manage repository access'})).toHaveAttribute(
+    expect(screen.getByRole('menuitem', {name: 'Repository access settings'})).toHaveAttribute(
       'href',
       '/w/acme/settings/integrations/github_acme_corp',
     );

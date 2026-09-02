@@ -23,7 +23,6 @@ import {
   useIntegrationConnectionsQuery,
   useUpdateIntegrationConnectionRepositoryAccessMutation,
 } from '#hooks/api/integrations.js';
-import {PROVIDER_CATALOG} from '#provider-catalog.js';
 
 export function ConnectionDetailsPage({
   workspaceSlug,
@@ -61,11 +60,7 @@ export function ConnectionDetailsPage({
 
   return (
     <ConnectionDetailsShell workspaceSlug={workspaceSlug} connectionName={connection.displayName}>
-      <RepositoryAccessSettings
-        key={connection.id}
-        connection={connection}
-        workspaceSlug={workspaceSlug}
-      />
+      <RepositoryAccessSettings key={connection.id} connection={connection} />
     </ConnectionDetailsShell>
   );
 }
@@ -101,13 +96,7 @@ function ConnectionDetailsShell({
   );
 }
 
-function RepositoryAccessSettings({
-  connection,
-  workspaceSlug,
-}: {
-  connection: IntegrationConnection;
-  workspaceSlug: string;
-}) {
+function RepositoryAccessSettings({connection}: {connection: IntegrationConnection}) {
   const accessQuery = useIntegrationConnectionRepositoryAccessQuery(connection.id);
 
   if (accessQuery.isPending) {
@@ -142,7 +131,6 @@ function RepositoryAccessSettings({
   return (
     <RepositoryAccessForm
       connection={connection}
-      workspaceSlug={workspaceSlug}
       access={access}
       hasNextPage={accessQuery.hasNextPage}
       isFetchingNextPage={accessQuery.isFetchingNextPage}
@@ -154,7 +142,6 @@ function RepositoryAccessSettings({
 
 function RepositoryAccessForm({
   connection,
-  workspaceSlug,
   access,
   hasNextPage,
   isFetchingNextPage,
@@ -162,7 +149,6 @@ function RepositoryAccessForm({
   onLoadMore,
 }: {
   connection: IntegrationConnection;
-  workspaceSlug: string;
   access: RepositoryAccess;
   hasNextPage: boolean;
   isFetchingNextPage: boolean;
@@ -183,7 +169,6 @@ function RepositoryAccessForm({
   if (isUnsupportedError(mutationError)) return <UnsupportedState />;
 
   const isDirty = selectedMode !== persistedMode;
-  const providerName = PROVIDER_CATALOG[connection.provider]?.displayName;
 
   async function saveMode() {
     if (!isDirty) return;
@@ -193,7 +178,7 @@ function RepositoryAccessForm({
         mode: selectedMode,
       });
       setPersistedMode(savedMode);
-      toast.success('Access mode saved.');
+      toast.success('Repository access settings saved.');
     } catch {
       // The recoverable error is rendered from the mutation state below.
     }
@@ -203,17 +188,14 @@ function RepositoryAccessForm({
     <div className="flex min-w-0 flex-col gap-group">
       <Panel>
         <PanelHeader>
-          <PanelTitle>Which repositories workflows can use</PanelTitle>
+          <PanelTitle>Repository access mode</PanelTitle>
         </PanelHeader>
         <PanelBody className="gap-group p-panel">
           <Text size="sm" className="text-foreground-neutral-muted">
-            {providerName
-              ? `This integration can only access the repositories it was given on ${providerName}.`
-              : 'This integration can only access the repositories it was given.'}{' '}
-            This setting decides which of those workflows may use.
+            Choose how Shipfox checks repository targets for this connection.
           </Text>
           <RadioGroup
-            aria-label="Which repositories workflows can use"
+            aria-label="Repository access mode"
             value={selectedMode}
             variant="cell"
             onValueChange={(value) => {
@@ -223,21 +205,21 @@ function RepositoryAccessForm({
           >
             <RadioGroupItem value="selected">
               <Text as="span" size="sm" bold>
-                Only your projects&apos; repositories
+                Selected direct targets
               </Text>
               <Text as="span" size="xs" className="text-foreground-neutral-muted">
-                Workflows can check out and act on the repositories your projects use, and nothing
-                else.
+                Shipfox checks repositories named directly by a checkout or tool against projects
+                and manual grants. Some ID-based, organization-scoped, and indirect GitHub effects
+                remain installation-scoped.
               </Text>
             </RadioGroupItem>
             <RadioGroupItem value="all">
               <Text as="span" size="sm" bold>
-                Every repository this integration can access
+                All installation repositories
               </Text>
               <Text as="span" size="xs" className="text-foreground-neutral-muted">
-                {providerName
-                  ? `Workflows can use any repository this integration was given access to on ${providerName}.`
-                  : 'Workflows can use any repository this integration was given access to.'}
+                Shipfox performs no repository allowlist check; GitHub installation access is the
+                boundary.
               </Text>
             </RadioGroupItem>
           </RadioGroup>
@@ -245,8 +227,10 @@ function RepositoryAccessForm({
           {mutationError ? (
             <Callout role="alert" type="error">
               <CalloutContent>
-                <CalloutTitle>Couldn&apos;t save the access mode</CalloutTitle>
-                <CalloutDescription>The previous mode still applies. Try again.</CalloutDescription>
+                <CalloutTitle>Repository access settings were not saved</CalloutTitle>
+                <CalloutDescription>
+                  Try again. The current repository access mode is unchanged.
+                </CalloutDescription>
               </CalloutContent>
             </Callout>
           ) : null}
@@ -262,7 +246,7 @@ function RepositoryAccessForm({
             </Button>
             {updateAccess.isPending ? (
               <Text size="xs" role="status" className="text-foreground-neutral-muted">
-                Saving access mode…
+                Saving repository access settings…
               </Text>
             ) : null}
           </div>
@@ -272,28 +256,27 @@ function RepositoryAccessForm({
       {access.mode === 'selected' ? (
         <SelectedRepositories
           access={access}
-          workspaceSlug={workspaceSlug}
           hasNextPage={hasNextPage}
           isFetchingNextPage={isFetchingNextPage}
           loadMoreError={loadMoreError}
           onLoadMore={onLoadMore}
         />
       ) : null}
-      <ProviderAccessNotice connection={connection} mode={access.mode} />
+      {connection.provider === 'github' ? (
+        <GithubInstallationNotice connection={connection} />
+      ) : null}
     </div>
   );
 }
 
 function SelectedRepositories({
   access,
-  workspaceSlug,
   hasNextPage,
   isFetchingNextPage,
   loadMoreError,
   onLoadMore,
 }: {
   access: RepositoryAccess;
-  workspaceSlug: string;
   hasNextPage: boolean;
   isFetchingNextPage: boolean;
   loadMoreError: boolean;
@@ -302,22 +285,15 @@ function SelectedRepositories({
   return (
     <Panel>
       <PanelHeader>
-        <PanelTitle>Your projects&apos; repositories</PanelTitle>
+        <PanelTitle>Selected direct targets</PanelTitle>
       </PanelHeader>
       <PanelBody>
         {access.repositories.length === 0 ? (
           <EmptyState
             icon="folderOpenLine"
-            title="No project repositories yet"
-            description="Create a project from a repository on this connection to add it here."
+            title="No selected repositories"
+            description="Repositories connected through projects or manual grants will appear here."
             variant="panel"
-            action={
-              <Button asChild variant="secondary" size="sm">
-                <Link to="/w/$workspaceSlug/projects/new" params={{workspaceSlug}}>
-                  Create project
-                </Link>
-              </Button>
-            }
           />
         ) : (
           <ul>
@@ -346,7 +322,7 @@ function SelectedRepositories({
           <Callout role="alert" type="error" className="m-panel-compact">
             <CalloutContent>
               <CalloutDescription>
-                Couldn&apos;t load more repositories. Those already listed are unaffected.
+                Could not load more selected repositories. Existing targets are still shown.
               </CalloutDescription>
             </CalloutContent>
           </Callout>
@@ -387,51 +363,18 @@ function OriginLabel({origin}: {origin: RepositoryAccessOrigin}) {
   );
 }
 
-interface ProviderAccessNoticeCopy {
-  title: string;
-  description: string;
-  /** Shown only in projects mode: tools the provider exposes that Shipfox cannot scope by repository. */
-  projectsModeCaveat?: string;
-  linkLabel: string;
-  fallbackUrl: string;
-}
-
-// Where the outer repository list is managed is provider-specific. Providers without an entry
-// get no notice; the panel copy above stays provider-neutral.
-const PROVIDER_ACCESS_NOTICES: Record<string, ProviderAccessNoticeCopy> = {
-  github: {
-    title: 'Repository access is set on GitHub',
-    description: 'To add or remove repositories the GitHub App can access, change it on GitHub.',
-    projectsModeCaveat:
-      "A few tools, such as replying to a review thread, don't name a repository, so Shipfox can't limit them to your projects.",
-    linkLabel: 'Change repositories on GitHub',
-    fallbackUrl: 'https://github.com/settings/installations',
-  },
-};
-
-function ProviderAccessNotice({
-  connection,
-  mode,
-}: {
-  connection: IntegrationConnection;
-  mode: RepositoryAccessMode;
-}) {
-  const copy = PROVIDER_ACCESS_NOTICES[connection.provider];
-  if (!copy) return null;
-  const caveat = mode === 'selected' ? copy.projectsModeCaveat : undefined;
+function GithubInstallationNotice({connection}: {connection: IntegrationConnection}) {
+  const installationUrl = connection.externalUrl ?? 'https://github.com/settings/installations';
   return (
     <Callout type="info">
       <CalloutContent>
-        <CalloutTitle>{copy.title}</CalloutTitle>
+        <CalloutTitle>GitHub installation access still applies</CalloutTitle>
         <CalloutDescription>
-          {copy.description}
-          {caveat ? ` ${caveat}` : null}{' '}
-          <a
-            href={connection.externalUrl ?? copy.fallbackUrl}
-            target="_blank"
-            rel="noreferrer noopener"
-          >
-            {copy.linkLabel}
+          Selected mode limits repositories named directly by a checkout or tool. It does not limit
+          every indirect or organization-scoped GitHub effect. For strict repository isolation,
+          update the GitHub App installation&apos;s repository selection.{' '}
+          <a href={installationUrl} target="_blank" rel="noreferrer noopener">
+            Manage GitHub installation
           </a>
         </CalloutDescription>
       </CalloutContent>

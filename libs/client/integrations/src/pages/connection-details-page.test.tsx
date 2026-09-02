@@ -14,11 +14,10 @@ const PROJECT_ID = '55555555-5555-4555-8555-555555555555';
 const GRANT_ID = '66666666-6666-4666-8666-666666666666';
 const REPOSITORY_ACCESS_PATH = `/integration-connections/${CONNECTION_ID}/repository-access`;
 const SECOND_REPOSITORY_ACCESS_PATH = `/integration-connections/${SECOND_CONNECTION_ID}/repository-access`;
-const SELECTED_MODE_RE = /Only your projects' repositories/u;
-const ALL_MODE_RE = /Every repository this integration can access/u;
-const SELECTED_NOTICE_RE = /such as replying to a review thread/u;
-const ALL_NOTICE_RE = /add or remove repositories the GitHub App can access/u;
-const ALL_MODE_COPY_RE = /was given access to on GitHub/u;
+const SELECTED_MODE_RE = /Selected direct targets/u;
+const ALL_MODE_RE = /All installation repositories/u;
+const GITHUB_EFFECTS_RE = /Some ID-based, organization-scoped, and indirect GitHub effects remain/u;
+const ALL_MODE_COPY_RE = /Shipfox performs no repository allowlist check/u;
 
 const githubConnection = {
   id: CONNECTION_ID,
@@ -185,8 +184,8 @@ describe('ConnectionDetailsPage', () => {
     expect(screen.getAllByText('acme/platform')).toHaveLength(2);
     expect(screen.getByText('Project: Platform')).toBeVisible();
     expect(screen.getByText('Manual grant')).toBeVisible();
-    expect(screen.getByText(SELECTED_NOTICE_RE)).toBeVisible();
-    expect(screen.getByRole('link', {name: 'Change repositories on GitHub'})).toHaveAttribute(
+    expect(screen.getByText(GITHUB_EFFECTS_RE)).toBeVisible();
+    expect(screen.getByRole('link', {name: 'Manage GitHub installation'})).toHaveAttribute(
       'href',
       githubConnection.external_url,
     );
@@ -197,10 +196,8 @@ describe('ConnectionDetailsPage', () => {
 
     expect(await screen.findByRole('radio', {name: ALL_MODE_RE})).toBeChecked();
     expect(screen.getByText(ALL_MODE_COPY_RE)).toBeVisible();
-    expect(screen.getByText(ALL_NOTICE_RE)).toBeVisible();
-    expect(screen.queryByText(SELECTED_NOTICE_RE)).not.toBeInTheDocument();
     expect(
-      screen.queryByRole('heading', {name: "Your projects' repositories"}),
+      screen.queryByRole('heading', {name: 'Selected direct targets'}),
     ).not.toBeInTheDocument();
   });
 
@@ -211,14 +208,12 @@ describe('ConnectionDetailsPage', () => {
       }),
     );
 
-    expect(await screen.findByText('No project repositories yet')).toBeVisible();
+    expect(await screen.findByText('No selected repositories')).toBeVisible();
     expect(
-      screen.getByText('Create a project from a repository on this connection to add it here.'),
+      screen.getByText(
+        'Repositories connected through projects or manual grants will appear here.',
+      ),
     ).toBeVisible();
-    expect(screen.getByRole('link', {name: 'Create project'})).toHaveAttribute(
-      'href',
-      '/w/acme/projects/new',
-    );
   });
 
   test('loads additional composed targets from the paginated read model', async () => {
@@ -293,12 +288,12 @@ describe('ConnectionDetailsPage', () => {
     fireEvent.click(screen.getByRole('radio', {name: ALL_MODE_RE}));
     fireEvent.click(screen.getByRole('button', {name: 'Save changes'}));
 
-    expect(await screen.findByText('Saving access mode…')).toBeVisible();
+    expect(await screen.findByText('Saving repository access settings…')).toBeVisible();
     expect(screen.getByRole('button', {name: 'Save changes'})).toHaveAttribute('aria-busy', 'true');
     expect(screen.getByRole('radio', {name: ALL_MODE_RE})).toBeDisabled();
 
     resolveMutation?.(jsonResponse({mode: 'all'}));
-    await screen.findByText('Access mode saved.');
+    await screen.findByText('Repository access settings saved.');
     expect(updatedModes).toEqual(['all']);
   });
 
@@ -309,7 +304,7 @@ describe('ConnectionDetailsPage', () => {
     fireEvent.click(screen.getByRole('radio', {name: ALL_MODE_RE}));
     fireEvent.click(screen.getByRole('button', {name: 'Save changes'}));
 
-    expect(await screen.findByText('Access mode saved.')).toBeVisible();
+    expect(await screen.findByText('Repository access settings saved.')).toBeVisible();
     expect(screen.getByRole('radio', {name: ALL_MODE_RE})).toBeChecked();
     expect(screen.getByRole('button', {name: 'Save changes'})).toBeDisabled();
   });
@@ -346,7 +341,7 @@ describe('ConnectionDetailsPage', () => {
     fireEvent.click(screen.getByRole('button', {name: 'Save changes'}));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      'The previous mode still applies. Try again.',
+      'Try again. The current repository access mode is unchanged.',
     );
     expect(screen.getByRole('button', {name: 'Save changes'})).toBeEnabled();
   });

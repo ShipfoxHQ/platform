@@ -174,7 +174,7 @@ function InstalledRow({
                       to="/w/$workspaceSlug/settings/integrations/$connectionSlug"
                       params={{workspaceSlug, connectionSlug: connection.slug}}
                     >
-                      Manage repository access
+                      Repository access settings
                     </Link>
                   </DropdownMenuItem>
                 ) : null}
