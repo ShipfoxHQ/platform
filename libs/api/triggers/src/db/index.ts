@@ -16,12 +16,15 @@ export {
   type ListTriggerEventsParams,
   type ListTriggerEventsResult,
   listDecisionsByReceivedEventId,
+  listDecisionsByReceivedEventIdPage,
   listReplaysOfTriggerEvent,
+  listReplaysOfTriggerEventPage,
   listTriggerEventFacets,
   listTriggerEvents,
   type TriggerEventCursor,
   type TriggerEventFacet,
   type TriggerEventListFilters,
+  type TriggerEventReadPage,
 } from './event-queries.js';
 export {
   type FindMatchingJobListenerSubscriptionsParams,

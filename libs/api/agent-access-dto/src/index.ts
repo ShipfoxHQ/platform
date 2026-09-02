@@ -1,4 +1,23 @@
 export {
+  AGENT_ACCESS_FACET_MAX_ITEMS,
+  AGENT_ACCESS_FACET_VALUE_MAX_BYTES,
+  AGENT_ACCESS_SERIALIZED_JSON_MAX_BYTES,
+  AGENT_ACCESS_TRIGGER_DECISION_MAX_ITEMS,
+  AGENT_ACCESS_TRIGGER_REPLAY_MAX_ITEMS,
+  type GetTriggerEventFacetsInputDto,
+  type GetTriggerEventFacetsResultDto,
+  type GetTriggerEventInputDto,
+  type GetTriggerEventResultDto,
+  getTriggerEventFacetsInputJsonSchema,
+  getTriggerEventFacetsInputSchema,
+  getTriggerEventFacetsResultJsonSchema,
+  getTriggerEventFacetsResultSchema,
+  getTriggerEventInputJsonSchema,
+  getTriggerEventInputSchema,
+  getTriggerEventResultJsonSchema,
+  getTriggerEventResultSchema,
+} from './schemas/diagnostic-tools.js';
+export {
   AGENT_ACCESS_ERROR_CODE_MAX_LENGTH,
   AGENT_ACCESS_ERROR_MESSAGE_MAX_LENGTH,
   type AgentAccessEnvelopeDto,

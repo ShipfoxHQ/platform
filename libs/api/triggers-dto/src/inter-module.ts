@@ -107,7 +107,20 @@ const triggerEventFacetSchema = z.object({
 const triggerEventDetailSchema = triggerEventSchema.extend({
   decisions: z.array(triggerDecisionSchema),
   replays: z.array(triggerEventReplaySchema),
+  decisionsTotalCount: z.number().int().nonnegative().optional(),
+  replaysTotalCount: z.number().int().nonnegative().optional(),
 });
+
+export const triggerEventDiagnosticReadLimitsSchema = z
+  .object({
+    decisions: z.number().int().min(1).max(50),
+    replays: z.number().int().min(1).max(20),
+  })
+  .strict();
+
+export type TriggerEventDiagnosticReadLimits = z.infer<
+  typeof triggerEventDiagnosticReadLimitsSchema
+>;
 
 export const triggersInterModuleContract = defineInterModuleContract({
   module: 'triggers',
@@ -125,7 +138,11 @@ export const triggersInterModuleContract = defineInterModuleContract({
       }),
     },
     getTriggerEvent: {
-      input: z.object({workspaceId: idSchema, eventId: idSchema}),
+      input: z.object({
+        workspaceId: idSchema,
+        eventId: idSchema,
+        diagnostic: triggerEventDiagnosticReadLimitsSchema.optional(),
+      }),
       output: triggerEventDetailSchema,
       errors: {
         'trigger-event-not-found': z.object({eventId: idSchema}),
