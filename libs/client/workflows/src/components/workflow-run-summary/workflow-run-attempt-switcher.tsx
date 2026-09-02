@@ -10,7 +10,12 @@ import {Code, Text} from '@shipfox/react-ui/typography';
 import {cn} from '@shipfox/react-ui/utils';
 import {Link} from '@tanstack/react-router';
 import {useState} from 'react';
-import type {WorkflowRunAttempt, WorkflowRunDetail} from '#core/workflow-run.js';
+import type {
+  WorkflowRunAttempt,
+  WorkflowRunDetail,
+  WorkflowRunListItem,
+  WorkflowRunOverview,
+} from '#core/workflow-run.js';
 import {withoutWorkflowRunSelectionSearch} from '#core/workflow-run-url-state.js';
 import {useWorkflowRunAttemptsQuery} from '#hooks/api/workflow-runs.js';
 import {WorkflowStatusIcon} from '../workflow-status/workflow-status-icon.js';
@@ -18,7 +23,7 @@ import {WorkflowStatusIcon} from '../workflow-status/workflow-status-icon.js';
 export interface WorkflowRunAttemptSwitcherProps {
   workspaceSlug?: string | undefined;
   projectSlug?: string | undefined;
-  run: WorkflowRunDetail;
+  run: WorkflowRunDetail | WorkflowRunOverview | WorkflowRunListItem;
   latestAttempt: number;
 }
 
@@ -72,7 +77,7 @@ export function WorkflowRunAttemptSwitcher({
                 <AttemptItem
                   key={attempt.id}
                   attempt={attempt}
-                  current={attempt.id === run.runAttempt.id}
+                  current={attempt.attempt === run.runAttempt.attempt}
                   workflowRunId={run.id}
                   workspaceSlug={workspaceSlug}
                   projectSlug={projectSlug}

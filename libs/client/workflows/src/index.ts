@@ -7,6 +7,7 @@ export type {
 } from '#core/definitions-at-ref.js';
 export type {
   AgentConfigIssue,
+  BoundedExecutionCount,
   DevRunLaunch,
   JobDisplayDuration,
   JobDisplayStatus,
@@ -30,7 +31,17 @@ export type {
   WorkflowRun,
   WorkflowRunAttempt,
   WorkflowRunDetail,
+  WorkflowRunLineageHead,
+  WorkflowRunListItem,
   WorkflowRunListPage,
+  WorkflowRunOverview,
+  WorkflowRunOverviewCompleteJobs,
+  WorkflowRunOverviewExecution,
+  WorkflowRunOverviewHeader,
+  WorkflowRunOverviewJobPage,
+  WorkflowRunOverviewJobs,
+  WorkflowRunOverviewLargeJobs,
+  WorkflowRunSelectionResolution,
   WorkflowRunStatus,
   WorkflowSourceSnapshot,
   WorkflowStatus,
@@ -44,6 +55,7 @@ export {
   JobExecution,
   TERMINAL_WORKFLOW_RUN_STATUSES,
   WORKFLOW_RUN_STATUSES,
+  WorkflowRunOverviewJob,
   workflowRunTriggerLabel,
 } from '#core/workflow-run.js';
 export {
@@ -63,11 +75,29 @@ export {
   useCreateDevRunMutation,
 } from './hooks/api/dev-runs.js';
 export {
+  useWorkflowRunLineageHeadQuery,
+  useWorkflowRunOverviewJobsInfiniteQuery,
+  useWorkflowRunOverviewQuery,
+  type WorkflowRunLineageHeadQueryInput,
+  type WorkflowRunOverviewJobsQueryInput,
+  type WorkflowRunOverviewQueryInput,
+  workflowRunLineageHeadQueryOptions,
+  workflowRunOverviewJobsInfiniteQueryOptions,
+  workflowRunOverviewQueryKeys,
+  workflowRunOverviewQueryOptions,
+} from './hooks/api/workflow-run-overview.js';
+export {
+  useWorkflowRunSelectionQuery,
+  type WorkflowRunSelectionQueryInput,
+  workflowRunSelectionQueryOptions,
+} from './hooks/api/workflow-run-selection.js';
+export {
   type FireManualWorkflowVariables,
   fireManualWorkflow,
   useCancelWorkflowRunMutation,
   useFireManualWorkflowMutation,
   useWorkflowRunAttemptsQuery,
+  useWorkflowRunListItem,
   useWorkflowRunQuery,
   useWorkflowRunsInfiniteQuery,
   type WorkflowRunFilters,

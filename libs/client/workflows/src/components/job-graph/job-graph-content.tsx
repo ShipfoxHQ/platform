@@ -3,11 +3,10 @@ import {TimeTickerProvider} from '@shipfox/react-ui/time-ticker';
 import {cn} from '@shipfox/react-ui/utils';
 import type {KeyboardEvent} from 'react';
 import {useRef, useState} from 'react';
-import type {WorkflowRunDetail} from '#core/workflow-run.js';
 import type {JobGraphModel, JobGraphNavigationKey} from './graph-model.js';
 import {nextJobGraphNodeId} from './graph-model.js';
 import {JobNode, TriggerNode} from './job-node.js';
-import type {JobGraphSelectionSource} from './types.js';
+import type {JobGraphSelectionSource, JobGraphTrigger} from './types.js';
 
 const NODE_WIDTH = 208;
 const NODE_HEIGHT = 48;
@@ -24,10 +23,7 @@ export function JobGraphContent({
   onSelectJob,
 }: {
   model: JobGraphModel;
-  trigger: Pick<
-    WorkflowRunDetail,
-    'triggerDisplayLabel' | 'triggerLabel' | 'triggerProvider' | 'triggerSource'
-  >;
+  trigger: JobGraphTrigger;
   selectedJobId?: string | undefined;
   onSelectJob: (jobId: string | undefined, source?: JobGraphSelectionSource) => void;
 }) {

@@ -4,6 +4,8 @@ import {Callout} from '@shipfox/react-ui/callout';
 import {EmptyState} from '@shipfox/react-ui/empty-state';
 import {Skeleton} from '@shipfox/react-ui/skeleton';
 import {Text} from '@shipfox/react-ui/typography';
+import {Link} from '@tanstack/react-router';
+import {workflowRunSearchParams} from '#routes/inputs.js';
 
 export function WorkflowRunSkeleton() {
   return (
@@ -73,6 +75,42 @@ export function WorkflowRunStaleError({query}: {query: QueryLoadErrorQuery}) {
           </Button>
         </div>
       </Callout>
+    </div>
+  );
+}
+
+export function WorkflowRunNewerAttemptBanner({
+  workspaceSlug,
+  projectSlug,
+  runId,
+  currentAttempt,
+  latestAttempt,
+}: {
+  workspaceSlug: string;
+  projectSlug: string;
+  runId: string;
+  currentAttempt: number;
+  latestAttempt: number;
+}) {
+  return (
+    <div
+      role="status"
+      aria-label={`Pinned to attempt ${currentAttempt}. A newer run attempt is available.`}
+      className="border-b border-border-neutral-base px-row py-row"
+    >
+      <div className="flex items-center justify-between gap-inline">
+        <Text size="xs" className="text-foreground-neutral-muted">
+          A newer run attempt is available.
+        </Text>
+        <Link
+          to="/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId"
+          params={{workspaceSlug, projectSlug, workflowRunId: runId}}
+          search={workflowRunSearchParams({runAttempt: latestAttempt}) as never}
+          className="shrink-0 rounded-4 px-tight py-[4px] text-xs font-medium text-foreground-highlight-interactive outline-none focus-visible:shadow-border-interactive-with-active"
+        >
+          View attempt #{latestAttempt}
+        </Link>
+      </div>
     </div>
   );
 }

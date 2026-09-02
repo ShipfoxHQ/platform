@@ -1,9 +1,15 @@
-import type {WorkflowRunDetail} from '#core/workflow-run.js';
+import type {WorkflowRun, WorkflowRunDetail, WorkflowRunOverview} from '#core/workflow-run.js';
+
+export type JobGraphRun = WorkflowRunDetail | WorkflowRunOverview;
+export type JobGraphTrigger = Pick<
+  WorkflowRun,
+  'triggerDisplayLabel' | 'triggerLabel' | 'triggerProvider' | 'triggerSource'
+>;
 
 export type JobGraphSelectionSource = 'pointer' | 'keyboard';
 
 export interface JobGraphProps {
-  run: WorkflowRunDetail;
+  run: JobGraphRun;
   selectedJobId?: string | undefined;
   defaultSelectedJobId?: string | undefined;
   onSelectedJobChange?:

@@ -145,8 +145,10 @@ export function WorkflowRunRow({
       to="/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId"
       params={{workspaceSlug, projectSlug, workflowRunId: run.id}}
       search={
-        ((previous: Record<string, unknown>) =>
-          withoutWorkflowRunSelectionSearch(previous)) as never
+        ((previous: Record<string, unknown>) => ({
+          ...withoutWorkflowRunSelectionSearch(previous),
+          runAttempt: run.currentAttempt,
+        })) as never
       }
       // An aria-label is the link's whole accessible name, so anything inside the row that
       // carries its own label (the status glyph, the job strip) goes unspoken unless it is

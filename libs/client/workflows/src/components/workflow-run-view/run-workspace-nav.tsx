@@ -12,6 +12,10 @@ import {
   deriveJobDisplayStatus,
   type Job,
   type WorkflowRunDetail,
+  type WorkflowRunJobSummary,
+  type WorkflowRunListItem,
+  type WorkflowRunOverview,
+  type WorkflowRunOverviewJob,
 } from '#core/workflow-run.js';
 import {
   type WorkflowJobSearch,
@@ -22,6 +26,8 @@ import {
 import {JobExecutionTimeText} from '../job-detail/job-execution-time-text.js';
 
 type RunWorkspaceSection = Exclude<WorkflowRunTab, 'jobs'>;
+type RunWorkspaceRun = WorkflowRunDetail | WorkflowRunOverview | WorkflowRunListItem;
+type RunWorkspaceJob = Job | WorkflowRunOverviewJob | WorkflowRunJobSummary;
 
 const RUN_WORKSPACE_LINK_CLASS_NAME =
   'relative flex min-h-32 items-center gap-inline rounded-4 px-tight outline-none transition-colors hover:bg-background-neutral-hover focus-visible:shadow-border-interactive-with-active @max-[767px]:min-h-44 [@media(pointer:coarse)]:min-h-44';
@@ -29,7 +35,7 @@ const RUN_WORKSPACE_LINK_CLASS_NAME =
 export interface RunWorkspaceNavProps {
   workspaceSlug: string;
   projectSlug: string;
-  run: WorkflowRunDetail;
+  run: RunWorkspaceRun;
   activeSection: RunWorkspaceSection;
   currentJobId?: string | undefined;
   jobSearch?: WorkflowJobSearch | undefined;
@@ -49,12 +55,15 @@ export function RunWorkspaceNav({
   jobSearch = {},
   annotationSummary,
 }: RunWorkspaceNavProps) {
-  const jobs = useMemo(() => [...run.jobs].sort(compareJobs), [run.jobs]);
+  const {jobs, jobCount} = useMemo(() => workspaceJobs(run), [run]);
   const [mobileOpen, setMobileOpen] = useState(false);
   const currentJob =
-    jobs.find((job) => job.id === currentJobId) ?? (currentJobId ? jobs[0] : undefined);
+    jobs.find((job) => job.id === currentJobId) ??
+    (currentJobId && workspaceHasCompleteJobIndex(run) ? jobs[0] : undefined);
   const resolvedCurrentJobId = currentJob?.id;
-  const currentLabel = currentJob?.displayName ?? sectionLabel(activeSection);
+  const currentLabel = currentJob
+    ? workspaceJobDisplayName(currentJob)
+    : sectionLabel(activeSection);
 
   return (
     <TimeTickerProvider intervalMs={1000} reducedMotionIntervalMs={10_000}>
@@ -100,6 +109,7 @@ export function RunWorkspaceNav({
               projectSlug={projectSlug}
               run={run}
               jobs={jobs}
+              jobCount={jobCount}
               activeSection={activeSection}
               currentJobId={resolvedCurrentJobId}
               jobSearch={jobSearch}
@@ -119,6 +129,7 @@ function RunWorkspaceNavContent({
   projectSlug,
   run,
   jobs,
+  jobCount,
   activeSection,
   currentJobId,
   jobSearch,
@@ -126,7 +137,8 @@ function RunWorkspaceNavContent({
   mobileOpen,
   onNavigate,
 }: RunWorkspaceNavProps & {
-  jobs: Job[];
+  jobs: RunWorkspaceJob[];
+  jobCount: number;
   jobSearch: WorkflowJobSearch;
   mobileOpen: boolean;
   onNavigate: () => void;
@@ -175,14 +187,13 @@ function RunWorkspaceNavContent({
             Jobs
           </Text>
           <Text as="span" size="xs" className="font-code text-foreground-neutral-subtle">
-            {jobs.length}
+            {jobCount}
           </Text>
         </div>
         <ol className="min-h-0 flex-1 overflow-y-auto scrollbar">
           {jobs.map((job) => {
             const current = job.id === currentJobId;
-            const execution = defaultJobExecution(job);
-            const duration = execution?.displayDuration ?? job.displayDuration;
+            const duration = workspaceJobDuration(job);
 
             return (
               <li key={job.id}>
@@ -201,12 +212,12 @@ function RunWorkspaceNavContent({
                 >
                   {current ? <RunWorkspaceActiveBar /> : null}
                   <WorkflowStatusIcon
-                    status={deriveJobDisplayStatus(job)}
+                    status={workspaceJobDisplayStatus(job)}
                     size={12}
                     tooltip={false}
                   />
                   <span className="min-w-0 truncate font-code text-xs leading-20 text-foreground-neutral-base">
-                    {job.displayName}
+                    {workspaceJobDisplayName(job)}
                   </span>
                   <span className="ml-auto shrink-0 font-code text-xs leading-20 text-foreground-neutral-muted tabular-nums">
                     {duration ? <JobExecutionTimeText time={duration} /> : '—'}
@@ -335,6 +346,45 @@ function sectionLabel(section: RunWorkspaceSection): string {
   return 'Summary';
 }
 
-function compareJobs(left: Job, right: Job): number {
+function workspaceJobs(run: RunWorkspaceRun): {jobs: RunWorkspaceJob[]; jobCount: number} {
+  if (Array.isArray(run.jobs)) {
+    return {jobs: [...run.jobs].sort(compareJobs), jobCount: run.jobs.length};
+  }
+  if ('preview' in run.jobs) {
+    return {jobs: [...run.jobs.preview].sort(compareJobs), jobCount: run.jobs.total};
+  }
+  if (run.jobs.kind === 'complete') {
+    return {jobs: [...run.jobs.items].sort(compareJobs), jobCount: run.jobs.total};
+  }
+  return {
+    jobs: [...run.jobs.firstPage.items].sort(compareJobs),
+    jobCount: run.jobs.total,
+  };
+}
+
+function workspaceHasCompleteJobIndex(run: RunWorkspaceRun): boolean {
+  return Array.isArray(run.jobs) || ('kind' in run.jobs && run.jobs.kind === 'complete');
+}
+
+function workspaceJobDisplayName(job: RunWorkspaceJob): string {
+  return job.name ?? job.key;
+}
+
+function workspaceJobDisplayStatus(job: RunWorkspaceJob) {
+  if ('defaultExecution' in job) return job.displayStatus;
+  if ('jobExecutions' in job) return deriveJobDisplayStatus(job);
+  return deriveJobDisplayStatus({...job, jobExecutions: []});
+}
+
+function workspaceJobDuration(job: RunWorkspaceJob) {
+  if ('defaultExecution' in job) return job.displayDuration;
+  if ('jobExecutions' in job) {
+    const execution = defaultJobExecution(job);
+    return execution?.displayDuration ?? job.displayDuration;
+  }
+  return null;
+}
+
+function compareJobs(left: RunWorkspaceJob, right: RunWorkspaceJob): number {
   return left.position - right.position || left.id.localeCompare(right.id);
 }

@@ -426,11 +426,12 @@ describe('workflow run API hooks', () => {
       rerunMode: 'all',
     });
     expect(firstRequest(fetchImpl).url).toBe(
-      `https://api.example.test/workflows/runs/${RUN_ID}/attempts`,
+      `https://api.example.test/workflows/runs/${RUN_ID}/attempts?limit=25`,
     );
-    expect(queryClient.getQueryData(workflowRunsQueryKeys.attempts(RUN_ID))).toEqual(
-      result.current.data,
-    );
+    expect(queryClient.getQueryData(workflowRunsQueryKeys.attempts(RUN_ID))).toEqual({
+      pages: [{items: result.current.data, nextCursor: null}],
+      pageParams: [null],
+    });
   });
 
   test('maps paginated run attempts from the compatibility response', async () => {

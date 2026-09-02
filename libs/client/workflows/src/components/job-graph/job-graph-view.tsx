@@ -1,9 +1,8 @@
 import {cn} from '@shipfox/react-ui/utils';
 import {useState} from 'react';
-import type {WorkflowRunDetail} from '#core/workflow-run.js';
 import type {JobGraphModel} from './graph-model.js';
 import {JobGraphContent} from './job-graph-content.js';
-import type {JobGraphSelectionSource} from './types.js';
+import type {JobGraphSelectionSource, JobGraphTrigger} from './types.js';
 
 export function JobGraphView({
   model,
@@ -14,10 +13,7 @@ export function JobGraphView({
   className,
 }: {
   model: JobGraphModel;
-  trigger: Pick<
-    WorkflowRunDetail,
-    'triggerDisplayLabel' | 'triggerLabel' | 'triggerProvider' | 'triggerSource'
-  >;
+  trigger: JobGraphTrigger;
   selectedJobId?: string | undefined;
   defaultSelectedJobId?: string | undefined;
   onSelectedJobChange?:

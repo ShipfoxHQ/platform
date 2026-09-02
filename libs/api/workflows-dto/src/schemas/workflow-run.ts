@@ -12,7 +12,7 @@ export const WORKFLOW_RUN_JOB_POSITION_MAX = 2_147_483_647;
 // contract. Older clients omit it and are recorded as `unknown`.
 export const WORKFLOW_RUN_DETAIL_REQUEST_KIND_HEADER =
   'x-shipfox-workflow-run-detail-request-kind' as const;
-export const WORKFLOW_RUN_DETAIL_REQUEST_KINDS = ['initial', 'polling'] as const;
+export const WORKFLOW_RUN_DETAIL_REQUEST_KINDS = ['initial', 'polling', 'bridge'] as const;
 export type WorkflowRunDetailRequestKind = (typeof WORKFLOW_RUN_DETAIL_REQUEST_KINDS)[number];
 
 export const workflowRunStatusSchema = z.enum([

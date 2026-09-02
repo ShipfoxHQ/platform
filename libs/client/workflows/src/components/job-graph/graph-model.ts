@@ -1,6 +1,19 @@
-import type {Job, WorkflowRunDetail} from '#core/workflow-run.js';
+import {
+  defaultJobExecution,
+  deriveJobDisplayStatus,
+  deriveJobExecutionDisplayStatus,
+  type Job,
+  type JobDisplayDuration,
+  type JobExecution,
+  type JobExecutionStatus,
+  type WorkflowRunOverviewExecution,
+  type WorkflowRunOverviewJob,
+} from '#core/workflow-run.js';
+import type {JobGraphRun} from './types.js';
 
-export type JobGraphNode = Job & {
+export type JobGraphJob = Job | WorkflowRunOverviewJob;
+
+export type JobGraphNode = JobGraphJob & {
   column: number;
   row: number;
   currentDependencyCount: number;
@@ -27,12 +40,12 @@ export interface JobGraphModel {
   columns: JobGraphNode[][];
 }
 
-export function buildJobGraphModel({run}: {run: WorkflowRunDetail}): JobGraphModel {
-  const sortedJobs = [...run.jobs].sort(compareJobs);
+export function buildJobGraphModel({run}: {run: JobGraphRun}): JobGraphModel {
+  const sortedJobs = graphJobs(run).sort(compareJobs);
   const byKey = new Map(sortedJobs.map((job) => [job.key, job]));
   const columnMemo = new Map<string, number>();
 
-  function columnFor(job: Job, visiting = new Set<string>()): number {
+  function columnFor(job: JobGraphJob, visiting = new Set<string>()): number {
     const cached = columnMemo.get(job.id);
     if (cached !== undefined) return cached;
     if (visiting.has(job.id)) return 0;
@@ -42,7 +55,7 @@ export function buildJobGraphModel({run}: {run: WorkflowRunDetail}): JobGraphMod
 
     const dependencyColumns = job.dependencies
       .map((dependencyKey) => byKey.get(dependencyKey))
-      .filter((dependency): dependency is Job => dependency !== undefined)
+      .filter((dependency): dependency is JobGraphJob => dependency !== undefined)
       .map((dependency) => columnFor(dependency, nextVisiting));
 
     const column = dependencyColumns.length === 0 ? 0 : Math.max(...dependencyColumns) + 1;
@@ -69,7 +82,12 @@ export function buildJobGraphModel({run}: {run: WorkflowRunDetail}): JobGraphMod
   };
 }
 
-function compareJobs(left: Job, right: Job): number {
+function graphJobs(run: JobGraphRun): JobGraphJob[] {
+  if (Array.isArray(run.jobs)) return [...run.jobs];
+  return run.jobs.kind === 'complete' ? [...run.jobs.items] : [];
+}
+
+function compareJobs(left: JobGraphJob, right: JobGraphJob): number {
   return (
     left.position - right.position ||
     (left.name ?? left.key).localeCompare(right.name ?? right.key) ||
@@ -99,7 +117,10 @@ function groupColumns(nodes: JobGraphNode[]): JobGraphNode[][] {
     );
 }
 
-function buildEdges(jobs: readonly Job[], byKey: ReadonlyMap<string, Job>): JobGraphEdge[] {
+function buildEdges(
+  jobs: readonly JobGraphJob[],
+  byKey: ReadonlyMap<string, JobGraphJob>,
+): JobGraphEdge[] {
   const triggerEdges = jobs
     .filter((job) => job.dependencies.length === 0)
     .map((job) => ({
@@ -127,7 +148,7 @@ function buildEdges(jobs: readonly Job[], byKey: ReadonlyMap<string, Job>): JobG
   return [...triggerEdges, ...dependencyEdges];
 }
 
-function currentDependencyCount(job: Job, byKey: ReadonlyMap<string, Job>): number {
+function currentDependencyCount(job: JobGraphJob, byKey: ReadonlyMap<string, JobGraphJob>): number {
   return job.dependencies.filter((dependencyKey) => {
     const dependency = byKey.get(dependencyKey);
     return dependency?.status === 'pending' || dependency?.status === 'running';
@@ -135,10 +156,63 @@ function currentDependencyCount(job: Job, byKey: ReadonlyMap<string, Job>): numb
 }
 
 function jobGraphNode(
-  job: Job,
+  job: JobGraphJob,
   layout: Pick<JobGraphNode, 'column' | 'row' | 'currentDependencyCount'>,
 ): JobGraphNode {
   return Object.assign(Object.create(Object.getPrototypeOf(job)), job, layout);
+}
+
+export function graphJobDisplayStatus(job: JobGraphJob) {
+  return isOverviewJob(job) ? job.displayStatus : deriveJobDisplayStatus(job);
+}
+
+export function graphJobDefaultExecution(
+  job: JobGraphJob,
+): JobExecution | WorkflowRunOverviewExecution | undefined {
+  return isOverviewJob(job) ? (job.defaultExecution ?? undefined) : defaultJobExecution(job);
+}
+
+export function graphJobExecutionDisplayStatus(
+  execution: JobExecution | WorkflowRunOverviewExecution | undefined,
+): JobExecutionStatus | undefined {
+  if (!execution) return undefined;
+  return 'displayStatus' in execution
+    ? execution.displayStatus
+    : deriveJobExecutionDisplayStatus(execution);
+}
+
+export function graphJobDisplayDuration(job: JobGraphJob): JobDisplayDuration | null {
+  return job.displayDuration;
+}
+
+export function graphJobExecutionCount(job: JobGraphJob): number | '100+' {
+  return isOverviewJob(job) ? job.executionCount : job.jobExecutions.length;
+}
+
+export function graphJobExecutionCountVisible(job: JobGraphJob): boolean {
+  return job.executionCountVisible;
+}
+
+export function graphJobExecutionStatusCounts(
+  job: JobGraphJob,
+): Record<JobExecutionStatus, number | '100+'> {
+  if (isOverviewJob(job)) return job.executionStatusCounts;
+
+  const counts: Record<JobExecutionStatus, number> = {
+    pending: 0,
+    running: 0,
+    succeeded: 0,
+    failed: 0,
+    cancelled: 0,
+  };
+  for (const execution of job.jobExecutions) {
+    counts[deriveJobExecutionDisplayStatus(execution)] += 1;
+  }
+  return counts;
+}
+
+function isOverviewJob(job: JobGraphJob): job is WorkflowRunOverviewJob {
+  return 'defaultExecution' in job;
 }
 
 export function nextJobGraphNodeId({

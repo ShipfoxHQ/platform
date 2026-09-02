@@ -9,12 +9,19 @@ import type {
   WorkflowRunDetailResponseDto,
   WorkflowRunJobDetailDto,
   WorkflowRunJobExecutionDetailDto,
+  WorkflowRunJobListSummaryDto,
+  WorkflowRunJobOverviewDto,
+  WorkflowRunLineageHeadResponseDto,
   WorkflowRunListItemDto,
   WorkflowRunListResponseDto,
+  WorkflowRunOverviewResponseDto,
   WorkflowRunResponseDto,
+  WorkflowRunSelectionResponseDto,
   WorkflowRunStepDetailDto,
 } from '@shipfox/api-workflows-dto';
 import {
+  defaultJobExecution,
+  deriveJobExecutionDisplayStatus,
   type EvaluationTraceEntry,
   Job,
   JobExecution,
@@ -23,15 +30,23 @@ import {
   StepAttempt,
   type StepAttemptSession,
   type StepGateResult,
+  toWorkflowRunOverviewExecutionDuration,
   type WorkflowExecutionEvent,
   type WorkflowRun,
   WorkflowRunAttempt,
   WorkflowRunAttemptSummary,
   type WorkflowRunDetail,
   type WorkflowRunDevSource,
+  type WorkflowRunLineageHead,
   type WorkflowRunListItem,
   type WorkflowRunListPage,
+  type WorkflowRunOverview,
+  type WorkflowRunOverviewExecution,
+  WorkflowRunOverviewJob,
+  type WorkflowRunOverviewJobPage,
+  type WorkflowRunOverviewJobs,
   type WorkflowRunRecord,
+  type WorkflowRunSelectionResolution,
   workflowRunTriggerDisplayLabel,
   workflowRunTriggerLabel,
 } from '#core/workflow-run.js';
@@ -94,6 +109,165 @@ export function toWorkflowRunAttempt(dto: WorkflowRunAttemptDto): WorkflowRunAtt
     finishedAt: dto.finished_at ?? null,
     rerunMode: dto.rerun_mode,
   });
+}
+
+export function toWorkflowRunLineageHead(
+  dto: WorkflowRunLineageHeadResponseDto,
+): WorkflowRunLineageHead {
+  return {
+    currentAttempt: dto.current_attempt,
+    latestAttempt: dto.latest_attempt,
+    currentStatus: dto.current_status,
+    updatedAt: dto.updated_at,
+  };
+}
+
+export function toWorkflowRunLineageHeadFromRecord(
+  run: Pick<WorkflowRunRecord, 'currentAttempt' | 'latestAttempt' | 'status' | 'updatedAt'>,
+): WorkflowRunLineageHead {
+  return {
+    currentAttempt: run.currentAttempt,
+    latestAttempt: run.latestAttempt,
+    currentStatus: run.status,
+    updatedAt: run.updatedAt,
+  };
+}
+
+export function toWorkflowRunOverview(dto: WorkflowRunOverviewResponseDto): WorkflowRunOverview {
+  const attempt = toWorkflowRunAttempt(dto.attempt);
+  return {
+    id: dto.run.id,
+    projectId: dto.run.project_id,
+    definitionId: dto.run.definition_id,
+    number: dto.run.number,
+    name: dto.run.name,
+    workflowName: dto.run.workflow_name,
+    origin: dto.run.origin,
+    devSource: toDevSource(dto.run.dev_source),
+    triggerProvider: dto.run.trigger_provider,
+    triggerSource: dto.run.trigger_source,
+    triggerEvent: dto.run.trigger_event,
+    triggerDisplayLabel: workflowRunTriggerDisplayLabel({
+      triggerSource: dto.run.trigger_source,
+      triggerEvent: dto.run.trigger_event,
+    }),
+    triggerLabel: workflowRunTriggerLabel({
+      triggerSource: dto.run.trigger_source,
+      triggerEvent: dto.run.trigger_event,
+    }),
+    triggerReference: dto.run.trigger_reference,
+    createdAt: dto.run.created_at,
+    currentAttempt: attempt.attempt,
+    latestAttempt: attempt.attempt,
+    runAttempt: attempt,
+    hasStartedJobExecution: dto.has_started_job_execution,
+    jobs: toWorkflowRunOverviewJobs(dto.jobs),
+  };
+}
+
+export function toWorkflowRunOverviewJobs(
+  dto: WorkflowRunOverviewResponseDto['jobs'],
+): WorkflowRunOverviewJobs {
+  if (dto.kind === 'complete') {
+    return {
+      kind: 'complete',
+      total: dto.total,
+      items: dto.items.map(toWorkflowRunOverviewJob),
+    };
+  }
+
+  return {
+    kind: 'large',
+    total: dto.total,
+    statusCounts: dto.status_counts.map(({status, count}) => ({status, count})),
+    firstPage: {
+      items: dto.first_page.items.map(toWorkflowRunOverviewJob),
+      nextCursor: dto.first_page.next_cursor,
+      total: dto.first_page.total,
+    },
+  };
+}
+
+export function toWorkflowRunOverviewJob(
+  dto: WorkflowRunJobOverviewDto | WorkflowRunJobListSummaryDto,
+): WorkflowRunOverviewJob {
+  const defaultExecution = dto.default_execution
+    ? toWorkflowRunOverviewExecution(dto.default_execution)
+    : null;
+  return new WorkflowRunOverviewJob({
+    id: dto.id,
+    key: dto.key,
+    name: dto.name,
+    position: dto.position,
+    dependencies: 'dependencies' in dto ? dto.dependencies : [],
+    status: dto.status,
+    statusReason: dto.status_reason,
+    mode: dto.mode,
+    listenerStatus: dto.listener_status,
+    carriedOver: dto.carried_over,
+    executionCount: dto.execution_count,
+    executionStatusCounts: {
+      pending: dto.execution_status_counts.pending,
+      running: dto.execution_status_counts.running,
+      succeeded: dto.execution_status_counts.succeeded,
+      failed: dto.execution_status_counts.failed,
+      cancelled: dto.execution_status_counts.cancelled,
+    },
+    defaultExecution,
+  });
+}
+
+function toWorkflowRunOverviewExecution(
+  dto: NonNullable<WorkflowRunJobOverviewDto['default_execution']>,
+): WorkflowRunOverviewExecution {
+  return {
+    id: dto.id,
+    sequence: dto.sequence,
+    name: dto.name,
+    status: dto.status,
+    displayStatus: dto.display_status,
+    statusReason: dto.status_reason,
+    statusReasonMessage: dto.status_reason_message,
+    queuedAt: dto.queued_at,
+    startedAt: dto.started_at,
+    finishedAt: dto.finished_at,
+    timedOutAt: dto.timed_out_at,
+    updatedAt: dto.updated_at,
+    displayDuration: toWorkflowRunOverviewExecutionDuration({
+      queuedAt: dto.queued_at,
+      startedAt: dto.started_at,
+      finishedAt: dto.finished_at,
+    }),
+  };
+}
+
+export function toWorkflowRunOverviewJobPage(dto: {
+  items: WorkflowRunJobListSummaryDto[];
+  next_cursor: string | null;
+  total?: number | undefined;
+}): WorkflowRunOverviewJobPage {
+  return {
+    items: dto.items.map(toWorkflowRunOverviewJob),
+    nextCursor: dto.next_cursor,
+    ...(dto.total === undefined ? {} : {total: dto.total}),
+  };
+}
+
+export function toWorkflowRunSelectionResolution(
+  dto: WorkflowRunSelectionResponseDto,
+): WorkflowRunSelectionResolution {
+  return {
+    workflowRunId: dto.workflow_run_id,
+    workflowRunAttempt: dto.workflow_run_attempt,
+    jobId: dto.job_id,
+    jobExecutionId: dto.job_execution_id,
+    stepId: dto.step_id,
+    stepAttemptId: dto.step_attempt_id,
+    stepAttempt: dto.step_attempt,
+    sourceLocation: dto.source_location
+      ? {startLine: dto.source_location.start_line, endLine: dto.source_location.end_line}
+      : null,
+  };
 }
 
 export function toWorkflowRunRecord(dto: WorkflowRunResponseDto): WorkflowRunRecord {
@@ -166,6 +340,137 @@ export function toWorkflowRunDetail(dto: WorkflowRunDetailResponseDto): Workflow
     jobs: dto.jobs.map(toJob),
     hasStartedJobExecution: dto.has_started_job_execution ?? true,
   };
+}
+
+/**
+ * Converts the retained tree response into the bounded shape while an older API is still in
+ * service. The normal workspace path never calls this for a valid overview response; it exists
+ * solely so a mixed deployment can keep the shell usable until the overview route is available.
+ */
+export function toWorkflowRunOverviewFromDetail(
+  dto: WorkflowRunDetailResponseDto,
+): WorkflowRunOverview {
+  const detail = toWorkflowRunDetail(dto);
+  return {
+    id: detail.id,
+    projectId: detail.projectId,
+    definitionId: detail.definitionId,
+    number: detail.number,
+    name: detail.name,
+    workflowName: detail.workflowName,
+    origin: detail.origin,
+    devSource: detail.devSource,
+    triggerProvider: detail.triggerProvider,
+    triggerSource: detail.triggerSource,
+    triggerEvent: detail.triggerEvent,
+    triggerDisplayLabel: detail.triggerDisplayLabel,
+    triggerLabel: detail.triggerLabel,
+    triggerReference: detail.triggerReference,
+    createdAt: detail.createdAt,
+    currentAttempt: detail.currentAttempt,
+    latestAttempt: detail.latestAttempt,
+    runAttempt: detail.runAttempt,
+    hasStartedJobExecution: detail.hasStartedJobExecution,
+    jobs: {
+      kind: 'complete',
+      total: detail.jobs.length,
+      items: detail.jobs.map(toWorkflowRunOverviewJobFromDetail),
+    },
+  };
+}
+
+function toWorkflowRunOverviewJobFromDetail(job: Job): WorkflowRunOverviewJob {
+  const executionStatusCounts = {
+    pending: 0,
+    running: 0,
+    succeeded: 0,
+    failed: 0,
+    cancelled: 0,
+  } as const;
+  const counts = {...executionStatusCounts};
+  for (const execution of job.jobExecutions) {
+    counts[deriveJobExecutionDisplayStatus(execution)] += 1;
+  }
+
+  const execution = defaultJobExecution(job);
+  return new WorkflowRunOverviewJob({
+    id: job.id,
+    key: job.key,
+    name: job.name,
+    position: job.position,
+    dependencies: job.dependencies,
+    status: job.status,
+    statusReason: job.statusReason,
+    mode: job.mode,
+    listenerStatus: job.listenerStatus,
+    carriedOver: job.carriedOver,
+    executionCount: boundedExecutionCount(job.jobExecutions.length),
+    executionStatusCounts: {
+      pending: boundedExecutionCount(counts.pending),
+      running: boundedExecutionCount(counts.running),
+      succeeded: boundedExecutionCount(counts.succeeded),
+      failed: boundedExecutionCount(counts.failed),
+      cancelled: boundedExecutionCount(counts.cancelled),
+    },
+    defaultExecution: execution
+      ? {
+          id: execution.id,
+          sequence: execution.sequence,
+          name: execution.name,
+          status: execution.status,
+          displayStatus: deriveJobExecutionDisplayStatus(execution),
+          statusReason: toJobStatusReason(execution.statusReason),
+          statusReasonMessage: execution.statusReasonMessage,
+          queuedAt: execution.queuedAt,
+          startedAt: execution.startedAt,
+          finishedAt: execution.finishedAt,
+          timedOutAt: execution.timedOutAt,
+          updatedAt: execution.updatedAt,
+          displayDuration: execution.displayDuration,
+        }
+      : null,
+  });
+}
+
+function boundedExecutionCount(count: number): number | '100+' {
+  return count > 100 ? '100+' : count;
+}
+
+function toJobStatusReason(
+  value: string | null,
+):
+  | 'dependency_not_completed'
+  | 'condition_false'
+  | 'default_gate_rejected'
+  | 'condition_rejected'
+  | 'condition_errored'
+  | 'user_cancelled'
+  | 'run_cancelled'
+  | 'timed_out'
+  | 'runner_lost'
+  | 'output_too_large'
+  | 'step_failed'
+  | 'unknown'
+  | 'output_invalid'
+  | null {
+  switch (value) {
+    case 'dependency_not_completed':
+    case 'condition_false':
+    case 'default_gate_rejected':
+    case 'condition_rejected':
+    case 'condition_errored':
+    case 'user_cancelled':
+    case 'run_cancelled':
+    case 'timed_out':
+    case 'runner_lost':
+    case 'output_too_large':
+    case 'step_failed':
+    case 'unknown':
+    case 'output_invalid':
+      return value;
+    default:
+      return value === null ? null : 'unknown';
+  }
 }
 
 export function toJob(dto: WorkflowRunJobDetailDto): Job {

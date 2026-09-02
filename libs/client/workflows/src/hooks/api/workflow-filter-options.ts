@@ -1,5 +1,5 @@
 import {definitionsInfiniteQueryOptions} from '@shipfox/client-projects';
-import {useInfiniteQuery} from '@tanstack/react-query';
+import {infiniteQueryOptions, useInfiniteQuery} from '@tanstack/react-query';
 import {useCallback, useEffect, useMemo, useState} from 'react';
 import type {WorkflowRunWorkflowFacet} from '#components/workflow-run-list/run-display.js';
 import type {WorkflowOptionsStatus} from '#components/workflow-run-list/types.js';
@@ -15,14 +15,9 @@ export function useWorkflowFilterOptions(projectId: string): {
 } {
   const [requestedProjectId, setRequestedProjectId] = useState<string>();
   const loadAllRequested = requestedProjectId === projectId;
-  // A previous project's definitions must never appear in this project's chooser.
-  const {placeholderData: _placeholderData, ...configuredOptions} = definitionsInfiniteQueryOptions(
-    loadAllRequested ? projectId : undefined,
+  const definitionsQuery = useInfiniteQuery(
+    workflowFilterOptionsInfiniteQueryOptions(loadAllRequested ? projectId : undefined),
   );
-  const definitionsQuery = useInfiniteQuery({
-    ...configuredOptions,
-    staleTime: WORKFLOW_OPTIONS_STALE_TIME_MS,
-  });
   const repeatedCursor = hasRepeatedCursor(
     definitionsQuery.data?.pages.at(-1)?.nextCursor,
     definitionsQuery.data?.pageParams,
@@ -94,6 +89,16 @@ export function useWorkflowFilterOptions(projectId: string): {
     onOpenWorkflowOptions,
     onRetryWorkflowOptions,
   };
+}
+
+function workflowFilterOptionsInfiniteQueryOptions(projectId: string | undefined) {
+  // A previous project's definitions must never appear in this project's chooser.
+  const {placeholderData: _placeholderData, ...configuredOptions} =
+    definitionsInfiniteQueryOptions(projectId);
+  return infiniteQueryOptions({
+    ...configuredOptions,
+    staleTime: WORKFLOW_OPTIONS_STALE_TIME_MS,
+  });
 }
 
 function hasRepeatedCursor(

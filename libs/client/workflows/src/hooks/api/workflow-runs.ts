@@ -1,6 +1,7 @@
 import {
   type RerunWorkflowRunBodyDto,
   WORKFLOW_RUN_DETAIL_REQUEST_KIND_HEADER,
+  type WorkflowRunDetailRequestKind,
   type WorkflowRunRerunModeDto,
   workflowRunAttemptsResponseSchema,
   workflowRunDetailResponseSchema,
@@ -60,6 +61,34 @@ export const workflowRunsQueryKeys = {
     [...workflowRunsQueryKeys.all, 'detail', workflowRunId, runAttempt ?? null] as const,
   attempts: (workflowRunId: string) =>
     [...workflowRunsQueryKeys.all, 'attempts', workflowRunId] as const,
+  heads: (workflowRunId: string) => [...workflowRunsQueryKeys.all, 'head', workflowRunId] as const,
+  head: (workflowRunId: string) => workflowRunsQueryKeys.heads(workflowRunId),
+  overviews: (workflowRunId: string) =>
+    [...workflowRunsQueryKeys.all, 'overview', workflowRunId] as const,
+  overview: (workflowRunId: string, runAttempt: number) =>
+    [...workflowRunsQueryKeys.overviews(workflowRunId), runAttempt] as const,
+  overviewJobs: (workflowRunId: string, runAttempt: number) =>
+    [...workflowRunsQueryKeys.all, 'overview-jobs', workflowRunId, runAttempt] as const,
+  selection: (
+    workflowRunId: string,
+    identity: {
+      jobId?: string | undefined;
+      jobExecutionId?: string | undefined;
+      stepId?: string | undefined;
+      stepAttemptId?: string | undefined;
+    },
+    runAttempt?: number | undefined,
+  ) =>
+    [
+      ...workflowRunsQueryKeys.all,
+      'selection',
+      workflowRunId,
+      runAttempt ?? null,
+      identity.jobId ?? null,
+      identity.jobExecutionId ?? null,
+      identity.stepId ?? null,
+      identity.stepAttemptId ?? null,
+    ] as const,
 };
 
 type WorkflowRunsListQueryKey =
@@ -84,11 +113,17 @@ type WorkflowRunDetailQueryOptions = UseQueryOptions<
   WorkflowRunDetail,
   WorkflowRunDetailQueryKey
 >;
-type WorkflowRunAttemptsQueryOptions = UseQueryOptions<
-  WorkflowRunAttempt[],
+export interface WorkflowRunAttemptsPage {
+  items: WorkflowRunAttempt[];
+  nextCursor: string | null;
+}
+
+type WorkflowRunAttemptsQueryOptions = UseInfiniteQueryOptions<
+  WorkflowRunAttemptsPage,
   Error,
   WorkflowRunAttempt[],
-  WorkflowRunAttemptsQueryKey
+  WorkflowRunAttemptsQueryKey,
+  string | null
 >;
 
 function normalizeFilters(filters: WorkflowRunFilters) {
@@ -294,7 +329,7 @@ async function getWorkflowRun({
 }: {
   workflowRunId: string;
   runAttempt?: number | undefined;
-  requestKind: 'initial' | 'polling';
+  requestKind: WorkflowRunDetailRequestKind;
   signal?: AbortSignal;
 }): Promise<WorkflowRunDetail> {
   const params = new URLSearchParams();
@@ -312,22 +347,30 @@ async function getWorkflowRun({
   );
 }
 
-async function getWorkflowRunAttempts({
+const WORKFLOW_RUN_ATTEMPTS_PAGE_SIZE = 25;
+
+async function getWorkflowRunAttemptsPage({
   workflowRunId,
+  cursor,
   signal,
 }: {
   workflowRunId: string;
+  cursor?: string | null | undefined;
   signal?: AbortSignal;
-}): Promise<WorkflowRunAttempt[]> {
+}): Promise<WorkflowRunAttemptsPage> {
+  const params = new URLSearchParams({limit: String(WORKFLOW_RUN_ATTEMPTS_PAGE_SIZE)});
+  if (cursor) params.set('cursor', cursor);
   const response = await checkedApiRequest(
     workflowRunAttemptsResponseSchema,
-    `/workflows/runs/${workflowRunId}/attempts`,
+    `/workflows/runs/${workflowRunId}/attempts?${params.toString()}`,
     {
       signal,
     },
   );
-  const attempts = 'attempts' in response ? response.attempts : response.items;
-  return attempts.map(toWorkflowRunAttempt);
+  if ('attempts' in response) {
+    return {items: response.attempts.map(toWorkflowRunAttempt), nextCursor: null};
+  }
+  return {items: response.items.map(toWorkflowRunAttempt), nextCursor: response.next_cursor};
 }
 
 async function cancelWorkflowRun({
@@ -387,6 +430,12 @@ export function useRerunWorkflowRunMutation(projectId: string) {
         }),
         queryClient.invalidateQueries({
           queryKey: workflowRunsQueryKeys.attempts(variables.workflowRunId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: workflowRunsQueryKeys.head(variables.workflowRunId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: workflowRunsQueryKeys.overviews(variables.workflowRunId),
         }),
       ]);
     },
@@ -538,6 +587,25 @@ export function readFiltersFromKey(queryKey: readonly unknown[]): WorkflowRunFil
   };
 }
 
+/** Reads a matching list row without turning the run shell into another list request. */
+export function useWorkflowRunListItem(
+  workflowRunId: string | undefined,
+): WorkflowRunListItem | undefined {
+  const queryClient = useQueryClient();
+  if (!workflowRunId) return undefined;
+
+  const entries = queryClient.getQueriesData<RunListInfinite>({
+    queryKey: [...workflowRunsQueryKeys.all, 'list'],
+  });
+  for (const [, data] of entries) {
+    for (const page of data?.pages ?? []) {
+      const run = page.runs.find((candidate) => candidate.id === workflowRunId);
+      if (run) return run;
+    }
+  }
+  return undefined;
+}
+
 function lookupDefinitionName(
   queryClient: ReturnType<typeof useQueryClient>,
   projectId: string,
@@ -559,7 +627,7 @@ function lookupDefinitionName(
 function workflowRunDetailRequestKind(
   client: QueryClient,
   queryKey: WorkflowRunDetailQueryKey,
-): 'initial' | 'polling' {
+): Exclude<WorkflowRunDetailRequestKind, 'bridge'> {
   const query = client.getQueryCache().find({queryKey});
   if (!query) return 'initial';
   if (workflowRunDetailRequests.has(query)) return 'polling';
@@ -575,22 +643,26 @@ export function useWorkflowRunAttemptQuery({
   workflowRunId,
   runAttempt,
   enabled = true,
+  requestKind,
 }: {
   workflowRunId: string | undefined;
   runAttempt?: number | undefined;
   enabled?: boolean | undefined;
+  requestKind?: WorkflowRunDetailRequestKind | undefined;
 }) {
-  return useQuery(workflowRunQueryOptions({workflowRunId, runAttempt, enabled}));
+  return useQuery(workflowRunQueryOptions({workflowRunId, runAttempt, enabled, requestKind}));
 }
 
 export function workflowRunQueryOptions({
   workflowRunId,
   runAttempt,
   enabled = true,
+  requestKind,
 }: {
   workflowRunId: string | undefined;
   runAttempt?: number | undefined;
   enabled?: boolean | undefined;
+  requestKind?: WorkflowRunDetailRequestKind | undefined;
 }): WorkflowRunDetailQueryOptions {
   // Poll a non-terminal run so the open run detail stays live (same cadence as the run
   // list); stop once the run is terminal.
@@ -603,12 +675,13 @@ export function workflowRunQueryOptions({
       getWorkflowRun({
         workflowRunId: workflowRunId ?? '',
         runAttempt,
-        requestKind: workflowRunDetailRequestKind(client, queryKey),
+        requestKind: requestKind ?? workflowRunDetailRequestKind(client, queryKey),
         signal,
       }),
     staleTime: 2_000,
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: requestKind !== 'bridge',
     refetchInterval: (query) => {
+      if (requestKind === 'bridge') return false;
       const status: WorkflowRunDetail['runAttempt']['status'] | undefined =
         query.state.data?.runAttempt.status;
       if (!status) return false;
@@ -625,7 +698,23 @@ export function useWorkflowRunAttemptsQuery({
   workflowRunId: string | undefined;
   enabled: boolean;
 }) {
-  return useQuery(workflowRunAttemptsQueryOptions({workflowRunId, enabled}));
+  const queryClient = useQueryClient();
+  migrateLegacyAttemptCache(queryClient, workflowRunId);
+  return useInfiniteQuery(workflowRunAttemptsQueryOptions({workflowRunId, enabled}));
+}
+
+function migrateLegacyAttemptCache(
+  queryClient: QueryClient,
+  workflowRunId: string | undefined,
+): void {
+  if (!workflowRunId) return;
+  const queryKey = workflowRunsQueryKeys.attempts(workflowRunId);
+  const cached = queryClient.getQueryData<unknown>(queryKey);
+  if (!Array.isArray(cached)) return;
+  queryClient.setQueryData(queryKey, {
+    pages: [{items: cached as WorkflowRunAttempt[], nextCursor: null}],
+    pageParams: [null],
+  });
 }
 
 export function workflowRunAttemptsQueryOptions({
@@ -635,19 +724,32 @@ export function workflowRunAttemptsQueryOptions({
   workflowRunId: string | undefined;
   enabled: boolean;
 }): WorkflowRunAttemptsQueryOptions {
-  return queryOptions({
+  return infiniteQueryOptions({
     queryKey: workflowRunId
       ? workflowRunsQueryKeys.attempts(workflowRunId)
       : ([...workflowRunsQueryKeys.all, 'attempts'] as const),
     enabled: Boolean(workflowRunId) && enabled,
-    queryFn: ({signal}) => getWorkflowRunAttempts({workflowRunId: workflowRunId ?? '', signal}),
+    initialPageParam: null as string | null,
+    queryFn: ({pageParam, signal}) =>
+      getWorkflowRunAttemptsPage({
+        workflowRunId: workflowRunId ?? '',
+        cursor: pageParam,
+        signal,
+      }),
+    getNextPageParam: (lastPage) => lastPage.nextCursor,
+    select: (data) => data.pages.flatMap((page) => page.items),
+    // The dropdown is an explicit history refresh point. Keep its cached rows visible while
+    // checking for a newer attempt instead of allowing a fresh-looking cache to suppress the
+    // request when the observer changes from disabled to enabled.
     staleTime: 0,
-    refetchOnMount: true,
+    refetchOnMount: 'always',
     refetchOnWindowFocus: false,
   });
 }
 
-export function useCancelWorkflowRunMutation(run: WorkflowRun | undefined) {
+export function useCancelWorkflowRunMutation(
+  run: Pick<WorkflowRun, 'id' | 'projectId'> | undefined,
+) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (): Promise<WorkflowRunRecord> => {
@@ -660,6 +762,8 @@ export function useCancelWorkflowRunMutation(run: WorkflowRun | undefined) {
         queryClient.invalidateQueries({queryKey: workflowRunsQueryKeys.detail(run.id)}),
         queryClient.invalidateQueries({queryKey: workflowRunsQueryKeys.lists(run.projectId)}),
         queryClient.invalidateQueries({queryKey: workflowRunsQueryKeys.attempts(run.id)}),
+        queryClient.invalidateQueries({queryKey: workflowRunsQueryKeys.head(run.id)}),
+        queryClient.invalidateQueries({queryKey: workflowRunsQueryKeys.overviews(run.id)}),
       ]);
     },
   });
