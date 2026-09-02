@@ -397,11 +397,14 @@ export function listenerFilterOutputTypesForJobs(
     jobs.flatMap(({job, outputTypes}) => {
       if (outputTypes === undefined) return [];
 
-      // `dyn` values need no CEL-native rehydration. Omitting their metadata
-      // keeps this persisted outbox shape readable by older trigger consumers
-      // during a rolling deploy, while typed sibling outputs retain theirs.
+      // `dyn` values need no CEL-native rehydration. Remove only their metadata
+      // branches so typed sibling outputs remain rehydratable while this
+      // persisted outbox shape stays readable by older trigger consumers.
       const compatibleOutputTypes = Object.fromEntries(
-        Object.entries(outputTypes).filter(([, type]) => !containsDynamicType(type)),
+        Object.entries(outputTypes).flatMap(([key, type]) => {
+          const compatibleType = withoutDynamicType(type);
+          return compatibleType === undefined ? [] : [[key, compatibleType] as const];
+        }),
       );
       return Object.keys(compatibleOutputTypes).length === 0
         ? []
@@ -410,18 +413,29 @@ export function listenerFilterOutputTypesForJobs(
   );
 }
 
-function containsDynamicType(type: ExpressionType): boolean {
-  if (typeof type === 'string') return false;
+function withoutDynamicType(type: ExpressionType): ExpressionType | undefined {
+  if (typeof type === 'string') return type;
 
   switch (type.kind) {
     case 'dyn':
-      return true;
-    case 'object':
-      return Object.values(type.fields).some(containsDynamicType);
-    case 'list':
-      return containsDynamicType(type.element);
+      return undefined;
     case 'map':
-      return false;
+      return type;
+    case 'list': {
+      const element = withoutDynamicType(type.element);
+      return element === undefined ? undefined : {kind: 'list', element};
+    }
+    case 'object': {
+      const fields = Object.fromEntries(
+        Object.entries(type.fields).flatMap(([key, fieldType]) => {
+          const compatibleType = withoutDynamicType(fieldType);
+          return compatibleType === undefined ? [] : [[key, compatibleType] as const];
+        }),
+      );
+      return Object.keys(type.fields).length > 0 && Object.keys(fields).length === 0
+        ? undefined
+        : {kind: 'object', fields};
+    }
   }
 }
 

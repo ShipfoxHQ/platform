@@ -651,14 +651,30 @@ describe('listener filter snapshots', () => {
         outputTypes: {
           count: 'int',
           payload: {kind: 'dyn'},
-          nested: {kind: 'object', fields: {value: {kind: 'dyn'}}},
+          nested: {
+            kind: 'object',
+            fields: {value: {kind: 'dyn'}, createdAt: 'timestamp'},
+          },
           items: {kind: 'list', element: {kind: 'dyn'}},
+          nestedItems: {
+            kind: 'list',
+            element: {
+              kind: 'object',
+              fields: {value: {kind: 'dyn'}, count: 'int'},
+            },
+          },
         },
         executions: [],
       },
     ]);
 
-    expect(result).toEqual({build: {count: 'int'}});
+    expect(result).toEqual({
+      build: {
+        count: 'int',
+        nested: {kind: 'object', fields: {createdAt: 'timestamp'}},
+        nestedItems: {kind: 'list', element: {kind: 'object', fields: {count: 'int'}}},
+      },
+    });
   });
 
   it('omits snapshots for event-only filters and malformed filters', () => {
