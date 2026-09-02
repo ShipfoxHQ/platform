@@ -1,6 +1,11 @@
 import {StreamableHTTPServerTransport} from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import type {Transport} from '@modelcontextprotocol/sdk/shared/transport.js';
+import type {AnnotationsInterModuleClient} from '@shipfox/annotations-dto/inter-module';
 import {AUTH_AGENT_ACCESS, requireAgentAccessContext} from '@shipfox/api-auth-context';
+import type {DefinitionsInterModuleClient} from '@shipfox/api-definitions-dto/inter-module';
+import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
+import type {TriggersInterModuleClient} from '@shipfox/api-triggers-dto/inter-module';
+import type {WorkflowsModuleClient} from '@shipfox/api-workflows-dto/inter-module';
 import {reportError} from '@shipfox/node-error-monitoring';
 import {
   ClientError,
@@ -14,6 +19,7 @@ import {
 } from '@shipfox/node-fastify';
 import {logger} from '@shipfox/node-opentelemetry';
 import {AGENT_ACCESS_MCP_PATH, AGENT_ACCESS_PROTECTED_RESOURCE_METADATA_PATH} from '#constants.js';
+import {createAgentAccessTools} from '#core/paged-tools.js';
 import {type AgentAccessRateLimiter, createAgentAccessRateLimiter} from '#core/rate-limiter.js';
 import {type AgentAccessTool, createAgentAccessFixtureTool} from '#core/tools.js';
 import {recordAgentAccessAuthFailure} from '#metrics/index.js';
@@ -29,10 +35,15 @@ export interface CreateAgentAccessRoutesOptions {
   rateLimiter?: AgentAccessRateLimiter | undefined;
   recordCall?: AgentAccessToolCallRecorder | undefined;
   isOriginAllowed?: ((origin: string | undefined) => boolean) | undefined;
+  projects?: ProjectsModuleClient | undefined;
+  definitions?: DefinitionsInterModuleClient | undefined;
+  workflows?: WorkflowsModuleClient | undefined;
+  annotations?: AnnotationsInterModuleClient | undefined;
+  triggers?: TriggersInterModuleClient | undefined;
 }
 
 export function createAgentAccessRoutes(options: CreateAgentAccessRoutesOptions = {}): RouteGroup {
-  const tools = options.tools ?? [createAgentAccessFixtureTool()];
+  const tools = options.tools ?? toolsFromProducerClients(options);
   const rateLimiter = options.rateLimiter ?? createAgentAccessRateLimiter();
   const recordCall = options.recordCall ?? createAgentAccessToolCallRecorder();
   const originMatcher = options.isOriginAllowed ?? createAllowedOriginMatcher();
@@ -105,6 +116,31 @@ export function createAgentAccessRoutes(options: CreateAgentAccessRoutesOptions 
       }),
     ],
   };
+}
+
+function toolsFromProducerClients(
+  options: CreateAgentAccessRoutesOptions,
+): readonly AgentAccessTool[] {
+  const {projects, definitions, workflows, annotations, triggers} = options;
+  if (
+    projects === undefined &&
+    definitions === undefined &&
+    workflows === undefined &&
+    annotations === undefined &&
+    triggers === undefined
+  ) {
+    return [createAgentAccessFixtureTool()];
+  }
+  if (
+    projects === undefined ||
+    definitions === undefined ||
+    workflows === undefined ||
+    annotations === undefined ||
+    triggers === undefined
+  ) {
+    throw new Error('Agent-access producer clients must be configured together');
+  }
+  return createAgentAccessTools({projects, definitions, workflows, annotations, triggers});
 }
 
 function methodNotAllowed(_request: FastifyRequest, reply: FastifyReply) {

@@ -18,12 +18,33 @@ describe('annotationsInterModuleContract', () => {
     });
   });
 
-  test('keeps an empty annotation read result nullable only at the cursor', () => {
+  test('requires createdAt on non-empty annotation reads and keeps the cursor nullable', () => {
     const output = annotationsInterModuleContract.methods.listAnnotationsForRunAttempt.output.parse(
-      {annotations: [], hasMore: false, nextCursor: null},
+      {
+        annotations: [
+          {
+            id: '00000000-0000-4000-8000-000000000004',
+            job_id: '00000000-0000-4000-8000-000000000005',
+            job_execution_id: '00000000-0000-4000-8000-000000000006',
+            origin_step_id: '00000000-0000-4000-8000-000000000007',
+            origin_step_attempt: 1,
+            context: 'agent',
+            style: 'info',
+            sequence: 12,
+            body: 'annotation',
+            createdAt: '2026-08-31T12:00:00.000Z',
+          },
+        ],
+        hasMore: false,
+        nextCursor: null,
+      },
     );
 
-    expect(output).toEqual({annotations: [], hasMore: false, nextCursor: null});
+    expect(output).toEqual({
+      annotations: [expect.objectContaining({createdAt: '2026-08-31T12:00:00.000Z'})],
+      hasMore: false,
+      nextCursor: null,
+    });
     expect(
       annotationsInterModuleContract.methods.listAnnotationsForRunAttempt.input.safeParse({
         workspaceId: '00000000-0000-4000-8000-000000000001',

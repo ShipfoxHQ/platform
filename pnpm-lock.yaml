@@ -2121,12 +2121,33 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: 'catalog:'
         version: 1.29.0(zod@4.4.3)
+      '@shipfox/annotations-dto':
+        specifier: workspace:*
+        version: link:../annotations-dto
       '@shipfox/api-agent-access-dto':
         specifier: workspace:*
         version: link:../agent-access-dto
       '@shipfox/api-auth-context':
         specifier: workspace:*
         version: link:../auth-context
+      '@shipfox/api-definitions-dto':
+        specifier: workspace:*
+        version: link:../definitions-dto
+      '@shipfox/api-projects-dto':
+        specifier: workspace:*
+        version: link:../projects-dto
+      '@shipfox/api-triggers-dto':
+        specifier: workspace:*
+        version: link:../triggers-dto
+      '@shipfox/api-workflows-dto':
+        specifier: workspace:*
+        version: link:../workflows-dto
+      '@shipfox/inter-module':
+        specifier: workspace:*
+        version: link:../../shared/common/inter-module
+      '@shipfox/node-drizzle':
+        specifier: workspace:*
+        version: link:../../shared/node/drizzle
       '@shipfox/node-error-monitoring':
         specifier: workspace:*
         version: link:../../shared/node/error-monitoring

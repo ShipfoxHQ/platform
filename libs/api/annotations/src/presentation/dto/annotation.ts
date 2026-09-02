@@ -1,4 +1,5 @@
 import type {AnnotationDto} from '@shipfox/annotations-dto';
+import type {AnnotationReadDto} from '@shipfox/annotations-dto/inter-module';
 import type {Annotation} from '#core/entities/annotation.js';
 
 export function toAnnotationDto(annotation: Annotation): AnnotationDto {
@@ -12,5 +13,12 @@ export function toAnnotationDto(annotation: Annotation): AnnotationDto {
     style: annotation.style,
     sequence: annotation.sequence,
     body: annotation.body,
+  };
+}
+
+export function toAnnotationReadDto(annotation: Annotation): AnnotationReadDto {
+  return {
+    ...toAnnotationDto(annotation),
+    createdAt: annotation.createdAt.toISOString(),
   };
 }

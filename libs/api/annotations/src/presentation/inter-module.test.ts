@@ -81,6 +81,7 @@ describe('Annotations inter-module presentation', () => {
           style: visible.style,
           sequence: 1,
           body: visible.body,
+          createdAt: visible.createdAt.toISOString(),
         },
         {
           id: next.id,
@@ -92,6 +93,7 @@ describe('Annotations inter-module presentation', () => {
           style: next.style,
           sequence: 2,
           body: next.body,
+          createdAt: next.createdAt.toISOString(),
         },
       ],
       hasMore: true,

@@ -11,7 +11,7 @@ import {
 } from '#core/errors.js';
 import {writeAnnotations} from '#core/write-annotations.js';
 import {listAnnotationsForRunAttempt} from '#db/index.js';
-import {toAnnotationDto} from './dto/annotation.js';
+import {toAnnotationReadDto} from './dto/annotation.js';
 
 export function createAnnotationsInterModulePresentation(): InterModulePresentation<
   typeof annotationsInterModuleContract
@@ -44,7 +44,7 @@ export function createAnnotationsInterModulePresentation(): InterModulePresentat
       });
 
       return {
-        annotations: result.annotations.map(toAnnotationDto),
+        annotations: result.annotations.map(toAnnotationReadDto),
         hasMore: result.hasMore,
         nextCursor: result.nextCursor
           ? {value: result.nextCursor.sequence, id: result.nextCursor.id}

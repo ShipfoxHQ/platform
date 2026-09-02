@@ -14,11 +14,22 @@ export {
   serializeAgentAccessEnvelope,
 } from '#core/envelope.js';
 export {
+  type AgentAccessPagedToolsOptions,
+  createAgentAccessTools,
+} from '#core/paged-tools.js';
+export {
   type AgentAccessRateLimitDecision,
   type AgentAccessRateLimiter,
   type CreateAgentAccessRateLimiterOptions,
   createAgentAccessRateLimiter,
 } from '#core/rate-limiter.js';
+export {
+  type AgentAccessUtf8Truncation,
+  fitAgentAccessResponseToCeiling,
+  reducePagedAgentAccessResponse,
+  serializedAgentAccessEnvelopeByteLength,
+  truncateAgentAccessUtf8,
+} from '#core/response.js';
 export {
   type AgentAccessTool,
   type AgentAccessToolCall,
