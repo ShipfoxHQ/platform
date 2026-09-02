@@ -22,6 +22,13 @@ export type DocumentationViolation =
       kind: 'orphan';
       file: string;
       reason: string;
+    }
+  | {
+      kind: 'missing-repository-root-input';
+      file: string;
+      package: string;
+      task: RepositoryPolicyTask;
+      reason: string;
     };
 
 export interface DocumentationCheckResult {
@@ -85,6 +92,9 @@ export type GuidanceFileKind =
   | 'package'
   | 'policy'
   | 'subsystem';
+
+const repositoryPolicyTasks = ['test', 'verify'] as const;
+type RepositoryPolicyTask = (typeof repositoryPolicyTasks)[number];
 
 export function guidanceFileKind(relativePath: string): GuidanceFileKind {
   if (relativePath === 'docs/README.md') return 'documentation-map';
@@ -166,7 +176,65 @@ export async function checkRepositoryDocumentation(
     }
   }
 
-  return {checkedFiles, violations};
+  return {
+    checkedFiles,
+    violations: [...violations, ...(await checkRepositoryToolTurboInputs(rootDirectory))],
+  };
+}
+
+export async function checkRepositoryToolTurboInputs(
+  rootDirectory = repositoryRoot,
+): Promise<DocumentationViolation[]> {
+  const toolsDirectory = path.join(rootDirectory, 'tools');
+  const entries = await readdir(toolsDirectory, {withFileTypes: true}).catch(() => []);
+  const violations: DocumentationViolation[] = [];
+
+  for (const directoryName of entries
+    .filter((entry) => entry.isDirectory() && entry.name.endsWith('-policy'))
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((entry) => entry.name)) {
+    violations.push(...(await checkRepositoryPolicyPackage(toolsDirectory, directoryName)));
+  }
+
+  return violations;
+}
+
+async function checkRepositoryPolicyPackage(
+  toolsDirectory: string,
+  directoryName: string,
+): Promise<DocumentationViolation[]> {
+  const packageDirectory = path.join(toolsDirectory, directoryName);
+  const manifest = await readJsonObject(path.join(packageDirectory, 'package.json'));
+  const scripts = manifest && isRecord(manifest.scripts) ? manifest.scripts : undefined;
+  if (scripts === undefined || typeof scripts.verify !== 'string') return [];
+
+  const tasks = repositoryPolicyTasks.filter((task) => typeof scripts[task] === 'string');
+  const turboConfig = await readJsonObject(path.join(packageDirectory, 'turbo.json'));
+  return tasks.flatMap((task) => {
+    const violation = missingRepositoryRootInput(turboConfig, directoryName, task);
+    return violation === undefined ? [] : [violation];
+  });
+}
+
+function missingRepositoryRootInput(
+  turboConfig: Record<string, unknown> | undefined,
+  directoryName: string,
+  task: RepositoryPolicyTask,
+): DocumentationViolation | undefined {
+  const taskConfig = turboConfig && isRecord(turboConfig.tasks) ? turboConfig.tasks[task] : null;
+  const inputs = isRecord(taskConfig) ? taskConfig.inputs : undefined;
+  const hasRepositoryRootInput =
+    Array.isArray(inputs) &&
+    inputs.some((input) => typeof input === 'string' && input.includes('$TURBO_ROOT$'));
+  if (hasRepositoryRootInput) return undefined;
+
+  return {
+    kind: 'missing-repository-root-input',
+    file: `tools/${directoryName}/turbo.json`,
+    package: `tools/${directoryName}`,
+    task,
+    reason: `The ${task} task must declare at least one $TURBO_ROOT$ input so repository changes invalidate its cache.`,
+  };
 }
 
 interface DocumentationFileCheckOptions {
@@ -438,7 +506,23 @@ function formatViolation(violation: DocumentationViolation): string {
   if (violation.kind === 'orphan') {
     return `- ${violation.file}: ${violation.reason}`;
   }
+  if (violation.kind === 'missing-repository-root-input') {
+    return `- ${violation.package}#${violation.task}: ${violation.reason}`;
+  }
   return `- ${violation.source}:${violation.line} -> ${violation.target}: ${violation.reason}`;
+}
+
+async function readJsonObject(file: string): Promise<Record<string, unknown> | undefined> {
+  try {
+    const value: unknown = JSON.parse(await readFile(file, 'utf8'));
+    return isRecord(value) ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

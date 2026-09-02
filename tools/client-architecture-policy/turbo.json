@@ -1,0 +1,20 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "test": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/libs/client/**/*.{ts,tsx}",
+        "$TURBO_ROOT$/libs/shared/react/ui/**/*.{ts,tsx}"
+      ]
+    },
+    "verify": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/libs/client/**/*.{ts,tsx}",
+        "$TURBO_ROOT$/libs/shared/react/ui/**/*.{ts,tsx}"
+      ]
+    }
+  }
+}

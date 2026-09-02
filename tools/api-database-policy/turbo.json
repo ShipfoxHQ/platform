@@ -2,6 +2,20 @@
   "$schema": "https://turbo.build/schema.json",
   "extends": ["//"],
   "tasks": {
+    "test": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/api-contexts.cjs",
+        "$TURBO_ROOT$/api-databases.cjs",
+        "$TURBO_ROOT$/libs/api/**/package.json",
+        "$TURBO_ROOT$/libs/api/**/drizzle.config.ts",
+        "$TURBO_ROOT$/libs/api/**/drizzle/**",
+        "$TURBO_ROOT$/libs/api/**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx}",
+        "$TURBO_ROOT$/libs/shared/node/**/package.json",
+        "$TURBO_ROOT$/libs/shared/node/**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx}",
+        "$TURBO_ROOT$/apps/api/**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx}"
+      ]
+    },
     "verify": {
       "inputs": [
         "$TURBO_DEFAULT$",

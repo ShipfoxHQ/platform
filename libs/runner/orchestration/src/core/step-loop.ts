@@ -208,6 +208,9 @@ async function runJobStepIteration(
     ambientGitConfigPath: state.ambientGitConfigPath,
     ambientGitConfigSecrets: state.ambientGitConfigSecrets,
     checkoutRef: state.checkoutRef,
+    consumeCheckoutRef: () => {
+      state.checkoutRef = undefined;
+    },
     jobId: params.jobId,
     stepLabel,
     logsDir: params.logsDir,
@@ -620,6 +623,7 @@ export async function executeStep(params: {
   ambientGitConfigPath?: string | undefined;
   ambientGitConfigSecrets?: string[] | undefined;
   checkoutRef?: string | undefined;
+  consumeCheckoutRef?: (() => void) | undefined;
   gitConfigPath: string;
   jobId: string;
   stepLabel: string;
@@ -1004,16 +1008,18 @@ async function executeAgentStepBranch(params: {
   params.onStream(sessionStream);
   params.registerStreamSecrets(sessionStream);
   const {executeAgentStep} = await loadRunnerAgentStep();
+  consumeCheckoutRefIfUsed({
+    consume: input.consumeCheckoutRef,
+    checkoutRef: params.checkoutRef,
+    session,
+  });
+  const resumePrompt = buildResumePrompt(session, params.checkoutRef, input.step.config.prompt);
   const result = await executeAgentStep(input.step, {
     signal: input.signal,
     cwd: params.stepCwd,
     agentStateDir: input.agentStateDir,
     ...(session.invocation === undefined ? {} : {session: session.invocation}),
-    ...(session.preamble && typeof input.step.config.prompt === 'string'
-      ? {
-          prompt: `${resumePreamble(session, params.checkoutRef)}\n\n${input.step.config.prompt}`,
-        }
-      : {}),
+    ...(resumePrompt === undefined ? {} : {prompt: resumePrompt}),
     ...(input.ambientGitConfigPath ? {gitConfigGlobal: input.ambientGitConfigPath} : {}),
     runtime: {
       harness: runtimeConfig.harness,
@@ -1126,11 +1132,28 @@ async function prepareAgentSession(
 }
 
 function resumePreamble(session: AgentSessionState, checkoutRef: string | undefined): string {
-  const workspace =
-    checkoutRef === undefined
-      ? ''
-      : ` This is a new execution in a fresh workspace checked out at ${checkoutRef}.`;
-  return `Resuming session "${session.key ?? ''}".${workspace} Files and processes from earlier parts of this conversation no longer exist unless they were committed.`;
+  if (checkoutRef === undefined) {
+    return `Resuming session "${session.key ?? ''}". The existing workspace is intact from the previous turn.`;
+  }
+  return `Resuming session "${session.key ?? ''}". This is a new execution in a fresh workspace checked out at ${checkoutRef}. Files and processes from earlier parts of this conversation no longer exist unless they were committed.`;
+}
+
+function buildResumePrompt(
+  session: AgentSessionState,
+  checkoutRef: string | undefined,
+  prompt: unknown,
+): string | undefined {
+  if (!session.preamble || typeof prompt !== 'string') return undefined;
+  return `${resumePreamble(session, checkoutRef)}\n\n${prompt}`;
+}
+
+function consumeCheckoutRefIfUsed(params: {
+  consume: (() => void) | undefined;
+  checkoutRef: string | undefined;
+  session: AgentSessionState;
+}): void {
+  if (params.checkoutRef === undefined || params.session.mode !== 'resume') return;
+  params.consume?.();
 }
 
 function sessionCommitSdkVersion(harness: string): string {
