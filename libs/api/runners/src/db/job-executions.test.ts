@@ -237,7 +237,10 @@ describe('claimPendingJobExecution', () => {
     ['installation', 'provisioned-runner-installation'],
     ['workspace', 'provisioned-runner-workspace'],
   ] as const)('emits runner identity from the claimed rows for a %s provisioned runner claim', async (scope, providerRunnerId) => {
-    const provisioner = await provisionerTokenFactory.create({scope});
+    const provisioner =
+      scope === 'workspace'
+        ? await provisionerTokenFactory.create({scope, workspaceId})
+        : await provisionerTokenFactory.create({scope});
     const provisionerId = provisioner.id;
     await db()
       .update(runnerSessions)
