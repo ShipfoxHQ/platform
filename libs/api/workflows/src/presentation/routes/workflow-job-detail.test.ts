@@ -8,11 +8,13 @@ import {
   workflowStepAttemptSummariesResponseSchema,
 } from '@shipfox/api-workflows-dto';
 import {ClientError} from '@shipfox/node-fastify';
+import {logger} from '@shipfox/node-opentelemetry';
 import {eq, sql} from 'drizzle-orm';
 import type {FastifyInstance} from 'fastify';
 import Fastify from 'fastify';
 import {serializerCompiler, validatorCompiler} from 'fastify-type-provider-zod';
 import {db} from '#db/db.js';
+import * as dbIndex from '#db/index.js';
 import {jobExecutions} from '#db/schema/job-executions.js';
 import {jobs} from '#db/schema/jobs.js';
 import {stepAttempts} from '#db/schema/step-attempts.js';
@@ -150,6 +152,33 @@ describe('selected workflow job routes', () => {
     );
     expect(attempts.json().items.map((item: {attempt: number}) => item.attempt)).toEqual([3, 2]);
     expect(attempts.json().total).toBe(3);
+  });
+
+  test('logs the measured database duration when execution history fails', async () => {
+    const fixture = await createFixture();
+    const infoSpy = vi.spyOn(logger(), 'info');
+    const executionReadSpy = vi
+      .spyOn(dbIndex, 'listWorkflowJobExecutionSummaries')
+      .mockImplementationOnce((_params, options) => {
+        options?.onRead?.({databaseDurationMilliseconds: 7, returnedRows: 1});
+        return Promise.reject(new Error('database connection lost'));
+      });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/workflows/runs/jobs/${fixture.jobIds[0]}/executions`,
+    });
+
+    expect(response.statusCode).toBe(500);
+    expect(executionReadSpy).toHaveBeenCalledTimes(1);
+    expect(infoSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        route: 'workflow-runs/jobs/:jobId/executions',
+        outcome: 'error',
+        databaseDurationMs: 7,
+      }),
+      'Listed workflow job executions',
+    );
   });
 
   test('bounds embedded attempt previews and sanitizes legacy error and gate payloads', async () => {

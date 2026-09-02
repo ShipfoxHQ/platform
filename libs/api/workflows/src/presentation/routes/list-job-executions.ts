@@ -8,7 +8,11 @@ import {ClientError, defineRoute} from '@shipfox/node-fastify';
 import {logger} from '@shipfox/node-opentelemetry';
 import type {FastifyRequest} from 'fastify';
 import {z} from 'zod';
-import {getWorkflowJobReadScope, listWorkflowJobExecutionSummaries} from '#db/index.js';
+import {
+  getWorkflowJobReadScope,
+  listWorkflowJobExecutionSummaries,
+  type WorkflowJobReadMeasurement,
+} from '#db/index.js';
 import {toWorkflowJobExecutionSummariesResponseDto} from '#presentation/dto/index.js';
 import {requireAccessibleRunScope} from './require-accessible-run.js';
 import {serializedResponseByteLength} from './serialized-response-byte-length.js';
@@ -50,6 +54,9 @@ export function listJobExecutionsRoute(projects: ProjectsModuleClient) {
           projects,
           onAccessDenied: () => {
             outcome = 'access_denied';
+          },
+          onRead: ({databaseDurationMilliseconds: duration}) => {
+            databaseDurationMilliseconds = duration;
           },
           serialize: (response) => reply.serialize(response),
         });
@@ -94,6 +101,7 @@ async function readJobExecutions({
   decodedCursor,
   projects,
   onAccessDenied,
+  onRead,
   serialize,
 }: {
   request: FastifyRequest;
@@ -103,6 +111,7 @@ async function readJobExecutions({
   decodedCursor: ReturnType<typeof decodeExecutionCursor>;
   projects: ProjectsModuleClient;
   onAccessDenied: () => void;
+  onRead: (measurement: WorkflowJobReadMeasurement) => void;
   serialize: (response: WorkflowJobExecutionSummariesResponseDto) => string | ArrayBuffer | Buffer;
 }) {
   assertValidCursor(cursor, decodedCursor);
@@ -124,6 +133,7 @@ async function readJobExecutions({
     {
       onRead: (measurement) => {
         databaseDurationMilliseconds = measurement.databaseDurationMilliseconds;
+        onRead(measurement);
       },
     },
   );

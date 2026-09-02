@@ -41,7 +41,6 @@ export interface WorkflowJobReadScope {
 export interface WorkflowStepReadScope extends WorkflowJobReadScope {
   jobId: string;
   jobExecutionId: string;
-  stepType: StepType;
 }
 
 export interface WorkflowJobReadMeasurement {
@@ -158,7 +157,6 @@ export async function getWorkflowStepReadScope(
       workflowRunAttempt: workflowRunAttempts.attempt,
       jobId: jobs.id,
       jobExecutionId: jobExecutions.id,
-      stepType: steps.type,
     })
     .from(steps)
     .innerJoin(jobExecutions, eq(steps.jobExecutionId, jobExecutions.id))
