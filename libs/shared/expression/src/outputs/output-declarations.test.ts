@@ -12,7 +12,7 @@ describe('outputDeclarationToExpressionType', () => {
     [{type: 'number' as const}, 'double'],
     [{type: 'boolean' as const}, 'bool'],
     [{type: 'json' as const}, {kind: 'dyn'}],
-    [{type: 'json' as const, schema: {}}, {kind: 'map'}],
+    [{type: 'json' as const, schema: {}}, {kind: 'dyn'}],
   ])('maps %j', (declaration, expected) => {
     const result = outputDeclarationToExpressionType(declaration);
 
@@ -87,7 +87,6 @@ describe('jsonSchemaToExpressionType', () => {
         properties: {},
       },
     ],
-    ['empty schema', {}],
     ['patternProperties', {type: 'object', patternProperties: {'^x': {type: 'string'}}}],
   ])('maps open object %s schema to map', (_label, schema) => {
     const result = jsonSchemaToExpressionType(schema);
@@ -104,6 +103,7 @@ describe('jsonSchemaToExpressionType', () => {
     ['not', {not: {type: 'string'}}],
     ['nullable', {type: 'string', nullable: true}],
     ['union type', {type: ['string', 'number']}],
+    ['empty schema', {}],
   ])('maps unknown-shaped %s schema to dyn', (_label, schema) => {
     const result = jsonSchemaToExpressionType(schema);
 
@@ -120,7 +120,7 @@ describe('jsonSchemaToExpressionType', () => {
     expect(result).toBe(expected);
   });
 
-  it('maps an unconstrained nested schema to an open map', () => {
+  it('maps an unconstrained nested schema to dyn', () => {
     const result = jsonSchemaToExpressionType({
       type: 'object',
       additionalProperties: false,
@@ -128,7 +128,7 @@ describe('jsonSchemaToExpressionType', () => {
       required: ['payload'],
     });
 
-    expect(result).toEqual({kind: 'object', fields: {payload: {kind: 'map'}}});
+    expect(result).toEqual({kind: 'object', fields: {payload: {kind: 'dyn'}}});
   });
 });
 
@@ -163,6 +163,33 @@ describe('coerceStepOutputs', () => {
         ready: true,
         payload: {name: 'build'},
         items: ['one', 2],
+      },
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      output: {
+        count: 42,
+        ready: true,
+        payload: {name: 'build'},
+        items: ['one', 2],
+      },
+    });
+  });
+
+  it('decodes string values for schema-less JSON outputs', () => {
+    const result = coerceStepOutputs({
+      declarations: {
+        count: {type: 'json'},
+        ready: {type: 'json'},
+        payload: {type: 'json'},
+        items: {type: 'json'},
+      },
+      output: {
+        count: '42',
+        ready: 'true',
+        payload: '{"name":"build"}',
+        items: '["one",2]',
       },
     });
 

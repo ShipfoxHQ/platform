@@ -81,10 +81,6 @@ export function outputDeclarationsToExpressionFields(
 export function jsonSchemaToExpressionType(schema: unknown): ExpressionType {
   if (!isPlainRecord(schema)) return fallbackJsonType;
   if (hasDynamicSchemaShape(schema)) return fallbackJsonType;
-  // An empty schema is the representation used when a dynamic value is nested
-  // inside a JSON declaration. Keep that nested value open on the next
-  // round-trip rather than making it another opaque leaf.
-  if (Object.keys(schema).length === 0) return openObjectJsonType;
   if (schema.patternProperties !== undefined) return openObjectJsonType;
 
   const type = schema.type;

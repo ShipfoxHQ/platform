@@ -256,6 +256,7 @@ describe('normalizeToolStep', () => {
             ready: '$' + '{{ result.ready }}',
             payload: '$' + '{{ result.payload }}',
             items: '$' + '{{ result.items }}',
+            whole: '$' + '{{ result }}',
           }),
           gate: {
             success:
@@ -273,6 +274,7 @@ describe('normalizeToolStep', () => {
       ready: {check: 'typed', resultType: {kind: 'dyn'}},
       payload: {check: 'typed', resultType: {kind: 'dyn'}},
       items: {check: 'typed', resultType: {kind: 'dyn'}},
+      whole: {check: 'typed', resultType: {kind: 'dyn'}},
     });
     expect(step.outputs).toEqual({
       text: {type: 'json'},
@@ -280,6 +282,7 @@ describe('normalizeToolStep', () => {
       ready: {type: 'json'},
       payload: {type: 'json'},
       items: {type: 'json'},
+      whole: {type: 'json'},
     });
     expect(step.gate?.success).toMatchObject({check: 'typed', resultType: 'bool'});
   });

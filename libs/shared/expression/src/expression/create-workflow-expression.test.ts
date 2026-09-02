@@ -1,3 +1,4 @@
+import {evaluateWorkflowPredicate} from '../evaluator/evaluate-workflow-expression.js';
 import {
   createWorkflowExpression,
   unsafeWorkflowExpressionFromSource,
@@ -446,6 +447,78 @@ describe('createWorkflowExpression', () => {
     });
 
     expect(expression.resultType).toBe('bool');
+  });
+
+  it.each([
+    [
+      'event.value < 1.0',
+      'int',
+      [
+        [0, true],
+        [1, false],
+        [2, false],
+      ],
+    ],
+    [
+      'event.value <= 1.0',
+      'int',
+      [
+        [0, true],
+        [1, true],
+        [2, false],
+      ],
+    ],
+    [
+      'event.value > 1',
+      'double',
+      [
+        [0.5, false],
+        [1, false],
+        [1.5, true],
+      ],
+    ],
+    [
+      'event.value >= 1',
+      'double',
+      [
+        [0.5, false],
+        [1, true],
+        [1.5, true],
+      ],
+    ],
+    [
+      '1.0 < event.value',
+      'int',
+      [
+        [0, false],
+        [1, false],
+        [2, true],
+      ],
+    ],
+    [
+      '1 <= event.value',
+      'double',
+      [
+        [0.5, false],
+        [1, true],
+        [1.5, true],
+      ],
+    ],
+  ] as const)('evaluates cross-type numeric ordering in %s', (source, scalarType, cases) => {
+    const expression = createWorkflowExpression({
+      source,
+      check: {
+        mode: 'typed',
+        typeEnvironment: {
+          event: {kind: 'object', fields: {value: scalarType}},
+        },
+        expectedResultType: 'bool',
+      },
+    });
+
+    for (const [value, expected] of cases) {
+      expect(evaluateWorkflowPredicate(expression, {event: {value}})).toBe(expected);
+    }
   });
 
   it.each([

@@ -199,6 +199,44 @@ describe('tool step executor', () => {
     });
   });
 
+  test.each([
+    ['null', {result: null, content: []}, null],
+    ['a scalar', {result: null, content: [{type: 'text', text: '42'}]}, 42],
+    ['an array', {result: null, content: [{type: 'text', text: '["one",2]'}]}, ['one', 2]],
+  ] as const)('preserves %s whole schema-less tool results', async (_label, providerOutput, result) => {
+    const {jobId} = await arrangeToolStep('read', {
+      outputDeclarations: {
+        result: {type: 'json'},
+        value: {type: 'json'},
+      },
+      outputMappings: {
+        value: createWorkflowExpression({source: 'result', check: {mode: 'syntax'}}),
+      },
+    });
+    const callTool = vi.fn<IntegrationsModuleClient['callTool']>().mockResolvedValue({
+      outcome: 'success' as const,
+      result: providerOutput.result,
+      content: [...providerOutput.content],
+    });
+    const appendServerRecords = vi
+      .fn<LogsModuleClient['appendServerRecords']>()
+      .mockResolvedValue({committedLength: 0, capped: false});
+
+    await nextStepForJob(jobId);
+    await runToolStepExecutorCycle({
+      integrations: {callTool} as unknown as IntegrationsModuleClient,
+      logs: {appendServerRecords} as unknown as LogsModuleClient,
+      signal: new AbortController().signal,
+      claimOwner: 'executor-test',
+      concurrency: 8,
+      callTimeoutMs: 30_000,
+    });
+
+    const [attempt] = await getStepAttempts(jobId);
+    expect(attempt).toMatchObject({status: 'succeeded'});
+    expect(attempt?.output).toEqual({result, value: result});
+  });
+
   test('recovers from a cycle failure and stops cleanly', async () => {
     const cycleRecovered = deferred();
     const waitForStop = deferred();

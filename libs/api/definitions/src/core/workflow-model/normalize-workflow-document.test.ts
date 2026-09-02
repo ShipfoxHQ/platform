@@ -3799,6 +3799,7 @@ describe('normalizeWorkflowDocument', () => {
               env: {PAYLOAD: interpolation('steps.agent.outputs.payload')},
             },
           ],
+          outputs: {payload: interpolation('steps.agent.outputs.payload')},
         },
       },
     };
@@ -3834,6 +3835,20 @@ describe('normalizeWorkflowDocument', () => {
         },
       },
     });
+    expect(model.jobs[0]?.outputs?.payload).toEqual([
+      {
+        kind: 'deferred',
+        expression: {
+          language: 'cel',
+          source: 'steps.agent.outputs.payload',
+          check: 'typed',
+          resultType: {kind: 'dyn'},
+        },
+        roots: ['steps'],
+        fillTarget: 'execution-resolution',
+      },
+    ]);
+    expect(model.jobs[0]?.outputTypes).toEqual({payload: {kind: 'dyn'}});
   });
 
   it('rejects undeclared typed step output keys', () => {

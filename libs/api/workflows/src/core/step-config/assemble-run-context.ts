@@ -394,10 +394,35 @@ export function listenerFilterOutputTypesForJobs(
   jobs: readonly JobContextInput[],
 ): ListenerFilterOutputTypes {
   return Object.fromEntries(
-    jobs.flatMap(({job, outputTypes}) =>
-      outputTypes === undefined ? [] : [[job.key, {...outputTypes}] as const],
-    ),
+    jobs.flatMap(({job, outputTypes}) => {
+      if (outputTypes === undefined) return [];
+
+      // `dyn` values need no CEL-native rehydration. Omitting their metadata
+      // keeps this persisted outbox shape readable by older trigger consumers
+      // during a rolling deploy, while typed sibling outputs retain theirs.
+      const compatibleOutputTypes = Object.fromEntries(
+        Object.entries(outputTypes).filter(([, type]) => !containsDynamicType(type)),
+      );
+      return Object.keys(compatibleOutputTypes).length === 0
+        ? []
+        : [[job.key, compatibleOutputTypes] as const];
+    }),
   );
+}
+
+function containsDynamicType(type: ExpressionType): boolean {
+  if (typeof type === 'string') return false;
+
+  switch (type.kind) {
+    case 'dyn':
+      return true;
+    case 'object':
+      return Object.values(type.fields).some(containsDynamicType);
+    case 'list':
+      return containsDynamicType(type.element);
+    case 'map':
+      return false;
+  }
 }
 
 function filterOutputTypesForPlan(

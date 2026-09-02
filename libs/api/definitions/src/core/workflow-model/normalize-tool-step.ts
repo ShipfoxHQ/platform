@@ -126,7 +126,7 @@ export function normalizeToolStep(params: {
     // unknown field values are persisted as CEL dyn instead of syntax-only
     // expressions.
     resultTypeOverlay: {
-      result: outputSchema === undefined ? {kind: 'map'} : jsonSchemaToExpressionType(outputSchema),
+      result: outputSchema === undefined ? {kind: 'dyn'} : jsonSchemaToExpressionType(outputSchema),
     },
   });
   validateResolvedTool(params, tool, catalogEntry);
