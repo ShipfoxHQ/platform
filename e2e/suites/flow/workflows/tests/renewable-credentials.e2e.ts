@@ -21,8 +21,8 @@ import {expect, test} from './fixtures.js';
 const RUNNER_TERMINAL_TIMEOUT_MS = 180_000;
 const TEST_TIMEOUT_MS = 300_000;
 const TEST_VCS_TOKEN_PATTERN = /test-vcs-[0-9a-f-]{20,}/u;
-const TEST_VCS_EXPIRY_WAIT_SECONDS = 11;
-const TEST_VCS_REFRESH_WAIT_SECONDS = 6;
+const TEST_VCS_REFRESH_WAIT_SECONDS = 2;
+const TEST_VCS_REJECTION_COOLDOWN_WAIT_SECONDS = 2;
 
 const ON_REJECTION_WORKFLOW = `
 name: Renewable Git on rejection
@@ -57,14 +57,13 @@ jobs:
           persist-credentials: true
       - key: use-renewed-credentials
         run: |
-          sleep ${TEST_VCS_EXPIRY_WAIT_SECONDS}
-          if git ls-remote origin main; then
-            echo 'expected the expired primary credential to be rejected' >&2
+          if git -c http.extraHeader='X-Shipfox-Test-Vcs-Invalidate-Generation: primary-read' ls-remote origin main; then
+            echo 'expected the invalidated primary credential to be rejected' >&2
             exit 1
           fi
           git ls-remote origin main
-          if git -C secondary ls-remote origin main; then
-            echo 'expected the expired secondary credential to be rejected' >&2
+          if git -C secondary -c http.extraHeader='X-Shipfox-Test-Vcs-Invalidate-Generation: secondary-read' ls-remote origin main; then
+            echo 'expected the invalidated secondary credential to be rejected' >&2
             exit 1
           fi
           git -C secondary ls-remote origin main
@@ -72,9 +71,9 @@ jobs:
           printf '\\nrenewed\\n' >> README.md
           git add README.md
           git commit -m "renewed credentials"
-          sleep ${TEST_VCS_EXPIRY_WAIT_SECONDS}
-          if git push origin HEAD:main; then
-            echo 'expected the expired primary credential to be rejected' >&2
+          sleep ${TEST_VCS_REJECTION_COOLDOWN_WAIT_SECONDS}
+          if git -c http.extraHeader='X-Shipfox-Test-Vcs-Invalidate-Generation: primary-push' push origin HEAD:main; then
+            echo 'expected the invalidated primary credential to be rejected' >&2
             exit 1
           fi
           git push origin HEAD:main
@@ -123,7 +122,6 @@ jobs:
           remote_url="$(git remote get-url origin)"
           test -z "$(git config --global --get-urlmatch credential.helper "$remote_url" || true)"
           test -z "$(git config --global --get-urlmatch http.extraHeader "$remote_url" || true)"
-          sleep ${TEST_VCS_EXPIRY_WAIT_SECONDS}
 `;
 
 const CONCURRENT_WORKFLOW = `
@@ -178,28 +176,33 @@ jobs:
 
 test.describe.configure({mode: 'serial'});
 
-test('renews on Git rejection across a long step and multiple checkouts', async ({
-  suite,
-}, testInfo) => {
+test('renews rejected credentials across multiple checkouts', async ({suite}, testInfo) => {
   test.setTimeout(TEST_TIMEOUT_MS);
   const uniqueId = shortId();
+  const accountId = `test-vcs-rejection-${uniqueId}`;
+  const connection = await createTestVcsConnection({
+    workspaceId: suite.workspaceId,
+    accountId,
+    displayName: `Test VCS rejection ${uniqueId}`,
+    renewalMode: 'on-rejection',
+  });
   const runnerLabel = `e2e-renewable-rejection-${uniqueId}`;
   const repositoryName = `renewal-${uniqueId}`;
   const secondaryRepositoryName = `renewal-secondary-${uniqueId}`;
   const configPath = `.shipfox/workflows/${repositoryName}.yml`;
-  const before = await getTestVcsStats({connectionId: suite.testVcsConnectionId});
+  const before = await getTestVcsStats({connectionId: connection.id});
 
   const secondary = await createTestVcsRepository({
-    connectionId: suite.testVcsConnectionId,
+    connectionId: connection.id,
     name: secondaryRepositoryName,
     files: [{path: 'README.md', content: '# Secondary test VCS repository\n'}],
   });
   const workflow = await seedTestVcsWorkflow({
     suite,
     token: suite.sessionToken,
-    connectionId: suite.testVcsConnectionId,
-    connectionSlug: suite.testVcsConnectionSlug,
-    owner: suite.testVcsAccountId,
+    connectionId: connection.id,
+    connectionSlug: connection.slug,
+    owner: connection.external_account_id,
     repositoryName,
     runnerLabel,
     configPath,
@@ -207,7 +210,7 @@ test('renews on Git rejection across a long step and multiple checkouts', async 
     secondaryRepositoryName,
   });
   expect(secondary.external_repository_id).toBe(
-    testVcsExternalRepositoryId(suite.testVcsAccountId, secondaryRepositoryName),
+    testVcsExternalRepositoryId(connection.external_account_id, secondaryRepositoryName),
   );
 
   const {terminal, logFiles} = await runWorkflow({
@@ -218,12 +221,31 @@ test('renews on Git rejection across a long step and multiple checkouts', async 
     runnerLabel,
     renewableGit: true,
   });
-  const after = await getTestVcsStats({connectionId: suite.testVcsConnectionId});
+  const after = await getTestVcsStats({connectionId: connection.id});
 
   expect(terminal.status).toBe('succeeded');
   expect(terminal.jobs.find((job) => job.key === 'build')?.status).toBe('succeeded');
   expect(after.mint_count - before.mint_count).toBe(5);
-  expect(after.generations.length - before.generations.length).toBe(5);
+  const mintedGenerations = after.generations.slice(before.generations.length);
+  expect(mintedGenerations).toHaveLength(5);
+  expect(after.invalidations.slice(before.invalidations.length)).toEqual([
+    {
+      key: 'primary-read',
+      repository: `${connection.external_account_id}/${repositoryName}`,
+      generation: mintedGenerations[0],
+    },
+    {
+      key: 'secondary-read',
+      repository: `${connection.external_account_id}/${secondaryRepositoryName}`,
+      generation: mintedGenerations[1],
+    },
+    {
+      key: 'primary-push',
+      repository: `${connection.external_account_id}/${repositoryName}`,
+      generation: mintedGenerations[2],
+    },
+  ]);
+  assertInvalidatedCredentialsAreReplaced(before, after);
   expect(rejectedCredentialRequestCount(before, after)).toBeGreaterThanOrEqual(3);
   expect(after.accepted_request_count - before.accepted_request_count).toBeGreaterThan(0);
   await assertNoCredentialLeak(after, logFiles);
@@ -238,6 +260,7 @@ test('refreshes before Git needs an expired credential', async ({suite}, testInf
     accountId,
     displayName: `Test VCS refresh-at ${uniqueId}`,
     renewalMode: 'refresh-at',
+    refreshAfterSeconds: 1,
   });
   const runnerLabel = `e2e-renewable-refresh-${uniqueId}`;
   const repositoryName = `refresh-${uniqueId}`;
@@ -548,4 +571,30 @@ function rejectedCredentialRequestCount(before: TestVcsStats, after: TestVcsStat
   return after.requests.slice(before.request_count).filter((request) => {
     return request.status === 'rejected' && request.generation !== undefined;
   }).length;
+}
+
+function assertInvalidatedCredentialsAreReplaced(before: TestVcsStats, after: TestVcsStats): void {
+  const requests = after.requests.slice(before.request_count);
+  const invalidations = after.invalidations.slice(before.invalidations.length);
+  let cursor = 0;
+  for (const invalidation of invalidations) {
+    const repositoryPath = `/${invalidation.repository}.git/`;
+    const rejectedOffset = requests.slice(cursor).findIndex((request) => {
+      return (
+        request.status === 'rejected' &&
+        request.generation === invalidation.generation &&
+        request.path.startsWith(repositoryPath)
+      );
+    });
+    expect(rejectedOffset).toBeGreaterThanOrEqual(0);
+    const rejectedIndex = cursor + rejectedOffset;
+    const acceptedOffset = requests.slice(rejectedIndex + 1).findIndex((request) => {
+      return request.status === 'accepted' && request.path.startsWith(repositoryPath);
+    });
+    expect(acceptedOffset).toBeGreaterThanOrEqual(0);
+    const acceptedIndex = rejectedIndex + acceptedOffset + 1;
+    expect(requests[acceptedIndex]?.generation).toBeDefined();
+    expect(requests[acceptedIndex]?.generation).not.toBe(invalidation.generation);
+    cursor = acceptedIndex + 1;
+  }
 }

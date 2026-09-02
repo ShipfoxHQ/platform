@@ -121,6 +121,42 @@ describe('Test VCS source-control provider', () => {
     expect(issueCredential).toHaveBeenCalledTimes(2);
   });
 
+  it('applies connection-specific refresh timing to minted credentials', async () => {
+    const issueCredential = vi.fn().mockReturnValue(credential('generation-a'));
+    const provider = providerFixture({issueCredential});
+    provider.configureConnection(connection.id, {
+      renewalMode: 'refresh-at',
+      refreshAfterSeconds: 1,
+    });
+
+    await provider.createCheckoutCredentials(checkoutInput());
+
+    expect(issueCredential).toHaveBeenCalledWith(
+      expect.objectContaining({
+        renewalMode: 'refresh-at',
+        refreshAfterSeconds: 1,
+      }),
+    );
+  });
+
+  it('replaces a cached refresh-at credential after its refresh deadline', async () => {
+    const dueForRefresh = {
+      ...credential('generation-a'),
+      renewal: {mode: 'refresh-at' as const, refreshAt: new Date(0)},
+    };
+    const refreshed = credential('generation-b');
+    const issueCredential = vi
+      .fn()
+      .mockReturnValueOnce(dueForRefresh)
+      .mockReturnValueOnce(refreshed);
+    const provider = providerFixture({issueCredential});
+
+    await expect(provider.createCheckoutCredentials(checkoutInput())).resolves.toBe(dueForRefresh);
+    await expect(provider.createCheckoutCredentials(checkoutInput())).resolves.toBe(refreshed);
+
+    expect(issueCredential).toHaveBeenCalledTimes(2);
+  });
+
   it('supplies the provider author for write checkouts', async () => {
     const provider = providerFixture({
       issueCredential: vi.fn().mockReturnValue(credential('write')),

@@ -41,16 +41,21 @@ export interface TestVcsSourceControlProviderOptions {
   credentialTtlSeconds: number;
 }
 
+export interface TestVcsConnectionConfiguration {
+  renewalMode: TestVcsRenewalMode;
+  refreshAfterSeconds?: number | undefined;
+}
+
 export class TestVcsSourceControlProvider implements SourceControlProvider<TestVcsConnection> {
-  private readonly renewalModes = new Map<string, TestVcsRenewalMode>();
+  private readonly connectionConfigurations = new Map<string, TestVcsConnectionConfiguration>();
   private readonly cachedCredentials = new Map<string, CheckoutCredentials>();
   private readonly mintFlights = new Map<string, Promise<CheckoutCredentials>>();
   private failNextMintCount = 0;
 
   constructor(private readonly options: TestVcsSourceControlProviderOptions) {}
 
-  configureConnection(connectionId: string, renewalMode: TestVcsRenewalMode): void {
-    this.renewalModes.set(connectionId, renewalMode);
+  configureConnection(connectionId: string, configuration: TestVcsConnectionConfiguration): void {
+    this.connectionConfigurations.set(connectionId, configuration);
   }
 
   failNextCredentialMints(count: number): void {
@@ -239,11 +244,15 @@ export class TestVcsSourceControlProvider implements SourceControlProvider<TestV
         'Test VCS credential minting is unavailable',
       );
     }
+    const configuration = this.connectionConfigurations.get(input.connection.id);
     const credential = this.options.fixture.issueCredential({
       ...locator,
       permissions: input.permissions,
-      renewalMode: this.renewalModes.get(input.connection.id) ?? 'on-rejection',
+      renewalMode: configuration?.renewalMode ?? 'on-rejection',
       ttlSeconds: this.options.credentialTtlSeconds,
+      ...(configuration?.refreshAfterSeconds === undefined
+        ? {}
+        : {refreshAfterSeconds: configuration.refreshAfterSeconds}),
       rejectedGeneration: input.rejectedGeneration,
     });
     this.cachedCredentials.set(cacheKey, credential);
@@ -347,5 +356,11 @@ function credentialCacheKey(
 }
 
 function isReusableCredential(credential: CheckoutCredentials, ttlSeconds: number): boolean {
+  if (
+    credential.renewal?.mode === 'refresh-at' &&
+    credential.renewal.refreshAt.getTime() <= Date.now()
+  ) {
+    return false;
+  }
   return credential.expiresAt.getTime() > Date.now() + Math.max(50, ttlSeconds * 500);
 }

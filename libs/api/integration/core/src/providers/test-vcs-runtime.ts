@@ -47,8 +47,16 @@ const createConnectionBodySchema = z
     account_id: repositoryPartSchema,
     display_name: z.string().min(1).max(200).optional(),
     renewal_mode: renewalModeSchema.default('on-rejection'),
+    refresh_after_seconds: z.number().positive().max(300).optional(),
   })
-  .strict();
+  .strict()
+  .refine(
+    (body) => body.refresh_after_seconds === undefined || body.renewal_mode === 'refresh-at',
+    {
+      message: 'refresh_after_seconds requires refresh-at renewal mode',
+      path: ['refresh_after_seconds'],
+    },
+  );
 const createRepositoryBodySchema = z
   .object({
     connection_id: z.string().uuid(),
@@ -73,6 +81,15 @@ const statsResponseSchema = z
     accepted_request_count: z.number().int().nonnegative(),
     rejected_request_count: z.number().int().nonnegative(),
     generations: z.array(z.string().min(1)),
+    invalidations: z.array(
+      z
+        .object({
+          key: z.string().min(1),
+          repository: z.string().min(1),
+          generation: z.string().min(1),
+        })
+        .strict(),
+    ),
     requests: z.array(
       z
         .object({
@@ -135,7 +152,12 @@ function createTestVcsRoutes(options: {
             displayName: request.body.display_name ?? `Test VCS ${request.body.account_id}`,
             capabilities: options.connectionCapabilities,
           });
-          options.sourceControl.configureConnection(connection.id, request.body.renewal_mode);
+          options.sourceControl.configureConnection(connection.id, {
+            renewalMode: request.body.renewal_mode,
+            ...(request.body.refresh_after_seconds === undefined
+              ? {}
+              : {refreshAfterSeconds: request.body.refresh_after_seconds}),
+          });
           reply.code(201);
           return toIntegrationConnectionDto(connection, {
             capabilities: options.connectionCapabilities,
@@ -201,6 +223,7 @@ function createTestVcsRoutes(options: {
             accepted_request_count: stats.acceptedRequestCount,
             rejected_request_count: stats.rejectedRequestCount,
             generations: stats.generations,
+            invalidations: stats.invalidations,
             requests: stats.requests,
           };
         },

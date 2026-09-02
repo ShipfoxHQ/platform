@@ -40,6 +40,11 @@ export interface TestVcsStats {
   accepted_request_count: number;
   rejected_request_count: number;
   generations: string[];
+  invalidations: Array<{
+    key: string;
+    repository: string;
+    generation: string;
+  }>;
   requests: Array<{
     method: string;
     path: string;
@@ -53,6 +58,7 @@ export interface CreateTestVcsConnectionParams {
   accountId: string;
   displayName?: string | undefined;
   renewalMode?: TestVcsRenewalMode | undefined;
+  refreshAfterSeconds?: number | undefined;
 }
 
 export interface CreateTestVcsRepositoryParams {
@@ -170,6 +176,9 @@ export async function createTestVcsConnection(
         account_id: params.accountId,
         ...(params.displayName === undefined ? {} : {display_name: params.displayName}),
         ...(params.renewalMode === undefined ? {} : {renewal_mode: params.renewalMode}),
+        ...(params.refreshAfterSeconds === undefined
+          ? {}
+          : {refresh_after_seconds: params.refreshAfterSeconds}),
       },
     },
   );

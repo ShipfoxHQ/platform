@@ -71,7 +71,8 @@ describe('integrations E2E setup helper', () => {
     await createTestVcsConnection({
       workspaceId: '00000000-0000-4000-8000-000000000001',
       accountId: 'e2e-owner',
-      renewalMode: 'on-rejection',
+      renewalMode: 'refresh-at',
+      refreshAfterSeconds: 1,
     });
     await createTestVcsRepository({
       connectionId: 'connection-id',
@@ -87,7 +88,8 @@ describe('integrations E2E setup helper', () => {
         json: {
           workspace_id: '00000000-0000-4000-8000-000000000001',
           account_id: 'e2e-owner',
-          renewal_mode: 'on-rejection',
+          renewal_mode: 'refresh-at',
+          refresh_after_seconds: 1,
         },
       },
     );
@@ -116,6 +118,7 @@ describe('integrations E2E setup helper', () => {
       accepted_request_count: 2,
       rejected_request_count: 1,
       generations: ['generation-a', 'generation-b'],
+      invalidations: [],
       requests: [],
     });
     const {failNextTestVcsMints, getTestVcsStats} = await import('./index.js');
