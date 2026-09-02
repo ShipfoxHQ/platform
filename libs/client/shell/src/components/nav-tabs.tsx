@@ -1,19 +1,19 @@
 import {Link} from '@tanstack/react-router';
 import {useReducedMotion} from 'framer-motion';
 import type {NavTabEntry} from '#contract.js';
-import {parseWorkspaceProjectParams, useRouteParams} from '#runtime/route-inputs.js';
 
 export function NavTabs({
+  ariaLabel,
   entries,
-  scope,
+  params,
+  projectScoped = false,
 }: {
+  ariaLabel: string;
   entries: readonly NavTabEntry[];
-  scope: NavTabEntry['scope'];
+  params?: Record<string, unknown> | undefined;
+  projectScoped?: boolean | undefined;
 }) {
-  const params = useRouteParams(parseWorkspaceProjectParams);
   const reduced = useReducedMotion();
-  const tabs = entries.filter((entry) => entry.scope === scope);
-  const projectScoped = scope === 'project';
   const tabClassName = `h-40 inline-flex shrink-0 items-center whitespace-nowrap px-tight ${projectScoped ? 'text-xs' : 'text-sm'} font-medium transition-colors ${reduced ? '' : 'transition-[border-color]'}`;
   const activeProps = {
     className: projectScoped
@@ -29,14 +29,14 @@ export function NavTabs({
   return (
     <div
       role="tablist"
-      aria-label={`${scope === 'project' ? 'Project' : 'Workspace'} sections`}
+      aria-label={ariaLabel}
       className="sticky top-56 z-20 flex h-40 items-end gap-cluster overflow-x-auto whitespace-nowrap border-b border-border-neutral-base bg-background-subtle-base px-row [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     >
-      {tabs.map((entry) => (
+      {entries.map((entry) => (
         <Link
           key={entry.id}
           to={entry.to as never}
-          params={params as never}
+          {...(params ? {params: params as never} : {})}
           role="tab"
           activeOptions={{exact: entry.exact ?? false}}
           activeProps={activeProps}
