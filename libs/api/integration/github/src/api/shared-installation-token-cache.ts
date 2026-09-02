@@ -16,7 +16,6 @@ import {
   GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT,
   GITHUB_INSTALLATION_TOKEN_BACKOFF_KEY,
   GITHUB_INSTALLATION_TOKEN_ENVELOPE_KEY,
-  GITHUB_LEGACY_INSTALLATION_TOKEN_KEY,
   githubInstallationTokenBackoffKey,
   githubInstallationTokenBackoffKeys,
   githubInstallationTokenKey,
@@ -521,35 +520,30 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
   ): Promise<InstallationTokenEnvelope | undefined> {
     const isCompatibilityProfile =
       profileKey === githubInstallationTokenKey(GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT);
-    const {profileResult, backoffResults, fixedEnvelopeResult, legacyResult} =
-      await readSecretValues(
-        this.options.secretStore,
-        workspaceId,
-        installationId,
-        profileKey,
-        backoffKeys,
-      );
+    const {profileResult, backoffResults, fixedEnvelopeResult} = await readSecretValues(
+      this.options.secretStore,
+      workspaceId,
+      installationId,
+      profileKey,
+      backoffKeys,
+    );
     reportSecretReadFailure(profileResult, reportReadFailure);
     for (const backoffResult of backoffResults) {
       reportSecretReadFailure(backoffResult, reportReadFailure);
     }
     reportSecretReadFailure(fixedEnvelopeResult, reportReadFailure);
-    reportSecretReadFailure(legacyResult, reportReadFailure);
 
     const profileRaw = settledRaw(profileResult);
     const backoffRaws = backoffResults.map(settledRaw);
     const fixedEnvelopeRaw = settledRaw(fixedEnvelopeResult);
-    const legacyRaw = settledRaw(legacyResult);
     let profile = parseRawEnvelope(profileRaw, installationId);
     let backoff = latestBackoff(
       backoffRaws.map((backoffRaw) => parseRawEnvelope(backoffRaw, installationId)),
       this.now(),
     );
     const fixedEnvelope = parseRawEnvelope(fixedEnvelopeRaw, installationId);
-    const legacy = parseRawEnvelope(legacyRaw, installationId);
-    const compatibilityEnvelope = fixedEnvelope ?? legacy;
     if (isCompatibilityProfile && profile === undefined && profileRaw === null) {
-      profile = compatibilityEnvelope;
+      profile = fixedEnvelope;
     }
     if (
       isCompatibilityProfile &&
@@ -557,7 +551,7 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
       backoffRaws.length === 1 &&
       backoffRaws[0] === null
     ) {
-      backoff = compatibilityEnvelope;
+      backoff = fixedEnvelope;
     }
     if (!profile && !backoff) return undefined;
     return {
@@ -597,7 +591,6 @@ interface InstallationTokenSecretReads {
   profileResult: SettledSecretRead;
   backoffResults: readonly SettledSecretRead[];
   fixedEnvelopeResult: SettledSecretRead;
-  legacyResult: SettledSecretRead;
 }
 
 async function readSecretValues(
@@ -616,22 +609,15 @@ async function readSecretValues(
     installationId,
     GITHUB_INSTALLATION_TOKEN_ENVELOPE_KEY,
   );
-  const legacyRead = secretStore.read(
-    workspaceId,
-    installationId,
-    GITHUB_LEGACY_INSTALLATION_TOKEN_KEY,
-  );
-  const [profileResult, fixedEnvelopeResult, legacyResult] = await Promise.allSettled([
+  const [profileResult, fixedEnvelopeResult] = await Promise.allSettled([
     profileRead,
     fixedEnvelopeRead,
-    legacyRead,
   ]);
   const backoffResults = await Promise.allSettled(backoffReads);
   return {
     profileResult,
     backoffResults,
     fixedEnvelopeResult,
-    legacyResult,
   };
 }
 

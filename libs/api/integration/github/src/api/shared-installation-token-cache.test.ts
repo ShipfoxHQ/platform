@@ -1,9 +1,11 @@
 import {createHash} from 'node:crypto';
+import {secretKeySchema} from '@shipfox/api-secrets-dto';
 import {GithubIntegrationProviderError} from '#core/errors.js';
 import {
   backoffActive,
   encodeInstallationTokenEnvelope,
   GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT,
+  GITHUB_INSTALLATION_TOKEN_ENVELOPE_KEY,
   githubInstallationTokenBackoffKey,
   githubInstallationTokenKey,
   needsRefresh,
@@ -38,6 +40,9 @@ function createStore(): InstallationTokenSecretStore & {
     failWrites: false,
     failReads: false,
     read(readWorkspaceId: string, readInstallationId: number, key: string) {
+      if (!secretKeySchema.safeParse(key).success) {
+        return Promise.reject(new Error(`invalid secret key: ${key}`));
+      }
       if (store.failReads) return Promise.reject(new Error('read failed'));
       return Promise.resolve(values.get(`${readWorkspaceId}:${readInstallationId}:${key}`) ?? null);
     },
@@ -47,6 +52,9 @@ function createStore(): InstallationTokenSecretStore & {
       key: string,
       envelope: Parameters<InstallationTokenSecretStore['write']>[3],
     ) {
+      if (!secretKeySchema.safeParse(key).success) {
+        return Promise.reject(new Error(`invalid secret key: ${key}`));
+      }
       if (store.failWrites) return Promise.reject(new Error('write failed'));
       values.set(
         `${writeWorkspaceId}:${writeInstallationId}:${key}`,
@@ -110,10 +118,10 @@ describe('SharedInstallationTokenCache', () => {
     );
   });
 
-  it('reads the legacy compatibility envelope', async () => {
+  it('reads the fixed-key compatibility envelope without invalid secret reads', async () => {
     const store = createStore();
     store.values.set(
-      `${workspaceId}:${installationId}:envelope`,
+      `${workspaceId}:${installationId}:${GITHUB_INSTALLATION_TOKEN_ENVELOPE_KEY}`,
       encodeInstallationTokenEnvelope({
         backoffUntil: new Date('2026-06-10T11:05:00.000Z'),
         backoffReason: 'rate-limited',
@@ -127,6 +135,7 @@ describe('SharedInstallationTokenCache', () => {
       shared.getOrMint(installationId, GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT, mint),
     ).rejects.toMatchObject({reason: 'rate-limited', status: 429});
     expect(mint).not.toHaveBeenCalled();
+    expect(errorMonitoring.reportError).not.toHaveBeenCalled();
   });
 
   beforeEach(() => {
