@@ -1,7 +1,15 @@
 import {type ChildProcess, spawn} from 'node:child_process';
-import {closeSync, openSync, readFileSync} from 'node:fs';
+import {
+  closeSync,
+  existsSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+} from 'node:fs';
 import {createRequire} from 'node:module';
-import {dirname, join} from 'node:path';
+import {delimiter, dirname, join, resolve} from 'node:path';
 import {config} from '@shipfox/e2e-core';
 
 const DEFAULT_SIGTERM_TIMEOUT_MS = 15_000;
@@ -33,6 +41,7 @@ export interface LocalRunnerHandle {
   logFile: string;
   workspaceId: string;
   labels: readonly string[];
+  credentialHelperBinDir?: string | undefined;
 }
 
 export interface StopLocalRunnerOptions {
@@ -67,9 +76,14 @@ function inheritedProcessEnv(): Record<string, string> {
   return env;
 }
 
-function buildRunnerEnv(params: StartLocalRunnerParams): Record<string, string> {
+function buildRunnerEnv(
+  params: StartLocalRunnerParams,
+  credentialHelperBinDir: string | undefined,
+): Record<string, string> {
+  const inherited = inheritedProcessEnv();
+  const renewableGitEnabled = params.extraEnv?.SHIPFOX_RUNNER_ENABLE_RENEWABLE_GIT === 'true';
   return {
-    ...inheritedProcessEnv(),
+    ...inherited,
     SHIPFOX_API_URL: params.apiUrl ?? config.API_URL,
     SHIPFOX_RUNNER_REGISTRATION_TOKEN: params.registrationToken,
     SHIPFOX_RUNNER_LABELS: params.labels.join(','),
@@ -79,8 +93,42 @@ function buildRunnerEnv(params: StartLocalRunnerParams): Record<string, string> 
     ...(params.workspaceRoot !== undefined
       ? {SHIPFOX_RUNNER_WORKSPACE_ROOT: params.workspaceRoot}
       : {}),
+    ...(credentialHelperBinDir
+      ? {
+          PATH: [credentialHelperBinDir, inherited.PATH].filter(Boolean).join(delimiter),
+        }
+      : {}),
+    ...(renewableGitEnabled ? {GIT_CONFIG_NOSYSTEM: '1'} : {}),
     ...(params.extraEnv ?? {}),
   };
+}
+
+function createCredentialHelperBin(
+  runnerModule: RunnerModule,
+  params: StartLocalRunnerParams,
+): string | undefined {
+  if (params.extraEnv?.SHIPFOX_RUNNER_ENABLE_RENEWABLE_GIT !== 'true') return undefined;
+
+  const helperTarget = join(runnerModule.cwd, 'dist', 'git-credential-helper.js');
+  if (!existsSync(helperTarget)) {
+    throw new Error(
+      `The local runner credential helper is missing at ${helperTarget}; build @shipfox/runner before starting a renewable Git E2E runner.`,
+    );
+  }
+
+  const helperBinDir = mkdtempSync(join(resolve(dirname(params.logFile)), '.credential-helper-'));
+  try {
+    symlinkSync(helperTarget, join(helperBinDir, 'git-credential-shipfox'));
+    return helperBinDir;
+  } catch (error) {
+    removeCredentialHelperBin(helperBinDir);
+    throw error;
+  }
+}
+
+function removeCredentialHelperBin(helperBinDir: string | undefined): void {
+  if (helperBinDir === undefined) return;
+  rmSync(helperBinDir, {force: true, recursive: true});
 }
 
 export function localRunnerLogTail(path: string): string {
@@ -94,27 +142,37 @@ export function localRunnerLogTail(path: string): string {
 }
 
 export function startLocalRunner(params: StartLocalRunnerParams): LocalRunnerHandle {
-  const {cwd, entry} = params.entryPath
+  const runnerModule = params.entryPath
     ? {cwd: dirname(params.entryPath), entry: params.entryPath}
     : resolveRunnerModule();
+  const {cwd, entry} = runnerModule;
+  const credentialHelperBinDir = createCredentialHelperBin(runnerModule, params);
 
-  const logFd = openSync(params.logFile, 'a');
   let child: ChildProcess;
   try {
-    child = spawn(process.execPath, ['--import', 'tsx', '--conditions=workspace-source', entry], {
-      cwd,
-      stdio: ['ignore', logFd, logFd],
-      env: buildRunnerEnv(params),
-    });
-  } finally {
-    closeSync(logFd);
+    const logFd = openSync(params.logFile, 'a');
+    try {
+      child = spawn(process.execPath, ['--import', 'tsx', '--conditions=workspace-source', entry], {
+        cwd,
+        stdio: ['ignore', logFd, logFd],
+        env: buildRunnerEnv(params, credentialHelperBinDir),
+      });
+    } finally {
+      closeSync(logFd);
+    }
+  } catch (error) {
+    removeCredentialHelperBin(credentialHelperBinDir);
+    throw error;
   }
 
   const {pid} = child;
   if (pid === undefined) {
     child.kill('SIGKILL');
+    removeCredentialHelperBin(credentialHelperBinDir);
     throw new Error('Local runner child process failed to start (no pid)');
   }
+
+  child.once('exit', () => removeCredentialHelperBin(credentialHelperBinDir));
 
   return {
     process: child,
@@ -122,6 +180,7 @@ export function startLocalRunner(params: StartLocalRunnerParams): LocalRunnerHan
     logFile: params.logFile,
     workspaceId: params.workspaceId,
     labels: params.labels,
+    ...(credentialHelperBinDir ? {credentialHelperBinDir} : {}),
   };
 }
 
@@ -175,5 +234,9 @@ export async function stopLocalRunner(
   handle: LocalRunnerHandle,
   options: StopLocalRunnerOptions = {},
 ): Promise<void> {
-  await terminate(handle.process, options.sigtermTimeoutMs ?? DEFAULT_SIGTERM_TIMEOUT_MS);
+  try {
+    await terminate(handle.process, options.sigtermTimeoutMs ?? DEFAULT_SIGTERM_TIMEOUT_MS);
+  } finally {
+    removeCredentialHelperBin(handle.credentialHelperBinDir);
+  }
 }

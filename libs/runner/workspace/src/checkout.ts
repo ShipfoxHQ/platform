@@ -22,6 +22,7 @@ const GIT_CREDENTIAL_SECTION_RE = /^\[credential\]\s*(?:[;#].*)?$/i;
 const GIT_USE_HTTP_PATH_RE = /^usehttppath\s*=\s*(true|false)\s*(?:[;#].*)?$/i;
 const GIT_CREDENTIAL_KEYS_RE = /^(credential|http)\..*\.(helper|username|password|extraheader)$/i;
 const GIT_CONFIG_LINES_RE = /\r?\n/;
+const TRAILING_SLASHES_RE = /\/+$/u;
 const GIT_CREDENTIAL_KEY_RE =
   /^(?:credential|http)\.(.*)\.(?:helper|username|password|extraheader)$/i;
 
@@ -295,7 +296,7 @@ export function writeGitCredentialHelperConfig(params: {
   gitAuthor?: {name: string; email: string} | undefined;
 }): Promise<void> {
   const {configPath, repositoryUrl, helper, gitAuthor} = params;
-  const normalizedRepositoryUrl = normalizeRepositoryUrl(repositoryUrl);
+  const normalizedRepositoryUrl = gitConfigRepositoryUrl(repositoryUrl);
   validateGitCredentialHelper(helper);
   return withAmbientGitConfigLock(configPath, () =>
     updateGitCredentialHelperConfig({
@@ -305,6 +306,15 @@ export function writeGitCredentialHelperConfig(params: {
       gitAuthor,
     }),
   );
+}
+
+function gitConfigRepositoryUrl(repositoryUrl: string): string {
+  const normalized = normalizeRepositoryUrl(repositoryUrl);
+  const originalPath = new URL(repositoryUrl).pathname.replace(TRAILING_SLASHES_RE, '');
+  if (!originalPath.toLowerCase().endsWith('.git')) return normalized;
+  const url = new URL(normalized);
+  url.pathname = originalPath;
+  return url.toString();
 }
 
 function validateGitCredentialHelper(helper: GitCredentialHelperConfig): void {
@@ -351,7 +361,10 @@ async function updateGitCredentialHelperConfig(params: {
       `${current}${current.endsWith('\n') || current === '' ? '' : '\n'}${additions}`,
       {flag: 'wx', mode: 0o600},
     );
-    await unsetGitCredentialValues(temporaryConfigPath, params.repositoryUrl);
+    await unsetGitCredentialValues(
+      temporaryConfigPath,
+      normalizeRepositoryUrl(params.repositoryUrl),
+    );
     const withoutOldHelper = await readFile(temporaryConfigPath, 'utf8');
     await writeFile(temporaryConfigPath, `${withoutOldHelper}${helperLines.join('\n')}\n`, {
       flag: 'w',

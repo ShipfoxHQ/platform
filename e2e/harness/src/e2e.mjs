@@ -124,7 +124,10 @@ export function parseArgs(argv) {
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === '--') {
-      options.turboArgs.push(...args.slice(index + 1));
+      const passthroughArgs = args.slice(index + 1);
+      options.turboArgs.push(
+        ...(options.turboArgs.length === 0 ? passthroughArgs : ['--', ...passthroughArgs]),
+      );
       break;
     }
     if (applyBooleanOption(arg, options)) continue;
@@ -210,6 +213,7 @@ export function e2eEnv(sourceEnv) {
     e2eGithubApiBaseUrl(apiUrl),
   );
   const slackApiBaseUrl = valueOr(sourceEnv.SLACK_API_BASE_URL, () => e2eSlackApiBaseUrl(apiUrl));
+  const testVcsPort = valueOr(sourceEnv.INTEGRATIONS_TEST_VCS_PORT, () => e2eTestVcsPort(apiUrl));
   return {
     ...sourceEnv,
     API_URL: apiUrl,
@@ -275,6 +279,15 @@ export function e2eEnv(sourceEnv) {
       sourceEnv.INTEGRATIONS_ENABLE_SLACK_PROVIDER,
       'true',
     ),
+    INTEGRATIONS_ENABLE_TEST_VCS_PROVIDER: valueOr(
+      sourceEnv.INTEGRATIONS_ENABLE_TEST_VCS_PROVIDER,
+      'true',
+    ),
+    INTEGRATIONS_TEST_VCS_CREDENTIAL_TTL_SECONDS: valueOr(
+      sourceEnv.INTEGRATIONS_TEST_VCS_CREDENTIAL_TTL_SECONDS,
+      '3',
+    ),
+    INTEGRATIONS_TEST_VCS_PORT: String(testVcsPort),
     LINEAR_MCP_ENDPOINT: linearMcpEndpoint,
     LINEAR_OAUTH_CLIENT_ID: valueOr(sourceEnv.LINEAR_OAUTH_CLIENT_ID, 'e2e-linear-client-id'),
     LINEAR_OAUTH_CLIENT_SECRET: valueOr(
@@ -319,6 +332,18 @@ export function e2eGithubApiBaseUrl(apiUrl) {
   endpoint.search = '';
   endpoint.hash = '';
   return endpoint.toString();
+}
+
+export function e2eTestVcsPort(apiUrl) {
+  const endpoint = new URL(apiUrl);
+  const apiPort = Number(endpoint.port || (endpoint.protocol === 'https:' ? 443 : 80));
+  // Worktree services reserve the API block through the temporal metrics port
+  // at API + 12. Keep the fixture in the unused tail of that block.
+  const testVcsPort = apiPort + 14;
+  if (testVcsPort > 65_535) {
+    throw new Error(`Cannot derive a test VCS port from API port ${apiPort}.`);
+  }
+  return testVcsPort;
 }
 
 export function e2eSlackApiBaseUrl(apiUrl) {
@@ -370,11 +395,21 @@ export function turboCommandArgs(options, env) {
   if (hasTurboConcurrency(args)) return args;
 
   const concurrency = env.SHIPFOX_TURBO_CONCURRENCY;
-  return concurrency ? [...args, `--concurrency=${concurrency}`] : args;
+  if (!concurrency) return args;
+
+  const separatorIndex = args.indexOf('--');
+  if (separatorIndex < 0) return [...args, `--concurrency=${concurrency}`];
+  return [
+    ...args.slice(0, separatorIndex),
+    `--concurrency=${concurrency}`,
+    ...args.slice(separatorIndex),
+  ];
 }
 
 function hasTurboConcurrency(args) {
-  return args.some((arg) => arg === '--concurrency' || arg.startsWith('--concurrency='));
+  const separatorIndex = args.indexOf('--');
+  const turboArgs = separatorIndex < 0 ? args : args.slice(0, separatorIndex);
+  return turboArgs.some((arg) => arg === '--concurrency' || arg.startsWith('--concurrency='));
 }
 
 export function defaultLogDir(env) {

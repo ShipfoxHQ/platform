@@ -355,6 +355,11 @@ export async function createIntegrationsContext(
     }
   }
 
+  const services = parts.flatMap((part) => part.services ?? []);
+  if (options.webhookDeliverySource !== undefined) {
+    services.push(options.webhookDeliverySource.createService(webhookProcessor));
+  }
+
   const module: ShipfoxModule = {
     name: 'integrations',
     interModulePresentations: [
@@ -400,9 +405,7 @@ export async function createIntegrationsContext(
       },
       ...parts.flatMap((part) => part.workers ?? []),
     ],
-    ...(options.webhookDeliverySource
-      ? {services: [options.webhookDeliverySource.createService(webhookProcessor)]}
-      : {}),
+    ...(services.length === 0 ? {} : {services}),
   };
 
   return {

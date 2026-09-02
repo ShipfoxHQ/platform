@@ -13,7 +13,10 @@
   "types": "dist/index.d.ts",
   "imports": {
     "#test/*": "./test/*",
-    "#*": "./src/*"
+    "#*": {
+      "workspace-source": "./src/*",
+      "default": "./dist/*"
+    }
   },
   "exports": {
     ".": {

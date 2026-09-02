@@ -1,4 +1,4 @@
-import {bool, createConfig} from '@shipfox/config';
+import {bool, createConfig, num, port} from '@shipfox/config';
 
 export const config = createConfig({
   INTEGRATIONS_ENABLE_CRON_PROVIDER: bool({
@@ -32,6 +32,18 @@ export const config = createConfig({
   INTEGRATIONS_ENABLE_SLACK_PROVIDER: bool({
     desc: 'Enables the Slack integration provider so users can connect Slack workspaces.',
     default: false,
+  }),
+  INTEGRATIONS_ENABLE_TEST_VCS_PROVIDER: bool({
+    desc: 'Enables the private test source-control provider and its local smart-HTTP fixture. Keep this disabled outside E2E runs.',
+    default: false,
+  }),
+  INTEGRATIONS_TEST_VCS_CREDENTIAL_TTL_SECONDS: num({
+    desc: 'Lifetime of credentials minted by the private E2E source-control provider, in seconds.',
+    default: 3,
+  }),
+  INTEGRATIONS_TEST_VCS_PORT: port({
+    desc: 'Loopback port used by the private E2E source-control smart-HTTP fixture.',
+    default: 16113,
   }),
   INTEGRATIONS_ENABLE_WEBHOOK_PROVIDER: bool({
     desc: 'Enables the generic webhook integration provider so users can create inbound webhook URLs. It is enabled by default because it does not require provider setup.',

@@ -7,6 +7,7 @@ import {
   copyPlaywrightTestResults,
   copySharedOllamaLog,
   defaultLogDir,
+  e2eTestVcsPort,
   e2eEnv,
   parseArgs,
   turboCommandArgs,
@@ -46,6 +47,21 @@ describe('parseArgs', () => {
     assert.deepEqual(options.turboArgs, ['--filter=@shipfox/e2e-client-auth']);
   });
 
+  test('preserves a turbo task separator for nested test arguments', () => {
+    const options = parseArgs([
+      'run',
+      '--filter=@shipfox/e2e-flow-workflows',
+      '--',
+      '--grep=renewable credentials',
+    ]);
+
+    assert.deepEqual(options.turboArgs, [
+      '--filter=@shipfox/e2e-flow-workflows',
+      '--',
+      '--grep=renewable credentials',
+    ]);
+  });
+
   test('rejects unknown commands', () => {
     assert.throws(() => parseArgs(['down']), unknownCommandPattern);
   });
@@ -67,6 +83,9 @@ describe('e2eEnv', () => {
     assert.equal(env.INTEGRATIONS_ENABLE_LINEAR_PROVIDER, 'true');
     assert.equal(env.INTEGRATIONS_ENABLE_GITHUB_PROVIDER, 'true');
     assert.equal(env.INTEGRATIONS_ENABLE_SLACK_PROVIDER, 'true');
+    assert.equal(env.INTEGRATIONS_ENABLE_TEST_VCS_PROVIDER, 'true');
+    assert.equal(env.INTEGRATIONS_TEST_VCS_CREDENTIAL_TTL_SECONDS, '3');
+    assert.equal(env.INTEGRATIONS_TEST_VCS_PORT, '55365');
     assert.equal(env.AUTH_ROOT_KEY, 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=');
     assert.equal(env.AUTH_SIGNUP_GATE_ENABLED, 'true');
     assert.equal(env.AUTH_SIGNUP_ALLOWED_EMAIL_DOMAINS, 'allowed.example.test');
@@ -111,6 +130,8 @@ describe('e2eEnv', () => {
     assert.equal(env.GITHUB_API_BASE_URL, 'http://127.0.0.1:16121');
     assert.equal(env.GITHUB_INSTALLATION_TOKEN_FORMAT_OVERRIDE, 'disabled');
     assert.equal(env.SLACK_API_BASE_URL, 'http://127.0.0.1:16122');
+    assert.equal(env.INTEGRATIONS_TEST_VCS_CREDENTIAL_TTL_SECONDS, '3');
+    assert.equal(env.INTEGRATIONS_TEST_VCS_PORT, '16115');
     assert.equal(env.WEBHOOK_PUBLIC_URL, 'https://webhooks.example.test');
     assert.equal(env.AUTH_SIGNUP_GATE_ENABLED, 'false');
     assert.equal(env.AUTH_SIGNUP_ALLOWED_EMAIL_DOMAINS, 'override.example.test');
@@ -144,6 +165,19 @@ describe('e2eEnv', () => {
       () => e2eEnv({API_URL: 'http://localhost:65525'}),
       /Cannot derive a Slack API port/u,
     );
+  });
+
+  test('rejects an API port that cannot reserve the Test VCS offset', () => {
+    assert.throws(
+      () => e2eEnv({API_URL: 'http://localhost:65522'}),
+      /Cannot derive a test VCS port/u,
+    );
+  });
+});
+
+describe('e2eTestVcsPort', () => {
+  test('reserves the Test VCS port after the API port', () => {
+    assert.equal(e2eTestVcsPort('http://localhost:16101'), 16115);
   });
 });
 
@@ -198,6 +232,24 @@ describe('turboCommandArgs', () => {
     );
 
     assert.deepEqual(args, ['test:e2e', '--concurrency', '4']);
+  });
+
+  test('places the environment concurrency before test-runner arguments', () => {
+    const args = turboCommandArgs(
+      {
+        turboArgs: ['--filter=@shipfox/e2e-client-agent', '--', '--grep=renewable'],
+        turboTask: 'test:e2e',
+      },
+      {SHIPFOX_TURBO_CONCURRENCY: '2'},
+    );
+
+    assert.deepEqual(args, [
+      'test:e2e',
+      '--filter=@shipfox/e2e-client-agent',
+      '--concurrency=2',
+      '--',
+      '--grep=renewable',
+    ]);
   });
 });
 

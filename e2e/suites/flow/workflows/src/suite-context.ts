@@ -14,6 +14,9 @@ export interface SuiteContext {
   connectionId: string;
   // Push workflow YAML must use this as `source`; dispatch matches webhook sources exactly.
   connectionSlug: string;
+  testVcsConnectionId: string;
+  testVcsAccountId: string;
+  testVcsConnectionSlug: string;
   modelProviderId: string;
   agentModel: string;
   fakeModelProviderRunId: string;

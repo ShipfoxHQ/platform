@@ -20,7 +20,9 @@ export async function startSuiteLocalRunner(params: {
   userToken: string;
   name: string;
   runnerLabel: string;
+  runnerInstanceId?: string | undefined;
   extraEnv?: Record<string, string> | undefined;
+  renewableGit?: boolean | undefined;
 }): Promise<{runner: LocalRunnerHandle; logFile: string}> {
   const registrationToken = await mintManualRegistrationToken({
     workspaceId: params.workspaceId,
@@ -30,7 +32,10 @@ export async function startSuiteLocalRunner(params: {
   });
   const runDir = suiteRunDir();
   const runnerLogDir = join(runDir, 'runners');
-  const logFile = join(runnerLogDir, `${params.runnerLabel}.log`);
+  const logFile = join(
+    runnerLogDir,
+    `${params.runnerLabel}${params.runnerInstanceId === undefined ? '' : `-${params.runnerInstanceId}`}.log`,
+  );
   await mkdir(runnerLogDir, {recursive: true});
   return {
     runner: startLocalRunner({
@@ -39,7 +44,10 @@ export async function startSuiteLocalRunner(params: {
       labels: [params.runnerLabel],
       logFile,
       workspaceRoot: join(runDir, 'runner-workspaces', params.runnerLabel),
-      extraEnv: params.extraEnv,
+      extraEnv: {
+        ...(params.extraEnv ?? {}),
+        ...(params.renewableGit === true ? {SHIPFOX_RUNNER_ENABLE_RENEWABLE_GIT: 'true'} : {}),
+      },
     }),
     logFile,
   };

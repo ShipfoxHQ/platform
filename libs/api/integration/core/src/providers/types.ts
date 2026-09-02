@@ -1,7 +1,7 @@
 import type {UserContextMembership} from '@shipfox/api-auth-context';
 import type {WebhookRequestProcessor, WebhookRouteId} from '@shipfox/api-integration-spi';
 import type {RouteExport} from '@shipfox/node-fastify';
-import type {ModuleDatabase, ModuleWorker} from '@shipfox/node-module';
+import type {ModuleDatabase, ModuleService, ModuleWorker} from '@shipfox/node-module';
 import type {IntegrationProvider} from '#core/entities/provider.js';
 
 /**
@@ -16,6 +16,7 @@ import type {IntegrationProvider} from '#core/entities/provider.js';
 export interface IntegrationModuleParts {
   provider: IntegrationProvider;
   database?: ModuleDatabase | undefined;
+  services?: ModuleService[] | undefined;
   e2eRoutes?: RouteExport[] | undefined;
   workers?: ModuleWorker[] | undefined;
   startupTasks?: Array<() => Promise<void>> | undefined;

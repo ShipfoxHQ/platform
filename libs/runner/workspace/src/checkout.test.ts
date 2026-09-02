@@ -655,13 +655,47 @@ describe('writeAmbientGitCredential', () => {
 
     const content = await readFile(configPath, 'utf8');
     expect(content).toContain('[credential]\n\tuseHttpPath = true');
-    expect(content).toContain('[credential "https://github.com/acme/repo/"]');
+    expect(content).toContain('[credential "https://github.com/acme/repo.git"]');
     expect(content).toContain(
       '\thelper = "!node /opt/runner/dist/git-credential-helper.js --socket',
     );
     expect(content).toContain('--capability job-capability');
     expect(content).not.toContain('password');
     expect(content).not.toContain('token');
+  });
+
+  it('keeps a repository URL without a .git suffix in the credential subsection', async () => {
+    const configPath = join(root, 'git-cred.config');
+
+    await writeGitCredentialHelperConfig({
+      configPath,
+      repositoryUrl: 'https://github.com/acme/repo',
+      helper: {
+        command: 'git-credential-shipfox',
+        socketPath: join(root, 'credential.sock'),
+        capability: 'job-capability',
+      },
+    });
+
+    const content = await readFile(configPath, 'utf8');
+    expect(content).toContain('[credential "https://github.com/acme/repo/"]');
+  });
+
+  it('preserves a .git path when the repository name is only .git', async () => {
+    const configPath = join(root, 'git-cred.config');
+
+    await writeGitCredentialHelperConfig({
+      configPath,
+      repositoryUrl: 'https://github.com/acme/.git',
+      helper: {
+        command: 'git-credential-shipfox',
+        socketPath: join(root, 'credential.sock'),
+        capability: 'job-capability',
+      },
+    });
+
+    const content = await readFile(configPath, 'utf8');
+    expect(content).toContain('[credential "https://github.com/acme/.git"]');
   });
 
   it.each([

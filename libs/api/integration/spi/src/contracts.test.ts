@@ -15,6 +15,7 @@ describe('git ref names', () => {
     'refs/heads/feature/review',
     'refs/heads/foo./bar',
     'refs/heads/foo/-bar',
+    'refs/heads/feature]',
     'refs/pull/17/head',
   ])('accepts %s', (ref) => {
     expect(isValidGitRefName(ref)).toBe(true);
@@ -31,6 +32,7 @@ describe('git ref names', () => {
     'refs/heads/.foo',
     'refs/heads/foo.',
     'refs/heads/foo@{bar',
+    'refs/heads/feature[',
     'a'.repeat(40),
     'b'.repeat(64),
     '0'.repeat(40),
