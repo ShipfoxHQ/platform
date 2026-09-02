@@ -1,27 +1,51 @@
-let host = 'localhost:3500';
-let protocol = 'http';
+import {config, type DocsConfig} from './config';
 
-if (process.env.NEXT_PUBLIC_VERCEL_ENV) {
-  protocol = 'https';
-  if (
-    process.env.NEXT_PUBLIC_VERCEL_ENV === 'production' &&
-    process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL
-  ) {
-    host = process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL;
-  } else if (process.env.NEXT_PUBLIC_VERCEL_URL) {
-    host = process.env.NEXT_PUBLIC_VERCEL_URL;
-  }
+const LOCAL_DOCS_ORIGIN = 'http://localhost:3500';
+export const PUBLIC_DOCS_ORIGIN = 'https://www.shipfox.io';
+
+type DocsEnvironment = Partial<
+  Pick<
+    DocsConfig,
+    | 'VERCEL_ENV'
+    | 'VERCEL_URL'
+    | 'NEXT_PUBLIC_VERCEL_ENV'
+    | 'NEXT_PUBLIC_VERCEL_URL'
+    | 'NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL'
+  >
+>;
+
+function originFromDeploymentHost(host: string): string {
+  const value = host.includes('://') ? host : `https://${host}`;
+  return new URL(value).origin;
 }
 
-export const url = `${protocol}://${host}`;
+export function resolveDocsOrigin(environment: DocsEnvironment = config): string {
+  const deploymentEnvironment = environment.VERCEL_ENV ?? environment.NEXT_PUBLIC_VERCEL_ENV;
+  if (deploymentEnvironment === 'production') {
+    const productionHost = environment.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL;
+    return productionHost ? originFromDeploymentHost(productionHost) : PUBLIC_DOCS_ORIGIN;
+  }
+
+  const deploymentHost = environment.VERCEL_URL ?? environment.NEXT_PUBLIC_VERCEL_URL;
+  if (deploymentHost) return originFromDeploymentHost(deploymentHost);
+
+  return LOCAL_DOCS_ORIGIN;
+}
+
+export const url = resolveDocsOrigin();
 
 // Set from `basePath` in next.config.mjs (via NEXT_PUBLIC_BASE_PATH): `/docs` in
 // production, empty in local dev. Every absolute URL we emit for external consumers
 // (llms.txt, sitemap, robots, OG metadata) must carry the prefix; Next only applies
 // basePath to in-app routing, not to strings we build ourselves.
-export const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
+export const basePath = config.NEXT_PUBLIC_BASE_PATH;
 
-export const toUrl = (path: string) => {
+export const toUrl = (path: string, origin: string = url, prefix: string = basePath) => {
   const suffix = path === '/' ? '' : path;
-  return new URL(`${basePath}${suffix}`, url).toString();
+  return new URL(`${prefix}${suffix}`, origin).toString();
+};
+
+export const toMarkdownUrl = (path: string, origin: string = url, prefix: string = basePath) => {
+  const markdownPath = path === '/' ? '/index.md' : `${path}.md`;
+  return toUrl(markdownPath, origin, prefix);
 };

@@ -24,6 +24,7 @@
     "postinstall": "fumadocs-mdx"
   },
   "dependencies": {
+    "@shipfox/config": "workspace:*",
     "@shipfox/workflow-document": "workspace:*",
     "fumadocs-core": "catalog:",
     "fumadocs-mdx": "catalog:",

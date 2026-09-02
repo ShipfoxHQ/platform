@@ -18,9 +18,6 @@ const commitMono = localFont({
 export default function Layout({children}: {children: ReactNode}) {
   return (
     <html lang="en" className={commitMono.variable} suppressHydrationWarning>
-      <head>
-        <link rel="alternate" type="text/markdown" href="/llms.txt" />
-      </head>
       <body className="flex flex-col min-h-screen">
         <DocsAnalyticsTracker />
         {/* The search client fetches this URL as-is; Next does not apply basePath to

@@ -673,6 +673,9 @@ importers:
 
   apps/docs:
     dependencies:
+      '@shipfox/config':
+        specifier: workspace:*
+        version: link:../../libs/shared/common/config
       '@shipfox/workflow-document':
         specifier: workspace:*
         version: link:../../libs/shared/workflow/document

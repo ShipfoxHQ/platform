@@ -3,9 +3,9 @@ import {DocsBody, DocsDescription, DocsPage, DocsTitle} from 'fumadocs-ui/page';
 import type {Metadata} from 'next';
 import {notFound} from 'next/navigation';
 import {PageFeedback} from '@/app/components/page-feedback';
+import {buildPageMetadata} from '@/lib/page-metadata';
 import {source} from '@/lib/source';
 import {getMDXComponents} from '@/mdx-components';
-import {toUrl, url} from '@/url';
 
 export default async function Page(props: {params: Promise<{slug?: string[]}>}) {
   const params = await props.params;
@@ -41,39 +41,5 @@ export async function generateMetadata(props: {
   const page = source.getPage(params.slug);
   if (!page) notFound();
 
-  const title = `${page.data.title} | Shipfox`;
-  // toUrl carries the /docs basePath, which Next does not apply to manually
-  // built metadata URLs.
-  const image = toUrl('/shipfox-og.jpg');
-  return {
-    title,
-    description: page.data.description,
-    metadataBase: new URL(url),
-    openGraph: {
-      title,
-      description: page.data.description,
-      images: [
-        {
-          url: image,
-          width: 1200,
-          height: 630,
-          alt: 'Shipfox: Your AI software factory',
-        },
-      ],
-      siteName: 'Shipfox',
-      type: 'website',
-      locale: 'en_US',
-    },
-    twitter: {
-      card: 'summary_large_image',
-      images: [
-        {
-          url: image,
-          width: 1200,
-          height: 630,
-          alt: 'Shipfox: Your AI software factory',
-        },
-      ],
-    },
-  };
+  return buildPageMetadata(page);
 }
