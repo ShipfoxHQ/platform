@@ -1,16 +1,35 @@
 import {configureApiClient, resetApiClient} from '@shipfox/client-api';
+import {type AuthState, authStateAtom} from '@shipfox/client-shell/runtime';
 import type {Decorator, Meta, StoryObj} from '@storybook/react';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
+import {createStore, Provider as JotaiProvider} from 'jotai';
 import {type ReactNode, useEffect, useState} from 'react';
 import {within} from 'storybook/test';
 import {AgentAccessSettingsPage, CreatedPersonalAccessToken} from './agent-access-settings-page.js';
 import {OAuthConsentPage} from './oauth-consent-page.js';
 
 const WORKSPACE_ID = '11111111-1111-4111-8111-111111111111';
+const SECOND_WORKSPACE_ID = '44444444-4444-4444-8444-444444444444';
 const CREDENTIAL_ID = '22222222-2222-4222-8222-222222222222';
 const REQUEST_ID = '33333333-3333-4333-8333-333333333333';
 
-type View = 'consent' | 'settings-populated' | 'settings-empty' | 'settings-errors' | 'created';
+type View =
+  | 'consent'
+  | 'consent-multiple-workspaces'
+  | 'settings-populated'
+  | 'settings-empty'
+  | 'settings-errors'
+  | 'created';
+
+const STORY_WORKSPACES = [
+  {id: WORKSPACE_ID, name: 'Acme', slug: 'acme', membershipId: 'membership-1'},
+  {
+    id: SECOND_WORKSPACE_ID,
+    name: 'Research Lab',
+    slug: 'research-lab',
+    membershipId: 'membership-2',
+  },
+] as const;
 
 function AgentAccessStory({view}: {view: View}) {
   if (view === 'created') {
@@ -21,7 +40,7 @@ function AgentAccessStory({view}: {view: View}) {
     );
   }
 
-  if (view === 'consent') {
+  if (view === 'consent' || view === 'consent-multiple-workspaces') {
     return <OAuthConsentPage requestId={REQUEST_ID} onRedirect={() => undefined} />;
   }
 
@@ -42,6 +61,16 @@ function StoryProviders({children, view}: {children: ReactNode; view: View}) {
   const [queryClient] = useState(
     () => new QueryClient({defaultOptions: {queries: {retry: false}}}),
   );
+  const [store] = useState(() => {
+    const nextStore = createStore();
+    const authState: AuthState = {
+      status: 'authenticated',
+      workspaces:
+        view === 'consent-multiple-workspaces' ? [...STORY_WORKSPACES] : [STORY_WORKSPACES[0]],
+    };
+    nextStore.set(authStateAtom, authState);
+    return nextStore;
+  });
   const [configuredView, setConfiguredView] = useState<View>();
 
   useEffect(() => {
@@ -57,7 +86,11 @@ function StoryProviders({children, view}: {children: ReactNode; view: View}) {
   }, [view]);
 
   if (configuredView !== view) return null;
-  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+  return (
+    <JotaiProvider store={store}>
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    </JotaiProvider>
+  );
 }
 
 const meta = {
@@ -75,8 +108,18 @@ export const Consent: Story = {
   play: async ({canvasElement}) => {
     const canvas = within(canvasElement);
     await canvas.findByRole('heading', {name: 'Allow Claude Desktop to access Shipfox?'});
+    await canvas.findByText('Acme');
     await canvas.findByText('Claude Desktop on this device');
     await canvas.findByRole('button', {name: 'Allow access'});
+  },
+};
+
+export const MultipleWorkspaces: Story = {
+  args: {view: 'consent-multiple-workspaces'},
+  play: async ({canvasElement}) => {
+    const canvas = within(canvasElement);
+    await canvas.findByRole('radio', {name: 'Acme'});
+    await canvas.findByRole('radio', {name: 'Research Lab'});
   },
 };
 
@@ -143,7 +186,7 @@ function fetchForView(view: View): typeof fetch {
       );
     }
     if (request.url.includes('/oauth/consents/')) {
-      return Promise.resolve(jsonResponse(consentDto()));
+      return Promise.resolve(jsonResponse(consentDto(view === 'consent-multiple-workspaces')));
     }
     if (request.url.endsWith('/grants')) {
       return Promise.resolve(jsonResponse({grants: view === 'settings-empty' ? [] : [grantDto()]}));
@@ -163,7 +206,7 @@ function jsonResponse(body: unknown, init: ResponseInit = {}) {
   });
 }
 
-function consentDto() {
+function consentDto(multipleWorkspaces = false) {
   return {
     request_id: REQUEST_ID,
     client_name: 'Claude Desktop',
@@ -172,7 +215,10 @@ function consentDto() {
     redirect_uri_hostname: '127.0.0.1',
     client_identity_origin: 'https://claude.ai',
     is_loopback_redirect: true,
-    workspaces: [{workspace_id: WORKSPACE_ID, role: 'owner'}],
+    workspaces: [
+      {workspace_id: WORKSPACE_ID, role: 'owner'},
+      ...(multipleWorkspaces ? [{workspace_id: SECOND_WORKSPACE_ID, role: 'member'}] : []),
+    ],
   };
 }
 

@@ -101,6 +101,7 @@
     "@vitejs/plugin-react": "catalog:",
     "@vitest/browser-playwright": "catalog:",
     "happy-dom": "catalog:",
+    "jotai": "catalog:",
     "jsdom": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
