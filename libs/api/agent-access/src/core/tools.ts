@@ -52,8 +52,14 @@ export function createAgentAccessFixtureTool(): AgentAccessTool {
     annotations: {readOnlyHint: true},
     execute: ({arguments: input}) => {
       const message = input.message;
-      if (typeof message !== 'string' || message.length > 256) {
-        return agentAccessError('invalid-request', {message: 'message must be a string'});
+      if (
+        Object.keys(input).some((key) => key !== 'message') ||
+        typeof message !== 'string' ||
+        [...message].length > 256
+      ) {
+        return agentAccessError('invalid-request', {
+          message: 'message must be a string of at most 256 characters with no extra properties',
+        });
       }
       return agentAccessSuccess({message});
     },

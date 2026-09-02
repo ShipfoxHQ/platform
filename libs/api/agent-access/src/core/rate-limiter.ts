@@ -41,32 +41,45 @@ export function createAgentAccessRateLimiter(
     const timestamp = now();
     pruneExpiredBuckets(timestamp);
     const key = credentialKey(credential);
-    const current = buckets.get(key);
-    const bucket =
-      current === undefined || timestamp >= current.startedAt + windowMs
-        ? {startedAt: timestamp, count: 0}
-        : current;
+    const bucket = activeBucket(key, timestamp) ?? {startedAt: timestamp, count: 0};
 
-    if (bucket.count >= limit) {
-      return {
-        allowed: false,
-        retry_after_seconds: Math.max(
-          1,
-          Math.ceil((bucket.startedAt + windowMs - timestamp) / 1000),
-        ),
-      };
-    }
+    const decision = decisionForBucket(bucket, timestamp);
+    if (!decision.allowed) return decision;
 
     bucket.count += 1;
     buckets.set(key, bucket);
     return {allowed: true};
   };
 
+  const check = (credential: AgentAccessCredential): AgentAccessRateLimitDecision => {
+    const timestamp = now();
+    pruneExpiredBuckets(timestamp);
+    const bucket = activeBucket(credentialKey(credential), timestamp);
+    return bucket === undefined ? {allowed: true} : decisionForBucket(bucket, timestamp);
+  };
+
   return {
     consume,
-    check: consume,
+    check,
     size: () => buckets.size,
   };
+
+  function activeBucket(key: string, timestamp: number): Bucket | undefined {
+    const bucket = buckets.get(key);
+    if (bucket !== undefined && timestamp >= bucket.startedAt + windowMs) {
+      buckets.delete(key);
+      return undefined;
+    }
+    return bucket;
+  }
+
+  function decisionForBucket(bucket: Bucket, timestamp: number): AgentAccessRateLimitDecision {
+    if (bucket.count < limit) return {allowed: true};
+    return {
+      allowed: false,
+      retry_after_seconds: Math.max(1, Math.ceil((bucket.startedAt + windowMs - timestamp) / 1000)),
+    };
+  }
 
   function pruneExpiredBuckets(timestamp: number): void {
     for (const [key, bucket] of buckets) {

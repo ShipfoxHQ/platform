@@ -46,5 +46,9 @@ export {
   type CreateAgentAccessRoutesOptions,
   createAgentAccessRoutes,
 } from '#presentation/routes.js';
-export {agentAccessModule, createAgentAccessModule} from './module.js';
+export {
+  agentAccessModule,
+  type CreateAgentAccessModuleOptions,
+  createAgentAccessModule,
+} from './module.js';
 export {AGENT_ACCESS_PACKAGE_VERSION} from './version.js';

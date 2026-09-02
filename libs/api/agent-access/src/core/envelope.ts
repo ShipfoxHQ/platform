@@ -4,6 +4,7 @@ import {
 } from '@shipfox/api-agent-access-dto';
 
 export function agentAccessSuccess(result: unknown): AgentAccessEnvelopeDto {
+  if (result === undefined) throw new Error('Agent-access success results cannot be undefined');
   return {ok: true, result};
 }
 

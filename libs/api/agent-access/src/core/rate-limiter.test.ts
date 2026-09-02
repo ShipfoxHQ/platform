@@ -32,11 +32,30 @@ describe('agent-access rate limiter', () => {
     const patCredential: AgentAccessCredential = {kind: 'pat', patId: 'pat-1'};
 
     expect(limiter.check(oauthCredential)).toEqual({allowed: true});
+    expect(limiter.size()).toBe(0);
     expect(limiter.consume(patCredential)).toEqual({allowed: true});
-    expect(limiter.size()).toBe(2);
+    expect(limiter.size()).toBe(1);
 
     now += AGENT_ACCESS_TOOL_CALL_WINDOW_MS;
     expect(limiter.consume(oauthCredential)).toEqual({allowed: true});
     expect(limiter.size()).toBe(1);
+  });
+
+  test('does not consume a call when checking an exhausted bucket', () => {
+    let now = 5_000;
+    const limiter = createAgentAccessRateLimiter({now: () => now, limit: 1});
+
+    expect(limiter.consume(oauthCredential)).toEqual({allowed: true});
+    expect(limiter.check(oauthCredential)).toEqual({
+      allowed: false,
+      retry_after_seconds: 60,
+    });
+    expect(limiter.check(oauthCredential)).toEqual({
+      allowed: false,
+      retry_after_seconds: 60,
+    });
+
+    now += AGENT_ACCESS_TOOL_CALL_WINDOW_MS;
+    expect(limiter.check(oauthCredential)).toEqual({allowed: true});
   });
 });

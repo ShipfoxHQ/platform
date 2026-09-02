@@ -43,7 +43,7 @@ describe('agent-access tool call audit recorder', () => {
 
   test('includes the OAuth client identifier while keeping the grant identity explicit', () => {
     const logInfo = vi.fn();
-    const recorder = createAgentAccessToolCallRecorder({logInfo});
+    const recorder = createAgentAccessToolCallRecorder({logInfo, recordMetric: vi.fn()});
 
     recorder({
       tool: 'agent_access_fixture',

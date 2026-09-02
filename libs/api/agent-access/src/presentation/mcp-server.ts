@@ -137,13 +137,14 @@ async function executeAgentAccessTool(params: {
     }
 
     const outcome: AgentAccessToolCallOutcome = envelope.data.ok ? 'success' : 'tool-error';
+    const result = toolResult(envelope.data, !envelope.data.ok);
     recordToolCall(params.recordCall, {
       tool: params.tool.name,
       outcome,
       errorCode: envelope.data.ok ? 'none' : (envelope.data.error?.code ?? 'unknown'),
       context: params.context,
     });
-    return toolResult(envelope.data, !envelope.data.ok);
+    return result;
   } catch (error) {
     recordToolCall(params.recordCall, {
       tool: params.tool.name,

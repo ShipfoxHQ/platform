@@ -67,7 +67,7 @@ function mountRoute(
   if (route.preAuth !== undefined) {
     const preAuthHook = normalizeOnRequest(route.preAuth);
     routeConfig.onRequest =
-      authHook === undefined ? preAuthHook : ([preAuthHook, authHook] as FastifyOnRequest);
+      authHook === undefined ? preAuthHook : appendOnRequest(preAuthHook, authHook);
   } else if (authHook !== undefined) {
     routeConfig.onRequest = authHook;
   }
@@ -96,4 +96,11 @@ function normalizePreHandler(preHandler: RoutePreHandler | RoutePreHandler[]): F
 
 function normalizeOnRequest(preAuth: RoutePreHandler | RoutePreHandler[]): FastifyOnRequest {
   return normalizePreHandler(preAuth) as unknown as FastifyOnRequest;
+}
+
+function appendOnRequest(preAuth: FastifyOnRequest, authHook: FastifyOnRequest): FastifyOnRequest {
+  return [
+    ...(Array.isArray(preAuth) ? preAuth : [preAuth]),
+    ...(Array.isArray(authHook) ? authHook : [authHook]),
+  ] as FastifyOnRequest;
 }

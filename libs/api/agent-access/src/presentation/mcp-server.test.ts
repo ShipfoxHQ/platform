@@ -3,6 +3,7 @@ import {InMemoryTransport} from '@modelcontextprotocol/sdk/inMemory.js';
 import {CallToolResultSchema} from '@modelcontextprotocol/sdk/types.js';
 import {agentAccessEnvelopeSchema} from '@shipfox/api-agent-access-dto';
 import type {AgentAccessContext} from '@shipfox/api-auth-context';
+import {agentAccessSuccess} from '#core/envelope.js';
 import {createAgentAccessRateLimiter} from '#core/rate-limiter.js';
 import {createAgentAccessFixtureTool} from '#core/tools.js';
 import {AGENT_ACCESS_PACKAGE_VERSION} from '#version.js';
@@ -70,6 +71,37 @@ describe('buildAgentAccessMcpServer', () => {
     ]);
   });
 
+  test('records only the exception when serializing a tool result fails', async () => {
+    const recordCall = vi.fn();
+    const fixture = createAgentAccessFixtureTool();
+    const unserializableTool = {
+      ...fixture,
+      name: 'unserializable_fixture',
+      execute: () => agentAccessSuccess({value: BigInt(1)}),
+    };
+    const {client, close} = await connectClient(
+      createAgentAccessRateLimiter(),
+      [unserializableTool],
+      recordCall,
+    );
+
+    const result = await client.callTool(
+      {name: 'unserializable_fixture', arguments: {message: 'ignored'}},
+      CallToolResultSchema,
+    );
+    await close();
+
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toEqual({ok: false, error: {code: 'tool-failed'}});
+    expect(recordCall).toHaveBeenCalledTimes(1);
+    expect(recordCall).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tool: 'unserializable_fixture',
+        outcome: 'exception',
+      }),
+    );
+  });
+
   test('returns schema-valid tool errors with the serialized envelope duplicate', async () => {
     const {client, close} = await connectClient();
 
@@ -83,7 +115,10 @@ describe('buildAgentAccessMcpServer', () => {
     expect(agentAccessEnvelopeSchema.safeParse(result.structuredContent).success).toBe(true);
     expect(result.structuredContent).toEqual({
       ok: false,
-      error: {code: 'invalid-request', message: 'message must be a string'},
+      error: {
+        code: 'invalid-request',
+        message: 'message must be a string of at most 256 characters with no extra properties',
+      },
     });
     expect(result.content).toEqual([
       {type: 'text', text: JSON.stringify(result.structuredContent)},
@@ -108,11 +143,14 @@ describe('buildAgentAccessMcpServer', () => {
 
 async function connectClient(
   rateLimiter = createAgentAccessRateLimiter(),
+  tools = [createAgentAccessFixtureTool()],
+  recordCall?: Parameters<typeof buildAgentAccessMcpServer>[0]['recordCall'],
 ): Promise<{client: Client; close: () => Promise<void>}> {
   const server = buildAgentAccessMcpServer({
     context,
-    tools: [createAgentAccessFixtureTool()],
+    tools,
     rateLimiter,
+    recordCall,
   });
   const client = new Client({name: 'test-client', version: '0.0.0'});
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();

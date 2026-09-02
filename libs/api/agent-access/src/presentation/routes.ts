@@ -126,7 +126,7 @@ function createAgentAccessErrorHandler(resourceMetadataUrl: string) {
 
   return (error: unknown, request: FastifyRequest, reply: FastifyReply) => {
     const status = errorStatus(error);
-    const reason = authFailureReason(error, status);
+    const reason = authFailureReason(error, status, request);
     if (reason !== undefined) recordAgentAccessAuthFailure(reason);
     if (status === 401) reply.header('www-authenticate', challenge);
     return defaultErrorHandler(error, request, reply);
@@ -157,14 +157,13 @@ function errorStatus(error: unknown): number | undefined {
 function authFailureReason(
   error: unknown,
   status: number | undefined,
+  request: FastifyRequest,
 ): 'missing' | 'invalid' | 'dependency-unavailable' | undefined {
   if (isRecord(error) && error.code === 'auth-dependency-unavailable') {
     return 'dependency-unavailable';
   }
   if (status !== 401) return undefined;
-  if (error instanceof ClientError && error.message.startsWith('Missing or invalid'))
-    return 'missing';
-  return 'invalid';
+  return request.headers.authorization === undefined ? 'missing' : 'invalid';
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
