@@ -197,6 +197,75 @@ describe('route mounting', () => {
     expect(events).toEqual(['auth', 'preHandler:OK', 'handler:OK']);
   });
 
+  test('route preAuth runs before authentication', async () => {
+    const events: string[] = [];
+    const app = await createApp({
+      auth: [
+        {
+          name: 'token',
+          authenticate: () => {
+            events.push('auth');
+            return Promise.resolve();
+          },
+        },
+      ],
+      routes: [
+        {
+          method: 'GET',
+          path: '/pre-auth',
+          description: 'Pre-auth route',
+          auth: 'token',
+          preAuth: () => {
+            events.push('pre-auth');
+          },
+          handler: () => ({ok: true}),
+        },
+      ],
+    });
+
+    const res = await app.inject({method: 'GET', url: '/pre-auth'});
+
+    expect(res.statusCode).toBe(200);
+    expect(events).toEqual(['pre-auth', 'auth']);
+  });
+
+  test('flattens route preAuth arrays before authentication', async () => {
+    const events: string[] = [];
+    const app = await createApp({
+      auth: [
+        {
+          name: 'token',
+          authenticate: () => {
+            events.push('auth');
+            return Promise.resolve();
+          },
+        },
+      ],
+      routes: [
+        {
+          method: 'GET',
+          path: '/pre-auth-array',
+          description: 'Pre-auth array route',
+          auth: 'token',
+          preAuth: [
+            () => {
+              events.push('pre-auth-first');
+            },
+            () => {
+              events.push('pre-auth-second');
+            },
+          ],
+          handler: () => ({ok: true}),
+        },
+      ],
+    });
+
+    const res = await app.inject({method: 'GET', url: '/pre-auth-array'});
+
+    expect(res.statusCode).toBe(200);
+    expect(events).toEqual(['pre-auth-first', 'pre-auth-second', 'auth']);
+  });
+
   test('route preHandler can short-circuit before the handler', async () => {
     let handlerCalled = false;
     const app = await createApp({
