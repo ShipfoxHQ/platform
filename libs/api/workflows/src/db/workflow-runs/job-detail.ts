@@ -1,12 +1,8 @@
 import {
-  JOB_EXECUTION_STATUS_REASON_MESSAGE_MAX_LENGTH,
-  WORKFLOW_JOB_STEP_PAGE_LIMIT,
-  WORKFLOW_RUN_EXECUTION_COUNT_LIMIT,
+  WORKFLOW_JOB_DETAIL_STEP_PAGE_LIMIT,
   WORKFLOW_STEP_ATTEMPT_PREVIEW_LIMIT,
 } from '@shipfox/api-workflows-dto';
 import {and, asc, count, desc, eq, gt, inArray, lt, lte, or, sql} from 'drizzle-orm';
-import {type JobStatusReason, toJobStatusReason} from '#core/entities/job.js';
-import type {JobExecutionStatus} from '#core/entities/job-execution.js';
 import {
   type StepAttemptStatus,
   type StepSourceLocation,
@@ -24,19 +20,28 @@ import {workflowRunAttempts} from '../schema/workflow-run-attempts.js';
 import {workflowRuns} from '../schema/workflow-runs.js';
 import {
   type BoundedExecutionCount,
+  boundedExecutionCount,
   getWorkflowRunJobOverview,
+  runningStepExists,
+  toExecutionSummary,
   type WorkflowRunJobExecutionSummary,
+  type WorkflowRunJobExecutionSummaryRow,
   type WorkflowRunJobOverview,
 } from './overview.js';
+
+const WORKFLOW_JOB_READ_STATEMENT_TIMEOUT_MS = 5_000;
 
 export interface WorkflowJobReadScope {
   workflowRunId: string;
   projectId: string;
+  workflowRunAttemptId: string;
+  workflowRunAttempt: number;
 }
 
 export interface WorkflowStepReadScope extends WorkflowJobReadScope {
   jobId: string;
   jobExecutionId: string;
+  stepType: StepType;
 }
 
 export interface WorkflowJobReadMeasurement {
@@ -128,7 +133,12 @@ export async function getWorkflowJobReadScope(
   jobId: string,
 ): Promise<WorkflowJobReadScope | undefined> {
   const [row] = await db()
-    .select({workflowRunId: workflowRuns.id, projectId: workflowRuns.projectId})
+    .select({
+      workflowRunId: workflowRuns.id,
+      projectId: workflowRuns.projectId,
+      workflowRunAttemptId: workflowRunAttempts.id,
+      workflowRunAttempt: workflowRunAttempts.attempt,
+    })
     .from(jobs)
     .innerJoin(workflowRunAttempts, eq(jobs.workflowRunAttemptId, workflowRunAttempts.id))
     .innerJoin(workflowRuns, eq(workflowRunAttempts.workflowRunId, workflowRuns.id))
@@ -144,8 +154,11 @@ export async function getWorkflowStepReadScope(
     .select({
       workflowRunId: workflowRuns.id,
       projectId: workflowRuns.projectId,
+      workflowRunAttemptId: workflowRunAttempts.id,
+      workflowRunAttempt: workflowRunAttempts.attempt,
       jobId: jobs.id,
       jobExecutionId: jobExecutions.id,
+      stepType: steps.type,
     })
     .from(steps)
     .innerJoin(jobExecutions, eq(steps.jobExecutionId, jobExecutions.id))
@@ -158,14 +171,24 @@ export async function getWorkflowStepReadScope(
 }
 
 export function getWorkflowJobDetail(
-  params: {jobId: string; executionId?: string | undefined},
+  params: {
+    jobId: string;
+    executionId?: string | undefined;
+    scope?: WorkflowJobReadScope | undefined;
+  },
   options: WorkflowJobReadOptions = {},
 ): Promise<WorkflowJobDetailRead | undefined> {
   return withReadMeasurement(options, async (recordRows) =>
-    db().transaction((tx) => readWorkflowJobDetail(tx, params, recordRows), {
-      isolationLevel: 'repeatable read',
-      accessMode: 'read only',
-    }),
+    db().transaction(
+      async (tx) => {
+        await setWorkflowJobReadStatementTimeout(tx);
+        return readWorkflowJobDetail(tx, params, recordRows);
+      },
+      {
+        isolationLevel: 'repeatable read',
+        accessMode: 'read only',
+      },
+    ),
   );
 }
 
@@ -174,14 +197,21 @@ export function listWorkflowJobExecutionSummaries(
     jobId: string;
     limit: number;
     cursor?: WorkflowJobExecutionCursor | undefined;
+    scope?: WorkflowJobReadScope | undefined;
   },
   options: WorkflowJobReadOptions = {},
 ): Promise<WorkflowJobExecutionPageRead | undefined> {
   return withReadMeasurement(options, async (recordRows) =>
-    db().transaction((tx) => readWorkflowJobExecutionSummaries(tx, params, recordRows), {
-      isolationLevel: 'repeatable read',
-      accessMode: 'read only',
-    }),
+    db().transaction(
+      async (tx) => {
+        await setWorkflowJobReadStatementTimeout(tx);
+        return readWorkflowJobExecutionSummaries(tx, params, recordRows);
+      },
+      {
+        isolationLevel: 'repeatable read',
+        accessMode: 'read only',
+      },
+    ),
   );
 }
 
@@ -191,14 +221,21 @@ export function listWorkflowExecutionSteps(
     executionId: string;
     limit: number;
     cursor?: WorkflowStepCursor | undefined;
+    scope?: WorkflowJobReadScope | undefined;
   },
   options: WorkflowJobReadOptions = {},
 ): Promise<WorkflowStepPageRead | undefined> {
   return withReadMeasurement(options, async (recordRows) =>
-    db().transaction((tx) => readWorkflowExecutionSteps(tx, params, recordRows), {
-      isolationLevel: 'repeatable read',
-      accessMode: 'read only',
-    }),
+    db().transaction(
+      async (tx) => {
+        await setWorkflowJobReadStatementTimeout(tx);
+        return readWorkflowExecutionSteps(tx, params, recordRows);
+      },
+      {
+        isolationLevel: 'repeatable read',
+        accessMode: 'read only',
+      },
+    ),
   );
 }
 
@@ -207,42 +244,66 @@ export function listWorkflowStepAttemptSummaries(
     stepId: string;
     limit: number;
     cursor?: WorkflowStepAttemptCursor | undefined;
+    scope?: WorkflowStepReadScope | undefined;
   },
   options: WorkflowJobReadOptions = {},
 ): Promise<WorkflowStepAttemptPageRead | undefined> {
   return withReadMeasurement(options, async (recordRows) =>
-    db().transaction((tx) => readWorkflowStepAttemptSummaries(tx, params, recordRows), {
-      isolationLevel: 'repeatable read',
-      accessMode: 'read only',
-    }),
+    db().transaction(
+      async (tx) => {
+        await setWorkflowJobReadStatementTimeout(tx);
+        return readWorkflowStepAttemptSummaries(tx, params, recordRows);
+      },
+      {
+        isolationLevel: 'repeatable read',
+        accessMode: 'read only',
+      },
+    ),
   );
 }
 
 async function readWorkflowJobDetail(
   tx: Tx,
-  params: {jobId: string; executionId?: string | undefined},
+  params: {
+    jobId: string;
+    executionId?: string | undefined;
+    scope?: WorkflowJobReadScope | undefined;
+  },
   recordRows: (count: number) => void,
 ): Promise<WorkflowJobDetailRead | undefined> {
-  const target = await loadJobDetailTarget(tx, params.jobId);
+  const target = await loadJobDetailTarget(tx, params.jobId, params.scope);
   recordRows(target ? 1 : 0);
   if (!target) return undefined;
 
-  const job = await getWorkflowRunJobOverview(tx, {
-    workflowRunAttemptId: target.workflowRunAttemptId,
-    jobId: params.jobId,
-  });
-  recordRows(job ? 1 : 0);
+  const explicitExecution = await loadExplicitExecution(
+    tx,
+    params.jobId,
+    params.executionId,
+    recordRows,
+  );
+  if (params.executionId && !explicitExecution) return undefined;
+
+  const job = await getWorkflowRunJobOverview(
+    tx,
+    {
+      workflowRunAttemptId: target.workflowRunAttemptId,
+      jobId: params.jobId,
+    },
+    {onRead: recordRows},
+  );
   if (!job) return undefined;
 
-  const selectedExecutionId = params.executionId ?? job.defaultExecution?.id;
-  if (!selectedExecutionId) return toJobDetailRead(target, job, null);
-
-  const execution = await loadExecutionProjection(tx, params.jobId, selectedExecutionId);
-  recordRows(execution ? 1 : 0);
+  const execution = await loadSelectedExecution(
+    tx,
+    params.jobId,
+    explicitExecution,
+    job.defaultExecution?.id,
+    recordRows,
+  );
   if (!execution) return params.executionId ? undefined : toJobDetailRead(target, job, null);
 
   const steps = await loadStepPage(tx, execution.id, {
-    limit: WORKFLOW_JOB_STEP_PAGE_LIMIT,
+    limit: WORKFLOW_JOB_DETAIL_STEP_PAGE_LIMIT,
     cursor: undefined,
     recordRows,
   });
@@ -259,10 +320,11 @@ async function readWorkflowJobExecutionSummaries(
     jobId: string;
     limit: number;
     cursor?: WorkflowJobExecutionCursor | undefined;
+    scope?: WorkflowJobReadScope | undefined;
   },
   recordRows: (count: number) => void,
 ): Promise<WorkflowJobExecutionPageRead | undefined> {
-  const target = await loadJobDetailTarget(tx, params.jobId);
+  const target = await loadJobDetailTarget(tx, params.jobId, params.scope);
   recordRows(target ? 1 : 0);
   if (!target) return undefined;
 
@@ -289,10 +351,11 @@ async function readWorkflowExecutionSteps(
     executionId: string;
     limit: number;
     cursor?: WorkflowStepCursor | undefined;
+    scope?: WorkflowJobReadScope | undefined;
   },
   recordRows: (count: number) => void,
 ): Promise<WorkflowStepPageRead | undefined> {
-  const target = await loadJobDetailTarget(tx, params.jobId);
+  const target = await loadJobDetailTarget(tx, params.jobId, params.scope);
   recordRows(target ? 1 : 0);
   if (!target) return undefined;
 
@@ -317,13 +380,18 @@ async function readWorkflowStepAttemptSummaries(
     stepId: string;
     limit: number;
     cursor?: WorkflowStepAttemptCursor | undefined;
+    scope?: WorkflowStepReadScope | undefined;
   },
   recordRows: (count: number) => void,
 ): Promise<WorkflowStepAttemptPageRead | undefined> {
   const [step] = await tx
     .select({id: steps.id, type: steps.type})
     .from(steps)
-    .where(eq(steps.id, params.stepId))
+    .where(
+      params.scope
+        ? and(eq(steps.id, params.stepId), eq(steps.jobExecutionId, params.scope.jobExecutionId))
+        : eq(steps.id, params.stepId),
+    )
     .limit(1);
   recordRows(step ? 1 : 0);
   if (!step) return undefined;
@@ -351,24 +419,7 @@ interface JobDetailTarget {
   workflowRunAttempt: number;
 }
 
-interface ExecutionSummaryRow {
-  id: string;
-  sequence: number;
-  name: string | null;
-  jobName: string | null;
-  jobKey: string;
-  status: JobExecutionStatus;
-  statusReason: JobStatusReason | null;
-  statusReasonMessage: string | null;
-  queuedAt: Date | null;
-  startedAt: Date | null;
-  finishedAt: Date | null;
-  timedOutAt: Date | null;
-  updatedAt: Date;
-  hasRunningStep: boolean;
-}
-
-interface ExecutionProjection extends ExecutionSummaryRow {
+interface ExecutionProjection extends WorkflowRunJobExecutionSummaryRow {
   jobId: string;
   hasContext: boolean;
 }
@@ -396,7 +447,26 @@ interface StepAttemptPreviewRow extends WorkflowStepAttemptSummaryRead {
   totalCount: number;
 }
 
-async function loadJobDetailTarget(tx: Tx, jobId: string): Promise<JobDetailTarget | undefined> {
+async function setWorkflowJobReadStatementTimeout(tx: Tx): Promise<void> {
+  await tx.execute(
+    sql`select set_config('statement_timeout', ${`${WORKFLOW_JOB_READ_STATEMENT_TIMEOUT_MS}ms`}, true)`,
+  );
+}
+
+async function loadJobDetailTarget(
+  tx: Tx,
+  jobId: string,
+  scope?: WorkflowJobReadScope,
+): Promise<JobDetailTarget | undefined> {
+  if (scope) {
+    const [row] = await tx
+      .select({id: jobs.id})
+      .from(jobs)
+      .where(and(eq(jobs.id, jobId), eq(jobs.workflowRunAttemptId, scope.workflowRunAttemptId)))
+      .limit(1);
+    return row ? scope : undefined;
+  }
+
   const [row] = await tx
     .select({
       workflowRunId: workflowRuns.id,
@@ -409,6 +479,32 @@ async function loadJobDetailTarget(tx: Tx, jobId: string): Promise<JobDetailTarg
     .where(eq(jobs.id, jobId))
     .limit(1);
   return row;
+}
+
+async function loadExplicitExecution(
+  tx: Tx,
+  jobId: string,
+  executionId: string | undefined,
+  recordRows: (count: number) => void,
+): Promise<ExecutionProjection | undefined> {
+  if (!executionId) return undefined;
+  const execution = await loadExecutionProjection(tx, jobId, executionId);
+  recordRows(execution ? 1 : 0);
+  return execution;
+}
+
+async function loadSelectedExecution(
+  tx: Tx,
+  jobId: string,
+  explicitExecution: ExecutionProjection | undefined,
+  defaultExecutionId: string | undefined,
+  recordRows: (count: number) => void,
+): Promise<ExecutionProjection | undefined> {
+  if (explicitExecution) return explicitExecution;
+  if (!defaultExecutionId) return undefined;
+  const execution = await loadExecutionProjection(tx, jobId, defaultExecutionId);
+  recordRows(execution ? 1 : 0);
+  return execution;
 }
 
 async function loadExecutionProjection(
@@ -455,7 +551,7 @@ async function loadExecutionPageRows(
     cursor?: WorkflowJobExecutionCursor | undefined;
   },
   recordRows: (count: number) => void,
-): Promise<ExecutionSummaryRow[]> {
+): Promise<WorkflowRunJobExecutionSummaryRow[]> {
   const conditions = [eq(jobExecutions.jobId, params.jobId)];
   if (params.cursor) {
     const cursorCondition = or(
@@ -710,57 +806,16 @@ function toStepAttemptSummary(row: StepAttemptSummaryRow): WorkflowStepAttemptSu
   };
 }
 
-function toExecutionSummary(
-  row: Pick<
-    ExecutionSummaryRow,
-    | 'id'
-    | 'sequence'
-    | 'name'
-    | 'jobName'
-    | 'jobKey'
-    | 'status'
-    | 'statusReason'
-    | 'statusReasonMessage'
-    | 'queuedAt'
-    | 'startedAt'
-    | 'finishedAt'
-    | 'timedOutAt'
-    | 'updatedAt'
-    | 'hasRunningStep'
-  >,
-): WorkflowRunJobExecutionSummary {
-  return {
-    id: row.id,
-    sequence: row.sequence,
-    name: row.name ?? row.jobName ?? row.jobKey,
-    status: row.status,
-    displayStatus: row.status === 'running' && row.hasRunningStep !== true ? 'pending' : row.status,
-    statusReason: toJobStatusReason(row.statusReason),
-    statusReasonMessage:
-      row.statusReasonMessage?.slice(0, JOB_EXECUTION_STATUS_REASON_MESSAGE_MAX_LENGTH) ?? null,
-    queuedAt: row.queuedAt,
-    startedAt: row.startedAt,
-    finishedAt: row.finishedAt,
-    timedOutAt: row.timedOutAt,
-    updatedAt: row.updatedAt,
-  };
-}
-
-function runningStepExists(executionId: typeof jobExecutions.id) {
-  return sql<boolean>`exists (
-    select 1
-    from ${steps}
-    where ${steps.jobExecutionId} = ${executionId}
-      and ${steps.status} = 'running'
-  )`;
-}
-
 function hasExecutionContext() {
   return sql<boolean>`(
     ${jobExecutions.runner} is not null
     or ${jobExecutions.outputs} is not null
     or ${jobExecutions.evaluationTrace} is not null
-    or coalesce(jsonb_array_length(${jobExecutions.triggerEvents}), 0) > 0
+    or case
+      when jsonb_typeof(${jobExecutions.triggerEvents}) = 'array'
+      then jsonb_array_length(${jobExecutions.triggerEvents}) > 0
+      else false
+    end
   )`;
 }
 
@@ -805,10 +860,6 @@ async function countStepAttemptsForRead(
 
 function emptyAttemptPage(): WorkflowStepSummaryRead['attempts'] {
   return {items: [], nextCursor: null, total: 0};
-}
-
-function boundedExecutionCount(value: number): BoundedExecutionCount {
-  return value > WORKFLOW_RUN_EXECUTION_COUNT_LIMIT ? '100+' : value;
 }
 
 async function withReadMeasurement<TResult>(

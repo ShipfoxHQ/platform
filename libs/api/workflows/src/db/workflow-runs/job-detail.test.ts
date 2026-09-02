@@ -2,7 +2,9 @@ import {eq} from 'drizzle-orm';
 import {createHighCardinalityWorkflowRun} from '#test/index.js';
 import {db} from '../db.js';
 import {jobExecutions} from '../schema/job-executions.js';
+import {jobs} from '../schema/jobs.js';
 import {stepAttempts} from '../schema/step-attempts.js';
+import {steps} from '../schema/steps.js';
 import {
   getWorkflowJobDetail,
   listWorkflowExecutionSteps,
@@ -17,7 +19,7 @@ describe('selected workflow job reads', () => {
       dependenciesPerJob: 0,
       executionsPerJob: 3,
       stepsPerExecution: 2,
-      attemptsPerStep: 3,
+      attemptsPerStep: 12,
     });
 
     const detail = await getWorkflowJobDetail({jobId: fixture.jobIds[0] as string});
@@ -29,8 +31,9 @@ describe('selected workflow job reads', () => {
     expect(detail?.selectedExecution?.steps.items).toHaveLength(2);
     expect(
       detail?.selectedExecution?.steps.items[0]?.attempts.items.map((item) => item.attempt),
-    ).toEqual([3, 2, 1]);
-    expect(detail?.selectedExecution?.steps.items[0]?.attempts.total).toBe(3);
+    ).toEqual([12, 11, 10, 9, 8, 7, 6, 5, 4, 3]);
+    expect(detail?.selectedExecution?.steps.items[0]?.attempts.total).toBe(12);
+    expect(detail?.selectedExecution?.steps.items[0]?.attempts.nextCursor).not.toBeNull();
     expect(detail?.selectedExecution?.steps.items[0]).not.toHaveProperty('job');
     expect(detail?.selectedExecution).not.toHaveProperty('outputs');
   });
@@ -182,5 +185,55 @@ describe('selected workflow job reads', () => {
     });
     expect(firstPage?.items[0]?.attempt).toBe(3);
     expect(continuation?.items[0]?.attempt).toBe(2);
+  });
+
+  test('returns an empty selection and empty nested history pages', async () => {
+    const fixture = await createHighCardinalityWorkflowRun({
+      jobs: 1,
+      dependenciesPerJob: 0,
+      executionsPerJob: 2,
+      stepsPerExecution: 1,
+      attemptsPerStep: 1,
+    });
+    const jobId = fixture.jobIds[0] as string;
+    const firstExecutionId = fixture.executionIds[0] as string;
+    const secondExecutionId = fixture.executionIds[1] as string;
+    const emptyJobId = crypto.randomUUID();
+    const emptyStepId = crypto.randomUUID();
+
+    await db().insert(jobs).values({
+      id: emptyJobId,
+      workflowRunAttemptId: fixture.workflowRunAttemptId,
+      key: 'empty-job',
+      checkoutPersistCredentials: true,
+      checkoutPermissionsContents: 'read',
+      dependencies: [],
+      position: 10,
+    });
+
+    const emptyJobDetail = await getWorkflowJobDetail({jobId: emptyJobId});
+    expect(emptyJobDetail?.selectedExecution).toBeNull();
+
+    const explicitDetail = await getWorkflowJobDetail({
+      jobId,
+      executionId: secondExecutionId,
+    });
+    expect(explicitDetail?.selectedExecution?.id).toBe(secondExecutionId);
+    expect(explicitDetail?.selectedExecution?.sequence).toBe(2);
+
+    await db().insert(steps).values({
+      id: emptyStepId,
+      jobExecutionId: firstExecutionId,
+      key: 'empty-step',
+      name: 'Empty step',
+      type: 'run',
+      config: {},
+      position: 10,
+    });
+    const detailWithEmptyStep = await getWorkflowJobDetail({jobId});
+    expect(
+      detailWithEmptyStep?.selectedExecution?.steps.items.find((step) => step.id === emptyStepId)
+        ?.attempts,
+    ).toEqual({items: [], nextCursor: null, total: 0});
   });
 });

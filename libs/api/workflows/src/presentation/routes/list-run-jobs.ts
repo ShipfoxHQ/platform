@@ -1,11 +1,9 @@
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import {
-  WORKFLOW_RUN_JOB_POSITION_MAX,
   type WorkflowRunOverviewJobsResponseDto,
   workflowRunOverviewJobsQuerySchema,
   workflowRunOverviewJobsResponseSchema,
 } from '@shipfox/api-workflows-dto';
-import {decodeStringIdCursor} from '@shipfox/node-drizzle';
 import {ClientError, defineRoute} from '@shipfox/node-fastify';
 import {logger} from '@shipfox/node-opentelemetry';
 import type {FastifyRequest} from 'fastify';
@@ -14,8 +12,7 @@ import {listWorkflowRunJobsPage, type WorkflowRunJobCursor} from '#db/index.js';
 import {toRunOverviewJobsPageDto} from '#presentation/dto/index.js';
 import {requireAccessibleRunScope} from './require-accessible-run.js';
 import {serializedResponseByteLength} from './serialized-response-byte-length.js';
-
-const decimalCursorValue = /^\d+$/;
+import {assertValidCursor, decodeJobCursor} from './workflow-job-cursors.js';
 
 export function listRunJobsRoute(projects: ProjectsModuleClient) {
   return defineRoute({
@@ -90,26 +87,6 @@ export function listRunJobsRoute(projects: ProjectsModuleClient) {
       }
     },
   });
-}
-
-function decodeJobCursor(cursor: string | undefined): WorkflowRunJobCursor | undefined {
-  const decoded = decodeStringIdCursor(cursor);
-  if (!decoded) return undefined;
-  if (decoded.value.length === 0 || !decimalCursorValue.test(decoded.value)) return undefined;
-  if (!z.string().uuid().safeParse(decoded.id).success) return undefined;
-  const position = Number(decoded.value);
-  if (!Number.isInteger(position) || position < 0 || position > WORKFLOW_RUN_JOB_POSITION_MAX)
-    return undefined;
-  return {position, id: decoded.id};
-}
-
-function assertValidCursor(
-  cursor: string | undefined,
-  decodedCursor: WorkflowRunJobCursor | undefined,
-): void {
-  if (cursor !== undefined && decodedCursor === undefined) {
-    throw new ClientError('Invalid cursor', 'invalid-cursor', {status: 400});
-  }
 }
 
 async function readRunJobsPage({

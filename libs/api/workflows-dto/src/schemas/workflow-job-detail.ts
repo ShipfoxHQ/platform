@@ -1,6 +1,11 @@
 import {z} from 'zod';
 import {type CursorPageDto, cursorPageSchema} from './cursor-page.js';
-import {stepErrorDtoSchema, stepSourceLocationSchema, stepStatusReasonSchema} from './step.js';
+import {
+  stepErrorDtoSchema,
+  stepGateResultDtoSchema,
+  stepSourceLocationSchema,
+  stepStatusReasonSchema,
+} from './step.js';
 import {WORKFLOW_RUN_ATTEMPT_MAX} from './workflow-run.js';
 import {
   boundedExecutionCountSchema,
@@ -11,9 +16,13 @@ import {
 /** Default and maximum page sizes for selected-job execution history. */
 export const WORKFLOW_JOB_EXECUTION_PAGE_LIMIT = 25;
 export const WORKFLOW_JOB_EXECUTION_PAGE_MAX = 100;
+export const WORKFLOW_JOB_EXECUTION_SEQUENCE_MAX = 2_147_483_647;
 
 /** Maximum number of steps returned in a selected-job page. */
 export const WORKFLOW_JOB_STEP_PAGE_LIMIT = 100;
+
+/** Maximum number of steps embedded in a selected-job execution detail. */
+export const WORKFLOW_JOB_DETAIL_STEP_PAGE_LIMIT = 100;
 
 /** Number of step-attempt summaries embedded in every step page. */
 export const WORKFLOW_STEP_ATTEMPT_PREVIEW_LIMIT = 10;
@@ -34,38 +43,8 @@ const stepStatusSchema = z.enum([
 const stepTypeSchema = z.enum(['setup', 'run', 'agent', 'checkout', 'tool']);
 
 const stepGateResultSummarySchema = z
-  .discriminatedUnion('kind', [
-    z.object({kind: z.literal('none')}),
-    z.object({kind: z.literal('not_evaluated')}),
-    z.object({
-      kind: z.literal('passed'),
-      passed: z.literal(true),
-      source: z.string(),
-      exit_code: z.number().int().nullable(),
-    }),
-    z.object({
-      kind: z.literal('failed'),
-      passed: z.literal(false),
-      source: z.string(),
-      exit_code: z.number().int().nullable(),
-    }),
-    z.object({
-      kind: z.literal('uncheckable'),
-      passed: z.literal(false),
-      uncheckable: z.literal(true),
-      reason: z.string(),
-      exit_code: z.number().int().nullable(),
-    }),
-    z.object({
-      kind: z.literal('evaluation_error'),
-      reason: z.string(),
-      exit_code: z.number().int().nullable(),
-    }),
-    // Legacy or future gate payloads remain visible as an explicit unknown without
-    // carrying their unbounded data blob in a compact response.
-    z.object({kind: z.literal('unknown')}),
-  ])
-  .nullable();
+  .union([stepGateResultDtoSchema.unwrap(), z.object({kind: z.literal('unknown')})])
+  .transform((result) => (result.kind === 'unknown' ? {kind: 'unknown'} : result));
 
 export type StepGateResultSummaryDto = z.infer<typeof stepGateResultSummarySchema>;
 
@@ -101,7 +80,9 @@ export type StepSummaryDto = z.infer<typeof stepSummaryDtoSchema>;
 
 export const workflowJobExecutionDetailDtoSchema = jobExecutionSummaryDtoSchema.extend({
   has_context: z.boolean(),
-  steps: cursorPageSchema(stepSummaryDtoSchema),
+  steps: cursorPageSchema(stepSummaryDtoSchema).extend({
+    items: z.array(stepSummaryDtoSchema).max(WORKFLOW_JOB_DETAIL_STEP_PAGE_LIMIT),
+  }),
 });
 
 export type WorkflowJobExecutionDetailDto = z.infer<typeof workflowJobExecutionDetailDtoSchema>;
@@ -114,8 +95,6 @@ export const workflowJobDetailResponseSchema = z.object({
 });
 
 export type WorkflowJobDetailDto = z.infer<typeof workflowJobDetailResponseSchema>;
-
-export const workflowJobDetailDtoSchema = workflowJobDetailResponseSchema;
 
 export const workflowJobExecutionSummariesResponseSchema = z.object({
   items: z.array(jobExecutionSummaryDtoSchema).max(WORKFLOW_JOB_EXECUTION_PAGE_MAX),
@@ -195,8 +174,3 @@ export type WorkflowStepAttemptSummariesQueryDto = z.infer<
 
 export type StepSummaryPageDto = CursorPageDto<StepSummaryDto>;
 export type StepAttemptSummaryPageDto = CursorPageDto<StepAttemptSummaryDto>;
-
-// Aliases keep the selected-job contract discoverable beside the existing run-named DTOs.
-export const workflowRunJobDetailResponseSchema = workflowJobDetailResponseSchema;
-export type WorkflowRunJobDetailResponseDto = WorkflowJobDetailDto;
-export type WorkflowRunSelectedJobDetailDto = WorkflowJobDetailDto;

@@ -1,4 +1,5 @@
 import type {
+  JobExecutionSummaryDto,
   WorkflowRunAttemptDto,
   WorkflowRunDetailResponseDto,
   WorkflowRunDevSourceDto,
@@ -19,6 +20,7 @@ import type {
 } from '#core/entities/workflow-run.js';
 import type {WorkflowRunAttempt} from '#core/entities/workflow-run-attempt.js';
 import type {
+  WorkflowRunJobExecutionSummary,
   WorkflowRunJobOverview,
   WorkflowRunJobsSummary,
   WorkflowRunLineageHead,
@@ -320,22 +322,26 @@ function toJobSummaryFields(job: Omit<WorkflowRunJobOverview, 'dependencies'>) {
     carried_over: job.carriedOver,
     execution_count: job.executionCount,
     execution_status_counts: job.executionStatusCounts,
-    default_execution: job.defaultExecution
-      ? {
-          id: job.defaultExecution.id,
-          sequence: job.defaultExecution.sequence,
-          name: job.defaultExecution.name,
-          status: job.defaultExecution.status,
-          display_status: job.defaultExecution.displayStatus,
-          status_reason: job.defaultExecution.statusReason,
-          status_reason_message: job.defaultExecution.statusReasonMessage,
-          queued_at: job.defaultExecution.queuedAt?.toISOString() ?? null,
-          started_at: job.defaultExecution.startedAt?.toISOString() ?? null,
-          finished_at: job.defaultExecution.finishedAt?.toISOString() ?? null,
-          timed_out_at: job.defaultExecution.timedOutAt?.toISOString() ?? null,
-          updated_at: job.defaultExecution.updatedAt.toISOString(),
-        }
-      : null,
+    default_execution: job.defaultExecution ? toJobExecutionSummaryDto(job.defaultExecution) : null,
+  };
+}
+
+export function toJobExecutionSummaryDto(
+  execution: WorkflowRunJobExecutionSummary,
+): JobExecutionSummaryDto {
+  return {
+    id: execution.id,
+    sequence: execution.sequence,
+    name: execution.name,
+    status: execution.status,
+    display_status: execution.displayStatus,
+    status_reason: execution.statusReason,
+    status_reason_message: execution.statusReasonMessage,
+    queued_at: execution.queuedAt?.toISOString() ?? null,
+    started_at: execution.startedAt?.toISOString() ?? null,
+    finished_at: execution.finishedAt?.toISOString() ?? null,
+    timed_out_at: execution.timedOutAt?.toISOString() ?? null,
+    updated_at: execution.updatedAt.toISOString(),
   };
 }
 

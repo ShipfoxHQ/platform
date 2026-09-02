@@ -1,5 +1,4 @@
 import type {
-  JobExecutionSummaryDto,
   StepAttemptSummaryDto,
   StepGateResultSummaryDto,
   StepSummaryDto,
@@ -20,9 +19,8 @@ import type {
   WorkflowStepPageRead,
   WorkflowStepSummaryRead,
 } from '#db/workflow-runs/job-detail.js';
-import type {WorkflowRunJobExecutionSummary} from '#db/workflow-runs/overview.js';
 import {toStepErrorDto, toStepGateResultDto} from './step.js';
-import {toJobOverviewDto} from './workflow-run.js';
+import {toJobExecutionSummaryDto, toJobOverviewDto} from './workflow-run.js';
 
 export function toWorkflowJobDetailDto(read: WorkflowJobDetailRead): WorkflowJobDetailDto {
   return {
@@ -66,25 +64,6 @@ function toWorkflowJobExecutionDetailDto(
     ...toJobExecutionSummaryDto(execution),
     has_context: execution.hasContext,
     steps: toStepPageDto(execution.steps),
-  };
-}
-
-function toJobExecutionSummaryDto(
-  execution: WorkflowRunJobExecutionSummary,
-): JobExecutionSummaryDto {
-  return {
-    id: execution.id,
-    sequence: execution.sequence,
-    name: execution.name,
-    status: execution.status,
-    display_status: execution.displayStatus,
-    status_reason: execution.statusReason,
-    status_reason_message: execution.statusReasonMessage,
-    queued_at: execution.queuedAt?.toISOString() ?? null,
-    started_at: execution.startedAt?.toISOString() ?? null,
-    finished_at: execution.finishedAt?.toISOString() ?? null,
-    timed_out_at: execution.timedOutAt?.toISOString() ?? null,
-    updated_at: execution.updatedAt.toISOString(),
   };
 }
 
@@ -150,7 +129,8 @@ function toStepGateResultSummaryDto(
   status: string,
 ): StepGateResultSummaryDto {
   const result = toStepGateResultDto(gateResult, status);
-  return result?.kind === 'unknown' ? {kind: 'unknown'} : result;
+  if (result === null) return {kind: 'unknown'};
+  return result.kind === 'unknown' ? {kind: 'unknown'} : result;
 }
 
 function encodeStepCursor(cursor: {position: number; id: string}): string {

@@ -171,25 +171,25 @@ export const stepGateResultDtoSchema = z
     z.object({
       kind: z.literal('passed'),
       passed: z.literal(true),
-      source: z.string(),
+      source: z.string().max(STEP_ERROR_MESSAGE_MAX_LENGTH),
       exit_code: z.number().int().nullable(),
     }),
     z.object({
       kind: z.literal('failed'),
       passed: z.literal(false),
-      source: z.string(),
+      source: z.string().max(STEP_ERROR_MESSAGE_MAX_LENGTH),
       exit_code: z.number().int().nullable(),
     }),
     z.object({
       kind: z.literal('uncheckable'),
       passed: z.literal(false),
       uncheckable: z.literal(true),
-      reason: z.string(),
+      reason: z.string().max(STEP_ERROR_MESSAGE_MAX_LENGTH),
       exit_code: z.number().int().nullable(),
     }),
     z.object({
       kind: z.literal('evaluation_error'),
-      reason: z.string(),
+      reason: z.string().max(STEP_ERROR_MESSAGE_MAX_LENGTH),
       exit_code: z.number().int().nullable(),
     }),
     z.object({
