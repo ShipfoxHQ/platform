@@ -1,4 +1,4 @@
-import {evaluate as evaluateCel} from '@marcbachmann/cel-js';
+import {EvaluationError, evaluate as evaluateCel} from '@marcbachmann/cel-js';
 import {createWorkflowExpression} from '../expression/create-workflow-expression.js';
 import {MAX_JSON_OUTPUT_BYTES, MAX_RANGE_FANOUT_BYTES} from '../workflow-function-registry.js';
 import {WorkflowExpressionEvaluationError} from './errors.js';
@@ -327,7 +327,7 @@ describe('evaluateWorkflowExpression', () => {
     ]);
   });
 
-  it('treats only the boolean true value as a passing predicate', () => {
+  it('reports non-boolean predicate results as evaluation failures', () => {
     const expression = createWorkflowExpression({
       source: 'event.conclusion',
       check: {
@@ -338,11 +338,21 @@ describe('evaluateWorkflowExpression', () => {
       },
     });
 
-    const result = evaluateWorkflowPredicate(expression, {
-      event: {conclusion: 'success'},
-    });
+    let error: unknown;
+    try {
+      evaluateWorkflowPredicate(expression, {event: {conclusion: 'success'}});
+    } catch (caught) {
+      error = caught;
+    }
 
-    expect(result).toBe(false);
+    expect(error).toBeInstanceOf(WorkflowExpressionEvaluationError);
+    expect(error).toMatchObject({
+      reason: 'evaluation-error',
+      cause: expect.any(TypeError),
+    });
+    expect(
+      evaluateWorkflowPredicateFailClosed(expression, {event: {conclusion: 'success'}}),
+    ).toEqual({value: false, evaluationFailed: true});
   });
 
   it('returns true for predicates that evaluate to the boolean true value', () => {
@@ -512,5 +522,6 @@ describe('evaluateWorkflowExpression', () => {
 
     expect(error).toBeInstanceOf(WorkflowExpressionEvaluationError);
     expect((error as WorkflowExpressionEvaluationError).reason).toBe('evaluation-error');
+    expect((error as WorkflowExpressionEvaluationError).cause).toBeInstanceOf(EvaluationError);
   });
 });

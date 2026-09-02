@@ -214,6 +214,24 @@ describe('evaluateGate', () => {
     });
   });
 
+  test('a non-boolean gate result is an evaluation error, not a failed gate', () => {
+    const source = 'step.outputs.ready';
+    const gate = readStepGate(gateConfig(source));
+
+    const result = evaluateGate(gate, {
+      status: 'succeeded',
+      exitCode: 0,
+      output: {ready: 'yes'},
+    });
+
+    expect(result).toEqual({
+      kind: 'uncheckable',
+      reason: 'gate expression evaluation failed',
+      source,
+      trace: degradedGateTrace(source, ['step']),
+    });
+  });
+
   test('unguarded missing step output keys fail closed as uncheckable', () => {
     const gate = readStepGate(gateConfig('step.outputs.pass == true'));
 

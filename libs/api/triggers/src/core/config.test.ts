@@ -140,7 +140,7 @@ describe('evaluateTriggerFilter', () => {
     expect(result).toEqual({kind: 'filter-error', reason: 'Trigger filter evaluation failed'});
   });
 
-  test('returns filtered when the stored filter evaluates to a non-boolean value', () => {
+  test('returns filter-error when the stored filter evaluates to a non-boolean value', () => {
     const subscription = subscriptionWithConfig({filter: 'event.ref'});
 
     const result = evaluateTriggerFilter({
@@ -150,7 +150,7 @@ describe('evaluateTriggerFilter', () => {
       payload: {ref: 'refs/heads/main'},
     });
 
-    expect(result).toEqual({kind: 'filtered'});
+    expect(result).toEqual({kind: 'filter-error', reason: 'Trigger filter evaluation failed'});
   });
 
   test.each([
@@ -219,10 +219,10 @@ describe('evaluateStoredFilter', () => {
     expect(result).toEqual({kind: 'filter-error', reason: evaluationFailedReason});
   });
 
-  test('returns filtered when the stored filter evaluates to a non-boolean value', () => {
+  test('returns filter-error when the stored filter evaluates to a non-boolean value', () => {
     const result = evaluate('event.ref', {event: {ref: 'refs/heads/main'}});
 
-    expect(result).toEqual({kind: 'filtered'});
+    expect(result).toEqual({kind: 'filter-error', reason: evaluationFailedReason});
   });
 
   test.each([

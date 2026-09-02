@@ -42,7 +42,13 @@ export function evaluateWorkflowPredicate(
   expression: WorkflowExpression,
   context: WorkflowExpressionEvaluationContext,
 ): boolean {
-  return evaluateWorkflowExpression(expression, context) === true;
+  const value = evaluateWorkflowExpression(expression, context);
+  if (typeof value !== 'boolean') {
+    throw new WorkflowExpressionEvaluationError(
+      new TypeError(`Workflow predicate must evaluate to a boolean; got ${typeof value}.`),
+    );
+  }
+  return value;
 }
 
 export interface FailClosedPredicateOutcome {
