@@ -53,6 +53,7 @@ export interface RepositoryAccessRepository {
   name: string;
   projectId: string;
   projectName: string;
+  projectSlug: string;
 }
 
 export interface RepositoryAccess {

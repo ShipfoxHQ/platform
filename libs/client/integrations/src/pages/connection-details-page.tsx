@@ -1,7 +1,6 @@
 import {ApiError} from '@shipfox/client-api';
 import {useActiveWorkspace} from '@shipfox/client-auth';
 import {QueryLoadError} from '@shipfox/client-ui';
-import {Badge} from '@shipfox/react-ui/badge';
 import {Button} from '@shipfox/react-ui/button';
 import {Callout, CalloutContent, CalloutDescription, CalloutTitle} from '@shipfox/react-ui/callout';
 import {EmptyState} from '@shipfox/react-ui/empty-state';
@@ -353,26 +352,31 @@ function SelectedRepositories({
             }
           />
         ) : (
-          <ul>
-            {access.repositories.map((repository) => {
-              const repositoryName = `${repository.owner}/${repository.name}`;
-              return (
-                <PanelRow asChild key={repository.externalRepositoryId}>
-                  <li>
-                    <div className="flex min-w-0 flex-col gap-tight">
-                      <Text size="sm" bold>
-                        {repositoryName}
-                      </Text>
-                      <Text size="xs" className="truncate text-foreground-neutral-muted">
-                        {repository.externalRepositoryId}
-                      </Text>
-                    </div>
-                    <Badge variant="neutral">{repository.projectName}</Badge>
-                  </li>
-                </PanelRow>
-              );
-            })}
-          </ul>
+          access.repositories.map((repository) => {
+            const repositoryName = `${repository.owner}/${repository.name}`;
+            return (
+              <PanelRow
+                asChild
+                key={repository.externalRepositoryId}
+                className="focus-visible:shadow-focus-inset focus-visible:outline-none"
+              >
+                <Link
+                  to="/w/$workspaceSlug/p/$projectSlug"
+                  params={{workspaceSlug, projectSlug: repository.projectSlug}}
+                  aria-label={`Open ${repository.projectName} project for ${repositoryName}`}
+                >
+                  <div className="flex min-w-0 flex-col gap-tight">
+                    <Text size="sm" bold>
+                      {repositoryName}
+                    </Text>
+                    <Text size="xs" className="truncate text-foreground-neutral-muted">
+                      {repository.externalRepositoryId}
+                    </Text>
+                  </div>
+                </Link>
+              </PanelRow>
+            );
+          })
         )}
         {loadMoreError ? (
           <Callout role="alert" type="error" className="m-panel-compact">

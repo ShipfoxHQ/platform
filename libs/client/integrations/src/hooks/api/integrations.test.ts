@@ -81,6 +81,7 @@ describe('repository access transport', () => {
               name: 'platform',
               project_id: '33333333-3333-4333-8333-333333333333',
               project_name: 'Platform',
+              project_slug: 'platform',
             },
           ],
           next_cursor: null,
@@ -106,6 +107,7 @@ describe('repository access transport', () => {
           name: 'platform',
           projectId: '33333333-3333-4333-8333-333333333333',
           projectName: 'Platform',
+          projectSlug: 'platform',
         },
       ],
     });

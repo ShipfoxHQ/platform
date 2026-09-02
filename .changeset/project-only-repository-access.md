@@ -4,6 +4,8 @@
 '@shipfox/api-integration-github': patch
 '@shipfox/api-integration-github-dto': major
 '@shipfox/api-integration-spi': major
+'@shipfox/api-projects': patch
+'@shipfox/api-projects-dto': minor
 '@shipfox/client-integrations': major
 ---
 

@@ -106,6 +106,7 @@ export const integrationConnectionRepositoryAccessRepositorySchema = z.object({
   name: z.string().min(1).max(255),
   project_id: z.string().uuid(),
   project_name: z.string(),
+  project_slug: z.string().min(1).max(255),
 });
 export type IntegrationConnectionRepositoryAccessRepositoryDto = z.infer<
   typeof integrationConnectionRepositoryAccessRepositorySchema

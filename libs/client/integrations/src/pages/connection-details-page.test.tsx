@@ -50,6 +50,7 @@ type RepositoryAccessResponse = {
     name: string;
     project_id: string;
     project_name: string;
+    project_slug: string;
   }>;
   next_cursor: string | null;
 };
@@ -63,6 +64,7 @@ const selectedAccess: RepositoryAccessResponse = {
       name: 'platform',
       project_id: PROJECT_ID,
       project_name: 'Platform',
+      project_slug: 'platform',
     },
   ],
   next_cursor: null,
@@ -178,7 +180,9 @@ describe('ConnectionDetailsPage', () => {
     expect(await screen.findByRole('radio', {name: SELECTED_MODE_RE})).toBeChecked();
     expect(screen.getByRole('radio', {name: ALL_MODE_RE})).not.toBeChecked();
     expect(screen.getAllByText('acme/platform')).toHaveLength(2);
-    expect(screen.getByText('Platform')).toBeVisible();
+    expect(
+      screen.getByRole('link', {name: 'Open Platform project for acme/platform'}),
+    ).toHaveAttribute('href', '/w/acme/p/platform');
     expect(screen.getByText(SELECTED_NOTICE_RE)).toBeVisible();
     expect(screen.getByRole('link', {name: 'Change repositories on GitHub'})).toHaveAttribute(
       'href',
@@ -227,6 +231,7 @@ describe('ConnectionDetailsPage', () => {
           name: 'docs',
           project_id: PROJECT_ID,
           project_name: 'Docs',
+          project_slug: 'docs',
         },
       ],
       next_cursor: null,

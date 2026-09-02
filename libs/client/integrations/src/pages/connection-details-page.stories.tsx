@@ -77,6 +77,7 @@ const selectedRepositories: IntegrationConnectionRepositoryAccessResponseDto['re
     name: 'platform',
     project_id: PROJECT_ID,
     project_name: 'Platform',
+    project_slug: 'platform',
   },
   {
     external_repository_id: 'agent-tools',
@@ -84,6 +85,7 @@ const selectedRepositories: IntegrationConnectionRepositoryAccessResponseDto['re
     name: 'agent-tools',
     project_id: PROJECT_ID,
     project_name: 'Agent tools',
+    project_slug: 'agent-tools',
   },
   {
     external_repository_id: 'workflow-runners',
@@ -91,6 +93,7 @@ const selectedRepositories: IntegrationConnectionRepositoryAccessResponseDto['re
     name: 'workflow-runners',
     project_id: PROJECT_ID,
     project_name: 'Workflow runners',
+    project_slug: 'workflow-runners',
   },
 ];
 

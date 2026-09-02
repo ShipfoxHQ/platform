@@ -69,6 +69,7 @@ function toRepositoryAccessRepository(
     name: dto.name,
     projectId: dto.project_id,
     projectName: dto.project_name,
+    projectSlug: dto.project_slug,
   };
 }
 

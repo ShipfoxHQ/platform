@@ -137,6 +137,7 @@ describe('integrationConnectionRepositoryAccessRepositorySchema', () => {
     name: 'platform',
     project_id: '00000000-0000-4000-8000-000000000001',
     project_name: 'Platform',
+    project_slug: 'platform',
   };
 
   it('accepts project identity', () => {

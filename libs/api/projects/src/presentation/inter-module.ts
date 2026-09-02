@@ -124,6 +124,7 @@ function toProjectRepositoryInterModule(repository: ProjectRepositoryListItem) {
     name: repository.sourceRepositoryName,
     projectId: repository.projectId,
     projectName: repository.projectName,
+    projectSlug: repository.projectSlug,
   };
 }
 

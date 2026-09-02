@@ -12,6 +12,7 @@ export type RepositoryAccessRepository = {
   name: string;
   projectId: string;
   projectName: string;
+  projectSlug: string;
 };
 
 export interface ListSelectedRepositoryAccessParams {
@@ -43,6 +44,7 @@ export async function listSelectedRepositoryAccess(
       name: project.name,
       projectId: project.projectId,
       projectName: project.projectName,
+      projectSlug: project.projectSlug,
     })),
     nextCursor: result.nextCursor,
   };

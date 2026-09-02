@@ -68,5 +68,6 @@ export function toRepositoryAccessRepositoryDto(
     name: repository.name,
     project_id: repository.projectId,
     project_name: repository.projectName,
+    project_slug: repository.projectSlug,
   };
 }
