@@ -1,5 +1,23 @@
 # @shipfox/client-workflows
 
+## 31.0.1
+
+### Patch Changes
+
+- 47ce13d: Advertises renewable Git support from verified managed runner images and warns self-hosted users when persisted checkout credentials cannot renew.
+- da6fbb8: Reports failed definition sync validation errors with structured diagnostics in the API and workflow UI.
+- Updated dependencies [813a284]
+- Updated dependencies [47f6024]
+- Updated dependencies [da6fbb8]
+  - @shipfox/api-workflows-dto@20.3.0
+  - @shipfox/annotations-dto@20.3.0
+  - @shipfox/api-definitions-dto@20.3.0
+  - @shipfox/client-ui@31.0.1
+  - @shipfox/client-projects@31.0.1
+  - @shipfox/client-integrations@31.0.1
+  - @shipfox/client-shell@31.0.1
+  - @shipfox/client-triggers@31.0.1
+
 ## 31.0.0
 
 ### Patch Changes

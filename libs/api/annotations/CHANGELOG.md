@@ -1,5 +1,16 @@
 # @shipfox/annotations
 
+## 20.3.0
+
+### Minor Changes
+
+- 47f6024: Add bounded paged agent-access tools for project, definition, run, annotation, and trigger-event reads.
+
+### Patch Changes
+
+- Updated dependencies [47f6024]
+  - @shipfox/annotations-dto@20.3.0
+
 ## 20.2.0
 
 ### Patch Changes

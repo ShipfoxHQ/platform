@@ -1,5 +1,11 @@
 # @shipfox/expression
 
+## 2.6.0
+
+### Minor Changes
+
+- 813a284: Adds CEL `dyn` support for unknown-shaped tool and JSON outputs, preserves their native runtime values, and keeps listener snapshots compatible during rolling deploys.
+
 ## 2.5.0
 
 ### Minor Changes

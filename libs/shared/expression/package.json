@@ -2,7 +2,7 @@
   "name": "@shipfox/expression",
   "license": "MIT",
   "private": false,
-  "version": "2.5.0",
+  "version": "2.6.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ShipfoxHQ/shipfox.git",
