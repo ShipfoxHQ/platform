@@ -2126,6 +2126,11 @@ describe('detectAndExpireStuckJobs', () => {
     const outbox = await outboxForJobs([stuck1.jobId, stuck2.jobId]);
     expect(outbox).toHaveLength(2);
     expect(outbox.every((row) => row.eventType === RUNNER_JOB_LEASE_EXPIRED)).toBe(true);
+    const payloads = outbox.map((row) =>
+      runnerJobLeaseExpiredEventSchema.strict().parse(row.payload),
+    );
+    expect(payloads.every((payload) => payload.expiredAt !== undefined)).toBe(true);
+    expect(new Set(payloads.map((payload) => payload.expiredAt)).size).toBe(1);
   });
 
   it('two concurrent ticks reap each stuck job exactly once (no double-emit)', async () => {

@@ -1052,7 +1052,7 @@ export async function expireStuckJobExecutions(params: {
         provisionerId: runningJobExecutions.provisionerId,
         providerRunnerId: runningJobExecutions.providerRunnerId,
         // Use the database clock, matching claimedAt. This records reaper detection time.
-        expiredAt: sql<string>`now()`,
+        expiredAt: sql<string>`clock_timestamp()`,
       });
 
     if (deleted.length === 0) return [];
