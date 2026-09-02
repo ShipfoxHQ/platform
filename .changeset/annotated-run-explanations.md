@@ -1,4 +1,5 @@
 ---
+"@shipfox/annotations-dto": minor
 "@shipfox/api-workflows-dto": minor
 "@shipfox/api-workflows": minor
 ---

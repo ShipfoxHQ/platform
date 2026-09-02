@@ -183,6 +183,42 @@ export async function getWorkflowRunAccessScopeById(
   return row;
 }
 
+/** Verifies that a pinned attempt belongs to the already-authorized run scope. */
+export async function getWorkflowRunAttemptIdForScope(
+  params: WorkflowRunOverviewParams & {workspaceId: string},
+  options: WorkflowRunOverviewReadOptions = {},
+): Promise<string | undefined> {
+  const startedAt = performance.now();
+  let returnedRows = 0;
+
+  try {
+    const [row] = await db()
+      .select({id: workflowRunAttempts.id})
+      .from(workflowRunAttempts)
+      .innerJoin(workflowRuns, eq(workflowRunAttempts.workflowRunId, workflowRuns.id))
+      .where(
+        and(
+          eq(workflowRuns.id, params.workflowRunId),
+          eq(workflowRuns.workspaceId, params.workspaceId),
+          eq(workflowRuns.projectId, params.projectId),
+          eq(workflowRunAttempts.attempt, params.attempt),
+        ),
+      )
+      .limit(1);
+    returnedRows = row ? 1 : 0;
+    return row?.id;
+  } finally {
+    try {
+      options.onRead?.({
+        databaseDurationMilliseconds: performance.now() - startedAt,
+        returnedRows,
+      });
+    } catch {
+      // Measurement observers must not change the bounded read outcome.
+    }
+  }
+}
+
 export async function getWorkflowRunOverview(
   params: WorkflowRunOverviewParams,
   options: WorkflowRunOverviewReadOptions = {},

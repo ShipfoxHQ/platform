@@ -70,4 +70,48 @@ describe('workflow run annotation origin reads', () => {
       stepAttemptId: null,
     });
   });
+
+  test('does not enrich origins outside the requested workspace, project, or attempt', async () => {
+    const fixture = await createHighCardinalityWorkflowRun({
+      jobs: 1,
+      dependenciesPerJob: 0,
+      executionsPerJob: 1,
+      stepsPerExecution: 1,
+      attemptsPerStep: 1,
+    });
+    const origin = {
+      jobId: fixture.jobIds[0] as string,
+      jobExecutionId: fixture.executionIds[0] as string,
+      stepId: fixture.stepIds[0] as string,
+      stepAttempt: 1,
+    };
+
+    expect(
+      await getWorkflowRunAnnotationOrigins({
+        workspaceId: crypto.randomUUID(),
+        projectId: fixture.run.projectId,
+        workflowRunId: fixture.run.id,
+        attempt: 1,
+        origins: [origin],
+      }),
+    ).toEqual([]);
+    expect(
+      await getWorkflowRunAnnotationOrigins({
+        workspaceId: fixture.run.workspaceId,
+        projectId: crypto.randomUUID(),
+        workflowRunId: fixture.run.id,
+        attempt: 1,
+        origins: [origin],
+      }),
+    ).toEqual([]);
+    expect(
+      await getWorkflowRunAnnotationOrigins({
+        workspaceId: fixture.run.workspaceId,
+        projectId: fixture.run.projectId,
+        workflowRunId: fixture.run.id,
+        attempt: 2,
+        origins: [origin],
+      }),
+    ).toEqual([]);
+  });
 });

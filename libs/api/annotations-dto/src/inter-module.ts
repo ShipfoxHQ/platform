@@ -20,7 +20,7 @@ const annotationTargetSchema = z.object({
   originStepId: idSchema,
   originStepAttempt: z.number().int().min(1),
 });
-const annotationCursorSchema = z.object({
+export const annotationCursorSchema = z.object({
   value: z.number().int().min(1),
   id: idSchema,
 });

@@ -26,7 +26,10 @@ export type {
   WorkflowRunAnnotationOriginRead,
   WorkflowRunAnnotationOriginReference,
 } from './workflow-runs/annotation-reads.js';
-export {getWorkflowRunAnnotationOrigins} from './workflow-runs/annotation-reads.js';
+export {
+  getWorkflowRunAnnotationOrigins,
+  workflowRunAnnotationOriginKey,
+} from './workflow-runs/annotation-reads.js';
 export type {
   UpdateJobExecutionStatusAtVersionParams,
   UpdateJobExecutionStatusParams,
@@ -108,6 +111,7 @@ export type {
 export {
   getWorkflowRunAccessScopeById,
   getWorkflowRunJobOverview,
+  getWorkflowRunAttemptIdForScope,
   getWorkflowRunOverview,
   listWorkflowRunJobsPage,
 } from './workflow-runs/overview.js';

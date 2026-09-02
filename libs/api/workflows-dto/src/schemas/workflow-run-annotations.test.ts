@@ -1,7 +1,10 @@
 import {
+  WORKFLOW_RUN_ANNOTATIONS_PAGE_LIMIT,
+  WORKFLOW_RUN_JOB_EXPLANATIONS_PAGE_LIMIT,
   workflowRunAnnotationItemSchema,
   workflowRunAnnotationsQuerySchema,
   workflowRunAnnotationsResponseSchema,
+  workflowRunJobExplanationsQuerySchema,
   workflowRunJobExplanationsResponseSchema,
 } from './workflow-run-annotations.js';
 
@@ -91,5 +94,51 @@ describe('workflow run annotation and job explanation schemas', () => {
 
     expect(annotations.items).toHaveLength(1);
     expect(explanations.items[0]?.status).toBe('skipped');
+  });
+
+  test('rejects invalid attempts, limits, and over-limit response pages', () => {
+    for (const schema of [
+      workflowRunAnnotationsQuerySchema,
+      workflowRunJobExplanationsQuerySchema,
+    ]) {
+      expect(schema.safeParse({attempt: 0}).success).toBe(false);
+      expect(schema.safeParse({attempt: '1.5'}).success).toBe(false);
+      expect(schema.safeParse({attempt: 1, limit: 101}).success).toBe(false);
+    }
+
+    const validItem = {
+      annotation,
+      origin: {
+        job_id: ids.job,
+        job_label: 'Build',
+        job_position: 0,
+        job_execution_id: ids.execution,
+        execution_sequence: 1,
+        execution_label: 'Build',
+        step_id: ids.step,
+        step_label: 'Publish URL',
+        step_attempt_id: ids.stepAttempt,
+        step_attempt: 1,
+      },
+    };
+    expect(
+      workflowRunAnnotationsResponseSchema.safeParse({
+        items: Array.from({length: WORKFLOW_RUN_ANNOTATIONS_PAGE_LIMIT + 1}, () => validItem),
+        next_cursor: null,
+      }).success,
+    ).toBe(false);
+    expect(
+      workflowRunJobExplanationsResponseSchema.safeParse({
+        items: Array.from({length: WORKFLOW_RUN_JOB_EXPLANATIONS_PAGE_LIMIT + 1}, () => ({
+          job_id: ids.job,
+          job_label: 'Build',
+          job_position: 0,
+          status: 'skipped',
+          status_reason: 'condition_rejected',
+          evaluation_trace: null,
+        })),
+        next_cursor: null,
+      }).success,
+    ).toBe(false);
   });
 });

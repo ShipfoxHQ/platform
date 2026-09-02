@@ -32,16 +32,6 @@ export {
 export {workflowsOutbox} from './schema/outbox.js';
 export {workflowRunCounters} from './schema/workflow-run-counters.js';
 export type {
-  WorkflowRunAnnotationOriginRead,
-  WorkflowRunAnnotationOriginReference,
-} from './workflow-runs/annotation-reads.js';
-export {getWorkflowRunAnnotationOrigins} from './workflow-runs/annotation-reads.js';
-export type {
-  WorkflowRunJobExplanationRead,
-  WorkflowRunJobExplanationsPageRead,
-} from './workflow-runs/job-explanations.js';
-export {listWorkflowRunJobExplanationsPage} from './workflow-runs/job-explanations.js';
-export type {
   BoundedExecutionCount,
   BulkUpdateStepStatusesParams,
   CancelWorkflowRunParams,
@@ -77,6 +67,8 @@ export type {
   WorkflowJobReadScope,
   WorkflowRunAccessScope,
   WorkflowRunAggregates,
+  WorkflowRunAnnotationOriginRead,
+  WorkflowRunAnnotationOriginReference,
   WorkflowRunAttemptCursor,
   WorkflowRunBoundedReadMeasurement,
   WorkflowRunBoundedReadOptions,
@@ -87,6 +79,8 @@ export type {
   WorkflowRunFilters,
   WorkflowRunJobCursor,
   WorkflowRunJobExecutionSummary,
+  WorkflowRunJobExplanationRead,
+  WorkflowRunJobExplanationsPageRead,
   WorkflowRunJobListSummary,
   WorkflowRunJobOverview,
   WorkflowRunJobRawStatusCount,
@@ -156,7 +150,9 @@ export {
   getWorkflowJobReadScope,
   getWorkflowRunAccessScopeById,
   getWorkflowRunAggregates,
+  getWorkflowRunAnnotationOrigins,
   getWorkflowRunAttemptById,
+  getWorkflowRunAttemptIdForScope,
   getWorkflowRunByAttemptId,
   getWorkflowRunById,
   getWorkflowRunDetail,
@@ -169,6 +165,7 @@ export {
   listStepAttemptIdsByJobId,
   listWorkflowExecutionSteps,
   listWorkflowJobExecutionSummaries,
+  listWorkflowRunJobExplanationsPage,
   listWorkflowRunJobSummaries,
   listWorkflowRunJobsPage,
   listWorkflowRuns,
@@ -185,6 +182,7 @@ export {
   updateJobExecutionStatus,
   updateJobStatus,
   updateWorkflowRunStatus,
+  workflowRunAnnotationOriginKey,
 } from './workflow-runs.js';
 
 export const migrationsPath = resolve(dirname(fileURLToPath(import.meta.url)), '../../drizzle');

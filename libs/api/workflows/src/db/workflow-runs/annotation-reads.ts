@@ -25,6 +25,13 @@ export interface WorkflowRunAnnotationOriginRead extends WorkflowRunAnnotationOr
   stepAttemptId: string | null;
 }
 
+/** Builds the stable identity used to match annotation-owner rows to workflow ancestry. */
+export function workflowRunAnnotationOriginKey(
+  origin: WorkflowRunAnnotationOriginReference,
+): string {
+  return [origin.jobId, origin.jobExecutionId, origin.stepId, origin.stepAttempt].join(':');
+}
+
 /**
  * Resolves only the workflow-owned ancestry named by an annotation page. The annotation body is
  * deliberately absent here: its owner returns that data through the inter-module contract.
@@ -146,7 +153,7 @@ function uniqueOrigins(
   origins: readonly WorkflowRunAnnotationOriginReference[],
 ): WorkflowRunAnnotationOriginReference[] {
   const unique = new Map<string, WorkflowRunAnnotationOriginReference>();
-  for (const origin of origins) unique.set(originKey(origin), origin);
+  for (const origin of origins) unique.set(workflowRunAnnotationOriginKey(origin), origin);
   return [...unique.values()];
 }
 
@@ -173,15 +180,6 @@ function stepAttemptCondition(origin: WorkflowRunAnnotationOriginReference): SQL
 function requireCondition(condition: SQL | undefined): SQL {
   if (!condition) throw new Error('Expected a non-empty SQL condition');
   return condition;
-}
-
-function originKey(origin: {
-  jobId: string;
-  jobExecutionId: string;
-  stepId: string;
-  stepAttempt?: number | null;
-}): string {
-  return [origin.jobId, origin.jobExecutionId, origin.stepId, origin.stepAttempt ?? ''].join(':');
 }
 
 function workflowOriginKey(origin: {

@@ -87,7 +87,7 @@ describe('workflow run annotation and job explanation routes', () => {
       sequence: 1,
       body: 'https://example.com/deployments/1',
     };
-    listAnnotationsForRunAttempt.mockResolvedValue({
+    listAnnotationsForRunAttempt.mockResolvedValueOnce({
       annotations: [annotation],
       hasMore: true,
       nextCursor: {value: 1, id: annotation.id},
@@ -124,6 +124,138 @@ describe('workflow run annotation and job explanation routes', () => {
       limit: 1,
       cursor: undefined,
     });
+
+    listAnnotationsForRunAttempt.mockResolvedValueOnce({
+      annotations: [],
+      hasMore: false,
+      nextCursor: null,
+    });
+    const secondResponse = await app.inject({
+      method: 'GET',
+      url: `/api/workflows/runs/${fixture.run.id}/annotations?attempt=1&limit=1&cursor=${body.next_cursor}`,
+    });
+
+    expect(secondResponse.statusCode).toBe(200);
+    const secondBody = secondResponse.json();
+    expect(workflowRunAnnotationsResponseSchema.safeParse(secondBody).success).toBe(true);
+    expect(secondBody.items).toEqual([]);
+    expect(listAnnotationsForRunAttempt).toHaveBeenNthCalledWith(2, {
+      workspaceId: fixture.run.workspaceId,
+      workflowRunId: fixture.run.id,
+      workflowRunAttempt: 1,
+      limit: 1,
+      cursor: {value: 1, id: annotation.id},
+    });
+  });
+
+  test('skips annotations whose workflow origin is unavailable', async () => {
+    const fixture = await createHighCardinalityWorkflowRun({
+      jobs: 1,
+      dependenciesPerJob: 0,
+      executionsPerJob: 1,
+      stepsPerExecution: 1,
+      attemptsPerStep: 1,
+    });
+    workspaceId = fixture.run.workspaceId;
+    const validAnnotation = {
+      id: crypto.randomUUID(),
+      job_id: fixture.jobIds[0] as string,
+      job_execution_id: fixture.executionIds[0] as string,
+      origin_step_id: fixture.stepIds[0] as string,
+      origin_step_attempt: 1,
+      context: 'deployment-url',
+      style: 'info' as const,
+      sequence: 2,
+      body: 'https://example.com/deployments/2',
+    };
+    const unavailableAnnotation = {
+      ...validAnnotation,
+      id: crypto.randomUUID(),
+      job_execution_id: crypto.randomUUID(),
+      sequence: 1,
+      body: 'https://example.com/deployments/unavailable',
+    };
+    listAnnotationsForRunAttempt.mockResolvedValue({
+      annotations: [unavailableAnnotation, validAnnotation],
+      hasMore: false,
+      nextCursor: null,
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/workflows/runs/${fixture.run.id}/annotations?attempt=1`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(workflowRunAnnotationsResponseSchema.safeParse(body).success).toBe(true);
+    expect(body.items).toHaveLength(1);
+    expect(body.items[0].annotation).toEqual(validAnnotation);
+  });
+
+  test('returns not found when the selected attempt does not exist on either route', async () => {
+    const fixture = await createHighCardinalityWorkflowRun({
+      jobs: 1,
+      dependenciesPerJob: 0,
+      executionsPerJob: 1,
+      stepsPerExecution: 1,
+      attemptsPerStep: 1,
+    });
+    workspaceId = fixture.run.workspaceId;
+
+    const annotationsResponse = await app.inject({
+      method: 'GET',
+      url: `/api/workflows/runs/${fixture.run.id}/annotations?attempt=2`,
+    });
+    const explanationsResponse = await app.inject({
+      method: 'GET',
+      url: `/api/workflows/runs/${fixture.run.id}/job-explanations?attempt=2`,
+    });
+
+    expect(annotationsResponse.statusCode).toBe(404);
+    expect(annotationsResponse.json().code).toBe('not-found');
+    expect(explanationsResponse.statusCode).toBe(404);
+    expect(explanationsResponse.json().code).toBe('not-found');
+    expect(listAnnotationsForRunAttempt).not.toHaveBeenCalled();
+  });
+
+  test('masks inaccessible run projects on both routes', async () => {
+    const fixture = await createHighCardinalityWorkflowRun({
+      jobs: 1,
+      dependenciesPerJob: 0,
+      executionsPerJob: 1,
+      stepsPerExecution: 1,
+      attemptsPerStep: 1,
+    });
+    workspaceId = fixture.run.workspaceId;
+    const foreignWorkspaceId = crypto.randomUUID();
+    const inaccessibleProject = (projectId: string) => ({
+      project: {
+        id: projectId,
+        workspaceId: foreignWorkspaceId,
+        sourceConnectionId: crypto.randomUUID(),
+        sourceExternalRepositoryId: `repo:${crypto.randomUUID()}`,
+        name: 'Project',
+      },
+    });
+    getProjectById.mockImplementationOnce(({projectId: requestedProjectId}) =>
+      Promise.resolve(inaccessibleProject(requestedProjectId)),
+    );
+    const annotationsResponse = await app.inject({
+      method: 'GET',
+      url: `/api/workflows/runs/${fixture.run.id}/annotations?attempt=1`,
+    });
+    getProjectById.mockImplementationOnce(({projectId: requestedProjectId}) =>
+      Promise.resolve(inaccessibleProject(requestedProjectId)),
+    );
+    const explanationsResponse = await app.inject({
+      method: 'GET',
+      url: `/api/workflows/runs/${fixture.run.id}/job-explanations?attempt=1`,
+    });
+
+    expect(annotationsResponse.statusCode).toBe(404);
+    expect(explanationsResponse.statusCode).toBe(404);
+    expect(listAnnotationsForRunAttempt).not.toHaveBeenCalled();
   });
 
   test('exposes failed jobs that never created an execution', async () => {

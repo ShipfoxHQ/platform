@@ -1,4 +1,7 @@
-import type {AnnotationsInterModuleClient} from '@shipfox/annotations-dto/inter-module';
+import {
+  type AnnotationsInterModuleClient,
+  annotationCursorSchema,
+} from '@shipfox/annotations-dto/inter-module';
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import {
   type WorkflowRunAnnotationsResponseDto,
@@ -10,7 +13,11 @@ import {ClientError, defineRoute} from '@shipfox/node-fastify';
 import {logger} from '@shipfox/node-opentelemetry';
 import type {FastifyRequest} from 'fastify';
 import {z} from 'zod';
-import {getWorkflowRunAnnotationOrigins} from '#db/index.js';
+import {
+  getWorkflowRunAnnotationOrigins,
+  getWorkflowRunAttemptIdForScope,
+  workflowRunAnnotationOriginKey,
+} from '#db/index.js';
 import {toWorkflowRunAnnotationItemDto} from '#presentation/dto/index.js';
 import {requireAccessibleRunScope} from './require-accessible-run.js';
 import {serializedResponseByteLength} from './serialized-response-byte-length.js';
@@ -42,7 +49,7 @@ export function listRunAnnotationsRoute(
       let resultCount = 0;
       let cursorRemaining = false;
       let responseStatus = 200;
-      let outcome: 'success' | 'not_found' | 'access_denied' | 'error' = 'success';
+      let outcome: 'success' | 'degraded' | 'not_found' | 'access_denied' | 'error' = 'success';
 
       try {
         assertValidAnnotationCursor(cursor, decodedCursor);
@@ -57,6 +64,9 @@ export function listRunAnnotationsRoute(
           projects,
           onAccessDenied: () => {
             outcome = 'access_denied';
+          },
+          onEnrichmentDegraded: () => {
+            outcome = 'degraded';
           },
           serialize: (response) => reply.serialize(response),
           onDatabaseRead: (measurement) => {
@@ -105,6 +115,7 @@ async function readRunAnnotations({
   annotations,
   projects,
   onAccessDenied,
+  onEnrichmentDegraded,
   serialize,
   onDatabaseRead,
 }: {
@@ -116,10 +127,29 @@ async function readRunAnnotations({
   annotations: AnnotationsInterModuleClient;
   projects: ProjectsModuleClient;
   onAccessDenied: () => void;
+  onEnrichmentDegraded: () => void;
   serialize: (response: WorkflowRunAnnotationsResponseDto) => string | ArrayBuffer | Buffer;
   onDatabaseRead: (measurement: {databaseDurationMilliseconds: number}) => void;
 }) {
   const run = await requireAccessibleRunScope({request, id, projects, onAccessDenied});
+  let databaseDurationMilliseconds = 0;
+  const attemptId = await getWorkflowRunAttemptIdForScope(
+    {
+      workspaceId: run.workspaceId,
+      projectId: run.projectId,
+      workflowRunId: run.id,
+      attempt,
+    },
+    {
+      onRead: (measurement) => {
+        databaseDurationMilliseconds += measurement.databaseDurationMilliseconds;
+      },
+    },
+  );
+  if (!attemptId) {
+    throw new ClientError('Run attempt not found', 'not-found', {status: 404});
+  }
+
   const page = await annotations.listAnnotationsForRunAttempt({
     workspaceId: run.workspaceId,
     workflowRunId: run.id,
@@ -128,32 +158,47 @@ async function readRunAnnotations({
     limit,
   });
 
-  let databaseDurationMilliseconds = 0;
-  const origins = await getWorkflowRunAnnotationOrigins(
-    {
-      workspaceId: run.workspaceId,
-      projectId: run.projectId,
-      workflowRunId: run.id,
-      attempt,
-      origins: page.annotations.map((annotation) => ({
-        jobId: annotation.job_id,
-        jobExecutionId: annotation.job_execution_id,
-        stepId: annotation.origin_step_id,
-        stepAttempt: annotation.origin_step_attempt,
-      })),
-    },
-    {
-      onRead: (measurement) => {
-        databaseDurationMilliseconds = measurement.databaseDurationMilliseconds;
+  let origins: Awaited<ReturnType<typeof getWorkflowRunAnnotationOrigins>> = [];
+  try {
+    origins = await getWorkflowRunAnnotationOrigins(
+      {
+        workspaceId: run.workspaceId,
+        projectId: run.projectId,
+        workflowRunId: run.id,
+        attempt,
+        origins: page.annotations.map((annotation) => ({
+          jobId: annotation.job_id,
+          jobExecutionId: annotation.job_execution_id,
+          stepId: annotation.origin_step_id,
+          stepAttempt: annotation.origin_step_attempt,
+        })),
       },
-    },
-  );
+      {
+        onRead: (measurement) => {
+          databaseDurationMilliseconds += measurement.databaseDurationMilliseconds;
+        },
+      },
+    );
+  } catch (error) {
+    onEnrichmentDegraded();
+    logger().warn(
+      {
+        error,
+        runId: run.id,
+        attempt,
+        annotationIds: page.annotations.map((annotation) => annotation.id),
+      },
+      'Failed to enrich workflow run annotations',
+    );
+  }
   onDatabaseRead({databaseDurationMilliseconds});
 
-  const originByKey = new Map(origins.map((origin) => [originKey(origin), origin]));
-  const items = page.annotations.map((annotation) => {
+  const originByKey = new Map(
+    origins.map((origin) => [workflowRunAnnotationOriginKey(origin), origin]),
+  );
+  const items = page.annotations.flatMap((annotation) => {
     const origin = originByKey.get(
-      originKey({
+      workflowRunAnnotationOriginKey({
         jobId: annotation.job_id,
         jobExecutionId: annotation.job_execution_id,
         stepId: annotation.origin_step_id,
@@ -161,11 +206,22 @@ async function readRunAnnotations({
       }),
     );
     if (!origin) {
-      throw new ClientError('Annotation origin not found', 'annotation-origin-not-found', {
-        status: 500,
-      });
+      onEnrichmentDegraded();
+      logger().warn(
+        {
+          annotationId: annotation.id,
+          runId: run.id,
+          attempt,
+          jobId: annotation.job_id,
+          jobExecutionId: annotation.job_execution_id,
+          stepId: annotation.origin_step_id,
+          stepAttempt: annotation.origin_step_attempt,
+        },
+        'Skipped workflow run annotation with unavailable origin',
+      );
+      return [];
     }
-    return toWorkflowRunAnnotationItemDto(annotation, origin);
+    return [toWorkflowRunAnnotationItemDto(annotation, origin)];
   });
 
   const response: WorkflowRunAnnotationsResponseDto = {
@@ -175,23 +231,11 @@ async function readRunAnnotations({
   return {response, serializedResponse: serialize(response)};
 }
 
-function originKey(origin: {
-  jobId: string;
-  jobExecutionId: string;
-  stepId: string;
-  stepAttempt: number;
-}): string {
-  return [origin.jobId, origin.jobExecutionId, origin.stepId, origin.stepAttempt].join(':');
-}
-
 function assertValidAnnotationCursor(
   cursor: string | undefined,
   decodedCursor: {value: number; id: string} | undefined,
 ): void {
-  if (
-    cursor !== undefined &&
-    (decodedCursor === undefined || !z.string().uuid().safeParse(decodedCursor.id).success)
-  ) {
+  if (cursor !== undefined && !annotationCursorSchema.safeParse(decodedCursor).success) {
     throw new ClientError('Invalid cursor', 'invalid-cursor', {status: 400});
   }
 }
