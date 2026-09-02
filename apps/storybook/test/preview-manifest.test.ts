@@ -7,10 +7,10 @@ import {
 } from '../preview-manifest.js';
 
 describe('storybook preview manifest', () => {
-  it('contains twelve uniquely ordered Storybooks, including client-onboarding', () => {
-    expect(storybooks).toHaveLength(12);
+  it('contains eleven uniquely ordered Storybooks, including client-onboarding', () => {
+    expect(storybooks).toHaveLength(11);
     expect(storybooks.map(({order}) => order)).toEqual(
-      Array.from({length: 12}, (_, index) => index + 1),
+      Array.from({length: 11}, (_, index) => index + 1),
     );
     expect(new Set(storybooks.map(({id}) => id)).size).toBe(storybooks.length);
     expect(storybooks.some(({id}) => id === 'client-onboarding')).toBe(true);

@@ -16,7 +16,7 @@ import type {
   AgentPersonalAccessToken,
   CreateAgentPersonalAccessTokenCommand,
   CreatedAgentPersonalAccessToken,
-} from '#core/agent-access.js';
+} from '#agent-access/core/agent-access.js';
 import {
   toAgentGrant,
   toAgentPersonalAccessToken,

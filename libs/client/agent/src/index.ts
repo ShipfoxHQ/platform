@@ -1,3 +1,4 @@
+export * from './agent-access/index.js';
 export * from './components/available-provider-card.js';
 export * from './components/form-errors.js';
 export * from './components/harnesses-section.js';

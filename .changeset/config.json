@@ -52,7 +52,6 @@
     ],
     [
       "@shipfox/client-agent",
-      "@shipfox/client-agent-access",
       "@shipfox/client-api",
       "@shipfox/client-auth",
       "@shipfox/client-config",

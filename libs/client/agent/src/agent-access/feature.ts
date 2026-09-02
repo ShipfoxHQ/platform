@@ -16,12 +16,12 @@ export const agentAccessFeature = defineClientFeature({
     {
       path: '/oauth/consent',
       parent: 'root',
-      impl: '@shipfox/client-agent-access/routes/consent',
+      impl: '@shipfox/client-agent/routes/agent-access-consent',
     },
     {
       path: '/w/$workspaceSlug/settings/agent-access',
       parent: 'workspaceSettings',
-      impl: '@shipfox/client-agent-access/routes/settings',
+      impl: '@shipfox/client-agent/routes/agent-access-settings',
     },
   ],
   settingsSections: agentAccessSettingsSections,

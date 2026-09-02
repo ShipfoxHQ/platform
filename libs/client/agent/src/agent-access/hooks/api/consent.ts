@@ -4,7 +4,7 @@ import {
 } from '@shipfox/api-auth-dto';
 import {checkedApiRequest} from '@shipfox/client-api';
 import {type FetchQueryOptions, queryOptions, useMutation, useQuery} from '@tanstack/react-query';
-import type {OAuthConsent} from '#core/agent-access.js';
+import type {OAuthConsent} from '#agent-access/core/agent-access.js';
 import {toOAuthConsent} from './mapper.js';
 
 export const oauthConsentQueryKeys = {

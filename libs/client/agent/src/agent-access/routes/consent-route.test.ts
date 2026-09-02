@@ -1,5 +1,5 @@
 import type {RouterContext} from '@shipfox/client-shell/runtime';
-import consentRoute from './consent.js';
+import consentRoute from '../../routes/agent-access-consent.js';
 
 interface ConsentBeforeLoadArgs {
   context: RouterContext;

@@ -1,7 +1,7 @@
 import {defineRoute, type RouterContext} from '@shipfox/client-shell/runtime';
 import {redirect} from '@tanstack/react-router';
-import {OAuthConsentRoutePage} from '#components/oauth-consent-page.js';
-import {validateOAuthConsentSearch} from './inputs.js';
+import {OAuthConsentRoutePage} from '#agent-access/components/oauth-consent-page.js';
+import {validateOAuthConsentSearch} from '#agent-access/routes/inputs.js';
 
 export default defineRoute({
   staticData: {frame: 'focused'},

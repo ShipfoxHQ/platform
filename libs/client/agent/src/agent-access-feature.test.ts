@@ -1,4 +1,4 @@
-import {agentAccessFeature, agentAccessSettingsSections} from './feature.js';
+import {agentAccessFeature, agentAccessSettingsSections, agentFeature} from './feature.js';
 
 describe('agentAccessFeature', () => {
   test('declares dormant consent and settings routes', () => {
@@ -8,12 +8,12 @@ describe('agentAccessFeature', () => {
         {
           path: '/oauth/consent',
           parent: 'root',
-          impl: '@shipfox/client-agent-access/routes/consent',
+          impl: '@shipfox/client-agent/routes/agent-access-consent',
         },
         {
           path: '/w/$workspaceSlug/settings/agent-access',
           parent: 'workspaceSettings',
-          impl: '@shipfox/client-agent-access/routes/settings',
+          impl: '@shipfox/client-agent/routes/agent-access-settings',
         },
       ],
     });
@@ -26,5 +26,7 @@ describe('agentAccessFeature', () => {
         order: 450,
       },
     ]);
+    expect(agentFeature.id).toBe('shipfox.agent');
+    expect(agentAccessFeature.id).not.toBe(agentFeature.id);
   });
 });

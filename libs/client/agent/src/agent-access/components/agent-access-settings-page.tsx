@@ -40,15 +40,15 @@ import type {
   AgentPersonalAccessToken,
   AgentPersonalAccessTokenExpiration,
   CreatedAgentPersonalAccessToken,
-} from '#core/agent-access.js';
-import {createAgentPersonalAccessTokenCommand} from '#core/agent-access.js';
+} from '#agent-access/core/agent-access.js';
+import {createAgentPersonalAccessTokenCommand} from '#agent-access/core/agent-access.js';
 import {
   useAgentGrantsQuery,
   useAgentPersonalAccessTokensQuery,
   useCreateAgentPersonalAccessTokenMutation,
   useRevokeAgentGrantMutation,
   useRevokeAgentPersonalAccessTokenMutation,
-} from '#hooks/api/credentials.js';
+} from '#agent-access/hooks/api/credentials.js';
 import {agentAccessErrorMessage} from './errors.js';
 import {formatAgentAccessDate, formatAgentAccessTimestamp} from './format.js';
 

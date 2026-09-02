@@ -10,7 +10,7 @@ import type {
   CreateAgentPersonalAccessTokenCommand,
   CreatedAgentPersonalAccessToken,
   OAuthConsent,
-} from '#core/agent-access.js';
+} from '#agent-access/core/agent-access.js';
 
 export function toOAuthConsent(dto: OAuthConsentResponseDto): OAuthConsent {
   return {
