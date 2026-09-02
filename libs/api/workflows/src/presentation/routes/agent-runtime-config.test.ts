@@ -124,13 +124,20 @@ describe('GET /runs/jobs/current/agent-runtime-config', () => {
       thinking: 'xhigh',
       credentials: {api_key: 'sk-workspace-secret'},
     });
-    expect(resolveRuntimeCredentials).toHaveBeenCalledWith(
-      expect.objectContaining({
-        workspaceId: run.workspaceId,
-        runId: run.id,
-        stepAttemptId: expect.any(String),
-      }),
-    );
+    expect(resolveRuntimeCredentials).toHaveBeenCalledWith({
+      workspaceId: run.workspaceId,
+      projectId: run.projectId,
+      runId: run.id,
+      jobId: job.id,
+      jobExecutionId: step.jobExecutionId,
+      stepId: step.id,
+      stepAttemptId: expect.any(String),
+      attempt: step.currentAttempt,
+      harness: 'pi',
+      provider: 'anthropic',
+      model: 'claude-opus-4-8',
+      thinking: 'xhigh',
+    });
   });
 
   test('derives the credential workspace from the leased job instead of hostile lease claims', async () => {

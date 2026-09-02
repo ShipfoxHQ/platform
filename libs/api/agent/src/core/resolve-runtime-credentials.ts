@@ -29,6 +29,11 @@ export interface ResolveRuntimeCredentialsParams {
   workspaceId: string;
   runId: string;
   stepAttemptId: string;
+  projectId?: string | undefined;
+  jobId?: string | undefined;
+  jobExecutionId?: string | undefined;
+  stepId?: string | undefined;
+  attempt?: number | undefined;
   harness: Harness;
   provider: ModelProviderRef;
   model: string;
@@ -94,6 +99,11 @@ async function resolveManagedCredentials(
     workspaceId: params.workspaceId,
     runId: params.runId,
     stepAttemptId: params.stepAttemptId,
+    ...(params.projectId === undefined ? {} : {projectId: params.projectId}),
+    ...(params.jobId === undefined ? {} : {jobId: params.jobId}),
+    ...(params.jobExecutionId === undefined ? {} : {jobExecutionId: params.jobExecutionId}),
+    ...(params.stepId === undefined ? {} : {stepId: params.stepId}),
+    ...(params.attempt === undefined ? {} : {attempt: params.attempt}),
     model: params.model,
   });
   agentRuntimeConfigResolvedCount.add(1, {source: 'instance', outcome: 'resolved'});

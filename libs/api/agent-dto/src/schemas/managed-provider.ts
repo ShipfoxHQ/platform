@@ -101,6 +101,12 @@ export interface ManagedModelProvider {
     workspaceId: string;
     runId: string;
     stepAttemptId: string;
+    /** Job identity is supplied by the leased workflow step when available. */
+    projectId?: string | undefined;
+    jobId?: string | undefined;
+    jobExecutionId?: string | undefined;
+    stepId?: string | undefined;
+    attempt?: number | undefined;
     model: string;
   }) => Promise<ManagedProviderRuntimeConfig>;
 }

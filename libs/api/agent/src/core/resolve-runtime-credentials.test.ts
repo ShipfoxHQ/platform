@@ -79,6 +79,13 @@ describe('resolveRuntimeCredentials', () => {
   it('resolves managed provider credentials into the pi custom provider contract', async () => {
     const runId = crypto.randomUUID();
     const stepAttemptId = crypto.randomUUID();
+    const identity = {
+      projectId: crypto.randomUUID(),
+      jobId: crypto.randomUUID(),
+      jobExecutionId: crypto.randomUUID(),
+      stepId: crypto.randomUUID(),
+      attempt: 2,
+    };
     const resolveCredentials = vi.fn<ManagedModelProvider['resolveCredentials']>();
     resolveCredentials.mockResolvedValue({
       api: 'openai-responses',
@@ -91,6 +98,7 @@ describe('resolveRuntimeCredentials', () => {
         workspaceId,
         runId,
         stepAttemptId,
+        ...identity,
         harness: 'pi',
         provider: 'shipfox',
         model: 'responses-model',
@@ -103,6 +111,7 @@ describe('resolveRuntimeCredentials', () => {
       workspaceId,
       runId,
       stepAttemptId,
+      ...identity,
       model: 'responses-model',
     });
     expect(result).toEqual({
