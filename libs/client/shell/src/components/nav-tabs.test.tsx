@@ -27,7 +27,7 @@ const entries: readonly NavTabEntry[] = [
 ];
 
 function WorkspaceTabs() {
-  return <NavTabs entries={entries} scope="workspace" />;
+  return <NavTabs ariaLabel="Workspace sections" entries={entries} />;
 }
 
 const projectEntries: readonly NavTabEntry[] = [
@@ -75,7 +75,9 @@ describe('NavTabs', () => {
     const runsRoute = createRoute({
       getParentRoute: () => rootRoute,
       path: '/w/$workspaceSlug/p/$projectSlug/runs',
-      component: () => <NavTabs entries={projectEntries} scope="project" />,
+      component: () => (
+        <NavTabs ariaLabel="Project sections" entries={projectEntries} projectScoped />
+      ),
     });
     const router = createRouter({
       history: createMemoryHistory({initialEntries: ['/w/workspace/p/project/runs']}),

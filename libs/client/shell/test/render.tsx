@@ -13,6 +13,7 @@ import {navigationEntries, settingsEntries} from '#runtime/registries.js';
 import type {WorkspaceSetupGate} from '#runtime/workspace-setup.js';
 
 export async function renderComposedShell({
+  auth: authOverride,
   features,
   initialPath,
   resolveImpl,
@@ -20,6 +21,7 @@ export async function renderComposedShell({
   workspaceSetup,
   clientAnalytics,
 }: {
+  auth?: AuthStateValue;
   features: readonly ClientFeature[];
   initialPath: string;
   resolveImpl: ResolveRouteImpl;
@@ -40,15 +42,17 @@ export async function renderComposedShell({
   });
   const queryClient = new QueryClient({defaultOptions: {queries: {retry: false}}});
   const store = createStore();
-  const auth: AuthStateValue = {
-    status: 'authenticated',
-    workspaces: [
-      {id: 'workspace', name: 'Workspace', slug: 'workspace', membershipId: 'membership'},
-    ],
-    isLoading: false,
-    isAuthenticated: true,
-    hasWorkspace: true,
-  };
+  const auth: AuthStateValue =
+    authOverride ??
+    ({
+      status: 'authenticated',
+      workspaces: [
+        {id: 'workspace', name: 'Workspace', slug: 'workspace', membershipId: 'membership'},
+      ],
+      isLoading: false,
+      isAuthenticated: true,
+      hasWorkspace: true,
+    } satisfies AuthStateValue);
   const chrome: ChromeSlots = {
     ProjectBreadcrumb: () => null,
     projectSlugResolver: async () => 'project',
