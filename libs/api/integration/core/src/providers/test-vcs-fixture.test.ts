@@ -4,7 +4,11 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {promisify} from 'node:util';
 import type {CheckoutCredentials} from '@shipfox/api-integration-spi';
-import {createTestVcsFixture, isValidTestVcsBranchName} from '#providers/test-vcs-fixture.js';
+import {
+  createTestVcsFixture,
+  isValidTestVcsBranchName,
+  isValidTestVcsRefreshTiming,
+} from '#providers/test-vcs-fixture.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -63,6 +67,10 @@ describe('Test VCS smart HTTP fixture', () => {
   it('uses Git-compatible branch validation for the API schema', () => {
     expect(isValidTestVcsBranchName('feature]')).toBe(true);
     expect(isValidTestVcsBranchName('feature[')).toBe(false);
+  });
+
+  it('rejects a refresh deadline at the effective millisecond expiry', () => {
+    expect(isValidTestVcsRefreshTiming(0.0505, 0.05)).toBe(false);
   });
 
   it('rejects refresh timing whose minimum delay reaches credential expiry', async () => {

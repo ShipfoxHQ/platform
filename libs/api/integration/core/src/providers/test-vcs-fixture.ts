@@ -111,7 +111,7 @@ export function isValidTestVcsRefreshTiming(
   if (!Number.isFinite(ttlSeconds) || ttlSeconds <= 0) return false;
   const requestedDelaySeconds = refreshAfterSeconds ?? ttlSeconds / 2;
   if (!Number.isFinite(requestedDelaySeconds) || requestedDelaySeconds <= 0) return false;
-  return refreshDelayMilliseconds(ttlSeconds, refreshAfterSeconds) < ttlSeconds * 1000;
+  return refreshDelayMilliseconds(ttlSeconds, refreshAfterSeconds) < Math.floor(ttlSeconds * 1000);
 }
 
 interface RepositoryRecord {
