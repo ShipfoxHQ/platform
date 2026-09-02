@@ -9,12 +9,12 @@ import {Skeleton} from '@shipfox/react-ui/skeleton';
 import {Code, Text} from '@shipfox/react-ui/typography';
 import {useEffect, useState} from 'react';
 import type {OAuthConsent} from '#agent-access/core/agent-access.js';
+import {validateOAuthConsentSearch} from '#agent-access/routes/inputs.js';
 import {
   useApproveOAuthConsentMutation,
   useDenyOAuthConsentMutation,
   useOAuthConsentQuery,
-} from '#agent-access/hooks/api/consent.js';
-import {validateOAuthConsentSearch} from '#agent-access/routes/inputs.js';
+} from '#hooks/api/agent-access/consent.js';
 import {oauthConsentErrorMessage} from './errors.js';
 import {formatAgentAccessTimestamp} from './format.js';
 

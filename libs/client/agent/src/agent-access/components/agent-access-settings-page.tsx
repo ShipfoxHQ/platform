@@ -48,7 +48,7 @@ import {
   useCreateAgentPersonalAccessTokenMutation,
   useRevokeAgentGrantMutation,
   useRevokeAgentPersonalAccessTokenMutation,
-} from '#agent-access/hooks/api/credentials.js';
+} from '#hooks/api/agent-access/credentials.js';
 import {agentAccessErrorMessage} from './errors.js';
 import {formatAgentAccessDate, formatAgentAccessTimestamp} from './format.js';
 
