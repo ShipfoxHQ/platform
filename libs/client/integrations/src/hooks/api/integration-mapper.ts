@@ -1,6 +1,5 @@
 import type {
   IntegrationConnectionDto,
-  IntegrationConnectionRepositoryAccessOriginDto,
   IntegrationConnectionRepositoryAccessRepositoryDto,
   IntegrationConnectionRepositoryAccessResponseDto,
   IntegrationProviderDto,
@@ -15,7 +14,6 @@ import type {
   JiraSite,
   Repository,
   RepositoryAccess,
-  RepositoryAccessOrigin,
   RepositoryAccessRepository,
   WebhookConnection,
 } from '#core/models.js';
@@ -62,14 +60,6 @@ export function toRepository(dto: RepositoryDto): Repository {
   };
 }
 
-function toRepositoryAccessOrigin(
-  dto: IntegrationConnectionRepositoryAccessOriginDto,
-): RepositoryAccessOrigin {
-  return dto.type === 'project'
-    ? {type: 'project', projectId: dto.project_id, projectName: dto.project_name}
-    : {type: 'manual', grantId: dto.grant_id};
-}
-
 function toRepositoryAccessRepository(
   dto: IntegrationConnectionRepositoryAccessRepositoryDto,
 ): RepositoryAccessRepository {
@@ -77,7 +67,8 @@ function toRepositoryAccessRepository(
     externalRepositoryId: dto.external_repository_id,
     owner: dto.owner,
     name: dto.name,
-    origins: dto.origins.map(toRepositoryAccessOrigin),
+    projectId: dto.project_id,
+    projectName: dto.project_name,
   };
 }
 

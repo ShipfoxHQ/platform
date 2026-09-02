@@ -11,7 +11,6 @@ import {ConnectionDetailsPage} from './connection-details-page.js';
 const CONNECTION_ID = '44444444-4444-4444-8444-444444444444';
 const SECOND_CONNECTION_ID = '77777777-7777-4777-8777-777777777777';
 const PROJECT_ID = '55555555-5555-4555-8555-555555555555';
-const GRANT_ID = '66666666-6666-4666-8666-666666666666';
 const REPOSITORY_ACCESS_PATH = `/integration-connections/${CONNECTION_ID}/repository-access`;
 const SECOND_REPOSITORY_ACCESS_PATH = `/integration-connections/${SECOND_CONNECTION_ID}/repository-access`;
 const SELECTED_MODE_RE = /Only your projects' repositories/u;
@@ -49,10 +48,8 @@ type RepositoryAccessResponse = {
     external_repository_id: string;
     owner: string;
     name: string;
-    origins: Array<
-      | {type: 'project'; project_id: string; project_name: string}
-      | {type: 'manual'; grant_id: string}
-    >;
+    project_id: string;
+    project_name: string;
   }>;
   next_cursor: string | null;
 };
@@ -64,10 +61,8 @@ const selectedAccess: RepositoryAccessResponse = {
       external_repository_id: 'acme/platform',
       owner: 'acme',
       name: 'platform',
-      origins: [
-        {type: 'project', project_id: PROJECT_ID, project_name: 'Platform'},
-        {type: 'manual', grant_id: GRANT_ID},
-      ],
+      project_id: PROJECT_ID,
+      project_name: 'Platform',
     },
   ],
   next_cursor: null,
@@ -176,15 +171,14 @@ function ConnectionSwitcher() {
 }
 
 describe('ConnectionDetailsPage', () => {
-  test('renders selected targets, origins, mode copy, and the GitHub installation link', async () => {
+  test('renders project-backed targets, mode copy, and the GitHub installation link', async () => {
     renderDetails(detailsFetch());
 
     expect(await screen.findByRole('heading', {name: 'Repository access'})).toBeVisible();
     expect(await screen.findByRole('radio', {name: SELECTED_MODE_RE})).toBeChecked();
     expect(screen.getByRole('radio', {name: ALL_MODE_RE})).not.toBeChecked();
     expect(screen.getAllByText('acme/platform')).toHaveLength(2);
-    expect(screen.getByText('Project: Platform')).toBeVisible();
-    expect(screen.getByText('Manual grant')).toBeVisible();
+    expect(screen.getByText('Project · Platform')).toBeVisible();
     expect(screen.getByText(SELECTED_NOTICE_RE)).toBeVisible();
     expect(screen.getByRole('link', {name: 'Change repositories on GitHub'})).toHaveAttribute(
       'href',
@@ -213,7 +207,7 @@ describe('ConnectionDetailsPage', () => {
 
     expect(await screen.findByText('No project repositories yet')).toBeVisible();
     expect(
-      screen.getByText('Create a project from a repository on this connection to add it here.'),
+      screen.getByText('Create a Shipfox project to connect a repository in selected mode.'),
     ).toBeVisible();
     expect(screen.getByRole('link', {name: 'Create project'})).toHaveAttribute(
       'href',
@@ -233,7 +227,8 @@ describe('ConnectionDetailsPage', () => {
           external_repository_id: 'acme/docs',
           owner: 'acme',
           name: 'docs',
-          origins: [{type: 'project', project_id: PROJECT_ID, project_name: 'Docs'}],
+          project_id: PROJECT_ID,
+          project_name: 'Docs',
         },
       ],
       next_cursor: null,

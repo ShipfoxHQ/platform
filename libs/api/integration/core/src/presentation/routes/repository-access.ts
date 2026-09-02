@@ -4,11 +4,8 @@ import {
   requireWorkspaceAccess,
 } from '@shipfox/api-auth-context';
 import {
-  createIntegrationConnectionRepositoryGrantBodySchema,
   integrationConnectionRepositoryAccessResponseSchema,
-  integrationConnectionRepositoryGrantDtoSchema,
   listIntegrationConnectionRepositoryAccessQuerySchema,
-  parseProviderRepositoryId,
   updateIntegrationConnectionRepositoryAccessBodySchema,
   updateIntegrationConnectionRepositoryAccessResponseSchema,
 } from '@shipfox/api-integration-spi';
@@ -22,19 +19,10 @@ import {
   type ListSelectedRepositoryAccessResult,
   listSelectedRepositoryAccess,
   type RepositoryAccessCursor,
-  RepositoryAccessProjectsPaginationError,
 } from '#core/repository-access-read.js';
 import {getIntegrationConnectionById} from '#db/connections.js';
-import {
-  deleteIntegrationConnectionRepositoryGrantByIdWithAudit,
-  updateIntegrationConnectionRepositoryAccessModeWithAudit,
-  upsertIntegrationConnectionRepositoryGrantWithAudit,
-} from '#db/repository-access.js';
-import {listIntegrationConnectionRepositoryGrants} from '#db/repository-grants.js';
-import {
-  toRepositoryAccessRepositoryDto,
-  toRepositoryGrantDto,
-} from '#presentation/dto/integrations.js';
+import {updateIntegrationConnectionRepositoryAccessModeWithAudit} from '#db/repository-access.js';
+import {toRepositoryAccessRepositoryDto} from '#presentation/dto/integrations.js';
 import {integrationRouteErrorHandler} from './errors.js';
 
 const connectionParamsSchema = z.object({
@@ -53,7 +41,7 @@ export function createRepositoryAccessReadRoute(
     method: 'GET',
     path: '/integration-connections/:connectionId/repository-access',
     auth: AUTH_USER,
-    description: 'Read the composed repository access for an integration connection.',
+    description: 'Read project-backed repository access for an integration connection.',
     schema: {
       params: connectionParamsSchema,
       querystring: listIntegrationConnectionRepositoryAccessQuerySchema,
@@ -81,24 +69,12 @@ export function createRepositoryAccessReadRoute(
         });
       }
 
-      let result: ListSelectedRepositoryAccessResult;
-      try {
-        result = await listSelectedRepositoryAccess({
-          connection,
-          projects: params.projects,
-          listGrants: listIntegrationConnectionRepositoryGrants,
-          limit: request.query.limit,
-          cursor,
-        });
-      } catch (error) {
-        if (error instanceof RepositoryAccessProjectsPaginationError) {
-          throw new ClientError(error.message, 'integration-projects-pagination-failed', {
-            status: 502,
-            cause: error,
-          });
-        }
-        throw error;
-      }
+      const result: ListSelectedRepositoryAccessResult = await listSelectedRepositoryAccess({
+        connection,
+        projects: params.projects,
+        limit: request.query.limit,
+        cursor,
+      });
       return {
         mode: connection.repositoryAccessMode,
         repositories: result.repositories.map(toRepositoryAccessRepositoryDto),
@@ -148,80 +124,7 @@ export function createRepositoryAccessMutationRoutes(
     },
   });
 
-  const grantRoute = defineRoute({
-    method: 'POST',
-    path: '/integration-connections/:connectionId/repository-grants',
-    auth: AUTH_USER,
-    description: 'Grant a repository to an integration connection.',
-    schema: {
-      params: connectionParamsSchema,
-      body: createIntegrationConnectionRepositoryGrantBodySchema,
-      response: {200: integrationConnectionRepositoryGrantDtoSchema},
-    },
-    errorHandler: integrationRouteErrorHandler,
-    handler: async (request) => {
-      rejectImpersonatedSession(request);
-      const connection = await loadConnection(request.params.connectionId);
-      const access = requireRepositoryAccessAdmin(request, connection);
-      const provider = params.registry.get(connection.provider);
-      requireRepositoryAccessSupport(provider.repositoryAuthorization);
-      validateExternalRepositoryId(
-        request.body.external_repository_id,
-        connection.provider,
-        request.body.owner,
-        request.body.name,
-      );
-
-      const grant = await upsertIntegrationConnectionRepositoryGrantWithAudit({
-        connectionId: connection.id,
-        externalRepositoryId: request.body.external_repository_id,
-        repositoryOwner: request.body.owner,
-        repositoryName: request.body.name,
-        actorId: access.userId,
-        provider: connection.provider,
-        correlationId: request.id,
-      });
-      if (!grant) throw connectionNotFound();
-
-      invalidate(params.invalidateRepositoryAuthorizationCache, grant.connectionId);
-      return toRepositoryGrantDto(grant);
-    },
-  });
-
-  const revokeRoute = defineRoute({
-    method: 'DELETE',
-    path: '/integration-connections/:connectionId/repository-grants/:grantId',
-    auth: AUTH_USER,
-    description: 'Revoke a manually granted repository from an integration connection.',
-    schema: {
-      params: connectionParamsSchema.extend({grantId: z.string().uuid()}),
-      response: {204: z.void()},
-    },
-    errorHandler: integrationRouteErrorHandler,
-    handler: async (request, reply) => {
-      rejectImpersonatedSession(request);
-      const connection = await loadConnection(request.params.connectionId);
-      const access = requireRepositoryAccessAdmin(request, connection);
-      const provider = params.registry.get(connection.provider);
-      requireRepositoryAccessSupport(provider.repositoryAuthorization);
-
-      const grant = await deleteIntegrationConnectionRepositoryGrantByIdWithAudit({
-        connectionId: connection.id,
-        grantId: request.params.grantId,
-        actorId: access.userId,
-        provider: connection.provider,
-        correlationId: request.id,
-      });
-      if (!grant) {
-        throw new ClientError('Repository grant not found', 'not-found', {status: 404});
-      }
-
-      invalidate(params.invalidateRepositoryAuthorizationCache, grant.connectionId);
-      reply.status(204);
-    },
-  });
-
-  return [updateModeRoute, grantRoute, revokeRoute];
+  return [updateModeRoute];
 }
 
 async function loadConnection(connectionId: string): Promise<IntegrationConnection> {
@@ -277,27 +180,6 @@ function decodeRepositoryAccessCursor(
     };
   } catch {
     return undefined;
-  }
-}
-
-function validateExternalRepositoryId(
-  externalRepositoryId: string,
-  provider: string,
-  repositoryOwner: string,
-  repositoryName: string,
-): void {
-  try {
-    const providerRepositoryId = parseProviderRepositoryId(externalRepositoryId, provider);
-    if (
-      providerRepositoryId.includes('/') &&
-      providerRepositoryId.toLowerCase() !== `${repositoryOwner}/${repositoryName}`.toLowerCase()
-    ) {
-      throw new Error('Provider repository id does not match repository coordinates');
-    }
-  } catch {
-    throw new ClientError('Invalid provider-namespaced repository id', 'invalid-repository', {
-      status: 400,
-    });
   }
 }
 

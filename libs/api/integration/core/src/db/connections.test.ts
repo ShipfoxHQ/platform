@@ -16,10 +16,6 @@ import {
   upsertIntegrationConnection,
 } from './connections.js';
 import {db} from './db.js';
-import {
-  listIntegrationConnectionRepositoryGrants,
-  upsertIntegrationConnectionRepositoryGrant,
-} from './repository-grants.js';
 import {integrationsOutbox} from './schema/outbox.js';
 
 function connectionEvents(connectionId: string) {
@@ -505,33 +501,6 @@ describe('integration connection queries', () => {
     expect(deleted).toBe(true);
     expect(deletedAgain).toBe(false);
     expect(await getIntegrationConnectionById(connection.id)).toBeUndefined();
-  });
-
-  it('deletes connection-owned repository grants with the connection', async () => {
-    const connection = await upsertIntegrationConnection({
-      workspaceId,
-      provider: 'github',
-      externalAccountId: 'github-grants',
-      slug: 'github_grants',
-      displayName: 'GitHub',
-      capabilities: ['source_control'],
-    });
-
-    await upsertIntegrationConnectionRepositoryGrant({
-      connectionId: connection.id,
-      externalRepositoryId: 'github:42',
-      repositoryOwner: 'acme',
-      repositoryName: 'platform',
-    });
-
-    expect(
-      await listIntegrationConnectionRepositoryGrants({connectionId: connection.id}),
-    ).toHaveLength(1);
-
-    expect(await deleteIntegrationConnection({id: connection.id})).toBe(true);
-    expect(
-      await listIntegrationConnectionRepositoryGrants({connectionId: connection.id}),
-    ).toHaveLength(0);
   });
 
   it('rolls back a connection when provider-specific installation persistence fails', async () => {

@@ -1,11 +1,7 @@
 import type {StoredWebhookRequest, WebhookRequestProcessor} from '@shipfox/api-integration-spi';
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import {createOutboxRegistry, type ModuleService, startModuleServices} from '@shipfox/node-module';
-import {
-  createIntegrationsContext,
-  type RepositoryAuthorizationGrantStore,
-  WebhookProcessorNotConfiguredError,
-} from './index.js';
+import {createIntegrationsContext, WebhookProcessorNotConfiguredError} from './index.js';
 
 const request = {
   schema_version: 1,
@@ -185,10 +181,6 @@ describe('createIntegrationsContext', () => {
       getProjectBySource,
       findProjectBySourceRepositoryName: vi.fn(),
     } as unknown as ProjectsModuleClient;
-    const repositoryGrants: RepositoryAuthorizationGrantStore = {
-      getByExternalId: vi.fn().mockResolvedValue(undefined),
-      listByName: vi.fn().mockResolvedValue([]),
-    };
     const workspaceId = crypto.randomUUID();
     const connection = {
       id: crypto.randomUUID(),
@@ -233,7 +225,6 @@ describe('createIntegrationsContext', () => {
           },
         ],
         projects,
-        repositoryGrants,
         getIntegrationConnectionById,
       });
 

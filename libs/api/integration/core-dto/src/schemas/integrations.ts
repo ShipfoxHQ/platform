@@ -1,5 +1,4 @@
 import {z} from 'zod';
-import {isSafeExternalRepositoryValue, isSafeRepositoryPart} from '../repository-identifiers.js';
 
 export const CONNECTION_SLUG_MAX_LENGTH = 100;
 
@@ -101,52 +100,12 @@ export type UpdateIntegrationConnectionRepositoryAccessBodyDto = z.infer<
   typeof updateIntegrationConnectionRepositoryAccessBodySchema
 >;
 
-const repositoryExternalIdSchema = z.string().min(1).max(255).refine(isSafeExternalRepositoryValue);
-const repositoryPartSchema = z.string().min(1).max(255).refine(isSafeRepositoryPart);
-
-export const createIntegrationConnectionRepositoryGrantBodySchema = z.object({
-  external_repository_id: repositoryExternalIdSchema,
-  owner: repositoryPartSchema,
-  name: repositoryPartSchema,
-});
-export type CreateIntegrationConnectionRepositoryGrantBodyDto = z.infer<
-  typeof createIntegrationConnectionRepositoryGrantBodySchema
->;
-
-export const integrationConnectionRepositoryGrantDtoSchema = z.object({
-  id: z.string().uuid(),
-  connection_id: z.string().uuid(),
-  workspace_id: z.string().uuid(),
-  external_repository_id: z.string().min(1).max(255),
-  owner: z.string().min(1).max(255),
-  name: z.string().min(1).max(255),
-  created_at: z.string(),
-  updated_at: z.string(),
-});
-export type IntegrationConnectionRepositoryGrantDto = z.infer<
-  typeof integrationConnectionRepositoryGrantDtoSchema
->;
-
-export const integrationConnectionRepositoryAccessOriginSchema = z.discriminatedUnion('type', [
-  z.object({
-    type: z.literal('project'),
-    project_id: z.string().uuid(),
-    project_name: z.string(),
-  }),
-  z.object({
-    type: z.literal('manual'),
-    grant_id: z.string().uuid(),
-  }),
-]);
-export type IntegrationConnectionRepositoryAccessOriginDto = z.infer<
-  typeof integrationConnectionRepositoryAccessOriginSchema
->;
-
 export const integrationConnectionRepositoryAccessRepositorySchema = z.object({
   external_repository_id: z.string().min(1).max(255),
   owner: z.string().min(1).max(255),
   name: z.string().min(1).max(255),
-  origins: z.array(integrationConnectionRepositoryAccessOriginSchema).min(1),
+  project_id: z.string().uuid(),
+  project_name: z.string(),
 });
 export type IntegrationConnectionRepositoryAccessRepositoryDto = z.infer<
   typeof integrationConnectionRepositoryAccessRepositorySchema

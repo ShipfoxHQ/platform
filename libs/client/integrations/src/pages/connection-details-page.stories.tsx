@@ -23,7 +23,6 @@ import {ConnectionDetailsPage} from './connection-details-page.js';
 const WORKSPACE_ID = '11111111-1111-4111-8111-111111111111';
 const CONNECTION_ID = '44444444-4444-4444-8444-444444444444';
 const PROJECT_ID = '55555555-5555-4555-8555-555555555555';
-const GRANT_ID = '66666666-6666-4666-8666-666666666666';
 const WORKSPACE_PATH = '/w/acme/settings/integrations/github_acme_corp';
 const REPOSITORY_ACCESS_PATH = `/integration-connections/${CONNECTION_ID}/repository-access`;
 const SELECTED_MODE_RE = /Only your projects' repositories/u;
@@ -76,22 +75,22 @@ const selectedRepositories: IntegrationConnectionRepositoryAccessResponseDto['re
     external_repository_id: 'platform',
     owner: 'acme-corp',
     name: 'platform',
-    origins: [
-      {type: 'project', project_id: PROJECT_ID, project_name: 'Platform'},
-      {type: 'manual', grant_id: GRANT_ID},
-    ],
+    project_id: PROJECT_ID,
+    project_name: 'Platform',
   },
   {
     external_repository_id: 'agent-tools',
     owner: 'acme-corp',
     name: 'agent-tools',
-    origins: [{type: 'project', project_id: PROJECT_ID, project_name: 'Platform'}],
+    project_id: PROJECT_ID,
+    project_name: 'Agent tools',
   },
   {
     external_repository_id: 'workflow-runners',
     owner: 'acme-corp',
     name: 'workflow-runners',
-    origins: [{type: 'manual', grant_id: GRANT_ID}],
+    project_id: PROJECT_ID,
+    project_name: 'Workflow runners',
   },
 ];
 

@@ -1,0 +1,1 @@
+DROP TABLE "integrations_connection_repository_grants" CASCADE;
