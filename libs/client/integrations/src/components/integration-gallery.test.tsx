@@ -398,6 +398,10 @@ describe('IntegrationGallery — installed section', () => {
 
     await openActions('Open acme-corp integration actions');
 
+    expect(screen.getByRole('menuitem', {name: 'Manage repository access'})).toHaveAttribute(
+      'href',
+      '/w/acme/settings/integrations/github_acme_corp',
+    );
     const externalAction = screen.getByRole('menuitem', {name: 'Open in GitHub'});
     expect(externalAction).toHaveAttribute('href', githubConnection.external_url);
     expect(externalAction).toHaveAttribute('target', '_blank');

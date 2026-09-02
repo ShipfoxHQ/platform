@@ -1,5 +1,8 @@
 import type {
   IntegrationConnectionDto,
+  IntegrationConnectionRepositoryAccessOriginDto,
+  IntegrationConnectionRepositoryAccessRepositoryDto,
+  IntegrationConnectionRepositoryAccessResponseDto,
   IntegrationProviderDto,
   RepositoryDto,
 } from '@shipfox/api-integration-core-dto';
@@ -11,6 +14,9 @@ import type {
   IntegrationProvider,
   JiraSite,
   Repository,
+  RepositoryAccess,
+  RepositoryAccessOrigin,
+  RepositoryAccessRepository,
   WebhookConnection,
 } from '#core/models.js';
 
@@ -53,6 +59,35 @@ export function toRepository(dto: RepositoryDto): Repository {
     visibility: dto.visibility,
     cloneUrl: dto.clone_url,
     htmlUrl: dto.html_url,
+  };
+}
+
+function toRepositoryAccessOrigin(
+  dto: IntegrationConnectionRepositoryAccessOriginDto,
+): RepositoryAccessOrigin {
+  return dto.type === 'project'
+    ? {type: 'project', projectId: dto.project_id, projectName: dto.project_name}
+    : {type: 'manual', grantId: dto.grant_id};
+}
+
+function toRepositoryAccessRepository(
+  dto: IntegrationConnectionRepositoryAccessRepositoryDto,
+): RepositoryAccessRepository {
+  return {
+    externalRepositoryId: dto.external_repository_id,
+    owner: dto.owner,
+    name: dto.name,
+    origins: dto.origins.map(toRepositoryAccessOrigin),
+  };
+}
+
+export function toRepositoryAccess(
+  dto: IntegrationConnectionRepositoryAccessResponseDto,
+): RepositoryAccess {
+  return {
+    mode: dto.mode,
+    repositories: dto.repositories.map(toRepositoryAccessRepository),
+    ...(dto.next_cursor == null ? {} : {nextCursor: dto.next_cursor}),
   };
 }
 
