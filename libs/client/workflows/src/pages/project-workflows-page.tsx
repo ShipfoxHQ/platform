@@ -388,7 +388,12 @@ function WorkflowSyncAlert({sync}: {sync: DefinitionSyncSummary | null | undefin
 }
 
 function WorkflowSyncDiagnostics({sync}: {sync: DefinitionSyncSummary | null | undefined}) {
-  if (sync?.status !== 'succeeded' || sync.diagnostics.length === 0) return null;
+  if (
+    (sync?.status !== 'succeeded' && sync?.status !== 'failed') ||
+    sync.diagnostics.length === 0
+  ) {
+    return null;
+  }
 
   const hasErrors = sync.diagnostics.some((diagnostic) => diagnostic.severity === 'error');
   const hasWarnings = sync.diagnostics.some((diagnostic) => diagnostic.severity === 'warning');
@@ -399,7 +404,7 @@ function WorkflowSyncDiagnostics({sync}: {sync: DefinitionSyncSummary | null | u
 
   return (
     <Callout role="status" type={hasErrors ? 'error' : 'warning'}>
-      <div className="flex flex-col gap-inline">
+      <div className="flex min-w-0 flex-1 flex-col gap-inline">
         <Text size="sm" bold>
           {title}
         </Text>
@@ -407,7 +412,7 @@ function WorkflowSyncDiagnostics({sync}: {sync: DefinitionSyncSummary | null | u
           {groups.map((group) => (
             <li key={group.key} className="flex flex-col gap-tight">
               {group.filePath ? (
-                <Code className="text-foreground-neutral-muted">{group.filePath}</Code>
+                <Code className="break-all text-foreground-neutral-muted">{group.filePath}</Code>
               ) : null}
               <ul className="flex flex-col gap-tight">
                 {group.items.map(({key, diagnostic}) => {
@@ -416,7 +421,9 @@ function WorkflowSyncDiagnostics({sync}: {sync: DefinitionSyncSummary | null | u
                   return (
                     <li key={key}>
                       {diagnostic.path ? (
-                        <Code className="text-foreground-neutral-muted">{diagnostic.path}</Code>
+                        <Code className="break-all text-foreground-neutral-muted">
+                          {diagnostic.path}
+                        </Code>
                       ) : null}
                       <Text size="sm">
                         <span className="font-medium">{severityLabel}:</span>{' '}

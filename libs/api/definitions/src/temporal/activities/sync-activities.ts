@@ -3,7 +3,11 @@ import type {IntegrationsModuleClient} from '@shipfox/api-integration-core-dto/i
 import {markErrorReported} from '@shipfox/node-error-monitoring';
 import {Context} from '@temporalio/activity';
 import {ApplicationFailure} from '@temporalio/common';
-import type {DefinitionSyncDiagnostic, DefinitionSyncErrorCode} from '#core/entities/sync-state.js';
+import {
+  type DefinitionSyncDiagnostic,
+  type DefinitionSyncErrorCode,
+  limitDefinitionSyncDiagnostics,
+} from '#core/entities/sync-state.js';
 import {
   classifySyncFailure,
   discoverWorkflowFiles,
@@ -36,6 +40,7 @@ export interface MarkSyncFailedActivityInput extends Omit<SyncWorkflowInput, 'so
   sourceRef: string | null;
   code: DefinitionSyncErrorCode;
   message: string;
+  diagnostics?: readonly DefinitionSyncDiagnostic[] | undefined;
 }
 
 export interface PrepareSyncResult {
@@ -67,19 +72,27 @@ export function createDefinitionSyncActivities(
   integrations?: IntegrationsModuleClient | undefined,
   options?: DefinitionSyncActivityOptions | undefined,
 ) {
+  const fetchAndApplyDefinitionWorkflows = createFetchAndApplyActivity(
+    sourceControl,
+    agent,
+    integrations,
+  );
+  const markDefinitionSyncSucceeded = createMarkSyncSucceededActivity();
+  const markDefinitionSyncFailed = createMarkSyncFailedActivity();
+
   return {
     prepareDefinitionSync: createPrepareDefinitionSyncActivity(sourceControl),
     discoverDefinitionWorkflows: createDiscoverDefinitionWorkflowsActivity(
       sourceControl,
       options?.workflowPath,
     ),
-    fetchAndApplyDefinitionWorkflows: createFetchAndApplyActivity(
-      sourceControl,
-      agent,
-      integrations,
-    ),
-    markDefinitionSyncSucceeded: createMarkSyncSucceededActivity(),
-    markDefinitionSyncFailed: createMarkSyncFailedActivity(),
+    fetchAndApplyDefinitionWorkflows,
+    // Versioned names keep old workers from silently dropping diagnostics.
+    fetchAndApplyDefinitionWorkflowsV2: fetchAndApplyDefinitionWorkflows,
+    markDefinitionSyncSucceeded,
+    markDefinitionSyncSucceededV2: markDefinitionSyncSucceeded,
+    markDefinitionSyncFailed,
+    markDefinitionSyncFailedV2: markDefinitionSyncFailed,
   };
 }
 
@@ -169,11 +182,15 @@ function createFetchAndApplyActivity(
         })),
       });
 
-      return {
-        ...result,
-        diagnostics: definitions.flatMap((entry) =>
+      const diagnostics = limitDefinitionSyncDiagnostics(
+        definitions.flatMap((entry) =>
           entry.diagnostics.map((diagnostic) => ({...diagnostic, filePath: entry.path})),
         ),
+      );
+
+      return {
+        ...result,
+        diagnostics,
       };
     });
   };
@@ -209,7 +226,7 @@ function createMarkSyncFailedActivity() {
       status: 'failed',
       lastErrorCode: input.code,
       lastErrorMessage: input.message,
-      diagnostics: [],
+      diagnostics: input.diagnostics ?? [],
       finishedAt: new Date(),
     });
   };
@@ -223,9 +240,10 @@ async function runWithPermanentTranslation<T>(operation: () => Promise<T>): Prom
       throw error;
     }
     const failure = classifySyncFailure(error);
+    const details = failure.diagnostics === undefined ? [] : [failure.diagnostics];
     const translatedError = failure.retryable
-      ? ApplicationFailure.retryable(failure.message, failure.code)
-      : ApplicationFailure.nonRetryable(failure.message, failure.code);
+      ? ApplicationFailure.retryable(failure.message, failure.code, ...details)
+      : ApplicationFailure.nonRetryable(failure.message, failure.code, ...details);
     if (failure.code !== 'unknown') markErrorReported(translatedError);
     throw translatedError;
   }

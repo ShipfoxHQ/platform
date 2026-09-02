@@ -1,5 +1,6 @@
 import {
   DEFINITION_SYNC_DIAGNOSTICS_MAX_COUNT,
+  DEFINITION_SYNC_LAST_ERROR_MESSAGE_MAX_LENGTH,
   DEFINITION_SYNC_WARNING_CODE_MAX_LENGTH,
   DEFINITION_SYNC_WARNING_MESSAGE_MAX_LENGTH,
   DEFINITION_SYNC_WARNING_PATH_MAX_LENGTH,
@@ -63,6 +64,20 @@ describe('definition sync state queries', () => {
     expect(second.status).toBe('failed');
     expect(second.lastErrorCode).toBe('invalid-definition');
     expect(second.startedAt?.getTime()).toBe(first.startedAt?.getTime());
+  });
+
+  it('bounds last error messages before persisting them', async () => {
+    const state = await markDefinitionSyncState({
+      projectId,
+      sourceConnectionId,
+      sourceExternalRepositoryId: 'gitea-owner/platform',
+      ref: 'main',
+      status: 'failed',
+      lastErrorCode: 'invalid-definition',
+      lastErrorMessage: 'x'.repeat(DEFINITION_SYNC_LAST_ERROR_MESSAGE_MAX_LENGTH + 1),
+    });
+
+    expect(state.lastErrorMessage).toHaveLength(DEFINITION_SYNC_LAST_ERROR_MESSAGE_MAX_LENGTH);
   });
 
   it('persists diagnostics and clears them on a subsequent sync', async () => {

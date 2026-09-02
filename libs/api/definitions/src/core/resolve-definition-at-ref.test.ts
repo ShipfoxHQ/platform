@@ -61,6 +61,16 @@ jobs:
       invalid indentation here
 `;
 
+const invalidPredicateYaml = `
+name: Invalid predicate
+runner: ubuntu-latest
+jobs:
+  build:
+    success: 'executions.size()'
+    steps:
+      - run: echo hello
+`;
+
 const integrationYaml = `
 name: Agent CI
 runner: ubuntu-latest
@@ -487,6 +497,37 @@ describe('resolveDefinitionAtRef', () => {
     );
     expect(await countLineageRows(projectId)).toHaveLength(0);
     expect(metrics.recordDefinitionRefResolution).toHaveBeenCalledWith('invalid-definition');
+  });
+
+  test('preserves CEL reasons in invalid-definition details', async () => {
+    const projectId = crypto.randomUUID();
+    const clients = withClients({
+      integrations: {
+        fetchSourceFile: async () => ({
+          path: CONFIG_PATH,
+          ref: COMMIT,
+          content: invalidPredicateYaml,
+        }),
+      },
+    });
+    const error = await expectRefError(
+      resolveDefinitionAtRef({
+        projectId,
+        ref: 'fix-branch',
+        configPath: CONFIG_PATH,
+        ...clients,
+      }),
+      'invalid-definition',
+    );
+
+    expect(error.details.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: 'jobs.build.success',
+          reason: expect.stringContaining('must return bool'),
+        }),
+      ]),
+    );
   });
 
   test('runs the two-pass integration validation like sync', async () => {

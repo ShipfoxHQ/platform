@@ -1,3 +1,4 @@
+import {DEFINITION_SYNC_LAST_ERROR_MESSAGE_MAX_LENGTH} from '@shipfox/api-definitions-dto';
 import {and, desc, eq} from 'drizzle-orm';
 import type {
   DefinitionSyncDiagnostic,
@@ -30,6 +31,10 @@ export async function markDefinitionSyncState(
 ): Promise<DefinitionSyncState> {
   const now = new Date();
   const diagnostics = limitDefinitionSyncDiagnostics(params.diagnostics ?? []);
+  const lastErrorMessage =
+    params.lastErrorMessage == null
+      ? null
+      : params.lastErrorMessage.slice(0, DEFINITION_SYNC_LAST_ERROR_MESSAGE_MAX_LENGTH);
   const [row] = await db()
     .insert(definitionSyncStates)
     .values({
@@ -39,7 +44,7 @@ export async function markDefinitionSyncState(
       ref: params.ref,
       status: params.status,
       lastErrorCode: params.lastErrorCode ?? null,
-      lastErrorMessage: params.lastErrorMessage ?? null,
+      lastErrorMessage,
       warnings: diagnostics,
       startedAt: params.startedAt ?? null,
       finishedAt: params.finishedAt ?? null,
@@ -55,7 +60,7 @@ export async function markDefinitionSyncState(
       set: {
         status: params.status,
         lastErrorCode: params.lastErrorCode ?? null,
-        lastErrorMessage: params.lastErrorMessage ?? null,
+        lastErrorMessage,
         warnings: diagnostics,
         ...(params.startedAt !== undefined ? {startedAt: params.startedAt} : {}),
         ...(params.finishedAt !== undefined ? {finishedAt: params.finishedAt} : {}),

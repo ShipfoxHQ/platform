@@ -40,6 +40,18 @@ jobs:
         run: eval "$MSG"
 `;
 
+const invalidPredicateYaml = `
+name: Invalid predicate
+runner: ubuntu-latest
+jobs:
+  build:
+    success: 'executions.size()'
+    steps:
+      - run: echo hello
+`;
+
+const YAML_LOCATION_RE = /^\d+:\d+$/;
+
 const validIntegrationYaml = `
 name: Agent CI
 runner: ubuntu-latest
@@ -410,7 +422,70 @@ jobs:
       }),
     });
 
-    await expect(result).rejects.toMatchObject({code: 'invalid-definition'});
+    await expect(result).rejects.toMatchObject({
+      code: 'invalid-definition',
+      details: [
+        expect.objectContaining({
+          message: expect.stringContaining('Invalid workflow YAML syntax'),
+          path: expect.stringMatching(YAML_LOCATION_RE),
+        }),
+      ],
+    });
+  });
+
+  it('retains invalid document validation paths on invalid-definition sync failures', async () => {
+    const result = fetchAndParseWorkflows({
+      ...baseContext,
+      ref: 'main',
+      paths: ['.shipfox/workflows/missing-name.yml'],
+      sourceControl: sourceControl({
+        fetchFile: vi.fn(() =>
+          Promise.resolve({
+            path: '.shipfox/workflows/missing-name.yml',
+            ref: 'main',
+            content: `
+runner: ubuntu-latest
+jobs:
+  build:
+    steps:
+      - run: echo hello
+`,
+          }),
+        ),
+      }),
+    });
+
+    await expect(result).rejects.toMatchObject({
+      code: 'invalid-definition',
+      details: [expect.objectContaining({path: 'name'})],
+    });
+  });
+
+  it('retains validation details on invalid-definition sync failures', async () => {
+    const result = fetchAndParseWorkflows({
+      ...baseContext,
+      ref: 'main',
+      paths: ['.shipfox/workflows/invalid.yml'],
+      sourceControl: sourceControl({
+        fetchFile: vi.fn(() =>
+          Promise.resolve({
+            path: '.shipfox/workflows/invalid.yml',
+            ref: 'main',
+            content: invalidPredicateYaml,
+          }),
+        ),
+      }),
+    });
+
+    await expect(result).rejects.toMatchObject({
+      code: 'invalid-definition',
+      details: [
+        expect.objectContaining({
+          path: 'jobs.build.success',
+          reason: expect.stringContaining('must return bool'),
+        }),
+      ],
+    });
   });
 
   it('emits onProgress for every path', async () => {
@@ -653,11 +728,36 @@ describe('classifySyncFailure', () => {
   });
 
   it('classifies DefinitionSyncPermanentError as non-retryable', () => {
+    const details = [
+      {
+        message: 'Step gate success must be a valid CEL boolean expression.',
+        path: 'jobs.build.steps.0.gate.success',
+        reason: 'No such key: attempt',
+      },
+    ];
     const result = classifySyncFailure(
-      new DefinitionSyncPermanentError('invalid-definition', 'bad yaml'),
+      new DefinitionSyncPermanentError(
+        'invalid-definition',
+        'bad yaml',
+        details,
+        '.shipfox/workflows/invalid.yml',
+      ),
     );
 
-    expect(result).toEqual({code: 'invalid-definition', message: 'bad yaml', retryable: false});
+    expect(result).toEqual({
+      code: 'invalid-definition',
+      message: 'bad yaml',
+      retryable: false,
+      diagnostics: [
+        {
+          code: 'invalid-definition',
+          message: 'Step gate success must be a valid CEL boolean expression: No such key: attempt',
+          path: 'jobs.build.steps.0.gate.success',
+          severity: 'error',
+          filePath: '.shipfox/workflows/invalid.yml',
+        },
+      ],
+    });
   });
 
   it.each([

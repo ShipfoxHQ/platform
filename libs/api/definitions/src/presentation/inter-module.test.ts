@@ -397,8 +397,12 @@ describe('definitions inter-module presentation', () => {
       },
       {
         code: 'invalid-definition',
-        details: {errors: [{message: 'Invalid YAML', path: 'jobs'}]},
-        expected: {errors: [{message: 'Invalid YAML', path: 'jobs'}]},
+        details: {
+          errors: [{message: 'Invalid YAML', path: 'jobs', reason: 'Unexpected indentation'}],
+        },
+        expected: {
+          errors: [{message: 'Invalid YAML', path: 'jobs', reason: 'Unexpected indentation'}],
+        },
       },
       {code: 'source-unavailable', details: {}, expected: {}},
     ];
