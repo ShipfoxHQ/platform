@@ -45,6 +45,25 @@ export interface RepositoryPage {
   nextCursor?: string;
 }
 
+export type RepositoryAccessMode = 'selected' | 'all';
+
+export type RepositoryAccessOrigin =
+  | {type: 'project'; projectId: string; projectName: string}
+  | {type: 'manual'; grantId: string};
+
+export interface RepositoryAccessRepository {
+  externalRepositoryId: string;
+  owner: string;
+  name: string;
+  origins: RepositoryAccessOrigin[];
+}
+
+export interface RepositoryAccess {
+  mode: RepositoryAccessMode;
+  repositories: RepositoryAccessRepository[];
+  nextCursor?: string;
+}
+
 export interface WebhookConnection {
   id: string;
   workspaceId: string;

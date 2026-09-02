@@ -1,12 +1,15 @@
 import type {
   IntegrationCapabilityDto,
+  IntegrationConnectionRepositoryAccessModeDto,
   UpdateIntegrationConnectionBodyDto,
 } from '@shipfox/api-integration-core-dto';
 import {
   integrationConnectionDtoSchema,
+  integrationConnectionRepositoryAccessResponseSchema,
   listIntegrationConnectionsResponseSchema,
   listIntegrationProvidersResponseSchema,
   listRepositoriesResponseSchema,
+  updateIntegrationConnectionRepositoryAccessResponseSchema,
 } from '@shipfox/api-integration-core-dto';
 import type {CreateGiteaConnectionBodyDto} from '@shipfox/api-integration-gitea-dto';
 import {createGiteaConnectionResponseSchema} from '@shipfox/api-integration-gitea-dto';
@@ -66,6 +69,8 @@ import {
   type IntegrationProvider,
   isUsableConnection,
   type JiraSite,
+  type RepositoryAccess,
+  type RepositoryAccessMode,
   type RepositoryPage,
 } from '#core/models.js';
 import {serializeJiraCallbackQuery} from '#jira-callback.js';
@@ -77,6 +82,7 @@ import {
   toIntegrationProvider,
   toJiraSite,
   toRepository,
+  toRepositoryAccess,
 } from './integration-mapper.js';
 
 export const integrationsQueryKeys = {
@@ -94,6 +100,8 @@ export const integrationsQueryKeys = {
     integrationsQueryKeys.connections(workspaceId, 'source_control'),
   repositories: (connectionId: string, search: string) =>
     [...integrationsQueryKeys.all, 'repositories', connectionId, search] as const,
+  repositoryAccess: (connectionId: string) =>
+    [...integrationsQueryKeys.all, 'repository-access', connectionId] as const,
 };
 
 type SourceConnectionsQueryKey =
@@ -136,6 +144,18 @@ type RepositoriesInfiniteQueryOptions = UseInfiniteQueryOptions<
   Error,
   InfiniteData<RepositoryPage, string | undefined>,
   RepositoriesQueryKey,
+  string | undefined
+>;
+
+type RepositoryAccessQueryKey =
+  | ReturnType<typeof integrationsQueryKeys.repositoryAccess>
+  | readonly ['integrations', 'repository-access'];
+
+type RepositoryAccessQueryOptions = UseInfiniteQueryOptions<
+  RepositoryAccess,
+  Error,
+  InfiniteData<RepositoryAccess, string | undefined>,
+  RepositoryAccessQueryKey,
   string | undefined
 >;
 
@@ -401,6 +421,44 @@ export async function listRepositories({
   };
 }
 
+export async function listIntegrationConnectionRepositoryAccess({
+  connectionId,
+  cursor,
+  signal,
+}: {
+  connectionId: string;
+  cursor?: string;
+  signal?: AbortSignal;
+}): Promise<RepositoryAccess> {
+  const search = new URLSearchParams();
+  if (cursor) search.set('cursor', cursor);
+  const query = search.toString();
+  const path = query
+    ? `/integration-connections/${encodeURIComponent(connectionId)}/repository-access?${query}`
+    : `/integration-connections/${encodeURIComponent(connectionId)}/repository-access`;
+  const response = await checkedApiRequest(
+    integrationConnectionRepositoryAccessResponseSchema,
+    path,
+    {signal},
+  );
+  return toRepositoryAccess(response);
+}
+
+export async function updateIntegrationConnectionRepositoryAccess({
+  connectionId,
+  mode,
+}: {
+  connectionId: string;
+  mode: RepositoryAccessMode;
+}): Promise<IntegrationConnectionRepositoryAccessModeDto> {
+  const response = await checkedApiRequest(
+    updateIntegrationConnectionRepositoryAccessResponseSchema,
+    `/integration-connections/${encodeURIComponent(connectionId)}/repository-access`,
+    {method: 'PUT', body: {mode}},
+  );
+  return response.mode;
+}
+
 export async function updateIntegrationConnection({
   connectionId,
   body,
@@ -445,6 +503,31 @@ export function useSourceConnectionsQuery(workspaceId: string | undefined) {
 
 export function useIntegrationConnectionsQuery(workspaceId: string | undefined) {
   return useQuery(integrationConnectionsQueryOptions(workspaceId));
+}
+
+export function useIntegrationConnectionRepositoryAccessQuery(connectionId: string | undefined) {
+  return useInfiniteQuery(repositoryAccessQueryOptions(connectionId));
+}
+
+export function repositoryAccessQueryOptions(
+  connectionId: string | undefined,
+): RepositoryAccessQueryOptions {
+  return infiniteQueryOptions({
+    queryKey: connectionId
+      ? integrationsQueryKeys.repositoryAccess(connectionId)
+      : ([...integrationsQueryKeys.all, 'repository-access'] as const),
+    enabled: Boolean(connectionId),
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({pageParam, signal}) => {
+      const args: {connectionId: string; cursor?: string; signal: AbortSignal} = {
+        connectionId: connectionId ?? '',
+        signal,
+      };
+      if (pageParam) args.cursor = pageParam;
+      return listIntegrationConnectionRepositoryAccess(args);
+    },
+    getNextPageParam: (lastPage) => lastPage.nextCursor,
+  });
 }
 
 export function integrationConnectionsQueryOptions(
@@ -538,6 +621,19 @@ export function useUpdateIntegrationConnectionMutation() {
     onSuccess: async (connection) => {
       await queryClient.invalidateQueries({
         queryKey: integrationsQueryKeys.connectionsByWorkspace(connection.workspaceId),
+      });
+    },
+  });
+}
+
+export function useUpdateIntegrationConnectionRepositoryAccessMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: updateIntegrationConnectionRepositoryAccess,
+    onSuccess: async (_mode, variables) => {
+      await queryClient.invalidateQueries({
+        queryKey: integrationsQueryKeys.repositoryAccess(variables.connectionId),
+        refetchType: 'all',
       });
     },
   });

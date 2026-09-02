@@ -78,6 +78,11 @@ export const integrationsFeature = defineClientFeature({
       parent: 'workspaceSettings',
       impl: '@shipfox/client-integrations/routes/integrations-settings',
     },
+    {
+      path: '/w/$workspaceSlug/settings/integrations/$connectionSlug',
+      parent: 'workspaceSettings',
+      impl: '@shipfox/client-integrations/routes/connection-details',
+    },
   ],
   settingsSections: integrationsSettingsSections,
 });
