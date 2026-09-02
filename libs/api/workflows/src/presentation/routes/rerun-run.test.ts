@@ -18,9 +18,11 @@ import {
   getJobsByWorkflowRunId,
   getStepsByJobId,
   getWorkflowRunById,
+  listRunAttempts,
   updateJobStatus,
   updateWorkflowRunStatus,
 } from '#db/workflow-runs.js';
+import {agentTestClient} from '#test/fixtures/agent-inter-module.js';
 import {workflowModel} from '#test/index.js';
 import {rerunRunRoute} from './rerun-run.js';
 
@@ -53,11 +55,12 @@ describe('POST /api/workflows/runs/:id/rerun', () => {
       );
       done();
     });
-    app.post('/api/workflows/runs/:id/rerun', rerunRunRoute(projects, workspaces));
+    app.post('/api/workflows/runs/:id/rerun', rerunRunRoute(projects, workspaces, agentTestClient));
     await app.ready();
   });
 
   beforeEach(() => {
+    vi.mocked(agentTestClient.carryOverSessions).mockClear();
     workspaceId = crypto.randomUUID();
     projectId = crypto.randomUUID();
     projectAccessState.workspaceId = workspaceId;
@@ -117,8 +120,10 @@ describe('POST /api/workflows/runs/:id/rerun', () => {
     });
   });
 
-  test('creates a new attempt for failed mode', async () => {
+  test('creates a new attempt for failed mode and carries sessions between attempts', async () => {
     const source = await createFailedRunWithFailedJob();
+    const [sourceAttempt] = await listRunAttempts({workflowRunId: source.id, projectId});
+    if (!sourceAttempt) throw new Error('Expected source attempt');
 
     const res = await app.inject({
       method: 'POST',
@@ -126,6 +131,12 @@ describe('POST /api/workflows/runs/:id/rerun', () => {
       payload: {mode: 'failed'},
     });
 
+    const attempts = await listRunAttempts({workflowRunId: source.id, projectId});
+    const targetAttempt = attempts.find((attempt) => attempt.attempt === 2);
+
+    if (!targetAttempt) throw new Error('Expected target attempt');
+
+    expect(targetAttempt.id).not.toBe(sourceAttempt.id);
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({
       id: source.id,
@@ -133,6 +144,23 @@ describe('POST /api/workflows/runs/:id/rerun', () => {
       latest_attempt: 2,
       status: 'pending',
     });
+    expect(agentTestClient.carryOverSessions).toHaveBeenCalledWith({
+      fromWorkflowRunAttemptId: sourceAttempt.id,
+      toWorkflowRunAttemptId: targetAttempt.id,
+    });
+  });
+
+  test('does not carry sessions for an all-jobs rerun', async () => {
+    const source = await createTerminalRun();
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/workflows/runs/${source.id}/rerun`,
+      payload: {mode: 'all'},
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(agentTestClient.carryOverSessions).not.toHaveBeenCalled();
   });
 
   test('returns 409 without creating an attempt for an oversized legacy config', async () => {

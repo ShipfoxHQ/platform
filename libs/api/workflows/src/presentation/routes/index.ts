@@ -91,7 +91,7 @@ export function createWorkflowRoutes(params: WorkflowRouteClients): RouteGroup[]
         getRunRoute(params.projects),
         getStepAttemptDetailRoute(params.projects),
         cancelRunRoute(params.projects),
-        rerunRunRoute(params.projects, params.workspaces),
+        rerunRunRoute(params.projects, params.workspaces, params.agent),
       ],
     },
     createLeaseTokenRouteGroup(params),

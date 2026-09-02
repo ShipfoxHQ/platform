@@ -1,3 +1,4 @@
+import type {AgentInterModuleClient} from '@shipfox/api-agent-dto/inter-module';
 import {requireUserContext} from '@shipfox/api-auth-context';
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import {rerunWorkflowRunBodySchema, workflowRunResponseSchema} from '@shipfox/api-workflows-dto';
@@ -14,13 +15,14 @@ import {
   WorkspaceSuspendedError,
 } from '#core/errors.js';
 import {assertWorkspaceAdmitsNewJobs} from '#core/workspace-admission.js';
-import {createRerunWorkflowRun} from '#db/index.js';
+import {createRerunWorkflowRun, listRunAttempts} from '#db/index.js';
 import {toRunDto} from '#presentation/dto/index.js';
 import {requireAccessibleRun} from './require-accessible-run.js';
 
 export function rerunRunRoute(
   projects: ProjectsModuleClient,
   workspaces: WorkspacesInterModuleClient,
+  agent: AgentInterModuleClient,
 ) {
   return defineRoute({
     method: 'POST',
@@ -82,11 +84,36 @@ export function rerunRunRoute(
       await assertWorkspaceAdmitsNewJobs(workspaces, sourceRun.workspaceId);
 
       const actor = requireUserContext(request);
+      const sourceAttempts = await listRunAttempts({
+        workflowRunId: sourceRun.id,
+        projectId: sourceRun.projectId,
+      });
+      const sourceAttempt = sourceAttempts.find(
+        (attempt) => attempt.attempt === sourceRun.currentAttempt,
+      );
+      if (!sourceAttempt) throw new Error('Rerun workflow run source attempt not found');
+
       const run = await createRerunWorkflowRun({
         workflowRunId: sourceRun.id,
         mode: request.body.mode,
         actorUserId: actor.userId,
       });
+
+      if (request.body.mode === 'failed') {
+        const targetAttempts = await listRunAttempts({
+          workflowRunId: run.id,
+          projectId: run.projectId,
+        });
+        const targetAttempt = targetAttempts.find(
+          (attempt) => attempt.attempt === run.currentAttempt,
+        );
+        if (!targetAttempt) throw new Error('Rerun workflow run target attempt not found');
+
+        await agent.carryOverSessions({
+          fromWorkflowRunAttemptId: sourceAttempt.id,
+          toWorkflowRunAttemptId: targetAttempt.id,
+        });
+      }
 
       return toRunDto(run, run.currentAttempt);
     },
