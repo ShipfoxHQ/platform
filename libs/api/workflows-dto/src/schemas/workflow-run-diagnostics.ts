@@ -17,9 +17,9 @@ export const WORKFLOW_DIAGNOSTIC_RESPONSE_MAX_BYTES = 8 * 1024;
 export const WORKFLOW_DIAGNOSTIC_ERROR_MAX_BYTES = 16 * 1024;
 export const WORKFLOW_DIAGNOSTIC_GATE_RESULT_MAX_BYTES = 16 * 1024;
 export const WORKFLOW_DIAGNOSTIC_CONDITION_MAX_BYTES = 64 * 1024;
+export const WORKFLOW_DIAGNOSTIC_TRIGGER_EVENTS_MAX_BYTES = 64 * 1024;
 
-/** Current persisted invocation history maximum; reads retain headroom for legacy rows. */
-export const WORKFLOW_STEP_ATTEMPT_INVOCATION_WRITE_MAX = 3;
+/** Reads retain headroom for legacy invocation histories. */
 export const WORKFLOW_STEP_ATTEMPT_INVOCATION_READ_MAX = 10;
 
 const STEP_DIAGNOSTIC_FIELDS = [
@@ -31,6 +31,7 @@ const STEP_DIAGNOSTIC_FIELDS = [
   'response',
   'error',
   'gate_result',
+  'restart_feedback',
 ] as const;
 
 const CONTEXT_DIAGNOSTIC_FIELDS = [
@@ -39,6 +40,7 @@ const CONTEXT_DIAGNOSTIC_FIELDS = [
   'job_evaluation_trace',
   'execution_evaluation_trace',
   'condition',
+  'trigger_events',
 ] as const;
 
 export const stepDiagnosticFieldSchema = z.enum(STEP_DIAGNOSTIC_FIELDS);

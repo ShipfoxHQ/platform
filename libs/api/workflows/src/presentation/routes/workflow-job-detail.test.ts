@@ -3,6 +3,7 @@ import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module'
 import {
   STEP_ERROR_MESSAGE_MAX_LENGTH,
   WORKFLOW_DIAGNOSTIC_OUTPUT_MAX_BYTES,
+  WORKFLOW_DIAGNOSTIC_TRIGGER_EVENTS_MAX_BYTES,
   workflowExecutionStepsResponseSchema,
   workflowJobDetailResponseSchema,
   workflowJobExecutionContextResponseSchema,
@@ -109,9 +110,10 @@ describe('selected workflow job routes', () => {
   });
 
   test('loads diagnostic context only from the selected execution', async () => {
-    const fixture = await createFixture({stepsPerExecution: 1});
+    const fixture = await createFixture({jobs: 2, executionsPerJob: 2, stepsPerExecution: 1});
     const jobId = fixture.jobIds[0] as string;
-    const executionId = fixture.executionIds[0] as string;
+    const executionId = fixture.executionIds[1] as string;
+    const otherJobExecutionId = fixture.executionIds[2] as string;
     const trace: readonly PersistedEvaluationTraceEntry[] = [
       {
         expression: 'inputs.environment',
@@ -152,6 +154,14 @@ describe('selected workflow job routes', () => {
         triggerEvents: [triggerEvent],
       })
       .where(eq(jobExecutions.id, executionId));
+    await db()
+      .update(jobExecutions)
+      .set({
+        runner: ['other-job-execution-runner'],
+        outputs: {execution_output: 'wrong execution'},
+        triggerEvents: [],
+      })
+      .where(eq(jobExecutions.id, fixture.executionIds[0] as string));
 
     const response = await app.inject({
       method: 'GET',
@@ -177,6 +187,13 @@ describe('selected workflow job routes', () => {
     expect(body.job_evaluation_trace).toHaveLength(1);
     expect(body.execution_evaluation_trace).toHaveLength(1);
 
+    const wrongJobExecution = await app.inject({
+      method: 'GET',
+      url: `/api/workflows/runs/jobs/${jobId}/executions/${otherJobExecutionId}/context`,
+    });
+    expect(wrongJobExecution.statusCode).toBe(404);
+    expect(wrongJobExecution.json().code).toBe('not-found');
+
     const selectedJob = await app.inject({
       method: 'GET',
       url: `/api/workflows/runs/jobs/${jobId}`,
@@ -193,11 +210,24 @@ describe('selected workflow job routes', () => {
     const executionId = fixture.executionIds[0] as string;
     const jobOutputs = {legacy: 'x'.repeat(WORKFLOW_DIAGNOSTIC_OUTPUT_MAX_BYTES)};
     const executionOutputs = {legacy: 'y'.repeat(WORKFLOW_DIAGNOSTIC_OUTPUT_MAX_BYTES)};
+    const triggerEvents = [
+      {
+        source: 'github',
+        event: 'push',
+        delivery_id: crypto.randomUUID(),
+        received_at: new Date('2026-08-05T12:00:00.000Z').toISOString(),
+        project: null,
+        repository: 'shipfox/platform',
+        ref: 'main',
+        commit: 'abc123',
+        data: 'z'.repeat(WORKFLOW_DIAGNOSTIC_TRIGGER_EVENTS_MAX_BYTES),
+      },
+    ];
 
     await db().update(jobs).set({outputs: jobOutputs}).where(eq(jobs.id, jobId));
     await db()
       .update(jobExecutions)
-      .set({outputs: executionOutputs})
+      .set({outputs: executionOutputs, triggerEvents})
       .where(eq(jobExecutions.id, executionId));
 
     const response = await app.inject({
@@ -208,6 +238,7 @@ describe('selected workflow job routes', () => {
     expect(response.statusCode).toBe(200);
     expect(response.json().job_outputs).toBeNull();
     expect(response.json().execution_outputs).toBeNull();
+    expect(response.json().trigger_events).toEqual([]);
     expect(response.json().oversized_fields).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -216,6 +247,10 @@ describe('selected workflow job routes', () => {
         }),
         expect.objectContaining({
           field: 'execution_outputs',
+          reason: 'legacy_value_exceeds_inline_limit',
+        }),
+        expect.objectContaining({
+          field: 'trigger_events',
           reason: 'legacy_value_exceeds_inline_limit',
         }),
       ]),
@@ -465,6 +500,10 @@ describe('selected workflow job routes', () => {
         method: 'GET',
         url: `/api/workflows/runs/steps/${fixture.stepIds[0]}/attempts`,
       }),
+      app.inject({
+        method: 'GET',
+        url: `/api/workflows/runs/jobs/${fixture.jobIds[0]}/executions/${fixture.executionIds[0]}/context`,
+      }),
     ]);
 
     for (const response of responses) {
@@ -539,6 +578,13 @@ describe('selected workflow job routes', () => {
       url: `/api/workflows/runs/jobs/${jobId}?execution_id=${executionId}`,
     });
     expect(withContext.json().selected_execution.has_context).toBe(true);
+
+    const malformedContext = await app.inject({
+      method: 'GET',
+      url: `/api/workflows/runs/jobs/${jobId}/executions/${executionId}/context`,
+    });
+    expect(malformedContext.statusCode).toBe(200);
+    expect(malformedContext.json().trigger_events).toEqual([]);
 
     await db()
       .insert(jobExecutions)

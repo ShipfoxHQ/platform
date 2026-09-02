@@ -36,6 +36,7 @@ import {
 } from '#metrics/instance.js';
 import {createAgentDefaultsResolver} from './agent-defaults.js';
 import {defaultStepConditionTrace, explicitConditionTrace} from './condition-trace.js';
+import {assertWorkflowDiagnosticSize} from './diagnostics.js';
 import type {JobExecution} from './entities/job-execution.js';
 import type {
   PersistedEvaluationTraceEntry,
@@ -52,6 +53,7 @@ import {
   StepNotFoundError,
   StepNotRunningError,
   ToolConfigInvalidError,
+  WorkflowDiagnosticTooLargeError,
 } from './errors.js';
 import {readAgentStepSessionIntent} from './step-config/agent.js';
 import {assembleStepDispatchContext} from './step-config/assemble-run-context.js';
@@ -115,7 +117,8 @@ type DispatchConfigError =
   | InterpolationUnresolvableError
   | AgentConfigUnresolvableError
   | AgentStepSessionClaimError
-  | ToolConfigInvalidError;
+  | ToolConfigInvalidError
+  | WorkflowDiagnosticTooLargeError;
 
 interface PendingStepDispatchParams {
   readonly jobExecutionId: string;
@@ -219,6 +222,7 @@ async function resolveRunningStep(
             attempt: running.currentAttempt,
             config: running.config,
             evaluationTrace: running.evaluationTrace,
+            allowLegacyOversizedDiagnostics: true,
           },
           tx,
         );
@@ -620,6 +624,12 @@ async function completePendingSessionClaim(
     return {kind: 'step', step: resolution.step, dispatched: true};
   } catch (error) {
     await release();
+    const configError = toDispatchConfigError(error);
+    if (configError !== null) {
+      return withTransaction((tx) =>
+        settlePreparedSessionClaimFailure(pending, dispatchConfigError(configError), tx),
+      );
+    }
     throw error;
   }
 }
@@ -643,6 +653,7 @@ async function settlePreparedSessionClaimFailure(
       attempt: pending.attempt,
       config: pending.config,
       evaluationTrace: pending.evaluationTrace,
+      allowLegacyOversizedDiagnostics: true,
     },
     tx,
   );
@@ -824,6 +835,9 @@ function toDispatchConfigError(error: unknown): DispatchConfigError | null {
   const isToolConfigError = error instanceof ToolConfigInvalidError;
   if (isToolConfigError) return error;
 
+  const isDiagnosticError = error instanceof WorkflowDiagnosticTooLargeError;
+  if (isDiagnosticError) return error;
+
   return null;
 }
 
@@ -845,6 +859,16 @@ function dispatchConfigError(error: DispatchConfigError): Record<string, unknown
       source: 'tool',
       code: error.code,
       agentConfigIssue: 'step_config_invalid',
+    };
+  }
+
+  if (error instanceof WorkflowDiagnosticTooLargeError) {
+    return {
+      message: error.message,
+      reason: 'diagnostic_too_large',
+      field: error.field,
+      source: 'workflows',
+      code: 'workflow_diagnostic_too_large',
     };
   }
 
@@ -983,6 +1007,7 @@ export async function recordStepResultInTransaction(
       stepId: params.stepId,
       attempt: current,
       config: target.config,
+      allowLegacyOversizedDiagnostics: true,
     },
     tx,
   );
@@ -1023,8 +1048,16 @@ function normalizeReportedStepResult(
     response: params.response ?? null,
     exitCode: params.exitCode ?? null,
   };
+  const reportedDiagnostic = findOversizedReportedDiagnostic(reported);
+  if (reportedDiagnostic) return failedReportedStepResult(reported, reportedDiagnostic);
+
   const outputCoercion = coerceReportedStepOutput(config, reported);
   if (outputCoercion.kind === 'coerced') {
+    // Output declarations wrap the runner value in a new object. Validate
+    // that persisted representation too; the framed runner payload can be
+    // under its transport limit while the JSONB attempt record is not.
+    const outputDiagnostic = findOversizedDiagnostic('output', outputCoercion.output);
+    if (outputDiagnostic) return failedReportedStepResult(reported, outputDiagnostic);
     return {result: {...reported, output: outputCoercion.output}, gateEvaluationAllowed: true};
   }
   if (outputCoercion.kind === 'failed') {
@@ -1040,6 +1073,49 @@ function normalizeReportedStepResult(
     };
   }
   return {result: reported, gateEvaluationAllowed: true};
+}
+
+function findOversizedReportedDiagnostic(
+  reported: ReportedStepResult,
+): WorkflowDiagnosticTooLargeError | undefined {
+  for (const [field, value] of [
+    ['output', reported.output],
+    ['response', reported.response],
+    ['error', reported.error],
+  ] as const) {
+    const error = findOversizedDiagnostic(field, value);
+    if (error) return error;
+  }
+  return undefined;
+}
+
+function findOversizedDiagnostic(
+  field: Parameters<typeof assertWorkflowDiagnosticSize>[0],
+  value: unknown,
+): WorkflowDiagnosticTooLargeError | undefined {
+  try {
+    assertWorkflowDiagnosticSize(field, value);
+  } catch (error) {
+    if (error instanceof WorkflowDiagnosticTooLargeError) return error;
+    throw error;
+  }
+  return undefined;
+}
+
+function failedReportedStepResult(
+  reported: ReportedStepResult,
+  error: WorkflowDiagnosticTooLargeError,
+): {result: ReportedStepResult; gateEvaluationAllowed: boolean} {
+  return {
+    result: {
+      status: 'failed',
+      error: diagnosticTooLargeStepError(error),
+      output: null,
+      response: null,
+      exitCode: reported.exitCode,
+    },
+    gateEvaluationAllowed: false,
+  };
 }
 
 async function decideReportedStepTransition(params: {
@@ -1076,6 +1152,21 @@ async function decideReportedStepTransition(params: {
     ...(gate?.onFailure ? {gateOnFailure: gate.onFailure} : {}),
     ...(gatingAttemptCount !== undefined ? {gatingAttemptCount} : {}),
   });
+  const gateResult = gateResultPayload(gateOutcome, params.result.exitCode);
+  try {
+    assertWorkflowDiagnosticSize('gate_result', gateResult);
+  } catch (error) {
+    if (!(error instanceof WorkflowDiagnosticTooLargeError)) throw error;
+    return {
+      decision: {
+        kind: 'fail-job',
+        failedStepId: params.stepId,
+        attempt: params.reportedAttempt,
+        failureError: diagnosticTooLargeStepError(error),
+      },
+      gateResult: null,
+    };
+  }
   return {
     decision: resolveRestartFeedback({
       decision,
@@ -1084,7 +1175,7 @@ async function decideReportedStepTransition(params: {
       definitionId: params.jobId,
       vars,
     }),
-    gateResult: gateResultPayload(gateOutcome, params.result.exitCode),
+    gateResult,
   };
 }
 
@@ -1137,6 +1228,18 @@ function outputInvalidError(error: StepOutputCoercionError): Record<string, unkn
   };
 }
 
+function diagnosticTooLargeStepError(
+  error: WorkflowDiagnosticTooLargeError,
+): Record<string, unknown> {
+  return {
+    message: error.message,
+    code: 'workflow_diagnostic_too_large',
+    reason: 'diagnostic_too_large',
+    field: error.field,
+    source: 'workflows',
+  };
+}
+
 function resolveRestartFeedback(params: {
   decision: StepTransitionDecision;
   gate: ReturnType<typeof readStepGate>;
@@ -1148,14 +1251,16 @@ function resolveRestartFeedback(params: {
   if (params.gate === undefined) return params.decision;
 
   try {
+    const feedback = evaluateGateFeedback({
+      gate: params.gate,
+      result: params.result,
+      definitionId: params.definitionId,
+      vars: params.vars,
+    });
+    assertWorkflowDiagnosticSize('restart_feedback', feedback);
     return {
       ...params.decision,
-      feedback: evaluateGateFeedback({
-        gate: params.gate,
-        result: params.result,
-        definitionId: params.definitionId,
-        vars: params.vars,
-      }),
+      feedback,
     };
   } catch (error) {
     if (error instanceof InterpolationUnresolvableError) {
@@ -1164,6 +1269,14 @@ function resolveRestartFeedback(params: {
         failedStepId: params.decision.failedStepId,
         attempt: params.decision.attempt,
         failureError: dispatchConfigError(error),
+      };
+    }
+    if (error instanceof WorkflowDiagnosticTooLargeError) {
+      return {
+        kind: 'fail-job',
+        failedStepId: params.decision.failedStepId,
+        attempt: params.decision.attempt,
+        failureError: diagnosticTooLargeStepError(error),
       };
     }
     throw error;

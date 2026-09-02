@@ -1,9 +1,9 @@
 import {
   WORKFLOW_DIAGNOSTIC_CONFIG_MAX_BYTES,
   WORKFLOW_DIAGNOSTIC_OUTPUT_MAX_BYTES,
-  WORKFLOW_STEP_ATTEMPT_INVOCATION_WRITE_MAX,
 } from '@shipfox/api-workflows-dto';
 import {eq} from 'drizzle-orm';
+import {WORKFLOW_STEP_ATTEMPT_INVOCATION_WRITE_MAX} from '#core/diagnostics.js';
 import {nextStepForJob} from '#core/job-execution.js';
 import {stripSetupStep} from '#test/fixtures/strip-setup-step.js';
 import {

@@ -5,6 +5,7 @@ import {and, asc, count, desc, eq, gte, inArray, sql} from 'drizzle-orm';
 import {
   assertWorkflowDiagnosticSize,
   assertWorkflowStepAttemptInvocationCount,
+  boundedLegacyDiagnosticValue,
 } from '#core/diagnostics.js';
 import type {
   PersistedEvaluationTraceEntry,
@@ -487,14 +488,22 @@ export interface InsertRunningStepAttemptParams {
   config?: Record<string, unknown> | null;
   evaluationTrace?: readonly PersistedEvaluationTraceEntry[] | null;
   invocations?: readonly StepAttemptInvocation[] | undefined;
+  allowLegacyOversizedDiagnostics?: boolean | undefined;
 }
 
 export async function insertRunningStepAttempt(
   params: InsertRunningStepAttemptParams,
   tx: Tx,
 ): Promise<string | undefined> {
-  assertWorkflowDiagnosticSize('config', params.config);
-  assertWorkflowDiagnosticSize('evaluation_trace', params.evaluationTrace);
+  let config = params.config;
+  let evaluationTrace = params.evaluationTrace;
+  if (params.allowLegacyOversizedDiagnostics === true) {
+    config = boundedLegacyDiagnosticValue('config', config);
+    evaluationTrace = boundedLegacyDiagnosticValue('evaluation_trace', evaluationTrace);
+  } else {
+    assertWorkflowDiagnosticSize('config', config);
+    assertWorkflowDiagnosticSize('evaluation_trace', evaluationTrace);
+  }
   assertWorkflowStepAttemptInvocationCount(params.invocations?.length ?? 0);
 
   const [{nextExecutionOrder} = {nextExecutionOrder: 1}] = await tx
@@ -512,8 +521,8 @@ export async function insertRunningStepAttempt(
       attempt: params.attempt,
       executionOrder: nextExecutionOrder,
       status: 'running',
-      config: params.config ?? null,
-      evaluationTrace: params.evaluationTrace ?? null,
+      config: config ?? null,
+      evaluationTrace: evaluationTrace ?? null,
       invocations: params.invocations ?? [],
     })
     .onConflictDoNothing({target: [stepAttempts.stepId, stepAttempts.attempt]})
@@ -576,6 +585,7 @@ export async function finishStepAttempt(params: FinishStepAttemptParams, tx: Tx)
   assertWorkflowDiagnosticSize('response', params.response);
   assertWorkflowDiagnosticSize('error', params.error);
   assertWorkflowDiagnosticSize('gate_result', params.gateResult);
+  assertWorkflowDiagnosticSize('restart_feedback', params.restartFeedback);
 
   const rows = await tx
     .update(stepAttempts)

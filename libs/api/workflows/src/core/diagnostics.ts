@@ -6,13 +6,16 @@ import {
   WORKFLOW_DIAGNOSTIC_GATE_RESULT_MAX_BYTES,
   WORKFLOW_DIAGNOSTIC_OUTPUT_MAX_BYTES,
   WORKFLOW_DIAGNOSTIC_RESPONSE_MAX_BYTES,
-  WORKFLOW_STEP_ATTEMPT_INVOCATION_WRITE_MAX,
+  WORKFLOW_DIAGNOSTIC_TRIGGER_EVENTS_MAX_BYTES,
   type WorkflowDiagnosticFieldDto,
 } from '@shipfox/api-workflows-dto';
 import {
   WorkflowDiagnosticTooLargeError,
   WorkflowStepAttemptInvocationLimitError,
 } from './errors.js';
+
+/** Producer-side cap; the DTO only exposes the larger read allowance. */
+export const WORKFLOW_STEP_ATTEMPT_INVOCATION_WRITE_MAX = 3;
 
 /** Returns the number of bytes that a diagnostic value occupies at its JSON/text boundary. */
 export function diagnosticValueByteLength(value: unknown): number {
@@ -44,6 +47,7 @@ export function diagnosticByteLimit(field: WorkflowDiagnosticFieldDto): number {
     case 'execution_outputs':
       return WORKFLOW_DIAGNOSTIC_OUTPUT_MAX_BYTES;
     case 'response':
+    case 'restart_feedback':
       return WORKFLOW_DIAGNOSTIC_RESPONSE_MAX_BYTES;
     case 'error':
       return WORKFLOW_DIAGNOSTIC_ERROR_MAX_BYTES;
@@ -51,6 +55,8 @@ export function diagnosticByteLimit(field: WorkflowDiagnosticFieldDto): number {
       return WORKFLOW_DIAGNOSTIC_GATE_RESULT_MAX_BYTES;
     case 'condition':
       return WORKFLOW_DIAGNOSTIC_CONDITION_MAX_BYTES;
+    case 'trigger_events':
+      return WORKFLOW_DIAGNOSTIC_TRIGGER_EVENTS_MAX_BYTES;
   }
 }
 
@@ -67,8 +73,20 @@ export function assertWorkflowDiagnosticSize(
   }
 }
 
-export function assertWorkflowStepAttemptInvocationCount(count: number): void {
-  if (count > WORKFLOW_STEP_ATTEMPT_INVOCATION_WRITE_MAX) {
+/** Retains a legacy value only when it can safely be copied to a new row. */
+export function boundedLegacyDiagnosticValue<T>(
+  field: WorkflowDiagnosticFieldDto,
+  value: T | null | undefined,
+): T | null | undefined {
+  if (value === null || value === undefined) return value;
+  return diagnosticValueByteLength(value) <= diagnosticByteLimit(field) ? value : null;
+}
+
+export function assertWorkflowStepAttemptInvocationCount(count: number, previousCount = 0): void {
+  // A deployment can encounter a legacy row above the current write cap. An
+  // in-place status update must remain possible; only growing that history is
+  // rejected.
+  if (count > WORKFLOW_STEP_ATTEMPT_INVOCATION_WRITE_MAX && count > previousCount) {
     throw new WorkflowStepAttemptInvocationLimitError(
       count,
       WORKFLOW_STEP_ATTEMPT_INVOCATION_WRITE_MAX,

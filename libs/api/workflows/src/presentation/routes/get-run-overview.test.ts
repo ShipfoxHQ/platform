@@ -259,7 +259,7 @@ describe('bounded workflow run overview routes', () => {
 
   test.each([
     403, 404,
-  ] as const)('masks project access status %i for both overview endpoints', async (status) => {
+  ] as const)('masks project access status %i for all run read endpoints', async (status) => {
     const run = await createRun();
     workspaceId = run.workspaceId;
     const error = new ClientError(
@@ -280,11 +280,18 @@ describe('bounded workflow run overview routes', () => {
       method: 'GET',
       url: `/api/workflows/runs/${run.id}/jobs?attempt=1`,
     });
+    getProjectById.mockRejectedValueOnce(error);
+    const source = await app.inject({
+      method: 'GET',
+      url: `/api/workflows/runs/${run.id}/source`,
+    });
 
     expect(overview.statusCode).toBe(404);
     expect(overview.json().code).toBe('not-found');
     expect(jobs.statusCode).toBe(404);
     expect(jobs.json().code).toBe('not-found');
+    expect(source.statusCode).toBe(404);
+    expect(source.json().code).toBe('not-found');
   });
 
   test('bounds the byte-limit fallback page before sending it', async () => {

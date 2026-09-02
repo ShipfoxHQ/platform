@@ -1,5 +1,8 @@
 import {readPersistedWorkflowModel} from '@shipfox/api-definitions-dto';
-import {WORKFLOWS_JOB_TERMINATED} from '@shipfox/api-workflows-dto';
+import {
+  WORKFLOW_DIAGNOSTIC_OUTPUT_MAX_BYTES,
+  WORKFLOWS_JOB_TERMINATED,
+} from '@shipfox/api-workflows-dto';
 import type {ExpressionType} from '@shipfox/expression';
 import {and, asc, desc, eq, inArray, notInArray, sql} from 'drizzle-orm';
 import {assertWorkflowDiagnosticSize} from '#core/diagnostics.js';
@@ -10,7 +13,7 @@ import type {
   WorkflowRunOriginState,
   WorkflowRunTriggerReference,
 } from '#core/entities/workflow-run.js';
-import {JobNotFoundError} from '#core/errors.js';
+import {JobNotFoundError, WorkflowDiagnosticTooLargeError} from '#core/errors.js';
 import {
   type DeriveJobSuccessResult,
   decideJobActivation,
@@ -410,12 +413,37 @@ async function reduceJobOutputs(
   if (params.status !== 'succeeded') return null;
 
   const [row] = await tx
-    .select({outputs: jobExecutions.outputs})
+    .select({
+      outputs: sql<Record<string, unknown> | null>`case
+        when ${jobExecutions.outputs} is null then null
+        when jsonb_typeof(${jobExecutions.outputs}) = 'object'
+          and octet_length(${jobExecutions.outputs}::text) <= ${WORKFLOW_DIAGNOSTIC_OUTPUT_MAX_BYTES}
+        then ${jobExecutions.outputs}
+        else null
+      end`,
+      outputBytes: sql<number | null>`case
+        when ${jobExecutions.outputs} is null then null
+        when jsonb_typeof(${jobExecutions.outputs}) = 'object'
+        then octet_length(${jobExecutions.outputs}::text)
+        else null
+      end`,
+    })
     .from(jobExecutions)
     .where(and(eq(jobExecutions.jobId, params.jobId), eq(jobExecutions.status, 'succeeded')))
     .orderBy(desc(jobExecutions.sequence), desc(jobExecutions.id))
     .limit(1);
 
+  if (
+    row?.outputBytes !== null &&
+    row?.outputBytes !== undefined &&
+    row.outputBytes > WORKFLOW_DIAGNOSTIC_OUTPUT_MAX_BYTES
+  ) {
+    throw new WorkflowDiagnosticTooLargeError(
+      'job_outputs',
+      WORKFLOW_DIAGNOSTIC_OUTPUT_MAX_BYTES,
+      row.outputBytes,
+    );
+  }
   return row?.outputs ? {...row.outputs} : null;
 }
 

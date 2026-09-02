@@ -1,3 +1,4 @@
+import {WORKFLOW_DIAGNOSTIC_RESPONSE_MAX_BYTES} from '@shipfox/api-workflows-dto';
 import type {Step, StepAttempt} from '#core/entities/step.js';
 import {
   fromStepErrorDto,
@@ -551,5 +552,76 @@ describe('toStepAttemptDetailResponseDto', () => {
       restart_feedback: null,
       oversized_fields: [],
     });
+  });
+
+  it('maps populated diagnostics and describes oversized legacy values', () => {
+    const oversizedResponse = 'x'.repeat(WORKFLOW_DIAGNOSTIC_RESPONSE_MAX_BYTES + 1);
+    const attempt: StepAttempt = {
+      ...baseAttempt,
+      config: {run: 'echo hello'},
+      output: {artifact: 'dist/app.tgz'},
+      response: oversizedResponse,
+      error: {message: 'diagnostic rejected', reason: 'diagnostic_too_large', field: 'response'},
+      gateResult: {passed: false, source: 'exit_code == 0', exit_code: 1},
+      invocations: [
+        {
+          call_index: 0,
+          started_at: '2026-01-01T00:00:00.000Z',
+          finished_at: '2026-01-01T00:01:00.000Z',
+          outcome: 'error',
+        },
+      ],
+      restartFeedback: 'retry with the corrected input',
+    };
+
+    const result = toStepAttemptDetailResponseDto(step({type: 'run'}), attempt, {
+      workflowRunId: '33333333-3333-4333-8333-333333333333',
+      workflowRunAttempt: 2,
+      jobId: '44444444-4444-4444-8444-444444444444',
+      jobExecutionId: '55555555-5555-4555-8555-555555555555',
+    });
+
+    expect(result).toMatchObject({
+      config: {run: 'echo hello'},
+      output: {artifact: 'dist/app.tgz'},
+      outputs: {artifact: 'dist/app.tgz'},
+      response: null,
+      error: {
+        message: 'diagnostic rejected',
+        reason: 'diagnostic_too_large',
+        field: 'response',
+        category: 'user',
+      },
+      gate_result: {
+        kind: 'failed',
+        passed: false,
+        source: 'exit_code == 0',
+        exit_code: 1,
+      },
+      invocations: [expect.objectContaining({call_index: 0, outcome: 'error'})],
+      restart_feedback: 'retry with the corrected input',
+    });
+    expect(result.oversized_fields).toEqual([
+      {
+        field: 'response',
+        stored_bytes: Buffer.byteLength(oversizedResponse, 'utf8'),
+        reason: 'legacy_value_exceeds_inline_limit',
+      },
+    ]);
+  });
+
+  it('derives a status-based gate result when the stored gate value is null', () => {
+    const result = toStepAttemptDetailResponseDto(
+      step({type: 'run'}),
+      {...baseAttempt, status: 'succeeded', gateResult: null},
+      {
+        workflowRunId: '33333333-3333-4333-8333-333333333333',
+        workflowRunAttempt: 2,
+        jobId: '44444444-4444-4444-8444-444444444444',
+        jobExecutionId: '55555555-5555-4555-8555-555555555555',
+      },
+    );
+
+    expect(result.gate_result).toEqual({kind: 'none'});
   });
 });

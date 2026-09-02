@@ -8,6 +8,7 @@ import {
   NoFailedJobsError,
   RunNotTerminalError,
   SourceRunNotFoundError,
+  WorkflowDiagnosticTooLargeError,
   WorkspaceDeletedError,
   WorkspaceNotFoundError,
   WorkspaceSuspendedError,
@@ -43,6 +44,16 @@ export function rerunRunRoute(
       }
       if (error instanceof NoFailedJobsError) {
         throw new ClientError('Run has no failed jobs', 'no-failed-jobs', {status: 409});
+      }
+      if (error instanceof WorkflowDiagnosticTooLargeError) {
+        throw new ClientError(
+          'Run contains an oversized diagnostic value',
+          'diagnostic-too-large',
+          {
+            status: 409,
+            cause: error,
+          },
+        );
       }
       if (error instanceof WorkspaceSuspendedError) {
         throw new ClientError('Workspace is suspended', 'workspace-suspended', {

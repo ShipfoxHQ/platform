@@ -17,6 +17,7 @@ import {
   stepAttemptDetailResponseSchema,
   workflowRunDetailResponseSchema,
 } from './schemas/workflow-run-detail.js';
+import {workflowDiagnosticFieldSchema} from './schemas/workflow-run-diagnostics.js';
 
 const idSchema = z.string().uuid();
 const workflowRunTriggerReferenceSchema = z.object({
@@ -135,6 +136,11 @@ export const workflowsInterModuleContract = defineInterModuleContract({
           limitBytes: z.number().int().positive(),
           measuredBytes: z.number().int().positive(),
         }),
+        'diagnostic-too-large': z.object({
+          field: workflowDiagnosticFieldSchema,
+          limitBytes: z.number().int().positive(),
+          measuredBytes: z.number().int().positive(),
+        }),
       },
     },
     startDevRun: {
@@ -171,6 +177,11 @@ export const workflowsInterModuleContract = defineInterModuleContract({
         }),
         'invalid-job-runner-labels': z.object({labels: z.array(z.string())}),
         'source-snapshot-too-large': z.object({
+          limitBytes: z.number().int().positive(),
+          measuredBytes: z.number().int().positive(),
+        }),
+        'diagnostic-too-large': z.object({
+          field: workflowDiagnosticFieldSchema,
           limitBytes: z.number().int().positive(),
           measuredBytes: z.number().int().positive(),
         }),

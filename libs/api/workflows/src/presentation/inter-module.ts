@@ -8,6 +8,7 @@ import type {IntegrationsModuleClient} from '@shipfox/api-integration-core-dto/i
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import type {RunnersInterModuleClient} from '@shipfox/api-runners-dto/inter-module';
 import type {SecretsInterModuleClient} from '@shipfox/api-secrets-dto/inter-module';
+import {workflowDiagnosticFieldSchema} from '@shipfox/api-workflows-dto';
 import {workflowsInterModuleContract} from '@shipfox/api-workflows-dto/inter-module';
 import type {WorkspacesInterModuleClient} from '@shipfox/api-workspaces-dto/inter-module';
 import {
@@ -21,6 +22,7 @@ import type {Step} from '#core/entities/step.js';
 import type {WorkflowRunTriggerReference} from '#core/entities/workflow-run.js';
 import {
   InvalidJobRunnerLabelsError,
+  WorkflowDiagnosticTooLargeError,
   WorkflowSourceSnapshotTooLargeError,
   WorkspaceDeletedError,
   WorkspaceNotFoundError,
@@ -397,6 +399,15 @@ function toRunCreationKnownError(
   }
   if (error instanceof WorkflowSourceSnapshotTooLargeError) {
     return createInterModuleKnownError(method, 'source-snapshot-too-large', {
+      limitBytes: error.limitBytes,
+      measuredBytes: error.measuredBytes,
+    });
+  }
+  if (error instanceof WorkflowDiagnosticTooLargeError) {
+    const field = workflowDiagnosticFieldSchema.safeParse(error.field);
+    if (!field.success) return undefined;
+    return createInterModuleKnownError(method, 'diagnostic-too-large', {
+      field: field.data,
       limitBytes: error.limitBytes,
       measuredBytes: error.measuredBytes,
     });

@@ -207,6 +207,7 @@ function toStepSourceLocationDto(
 }
 
 export function toStepAttemptDto(attempt: StepAttempt): StepAttemptDto {
+  const restartFeedback = inlineDiagnostic('restart_feedback', attempt.restartFeedback);
   return {
     id: attempt.id,
     step_id: attempt.stepId,
@@ -219,7 +220,7 @@ export function toStepAttemptDto(attempt: StepAttempt): StepAttemptDto {
     response: attempt.response,
     error: attempt.error,
     gate_result: toStepGateResultDto(attempt.gateResult, attempt.status),
-    restart_feedback: attempt.restartFeedback,
+    restart_feedback: restartFeedback.value,
     invocations: attempt.invocations.slice(0, WORKFLOW_STEP_ATTEMPT_INVOCATION_READ_MAX),
     started_at: attempt.startedAt.toISOString(),
     finished_at: attempt.finishedAt ? attempt.finishedAt.toISOString() : null,
@@ -244,6 +245,7 @@ export function toStepAttemptDetailResponseDto(
   const response = inlineDiagnostic('response', attempt.response);
   const error = inlineDiagnostic('error', attempt.error);
   const gateResult = inlineDiagnostic('gate_result', attempt.gateResult);
+  const restartFeedback = inlineDiagnostic('restart_feedback', attempt.restartFeedback);
 
   return {
     workflow_run_id: ancestry.workflowRunId,
@@ -263,9 +265,9 @@ export function toStepAttemptDetailResponseDto(
     response: response.value,
     error: error.value === null ? null : toStepErrorDto(error.value, step.type),
     gate_result:
-      gateResult.value === null ? null : toStepGateResultDto(gateResult.value, attempt.status),
+      gateResult.oversized !== null ? null : toStepGateResultDto(gateResult.value, attempt.status),
     invocations: attempt.invocations.slice(0, WORKFLOW_STEP_ATTEMPT_INVOCATION_READ_MAX),
-    restart_feedback: attempt.restartFeedback,
+    restart_feedback: restartFeedback.value,
     oversized_fields: [
       authoredConfig.oversized,
       config.oversized,
@@ -275,6 +277,7 @@ export function toStepAttemptDetailResponseDto(
       response.oversized,
       error.oversized,
       gateResult.oversized,
+      restartFeedback.oversized,
     ].filter((field): field is NonNullable<typeof field> => field !== null),
   };
 }

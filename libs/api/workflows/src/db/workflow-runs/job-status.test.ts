@@ -1,6 +1,8 @@
+import {WORKFLOW_DIAGNOSTIC_OUTPUT_MAX_BYTES} from '@shipfox/api-workflows-dto';
 import {eq, sql} from 'drizzle-orm';
 import {buildModel, createTestRun, jobTerminatedEvents} from '#test/helpers/workflow-runs.js';
 import {db} from '../db.js';
+import {jobExecutions} from '../schema/job-executions.js';
 import {jobs} from '../schema/jobs.js';
 import {
   createWorkflowRun,
@@ -367,6 +369,43 @@ describe('workflow run queries', () => {
       await expect(
         updateJobStatus({jobId: runJobs[0]?.id ?? '', status: 'running', expectedVersion: 99}),
       ).rejects.toThrow('Optimistic lock failure');
+    });
+
+    test('rolls back a terminal transition when a derived output is oversized', async () => {
+      const run = await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId,
+        model: buildModel(),
+        triggerPayload: {
+          source: 'manual',
+          event: 'fire',
+          subscriptionId: crypto.randomUUID(),
+          userId: crypto.randomUUID(),
+        },
+      });
+      const [job] = await getJobsByWorkflowRunId(run.id);
+      if (!job) throw new Error('Expected workflow job');
+      const execution = await getFirstJobExecutionByJobId(job.id);
+      if (!execution) throw new Error('Expected workflow job execution');
+      const oversizedOutputs = {payload: 'x'.repeat(WORKFLOW_DIAGNOSTIC_OUTPUT_MAX_BYTES)};
+
+      await db()
+        .update(jobExecutions)
+        .set({status: 'succeeded', outputs: oversizedOutputs})
+        .where(eq(jobExecutions.id, execution.id));
+
+      await expect(
+        updateJobStatus({jobId: job.id, status: 'succeeded', expectedVersion: job.version}),
+      ).rejects.toMatchObject({name: 'WorkflowDiagnosticTooLargeError', field: 'job_outputs'});
+
+      const [after] = await getJobsByWorkflowRunId(run.id);
+      expect(after).toMatchObject({
+        status: job.status,
+        version: job.version,
+        outputs: job.outputs,
+      });
+      expect(await jobTerminatedEvents(job.id)).toHaveLength(0);
     });
 
     test('idempotent on retry: re-applying the same transition at the old version is a no-op', async () => {

@@ -49,28 +49,32 @@ export const workflowRunStepDetailDtoSchema = stepDtoSchema.extend({
 export type WorkflowRunStepDetailDto = z.infer<typeof workflowRunStepDetailDtoSchema>;
 
 export const stepAttemptDetailResponseSchema = z.object({
-  workflow_run_id: z.string().uuid(),
-  workflow_run_attempt: workflowRunAttemptDtoSchema.shape.attempt,
-  job_id: z.string().uuid(),
-  job_execution_id: z.string().uuid(),
+  // These ancestry and attempt-result fields were added after the original
+  // lazy detail contract. Keep them optional while old and new servers roll
+  // out together.
+  workflow_run_id: z.string().uuid().optional(),
+  workflow_run_attempt: workflowRunAttemptDtoSchema.shape.attempt.optional(),
+  job_id: z.string().uuid().optional(),
+  job_execution_id: z.string().uuid().optional(),
   step_id: z.string().uuid(),
-  step_attempt_id: z.string().uuid(),
+  step_attempt_id: z.string().uuid().optional(),
   attempt: stepAttemptDetailDtoSchema.shape.attempt,
   authored_config: z.record(z.string(), z.unknown()).nullable(),
   config: stepAttemptDetailDtoSchema.shape.config,
   // Optional for mixed-version readers; the server derives this from the typed step projection.
   session: stepDtoSchema.shape.session,
   evaluation_trace: stepAttemptDetailDtoSchema.shape.evaluation_trace,
-  output: stepAttemptDtoSchema.shape.output,
-  outputs: stepAttemptDtoSchema.shape.outputs,
-  response: stepAttemptDtoSchema.shape.response,
-  error: stepAttemptDtoSchema.shape.error,
-  gate_result: stepAttemptDtoSchema.shape.gate_result,
+  output: stepAttemptDtoSchema.shape.output.optional(),
+  outputs: stepAttemptDtoSchema.shape.outputs.optional(),
+  response: stepAttemptDtoSchema.shape.response.optional(),
+  error: stepAttemptDtoSchema.shape.error.optional(),
+  gate_result: stepAttemptDtoSchema.shape.gate_result.optional(),
   invocations: stepAttemptDtoSchema.shape.invocations
     .unwrap()
-    .max(WORKFLOW_STEP_ATTEMPT_INVOCATION_READ_MAX),
-  restart_feedback: stepAttemptDtoSchema.shape.restart_feedback,
-  oversized_fields: z.array(oversizedFieldDtoSchema),
+    .max(WORKFLOW_STEP_ATTEMPT_INVOCATION_READ_MAX)
+    .optional(),
+  restart_feedback: stepAttemptDtoSchema.shape.restart_feedback.optional(),
+  oversized_fields: z.array(oversizedFieldDtoSchema).optional(),
 });
 
 export type StepAttemptDetailResponseDto = z.infer<typeof stepAttemptDetailResponseSchema>;

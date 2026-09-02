@@ -18,17 +18,29 @@ export interface InlineDiagnostic<T> {
 export function inlineDiagnostic<T>(
   field: WorkflowDiagnosticFieldDto,
   value: T | null | undefined,
+  storedBytes?: number | null,
 ): InlineDiagnostic<T> {
+  const limitBytes = diagnosticByteLimit(field);
+  if (storedBytes !== null && storedBytes !== undefined && storedBytes > limitBytes) {
+    return {
+      value: null,
+      oversized: {
+        field,
+        stored_bytes: storedBytes,
+        reason: 'legacy_value_exceeds_inline_limit',
+      },
+    };
+  }
   if (value === null || value === undefined) return {value: null, oversized: null};
 
-  const storedBytes = diagnosticValueByteLength(value);
-  if (storedBytes <= diagnosticByteLimit(field)) return {value, oversized: null};
+  const measuredBytes = diagnosticValueByteLength(value);
+  if (measuredBytes <= limitBytes) return {value, oversized: null};
 
   return {
     value: null,
     oversized: {
       field,
-      stored_bytes: storedBytes,
+      stored_bytes: measuredBytes,
       reason: 'legacy_value_exceeds_inline_limit',
     },
   };
@@ -37,6 +49,19 @@ export function inlineDiagnostic<T>(
 export function toWorkflowRunSourceResponseDto(
   read: WorkflowRunSourceRead,
 ): WorkflowRunSourceResponseDto {
+  if (
+    read.sourceSnapshot === null &&
+    read.sourceSnapshotBytes !== null &&
+    read.sourceSnapshotBytes > WORKFLOW_SOURCE_SNAPSHOT_MAX_BYTES
+  ) {
+    return {
+      kind: 'unavailable',
+      workflow_run_id: read.workflowRunId,
+      workflow_run_attempt: read.workflowRunAttempt,
+      reason: 'legacy_snapshot_too_large',
+    };
+  }
+
   if (read.sourceSnapshot === null) {
     return {
       kind: 'unavailable',
@@ -46,7 +71,10 @@ export function toWorkflowRunSourceResponseDto(
     };
   }
 
-  if (diagnosticValueByteLength(read.sourceSnapshot.content) > WORKFLOW_SOURCE_SNAPSHOT_MAX_BYTES) {
+  if (
+    (read.sourceSnapshotBytes ?? diagnosticValueByteLength(read.sourceSnapshot.content)) >
+    WORKFLOW_SOURCE_SNAPSHOT_MAX_BYTES
+  ) {
     return {
       kind: 'unavailable',
       workflow_run_id: read.workflowRunId,
@@ -66,14 +94,28 @@ export function toWorkflowRunSourceResponseDto(
 export function toWorkflowJobExecutionContextResponseDto(
   read: WorkflowJobExecutionContextRead,
 ): WorkflowJobExecutionContextResponseDto {
-  const jobOutputs = inlineDiagnostic('job_outputs', read.jobOutputs);
-  const executionOutputs = inlineDiagnostic('execution_outputs', read.executionOutputs);
-  const jobEvaluationTrace = inlineDiagnostic('job_evaluation_trace', read.jobEvaluationTrace);
+  const jobOutputs = inlineDiagnostic('job_outputs', read.jobOutputs, read.jobOutputsBytes);
+  const executionOutputs = inlineDiagnostic(
+    'execution_outputs',
+    read.executionOutputs,
+    read.executionOutputsBytes,
+  );
+  const jobEvaluationTrace = inlineDiagnostic(
+    'job_evaluation_trace',
+    read.jobEvaluationTrace,
+    read.jobEvaluationTraceBytes,
+  );
   const executionEvaluationTrace = inlineDiagnostic(
     'execution_evaluation_trace',
     read.executionEvaluationTrace,
+    read.executionEvaluationTraceBytes,
   );
-  const condition = inlineDiagnostic('condition', read.condition);
+  const condition = inlineDiagnostic('condition', read.condition, read.conditionBytes);
+  const triggerEvents = inlineDiagnostic(
+    'trigger_events',
+    read.triggerEvents,
+    read.triggerEventsBytes,
+  );
 
   return {
     workflow_run_id: read.workflowRunId,
@@ -84,7 +126,7 @@ export function toWorkflowJobExecutionContextResponseDto(
     execution_runner: read.executionRunner,
     job_outputs: jobOutputs.value,
     execution_outputs: executionOutputs.value,
-    trigger_events: read.triggerEvents,
+    trigger_events: triggerEvents.value ?? [],
     job_evaluation_trace:
       jobEvaluationTrace.value === null ? null : toEvaluationTraceDto(jobEvaluationTrace.value),
     execution_evaluation_trace:
@@ -98,6 +140,7 @@ export function toWorkflowJobExecutionContextResponseDto(
       jobEvaluationTrace.oversized,
       executionEvaluationTrace.oversized,
       condition.oversized,
+      triggerEvents.oversized,
     ].filter((field): field is OversizedFieldDto => field !== null),
   };
 }

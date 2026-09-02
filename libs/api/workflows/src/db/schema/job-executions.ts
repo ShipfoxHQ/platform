@@ -80,7 +80,12 @@ export function toJobExecution(row: JobExecutionDb, fallbackName: string): JobEx
     status: row.status,
     statusReason: toJobStatusReason(row.statusReason),
     statusReasonMessage: row.statusReasonMessage,
-    triggerEvents: row.triggerEvents.map(normalizeWorkflowExecutionEvent),
+    // Keep legacy/corrupt JSONB rows readable. The diagnostic context route
+    // reports an invalid trigger-events shape as an empty collection rather
+    // than allowing a mapper `.map` failure to abort the read.
+    triggerEvents: Array.isArray(row.triggerEvents)
+      ? row.triggerEvents.map(normalizeWorkflowExecutionEvent)
+      : [],
     outputs: row.outputs,
     evaluationTrace: row.evaluationTrace ?? null,
     version: row.version,

@@ -804,7 +804,7 @@ describe('tool step executor', () => {
     const {jobId, stepId} = await arrangeToolStep();
     const callTool = vi.fn<IntegrationsModuleClient['callTool']>().mockResolvedValue({
       outcome: 'success' as const,
-      result: {identifier: 'ENG-1680', value: '😀'.repeat(60_000)},
+      result: {identifier: 'ENG-1680', value: '😀'.repeat(300_000)},
       content: [],
     });
     const appendServerRecords = vi
@@ -837,6 +837,11 @@ describe('tool step executor', () => {
         .every((record) => Buffer.byteLength(record.data, 'utf8') <= MAX_RECORD_DATA_BYTES),
     ).toBe(true);
     expect(records.filter((record) => record.type === 'output').length).toBeGreaterThan(1);
+    expect(
+      records
+        .filter((record) => record.type === 'output')
+        .some((record) => record.data.includes('[truncated]')),
+    ).toBe(true);
     expect(records.at(-1)).toMatchObject({type: 'group_end'});
   });
 
