@@ -1,11 +1,11 @@
 import type {LLMsOptions} from 'fumadocs-core/mdx-plugins';
+import {canonicalDocsOrigin} from '../url';
 import {
   type CatalogProvider,
   catalogCapabilityLabels,
   catalogCategoryLabels,
 } from './integration-catalog';
-
-export const CANONICAL_DOCS_ORIGIN = 'https://www.shipfox.io/docs';
+import {inlineCode, tableValue} from './markdown';
 
 const INTERNAL_DOC_HOSTS = new Set([
   'localhost',
@@ -14,13 +14,14 @@ const INTERNAL_DOC_HOSTS = new Set([
   'www.shipfox.io',
   'shipfox-docs.vercel.app',
 ]);
-const FENCE_PATTERN = /^ {0,3}(`{3,}|~{3,})/;
+const FENCE_OPEN_PATTERN = /^ {0,3}(`{3,}|~{3,})/;
+const FENCE_CLOSE_PATTERN = /^ {0,3}(`{3,}|~{3,})[ \t]*$/;
 const UNRESOLVED_MDX_COMPONENT_PATTERN = /<\/?[A-Z][A-Za-z0-9]*(?:\s[^<>]*)?\/?>(?:\s|$)/m;
 const ROOT_RELATIVE_LINK_PATTERN = /\]\(\s*\//;
 const ROOT_RELATIVE_ATTRIBUTE_PATTERN = /\b(?:href|src)=(['"])\//;
 const PREVIEW_DOC_URL_PATTERN =
   /https?:\/\/(?:[^/\s]+\.vercel\.app|localhost(?::\d+)?|127\.0\.0\.1(?::\d+)?)(?:\/|$)/;
-const NON_CANONICAL_SHIPFOX_URL_PATTERN = /https:\/\/www\.shipfox\.io\/(?!docs(?:[/?#\s]|$))/;
+const NON_CANONICAL_SHIPFOX_URL_PATTERN = /https?:\/\/(?:www\.)?shipfox\.io\/(?!docs(?:[/?#\s]|$))/;
 const UNUSABLE_IMAGE_SOURCE_PATTERN = /__img\d+/;
 const UNUSABLE_MDX_IMAGE_PATTERN =
   /<img\b(?=[^>]*\bsrc\s*=\s*(?:["']__img\d+["']|\{__img\d+\}))[^>]*\/?>/gi;
@@ -30,10 +31,18 @@ const HTML_ATTRIBUTE_PATTERN = /\b(src|href)=(['"])([^'"]+)\2/g;
 const STEP_TITLE_PATTERN = /^\*\*(.*)\*\*$/s;
 const ALT_ATTRIBUTE_PATTERN = /\balt=(['"])(.*?)\1/i;
 
+type FenceCharacter = '`' | '~';
+
+interface FenceMarker {
+  character: FenceCharacter;
+  length: number;
+}
+
 export interface MachineReadableMarkdownOptions {
   integrationCatalog?: readonly CatalogProvider[];
   pageUrl?: string;
   requiredFacts?: readonly string[];
+  sourcePath?: string;
 }
 
 export function canonicalDocsUrl(pageUrl: string): string {
@@ -54,12 +63,13 @@ export function canonicalizeDocumentationUrl(destination: string, pageUrl?: stri
 
   let parsed: URL;
   try {
-    parsed = new URL(value);
+    parsed = pageUrl ? new URL(value, canonicalDocsUrl(pageUrl)) : new URL(value);
   } catch {
     return destination;
   }
 
   if (!isInternalDocumentationHost(parsed.hostname)) return destination;
+  if (!isCanonicalDocumentationPath(parsed.pathname)) return destination;
   return canonicalPath(`${parsed.pathname}${parsed.search}${parsed.hash}`);
 }
 
@@ -112,26 +122,32 @@ export function serializeMachineReadableMarkdown(
 }
 
 export function rewriteMachineReadableLinks(markdown: string, pageUrl?: string): string {
-  let inFence = false;
+  let fence: FenceMarker | undefined;
 
   return markdown
     .split('\n')
     .map((line) => {
-      if (FENCE_PATTERN.test(line)) {
-        inFence = !inFence;
+      const marker = fenceMarker(line);
+      if (!fence && marker) {
+        fence = marker;
         return line;
       }
-      return inFence ? line : rewriteMachineReadableLine(line, pageUrl);
+      if (fence && closesFence(line, fence)) {
+        fence = undefined;
+        return line;
+      }
+      return fence ? line : rewriteMachineReadableLine(line, pageUrl);
     })
     .join('\n');
 }
 
 export function assertMachineReadableMarkdown(
   markdown: string,
-  {pageUrl, requiredFacts = []}: MachineReadableMarkdownOptions = {},
+  {pageUrl, requiredFacts = [], sourcePath}: MachineReadableMarkdownOptions = {},
 ): void {
   const document = withoutFencedCode(markdown);
-  const page = pageUrl ? ` for ${pageUrl}` : '';
+  const label = pageLabel(pageUrl, sourcePath);
+  const page = label ? ` for ${label}` : '';
 
   if (markdown.includes('\0'))
     throw new Error(
@@ -149,15 +165,9 @@ export function assertMachineReadableMarkdown(
     throw new Error(`Machine-readable Markdown${page} contains a root-relative link or media URL.`);
   }
 
-  if (PREVIEW_DOC_URL_PATTERN.test(document)) {
-    throw new Error(`Machine-readable Markdown${page} contains a preview or local docs URL.`);
-  }
+  assertCanonicalUrls(document, pageUrl, page);
 
-  if (NON_CANONICAL_SHIPFOX_URL_PATTERN.test(document)) {
-    throw new Error(`Machine-readable Markdown${page} contains a non-canonical Shipfox URL.`);
-  }
-
-  if (UNUSABLE_IMAGE_SOURCE_PATTERN.test(markdown)) {
+  if (UNUSABLE_IMAGE_SOURCE_PATTERN.test(document)) {
     throw new Error(`Machine-readable Markdown${page} contains an unusable image source.`);
   }
 
@@ -291,30 +301,73 @@ function rewriteMachineReadableLine(line: string, pageUrl?: string): string {
 }
 
 function canonicalPath(value: string): string {
-  const url = new URL(value, `${CANONICAL_DOCS_ORIGIN}/`);
+  const url = new URL(value, `${canonicalDocsOrigin}/`);
   let pathname = url.pathname;
   if (pathname === '/docs') pathname = '/';
   else if (pathname.startsWith('/docs/')) pathname = pathname.slice('/docs'.length);
 
-  return `${CANONICAL_DOCS_ORIGIN}${pathname === '/' ? '' : pathname}${url.search}${url.hash}`;
+  return `${canonicalDocsOrigin}${pathname === '/' ? '' : pathname}${url.search}${url.hash}`;
 }
 
 function isInternalDocumentationHost(hostname: string): boolean {
-  return INTERNAL_DOC_HOSTS.has(hostname) || hostname.endsWith('.vercel.app');
+  return INTERNAL_DOC_HOSTS.has(hostname);
+}
+
+function pageLabel(pageUrl?: string, sourcePath?: string): string {
+  if (sourcePath && pageUrl) return `${sourcePath} (${pageUrl})`;
+  return sourcePath || pageUrl || '';
+}
+
+function assertCanonicalUrls(document: string, pageUrl: string | undefined, page: string): void {
+  const values = [pageUrl ?? '', document];
+  if (values.some((value) => PREVIEW_DOC_URL_PATTERN.test(value))) {
+    throw new Error(`Machine-readable Markdown${page} contains a preview or local docs URL.`);
+  }
+  if (values.some((value) => NON_CANONICAL_SHIPFOX_URL_PATTERN.test(value))) {
+    throw new Error(`Machine-readable Markdown${page} contains a non-canonical Shipfox URL.`);
+  }
+}
+
+function isCanonicalDocumentationPath(pathname: string): boolean {
+  return pathname === '/docs' || pathname.startsWith('/docs/');
 }
 
 function withoutFencedCode(markdown: string): string {
-  let inFence = false;
+  let fence: FenceMarker | undefined;
   return markdown
     .split('\n')
     .filter((line) => {
-      if (FENCE_PATTERN.test(line)) {
-        inFence = !inFence;
+      const marker = fenceMarker(line);
+      if (!fence && marker) {
+        fence = marker;
         return false;
       }
-      return !inFence;
+      if (fence && closesFence(line, fence)) {
+        fence = undefined;
+        return false;
+      }
+      return !fence;
     })
     .join('\n');
+}
+
+function fenceMarker(line: string): FenceMarker | undefined {
+  const marker = line.match(FENCE_OPEN_PATTERN)?.[1];
+  if (!marker) return undefined;
+  return {
+    character: marker[0] as FenceCharacter,
+    length: marker.length,
+  };
+}
+
+function closesFence(line: string, fence: FenceMarker): boolean {
+  const marker = fenceMarker(line);
+  return Boolean(
+    marker &&
+      FENCE_CLOSE_PATTERN.test(line) &&
+      marker.character === fence.character &&
+      marker.length >= fence.length,
+  );
 }
 
 function childrenMarkdown(
@@ -385,14 +438,6 @@ function attributeValue(node: MdxElementNode, name: string): string | undefined 
 function imageDescription(tag: string): string {
   const alt = ALT_ATTRIBUTE_PATTERN.exec(tag)?.[2]?.trim();
   return alt ? `[Image: ${alt}]` : '[Image]';
-}
-
-function tableValue(value: string): string {
-  return value.replaceAll('|', '\\|').replaceAll('\n', ' ');
-}
-
-function inlineCode(value: string): string {
-  return `\`${tableValue(value)}\``;
 }
 
 function isMdxElement(node: StringifyNode): node is StringifyNode & MdxElementNode {

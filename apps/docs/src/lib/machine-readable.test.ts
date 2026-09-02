@@ -36,6 +36,18 @@ test('builds canonical documentation URLs independently of the deployment host',
     canonicalizeDocumentationUrl('https://docs.github.com/en/webhooks'),
     'https://docs.github.com/en/webhooks',
   );
+  assert.equal(
+    canonicalizeDocumentationUrl('../contexts', '/reference/workflow-schema'),
+    'https://www.shipfox.io/docs/contexts',
+  );
+  assert.equal(
+    canonicalizeDocumentationUrl('https://www.shipfox.io/changelog'),
+    'https://www.shipfox.io/changelog',
+  );
+  assert.equal(
+    canonicalizeDocumentationUrl('https://other-app.vercel.app/reference/contexts'),
+    'https://other-app.vercel.app/reference/contexts',
+  );
 });
 
 test('rewrites documentation links and media while preserving code fences', () => {
@@ -60,6 +72,33 @@ test('rewrites documentation links and media while preserving code fences', () =
     rewriteMachineReadableLinks('[Fields](#top-level-fields)', '/reference/workflow-schema'),
     '[Fields](https://www.shipfox.io/docs/reference/workflow-schema#top-level-fields)',
   );
+
+  const fencedMarkers = [
+    '~~~yaml',
+    '[Inside](/reference/contexts)',
+    '```',
+    '[Still inside](/reference/workflow-schema)',
+    '~~~',
+    '[Outside](/reference/contexts)',
+  ].join('\n');
+  const rewrittenFencedMarkers = rewriteMachineReadableLinks(fencedMarkers);
+  assert.ok(rewrittenFencedMarkers.includes('[Still inside](/reference/workflow-schema)'));
+  assert.ok(
+    rewrittenFencedMarkers.includes('[Outside](https://www.shipfox.io/docs/reference/contexts)'),
+  );
+
+  const html = rewriteMachineReadableLinks(
+    [
+      '<a href="/reference/contexts">Contexts</a>',
+      '<img src="/img/diagrams/deployment-topology.png" alt="Topology">',
+      '<a href="https://shipfox-docs.vercel.app/docs/reference/contexts">Preview</a>',
+    ].join('\n'),
+  );
+  assert.ok(html.includes('href="https://www.shipfox.io/docs/reference/contexts"'));
+  assert.ok(
+    html.includes('src="https://www.shipfox.io/docs/img/diagrams/deployment-topology.png"'),
+  );
+  assert.ok(html.includes('alt="Topology"'));
 });
 
 test('serializes integration catalog placeholders as complete Markdown facts', () => {
@@ -88,6 +127,16 @@ test('replaces unusable imported image sources with descriptive text', () => {
 });
 
 test('fails deterministic checks for unresolved components and links', () => {
+  assert.throws(
+    () =>
+      serializeMachineReadableMarkdown(
+        '\0{"name":"UnknownComponent","children":"","attributes":{}}\0',
+      ),
+    {
+      message:
+        'Machine-readable Markdown contains an unresolved component placeholder: UnknownComponent',
+    },
+  );
   assert.throws(() => assertMachineReadableMarkdown('<TopLevelFields />'), {
     message: 'Machine-readable Markdown contains an unresolved MDX component: <TopLevelFields />',
   });
@@ -103,6 +152,26 @@ test('fails deterministic checks for unresolved components and links', () => {
     {
       message:
         'Machine-readable Markdown for /reference/workflow-schema is missing generated fact: | `name` |',
+    },
+  );
+  assert.throws(
+    () =>
+      assertMachineReadableMarkdown('## Contexts', {
+        pageUrl: 'https://shipfox-docs.vercel.app/reference/contexts',
+      }),
+    {
+      message:
+        'Machine-readable Markdown for https://shipfox-docs.vercel.app/reference/contexts contains a preview or local docs URL.',
+    },
+  );
+  assert.throws(
+    () =>
+      assertMachineReadableMarkdown('## Changelog', {
+        pageUrl: 'https://www.shipfox.io/changelog',
+      }),
+    {
+      message:
+        'Machine-readable Markdown for https://www.shipfox.io/changelog contains a non-canonical Shipfox URL.',
     },
   );
 });

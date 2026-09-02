@@ -1,5 +1,4 @@
 import type {InferPageType} from 'fumadocs-core/source';
-import {getIntegrationCatalog} from '@/lib/integration-catalog-source';
 import {
   assertMachineReadableMarkdown,
   canonicalDocsUrl,
@@ -15,15 +14,18 @@ export async function getLLMText(page: InferPageType<typeof source>) {
   const processed = await page.data.getText('processed');
   const description = page.data.description;
   if (typeof description !== 'string' || description.length === 0) {
-    throw new Error(`Documentation page "${page.url}" is missing a description.`);
+    const source = page.path ? `${page.path} (${page.url})` : page.url;
+    throw new Error(`Documentation page "${source}" is missing a description.`);
   }
 
+  const integrationCatalog = processed.includes('IntegrationCatalog')
+    ? (await import('@/lib/integration-catalog-source')).getIntegrationCatalog()
+    : undefined;
   const body = serializeMachineReadableMarkdown(processed, {
-    integrationCatalog: processed.includes('IntegrationCatalog')
-      ? getIntegrationCatalog()
-      : undefined,
+    integrationCatalog,
     pageUrl: page.url,
     requiredFacts: requiredFactsForPage(page.url),
+    sourcePath: page.path,
   });
   const markdown = [
     `# ${page.data.title}`,
@@ -38,6 +40,7 @@ export async function getLLMText(page: InferPageType<typeof source>) {
   assertMachineReadableMarkdown(markdown, {
     pageUrl: page.url,
     requiredFacts: requiredFactsForPage(page.url),
+    sourcePath: page.path,
   });
   return markdown;
 }

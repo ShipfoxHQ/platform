@@ -1,5 +1,6 @@
 import {readFile} from 'node:fs/promises';
-import {basename, dirname, resolve, sep} from 'node:path';
+import {dirname, relative, resolve, sep} from 'node:path';
+import {GENERATED_MANIFEST_FILE, type GeneratedArtifactManifest} from './generated-artifacts';
 
 interface ImportedComponent {
   localName: string;
@@ -35,7 +36,8 @@ interface VFileLike {
 const IMPORT_PATTERN = /^\s*import\s+([\s\S]*?)\s+from\s+(['"])([^'"]+)\2\s*;?\s*$/gm;
 const IMPORT_ALIAS_PATTERN = /\s+as\s+/;
 const LOCAL_NAME_PATTERN = /^[A-Za-z_$][\w$]*$/;
-const WORKFLOW_MDX_PATTERN = /\.mdx$/;
+const GENERATED_MDX_COMPONENT_PATTERN = /<\/?[A-Z][A-Za-z0-9]*(?:\s[^<>]*)?\/?>(?:\s|$)/m;
+let generatedManifestPromise: Promise<GeneratedArtifactManifest> | undefined;
 
 export function remarkGeneratedComponents() {
   return async (tree: RootNode, file: VFileLike) => {
@@ -110,9 +112,24 @@ function resolveGeneratedImport(file: VFileLike, source: string): string | undef
 }
 
 async function readGeneratedComponent(target: string, localName: string): Promise<string> {
-  if (basename(target) === 'workflow-schema.mdx') {
-    const mapPath = target.replace(WORKFLOW_MDX_PATTERN, '.llm.json');
-    const map = JSON.parse(await readFile(mapPath, 'utf8')) as WorkflowMarkdownMap;
+  const {docsRoot, generatedRoot} = generatedPathsFor(target);
+  const source = relative(docsRoot, target).split(sep).join('/');
+  const artifact = (
+    await readGeneratedManifest(resolve(generatedRoot, 'generated-artifacts.json'))
+  )[source];
+  if (!artifact) {
+    throw new Error(
+      `Generated component "${localName}" from ${source} is not declared in ${GENERATED_MANIFEST_FILE}.`,
+    );
+  }
+
+  if (artifact.format === 'json') {
+    if (!artifact.file) {
+      throw new Error(`Generated component "${localName}" from ${source} has no JSON artifact.`);
+    }
+    const map = JSON.parse(
+      await readFile(resolve(docsRoot, artifact.file), 'utf8'),
+    ) as WorkflowMarkdownMap;
     const text = map[localName];
     if (typeof text !== 'string') {
       throw new Error(
@@ -122,7 +139,31 @@ async function readGeneratedComponent(target: string, localName: string): Promis
     return text.trim();
   }
 
-  return (await readFile(target, 'utf8')).trim();
+  const text = (await readFile(target, 'utf8')).trim();
+  if (GENERATED_MDX_COMPONENT_PATTERN.test(text)) {
+    throw new Error(
+      `Generated component "${localName}" from ${source} contains MDX but has no machine-readable artifact.`,
+    );
+  }
+  return text;
+}
+
+function readGeneratedManifest(path: string): Promise<GeneratedArtifactManifest> {
+  generatedManifestPromise ??= readFile(path, 'utf8').then(
+    (content) => JSON.parse(content) as GeneratedArtifactManifest,
+  );
+  return generatedManifestPromise;
+}
+
+function generatedPathsFor(target: string): {docsRoot: string; generatedRoot: string} {
+  const marker = `${sep}content${sep}generated${sep}`;
+  const markerIndex = target.indexOf(marker);
+  if (markerIndex < 0) {
+    throw new Error(`Generated component path is outside the docs generated directory: ${target}`);
+  }
+
+  const docsRoot = target.slice(0, markerIndex);
+  return {docsRoot, generatedRoot: resolve(docsRoot, 'content/generated')};
 }
 
 function walk(value: unknown, callback: (node: MdxEsmNode | MdxElementNode) => void): void {
