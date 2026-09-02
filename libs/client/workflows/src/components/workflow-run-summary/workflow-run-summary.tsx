@@ -20,9 +20,10 @@ import {Fragment, type ReactElement, useId} from 'react';
 import {WorkflowRunNumberLabel} from '#components/workflow-run-number-label.js';
 import {
   isWorkflowRunTerminal,
-  type Job,
   WORKFLOW_RUN_STATUSES,
   type WorkflowRunDetail,
+  type WorkflowRunListItem,
+  type WorkflowRunOverview,
   type WorkflowRunRerunMode,
   workflowRunBranchLabel,
   workflowRunCommitLabel,
@@ -41,10 +42,12 @@ const NEUTRAL_ACTION_SURFACE_CLASS_NAME =
 
 type WorkflowRunAction = 'cancel' | 'rerun-all' | 'rerun-menu' | 'none';
 
+export type WorkflowRunSummaryRun = WorkflowRunDetail | WorkflowRunOverview | WorkflowRunListItem;
+
 export interface WorkflowRunSummaryProps {
   workspaceSlug?: string | undefined;
   projectSlug?: string | undefined;
-  run: WorkflowRunDetail;
+  run: WorkflowRunSummaryRun;
   cancelling?: boolean | undefined;
   onCancel?: (() => void) | undefined;
   rerunPending?: boolean | undefined;
@@ -68,7 +71,7 @@ export function WorkflowRunSummary({
   const hasAction = canRenderWorkflowRunAction(action, onCancel, onRerun);
   const attemptSwitcher = workflowAttemptSwitcher(latestAttempt, workspaceSlug, projectSlug);
   const displayDuration = run.runAttempt.displayDuration;
-  const hasStarted = run.hasStartedJobExecution;
+  const hasStarted = workflowRunHasStartedJobExecution(run);
   const {ref: headingTextRef, isTruncated: isHeadingTruncated} =
     useIsTextTruncated<HTMLSpanElement>(run.name);
   const currentUser = useAuthState().user;
@@ -241,7 +244,7 @@ function workflowAttemptSwitcher(
 }
 
 function metadataHasLeadingContent(
-  run: WorkflowRunDetail,
+  run: WorkflowRunSummaryRun,
   attemptSwitcher: ReturnType<typeof workflowAttemptSwitcher>,
 ): boolean {
   return run.number !== null || attemptSwitcher !== null || Boolean(run.triggerDisplayLabel);
@@ -345,7 +348,7 @@ function WorkflowRunActionSlot({
   );
 }
 
-function workflowRunActionForRun(run: WorkflowRunDetail): WorkflowRunAction {
+function workflowRunActionForRun(run: WorkflowRunSummaryRun): WorkflowRunAction {
   if (run.runAttempt.attempt !== run.currentAttempt) return 'none';
   if (!isWorkflowRunTerminal(run.runAttempt.status)) return 'cancel';
   if (run.runAttempt.status === 'succeeded' || !hasFailedOrCancelledJobs(run)) return 'rerun-all';
@@ -520,12 +523,24 @@ function ReplayOfEventLabel({
   );
 }
 
-function hasFailedOrCancelledJobs(run: WorkflowRunDetail): boolean {
-  if (!workflowRunHasJobs(run)) return false;
+function hasFailedOrCancelledJobs(run: WorkflowRunSummaryRun): boolean {
+  if (Array.isArray(run.jobs)) {
+    return run.jobs.some((job) => job.status === 'failed' || job.status === 'cancelled');
+  }
 
-  return run.jobs.some((job) => job.status === 'failed' || job.status === 'cancelled');
+  if ('preview' in run.jobs) {
+    return run.jobs.statusCounts.some(({status}) => status === 'failed' || status === 'cancelled');
+  }
+
+  if (run.jobs.kind === 'complete') {
+    return run.jobs.items.some((job) => job.status === 'failed' || job.status === 'cancelled');
+  }
+
+  return run.jobs.statusCounts.some(({status}) => status === 'failed' || status === 'cancelled');
 }
 
-function workflowRunHasJobs(run: WorkflowRunDetail): run is WorkflowRunDetail & {jobs: Job[]} {
-  return 'jobs' in run && Array.isArray(run.jobs);
+function workflowRunHasStartedJobExecution(run: WorkflowRunSummaryRun): boolean {
+  return 'hasStartedJobExecution' in run
+    ? run.hasStartedJobExecution
+    : run.jobs.hasStartedJobExecution;
 }

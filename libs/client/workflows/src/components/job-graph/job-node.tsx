@@ -10,27 +10,22 @@ import type {KeyboardEventHandler, Ref} from 'react';
 import {getWorkflowStatusVisual} from '#components/workflow-status/status-visuals.js';
 import {WorkflowStatusIcon} from '#components/workflow-status/workflow-status-icon.js';
 import {
-  defaultJobExecution,
-  deriveJobDisplayStatus,
-  deriveJobExecutionDisplayStatus,
-  type JobExecution,
-  type JobExecutionStatus,
-  type WorkflowRunDetail,
-} from '#core/workflow-run.js';
-import type {JobGraphNode} from './graph-model.js';
+  graphJobDefaultExecution,
+  graphJobDisplayDuration,
+  graphJobDisplayStatus,
+  graphJobExecutionCount,
+  graphJobExecutionCountVisible,
+  graphJobExecutionDisplayStatus,
+  graphJobExecutionStatusCounts,
+  type JobGraphNode,
+} from './graph-model.js';
 import {formatJobDurationAccessibleLabel} from './job-duration-format.js';
 import {JobDurationLabel} from './job-duration-label.js';
+import type {JobGraphTrigger} from './types.js';
 
 const TRIGGER_SIZE = 36;
 
-export function TriggerNode({
-  trigger,
-}: {
-  trigger: Pick<
-    WorkflowRunDetail,
-    'triggerDisplayLabel' | 'triggerLabel' | 'triggerProvider' | 'triggerSource'
-  >;
-}) {
+export function TriggerNode({trigger}: {trigger: JobGraphTrigger}) {
   const label = trigger.triggerDisplayLabel || 'trigger';
   const tooltip = trigger.triggerLabel || label;
 
@@ -76,19 +71,17 @@ export function JobNode({
   ref?: Ref<HTMLButtonElement>;
 }) {
   useTimeTick();
-  const status = deriveJobDisplayStatus(node);
-  const execution = defaultJobExecution(node);
+  const status = graphJobDisplayStatus(node);
+  const execution = graphJobDefaultExecution(node);
+  const duration = graphJobDisplayDuration(node);
+  const executionCount = graphJobExecutionCount(node);
+  const executionCountVisible = graphJobExecutionCountVisible(node);
   const visual = getWorkflowStatusVisual(status);
   const accessibleLabel = [
     node.displayName,
     visual.label,
-    formatJobDurationAccessibleLabel(
-      node.displayDuration,
-      execution ? deriveJobExecutionDisplayStatus(execution) : undefined,
-    ),
-    node.executionCountVisible
-      ? executionCountAccessibleLabel(node.jobExecutions.length)
-      : undefined,
+    formatJobDurationAccessibleLabel(duration, graphJobExecutionDisplayStatus(execution)),
+    executionCountVisible ? executionCountAccessibleLabel(executionCount) : undefined,
     node.carriedOver ? 'reused' : undefined,
   ]
     .filter((part): part is string => Boolean(part))
@@ -121,16 +114,25 @@ export function JobNode({
         <WorkflowStatusIcon status={status} size={14} />
         <JobLabel label={node.displayName} />
       </div>
-      <JobDurationLabel duration={node.displayDuration} />
-      {node.executionCountVisible ? <ExecutionCountText executions={node.jobExecutions} /> : null}
+      <JobDurationLabel duration={duration} />
+      {executionCountVisible ? (
+        <ExecutionCountText
+          count={executionCount}
+          statusCounts={graphJobExecutionStatusCounts(node)}
+        />
+      ) : null}
       {node.carriedOver ? <CarriedOverBadge /> : null}
     </button>
   );
 }
 
-function ExecutionCountText({executions}: {executions: JobExecution[]}) {
-  const count = executions.length;
-
+function ExecutionCountText({
+  count,
+  statusCounts,
+}: {
+  count: number | '100+';
+  statusCounts: Record<string, number | '100+'>;
+}) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -144,7 +146,7 @@ function ExecutionCountText({executions}: {executions: JobExecution[]}) {
           </Code>
         </span>
       </TooltipTrigger>
-      <TooltipContent>{executionCountTooltip(executions)}</TooltipContent>
+      <TooltipContent>{executionCountTooltip(statusCounts, count)}</TooltipContent>
     </Tooltip>
   );
 }
@@ -183,32 +185,18 @@ function JobLabel({label}: {label: string}) {
   );
 }
 
-function executionCountAccessibleLabel(count: number): string {
+function executionCountAccessibleLabel(count: number | '100+'): string {
   return `${count} ${count === 1 ? 'execution' : 'executions'}`;
 }
 
-function executionCountTooltip(executions: JobExecution[]): string {
-  const counts = executionStatusCounts(executions);
+function executionCountTooltip(
+  counts: Record<string, number | '100+'>,
+  total: number | '100+',
+): string {
   const parts = EXECUTION_STATUSES.map((status) =>
-    counts[status] > 0 ? `${counts[status]} ${status}` : undefined,
+    counts[status] && counts[status] !== 0 ? `${counts[status]} ${status}` : undefined,
   ).filter((part): part is string => part !== undefined);
-  return parts.length > 0 ? parts.join(', ') : 'No executions';
+  return parts.length > 0 ? parts.join(', ') : `${total} executions`;
 }
 
-const EXECUTION_STATUSES = [
-  'pending',
-  'running',
-  'succeeded',
-  'failed',
-  'cancelled',
-] as const satisfies readonly JobExecutionStatus[];
-
-function executionStatusCounts(executions: JobExecution[]) {
-  return executions.reduce(
-    (counts, execution) => {
-      counts[deriveJobExecutionDisplayStatus(execution)] += 1;
-      return counts;
-    },
-    {pending: 0, running: 0, succeeded: 0, failed: 0, cancelled: 0},
-  );
-}
+const EXECUTION_STATUSES = ['pending', 'running', 'succeeded', 'failed', 'cancelled'] as const;

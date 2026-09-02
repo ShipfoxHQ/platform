@@ -160,6 +160,22 @@ describe('WorkflowJobDetailPage', () => {
       if (url.pathname.includes('/logs')) {
         return Promise.resolve(jsonResponse({code: 'not-found'}, {status: 404}));
       }
+      if (url.pathname.endsWith('/head')) {
+        return Promise.resolve(
+          jsonResponse({
+            current_attempt: 1,
+            latest_attempt: 1,
+            current_status: 'running',
+            updated_at: '2026-06-21T12:01:00.000Z',
+          }),
+        );
+      }
+      if (url.pathname.endsWith('/overview')) {
+        return Promise.resolve(jsonResponse({code: 'not-found'}, {status: 404}));
+      }
+      if (url.pathname !== `/workflows/runs/${RUN_ID}`) {
+        return Promise.resolve(jsonResponse({code: 'not-found'}, {status: 404}));
+      }
       detailRequestCount += 1;
       return Promise.resolve(
         jsonResponse(
@@ -187,6 +203,22 @@ describe('WorkflowJobDetailPage', () => {
     const fetchImpl = vi.fn((input: RequestInfo | URL) => {
       const url = new URL((input as Request).url);
       if (url.pathname.includes('/logs')) {
+        return Promise.resolve(jsonResponse({code: 'not-found'}, {status: 404}));
+      }
+      if (url.pathname.endsWith('/head')) {
+        return Promise.resolve(
+          jsonResponse({
+            current_attempt: 1,
+            latest_attempt: 1,
+            current_status: 'running',
+            updated_at: '2026-06-21T12:01:00.000Z',
+          }),
+        );
+      }
+      if (url.pathname.endsWith('/overview')) {
+        return Promise.resolve(jsonResponse({code: 'not-found'}, {status: 404}));
+      }
+      if (url.pathname !== `/workflows/runs/${RUN_ID}`) {
         return Promise.resolve(jsonResponse({code: 'not-found'}, {status: 404}));
       }
       detailRequestCount += 1;

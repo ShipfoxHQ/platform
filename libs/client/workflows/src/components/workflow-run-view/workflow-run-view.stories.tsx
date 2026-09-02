@@ -1,5 +1,9 @@
 import type {AnnotationDto} from '@shipfox/annotations-dto';
-import type {WorkflowRunDetailResponseDto} from '@shipfox/api-workflows-dto';
+import type {
+  WorkflowRunDetailResponseDto,
+  WorkflowRunJobOverviewDto,
+  WorkflowRunOverviewResponseDto,
+} from '@shipfox/api-workflows-dto';
 import {configureApiClient} from '@shipfox/client-api';
 import type {Decorator, Meta, StoryObj} from '@storybook/react';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
@@ -23,12 +27,47 @@ const BUILD_EXECUTION_ID = '77777777-7777-4777-8777-00000000000b';
 const BUILD_STEP_ID = '55555555-5555-4555-8555-00000000000b';
 const BUILD_ATTEMPT_ID = '66666666-6666-4666-8666-00000000000b';
 
-function responseForPath(path: string, annotations: readonly AnnotationDto[]) {
+function responseForPath(
+  path: string,
+  annotations: readonly AnnotationDto[],
+  workflowSize: 'complete' | 'large',
+) {
   if (path === '/annotations') {
     return {body: {annotations, has_more: false, next_cursor: null}, status: 200};
   }
   if (path === `/workflows/runs/${RUN_ID}/attempts`) {
     return {body: RUN_ATTEMPTS_RESPONSE, status: 200};
+  }
+  if (path === `/workflows/runs/${RUN_ID}/head`) {
+    return {
+      body: {
+        current_attempt: 1,
+        latest_attempt: 1,
+        current_status: 'succeeded',
+        updated_at: RUN_FINISHED_AT,
+      },
+      status: 200,
+    };
+  }
+  if (path === `/workflows/runs/${RUN_ID}/source`) {
+    return {
+      body: {
+        kind: 'unavailable',
+        workflow_run_id: RUN_ID,
+        workflow_run_attempt: 1,
+        reason: 'pre_snapshot_run',
+      },
+      status: 200,
+    };
+  }
+  if (path === `/workflows/runs/${RUN_ID}/overview`) {
+    return {
+      body: workflowSize === 'large' ? RUN_LARGE_OVERVIEW_RESPONSE : RUN_OVERVIEW_RESPONSE,
+      status: 200,
+    };
+  }
+  if (path === `/workflows/runs/${RUN_ID}/jobs`) {
+    return {body: RUN_LARGE_JOBS_RESPONSE, status: 200};
   }
   if (path === `/workflows/runs/${RUN_ID}`) return {body: RUN_RESPONSE, status: 200};
   return {body: {code: 'not-found'}, status: 404};
@@ -89,6 +128,101 @@ const RUN_RESPONSE: WorkflowRunDetailResponseDto = workflowRunDetailDto({
   ],
 });
 const RUN_ATTEMPTS_RESPONSE = runAttemptsResponseDto({attempts: []});
+const BUILD_OVERVIEW_JOB = overviewJobDto({
+  id: BUILD_JOB_ID,
+  key: 'build',
+  name: 'build',
+  status: 'succeeded',
+  position: 0,
+});
+const RUN_OVERVIEW_RESPONSE: WorkflowRunOverviewResponseDto = {
+  run: {
+    id: RUN_RESPONSE.id,
+    project_id: RUN_RESPONSE.project_id,
+    definition_id: RUN_RESPONSE.definition_id,
+    number: RUN_RESPONSE.number,
+    name: RUN_RESPONSE.name,
+    workflow_name: RUN_RESPONSE.workflow_name,
+    origin: RUN_RESPONSE.origin,
+    dev_source: RUN_RESPONSE.dev_source,
+    trigger_provider: RUN_RESPONSE.trigger_provider,
+    trigger_source: RUN_RESPONSE.trigger_source,
+    trigger_event: RUN_RESPONSE.trigger_event,
+    trigger_reference: RUN_RESPONSE.trigger_reference,
+    created_at: RUN_RESPONSE.created_at,
+  },
+  attempt: RUN_RESPONSE.run_attempt,
+  has_started_job_execution: RUN_RESPONSE.has_started_job_execution,
+  jobs: {
+    kind: 'complete',
+    total: 3,
+    items: [
+      BUILD_OVERVIEW_JOB,
+      overviewJobDto({
+        id: '44444444-4444-4444-8444-00000000000c',
+        key: 'deploy',
+        name: 'deploy',
+        status: 'succeeded',
+        position: 1,
+        dependencies: ['build'],
+      }),
+      overviewJobDto({
+        id: '44444444-4444-4444-8444-00000000000d',
+        key: 'notify',
+        name: 'notify',
+        status: 'succeeded',
+        position: 2,
+        dependencies: ['deploy'],
+      }),
+    ],
+  },
+};
+const {dependencies: _buildDependencies, ...BUILD_JOB_SUMMARY} = BUILD_OVERVIEW_JOB;
+const RUN_LARGE_OVERVIEW_RESPONSE: WorkflowRunOverviewResponseDto = {
+  ...RUN_OVERVIEW_RESPONSE,
+  jobs: {
+    kind: 'large',
+    total: 101,
+    status_counts: [{status: 'succeeded', count: 101}],
+    first_page: {
+      items: [BUILD_JOB_SUMMARY],
+      next_cursor: 'large-jobs-page-2',
+      total: 101,
+    },
+  },
+};
+const RUN_LARGE_JOBS_RESPONSE = {
+  items: [BUILD_JOB_SUMMARY],
+  next_cursor: null,
+  total: 101,
+};
+
+function overviewJobDto(
+  overrides: Partial<WorkflowRunJobOverviewDto> = {},
+): WorkflowRunJobOverviewDto {
+  return {
+    id: BUILD_JOB_ID,
+    key: 'build',
+    name: 'build',
+    position: 0,
+    dependencies: [],
+    status: 'pending',
+    status_reason: null,
+    mode: 'one_shot',
+    listener_status: 'inactive',
+    carried_over: false,
+    execution_count: 0,
+    execution_status_counts: {
+      pending: 0,
+      running: 0,
+      succeeded: 0,
+      failed: 0,
+      cancelled: 0,
+    },
+    default_execution: null,
+    ...overrides,
+  };
+}
 
 /** Stable identity: a fresh `[]` per render would retrigger the API-client effect every render. */
 const NO_ANNOTATIONS: AnnotationDto[] = [];
@@ -120,6 +254,7 @@ const RUN_ANNOTATIONS: AnnotationDto[] = [
 const withRunApi: Decorator = (Story, context) => (
   <RunWorkspaceStoryProviders
     annotations={(context.parameters.annotations ?? NO_ANNOTATIONS) as AnnotationDto[]}
+    workflowSize={context.parameters.workflowSize === 'large' ? 'large' : 'complete'}
   >
     <Story />
   </RunWorkspaceStoryProviders>
@@ -154,6 +289,7 @@ const meta = {
     workspaceSlug: 'acme',
     projectSlug: 'platform',
     workflowRunId: RUN_ID,
+    runAttempt: 1,
   },
 } satisfies Meta<typeof WorkflowRunView>;
 
@@ -174,6 +310,10 @@ export const Annotations: Story = {
   args: {tab: 'annotations'},
 };
 
+export const LargeWorkflow: Story = {
+  parameters: {workflowSize: 'large'},
+};
+
 function annotationDto(overrides: Partial<AnnotationDto> & {id: string}): AnnotationDto {
   return {
     job_id: BUILD_JOB_ID,
@@ -190,9 +330,11 @@ function annotationDto(overrides: Partial<AnnotationDto> & {id: string}): Annota
 
 function RunWorkspaceStoryProviders({
   annotations,
+  workflowSize,
   children,
 }: {
   annotations: AnnotationDto[];
+  workflowSize: 'complete' | 'large';
   children: ReactNode;
 }) {
   const [queryClient] = useState(
@@ -209,7 +351,7 @@ function RunWorkspaceStoryProviders({
         else if (input instanceof URL) url = input.href;
         else url = String(input);
         const path = new URL(url, 'https://api.example.test').pathname;
-        const response = responseForPath(path, annotations);
+        const response = responseForPath(path, annotations, workflowSize);
         return new Response(JSON.stringify(response.body), {
           status: response.status,
           headers: {'content-type': 'application/json'},
@@ -221,7 +363,7 @@ function RunWorkspaceStoryProviders({
     return () => {
       configureApiClient({baseUrl: '', fetchImpl: undefined});
     };
-  }, [annotations]);
+  }, [annotations, workflowSize]);
 
   if (!configured) return null;
 

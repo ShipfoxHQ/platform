@@ -63,6 +63,7 @@ async function listRunAnnotations({
 export interface RunAnnotationsQueryInput {
   workflowRunId: string | undefined;
   runAttempt: number | undefined;
+  enabled?: boolean | undefined;
   /** Poll while the run attempt is non-terminal, then settle. */
   live?: boolean | undefined;
 }
@@ -70,9 +71,10 @@ export interface RunAnnotationsQueryInput {
 export function runAnnotationsQueryOptions({
   workflowRunId,
   runAttempt,
+  enabled: enabledOption = true,
   live = false,
 }: RunAnnotationsQueryInput): RunAnnotationsQueryOptions {
-  const enabled = Boolean(workflowRunId) && runAttempt !== undefined;
+  const enabled = Boolean(workflowRunId) && runAttempt !== undefined && enabledOption;
 
   // Polling stops once the reader has paged past the first page: the cursor bounding page 2 was
   // computed from page 1's last row, so a refetch that shifts that boundary can drop a range of

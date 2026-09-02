@@ -17,6 +17,7 @@ const PROJECT_ID = '44444444-4444-4444-8444-444444444444';
 const JOB_STRIP_LABEL_RE = /jobs:/u;
 const JOB_SUMMARY_NAME_RE = /queued-build/u;
 const OVERFLOW_COUNT_RE = /^\+/u;
+const DEPLOY_WEB_RE = /deploy-web/u;
 const WORKSPACE_SLUG = 'acme';
 const PROJECT_SLUG = 'checkout-api';
 
@@ -676,6 +677,22 @@ describe('WorkflowRunListView', () => {
       expect(links.some((link) => link.textContent?.includes('queued-build'))).toBe(false);
       expect(screen.getByText('queued-build')).toBeInTheDocument();
       expect(screen.queryByText('CI #1')).not.toBeInTheDocument();
+    });
+
+    test('pins the list row to its current attempt', async () => {
+      renderListView([
+        run('running', 'deploy-web', 'run-deploy-web', {
+          current_attempt: 3,
+          latest_attempt: 4,
+        }),
+      ]);
+
+      const link = await screen.findByRole('link', {name: DEPLOY_WEB_RE});
+
+      expect(link).toHaveAttribute(
+        'href',
+        '/w/acme/p/checkout-api/runs/run-deploy-web?runAttempt=3',
+      );
     });
 
     test('shows a finished run duration in the row metadata', async () => {

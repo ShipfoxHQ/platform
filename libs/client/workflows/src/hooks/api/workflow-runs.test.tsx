@@ -426,11 +426,12 @@ describe('workflow run API hooks', () => {
       rerunMode: 'all',
     });
     expect(firstRequest(fetchImpl).url).toBe(
-      `https://api.example.test/workflows/runs/${RUN_ID}/attempts`,
+      `https://api.example.test/workflows/runs/${RUN_ID}/attempts?limit=25`,
     );
-    expect(queryClient.getQueryData(workflowRunsQueryKeys.attempts(RUN_ID))).toEqual(
-      result.current.data,
-    );
+    expect(queryClient.getQueryData(workflowRunsQueryKeys.attempts(RUN_ID))).toEqual({
+      pages: [{items: result.current.data, nextCursor: null}],
+      pageParams: [null],
+    });
   });
 
   test('maps paginated run attempts from the compatibility response', async () => {
@@ -706,6 +707,9 @@ describe('workflow run API hooks', () => {
     expect(cancelled?.status).toBe('cancelled');
     expect(invalidateSpy).toHaveBeenCalledWith({queryKey: workflowRunsQueryKeys.detail(RUN_ID)});
     expect(invalidateSpy).toHaveBeenCalledWith({queryKey: workflowRunsQueryKeys.lists(PROJECT_ID)});
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: [...workflowRunsQueryKeys.all, 'overview-jobs', RUN_ID],
+    });
   });
 
   test('posts rerun mode and invalidates project run lists and attempt lineage', async () => {

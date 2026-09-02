@@ -68,6 +68,7 @@ export function WorkflowJobDetailPage({
         runAttempt={search.runAttempt}
         activeJobId={jobId}
         jobSearch={search}
+        legacyQuery={runQuery}
         jobContent={
           <JobDetailView
             key={jobId}

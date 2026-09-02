@@ -94,3 +94,21 @@ export {
 } from './entities/workflow-run.js';
 export type {WorkflowRunAttemptDisplayDuration} from './entities/workflow-run-attempt.js';
 export {WorkflowRunAttempt, WorkflowRunAttemptSummary} from './entities/workflow-run-attempt.js';
+export type {
+  BoundedExecutionCount,
+  WorkflowRunLineageHead,
+  WorkflowRunOverview,
+  WorkflowRunOverviewCompleteJobs,
+  WorkflowRunOverviewExecution,
+  WorkflowRunOverviewHeader,
+  WorkflowRunOverviewJobPage,
+  WorkflowRunOverviewJobs,
+  WorkflowRunOverviewLargeJobs,
+  WorkflowRunSelectionResolution,
+  WorkflowRunSource,
+  WorkflowRunSourceUnavailableReason,
+} from './entities/workflow-run-overview.js';
+export {
+  toWorkflowRunOverviewExecutionDuration,
+  WorkflowRunOverviewJob,
+} from './entities/workflow-run-overview.js';

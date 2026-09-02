@@ -288,15 +288,23 @@ describe('WorkflowRunView', () => {
 
   test('renders the captured workflow source in the Source section', async () => {
     configureApiClient({
-      fetchImpl: vi.fn(() =>
-        Promise.resolve(
+      fetchImpl: vi.fn((input: RequestInfo | URL) => {
+        const detail = workflowRunViewDetailDto({
+          source_snapshot: {format: 'yaml', content: 'jobs:\n  build:\n    steps: []'},
+        });
+        return Promise.resolve(
           jsonResponse(
-            workflowRunViewDetailDto({
-              source_snapshot: {format: 'yaml', content: 'jobs:\n  build:\n    steps: []'},
-            }),
+            requestUrl(input).includes('/source')
+              ? {
+                  kind: 'available',
+                  workflow_run_id: RUN_ID,
+                  workflow_run_attempt: detail.run_attempt.attempt,
+                  source_snapshot: detail.source_snapshot,
+                }
+              : detail,
           ),
-        ),
-      ),
+        );
+      }),
     });
 
     renderView({tab: 'source'});
@@ -349,18 +357,40 @@ function configureRunFetch(
   annotationPageOverrides: Partial<{has_more: boolean; next_cursor: string | null}> = {},
 ) {
   configureApiClient({
-    fetchImpl: vi.fn((input: RequestInfo | URL) =>
-      Promise.resolve(
-        requestUrl(input).includes('/annotations')
-          ? jsonResponse({
-              annotations,
-              has_more: false,
-              next_cursor: null,
-              ...annotationPageOverrides,
-            })
-          : jsonResponse(workflowRunViewDetailDto(runOverrides)),
-      ),
-    ),
+    fetchImpl: vi.fn((input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      const detail = workflowRunViewDetailDto(runOverrides);
+      if (url.includes('/annotations')) {
+        return Promise.resolve(
+          jsonResponse({
+            annotations,
+            has_more: false,
+            next_cursor: null,
+            ...annotationPageOverrides,
+          }),
+        );
+      }
+      if (url.includes('/source')) {
+        return Promise.resolve(
+          jsonResponse(
+            detail.source_snapshot
+              ? {
+                  kind: 'available',
+                  workflow_run_id: RUN_ID,
+                  workflow_run_attempt: detail.run_attempt.attempt,
+                  source_snapshot: detail.source_snapshot,
+                }
+              : {
+                  kind: 'unavailable',
+                  workflow_run_id: RUN_ID,
+                  workflow_run_attempt: detail.run_attempt.attempt,
+                  reason: detail.origin === 'dev' ? 'temporary_run' : 'pre_snapshot_run',
+                },
+          ),
+        );
+      }
+      return Promise.resolve(jsonResponse(detail));
+    }),
   });
 }
 

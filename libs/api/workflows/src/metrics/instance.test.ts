@@ -155,6 +155,7 @@ describe('workflow-run detail measurement metrics', () => {
     expect(metrics.classifyWorkflowRunDetailRequestKind(['polling'])).toBe('unknown');
     expect(metrics.classifyWorkflowRunDetailRequestKind('unsupported')).toBe('unknown');
     expect(metrics.classifyWorkflowRunDetailRequestKind('initial')).toBe('initial');
+    expect(metrics.classifyWorkflowRunDetailRequestKind('bridge')).toBe('bridge');
   });
 
   test('does not let metric failures affect callers', () => {
