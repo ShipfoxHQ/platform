@@ -1,5 +1,15 @@
 # @shipfox/api-auth
 
+## 20.2.0
+
+### Patch Changes
+
+- Updated dependencies [ba481d6]
+  - @shipfox/node-fastify@0.4.4
+  - @shipfox/api-auth-context@20.2.0
+  - @shipfox/node-module@1.0.9
+  - @shipfox/api-email-challenges@1.1.14
+
 ## 20.1.0
 
 ### Minor Changes

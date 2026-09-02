@@ -1,5 +1,12 @@
 # @shipfox/node-module
 
+## 1.0.9
+
+### Patch Changes
+
+- Updated dependencies [ba481d6]
+  - @shipfox/node-fastify@0.4.4
+
 ## 1.0.8
 
 ### Patch Changes
