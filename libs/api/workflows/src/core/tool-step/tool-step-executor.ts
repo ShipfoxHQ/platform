@@ -4,7 +4,11 @@ import {integrationsInterModuleContract} from '@shipfox/api-integration-core-dto
 import {MAX_RECORD_DATA_BYTES, type ServerLogRecord} from '@shipfox/api-logs-dto';
 import type {LogsModuleClient} from '@shipfox/api-logs-dto/inter-module';
 import {logsInterModuleContract} from '@shipfox/api-logs-dto/inter-module';
-import {evaluateWorkflowExpression, type WorkflowExpression} from '@shipfox/expression';
+import {
+  evaluateWorkflowExpression,
+  type WorkflowExpression,
+  WorkflowExpressionEvaluationError,
+} from '@shipfox/expression';
 import {isInterModuleKnownError} from '@shipfox/inter-module';
 import {reportError} from '@shipfox/node-error-monitoring';
 import type {ModuleService} from '@shipfox/node-module';
@@ -438,13 +442,22 @@ function mapToolOutputs(
     if (!isRecord(rawExpression) || typeof rawExpression.source !== 'string') {
       throw new Error(`Tool output mapping "${key}" is invalid`);
     }
+    let value: unknown;
+    try {
+      value = evaluateWorkflowExpression(rawExpression as unknown as WorkflowExpression, {
+        result,
+        vars: workflowContext.vars ?? {},
+      });
+    } catch (error) {
+      throw new Error(
+        `Tool output mapping "${key}" failed: ${mappingEvaluationErrorMessage(error)}`,
+        {cause: error},
+      );
+    }
     Object.defineProperty(output, key, {
       configurable: true,
       enumerable: true,
-      value: evaluateWorkflowExpression(rawExpression as unknown as WorkflowExpression, {
-        result,
-        vars: workflowContext.vars ?? {},
-      }),
+      value,
       writable: true,
     });
   }
@@ -780,6 +793,10 @@ function reportUnexpectedToolError(
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function mappingEvaluationErrorMessage(error: unknown): string {
+  return error instanceof WorkflowExpressionEvaluationError ? error.summary : errorMessage(error);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
