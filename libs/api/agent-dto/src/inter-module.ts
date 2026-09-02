@@ -105,9 +105,13 @@ export const agentInterModuleContract = defineInterModuleContract({
         projectId: z.string().uuid(),
         workflowRunAttemptId: z.string().uuid(),
         key: z.string().min(1),
-        /** Harness resolved for this attempt; an explicit value must match an existing session's pinned harness. */
+        /**
+         * Resolved harness sent by the caller, including when the step omitted it.
+         * When `harnessExplicit` is false, an existing session's pinned harness
+         * takes precedence over this value.
+         */
         harness: harnessSchema,
-        /** Omitted harness inherits the pinned harness for an existing session. */
+        /** Whether the caller authored the harness; false requests pin inheritance. */
         harnessExplicit: z.boolean().optional(),
         stepAttemptId: z.string().uuid(),
         /** `resume` claims exclusively and may write back; `fork` only reads the current head. */

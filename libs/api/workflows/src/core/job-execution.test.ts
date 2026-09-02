@@ -745,6 +745,45 @@ describe('nextStepForJob session claims', () => {
     });
   });
 
+  test('re-resolves fork config against an inherited pinned harness', async () => {
+    const {jobId, steps} = await arrangeJobWithAgentStep({
+      prompt: 'Read the work.',
+      session: {key: 'main', mode: 'fork'},
+    });
+    const step = steps[0];
+    if (!step) throw new Error('Expected arranged step');
+    const sessionId = crypto.randomUUID();
+    const claimSession = vi.mocked(agentTestClient.claimSession);
+    claimSession.mockReset();
+    claimSession.mockResolvedValue({
+      descriptor: {id: sessionId, key: 'main', mode: 'fork', segment: 3},
+      harness: 'claude',
+    });
+    const resolveAgentConfig = vi.spyOn(agentTestClient, 'resolveAgentConfig').mockResolvedValue({
+      harness: 'claude',
+      provider: 'anthropic',
+      model: 'claude-opus-5',
+      thinking: 'xhigh',
+    });
+    const context = await workflowContextForJob(jobId);
+
+    const next = await nextStepForJob(jobId, agentTestClient);
+
+    expect(next).toEqual(expect.objectContaining({kind: 'step'}));
+    if (next.kind !== 'step') throw new Error('Expected a dispatched step');
+    expect(next.step.config).toMatchObject({
+      harness: 'claude',
+      provider: 'anthropic',
+      model: 'claude-opus-5',
+      thinking: 'xhigh',
+      session: {id: sessionId, mode: 'fork', segment: 3},
+    });
+    expect(resolveAgentConfig).toHaveBeenCalledWith({
+      workspaceId: context.workspaceId,
+      config: {harness: 'claude'},
+    });
+  });
+
   test('does not apply a delayed claim result to a restarted attempt', async () => {
     const {jobId, steps} = await arrangeJobWithAgentStep({
       prompt: 'Plan the work.',
