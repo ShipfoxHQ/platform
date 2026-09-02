@@ -16,7 +16,10 @@
     "start": "next start --port ${SHIPFOX_DOCS_PORT:-3500}",
     "type": "shipfox-tsc-check",
     "generate": "tsx --conditions=workspace-source scripts/generate.mjs",
-    "test": "pnpm generate && pnpm test:unit && tsx scripts/check-writing.mjs && tsx scripts/check-links.mjs && tsx scripts/check-workflow-schema.mjs && tsx --conditions=workspace-source scripts/check-contexts.mjs && tsx --conditions=workspace-source scripts/check-catalog.mjs && tsx scripts/check-integration-docs.mjs",
+    "test": "pnpm test:dependencies && pnpm generate && pnpm test:unit && tsx scripts/check-writing.mjs && tsx scripts/check-links.mjs && tsx scripts/check-workflow-schema.mjs && tsx --conditions=workspace-source scripts/check-contexts.mjs && tsx --conditions=workspace-source scripts/check-catalog.mjs && tsx scripts/check-integration-docs.mjs && pnpm test:production-routes:generated",
+    "test:dependencies": "mise exec -- turbo build --filter=@shipfox/docs^...",
+    "test:production-routes": "pnpm test:dependencies && pnpm generate && pnpm test:production-routes:generated",
+    "test:production-routes:generated": "node scripts/check-production-routes.mjs",
     "test:unit": "tsx --conditions=workspace-source --test",
     "postinstall": "fumadocs-mdx"
   },
