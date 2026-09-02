@@ -1,6 +1,5 @@
 ---
 "@shipfox/api-workflows": patch
-"@shipfox/expression": minor
 ---
 
-Names mapped tool outputs in runtime errors with their mapping key and safe CEL cause.
+Names mapped tool output failures with their mapping key and a bounded CEL diagnostic.
