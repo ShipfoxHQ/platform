@@ -1,5 +1,11 @@
 # @shipfox/api-workflows-dto
 
+## 20.4.0
+
+### Minor Changes
+
+- 9a66057: Adds lazy source, execution-context, and step-diagnostic workflow APIs with bounded diagnostic reads and writes.
+
 ## 20.3.0
 
 ### Minor Changes

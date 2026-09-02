@@ -1,5 +1,17 @@
 # @shipfox/client-agent
 
+## 32.0.0
+
+### Minor Changes
+
+- 0b32d1a: Add OAuth consent and Authorized apps management to the Agent access UI.
+
+### Patch Changes
+
+- Updated dependencies [0b32d1a]
+  - @shipfox/api-auth-dto@20.4.0
+  - @shipfox/client-shell@32.0.0
+
 ## 31.0.1
 
 ### Patch Changes

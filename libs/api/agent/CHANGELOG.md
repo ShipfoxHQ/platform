@@ -1,5 +1,14 @@
 # @shipfox/api-agent
 
+## 20.4.0
+
+### Patch Changes
+
+- Updated dependencies [9a66057]
+- Updated dependencies [0b32d1a]
+  - @shipfox/api-workflows-dto@20.4.0
+  - @shipfox/api-auth-context@20.4.0
+
 ## 20.3.0
 
 ### Patch Changes

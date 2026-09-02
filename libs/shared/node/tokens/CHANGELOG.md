@@ -1,5 +1,11 @@
 # @shipfox/node-tokens
 
+## 1.2.0
+
+### Minor Changes
+
+- 0b32d1a: Remove personal access token support from agent access.
+
 ## 1.1.0
 
 ### Minor Changes
