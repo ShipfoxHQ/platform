@@ -3,18 +3,23 @@ import type {
   WorkflowRunJobOverviewDto,
   WorkflowRunOverviewResponseDto,
   WorkflowRunSelectionResponseDto,
+  WorkflowRunSourceResponseDto,
 } from '@shipfox/api-workflows-dto';
 import {configureApiClient} from '@shipfox/client-api';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {act, cleanup, renderHook, waitFor} from '@testing-library/react';
 import type {ReactNode} from 'react';
+import {workflowJobDto, workflowRunDetailDto} from '#test/fixtures/workflow-run.js';
+import {toWorkflowRunOverview, toWorkflowRunOverviewFromDetail} from './workflow-run-mapper.js';
 import {
   useWorkflowRunLineageHeadQuery,
   useWorkflowRunOverviewJobsInfiniteQuery,
   useWorkflowRunOverviewQuery,
+  useWorkflowRunSourceQuery,
   WORKFLOW_RUN_LINEAGE_HEAD_STALE_TIME_MS,
   WORKFLOW_RUN_OVERVIEW_ACTIVE_POLL_MS,
   workflowRunLineageHeadQueryOptions,
+  workflowRunOverviewJobsInfiniteQueryOptions,
   workflowRunOverviewQueryOptions,
 } from './workflow-run-overview.js';
 import {useWorkflowRunSelectionQuery} from './workflow-run-selection.js';
@@ -108,6 +113,27 @@ describe('workflow run bounded overview API hooks', () => {
     expect(job?.displayDuration).toEqual({state: 'live', fromIso: STARTED_AT, kind: 'run'});
   });
 
+  test('does not show an execution count for an idle listening job', () => {
+    const overview = toWorkflowRunOverview(
+      workflowRunOverviewResponseDto({
+        jobs: {
+          kind: 'complete',
+          total: 1,
+          items: [
+            workflowRunJobOverviewDto({
+              mode: 'listening',
+              listener_status: 'listening',
+              execution_count: 0,
+            }),
+          ],
+        },
+      }),
+    );
+
+    if (overview.jobs.kind !== 'complete') throw new Error('Expected a complete overview');
+    expect(overview.jobs.items[0]?.executionCountVisible).toBe(false);
+  });
+
   test('keeps large overviews list-only and paginates their bounded job summaries', async () => {
     const overview = workflowRunOverviewResponseDto({
       attempt: {attempt: 4, status: 'succeeded'},
@@ -181,6 +207,7 @@ describe('workflow run bounded overview API hooks', () => {
     }
     const terminalQuery = {state: {data: {runAttempt: {status: 'succeeded'}}}} as never;
     const activeQuery = {state: {data: {runAttempt: {status: 'running'}}}} as never;
+    const failedQuery = {state: {data: undefined, error: new Error('unavailable')}} as never;
 
     expect(options.staleTime(terminalQuery)).toBe(Infinity);
     expect(options.staleTime(activeQuery)).toBe(2_000);
@@ -188,6 +215,7 @@ describe('workflow run bounded overview API hooks', () => {
     expect(options.refetchOnWindowFocus(activeQuery)).toBe(true);
     expect(options.refetchInterval(terminalQuery)).toBe(false);
     expect(options.refetchInterval(activeQuery)).toBe(WORKFLOW_RUN_OVERVIEW_ACTIVE_POLL_MS);
+    expect(options.refetchInterval(failedQuery)).toBe(false);
     expect(options.refetchIntervalInBackground).toBe(false);
 
     const headOptions = workflowRunLineageHeadQueryOptions({
@@ -202,6 +230,107 @@ describe('workflow run bounded overview API hooks', () => {
     expect(headOptions.initialDataUpdatedAt).toBe(0);
     expect(headOptions.staleTime).toBe(WORKFLOW_RUN_LINEAGE_HEAD_STALE_TIME_MS);
     expect(headOptions.refetchOnMount).toBe('always');
+
+    const jobsOptions = workflowRunOverviewJobsInfiniteQueryOptions({
+      workflowRunId: RUN_ID,
+      runAttempt: 1,
+      polling: true,
+    });
+    if (typeof jobsOptions.refetchInterval !== 'function') {
+      throw new Error('Expected status-aware large-job query options');
+    }
+    const firstPageQuery = {state: {data: {pages: [{}]}}} as never;
+    const pagedQuery = {state: {data: {pages: [{}, {}]}}} as never;
+    expect(jobsOptions.refetchInterval(firstPageQuery)).toBe(WORKFLOW_RUN_OVERVIEW_ACTIVE_POLL_MS);
+    expect(jobsOptions.refetchInterval(pagedQuery)).toBe(false);
+    const inactiveJobsOptions = workflowRunOverviewJobsInfiniteQueryOptions({
+      workflowRunId: RUN_ID,
+      runAttempt: 1,
+      polling: false,
+    });
+    if (typeof inactiveJobsOptions.refetchInterval !== 'function') {
+      throw new Error('Expected status-aware large-job query options');
+    }
+    expect(inactiveJobsOptions.refetchInterval(firstPageQuery)).toBe(false);
+  });
+
+  test('fetches the narrow source projection without a legacy detail payload', async () => {
+    const source: WorkflowRunSourceResponseDto = {
+      kind: 'available',
+      workflow_run_id: RUN_ID,
+      workflow_run_attempt: 2,
+      source_snapshot: {format: 'yaml', content: 'jobs: {}'},
+    };
+    const fetchImpl = vi.fn(() => Promise.resolve(jsonResponse(source)));
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
+
+    const {result} = renderWithQueryClient(() =>
+      useWorkflowRunSourceQuery({workflowRunId: RUN_ID, enabled: true}),
+    );
+
+    await waitFor(() => expect(result.current.data?.kind).toBe('available'));
+    expect(firstRequest(fetchImpl).url).toBe(
+      `https://api.example.test/workflows/runs/${RUN_ID}/source`,
+    );
+    expect(result.current.data).toMatchObject({
+      workflowRunId: RUN_ID,
+      workflowRunAttempt: 2,
+      sourceSnapshot: {format: 'yaml', content: 'jobs: {}'},
+    });
+  });
+
+  test('uses the legacy detail bridge only when the overview route is unavailable', async () => {
+    const detail = workflowRunDetailDto({name: 'legacy-deploy'});
+    const fetchImpl = vi.fn((input: RequestInfo | URL) => {
+      const url = new URL(requestInputUrl(input));
+      if (url.pathname.endsWith('/overview')) {
+        return Promise.resolve(jsonResponse({code: 'not-found'}, {status: 404}));
+      }
+      if (url.pathname === `/workflows/runs/${RUN_ID}`) {
+        return Promise.resolve(jsonResponse(detail));
+      }
+      return Promise.reject(new Error(`Unexpected request: ${url.pathname}`));
+    });
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
+
+    const {result} = renderWithQueryClient(() =>
+      useWorkflowRunOverviewQuery({workflowRunId: RUN_ID, runAttempt: 2}),
+    );
+
+    await waitFor(() => expect(result.current.data?.name).toBe('legacy-deploy'));
+    expect(requestUrls(fetchImpl)).toEqual([
+      `https://api.example.test/workflows/runs/${RUN_ID}/overview?attempt=2`,
+      `https://api.example.test/workflows/runs/${RUN_ID}?attempt=2`,
+    ]);
+  });
+
+  test('does not bridge an operational overview failure to the legacy detail route', async () => {
+    const fetchImpl = vi.fn(() => Promise.resolve(jsonResponse({code: 'internal'}, {status: 500})));
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
+
+    const {result} = renderWithQueryClient(() =>
+      useWorkflowRunOverviewQuery({workflowRunId: RUN_ID, runAttempt: 2}),
+    );
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  test('caps a legacy detail bridge at the bounded large-workflow surface', () => {
+    const detail = workflowRunDetailDto({
+      jobs: Array.from({length: 101}, () => workflowJobDto({status: 'succeeded'})),
+    });
+
+    const overview = toWorkflowRunOverviewFromDetail(detail);
+
+    expect(overview.jobs).toMatchObject({
+      kind: 'large',
+      total: 101,
+      statusCounts: [{status: 'succeeded', count: 101}],
+    });
+    if (overview.jobs.kind !== 'large') throw new Error('Expected a large overview');
+    expect(overview.jobs.firstPage.items).toHaveLength(100);
+    expect(overview.jobs.firstPage.nextCursor).toBeNull();
   });
 
   test('resolves a nested selection through the UUID-scoped selection endpoint', async () => {

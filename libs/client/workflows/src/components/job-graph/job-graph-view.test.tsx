@@ -1,7 +1,7 @@
 import type {WorkflowRunJobDetailDto} from '@shipfox/api-workflows-dto';
 import {fireEvent, render, screen, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type {Job, WorkflowRunDetail} from '#core/workflow-run.js';
+import type {Job, WorkflowRunDetail, WorkflowRunOverview} from '#core/workflow-run.js';
 import {
   workflowJob,
   workflowJobExecutionDto,
@@ -82,6 +82,23 @@ describe('JobGraph', () => {
     render(<JobGraph run={makeRun({jobs: []})} />);
 
     expect(screen.getByText('No jobs yet')).toBeInTheDocument();
+  });
+
+  test('keeps the caller class on the large-workflow empty state', () => {
+    const run = {
+      ...makeRun(),
+      jobs: {
+        kind: 'large' as const,
+        total: 101,
+        statusCounts: [],
+        firstPage: {items: [], nextCursor: null, total: 101},
+      },
+    } as unknown as WorkflowRunOverview;
+
+    const {container} = render(<JobGraph run={run} className="caller-class" />);
+
+    expect(screen.getByText('Workflow graph unavailable')).toBeInTheDocument();
+    expect(container.querySelector('.caller-class')).not.toBeNull();
   });
 
   test('keeps long names accessible while truncating visually', () => {

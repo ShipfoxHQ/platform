@@ -84,6 +84,25 @@ export function WorkflowRunAttemptSwitcher({
                 />
               ))
           : null}
+        {attemptsQuery.isFetchNextPageError ? (
+          <ErrorRow
+            label="Could not load older attempts. Retry"
+            onRetry={() => void attemptsQuery.fetchNextPage()}
+          />
+        ) : null}
+        {attemptsQuery.hasNextPage ? (
+          <DropdownMenuItem
+            closeOnSelect={false}
+            disabled={attemptsQuery.isFetchingNextPage}
+            onSelect={() => void attemptsQuery.fetchNextPage()}
+          >
+            <Text as="span" size="sm" className="text-foreground-neutral-muted">
+              {attemptsQuery.isFetchingNextPage
+                ? 'Loading older attempts...'
+                : 'Load older attempts'}
+            </Text>
+          </DropdownMenuItem>
+        ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -99,11 +118,17 @@ function LoadingRow() {
   );
 }
 
-function ErrorRow({onRetry}: {onRetry: () => void}) {
+function ErrorRow({
+  label = 'Could not load attempts. Retry',
+  onRetry,
+}: {
+  label?: string;
+  onRetry: () => void;
+}) {
   return (
     <DropdownMenuItem closeOnSelect={false} onSelect={onRetry}>
       <Text as="span" size="sm" className="text-foreground-highlight-error">
-        Could not load attempts. Retry
+        {label}
       </Text>
     </DropdownMenuItem>
   );

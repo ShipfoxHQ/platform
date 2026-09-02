@@ -49,11 +49,25 @@ function responseForPath(
       status: 200,
     };
   }
+  if (path === `/workflows/runs/${RUN_ID}/source`) {
+    return {
+      body: {
+        kind: 'unavailable',
+        workflow_run_id: RUN_ID,
+        workflow_run_attempt: 1,
+        reason: 'pre_snapshot_run',
+      },
+      status: 200,
+    };
+  }
   if (path === `/workflows/runs/${RUN_ID}/overview`) {
     return {
       body: workflowSize === 'large' ? RUN_LARGE_OVERVIEW_RESPONSE : RUN_OVERVIEW_RESPONSE,
       status: 200,
     };
+  }
+  if (path === `/workflows/runs/${RUN_ID}/jobs`) {
+    return {body: RUN_LARGE_JOBS_RESPONSE, status: 200};
   }
   if (path === `/workflows/runs/${RUN_ID}`) return {body: RUN_RESPONSE, status: 200};
   return {body: {code: 'not-found'}, status: 404};
@@ -172,10 +186,15 @@ const RUN_LARGE_OVERVIEW_RESPONSE: WorkflowRunOverviewResponseDto = {
     status_counts: [{status: 'succeeded', count: 101}],
     first_page: {
       items: [BUILD_JOB_SUMMARY],
-      next_cursor: null,
+      next_cursor: 'large-jobs-page-2',
       total: 101,
     },
   },
+};
+const RUN_LARGE_JOBS_RESPONSE = {
+  items: [BUILD_JOB_SUMMARY],
+  next_cursor: null,
+  total: 101,
 };
 
 function overviewJobDto(

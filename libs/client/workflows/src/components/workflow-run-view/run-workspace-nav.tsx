@@ -61,9 +61,7 @@ export function RunWorkspaceNav({
     jobs.find((job) => job.id === currentJobId) ??
     (currentJobId && workspaceHasCompleteJobIndex(run) ? jobs[0] : undefined);
   const resolvedCurrentJobId = currentJob?.id;
-  const currentLabel = currentJob
-    ? workspaceJobDisplayName(currentJob)
-    : sectionLabel(activeSection);
+  const currentLabel = workspaceCurrentLabel(currentJob, currentJobId, activeSection);
 
   return (
     <TimeTickerProvider intervalMs={1000} reducedMotionIntervalMs={10_000}>
@@ -112,6 +110,7 @@ export function RunWorkspaceNav({
               jobCount={jobCount}
               activeSection={activeSection}
               currentJobId={resolvedCurrentJobId}
+              activeJobId={currentJobId}
               jobSearch={jobSearch}
               annotationSummary={annotationSummary}
               mobileOpen={mobileOpen}
@@ -132,6 +131,7 @@ function RunWorkspaceNavContent({
   jobCount,
   activeSection,
   currentJobId,
+  activeJobId,
   jobSearch,
   annotationSummary,
   mobileOpen,
@@ -140,6 +140,7 @@ function RunWorkspaceNavContent({
   jobs: RunWorkspaceJob[];
   jobCount: number;
   jobSearch: WorkflowJobSearch;
+  activeJobId?: string | undefined;
   mobileOpen: boolean;
   onNavigate: () => void;
 }) {
@@ -166,7 +167,7 @@ function RunWorkspaceNavContent({
             runId={run.id}
             runAttempt={runAttempt}
             section="summary"
-            current={!currentJobId && activeSection === 'summary'}
+            current={!activeJobId && activeSection === 'summary'}
             onNavigate={onNavigate}
           />
         </li>
@@ -220,7 +221,7 @@ function RunWorkspaceNavContent({
                     {workspaceJobDisplayName(job)}
                   </span>
                   <span className="ml-auto shrink-0 font-code text-xs leading-20 text-foreground-neutral-muted tabular-nums">
-                    {duration ? <JobExecutionTimeText time={duration} /> : '—'}
+                    {duration ? <JobExecutionTimeText time={duration} /> : '-'}
                   </span>
                 </Link>
               </li>
@@ -247,7 +248,7 @@ function RunWorkspaceNavContent({
               runId={run.id}
               runAttempt={runAttempt}
               section="annotations"
-              current={!currentJobId && activeSection === 'annotations'}
+              current={!activeJobId && activeSection === 'annotations'}
               count={annotationSummary?.total}
               countTruncated={annotationSummary?.truncated}
               onNavigate={onNavigate}
@@ -260,7 +261,7 @@ function RunWorkspaceNavContent({
               runId={run.id}
               runAttempt={runAttempt}
               section="source"
-              current={!currentJobId && activeSection === 'source'}
+              current={!activeJobId && activeSection === 'source'}
               onNavigate={onNavigate}
             />
           </li>
@@ -344,6 +345,16 @@ function sectionLabel(section: RunWorkspaceSection): string {
   if (section === 'annotations') return 'Annotations';
   if (section === 'source') return 'Source';
   return 'Summary';
+}
+
+function workspaceCurrentLabel(
+  currentJob: RunWorkspaceJob | undefined,
+  currentJobId: string | undefined,
+  activeSection: RunWorkspaceSection,
+): string {
+  if (currentJob) return workspaceJobDisplayName(currentJob);
+  if (currentJobId) return 'Job';
+  return sectionLabel(activeSection);
 }
 
 function workspaceJobs(run: RunWorkspaceRun): {jobs: RunWorkspaceJob[]; jobCount: number} {

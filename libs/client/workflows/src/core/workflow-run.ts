@@ -105,6 +105,8 @@ export type {
   WorkflowRunOverviewJobs,
   WorkflowRunOverviewLargeJobs,
   WorkflowRunSelectionResolution,
+  WorkflowRunSource,
+  WorkflowRunSourceUnavailableReason,
 } from './entities/workflow-run-overview.js';
 export {
   toWorkflowRunOverviewExecutionDuration,

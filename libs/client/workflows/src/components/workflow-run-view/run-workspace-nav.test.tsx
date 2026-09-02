@@ -178,6 +178,37 @@ describe('RunWorkspaceNav', () => {
     expect(jobs.querySelectorAll('[data-run-workspace-active-bar]')).toHaveLength(1);
   });
 
+  test('keeps the route job active when it is outside the large-workflow preview', async () => {
+    const run = {
+      ...workflowRunDetail({
+        id: RUN_ID,
+        jobs: [workflowJobDto({id: CURRENT_JOB_ID, name: 'build', position: 0})],
+      }),
+      jobs: {
+        kind: 'large' as const,
+        total: 101,
+        statusCounts: [],
+        firstPage: {items: [], nextCursor: 'jobs-page-2', total: 101},
+      },
+    };
+
+    renderWithRouter(
+      <RunWorkspaceNav
+        workspaceSlug="acme"
+        projectSlug="project"
+        run={run}
+        activeSection="summary"
+        currentJobId={CURRENT_JOB_ID}
+      />,
+    );
+
+    const summary = await screen.findByRole('link', {name: 'Summary'});
+    expect(summary).not.toHaveAttribute('aria-current');
+    expect(screen.getByRole('heading', {name: 'Jobs'}).closest('section')).not.toHaveTextContent(
+      'build',
+    );
+  });
+
   test('scrolls the current job into view when the mobile rail opens', async () => {
     const user = userEvent.setup();
     const scrollIntoView = vi.fn();

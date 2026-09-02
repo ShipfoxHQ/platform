@@ -707,6 +707,9 @@ describe('workflow run API hooks', () => {
     expect(cancelled?.status).toBe('cancelled');
     expect(invalidateSpy).toHaveBeenCalledWith({queryKey: workflowRunsQueryKeys.detail(RUN_ID)});
     expect(invalidateSpy).toHaveBeenCalledWith({queryKey: workflowRunsQueryKeys.lists(PROJECT_ID)});
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: [...workflowRunsQueryKeys.all, 'overview-jobs', RUN_ID],
+    });
   });
 
   test('posts rerun mode and invalidates project run lists and attempt lineage', async () => {

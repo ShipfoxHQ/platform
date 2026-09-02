@@ -157,6 +157,43 @@ describe('WorkflowRunAttemptSwitcher', () => {
     expect(screen.getByRole('menuitem', {name: 'Loading attempts...'})).toBeInTheDocument();
   });
 
+  test('loads older attempts from the history menu', async () => {
+    const user = userEvent.setup();
+    const fetchImpl = vi.fn((input: RequestInfo | URL) => {
+      const url = new URL(requestUrl(input));
+      if (url.searchParams.has('cursor')) {
+        return Promise.resolve(
+          jsonResponse({
+            items: [
+              workflowRunAttemptDto({id: ROOT_RUN_ID, attempt: 2}),
+              workflowRunAttemptDto({id: THIRD_RUN_ID, attempt: 1}),
+            ],
+            next_cursor: null,
+          }),
+        );
+      }
+      return Promise.resolve(
+        jsonResponse({
+          items: [
+            workflowRunAttemptDto({id: THIRD_RUN_ID, attempt: 4}),
+            workflowRunAttemptDto({id: CURRENT_RUN_ID, attempt: 3}),
+          ],
+          next_cursor: 'cursor-old',
+        }),
+      );
+    });
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
+    renderSwitcher({latestAttempt: 4});
+
+    await user.click(await screen.findByRole('button', {name: 'Switch attempt, currently 2 of 4'}));
+    const loadOlder = await screen.findByRole('menuitem', {name: 'Load older attempts'});
+
+    await user.click(loadOlder);
+
+    expect(await screen.findByRole('menuitem', {name: ATTEMPT_2_PATTERN})).toBeInTheDocument();
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
   test('links to an attempt and clears selected step search on navigation', async () => {
     const user = userEvent.setup();
     configureApiClient({
@@ -225,4 +262,9 @@ function renderSwitcher({
       />
     </div>
   ));
+}
+
+function requestUrl(input: RequestInfo | URL): string {
+  if (typeof input === 'string') return input;
+  return input instanceof URL ? input.href : input.url;
 }

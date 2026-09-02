@@ -1,7 +1,4 @@
-import {
-  workflowRunSelectionQuerySchema,
-  workflowRunSelectionResponseSchema,
-} from '@shipfox/api-workflows-dto';
+import {workflowRunSelectionResponseSchema} from '@shipfox/api-workflows-dto';
 import {checkedApiRequest} from '@shipfox/client-api';
 import {queryOptions, type UseQueryOptions, useQuery} from '@tanstack/react-query';
 import type {WorkflowRunSelectionResolution} from '#core/workflow-run.js';
@@ -81,36 +78,4 @@ async function getWorkflowRunSelection(
       {signal},
     ),
   );
-}
-
-export function isWorkflowRunSelectionQueryInput(
-  input: Pick<
-    WorkflowRunSelectionQueryInput,
-    'jobId' | 'jobExecutionId' | 'stepId' | 'stepAttemptId'
-  >,
-): boolean {
-  return Boolean(input.jobId || input.jobExecutionId || input.stepId || input.stepAttemptId);
-}
-
-export function parseWorkflowRunSelectionQuery(
-  input: WorkflowRunSelectionQueryInput,
-): Pick<WorkflowRunSelectionQueryInput, 'jobId' | 'jobExecutionId' | 'stepId' | 'stepAttemptId'> {
-  const result = workflowRunSelectionQuerySchema.safeParse({
-    ...(input.runAttempt === undefined ? {} : {attempt: input.runAttempt}),
-    ...(input.jobId === undefined ? {} : {job_id: input.jobId}),
-    ...(input.jobExecutionId === undefined ? {} : {job_execution_id: input.jobExecutionId}),
-    ...(input.stepId === undefined ? {} : {step_id: input.stepId}),
-    ...(input.stepAttemptId === undefined ? {} : {step_attempt_id: input.stepAttemptId}),
-  });
-  if (!result.success) return {};
-  return {
-    ...(result.data.job_id === undefined ? {} : {jobId: result.data.job_id}),
-    ...(result.data.job_execution_id === undefined
-      ? {}
-      : {jobExecutionId: result.data.job_execution_id}),
-    ...(result.data.step_id === undefined ? {} : {stepId: result.data.step_id}),
-    ...(result.data.step_attempt_id === undefined
-      ? {}
-      : {stepAttemptId: result.data.step_attempt_id}),
-  };
 }

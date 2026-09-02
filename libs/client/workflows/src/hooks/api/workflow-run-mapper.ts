@@ -17,8 +17,10 @@ import type {
   WorkflowRunOverviewResponseDto,
   WorkflowRunResponseDto,
   WorkflowRunSelectionResponseDto,
+  WorkflowRunSourceResponseDto,
   WorkflowRunStepDetailDto,
 } from '@shipfox/api-workflows-dto';
+import {WORKFLOW_RUN_OVERVIEW_COMPLETE_JOB_LIMIT} from '@shipfox/api-workflows-dto';
 import {
   defaultJobExecution,
   deriveJobExecutionDisplayStatus,
@@ -26,6 +28,7 @@ import {
   Job,
   JobExecution,
   type JobListening,
+  type JobStatus,
   type Step,
   StepAttempt,
   type StepAttemptSession,
@@ -47,6 +50,7 @@ import {
   type WorkflowRunOverviewJobs,
   type WorkflowRunRecord,
   type WorkflowRunSelectionResolution,
+  type WorkflowRunSource,
   workflowRunTriggerDisplayLabel,
   workflowRunTriggerLabel,
 } from '#core/workflow-run.js';
@@ -130,6 +134,21 @@ export function toWorkflowRunLineageHeadFromRecord(
     latestAttempt: run.latestAttempt,
     currentStatus: run.status,
     updatedAt: run.updatedAt,
+  };
+}
+
+export function toWorkflowRunSource(dto: WorkflowRunSourceResponseDto): WorkflowRunSource {
+  const identity = {
+    workflowRunId: dto.workflow_run_id,
+    workflowRunAttempt: dto.workflow_run_attempt,
+  };
+  if (dto.kind === 'unavailable') {
+    return {...identity, kind: 'unavailable', reason: dto.reason};
+  }
+  return {
+    ...identity,
+    kind: 'available',
+    sourceSnapshot: {content: dto.source_snapshot.content, format: dto.source_snapshot.format},
   };
 }
 
@@ -350,8 +369,12 @@ export function toWorkflowRunDetail(dto: WorkflowRunDetailResponseDto): Workflow
 export function toWorkflowRunOverviewFromDetail(
   dto: WorkflowRunDetailResponseDto,
 ): WorkflowRunOverview {
-  const detail = toWorkflowRunDetail(dto);
-  return {
+  return toWorkflowRunOverviewFromRunDetail(toWorkflowRunDetail(dto));
+}
+
+export function toWorkflowRunOverviewFromRunDetail(detail: WorkflowRunDetail): WorkflowRunOverview {
+  const items = detail.jobs.map(toWorkflowRunOverviewJobFromDetail);
+  const header = {
     id: detail.id,
     projectId: detail.projectId,
     definitionId: detail.definitionId,
@@ -371,10 +394,30 @@ export function toWorkflowRunOverviewFromDetail(
     latestAttempt: detail.latestAttempt,
     runAttempt: detail.runAttempt,
     hasStartedJobExecution: detail.hasStartedJobExecution,
+  };
+  if (items.length <= WORKFLOW_RUN_OVERVIEW_COMPLETE_JOB_LIMIT) {
+    return {
+      ...header,
+      jobs: {kind: 'complete', total: items.length, items},
+    };
+  }
+
+  const counts = new Map<JobStatus, number>();
+  for (const job of detail.jobs) {
+    counts.set(job.status, (counts.get(job.status) ?? 0) + 1);
+  }
+
+  return {
+    ...header,
     jobs: {
-      kind: 'complete',
-      total: detail.jobs.length,
-      items: detail.jobs.map(toWorkflowRunOverviewJobFromDetail),
+      kind: 'large',
+      total: items.length,
+      statusCounts: [...counts].map(([status, count]) => ({status, count})),
+      firstPage: {
+        items: items.slice(0, WORKFLOW_RUN_OVERVIEW_COMPLETE_JOB_LIMIT),
+        nextCursor: null,
+        total: items.length,
+      },
     },
   };
 }

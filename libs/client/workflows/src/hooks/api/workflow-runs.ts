@@ -69,6 +69,8 @@ export const workflowRunsQueryKeys = {
     [...workflowRunsQueryKeys.overviews(workflowRunId), runAttempt] as const,
   overviewJobs: (workflowRunId: string, runAttempt: number) =>
     [...workflowRunsQueryKeys.all, 'overview-jobs', workflowRunId, runAttempt] as const,
+  source: (workflowRunId: string) =>
+    [...workflowRunsQueryKeys.all, 'source', workflowRunId] as const,
   selection: (
     workflowRunId: string,
     identity: {
@@ -764,6 +766,9 @@ export function useCancelWorkflowRunMutation(
         queryClient.invalidateQueries({queryKey: workflowRunsQueryKeys.attempts(run.id)}),
         queryClient.invalidateQueries({queryKey: workflowRunsQueryKeys.head(run.id)}),
         queryClient.invalidateQueries({queryKey: workflowRunsQueryKeys.overviews(run.id)}),
+        queryClient.invalidateQueries({
+          queryKey: [...workflowRunsQueryKeys.all, 'overview-jobs', run.id],
+        }),
       ]);
     },
   });

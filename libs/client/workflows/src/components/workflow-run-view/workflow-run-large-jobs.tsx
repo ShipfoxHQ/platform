@@ -4,10 +4,11 @@ import {Panel, PanelBody, PanelHeader} from '@shipfox/react-ui/panel';
 import {Text} from '@shipfox/react-ui/typography';
 import {Link} from '@tanstack/react-router';
 import {useMemo} from 'react';
-import type {
-  WorkflowRunOverview,
-  WorkflowRunOverviewJob,
-  WorkflowRunOverviewLargeJobs,
+import {
+  isWorkflowRunTerminal,
+  type WorkflowRunOverview,
+  type WorkflowRunOverviewJob,
+  type WorkflowRunOverviewLargeJobs,
 } from '#core/workflow-run.js';
 import {useWorkflowRunOverviewJobsInfiniteQuery} from '#hooks/api/workflow-run-overview.js';
 import {workflowJobSearchParams} from '#routes/inputs.js';
@@ -50,6 +51,7 @@ function WorkflowRunLargeJobsContent({
     workflowRunId: run.id,
     runAttempt: run.runAttempt.attempt,
     initialPage,
+    polling: !isWorkflowRunTerminal(run.runAttempt.status),
   });
   const jobs = useMemo(
     () => jobsQuery.data?.pages.flatMap((page) => page.items) ?? initialPage.items,
@@ -84,7 +86,11 @@ function WorkflowRunLargeJobsContent({
                     size="2xs"
                     variant="secondary"
                     isLoading={jobsQuery.isFetching}
-                    onClick={() => void jobsQuery.refetch()}
+                    onClick={() =>
+                      void (jobsQuery.isFetchNextPageError
+                        ? jobsQuery.fetchNextPage()
+                        : jobsQuery.refetch())
+                    }
                   >
                     Retry
                   </Button>
@@ -151,7 +157,7 @@ function LargeWorkflowJobRow({
         </span>
       ) : null}
       <span className="w-72 shrink-0 text-right font-code text-xs tabular-nums text-foreground-neutral-muted">
-        {job.displayDuration ? <JobExecutionTimeText time={job.displayDuration} /> : '—'}
+        {job.displayDuration ? <JobExecutionTimeText time={job.displayDuration} /> : '-'}
       </span>
     </>
   );

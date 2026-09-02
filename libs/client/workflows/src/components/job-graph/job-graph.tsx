@@ -1,4 +1,5 @@
 import {EmptyState} from '@shipfox/react-ui/empty-state';
+import {cn} from '@shipfox/react-ui/utils';
 import {useMemo} from 'react';
 import {buildJobGraphModel} from './graph-model.js';
 import {JobGraphView} from './job-graph-view.js';
@@ -16,7 +17,7 @@ export function JobGraph({
   if (!Array.isArray(run.jobs) && run.jobs.kind === 'large') {
     return (
       <EmptyState
-        className="min-h-160"
+        className={cn('min-h-160', className)}
         icon="nodeTree"
         title="Workflow graph unavailable"
         description="This workflow is too large to render as a complete graph. Use the Jobs list to inspect every job."

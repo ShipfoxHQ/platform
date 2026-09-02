@@ -12,7 +12,7 @@ import {
   jobExecutionDisplayDurationFromTimestamps,
 } from './job-execution.js';
 import type {StepSourceLocation} from './step.js';
-import type {WorkflowRunOrigin, WorkflowRunStatus} from './workflow-run.js';
+import type {WorkflowRunOrigin, WorkflowRunStatus, WorkflowSourceSnapshot} from './workflow-run.js';
 import type {WorkflowRunAttempt} from './workflow-run-attempt.js';
 
 export type BoundedExecutionCount = number | '100+';
@@ -23,6 +23,25 @@ export interface WorkflowRunLineageHead {
   currentStatus: WorkflowRunStatus;
   updatedAt: string;
 }
+
+export type WorkflowRunSourceUnavailableReason =
+  | 'temporary_run'
+  | 'pre_snapshot_run'
+  | 'legacy_snapshot_too_large';
+
+export type WorkflowRunSource =
+  | {
+      kind: 'available';
+      workflowRunId: string;
+      workflowRunAttempt: number;
+      sourceSnapshot: WorkflowSourceSnapshot;
+    }
+  | {
+      kind: 'unavailable';
+      workflowRunId: string;
+      workflowRunAttempt: number;
+      reason: WorkflowRunSourceUnavailableReason;
+    };
 
 export interface WorkflowRunOverviewHeader {
   id: string;
@@ -115,7 +134,10 @@ export class WorkflowRunOverviewJob {
   }
 
   get executionCountVisible(): boolean {
-    return this.mode === 'listening' || this.executionCount === '100+' || this.executionCount > 1;
+    return (
+      this.executionCount !== 0 &&
+      (this.mode === 'listening' || this.executionCount === '100+' || this.executionCount > 1)
+    );
   }
 
   get displayStatus(): JobDisplayStatus {

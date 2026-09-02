@@ -23,7 +23,7 @@ import {
   type WorkflowRunDetail,
   type WorkflowRunOverview,
   type WorkflowRunRerunMode,
-  type WorkflowSourceSnapshot,
+  type WorkflowRunSource,
 } from '#core/workflow-run.js';
 import {withoutWorkflowRunSelectionSearch} from '#core/workflow-run-url-state.js';
 import {useWorkflowRunAnnotationSummaryQuery} from '#hooks/api/annotations.js';
@@ -32,6 +32,7 @@ import {toWorkflowRunLineageHeadFromRecord} from '#hooks/api/workflow-run-mapper
 import {
   useWorkflowRunLineageHeadQuery,
   useWorkflowRunOverviewQuery,
+  useWorkflowRunSourceQuery,
 } from '#hooks/api/workflow-run-overview.js';
 import {useWorkflowRunSelectionQuery} from '#hooks/api/workflow-run-selection.js';
 import {
@@ -68,6 +69,10 @@ import {
 } from './workflow-run-states.js';
 
 type RunWorkspaceSection = Exclude<WorkflowRunTab, 'jobs'>;
+type WorkflowRunShell =
+  | NonNullable<ReturnType<typeof useWorkflowRunListItem>>
+  | WorkflowRunOverview
+  | WorkflowRunDetail;
 
 export interface WorkflowRunViewProps {
   projectId: string;
@@ -137,6 +142,7 @@ export function WorkflowRunView({
     selectionAttempt: selectionQuery.data?.workflowRunAttempt,
     selectionQueryIsError: selectionQuery.isError,
     headAttempt: headQuery.data?.currentAttempt,
+    headResolved: !headQuery.isPending && !headQuery.isFetching && !headQuery.isError,
   });
   const overviewQuery = useWorkflowRunOverviewQuery({
     workflowRunId,
@@ -148,6 +154,10 @@ export function WorkflowRunView({
     if (!data || !head) return data;
     return {...data, currentAttempt: head.currentAttempt, latestAttempt: head.latestAttempt};
   }, [headQuery.data, overviewQuery.data]);
+  const sourceQuery = useWorkflowRunSourceQuery({
+    workflowRunId,
+    enabled: activeSection === 'source',
+  });
   const legacyBridgeEnabled = shouldLoadLegacyBridge({
     activeJobId,
     activeSection,
@@ -200,6 +210,7 @@ export function WorkflowRunView({
           headQuery={headQuery}
           overviewQuery={overviewQuery}
           overview={overview}
+          sourceQuery={sourceQuery}
           listRun={listRun}
           legacyQuery={legacyQuery}
           annotations={annotationsQuery}
@@ -250,6 +261,7 @@ function workflowRunOverviewAttempt({
   listAttempt,
   selectionAttempt,
   selectionQueryIsError,
+  headResolved,
 }: {
   explicitAttempt: number | undefined;
   hasLegacyJobSelection: boolean;
@@ -257,11 +269,53 @@ function workflowRunOverviewAttempt({
   listAttempt: number | undefined;
   selectionAttempt: number | undefined;
   selectionQueryIsError: boolean;
+  headResolved: boolean;
 }): number | undefined {
   if (explicitAttempt !== undefined) return explicitAttempt;
-  if (!hasLegacyJobSelection) return listAttempt;
+  if (!hasLegacyJobSelection) return headResolved ? (headAttempt ?? listAttempt) : undefined;
   if (selectionAttempt !== undefined) return selectionAttempt;
-  return selectionQueryIsError ? (listAttempt ?? headAttempt) : undefined;
+  return selectionQueryIsError && headResolved ? (headAttempt ?? listAttempt) : undefined;
+}
+
+function workflowRunShellForAttempt({
+  overview,
+  listRun,
+  legacyRun,
+  runAttempt,
+}: {
+  overview: WorkflowRunOverview | undefined;
+  listRun: ReturnType<typeof useWorkflowRunListItem>;
+  legacyRun: WorkflowRunDetail | undefined;
+  runAttempt: number | undefined;
+}): WorkflowRunShell | undefined {
+  if (overview) return overview;
+  if (listRun && (runAttempt === undefined || listRun.currentAttempt === runAttempt)) {
+    return listRun;
+  }
+  if (legacyRun && (runAttempt === undefined || legacyRun.runAttempt.attempt === runAttempt)) {
+    return legacyRun;
+  }
+  return undefined;
+}
+
+function workflowRunActionsReady({
+  overview,
+  runAttempt,
+  headQuery,
+}: {
+  overview: WorkflowRunOverview | undefined;
+  runAttempt: number | undefined;
+  headQuery: ReturnType<typeof useWorkflowRunLineageHeadQuery>;
+}): boolean {
+  return Boolean(
+    overview &&
+      runAttempt !== undefined &&
+      overview.runAttempt.attempt === runAttempt &&
+      headQuery.data?.currentAttempt === runAttempt &&
+      !headQuery.isPending &&
+      !headQuery.isFetching &&
+      !headQuery.isError,
+  );
 }
 
 function shouldLoadLegacyBridge({
@@ -276,11 +330,7 @@ function shouldLoadLegacyBridge({
   selectionQueryIsError: boolean;
 }): boolean {
   if (activeJobId !== undefined) return false;
-  return (
-    activeSection === 'annotations' ||
-    activeSection === 'source' ||
-    (hasLegacyJobSelection && selectionQueryIsError)
-  );
+  return activeSection === 'annotations' || (hasLegacyJobSelection && selectionQueryIsError);
 }
 
 function shouldLoadAnnotationSummary({
@@ -405,6 +455,7 @@ function RunViewContent({
   headQuery,
   overviewQuery,
   overview,
+  sourceQuery,
   listRun,
   legacyQuery,
   annotations,
@@ -423,6 +474,7 @@ function RunViewContent({
   headQuery: ReturnType<typeof useWorkflowRunLineageHeadQuery>;
   overviewQuery: ReturnType<typeof useWorkflowRunOverviewQuery>;
   overview: WorkflowRunOverview | undefined;
+  sourceQuery: ReturnType<typeof useWorkflowRunSourceQuery>;
   listRun: ReturnType<typeof useWorkflowRunListItem>;
   legacyQuery: ReturnType<typeof useWorkflowRunAttemptQuery> | undefined;
   annotations: ReturnType<typeof useRunAnnotationsQuery>;
@@ -439,7 +491,7 @@ function RunViewContent({
   const navigate = useNavigate();
   const activeSection = runWorkspaceSection(tab);
   const legacyRun = legacyQuery?.data;
-  const shellRun = overview ?? listRun ?? legacyRun;
+  const shellRun = workflowRunShellForAttempt({overview, listRun, legacyRun, runAttempt});
   const resolvedSelection =
     legacyRun && selection ? resolveWorkflowRunSelection({run: legacyRun, selection}) : undefined;
   const resolvedJobId = selectionQuery.data?.jobId ?? resolvedSelection?.job?.id;
@@ -447,8 +499,10 @@ function RunViewContent({
   const highlightedLineRange =
     selectionQuery.data?.sourceLocation ?? resolvedSelection?.step?.sourceLocation ?? null;
   const annotationSummary = annotationSummaryQuery.data ?? annotations.summary;
-  const cancelMutation = useCancelWorkflowRunMutation(shellRun);
-  const activeAttempt = shellRun?.runAttempt.attempt ?? runAttempt;
+  const actionsReady = workflowRunActionsReady({overview, runAttempt, headQuery});
+  const actionRun = actionsReady ? overview : undefined;
+  const cancelMutation = useCancelWorkflowRunMutation(actionRun);
+  const activeAttempt = runAttempt ?? overview?.runAttempt.attempt ?? shellRun?.runAttempt.attempt;
 
   useEffect(() => {
     if (
@@ -499,12 +553,12 @@ function RunViewContent({
   ]);
 
   async function rerun(mode: WorkflowRunRerunMode) {
-    if (!shellRun || !workspaceSlug || !projectSlug) {
+    if (!actionRun || !workspaceSlug || !projectSlug) {
       toast.error('Could not start re-run from this route.');
       return;
     }
     try {
-      const run = await rerunMutation.mutateAsync({workflowRunId: shellRun.id, mode});
+      const run = await rerunMutation.mutateAsync({workflowRunId: actionRun.id, mode});
       toast.success('Re-run started');
       await navigate({
         to: '/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId',
@@ -573,6 +627,7 @@ function RunViewContent({
       headQuery={headQuery}
       overviewQuery={overviewQuery}
       overview={overview}
+      sourceQuery={sourceQuery}
       shellRun={shellRun}
       legacyQuery={legacyQuery}
       annotations={annotations}
@@ -584,11 +639,10 @@ function RunViewContent({
       selection={selection}
       selectedJobId={selectedJobId}
       jobContent={jobContent}
-      sourceSnapshot={legacyRun?.sourceSnapshot ?? null}
       highlightedLineRange={highlightedLineRange}
-      onCancel={cancelRun}
+      onCancel={actionRun ? cancelRun : undefined}
       cancelling={cancelMutation.isPending}
-      onRerun={(mode) => void rerun(mode)}
+      onRerun={actionRun ? (mode) => void rerun(mode) : undefined}
       onSelectGraphJob={selectGraphJob}
       onSelectAnnotationJob={selectAnnotationJob}
       onClearAnnotationFilters={clearAnnotationFilters}
@@ -602,6 +656,7 @@ function RunViewLayout({
   headQuery,
   overviewQuery,
   overview,
+  sourceQuery,
   shellRun,
   legacyQuery,
   annotations,
@@ -613,7 +668,6 @@ function RunViewLayout({
   selection,
   selectedJobId,
   jobContent,
-  sourceSnapshot,
   highlightedLineRange,
   onCancel,
   cancelling,
@@ -627,11 +681,8 @@ function RunViewLayout({
   headQuery: ReturnType<typeof useWorkflowRunLineageHeadQuery>;
   overviewQuery: ReturnType<typeof useWorkflowRunOverviewQuery>;
   overview: WorkflowRunOverview | undefined;
-  shellRun:
-    | NonNullable<ReturnType<typeof useWorkflowRunListItem>>
-    | WorkflowRunOverview
-    | WorkflowRunDetail
-    | undefined;
+  sourceQuery: ReturnType<typeof useWorkflowRunSourceQuery>;
+  shellRun: WorkflowRunShell | undefined;
   legacyQuery: ReturnType<typeof useWorkflowRunAttemptQuery> | undefined;
   annotations: ReturnType<typeof useRunAnnotationsQuery>;
   annotationSummary: RunAnnotationSummary | undefined;
@@ -642,11 +693,10 @@ function RunViewLayout({
   selection: WorkflowRunsSearch | undefined;
   selectedJobId: string | undefined;
   jobContent: ReactNode | undefined;
-  sourceSnapshot: WorkflowSourceSnapshot | null;
   highlightedLineRange: StepSourceLocation | null;
-  onCancel: () => void;
+  onCancel?: (() => void) | undefined;
   cancelling: boolean;
-  onRerun: (mode: WorkflowRunRerunMode) => void;
+  onRerun?: ((mode: WorkflowRunRerunMode) => void) | undefined;
   onSelectGraphJob: (jobId: string | undefined, source?: JobGraphSelectionSource) => void;
   onSelectAnnotationJob: (jobId: string | undefined) => void;
   onClearAnnotationFilters: () => void;
@@ -673,7 +723,7 @@ function RunViewLayout({
       ) : (
         <WorkflowRunSkeleton />
       )}
-      {newerAttempt && workspaceSlug && projectSlug && shellRun ? (
+      {!activeJobId && newerAttempt && workspaceSlug && projectSlug && shellRun ? (
         <WorkflowRunNewerAttemptBanner
           workspaceSlug={workspaceSlug}
           projectSlug={projectSlug}
@@ -709,6 +759,7 @@ function RunViewLayout({
               boundaryQuery={boundaryQuery}
               overviewQuery={overviewQuery}
               overview={overview}
+              sourceQuery={sourceQuery}
               shellRun={shellRun}
               legacyQuery={legacyQuery}
               jobContent={jobContent}
@@ -722,7 +773,6 @@ function RunViewLayout({
               onSelectGraphJob={onSelectGraphJob}
               onSelectAnnotationJob={onSelectAnnotationJob}
               onClearAnnotationFilters={onClearAnnotationFilters}
-              sourceSnapshot={sourceSnapshot}
               highlightedLineRange={highlightedLineRange}
             />
           </div>
@@ -736,6 +786,7 @@ function RunWorkspaceContent({
   boundaryQuery,
   overviewQuery,
   overview,
+  sourceQuery,
   shellRun,
   legacyQuery,
   jobContent,
@@ -749,7 +800,6 @@ function RunWorkspaceContent({
   onSelectGraphJob,
   onSelectAnnotationJob,
   onClearAnnotationFilters,
-  sourceSnapshot,
   highlightedLineRange,
 }: {
   boundaryQuery:
@@ -757,11 +807,8 @@ function RunWorkspaceContent({
     | ReturnType<typeof useWorkflowRunLineageHeadQuery>;
   overviewQuery: ReturnType<typeof useWorkflowRunOverviewQuery>;
   overview: WorkflowRunOverview | undefined;
-  shellRun:
-    | NonNullable<ReturnType<typeof useWorkflowRunListItem>>
-    | WorkflowRunOverview
-    | WorkflowRunDetail
-    | undefined;
+  sourceQuery: ReturnType<typeof useWorkflowRunSourceQuery>;
+  shellRun: WorkflowRunShell | undefined;
   legacyQuery: ReturnType<typeof useWorkflowRunAttemptQuery> | undefined;
   jobContent: ReactNode | undefined;
   activeSection: RunWorkspaceSection;
@@ -774,7 +821,6 @@ function RunWorkspaceContent({
   onSelectGraphJob: (jobId: string | undefined, source?: JobGraphSelectionSource) => void;
   onSelectAnnotationJob: (jobId: string | undefined) => void;
   onClearAnnotationFilters: () => void;
-  sourceSnapshot: WorkflowSourceSnapshot | null;
   highlightedLineRange: StepSourceLocation | null;
 }) {
   if (boundaryQuery.isError && shellRun === undefined) {
@@ -802,8 +848,40 @@ function RunWorkspaceContent({
     );
   }
 
+  const sectionFallback = workspaceSectionFallback({activeSection, legacyQuery, sourceQuery});
+  if (sectionFallback) return sectionFallback;
+
+  return (
+    <RunSectionContent
+      section={activeSection}
+      run={overview}
+      legacyRun={legacyQuery?.data}
+      annotations={annotations}
+      annotationSummary={annotationSummary}
+      workspaceSlug={workspaceSlug}
+      projectSlug={projectSlug}
+      selection={selection}
+      selectedJobId={selectedJobId}
+      onSelectGraphJob={onSelectGraphJob}
+      onSelectAnnotationJob={onSelectAnnotationJob}
+      onClearAnnotationFilters={onClearAnnotationFilters}
+      source={sourceQuery.data}
+      highlightedLineRange={highlightedLineRange}
+    />
+  );
+}
+
+function workspaceSectionFallback({
+  activeSection,
+  legacyQuery,
+  sourceQuery,
+}: {
+  activeSection: RunWorkspaceSection;
+  legacyQuery: ReturnType<typeof useWorkflowRunAttemptQuery> | undefined;
+  sourceQuery: ReturnType<typeof useWorkflowRunSourceQuery>;
+}): ReactNode | undefined {
   if (
-    activeSection !== 'summary' &&
+    activeSection === 'annotations' &&
     (!legacyQuery || legacyQuery.isPending || legacyQuery.data === undefined)
   ) {
     if (legacyQuery?.isError) {
@@ -820,24 +898,22 @@ function RunWorkspaceContent({
     );
   }
 
-  return (
-    <RunSectionContent
-      section={activeSection}
-      run={overview}
-      legacyRun={legacyQuery?.data}
-      annotations={annotations}
-      annotationSummary={annotationSummary}
-      workspaceSlug={workspaceSlug}
-      projectSlug={projectSlug}
-      selection={selection}
-      selectedJobId={selectedJobId}
-      onSelectGraphJob={onSelectGraphJob}
-      onSelectAnnotationJob={onSelectAnnotationJob}
-      onClearAnnotationFilters={onClearAnnotationFilters}
-      sourceSnapshot={sourceSnapshot}
-      highlightedLineRange={highlightedLineRange}
-    />
-  );
+  if (activeSection === 'source' && (sourceQuery.isPending || sourceQuery.data === undefined)) {
+    if (sourceQuery.isError) {
+      return (
+        <div className="min-h-0 flex-1 overflow-auto p-panel">
+          <QueryLoadError query={sourceQuery} subject="workflow run source" icon="pulseLine" />
+        </div>
+      );
+    }
+    return (
+      <div className="min-h-0 flex-1 overflow-auto p-panel">
+        <WorkflowRunContentSkeleton />
+      </div>
+    );
+  }
+
+  return undefined;
 }
 
 function containsLegacyJobSelection(selection: WorkflowRunsSearch | undefined): boolean {
@@ -887,7 +963,7 @@ function RunSectionContent({
   onSelectGraphJob,
   onSelectAnnotationJob,
   onClearAnnotationFilters,
-  sourceSnapshot,
+  source,
   highlightedLineRange,
 }: {
   section: RunWorkspaceSection;
@@ -902,7 +978,7 @@ function RunSectionContent({
   onSelectGraphJob: (jobId: string | undefined, source?: JobGraphSelectionSource) => void;
   onSelectAnnotationJob: (jobId: string | undefined) => void;
   onClearAnnotationFilters: () => void;
-  sourceSnapshot: WorkflowSourceSnapshot | null;
+  source: WorkflowRunSource | undefined;
   highlightedLineRange: StepSourceLocation | null;
 }) {
   if (section === 'summary') {
@@ -972,9 +1048,9 @@ function RunSectionContent({
         </Text>
         <Panel className="min-h-160 flex-1">
           <PanelBody className="min-h-160 flex-1 p-0">
-            {sourceSnapshot ? (
+            {source?.kind === 'available' ? (
               <WorkflowSourceContent
-                source={sourceSnapshot}
+                source={source.sourceSnapshot}
                 highlightedLineRange={highlightedLineRange}
                 scrollHighlightedIntoView
               />
@@ -984,11 +1060,7 @@ function RunSectionContent({
                 className="min-h-160"
                 icon="fileDamageLine"
                 title="Source snapshot unavailable"
-                description={
-                  legacyRun?.isTemporary
-                    ? 'Temporary runs do not capture workflow source.'
-                    : 'This run was created before workflow source snapshots were captured.'
-                }
+                description={sourceUnavailableDescription(source)}
               />
             )}
           </PanelBody>
@@ -996,6 +1068,17 @@ function RunSectionContent({
       </div>
     </section>
   );
+}
+
+function sourceUnavailableDescription(source: WorkflowRunSource | undefined): string {
+  if (!source || source.kind === 'available') {
+    return 'This run does not have a source snapshot to display.';
+  }
+  if (source.reason === 'temporary_run') return 'Temporary runs do not capture workflow source.';
+  if (source.reason === 'legacy_snapshot_too_large') {
+    return 'This workflow source snapshot is too large to display.';
+  }
+  return 'This run was created before workflow source snapshots were captured.';
 }
 
 function RunAnnotationsSection({
