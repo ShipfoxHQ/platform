@@ -51,6 +51,7 @@ import {
 } from './reservations.js';
 import {runnersOutbox} from './schema/outbox.js';
 import {pendingJobExecutions} from './schema/pending-job-executions.js';
+import {provisionerTokens} from './schema/provisioner-tokens.js';
 import {reservations} from './schema/reservations.js';
 import {providerRunners} from './schema/runner-instances.js';
 import {runnerSessions} from './schema/runner-sessions.js';
@@ -513,6 +514,7 @@ interface ClaimPendingJobExecutionParams {
 interface ClaimRunnerContext {
   provisionerId: string | null;
   providerRunnerId: string | null;
+  provisionerScope: 'installation' | 'workspace' | null;
   runnerInstanceCondition: ReturnType<typeof eq> | undefined;
 }
 
@@ -527,71 +529,12 @@ export async function claimPendingJobExecution(
 
   if (params.sessionLabels.length === 0) return null;
 
-  let activationToFirstClaimObservation: ProviderRunnerLifecycleObservation | null = null;
-  let queueTimeObservation: JobExecutionQueueTimeObservation | null = null;
-  let firstClaimReservationReleaseCount = 0;
-  const result = await db().transaction(async (tx) => {
-    const {provisionerId, providerRunnerId, runnerInstanceCondition} =
-      await loadClaimRunnerContextTx(tx, params);
-
-    // `id` is a uuidv7 (time-ordered), so it is a deterministic FIFO tiebreaker
-    // for rows sharing a created_at within a batch. Lock only the FIFO candidate before
-    // attempting its execution advisory lock; putting pg_try_advisory_xact_lock in this
-    // predicate would evaluate it while scanning and temporarily lock many queue entries.
-    const pendingClaim = await claimPendingCandidateTx(tx, params, provisionerId, providerRunnerId);
-    if (!pendingClaim) return null;
-    const {row, claimed} = pendingClaim;
-
-    queueTimeObservation = {
-      durationMilliseconds: claimed.claimedAt.getTime() - row.createdAt.getTime(),
-      provider: null,
-      launchKind: params.maxClaims === null ? 'manual' : 'unknown',
-    };
-
-    if (runnerInstanceCondition) {
-      const runnerClaim = await recordClaimedRunnerTx(
-        tx,
-        params.runnerSessionId,
-        runnerInstanceCondition,
-        claimed.claimedAt,
-      );
-      if (runnerClaim.claimedRunner && queueTimeObservation) {
-        queueTimeObservation.provider = runnerClaim.claimedRunner.providerKind;
-        queueTimeObservation.launchKind = runnerClaim.claimedRunner.launchKind;
-      }
-      firstClaimReservationReleaseCount += runnerClaim.reservationReleaseCount;
-      activationToFirstClaimObservation = runnerClaim.activationToFirstClaimObservation;
-    }
-
-    if (params.maxClaims !== null) {
-      await tx
-        .update(runnerSessions)
-        .set({claimsUsed: sql`${runnerSessions.claimsUsed} + 1`, updatedAt: sql`now()`})
-        .where(eq(runnerSessions.id, params.runnerSessionId));
-    }
-
-    // The running-row insert is the runner claiming the job execution. Emit in the same tx; the
-    // payload carries the row's own claim instant so a consumer records the true time,
-    // not the outbox drain time.
-    await writeOutboxEvent<RunnersEventMap>(tx, runnersOutbox, {
-      type: RUNNER_JOB_CLAIMED,
-      payload: {
-        workflowRunId: row.workflowRunId,
-        workflowRunAttemptId: row.workflowRunAttemptId,
-        jobId: row.jobId,
-        jobExecutionId: row.jobExecutionId,
-        claimedAt: claimed.claimedAt.toISOString(),
-      },
-    });
-
-    return {
-      workflowRunId: row.workflowRunId,
-      workflowRunAttemptId: row.workflowRunAttemptId,
-      jobId: row.jobId,
-      jobExecutionId: row.jobExecutionId,
-      projectId: row.projectId,
-    };
-  });
+  const {
+    result,
+    queueTimeObservation,
+    firstClaimReservationReleaseCount,
+    activationObservation: activationToFirstClaimObservation,
+  } = await db().transaction((tx) => claimPendingJobExecutionTx(tx, params));
   recordRunnerReservationReleased({
     count: firstClaimReservationReleaseCount,
     surface: 'first-claim',
@@ -602,6 +545,92 @@ export async function claimPendingJobExecution(
   return result;
 }
 
+async function claimPendingJobExecutionTx(
+  tx: Tx,
+  params: ClaimPendingJobExecutionParams,
+): Promise<{
+  result: ClaimedJobExecution | null;
+  queueTimeObservation: JobExecutionQueueTimeObservation | null;
+  firstClaimReservationReleaseCount: number;
+  activationObservation: ProviderRunnerLifecycleObservation | null;
+}> {
+  const {provisionerId, providerRunnerId, provisionerScope, runnerInstanceCondition} =
+    await loadClaimRunnerContextTx(tx, params);
+  const pendingClaim = await claimPendingCandidateTx(tx, params, provisionerId, providerRunnerId);
+  if (!pendingClaim) {
+    return {
+      result: null,
+      queueTimeObservation: null,
+      firstClaimReservationReleaseCount: 0,
+      activationObservation: null,
+    };
+  }
+  const {row, claimed} = pendingClaim;
+  const queueTimeObservation: JobExecutionQueueTimeObservation = {
+    durationMilliseconds: claimed.claimedAt.getTime() - row.createdAt.getTime(),
+    provider: null,
+    launchKind: params.maxClaims === null ? 'manual' : 'unknown',
+  };
+  let firstClaimReservationReleaseCount = 0;
+  let activationObservation: ProviderRunnerLifecycleObservation | null = null;
+  let claimedRunner: ClaimedProviderRunner | undefined;
+
+  if (runnerInstanceCondition) {
+    const runnerClaim = await recordClaimedRunnerTx(
+      tx,
+      params.runnerSessionId,
+      runnerInstanceCondition,
+      claimed.claimedAt,
+    );
+    claimedRunner = runnerClaim.claimedRunner;
+    if (claimedRunner) {
+      queueTimeObservation.provider = claimedRunner.providerKind;
+      queueTimeObservation.launchKind = claimedRunner.launchKind;
+    }
+    firstClaimReservationReleaseCount = runnerClaim.reservationReleaseCount;
+    activationObservation = runnerClaim.activationToFirstClaimObservation;
+  }
+
+  if (params.maxClaims !== null) {
+    await tx
+      .update(runnerSessions)
+      .set({claimsUsed: sql`${runnerSessions.claimsUsed} + 1`, updatedAt: sql`now()`})
+      .where(eq(runnerSessions.id, params.runnerSessionId));
+  }
+
+  await writeOutboxEvent<RunnersEventMap>(tx, runnersOutbox, {
+    type: RUNNER_JOB_CLAIMED,
+    payload: {
+      workflowRunId: row.workflowRunId,
+      workflowRunAttemptId: row.workflowRunAttemptId,
+      jobId: row.jobId,
+      jobExecutionId: row.jobExecutionId,
+      claimedAt: claimed.claimedAt.toISOString(),
+      workspaceId: claimed.workspaceId,
+      projectId: claimed.projectId,
+      runnerLabels: claimed.runnerLabels,
+      templateKey: claimedRunner?.templateKey ?? null,
+      provisionerId: claimed.provisionerId,
+      provisionerScope,
+      providerKind: claimedRunner?.providerKind ?? null,
+      launchKind: claimedRunner?.launchKind ?? (params.maxClaims === null ? 'manual' : null),
+    },
+  });
+
+  return {
+    result: {
+      workflowRunId: row.workflowRunId,
+      workflowRunAttemptId: row.workflowRunAttemptId,
+      jobId: row.jobId,
+      jobExecutionId: row.jobExecutionId,
+      projectId: row.projectId,
+    },
+    queueTimeObservation,
+    firstClaimReservationReleaseCount,
+    activationObservation,
+  };
+}
+
 async function loadClaimRunnerContextTx(
   tx: Tx,
   params: ClaimPendingJobExecutionParams,
@@ -609,6 +638,7 @@ async function loadClaimRunnerContextTx(
   let runnerInstanceId: string | null = null;
   let provisionerId: string | null = null;
   let providerRunnerId: string | null = null;
+  let provisionerScope: 'installation' | 'workspace' | null = null;
   if (params.maxClaims !== null) {
     const [session] = await tx
       .select({
@@ -627,6 +657,14 @@ async function loadClaimRunnerContextTx(
     runnerInstanceId = session.runnerInstanceId;
     provisionerId = session.provisionerId;
     providerRunnerId = session.providerRunnerId;
+    if (provisionerId) {
+      const [provisioner] = await tx
+        .select({scope: provisionerTokens.scope})
+        .from(provisionerTokens)
+        .where(eq(provisionerTokens.id, provisionerId))
+        .limit(1);
+      provisionerScope = provisioner?.scope ?? null;
+    }
   }
   const runnerInstanceCondition = claimRunnerInstanceCondition(
     runnerInstanceId,
@@ -636,7 +674,7 @@ async function loadClaimRunnerContextTx(
   if (runnerInstanceCondition && provisionerId) {
     await lockClaimRunnerReservationIdsTx(tx, provisionerId, runnerInstanceCondition);
   }
-  return {provisionerId, providerRunnerId, runnerInstanceCondition};
+  return {provisionerId, providerRunnerId, provisionerScope, runnerInstanceCondition};
 }
 
 function assertClaimSessionAvailable<
@@ -696,7 +734,13 @@ async function claimPendingCandidateTx(
   providerRunnerId: string | null,
 ): Promise<{
   row: typeof pendingJobExecutions.$inferSelect;
-  claimed: {claimedAt: Date};
+  claimed: {
+    claimedAt: Date;
+    workspaceId: string;
+    projectId: string;
+    runnerLabels: string[];
+    provisionerId: string | null;
+  };
 } | null> {
   const candidate = tx
     .select()
@@ -737,7 +781,13 @@ async function claimPendingCandidateTx(
       runnerLabels: params.sessionLabels,
     })
     .onConflictDoNothing({target: runningJobExecutions.jobExecutionId})
-    .returning({claimedAt: runningJobExecutions.startedAt});
+    .returning({
+      claimedAt: runningJobExecutions.startedAt,
+      workspaceId: runningJobExecutions.workspaceId,
+      projectId: runningJobExecutions.projectId,
+      runnerLabels: runningJobExecutions.runnerLabels,
+      provisionerId: runningJobExecutions.provisionerId,
+    });
   return claimed ? {row, claimed} : null;
 }
 
@@ -746,6 +796,7 @@ type ClaimedProviderRunner = Pick<
   | 'firstClaimedAt'
   | 'providerKind'
   | 'launchKind'
+  | 'templateKey'
   | 'id'
   | 'reservationId'
   | 'intendedReservationId'
@@ -775,6 +826,7 @@ async function recordClaimedRunnerTx(
       isFirstClaim: sql<boolean>`${providerRunners.firstClaimedAt} = ${claimedAt}`,
       providerKind: providerRunners.providerKind,
       launchKind: providerRunners.launchKind,
+      templateKey: providerRunners.templateKey,
       id: providerRunners.id,
       reservationId: providerRunners.reservationId,
       intendedReservationId: providerRunners.intendedReservationId,
@@ -995,6 +1047,7 @@ export async function expireStuckJobExecutions(params: {
       });
 
     if (deleted.length === 0) return [];
+    const expiredAt = new Date();
 
     await releaseReservationsForTerminalRunningRows(tx, deleted);
 
@@ -1008,6 +1061,7 @@ export async function expireStuckJobExecutions(params: {
           workflowRunAttemptId: row.workflowRunAttemptId,
           jobId: row.jobId,
           jobExecutionId: row.jobExecutionId,
+          expiredAt: expiredAt.toISOString(),
         },
       })),
     );
