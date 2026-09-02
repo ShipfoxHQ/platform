@@ -14,8 +14,6 @@ export function agentAccessErrorMessage(error: unknown): string {
       return "You don't have permission to change agent access for this workspace.";
     case 'auth-dependency-unavailable':
       return 'Agent access is temporarily unavailable. Try again in a moment.';
-    case 'impersonation-not-permitted':
-      return 'Personal access tokens cannot be created while impersonating another user.';
     case 'not-found':
       return 'This credential no longer exists. Refresh the page to see the latest list.';
     default:

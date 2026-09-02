@@ -156,6 +156,10 @@ function OAuthConsentLoaded({
                 </dd>
               </div>
               <div className="contents max-[520px]:flex max-[520px]:flex-col max-[520px]:gap-tight">
+                <dt className="text-foreground-neutral-muted">Access</dt>
+                <dd>Read workspace data</dd>
+              </div>
+              <div className="contents max-[520px]:flex max-[520px]:flex-col max-[520px]:gap-tight">
                 <dt className="text-foreground-neutral-muted">Returns to</dt>
                 <dd className="min-w-0">
                   {consent.isLoopbackRedirect ? (

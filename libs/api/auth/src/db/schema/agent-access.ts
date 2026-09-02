@@ -7,7 +7,6 @@ import type {
   AgentClient,
   AgentClientKind,
   AgentGrant,
-  AgentPersonalAccessToken,
   AgentRefreshToken,
 } from '#core/entities/agent-access.js';
 import {pgTable} from './common.js';
@@ -139,33 +138,6 @@ export const agentRefreshTokens = pgTable(
   ],
 );
 
-export const agentPersonalAccessTokens = pgTable(
-  'agent_pats',
-  {
-    id: uuidv7PrimaryKey(),
-    userId: uuid('user_id')
-      .notNull()
-      .references(() => users.id, {onDelete: 'cascade'}),
-    workspaceId: uuid('workspace_id').notNull(),
-    hashedToken: text('hashed_token').notNull(),
-    prefix: text('prefix').notNull(),
-    name: text('name').notNull(),
-    scopes: text('scopes').array().notNull(),
-    expiresAt: timestamp('expires_at', {withTimezone: true}).notNull(),
-    lastUsedAt: timestamp('last_used_at', {withTimezone: true}),
-    revokedAt: timestamp('revoked_at', {withTimezone: true}),
-    createdAt: timestamp('created_at', {withTimezone: true}).notNull().defaultNow(),
-    updatedAt: timestamp('updated_at', {withTimezone: true}).notNull().defaultNow(),
-  },
-  (table) => [
-    uniqueIndex('auth_agent_pats_hashed_token_unique').on(table.hashedToken),
-    index('auth_agent_pats_user_id_idx').on(table.userId),
-    index('auth_agent_pats_workspace_id_idx').on(table.workspaceId),
-    index('auth_agent_pats_expires_at_idx').on(table.expiresAt),
-    index('auth_agent_pats_revoked_at_idx').on(table.revokedAt),
-  ],
-);
-
 export type AgentClientDb = typeof agentClients.$inferSelect;
 export type AgentClientCreateDb = typeof agentClients.$inferInsert;
 export type AgentAuthorizationRequestDb = typeof agentAuthorizationRequests.$inferSelect;
@@ -176,8 +148,6 @@ export type AgentAuthorizationCodeDb = typeof agentAuthorizationCodes.$inferSele
 export type AgentAuthorizationCodeCreateDb = typeof agentAuthorizationCodes.$inferInsert;
 export type AgentRefreshTokenDb = typeof agentRefreshTokens.$inferSelect;
 export type AgentRefreshTokenCreateDb = typeof agentRefreshTokens.$inferInsert;
-export type AgentPersonalAccessTokenDb = typeof agentPersonalAccessTokens.$inferSelect;
-export type AgentPersonalAccessTokenCreateDb = typeof agentPersonalAccessTokens.$inferInsert;
 
 export function toAgentClient(row: AgentClientDb): AgentClient {
   return {
@@ -251,25 +221,6 @@ export function toAgentRefreshToken(row: AgentRefreshTokenDb): AgentRefreshToken
     rotatedAt: row.rotatedAt,
     revokedAt: row.revokedAt,
     lastUsedAt: row.lastUsedAt,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-  };
-}
-
-export function toAgentPersonalAccessToken(
-  row: AgentPersonalAccessTokenDb,
-): AgentPersonalAccessToken {
-  return {
-    id: row.id,
-    userId: row.userId,
-    workspaceId: row.workspaceId,
-    hashedToken: row.hashedToken,
-    prefix: row.prefix,
-    name: row.name,
-    scopes: row.scopes,
-    expiresAt: row.expiresAt,
-    lastUsedAt: row.lastUsedAt,
-    revokedAt: row.revokedAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };

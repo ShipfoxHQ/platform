@@ -22,31 +22,3 @@ export interface AgentGrant {
   createdAt: string;
   lastRefreshedAt: string | null;
 }
-
-export interface AgentPersonalAccessToken {
-  id: string;
-  workspaceId: string;
-  prefix: string;
-  name: string;
-  expiresAt: string;
-  lastUsedAt: string | null;
-  createdAt: string;
-}
-
-export interface CreatedAgentPersonalAccessToken extends AgentPersonalAccessToken {
-  token: string;
-}
-
-export type AgentPersonalAccessTokenExpiration = 30 | 90 | 365;
-
-export interface CreateAgentPersonalAccessTokenCommand {
-  name: string;
-  expiresInDays: AgentPersonalAccessTokenExpiration;
-}
-
-export function createAgentPersonalAccessTokenCommand(
-  name: string,
-  expiresInDays: AgentPersonalAccessTokenExpiration,
-): CreateAgentPersonalAccessTokenCommand {
-  return {name: name.trim(), expiresInDays};
-}

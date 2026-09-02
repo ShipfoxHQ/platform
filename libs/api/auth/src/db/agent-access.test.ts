@@ -9,37 +9,27 @@ import {
   createAgentAuthorizationRequest,
   createAgentClient,
   createAgentGrant,
-  createAgentPersonalAccessToken,
   createAgentRefreshToken,
   findActiveAgentAuthorizationCodeByHash,
-  findActiveAgentPersonalAccessTokenByHash,
   findActiveAgentRefreshTokenByGrantId,
   findActiveAgentRefreshTokenByHash,
   findAgentAuthorizationCodeByHash,
   findAgentClientByClientId,
   findAgentGrant,
-  findAgentPersonalAccessTokenByHash,
   findAgentRefreshTokenByHash,
   findPendingAgentAuthorizationRequest,
   isWithinAgentRefreshRotationGrace,
   lockAgentGrant,
-  markAgentPersonalAccessTokenUsed,
   pruneAgentAccess,
   pruneAgentAccessBatch,
   resolveAgentRefreshTokenReplay,
   revokeAgentGrant,
-  revokeAgentPersonalAccessToken,
   rotateAgentRefreshToken,
   transitionAgentGrantsToTerminal,
   upsertCimdAgentClient,
 } from './agent-access.js';
 import {db} from './db.js';
-import {
-  agentClients,
-  agentGrants,
-  agentPersonalAccessTokens,
-  agentRefreshTokens,
-} from './schema/agent-access.js';
+import {agentClients, agentGrants, agentRefreshTokens} from './schema/agent-access.js';
 import {users} from './schema/users.js';
 
 const GRANT_LOCK_TEST_TIMEOUT_MS = 30_000;
@@ -183,7 +173,7 @@ describe('agent-access db', () => {
     });
   });
 
-  test('manages refresh tokens and personal access tokens', async () => {
+  test('manages refresh tokens', async () => {
     const user = await userFactory.create();
     const client = await createAgentClient({
       clientId: `https://client.example/${crypto.randomUUID()}`,
@@ -226,134 +216,12 @@ describe('agent-access db', () => {
       }),
     ).toBeUndefined();
 
-    const pat = await createAgentPersonalAccessToken({
-      userId: user.id,
-      workspaceId: grant.workspaceId,
-      hashedToken: hashOpaqueToken('pat-token'),
-      prefix: 'sf_pat_test',
-      name: 'Test PAT',
-      scopes: ['read'],
-      expiresAt: new Date(Date.now() + 60_000),
-    });
-    expect(
-      await findActiveAgentPersonalAccessTokenByHash({hashedToken: pat.hashedToken}),
-    ).toMatchObject({id: pat.id});
-    const firstPatUse = await markAgentPersonalAccessTokenUsed({id: pat.id});
-    expect(firstPatUse).toMatchObject({
-      id: pat.id,
-      lastUsedAt: expect.any(Date),
-    });
-    const throttledPatUse = await markAgentPersonalAccessTokenUsed({id: pat.id});
-    expect(throttledPatUse).toMatchObject({
-      id: pat.id,
-      lastUsedAt: firstPatUse?.lastUsedAt,
-    });
-    await db()
-      .update(agentPersonalAccessTokens)
-      .set({lastUsedAt: new Date(Date.now() - 61_000)})
-      .where(eq(agentPersonalAccessTokens.id, pat.id));
-    expect(await markAgentPersonalAccessTokenUsed({id: pat.id})).toMatchObject({
-      id: pat.id,
-      lastUsedAt: expect.any(Date),
-    });
-    await db().update(users).set({status: 'suspended'}).where(eq(users.id, user.id));
-    expect(
-      await findActiveAgentPersonalAccessTokenByHash({hashedToken: pat.hashedToken}),
-    ).toBeUndefined();
-    await revokeAgentPersonalAccessToken({id: pat.id});
-    expect(
-      await findActiveAgentPersonalAccessTokenByHash({hashedToken: pat.hashedToken}),
-    ).toBeUndefined();
-
     await pruneAgentAccess({retentionDays: 0, now: new Date(Date.now() + 1_000)});
 
     expect(
       await findAgentRefreshTokenByHash({hashedToken: refreshToken.hashedToken}),
     ).toBeUndefined();
-    expect(
-      await findAgentPersonalAccessTokenByHash({hashedToken: pat.hashedToken}),
-    ).toBeUndefined();
   });
-
-  test(
-    'uses the current database clock after waiting for a PAT row lock',
-    async () => {
-      const user = await userFactory.create();
-      const pat = await createAgentPersonalAccessToken({
-        userId: user.id,
-        workspaceId: crypto.randomUUID(),
-        hashedToken: hashOpaqueToken(`clock-pat-${crypto.randomUUID()}`),
-        prefix: 'sf_pat_clock',
-        name: 'Clock PAT',
-        scopes: ['read'],
-        expiresAt: new Date(Date.now() + 200),
-      });
-      const holderReady = deferred<void>();
-      const holder = db().transaction(async (tx) => {
-        await tx
-          .update(agentPersonalAccessTokens)
-          .set({updatedAt: sql`now()`})
-          .where(eq(agentPersonalAccessTokens.id, pat.id));
-        holderReady.resolve();
-        await tx.execute(sql`select pg_sleep(0.75)`);
-      });
-      holder.catch(holderReady.reject);
-
-      try {
-        await holderReady.promise;
-        const used = markAgentPersonalAccessTokenUsed({id: pat.id});
-        const [, result] = await Promise.all([holder, used]);
-
-        expect(result).toBeUndefined();
-      } finally {
-        await holder.catch(() => undefined);
-      }
-    },
-    GRANT_LOCK_TEST_TIMEOUT_MS,
-  );
-
-  test(
-    'rejects PAT use after a concurrent user suspension commits',
-    async () => {
-      const user = await userFactory.create();
-      const pat = await createAgentPersonalAccessToken({
-        userId: user.id,
-        workspaceId: crypto.randomUUID(),
-        hashedToken: hashOpaqueToken(`suspension-pat-${crypto.randomUUID()}`),
-        prefix: 'sf_pat_suspend',
-        name: 'Suspension PAT',
-        scopes: ['read'],
-        expiresAt: new Date(Date.now() + 60_000),
-      });
-      const holderReady = deferred<void>();
-      const holder = db().transaction(async (tx) => {
-        await tx
-          .select({id: users.id})
-          .from(users)
-          .where(eq(users.id, user.id))
-          .for('update')
-          .limit(1);
-        holderReady.resolve();
-        await tx.execute(sql`select pg_sleep(0.75)`);
-        await tx
-          .update(users)
-          .set({status: 'suspended', updatedAt: sql`now()`})
-          .where(eq(users.id, user.id));
-      });
-      holder.catch(holderReady.reject);
-
-      try {
-        await holderReady.promise;
-        const used = markAgentPersonalAccessTokenUsed({id: pat.id});
-        const [, result] = await Promise.all([holder, used]);
-
-        expect(result).toBeUndefined();
-      } finally {
-        await holder.catch(() => undefined);
-      }
-    },
-    GRANT_LOCK_TEST_TIMEOUT_MS,
-  );
 
   test('serializes concurrent refresh rotation and revokes the complete grant family', async () => {
     const user = await userFactory.create();
@@ -732,29 +600,6 @@ describe('agent-access db', () => {
       hashedToken: hashOpaqueToken(`retention-expired-${crypto.randomUUID()}`),
       expiresAt: thirtyDaysAgo,
     });
-    const expiredPat = await createAgentPersonalAccessToken({
-      userId: user.id,
-      workspaceId: grant.workspaceId,
-      hashedToken: hashOpaqueToken(`retention-expired-pat-${crypto.randomUUID()}`),
-      prefix: 'sf_pat_expired',
-      name: 'Expired PAT',
-      scopes: ['read'],
-      expiresAt: ninetyDaysAgo,
-    });
-    const revokedPat = await createAgentPersonalAccessToken({
-      userId: user.id,
-      workspaceId: grant.workspaceId,
-      hashedToken: hashOpaqueToken(`retention-revoked-pat-${crypto.randomUUID()}`),
-      prefix: 'sf_pat_revoked',
-      name: 'Revoked PAT',
-      scopes: ['read'],
-      expiresAt: new Date(now.getTime() + 60_000),
-    });
-    await db()
-      .update(agentPersonalAccessTokens)
-      .set({revokedAt: ninetyDaysAgo})
-      .where(eq(agentPersonalAccessTokens.id, revokedPat.id));
-
     await pruneAgentAccess({now});
 
     expect(await findPendingAgentAuthorizationRequest({id: request.id})).toBeUndefined();
@@ -762,12 +607,6 @@ describe('agent-access db', () => {
     for (const token of [rotated, revoked, expired]) {
       expect(await findAgentRefreshTokenByHash({hashedToken: token.hashedToken})).toBeUndefined();
     }
-    expect(
-      await findAgentPersonalAccessTokenByHash({hashedToken: expiredPat.hashedToken}),
-    ).toBeUndefined();
-    expect(
-      await findAgentPersonalAccessTokenByHash({hashedToken: revokedPat.hashedToken}),
-    ).toBeUndefined();
     expect(await findAgentGrant({id: grant.id})).toMatchObject({
       terminalAt: expect.any(Date),
     });
@@ -810,16 +649,6 @@ describe('agent-access db', () => {
       hashedToken: hashOpaqueToken(`live-refresh-${crypto.randomUUID()}`),
       expiresAt: new Date(Date.now() + 60_000),
     });
-    const pat = await createAgentPersonalAccessToken({
-      userId: user.id,
-      workspaceId: grant.workspaceId,
-      hashedToken: hashOpaqueToken(`live-pat-${crypto.randomUUID()}`),
-      prefix: 'sf_pat_live',
-      name: 'Live PAT',
-      scopes: ['read'],
-      expiresAt: new Date(Date.now() + 60_000),
-    });
-
     expect(await transitionAgentGrantsToTerminal({limit: 1})).toBe(0);
     await pruneAgentAccess({retentionDays: 0, now: new Date(Date.now() + 1_000)});
     expect(await findAgentGrant({id: grant.id})).toMatchObject({terminalAt: null});
@@ -828,12 +657,6 @@ describe('agent-access db', () => {
     ).toMatchObject({
       id: refreshToken.id,
     });
-    expect(
-      await findActiveAgentPersonalAccessTokenByHash({hashedToken: pat.hashedToken}),
-    ).toMatchObject({
-      id: pat.id,
-    });
-
     await revokeAgentGrant({grantId: grant.id});
     await expect(
       createAgentRefreshToken({

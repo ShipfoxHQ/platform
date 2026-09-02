@@ -43,6 +43,13 @@
       "when": 1788279929383,
       "tag": "0005_nifty_the_twelve",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1788355575561,
+      "tag": "0006_mixed_wolf_cub",
+      "breakpoints": true
     }
   ]
 }

@@ -8,10 +8,6 @@ describe('agent access error copy', () => {
       'This workspace is suspended. Restore it before changing agent access.',
     ],
     [
-      'impersonation-not-permitted',
-      'Personal access tokens cannot be created while impersonating another user.',
-    ],
-    [
       'auth-dependency-unavailable',
       'Agent access is temporarily unavailable. Try again in a moment.',
     ],
@@ -24,7 +20,7 @@ describe('agent access error copy', () => {
   test('does not expose network request details', () => {
     const error = new ApiError({
       code: 'network-error',
-      message: 'Failed to fetch https://api.example.test/agent-access/pats',
+      message: 'Failed to fetch https://api.example.test/agent-access/grants',
       status: 0,
     });
 

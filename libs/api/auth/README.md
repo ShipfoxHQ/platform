@@ -111,18 +111,15 @@ When `AUTH_PASSWORD_ENABLED=false`, the module does not register signup, login, 
 The module issues several bearer token types, all presented as
 `Authorization: Bearer <token>`. User session, runner session, job lease, and
 OAuth access tokens are **stateless**: each is signed with HMAC-SHA256 and
-verified by checking its signature and expiry alone. Personal access tokens
-are opaque, database-backed credentials because their long-lived lifetime needs
-per-request revocation.
+verified by checking its signature and expiry alone.
 
 Each signed token class uses a separate key derived from `AUTH_ROOT_KEY` and a
 fixed audience, so one token type cannot be used in place of another.
 
 Changing `AUTH_ROOT_KEY` invalidates every user session token, runner session
 token, job lease token, OAuth access token, email challenge, and rate-limit
-identifier created with the previous root. Personal access tokens remain
-database-backed and are revoked through their management route. The module does
-not support rotating one derived key by itself.
+identifier created with the previous root. The module does not support rotating
+one derived key by itself.
 
 ### User session token
 
@@ -167,8 +164,8 @@ be removed or forged by a client.
   at most 15 minutes after issuance; and every `/admin` route rejects a request
   whose context carries `impersonatorId` with `admin-role-required`, before
   roles are consulted. The durable-artefact deny-list (runner registration
-  tokens, provisioner tokens, workspace invitations, and agent personal access
-  token minting) rejects impersonated sessions with `impersonation-not-permitted`; the
+  tokens, provisioner tokens, and workspace invitations) rejects impersonated sessions with
+  `impersonation-not-permitted`; the
   list is enumerated and documented in ADR 0014, and adding a
   credential-issuing or grant-creating route means adding it there.
 - **No token at rest:** the idempotent command result stores only the target
@@ -274,19 +271,14 @@ progress and drives that job to completion.
 
 ### Agent access credentials
 
-Agent access supports OAuth grants and personal access tokens. Both credentials
-use the `AUTH_AGENT_ACCESS` method and resolve to one `AgentAccessContext` with a
-user, workspace, read scopes, and credential identity.
+Agent access uses OAuth grants. OAuth access tokens use the `AUTH_AGENT_ACCESS`
+method and resolve to one `AgentAccessContext` with a user, workspace, read
+scopes, grant identity, and client identity.
 
 - **OAuth access token:** a stateless HMAC token with a distinct audience and a
   15-minute lifetime. Request authentication performs no database read. Grant
   revocation blocks refresh immediately; an issued access token remains valid
   until it expires.
-- **Personal access token:** an opaque `sf_pat_` token bound to one user and
-  workspace. The raw value is returned once, and only its prefix and metadata
-  are listed afterward. Each request checks the active user, membership,
-  workspace status, expiry, and revocation state. Last-used writes are limited
-  to once per 60 seconds, and revocation applies to the next request.
 
 The management route factories are opt-in. `createAuthModule` does not register
 them or the `AUTH_AGENT_ACCESS` method until the application activates the full
@@ -386,21 +378,16 @@ compose these routes until an application provides its consent UI and agent-reso
 
 Consent approval creates a durable agent grant from a pre-commit workspace-membership snapshot;
 every authorization-code and refresh exchange revalidates membership before issuing tokens. The
-package also exports opt-in management factories for grant and PAT lifecycle operations. These
-factories use `AUTH_USER` and remain unregistered by `createAuthModule().routes`.
+package also exports an opt-in management factory for OAuth grant lifecycle operations. These
+routes use `AUTH_USER` and remain unregistered by `createAuthModule().routes`.
 
 | Method | Path | Auth | Result |
 | --- | --- | --- | --- |
 | `GET` | `/agent-access/grants` | session bearer | Lists the caller's active grants. |
 | `DELETE` | `/agent-access/grants/:id` | session bearer | Idempotently revokes a caller-owned grant. |
-| `POST` | `/agent-access/pats` | session bearer | Creates a PAT and returns its raw value once. |
-| `GET` | `/agent-access/pats` | session bearer | Lists caller-owned PAT metadata without raw values. |
-| `DELETE` | `/agent-access/pats/:id` | session bearer | Idempotently revokes a caller-owned PAT. |
 
 Management identifiers are caller-owned. Another user's identifier and an unknown identifier
 both return `404`.
-Impersonated sessions may list and revoke the target user's credentials; only PAT creation is
-blocked because it would create a durable credential outside the impersonation window.
 Authorization-code replay returns `invalid_grant` and
 does not revoke a grant that was already issued, because a lost token response is indistinguishable
 from a replay. Refresh-token reuse outside the grace window revokes the grant family, and a lost
@@ -432,10 +419,9 @@ It also exports lower-level pieces for tests and advanced integration:
 - `getClientContext(request)`: reads the authenticated user context from a Fastify request.
 - `createImpersonatedSessionToken({targetUserId, impersonatorId, workspaces})`: mints an access-token-only impersonated session (capped TTL, `impersonatorId` claim, no refresh material). The `impersonateUser` administration command owns the authorization ladder, idempotency, and audit flow.
 - `createOAuthAuthorizationRoutes(options)`: explicitly composes the OAuth authorization, consent, authorization-code, and refresh-token routes for an agent-resource integration.
-- `createAgentAccessAuthMethod(workspaces)`: authenticates stateless OAuth access tokens and database-checked PATs into the shared agent-access context.
-- `createAgentAccessManagementRoutes({workspaces})`: composes the grant and PAT management routes under `/agent-access`.
-- `createAgentGrantRoutes()` / `createAgentPersonalAccessTokenRoutes(workspaces)`: compose the management route groups separately when the application needs independent registration.
-- `listAgentGrants({userId})`, `listAgentPersonalAccessTokens({userId})`, `revokeAgentGrant(...)`, and `revokeAgentPersonalAccessToken(...)`: implement the caller-scoped management use cases.
+- `createAgentAccessAuthMethod()`: authenticates stateless OAuth access tokens into the shared agent-access context.
+- `createAgentAccessManagementRoutes()` / `createAgentGrantRoutes()`: compose the grant management routes under `/agent-access`.
+- `listAgentGrants({userId})` and `revokeAgentGrant(...)`: implement the caller-scoped management use cases.
 - `getAuthenticatedSessionContext(request)`: reads the user ID and required refresh-session ID from verified access-token claims. It does not check whether the refresh session is still active.
 - `findUserByEmail({email})`: read-only lookup of the current owner of a normalized email; see below.
 - `listAdministratorUsers({actorId, limit, cursor?, search?, status?, eligible?})`: returns `{users, rows, nextCursor}` after requiring an active observer role. `rows` remains as a compatibility alias. Search accepts at most 10 whitespace-separated terms. Each term can contain at most 100 characters.
@@ -562,10 +548,9 @@ The module creates tables with the `auth_` prefix:
 - `auth_agent_grants`
 - `auth_agent_authorization_codes`
 - `auth_agent_refresh_tokens`
-- `auth_agent_pats`
 
-Agent-access credentials are stored as hashes. Client identities retain only
-validated redirect metadata, display names, and lifecycle timestamps.
+Agent-access authorization codes and refresh tokens are stored as hashes. Client
+identities retain only validated redirect metadata, display names, and lifecycle timestamps.
 
 The directory ordering index uses a transactional migration. PostgreSQL holds a `ShareLock` on `auth_users` for the full index build, so writes wait during that period. The build time depends on the table size; schedule the migration when writes can wait.
 

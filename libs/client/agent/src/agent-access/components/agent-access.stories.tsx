@@ -5,7 +5,7 @@ import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {createStore, Provider as JotaiProvider} from 'jotai';
 import {type ReactNode, useEffect, useState} from 'react';
 import {within} from 'storybook/test';
-import {AgentAccessSettingsPage, CreatedPersonalAccessToken} from './agent-access-settings-page.js';
+import {AgentAccessSettingsPage} from './agent-access-settings-page.js';
 import {OAuthConsentPage} from './oauth-consent-page.js';
 
 const WORKSPACE_ID = '11111111-1111-4111-8111-111111111111';
@@ -18,8 +18,7 @@ type View =
   | 'consent-multiple-workspaces'
   | 'settings-populated'
   | 'settings-empty'
-  | 'settings-errors'
-  | 'created';
+  | 'settings-errors';
 
 const STORY_WORKSPACES = [
   {id: WORKSPACE_ID, name: 'Acme', slug: 'acme', membershipId: 'membership-1'},
@@ -32,14 +31,6 @@ const STORY_WORKSPACES = [
 ] as const;
 
 function AgentAccessStory({view}: {view: View}) {
-  if (view === 'created') {
-    return (
-      <StorySurface width="narrow">
-        <CreatedPersonalAccessToken token={createdPat()} />
-      </StorySurface>
-    );
-  }
-
   if (view === 'consent' || view === 'consent-multiple-workspaces') {
     return <OAuthConsentPage requestId={REQUEST_ID} onRedirect={() => undefined} />;
   }
@@ -110,6 +101,7 @@ export const Consent: Story = {
     await canvas.findByRole('heading', {name: 'Allow Claude Desktop to access Shipfox?'});
     await canvas.findByText('Acme');
     await canvas.findByText('Claude Desktop on this device');
+    await canvas.findByText('Read workspace data');
     await canvas.findByRole('button', {name: 'Allow access'});
   },
 };
@@ -128,7 +120,7 @@ export const Settings: Story = {
   play: async ({canvasElement}) => {
     const canvas = within(canvasElement);
     await canvas.findAllByText('Claude Desktop');
-    await canvas.findAllByText('Local coding agent');
+    await canvas.findByRole('heading', {name: 'Authorized apps'});
   },
 };
 
@@ -136,8 +128,7 @@ export const EmptySettings: Story = {
   args: {view: 'settings-empty'},
   play: async ({canvasElement}) => {
     const canvas = within(canvasElement);
-    await canvas.findByText('No connected agents');
-    await canvas.findByText('No personal access tokens');
+    await canvas.findByText('No authorized apps');
   },
 };
 
@@ -145,31 +136,14 @@ export const SettingsErrors: Story = {
   args: {view: 'settings-errors'},
   play: async ({canvasElement}) => {
     const canvas = within(canvasElement);
-    await canvas.findByText("Couldn't load connected agents");
-    await canvas.findByText("Couldn't load personal access tokens");
+    await canvas.findByText("Couldn't load authorized apps");
   },
 };
 
-export const OneTimeTokenReveal: Story = {args: {view: 'created'}};
-
-function StorySurface({
-  children,
-  width = 'wide',
-}: {
-  children: React.ReactNode;
-  width?: 'wide' | 'narrow';
-}) {
+function StorySurface({children}: {children: React.ReactNode}) {
   return (
     <main className="min-h-screen bg-background-subtle-base p-frame">
-      <div
-        className={
-          width === 'narrow'
-            ? 'mx-auto max-w-[560px] rounded-8 border border-border-neutral-base bg-background-neutral-base'
-            : 'mx-auto flex max-w-[1040px] flex-col gap-section'
-        }
-      >
-        {children}
-      </div>
+      <div className="mx-auto flex max-w-[1040px] flex-col gap-section">{children}</div>
     </main>
   );
 }
@@ -190,9 +164,6 @@ function fetchForView(view: View): typeof fetch {
     }
     if (request.url.endsWith('/grants')) {
       return Promise.resolve(jsonResponse({grants: view === 'settings-empty' ? [] : [grantDto()]}));
-    }
-    if (request.url.endsWith('/pats')) {
-      return Promise.resolve(jsonResponse({pats: view === 'settings-empty' ? [] : [patDto()]}));
     }
     return Promise.resolve(jsonResponse({code: 'not-found', message: 'Not found'}, {status: 404}));
   };
@@ -230,30 +201,5 @@ function grantDto() {
     scopes: ['read'],
     created_at: '2026-08-20T10:00:00.000Z',
     last_refreshed_at: '2026-09-02T10:00:00.000Z',
-  };
-}
-
-function patDto() {
-  return {
-    id: CREDENTIAL_ID,
-    workspace_id: WORKSPACE_ID,
-    prefix: 'sf_pat_9d2bc1',
-    name: 'Local coding agent',
-    expires_at: '2026-12-01T10:00:00.000Z',
-    last_used_at: '2026-09-02T09:45:00.000Z',
-    created_at: '2026-09-01T10:00:00.000Z',
-  };
-}
-
-function createdPat() {
-  return {
-    id: CREDENTIAL_ID,
-    workspaceId: WORKSPACE_ID,
-    prefix: 'sf_pat_9d2bc1',
-    name: 'Local coding agent',
-    expiresAt: '2026-12-01T10:00:00.000Z',
-    lastUsedAt: null,
-    createdAt: '2026-09-01T10:00:00.000Z',
-    token: 'sf_pat_9d2bc1_example_secret_value_shown_once',
   };
 }

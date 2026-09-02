@@ -18,7 +18,6 @@ import type {
   AgentAuthorizationRequest,
   AgentClient,
   AgentGrant,
-  AgentPersonalAccessToken,
   AgentRefreshToken,
 } from '#core/entities/agent-access.js';
 import {
@@ -26,7 +25,6 @@ import {
   AGENT_AUTHORIZATION_RETENTION_DAYS,
   AGENT_CLIENT_RETENTION_DAYS,
   AGENT_GRANT_RETENTION_DAYS,
-  AGENT_PAT_RETENTION_DAYS,
   AGENT_REFRESH_TOKEN_RETENTION_DAYS,
 } from './agent-access-retention.js';
 import {db} from './db.js';
@@ -35,13 +33,11 @@ import {
   agentAuthorizationRequests,
   agentClients,
   agentGrants,
-  agentPersonalAccessTokens,
   agentRefreshTokens,
   toAgentAuthorizationCode,
   toAgentAuthorizationRequest,
   toAgentClient,
   toAgentGrant,
-  toAgentPersonalAccessToken,
   toAgentRefreshToken,
 } from './schema/agent-access.js';
 import {users} from './schema/users.js';
@@ -1313,225 +1309,6 @@ export async function transitionAgentGrantsToTerminalTx(
   return transitioned;
 }
 
-export interface CreateAgentPersonalAccessTokenParams {
-  userId: string;
-  workspaceId: string;
-  hashedToken: string;
-  prefix: string;
-  name: string;
-  scopes: string[];
-  expiresAt: Date;
-}
-
-export async function createAgentPersonalAccessToken(
-  params: CreateAgentPersonalAccessTokenParams,
-): Promise<AgentPersonalAccessToken> {
-  return await db().transaction((tx) => createAgentPersonalAccessTokenTx(tx, params));
-}
-
-/** Creates a PAT while holding the owning user row lock and requiring an active account. */
-export async function createAgentPersonalAccessTokenForActiveUser(
-  params: CreateAgentPersonalAccessTokenParams,
-): Promise<AgentPersonalAccessToken | undefined> {
-  return await db().transaction(async (tx) => {
-    if (!(await isActiveAgentUserTx(tx, {userId: params.userId}))) return undefined;
-    return await createAgentPersonalAccessTokenTx(tx, params);
-  });
-}
-
-export async function createAgentPersonalAccessTokenTx(
-  tx: AgentAccessTx,
-  params: CreateAgentPersonalAccessTokenParams,
-): Promise<AgentPersonalAccessToken> {
-  const rows = await tx.insert(agentPersonalAccessTokens).values(params).returning();
-  const row = rows[0];
-  if (!row) throw new Error('Insert returned no rows');
-  return toAgentPersonalAccessToken(row);
-}
-
-export async function findAgentPersonalAccessTokenByHash(params: {
-  hashedToken: string;
-  executor?: AgentAccessExecutor;
-}): Promise<AgentPersonalAccessToken | undefined> {
-  const executor = params.executor ?? db();
-  const rows = await executor
-    .select()
-    .from(agentPersonalAccessTokens)
-    .where(eq(agentPersonalAccessTokens.hashedToken, params.hashedToken))
-    .limit(1);
-  const row = rows[0];
-  return row ? toAgentPersonalAccessToken(row) : undefined;
-}
-
-export async function findActiveAgentPersonalAccessTokenByHash(params: {
-  hashedToken: string;
-  executor?: AgentAccessExecutor;
-}): Promise<AgentPersonalAccessToken | undefined> {
-  const executor = params.executor ?? db();
-  const rows = await executor
-    .select({token: agentPersonalAccessTokens})
-    .from(agentPersonalAccessTokens)
-    .innerJoin(users, eq(agentPersonalAccessTokens.userId, users.id))
-    .where(
-      and(
-        eq(agentPersonalAccessTokens.hashedToken, params.hashedToken),
-        isNull(agentPersonalAccessTokens.revokedAt),
-        gt(agentPersonalAccessTokens.expiresAt, sql`now()`),
-        eq(users.status, 'active'),
-      ),
-    )
-    .limit(1);
-  const row = rows[0]?.token;
-  return row ? toAgentPersonalAccessToken(row) : undefined;
-}
-
-export interface AgentPersonalAccessTokenSummaryRecord {
-  id: string;
-  workspaceId: string;
-  prefix: string;
-  name: string;
-  expiresAt: Date;
-  lastUsedAt: Date | null;
-  createdAt: Date;
-}
-
-/** Lists the caller's non-revoked PAT metadata without exposing token hashes. */
-export async function listAgentPersonalAccessTokenSummaries(params: {
-  userId: string;
-}): Promise<AgentPersonalAccessTokenSummaryRecord[]> {
-  const rows = await db()
-    .select({
-      id: agentPersonalAccessTokens.id,
-      workspaceId: agentPersonalAccessTokens.workspaceId,
-      prefix: agentPersonalAccessTokens.prefix,
-      name: agentPersonalAccessTokens.name,
-      expiresAt: agentPersonalAccessTokens.expiresAt,
-      lastUsedAt: agentPersonalAccessTokens.lastUsedAt,
-      createdAt: agentPersonalAccessTokens.createdAt,
-    })
-    .from(agentPersonalAccessTokens)
-    .where(
-      and(
-        eq(agentPersonalAccessTokens.userId, params.userId),
-        isNull(agentPersonalAccessTokens.revokedAt),
-      ),
-    )
-    .orderBy(desc(agentPersonalAccessTokens.createdAt), desc(agentPersonalAccessTokens.id));
-
-  return rows;
-}
-
-export async function markAgentPersonalAccessTokenUsed(params: {
-  id: string;
-  throttleSeconds?: number;
-}): Promise<AgentPersonalAccessToken | undefined> {
-  const throttleSeconds = params.throttleSeconds ?? 60;
-  if (!Number.isFinite(throttleSeconds) || throttleSeconds < 0) {
-    throw new Error('PAT last-used throttle must be a non-negative finite number of seconds');
-  }
-
-  return await db().transaction(async (tx) => {
-    const candidateRows = await tx
-      .select({userId: agentPersonalAccessTokens.userId})
-      .from(agentPersonalAccessTokens)
-      .where(eq(agentPersonalAccessTokens.id, params.id))
-      .limit(1);
-    const candidate = candidateRows[0];
-    if (!candidate) return undefined;
-
-    // Serialize PAT use with suspension. A plain EXISTS can read a
-    // pre-suspension snapshot and return a credential after suspension commits.
-    if (!(await isActiveAgentUserTx(tx, {userId: candidate.userId}))) return undefined;
-
-    const currentDatabaseTime = sql`clock_timestamp()`;
-    const throttleCutoff = sql`clock_timestamp() - (${throttleSeconds} || ' seconds')::interval`;
-    const rows = await tx
-      .update(agentPersonalAccessTokens)
-      .set({lastUsedAt: currentDatabaseTime, updatedAt: currentDatabaseTime})
-      .where(
-        and(
-          eq(agentPersonalAccessTokens.id, params.id),
-          isNull(agentPersonalAccessTokens.revokedAt),
-          gt(agentPersonalAccessTokens.expiresAt, currentDatabaseTime),
-          or(
-            isNull(agentPersonalAccessTokens.lastUsedAt),
-            lte(agentPersonalAccessTokens.lastUsedAt, throttleCutoff),
-          ),
-        ),
-      )
-      .returning();
-    const row = rows[0];
-    if (row) return toAgentPersonalAccessToken(row);
-
-    // A valid token can intentionally skip the write inside the throttle
-    // window. Return its current row so callers can distinguish that from an
-    // invalid, expired, revoked, or inactive-user token.
-    const existingRows = await tx
-      .select()
-      .from(agentPersonalAccessTokens)
-      .where(
-        and(
-          eq(agentPersonalAccessTokens.id, params.id),
-          isNull(agentPersonalAccessTokens.revokedAt),
-          gt(agentPersonalAccessTokens.expiresAt, currentDatabaseTime),
-        ),
-      )
-      .limit(1);
-    const existing = existingRows[0];
-    return existing ? toAgentPersonalAccessToken(existing) : undefined;
-  });
-}
-
-export async function revokeAgentPersonalAccessToken(params: {
-  id: string;
-}): Promise<AgentPersonalAccessToken | undefined> {
-  const rows = await db()
-    .update(agentPersonalAccessTokens)
-    .set({revokedAt: sql`now()`, updatedAt: sql`now()`})
-    .where(
-      and(eq(agentPersonalAccessTokens.id, params.id), isNull(agentPersonalAccessTokens.revokedAt)),
-    )
-    .returning();
-  const row = rows[0];
-  return row ? toAgentPersonalAccessToken(row) : undefined;
-}
-
-/** Revokes a PAT only when it belongs to the caller; repeated revocation is a success. */
-export async function revokeAgentPersonalAccessTokenForUser(params: {
-  userId: string;
-  id: string;
-}): Promise<AgentPersonalAccessToken | undefined> {
-  return await db().transaction(async (tx) => {
-    const existingRows = await tx
-      .select()
-      .from(agentPersonalAccessTokens)
-      .where(
-        and(
-          eq(agentPersonalAccessTokens.id, params.id),
-          eq(agentPersonalAccessTokens.userId, params.userId),
-        ),
-      )
-      .for('update')
-      .limit(1);
-    const existing = existingRows[0];
-    if (!existing) return undefined;
-    if (existing.revokedAt) return toAgentPersonalAccessToken(existing);
-
-    const rows = await tx
-      .update(agentPersonalAccessTokens)
-      .set({revokedAt: sql`now()`, updatedAt: sql`now()`})
-      .where(
-        and(
-          eq(agentPersonalAccessTokens.id, params.id),
-          isNull(agentPersonalAccessTokens.revokedAt),
-        ),
-      )
-      .returning();
-    const row = rows[0];
-    return row ? toAgentPersonalAccessToken(row) : toAgentPersonalAccessToken(existing);
-  });
-}
-
 export interface PruneAgentAccessParams {
   /** Overrides every retention horizon for deterministic maintenance tests. */
   retentionDays?: number;
@@ -1550,7 +1327,6 @@ interface AgentAccessRetentionCutoffs {
   authorization: Date;
   refreshToken: Date;
   grant: Date;
-  pat: Date;
   client: Date;
 }
 
@@ -1645,42 +1421,6 @@ async function deleteRetainedAgentRefreshTokens(
       ),
     )
     .returning({id: agentRefreshTokens.id});
-  return rows.length;
-}
-
-async function deleteRetainedAgentPersonalAccessTokens(
-  tx: AgentAccessTx,
-  cutoff: Date,
-  limit: number,
-  deadlineMs: number | undefined,
-): Promise<number> {
-  await prepareAgentAccessRetentionStatement(tx, deadlineMs);
-  const candidates = await tx
-    .select({id: agentPersonalAccessTokens.id})
-    .from(agentPersonalAccessTokens)
-    .where(
-      or(
-        lte(agentPersonalAccessTokens.revokedAt, cutoff),
-        and(
-          isNull(agentPersonalAccessTokens.revokedAt),
-          lte(agentPersonalAccessTokens.expiresAt, cutoff),
-        ),
-      ),
-    )
-    .orderBy(asc(agentPersonalAccessTokens.expiresAt), asc(agentPersonalAccessTokens.id))
-    .limit(limit);
-  if (candidates.length === 0) return 0;
-
-  await prepareAgentAccessRetentionStatement(tx, deadlineMs);
-  const rows = await tx
-    .delete(agentPersonalAccessTokens)
-    .where(
-      inArray(
-        agentPersonalAccessTokens.id,
-        candidates.map(({id}) => id),
-      ),
-    )
-    .returning({id: agentPersonalAccessTokens.id});
   return rows.length;
 }
 
@@ -1890,13 +1630,11 @@ export async function pruneAgentAccessBatch(
     retentionDays ?? AGENT_REFRESH_TOKEN_RETENTION_DAYS,
   );
   const grantCutoff = retentionCutoff(now, retentionDays ?? AGENT_GRANT_RETENTION_DAYS);
-  const patCutoff = retentionCutoff(now, retentionDays ?? AGENT_PAT_RETENTION_DAYS);
   const clientCutoff = retentionCutoff(now, retentionDays ?? AGENT_CLIENT_RETENTION_DAYS);
   const cutoffs: AgentAccessRetentionCutoffs = {
     authorization: authorizationCutoff,
     refreshToken: refreshTokenCutoff,
     grant: grantCutoff,
-    pat: patCutoff,
     client: clientCutoff,
   };
 
@@ -1923,7 +1661,6 @@ export async function pruneAgentAccessBatch(
         params.deadlineMs,
       )) +
       (await deleteRetainedAgentRefreshTokens(tx, cutoffs.refreshToken, limit, params.deadlineMs)) +
-      (await deleteRetainedAgentPersonalAccessTokens(tx, cutoffs.pat, limit, params.deadlineMs)) +
       (await pruneTerminalAgentGrants(tx, {
         cutoff: cutoffs.grant,
         now,

@@ -15,7 +15,6 @@ export const tokenTypeParts = {
   runnerControlSession: 'rcs',
   runnerActivationToken: 'rat',
   provisionerToken: 'pt',
-  personalAccessToken: 'pat',
 } as const;
 
 const tokenPrefixRegexes = createShipfoxTokenPrefixRegexes(Object.values(tokenTypeParts));

@@ -5,11 +5,11 @@ const baseContext: AgentAccessContext = {
   userId: 'user-1',
   workspaceId: 'workspace-1',
   scopes: ['read'],
-  credential: {kind: 'pat', patId: 'pat-1'},
+  credential: {kind: 'oauth_grant', grantId: 'grant-1', clientId: 'client-1'},
 };
 
 describe('agent-access tool call audit recorder', () => {
-  test('records bounded identity fields for a PAT without tool arguments', () => {
+  test('records bounded OAuth identity fields without tool arguments', () => {
     const recordMetric = vi.fn();
     const logInfo = vi.fn();
     const recorder = createAgentAccessToolCallRecorder({recordMetric, logInfo});
@@ -32,16 +32,16 @@ describe('agent-access tool call audit recorder', () => {
         errorCode: 'none',
         userId: 'user-1',
         workspaceId: 'workspace-1',
-        credentialKind: 'pat',
-        credentialId: 'pat-1',
-        clientId: null,
+        credentialKind: 'oauth_grant',
+        credentialId: 'grant-1',
+        clientId: 'client-1',
       },
       'agent access tool call audited',
     );
     expect(logInfo.mock.calls[0]?.[0]).not.toHaveProperty('arguments');
   });
 
-  test('includes the OAuth client identifier while keeping the grant identity explicit', () => {
+  test('keeps the OAuth grant identity explicit', () => {
     const logInfo = vi.fn();
     const recorder = createAgentAccessToolCallRecorder({logInfo, recordMetric: vi.fn()});
 
@@ -49,10 +49,7 @@ describe('agent-access tool call audit recorder', () => {
       tool: 'agent_access_fixture',
       outcome: 'tool-error',
       errorCode: 'invalid-request',
-      context: {
-        ...baseContext,
-        credential: {kind: 'oauth_grant', grantId: 'grant-1', clientId: 'client-1'},
-      },
+      context: baseContext,
     });
 
     expect(logInfo).toHaveBeenCalledWith(

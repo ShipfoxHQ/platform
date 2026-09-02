@@ -62,6 +62,7 @@ describe('OAuthConsentPage', () => {
       }),
     ).toBeVisible();
     expect(screen.getByText('https://claude.ai')).toBeVisible();
+    expect(screen.getByText('Read workspace data')).toBeVisible();
     expect(screen.getByText('Claude Desktop on this device')).toBeVisible();
     expect(screen.queryByText(WORKSPACE_ID)).not.toBeInTheDocument();
     expect(screen.queryByText('owner')).not.toBeInTheDocument();

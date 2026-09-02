@@ -26,14 +26,13 @@ describe('agent-access rate limiter', () => {
     expect(limiter.consume(oauthCredential)).toEqual({allowed: true});
   });
 
-  test('keeps OAuth grants and PATs in separate buckets and prunes expired buckets', () => {
+  test('prunes expired OAuth grant buckets', () => {
     let now = 5_000;
     const limiter = createAgentAccessRateLimiter({now: () => now, limit: 1});
-    const patCredential: AgentAccessCredential = {kind: 'pat', patId: 'pat-1'};
 
     expect(limiter.check(oauthCredential)).toEqual({allowed: true});
     expect(limiter.size()).toBe(0);
-    expect(limiter.consume(patCredential)).toEqual({allowed: true});
+    expect(limiter.consume(oauthCredential)).toEqual({allowed: true});
     expect(limiter.size()).toBe(1);
 
     now += AGENT_ACCESS_TOOL_CALL_WINDOW_MS;
