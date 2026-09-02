@@ -129,7 +129,17 @@ describe('workflow run queries', () => {
 
       await db()
         .update(stepAttemptsTable)
-        .set({config: {run: 'x'.repeat(WORKFLOW_DIAGNOSTIC_CONFIG_MAX_BYTES)}})
+        .set({
+          config: {
+            run: 'x'.repeat(WORKFLOW_DIAGNOSTIC_CONFIG_MAX_BYTES),
+            session: {
+              id: crypto.randomUUID(),
+              key: 'main',
+              mode: 'resume',
+              segment: 3,
+            },
+          },
+        })
         .where(eq(stepAttemptsTable.id, attempt.id));
 
       const oversizedDetail = await getStepAttemptDetail({
@@ -137,6 +147,12 @@ describe('workflow run queries', () => {
         attempt: attempt.attempt,
       });
       expect(oversizedDetail?.attempt.config).toBeNull();
+      expect(oversizedDetail?.sessionDescriptor).toEqual({
+        id: expect.any(String),
+        key: 'main',
+        mode: 'resume',
+        segment: 3,
+      });
       expect(oversizedDetail?.diagnosticBytes?.config).toBeGreaterThan(
         WORKFLOW_DIAGNOSTIC_CONFIG_MAX_BYTES,
       );

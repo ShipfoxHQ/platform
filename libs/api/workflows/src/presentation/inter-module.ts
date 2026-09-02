@@ -330,8 +330,9 @@ export function createWorkflowsInterModulePresentation(params: {
       if (!detail) throw createInterModuleKnownError(method, 'step-attempt-mismatch', {});
 
       // The dispatch integration records the resolved descriptor on the step
-      // attempt's config; anything else is a recording we cannot trust.
-      const recorded = detail.attempt.config?.session;
+      // attempt's config. The detail query projects it independently so a
+      // legacy oversized config cannot make a valid resume session disappear.
+      const recorded = detail.sessionDescriptor ?? detail.attempt.config?.session;
       if (recorded === undefined || recorded === null) {
         return {
           workspaceId: scope.workspaceId,

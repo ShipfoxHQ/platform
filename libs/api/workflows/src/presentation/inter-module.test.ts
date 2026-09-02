@@ -486,10 +486,9 @@ describe('Workflows inter-module presentation', () => {
         step: {},
         attempt: {
           id: stepAttemptId,
-          config: {
-            session: {id: sessionId, key: 'main', mode: 'resume', segment: 3},
-          },
+          config: null,
         },
+        sessionDescriptor: {id: sessionId, key: 'main', mode: 'resume', segment: 3},
       });
       const runners = {getLeaseState: vi.fn().mockResolvedValue({active: true})};
 
@@ -517,6 +516,7 @@ describe('Workflows inter-module presentation', () => {
         workflowRunAttemptId: '00000000-0000-4000-8000-000000000015',
         step: {},
         attempt: {id: '00000000-0000-4000-8000-000000000012', config: null},
+        sessionDescriptor: null,
       });
       const runners = {getLeaseState: vi.fn().mockResolvedValue({active: true})};
 
@@ -548,8 +548,9 @@ describe('Workflows inter-module presentation', () => {
         step: {},
         attempt: {
           id: '00000000-0000-4000-8000-000000000012',
-          config: {session: {id: 'not-a-uuid', key: 'main', mode: 'resume', segment: 1}},
+          config: null,
         },
+        sessionDescriptor: {id: 'not-a-uuid', key: 'main', mode: 'resume', segment: 1},
       });
       const runners = {getLeaseState: vi.fn().mockResolvedValue({active: true})};
 

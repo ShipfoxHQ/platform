@@ -66,6 +66,12 @@ export interface StepAttemptDetail {
   jobExecutionId: string;
   step: Step;
   attempt: StepAttempt;
+  /**
+   * The session descriptor is projected independently from the attempt config.
+   * A legacy oversized prompt can therefore hide the config without hiding the
+   * descriptor needed to resume the agent session.
+   */
+  sessionDescriptor?: unknown;
   diagnosticBytes?: {
     config: number | null;
     evaluationTrace: number | null;
@@ -176,6 +182,7 @@ export async function getStepAttemptDetail(params: {
         then octet_length(${stepAttempts.config}::text)
         else null
       end`,
+      stepAttemptSessionDescriptor: sql<unknown>`${stepAttempts.config} -> 'session'`,
       stepAttemptEvaluationTraceBytes: sql<number | null>`case
         when ${stepAttempts.evaluationTrace} is null then null
         when jsonb_typeof(${stepAttempts.evaluationTrace}) = 'array'
@@ -203,6 +210,7 @@ export async function getStepAttemptDetail(params: {
     jobExecutionId: row.jobExecutionId,
     step: toStep(row.step),
     attempt: toStepAttempt(row.stepAttempt),
+    sessionDescriptor: row.stepAttemptSessionDescriptor,
     diagnosticBytes: {
       config: row.stepAttemptConfigBytes ?? null,
       evaluationTrace: row.stepAttemptEvaluationTraceBytes ?? null,
