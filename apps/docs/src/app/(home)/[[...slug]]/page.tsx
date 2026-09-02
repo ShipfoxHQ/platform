@@ -5,7 +5,7 @@ import {notFound} from 'next/navigation';
 import {PageFeedback} from '@/app/components/page-feedback';
 import {source} from '@/lib/source';
 import {getMDXComponents} from '@/mdx-components';
-import {toUrl, url} from '@/url';
+import {toMarkdownUrl, toUrl, url} from '@/url';
 
 export default async function Page(props: {params: Promise<{slug?: string[]}>}) {
   const params = await props.params;
@@ -42,6 +42,7 @@ export async function generateMetadata(props: {
   if (!page) notFound();
 
   const title = `${page.data.title} | Shipfox`;
+  const canonicalUrl = toUrl(page.url);
   // toUrl carries the /docs basePath, which Next does not apply to manually
   // built metadata URLs.
   const image = toUrl('/shipfox-og.jpg');
@@ -49,9 +50,14 @@ export async function generateMetadata(props: {
     title,
     description: page.data.description,
     metadataBase: new URL(url),
+    alternates: {
+      canonical: canonicalUrl,
+      types: {'text/markdown': toMarkdownUrl(page.url)},
+    },
     openGraph: {
       title,
       description: page.data.description,
+      url: canonicalUrl,
       images: [
         {
           url: image,
