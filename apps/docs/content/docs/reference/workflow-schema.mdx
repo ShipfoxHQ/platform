@@ -245,11 +245,19 @@ continue. A string names the session and resumes it. An object adds the mode.
 
 A key contains only letters, digits, dots, underscores, and hyphens, starts
 with a letter or digit, and is at most 128 characters. It can contain `${{ }}`
+<<<<<<< HEAD
 expressions, resolved at step dispatch. A session is scoped to one run attempt.
 A rerun of failed jobs carries named sessions into the new attempt. A rerun of
 all jobs starts sessions fresh. A carried session remains pinned to the harness
-that created it. A `resume` step that omits `harness` inherits it; a `fork` step
-must resolve to the same harness.
+that created it. When a step targets an existing session, omitting `harness`
+inherits the pinned harness, whether the step resumes or forks; an explicit
+harness on a sharing step must resolve to the same harness.
+=======
+expressions, resolved at step dispatch. A session is scoped to one run attempt,
+and a rerun starts it fresh. It is pinned to the harness that created it. For
+an existing session, a step that omits `harness` inherits the pinned harness,
+whether it resumes or forks the session.
+>>>>>>> 795efb4f2 (Implement issue)
 
 Sync rejects two parallel `resume` steps on one literal key
 (`agent-session-parallel-resume`) and steps that share a key with different

@@ -105,9 +105,9 @@ export const agentInterModuleContract = defineInterModuleContract({
         projectId: z.string().uuid(),
         workflowRunAttemptId: z.string().uuid(),
         key: z.string().min(1),
-        /** Harness resolved for this attempt; a resume claim must match the session's pinned harness when explicit. */
+        /** Harness resolved for this attempt; an explicit value must match an existing session's pinned harness. */
         harness: harnessSchema,
-        /** Omitted harness inherits the pinned harness for an existing resume session. */
+        /** Omitted harness inherits the pinned harness for an existing session. */
         harnessExplicit: z.boolean().optional(),
         stepAttemptId: z.string().uuid(),
         /** `resume` claims exclusively and may write back; `fork` only reads the current head. */
