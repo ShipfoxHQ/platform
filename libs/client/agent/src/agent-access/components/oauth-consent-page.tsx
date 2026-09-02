@@ -122,92 +122,101 @@ function OAuthConsentLoaded({
     <AuthShell
       title={`Allow ${consent.clientName} to access Shipfox?`}
       description={`Choose a workspace to connect to ${consent.clientName}.`}
-      className="relative flex w-full max-w-[640px] flex-col items-stretch gap-region"
     >
-      <Panel className="overflow-hidden">
-        <div className="flex flex-col gap-group p-panel">
-          <div className="min-w-0">
-            <Text bold className="truncate">
-              {consent.clientName}
-            </Text>
-            <Text size="sm" className="text-foreground-neutral-muted">
-              External agent client
-            </Text>
+      <div className="flex flex-col gap-section">
+        <Panel>
+          <div className="flex flex-col gap-group p-panel">
+            <div className="min-w-0">
+              <Text bold className="truncate">
+                {consent.clientName}
+              </Text>
+              <Text size="sm" className="text-foreground-neutral-muted">
+                External agent client
+              </Text>
+            </div>
+
+            <dl className="grid grid-cols-[minmax(112px,auto)_minmax(0,1fr)] gap-x-group gap-y-inline border-t border-border-neutral-base pt-group text-sm max-[520px]:flex max-[520px]:flex-col max-[520px]:gap-group">
+              <div className="contents max-[520px]:flex max-[520px]:flex-col max-[520px]:gap-tight">
+                <dt className="text-foreground-neutral-muted">Client identity</dt>
+                <dd className="min-w-0">
+                  <Code variant="paragraph" className="block break-all">
+                    {consent.clientIdentityOrigin}
+                  </Code>
+                </dd>
+              </div>
+              <div className="contents max-[520px]:flex max-[520px]:flex-col max-[520px]:gap-tight">
+                <dt className="text-foreground-neutral-muted">Returns to</dt>
+                <dd className="min-w-0">
+                  {consent.isLoopbackRedirect ? (
+                    <Text size="sm">{consent.clientName} on this device</Text>
+                  ) : (
+                    <Code variant="paragraph" className="block break-all">
+                      {consent.redirectHostname}
+                    </Code>
+                  )}
+                </dd>
+              </div>
+              <div className="contents max-[520px]:flex max-[520px]:flex-col max-[520px]:gap-tight">
+                <dt className="text-foreground-neutral-muted">Request expires</dt>
+                <dd>{formatAgentAccessTimestamp(consent.expiresAt)}</dd>
+              </div>
+            </dl>
           </div>
+        </Panel>
 
-          <dl className="grid grid-cols-[minmax(112px,auto)_minmax(0,1fr)] gap-x-group gap-y-inline border-t border-border-neutral-base pt-group text-sm max-[520px]:grid-cols-1 max-[520px]:gap-y-tight">
-            <dt className="text-foreground-neutral-muted">Client identity</dt>
-            <dd className="min-w-0">
-              <Code variant="paragraph" className="block break-all">
-                {consent.clientIdentityOrigin}
-              </Code>
-            </dd>
-            <dt className="text-foreground-neutral-muted">Returns to</dt>
-            <dd className="min-w-0">
-              {consent.isLoopbackRedirect ? (
-                <Text size="sm">{consent.clientName} on this device</Text>
-              ) : (
-                <Code variant="paragraph" className="block break-all">
-                  {consent.redirectHostname}
-                </Code>
-              )}
-            </dd>
-            <dt className="text-foreground-neutral-muted">Request expires</dt>
-            <dd>{formatAgentAccessTimestamp(consent.expiresAt)}</dd>
-          </dl>
+        <div className="flex flex-col gap-group">
+          <fieldset className="flex min-w-0 flex-col gap-inline" disabled={isSubmitting}>
+            <legend className="mb-inline">
+              <Text bold>Workspace</Text>
+            </legend>
+            {consent.workspaces.length > 0 ? (
+              <RadioGroup value={workspaceId} onValueChange={setWorkspaceId} aria-label="Workspace">
+                {consent.workspaces.map((workspace) => {
+                  const sessionWorkspace = auth.workspaces.find(({id}) => id === workspace.id);
+                  return (
+                    <RadioGroupItem key={workspace.id} value={workspace.id}>
+                      <Text bold className="break-words">
+                        {sessionWorkspace?.name ?? 'Workspace'}
+                      </Text>
+                    </RadioGroupItem>
+                  );
+                })}
+              </RadioGroup>
+            ) : (
+              <Callout type="warning">
+                <Text size="sm">No eligible workspaces are available for this request.</Text>
+              </Callout>
+            )}
+          </fieldset>
+
+          {error ? (
+            <Callout type="error" role="alert">
+              <Text size="sm">{oauthConsentErrorMessage(error)}</Text>
+            </Callout>
+          ) : null}
+
+          <div className="grid grid-cols-2 gap-inline min-[520px]:flex min-[520px]:items-center min-[520px]:justify-end">
+            <Button
+              variant="secondary"
+              isLoading={deny.isPending}
+              disabled={approve.isPending}
+              onClick={() => void handleDeny()}
+            >
+              Deny
+            </Button>
+            <Button
+              isLoading={approve.isPending}
+              disabled={!workspaceId || deny.isPending}
+              onClick={() => void handleApprove()}
+            >
+              Allow access
+            </Button>
+          </div>
+          <Text size="sm" className="text-center text-foreground-neutral-muted">
+            You can revoke this connection later in workspace settings.
+          </Text>
         </div>
-      </Panel>
-
-      <fieldset className="flex min-w-0 flex-col gap-inline" disabled={isSubmitting}>
-        <legend className="mb-inline">
-          <Text bold>Workspace</Text>
-        </legend>
-        {consent.workspaces.length > 0 ? (
-          <RadioGroup value={workspaceId} onValueChange={setWorkspaceId} aria-label="Workspace">
-            {consent.workspaces.map((workspace) => {
-              const sessionWorkspace = auth.workspaces.find(({id}) => id === workspace.id);
-              return (
-                <RadioGroupItem key={workspace.id} value={workspace.id}>
-                  <Text bold className="truncate">
-                    {sessionWorkspace?.name ?? 'Workspace'}
-                  </Text>
-                </RadioGroupItem>
-              );
-            })}
-          </RadioGroup>
-        ) : (
-          <Callout type="warning">
-            <Text size="sm">No eligible workspaces are available for this request.</Text>
-          </Callout>
-        )}
-      </fieldset>
-
-      {error ? (
-        <Callout type="error" role="alert">
-          <Text size="sm">{oauthConsentErrorMessage(error)}</Text>
-        </Callout>
-      ) : null}
-
-      <div className="flex items-center justify-end gap-inline max-[520px]:flex-col-reverse max-[520px]:items-stretch">
-        <Button
-          variant="secondary"
-          isLoading={deny.isPending}
-          disabled={approve.isPending}
-          onClick={() => void handleDeny()}
-        >
-          Deny
-        </Button>
-        <Button
-          isLoading={approve.isPending}
-          disabled={!workspaceId || deny.isPending}
-          onClick={() => void handleApprove()}
-        >
-          Allow access
-        </Button>
       </div>
-      <Text size="sm" className="text-center text-foreground-neutral-muted">
-        You can revoke this connection later in workspace settings.
-      </Text>
     </AuthShell>
   );
 }
