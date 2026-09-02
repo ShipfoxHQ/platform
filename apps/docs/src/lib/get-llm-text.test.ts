@@ -1,10 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {getLLMText} from './get-llm-text';
+import {canonicalDocsUrl} from './machine-readable';
 
 type TestPage = Parameters<typeof getLLMText>[0];
-const CANONICAL_HEADER_PATTERN =
-  /^# Test page\n\nCanonical URL: https:\/\/www\.shipfox\.io\/docs\//;
 const DESCRIPTION_PATTERN = /\n\nDescription: Test page description\n\n/;
 
 const pages = [
@@ -49,7 +48,7 @@ function testPage(url: string, body: string, description = 'Test page descriptio
 test('applies required generated facts to every reference page family', async () => {
   for (const page of pages) {
     const markdown = await getLLMText(testPage(page.url, page.body));
-    assert.match(markdown, CANONICAL_HEADER_PATTERN);
+    assert.equal(markdown.split('\n', 1)[0], `# Test page (${canonicalDocsUrl(page.url)})`);
     assert.match(markdown, DESCRIPTION_PATTERN);
     assert.ok(markdown.includes(page.body));
   }

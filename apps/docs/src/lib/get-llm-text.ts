@@ -1,10 +1,12 @@
 import type {InferPageType} from 'fumadocs-core/source';
+import {config} from '@/config';
 import {
   assertMachineReadableMarkdown,
   canonicalDocsUrl,
   serializeMachineReadableMarkdown,
 } from '@/lib/machine-readable';
 import type {source} from '@/lib/source';
+import {toUrl} from '@/url';
 
 const TRAILING_SLASH_PATTERN = /\/$/;
 const INTEGRATION_EVENTS_PAGE_PATTERN = /^\/integrations\/[^/]+\/events$/;
@@ -28,9 +30,7 @@ export async function getLLMText(page: InferPageType<typeof source>) {
     sourcePath: page.path,
   });
   const markdown = [
-    `# ${page.data.title}`,
-    '',
-    `Canonical URL: ${canonicalDocsUrl(page.url)}`,
+    `# ${page.data.title} (${machineReadablePageUrl(page.url)})`,
     '',
     `Description: ${description}`,
     '',
@@ -43,6 +43,11 @@ export async function getLLMText(page: InferPageType<typeof source>) {
     sourcePath: page.path,
   });
   return markdown;
+}
+
+function machineReadablePageUrl(pageUrl: string): string {
+  const deploymentEnvironment = config.VERCEL_ENV ?? config.NEXT_PUBLIC_VERCEL_ENV;
+  return deploymentEnvironment === 'production' ? toUrl(pageUrl) : canonicalDocsUrl(pageUrl);
 }
 
 function requiredFactsForPage(pageUrl: string): string[] {
