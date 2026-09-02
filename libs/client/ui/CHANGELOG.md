@@ -1,5 +1,12 @@
 # @shipfox/client-ui
 
+## 31.0.1
+
+### Patch Changes
+
+- Updated dependencies [47f6024]
+  - @shipfox/annotations-dto@20.3.0
+
 ## 31.0.0
 
 ### Patch Changes

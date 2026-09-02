@@ -1,5 +1,19 @@
 # @shipfox/api-workflows
 
+## 20.3.0
+
+### Patch Changes
+
+- 813a284: Adds CEL `dyn` support for unknown-shaped tool and JSON outputs, preserves their native runtime values, and keeps listener snapshots compatible during rolling deploys.
+- 47ce13d: Advertises renewable Git support from verified managed runner images and warns self-hosted users when persisted checkout credentials cannot renew.
+- Updated dependencies [813a284]
+- Updated dependencies [47f6024]
+- Updated dependencies [da6fbb8]
+  - @shipfox/expression@2.6.0
+  - @shipfox/api-workflows-dto@20.3.0
+  - @shipfox/annotations-dto@20.3.0
+  - @shipfox/api-definitions-dto@20.3.0
+
 ## 20.2.0
 
 ### Minor Changes

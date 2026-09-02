@@ -1,5 +1,16 @@
 # @shipfox/api-definitions
 
+## 20.3.0
+
+### Patch Changes
+
+- 813a284: Adds CEL `dyn` support for unknown-shaped tool and JSON outputs, preserves their native runtime values, and keeps listener snapshots compatible during rolling deploys.
+- da6fbb8: Reports failed definition sync validation errors with structured diagnostics in the API and workflow UI.
+- Updated dependencies [813a284]
+- Updated dependencies [da6fbb8]
+  - @shipfox/expression@2.6.0
+  - @shipfox/api-definitions-dto@20.3.0
+
 ## 20.2.0
 
 ### Patch Changes
