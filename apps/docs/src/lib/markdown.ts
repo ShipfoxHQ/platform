@@ -1,4 +1,4 @@
-const WHITESPACE_ONLY_PATTERN = /^\s+$/;
+const WHITESPACE_ONLY_PATTERN = /^ +$/;
 const CODE_SPAN_PADDING_PATTERN = /^(?:\s|`)|(?:\s|`)$/u;
 
 export function tableValue(value: string): string {

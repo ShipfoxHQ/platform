@@ -184,4 +184,5 @@ test('fails deterministic checks for unresolved components and links', () => {
 test('uses safe Markdown code spans for values containing backticks', () => {
   assert.equal(inlineCode('value`with`backticks'), '``value`with`backticks``');
   assert.equal(inlineCode('`'), '`` ` ``');
+  assert.equal(inlineCode(' \t '), '`  \t  `');
 });
