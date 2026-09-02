@@ -324,8 +324,7 @@ jobs:
           turbo build type:emit \
             --filter=@shipfox/application-release... \
             --filter=@shipfox/api... \
-            --filter=@shipfox/client-shell... \
-            --filter=@shipfox/client-features... \
+            --filter='./libs/client/**' \
             --concurrency="$SHIPFOX_TURBO_CONCURRENCY"
 
       - name: Verify packed API runtime closure

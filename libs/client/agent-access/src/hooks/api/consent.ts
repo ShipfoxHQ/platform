@@ -3,7 +3,7 @@ import {
   oauthConsentResponseSchema,
 } from '@shipfox/api-auth-dto';
 import {checkedApiRequest} from '@shipfox/client-api';
-import {queryOptions, useMutation, useQuery} from '@tanstack/react-query';
+import {type FetchQueryOptions, queryOptions, useMutation, useQuery} from '@tanstack/react-query';
 import type {OAuthConsent} from '#core/agent-access.js';
 import {toOAuthConsent} from './mapper.js';
 
@@ -11,6 +11,13 @@ export const oauthConsentQueryKeys = {
   all: ['oauth-consent'] as const,
   detail: (requestId: string) => [...oauthConsentQueryKeys.all, requestId] as const,
 };
+
+type OAuthConsentQueryOptions = FetchQueryOptions<
+  OAuthConsent,
+  Error,
+  OAuthConsent,
+  ReturnType<typeof oauthConsentQueryKeys.detail>
+>;
 
 export async function getOAuthConsent({
   requestId,
@@ -51,7 +58,7 @@ export async function denyOAuthConsent(requestId: string): Promise<string> {
   return response.redirect_url;
 }
 
-export function oauthConsentQueryOptions(requestId: string) {
+export function oauthConsentQueryOptions(requestId: string): OAuthConsentQueryOptions {
   return queryOptions({
     queryKey: oauthConsentQueryKeys.detail(requestId),
     queryFn: ({signal}) => getOAuthConsent({requestId, signal}),
