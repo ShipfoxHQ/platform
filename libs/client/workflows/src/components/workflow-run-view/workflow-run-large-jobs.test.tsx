@@ -74,7 +74,7 @@ describe('WorkflowRunLargeJobs', () => {
 });
 
 function largeRun(): WorkflowRunOverview {
-  const detail = workflowRunDetail({id: RUN_ID, jobs: []});
+  const detail = workflowRunDetail({id: RUN_ID, status: 'succeeded', jobs: []});
   const firstJob = new WorkflowRunOverviewJob({
     id: FIRST_JOB_ID,
     key: 'build',

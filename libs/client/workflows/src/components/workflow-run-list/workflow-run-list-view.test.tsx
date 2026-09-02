@@ -679,7 +679,7 @@ describe('WorkflowRunListView', () => {
       expect(screen.queryByText('CI #1')).not.toBeInTheDocument();
     });
 
-    test('pins the list row to its current attempt and clears legacy selection search', async () => {
+    test('pins the list row to its current attempt', async () => {
       renderListView([
         run('running', 'deploy-web', 'run-deploy-web', {
           current_attempt: 3,

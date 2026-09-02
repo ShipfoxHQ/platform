@@ -660,11 +660,13 @@ export function workflowRunQueryOptions({
   runAttempt,
   enabled = true,
   requestKind,
+  requestSignal,
 }: {
   workflowRunId: string | undefined;
   runAttempt?: number | undefined;
   enabled?: boolean | undefined;
   requestKind?: WorkflowRunDetailRequestKind | undefined;
+  requestSignal?: AbortSignal | undefined;
 }): WorkflowRunDetailQueryOptions {
   // Poll a non-terminal run so the open run detail stays live (same cadence as the run
   // list); stop once the run is terminal.
@@ -678,7 +680,7 @@ export function workflowRunQueryOptions({
         workflowRunId: workflowRunId ?? '',
         runAttempt,
         requestKind: requestKind ?? workflowRunDetailRequestKind(client, queryKey),
-        signal,
+        signal: requestSignal ?? signal,
       }),
     staleTime: 2_000,
     refetchOnWindowFocus: requestKind !== 'bridge',

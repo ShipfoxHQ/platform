@@ -5,12 +5,22 @@ import type {
   WorkflowRunSelectionResponseDto,
   WorkflowRunSourceResponseDto,
 } from '@shipfox/api-workflows-dto';
+import {
+  WORKFLOW_RUN_DETAIL_REQUEST_KIND_HEADER,
+  WORKFLOW_RUN_OVERVIEW_COMPLETE_EDGE_LIMIT,
+} from '@shipfox/api-workflows-dto';
 import {configureApiClient} from '@shipfox/client-api';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {act, cleanup, renderHook, waitFor} from '@testing-library/react';
 import type {ReactNode} from 'react';
 import {workflowJobDto, workflowRunDetailDto} from '#test/fixtures/workflow-run.js';
-import {toWorkflowRunOverview, toWorkflowRunOverviewFromDetail} from './workflow-run-mapper.js';
+import {
+  LEGACY_WORKFLOW_RUN_OVERVIEW_JOBS_CURSOR_PREFIX,
+  toWorkflowRunDetail,
+  toWorkflowRunOverview,
+  toWorkflowRunOverviewFromRunDetail,
+  toWorkflowRunOverviewJobsPageFromRunDetail,
+} from './workflow-run-mapper.js';
 import {
   useWorkflowRunLineageHeadQuery,
   useWorkflowRunOverviewJobsInfiniteQuery,
@@ -279,6 +289,42 @@ describe('workflow run bounded overview API hooks', () => {
     });
   });
 
+  test('uses the legacy detail bridge when the source projection is unavailable', async () => {
+    const detail = workflowRunDetailDto({
+      id: RUN_ID,
+      source_snapshot: {format: 'yaml', content: 'jobs: {}'},
+    });
+    const fetchImpl = vi.fn((input: RequestInfo | URL) => {
+      const url = new URL(requestInputUrl(input));
+      if (url.pathname.endsWith('/source')) {
+        return Promise.resolve(jsonResponse({code: 'not-found'}, {status: 404}));
+      }
+      if (url.pathname === `/workflows/runs/${RUN_ID}`) {
+        return Promise.resolve(jsonResponse(detail));
+      }
+      return Promise.reject(new Error(`Unexpected request: ${url.pathname}`));
+    });
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
+
+    const {result} = renderWithQueryClient(() =>
+      useWorkflowRunSourceQuery({workflowRunId: RUN_ID, enabled: true}),
+    );
+
+    await waitFor(() => expect(result.current.data?.kind).toBe('available'));
+    expect(requestUrls(fetchImpl)).toEqual([
+      `https://api.example.test/workflows/runs/${RUN_ID}/source`,
+      `https://api.example.test/workflows/runs/${RUN_ID}`,
+    ]);
+    const bridgeRequest = (fetchImpl.mock.calls as unknown[][])[1]?.[0];
+    if (!(bridgeRequest instanceof Request)) throw new Error('Expected a bridge Request');
+    expect(bridgeRequest.headers.get(WORKFLOW_RUN_DETAIL_REQUEST_KIND_HEADER)).toBe('bridge');
+    expect(result.current.data).toMatchObject({
+      workflowRunId: RUN_ID,
+      workflowRunAttempt: 1,
+      sourceSnapshot: {format: 'yaml', content: 'jobs: {}'},
+    });
+  });
+
   test('uses the legacy detail bridge only when the overview route is unavailable', async () => {
     const detail = workflowRunDetailDto({name: 'legacy-deploy'});
     const fetchImpl = vi.fn((input: RequestInfo | URL) => {
@@ -302,6 +348,9 @@ describe('workflow run bounded overview API hooks', () => {
       `https://api.example.test/workflows/runs/${RUN_ID}/overview?attempt=2`,
       `https://api.example.test/workflows/runs/${RUN_ID}?attempt=2`,
     ]);
+    const bridgeRequest = (fetchImpl.mock.calls as unknown[][])[1]?.[0];
+    if (!(bridgeRequest instanceof Request)) throw new Error('Expected a bridge Request');
+    expect(bridgeRequest.headers.get(WORKFLOW_RUN_DETAIL_REQUEST_KIND_HEADER)).toBe('bridge');
   });
 
   test('does not bridge an operational overview failure to the legacy detail route', async () => {
@@ -317,11 +366,12 @@ describe('workflow run bounded overview API hooks', () => {
   });
 
   test('caps a legacy detail bridge at the bounded large-workflow surface', () => {
-    const detail = workflowRunDetailDto({
+    const detailDto = workflowRunDetailDto({
       jobs: Array.from({length: 101}, () => workflowJobDto({status: 'succeeded'})),
     });
+    const detail = toWorkflowRunDetail(detailDto);
 
-    const overview = toWorkflowRunOverviewFromDetail(detail);
+    const overview = toWorkflowRunOverviewFromRunDetail(detail);
 
     expect(overview.jobs).toMatchObject({
       kind: 'large',
@@ -330,7 +380,35 @@ describe('workflow run bounded overview API hooks', () => {
     });
     if (overview.jobs.kind !== 'large') throw new Error('Expected a large overview');
     expect(overview.jobs.firstPage.items).toHaveLength(100);
-    expect(overview.jobs.firstPage.nextCursor).toBeNull();
+    expect(overview.jobs.firstPage.nextCursor).toBe(
+      `${LEGACY_WORKFLOW_RUN_OVERVIEW_JOBS_CURSOR_PREFIX}100`,
+    );
+    expect(overview.jobs.firstPage.items[0]?.dependencies).toEqual([]);
+
+    const secondPage = toWorkflowRunOverviewJobsPageFromRunDetail(detail, 100);
+    expect(secondPage.items).toHaveLength(1);
+    expect(secondPage.nextCursor).toBeNull();
+  });
+
+  test('uses the large-workflow surface when a small legacy graph exceeds the edge bound', () => {
+    const detail = toWorkflowRunDetail(
+      workflowRunDetailDto({
+        jobs: [
+          workflowJobDto({
+            dependencies: Array.from(
+              {length: WORKFLOW_RUN_OVERVIEW_COMPLETE_EDGE_LIMIT + 1},
+              (_unused, index) => `dependency-${index}`,
+            ),
+          }),
+        ],
+      }),
+    );
+
+    const overview = toWorkflowRunOverviewFromRunDetail(detail);
+
+    expect(overview.jobs.kind).toBe('large');
+    if (overview.jobs.kind !== 'large') throw new Error('Expected a large overview');
+    expect(overview.jobs.firstPage.items[0]?.dependencies).toEqual([]);
   });
 
   test('resolves a nested selection through the UUID-scoped selection endpoint', async () => {

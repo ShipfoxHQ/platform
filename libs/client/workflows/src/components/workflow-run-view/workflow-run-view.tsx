@@ -748,6 +748,11 @@ function RunViewLayout({
               run={shellRun}
               activeSection={activeSection}
               currentJobId={activeJobId}
+              activeJob={
+                activeJobId
+                  ? legacyQuery?.data?.jobs.find((job) => job.id === activeJobId)
+                  : undefined
+              }
               jobSearch={jobSearch}
               annotationSummary={annotationSummary}
             />
@@ -823,7 +828,7 @@ function RunWorkspaceContent({
   onClearAnnotationFilters: () => void;
   highlightedLineRange: StepSourceLocation | null;
 }) {
-  if (boundaryQuery.isError && shellRun === undefined) {
+  if (boundaryQuery.isError && (shellRun === undefined || !overviewQuery.isEnabled)) {
     const error =
       boundaryQuery.error instanceof ApiError && boundaryQuery.error.status === 404 ? (
         <WorkflowRunNotFound />

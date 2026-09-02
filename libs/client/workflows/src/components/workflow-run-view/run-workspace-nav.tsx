@@ -38,6 +38,7 @@ export interface RunWorkspaceNavProps {
   run: RunWorkspaceRun;
   activeSection: RunWorkspaceSection;
   currentJobId?: string | undefined;
+  activeJob?: Job | undefined;
   jobSearch?: WorkflowJobSearch | undefined;
   annotationSummary?: RunAnnotationSummary | undefined;
 }
@@ -52,10 +53,11 @@ export function RunWorkspaceNav({
   run,
   activeSection,
   currentJobId,
+  activeJob,
   jobSearch = {},
   annotationSummary,
 }: RunWorkspaceNavProps) {
-  const {jobs, jobCount} = useMemo(() => workspaceJobs(run), [run]);
+  const {jobs, jobCount} = useMemo(() => workspaceJobs(run, activeJob), [activeJob, run]);
   const [mobileOpen, setMobileOpen] = useState(false);
   const currentJob =
     jobs.find((job) => job.id === currentJobId) ??
@@ -357,7 +359,10 @@ function workspaceCurrentLabel(
   return sectionLabel(activeSection);
 }
 
-function workspaceJobs(run: RunWorkspaceRun): {jobs: RunWorkspaceJob[]; jobCount: number} {
+function workspaceJobs(
+  run: RunWorkspaceRun,
+  activeJob: Job | undefined,
+): {jobs: RunWorkspaceJob[]; jobCount: number} {
   if (Array.isArray(run.jobs)) {
     return {jobs: [...run.jobs].sort(compareJobs), jobCount: run.jobs.length};
   }
@@ -367,8 +372,10 @@ function workspaceJobs(run: RunWorkspaceRun): {jobs: RunWorkspaceJob[]; jobCount
   if (run.jobs.kind === 'complete') {
     return {jobs: [...run.jobs.items].sort(compareJobs), jobCount: run.jobs.total};
   }
+  const jobs: RunWorkspaceJob[] = [...run.jobs.firstPage.items];
+  if (activeJob && !jobs.some((job) => job.id === activeJob.id)) jobs.push(activeJob);
   return {
-    jobs: [...run.jobs.firstPage.items].sort(compareJobs),
+    jobs: jobs.sort(compareJobs),
     jobCount: run.jobs.total,
   };
 }

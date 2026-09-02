@@ -9,7 +9,7 @@ import {RelativeTime} from '@shipfox/react-ui/relative-time';
 import {Code, Text} from '@shipfox/react-ui/typography';
 import {cn} from '@shipfox/react-ui/utils';
 import {Link} from '@tanstack/react-router';
-import {useState} from 'react';
+import {useEffect, useState} from 'react';
 import type {
   WorkflowRunAttempt,
   WorkflowRunDetail,
@@ -39,14 +39,42 @@ export function WorkflowRunAttemptSwitcher({
     enabled: open,
   });
 
-  if (latestAttempt <= 1) return null;
-  if (!workspaceSlug || !projectSlug) return null;
-
   const attempts = attemptsQuery.data ?? [];
   const latestLoadedAttempt = Math.max(0, ...attempts.map((attempt) => attempt.attempt));
   const maxAttempt = Math.max(latestAttempt, run.runAttempt.attempt, latestLoadedAttempt);
   const isLoadingMissingAttempt =
     attempts.length > 0 && attemptsQuery.isFetching && latestLoadedAttempt < maxAttempt;
+
+  useEffect(() => {
+    // A pinned historical run can sit outside the newest page. Bring just enough older history
+    // into the picker to keep that selected attempt addressable; the explicit menu item remains
+    // available for browsing still older attempts without eagerly downloading the whole lineage.
+    if (
+      !open ||
+      attemptsQuery.isPending ||
+      attemptsQuery.isError ||
+      attemptsQuery.isFetchingNextPage ||
+      attemptsQuery.isFetchNextPageError ||
+      attempts.some((attempt) => attempt.attempt === run.runAttempt.attempt) ||
+      !attemptsQuery.hasNextPage
+    ) {
+      return;
+    }
+    void attemptsQuery.fetchNextPage();
+  }, [
+    attempts,
+    attemptsQuery.fetchNextPage,
+    attemptsQuery.hasNextPage,
+    attemptsQuery.isError,
+    attemptsQuery.isFetchNextPageError,
+    attemptsQuery.isFetchingNextPage,
+    attemptsQuery.isPending,
+    open,
+    run.runAttempt.attempt,
+  ]);
+
+  if (latestAttempt <= 1) return null;
+  if (!workspaceSlug || !projectSlug) return null;
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>

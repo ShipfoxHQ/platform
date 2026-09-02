@@ -14,6 +14,7 @@ import {WorkflowRunAttemptSwitcher} from './workflow-run-attempt-switcher.js';
 const ROOT_RUN_ID = '11111111-1111-4111-8111-111111111111';
 const CURRENT_RUN_ID = '22222222-2222-4222-8222-222222222222';
 const THIRD_RUN_ID = '33333333-3333-4333-8333-333333333333';
+const OLDEST_RUN_ID = '44444444-4444-4444-8444-444444444444';
 const SWITCH_ATTEMPT_PATTERN = /Switch attempt/;
 const ATTEMPT_1_PATTERN = /Attempt 1/;
 const ATTEMPT_2_PATTERN = /Attempt 2/;
@@ -166,7 +167,7 @@ describe('WorkflowRunAttemptSwitcher', () => {
           jsonResponse({
             items: [
               workflowRunAttemptDto({id: ROOT_RUN_ID, attempt: 2}),
-              workflowRunAttemptDto({id: THIRD_RUN_ID, attempt: 1}),
+              workflowRunAttemptDto({id: OLDEST_RUN_ID, attempt: 1}),
             ],
             next_cursor: null,
           }),
@@ -192,6 +193,40 @@ describe('WorkflowRunAttemptSwitcher', () => {
 
     expect(await screen.findByRole('menuitem', {name: ATTEMPT_2_PATTERN})).toBeInTheDocument();
     expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  test('loads enough older history to include the pinned attempt', async () => {
+    const user = userEvent.setup();
+    const fetchImpl = vi.fn((input: RequestInfo | URL) => {
+      const url = new URL(requestUrl(input));
+      if (url.searchParams.has('cursor')) {
+        return Promise.resolve(
+          jsonResponse({
+            items: [
+              workflowRunAttemptDto({id: CURRENT_RUN_ID, attempt: 2}),
+              workflowRunAttemptDto({id: OLDEST_RUN_ID, attempt: 1}),
+            ],
+            next_cursor: null,
+          }),
+        );
+      }
+      return Promise.resolve(
+        jsonResponse({
+          items: [
+            workflowRunAttemptDto({id: THIRD_RUN_ID, attempt: 4}),
+            workflowRunAttemptDto({id: ROOT_RUN_ID, attempt: 3}),
+          ],
+          next_cursor: 'cursor-old',
+        }),
+      );
+    });
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
+    renderSwitcher({latestAttempt: 4});
+
+    await user.click(await screen.findByRole('button', {name: 'Switch attempt, currently 2 of 4'}));
+
+    expect(await screen.findByRole('menuitem', {name: ATTEMPT_2_PATTERN})).toBeInTheDocument();
+    await waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(2));
   });
 
   test('links to an attempt and clears selected step search on navigation', async () => {

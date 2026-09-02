@@ -2,6 +2,7 @@ import {act, screen, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {useState} from 'react';
 import {
+  workflowJob,
   workflowJobDto,
   workflowJobExecutionDto,
   workflowRunDetail,
@@ -178,7 +179,8 @@ describe('RunWorkspaceNav', () => {
     expect(jobs.querySelectorAll('[data-run-workspace-active-bar]')).toHaveLength(1);
   });
 
-  test('keeps the route job active when it is outside the large-workflow preview', async () => {
+  test('keeps the route job identity when it is outside the large-workflow preview', async () => {
+    const activeJob = workflowJob({id: CURRENT_JOB_ID, name: 'build', position: 101});
     const run = {
       ...workflowRunDetail({
         id: RUN_ID,
@@ -199,14 +201,17 @@ describe('RunWorkspaceNav', () => {
         run={run}
         activeSection="summary"
         currentJobId={CURRENT_JOB_ID}
+        activeJob={activeJob}
       />,
     );
 
     const summary = await screen.findByRole('link', {name: 'Summary'});
     expect(summary).not.toHaveAttribute('aria-current');
-    expect(screen.getByRole('heading', {name: 'Jobs'}).closest('section')).not.toHaveTextContent(
-      'build',
-    );
+    const jobs = screen.getByRole('heading', {name: 'Jobs'}).closest('section');
+    if (!jobs) throw new Error('Missing jobs section');
+    const current = within(jobs).getByRole('link', {name: BUILD_LINK_PATTERN});
+    expect(current).toHaveAttribute('aria-current', 'page');
+    expect(current.querySelector('[data-run-workspace-active-bar]')).not.toBeNull();
   });
 
   test('scrolls the current job into view when the mobile rail opens', async () => {

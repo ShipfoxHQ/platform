@@ -20,7 +20,12 @@ import type {
   WorkflowRunSourceResponseDto,
   WorkflowRunStepDetailDto,
 } from '@shipfox/api-workflows-dto';
-import {WORKFLOW_RUN_OVERVIEW_COMPLETE_JOB_LIMIT} from '@shipfox/api-workflows-dto';
+import {
+  WORKFLOW_RUN_OVERVIEW_COMPLETE_EDGE_LIMIT,
+  WORKFLOW_RUN_OVERVIEW_COMPLETE_JOB_LIMIT,
+  WORKFLOW_RUN_OVERVIEW_LARGE_JOB_PAGE_LIMIT,
+  WORKFLOW_SOURCE_SNAPSHOT_MAX_BYTES,
+} from '@shipfox/api-workflows-dto';
 import {
   defaultJobExecution,
   deriveJobExecutionDisplayStatus,
@@ -150,6 +155,27 @@ export function toWorkflowRunSource(dto: WorkflowRunSourceResponseDto): Workflow
     kind: 'available',
     sourceSnapshot: {content: dto.source_snapshot.content, format: dto.source_snapshot.format},
   };
+}
+
+export function toWorkflowRunSourceFromRunDetail(detail: WorkflowRunDetail): WorkflowRunSource {
+  const identity = {
+    workflowRunId: detail.id,
+    workflowRunAttempt: detail.runAttempt.attempt,
+  };
+  if (!detail.sourceSnapshot) {
+    return {
+      ...identity,
+      kind: 'unavailable',
+      reason: detail.origin === 'dev' ? 'temporary_run' : 'pre_snapshot_run',
+    };
+  }
+  if (
+    new TextEncoder().encode(detail.sourceSnapshot.content).byteLength >
+    WORKFLOW_SOURCE_SNAPSHOT_MAX_BYTES
+  ) {
+    return {...identity, kind: 'unavailable', reason: 'legacy_snapshot_too_large'};
+  }
+  return {...identity, kind: 'available', sourceSnapshot: detail.sourceSnapshot};
 }
 
 export function toWorkflowRunOverview(dto: WorkflowRunOverviewResponseDto): WorkflowRunOverview {
@@ -374,6 +400,10 @@ export function toWorkflowRunOverviewFromDetail(
 
 export function toWorkflowRunOverviewFromRunDetail(detail: WorkflowRunDetail): WorkflowRunOverview {
   const items = detail.jobs.map(toWorkflowRunOverviewJobFromDetail);
+  const totalDependencyEdges = detail.jobs.reduce(
+    (total, job) => total + job.dependencies.length,
+    0,
+  );
   const header = {
     id: detail.id,
     projectId: detail.projectId,
@@ -395,7 +425,10 @@ export function toWorkflowRunOverviewFromRunDetail(detail: WorkflowRunDetail): W
     runAttempt: detail.runAttempt,
     hasStartedJobExecution: detail.hasStartedJobExecution,
   };
-  if (items.length <= WORKFLOW_RUN_OVERVIEW_COMPLETE_JOB_LIMIT) {
+  if (
+    items.length <= WORKFLOW_RUN_OVERVIEW_COMPLETE_JOB_LIMIT &&
+    totalDependencyEdges <= WORKFLOW_RUN_OVERVIEW_COMPLETE_EDGE_LIMIT
+  ) {
     return {
       ...header,
       jobs: {kind: 'complete', total: items.length, items},
@@ -407,19 +440,48 @@ export function toWorkflowRunOverviewFromRunDetail(detail: WorkflowRunDetail): W
     counts.set(job.status, (counts.get(job.status) ?? 0) + 1);
   }
 
+  const firstPage = toWorkflowRunOverviewJobsPageFromRunDetail(detail);
   return {
     ...header,
     jobs: {
       kind: 'large',
       total: items.length,
       statusCounts: [...counts].map(([status, count]) => ({status, count})),
-      firstPage: {
-        items: items.slice(0, WORKFLOW_RUN_OVERVIEW_COMPLETE_JOB_LIMIT),
-        nextCursor: null,
-        total: items.length,
-      },
+      firstPage: {...firstPage, total: items.length},
     },
   };
+}
+
+export const LEGACY_WORKFLOW_RUN_OVERVIEW_JOBS_CURSOR_PREFIX = 'legacy-offset:';
+
+export function toWorkflowRunOverviewJobsPageFromRunDetail(
+  detail: WorkflowRunDetail,
+  offset = 0,
+): WorkflowRunOverviewJobPage {
+  const items = detail.jobs.map(toWorkflowRunOverviewJobFromDetail);
+  const pageItems = items
+    .slice(offset, offset + WORKFLOW_RUN_OVERVIEW_LARGE_JOB_PAGE_LIMIT)
+    .map((item) => new WorkflowRunOverviewJob({...item, dependencies: []}));
+  const nextOffset = offset + pageItems.length;
+  return {
+    items: pageItems,
+    nextCursor:
+      nextOffset < items.length
+        ? `${LEGACY_WORKFLOW_RUN_OVERVIEW_JOBS_CURSOR_PREFIX}${nextOffset}`
+        : null,
+    total: items.length,
+  };
+}
+
+export function legacyWorkflowRunOverviewJobsOffset(cursor: string | null): number {
+  if (!cursor) return 0;
+  if (!cursor.startsWith(LEGACY_WORKFLOW_RUN_OVERVIEW_JOBS_CURSOR_PREFIX)) {
+    return WORKFLOW_RUN_OVERVIEW_LARGE_JOB_PAGE_LIMIT;
+  }
+  const offset = Number(cursor.slice(LEGACY_WORKFLOW_RUN_OVERVIEW_JOBS_CURSOR_PREFIX.length));
+  return Number.isInteger(offset) && offset >= 0
+    ? offset
+    : WORKFLOW_RUN_OVERVIEW_LARGE_JOB_PAGE_LIMIT;
 }
 
 function toWorkflowRunOverviewJobFromDetail(job: Job): WorkflowRunOverviewJob {
