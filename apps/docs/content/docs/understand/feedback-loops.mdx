@@ -1,7 +1,7 @@
 ---
 title: "Feedback loops"
 sidebarTitle: "Feedback Loops"
-description: "Understand why a gate becomes a loop only when it restarts work, and how objective checks, bounds, and side effects shape a safe retry design."
+description: "Understand how a gate and a restart form a loop, why the check must be independent, and how to bound retries and protect writes."
 ---
 
 A **feedback loop** repeats part of a job after a check rejects the result. One
@@ -9,40 +9,37 @@ step does the open-ended work. A later step measures it. The job returns to the
 earlier step only when the check fails.
 
 A **gate** is the decision point, not the loop itself. A gate can accept or
-reject a result without repeating anything. The restart policy creates the
-loop.
+reject a result without repeating anything. The restart rule creates the loop.
 
 ## Gate outcomes
 
-The check answers, "Is this result good enough to continue?" The restart
-answers, "Which earlier work should get another attempt?"
+The check answers one question: is this result good enough to continue? The
+restart answers another: which earlier work gets another attempt?
 
-Keeping them separate supports three useful shapes:
+Because the two are separate, a workflow can:
 
-- A gate can fail the job without retrying unsafe work.
-- A gate can restart only the part that can improve the result.
-- The repeated step can receive evidence from the failed check.
+- Fail the job without retrying unsafe work.
+- Restart only the part that can improve the result.
+- Give the repeated step evidence from the failed check.
 
-This separation also makes the run readable. The check result explains why the
-job moved forward, failed, or created another step attempt.
+This also makes the run readable. The check result explains why the job
+continued, failed, or created another step attempt.
 
-## Objective checks are stronger than confidence
+## Use an independent check, not the agent's opinion
 
-Asking an agent whether its own work is correct repeats the same judgment. A
-test, type check, linter, policy script, or independent review measures
-something outside that judgment.
+An agent that judges its own work repeats the same judgment. A test, a type
+check, a linter, a policy script, or an independent review measures something
+outside that judgment.
 
-The check does not need to prove every property. It should prove the property
-that decides whether the next action is safe. A unit test can guard behavior
-before a commit. A policy check can guard a deploy. A read-back can confirm an
+The check doesn't need to prove every property. It must prove the property that
+decides whether the next action is safe. A unit test can guard behavior before
+a commit. A policy check can guard a deploy. A read-back can confirm an
 external write.
 
-Every Shipfox Cloud workspace can run this example on the hosted
-[`shipfox` runner](/reference/runner-labels). The project also needs an
-`npm test` command and configured agent defaults. This complete workflow shows
-the loop:
+This complete workflow shows the loop. The project needs an `npm test` command
+and configured agent defaults.
 
-```yaml
+```yaml title=".shipfox/workflows/fix-tests.yml"
 # yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
 name: Fix failing tests
 runner: shipfox
@@ -76,55 +73,56 @@ job continue.
 The [Gate fields
 reference](/reference/workflow-schema#gate-fields) defines the exact fields.
 
-## Feedback should change the next attempt
+## Give the next attempt useful feedback
 
-A retry without new evidence may repeat the same mistake. Useful feedback names
-the failed property and points the repeated step toward evidence it can inspect.
+A retry without new evidence can repeat the same mistake. Useful feedback names
+the failed property and points the repeated step to evidence it can inspect.
 
-Static guidance is enough when the step can rerun the check and read its output.
-A checking step can also publish a small result for the feedback message. Keep
-large logs in the run rather than copying them into every prompt.
+Static guidance is enough when the step can run the check again and read its
+output. A checking step can also publish a small result for the feedback
+message. Keep large logs in the run instead of copying them into every prompt.
 
-Feedback is not a new event. It belongs to the restart decision and is visible
-only to the repeated attempt. [Context and
-templating](/understand/data-and-templating) explains that staged availability.
+Feedback isn't a new event. It belongs to the restart decision, and only the
+repeated attempt can read it. [Context and
+templating](/understand/data-and-templating) explains when each kind of data
+becomes available.
 
 ## Loop bounds
 
-Every attempt consumes runner time and, for an agent, model cost. Slow checks
-multiply that cost. A loop therefore needs a useful stopping rule and a bounded
+Every attempt costs runner time and, for an agent, model cost. Slow checks
+multiply that cost. A loop therefore needs a clear stopping rule and a limited
 number of attempts.
 
-The loop stops in one of two meaningful states:
+The loop stops in one of two states:
 
-- The objective check passes.
-- The attempt bound is exhausted and the job fails.
+- The check passes.
+- The attempt limit runs out and the job fails.
 
-Do not weaken the check to make the loop finish. A failure after the bound is
+Don't weaken the check to make the loop finish. A failure after the limit is
 evidence that the task needs another approach or a person.
 
-Exact attempt limits live in [Limits](/reference/limits). The [run
+[Limits](/reference/limits) lists the exact attempt limits. The [run
 history](/understand/workflows-and-runs) keeps each step attempt and its
 feedback.
 
-## Repeated side effects need special care
+## Keep external writes out of the loop
 
-Restarting from an earlier step repeats every step from that point through the
-gate. A deploy, notification, comment, payment, or repository push inside that
-segment may happen more than once.
+A restart repeats every step from the restart point through the gate. A
+deploy, a notification, a comment, a payment, or a repository push inside that
+range can happen more than once.
 
 Prefer this order:
 
 1. Make local or reversible changes.
-2. Run the objective check.
+2. Run the check.
 3. Perform the external write only after the gate passes.
 
-When a write must occur inside the repeated segment, make it idempotent. Use a
-stable identity and update or read back the existing result instead of creating
-a new one on every attempt.
+When a write must happen inside the repeated range, make it safe to repeat. Use
+a stable identity, and update or read back the existing result instead of
+creating a new one on every attempt.
 
-Blindly retrying a deploy or external write is not a reliability strategy. The
-loop can amplify a bad side effect as easily as it can improve code.
+A loop can repeat a bad side effect as easily as it can improve code. Don't use
+it to retry a deploy or an external write that has no check in front of it.
 
 Use [Build a feedback
 loop](/how-to/author-workflows/build-feedback-loop) for the authoring task.

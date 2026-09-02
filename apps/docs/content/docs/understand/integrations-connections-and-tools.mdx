@@ -4,121 +4,117 @@ sidebarTitle: "Integrations & Tools"
 description: "See how integration connections carry events and tools without exposing saved credentials."
 ---
 
-An **integration** is Shipfox support for an external provider. An **integration
-connection** links one workspace to a specific account or installation at that
-provider.
+An **integration** is Shipfox support for an external provider, such as GitHub
+or Sentry. An **integration connection** links one workspace to one account or
+installation at that provider.
 
-A workspace can connect the same provider more than once. Each integration connection has
-its own events, reach, and saved credential.
+A workspace can connect the same provider more than once. Each
+integration connection has its own events, its own reach, and its own saved
+credential.
 
-Events bring data in. Tools let an agent act outside the run. Checkout access
-handles the code. None of these grants another one by itself.
+An integration connection can bring events in, give an agent tools to act
+outside the run, and provide checkout access to code. None of these grants
+another one by itself. Name the account, the tool, and the repository, and add
+write access only when the task needs it. The workflow then shows both the
+account and the allowed action.
 
-The rule is least access. Name the account, tool, and repository. Add write
-access only when the task needs it.
-
-This makes review easier. The workflow shows both the account and the allowed
-action.
-Access stays clear.
-
-## The names describe different layers
-
-These terms have different jobs.
+## What each term means
 
 | Term | Meaning |
 | --- | --- |
 | Provider | The external service, such as GitHub or Sentry. |
 | Integration | How Shipfox works with that provider. |
 | Integration connection | One account or installation linked to the workspace. |
-| Integration connection slug | The workflow name for that integration connection. |
+| Slug of an integration connection | The name a workflow uses for that integration connection. |
 | Event source | The integration connection that sent an event. |
 | Project source | The integration connection and repository used for workflow files and checkout. |
 | Native agent tool | A harness action inside the runner, such as reading or editing files. |
-| Integration tool | A selected external action performed through an integration connection. |
+| Integration tool | An external action that an agent performs through an integration connection. |
 
-These layers answer separate questions. The provider says which system is
-involved. The integration connection says which account. The project source says which
-repository owns the work. A tool says which operation the agent may perform.
+Each term answers a different question. The provider is the external system.
+The integration connection is the account. The project source is the
+repository that owns the work. A tool is one operation that the agent can
+perform.
 
-## Integration connections can receive events or expose tools
+## An integration connection can receive events, provide tools, or both
 
 An integration connection can play one or both roles.
 
-- **Event source:** the external system delivers facts that triggers or
-  listening jobs can match.
-- **Tool provider:** an agent receives selected operations for reading or
-  changing data in that system.
+- **Event source:** the provider delivers events that triggers or listening
+  jobs can match.
+- **Tool provider:** an agent receives selected operations to read or change
+  data in that system.
 
-Receiving an event grants no tool. Selecting a read tool grants no write tool.
-The workflow makes each choice separately.
+An event grants no tool. A read tool grants no write tool. The workflow makes
+each choice separately.
 
-This separation lets an event start low-authority work. For example, a Sentry
-issue can start an agent that reads only the project checkout. A later, checked
-step can receive a narrow GitHub operation to open a pull request.
+This separation means an event can start work that has little authority. For
+example, a Sentry issue can start an agent that reads only the project
+checkout. A later, checked step can then receive one narrow GitHub operation to
+open a pull request.
 
-## A slug selects the workspace integration connection
+## A slug names one integration connection
 
-Triggers and agent tools use the integration connection slug. It names one workspace
-integration connection, not only a type of provider.
+Triggers and agent tools use the slug of an integration connection. The slug
+names one integration connection in the workspace, not a kind of provider.
 
-Two GitHub integration connections may emit the same event name. Their slugs keep those
-events separate. The same rule prevents an agent tool from silently switching
-to another account.
+Two GitHub integration connections can send the same event name. Their slugs
+keep those events apart. The same rule stops an agent tool from switching to
+another account without notice.
 
-The exact trigger contract lives in the [workflow schema
-reference](/reference/workflow-schema#trigger-fields). Integration connection
-setup belongs in [Set up work](/how-to/set-up-work).
+The [workflow schema reference](/reference/workflow-schema#trigger-fields)
+defines the exact trigger contract. [Set up work](/how-to/set-up-work) explains
+how to create an integration connection.
 
-## Project checkout is a separate path
+## Checkout access is separate from tools
 
-A project chooses one source integration connection and repository. Shipfox uses that
-binding to discover workflow files and to prepare job checkouts.
+A project chooses one source integration connection and one repository.
+Shipfox uses that choice to find workflow files and to prepare job checkouts.
 
-Checkout permission controls authenticated Git reads or writes for the whole
-job. It does not grant issue, pull-request, monitoring, or ticket operations.
+Checkout permission controls authenticated Git reads and writes for the whole
+job. It doesn't grant issue, pull request, monitoring, or ticket operations.
 
-Integration tools cover those external operations. They do not change the
-checkout credential. An agent may therefore have this mix.
+Integration tools cover those external operations. They don't change the
+checkout credential. An agent can therefore have this mix:
 
-- A local checkout it can edit but not push.
-- A read-only pull-request tool but no issue tool.
+- A local checkout that it can edit but not push.
+- A read-only pull request tool but no issue tool.
 - A write tool for one operation and one repository.
 
-Keeping these paths separate avoids treating "GitHub access" as one broad
-permission.
+These separate paths mean that "GitHub access" is never one broad permission.
 
-## Credentials stay behind the integration connection
+## The workflow never receives the credential
 
-The workflow names an integration connection and selected operations. It does not receive
-the saved provider credential. The agent receives a tool interface, and Shipfox
-performs authorized calls behind that boundary.
+The workflow names an integration connection and the selected operations. It
+doesn't receive the saved provider credential. The agent gets a tool interface,
+and Shipfox makes the authorized calls behind it.
 
-This design narrows both disclosure and use.
+This limits both disclosure and use.
 
-- The prompt cannot print a credential it never receives.
+- The prompt can't print a credential it never receives.
 - The tool accepts only its defined input shape.
 - Repository scope limits where the operation can act.
-- Read and write sensitivity remain explicit in the workflow.
+- Read and write access stay explicit in the workflow.
 
-The boundary does not make every tool call safe. An agent can still choose a
-bad value or act on misleading event data. Use the smallest tool selection,
-place writes after checks, and read back important external results.
+The boundary doesn't make every tool call safe. An agent can still choose a bad
+value or act on misleading event data. Use the smallest tool selection, put
+writes after checks, and read back important external results.
 
-## Authority should follow the task
+## Give each step only the access it needs
 
-Start from no integration tool. Add a read operation when the agent needs
+Start with no integration tool. Add a read operation when the agent needs
 external context. Add a write operation only when the workflow intends an
 external change.
 
-Repository scope should be as narrow as the work. A project-source default is
-safer than broad account access when the task concerns one repository.
+Keep the repository scope as narrow as the work. When the task concerns one
+repository, the project source default is safer than broad account access.
 
-There is a tradeoff between raw flexibility and reviewable authority. A general
-credential can support many operations but hides the true reach of the step. A
-small tool selection makes that reach visible in the workflow and during sync.
+A general credential supports many operations but hides the real reach of the
+step. A small tool selection makes that reach visible in the workflow and at
+sync time.
 
 Use [Agent access](/how-to/author-workflows/use-integration-tools) for the
-authoring task. The [Agent integration fields
-reference](/reference/workflow-schema#agent-integration-fields) lists exact
+authoring task. The reference for [agent integration
+fields](/reference/workflow-schema#agent-integration-fields) lists the exact
 selection and write fields. [Agents](/understand/agents) explains how this
-authority fits with the harness, model, and native tools.
+access fits with the harness, model, and native tools.

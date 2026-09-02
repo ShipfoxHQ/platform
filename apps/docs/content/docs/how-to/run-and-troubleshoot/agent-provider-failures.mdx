@@ -57,6 +57,21 @@ Use [read-only integration tools](/how-to/author-workflows/use-integration-tools
 or [write-capable integration tools](/how-to/author-workflows/post-pull-request-review)
 to rebuild the smallest valid selection.
 
+## Check a shared session failure
+
+If a step that names a `session` fails before the agent starts, open its error
+reason.
+
+| Reason | Repair |
+| --- | --- |
+| `agent_session_key_invalid` | Make the key resolve to letters, digits, dots, underscores, or hyphens, up to 128 characters. Check the expression inside the key. |
+| `agent_session_held` | Another attempt is resuming the same key right now. Add a `needs` edge between the jobs, set `mode: fork` on one step, or use separate keys. |
+| `agent_session_harness_mismatch` | Remove `harness` from the step, or set it to the harness that created the session. |
+| `agent_session_unavailable` | The transcript could not be stored or loaded, or one segment passed the size cap. Re-run failed jobs once. If it repeats, check [Limits](/reference/limits#agent-sessions) and the runner logs. |
+
+[Agent session fields](/reference/workflow-schema#agent-session-fields) lists
+the exact rules behind each reason.
+
 ## Check provider invocation failures
 
 An invocation failure means the setup resolved but the provider call failed.

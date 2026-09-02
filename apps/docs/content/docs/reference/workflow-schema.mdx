@@ -6,6 +6,7 @@ description: "Define when Shipfox runs and what each workflow does."
 
 import {
   AgentIntegrationFields,
+  AgentSessionFields,
   AgentStepFields,
   CheckoutFields,
   CheckoutPermissionsFields,
@@ -110,7 +111,7 @@ a URL or API identifier. Run routes continue to use the run UUID.
 
 For example, a job execution can include the number in its display name:
 
-```yaml
+```yaml title=".shipfox/workflows/deploy.yml"
 # yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
 name: Deploy
 jobs:
@@ -120,7 +121,7 @@ jobs:
       - run: ./deploy.sh
 ```
 
-```yaml
+```yaml title=".shipfox/workflows/pull-request-review.yml"
 # yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
 name: Pull request review
 run_name: 'Review PR #${{ event.pull_request.number }}'
@@ -227,6 +228,27 @@ fail validation until tool-step support is restored.
 ## Agent integration fields
 
 <AgentIntegrationFields />
+
+## Agent session fields
+
+`session` names an agent conversation that later agent steps in the same run
+continue. A string names the session and resumes it. An object adds the mode.
+
+<AgentSessionFields />
+
+A key contains only letters, digits, dots, underscores, and hyphens, starts
+with a letter or digit, and is at most 128 characters. It can contain `${{ }}`
+expressions, resolved at step dispatch. A session is scoped to one run attempt
+and pinned to the harness that created it; a step that omits `harness` inherits
+it.
+
+Sync rejects two parallel `resume` steps on one literal key
+(`agent-session-parallel-resume`) and steps that share a key with different
+`harness` values (`agent-session-harness-mismatch`). At run time a step fails
+with `agent_session_key_invalid`, `agent_session_held`,
+`agent_session_harness_mismatch`, or `agent_session_unavailable`. See
+[Limits](/reference/limits#agent-sessions) for the size cap and retention, and
+[Agent sessions](/understand/agent-sessions) for the model.
 
 ## Gate fields
 

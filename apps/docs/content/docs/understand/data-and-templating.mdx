@@ -1,59 +1,60 @@
 ---
 title: "Context and templating"
 sidebarTitle: "Context & Templating"
-description: "Understand when run data is ready, how outputs move it, and how workflows use it safely."
+description: "Understand when run data becomes available, how outputs move it between jobs, and how workflows use it safely."
 ---
 
-**Context** is the data a workflow can use while it runs. It begins with the
-event or manual inputs and grows as jobs and steps produce results.
+**Context** is the data a workflow can read while it runs. It starts with the
+event or the manual inputs. It grows as jobs and steps produce results.
 
-That timing matters. A workflow cannot read a result before the work that
-creates it has finished. Shipfox resolves a value when enough context exists.
-Values that depend on later work wait until that work is done.
+Timing matters. A workflow can't read a result before the work that creates it
+has finished. Shipfox resolves each value once enough context exists. A value
+that depends on later work waits for that work to finish.
 
-## Context arrives in stages
+## When each kind of data becomes available
 
-Think of context as a flow rather than one global object:
+Context is a flow, not one global object. Data joins it at five points:
 
-1. **Run creation** adds the run identity, trigger, event, and inputs.
-2. **Job readiness** adds outputs from upstream jobs that have finished.
-3. **Listening execution** adds the event batch that woke that execution.
+1. **Run creation** adds the run identity, the trigger, the event, and the
+   inputs.
+2. **Job readiness** adds the outputs of upstream jobs that have finished.
+3. **Listening execution** adds the event batch that started that execution.
 4. **Step dispatch** adds earlier step outputs and retry context.
 5. **Runner execution** resolves secret bindings for the command that needs
-   them without storing the plaintext value in the run plan.
+   them. The secret value never enters the run plan.
 
-Workspace variables and project settings provide long-lived configuration.
-Events and outputs describe this run. Secrets grant authority and follow a
-stricter path.
+Workspace variables and project settings hold long-lived configuration. Events
+and outputs describe this run. Secrets grant access and follow a stricter path.
 
 The [Contexts reference](/reference/contexts#context-availability) is the
-canonical map of which context roots each field can read.
+canonical table of which contexts each field can read.
 
-## Templates carry data; predicates make decisions
+## Two kinds of expression: templates and predicates
 
-A `${{ }}` template places a value into text or settings. It can put an issue
-title in a prompt. It can also bind a job output to an environment variable.
+A `${{ }}` template puts a value into text or into a setting. It can put an
+issue title in a prompt. It can also bind a job output to an environment
+variable.
 
-A predicate returns a boolean. Filters, conditions, gates, and job success rules
-use predicates. They decide whether work starts, continues, or passes.
+A predicate returns true or false. Filters, conditions, gates, and job success
+rules use predicates. They decide whether work starts, continues, or passes.
 
-Keeping these roles separate makes policy easier to inspect. Text substitution
-does not quietly decide control flow. A predicate cannot run a command or change
-outside state. The same saved context therefore produces the same decision.
+The two roles stay separate, which makes policy easier to inspect. A template
+never decides control flow. A predicate can't run a command or change outside
+state. The same saved context therefore always produces the same decision.
 
-Use templates to move a known value. Use a predicate when the workflow needs a
+Use a template to move a known value. Use a predicate when the workflow needs a
 yes-or-no rule. The [Expressions
-reference](/reference/expressions) defines the exact syntax and available
+reference](/reference/expressions) defines the exact syntax and the available
 fields.
 
-## Outputs make results explicit
+## How outputs move results between jobs
 
-Steps in one job can share files, but files do not cross a job boundary. An
+Steps in one job can share files, but files don't cross a job boundary. An
 output turns a result into named workflow data that later work can read.
 
 This complete workflow moves a version between two isolated jobs:
 
-```yaml
+```yaml title=".shipfox/workflows/pass-version-between-jobs.yml"
 # yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
 name: Pass a version between jobs
 runner: shipfox
@@ -78,29 +79,30 @@ jobs:
       - run: printf 'Publishing version %s\n' "${{ jobs.package.outputs.version }}"
 ```
 
-The step creates `version`. The `package` job publishes it. The `publish`
-job declares the dependency and places the value in its command.
+The step creates `version`. The `package` job publishes it. The `publish` job
+declares the dependency and puts the value in its command.
 
-When a step declares a JSON array or object, an exact single-expression job
-mapping keeps that structure available to downstream jobs. A downstream
-expression such as `jobs.review.outputs.findings[0].severity` can therefore
-read a nested field. Mixed templates still produce strings.
+When a step declares a JSON array or object, a job output that maps exactly one
+expression keeps that structure for later jobs. A later expression such as
+`jobs.review.outputs.findings[0].severity` can then read a nested field. A
+template that mixes text and expressions still produces a string.
 
-Outputs suit small facts. Files and build products belong in external artifact
-storage, with an output carrying their location. [Step outputs](/reference/workflow-schema#step-outputs)
-defines declaration types and encoding. [Job outputs](/reference/limits#job-outputs)
-defines job output limits.
+Outputs fit small facts. Files and build products belong in external artifact
+storage, with an output that carries their location. [Step
+outputs](/reference/workflow-schema#step-outputs) defines declaration types and
+encoding. [Job outputs](/reference/limits#job-outputs) lists the limits for job
+outputs.
 
-## Templates carry untrusted data
+## Treat outside data as text, not as instructions
 
-Events, inputs, and step outputs carry data the workflow did not write. A shell
-step reads that data as text, so it cannot run as a command. [A few shell
-constructs](/reference/workflow-schema#run-step-fields) re-read their own
-arguments and break that.
+Events, inputs, and step outputs carry data that the workflow didn't write. A
+shell step reads that data as text, so it can't run as a command. [A few shell
+constructs](/reference/workflow-schema#run-step-fields) read their own arguments
+again and break that protection.
 
-Nothing guards a prompt or a job setting this way. An event can plant orders
-for an agent. It can also pick the runner a job uses. Keep an event out of any
-choice you would not let a stranger make.
+Nothing protects a prompt or a job setting this way. An event can contain
+instructions for an agent. It can also choose the runner a job uses. Keep event
+data out of any choice you wouldn't let a stranger make.
 
 [Secrets and variables](/reference/secrets-variables) describes storage,
 masking, and binding. [Integrations, integration connections, and

@@ -1,26 +1,27 @@
 ---
 title: "Jobs and steps"
 sidebarTitle: "Jobs & Steps"
-description: "Understand how a job boundary controls shared files, parallel work, runner placement, and results."
+description: "Understand how the split into jobs affects shared files, parallel work, runner placement, and results."
 ---
 
 A **job** is the unit that Shipfox places on a runner. A **step** is one ordered
 action inside that job.
 
-The main design choice is the job boundary. It decides which actions share a
-checkout. It also decides what can run at the same time and which results must
-cross a clear boundary.
+The main design choice is where one job ends and the next begins. That choice
+decides which steps share a checkout, what can run at the same time, and which
+results must pass from one job to another.
 
-## Keep work in one job when it shares state
+## When to keep steps in one job
 
 Steps in one job run in order and use the same checkout. A later step can read
-files changed by an earlier step. It can also use packages installed there.
+files that an earlier step changed. It can also use packages that an earlier
+step installed.
 
-They do not share one long-lived shell process. A shell variable set by one run
-step may not reach the next. Save a file in the checkout when the next step
-needs it. Publish an output when the value should become workflow data.
+Steps don't share one long-lived shell process. A shell variable set in one run
+step doesn't reach the next. Save a file in the checkout when the next step
+needs it. Publish an output when the value must become workflow data.
 
-One job is usually the right boundary when actions must:
+One job is usually the right choice when steps must:
 
 - Edit and check the same files.
 - Reuse an expensive local setup.
@@ -30,25 +31,25 @@ One job is usually the right boundary when actions must:
 The tradeoff is less parallelism. One slow step holds the job's runner and
 delays every later step.
 
-## Split jobs when work is independent
+## When to split work into jobs
 
 Each job gets a fresh checkout. It can use a different runner or repository
 permission. Jobs without dependencies can start at the same time when capacity
 is free.
 
-Separate jobs fit work that should:
+Separate jobs fit work that must:
 
 - Run in parallel.
-- Fail or be skipped as a distinct unit.
+- Fail or skip on its own.
 - Use a different execution environment.
 - Expose a small, named result to later work.
 
-The cost is repeated setup. Two jobs that both need Node.js packages each need
-their own install. Their files, process environment, and logs remain separate.
+The cost is extra setup. Two jobs that both need Node.js packages each
+install them again. Their files, process environment, and logs stay separate.
 
-This complete workflow shows the boundary:
+This complete workflow shows the split:
 
-```yaml
+```yaml title=".shipfox/workflows/check-and-review.yml"
 # yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
 name: Check and review a change
 runner: shipfox
@@ -76,8 +77,7 @@ jobs:
 `review` waits for both, but receives neither job's files nor logs. It reviews
 its own fresh checkout.
 
-The `shipfox` label selects the default Shipfox-hosted runner, which is
-available to every Shipfox Cloud workspace. The [Runner labels
+The `shipfox` label selects the default hosted runner. The [Runner labels
 reference](/reference/runner-labels) lists the other hosted sizes.
 
 The [parallel CI
@@ -85,40 +85,43 @@ recipe](/how-to/recipes/parallel-ci-agent-review) applies this shape to a GitHub
 push. The [job fields
 reference](/reference/workflow-schema#job-fields) defines the dependency syntax.
 
-## Outputs and artifacts solve different problems
+## How results move between jobs
 
-A job output carries a small value into workflow context. It fits a version,
-decision, identifier, or URL that later jobs need.
+A job output passes a small value to later jobs. It fits a version, a decision,
+an identifier, or a URL.
 
-An artifact is a file or directory. Job checkouts do not store files for one
-another. Put large reports or build products in an external store. Pass only
-the location as an output.
+An artifact is a file or a directory. One job's checkout isn't available to
+another job. Put large reports and build products in an external store. Pass
+only their location as an output.
 
-This explicit transfer keeps a downstream job from depending on an accidental
-file left by another job. It also makes rerun and runner placement behavior
-easier to reason about.
+This explicit hand-off means a later job can't depend on a file that another
+job left behind by accident. It also makes reruns and runner placement easier
+to predict.
 
-## Boundaries also control placement and authority
+A named [agent session](/understand/agent-sessions) is a third way to pass
+context. It gives one agent's conversation to a later agent step in the same
+run. It doesn't pass files either.
 
-A job asks for runner labels as one unit. Split work when one part needs a
+## A job also chooses its runner and its access
+
+A job selects its runner labels as a whole. Split work when one part needs a
 private network, special hardware, or another operating system. Keep it
 together when every step needs the same environment.
 
-Repository checkout permission is also job-wide. Integration tools are selected
-on individual agent steps and remain separate from Git access. This distinction
-matters when an agent may read code but only one later action should write to an
-external system.
+Repository checkout permission also applies to the whole job. Each agent step
+selects its own integration tools, separate from Git access. This matters when
+an agent reads code but only one later step must write to an external system.
 
 [Runners and execution
 environments](/understand/runners-and-execution-environments) explains
 placement. [Agent access](/how-to/author-workflows/use-integration-tools) shows
 the separate repository and integration controls.
 
-## Repetition stays inside the chosen boundary
+## Retries and later events stay inside the job
 
-A feedback loop rewinds steps inside one job execution, so repeated work keeps
-the same checkout. A listening job creates more job executions as later events
-arrive. It may run its step list several times in one run.
+A feedback loop repeats steps inside one job execution, so the repeated work
+keeps the same checkout. A listening job creates a new job execution for each
+later event or event batch. It can run its steps several times in one run.
 
-Choose the boundary before adding either form of repetition. A boundary that
+Choose the job boundary before you add either kind of repetition. A job that
 mixes unrelated writes makes retries and later events harder to handle safely.

@@ -15,6 +15,7 @@
     "push-repository-changes",
     "pass-outputs",
     "use-structured-agent-outputs",
+    "share-agent-sessions",
     "bound-listening-job",
     "define-listener-success",
     "build-feedback-loop"
