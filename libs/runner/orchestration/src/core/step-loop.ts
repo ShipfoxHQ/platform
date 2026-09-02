@@ -1008,12 +1008,12 @@ async function executeAgentStepBranch(params: {
   params.onStream(sessionStream);
   params.registerStreamSecrets(sessionStream);
   const {executeAgentStep} = await loadRunnerAgentStep();
-  const resumePrompt = buildResumePrompt(session, params.checkoutRef, input.step.config.prompt);
   consumeCheckoutRefIfUsed({
     consume: input.consumeCheckoutRef,
     checkoutRef: params.checkoutRef,
-    resumePrompt,
+    session,
   });
+  const resumePrompt = buildResumePrompt(session, params.checkoutRef, input.step.config.prompt);
   const result = await executeAgentStep(input.step, {
     signal: input.signal,
     cwd: params.stepCwd,
@@ -1150,9 +1150,9 @@ function buildResumePrompt(
 function consumeCheckoutRefIfUsed(params: {
   consume: (() => void) | undefined;
   checkoutRef: string | undefined;
-  resumePrompt: string | undefined;
+  session: AgentSessionState;
 }): void {
-  if (params.resumePrompt === undefined || params.checkoutRef === undefined) return;
+  if (params.checkoutRef === undefined || params.session.mode !== 'resume') return;
   params.consume?.();
 }
 
