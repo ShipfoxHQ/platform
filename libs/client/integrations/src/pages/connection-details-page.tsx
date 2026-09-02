@@ -60,7 +60,7 @@ export function ConnectionDetailsPage({
 
   return (
     <ConnectionDetailsShell workspaceSlug={workspaceSlug} connectionName={connection.displayName}>
-      <RepositoryAccessSettings connection={connection} />
+      <RepositoryAccessSettings key={connection.id} connection={connection} />
     </ConnectionDetailsShell>
   );
 }
@@ -157,21 +157,27 @@ function RepositoryAccessForm({
 }) {
   const updateAccess = useUpdateIntegrationConnectionRepositoryAccessMutation();
   const [selectedMode, setSelectedMode] = useState<RepositoryAccessMode>(access.mode);
+  const [persistedMode, setPersistedMode] = useState<RepositoryAccessMode>(access.mode);
 
   useEffect(() => {
-    if (!updateAccess.isPending) setSelectedMode(access.mode);
-  }, [access.mode, updateAccess.isPending]);
+    setSelectedMode(access.mode);
+    setPersistedMode(access.mode);
+  }, [access.mode]);
 
   const mutationError = updateAccess.error;
   if (isForbiddenError(mutationError)) return <AccessDeniedState />;
   if (isUnsupportedError(mutationError)) return <UnsupportedState />;
 
-  const isDirty = selectedMode !== access.mode;
+  const isDirty = selectedMode !== persistedMode;
 
   async function saveMode() {
     if (!isDirty) return;
     try {
-      await updateAccess.mutateAsync({connectionId: connection.id, mode: selectedMode});
+      const savedMode = await updateAccess.mutateAsync({
+        connectionId: connection.id,
+        mode: selectedMode,
+      });
+      setPersistedMode(savedMode);
       toast.success('Repository access settings saved.');
     } catch {
       // The recoverable error is rendered from the mutation state below.

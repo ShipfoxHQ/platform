@@ -3,13 +3,17 @@ import '@testing-library/jest-dom/vitest';
 import type {IntegrationConnectionDto} from '@shipfox/api-integration-core-dto';
 import {configureApiClient} from '@shipfox/client-api';
 import {fireEvent, screen} from '@testing-library/react';
+import type {ReactElement} from 'react';
+import {useState} from 'react';
 import {INTEGRATIONS_TEST_WID, jsonResponse, renderIntegrationsPage} from '#test/render.js';
 import {ConnectionDetailsPage} from './connection-details-page.js';
 
 const CONNECTION_ID = '44444444-4444-4444-8444-444444444444';
+const SECOND_CONNECTION_ID = '77777777-7777-4777-8777-777777777777';
 const PROJECT_ID = '55555555-5555-4555-8555-555555555555';
 const GRANT_ID = '66666666-6666-4666-8666-666666666666';
 const REPOSITORY_ACCESS_PATH = `/integration-connections/${CONNECTION_ID}/repository-access`;
+const SECOND_REPOSITORY_ACCESS_PATH = `/integration-connections/${SECOND_CONNECTION_ID}/repository-access`;
 const SELECTED_MODE_RE = /Selected direct targets/u;
 const ALL_MODE_RE = /All installation repositories/u;
 const GITHUB_EFFECTS_RE = /Some ID-based, organization-scoped, and indirect GitHub effects remain/u;
@@ -27,6 +31,15 @@ const githubConnection = {
   external_url: 'https://github.com/organizations/acme-corp/settings/installations/1',
   created_at: '2026-03-12T00:00:00.000Z',
   updated_at: '2026-03-12T00:00:00.000Z',
+} satisfies IntegrationConnectionDto;
+
+const secondGithubConnection = {
+  ...githubConnection,
+  id: SECOND_CONNECTION_ID,
+  external_account_id: 'installation-2',
+  slug: 'github_beta_inc',
+  display_name: 'beta-inc',
+  external_url: 'https://github.com/organizations/beta-inc/settings/installations/2',
 } satisfies IntegrationConnectionDto;
 
 type RepositoryAccessResponse = {
@@ -66,17 +79,21 @@ const allAccess: RepositoryAccessResponse = {
 };
 
 interface DetailsFetchOptions {
+  additionalConnection?: {connection: IntegrationConnectionDto; access: RepositoryAccessResponse};
   access?: RepositoryAccessResponse;
   nextPageAccess?: RepositoryAccessResponse;
   accessError?: {status: number; code: string};
+  updateAccessAfterMutation?: boolean;
   mutationResponse?: () => Response | Promise<Response>;
   onUpdateMode?: (mode: 'selected' | 'all') => void;
 }
 
 function detailsFetch({
+  additionalConnection,
   access = selectedAccess,
   nextPageAccess,
   accessError,
+  updateAccessAfterMutation = true,
   mutationResponse,
   onUpdateMode,
 }: DetailsFetchOptions = {}) {
@@ -98,7 +115,7 @@ function detailsFetch({
 
   async function repositoryAccessPutResponse(request: Request): Promise<Response> {
     const body = (await request.json()) as {mode: 'selected' | 'all'};
-    currentAccess = body.mode === 'all' ? allAccess : selectedAccess;
+    if (updateAccessAfterMutation) currentAccess = body.mode === 'all' ? allAccess : selectedAccess;
     onUpdateMode?.(body.mode);
     if (mutationResponse) return mutationResponse();
     return jsonResponse({mode: body.mode});
@@ -114,22 +131,47 @@ function detailsFetch({
     const request = new Request(input, init);
     const url = new URL(request.url);
 
-    if (url.pathname === '/integration-connections')
-      return Promise.resolve(jsonResponse({connections: [githubConnection]}));
+    if (url.pathname === '/integration-connections') {
+      return Promise.resolve(
+        jsonResponse({
+          connections: [
+            githubConnection,
+            ...(additionalConnection ? [additionalConnection.connection] : []),
+          ],
+        }),
+      );
+    }
     if (url.pathname === REPOSITORY_ACCESS_PATH) return repositoryAccessResponse(request);
+    if (url.pathname === SECOND_REPOSITORY_ACCESS_PATH && additionalConnection) {
+      return Promise.resolve(jsonResponse(additionalConnection.access));
+    }
 
     throw new Error(`Unexpected integrations request: ${request.method} ${request.url}`);
   });
 }
 
-function renderDetails(fetchImpl: typeof fetch) {
+function renderDetails(fetchImpl: typeof fetch, element?: ReactElement) {
   configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
   return renderIntegrationsPage({
     path: '/w/acme/settings/integrations/github_acme_corp',
     routePath: '/w/$workspaceSlug/settings/integrations/$connectionSlug',
-    element: <ConnectionDetailsPage workspaceSlug="acme" connectionSlug="github_acme_corp" />,
+    element: element ?? (
+      <ConnectionDetailsPage workspaceSlug="acme" connectionSlug="github_acme_corp" />
+    ),
     extraRoutes: ['/w/$workspaceSlug/settings/integrations'],
   });
+}
+
+function ConnectionSwitcher() {
+  const [connectionSlug, setConnectionSlug] = useState('github_acme_corp');
+  return (
+    <>
+      <button type="button" onClick={() => setConnectionSlug('github_beta_inc')}>
+        Switch connection
+      </button>
+      <ConnectionDetailsPage workspaceSlug="acme" connectionSlug={connectionSlug} />
+    </>
+  );
 }
 
 describe('ConnectionDetailsPage', () => {
@@ -253,6 +295,37 @@ describe('ConnectionDetailsPage', () => {
     resolveMutation?.(jsonResponse({mode: 'all'}));
     await screen.findByText('Repository access settings saved.');
     expect(updatedModes).toEqual(['all']);
+  });
+
+  test('keeps the saved mode selected while the access query still has stale data', async () => {
+    renderDetails(detailsFetch({updateAccessAfterMutation: false}));
+
+    await screen.findByRole('radio', {name: SELECTED_MODE_RE});
+    fireEvent.click(screen.getByRole('radio', {name: ALL_MODE_RE}));
+    fireEvent.click(screen.getByRole('button', {name: 'Save changes'}));
+
+    expect(await screen.findByText('Repository access settings saved.')).toBeVisible();
+    expect(screen.getByRole('radio', {name: ALL_MODE_RE})).toBeChecked();
+    expect(screen.getByRole('button', {name: 'Save changes'})).toBeDisabled();
+  });
+
+  test('resets unsaved mode changes when navigating to another connection', async () => {
+    renderDetails(
+      detailsFetch({
+        additionalConnection: {connection: secondGithubConnection, access: selectedAccess},
+      }),
+      <ConnectionSwitcher />,
+    );
+
+    await screen.findByRole('radio', {name: SELECTED_MODE_RE});
+    fireEvent.click(screen.getByRole('radio', {name: ALL_MODE_RE}));
+    expect(screen.getByRole('button', {name: 'Save changes'})).toBeEnabled();
+
+    fireEvent.click(screen.getByRole('button', {name: 'Switch connection'}));
+
+    expect(await screen.findByRole('radio', {name: SELECTED_MODE_RE})).toBeChecked();
+    expect(screen.getByRole('radio', {name: ALL_MODE_RE})).not.toBeChecked();
+    expect(screen.getByRole('button', {name: 'Save changes'})).toBeDisabled();
   });
 
   test('keeps the form recoverable when saving fails', async () => {
