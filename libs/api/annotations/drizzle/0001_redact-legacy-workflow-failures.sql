@@ -11,7 +11,7 @@ SET
 FROM "redacted"
 WHERE
 	"annotation"."style" = 'error'
-	AND "annotation"."context" ~ '^failure:step:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+	AND "annotation"."context" = 'failure:step:' || "annotation"."origin_step_id"::text
 	AND position(E'\n\nReason: ' IN "annotation"."body") > 0
 	AND position(E'\nExit code: ' IN "annotation"."body") > 0;
 --> statement-breakpoint
@@ -28,6 +28,6 @@ SET
 FROM "redacted"
 WHERE
 	"annotation"."style" = 'error'
-	AND "annotation"."context" ~ '^failure:job:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+	AND "annotation"."context" = 'failure:job:' || "annotation"."job_id"::text
 	AND "annotation"."body" LIKE E'**Job failed before completion**\n\n%'
 	AND position(E'\nReason: ' IN "annotation"."body") > 0;
