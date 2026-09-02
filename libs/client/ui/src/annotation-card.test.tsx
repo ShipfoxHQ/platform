@@ -1,5 +1,5 @@
 import {ThemeProvider} from '@shipfox/react-ui/theme';
-import {render, screen} from '@testing-library/react';
+import {fireEvent, render, screen} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type {ReactNode} from 'react';
 import {AnnotationCard, type AnnotationCardProps} from './annotation-card.js';
@@ -111,8 +111,7 @@ describe('AnnotationCard', () => {
     expect(container.querySelector('[style*="max-height"]')).toBeNull();
   });
 
-  test('parses only a preview of a very large body until it is expanded', async () => {
-    const user = userEvent.setup();
+  test('parses only a preview of a very large body until it is expanded', () => {
     stubRenderedBodyHeight(5_000);
     // Clipping with CSS bounds the layout but not the parse: the whole megabyte would still be
     // turned into DOM behind `overflow: hidden`.
@@ -129,7 +128,7 @@ describe('AnnotationCard', () => {
     expect(items()).toBeLessThan(150);
     expect(screen.queryByText(new RegExp(`line ${lineCount - 1}\\b`, 'u'))).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', {name: 'Show more'}));
+    fireEvent.click(screen.getByRole('button', {name: 'Show more'}));
 
     expect(items()).toBe(lineCount);
     expect(screen.getByText(new RegExp(`line ${lineCount - 1}\\b`, 'u'))).toBeInTheDocument();

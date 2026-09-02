@@ -258,15 +258,16 @@ describe('claimPendingJobExecution', () => {
     try {
       await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: 1});
 
-      const payload = runnerJobClaimedEventSchema.parse(
-        (await outboxEventsForJob(RUNNER_JOB_CLAIMED, created.jobId))[0]?.payload,
-      );
+      const payload = runnerJobClaimedEventSchema
+        .strict()
+        .parse((await outboxEventsForJob(RUNNER_JOB_CLAIMED, created.jobId))[0]?.payload);
       expect(payload).toMatchObject({
         workspaceId,
         projectId: created.projectId,
         runnerLabels: sessionLabels,
         templateKey: 'linux',
         provisionerId,
+        providerRunnerId,
         provisionerScope: 'installation',
         providerKind: 'ec2',
         launchKind: 'demand',
@@ -1607,7 +1608,7 @@ describe('detectAndExpireStuckJobs', () => {
     const outbox = await outboxForJobs([jobId]);
     expect(outbox).toHaveLength(1);
     expect(outbox[0]?.eventType).toBe(RUNNER_JOB_LEASE_EXPIRED);
-    const payload = runnerJobLeaseExpiredEventSchema.parse(outbox[0]?.payload);
+    const payload = runnerJobLeaseExpiredEventSchema.strict().parse(outbox[0]?.payload);
     expect(payload.jobId).toBe(jobId);
     expect(payload.workflowRunId).toBe(workflowRunId);
     expect(payload.workflowRunAttemptId).toBe(workflowRunAttemptId);

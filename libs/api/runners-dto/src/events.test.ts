@@ -17,6 +17,7 @@ describe('runner job events', () => {
       runnerLabels: ['linux', 'x64'],
       templateKey: 'linux',
       provisionerId: 'provisioner-1',
+      providerRunnerId: 'runner-1',
       provisionerScope: 'installation' as const,
       providerKind: 'ec2',
       launchKind: 'demand' as const,

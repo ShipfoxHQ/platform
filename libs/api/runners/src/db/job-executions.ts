@@ -611,6 +611,7 @@ async function claimPendingJobExecutionTx(
       runnerLabels: claimed.runnerLabels,
       templateKey: claimedRunner?.templateKey ?? null,
       provisionerId: claimed.provisionerId,
+      providerRunnerId: claimed.providerRunnerId,
       provisionerScope,
       providerKind: claimedRunner?.providerKind ?? null,
       launchKind: claimedRunner?.launchKind ?? (params.maxClaims === null ? 'manual' : null),
@@ -740,6 +741,7 @@ async function claimPendingCandidateTx(
     projectId: string;
     runnerLabels: string[];
     provisionerId: string | null;
+    providerRunnerId: string | null;
   };
 } | null> {
   const candidate = tx
@@ -787,6 +789,7 @@ async function claimPendingCandidateTx(
       projectId: runningJobExecutions.projectId,
       runnerLabels: runningJobExecutions.runnerLabels,
       provisionerId: runningJobExecutions.provisionerId,
+      providerRunnerId: runningJobExecutions.providerRunnerId,
     });
   return claimed ? {row, claimed} : null;
 }

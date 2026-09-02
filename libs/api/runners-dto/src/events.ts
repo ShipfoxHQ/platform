@@ -28,6 +28,7 @@ export const runnerJobClaimedEventSchema = z.object({
   runnerLabels: z.array(nonEmptyStringSchema).min(1).optional(),
   templateKey: nonEmptyStringSchema.nullable().optional(),
   provisionerId: nonEmptyStringSchema.nullable().optional(),
+  providerRunnerId: nonEmptyStringSchema.nullable().optional(),
   provisionerScope: provisionerScopeSchema.nullable().optional(),
   providerKind: nonEmptyStringSchema.nullable().optional(),
   launchKind: runnerLaunchKindSchema.nullable().optional(),
