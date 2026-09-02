@@ -1,4 +1,8 @@
-import type {StepAttemptDto, WorkflowRunStepDetailDto} from '@shipfox/api-workflows-dto';
+import type {
+  StepAttemptDetailResponseDto,
+  StepAttemptDto,
+  WorkflowRunStepDetailDto,
+} from '@shipfox/api-workflows-dto';
 import {configureApiClient} from '@shipfox/client-api';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {
@@ -102,22 +106,24 @@ describe('StepInspectorSheet', () => {
     const user = userEvent.setup();
     configureApiClient({
       fetchImpl: vi.fn(async () =>
-        jsonResponse({
-          step_id: STEP_ID,
-          attempt: 1,
-          authored_config: {run: 'pnpm test'},
-          config: {run: 'pnpm test --filter=client'},
-          evaluation_trace: [
-            {
-              expression: 'inputs.message',
-              roots: ['inputs.message'],
-              fill_target: 'run',
-              evaluated_at: '2026-08-05T12:00:00.000Z',
-              field: 'run',
-              value: 'hello',
-            },
-          ],
-        }),
+        jsonResponse(
+          stepDetailResponse({
+            step_id: STEP_ID,
+            attempt: 1,
+            authored_config: {run: 'pnpm test'},
+            config: {run: 'pnpm test --filter=client'},
+            evaluation_trace: [
+              {
+                expression: 'inputs.message',
+                roots: ['inputs.message'],
+                fill_target: 'run',
+                evaluated_at: '2026-08-05T12:00:00.000Z',
+                field: 'run',
+                value: 'hello',
+              },
+            ],
+          }),
+        ),
       ),
     });
 
@@ -132,19 +138,21 @@ describe('StepInspectorSheet', () => {
     const user = userEvent.setup();
     configureApiClient({
       fetchImpl: vi.fn(async () =>
-        jsonResponse({
-          step_id: STEP_ID,
-          attempt: 1,
-          authored_config: {run: 'pnpm test'},
-          config: {run: 'pnpm test --filter=client'},
-          session: {
-            id: '99999999-9999-4999-8999-999999999999',
-            key: 'main',
-            mode: 'resume',
-            segment: 2,
-          },
-          evaluation_trace: null,
-        }),
+        jsonResponse(
+          stepDetailResponse({
+            step_id: STEP_ID,
+            attempt: 1,
+            authored_config: {run: 'pnpm test'},
+            config: {run: 'pnpm test --filter=client'},
+            session: {
+              id: '99999999-9999-4999-8999-999999999999',
+              key: 'main',
+              mode: 'resume',
+              segment: 2,
+            },
+            evaluation_trace: null,
+          }),
+        ),
       ),
     });
 
@@ -158,14 +166,16 @@ describe('StepInspectorSheet', () => {
     const user = userEvent.setup();
     configureApiClient({
       fetchImpl: vi.fn(async () =>
-        jsonResponse({
-          step_id: STEP_ID,
-          attempt: 1,
-          authored_config: {run: 'pnpm test'},
-          config: {run: 'pnpm test --filter=client'},
-          session: null,
-          evaluation_trace: null,
-        }),
+        jsonResponse(
+          stepDetailResponse({
+            step_id: STEP_ID,
+            attempt: 1,
+            authored_config: {run: 'pnpm test'},
+            config: {run: 'pnpm test --filter=client'},
+            session: null,
+            evaluation_trace: null,
+          }),
+        ),
       ),
     });
 
@@ -181,13 +191,15 @@ describe('StepInspectorSheet', () => {
       .fn()
       .mockResolvedValueOnce(jsonResponse({code: 'server-error'}, {status: 500}))
       .mockResolvedValueOnce(
-        jsonResponse({
-          step_id: STEP_ID,
-          attempt: 1,
-          authored_config: {run: 'pnpm test'},
-          config: {run: 'pnpm test --filter=client'},
-          evaluation_trace: null,
-        }),
+        jsonResponse(
+          stepDetailResponse({
+            step_id: STEP_ID,
+            attempt: 1,
+            authored_config: {run: 'pnpm test'},
+            config: {run: 'pnpm test --filter=client'},
+            evaluation_trace: null,
+          }),
+        ),
       );
     configureApiClient({fetchImpl});
 
@@ -218,13 +230,15 @@ describe('StepInspectorSheet', () => {
     const user = userEvent.setup();
     configureApiClient({
       fetchImpl: vi.fn(async () =>
-        jsonResponse({
-          step_id: STEP_ID,
-          attempt: 1,
-          authored_config: null,
-          config: null,
-          evaluation_trace: null,
-        }),
+        jsonResponse(
+          stepDetailResponse({
+            step_id: STEP_ID,
+            attempt: 1,
+            authored_config: null,
+            config: null,
+            evaluation_trace: null,
+          }),
+        ),
       ),
     });
 
@@ -239,13 +253,15 @@ describe('StepInspectorSheet', () => {
     const user = userEvent.setup();
     configureApiClient({
       fetchImpl: vi.fn(async () =>
-        jsonResponse({
-          step_id: STEP_ID,
-          attempt: 1,
-          authored_config: null,
-          config: null,
-          evaluation_trace: null,
-        }),
+        jsonResponse(
+          stepDetailResponse({
+            step_id: STEP_ID,
+            attempt: 1,
+            authored_config: null,
+            config: null,
+            evaluation_trace: null,
+          }),
+        ),
       ),
     });
 
@@ -768,30 +784,59 @@ function toolTestError(
   };
 }
 
+function stepDetailResponse(
+  overrides: Partial<StepAttemptDetailResponseDto> = {},
+): StepAttemptDetailResponseDto {
+  return {
+    workflow_run_id: '11111111-1111-4111-8111-111111111111',
+    workflow_run_attempt: 1,
+    job_id: '44444444-4444-4444-8444-444444444444',
+    job_execution_id: EXECUTION_ID,
+    step_id: STEP_ID,
+    step_attempt_id: ATTEMPT_ID,
+    attempt: 1,
+    authored_config: null,
+    config: null,
+    session: null,
+    evaluation_trace: null,
+    output: null,
+    outputs: null,
+    response: null,
+    error: null,
+    gate_result: null,
+    invocations: [],
+    restart_feedback: null,
+    oversized_fields: [],
+    ...overrides,
+  };
+}
+
 function configureToolDetailResponse() {
   configureApiClient({
     fetchImpl: vi.fn(async () =>
-      jsonResponse({
-        step_id: STEP_ID,
-        attempt: 1,
-        authored_config: {
-          tool: {
-            provider: 'slack',
-            connection: 'release-notifications',
-            id: 'chat_post_message',
-            with: {channel: `\${{ inputs.channel }}`},
+      jsonResponse(
+        stepDetailResponse({
+          step_id: STEP_ID,
+          attempt: 1,
+          authored_config: {
+            tool: {
+              provider: 'slack',
+              connection: 'release-notifications',
+              id: 'chat_post_message',
+              with: {channel: `\${{ inputs.channel }}`},
+            },
           },
-        },
-        config: {
-          tool: {
-            provider: 'slack',
-            connection_slug: 'release-notifications',
-            id: 'chat_post_message',
-            with: {channel: '#releases', text: 'Version 2.4.0 is live.'},
+          config: {
+            tool: {
+              provider: 'slack',
+              connection_slug: 'release-notifications',
+              id: 'chat_post_message',
+              with: {channel: '#releases', text: 'Version 2.4.0 is live.'},
+            },
           },
-        },
-        evaluation_trace: null,
-      }),
+          evaluation_trace: null,
+        }),
+      ),
     ),
   });
 }

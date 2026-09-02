@@ -2,6 +2,10 @@ import type {LogOutcomeDto} from '@shipfox/api-workflows-dto';
 import {captureException} from '@shipfox/node-error-monitoring';
 import {logger} from '@shipfox/node-opentelemetry';
 import {and, asc, count, desc, eq, gte, inArray, sql} from 'drizzle-orm';
+import {
+  assertWorkflowDiagnosticSize,
+  assertWorkflowStepAttemptInvocationCount,
+} from '#core/diagnostics.js';
 import type {
   PersistedEvaluationTraceEntry,
   Step,
@@ -53,6 +57,9 @@ export async function getStepById(stepId: string): Promise<Step | undefined> {
 export interface StepAttemptDetail {
   workflowRunId: string;
   workflowRunAttemptId: string;
+  workflowRunAttempt: number;
+  jobId: string;
+  jobExecutionId: string;
   step: Step;
   attempt: StepAttempt;
 }
@@ -132,6 +139,9 @@ export async function getStepAttemptDetail(params: {
     .select({
       workflowRunId: workflowRuns.id,
       workflowRunAttemptId: workflowRunAttempts.id,
+      workflowRunAttempt: workflowRunAttempts.attempt,
+      jobId: jobs.id,
+      jobExecutionId: jobExecutions.id,
       step: steps,
       stepAttempt: stepAttempts,
     })
@@ -150,6 +160,9 @@ export async function getStepAttemptDetail(params: {
   return {
     workflowRunId: row.workflowRunId,
     workflowRunAttemptId: row.workflowRunAttemptId,
+    workflowRunAttempt: row.workflowRunAttempt,
+    jobId: row.jobId,
+    jobExecutionId: row.jobExecutionId,
     step: toStep(row.step),
     attempt: toStepAttempt(row.stepAttempt),
   };
@@ -355,6 +368,9 @@ export async function dispatchStepWithCompletedConfig(
   params: DispatchStepWithCompletedConfigParams,
   tx: Tx,
 ): Promise<Step | null> {
+  assertWorkflowDiagnosticSize('config', params.config);
+  assertWorkflowDiagnosticSize('evaluation_trace', params.evaluationTrace);
+
   const rows = await tx
     .update(steps)
     .set({
@@ -410,6 +426,8 @@ export interface MarkStepSkippedParams {
 }
 
 export async function markStepSkipped(params: MarkStepSkippedParams, tx: Tx): Promise<Step | null> {
+  assertWorkflowDiagnosticSize('evaluation_trace', params.evaluationTrace);
+
   const rows = await tx
     .update(steps)
     .set({
@@ -475,6 +493,10 @@ export async function insertRunningStepAttempt(
   params: InsertRunningStepAttemptParams,
   tx: Tx,
 ): Promise<string | undefined> {
+  assertWorkflowDiagnosticSize('config', params.config);
+  assertWorkflowDiagnosticSize('evaluation_trace', params.evaluationTrace);
+  assertWorkflowStepAttemptInvocationCount(params.invocations?.length ?? 0);
+
   const [{nextExecutionOrder} = {nextExecutionOrder: 1}] = await tx
     .select({
       nextExecutionOrder: sql<number>`coalesce(max(${stepAttempts.executionOrder}), 0) + 1`,
@@ -550,6 +572,11 @@ async function runBestEffortCheckoutRenewalSubjectMaintenance(
 // makes this idempotent: a duplicate report finds the attempt already terminal
 // and updates nothing (never-downgrade for the audit row).
 export async function finishStepAttempt(params: FinishStepAttemptParams, tx: Tx): Promise<void> {
+  assertWorkflowDiagnosticSize('output', params.output);
+  assertWorkflowDiagnosticSize('response', params.response);
+  assertWorkflowDiagnosticSize('error', params.error);
+  assertWorkflowDiagnosticSize('gate_result', params.gateResult);
+
   const rows = await tx
     .update(stepAttempts)
     .set({
@@ -708,6 +735,8 @@ export interface ApplyStepResultParams {
 }
 
 export async function applyStepResult(params: ApplyStepResultParams, tx: Tx): Promise<void> {
+  assertWorkflowDiagnosticSize('error', params.error);
+
   await tx
     .update(steps)
     .set({

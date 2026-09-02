@@ -231,7 +231,12 @@ describe('workflow run API hooks', () => {
 
   test('maps lazy step attempt details to authored and resolved troubleshooting data', () => {
     const dto: StepAttemptDetailResponseDto = {
+      workflow_run_id: RUN_ID,
+      workflow_run_attempt: 1,
+      job_id: PROJECT_ID,
+      job_execution_id: DEFINITION_ID,
       step_id: '88888888-8888-4888-8888-888888888888',
+      step_attempt_id: '88888888-8888-4888-8888-888888888889',
       attempt: 2,
       authored_config: {run: 'echo $' + '{{ inputs.message }}'},
       config: {run: 'echo hello'},
@@ -246,6 +251,14 @@ describe('workflow run API hooks', () => {
           degraded: false,
         },
       ],
+      output: null,
+      outputs: null,
+      response: null,
+      error: null,
+      gate_result: null,
+      invocations: [],
+      restart_feedback: null,
+      oversized_fields: [],
     };
 
     expect(toStepAttemptDetail(dto)).toEqual({
@@ -271,7 +284,12 @@ describe('workflow run API hooks', () => {
 
   test('maps resolved tool arguments from lazy attempt details', () => {
     const dto: StepAttemptDetailResponseDto = {
+      workflow_run_id: RUN_ID,
+      workflow_run_attempt: 1,
+      job_id: PROJECT_ID,
+      job_execution_id: DEFINITION_ID,
       step_id: '88888888-8888-4888-8888-888888888888',
+      step_attempt_id: '88888888-8888-4888-8888-888888888889',
       attempt: 2,
       authored_config: {
         tool: {with: {channel: String.raw`\${{ inputs.channel }}`}},
@@ -280,6 +298,14 @@ describe('workflow run API hooks', () => {
         tool: {with: {channel: '#releases', text: 'Version 2.4.0 is live.'}},
       },
       evaluation_trace: null,
+      output: null,
+      outputs: null,
+      response: null,
+      error: null,
+      gate_result: null,
+      invocations: [],
+      restart_feedback: null,
+      oversized_fields: [],
     };
 
     expect(toStepAttemptDetail(dto).toolArguments).toEqual({
@@ -290,7 +316,12 @@ describe('workflow run API hooks', () => {
 
   test('maps the recorded session descriptor without exposing transcript data', () => {
     const dto: StepAttemptDetailResponseDto = {
+      workflow_run_id: RUN_ID,
+      workflow_run_attempt: 1,
+      job_id: PROJECT_ID,
+      job_execution_id: DEFINITION_ID,
       step_id: '88888888-8888-4888-8888-888888888888',
+      step_attempt_id: '88888888-8888-4888-8888-888888888889',
       attempt: 3,
       authored_config: {prompt: 'Continue'},
       config: {prompt: 'Continue'},
@@ -301,6 +332,14 @@ describe('workflow run API hooks', () => {
         segment: 7,
       },
       evaluation_trace: null,
+      output: null,
+      outputs: null,
+      response: null,
+      error: null,
+      gate_result: null,
+      invocations: [],
+      restart_feedback: null,
+      oversized_fields: [],
     };
 
     expect(toStepAttemptDetail(dto).session).toEqual({
@@ -313,11 +352,24 @@ describe('workflow run API hooks', () => {
   test('does not fetch step attempt details while the inspector is closed', async () => {
     const fetchImpl = vi.fn(async () =>
       jsonResponse({
+        workflow_run_id: RUN_ID,
+        workflow_run_attempt: 1,
+        job_id: PROJECT_ID,
+        job_execution_id: DEFINITION_ID,
         step_id: '88888888-8888-4888-8888-888888888888',
+        step_attempt_id: '88888888-8888-4888-8888-888888888889',
         attempt: 1,
         authored_config: null,
         config: {},
         evaluation_trace: null,
+        output: null,
+        outputs: null,
+        response: null,
+        error: null,
+        gate_result: null,
+        invocations: [],
+        restart_feedback: null,
+        oversized_fields: [],
       }),
     );
     configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});

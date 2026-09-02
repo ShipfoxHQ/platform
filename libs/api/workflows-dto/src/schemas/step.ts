@@ -1,6 +1,7 @@
 import {type AgentSessionDescriptorDto, agentSessionDescriptorSchema} from '@shipfox/api-agent-dto';
 import {z} from 'zod';
 import {evaluationTraceSchema} from './evaluation-trace.js';
+import {WORKFLOW_STEP_ATTEMPT_INVOCATION_READ_MAX} from './workflow-run-diagnostics.js';
 
 export const STEP_STATUS_REASONS = [
   'default_gate_rejected',
@@ -234,7 +235,10 @@ export const stepAttemptDtoSchema = z.object({
   // rows; nested keys are not snake_case-normalized.
   gate_result: stepGateResultDtoSchema,
   restart_feedback: z.string().nullable(),
-  invocations: z.array(stepAttemptInvocationSchema).default([]),
+  invocations: z
+    .array(stepAttemptInvocationSchema)
+    .max(WORKFLOW_STEP_ATTEMPT_INVOCATION_READ_MAX)
+    .default([]),
   started_at: z.string(),
   finished_at: z.string().nullable(),
 });

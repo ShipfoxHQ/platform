@@ -514,8 +514,20 @@ describe('toStepAttemptDetailResponseDto', () => {
       ],
     };
 
-    expect(toStepAttemptDetailResponseDto(stepData, attempt)).toEqual({
+    expect(
+      toStepAttemptDetailResponseDto(stepData, attempt, {
+        workflowRunId: '33333333-3333-4333-8333-333333333333',
+        workflowRunAttempt: 2,
+        jobId: '44444444-4444-4444-8444-444444444444',
+        jobExecutionId: stepData.jobExecutionId,
+      }),
+    ).toEqual({
+      workflow_run_id: '33333333-3333-4333-8333-333333333333',
+      workflow_run_attempt: 2,
+      job_id: '44444444-4444-4444-8444-444444444444',
+      job_execution_id: stepData.jobExecutionId,
       step_id: stepData.id,
+      step_attempt_id: attempt.id,
       attempt: 1,
       authored_config: {run: 'echo $' + '{{ inputs.message }}'},
       config: {run: 'echo hello'},
@@ -530,6 +542,14 @@ describe('toStepAttemptDetailResponseDto', () => {
           value: 'hello',
         },
       ],
+      output: null,
+      outputs: null,
+      response: null,
+      error: null,
+      gate_result: {kind: 'unknown', data: {passed: 'yes'}},
+      invocations: [],
+      restart_feedback: null,
+      oversized_fields: [],
     });
   });
 });

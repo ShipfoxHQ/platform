@@ -2,8 +2,10 @@ import {buildUserContext, setUserContext} from '@shipfox/api-auth-context';
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import {
   STEP_ERROR_MESSAGE_MAX_LENGTH,
+  WORKFLOW_DIAGNOSTIC_OUTPUT_MAX_BYTES,
   workflowExecutionStepsResponseSchema,
   workflowJobDetailResponseSchema,
+  workflowJobExecutionContextResponseSchema,
   workflowJobExecutionSummariesResponseSchema,
   workflowStepAttemptSummariesResponseSchema,
 } from '@shipfox/api-workflows-dto';
@@ -13,6 +15,7 @@ import {eq, sql} from 'drizzle-orm';
 import type {FastifyInstance} from 'fastify';
 import Fastify from 'fastify';
 import {serializerCompiler, validatorCompiler} from 'fastify-type-provider-zod';
+import type {PersistedEvaluationTraceEntry} from '#core/entities/step.js';
 import {db} from '#db/db.js';
 import * as dbIndex from '#db/index.js';
 import {jobExecutions} from '#db/schema/job-executions.js';
@@ -21,6 +24,7 @@ import {stepAttempts} from '#db/schema/step-attempts.js';
 import {steps} from '#db/schema/steps.js';
 import {createHighCardinalityWorkflowRun} from '#test/index.js';
 import {getJobDetailRoute} from './get-job-detail.js';
+import {getJobExecutionContextRoute} from './get-job-execution-context.js';
 import {listExecutionStepsRoute} from './list-execution-steps.js';
 import {listJobExecutionsRoute} from './list-job-executions.js';
 import {listStepAttemptsRoute} from './list-step-attempts.js';
@@ -51,6 +55,10 @@ describe('selected workflow job routes', () => {
       done();
     });
     app.get('/api/workflows/runs/jobs/:jobId', getJobDetailRoute(projects));
+    app.get(
+      '/api/workflows/runs/jobs/:jobId/executions/:executionId/context',
+      getJobExecutionContextRoute(projects),
+    );
     app.get('/api/workflows/runs/jobs/:jobId/executions', listJobExecutionsRoute(projects));
     app.get(
       '/api/workflows/runs/jobs/:jobId/executions/:executionId/steps',
@@ -98,6 +106,120 @@ describe('selected workflow job routes', () => {
     expect(body.selected_execution.steps.items[0].attempts.total).toBe(2);
     expect(body.selected_execution).not.toHaveProperty('runner');
     expect(body.selected_execution.steps.items[0]).not.toHaveProperty('config');
+  });
+
+  test('loads diagnostic context only from the selected execution', async () => {
+    const fixture = await createFixture({stepsPerExecution: 1});
+    const jobId = fixture.jobIds[0] as string;
+    const executionId = fixture.executionIds[0] as string;
+    const trace: readonly PersistedEvaluationTraceEntry[] = [
+      {
+        expression: 'inputs.environment',
+        roots: ['inputs.environment'],
+        fillTarget: 'job-activation',
+        evaluatedAt: 'job-activation',
+        field: 'job.if',
+        value: 'production',
+      },
+    ];
+    const triggerEvent = {
+      source: 'github',
+      event: 'push',
+      delivery_id: crypto.randomUUID(),
+      received_at: new Date('2026-08-05T12:00:00.000Z').toISOString(),
+      project: null,
+      repository: 'shipfox/platform',
+      ref: 'main',
+      commit: 'abc123',
+      data: {ref: 'refs/heads/main'},
+    };
+
+    await db()
+      .update(jobs)
+      .set({
+        runner: ['job-runner'],
+        outputs: {job_output: 'ready'},
+        evaluationTrace: trace,
+        success: 'steps.test.status == "succeeded"',
+      })
+      .where(eq(jobs.id, jobId));
+    await db()
+      .update(jobExecutions)
+      .set({
+        runner: ['execution-runner'],
+        outputs: {execution_output: 'ready'},
+        evaluationTrace: trace,
+        triggerEvents: [triggerEvent],
+      })
+      .where(eq(jobExecutions.id, executionId));
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/workflows/runs/jobs/${jobId}/executions/${executionId}/context`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(workflowJobExecutionContextResponseSchema.safeParse(body).success).toBe(true);
+    expect(body).toMatchObject({
+      workflow_run_id: fixture.run.id,
+      workflow_run_attempt: 1,
+      job_id: jobId,
+      job_execution_id: executionId,
+      job_runner: ['job-runner'],
+      execution_runner: ['execution-runner'],
+      job_outputs: {job_output: 'ready'},
+      execution_outputs: {execution_output: 'ready'},
+      condition: 'steps.test.status == "succeeded"',
+      oversized_fields: [],
+    });
+    expect(body.trigger_events).toEqual([triggerEvent]);
+    expect(body.job_evaluation_trace).toHaveLength(1);
+    expect(body.execution_evaluation_trace).toHaveLength(1);
+
+    const selectedJob = await app.inject({
+      method: 'GET',
+      url: `/api/workflows/runs/jobs/${jobId}`,
+    });
+    expect(selectedJob.statusCode).toBe(200);
+    expect(selectedJob.json().selected_execution).not.toHaveProperty('runner');
+    expect(selectedJob.json().selected_execution).not.toHaveProperty('outputs');
+    expect(selectedJob.json().selected_execution).not.toHaveProperty('evaluation_trace');
+  });
+
+  test('describes oversized legacy context values without failing the response', async () => {
+    const fixture = await createFixture({stepsPerExecution: 1});
+    const jobId = fixture.jobIds[0] as string;
+    const executionId = fixture.executionIds[0] as string;
+    const jobOutputs = {legacy: 'x'.repeat(WORKFLOW_DIAGNOSTIC_OUTPUT_MAX_BYTES)};
+    const executionOutputs = {legacy: 'y'.repeat(WORKFLOW_DIAGNOSTIC_OUTPUT_MAX_BYTES)};
+
+    await db().update(jobs).set({outputs: jobOutputs}).where(eq(jobs.id, jobId));
+    await db()
+      .update(jobExecutions)
+      .set({outputs: executionOutputs})
+      .where(eq(jobExecutions.id, executionId));
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/workflows/runs/jobs/${jobId}/executions/${executionId}/context`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().job_outputs).toBeNull();
+    expect(response.json().execution_outputs).toBeNull();
+    expect(response.json().oversized_fields).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          field: 'job_outputs',
+          reason: 'legacy_value_exceeds_inline_limit',
+        }),
+        expect.objectContaining({
+          field: 'execution_outputs',
+          reason: 'legacy_value_exceeds_inline_limit',
+        }),
+      ]),
+    );
   });
 
   test('paginates execution, step, and step-attempt summaries', async () => {

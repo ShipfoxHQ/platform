@@ -1,3 +1,8 @@
+import {
+  WORKFLOW_DIAGNOSTIC_CONFIG_MAX_BYTES,
+  WORKFLOW_DIAGNOSTIC_OUTPUT_MAX_BYTES,
+  WORKFLOW_STEP_ATTEMPT_INVOCATION_WRITE_MAX,
+} from '@shipfox/api-workflows-dto';
 import {eq} from 'drizzle-orm';
 import {nextStepForJob} from '#core/job-execution.js';
 import {stripSetupStep} from '#test/fixtures/strip-setup-step.js';
@@ -11,6 +16,7 @@ import {stepAttempts as stepAttemptsTable} from '../schema/step-attempts.js';
 import {steps as stepsTable} from '../schema/steps.js';
 import {
   createWorkflowRun,
+  finishStepAttempt,
   getFirstJobExecutionByJobId,
   getJobExecutionFailureOrigin,
   getJobsByWorkflowRunId,
@@ -18,6 +24,8 @@ import {
   getStepAttemptDetail,
   getStepAttempts,
   getStepsByJobId,
+  insertRunningStepAttempt,
+  markStepRunning,
 } from '../workflow-runs.js';
 
 describe('workflow run queries', () => {
@@ -143,6 +151,114 @@ describe('workflow run queries', () => {
       if (!step) throw new Error('Expected a workflow step');
 
       await expect(getLatestStepAttempt({stepId: step.id, workspaceId})).resolves.toBeUndefined();
+    });
+  });
+
+  describe('diagnostic write bounds', () => {
+    test('enforces config and invocation limits when an attempt starts', async () => {
+      const run = await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId,
+        model: buildModel({jobs: {build: {steps: [{run: 'echo hello'}]}}}),
+        triggerPayload: {
+          source: 'manual',
+          event: 'fire',
+          subscriptionId: crypto.randomUUID(),
+          userId: crypto.randomUUID(),
+        },
+      });
+      const [job] = await getJobsByWorkflowRunId(run.id);
+      if (!job) throw new Error('Expected a workflow job');
+      await stripSetupStep(job.id);
+      const [step] = await getStepsByJobId(job.id);
+      if (!step) throw new Error('Expected a workflow step');
+
+      await db()
+        .update(stepsTable)
+        .set({config: {run: 'x'.repeat(WORKFLOW_DIAGNOSTIC_CONFIG_MAX_BYTES)}})
+        .where(eq(stepsTable.id, step.id));
+
+      await expect(nextStepForJob(job.id)).rejects.toMatchObject({
+        name: 'WorkflowDiagnosticTooLargeError',
+        field: 'config',
+      });
+      await expect(
+        db().select().from(stepAttemptsTable).where(eq(stepAttemptsTable.stepId, step.id)),
+      ).resolves.toHaveLength(0);
+
+      const invocations = Array.from(
+        {length: WORKFLOW_STEP_ATTEMPT_INVOCATION_WRITE_MAX + 1},
+        (_, callIndex) => ({
+          call_index: callIndex,
+          started_at: new Date('2026-08-05T12:00:00.000Z').toISOString(),
+        }),
+      );
+      await expect(
+        db().transaction((tx) =>
+          insertRunningStepAttempt(
+            {jobExecutionId: step.jobExecutionId, stepId: step.id, attempt: 1, invocations},
+            tx,
+          ),
+        ),
+      ).rejects.toMatchObject({
+        name: 'WorkflowStepAttemptInvocationLimitError',
+        count: WORKFLOW_STEP_ATTEMPT_INVOCATION_WRITE_MAX + 1,
+      });
+    });
+
+    test('enforces output limits before an attempt finishes', async () => {
+      const run = await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId,
+        model: buildModel({jobs: {build: {steps: [{run: 'echo hello'}]}}}),
+        triggerPayload: {
+          source: 'manual',
+          event: 'fire',
+          subscriptionId: crypto.randomUUID(),
+          userId: crypto.randomUUID(),
+        },
+      });
+      const [job] = await getJobsByWorkflowRunId(run.id);
+      if (!job) throw new Error('Expected a workflow job');
+      await stripSetupStep(job.id);
+      const [step] = await getStepsByJobId(job.id);
+      if (!step) throw new Error('Expected a workflow step');
+      const running = await db().transaction((tx) =>
+        markStepRunning(
+          {
+            jobExecutionId: step.jobExecutionId,
+            stepId: step.id,
+          },
+          tx,
+        ),
+      );
+      if (!running) throw new Error('Expected the step to start');
+
+      await expect(
+        db().transaction((tx) =>
+          finishStepAttempt(
+            {
+              stepId: step.id,
+              attempt: running.currentAttempt,
+              status: 'succeeded',
+              output: {value: 'x'.repeat(WORKFLOW_DIAGNOSTIC_OUTPUT_MAX_BYTES)},
+              logOutcome: 'drained',
+            },
+            tx,
+          ),
+        ),
+      ).rejects.toMatchObject({
+        name: 'WorkflowDiagnosticTooLargeError',
+        field: 'output',
+      });
+      await expect(
+        db()
+          .select({status: stepAttemptsTable.status})
+          .from(stepAttemptsTable)
+          .where(eq(stepAttemptsTable.id, (await getStepAttempts(job.id))[0]?.id as string)),
+      ).resolves.toEqual([{status: 'running'}]);
     });
   });
 

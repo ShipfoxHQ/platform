@@ -1,5 +1,6 @@
 import type {WorkflowFieldTemplate} from '@shipfox/api-definitions-dto';
 import {
+  WORKFLOW_DIAGNOSTIC_CONFIG_MAX_BYTES,
   WORKFLOW_SOURCE_SNAPSHOT_MAX_BYTES,
   WORKFLOWS_WORKFLOW_RUN_ATTEMPT_CREATED,
 } from '@shipfox/api-workflows-dto';
@@ -1947,6 +1948,35 @@ describe('workflow run queries', () => {
           overshootBytes: measuredBytes - WORKFLOW_SOURCE_SNAPSHOT_MAX_BYTES,
         }),
       );
+
+      await expect(
+        db()
+          .select()
+          .from(workflowRunCounters)
+          .where(eq(workflowRunCounters.definitionId, definitionId)),
+      ).resolves.toHaveLength(0);
+    });
+
+    test('rejects an oversized resolved config before inserting the materialized run graph', async () => {
+      await expect(
+        createWorkflowRun({
+          workspaceId,
+          projectId,
+          definitionId,
+          model: buildModel({
+            jobs: {build: {steps: [{run: 'x'.repeat(WORKFLOW_DIAGNOSTIC_CONFIG_MAX_BYTES)}]}},
+          }),
+          triggerPayload: {
+            source: 'manual',
+            event: 'fire',
+            subscriptionId: crypto.randomUUID(),
+            userId: crypto.randomUUID(),
+          },
+        }),
+      ).rejects.toMatchObject({
+        name: 'WorkflowDiagnosticTooLargeError',
+        field: 'config',
+      });
 
       await expect(
         db()

@@ -9,6 +9,10 @@ import {
   workflowRunAttemptDtoSchema,
   workflowRunDtoFields,
 } from './workflow-run.js';
+import {
+  oversizedFieldDtoSchema,
+  WORKFLOW_STEP_ATTEMPT_INVOCATION_READ_MAX,
+} from './workflow-run-diagnostics.js';
 
 export const jobExecutionDtoSchema = z.object({
   id: z.string().uuid(),
@@ -45,13 +49,28 @@ export const workflowRunStepDetailDtoSchema = stepDtoSchema.extend({
 export type WorkflowRunStepDetailDto = z.infer<typeof workflowRunStepDetailDtoSchema>;
 
 export const stepAttemptDetailResponseSchema = z.object({
+  workflow_run_id: z.string().uuid(),
+  workflow_run_attempt: workflowRunAttemptDtoSchema.shape.attempt,
+  job_id: z.string().uuid(),
+  job_execution_id: z.string().uuid(),
   step_id: z.string().uuid(),
+  step_attempt_id: z.string().uuid(),
   attempt: stepAttemptDetailDtoSchema.shape.attempt,
   authored_config: z.record(z.string(), z.unknown()).nullable(),
   config: stepAttemptDetailDtoSchema.shape.config,
   // Optional for mixed-version readers; the server derives this from the typed step projection.
   session: stepDtoSchema.shape.session,
   evaluation_trace: stepAttemptDetailDtoSchema.shape.evaluation_trace,
+  output: stepAttemptDtoSchema.shape.output,
+  outputs: stepAttemptDtoSchema.shape.outputs,
+  response: stepAttemptDtoSchema.shape.response,
+  error: stepAttemptDtoSchema.shape.error,
+  gate_result: stepAttemptDtoSchema.shape.gate_result,
+  invocations: stepAttemptDtoSchema.shape.invocations
+    .unwrap()
+    .max(WORKFLOW_STEP_ATTEMPT_INVOCATION_READ_MAX),
+  restart_feedback: stepAttemptDtoSchema.shape.restart_feedback,
+  oversized_fields: z.array(oversizedFieldDtoSchema),
 });
 
 export type StepAttemptDetailResponseDto = z.infer<typeof stepAttemptDetailResponseSchema>;

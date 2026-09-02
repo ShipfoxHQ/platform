@@ -10,6 +10,7 @@ import {
 import {and, asc, count, eq, inArray, isNull, notInArray, sql} from 'drizzle-orm';
 import {type AgentDefaultsResolver, createAgentDefaultsResolver} from '#core/agent-defaults.js';
 import {loadAgentToolMaterializationContext} from '#core/agent-tools.js';
+import {assertWorkflowDiagnosticSize} from '#core/diagnostics.js';
 import {isJobTerminal, type JobStatus, type ResolutionReason} from '#core/entities/job.js';
 import type {
   JobExecution,
@@ -624,6 +625,14 @@ async function persistMaterializedListenerExecution(
     readonly materialized: MaterializedListenerExecution;
   },
 ): Promise<JobExecutionDb> {
+  assertWorkflowDiagnosticSize('execution_evaluation_trace', params.materialized.evaluationTrace);
+  for (const step of params.materialized.steps) {
+    assertWorkflowDiagnosticSize('config', step.config);
+    assertWorkflowDiagnosticSize('authored_config', step.authoredConfig);
+    assertWorkflowDiagnosticSize('condition', step.condition);
+    assertWorkflowDiagnosticSize('config', step.configPlan);
+  }
+
   const [execution] = await tx
     .insert(jobExecutions)
     .values({

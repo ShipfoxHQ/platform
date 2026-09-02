@@ -1,5 +1,6 @@
 import {WORKFLOWS_WORKFLOW_RUN_ATTEMPT_CREATED} from '@shipfox/api-workflows-dto';
 import type {SQL} from 'drizzle-orm';
+import {assertWorkflowDiagnosticSize} from '#core/diagnostics.js';
 import type {WorkflowRun} from '#core/entities/workflow-run.js';
 import type {Tx} from '../db.js';
 import {writeWorkflowsOutboxEvent} from '../outbox-writes.js';
@@ -37,6 +38,12 @@ export async function persistMaterializedRunGraph(
     readonly materializedJobs: readonly MaterializedRunGraphJob[];
   },
 ): Promise<void> {
+  for (const materializedJob of params.materializedJobs) {
+    assertWorkflowDiagnosticSize('condition', materializedJob.job.success);
+    assertWorkflowDiagnosticSize('job_outputs', materializedJob.job.outputs);
+    assertWorkflowDiagnosticSize('evaluation_trace', materializedJob.job.evaluationTrace);
+  }
+
   const jobRows =
     params.materializedJobs.length === 0
       ? []
@@ -55,6 +62,10 @@ export async function persistMaterializedRunGraph(
     const jobExecution = materializedJob?.createExecution?.(jobRow);
     return jobExecution === undefined ? [] : [{...jobExecution, jobId: jobRow.id}];
   });
+  for (const jobExecution of jobExecutionValues) {
+    assertWorkflowDiagnosticSize('execution_outputs', jobExecution.outputs);
+    assertWorkflowDiagnosticSize('execution_evaluation_trace', jobExecution.evaluationTrace);
+  }
   const jobExecutionRows =
     jobExecutionValues.length === 0
       ? []
@@ -94,6 +105,15 @@ export async function persistMaterializedRunGraph(
       jobExecutionId: jobExecution.id,
     }));
   });
+
+  for (const step of stepValues) {
+    assertWorkflowDiagnosticSize('config', step.config);
+    assertWorkflowDiagnosticSize('config', step.configPlan);
+    assertWorkflowDiagnosticSize('condition', step.condition);
+    assertWorkflowDiagnosticSize('evaluation_trace', step.evaluationTrace);
+    assertWorkflowDiagnosticSize('authored_config', step.authoredConfig);
+    assertWorkflowDiagnosticSize('error', step.error);
+  }
 
   if (stepValues.length > 0) {
     await tx.insert(steps).values(stepValues);

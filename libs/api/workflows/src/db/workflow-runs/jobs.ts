@@ -2,6 +2,7 @@ import {readPersistedWorkflowModel} from '@shipfox/api-definitions-dto';
 import {WORKFLOWS_JOB_TERMINATED} from '@shipfox/api-workflows-dto';
 import type {ExpressionType} from '@shipfox/expression';
 import {and, asc, desc, eq, inArray, notInArray, sql} from 'drizzle-orm';
+import {assertWorkflowDiagnosticSize} from '#core/diagnostics.js';
 import {isJobTerminal, type Job, type JobStatus, type JobStatusReason} from '#core/entities/job.js';
 import type {JobExecution} from '#core/entities/job-execution.js';
 import type {PersistedEvaluationTraceEntry} from '#core/entities/step.js';
@@ -346,6 +347,8 @@ export async function updateJobStatusAtVersion(
   const outputs = isJobTerminal(params.status)
     ? await reduceJobOutputs(tx, {jobId: params.jobId, status: params.status})
     : undefined;
+  assertWorkflowDiagnosticSize('job_outputs', outputs);
+  assertWorkflowDiagnosticSize('job_evaluation_trace', params.evaluationTrace);
   const rows = await tx
     .update(jobs)
     .set({

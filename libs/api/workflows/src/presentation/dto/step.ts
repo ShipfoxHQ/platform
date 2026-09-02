@@ -9,10 +9,12 @@ import {
   type StepErrorDto,
   type StepGateResultDto,
   stepErrorReasonSchema,
+  WORKFLOW_STEP_ATTEMPT_INVOCATION_READ_MAX,
 } from '@shipfox/api-workflows-dto';
 import type {Step, StepAttempt} from '#core/entities/step.js';
 import {GATE_EVALUATION_ERROR_REASON} from '#core/step-transition/evaluate-gate.js';
 import {toEvaluationTraceDto} from './evaluation-trace.js';
+import {inlineDiagnostic} from './workflow-run-diagnostics.js';
 
 export function truncateStepText(value: string, maxLength: number): string {
   if (value.length <= maxLength) return value;
@@ -218,7 +220,7 @@ export function toStepAttemptDto(attempt: StepAttempt): StepAttemptDto {
     error: attempt.error,
     gate_result: toStepGateResultDto(attempt.gateResult, attempt.status),
     restart_feedback: attempt.restartFeedback,
-    invocations: [...attempt.invocations],
+    invocations: attempt.invocations.slice(0, WORKFLOW_STEP_ATTEMPT_INVOCATION_READ_MAX),
     started_at: attempt.startedAt.toISOString(),
     finished_at: attempt.finishedAt ? attempt.finishedAt.toISOString() : null,
   };
@@ -227,13 +229,52 @@ export function toStepAttemptDto(attempt: StepAttempt): StepAttemptDto {
 export function toStepAttemptDetailResponseDto(
   step: Step,
   attempt: StepAttempt,
+  ancestry: {
+    workflowRunId: string;
+    workflowRunAttempt: number;
+    jobId: string;
+    jobExecutionId: string;
+  },
 ): StepAttemptDetailResponseDto {
+  const authoredConfig = inlineDiagnostic('authored_config', step.authoredConfig);
+  const config = inlineDiagnostic('config', attempt.config);
+  const evaluationTrace = inlineDiagnostic('evaluation_trace', attempt.evaluationTrace);
+  const output = inlineDiagnostic('output', attempt.output);
+  const outputs = inlineDiagnostic('outputs', attempt.output);
+  const response = inlineDiagnostic('response', attempt.response);
+  const error = inlineDiagnostic('error', attempt.error);
+  const gateResult = inlineDiagnostic('gate_result', attempt.gateResult);
+
   return {
+    workflow_run_id: ancestry.workflowRunId,
+    workflow_run_attempt: ancestry.workflowRunAttempt,
+    job_id: ancestry.jobId,
+    job_execution_id: ancestry.jobExecutionId,
     step_id: step.id,
+    step_attempt_id: attempt.id,
     attempt: attempt.attempt,
-    authored_config: step.authoredConfig,
-    config: attempt.config,
-    session: toSessionDto(attempt.config),
-    evaluation_trace: toEvaluationTraceDto(attempt.evaluationTrace),
+    authored_config: authoredConfig.value,
+    config: config.value,
+    session: config.value === null ? null : toSessionDto(config.value),
+    evaluation_trace:
+      evaluationTrace.value === null ? null : toEvaluationTraceDto(evaluationTrace.value),
+    output: output.value,
+    outputs: outputs.value,
+    response: response.value,
+    error: error.value === null ? null : toStepErrorDto(error.value, step.type),
+    gate_result:
+      gateResult.value === null ? null : toStepGateResultDto(gateResult.value, attempt.status),
+    invocations: attempt.invocations.slice(0, WORKFLOW_STEP_ATTEMPT_INVOCATION_READ_MAX),
+    restart_feedback: attempt.restartFeedback,
+    oversized_fields: [
+      authoredConfig.oversized,
+      config.oversized,
+      evaluationTrace.oversized,
+      output.oversized,
+      outputs.oversized,
+      response.oversized,
+      error.oversized,
+      gateResult.oversized,
+    ].filter((field): field is NonNullable<typeof field> => field !== null),
   };
 }
