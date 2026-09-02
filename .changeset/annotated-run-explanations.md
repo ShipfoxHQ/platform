@@ -4,4 +4,4 @@
 "@shipfox/api-workflows": minor
 ---
 
-Adds enriched workflow run annotation pages and no-execution job explanations.
+Adds the workflow-run annotations endpoint with job, execution, and step ancestry, plus the job-explanations endpoint for failed or skipped jobs without execution rows.

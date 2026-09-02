@@ -1,4 +1,12 @@
 export type {
+  WorkflowRunAnnotationOriginRead,
+  WorkflowRunAnnotationOriginReference,
+} from './workflow-runs/annotation-reads.js';
+export {
+  getWorkflowRunAnnotationOrigins,
+  workflowRunAnnotationOriginKey,
+} from './workflow-runs/annotation-reads.js';
+export type {
   WorkflowJobDetailRead,
   WorkflowJobExecutionCursor,
   WorkflowJobExecutionDetailRead,
@@ -22,14 +30,6 @@ export {
   listWorkflowJobExecutionSummaries,
   listWorkflowStepAttemptSummaries,
 } from './workflow-runs/job-detail.js';
-export type {
-  WorkflowRunAnnotationOriginRead,
-  WorkflowRunAnnotationOriginReference,
-} from './workflow-runs/annotation-reads.js';
-export {
-  getWorkflowRunAnnotationOrigins,
-  workflowRunAnnotationOriginKey,
-} from './workflow-runs/annotation-reads.js';
 export type {
   UpdateJobExecutionStatusAtVersionParams,
   UpdateJobExecutionStatusParams,
@@ -110,8 +110,8 @@ export type {
 } from './workflow-runs/overview.js';
 export {
   getWorkflowRunAccessScopeById,
-  getWorkflowRunJobOverview,
   getWorkflowRunAttemptIdForScope,
+  getWorkflowRunJobOverview,
   getWorkflowRunOverview,
   listWorkflowRunJobsPage,
 } from './workflow-runs/overview.js';

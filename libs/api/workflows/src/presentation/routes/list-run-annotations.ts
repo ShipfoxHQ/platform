@@ -81,7 +81,7 @@ export function listRunAnnotationsRoute(
         responseStatus =
           error instanceof ClientError && typeof error.status === 'number' ? error.status : 500;
         if (responseStatus === 404 && outcome === 'success') outcome = 'not_found';
-        else if (outcome === 'success') outcome = 'error';
+        else if (responseStatus >= 500 || outcome === 'success') outcome = 'error';
         throw error;
       } finally {
         logger().info(
@@ -147,6 +147,7 @@ async function readRunAnnotations({
     },
   );
   if (!attemptId) {
+    onDatabaseRead({databaseDurationMilliseconds});
     throw new ClientError('Run attempt not found', 'not-found', {status: 404});
   }
 

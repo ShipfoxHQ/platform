@@ -10,11 +10,25 @@ import type {FastifyInstance} from 'fastify';
 import Fastify from 'fastify';
 import {serializerCompiler, validatorCompiler} from 'fastify-type-provider-zod';
 import {db} from '#db/db.js';
+import * as dbIndex from '#db/index.js';
 import {jobExecutions} from '#db/schema/job-executions.js';
 import {jobs} from '#db/schema/jobs.js';
+import * as presentationDto from '#presentation/dto/index.js';
 import {createHighCardinalityWorkflowRun} from '#test/index.js';
 import {listRunAnnotationsRoute} from './list-run-annotations.js';
 import {listRunJobExplanationsRoute} from './list-run-job-explanations.js';
+
+const routeLoggerMocks = vi.hoisted(() => ({
+  debug: vi.fn(),
+  error: vi.fn(),
+  info: vi.fn(),
+  warn: vi.fn(),
+}));
+
+vi.mock('@shipfox/node-opentelemetry', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@shipfox/node-opentelemetry')>()),
+  logger: () => routeLoggerMocks,
+}));
 
 const getProjectById = vi.fn();
 const projects = {
@@ -53,6 +67,10 @@ describe('workflow run annotation and job explanation routes', () => {
 
   beforeEach(() => {
     workspaceId = crypto.randomUUID();
+    routeLoggerMocks.debug.mockReset();
+    routeLoggerMocks.error.mockReset();
+    routeLoggerMocks.info.mockReset();
+    routeLoggerMocks.warn.mockReset();
     getProjectById.mockImplementation(({projectId: requestedProjectId}) =>
       Promise.resolve({
         project: {
@@ -202,6 +220,12 @@ describe('workflow run annotation and job explanation routes', () => {
       attemptsPerStep: 1,
     });
     workspaceId = fixture.run.workspaceId;
+    vi.spyOn(dbIndex, 'getWorkflowRunAttemptIdForScope').mockImplementationOnce(
+      (_params, options) => {
+        options?.onRead?.({databaseDurationMilliseconds: 7, returnedRows: 0});
+        return Promise.resolve(undefined);
+      },
+    );
 
     const annotationsResponse = await app.inject({
       method: 'GET',
@@ -217,6 +241,67 @@ describe('workflow run annotation and job explanation routes', () => {
     expect(explanationsResponse.statusCode).toBe(404);
     expect(explanationsResponse.json().code).toBe('not-found');
     expect(listAnnotationsForRunAttempt).not.toHaveBeenCalled();
+    expect(routeLoggerMocks.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        route: 'workflow-runs/:id/annotations',
+        status: 404,
+        outcome: 'not_found',
+        databaseDurationMs: 7,
+      }),
+      'Listed enriched workflow run annotations',
+    );
+  });
+
+  test('records a failed outcome when a later error follows degraded enrichment', async () => {
+    const fixture = await createHighCardinalityWorkflowRun({
+      jobs: 1,
+      dependenciesPerJob: 0,
+      executionsPerJob: 1,
+      stepsPerExecution: 1,
+      attemptsPerStep: 1,
+    });
+    workspaceId = fixture.run.workspaceId;
+    const validAnnotation = {
+      id: crypto.randomUUID(),
+      job_id: fixture.jobIds[0] as string,
+      job_execution_id: fixture.executionIds[0] as string,
+      origin_step_id: fixture.stepIds[0] as string,
+      origin_step_attempt: 1,
+      context: 'deployment-url',
+      style: 'info' as const,
+      sequence: 2,
+      body: 'https://example.com/deployments/valid',
+    };
+    const unavailableAnnotation = {
+      ...validAnnotation,
+      id: crypto.randomUUID(),
+      job_execution_id: crypto.randomUUID(),
+      sequence: 1,
+      body: 'https://example.com/deployments/unavailable',
+    };
+    listAnnotationsForRunAttempt.mockResolvedValue({
+      annotations: [unavailableAnnotation, validAnnotation],
+      hasMore: false,
+      nextCursor: null,
+    });
+    vi.spyOn(presentationDto, 'toWorkflowRunAnnotationItemDto').mockImplementationOnce(() => {
+      throw new Error('DTO conversion failed');
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/workflows/runs/${fixture.run.id}/annotations?attempt=1`,
+    });
+
+    expect(response.statusCode).toBe(500);
+    expect(routeLoggerMocks.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        route: 'workflow-runs/:id/annotations',
+        status: 500,
+        outcome: 'error',
+      }),
+      'Listed enriched workflow run annotations',
+    );
   });
 
   test('masks inaccessible run projects on both routes', async () => {
