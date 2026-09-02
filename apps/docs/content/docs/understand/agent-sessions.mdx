@@ -32,9 +32,8 @@ A named session gives both workflows that conversation.
 
 ## How it fits
 
-A Shipfox run splits work into jobs. Each job runs on its own runner with a
-fresh checkout of the repository. Steps inside one job share that checkout and
-run in order. Every agent step normally starts a new conversation, even when
+A Shipfox run splits work into jobs. Each job gets a fresh checkout of the
+repository. Steps inside one job share that checkout and run in order. Every agent step normally starts a new conversation, even when
 the step before it was also an agent step. [Jobs and
 steps](/understand/jobs-and-steps) explains that isolation.
 
@@ -54,8 +53,8 @@ Everything else works as before, including
 
 ## How it works
 
-Set `session` on an agent step. The first step that uses a key starts the
-conversation. Every later agent step in the same run with the same key
+Set `session` on an agent step. The first `resume` step that uses a key starts
+the conversation. Every later agent step in the same run with the same key
 continues it. That can be a later step in the same job, a job that runs after
 `needs`, or the next execution of a listening job.
 
@@ -65,16 +64,17 @@ separate conversation for each issue or pull request.
 A step continues a session in one of two modes.
 
 - `resume`, the default, adds the step's work to the conversation.
-- `fork` reads a copy and writes nothing back.
+- `fork` reads a copy and writes nothing back. If the key doesn't exist yet,
+  the step runs with no earlier conversation and creates nothing.
 
-A session lasts as long as the run. A rerun of failed jobs keeps it. A rerun of
-all jobs starts without it. Shipfox stores the conversation encrypted and
-deletes it with the run. Steps that share a key must use the same harness; the
-model can change. The [Agent session
+A session lasts as long as the run and isn't available outside it. A rerun
+starts every session fresh. Steps that share a key must use the same harness;
+the model can change. The [Agent session
 fields](/reference/workflow-schema#agent-session-fields) reference lists the
 exact key rules, modes, and failure reasons.
 
-This complete workflow shows all three kinds of continuation. Replace
+This complete workflow shows all three kinds of continuation. It needs a
+project connected to GitHub and configured agent defaults. Replace
 `github_acme` with the slug of your GitHub integration connection.
 
 ```yaml title=".shipfox/workflows/plan-implement-follow-up.yml"
@@ -117,11 +117,11 @@ jobs:
     needs: [implement, plan]
     listening:
       on:
-        - source: github_acme # Replace with the same integration connection slug.
+        - source: github_acme # Replace with the slug of the same GitHub integration connection.
           event: issue_comment.created
           filter: event.issue.number == jobs.plan.outputs.issue_number
       until:
-        - source: github_acme # Replace with the same integration connection slug.
+        - source: github_acme # Replace with the slug of the same GitHub integration connection.
           event: issues.closed
           filter: event.issue.number == jobs.plan.outputs.issue_number
       timeout: 8h
@@ -162,10 +162,11 @@ Otherwise add a `needs` edge or use separate keys.
 
 ## Consequences and tradeoffs
 
-**A session doesn't keep files.** Each job execution runs on a new runner with a
-new checkout of the repository. The agent remembers that it changed a file, but
-the file only exists if a step committed and pushed it. Shipfox adds a short
-notice at the top of every resumed prompt to remind the agent of this. Ask the
+**A session doesn't keep files.** Each job execution gets a fresh checkout of
+the repository. Steps in the same job still share that checkout. Across jobs
+and listening executions, the agent remembers that it changed a file, but the
+file only exists if a step committed and pushed it. Shipfox adds a short notice
+at the top of every resumed prompt to remind the agent of this. Ask the
 agent to read files again before it edits them. Keep using branches, comments,
 and outputs to pass durable state.
 

@@ -55,7 +55,7 @@ When an agent step runs, Shipfox resolves the harness, provider, model, and
 thinking level in this order:
 
 - **Harness**: the step's `harness`, else the pinned harness of a [named
-  session](/reference/workflow-schema#agent-session-fields) the step continues,
+  session](/reference/workflow-schema#agent-session-fields) the step resumes,
   else the workspace default harness, else `pi`.
 - **Provider**: the step's `provider`, else a compatible workspace default
   provider, else `anthropic`.

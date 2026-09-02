@@ -110,7 +110,7 @@ Shipfox resolves the key when it dispatches the step. The result must match the
 [key rules](/reference/workflow-schema#agent-session-fields). Do not combine a per-item
 key with batching unless every event in a batch belongs to one item.
 
-## Read a session without changing it
+## Read a session without adding to it
 
 Choose the mode for each step that names a session:
 
@@ -118,7 +118,7 @@ Choose the mode for each step that names a session:
 | --- | --- |
 | The step's work should become part of the shared conversation. | `resume`, the default. |
 | The step runs at the same time as a step that resumes the same key. | `fork`. |
-| The step should read the conversation but must not change it. | `fork`. |
+| The step should read the conversation but must not add to it. | `fork`. |
 
 This fragment adds a parallel reader to **Plan then implement**. Add it under
 the `jobs` map:
@@ -140,6 +140,11 @@ same time. The fork reads a snapshot and never writes. Two resumes in that
 position would fail sync with `agent-session-parallel-resume`. See [Agent session
 fields](/reference/workflow-schema#agent-session-fields).
 
+Fork limits only the conversation. It doesn't make the step's tools or checkout
+read-only. If the key doesn't exist yet, a fork runs with no earlier
+conversation and creates nothing. Check the session badge when the earlier step
+might have been skipped.
+
 ## Verify the shared session
 
 Start **Plan then implement** from the **Workflows** tab and open the run.
@@ -156,13 +161,13 @@ shows a higher segment. Its summary refers to the earlier batch.
 
 ## Know what a session does not carry
 
-- **A fresh workspace for every segment.** Each job execution has its own
-  runner and checkout. The agent remembers files it edited, but they exist only
-  if a step committed and pushed them. Shipfox adds a notice to every resumed
+- **A fresh workspace for every segment.** Each job execution gets a fresh
+  checkout. The agent remembers files it edited, but they exist only if a step
+  committed and pushed them. Shipfox adds a notice to every resumed
   prompt that states this. Keep pushing changes or publishing outputs as
   before.
-- **Failed attempts stay in the conversation.** Every reported attempt commits,
-  including one a gate rejected. A retry sees its own failure, which is often
+- **Failed attempts stay in the conversation.** An attempt that a gate rejects
+  still commits its transcript. A retry sees its own failure, which is often
   useful. Repeated failures also accumulate. Omit `session` on a step whose
   retries should start clean.
 - **Parallel resumes fail fast.** Two steps that resume one key at the same time

@@ -56,8 +56,9 @@ checkout permission doesn't expose the integration credential.
 
 ## What the agent knows
 
-The agent gets its context from two places. The prompt can include the event
-that started the run, outputs from earlier jobs, and later events. The checkout
+The agent's context comes from the prompt and the checkout. The prompt can
+include the event that started the run, outputs from earlier jobs, and later
+events. The checkout
 gives the agent the code of the current job.
 
 Together they are stronger than either one alone. The event explains why the

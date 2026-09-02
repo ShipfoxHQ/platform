@@ -75,8 +75,8 @@ when the events form one natural update, not only to save runner time.
 
 ## Executions can share a conversation, not a workspace
 
-Each execution runs on a fresh runner with a fresh checkout. Files, installed
-packages, and processes from an earlier execution no longer exist. Publish
+Each execution gets a fresh checkout. Files, installed packages, and processes
+from an earlier execution no longer exist. Publish
 durable state outside the checkout when a later execution needs it: a branch, a
 comment, or a job output.
 

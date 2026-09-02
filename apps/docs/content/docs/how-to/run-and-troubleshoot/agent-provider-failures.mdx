@@ -64,8 +64,8 @@ reason.
 
 | Reason | Repair |
 | --- | --- |
-| `agent_session_key_invalid` | Make the key resolve to letters, digits, dots, underscores, or hyphens, up to 128 characters. Check the expression inside the key. |
-| `agent_session_held` | Another attempt is resuming the same key right now. Add a `needs` edge between the jobs, set `mode: fork` on one step, or use separate keys. |
+| `agent_session_key_invalid` | Start the key with a letter or digit. Use only letters, digits, dots, underscores, or hyphens, up to 128 characters. Check the expression inside the key. |
+| `agent_session_held` | Another attempt is resuming the same key right now. Add a `needs` edge between the jobs, set `mode: fork` on one step, or use separate keys. If no other step is running, an earlier attempt has not released the key yet. Wait for Shipfox to clean it up, then re-run failed jobs. |
 | `agent_session_harness_mismatch` | Remove `harness` from the step, or set it to the harness that created the session. |
 | `agent_session_unavailable` | The transcript could not be stored or loaded, or one segment passed the size cap. Re-run failed jobs once. If it repeats, check [Limits](/reference/limits#agent-sessions) and the runner logs. |
 
