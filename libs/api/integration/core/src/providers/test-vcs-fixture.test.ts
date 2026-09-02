@@ -4,7 +4,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {promisify} from 'node:util';
 import type {CheckoutCredentials} from '@shipfox/api-integration-spi';
-import {createTestVcsFixture} from '#providers/test-vcs-fixture.js';
+import {createTestVcsFixture, isValidTestVcsBranchName} from '#providers/test-vcs-fixture.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -47,6 +47,11 @@ function credentials(
 }
 
 describe('Test VCS smart HTTP fixture', () => {
+  it('uses Git-compatible branch validation for the API schema', () => {
+    expect(isValidTestVcsBranchName('feature]')).toBe(true);
+    expect(isValidTestVcsBranchName('feature[')).toBe(false);
+  });
+
   it('requires a credential and accepts a fresh credential after expiry', async () => {
     const fixture = createTestVcsFixture({port: 0});
     const workingDirectory = await mkdtemp(join(tmpdir(), 'shipfox-test-vcs-git-'));

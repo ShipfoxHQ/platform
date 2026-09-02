@@ -470,7 +470,7 @@ export function isValidGitRefName(ref: string): boolean {
   if (
     [...ref].some((character) => {
       const code = character.codePointAt(0) ?? 0;
-      return code <= 0x20 || code === 0x7f || '~^:?*[]\\'.includes(character);
+      return code <= 0x20 || code === 0x7f || '~^:?*[\\'.includes(character);
     })
   ) {
     return false;
