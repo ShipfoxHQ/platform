@@ -1,0 +1,110 @@
+{
+  "name": "@shipfox/client-agent-access",
+  "license": "MIT",
+  "version": "30.0.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ShipfoxHQ/shipfox.git",
+    "directory": "libs/client/agent-access"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "imports": {
+    "#*": {
+      "types": "./src/*",
+      "workspace-source": "./src/*",
+      "default": "./dist/*"
+    }
+  },
+  "exports": {
+    ".": {
+      "workspace-source": {
+        "types": "./src/index.ts",
+        "default": "./src/index.ts"
+      },
+      "default": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    },
+    "./feature": {
+      "workspace-source": {
+        "types": "./src/feature.ts",
+        "default": "./src/feature.ts"
+      },
+      "default": {
+        "types": "./dist/feature.d.ts",
+        "default": "./dist/feature.js"
+      }
+    },
+    "./routes/*": {
+      "workspace-source": {
+        "types": "./src/routes/*.tsx",
+        "default": "./src/routes/*.tsx"
+      },
+      "default": {
+        "types": "./dist/routes/*.d.ts",
+        "default": "./dist/routes/*.js"
+      }
+    }
+  },
+  "scripts": {
+    "build": "shipfox-swc",
+    "check": "shipfox-biome-check",
+    "check:fix": "shipfox-biome-check --write",
+    "storybook": "storybook dev -p 6013",
+    "storybook:build": "storybook build -o storybook-static",
+    "test": "shipfox-vitest-run",
+    "test:watch": "shipfox-vitest-watch",
+    "type": "shipfox-tsc-check",
+    "type:emit": "shipfox-tsc-emit"
+  },
+  "dependencies": {
+    "@shipfox/api-auth-dto": "workspace:*",
+    "@shipfox/client-api": "workspace:*",
+    "@shipfox/client-shell": "workspace:*",
+    "@shipfox/client-ui": "workspace:*",
+    "@shipfox/react-ui": "workspace:*",
+    "@swc/helpers": "catalog:",
+    "@tanstack/react-form": "catalog:"
+  },
+  "peerDependencies": {
+    "@tanstack/react-query": "^5.101.0",
+    "@tanstack/react-router": "^1.170.16",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@argos-ci/cli": "catalog:",
+    "@argos-ci/storybook": "catalog:",
+    "@shipfox/biome": "workspace:*",
+    "@shipfox/client-test-setup": "workspace:*",
+    "@shipfox/swc": "workspace:*",
+    "@shipfox/ts-config": "workspace:*",
+    "@shipfox/typescript": "workspace:*",
+    "@shipfox/vite": "workspace:*",
+    "@shipfox/vitest": "workspace:*",
+    "@storybook/addon-vitest": "catalog:",
+    "@storybook/react": "catalog:",
+    "@storybook/react-vite": "catalog:",
+    "@tailwindcss/vite": "catalog:",
+    "@tanstack/react-query": "catalog:",
+    "@tanstack/react-router": "catalog:",
+    "@testing-library/jest-dom": "catalog:",
+    "@testing-library/react": "catalog:",
+    "@testing-library/user-event": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
+    "@vitest/browser-playwright": "catalog:",
+    "jsdom": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "storybook": "catalog:",
+    "storybook-addon-pseudo-states": "catalog:",
+    "tailwindcss": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:"
+  }
+}

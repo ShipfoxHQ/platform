@@ -17,6 +17,7 @@
       "target": "@shipfox/storybook",
       "affectedTargets": [
         "@shipfox/react-ui",
+        "@shipfox/client-agent-access",
         "@shipfox/client-agent",
         "@shipfox/client-auth",
         "@shipfox/client-integrations",
@@ -33,6 +34,11 @@
         "metadataPath": "/preview-metadata.json",
         "endpoints": [
           { "id": "react-ui", "path": "/react-ui/index.json", "requireNonEmpty": true },
+          {
+            "id": "client-agent-access",
+            "path": "/client-agent-access/index.json",
+            "requireNonEmpty": true
+          },
           { "id": "client-agent", "path": "/client-agent/index.json", "requireNonEmpty": true },
           { "id": "client-auth", "path": "/client-auth/index.json", "requireNonEmpty": true },
           {
