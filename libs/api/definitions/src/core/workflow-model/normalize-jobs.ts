@@ -153,7 +153,7 @@ export function normalizeJobs(
     issues.push(...(state.issuesBySourceName.get(sourceName) ?? []));
   }
 
-  validateAgentSessionSharing(document, issues, context.agentValidationCatalog.default_harness_id);
+  validateAgentSessionSharing(document, issues);
 
   return entries.flatMap(([sourceName]) => {
     const model = state.modelsBySourceName.get(sourceName);
@@ -1199,7 +1199,7 @@ interface SessionSharingStep {
   readonly stepKey: string | undefined;
   readonly keySource: string;
   readonly mode: 'resume' | 'fork';
-  readonly harness: string;
+  readonly harness: string | undefined;
 }
 
 // Bounds the cross-job sharing pass so a hostile or degenerate document cannot
@@ -1211,7 +1211,7 @@ const MAX_SESSION_SHARING_PAIR_EVALUATIONS = 100_000;
 // at most one issue is reported per code per key, so the earliest conflict in
 // the examined window is the one that matters. The window always retains the
 // first resume-mode step of each distinct job and one step per distinct
-// effective harness before it fills with the earliest remaining steps (see
+// authored harness before it fills with the earliest remaining steps (see
 // selectSessionSharingWindow), so a job holding many serial steps -- or a job
 // whose first sharing step forks the session -- cannot push another job's
 // resume step -- or a divergent harness -- out of the window.
@@ -1232,10 +1232,7 @@ const RUN_GLOBAL_SESSION_KEY_CONTEXT_ROOTS = new Set<string>([
   'secrets',
 ]);
 
-function collectSessionSharingSteps(
-  document: WorkflowDocument,
-  defaultHarnessId: string,
-): SessionSharingStep[] {
+function collectSessionSharingSteps(document: WorkflowDocument): SessionSharingStep[] {
   const steps: SessionSharingStep[] = [];
   for (const [jobName, job] of Object.entries(document.jobs)) {
     job.steps.forEach((step, stepIndex) => {
@@ -1246,7 +1243,7 @@ function collectSessionSharingSteps(
         stepKey: step.key,
         keySource: typeof step.session === 'string' ? step.session : step.session.key,
         mode: typeof step.session === 'string' ? 'resume' : (step.session.mode ?? 'resume'),
-        harness: step.harness ?? defaultHarnessId,
+        harness: step.harness,
       });
     });
   }
@@ -1338,7 +1335,14 @@ function reportHarnessMismatch(
   issues: WorkflowModelValidationIssue[],
   state: SessionSharingValidationState,
 ): void {
-  if (prior.harness === later.harness || state.harnessMismatchReportedKeys.has(keySource)) return;
+  if (
+    prior.harness === undefined ||
+    later.harness === undefined ||
+    prior.harness === later.harness ||
+    state.harnessMismatchReportedKeys.has(keySource)
+  ) {
+    return;
+  }
   state.harnessMismatchReportedKeys.add(keySource);
   issues.push(
     issue({
@@ -1423,9 +1427,8 @@ function validateSessionSharingGroups(
 function validateAgentSessionSharing(
   document: WorkflowDocument,
   issues: WorkflowModelValidationIssue[],
-  defaultHarnessId: string,
 ): void {
-  const steps = collectSessionSharingSteps(document, defaultHarnessId);
+  const steps = collectSessionSharingSteps(document);
 
   // Steps whose session field already produced an issue in the per-step pass
   // can never name a session; stacking sharing issues on them would double-
@@ -1438,7 +1441,7 @@ function validateAgentSessionSharing(
   // be exhausted by unrelated (different-key) pairs before later identical
   // keys are examined. Each group is then cut to a fixed window (see
   // selectSessionSharingWindow) that always keeps the first resume-mode step
-  // of each distinct job and one step per distinct effective harness, so a
+  // of each distinct job and one step per distinct authored harness, so a
   // single degenerate group cannot starve every later key and a long serial
   // job -- or a fork step hiding its job's resume step -- cannot hide another
   // job's sharing step behind the window. Keys that reference per-job context
@@ -1453,7 +1456,7 @@ function sessionStepPathKey(step: SessionSharingStep): string {
 
 // Cuts a session-key group to the fixed step window while always retaining
 // the first resume-mode step of each distinct job and one step per distinct
-// effective harness, then fills the remainder with the earliest steps in
+// authored harness, then fills the remainder with the earliest steps in
 // document order. Without the resume retention, one job holding more than
 // MAX_SESSION_SHARING_STEPS_PER_KEY serial steps -- or a job whose first
 // sharing step forks the session -- would fill the window and silently drop
@@ -1474,7 +1477,7 @@ function selectSessionSharingWindow(steps: readonly SessionSharingStep[]): Sessi
     if (window.length >= MAX_SESSION_SHARING_STEPS_PER_KEY || inWindow.has(step)) return;
     inWindow.add(step);
     window.push(step);
-    harnessesInWindow.add(step.harness);
+    if (step.harness !== undefined) harnessesInWindow.add(step.harness);
   };
 
   // Reservation pass: a step is added when it is the first resume-mode step
@@ -1484,7 +1487,8 @@ function selectSessionSharingWindow(steps: readonly SessionSharingStep[]): Sessi
   // other before the fill pass runs.
   for (const step of steps) {
     const isFirstResumeOfJob = step.mode === 'resume' && !resumeStepsByJob.has(step.jobName);
-    const isHarnessRepresentative = !harnessesInWindow.has(step.harness);
+    const isHarnessRepresentative =
+      step.harness !== undefined && !harnessesInWindow.has(step.harness);
     if (!isFirstResumeOfJob && !isHarnessRepresentative) continue;
     if (isFirstResumeOfJob) resumeStepsByJob.add(step.jobName);
     add(step);
