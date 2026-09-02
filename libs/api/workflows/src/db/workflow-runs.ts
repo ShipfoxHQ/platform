@@ -1,4 +1,12 @@
 export type {
+  WorkflowRunAnnotationOriginRead,
+  WorkflowRunAnnotationOriginReference,
+} from './workflow-runs/annotation-reads.js';
+export {
+  getWorkflowRunAnnotationOrigins,
+  workflowRunAnnotationOriginKey,
+} from './workflow-runs/annotation-reads.js';
+export type {
   WorkflowJobDetailRead,
   WorkflowJobExecutionCursor,
   WorkflowJobExecutionDetailRead,
@@ -38,6 +46,11 @@ export {
   resolveJobExecutionAfterLeaseExpiry,
   updateJobExecutionStatus,
 } from './workflow-runs/job-executions.js';
+export type {
+  WorkflowRunJobExplanationRead,
+  WorkflowRunJobExplanationsPageRead,
+} from './workflow-runs/job-explanations.js';
+export {listWorkflowRunJobExplanationsPage} from './workflow-runs/job-explanations.js';
 export type {
   EvaluateJobActivationsParams,
   EvaluateJobSuccessResult,
@@ -97,6 +110,7 @@ export type {
 } from './workflow-runs/overview.js';
 export {
   getWorkflowRunAccessScopeById,
+  getWorkflowRunAttemptIdForScope,
   getWorkflowRunJobOverview,
   getWorkflowRunOverview,
   listWorkflowRunJobsPage,

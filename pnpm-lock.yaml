@@ -4570,6 +4570,9 @@ importers:
 
   libs/api/workflows-dto:
     dependencies:
+      '@shipfox/annotations-dto':
+        specifier: workspace:*
+        version: link:../annotations-dto
       '@shipfox/api-agent-dto':
         specifier: workspace:*
         version: link:../agent-dto

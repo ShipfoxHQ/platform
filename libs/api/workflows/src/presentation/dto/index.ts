@@ -24,3 +24,7 @@ export {
   toRunOverviewJobsPageDto,
   toRunSelectionDto,
 } from './workflow-run.js';
+export {
+  toWorkflowRunAnnotationItemDto,
+  toWorkflowRunJobExplanationDto,
+} from './workflow-run-annotations.js';

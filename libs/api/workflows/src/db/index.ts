@@ -67,6 +67,8 @@ export type {
   WorkflowJobReadScope,
   WorkflowRunAccessScope,
   WorkflowRunAggregates,
+  WorkflowRunAnnotationOriginRead,
+  WorkflowRunAnnotationOriginReference,
   WorkflowRunAttemptCursor,
   WorkflowRunBoundedReadMeasurement,
   WorkflowRunBoundedReadOptions,
@@ -77,6 +79,8 @@ export type {
   WorkflowRunFilters,
   WorkflowRunJobCursor,
   WorkflowRunJobExecutionSummary,
+  WorkflowRunJobExplanationRead,
+  WorkflowRunJobExplanationsPageRead,
   WorkflowRunJobListSummary,
   WorkflowRunJobOverview,
   WorkflowRunJobRawStatusCount,
@@ -146,7 +150,9 @@ export {
   getWorkflowJobReadScope,
   getWorkflowRunAccessScopeById,
   getWorkflowRunAggregates,
+  getWorkflowRunAnnotationOrigins,
   getWorkflowRunAttemptById,
+  getWorkflowRunAttemptIdForScope,
   getWorkflowRunByAttemptId,
   getWorkflowRunById,
   getWorkflowRunDetail,
@@ -159,6 +165,7 @@ export {
   listStepAttemptIdsByJobId,
   listWorkflowExecutionSteps,
   listWorkflowJobExecutionSummaries,
+  listWorkflowRunJobExplanationsPage,
   listWorkflowRunJobSummaries,
   listWorkflowRunJobsPage,
   listWorkflowRuns,
@@ -175,6 +182,7 @@ export {
   updateJobExecutionStatus,
   updateJobStatus,
   updateWorkflowRunStatus,
+  workflowRunAnnotationOriginKey,
 } from './workflow-runs.js';
 
 export const migrationsPath = resolve(dirname(fileURLToPath(import.meta.url)), '../../drizzle');
