@@ -14,6 +14,9 @@ export type ExpressionScalarType = 'string' | 'int' | 'double' | 'bool' | 'null'
 export type ExpressionType =
   | ExpressionScalarType
   | {
+      kind: 'dyn';
+    }
+  | {
       kind: 'object';
       fields: Readonly<Record<string, ExpressionType>>;
     }

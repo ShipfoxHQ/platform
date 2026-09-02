@@ -1,4 +1,4 @@
-import {type ASTNode, Environment, parse as parseCel} from '@marcbachmann/cel-js';
+import {Environment, parse as parseCel} from '@marcbachmann/cel-js';
 import {registerWorkflowFunctions} from '../workflow-function-registry.js';
 import {InvalidWorkflowExpressionError} from './errors.js';
 import type {
@@ -37,10 +37,10 @@ export function createWorkflowExpression(
     });
   }
 
-  const ast = parseWorkflowExpression(source);
+  parseWorkflowExpression(source);
 
   if (params.check.mode === 'typed') {
-    resultType = checkTypedWorkflowExpression(source, ast, params.check);
+    resultType = checkTypedWorkflowExpression(source, params.check);
   }
 
   return {
@@ -53,7 +53,6 @@ export function createWorkflowExpression(
 
 function checkTypedWorkflowExpression(
   source: string,
-  ast: ASTNode,
   check: Extract<CreateWorkflowExpressionParams['check'], {mode: 'typed'}>,
 ): ExpressionType | undefined {
   const environment = createTypeCheckingEnvironment();
@@ -66,7 +65,7 @@ function checkTypedWorkflowExpression(
     });
   }
   assertExpectedResultType(source, result.type, check.expectedResultType);
-  return resolveKnownPathType(source, check.typeEnvironment) ?? fromCelType(result.type, ast);
+  return resolveKnownPathType(source, check.typeEnvironment) ?? fromCelType(result.type);
 }
 
 function registerTypeEnvironment(
@@ -86,7 +85,7 @@ function assertExpectedResultType(
   expectedType: ExpressionScalarType | undefined,
 ): void {
   if (expectedType === undefined || actualType === scalarTypeToCelType[expectedType]) return;
-  if (actualType === 'dyn' && expectedType === 'bool') return;
+  if (actualType === 'dyn') return;
   throw new InvalidWorkflowExpressionError({
     source,
     reason: `Expression source must return ${scalarTypeToCelType[expectedType]}; got ${actualType ?? 'unknown'}.`,
@@ -152,6 +151,7 @@ function toCelType(
   variableName: string,
 ): string | {schema: CelSchema} {
   if (typeof type === 'string') return scalarTypeToCelType[type];
+  if (type.kind === 'dyn') return 'dyn';
   if (type.kind === 'list') {
     return `list<${toCelListElementType(type.element, environment, [variableName])}>`;
   }
@@ -173,6 +173,7 @@ function toCelSchemaType(
   path: readonly string[],
 ): string | CelSchema {
   if (typeof type === 'string') return scalarTypeToCelType[type];
+  if (type.kind === 'dyn') return 'dyn';
   if (type.kind === 'list') {
     return `list<${toCelSchemaListElementType(type.element, environment, path)}>`;
   }
@@ -191,6 +192,7 @@ function toCelSchemaListElementType(
   path: readonly string[],
 ): string {
   if (typeof type === 'string') return scalarTypeToCelType[type];
+  if (type.kind === 'dyn') return 'dyn';
   if (type.kind === 'map') return 'map';
   if (type.kind === 'object') {
     const itemPath = [...path, 'item'];
@@ -215,6 +217,7 @@ function toCelListElementType(
   path: readonly string[],
 ): string {
   if (typeof type === 'string') return scalarTypeToCelType[type];
+  if (type.kind === 'dyn') return 'dyn';
   if (type.kind === 'map') return 'map';
   if (type.kind === 'object') {
     return toCelSchemaListElementType(type, environment, path);
@@ -222,7 +225,7 @@ function toCelListElementType(
   return `list<${toCelSchemaListElementType(type.element, environment, [...path, 'item'])}>`;
 }
 
-function fromCelType(type: string | undefined, ast: ASTNode): ExpressionType | undefined {
+function fromCelType(type: string | undefined): ExpressionType | undefined {
   if (type === undefined) return undefined;
 
   switch (type) {
@@ -241,8 +244,7 @@ function fromCelType(type: string | undefined, ast: ASTNode): ExpressionType | u
     case 'map':
       return {kind: 'map'};
     case 'dyn':
-      // Preserve legacy string fallback for open-map lookups; JSON values stay unknown.
-      return containsFromJsonCall(ast) ? undefined : 'string';
+      return {kind: 'dyn'};
     default:
       // cel-js currently exposes custom/list element result types as opaque strings.
       // Keep the outer list shape when present, but erase element detail rather than
@@ -252,31 +254,13 @@ function fromCelType(type: string | undefined, ast: ASTNode): ExpressionType | u
   }
 }
 
-function parseWorkflowExpression(source: string): ASTNode {
+function parseWorkflowExpression(source: string): void {
   try {
-    return parseCel(source).ast;
+    parseCel(source);
   } catch (error) {
     throw new InvalidWorkflowExpressionError({
       source,
       reason: error instanceof Error ? error.message : 'Expression source could not be parsed.',
     });
   }
-}
-
-function containsFromJsonCall(node: ASTNode): boolean {
-  if ((node.op === 'call' || node.op === 'rcall') && node.args[0] === 'fromJson') {
-    return true;
-  }
-
-  return containsFromJsonValue(node.args);
-}
-
-function containsFromJsonValue(value: unknown): boolean {
-  if (Array.isArray(value)) return value.some(containsFromJsonValue);
-  if (typeof value !== 'object' || value === null) return false;
-
-  const candidate = value as {readonly args?: unknown; readonly op?: unknown};
-  if (candidate.args === undefined || candidate.op === undefined) return false;
-
-  return containsFromJsonCall(candidate as ASTNode);
 }

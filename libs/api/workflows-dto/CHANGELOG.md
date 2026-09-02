@@ -1,5 +1,18 @@
 # @shipfox/api-workflows-dto
 
+## 20.3.0
+
+### Minor Changes
+
+- 813a284: Adds CEL `dyn` support for unknown-shaped tool and JSON outputs, preserves their native runtime values, and keeps listener snapshots compatible during rolling deploys.
+
+### Patch Changes
+
+- Updated dependencies [47f6024]
+- Updated dependencies [da6fbb8]
+  - @shipfox/annotations-dto@20.3.0
+  - @shipfox/api-definitions-dto@20.3.0
+
 ## 20.2.0
 
 ### Minor Changes

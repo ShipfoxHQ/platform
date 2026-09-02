@@ -1,5 +1,15 @@
 # @shipfox/api-triggers
 
+## 20.3.0
+
+### Patch Changes
+
+- Updated dependencies [813a284]
+- Updated dependencies [da6fbb8]
+  - @shipfox/expression@2.6.0
+  - @shipfox/api-workflows-dto@20.3.0
+  - @shipfox/api-definitions-dto@20.3.0
+
 ## 20.2.0
 
 ### Patch Changes

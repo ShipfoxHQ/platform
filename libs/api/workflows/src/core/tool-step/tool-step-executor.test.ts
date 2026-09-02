@@ -1,7 +1,7 @@
 import type {IntegrationsModuleClient} from '@shipfox/api-integration-core-dto/inter-module';
 import {MAX_RECORD_DATA_BYTES} from '@shipfox/api-logs-dto';
 import {type LogsModuleClient, logsInterModuleContract} from '@shipfox/api-logs-dto/inter-module';
-import {createWorkflowExpression} from '@shipfox/expression';
+import {createWorkflowExpression, type OutputDeclarations} from '@shipfox/expression';
 import {createInterModuleKnownError} from '@shipfox/inter-module';
 import {createOutboxRegistry} from '@shipfox/node-module';
 import {eq} from 'drizzle-orm';
@@ -152,6 +152,89 @@ describe('tool step executor', () => {
         identifier: 'ENG-1',
       },
     });
+  });
+
+  test('preserves schema-less mapped tool output values', async () => {
+    const {jobId} = await arrangeToolStep('read', {
+      outputDeclarations: {
+        result: {type: 'json'},
+        count: {type: 'json'},
+        ready: {type: 'json'},
+        payload: {type: 'json'},
+      },
+      outputMappings: {
+        count: createWorkflowExpression({source: 'result.count', check: {mode: 'syntax'}}),
+        ready: createWorkflowExpression({source: 'result.ready', check: {mode: 'syntax'}}),
+        payload: createWorkflowExpression({source: 'result.payload', check: {mode: 'syntax'}}),
+      },
+    });
+    const callTool = vi.fn<IntegrationsModuleClient['callTool']>().mockResolvedValue({
+      outcome: 'success' as const,
+      result: {count: 42, ready: true, payload: {name: 'build'}},
+      content: [],
+    });
+    const appendServerRecords = vi
+      .fn<LogsModuleClient['appendServerRecords']>()
+      .mockResolvedValue({committedLength: 0, capped: false});
+
+    await nextStepForJob(jobId);
+    await runToolStepExecutorCycle({
+      integrations: {callTool} as unknown as IntegrationsModuleClient,
+      logs: {appendServerRecords} as unknown as LogsModuleClient,
+      signal: new AbortController().signal,
+      claimOwner: 'executor-test',
+      concurrency: 8,
+      callTimeoutMs: 30_000,
+    });
+
+    const [attempt] = await getStepAttempts(jobId);
+    expect(attempt).toMatchObject({
+      status: 'succeeded',
+      output: {
+        result: {count: 42, ready: true, payload: {name: 'build'}},
+        count: 42,
+        ready: true,
+        payload: {name: 'build'},
+      },
+    });
+  });
+
+  test.each([
+    ['null', {result: null, content: []}, null],
+    ['a scalar', {result: null, content: [{type: 'text', text: '42'}]}, 42],
+    ['an array', {result: null, content: [{type: 'text', text: '["one",2]'}]}, ['one', 2]],
+  ] as const)('preserves %s whole schema-less tool results', async (_label, providerOutput, result) => {
+    const {jobId} = await arrangeToolStep('read', {
+      outputDeclarations: {
+        result: {type: 'json'},
+        value: {type: 'json'},
+      },
+      outputMappings: {
+        value: createWorkflowExpression({source: 'result', check: {mode: 'syntax'}}),
+      },
+    });
+    const callTool = vi.fn<IntegrationsModuleClient['callTool']>().mockResolvedValue({
+      outcome: 'success' as const,
+      result: providerOutput.result,
+      content: [...providerOutput.content],
+    });
+    const appendServerRecords = vi
+      .fn<LogsModuleClient['appendServerRecords']>()
+      .mockResolvedValue({committedLength: 0, capped: false});
+
+    await nextStepForJob(jobId);
+    await runToolStepExecutorCycle({
+      integrations: {callTool} as unknown as IntegrationsModuleClient,
+      logs: {appendServerRecords} as unknown as LogsModuleClient,
+      signal: new AbortController().signal,
+      claimOwner: 'executor-test',
+      concurrency: 8,
+      callTimeoutMs: 30_000,
+    });
+
+    const [attempt] = await getStepAttempts(jobId);
+    expect(attempt).toMatchObject({status: 'succeeded'});
+    expect(attempt?.output).toEqual({result, value: result});
   });
 
   test('recovers from a cycle failure and stops cleanly', async () => {
@@ -985,6 +1068,7 @@ async function arrangeToolStep(
     arguments?: Record<string, unknown>;
     includeOutputs?: boolean;
     outputMappings?: Record<string, unknown>;
+    outputDeclarations?: OutputDeclarations;
     sensitive?: boolean;
   } = {},
 ): Promise<{
@@ -1027,8 +1111,10 @@ async function arrangeToolStep(
           ? {}
           : {
               outputs: {
-                result: {type: 'json'},
-                identifier: {type: 'string'},
+                ...(options.outputDeclarations ?? {
+                  result: {type: 'json'},
+                  identifier: {type: 'string'},
+                }),
               },
             }),
       },

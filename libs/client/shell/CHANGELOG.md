@@ -1,5 +1,11 @@
 # Changelog
 
+## 31.0.1
+
+### Patch Changes
+
+- @shipfox/client-ui@31.0.1
+
 ## 31.0.0
 
 ### Minor Changes

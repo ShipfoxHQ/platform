@@ -1,5 +1,13 @@
 # @shipfox/api-definitions-dto
 
+## 20.3.0
+
+### Patch Changes
+
+- da6fbb8: Reports failed definition sync validation errors with structured diagnostics in the API and workflow UI.
+- Updated dependencies [813a284]
+  - @shipfox/expression@2.6.0
+
 ## 20.2.0
 
 ### Patch Changes

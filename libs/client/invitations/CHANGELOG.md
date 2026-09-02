@@ -1,5 +1,12 @@
 # @shipfox/client-invitations
 
+## 31.0.1
+
+### Patch Changes
+
+- @shipfox/client-ui@31.0.1
+- @shipfox/client-shell@31.0.1
+
 ## 31.0.0
 
 ### Patch Changes

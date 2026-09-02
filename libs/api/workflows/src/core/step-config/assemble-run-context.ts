@@ -394,10 +394,49 @@ export function listenerFilterOutputTypesForJobs(
   jobs: readonly JobContextInput[],
 ): ListenerFilterOutputTypes {
   return Object.fromEntries(
-    jobs.flatMap(({job, outputTypes}) =>
-      outputTypes === undefined ? [] : [[job.key, {...outputTypes}] as const],
-    ),
+    jobs.flatMap(({job, outputTypes}) => {
+      if (outputTypes === undefined) return [];
+
+      // `dyn` values need no CEL-native rehydration. Remove only their metadata
+      // branches so typed sibling outputs remain rehydratable while this
+      // persisted outbox shape stays readable by older trigger consumers.
+      const compatibleOutputTypes = Object.fromEntries(
+        Object.entries(outputTypes).flatMap(([key, type]) => {
+          const compatibleType = withoutDynamicType(type);
+          return compatibleType === undefined ? [] : [[key, compatibleType] as const];
+        }),
+      );
+      return Object.keys(compatibleOutputTypes).length === 0
+        ? []
+        : [[job.key, compatibleOutputTypes] as const];
+    }),
   );
+}
+
+function withoutDynamicType(type: ExpressionType): ExpressionType | undefined {
+  if (typeof type === 'string') return type;
+
+  switch (type.kind) {
+    case 'dyn':
+      return undefined;
+    case 'map':
+      return type;
+    case 'list': {
+      const element = withoutDynamicType(type.element);
+      return element === undefined ? undefined : {kind: 'list', element};
+    }
+    case 'object': {
+      const fields = Object.fromEntries(
+        Object.entries(type.fields).flatMap(([key, fieldType]) => {
+          const compatibleType = withoutDynamicType(fieldType);
+          return compatibleType === undefined ? [] : [[key, compatibleType] as const];
+        }),
+      );
+      return Object.keys(type.fields).length > 0 && Object.keys(fields).length === 0
+        ? undefined
+        : {kind: 'object', fields};
+    }
+  }
 }
 
 function filterOutputTypesForPlan(
