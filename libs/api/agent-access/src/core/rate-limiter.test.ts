@@ -41,10 +41,11 @@ describe('agent-access rate limiter', () => {
     expect(limiter.size()).toBe(1);
   });
 
-  test('does not consume a call when checking an exhausted bucket', () => {
+  test('does not consume a call when checking a bucket', () => {
     let now = 5_000;
     const limiter = createAgentAccessRateLimiter({now: () => now, limit: 1});
 
+    expect(limiter.check(oauthCredential)).toEqual({allowed: true});
     expect(limiter.consume(oauthCredential)).toEqual({allowed: true});
     expect(limiter.check(oauthCredential)).toEqual({
       allowed: false,
