@@ -1,5 +1,11 @@
 # @shipfox/node-fastify
 
+## 0.4.4
+
+### Patch Changes
+
+- ba481d6: Add the dormant agent-access MCP gateway foundation and shared tool response contracts.
+
 ## 0.4.3
 
 ### Patch Changes

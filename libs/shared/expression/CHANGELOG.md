@@ -1,5 +1,15 @@
 # @shipfox/expression
 
+## 2.5.0
+
+### Minor Changes
+
+- eb45f1d: Exposes bounded CEL evaluation diagnostics without runtime operands.
+
+### Patch Changes
+
+- 646373f: Accept dynamic predicate results at sync and surface an evaluation_error when a predicate does not evaluate to a boolean.
+
 ## 2.4.3
 
 ### Patch Changes

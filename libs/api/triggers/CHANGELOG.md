@@ -1,5 +1,21 @@
 # @shipfox/api-triggers
 
+## 20.2.0
+
+### Patch Changes
+
+- Updated dependencies [ba481d6]
+- Updated dependencies [ff63dcd]
+- Updated dependencies [646373f]
+- Updated dependencies [eb45f1d]
+- Updated dependencies [61f7b94]
+  - @shipfox/node-fastify@0.4.4
+  - @shipfox/api-workflows-dto@20.2.0
+  - @shipfox/expression@2.5.0
+  - @shipfox/api-auth-context@20.2.0
+  - @shipfox/node-module@1.0.9
+  - @shipfox/api-definitions-dto@20.2.0
+
 ## 20.1.0
 
 ### Patch Changes

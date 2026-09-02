@@ -1,5 +1,28 @@
 # @shipfox/api-integration-core
 
+## 20.2.0
+
+### Patch Changes
+
+- be556f0: Adds an opt-in Test VCS provider (`test-vcs`), enabled via `INTEGRATIONS_ENABLE_TEST_VCS_PROVIDER`, and keeps Git branch validation aligned with Git's ref rules.
+- Updated dependencies [ba481d6]
+- Updated dependencies [ff63dcd]
+- Updated dependencies [e05ef2c]
+- Updated dependencies [be556f0]
+- Updated dependencies [61f7b94]
+  - @shipfox/node-fastify@0.4.4
+  - @shipfox/api-workflows-dto@20.2.0
+  - @shipfox/api-integration-github@20.2.0
+  - @shipfox/api-integration-spi@3.0.2
+  - @shipfox/api-auth-context@20.2.0
+  - @shipfox/api-integration-gitea@20.2.0
+  - @shipfox/api-integration-jira@20.2.0
+  - @shipfox/api-integration-linear@20.2.0
+  - @shipfox/api-integration-sentry@20.2.0
+  - @shipfox/api-integration-slack@20.2.0
+  - @shipfox/api-integration-webhook@20.2.0
+  - @shipfox/node-module@1.0.9
+
 ## 20.1.0
 
 ### Minor Changes

@@ -1,5 +1,14 @@
 # @shipfox/client-triggers
 
+## 31.0.0
+
+### Patch Changes
+
+- Updated dependencies [f4dbc1a]
+  - @shipfox/client-shell@31.0.0
+  - @shipfox/client-ui@31.0.0
+  - @shipfox/client-projects@31.0.0
+
 ## 30.0.1
 
 ### Patch Changes
