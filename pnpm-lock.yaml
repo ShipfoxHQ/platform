@@ -2113,6 +2113,74 @@ importers:
         specifier: 'catalog:'
         version: 0.31.10
 
+  libs/api/agent-access:
+    dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: 'catalog:'
+        version: 1.29.0(zod@4.4.3)
+      '@shipfox/api-agent-access-dto':
+        specifier: workspace:*
+        version: link:../agent-access-dto
+      '@shipfox/api-auth-context':
+        specifier: workspace:*
+        version: link:../auth-context
+      '@shipfox/node-error-monitoring':
+        specifier: workspace:*
+        version: link:../../shared/node/error-monitoring
+      '@shipfox/node-fastify':
+        specifier: workspace:*
+        version: link:../../shared/node/fastify
+      '@shipfox/node-module':
+        specifier: workspace:*
+        version: link:../../shared/node/module
+      '@shipfox/node-opentelemetry':
+        specifier: workspace:*
+        version: link:../../shared/node/opentelemetry
+    devDependencies:
+      '@shipfox/biome':
+        specifier: workspace:*
+        version: link:../../../tools/biome
+      '@shipfox/depcruise':
+        specifier: workspace:*
+        version: link:../../../tools/depcruise
+      '@shipfox/swc':
+        specifier: workspace:*
+        version: link:../../../tools/swc
+      '@shipfox/ts-config':
+        specifier: workspace:*
+        version: link:../../../tools/ts-config
+      '@shipfox/typescript':
+        specifier: workspace:*
+        version: link:../../../tools/typescript
+      '@shipfox/vitest':
+        specifier: workspace:*
+        version: link:../../../tools/vitest
+
+  libs/api/agent-access-dto:
+    dependencies:
+      zod:
+        specifier: 'catalog:'
+        version: 4.4.3
+    devDependencies:
+      '@shipfox/biome':
+        specifier: workspace:*
+        version: link:../../../tools/biome
+      '@shipfox/depcruise':
+        specifier: workspace:*
+        version: link:../../../tools/depcruise
+      '@shipfox/swc':
+        specifier: workspace:*
+        version: link:../../../tools/swc
+      '@shipfox/ts-config':
+        specifier: workspace:*
+        version: link:../../../tools/ts-config
+      '@shipfox/typescript':
+        specifier: workspace:*
+        version: link:../../../tools/typescript
+      '@shipfox/vitest':
+        specifier: workspace:*
+        version: link:../../../tools/vitest
+
   libs/api/agent-dto:
     dependencies:
       '@shipfox/inter-module':

@@ -37,6 +37,8 @@ export interface RouteDefinition {
   schema?: RouteSchema;
   auth?: string | string[];
   options?: RouteOptions;
+  /** Runs during onRequest before the route's authentication hook. */
+  preAuth?: RoutePreHandler | RoutePreHandler[];
   preHandler?: RoutePreHandler | RoutePreHandler[];
   handler: (request: FastifyRequest, reply: FastifyReply) => Promise<unknown> | unknown;
   errorHandler?: (error: unknown, request: FastifyRequest, reply: FastifyReply) => unknown;

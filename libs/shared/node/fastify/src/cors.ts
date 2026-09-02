@@ -99,8 +99,14 @@ function matchesAllowedOrigin(origin: string | undefined, allowed: AllowedOrigin
   return false;
 }
 
-export async function registerCors(app: FastifyInstance): Promise<void> {
+/** Creates the same origin predicate used by the application's CORS policy. */
+export function createAllowedOriginMatcher(): (origin: string | undefined) => boolean {
   const allowed = allowedOrigins();
+  return (origin) => matchesAllowedOrigin(origin, allowed);
+}
+
+export async function registerCors(app: FastifyInstance): Promise<void> {
+  const isAllowedOrigin = createAllowedOriginMatcher();
 
   await app.register(cors, {
     credentials: true,
@@ -109,7 +115,7 @@ export async function registerCors(app: FastifyInstance): Promise<void> {
       origin: string | undefined,
       callback: (error: Error | null, allow: boolean) => void,
     ) => {
-      callback(null, matchesAllowedOrigin(origin, allowed));
+      callback(null, isAllowedOrigin(origin));
     },
   });
 }

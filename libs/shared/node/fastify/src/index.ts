@@ -18,6 +18,7 @@ import type {AppConfig} from './types.js';
 export type {FastifyInstance, FastifyReply, FastifyRequest} from 'fastify';
 export {extractBearerToken} from './auth.js';
 export {ClientError, type ClientErrorParams} from './clientError.js';
+export {createAllowedOriginMatcher} from './cors.js';
 export {errorHandler} from './errorHandler.js';
 export type {SwaggerOptions} from './swagger.js';
 export type {

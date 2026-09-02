@@ -3,6 +3,7 @@ const path = require('node:path');
 const architecturePackages = {
   implementations: {
     agent: ['libs/api/agent'],
+    'agent-access': ['libs/api/agent-access'],
     annotations: ['libs/api/annotations'],
     auth: ['libs/api/auth'],
     definitions: ['libs/api/definitions'],
@@ -26,6 +27,7 @@ const architecturePackages = {
   },
   dto: {
     agent: ['libs/api/agent-dto'],
+    'agent-access': ['libs/api/agent-access-dto'],
     annotations: ['libs/api/annotations-dto'],
     auth: ['libs/api/auth-dto'],
     common: ['libs/api/common-dto'],

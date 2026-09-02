@@ -5,6 +5,7 @@ import {isRouteGroup} from './types.js';
 
 type FastifyRouteConfig = Parameters<FastifyInstance['route']>[0];
 type FastifyPreHandler = NonNullable<FastifyRouteConfig['preHandler']>;
+type FastifyOnRequest = NonNullable<FastifyRouteConfig['onRequest']>;
 
 export function mountRoutes({
   app,
@@ -62,7 +63,14 @@ function mountRoute(
 
   routeConfig.schema = {...route.schema, description: route.description};
   if (route.errorHandler) routeConfig.errorHandler = route.errorHandler;
-  if (effectiveAuth) routeConfig.onRequest = createAuthHook(effectiveAuth);
+  const authHook = effectiveAuth === undefined ? undefined : createAuthHook(effectiveAuth);
+  if (route.preAuth !== undefined) {
+    const preAuthHook = normalizeOnRequest(route.preAuth);
+    routeConfig.onRequest =
+      authHook === undefined ? preAuthHook : ([preAuthHook, authHook] as FastifyOnRequest);
+  } else if (authHook !== undefined) {
+    routeConfig.onRequest = authHook;
+  }
   if (route.preHandler) {
     routeConfig.preHandler = normalizePreHandler(route.preHandler);
   }
@@ -84,4 +92,8 @@ function normalizePreHandler(preHandler: RoutePreHandler | RoutePreHandler[]): F
   return (async (request, reply) => {
     await preHandler(request, reply);
   }) as FastifyPreHandler;
+}
+
+function normalizeOnRequest(preAuth: RoutePreHandler | RoutePreHandler[]): FastifyOnRequest {
+  return normalizePreHandler(preAuth) as unknown as FastifyOnRequest;
 }
