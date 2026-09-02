@@ -35,7 +35,7 @@ export function loadConfig(update?: Partial<NodeJS.ProcessEnv>): DocsConfig {
       }),
     },
     update,
-  ) as DocsConfig;
+  ) as unknown as DocsConfig;
 }
 
 // Next replaces this public env access with the `env` value from next.config.mjs
