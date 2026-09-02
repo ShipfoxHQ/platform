@@ -1,9 +1,8 @@
-import {config, type loadConfig} from './config';
+import {config, type DocsConfig} from './config';
 
 const LOCAL_DOCS_ORIGIN = 'http://localhost:3500';
 export const PUBLIC_DOCS_ORIGIN = 'https://www.shipfox.io';
 
-type DocsConfig = ReturnType<typeof loadConfig>;
 type DocsEnvironment = Partial<
   Pick<
     DocsConfig,

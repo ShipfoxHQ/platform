@@ -1,6 +1,14 @@
 import {createConfig, host, str} from '@shipfox/config';
 
-export function loadConfig(update?: Partial<NodeJS.ProcessEnv>) {
+export type DocsConfig = {
+  VERCEL_ENV: 'development' | 'preview' | 'production' | undefined;
+  VERCEL_URL: string | undefined;
+  NEXT_PUBLIC_VERCEL_ENV: 'development' | 'preview' | 'production' | undefined;
+  NEXT_PUBLIC_VERCEL_URL: string | undefined;
+  NEXT_PUBLIC_BASE_PATH: string;
+};
+
+export function loadConfig(update?: Partial<NodeJS.ProcessEnv>): DocsConfig {
   return createConfig(
     {
       VERCEL_ENV: str({
@@ -27,7 +35,13 @@ export function loadConfig(update?: Partial<NodeJS.ProcessEnv>) {
       }),
     },
     update,
-  );
+  ) as DocsConfig;
 }
 
-export const config = loadConfig();
+// Next replaces this public env access with the `env` value from next.config.mjs
+// at build time. Pass that value explicitly so the runtime config keeps the
+// production `/docs` prefix after validation.
+const nextBasePath = process.env.NEXT_PUBLIC_BASE_PATH;
+export const config = loadConfig(
+  nextBasePath === undefined ? undefined : {NEXT_PUBLIC_BASE_PATH: nextBasePath},
+);
