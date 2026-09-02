@@ -713,6 +713,55 @@ describe('tool step executor', () => {
     ).toBeDefined();
   });
 
+  test.each([
+    {
+      description: 'a missing key',
+      source: 'result.teams[0].nmae',
+      result: {teams: [{id: 'team-1'}]},
+      cause: 'No such key: nmae',
+    },
+    {
+      description: 'an out-of-range index',
+      source: 'result.teams[1].id',
+      result: {teams: [{id: 'team-1'}]},
+      cause: 'No such key: index out of bounds, index 1 >= size 1',
+    },
+  ])('names the mapping key and CEL cause for $description', async ({source, result, cause}) => {
+    const {jobId} = await arrangeToolStep('read', {
+      outputMappings: {
+        team_id: createWorkflowExpression({source, check: {mode: 'syntax'}}),
+      },
+    });
+    const callTool = vi.fn<IntegrationsModuleClient['callTool']>().mockResolvedValue({
+      outcome: 'success' as const,
+      result,
+      content: [],
+    });
+    const appendServerRecords = vi
+      .fn<LogsModuleClient['appendServerRecords']>()
+      .mockResolvedValue({committedLength: 0, capped: false});
+
+    await nextStepForJob(jobId);
+    await runToolStepExecutorCycle({
+      integrations: {callTool} as unknown as IntegrationsModuleClient,
+      logs: {appendServerRecords} as unknown as LogsModuleClient,
+      signal: new AbortController().signal,
+      claimOwner: 'executor-test',
+      concurrency: 8,
+      callTimeoutMs: 30_000,
+    });
+
+    const [step] = await getStepsByJobId(jobId);
+    expect(step).toMatchObject({
+      status: 'failed',
+      error: {
+        code: 'output_invalid',
+        reason: 'output_invalid',
+        message: `Tool output mapping "team_id" failed: ${cause}`,
+      },
+    });
+  });
+
   test('preserves a __proto__ output mapping as ordinary output data', async () => {
     const outputMappings: Record<string, unknown> = {};
     Object.defineProperty(outputMappings, '__proto__', {
