@@ -12,6 +12,7 @@ import {isInterModuleKnownError} from '@shipfox/inter-module';
 import {logger} from '@shipfox/node-opentelemetry';
 import type {JobStatusReason} from '#core/entities/job.js';
 import type {Step, StepAttempt} from '#core/entities/step.js';
+import {GATE_EVALUATION_ERROR_REASON} from '#core/step-transition/evaluate-gate.js';
 import {
   getJobExecutionFailureOrigin,
   getJobScope,
@@ -366,11 +367,8 @@ function jobFailureBody(
 function stepFailureCopy(step: Step, attempt: StepAttempt): FailureCopy {
   const error = attempt.error ?? step.error;
   const reason = errorReason(error);
-  const toolCallSucceeded = successfulToolCall(step, attempt);
-  const successfulToolFailure = toolCallSucceeded
-    ? successfulToolFailureCopy(step, attempt, error, reason)
-    : undefined;
-  if (successfulToolFailure !== undefined) return successfulToolFailure;
+  const toolFailure = toolStepFailureCopy(step, attempt, error, reason);
+  if (toolFailure !== undefined) return toolFailure;
 
   const gateFailure = gateFailureCopy(attempt, reason);
   if (gateFailure !== undefined) return gateFailure;
@@ -379,6 +377,21 @@ function stepFailureCopy(step: Step, attempt: StepAttempt): FailureCopy {
   if (reason === 'invocation_interrupted') return interruptedToolFailureCopy(step);
 
   return knownStepFailureCopy(reason);
+}
+
+function toolStepFailureCopy(
+  step: Step,
+  attempt: StepAttempt,
+  error: Record<string, unknown> | null,
+  reason: string | undefined,
+): FailureCopy | undefined {
+  if (step.type !== 'tool') return undefined;
+  if (successfulToolCall(attempt)) {
+    return successfulToolFailureCopy(step, attempt, error, reason);
+  }
+  return reason === 'gate_failed' || gateConditionFailed(attempt)
+    ? STEP_FAILURE_COPY.tool_error
+    : undefined;
 }
 
 function successfulToolFailureCopy(
@@ -391,6 +404,13 @@ function successfulToolFailureCopy(
     return {
       title: 'Step validation failed',
       description: `The ${toolCallName(step)} succeeded, but Shipfox could not evaluate the step's success condition. No workflow configuration change is required.`,
+    };
+  }
+
+  if (gateEvaluationFailed(attempt)) {
+    return {
+      title: 'Step validation failed',
+      description: `The ${toolCallName(step)} succeeded, but Shipfox could not evaluate the step's success condition. Review the condition and the values it references.`,
     };
   }
 
@@ -468,11 +488,8 @@ function knownStepFailureCopy(reason: string | undefined): FailureCopy {
       });
 }
 
-function successfulToolCall(step: Step, attempt: StepAttempt): boolean {
-  return (
-    step.type === 'tool' &&
-    attempt.invocations.some((invocation) => invocation.outcome === 'success')
-  );
+function successfulToolCall(attempt: StepAttempt): boolean {
+  return attempt.invocations.some((invocation) => invocation.outcome === 'success');
 }
 
 function gateCouldNotUseToolResult(
@@ -488,6 +505,10 @@ function gateCouldNotUseToolResult(
 
 function gateConditionFailed(attempt: StepAttempt): boolean {
   return attempt.gateResult?.passed === false && attempt.gateResult.uncheckable !== true;
+}
+
+function gateEvaluationFailed(attempt: StepAttempt): boolean {
+  return errorString(attempt.gateResult, 'reason') === GATE_EVALUATION_ERROR_REASON;
 }
 
 function errorReason(error: Record<string, unknown> | null): string | undefined {

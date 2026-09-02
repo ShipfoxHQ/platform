@@ -8,6 +8,13 @@
       "when": 1782017246000,
       "tag": "0000_initial",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1788339857809,
+      "tag": "0001_redact-legacy-workflow-failures",
+      "breakpoints": true
     }
   ]
 }
