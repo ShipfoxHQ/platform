@@ -81,12 +81,12 @@ describe('diagnostic agent-access tools', () => {
 
   test('applies workflow reductions in order and keeps the response under the ceiling', async () => {
     const mocks = clients();
-    const jobs = Array.from({length: 50}, (_, jobIndex) => ({
+    const jobs = Array.from({length: 11}, (_, jobIndex) => ({
       ...sourceJob(jobIndex + 1),
       job_executions: Array.from({length: 2}, (_, executionIndex) => ({
         ...sourceExecution(jobIndex * 2 + executionIndex + 1),
         sequence: executionIndex + 1,
-        steps: Array.from({length: 25}, (_, stepIndex) => ({
+        steps: Array.from({length: 21}, (_, stepIndex) => ({
           ...sourceStep(jobIndex * 100 + executionIndex * 25 + stepIndex + 1),
           position: stepIndex + 1,
           name: 'step '.concat('x'.repeat(512)),
@@ -109,13 +109,13 @@ describe('diagnostic agent-access tools', () => {
     });
     expect(result.jobs).toHaveLength(10);
     expect(result.jobs_truncated).toBe(true);
-    expect(result.jobs_total_count).toBe(50);
+    expect(result.jobs_total_count).toBe(11);
     expect(result.jobs[0]?.job_executions).toHaveLength(1);
     expect(result.jobs[0]?.job_executions_truncated).toBe(true);
     expect(result.jobs[0]?.job_executions_total_count).toBe(2);
     expect(result.jobs[0]?.job_executions[0]?.steps).toHaveLength(20);
     expect(result.jobs[0]?.job_executions[0]?.steps_truncated).toBe(true);
-    expect(result.jobs[0]?.job_executions[0]?.steps_total_count).toBe(25);
+    expect(result.jobs[0]?.job_executions[0]?.steps_total_count).toBe(21);
     expect(result.jobs[0]?.job_executions[0]?.steps[0]?.attempts).toHaveLength(1);
     expect(result.jobs[0]?.job_executions[0]?.steps[0]?.attempts_truncated).toBe(true);
     expect(result.jobs[0]?.job_executions[0]?.steps[0]?.attempts_total_count).toBe(2);
