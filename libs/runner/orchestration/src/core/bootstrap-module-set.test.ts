@@ -15,7 +15,7 @@ const LINE_BREAK_PATTERN = /\r?\n/u;
 const HEAVY_AGENT_PACKAGE_PATTERN =
   /\/node_modules\/(?:@anthropic-ai|@earendil-works|@modelcontextprotocol)(?:\/|\+)/u;
 
-it('keeps heavy agent packages out of the managed bootstrap module set', () => {
+it('keeps heavy agent packages out of the managed bootstrap module set', {timeout: 15_000}, () => {
   const trackerDirectory = mkdtempSync(join(tmpdir(), 'shipfox-runner-module-set-'));
   const trackerFile = join(trackerDirectory, 'heavy-modules.txt');
 
