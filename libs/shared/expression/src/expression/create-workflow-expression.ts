@@ -65,7 +65,7 @@ function checkTypedWorkflowExpression(
       reason: result.error?.message ?? 'Expression source did not type-check.',
     });
   }
-  assertExpectedResultType(source, ast, result.type, check.expectedResultType);
+  assertExpectedResultType(source, result.type, check.expectedResultType);
   return resolveKnownPathType(source, check.typeEnvironment) ?? fromCelType(result.type, ast);
 }
 
@@ -82,12 +82,11 @@ function registerTypeEnvironment(
 
 function assertExpectedResultType(
   source: string,
-  ast: ASTNode,
   actualType: string | undefined,
   expectedType: ExpressionScalarType | undefined,
 ): void {
   if (expectedType === undefined || actualType === scalarTypeToCelType[expectedType]) return;
-  if (actualType === 'dyn' && containsFromJsonCall(ast)) return;
+  if (actualType === 'dyn' && expectedType === 'bool') return;
   throw new InvalidWorkflowExpressionError({
     source,
     reason: `Expression source must return ${scalarTypeToCelType[expectedType]}; got ${actualType ?? 'unknown'}.`,
