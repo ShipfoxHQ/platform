@@ -18,6 +18,7 @@
     "#listener-jobs.js": "./src/listener-jobs.ts",
     "#linear-mcp.js": "./src/linear-mcp.ts",
     "#polling.js": "./src/polling.ts",
+    "#renewable-credentials-workflows.js": "./src/renewable-credentials-workflows.ts",
     "#run-scenario.js": "./src/run-scenario.ts",
     "#runner.js": "./src/runner.ts",
     "#scenarios.js": "./src/scenarios.ts",

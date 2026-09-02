@@ -65,6 +65,31 @@ describe('Test VCS smart HTTP fixture', () => {
     expect(isValidTestVcsBranchName('feature[')).toBe(false);
   });
 
+  it('rejects refresh timing whose minimum delay reaches credential expiry', async () => {
+    const fixture = createTestVcsFixture({port: 0});
+    try {
+      await fixture.start();
+      await fixture.createRepository({
+        owner: 'e2e-owner',
+        name: 'refresh-timing',
+        files: [{path: 'README.md', content: '# Test VCS\n'}],
+      });
+
+      expect(() =>
+        fixture.issueCredential({
+          owner: 'e2e-owner',
+          name: 'refresh-timing',
+          permissions: {contents: 'read'},
+          renewalMode: 'refresh-at',
+          ttlSeconds: 0.04,
+          refreshAfterSeconds: 0.01,
+        }),
+      ).toThrow('Test VCS refresh delay must precede credential expiry');
+    } finally {
+      await fixture.close();
+    }
+  });
+
   it('requires a credential and accepts a fresh credential after expiry', async () => {
     const fixture = createTestVcsFixture({port: 0});
     const workingDirectory = await mkdtemp(join(tmpdir(), 'shipfox-test-vcs-git-'));

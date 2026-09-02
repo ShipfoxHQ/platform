@@ -31,6 +31,7 @@ const MAX_TEST_VCS_FILE_BYTES = MAX_REPOSITORY_FILE_BYTES * 2;
 const REPOSITORY_PART_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u;
 const GIT_TREE_FIELD_PATTERN = /\s+/u;
 const GIT_REPOSITORY_PATH_PATTERN = /^\/([^/]+)\/([^/]+)\.git(?:\/|$)/u;
+const MINIMUM_REFRESH_DELAY_MS = 50;
 
 export type TestVcsRenewalMode = 'refresh-at' | 'on-rejection';
 
@@ -101,6 +102,16 @@ export interface TestVcsFixture {
   resolveRef(input: {owner: string; name: string; ref: string}): Promise<ResolvedRef>;
   issueCredential(input: TestVcsCredentialInput): CheckoutCredentials;
   stats(owner?: string): TestVcsStats;
+}
+
+export function isValidTestVcsRefreshTiming(
+  ttlSeconds: number,
+  refreshAfterSeconds?: number,
+): boolean {
+  if (!Number.isFinite(ttlSeconds) || ttlSeconds <= 0) return false;
+  const requestedDelaySeconds = refreshAfterSeconds ?? ttlSeconds / 2;
+  if (!Number.isFinite(requestedDelaySeconds) || requestedDelaySeconds <= 0) return false;
+  return refreshDelayMilliseconds(ttlSeconds, refreshAfterSeconds) < ttlSeconds * 1000;
 }
 
 interface RepositoryRecord {
@@ -311,6 +322,12 @@ export function createTestVcsFixture(options: {port: number}): TestVcsFixture {
       ) {
         throw new Error('Test VCS refresh delay must be between zero and the credential TTL');
       }
+      if (
+        input.renewalMode === 'refresh-at' &&
+        !isValidTestVcsRefreshTiming(input.ttlSeconds, input.refreshAfterSeconds)
+      ) {
+        throw new Error('Test VCS refresh delay must precede credential expiry');
+      }
       let generation = randomUUID();
       while (generation === input.rejectedGeneration) generation = randomUUID();
       const token = `test-vcs-${randomUUID()}`;
@@ -330,11 +347,7 @@ export function createTestVcsFixture(options: {port: number}): TestVcsFixture {
           ? {
               mode: 'refresh-at',
               refreshAt: new Date(
-                now +
-                  Math.max(
-                    50,
-                    Math.floor((input.refreshAfterSeconds ?? input.ttlSeconds / 2) * 1000),
-                  ),
+                now + refreshDelayMilliseconds(input.ttlSeconds, input.refreshAfterSeconds),
               ),
             }
           : {mode: 'on-rejection'};
@@ -520,6 +533,16 @@ export function createTestVcsFixture(options: {port: number}): TestVcsFixture {
   }
 
   return fixture;
+}
+
+function refreshDelayMilliseconds(
+  ttlSeconds: number,
+  refreshAfterSeconds?: number | undefined,
+): number {
+  return Math.max(
+    MINIMUM_REFRESH_DELAY_MS,
+    Math.floor((refreshAfterSeconds ?? ttlSeconds / 2) * 1000),
+  );
 }
 
 export function createTestVcsFixtureService(fixture: TestVcsFixture): ModuleService {

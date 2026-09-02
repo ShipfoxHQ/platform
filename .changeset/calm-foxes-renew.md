@@ -1,5 +1,6 @@
 ---
 "@shipfox/api-integration-core": patch
+"@shipfox/api-integration-core-dto": minor
 ---
 
-Makes Test VCS credential renewal checks deterministic.
+Adds Test VCS credential invalidation, refresh controls, and shared E2E setup DTOs.

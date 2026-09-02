@@ -1,6 +1,8 @@
 import {
+  createE2eTestVcsConnectionBodySchema,
   integrationConnectionDtoSchema,
   repositoryDtoSchema,
+  testVcsStatsDtoSchema,
 } from '@shipfox/api-integration-core-dto';
 import type {IntegrationConnection as SpiIntegrationConnection} from '@shipfox/api-integration-spi';
 import {ClientError, defineRoute, type RouteGroup} from '@shipfox/node-fastify';
@@ -24,6 +26,7 @@ import {
   createTestVcsFixture,
   createTestVcsFixtureService,
   isValidTestVcsBranchName,
+  isValidTestVcsRefreshTiming,
   type TestVcsFileInput,
   type TestVcsRenewalMode,
 } from '#providers/test-vcs-fixture.js';
@@ -40,23 +43,24 @@ const branchNameSchema = z
   .max(200)
   .refine(isValidTestVcsBranchName, {message: 'must be a valid Git branch name'});
 const fileSchema = z.object({path: z.string().min(1).max(512), content: z.string()}).strict();
-const renewalModeSchema = z.enum(['refresh-at', 'on-rejection']);
-const createConnectionBodySchema = z
-  .object({
-    workspace_id: z.string().uuid(),
-    account_id: repositoryPartSchema,
-    display_name: z.string().min(1).max(200).optional(),
-    renewal_mode: renewalModeSchema.default('on-rejection'),
-    refresh_after_seconds: z.number().positive().max(300).optional(),
-  })
-  .strict()
-  .refine(
-    (body) => body.refresh_after_seconds === undefined || body.renewal_mode === 'refresh-at',
-    {
-      message: 'refresh_after_seconds requires refresh-at renewal mode',
+const createConnectionBodySchema = createE2eTestVcsConnectionBodySchema.superRefine(
+  (body, context) => {
+    if (body.renewal_mode !== 'refresh-at') return;
+    if (
+      isValidTestVcsRefreshTiming(
+        config.INTEGRATIONS_TEST_VCS_CREDENTIAL_TTL_SECONDS,
+        body.refresh_after_seconds,
+      )
+    ) {
+      return;
+    }
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
       path: ['refresh_after_seconds'],
-    },
-  );
+      message: 'refresh_after_seconds must produce a deadline before credential expiry',
+    });
+  },
+);
 const createRepositoryBodySchema = z
   .object({
     connection_id: z.string().uuid(),
@@ -74,34 +78,6 @@ const commitFilesBodySchema = z
   })
   .strict();
 const statsQuerySchema = z.object({connection_id: z.string().uuid().optional()}).strict();
-const statsResponseSchema = z
-  .object({
-    mint_count: z.number().int().nonnegative(),
-    request_count: z.number().int().nonnegative(),
-    accepted_request_count: z.number().int().nonnegative(),
-    rejected_request_count: z.number().int().nonnegative(),
-    generations: z.array(z.string().min(1)),
-    invalidations: z.array(
-      z
-        .object({
-          key: z.string().min(1),
-          repository: z.string().min(1),
-          generation: z.string().min(1),
-        })
-        .strict(),
-    ),
-    requests: z.array(
-      z
-        .object({
-          method: z.string(),
-          path: z.string(),
-          status: z.enum(['accepted', 'rejected']),
-          generation: z.string().min(1).optional(),
-        })
-        .strict(),
-    ),
-  })
-  .strict();
 const failMintsBodySchema = z.object({count: z.number().int().min(1).max(10)}).strict();
 
 type TestVcsConnection = SpiIntegrationConnection<typeof TEST_VCS_PROVIDER>;
@@ -209,7 +185,7 @@ function createTestVcsRoutes(options: {
         description: 'Read redacted Test VCS fixture observations for E2E assertions.',
         schema: {
           querystring: statsQuerySchema,
-          response: {200: statsResponseSchema},
+          response: {200: testVcsStatsDtoSchema},
         },
         handler: async (request) => {
           const owner =
