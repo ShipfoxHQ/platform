@@ -12,6 +12,7 @@ export const DEFINITION_SYNC_WARNING_CODE_MAX_LENGTH = 128;
 export const DEFINITION_SYNC_WARNING_MESSAGE_MAX_LENGTH = 2048;
 export const DEFINITION_SYNC_WARNING_PATH_MAX_LENGTH = 512;
 export const DEFINITION_SYNC_DIAGNOSTIC_FILE_PATH_MAX_LENGTH = 512;
+export const DEFINITION_SYNC_LAST_ERROR_MESSAGE_MAX_LENGTH = 2048;
 
 export const createDefinitionBodySchema = z
   .object({
@@ -59,6 +60,7 @@ export type CreateDefinitionBodyDto = z.infer<typeof createDefinitionBodySchema>
 export const definitionValidationErrorSchema = z.object({
   message: z.string(),
   path: z.string().optional(),
+  reason: z.string().max(DEFINITION_SYNC_WARNING_MESSAGE_MAX_LENGTH).optional(),
 });
 
 export type DefinitionValidationErrorDto = z.infer<typeof definitionValidationErrorSchema>;
@@ -137,7 +139,7 @@ export const definitionSyncSummarySchema = z.object({
       'unknown',
     ])
     .nullable(),
-  last_error_message: z.string().nullable(),
+  last_error_message: z.string().max(DEFINITION_SYNC_LAST_ERROR_MESSAGE_MAX_LENGTH).nullable(),
   diagnostics: z
     .array(definitionValidationDiagnosticSchema)
     .max(DEFINITION_SYNC_DIAGNOSTICS_MAX_COUNT),

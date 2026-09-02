@@ -163,7 +163,7 @@ describe('toDefinitionSyncSummaryDto', () => {
       diagnostics: [
         {
           code: 'invalid-definition',
-          message: 'Step gate success must be a valid CEL boolean expression.: No such key',
+          message: 'Step gate success must be a valid CEL boolean expression: No such key',
           path: 'jobs.build.steps.0.run',
           filePath: '.shipfox/workflows/ci.yml',
           severity: 'error',
@@ -182,7 +182,7 @@ describe('toDefinitionSyncSummaryDto', () => {
       diagnostics: [
         {
           code: 'invalid-definition',
-          message: 'Step gate success must be a valid CEL boolean expression.: No such key',
+          message: 'Step gate success must be a valid CEL boolean expression: No such key',
           path: 'jobs.build.steps.0.run',
           file_path: '.shipfox/workflows/ci.yml',
           severity: 'error',

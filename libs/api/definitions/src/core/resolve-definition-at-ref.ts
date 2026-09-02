@@ -559,6 +559,9 @@ function boundedValidationErrors(errors: readonly ValidationError[]): Validation
     ...(error.path === undefined
       ? {}
       : {path: error.path.slice(0, DEFINITION_SYNC_WARNING_PATH_MAX_LENGTH)}),
+    ...(error.reason === undefined
+      ? {}
+      : {reason: error.reason.slice(0, DEFINITION_SYNC_WARNING_MESSAGE_MAX_LENGTH)}),
   }));
 }
 

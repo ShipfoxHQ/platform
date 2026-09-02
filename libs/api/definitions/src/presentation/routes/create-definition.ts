@@ -102,7 +102,11 @@ function parseDefinitionForCreate(
   const parsed = parseDefinitionWithDiagnostics(yamlString, options);
   const errors = parsed.issues
     .filter((issue) => issue.severity === 'error' && issue.scope === 'definition')
-    .map(({message, path}) => ({message, ...(path.length === 0 ? {} : {path: path.join('.')})}));
+    .map(({message, path, details}) => ({
+      message,
+      ...(path.length === 0 ? {} : {path: path.join('.')}),
+      ...(typeof details?.reason === 'string' ? {reason: details.reason} : {}),
+    }));
 
   if (errors.length > 0) {
     throw new DefinitionParseError(errors[0]?.message ?? 'Invalid definition', errors);

@@ -1,3 +1,4 @@
+import {DEFINITION_SYNC_LAST_ERROR_MESSAGE_MAX_LENGTH} from '@shipfox/api-definitions-dto';
 import type {DefinitionSyncErrorCode} from './entities/sync-state.js';
 import type {ValidationError} from './validate-definition.js';
 
@@ -6,7 +7,7 @@ export class DefinitionParseError extends Error {
     message: string,
     public details?: unknown,
   ) {
-    super(message);
+    super(limitDefinitionSyncErrorMessage(message));
     this.name = 'DefinitionParseError';
   }
 }
@@ -18,9 +19,14 @@ export class DefinitionSyncPermanentError extends Error {
     public readonly details: readonly ValidationError[] = [],
     public readonly filePath?: string | undefined,
   ) {
-    super(message);
+    super(limitDefinitionSyncErrorMessage(message));
     this.name = 'DefinitionSyncPermanentError';
   }
+}
+
+export function limitDefinitionSyncErrorMessage(message: string): string {
+  if (message.length <= DEFINITION_SYNC_LAST_ERROR_MESSAGE_MAX_LENGTH) return message;
+  return `${message.slice(0, DEFINITION_SYNC_LAST_ERROR_MESSAGE_MAX_LENGTH - 1)}…`;
 }
 
 export type DefinitionAtRefErrorCode =

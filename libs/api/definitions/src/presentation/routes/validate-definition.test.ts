@@ -132,6 +132,35 @@ jobs:
     expect(body.errors.length).toBeGreaterThan(0);
   });
 
+  test('invalid predicates return their CEL reason', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/definitions/validate',
+      payload: {
+        yaml: `
+name: Invalid predicate
+runner: ubuntu-latest
+jobs:
+  build:
+    success: 'executions.size()'
+    steps:
+      - run: echo hello
+`,
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      valid: false,
+      errors: [
+        expect.objectContaining({
+          path: 'jobs.build.success',
+          reason: expect.stringContaining('must return bool'),
+        }),
+      ],
+    });
+  });
+
   test('loads integration context when validating a tool step', async () => {
     const res = await app.inject({
       method: 'POST',

@@ -1,4 +1,10 @@
-import {ActivityFailure, ApplicationFailure, proxyActivities} from '@temporalio/workflow';
+import {
+  ActivityFailure,
+  ApplicationFailure,
+  log,
+  patched,
+  proxyActivities,
+} from '@temporalio/workflow';
 import {
   type DefinitionSyncDiagnostic,
   type DefinitionSyncErrorCode,
@@ -75,8 +81,20 @@ export async function definitionSyncWorkflow(
     };
   } catch (error) {
     const {code, message, diagnostics} = classifyWorkflowError(error);
+    const structuredDiagnosticsEnabled = patched('definition-sync-diagnostics');
+    if (diagnostics !== undefined && !structuredDiagnosticsEnabled) {
+      log.warn('Definition sync diagnostics were not persisted for an existing workflow run', {
+        code,
+      });
+    }
     try {
-      await markDefinitionSyncFailed({...input, sourceRef, code, message, diagnostics});
+      await markDefinitionSyncFailed({
+        ...input,
+        sourceRef,
+        code,
+        message,
+        ...(structuredDiagnosticsEnabled && diagnostics !== undefined ? {diagnostics} : {}),
+      });
     } catch (markFailedError) {
       const failureOptions = {
         message: `Definition sync failed with ${code}: ${message}; additionally failed to persist failure state: ${formatWorkflowError(markFailedError)}`,

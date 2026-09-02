@@ -3,7 +3,11 @@ import type {IntegrationsModuleClient} from '@shipfox/api-integration-core-dto/i
 import {markErrorReported} from '@shipfox/node-error-monitoring';
 import {Context} from '@temporalio/activity';
 import {ApplicationFailure} from '@temporalio/common';
-import type {DefinitionSyncDiagnostic, DefinitionSyncErrorCode} from '#core/entities/sync-state.js';
+import {
+  type DefinitionSyncDiagnostic,
+  type DefinitionSyncErrorCode,
+  limitDefinitionSyncDiagnostics,
+} from '#core/entities/sync-state.js';
 import {
   classifySyncFailure,
   discoverWorkflowFiles,
@@ -170,11 +174,15 @@ function createFetchAndApplyActivity(
         })),
       });
 
-      return {
-        ...result,
-        diagnostics: definitions.flatMap((entry) =>
+      const diagnostics = limitDefinitionSyncDiagnostics(
+        definitions.flatMap((entry) =>
           entry.diagnostics.map((diagnostic) => ({...diagnostic, filePath: entry.path})),
         ),
+      );
+
+      return {
+        ...result,
+        diagnostics,
       };
     });
   };

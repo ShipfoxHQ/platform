@@ -1,6 +1,10 @@
 import {defineInterModuleContract, type InterModuleClient} from '@shipfox/inter-module';
 import {z} from 'zod';
-import {definitionValidationErrorSchema, definitionValidationWarningSchema} from '#schemas/dto.js';
+import {
+  DEFINITION_SYNC_LAST_ERROR_MESSAGE_MAX_LENGTH,
+  definitionValidationErrorSchema,
+  definitionValidationWarningSchema,
+} from '#schemas/dto.js';
 import {triggerDtoSchema} from '#schemas/trigger.js';
 import {workflowModelSnapshotSchema} from './workflow-model.js';
 
@@ -38,7 +42,7 @@ const definitionSyncSummarySchema = z.object({
       'unknown',
     ])
     .nullable(),
-  lastErrorMessage: z.string().nullable(),
+  lastErrorMessage: z.string().max(DEFINITION_SYNC_LAST_ERROR_MESSAGE_MAX_LENGTH).nullable(),
   diagnostics: z.array(definitionSyncDiagnosticSchema),
 });
 const definitionListItemSchema = z.object({

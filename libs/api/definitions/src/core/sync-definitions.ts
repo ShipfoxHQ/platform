@@ -12,7 +12,11 @@ import {
 } from './entities/sync-state.js';
 import type {ValidationDiagnostic} from './entities/validation-diagnostic.js';
 import type {WorkflowDefinitionPayload} from './entities/workflow-definition.js';
-import {DefinitionParseError, DefinitionSyncPermanentError} from './errors.js';
+import {
+  DefinitionParseError,
+  DefinitionSyncPermanentError,
+  limitDefinitionSyncErrorMessage,
+} from './errors.js';
 import type {DefinitionsSourceControl} from './integrations.js';
 import {needsIntegrationValidationContext} from './needs-integration-validation-context.js';
 import {parseDefinitionWithDiagnostics, stripDefinitionDiagnostics} from './parse-definition.js';
@@ -23,6 +27,7 @@ export const MAX_WORKFLOW_FILES = 100;
 export {MAX_WORKFLOW_FILE_BYTES};
 export const FILE_FETCH_CONCURRENCY = 4;
 export const UNRESOLVED_SYNC_REF = '__unresolved__';
+const TRAILING_SENTENCE_PUNCTUATION_RE = /[.!?]$/;
 
 export interface SyncSourceContext {
   workspaceId: string;
@@ -179,7 +184,9 @@ function parseWorkflowSnapshot(params: {
     if (error instanceof DefinitionParseError) {
       throw new DefinitionSyncPermanentError(
         'invalid-definition',
-        `Invalid workflow definition at ${params.path}: ${error.message}`,
+        limitDefinitionSyncErrorMessage(
+          `Invalid workflow definition at ${params.path}: ${error.message}`,
+        ),
         validationErrorsFrom(error.details),
         params.path,
       );
@@ -279,7 +286,10 @@ function definitionSyncDiagnosticsFor(
   return limitDefinitionSyncDiagnostics(
     errors.map((error) => ({
       code: 'invalid-definition',
-      message: error.reason === undefined ? error.message : `${error.message}: ${error.reason}`,
+      message:
+        error.reason === undefined
+          ? error.message
+          : `${error.message.replace(TRAILING_SENTENCE_PUNCTUATION_RE, '')}: ${error.reason}`,
       severity: 'error' as const,
       ...(error.path === undefined || error.path.length === 0 ? {} : {path: error.path}),
       ...(filePath === undefined ? {} : {filePath}),

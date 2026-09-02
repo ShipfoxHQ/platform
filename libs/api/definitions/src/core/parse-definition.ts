@@ -62,5 +62,7 @@ function formatValidationError(error: ValidationError): string {
 }
 
 function additionalValidationErrorsSuffix(errorCount: number): string {
-  return errorCount > 1 ? ` (and ${errorCount - 1} more issues)` : '';
+  if (errorCount <= 1) return '';
+  const remaining = errorCount - 1;
+  return remaining === 1 ? ' (and 1 more issue)' : ` (and ${remaining} more issues)`;
 }

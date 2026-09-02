@@ -1,3 +1,4 @@
+import {DEFINITION_SYNC_DIAGNOSTICS_MAX_COUNT} from '@shipfox/api-definitions-dto';
 import {integrationsInterModuleContract} from '@shipfox/api-integration-core-dto/inter-module';
 import {createInterModuleKnownError} from '@shipfox/inter-module';
 import {isErrorReported} from '@shipfox/node-error-monitoring';
@@ -282,6 +283,28 @@ describe('definition sync activities', () => {
       });
     });
 
+    it('bounds diagnostics before returning the activity result', async () => {
+      const paths = Array.from(
+        {length: DEFINITION_SYNC_DIAGNOSTICS_MAX_COUNT + 1},
+        (_, index) => `.shipfox/workflows/warning-${index}.yml`,
+      );
+      const source = sourceControl({
+        fetchFile: vi.fn(({path}) => Promise.resolve({path, ref: 'main', content: warningYaml})),
+      });
+      const activities = createDefinitionSyncActivities(source, agent);
+
+      const result = await activities.fetchAndApplyDefinitionWorkflows({
+        projectId,
+        workspaceId: crypto.randomUUID(),
+        sourceConnectionId,
+        sourceExternalRepositoryId: 'gitea:gitea-owner/platform',
+        sourceRef: 'main',
+        paths,
+      });
+
+      expect(result.diagnostics).toHaveLength(DEFINITION_SYNC_DIAGNOSTICS_MAX_COUNT);
+    });
+
     it('translates DefinitionSyncPermanentError into a non-retryable ApplicationFailure', async () => {
       const activities = createDefinitionSyncActivities(
         sourceControl({
@@ -415,7 +438,7 @@ describe('definition sync activities', () => {
       const diagnostics = [
         {
           code: 'invalid-definition',
-          message: 'Step gate success must be a valid CEL boolean expression.: No such key',
+          message: 'Step gate success must be a valid CEL boolean expression: No such key',
           path: 'jobs.build.steps.0.gate.success',
           filePath: '.shipfox/workflows/invalid.yml',
           severity: 'error' as const,

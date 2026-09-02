@@ -1,4 +1,5 @@
 import type {AgentValidationCatalogV2} from '@shipfox/api-agent-dto/inter-module';
+import {DEFINITION_SYNC_WARNING_MESSAGE_MAX_LENGTH} from '@shipfox/api-definitions-dto';
 import {InvalidWorkflowDocumentError} from '@shipfox/workflow-document';
 import {definitionDefaultRunnerLabels} from '../config.js';
 import type {IntegrationValidationContext} from './entities/integration-context.js';
@@ -98,7 +99,10 @@ function validationErrorsFor(error: unknown): ValidationError[] {
       validationError({
         message: issue.message,
         path: issue.path.join('.'),
-        reason: typeof issue.details?.reason === 'string' ? issue.details.reason : undefined,
+        reason:
+          typeof issue.details?.reason === 'string'
+            ? issue.details.reason.slice(0, DEFINITION_SYNC_WARNING_MESSAGE_MAX_LENGTH)
+            : undefined,
       }),
     );
   }
