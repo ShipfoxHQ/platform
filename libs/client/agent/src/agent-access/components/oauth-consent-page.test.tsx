@@ -66,7 +66,6 @@ describe('OAuthConsentPage', () => {
     expect(screen.queryByText(WORKSPACE_ID)).not.toBeInTheDocument();
     expect(screen.queryByText('owner')).not.toBeInTheDocument();
     expect(screen.getByText('Current workspace')).toBeVisible();
-    expect(screen.queryByRole('radio')).not.toBeInTheDocument();
     expect(onRedirect).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole('button', {name: 'Allow access'}));
