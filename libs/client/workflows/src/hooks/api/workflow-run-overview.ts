@@ -8,8 +8,11 @@ import {
 } from '@shipfox/api-workflows-dto';
 import {ApiError, checkedApiRequest, isInvalidApiResponseError} from '@shipfox/client-api';
 import {
+  type InfiniteData,
   infiniteQueryOptions,
   queryOptions,
+  type UseInfiniteQueryOptions,
+  type UseQueryOptions,
   useInfiniteQuery,
   useQuery,
 } from '@tanstack/react-query';
@@ -37,6 +40,35 @@ export const workflowRunOverviewQueryKeys = {
   jobs: workflowRunsQueryKeys.overviewJobs,
 };
 
+type WorkflowRunLineageHeadQueryKey =
+  | ReturnType<typeof workflowRunsQueryKeys.head>
+  | readonly ['workflow-runs', 'head'];
+type WorkflowRunOverviewQueryKey =
+  | ReturnType<typeof workflowRunsQueryKeys.overview>
+  | readonly ['workflow-runs', 'overview'];
+type WorkflowRunOverviewJobsQueryKey =
+  | ReturnType<typeof workflowRunsQueryKeys.overviewJobs>
+  | readonly ['workflow-runs', 'overview-jobs'];
+type WorkflowRunLineageHeadQueryOptions = UseQueryOptions<
+  WorkflowRunLineageHead,
+  Error,
+  WorkflowRunLineageHead,
+  WorkflowRunLineageHeadQueryKey
+>;
+type WorkflowRunOverviewQueryOptions = UseQueryOptions<
+  WorkflowRunOverview,
+  Error,
+  WorkflowRunOverview,
+  WorkflowRunOverviewQueryKey
+>;
+type WorkflowRunOverviewJobsQueryOptions = UseInfiniteQueryOptions<
+  WorkflowRunOverviewJobPage,
+  Error,
+  InfiniteData<WorkflowRunOverviewJobPage, string | null>,
+  WorkflowRunOverviewJobsQueryKey,
+  string | null
+>;
+
 export interface WorkflowRunLineageHeadQueryInput {
   workflowRunId: string | undefined;
   initialData?: WorkflowRunLineageHead | undefined;
@@ -47,7 +79,7 @@ export function workflowRunLineageHeadQueryOptions({
   workflowRunId,
   initialData,
   enabled = true,
-}: WorkflowRunLineageHeadQueryInput) {
+}: WorkflowRunLineageHeadQueryInput): WorkflowRunLineageHeadQueryOptions {
   return queryOptions({
     queryKey: workflowRunId
       ? workflowRunsQueryKeys.head(workflowRunId)
@@ -107,7 +139,7 @@ export function workflowRunOverviewQueryOptions({
   workflowRunId,
   runAttempt,
   enabled = true,
-}: WorkflowRunOverviewQueryInput) {
+}: WorkflowRunOverviewQueryInput): WorkflowRunOverviewQueryOptions {
   const queryEnabled = Boolean(workflowRunId) && runAttempt !== undefined && enabled;
   return queryOptions({
     queryKey:
@@ -186,7 +218,7 @@ export function workflowRunOverviewJobsInfiniteQueryOptions({
   runAttempt,
   initialPage,
   enabled = true,
-}: WorkflowRunOverviewJobsQueryInput) {
+}: WorkflowRunOverviewJobsQueryInput): WorkflowRunOverviewJobsQueryOptions {
   const queryEnabled = Boolean(workflowRunId) && runAttempt !== undefined && enabled;
   return infiniteQueryOptions({
     queryKey:

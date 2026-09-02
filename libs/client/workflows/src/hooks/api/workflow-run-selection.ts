@@ -3,7 +3,7 @@ import {
   workflowRunSelectionResponseSchema,
 } from '@shipfox/api-workflows-dto';
 import {checkedApiRequest} from '@shipfox/client-api';
-import {queryOptions, useQuery} from '@tanstack/react-query';
+import {queryOptions, type UseQueryOptions, useQuery} from '@tanstack/react-query';
 import type {WorkflowRunSelectionResolution} from '#core/workflow-run.js';
 import {toWorkflowRunSelectionResolution} from './workflow-run-mapper.js';
 import {workflowRunsQueryKeys} from './workflow-runs.js';
@@ -18,6 +18,16 @@ export interface WorkflowRunSelectionQueryInput {
   enabled?: boolean | undefined;
 }
 
+type WorkflowRunSelectionQueryKey =
+  | ReturnType<typeof workflowRunsQueryKeys.selection>
+  | readonly ['workflow-runs', 'selection'];
+type WorkflowRunSelectionQueryOptions = UseQueryOptions<
+  WorkflowRunSelectionResolution,
+  Error,
+  WorkflowRunSelectionResolution,
+  WorkflowRunSelectionQueryKey
+>;
+
 export function workflowRunSelectionQueryOptions({
   workflowRunId,
   runAttempt,
@@ -26,7 +36,7 @@ export function workflowRunSelectionQueryOptions({
   stepId,
   stepAttemptId,
   enabled = true,
-}: WorkflowRunSelectionQueryInput) {
+}: WorkflowRunSelectionQueryInput): WorkflowRunSelectionQueryOptions {
   const hasIdentity = Boolean(jobId || jobExecutionId || stepId || stepAttemptId);
   const queryEnabled = Boolean(workflowRunId) && hasIdentity && enabled;
   const identity = {jobId, jobExecutionId, stepId, stepAttemptId};
