@@ -1,6 +1,6 @@
 import {configureApiClient} from '@shipfox/client-api';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
-import {render, screen} from '@testing-library/react';
+import {act, render, screen} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {OAuthConsentPage} from './oauth-consent-page.js';
 
@@ -33,6 +33,7 @@ function renderConsent(onRedirect = vi.fn()) {
   const queryClient = new QueryClient({defaultOptions: {queries: {retry: false}}});
   return {
     onRedirect,
+    queryClient,
     ...render(
       <QueryClientProvider client={queryClient}>
         <OAuthConsentPage requestId={REQUEST_ID} onRedirect={onRedirect} />
@@ -91,5 +92,32 @@ describe('OAuthConsentPage', () => {
     await user.click(screen.getByRole('button', {name: 'Deny'}));
 
     expect(onRedirect).toHaveBeenCalledWith('https://agent.example.test/denied');
+  });
+
+  test('preserves loaded consent details when a background refetch fails', async () => {
+    let requestCount = 0;
+    const fetchImpl = vi.fn(() => {
+      requestCount += 1;
+      return Promise.resolve(
+        requestCount === 1
+          ? jsonResponse(consentResponse())
+          : jsonResponse(
+              {code: 'auth-dependency-unavailable', message: 'Temporarily unavailable'},
+              {status: 503},
+            ),
+      );
+    });
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
+    const {queryClient} = renderConsent();
+    await screen.findByRole('heading', {name: 'Allow Claude Desktop to access Shipfox?'});
+
+    await act(async () => {
+      await queryClient.refetchQueries();
+    });
+
+    expect(
+      screen.getByRole('heading', {name: 'Allow Claude Desktop to access Shipfox?'}),
+    ).toBeVisible();
+    expect(screen.queryByText("This access request isn't available.")).not.toBeInTheDocument();
   });
 });

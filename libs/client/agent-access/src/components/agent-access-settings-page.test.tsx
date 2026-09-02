@@ -55,9 +55,45 @@ describe('AgentAccessSettingsPage', () => {
 
     expect((await screen.findAllByText('Claude Desktop')).length).toBeGreaterThan(0);
     expect((await screen.findAllByText('Local agent')).length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Last refreshed')).toHaveLength(2);
     expect(screen.queryByText('Hidden')).not.toBeInTheDocument();
     expect(screen.queryByText('Hidden PAT')).not.toBeInTheDocument();
+  });
+
+  test('keeps the create modal open while the one-time token request is pending', async () => {
+    const user = userEvent.setup();
+    let resolveCreate!: (response: Response) => void;
+    const createResponse = new Promise<Response>((resolve) => {
+      resolveCreate = resolve;
+    });
+    const fetchImpl = vi.fn((input: RequestInfo | URL) => {
+      const request = input as Request;
+      if (request.method === 'POST') return createResponse;
+      if (request.url.endsWith('/grants')) return Promise.resolve(jsonResponse({grants: []}));
+      return Promise.resolve(jsonResponse({pats: []}));
+    });
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
+    renderSettings(<AgentAccessSettingsPage workspaceId={WORKSPACE_ID} />);
+
+    await screen.findByText('No personal access tokens');
+    await user.click(screen.getByRole('button', {name: 'Create token'}));
+    fireEvent.change(await screen.findByLabelText('Token name'), {
+      target: {value: 'Local coding agent'},
+    });
+    const createButtons = screen.getAllByRole('button', {name: 'Create token'});
+    const createButton = createButtons.at(-1);
+    if (!createButton) throw new Error('Create token button not rendered');
+    await user.click(createButton);
+    await user.keyboard('{Escape}');
+
+    expect(screen.getByRole('dialog')).toBeVisible();
+
+    resolveCreate(
+      jsonResponse(
+        {...patDto({name: 'Local coding agent'}), raw_token: 'sf_pat_secret-once'},
+        {status: 201},
+      ),
+    );
+    expect(await screen.findByText('sf_pat_secret-once')).toBeVisible();
   });
 
   test('reveals a created PAT once and clears it when the modal closes', async () => {

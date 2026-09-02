@@ -51,7 +51,7 @@ export function OAuthConsentPage({
 
   if (consentQuery.isPending) return <OAuthConsentLoading />;
 
-  if (consentQuery.isError || !consentQuery.data) {
+  if (consentQuery.data === undefined) {
     return (
       <AuthShell
         title="Access request unavailable"

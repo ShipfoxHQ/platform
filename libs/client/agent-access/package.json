@@ -53,7 +53,7 @@
     "build": "shipfox-swc",
     "check": "shipfox-biome-check",
     "check:fix": "shipfox-biome-check --write",
-    "storybook": "storybook dev -p 6013",
+    "storybook": "storybook dev -p 6017",
     "storybook:build": "storybook build -o storybook-static",
     "test": "shipfox-vitest-run",
     "test:watch": "shipfox-vitest-watch",

@@ -1,3 +1,11 @@
 {
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "turbo build && pnpm run storybook:build",
+  "devCommand": "pnpm run storybook",
+  "installCommand": "pnpm install",
+  "git": {
+    "deploymentEnabled": false
+  },
+  "framework": null,
+  "outputDirectory": "./storybook-static"
 }

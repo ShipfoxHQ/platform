@@ -34,7 +34,7 @@ import {
 } from '@shipfox/react-ui/table';
 import {Code, Header, Text} from '@shipfox/react-ui/typography';
 import {useForm} from '@tanstack/react-form';
-import {useState} from 'react';
+import {useEffect, useRef, useState} from 'react';
 import type {
   AgentGrant,
   AgentPersonalAccessToken,
@@ -99,10 +99,12 @@ function ConnectedAgentsSection({workspaceId}: {workspaceId: string}) {
 function PersonalAccessTokensSection({workspaceId}: {workspaceId: string}) {
   const tokensQuery = useAgentPersonalAccessTokensQuery();
   const tokens = (tokensQuery.data ?? []).filter((token) => token.workspaceId === workspaceId);
+  const createToken = useCreateAgentPersonalAccessTokenMutation(workspaceId);
   const [open, setOpen] = useState(false);
   const [createdToken, setCreatedToken] = useState<CreatedAgentPersonalAccessToken | null>(null);
 
   function handleOpenChange(nextOpen: boolean) {
+    if (!nextOpen && createToken.isPending) return;
     setOpen(nextOpen);
     if (!nextOpen) setCreatedToken(null);
   }
@@ -124,7 +126,11 @@ function PersonalAccessTokensSection({workspaceId}: {workspaceId: string}) {
           </ModalTrigger>
           <ModalContent aria-describedby={undefined}>
             <ModalTitle className="sr-only">Create personal access token</ModalTitle>
-            <ModalHeader title="Create personal access token" />
+            <ModalHeader
+              title="Create personal access token"
+              showEscIndicator={!createToken.isPending}
+              showClose={!createToken.isPending}
+            />
             {createdToken ? (
               <CreatedPersonalAccessToken
                 token={createdToken}
@@ -132,7 +138,7 @@ function PersonalAccessTokensSection({workspaceId}: {workspaceId: string}) {
               />
             ) : (
               <CreatePersonalAccessTokenForm
-                workspaceId={workspaceId}
+                createToken={createToken}
                 onCreated={setCreatedToken}
               />
             )}
@@ -389,13 +395,12 @@ function RevokeCredentialButton({
 const CREATE_PAT_FORM_ID = 'create-agent-personal-access-token-form';
 
 function CreatePersonalAccessTokenForm({
-  workspaceId,
+  createToken,
   onCreated,
 }: {
-  workspaceId: string;
+  createToken: ReturnType<typeof useCreateAgentPersonalAccessTokenMutation>;
   onCreated: (token: CreatedAgentPersonalAccessToken) => void;
 }) {
-  const createToken = useCreateAgentPersonalAccessTokenMutation(workspaceId);
   const [formError, setFormError] = useState<string>();
   const form = useForm({
     defaultValues: {name: '', expiration: '90'},
@@ -504,20 +509,33 @@ export function CreatedPersonalAccessToken({
   onDone?: () => void;
 }) {
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const copyStateTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  function resetCopyStateAfter(delay: number) {
+    if (copyStateTimeoutRef.current) clearTimeout(copyStateTimeoutRef.current);
+    copyStateTimeoutRef.current = setTimeout(() => setCopyState('idle'), delay);
+  }
+
   const {copy} = useCopyToClipboard({
     text: token.token,
     onCopy: () => {
       setCopyState('copied');
-      window.setTimeout(() => setCopyState('idle'), 1500);
+      resetCopyStateAfter(1500);
     },
   });
+
+  useEffect(() => {
+    return () => {
+      if (copyStateTimeoutRef.current) clearTimeout(copyStateTimeoutRef.current);
+    };
+  }, []);
 
   async function handleCopy() {
     try {
       await copy();
     } catch {
       setCopyState('failed');
-      window.setTimeout(() => setCopyState('idle'), 2500);
+      resetCopyStateAfter(2500);
     }
   }
 

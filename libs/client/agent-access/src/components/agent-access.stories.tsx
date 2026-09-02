@@ -1,6 +1,7 @@
 import {configureApiClient} from '@shipfox/client-api';
 import type {Decorator, Meta, StoryObj} from '@storybook/react';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
+import {type ReactNode, useEffect, useState} from 'react';
 import {within} from 'storybook/test';
 import {AgentAccessSettingsPage, CreatedPersonalAccessToken} from './agent-access-settings-page.js';
 import {OAuthConsentPage} from './oauth-consent-page.js';
@@ -20,11 +21,6 @@ function AgentAccessStory({view}: {view: View}) {
     );
   }
 
-  configureApiClient({
-    baseUrl: 'https://api.example.test',
-    fetchImpl: fetchForView(view),
-  });
-
   if (view === 'consent') {
     return <OAuthConsentPage requestId={REQUEST_ID} onRedirect={() => undefined} />;
   }
@@ -36,20 +32,39 @@ function AgentAccessStory({view}: {view: View}) {
   );
 }
 
-const withQueryClient: Decorator = (Story) => {
-  const queryClient = new QueryClient({defaultOptions: {queries: {retry: false}}});
-  return (
-    <QueryClientProvider client={queryClient}>
-      <Story />
-    </QueryClientProvider>
+const withStoryProviders: Decorator = (Story, context) => (
+  <StoryProviders key={context.args.view as View} view={context.args.view as View}>
+    <Story />
+  </StoryProviders>
+);
+
+function StoryProviders({children, view}: {children: ReactNode; view: View}) {
+  const [queryClient] = useState(
+    () => new QueryClient({defaultOptions: {queries: {retry: false}}}),
   );
-};
+  const [configuredView, setConfiguredView] = useState<View>();
+
+  useEffect(() => {
+    configureApiClient({
+      baseUrl: 'https://api.example.test',
+      fetchImpl: fetchForView(view),
+    });
+    setConfiguredView(view);
+
+    return () => {
+      configureApiClient({baseUrl: '', fetchImpl: undefined});
+    };
+  }, [view]);
+
+  if (configuredView !== view) return null;
+  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+}
 
 const meta = {
   title: 'Agent access/Surfaces',
   component: AgentAccessStory,
   parameters: {layout: 'fullscreen'},
-  decorators: [withQueryClient],
+  decorators: [withStoryProviders],
   args: {view: 'consent'},
 } satisfies Meta<typeof AgentAccessStory>;
 
@@ -116,7 +131,7 @@ function StorySurface({
   );
 }
 
-function fetchForView(view: Exclude<View, 'created'>): typeof fetch {
+function fetchForView(view: View): typeof fetch {
   return (input) => {
     const request = input as Request;
     if (view === 'settings-errors') {
