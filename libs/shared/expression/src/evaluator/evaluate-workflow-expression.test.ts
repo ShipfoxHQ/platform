@@ -513,4 +513,24 @@ describe('evaluateWorkflowExpression', () => {
     expect(error).toBeInstanceOf(WorkflowExpressionEvaluationError);
     expect((error as WorkflowExpressionEvaluationError).reason).toBe('evaluation-error');
   });
+
+  it('exposes a bounded diagnostic without runtime operands', () => {
+    const expression = createWorkflowExpression({
+      source: 'duration(result.secret)',
+      check: {mode: 'syntax'},
+    });
+
+    let error: unknown;
+    try {
+      evaluateWorkflowExpression(expression, {result: {secret: 'topsecret'}});
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(WorkflowExpressionEvaluationError);
+    expect((error as WorkflowExpressionEvaluationError).summary).toBe(
+      'CEL evaluation failed (invalid_duration)',
+    );
+    expect((error as WorkflowExpressionEvaluationError).summary).not.toContain('topsecret');
+  });
 });

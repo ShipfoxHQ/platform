@@ -796,13 +796,7 @@ function errorMessage(error: unknown): string {
 }
 
 function mappingEvaluationErrorMessage(error: unknown): string {
-  if (!(error instanceof WorkflowExpressionEvaluationError) || error.cause === undefined) {
-    return errorMessage(error);
-  }
-  if (isRecord(error.cause) && typeof error.cause.summary === 'string') {
-    return error.cause.summary;
-  }
-  return errorMessage(error.cause);
+  return error instanceof WorkflowExpressionEvaluationError ? error.summary : errorMessage(error);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
