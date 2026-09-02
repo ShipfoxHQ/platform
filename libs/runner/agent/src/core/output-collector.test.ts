@@ -130,6 +130,26 @@ describe('OutputCollector', () => {
     expect(collector.snapshot()).toEqual({meta: '{"name":"api"}'});
   });
 
+  it('accepts schema-less json output values from agents', () => {
+    const collector = new OutputCollector({
+      count: {type: 'json'},
+      ready: {type: 'json'},
+      payload: {type: 'json'},
+      items: {type: 'json'},
+    });
+
+    expect(collector.trySet('count', '42')).toEqual({ok: true});
+    expect(collector.trySet('ready', 'true')).toEqual({ok: true});
+    expect(collector.trySet('payload', '{"name":"build"}')).toEqual({ok: true});
+    expect(collector.trySet('items', '["one",2]')).toEqual({ok: true});
+    expect(collector.snapshot()).toEqual({
+      count: '42',
+      ready: 'true',
+      payload: '{"name":"build"}',
+      items: '["one",2]',
+    });
+  });
+
   it('returns the validation error and exact JSON Schema for a rejected json output', () => {
     const schema = {
       type: 'array',

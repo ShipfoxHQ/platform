@@ -58,13 +58,14 @@ execution_name: 'Deploy #${{ run.number }}'
 | `bool` | `true` |
 | `list` | `["main", "release"]` |
 | `map` | `{"env": "prod"}` |
+| `dyn` | A value whose shape is not known when the expression is checked |
 | `timestamp` | `timestamp("2026-01-01T00:00:00Z")` |
 
 ## Operators
 
 | Operator | Example | Result |
 | --- | --- | --- |
-| `==`, `!=` | `trigger.event == "push"` | Compares two values of the same type |
+| `==`, `!=` | `trigger.event == "push"` | Compares compatible values; `dyn` is checked at evaluation time |
 | `<`, `<=`, `>`, `>=` | `run.created_at > timestamp("2026-01-01T00:00:00Z")` | Orders numbers, strings, and timestamps |
 | `&&`, `\|\|`, `!` | `job.key == "deploy" && !step.is_retry` | Combines boolean values |
 | `in` | `"prod" in inputs.environments` | True when a list contains the value |
@@ -74,8 +75,9 @@ execution_name: 'Deploy #${{ run.number }}'
 | `? :` | `run.number == 1 ? "first" : "rerun"` | The middle value when true, the last when false |
 | `( )` | `(a \|\| b) && c` | Groups an expression against precedence |
 
-Comparing values of different types is an error rather than a false result, and
-`int` and `double` count as different types. A predicate that errors never
+Static checking rejects incompatible known types rather than treating them as a
+false result. Dynamic values are checked when the expression runs, and numeric
+comparisons support both `int` and `double`. A predicate that errors never
 passes.
 
 ## Functions and macros
@@ -100,7 +102,7 @@ passes.
 | `timestamp(string)` | `timestamp("2026-01-01T00:00:00Z")` | A timestamp from an RFC 3339 string |
 | `range(start, stop, step)` | `range(1, 3, 1)` | An inclusive list of integers |
 | `toJson(value)` | `toJson(event.pull_request.labels)` | The value serialized as compact JSON text |
-| `fromJson(string)` | `fromJson(event.payload)` | The JSON text parsed into a CEL value |
+| `fromJson(string)` | `fromJson(event.payload)` | The JSON text parsed into a dynamic CEL value |
 
 `list.first()` and `list.last()` keep the element's type. Calling either method
 on an empty list causes an evaluation error. Workflow job and step conditions
@@ -111,6 +113,10 @@ record that outcome as errored rather than rejected.
 at most 1,000,000 UTF-8 bytes in one evaluation. `fromJson()` expects a valid
 JSON string and converts safe integer numbers to CEL integers. `toJson()` writes
 integers outside the range JSON numbers represent exactly as quoted strings.
+
+Lookups through an open map, schema-less tool output, or an unknown JSON Schema
+are `dyn`. They can be used with field access, methods, and comparisons, but a
+runtime failure still makes the surrounding predicate fail.
 
 The [CEL language
 definition](https://github.com/google/cel-spec/blob/master/doc/langdef.md#standard-definitions)

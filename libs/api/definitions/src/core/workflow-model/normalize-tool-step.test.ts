@@ -96,6 +96,18 @@ const integrationValidationContext = {
               required: ['issueId', 'body'],
             },
           },
+          {
+            id: 'dynamic_reader',
+            description: 'Read an unknown payload',
+            sensitivity: 'read',
+            sensitive: false,
+            requiredScope: 'read',
+            inputSchema: {
+              type: 'object',
+              properties: {id: {type: 'string'}},
+              required: ['id'],
+            },
+          },
         ],
       },
     ],
@@ -171,6 +183,49 @@ const integrationValidationContext = {
               },
             ],
           },
+          {
+            id: 'open_reader',
+            description: 'Read an open payload',
+            sensitivity: 'read',
+            sensitive: false,
+            requiredScope: 'read',
+            inputSchema: {
+              type: 'object',
+              properties: {owner: {type: 'string'}, repo: {type: 'string'}},
+              required: ['owner', 'repo'],
+            },
+            outputSchema: {
+              type: 'object',
+              properties: {count: {type: 'integer'}},
+              required: ['count'],
+            },
+          },
+          {
+            id: 'nested_open_reader',
+            description: 'Read a nested open payload',
+            sensitivity: 'read',
+            sensitive: false,
+            requiredScope: 'read',
+            inputSchema: {
+              type: 'object',
+              properties: {owner: {type: 'string'}, repo: {type: 'string'}},
+              required: ['owner', 'repo'],
+            },
+            outputSchema: {
+              type: 'object',
+              properties: {
+                items: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {title: {type: 'string'}},
+                  },
+                },
+              },
+              required: ['items'],
+              additionalProperties: false,
+            },
+          },
         ],
       },
     ],
@@ -187,6 +242,88 @@ const integrationValidationContext = {
 } satisfies IntegrationValidationContext;
 
 describe('normalizeToolStep', () => {
+  it('types schema-less mapped tool outputs as dyn', () => {
+    const model = normalize(
+      toolDocument(
+        toolStep({
+          key: 'dynamic',
+          tool: 'dynamic_reader',
+          connection: 'linear-main',
+          with: {id: 'ENG-1'},
+          outputs: mappingOutputs({
+            text: '$' + '{{ result.text }}',
+            count: '$' + '{{ result.count }}',
+            ready: '$' + '{{ result.ready }}',
+            payload: '$' + '{{ result.payload }}',
+            items: '$' + '{{ result.items }}',
+          }),
+          gate: {
+            success:
+              'step.outputs.count == 1.0 && step.outputs.ready == true && step.outputs.text.lowerAscii() == "ready"',
+          },
+        }),
+      ),
+      {integrationValidationContext},
+    );
+
+    const step = model.jobs[0]?.steps[0] as WorkflowModelToolStep;
+    expect(step.outputMappings).toMatchObject({
+      text: {check: 'typed', resultType: {kind: 'dyn'}},
+      count: {check: 'typed', resultType: {kind: 'dyn'}},
+      ready: {check: 'typed', resultType: {kind: 'dyn'}},
+      payload: {check: 'typed', resultType: {kind: 'dyn'}},
+      items: {check: 'typed', resultType: {kind: 'dyn'}},
+    });
+    expect(step.outputs).toEqual({
+      text: {type: 'json'},
+      count: {type: 'json'},
+      ready: {type: 'json'},
+      payload: {type: 'json'},
+      items: {type: 'json'},
+    });
+    expect(step.gate?.success).toMatchObject({check: 'typed', resultType: 'bool'});
+  });
+
+  it('keeps open object and nested open object mappings dynamic', () => {
+    const model = normalize(
+      {
+        name: 'open tool outputs',
+        jobs: {
+          use: {
+            steps: [
+              toolStep({
+                key: 'open',
+                tool: 'open_reader',
+                connection: 'github-main',
+                with: {owner: 'acme', repo: 'platform'},
+                outputs: mappingOutputs({count: '$' + '{{ result.count }}'}),
+                gate: {success: 'step.outputs.count >= 1.0'},
+              }),
+              toolStep({
+                key: 'nested',
+                tool: 'nested_open_reader',
+                connection: 'github-main',
+                with: {owner: 'acme', repo: 'platform'},
+                outputs: mappingOutputs({title: '$' + '{{ result.items[0].title }}'}),
+                gate: {success: 'step.outputs.title.lowerAscii() == "ready"'},
+              }),
+            ],
+          },
+        },
+      },
+      {integrationValidationContext},
+    );
+
+    const open = model.jobs[0]?.steps[0] as WorkflowModelToolStep;
+    const nested = model.jobs[0]?.steps[1] as WorkflowModelToolStep;
+    expect(open.outputMappings?.count).toMatchObject({check: 'typed', resultType: {kind: 'dyn'}});
+    expect(open.outputs).toEqual({count: {type: 'json'}});
+    expect(open.gate?.success).toMatchObject({check: 'typed', resultType: 'bool'});
+    expect(nested.outputMappings?.title).toMatchObject({check: 'typed', resultType: {kind: 'dyn'}});
+    expect(nested.outputs).toEqual({title: {type: 'json'}});
+    expect(nested.gate?.success).toMatchObject({check: 'typed', resultType: 'bool'});
+  });
+
   it('splits family.method ids and parses with templates and output mappings', () => {
     const model = normalize(
       {

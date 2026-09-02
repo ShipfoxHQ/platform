@@ -333,6 +333,25 @@ describe('workflowsJobActivatedSchema', () => {
     expect(result).toEqual(payload);
   });
 
+  it('accepts dynamic listener filter output types', () => {
+    const payload = {
+      ...validJobActivated,
+      on: [
+        {
+          source: 'github',
+          event: 'pull_request_review',
+          filter: 'jobs.build.outputs.payload == true',
+          filter_snapshot: {jobs: {build: {outputs: {payload: true}}}},
+          filter_output_types: {build: {payload: {kind: 'dyn'}}},
+        },
+      ],
+    };
+
+    const result = workflowsJobActivatedSchema.parse(payload);
+
+    expect(result).toEqual(payload);
+  });
+
   it('keeps authoring-shaped matchers compatible when no snapshot is present', () => {
     const payload = {
       ...validJobActivated,

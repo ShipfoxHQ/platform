@@ -146,10 +146,10 @@ jobs:
 <JobFields />
 
 Job `outputs` values are templates. A value that contains exactly one expression
-preserves its inferred non-string type, including arrays and objects. An
-expression without an inferred type resolves to a string. Mixed literal and
-expression templates also resolve to strings. A downstream job must declare a
-direct `needs` edge before it reads the output.
+preserves its inferred non-string type, including dynamic values, arrays, and
+objects. An expression without an inferred type resolves to a string. Mixed
+literal and expression templates also resolve to strings. A downstream job must
+declare a direct `needs` edge before it reads the output.
 
 ### Job checkout fields
 
@@ -207,6 +207,13 @@ The `with` block contains JSON-compatible tool inputs. String values can use
 workflow expressions. Tool outputs use a mapping from output names to one
 expression over `result` or `vars`.
 
+Mappings are checked against the provider catalog's `outputSchema`. A closed
+object whose properties are all required keeps typed field access. Open objects,
+optional properties, and unknown schema shapes resolve to `map` or `dyn`, so a
+mapped value is declared as schema-less JSON and can retain a number, boolean,
+object, or list at runtime. A tool without an `outputSchema` keeps its reserved
+`result` root open.
+
 Tool-step authoring requires a validation API deployment that supports these
 fields. Deploy the editor schema and validation API together; rolling back the
 validation API after tool-step definitions are saved makes those definitions
@@ -244,7 +251,9 @@ A gate must define `success`, `on_failure`, or both.
 
 Run, agent, and checkout steps use output declarations. A declaration can be its
 type directly (for example, `sha: string`) or an object with required `type`.
-Only `json` declarations can include `schema`.
+Only `json` declarations can include `schema`. A schema-less `json` declaration
+is dynamic: typed expressions can use its value, but its exact fields are not
+known until runtime.
 
 Tool steps use output mappings instead. Each mapping value must be exactly one
 `${{ }}` expression over the tool `result` or workflow `vars`.

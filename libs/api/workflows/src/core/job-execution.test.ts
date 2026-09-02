@@ -1472,6 +1472,36 @@ describe('recordStepResult', () => {
     expect(attempt?.output).toEqual({meta: {registry: 'ghcr.io', size_bytes: 42}});
   });
 
+  test('preserves primitive and structured values for schema-less JSON outputs', async () => {
+    const {jobId, steps} = await arrangeJobWithSteps(1);
+    const stepId = steps[0]?.id as string;
+    await db()
+      .update(stepsTable)
+      .set({
+        config: {
+          run: 'build',
+          outputs: {
+            count: {type: 'json'},
+            ready: {type: 'json'},
+            payload: {type: 'json'},
+          },
+        },
+      })
+      .where(eq(stepsTable.id, stepId));
+    await nextStepForJob(jobId);
+
+    const outcome = await recordStepResult({
+      jobId,
+      stepId,
+      status: 'succeeded',
+      output: {count: 42, ready: true, payload: {name: 'build'}},
+    });
+
+    expect(outcome).toEqual({jobFinished: true, status: 'succeeded'});
+    const [attempt] = await getStepAttempts(jobId);
+    expect(attempt?.output).toEqual({count: 42, ready: true, payload: {name: 'build'}});
+  });
+
   it.each([
     ['missing declared key', {}, 'outputs.count'],
     ['undeclared emitted key', {count: '1', extra: 'nope'}, 'outputs.extra'],

@@ -13,9 +13,10 @@ Code that turns a checked workflow document into the model used by definitions.
   `gate.on_failure.restart_from` against earlier named steps in the same job.
   Tool-step gates validate against the no-`exit_code` report environment.
 - **Tool steps**: `normalizeToolStep` splits `family.method` tool ids, parses
-  `with` interpolation trees and `outputs` mappings (typed from the catalog
-  `outputSchema`), records the `steps.<key>` type overlay, and validates the
-  connection, tool, and inputs against the optional integration context.
+  `with` interpolation trees and `outputs` mappings, types known closed catalog
+  schemas, keeps open or unknown shapes dynamic, records the `steps.<key>` type
+  overlay, and validates the connection, tool, and inputs against the optional
+  integration context.
 - **`InvalidWorkflowModelError`**: Reports semantic workflow errors found during
   normalization.
 
@@ -102,6 +103,12 @@ For now, run-step gates can use typed roots such as `step.exit_code`,
 roots that are available by step reporting. Guard optional output keys with
 `has(step.outputs.pass)` before reading them so missing keys fail as a normal
 false predicate instead of an uncheckable evaluation error.
+
+Tool output mappings use the catalog `outputSchema` when it proves a closed,
+all-required shape. Open objects, optional properties, and provider schemas with
+an unknown shape produce `map` or `dyn` values, so mapped outputs are persisted
+as schema-less JSON while retaining numeric, boolean, and structured values at
+runtime. A tool without an output schema keeps its reserved `result` root open.
 
 `on_failure.restart_from` must name an earlier step in the same job. The runtime
 host does not execute restart semantics yet. This module only records the

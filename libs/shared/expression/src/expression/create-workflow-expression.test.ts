@@ -106,9 +106,9 @@ describe('createWorkflowExpression', () => {
     });
 
     expect(jsonExpression.resultType).toBe('string');
-    expect(parsedExpression.check).toBe('typed');
-    expect(parsedPredicateExpression.check).toBe('typed');
-    expect(dynamicJsonExpression.resultType).toBeUndefined();
+    expect(parsedExpression).toMatchObject({check: 'typed', resultType: {kind: 'dyn'}});
+    expect(parsedPredicateExpression).toMatchObject({check: 'typed', resultType: {kind: 'dyn'}});
+    expect(dynamicJsonExpression.resultType).toEqual({kind: 'dyn'});
     expect(rangeExpression.resultType).toBe('bool');
     expect(firstExpression.resultType).toBe('string');
     expect(lastExpression.resultType).toBe('string');
@@ -183,13 +183,20 @@ describe('createWorkflowExpression', () => {
     expect(act).toThrow(InvalidWorkflowExpressionError);
   });
 
-  it('accepts a bare dynamic result for an expected predicate type', () => {
+  it.each([
+    'string',
+    'int',
+    'double',
+    'bool',
+    'null',
+    'timestamp',
+  ] as const)('accepts a bare dynamic result for an expected %s type', (expectedResultType) => {
     const expression = createWorkflowExpression({
       source: 'event.value',
       check: {
         mode: 'typed',
         typeEnvironment: {event: {kind: 'map'}},
-        expectedResultType: 'bool',
+        expectedResultType,
       },
     });
 
@@ -197,29 +204,8 @@ describe('createWorkflowExpression', () => {
       language: 'cel',
       source: 'event.value',
       check: 'typed',
-      resultType: 'string',
+      resultType: {kind: 'dyn'},
     });
-  });
-
-  it('rejects a bare dynamic result for a non-predicate expected type', () => {
-    let error: unknown;
-    try {
-      createWorkflowExpression({
-        source: 'event.value',
-        check: {
-          mode: 'typed',
-          typeEnvironment: {event: {kind: 'map'}},
-          expectedResultType: 'string',
-        },
-      });
-    } catch (caught) {
-      error = caught;
-    }
-
-    expect(error).toBeInstanceOf(InvalidWorkflowExpressionError);
-    expect((error as InvalidWorkflowExpressionError).reason).toContain(
-      'must return string; got dyn',
-    );
   });
 
   it('does not treat fromJson text in a dynamic expression as a function call', () => {
@@ -231,7 +217,52 @@ describe('createWorkflowExpression', () => {
       },
     });
 
-    expect(expression.resultType).toBe('string');
+    expect(expression.resultType).toEqual({kind: 'dyn'});
+  });
+
+  it.each([
+    ['a dynamic variable', 'event', {event: {kind: 'dyn'}}],
+    ['a dynamic field', 'event.value', {event: {kind: 'object', fields: {value: {kind: 'dyn'}}}}],
+    [
+      'a dynamic list element',
+      'event.values[0]',
+      {
+        event: {
+          kind: 'object',
+          fields: {values: {kind: 'list', element: {kind: 'dyn'}}},
+        },
+      },
+    ],
+  ] as const)('preserves dyn for %s', (_label, source, typeEnvironment) => {
+    const expression = createWorkflowExpression({
+      source,
+      check: {mode: 'typed', typeEnvironment},
+    });
+
+    expect(expression.resultType).toEqual({kind: 'dyn'});
+  });
+
+  it.each([
+    ['a dynamic equality', 'event.value == "ready"', {event: {kind: 'dyn'}}],
+    ['a dynamic method call', 'event.value.lowerAscii() == "ready"', {event: {kind: 'dyn'}}],
+    ['a dynamic size call', 'event.value.size() == 2', {event: {kind: 'dyn'}}],
+    [
+      'a dynamic list element comparison',
+      'event.values[0] == "ready"',
+      {
+        event: {
+          kind: 'object',
+          fields: {values: {kind: 'list', element: {kind: 'dyn'}}},
+        },
+      },
+    ],
+  ] as const)('type-checks %s', (_label, source, typeEnvironment) => {
+    const expression = createWorkflowExpression({
+      source,
+      check: {mode: 'typed', typeEnvironment, expectedResultType: 'bool'},
+    });
+
+    expect(expression.resultType).toBe('bool');
   });
 
   it('rejects misspelled fields from the typed environment', () => {
@@ -390,6 +421,31 @@ describe('createWorkflowExpression', () => {
       check: 'typed',
       resultType: 'bool',
     });
+  });
+
+  it.each([
+    ['event.value < 1.0', 'int'],
+    ['event.value <= 1.0', 'int'],
+    ['event.value > 1', 'double'],
+    ['event.value >= 1', 'double'],
+    ['1.0 < event.value', 'int'],
+    ['1 <= event.value', 'double'],
+  ] satisfies readonly [
+    string,
+    ExpressionScalarType,
+  ][])('type-checks cross-type numeric ordering in %s', (source, scalarType) => {
+    const expression = createWorkflowExpression({
+      source,
+      check: {
+        mode: 'typed',
+        typeEnvironment: {
+          event: {kind: 'object', fields: {value: scalarType}},
+        },
+        expectedResultType: 'bool',
+      },
+    });
+
+    expect(expression.resultType).toBe('bool');
   });
 
   it.each([
@@ -552,7 +608,7 @@ describe('createWorkflowExpression', () => {
     expect(act).toThrow(InvalidWorkflowExpressionError);
   });
 
-  it('treats dynamic open-map expression results as a scalar fallback', () => {
+  it('preserves dynamic open-map expression results as dyn', () => {
     const expression = createWorkflowExpression({
       source: 'step.outputs.pass',
       check: {
@@ -572,7 +628,7 @@ describe('createWorkflowExpression', () => {
       language: 'cel',
       source: 'step.outputs.pass',
       check: 'typed',
-      resultType: 'string',
+      resultType: {kind: 'dyn'},
     });
   });
 
