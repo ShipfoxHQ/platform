@@ -3,4 +3,4 @@
 "@shipfox/api-runners-dto": minor
 ---
 
-Enriches runner claim and lease-expiry events with runner identity and event timestamps.
+Adds runner identity and provisioning fields to `runners.job.claimed` events and `expiredAt` to `runners.job.lease_expired` events.

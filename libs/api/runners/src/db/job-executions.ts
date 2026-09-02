@@ -1038,11 +1038,11 @@ export async function expireStuckJobExecutions(params: {
         jobExecutionId: runningJobExecutions.jobExecutionId,
         provisionerId: runningJobExecutions.provisionerId,
         providerRunnerId: runningJobExecutions.providerRunnerId,
+        expiredAt: sql<string>`now()`,
       });
 
     if (deleted.length === 0) return [];
 
-    const expiredAt = new Date().toISOString();
     await releaseReservationsForTerminalRunningRows(tx, deleted);
 
     await writeOutboxEvents<RunnersEventMap>(
@@ -1055,7 +1055,7 @@ export async function expireStuckJobExecutions(params: {
           workflowRunAttemptId: row.workflowRunAttemptId,
           jobId: row.jobId,
           jobExecutionId: row.jobExecutionId,
-          expiredAt,
+          expiredAt: new Date(row.expiredAt).toISOString(),
         },
       })),
     );
