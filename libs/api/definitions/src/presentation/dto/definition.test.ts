@@ -157,16 +157,16 @@ describe('toDefinitionSyncSummaryDto', () => {
       sourceConnectionId: '019e98ab-b90f-7265-b13c-8b441c991382',
       sourceExternalRepositoryId: 'gitea:owner/platform',
       ref: 'main',
-      status: 'succeeded',
-      lastErrorCode: null,
-      lastErrorMessage: null,
+      status: 'failed',
+      lastErrorCode: 'invalid-definition',
+      lastErrorMessage: 'Invalid workflow definition',
       diagnostics: [
         {
-          code: 'warning-code',
-          message: 'Warning',
+          code: 'invalid-definition',
+          message: 'Step gate success must be a valid CEL boolean expression.: No such key',
           path: 'jobs.build.steps.0.run',
           filePath: '.shipfox/workflows/ci.yml',
-          severity: 'warning',
+          severity: 'error',
         },
       ],
       startedAt: new Date('2026-06-09T10:00:00.000Z'),
@@ -176,13 +176,16 @@ describe('toDefinitionSyncSummaryDto', () => {
     } satisfies DefinitionSyncState;
 
     expect(toDefinitionSyncSummaryDto(syncState)).toMatchObject({
+      status: 'failed',
+      last_error_code: 'invalid-definition',
+      last_error_message: 'Invalid workflow definition',
       diagnostics: [
         {
-          code: 'warning-code',
-          message: 'Warning',
+          code: 'invalid-definition',
+          message: 'Step gate success must be a valid CEL boolean expression.: No such key',
           path: 'jobs.build.steps.0.run',
           file_path: '.shipfox/workflows/ci.yml',
-          severity: 'warning',
+          severity: 'error',
         },
       ],
     });

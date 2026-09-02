@@ -5,13 +5,18 @@ import {integrationsInterModuleContract} from '@shipfox/api-integration-core-dto
 import {isInterModuleKnownError} from '@shipfox/inter-module';
 import {boundedMap} from '@shipfox/node-module';
 import type {IntegrationValidationContext} from './entities/integration-context.js';
-import type {DefinitionSyncErrorCode} from './entities/sync-state.js';
+import {
+  type DefinitionSyncDiagnostic,
+  type DefinitionSyncErrorCode,
+  limitDefinitionSyncDiagnostics,
+} from './entities/sync-state.js';
 import type {ValidationDiagnostic} from './entities/validation-diagnostic.js';
 import type {WorkflowDefinitionPayload} from './entities/workflow-definition.js';
 import {DefinitionParseError, DefinitionSyncPermanentError} from './errors.js';
 import type {DefinitionsSourceControl} from './integrations.js';
 import {needsIntegrationValidationContext} from './needs-integration-validation-context.js';
 import {parseDefinitionWithDiagnostics, stripDefinitionDiagnostics} from './parse-definition.js';
+import type {ValidationError} from './validate-definition.js';
 
 export const DEFAULT_WORKFLOW_PATH = '.shipfox/workflows/';
 export const MAX_WORKFLOW_FILES = 100;
@@ -175,6 +180,8 @@ function parseWorkflowSnapshot(params: {
       throw new DefinitionSyncPermanentError(
         'invalid-definition',
         `Invalid workflow definition at ${params.path}: ${error.message}`,
+        validationErrorsFrom(error.details),
+        params.path,
       );
     }
     throw error;
@@ -185,11 +192,18 @@ export interface SyncFailureClassification {
   code: DefinitionSyncErrorCode;
   message: string;
   retryable: boolean;
+  diagnostics?: DefinitionSyncDiagnostic[] | undefined;
 }
 
 export function classifySyncFailure(error: unknown): SyncFailureClassification {
   if (error instanceof DefinitionSyncPermanentError) {
-    return {code: error.code, message: error.message, retryable: false};
+    const diagnostics = definitionSyncDiagnosticsFor(error.details, error.filePath);
+    return {
+      code: error.code,
+      message: error.message,
+      retryable: false,
+      ...(diagnostics.length === 0 ? {} : {diagnostics}),
+    };
   }
   const methods = [
     integrationsInterModuleContract.methods.resolveSourceRepository,
@@ -239,4 +253,36 @@ function providerErrorCode(reason: string): DefinitionSyncErrorCode {
 
 function sha256Hex(content: string): string {
   return createHash('sha256').update(content, 'utf8').digest('hex');
+}
+
+function validationErrorsFrom(details: unknown): ValidationError[] {
+  if (!Array.isArray(details)) return [];
+
+  return details.filter(isValidationError);
+}
+
+function isValidationError(value: unknown): value is ValidationError {
+  if (typeof value !== 'object' || value === null) return false;
+
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.message === 'string' &&
+    (candidate.path === undefined || typeof candidate.path === 'string') &&
+    (candidate.reason === undefined || typeof candidate.reason === 'string')
+  );
+}
+
+function definitionSyncDiagnosticsFor(
+  errors: readonly ValidationError[],
+  filePath?: string | undefined,
+): DefinitionSyncDiagnostic[] {
+  return limitDefinitionSyncDiagnostics(
+    errors.map((error) => ({
+      code: 'invalid-definition',
+      message: error.reason === undefined ? error.message : `${error.message}: ${error.reason}`,
+      severity: 'error' as const,
+      ...(error.path === undefined || error.path.length === 0 ? {} : {path: error.path}),
+      ...(filePath === undefined ? {} : {filePath}),
+    })),
+  );
 }

@@ -36,6 +36,7 @@ export interface MarkSyncFailedActivityInput extends Omit<SyncWorkflowInput, 'so
   sourceRef: string | null;
   code: DefinitionSyncErrorCode;
   message: string;
+  diagnostics?: readonly DefinitionSyncDiagnostic[] | undefined;
 }
 
 export interface PrepareSyncResult {
@@ -209,7 +210,7 @@ function createMarkSyncFailedActivity() {
       status: 'failed',
       lastErrorCode: input.code,
       lastErrorMessage: input.message,
-      diagnostics: [],
+      diagnostics: input.diagnostics ?? [],
       finishedAt: new Date(),
     });
   };
@@ -223,9 +224,10 @@ async function runWithPermanentTranslation<T>(operation: () => Promise<T>): Prom
       throw error;
     }
     const failure = classifySyncFailure(error);
+    const details = failure.diagnostics === undefined ? [] : [failure.diagnostics];
     const translatedError = failure.retryable
-      ? ApplicationFailure.retryable(failure.message, failure.code)
-      : ApplicationFailure.nonRetryable(failure.message, failure.code);
+      ? ApplicationFailure.retryable(failure.message, failure.code, ...details)
+      : ApplicationFailure.nonRetryable(failure.message, failure.code, ...details);
     if (failure.code !== 'unknown') markErrorReported(translatedError);
     throw translatedError;
   }

@@ -11,7 +11,11 @@ import {
 } from './workflow-model/index.js';
 import {InvalidWorkflowYamlError, parseWorkflowYamlWithLocations} from './workflow-yaml/index.js';
 
-export type ValidationError = {message: string; path?: string | undefined};
+export type ValidationError = {
+  message: string;
+  path?: string | undefined;
+  reason?: string | undefined;
+};
 export type {ValidationDiagnostic} from './entities/validation-diagnostic.js';
 
 export interface DefinitionValidationOptions {
@@ -91,16 +95,27 @@ function validationErrorsFor(error: unknown): ValidationError[] {
 
   if (error instanceof InvalidWorkflowModelError) {
     return error.issues.map((issue) =>
-      validationError({message: issue.message, path: issue.path.join('.')}),
+      validationError({
+        message: issue.message,
+        path: issue.path.join('.'),
+        reason: typeof issue.details?.reason === 'string' ? issue.details.reason : undefined,
+      }),
     );
   }
 
   throw error;
 }
 
-function validationError(params: {message: string; path?: string | undefined}): ValidationError {
-  if (params.path === undefined) return {message: params.message};
-  return {message: params.message, path: params.path};
+function validationError(params: {
+  message: string;
+  path?: string | undefined;
+  reason?: string | undefined;
+}): ValidationError {
+  return {
+    message: params.message,
+    ...(params.path === undefined ? {} : {path: params.path}),
+    ...(params.reason === undefined ? {} : {reason: params.reason}),
+  };
 }
 
 function validationDiagnostic(params: {

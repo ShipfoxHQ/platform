@@ -71,10 +71,18 @@ describe('ProjectWorkflowsPage', () => {
               last_error_message: 'No workflow files found',
               diagnostics: [
                 {
-                  code: 're-evaluating-command',
-                  message: 'Workflow data is re-executed as shell code.',
-                  path: 'jobs.build.steps.0.run',
-                  severity: 'warning',
+                  code: 'invalid-definition',
+                  message: 'Step gate success must be a valid CEL boolean expression.: No such key',
+                  path: 'jobs.build.steps.0.gate.success',
+                  file_path: '.shipfox/workflows/invalid.yml',
+                  severity: 'error',
+                },
+                {
+                  code: 'invalid-definition',
+                  message: 'Another validation error: invalid value',
+                  path: 'jobs.build.steps.1.gate.success',
+                  file_path: '.shipfox/workflows/invalid.yml',
+                  severity: 'error',
                 },
               ],
             },
@@ -89,7 +97,13 @@ describe('ProjectWorkflowsPage', () => {
       await screen.findByText('No workflow files found under .shipfox/workflows/.'),
     ).toBeInTheDocument();
     expect(screen.getByText('Workflow sync failed')).toBeInTheDocument();
-    expect(screen.queryByText('Workflow definition warnings')).not.toBeInTheDocument();
+    expect(screen.getByText('Workflow definition errors')).toBeInTheDocument();
+    expect(screen.getByText('.shipfox/workflows/invalid.yml')).toBeInTheDocument();
+    expect(screen.getByText('jobs.build.steps.0.gate.success')).toBeInTheDocument();
+    expect(
+      screen.getByText('Step gate success must be a valid CEL boolean expression.: No such key'),
+    ).toHaveClass('text-tag-error-text');
+    expect(screen.getByText('jobs.build.steps.1.gate.success')).toBeInTheDocument();
   });
 
   test('shows definition warnings without rendering a sync failure', async () => {

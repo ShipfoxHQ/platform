@@ -388,7 +388,12 @@ function WorkflowSyncAlert({sync}: {sync: DefinitionSyncSummary | null | undefin
 }
 
 function WorkflowSyncDiagnostics({sync}: {sync: DefinitionSyncSummary | null | undefined}) {
-  if (sync?.status !== 'succeeded' || sync.diagnostics.length === 0) return null;
+  if (
+    (sync?.status !== 'succeeded' && sync?.status !== 'failed') ||
+    sync.diagnostics.length === 0
+  ) {
+    return null;
+  }
 
   const hasErrors = sync.diagnostics.some((diagnostic) => diagnostic.severity === 'error');
   const hasWarnings = sync.diagnostics.some((diagnostic) => diagnostic.severity === 'warning');

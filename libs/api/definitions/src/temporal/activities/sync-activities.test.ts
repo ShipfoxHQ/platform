@@ -39,6 +39,16 @@ const warningYaml = [
   '        run: eval "$MSG"',
 ].join('\n');
 
+const invalidPredicateYaml = [
+  'name: Invalid predicate',
+  'runner: ubuntu-latest',
+  'jobs:',
+  '  build:',
+  "    success: 'executions.size()'",
+  '    steps:',
+  '      - run: echo hello',
+].join('\n');
+
 function sourceControl(
   overrides: Partial<DefinitionsSourceControl> = {},
 ): DefinitionsSourceControl {
@@ -300,6 +310,48 @@ describe('definition sync activities', () => {
       await expect(result).rejects.toMatchObject({nonRetryable: true, type: 'invalid-definition'});
     });
 
+    it('carries validation diagnostics on invalid-definition ApplicationFailures', async () => {
+      const activities = createDefinitionSyncActivities(
+        sourceControl({
+          fetchFile: vi.fn(() =>
+            Promise.resolve({
+              path: '.shipfox/workflows/invalid.yml',
+              ref: 'main',
+              content: invalidPredicateYaml,
+            }),
+          ),
+        }),
+        agent,
+      );
+
+      const result = activities.fetchAndApplyDefinitionWorkflows({
+        projectId,
+        workspaceId: crypto.randomUUID(),
+        sourceConnectionId,
+        sourceExternalRepositoryId: 'gitea:gitea-owner/platform',
+        sourceRef: 'main',
+        paths: ['.shipfox/workflows/invalid.yml'],
+      });
+      const error = await result.catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(ApplicationFailure);
+      expect(error).toMatchObject({
+        nonRetryable: true,
+        type: 'invalid-definition',
+        details: [
+          [
+            expect.objectContaining({
+              code: 'invalid-definition',
+              path: 'jobs.build.success',
+              severity: 'error',
+              filePath: '.shipfox/workflows/invalid.yml',
+              message: expect.stringContaining('must return bool'),
+            }),
+          ],
+        ],
+      });
+    });
+
     it('fetches from source commit sha while persisting under source ref', async () => {
       const source = sourceControl();
       const activities = createDefinitionSyncActivities(source, agent);
@@ -356,6 +408,37 @@ describe('definition sync activities', () => {
       expect(rows[0]?.lastErrorMessage).toBe('Invalid workflow at .shipfox/workflows/bad.yml');
       expect(rows[0]?.warnings).toEqual([]);
       expect(rows[0]?.finishedAt).not.toBeNull();
+    });
+
+    it('persists validation diagnostics with a failed sync state', async () => {
+      const activities = createDefinitionSyncActivities(sourceControl(), agent);
+      const diagnostics = [
+        {
+          code: 'invalid-definition',
+          message: 'Step gate success must be a valid CEL boolean expression.: No such key',
+          path: 'jobs.build.steps.0.gate.success',
+          filePath: '.shipfox/workflows/invalid.yml',
+          severity: 'error' as const,
+        },
+      ];
+
+      await activities.markDefinitionSyncFailed({
+        projectId,
+        workspaceId: crypto.randomUUID(),
+        sourceConnectionId,
+        sourceExternalRepositoryId: 'gitea:gitea-owner/platform',
+        sourceRef: 'main',
+        code: 'invalid-definition',
+        message: 'Invalid workflow definition',
+        diagnostics,
+      });
+
+      const rows = await db()
+        .select()
+        .from(definitionSyncStates)
+        .where(sql`${definitionSyncStates.projectId} = ${projectId}`);
+      expect(rows[0]?.status).toBe('failed');
+      expect(rows[0]?.warnings).toEqual(diagnostics);
     });
 
     it('persists failures with the unresolved sentinel ref when no ref was produced', async () => {

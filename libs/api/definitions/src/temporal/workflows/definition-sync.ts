@@ -1,5 +1,6 @@
 import {ActivityFailure, ApplicationFailure, proxyActivities} from '@temporalio/workflow';
 import {
+  type DefinitionSyncDiagnostic,
   type DefinitionSyncErrorCode,
   isDefinitionSyncErrorCode,
 } from '#core/entities/sync-state.js';
@@ -73,9 +74,9 @@ export async function definitionSyncWorkflow(
       deletedCount: applied.deletedCount,
     };
   } catch (error) {
-    const {code, message} = classifyWorkflowError(error);
+    const {code, message, diagnostics} = classifyWorkflowError(error);
     try {
-      await markDefinitionSyncFailed({...input, sourceRef, code, message});
+      await markDefinitionSyncFailed({...input, sourceRef, code, message, diagnostics});
     } catch (markFailedError) {
       const failureOptions = {
         message: `Definition sync failed with ${code}: ${message}; additionally failed to persist failure state: ${formatWorkflowError(markFailedError)}`,
@@ -100,17 +101,44 @@ export async function definitionSyncWorkflow(
 export function classifyWorkflowError(error: unknown): {
   code: DefinitionSyncErrorCode;
   message: string;
+  diagnostics?: DefinitionSyncDiagnostic[] | undefined;
 } {
   if (error instanceof ActivityFailure && error.cause instanceof ApplicationFailure) {
     return classifyWorkflowError(error.cause);
   }
   if (error instanceof ApplicationFailure) {
     const code = isDefinitionSyncErrorCode(error.type) ? error.type : 'unknown';
-    return {code, message: error.message ?? code};
+    const diagnostics = definitionSyncDiagnosticsFrom(error.details);
+    return {
+      code,
+      message: error.message ?? code,
+      ...(diagnostics.length === 0 ? {} : {diagnostics}),
+    };
   }
   return {code: 'unknown', message: error instanceof Error ? error.message : String(error)};
 }
 
 function formatWorkflowError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function definitionSyncDiagnosticsFrom(
+  details: readonly unknown[] | null | undefined,
+): DefinitionSyncDiagnostic[] {
+  const diagnostics = details?.[0];
+  if (!Array.isArray(diagnostics)) return [];
+  return diagnostics.filter(isDefinitionSyncDiagnostic);
+}
+
+function isDefinitionSyncDiagnostic(value: unknown): value is DefinitionSyncDiagnostic {
+  if (typeof value !== 'object' || value === null) return false;
+
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.code === 'string' &&
+    typeof candidate.message === 'string' &&
+    (candidate.path === undefined || typeof candidate.path === 'string') &&
+    (candidate.filePath === undefined || typeof candidate.filePath === 'string') &&
+    (candidate.severity === 'error' || candidate.severity === 'warning')
+  );
 }

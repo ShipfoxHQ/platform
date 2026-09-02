@@ -35,6 +35,30 @@ describe('definitionSyncWorkflow error classification', () => {
     });
   });
 
+  it('carries structured diagnostics from an ApplicationFailure', () => {
+    const diagnostics = [
+      {
+        code: 'invalid-definition',
+        message: 'Step gate success must be a valid CEL boolean expression.: No such key',
+        path: 'jobs.build.steps.0.gate.success',
+        severity: 'error' as const,
+      },
+    ];
+    const error = ApplicationFailure.nonRetryable(
+      'Invalid workflow definition',
+      'invalid-definition',
+      diagnostics,
+    );
+
+    const result = classifyWorkflowError(error);
+
+    expect(result).toEqual({
+      code: 'invalid-definition',
+      message: 'Invalid workflow definition',
+      diagnostics,
+    });
+  });
+
   it('falls back to unknown when ApplicationFailure.type is not a known sync error code', () => {
     const error = ApplicationFailure.nonRetryable('boom', 'something-unexpected');
 

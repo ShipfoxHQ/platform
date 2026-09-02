@@ -1,4 +1,5 @@
 import type {DefinitionSyncErrorCode} from './entities/sync-state.js';
+import type {ValidationError} from './validate-definition.js';
 
 export class DefinitionParseError extends Error {
   constructor(
@@ -14,6 +15,8 @@ export class DefinitionSyncPermanentError extends Error {
   constructor(
     public readonly code: DefinitionSyncErrorCode,
     message: string,
+    public readonly details: readonly ValidationError[] = [],
+    public readonly filePath?: string | undefined,
   ) {
     super(message);
     this.name = 'DefinitionSyncPermanentError';
