@@ -81,16 +81,24 @@ describe('diagnostic agent-access tools', () => {
 
   test('applies workflow reductions in order and keeps the response under the ceiling', async () => {
     const mocks = clients();
+    const stepCount = (jobIndex: number, executionIndex: number) => {
+      if (jobIndex === 0 && executionIndex === 1) return 21;
+      if (jobIndex === 10) return 1;
+      return 20;
+    };
     const jobs = Array.from({length: 11}, (_, jobIndex) => ({
       ...sourceJob(jobIndex + 1),
-      job_executions: Array.from({length: 2}, (_, executionIndex) => ({
+      job_executions: Array.from({length: jobIndex === 0 ? 2 : 1}, (_, executionIndex) => ({
         ...sourceExecution(jobIndex * 2 + executionIndex + 1),
         sequence: executionIndex + 1,
-        steps: Array.from({length: 21}, (_, stepIndex) => ({
+        steps: Array.from({length: stepCount(jobIndex, executionIndex)}, (_, stepIndex) => ({
           ...sourceStep(jobIndex * 100 + executionIndex * 25 + stepIndex + 1),
           position: stepIndex + 1,
-          name: 'step '.concat('x'.repeat(512)),
-          attempts: [sourceAttempt(1), sourceAttempt(2)],
+          name: 'x'.repeat(512),
+          attempts:
+            jobIndex === 0 && executionIndex === 1 && stepIndex === 0
+              ? [sourceAttempt(1), sourceAttempt(2)]
+              : [sourceAttempt(1)],
         })),
       })),
     }));
