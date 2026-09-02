@@ -85,7 +85,7 @@ describe('loadEnabledProviderModules', () => {
     expect(testVcsPart?.services).toHaveLength(1);
   });
 
-  it('checks Test VCS renewal timing before creating a connection', async () => {
+  it('validates Test VCS renewal configuration before creating a connection', async () => {
     vi.stubEnv('INTEGRATIONS_ENABLE_TEST_VCS_PROVIDER', 'true');
     vi.stubEnv('INTEGRATIONS_TEST_VCS_CREDENTIAL_TTL_SECONDS', '3');
     vi.resetModules();
@@ -100,16 +100,29 @@ describe('loadEnabledProviderModules', () => {
     const workspaceId = crypto.randomUUID();
     try {
       const app = await createApp({routes: testVcsPart.e2eRoutes, swagger: false});
-      const invalidPayloads = [
-        {renewal_mode: 'on-rejection', refresh_after_seconds: 1},
-        {renewal_mode: 'refresh-at', refresh_after_seconds: 3},
-        {renewal_mode: 'refresh-at', refresh_after_seconds: 4},
-      ];
-      for (const renewal of invalidPayloads) {
+      const mismatchedModeResponse = await app.inject({
+        method: 'POST',
+        url: '/integrations/test-vcs/connections',
+        payload: {
+          workspace_id: workspaceId,
+          account_id: 'e2e-owner',
+          renewal_mode: 'on-rejection',
+          refresh_after_seconds: 1,
+        },
+      });
+
+      expect(mismatchedModeResponse.statusCode).toBe(400);
+
+      for (const refreshAfterSeconds of [3, 4]) {
         const response = await app.inject({
           method: 'POST',
           url: '/integrations/test-vcs/connections',
-          payload: {workspace_id: workspaceId, account_id: 'e2e-owner', ...renewal},
+          payload: {
+            workspace_id: workspaceId,
+            account_id: 'e2e-owner',
+            renewal_mode: 'refresh-at',
+            refresh_after_seconds: refreshAfterSeconds,
+          },
         });
 
         expect(response.statusCode).toBe(400);

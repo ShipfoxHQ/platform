@@ -33,7 +33,13 @@ export const test = base.extend<SuiteFixtures>({
     } finally {
       const client = createApiClient({token: suite.sessionToken});
       for (const connectionId of connectionIds.reverse()) {
-        await client.request('delete', `/integration-connections/${connectionId}`);
+        await client
+          .request('delete', `/integration-connections/${connectionId}`)
+          .catch((error: unknown) => {
+            process.stderr.write(
+              `renewable-credentials-e2e: deleting Test VCS connection ${connectionId} failed: ${String(error)}\n`,
+            );
+          });
       }
     }
   },
