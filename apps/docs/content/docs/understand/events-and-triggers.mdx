@@ -1,90 +1,94 @@
 ---
 title: "Events and triggers"
 sidebarTitle: "Events & Triggers"
-description: "Understand why Shipfox records signals separately from the workflow rules that decide whether they should create runs."
+description: "Understand why Shipfox records events separately from the workflow triggers that decide whether an event creates a run."
 ---
 
-An **event** says that something happened. A **trigger** is workflow policy that
-decides whether that signal should create a run.
+An **event** is a record that something happened, such as a push or a new
+issue. A **trigger** is the rule in a workflow that decides whether an event
+creates a run.
 
-Shipfox keeps them separate because one fact can matter to several kinds of
-work. A push can start tests, a security review, and a deployment check without
-the Git provider knowing any of those policies.
+Shipfox keeps them separate because one event can matter to several kinds of
+work. A push can start tests, a security review, and a deployment check. The
+Git provider doesn't need to know about any of them.
 
-The provider reports a fact. The workflow decides what to do with it.
+The provider reports what happened. The workflow decides what to do about it.
 
-## The signal belongs to its source
+## Where events come from
 
-An integration connection records events from one external account or
-installation. The event carries its source, event name, delivery identity, time,
-and data.
+An integration connection receives events from one external account or
+installation. Each event records its source, its event name, a delivery
+identity, a time, and its data.
 
-The source matters as much as the event name. Two GitHub integration connections can both
-send a push event, but they do not represent the same trust boundary or
-repository scope. A workflow trigger names the integration connection whose signal it is
-willing to accept.
+The source matters as much as the event name. Two GitHub integration
+connections can both send a push event, but they represent different accounts
+and different repositories. A trigger names the integration connection that it
+accepts events from.
 
 Provider event names live in the [Integrations reference](/integrations). For
 built-in sources, see [Run manually](/how-to/author-workflows/run-manually) and
 [Schedule workflows](/how-to/author-workflows/schedule-workflows).
 
-## The trigger owns run-creation policy
+## How a trigger decides to create a run
 
 A trigger asks three questions.
 
-1. Did the event come from the intended source?
-2. Is it the kind of event this workflow handles?
-3. Does its data satisfy the optional filter?
+1. Did the event come from the named source?
+2. Is it an event type that this workflow handles?
+3. Does its data pass the optional filter?
 
-When a trigger omits `event`, it subscribes to every event from that source.
+When a trigger omits `event`, it accepts every event from that source.
 
-Only a match creates a run. The event still exists when no trigger matches, so
-event delivery and workflow policy can be inspected separately.
+Only a match creates a run. The event still exists when no trigger matches. A
+team can therefore inspect the delivery of an event separately from the
+workflow policy.
 
-This boundary also lets a team change workflow policy without reinstalling the
-external integration. The integration connection keeps receiving facts. Repository-owned
-workflow files decide what those facts mean for each project.
+This split also means a team can change a workflow without reinstalling the
+integration. The integration connection continues to receive events. The
+workflow files in each repository decide what those events mean for that
+project.
 
-## One event can fan out
+## One event can start several runs
 
-Shipfox checks a delivered event against every subscribed trigger. Each
-matching trigger creates its own run.
+Shipfox checks each delivered event against every trigger that listens for it.
+Each matching trigger creates its own run.
 
-Fan-out is useful when the work has separate ownership or failure rules. A test
-workflow and an incident workflow can react to the same event without sharing a
-job graph or result. The cost is independent compute and history for each run.
+Several runs from one event are useful when the work has separate owners or
+separate failure rules. A test workflow and an incident workflow can react to
+the same event without sharing a job graph or a result. The cost is separate
+compute and separate history for each run.
 
 Put related work in one workflow when it needs one shared result or one visible
-run. Use separate workflows when each response should stand alone.
+run. Use separate workflows when each response must stand alone.
 
-## Filters run before a run exists
+## How filters work
 
 A trigger filter narrows events by data such as branch, project, or severity.
-Shipfox evaluates it before run creation. A false result creates no run.
+Shipfox evaluates the filter before it creates a run. A false result creates no
+run.
 
-An expression error also creates no run. This fail-closed behavior prevents
-work from starting when Shipfox cannot prove that the event satisfies the
-policy. It also means that a bad field path can look like a missing run rather
-than a failed job.
+An expression error also creates no run. Shipfox refuses to start work when it
+can't prove that the event passes the filter. This also means that a wrong
+field path looks like a missing run, not like a failed job.
 
-Use the event journal and [event-routing
-guide](/how-to/run-and-troubleshoot/event-routing) to separate delivery from
-filter evaluation. The [Expressions
+Use the event journal and the [event-routing
+guide](/how-to/run-and-troubleshoot/event-routing) to tell a delivery problem
+from a filter problem. The [Expressions
 reference](/reference/expressions) defines the expression syntax. The
 [Contexts reference](/reference/contexts#context-availability) defines the
 available data.
 
-## Choose the mechanism by intent
+## New work, retried work, or continued work
 
-Each mechanism gives the work a different identity.
+Each mechanism creates a different kind of record.
 
-| Mechanism | Use it when | Identity of the work |
+| Mechanism | Use it when | What Shipfox creates |
 | --- | --- | --- |
-| External event trigger | A delivered signal starts independent work. | A new run. |
+| External event trigger | A delivered event starts independent work. | A new run. |
 | Manual trigger | A person needs a new run on demand. | A new run. |
-| Schedule | Time, rather than an external delivery, starts recurring work. | A new run for each tick. |
-| Feedback loop | A check says the current work is not ready. | A new step attempt in the same job execution. |
+| Schedule | Time, not an external event, starts recurring work. | A new run for each tick. |
+| Feedback loop | A check says the current work isn't ready. | A new step attempt in the same job execution. |
 | Listening job | A later event continues work that the run already represents. | A new job execution in the same run. |
 
-The important question is not where the signal came from. It is whether the
-signal starts new work, revises failed work, or continues existing work.
+The question to ask isn't where the event came from. Ask whether it starts new
+work, revises failed work, or continues existing work.

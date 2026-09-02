@@ -1,119 +1,122 @@
 ---
 title: "Agents"
 sidebarTitle: "Agents"
-description: "Understand when work needs an agent and why separate checks must stay in control."
+description: "Understand when work needs an agent step, what the agent can see and do, and why a separate check must judge its result."
 ---
 
-An **agent step** gives a coding agent a goal inside a job checkout. It fits work
-whose path cannot be fixed in advance. Examples include an investigation, a
-review, a plan, or a change that depends on the code.
+An **agent step** gives a coding agent a goal inside the job's checkout. It fits
+work where nobody can write the exact steps in advance. Examples are an
+investigation, a review, a plan, or a change that depends on the code.
 
-The workflow still owns the boundary. It chooses the prompt, runtime, model,
-tools, repository access, and next check. The agent chooses how to work inside
-that boundary.
+The workflow still sets the limits. It chooses the prompt, the harness, the
+model, the tools, the repository access, and the check that follows. The agent
+chooses how to work inside those limits.
 
-A command follows a known path. An agent chooses a path from the evidence it
+A run step follows a known command. An agent step chooses its path from what it
 finds.
 
-## Choose judgment only when the task needs it
+## When to use an agent step
 
 The two step types make different tradeoffs.
 
-| Step | Best fit | Main tradeoff |
+| Step | Fits | Tradeoff |
 | --- | --- | --- |
 | Run step | A known command with a repeatable procedure. | Predictable, fast, and easy to compare. |
-| Agent step | A goal that needs investigation or judgment. | Flexible, but slower, more costly, and less deterministic. |
+| Agent step | A goal that needs investigation or judgment. | Flexible, but slower, more costly, and less predictable. |
 
-Use the least open-ended step that can finish the work. Tests, builds, formatters,
-and deploy scripts belong in run steps. Root-cause analysis, code review, and
-open-ended edits often need an agent.
+Use the most predictable step that can finish the work. Tests, builds,
+formatting tools, and deploy scripts belong in run steps. Root-cause analysis,
+code review, and open-ended edits often need an agent.
 
-Complexity alone is not a reason to use an agent. A long command with known
-inputs is still a command. An agent earns its place when the workflow cannot
-choose the path before it sees the code or event.
+A long or complex command is still a command. Use an agent only when the
+workflow can't choose the path before it reads the code or the event.
 
-## The agent stack has separate choices
+## The parts of an agent step
 
-Several parts work together, but they control different things.
+Several parts work together. Each one controls a different thing.
 
 | Part | Role |
 | --- | --- |
-| Harness | Runs the agent loop and exposes its native tools. |
+| Harness | Runs the agent loop and provides its native tools. |
 | Provider | Sends model requests to a configured model service. |
-| Model | Produces the reasoning and responses. |
-| Native tools | Read files, edit the checkout, and run local commands as supported by the harness. |
-| Integration tools | Perform selected operations through a workspace integration connection. |
+| Model | Produces the reasoning and the responses. |
+| Native tools | Read files, edit the checkout, and run local commands, as the harness allows. |
+| Integration tools | Perform selected operations through an integration connection in the workspace. |
 | Checkout permission | Controls authenticated Git access for the whole job. |
 
-A workspace can provide defaults for the harness, provider, and model. A step
-can select another supported combination. Accepted values and resolution rules
-belong in [Model providers](/reference/model-providers) and the [Agent step
-reference](/reference/workflow-schema#agent-step-fields).
+A workspace sets defaults for the harness, provider, and model. A step can
+select another supported combination. [Model
+providers](/reference/model-providers) and the [Agent step
+reference](/reference/workflow-schema#agent-step-fields) list the accepted
+values and the resolution order.
 
-The separation is useful. Changing the model does not grant a GitHub tool.
-Granting a GitHub tool does not change the repository checkout credential.
-Changing checkout permission does not expose the integration credential.
+The parts are independent on purpose. A different model doesn't grant a GitHub
+tool. A GitHub tool doesn't change the checkout credential. A different
+checkout permission doesn't expose the integration credential.
 
-## Context gives the goal meaning
+## What the agent knows
 
-The prompt can include the event that started the run. It can also include
-upstream outputs or later events. The checkout gives the agent the code for the
-current job.
+The agent's context comes from the prompt and the checkout. The prompt can
+include the event that started the run, outputs from earlier jobs, and later
+events. The checkout
+gives the agent the code of the current job.
 
-This combination is stronger than either source alone. Event data explains why
-the work exists. The repository lets the agent test that report against real
-code. Outputs can carry a narrow fact from earlier work without sharing another
-job's files or logs.
+Together they are stronger than either one alone. The event explains why the
+work exists. The repository lets the agent check that report against real code.
+An output can pass a small fact from earlier work without sharing another job's
+files or logs. A [named session](/understand/agent-sessions) can pass an
+earlier agent's whole conversation to a later agent step, again without its
+files.
 
-Context can also be hostile. An issue body or review comment may contain
-instructions aimed at the agent. Treat external text as data in the prompt and
-limit authority so a misleading field cannot expand the step's reach.
+Context can also be malicious. An issue body or a review comment can contain
+instructions written for the agent. Treat external text in the prompt as data,
+not as instructions. Give the step only the authority it needs, so a misleading
+field can't extend its reach.
 
-## Tools are authority, not convenience
+## What the agent can change
 
-Native tools act inside the runner environment. Integration tools cross into an
-external system through an integration connection. Shipfox gives the agent the selected
-operation, not the saved integration connection credential.
+Native tools act inside the runner. Integration tools reach an external system
+through an integration connection. Shipfox gives the agent the selected
+operation, not the stored credential of the integration connection.
 
-Read access and write access should be deliberate choices. Select the smallest
-tool family and repository scope that can finish the task. Put an external write
-after an objective check when the workflow can do so.
+Choose read access and write access on purpose. Select the smallest tool family
+and repository scope that can finish the task. When possible, put an external
+write after an objective check.
 
-Repository permission is job-wide because all steps use one checkout.
-Integration tools are step-specific. A workflow may need local edits and one
-external write. Keep that write tool on the final agent step, not the editing
-step.
+Repository permission applies to the whole job, because every step uses the
+same checkout. Integration tools apply to one step. When a workflow needs local
+edits and one external write, put the write tool on the final agent step, not
+on the step that edits.
 
 [Agent access](/how-to/author-workflows/use-integration-tools) shows the setup
 task. [Integrations, integration connections, and
 tools](/understand/integrations-connections-and-tools) explains the credential
 boundary.
 
-## A response is not proof
+## Check the result independently
 
-The agent's final response records what it believes it achieved. It is useful
-for people. It does not prove that code compiles or tests pass. It also does not
-prove that an external system reached the intended state.
+The agent's final response records what the agent believes it did. It is useful
+for people. It doesn't prove that the code compiles or that the tests pass. It
+doesn't prove that an external system reached the intended state either.
 
-Use an independent check for important claims.
+Use an independent check for every claim that matters.
 
 - A test or type check for code behavior.
-- A formatter or linter for a mechanical rule.
+- A formatting tool or linter for a mechanical rule.
 - A read-back operation for an external write.
-- A person for a judgment that cannot be reduced to a reliable check.
+- A person for a judgment that no reliable check can replace.
 
 A [feedback loop](/understand/feedback-loops) can send failed evidence back to
-the agent. Keep the check separate from the agent's self-assessment so the
-stopping rule remains objective.
+the agent. Keep the check separate from the agent's own assessment, so the
+decision to stop stays objective.
 
-## The run keeps the evidence
+## What the run records
 
-Agent messages, tool activity, outputs, and attempts stay with the run. A final
-response serves people. A typed output serves later workflow logic.
+Agent messages, tool activity, outputs, and attempts stay with the run. The
+final response is for people. A typed output is for later workflow logic.
 
-This distinction keeps prose from becoming an accidental API. When later work
-needs a value, declare it as an output instead of parsing the agent's final
-message.
+This split keeps prose from becoming an accidental API. When later work needs a
+value, declare it as an output instead of parsing the agent's final message.
 
 Use [Add an agent
 step](/how-to/author-workflows/add-agent-steps) for the authoring task. [Context

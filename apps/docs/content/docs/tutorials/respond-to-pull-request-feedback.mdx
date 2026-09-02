@@ -40,7 +40,7 @@ Create `.shipfox/workflows/pull-request-feedback.yml`. Replace every
 `github_acme` value with the slug of your GitHub integration connection. This is the
 complete workflow:
 
-```yaml
+```yaml title=".shipfox/workflows/pull-request-feedback.yml"
 # yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
 name: Respond to pull request feedback
 runner: shipfox
@@ -182,5 +182,8 @@ one write operation only at the final step.
 
 To adapt it, replace `npm test` with the command that guards your repository.
 Change the draft prompt to match your review policy. Keep the event filters and
-listener bounds when you add more comment-handling steps. Read [Listening
-jobs](/understand/listening-jobs) for the reasoning behind this design.
+listener bounds when you add more comment-handling steps. To let the draft
+agent remember earlier comments in the same run, add a named session. [Share an
+agent session](/how-to/author-workflows/share-agent-sessions) shows that
+change. Read [Listening jobs](/understand/listening-jobs) for the reasoning
+behind this design.

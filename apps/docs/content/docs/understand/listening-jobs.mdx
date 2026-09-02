@@ -1,107 +1,122 @@
 ---
 title: "Listening jobs"
 sidebarTitle: "Listening Jobs"
-description: "Understand how later events continue one active run through repeated job executions, and why correlation, bounds, batching, and idempotency matter."
+description: "Understand how later events continue one run through repeated job executions, and why matching, limits, batching, and safe repeats matter."
 ---
 
-A **listening job** keeps an active run ready for events that belong to the same
-piece of work. A pull request can receive review comments after its opening
-workflow has finished the first tasks. An approval can arrive after a request is
-ready.
+A **listening job** keeps a run open for later events that belong to the same
+piece of work. A pull request can receive review comments after the workflow
+finished its first tasks. An approval can arrive after a request is ready.
 
-The later event is new input, but it is not new work identity. That is why the
-response stays in the original run.
+The later event is new input, but it isn't new work. That is why the response
+stays in the original run.
 
-The run owns the story. Each execution owns one response to later input.
+The run holds the whole history. Each execution holds one response to one later
+input. A listener must know what it waits for and when it must stop.
 
-A listener should know what it waits for and when it must stop.
-
-## New work, failed work, and continued work differ
+## New work, retried work, or continued work
 
 The three mechanisms create different kinds of history.
 
 | Mechanism | What changed | What Shipfox creates |
 | --- | --- | --- |
-| Workflow trigger | A new signal starts independent work. | A new run. |
+| Workflow trigger | A new event starts independent work. | A new run. |
 | Feedback loop | A check rejected the current result. | A new step attempt in the same job execution. |
-| Listening job | A related signal arrived for active work. | A new job execution in the same run. |
+| Listening job | A related event arrived for work that is still active. | A new job execution in the same run. |
 
-Use a new run when each event should have its own outcome. Use a feedback loop
-when the workflow already has the evidence needed to try again. Use a listener
-when the run must wait for outside input.
+Use a new run when each event needs its own outcome. Use a feedback loop when
+the workflow already has the evidence to try again. Use a listener when the run
+must wait for outside input.
 
-## A listener has an active lifetime
+## How a listening job runs
 
 The job becomes ready after its dependencies succeed. Instead of running its
-steps once, it enters a listening state.
+steps once, it starts to listen.
 
 Each matching event or event batch creates a job execution. That execution has
-its own steps, attempts, logs, outputs, and runner work. Later executions remain
+its own steps, attempts, logs, outputs, and runner work. Later executions stay
 visible under the same job and run.
 
-This model preserves both kinds of context.
+This keeps both kinds of context:
 
-- The run keeps the event and outputs that started the original work.
-- The execution carries the later event or batch that woke the listener.
+- The run keeps the event and the outputs that started the original work.
+- The execution carries the later event or batch that started it.
 
-The step can combine them, such as comparing a new review comment with the pull
-request number saved by an upstream job.
+A step can combine them, for example by comparing a new review comment with the
+pull request number that an upstream job saved.
 
-## Correlation protects run identity
+## Match each event to the right run
 
-A workspace may have many active runs listening to the same event name. The
-listener must narrow the event to the item represented by its run.
+A workspace can have many active runs that listen for the same event name. The
+listener must match each event to the item its run represents.
 
-For a pull request, an upstream job can publish the pull-request number. Both
-the comment filter and close-event filter can compare their event data with that
-output.
+For a pull request, an upstream job can publish the pull request number. The
+comment filter and the close-event filter can then compare their event data
+with that output.
 
-Without correlation, one comment may start executions in several unrelated
-runs. A broad termination event can also resolve the wrong listener. The risk
-increases as more projects and long-lived runs use one integration connection.
+Without that match, one comment can start executions in several unrelated runs.
+A broad end event can also resolve the wrong listener. The risk grows as more
+projects and long-lived runs share one integration connection.
 
-Correlation is workflow policy, not provider identity. The integration connection proves
-where the event came from. The filter proves that it belongs to this run.
+Matching is workflow policy, not provider identity. The integration connection
+proves where the event came from. The filter proves that the event belongs to
+this run.
 
-## Batching changes the unit of response
+## Handle several events in one execution
 
-Closely spaced events may be better handled together. Batching can wait for a
-quiet window, a size bound, or a time bound before it creates an execution.
-That execution receives the collected events through `execution.events`.
+Events that arrive close together are often better handled together. Batching
+can wait for a quiet window, a size limit, or a time limit before it creates an
+execution. That execution receives the collected events through
+`execution.events`.
 
 Batching reduces repeated setup and duplicate responses. It also delays the
 first response and asks the step to reason about more than one event. Use it
 when the events form one natural update, not only to save runner time.
 
-Without batching, treat each execution as independent. Do not rely on files or
-process state left by an earlier execution. Publish durable state outside the
-checkout when later executions need it.
+## Executions can share a conversation, not a workspace
 
-## Every listener needs more than a happy-path ending
+Each execution gets a fresh checkout. Files, installed packages, and processes
+from an earlier execution no longer exist. Publish
+durable state outside the checkout when a later execution needs it: a branch, a
+comment, or a job output.
 
-An `until` event can express the normal end, such as a pull request closing.
-That event may never arrive. An integration connection can be disabled, a webhook can be
-missed, or the external item can change in an unexpected way.
+An agent step can still continue the conversation an earlier execution had.
+Give the step a named session, and each execution resumes where the previous
+one stopped. The agent keeps what it concluded about earlier events. It doesn't
+keep the files it touched while concluding it.
 
-A time bound or execution bound gives the run a fallback. Without one, a missed
-ending event can keep the run active until the wider run limit intervenes.
+Batching and sessions solve different problems. Batching decides how many
+events one execution receives. A session decides whether the next execution
+remembers the last one. [Agent sessions](/understand/agent-sessions) explains
+that boundary and its costs.
 
-Resolution also raises an in-flight choice: let current work finish or cancel
-it. Exact resolution and batching fields belong in the [Listening fields
-reference](/reference/workflow-schema#listening-fields).
+## Always give the listener a way to stop
 
-## Repeated executions repeat side effects
+An `until` event can describe the normal end, such as a pull request that
+closes. That event can fail to arrive. Someone can disable the
+integration connection, a webhook delivery can fail, or the external item can
+change in an unexpected way.
 
-A listener may handle similar events more than once. Two events may also arrive
-close enough that a delivery is retried or a person repeats an action.
+A time limit or an execution limit gives the run a fallback. Without one, a
+missing end event keeps the run active until the run-wide limit stops it.
+
+Resolution also raises a choice about work in progress: let it finish or cancel
+it. The [Listening fields
+reference](/reference/workflow-schema#listening-fields) lists the exact
+resolution and batching fields.
+
+## Make each execution safe to repeat
+
+A listener can handle similar events more than once. A provider can deliver the
+same event twice, or a person can repeat an action.
 
 External writes should therefore have a stable target. Update an existing
-comment or record when possible. Before creating something new, check whether
-the run or event identity has already produced it.
+comment or record when possible. Before you create something new, check whether
+the run or the event has already produced it.
 
 Keep each execution safe to repeat. This protects the workflow from duplicate
-deliveries and from a filter that is wider than expected.
+deliveries and from a filter that is wider than intended.
 
 The [pull-request feedback
 tutorial](/tutorials/respond-to-pull-request-feedback) builds a bounded,
-correlated listener and shows each execution in one run.
+matched listener and shows each execution in one run.

@@ -24,7 +24,7 @@ You need:
 Create `.shipfox/workflows/batch-review-comments.yml`. Replace `github_acme`
 with the slug of the GitHub integration connection. This is a complete workflow:
 
-```yaml
+```yaml title=".shipfox/workflows/batch-review-comments.yml"
 # yaml-language-server: $schema=https://www.shipfox.io/docs/workflow.schema.json
 name: Batch pull request feedback
 runner: shipfox
@@ -97,4 +97,6 @@ pull request remains open. Restore the limit after the test.
 
 The [Listening fields](/reference/workflow-schema#listening-fields) reference
 defines batching and resolution behavior. Read [Listening
-jobs](/understand/listening-jobs) for the event-correlation model.
+jobs](/understand/listening-jobs) for the event-correlation model. To let the
+agent remember earlier batches, [share an agent
+session](/how-to/author-workflows/share-agent-sessions) across executions.

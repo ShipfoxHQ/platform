@@ -386,6 +386,7 @@ function renderWorkflowSchemaReference() {
   const triggers = object(root.triggers);
   const trigger = object(triggers.additionalProperties);
   const batch = object(listening.properties).batch;
+  const session = objectSchemaFor(object(steps.properties).session);
 
   return [
     "import {TypeTable} from 'fumadocs-ui/components/type-table';",
@@ -480,23 +481,31 @@ function renderWorkflowSchemaReference() {
         'provider',
         'tools',
         'integrations',
+        'session',
         'gate',
         'outputs',
       ],
       required: ['prompt'],
       nested: {
         integrations: '#agent-integration-fields',
+        session: '#agent-session-fields',
         gate: '#gate-fields',
         outputs: '#step-outputs',
       },
       types: {
         thinking: thinkingType(),
         integrations: codeType('Integration[]'),
+        session: codeType('string | Session'),
         gate: namedType('Gate'),
         outputs: recordType('Output'),
       },
     }),
     component('AgentIntegrationFields', object(integration.properties), {required: ['include']}),
+    component('AgentSessionFields', object(session.properties), {
+      required: ['key'],
+      defaults: {mode: 'resume'},
+      types: {key: codeType('string')},
+    }),
     component('GateFields', object(gate.properties), {
       nested: {on_failure: '#gate-failure-fields'},
       types: {on_failure: namedType('GateFailure')},

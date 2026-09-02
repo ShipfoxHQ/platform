@@ -1,7 +1,7 @@
 ---
 title: "Limits and Defaults Reference"
 sidebarTitle: "Limits"
-description: "Look up Shipfox gate attempt caps, job timeouts, log budgets and retention, output grouping caps, and environment-map limits."
+description: "Look up Shipfox gate attempt caps, job timeouts, log budgets and retention, output grouping caps, environment-map limits, and agent session caps."
 ---
 
 This page is the canonical home for shared operational limits. Other pages
@@ -62,6 +62,14 @@ serialized outputs object, including output keys and JSON syntax.
 | Session transcript segment | 64 MiB compressed | Self-host: `AGENT_SESSION_BLOB_CAP_BYTES` | One committed segment per reported attempt; a larger compressed blob fails the commit and the attempt. Transcripts are encrypted at rest with the workspace envelope-crypto scheme and are never client-readable. |
 | Session retention | 90 days | Self-host: `AGENT_SESSION_RETENTION_DAYS` | Session rows and their transcript objects are deleted after the run terminates and this window elapses. |
 | Superseded segment grace | 10 minutes | Self-host: `AGENT_SESSION_SEGMENT_GRACE_SECONDS` | Pruning of superseded segments is deferred by this window so concurrent fork snapshot reads keep their object. |
+
+A resumed transcript is byte-exact, so the model provider can reuse its prompt
+cache. That reuse happens only inside the provider's cache window. Rapid
+successive segments, such as batched listening events or short hops between
+dependent jobs, get it. Outside the window the provider processes the full
+conversation again; the resumed conversation itself is unchanged. See [Agent
+session fields](/reference/workflow-schema#agent-session-fields) for the field
+contract.
 
 ## Related pages
 

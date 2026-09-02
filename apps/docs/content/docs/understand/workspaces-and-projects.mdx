@@ -4,39 +4,35 @@ sidebarTitle: "Workspaces & Projects"
 description: "Understand what a team shares in a workspace and what stays with one project."
 ---
 
-A **workspace** is the team boundary in Shipfox. It holds members and resources
-that several projects can use. A **project** binds one repository to that
-workspace. It owns the workflows and run history for that codebase.
+A **workspace** is the team boundary in Shipfox. It holds the members and the
+resources that several projects can use. A **project** connects one repository
+to that workspace. It owns the workflows and the run history for that
+repository.
 
-This split answers a practical question. What should a team set up once? What
-must stay tied to one codebase?
+The split answers a practical question: what does a team set up once, and what
+must stay with one repository? Share what the whole team uses. Keep workflows
+and run history with their repository.
 
-The rule is simple. Share what the team uses. Keep code history with its
-codebase.
+## What a slug is for
 
-A workspace answers who shares. A project answers which code owns the work.
-This keeps team setup broad and run history narrow.
-The split can grow with the team.
+Each workspace has a workspace slug that is unique across the installation.
+Each project has a project slug that is unique within its workspace. Neither
+slug is optional.
 
-## Slugs separate URLs from identity
-
-Each workspace has a required workspace slug. It is unique across the
-installation. Each project has a required project slug. It is unique within its
-workspace.
-
-The client uses these slugs in readable URLs such as
-`/w/acme/p/checkout-api/runs`. The API continues to identify the workspace and
-project with UUIDs. A slug is a navigation and display value, not a replacement
-for the resource identity.
+The client uses these slugs to build readable URLs such as
+`/w/acme/p/checkout-api/runs`. The API still identifies workspaces and projects
+by UUID. A slug is for navigation and display. It doesn't replace the identity
+of the resource.
 
 Slugs can change. A rename frees the old value and breaks links that still use
-the old URL. Shipfox warns before a rename so shared links can be updated.
+the old URL. Shipfox warns before a rename to leave time to update shared
+links.
 
-## Shared resources belong to the workspace
+## What the workspace shares
 
-Many resources can serve more than one project. These include integration connections,
-model providers, runners, secrets, variables, and membership. Workspace scope
-avoids a separate copy for every repository.
+Many resources serve more than one project: integration connections, model
+providers, runners, secrets, variables, and membership. They live in the
+workspace, so no repository needs its own copy.
 
 ```text
 Workspace
@@ -47,26 +43,26 @@ Workspace
     `-- Project B -> repository B -> workflows and runs
 ```
 
-The benefit is reuse. The cost is a wider effect when shared settings change.
-Disabling an integration connection can affect every project that uses it. Changing a model
-provider can do the same. Membership also grants access across that shared
-boundary.
+The benefit is reuse. The cost is that a change to a shared setting reaches
+every project that uses it. A disabled integration connection affects every
+project that uses it. A changed model provider does the same. Membership also
+grants access to every project in the workspace.
 
 Use separate workspaces when teams must not share members or operational
-resources. Use projects inside one workspace when the repositories should share
+resources. Use projects inside one workspace when the repositories can share
 that administration.
 
-## A project gives work a repository identity
+## What the project owns
 
-A project records a source integration connection and one repository. Shipfox finds the
-workflow files there. Jobs also use it as their default checkout.
+A project records a source integration connection and one repository. Shipfox
+reads the workflow files from that repository. Jobs also check it out by
+default.
 
-The project boundary also keeps history clear. Runs for repository A do not
-appear in project B. This stays true when both projects use the same runner or
-model provider. A run keeps its repository identity while using shared
-resources.
+The project also keeps run history separate. Runs for repository A never appear
+in project B, even when both projects use the same runner or model provider. A
+run keeps its repository identity while it uses shared resources.
 
-## Scope shapes ownership
+## Which scope owns what
 
 The four scopes answer different questions.
 
@@ -77,14 +73,15 @@ The four scopes answer different questions.
 | Workflow | Which events and ordered work define this automation? |
 | Run | What happened for one event or manual start? |
 
-Long-lived configuration belongs above a run. Event data, logs, and outputs
-belong inside the run that produced them. This prevents one result from silently
-becoming configuration for unrelated future work.
+Long-lived configuration belongs above the run. Event data, logs, and outputs
+belong inside the run that produced them. This keeps one result from becoming
+configuration for unrelated future work by accident.
 
-The source integration connection deserves special care. It is a workspace integration connection, but
-the project selects one repository from it. That selection controls workflow
-discovery and checkout. Other integration connections may receive events or
-provide agent tools without becoming the project's source.
+The source integration connection is a special case. It belongs to the
+workspace, but the project selects one repository from it. That selection
+controls where Shipfox finds workflows and what jobs check out. Other
+integration connections can send events or provide agent tools without becoming
+the project's source.
 
 Use [Create a project](/how-to/set-up-work/create-project) for the setup task.
 [Integrations, integration connections, and

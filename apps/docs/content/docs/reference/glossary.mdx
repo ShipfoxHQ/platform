@@ -12,11 +12,13 @@ This glossary defines the core terms used in Shipfox documentation and in the pr
     The structured record an agent step produces: every model message, thinking
     block, tool call, and tool result, plus token usage and cost. The dashboard
     renders it as a transcript, live while the step runs and persisted after.
-    See [Agents](/understand/agents).
+    See [Agents](/understand/agents). A step can also name its session with the
+    `session` field. Later agent steps in the same run then continue that
+    conversation. See [Agent sessions](/understand/agent-sessions).
   </Accordion>
 
   <Accordion title="Agent step">
-    A workflow step that invokes an AI model. Defined with `prompt` (required), plus optional `model`, `harness`, `thinking`, and `provider` fields. The model reads the repository context and executes the prompt. Agent steps cannot carry `env`; use a run step for environment-dependent shell work. See [Agent step fields](/reference/workflow-schema#agent-step-fields).
+    A workflow step that invokes an AI model. Defined with `prompt` (required), plus optional `model`, `harness`, `thinking`, `provider`, and `session` fields. The model reads the repository context and executes the prompt. Agent steps cannot carry `env`; use a run step for environment-dependent shell work. See [Agent step fields](/reference/workflow-schema#agent-step-fields).
   </Accordion>
 
   <Accordion title="CEL">
@@ -97,7 +99,7 @@ This glossary defines the core terms used in Shipfox documentation and in the pr
   </Accordion>
 
   <Accordion title="Run step">
-    A workflow step that executes a shell command using the `run` field. Has access to `env` variables from the workflow, job, and step scopes. Cannot be combined with agent step fields (`prompt`, `model`, `harness`, `thinking`, `provider`) on the same step. See [Run step fields](/reference/workflow-schema#run-step-fields).
+    A workflow step that executes a shell command using the `run` field. Has access to `env` variables from the workflow, job, and step scopes. Cannot be combined with agent step fields (`prompt`, `model`, `harness`, `thinking`, `provider`, `session`) on the same step. See [Run step fields](/reference/workflow-schema#run-step-fields).
   </Accordion>
 
   <Accordion title="Secret">

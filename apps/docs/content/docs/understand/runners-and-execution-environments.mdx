@@ -4,105 +4,100 @@ sidebarTitle: "Runners & Execution"
 description: "Understand how Shipfox-hosted and self-managed runners use labels, capacity, isolation, and network access."
 ---
 
-A **runner** is the process that claims and executes Shipfox jobs. Shipfox plans
-the job, tracks its state, and stores its result. The runner owns the environment
-where commands and agents actually work.
+A **runner** is the process that claims and runs Shipfox jobs. Shipfox plans
+the job, tracks its state, and stores its result. The runner provides the
+machine where commands and agents run.
 
-Every Shipfox Cloud workspace can use Shipfox-hosted runners with no installation or registration. Workflows select them using a [Shipfox-hosted runner label](/reference/runner-labels).
+Shipfox-hosted runners need no installation or registration. Workflows select
+them with a [hosted runner label](/reference/runner-labels). Teams can also
+connect self-managed runners for private networks, special hardware, or local
+tools. Both kinds use the same job and label model.
 
-Teams can also connect self-managed runners for private networks, specialized hardware, or local tools. Both use the same job and label model.
+With self-managed runners, the team controls capacity and access. Hosted
+runners handle that work for jobs that fit the hosted environment.
 
-With self-managed runners, teams control capacity and access. Shipfox-hosted runners handle that operational work for jobs that fit the hosted environment.
+## How labels choose a runner
 
-
-## Labels express placement needs
-
-A job requests labels. A runner can claim it only when the runner has every
+A job requests labels. A runner can claim the job only when it has every
 requested label and free capacity.
 
-Shipfox-hosted labels select a documented execution environment and size. The
-[Runner labels reference](/reference/runner-labels) lists their CPU, memory,
-storage, operating system, and architecture. Self-managed labels describe the
-capabilities or policies that the team provides.
+Hosted labels select a documented execution environment and size. The [Runner
+labels reference](/reference/runner-labels) lists their CPU, memory, storage,
+operating system, and architecture. Self-managed labels describe the
+capabilities or policies that the team provides, such as:
 
-Useful self-managed labels describe capabilities or policy.
-
-- Operating system or architecture.
-- Hardware such as a GPU or large-memory machine.
+- An operating system or architecture.
+- Hardware such as a GPU or a large-memory machine.
 - Access to a private network.
-- A trusted environment for one team or class of work.
+- A trusted environment for one team or one class of work.
 
-A label is not a runner identity. Any available runner with the required set can
-claim the job. This allows capacity to grow without changing the workflow.
+A label isn't a runner identity. Any available runner with the required labels
+can claim the job. Capacity can therefore grow without a workflow change.
 
-Very specific labels give precise placement but reduce the pool that can run the
-job. Broad labels improve availability but may place work in an environment
-with more access than it needs.
+Very specific labels give precise placement but shrink the pool of runners that
+can run the job. Broad labels improve availability but can place work in an
+environment with more access than it needs.
 
-## Capacity is part of scheduling
+## Why a ready job can wait
 
-A job can be ready even when it cannot start. No online runner may match its
-labels, or every matching runner may already be at capacity.
+A job can be ready and still not start. Either no online runner has its labels,
+or every matching runner is busy. Hosted capacity can be busy too, so a job can
+wait for a hosted runner as well.
 
-Hosted runners are available to every Shipfox Cloud workspace, but a job can
-still wait while matching hosted capacity is busy.
+The job stays pending. The workflow hasn't failed, and another run doesn't
+create the missing capacity. The scheduler waits for a suitable runner.
 
-In that state the job remains pending. The workflow has not failed, and starting
-another run does not create the missing capacity. The scheduler waits for a
-suitable runner.
+During diagnosis, tell the two reasons apart:
 
-This distinction matters during diagnosis.
-
-- A dependency can keep a job pending because earlier work is not done.
-- Runner placement can keep a ready job pending because no capacity matches.
+- A dependency keeps a job pending because earlier work isn't done.
+- Placement keeps a ready job pending because no runner with the right labels
+  is free.
 
 [Resolve pending
-jobs](/how-to/run-and-troubleshoot/pending-jobs) provides the procedural checks.
-The explanation here is the reason a valid run may wait without making
-progress.
+jobs](/how-to/run-and-troubleshoot/pending-jobs) gives the checks to run. This
+page explains why a valid run can wait without making progress.
 
-## A job gets an isolated checkout
+## Each job gets its own checkout
 
-Each job execution receives a fresh repository checkout. Steps in that
-execution share the files. Separate jobs and later listening executions do not
+Each job execution gets a fresh checkout of the repository. Steps in that
+execution share its files. Separate jobs and later listening executions don't
 share files, installed packages, process environment, or logs.
 
-On Shipfox Cloud, a hosted runner serves one job and stops after that job ends.
+A hosted runner serves one job and stops when that job ends.
 
-Isolation makes placement flexible. A retry or parallel job does not depend on
-files from another runner. Isolation also adds setup work. Each job must install
-its own tools or restore them from an external cache.
+Isolation makes placement flexible: a retry or a parallel job doesn't depend on
+files from another runner. It also adds setup work: each job installs its own
+tools or restores them from an external cache.
 
 Use outputs for small values and external storage for artifacts. Treat local
 files as part of one job execution only.
 
-## Network access is a capability
+## What the runner must reach
 
-The runner environment must reach every service used by the job. That usually
-includes Shipfox and the source repository. Agent jobs also need the selected
-model provider. Commands may need package registries, internal APIs, or other
-project services.
+The runner must reach every service the job uses. That usually includes Shipfox
+and the source repository. Agent jobs also need the selected model provider.
+Commands can need package registries, internal services, or other project
+services.
 
-Network access belongs in placement design. A runner on a private network can
-reach internal systems. Work placed there also gets that reach. Use labels and
+Plan network access together with placement. A runner on a private network can
+reach internal systems, and so can every job placed on it. Use labels and
 workspace boundaries to send only the intended jobs there.
 
-## Hosted and self-managed runner models
+## Hosted and self-managed runners
 
-Shipfox-hosted runners are provisioned for one job. Self-managed runners can
-stay online or be provisioned for each job. These models make different
+Shipfox creates a hosted runner for one job. A self-managed runner can stay
+online, or the team can create one for each job. The models make different
 tradeoffs.
 
 | Model | Fits | Tradeoff |
 | --- | --- | --- |
-| Shipfox-hosted runner | Every Shipfox Cloud workspace and jobs that fit a documented hosted environment. | Requires no runner infrastructure from the team, but its capabilities follow the hosted runner catalog. |
-| Self-managed long-lived runner | Steady work and environments that are slow to create. | Starts quickly, but the host and capacity must be maintained over time. |
-| Self-managed provisioned runner | Bursty work or a strong single-job cleanup boundary. | Starts from a cleaner environment, but adds startup time and infrastructure. |
+| Shipfox-hosted runner | Jobs that fit a documented hosted environment. | Needs no runner infrastructure from the team, but its capabilities follow the hosted runner catalog. |
+| Self-managed long-lived runner | Steady work and environments that are slow to create. | Starts quickly, but the team maintains the host and its capacity over time. |
+| Self-managed per-job runner | Occasional bursts of work, or a strict cleanup boundary after each job. | Starts from a cleaner environment, but adds startup time and infrastructure. |
 
-All models use the same job and label rules. Checkout and permission rules also
-stay the same. A Shipfox Cloud workspace can combine hosted and self-managed
-runners. The workflow asks for labels. It does not choose how long a runner
-lives.
+All models use the same job and label rules. Checkout and permission rules stay
+the same too. A workspace can combine hosted and self-managed runners. The
+workflow asks for labels; it doesn't choose how long a runner lives.
 
 Use the [Runner labels reference](/reference/runner-labels) to choose hosted
 capacity. Use [Start and register a runner](/operations/runners) to add
