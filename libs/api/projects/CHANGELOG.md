@@ -1,5 +1,17 @@
 # @shipfox/api-projects
 
+## 20.1.0
+
+### Patch Changes
+
+- Updated dependencies [2bf937b]
+- Updated dependencies [ebe5c00]
+- Updated dependencies [bb334f7]
+- Updated dependencies [7467ee6]
+  - @shipfox/api-auth-context@20.1.0
+  - @shipfox/api-auth-dto@20.1.0
+  - @shipfox/api-integration-core-dto@20.1.0
+
 ## 20.0.0
 
 ### Minor Changes

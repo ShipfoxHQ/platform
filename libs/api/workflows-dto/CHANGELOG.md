@@ -1,5 +1,19 @@
 # @shipfox/api-workflows-dto
 
+## 20.1.0
+
+### Minor Changes
+
+- 6207ce3: Adds bounded workflow run overview and job-page APIs with capped execution counts and source-snapshot enforcement.
+- 5efaf93: Allow workflow run detail URLs to resolve a single run selection from a deeply nested attempt, job, execution, or step ID without requiring the intermediate ancestry in the URL.
+
+### Patch Changes
+
+- Updated dependencies [6207ce3]
+- Updated dependencies [3ec04b0]
+  - @shipfox/api-definitions-dto@20.1.0
+  - @shipfox/api-agent-dto@20.1.0
+
 ## 20.0.0
 
 ### Minor Changes

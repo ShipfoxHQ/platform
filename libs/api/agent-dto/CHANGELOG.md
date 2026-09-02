@@ -1,5 +1,11 @@
 # @shipfox/api-agent-dto
 
+## 20.1.0
+
+### Minor Changes
+
+- 3ec04b0: Exposes integration tools with consistent namespaced MCP names across gateway and runner transports.
+
 ## 20.0.0
 
 ### Patch Changes

@@ -1,5 +1,12 @@
 # @shipfox/api-email-challenges
 
+## 1.1.13
+
+### Patch Changes
+
+- Updated dependencies [ebe5c00]
+  - @shipfox/node-auth-root-key@0.3.0
+
 ## 1.1.12
 
 ### Patch Changes
