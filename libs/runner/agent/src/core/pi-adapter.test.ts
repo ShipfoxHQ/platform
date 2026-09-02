@@ -275,6 +275,7 @@ describe('piHarnessAdapter', () => {
     createAgentSessionServicesMock.mockResolvedValue(piServices());
     createAgentSessionMock.mockResolvedValue({
       session: {
+        agent: {},
         prompt: promptMock,
         abort: abortMock,
         bindExtensions: bindExtensionsMock,
@@ -1233,6 +1234,113 @@ describe('piHarnessAdapter', () => {
     expect(promptMock).toHaveBeenCalledTimes(3);
   });
 
+  it('stops after one completed multi-output tool batch', async () => {
+    let customTools: Array<{
+      execute: (toolCallId: string, params: {key: string; value: string}) => Promise<unknown>;
+    }> = [];
+    let shouldStopAfterTurn: (() => boolean) | undefined;
+    createAgentSessionMock.mockImplementation((options) => {
+      customTools = options.customTools;
+      return Promise.resolve({
+        session: {
+          agent: {
+            set shouldStopAfterTurn(value: typeof shouldStopAfterTurn) {
+              shouldStopAfterTurn = value;
+            },
+            get shouldStopAfterTurn() {
+              return shouldStopAfterTurn;
+            },
+          },
+          prompt: promptMock,
+          abort: abortMock,
+          bindExtensions: bindExtensionsMock,
+          getLastAssistantText: getLastAssistantTextMock,
+          messages: [],
+        },
+      });
+    });
+    promptMock.mockImplementation(async () => {
+      await customTools[0]?.execute('tool-1', {key: 'summary', value: 'done'});
+      expect(shouldStopAfterTurn?.()).toBe(false);
+      await customTools[0]?.execute('tool-2', {key: 'count', value: '2'});
+      expect(shouldStopAfterTurn?.()).toBe(true);
+    });
+
+    const result = await piHarnessAdapter.run(
+      invocation({outputs: {summary: {type: 'string'}, count: {type: 'number'}}}),
+    );
+
+    expect(promptMock).toHaveBeenCalledOnce();
+    expect(result).toEqual({response: '', outputs: {summary: 'done', count: '2'}});
+  });
+
+  it('gates completion on a successful prerequisite tool call', async () => {
+    let customTools: Array<{
+      execute: (toolCallId: string, params: {key: string; value: string}) => Promise<unknown>;
+    }> = [];
+    let afterToolCall:
+      | ((context: {
+          toolCall: {name: string};
+          args: {method: string};
+          context: object;
+          result: {details: object; content: never[]};
+          isError: boolean;
+        }) => Promise<unknown>)
+      | undefined;
+    let shouldStopAfterTurn: (() => boolean) | undefined;
+    createAgentSessionMock.mockImplementation((options) => {
+      customTools = options.customTools;
+      return Promise.resolve({
+        session: {
+          agent: {
+            set afterToolCall(value: typeof afterToolCall) {
+              afterToolCall = value;
+            },
+            get afterToolCall() {
+              return afterToolCall;
+            },
+            set shouldStopAfterTurn(value: typeof shouldStopAfterTurn) {
+              shouldStopAfterTurn = value;
+            },
+            get shouldStopAfterTurn() {
+              return shouldStopAfterTurn;
+            },
+          },
+          prompt: promptMock,
+          abort: abortMock,
+          bindExtensions: bindExtensionsMock,
+          getLastAssistantText: getLastAssistantTextMock,
+          messages: [],
+        },
+      });
+    });
+    promptMock
+      .mockImplementationOnce(async () => {
+        await customTools[0]?.execute('tool-1', {key: 'summary', value: 'done'});
+        expect(shouldStopAfterTurn?.()).toBe(false);
+      })
+      .mockImplementationOnce(async () => {
+        await afterToolCall?.({
+          toolCall: {name: 'github__pull_request_read'},
+          args: {method: 'get_diff'},
+          context: {},
+          result: {details: {}, content: []},
+          isError: false,
+        });
+        expect(shouldStopAfterTurn?.()).toBe(true);
+      });
+
+    const result = piHarnessAdapter.run(
+      invocation({
+        outputs: {summary: {type: 'string'}},
+        prerequisites: {required: ['pull_request_read.get_diff']},
+      }),
+    );
+
+    await expect(result).resolves.toEqual({response: '', outputs: {summary: 'done'}});
+    expect(promptMock).toHaveBeenCalledTimes(2);
+  });
+
   it('returns the final assistant response and collected outputs after a correction turn', async () => {
     let customTools: Array<{
       execute: (toolCallId: string, params: {key: string; value: string}) => Promise<unknown>;
@@ -1241,6 +1349,7 @@ describe('piHarnessAdapter', () => {
       customTools = options.customTools;
       return Promise.resolve({
         session: {
+          agent: {},
           prompt: promptMock,
           abort: abortMock,
           bindExtensions: bindExtensionsMock,

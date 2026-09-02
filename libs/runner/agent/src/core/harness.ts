@@ -4,6 +4,7 @@ import type {
 } from '@shipfox/api-agent-dto';
 import type {OutputDeclarations} from '@shipfox/expression';
 import type {IntegrationToolsBridge} from '#core/integration-tools-bridge.js';
+import type {AgentPrerequisiteContract} from '#core/prerequisite-ledger.js';
 
 // The invocation shape is still pi-oriented because v1 only has two harnesses.
 // Revisit this shared contract if a third harness needs materially different inputs.
@@ -44,6 +45,8 @@ export interface HarnessInvocation {
   readonly toolSurface?: HarnessToolSurface | undefined;
   /** Materialized integration tool IDs requested by this step, without schemas or secrets. */
   readonly requestedIntegrationTools?: readonly RequestedIntegrationTool[] | undefined;
+  /** Deterministic runtime facts required before an output-complete Pi turn may stop. */
+  readonly prerequisites?: AgentPrerequisiteContract | undefined;
   readonly outputs?: OutputDeclarations | undefined;
   readonly credentials: Record<string, string>;
   readonly customProvider?: CustomModelProviderRuntimeConfigDto | undefined;

@@ -25,6 +25,48 @@ describe('OutputCollector', () => {
     expect(collector.missingRequired()).toEqual([]);
   });
 
+  it('keeps the first value for duplicate writes and reports conflicts', () => {
+    const collector = new OutputCollector({answer: {type: 'string'}});
+
+    const first = collector.trySet('answer', 'first');
+    const duplicate = collector.trySet('answer', 'first');
+    const conflict = collector.trySet('answer', 'second');
+
+    expect(first).toEqual({ok: true});
+    expect(duplicate).toEqual({ok: true, idempotent: true});
+    expect(conflict).toEqual({
+      ok: false,
+      isError: true,
+      code: 'output_conflict',
+      feedback: 'Output "answer" is immutable and already has a different value.',
+      details: {code: 'output_conflict', key: 'answer'},
+    });
+    expect(collector.snapshot()).toEqual({answer: 'first'});
+  });
+
+  it('reports stable rejection codes and marks every invalid write', () => {
+    const collector = new OutputCollector({count: {type: 'number'}});
+
+    expect(collector.trySet('bad key', 'value')).toMatchObject({
+      ok: false,
+      isError: true,
+      code: 'invalid_output_key',
+      details: {code: 'invalid_output_key'},
+    });
+    expect(collector.trySet('extra', 'value')).toMatchObject({
+      ok: false,
+      isError: true,
+      code: 'undeclared_output',
+      details: {code: 'undeclared_output'},
+    });
+    expect(collector.trySet('count', 'not-a-number')).toMatchObject({
+      ok: false,
+      isError: true,
+      code: 'output_schema_mismatch',
+      details: {code: 'output_schema_mismatch'},
+    });
+  });
+
   it('rejects undeclared keys on typed steps', () => {
     const schema = {type: 'number'};
     const collector = new OutputCollector({count: {type: 'json', schema}});
@@ -184,9 +226,17 @@ describe('OutputCollector', () => {
 
     expect(result).toEqual({
       ok: false,
+      isError: true,
+      code: 'output_value_too_large',
       feedback:
         `Output "large" exceeds the per-value size limit of ${MAX_OUTPUT_VALUE_BYTES} bytes ` +
         `(measured ${measuredBytes} bytes; overshoot ${measuredBytes - MAX_OUTPUT_VALUE_BYTES} bytes).`,
+      details: {
+        code: 'output_value_too_large',
+        key: 'large',
+        limitBytes: MAX_OUTPUT_VALUE_BYTES,
+        measuredBytes,
+      },
     });
   });
 
@@ -236,9 +286,17 @@ describe('OutputCollector', () => {
     expect(first).toEqual({ok: true});
     expect(second).toEqual({
       ok: false,
+      isError: true,
+      code: 'output_total_too_large',
       feedback:
         `Step outputs exceed the total size limit of ${MAX_OUTPUT_TOTAL_BYTES} bytes ` +
         `(measured ${measuredBytes} bytes; overshoot ${measuredBytes - MAX_OUTPUT_TOTAL_BYTES} bytes).`,
+      details: {
+        code: 'output_total_too_large',
+        key: 'overflow',
+        limitBytes: MAX_OUTPUT_TOTAL_BYTES,
+        measuredBytes,
+      },
     });
   });
 
@@ -302,6 +360,28 @@ describe('runOutputTurnLoop', () => {
       'The previous turn ended without setting required workflow outputs: answer. ' +
         'Call set_output for each missing key, then provide your final response.',
     );
+  });
+
+  it('waits for prerequisites after all outputs are present', async () => {
+    const controller = new AbortController();
+    const runTurn = vi.fn<Parameters<typeof runOutputTurnLoop>[0]['runTurn']>();
+    let turn = 0;
+
+    const result = runOutputTurnLoop({
+      signal: controller.signal,
+      prompt: 'Set the answer output.',
+      runTurn: (prompt) => {
+        runTurn(prompt);
+        turn += 1;
+        return Promise.resolve();
+      },
+      missingRequired: () => [],
+      completionMissing: () => (turn > 1 ? [] : ['read-diff']),
+    });
+
+    await expect(result).resolves.toBeUndefined();
+    expect(runTurn).toHaveBeenCalledTimes(2);
+    expect(runTurn).toHaveBeenNthCalledWith(2, expect.stringContaining('read-diff'));
   });
 
   it('stops before the next turn when aborted mid-loop', async () => {

@@ -11,7 +11,32 @@ import {
   OUTPUT_KEY_REGEX,
 } from '@shipfox/runner-execution/step-output';
 
-export type SetOutputResult = {readonly ok: true} | {readonly ok: false; readonly feedback: string};
+export type OutputRejectionCode =
+  | 'invalid_output_key'
+  | 'undeclared_output'
+  | 'output_value_too_large'
+  | 'output_total_too_large'
+  | 'output_schema_mismatch'
+  | 'output_conflict';
+
+export interface OutputRejectionDetails {
+  readonly code: OutputRejectionCode;
+  readonly key: string;
+  readonly limitBytes?: number;
+  readonly measuredBytes?: number;
+  readonly schemaError?: string;
+}
+
+export type SetOutputResult =
+  | {readonly ok: true}
+  | {readonly ok: true; readonly idempotent: true}
+  | {
+      readonly ok: false;
+      readonly isError: true;
+      readonly code: OutputRejectionCode;
+      readonly feedback: string;
+      readonly details: OutputRejectionDetails;
+    };
 
 export const MAX_OUTPUT_REPROMPTS = 2;
 
@@ -24,7 +49,7 @@ export class RequiredOutputsMissingError extends Error {
 
 export class OutputCollector {
   readonly #declarations: OutputDeclarations | undefined;
-  readonly #outputs: Record<string, string> = {};
+  readonly #outputs: Record<string, string> = Object.create(null);
 
   constructor(declarations: OutputDeclarations | undefined) {
     this.#declarations = declarations;
@@ -34,36 +59,57 @@ export class OutputCollector {
     const keyResult = this.#validateKey(key);
     if (!keyResult.ok) return keyResult;
 
+    if (Object.hasOwn(this.#outputs, key)) {
+      return this.#outputs[key] === value
+        ? {ok: true, idempotent: true}
+        : rejection(
+            'output_conflict',
+            `Output "${key}" is immutable and already has a different value.`,
+            {key},
+          );
+    }
+
     const valueBytes = Buffer.byteLength(value, 'utf8');
     if (valueBytes > MAX_OUTPUT_VALUE_BYTES) {
-      return {
-        ok: false,
-        feedback: formatOutputSizeViolation({
+      return rejection(
+        'output_value_too_large',
+        formatOutputSizeViolation({
           key,
           limitBytes: MAX_OUTPUT_VALUE_BYTES,
           measuredBytes: valueBytes,
           scope: 'value',
         }),
-      };
+        {key, limitBytes: MAX_OUTPUT_VALUE_BYTES, measuredBytes: valueBytes},
+      );
     }
 
     const totalBytes = totalOutputBytes({...this.#outputs, [key]: value});
     if (totalBytes > MAX_OUTPUT_TOTAL_BYTES) {
-      return {
-        ok: false,
-        feedback: formatOutputSizeViolation({
+      return rejection(
+        'output_total_too_large',
+        formatOutputSizeViolation({
           limitBytes: MAX_OUTPUT_TOTAL_BYTES,
           measuredBytes: totalBytes,
           scope: 'total',
         }),
-      };
+        {key, limitBytes: MAX_OUTPUT_TOTAL_BYTES, measuredBytes: totalBytes},
+      );
     }
 
     const declaration = this.#declarations?.[key];
     if (declaration !== undefined) {
       const coerced = coerceSingleOutput(key, declaration, value);
       if (!coerced.ok) {
-        return {ok: false, feedback: feedbackForCoercionError(coerced.error, declaration)};
+        return rejection(
+          'output_schema_mismatch',
+          feedbackForCoercionError(coerced.error, declaration),
+          {
+            key,
+            ...(coerced.error.schemaError === undefined
+              ? {}
+              : {schemaError: coerced.error.schemaError}),
+          },
+        );
       }
     }
 
@@ -74,6 +120,10 @@ export class OutputCollector {
   missingRequired(): string[] {
     if (this.#declarations === undefined) return [];
     return Object.keys(this.#declarations).filter((key) => !Object.hasOwn(this.#outputs, key));
+  }
+
+  isComplete(): boolean {
+    return this.missingRequired().length === 0;
   }
 
   snapshot(): Record<string, string> {
@@ -90,19 +140,20 @@ export class OutputCollector {
 
   #validateKey(key: string): SetOutputResult {
     if (!OUTPUT_KEY_REGEX.test(key)) {
-      return {
-        ok: false,
-        feedback:
-          `Output key "${key}" is invalid. Use letters, numbers, underscores, or hyphens, ` +
+      return rejection(
+        'invalid_output_key',
+        `Output key "${key}" is invalid. Use letters, numbers, underscores, or hyphens, ` +
           `and start with a letter or underscore.${declaredKeysFeedback(this.#declarations)}`,
-      };
+        {key},
+      );
     }
 
     if (this.#declarations !== undefined && !Object.hasOwn(this.#declarations, key)) {
-      return {
-        ok: false,
-        feedback: `Output "${key}" is not declared by the step output schema.${declaredKeysFeedback(this.#declarations)}`,
-      };
+      return rejection(
+        'undeclared_output',
+        `Output "${key}" is not declared by the step output schema.${declaredKeysFeedback(this.#declarations)}`,
+        {key},
+      );
     }
 
     return {ok: true};
@@ -114,6 +165,8 @@ export async function runOutputTurnLoop(params: {
   prompt: string;
   runTurn: (prompt: string) => Promise<void>;
   missingRequired: () => string[];
+  /** Additional runner-owned facts that must be complete before the turn can finish. */
+  completionMissing?: () => readonly string[];
   guidanceForMissing?: (missing: readonly string[]) => string;
 }): Promise<void> {
   let nextPrompt = params.prompt;
@@ -122,16 +175,34 @@ export async function runOutputTurnLoop(params: {
     await params.runTurn(nextPrompt);
     if (params.signal.aborted) throw new Error('Agent step aborted');
     const missing = params.missingRequired();
-    if (missing.length === 0) return;
-    const guidance = params.guidanceForMissing?.(missing);
+    const completionMissing = params.completionMissing?.() ?? [];
+    if (missing.length === 0 && completionMissing.length === 0) return;
     if (attempt === MAX_OUTPUT_REPROMPTS) {
-      throw new RequiredOutputsMissingError(missing);
+      throw new RequiredOutputsMissingError([...missing, ...completionMissing]);
     }
-    nextPrompt =
+    nextPrompt = nextPromptForMissing(params, missing, completionMissing);
+  }
+}
+
+function nextPromptForMissing(
+  params: {
+    guidanceForMissing?: (missing: readonly string[]) => string;
+  },
+  missing: readonly string[],
+  completionMissing: readonly string[],
+): string {
+  if (missing.length > 0) {
+    const guidance = params.guidanceForMissing?.(missing);
+    return (
       `The previous turn ended without setting required workflow outputs: ${missing.join(', ')}. ` +
       'Call set_output for each missing key, then provide your final response.' +
-      (guidance === undefined ? '' : `\n\n${guidance}`);
+      (guidance === undefined ? '' : `\n\n${guidance}`)
+    );
   }
+  return (
+    `The previous turn ended before satisfying runtime prerequisites: ${completionMissing.join(', ')}. ` +
+    'Continue working until the prerequisites are satisfied, then provide your final response.'
+  );
 }
 
 export function outputGuidanceText(
@@ -163,6 +234,14 @@ function coerceSingleOutput(
   value: string,
 ): ReturnType<typeof coerceStepOutputs> {
   return coerceStepOutputs({declarations: {[key]: declaration}, output: {[key]: value}});
+}
+
+function rejection(
+  code: OutputRejectionCode,
+  feedback: string,
+  details: Omit<OutputRejectionDetails, 'code'>,
+): Extract<SetOutputResult, {readonly ok: false}> {
+  return {ok: false, isError: true, code, feedback, details: {code, ...details}};
 }
 
 function feedbackForCoercionError(

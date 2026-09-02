@@ -958,6 +958,7 @@ function setOutputTool(collector: OutputCollector) {
             text: result.ok ? `Output "${args.key}" set.` : result.feedback,
           },
         ],
+        ...(result.ok ? {} : {isError: true, structuredContent: result}),
       };
     },
     {alwaysLoad: true},

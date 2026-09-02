@@ -31,6 +31,7 @@ import {
 } from '#core/integration-tools-bridge.js';
 import {piPackageVersions} from '#core/package-versions.js';
 import {piHarnessAdapter} from '#core/pi-adapter.js';
+import type {AgentPrerequisiteContract} from '#core/prerequisite-ledger.js';
 
 const MAX_HARNESS_DIAGNOSTICS = 5;
 const MAX_HARNESS_DIAGNOSTIC_MESSAGE_LENGTH = 500;
@@ -61,6 +62,7 @@ export async function executeAgentStep(
     onSessionEntry?: (line: string) => void;
     leaseToken?: LeaseTokenSource | undefined;
     integrationToolsGatewayUrl?: URL | undefined;
+    prerequisites?: AgentPrerequisiteContract | undefined;
   },
 ): Promise<StepResult> {
   if (step.type !== 'agent') {
@@ -130,6 +132,7 @@ export async function executeAgentStep(
       mcpServers: integrationToolsBridges,
       requestedIntegrationTools: requestedIntegrationToolsFromConfig(mcpServers),
       ...(toolSurface === undefined ? {} : {toolSurface}),
+      prerequisites: options.prerequisites,
       thinking: options.runtime.thinking,
       provider: options.runtime.provider,
       credentials: options.runtime.credentials,
@@ -159,6 +162,7 @@ async function runSelectedHarness(params: {
   mcpServers: readonly IntegrationToolsBridge[] | undefined;
   requestedIntegrationTools: readonly RequestedIntegrationTool[] | undefined;
   toolSurface?: HarnessToolSurface | undefined;
+  prerequisites: AgentPrerequisiteContract | undefined;
   thinking: string;
   provider: string;
   credentials: Record<string, string>;
@@ -183,6 +187,7 @@ async function runSelectedHarness(params: {
     mcpServers,
     requestedIntegrationTools,
     toolSurface,
+    prerequisites,
     thinking,
     provider,
     credentials,
@@ -211,6 +216,7 @@ async function runSelectedHarness(params: {
         ...(mcpServers === undefined ? {} : {mcpServers}),
         ...(requestedIntegrationTools === undefined ? {} : {requestedIntegrationTools}),
         ...(toolSurface === undefined ? {} : {toolSurface}),
+        ...(prerequisites === undefined ? {} : {prerequisites}),
         outputs,
         credentials,
         customProvider,

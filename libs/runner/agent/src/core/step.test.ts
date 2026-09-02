@@ -175,6 +175,21 @@ describe('executeAgentStep', () => {
     );
   });
 
+  it('forwards prerequisite state to the agent invocation unchanged', async () => {
+    runAgentMock.mockResolvedValue({});
+
+    const prerequisites = {
+      required: ['pull_request_read.get_diff'],
+      satisfied: [],
+    };
+    await executeAgentStep(buildAgentStep({config: {prompt: 'p'}}), {
+      runtime: RUNTIME,
+      prerequisites,
+    });
+
+    expect(runAgentMock).toHaveBeenCalledWith(expect.objectContaining({prerequisites}));
+  });
+
   it('forwards selected tools to the agent invocation unchanged', async () => {
     runAgentMock.mockResolvedValue({});
 
