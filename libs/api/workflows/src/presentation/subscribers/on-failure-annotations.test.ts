@@ -205,6 +205,47 @@ describe('failure annotations', () => {
     );
   });
 
+  it('explains a persisted agent configuration issue with specific guidance', async () => {
+    const payload = stepAttemptTerminatedPayload();
+    const step = stepEntity({
+      id: payload.stepId,
+      jobExecutionId: JOB_EXECUTION_ID,
+      type: 'agent',
+    });
+    const attempt = stepAttemptEntity({
+      stepId: step.id,
+      error: {
+        reason: 'agent_config_invalid',
+        agentConfigIssue: 'provider_not_configured',
+        message: 'provider lookup returned no configured row',
+      },
+      exitCode: null,
+    });
+    dbMocks.getStepAttemptDetail.mockResolvedValue({
+      workflowRunId: payload.workflowRunId,
+      workflowRunAttemptId: payload.workflowRunAttemptId,
+      step,
+      attempt,
+    });
+    dbMocks.getWorkflowRunAttemptById.mockResolvedValue({attempt: 1});
+
+    await onStepAttemptTerminatedFailureAnnotation(annotations)(payload);
+
+    expect(replaceOrRemoveAnnotation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        annotation: {
+          op: 'replace',
+          style: 'error',
+          body: [
+            '**Model provider is not connected**',
+            '',
+            'Connect a model provider before running this step again.',
+          ].join('\n'),
+        },
+      }),
+    );
+  });
+
   it('removes a stale step failure annotation after a successful terminal event', async () => {
     const payload = stepAttemptTerminatedPayload({attempt: 2, status: 'succeeded'});
     const step = stepEntity({

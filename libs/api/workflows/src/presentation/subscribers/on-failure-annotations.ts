@@ -437,7 +437,7 @@ function agentConfigFailureCopy(error: Record<string, unknown> | null): FailureC
     title: 'Agent configuration needs attention',
     description: 'Review the agent step configuration before trying again.',
   } satisfies FailureCopy;
-  const issue = errorString(error, 'agent_config_issue');
+  const issue = errorString(error, 'agentConfigIssue');
   return issue === undefined
     ? fallback
     : (AGENT_CONFIG_FAILURE_COPY[issue as AgentConfigIssueDto] ?? fallback);
