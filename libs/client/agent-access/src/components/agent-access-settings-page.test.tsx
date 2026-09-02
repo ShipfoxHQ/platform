@@ -76,6 +76,11 @@ describe('AgentAccessSettingsPage', () => {
 
     await screen.findByText('No personal access tokens');
     await user.click(screen.getByRole('button', {name: 'Create token'}));
+    expect(screen.getByRole('dialog')).toHaveAttribute('data-state', 'open');
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', {name: 'Create token'}));
     fireEvent.change(await screen.findByLabelText('Token name'), {
       target: {value: 'Local coding agent'},
     });
@@ -85,7 +90,7 @@ describe('AgentAccessSettingsPage', () => {
     await user.click(createButton);
     await user.keyboard('{Escape}');
 
-    expect(screen.getByRole('dialog')).toBeVisible();
+    expect(screen.getByRole('dialog')).toHaveAttribute('data-state', 'open');
 
     resolveCreate(
       jsonResponse(

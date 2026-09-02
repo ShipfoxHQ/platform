@@ -118,6 +118,16 @@ describe('OAuthConsentPage', () => {
     expect(
       screen.getByRole('heading', {name: 'Allow Claude Desktop to access Shipfox?'}),
     ).toBeVisible();
-    expect(screen.queryByText("This access request isn't available.")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('Agent access is temporarily unavailable. Try again in a moment.'),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        'This access request expired or is no longer available. Return to the agent and start again.',
+      ),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('This access request is invalid. Return to the agent and start again.'),
+    ).not.toBeInTheDocument();
   });
 });

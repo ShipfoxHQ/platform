@@ -1,4 +1,4 @@
-import {configureApiClient} from '@shipfox/client-api';
+import {configureApiClient, resetApiClient} from '@shipfox/client-api';
 import type {Decorator, Meta, StoryObj} from '@storybook/react';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {type ReactNode, useEffect, useState} from 'react';
@@ -52,7 +52,7 @@ function StoryProviders({children, view}: {children: ReactNode; view: View}) {
     setConfiguredView(view);
 
     return () => {
-      configureApiClient({baseUrl: '', fetchImpl: undefined});
+      resetApiClient();
     };
   }, [view]);
 
