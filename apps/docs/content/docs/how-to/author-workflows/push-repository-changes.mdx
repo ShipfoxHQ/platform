@@ -78,3 +78,12 @@ The checkout credential remains available to later steps by default. Set
 `persist-credentials: false` only when no later step should perform an
 authenticated Git command. See [Checkout
 fields](/reference/workflow-schema#checkout-fields).
+
+Verified managed runner images renew persisted Git credentials during long jobs.
+An older self-hosted runner uses static credentials. The job shows an upgrade
+warning. Update that runner image when the workflow needs Git access beyond the
+credential lifetime.
+
+Git commands inside a container started by a user step do not receive the host
+runner's credential helper or Unix socket. Supply a credential explicitly to
+that container when it needs authenticated Git access.

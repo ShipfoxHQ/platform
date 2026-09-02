@@ -135,6 +135,34 @@ The image derives its tool capabilities from its baked runner runtime and sends 
 enrollment. Providers do not inject capabilities, workspace IDs, workspace registration tokens,
 or activation tokens into user data.
 
+The image owns `SHIPFOX_RUNNER_ENABLE_RENEWABLE_GIT`. The container image sets it only after the
+production-closure verifier passes. The AMI service unit sets it only after `install-runner.sh`
+has run that same verifier, so a partial image bake cannot advertise the helper. Provider-rendered
+environment files must not set this flag.
+
+Older self-managed images remain compatible: they use static checkout credentials. When a persisted
+checkout reaches one, the API writes an upgrade warning to the job annotations without blocking
+scheduling. Git commands started inside a user container do not receive the host helper or socket;
+that container needs an explicitly supplied credential.
+
+## Renewable Git rollout
+
+Roll out a verified image through a candidate and one managed canary before fleet promotion:
+
+1. Build and publish the architecture-specific candidate from the target `main` revision.
+2. Start one managed runner in an isolated non-production worker-plane account from that candidate and run the long-lived Git checkout challenge.
+3. Monitor `workflows_checkout_token_requests` for initial and renewal outcomes,
+   `github_checkout_token_cache_lookups` for cache and stale-serving outcomes,
+   `github_checkout_token_mint_duration` for provider mint latency, and the runner job logs.
+4. Promote the image only after renewal requests, L2 outcomes, provider mints, and job results are
+   stable for the canary window. Confirm no managed runner below the supported capability remains.
+5. Roll back by deploying the static runner image or disabling the image advertisement first. Keep
+   server renewal delivery available until no new runner advertises the capability.
+
+The image build and canary prove different boundaries. A passing Packer or Docker build proves the
+helper is packaged. The canary proves the managed runner selects it against the deployed API and
+provider. Neither check makes a live rollout green without its monitoring evidence.
+
 `shipfox-runner.service` powers off immediately when the runner exits. Its SIGTERM drain budget is 90 seconds, after which systemd can force-kill the process and the backend re-reserves the job. The image accepts `SHIPFOX_RUNNER_MAX_LIFETIME_SECONDS` for compatibility but does not arm an age-based timer or fallback poweroff from that key. Before an orchestration-owned exit, the runner writes one bounded `runner.shutdown_intent` event to the structured logger and the direct EC2 console descriptor, identifying a success, controlled exit, or fatal failure. AWS builds also enable a Spot IMDSv2 watcher that stops the runner, allows it to drain briefly, then powers off.
 
 With `InstanceInitiatedShutdownBehavior=terminate` and Spot `InstanceInterruptionBehavior=terminate`, provider-side settings convert these poweroffs into EC2 termination. The systemd lifecycle action is the fast path. The durable backstop remains tagged-instance reconciliation, the backend staleness reaper, and terminate-on-shutdown because privileged job steps or a wedged kernel can prevent normal process exit.

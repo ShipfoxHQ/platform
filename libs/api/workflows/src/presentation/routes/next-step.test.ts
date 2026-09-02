@@ -1,4 +1,5 @@
 import type {AnnotationsInterModuleClient} from '@shipfox/annotations-dto/inter-module';
+import type {RunnerToolCapabilitiesDto} from '@shipfox/api-runners-dto';
 import {closeApp, createApp, type FastifyInstance} from '@shipfox/node-fastify';
 import {eq} from 'drizzle-orm';
 import {JobNotFoundError} from '#core/errors.js';
@@ -45,7 +46,7 @@ async function recordStepResult(
 
 function setRunnerToolCapabilities(
   runnerSessionId: string,
-  capabilities: {harnesses: {pi?: {tools: string[]}; claude?: {tools: string[]}}},
+  capabilities: RunnerToolCapabilitiesDto,
 ): void {
   setTestRunnerToolCapabilities(runnerSessionId, {capabilities, reportFresh: true});
 }
@@ -252,6 +253,44 @@ describe('POST /runs/jobs/current/steps/next', () => {
         annotation: expect.objectContaining({op: 'replace'}),
       }),
     );
+  });
+
+  test('defers the renewable Git upgrade warning until credentials are resolved', async () => {
+    annotationWrites.mockClear();
+    const {jobId, steps} = await arrangeJobWithSteps(1);
+    const step = steps[0];
+    if (!step) throw new Error('Expected a step');
+    await db()
+      .update(stepsTable)
+      .set({
+        type: 'checkout',
+        config: {
+          checkout: {
+            repository: 'acme/repository',
+            persist_credentials: true,
+          },
+        },
+      })
+      .where(eq(stepsTable.id, step.id));
+    const token = await mintActiveLeaseToken({jobId});
+    const lease = getLeaseTokenClaims(token);
+    if (!lease) throw new Error('Expected minted lease token to verify');
+    setRunnerToolCapabilities(lease.runnerSessionId, {harnesses: {}});
+
+    const first = await app.inject({
+      method: 'POST',
+      url: URL,
+      headers: {authorization: `Bearer ${token}`},
+    });
+    const second = await app.inject({
+      method: 'POST',
+      url: URL,
+      headers: {authorization: `Bearer ${token}`},
+    });
+
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(200);
+    expect(annotationWrites).not.toHaveBeenCalled();
   });
 
   test('returns 404 for a valid token without an active lease', async () => {

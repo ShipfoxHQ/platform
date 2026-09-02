@@ -45,6 +45,10 @@ const MINTED_CONTEXTS = [
     key: ({originStepId}: MintedContextSource) => `agent-tool-capability:${originStepId}`,
     fallbackTitle: 'Agent tool capability',
   },
+  {
+    key: ({originStepId}: MintedContextSource) => `renewable-git-capability:${originStepId}`,
+    fallbackTitle: 'Renewable Git capability',
+  },
 ] as const;
 
 type MintedContextSource = Pick<RunAnnotationRecord, 'context' | 'jobId' | 'originStepId'>;

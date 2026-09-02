@@ -1,5 +1,5 @@
 import {execFileSync, spawnSync} from 'node:child_process';
-import {chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile} from 'node:fs/promises';
+import {chmod, mkdir, mkdtemp, readFile, readlink, rm, stat, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {findProducedAmiId, parsePackerAmiArtifact} from '#aws.js';
@@ -926,6 +926,7 @@ describe('systemd boot activation', () => {
     expect(systemdDirective(unit, 'Unit', 'SuccessAction')).toBe('poweroff-immediate');
     expect(systemdDirective(unit, 'Unit', 'FailureAction')).toBe('poweroff-immediate');
     expect(systemdDirective(unit, 'Service', 'StandardOutput')).toBe('journal+console');
+    expect(unit).toContain('Environment=SHIPFOX_RUNNER_ENABLE_RENEWABLE_GIT=true');
     expect(unit).not.toContain('--enable-source-maps');
   });
 
@@ -1531,8 +1532,18 @@ describe('runner container entrypoint', () => {
       new URL('../../../../apps/runner/Dockerfile', import.meta.url),
       'utf8',
     );
+    const verifyInstallation = await readFile(
+      new URL('../../../../apps/runner/src/verify-installation.ts', import.meta.url),
+      'utf8',
+    );
 
     expect(dockerfile).toContain('RUN node ./dist/verify-installation.js');
+    expect(verifyInstallation).toContain("'@shipfox/runner-execution/git-credential-helper'");
+    expect(verifyInstallation).toContain("'./git-credential-helper.js'");
+    expect(dockerfile).toContain('ENV SHIPFOX_RUNNER_ENABLE_RENEWABLE_GIT=true');
+    expect(dockerfile.indexOf('RUN node ./dist/verify-installation.js')).toBeLessThan(
+      dockerfile.indexOf('ENV SHIPFOX_RUNNER_ENABLE_RENEWABLE_GIT=true'),
+    );
     expect(dockerfile).toContain('ENTRYPOINT ["tini", "--"]');
     expect(dockerfile).toContain('CMD ["node", "./dist/index.js"]');
     expect(dockerfile).not.toContain('--enable-source-maps');
@@ -2001,7 +2012,7 @@ describe('runner image composition', () => {
 });
 
 describe('runner installation', () => {
-  it('removes the dependency tree from the image build staging area', async () => {
+  it('verifies the staged runtime and installs the helper on the runner PATH', async () => {
     const script = new URL('../scripts/build/install-runner.sh', import.meta.url);
     const fixture = await createRunnerInstallFixture();
 
@@ -2013,8 +2024,34 @@ describe('runner installation', () => {
 
       expect(await pathExists(fixture.workspace)).toBe(false);
       expect(await readFile(fixture.commandLog, 'utf8')).toContain(
-        'pnpm --filter=@shipfox/runner deploy --prod --legacy --config.strict-peer-dependencies=false /opt/runner',
+        `pnpm --filter=@shipfox/runner deploy --prod --legacy --config.strict-peer-dependencies=false ${fixture.runnerDirectory}`,
       );
+      expect(await readFile(fixture.commandLog, 'utf8')).toContain(
+        `node ${fixture.runnerDirectory}/dist/verify-installation.js`,
+      );
+      expect(await readlink(fixture.helperPath)).toBe(
+        `${fixture.runnerDirectory}/dist/git-credential-helper.js`,
+      );
+    } finally {
+      await rm(fixture.root, {force: true, recursive: true});
+    }
+  });
+
+  it.each([
+    'helper',
+    'entrypoint',
+  ] as const)('fails the staged runtime check when the %s is missing', async (missingRuntime) => {
+    const script = new URL('../scripts/build/install-runner.sh', import.meta.url);
+    const fixture = await createRunnerInstallFixture({missingRuntime});
+
+    try {
+      expect(() =>
+        execFileSync('/bin/sh', [script.pathname], {
+          env: fixture.environment,
+          stdio: 'pipe',
+        }),
+      ).toThrow();
+      expect(await pathExists(fixture.workspace)).toBe(true);
     } finally {
       await rm(fixture.root, {force: true, recursive: true});
     }
@@ -2213,13 +2250,18 @@ printf 'swapon %s\\n' "$*" >> "$RUNNER_IMAGE_COMMAND_LOG"
   };
 }
 
-async function createRunnerInstallFixture() {
+async function createRunnerInstallFixture(
+  options: {missingRuntime?: 'helper' | 'entrypoint'} = {},
+) {
   const root = await mkdtemp(join(tmpdir(), 'shipfox-runner-install-'));
   const commandDirectory = join(root, 'commands');
   const workspace = join(root, 'tmp/shipfox-runner-workspace');
   const commandLog = join(root, 'command.log');
+  const runnerDirectory = join(root, 'opt/runner');
+  const helperPath = join(root, 'usr/local/bin/git-credential-shipfox');
 
   await mkdir(join(workspace, 'package'), {recursive: true});
+  await mkdir(join(runnerDirectory, 'dist'), {recursive: true});
   await mkdir(commandDirectory, {recursive: true});
   await writeFile(join(workspace, 'package/pnpm-lock.yaml'), 'lockfileVersion: 9.0\n');
   await writeExecutable(join(commandDirectory, 'corepack'), '#!/bin/sh\nexit 0\n');
@@ -2228,9 +2270,28 @@ async function createRunnerInstallFixture() {
     `#!/bin/sh
 set -eu
 printf 'pnpm %s\\n' "$*" >> "$RUNNER_IMAGE_COMMAND_LOG"
+mkdir -p "$RUNNER_IMAGE_RUNNER_DIR/dist"
+: > "$RUNNER_IMAGE_RUNNER_DIR/dist/index.js"
+if [ "\${RUNNER_IMAGE_MISSING_RUNTIME:-}" != helper ]; then
+  printf '#!/bin/sh\\n' > "$RUNNER_IMAGE_RUNNER_DIR/dist/git-credential-helper.js"
+  chmod 755 "$RUNNER_IMAGE_RUNNER_DIR/dist/git-credential-helper.js"
+fi
+if [ "\${RUNNER_IMAGE_MISSING_RUNTIME:-}" = entrypoint ]; then
+  rm -f "$RUNNER_IMAGE_RUNNER_DIR/dist/index.js"
+fi
 `,
   );
-  await writeExecutable(join(commandDirectory, 'node'), '#!/bin/sh\nexit 0\n');
+  await writeExecutable(
+    join(commandDirectory, 'node'),
+    `#!/bin/sh
+set -eu
+printf 'node %s\\n' "$*" >> "$RUNNER_IMAGE_COMMAND_LOG"
+if [ "$1" = "$RUNNER_IMAGE_RUNNER_DIR/dist/verify-installation.js" ]; then
+  test -f "$RUNNER_IMAGE_RUNNER_DIR/dist/index.js"
+  test -x "$RUNNER_IMAGE_RUNNER_DIR/dist/git-credential-helper.js"
+fi
+`,
+  );
   await writeExecutable(join(commandDirectory, 'chown'), '#!/bin/sh\nexit 0\n');
 
   return {
@@ -2240,8 +2301,12 @@ printf 'pnpm %s\\n' "$*" >> "$RUNNER_IMAGE_COMMAND_LOG"
       PATH: `${commandDirectory}:${process.env.PATH ?? ''}`,
       RUNNER_IMAGE_COMMAND_LOG: commandLog,
       RUNNER_IMAGE_ROOT: root,
+      RUNNER_IMAGE_MISSING_RUNTIME: options.missingRuntime ?? '',
+      RUNNER_IMAGE_RUNNER_DIR: runnerDirectory,
     },
+    helperPath,
     root,
+    runnerDirectory,
     workspace,
   };
 }

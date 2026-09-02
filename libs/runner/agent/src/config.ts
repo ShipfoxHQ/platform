@@ -23,7 +23,7 @@ export const config = createConfig({
     default: '',
   }),
   SHIPFOX_RUNNER_ENABLE_RENEWABLE_GIT: bool({
-    desc: 'Enables the runner-local renewable Git credential broker. Keep this disabled until the runner deployment is ready for renewable checkout credentials.',
+    desc: 'Enables the runner-local renewable Git credential broker. Source-run defaults remain disabled; verified managed images set this after the helper and production closure are checked.',
     default: false,
   }),
 });
