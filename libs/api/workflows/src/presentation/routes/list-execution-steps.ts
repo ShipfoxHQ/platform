@@ -1,38 +1,39 @@
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import {
-  type WorkflowRunOverviewJobsResponseDto,
-  workflowRunOverviewJobsQuerySchema,
-  workflowRunOverviewJobsResponseSchema,
+  type WorkflowExecutionStepsResponseDto,
+  workflowExecutionStepsQuerySchema,
+  workflowExecutionStepsResponseSchema,
 } from '@shipfox/api-workflows-dto';
 import {ClientError, defineRoute} from '@shipfox/node-fastify';
 import {logger} from '@shipfox/node-opentelemetry';
 import type {FastifyRequest} from 'fastify';
 import {z} from 'zod';
-import {listWorkflowRunJobsPage, type WorkflowRunJobCursor} from '#db/index.js';
-import {toRunOverviewJobsPageDto} from '#presentation/dto/index.js';
+import {getWorkflowJobReadScope, listWorkflowExecutionSteps} from '#db/index.js';
+import {toWorkflowExecutionStepsResponseDto} from '#presentation/dto/index.js';
 import {requireAccessibleRunScope} from './require-accessible-run.js';
 import {serializedResponseByteLength} from './serialized-response-byte-length.js';
-import {assertValidCursor, decodeJobCursor} from './workflow-job-cursors.js';
+import {assertValidCursor, decodeStepCursor} from './workflow-job-cursors.js';
 
-export function listRunJobsRoute(projects: ProjectsModuleClient) {
+export function listExecutionStepsRoute(projects: ProjectsModuleClient) {
   return defineRoute({
     method: 'GET',
-    path: '/:id/jobs',
-    description: 'List bounded job summaries for a pinned workflow run attempt',
+    path: '/jobs/:jobId/executions/:executionId/steps',
+    description: 'List bounded step summaries for a workflow job execution',
     schema: {
       params: z.object({
-        id: z.string().uuid(),
+        jobId: z.string().uuid(),
+        executionId: z.string().uuid(),
       }),
-      querystring: workflowRunOverviewJobsQuerySchema,
+      querystring: workflowExecutionStepsQuerySchema,
       response: {
-        200: workflowRunOverviewJobsResponseSchema,
+        200: workflowExecutionStepsResponseSchema,
       },
     },
     handler: async (request, reply) => {
-      const {id} = request.params;
-      const {attempt, limit, cursor} = request.query;
+      const {jobId, executionId} = request.params;
+      const {cursor, limit} = request.query;
       const startedAt = performance.now();
-      const decodedCursor = decodeJobCursor(cursor);
+      const decodedCursor = decodeStepCursor(cursor);
       let databaseDurationMilliseconds = 0;
       let responseBytes = 0;
       let resultCount = 0;
@@ -41,13 +42,13 @@ export function listRunJobsRoute(projects: ProjectsModuleClient) {
       let outcome: 'success' | 'not_found' | 'access_denied' | 'error' = 'success';
 
       try {
-        assertValidCursor(cursor, decodedCursor);
-        const result = await readRunJobsPage({
+        const result = await readExecutionSteps({
           request,
-          id,
-          attempt,
+          jobId,
+          executionId,
           limit,
-          cursor: decodedCursor,
+          cursor,
+          decodedCursor,
           projects,
           onAccessDenied: () => {
             outcome = 'access_denied';
@@ -55,11 +56,10 @@ export function listRunJobsRoute(projects: ProjectsModuleClient) {
           serialize: (response) => reply.serialize(response),
         });
         databaseDurationMilliseconds = result.databaseDurationMilliseconds;
-        const {response, serializedResponse} = result;
-        responseBytes = serializedResponseByteLength(serializedResponse);
-        resultCount = response.items.length;
-        cursorRemaining = response.next_cursor !== null;
-        return reply.type('application/json').send(serializedResponse);
+        responseBytes = serializedResponseByteLength(result.serializedResponse);
+        resultCount = result.resultCount;
+        cursorRemaining = result.cursorRemaining;
+        return reply.type('application/json').send(result.serializedResponse);
       } catch (error) {
         responseStatus =
           error instanceof ClientError && typeof error.status === 'number' ? error.status : 500;
@@ -69,11 +69,11 @@ export function listRunJobsRoute(projects: ProjectsModuleClient) {
       } finally {
         logger().info(
           {
-            route: 'workflow-runs/:id/jobs',
+            route: 'workflow-runs/jobs/:jobId/executions/:executionId/steps',
             status: responseStatus,
             outcome,
-            runId: id,
-            attempt,
+            jobId,
+            executionId,
             limit,
             cursorPresent: cursor !== undefined,
             resultCount,
@@ -82,41 +82,52 @@ export function listRunJobsRoute(projects: ProjectsModuleClient) {
             databaseDurationMs: Math.round(databaseDurationMilliseconds),
             durationMs: Math.round(performance.now() - startedAt),
           },
-          'Listed workflow run job summaries',
+          'Listed workflow execution steps',
         );
       }
     },
   });
 }
 
-async function readRunJobsPage({
+async function readExecutionSteps({
   request,
-  id,
-  attempt,
+  jobId,
+  executionId,
   limit,
   cursor,
+  decodedCursor,
   projects,
   onAccessDenied,
   serialize,
 }: {
   request: FastifyRequest;
-  id: string;
-  attempt: number;
+  jobId: string;
+  executionId: string;
   limit: number;
-  cursor: WorkflowRunJobCursor | undefined;
+  cursor: string | undefined;
+  decodedCursor: ReturnType<typeof decodeStepCursor>;
   projects: ProjectsModuleClient;
   onAccessDenied: () => void;
-  serialize: (response: WorkflowRunOverviewJobsResponseDto) => string | ArrayBuffer | Buffer;
+  serialize: (response: WorkflowExecutionStepsResponseDto) => string | ArrayBuffer | Buffer;
 }) {
-  const run = await requireAccessibleRunScope({request, id, projects, onAccessDenied});
+  assertValidCursor(cursor, decodedCursor);
+
+  const scope = await getWorkflowJobReadScope(jobId);
+  if (!scope) {
+    throw new ClientError('Job not found', 'not-found', {status: 404});
+  }
+  await requireAccessibleRunScope({request, id: scope.workflowRunId, projects, onAccessDenied});
+
   let databaseDurationMilliseconds = 0;
-  const page = await listWorkflowRunJobsPage(
+  const page = await listWorkflowExecutionSteps(
     {
-      workflowRunId: run.id,
-      projectId: run.projectId,
-      attempt,
+      jobId,
+      executionId,
       limit,
-      cursor,
+      cursor: decodedCursor
+        ? {position: Number(decodedCursor.value), id: decodedCursor.id}
+        : undefined,
+      scope,
     },
     {
       onRead: (measurement) => {
@@ -125,13 +136,15 @@ async function readRunJobsPage({
     },
   );
   if (!page) {
-    throw new ClientError('Run attempt not found', 'not-found', {status: 404});
+    throw new ClientError('Execution not found', 'not-found', {status: 404});
   }
 
-  const response = toRunOverviewJobsPageDto(page);
+  const response = toWorkflowExecutionStepsResponseDto(page);
   return {
     response,
     serializedResponse: serialize(response),
     databaseDurationMilliseconds,
+    resultCount: response.items.length,
+    cursorRemaining: response.next_cursor !== null,
   };
 }

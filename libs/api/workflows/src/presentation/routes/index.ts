@@ -11,6 +11,7 @@ import type {RouteGroup} from '@shipfox/node-fastify';
 import {createAgentRuntimeConfigRoute} from './agent-runtime-config.js';
 import {cancelRunRoute} from './cancel-run.js';
 import {createCheckoutTokenRoute} from './checkout-token.js';
+import {getJobDetailRoute} from './get-job-detail.js';
 import {getRunRoute} from './get-run.js';
 import {getRunAggregatesRoute} from './get-run-aggregates.js';
 import {getRunLineageHeadRoute} from './get-run-lineage-head.js';
@@ -18,9 +19,12 @@ import {getRunOverviewRoute} from './get-run-overview.js';
 import {getRunSelectionRoute} from './get-run-selection.js';
 import {getStepAttemptDetailRoute} from './get-step-attempt-detail.js';
 import {createGetStepSecretsRoute} from './get-step-secrets.js';
+import {listExecutionStepsRoute} from './list-execution-steps.js';
+import {listJobExecutionsRoute} from './list-job-executions.js';
 import {listRunAttemptsRoute} from './list-run-attempts.js';
 import {listRunJobsRoute} from './list-run-jobs.js';
 import {listRunsRoute} from './list-runs.js';
+import {listStepAttemptsRoute} from './list-step-attempts.js';
 import {createNextStepRoute} from './next-step.js';
 import {createReportStepRoute} from './report-step.js';
 import {rerunRunRoute} from './rerun-run.js';
@@ -70,6 +74,10 @@ export function createWorkflowRoutes(params: WorkflowRouteClients): RouteGroup[]
         getRunSelectionRoute(params.projects),
         listRunAttemptsRoute(params.projects),
         getRunOverviewRoute(params.projects),
+        getJobDetailRoute(params.projects),
+        listJobExecutionsRoute(params.projects),
+        listExecutionStepsRoute(params.projects),
+        listStepAttemptsRoute(params.projects),
         listRunJobsRoute(params.projects),
         getRunRoute(params.projects),
         getStepAttemptDetailRoute(params.projects),

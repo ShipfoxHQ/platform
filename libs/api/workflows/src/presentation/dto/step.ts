@@ -2,6 +2,7 @@ import {
   agentConfigIssueSchema,
   agentStepSessionDescriptorSchema,
   deriveStepErrorCategory,
+  STEP_ERROR_MESSAGE_MAX_LENGTH,
   type StepAttemptDetailResponseDto,
   type StepAttemptDto,
   type StepDto,
@@ -13,13 +14,26 @@ import type {Step, StepAttempt} from '#core/entities/step.js';
 import {GATE_EVALUATION_ERROR_REASON} from '#core/step-transition/evaluate-gate.js';
 import {toEvaluationTraceDto} from './evaluation-trace.js';
 
+export function truncateStepText(value: string, maxLength: number): string {
+  if (value.length <= maxLength) return value;
+  const truncated = value.slice(0, maxLength);
+  const lastCodeUnit = truncated.charCodeAt(truncated.length - 1);
+  return lastCodeUnit >= 0xd800 && lastCodeUnit <= 0xdbff ? truncated.slice(0, -1) : truncated;
+}
+
 // Domain `error` is loosely typed (jsonb), so narrow it to the fixed runner
 // contract rather than trusting whatever shape the row happens to hold. `category`
 // is not stored on the row; the caller derives it from the step type and error
 // reason (server-authoritative, never trusted from the runner).
-function toStepErrorDto(error: Record<string, unknown> | null, stepType: string): StepErrorDto {
+export function toStepErrorDto(
+  error: Record<string, unknown> | null,
+  stepType: string,
+): StepErrorDto {
   if (error === null) return null;
-  const message = typeof error.message === 'string' ? error.message : '';
+  const message =
+    typeof error.message === 'string'
+      ? truncateStepText(error.message, STEP_ERROR_MESSAGE_MAX_LENGTH)
+      : '';
   const code = typeof error.code === 'string' ? error.code : undefined;
   const managedProviderId =
     typeof error.managedProviderId === 'string' ? error.managedProviderId : undefined;
@@ -95,7 +109,7 @@ function isIntOrNull(value: unknown): value is number | null {
   return value === null || (typeof value === 'number' && Number.isInteger(value));
 }
 
-function toStepGateResultDto(
+export function toStepGateResultDto(
   gateResult: Record<string, unknown> | null,
   status: string,
 ): StepGateResultDto {
@@ -109,7 +123,12 @@ function toStepGateResultDto(
   const reason = gateResult.reason;
 
   if (passed === true && typeof source === 'string' && isIntOrNull(exitCode)) {
-    return {kind: 'passed', passed, source, exit_code: exitCode};
+    return {
+      kind: 'passed',
+      passed,
+      source: truncateStepText(source, STEP_ERROR_MESSAGE_MAX_LENGTH),
+      exit_code: exitCode,
+    };
   }
 
   if (
@@ -119,13 +138,28 @@ function toStepGateResultDto(
     isIntOrNull(exitCode)
   ) {
     if (reason === GATE_EVALUATION_ERROR_REASON) {
-      return {kind: 'evaluation_error', reason, exit_code: exitCode};
+      return {
+        kind: 'evaluation_error',
+        reason: truncateStepText(reason, STEP_ERROR_MESSAGE_MAX_LENGTH),
+        exit_code: exitCode,
+      };
     }
-    return {kind: 'uncheckable', passed, uncheckable: true, reason, exit_code: exitCode};
+    return {
+      kind: 'uncheckable',
+      passed,
+      uncheckable: true,
+      reason: truncateStepText(reason, STEP_ERROR_MESSAGE_MAX_LENGTH),
+      exit_code: exitCode,
+    };
   }
 
   if (passed === false && typeof source === 'string' && isIntOrNull(exitCode)) {
-    return {kind: 'failed', passed, source, exit_code: exitCode};
+    return {
+      kind: 'failed',
+      passed,
+      source: truncateStepText(source, STEP_ERROR_MESSAGE_MAX_LENGTH),
+      exit_code: exitCode,
+    };
   }
 
   return {kind: 'unknown', data: gateResult};

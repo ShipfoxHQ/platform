@@ -1,4 +1,28 @@
 export type {
+  WorkflowJobDetailRead,
+  WorkflowJobExecutionCursor,
+  WorkflowJobExecutionDetailRead,
+  WorkflowJobExecutionPageRead,
+  WorkflowJobReadMeasurement,
+  WorkflowJobReadOptions,
+  WorkflowJobReadScope,
+  WorkflowStepAttemptCursor,
+  WorkflowStepAttemptPageRead,
+  WorkflowStepAttemptSummaryRead,
+  WorkflowStepCursor,
+  WorkflowStepPageRead,
+  WorkflowStepReadScope,
+  WorkflowStepSummaryRead,
+} from './workflow-runs/job-detail.js';
+export {
+  getWorkflowJobDetail,
+  getWorkflowJobReadScope,
+  getWorkflowStepReadScope,
+  listWorkflowExecutionSteps,
+  listWorkflowJobExecutionSummaries,
+  listWorkflowStepAttemptSummaries,
+} from './workflow-runs/job-detail.js';
+export type {
   UpdateJobExecutionStatusAtVersionParams,
   UpdateJobExecutionStatusParams,
 } from './workflow-runs/job-executions.js';
@@ -73,6 +97,7 @@ export type {
 } from './workflow-runs/overview.js';
 export {
   getWorkflowRunAccessScopeById,
+  getWorkflowRunJobOverview,
   getWorkflowRunOverview,
   listWorkflowRunJobsPage,
 } from './workflow-runs/overview.js';

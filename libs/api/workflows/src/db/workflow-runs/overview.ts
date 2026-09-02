@@ -68,6 +68,23 @@ export interface WorkflowRunJobExecutionSummary {
   updatedAt: Date;
 }
 
+export interface WorkflowRunJobExecutionSummaryRow {
+  id: string;
+  sequence: number;
+  name: string | null;
+  jobName: string | null;
+  jobKey: string;
+  status: JobExecutionStatus;
+  statusReason: string | null;
+  statusReasonMessage: string | null;
+  queuedAt: Date | null;
+  startedAt: Date | null;
+  finishedAt: Date | null;
+  timedOutAt: Date | null;
+  updatedAt: Date;
+  hasRunningStep?: boolean;
+}
+
 export interface WorkflowRunJobOverview {
   id: string;
   key: string;
@@ -82,6 +99,10 @@ export interface WorkflowRunJobOverview {
   executionCount: BoundedExecutionCount;
   executionStatusCounts: Record<JobExecutionStatus, BoundedExecutionCount>;
   defaultExecution: WorkflowRunJobExecutionSummary | null;
+}
+
+export interface WorkflowRunJobOverviewReadOptions {
+  onRead?: ((returnedRows: number) => void) | undefined;
 }
 
 export type WorkflowRunJobListSummary = Omit<WorkflowRunJobOverview, 'dependencies'>;
@@ -284,6 +305,47 @@ export async function listWorkflowRunJobsPage(
       // Measurement observers must not change the bounded read outcome.
     }
   }
+}
+
+/**
+ * Reads the same compact job projection used by the run overview for one job inside
+ * a caller-owned transaction. The transaction keeps this summary consistent with
+ * the selected execution and its step pages.
+ */
+export async function getWorkflowRunJobOverview(
+  tx: Tx,
+  params: {workflowRunAttemptId: string; jobId: string},
+  options: WorkflowRunJobOverviewReadOptions = {},
+): Promise<WorkflowRunJobOverview | undefined> {
+  const [row] = await tx
+    .select({
+      id: jobs.id,
+      key: jobs.key,
+      name: jobs.name,
+      position: jobs.position,
+      dependencies: jobs.dependencies,
+      status: jobs.status,
+      statusReason: jobs.statusReason,
+      mode: jobs.mode,
+      listenerStatus: jobs.listenerStatus,
+      carriedOver: jobs.carriedOver,
+    })
+    .from(jobs)
+    .where(
+      and(eq(jobs.id, params.jobId), eq(jobs.workflowRunAttemptId, params.workflowRunAttemptId)),
+    )
+    .limit(1);
+  if (!row) {
+    options.onRead?.(0);
+    return undefined;
+  }
+
+  const presentation = await loadJobPresentation(tx, params.workflowRunAttemptId, [params.jobId]);
+  options.onRead?.(1 + presentation.returnedRows);
+  return assembleJobOverviewItems(
+    [{...row, dependencies: row.dependencies as string[]}],
+    presentation,
+  )[0];
 }
 
 interface OverviewTarget {
@@ -499,22 +561,8 @@ async function loadJobPageRows(
   };
 }
 
-interface JobExecutionProjection {
+interface JobExecutionProjection extends WorkflowRunJobExecutionSummaryRow {
   jobId: string;
-  id: string;
-  sequence: number;
-  name: string | null;
-  jobName: string | null;
-  jobKey: string;
-  status: JobExecutionStatus;
-  statusReason: string | null;
-  statusReasonMessage: string | null;
-  queuedAt: Date | null;
-  startedAt: Date | null;
-  finishedAt: Date | null;
-  timedOutAt: Date | null;
-  updatedAt: Date;
-  hasRunningStep?: boolean;
 }
 
 interface JobPresentation {
@@ -606,6 +654,15 @@ function isPendingDisplayAdjustment(
   return execution?.status === 'running' && execution.displayStatus === 'pending';
 }
 
+export function runningStepExists(executionId: typeof jobExecutions.id) {
+  return sql<boolean>`exists (
+    select 1
+    from ${steps}
+    where ${steps.jobExecutionId} = ${executionId}
+      and ${steps.status} = 'running'
+  )`;
+}
+
 function loadRunningExecutionRows(
   tx: Tx,
   workflowRunAttemptId: string,
@@ -627,12 +684,7 @@ function loadRunningExecutionRows(
       finishedAt: jobExecutions.finishedAt,
       timedOutAt: jobExecutions.timedOutAt,
       updatedAt: jobExecutions.updatedAt,
-      hasRunningStep: sql<boolean>`exists (
-        select 1
-        from ${steps}
-        where ${steps.jobExecutionId} = ${jobExecutions.id}
-          and ${steps.status} = 'running'
-      )`,
+      hasRunningStep: runningStepExists(jobExecutions.id),
     })
     .from(jobExecutions)
     .innerJoin(jobs, eq(jobExecutions.jobId, jobs.id))
@@ -707,7 +759,9 @@ function toJobListSummary(job: WorkflowRunJobOverview): WorkflowRunJobListSummar
   return summary;
 }
 
-function toExecutionSummary(row: JobExecutionProjection): WorkflowRunJobExecutionSummary {
+export function toExecutionSummary(
+  row: WorkflowRunJobExecutionSummaryRow,
+): WorkflowRunJobExecutionSummary {
   const displayStatus =
     row.status === 'running' && row.hasRunningStep !== true ? 'pending' : row.status;
   return {
@@ -737,7 +791,7 @@ function createEmptyExecutionStatusCounts(): Record<JobExecutionStatus, BoundedE
   };
 }
 
-function boundedExecutionCount(value: number): BoundedExecutionCount {
+export function boundedExecutionCount(value: number): BoundedExecutionCount {
   return value > WORKFLOW_RUN_EXECUTION_COUNT_LIMIT ? '100+' : value;
 }
 
