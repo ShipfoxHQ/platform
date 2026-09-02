@@ -4,11 +4,18 @@ import {createServer} from 'node:net';
 import {fileURLToPath} from 'node:url';
 
 const appDirectory = fileURLToPath(new URL('..', import.meta.url));
+const addressInUsePattern = /EADDRINUSE|address already in use/i;
 const basePath = '/docs';
 const browserAccept = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
+const canonicalOrigin = 'https://docs-route-check.shipfox.test';
+const htmlTitlePattern = /<title>([\s\S]*?)<\/title>/;
+const markdownHeadingPattern = /^# (.+) \((https?:\/\/[^)\n]+)\)\n\n/;
+const requestTimeoutMilliseconds = 15_000;
 const productionEnvironment = {
   ...process.env,
   VERCEL_ENV: 'production',
+  NEXT_PUBLIC_VERCEL_ENV: 'production',
+  NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL: new URL(canonicalOrigin).host,
   NEXT_PUBLIC_POSTHOG_KEY: 'docs-production-route-check',
   NEXT_PUBLIC_POSTHOG_URL: 'https://ph.shipfox.io',
 };
@@ -42,10 +49,13 @@ async function waitForServer(origin, child, readLogs) {
   const deadline = Date.now() + 30_000;
   let lastConnectionError;
   while (Date.now() < deadline) {
-    if (child.exitCode !== null)
+    if (child.exitCode !== null || child.signalCode !== null)
       throw new Error(`Docs server stopped before it was ready.\n${readLogs()}`);
     try {
-      const response = await fetch(`${origin}${basePath}`);
+      const response = await fetch(`${origin}${basePath}`, {
+        signal: AbortSignal.timeout(1_000),
+      });
+      await response.body?.cancel();
       if (response.status === 200) return;
     } catch (error) {
       lastConnectionError = error;
@@ -58,7 +68,7 @@ async function waitForServer(origin, child, readLogs) {
 }
 
 async function stopServer(child) {
-  if (child.exitCode !== null) return;
+  if (child.exitCode !== null || child.signalCode !== null) return;
   await new Promise((resolve) => {
     const timeout = setTimeout(() => {
       child.kill('SIGKILL');
@@ -73,15 +83,22 @@ async function stopServer(child) {
 }
 
 async function request(origin, path, accept) {
-  const response = await fetch(`${origin}${path}`, {
-    headers: accept ? {accept} : undefined,
-  });
-  return {
-    status: response.status,
-    contentType: response.headers.get('content-type') ?? '',
-    vary: response.headers.get('vary') ?? '',
-    body: Buffer.from(await response.arrayBuffer()),
-  };
+  try {
+    const response = await fetch(`${origin}${path}`, {
+      headers: accept ? {accept} : undefined,
+      signal: AbortSignal.timeout(requestTimeoutMilliseconds),
+    });
+    return {
+      status: response.status,
+      contentType: response.headers.get('content-type') ?? '',
+      vary: response.headers.get('vary') ?? '',
+      body: Buffer.from(await response.arrayBuffer()),
+    };
+  } catch (error) {
+    throw new Error(`${path}: request did not complete within ${requestTimeoutMilliseconds}ms`, {
+      cause: error,
+    });
+  }
 }
 
 function assertResponse(response, expected, label) {
@@ -101,15 +118,60 @@ function assertAcceptDoesNotVary(response, label) {
 }
 
 function docsPagesFromSitemap(body) {
-  const pagePaths = [...body.toString('utf8').matchAll(/<loc>([^<]+)<\/loc>/g)].map(
-    ([, location]) => new URL(location).pathname,
-  );
-  assert(pagePaths.length > 0, 'The production sitemap contains no docs pages');
+  const pages = [...body.toString('utf8').matchAll(/<loc>([^<]+)<\/loc>/g)].map(([, location]) => {
+    const canonicalUrl = new URL(location);
+    assert.equal(
+      canonicalUrl.origin,
+      canonicalOrigin,
+      `The production sitemap uses an unexpected origin for ${canonicalUrl.pathname}`,
+    );
+    assert.equal(canonicalUrl.search, '', `${location}: sitemap URL must not contain a query`);
+    assert.equal(canonicalUrl.hash, '', `${location}: sitemap URL must not contain a fragment`);
+    return {canonicalUrl: canonicalUrl.toString(), path: canonicalUrl.pathname};
+  });
+  assert(pages.length > 0, 'The production sitemap contains no docs pages');
   assert(
-    pagePaths.every((path) => path === basePath || path.startsWith(`${basePath}/`)),
+    pages.every(({path}) => path === basePath || path.startsWith(`${basePath}/`)),
     'The production sitemap contains a page outside the docs base path',
   );
-  return pagePaths;
+  return pages;
+}
+
+function decodeHtmlEntities(value) {
+  const namedEntities = new Map([
+    ['amp', '&'],
+    ['apos', "'"],
+    ['gt', '>'],
+    ['lt', '<'],
+    ['quot', '"'],
+  ]);
+  return value.replaceAll(/&(#(?:x[\da-f]+|\d+)|[a-z]+);/gi, (entity, name) => {
+    if (name.startsWith('#x')) return String.fromCodePoint(Number.parseInt(name.slice(2), 16));
+    if (name.startsWith('#')) return String.fromCodePoint(Number.parseInt(name.slice(1), 10));
+    return namedEntities.get(name.toLowerCase()) ?? entity;
+  });
+}
+
+function assertPageIdentity(htmlResponse, markdownResponse, page, markdownPath) {
+  const markdown = markdownResponse.body.toString('utf8');
+  const markdownHeading = markdownHeadingPattern.exec(markdown);
+  assert(
+    markdownHeading,
+    `${markdownPath}: direct Markdown does not start with its title and canonical URL`,
+  );
+  assert.equal(
+    markdownHeading[2],
+    page.canonicalUrl,
+    `${markdownPath}: direct Markdown canonical URL does not identify ${page.path}`,
+  );
+
+  const htmlTitle = htmlTitlePattern.exec(htmlResponse.body.toString('utf8'));
+  assert(htmlTitle, `${page.path}: HTML response does not contain a title`);
+  assert.equal(
+    decodeHtmlEntities(htmlTitle[1]),
+    `${markdownHeading[1]} | Shipfox`,
+    `${page.path}: HTML and direct Markdown identify different pages`,
+  );
 }
 
 async function assertHtmlSequence(origin, path, order, status = 200) {
@@ -137,6 +199,7 @@ async function assertHtmlSequence(origin, path, order, status = 200) {
     responses[0].body.equals(responses[2].body),
     `${path} (${order}): repeated response changed`,
   );
+  return responses[0];
 }
 
 async function assertStableRoute(origin, route) {
@@ -150,41 +213,64 @@ async function assertStableRoute(origin, route) {
   );
 }
 
-await run('pnpm', ['build'], {
+function spawnDocsServer(port) {
+  let serverLogs = '';
+  const child = spawn(
+    'mise',
+    ['exec', '--', 'pnpm', 'exec', 'next', 'start', '--port', String(port)],
+    {
+      cwd: appDirectory,
+      env: productionEnvironment,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    },
+  );
+  for (const stream of [child.stdout, child.stderr]) {
+    stream.setEncoding('utf8');
+    stream.on('data', (chunk) => {
+      serverLogs = `${serverLogs}${chunk}`.slice(-20_000);
+    });
+  }
+  return {child, readLogs: () => serverLogs};
+}
+
+async function startDocsServer() {
+  const maximumAttempts = 3;
+  for (let attempt = 1; attempt <= maximumAttempts; attempt += 1) {
+    const port = await findAvailablePort();
+    const origin = `http://127.0.0.1:${port}`;
+    const server = spawnDocsServer(port);
+    try {
+      await waitForServer(origin, server.child, server.readLogs);
+      return {...server, origin};
+    } catch (error) {
+      const addressWasClaimed = addressInUsePattern.test(server.readLogs());
+      await stopServer(server.child);
+      if (!addressWasClaimed || attempt === maximumAttempts) throw error;
+    }
+  }
+  throw new Error('Docs server could not reserve a local port');
+}
+
+await run('mise', ['exec', '--', 'pnpm', 'exec', 'next', 'build'], {
   cwd: appDirectory,
   env: productionEnvironment,
   stdio: 'inherit',
 });
 
-const port = await findAvailablePort();
-const origin = `http://127.0.0.1:${port}`;
-let serverLogs = '';
-const docsServer = spawn('pnpm', ['exec', 'next', 'start', '--port', String(port)], {
-  cwd: appDirectory,
-  env: productionEnvironment,
-  stdio: ['ignore', 'pipe', 'pipe'],
-});
-for (const stream of [docsServer.stdout, docsServer.stderr]) {
-  stream.setEncoding('utf8');
-  stream.on('data', (chunk) => {
-    serverLogs = `${serverLogs}${chunk}`.slice(-20_000);
-  });
-}
+const docsServer = await startDocsServer();
 
 try {
-  await waitForServer(origin, docsServer, () => serverLogs);
-
-  const sitemap = await request(origin, `${basePath}/sitemap.xml`);
+  const sitemap = await request(docsServer.origin, `${basePath}/sitemap.xml`);
   assertResponse(sitemap, {status: 200, contentType: 'application/xml'}, `${basePath}/sitemap.xml`);
-  const pagePaths = docsPagesFromSitemap(sitemap.body);
-  for (const htmlPath of pagePaths) {
-    const markdownPath = htmlPath === basePath ? `${basePath}/index.md` : `${htmlPath}.md`;
+  const pages = docsPagesFromSitemap(sitemap.body);
+  for (const page of pages) {
+    const markdownPath = page.path === basePath ? `${basePath}/index.md` : `${page.path}.md`;
 
-    await assertHtmlSequence(origin, htmlPath, 'html-first');
-    await assertHtmlSequence(origin, htmlPath, 'markdown-first');
+    const htmlResponse = await assertHtmlSequence(docsServer.origin, page.path, 'html-first');
+    await assertHtmlSequence(docsServer.origin, page.path, 'markdown-first');
 
-    const browserMarkdown = await request(origin, markdownPath, browserAccept);
-    const acceptedMarkdown = await request(origin, markdownPath, 'text/markdown');
+    const browserMarkdown = await request(docsServer.origin, markdownPath, browserAccept);
+    const acceptedMarkdown = await request(docsServer.origin, markdownPath, 'text/markdown');
     assertResponse(
       browserMarkdown,
       {status: 200, contentType: 'text/markdown'},
@@ -199,10 +285,7 @@ try {
       browserMarkdown.body.equals(acceptedMarkdown.body),
       `${markdownPath}: direct Markdown changed by Accept`,
     );
-    assert(
-      /^# .+ \(.+\)\n\n/.test(browserMarkdown.body.toString('utf8')),
-      `${markdownPath}: direct Markdown does not start with its title and canonical URL`,
-    );
+    assertPageIdentity(htmlResponse, browserMarkdown, page, markdownPath);
   }
 
   const excludedRoutes = [
@@ -226,17 +309,27 @@ try {
       contentType: 'application/json',
     },
   ];
-  for (const route of excludedRoutes) await assertStableRoute(origin, route);
+  for (const route of excludedRoutes) await assertStableRoute(docsServer.origin, route);
 
-  await assertHtmlSequence(origin, `${basePath}/route-that-does-not-exist`, 'html-first', 404);
-  await assertHtmlSequence(origin, `${basePath}/route-that-does-not-exist`, 'markdown-first', 404);
+  await assertHtmlSequence(
+    docsServer.origin,
+    `${basePath}/route-that-does-not-exist`,
+    'html-first',
+    404,
+  );
+  await assertHtmlSequence(
+    docsServer.origin,
+    `${basePath}/route-that-does-not-exist`,
+    'markdown-first',
+    404,
+  );
 
   process.stdout.write(
-    `✓ production route matrix: ${pagePaths.length} HTML pages, ${pagePaths.length} direct Markdown pages, and ${excludedRoutes.length} excluded routes`,
+    `✓ production route matrix: ${pages.length} HTML pages, ${pages.length} direct Markdown pages, and ${excludedRoutes.length} excluded routes`,
   );
   process.stdout.write(
     '\n✓ content negotiation is disabled; HTML and error responses are stable in both orders\n',
   );
 } finally {
-  await stopServer(docsServer);
+  await stopServer(docsServer.child);
 }
