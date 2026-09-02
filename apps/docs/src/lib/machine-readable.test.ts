@@ -127,6 +127,7 @@ test('replaces unusable imported image sources with descriptive text', () => {
 });
 
 test('fails deterministic checks for unresolved components and links', () => {
+  assert.doesNotThrow(() => assertMachineReadableMarkdown('# Test (https://www.shipfox.io/docs)'));
   assert.throws(
     () =>
       serializeMachineReadableMarkdown(
