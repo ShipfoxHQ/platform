@@ -70,6 +70,11 @@ jobs:
           printf '\\nrenewed\\n' >> README.md
           git add README.md
           git commit -m "renewed credentials"
+          sleep 4
+          if git push origin HEAD:main; then
+            echo 'expected the expired primary credential to be rejected' >&2
+            exit 1
+          fi
           git push origin HEAD:main
           test "$(git log -1 --format=%ae)" = "test-vcs@shipfox.test"
 `;
@@ -213,9 +218,9 @@ test('renews on Git rejection across a long step and multiple checkouts', async 
 
   expect(terminal.status).toBe('succeeded');
   expect(terminal.jobs.find((job) => job.key === 'build')?.status).toBe('succeeded');
-  expect(after.mint_count - before.mint_count).toBe(4);
-  expect(after.generations.length - before.generations.length).toBe(4);
-  expect(rejectedCredentialRequestCount(before, after)).toBeGreaterThanOrEqual(2);
+  expect(after.mint_count - before.mint_count).toBe(5);
+  expect(after.generations.length - before.generations.length).toBe(5);
+  expect(rejectedCredentialRequestCount(before, after)).toBeGreaterThanOrEqual(3);
   expect(after.accepted_request_count - before.accepted_request_count).toBeGreaterThan(0);
   await assertNoCredentialLeak(after, logFiles);
 });
