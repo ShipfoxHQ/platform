@@ -514,7 +514,6 @@ interface ClaimPendingJobExecutionParams {
 interface ClaimRunnerContext {
   provisionerId: string | null;
   providerRunnerId: string | null;
-  provisionerScope: 'installation' | 'workspace' | null;
   runnerInstanceCondition: ReturnType<typeof eq> | undefined;
 }
 
@@ -533,7 +532,7 @@ export async function claimPendingJobExecution(
   let queueTimeObservation: JobExecutionQueueTimeObservation | null = null;
   let firstClaimReservationReleaseCount = 0;
   const result = await db().transaction(async (tx) => {
-    const {provisionerId, providerRunnerId, provisionerScope, runnerInstanceCondition} =
+    const {provisionerId, providerRunnerId, runnerInstanceCondition} =
       await loadClaimRunnerContextTx(tx, params);
 
     // `id` is a uuidv7 (time-ordered), so it is a deterministic FIFO tiebreaker
@@ -543,6 +542,7 @@ export async function claimPendingJobExecution(
     const pendingClaim = await claimPendingCandidateTx(tx, params, provisionerId, providerRunnerId);
     if (!pendingClaim) return null;
     const {row, claimed} = pendingClaim;
+    const provisionerScope = await loadProvisionerScopeTx(tx, claimed.provisionerId);
 
     queueTimeObservation = {
       durationMilliseconds: claimed.claimedAt.getTime() - row.createdAt.getTime(),
@@ -591,6 +591,7 @@ export async function claimPendingJobExecution(
         templateKey: claimedRunner?.templateKey ?? null,
         provisionerId: claimed.provisionerId,
         provisionerScope,
+        providerRunnerId: claimed.providerRunnerId,
         providerKind: claimedRunner?.providerKind ?? null,
         launchKind: getClaimedLaunchKind(claimedRunner, params.maxClaims),
       },
@@ -656,19 +657,27 @@ async function loadClaimRunnerContextTx(
   if (runnerInstanceCondition && provisionerId) {
     await lockClaimRunnerReservationIdsTx(tx, provisionerId, runnerInstanceCondition);
   }
-  const [provisioner] = provisionerId
-    ? await tx
-        .select({scope: provisionerTokens.scope})
-        .from(provisionerTokens)
-        .where(eq(provisionerTokens.id, provisionerId))
-        .limit(1)
-    : [];
-  return {
-    provisionerId,
-    providerRunnerId,
-    provisionerScope: provisioner?.scope ?? null,
-    runnerInstanceCondition,
-  };
+  return {provisionerId, providerRunnerId, runnerInstanceCondition};
+}
+
+async function loadProvisionerScopeTx(
+  tx: Tx,
+  provisionerId: string | null,
+): Promise<'installation' | 'workspace' | null> {
+  if (!provisionerId) return null;
+  const [provisioner] = await tx
+    .select({scope: provisionerTokens.scope})
+    .from(provisionerTokens)
+    .where(eq(provisionerTokens.id, provisionerId))
+    .limit(1);
+  if (!provisioner) {
+    logger().warn(
+      {provisionerId},
+      'Provisioner token missing while writing a claimed runner event',
+    );
+    return null;
+  }
+  return provisioner.scope;
 }
 
 function assertClaimSessionAvailable<
@@ -734,6 +743,7 @@ async function claimPendingCandidateTx(
     projectId: string;
     runnerLabels: string[];
     provisionerId: string | null;
+    providerRunnerId: string | null;
   };
 } | null> {
   const candidate = tx
@@ -781,6 +791,7 @@ async function claimPendingCandidateTx(
       projectId: runningJobExecutions.projectId,
       runnerLabels: runningJobExecutions.runnerLabels,
       provisionerId: runningJobExecutions.provisionerId,
+      providerRunnerId: runningJobExecutions.providerRunnerId,
     });
   return claimed ? {row, claimed} : null;
 }
@@ -791,6 +802,7 @@ type ClaimedProviderRunner = Pick<
   | 'providerKind'
   | 'launchKind'
   | 'templateKey'
+  | 'providerRunnerId'
   | 'id'
   | 'reservationId'
   | 'intendedReservationId'
@@ -821,6 +833,7 @@ async function recordClaimedRunnerTx(
       providerKind: providerRunners.providerKind,
       launchKind: providerRunners.launchKind,
       templateKey: providerRunners.templateKey,
+      providerRunnerId: providerRunners.providerRunnerId,
       id: providerRunners.id,
       reservationId: providerRunners.reservationId,
       intendedReservationId: providerRunners.intendedReservationId,
@@ -1038,6 +1051,7 @@ export async function expireStuckJobExecutions(params: {
         jobExecutionId: runningJobExecutions.jobExecutionId,
         provisionerId: runningJobExecutions.provisionerId,
         providerRunnerId: runningJobExecutions.providerRunnerId,
+        // Use the database clock, matching claimedAt. This records reaper detection time.
         expiredAt: sql<string>`now()`,
       });
 

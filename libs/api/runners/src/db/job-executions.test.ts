@@ -173,9 +173,10 @@ describe('claimPendingJobExecution', () => {
   });
 
   it('emits runners.job.claimed with the claimed row and runner identity', async () => {
-    const provisioner = await provisionerTokenFactory.create({workspaceId});
+    const provisioner = await provisionerTokenFactory.create({scope: 'installation'});
+    const provisionerWorkspaceId = workspaceId;
     const providerRunner = await providerRunnerFactory.create({
-      workspaceId,
+      workspaceId: provisionerWorkspaceId,
       provisionerId: provisioner.id,
       providerKind: 'ec2',
       launchKind: 'demand',
@@ -201,7 +202,7 @@ describe('claimPendingJobExecution', () => {
       .where(eq(runningJobExecutions.jobId, claimed?.jobId as string));
     const outbox = await outboxEventsForJob(RUNNER_JOB_CLAIMED, created.jobId);
     expect(outbox).toHaveLength(1);
-    const payload = runnerJobClaimedEventSchema.parse(outbox[0]?.payload);
+    const payload = runnerJobClaimedEventSchema.strict().parse(outbox[0]?.payload);
     expect(payload).toMatchObject({
       jobId: created.jobId,
       workflowRunId: created.workflowRunId,
@@ -212,11 +213,35 @@ describe('claimPendingJobExecution', () => {
       runnerLabels: running?.runnerLabels,
       templateKey: providerRunner.templateKey,
       provisionerId: provisioner.id,
-      provisionerScope: 'workspace',
+      provisionerScope: 'installation',
+      providerRunnerId: providerRunner.providerRunnerId,
       providerKind: providerRunner.providerKind,
       launchKind: providerRunner.launchKind,
     });
     expect(new Date(payload.claimedAt).getTime()).toBe(running?.startedAt.getTime());
+  });
+
+  it('schema-validates a manual claim with nullable runner identity fields', async () => {
+    const created = await pendingJobFactory.create({workspaceId});
+
+    const claimed = await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: null});
+
+    expect(claimed?.jobId).toBe(created.jobId);
+    const outbox = await outboxEventsForJob(RUNNER_JOB_CLAIMED, created.jobId);
+    expect(outbox).toHaveLength(1);
+    const payload = runnerJobClaimedEventSchema.strict().parse(outbox[0]?.payload);
+    expect(payload).toMatchObject({
+      jobId: created.jobId,
+      workspaceId,
+      projectId: created.projectId,
+      runnerLabels: sessionLabels,
+      templateKey: null,
+      provisionerId: null,
+      provisionerScope: null,
+      providerRunnerId: null,
+      providerKind: null,
+      launchKind: 'manual',
+    });
   });
 
   it('records queue time from the pending row creation to the runner claim', async () => {
@@ -1603,7 +1628,9 @@ describe('detectAndExpireStuckJobs', () => {
   it('expires a stuck job and writes a runners.job.lease_expired event', async () => {
     const {jobId, workflowRunId, workflowRunAttemptId} = await makeStaleJob(600);
 
+    const beforeExpiry = Date.now();
     const result = await detectAndExpireStuckJobs({thresholdSeconds: 180});
+    const afterExpiry = Date.now();
 
     expect(result.expired).toBeGreaterThanOrEqual(1);
     expect(await runningJobsForTest()).toHaveLength(0);
@@ -1611,11 +1638,17 @@ describe('detectAndExpireStuckJobs', () => {
     const outbox = await outboxForJobs([jobId]);
     expect(outbox).toHaveLength(1);
     expect(outbox[0]?.eventType).toBe(RUNNER_JOB_LEASE_EXPIRED);
-    const payload = runnerJobLeaseExpiredEventSchema.parse(outbox[0]?.payload);
+    const payload = runnerJobLeaseExpiredEventSchema.strict().parse(outbox[0]?.payload);
     expect(payload.jobId).toBe(jobId);
     expect(payload.workflowRunId).toBe(workflowRunId);
     expect(payload.workflowRunAttemptId).toBe(workflowRunAttemptId);
-    expect(payload.expiredAt).toBeDefined();
+    expect(payload.expiredAt).toEqual(expect.any(String));
+    expect(new Date(payload.expiredAt as string).getTime()).toBeGreaterThanOrEqual(
+      beforeExpiry - 1_000,
+    );
+    expect(new Date(payload.expiredAt as string).getTime()).toBeLessThanOrEqual(
+      afterExpiry + 1_000,
+    );
     // The lease-expired event carries only the assignment identifiers and expiry timestamp.
     expect(outbox[0]?.payload).not.toHaveProperty('status');
     expect(outbox[0]?.payload).not.toHaveProperty('steps');

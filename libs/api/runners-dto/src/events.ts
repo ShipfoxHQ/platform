@@ -14,7 +14,10 @@ export const runnerJobLeaseExpiredEventSchema = z.object({
   workflowRunAttemptId: nonEmptyStringSchema,
   jobId: nonEmptyStringSchema,
   jobExecutionId: nonEmptyStringSchema,
-  // Optional so subscribers can continue to consume events written before the field existed.
+  /**
+   * Time when the reaper detected and removed the stale execution.
+   * This is not the lease deadline.
+   */
   expiredAt: isoDateTimeSchema.optional(),
 });
 export type RunnerJobLeaseExpiredEvent = z.infer<typeof runnerJobLeaseExpiredEventSchema>;
@@ -28,8 +31,9 @@ export const runnerJobClaimedEventSchema = z.object({
   // Optional so subscribers can continue to consume events written before the fields existed.
   workspaceId: nonEmptyStringSchema.optional(),
   projectId: nonEmptyStringSchema.optional(),
-  runnerLabels: z.array(nonEmptyStringSchema).optional(),
+  runnerLabels: z.array(nonEmptyStringSchema).min(1).optional(),
   templateKey: nonEmptyStringSchema.nullable().optional(),
+  providerRunnerId: nonEmptyStringSchema.nullable().optional(),
   provisionerId: nonEmptyStringSchema.nullable().optional(),
   provisionerScope: runnerProvisionerScopeSchema.nullable().optional(),
   providerKind: nonEmptyStringSchema.nullable().optional(),
