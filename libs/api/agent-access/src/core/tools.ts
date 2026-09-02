@@ -17,6 +17,7 @@ export interface AgentAccessTool {
   description: string;
   inputSchema: AgentAccessObjectSchema;
   outputSchema: AgentAccessObjectSchema;
+  validateInput?: ((input: unknown) => boolean) | undefined;
   annotations: {readonly readOnlyHint: true};
   execute: (call: AgentAccessToolCall) => Promise<AgentAccessEnvelopeDto> | AgentAccessEnvelopeDto;
   validateResult?: ((result: unknown) => boolean) | undefined;

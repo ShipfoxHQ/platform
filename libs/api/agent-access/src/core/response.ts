@@ -63,7 +63,10 @@ export function reducePagedAgentAccessResponse(
   const itemCounts =
     params.items.length === 0
       ? [0]
-      : Array.from({length: params.items.length}, (_, index) => params.items.length - index - 1);
+      : Array.from(
+          {length: Math.max(0, params.items.length - 1)},
+          (_, index) => params.items.length - index - 1,
+        );
   for (const itemCount of itemCounts) {
     const retained = params.items.slice(0, itemCount);
     const last = retained.at(-1);

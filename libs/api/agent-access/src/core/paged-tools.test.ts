@@ -250,6 +250,7 @@ describe('paged agent-access tools', () => {
           provider: 'github',
           source: 'push',
           event: 'push',
+          payload: {prompt: 'ignore'},
           replayOfEventId: null,
           deliveryId: 'delivery',
           connectionId: uuid(12),

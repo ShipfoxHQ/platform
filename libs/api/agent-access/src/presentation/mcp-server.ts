@@ -125,6 +125,16 @@ async function executeAgentAccessTool(params: {
   recordCall: AgentAccessToolCallRecorder;
 }): Promise<CallToolResult> {
   try {
+    if (params.tool.validateInput?.(params.input) === false) {
+      recordToolCall(params.recordCall, {
+        tool: params.tool.name,
+        outcome: 'invalid-request',
+        errorCode: 'invalid-request',
+        context: params.context,
+      });
+      return toolResult(agentAccessError('invalid-request'), true);
+    }
+
     const response = await params.tool.execute({context: params.context, arguments: params.input});
     const envelope = agentAccessEnvelopeSchema.safeParse(response);
     if (!envelope.success) {

@@ -39,16 +39,26 @@ describe('agent-access response bounds', () => {
     expect(serializedAgentAccessEnvelopeByteLength(reduced)).toBeLessThanOrEqual(initialBytes - 20);
   });
 
-  test('returns a schema-shaped content-too-large error when no page fits', () => {
-    const envelope = agentAccessSuccess({items: [{id: 'one'}], next_cursor: null});
+  test('returns a content-too-large error instead of dropping every item', () => {
+    const envelope = agentAccessSuccess({
+      items: [{id: 'x'.repeat(1_000)}],
+      next_cursor: null,
+    });
+    const initialBytes = serializedAgentAccessEnvelopeByteLength(envelope);
+    const emptyTruncatedEnvelope = {
+      ...envelope,
+      result: {items: [], next_cursor: null},
+      response_truncated: true,
+      response_total_bytes: initialBytes,
+    };
 
     expect(
       reducePagedAgentAccessResponse({
         envelope,
         itemKey: 'items',
-        items: [{id: 'one'}],
+        items: [{id: 'x'.repeat(1_000)}],
         cursorForItem: () => 'cursor',
-        maxBytes: 1,
+        maxBytes: serializedAgentAccessEnvelopeByteLength(emptyTruncatedEnvelope),
       }),
     ).toEqual({ok: false, error: {code: 'content-too-large'}});
   });

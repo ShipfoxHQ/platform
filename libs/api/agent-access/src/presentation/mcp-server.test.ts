@@ -1,9 +1,15 @@
 import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {InMemoryTransport} from '@modelcontextprotocol/sdk/inMemory.js';
 import {CallToolResultSchema} from '@modelcontextprotocol/sdk/types.js';
+import type {AnnotationsInterModuleClient} from '@shipfox/annotations-dto/inter-module';
 import {agentAccessEnvelopeSchema} from '@shipfox/api-agent-access-dto';
 import type {AgentAccessContext} from '@shipfox/api-auth-context';
+import type {DefinitionsInterModuleClient} from '@shipfox/api-definitions-dto/inter-module';
+import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
+import type {TriggersInterModuleClient} from '@shipfox/api-triggers-dto/inter-module';
+import type {WorkflowsModuleClient} from '@shipfox/api-workflows-dto/inter-module';
 import {agentAccessSuccess} from '#core/envelope.js';
+import {createAgentAccessTools} from '#core/paged-tools.js';
 import {createAgentAccessRateLimiter} from '#core/rate-limiter.js';
 import {createAgentAccessFixtureTool} from '#core/tools.js';
 import {AGENT_ACCESS_PACKAGE_VERSION} from '#version.js';
@@ -69,6 +75,35 @@ describe('buildAgentAccessMcpServer', () => {
     expect(second.content).toEqual([
       {type: 'text', text: JSON.stringify(second.structuredContent)},
     ]);
+  });
+
+  test('rejects multibyte input at the MCP boundary before calling a producer', async () => {
+    const listWorkflowRuns = vi.fn();
+    const tool = createAgentAccessTools({
+      projects: {} as unknown as ProjectsModuleClient,
+      definitions: {} as unknown as DefinitionsInterModuleClient,
+      workflows: {listWorkflowRuns} as unknown as WorkflowsModuleClient,
+      annotations: {} as unknown as AnnotationsInterModuleClient,
+      triggers: {} as unknown as TriggersInterModuleClient,
+    }).find((candidate) => candidate.name === 'list_workflow_runs');
+    if (!tool) throw new Error('Expected list_workflow_runs tool');
+
+    const {client, close} = await connectClient(createAgentAccessRateLimiter(), [tool]);
+    const result = await client.callTool(
+      {
+        name: 'list_workflow_runs',
+        arguments: {
+          project_id: '00000000-0000-4000-8000-000000000001',
+          trigger_source: '🙂'.repeat(129),
+        },
+      },
+      CallToolResultSchema,
+    );
+    await close();
+
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toEqual({ok: false, error: {code: 'invalid-request'}});
+    expect(listWorkflowRuns).not.toHaveBeenCalled();
   });
 
   test('records only the exception when serializing a tool result fails', async () => {

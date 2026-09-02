@@ -56,6 +56,25 @@ describe('paged agent-access schemas', () => {
     expect(
       getRunAnnotationsResultSchema.safeParse({annotations: [valid], next_cursor: null}).success,
     ).toBe(true);
+    const truncated = {...valid, body_truncated: true, body_total_bytes: 8_192};
+    expect(
+      getRunAnnotationsResultSchema.safeParse({
+        annotations: [truncated],
+        next_cursor: null,
+      }).success,
+    ).toBe(true);
+    expect(
+      getRunAnnotationsResultSchema.safeParse({
+        annotations: [{...truncated, body_truncated: false}],
+        next_cursor: null,
+      }).success,
+    ).toBe(false);
+    expect(
+      getRunAnnotationsResultSchema.safeParse({
+        annotations: [{...truncated, body_total_bytes: '8192'}],
+        next_cursor: null,
+      }).success,
+    ).toBe(false);
     expect(getRunAnnotationsInputSchema.safeParse({run_id: projectId, attempt: 0}).success).toBe(
       false,
     );
