@@ -1,5 +1,16 @@
 # @shipfox/client-workflows
 
+## 32.0.0
+
+### Patch Changes
+
+- Updated dependencies [9a66057]
+  - @shipfox/api-workflows-dto@20.4.0
+  - @shipfox/client-projects@32.0.0
+  - @shipfox/client-shell@32.0.0
+  - @shipfox/client-triggers@32.0.0
+  - @shipfox/client-integrations@32.0.0
+
 ## 31.0.1
 
 ### Patch Changes

@@ -1,5 +1,18 @@
 # @shipfox/api-agent-access
 
+## 20.4.0
+
+### Minor Changes
+
+- 0b32d1a: Remove personal access token support from agent access.
+
+### Patch Changes
+
+- Updated dependencies [9a66057]
+- Updated dependencies [0b32d1a]
+  - @shipfox/api-workflows-dto@20.4.0
+  - @shipfox/api-auth-context@20.4.0
+
 ## 20.3.0
 
 ### Minor Changes

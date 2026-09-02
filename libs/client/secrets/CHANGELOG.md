@@ -1,5 +1,11 @@
 # @shipfox/client-secrets
 
+## 32.0.0
+
+### Patch Changes
+
+- @shipfox/client-shell@32.0.0
+
 ## 31.0.1
 
 ### Patch Changes

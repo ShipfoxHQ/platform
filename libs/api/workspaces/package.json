@@ -1,7 +1,7 @@
 {
   "name": "@shipfox/api-workspaces",
   "license": "MIT",
-  "version": "20.2.0",
+  "version": "20.4.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ShipfoxHQ/shipfox.git",
