@@ -1,4 +1,10 @@
-import type {IntegrationConnectionDto, RepositoryDto} from '@shipfox/api-integration-core-dto';
+import type {
+  CreateE2eTestVcsConnectionBodyDto,
+  IntegrationConnectionDto,
+  RepositoryDto,
+  TestVcsRenewalModeDto,
+  TestVcsStatsDto,
+} from '@shipfox/api-integration-core-dto';
 import type {
   CreateE2eGithubConnectionBodyDto,
   CreateE2eGithubConnectionResponseDto,
@@ -13,7 +19,13 @@ import type {
 } from '@shipfox/api-integration-slack-dto';
 import {request, requestJson} from '@shipfox/e2e-core';
 
-export type {IntegrationConnectionDto, RepositoryDto} from '@shipfox/api-integration-core-dto';
+export type {
+  CreateE2eTestVcsConnectionBodyDto,
+  IntegrationConnectionDto,
+  RepositoryDto,
+  TestVcsRenewalModeDto,
+  TestVcsStatsDto,
+} from '@shipfox/api-integration-core-dto';
 export type {
   CreateE2eGithubConnectionBodyDto,
   CreateE2eGithubConnectionResponseDto,
@@ -27,32 +39,21 @@ export type {
   CreateE2eSlackConnectionResponseDto,
 } from '@shipfox/api-integration-slack-dto';
 
-export type TestVcsRenewalMode = 'refresh-at' | 'on-rejection';
+export type TestVcsRenewalMode = TestVcsRenewalModeDto;
 
 export interface TestVcsFile {
   path: string;
   content: string;
 }
 
-export interface TestVcsStats {
-  mint_count: number;
-  request_count: number;
-  accepted_request_count: number;
-  rejected_request_count: number;
-  generations: string[];
-  requests: Array<{
-    method: string;
-    path: string;
-    status: 'accepted' | 'rejected';
-    generation?: string | undefined;
-  }>;
-}
+export type TestVcsStats = TestVcsStatsDto;
 
 export interface CreateTestVcsConnectionParams {
   workspaceId: string;
   accountId: string;
   displayName?: string | undefined;
   renewalMode?: TestVcsRenewalMode | undefined;
+  refreshAfterSeconds?: number | undefined;
 }
 
 export interface CreateTestVcsRepositoryParams {
@@ -161,17 +162,19 @@ export async function createSlackConnection(
 export async function createTestVcsConnection(
   params: CreateTestVcsConnectionParams,
 ): Promise<IntegrationConnectionDto> {
+  const body: CreateE2eTestVcsConnectionBodyDto = {
+    workspace_id: params.workspaceId,
+    account_id: params.accountId,
+    renewal_mode: params.renewalMode ?? 'on-rejection',
+    ...(params.displayName === undefined ? {} : {display_name: params.displayName}),
+    ...(params.refreshAfterSeconds === undefined
+      ? {}
+      : {refresh_after_seconds: params.refreshAfterSeconds}),
+  };
   return await requestJson<IntegrationConnectionDto>(
     'post',
     '/__e2e/integrations/test-vcs/connections',
-    {
-      json: {
-        workspace_id: params.workspaceId,
-        account_id: params.accountId,
-        ...(params.displayName === undefined ? {} : {display_name: params.displayName}),
-        ...(params.renewalMode === undefined ? {} : {renewal_mode: params.renewalMode}),
-      },
-    },
+    {json: body},
   );
 }
 

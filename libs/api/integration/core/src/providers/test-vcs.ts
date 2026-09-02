@@ -41,16 +41,26 @@ export interface TestVcsSourceControlProviderOptions {
   credentialTtlSeconds: number;
 }
 
+export interface TestVcsConnectionConfiguration {
+  renewalMode: TestVcsRenewalMode;
+  refreshAfterSeconds?: number | undefined;
+}
+
 export class TestVcsSourceControlProvider implements SourceControlProvider<TestVcsConnection> {
-  private readonly renewalModes = new Map<string, TestVcsRenewalMode>();
+  private readonly connectionConfigurations = new Map<string, TestVcsConnectionConfiguration>();
   private readonly cachedCredentials = new Map<string, CheckoutCredentials>();
   private readonly mintFlights = new Map<string, Promise<CheckoutCredentials>>();
   private failNextMintCount = 0;
 
   constructor(private readonly options: TestVcsSourceControlProviderOptions) {}
 
-  configureConnection(connectionId: string, renewalMode: TestVcsRenewalMode): void {
-    this.renewalModes.set(connectionId, renewalMode);
+  configureConnection(connectionId: string, configuration: TestVcsConnectionConfiguration): void {
+    this.connectionConfigurations.set(connectionId, {
+      renewalMode: configuration.renewalMode,
+      ...(configuration.refreshAfterSeconds === undefined
+        ? {}
+        : {refreshAfterSeconds: configuration.refreshAfterSeconds}),
+    });
   }
 
   failNextCredentialMints(count: number): void {
@@ -170,7 +180,15 @@ export class TestVcsSourceControlProvider implements SourceControlProvider<TestV
     const target = normalizeTarget(input);
     const locator = this.repositoryLocator(input.connection, target);
     this.requireRepository(locator);
-    const cacheKey = credentialCacheKey(input.connection, locator, input.permissions);
+    const configuration = this.connectionConfigurations.get(input.connection.id) ?? {
+      renewalMode: 'on-rejection',
+    };
+    const cacheKey = credentialCacheKey(
+      input.connection,
+      locator,
+      input.permissions,
+      configuration,
+    );
     for (;;) {
       const cached = this.cachedCredentials.get(cacheKey);
       if (
@@ -189,7 +207,7 @@ export class TestVcsSourceControlProvider implements SourceControlProvider<TestV
       }
 
       const operation = Promise.resolve()
-        .then(() => this.mintCredential(input, locator, cacheKey))
+        .then(() => this.mintCredential(input, locator, cacheKey, configuration))
         .finally(() => {
           if (this.mintFlights.get(cacheKey) === operation) this.mintFlights.delete(cacheKey);
         });
@@ -231,6 +249,7 @@ export class TestVcsSourceControlProvider implements SourceControlProvider<TestV
     input: CreateCheckoutCredentialsInput<TestVcsConnection>,
     locator: {owner: string; name: string},
     cacheKey: string,
+    configuration: TestVcsConnectionConfiguration,
   ): Promise<CheckoutCredentials> {
     if (this.failNextMintCount > 0) {
       this.failNextMintCount -= 1;
@@ -242,8 +261,11 @@ export class TestVcsSourceControlProvider implements SourceControlProvider<TestV
     const credential = this.options.fixture.issueCredential({
       ...locator,
       permissions: input.permissions,
-      renewalMode: this.renewalModes.get(input.connection.id) ?? 'on-rejection',
+      renewalMode: configuration.renewalMode,
       ttlSeconds: this.options.credentialTtlSeconds,
+      ...(configuration.refreshAfterSeconds === undefined
+        ? {}
+        : {refreshAfterSeconds: configuration.refreshAfterSeconds}),
       rejectedGeneration: input.rejectedGeneration,
     });
     this.cachedCredentials.set(cacheKey, credential);
@@ -336,16 +358,25 @@ function credentialCacheKey(
   connection: TestVcsConnection,
   locator: {owner: string; name: string},
   permissions: CheckoutPermissions,
+  configuration: TestVcsConnectionConfiguration,
 ): string {
   return JSON.stringify({
+    connectionId: connection.id,
     workspaceId: connection.workspaceId,
     provider: connection.provider,
     accountId: connection.externalAccountId,
     repository: `${locator.owner}/${locator.name}`,
     permissions,
+    configuration,
   });
 }
 
 function isReusableCredential(credential: CheckoutCredentials, ttlSeconds: number): boolean {
+  if (
+    credential.renewal?.mode === 'refresh-at' &&
+    credential.renewal.refreshAt.getTime() <= Date.now()
+  ) {
+    return false;
+  }
   return credential.expiresAt.getTime() > Date.now() + Math.max(50, ttlSeconds * 500);
 }

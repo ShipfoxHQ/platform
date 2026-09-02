@@ -24,12 +24,14 @@ import type {ModuleService} from '@shipfox/node-module';
 const execFileAsync = promisify(execFile);
 const TEST_VCS_USERNAME = 'x-access-token';
 const TEST_VCS_REALM = 'shipfox-test-vcs';
+const TEST_VCS_INVALIDATE_GENERATION_HEADER = 'x-shipfox-test-vcs-invalidate-generation';
 const GIT_BACKEND_TIMEOUT_MS = 60_000;
 const MAX_GIT_OUTPUT_BYTES = 8 * 1024 * 1024;
 const MAX_TEST_VCS_FILE_BYTES = MAX_REPOSITORY_FILE_BYTES * 2;
 const REPOSITORY_PART_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u;
 const GIT_TREE_FIELD_PATTERN = /\s+/u;
 const GIT_REPOSITORY_PATH_PATTERN = /^\/([^/]+)\/([^/]+)\.git(?:\/|$)/u;
+const MINIMUM_REFRESH_DELAY_MS = 50;
 
 export type TestVcsRenewalMode = 'refresh-at' | 'on-rejection';
 
@@ -58,6 +60,7 @@ export interface TestVcsCredentialInput {
   permissions: CheckoutPermissions;
   renewalMode: TestVcsRenewalMode;
   ttlSeconds: number;
+  refreshAfterSeconds?: number | undefined;
   rejectedGeneration?: string | undefined;
 }
 
@@ -67,6 +70,11 @@ export interface TestVcsStats {
   acceptedRequestCount: number;
   rejectedRequestCount: number;
   generations: string[];
+  invalidations: Array<{
+    key: string;
+    repository: string;
+    generation: string;
+  }>;
   requests: Array<{
     method: string;
     path: string;
@@ -96,6 +104,16 @@ export interface TestVcsFixture {
   stats(owner?: string): TestVcsStats;
 }
 
+export function isValidTestVcsRefreshTiming(
+  ttlSeconds: number,
+  refreshAfterSeconds?: number,
+): boolean {
+  if (!Number.isFinite(ttlSeconds) || ttlSeconds <= 0) return false;
+  const requestedDelaySeconds = refreshAfterSeconds ?? ttlSeconds / 2;
+  if (!Number.isFinite(requestedDelaySeconds) || requestedDelaySeconds <= 0) return false;
+  return refreshDelayMilliseconds(ttlSeconds, refreshAfterSeconds) < Math.floor(ttlSeconds * 1000);
+}
+
 interface RepositoryRecord {
   snapshot: RepositorySnapshot;
   barePath: string;
@@ -120,10 +138,20 @@ interface GitHttpRequest {
   owner?: string | undefined;
 }
 
+interface CredentialInvalidation {
+  owner: string;
+  name: string;
+  key: string;
+  generation: string;
+}
+
 export function createTestVcsFixture(options: {port: number}): TestVcsFixture {
   const repositories = new Map<string, RepositoryRecord>();
   const credentials = new Map<string, CredentialRecord>();
   const requests: GitHttpRequest[] = [];
+  const invalidatedGenerations = new Set<string>();
+  const consumedInvalidationKeys = new Set<string>();
+  const invalidations: CredentialInvalidation[] = [];
   const children = new Set<ChildProcess>();
   const childExitPromises = new Map<ChildProcess, Promise<number>>();
   let rootPath: string | undefined;
@@ -172,6 +200,9 @@ export function createTestVcsFixture(options: {port: number}): TestVcsFixture {
       repositories.clear();
       credentials.clear();
       requests.length = 0;
+      invalidatedGenerations.clear();
+      consumedInvalidationKeys.clear();
+      invalidations.length = 0;
     },
 
     async createRepository(input) {
@@ -283,6 +314,20 @@ export function createTestVcsFixture(options: {port: number}): TestVcsFixture {
       if (!Number.isFinite(input.ttlSeconds) || input.ttlSeconds <= 0) {
         throw new Error('Test VCS credential TTL must be greater than zero');
       }
+      if (
+        input.refreshAfterSeconds !== undefined &&
+        (!Number.isFinite(input.refreshAfterSeconds) ||
+          input.refreshAfterSeconds <= 0 ||
+          input.refreshAfterSeconds >= input.ttlSeconds)
+      ) {
+        throw new Error('Test VCS refresh delay must be between zero and the credential TTL');
+      }
+      if (
+        input.renewalMode === 'refresh-at' &&
+        !isValidTestVcsRefreshTiming(input.ttlSeconds, input.refreshAfterSeconds)
+      ) {
+        throw new Error('Test VCS refresh delay must precede credential expiry');
+      }
       let generation = randomUUID();
       while (generation === input.rejectedGeneration) generation = randomUUID();
       const token = `test-vcs-${randomUUID()}`;
@@ -301,7 +346,9 @@ export function createTestVcsFixture(options: {port: number}): TestVcsFixture {
         input.renewalMode === 'refresh-at'
           ? {
               mode: 'refresh-at',
-              refreshAt: new Date(now + Math.max(50, Math.floor(input.ttlSeconds * 500))),
+              refreshAt: new Date(
+                now + refreshDelayMilliseconds(input.ttlSeconds, input.refreshAfterSeconds),
+              ),
             }
           : {mode: 'on-rejection'};
       return {
@@ -316,6 +363,10 @@ export function createTestVcsFixture(options: {port: number}): TestVcsFixture {
     stats(owner) {
       const selected =
         owner === undefined ? requests : requests.filter((request) => request.owner === owner);
+      const selectedInvalidations =
+        owner === undefined
+          ? invalidations
+          : invalidations.filter((invalidation) => invalidation.owner === owner);
       const generations = [...credentials.values()]
         .filter((credential) => owner === undefined || credential.owner === owner)
         .map((credential) => credential.generation);
@@ -327,6 +378,11 @@ export function createTestVcsFixture(options: {port: number}): TestVcsFixture {
         acceptedRequestCount: selected.filter((request) => request.status === 'accepted').length,
         rejectedRequestCount: selected.filter((request) => request.status === 'rejected').length,
         generations,
+        invalidations: selectedInvalidations.map(({owner, name, key, generation}) => ({
+          key,
+          repository: repositoryKey(owner, name),
+          generation,
+        })),
         requests: selected.map(({method, path, status, generation}) => ({
           method,
           path,
@@ -357,26 +413,23 @@ export function createTestVcsFixture(options: {port: number}): TestVcsFixture {
       return;
     }
 
-    const credential = findCredential(request.headers.authorization);
-    const needsWrite =
-      requestUrl.pathname.endsWith('/git-receive-pack') ||
-      requestUrl.searchParams.get('service') === 'git-receive-pack';
-    const credentialUsable =
-      credential !== undefined &&
-      credential.owner === location.owner &&
-      credential.name === location.name &&
-      credential.expiresAt > Date.now() &&
-      (credential.permissions.contents === 'write' || !needsWrite);
+    const {presentedCredential, usableCredential} = authenticateGitRequest(
+      request,
+      requestUrl,
+      location,
+    );
     const requestRecord = {
       method: request.method ?? 'GET',
       path: request.url ?? '/',
       owner: location.owner,
     };
-    if (!credentialUsable) {
+    if (usableCredential === undefined) {
       requests.push({
         ...requestRecord,
         status: 'rejected',
-        ...(credential?.generation === undefined ? {} : {generation: credential.generation}),
+        ...(presentedCredential?.generation === undefined
+          ? {}
+          : {generation: presentedCredential.generation}),
       });
       request.resume();
       response.writeHead(401, {'www-authenticate': `Basic realm="${TEST_VCS_REALM}"`});
@@ -387,7 +440,7 @@ export function createTestVcsFixture(options: {port: number}): TestVcsFixture {
     requests.push({
       ...requestRecord,
       status: 'accepted',
-      generation: credential.generation,
+      generation: usableCredential.generation,
     });
     await proxyToGitHttpBackend(
       request,
@@ -408,6 +461,53 @@ export function createTestVcsFixture(options: {port: number}): TestVcsFixture {
     return [...credentials.values()].find(
       (candidate) => candidate.username === username && candidate.token === token,
     );
+  }
+
+  function authenticateGitRequest(
+    request: IncomingMessage,
+    requestUrl: URL,
+    location: {owner: string; name: string},
+  ): {
+    presentedCredential: CredentialRecord | undefined;
+    usableCredential: CredentialRecord | undefined;
+  } {
+    const credential = findCredential(request.headers.authorization);
+    const needsWrite =
+      requestUrl.pathname.endsWith('/git-receive-pack') ||
+      requestUrl.searchParams.get('service') === 'git-receive-pack';
+    const credentialInScope =
+      credential !== undefined &&
+      credential.owner === location.owner &&
+      credential.name === location.name &&
+      credential.expiresAt > Date.now() &&
+      (credential.permissions.contents === 'write' || !needsWrite);
+    invalidateCredentialGeneration(
+      credentialInScope ? credential : undefined,
+      location,
+      request.headers[TEST_VCS_INVALIDATE_GENERATION_HEADER],
+    );
+    return {
+      presentedCredential: credential,
+      usableCredential:
+        credentialInScope && !invalidatedGenerations.has(credential.generation)
+          ? credential
+          : undefined,
+    };
+  }
+
+  function invalidateCredentialGeneration(
+    credential: CredentialRecord | undefined,
+    location: {owner: string; name: string},
+    header: string | string[] | undefined,
+  ): void {
+    if (credential === undefined) return;
+    const key = parseInvalidationKey(header);
+    if (key === undefined) return;
+    const scopedKey = `${repositoryKey(location.owner, location.name)}\u0000${key}`;
+    if (consumedInvalidationKeys.has(scopedKey)) return;
+    consumedInvalidationKeys.add(scopedKey);
+    invalidatedGenerations.add(credential.generation);
+    invalidations.push({...location, key, generation: credential.generation});
   }
 
   function requireRoot(): string {
@@ -433,6 +533,16 @@ export function createTestVcsFixture(options: {port: number}): TestVcsFixture {
   }
 
   return fixture;
+}
+
+function refreshDelayMilliseconds(
+  ttlSeconds: number,
+  refreshAfterSeconds?: number | undefined,
+): number {
+  return Math.max(
+    MINIMUM_REFRESH_DELAY_MS,
+    Math.floor((refreshAfterSeconds ?? ttlSeconds / 2) * 1000),
+  );
 }
 
 export function createTestVcsFixtureService(fixture: TestVcsFixture): ModuleService {
@@ -515,6 +625,10 @@ function repositorySnapshot(input: {
 
 function repositoryKey(owner: string, name: string): string {
   return `${owner}/${name}`;
+}
+
+function parseInvalidationKey(value: string | string[] | undefined): string | undefined {
+  return typeof value === 'string' && REPOSITORY_PART_PATTERN.test(value) ? value : undefined;
 }
 
 function assertRepositoryPart(value: string, label: string): void {

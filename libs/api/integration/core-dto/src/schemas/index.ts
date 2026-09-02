@@ -53,3 +53,11 @@ export {
   updateIntegrationConnectionRepositoryAccessBodySchema,
   updateIntegrationConnectionRepositoryAccessResponseSchema,
 } from './integrations.js';
+export {
+  type CreateE2eTestVcsConnectionBodyDto,
+  createE2eTestVcsConnectionBodySchema,
+  type TestVcsRenewalModeDto,
+  type TestVcsStatsDto,
+  testVcsRenewalModeSchema,
+  testVcsStatsDtoSchema,
+} from './test-vcs.js';

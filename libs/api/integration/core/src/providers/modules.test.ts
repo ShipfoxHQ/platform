@@ -85,6 +85,71 @@ describe('loadEnabledProviderModules', () => {
     expect(testVcsPart?.services).toHaveLength(1);
   });
 
+  it('validates Test VCS renewal configuration before creating a connection', async () => {
+    vi.stubEnv('INTEGRATIONS_ENABLE_TEST_VCS_PROVIDER', 'true');
+    vi.stubEnv('INTEGRATIONS_TEST_VCS_CREDENTIAL_TTL_SECONDS', '3');
+    vi.resetModules();
+
+    const {createPostgresClient} = await import('@shipfox/node-postgres');
+    createPostgresClient();
+    const {loadEnabledProviderModules} = await import('#providers/modules.js');
+    const parts = await loadEnabledProviderModules();
+    const testVcsPart = parts.find((part) => part.provider.provider === 'test-vcs');
+    if (!testVcsPart?.e2eRoutes) throw new Error('Test VCS E2E routes are not configured');
+
+    const workspaceId = crypto.randomUUID();
+    try {
+      const app = await createApp({routes: testVcsPart.e2eRoutes, swagger: false});
+      const mismatchedModeResponse = await app.inject({
+        method: 'POST',
+        url: '/integrations/test-vcs/connections',
+        payload: {
+          workspace_id: workspaceId,
+          account_id: 'e2e-owner',
+          renewal_mode: 'on-rejection',
+          refresh_after_seconds: 1,
+        },
+      });
+
+      expect(mismatchedModeResponse.statusCode).toBe(400);
+
+      for (const refreshAfterSeconds of [3, 4]) {
+        const response = await app.inject({
+          method: 'POST',
+          url: '/integrations/test-vcs/connections',
+          payload: {
+            workspace_id: workspaceId,
+            account_id: 'e2e-owner',
+            renewal_mode: 'refresh-at',
+            refresh_after_seconds: refreshAfterSeconds,
+          },
+        });
+
+        expect(response.statusCode).toBe(400);
+      }
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/integrations/test-vcs/connections',
+        payload: {
+          workspace_id: workspaceId,
+          account_id: 'e2e-owner',
+          renewal_mode: 'refresh-at',
+          refresh_after_seconds: 1,
+        },
+      });
+
+      expect(response.statusCode).toBe(201);
+    } finally {
+      await db()
+        .delete(integrationsOutbox)
+        .where(sql`${integrationsOutbox.payload}->>'workspaceId' = ${workspaceId}`);
+      await db()
+        .delete(integrationConnections)
+        .where(eq(integrationConnections.workspaceId, workspaceId));
+    }
+  });
+
   it('publishes registry-derived capabilities for a GitHub connect flow', async () => {
     vi.stubEnv('INTEGRATIONS_ENABLE_GITHUB_PROVIDER', 'true');
     vi.resetModules();

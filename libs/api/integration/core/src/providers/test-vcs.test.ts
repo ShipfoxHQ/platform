@@ -121,6 +121,95 @@ describe('Test VCS source-control provider', () => {
     expect(issueCredential).toHaveBeenCalledTimes(2);
   });
 
+  it('applies connection-specific refresh timing to minted credentials', async () => {
+    const issueCredential = vi.fn().mockReturnValue(credential('generation-a'));
+    const provider = providerFixture({issueCredential});
+    provider.configureConnection(connection.id, {
+      renewalMode: 'refresh-at',
+      refreshAfterSeconds: 1,
+    });
+
+    await provider.createCheckoutCredentials(checkoutInput());
+
+    expect(issueCredential).toHaveBeenCalledWith(
+      expect.objectContaining({
+        renewalMode: 'refresh-at',
+        refreshAfterSeconds: 1,
+      }),
+    );
+  });
+
+  it('isolates cached and in-flight credentials when a connection is reconfigured', async () => {
+    const issueCredential = vi.fn((input: {renewalMode: 'refresh-at' | 'on-rejection'}) =>
+      credential(input.renewalMode),
+    );
+    const provider = providerFixture({issueCredential});
+    provider.configureConnection(connection.id, {renewalMode: 'on-rejection'});
+
+    const previousPolicy = provider.createCheckoutCredentials(checkoutInput());
+    provider.configureConnection(connection.id, {
+      renewalMode: 'refresh-at',
+      refreshAfterSeconds: 1,
+    });
+    const currentPolicy = provider.createCheckoutCredentials(checkoutInput());
+
+    await expect(previousPolicy).resolves.toMatchObject({generation: 'on-rejection'});
+    await expect(currentPolicy).resolves.toMatchObject({generation: 'refresh-at'});
+    await expect(provider.createCheckoutCredentials(checkoutInput())).resolves.toMatchObject({
+      generation: 'refresh-at',
+    });
+    expect(issueCredential).toHaveBeenCalledTimes(2);
+    expect(issueCredential).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({renewalMode: 'refresh-at', refreshAfterSeconds: 1}),
+    );
+  });
+
+  it('replaces a cached refresh-at credential after its refresh deadline', async () => {
+    const dueForRefresh = {
+      ...credential('generation-a'),
+      renewal: {mode: 'refresh-at' as const, refreshAt: new Date(0)},
+    };
+    const refreshed = credential('generation-b');
+    const issueCredential = vi
+      .fn()
+      .mockReturnValueOnce(dueForRefresh)
+      .mockReturnValueOnce(refreshed);
+    const provider = providerFixture({issueCredential});
+
+    await expect(provider.createCheckoutCredentials(checkoutInput())).resolves.toBe(dueForRefresh);
+    await expect(provider.createCheckoutCredentials(checkoutInput())).resolves.toBe(refreshed);
+
+    expect(issueCredential).toHaveBeenCalledTimes(2);
+  });
+
+  it('reuses a refresh-at credential until its future refresh deadline', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
+      const initial = {
+        ...credential('generation-a'),
+        renewal: {
+          mode: 'refresh-at' as const,
+          refreshAt: new Date('2026-01-01T00:00:01.000Z'),
+        },
+      };
+      const refreshed = credential('generation-b');
+      const issueCredential = vi.fn().mockReturnValueOnce(initial).mockReturnValueOnce(refreshed);
+      const provider = providerFixture({issueCredential});
+
+      await expect(provider.createCheckoutCredentials(checkoutInput())).resolves.toBe(initial);
+      vi.advanceTimersByTime(999);
+      await expect(provider.createCheckoutCredentials(checkoutInput())).resolves.toBe(initial);
+      vi.advanceTimersByTime(1);
+      await expect(provider.createCheckoutCredentials(checkoutInput())).resolves.toBe(refreshed);
+
+      expect(issueCredential).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('supplies the provider author for write checkouts', async () => {
     const provider = providerFixture({
       issueCredential: vi.fn().mockReturnValue(credential('write')),
