@@ -564,6 +564,16 @@ describe('tool step executor', () => {
   test('does not transition an invocation after its running attempt is gone', async () => {
     const {jobId} = await arrangeToolStep();
     await nextStepForJob(jobId);
+    const [queued] = await getToolInvocationsByJobExecutionIdForJob(jobId);
+    if (!queued) throw new Error('Expected a queued invocation');
+
+    // Claims scan the shared queue. Make this fixture the oldest due row so a
+    // requeued invocation from an earlier test cannot be claimed instead.
+    await db()
+      .update(toolInvocationsTable)
+      .set({dueAt: new Date(0)})
+      .where(eq(toolInvocationsTable.id, queued.id));
+
     const [claim] = (
       await claimToolInvocations({
         limit: 1,
@@ -573,6 +583,7 @@ describe('tool step executor', () => {
       })
     ).claims;
     if (!claim) throw new Error('Expected a claimed invocation');
+    expect(claim.invocation.id).toBe(queued.id);
 
     await db()
       .update(stepAttemptsTable)
