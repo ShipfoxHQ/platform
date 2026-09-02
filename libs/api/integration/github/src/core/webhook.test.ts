@@ -443,7 +443,7 @@ describe('handleGithubEvent', () => {
     );
   });
 
-  it('publishes one typed repository update per installation repository', async () => {
+  it('publishes typed updates only for added installation repositories', async () => {
     const installationId = 7785;
     const connection = fakeConnection();
     await seedInstallation(installationId, connection.id);
@@ -479,15 +479,44 @@ describe('handleGithubEvent', () => {
             name: 'platform',
             defaultBranch: 'main',
           },
-          {
-            externalRepositoryId: 'github:43',
-            owner: 'acme',
-            name: 'runner',
-            defaultBranch: 'trunk',
-          },
         ],
       }),
     );
+  });
+
+  it('publishes removed installation repositories only in the generic envelope', async () => {
+    const installationId = 7786;
+    const connection = fakeConnection();
+    await seedInstallation(installationId, connection.id);
+    const handlers = deps({connection});
+    const deliveryId = randomUUID();
+    const payload = {
+      action: 'removed',
+      installation: {id: installationId},
+      repositories_added: [],
+      repositories_removed: [
+        {id: 43, name: 'runner', owner: {login: 'acme'}, default_branch: 'trunk'},
+      ],
+    };
+
+    const result = await handleGithubEvent({
+      tx: db(),
+      deliveryId,
+      event: 'installation_repositories',
+      payload,
+      ...handlers,
+    });
+
+    expect(result.outcome).toBe('published-envelope');
+    expect(handlers.publishSourceRepositoryUpdated).not.toHaveBeenCalled();
+    expect(
+      firstPublishIntegrationEventReceivedCall(handlers.publishIntegrationEventReceived),
+    ).toMatchObject({
+      event: {
+        event: 'installation_repositories.removed',
+        payload,
+      },
+    });
   });
 
   it('returns the cached installation token cleanup handle when the installation is deleted', async () => {

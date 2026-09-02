@@ -315,14 +315,13 @@ function normalizeRepositoryUpdates(
   const parsed = githubInstallationRepositoriesPayloadSchema.safeParse(payload);
   if (!parsed.success) return undefined;
 
-  const repositories = new Map<number, SourceRepositoryIdentity>();
-  for (const repository of [
-    ...parsed.data.repositories_added,
-    ...parsed.data.repositories_removed,
-  ]) {
-    repositories.set(repository.id, toSourceRepositoryIdentity(repository));
-  }
-  return repositories.size > 0 ? [...repositories.values()] : undefined;
+  const removedRepositoryIds = new Set(
+    parsed.data.repositories_removed.map((repository) => repository.id),
+  );
+  const repositories = parsed.data.repositories_added
+    .filter((repository) => !removedRepositoryIds.has(repository.id))
+    .map(toSourceRepositoryIdentity);
+  return repositories.length > 0 ? repositories : undefined;
 }
 
 function toSourceRepositoryIdentity(repository: {
