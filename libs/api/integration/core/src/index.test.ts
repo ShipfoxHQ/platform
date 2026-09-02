@@ -65,6 +65,33 @@ describe('createIntegrationsContext', () => {
     expect(context.module.services).toBeUndefined();
   });
 
+  it('registers provider-owned services without a delivery source', async () => {
+    const stop = vi.fn().mockResolvedValue(undefined);
+    const service: ModuleService = {
+      name: 'test-vcs-fixture',
+      shutdownTimeoutMs: 1_000,
+      start: vi.fn().mockResolvedValue({finished: Promise.resolve(), stop}),
+    };
+
+    const context = await createIntegrationsContext({
+      parts: [
+        {
+          provider: {provider: 'test-vcs', displayName: 'Test VCS', adapters: {}},
+          services: [service],
+        },
+      ],
+    });
+
+    expect(context.module.services).toEqual([service]);
+    const services = await startModuleServices({
+      services: context.module.services ?? [],
+      context: {outboxRegistry: createOutboxRegistry()},
+    });
+    await services.stop();
+
+    expect(stop).toHaveBeenCalledOnce();
+  });
+
   it('rejects a queued request with no registered processor', async () => {
     const context = await createIntegrationsContext({
       parts: [{provider: {provider: 'github', displayName: 'GitHub', adapters: {}}}],

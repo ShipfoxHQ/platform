@@ -6,6 +6,7 @@ import {
   deleteModelProviderConfig,
 } from '@shipfox/e2e-setup-agent';
 import {createSession, createUser} from '@shipfox/e2e-setup-auth';
+import {createTestVcsConnection} from '@shipfox/e2e-setup-integrations';
 import {createWorkspace} from '@shipfox/e2e-setup-workspaces';
 import {resetSuiteRunDir, writeSuiteContext} from '#suite-context.js';
 
@@ -33,6 +34,13 @@ export default async function globalSetup(): Promise<void> {
       sessionToken: session.token,
     });
     cleanups.push(() => deleteOrg({org: org.org}).catch(() => undefined));
+    const testVcsAccountId = `test-vcs-${runId}`;
+    const testVcsConnection = await createTestVcsConnection({
+      workspaceId: workspace.id,
+      accountId: testVcsAccountId,
+      displayName: 'Test VCS Renewable Credentials E2E',
+      renewalMode: 'on-rejection',
+    });
 
     const fakeModelProvider = await startFakeOpenAiModelProvider({runId});
     cleanups.push(() => fakeModelProvider.stop().catch(() => undefined));
@@ -101,6 +109,9 @@ export default async function globalSetup(): Promise<void> {
       org: org.org,
       connectionId: org.connection.id,
       connectionSlug: org.connection.slug,
+      testVcsConnectionId: testVcsConnection.id,
+      testVcsAccountId,
+      testVcsConnectionSlug: testVcsConnection.slug,
       modelProviderId: modelProvider.provider_id,
       agentModel: modelProviderScript.model,
       fakeModelProviderRunId: runId,

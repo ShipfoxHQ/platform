@@ -1,3 +1,4 @@
+import type {IntegrationConnectionDto, RepositoryDto} from '@shipfox/api-integration-core-dto';
 import type {
   CreateE2eGithubConnectionBodyDto,
   CreateE2eGithubConnectionResponseDto,
@@ -10,8 +11,9 @@ import type {
   CreateE2eSlackConnectionBodyDto,
   CreateE2eSlackConnectionResponseDto,
 } from '@shipfox/api-integration-slack-dto';
-import {requestJson} from '@shipfox/e2e-core';
+import {request, requestJson} from '@shipfox/e2e-core';
 
+export type {IntegrationConnectionDto, RepositoryDto} from '@shipfox/api-integration-core-dto';
 export type {
   CreateE2eGithubConnectionBodyDto,
   CreateE2eGithubConnectionResponseDto,
@@ -24,6 +26,48 @@ export type {
   CreateE2eSlackConnectionBodyDto,
   CreateE2eSlackConnectionResponseDto,
 } from '@shipfox/api-integration-slack-dto';
+
+export type TestVcsRenewalMode = 'refresh-at' | 'on-rejection';
+
+export interface TestVcsFile {
+  path: string;
+  content: string;
+}
+
+export interface TestVcsStats {
+  mint_count: number;
+  request_count: number;
+  accepted_request_count: number;
+  rejected_request_count: number;
+  generations: string[];
+  requests: Array<{
+    method: string;
+    path: string;
+    status: 'accepted' | 'rejected';
+    generation?: string | undefined;
+  }>;
+}
+
+export interface CreateTestVcsConnectionParams {
+  workspaceId: string;
+  accountId: string;
+  displayName?: string | undefined;
+  renewalMode?: TestVcsRenewalMode | undefined;
+}
+
+export interface CreateTestVcsRepositoryParams {
+  connectionId: string;
+  name: string;
+  defaultBranch?: string | undefined;
+  files: TestVcsFile[];
+}
+
+export interface CommitTestVcsFilesParams {
+  connectionId: string;
+  externalRepositoryId: string;
+  message: string;
+  files: TestVcsFile[];
+}
 
 export interface CreateGithubConnectionParams {
   workspaceId: string;
@@ -119,4 +163,66 @@ export async function createSlackConnection(
     '/__e2e/integrations/slack-connections',
     {json: slackConnectionBody(params)},
   );
+}
+
+export async function createTestVcsConnection(
+  params: CreateTestVcsConnectionParams,
+): Promise<IntegrationConnectionDto> {
+  return await requestJson<IntegrationConnectionDto>(
+    'post',
+    '/__e2e/integrations/test-vcs/connections',
+    {
+      json: {
+        workspace_id: params.workspaceId,
+        account_id: params.accountId,
+        ...(params.displayName === undefined ? {} : {display_name: params.displayName}),
+        ...(params.renewalMode === undefined ? {} : {renewal_mode: params.renewalMode}),
+      },
+    },
+  );
+}
+
+export async function createTestVcsRepository(
+  params: CreateTestVcsRepositoryParams,
+): Promise<RepositoryDto> {
+  return await requestJson<RepositoryDto>('post', '/__e2e/integrations/test-vcs/repositories', {
+    json: {
+      connection_id: params.connectionId,
+      name: params.name,
+      ...(params.defaultBranch === undefined ? {} : {default_branch: params.defaultBranch}),
+      files: params.files,
+    },
+  });
+}
+
+export async function commitTestVcsFiles(
+  params: CommitTestVcsFilesParams,
+): Promise<{commit: string}> {
+  return await requestJson<{commit: string}>('post', '/__e2e/integrations/test-vcs/commits', {
+    json: {
+      connection_id: params.connectionId,
+      external_repository_id: params.externalRepositoryId,
+      message: params.message,
+      files: params.files,
+    },
+  });
+}
+
+export async function getTestVcsStats(
+  params: {connectionId?: string | undefined} = {},
+): Promise<TestVcsStats> {
+  const query = params.connectionId
+    ? `?connection_id=${encodeURIComponent(params.connectionId)}`
+    : '';
+  return await requestJson<TestVcsStats>('get', `/__e2e/integrations/test-vcs/stats${query}`, {});
+}
+
+export async function failNextTestVcsMints(count: number): Promise<void> {
+  await request('post', '/__e2e/integrations/test-vcs/fail-next-mints', {
+    json: {count},
+  });
+}
+
+export function testVcsExternalRepositoryId(owner: string, name: string): string {
+  return `test-vcs:${owner}/${name}`;
 }

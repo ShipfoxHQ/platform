@@ -22,6 +22,10 @@ export const config = createConfig({
     desc: 'Comma-separated hosts and IP ranges that custom model providers may not call. Accepts exact hosts, suffix patterns such as .internal.example or *.internal.example, IP literals, and CIDR blocks such as 10.0.0.0/8.',
     default: '',
   }),
+  SHIPFOX_RUNNER_ENABLE_RENEWABLE_GIT: bool({
+    desc: 'Enables the runner-local renewable Git credential broker. Keep this disabled until the runner deployment is ready for renewable checkout credentials.',
+    default: false,
+  }),
 });
 
 export function runnerEgressPolicy(): EgressPolicy {

@@ -1,4 +1,5 @@
 import type {RunnerToolCapabilitiesDto} from '@shipfox/api-runners-dto';
+import {config} from '#config.js';
 import {isPiExtensionAvailable} from '#core/pi-extensions.js';
 
 const PI_BUILTIN_TOOLS = ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls'] as const;
@@ -22,6 +23,9 @@ export function runnerToolCapabilities(): RunnerToolCapabilitiesDto {
     : [...PI_BUILTIN_TOOLS];
 
   return {
+    ...(config.SHIPFOX_RUNNER_ENABLE_RENEWABLE_GIT
+      ? {features: {renewable_git: true as const}}
+      : {}),
     harnesses: {
       pi: {tools: piTools},
       claude: {tools: [...CLAUDE_TOOLS]},

@@ -72,6 +72,19 @@ describe('loadEnabledProviderModules', () => {
     expect(parts[0]?.provider).toMatchObject({provider: 'jira', displayName: 'Jira'});
   });
 
+  it('loads the private Test VCS provider and its fixture service only when enabled', async () => {
+    vi.stubEnv('INTEGRATIONS_ENABLE_TEST_VCS_PROVIDER', 'true');
+    vi.resetModules();
+
+    const {loadEnabledProviderModules} = await import('#providers/modules.js');
+    const parts = await loadEnabledProviderModules();
+    const testVcsPart = parts.find((part) => part.provider.provider === 'test-vcs');
+
+    expect(parts.map((part) => part.provider.provider)).toEqual(['test-vcs', 'cron', 'webhook']);
+    expect(testVcsPart?.provider.adapters?.source_control).toBeDefined();
+    expect(testVcsPart?.services).toHaveLength(1);
+  });
+
   it('publishes registry-derived capabilities for a GitHub connect flow', async () => {
     vi.stubEnv('INTEGRATIONS_ENABLE_GITHUB_PROVIDER', 'true');
     vi.resetModules();

@@ -655,7 +655,7 @@ describe('writeAmbientGitCredential', () => {
 
     const content = await readFile(configPath, 'utf8');
     expect(content).toContain('[credential]\n\tuseHttpPath = true');
-    expect(content).toContain('[credential "https://github.com/acme/repo/"]');
+    expect(content).toContain('[credential "https://github.com/acme/repo.git"]');
     expect(content).toContain(
       '\thelper = "!node /opt/runner/dist/git-credential-helper.js --socket',
     );

@@ -42,4 +42,15 @@ describe('runnerToolCapabilities', () => {
       'ls',
     ]);
   });
+
+  it('advertises renewable Git only when explicitly enabled', async () => {
+    vi.stubEnv('SHIPFOX_RUNNER_ENABLE_RENEWABLE_GIT', 'true');
+    vi.resetModules();
+
+    const {runnerToolCapabilities: enabledCapabilities} = await import(
+      '#core/tool-capabilities.js'
+    );
+
+    expect(enabledCapabilities().features).toEqual({renewable_git: true});
+  });
 });

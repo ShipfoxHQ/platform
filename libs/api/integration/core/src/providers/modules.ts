@@ -5,6 +5,7 @@ import {jiraProviderModule} from '#providers/jira.js';
 import {linearProviderModule} from '#providers/linear.js';
 import {sentryProviderModule} from '#providers/sentry.js';
 import {slackProviderModule} from '#providers/slack.js';
+import {testVcsProviderModule} from '#providers/test-vcs-module.js';
 import type {
   IntegrationModuleParts,
   IntegrationProviderModuleLoadOptions,
@@ -20,6 +21,7 @@ const providerModules = [
   jiraProviderModule,
   sentryProviderModule,
   giteaProviderModule,
+  testVcsProviderModule,
   cronProviderModule,
   webhookProviderModule,
 ];

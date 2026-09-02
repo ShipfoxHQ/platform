@@ -1401,6 +1401,9 @@ importers:
 
   e2e/setup/integrations:
     dependencies:
+      '@shipfox/api-integration-core-dto':
+        specifier: workspace:*
+        version: link:../../../libs/api/integration/core-dto
       '@shipfox/api-integration-github-dto':
         specifier: workspace:*
         version: link:../../../libs/api/integration/github-dto
