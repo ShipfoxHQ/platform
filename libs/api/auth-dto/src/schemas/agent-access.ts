@@ -17,8 +17,6 @@ export const agentAccessNameSchema = z
     message: 'must not contain control or format characters',
   });
 
-const agentPersonalAccessTokenNameSchema = agentAccessNameSchema;
-
 /** The dashboard-safe representation of an OAuth agent grant. */
 export const agentGrantSummarySchema = z
   .object({
@@ -38,60 +36,6 @@ export const listAgentGrantsResponseSchema = z
   .strict();
 
 export type ListAgentGrantsResponseDto = z.infer<typeof listAgentGrantsResponseSchema>;
-
-/** The dashboard-safe representation of a PAT; the raw value is never included. */
-export const agentPersonalAccessTokenSummarySchema = z
-  .object({
-    id: z.string().uuid(),
-    workspace_id: z.string().uuid(),
-    prefix: z.string().min(1).max(64),
-    name: agentPersonalAccessTokenNameSchema,
-    expires_at: timestampSchema,
-    last_used_at: timestampSchema.nullable(),
-    created_at: timestampSchema,
-  })
-  .strict();
-
-export type AgentPersonalAccessTokenSummaryDto = z.infer<
-  typeof agentPersonalAccessTokenSummarySchema
->;
-
-export const listAgentPersonalAccessTokensResponseSchema = z
-  .object({pats: z.array(agentPersonalAccessTokenSummarySchema)})
-  .strict();
-
-export type ListAgentPersonalAccessTokensResponseDto = z.infer<
-  typeof listAgentPersonalAccessTokensResponseSchema
->;
-
-export const createAgentPersonalAccessTokenBodySchema = z
-  .object({
-    workspace_id: z.string().uuid(),
-    name: agentPersonalAccessTokenNameSchema,
-    expires_in_days: z.union([z.literal(30), z.literal(90), z.literal(365)]).default(90),
-  })
-  .strict();
-
-export type CreateAgentPersonalAccessTokenBodyDto = z.infer<
-  typeof createAgentPersonalAccessTokenBodySchema
->;
-
-export const createAgentPersonalAccessTokenResponseSchema = z
-  .object({
-    raw_token: z.string().min(1),
-    id: z.string().uuid(),
-    workspace_id: z.string().uuid(),
-    prefix: z.string().min(1).max(64),
-    name: agentPersonalAccessTokenNameSchema,
-    expires_at: timestampSchema,
-    last_used_at: timestampSchema.nullable(),
-    created_at: timestampSchema,
-  })
-  .strict();
-
-export type CreateAgentPersonalAccessTokenResponseDto = z.infer<
-  typeof createAgentPersonalAccessTokenResponseSchema
->;
 
 export const agentAccessCredentialParamsSchema = z.object({id: z.string().uuid()}).strict();
 

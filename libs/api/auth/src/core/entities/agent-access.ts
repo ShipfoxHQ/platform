@@ -64,18 +64,3 @@ export interface AgentRefreshToken {
   createdAt: Date;
   updatedAt: Date;
 }
-
-export interface AgentPersonalAccessToken {
-  id: string;
-  userId: string;
-  workspaceId: string;
-  hashedToken: string;
-  prefix: string;
-  name: string;
-  scopes: string[];
-  expiresAt: Date;
-  lastUsedAt: Date | null;
-  revokedAt: Date | null;
-  createdAt: Date;
-  updatedAt: Date;
-}

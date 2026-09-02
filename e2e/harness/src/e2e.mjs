@@ -285,7 +285,7 @@ export function e2eEnv(sourceEnv) {
     ),
     INTEGRATIONS_TEST_VCS_CREDENTIAL_TTL_SECONDS: valueOr(
       sourceEnv.INTEGRATIONS_TEST_VCS_CREDENTIAL_TTL_SECONDS,
-      '3',
+      '10',
     ),
     INTEGRATIONS_TEST_VCS_PORT: String(testVcsPort),
     LINEAR_MCP_ENDPOINT: linearMcpEndpoint,

@@ -62,21 +62,10 @@ export {
   revokeAdministratorUserSessions,
   suspendAdministratorUser,
 } from '#core/administration.js';
-export type {
-  AgentGrantSummary,
-  AgentPatExpiryDays,
-  AgentPersonalAccessTokenSummary,
-  CreateAgentPersonalAccessTokenParams,
-  CreateAgentPersonalAccessTokenResult,
-} from '#core/agent-access.js';
+export type {AgentGrantSummary} from '#core/agent-access.js';
 export {
-  AGENT_PAT_EXPIRY_DAYS,
-  createAgentPersonalAccessToken,
   listAgentGrants,
-  listAgentPersonalAccessTokens,
-  requireActiveAgentWorkspaceMembership,
   revokeAgentGrant,
-  revokeAgentPersonalAccessToken,
 } from '#core/agent-access.js';
 export type {IssueAgentAccessTokenParams} from '#core/agent-access-token.js';
 export {
@@ -119,10 +108,8 @@ export {
   AdminGrantNotFoundError,
   AdminIdempotencyKeyReuseError,
   AdminRoleRequiredError,
-  AgentAccessUserInactiveError,
   AgentAccessWorkspaceError,
   AgentGrantNotFoundError,
-  AgentPersonalAccessTokenNotFoundError,
   AuthDependencyUnavailableError,
   CannotImpersonateAdministratorError,
   CannotImpersonateSelfError,
@@ -229,12 +216,10 @@ export {
 } from '#presentation/auth/refresh-cookie.js';
 export {createRunnerSessionAuthMethod} from '#presentation/auth/runner-session-auth.js';
 export {oauthTokenResponse, toOAuthConsentResponse} from '#presentation/dto/oauth.js';
-export type {CreateAgentAccessManagementRoutesOptions} from '#presentation/routes/agent-access.js';
 export {
   createAgentAccessManagementRoutes,
   createAgentAccessRoutes,
   createAgentGrantRoutes,
-  createAgentPersonalAccessTokenRoutes,
 } from '#presentation/routes/agent-access.js';
 export type {
   CreateOAuthAuthorizationRoutesOptions,

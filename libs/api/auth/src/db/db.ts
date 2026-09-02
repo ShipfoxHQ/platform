@@ -7,7 +7,6 @@ import {
   agentAuthorizationRequests,
   agentClients,
   agentGrants,
-  agentPersonalAccessTokens,
   agentRefreshTokens,
 } from './schema/agent-access.js';
 import {authOutbox} from './schema/outbox.js';
@@ -23,7 +22,6 @@ export const schema = {
   agentGrants,
   agentAuthorizationCodes,
   agentRefreshTokens,
-  agentPersonalAccessTokens,
   adminCommandResults,
   users,
   passwordResets,

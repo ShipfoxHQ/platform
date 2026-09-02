@@ -26,3 +26,5 @@ export const agentFeature = defineClientFeature({
   ],
   settingsSections: agentSettingsSections,
 });
+
+export {agentAccessFeature, agentAccessSettingsSections} from './agent-access/feature.js';

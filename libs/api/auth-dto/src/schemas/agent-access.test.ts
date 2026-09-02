@@ -1,9 +1,5 @@
 import {describe, expect, it} from '@shipfox/vitest/vi';
-import {
-  agentAccessNameSchema,
-  agentGrantSummarySchema,
-  createAgentPersonalAccessTokenBodySchema,
-} from './agent-access.js';
+import {agentAccessNameSchema, agentGrantSummarySchema} from './agent-access.js';
 import {oauthDynamicClientRegistrationRequestSchema} from './oauth.js';
 
 describe('agent access name schemas', () => {
@@ -19,7 +15,7 @@ describe('agent access name schemas', () => {
     ['NUL', 'Agent\0name'],
     ['right-to-left override', 'Agent\u202ename'],
     ['zero-width joiner', 'Agent\u200dname'],
-  ])('rejects %s characters in PAT and OAuth client names', (_name, value) => {
+  ])('rejects %s characters in agent-access display names', (_name, value) => {
     expect(agentAccessNameSchema.safeParse(value).success).toBe(false);
     expect(
       agentGrantSummarySchema.safeParse({
@@ -32,12 +28,6 @@ describe('agent access name schemas', () => {
       }).success,
     ).toBe(false);
     expect(
-      createAgentPersonalAccessTokenBodySchema.safeParse({
-        workspace_id: crypto.randomUUID(),
-        name: value,
-      }).success,
-    ).toBe(false);
-    expect(
       oauthDynamicClientRegistrationRequestSchema.safeParse({
         client_name: value,
         redirect_uris: ['https://client.example/callback'],
@@ -45,13 +35,7 @@ describe('agent access name schemas', () => {
     ).toBe(false);
   });
 
-  it('accepts an ASCII name at the 256-byte boundary and defaults PAT expiry to 90 days', () => {
+  it('accepts an ASCII name at the 256-byte boundary', () => {
     expect(agentAccessNameSchema.safeParse('a'.repeat(256)).success).toBe(true);
-
-    const parsed = createAgentPersonalAccessTokenBodySchema.parse({
-      workspace_id: crypto.randomUUID(),
-      name: 'CI access',
-    });
-    expect(parsed.expires_in_days).toBe(90);
   });
 });

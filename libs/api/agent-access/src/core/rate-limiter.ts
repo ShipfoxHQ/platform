@@ -89,7 +89,5 @@ export function createAgentAccessRateLimiter(
 }
 
 function credentialKey(credential: AgentAccessCredential): string {
-  return credential.kind === 'oauth_grant'
-    ? `oauth_grant:${credential.grantId}`
-    : `pat:${credential.patId}`;
+  return `oauth_grant:${credential.grantId}`;
 }

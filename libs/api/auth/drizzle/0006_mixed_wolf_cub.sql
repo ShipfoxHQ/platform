@@ -1,0 +1,1 @@
+DROP TABLE "auth_agent_pats" CASCADE;

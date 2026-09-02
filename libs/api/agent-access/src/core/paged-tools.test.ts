@@ -25,7 +25,7 @@ const context: AgentAccessContext = {
   userId: uuid(7),
   workspaceId,
   scopes: ['read'],
-  credential: {kind: 'pat', patId: uuid(8)},
+  credential: {kind: 'oauth_grant', grantId: uuid(8), clientId: 'client-1'},
 };
 
 describe('paged agent-access tools', () => {

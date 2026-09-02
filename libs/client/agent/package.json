@@ -63,6 +63,7 @@
   },
   "dependencies": {
     "@shipfox/api-agent-dto": "workspace:*",
+    "@shipfox/api-auth-dto": "workspace:*",
     "@shipfox/client-api": "workspace:*",
     "@shipfox/client-shell": "workspace:*",
     "@shipfox/client-ui": "workspace:*",
@@ -100,6 +101,7 @@
     "@vitejs/plugin-react": "catalog:",
     "@vitest/browser-playwright": "catalog:",
     "happy-dom": "catalog:",
+    "jotai": "catalog:",
     "jsdom": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",

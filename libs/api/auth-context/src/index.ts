@@ -35,9 +35,11 @@ export interface UserContext {
 
 export type AgentAccessScope = 'read';
 
-export type AgentAccessCredential =
-  | {kind: 'oauth_grant'; grantId: string; clientId: string}
-  | {kind: 'pat'; patId: string};
+export interface AgentAccessCredential {
+  kind: 'oauth_grant';
+  grantId: string;
+  clientId: string;
+}
 
 /** The shared identity and authority resolved from an agent credential. */
 export interface AgentAccessContext {

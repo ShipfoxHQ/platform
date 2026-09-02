@@ -4833,6 +4833,9 @@ importers:
       '@shipfox/api-agent-dto':
         specifier: workspace:*
         version: link:../../api/agent-dto
+      '@shipfox/api-auth-dto':
+        specifier: workspace:*
+        version: link:../../api/auth-dto
       '@shipfox/client-api':
         specifier: workspace:*
         version: link:../api
@@ -4921,6 +4924,9 @@ importers:
       happy-dom:
         specifier: 'catalog:'
         version: 20.10.6
+      jotai:
+        specifier: 'catalog:'
+        version: 2.20.1(@babel/core@7.29.7)(@babel/template@7.29.7)(@types/react@19.2.17)(react@19.2.7)
       jsdom:
         specifier: 'catalog:'
         version: 29.1.1

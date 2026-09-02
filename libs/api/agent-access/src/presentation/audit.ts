@@ -39,7 +39,7 @@ function auditLogContext(record: AgentAccessToolCallAuditRecord): Record<string,
     userId: record.context.userId,
     workspaceId: record.context.workspaceId,
     credentialKind: credential.kind,
-    credentialId: credential.kind === 'oauth_grant' ? credential.grantId : credential.patId,
-    clientId: credential.kind === 'oauth_grant' ? credential.clientId : null,
+    credentialId: credential.grantId,
+    clientId: credential.clientId,
   };
 }

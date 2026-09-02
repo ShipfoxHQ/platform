@@ -100,24 +100,10 @@ export class AgentAccessWorkspaceError extends Error {
   }
 }
 
-export class AgentAccessUserInactiveError extends Error {
-  constructor() {
-    super('The user is not active');
-    this.name = 'AgentAccessUserInactiveError';
-  }
-}
-
 export class AgentGrantNotFoundError extends Error {
   constructor() {
     super('Agent grant not found');
     this.name = 'AgentGrantNotFoundError';
-  }
-}
-
-export class AgentPersonalAccessTokenNotFoundError extends Error {
-  constructor() {
-    super('Personal access token not found');
-    this.name = 'AgentPersonalAccessTokenNotFoundError';
   }
 }
 

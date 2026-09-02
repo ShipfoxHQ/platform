@@ -19,7 +19,7 @@ const context: AgentAccessContext = {
   userId: 'user-1',
   workspaceId: 'workspace-1',
   scopes: ['read'],
-  credential: {kind: 'pat', patId: 'pat-1'},
+  credential: {kind: 'oauth_grant', grantId: 'grant-1', clientId: 'client-1'},
 };
 
 describe('buildAgentAccessMcpServer', () => {
