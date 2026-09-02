@@ -1,4 +1,4 @@
-import type {Job} from './job.js';
+import type {Job, JobStatus} from './job.js';
 import type {JobExecution} from './job-execution.js';
 import type {Step, StepAttempt} from './step.js';
 import type {WorkflowRunAttempt} from './workflow-run-attempt.js';
@@ -113,20 +113,25 @@ export type WorkflowRun = WorkflowRunOriginState & {
 
 export interface StepDetail extends Step {
   attempts: StepAttempt[];
+  attemptsTotalCount?: number | undefined;
 }
 
 export interface JobExecutionDetail extends JobExecution {
   steps: StepDetail[];
+  stepsTotalCount?: number | undefined;
 }
 
 export interface WorkflowJobDetail extends Job {
   jobExecutions: JobExecutionDetail[];
+  jobExecutionsTotalCount?: number | undefined;
 }
 
 export type WorkflowRunDetail = WorkflowRun & {
   runAttempt: WorkflowRunAttempt;
   latestAttempt: number;
   jobs: WorkflowJobDetail[];
+  jobsTotalCount?: number | undefined;
+  jobStatusCounts?: Array<{status: JobStatus; count: number}> | undefined;
   /** Whether any job execution of this attempt reached its runner, decided here so the detail
    * and the list cannot answer it differently. */
   hasStartedJobExecution: boolean;

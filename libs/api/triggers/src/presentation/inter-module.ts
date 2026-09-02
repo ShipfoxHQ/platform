@@ -13,7 +13,9 @@ import type {
 import {
   getTriggerEventById,
   listDecisionsByReceivedEventId,
+  listDecisionsByReceivedEventIdPage,
   listReplaysOfTriggerEvent,
+  listReplaysOfTriggerEventPage,
   listTriggerEventFacets,
   listTriggerEvents,
 } from '#db/index.js';
@@ -50,7 +52,7 @@ export function createTriggersInterModulePresentation(): InterModulePresentation
           : null,
       };
     },
-    getTriggerEvent: async ({workspaceId, eventId}) => {
+    getTriggerEvent: async ({workspaceId, eventId, diagnostic}) => {
       const event = await getTriggerEventById(eventId);
       if (!event || event.workspaceId !== workspaceId) {
         throw createInterModuleKnownError(
@@ -60,15 +62,43 @@ export function createTriggersInterModulePresentation(): InterModulePresentation
         );
       }
 
-      const [decisions, replays] = await Promise.all([
-        listDecisionsByReceivedEventId(event.id),
-        listReplaysOfTriggerEvent(event.id, event.workspaceId),
-      ]);
+      let decisions: TriggerDecision[];
+      let replays: TriggerEventReplay[];
+      let decisionTotalCount: number | undefined;
+      let replayTotalCount: number | undefined;
+      if (diagnostic) {
+        const [decisionPage, replayPage] = await Promise.all([
+          listDecisionsByReceivedEventIdPage({
+            receivedEventId: event.id,
+            limit: diagnostic.decisions,
+          }),
+          listReplaysOfTriggerEventPage({
+            eventId: event.id,
+            workspaceId: event.workspaceId,
+            limit: diagnostic.replays,
+          }),
+        ]);
+        decisions = decisionPage.items;
+        replays = replayPage.items;
+        decisionTotalCount = decisionPage.totalCount;
+        replayTotalCount = replayPage.totalCount;
+      } else {
+        [decisions, replays] = await Promise.all([
+          listDecisionsByReceivedEventId(event.id),
+          listReplaysOfTriggerEvent(event.id, event.workspaceId),
+        ]);
+      }
 
       return {
         ...toTriggerEvent(event),
         decisions: decisions.map(toTriggerDecision),
         replays: replays.map(toTriggerEventReplay),
+        ...(diagnostic
+          ? {
+              decisionsTotalCount: decisionTotalCount ?? decisions.length,
+              replaysTotalCount: replayTotalCount ?? replays.length,
+            }
+          : {}),
       };
     },
     getTriggerEventFacets: async ({workspaceId}) => await listTriggerEventFacets({workspaceId}),

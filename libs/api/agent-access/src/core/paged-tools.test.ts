@@ -11,6 +11,7 @@ import type {TriggersInterModuleClient} from '@shipfox/api-triggers-dto/inter-mo
 import type {WorkflowsModuleClient} from '@shipfox/api-workflows-dto/inter-module';
 import {createInterModuleKnownError} from '@shipfox/inter-module';
 import {decodeNumberIdCursor, decodeStringIdCursor} from '@shipfox/node-drizzle';
+import {createAgentAccessDiagnosticTools} from './diagnostic-tools.js';
 import {createAgentAccessTools} from './paged-tools.js';
 import {serializedAgentAccessEnvelopeByteLength} from './response.js';
 
@@ -29,6 +30,27 @@ const context: AgentAccessContext = {
 };
 
 describe('paged agent-access tools', () => {
+  test('keeps diagnostic tools dormant until gateway composition', () => {
+    const mocks = clients();
+    const names = createAgentAccessTools(mocks).map((candidate) => candidate.name);
+
+    expect(names).not.toContain('get_workflow_run');
+    expect(names).not.toContain('get_step_attempt');
+    expect(names).not.toContain('get_trigger_event');
+    expect(names).not.toContain('get_trigger_event_facets');
+    expect(
+      createAgentAccessDiagnosticTools({
+        workflows: mocks.workflows,
+        triggers: mocks.triggers,
+      }).map((candidate) => candidate.name),
+    ).toEqual([
+      'get_workflow_run',
+      'get_step_attempt',
+      'get_trigger_event',
+      'get_trigger_event_facets',
+    ]);
+  });
+
   test('projects only the enumerated project fields and passes the producer cursor through', async () => {
     const mocks = clients();
     mocks.projects.listProjectCatalogByWorkspace.mockResolvedValue({

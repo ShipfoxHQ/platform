@@ -129,6 +129,50 @@ describe('workflow run queries', () => {
     });
   });
 
+  describe('getWorkflowRunDetail diagnostic read', () => {
+    test('bounds each graph level and reports exact omitted totals', async () => {
+      const created = await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId,
+        model: buildModel({
+          jobs: {
+            first: {
+              checkout: false,
+              steps: [{run: 'echo first 1'}, {run: 'echo first 2'}, {run: 'echo first 3'}],
+            },
+            second: {
+              checkout: false,
+              steps: [{run: 'echo second 1'}, {run: 'echo second 2'}, {run: 'echo second 3'}],
+            },
+            third: {
+              checkout: false,
+              steps: [{run: 'echo third 1'}, {run: 'echo third 2'}, {run: 'echo third 3'}],
+            },
+          },
+        }),
+        triggerPayload: {
+          source: 'manual',
+          event: 'fire',
+          subscriptionId: crypto.randomUUID(),
+          userId: crypto.randomUUID(),
+        },
+      });
+
+      const detail = await getWorkflowRunDetail(created.id, undefined, workspaceId, {
+        diagnosticLimits: {jobs: 2, executions: 1, steps: 2, attempts: 1},
+      });
+
+      expect(detail?.jobs).toHaveLength(2);
+      expect(detail?.jobsTotalCount).toBe(3);
+      expect(detail?.jobs.map((job) => job.key)).toEqual(['first', 'second']);
+      expect(detail?.jobStatusCounts).toEqual([{status: 'pending', count: 3}]);
+      expect(detail?.jobs[0]?.jobExecutions).toHaveLength(1);
+      expect(detail?.jobs[0]?.jobExecutions[0]?.steps).toHaveLength(2);
+      expect(detail?.jobs[0]?.jobExecutions[0]?.stepsTotalCount).toBe(4);
+    });
+  });
+
   describe('getWorkflowRunSelection measurement observer', () => {
     test('does not let a throwing observer change a successful read', async () => {
       const created = await createTestRun({workspaceId, projectId, definitionId});

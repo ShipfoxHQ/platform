@@ -16,6 +16,7 @@ import {
 import {
   stepAttemptDetailResponseSchema,
   workflowRunDetailResponseSchema,
+  workflowRunDiagnosticReadLimitsSchema,
 } from './schemas/workflow-run-detail.js';
 
 const idSchema = z.string().uuid();
@@ -296,6 +297,7 @@ export const workflowsInterModuleContract = defineInterModuleContract({
         workspaceId: idSchema,
         workflowRunId: idSchema,
         attempt: attemptSchema,
+        diagnostic: workflowRunDiagnosticReadLimitsSchema.optional(),
       }),
       output: z.object({run: workflowRunDetailResponseSchema.nullable()}),
     },

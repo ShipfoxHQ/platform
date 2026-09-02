@@ -1,3 +1,4 @@
+import type {WorkflowRunDiagnosticReadLimits} from '@shipfox/api-workflows-dto';
 import {
   getWorkflowRunSelectionDepth,
   WORKFLOW_RUN_JOB_PREVIEW_LIMIT,
@@ -30,6 +31,7 @@ import {stepAttempts, toStepAttempt} from '../schema/step-attempts.js';
 import {steps, toStep} from '../schema/steps.js';
 import {toWorkflowRunAttempt, workflowRunAttempts} from '../schema/workflow-run-attempts.js';
 import {toWorkflowRun, workflowRuns} from '../schema/workflow-runs.js';
+import {getWorkflowRunDiagnosticDetail} from './diagnostic-detail.js';
 
 export type WorkflowRunCursor = TimestampIdCursor;
 
@@ -131,6 +133,7 @@ export interface WorkflowRunDetailReadMeasurement {
 
 export interface WorkflowRunDetailReadOptions {
   onRead?: ((measurement: WorkflowRunDetailReadMeasurement) => void) | undefined;
+  diagnosticLimits?: WorkflowRunDiagnosticReadLimits | undefined;
 }
 
 export async function getWorkflowRunById(
@@ -941,6 +944,18 @@ export async function getWorkflowRunDetail(
   let databaseDurationMilliseconds: number | undefined;
 
   try {
+    if (options.diagnosticLimits) {
+      const result = await getWorkflowRunDiagnosticDetail({
+        workflowRunId,
+        attempt,
+        workspaceId,
+        limits: options.diagnosticLimits,
+      });
+      returnedRows = result.returnedRows;
+      databaseDurationMilliseconds = performance.now() - startedAt;
+      return result.detail;
+    }
+
     const targetConditions = [eq(workflowRuns.id, workflowRunId)];
     if (workspaceId) targetConditions.push(eq(workflowRuns.workspaceId, workspaceId));
     const [target] = await db()

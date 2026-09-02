@@ -1,5 +1,6 @@
-import {agentAccessSuccess} from './envelope.js';
+import {agentAccessError, agentAccessSuccess} from './envelope.js';
 import {
+  reduceAgentAccessDetailResponse,
   reducePagedAgentAccessResponse,
   serializedAgentAccessEnvelopeByteLength,
   truncateAgentAccessUtf8,
@@ -61,5 +62,21 @@ describe('agent-access response bounds', () => {
         maxBytes: serializedAgentAccessEnvelopeByteLength(emptyTruncatedEnvelope),
       }),
     ).toEqual({ok: false, error: {code: 'content-too-large'}});
+  });
+
+  test('preserves a bounded error envelope when it already fits', () => {
+    const envelope = agentAccessError('not-found');
+
+    expect(
+      reduceAgentAccessDetailResponse({
+        envelope,
+        strings: [],
+        maxBytes: serializedAgentAccessEnvelopeByteLength(envelope),
+      }),
+    ).toEqual(envelope);
+    expect(reduceAgentAccessDetailResponse({envelope, strings: [], maxBytes: 1})).toEqual({
+      ok: false,
+      error: {code: 'content-too-large'},
+    });
   });
 });

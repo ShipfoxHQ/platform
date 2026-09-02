@@ -269,11 +269,11 @@ export function createWorkflowsInterModulePresentation(params: {
       };
     },
     getWorkflowRunDetail: async (input) => {
-      const detail = await getWorkflowRunDetail(
-        input.workflowRunId,
-        input.attempt,
-        input.workspaceId,
-      );
+      const detail = input.diagnostic
+        ? await getWorkflowRunDetail(input.workflowRunId, input.attempt, input.workspaceId, {
+            diagnosticLimits: input.diagnostic,
+          })
+        : await getWorkflowRunDetail(input.workflowRunId, input.attempt, input.workspaceId);
       return {run: detail ? toRunDetailDto(detail) : null};
     },
     getStepAttemptDetail: async (input) => {

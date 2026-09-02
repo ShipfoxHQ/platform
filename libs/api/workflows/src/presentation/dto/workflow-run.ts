@@ -107,10 +107,25 @@ export function toRunDetailDto(run: WorkflowRunDetail): WorkflowRunDetailRespons
             response: latestTerminalAttempt?.response ?? null,
             gate_result: latestTerminalAttempt?.gate_result ?? null,
             attempts,
+            ...(step.attemptsTotalCount === undefined
+              ? {}
+              : {attempts_total_count: step.attemptsTotalCount}),
           };
         }),
+        ...(jobExecution.stepsTotalCount === undefined
+          ? {}
+          : {steps_total_count: jobExecution.stepsTotalCount}),
       })),
+      ...(job.jobExecutionsTotalCount === undefined
+        ? {}
+        : {job_executions_total_count: job.jobExecutionsTotalCount}),
     })),
+    ...(run.jobsTotalCount === undefined ? {} : {jobs_total_count: run.jobsTotalCount}),
+    ...(run.jobStatusCounts === undefined
+      ? {}
+      : {
+          job_status_counts: run.jobStatusCounts.map(({status, count}) => ({status, count})),
+        }),
     has_started_job_execution: run.hasStartedJobExecution,
   };
 }

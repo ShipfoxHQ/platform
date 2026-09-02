@@ -1,5 +1,6 @@
 import {z} from 'zod';
 import type {AgentAccessObjectSchema} from './envelope.js';
+import {AGENT_ACCESS_DIAGNOSTIC_CODE_MAX_BYTES} from './paged-tools.js';
 
 export const AGENT_ACCESS_SERIALIZED_JSON_MAX_BYTES = 16 * 1024;
 export const AGENT_ACCESS_EVALUATION_TRACE_MAX_ITEMS = 50;
@@ -130,7 +131,17 @@ const stepErrorReasonSchema = z.enum([
 
 const stepErrorSchema = z
   .object({
+    code: utf8CappedString(AGENT_ACCESS_DIAGNOSTIC_CODE_MAX_BYTES).optional(),
     reason: stepErrorReasonSchema.optional(),
+    agent_config_issue: z
+      .enum([
+        'step_config_invalid',
+        'provider_not_configured',
+        'provider_unsupported',
+        'model_unavailable',
+        'credentials_invalid',
+      ])
+      .optional(),
     category: z.enum(['setup', 'user']).optional(),
   })
   .strict()
@@ -155,8 +166,11 @@ const gateResultSchema = z
       'unknown',
     ]),
     passed: z.boolean().optional(),
+    uncheckable: z.boolean().optional(),
+    reason: textSchema.optional(),
     source: textSchema.optional(),
     exit_code: z.number().int().nullable().optional(),
+    diagnostic: serializedJsonSchema.optional(),
   })
   .strict()
   .nullable();
@@ -592,8 +606,11 @@ const gateResultJsonSchema = nullable({
       ],
     },
     passed: {type: 'boolean'},
+    uncheckable: {type: 'boolean'},
+    reason: text,
     source: text,
     exit_code: nullable({type: 'integer'}),
+    diagnostic: serializedJson,
   },
   required: ['kind'],
   additionalProperties: false,
@@ -602,6 +619,7 @@ const gateResultJsonSchema = nullable({
 const errorJsonSchema = nullable({
   type: 'object',
   properties: {
+    code: {type: 'string', maxLength: AGENT_ACCESS_DIAGNOSTIC_CODE_MAX_BYTES},
     reason: {
       type: 'string',
       enum: [
@@ -625,6 +643,16 @@ const errorJsonSchema = nullable({
         'tool_error',
         'tool_config_invalid',
         'invocation_interrupted',
+      ],
+    },
+    agent_config_issue: {
+      type: 'string',
+      enum: [
+        'step_config_invalid',
+        'provider_not_configured',
+        'provider_unsupported',
+        'model_unavailable',
+        'credentials_invalid',
       ],
     },
     category: {type: 'string', enum: ['setup', 'user']},
@@ -663,7 +691,7 @@ const stepJsonResultSchema = {
   type: 'object',
   properties: {
     id: uuid,
-    key: nullable(shortText),
+    key: nullable(text),
     name: text,
     type: text,
     status: text,

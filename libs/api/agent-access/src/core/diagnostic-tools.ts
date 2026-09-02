@@ -2,6 +2,7 @@ import {
   AGENT_ACCESS_CONNECTION_NAME_MAX_BYTES,
   AGENT_ACCESS_DEPENDENCY_MAX_BYTES,
   AGENT_ACCESS_DEPENDENCY_MAX_ITEMS,
+  AGENT_ACCESS_DIAGNOSTIC_CODE_MAX_BYTES,
   AGENT_ACCESS_EVALUATION_TRACE_MAX_ITEMS,
   AGENT_ACCESS_EVALUATION_TRACE_ROOT_MAX_BYTES,
   AGENT_ACCESS_EVALUATION_TRACE_ROOT_MAX_ITEMS,
@@ -54,6 +55,7 @@ import {isInterModuleKnownError} from '@shipfox/inter-module';
 import {agentAccessError, agentAccessSuccess} from './envelope.js';
 import {
   type AgentAccessCappedStringRef,
+  type AgentAccessUtf8Truncation,
   reduceAgentAccessDetailResponse,
   serializedAgentAccessEnvelopeByteLength,
   truncateAgentAccessUtf8,
@@ -76,6 +78,9 @@ interface ProjectedDetail {
   result: Record<string, unknown>;
   strings: readonly AgentAccessCappedStringRef[];
 }
+
+type EvaluationTraceEntry = NonNullable<StepAttemptDetailResponseDto['evaluation_trace']>[number];
+type EvaluationTraceValue = Extract<EvaluationTraceEntry, {expression: string}>;
 
 /** Creates the four bounded detail and discovery tools kept dormant until gateway composition. */
 export function createAgentAccessDiagnosticTools(
@@ -117,6 +122,7 @@ function createGetWorkflowRunTool(workflows: WorkflowsModuleClient): AgentAccess
         workspaceId: context.workspaceId,
         workflowRunId: input.run_id,
         attempt,
+        diagnostic: {jobs: 10, executions: 1, steps: 20, attempts: 1},
       });
       if (response.run === null) return notFound();
       return reduceWorkflowRunResponse(response.run);
@@ -178,6 +184,7 @@ function createGetTriggerEventTool(triggers: TriggersInterModuleClient): AgentAc
         const event = await triggers.getTriggerEvent({
           workspaceId: context.workspaceId,
           eventId: input.event_id,
+          diagnostic: {decisions: 50, replays: 20},
         });
         return reduceProjectedDetail(projectTriggerEvent(event));
       } catch (error) {
@@ -215,6 +222,21 @@ function reduceWorkflowRunResponse(run: WorkflowRunDetailResponseDto) {
   const initialEnvelope = agentAccessSuccess(initial.result);
   const initialBytes = serializedAgentAccessEnvelopeByteLength(initialEnvelope);
   if (initialBytes <= AGENT_ACCESS_RESPONSE_MAX_BYTES) return initialEnvelope;
+
+  // The inter-module diagnostic read is already capped to these collection sizes. In the
+  // normal path there is nothing left for the structural stages to discover, so go straight to
+  // string reduction. The stages below remain a compatibility fallback for older producers.
+  if (isStructurallyBoundedWorkflowRun(run)) {
+    return reduceAgentAccessDetailResponse({
+      envelope: {
+        ...initialEnvelope,
+        response_truncated: true,
+        response_total_bytes: initialBytes,
+      },
+      strings: initial.strings,
+      originalBytes: initialBytes,
+    });
+  }
 
   const stages: readonly (keyof WorkflowRunProjectionLimits)[] = [
     'attempts',
@@ -261,6 +283,21 @@ function stageLimit(stage: keyof WorkflowRunProjectionLimits): number {
   }
 }
 
+function isStructurallyBoundedWorkflowRun(run: WorkflowRunDetailResponseDto): boolean {
+  return (
+    run.jobs.length <= 10 &&
+    run.jobs.every(
+      (job) =>
+        job.job_executions.length <= 1 &&
+        job.job_executions.every(
+          (execution) =>
+            execution.steps.length <= 20 &&
+            execution.steps.every((step) => step.attempts.length <= 1),
+        ),
+    )
+  );
+}
+
 function reduceProjectedDetail(projection: ProjectedDetail) {
   const envelope = agentAccessSuccess(projection.result);
   return reduceAgentAccessDetailResponse({
@@ -290,7 +327,7 @@ function projectWorkflowRun(
     trigger_source: '',
     trigger_event: '',
     trigger_reference: null,
-    job_status_counts: workflowRunJobStatusCounts(run.jobs),
+    job_status_counts: workflowRunJobStatusCounts(run.jobs, run.job_status_counts),
     has_started_job_execution: run.has_started_job_execution ?? true,
     created_at: run.created_at,
     updated_at: run.updated_at,
@@ -353,7 +390,7 @@ function projectWorkflowRun(
   addCollectionMetadata(
     result,
     'jobs',
-    run.jobs.length,
+    run.jobs_total_count ?? run.jobs.length,
     jobLimit,
     'jobs_truncated',
     'jobs_total_count',
@@ -410,7 +447,7 @@ function projectJob(
   addCollectionMetadata(
     result,
     'job_executions',
-    job.job_executions.length,
+    job.job_executions_total_count ?? job.job_executions.length,
     executionLimit,
     'job_executions_truncated',
     'job_executions_total_count',
@@ -451,7 +488,7 @@ function projectJobExecution(
   addCollectionMetadata(
     result,
     'steps',
-    execution.steps.length,
+    execution.steps_total_count ?? execution.steps.length,
     stepLimit,
     'steps_truncated',
     'steps_total_count',
@@ -472,7 +509,7 @@ function projectStep(
     type: '',
     status: '',
     status_reason: null,
-    error: projectStepError(step.error),
+    error: projectStepError(step.error, strings),
     exit_code: step.exit_code,
     source_location: step.source_location,
     position: step.position,
@@ -495,7 +532,7 @@ function projectStep(
   addCollectionMetadata(
     result,
     'attempts',
-    step.attempts.length,
+    step.attempts_total_count ?? step.attempts.length,
     attemptLimit,
     'attempts_truncated',
     'attempts_total_count',
@@ -558,9 +595,9 @@ function projectTriggerEvent(event: TriggerEventDetail): ProjectedDetail {
     processed_at: event.processedAt,
     payload: '',
     decisions: [],
-    decisions_total_count: event.decisions.length,
+    decisions_total_count: event.decisionsTotalCount ?? event.decisions.length,
     replays: [],
-    replays_total_count: event.replays.length,
+    replays_total_count: event.replaysTotalCount ?? event.replays.length,
   };
 
   strings.nullableField(result, 'provider', event.provider);
@@ -594,7 +631,7 @@ function projectTriggerEvent(event: TriggerEventDetail): ProjectedDetail {
   addCollectionMetadata(
     result,
     'decisions',
-    event.decisions.length,
+    event.decisionsTotalCount ?? event.decisions.length,
     AGENT_ACCESS_TRIGGER_DECISION_MAX_ITEMS,
     'decisions_truncated',
     undefined,
@@ -612,7 +649,7 @@ function projectTriggerEvent(event: TriggerEventDetail): ProjectedDetail {
   addCollectionMetadata(
     result,
     'replays',
-    event.replays.length,
+    event.replaysTotalCount ?? event.replays.length,
     AGENT_ACCESS_TRIGGER_REPLAY_MAX_ITEMS,
     'replays_truncated',
     undefined,
@@ -654,11 +691,14 @@ function projectEvaluationTrace(
 ): Record<string, unknown>[] | null {
   if (trace === null) return null;
 
-  const projected = trace.slice(0, AGENT_ACCESS_EVALUATION_TRACE_MAX_ITEMS).map((entry) => {
-    if ('dropped' in entry) {
-      return {truncated: true, dropped: entry.dropped};
-    }
-
+  const existingDropped = trace.reduce(
+    (total, entry) => ('dropped' in entry ? entry.dropped : 0) + total,
+    0,
+  );
+  const values = trace
+    .filter((entry): entry is EvaluationTraceValue => !('dropped' in entry))
+    .slice(0, AGENT_ACCESS_EVALUATION_TRACE_MAX_ITEMS);
+  const projected = values.map((entry) => {
     const value: Record<string, unknown> = {
       expression: '',
       roots: [],
@@ -695,13 +735,15 @@ function projectEvaluationTrace(
     return value;
   });
 
-  if (trace.length > AGENT_ACCESS_EVALUATION_TRACE_MAX_ITEMS) {
+  const valueCount = trace.filter((entry) => !('dropped' in entry)).length;
+  const dropped = existingDropped + Math.max(0, valueCount - values.length);
+  if (dropped > 0) {
     projected.push({
       truncated: true,
-      dropped: trace.length - AGENT_ACCESS_EVALUATION_TRACE_MAX_ITEMS,
+      dropped,
     });
     metadata.evaluation_trace_truncated = true;
-    metadata.evaluation_trace_dropped = trace.length - AGENT_ACCESS_EVALUATION_TRACE_MAX_ITEMS;
+    metadata.evaluation_trace_dropped = dropped;
   }
   return projected;
 }
@@ -714,31 +756,41 @@ function projectGateResult(
   const source = gate as {
     kind: string;
     passed?: boolean;
+    uncheckable?: boolean;
+    reason?: string;
     source?: string;
     exit_code?: number | null;
+    data?: Record<string, unknown>;
   };
   const result: Record<string, unknown> = {kind: source.kind};
   if (source.passed !== undefined) result.passed = source.passed;
+  if (source.uncheckable !== undefined) result.uncheckable = source.uncheckable;
+  if (source.reason !== undefined) strings.field(result, 'reason', source.reason);
   if (source.source !== undefined) strings.field(result, 'source', source.source);
   if (Object.hasOwn(source, 'exit_code')) result.exit_code = source.exit_code;
+  if (source.data !== undefined) strings.serialized(result, 'diagnostic', source.data);
   return result;
 }
 
 function projectStepError(
   error: WorkflowRunStepDetailDto['error'],
+  strings: CappedStringCollector,
 ): Record<string, unknown> | null {
   if (error === null) return null;
   const result: Record<string, unknown> = {};
+  if (error.code !== undefined) {
+    strings.field(result, 'code', error.code, AGENT_ACCESS_DIAGNOSTIC_CODE_MAX_BYTES);
+  }
   if (error.reason !== undefined) result.reason = error.reason;
+  if (error.agent_config_issue !== undefined) result.agent_config_issue = error.agent_config_issue;
   if (error.category !== undefined) result.category = error.category;
   return result;
 }
 
 function workflowRunJobStatusCounts(
   jobs: readonly WorkflowRunJobDetailDto[],
+  sourceCounts?: readonly {status: WorkflowRunJobDetailDto['status']; count: number}[] | undefined,
 ): {status: WorkflowRunJobDetailDto['status']; count: number}[] {
-  const counts = new Map<WorkflowRunJobDetailDto['status'], number>();
-  for (const job of jobs) counts.set(job.status, (counts.get(job.status) ?? 0) + 1);
   const order: readonly WorkflowRunJobDetailDto['status'][] = [
     'pending',
     'running',
@@ -747,6 +799,14 @@ function workflowRunJobStatusCounts(
     'cancelled',
     'skipped',
   ];
+  const counts = new Map<WorkflowRunJobDetailDto['status'], number>();
+  if (sourceCounts !== undefined) {
+    for (const {status, count} of sourceCounts) {
+      counts.set(status, (counts.get(status) ?? 0) + count);
+    }
+  } else {
+    for (const job of jobs) counts.set(job.status, (counts.get(job.status) ?? 0) + 1);
+  }
   return order.flatMap((status) => {
     const count = counts.get(status);
     return count === undefined ? [] : [{status, count}];
@@ -851,8 +911,10 @@ class CappedStringCollector {
     maxBytes: number,
     set: (value: string) => void,
     onTruncate?: (() => void) | undefined,
+    truncate?: ((value: string, maxBytes: number) => AgentAccessUtf8Truncation) | undefined,
   ): void {
-    const initial = truncateAgentAccessUtf8(value, maxBytes);
+    const truncateValue = truncate ?? truncateAgentAccessUtf8;
+    const initial = truncateValue(value, maxBytes);
     let current = initial.value;
     set(initial.value);
     if (initial.truncated) onTruncate?.();
@@ -865,6 +927,11 @@ class CappedStringCollector {
       originalValue: value,
       order: this.order++,
       onTruncate,
+      initiallyTruncated: initial.truncated,
+      truncate: (nextMaxBytes) =>
+        truncate === undefined
+          ? truncateStringForJsonBytes(current, nextMaxBytes)
+          : truncateValue(current, nextMaxBytes),
     });
   }
 
@@ -874,6 +941,7 @@ class CappedStringCollector {
     value: string,
     maxBytes = AGENT_ACCESS_TEXT_MAX_BYTES,
     onTruncate?: (() => void) | undefined,
+    truncate?: ((value: string, maxBytes: number) => AgentAccessUtf8Truncation) | undefined,
   ): void {
     this.add(
       value,
@@ -882,6 +950,7 @@ class CappedStringCollector {
         parent[key] = next;
       },
       onTruncate,
+      truncate,
     );
   }
 
@@ -900,13 +969,338 @@ class CappedStringCollector {
   }
 
   serialized(parent: Record<string, unknown>, key: string, value: unknown): void {
-    const serialized = JSON.stringify(value) ?? 'null';
-    const totalBytes = new TextEncoder().encode(serialized).byteLength;
-    this.field(parent, key, serialized, AGENT_ACCESS_SERIALIZED_JSON_MAX_BYTES, () => {
-      parent[`${key}_truncated`] = true;
-      parent[`${key}_total_bytes`] = totalBytes;
-    });
+    const initial = serializeJsonWithinLimit(value, AGENT_ACCESS_SERIALIZED_JSON_MAX_BYTES);
+    const truncate = (candidate: string, maxBytes: number) => {
+      if (candidate === initial.value && maxBytes === AGENT_ACCESS_SERIALIZED_JSON_MAX_BYTES) {
+        return initial;
+      }
+      return truncateSerializedJson(parseJson(candidate), maxBytes, initial.totalBytes);
+    };
+    this.field(
+      parent,
+      key,
+      initial.value,
+      AGENT_ACCESS_SERIALIZED_JSON_MAX_BYTES,
+      () => {
+        parent[`${key}_truncated`] = true;
+        parent[`${key}_total_bytes`] = initial.totalBytes;
+      },
+      truncate,
+    );
   }
+}
+
+const utf8Encoder = new TextEncoder();
+
+function utf8ByteLength(value: string): number {
+  return utf8Encoder.encode(value).byteLength;
+}
+
+function parseJson(value: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function truncateSerializedJson(
+  value: unknown,
+  maxBytes: number,
+  totalBytes: number,
+): AgentAccessUtf8Truncation {
+  const next = serializeJsonWithinLimit(value, maxBytes);
+  return {value: next.value, truncated: next.truncated, totalBytes};
+}
+
+type SerializedJsonValue = AgentAccessUtf8Truncation;
+
+function serializeJsonWithinLimit(value: unknown, maxBytes: number): SerializedJsonValue {
+  try {
+    const totalBytes = jsonValueByteLength(value, new Set<object>());
+    if (totalBytes <= maxBytes) {
+      return {value: serializeJsonFully(value, new Set<object>()), truncated: false, totalBytes};
+    }
+    const bounded = serializeJsonBounded(value, maxBytes, new Set<object>());
+    return {value: bounded.value, truncated: true, totalBytes};
+  } catch {
+    return {value: 'null', truncated: false, totalBytes: 4};
+  }
+}
+
+function serializeJsonBounded(
+  value: unknown,
+  maxBytes: number,
+  stack: Set<object>,
+): {value: string; truncated: boolean} {
+  if (maxBytes < 2) return {value: '', truncated: true};
+  if (value === null) return boundedPrimitive('null', maxBytes);
+  if (typeof value === 'boolean') return boundedPrimitive(value ? 'true' : 'false', maxBytes);
+  if (typeof value === 'number') return boundedPrimitive(numberJson(value), maxBytes);
+  if (typeof value === 'string') return boundedJsonString(value, maxBytes);
+  if (typeof value === 'undefined' || typeof value === 'function' || typeof value === 'symbol') {
+    return boundedPrimitive('null', maxBytes);
+  }
+  if (typeof value === 'bigint') return boundedPrimitive('null', maxBytes);
+  if (typeof value !== 'object') return boundedPrimitive('null', maxBytes);
+  if (stack.has(value)) throw new Error('Cannot serialize cyclic JSON');
+
+  stack.add(value);
+  try {
+    return Array.isArray(value)
+      ? serializeJsonArrayBounded(value, maxBytes, stack)
+      : serializeJsonObjectBounded(value as Record<string, unknown>, maxBytes, stack);
+  } finally {
+    stack.delete(value);
+  }
+}
+
+function serializeJsonArrayBounded(
+  value: readonly unknown[],
+  maxBytes: number,
+  stack: Set<object>,
+): {value: string; truncated: boolean} {
+  let result = '[';
+  let truncated = false;
+  for (const [index, item] of value.entries()) {
+    const separator = index === 0 ? '' : ',';
+    const available = maxBytes - utf8ByteLength(result) - utf8ByteLength(separator) - 1;
+    if (available < 2) {
+      truncated = true;
+      break;
+    }
+    const child = serializeJsonBounded(item, available, stack);
+    const candidate = result + separator + child.value;
+    if (utf8ByteLength(candidate) + 1 > maxBytes || child.value === '') {
+      truncated = true;
+      break;
+    }
+    result = candidate;
+    if (child.truncated) {
+      truncated = true;
+      break;
+    }
+  }
+  return {value: `${result}]`, truncated};
+}
+
+function serializeJsonObjectBounded(
+  value: Record<string, unknown>,
+  maxBytes: number,
+  stack: Set<object>,
+): {value: string; truncated: boolean} {
+  let result = '{';
+  let included = 0;
+  let truncated = false;
+  for (const [key, item] of Object.entries(value)) {
+    if (!isSerializableObjectProperty(item)) continue;
+    const separator = included === 0 ? '' : ',';
+    const availableForProperty = maxBytes - utf8ByteLength(result) - utf8ByteLength(separator) - 1;
+    const keyBytes = jsonStringByteLength(key);
+    if (availableForProperty < keyBytes + 1 + 2) {
+      truncated = true;
+      break;
+    }
+    const keyJson = encodeJsonString(key);
+    const available = availableForProperty - keyBytes - 1;
+    if (available < 2) {
+      truncated = true;
+      break;
+    }
+    const child = serializeJsonBounded(item, available, stack);
+    const candidate = `${result + separator + keyJson}:${child.value}`;
+    if (utf8ByteLength(candidate) + 1 > maxBytes || child.value === '') {
+      truncated = true;
+      break;
+    }
+    result = candidate;
+    included += 1;
+    if (child.truncated) {
+      truncated = true;
+      break;
+    }
+  }
+  return {value: `${result}}`, truncated};
+}
+
+function boundedPrimitive(value: string, maxBytes: number): {value: string; truncated: boolean} {
+  return utf8ByteLength(value) <= maxBytes
+    ? {value, truncated: false}
+    : {value: maxBytes >= 2 ? '""' : '', truncated: true};
+}
+
+function boundedJsonString(value: string, maxBytes: number): {value: string; truncated: boolean} {
+  const totalBytes = jsonStringByteLength(value);
+  if (totalBytes <= maxBytes) return {value: encodeJsonString(value), truncated: false};
+  if (maxBytes < 2) return {value: '', truncated: true};
+
+  let result = '"';
+  let index = 0;
+  while (index < value.length) {
+    const codePoint = value.codePointAt(index);
+    if (codePoint === undefined) break;
+    const character = String.fromCodePoint(codePoint);
+    const encoded = encodeJsonString(character).slice(1, -1);
+    if (utf8ByteLength(result) + utf8ByteLength(encoded) + 1 > maxBytes) break;
+    result += encoded;
+    index += character.length;
+  }
+  return {value: `${result}"`, truncated: true};
+}
+
+function truncateStringForJsonBytes(value: string, maxBytes: number): AgentAccessUtf8Truncation {
+  const totalBytes = utf8ByteLength(value);
+  if (jsonStringByteLength(value) <= maxBytes) return {value, truncated: false, totalBytes};
+  const bounded = boundedJsonString(value, maxBytes);
+  const parsed = parseJson(bounded.value);
+  return {
+    value: typeof parsed === 'string' ? parsed : '',
+    truncated: true,
+    totalBytes,
+  };
+}
+
+function serializeJsonFully(value: unknown, stack: Set<object>): string {
+  if (value === null) return 'null';
+  if (typeof value === 'string') return encodeJsonString(value);
+  if (typeof value === 'boolean') return value ? 'true' : 'false';
+  if (typeof value === 'number') return numberJson(value);
+  if (typeof value === 'undefined' || typeof value === 'function' || typeof value === 'symbol') {
+    return 'null';
+  }
+  if (typeof value === 'bigint') throw new Error('Cannot serialize bigint as JSON');
+  if (typeof value !== 'object') return 'null';
+  if (stack.has(value)) throw new Error('Cannot serialize cyclic JSON');
+
+  stack.add(value);
+  try {
+    if (Array.isArray(value)) {
+      return `[${Array.from(value, (item) => serializeJsonFully(item, stack)).join(',')}]`;
+    }
+    return `{${Object.entries(value)
+      .filter(([, item]) => isSerializableObjectProperty(item))
+      .map(([key, item]) => `${encodeJsonString(key)}:${serializeJsonFully(item, stack)}`)
+      .join(',')}}`;
+  } finally {
+    stack.delete(value);
+  }
+}
+
+function jsonValueByteLength(value: unknown, stack: Set<object>): number {
+  if (value === null) return 4;
+  if (typeof value === 'string') return jsonStringByteLength(value);
+  if (typeof value === 'boolean') return value ? 4 : 5;
+  if (typeof value === 'number') return utf8ByteLength(numberJson(value));
+  if (typeof value === 'undefined' || typeof value === 'function' || typeof value === 'symbol') {
+    return 4;
+  }
+  if (typeof value === 'bigint') throw new Error('Cannot serialize bigint as JSON');
+  if (typeof value !== 'object') return 4;
+  if (stack.has(value)) throw new Error('Cannot serialize cyclic JSON');
+
+  stack.add(value);
+  try {
+    if (Array.isArray(value)) {
+      return (
+        2 +
+        Array.from(value).reduce(
+          (total, item, index) => total + (index === 0 ? 0 : 1) + jsonValueByteLength(item, stack),
+          0,
+        )
+      );
+    }
+    return (
+      2 +
+      Object.entries(value)
+        .filter(([, item]) => isSerializableObjectProperty(item))
+        .reduce(
+          (total, [key, item], index) =>
+            total +
+            (index === 0 ? 0 : 1) +
+            jsonStringByteLength(key) +
+            1 +
+            jsonValueByteLength(item, stack),
+          0,
+        )
+    );
+  } finally {
+    stack.delete(value);
+  }
+}
+
+function isSerializableObjectProperty(value: unknown): boolean {
+  return typeof value !== 'undefined' && typeof value !== 'function' && typeof value !== 'symbol';
+}
+
+function numberJson(value: number): string {
+  if (!Number.isFinite(value)) return 'null';
+  return Object.is(value, -0) ? '0' : String(value);
+}
+
+function encodeJsonString(value: string): string {
+  let result = '"';
+  for (let index = 0; index < value.length; index += 1) {
+    const codePoint = value.codePointAt(index);
+    if (codePoint === undefined) continue;
+    const character = String.fromCodePoint(codePoint);
+    index += character.length - 1;
+    switch (codePoint) {
+      case 0x08:
+        result += '\\b';
+        break;
+      case 0x09:
+        result += '\\t';
+        break;
+      case 0x0a:
+        result += '\\n';
+        break;
+      case 0x0c:
+        result += '\\f';
+        break;
+      case 0x0d:
+        result += '\\r';
+        break;
+      case 0x22:
+        result += '\\"';
+        break;
+      case 0x5c:
+        result += '\\\\';
+        break;
+      default:
+        if (codePoint <= 0x1f || (codePoint >= 0xd800 && codePoint <= 0xdfff)) {
+          result += `\\u${codePoint.toString(16).padStart(4, '0')}`;
+        } else {
+          result += character;
+        }
+    }
+  }
+  return `${result}"`;
+}
+
+function jsonStringByteLength(value: string): number {
+  let bytes = 2;
+  for (let index = 0; index < value.length; index += 1) {
+    const codePoint = value.codePointAt(index);
+    if (codePoint === undefined) continue;
+    const character = String.fromCodePoint(codePoint);
+    index += character.length - 1;
+    if (
+      codePoint === 0x08 ||
+      codePoint === 0x09 ||
+      codePoint === 0x0a ||
+      codePoint === 0x0c ||
+      codePoint === 0x0d ||
+      codePoint === 0x22 ||
+      codePoint === 0x5c
+    ) {
+      bytes += 2;
+    } else if (codePoint <= 0x1f || (codePoint >= 0xd800 && codePoint <= 0xdfff)) {
+      bytes += 6;
+    } else {
+      bytes += utf8ByteLength(character);
+    }
+  }
+  return bytes;
 }
 
 function invalidRequest() {

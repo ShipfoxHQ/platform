@@ -1,6 +1,6 @@
 import {z} from 'zod';
 import {evaluationTraceSchema} from './evaluation-trace.js';
-import {jobDtoSchema} from './job.js';
+import {jobDtoSchema, jobStatusSchema} from './job.js';
 import {workflowExecutionEventSchema} from './job-listening.js';
 import {stepAttemptDetailDtoSchema, stepAttemptDtoSchema, stepDtoSchema} from './step.js';
 import {
@@ -9,6 +9,17 @@ import {
   workflowRunAttemptDtoSchema,
   workflowRunDtoFields,
 } from './workflow-run.js';
+
+export const workflowRunDiagnosticReadLimitsSchema = z
+  .object({
+    jobs: z.number().int().min(1).max(10),
+    executions: z.number().int().min(1).max(1),
+    steps: z.number().int().min(1).max(20),
+    attempts: z.number().int().min(1).max(1),
+  })
+  .strict();
+
+export type WorkflowRunDiagnosticReadLimits = z.infer<typeof workflowRunDiagnosticReadLimitsSchema>;
 
 export const jobExecutionDtoSchema = z.object({
   id: z.string().uuid(),
@@ -40,6 +51,7 @@ export const workflowRunStepDetailDtoSchema = stepDtoSchema.extend({
   response: z.string().nullable(),
   gate_result: stepAttemptDtoSchema.shape.gate_result,
   attempts: z.array(stepAttemptDtoSchema),
+  attempts_total_count: z.number().int().nonnegative().optional(),
 });
 
 export type WorkflowRunStepDetailDto = z.infer<typeof workflowRunStepDetailDtoSchema>;
@@ -58,6 +70,7 @@ export type StepAttemptDetailResponseDto = z.infer<typeof stepAttemptDetailRespo
 
 export const workflowRunJobExecutionDetailDtoSchema = jobExecutionDtoSchema.extend({
   steps: z.array(workflowRunStepDetailDtoSchema),
+  steps_total_count: z.number().int().nonnegative().optional(),
 });
 
 export type WorkflowRunJobExecutionDetailDto = z.infer<
@@ -66,6 +79,7 @@ export type WorkflowRunJobExecutionDetailDto = z.infer<
 
 export const workflowRunJobDetailDtoSchema = jobDtoSchema.extend({
   job_executions: z.array(workflowRunJobExecutionDetailDtoSchema),
+  job_executions_total_count: z.number().int().nonnegative().optional(),
 });
 
 export type WorkflowRunJobDetailDto = z.infer<typeof workflowRunJobDetailDtoSchema>;
@@ -77,6 +91,10 @@ export const workflowRunDetailResponseSchema = z
     ...workflowRunDtoFields,
     run_attempt: workflowRunAttemptDtoSchema,
     jobs: z.array(workflowRunJobDetailDtoSchema),
+    jobs_total_count: z.number().int().nonnegative().optional(),
+    job_status_counts: z
+      .array(z.object({status: jobStatusSchema, count: z.number().int().nonnegative()}))
+      .optional(),
     /**
      * Whether any job execution of this attempt reached its runner. Redundant with the executions
      * below, and deliberately so: the server decides it once for both this response and the run

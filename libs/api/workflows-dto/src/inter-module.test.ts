@@ -27,6 +27,7 @@ describe('workflowsInterModuleContract', () => {
       workspaceId,
       workflowRunId,
       attempt: 2,
+      diagnostic: {jobs: 10, executions: 1, steps: 20, attempts: 1},
     });
     const step = workflowsInterModuleContract.methods.getStepAttemptDetail.input.parse({
       workspaceId,
@@ -37,6 +38,7 @@ describe('workflowsInterModuleContract', () => {
     expect(runs.cursor).toEqual(cursor);
     expect(runs.filters?.status).toBe('failed');
     expect(detail.attempt).toBe(2);
+    expect(detail.diagnostic).toEqual({jobs: 10, executions: 1, steps: 20, attempts: 1});
     expect(step.stepId).toBe(stepId);
   });
 

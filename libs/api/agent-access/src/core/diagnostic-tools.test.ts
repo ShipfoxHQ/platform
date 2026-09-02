@@ -50,6 +50,7 @@ describe('diagnostic agent-access tools', () => {
       workspaceId,
       workflowRunId: runId,
       attempt: 2,
+      diagnostic: {jobs: 10, executions: 1, steps: 20, attempts: 1},
     });
     expect(result).toMatchObject({
       id: runId,
@@ -76,6 +77,9 @@ describe('diagnostic agent-access tools', () => {
     expect(result).not.toHaveProperty('source_snapshot');
     expect(result.jobs[0]?.job_executions[0]?.steps[0]).not.toHaveProperty('config');
     expect(result.jobs[0]?.job_executions[0]?.steps[0]?.attempts[0]).not.toHaveProperty('output');
+    expect(result.jobs[0]?.job_executions[0]?.steps[0]?.error).toMatchObject({
+      code: 'runner.failed',
+    });
     expect(getWorkflowRunResultSchema.safeParse(result).success).toBe(true);
   });
 
@@ -97,11 +101,11 @@ describe('diagnostic agent-access tools', () => {
           name: 'x'.repeat(512),
           attempts:
             jobIndex === 0 && executionIndex === 1 && stepIndex === 0
-              ? [sourceAttempt(1), sourceAttempt(2)]
+              ? [sourceAttempt(1), sourceAttempt(2)].reverse()
               : [sourceAttempt(1)],
-        })),
-      })),
-    }));
+        })).reverse(),
+      })).reverse(),
+    })).reverse();
     mocks.workflows.getWorkflowRunDetail.mockResolvedValue({run: workflowRun({jobs})});
 
     const response = await tool(mocks, 'get_workflow_run').execute({
@@ -127,8 +131,52 @@ describe('diagnostic agent-access tools', () => {
     expect(result.jobs[0]?.job_executions[0]?.steps[0]?.attempts).toHaveLength(1);
     expect(result.jobs[0]?.job_executions[0]?.steps[0]?.attempts_truncated).toBe(true);
     expect(result.jobs[0]?.job_executions[0]?.steps[0]?.attempts_total_count).toBe(2);
+    expect(result.jobs[0]?.key).toBe('job-1');
+    expect(result.jobs[0]?.job_executions[0]?.sequence).toBe(2);
+    expect(result.jobs[0]?.job_executions[0]?.steps[0]?.position).toBe(1);
+    expect(result.jobs[0]?.job_executions[0]?.steps[0]?.attempts[0]?.attempt).toBe(2);
     expect(serializedAgentAccessEnvelopeByteLength(response)).toBeLessThanOrEqual(128 * 1024);
     expect(getWorkflowRunResultSchema.safeParse(result).success).toBe(true);
+  });
+
+  test('stops structural reduction after the first fitting stage', async () => {
+    const mocks = clients();
+    const jobs = Array.from({length: 3}, (_, jobIndex) => ({
+      ...sourceJob(jobIndex + 1),
+      job_executions: [
+        {
+          ...sourceExecution(jobIndex + 1),
+          steps: Array.from({length: 21}, (_, stepIndex) => ({
+            ...sourceStep(jobIndex * 100 + stepIndex + 1),
+            name: 'step '.concat('x'.repeat(512)),
+            attempts: [
+              {...sourceAttempt(1), restart_feedback: 'feedback '.concat('x'.repeat(512))},
+              {...sourceAttempt(2), restart_feedback: 'feedback '.concat('x'.repeat(512))},
+            ],
+          })),
+        },
+      ],
+    }));
+    mocks.workflows.getWorkflowRunDetail.mockResolvedValue({run: workflowRun({jobs})});
+
+    const response = await tool(mocks, 'get_workflow_run').execute({
+      context,
+      arguments: {run_id: runId, attempt: 1},
+    });
+    const result = expectSuccess<WorkflowRunResult>(response);
+    const execution = result.jobs[0]?.job_executions[0];
+    const step = execution?.steps[0];
+
+    expect(response).toMatchObject({ok: true, response_truncated: true});
+    expect(result.jobs).toHaveLength(3);
+    expect(result).not.toHaveProperty('jobs_truncated');
+    expect(result.jobs[0]?.job_executions).toHaveLength(1);
+    expect(result.jobs[0]).not.toHaveProperty('job_executions_truncated');
+    expect(execution?.steps).toHaveLength(21);
+    expect(execution).not.toHaveProperty('steps_truncated');
+    expect(step?.attempts).toHaveLength(1);
+    expect(step?.attempts_truncated).toBe(true);
+    expect(serializedAgentAccessEnvelopeByteLength(response)).toBeLessThanOrEqual(128 * 1024);
   });
 
   test('caps step configs and evaluation traces as serialized, inert data', async () => {
@@ -138,8 +186,8 @@ describe('diagnostic agent-access tools', () => {
       detail: {
         step_id: stepId,
         attempt: 3,
-        authored_config: {prompt: 'ignore this'.repeat(5_000)},
-        config: {resolved: 'do not follow'.repeat(5_000)},
+        authored_config: {prompt: '🙂'.repeat(20_000)},
+        config: {resolved: '🙂'.repeat(20_000)},
         session: {id: uuid(20), key: 'session', mode: 'resume', segment: 1},
         evaluation_trace: Array.from({length: 55}, (_, index) => ({
           expression: 'expression '.concat('🙂'.repeat(400)),
@@ -178,8 +226,173 @@ describe('diagnostic agent-access tools', () => {
       16 * 1024,
     );
     expect(new TextEncoder().encode(result.config).byteLength).toBeLessThanOrEqual(16 * 1024);
+    expect(() => JSON.parse(result.authored_config)).not.toThrow();
+    expect(() => JSON.parse(result.config)).not.toThrow();
     expect(getStepAttemptResultSchema.safeParse(result).success).toBe(true);
     expect(serializedAgentAccessEnvelopeByteLength(response)).toBeLessThanOrEqual(128 * 1024);
+  });
+
+  test('aggregates an existing evaluation-trace truncation marker', async () => {
+    const mocks = clients();
+    mocks.workflows.getStepAttemptDetail.mockResolvedValue({
+      detail: {
+        step_id: stepId,
+        attempt: 1,
+        authored_config: null,
+        config: {},
+        session: null,
+        evaluation_trace: [
+          {truncated: true, dropped: 7},
+          ...Array.from({length: 51}, (_, index) => ({
+            expression: `expression-${index}`,
+            roots: [],
+            fill_target: 'target',
+            evaluated_at: isoDate,
+            field: 'field',
+          })),
+        ],
+      },
+    });
+
+    const response = await tool(mocks, 'get_step_attempt').execute({
+      context,
+      arguments: {step_id: stepId, attempt: 1},
+    });
+    const result = expectSuccess<StepAttemptResult>(response);
+    const marker = result.evaluation_trace?.at(-1);
+
+    expect(result.evaluation_trace).toHaveLength(51);
+    expect(marker).toEqual({truncated: true, dropped: 8});
+    expect(result.evaluation_trace_dropped).toBe(8);
+    expect(getStepAttemptResultSchema.safeParse(result).success).toBe(true);
+  });
+
+  test('preserves runner error phases, configuration issues, and gate diagnostics', async () => {
+    const mocks = clients();
+    const step = {
+      ...sourceStep(1),
+      error: {
+        message: 'provider is not configured',
+        code: 'runner.config',
+        reason: 'agent_config_invalid',
+        agent_config_issue: 'provider_not_configured',
+        category: 'setup',
+      },
+      attempts: [
+        {
+          ...sourceAttempt(1),
+          gate_result: {
+            kind: 'uncheckable',
+            passed: false,
+            uncheckable: true,
+            reason: 'gate could not be evaluated',
+            exit_code: 1,
+          },
+        },
+      ],
+    };
+    mocks.workflows.getWorkflowRunDetail.mockResolvedValue({
+      run: workflowRun({
+        jobs: [
+          {
+            ...sourceJob(1),
+            job_executions: [
+              {
+                ...sourceExecution(1),
+                steps: [
+                  step,
+                  {
+                    ...sourceStep(2),
+                    attempts: [
+                      {
+                        ...sourceAttempt(2),
+                        gate_result: {kind: 'unknown', data: {diagnostic: 'value'}},
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+    });
+
+    const response = await tool(mocks, 'get_workflow_run').execute({
+      context,
+      arguments: {run_id: runId, attempt: 1},
+    });
+    const result = expectSuccess<WorkflowRunResult>(response);
+    const projectedStep = result.jobs[0]?.job_executions[0]?.steps[0];
+    const projectedAttempt = projectedStep?.attempts[0];
+
+    expect(projectedStep?.error).toMatchObject({
+      code: 'runner.config',
+      reason: 'agent_config_invalid',
+      agent_config_issue: 'provider_not_configured',
+      category: 'setup',
+    });
+    expect(projectedAttempt?.gate_result).toEqual({
+      kind: 'uncheckable',
+      passed: false,
+      uncheckable: true,
+      reason: 'gate could not be evaluated',
+      exit_code: 1,
+    });
+    expect(projectedStep?.attempts).toHaveLength(1);
+    expect(projectedStep?.attempts[0]?.gate_result).toEqual({
+      kind: 'uncheckable',
+      passed: false,
+      uncheckable: true,
+      reason: 'gate could not be evaluated',
+      exit_code: 1,
+    });
+    expect(result.jobs[0]?.job_executions[0]?.steps[1]?.attempts[0]?.gate_result).toEqual({
+      kind: 'unknown',
+      diagnostic: JSON.stringify({diagnostic: 'value'}),
+    });
+    expect(getWorkflowRunResultSchema.safeParse(result).success).toBe(true);
+  });
+
+  test('bounds runner labels and dependencies without changing their ordering', async () => {
+    const mocks = clients();
+    mocks.workflows.getWorkflowRunDetail.mockResolvedValue({
+      run: workflowRun({
+        jobs: [
+          {
+            ...sourceJob(1),
+            runner: Array.from({length: 12}, (_, index) =>
+              `runner-${index}-`.concat('🙂'.repeat(200)),
+            ),
+            dependencies: Array.from({length: 27}, (_, index) =>
+              `${index}-`.concat('🙂'.repeat(200)),
+            ),
+          },
+        ],
+      }),
+    });
+
+    const response = await tool(mocks, 'get_workflow_run').execute({
+      context,
+      arguments: {run_id: runId, attempt: 1},
+    });
+    const result = expectSuccess<WorkflowRunResult>(response);
+    const job = result.jobs[0];
+
+    expect(job?.runner).toHaveLength(10);
+    expect(job?.runner_truncated).toBe(true);
+    expect(job?.runner_total_count).toBe(12);
+    expect(job?.runner?.every((value) => new TextEncoder().encode(value).byteLength <= 256)).toBe(
+      true,
+    );
+    expect(job?.dependencies).toHaveLength(25);
+    expect(
+      job?.dependencies?.every((value) => new TextEncoder().encode(value).byteLength <= 256),
+    ).toBe(true);
+    expect(job?.dependencies?.[0]?.startsWith('0-🙂')).toBe(true);
+    expect(job?.dependencies_truncated).toBe(true);
+    expect(job?.dependencies_total_count).toBe(27);
+    expect(getWorkflowRunResultSchema.safeParse(result).success).toBe(true);
   });
 
   test('projects and caps trigger details and maps replay history', async () => {
@@ -207,17 +420,17 @@ describe('diagnostic agent-access tools', () => {
         receivedEventId: eventId,
         subscriptionKind: 'trigger' as const,
         subscriptionId: uuid(200 + index),
-        subscriptionName: 'subscription',
-        workflowDefinitionId: uuid(300),
-        projectId: uuid(301),
-        workflowRunId: uuid(302),
-        jobId: uuid(303),
+        subscriptionName: `subscription-${index}`,
+        workflowDefinitionId: uuid(300 + index),
+        projectId: uuid(400 + index),
+        workflowRunId: uuid(500 + index),
+        jobId: uuid(600 + index),
         matcherKind: 'on' as const,
         matcherOrdinal: index,
         decision: 'triggered' as const,
-        runId: uuid(304),
+        runId: uuid(700 + index),
         runName: 'run',
-        reason: 'reason'.repeat(200),
+        reason: `reason-${index}`,
         createdAt: new Date(Date.UTC(2026, 7, 1 + index)).toISOString(),
       })),
       replays: Array.from({length: 25}, (_, index) => ({
@@ -234,6 +447,12 @@ describe('diagnostic agent-access tools', () => {
     });
     const result = expectSuccess<TriggerResult>(response);
 
+    expect(mocks.triggers.getTriggerEvent).toHaveBeenCalledWith({
+      workspaceId,
+      eventId,
+      diagnostic: {decisions: 50, replays: 20},
+    });
+
     expect(result).toMatchObject({
       id: eventId,
       connection_name: 'Connection',
@@ -244,6 +463,16 @@ describe('diagnostic agent-access tools', () => {
       replays_truncated: true,
     });
     expect(result.decisions).toHaveLength(50);
+    expect(result.decisions[0]).toEqual({
+      id: uuid(154),
+      subscription_kind: 'trigger',
+      outcome: 'triggered',
+      reason: 'reason-54',
+      workflow_definition_id: uuid(354),
+      project_id: uuid(454),
+      workflow_run_id: uuid(554),
+      job_id: uuid(654),
+    });
     expect(result.replays).toHaveLength(20);
     expect(result.replays[0]).toMatchObject({
       id: uuid(424),
@@ -268,6 +497,7 @@ describe('diagnostic agent-access tools', () => {
     });
     const facets = expectSuccess<FacetsResult>(facetsResponse);
 
+    expect(mocks.triggers.getTriggerEventFacets).toHaveBeenCalledWith({workspaceId});
     expect(facets.sources).toHaveLength(50);
     expect(new TextEncoder().encode(facets.sources[0]?.value ?? '').byteLength).toBe(256);
     expect(getTriggerEventFacetsResultSchema.safeParse(facets).success).toBe(true);
@@ -281,6 +511,151 @@ describe('diagnostic agent-access tools', () => {
     expect(notFound).toEqual({ok: false, error: {code: 'not-found'}});
     expect(agentAccessEnvelopeSchema.safeParse(notFound).success).toBe(true);
     expect(mocks.workflows.getWorkflowRunDetail).not.toHaveBeenCalled();
+  });
+
+  test('returns not-found without a detail read when the latest step attempt is absent', async () => {
+    const mocks = clients();
+    mocks.workflows.getLatestStepAttempt.mockResolvedValue({attempt: null});
+
+    const response = await tool(mocks, 'get_step_attempt').execute({
+      context,
+      arguments: {step_id: stepId},
+    });
+
+    expect(response).toEqual({ok: false, error: {code: 'not-found'}});
+    expect(mocks.workflows.getStepAttemptDetail).not.toHaveBeenCalled();
+  });
+
+  test('returns not-found when the selected step attempt detail is absent', async () => {
+    const mocks = clients();
+    mocks.workflows.getStepAttemptDetail.mockResolvedValue({detail: null});
+
+    const response = await tool(mocks, 'get_step_attempt').execute({
+      context,
+      arguments: {step_id: stepId, attempt: 2},
+    });
+
+    expect(response).toEqual({ok: false, error: {code: 'not-found'}});
+    expect(mocks.workflows.getStepAttemptDetail).toHaveBeenCalledWith({
+      workspaceId,
+      stepId,
+      attempt: 2,
+    });
+  });
+
+  test('accepts the maximum valid attempt without changing producer inputs', async () => {
+    const mocks = clients();
+    const attempt = 2_147_483_647;
+    mocks.workflows.getWorkflowRunDetail.mockResolvedValue({
+      run: workflowRun({run_attempt: {...workflowRun().run_attempt, attempt}}),
+    });
+
+    const response = await tool(mocks, 'get_workflow_run').execute({
+      context,
+      arguments: {run_id: runId, attempt},
+    });
+
+    expect(response.ok).toBe(true);
+    expect(mocks.workflows.getLatestRunAttempt).not.toHaveBeenCalled();
+    expect(mocks.workflows.getWorkflowRunDetail).toHaveBeenCalledWith({
+      workspaceId,
+      workflowRunId: runId,
+      attempt,
+      diagnostic: {jobs: 10, executions: 1, steps: 20, attempts: 1},
+    });
+  });
+
+  test('rejects malformed identifiers and attempts before calling producers', async () => {
+    const mocks = clients();
+    const workflowTool = tool(mocks, 'get_workflow_run');
+    const stepTool = tool(mocks, 'get_step_attempt');
+
+    await expect(
+      workflowTool.execute({context, arguments: {run_id: 'not-a-uuid', attempt: 1}}),
+    ).resolves.toEqual({ok: false, error: {code: 'invalid-request'}});
+    await expect(
+      workflowTool.execute({context, arguments: {run_id: runId, attempt: 0}}),
+    ).resolves.toEqual({ok: false, error: {code: 'invalid-request'}});
+    await expect(
+      workflowTool.execute({context, arguments: {run_id: runId, unexpected: true}}),
+    ).resolves.toEqual({ok: false, error: {code: 'invalid-request'}});
+    await expect(stepTool.execute({context, arguments: {step_id: 'not-a-uuid'}})).resolves.toEqual({
+      ok: false,
+      error: {code: 'invalid-request'},
+    });
+    await expect(
+      stepTool.execute({context, arguments: {step_id: stepId, attempt: 2_147_483_648}}),
+    ).resolves.toEqual({ok: false, error: {code: 'invalid-request'}});
+    await expect(
+      stepTool.execute({context, arguments: {step_id: stepId, extra: true}}),
+    ).resolves.toEqual({ok: false, error: {code: 'invalid-request'}});
+
+    expect(mocks.workflows.getLatestRunAttempt).not.toHaveBeenCalled();
+    expect(mocks.workflows.getLatestStepAttempt).not.toHaveBeenCalled();
+    expect(mocks.workflows.getWorkflowRunDetail).not.toHaveBeenCalled();
+  });
+
+  test('projects dev-run provenance without exposing the source snapshot', async () => {
+    const mocks = clients();
+    mocks.workflows.getWorkflowRunDetail.mockResolvedValue({
+      run: workflowRun({
+        origin: 'dev',
+        dev_source: {
+          ref: 'refs/heads/feature',
+          commit: '0123456789abcdef',
+          config_path: '.shipfox/workflow.yml',
+          initiated_by_user_id: uuid(600),
+          replay_of_event_id: eventId,
+        },
+      }),
+    });
+
+    const response = await tool(mocks, 'get_workflow_run').execute({
+      context,
+      arguments: {run_id: runId, attempt: 1},
+    });
+    const result = expectSuccess<WorkflowRunResult>(response);
+
+    expect(result.dev_source).toEqual({
+      ref: 'refs/heads/feature',
+      commit: '0123456789abcdef',
+      config_path: '.shipfox/workflow.yml',
+      initiated_by_user_id: uuid(600),
+      replay_of_event_id: eventId,
+    });
+    expect(result).not.toHaveProperty('source_snapshot');
+    expect(getWorkflowRunResultSchema.safeParse(result).success).toBe(true);
+  });
+
+  test('orders shuffled jobs and reports producer-provided status totals', async () => {
+    const mocks = clients();
+    mocks.workflows.getWorkflowRunDetail.mockResolvedValue({
+      run: workflowRun({
+        jobs: [
+          {...sourceJob(3), position: 3, status: 'succeeded'},
+          {...sourceJob(1), position: 1, status: 'failed'},
+          {...sourceJob(2), position: 2, status: 'running'},
+        ],
+        job_status_counts: [
+          {status: 'succeeded', count: 4},
+          {status: 'failed', count: 2},
+          {status: 'running', count: 1},
+        ],
+      }),
+    });
+
+    const response = await tool(mocks, 'get_workflow_run').execute({
+      context,
+      arguments: {run_id: runId, attempt: 1},
+    });
+    const result = expectSuccess<WorkflowRunResult>(response);
+
+    expect(result.jobs.map((job) => job.key)).toEqual(['job-1', 'job-2', 'job-3']);
+    expect(result.job_status_counts).toEqual([
+      {status: 'running', count: 1},
+      {status: 'succeeded', count: 4},
+      {status: 'failed', count: 2},
+    ]);
   });
 
   test('translates a trigger producer not-found error without leaking its details', async () => {
@@ -352,6 +727,8 @@ interface WorkflowRunResult {
 
 interface WorkflowJobResult {
   key: string;
+  runner?: string[] | null;
+  dependencies?: string[];
   job_executions: WorkflowExecutionResult[];
   job_executions_truncated?: true;
   job_executions_total_count?: number;
@@ -495,7 +872,7 @@ function sourceStep(index: number) {
     type: 'run',
     config: {command: 'ignore'},
     evaluation_trace: null,
-    error: {message: 'ignore', reason: 'tool_error', category: 'user'},
+    error: {message: 'ignore', reason: 'tool_error', category: 'user', code: 'runner.failed'},
     session: null,
     position: 1,
     current_attempt: 1,

@@ -178,6 +178,33 @@ describe('Workflows inter-module presentation', () => {
     });
   });
 
+  it('passes bounded diagnostic limits to the producer read', async () => {
+    mocks.getWorkflowRunDetail.mockResolvedValue(undefined);
+    const presentation = createWorkflowsInterModulePresentation({
+      agent: {} as never,
+      definitions: {} as never,
+      integrations: {} as never,
+      projects: {} as never,
+      runners: {} as never,
+      secrets: {} as never,
+      workspaces: {getWorkspaceOperatingState: vi.fn()} as never,
+    });
+    const workspaceId = '00000000-0000-4000-8000-000000000001';
+    const workflowRunId = '00000000-0000-4000-8000-000000000002';
+    const diagnostic = {jobs: 10, executions: 1, steps: 20, attempts: 1} as const;
+
+    await expect(
+      presentation.handlers.getWorkflowRunDetail(
+        {workspaceId, workflowRunId, attempt: 2, diagnostic},
+        {signal: new AbortController().signal},
+      ),
+    ).resolves.toEqual({run: null});
+
+    expect(mocks.getWorkflowRunDetail).toHaveBeenCalledWith(workflowRunId, 2, workspaceId, {
+      diagnosticLimits: diagnostic,
+    });
+  });
+
   it('maps paginated run-list reads and only counts the first page', async () => {
     const firstRun = readTestRun({name: 'First', workflowName: 'First'});
     const secondRun = readTestRun({

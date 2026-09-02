@@ -11,7 +11,9 @@ import {createTriggersInterModulePresentation} from './inter-module.js';
 const mocks = vi.hoisted(() => ({
   getTriggerEventById: vi.fn(),
   listDecisionsByReceivedEventId: vi.fn(),
+  listDecisionsByReceivedEventIdPage: vi.fn(),
   listReplaysOfTriggerEvent: vi.fn(),
+  listReplaysOfTriggerEventPage: vi.fn(),
   listTriggerEventFacets: vi.fn(),
   listTriggerEvents: vi.fn(),
 }));
@@ -300,6 +302,40 @@ describe('triggers inter-module presentation', () => {
       decisions: [],
       replays: [],
     });
+  });
+
+  it('uses bounded producer pages and carries exact history totals for diagnostics', async () => {
+    const item = event();
+    mocks.getTriggerEventById.mockResolvedValue(item);
+    mocks.listDecisionsByReceivedEventIdPage.mockResolvedValue({items: [], totalCount: 55});
+    mocks.listReplaysOfTriggerEventPage.mockResolvedValue({items: [], totalCount: 25});
+
+    const result = await presentation().handlers.getTriggerEvent(
+      {
+        workspaceId: WORKSPACE_ID,
+        eventId: item.id,
+        diagnostic: {decisions: 50, replays: 20},
+      },
+      {signal: new AbortController().signal},
+    );
+
+    expect(mocks.listDecisionsByReceivedEventIdPage).toHaveBeenCalledWith({
+      receivedEventId: item.id,
+      limit: 50,
+    });
+    expect(mocks.listReplaysOfTriggerEventPage).toHaveBeenCalledWith({
+      eventId: item.id,
+      workspaceId: WORKSPACE_ID,
+      limit: 20,
+    });
+    expect(triggersInterModuleContract.methods.getTriggerEvent.output.parse(result)).toMatchObject({
+      decisions: [],
+      decisionsTotalCount: 55,
+      replays: [],
+      replaysTotalCount: 25,
+    });
+    expect(mocks.listDecisionsByReceivedEventId).not.toHaveBeenCalled();
+    expect(mocks.listReplaysOfTriggerEvent).not.toHaveBeenCalled();
   });
 
   it('uses one not-found error for an event outside the requested workspace', async () => {

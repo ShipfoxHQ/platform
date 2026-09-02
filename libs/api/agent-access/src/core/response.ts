@@ -52,6 +52,8 @@ export interface AgentAccessCappedStringRef {
   readonly originalValue: string;
   readonly order: number;
   readonly onTruncate?: (() => void) | undefined;
+  readonly initiallyTruncated?: boolean | undefined;
+  readonly truncate?: ((maxBytes: number) => AgentAccessUtf8Truncation) | undefined;
 }
 
 export interface ReduceAgentAccessDetailResponseParams {
@@ -113,39 +115,115 @@ export function reduceAgentAccessDetailResponse(
   const maxBytes = params.maxBytes ?? AGENT_ACCESS_RESPONSE_MAX_BYTES;
   const originalBytes =
     params.originalBytes ?? serializedAgentAccessEnvelopeByteLength(params.envelope);
-  let candidate = params.envelope;
-  if (!candidate.ok) return agentAccessError('content-too-large');
+  if (!params.envelope.ok) return fitDetailErrorEnvelope(params.envelope, maxBytes);
 
-  if (serializedAgentAccessEnvelopeByteLength(candidate) > maxBytes) {
-    candidate = {
-      ...candidate,
-      response_truncated: true,
-      response_total_bytes: originalBytes,
-    };
-  }
+  const candidate = addDetailTruncationMetadata(params.envelope, originalBytes, maxBytes);
+  let candidateBytes = serializedAgentAccessEnvelopeByteLength(candidate);
+  const states = createStringStates(params.strings);
 
-  while (serializedAgentAccessEnvelopeByteLength(candidate) > maxBytes) {
-    const largest = params.strings
-      .map((ref) => ({
-        ref,
-        bytes: utf8Encoder.encode(ref.get()).byteLength,
-      }))
-      .filter(({bytes}) => bytes > 0)
-      .sort((left, right) => right.bytes - left.bytes || left.ref.order - right.ref.order)[0];
-
+  while (candidateBytes > maxBytes) {
+    const largest = findLargestStringRef(params.strings, states);
     if (largest === undefined) return agentAccessError('content-too-large');
-
-    const nextBytes = Math.floor(largest.bytes / 2);
-    const next = truncateAgentAccessUtf8(largest.ref.originalValue, nextBytes);
-    if (next.value === largest.ref.get()) {
-      largest.ref.set('');
-    } else {
-      largest.ref.set(next.value);
-    }
-    largest.ref.onTruncate?.();
+    const nextBytes = shrinkLargestString(largest, states.get(largest), candidate, candidateBytes);
+    if (nextBytes === undefined) return agentAccessError('content-too-large');
+    candidateBytes = nextBytes;
   }
 
   return candidate;
+}
+
+interface StringState {
+  encodedBytes: number;
+  rawBytes: number;
+  truncated: boolean;
+}
+
+function fitDetailErrorEnvelope(
+  envelope: AgentAccessEnvelopeDto,
+  maxBytes: number,
+): AgentAccessEnvelopeDto {
+  return serializedAgentAccessEnvelopeByteLength(envelope) <= maxBytes
+    ? envelope
+    : agentAccessError('content-too-large');
+}
+
+function addDetailTruncationMetadata(
+  envelope: AgentAccessEnvelopeDto,
+  originalBytes: number,
+  maxBytes: number,
+): AgentAccessEnvelopeDto {
+  return serializedAgentAccessEnvelopeByteLength(envelope) > maxBytes
+    ? {...envelope, response_truncated: true, response_total_bytes: originalBytes}
+    : envelope;
+}
+
+function createStringStates(
+  refs: readonly AgentAccessCappedStringRef[],
+): Map<AgentAccessCappedStringRef, StringState> {
+  const states = new Map<AgentAccessCappedStringRef, StringState>();
+  for (const ref of refs) {
+    states.set(ref, {
+      encodedBytes: encodedStringBytes(ref.get()),
+      rawBytes: utf8Encoder.encode(ref.get()).byteLength,
+      truncated: ref.initiallyTruncated ?? false,
+    });
+  }
+  return states;
+}
+
+function findLargestStringRef(
+  refs: readonly AgentAccessCappedStringRef[],
+  states: ReadonlyMap<AgentAccessCappedStringRef, StringState>,
+): AgentAccessCappedStringRef | undefined {
+  let largest: AgentAccessCappedStringRef | undefined;
+  let largestBytes = 0;
+  for (const ref of refs) {
+    const bytes = states.get(ref)?.encodedBytes ?? 0;
+    if (
+      bytes > largestBytes ||
+      (bytes === largestBytes && bytes > 0 && ref.order < (largest?.order ?? Infinity))
+    ) {
+      largest = ref;
+      largestBytes = bytes;
+    }
+  }
+  return largest;
+}
+
+function shrinkLargestString(
+  ref: AgentAccessCappedStringRef,
+  state: StringState | undefined,
+  candidate: AgentAccessEnvelopeDto,
+  candidateBytes: number,
+): number | undefined {
+  if (state === undefined) return undefined;
+
+  const nextBytes = ref.truncate
+    ? Math.floor(state.encodedBytes / 2)
+    : Math.floor(state.rawBytes / 2);
+  const current = ref.get();
+  const next = ref.truncate ? ref.truncate(nextBytes) : truncateAgentAccessUtf8(current, nextBytes);
+  if (next.value === current) return undefined;
+  ref.set(next.value);
+  const needsMetadata = !state.truncated && ref.onTruncate !== undefined;
+  const nextState = {
+    encodedBytes: encodedStringBytes(ref.get()),
+    rawBytes: utf8Encoder.encode(ref.get()).byteLength,
+    truncated: state.truncated || needsMetadata,
+  };
+
+  const delta = nextState.encodedBytes - state.encodedBytes;
+  Object.assign(state, nextState);
+  if (needsMetadata) {
+    ref.onTruncate();
+    return serializedAgentAccessEnvelopeByteLength(candidate);
+  }
+
+  return candidateBytes + delta;
+}
+
+function encodedStringBytes(value: string): number {
+  return utf8Encoder.encode(JSON.stringify(value)).byteLength;
 }
 
 export function fitAgentAccessResponseToCeiling(
