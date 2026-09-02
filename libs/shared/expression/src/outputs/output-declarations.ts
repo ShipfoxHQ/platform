@@ -45,7 +45,8 @@ const coercingAjv = new Ajv({
   addUsedSchema: false,
 });
 const jsonOutputValidatorCache = new Map<string, ValidateFunction>();
-const fallbackJsonType = {kind: 'map'} as const satisfies ExpressionType;
+const fallbackJsonType = {kind: 'dyn'} as const satisfies ExpressionType;
+const openObjectJsonType = {kind: 'map'} as const satisfies ExpressionType;
 
 export {workflowDocumentStepOutputTypes as outputTypes};
 
@@ -79,7 +80,8 @@ export function outputDeclarationsToExpressionFields(
 
 export function jsonSchemaToExpressionType(schema: unknown): ExpressionType {
   if (!isPlainRecord(schema)) return fallbackJsonType;
-  if (hasUnsupportedCombinator(schema)) return fallbackJsonType;
+  if (hasDynamicSchemaShape(schema)) return fallbackJsonType;
+  if (schema.patternProperties !== undefined) return openObjectJsonType;
 
   const type = schema.type;
   if (Array.isArray(type)) return fallbackJsonType;
@@ -299,9 +301,10 @@ function closedObjectJsonSchemaToExpressionType(
     !isPlainRecord(properties) ||
     !Array.isArray(required) ||
     !required.every((field) => typeof field === 'string') ||
-    Object.keys(properties).some((field) => !required.includes(field))
+    Object.keys(properties).some((field) => !required.includes(field)) ||
+    required.some((field) => !Object.hasOwn(properties, field))
   ) {
-    return fallbackJsonType;
+    return openObjectJsonType;
   }
 
   return {
@@ -315,15 +318,12 @@ function closedObjectJsonSchemaToExpressionType(
   };
 }
 
-function hasUnsupportedCombinator(schema: Readonly<Record<string, unknown>>): boolean {
+function hasDynamicSchemaShape(schema: Readonly<Record<string, unknown>>): boolean {
   return (
     schema.oneOf !== undefined ||
     schema.anyOf !== undefined ||
     schema.allOf !== undefined ||
     schema.not !== undefined ||
-    schema.enum !== undefined ||
-    schema.const !== undefined ||
-    schema.patternProperties !== undefined ||
     schema.nullable === true
   );
 }

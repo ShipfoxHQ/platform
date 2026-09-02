@@ -122,8 +122,12 @@ export function normalizeToolStep(params: {
   const outputMappings = normalizeOutputMappings({
     ...params,
     outputs: params.step.outputs,
-    resultTypeOverlay:
-      outputSchema === undefined ? undefined : {result: jsonSchemaToExpressionType(outputSchema)},
+    // Keep schema-less tool results open while still type-checking mappings so
+    // unknown field values are persisted as CEL dyn instead of syntax-only
+    // expressions.
+    resultTypeOverlay: {
+      result: outputSchema === undefined ? {kind: 'dyn'} : jsonSchemaToExpressionType(outputSchema),
+    },
   });
   validateResolvedTool(params, tool, catalogEntry);
 
@@ -504,6 +508,10 @@ function outputMappingsToDeclarations(
 }
 
 function expressionTypeToDeclaration(type: ExpressionType | undefined): OutputTypeDeclaration {
+  if (type === undefined || (typeof type === 'object' && type.kind === 'dyn')) {
+    return {type: 'json'};
+  }
+
   switch (type) {
     case 'string':
       return {type: 'string'};
@@ -520,9 +528,7 @@ function expressionTypeToDeclaration(type: ExpressionType | undefined): OutputTy
       // Structured (object/map/list) result types keep their shape in the
       // declaration schema so the step overlay re-derives list/object typing
       // for later expressions instead of degrading to schema-less JSON.
-      return type === undefined
-        ? {type: 'json'}
-        : {type: 'json', schema: expressionTypeToJsonSchema(type)};
+      return {type: 'json', schema: expressionTypeToJsonSchema(type)};
   }
 }
 
@@ -545,6 +551,8 @@ function expressionTypeToJsonSchema(type: ExpressionType): Readonly<Record<strin
       return {type: 'string'};
     default:
       switch (type.kind) {
+        case 'dyn':
+          return {};
         case 'object':
           return {
             type: 'object',

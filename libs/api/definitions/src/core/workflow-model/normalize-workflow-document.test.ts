@@ -3781,6 +3781,76 @@ describe('normalizeWorkflowDocument', () => {
     });
   });
 
+  it('types schema-less agent JSON outputs as dyn for later expressions', () => {
+    const document: WorkflowDocument = {
+      name: 'dynamic agent output',
+      jobs: {
+        build: {
+          steps: [
+            {
+              key: 'agent',
+              prompt: 'Inspect the change.',
+              outputs: {payload: {type: 'json'}},
+              gate: {success: 'step.outputs.payload == true'},
+            },
+            {
+              key: 'consume',
+              run: 'echo ok',
+              env: {PAYLOAD: interpolation('steps.agent.outputs.payload')},
+            },
+          ],
+          outputs: {payload: interpolation('steps.agent.outputs.payload')},
+        },
+      },
+    };
+
+    const model = normalizeWorkflowDocument(document);
+
+    expect(model.jobs[0]?.steps[0]).toMatchObject({
+      kind: 'agent',
+      outputs: {payload: {type: 'json'}},
+      gate: {
+        success: {
+          source: 'step.outputs.payload == true',
+          check: 'typed',
+          resultType: 'bool',
+        },
+      },
+    });
+    expect(model.jobs[0]?.steps[1]).toMatchObject({
+      kind: 'run',
+      templates: {
+        env: {
+          PAYLOAD: [
+            {
+              kind: 'deferred',
+              expression: {
+                source: 'steps.agent.outputs.payload',
+                check: 'typed',
+                resultType: {kind: 'dyn'},
+              },
+              roots: ['steps'],
+            },
+          ],
+        },
+      },
+    });
+    expect(model.jobs[0]?.outputs?.payload).toEqual([
+      {
+        kind: 'deferred',
+        expression: {
+          language: 'cel',
+          source: 'steps.agent.outputs.payload',
+          check: 'typed',
+          resultType: {kind: 'dyn'},
+        },
+        roots: ['steps'],
+        fillTarget: 'execution-resolution',
+      },
+    ]);
+    expect(model.jobs[0]?.outputTypes).toEqual({payload: {kind: 'dyn'}});
+  });
+
   it('rejects undeclared typed step output keys', () => {
     const document: WorkflowDocument = {
       name: 'bad typed output key',
@@ -6192,7 +6262,7 @@ describe('normalizeWorkflowDocument', () => {
               language: 'cel',
               source: 'execution.events[0].data.runner',
               check: 'typed',
-              resultType: 'string',
+              resultType: {kind: 'dyn'},
             },
             roots: ['execution'],
             fillTarget: 'execution-creation',

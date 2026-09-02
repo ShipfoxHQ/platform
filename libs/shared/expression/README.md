@@ -8,6 +8,8 @@ CEL checks and run-time evaluation for Shipfox workflow expressions.
   mode.
 - **`WorkflowExpression`**: Stores the CEL tag, source, and check level.
 - **`ExpressionTypeEnvironment`**: Lists names and field types for typed checks.
+- **`ExpressionType`**: Represents scalar, structured, open-map, and dynamic
+  (`dyn`) values in typed expression metadata.
 - **`evaluateWorkflowExpression`**: Runs a checked value against caller data.
 - **`createWorkflowEnvironment`**: Creates an isolated evaluator with the shared
   `list.first()`, `list.last()`, `range()`, `toJson()`, and `fromJson()`
@@ -94,6 +96,11 @@ const passed = evaluateWorkflowPredicate(expression, {
 
 - Use `syntax` when fields are not known yet.
 - Use `typed` when the caller knows the names and field types in scope.
+- `dyn` represents a value whose shape is not known at check time. It can be
+  used in any expected scalar position; the runtime still checks operations and
+  predicate results.
+- `fromJson()` results and lookups through open maps are `dyn`. Closed object
+  schemas continue to reject unknown fields during typed checking.
 - Predicate evaluation narrows the supplied context to the roots
   `workflowPredicateContextRoots` declares for that field, so a reference
   outside the policy fails closed rather than reading an incidental value.

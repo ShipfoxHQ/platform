@@ -115,6 +115,7 @@ export type ListenerFilterExpressionType =
   | 'bool'
   | 'null'
   | 'timestamp'
+  | {kind: 'dyn'}
   | {kind: 'object'; fields: Record<string, ListenerFilterExpressionType>}
   | {kind: 'map'}
   | {kind: 'list'; element: ListenerFilterExpressionType};
@@ -122,6 +123,7 @@ export type ListenerFilterExpressionType =
 const listenerFilterExpressionTypeSchema: z.ZodType<ListenerFilterExpressionType> = z.lazy(() =>
   z.union([
     z.enum(['string', 'int', 'double', 'bool', 'null', 'timestamp']),
+    z.object({kind: z.literal('dyn')}),
     z.object({
       kind: z.literal('object'),
       fields: z.record(z.string(), listenerFilterExpressionTypeSchema),

@@ -11,7 +11,8 @@ describe('outputDeclarationToExpressionType', () => {
     [{type: 'string' as const}, 'string'],
     [{type: 'number' as const}, 'double'],
     [{type: 'boolean' as const}, 'bool'],
-    [{type: 'json' as const}, {kind: 'map'}],
+    [{type: 'json' as const}, {kind: 'dyn'}],
+    [{type: 'json' as const, schema: {}}, {kind: 'dyn'}],
   ])('maps %j', (declaration, expected) => {
     const result = outputDeclarationToExpressionType(declaration);
 
@@ -77,16 +78,57 @@ describe('jsonSchemaToExpressionType', () => {
         properties: {registry: {type: 'string'}},
       },
     ],
-    ['oneOf', {oneOf: [{type: 'string'}, {type: 'number'}]}],
-    ['anyOf', {anyOf: [{type: 'string'}, {type: 'number'}]}],
-    ['enum', {enum: ['a', 'b']}],
-    ['nullable', {type: 'string', nullable: true}],
+    [
+      'required property without a schema',
+      {
+        type: 'object',
+        additionalProperties: false,
+        required: ['registry'],
+        properties: {},
+      },
+    ],
     ['patternProperties', {type: 'object', patternProperties: {'^x': {type: 'string'}}}],
-    ['union type', {type: ['string', 'number']}],
-  ])('falls back to map for %s schemas', (_label, schema) => {
+  ])('maps open object %s schema to map', (_label, schema) => {
     const result = jsonSchemaToExpressionType(schema);
 
     expect(result).toEqual({kind: 'map'});
+  });
+
+  it.each([
+    ['absent schema', undefined],
+    ['null schema', null],
+    ['oneOf', {oneOf: [{type: 'string'}, {type: 'number'}]}],
+    ['anyOf', {anyOf: [{type: 'string'}, {type: 'number'}]}],
+    ['allOf', {allOf: [{type: 'string'}, {type: 'number'}]}],
+    ['not', {not: {type: 'string'}}],
+    ['nullable', {type: 'string', nullable: true}],
+    ['union type', {type: ['string', 'number']}],
+    ['empty schema', {}],
+  ])('maps unknown-shaped %s schema to dyn', (_label, schema) => {
+    const result = jsonSchemaToExpressionType(schema);
+
+    expect(result).toEqual({kind: 'dyn'});
+  });
+
+  it.each([
+    [{type: 'string', enum: ['ready']}, 'string'],
+    [{type: 'integer', const: 42}, 'int'],
+    [{type: 'number', enum: [1, 2]}, 'double'],
+  ])('preserves scalar schema %j despite enum/const', (schema, expected) => {
+    const result = jsonSchemaToExpressionType(schema);
+
+    expect(result).toBe(expected);
+  });
+
+  it('maps an unconstrained nested schema to dyn', () => {
+    const result = jsonSchemaToExpressionType({
+      type: 'object',
+      additionalProperties: false,
+      properties: {payload: {}},
+      required: ['payload'],
+    });
+
+    expect(result).toEqual({kind: 'object', fields: {payload: {kind: 'dyn'}}});
   });
 });
 
@@ -108,6 +150,60 @@ describe('validateJsonSchema', () => {
 });
 
 describe('coerceStepOutputs', () => {
+  it('passes through scalar and structured values for schema-less JSON outputs', () => {
+    const result = coerceStepOutputs({
+      declarations: {
+        count: {type: 'json'},
+        ready: {type: 'json'},
+        payload: {type: 'json'},
+        items: {type: 'json'},
+      },
+      output: {
+        count: 42,
+        ready: true,
+        payload: {name: 'build'},
+        items: ['one', 2],
+      },
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      output: {
+        count: 42,
+        ready: true,
+        payload: {name: 'build'},
+        items: ['one', 2],
+      },
+    });
+  });
+
+  it('decodes string values for schema-less JSON outputs', () => {
+    const result = coerceStepOutputs({
+      declarations: {
+        count: {type: 'json'},
+        ready: {type: 'json'},
+        payload: {type: 'json'},
+        items: {type: 'json'},
+      },
+      output: {
+        count: '42',
+        ready: 'true',
+        payload: '{"name":"build"}',
+        items: '["one",2]',
+      },
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      output: {
+        count: 42,
+        ready: true,
+        payload: {name: 'build'},
+        items: ['one', 2],
+      },
+    });
+  });
+
   it('coerces declared scalar output values', () => {
     const result = coerceStepOutputs({
       declarations: {

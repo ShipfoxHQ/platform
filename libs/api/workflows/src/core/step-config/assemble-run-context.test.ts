@@ -644,6 +644,39 @@ describe('listener filter snapshots', () => {
     });
   });
 
+  it('omits dynamic listener output metadata for rolling-deploy compatibility', () => {
+    const result = listenerFilterOutputTypesForJobs([
+      {
+        job: {key: 'build', status: 'succeeded', outputs: {}},
+        outputTypes: {
+          count: 'int',
+          payload: {kind: 'dyn'},
+          nested: {
+            kind: 'object',
+            fields: {value: {kind: 'dyn'}, createdAt: 'timestamp'},
+          },
+          items: {kind: 'list', element: {kind: 'dyn'}},
+          nestedItems: {
+            kind: 'list',
+            element: {
+              kind: 'object',
+              fields: {value: {kind: 'dyn'}, count: 'int'},
+            },
+          },
+        },
+        executions: [],
+      },
+    ]);
+
+    expect(result).toEqual({
+      build: {
+        count: 'int',
+        nested: {kind: 'object', fields: {createdAt: 'timestamp'}},
+        nestedItems: {kind: 'list', element: {kind: 'object', fields: {count: 'int'}}},
+      },
+    });
+  });
+
   it('omits snapshots for event-only filters and malformed filters', () => {
     const plan = planListenerFilterSnapshots({
       on: [
