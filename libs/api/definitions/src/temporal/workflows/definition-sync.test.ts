@@ -2,8 +2,11 @@ const workflowMocks = vi.hoisted(() => ({
   prepareDefinitionSync: vi.fn(),
   discoverDefinitionWorkflows: vi.fn(),
   fetchAndApplyDefinitionWorkflows: vi.fn(),
+  fetchAndApplyDefinitionWorkflowsV2: vi.fn(),
   markDefinitionSyncSucceeded: vi.fn(),
+  markDefinitionSyncSucceededV2: vi.fn(),
   markDefinitionSyncFailed: vi.fn(),
+  markDefinitionSyncFailedV2: vi.fn(),
   log: {warn: vi.fn()},
   patched: vi.fn(() => true),
 }));
@@ -19,8 +22,11 @@ vi.mock('@temporalio/workflow', async () => {
       prepareDefinitionSync: workflowMocks.prepareDefinitionSync,
       discoverDefinitionWorkflows: workflowMocks.discoverDefinitionWorkflows,
       fetchAndApplyDefinitionWorkflows: workflowMocks.fetchAndApplyDefinitionWorkflows,
+      fetchAndApplyDefinitionWorkflowsV2: workflowMocks.fetchAndApplyDefinitionWorkflowsV2,
       markDefinitionSyncSucceeded: workflowMocks.markDefinitionSyncSucceeded,
+      markDefinitionSyncSucceededV2: workflowMocks.markDefinitionSyncSucceededV2,
       markDefinitionSyncFailed: workflowMocks.markDefinitionSyncFailed,
+      markDefinitionSyncFailedV2: workflowMocks.markDefinitionSyncFailedV2,
     })),
   };
 });
@@ -132,7 +138,7 @@ describe('definitionSyncWorkflow failure handoff', () => {
     ];
     const activityError = new ActivityFailure(
       'Activity failed',
-      'fetchAndApplyDefinitionWorkflows',
+      'fetchAndApplyDefinitionWorkflowsV2',
       'activity-id',
       RetryState.NON_RETRYABLE_FAILURE,
       'worker',
@@ -142,7 +148,7 @@ describe('definitionSyncWorkflow failure handoff', () => {
         diagnostics,
       ),
     );
-    workflowMocks.fetchAndApplyDefinitionWorkflows.mockRejectedValueOnce(activityError);
+    workflowMocks.fetchAndApplyDefinitionWorkflowsV2.mockRejectedValueOnce(activityError);
 
     const input = {
       projectId: 'project-id',
@@ -152,7 +158,7 @@ describe('definitionSyncWorkflow failure handoff', () => {
     };
 
     await expect(definitionSyncWorkflow(input)).rejects.toBe(activityError);
-    expect(workflowMocks.markDefinitionSyncFailed).toHaveBeenCalledWith({
+    expect(workflowMocks.markDefinitionSyncFailedV2).toHaveBeenCalledWith({
       ...input,
       sourceRef: 'main',
       code: 'invalid-definition',
@@ -182,7 +188,7 @@ describe('definitionSyncWorkflow failure handoff', () => {
         diagnostics,
       ),
     );
-    workflowMocks.patched.mockReturnValueOnce(false);
+    workflowMocks.patched.mockReturnValue(false);
     workflowMocks.fetchAndApplyDefinitionWorkflows.mockRejectedValueOnce(activityError);
 
     const input = {

@@ -72,19 +72,27 @@ export function createDefinitionSyncActivities(
   integrations?: IntegrationsModuleClient | undefined,
   options?: DefinitionSyncActivityOptions | undefined,
 ) {
+  const fetchAndApplyDefinitionWorkflows = createFetchAndApplyActivity(
+    sourceControl,
+    agent,
+    integrations,
+  );
+  const markDefinitionSyncSucceeded = createMarkSyncSucceededActivity();
+  const markDefinitionSyncFailed = createMarkSyncFailedActivity();
+
   return {
     prepareDefinitionSync: createPrepareDefinitionSyncActivity(sourceControl),
     discoverDefinitionWorkflows: createDiscoverDefinitionWorkflowsActivity(
       sourceControl,
       options?.workflowPath,
     ),
-    fetchAndApplyDefinitionWorkflows: createFetchAndApplyActivity(
-      sourceControl,
-      agent,
-      integrations,
-    ),
-    markDefinitionSyncSucceeded: createMarkSyncSucceededActivity(),
-    markDefinitionSyncFailed: createMarkSyncFailedActivity(),
+    fetchAndApplyDefinitionWorkflows,
+    // Versioned names keep old workers from silently dropping diagnostics.
+    fetchAndApplyDefinitionWorkflowsV2: fetchAndApplyDefinitionWorkflows,
+    markDefinitionSyncSucceeded,
+    markDefinitionSyncSucceededV2: markDefinitionSyncSucceeded,
+    markDefinitionSyncFailed,
+    markDefinitionSyncFailedV2: markDefinitionSyncFailed,
   };
 }
 
