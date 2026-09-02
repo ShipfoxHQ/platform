@@ -15,7 +15,8 @@ import {act, cleanup, renderHook, waitFor} from '@testing-library/react';
 import type {ReactNode} from 'react';
 import {workflowJobDto, workflowRunDetailDto} from '#test/fixtures/workflow-run.js';
 import {
-  LEGACY_WORKFLOW_RUN_OVERVIEW_JOBS_CURSOR_PREFIX,
+  legacyWorkflowRunOverviewJobsCursor,
+  legacyWorkflowRunOverviewJobsOffset,
   toWorkflowRunDetail,
   toWorkflowRunOverview,
   toWorkflowRunOverviewFromRunDetail,
@@ -206,6 +207,63 @@ describe('workflow run bounded overview API hooks', () => {
     });
   });
 
+  test('does not bridge an opaque modern job cursor to a repeated legacy page', async () => {
+    const overview = workflowRunOverviewResponseDto({
+      attempt: {attempt: 4, status: 'succeeded'},
+      jobs: {
+        kind: 'large',
+        total: 201,
+        status_counts: [{status: 'succeeded', count: 201}],
+        first_page: {
+          items: [workflowRunJobListSummaryDto()],
+          next_cursor: 'server-cursor-2',
+          total: 201,
+        },
+      },
+    });
+    const fetchImpl = vi.fn((input: RequestInfo | URL) => {
+      const url = new URL(requestInputUrl(input));
+      if (url.pathname.endsWith('/overview')) return Promise.resolve(jsonResponse(overview));
+      if (url.pathname.endsWith('/jobs')) {
+        return Promise.resolve(jsonResponse({code: 'not_found'}, {status: 404}));
+      }
+      return Promise.reject(new Error(`Unexpected request: ${url.pathname}`));
+    });
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
+
+    const {result: overviewResult, wrapper} = renderWithQueryClient(() =>
+      useWorkflowRunOverviewQuery({workflowRunId: RUN_ID, runAttempt: 4}),
+    );
+    await waitFor(() => expect(overviewResult.current.data?.jobs.kind).toBe('large'));
+
+    const largeJobs = overviewResult.current.data?.jobs;
+    if (largeJobs?.kind !== 'large') throw new Error('Expected a large overview');
+    const {result: jobsResult} = renderHook(
+      () =>
+        useWorkflowRunOverviewJobsInfiniteQuery({
+          workflowRunId: RUN_ID,
+          runAttempt: 4,
+          initialPage: largeJobs.firstPage,
+        }),
+      {wrapper},
+    );
+
+    await act(async () => {
+      await jobsResult.current.fetchNextPage();
+    });
+
+    await waitFor(() =>
+      expect(requestUrls(fetchImpl)).toContain(
+        `https://api.example.test/workflows/runs/${RUN_ID}/jobs?attempt=4&limit=100&cursor=server-cursor-2`,
+      ),
+    );
+    expect(jobsResult.current.data?.pages).toHaveLength(1);
+    expect(requestUrls(fetchImpl)).toEqual([
+      `https://api.example.test/workflows/runs/${RUN_ID}/overview?attempt=4`,
+      `https://api.example.test/workflows/runs/${RUN_ID}/jobs?attempt=4&limit=100&cursor=server-cursor-2`,
+    ]);
+  });
+
   test('does not poll or refetch a terminal overview and keeps the head seed stale', () => {
     const options = workflowRunOverviewQueryOptions({workflowRunId: RUN_ID, runAttempt: 1});
     if (
@@ -380,9 +438,8 @@ describe('workflow run bounded overview API hooks', () => {
     });
     if (overview.jobs.kind !== 'large') throw new Error('Expected a large overview');
     expect(overview.jobs.firstPage.items).toHaveLength(100);
-    expect(overview.jobs.firstPage.nextCursor).toBe(
-      `${LEGACY_WORKFLOW_RUN_OVERVIEW_JOBS_CURSOR_PREFIX}100`,
-    );
+    expect(overview.jobs.firstPage.nextCursor).toBe(legacyWorkflowRunOverviewJobsCursor(100));
+    expect(legacyWorkflowRunOverviewJobsOffset(overview.jobs.firstPage.nextCursor)).toBe(100);
     expect(overview.jobs.firstPage.items[0]?.dependencies).toEqual([]);
 
     const secondPage = toWorkflowRunOverviewJobsPageFromRunDetail(detail, 100);

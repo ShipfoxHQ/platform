@@ -25,7 +25,6 @@ import {
   type WorkflowRunSource,
 } from '#core/workflow-run.js';
 import {
-  LEGACY_WORKFLOW_RUN_OVERVIEW_JOBS_CURSOR_PREFIX,
   legacyWorkflowRunOverviewJobsOffset,
   toWorkflowRunLineageHead,
   toWorkflowRunOverview,
@@ -295,7 +294,7 @@ async function getWorkflowRunOverviewJobs(
   signal?: AbortSignal,
 ): Promise<WorkflowRunOverviewJobPage> {
   const legacyOffset = legacyWorkflowRunOverviewJobsOffset(cursor);
-  if (cursor?.startsWith(LEGACY_WORKFLOW_RUN_OVERVIEW_JOBS_CURSOR_PREFIX)) {
+  if (cursor !== null && legacyOffset !== undefined) {
     const detail = await getLegacyWorkflowRunDetail(client, workflowRunId, runAttempt, signal);
     return toWorkflowRunOverviewJobsPageFromRunDetail(detail, legacyOffset);
   }
@@ -314,9 +313,11 @@ async function getWorkflowRunOverviewJobs(
       ),
     );
   } catch (error) {
-    if (!isLegacyOverviewEndpointError(error)) throw error;
+    if (!isLegacyOverviewEndpointError(error) || (cursor !== null && legacyOffset === undefined)) {
+      throw error;
+    }
     const detail = await getLegacyWorkflowRunDetail(client, workflowRunId, runAttempt, signal);
-    return toWorkflowRunOverviewJobsPageFromRunDetail(detail, legacyOffset);
+    return toWorkflowRunOverviewJobsPageFromRunDetail(detail, legacyOffset ?? 0);
   }
 }
 

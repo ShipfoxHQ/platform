@@ -60,6 +60,9 @@ import {
   workflowRunTriggerLabel,
 } from '#core/workflow-run.js';
 
+const BASE64_URL_PADDING_RE = /=+$/u;
+const BASE64_URL_VALUE_RE = /^[A-Za-z0-9_-]+$/u;
+
 export function toWorkflowRun(dto: WorkflowRunResponseDto): WorkflowRun {
   return {
     id: dto.id,
@@ -452,36 +455,60 @@ export function toWorkflowRunOverviewFromRunDetail(detail: WorkflowRunDetail): W
   };
 }
 
-export const LEGACY_WORKFLOW_RUN_OVERVIEW_JOBS_CURSOR_PREFIX = 'legacy-offset:';
+const LEGACY_WORKFLOW_RUN_OVERVIEW_JOBS_CURSOR_KIND = 'legacy-workflow-run-overview-jobs';
+
+export function legacyWorkflowRunOverviewJobsCursor(offset: number): string {
+  return encodeBase64UrlJson({
+    kind: LEGACY_WORKFLOW_RUN_OVERVIEW_JOBS_CURSOR_KIND,
+    offset,
+  });
+}
 
 export function toWorkflowRunOverviewJobsPageFromRunDetail(
   detail: WorkflowRunDetail,
   offset = 0,
 ): WorkflowRunOverviewJobPage {
-  const items = detail.jobs.map(toWorkflowRunOverviewJobFromDetail);
-  const pageItems = items
+  const pageItems = detail.jobs
     .slice(offset, offset + WORKFLOW_RUN_OVERVIEW_LARGE_JOB_PAGE_LIMIT)
+    .map(toWorkflowRunOverviewJobFromDetail)
     .map((item) => new WorkflowRunOverviewJob({...item, dependencies: []}));
   const nextOffset = offset + pageItems.length;
   return {
     items: pageItems,
     nextCursor:
-      nextOffset < items.length
-        ? `${LEGACY_WORKFLOW_RUN_OVERVIEW_JOBS_CURSOR_PREFIX}${nextOffset}`
-        : null,
-    total: items.length,
+      nextOffset < detail.jobs.length ? legacyWorkflowRunOverviewJobsCursor(nextOffset) : null,
+    total: detail.jobs.length,
   };
 }
 
-export function legacyWorkflowRunOverviewJobsOffset(cursor: string | null): number {
+export function legacyWorkflowRunOverviewJobsOffset(cursor: string | null): number | undefined {
   if (!cursor) return 0;
-  if (!cursor.startsWith(LEGACY_WORKFLOW_RUN_OVERVIEW_JOBS_CURSOR_PREFIX)) {
-    return WORKFLOW_RUN_OVERVIEW_LARGE_JOB_PAGE_LIMIT;
-  }
-  const offset = Number(cursor.slice(LEGACY_WORKFLOW_RUN_OVERVIEW_JOBS_CURSOR_PREFIX.length));
-  return Number.isInteger(offset) && offset >= 0
+  const decoded = decodeBase64UrlJson(cursor);
+  if (!decoded || typeof decoded !== 'object' || Array.isArray(decoded)) return undefined;
+  const {kind, offset} = decoded as {kind?: unknown; offset?: unknown};
+  return kind === LEGACY_WORKFLOW_RUN_OVERVIEW_JOBS_CURSOR_KIND &&
+    typeof offset === 'number' &&
+    Number.isSafeInteger(offset) &&
+    offset >= 0
     ? offset
-    : WORKFLOW_RUN_OVERVIEW_LARGE_JOB_PAGE_LIMIT;
+    : undefined;
+}
+
+function encodeBase64UrlJson(value: object): string {
+  return btoa(JSON.stringify(value))
+    .replaceAll('+', '-')
+    .replaceAll('/', '_')
+    .replace(BASE64_URL_PADDING_RE, '');
+}
+
+function decodeBase64UrlJson(value: string): unknown {
+  if (!BASE64_URL_VALUE_RE.test(value)) return undefined;
+  try {
+    const base64 = value.replaceAll('-', '+').replaceAll('_', '/');
+    return JSON.parse(atob(base64.padEnd(Math.ceil(base64.length / 4) * 4, '='))) as unknown;
+  } catch {
+    return undefined;
+  }
 }
 
 function toWorkflowRunOverviewJobFromDetail(job: Job): WorkflowRunOverviewJob {

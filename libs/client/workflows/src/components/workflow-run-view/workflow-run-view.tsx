@@ -828,7 +828,11 @@ function RunWorkspaceContent({
   onClearAnnotationFilters: () => void;
   highlightedLineRange: StepSourceLocation | null;
 }) {
-  if (boundaryQuery.isError && (shellRun === undefined || !overviewQuery.isEnabled)) {
+  if (
+    jobContent === undefined &&
+    boundaryQuery.isError &&
+    (shellRun === undefined || !overviewQuery.isEnabled)
+  ) {
     const error =
       boundaryQuery.error instanceof ApiError && boundaryQuery.error.status === 404 ? (
         <WorkflowRunNotFound />

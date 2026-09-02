@@ -52,7 +52,8 @@ export function WorkflowRunAttemptSwitcher({
     if (
       !open ||
       attemptsQuery.isPending ||
-      attemptsQuery.isError ||
+      (attemptsQuery.isError && attempts.length === 0) ||
+      attemptsQuery.isFetching ||
       attemptsQuery.isFetchingNextPage ||
       attemptsQuery.isFetchNextPageError ||
       attempts.some((attempt) => attempt.attempt === run.runAttempt.attempt) ||
@@ -67,6 +68,7 @@ export function WorkflowRunAttemptSwitcher({
     attemptsQuery.hasNextPage,
     attemptsQuery.isError,
     attemptsQuery.isFetchNextPageError,
+    attemptsQuery.isFetching,
     attemptsQuery.isFetchingNextPage,
     attemptsQuery.isPending,
     open,

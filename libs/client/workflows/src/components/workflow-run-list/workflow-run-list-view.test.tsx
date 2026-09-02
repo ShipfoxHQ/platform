@@ -683,7 +683,7 @@ describe('WorkflowRunListView', () => {
       renderListView([
         run('running', 'deploy-web', 'run-deploy-web', {
           current_attempt: 3,
-          latest_attempt: 3,
+          latest_attempt: 4,
         }),
       ]);
 
