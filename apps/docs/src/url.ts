@@ -6,7 +6,11 @@ export const PUBLIC_DOCS_ORIGIN = 'https://www.shipfox.io';
 type DocsEnvironment = Partial<
   Pick<
     DocsConfig,
-    'VERCEL_ENV' | 'VERCEL_URL' | 'NEXT_PUBLIC_VERCEL_ENV' | 'NEXT_PUBLIC_VERCEL_URL'
+    | 'VERCEL_ENV'
+    | 'VERCEL_URL'
+    | 'NEXT_PUBLIC_VERCEL_ENV'
+    | 'NEXT_PUBLIC_VERCEL_URL'
+    | 'NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL'
   >
 >;
 
@@ -17,7 +21,10 @@ function originFromDeploymentHost(host: string): string {
 
 export function resolveDocsOrigin(environment: DocsEnvironment = config): string {
   const deploymentEnvironment = environment.VERCEL_ENV ?? environment.NEXT_PUBLIC_VERCEL_ENV;
-  if (deploymentEnvironment === 'production') return PUBLIC_DOCS_ORIGIN;
+  if (deploymentEnvironment === 'production') {
+    const productionHost = environment.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL;
+    return productionHost ? originFromDeploymentHost(productionHost) : PUBLIC_DOCS_ORIGIN;
+  }
 
   const deploymentHost = environment.VERCEL_URL ?? environment.NEXT_PUBLIC_VERCEL_URL;
   if (deploymentHost) return originFromDeploymentHost(deploymentHost);

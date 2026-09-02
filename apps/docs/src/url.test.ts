@@ -14,6 +14,16 @@ describe('resolveDocsOrigin', () => {
     );
   });
 
+  it('uses the configured Vercel production host when available', () => {
+    assert.equal(
+      resolveDocsOrigin({
+        VERCEL_ENV: 'production',
+        NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL: 'docs-route-check.shipfox.test',
+      }),
+      'https://docs-route-check.shipfox.test',
+    );
+  });
+
   it('uses the deployment host for preview builds', () => {
     assert.equal(
       resolveDocsOrigin({
