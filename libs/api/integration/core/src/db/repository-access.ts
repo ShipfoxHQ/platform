@@ -1,23 +1,14 @@
 import {
   CONNECTION_REPOSITORY_ACCESS_CHANGED,
-  CONNECTION_REPOSITORY_GRANTED,
-  CONNECTION_REPOSITORY_REVOKED,
   type IntegrationsEventMap,
 } from '@shipfox/api-integration-core-dto';
 import {writeOutboxEvent} from '@shipfox/node-outbox';
 import type {IntegrationConnection} from '#core/entities/connection.js';
-import type {IntegrationConnectionRepositoryGrant} from '#core/entities/repository-grant.js';
 import {
   type UpdateIntegrationConnectionRepositoryAccessModeParams,
   updateIntegrationConnectionRepositoryAccessMode,
 } from './connections.js';
 import {db} from './db.js';
-import {
-  type DeleteIntegrationConnectionRepositoryGrantByIdParams,
-  deleteIntegrationConnectionRepositoryGrantById,
-  type UpsertIntegrationConnectionRepositoryGrantParams,
-  upsertIntegrationConnectionRepositoryGrant,
-} from './repository-grants.js';
 import {integrationsOutbox} from './schema/outbox.js';
 
 interface RepositoryAccessAuditContext {
@@ -47,59 +38,5 @@ export async function updateIntegrationConnectionRepositoryAccessModeWithAudit(
       },
     });
     return connection;
-  });
-}
-
-export async function upsertIntegrationConnectionRepositoryGrantWithAudit(
-  params: UpsertIntegrationConnectionRepositoryGrantParams & RepositoryAccessAuditContext,
-): Promise<IntegrationConnectionRepositoryGrant | undefined> {
-  return await db().transaction(async (tx) => {
-    const grant = await upsertIntegrationConnectionRepositoryGrant(params, {tx});
-    if (!grant) return undefined;
-
-    await writeOutboxEvent<IntegrationsEventMap>(tx, integrationsOutbox, {
-      type: CONNECTION_REPOSITORY_GRANTED,
-      orderingKey: grant.connectionId,
-      payload: {
-        actorId: params.actorId,
-        workspaceId: grant.workspaceId,
-        connectionId: grant.connectionId,
-        provider: params.provider,
-        grantId: grant.id,
-        externalRepositoryId: grant.externalRepositoryId,
-        repositoryOwner: grant.repositoryOwner,
-        repositoryName: grant.repositoryName,
-        correlationId: params.correlationId,
-        occurredAt: new Date().toISOString(),
-      },
-    });
-    return grant;
-  });
-}
-
-export async function deleteIntegrationConnectionRepositoryGrantByIdWithAudit(
-  params: DeleteIntegrationConnectionRepositoryGrantByIdParams & RepositoryAccessAuditContext,
-): Promise<IntegrationConnectionRepositoryGrant | undefined> {
-  return await db().transaction(async (tx) => {
-    const grant = await deleteIntegrationConnectionRepositoryGrantById(params, {tx});
-    if (!grant) return undefined;
-
-    await writeOutboxEvent<IntegrationsEventMap>(tx, integrationsOutbox, {
-      type: CONNECTION_REPOSITORY_REVOKED,
-      orderingKey: grant.connectionId,
-      payload: {
-        actorId: params.actorId,
-        workspaceId: grant.workspaceId,
-        connectionId: grant.connectionId,
-        provider: params.provider,
-        grantId: grant.id,
-        externalRepositoryId: grant.externalRepositoryId,
-        repositoryOwner: grant.repositoryOwner,
-        repositoryName: grant.repositoryName,
-        correlationId: params.correlationId,
-        occurredAt: new Date().toISOString(),
-      },
-    });
-    return grant;
   });
 }

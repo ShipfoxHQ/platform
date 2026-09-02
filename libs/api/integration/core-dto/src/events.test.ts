@@ -1,10 +1,6 @@
 import {
   CONNECTION_REPOSITORY_ACCESS_CHANGED,
-  CONNECTION_REPOSITORY_GRANTED,
-  CONNECTION_REPOSITORY_REVOKED,
   connectionRepositoryAccessChangedSchema,
-  connectionRepositoryGrantedSchema,
-  connectionRepositoryRevokedSchema,
   INTEGRATION_CONNECTION_AVAILABLE,
   INTEGRATION_EVENT_RECEIVED,
   INTEGRATION_SOURCE_COMMIT_PUSHED,
@@ -15,10 +11,7 @@ import {
   integrationSourceRepositoryUpdatedSchema,
   integrationsEventSchemas,
 } from './events.js';
-import {
-  createIntegrationConnectionRepositoryGrantBodySchema,
-  integrationConnectionRepositoryAccessRepositorySchema,
-} from './schemas/integrations.js';
+import {integrationConnectionRepositoryAccessRepositorySchema} from './schemas/integrations.js';
 
 const validConnectionAvailable = {
   provider: 'linear',
@@ -76,20 +69,6 @@ const validRepositoryAccessAudit = {
   provider: 'gitea',
   correlationId: 'request-1',
   occurredAt: '2026-06-21T00:00:00.000Z',
-};
-
-const validRepositoryGrantAudit = {
-  ...validRepositoryAccessAudit,
-  grantId: 'grant-1',
-  externalRepositoryId: 'gitea:acme/platform',
-  repositoryOwner: 'acme',
-  repositoryName: 'platform',
-};
-
-const validRepositoryGrantBody = {
-  external_repository_id: 'gitea:acme/platform',
-  owner: 'acme',
-  name: 'platform',
 };
 
 describe('integrationConnectionAvailableSchema', () => {
@@ -156,16 +135,12 @@ describe('integrationConnectionRepositoryAccessRepositorySchema', () => {
     external_repository_id: 'gitea:acme/platform',
     owner: 'acme',
     name: 'platform',
-    origins: [
-      {
-        type: 'project' as const,
-        project_id: '00000000-0000-4000-8000-000000000001',
-        project_name: 'Platform',
-      },
-    ],
+    project_id: '00000000-0000-4000-8000-000000000001',
+    project_name: 'Platform',
+    project_slug: 'platform',
   };
 
-  it('accepts a project origin name', () => {
+  it('accepts project identity', () => {
     expect(integrationConnectionRepositoryAccessRepositorySchema.parse(repository)).toEqual(
       repository,
     );
@@ -270,62 +245,6 @@ describe('connectionRepositoryAccessChangedSchema', () => {
   });
 });
 
-describe.each([
-  ['connectionRepositoryGrantedSchema', connectionRepositoryGrantedSchema],
-  ['connectionRepositoryRevokedSchema', connectionRepositoryRevokedSchema],
-])('%s', (_name, schema) => {
-  it('parses a valid repository grant audit payload unchanged', () => {
-    expect(schema.parse(validRepositoryGrantAudit)).toEqual(validRepositoryGrantAudit);
-  });
-
-  it('rejects a payload missing grant identity', () => {
-    const {grantId: _grantId, ...withoutGrantId} = validRepositoryGrantAudit;
-
-    expect(() => schema.parse(withoutGrantId)).toThrow();
-  });
-});
-
-describe('createIntegrationConnectionRepositoryGrantBodySchema', () => {
-  it('parses valid picker metadata unchanged', () => {
-    expect(
-      createIntegrationConnectionRepositoryGrantBodySchema.parse(validRepositoryGrantBody),
-    ).toEqual(validRepositoryGrantBody);
-  });
-
-  it.each([
-    ['external repository whitespace', 'external_repository_id', 'gitea:acme/platform name'],
-    [
-      'external repository control character',
-      'external_repository_id',
-      'gitea:acme/platform\u0000name',
-    ],
-    [
-      'external repository format character',
-      'external_repository_id',
-      'gitea:acme/platform\u200Bname',
-    ],
-    ['owner whitespace', 'owner', 'acme owner'],
-    ['owner control character', 'owner', 'acme\u0000owner'],
-    ['owner format character', 'owner', 'acme\u200Bowner'],
-    ['owner slash', 'owner', 'acme/owner'],
-    ['owner colon', 'owner', 'acme:owner'],
-    ['owner backslash', 'owner', 'acme\\owner'],
-    ['name whitespace', 'name', 'platform name'],
-    ['name control character', 'name', 'platform\u0000name'],
-    ['name format character', 'name', 'platform\u200Bname'],
-    ['name slash', 'name', 'platform/name'],
-    ['name colon', 'name', 'platform:name'],
-    ['name backslash', 'name', 'platform\\name'],
-  ] as const)('rejects %s', (_description, field, value) => {
-    expect(() =>
-      createIntegrationConnectionRepositoryGrantBodySchema.parse({
-        ...validRepositoryGrantBody,
-        [field]: value,
-      }),
-    ).toThrow();
-  });
-});
-
 describe('integrationsEventSchemas', () => {
   it('registers every integration publisher event type', () => {
     const registeredTypes = Object.keys(integrationsEventSchemas).sort();
@@ -333,8 +252,6 @@ describe('integrationsEventSchemas', () => {
     expect(registeredTypes).toEqual(
       [
         CONNECTION_REPOSITORY_ACCESS_CHANGED,
-        CONNECTION_REPOSITORY_GRANTED,
-        CONNECTION_REPOSITORY_REVOKED,
         INTEGRATION_CONNECTION_AVAILABLE,
         INTEGRATION_EVENT_RECEIVED,
         INTEGRATION_SOURCE_COMMIT_PUSHED,

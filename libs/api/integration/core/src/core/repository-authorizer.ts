@@ -89,30 +89,10 @@ export interface ResolveRepositoryAuthorizationInput {
 
 export interface ResolveRepositoryAuthorizationParams extends ResolveRepositoryAuthorizationInput {
   projects: ProjectsModuleClient;
-  grants?: RepositoryAuthorizationGrantStore | undefined;
-}
-
-export interface RepositoryAuthorizationGrant {
-  externalRepositoryId: string;
-  repositoryOwner: string;
-  repositoryName: string;
-}
-
-export interface RepositoryAuthorizationGrantStore {
-  getByExternalId(input: {
-    connectionId: string;
-    externalRepositoryId: string;
-  }): Promise<RepositoryAuthorizationGrant | undefined>;
-  listByName(input: {
-    connectionId: string;
-    repositoryOwner: string;
-    repositoryName: string;
-  }): Promise<readonly RepositoryAuthorizationGrant[]>;
 }
 
 export interface CreateRepositoryAuthorizerOptions {
   projects?: ProjectsModuleClient | undefined;
-  grants?: RepositoryAuthorizationGrantStore | undefined;
   enabled?: boolean | undefined;
   now?: (() => number) | undefined;
   maxCacheEntries?: number | undefined;
@@ -134,13 +114,11 @@ export class RepositoryAuthorizationTargetInvalidError extends Error {
 }
 
 /**
- * Resolves a repository declaration against local project and integration-owned
- * grant state. Provider adapters are deliberately not part of the authorization
- * boundary.
+ * Resolves a repository declaration against local project state. Provider
+ * adapters are deliberately not part of the authorization boundary.
  */
 export async function resolveRepositoryAuthorization({
   projects,
-  grants,
   request,
   ...input
 }: ResolveRepositoryAuthorizationParams): Promise<RepositoryAuthorizationResult> {
@@ -150,7 +128,7 @@ export async function resolveRepositoryAuthorization({
     return authorizeAllMode(input.repository);
   }
 
-  const resolve = () => resolveSelectedMode({projects, grants, ...input});
+  const resolve = () => resolveSelectedMode({projects, ...input});
   if (!request) return await resolve();
 
   const key = authorizationMemoKey(input);
@@ -181,7 +159,6 @@ export async function resolveRepositoryAuthorization({
  */
 export function createRepositoryAuthorizer({
   projects,
-  grants,
   enabled = false,
   now = Date.now,
   maxCacheEntries = DEFAULT_REPOSITORY_AUTHORIZATION_CACHE_SIZE,
@@ -203,7 +180,7 @@ export function createRepositoryAuthorizer({
     async resolveRepositoryAuthorization(input) {
       assertValidTarget(input.repository, input.mode);
       if (input.mode === 'all') {
-        return await resolveRepositoryAuthorization({projects, grants, ...input});
+        return await resolveRepositoryAuthorization({projects, ...input});
       }
 
       const key = authorizationSharedCacheKey(input);
@@ -211,7 +188,7 @@ export function createRepositoryAuthorizer({
       if (cached) return cloneAuthorizationResult(cached);
 
       const generation = cache.generation();
-      const result = await resolveRepositoryAuthorization({projects, grants, ...input});
+      const result = await resolveRepositoryAuthorization({projects, ...input});
       if (result.authorized && cache.generation() === generation) {
         cache.set(key, input.connectionId, result);
       }
@@ -225,32 +202,24 @@ export function createRepositoryAuthorizer({
 
 async function resolveSelectedMode({
   projects,
-  grants,
   workspaceId,
   connectionId,
   repository,
 }: Pick<
   ResolveRepositoryAuthorizationParams,
-  'projects' | 'grants' | 'workspaceId' | 'connectionId' | 'repository'
+  'projects' | 'workspaceId' | 'connectionId' | 'repository'
 >): Promise<RepositoryAuthorizationResult> {
   if (repository.kind === 'external-id') {
     try {
-      const [projectResult, grant] = await Promise.all([
-        projects.getProjectBySource({
-          workspaceId,
-          sourceConnectionId: connectionId,
-          sourceExternalRepositoryId: repository.externalRepositoryId,
-        }),
-        grants?.getByExternalId({
-          connectionId,
-          externalRepositoryId: repository.externalRepositoryId,
-        }) ?? Promise.resolve(undefined),
-      ]);
+      const projectResult = await projects.getProjectBySource({
+        workspaceId,
+        sourceConnectionId: connectionId,
+        sourceExternalRepositoryId: repository.externalRepositoryId,
+      });
 
       const candidates = new Map<string, RepositoryAuthorizationCandidate>();
       if (projectResult.project)
         addCandidate(candidates, projectToCandidate(projectResult.project));
-      if (grant) addCandidate(candidates, grantToCandidate(grant));
       return authorizeCandidates(candidates);
     } catch (error) {
       return storeUnavailable(error, repository.kind);
@@ -258,26 +227,16 @@ async function resolveSelectedMode({
   }
 
   try {
-    const [projectResult, grantsResult] = await Promise.all([
-      projects.findProjectBySourceRepositoryName({
-        workspaceId,
-        sourceConnectionId: connectionId,
-        sourceRepositoryOwner: repository.owner,
-        sourceRepositoryName: repository.name,
-      }),
-      grants?.listByName({
-        connectionId,
-        repositoryOwner: repository.owner,
-        repositoryName: repository.name,
-      }) ?? Promise.resolve([]),
-    ]);
+    const projectResult = await projects.findProjectBySourceRepositoryName({
+      workspaceId,
+      sourceConnectionId: connectionId,
+      sourceRepositoryOwner: repository.owner,
+      sourceRepositoryName: repository.name,
+    });
 
     const candidates = new Map<string, RepositoryAuthorizationCandidate>();
     for (const project of projectResult.projects) {
       addCandidate(candidates, projectToCandidate(project));
-    }
-    for (const grant of grantsResult) {
-      addCandidate(candidates, grantToCandidate(grant));
     }
     return authorizeCandidates(candidates);
   } catch (error) {
@@ -345,14 +304,6 @@ function projectToCandidate(project: {
     ...(project.sourceRepositoryOwner == null ? {} : {owner: project.sourceRepositoryOwner}),
     ...(project.sourceRepositoryName == null ? {} : {name: project.sourceRepositoryName}),
     targetProjectId: project.id,
-  };
-}
-
-function grantToCandidate(grant: RepositoryAuthorizationGrant): RepositoryAuthorizationCandidate {
-  return {
-    externalRepositoryId: grant.externalRepositoryId,
-    owner: grant.repositoryOwner,
-    name: grant.repositoryName,
   };
 }
 

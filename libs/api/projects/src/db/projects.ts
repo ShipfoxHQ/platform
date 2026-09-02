@@ -271,6 +271,7 @@ export interface ProjectRepositoryListItem {
   sourceRepositoryName: string;
   projectId: string;
   projectName: string;
+  projectSlug: string;
 }
 
 export interface ProjectRepositoryListCursor {
@@ -329,6 +330,7 @@ export async function listProjectsBySourceConnection(
       sourceRepositoryName: projects.sourceRepositoryName,
       projectId: projects.id,
       projectName: projects.name,
+      projectSlug: projects.slug,
     })
     .from(projects)
     .where(and(...conditions))
@@ -363,6 +365,7 @@ function toProjectRepositoryListItem(row: {
   sourceRepositoryName: string | null;
   projectId: string;
   projectName: string;
+  projectSlug: string;
 }): ProjectRepositoryListItem {
   if (row.sourceRepositoryOwner === null || row.sourceRepositoryName === null) {
     throw new Error('Project source repository metadata is missing');
@@ -374,6 +377,7 @@ function toProjectRepositoryListItem(row: {
     sourceRepositoryName: row.sourceRepositoryName,
     projectId: row.projectId,
     projectName: row.projectName,
+    projectSlug: row.projectSlug,
   };
 }
 

@@ -11,6 +11,8 @@ import {
 } from './projects.js';
 import {projects} from './schema/projects.js';
 
+const GENERATED_PROJECT_SLUG_RE = /^project-/u;
+
 async function insertSourceRepositoryProject(params: {
   workspaceId: string;
   sourceConnectionId: string;
@@ -73,6 +75,7 @@ describe('listProjectsBySourceConnection', () => {
           sourceRepositoryName: 'API',
           projectId,
           projectName: 'API project',
+          projectSlug: expect.stringMatching(GENERATED_PROJECT_SLUG_RE),
         },
       ],
       nextCursor: null,

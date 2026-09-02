@@ -15,7 +15,6 @@ export async function setup() {
   await runMigrations(db(), migrationsPath, '__drizzle_migrations_integrations');
   await runMigrations(githubDb(), githubMigrationsPath, '__drizzle_migrations_integrations_github');
   await db().execute(sql`TRUNCATE integrations_connections CASCADE`);
-  await db().execute(sql`TRUNCATE integrations_connection_repository_grants CASCADE`);
   await db().execute(sql`TRUNCATE integrations_secret_cleanups CASCADE`);
   await db().execute(sql`TRUNCATE integrations_webhook_deliveries CASCADE`);
 

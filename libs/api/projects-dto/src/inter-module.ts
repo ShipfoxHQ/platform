@@ -32,6 +32,7 @@ const projectRepositorySchema = z.object({
   name: z.string().min(1),
   projectId: idSchema,
   projectName: z.string(),
+  projectSlug: slugSchema,
 });
 const projectRepositoryCursorSchema = z.object({
   owner: z.string().min(1),

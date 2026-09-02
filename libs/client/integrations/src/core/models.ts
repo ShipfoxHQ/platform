@@ -47,15 +47,13 @@ export interface RepositoryPage {
 
 export type RepositoryAccessMode = 'selected' | 'all';
 
-export type RepositoryAccessOrigin =
-  | {type: 'project'; projectId: string; projectName: string}
-  | {type: 'manual'; grantId: string};
-
 export interface RepositoryAccessRepository {
   externalRepositoryId: string;
   owner: string;
   name: string;
-  origins: RepositoryAccessOrigin[];
+  projectId: string;
+  projectName: string;
+  projectSlug: string;
 }
 
 export interface RepositoryAccess {

@@ -185,7 +185,7 @@ describe('GitHub webhook processor', () => {
     });
   });
 
-  it('invalidates repository authorization after a repository mutation commits', async () => {
+  it('invalidates repository authorization after project repository metadata commits', async () => {
     const installationId = 8413;
     const connectionId = randomUUID();
     const connection = fakeConnection(connectionId);
@@ -207,7 +207,7 @@ describe('GitHub webhook processor', () => {
 
     const result = await processor.process(
       signedRequest(deliveryId, 'repository', {
-        action: 'deleted',
+        action: 'renamed',
         installation: {id: installationId},
         repository: {
           id: 42,

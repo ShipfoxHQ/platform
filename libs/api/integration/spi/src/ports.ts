@@ -50,7 +50,6 @@ export type PublishSourceRepositoryUpdatedFn = (params: {
   rawPayload: unknown;
   event: string;
   repositories: SourceRepositoryIdentity[];
-  removedRepositories: SourceRepositoryIdentity[];
 }) => Promise<{published: boolean}>;
 
 export type RecordDeliveryOnlyFn = (params: {

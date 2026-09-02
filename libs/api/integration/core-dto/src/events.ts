@@ -8,8 +8,6 @@ export const INTEGRATION_EVENT_RECEIVED = 'integrations.event.received' as const
 export const INTEGRATION_CONNECTION_AVAILABLE = 'integrations.connection.available' as const;
 export const CONNECTION_REPOSITORY_ACCESS_CHANGED =
   'integrations.connection.repository_access_changed' as const;
-export const CONNECTION_REPOSITORY_GRANTED = 'integrations.connection.repository_granted' as const;
-export const CONNECTION_REPOSITORY_REVOKED = 'integrations.connection.repository_revoked' as const;
 
 const nonEmptyStringSchema = z.string().nonempty();
 const isoDateTimeSchema = z.string().datetime();
@@ -61,23 +59,6 @@ export const connectionRepositoryAccessChangedSchema = repositoryAccessAuditBase
 export type ConnectionRepositoryAccessChangedEvent = z.infer<
   typeof connectionRepositoryAccessChangedSchema
 >;
-
-const repositoryGrantAuditFields = {
-  grantId: nonEmptyStringSchema.max(255),
-  externalRepositoryId: nonEmptyStringSchema.max(255),
-  repositoryOwner: nonEmptyStringSchema.max(255),
-  repositoryName: nonEmptyStringSchema.max(255),
-};
-
-export const connectionRepositoryGrantedSchema = repositoryAccessAuditBaseSchema.extend(
-  repositoryGrantAuditFields,
-);
-export type ConnectionRepositoryGrantedEvent = z.infer<typeof connectionRepositoryGrantedSchema>;
-
-export const connectionRepositoryRevokedSchema = repositoryAccessAuditBaseSchema.extend(
-  repositoryGrantAuditFields,
-);
-export type ConnectionRepositoryRevokedEvent = z.infer<typeof connectionRepositoryRevokedSchema>;
 
 // A source-control push, normalized by the producing provider and carried by
 // `INTEGRATION_SOURCE_COMMIT_PUSHED` for domain consumers.
@@ -165,8 +146,6 @@ export type SentryIssueAction = (typeof SENTRY_ISSUE_ACTIONS)[number];
 
 export interface IntegrationsEventMap {
   [CONNECTION_REPOSITORY_ACCESS_CHANGED]: ConnectionRepositoryAccessChangedEvent;
-  [CONNECTION_REPOSITORY_GRANTED]: ConnectionRepositoryGrantedEvent;
-  [CONNECTION_REPOSITORY_REVOKED]: ConnectionRepositoryRevokedEvent;
   [INTEGRATION_CONNECTION_AVAILABLE]: IntegrationConnectionAvailableEvent;
   [INTEGRATION_EVENT_RECEIVED]: IntegrationEventReceivedEvent;
   [INTEGRATION_SOURCE_COMMIT_PUSHED]: IntegrationSourceCommitPushedEvent;
@@ -175,8 +154,6 @@ export interface IntegrationsEventMap {
 
 export const integrationsEventSchemas = {
   [CONNECTION_REPOSITORY_ACCESS_CHANGED]: connectionRepositoryAccessChangedSchema,
-  [CONNECTION_REPOSITORY_GRANTED]: connectionRepositoryGrantedSchema,
-  [CONNECTION_REPOSITORY_REVOKED]: connectionRepositoryRevokedSchema,
   [INTEGRATION_CONNECTION_AVAILABLE]: integrationConnectionAvailableSchema,
   [INTEGRATION_EVENT_RECEIVED]: integrationEventReceivedSchema,
   [INTEGRATION_SOURCE_COMMIT_PUSHED]: integrationSourceCommitPushedSchema,

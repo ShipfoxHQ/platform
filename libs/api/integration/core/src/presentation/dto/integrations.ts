@@ -4,7 +4,6 @@ import type {
   IntegrationCapability,
   RegisteredIntegrationProvider,
 } from '#core/entities/provider.js';
-import type {IntegrationConnectionRepositoryGrant} from '#core/entities/repository-grant.js';
 import type {RepositorySnapshot} from '#core/providers/source-control.js';
 import type {RepositoryAccessRepository} from '#core/repository-access-read.js';
 
@@ -60,19 +59,6 @@ export function toRepositoryDto(connectionId: string, repository: RepositorySnap
   };
 }
 
-export function toRepositoryGrantDto(grant: IntegrationConnectionRepositoryGrant) {
-  return {
-    id: grant.id,
-    connection_id: grant.connectionId,
-    workspace_id: grant.workspaceId,
-    external_repository_id: grant.externalRepositoryId,
-    owner: grant.repositoryOwner,
-    name: grant.repositoryName,
-    created_at: grant.createdAt.toISOString(),
-    updated_at: grant.updatedAt.toISOString(),
-  };
-}
-
 export function toRepositoryAccessRepositoryDto(
   repository: RepositoryAccessRepository,
 ): IntegrationConnectionRepositoryAccessRepositoryDto {
@@ -80,14 +66,8 @@ export function toRepositoryAccessRepositoryDto(
     external_repository_id: repository.externalRepositoryId,
     owner: repository.owner,
     name: repository.name,
-    origins: repository.origins.map((origin) =>
-      origin.type === 'project'
-        ? {
-            type: origin.type,
-            project_id: origin.projectId,
-            project_name: origin.projectName,
-          }
-        : {type: origin.type, grant_id: origin.grantId},
-    ),
+    project_id: repository.projectId,
+    project_name: repository.projectName,
+    project_slug: repository.projectSlug,
   };
 }

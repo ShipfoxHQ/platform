@@ -12,12 +12,7 @@ import {toast} from '@shipfox/react-ui/toast';
 import {Header, Text} from '@shipfox/react-ui/typography';
 import {Link} from '@tanstack/react-router';
 import {type ReactNode, useEffect, useState} from 'react';
-import type {
-  IntegrationConnection,
-  RepositoryAccess,
-  RepositoryAccessMode,
-  RepositoryAccessOrigin,
-} from '#core/models.js';
+import type {IntegrationConnection, RepositoryAccess, RepositoryAccessMode} from '#core/models.js';
 import {
   useIntegrationConnectionRepositoryAccessQuery,
   useIntegrationConnectionsQuery,
@@ -148,6 +143,9 @@ function RepositoryAccessSettings({
       isFetchingNextPage={accessQuery.isFetchingNextPage}
       loadMoreError={accessQuery.isFetchNextPageError}
       onLoadMore={() => void accessQuery.fetchNextPage()}
+      isRefreshError={accessQuery.isRefetchError}
+      isRefreshing={accessQuery.isRefetching}
+      onRefresh={() => void accessQuery.refetch()}
     />
   );
 }
@@ -160,6 +158,9 @@ function RepositoryAccessForm({
   isFetchingNextPage,
   loadMoreError,
   onLoadMore,
+  isRefreshError,
+  isRefreshing,
+  onRefresh,
 }: {
   connection: IntegrationConnection;
   workspaceSlug: string;
@@ -168,6 +169,9 @@ function RepositoryAccessForm({
   isFetchingNextPage: boolean;
   loadMoreError: boolean;
   onLoadMore: () => void;
+  isRefreshError: boolean;
+  isRefreshing: boolean;
+  onRefresh: () => void;
 }) {
   const updateAccess = useUpdateIntegrationConnectionRepositoryAccessMutation();
   const [selectedMode, setSelectedMode] = useState<RepositoryAccessMode>(access.mode);
@@ -271,12 +275,15 @@ function RepositoryAccessForm({
 
       {access.mode === 'selected' ? (
         <SelectedRepositories
-          access={access}
           workspaceSlug={workspaceSlug}
+          access={access}
           hasNextPage={hasNextPage}
           isFetchingNextPage={isFetchingNextPage}
           loadMoreError={loadMoreError}
           onLoadMore={onLoadMore}
+          isRefreshError={isRefreshError}
+          isRefreshing={isRefreshing}
+          onRefresh={onRefresh}
         />
       ) : null}
       <ProviderAccessNotice connection={connection} mode={access.mode} />
@@ -291,6 +298,9 @@ function SelectedRepositories({
   isFetchingNextPage,
   loadMoreError,
   onLoadMore,
+  isRefreshError,
+  isRefreshing,
+  onRefresh,
 }: {
   access: RepositoryAccess;
   workspaceSlug: string;
@@ -298,6 +308,9 @@ function SelectedRepositories({
   isFetchingNextPage: boolean;
   loadMoreError: boolean;
   onLoadMore: () => void;
+  isRefreshError: boolean;
+  isRefreshing: boolean;
+  onRefresh: () => void;
 }) {
   return (
     <Panel>
@@ -305,11 +318,30 @@ function SelectedRepositories({
         <PanelTitle>Your projects&apos; repositories</PanelTitle>
       </PanelHeader>
       <PanelBody>
+        {isRefreshError ? (
+          <Callout role="alert" type="error" className="m-panel-compact">
+            <CalloutContent>
+              <CalloutTitle>Repository access may be out of date</CalloutTitle>
+              <CalloutDescription>
+                The last refresh failed. The repositories already listed may have changed.
+              </CalloutDescription>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                isLoading={isRefreshing}
+                onClick={onRefresh}
+              >
+                Retry refresh
+              </Button>
+            </CalloutContent>
+          </Callout>
+        ) : null}
         {access.repositories.length === 0 ? (
           <EmptyState
             icon="folderOpenLine"
             title="No project repositories yet"
-            description="Create a project from a repository on this connection to add it here."
+            description="Create a Shipfox project to connect a repository."
             variant="panel"
             action={
               <Button asChild variant="secondary" size="sm">
@@ -320,27 +352,31 @@ function SelectedRepositories({
             }
           />
         ) : (
-          <ul>
-            {access.repositories.map((repository) => (
-              <PanelRow asChild key={repository.externalRepositoryId}>
-                <li>
+          access.repositories.map((repository) => {
+            const repositoryName = `${repository.owner}/${repository.name}`;
+            return (
+              <PanelRow
+                asChild
+                key={repository.externalRepositoryId}
+                className="focus-visible:shadow-focus-inset focus-visible:outline-none"
+              >
+                <Link
+                  to="/w/$workspaceSlug/p/$projectSlug"
+                  params={{workspaceSlug, projectSlug: repository.projectSlug}}
+                  aria-label={`Open ${repository.projectName} project for ${repositoryName}`}
+                >
                   <div className="flex min-w-0 flex-col gap-tight">
                     <Text size="sm" bold>
-                      {repository.owner}/{repository.name}
+                      {repositoryName}
                     </Text>
                     <Text size="xs" className="truncate text-foreground-neutral-muted">
                       {repository.externalRepositoryId}
                     </Text>
                   </div>
-                  <div className="flex shrink-0 flex-col items-end gap-tight">
-                    {repository.origins.map((origin) => (
-                      <OriginLabel key={originKey(origin)} origin={origin} />
-                    ))}
-                  </div>
-                </li>
+                </Link>
               </PanelRow>
-            ))}
-          </ul>
+            );
+          })
         )}
         {loadMoreError ? (
           <Callout role="alert" type="error" className="m-panel-compact">
@@ -377,14 +413,6 @@ function combineRepositoryAccessPages(pages: RepositoryAccess[]): RepositoryAcce
     repositories: pages.flatMap((page) => page.repositories),
     ...(nextCursor === undefined ? {} : {nextCursor}),
   };
-}
-
-function OriginLabel({origin}: {origin: RepositoryAccessOrigin}) {
-  return (
-    <Text size="xs" className="text-foreground-neutral-muted">
-      {origin.type === 'project' ? `Project: ${origin.projectName}` : 'Manual grant'}
-    </Text>
-  );
 }
 
 interface ProviderAccessNoticeCopy {
@@ -471,8 +499,4 @@ function isUnsupportedError(error: unknown): boolean {
 
 function isRepositoryAccessMode(value: string): value is RepositoryAccessMode {
   return value === 'selected' || value === 'all';
-}
-
-function originKey(origin: RepositoryAccessOrigin): string {
-  return origin.type === 'project' ? `project:${origin.projectId}` : `manual:${origin.grantId}`;
 }

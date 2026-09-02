@@ -34,6 +34,7 @@ async function insertProject(params: {
     })
     .returning({
       projectId: projects.id,
+      projectSlug: projects.slug,
       connectionId: projects.sourceConnectionId,
       externalRepositoryId: projects.sourceExternalRepositoryId,
     });
@@ -137,6 +138,7 @@ describe('Projects checkout target inter-module presentation', () => {
         name: 'Api',
         projectId: first.projectId,
         projectName: 'Api',
+        projectSlug: first.projectSlug,
       },
     ]);
     expect(firstPage.nextCursor).toEqual({
@@ -159,6 +161,7 @@ describe('Projects checkout target inter-module presentation', () => {
         name: 'api',
         projectId: second.projectId,
         projectName: 'api',
+        projectSlug: second.projectSlug,
       },
     ]);
     expect(secondPage.nextCursor).toBeNull();

@@ -10,10 +10,6 @@ import {
 import {writeOutboxEvent, writeOutboxEvents} from '@shipfox/node-outbox';
 import {lt} from 'drizzle-orm';
 import {db} from './db.js';
-import {
-  deleteIntegrationConnectionRepositoryGrantsByExternalRepositoryIds,
-  updateIntegrationConnectionRepositoryGrantMetadata,
-} from './repository-grants.js';
 import {integrationsOutbox} from './schema/outbox.js';
 import {integrationsWebhookDeliveries} from './schema/webhook-deliveries.js';
 
@@ -192,7 +188,6 @@ export interface PublishSourceRepositoryUpdatedParams {
   rawPayload: unknown;
   event: string;
   repositories: SourceRepositoryIdentity[];
-  removedRepositories: SourceRepositoryIdentity[];
 }
 
 // Emits the generic provider envelope for triggers and one typed repository event per
@@ -202,7 +197,7 @@ export interface PublishSourceRepositoryUpdatedParams {
 export async function publishSourceRepositoryUpdated(
   params: PublishSourceRepositoryUpdatedParams,
 ): Promise<{published: boolean}> {
-  const result = await publishSourceEvents({
+  return await publishSourceEvents({
     tx: params.tx,
     provider: params.provider,
     source: params.source,
@@ -227,45 +222,6 @@ export async function publishSourceRepositoryUpdated(
       }),
     ),
   });
-  if (!result.published) return result;
-
-  await maintainRepositoryGrantMetadata(params);
-  return result;
-}
-
-async function maintainRepositoryGrantMetadata(
-  params: PublishSourceRepositoryUpdatedParams,
-): Promise<void> {
-  const removedRepositoryIds = new Set(
-    params.removedRepositories.map((repository) => repository.externalRepositoryId),
-  );
-  if (params.event === 'repository.deleted') {
-    for (const repository of params.repositories) {
-      removedRepositoryIds.add(repository.externalRepositoryId);
-    }
-  }
-
-  await deleteIntegrationConnectionRepositoryGrantsByExternalRepositoryIds(
-    {
-      connectionId: params.connectionId,
-      externalRepositoryIds: [...removedRepositoryIds],
-    },
-    {tx: params.tx},
-  );
-
-  for (const repository of params.repositories) {
-    if (removedRepositoryIds.has(repository.externalRepositoryId)) continue;
-
-    await updateIntegrationConnectionRepositoryGrantMetadata(
-      {
-        connectionId: params.connectionId,
-        externalRepositoryId: repository.externalRepositoryId,
-        repositoryOwner: repository.owner,
-        repositoryName: repository.name,
-      },
-      {tx: params.tx},
-    );
-  }
 }
 
 export interface PublishSourceCommitPushedParams {
