@@ -1,5 +1,7 @@
 import {config, type DocsConfig} from './config';
 
+export {canonicalDocsOrigin} from './lib/canonical-docs-origin';
+
 const LOCAL_DOCS_ORIGIN = 'http://localhost:3500';
 export const PUBLIC_DOCS_ORIGIN = 'https://www.shipfox.io';
 
@@ -33,12 +35,6 @@ export function resolveDocsOrigin(environment: DocsEnvironment = config): string
 }
 
 export const url = resolveDocsOrigin();
-
-// Machine-readable documentation is consumed outside the deployment that
-// generated it, so its canonical links always point at the public docs mount.
-// Keep this alongside the deployment URL configuration so the mount has one
-// owner even though preview and local links remain environment-specific.
-export const canonicalDocsOrigin = 'https://www.shipfox.io/docs';
 
 // Set from `basePath` in next.config.mjs (via NEXT_PUBLIC_BASE_PATH): `/docs` in
 // production, empty in local dev. Every absolute URL we emit for external consumers

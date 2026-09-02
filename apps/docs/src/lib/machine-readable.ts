@@ -1,5 +1,5 @@
 import type {LLMsOptions} from 'fumadocs-core/mdx-plugins';
-import {canonicalDocsOrigin} from '../url';
+import {canonicalDocsOrigin} from './canonical-docs-origin';
 import {
   type CatalogProvider,
   catalogCapabilityLabels,
