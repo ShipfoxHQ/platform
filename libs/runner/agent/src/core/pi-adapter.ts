@@ -85,6 +85,8 @@ const PI_MCP_CONFIG_ARG_WAIT_TIMEOUT_MS = 30_000;
 const PI_MCP_METADATA_TIMEOUT_MESSAGE = 'Pi integration tool catalog lookup timed out.';
 const CATALOG_TIMEOUT_PATTERN = /timed out|timeout/i;
 const MAX_DIAGNOSTIC_STRING_LENGTH = 256;
+const MANAGED_INFERENCE_HTTP_STATUS_PATTERN =
+  /(?:^|[\s(:])(?:status(?:\s+code)?\s*)?(401|403)(?!\d)/iu;
 
 let piMcpConfigArgTail = Promise.resolve();
 
@@ -97,6 +99,24 @@ type PiSessionManagerSetup = {
 };
 type CustomProviderConfig = Parameters<ModelRuntimeInstance['registerProvider']>[1];
 type CustomProviderModel = NonNullable<CustomProviderConfig['models']>[number];
+
+/** The gateway-owned body for a managed inference authentication rejection. */
+export interface ManagedInferenceAuthenticationErrorV1 {
+  readonly code: 'unauthorized';
+  readonly message?: string;
+}
+
+type ManagedInferenceAuthenticationFailure = {
+  readonly status: 401 | 403;
+  readonly body: ManagedInferenceAuthenticationErrorV1;
+};
+
+type PiCredentialStoreState = {
+  readonly store: CredentialStore;
+  readonly refreshAfterRejection: () => Promise<void>;
+  /** Set only for renewable credentials targeting the managed gateway. */
+  readonly managedGatewayBaseUrl: string | undefined;
+};
 
 export const piHarnessAdapter: HarnessAdapter = {run: runPiAgent};
 
@@ -131,7 +151,7 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
   // before this point (or during the awaits below) would leave pi running and burning
   // tokens after the step loop has moved on. Guard on entry, then again once the
   // session exists so a mid-creation abort still stops pi.
-  const {modelRuntime, model} = await preparePiModelRuntime(invocation);
+  const {modelRuntime, model, credentialState} = await preparePiModelRuntime(invocation);
 
   let session: PiSession | undefined;
   let forkedFromExistingSession = false;
@@ -202,6 +222,7 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
       sessionInvocation: invocationSession,
       forkedFromExistingSession,
       diagnostics: sessionDiagnostics,
+      credentialState,
     });
   } catch (error) {
     if (invocationSession?.mode === 'fork') {
@@ -272,6 +293,7 @@ async function runPiSession(params: {
   sessionInvocation: HarnessInvocation['session'];
   forkedFromExistingSession: boolean;
   diagnostics: AgentSessionDiagnostics;
+  credentialState: PiCredentialStoreState;
 }): Promise<HarnessResult> {
   const abortSession = () => {
     Promise.resolve(params.session.abort()).catch(() => undefined);
@@ -333,6 +355,7 @@ async function runPiOutputTurns(
   params: Parameters<typeof runPiSession>[0],
 ): Promise<HarnessResult> {
   let response = '';
+  let managedInferenceRetryUsed = false;
   const sessionArtifact = resumablePiSessionArtifact(params.sessionInvocation, params.session);
   try {
     await runOutputTurnLoop({
@@ -341,15 +364,28 @@ async function runPiOutputTurns(
         ? withOutputGuidance(params.prompt, params.collector.guidanceText())
         : params.prompt,
       runTurn: async (message) => {
-        await params.session.prompt(message);
-        const assistantError = lastAssistantError(params.session.messages);
-        if (assistantError !== undefined) {
-          throw new AgentInvocationError(
-            assistantError,
-            params.session.getLastAssistantText() ?? '',
-          );
+        let turn = await promptPiTurn(params.session, message);
+        const managedAuthFailure =
+          turn.assistantError === undefined
+            ? undefined
+            : classifyManagedInferenceAuthentication(
+                turn.assistantError,
+                params.credentialState.managedGatewayBaseUrl,
+              );
+        if (
+          managedAuthFailure?.status === 401 &&
+          turn.response.length === 0 &&
+          !managedInferenceRetryUsed
+        ) {
+          managedInferenceRetryUsed = true;
+          await params.credentialState.refreshAfterRejection();
+          turn = await promptPiTurn(params.session, message);
         }
-        response = params.session.getLastAssistantText() ?? '';
+        const assistantError = turn.assistantError;
+        if (assistantError !== undefined) {
+          throw new AgentInvocationError(assistantError, turn.response);
+        }
+        response = turn.response;
       },
       missingRequired: () => params.collector.missingRequired(),
       completionMissing: () => params.prerequisiteLedger.missing(),
@@ -370,6 +406,17 @@ async function runPiOutputTurns(
     response,
     ...(Object.keys(outputs).length === 0 ? {} : {outputs}),
     ...sessionArtifact,
+  };
+}
+
+async function promptPiTurn(
+  session: PiSession,
+  message: string,
+): Promise<{assistantError: string | undefined; response: string}> {
+  await session.prompt(message);
+  return {
+    assistantError: lastAssistantError(session.messages),
+    response: session.getLastAssistantText() ?? '',
   };
 }
 
@@ -461,20 +508,14 @@ function assertPiInvocation(
   if (invocation.agentStateDir === undefined) throw new Error('Agent state directory is required');
 }
 
-async function preparePiModelRuntime(
-  invocation: HarnessInvocation,
-): Promise<{modelRuntime: ModelRuntimeInstance; model: ReturnType<typeof resolveModel>}> {
+async function preparePiModelRuntime(invocation: HarnessInvocation): Promise<{
+  modelRuntime: ModelRuntimeInstance;
+  model: ReturnType<typeof resolveModel>;
+  credentialState: PiCredentialStoreState;
+}> {
+  const credentialState = createPiCredentialStoreState(invocation);
   const modelRuntime = await ModelRuntime.create({
-    credentials: createInMemoryCredentialStore(
-      invocation.customProvider === undefined
-        ? {
-            [invocation.provider]: toPiRuntimeCredential(
-              invocation.provider,
-              invocation.credentials,
-            ),
-          }
-        : {},
-    ),
+    credentials: credentialState.store,
   });
   if (invocation.customProvider !== undefined) {
     await registerCustomProvider(
@@ -492,7 +533,7 @@ async function preparePiModelRuntime(
       'provider_not_configured',
     );
   }
-  return {modelRuntime, model};
+  return {modelRuntime, model, credentialState};
 }
 
 async function preparePiSessionServices(params: {
@@ -768,6 +809,79 @@ function assertPiServiceDiagnostics(
   const errors = diagnostics.filter((diagnostic) => diagnostic.type === 'error');
   if (errors.length === 0 && resourceLoaderErrors.length === 0) return;
   throw new AgentHarnessUnavailableError({diagnostics, environment, resourceLoaderErrors});
+}
+
+function createPiCredentialStoreState(invocation: HarnessInvocation): PiCredentialStoreState {
+  // Runtime renewal metadata is only part of the managed custom-provider path for Pi. Keep
+  // direct and workspace providers on their existing literal credential-store behavior even
+  // if a caller carries a source for another harness.
+  const source = invocation.customProvider === undefined ? undefined : invocation.credentialSource;
+  const initialCredential =
+    source === undefined
+      ? undefined
+      : toPiRuntimeCredential(invocation.provider, invocation.credentials);
+  const store = createInMemoryCredentialStore(
+    invocation.customProvider === undefined && source === undefined
+      ? {
+          [invocation.provider]: toPiRuntimeCredential(invocation.provider, invocation.credentials),
+        }
+      : {},
+  );
+  if (source === undefined || initialCredential === undefined) {
+    return {
+      store,
+      refreshAfterRejection: async () => undefined,
+      managedGatewayBaseUrl: undefined,
+    };
+  }
+
+  let lastResolvedGeneration: string | undefined;
+  const resolveCurrent = async (signal: AbortSignal | undefined) => {
+    signal?.throwIfAborted();
+    const resolved = await source.resolve();
+    signal?.throwIfAborted();
+    lastResolvedGeneration = resolved.generation;
+    return {...initialCredential, key: resolved.token};
+  };
+  const refreshAfterRejection = async () => {
+    invocation.signal.throwIfAborted();
+    let rejectedGeneration = lastResolvedGeneration;
+    if (rejectedGeneration === undefined) {
+      const current = await source.resolve();
+      invocation.signal.throwIfAborted();
+      rejectedGeneration = current.generation;
+      lastResolvedGeneration = current.generation;
+    }
+    const refreshed = await source.resolve({rejectedGeneration});
+    invocation.signal.throwIfAborted();
+    lastResolvedGeneration = refreshed.generation;
+  };
+
+  const renewableStore: CredentialStore = {
+    read(providerId, options) {
+      if (providerId !== invocation.provider) return store.read(providerId, options);
+      return resolveCurrent(options?.signal);
+    },
+    async list(options) {
+      const entries = await store.list(options);
+      options?.signal?.throwIfAborted();
+      if (entries.some((entry) => entry.providerId === invocation.provider)) return entries;
+      return [...entries, {providerId: invocation.provider, type: 'api_key'}];
+    },
+    modify(providerId, update, options) {
+      return store.modify(providerId, update, options);
+    },
+    delete(providerId, options) {
+      return store.delete(providerId, options);
+    },
+  };
+
+  return {
+    store: renewableStore,
+    refreshAfterRejection,
+    managedGatewayBaseUrl:
+      invocation.customProvider === undefined ? undefined : invocation.customProvider.base_url,
+  };
 }
 
 function createInMemoryCredentialStore(credentials: Record<string, Credential>): CredentialStore {
@@ -1105,6 +1219,59 @@ function lastAssistantError(messages: readonly unknown[]): string | undefined {
   const message = [...messages].reverse().find(isAssistantMessage);
   if (message === undefined || message.stopReason !== 'error') return undefined;
   return message.errorMessage ?? 'Agent provider returned an error.';
+}
+
+function classifyManagedInferenceAuthentication(
+  errorMessage: string,
+  managedGatewayBaseUrl: string | undefined,
+): ManagedInferenceAuthenticationFailure | undefined {
+  // A renewable credential source is only installed for the managed provider path. The
+  // endpoint is still carried here so this classifier cannot be reused for direct or
+  // workspace-configured providers by accident.
+  if (managedGatewayBaseUrl === undefined) return undefined;
+
+  const status = managedInferenceHttpStatus(errorMessage);
+  if (status === undefined) return undefined;
+  const body = managedInferenceAuthenticationBody(embeddedJsonObject(errorMessage));
+  if (body === undefined) return undefined;
+  return {status, body};
+}
+
+function managedInferenceHttpStatus(errorMessage: string): 401 | 403 | undefined {
+  const match = MANAGED_INFERENCE_HTTP_STATUS_PATTERN.exec(errorMessage);
+  const bodyStart = errorMessage.indexOf('{');
+  if (match === null || (bodyStart !== -1 && match.index > bodyStart)) return undefined;
+  const status = match[1];
+  if (status === '401') return 401;
+  if (status === '403') return 403;
+  return undefined;
+}
+
+function managedInferenceAuthenticationBody(
+  value: unknown,
+): ManagedInferenceAuthenticationErrorV1 | undefined {
+  if (!isRecord(value) || value.code !== 'unauthorized') return undefined;
+  if (
+    Object.keys(value).some((key) => key !== 'code' && key !== 'message') ||
+    (value.message !== undefined && typeof value.message !== 'string')
+  ) {
+    return undefined;
+  }
+  return {
+    code: 'unauthorized',
+    ...(value.message === undefined ? {} : {message: value.message}),
+  };
+}
+
+function embeddedJsonObject(value: string): unknown {
+  const start = value.indexOf('{');
+  const end = value.lastIndexOf('}');
+  if (start === -1 || end <= start) return undefined;
+  try {
+    return JSON.parse(value.slice(start, end + 1));
+  } catch {
+    return undefined;
+  }
 }
 
 function isAssistantMessage(message: unknown): message is {
