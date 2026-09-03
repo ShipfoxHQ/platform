@@ -137,6 +137,20 @@ describe('listener batch metrics', () => {
       reason: 'count_limit',
     });
   });
+
+  test('records bounded listener event outcomes', () => {
+    metrics.recordWorkflowListenerEventOutcome('consumed', 'none', 2);
+    metrics.recordWorkflowListenerEventOutcome('abandoned', 'cancelled');
+
+    expect(counterAdd('workflows_listener_event_outcomes')).toHaveBeenNthCalledWith(1, 2, {
+      outcome: 'consumed',
+      reason: 'none',
+    });
+    expect(counterAdd('workflows_listener_event_outcomes')).toHaveBeenNthCalledWith(2, 1, {
+      outcome: 'abandoned',
+      reason: 'cancelled',
+    });
+  });
 });
 
 describe('workflow-run detail measurement metrics', () => {

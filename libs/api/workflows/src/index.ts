@@ -48,6 +48,8 @@ export type {
   Job,
   JobListenerEvent,
   JobListenerEventDisposition,
+  JobListenerEventOutcome,
+  JobListenerEventOutcomeReason,
   RunWorkflowParams,
   Step,
   TriggerPayload,

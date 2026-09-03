@@ -50,6 +50,13 @@
       "when": 1788209432911,
       "tag": "0006_tool_invocation_queue",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1788444128396,
+      "tag": "0007_left_sharon_ventura",
+      "breakpoints": true
     }
   ]
 }

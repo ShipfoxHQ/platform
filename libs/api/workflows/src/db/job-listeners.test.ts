@@ -499,6 +499,60 @@ describe('resolveJobListener', () => {
     expect(stored?.listenerStatus).toBe('resolved');
     expect(['succeeded', 'failed']).toContain(result.status);
   });
+
+  it('honors resolve events and abandons fire events when resolved until', async () => {
+    const job = await createListeningJob({status: 'running', listenerStatus: 'listening'});
+    await bufferEvent(job.id, 'fire');
+    await bufferEvent(job.id, 'resolve');
+
+    await resolveJobListener({jobId: job.id, reason: 'until'});
+
+    const events = await db()
+      .select()
+      .from(jobListenerEvents)
+      .where(eq(jobListenerEvents.jobId, job.id));
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          disposition: 'fire',
+          outcome: 'abandoned',
+          outcomeReason: 'until',
+          consumedByExecutionId: null,
+          payload: {action: 'opened'},
+        }),
+        expect.objectContaining({
+          disposition: 'resolve',
+          outcome: 'honored',
+          outcomeReason: null,
+          consumedByExecutionId: null,
+          payload: {action: 'opened'},
+        }),
+      ]),
+    );
+  });
+
+  it.each([
+    'timeout',
+    'max_executions',
+  ] as const)('abandons all pending events when resolved by %s', async (reason) => {
+    const job = await createListeningJob({status: 'running', listenerStatus: 'listening'});
+    await bufferEvent(job.id, 'fire');
+    await bufferEvent(job.id, 'resolve');
+
+    await resolveJobListener({jobId: job.id, reason});
+
+    const events = await db()
+      .select()
+      .from(jobListenerEvents)
+      .where(eq(jobListenerEvents.jobId, job.id));
+    expect(events).toHaveLength(2);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({outcome: 'abandoned', outcomeReason: reason}),
+        expect.objectContaining({outcome: 'abandoned', outcomeReason: reason}),
+      ]),
+    );
+  });
 });
 
 describe('drainListenerEventsIntoExecution', () => {
@@ -605,6 +659,7 @@ describe('drainListenerEventsIntoExecution', () => {
     expect(result).toMatchObject({kind: 'execution', sequence: 1, status: 'pending'});
     expect(executions).toHaveLength(1);
     expect(events.every((event) => event.consumedByExecutionId === executions[0]?.id)).toBe(true);
+    expect(events.every((event) => event.outcome === 'consumed')).toBe(true);
   });
 
   it('persists a failed execution when listener variables are missing', async () => {
