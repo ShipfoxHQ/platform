@@ -1199,7 +1199,7 @@ interface SessionSharingStep {
   readonly stepKey: string | undefined;
   readonly keySource: string;
   readonly mode: 'resume' | 'fork';
-  readonly harness: string;
+  readonly harness: string | undefined;
 }
 
 // Bounds the cross-job sharing pass so a hostile or degenerate document cannot
@@ -1240,13 +1240,17 @@ function collectSessionSharingSteps(
   for (const [jobName, job] of Object.entries(document.jobs)) {
     job.steps.forEach((step, stepIndex) => {
       if (step.session === undefined) return;
+      const mode = typeof step.session === 'string' ? 'resume' : (step.session.mode ?? 'resume');
       steps.push({
         jobName,
         stepIndex,
         stepKey: step.key,
         keySource: typeof step.session === 'string' ? step.session : step.session.key,
-        mode: typeof step.session === 'string' ? 'resume' : (step.session.mode ?? 'resume'),
-        harness: step.harness ?? defaultHarnessId,
+        mode,
+        // A resume without an authored harness creates the session with the
+        // workspace default. An omitted fork instead inherits an existing
+        // session's pin, so it cannot participate in a static mismatch pair.
+        harness: step.harness ?? (mode === 'resume' ? defaultHarnessId : undefined),
       });
     });
   }
@@ -1338,7 +1342,14 @@ function reportHarnessMismatch(
   issues: WorkflowModelValidationIssue[],
   state: SessionSharingValidationState,
 ): void {
-  if (prior.harness === later.harness || state.harnessMismatchReportedKeys.has(keySource)) return;
+  if (
+    prior.harness === undefined ||
+    later.harness === undefined ||
+    prior.harness === later.harness ||
+    state.harnessMismatchReportedKeys.has(keySource)
+  ) {
+    return;
+  }
   state.harnessMismatchReportedKeys.add(keySource);
   issues.push(
     issue({
@@ -1474,7 +1485,7 @@ function selectSessionSharingWindow(steps: readonly SessionSharingStep[]): Sessi
     if (window.length >= MAX_SESSION_SHARING_STEPS_PER_KEY || inWindow.has(step)) return;
     inWindow.add(step);
     window.push(step);
-    harnessesInWindow.add(step.harness);
+    if (step.harness !== undefined) harnessesInWindow.add(step.harness);
   };
 
   // Reservation pass: a step is added when it is the first resume-mode step
@@ -1484,7 +1495,8 @@ function selectSessionSharingWindow(steps: readonly SessionSharingStep[]): Sessi
   // other before the fill pass runs.
   for (const step of steps) {
     const isFirstResumeOfJob = step.mode === 'resume' && !resumeStepsByJob.has(step.jobName);
-    const isHarnessRepresentative = !harnessesInWindow.has(step.harness);
+    const isHarnessRepresentative =
+      step.harness !== undefined && !harnessesInWindow.has(step.harness);
     if (!isFirstResumeOfJob && !isHarnessRepresentative) continue;
     if (isFirstResumeOfJob) resumeStepsByJob.add(step.jobName);
     add(step);

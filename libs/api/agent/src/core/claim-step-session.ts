@@ -54,10 +54,9 @@ function toDescriptor(
  *   errors the presentation maps to contract-known codes.
  * * `fork` performs no claim. It reads whatever head exists within the caller's
  *   workspace/project scope; a fork of a session that does not exist yet
- *   returns a null descriptor and creates nothing. The pinned harness must
- *   match the caller's resolved harness (the same rule resume enforces), so a
- *   fork cannot silently run a provider the workspace's current policy
- *   disallows.
+ *   returns a null descriptor and creates nothing. An omitted harness inherits
+ *   the existing session's pinned harness, while an explicit different
+ *   harness fails fast with `AgentSessionHarnessMismatchError`.
  */
 export async function claimStepSession(
   params: ClaimStepSessionParams,
@@ -72,10 +71,14 @@ export async function claimStepSession(
       key: params.key,
     });
     if (!existingSession) {
-      sessionForkedCount.add(1, {outcome: 'fresh'});
+      sessionForkedCount.add(1, {
+        outcome: 'fresh',
+        harness: params.harness,
+        harness_inherited: false,
+      });
       return {descriptor: null, harness: params.harness};
     }
-    if (existingSession.harness !== params.harness) {
+    if (params.harnessExplicit && existingSession.harness !== params.harness) {
       throw new AgentSessionHarnessMismatchError({
         sessionId: existingSession.id,
         workflowRunAttemptId: params.workflowRunAttemptId,
@@ -84,7 +87,11 @@ export async function claimStepSession(
         requestedHarness: params.harness,
       });
     }
-    sessionForkedCount.add(1, {outcome: 'loaded'});
+    sessionForkedCount.add(1, {
+      outcome: 'loaded',
+      harness: existingSession.harness,
+      harness_inherited: !params.harnessExplicit,
+    });
     return {descriptor: toDescriptor(existingSession, 'fork'), harness: existingSession.harness};
   }
 

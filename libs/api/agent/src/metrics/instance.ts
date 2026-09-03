@@ -1,4 +1,4 @@
-import type {SupportedModelProviderId} from '@shipfox/api-agent-dto';
+import type {Harness, SupportedModelProviderId} from '@shipfox/api-agent-dto';
 import {instanceMetrics} from '@shipfox/node-opentelemetry';
 import {config} from '#config.js';
 import {
@@ -44,10 +44,14 @@ export const sessionResumedCount = meter.createCounter<{outcome: 'claimed'}>(
   {description: 'Agent session resume dispatches accepted'},
 );
 
-export const sessionForkedCount = meter.createCounter<{outcome: 'loaded' | 'fresh'}>(
-  'agent_session_forked',
-  {description: 'Agent session fork dispatches by whether a head was loaded'},
-);
+export const sessionForkedCount = meter.createCounter<{
+  outcome: 'loaded' | 'fresh';
+  harness: Harness;
+  harness_inherited: boolean;
+}>('agent_session_forked', {
+  description:
+    'Agent session fork dispatches by head-load outcome, pinned harness, and harness inheritance',
+});
 
 export type SessionClaimConflictOutcome = 'held' | 'lock_unavailable' | 'scope_mismatch';
 

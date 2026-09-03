@@ -1070,7 +1070,7 @@ describe('normalizeWorkflowDocument', () => {
       expect(model.jobs).toHaveLength(2);
     });
 
-    it('uses the default harness when one session-sharing step omits it', () => {
+    it('accepts an omitted harness when one session-sharing step shares a key', () => {
       const model = normalizeWorkflowDocument({
         name: 'session sharing',
         jobs: {
@@ -1087,8 +1087,8 @@ describe('normalizeWorkflowDocument', () => {
       expect(model.jobs).toHaveLength(2);
     });
 
-    it('reports harness disagreement against the configured default harness', () => {
-      const error = expectInvalid(
+    it('accepts an omitted fork harness when the configured default differs', () => {
+      const model = normalizeWorkflowDocument(
         {
           name: 'session sharing',
           jobs: {
@@ -1097,7 +1097,38 @@ describe('normalizeWorkflowDocument', () => {
             },
             implement: {
               needs: 'plan',
-              steps: [{key: 'implement', prompt: 'Implement.', session: 'main'}],
+              steps: [
+                {
+                  key: 'implement',
+                  prompt: 'Implement.',
+                  session: {key: 'main', mode: 'fork'},
+                },
+              ],
+            },
+          },
+        },
+        {
+          agentValidationCatalog: {
+            ...agentValidationCatalog,
+            default_harness_id: 'claude',
+          },
+        },
+      );
+
+      expect(model.jobs).toHaveLength(2);
+    });
+
+    it('reports an omitted resume harness against the configured default', () => {
+      const error = expectInvalid(
+        {
+          name: 'session sharing',
+          jobs: {
+            plan: {
+              steps: [{key: 'plan', prompt: 'Plan.', session: 'main'}],
+            },
+            implement: {
+              needs: 'plan',
+              steps: [{key: 'implement', prompt: 'Implement.', session: 'main', harness: 'pi'}],
             },
           },
         },
@@ -1112,7 +1143,7 @@ describe('normalizeWorkflowDocument', () => {
       expect(error.issues).toEqual([
         expect.objectContaining({
           code: 'agent-session-harness-mismatch',
-          details: expect.objectContaining({harnesses: ['pi', 'claude']}),
+          details: expect.objectContaining({harnesses: ['claude', 'pi']}),
         }),
       ]);
     });

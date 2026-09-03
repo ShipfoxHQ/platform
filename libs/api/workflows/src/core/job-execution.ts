@@ -55,7 +55,7 @@ import {
   ToolConfigInvalidError,
   WorkflowDiagnosticTooLargeError,
 } from './errors.js';
-import {readAgentStepSessionIntent} from './step-config/agent.js';
+import {completeAgentDefaults, readAgentStepSessionIntent} from './step-config/agent.js';
 import {assembleStepDispatchContext} from './step-config/assemble-run-context.js';
 import {completeStepDispatchConfig} from './step-config/complete-step-dispatch-config.js';
 import type {WorkflowEvaluationContext} from './step-config/workflow-evaluation-context.js';
@@ -106,6 +106,7 @@ interface PendingSessionClaim {
   readonly session: AgentStepSessionIntentDto;
   readonly harnessExplicit: boolean;
   readonly config: Record<string, unknown>;
+  readonly authoredConfig: Record<string, unknown> | null;
   readonly evaluationTrace: readonly PersistedEvaluationTraceEntry[] | null;
   readonly workflowContext: Awaited<ReturnType<typeof getWorkflowContextForJob>>;
   readonly agent?: AgentInterModuleClient | undefined;
@@ -238,6 +239,7 @@ async function resolveRunningStep(
     session,
     harnessExplicit: configHarness(running.authoredConfig ?? {}) !== undefined,
     config: running.config,
+    authoredConfig: running.authoredConfig,
     evaluationTrace: currentAttempt?.evaluationTrace ?? running.evaluationTrace,
     workflowContext,
     agent,
@@ -387,6 +389,7 @@ async function dispatchPendingStepWithConfigPlan({
         session,
         harnessExplicit: configHarness(pending.authoredConfig ?? {}) !== undefined,
         config: step.config,
+        authoredConfig: pending.authoredConfig,
         evaluationTrace: completed.trace,
         workflowContext,
         agent,
@@ -477,6 +480,11 @@ function configHarness(config: Record<string, unknown>): 'pi' | 'claude' | undef
   return parsed.success ? parsed.data : undefined;
 }
 
+function configString(config: Record<string, unknown>, key: string): string | undefined {
+  const value = config[key];
+  return typeof value === 'string' ? value : undefined;
+}
+
 interface ClaimedStepSession {
   readonly config: Record<string, unknown>;
   readonly sessionId: string | undefined;
@@ -487,6 +495,7 @@ async function claimStepSessionForDispatch(params: {
   readonly stepAttemptId: string | undefined;
   readonly session: AgentStepSessionIntentDto;
   readonly harnessExplicit: boolean;
+  readonly authoredConfig: Record<string, unknown> | null;
   readonly workflowContext: Awaited<ReturnType<typeof getWorkflowContextForJob>>;
   readonly agent?: AgentInterModuleClient | undefined;
 }): Promise<ClaimedStepSession> {
@@ -543,12 +552,59 @@ async function claimStepSessionForDispatch(params: {
     const {session: _session, ...configWithoutSession} = params.config;
     return {config: configWithoutSession, sessionId: undefined};
   }
-  // The Agent module returns the authoritative pinned harness. In particular,
-  // this replaces a workspace-defaulted harness for a resumed session, so a
-  // workspace default change cannot make the next segment use another SDK.
+  const config = await resolveClaimedAgentConfig({
+    config: params.config,
+    authoredConfig: params.authoredConfig,
+    currentHarness: harness,
+    pinnedHarness: result.harness,
+    harnessExplicit: params.harnessExplicit,
+    agent: params.agent,
+    workflowContext: params.workflowContext,
+  });
   return {
-    config: {...params.config, harness: result.harness, session: result.descriptor},
+    config: {...config, session: result.descriptor},
     sessionId: result.descriptor.id,
+  };
+}
+
+async function resolveClaimedAgentConfig(params: {
+  readonly config: Record<string, unknown>;
+  readonly authoredConfig: Record<string, unknown> | null;
+  readonly currentHarness: 'pi' | 'claude';
+  readonly pinnedHarness: 'pi' | 'claude';
+  readonly harnessExplicit: boolean;
+  readonly agent: AgentInterModuleClient;
+  readonly workflowContext: Awaited<ReturnType<typeof getWorkflowContextForJob>>;
+}): Promise<Record<string, unknown>> {
+  if (params.harnessExplicit || params.currentHarness === params.pinnedHarness) {
+    return {...params.config, harness: params.pinnedHarness};
+  }
+
+  const authoredConfig = params.authoredConfig ?? {};
+  const defaults = await completeAgentDefaults({
+    harness: params.pinnedHarness,
+    provider: Object.hasOwn(authoredConfig, 'provider')
+      ? configString(params.config, 'provider')
+      : undefined,
+    model: Object.hasOwn(authoredConfig, 'model')
+      ? configString(params.config, 'model')
+      : undefined,
+    thinking: Object.hasOwn(authoredConfig, 'thinking')
+      ? configString(params.config, 'thinking')
+      : undefined,
+    resolveAgentDefaults: createAgentDefaultsResolver(
+      params.agent,
+      params.workflowContext.workspaceId,
+    ),
+    definitionId: params.workflowContext.jobId,
+  });
+
+  return {
+    ...params.config,
+    harness: defaults.harness,
+    provider: defaults.provider,
+    model: defaults.model,
+    thinking: defaults.thinking,
   };
 }
 
@@ -564,6 +620,7 @@ async function completePendingSessionClaim(
       stepAttemptId: pending.stepAttemptId,
       session: pending.session,
       harnessExplicit: pending.harnessExplicit,
+      authoredConfig: pending.authoredConfig,
       workflowContext: pending.workflowContext,
       agent: pending.agent,
     });
