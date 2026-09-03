@@ -30,6 +30,11 @@ import {
 } from '@shipfox/api-agent-dto';
 import {logger} from '@shipfox/node-opentelemetry';
 import {Type} from 'typebox';
+import {
+  type AgentSessionCatalogFailure,
+  AgentSessionDiagnostics,
+  type AgentSessionToolDescriptor,
+} from '#core/agent-session-diagnostics.js';
 import {assertRunnerEgressAllowed} from '#core/egress.js';
 import {
   AgentConfigError,
@@ -54,6 +59,7 @@ import {
   isPiExtensionAvailable,
   piExtensionDirectories,
 } from '#core/pi-extensions.js';
+import {createPiSessionDiagnosticsExtension} from '#core/pi-session-diagnostics.js';
 import {createPiToolErrorNormalizerExtension} from '#core/pi-tool-error-normalizer.js';
 import {createPiToolSvgNormalizerExtension} from '#core/pi-tool-svg-normalizer.js';
 import {PrerequisiteLedger} from '#core/prerequisite-ledger.js';
@@ -76,6 +82,9 @@ const PI_BUILTIN_TOOL_NAMES = new Set([
 ]);
 const PI_MCP_METADATA_TIMEOUT_MS = 10_000;
 const PI_MCP_CONFIG_ARG_WAIT_TIMEOUT_MS = 30_000;
+const PI_MCP_METADATA_TIMEOUT_MESSAGE = 'Pi integration tool catalog lookup timed out.';
+const CATALOG_TIMEOUT_PATTERN = /timed out|timeout/i;
+const MAX_DIAGNOSTIC_STRING_LENGTH = 256;
 
 let piMcpConfigArgTail = Promise.resolve();
 
@@ -128,6 +137,7 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
   let forkedFromExistingSession = false;
   let mcpConfig: PiMcpConfig | undefined;
   let customTools: ToolDefinition[] = [];
+  let diagnostics: AgentSessionDiagnostics | undefined;
 
   try {
     const directTools =
@@ -138,6 +148,22 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
       toolSurface === 'discovery'
         ? await createPiMcpConfig(agentStateDir, invocation.mcpServers, signal)
         : undefined;
+    const sessionDiagnostics = new AgentSessionDiagnostics({
+      harness: 'pi',
+      invocation,
+      metadataMode: invocationSession?.mode === 'resume' ? 'warm' : 'cold',
+      directToolNames: [
+        ...directTools.map(({definition}) => definition.name),
+        ...(mcpConfig?.directToolNames ?? []),
+      ],
+      proxyFallback: mcpConfig?.proxyFallback ?? false,
+      providerTools: [
+        ...directTools.map(({definition}) => piMcpToolDescriptor(definition)),
+        ...(mcpConfig?.providerTools ?? []),
+      ],
+      catalogFailures: mcpConfig?.catalogFailures,
+    });
+    diagnostics = sessionDiagnostics;
     customTools = createPiCustomTools({
       collector,
       hasDeclaredOutputs,
@@ -148,6 +174,7 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
       mcpConfig,
       modelRuntime,
       hasDirectTools: directTools.length > 0,
+      diagnostics: sessionDiagnostics,
     });
     const created = await createPiSession({
       services: prepared.services,
@@ -174,6 +201,7 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
       prerequisiteLedger,
       sessionInvocation: invocationSession,
       forkedFromExistingSession,
+      diagnostics: sessionDiagnostics,
     });
   } catch (error) {
     if (invocationSession?.mode === 'fork') {
@@ -181,7 +209,7 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
     }
     throw error;
   } finally {
-    await closePiSession({session, mcpConfig});
+    await closePiSession({session, mcpConfig, diagnostics});
   }
 }
 
@@ -243,6 +271,7 @@ async function runPiSession(params: {
   prerequisiteLedger: PrerequisiteLedger;
   sessionInvocation: HarnessInvocation['session'];
   forkedFromExistingSession: boolean;
+  diagnostics: AgentSessionDiagnostics;
 }): Promise<HarnessResult> {
   const abortSession = () => {
     Promise.resolve(params.session.abort()).catch(() => undefined);
@@ -267,6 +296,15 @@ async function runActivePiSession(
     onError: (error) => logger().warn({err: error}, 'Pi extension failed'),
   });
   installPiCompletionHooks(params);
+  params.diagnostics.recordSessionId(params.session.sessionId);
+  const registeredTools = params.session.getAllTools?.() ?? [];
+  params.diagnostics.recordProviderTools(
+    registeredTools.map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      inputSchema: tool.parameters,
+    })),
+  );
   if (params.signal.aborted) throw new Error('Agent step aborted during pi session creation');
 
   const forwarder = startForwarding(
@@ -317,30 +355,15 @@ async function runPiOutputTurns(
       completionMissing: () => params.prerequisiteLedger.missing(),
       guidanceForMissing: (missing) => params.collector.guidanceTextFor(missing),
     });
+    params.diagnostics.finish('completed');
   } catch (error) {
-    const response = params.session.getLastAssistantText() ?? '';
-    if (error instanceof RequiredOutputsMissingError) {
-      throw new AgentInvocationError(
-        error.message,
-        response,
-        sessionArtifact.sessionFile,
-        sessionArtifact.sessionId,
-      );
-    }
-    if (error instanceof AgentInvocationError) {
-      throw new AgentInvocationError(
-        error.message,
-        error.response,
-        sessionArtifact.sessionFile,
-        sessionArtifact.sessionId,
-      );
-    }
-    throw new AgentInvocationError(
-      error instanceof Error ? error.message : String(error),
-      response,
-      sessionArtifact.sessionFile,
-      sessionArtifact.sessionId,
-    );
+    throw wrapPiOutputError({
+      error,
+      response: params.session.getLastAssistantText() ?? '',
+      sessionArtifact,
+      diagnostics: params.diagnostics,
+      aborted: params.signal.aborted,
+    });
   }
   const outputs = params.collector.snapshot();
   return {
@@ -348,6 +371,45 @@ async function runPiOutputTurns(
     ...(Object.keys(outputs).length === 0 ? {} : {outputs}),
     ...sessionArtifact,
   };
+}
+
+function wrapPiOutputError(params: {
+  error: unknown;
+  response: string;
+  sessionArtifact: {sessionFile?: string; sessionId?: string};
+  diagnostics: AgentSessionDiagnostics;
+  aborted: boolean;
+}): AgentInvocationError {
+  if (params.error instanceof RequiredOutputsMissingError) {
+    params.diagnostics.finish('required_output_missing', 'required_output_missing');
+    return new AgentInvocationError(
+      params.error.message,
+      params.response,
+      params.sessionArtifact.sessionFile,
+      params.sessionArtifact.sessionId,
+      'output_gate_failed',
+    );
+  }
+  if (params.error instanceof AgentInvocationError) {
+    params.diagnostics.finish(
+      params.aborted ? 'aborted' : 'error',
+      params.error.failurePhase === 'output_gate_failed' ? 'required_output_missing' : undefined,
+    );
+    return new AgentInvocationError(
+      params.error.message,
+      params.error.response,
+      params.sessionArtifact.sessionFile,
+      params.sessionArtifact.sessionId,
+      params.error.failurePhase,
+    );
+  }
+  params.diagnostics.finish(params.aborted ? 'aborted' : 'error');
+  return new AgentInvocationError(
+    params.error instanceof Error ? params.error.message : String(params.error),
+    params.response,
+    params.sessionArtifact.sessionFile,
+    params.sessionArtifact.sessionId,
+  );
 }
 
 function resumablePiSessionArtifact(
@@ -438,6 +500,7 @@ async function preparePiSessionServices(params: {
   mcpConfig: PiMcpConfig | undefined;
   modelRuntime: ModelRuntimeInstance;
   hasDirectTools: boolean;
+  diagnostics: AgentSessionDiagnostics;
 }): Promise<{
   services: Awaited<ReturnType<typeof createAgentSessionServices>>;
 }> {
@@ -468,6 +531,7 @@ async function preparePiSessionServices(params: {
             ? []
             : [createPiToolErrorNormalizerExtension()]),
           createPiToolSvgNormalizerExtension(),
+          createPiSessionDiagnosticsExtension(params.diagnostics),
         ],
       },
     }),
@@ -668,6 +732,9 @@ interface PiMcpConfig {
   readonly directory: string;
   readonly path: string;
   readonly directToolNames: readonly string[];
+  readonly providerTools: readonly AgentSessionToolDescriptor[];
+  readonly catalogFailures: readonly AgentSessionCatalogFailure[];
+  readonly proxyFallback: boolean;
 }
 
 type PiMcpTool = ListToolsResult['tools'][number];
@@ -676,6 +743,17 @@ type PiMcpBridge = NonNullable<HarnessInvocation['mcpServers']>[number];
 interface PiIntegrationTool {
   readonly bridge: PiMcpBridge;
   readonly definition: PiMcpTool;
+}
+
+function piMcpToolDescriptor(tool: PiMcpTool): AgentSessionToolDescriptor {
+  return {
+    name: tool.name,
+    ...(tool.description === undefined ? {} : {description: tool.description}),
+    inputSchema: tool.inputSchema,
+    ...('outputSchema' in tool && tool.outputSchema !== undefined
+      ? {outputSchema: tool.outputSchema}
+      : {}),
+  };
 }
 
 function resolvePiToolSurface(invocation: HarnessInvocation): HarnessToolSurface {
@@ -731,7 +809,7 @@ async function createPiMcpConfig(
   try {
     const preparedServers = await Promise.all(
       mcpServers.map(async (server) => {
-        const [url, tools] = await Promise.all([
+        const [url, catalog] = await Promise.all([
           server.activateHttp(),
           listPiMcpTools(server, signal, false),
         ]);
@@ -746,7 +824,9 @@ async function createPiMcpConfig(
               exposeResources: false,
             },
           ] as const,
-          directToolNames: tools.map((tool) => tool.name),
+          directToolNames: catalog.tools.map((tool) => tool.name),
+          providerTools: catalog.tools.map(piMcpToolDescriptor),
+          ...(catalog.failure === undefined ? {} : {catalogFailure: catalog.failure}),
         };
       }),
     );
@@ -761,6 +841,11 @@ async function createPiMcpConfig(
       directory,
       path,
       directToolNames: preparedServers.flatMap((server) => server.directToolNames),
+      providerTools: preparedServers.flatMap((server) => server.providerTools),
+      catalogFailures: preparedServers.flatMap((server) =>
+        server.catalogFailure === undefined ? [] : [server.catalogFailure],
+      ),
+      proxyFallback: true,
     };
   } catch (error) {
     try {
@@ -782,8 +867,8 @@ async function createPiIntegrationToolCatalog(
   const catalog = (
     await Promise.all(
       mcpServers.map(async (server) => {
-        const tools = await listPiMcpTools(server, signal, true);
-        return tools.map((definition) => ({bridge: server, definition}));
+        const catalog = await listPiMcpTools(server, signal, true);
+        return catalog.tools.map((definition) => ({bridge: server, definition}));
       }),
     )
   ).flat();
@@ -831,10 +916,16 @@ async function listPiMcpTools(
   server: PiMcpBridge,
   signal: AbortSignal,
   failClosed: boolean,
-): Promise<readonly PiMcpTool[]> {
+): Promise<{
+  readonly tools: readonly PiMcpTool[];
+  readonly failure?: AgentSessionCatalogFailure | undefined;
+}> {
   const controller = new AbortController();
   const onAbort = () => controller.abort(signal.reason);
-  const timeout = setTimeout(() => controller.abort(), PI_MCP_METADATA_TIMEOUT_MS);
+  const timeout = setTimeout(
+    () => controller.abort(new Error(PI_MCP_METADATA_TIMEOUT_MESSAGE)),
+    PI_MCP_METADATA_TIMEOUT_MS,
+  );
   if (signal.aborted) onAbort();
   else signal.addEventListener('abort', onAbort, {once: true});
 
@@ -843,15 +934,31 @@ async function listPiMcpTools(
       signal: controller.signal,
       timeout: PI_MCP_METADATA_TIMEOUT_MS,
     });
-    return result.tools;
+    return {
+      tools: result.tools,
+    };
   } catch (error) {
     if (signal.aborted) throw error;
+    const status = catalogErrorStatus(error);
+    const errorClass = catalogErrorClass(error, status, controller.signal.aborted);
     if (failClosed) throw integrationToolCatalogUnavailable(server.name, error);
     logger().warn(
-      {err: error, server: server.name},
+      {
+        event: 'runner.agent_pi_tool_catalog_unavailable',
+        server: boundedDiagnosticString(server.name),
+        errorClass,
+        ...(status === undefined ? {} : {status}),
+      },
       'Failed to list Pi MCP direct tools; keeping the MCP proxy fallback',
     );
-    return [];
+    return {
+      tools: [],
+      failure: {
+        server: server.name,
+        errorClass,
+        ...(status === undefined ? {} : {status}),
+      },
+    };
   } finally {
     clearTimeout(timeout);
     signal.removeEventListener('abort', onAbort);
@@ -940,11 +1047,39 @@ function piToolContent(content: CallToolResult['content']): AgentToolResult<unkn
   });
 }
 
+function catalogErrorStatus(error: unknown): number | undefined {
+  if (!isRecord(error)) return undefined;
+  const status = error.status ?? error.statusCode ?? error.code;
+  return typeof status === 'number' && Number.isInteger(status) && status >= 100 && status <= 599
+    ? status
+    : undefined;
+}
+
+function boundedDiagnosticString(value: string): string {
+  return value.length <= MAX_DIAGNOSTIC_STRING_LENGTH
+    ? value
+    : value.slice(0, MAX_DIAGNOSTIC_STRING_LENGTH);
+}
+
+function catalogErrorClass(
+  error: unknown,
+  status: number | undefined,
+  timedOut: boolean,
+): AgentSessionCatalogFailure['errorClass'] {
+  if (status !== undefined) return 'http';
+  if (timedOut) return 'timeout';
+  if (error instanceof Error && CATALOG_TIMEOUT_PATTERN.test(error.message)) return 'timeout';
+  if (error instanceof TypeError) return 'transport';
+  return 'unknown';
+}
+
 async function closePiSession(params: {
   session: Awaited<ReturnType<typeof createAgentSessionFromServices>>['session'] | undefined;
   mcpConfig: PiMcpConfig | undefined;
+  diagnostics: AgentSessionDiagnostics | undefined;
 }): Promise<void> {
-  const {session, mcpConfig} = params;
+  const {session, mcpConfig, diagnostics} = params;
+  diagnostics?.finish(diagnostics.terminationReason ?? 'error');
   if (session !== undefined) {
     try {
       await session.extensionRunner.emit({type: 'session_shutdown', reason: 'quit'});
@@ -1263,4 +1398,8 @@ function credentialValue(
     );
   }
   return value;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

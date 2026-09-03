@@ -172,6 +172,48 @@ describe('buildAgentToolsMcpServer', () => {
     }
   });
 
+  it('returns stable protocol details for a missing method', async () => {
+    const dispatch = vi.fn();
+    const {client, close} = await connectClient(dispatch, defaultAuthorizedTools());
+
+    const result = await client.callTool(
+      {name: 'github_main__issue_read', arguments: {}},
+      CallToolResultSchema,
+    );
+    await close();
+
+    expect(result).toMatchObject({
+      isError: true,
+      structuredContent: {
+        code: 'invalid-request',
+        reason: 'missing_required_parameter',
+        tool: 'issue_read',
+        parameter: 'method',
+      },
+    });
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it('returns a stable tool-not-found reason without exposing it as a provider error', async () => {
+    const dispatch = vi.fn();
+    const {client, close} = await connectClient(dispatch, defaultAuthorizedTools());
+
+    const result = await client.callTool(
+      {name: 'github_main__missing_tool', arguments: {}},
+      CallToolResultSchema,
+    );
+    await close();
+
+    expect(result).toMatchObject({
+      isError: true,
+      structuredContent: {
+        code: 'invalid-request',
+        reason: 'tool_not_found',
+        tool: 'github_main__missing_tool',
+      },
+    });
+  });
+
   it('ignores a stray method argument for standalone tools', async () => {
     const dispatch = vi.fn(async () => ({
       content: [{type: 'text' as const, text: 'called'}],

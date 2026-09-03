@@ -614,6 +614,31 @@ describe('claudeHarnessAdapter', () => {
     expect(lastQueryOptions()).not.toHaveProperty('tools');
   });
 
+  it('marks rejected Claude output writes as structured tool errors', async () => {
+    let rejection: unknown;
+    queryMock.mockImplementation((params: {options: Record<string, unknown>}) => {
+      const servers = params.options.mcpServers as
+        | Record<string, {tools?: Array<{handler?: (args: unknown) => Promise<unknown>}>}>
+        | undefined;
+      const handler = servers?.shipfox_outputs?.tools?.[0]?.handler;
+      rejection = handler?.({key: 'undeclared', value: 'value'});
+      return makeQuery([successMessage, successMessage, successMessage]);
+    });
+
+    const result = claudeHarnessAdapter.run(invocation({outputs: {summary: {type: 'string'}}}));
+
+    await expect(result).rejects.toMatchObject({failurePhase: 'output_gate_failed'});
+    await expect(rejection).resolves.toMatchObject({
+      isError: true,
+      structuredContent: {
+        code: 'undeclared_output',
+        reason: 'undeclared_output',
+        tool: 'set_output',
+        parameter: 'undeclared',
+      },
+    });
+  });
+
   it('keeps the output tool enabled when Claude tools are explicitly selected', async () => {
     queryMock.mockReturnValue(makeQuery([successMessage, successMessage, successMessage]));
 
@@ -1809,9 +1834,22 @@ describe('claudeHarnessAdapter', () => {
       sessionFile: transcriptFile,
       sessionId: 'prior-session-id',
     });
-    expect(readFileSync(transcriptFile, 'utf8')).toBe(
-      '{"type":"user","uuid":"prior"}\n{"type":"assistant","uuid":"next","message":{"content":[]}}\n',
-    );
+    const persistedEntries = readFileSync(transcriptFile, 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    expect(persistedEntries.slice(0, 2)).toEqual([
+      {type: 'user', uuid: 'prior'},
+      {type: 'assistant', uuid: 'next', message: {content: []}},
+    ]);
+    expect(persistedEntries.at(-1)).toMatchObject({
+      type: 'shipfox_agent_diagnostics',
+      data: expect.objectContaining({
+        harness: 'claude',
+        sessionId: 'prior-session-id',
+        termination: {reason: 'completed'},
+      }),
+    });
     expect(lastQueryOptions()).toMatchObject({
       persistSession: true,
       sessionStoreFlush: 'batched',
@@ -1887,14 +1925,101 @@ describe('claudeHarnessAdapter', () => {
       sessionFile: join(testCwd, 'runner-agent', 'sessions', 'claude-session.jsonl'),
       sessionId: 'session-1',
     });
-    expect(readFileSync(result.sessionFile as string, 'utf8')).toBe(
-      '{"type":"user","uuid":"first","message":{"content":"Fix it."}}\n',
-    );
+    const persistedEntries = readFileSync(result.sessionFile as string, 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    expect(persistedEntries[0]).toEqual({
+      type: 'user',
+      uuid: 'first',
+      message: {content: 'Fix it.'},
+    });
+    expect(persistedEntries.at(-1)).toMatchObject({
+      type: 'shipfox_agent_diagnostics',
+      data: expect.objectContaining({
+        harness: 'claude',
+        sessionId: 'session-1',
+        termination: {reason: 'completed'},
+      }),
+    });
     expect(lastQueryOptions()).toMatchObject({
       persistSession: true,
       settingSources: [],
     });
     expect(lastQueryOptions()).not.toHaveProperty('resume');
+  });
+
+  it('persists provider-facing tool inventory and ordered call diagnostics', async () => {
+    const integrationTool = 'linear_shipfox__get_team';
+    const sdkTool = `mcp__shipfox_integration_tools__${integrationTool}`;
+    const transcriptFile = join(testCwd, 'diagnostics-session.jsonl');
+    writeFileSync(transcriptFile, '{"type":"user","uuid":"prior"}\n');
+    const bridge = mcpBridge([integrationTool]);
+    queryMock.mockImplementation((params: {options: {sessionStore?: TestSessionStore}}) => {
+      void params.options.sessionStore?.append(
+        {projectKey: 'project', sessionId: 'prior-session-id'},
+        [{type: 'assistant', uuid: 'next', message: {content: []}}],
+      );
+      return makeQuery([
+        {...initWithTools([sdkTool]), session_id: 'prior-session-id'},
+        assistantToolUse(sdkTool, 'call-1'),
+        userToolResult('call-1'),
+        successMessage,
+      ]);
+    });
+
+    const result = await claudeHarnessAdapter.run(
+      invocation({
+        mcpServers: [bridge],
+        requestedIntegrationTools: [{connectionSlug: 'linear_shipfox', toolId: 'get_team'}],
+        session: {
+          mode: 'resume',
+          file: transcriptFile,
+          harnessSessionId: 'prior-session-id',
+        },
+      }),
+    );
+
+    expect(result).toMatchObject({sessionFile: transcriptFile, sessionId: 'prior-session-id'});
+    const entries = readFileSync(transcriptFile, 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    const diagnosticEntry = entries.find((entry) => entry.type === 'shipfox_agent_diagnostics') as
+      | {data: Record<string, unknown>}
+      | undefined;
+    expect(diagnosticEntry?.data).toMatchObject({
+      registration: {
+        metadataMode: 'warm',
+        directToolNames: [sdkTool],
+        proxyFallback: false,
+      },
+      providerTools: [
+        {
+          name: sdkTool,
+          inputSchema: {type: 'object'},
+        },
+      ],
+      toolCalls: [
+        {
+          toolCallId: 'call-1',
+          toolName: integrationTool,
+          normalizedArgs: {secret: 'not logged'},
+        },
+      ],
+      toolResults: [
+        {
+          toolCallId: 'call-1',
+          toolName: integrationTool,
+          isError: false,
+        },
+      ],
+      budgets: {
+        turns: {consumed: 1, remaining: null},
+        toolCalls: {consumed: 1, remaining: null},
+      },
+      termination: {reason: 'completed'},
+    });
   });
 
   it('resumes a Claude fork without committing it', async () => {

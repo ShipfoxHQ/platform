@@ -339,11 +339,14 @@ describe('piHarnessAdapter', () => {
     await piHarnessAdapter.run(invocation());
 
     const options = createAgentSessionServicesMock.mock.calls[0]?.[0];
-    expect(options.resourceLoaderOptions.extensionFactories).toEqual([
-      expect.objectContaining({
-        name: PI_TOOL_SVG_NORMALIZER_EXTENSION_NAME,
-      }),
-    ]);
+    expect(options.resourceLoaderOptions.extensionFactories).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: PI_TOOL_SVG_NORMALIZER_EXTENSION_NAME,
+        }),
+        expect.objectContaining({name: 'shipfox-pi-session-diagnostics'}),
+      ]),
+    );
     expect(bindExtensionsMock).toHaveBeenCalledTimes(1);
     expect(bindExtensionsMock).toHaveBeenCalledWith(expect.objectContaining({mode: 'print'}));
   });
@@ -448,14 +451,17 @@ describe('piHarnessAdapter', () => {
     );
     expect(
       createAgentSessionServicesMock.mock.calls[0]?.[0].resourceLoaderOptions.extensionFactories,
-    ).toEqual([
-      expect.objectContaining({
-        name: PI_TOOL_ERROR_NORMALIZER_EXTENSION_NAME,
-      }),
-      expect.objectContaining({
-        name: PI_TOOL_SVG_NORMALIZER_EXTENSION_NAME,
-      }),
-    ]);
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: PI_TOOL_ERROR_NORMALIZER_EXTENSION_NAME,
+        }),
+        expect.objectContaining({
+          name: PI_TOOL_SVG_NORMALIZER_EXTENSION_NAME,
+        }),
+        expect.objectContaining({name: 'shipfox-pi-session-diagnostics'}),
+      ]),
+    );
     expect(extensionShutdownMock).toHaveBeenCalledWith({type: 'session_shutdown', reason: 'quit'});
     expect(disposeMock).toHaveBeenCalledAfter(extensionShutdownMock);
     expect(existsSync(configPath)).toBe(false);
