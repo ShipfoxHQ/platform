@@ -105,6 +105,15 @@ describe('workflow agent-access schemas', () => {
       }).success,
     ).toBe(false);
   });
+
+  test('enforces text caps by UTF-8 bytes', () => {
+    const validRun = runResult();
+    const underByteCap = {...validRun, name: `${'🙂'.repeat(127)}a`};
+    const overByteCap = {...validRun, name: '🙂'.repeat(129)};
+
+    expect(getWorkflowRunResultSchema.safeParse(underByteCap).success).toBe(true);
+    expect(getWorkflowRunResultSchema.safeParse(overByteCap).success).toBe(false);
+  });
 });
 
 function runResult() {

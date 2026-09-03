@@ -1,6 +1,5 @@
 import {
-  AGENT_ACCESS_TEXT_MAX_BYTES,
-  type AgentAccessEnvelopeDto,
+  AGENT_ACCESS_WORKFLOW_ATTEMPT_MAX,
   agentAccessOutputSchema,
   type GetWorkflowJobResultDto,
   type GetWorkflowRunResultDto,
@@ -48,19 +47,19 @@ import type {
   WorkflowRunOverviewResponseDto,
 } from '@shipfox/api-workflows-dto';
 import type {WorkflowsModuleClient} from '@shipfox/api-workflows-dto/inter-module';
+import {encodeNumberIdCursor, encodeStringIdCursor} from '@shipfox/node-drizzle';
+import {agentAccessSuccess} from './envelope.js';
 import {
-  decodeNumberIdCursor,
-  decodeStringIdCursor,
-  encodeNumberIdCursor,
-  encodeStringIdCursor,
-} from '@shipfox/node-drizzle';
-import {agentAccessError, agentAccessSuccess} from './envelope.js';
-import {reducePagedAgentAccessResponse, truncateAgentAccessUtf8} from './response.js';
+  cap,
+  capNullable,
+  invalidRequest,
+  notFound,
+  parseInput,
+  reducePage,
+  validateBoundedNumberCursor,
+  validateBoundedPositionCursor,
+} from './tool-utils.js';
 import type {AgentAccessTool} from './tools.js';
-
-const WORKFLOW_CURSOR_VALUE_MAX = 2_147_483_647;
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
-const DECIMAL_RE = /^\d+$/u;
 
 export function createAgentAccessWorkflowTools(
   workflows: WorkflowsModuleClient,
@@ -392,14 +391,11 @@ function workflowRunJobStatusCounts(
     return overview.jobs.status_counts.map(({status, count}) => ({status, count}));
   }
 
-  const counts = new Map<string, number>();
+  const counts = new Map<GetWorkflowRunResultDto['job_status_counts'][number]['status'], number>();
   for (const job of overview.jobs.items) {
     counts.set(job.status, (counts.get(job.status) ?? 0) + 1);
   }
-  return [...counts].map(([status, count]) => ({
-    status: status as GetWorkflowRunResultDto['job_status_counts'][number]['status'],
-    count,
-  }));
+  return [...counts].map(([status, count]) => ({status, count}));
 }
 
 function toWorkflowRunAttemptResult(
@@ -494,50 +490,15 @@ function toWorkflowStepAttemptResult(
   };
 }
 
-function reducePage(
-  envelope: AgentAccessEnvelopeDto,
-  itemKey: string,
-  items: readonly Record<string, unknown>[],
-  cursorForItem: (item: Record<string, unknown>, index: number) => string,
-): AgentAccessEnvelopeDto {
-  return reducePagedAgentAccessResponse({envelope, itemKey, items, cursorForItem});
-}
-
 function validateNumberCursor(value: string | undefined): string | undefined {
-  if (value === undefined) return undefined;
-  const cursor = decodeNumberCursor(value);
-  return cursor === undefined ? undefined : value;
+  return validateBoundedNumberCursor(value, {
+    minValue: 1,
+    maxValue: AGENT_ACCESS_WORKFLOW_ATTEMPT_MAX,
+  });
 }
 
 function validatePositionCursor(value: string | undefined): string | undefined {
-  if (value === undefined) return undefined;
-  const cursor = decodeStringCursor(value);
-  return cursor === undefined ? undefined : value;
-}
-
-function decodeNumberCursor(value: string): {value: number; id: string} | undefined {
-  const decoded = decodeNumberIdCursor(value);
-  if (!decoded) return undefined;
-  return isValidCursor(decoded.value, decoded.id) ? decoded : undefined;
-}
-
-function decodeStringCursor(value: string): {value: string; id: string} | undefined {
-  const decoded = decodeStringIdCursor(value);
-  if (!decoded) return undefined;
-  if (!UUID_RE.test(decoded.id) || !DECIMAL_RE.test(decoded.value)) return undefined;
-  const position = Number(decoded.value);
-  return Number.isSafeInteger(position) && position >= 0 && position <= WORKFLOW_CURSOR_VALUE_MAX
-    ? decoded
-    : undefined;
-}
-
-function isValidCursor(value: number, id: string): boolean {
-  return (
-    UUID_RE.test(id) &&
-    Number.isSafeInteger(value) &&
-    value >= 1 &&
-    value <= WORKFLOW_CURSOR_VALUE_MAX
-  );
+  return validateBoundedPositionCursor(value, AGENT_ACCESS_WORKFLOW_ATTEMPT_MAX);
 }
 
 function numberCursorFromItem(item: Record<string, unknown>): string {
@@ -550,29 +511,4 @@ function numberCursorFromExecutionItem(item: Record<string, unknown>): string {
 
 function positionCursorFromItem(item: Record<string, unknown>): string {
   return encodeStringIdCursor({value: String(item.position), id: String(item.id)});
-}
-
-function cap(value: string): string {
-  return truncateAgentAccessUtf8(value, AGENT_ACCESS_TEXT_MAX_BYTES).value;
-}
-
-function capNullable(value: string | null): string | null {
-  return value === null ? null : cap(value);
-}
-
-function invalidRequest(): AgentAccessEnvelopeDto {
-  return agentAccessError('invalid-request');
-}
-
-function notFound(): AgentAccessEnvelopeDto {
-  return agentAccessError('not-found');
-}
-
-interface SafeParseSchema<T> {
-  safeParse(value: unknown): {success: true; data: T} | {success: false};
-}
-
-function parseInput<T>(schema: SafeParseSchema<T>, value: unknown): T | undefined {
-  const parsed = schema.safeParse(value);
-  return parsed.success ? parsed.data : undefined;
 }

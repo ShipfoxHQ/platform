@@ -27,6 +27,7 @@ import {
   encodeStringIdCursor,
 } from '@shipfox/node-drizzle';
 import {createAgentAccessTools} from './paged-tools.js';
+import {serializedAgentAccessEnvelopeByteLength} from './response.js';
 
 const workspaceId = uuid(1);
 const runId = uuid(2);
@@ -109,6 +110,33 @@ describe('bounded workflow agent-access tools', () => {
       workflowRunId: runId,
       attempt: 1,
     });
+  });
+
+  test('relays status counts from the large workflow overview variant', async () => {
+    const mocks = clients();
+    mocks.workflows.getWorkflowRunOverview.mockResolvedValue({
+      ...overview(),
+      jobs: {
+        kind: 'large',
+        total: 250,
+        status_counts: [
+          {status: 'failed', count: 3},
+          {status: 'succeeded', count: 247},
+        ],
+        first_page: {items: [], next_cursor: null, total: 100},
+      },
+    });
+
+    const response = await tool(mocks, 'get_workflow_run').execute({
+      context,
+      arguments: {run_id: runId},
+    });
+    const result = expectSuccess<GetWorkflowRunResultDto>(response);
+
+    expect(result.job_status_counts).toEqual([
+      {status: 'failed', count: 3},
+      {status: 'succeeded', count: 247},
+    ]);
   });
 
   test('pages run attempts with the producer cursor and exposes run coordinates', async () => {
@@ -196,6 +224,7 @@ describe('bounded workflow agent-access tools', () => {
     expect(result.jobs.length).toBeLessThan(100);
     expect(response).toMatchObject({ok: true, response_truncated: true});
     expect(response.response_total_bytes).toBeGreaterThan(128 * 1024);
+    expect(serializedAgentAccessEnvelopeByteLength(response)).toBeLessThanOrEqual(128 * 1024);
     expect(last).toBeDefined();
     expect(decodeStringIdCursor(result.next_cursor ?? undefined)).toEqual({
       value: String(last?.position),

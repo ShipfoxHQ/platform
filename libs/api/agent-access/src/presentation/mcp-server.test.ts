@@ -2,7 +2,10 @@ import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {InMemoryTransport} from '@modelcontextprotocol/sdk/inMemory.js';
 import {CallToolResultSchema} from '@modelcontextprotocol/sdk/types.js';
 import type {AnnotationsInterModuleClient} from '@shipfox/annotations-dto/inter-module';
-import {agentAccessEnvelopeSchema} from '@shipfox/api-agent-access-dto';
+import {
+  type AgentAccessEnvelopeDto,
+  agentAccessEnvelopeSchema,
+} from '@shipfox/api-agent-access-dto';
 import type {AgentAccessContext} from '@shipfox/api-auth-context';
 import type {DefinitionsInterModuleClient} from '@shipfox/api-definitions-dto/inter-module';
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
@@ -104,6 +107,59 @@ describe('buildAgentAccessMcpServer', () => {
     expect(result.isError).toBe(true);
     expect(result.structuredContent).toEqual({ok: false, error: {code: 'invalid-request'}});
     expect(listWorkflowRuns).not.toHaveBeenCalled();
+  });
+
+  test('rejects invalid workflow results at the MCP validation boundary', async () => {
+    const workflowTool = createAgentAccessTools({
+      projects: {} as unknown as ProjectsModuleClient,
+      definitions: {} as unknown as DefinitionsInterModuleClient,
+      workflows: {} as unknown as WorkflowsModuleClient,
+      annotations: {} as unknown as AnnotationsInterModuleClient,
+      triggers: {} as unknown as TriggersInterModuleClient,
+    }).find((candidate) => candidate.name === 'get_workflow_run');
+    if (!workflowTool) throw new Error('Expected get_workflow_run tool');
+
+    const invalidResultTool = {
+      ...workflowTool,
+      name: 'invalid_workflow_result',
+      execute: () => agentAccessSuccess({}),
+    };
+    const invalidEnvelopeTool = {
+      ...workflowTool,
+      name: 'invalid_workflow_envelope',
+      execute: () => ({ok: true}) as unknown as AgentAccessEnvelopeDto,
+    };
+    const {client, close} = await connectClient(undefined, [
+      invalidResultTool,
+      invalidEnvelopeTool,
+    ]);
+
+    const invalidResult = await client.callTool(
+      {
+        name: 'invalid_workflow_result',
+        arguments: {run_id: '00000000-0000-4000-8000-000000000001'},
+      },
+      CallToolResultSchema,
+    );
+    const invalidEnvelope = await client.callTool(
+      {
+        name: 'invalid_workflow_envelope',
+        arguments: {run_id: '00000000-0000-4000-8000-000000000001'},
+      },
+      CallToolResultSchema,
+    );
+    await close();
+
+    expect(invalidResult.isError).toBe(true);
+    expect(invalidResult.structuredContent).toEqual({
+      ok: false,
+      error: {code: 'invalid-tool-response'},
+    });
+    expect(invalidEnvelope.isError).toBe(true);
+    expect(invalidEnvelope.structuredContent).toEqual({
+      ok: false,
+      error: {code: 'invalid-tool-response'},
+    });
   });
 
   test('records only the exception when serializing a tool result fails', async () => {

@@ -1,6 +1,7 @@
 import {z} from 'zod';
 import type {AgentAccessObjectSchema} from './envelope.js';
 import {AGENT_ACCESS_PAGE_LIMIT_MAX, AGENT_ACCESS_TEXT_MAX_BYTES} from './paged-tools.js';
+import {dateTimeSchema, idSchema, utf8CappedString} from './primitives.js';
 
 export const AGENT_ACCESS_WORKFLOW_ATTEMPT_MAX = 2_147_483_647;
 export const AGENT_ACCESS_WORKFLOW_RUN_ATTEMPT_PAGE_LIMIT = 25;
@@ -10,15 +11,7 @@ export const AGENT_ACCESS_WORKFLOW_STEP_PAGE_LIMIT = 100;
 export const AGENT_ACCESS_WORKFLOW_STEP_ATTEMPT_PAGE_LIMIT = 25;
 export const AGENT_ACCESS_WORKFLOW_EXECUTION_COUNT_MAX = 100;
 
-const idSchema = z.string().uuid();
-const dateTimeSchema = z.string().datetime();
-const utf8Encoder = new TextEncoder();
-const textSchema = z
-  .string()
-  .max(AGENT_ACCESS_TEXT_MAX_BYTES)
-  .refine((value) => utf8Encoder.encode(value).byteLength <= AGENT_ACCESS_TEXT_MAX_BYTES, {
-    message: `String must contain at most ${AGENT_ACCESS_TEXT_MAX_BYTES} UTF-8 bytes`,
-  });
+const textSchema = utf8CappedString(AGENT_ACCESS_TEXT_MAX_BYTES);
 const attemptSchema = z.number().int().min(1).max(AGENT_ACCESS_WORKFLOW_ATTEMPT_MAX);
 const pageInput = (defaultLimit: number) => ({
   limit: z.number().int().min(1).max(AGENT_ACCESS_PAGE_LIMIT_MAX).default(defaultLimit),

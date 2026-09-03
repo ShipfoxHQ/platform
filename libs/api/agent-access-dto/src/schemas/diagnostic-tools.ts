@@ -4,24 +4,13 @@ import {
   AGENT_ACCESS_CONNECTION_NAME_MAX_BYTES,
   AGENT_ACCESS_TEXT_MAX_BYTES,
 } from './paged-tools.js';
+import {dateTimeSchema, idSchema, utf8CappedString} from './primitives.js';
 
 export const AGENT_ACCESS_SERIALIZED_JSON_MAX_BYTES = 16 * 1024;
 export const AGENT_ACCESS_TRIGGER_DECISION_MAX_ITEMS = 50;
 export const AGENT_ACCESS_TRIGGER_REPLAY_MAX_ITEMS = 20;
 export const AGENT_ACCESS_FACET_MAX_ITEMS = 50;
 export const AGENT_ACCESS_FACET_VALUE_MAX_BYTES = 256;
-
-const idSchema = z.string().uuid();
-const dateTimeSchema = z.string().datetime();
-const utf8Encoder = new TextEncoder();
-
-const utf8CappedString = (maxBytes: number) =>
-  z
-    .string()
-    .max(maxBytes)
-    .refine((value) => utf8Encoder.encode(value).byteLength <= maxBytes, {
-      message: `String must contain at most ${maxBytes} UTF-8 bytes`,
-    });
 
 const textSchema = utf8CappedString(AGENT_ACCESS_TEXT_MAX_BYTES);
 const shortTextSchema = utf8CappedString(AGENT_ACCESS_CONNECTION_NAME_MAX_BYTES);
