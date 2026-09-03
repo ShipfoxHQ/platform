@@ -330,7 +330,13 @@ function JobContextError({query}: {query: ReturnType<typeof useWorkflowJobExecut
         <CalloutTitle>Job context unavailable</CalloutTitle>
         <CalloutDescription className="flex items-center justify-between gap-inline">
           <span>We could not load the context for this execution.</span>
-          <Button type="button" size="2xs" variant="secondary" onClick={() => void query.refetch()}>
+          <Button
+            type="button"
+            size="2xs"
+            variant="secondary"
+            isLoading={query.isFetching}
+            onClick={() => void query.refetch()}
+          >
             Retry
           </Button>
         </CalloutDescription>
