@@ -10,6 +10,7 @@ import {
   type TestVcsStats,
   testVcsExternalRepositoryId,
 } from '@shipfox/e2e-setup-integrations';
+import {createProject as createE2eProject} from '@shipfox/e2e-setup-projects';
 import {attachLocalRunnerLog} from '#attachments.js';
 import {createProject} from '#create-project.js';
 import {ON_REJECTION_WORKFLOW} from '#renewable-credentials-workflows.js';
@@ -398,6 +399,20 @@ async function seedTestVcsWorkflow(params: {
     connectionId: params.connectionId,
     externalRepositoryId: repository.external_repository_id,
   });
+  if (params.secondaryRepositoryName !== undefined) {
+    await createE2eProject({
+      workspaceId: params.suite.workspaceId,
+      name: `Test VCS ${params.secondaryRepositoryName}`,
+      sourceConnectionId: params.connectionId,
+      sourceExternalRepositoryId: testVcsExternalRepositoryId(
+        params.owner,
+        params.secondaryRepositoryName,
+      ),
+      sourceRepositoryOwner: params.owner,
+      sourceRepositoryName: params.secondaryRepositoryName,
+      sourceDefaultBranch: 'main',
+    });
+  }
   const definition = await waitForDefinition({
     projectId: project.id,
     configPath: params.configPath,

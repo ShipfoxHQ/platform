@@ -177,10 +177,7 @@ for (const tokenCase of GITHUB_TOKEN_CASES) {
       expect(providerRequests.every((request) => request.assertion_failures.length === 0)).toBe(
         true,
       );
-      // Source metadata lookups can finish after definition sync reports terminal, so keep
-      // background repository-resolution calls out of the agent-tool request trace.
-      const agentToolCalls = githubApi.calls.filter((call) => call.kind !== 'resolve-repository');
-      expect(agentToolCalls).toEqual([
+      expect(githubAgentToolCalls(githubApi)).toEqual([
         {
           kind: 'mint-token',
           authorization: expect.stringMatching(BEARER_AUTHORIZATION),
@@ -257,7 +254,7 @@ test('enforces selected GitHub authorization for deterministic tools', async ({
 
     expect(result.terminal.status).toBe('succeeded');
     expect(result.terminal.jobs.find((job) => job.key === 'tools')?.status).toBe('succeeded');
-    expect(fixture.githubApi.calls).toEqual([
+    expect(githubAgentToolCalls(fixture.githubApi)).toEqual([
       {
         kind: 'mint-token',
         authorization: expect.any(String),
@@ -301,7 +298,7 @@ test('denies a selected GitHub tool target outside Shipfox projects', async ({su
       'Repository is not authorized for this integration connection',
     );
     expect(result.failureLogs).not.toContain(fixture.installationToken);
-    expect(fixture.githubApi.calls).toEqual([]);
+    expect(githubAgentToolCalls(fixture.githubApi)).toEqual([]);
   } finally {
     await fixture.githubApi.stop();
   }
@@ -329,7 +326,7 @@ test('requires an explicit repository for selected GitHub search', async ({suite
       'Selected repository access requires owner and repo parameters',
     );
     expect(result.failureLogs).not.toContain(fixture.installationToken);
-    expect(fixture.githubApi.calls).toEqual([]);
+    expect(githubAgentToolCalls(fixture.githubApi)).toEqual([]);
   } finally {
     await fixture.githubApi.stop();
   }
@@ -357,7 +354,7 @@ test('rejects GitHub search qualifiers before provider dispatch', async ({suite}
       'Search query cannot contain repo:, org:, or user: qualifiers',
     );
     expect(result.failureLogs).not.toContain(fixture.installationToken);
-    expect(fixture.githubApi.calls).toEqual([]);
+    expect(githubAgentToolCalls(fixture.githubApi)).toEqual([]);
   } finally {
     await fixture.githubApi.stop();
   }
@@ -384,7 +381,7 @@ test('allows an all-mode GitHub tool target outside Shipfox projects', async ({
     });
 
     expect(result.terminal.status).toBe('succeeded');
-    expect(fixture.githubApi.calls).toEqual([
+    expect(githubAgentToolCalls(fixture.githubApi)).toEqual([
       {
         kind: 'mint-token',
         authorization: expect.any(String),
@@ -423,7 +420,7 @@ test('mints a GitHub checkout token for a selected project repository by ID', as
 
     expect(result.terminal.status).toBe('failed');
     expect(result.failureLogs).not.toContain(fixture.installationToken);
-    expect(fixture.githubApi.calls).toEqual([
+    expect(githubAgentToolCalls(fixture.githubApi)).toEqual([
       {
         kind: 'mint-token',
         authorization: expect.any(String),
@@ -463,7 +460,7 @@ test('denies a selected GitHub checkout target outside Shipfox projects', async 
       'Checkout step failed because Shipfox could not grant repository access.',
     );
     expect(result.failureLogs).not.toContain(fixture.installationToken);
-    expect(fixture.githubApi.calls).toEqual([]);
+    expect(githubAgentToolCalls(fixture.githubApi)).toEqual([]);
   } finally {
     await fixture.githubApi.stop();
   }
@@ -488,7 +485,7 @@ test('mints a GitHub checkout token for an all-mode repository name', async ({su
 
     expect(result.terminal.status).toBe('failed');
     expect(result.failureLogs).not.toContain(fixture.installationToken);
-    expect(fixture.githubApi.calls).toEqual([
+    expect(githubAgentToolCalls(fixture.githubApi)).toEqual([
       {
         kind: 'mint-token',
         authorization: expect.any(String),
@@ -749,6 +746,12 @@ jobs:
 
 function shortId(): string {
   return crypto.randomUUID().replaceAll('-', '').slice(0, 10);
+}
+
+function githubAgentToolCalls(githubApi: GithubApiMock): GithubApiMock['calls'] {
+  // Source metadata lookups can finish after definition sync reports terminal, so keep
+  // background repository-resolution calls out of the agent-tool request trace.
+  return githubApi.calls.filter((call) => call.kind !== 'resolve-repository');
 }
 
 async function runGithubToolsWorkflow(params: {
