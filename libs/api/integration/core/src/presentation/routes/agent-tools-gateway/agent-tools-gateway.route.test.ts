@@ -125,6 +125,10 @@ describe('agent tools gateway route', () => {
     await client.close();
 
     expect(tools.tools.map((tool) => tool.name)).toEqual(['github_main__issue_read']);
+    expect(tools.tools[0]?.outputSchema).toMatchObject({
+      type: 'object',
+      anyOf: expect.any(Array),
+    });
     expect(result.isError).not.toBe(true);
     expect(result.structuredContent).toMatchObject({
       status: 'dispatched',
@@ -182,6 +186,7 @@ describe('agent tools gateway route', () => {
     );
 
     await client.connect(transport as unknown as Transport);
+    await client.listTools();
     const result = await client.callTool(
       {
         name: 'github_main__issue_read',
@@ -265,6 +270,7 @@ describe('agent tools gateway route', () => {
     );
 
     await client.connect(transport as unknown as Transport);
+    await client.listTools();
     const result = await client.callTool(
       {
         name: 'github_main__issue_read',
@@ -312,6 +318,7 @@ describe('agent tools gateway route', () => {
     );
 
     await client.connect(transport as unknown as Transport);
+    await client.listTools();
     const result = await client.callTool(
       {
         name: 'github_main__issue_read',
@@ -365,6 +372,7 @@ async function callIssueReadTool(app: FastifyInstance, leaseToken: string) {
   );
 
   await client.connect(transport as unknown as Transport);
+  await client.listTools();
   const result = await client.callTool(
     {
       name: 'github_main__issue_read',

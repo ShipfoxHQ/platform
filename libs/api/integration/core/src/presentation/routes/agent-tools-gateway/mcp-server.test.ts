@@ -1,6 +1,12 @@
 import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {InMemoryTransport} from '@modelcontextprotocol/sdk/inMemory.js';
 import {CallToolResultSchema} from '@modelcontextprotocol/sdk/types.js';
+import {giteaAgentToolCatalog} from '@shipfox/api-integration-gitea';
+import {githubAgentToolCatalog} from '@shipfox/api-integration-github';
+import {jiraAgentToolCatalog} from '@shipfox/api-integration-jira';
+import {linearAgentToolCatalog} from '@shipfox/api-integration-linear';
+import {slackAgentToolCatalog} from '@shipfox/api-integration-slack';
+import type {AgentToolCatalogEntry, AgentToolJsonSchema} from '@shipfox/api-integration-spi';
 import {INVALID_METHOD_LABEL, NO_METHOD_LABEL} from '#core/tool-call-audit.js';
 import {
   catalogTool,
@@ -13,7 +19,10 @@ import {
 } from '#test/agent-tools-gateway-helpers.js';
 import {createIntegrationToolDispatcher} from './dispatch.js';
 import {buildAgentToolsMcpServer, type IntegrationToolDispatchInput} from './mcp-server.js';
-import type {AuthorizedIntegrationToolMap} from './resolve-authorized-tools.js';
+import type {
+  AuthorizedIntegrationTool,
+  AuthorizedIntegrationToolMap,
+} from './resolve-authorized-tools.js';
 
 describe('buildAgentToolsMcpServer', () => {
   it('lists namespaced tools and dispatches authorized method-family calls', async () => {
@@ -332,6 +341,104 @@ describe('buildAgentToolsMcpServer', () => {
       },
     ]);
   });
+
+  it('passes structured errors through the SDK for tools with output schemas', async () => {
+    const authorizedTools = defaultAuthorizedTools();
+    const authorizedTool = authorizedTools.get('github_main__issue_read');
+    if (!authorizedTool) throw new Error('Expected default authorized tool');
+    authorizedTools.set('github_main__issue_read', {
+      ...authorizedTool,
+      outputSchema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {issue: {type: 'string'}},
+        required: ['issue'],
+      },
+    });
+    const dispatch = vi.fn(async () => ({
+      isError: true,
+      content: [{type: 'text' as const, text: 'commit_id is missing'}],
+      structuredContent: {code: 'provider-rejected', status: 422},
+    }));
+    const {client, close} = await connectClient(dispatch, authorizedTools);
+
+    const tools = await client.listTools();
+    const result = await client.callTool(
+      {
+        name: 'github_main__issue_read',
+        arguments: {method: 'get', owner: 'shipfox', repo: 'platform', issue_number: 1},
+      },
+      CallToolResultSchema,
+    );
+    await close();
+
+    expect(tools.tools[0]?.outputSchema).toMatchObject({
+      type: 'object',
+      anyOf: expect.any(Array),
+    });
+    expect(result).toEqual({
+      isError: true,
+      content: [{type: 'text', text: 'commit_id is missing'}],
+      structuredContent: {code: 'provider-rejected', status: 422},
+    });
+  });
+
+  it('accepts success and structured error projections for every declared provider output schema', async () => {
+    const catalogTools = declaredOutputSchemaTools();
+    expect(catalogTools.length).toBeGreaterThan(0);
+    const authorizedTools = new Map(
+      catalogTools.map(
+        ({mcpName, provider, entry}, index) =>
+          [mcpName, authorizedToolForCatalog(mcpName, provider, entry, index)] as const,
+      ),
+    );
+    const results = new Map<string, ReturnType<typeof toolResult>>();
+    const dispatch = vi.fn((input: IntegrationToolDispatchInput) => {
+      const result = results.get(input.authorizedTool.mcpName);
+      if (!result) throw new Error(`Missing fixture for ${input.authorizedTool.mcpName}`);
+      return Promise.resolve(result);
+    });
+    const {client, close} = await connectClient(dispatch, authorizedTools);
+
+    const tools = await client.listTools();
+    expect(tools.tools).toHaveLength(catalogTools.length);
+
+    for (const {mcpName, entry} of catalogTools) {
+      const arguments_ = toolArguments(entry);
+      const success = structuredContentFixture(entry.outputSchema);
+      results.set(mcpName, toolResult(success));
+
+      const listedTool = tools.tools.find((tool) => tool.name === mcpName);
+      expect(listedTool?.outputSchema).toEqual(
+        expect.objectContaining({
+          type: 'object',
+          anyOf: expect.arrayContaining([entry.outputSchema]),
+        }),
+      );
+
+      const successResult = await client.callTool(
+        {name: mcpName, arguments: arguments_},
+        CallToolResultSchema,
+      );
+      expect(successResult).toMatchObject({structuredContent: success});
+
+      for (const error of [
+        {code: 'provider-rejected'},
+        {code: 'provider-rejected', status: 422},
+        {code: 'provider-timeout', status: 503, retryAfterSeconds: 3},
+      ]) {
+        results.set(mcpName, toolResult(error, true));
+
+        const errorResult = await client.callTool(
+          {name: mcpName, arguments: arguments_},
+          CallToolResultSchema,
+        );
+        expect(errorResult).toMatchObject({isError: true, structuredContent: error});
+      }
+    }
+
+    await close();
+  });
 });
 
 async function connectClient(
@@ -408,4 +515,163 @@ function standaloneTools(): AuthorizedIntegrationToolMap {
       },
     ],
   ]);
+}
+
+type DeclaredOutputSchemaTool = {
+  provider: string;
+  entry: AgentToolCatalogEntry & {outputSchema: AgentToolJsonSchema};
+  mcpName: string;
+};
+
+function declaredOutputSchemaTools(): DeclaredOutputSchemaTool[] {
+  const providerCatalogs: Array<[string, readonly AgentToolCatalogEntry[]]> = [
+    ['gitea', giteaAgentToolCatalog],
+    ['github', githubAgentToolCatalog],
+    ['jira', jiraAgentToolCatalog],
+    ['linear', linearAgentToolCatalog],
+    ['slack', slackAgentToolCatalog],
+  ];
+  return providerCatalogs.flatMap(([provider, catalog]) =>
+    catalog.filter(hasOutputSchema).map((entry) => ({
+      provider,
+      entry,
+      mcpName: `${provider}__${entry.id}`,
+    })),
+  );
+}
+
+function hasOutputSchema(
+  entry: AgentToolCatalogEntry,
+): entry is AgentToolCatalogEntry & {outputSchema: AgentToolJsonSchema} {
+  return entry.outputSchema !== undefined;
+}
+
+function authorizedToolForCatalog(
+  mcpName: string,
+  provider: string,
+  entry: AgentToolCatalogEntry,
+  index: number,
+): AuthorizedIntegrationTool {
+  const tool = materializedTool({
+    id: entry.id,
+    sensitivity: entry.sensitivity,
+    sensitive: entry.sensitive,
+    requiredScope: Array.isArray(entry.requiredScope) ? entry.requiredScope : [entry.requiredScope],
+    inputSchema: entry.inputSchema,
+    outputSchema: entry.outputSchema,
+    methods: entry.methods?.map((method) => ({
+      id: method.id,
+      token: `${entry.id}.${method.id}`,
+      description: method.description,
+      sensitivity: method.sensitivity,
+      sensitive: method.sensitive,
+      requiredScope: Array.isArray(method.requiredScope)
+        ? method.requiredScope
+        : [method.requiredScope],
+    })),
+  });
+  const connectionId = `connection-${provider}-${index}`;
+  const connectionSlug = `${provider}-${index}`;
+  const integration = materializedIntegration({
+    connectionId,
+    connectionSlug,
+    provider,
+    tools: [tool],
+  });
+
+  return {
+    mcpName,
+    integration,
+    tool,
+    connection: connection({id: connectionId, provider, slug: connectionSlug}),
+    description: entry.description,
+    inputSchema: entry.inputSchema,
+    outputSchema: entry.outputSchema,
+    catalogEntry: entry,
+  };
+}
+
+function toolArguments(entry: AgentToolCatalogEntry): Record<string, unknown> {
+  const method = entry.methods?.[0]?.id;
+  return method === undefined ? {} : {method};
+}
+
+function structuredContentFixture(schema: Record<string, unknown>): Record<string, unknown> {
+  const fixture = valueFixture(schema);
+  if (!isRecord(fixture)) throw new Error('Expected an object output schema fixture');
+  return fixture;
+}
+
+function valueFixture(schema: Record<string, unknown>): unknown {
+  const literal = schemaLiteral(schema);
+  if (literal !== undefined) return literal.value;
+
+  const branch = schemaBranch(schema);
+  if (branch) return valueFixture(branch);
+
+  switch (schema.type) {
+    case 'object':
+      return objectFixture(schema);
+    case 'array':
+      return [];
+    case 'boolean':
+      return true;
+    case 'integer':
+    case 'number':
+      return 1;
+    case 'string':
+      return 'fixture';
+    case 'null':
+      return null;
+    default:
+      return {};
+  }
+}
+
+function schemaLiteral(schema: Record<string, unknown>): {value: unknown} | undefined {
+  if (Object.hasOwn(schema, 'const')) return {value: schema.const};
+
+  const enumValues = schema.enum;
+  return Array.isArray(enumValues) && enumValues.length > 0 ? {value: enumValues[0]} : undefined;
+}
+
+function schemaBranch(schema: Record<string, unknown>): Record<string, unknown> | undefined {
+  for (const keyword of ['anyOf', 'oneOf'] as const) {
+    const branches = schema[keyword];
+    const firstBranch = Array.isArray(branches) ? branches.find(isRecord) : undefined;
+    if (firstBranch) return firstBranch;
+  }
+  return undefined;
+}
+
+function objectFixture(schema: Record<string, unknown>): Record<string, unknown> {
+  const properties = isRecord(schema.properties) ? schema.properties : {};
+  const required = Array.isArray(schema.required)
+    ? schema.required.filter((name): name is string => typeof name === 'string')
+    : [];
+  return Object.fromEntries(
+    required.map((name) => [
+      name,
+      valueFixture(isRecord(properties[name]) ? properties[name] : {}),
+    ]),
+  );
+}
+
+function toolResult(
+  structuredContent: Record<string, unknown>,
+  isError = false,
+): {
+  isError?: true;
+  content: [{type: 'text'; text: string}];
+  structuredContent: Record<string, unknown>;
+} {
+  return {
+    ...(isError ? {isError: true as const} : {}),
+    content: [{type: 'text', text: JSON.stringify(structuredContent)}],
+    structuredContent,
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
