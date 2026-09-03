@@ -200,6 +200,7 @@ describe('completeStepDispatchConfig', () => {
       configPlan: {
         agent: {
           prompt: plannedField(template('steps.build.outputs.sha')),
+          toolSurface: 'discovery',
           integrations,
         },
       },
@@ -214,6 +215,7 @@ describe('completeStepDispatchConfig', () => {
 
     expect(result.config.integrations).toEqual(integrations);
     expect(result.config.mcpServers).toEqual(integrationMcpServers(integrations));
+    expect(result.config.toolSurface).toBe('discovery');
   });
 
   it('resolves session keys and records their evaluation trace', async () => {

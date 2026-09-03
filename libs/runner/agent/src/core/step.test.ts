@@ -187,6 +187,16 @@ describe('executeAgentStep', () => {
     );
   });
 
+  it('forwards the configured tool surface to the agent invocation', async () => {
+    runAgentMock.mockResolvedValue({});
+
+    await executeAgentStep(buildAgentStep({config: {prompt: 'p', toolSurface: 'discovery'}}), {
+      runtime: RUNTIME,
+    });
+
+    expect(runAgentMock).toHaveBeenCalledWith(expect.objectContaining({toolSurface: 'discovery'}));
+  });
+
   it('runs normally when integration tools are absent', async () => {
     runAgentMock.mockResolvedValue({});
 

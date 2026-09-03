@@ -5,16 +5,22 @@ import type {
   Credential,
   CredentialInfo,
   CredentialStore,
+  ImageContent,
+  TextContent,
 } from '@earendil-works/pi-ai';
 import {
+  type AgentToolResult,
   type CreateAgentSessionOptions,
   createAgentSessionFromServices,
   createAgentSessionServices,
   defineTool,
   ModelRuntime,
   SessionManager,
+  type ToolDefinition,
 } from '@earendil-works/pi-coding-agent';
+import type {CallToolResult, ListToolsResult} from '@modelcontextprotocol/sdk/types.js';
 import {
+  agentIntegrationMcpToolName,
   type CustomAgentModelDto,
   type CustomModelProviderRuntimeConfigDto,
   DEFAULT_CUSTOM_MODEL_CONTEXT_WINDOW,
@@ -31,7 +37,12 @@ import {
   AgentInvocationError,
   AgentSessionUnavailableError,
 } from '#core/errors.js';
-import type {HarnessAdapter, HarnessInvocation, HarnessResult} from '#core/harness.js';
+import type {
+  HarnessAdapter,
+  HarnessInvocation,
+  HarnessResult,
+  HarnessToolSurface,
+} from '#core/harness.js';
 import {
   OutputCollector,
   RequiredOutputsMissingError,
@@ -43,6 +54,7 @@ import {
   isPiExtensionAvailable,
   piExtensionDirectories,
 } from '#core/pi-extensions.js';
+import {createPiToolErrorNormalizerExtension} from '#core/pi-tool-error-normalizer.js';
 import {createPiToolSvgNormalizerExtension} from '#core/pi-tool-svg-normalizer.js';
 import {type SessionForwarder, startSessionForwarder} from '#core/session-forwarder.js';
 import {toolSelectionOption} from '#core/tool-selection.js';
@@ -50,6 +62,17 @@ import {toolSelectionOption} from '#core/tool-selection.js';
 const KEYLESS_CUSTOM_PROVIDER_API_KEY = 'shipfox-keyless-custom-provider-placeholder';
 const SECRET_HEADER_CREDENTIAL_PREFIX = 'header:';
 const PI_MCP_TOOL_NAME = 'mcp';
+const PI_OUTPUT_TOOL_NAME = 'set_output';
+const PI_BUILTIN_TOOL_NAMES = new Set([
+  'read',
+  'bash',
+  'edit',
+  'write',
+  'grep',
+  'find',
+  'ls',
+  'mcp',
+]);
 const PI_MCP_METADATA_TIMEOUT_MS = 10_000;
 const PI_MCP_CONFIG_ARG_WAIT_TIMEOUT_MS = 30_000;
 
@@ -91,7 +114,7 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
   const collector = new OutputCollector(invocation.outputs);
   const hasDeclaredOutputs =
     invocation.outputs !== undefined && Object.keys(invocation.outputs).length > 0;
-  const customTools = hasDeclaredOutputs ? [setOutputTool(collector)] : [];
+  const toolSurface = resolvePiToolSurface(invocation);
 
   // A listener added to an already-aborted signal never fires, so an abort that lands
   // before this point (or during the awaits below) would leave pi running and burning
@@ -102,13 +125,27 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
   let session: PiSession | undefined;
   let forkedFromExistingSession = false;
   let mcpConfig: PiMcpConfig | undefined;
+  let customTools: ToolDefinition[] = [];
 
   try {
-    mcpConfig = await createPiMcpConfig(agentStateDir, invocation.mcpServers, signal);
+    const directTools =
+      toolSurface === 'strict-direct'
+        ? await createPiIntegrationToolCatalog(invocation, signal)
+        : [];
+    mcpConfig =
+      toolSurface === 'discovery'
+        ? await createPiMcpConfig(agentStateDir, invocation.mcpServers, signal)
+        : undefined;
+    customTools = createPiCustomTools({
+      collector,
+      hasDeclaredOutputs,
+      directTools,
+    });
     const prepared = await preparePiSessionServices({
       invocation,
       mcpConfig,
       modelRuntime,
+      hasDirectTools: directTools.length > 0,
     });
     const created = await createPiSession({
       services: prepared.services,
@@ -150,7 +187,7 @@ async function createPiSession(params: {
   model: ReturnType<typeof resolveModel>;
   thinking: string;
   tools: readonly string[] | undefined;
-  customTools: ReturnType<typeof setOutputTool>[];
+  customTools: ToolDefinition[];
   mcpConfig: PiMcpConfig | undefined;
   cwd: string;
   agentStateDir: string;
@@ -164,14 +201,21 @@ async function createPiSession(params: {
       model: params.model,
       thinkingLevel: params.thinking as PiThinkingLevel,
       ...toolSelectionOption(params.tools, [
+        ...params.customTools.map((tool) => tool.name),
         ...(params.mcpConfig === undefined
           ? []
           : [PI_MCP_TOOL_NAME, ...params.mcpConfig.directToolNames]),
-        ...params.customTools.map((tool) => tool.name),
       ]),
       ...(params.customTools.length === 0 ? {} : {customTools: params.customTools}),
       sessionManager,
     });
+    if (params.tools === undefined && params.customTools.length > 0) {
+      const customToolNames = new Set(params.customTools.map((tool) => tool.name));
+      created.session.setActiveToolsByName([
+        ...params.customTools.map((tool) => tool.name),
+        ...created.session.getActiveToolNames().filter((name) => !customToolNames.has(name)),
+      ]);
+    }
     return {
       session: created.session,
       forkedFromExistingSession: sessionManagerSetup.forkedFromExistingSession,
@@ -387,6 +431,7 @@ async function preparePiSessionServices(params: {
   invocation: HarnessInvocation;
   mcpConfig: PiMcpConfig | undefined;
   modelRuntime: ModelRuntimeInstance;
+  hasDirectTools: boolean;
 }): Promise<{
   services: Awaited<ReturnType<typeof createAgentSessionServices>>;
 }> {
@@ -412,7 +457,12 @@ async function preparePiSessionServices(params: {
         : {extensionFlagValues: new Map([['mcp-config', mcpConfig.path]])}),
       resourceLoaderOptions: {
         additionalExtensionPaths: extensionDirectories,
-        extensionFactories: [createPiToolSvgNormalizerExtension()],
+        extensionFactories: [
+          ...(mcpConfig === undefined && !params.hasDirectTools
+            ? []
+            : [createPiToolErrorNormalizerExtension()]),
+          createPiToolSvgNormalizerExtension(),
+        ],
       },
     }),
   );
@@ -614,6 +664,18 @@ interface PiMcpConfig {
   readonly directToolNames: readonly string[];
 }
 
+type PiMcpTool = ListToolsResult['tools'][number];
+type PiMcpBridge = NonNullable<HarnessInvocation['mcpServers']>[number];
+
+interface PiIntegrationTool {
+  readonly bridge: PiMcpBridge;
+  readonly definition: PiMcpTool;
+}
+
+function resolvePiToolSurface(invocation: HarnessInvocation): HarnessToolSurface {
+  return invocation.toolSurface ?? 'strict-direct';
+}
+
 function assertPiServiceDiagnostics(
   diagnostics: Awaited<ReturnType<typeof createAgentSessionServices>>['diagnostics'],
   environment: AgentHarnessUnavailableError['environment'],
@@ -663,9 +725,9 @@ async function createPiMcpConfig(
   try {
     const preparedServers = await Promise.all(
       mcpServers.map(async (server) => {
-        const [url, directToolNames] = await Promise.all([
+        const [url, tools] = await Promise.all([
           server.activateHttp(),
-          listPiMcpToolNames(server, signal),
+          listPiMcpTools(server, signal, false),
         ]);
         return {
           entry: [
@@ -678,7 +740,7 @@ async function createPiMcpConfig(
               exposeResources: false,
             },
           ] as const,
-          directToolNames,
+          directToolNames: tools.map((tool) => tool.name),
         };
       }),
     );
@@ -704,10 +766,66 @@ async function createPiMcpConfig(
   }
 }
 
-async function listPiMcpToolNames(
-  server: NonNullable<HarnessInvocation['mcpServers']>[number],
+async function createPiIntegrationToolCatalog(
+  invocation: HarnessInvocation,
   signal: AbortSignal,
-): Promise<readonly string[]> {
+): Promise<readonly PiIntegrationTool[]> {
+  const mcpServers = invocation.mcpServers;
+  if (mcpServers === undefined || mcpServers.length === 0) return [];
+
+  const catalog = (
+    await Promise.all(
+      mcpServers.map(async (server) => {
+        const tools = await listPiMcpTools(server, signal, true);
+        return tools.map((definition) => ({bridge: server, definition}));
+      }),
+    )
+  ).flat();
+
+  const byName = new Map<string, PiIntegrationTool>();
+  for (const tool of catalog) {
+    if (byName.has(tool.definition.name)) {
+      throw integrationToolCatalogUnavailable(
+        tool.bridge.name,
+        new Error(`Duplicate integration tool name "${tool.definition.name}".`),
+      );
+    }
+    byName.set(tool.definition.name, tool);
+  }
+
+  const requestedTools = invocation.requestedIntegrationTools;
+  if (requestedTools === undefined) return catalog;
+
+  const requestedNames = requestedTools.map(({connectionSlug, toolId}) =>
+    agentIntegrationMcpToolName(connectionSlug, toolId),
+  );
+  const requestedNameSet = new Set<string>();
+  const selected: PiIntegrationTool[] = [];
+  for (const name of requestedNames) {
+    if (requestedNameSet.has(name)) {
+      throw integrationToolCatalogUnavailable(
+        mcpServers[0]?.name ?? 'shipfox_integration_tools',
+        new Error(`Duplicate requested integration tool "${name}".`),
+      );
+    }
+    requestedNameSet.add(name);
+    const tool = byName.get(name);
+    if (tool === undefined) {
+      throw integrationToolCatalogUnavailable(
+        mcpServers[0]?.name ?? 'shipfox_integration_tools',
+        new Error(`Requested integration tool "${name}" was not advertised.`),
+      );
+    }
+    selected.push(tool);
+  }
+  return selected;
+}
+
+async function listPiMcpTools(
+  server: PiMcpBridge,
+  signal: AbortSignal,
+  failClosed: boolean,
+): Promise<readonly PiMcpTool[]> {
   const controller = new AbortController();
   const onAbort = () => controller.abort(signal.reason);
   const timeout = setTimeout(() => controller.abort(), PI_MCP_METADATA_TIMEOUT_MS);
@@ -719,9 +837,10 @@ async function listPiMcpToolNames(
       signal: controller.signal,
       timeout: PI_MCP_METADATA_TIMEOUT_MS,
     });
-    return result.tools.map((tool) => tool.name);
+    return result.tools;
   } catch (error) {
     if (signal.aborted) throw error;
+    if (failClosed) throw integrationToolCatalogUnavailable(server.name, error);
     logger().warn(
       {err: error, server: server.name},
       'Failed to list Pi MCP direct tools; keeping the MCP proxy fallback',
@@ -731,6 +850,88 @@ async function listPiMcpToolNames(
     clearTimeout(timeout);
     signal.removeEventListener('abort', onAbort);
   }
+}
+
+function integrationToolCatalogUnavailable(
+  serverName: string,
+  error: unknown,
+): AgentInvocationError {
+  const reason = error instanceof Error ? error.message : String(error);
+  return new AgentInvocationError(
+    `Pi integration tool catalog unavailable for "${serverName}": ${reason}`,
+    undefined,
+    undefined,
+    undefined,
+    'integration_tool_catalog_unavailable',
+  );
+}
+
+function integrationToolDefinition(tool: PiIntegrationTool): ToolDefinition {
+  const {definition} = tool;
+  const description = definition.description?.trim() || `Integration tool ${definition.name}.`;
+  return defineTool({
+    name: definition.name,
+    label: `Integration: ${definition.name}`,
+    description: `${description} Call this direct tool by name; do not route it through mcp.`,
+    promptSnippet: `Direct integration tool ${definition.name}.`,
+    parameters: Type.Unsafe(definition.inputSchema as never),
+    async execute(_toolCallId, params) {
+      const result = await tool.bridge.callTool(definition.name, params as Record<string, unknown>);
+      return {
+        content: piToolContent(result.content),
+        details: result,
+      };
+    },
+  });
+}
+
+function createPiCustomTools(params: {
+  collector: OutputCollector;
+  hasDeclaredOutputs: boolean;
+  directTools: readonly PiIntegrationTool[];
+}): ToolDefinition[] {
+  let directToolDefinitions: ToolDefinition[];
+  try {
+    directToolDefinitions = params.directTools.map((tool) => {
+      if (PI_BUILTIN_TOOL_NAMES.has(tool.definition.name)) {
+        throw new Error(
+          `Integration tool name collides with Pi built-in tool "${tool.definition.name}".`,
+        );
+      }
+      return integrationToolDefinition(tool);
+    });
+  } catch (error) {
+    throw integrationToolCatalogUnavailable(
+      params.directTools[0]?.bridge.name ?? 'shipfox_integration_tools',
+      error,
+    );
+  }
+  const customTools = [
+    ...(params.hasDeclaredOutputs ? [setOutputTool(params.collector)] : []),
+    ...directToolDefinitions,
+  ];
+  const names = new Set<string>();
+  for (const tool of customTools) {
+    if (names.has(tool.name)) {
+      throw integrationToolCatalogUnavailable(
+        'shipfox_integration_tools',
+        new Error(`Integration tool name collides with SDK custom tool "${tool.name}".`),
+      );
+    }
+    names.add(tool.name);
+  }
+  return customTools;
+}
+
+function piToolContent(content: CallToolResult['content']): AgentToolResult<unknown>['content'] {
+  return content.map((block) => {
+    if (block.type === 'text') return block as TextContent;
+    if (block.type === 'image') return block as ImageContent;
+    return {
+      type: 'text' as const,
+      text: JSON.stringify(block) ?? String(block),
+    };
+  });
 }
 
 async function closePiSession(params: {
@@ -780,12 +981,13 @@ function isAssistantMessage(message: unknown): message is {
 
 function setOutputTool(collector: OutputCollector) {
   return defineTool({
-    name: 'set_output',
+    name: PI_OUTPUT_TOOL_NAME,
     label: 'Set output',
-    description: 'Set one structured output value for this workflow step.',
-    promptSnippet: 'set_output records a workflow step output.',
+    description:
+      'Set one structured output value directly with set_output({key: "summary", value: "..."}). Do not route set_output through mcp.',
+    promptSnippet: 'Call set_output directly to record a workflow step output.',
     promptGuidelines: [
-      'Call set_output for each required workflow output; the exact key, value encoding, and JSON Schema for each are in the task prompt.',
+      'Call set_output({key: "<output-key>", value: "<value>"}) directly for each required workflow output; do not call it through mcp. The exact key, value encoding, and JSON Schema for each are in the task prompt.',
     ],
     parameters: Type.Object({
       key: Type.String(),

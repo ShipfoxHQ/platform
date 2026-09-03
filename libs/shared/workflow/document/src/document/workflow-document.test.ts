@@ -1218,6 +1218,10 @@ describe('workflowDocumentSchema', () => {
       {harness: 'pi', prompt: 'Fetch docs.', tools: ['read', 'fetch_content']},
     ],
     [
+      'agent step with discovery tool surface',
+      {harness: 'pi', prompt: 'Discover tools.', tool_surface: 'discovery'},
+    ],
+    [
       'agent step with integrations',
       {
         harness: 'claude',
@@ -1316,6 +1320,7 @@ describe('workflowDocumentSchema', () => {
     ],
     ['unknown harness value', {model: 'claude-opus-4-8', prompt: 'Fix.', harness: 'codex'}],
     ['unknown thinking value', {model: 'claude-opus-4-8', prompt: 'Fix.', thinking: 'ultra'}],
+    ['unknown tool surface value', {prompt: 'Fix.', tool_surface: 'proxy'}],
     ['unknown session mode', {prompt: 'Fix.', session: {key: 'main', mode: 'parallel'}}],
     ['empty session string', {prompt: 'Fix.', session: ''}],
     ['empty session key', {prompt: 'Fix.', session: {key: ''}}],

@@ -24,7 +24,7 @@ import {
   AgentPermissionModeError,
   AgentSessionUnavailableError,
 } from '#core/errors.js';
-import type {HarnessAdapter, RequestedIntegrationTool} from '#core/harness.js';
+import type {HarnessAdapter, HarnessToolSurface, RequestedIntegrationTool} from '#core/harness.js';
 import {
   createIntegrationToolsBridge,
   type IntegrationToolsBridge,
@@ -92,6 +92,14 @@ export async function executeAgentStep(
       'step_config_invalid',
     );
   }
+  const toolSurface = toolSurfaceFromConfig(step.config.toolSurface);
+  if (toolSurface === 'invalid') {
+    return agentFailure(
+      'Agent step config has invalid tool surface.',
+      'agent_config_invalid',
+      'step_config_invalid',
+    );
+  }
 
   const integrationToolsBridges = integrationToolsBridgesFromConfig(mcpServers, {
     leaseToken: options.leaseToken,
@@ -121,6 +129,7 @@ export async function executeAgentStep(
       tools,
       mcpServers: integrationToolsBridges,
       requestedIntegrationTools: requestedIntegrationToolsFromConfig(mcpServers),
+      ...(toolSurface === undefined ? {} : {toolSurface}),
       thinking: options.runtime.thinking,
       provider: options.runtime.provider,
       credentials: options.runtime.credentials,
@@ -149,6 +158,7 @@ async function runSelectedHarness(params: {
   tools: readonly string[] | undefined;
   mcpServers: readonly IntegrationToolsBridge[] | undefined;
   requestedIntegrationTools: readonly RequestedIntegrationTool[] | undefined;
+  toolSurface?: HarnessToolSurface | undefined;
   thinking: string;
   provider: string;
   credentials: Record<string, string>;
@@ -172,6 +182,7 @@ async function runSelectedHarness(params: {
     tools,
     mcpServers,
     requestedIntegrationTools,
+    toolSurface,
     thinking,
     provider,
     credentials,
@@ -199,6 +210,7 @@ async function runSelectedHarness(params: {
         ...(tools === undefined ? {} : {tools}),
         ...(mcpServers === undefined ? {} : {mcpServers}),
         ...(requestedIntegrationTools === undefined ? {} : {requestedIntegrationTools}),
+        ...(toolSurface === undefined ? {} : {toolSurface}),
         outputs,
         credentials,
         customProvider,
@@ -412,6 +424,12 @@ function requestedIntegrationToolsFromConfig(
       })),
     ),
   );
+}
+
+function toolSurfaceFromConfig(value: unknown): HarnessToolSurface | undefined | 'invalid' {
+  if (value === undefined) return undefined;
+  if (value === 'strict-direct' || value === 'discovery') return value;
+  return 'invalid';
 }
 
 function outputDeclarationsFromConfig(value: unknown): OutputDeclarations | undefined {

@@ -153,6 +153,7 @@ export async function completeAgentConfig(params: {
     params.config.session = sessionIntent;
   }
   if (agent.tools !== undefined) params.config.tools = [...agent.tools];
+  if (agent.toolSurface !== undefined) params.config.toolSurface = agent.toolSurface;
   const integrations = agent.integrations === undefined ? undefined : [...agent.integrations];
   if (integrations !== undefined) params.config.integrations = integrations;
   const mcpServers =
@@ -317,6 +318,7 @@ function authoredAgentStepConfig(
       ...(step.thinking === undefined ? {} : {thinking: step.thinking}),
       ...(step.session === undefined ? {} : {session: authoredSession(step.session)}),
       ...agentToolsConfig(step),
+      ...agentToolSurfaceConfig(step),
       ...authoredAgentIntegrationsConfig(step),
       prompt: step.prompt,
     },
@@ -345,6 +347,7 @@ function deferredAgentStepConfig(
           ? {}
           : {session: {key: dispatchPlanField(fields.session.key), mode: fields.session.mode}}),
         ...agentToolsConfig(step),
+        ...agentToolSurfaceConfig(step),
         ...materializedAgentIntegrationsConfig(params),
       },
     },
@@ -386,6 +389,7 @@ async function agentStepConfigWithDefaults(
         agent: {
           prompt: dispatchPlanField(fields.prompt),
           ...agentToolsConfig(step),
+          ...agentToolSurfaceConfig(step),
           ...materializedAgentIntegrationsConfig(params),
         },
       },
@@ -406,6 +410,7 @@ async function agentStepConfigWithDefaults(
         ? {}
         : {session: {key: frozenFieldValue(fields.session.key), mode: fields.session.mode}}),
       ...agentToolsConfig(step),
+      ...agentToolSurfaceConfig(step),
       ...materializedAgentIntegrationsConfig(params),
       prompt: promptValue,
     },
@@ -420,6 +425,14 @@ function agentToolsConfig(
   step: WorkflowModelAgentStep,
 ): {readonly tools: readonly string[]} | Record<string, never> {
   return step.tools === undefined ? {} : {tools: [...step.tools]};
+}
+
+function agentToolSurfaceConfig(
+  step: WorkflowModelAgentStep,
+):
+  | {readonly toolSurface: NonNullable<WorkflowModelAgentStep['toolSurface']>}
+  | Record<string, never> {
+  return step.toolSurface === undefined ? {} : {toolSurface: step.toolSurface};
 }
 
 function authoredAgentIntegrationsConfig(

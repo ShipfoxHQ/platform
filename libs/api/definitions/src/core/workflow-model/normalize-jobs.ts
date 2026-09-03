@@ -1136,6 +1136,7 @@ function normalizeAgentStep(params: {
     ...(params.step.thinking === undefined ? {} : {thinking: params.step.thinking}),
     ...(session === undefined ? {} : {session}),
     ...(params.step.tools === undefined ? {} : {tools: params.step.tools}),
+    ...(params.step.tool_surface === undefined ? {} : {toolSurface: params.step.tool_surface}),
     ...(integrations === undefined ? {} : {integrations}),
     ...(templates === undefined ? {} : {templates}),
   };

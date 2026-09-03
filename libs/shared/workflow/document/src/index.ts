@@ -1,7 +1,9 @@
 export {
   type AgentThinking,
+  type AgentToolSurface,
   agentThinkingByHarness,
   agentThinkingSchema,
+  agentToolSurfaceSchema,
   type BuildWorkflowJsonSchemaOptions,
   buildWorkflowJsonSchema,
   type CheckoutTargetValidationIssue,

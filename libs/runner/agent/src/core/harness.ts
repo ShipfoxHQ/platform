@@ -21,6 +21,9 @@ export interface RequestedIntegrationTool {
   readonly toolId: string;
 }
 
+/** How an agent may reach tools exposed by an MCP bridge. */
+export type HarnessToolSurface = 'strict-direct' | 'discovery';
+
 export interface HarnessInvocation {
   /** Workflow execution identity used to correlate runner diagnostics. */
   readonly jobExecutionId?: string | undefined;
@@ -37,6 +40,8 @@ export interface HarnessInvocation {
   readonly prompt: string;
   readonly tools?: readonly string[] | undefined;
   readonly mcpServers?: readonly IntegrationToolsBridge[] | undefined;
+  /** Defaults to strict direct tools; discovery keeps the generic `mcp` proxy. */
+  readonly toolSurface?: HarnessToolSurface | undefined;
   /** Materialized integration tool IDs requested by this step, without schemas or secrets. */
   readonly requestedIntegrationTools?: readonly RequestedIntegrationTool[] | undefined;
   readonly outputs?: OutputDeclarations | undefined;

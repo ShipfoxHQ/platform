@@ -48,19 +48,17 @@ test('runs Linear tools through the Pi integration-tools path', async ({suite}, 
       model: PI_AGENT_MODEL,
       responses: [
         message('provider probe ok'),
-        toolCall('mcp', {tool: getIssueTool, args: JSON.stringify({id: 'ENG-878'})}),
-        toolCall('mcp', {
-          tool: saveCommentTool,
-          args: JSON.stringify({
-            issueId: 'ENG-878',
-            body: 'Synthetic Pi Linear comment',
-          }),
+        toolCall(getIssueTool, {id: 'ENG-878'}),
+        toolCall(saveCommentTool, {
+          issueId: 'ENG-878',
+          body: 'Synthetic Pi Linear comment',
         }),
         message('done'),
       ],
       assertions: [
         {kind: 'model', equals: PI_AGENT_MODEL},
-        {kind: 'tool_present', name: 'mcp', minRequestIndex: 1},
+        {kind: 'tool_present', name: getIssueTool, minRequestIndex: 1},
+        {kind: 'tool_present', name: saveCommentTool, minRequestIndex: 1},
         {
           kind: 'message_content_includes',
           value: LINEAR_READ_RESULT_MARKER,

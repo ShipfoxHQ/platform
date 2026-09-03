@@ -359,6 +359,7 @@ describe('materializeWorkflowModel', () => {
               provider: 'anthropic',
               thinking: 'high',
               tools: ['read', 'web_search'],
+              toolSurface: 'discovery',
               prompt: 'Fix the failing tests.',
             },
           ],
@@ -374,6 +375,7 @@ describe('materializeWorkflowModel', () => {
       provider: 'anthropic',
       thinking: 'high',
       tools: ['read', 'web_search'],
+      toolSurface: 'discovery',
       prompt: 'Fix the failing tests.',
     });
   });

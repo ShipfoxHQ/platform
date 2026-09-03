@@ -600,6 +600,7 @@ describe('normalizeWorkflowDocument', () => {
               model: 'claude-opus-4-8',
               prompt: 'Fix the failing tests.',
               tools: ['Read', 'Grep'],
+              tool_surface: 'discovery',
             },
             {
               key: 'review',
@@ -631,6 +632,7 @@ describe('normalizeWorkflowDocument', () => {
       model: 'claude-opus-4-8',
       prompt: 'Fix the failing tests.',
       tools: ['Read', 'Grep'],
+      toolSurface: 'discovery',
     });
     expect(model.jobs[0]?.steps[2]).toMatchObject({
       id: 'fix-review',
