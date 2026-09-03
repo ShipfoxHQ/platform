@@ -73,6 +73,12 @@ describe('StepInspectorSheet', () => {
       description: 'The resolved agent session key does not match the allowed key format.',
     },
     {
+      reason: 'agent_inference_credentials_unavailable',
+      title: 'Inference credentials are unavailable',
+      description:
+        'Shipfox could not obtain inference credentials for this agent. Try again. If the problem continues, check the model provider configuration.',
+    },
+    {
       reason: 'agent_session_held',
       title: 'Agent session is held by another attempt',
       description:

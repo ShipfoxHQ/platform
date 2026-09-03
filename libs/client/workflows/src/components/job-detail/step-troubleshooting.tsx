@@ -748,6 +748,8 @@ function failureTitle(reason: string | JobStatusReason): string {
       return 'Agent invocation failed';
     case 'agent_harness_unavailable':
       return 'Agent harness was unavailable';
+    case 'agent_inference_credentials_unavailable':
+      return 'Inference credentials are unavailable';
     case 'agent_session_key_invalid':
       return 'Agent session key is invalid';
     case 'agent_session_held':
@@ -815,6 +817,8 @@ function failureDescription(
       return 'The agent invocation failed after configuration was accepted.';
     case 'agent_harness_unavailable':
       return 'The runner could not start the agent harness.';
+    case 'agent_inference_credentials_unavailable':
+      return 'Shipfox could not obtain inference credentials for this agent. Try again. If the problem continues, check the model provider configuration.';
     case 'agent_session_key_invalid':
       return 'The resolved agent session key does not match the allowed key format.';
     case 'agent_session_held':

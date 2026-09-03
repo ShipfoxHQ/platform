@@ -119,6 +119,13 @@ const STEP_FAILURE_CASES = [
       'Shipfox could not start the agent. Try again. If the problem continues, check the runner setup.',
   },
   {
+    reason: 'agent_inference_credentials_unavailable',
+    type: 'agent',
+    title: 'Inference credentials are unavailable',
+    description:
+      'Shipfox could not obtain inference credentials for this agent. Try again. If the problem continues, check the model provider configuration.',
+  },
+  {
     reason: 'agent_session_key_invalid',
     type: 'agent',
     title: 'Agent session configuration needs attention',
