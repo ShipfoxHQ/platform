@@ -389,11 +389,11 @@ function clients() {
     workflows: {
       listWorkflowRuns: vi.fn(),
       getLatestRunAttempt: vi.fn(),
-      getWorkflowRunDetail: vi.fn(),
+      getWorkflowRunOverview: vi.fn(),
     } as unknown as WorkflowsModuleClient & {
       listWorkflowRuns: ReturnType<typeof vi.fn>;
       getLatestRunAttempt: ReturnType<typeof vi.fn>;
-      getWorkflowRunDetail: ReturnType<typeof vi.fn>;
+      getWorkflowRunOverview: ReturnType<typeof vi.fn>;
     },
     annotations: {
       listAnnotationsForRunAttempt: vi.fn(),

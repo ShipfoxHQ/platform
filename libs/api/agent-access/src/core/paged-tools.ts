@@ -56,6 +56,7 @@ import {
 import {agentAccessError, agentAccessSuccess} from './envelope.js';
 import {reducePagedAgentAccessResponse, truncateAgentAccessUtf8} from './response.js';
 import type {AgentAccessTool} from './tools.js';
+import {createAgentAccessWorkflowTools} from './workflow-tools.js';
 
 export interface AgentAccessPagedToolsOptions {
   projects: ProjectsModuleClient;
@@ -72,6 +73,7 @@ export function createAgentAccessTools(
     createListProjectsTool(options.projects),
     createListWorkflowDefinitionsTool(options.definitions),
     createListWorkflowRunsTool(options.projects, options.workflows),
+    ...createAgentAccessWorkflowTools(options.workflows),
     createGetRunAnnotationsTool(options.workflows, options.annotations),
     createListTriggerEventsTool(options.triggers),
   ];
@@ -316,12 +318,12 @@ async function resolveRunAttempt(
     ).attempt;
   }
 
-  const detail = await workflows.getWorkflowRunDetail({
+  const overview = await workflows.getWorkflowRunOverview({
     workspaceId: context.workspaceId,
     workflowRunId: input.run_id,
     attempt: input.attempt,
   });
-  return detail.run === null ? null : input.attempt;
+  return overview === null ? null : input.attempt;
 }
 
 function toProjectResult(project: {
