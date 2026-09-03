@@ -871,24 +871,45 @@ async function savePullRequestWithReviewers(
     isRecord(response.data) && typeof response.data.number === 'number'
       ? response.data.number
       : pullRequestParameters.pull_number;
+  if (typeof pullNumber !== 'number') {
+    throw new GithubIntegrationProviderError(
+      'malformed-provider-response',
+      'Pull request was saved but GitHub did not return its number, so reviewers were not requested',
+    );
+  }
   try {
-    return await mapGithubError(() =>
-      client.request(REQUESTED_REVIEWERS_ROUTE, {
-        owner: pullRequestParameters.owner,
-        repo: pullRequestParameters.repo,
-        pull_number: pullNumber,
-        ...requested,
-      }),
+    return await mapGithubError(
+      () =>
+        client.request(REQUESTED_REVIEWERS_ROUTE, {
+          owner: pullRequestParameters.owner,
+          repo: pullRequestParameters.repo,
+          pull_number: pullNumber,
+          ...requested,
+        }),
+      'provider-rejected',
     );
   } catch (error) {
-    if (!(error instanceof GithubIntegrationProviderError)) throw error;
-    throw new GithubIntegrationProviderError(
+    throw reviewerRequestFailure(pullNumber, error);
+  }
+}
+
+// Every failure after the save must carry the pull request number so the agent
+// does not retry the whole write and open a duplicate.
+function reviewerRequestFailure(
+  pullNumber: number,
+  error: unknown,
+): GithubIntegrationProviderError {
+  const prefix = `Pull request #${pullNumber} was saved but requesting reviewers failed`;
+  if (error instanceof GithubIntegrationProviderError) {
+    return new GithubIntegrationProviderError(
       error.reason,
-      `Pull request #${String(pullNumber)} was saved but requesting reviewers failed: ${error.message}`,
-      undefined,
+      `${prefix}: ${error.message}`,
+      error.retryAfterSeconds,
       error.status,
     );
   }
+  const message = error instanceof Error ? error.message : String(error);
+  return new GithubIntegrationProviderError('provider-unavailable', `${prefix}: ${message}`);
 }
 
 /** Splits `login` and `org/team-slug` entries into GitHub's user and team reviewer lists. */
@@ -1391,7 +1412,24 @@ function validateGithubToolArguments(
   const argumentValidationError = validateGithubArgumentProperties(tool.inputSchema, arguments_);
   if (argumentValidationError !== undefined) return argumentValidationError;
 
+  if (tool.id === 'create_pull_request' || tool.id === 'update_pull_request') {
+    return validateRequestedReviewers(arguments_.reviewers);
+  }
   return tool.id === 'create_commit' ? validateCreateCommitArguments(arguments_) : undefined;
+}
+
+function validateRequestedReviewers(reviewers: unknown): string | undefined {
+  if (reviewers === undefined) return undefined;
+  if (!Array.isArray(reviewers) || !reviewers.every(isRequestedReviewer)) {
+    return 'Parameter reviewers must be an array of non-empty GitHub usernames or org/team-slug strings';
+  }
+  return undefined;
+}
+
+function isRequestedReviewer(value: unknown): boolean {
+  if (typeof value !== 'string' || value.length === 0) return false;
+  const parts = value.split('/');
+  return parts.length <= 2 && parts.every((part) => part.length > 0);
 }
 
 function validateMissingGithubToolArgument(
@@ -1670,7 +1708,6 @@ function githubPermissionDeniedMessage(
 }
 
 const GITHUB_WORKFLOWS_DIRECTORY = '.github/workflows/';
-const LEADING_SLASHES_PATTERN = /^\/+/u;
 
 function githubPermissionDenial(
   granted: Record<string, 'read' | 'write' | 'admin'>,
@@ -1691,12 +1728,12 @@ function githubWorkflowsPermissionDenial(
 ): string | undefined {
   if (tool.id !== 'create_commit') return undefined;
   if (granted.workflows === 'write' || granted.workflows === 'admin') return undefined;
+  // Argument validation already rejects leading slashes and dot segments, so a plain prefix
+  // test cannot be bypassed by an alternative spelling of the workflows directory.
   const workflowPath = [
     ...fileChangePaths(call.arguments.additions),
     ...fileChangePaths(call.arguments.deletions),
-  ].find((path) =>
-    path.replace(LEADING_SLASHES_PATTERN, '').startsWith(GITHUB_WORKFLOWS_DIRECTORY),
-  );
+  ].find((path) => path.startsWith(GITHUB_WORKFLOWS_DIRECTORY));
   if (workflowPath === undefined) return undefined;
   return `GitHub installation token is missing permission for this operation: ${tool.id} requires workflows: write to change ${workflowPath}`;
 }

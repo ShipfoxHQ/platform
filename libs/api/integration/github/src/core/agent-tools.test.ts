@@ -85,6 +85,7 @@ const expectedCatalogRows = [
     requiredScope: [
       {permission: 'pull_requests', access: 'read'},
       {permission: 'statuses', access: 'read'},
+      {permission: 'issues', access: 'read'},
       {permission: 'checks', access: 'read'},
     ],
     methods: [
@@ -1597,6 +1598,138 @@ describe('github agent tool catalog', () => {
     });
   });
 
+  it('wraps a transport failure during the reviewer request with the saved pull request', async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({data: {number: 7}})
+      .mockRejectedValueOnce(new Error('fetch failed'));
+    const provider = createAgentToolsProvider({request});
+    const tool = githubAgentToolCatalog.find((entry) => entry.id === 'create_pull_request');
+    if (!tool) throw new Error('Missing create_pull_request tool');
+    const session = await provider.openSession({
+      connection: connection(),
+      tools: [tool],
+      scope: undefined,
+    });
+
+    await expect(
+      session.call({
+        toolId: 'create_pull_request',
+        arguments: {
+          owner: 'shipfox',
+          repo: 'platform',
+          title: 'Title',
+          head: 'feature',
+          base: 'main',
+          reviewers: ['octocat'],
+        },
+      }),
+    ).rejects.toMatchObject({
+      reason: 'provider-unavailable',
+      message: 'Pull request #7 was saved but requesting reviewers failed: fetch failed',
+    });
+  });
+
+  it('maps a reviewer request 404 to provider-rejected rather than a missing repository', async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({data: {number: 7}})
+      .mockRejectedValueOnce(
+        new RequestError('Not Found', 404, {
+          request: {
+            method: 'POST',
+            url: 'https://api.github.com/repos/shipfox/platform/pulls/7/requested_reviewers',
+            headers: {},
+          },
+        }),
+      );
+    const provider = createAgentToolsProvider({request});
+    const tool = githubAgentToolCatalog.find((entry) => entry.id === 'update_pull_request');
+    if (!tool) throw new Error('Missing update_pull_request tool');
+    const session = await provider.openSession({
+      connection: connection(),
+      tools: [tool],
+      scope: undefined,
+    });
+
+    await expect(
+      session.call({
+        toolId: 'update_pull_request',
+        arguments: {owner: 'shipfox', repo: 'platform', pull_number: 7, reviewers: ['octocat']},
+      }),
+    ).rejects.toMatchObject({
+      reason: 'provider-rejected',
+      status: 404,
+      message: 'Pull request #7 was saved but requesting reviewers failed: Not Found',
+    });
+  });
+
+  it('reports a saved pull request whose number is missing instead of requesting reviewers', async () => {
+    const request = vi.fn().mockResolvedValueOnce({data: {}});
+    const provider = createAgentToolsProvider({request});
+    const tool = githubAgentToolCatalog.find((entry) => entry.id === 'create_pull_request');
+    if (!tool) throw new Error('Missing create_pull_request tool');
+    const session = await provider.openSession({
+      connection: connection(),
+      tools: [tool],
+      scope: undefined,
+    });
+
+    await expect(
+      session.call({
+        toolId: 'create_pull_request',
+        arguments: {
+          owner: 'shipfox',
+          repo: 'platform',
+          title: 'Title',
+          head: 'feature',
+          base: 'main',
+          reviewers: ['octocat'],
+        },
+      }),
+    ).rejects.toMatchObject({
+      reason: 'malformed-provider-response',
+      message:
+        'Pull request was saved but GitHub did not return its number, so reviewers were not requested',
+    });
+    expect(request).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    {label: 'an empty string', reviewers: ['']},
+    {label: 'a non-string entry', reviewers: [42]},
+    {label: 'a team without a slug', reviewers: ['shipfox/']},
+    {label: 'a team without an organization', reviewers: ['/reviewers']},
+    {label: 'more than one slash', reviewers: ['shipfox/team/extra']},
+  ])('rejects reviewers containing $label before saving the pull request', async ({reviewers}) => {
+    const request = vi.fn();
+    const provider = createAgentToolsProvider({request});
+    const tool = githubAgentToolCatalog.find((entry) => entry.id === 'update_pull_request');
+    if (!tool) throw new Error('Missing update_pull_request tool');
+    const session = await provider.openSession({
+      connection: connection(),
+      tools: [tool],
+      scope: undefined,
+    });
+
+    const result = await session.call({
+      toolId: 'update_pull_request',
+      arguments: {owner: 'shipfox', repo: 'platform', pull_number: 7, reviewers},
+    });
+
+    expect(request).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      isError: true,
+      content: [
+        {
+          type: 'text',
+          text: 'Parameter reviewers must be an array of non-empty GitHub usernames or org/team-slug strings',
+        },
+      ],
+      structuredContent: {code: 'invalid-request'},
+    });
+  });
+
   it('rejects workflow file changes when the token lacks workflows write', async () => {
     const graphql = vi.fn();
     const provider = createAgentToolsProvider({request: vi.fn(), graphql});
@@ -1630,7 +1763,90 @@ describe('github agent tool catalog', () => {
     });
   });
 
-  it('commits workflow file changes when the token carries workflows write', async () => {
+  it.each([
+    {
+      label: 'a deleted workflow file',
+      changes: {deletions: [{path: '.github/workflows/old.yml'}]},
+      code: 'access-denied',
+    },
+    {
+      label: 'a relative workflow path',
+      changes: {additions: [{path: './.github/workflows/ci.yml', contents: 'name: ci\n'}]},
+      code: 'invalid-request',
+    },
+    {
+      label: 'a parent-traversal workflow path',
+      changes: {additions: [{path: 'docs/../.github/workflows/ci.yml', contents: 'name: ci\n'}]},
+      code: 'invalid-request',
+    },
+  ])('rejects $label when the token lacks workflows write', async ({changes, code}) => {
+    const graphql = vi.fn();
+    const provider = createAgentToolsProvider({request: vi.fn(), graphql});
+    const session = await provider.openSession({
+      connection: connection(),
+      tools: [createCommitTool()],
+      scope: undefined,
+    });
+
+    const result = await session.call({
+      toolId: 'create_commit',
+      arguments: {
+        repository: 'shipfox/platform',
+        branch: 'feature',
+        expected_head_oid: 'a'.repeat(40),
+        message: {headline: 'Touch CI'},
+        ...changes,
+      },
+    });
+
+    expect(graphql).not.toHaveBeenCalled();
+    expect(result).toMatchObject({isError: true, structuredContent: {code}});
+  });
+
+  it('denies workflow file commits under the production create_commit profile', async () => {
+    const graphql = vi.fn();
+    const getInstallationAccessToken = vi.fn(
+      (
+        _installationId: number,
+        _permissionFingerprint?: string,
+        permissions?: Record<string, 'read' | 'write'>,
+      ) =>
+        Promise.resolve({
+          token: 'installation-token',
+          expiresAt: new Date(),
+          permissions: permissions ?? {},
+        }),
+    );
+    const provider = new GithubAgentToolsProvider({
+      getInstallationByConnectionId: vi.fn(() => Promise.resolve(installation())),
+      tokenProvider: {getInstallationAccessToken},
+      createClient: vi.fn(() => ({request: vi.fn(), graphql})),
+    });
+    const session = await provider.openSession({
+      connection: connection(),
+      tools: [createCommitTool()],
+      scope: undefined,
+    });
+
+    const result = await session.call({
+      toolId: 'create_commit',
+      arguments: {
+        repository: 'shipfox/platform',
+        branch: 'feature',
+        expected_head_oid: 'a'.repeat(40),
+        message: {headline: 'Add CI'},
+        additions: [{path: '.github/workflows/ci.yml', contents: 'name: ci\n'}],
+      },
+    });
+
+    // The live profile never requests workflows, so the allow path stays closed until the
+    // catalog scope declares it.
+    expect(getInstallationAccessToken).toHaveBeenCalledWith(1, undefined, {contents: 'write'});
+    expect(graphql).not.toHaveBeenCalled();
+    expect(result).toMatchObject({isError: true, structuredContent: {code: 'access-denied'}});
+  });
+
+  it('commits workflow file changes only when the minted token carries workflows write', async () => {
     const oid = '0'.repeat(40);
     const graphql = vi.fn().mockResolvedValueOnce({
       createCommitOnBranch: {

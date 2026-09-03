@@ -280,12 +280,14 @@ const pullRequestReadMethods = [
     false,
     scopes.pullRequestsRead,
   ),
+  // GitHub accepts issues read or pull_requests read for timeline comments. Issues read keeps
+  // installations that grant issues without pull requests working when only this method is selected.
   method(
     'get_comments',
     'Get conversation comments for a specific pull request.',
     'read',
     false,
-    scopes.pullRequestsRead,
+    scopes.issuesRead,
   ),
   method(
     'get_check_runs',
