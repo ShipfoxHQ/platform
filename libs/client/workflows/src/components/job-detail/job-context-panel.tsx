@@ -22,7 +22,10 @@ import {
   type WorkflowJobExecutionDetail,
 } from '#core/workflow-run.js';
 import {useWorkflowJobExecutionContextQuery} from '#hooks/api/workflow-job-detail.js';
-import {DiagnosticUnavailableField} from './diagnostic-unavailable.js';
+import {
+  DiagnosticUnavailableAnnouncement,
+  DiagnosticUnavailableField,
+} from './diagnostic-unavailable.js';
 import {formatJobExecutionTime} from './job-execution-time-text.js';
 import {JsonCode} from './json-code.js';
 import {EvaluationTrace} from './step-troubleshooting.js';
@@ -37,7 +40,7 @@ export function JobContextPanel({
   selectedExecution?: WorkflowJobExecutionDetail | undefined;
 }) {
   if (selectedExecution !== undefined) {
-    if (!selectedExecution.hasContext) return null;
+    if (!selectedExecution.hasContext && !hasJobExecutionSummaryContext(execution)) return null;
     return (
       <LazyJobContextSheet job={job} execution={execution} selectedExecution={selectedExecution} />
     );
@@ -264,6 +267,8 @@ function ContextUnavailableFields({
 }: {
   fields: readonly WorkflowDiagnosticUnavailableField[];
 }) {
+  if (fields.length === 0) return null;
+
   return (
     <>
       {fields.map((field) => (
@@ -273,6 +278,7 @@ function ContextUnavailableFields({
           storedBytes={field.storedBytes}
         />
       ))}
+      <DiagnosticUnavailableAnnouncement count={fields.length} />
     </>
   );
 }
@@ -298,9 +304,18 @@ function hasLazyJobContextValues(
   );
 }
 
+function hasJobExecutionSummaryContext(execution: JobExecution): boolean {
+  return Boolean(
+    execution.queueTime ||
+      execution.runTime ||
+      execution.statusReason ||
+      execution.statusReasonMessage,
+  );
+}
+
 function JobContextLoading() {
   return (
-    <div role="status" aria-label="Loading job context">
+    <div role="status">
       <Text size="xs" className="text-foreground-neutral-muted">
         Loading execution context…
       </Text>

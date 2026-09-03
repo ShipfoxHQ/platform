@@ -63,10 +63,12 @@ export type {
 export {
   deriveJobDisplayStatus,
   deriveJobExecutionDisplayStatus,
+  isTerminalStepAttemptStatus,
   isWorkflowRunTerminal,
   isWorkflowStatus,
   Job,
   JobExecution,
+  presentStepAttemptDiagnostics,
   TERMINAL_WORKFLOW_RUN_STATUSES,
   WORKFLOW_RUN_STATUSES,
   WorkflowRunOverviewJob,

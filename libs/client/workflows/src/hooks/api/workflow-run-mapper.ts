@@ -1,12 +1,10 @@
 import type {
   EvaluationTraceDto,
   JobListeningDto,
-  OversizedFieldDto,
   StepAttemptDetailResponseDto,
   StepAttemptDto,
   StepGateResultDto,
   WorkflowExecutionEventDto,
-  WorkflowJobExecutionContextResponseDto,
   WorkflowRunAttemptDto,
   WorkflowRunDetailResponseDto,
   WorkflowRunJobDetailDto,
@@ -40,9 +38,7 @@ import {
   type StepAttemptSession,
   type StepGateResult,
   toWorkflowRunOverviewExecutionDuration,
-  type WorkflowDiagnosticUnavailableField,
   type WorkflowExecutionEvent,
-  type WorkflowJobExecutionContext,
   type WorkflowRun,
   WorkflowRunAttempt,
   WorkflowRunAttemptSummary,
@@ -62,6 +58,7 @@ import {
   workflowRunTriggerDisplayLabel,
   workflowRunTriggerLabel,
 } from '#core/workflow-run.js';
+import {toWorkflowDiagnosticUnavailableField} from './workflow-diagnostic-mapper.js';
 
 const BASE64_URL_PADDING_RE = /=+$/u;
 const BASE64_URL_VALUE_RE = /^[A-Za-z0-9_-]+$/u;
@@ -721,26 +718,6 @@ export function toStepAttemptDetail(dto: StepAttemptDetailResponseDto) {
   };
 }
 
-export function toWorkflowJobExecutionContext(
-  dto: WorkflowJobExecutionContextResponseDto,
-): WorkflowJobExecutionContext {
-  return {
-    workflowRunId: dto.workflow_run_id,
-    workflowRunAttempt: dto.workflow_run_attempt,
-    jobId: dto.job_id,
-    jobExecutionId: dto.job_execution_id,
-    jobRunner: dto.job_runner,
-    executionRunner: dto.execution_runner,
-    jobOutputs: dto.job_outputs,
-    executionOutputs: dto.execution_outputs,
-    triggerEvents: dto.trigger_events.map(toWorkflowExecutionEvent),
-    jobEvaluationTrace: toEvaluationTrace(dto.job_evaluation_trace),
-    executionEvaluationTrace: toEvaluationTrace(dto.execution_evaluation_trace),
-    condition: dto.condition,
-    oversizedFields: dto.oversized_fields.map(toWorkflowDiagnosticUnavailableField),
-  };
-}
-
 function toJobListening(dto: JobListeningDto): JobListening {
   return {
     on: dto.on,
@@ -772,17 +749,7 @@ function toStepAttemptInvocation(invocation: StepAttemptDto['invocations'][numbe
   };
 }
 
-function toWorkflowDiagnosticUnavailableField(
-  dto: OversizedFieldDto,
-): WorkflowDiagnosticUnavailableField {
-  return {
-    field: dto.field,
-    storedBytes: dto.stored_bytes,
-    reason: dto.reason,
-  };
-}
-
-function toWorkflowExecutionEvent(dto: WorkflowExecutionEventDto): WorkflowExecutionEvent {
+export function toWorkflowExecutionEvent(dto: WorkflowExecutionEventDto): WorkflowExecutionEvent {
   return {
     source: dto.source,
     event: dto.event,
@@ -804,7 +771,7 @@ function toStepGateResult(dto: StepGateResultDto): StepGateResult {
   return dto;
 }
 
-function toEvaluationTrace(trace: EvaluationTraceDto | null): EvaluationTraceEntry[] | null {
+export function toEvaluationTrace(trace: EvaluationTraceDto | null): EvaluationTraceEntry[] | null {
   return trace?.map(toEvaluationTraceEntry) ?? null;
 }
 

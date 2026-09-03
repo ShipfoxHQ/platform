@@ -18,9 +18,11 @@ import {
   workflowStepDto,
 } from '#test/fixtures/workflow-run.js';
 import {jsonResponse} from '#test/pages.js';
+import {stepAttemptDetailQueryOptions} from './step-attempt-detail.js';
 import {
   invalidateWorkflowJobResources,
   useWorkflowExecutionStepsInfiniteQuery,
+  useWorkflowJobDiagnosticInvalidation,
   useWorkflowJobExecutionContextQuery,
   useWorkflowJobExecutionsInfiniteQuery,
   useWorkflowStepAttemptsInfiniteQuery,
@@ -127,8 +129,15 @@ describe('selected-job API hooks', () => {
       executionId: EXECUTION_ID,
       polling: false,
     });
-    expect(terminalOptions.staleTime).toBe(Infinity);
-    expect(terminalOptions.refetchOnWindowFocus).toBe(false);
+    if (
+      typeof terminalOptions.staleTime !== 'function' ||
+      typeof terminalOptions.refetchOnWindowFocus !== 'function'
+    ) {
+      throw new Error('Expected status-aware context query options');
+    }
+    const terminalQuery = {state: {data: {}, error: null}} as never;
+    expect(terminalOptions.staleTime(terminalQuery)).toBe(Infinity);
+    expect(terminalOptions.refetchOnWindowFocus(terminalQuery)).toBe(false);
     if (typeof terminalOptions.refetchInterval !== 'function') {
       throw new Error('Expected status-aware context query options');
     }
@@ -139,17 +148,63 @@ describe('selected-job API hooks', () => {
       executionId: EXECUTION_ID,
       polling: true,
     });
-    expect(activeOptions.staleTime).toBe(2_000);
-    expect(activeOptions.refetchOnWindowFocus).toBe(true);
-    if (typeof activeOptions.refetchInterval !== 'function') {
+    if (
+      typeof activeOptions.staleTime !== 'function' ||
+      typeof activeOptions.refetchOnWindowFocus !== 'function' ||
+      typeof activeOptions.refetchInterval !== 'function'
+    ) {
       throw new Error('Expected status-aware context query options');
     }
-    expect(activeOptions.refetchInterval({state: {data: {}, error: null}} as never)).toBe(4_000);
+    const activeQuery = {state: {data: {}, error: null}} as never;
+    expect(activeOptions.staleTime(activeQuery)).toBe(2_000);
+    expect(activeOptions.refetchOnWindowFocus(activeQuery)).toBe(true);
+    expect(activeOptions.refetchInterval(activeQuery)).toBe(4_000);
     expect(
       activeOptions.refetchInterval({
-        state: {data: undefined, error: new Error('failed')},
+        state: {data: {}, error: new Error('failed')},
       } as never),
     ).toBe(false);
+
+    const stepOptions = stepAttemptDetailQueryOptions(STEP_ID, 1, {polling: true});
+    if (typeof stepOptions.refetchInterval !== 'function') {
+      throw new Error('Expected status-aware step detail query options');
+    }
+    expect(
+      stepOptions.refetchInterval({
+        state: {data: {}, error: new Error('failed')},
+      } as never),
+    ).toBe(false);
+  });
+
+  test('invalidates lazy diagnostics once when compact resources become terminal', async () => {
+    const selectedExecution = toWorkflowJobDetail(selectedJobDetailResponseDto()).selectedExecution;
+    if (!selectedExecution) throw new Error('Expected a selected execution');
+    const running = withAttemptStatus(selectedExecution, 'running');
+    const terminal = withAttemptStatus(selectedExecution, 'succeeded');
+    const queryClient = new QueryClient();
+    const invalidateQueries = vi.spyOn(queryClient, 'invalidateQueries');
+    const wrapper = ({children}: {children: ReactNode}) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+
+    const {rerender} = renderHook(
+      ({execution, steps}: {execution: typeof running; steps: typeof running.steps.items}) =>
+        useWorkflowJobDiagnosticInvalidation({execution, steps}),
+      {wrapper, initialProps: {execution: running, steps: running.steps.items}},
+    );
+
+    rerender({execution: terminal, steps: terminal.steps.items});
+    await waitFor(() => expect(invalidateQueries).toHaveBeenCalledTimes(2));
+    expect(invalidateQueries).toHaveBeenNthCalledWith(1, {
+      queryKey: ['workflow-executions', 'context', EXECUTION_ID],
+    });
+    expect(invalidateQueries).toHaveBeenNthCalledWith(2, {
+      queryKey: ['workflow-step-attempt-details', STEP_ID, 1],
+    });
+
+    const terminalAgain = withAttemptStatus(selectedExecution, 'succeeded');
+    rerender({execution: terminalAgain, steps: terminalAgain.steps.items});
+    expect(invalidateQueries).toHaveBeenCalledTimes(2);
   });
 
   test('fetches and maps context only through its bounded route', async () => {
@@ -373,6 +428,26 @@ function selectedJobDetailResponseDto(): WorkflowJobDetailDto {
     jobId: JOB_ID,
     executionId: EXECUTION_ID,
   });
+}
+
+function withAttemptStatus(
+  execution: NonNullable<ReturnType<typeof toWorkflowJobDetail>['selectedExecution']>,
+  status: 'running' | 'succeeded',
+) {
+  return {
+    ...execution,
+    status,
+    steps: {
+      ...execution.steps,
+      items: execution.steps.items.map((step) => ({
+        ...step,
+        attempts: {
+          ...step.attempts,
+          items: step.attempts.items.map((attempt) => ({...attempt, status})),
+        },
+      })),
+    },
+  };
 }
 
 function workflowJobExecutionContextResponseDto(): WorkflowJobExecutionContextResponseDto {

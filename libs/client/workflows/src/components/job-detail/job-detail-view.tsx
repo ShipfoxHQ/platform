@@ -48,6 +48,7 @@ import {
   flattenWorkflowExecutionStepsPages,
   flattenWorkflowStepAttemptPages,
   useWorkflowExecutionStepsInfiniteQuery,
+  useWorkflowJobDiagnosticInvalidation,
   useWorkflowStepAttemptsInfiniteQuery,
 } from '#hooks/api/workflow-job-detail.js';
 import {
@@ -564,6 +565,11 @@ function useSelectedJobDetailPresentation({
     () => new Map(presentedSteps.map((step) => [step.id, step] as const)),
     [presentedSteps],
   );
+  useWorkflowJobDiagnosticInvalidation({
+    execution: selectedDetailExecution,
+    steps: presentedSteps,
+  });
+
   const attemptsStep = attemptsStepId ? presentedStepById.get(attemptsStepId) : undefined;
   const attemptsQuery = useWorkflowStepAttemptsInfiniteQuery({
     stepId: attemptsStepId,

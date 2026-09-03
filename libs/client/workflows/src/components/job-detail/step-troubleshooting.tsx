@@ -33,11 +33,15 @@ import type {
   StepError,
   WorkflowDiagnosticUnavailableField,
 } from '#core/workflow-run.js';
+import {presentStepAttemptDiagnostics} from '#core/workflow-run.js';
 import {useStepAttemptDetailQuery} from '#hooks/api/step-attempt-detail.js';
 import {workflowRunSearchParams} from '#routes/inputs.js';
 import {humanizeStatus, type StepListEntryModel} from '../step-list/step-list-model.js';
 import {AgentConfigFailureCallout} from './agent-config-failure-callout.js';
-import {DiagnosticUnavailableField} from './diagnostic-unavailable.js';
+import {
+  DiagnosticUnavailableAnnouncement,
+  DiagnosticUnavailableField,
+} from './diagnostic-unavailable.js';
 import {toSelectedAttemptError} from './job-empty-states.js';
 import {JsonCode, type JsonCodeEntry, JsonCodeTabs} from './json-code.js';
 
@@ -304,6 +308,7 @@ function InspectorQueryContent({
               type="button"
               size="2xs"
               variant="secondary"
+              isLoading={query.isFetching}
               onClick={() => void query.refetch()}
             >
               Retry
@@ -376,12 +381,13 @@ function InspectorDetailContent({
   const hasInputValues = inspectorHasInputValues(detail.authoredConfig, resolvedConfig);
   const hasOutputValues = inspectorHasOutputValues(presentedAttempt);
   const hasTraceValues = Boolean(trace?.length);
-  const hasInputs = inspectorHasInputs(detail.authoredConfig, resolvedConfig, unavailableFields);
-  const hasOutputs = inspectorHasOutputs(presentedAttempt, unavailableFields);
-  const hasTrace = inspectorHasTrace(trace, unavailableFields);
   const hasAttemptDiagnostics = hasVisibleAttemptDiagnostics(detail);
   const hasDetails =
-    hasInputs || hasOutputs || hasTrace || unavailableFields.length > 0 || hasAttemptDiagnostics;
+    hasInputValues ||
+    hasOutputValues ||
+    hasTraceValues ||
+    unavailableFields.length > 0 ||
+    hasAttemptDiagnostics;
   return (
     <div className="flex min-w-0 flex-col gap-group">
       {detail.session ? <SessionChip session={detail.session} /> : null}
@@ -411,17 +417,6 @@ function InspectorDetailContent({
   );
 }
 
-function inspectorHasInputs(
-  authoredConfig: Record<string, unknown> | null,
-  resolvedConfig: Record<string, unknown> | null,
-  unavailableFields: readonly {field: string}[],
-): boolean {
-  return (
-    inspectorHasInputValues(authoredConfig, resolvedConfig) ||
-    hasUnavailableDiagnostic(unavailableFields, ['authored_config', 'config'])
-  );
-}
-
 function inspectorHasInputValues(
   authoredConfig: Record<string, unknown> | null,
   resolvedConfig: Record<string, unknown> | null,
@@ -429,39 +424,8 @@ function inspectorHasInputValues(
   return countConfigValues(authoredConfig) > 0 || countConfigValues(resolvedConfig) > 0;
 }
 
-function inspectorHasOutputs(
-  attempt: StepAttempt,
-  unavailableFields: readonly {field: string}[],
-): boolean {
-  return (
-    inspectorHasOutputValues(attempt) ||
-    hasUnavailableDiagnostic(unavailableFields, ['output', 'outputs', 'response'])
-  );
-}
-
 function inspectorHasOutputValues(attempt: StepAttempt): boolean {
   return attempt.outputs !== null || attempt.output !== null || attempt.response !== null;
-}
-
-function inspectorHasTrace(
-  trace: readonly EvaluationTraceEntry[] | null,
-  unavailableFields: readonly {field: string}[],
-): boolean {
-  return (
-    Boolean(trace?.length) ||
-    hasUnavailableDiagnostic(unavailableFields, [
-      'evaluation_trace',
-      'job_evaluation_trace',
-      'execution_evaluation_trace',
-    ])
-  );
-}
-
-function hasUnavailableDiagnostic(
-  fields: readonly {field: string}[],
-  candidates: readonly string[],
-): boolean {
-  return fields.some(({field}) => candidates.includes(field));
 }
 
 function UnavailableDiagnosticsSection({
@@ -479,6 +443,7 @@ function UnavailableDiagnosticsSection({
           storedBytes={field.storedBytes}
         />
       ))}
+      <DiagnosticUnavailableAnnouncement count={fields.length} />
     </InspectorSection>
   );
 }
@@ -542,33 +507,6 @@ function InspectorEmptyState({
 }) {
   if (isToolStep || hasDetails || showFailure || hasAnnotations) return null;
   return <EmptyInspector />;
-}
-
-function presentStepAttemptDiagnostics(
-  attempt: StepAttempt,
-  detail: StepAttemptDetail,
-): StepAttempt {
-  const unavailableFields = new Set((detail.oversizedFields ?? []).map(({field}) => field));
-  return {
-    ...attempt,
-    displayDuration: attempt.displayDuration,
-    output: unavailableFields.has('output') ? null : (detail.output ?? attempt.output),
-    outputs: unavailableFields.has('outputs')
-      ? null
-      : (detail.outputs ?? detail.output ?? attempt.outputs),
-    response: unavailableFields.has('response') ? null : (detail.response ?? attempt.response),
-    error: unavailableFields.has('error') ? null : (detail.error ?? attempt.error),
-    gateResult: unavailableFields.has('gate_result')
-      ? null
-      : (detail.gateResult ?? attempt.gateResult),
-    restartFeedback: unavailableFields.has('restart_feedback')
-      ? null
-      : (detail.restartFeedback ?? attempt.restartFeedback),
-    invocations:
-      detail.invocations && detail.invocations.length > 0
-        ? detail.invocations
-        : attempt.invocations,
-  };
 }
 
 function ToolStepDetails({

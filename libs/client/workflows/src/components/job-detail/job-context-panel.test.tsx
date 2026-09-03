@@ -1,5 +1,5 @@
 import type {WorkflowJobExecutionContextResponseDto} from '@shipfox/api-workflows-dto';
-import {configureApiClient} from '@shipfox/client-api';
+import {configureApiClient, resetApiClient} from '@shipfox/client-api';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {act, render, screen, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -10,7 +10,7 @@ import {JobContextPanel} from './job-context-panel.js';
 
 describe('JobContextPanel', () => {
   afterEach(() => {
-    configureApiClient({baseUrl: '', fetchImpl: undefined});
+    resetApiClient();
   });
 
   test('opens job details in a labelled sheet from the info action', async () => {
@@ -110,6 +110,37 @@ describe('JobContextPanel', () => {
     expect(request.url).toBe(
       `https://api.example.test/workflows/runs/jobs/${job.id}/executions/${execution.id}/context`,
     );
+  });
+
+  test('keeps the details action for a summary-only failed execution', () => {
+    const job = workflowJob({
+      name: 'build',
+      job_executions: [
+        workflowJobExecutionDto({
+          status: 'cancelled',
+          status_reason: 'run_cancelled',
+          status_reason_message: 'The workflow run was cancelled before dispatch.',
+        }),
+      ],
+    });
+    const execution = job.jobExecutions[0];
+    if (!execution) throw new Error('Test fixture is missing a job execution.');
+
+    renderWithQueryClient(
+      <JobContextPanel
+        job={job}
+        execution={execution}
+        selectedExecution={{
+          ...selectedExecutionDetail(execution.id, job.id),
+          status: 'cancelled',
+          statusReason: 'run_cancelled',
+          statusReasonMessage: 'The workflow run was cancelled before dispatch.',
+          hasContext: false,
+        }}
+      />,
+    );
+
+    expect(screen.getByRole('button', {name: 'Inspect job details'})).toBeInTheDocument();
   });
 
   test('keeps loaded context visible when a refresh fails', async () => {

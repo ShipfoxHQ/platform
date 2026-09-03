@@ -3,7 +3,7 @@ import type {
   StepAttemptDto,
   WorkflowRunStepDetailDto,
 } from '@shipfox/api-workflows-dto';
-import {configureApiClient} from '@shipfox/client-api';
+import {configureApiClient, resetApiClient} from '@shipfox/client-api';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {
   createMemoryHistory,
@@ -36,7 +36,7 @@ const INVOCATION_LOG_DESCRIPTION = /The full result remains available in the inv
 describe('StepInspectorSheet', () => {
   afterEach(() => {
     vi.restoreAllMocks();
-    configureApiClient({baseUrl: '', fetchImpl: undefined});
+    resetApiClient();
   });
 
   it('shows a loading state only after the inspector is opened', async () => {
@@ -187,6 +187,26 @@ describe('StepInspectorSheet', () => {
     expect(screen.getByRole('region', {name: 'Attempt diagnostics'})).toHaveTextContent(
       'Restarted from the previous attempt.',
     );
+  });
+
+  it('renders a failed gate in attempt diagnostics', async () => {
+    const user = userEvent.setup();
+    configureApiClient({
+      fetchImpl: vi.fn(async () =>
+        jsonResponse(
+          stepDetailResponse({
+            gate_result: {kind: 'failed', passed: false, source: 'exit 1', exit_code: 1},
+          }),
+        ),
+      ),
+    });
+
+    await renderPanel({entry: toolStepEntry({status: 'failed'})});
+    await user.click(screen.getByRole('button', {name: INSPECTOR_TRIGGER_NAME}));
+
+    const diagnostics = await screen.findByRole('region', {name: 'Attempt diagnostics'});
+    expect(diagnostics).toHaveTextContent('failed');
+    expect(diagnostics).toHaveTextContent('exit 1');
   });
 
   it('renders typed unavailable states for oversized diagnostic fields', async () => {

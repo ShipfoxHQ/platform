@@ -116,6 +116,38 @@ export interface StepAttemptDetail {
   oversizedFields?: WorkflowDiagnosticUnavailableField[] | undefined;
 }
 
+export function isTerminalStepAttemptStatus(status: string): boolean {
+  return status === 'succeeded' || status === 'failed' || status === 'cancelled';
+}
+
+/** Apply the lazy detail response while preserving compact values and bounded unavailable fields. */
+export function presentStepAttemptDiagnostics(
+  attempt: StepAttempt,
+  detail: StepAttemptDetail,
+): StepAttempt {
+  const unavailableFields = new Set((detail.oversizedFields ?? []).map(({field}) => field));
+  return {
+    ...attempt,
+    displayDuration: attempt.displayDuration,
+    output: unavailableFields.has('output') ? null : (detail.output ?? attempt.output),
+    outputs: unavailableFields.has('outputs')
+      ? null
+      : (detail.outputs ?? detail.output ?? attempt.outputs),
+    response: unavailableFields.has('response') ? null : (detail.response ?? attempt.response),
+    error: unavailableFields.has('error') ? null : (detail.error ?? attempt.error),
+    gateResult: unavailableFields.has('gate_result')
+      ? null
+      : (detail.gateResult ?? attempt.gateResult),
+    restartFeedback: unavailableFields.has('restart_feedback')
+      ? null
+      : (detail.restartFeedback ?? attempt.restartFeedback),
+    invocations:
+      detail.invocations && detail.invocations.length > 0
+        ? detail.invocations
+        : attempt.invocations,
+  };
+}
+
 export function stepAttemptDisplayDurationFromTimestamps({
   startedAt,
   finishedAt,

@@ -1111,7 +1111,7 @@ function sourceUnavailableDescription(source: WorkflowRunSource | undefined): st
 function WorkflowSourceStaleError({query}: {query: ReturnType<typeof useWorkflowRunSourceQuery>}) {
   return (
     <Callout role="status" aria-live="polite" type="warning" variant="secondary">
-      <div className="flex min-w-0 items-center justify-between gap-inline">
+      <div className="flex min-w-0 flex-1 items-center justify-between gap-inline">
         <Text size="xs">Could not refresh workflow source.</Text>
         <Button
           type="button"

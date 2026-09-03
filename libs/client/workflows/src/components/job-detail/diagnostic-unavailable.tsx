@@ -9,17 +9,23 @@ export function DiagnosticUnavailableField({
   storedBytes: number;
 }) {
   return (
-    <div
-      role="status"
-      className="flex min-w-0 flex-col gap-tight rounded-6 border border-tag-warning-border bg-tag-warning-bg p-panel-compact"
-    >
+    <div className="flex min-w-0 flex-col gap-tight rounded-6 border border-tag-warning-border bg-tag-warning-bg p-panel-compact">
       <Text size="xs" bold className="text-foreground-neutral-base">
         {diagnosticFieldLabel(field)} unavailable
       </Text>
-      <Text size="xs" className="text-foreground-neutral-muted">
+      <Text size="xs" className="text-tag-warning-text">
         The stored value is too large to display ({storedBytes.toLocaleString()} bytes).
       </Text>
     </div>
+  );
+}
+
+export function DiagnosticUnavailableAnnouncement({count}: {count: number}) {
+  return (
+    <span role="status" aria-live="polite" className="sr-only">
+      {count} diagnostic {count === 1 ? 'field is' : 'fields are'} unavailable because the stored
+      value{count === 1 ? ' is' : 's are'} too large to display.
+    </span>
   );
 }
 

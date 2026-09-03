@@ -374,11 +374,11 @@ function compactJobExecutionDto(
     ...jobExecutionSummaryDto(execution),
     has_context: Boolean(
       job.runner?.length ||
-        job.outputs !== null ||
+        Object.keys(job.outputs ?? {}).length > 0 ||
         job.evaluation_trace?.length ||
         job.success ||
         execution.runner?.length ||
-        execution.outputs !== null ||
+        Object.keys(execution.outputs ?? {}).length > 0 ||
         execution.trigger_events.length ||
         execution.evaluation_trace?.length,
     ),
